@@ -881,6 +881,26 @@ planu. Rekruter pisze jak do czatu („rolę w Logistyce skróć do 3 punktów�
   rozmowy), rozwinięta lista 2 : 3 z asystentem; rozmowa przewija się do
   najnowszej odpowiedzi. Edytor wyniku generatora (bez etapu) asystenta nie
   ma — kolumna jak w PR 3.
+- **Kwoty** (przegląd PR 4): jeden detektor `cv_command_ai.has_amount` —
+  wspólny `money_text` (`MONEY_RE`, `is_rate_text`) plus kod waluty przed
+  liczbą („PLN 15000”), „brutto/netto”, „per hour”, „za dzień”. Stawka nie
+  wchodzi do CV nigdy; inna kwota (budżet projektu) tylko ta sama, która stała
+  w zastępowanym tekście — liczba gdzie indziej w stanowisku niczego nie
+  odblokowuje. Notatka z `confirm-fact` z kwotą → 422. „Rate limiting”,
+  „50k użytkowników”, „10 tys. żądań” to fakty, nie pieniądze.
+- **Dopisanie nie zajmuje wiersza**, za którym staje: dwa punkty za tym samym
+  wierszem i nowa treść tego wiersza w jednym planie są w porządku. Wiersz-
+  kotwica nie może za to zniknąć (`remove`, `merge`, `remove_role`,
+  `remove_section`) ani dostać nowej kolejności swojej listy (`reorder`) —
+  `overlap`. Edytor nakłada zmiany od końca dokumentu, w tym samym miejscu
+  najpierw dłuższą, a wstawienia w kolejności planu.
+- **Odpowiedź na pytanie po innych zmianach** szuka wiersza po treści; ten sam
+  tekst w kilku miejscach = po kolejności wystąpienia, a gdy liczba wystąpień
+  się zmieniła — „CV zmieniło się…”, bez zgadywania.
+- **Zapis czeka na asystenta**: „Gotowe” i „Gotowe, przekaż do DL” są
+  wyłączone, dopóki asystent liczy albo nakłada odpowiedź na pytanie.
+  Odpowiedź, która przyjdzie po zablokowaniu edytora, nie wchodzi
+  („Odpowiedź przyszła, gdy CV się zapisywało…”).
 - **Escape** w kolumnie (`data-cv-panel`, `Marked.tsx`) nie zamyka edytora.
 - Harness `/preview/cv-editor`: `command-fixture.ts` odpowiada bez sieci
   (skrócenie, „terraform” z pytaniem o źródło, „stanowisko: …”, pogrubienie,

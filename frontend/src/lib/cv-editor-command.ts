@@ -299,8 +299,12 @@ export function applyChanges(
   const formatting = operations.filter((operation) => operation.type === "bold" || operation.type === "unbold");
   if (edits.length === 0 && formatting.length === 0) return null;
 
-  // Od końca dokumentu: wcześniejsze pozycje zostają ważne.
-  edits.sort((a, b) => b.from - a.from);
+  // Od końca dokumentu: wcześniejsze pozycje zostają ważne. W tym samym
+  // miejscu najpierw dłuższa zmiana (usunięcie następnego wiersza przed
+  // wstawieniem za poprzednim), a wstawienia od ostatniego w planie — staną
+  // w kolejności planu.
+  const order = new Map(edits.map((edit, index) => [edit, index]));
+  edits.sort((a, b) => b.from - a.from || b.to - a.to || order.get(b)! - order.get(a)!);
   const transaction = state.tr;
   const inserted: Array<{ range: ChangedRange; afterStep: number }> = [];
   for (const edit of edits) {

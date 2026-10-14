@@ -260,6 +260,37 @@ describe("asystent: nowe operacje i podświetlenie (Edytor CV 3, PR 4)", () => {
     expect(html(editor)).toBe(before);
   });
 
+  // Przegląd PR 4: dopisanie za X i usunięcie następnego wiersza zaczynają się
+  // w tym samym miejscu — kolejność kroków decyduje, czy dokument przeżyje.
+  it("dopisanie za punktem i usunięcie następnego punktu w jednym planie", () => {
+    const editor = open();
+    const lines = cvLines(editor.state.doc);
+    expect(apply(editor, lines, op(0, "add", [8], "Integracje przez **Kafka**."), op(1, "remove", [9]))).toBe(true);
+    expect(html(editor)).toContain(
+      "<li><p>Rozwój usług w <strong>Java 17</strong>.</p></li><li><p>Integracje przez <strong>Kafka</strong>.</p></li>" +
+        "<li><p>Udział w spotkaniach zespołu.</p></li>",
+    );
+    expect(html(editor)).not.toContain("planowaniu");
+  });
+
+  it("dwa punkty za tym samym wierszem stają w kolejności planu", () => {
+    const editor = open();
+    const lines = cvLines(editor.state.doc);
+    expect(apply(editor, lines, op(0, "add", [8], "Pierwszy."), op(1, "add", [8], "Drugi."))).toBe(true);
+    expect(html(editor)).toContain(
+      "<li><p>Rozwój usług w <strong>Java 17</strong>.</p></li><li><p>Pierwszy.</p></li><li><p>Drugi.</p></li>" +
+        "<li><p>Udział w planowaniu sprintów.</p></li>",
+    );
+  });
+
+  it("akapit za technologiami zostaje, gdy znika następne stanowisko", () => {
+    const editor = open();
+    const lines = cvLines(editor.state.doc);
+    expect(apply(editor, lines, op(0, "add", [11], "Wcześniej: Spring."), op(1, "remove_role", [12, 13, 14]))).toBe(true);
+    expect(html(editor)).toContain("Technologie: Java, Kafka</p><p>Wcześniej: Spring.</p><h2>ZAINTERESOWANIA</h2>");
+    expect(html(editor)).not.toContain("Software House Przykład");
+  });
+
   it("za akapitem dopisuje akapit, a nie punkt listy", () => {
     const editor = open();
     expect(apply(editor, cvLines(editor.state.doc), op(0, "add", [16], "Szachy."))).toBe(true);

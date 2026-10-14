@@ -105,3 +105,81 @@ describe("useCvAssistant — pytanie o źródło faktu", () => {
     expect(hook.result.current.messages.find((message) => message.id === id)?.question?.state).toBe("open");
   });
 });
+
+describe("useCvAssistant — odpowiedź na pytanie po innych zmianach", () => {
+  // Przegląd PR 4: ten sam punkt w dwóch stanowiskach — po przesunięciu
+  // numerów wierszy zmiana trafiała w pierwsze stanowisko zamiast w drugie.
+  const TWINS =
+    "<h1>Dev – Anna Przykładowa</h1>" + // 0
+    '<h2 data-cv-section="experience">DOŚWIADCZENIE</h2>' + // 1
+    '<p data-cv-section="role"><strong>Developer</strong> 2021 – 2024</p>' + // 2
+    '<p data-cv-section="employer">Bank Przykładowy · Bankowość</p>' + // 3
+    "<ul><li><p>Code review.</p></li><li><p>Udział w planowaniu sprintów.</p></li></ul>" + // 4, 5
+    '<p data-cv-section="role"><strong>Junior Developer</strong> 2018 – 2021</p>' + // 6
+    '<p data-cv-section="employer">Software House Przykład · IT</p>' + // 7
+    "<ul><li><p>Code review.</p></li></ul>" + // 8
+    `<p data-cv-section="rodo">${CLAUSE}</p>`;
+
+  const twinPlan: CvCommandResponse = {
+    status: "ok",
+    operations: [
+      {
+        id: 0,
+        type: "replace",
+        lines: [8],
+        text: "Code review w **Terraform**.",
+        why: "",
+        loses: [],
+        new_words: [],
+        ask: "source",
+        problem: "Terraform",
+      },
+    ],
+    dropped: [],
+    message: null,
+  };
+
+  it("ten sam tekst w dwóch stanowiskach: zmiana trafia w to, o które pytaliśmy", async () => {
+    const editor = open(TWINS);
+    const commandApi = { plan: vi.fn(async () => twinPlan), confirmFact: vi.fn(async () => undefined) };
+    const { hook, id } = await askTerraform(editor, commandApi);
+    // Inna zmiana w CV przed odpowiedzią — numery wierszy liczymy od nowa.
+    act(() => loadCvHtml(editor, TWINS.replace("Udział w planowaniu sprintów.", "Planowanie sprintów.")));
+
+    await act(() => hook.result.current.answer(id, true));
+    const html = editor.getHTML();
+    expect(html.indexOf("Code review.")).toBeGreaterThan(-1);
+    expect(html.indexOf("Code review.")).toBeLessThan(html.indexOf("Junior Developer"));
+    expect(html.indexOf("Terraform")).toBeGreaterThan(html.indexOf("Junior Developer"));
+  });
+
+  it("odpowiedź serwera po zablokowaniu edytora (zapis, przekazanie) nie zmienia CV", async () => {
+    const editor = open();
+    const before = editor.getHTML();
+    let resolve: (value: CvCommandResponse) => void = () => undefined;
+    const commandApi = {
+      plan: vi.fn(() => new Promise<CvCommandResponse>((done) => (resolve = done))),
+      confirmFact: vi.fn(async () => undefined),
+    };
+    const hook = renderHook(
+      ({ disabled }) =>
+        useCvAssistant({ editor, stageId: 7, disabled, ensureDraft: async () => true, api: commandApi }),
+      { initialProps: { disabled: false } },
+    );
+    act(() => hook.result.current.send({ command: "skróć rolę w banku" }));
+    hook.rerender({ disabled: true });
+    await act(async () => {
+      resolve({
+        status: "ok",
+        operations: [{ id: 0, type: "remove", lines: [6], text: null, why: "", loses: [], new_words: [] }],
+        dropped: [],
+        message: null,
+      });
+    });
+    expect(editor.getHTML()).toBe(before);
+    expect(hook.result.current.locked).toBe(false);
+    expect(hook.result.current.messages.at(-1)?.text).toBe(
+      "Odpowiedź przyszła, gdy CV się zapisywało — nic nie zmieniłem. Napisz jeszcze raz.",
+    );
+  });
+});

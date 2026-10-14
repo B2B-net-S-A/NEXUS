@@ -44,7 +44,7 @@ sekcja „Asystent w kolumnie”. Bazą jest PR 3 (prosty ekran edytora).
 
 ## Testy
 
-- Backend (lokalnie, bez bazy): `test_cv_command_ai.py` (67: nowe
+- Backend (lokalnie, bez bazy): `test_cv_command_ai.py` (91: nowe
   operacje, pytanie o źródło, „loses”, kwoty, ogrodzenie rozmowy). Testy
   tras z bazą (`test_cv_editor_ai_route.py`, `confirm-fact`, zakres
   `test_fix48_ws06_cv_editor_ai_scope.py`, wzorzec
@@ -54,7 +54,7 @@ sekcja „Asystent w kolumnie”. Bazą jest PR 3 (prosty ekran edytora).
   o Terraform, „Nie” / „Tak, zmień”, pogrubienie, „Rozważany na”,
   zaznaczenie, awaria, Escape, szkic przy pierwszej zmianie), hook asystenta
   (2), `cv-editor-command` (nowe operacje, podświetlenie), historia, harnessy,
-  inwentarz. Razem 505 + 2 testy; `npm run type-check` i eslint czyste.
+  inwentarz. Razem 659 testów w 21 plikach; `npm run type-check` i eslint czyste.
 - Zrzuty 1280×720 (Playwright, harness `/preview/cv-editor?state=draft`):
   start, „Skróć do 2 stron” (3 zmiany na zielono), pytanie o Terraform,
   „Tak, dopisz”. Pierwsze zrzuty pokazały pole asystenta pod stopką
@@ -69,6 +69,28 @@ sekcja „Asystent w kolumnie”. Bazą jest PR 3 (prosty ekran edytora).
   jest. Gdy rekruter w międzyczasie usunął punkt, notatka powstawała, CV się
   nie zmieniało, a powtórne „Tak” zapisałoby fakt drugi raz. Teraz najpierw
   sprawdzenie, potem notatka (test hooka padał przed poprawką).
+
+## Przeglądy przed PR-em (Python, TypeScript, bezpieczeństwo)
+
+Każdy błąd z testem, który padał przed poprawką:
+
+- **Kwoty** (Python i bezpieczeństwo): własny wzorzec przepuszczał „$120/h”,
+  „PLN 30000”, „180/h netto”, „pensja 20000”, „20000 brutto”, a brał „rate
+  limiting” i „50k użytkowników” za pieniądze. Bramka w nowej treści
+  wyłączała się, gdy gdziekolwiek w stanowisku stała liczba z „tys.” —
+  stawka z notatki wchodziła wtedy do CV bez pytania. Teraz wspólny
+  `money_text` + brakujące zapisy; stawka nigdy, inna kwota tylko ta sama co
+  w zastępowanym tekście.
+- **Dopisanie zajmowało wiersz** (Python): „dodaj dwa punkty” albo punkt
+  i przeredagowanie tego samego wiersza traciły drugą operację.
+- **Kolejność zmian w edytorze** (TypeScript): dopisanie za punktem
+  i usunięcie następnego punktu zaczynały się w tym samym miejscu — dokument
+  tracił nowy punkt i kawałek następnego. Dwa punkty za jednym wierszem
+  stawały w odwrotnej kolejności.
+- **Ten sam punkt w dwóch stanowiskach** (TypeScript): odpowiedź „Tak” po
+  innych zmianach trafiała w pierwsze stanowisko.
+- **„Gotowe” w trakcie pracy asystenta** (TypeScript): zapis brał treść sprzed
+  odpowiedzi, a odpowiedź wchodziła do zamykanego edytora.
 
 ## Świadomie poza zakresem
 

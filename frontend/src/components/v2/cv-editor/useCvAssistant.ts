@@ -98,6 +98,7 @@ interface Options {
 const MSG_FAILED = "Nie udało się przygotować zmian. Spróbuj jeszcze raz.";
 const MSG_CHANGED = "CV zmieniło się w międzyczasie — napisz jeszcze raz, co zmienić.";
 const MSG_NOTHING = "Nie znalazłem zmian, które da się zrobić w tym CV.";
+const MSG_LATE = "Odpowiedź przyszła, gdy CV się zapisywało — nic nie zmieniłem. Napisz jeszcze raz.";
 
 const DEFAULT_WHY: Record<CvPlanOperation["type"], string> = {
   remove: "Usunięte",
@@ -139,16 +140,26 @@ function sameLines(a: readonly CvLine[], b: readonly CvLine[]): boolean {
   return a.length === b.length && a.every((line, index) => line.kind === b[index].kind && line.text === b[index].text);
 }
 
-/** Wiersze operacji w bieżącym CV — po treści, bo numery mogły się przesunąć. */
+function twins(line: CvLine, other: CvLine): boolean {
+  return line.kind === other.kind && line.text === other.text && line.section === other.section;
+}
+
+/**
+ * Wiersze operacji w bieżącym CV — po treści, bo numery mogły się przesunąć.
+ * Ten sam tekst w kilku miejscach (np. „Code review.” w dwóch stanowiskach):
+ * wiersz po kolejności wystąpienia; gdy liczba wystąpień się zmieniła — `null`,
+ * bez zgadywania.
+ */
 function remap(operation: CvPlanOperation, before: readonly CvLine[], current: readonly CvLine[]): CvPlanOperation | null {
   const used = new Set<number>();
   const lines: number[] = [];
   for (const id of operation.lines) {
     const old = before[id];
-    const match = old
-      ? current.find((line) => !used.has(line.id) && line.kind === old.kind && line.text === old.text && line.section === old.section)
-      : undefined;
-    if (!match) return null;
+    if (!old) return null;
+    const was = before.filter((line) => twins(line, old));
+    const now = current.filter((line) => twins(line, old));
+    const match = now.length === was.length ? now[was.indexOf(old)] : undefined;
+    if (!match || used.has(match.id)) return null;
     used.add(match.id);
     lines.push(match.id);
   }
@@ -162,6 +173,12 @@ export function useCvAssistant({ editor, stageId, disabled, ensureDraft, api = n
   const [pending, setPending] = useState(false);
   const [answering, setAnswering] = useState(false);
   const nextId = useRef(1);
+  // Stan z chwili odpowiedzi serwera: zapis albo przekazanie mogły zablokować
+  // edytor, gdy asystent liczył — wtedy zmiana nie wchodzi.
+  const enabledNow = useRef(enabled);
+  useEffect(() => {
+    enabledNow.current = enabled;
+  }, [enabled]);
   // Numer żądania: odpowiedź po zamknięciu edytora albo po nowym żądaniu jest ignorowana.
   const ticket = useRef(0);
   useEffect(
@@ -261,6 +278,10 @@ export function useCvAssistant({ editor, stageId, disabled, ensureDraft, api = n
       })
       .then(async (result) => {
         if (ticket.current !== mine) return;
+        if (!enabledNow.current) {
+          push({ role: "assistant", text: MSG_LATE, tone: "info" });
+          return;
+        }
         if (result.status !== "ok") {
           push({ role: "assistant", text: result.message ?? MSG_FAILED, tone: "info" });
           return;
@@ -320,7 +341,7 @@ export function useCvAssistant({ editor, stageId, disabled, ensureDraft, api = n
   const answer: CvAssistantController["answer"] = async (messageId, yes) => {
     const message = messages.find((item) => item.id === messageId);
     const question = message?.question;
-    if (!question || question.state !== "open" || pending || answering || !editor || stageId == null) return;
+    if (!question || question.state !== "open" || !enabled || pending || answering || !editor || stageId == null) return;
     if (!yes) {
       update(messageId, (current) => ({ ...current, question: { ...question, state: "no" } }));
       return;
@@ -336,6 +357,11 @@ export function useCvAssistant({ editor, stageId, disabled, ensureDraft, api = n
       if (question.kind === "source") {
         // Najpierw źródło: notatka pary z autorem i datą, potem zmiana w CV.
         await api.confirmFact(stageId, { term: question.subject, text: question.operation.text ?? "" });
+      }
+      if (!enabledNow.current) {
+        update(messageId, (current) => ({ ...current, question: { ...question, state: "open" } }));
+        push({ role: "assistant", text: MSG_LATE, tone: "info" });
+        return;
       }
       const after = await applyNow(question.lines, [question.operation]);
       if (!after) {

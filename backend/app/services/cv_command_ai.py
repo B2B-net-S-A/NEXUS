@@ -65,6 +65,7 @@ from app.services.recommendation_card_parser import CV_HIDDEN_FIELDS
 from app.services.dz_review import Requirement
 from app.services.llm_prompts import CV_EDITOR_COMMAND
 from app.services.llm_providers import api_key_configured
+from app.services.money_text import MONEY_RE, is_rate_text
 from app.services.prompt_fencing import fence, json_for_prompt
 
 logger = logging.getLogger(__name__)
@@ -123,11 +124,38 @@ SOURCES_MAX = 60_000
 _CONSIDERED = re.compile(
     r"^\s*(rozważany na stanowisko|considered for)\s*:", re.IGNORECASE
 )
-# Kwota albo stawka — w CV dla klienta jej nie dopisujemy, nawet za zgodą.
-_MONEY = re.compile(
-    r"\d[\d\s.,]*\s*(?:zł|pln|eur|usd|€|\$|tys\.?|k\b)|\bstawk|\bwynagrodz|\brate\b|\bsalary\b",
+# Kwota w zapisach, których wspólny `money_text.MONEY_RE` nie bierze: kod
+# waluty przed liczbą („PLN 15000”), „20000 brutto”, „100 per hour”,
+# „800 za dzień” (przegląd PR 4, 14.10.2026).
+_MONEY_EXTRA = re.compile(
+    r"\b(?:pln|zł|zl|eur|euro|usd|chf|gbp)\s*\d(?:[\d\s.,]*\d)?"
+    r"|\d[\d\s.,]*\s*(?:chf|gbp)\b"
+    r"|\d[\d\s.,]*\s*(?:brutto|netto)\b"
+    r"|\d[\d\s.,]*\s*(?:per|za|na)\s+(?:hour|day|month|godzin\w*|dzie[nń]\w*|miesi\w*)",
     re.IGNORECASE,
 )
+
+
+def has_amount(text: str) -> bool:
+    """Kwota albo stawka w tekście — wspólny wzorzec `money_text` i zapisy wyżej.
+
+    „Rate limiting”, „50k użytkowników” i „10 tys. żądań” to fakty z CV, nie
+    pieniądze.
+    """
+    return bool(
+        MONEY_RE.search(text) or _MONEY_EXTRA.search(text) or is_rate_text(text)
+    )
+
+
+def _amounts(text: str) -> set[str]:
+    """Kwoty w tekście bez spacji i wielkości liter — do porównania ze źródłem."""
+    spans = [m.group() for m in MONEY_RE.finditer(text)]
+    spans += [m.group() for m in _MONEY_EXTRA.finditer(text)]
+    return {"".join(span.lower().split()) for span in spans}
+
+
+# Operacje, po których wiersze znikają z CV.
+_REMOVING = frozenset({"remove", "remove_role", "remove_section"})
 
 PRESETS = {
     "shorten": (
@@ -302,6 +330,9 @@ class _Plan:
         self.removed: set[int] = set()
         self.removed_roles: set[int] = set()
         self.removed_sections: set[int] = set()
+        # Wiersze, za którymi stoi dopisany punkt, i miejsca z nową kolejnością.
+        self.anchors: set[int] = set()
+        self.reordered: set[tuple[str, int]] = set()
 
     # ── pojedyncze operacje ──
 
@@ -324,13 +355,15 @@ class _Plan:
         # i usunął przy zapisie — razem z treścią, którą miał zastąpić.
         if text and is_rodo_text(cv_selection_ai.plain(text)):
             raise _Dropped("not_editable")
-        # Kwota albo stawka nie trafia do CV dla klienta — nawet za zgodą.
-        if (
-            text
-            and _MONEY.search(cv_selection_ai.plain(text))
-            and not _MONEY.search(cv_selection_ai.plain(source))
-        ):
-            raise _Dropped("amount")
+        # Stawka nie trafia do CV dla klienta nigdy, nawet za zgodą. Inna kwota
+        # (budżet projektu) tylko ta, która stała już w zastępowanym tekście —
+        # liczba gdzie indziej w stanowisku niczego nie odblokowuje.
+        if text:
+            new = cv_selection_ai.plain(text)
+            if is_rate_text(new) or not _amounts(new) <= _amounts(
+                cv_selection_ai.plain(source)
+            ):
+                raise _Dropped("amount")
         raw = json.dumps({"text": text or ""}, ensure_ascii=False)
         checked = cv_selection_ai.check("rephrase", source, raw, self.grounds)
         if checked["status"] == "ok":
@@ -502,8 +535,10 @@ class _Plan:
             raise _Dropped("empty")
         if len(value) > CONSIDERED_MAX:
             raise _Dropped("too_long")
-        if is_rodo_text(value) or _MONEY.search(value):
-            raise _Dropped("amount" if _MONEY.search(value) else "not_editable")
+        if has_amount(value):
+            raise _Dropped("amount")
+        if is_rodo_text(value):
+            raise _Dropped("not_editable")
         label_end = target.text.find(":") + 1
         label = target.text[:label_end]
         # `**Rozważany na stanowisko:**` — dwukropek bywa w środku pogrubienia.
@@ -548,9 +583,23 @@ class _Plan:
         kind = raw["type"]
         change: _Change = getattr(self, kind)(raw)
         ids, text = change.ids, change.text
-        if self.used.intersection(ids):
-            raise _Dropped("overlap")
-        self.used.update(ids)
+        if kind == "add":
+            # Dopisany punkt nie zmienia wiersza, za którym staje: ten wiersz może
+            # dostać drugi punkt albo nową treść. Nie może za to zniknąć ani
+            # zmienić miejsca w liście — edytor nie miałby gdzie wstawić punktu.
+            if self.place[ids[0]] in self.reordered:
+                raise _Dropped("overlap")
+            self.anchors.add(ids[0])
+        else:
+            gone = ids[1:] if kind == "merge" else ids if kind in _REMOVING else []
+            if self.used.intersection(ids) or self.anchors.intersection(gone):
+                raise _Dropped("overlap")
+            if kind == "reorder":
+                place = self.place[ids[0]]
+                if any(self.place[anchor] == place for anchor in self.anchors):
+                    raise _Dropped("overlap")
+                self.reordered.add(place)
+            self.used.update(ids)
         if kind in ("remove", "remove_section"):
             self.removed.update(ids)
             if kind == "remove_section":
@@ -861,7 +910,7 @@ async def confirm_fact(
     )[:CONFIRM_TEXT_MAX]
     if not literal:
         raise ConfirmRefused("empty")
-    if _MONEY.search(literal) or _MONEY.search(said):
+    if has_amount(literal) or has_amount(said):
         raise ConfirmRefused("amount")
     db.add(
         Note(

@@ -200,6 +200,102 @@ def test_amount_never_goes_into_the_cv_even_when_asked() -> None:
     ) == ["amount"]
 
 
+@pytest.mark.parametrize(
+    "text",
+    [
+        "15 000 zł",
+        "oczekuje $120/h",
+        "€100",
+        "PLN 30000 miesięcznie",
+        "EUR 800 dziennie",
+        "180/h netto",
+        "pensja 20000",
+        "20000 brutto",
+        "100 per hour",
+        "800 za dzień",
+        "stawka 150 B2B",
+    ],
+)
+def test_amount_is_recognised_in_every_usual_form(text: str) -> None:
+    # Przegląd PR 4: stary wzorzec brał tylko „liczba + waluta”.
+    assert cmd.has_amount(text)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Wdrożenie rate limiting w Kubernetes",
+        "Obsługa 50k użytkowników dziennie",
+        "Obsługa 10 tys. żądań na sekundę",
+        "C# 10 i .NET 6",
+        "Success rate 95%",
+        "Negocjowanie stawek z dostawcami",
+        "1000 zapytań na godzinę",
+    ],
+)
+def test_ordinary_cv_text_is_not_an_amount(text: str) -> None:
+    assert not cmd.has_amount(text)
+
+
+def _with_text(line_id: int, text: str) -> list[cmd.Line]:
+    return [
+        line(item.id, item.kind, text, section=item.section, role=item.role)
+        if item.id == line_id
+        else item
+        for item in LINES
+    ]
+
+
+def _plan_on(lines: list[cmd.Line], *operations: dict, sources: str = "") -> dict:
+    raw = json.dumps({"operations": list(operations)}, ensure_ascii=False)
+    return cmd.verify_plan(raw, lines, (), sources)
+
+
+def test_rate_from_the_notes_does_not_slip_in_next_to_a_number_of_the_role() -> None:
+    # Przegląd PR 4: „10 tys.” w stanowisku wyłączało bramkę kwot, a stawka
+    # z notatki „uziemiała” fakt — punkt ze stawką wchodził bez pytania.
+    lines = _with_text(12, "Obsługa 10 tys. żądań na sekundę.")
+    result = _plan_on(
+        lines,
+        {"type": "add", "after": 12, "text": "Stawka 180 zł/h w Javie."},
+        sources="Na rozmowie: oczekuje 180 zł/h.",
+    )
+    assert dropped(result) == ["amount"]
+
+
+def test_amount_already_in_the_line_may_stay_but_not_change() -> None:
+    lines = _with_text(11, "Prowadzenie projektu o budżecie 2 mln zł.")
+    kept = _plan_on(
+        lines,
+        {
+            "type": "replace",
+            "line": 11,
+            "text": "Projekt o budżecie 2 mln zł — prowadzenie.",
+        },
+    )
+    assert only(kept)["type"] == "replace"
+    changed = _plan_on(
+        lines,
+        {
+            "type": "replace",
+            "line": 11,
+            "text": "Prowadzenie projektu o budżecie 3 mln zł.",
+        },
+    )
+    assert dropped(changed) == ["amount"]
+
+
+def test_it_words_that_look_like_money_are_not_dropped_as_amounts() -> None:
+    result = plan(
+        {
+            "type": "add",
+            "after": 10,
+            "text": "Rate limiting w integracjach przez **Kafka**.",
+        }
+    )
+    assert result["dropped"] == []
+
+
 def test_template_grammar_cannot_be_reworded() -> None:
     assert dropped(
         plan(
@@ -705,6 +801,57 @@ def test_point_is_not_added_after_a_line_removed_in_the_same_plan() -> None:
     )
     assert [op["type"] for op in result["operations"]] == ["remove"]
     assert [item["reason"] for item in result["dropped"]] == ["overlap"]
+
+
+def test_two_points_after_the_same_line_both_stay() -> None:
+    # Przegląd PR 4: dopisanie zajmowało wiersz, za którym staje.
+    result = plan(
+        {"type": "add", "after": 10, "text": "Integracje usług REST przez **Kafka**."},
+        {
+            "type": "add",
+            "after": 10,
+            "text": "Usługi REST w Javie 11 i **Spring Boot**.",
+        },
+    )
+    assert [op["type"] for op in result["operations"]] == ["add", "add"]
+    assert result["dropped"] == []
+
+
+def test_point_after_a_line_reworded_in_the_same_plan() -> None:
+    result = plan(
+        {
+            "type": "add",
+            "after": 11,
+            "text": "Udział w codziennych spotkaniach zespołu.",
+        },
+        {"type": "replace", "line": 11, "text": "Planowanie sprintów."},
+    )
+    assert [op["type"] for op in result["operations"]] == ["add", "replace"]
+    assert result["dropped"] == []
+
+
+def test_line_with_a_point_after_it_does_not_vanish_or_move() -> None:
+    # Punkt stoi za wierszem — wiersz nie może zniknąć ani zmienić miejsca
+    # w liście w tym samym planie (edytor nie miałby gdzie wstawić punktu).
+    result = plan(
+        {"type": "add", "after": 11, "text": "Integracje przez **Kafka**."},
+        {"type": "remove", "lines": [11]},
+        {
+            "type": "merge",
+            "lines": [10, 11],
+            "text": "Integracje przez **Kafka** i planowanie sprintów.",
+        },
+        {"type": "reorder", "lines": [12, 11, 10, 9]},
+        {"type": "remove_role", "role": 0},
+    )
+    assert [op["type"] for op in result["operations"]] == ["add"]
+    assert [item["reason"] for item in result["dropped"]] == ["overlap"] * 4
+    reordered = plan(
+        {"type": "reorder", "lines": [12, 11, 10, 9]},
+        {"type": "add", "after": 11, "text": "Integracje przez **Kafka**."},
+    )
+    assert [op["type"] for op in reordered["operations"]] == ["reorder"]
+    assert [item["reason"] for item in reordered["dropped"]] == ["overlap"]
 
 
 def test_bold_and_unbold_name_only_terms_that_stand_in_the_cv() -> None:

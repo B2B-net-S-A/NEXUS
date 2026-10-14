@@ -1133,7 +1133,8 @@ function CVBrandedEditContent({
               remark={remark}
               onRemarkChange={setRemark}
               busy={submitting}
-              disabled={!data || creatingDraft}
+              // Asystent liczy albo nakłada odpowiedź — zapis poczeka na zmianę.
+              disabled={!data || creatingDraft || assistant.busy}
               error={handoffError}
               onSave={() => void saveAndApprove()}
               onHandOff={() => void saveAndHandOff()}
@@ -1152,7 +1153,7 @@ function CVBrandedEditContent({
                 size="sm"
                 className="ml-auto"
                 onClick={() => void saveAndApprove()}
-                disabled={!data || noCv || submitting || creatingDraft}
+                disabled={!data || noCv || submitting || creatingDraft || assistant.busy}
               >
                 {submitting ? (
                   <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" aria-hidden />

@@ -29,6 +29,7 @@ const state = vi.hoisted(() => ({
   calls: [] as string[],
   updates: [] as string[],
   overridePosts: [] as Array<[string, unknown]>,
+  assistantBusy: false,
 }));
 
 vi.mock("@/lib/use-element-width", () => ({ useElementWidth: () => 1280 }));
@@ -71,8 +72,8 @@ vi.mock("@/components/v2/cv-editor/useCvAssistant", () => ({
   useCvAssistant: () => ({
     enabled: false,
     messages: [],
-    busy: false,
-    locked: false,
+    busy: state.assistantBusy,
+    locked: state.assistantBusy,
     send: () => undefined,
     answer: async () => undefined,
     undo: () => undefined,
@@ -207,6 +208,7 @@ beforeEach(() => {
     calls: [],
     updates: [],
     overridePosts: [],
+    assistantBusy: false,
   });
   toast.showSuccess.mockClear();
   toast.showError.mockClear();
@@ -329,6 +331,23 @@ it("QC się liczy: przekazanie czeka na wynik", async () => {
   await screen.findByLabelText("treść");
   expect(within(bar()).getByRole("status")).toHaveTextContent("Sprawdzam CV…");
   expect(within(bar()).getByRole("button", { name: /Gotowe, przekaż do DL/ })).toBeDisabled();
+});
+
+it("asystent pracuje: „Gotowe” i przekazanie czekają na jego zmianę", async () => {
+  // Przegląd PR 4: zapis z „Gotowe” brał treść sprzed odpowiedzi asystenta,
+  // a odpowiedź wchodziła potem do zamykanego edytora.
+  state.assistantBusy = true;
+  setup();
+  await screen.findByLabelText("treść");
+  expect(within(bar()).getByRole("button", { name: "Gotowe" })).toBeDisabled();
+  expect(within(bar()).getByRole("button", { name: /Gotowe, przekaż do DL/ })).toBeDisabled();
+});
+
+it("asystent pracuje: „Gotowe” bez przekazania też czeka", async () => {
+  state.assistantBusy = true;
+  setup(null);
+  await screen.findByLabelText("treść");
+  expect(screen.getByRole("button", { name: "Gotowe" })).toBeDisabled();
 });
 
 it("wynik generatora (bez etapu) nie ma stopki nawet z `handoff`", async () => {
