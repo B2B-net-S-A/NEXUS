@@ -24,8 +24,6 @@ export interface PickedPerson {
 export interface RecruiterActions {
   /** Klucz trwającego zapisu (`"add"`, `"remove:12"`…); `null` = nic nie trwa. */
   pending: string | null;
-  /** Okno potwierdzenia zdjęcia jest otwarte. */
-  confirming: boolean;
   /** Okno potwierdzenia — wołający renderuje je w swoim drzewie. */
   confirmDialog: ReactNode;
   run: (
@@ -64,7 +62,6 @@ export function useRecruiterActions({
   const { askConfirm, confirmDialog } = useConfirmV2();
   const meId = useAuthStore((s) => s.user?.id ?? null);
   const [pending, setPending] = useState<string | null>(null);
-  const [confirming, setConfirming] = useState(false);
 
   const run: RecruiterActions["run"] = async (key, action, messages) => {
     if (pending != null) return;
@@ -83,21 +80,15 @@ export function useRecruiterActions({
   const remove: RecruiterActions["remove"] = async (person) => {
     if (pending != null) return;
     const self = person.user_id === meId;
-    setConfirming(true);
-    let confirmed = false;
-    try {
-      confirmed = await askConfirm({
-        title: self
-          ? "Zdjąć siebie z tej rekrutacji?"
-          : `Zdjąć ${person.name} z tej rekrutacji?`,
-        description: self
-          ? "Przestaniesz być rekruterem tej rekrutacji."
-          : `${person.name} przestanie być rekruterem tej rekrutacji.`,
-        confirmLabel: "Zdejmij",
-      });
-    } finally {
-      setConfirming(false);
-    }
+    const confirmed = await askConfirm({
+      title: self
+        ? "Zdjąć siebie z tej rekrutacji?"
+        : `Zdjąć ${person.name} z tej rekrutacji?`,
+      description: self
+        ? "Przestaniesz być rekruterem tej rekrutacji."
+        : `${person.name} przestanie być rekruterem tej rekrutacji.`,
+      confirmLabel: "Zdejmij",
+    });
     if (!confirmed) return;
     await run(
       `remove:${person.user_id}`,
@@ -152,7 +143,6 @@ export function useRecruiterActions({
 
   return {
     pending,
-    confirming,
     confirmDialog,
     run,
     remove,
