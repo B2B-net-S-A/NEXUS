@@ -69,7 +69,7 @@ const PIPELINE_OPERATIONAL_ROLES = PIPELINE_ROLES.filter(
   (role) => role !== "user",
 );
 const DELIVERY_ROLES = sectionRoles("delivery");
-// „Automatyzacje” (0445) mają w sekcjach tylko odczyt. Ekrany, które istnieją
+// „Automatyzacje” (0446) mają w sekcjach tylko odczyt. Ekrany, które istnieją
 // po to, żeby coś zapisać (kolejka zgłoszeń, Akademia), dostają /403 zamiast
 // pustego ekranu z odmową z API.
 const WITHOUT_READ_ONLY = (roles: UserRole[]): UserRole[] =>

@@ -25,7 +25,7 @@ export type UserRole =
   // Praktykant (0374) — rola WYŁĄCZNA: widzi tylko „Telefony na dziś”
   // (`/trainee`). Nie łączy się z innymi rolami (lustro finance).
   | "trainee"
-  // „Automatyzacje” (0445) — rola WYŁĄCZNA: podgląd rekrutacji, kandydatów,
+  // „Automatyzacje” (0446) — rola WYŁĄCZNA: podgląd rekrutacji, kandydatów,
   // Insights oraz klientów, kontraktów i zamówień bez kwot; bez zapisu.
   | "automation"
 

@@ -98,7 +98,7 @@ mogły założyć kontraktu, a admin nie miał czego przełączyć. Decyzje Artu
   stan sprzed 0410 — dziś decyduje uprawnienie z tabeli wyżej, a zakres
   klientów działa jak opisano.
 
-## Rola „Automatyzacje”: podgląd bez kwot i bez zapisu (0445, 14.10.2026)
+## Rola „Automatyzacje”: podgląd bez kwot i bez zapisu (0446, 14.10.2026)
 
 Decyzje Artura 14.10.2026. Osoba, która podpina procesy firmy pod NEXUSA
 (API integracyjne v1), miała dostać rolę Finanse. Finanse czytają jednak
@@ -133,7 +133,7 @@ roli nie da się przyciąć. Powstała osobna rola `automation`, na ekranie
 - **Pilnują tego testy:** `tests/test_automation_role_access.py` (w macierzy
   bramek rola nie przechodzi żadnego zapisu, którego nie przechodzi Viewer,
   a jej odczyty to odczyty rekrutera z podglądem Delivery),
-  `tests/test_automation_role_migration_mirror.py` (lustro 0445 w
+  `tests/test_automation_role_migration_mirror.py` (lustro 0446 w
   `entrypoint.sh`) i persona `automation` we wzorcu `tests/data/authz_golden/`.
 - **Nowa trasa albo nowy zbiór ról:** rolę dopisuj wyłącznie do zbiorów
   odczytu. Zbiór, który otwiera zapis, eksport albo kwoty po roli, ma jej nie

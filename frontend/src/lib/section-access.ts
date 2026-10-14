@@ -155,7 +155,7 @@ export const ROLE_SECTION_ACCESS: Record<
     finance: "none",
     system_admin: "none",
   },
-  // „Automatyzacje” (0445): wszędzie tylko odczyt; Delivery z uprawnienia
+  // „Automatyzacje” (0446): wszędzie tylko odczyt; Delivery z uprawnienia
   // „Klienci, kontrakty i zamówienia: podgląd”, bez kwot i modułu Finanse.
   automation: {
     sourcing: "read",
