@@ -181,7 +181,7 @@ class OrderChangeItem(OrderRef):
     old_date: Optional[date] = None
     new_date: Optional[date] = None
     is_whole_order: bool = False
-    # 0441: ``integration`` = zapis kluczem API v1 (autor „Integracja: <nazwa>”).
+    # 0442: ``integration`` = zapis kluczem API v1 (autor „Integracja: <nazwa>”).
     source: Optional[Literal["user", "system", "integration"]] = None
     author_name: Optional[str] = None
     # Nowe zamówienie w trwającej współpracy (dodatkowy projekt, kontynuacja,

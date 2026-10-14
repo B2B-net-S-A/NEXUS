@@ -1,4 +1,4 @@
-"""Konto serwisowe jako autor zapisu (API integracyjne v1, 0441).
+"""Konto serwisowe jako autor zapisu (API integracyjne v1, 0442).
 
 Do 14.10.2026 zapis wykonany kluczem ``X-API-Key`` nie zostawiał autora:
 dziennik zmian zamówień brał go za „system”, a ``Activity`` i Historia zdarzeń

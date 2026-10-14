@@ -145,14 +145,14 @@ class MdConsumptionImport(Base):
     uploaded_by_user_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
-    # 0441 (API integracyjne v1): import z automatyzacji nie ma człowieka —
+    # 0442 (API integracyjne v1): import z automatyzacji nie ma człowieka —
     # autorem jest konto serwisowe (``Integracja: <nazwa>`` na ekranie).
     uploaded_by_service_account_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("service_accounts.id", ondelete="SET NULL"), nullable=True
     )
-    # 0441: SHA-256 wgranego pliku. Ten sam plik za ten sam miesiąc drugi raz
+    # 0442: SHA-256 wgranego pliku. Ten sam plik za ten sam miesiąc drugi raz
     # = 409 w API v1 (ponowienie automatyzacji po zerwanym połączeniu nie
-    # może zaksięgować zużycia podwójnie). NULL w importach sprzed 0441.
+    # może zaksięgować zużycia podwójnie). NULL w importach sprzed 0442.
     file_sha256: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False

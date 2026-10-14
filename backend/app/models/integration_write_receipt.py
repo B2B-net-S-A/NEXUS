@@ -1,4 +1,4 @@
-"""Paragon zapisu przez API integracyjne v1 (migracja 0441).
+"""Paragon zapisu przez API integracyjne v1 (migracja 0442).
 
 Dwie role w jednej tabeli:
 

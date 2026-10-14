@@ -1,7 +1,7 @@
 """API integracyjne v1: paragony zapisów, źródło „integracja”, skrót pliku MD.
 
-Revision ID: 0441_integrations_v1
-Revises: 0440_cv_ready_notification
+Revision ID: 0442_integrations_v1
+Revises: 0441_cv_text_align
 
 Decyzja Artura 14.10.2026: procesy firmy (na start rozliczanie klientów)
 podpinane pod NEXUSA przez ``/api/integrations/v1`` na kluczach ``X-API-Key``.
@@ -20,8 +20,8 @@ Lustro w ``entrypoint.sh`` (prod alembic bywa osierocony).
 
 from alembic import op
 
-revision = "0441_integrations_v1"
-down_revision = "0440_cv_ready_notification"
+revision = "0442_integrations_v1"
+down_revision = "0441_cv_text_align"
 branch_labels = None
 depends_on = None
 
@@ -70,7 +70,7 @@ UPGRADE = [
 REFUSE_WITH_INTEGRATION_ROWS = """DO $$
 BEGIN
     IF EXISTS (SELECT 1 FROM order_change_events WHERE source = 'integration') THEN
-        RAISE EXCEPTION 'Downgrade 0441 odmawia: order_change_events ma wpisy source=integration, których kod sprzed tej rewizji nie odczyta.';
+        RAISE EXCEPTION 'Downgrade 0442 odmawia: order_change_events ma wpisy source=integration, których kod sprzed tej rewizji nie odczyta.';
     END IF;
 END $$"""
 

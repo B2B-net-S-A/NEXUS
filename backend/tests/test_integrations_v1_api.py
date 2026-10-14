@@ -1,4 +1,4 @@
-"""API integracyjne v1 (``/api/integrations/v1``, 0441) — testy na bazie.
+"""API integracyjne v1 (``/api/integrations/v1``, 0442) — testy na bazie.
 
 Każdy scope strzeże prawdziwej trasy (reguła z ``test_service_accounts``):
 bez scope'u 403, ze scope'em 200, JWT użytkownika 401. Do tego kwoty tylko

@@ -32,7 +32,7 @@ class ScopeInfo(BaseModel):
 
 
 class ServiceAccountWriteOut(BaseModel):
-    """Zapis wykonany kluczem przez API integracyjne v1 (0441).
+    """Zapis wykonany kluczem przez API integracyjne v1 (0442).
 
     Bez treści żądania i odpowiedzi — ekran pokazuje, CO i KIEDY, a szczegóły
     zmiany są w Historii zdarzeń i dziennikach domenowych.

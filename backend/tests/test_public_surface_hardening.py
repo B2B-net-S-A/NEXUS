@@ -69,7 +69,7 @@ _RATE_LIMITED_MODULES = (
     "api/cv_editor_ai.py",
     # Podgląd importu Worda w edytorze CV: upload do 10 MB i konwersja na żądanie.
     "api/cv_editor_import.py",
-    # API integracyjne v1 (0441): powierzchnia dla automatyzacji na kluczach
+    # API integracyjne v1 (0442): powierzchnia dla automatyzacji na kluczach
     # API — limit per konto serwisowe na każdej trasie.
     *_V1_MODULES,
 )

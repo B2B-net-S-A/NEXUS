@@ -809,7 +809,7 @@ from app.models.requirement_cleanup import (  # noqa: F401
     RequirementCleanupDecision,
 )
 
-# 0441: paragony zapisów API integracyjnego v1 (idempotencja + rejestr).
+# 0442: paragony zapisów API integracyjnego v1 (idempotencja + rejestr).
 from app.models.integration_write_receipt import (  # noqa: F401
     IntegrationWriteReceipt,
 )

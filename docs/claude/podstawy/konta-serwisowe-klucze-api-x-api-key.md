@@ -65,7 +65,7 @@ i osłabia sesje wszystkim. Migracja `0220_service_accounts` (+ lustro w `entryp
   jako wymagane parametry QUERY, 422 na poprawnym body). Ten sam trap co
   w `candidate_activity_summary.py`.
 
-## API integracyjne v1 (`/api/integrations/v1`, 0441, 14.10.2026)
+## API integracyjne v1 (`/api/integrations/v1`, 0442, 14.10.2026)
 
 Decyzja Artura 14.10.2026: procesy firmy (na start rozliczanie klientów) podpina
 się pod NEXUSA przez osobne, stabilne API na kluczach `X-API-Key`. Dokumentacja dla
