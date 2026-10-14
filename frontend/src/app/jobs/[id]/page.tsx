@@ -60,6 +60,15 @@ import {
 } from "@/components/v2/jobs/ManagedInNexusSwitch";
 import { CandidateSourcesStrip } from "@/components/v2/jobs/CandidateSourcesStrip";
 import { AddedByFilterButton } from "@/components/v2/jobs/AddedByFilter";
+import { JobPriorityMenu } from "@/components/v2/jobs/JobPriorityMenu";
+import { JobRecruiterFact } from "@/components/v2/jobs/JobRecruiterFact";
+import { useJobTeamPermissions } from "@/components/v2/jobs/useJobTeamPermissions";
+import { useRailCollapsed } from "@/components/v2/shell/OpenTabsRail";
+import {
+  JOB_HEADER_COLLAPSED_DEFAULT,
+  jobHeaderCollapsedKey,
+} from "@/lib/job-header-preferences";
+import { priorityLevelOf } from "@/lib/request-priority";
 import {
   ADDED_BY_PARAM,
   addedByOptions,
@@ -676,6 +685,15 @@ export default function JobDetailPage() {
     return `Rekruter: ${recruiterLead}${team.more > 0 ? ` +${team.more}` : ""}`;
   }, [job]);
 
+  // Priorytet i „Rekruter” w nagłówku (14.10.2026) — te same prawa co zakładka
+  // „Zespół” (`useJobTeamPermissions`).
+  const { editScope: teamEditScope, canSetPriority } = useJobTeamPermissions(job);
+  // „Zwiń” nagłówka (K-D5) — pamiętane per osoba, domyślnie rozwinięty.
+  const [headerCollapsed, toggleHeaderCollapsed] = useRailCollapsed(
+    jobHeaderCollapsedKey(authUser?.id),
+    JOB_HEADER_COLLAPSED_DEFAULT,
+  );
+
   const orderMissingCount: number | null = useMemo(() => {
     const data = readinessQuery.data;
     if (!readinessQuery.isSuccess || !data) return null;
@@ -765,6 +783,22 @@ export default function JobDetailPage() {
       .then(() => showSuccess("Skopiowano link do rekrutacji."))
       .catch(() => showError("Nie udało się skopiować linku."));
   };
+  // Filtr „Kto dodał” — w linii źródeł nagłówka, a w zwiniętym nagłówku
+  // (gdy włączony) w linii tytułu.
+  const addedByButton =
+    showBoard && addedByMenuOptions ? (
+      <AddedByFilterButton options={addedByMenuOptions} value={addedBy} onChange={setAddedBy} />
+    ) : undefined;
+  const recruiterFact = (compact: boolean) => (
+    <JobRecruiterFact
+      jobId={jobId}
+      jobTitle={jobDisplayTitle(job)}
+      job={job}
+      canEdit={teamEditScope !== "none"}
+      onOpenTeam={() => openChampion({ panelTab: "team" })}
+      compact={compact}
+    />
+  );
   const kanbanQueryState = {
     isLoading: kanbanLoading,
     isError: kanbanIsError,
@@ -815,14 +849,37 @@ export default function JobDetailPage() {
             <ManagedInTraffitNotice job={job} canSwitch={canEditJob} />
           </>
         }
-        // Klient · Budżet · Tryb pracy — trzy wyróżnione fakty (02.10.2026).
-        // Rekruter, DL, hiring manager, termin i obsada są w „Profil Championa”.
+        // Klient · Budżet · Tryb pracy (02.10.2026) i od 14.10.2026 „Rekruter”
+        // z okienkiem zespołu. DL, hiring manager i termin — „Profil Championa”.
         facts={jobHeaderFacts(job)}
-        factsTrailing={
-          showBoard && addedByMenuOptions ? (
-            <AddedByFilterButton options={addedByMenuOptions} value={addedBy} onChange={setAddedBy} />
+        priority={
+          <JobPriorityMenu
+            jobId={jobId}
+            level={priorityLevelOf(job)}
+            canSet={canSetPriority}
+          />
+        }
+        recruiter={recruiterFact(false)}
+        recruiterCompact={recruiterFact(true)}
+        // Źródła kandydatów i „Kto dodał” — trzecia linia nagłówka, tylko na
+        // Tablicy i dopiero z wczytaną Tablicą (jak dawny pasek nad nią).
+        sources={
+          showBoard && kanban ? (
+            <CandidateSourcesStrip
+              jobId={jobId}
+              job={job}
+              canSeeSimilar={canWritePipeline}
+              onOpen={openSources}
+              onAddByName={canWritePipeline ? () => setShowAddCandidates(true) : undefined}
+              onAddFromCv={canWritePipeline ? () => setShowAddFromCv(true) : undefined}
+            />
           ) : undefined
         }
+        sourcesTrailing={addedByButton}
+        collapsed={headerCollapsed}
+        onToggleCollapsed={toggleHeaderCollapsed}
+        // Zwinięty nagłówek nie chowa WŁĄCZONEGO filtra Tablicy.
+        collapsedExtras={addedBy.kind !== "all" ? addedByButton : undefined}
         presence={
           <ActiveViewers
             resourceType="job"
@@ -1184,9 +1241,10 @@ export default function JobDetailPage() {
               jobTitle={job?.title}
               scoreMap={scoreMap}
               scoresLoading={scoresLoading}
-              // Panel „Zespół i priorytet" nie stoi już nad tablicą — kolumny
-              // dostają pełną wysokość.
-              headerCollapsed
+              // „Zwiń” nagłówka (K-D5) przesuwa Tablicę — zmiana to sygnał do
+              // ponownego pomiaru wysokości kolumn (także po wczytaniu
+              // zapamiętanego stanu tuż po wejściu).
+              headerCollapsed={headerCollapsed}
               readOnly={!canWritePipeline}
               // SLA klienta na kolumnie Screening i w lewej kolumnie — ten sam
               // klucz zapytania karty klienta co panel osoby.
@@ -1220,18 +1278,6 @@ export default function JobDetailPage() {
               // Filtr „Kto dodał” (14.10.2026): chowa karty i zawęża kolejkę panelu.
               addedBy={addedBy}
               onAddedByChange={setAddedBy}
-              // Kafle „Kandydaci do dodania” nad tablicą — cztery źródła, jedno okno.
-              renderAbove={(viewControls) => (
-                <CandidateSourcesStrip
-                  jobId={jobId}
-                  job={job}
-                  canSeeSimilar={canWritePipeline}
-                  onOpen={openSources}
-                  onAddByName={canWritePipeline ? () => setShowAddCandidates(true) : undefined}
-                  onAddFromCv={canWritePipeline ? () => setShowAddFromCv(true) : undefined}
-                  trailing={viewControls}
-                />
-              )}
               // `?candidate=&panel=` (także linki zapisane w powiadomieniach):
               // od razu warsztat tej osoby na właściwej sekcji.
               initialWorkbench={

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type ReactElement, type ReactNode } from "react";
+import { useEffect, useState, type ReactElement, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 
 import api from "@/lib/api";
@@ -70,6 +70,12 @@ interface JobOwnershipPanelProps {
    * lustro `ensure_job_editor`).
    */
   canEdit: boolean;
+  /**
+   * Panel w okienku (fakt „Rekruter” w nagłówku rekrutacji): mówi, kiedy
+   * otwiera własne okno — potwierdzenie albo „Zmień rekrutera” — żeby okienko
+   * na ten czas zniknęło i nie zasłaniało okna.
+   */
+  onLayerOpenChange?: (open: boolean) => void;
 }
 
 /**
@@ -104,6 +110,7 @@ export function JobOwnershipPanel({
   jobTitle,
   job,
   canEdit,
+  onLayerOpenChange,
 }: JobOwnershipPanelProps) {
   const currentUser = useAuthStore((s) => s.user);
   const impersonating = useAuthStore((s) => s.realUser !== null);
@@ -118,8 +125,12 @@ export function JobOwnershipPanel({
     canWritePipeline &&
     (typeof job.can_staff === "boolean" ? job.can_staff : staffCapability);
   // Zapisy i komunikaty wspólne z kolumną „Rekruter” listy rekrutacji.
-  const { pending, run, remove, decide, replaceProposal, add, confirmDialog } =
+  const { pending, run, remove, decide, replaceProposal, add, confirmDialog, confirming } =
     useRecruiterActions({ jobId, canStaff });
+  const layerOpen = reassignOpen || confirming;
+  useEffect(() => {
+    onLayerOpenChange?.(layerOpen);
+  }, [layerOpen, onLayerOpenChange]);
   const access: RecruiterAccess = {
     canStaff,
     canDecide,

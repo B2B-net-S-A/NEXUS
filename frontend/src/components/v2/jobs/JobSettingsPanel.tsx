@@ -1,11 +1,10 @@
 "use client";
 
-import { type ReactNode, useEffect, useId, useRef, useState } from "react";
+import { type ReactNode, useId, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Loader2, X } from "lucide-react";
 
 import api, { clientTeamApi } from "@/lib/api";
-import { apiErrorMessage } from "@/lib/api-error";
 import { useCachedJob } from "@/lib/cached-job";
 import { invalidateChampionDependents } from "@/lib/champion-cache";
 import { formatDeadlineTime, formatJobDeadline } from "@/lib/job-deadline";
@@ -15,15 +14,14 @@ import { invalidateJobTeam } from "@/lib/job-team-cache";
 import {
   PRIORITY_LEVEL_LABEL,
   PRIORITY_LEVEL_OPTIONS,
-  rawPriorityForLevel,
   type PriorityLevel,
 } from "@/lib/request-priority";
 import { cn } from "@/lib/utils";
-import { useToast } from "@/components/Toast";
 import { Checkbox } from "@/components/ui/checkbox";
 import { SegmentedRadio } from "@/components/ui/segmented-radio";
 import { JobCategoryRow } from "@/components/v2/jobs/JobCategoryRow";
 import { RequestPriorityChip } from "@/components/v2/jobs/RequestPriorityChip";
+import { useJobPriorityChange } from "@/components/v2/jobs/useJobPriorityChange";
 
 interface DirectoryUser {
   id: number;
@@ -307,9 +305,9 @@ export function JobSettingsPanel({
 }
 
 /**
- * Priorytet w trzech poziomach. Kliknięcie zapisuje od razu, a przełącznik
- * pokazuje wybór natychmiast (wartość lokalna): strzałki klawiatury wybierają
- * od ręki, więc czekanie na serwer cofałoby zaznaczenie pod palcami.
+ * Priorytet w trzech poziomach. Kliknięcie zapisuje od razu; zapis i wybór
+ * widoczny przed odpowiedzią serwera — `useJobPriorityChange` (ten sam hak co
+ * plakietka w nagłówku rekrutacji).
  */
 function PriorityRow({
   jobId,
@@ -320,53 +318,8 @@ function PriorityRow({
   level: PriorityLevel;
   canSet: boolean;
 }) {
-  const queryClient = useQueryClient();
-  const toast = useToast();
   const labelId = useId();
-  const [value, setValue] = useState(level);
-  // Ile zapisów jest w drodze.
-  const [inFlight, setInFlight] = useState(0);
-  // Wartość z serwera (odświeżona rekrutacja, zmiana innej osoby) wygrywa
-  // z lokalną — ale dopiero gdy NAPRAWDĘ się zmieni, nie przy każdym renderze,
-  // i nie w trakcie zapisów: odświeżenie po pierwszym zapisie serii cofałoby
-  // na chwilę przełącznik do poziomu ze środka.
-  const [seenLevel, setSeenLevel] = useState(level);
-  if (level !== seenLevel) {
-    setSeenLevel(level);
-    if (inFlight === 0) setValue(level);
-  }
-  // Ostatni poziom potwierdzony przez serwer — do niego wracamy po odmowie.
-  const confirmed = useRef(level);
-  useEffect(() => {
-    confirmed.current = level;
-  }, [level]);
-  // Ostatnio wybrany poziom: po odmowie cofamy tylko wtedy, gdy to on padł.
-  const lastRequested = useRef<PriorityLevel | null>(null);
-  // Zapisy idą po kolei: szybkie przejście strzałkami P1 → P2 → „Przyjmujemy”
-  // nie może skończyć się na serwerze poziomem ze środka.
-  const queue = useRef<Promise<void>>(Promise.resolve());
-
-  const change = (next: PriorityLevel) => {
-    setValue(next);
-    lastRequested.current = next;
-    setInFlight((count) => count + 1);
-    queue.current = queue.current.then(async () => {
-      try {
-        await api.patch(`/api/jobs/${jobId}`, {
-          priority: rawPriorityForLevel(next),
-        });
-        confirmed.current = next;
-      } catch (err) {
-        // Nowszy wybór czeka już w kolejce na swój zapis — jego nie cofamy.
-        if (lastRequested.current === next) setValue(confirmed.current);
-        toast.showError(apiErrorMessage(err, "Nie udało się zmienić priorytetu."));
-      } finally {
-        setInFlight((count) => count - 1);
-        // Odpowiedź PATCH nie niesie obsady — odświeżamy, nie wkładamy do cache'u.
-        invalidateJobTeam(queryClient, jobId);
-      }
-    });
-  };
+  const { value, change } = useJobPriorityChange(jobId, level);
 
   if (!canSet) {
     return (

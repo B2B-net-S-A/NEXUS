@@ -15,6 +15,7 @@ from pathlib import Path
 from docxtpl import DocxTemplate
 from jinja2 import Environment
 
+from app.core.docx_metadata import clear_app_properties, clear_author_metadata
 from app.models.contract import Contract
 from app.services.b2b_contract_generator.clause_overrides import (
     ClauseOverrideError,
@@ -128,9 +129,11 @@ def render_from_context(
             language=lang,
             assigned_person=b2b.get("assigned_person") or "",
         )
+    # Plik idzie do Partnera: bez autora i kancelarii z szablonu.
+    clear_author_metadata(tpl.docx)
     buf = io.BytesIO()
     tpl.save(buf)
-    return buf.getvalue()
+    return clear_app_properties(buf.getvalue())
 
 
 def render_contract_docx(contract: Contract, *, language: str | None = "pl") -> bytes:

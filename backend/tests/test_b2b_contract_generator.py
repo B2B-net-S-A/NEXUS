@@ -1226,3 +1226,31 @@ class TestRateStagesValidation:
         ]
         with pytest.raises(ValidationError, match="Maksymalnie"):
             B2BRenderRequest(language="pl", rate_stages=stages)
+
+
+@pytest.mark.parametrize("language", ["pl", "en"])
+def test_contract_file_carries_no_author_from_the_template(language):
+    """Szablon umowy B2B ma w docProps autora i osobę, która go zapisała
+    (14.10.2026) — umowa dla Partnera ich nie dziedziczy."""
+    import io
+
+    from docx import Document
+
+    from app.schemas.b2b_contract_generator import B2BRenderRequest
+    from app.services.b2b_contract_generator.docx_renderer import render_from_context
+    from app.services.b2b_contract_generator.render_context import build_render_context
+
+    req = B2BRenderRequest(
+        language=language,
+        partner_name="Jan Kowalski",
+        client_name="ACME Bank S.A.",
+        project_city="Warszawa",
+        project_description="Testowanie systemu bankowego.",
+        contract_number="1472/2026",
+        signing_date=date(2026, 7, 23),
+        start_date=date(2026, 7, 23),
+        rate_candidate=150,
+    )
+    data = render_from_context(build_render_context(req, None), language=language)
+    props = Document(io.BytesIO(data)).core_properties
+    assert (props.author, props.last_modified_by) == ("", "")
