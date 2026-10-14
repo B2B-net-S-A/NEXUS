@@ -21,6 +21,7 @@ from app.models.service_account import ServiceScope
 from app.models.user import User, UserRole
 from app.services.onboarding_access import onboarding_persona_for_user
 from app.services.order_change_audit import stamp_actor
+from app.services.integration_actor import stamp_integration
 from app.services.jarvis.via_tag import INTERNAL_HEADER as JARVIS_INTERNAL_HEADER
 from app.services.jarvis.via_tag import stamp_via
 from app.services.oauth_route_scopes import (
@@ -855,6 +856,10 @@ async def _authenticate_service_key(
     # Zachowanie jest przypięte testem (`test_scope_denied_still_stamps_usage`),
     # żeby nie zmieniło się po cichu przy refaktorze.
     await stamp_key_usage(db, key.key_id, client_ip)
+    # Autor zapisów tej sesji = konto serwisowe (0441): dziennik zmian zamówień,
+    # `details.via` na `Activity`, log `http_outcome` (`request.state`).
+    stamp_integration(db.info, principal)
+    request.state.service_principal = principal
     return principal
 
 
@@ -932,6 +937,32 @@ def require_service_scope(*required: ServiceScope, allow_admin_jwt: bool = True)
                 detail=ROLE_DENIED_DETAIL,
             )
         return Caller(user=user)
+
+    return _check
+
+
+def require_service_scope_any():
+    """Zależność: DOWOLNY ważny klucz API, bez wymagań co do scope'ów.
+
+    Wyłącznie dla tras meta API integracyjnego v1 (``/me``, ``/openapi.json``),
+    które nie oddają danych domenowych — integrator sprawdza nimi połączenie
+    i termin klucza, zanim dostanie scope'y. Bez ścieżki JWT: v1 jest
+    powierzchnią maszynową. Nazwa celowo zawiera ``require_service_scope``
+    (klasyfikacja bramek w ``tests/test_section_ceiling_contract.py``).
+    """
+
+    async def _check(
+        request: Request,
+        db: AsyncSession = Depends(get_db),
+    ) -> Caller:
+        raw_key = request.headers.get(API_KEY_HEADER)
+        if not raw_key:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail=f"Wymagany nagłówek {API_KEY_HEADER}",
+            )
+        principal = await _authenticate_service_key(request, raw_key, db)
+        return Caller(service=principal)
 
     return _check
 

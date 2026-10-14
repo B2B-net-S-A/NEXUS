@@ -68,6 +68,10 @@ class RequestCorrelationMiddleware:
                     tags.setdefault("terminal", "true")
                     tags.setdefault("failure_kind", "request_failure")
                     tags.setdefault("sampling_policy", "all-terminal-requests")
+                slug = _service_slug(scope)
+                if slug:
+                    # Tag dozwolony przez `sentry_privacy` (slug, nie id klucza).
+                    tags.setdefault("integration", slug)
                 return event
 
             context.add_event_processor(tag_request_failure)
@@ -76,15 +80,23 @@ class RequestCorrelationMiddleware:
             finally:
                 correlation_ids.reset(correlation_token)
                 route = getattr(scope.get("route"), "path", "unmatched-route")
-                logging.getLogger(__name__).info(
-                    "http_outcome",
-                    extra={
-                        "event_kind": "http_outcome",
-                        "route": route,
-                        "method": scope.get("method", "UNKNOWN"),
-                        "status_code": status_code,
-                        "duration_ms": round((time.monotonic() - started) * 1000, 2),
-                        "request_id": request_id,
-                        "operation_id": operation_id,
-                    },
-                )
+                extra = {
+                    "event_kind": "http_outcome",
+                    "route": route,
+                    "method": scope.get("method", "UNKNOWN"),
+                    "status_code": status_code,
+                    "duration_ms": round((time.monotonic() - started) * 1000, 2),
+                    "request_id": request_id,
+                    "operation_id": operation_id,
+                }
+                slug = _service_slug(scope)
+                if slug:
+                    # API integracyjne v1 (0441): które konto serwisowe wołało.
+                    extra["actor"] = f"service_account:{slug}"
+                logging.getLogger(__name__).info("http_outcome", extra=extra)
+
+
+def _service_slug(scope) -> str | None:
+    """Slug konta serwisowego uwierzytelnionego kluczem w tym żądaniu."""
+    principal = (scope.get("state") or {}).get("service_principal")
+    return getattr(principal, "slug", None) or None

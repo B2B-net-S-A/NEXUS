@@ -230,7 +230,8 @@ export interface OrderChangeItem extends OrderRef {
   old_date: string | null;
   new_date: string | null;
   is_whole_order: boolean;
-  source: "user" | "system" | null;
+  /** `integration` = zapis kluczem API v1 (0441); autor w `author_name`. */
+  source: "user" | "system" | "integration" | null;
   author_name: string | null;
   rate_cost: number | null;
   rate_revenue: number | null;

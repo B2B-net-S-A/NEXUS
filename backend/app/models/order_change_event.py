@@ -48,6 +48,9 @@ ORDER_CHANGE_FIELDS: tuple[str, ...] = (
 
 SOURCE_USER = "user"
 SOURCE_SYSTEM = "system"
+# 0441: zmiana zapisana kluczem API (konto serwisowe, `/api/integrations/v1`).
+# Do 14.10.2026 taki zapis wyglądał w „Zmianach w zamówieniach” jak „system”.
+SOURCE_INTEGRATION = "integration"
 
 
 class OrderChangeEvent(Base):
@@ -58,7 +61,7 @@ class OrderChangeEvent(Base):
             name="ck_order_change_events_field",
         ),
         CheckConstraint(
-            "source IN ('user', 'system')",
+            "source IN ('user', 'system', 'integration')",
             name="ck_order_change_events_source",
         ),
         Index("ix_order_change_events_created_at", "created_at"),
@@ -88,6 +91,9 @@ class OrderChangeEvent(Base):
         String(16), nullable=False, default=SOURCE_SYSTEM
     )
     created_by_user_id: Mapped[Optional[int]] = mapped_column(Integer)
+    # 0441: konto serwisowe przy ``source='integration'`` (bez FK, jak reszta
+    # tabeli — wpis przeżywa usunięcie konta).
+    created_by_service_account_id: Mapped[Optional[int]] = mapped_column(Integer)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

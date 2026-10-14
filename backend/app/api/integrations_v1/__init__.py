@@ -1,0 +1,14 @@
+"""API integracyjne v1 (``/api/integrations/v1``) — automatyzacje procesów firmy.
+
+Każdy moduł ma własny ``router`` z ``route_class=IntegrationRoute`` (koperta
+błędu v1); ``main.py`` montuje je pod wspólnym prefiksem ``PREFIX``.
+Uwierzytelnienie wyłącznie kluczem ``X-API-Key`` (konto serwisowe ze
+scope'ami) — opis i zasady: ``docs/api/integracje-v1.md``.
+"""
+
+from app.api.integrations_v1 import meta
+from app.api.integrations_v1.common import PREFIX
+
+ROUTERS = (meta.router,)
+
+__all__ = ["PREFIX", "ROUTERS"]

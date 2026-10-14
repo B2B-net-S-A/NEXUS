@@ -83,6 +83,24 @@ class ServiceScope(str, enum.Enum):
     # wąską trasę: tożsamość i zaangażowanie osób pracujących u klientów,
     # bez stawek i bez marż.
     contractors_read = "contractors:read"
+    # ── API integracyjne v1 (`/api/integrations/v1`, decyzja Artura 14.10.2026) ──
+    # Automatyzacje procesów firmy, zaczynając od rozliczania klientów. Scope'y
+    # otwierają WYŁĄCZNIE trasy v1 (osobny pakiet ``api/integrations_v1``) —
+    # trasy ekranów dalej wiszą na ``get_current_user`` i dla klucza są 401.
+    # Danych kandydatów, rekrutacji i notatek v1 nie wystawia w ogóle (RODO),
+    # więc ``candidate:*`` nadal nie istnieje. ``X:write`` obejmuje ``X:read``
+    # (``implied_scopes``). Kwoty w zamówieniach i kontraktach są osobnym
+    # scope'em, jak „Stawki i kwoty: podgląd” w dziewięciu uprawnieniach ludzi.
+    clients_read = "clients:read"
+    contracts_read = "contracts:read"
+    orders_read = "orders:read"
+    md_read = "md:read"
+    md_write = "md:write"
+    finance_read = "finance:read"
+    finance_write = "finance:write"
+    invoices_read = "invoices:read"
+    invoices_write = "invoices:write"
+    amounts_read = "amounts:read"
 
 
 SCOPE_LABELS: dict[ServiceScope, str] = {
@@ -90,7 +108,32 @@ SCOPE_LABELS: dict[ServiceScope, str] = {
     ServiceScope.traffit_read: "Odczyt statusu synchronizacji Traffit",
     ServiceScope.ops_snapshot: "Odczyt migawki operacyjnej (/api/admin/snapshot)",
     ServiceScope.contractors_read: "Eksport kontraktorów dla COMPASSA (bez kwot)",
+    ServiceScope.clients_read: "Klienci: odczyt (nazwa, NIP, Delivery Lead)",
+    ServiceScope.contracts_read: "Kontrakty: odczyt (osoba, klient, okres, status)",
+    ServiceScope.orders_read: "Zamówienia: odczyt (okresy, linie, PDF-y)",
+    ServiceScope.md_read: "Zużycie MD: odczyt (salda, importy)",
+    ServiceScope.md_write: "Zużycie MD: zapis (import, przypisanie wiersza, korekta miesiąca)",
+    ServiceScope.finance_read: "Finanse: odczyt (zmiany w zamówieniach, PDF-y, wyniki)",
+    ServiceScope.finance_write: "Finanse: zapis („Zrobione”, import wyników)",
+    ServiceScope.invoices_read: "Faktury: odczyt (rejestr, DSO)",
+    ServiceScope.invoices_write: "Faktury: zapis (wystawienie, zmiana, anulowanie)",
+    ServiceScope.amounts_read: "Stawki i kwoty: podgląd w zamówieniach i kontraktach",
 }
+
+
+def implied_scopes(granted: frozenset[str]) -> frozenset[str]:
+    """Uprawnienia efektywne: ``X:write`` daje też ``X:read`` (jeśli istnieje).
+
+    Liczone przy budowie ``ServicePrincipal``, nie w ``granted_scopes()`` —
+    tamto czyta też ekran admina, który ma pokazywać to, co NADANO.
+    """
+    known = {scope.value for scope in ServiceScope}
+    extra = {
+        scope[: -len(":write")] + ":read"
+        for scope in granted
+        if scope.endswith(":write") and scope[: -len(":write")] + ":read" in known
+    }
+    return frozenset(granted | extra)
 
 
 class ServiceAccount(Base, TimestampMixin):

@@ -36,6 +36,7 @@ from app.models.order_change_check import (
 )
 from app.models.order_change_event import OrderChangeEvent
 from app.models.order_mail import OrderMailDocument
+from app.models.service_account import ServiceAccount
 from app.models.user import User
 from app.schemas.finance_order_changes import (
     OrderChangeItem,
@@ -538,13 +539,37 @@ async def order_history(
         if authors_ids
         else {}
     )
+    # 0441: zmiana zapisana kluczem API — autorem konto serwisowe.
+    integration_ids = {
+        e.created_by_service_account_id
+        for e in events
+        if e.created_by_service_account_id
+    }
+    integrations = (
+        {
+            account_id: f"Integracja: {name}"
+            for account_id, name in (
+                await db.execute(
+                    select(ServiceAccount.id, ServiceAccount.name).where(
+                        ServiceAccount.id.in_(sorted(integration_ids))
+                    )
+                )
+            ).all()
+        }
+        if integration_ids
+        else {}
+    )
     checks = (await db.scalars(select(OrderChangeCheck).where(or_(*check_scope)))).all()
     history = [
         OrderHistoryEntry(
             at=event.created_at,
             kind="change",
             summary=_event_summary(event),
-            by_name=authors.get(event.created_by_user_id),
+            by_name=(
+                integrations.get(event.created_by_service_account_id, "Integracja")
+                if event.source == "integration"
+                else authors.get(event.created_by_user_id)
+            ),
             automatic=event.source == "system",
         )
         for event in events
