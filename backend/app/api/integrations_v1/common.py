@@ -15,7 +15,7 @@ import logging
 from decimal import Decimal
 from typing import Annotated, Any, Awaitable, Callable, Generic, Optional, TypeVar
 
-from fastapi import Depends, HTTPException, Request
+from fastapi import Depends, HTTPException, Path, Query, Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, Response
@@ -38,6 +38,13 @@ logger = logging.getLogger(__name__)
 
 PREFIX = "/api/integrations/v1"
 MAX_PAGE_SIZE = 500
+# Id w ścieżce i numer strony w zakresie int4 Postgresa — wartość spoza
+# zakresu dawała 500 (przepełnienie parametru asyncpg) zamiast 422.
+INT4_MAX = 2_147_483_647
+MAX_PAGE = 100_000
+IdPath = Annotated[int, Path(ge=1, le=INT4_MAX)]
+PageQuery = Annotated[int, Query(ge=1, le=MAX_PAGE)]
+PageSizeQuery = Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)]
 
 # ── Koperta błędu ────────────────────────────────────────────────────────────
 
@@ -105,7 +112,11 @@ class IntegrationRoute(APIRoute):
                 return await original(request)
             except RequestValidationError as exc:
                 errors = [
-                    {"loc": list(err.get("loc", ())), "msg": err.get("msg"), "type": err.get("type")}
+                    {
+                        "loc": list(err.get("loc", ())),
+                        "msg": err.get("msg"),
+                        "type": err.get("type"),
+                    }
                     for err in exc.errors()
                 ]
                 return error_response(
@@ -197,7 +208,8 @@ def _money(value: Optional[Decimal]) -> Optional[str]:
 
 #: Kwota jako napis dziesiętny ``"1234.50"`` — float gubi grosze.
 Money = Annotated[
-    Optional[Decimal], PlainSerializer(_money, return_type=Optional[str], when_used="json")
+    Optional[Decimal],
+    PlainSerializer(_money, return_type=Optional[str], when_used="json"),
 ]
 
 T = TypeVar("T")
@@ -254,7 +266,9 @@ async def idempotent_write(
         )
     status_code, body = await run()
     encoded = jsonable_encoder(body)
-    await integration_receipts.finish(db, receipt, status_code=status_code, body=encoded)
+    await integration_receipts.finish(
+        db, receipt, status_code=status_code, body=encoded
+    )
     await db.commit()
     return JSONResponse(status_code=status_code, content=encoded)
 
@@ -262,12 +276,15 @@ async def idempotent_write(
 async def dry_run_response(
     db: AsyncSession, run: Callable[[], Awaitable[tuple[int, Any]]]
 ) -> Response:
-    """Próba: pełne przeliczenie, odpowiedź zbudowana PRZED wycofaniem."""
+    """Próba: pełne przeliczenie, odpowiedź zbudowana PRZED wycofaniem.
+
+    Zawsze 200 — nic nie powstało, więc „201 Created” byłoby nieprawdą.
+    """
     try:
-        status_code, body = await run()
+        _status_code, body = await run()
         encoded = jsonable_encoder(body)
     finally:
         await db.rollback()
     if isinstance(encoded, dict):
         encoded = {**encoded, "dry_run": True}
-    return JSONResponse(status_code=status_code, content=encoded)
+    return JSONResponse(status_code=200, content=encoded)

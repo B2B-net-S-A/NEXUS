@@ -31,6 +31,25 @@ class ScopeInfo(BaseModel):
     label: str
 
 
+class ServiceAccountWriteOut(BaseModel):
+    """Zapis wykonany kluczem przez API integracyjne v1 (0441).
+
+    Bez treści żądania i odpowiedzi — ekran pokazuje, CO i KIEDY, a szczegóły
+    zmiany są w Historii zdarzeń i dziennikach domenowych.
+    """
+
+    id: int
+    key_id: str
+    method: str
+    route: str
+    state: str
+    status_code: Optional[int]
+    created_at: datetime
+    completed_at: Optional[datetime]
+
+    model_config = {"from_attributes": True}
+
+
 class ServiceAccountKeyOut(BaseModel):
     """Metadane klucza. Nie ma tu pola na sekret i nie wolno go dodać."""
 

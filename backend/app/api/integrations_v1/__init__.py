@@ -6,9 +6,25 @@ Uwierzytelnienie wyłącznie kluczem ``X-API-Key`` (konto serwisowe ze
 scope'ami) — opis i zasady: ``docs/api/integracje-v1.md``.
 """
 
-from app.api.integrations_v1 import meta
+from app.api.integrations_v1 import (
+    clients,
+    contracts,
+    finance,
+    invoices,
+    md,
+    meta,
+    orders,
+)
 from app.api.integrations_v1.common import PREFIX
 
-ROUTERS = (meta.router,)
+ROUTERS = (
+    meta.router,
+    clients.router,
+    contracts.router,
+    orders.router,
+    md.router,
+    finance.router,
+    invoices.router,
+)
 
 __all__ = ["PREFIX", "ROUTERS"]

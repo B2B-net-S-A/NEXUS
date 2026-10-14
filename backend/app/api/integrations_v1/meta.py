@@ -81,7 +81,9 @@ def integrations_openapi(full: dict) -> dict:
     do których się odwołują, plus schemat bezpieczeństwa ``X-API-Key``.
     """
     paths = {
-        path: item for path, item in full.get("paths", {}).items() if path.startswith(PREFIX)
+        path: item
+        for path, item in full.get("paths", {}).items()
+        if path.startswith(PREFIX)
     }
     schemas = full.get("components", {}).get("schemas", {})
     needed: set[str] = set()
