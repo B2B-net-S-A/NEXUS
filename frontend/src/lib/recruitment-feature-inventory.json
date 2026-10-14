@@ -1899,6 +1899,22 @@
    "v3_home": "panel osoby → formularz screeningu → stopka"
   },
   {
+   "id": "screening-form.joint-picker",
+   "area": "formularz screeningu",
+   "opis": "„Screening dla” nad formularzem: inne rekrutacje osoby z Nowych/Screeningu do zaznaczenia, wyszarzone z powodem (po screeningu, cudza rezerwacja), „+ Dodaj i dołącz” z „Pasuje też do” (14.10.2026)",
+   "file": "components/v2/screening-form/JointScreeningPicker.tsx",
+   "marker": "+ Dodaj i dołącz",
+   "v3_home": "panel osoby → Nowi/Screening → nad formularzem"
+  },
+  {
+   "id": "screening-form.joint",
+   "area": "formularz screeningu",
+   "opis": "Formularz wspólny dla kilku rekrutacji: warunki i stawka raz, pytania wspólne raz, ocena per rekrutacja, zapis i „Zapisz i przekaż dalej” per para z kartą wyniku i „Przekaż mimo to” (14.10.2026)",
+   "file": "components/v2/screening-form/JointScreeningForm.tsx",
+   "marker": "Wspólne · zadajesz raz",
+   "v3_home": "panel osoby → „Screening dla” z zaznaczoną drugą rekrutacją"
+  },
+  {
    "id": "screening-form.note-fill",
    "area": "formularz screeningu",
    "opis": "„Uzupełnij z notatki”: wklej tekst albo wgraj plik, puste pola wypełniają się z plakietką, przy wpisanych propozycja „Użyj”, „Cofnij wypełnienie”; notatka idzie do historii przy zapisie",
@@ -2553,7 +2569,7 @@
   {
    "id": "board.card-other-jobs",
    "area": "tablica",
-   "opis": "„+N rekrutacja” na karcie w Nowych/Screeningu: osoba czeka też w innej rekrutacji — okienko z listą i „Otwórz kartę” (14.10.2026)",
+   "opis": "„+N rekrutacja” na karcie w Nowych/Screeningu: osoba czeka też w innej rekrutacji — okienko z listą, „Otwórz kartę” i „Screening razem” (14.10.2026)",
    "file": "components/v2/pages/kanban-other-jobs-chip.tsx",
    "marker": "card-other-jobs-chip",
    "v3_home": "Tablica → karta w „Nowych”/„Screeningu”"

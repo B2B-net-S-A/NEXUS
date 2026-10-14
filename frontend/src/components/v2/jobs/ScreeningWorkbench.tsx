@@ -167,7 +167,11 @@ export function ScreeningWorkbench({
   const queryClient = useQueryClient();
   const [jointError, setJointError] = useState<string | null>(null);
   // Inna osoba = nowa rozmowa; „Screening razem” z karty zaznacza od razu.
+  // Tylko przy zmianie osoby — podwójny efekt (StrictMode) nie czyści wyboru.
+  const jointFor = useRef<number | null>(null);
   useEffect(() => {
+    if (jointFor.current === candidateId) return;
+    jointFor.current = candidateId;
     setJointIds(new Set(candidateId > 0 ? consumeIntent(candidateId) : []));
   }, [candidateId, consumeIntent]);
   // „Wgraj CV” w podglądzie — ta sama bramka co kafelek w doku osoby.
