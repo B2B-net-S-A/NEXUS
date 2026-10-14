@@ -62,7 +62,7 @@
     "tasks": [
       {
         "q": "Od czego zacząć w tej rekrutacji?",
-        "a": "Na górze jest tytuł stanowiska, pod nim nazwa od klienta i trzy fakty: klient, budżet, tryb pracy. Kafle „Kandydaci do dodania” nad tablicą pokazują, skąd wziąć ludzi i ilu ich czeka. Klik w nazwisko otwiera kartę kandydata z boku; w „Nowych” i „Screeningu” na całe okno, z dużym CV i wymaganiami po lewej (Ctrl/⌘ — pełny profil)."
+        "a": "Na górze: tytuł, nazwa od klienta i trzy fakty — klient, budżet, tryb pracy. Obok „Kto dodał”: wybierz „Ty”, a tablica pokaże tylko osoby dodane przez Ciebie. Kafle „Kandydaci do dodania” pokazują, skąd wziąć ludzi. Klik w nazwisko otwiera kartę z boku; w „Nowych” i „Screeningu” na całe okno, z CV i wymaganiami po lewej (Ctrl/⌘ — pełny profil)."
       },
       {
         "q": "Jak przesunąć kandydata dalej?",
@@ -162,7 +162,7 @@
       },
       {
         "q": "Jak przesunąć albo odrzucić osobę?",
-        "a": "„Następny etap” pokazuje braki do kolejnej kolumny z przyciskiem przy każdym; zatrzymany ruch ma przycisk wyłączony z powodem. Inny etap — „Inny etap…”. Odrzucenie — „Odrzuć z powodem” (zaznaczony mail pokaże treść do poprawy), wycofanie — „Zrezygnował”. Potem panel pokazuje następną osobę; pasek u góry mówi, kogo zamknięto, a „Pokaż” wraca.",
+        "a": "„Następny etap” pokazuje braki do kolejnej kolumny; zatrzymany ruch ma przycisk wyłączony z powodem. Inny etap — „Inny etap…”. Odrzucenie — „Odrzuć z powodem” (mail pokaże treść do poprawy), wycofanie — „Zrezygnował”. Potem panel pokazuje następną osobę z kolejki „‹ ›” (ta kolumna i filtr „Kto dodał”); pasek mówi, kogo zamknięto, „Pokaż” wraca.",
         "anchor": "jobs.person.actions"
       },
       {

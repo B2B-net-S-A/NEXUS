@@ -84,7 +84,21 @@ import { DlReviewQueueDialog } from "@/components/v2/recruitment/dl-review/DlRev
 import { PersonPanelShell, type PersonPanelSize } from "@/components/v2/person/PersonPanelShell";
 import { CvQcDialog } from "@/components/v2/recruitment/CvQcDialog";
 import { MoveNextDialog } from "@/components/v2/recruitment/MoveNextDialog";
-import { dockNavigationOrder } from "@/lib/board-dock-order";
+import {
+ dockNavigationOrder,
+ nextColumnWithPeople,
+ queueColumnAfterOpen,
+ returnToQueueTarget,
+} from "@/lib/board-dock-order";
+import {
+ ADDED_BY_ALL,
+ addedByEmptyColumnText,
+ addedByOptions,
+ addedByQueueSuffix,
+ matchesAddedBy,
+ peopleInProgress,
+ type AddedByFilter,
+} from "@/lib/board-added-by";
 import { DebriefRequiredDialog } from "@/components/v2/recruitment/DebriefRequiredDialog";
 import {
  MOVE_REQUIREMENTS_PREFIX,
@@ -258,6 +272,13 @@ interface KanbanBoardV2Props {
   * przełącznik widoku tablicy — widoczny tylko przy bardzo szerokim szablonie.
   */
  renderAbove?: (viewControls: React.ReactNode) => React.ReactNode;
+ /** Filtr „Kto dodał” (14.10.2026): strona trzyma go w adresie (`?added_by=`).
+  *  Chowa karty innych osób w kolumnach w toku i zawęża kolejkę panelu.
+  *  Obiekt ma być stabilny między renderami (strona go memoizuje). */
+ addedBy?: AddedByFilter;
+ /** Zmiana filtra z Tablicy („Pokaż wszystkich” w pustej kolumnie, pasek końca
+  *  kolejki) i z menu etykiety kolejki w panelu. Bez niego tych miejsc nie ma. */
+ onAddedByChange?: (filter: AddedByFilter) => void;
 }
 
 const CATEGORY_COLOR: Record<string, string> = {
@@ -1438,6 +1459,11 @@ interface ColProps {
  purpose?: string | null;
  /** Akcja w nagłówku kolumny (D10: „Porównaj (N)” w „QC CV” dla DL). */
  headerAction?: React.ReactNode;
+ /** Filtr „Kto dodał” (14.10.2026): liczba osób w kolumnie BEZ filtra. Gdy
+  *  filtr coś schował, licznik mówi „N z M”. Bez filtra — `undefined`. */
+ totalCount?: number;
+ /** Filtr schował wszystkich z tej kolumny: napis i „Pokaż wszystkich (M)”. */
+ filterEmpty?: { text: string; onShowAll: () => void } | null;
  /** Zamiast „co tu robisz” w drugiej linii nagłówka („Przejrzyj po kolei (N)”
   *  w „QC CV” u Delivery Leada tej rekrutacji) — ta sama linia, bez dodatkowej
   *  wysokości. */
@@ -1470,13 +1496,20 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  purpose = null,
  headerAction = null,
  purposeAction = null,
+ totalCount,
+ filterEmpty = null,
 }: ColProps) {
  const headerCount = col.count;
+ // Kolumna pusta przez filtr „Kto dodał” nie jest wąska — mieści napis
+ // „Brak osób dodanych przez…” i „Pokaż wszystkich”.
+ const peopleCount = totalCount ?? headerCount;
+ const hiddenByFilter = totalCount != null && totalCount !== headerCount;
+ const countText = hiddenByFilter ? `${headerCount} z ${totalCount}` : String(headerCount);
  // Pusta kolumna jest WĄSKA (24.09.2026): przy 1440 px osiem kolumn mieści się
  // bez przewijania, gdy połowa jest pusta. Tylko na desktopie z myszą i poza
  // trybem kafelków (tam kolumny i tak dzielą szerokość); `droppableId`
  // i indeksy kart się nie zmieniają, więc upuszczanie działa jak dotąd.
- const narrow = headerCount === 0;
+ const narrow = peopleCount === 0;
  const dropId = colId(col);
  // `Boolean(...)` obowiązkowo — @hello-pangea/dnd ma twardy invariant
  // („isDropDisabled must be a boolean"), a `undefined` wywala całą tablicę.
@@ -1498,7 +1531,7 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  data-colid={dropId}
  data-drop-disabled={noDrop}
  role="group"
- aria-label={`${titleOverride ?? columnLabel(col)}, liczba kandydatów: ${headerCount}`}
+ aria-label={`${titleOverride ?? columnLabel(col)}, liczba kandydatów: ${countText}`}
  className={cn(
  "flex w-[calc((100%-1.5rem)/3)] min-w-[17rem] shrink-0 snap-start flex-col rounded-lg border border-border bg-background/60 sm:min-w-[19rem]",
  // NIE ściskamy kolumn do zera. Podłoga 12,5 rem (200 px) mieści pełną
@@ -1551,8 +1584,8 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  <h3 className={cn("text-foreground flex-1 min-w-0 truncate leading-tight", "text-[13px] font-semibold", desktopOverview &&"xl:pointer-fine:line-clamp-2 xl:pointer-fine:whitespace-normal xl:pointer-fine:text-center xl:pointer-fine:text-[10px] xl:pointer-fine:leading-tight xl:pointer-fine:[overflow-wrap:anywhere]", !desktopOverview && narrow &&"xl:pointer-fine:order-last xl:pointer-fine:basis-full xl:pointer-fine:whitespace-normal xl:pointer-fine:text-xs xl:pointer-fine:line-clamp-3 xl:pointer-fine:hyphens-auto xl:pointer-fine:[overflow-wrap:anywhere]")} title={titleOverride ?? columnLabel(col)} lang="pl">
  {titleOverride ?? columnLabel(col)}
  </h3>
- <Badge size="sm" variant={headerCount > 0 ?"soft" :"outline"} className={cn(desktopOverview &&"xl:pointer-fine:h-4 xl:pointer-fine:min-w-4 xl:pointer-fine:self-center xl:pointer-fine:px-1 xl:pointer-fine:text-[10px]")}>
- {headerCount}
+ <Badge size="sm" variant={headerCount > 0 ?"soft" :"outline"} className={cn("tabular-nums", desktopOverview &&"xl:pointer-fine:h-4 xl:pointer-fine:min-w-4 xl:pointer-fine:self-center xl:pointer-fine:px-1 xl:pointer-fine:text-[10px]")} data-testid="column-count">
+ {countText}
  </Badge>
  {headerAction}
  </div>
@@ -1668,7 +1701,19 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  {/* Ramka „upuść tutaj” pojawia się dopiero w trakcie przeciągania
  karty (`data-dragging` na korzeniu tablicy) — w spoczynku pusta
  kolumna jest po prostu pusta (04.10.2026). */}
- {headerCount === 0 && !snapshot.isDraggingOver && !readOnly && !noDrop && (
+ {filterEmpty && headerCount === 0 ? (
+ <div data-testid="column-filter-empty" className="space-y-1 px-1 py-3 text-xs text-muted-foreground">
+ <p>{filterEmpty.text}</p>
+ <button
+ type="button"
+ onClick={filterEmpty.onShowAll}
+ className="font-semibold text-primary underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+ >
+ Pokaż wszystkich ({peopleCount})
+ </button>
+ </div>
+ ) : null}
+ {peopleCount === 0 && !snapshot.isDraggingOver && !readOnly && !noDrop && (
  <div
  aria-hidden="true"
  data-testid="column-drop-hint"
@@ -1691,6 +1736,16 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
 
 // ── Board ────────────────────────────────────────────────────────────
 
+/** Kolumna z kartami, które przechodzą filtr „Kto dodał” (14.10.2026). */
+function withAddedByFilter<C extends { items: KanbanItem[]; count: number }>(
+ col: C,
+ filter: AddedByFilter
+): C {
+ if (filter.kind === "all") return col;
+ const items = col.items.filter((item) => matchesAddedBy(item, filter));
+ return { ...col, items, count: items.length };
+}
+
 // Dół boardu: pb-4 kontenera (16px) + dolny padding <main> (24px). Tyle zostawiamy
 // pod kolumnami, żeby strona nie scrollowała się w pionie pod pipeline.
 const BOARD_BOTTOM_GAP = 40;
@@ -1699,7 +1754,7 @@ const MIN_COLUMN_HEIGHT = 280;
 // `p-4` obszaru treści powłoki (góra + dół) — patrz pomiar planszy na telefonie.
 const MOBILE_MAIN_PADDING_Y = 32;
 
-export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoading, headerCollapsed, offTemplate, readOnly = false, clientId = null, initialDockCandidateId = null, onInitialDockHandled, initialDockOpensReview = false, onDockCandidateChange, workbenchContext, kanbanQueryState, initialWorkbench = null, onInitialWorkbenchHandled, cproEnabled = false, viewerOwnsDlReview = false, renderAbove }: KanbanBoardV2Props) {
+export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoading, headerCollapsed, offTemplate, readOnly = false, clientId = null, initialDockCandidateId = null, onInitialDockHandled, initialDockOpensReview = false, onDockCandidateChange, workbenchContext, kanbanQueryState, initialWorkbench = null, onInitialWorkbenchHandled, cproEnabled = false, viewerOwnsDlReview = false, renderAbove, addedBy = ADDED_BY_ALL, onAddedByChange }: KanbanBoardV2Props) {
  // Krok 04 Pipeline (flow C2, PR 3/7): globalny przełącznik —
  // świadomie nie per-job.
  const hideEmptyColumns = useUiStore((s) => s.hideEmptyKanbanColumns);
@@ -1723,10 +1778,17 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  () => foldBoardColumns(stageCols, { cproEnabled }),
  [stageCols, cproEnabled]
  );
- const displayCols = useMemo(
+ const allDisplayCols = useMemo(
  () =>
  boardFold.columns.map((f) => ({ ...f.host, items: f.items, count: f.count })),
  [boardFold]
+ );
+ // Filtr „Kto dodał” (14.10.2026) chowa karty w kolumnach w toku. Liczony
+ // PRZED przeciąganiem: indeksy kart w kolumnie to indeksy widocznej listy.
+ // `count` = widoczne karty, liczba bez filtra — `totalCountByColId`.
+ const displayCols = useMemo(
+ () => allDisplayCols.map((c) => withAddedByFilter(c, addedBy)),
+ [allDisplayCols, addedBy]
  );
  const boardKeyByColId = useMemo(() => {
  const m = new Map<string, BoardColumnKey>();
@@ -1966,6 +2028,13 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  // dodatkowej synchronizacji.
  const [dockCandidateId, setDockCandidateId] = useState<number | null>(null);
  const closeDock = useCallback(() => setDockCandidateId(null), []);
+ // Kolumna kolejki strzałek „‹ N z M ›” (D1, 14.10.2026) i osoba, dla której
+ // ją ostatnio wyznaczono — liczona niżej, przy `dockOrder`. `forCandidate:
+ // null` = „wyznacz od nowa przy następnym renderze”.
+ const [queue, setQueue] = useState<{ colId: string | null; forCandidate: number | null }>({
+ colId: null,
+ forCandidate: null,
+ });
  // Pełne narzędzia osoby (dawny warsztat „Tabeli") — od 04.10.2026 to
  // rozwinięty panel osoby („Rozwiń”), nie osobne okno. `open: false` =
  // zwinięty, ale zakładki zostają zamontowane (wpisany tekst przeżywa).
@@ -2003,6 +2072,9 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  const canSplit = Boolean(workbenchContext && kanbanQueryState);
  const openDock = useCallback(
  (item: KanbanItem) => {
+ // Klik w kartę wyznacza kolejkę od nowa: ta sama osoba, która w tym czasie
+ // przeszła do innej kolumny, ma dostać kolejkę tej kolumny (14.10.2026).
+ setQueue((q) => (q.forCandidate == null ? q : { ...q, forCandidate: null }));
  const key = columnByItemId.get(item.id);
  if (canSplit && (key === "new" || key === "screening")) {
  openWorkbench(item.candidate_id, "screening");
@@ -2397,7 +2469,9 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  // `stageCols`, nie `cols` — kubełek nie jest celem ruchu.
  const dst = stageCols.find((c) => colId(c) === dstId);
  if (!srcDisplay || !dst || colId(srcDisplay) === colId(dst)) return;
- const item = srcDisplay.items[res.source.index];
+ // Po numerze karty, nie po `res.source.index`: filtr „Kto dodał” chowa
+ // część kart, a indeks liczy się po liście, którą widać (14.10.2026).
+ const item = srcDisplay.items.find((i) => String(i.id) === res.draggableId);
  if (!item) return;
  const realSrc = cols.find((c) => c.items.some((i) => i.id === item.id));
  if (!realSrc || hostByColId.get(colId(realSrc)) === dst) return;
@@ -3159,7 +3233,19 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  // „Poza szablonem"). „Ukryj puste kolumny" usuwa CAŁE kolumny bez kart —
  // bezpieczne dla `@hello-pangea/dnd` (pusta kolumna nie ma indeksów).
  // „Nowi" nie znikają nigdy: tam trafiają osoby dodane z kafli nad tablicą.
- const offTemplateCols = useMemo(() => cols.filter((c) => isOffTemplate(c)), [cols]);
+ const allOffTemplateCols = useMemo(() => cols.filter((c) => isOffTemplate(c)), [cols]);
+ const offTemplateCols = useMemo(
+ () => allOffTemplateCols.map((c) => withAddedByFilter(c, addedBy)),
+ [allOffTemplateCols, addedBy]
+ );
+ // Liczba osób w kolumnie bez filtra „Kto dodał” — licznik „N z M”, napis
+ // w kolumnie pustej przez filtr i „Ukryj puste kolumny” (kolumna pusta przez
+ // filtr nie znika, tylko mówi, że filtr schował wszystkich).
+ const totalCountByColId = useMemo(() => {
+ const m = new Map<string, number>();
+ for (const c of [...allDisplayCols, ...allOffTemplateCols]) m.set(colId(c), c.count);
+ return m;
+ }, [allDisplayCols, allOffTemplateCols]);
  const visibleCols = useMemo(() => {
  const base = [
  ...displayCols,
@@ -3167,16 +3253,94 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  ...offTemplateCols,
  ];
  return hideEmptyColumns
- ? base.filter((c) => c.count > 0 || boardKeyByColId.get(colId(c)) === "new")
+ ? base.filter(
+ (c) => (totalCountByColId.get(colId(c)) ?? c.count) > 0 || boardKeyByColId.get(colId(c)) === "new"
+ )
  : base;
- }, [displayCols, boardFold, showClosed, offTemplateCols, hideEmptyColumns, boardKeyByColId]);
+ }, [displayCols, boardFold, showClosed, offTemplateCols, hideEmptyColumns, boardKeyByColId, totalCountByColId]);
+ // Filtr schował część osób — zaznaczenie ich nie trzyma, żeby pasek
+ // zaznaczonych nie działał na kimś, kogo nie widać.
+ useEffect(() => {
+ if (addedBy.kind === "all") return;
+ setSelected((prev) => {
+ if (prev.size === 0) return prev;
+ const hidden = new Set<number>();
+ for (const c of [...allDisplayCols, ...allOffTemplateCols]) {
+ for (const item of c.items) if (!matchesAddedBy(item, addedBy)) hidden.add(item.candidate_id);
+ }
+ const next = new Set(Array.from(prev).filter((id) => !hidden.has(id)));
+ return next.size === prev.size ? prev : next;
+ });
+ }, [addedBy, allDisplayCols, allOffTemplateCols]);
+ // Menu „Kto dodał” w panelu osoby — te same liczby co przycisk w nagłówku
+ // (osoby w toku, `lib/board-added-by.ts`), z żywego stanu Tablicy.
+ const addedByMenuOptions = useMemo(
+ () =>
+ addedByOptions(peopleInProgress(cols), {
+ id: authUser?.id ?? null,
+ name: authUser?.name ?? null,
+ }),
+ [cols, authUser?.id, authUser?.name]
+ );
 
- // Nawigator doku „‹ N z M ›" — kolejność WIDOCZNEJ Tablicy: kolumny od
- // lewej (także rozwinięci zamknięci i „Poza szablonem"), karty od góry
- // (`dockNavigationOrder`). Klucz to `candidate_id` (stabilny przez ruchy),
- // dokładnie jak `dockCandidateId`.
- const dockOrder = useMemo(() => dockNavigationOrder(visibleCols), [visibleCols]);
+ // ── Kolejka panelu „‹ N z M ›” (D1, 14.10.2026) ────────────────────────
+ // Strzałki chodzą po JEDNEJ kolumnie Tablicy — kolumnie otwartej osoby,
+ // z filtrem „Kto dodał” — nie po całej Tablicy (rekruter widział „1 z 66”,
+ // gdy w „Nowych” było 43). Kolejka zostaje, gdy panel idzie dalej w tej
+ // kolumnie (strzałki, przejście po odrzuceniu) albo osoba z niej wypada
+ // (ruch, zamknięcie, „Pokaż”); zmienia się, gdy otworzysz osobę z innej
+ // kolumny. Zamknięci nie są kolejką. Klucz to `candidate_id` (stabilny przez
+ // ruchy), dokładnie jak `dockCandidateId`.
+ // Zasady: docs/claude/rekrutacja-tablica/nastepna-osoba-po-odrzuceniu.md („Kolejka w kolumnie…”).
+ const columnOfCandidate = useMemo(() => {
+ const m = new Map<number, string>();
+ for (const c of [...allDisplayCols, ...allOffTemplateCols]) {
+ for (const item of c.items) if (!m.has(item.candidate_id)) m.set(item.candidate_id, colId(c));
+ }
+ return m;
+ }, [allDisplayCols, allOffTemplateCols]);
+ const queueCol = useMemo(
+ () => [...displayCols, ...offTemplateCols].find((c) => colId(c) === queue.colId) ?? null,
+ [displayCols, offTemplateCols, queue.colId]
+ );
+ // Kotwica liczona w renderze (stan pochodny, bez efektu — panel nie miga
+ // licznikiem poprzedniej kolumny). Po ustawieniu warunek jest fałszywy,
+ // więc render się nie zapętla. Zamknięty panel zostawia kolumnę, ale
+ // ponowne otwarcie (także tej samej osoby) wyznacza kolejkę od nowa.
+ if (dockCandidateId == null) {
+ if (queue.forCandidate != null) setQueue({ colId: queue.colId, forCandidate: null });
+ } else {
+ const ownColumn = columnOfCandidate.get(dockCandidateId) ?? null;
+ if (queue.forCandidate !== dockCandidateId || (queueCol == null && ownColumn != null)) {
+ const nextColId = queueColumnAfterOpen(
+ queueCol ? queue.colId : null,
+ dockCandidateId,
+ queueCol ? dockNavigationOrder([queueCol]) : [],
+ ownColumn
+ );
+ if (nextColId !== queue.colId || queue.forCandidate !== dockCandidateId) {
+ setQueue({ colId: nextColId, forCandidate: dockCandidateId });
+ }
+ }
+ }
+ const dockOrder = useMemo(() => (queueCol ? dockNavigationOrder([queueCol]) : []), [queueCol]);
  const dockIndex = dockItem ? dockOrder.indexOf(dockItem.candidate_id) : -1;
+ // Cała widoczna Tablica (z filtrem) — „Następna w Screeningu” w karcie CV.
+ const boardOrder = useMemo(() => dockNavigationOrder(visibleCols), [visibleCols]);
+ const queueColumnName = queueCol
+ ? boardLabelByColId.get(colId(queueCol)) ?? columnLabel(queueCol)
+ : null;
+ const queueSuffix = addedByQueueSuffix(addedBy, addedByMenuOptions);
+ const queueLabel = queueColumnName
+ ? queueSuffix
+ ? `${queueColumnName} · ${queueSuffix}`
+ : queueColumnName
+ : null;
+ // Kto stał za osobą z panelu, zanim wypadła z kolejki — „Wróć do kolejki”.
+ const formerlyAfterRef = useRef<number[]>([]);
+ useEffect(() => {
+ if (dockIndex >= 0) formerlyAfterRef.current = dockOrder.slice(dockIndex + 1);
+ }, [dockIndex, dockOrder]);
  // 0424: w panelu dzielonym „‹ ›” po „Nowych” i „Screeningu” zostaje przy
  // formularzu — rekruter przechodzi kolejkę bez zwijania panelu. Ta sama
  // reguła po odrzuceniu z panelu (niżej).
@@ -3201,13 +3365,13 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  (candidateId: number, column: BoardColumnKey): NextInColumn | null => {
  const byCandidate = new Map<number, KanbanItem>();
  for (const c of cols) for (const i of c.items) byCandidate.set(i.candidate_id, i);
- const inColumn = dockOrder.filter((id) => {
+ const inColumn = boardOrder.filter((id) => {
  const found = byCandidate.get(id);
  return id !== candidateId && found != null && columnByItemId.get(found.id) === column;
  });
  if (inColumn.length === 0) return null;
- const at = dockOrder.indexOf(candidateId);
- const nextId = (at >= 0 ? inColumn.find((id) => dockOrder.indexOf(id) > at) : undefined) ?? inColumn[0];
+ const at = boardOrder.indexOf(candidateId);
+ const nextId = (at >= 0 ? inColumn.find((id) => boardOrder.indexOf(id) > at) : undefined) ?? inColumn[0];
  const next = byCandidate.get(nextId) as KanbanItem;
  const days = next.days_in_stage;
  return {
@@ -3217,7 +3381,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  days == null ? null : days <= 0 ? "czeka od dziś" : days === 1 ? "czeka 1 dzień" : `czeka ${days} dni`,
  };
  },
- [cols, dockOrder, columnByItemId]
+ [cols, boardOrder, columnByItemId]
  );
  // „Otwórz” przy następnej osobie w karcie CV: osoba z „Nowych”/„Screeningu”
  // dostaje formularz w panelu dzielonym (jak klik w kartę) — rekruter zwykle
@@ -3264,7 +3428,13 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  nextStageId: number;
  } | null>(null);
  const advanceAfterClose = useCallback(
- (closed: KanbanItem, verb: ClosedVerb, after: readonly number[], reason: string | null) => {
+ (
+ closed: KanbanItem,
+ verb: ClosedVerb,
+ after: readonly number[],
+ reason: string | null,
+ queueName: string | null
+ ) => {
  // Rekruter zdążył otworzyć kogoś innego albo zamknąć panel — nie skaczemy.
  if (dockCandidateId !== closed.candidate_id) return;
  const live = new Set(dockOrder);
@@ -3273,10 +3443,15 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  const name = itemFullName(closed);
  if (nextId == null || !next) {
  closeDock();
- showActionToast(`${verb}: ${name}. To była ostatnia osoba w kolejności Tablicy.`, {
+ showActionToast(
+ queueName
+ ? `${verb}: ${name}. To była ostatnia osoba w kolejce „${queueName}”.`
+ : `${verb}: ${name}. To była ostatnia osoba w kolejce.`,
+ {
  actionLabel: "Pokaż",
  onAction: () => setDockCandidateId(closed.candidate_id),
- });
+ }
+ );
  return;
  }
  setAfterClose({ closedId: closed.candidate_id, name, verb, reason, nextId, nextStageId: next.item.id });
@@ -3294,7 +3469,8 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  setAfterClose(null);
  }
  }, [afterClose, dockCandidateId]);
- // Migawka kolejności w chwili otwarcia okna: kto stoi za zamykaną osobą.
+ // Migawka kolejki w chwili otwarcia okna: kto stoi za zamykaną osobą
+ // (od 14.10.2026 w tej samej kolumnie i z tym samym filtrem — D1).
  const dockFollowUp = useCallback(
  (closed: KanbanItem, verb: ClosedVerb): RejectFollowUp | undefined => {
  if (dockIndex < 0) return undefined;
@@ -3303,10 +3479,11 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  return {
  stageLabel: dockItemColLabel,
  next: preview ? { name: itemFullName(preview.item), stageLabel: preview.label } : null,
- onMoved: ({ reasonLabel }) => advanceAfterCloseRef.current(closed, verb, after, reasonLabel),
+ onMoved: ({ reasonLabel }) =>
+ advanceAfterCloseRef.current(closed, verb, after, reasonLabel, queueLabel),
  };
  },
- [dockIndex, dockOrder, locateCandidate, dockItemColLabel]
+ [dockIndex, dockOrder, locateCandidate, dockItemColLabel, queueLabel]
  );
  const handleDockReject = useCallback(
  (options?: { notes?: string | null }) => {
@@ -3340,10 +3517,41 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  onShow: () => setDockCandidateId(afterClose.closedId),
  }
  : null;
- const returnToQueueItem =
- afterClose && dockItem?.candidate_id === afterClose.closedId && dockIndex < 0
- ? locateCandidate(afterClose.nextId)?.item ?? null
+ // Osoba z panelu jest poza kolejką (zamknięta z panelu, przesunięta dalej,
+ // schowana filtrem): „Wróć do kolejki” — po odrzuceniu do osoby, która
+ // przejęła panel, inaczej do tej, która stała za nią w kolejce.
+ const returnToQueueId =
+ dockItem && dockIndex < 0
+ ? afterClose && dockItem.candidate_id === afterClose.closedId
+ ? afterClose.nextId
+ : returnToQueueTarget(dockOrder, formerlyAfterRef.current)
  : null;
+ const returnToQueueItem =
+ returnToQueueId != null ? locateCandidate(returnToQueueId)?.item ?? null : null;
+ // Koniec kolejki (D4): „›” jest nieaktywna, pasek mówi, że to ostatnia
+ // osoba, i daje „Od pierwszej”, „Wszyscy (N)” (gdy filtr coś schował)
+ // oraz „Dalej: <kolumna>” — do pierwszej kolumny na prawo, w której ktoś jest.
+ const queueEnd = useMemo(() => {
+ if (!queueCol || dockIndex < 0 || dockIndex !== dockOrder.length - 1) return null;
+ const queueColId = colId(queueCol);
+ const total = totalCountByColId.get(queueColId) ?? queueCol.count;
+ const at = displayCols.findIndex((c) => colId(c) === queueColId);
+ const next = at >= 0 ? nextColumnWithPeople(displayCols, at) : null;
+ return {
+ count: dockOrder.length,
+ onFirst: dockOrder.length > 1 ? () => showInDock(dockOrder[0]) : undefined,
+ showAll:
+ onAddedByChange && addedBy.kind !== "all" && total > dockOrder.length
+ ? { label: `Wszyscy (${total})`, onClick: () => onAddedByChange(ADDED_BY_ALL) }
+ : undefined,
+ next: next
+ ? {
+ label: `Dalej: ${boardLabelByColId.get(colId(next)) ?? columnLabel(next)} (${next.items.length})`,
+ onClick: () => showInDock(next.items[0].candidate_id),
+ }
+ : undefined,
+ };
+ }, [queueCol, dockIndex, dockOrder, totalCountByColId, displayCols, showInDock, onAddedByChange, addedBy, boardLabelByColId]);
 
  const boardEntries = useMemo(
  () => visibleCols.map((col) => ({ kind: "column" as const, key: colId(col), col })),
@@ -3684,8 +3892,17 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  slaDays={slaDays}
  badgeByItemId={boardFold.badgeByItemId}
  step={boardColumnStep(boardKeyByColId.get(entry.key))}
+ totalCount={addedBy.kind === "all" ? undefined : totalCountByColId.get(entry.key)}
+ filterEmpty={
+ onAddedByChange && addedBy.kind !== "all" && (totalCountByColId.get(entry.key) ?? 0) > 0
+ ? {
+ text: addedByEmptyColumnText(addedBy, addedByMenuOptions),
+ onShowAll: () => onAddedByChange(ADDED_BY_ALL),
+ }
+ : null
+ }
 headerAction={
- boardKeyByColId.get(entry.key) === "cv_qc" && canReviewAsDl && entry.col.count >= 2 && !readOnly ? (
+ boardKeyByColId.get(entry.key) === "cv_qc" && canReviewAsDl && (totalCountByColId.get(entry.key) ?? entry.col.count) >= 2 && !readOnly ? (
  <Button
  type="button"
  size="sm"
@@ -3695,7 +3912,7 @@ headerAction={
  data-testid="dl-review-compare"
  data-help="jobs.board.dl-compare"
  >
- Porównaj ({entry.col.count})
+ Porównaj ({totalCountByColId.get(entry.key) ?? entry.col.count})
  </Button>
  ) : null
  }
@@ -3716,7 +3933,7 @@ headerAction={
  }
  purpose={boardColumnPurpose(boardKeyByColId.get(entry.key), {
  cproEnabled,
- hired: entry.col.count,
+ hired: totalCountByColId.get(entry.key) ?? entry.col.count,
  headcount: workbenchContext?.headcount ?? null,
  })}
  {...(boardLabelByColId.has(entry.key)
@@ -3775,6 +3992,13 @@ headerAction={
  onSelectNext={() => selectAdjacentDockCard(1)}
  closedNotice={dockClosedNotice}
  onReturnToQueue={returnToQueueItem ? () => openDock(returnToQueueItem) : undefined}
+ queueLabel={queueLabel}
+ addedByMenu={
+ onAddedByChange
+ ? { options: addedByMenuOptions, value: addedBy, onChange: onAddedByChange }
+ : undefined
+ }
+ queueEnd={queueEnd}
  nextAction={dockNextAction}
  primaryTarget={dockPrimaryMove?.target ?? null}
  primaryBlocked={dockPrimaryMove?.blocked ?? null}

@@ -259,6 +259,58 @@ async def test_sort_attention_orders_and_paginates_stably(
     assert paged == [r["id"] for r in full]
 
 
+async def test_board_card_names_who_added_the_person_not_who_moved_it_last(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """Filtr „Kto dodał” (14.10.2026): numer osoby z PIERWSZEGO wpisu pary,
+    nie z bieżącego etapu."""
+    from sqlalchemy import select
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.recruitment_pipeline import CandidateStage, PipelineStage
+    from tests._job_factory import new_recruiter
+
+    world = await _seed(cards=[("Screening", 1), ("Nowy", 0)])
+    adder_id = await new_recruiter()
+    mover_id = await new_recruiter()
+    async with AsyncSessionLocal() as db:
+        current, untouched = (
+            (
+                await db.execute(
+                    select(CandidateStage)
+                    .where(CandidateStage.job_id == world["job_id"])
+                    .order_by(CandidateStage.id)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        current.moved_by = mover_id
+        db.add(
+            CandidateStage(
+                candidate_id=current.candidate_id,
+                job_id=current.job_id,
+                stage=PipelineStage.new,
+                moved_by=adder_id,
+                moved_at=current.moved_at - timedelta(days=2),
+            )
+        )
+        await db.commit()
+        current_id, untouched_id = current.id, untouched.id
+
+    resp = await app_client.get(
+        f"/api/pipeline/kanban/{world['job_id']}", headers=app_auth_headers
+    )
+    assert resp.status_code == 200, resp.text
+    cards = {i["id"]: i for c in resp.json()["columns"] for i in c["items"]}
+
+    assert cards[current_id]["added_to_job_by_id"] == adder_id
+    assert cards[current_id]["added_to_job_by_name"] == "Job Factory Recruiter"
+    assert cards[current_id]["moved_by"] == mover_id
+    # Brak zapisanej osoby dodającej = „Brak danych” w filtrze, nie zero.
+    assert cards[untouched_id]["added_to_job_by_id"] is None
+
+
 async def test_board_card_carries_recruiter_availability_and_warning_codes(
     app_client: AsyncClient, app_auth_headers: dict
 ):

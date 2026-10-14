@@ -4,6 +4,6 @@
   "sources": {
     "frontend/src/components/champion/ChampionBriefView.tsx": "e606feb4ac202473f8234352280e86d39c2de8f6fd848e0cf24eaf843e21c29f",
     "frontend/src/components/champion/ChampionWorkspace.tsx": "20bbe6e0224b19e5810d060e61fb2ca20eab02e3002e881bcc55333b1b5bc4b8",
-    "frontend/src/components/v2/jobs/JobDetailCompactHeader.tsx": "baa21948e7d260f13a92715d1e9bce7fdb38ab279655c3ab4a7beee08c1f2266"
+    "frontend/src/components/v2/jobs/JobDetailCompactHeader.tsx": "bbc2176219507722bafb7b84c2e6b068db7ea9e07660b915f11abf3dfa4d4f5e"
   }
 }

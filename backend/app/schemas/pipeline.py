@@ -190,6 +190,8 @@ class CandidateStageResponse(BaseModel):
     # Kanban endpoint so cards can show "kto przypisał kandydata do rekrutacji"
     # on hover. Distinct from `moved_by` which is the current-stage mover.
     added_to_job_by_name: Optional[str] = None
+    # Numer tej osoby — filtr „Kto dodał” na Tablicy (14.10.2026).
+    added_to_job_by_id: Optional[int] = None
     added_to_job_at: Optional[datetime] = None
     # Set when this move caused a rejection email to be queued; lets the FE
     # show a "Cofnij wysyłkę" toast and anchor the cancel link.

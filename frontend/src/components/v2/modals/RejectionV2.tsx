@@ -418,7 +418,7 @@ export function RejectionV2({
  <p className="min-w-0 self-center text-xs text-muted-foreground sm:mr-auto">
  {nextPerson
  ? `Dalej: ${nextPerson.name} · ${nextPerson.stageLabel}`
- : "To ostatnia osoba na Tablicy — panel się zamknie."}
+ : "To ostatnia osoba w kolejce — panel się zamknie."}
  </p>
  ) : null}
  <Button variant="ghost" onClick={() => onOpenChange(false)}>

@@ -79,6 +79,8 @@ interface JobDetailCompactHeaderProps {
   badges?: ReactNode;
   /** Klient · Budżet · Tryb pracy (`lib/job-header-facts.ts`). */
   facts: readonly JobHeaderFact[];
+  /** Po prawej stronie linii faktów — na Tablicy filtr „Kto dodał” (14.10.2026). */
+  factsTrailing?: ReactNode;
   presence?: ReactNode;
   /** Aktywny widok: „Tablica" albo „Profil Championa" (`people` = lista „Do przejrzenia"). */
   activeView: JobDetailView;
@@ -180,6 +182,7 @@ export function JobDetailCompactHeader({
   referenceNumber,
   badges,
   facts,
+  factsTrailing,
   presence,
   activeView,
   onViewChange,
@@ -561,7 +564,9 @@ export function JobDetailCompactHeader({
       </div>
 
       {/* Klient · Budżet · Tryb pracy — trzy rzeczy, które rekruter sprawdza
-          przed każdym telefonem. Brak wartości to „nie podano”, nie pustka. */}
+          przed każdym telefonem. Brak wartości to „nie podano”, nie pustka.
+          Po prawej `factsTrailing` — na Tablicy filtr „Kto dodał” (14.10.2026). */}
+      <div className="flex flex-wrap items-center gap-2">
       <dl className="flex flex-wrap gap-2" data-testid="job-header-facts">
         {facts.map((fact) => {
           // Etykieta i wartość w jednej linii, bez kwadratowej ikony —
@@ -588,6 +593,8 @@ export function JobDetailCompactHeader({
           );
         })}
       </dl>
+      {factsTrailing ? <div className="ml-auto">{factsTrailing}</div> : null}
+      </div>
     </header>
   );
 }
