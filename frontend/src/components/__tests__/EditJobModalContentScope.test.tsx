@@ -211,6 +211,20 @@ describe("EditJobModal — edycja treści przez rekrutera (22.09.2026)", () => {
     expect(url).toBe("/api/jobs/7");
     expect(body).toMatchObject({ recruiter_id: 11, delivery_lead_id: 12 });
   });
+
+  it("„— bez rekrutera —” wysyła `recruiter_id: null`, więc zdejmuje rekrutera (14.10.2026)", async () => {
+    // Do 14.10.2026 puste pole szło jako `undefined` i wypadało z ciała
+    // PATCH-a, a serwer zmienia tylko wysłane pola — rekruter zostawał
+    // i wracał po odświeżeniu.
+    vi.mocked(phase5Api.clientsLookup).mockResolvedValue({ data: [] } as never);
+    const user = userEvent.setup();
+    renderModal();
+    await user.selectOptions(screen.getByLabelText("Rekruter"), "");
+    await user.click(screen.getByRole("button", { name: "Zapisz zmiany" }));
+    await waitFor(() => expect(api.patch).toHaveBeenCalledTimes(1));
+    const [, body] = vi.mocked(api.patch).mock.calls[0];
+    expect(body).toHaveProperty("recruiter_id", null);
+  });
 });
 
 describe("EditJobModal — status bez szkiców (04.10.2026)", () => {

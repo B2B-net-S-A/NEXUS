@@ -2606,22 +2606,27 @@ async def update_job(
     _hiring_manager_before = job.hiring_manager_contact_id
     _recruiter_before = job.recruiter_id
     _category_before = job.competence_category_id
+    # Puste pole „Rekruter” = „Zdejmij” (14.10.2026): ta sama droga co
+    # `DELETE /owner`. Zwolnienie `owner_changed` (gałąź niżej) nie blokuje
+    # automatu, więc w trybie `auto` zdjęta osoba mogła wrócić jako
+    # prowadząca. Przed wpisaniem pól — `remove_recruiter` rozpoznaje
+    # prowadzącego po `job.recruiter_id`.
+    if recruiter_changed and data.recruiter_id is None:
+        await remove_recruiter(
+            db, job=job, user_id=_recruiter_before, actor_id=current_user.id
+        )
     for k, v in updates.items():
         setattr(job, k, v)
     _assert_delivery_lead_job_visible(job, delivery_lead_pairs)
     # Okno edycji zmienia rekrutera PATCH-em, nie przez `/owner` — rola
     # „Rekruter” ma po obu drogach wyglądać tak samo (02.10.2026): poprzednia
     # osoba traci aktywne przypisanie, nowa dostaje je w puli przydziału.
-    if recruiter_changed and job.recruiter_id != _recruiter_before:
+    if recruiter_changed and data.recruiter_id is not None:
         await _sync_work_assignments_with_owner(
             db,
             job=job,
             previous_owner_id=_recruiter_before,
-            owner=(
-                await db.get(User, job.recruiter_id)
-                if job.recruiter_id is not None
-                else None
-            ),
+            owner=await db.get(User, job.recruiter_id),
             actor_id=current_user.id,
         )
     # Hiring manager musi być kontaktem klienta rekrutacji. Jawnie wskazany
@@ -5076,7 +5081,10 @@ async def _sync_work_assignments_with_owner(
 
     Wołać PO wpisaniu ``job.recruiter_id``; wołający trzyma ``allocation_lock``
     i blokadę wiersza rekrutacji (w tej kolejności). ``owner=None`` = pole
-    wyczyszczone: zostaje samo zwolnienie poprzedniej osoby.
+    wyczyszczone przez porządki bez człowieka (otwarcie bez roli rekrutera,
+    przeniesienie z Traffita): zostaje samo zwolnienie poprzedniej osoby.
+    Człowiek czyści pole przez ``job_team.remove_recruiter`` (``DELETE /owner``,
+    puste pole w oknie edycji), bo jego zdjęcie blokuje automat.
 
     * Poprzednia osoba traci aktywne przypisanie — inaczej zostawałaby
       „Rekruterem” obok nowej, choć ktoś właśnie ją zastąpił. Powód
