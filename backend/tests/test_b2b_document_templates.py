@@ -557,3 +557,47 @@ def test_legacy_start_annex_keeps_its_date_mode():
     assert "z niniejszej Umowy nie później niż 15.10.2026 roku.”" in text
     assert "z niniejszej Umowy z dniem 01.09.2026 roku.”" in text
     assert "z dniem podpisania niniejszego aneksu" in text
+
+
+# ── Właściwości pliku bez autora z szablonu (14.10.2026) ────────────────────
+
+
+def _file_properties(data: bytes) -> dict[str, str]:
+    """Autor, „ostatnio zapisał” i firma/kierownik z `docProps` — to, co pokazuje Word."""
+    from docx import Document
+
+    props = Document(io.BytesIO(data)).core_properties
+    with zipfile.ZipFile(io.BytesIO(data)) as archive:
+        app = (
+            archive.read("docProps/app.xml").decode("utf-8")
+            if "docProps/app.xml" in archive.namelist()
+            else ""
+        )
+
+    def tag(name: str) -> str:
+        found = re.search(rf"<{name}>([^<]*)</{name}>", app)
+        return found.group(1) if found else ""
+
+    return {
+        "author": props.author,
+        "last_modified_by": props.last_modified_by,
+        "company": tag("Company"),
+        "manager": tag("Manager"),
+    }
+
+
+ONE_PER_TEMPLATE = [
+    pytest.param(t, lang, id=f"{t.key}-{lang}")
+    for t in TYPES.values()
+    for lang in t.languages
+]
+
+
+@pytest.mark.parametrize(("doc_type", "lang"), ONE_PER_TEMPLATE)
+def test_document_file_carries_no_author_from_the_template(doc_type, lang):
+    # Szablony mają w docProps imiona i nazwiska osób z firmy i nazwę
+    # kancelarii, która je przygotowała — Partner nie dostaje ich w pliku.
+    _, data, _ = _render(doc_type, lang, "m", _variants(doc_type)[0])
+    assert _file_properties(data) == dict.fromkeys(
+        ("author", "last_modified_by", "company", "manager"), ""
+    )
