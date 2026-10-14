@@ -18,10 +18,10 @@ const CV =
 
 const editors: Editor[] = [];
 
-function mount(): Editor {
-  const editor = new Editor({ extensions: cvEditorExtensions(), content: CV });
+function mount(defaultAlign?: "justify" | "left", content = CV): Editor {
+  const editor = new Editor({ extensions: cvEditorExtensions(), content });
   editors.push(editor);
-  render(<CvEditorToolbar editor={editor} language="pl" />);
+  render(<CvEditorToolbar editor={editor} language="pl" defaultAlign={defaultAlign} />);
   return editor;
 }
 
@@ -128,4 +128,67 @@ it("menu domykane po zamknięciu edytora nie sięga do nieistniejącego widoku",
   // Radix oddaje fokus po zamknięciu menu; nieobsłużony wyjątek wywraca bieg vitest.
   fireEvent.keyDown(item, { key: "Escape" });
   await waitFor(() => expect(screen.queryByRole("menuitem", { name: "Język" })).toBeNull());
+});
+
+// ── Wyrównanie (decyzja J1, 14.10.2026) ─────────────────────────────────────
+
+it("akapit bez jawnego wyrównania idzie za domyślnym CV — wyjustowanym albo do lewej", () => {
+  const editor = mount();
+  caretIn(editor, "Usługi płatnicze");
+  expect(button("Wyjustuj")).toHaveAttribute("aria-pressed", "true");
+  expect(button("Do lewej")).toHaveAttribute("aria-pressed", "false");
+});
+
+it("reguła klienta „do lewej” zaznacza „Do lewej”", () => {
+  const editor = mount("left");
+  caretIn(editor, "Usługi płatnicze");
+  expect(button("Do lewej")).toHaveAttribute("aria-pressed", "true");
+});
+
+it("„Do lewej” zapisuje wyrównanie tylko w akapicie z kursorem i daje się cofnąć", () => {
+  const editor = mount();
+  caretIn(editor, "Usługi płatnicze");
+  fireEvent.click(button("Do lewej"));
+  expect(editor.getHTML()).toContain('<li><p style="text-align: left;">Usługi płatnicze.</p></li>');
+  expect(editor.getHTML().match(/text-align/g)).toHaveLength(1);
+  expect(button("Do lewej")).toHaveAttribute("aria-pressed", "true");
+  fireEvent.click(button("Cofnij"));
+  expect(editor.getHTML()).not.toContain("text-align");
+});
+
+it("zaznaczenie całego CV wyjustowuje akapity, ale nie klauzulę zgody", () => {
+  const editor = mount("left");
+  act(() => {
+    editor.commands.selectAll();
+  });
+  fireEvent.click(button("Wyjustuj"));
+  const page = new DOMParser().parseFromString(editor.getHTML(), "text/html");
+  const align = (selector: string) =>
+    [...page.querySelectorAll<HTMLElement>(selector)].map((node) => node.style.textAlign);
+  expect(align('p[data-cv-section="role"], p[data-cv-section="employer"], li > p')).toEqual(
+    Array(5).fill("justify"),
+  );
+  expect(align('p[data-cv-section="rodo"]')).toEqual([""]);
+  expect(align("h1, h2")).toEqual(["", ""]);
+});
+
+it("nagłówek i klauzula zgody nie mają przycisków wyrównania", () => {
+  const editor = mount();
+  caretIn(editor, "DOŚWIADCZENIE");
+  expect(button("Wyjustuj")).toBeDisabled();
+  caretIn(editor, "Wyrażam zgodę");
+  expect(button("Do lewej")).toBeDisabled();
+});
+
+it("wyrównanie z zapisanego CV przeżywa wczytanie i zmianę typu akapitu", async () => {
+  const content = CV.replace(
+    '<p data-cv-section="employer">Bank Przykładowy</p>',
+    '<p data-cv-section="employer" style="text-align: left">Bank Przykładowy</p>',
+  );
+  const editor = mount(undefined, content);
+  caretIn(editor, "Bank Przykładowy");
+  expect(button("Do lewej")).toHaveAttribute("aria-pressed", "true");
+  fireEvent.keyDown(button("Typ akapitu: Firma"), { key: "ArrowDown" });
+  fireEvent.click(await screen.findByRole("menuitemradio", { name: "Zwykły tekst" }));
+  expect(editor.getHTML()).toContain('<p style="text-align: left;">Bank Przykładowy</p>');
 });

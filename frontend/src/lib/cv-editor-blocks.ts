@@ -600,11 +600,13 @@ export function setBlockKind(kind: CvBlockKind, lang: CvLang): CvCommand {
       }
       return tr;
     }
+    // Zmiana typu akapitu nie kasuje jego wyrównania (przycisk „Wyjustuj”).
+    const textAlign = (block.node.attrs.textAlign as string | null | undefined) ?? null;
     if (kind === "text") {
-      return tr.setNodeMarkup(block.from, schema.nodes.paragraph, { cvSection: null });
+      return tr.setNodeMarkup(block.from, schema.nodes.paragraph, { cvSection: null, textAlign });
     }
     if (kind === "role" && outline.roles.length === 0) markLegacyStructure(tr, outline);
-    tr.setNodeMarkup(block.from, schema.nodes.paragraph, { cvSection: kind });
+    tr.setNodeMarkup(block.from, schema.nodes.paragraph, { cvSection: kind, textAlign });
     if (kind === "role") ensureLeadingBold(tr, block, schema);
     return tr;
   };

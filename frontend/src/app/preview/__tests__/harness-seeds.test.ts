@@ -222,6 +222,22 @@ describe("/preview/jobs-list-v3 zasiewa listę TYMI SAMYMI kluczami co komponent
     expect(harness).toContain("interceptors.request.use");
     expect(harness).toContain("interceptors.request.eject");
   });
+
+  it("okienko kolumny „Rekruter” czyta zasiany katalog osób i obłożenie, nie sieć", () => {
+    // Oglądający harnessu to admin, więc komórka otwiera okienko edycji. Ono
+    // pyta o katalog osób (stały klucz) i o pulpit „Requesty i obłożenie”
+    // (klucz ze stałej, której strażnik literałów nie widzi) — oba z własnym
+    // `staleTime`, więc zasiew musi być „świeży” na dłużej niż oglądanie.
+    const editor = withoutComments(read("components/v2/jobs/JobRecruiterEditor.tsx"));
+    expect(literalQueryKeys(editor)).toEqual(['["users-directory"]']);
+    expect(editor).toContain("useRequestBoard()");
+    expect(harness).toMatch(
+      /setQueryData\(\["users-directory"\], DIRECTORY, \{ updatedAt: SEED_FRESH_UNTIL \}\)/,
+    );
+    expect(harness).toMatch(
+      /setQueryData<RequestBoard>\(REQUEST_BOARD_QUERY_KEY, REQUEST_BOARD, \{\s*updatedAt: SEED_FRESH_UNTIL,?\s*\}\)/,
+    );
+  });
 });
 
 describe("/preview/custom-dashboard zasiewa każdy stały klucz", () => {

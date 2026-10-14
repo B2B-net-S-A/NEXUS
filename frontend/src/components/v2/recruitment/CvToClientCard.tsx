@@ -105,7 +105,9 @@ import { Button } from "@/components/ui/button";
 import { ConsentAttachButton } from "@/components/v2/cv-generator/ConsentAttachButton";
 import { CVOriginalPreviewModal } from "@/components/v2/modals/CVOriginalPreviewModal";
 import { CvGeneratePanel } from "@/components/v2/recruitment/CvGeneratePanel";
-import { CvHtmlPreviewDialog } from "@/components/v2/recruitment/CvHtmlPreviewDialog";
+import { CvFilePreviewDialog } from "@/components/v2/cv/CvFilePreviewDialog";
+import { fetchStageCvFile } from "@/lib/stage-cv-file";
+import { normalizeCvAlign } from "@/lib/cv-editor-align";
 import { CvToClientChecks, useCvChecksCount } from "@/components/v2/recruitment/CvToClientChecks";
 import { UseOtherCvDialog } from "@/components/v2/recruitment/UseOtherCvDialog";
 import { useReadyCvChoice } from "@/components/v2/recruitment/useReadyCvChoice";
@@ -299,6 +301,11 @@ export interface CvToClientCardProps {
   nextInScreening?: CvCardNextPerson | null;
   /** Otwiera wskazaną osobę w panelu (jak „›”); bez niego przycisku nie ma. */
   onOpenPerson?: (candidateId: number) => void;
+  /**
+   * Plik CV do „Podglądu” (bez intencji pobrania). Harness `/preview/cv-to-client`
+   * podaje plik z pamięci — w `/preview/*` zapytania POST są blokowane.
+   */
+  loadStageCvFile?: (stageId: number) => Promise<{ blob: Blob }>;
 }
 
 export function CvToClientCard({
@@ -313,6 +320,7 @@ export function CvToClientCard({
   forwarded = false,
   nextInScreening = null,
   onOpenPerson,
+  loadStageCvFile = fetchStageCvFile,
 }: CvToClientCardProps) {
   const queryClient = useQueryClient();
   const { showSuccess, showError } = useToast();
@@ -961,11 +969,14 @@ export function CvToClientCard({
         />
       ) : null}
       {previewOpen ? (
-        <CvHtmlPreviewDialog
+        <CvFilePreviewDialog
           open
           onOpenChange={setPreviewOpen}
-          html={branded?.content_html ?? null}
           title={`CV do klienta — ${candidateName}`}
+          load={() => loadStageCvFile(cvStageId).then((file) => file.blob)}
+          fallbackHtml={branded?.content_html ?? null}
+          language={branded?.language === "en" ? "en" : "pl"}
+          textAlign={normalizeCvAlign(branded?.text_align)}
         />
       ) : null}
       {originalOpen ? (

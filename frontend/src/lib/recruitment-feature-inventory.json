@@ -77,6 +77,14 @@
    "v3_home": "ikona podglądu w wierszu"
   },
   {
+   "id": "list.recruiter-edit",
+   "area": "lista",
+   "opis": "Kolumna „Rekruter” z edycją (14.10.2026): admin, Head of Recruitment i Delivery Lead zdejmują osobę, przypisują albo dodają rekrutera i rozstrzygają propozycję automatu w okienku przy komórce",
+   "file": "components/v2/pages/JobsListV2.tsx",
+   "marker": "job.recruiter.assign",
+   "v3_home": "kolumna „Rekruter” na liście rekrutacji"
+  },
+  {
    "id": "list.priority-badges",
    "area": "lista",
    "opis": "Odznaki Priority Work",
@@ -194,7 +202,7 @@
    "area": "naglowek",
    "opis": "„+ Dodaj osobę” (kolejna osoba przy rekrutacji) i zdjęcie osoby „×” z potwierdzeniem",
    "file": "components/v2/jobs/JobOwnershipPanel.tsx",
-   "marker": "removeRecruiter",
+   "marker": "+ Dodaj osobę",
    "v3_home": "Profil Championa → Zespół i ogłoszenie → Rekruter"
   },
   {
@@ -202,7 +210,7 @@
    "area": "naglowek",
    "opis": "Propozycja automatu przy rekrutacji: „Akceptuj” · „Zmień” · „Odrzuć” (admin, Head of Recruitment); do decyzji nikt nie jest przypisany",
    "file": "components/v2/jobs/JobOwnershipPanel.tsx",
-   "marker": "decideProposal",
+   "marker": "proposalActions",
    "v3_home": "Profil Championa → Zespół i ogłoszenie → Rekruter"
   },
   {

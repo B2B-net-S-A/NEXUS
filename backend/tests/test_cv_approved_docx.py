@@ -147,7 +147,7 @@ async def test_approval_freezes_actual_edits_and_download_never_rerenders(monkey
     assert [p.text for p in doc.paragraphs] == [
         "Poprawione Python, bez dopisanej kompetencji."
     ]
-    assert version.render_metadata["renderer_version"] == "approved-html-2"
+    assert version.render_metadata["renderer_version"] == "approved-html-3"
     csv.branded_draft_html = "<p>Późniejsze poprawki</p>"
     csv.branded_version = 2
     csv.branded_status = "draft"

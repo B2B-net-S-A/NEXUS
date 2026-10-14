@@ -6209,6 +6209,8 @@ export interface StageCvSourceItem {
 
 export interface CVBrandedState {
   presentation_review?: { status: string; message?: string; manual_fields?: string[]; checked_fields?: string[]; reason?: string } | null;
+  /** Domyślne wyrównanie treści w pliku Word (reguła klienta, decyzja J1 14.10.2026). */
+  text_align?: "justify" | "left";
   docx_available?: boolean;
   docx_filename?: string | null;
   generated_document_id?: number | null;

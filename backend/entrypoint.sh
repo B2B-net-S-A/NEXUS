@@ -3616,6 +3616,12 @@ END $$""",
         ALTER TABLE client_cv_rules ADD CONSTRAINT ck_cv_highlight_policy
             CHECK (highlight_policy IN ('none', 'technologies', 'must', 'must_nice', 'explicit'));
     EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
+    # 0441: wyrównanie treści CV (decyzja J1, 14.10.2026) — lustro migracji.
+    "ALTER TABLE client_cv_rules ADD COLUMN IF NOT EXISTS cv_text_align VARCHAR(8) NOT NULL DEFAULT 'justify'",
+    """DO $$ BEGIN
+        ALTER TABLE client_cv_rules ADD CONSTRAINT ck_client_cv_rules_text_align
+            CHECK (cv_text_align IN ('justify', 'left'));
+    EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
     # 0283: immutable publications and isolated drafts (Alembic safety net).
     "ALTER TABLE clients ADD COLUMN IF NOT EXISTS cv_rule_edit_revision INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE client_cv_rules ADD COLUMN IF NOT EXISTS draft_payload JSONB",

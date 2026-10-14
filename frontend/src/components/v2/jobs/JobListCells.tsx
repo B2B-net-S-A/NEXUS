@@ -20,6 +20,7 @@ import {
   competenceTone,
   useCompetenceCategories,
 } from "@/components/v2/CompetenceCategoryBadge";
+import { RecruiterCellEditor } from "@/components/v2/jobs/JobRecruiterEditor";
 import { RecruiterChips } from "@/components/v2/jobs/RecruiterChips";
 import { AD_PORTALS, portalAdHref, type JobAdPublicationBrief } from "@/lib/api/jobAd";
 import { shortenPersonName } from "@/lib/job-header-subtitle";
@@ -591,30 +592,49 @@ const shortName = (name: string) => shortenPersonName(name) ?? name;
  * było widać nazwisko tej głównej. Propozycja automatu ma przerywaną ramkę
  * i dopisek „propozycja” — to jeszcze nie praca, więc sama propozycja nie gasi
  * filtra „Bez rekrutera”.
+ *
+ * Z `edit` osoby (albo „Bez rekrutera”) otwierają okienko edycji
+ * (`RecruiterCellEditor`, 14.10.2026); „DL: …” zostaje poza nim.
  */
 export function JobRecruiterCell({
   job,
   highlightIds = [],
+  edit,
 }: {
   job: JobListRowFields;
   /** Osoby z filtra „Rekruter” listy (`worked_by`). */
   highlightIds?: readonly number[];
+  /** Rola przydzielająca przy niezamkniętej rekrutacji — o tym decyduje lista. */
+  edit?: { jobId: number; jobTitle: string; canDecide: boolean };
 }) {
   const dlName = job.delivery_lead_user?.name?.trim() || null;
   const viewerId = useAuthStore((s) => s.user?.id);
   const people = pinRecruiters(recruitersOf(job), [...highlightIds, viewerId]);
   const mine = myCandidatesOutsideTeam(job, viewerId);
+  const content =
+    people.length === 0 ? (
+      <NoRecruiterPill />
+    ) : (
+      <span className="flex min-w-0">
+        <RecruiterChips compact maxNames={2} size="sm" people={people} />
+      </span>
+    );
   return (
     <div
       className="flex min-w-0 max-w-[176px] flex-col gap-0.5"
       data-testid="job-recruiter-cell"
     >
-      {people.length === 0 ? (
-        <NoRecruiterPill />
+      {edit ? (
+        <RecruiterCellEditor
+          jobId={edit.jobId}
+          jobTitle={edit.jobTitle}
+          job={job}
+          canDecide={edit.canDecide}
+        >
+          {content}
+        </RecruiterCellEditor>
       ) : (
-        <span className="flex min-w-0">
-          <RecruiterChips compact maxNames={2} size="sm" people={people} />
-        </span>
+        content
       )}
       {dlName && (
         <span

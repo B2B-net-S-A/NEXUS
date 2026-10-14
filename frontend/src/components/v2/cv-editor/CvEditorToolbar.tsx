@@ -8,6 +8,8 @@
 
 import { useEditorState, type Editor } from "@tiptap/react";
 import {
+  AlignJustify,
+  AlignLeft,
   ArrowDown,
   ArrowUp,
   Bold,
@@ -35,6 +37,7 @@ import {
 import type { CvSelectionAiController } from "@/components/v2/cv-editor/useCvSelectionAi";
 import { useConfirmV2 } from "@/components/v2/modals/ConfirmV2";
 import { CV_AI_ACTIONS } from "@/lib/api/cvEditorAi";
+import { CV_DEFAULT_ALIGN, cvAlignAt, setCvAlign, type CvAlign } from "@/lib/cv-editor-align";
 import {
   CV_BLOCK_MARKERS,
   CV_SECTION_KEYS,
@@ -76,6 +79,8 @@ export interface CvEditorToolbarProps {
   editor: Editor;
   /** Język CV — etykiety szablonu we wstawianych blokach. */
   language: CvLang;
+  /** Domyślne wyrównanie treści CV (reguła klienta); akapit bez jawnego idzie za nim. */
+  defaultAlign?: CvAlign;
   disabled?: boolean;
   /**
    * „AI na zaznaczeniu”: drugie wejście obok dymka nad tekstem — dla klawiatury
@@ -84,7 +89,13 @@ export interface CvEditorToolbarProps {
   ai?: CvSelectionAiController;
 }
 
-export function CvEditorToolbar({ editor, language, disabled = false, ai }: CvEditorToolbarProps) {
+export function CvEditorToolbar({
+  editor,
+  language,
+  defaultAlign = CV_DEFAULT_ALIGN,
+  disabled = false,
+  ai,
+}: CvEditorToolbarProps) {
   const { askConfirm, confirmDialog } = useConfirmV2();
   const view = useEditorState({
     editor,
@@ -96,6 +107,7 @@ export function CvEditorToolbar({ editor, language, disabled = false, ai }: CvEd
         canRedo: current.can().redo(),
         bold: current.isActive("bold"),
         list: current.isActive("bulletList"),
+        align: cvAlignAt(current.state, defaultAlign),
         kind,
         kindLocked: context.locked || context.inList || kind === null,
         // Akapit ze znacznikiem struktury w liście straciłby go — najpierw „Zwykły tekst”.
@@ -179,6 +191,30 @@ export function CvEditorToolbar({ editor, language, disabled = false, ai }: CvEd
         onClick={() => editor.chain().focus().toggleBulletList().run()}
       >
         <List aria-hidden className="h-4 w-4" />
+      </Button>
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon-sm"
+        aria-label="Do lewej"
+        aria-pressed={view.align === "left"}
+        disabled={disabled || view.align === null}
+        className={cn(view.align === "left" && "bg-muted text-primary")}
+        onClick={() => run(setCvAlign("left"))}
+      >
+        <AlignLeft aria-hidden className="h-4 w-4" />
+      </Button>
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon-sm"
+        aria-label="Wyjustuj"
+        aria-pressed={view.align === "justify"}
+        disabled={disabled || view.align === null}
+        className={cn(view.align === "justify" && "bg-muted text-primary")}
+        onClick={() => run(setCvAlign("justify"))}
+      >
+        <AlignJustify aria-hidden className="h-4 w-4" />
       </Button>
       <Divider />
 
