@@ -1378,3 +1378,245 @@ async def test_version_history_keeps_the_gates_of_the_stage_cv_read(
             )
         )
     assert created is None
+
+
+# ── „Napisz od nowa” (Edytor CV 3, PR 5) ─────────────────────────────────────
+
+_REWRITE_A = {
+    "name": "Synthetic",
+    "language": "pl",
+    "why_points": ["Python w Acme."],
+    "languages": ["Polski – ojczysty"],
+    "experience": [
+        {
+            "dates": "01.2020 – obecnie",
+            "company": "Acme",
+            "position": "Developer",
+            "responsibilities": ["Usługi REST."],
+            "technologies": ["Python"],
+        },
+        {
+            "dates": "01.2015 – 12.2019",
+            "company": "Beta",
+            "position": "Junior Developer",
+            "responsibilities": ["Testy ręczne."],
+            "technologies": [],
+        },
+    ],
+}
+
+
+def _rewrite_b() -> dict:
+    import copy
+
+    payload = copy.deepcopy(_REWRITE_A)
+    payload["why_points"] = ["Usługi REST w Pythonie."]
+    payload["experience"][0]["responsibilities"] = ["Usługi REST w Pythonie."]
+    payload["experience"][1]["responsibilities"] = ["Testy."]
+    return payload
+
+
+async def _ready_generation(cid: int, jid: int, payload: dict) -> int:
+    from app.models.cv_generated_document import CvGeneratedDocument
+
+    async with AsyncSessionLocal() as db:
+        row = CvGeneratedDocument(
+            candidate_id=cid,
+            job_id=jid,
+            candidate_name="Synthetic",
+            filename="cv.docx",
+            status="ready",
+            render_payload=payload,
+        )
+        db.add(row)
+        await db.commit()
+        return row.id
+
+
+async def test_rewrite_keeps_hand_edited_role_and_previous_draft_comes_back(
+    app_client, app_auth_headers
+):
+    sid, cid, jid = await _seed_full_stage()
+    base = f"/api/candidates/stages/{sid}/cv/branded"
+    initial = (await app_client.get(base, headers=app_auth_headers)).json()
+    first = await _ready_generation(cid, jid, _REWRITE_A)
+    second = await _ready_generation(cid, jid, _rewrite_b())
+
+    picked = await app_client.post(
+        base + "/select-generated",
+        headers=app_auth_headers,
+        json={
+            "expected_revision": initial["edit_revision"],
+            "generated_document_id": first,
+        },
+    )
+    assert picked.status_code == 200, picked.text
+    # Zwykła podmiana nie niesie wyniku „Napisz od nowa”.
+    assert picked.json()["rewrite"] is None
+    edited = picked.json()["content_html"].replace(
+        "Testy ręczne.", "Testy API w Pytest (fikcyjne)."
+    )
+    saved = await app_client.patch(
+        base,
+        headers=app_auth_headers,
+        json={
+            "expected_revision": picked.json()["edit_revision"],
+            "content_html": edited,
+        },
+    )
+    assert saved.status_code == 200, saved.text
+    before = saved.json()["content_html"]
+
+    rewrite = await app_client.post(
+        base + "/select-generated",
+        headers=app_auth_headers,
+        json={
+            "expected_revision": saved.json()["edit_revision"],
+            "generated_document_id": second,
+            "keep_edits": True,
+        },
+    )
+    assert rewrite.status_code == 200, rewrite.text
+    body = rewrite.json()
+    assert body["rewrite"] == {
+        "kept": ["Beta"],
+        "recognized": True,
+        "can_restore": True,
+    }
+    assert "Testy API w Pytest (fikcyjne)." in body["content_html"]
+    assert "Usługi REST w Pythonie." in body["content_html"]
+    assert body["generated_document_id"] == second
+
+    restored = await app_client.post(
+        base + "/restore-previous",
+        headers=app_auth_headers,
+        json={"expected_revision": body["edit_revision"]},
+    )
+    assert restored.status_code == 200, restored.text
+    assert restored.json()["content_html"] == before
+    assert restored.json()["generated_document_id"] == first
+    # Wersja zdjęta przyciskiem też jest w migawce — nic nie ginie.
+    from app.models.cv_stage_draft_snapshot import CvStageDraftSnapshot
+
+    async with AsyncSessionLocal() as db:
+        reasons = (
+            await db.scalars(
+                select(CvStageDraftSnapshot.reason).order_by(CvStageDraftSnapshot.id)
+            )
+        ).all()
+    assert reasons[-1] == "restore"
+
+
+async def test_restore_previous_brings_back_blind_flag_and_language_of_the_snapshot(
+    app_client, app_auth_headers
+):
+    """Przegląd PR 5: treść wracała z migawki, a „anonimowe” i język zostawały
+    z bieżącej wersji — CV z nazwiskiem oznaczone jako anonimowe."""
+    import copy
+
+    sid, cid, jid = await _seed_full_stage()
+    base = f"/api/candidates/stages/{sid}/cv/branded"
+    initial = (await app_client.get(base, headers=app_auth_headers)).json()
+    plain = await _ready_generation(cid, jid, _REWRITE_A)
+    blind_payload = copy.deepcopy(_REWRITE_A)
+    blind_payload.update(blind_cv=True, language="en")
+    blind = await _ready_generation(cid, jid, blind_payload)
+
+    first = await app_client.post(
+        base + "/select-generated",
+        headers=app_auth_headers,
+        json={
+            "expected_revision": initial["edit_revision"],
+            "generated_document_id": plain,
+        },
+    )
+    assert first.status_code == 200, first.text
+    assert (first.json()["template"], first.json()["language"]) == ("standard", "pl")
+    second = await app_client.post(
+        base + "/select-generated",
+        headers=app_auth_headers,
+        json={
+            "expected_revision": first.json()["edit_revision"],
+            "generated_document_id": blind,
+        },
+    )
+    assert second.status_code == 200, second.text
+    assert (second.json()["template"], second.json()["language"]) == ("blind", "en")
+    restored = await app_client.post(
+        base + "/restore-previous",
+        headers=app_auth_headers,
+        json={"expected_revision": second.json()["edit_revision"]},
+    )
+    assert restored.status_code == 200, restored.text
+    assert (restored.json()["template"], restored.json()["language"]) == (
+        "standard",
+        "pl",
+    )
+    assert restored.json()["content_html"] == first.json()["content_html"]
+
+
+async def test_restore_previous_refuses_stale_revision_and_missing_snapshot(
+    app_client, app_auth_headers
+):
+    sid, cid, jid = await _seed_full_stage()
+    base = f"/api/candidates/stages/{sid}/cv/branded"
+    initial = (await app_client.get(base, headers=app_auth_headers)).json()
+    stale = await app_client.post(
+        base + "/restore-previous",
+        headers=app_auth_headers,
+        json={"expected_revision": initial["edit_revision"] + 3},
+    )
+    assert stale.status_code == 409, stale.text
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            update(CandidateStageCV)
+            .where(CandidateStageCV.candidate_stage_id == sid)
+            .values(branded_draft_html=None)
+        )
+        await db.commit()
+    first = await _ready_generation(cid, jid, _REWRITE_A)
+    picked = await app_client.post(
+        base + "/select-generated",
+        headers=app_auth_headers,
+        json={
+            "expected_revision": initial["edit_revision"],
+            "generated_document_id": first,
+        },
+    )
+    assert picked.status_code == 200, picked.text
+    # Przed tą podmianą szkic był pusty — nie ma do czego wracać.
+    missing = await app_client.post(
+        base + "/restore-previous",
+        headers=app_auth_headers,
+        json={"expected_revision": picked.json()["edit_revision"]},
+    )
+    assert missing.status_code == 404, missing.text
+
+
+def test_snapshot_migration_is_mirrored_in_entrypoint_and_model() -> None:
+    import re
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    entry = (root / "entrypoint.sh").read_text()
+    migration = (root / "alembic/versions/0445_cv_stage_draft_snapshots.py").read_text()
+    squash = lambda t: re.sub(r"\s+", " ", t)  # noqa: E731
+    for fragment in (
+        "CREATE TABLE IF NOT EXISTS cv_stage_draft_snapshots (",
+        "candidate_stage_cv_id INTEGER NOT NULL REFERENCES candidate_stage_cvs(id) ON DELETE CASCADE",
+        "generated_document_id INTEGER NULL REFERENCES cv_generated_documents(id) ON DELETE SET NULL",
+        "CHECK (reason IN ('replaced', 'restore'))",
+        "branded_template VARCHAR(20) NULL",
+        "branded_language VARCHAR(10) NULL",
+        "CREATE INDEX IF NOT EXISTS ix_cv_stage_draft_snapshots_cv",
+    ):
+        assert fragment in squash(migration), fragment
+        assert fragment in squash(entry), fragment
+    assert 'down_revision = "0444_also_fits_added_notification"' in migration
+    from app.models.cv_stage_draft_snapshot import CvStageDraftSnapshot
+
+    columns = set(CvStageDraftSnapshot.__table__.columns.keys())
+    for name in re.findall(
+        r"^    ([a-z_]+) [A-Z]", migration.split('"""CREATE TABLE')[1], re.M
+    ):
+        assert name in columns, name

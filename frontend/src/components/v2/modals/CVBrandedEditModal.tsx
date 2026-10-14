@@ -210,6 +210,11 @@ type Props = {
   /** Otwiera generator (np. etap bez CV albo CV bez źródeł do edycji). */
   onRegenerate?: () => void;
   /**
+   * „Napisz od nowa: …” z asystenta (Edytor CV 3, PR 5): edytor zapisuje szkic,
+   * zamyka się i oddaje uwagę karcie, która zleca nową generację.
+   */
+  onRewrite?: (instruction: string) => void;
+  /**
    * Panel otwarty od razu: „Sprawdź i popraw” z karty „CV do klienta” otwiera
    * edytor na „Do sprawdzenia” (także w wąskim oknie, zamiast kartki),
    * „Historia wersji” z menu karty — na historii.
@@ -286,6 +291,7 @@ function CVBrandedEditContent({
   open,
   onOpenChange,
   onRegenerate,
+  onRewrite,
   initialPanel,
   stageId: pipelineStageId,
   generatedId,
@@ -715,6 +721,13 @@ function CVBrandedEditContent({
     disabled: !hasCv || mode === "word" || submitting,
     ensureDraft,
     api: commandApi,
+    onRewrite: onRewrite
+      ? (instruction) => {
+          void closeEditor(false).then((closed) => {
+            if (closed) onRewrite(instruction);
+          });
+        }
+      : undefined,
   });
   useEffect(() => {
     // Bez zgłaszania „update”: Tiptap domyślnie zgłasza je przy każdej zmianie

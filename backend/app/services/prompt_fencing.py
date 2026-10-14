@@ -27,7 +27,7 @@ _TAG_RE = re.compile(
     rf"<(?={_GAP}\\*{_GAP}/?{_GAP}(?:cv|screening_notes|champion_profile|source_facts|"
     r"previous_screening|candidate_[a-z_]+|new_questions|interview_note|"
     r"card_fields|screening_questions|keywords|question_text|"
-    r"cv_[a-z_]+|original_[a-z_]+|recruiter_hint|recruiter_command|previous_proposals|"
+    r"cv_[a-z_]+|original_[a-z_]+|recruiter_[a-z_]+|previous_proposals|"
     r"client_[a-z_]+|system|assistant|user|developer|instructions?)\b)",
     re.IGNORECASE,
 )

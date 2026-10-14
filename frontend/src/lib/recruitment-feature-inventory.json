@@ -2118,6 +2118,30 @@
    "v3_home": "karta „CV do klienta” → Otwórz i popraw → kolumna „Asystent CV”"
   },
   {
+   "id": "cv.card-rewrite",
+   "area": "cv",
+   "opis": "„Napisz od nowa” w karcie: pole „Co poprawić?” — uwaga trafia do notatek rekrutacji (fakty z tego zdania), generacja rusza sama, a gotowa wersja zastępuje szkic z zachowaniem części poprawionych ręcznie",
+   "file": "components/v2/recruitment/CvToClientCard.tsx",
+   "marker": "Twoje ręczne poprawki zostaną, a fakty z tego zdania",
+   "v3_home": "karta „CV do klienta” → pole „Co poprawić?” → „Napisz od nowa”"
+  },
+  {
+   "id": "cv.card-rewrite-restore",
+   "area": "cv",
+   "opis": "Po „Napisz od nowa” pasek „Nowa wersja CV. „X” zostało w Twojej wersji.” z „Wróć do poprzedniej” — szkic sprzed podmiany wraca z migawki jednym kliknięciem",
+   "file": "components/v2/recruitment/CvToClientCard.tsx",
+   "marker": "Wróć do poprzedniej",
+   "v3_home": "karta „CV do klienta” → pasek po nowej wersji"
+  },
+  {
+   "id": "cv.editor-assistant-rewrite",
+   "area": "cv",
+   "opis": "„Napisz od nowa: …” w asystencie edytora (podpowiedź „Napisz od nowa…”): edytor zapisuje szkic, zamyka się i oddaje uwagę karcie",
+   "file": "components/v2/cv-editor/CvEditorAssistant.tsx",
+   "marker": "Napisz od nowa…",
+   "v3_home": "karta „CV do klienta” → Otwórz i popraw → kolumna „Asystent CV” → „Napisz od nowa…”"
+  },
+  {
    "id": "cv.editor-plan",
    "area": "cv",
    "opis": "Plan zmian: operacje sprawdzone przez serwer z polami wyboru, podgląd na kartce (co znika, co się zmienia), ostrzeżenie o znikającym wymaganiu klienta, „Zastosuj zaznaczone” jedną cofalną zmianą i „Odrzuć plan”",
