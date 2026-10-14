@@ -171,6 +171,12 @@ const ROLE_ROUTES: RouteAccessRule[] = [
     roles: SYSTEM_ADMIN_ROLES,
     section: "system_admin",
   },
+  // Klucze API kont serwisowych (`X-API-Key`) — backend `AdminUser`.
+  {
+    prefix: "/settings/api-keys",
+    roles: SYSTEM_ADMIN_ROLES,
+    section: "system_admin",
+  },
   {
     prefix: "/settings/diagnostics",
     roles: SYSTEM_ADMIN_ROLES,
@@ -496,6 +502,8 @@ const PUBLIC_PATHS = [
   "/preview/dl-send",
   // Okno odrzucenia z podglądem maila do kandydata (13.10.2026).
   "/preview/rejection-email",
+  // Ustawienia → „Klucze API”: konta serwisowe, klucze, ostatnie zapisy (14.10.2026).
+  "/preview/api-keys",
   // Praktykanci (0374): `/preview/trainee` pokrywa też `/preview/trainees`.
   "/preview/trainee",
   // Strona kariery (kandydaci z LinkedIna) — publiczna z definicji. Na własnym

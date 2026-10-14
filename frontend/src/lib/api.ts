@@ -6692,6 +6692,107 @@ export const oauthClientsApi = {
     api.delete<void>(`/api/settings/oauth-clients/${id}`),
 };
 
+// ── Settings → Klucze API / konta serwisowe (`X-API-Key`, API integracyjne v1) ─
+// Sekret klucza przychodzi WYŁĄCZNIE w odpowiedzi na wydanie klucza
+// (`ServiceAccountKeyCreateResponse.api_key`) — metadane nie mają na niego pola.
+
+export interface ServiceAccountKeyDto {
+  key_id: string;
+  label: string;
+  created_at: string;
+  created_by: number | null;
+  expires_at: string;
+  revoked_at: string | null;
+  revoked_by: number | null;
+  revoke_reason: string | null;
+  last_used_at: string | null;
+  last_used_ip: string | null;
+}
+
+export interface ServiceAccountDto {
+  id: number;
+  slug: string;
+  name: string;
+  description: string | null;
+  scopes: string[];
+  is_active: boolean;
+  created_by: number | null;
+  created_at: string;
+  updated_at: string;
+  keys: ServiceAccountKeyDto[];
+}
+
+export interface ServiceAccountCreatePayload {
+  slug: string;
+  name: string;
+  description?: string | null;
+  scopes: string[];
+}
+
+export interface ServiceAccountUpdatePayload {
+  name?: string;
+  description?: string | null;
+  scopes?: string[];
+  is_active?: boolean;
+}
+
+export interface ServiceAccountKeyCreatePayload {
+  label: string;
+  expires_in_days?: number;
+}
+
+export interface ServiceAccountKeyCreateResponse {
+  key: ServiceAccountKeyDto;
+  api_key: string;
+}
+
+export interface ServiceAccountConfigDto {
+  enabled: boolean;
+  default_ttl_days: number;
+  max_ttl_days: number;
+  header: string;
+}
+
+/** Zapis wykonany kluczem przez API integracyjne v1 (bez treści żądania). */
+export interface ServiceAccountWriteDto {
+  id: number;
+  key_id: string;
+  method: string;
+  route: string;
+  state: string;
+  status_code: number | null;
+  created_at: string;
+  completed_at: string | null;
+}
+
+const SERVICE_ACCOUNTS_URL = "/api/settings/service-accounts";
+
+export const serviceAccountsApi = {
+  list: () => api.get<ServiceAccountDto[]>(SERVICE_ACCOUNTS_URL),
+  scopes: () => api.get<ScopeInfoDto[]>(`${SERVICE_ACCOUNTS_URL}/scopes`),
+  config: () => api.get<ServiceAccountConfigDto>(`${SERVICE_ACCOUNTS_URL}/config`),
+  create: (payload: ServiceAccountCreatePayload) =>
+    api.post<ServiceAccountDto>(SERVICE_ACCOUNTS_URL, payload),
+  update: (id: number, payload: ServiceAccountUpdatePayload) =>
+    api.patch<ServiceAccountDto>(`${SERVICE_ACCOUNTS_URL}/${id}`, payload),
+  remove: (id: number) => api.delete<void>(`${SERVICE_ACCOUNTS_URL}/${id}`),
+  issueKey: (id: number, payload: ServiceAccountKeyCreatePayload) =>
+    api.post<ServiceAccountKeyCreateResponse>(
+      `${SERVICE_ACCOUNTS_URL}/${id}/keys`,
+      payload,
+    ),
+  // `key_id` ma postać `v2$<hex>` — `$` w ścieżce musi być zakodowany.
+  revokeKey: (id: number, keyId: string, reason: string | null) =>
+    api.post<ServiceAccountKeyDto>(
+      `${SERVICE_ACCOUNTS_URL}/${id}/keys/${encodeURIComponent(keyId)}/revoke`,
+      { reason },
+    ),
+  writes: (id: number, limit = 50) =>
+    api.get<ServiceAccountWriteDto[]>(`${SERVICE_ACCOUNTS_URL}/${id}/writes`, {
+      params: { limit },
+    }),
+};
+
 // ── Multi-source attribution (Traffit gap #4) ────────────────────────────────
 
 export type SourceChannel =

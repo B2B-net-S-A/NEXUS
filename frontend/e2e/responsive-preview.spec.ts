@@ -135,6 +135,11 @@ const PAGES = [
   "/preview/notification-settings?tab=moje",
   "/preview/notification-settings?tab=maile",
   "/preview/notification-settings?as=recruiter",
+  // Ustawienia → „Klucze API” (14.10.2026): lista kont, klucz pokazany raz, formularz, pusto.
+  "/preview/api-keys",
+  "/preview/api-keys?state=revealed",
+  "/preview/api-keys?state=create",
+  "/preview/api-keys?state=empty",
   "/preview/pipeline-v4",
   "/preview/pipeline-v4?as=dl",
   "/preview/plain-brief",
