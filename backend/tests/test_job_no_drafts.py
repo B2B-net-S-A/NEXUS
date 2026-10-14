@@ -765,12 +765,20 @@ async def test_reopening_your_own_job_does_not_ring_yourself(
         rung.append(user_id)
 
     monkeypatch.setattr(jobs_api, "_notify_new_owner", _spy)
-    reopened = await app_client.post(
-        f"/api/jobs/{job_id}/publish", headers=app_auth_headers
-    )
-    assert reopened.status_code == 200, reopened.text
-    assert reopened.json()["recruiter_id"] == me
-    assert rung == []
+    try:
+        reopened = await app_client.post(
+            f"/api/jobs/{job_id}/publish", headers=app_auth_headers
+        )
+        assert reopened.status_code == 200, reopened.text
+        assert reopened.json()["recruiter_id"] == me
+        assert rung == []
+    finally:
+        # Baza testowa jest wspólna: admin z rolą rekrutera trafiałby do
+        # katalogu rekruterów w innych testach.
+        async with AsyncSessionLocal() as db:
+            user = await db.get(User, me)
+            user.roles = ["admin"]
+            await db.commit()
 
 
 @pytest.mark.asyncio
