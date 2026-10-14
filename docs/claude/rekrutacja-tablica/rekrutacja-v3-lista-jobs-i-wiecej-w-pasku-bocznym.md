@@ -135,8 +135,8 @@ miejsce, nie zbiór funkcji.
   - **Okienko jest `modal`** (klik obok tylko zamyka, nie otwiera wiersza),
     a korzeń edytora zatrzymuje kliknięcia — zdarzenia React z portali idą do
     `<tr>`. Fokus po otwarciu w polu szukania, nie na „×”. Okno potwierdzenia
-    (`ConfirmV2`, z-50) leży pod okienkiem (z-110), więc na czas potwierdzenia
-    okienko dostaje `invisible`.
+    leży nad okienkiem, bo okna dialogowe stoją na warstwie list wyboru
+    (reguła „Warstwy” w `ui/design-system-ui-zawsze-przy-pracy-nad-wygladem.md`).
   - **Akcje stoją, dopóki lista się odświeża** (`useIsFetching(["jobs-v2"])`):
     wiersz sprzed zapisu kazałby po „×” prowadzącego dopisać kolejną osobę
     jako współpracownika zamiast prowadzącego. Przy filtrze „Bez rekrutera”

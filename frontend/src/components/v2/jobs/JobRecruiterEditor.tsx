@@ -22,7 +22,6 @@ import {
   type DirectoryPerson,
   type RecruiterPickOption,
 } from "@/lib/request-board";
-import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import {
   Command,
@@ -176,12 +175,7 @@ function EditorContent({
         align="start"
         // Kolumna stoi przy prawej krawędzi — okienko nie przykleja się do niej.
         collisionPadding={8}
-        className={cn(
-          "w-[min(340px,calc(100vw-2rem))] p-0",
-          // Okno potwierdzenia ma niższą warstwę niż okienko — na czas
-          // potwierdzenia okienko znika, żeby go nie zasłaniać.
-          actions.confirming && "invisible",
-        )}
+        className="w-[min(340px,calc(100vw-2rem))] p-0"
         onOpenAutoFocus={(event) => {
           // Fokus w polu szukania, nie na pierwszym „×” albo „Akceptuj” —
           // Enter zaraz po otwarciu nie może nikogo zdjąć. Na dotyku bez
