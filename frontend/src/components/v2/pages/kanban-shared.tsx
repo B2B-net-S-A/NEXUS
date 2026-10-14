@@ -42,6 +42,8 @@ export interface KanbanItem {
  // Kto przypisał kandydata do tej rekrutacji (rekruter z najwcześniejszego
  // etapu pary kandydat/oferta) i kiedy — pokazywane w tooltipie karty.
  added_to_job_by_name?: string | null;
+ /** Numer tej osoby — filtr „Kto dodał” na Tablicy (14.10.2026). */
+ added_to_job_by_id?: number | null;
  added_to_job_at?: string | null;
  // „W bazie od” (0437): kiedy osoba weszła do bazy, czy data jest dokładna
  // (import z Traffita bez daty u źródła = nie) i kto ją dodał. Tylko z Tablicy.

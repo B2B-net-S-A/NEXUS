@@ -649,6 +649,7 @@ def _stage_response(
     candidate_name: Optional[str] = None,
     candidate_lastname: Optional[str] = None,
     added_to_job_by_name: Optional[str] = None,
+    added_to_job_by_id: Optional[int] = None,
     added_to_job_at: Optional[datetime] = None,
     candidate_expected_rate_hourly: Optional[Decimal] = None,
     # Bez wartości domyślnej: każdy wołający decyduje jawnie
@@ -661,10 +662,10 @@ def _stage_response(
     Candidate name/lastname are optional — populated by the Kanban endpoint
     so the frontend can render card titles without an extra round-trip.
 
-    ``added_to_job_by_name`` / ``added_to_job_at`` describe WHO assigned the
-    candidate to the recruitment and WHEN — i.e. the mover on the *earliest*
-    stage of this candidate/job pair, not the current-stage mover. Also
-    populated by the Kanban endpoint (NULL elsewhere).
+    ``added_to_job_by_name`` / ``added_to_job_by_id`` / ``added_to_job_at``
+    describe WHO assigned the candidate to the recruitment and WHEN — i.e. the
+    mover on the *earliest* stage of this candidate/job pair, not the
+    current-stage mover. Also populated by the Kanban endpoint (NULL elsewhere).
     """
     return {
         "id": stage.id,
@@ -705,6 +706,9 @@ def _stage_response(
         "name": candidate_name,
         "lastname": candidate_lastname,
         "added_to_job_by_name": added_to_job_by_name,
+        # Filtr „Kto dodał” na Tablicy (14.10.2026) porównuje po numerze —
+        # po imieniu myliłby imienników.
+        "added_to_job_by_id": added_to_job_by_id,
         "added_to_job_at": added_to_job_at,
         # Odznaki karty (17.09.2026) — patrz `CandidateStageResponse`.
         # Arkusz z odpowiedzią — jak bramka „Zweryfikowany” (14.10.2026).
@@ -2858,6 +2862,7 @@ async def build_kanban_view(
             candidate_name=n,
             candidate_lastname=ln,
             added_to_job_by_name=added_by_name,
+            added_to_job_by_id=first.moved_by if first is not None else None,
             added_to_job_at=added_at,
             candidate_expected_rate_hourly=profile_rate_by_id.get(e.candidate_id),
         )

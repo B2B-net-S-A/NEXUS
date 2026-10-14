@@ -29,7 +29,7 @@
  * zamknięcie dostaje fikcyjne ostrzeżenie o osobach w toku (13.10.2026).
  */
 
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AxiosError } from "axios";
@@ -90,6 +90,13 @@ import {
   type SentPerson,
   type SimilarJobItem,
 } from "@/lib/similar-jobs-api";
+import {
+  ADDED_BY_ALL,
+  addedByOptions,
+  peopleInProgress,
+  type AddedByFilter,
+} from "@/lib/board-added-by";
+import { AddedByFilterButton } from "@/components/v2/jobs/AddedByFilter";
 import { useAuthStore } from "@/store/auth";
 import { useUiStore } from "@/store/ui";
 
@@ -212,6 +219,7 @@ function card(first: string, last: string, extra: Partial<KanbanItem> = {}): Kan
     lastname: last,
     days_in_stage: 0,
     added_to_job_by_name: "Marta Nowak",
+    added_to_job_by_id: 7,
     process_state_version: 1,
     entry_source: "added_manual",
     claim_user_id: 7,
@@ -246,7 +254,8 @@ function columns(): KanbanColumn[] {
   return [
     col("new", "Nowi / Analiza CV", 21, [
       card("Anna", "Przykładowa"),
-      card("Jan", "Testowy"),
+      // Filtr „Kto dodał” (14.10.2026): część osób dodali inni, jedna bez danych.
+      card("Jan", "Testowy", { added_to_job_by_id: 12, added_to_job_by_name: "Piotr Szkicowy" }),
       // Osoby, które u nas pracują (12.10.2026): znacznik na karcie, pigułka
       // w panelu osoby, ostrzeżenie pary z serwera. Poza dwiema osobami,
       // których panel mierzy test wysokości doku.
@@ -256,10 +265,16 @@ function columns(): KanbanColumn[] {
       } as never),
       card("Piotr", "Próbny", {
         employment_marker: PREVIEW_EMPLOYED("ending", "2026-10-30"),
+        added_to_job_by_id: 13,
+        added_to_job_by_name: "Anna Kowal",
       } as never),
     ]),
     col("screening", "Screening", 22, [
-      card("Marek", "Przykładowy", { entry_source: "proposal" }),
+      card("Marek", "Przykładowy", {
+        entry_source: "proposal",
+        added_to_job_by_id: 12,
+        added_to_job_by_name: "Piotr Szkicowy",
+      }),
     ]),
     col("verified", "Zweryfikowany", 23, []),
     col("interview", "Przepuszczony przez DZ", 24, []),
@@ -267,7 +282,12 @@ function columns(): KanbanColumn[] {
     // 04.10.2026: umowa wygenerowana po rozmowie u klienta (karta niesie
     // `agreement`) i osoba na „Umowie” bez umowy — panel „Umowa”.
     col("client_interview", "Rozmowa z klientem", 26, [
-      card("Karol", "Wzorcowy", { claim_until: null, agreement: PREVIEW_AGREEMENT } as never),
+      card("Karol", "Wzorcowy", {
+        claim_until: null,
+        agreement: PREVIEW_AGREEMENT,
+        added_to_job_by_id: null,
+        added_to_job_by_name: null,
+      } as never),
       // 0418: kandydat po rozmowie u klienta chce wyższej stawki.
       card("Bartek", "Testowy", {
         candidate_id: RATE_CASE_CANDIDATE_ID,
@@ -1287,6 +1307,12 @@ function JobDetailHarness() {
     setReady(true);
     return () => api.interceptors.request.eject(blocker);
   }, [showEmpty]);
+  // Filtr „Kto dodał” (14.10.2026) — harness nie czyta adresu, trzyma go w stanie.
+  const [addedBy, setAddedBy] = useState<AddedByFilter>(ADDED_BY_ALL);
+  const addedByMenuOptions = useMemo(
+    () => addedByOptions(peopleInProgress(columns()), { id: 7, name: "Marta Nowak" }),
+    [],
+  );
   if (!ready) return null;
 
   return (
@@ -1338,6 +1364,13 @@ function JobDetailHarness() {
                           )
                         }
                         facts={jobHeaderFacts(JOB)}
+                        factsTrailing={
+                          <AddedByFilterButton
+                            options={addedByMenuOptions}
+                            value={addedBy}
+                            onChange={setAddedBy}
+                          />
+                        }
                         presence={
                           <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-primary text-xs font-semibold text-primary-foreground">
                             MN
@@ -1387,6 +1420,8 @@ function JobDetailHarness() {
                       ) : null}
                       <KanbanBoardV2
                         columns={columns()}
+                        addedBy={addedBy}
+                        onAddedByChange={setAddedBy}
                         jobId={JOB_ID}
                         jobTitle={JOB.title}
                         // Jeden panel osoby (04.10.2026): „Rozwiń” w panelu

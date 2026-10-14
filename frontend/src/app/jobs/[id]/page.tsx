@@ -59,6 +59,15 @@ import {
   ManagedInTraffitNotice,
 } from "@/components/v2/jobs/ManagedInNexusSwitch";
 import { CandidateSourcesStrip } from "@/components/v2/jobs/CandidateSourcesStrip";
+import { AddedByFilterButton } from "@/components/v2/jobs/AddedByFilter";
+import {
+  ADDED_BY_PARAM,
+  addedByOptions,
+  addedByParam,
+  parseAddedBy,
+  peopleInProgress,
+  type AddedByFilter,
+} from "@/lib/board-added-by";
 import { AddCandidatesQuickModal } from "@/components/v2/modals/AddCandidatesQuickModal";
 import { AddCandidateFromCVModal } from "@/components/v2/modals/AddCandidateFromCVModal";
 import { AddCandidatesPanel } from "@/components/v2/recruitment/AddCandidatesPanel";
@@ -566,6 +575,35 @@ export default function JobDetailPage() {
     [showBoard, selectView, invalidateKanban, urlWriter],
   );
 
+  // Filtr „Kto dodał” Tablicy (14.10.2026, D2–D3): żyje tylko w adresie
+  // (`?added_by=<numer>|none`), nowe wejście w rekrutację pokazuje wszystkich.
+  // Zapis przez `useUrlWriter` — `useSearchParams` widzi zmianę, a strona nie
+  // przewija się na górę (`docs/claude/ui/parametry-adresu-…`).
+  const addedByRaw = searchParams?.get(ADDED_BY_PARAM) ?? null;
+  const addedBy = useMemo(() => parseAddedBy(addedByRaw), [addedByRaw]);
+  const setAddedBy = useCallback(
+    (filter: AddedByFilter) => {
+      const next = new URLSearchParams(window.location.search);
+      const value = addedByParam(filter);
+      if (value) next.set(ADDED_BY_PARAM, value);
+      else next.delete(ADDED_BY_PARAM);
+      const query = next.toString();
+      urlWriter.replaceUrl(query ? `?${query}` : window.location.pathname);
+    },
+    [urlWriter],
+  );
+  // Te same liczby co menu w panelu osoby: osoby w toku na Tablicy.
+  const addedByMenuOptions = useMemo(
+    () =>
+      kanban
+        ? addedByOptions(peopleInProgress(kanban.columns, kanban.off_template?.items ?? []), {
+            id: authUser?.id ?? null,
+            name: authUser?.name ?? null,
+          })
+        : null,
+    [kanban, authUser?.id, authUser?.name],
+  );
+
   // Osoby już w rekrutacji (także odrzucone i „poza szablonem") — nie
   // pojawiają się w propozycjach. `undefined` dopóki tablica się nie wczyta:
   // segment propozycji pyta wtedy o nie sam.
@@ -780,6 +818,11 @@ export default function JobDetailPage() {
         // Klient · Budżet · Tryb pracy — trzy wyróżnione fakty (02.10.2026).
         // Rekruter, DL, hiring manager, termin i obsada są w „Profil Championa”.
         facts={jobHeaderFacts(job)}
+        factsTrailing={
+          showBoard && addedByMenuOptions ? (
+            <AddedByFilterButton options={addedByMenuOptions} value={addedBy} onChange={setAddedBy} />
+          ) : undefined
+        }
         presence={
           <ActiveViewers
             resourceType="job"
@@ -1174,6 +1217,9 @@ export default function JobDetailPage() {
               // Przegląd przed wysłaniem do klienta należy do patrzącego
               // (Delivery Lead rekrutacji albo portfel klienta) — liczy serwer.
               viewerOwnsDlReview={kanban?.viewer_owns_dl_review === true}
+              // Filtr „Kto dodał” (14.10.2026): chowa karty i zawęża kolejkę panelu.
+              addedBy={addedBy}
+              onAddedByChange={setAddedBy}
               // Kafle „Kandydaci do dodania” nad tablicą — cztery źródła, jedno okno.
               renderAbove={(viewControls) => (
                 <CandidateSourcesStrip

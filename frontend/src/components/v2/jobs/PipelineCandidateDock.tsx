@@ -73,6 +73,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { AddedByMenuContent, type AddedByMenuProps } from "@/components/v2/jobs/AddedByFilter";
 import { readNoteDraft, writeNoteDraft } from "@/lib/note-drafts";
 import { cn, formatDate } from "@/lib/utils";
 import { EmploymentPopoverPill } from "@/components/v2/employment/EmploymentNotice";
@@ -376,10 +377,25 @@ export interface PipelineCandidateDockProps {
    * „Ponad budżet" (informacja). `null` = brak budżetu.
    */
   budgetHourly?: number | null;
-  /** Pozycja karty w kolejności TABLICY (1-based) i liczba kart. Bez nich
-   *  nawigator „‹ N z M ›" się nie renderuje — nie zgadujemy pozycji. */
+  /** Pozycja osoby w kolejce strzałek (1-based) i długość kolejki. Od
+   *  14.10.2026 kolejka to JEDNA kolumna Tablicy z filtrem „Kto dodał”
+   *  (`docs/claude/rekrutacja-tablica/nastepna-osoba-po-odrzuceniu.md („Kolejka w kolumnie…”)`).
+   *  Bez nich nawigator „‹ N z M ›" się nie renderuje — nie zgadujemy pozycji. */
   position?: number | null;
   total?: number;
+  /** Po czym chodzą strzałki: „Nowi”, „Nowi · dodani przez Ciebie”. */
+  queueLabel?: string | null;
+  /** Etykieta kolejki otwiera menu „Kto dodał” (w „Rozwiń” Tablica jest
+   *  zasłonięta). Bez niego etykieta jest zwykłym tekstem. */
+  addedByMenu?: AddedByMenuProps;
+  /** Ostatnia osoba w kolejce (D4): pasek z „Od pierwszej”, „Wszyscy (N)”
+   *  (filtr coś schował) i „Dalej: <kolumna> (N)”. */
+  queueEnd?: {
+    count: number;
+    onFirst?: () => void;
+    showAll?: { label: string; onClick: () => void };
+    next?: { label: string; onClick: () => void };
+  } | null;
   onSelectPrevious?: () => void;
   onSelectNext?: () => void;
   /** Pasek po odrzuceniu albo rezygnacji poprzedniej osoby z panelu — panel
@@ -550,6 +566,9 @@ function PersonMoreMenu({
 }
 
 const NOTE_KEYS_HINT = "Enter dodaje notatkę · Shift+Enter nowa linia";
+/** Akcje paska „Koniec kolejki” (14.10.2026). */
+const QUEUE_END_ACTION =
+  "shrink-0 rounded-md px-1.5 py-0.5 font-semibold text-primary underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring pointer-coarse:p-2";
 const NOTE_KEYS_HINT_BIG = "Enter nowa linia · Ctrl+Enter dodaje";
 
 /**
@@ -752,6 +771,9 @@ export function PipelineCandidateDock({
   onSelectNext,
   closedNotice = null,
   onReturnToQueue,
+  queueLabel = null,
+  addedByMenu,
+  queueEnd = null,
   nextAction,
   primaryTarget,
   primaryBlocked = null,
@@ -831,6 +853,31 @@ export function PipelineCandidateDock({
   const canManageDocuments = useCapability("candidate.document.manage");
   const canUploadCv = !readOnly && canManageDocuments;
   const cvUpload = useStageCvUpload({ candidateId: item.candidate_id, stageId: item.id, jobId });
+  // Nazwa kolejki strzałek za „‹ N z M ›”. Z menu „Kto dodał”, bo w widoku
+  // „Rozwiń” Tablica (i przycisk w nagłówku) jest zasłonięta (14.10.2026).
+  const queueTag = queueLabel ? (
+    addedByMenu ? (
+      <DropdownMenu modal={false}>
+        <DropdownMenuTrigger asChild>
+          <button
+            type="button"
+            data-testid="dock-queue-label"
+            title={queueLabel}
+            aria-label={`Kolejka: ${queueLabel}. Zmień filtr „Kto dodał”`}
+            className="inline-flex min-w-0 items-center gap-0.5 rounded-md bg-primary/10 px-1.5 py-0.5 font-semibold text-primary hover:bg-primary/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring pointer-coarse:p-2"
+          >
+            <span className="truncate">{queueLabel}</span>
+            <ChevronDown className="h-3 w-3 shrink-0" aria-hidden="true" />
+          </button>
+        </DropdownMenuTrigger>
+        <AddedByMenuContent {...addedByMenu} align="start" />
+      </DropdownMenu>
+    ) : (
+      <span data-testid="dock-queue-label" title={queueLabel} className="min-w-0 truncate font-semibold text-foreground/80">
+        {queueLabel}
+      </span>
+    )
+  ) : null;
   const initials = fullName
     .split(/\s+/)
     .map((w) => w[0])
@@ -1374,42 +1421,47 @@ export function PipelineCandidateDock({
         )}
         data-testid="dock-person-bar"
       >
-        {/* Nawigator „‹ N z M ›" — kolejność tablicy, kolumna po kolumnie.
-            Renderuje się tylko z podaną pozycją: bez niej nie zgadujemy. */}
-        <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+        {/* Nawigator „‹ N z M ›" — kolejka jednej kolumny Tablicy z filtrem
+            „Kto dodał” (14.10.2026), za nim jej nazwa. Renderuje się tylko
+            z podaną pozycją: bez niej nie zgadujemy. */}
+        <div className="flex min-w-0 items-center gap-1.5 text-[11px] text-muted-foreground">
           {position != null && total ? (
             <>
               <button
                 type="button"
                 onClick={onSelectPrevious}
                 disabled={position <= 1}
-                className="rounded-md p-0.5 hover:bg-accent disabled:opacity-40 pointer-coarse:p-2.5"
+                className="shrink-0 rounded-md p-0.5 hover:bg-accent disabled:opacity-40 pointer-coarse:p-2.5"
                 aria-label="Poprzednia karta"
               >
                 <ChevronLeft className="h-3.5 w-3.5" />
               </button>
-              <span className="tabular-nums">
+              <span className="shrink-0 whitespace-nowrap tabular-nums">
                 {position} z {total}
               </span>
               <button
                 type="button"
                 onClick={onSelectNext}
                 disabled={position >= total}
-                className="rounded-md p-0.5 hover:bg-accent disabled:opacity-40 pointer-coarse:p-2.5"
+                className="shrink-0 rounded-md p-0.5 hover:bg-accent disabled:opacity-40 pointer-coarse:p-2.5"
                 aria-label="Następna karta"
               >
                 <ChevronRight className="h-3.5 w-3.5" />
               </button>
+              {queueTag}
             </>
           ) : onReturnToQueue ? (
-            <button
-              type="button"
-              onClick={onReturnToQueue}
-              className="inline-flex items-center gap-0.5 rounded-md px-1 py-0.5 font-semibold text-primary hover:bg-accent pointer-coarse:p-2"
-            >
-              Wróć do kolejki
-              <ChevronRight className="h-3.5 w-3.5" aria-hidden="true" />
-            </button>
+            <>
+              <button
+                type="button"
+                onClick={onReturnToQueue}
+                className="inline-flex shrink-0 items-center gap-0.5 rounded-md px-1 py-0.5 font-semibold text-primary hover:bg-accent pointer-coarse:p-2"
+              >
+                Wróć do kolejki
+                <ChevronRight className="h-3.5 w-3.5" aria-hidden="true" />
+              </button>
+              {queueTag}
+            </>
           ) : (
             <span className="text-[10px] font-semibold uppercase tracking-wide text-primary">
               Panel osoby
@@ -1443,6 +1495,41 @@ export function PipelineCandidateDock({
             <X className="h-4 w-4" />
           </button>
         </div>
+
+        {queueEnd && (queueEnd.onFirst || queueEnd.showAll || queueEnd.next) ? (
+          <div
+            role="status"
+            aria-label="Koniec kolejki"
+            data-testid="dock-queue-end"
+            className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg bg-muted px-2.5 py-1.5 text-[11.5px] leading-snug text-muted-foreground"
+          >
+            <span className="w-full">
+              {queueEnd.count === 1
+                ? "To jedyna osoba w kolejce."
+                : `To ostatnia z ${queueEnd.count} osób w kolejce.`}
+            </span>
+            {queueEnd.onFirst ? (
+              <button type="button" onClick={queueEnd.onFirst} className={QUEUE_END_ACTION}>
+                Od pierwszej
+              </button>
+            ) : null}
+            {queueEnd.showAll ? (
+              <button type="button" onClick={queueEnd.showAll.onClick} className={QUEUE_END_ACTION}>
+                {queueEnd.showAll.label}
+              </button>
+            ) : null}
+            {queueEnd.next ? (
+              <button
+                type="button"
+                onClick={queueEnd.next.onClick}
+                className={cn(QUEUE_END_ACTION, "inline-flex items-center gap-0.5")}
+              >
+                {queueEnd.next.label}
+                <ChevronRight className="h-3.5 w-3.5" aria-hidden="true" />
+              </button>
+            ) : null}
+          </div>
+        ) : null}
 
         {closedNotice ? (
           <div

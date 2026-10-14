@@ -330,7 +330,7 @@ describe("RejectionV2 — kogo zamykasz i kto dalej", () => {
     renderWith({ subject: { name: "Tomasz Wójcik" }, nextPerson: null });
     expect(screen.getByText("Tomasz Wójcik")).toBeInTheDocument();
     expect(
-      screen.getByText("To ostatnia osoba na Tablicy — panel się zamknie."),
+      screen.getByText("To ostatnia osoba w kolejce — panel się zamknie."),
     ).toBeInTheDocument();
   });
 

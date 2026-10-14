@@ -915,6 +915,38 @@
    "removed_reason": "Decyzja Artura 02.10.2026: pasek filtrów nad Tablicą (nazwisko, „Mój ruch”, „Filtry”, „N w procesie”, SLA) usunięty. „Ukryj puste kolumny” przeszło do menu „⋯”, zamknięci do wąskiej kolumny „Zamknięci” obok Tablicy."
   },
   {
+   "id": "board.added-by-filter",
+   "area": "naglowek",
+   "opis": "Filtr „Kto dodał” Tablicy: jeden przycisk w linii faktów nagłówka, menu z liczbą osób w toku (Wszyscy, Ty, inne osoby, Brak danych), „✕” wraca do wszystkich; tylko w adresie `?added_by=` (14.10.2026)",
+   "file": "components/v2/jobs/AddedByFilter.tsx",
+   "marker": "added-by-filter",
+   "v3_home": "nagłówek rekrutacji → „Kto dodał” obok Klienta, Budżetu i Trybu pracy"
+  },
+  {
+   "id": "board.filter-empty-column",
+   "area": "tablica",
+   "opis": "Kolumna, z której filtr „Kto dodał” schował wszystkich: licznik „0 z N”, napis „Brak osób dodanych przez…” i „Pokaż wszystkich (N)”",
+   "file": "components/v2/pages/KanbanBoardV2.tsx",
+   "marker": "column-filter-empty",
+   "v3_home": "Tablica → kolumna przy włączonym filtrze"
+  },
+  {
+   "id": "person.queue-in-column",
+   "area": "panel osoby",
+   "opis": "Strzałki „‹ N z M ›” chodzą po kolumnie otwartej osoby z filtrem „Kto dodał”; za licznikiem nazwa kolejki z menu filtra (14.10.2026, D1)",
+   "file": "components/v2/jobs/PipelineCandidateDock.tsx",
+   "marker": "dock-queue-label",
+   "v3_home": "panel osoby → nawigator nad nazwiskiem"
+  },
+  {
+   "id": "person.queue-end",
+   "area": "panel osoby",
+   "opis": "Koniec kolejki: pasek „To ostatnia z N osób w kolejce” z „Od pierwszej”, „Wszyscy (N)” i „Dalej: <kolumna>” (14.10.2026, D4)",
+   "file": "components/v2/jobs/PipelineCandidateDock.tsx",
+   "marker": "dock-queue-end",
+   "v3_home": "panel osoby → pasek pod nawigatorem na ostatniej osobie"
+  },
+  {
    "id": "board.workbench",
    "area": "pipeline",
    "opis": "Pełne narzędzia osoby z dawnej Tabeli (CV do klienta, rozmowy i werdykt, umowa) w rozwiniętym panelu osoby („Rozwiń”, 760 px) — ta sama głowa co dok",

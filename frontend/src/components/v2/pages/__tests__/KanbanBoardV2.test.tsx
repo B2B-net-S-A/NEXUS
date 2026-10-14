@@ -232,6 +232,7 @@ import { permissionSnapshot } from "@/__tests__/fixtures/permission-snapshot";
 import { useUiStore } from "@/store/ui";
 import { KANBAN_VIEW_MODE_STORAGE_KEY } from "@/lib/kanban-view-preferences";
 import { PIPELINE_VERSION_CONFLICT_CODE } from "@/lib/pipeline-version-conflict";
+import { ADDED_BY_ALL, type AddedByFilter } from "@/lib/board-added-by";
 
 // Domyślnie `nexus-ui` chowa puste kolumny (przegląd UX 17.09.2026). Te testy
 // liczą kolumny szablonu, więc startują z pełną tablicą; testy ukrywania
@@ -1732,10 +1733,11 @@ describe("KanbanBoardV2 — fala 3: grupy etapów i karta z następną akcją", 
     expect(mine).toHaveLength(3);
   });
 
-  it("nawigator doku idzie w kolejności widocznej Tablicy (kolumny od lewej, karty od góry)", async () => {
+  it("nawigator doku idzie po kolumnie otwartej osoby, karty od góry — także z etapów złożonych w kolumnę", async () => {
     // Audyt 24.09.2026: pierwsza karta w „Nowi” miała „12 z 35”, a „←” prowadziło
     // do ostatniej karty kolumny — dok liczył kolejność z surowych etapów
-    // szablonu, łącznie z ukrytymi zamkniętymi.
+    // szablonu, łącznie z ukrytymi zamkniętymi. Od 14.10.2026 (D1) kolejka to
+    // sama kolumna osoby: Screening nie wchodzi do „Nowych”.
     const columns = defaultB2BColumns() as unknown as Array<Record<string, unknown>>;
     // Duplikat nazwy z importu stoi na końcu szablonu, a karta renderuje się w „Nowi”.
     columns.push({
@@ -1752,13 +1754,15 @@ describe("KanbanBoardV2 — fala 3: grupy etapów i karta z następną akcją", 
     const cards = Array.from(document.querySelectorAll("[data-kanban-card]")) as HTMLElement[];
     fireEvent.click(cards[0]);
     const dock = await screen.findByRole("complementary", { name: "Panel osoby" });
-    // Nowi (2 + duplikat) + Screening (1); odrzucony (pasek zamkniętych) poza nawigatorem.
-    expect(within(dock).getByText("1 z 4")).toBeInTheDocument();
+    // Nowi (2 + duplikat złożony w tę kolumnę); Screening i zamknięci poza kolejką.
+    expect(within(dock).getByText("1 z 3")).toBeInTheDocument();
+    expect(within(dock).getByTestId("dock-queue-label")).toHaveTextContent("Nowi");
     expect(within(dock).getByRole("button", { name: "Poprzednia karta" })).toBeDisabled();
     fireEvent.click(within(dock).getByRole("button", { name: "Następna karta" }));
     fireEvent.click(within(dock).getByRole("button", { name: "Następna karta" }));
-    expect(await within(dock).findByText("3 z 4")).toBeInTheDocument();
+    expect(await within(dock).findByText("3 z 3")).toBeInTheDocument();
     expect(within(dock).getAllByText(/Duplikat Importu/).length).toBeGreaterThan(0);
+    expect(within(dock).getByRole("button", { name: "Następna karta" })).toBeDisabled();
   });
 
   it("Tablica: 8 kolumn z numerem kroku, „QC CV” gospodarzem etapu DZ, zamknięci w wąskiej kolumnie obok", async () => {
@@ -2987,7 +2991,8 @@ describe("KanbanBoardV2 — po zamknięciu osoby z panelu następna osoba (13.10
   it("po „Potwierdź” panel pokazuje następną osobę z kolejności „›” i pasek „Odrzucono”", async () => {
     renderBoard(closingColumns());
     const panel = await openPerson("Michał Zieliński");
-    expect(within(panel).getByText("1 z 3")).toBeInTheDocument();
+    // Od 14.10.2026 kolejka to kolumna osoby — „Nowi” (2), bez Screeningu.
+    expect(within(panel).getByText("1 z 2")).toBeInTheDocument();
 
     fireEvent.click(within(panel).getByRole("button", { name: /Odrzuć z powodem/ }));
     const dialog = await screen.findByRole("dialog");
@@ -2996,7 +3001,7 @@ describe("KanbanBoardV2 — po zamknięciu osoby z panelu następna osoba (13.10
     expect(within(dialog).getByText("Dalej: Anna Wiśniewska · Nowi")).toBeInTheDocument();
     await confirmClosing(dialog);
 
-    await waitFor(() => expect(within(panel).getByText("1 z 2")).toBeInTheDocument());
+    await waitFor(() => expect(within(panel).getByText("1 z 1")).toBeInTheDocument());
     expect(within(panel).getAllByText("Anna Wiśniewska").length).toBeGreaterThan(0);
     const notice = within(panel).getByRole("status", { name: "Poprzednia osoba" });
     expect(notice).toHaveTextContent("Odrzucono: Michał Zieliński · Brak Azure");
@@ -3006,7 +3011,7 @@ describe("KanbanBoardV2 — po zamknięciu osoby z panelu następna osoba (13.10
     fireEvent.click(within(notice).getByRole("button", { name: "Pokaż" }));
     await waitFor(() => expect(within(panel).getAllByText("Michał Zieliński").length).toBeGreaterThan(0));
     fireEvent.click(within(panel).getByRole("button", { name: "Wróć do kolejki" }));
-    await waitFor(() => expect(within(panel).getByText("1 z 2")).toBeInTheDocument());
+    await waitFor(() => expect(within(panel).getByText("1 z 1")).toBeInTheDocument());
     expect(within(panel).getAllByText("Anna Wiśniewska").length).toBeGreaterThan(0);
   });
 
@@ -3017,12 +3022,12 @@ describe("KanbanBoardV2 — po zamknięciu osoby z panelu następna osoba (13.10
     await confirmClosing(await screen.findByRole("dialog"));
     await within(panel).findByRole("status", { name: "Poprzednia osoba" });
 
-    fireEvent.click(within(panel).getByRole("button", { name: "Następna karta" }));
-    await waitFor(() => expect(within(panel).getByText("2 z 2")).toBeInTheDocument());
-    expect(within(panel).queryByRole("status", { name: "Poprzednia osoba" })).toBeNull();
-    fireEvent.click(within(panel).getByRole("button", { name: "Poprzednia karta" }));
-    await waitFor(() => expect(within(panel).getByText("1 z 2")).toBeInTheDocument());
-    expect(within(panel).queryByRole("status", { name: "Poprzednia osoba" })).toBeNull();
+    // Anna jest jedyna w „Nowych” — rekruter przechodzi kartą do Screeningu.
+    const other = await openPerson("Tomasz Wójcik");
+    await waitFor(() => expect(within(other).getAllByText("Tomasz Wójcik").length).toBeGreaterThan(0));
+    expect(within(other).getByText("1 z 1")).toBeInTheDocument();
+    expect(within(other).getByTestId("dock-queue-label")).toHaveTextContent("Screening");
+    expect(within(other).queryByRole("status", { name: "Poprzednia osoba" })).toBeNull();
   });
 
   it("„Zrezygnował” też przechodzi dalej, pasek mówi „Rezygnacja”", async () => {
@@ -3035,18 +3040,18 @@ describe("KanbanBoardV2 — po zamknięciu osoby z panelu następna osoba (13.10
 
     const notice = await within(panel).findByRole("status", { name: "Poprzednia osoba" });
     expect(notice).toHaveTextContent("Rezygnacja: Michał Zieliński · Przyjął inną ofertę");
-    expect(within(panel).getByText("1 z 2")).toBeInTheDocument();
+    expect(within(panel).getByText("1 z 1")).toBeInTheDocument();
     expect(moveCalls()[0][1]).toMatchObject({ candidate_id: 61, stage_def_id: 509 });
   });
 
   it("ostatnia osoba w kolejności: okno to zapowiada, panel się zamyka, komunikat ma „Pokaż”", async () => {
     renderBoard(closingColumns());
     const panel = await openPerson("Tomasz Wójcik");
-    expect(within(panel).getByText("3 z 3")).toBeInTheDocument();
+    expect(within(panel).getByText("1 z 1")).toBeInTheDocument();
     fireEvent.click(within(panel).getByRole("button", { name: /Odrzuć z powodem/ }));
     const dialog = await screen.findByRole("dialog");
     expect(
-      within(dialog).getByText("To ostatnia osoba na Tablicy — panel się zamknie."),
+      within(dialog).getByText("To ostatnia osoba w kolejce — panel się zamknie."),
     ).toBeInTheDocument();
     await confirmClosing(dialog);
 
@@ -3055,13 +3060,32 @@ describe("KanbanBoardV2 — po zamknięciu osoby z panelu następna osoba (13.10
     );
     expect(toastAction).toHaveBeenCalledTimes(1);
     const [message, options] = toastAction.mock.calls[0];
-    expect(message).toBe("Odrzucono: Tomasz Wójcik. To była ostatnia osoba w kolejności Tablicy.");
+    expect(message).toBe("Odrzucono: Tomasz Wójcik. To była ostatnia osoba w kolejce „Screening”.");
     expect(options.actionLabel).toBe("Pokaż");
     act(() => {
       options.onAction();
     });
     const back = await screen.findByRole("complementary", { name: "Panel osoby" });
     expect(within(back).getAllByText("Tomasz Wójcik").length).toBeGreaterThan(0);
+  });
+
+  it("ostatnia osoba w „Nowych” zamyka panel — przejście nie wchodzi do Screeningu (D1, 14.10.2026)", async () => {
+    renderBoard(closingColumns());
+    const panel = await openPerson("Anna Wiśniewska");
+    expect(within(panel).getByText("2 z 2")).toBeInTheDocument();
+    fireEvent.click(within(panel).getByRole("button", { name: /Odrzuć z powodem/ }));
+    const dialog = await screen.findByRole("dialog");
+    expect(
+      within(dialog).getByText("To ostatnia osoba w kolejce — panel się zamknie."),
+    ).toBeInTheDocument();
+    await confirmClosing(dialog);
+
+    await waitFor(() =>
+      expect(screen.queryByRole("complementary", { name: "Panel osoby" })).toBeNull(),
+    );
+    expect(toastAction.mock.calls[0][0]).toBe(
+      "Odrzucono: Anna Wiśniewska. To była ostatnia osoba w kolejce „Nowi”.",
+    );
   });
 
   it("odmowa serwera (ktoś inny zmienił kartę) zostawia panel na tej samej osobie, bez paska", async () => {
@@ -3145,7 +3169,7 @@ describe("KanbanBoardV2 — „Rozwiń”: po odrzuceniu widok zostaje jak po �
     post.mockResolvedValue({ data: {} });
   });
 
-  it("następna osoba z „Nowych” zostaje przy formularzu, osoba z dalszej kolumny — w zwykłym doku", async () => {
+  it("następna osoba z „Nowych” zostaje przy formularzu; „Dalej: Zweryfikowany” otwiera zwykły dok", async () => {
     const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     render(
       <QueryClientProvider client={qc}>
@@ -3212,12 +3236,14 @@ describe("KanbanBoardV2 — „Rozwiń”: po odrzuceniu widok zostaje jak po �
     expect(panel).toHaveAttribute("data-size", "split");
     expect(screen.getByTestId("person-workbench-stub")).toHaveAttribute("data-section", "screening");
 
-    await reject();
+    // Anna jest ostatnia w kolejce „Nowi” — odrzucenie nie przeskoczy do
+    // innej kolumny (D1), ale pasek końca kolejki prowadzi dalej (D4).
+    const end = within(panel).getByRole("status", { name: "Koniec kolejki" });
+    expect(end).toHaveTextContent("To jedyna osoba w kolejce.");
+    fireEvent.click(within(end).getByRole("button", { name: /Dalej: Zweryfikowany \(1\)/ }));
     await waitFor(() => expect(panel).toHaveAttribute("data-size", "dock"));
     expect(within(panel).getAllByText("Marta Lis").length).toBeGreaterThan(0);
-    expect(within(panel).getByRole("status", { name: "Poprzednia osoba" })).toHaveTextContent(
-      "Odrzucono: Anna Wiśniewska",
-    );
+    expect(within(panel).getByTestId("dock-queue-label")).toHaveTextContent("Zweryfikowany");
   });
 });
 
@@ -3551,5 +3577,172 @@ describe("KanbanBoardV2 — panel osoby: przekazanie dalej, następna w kolumnie
     );
     await waitFor(() => expect(screen.getByTestId("person-workbench-stub")).toHaveAttribute("data-candidate", "8"));
     expect(screen.getByTestId("person-workbench-stub")).toHaveAttribute("data-forwarded", "");
+  });
+});
+
+describe("KanbanBoardV2 — filtr „Kto dodał” i kolejka w kolumnie (D1–D5, 14.10.2026)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    kanban.mockResolvedValue({ data: { columns: [], off_template: null } });
+    post.mockResolvedValue({ data: {} });
+    useAuthStore.setState({
+      user: { id: 7, role: "recruiter", roles: ["recruiter"], name: "Tomasz Rybak" },
+    } as never);
+  });
+
+  const ADDERS: Record<number, string> = { 7: "Tomasz Rybak", 8: "Paulina Wrona" };
+  const person = (id: number, stage: string, name: string, lastname: string, by: number | null) => ({
+    id: 900 + id,
+    candidate_id: id,
+    stage,
+    name,
+    lastname,
+    days_in_stage: 2,
+    added_to_job_by_id: by,
+    added_to_job_by_name: by == null ? null : ADDERS[by],
+  });
+  const ADAM = person(41, "new", "Adam", "Nowak", 8);
+  const BEATA = person(42, "new", "Beata", "Lis", 7);
+  const CEZARY = person(43, "new", "Cezary", "Mróz", 8);
+  const DOROTA = person(44, "new", "Dorota", "Wójcik", 7);
+  const EMIL = person(45, "new", "Emil", "Bąk", null);
+  const FILIP = person(46, "screening", "Filip", "Kos", 8);
+
+  function boardColumns(nowi = [ADAM, BEATA, CEZARY, DOROTA, EMIL], screening = [FILIP]) {
+    const col = (id: number, stage: string, name: string, items: unknown[], extra = {}) => ({
+      stage,
+      name,
+      category: "internal",
+      stage_def_id: id,
+      count: items.length,
+      terminal_type: null,
+      items,
+      ...extra,
+    });
+    return [
+      col(601, "new", "Nowi / Analiza CV", nowi),
+      col(602, "screening", "Screening", screening),
+      col(603, "verified", "Zweryfikowany", []),
+      col(608, "rejected", "Odrzucony", [], { category: "terminal", terminal_type: "rejected" }),
+    ] as never;
+  }
+
+  function renderFiltered(addedBy: AddedByFilter, columns = boardColumns()) {
+    const onAddedByChange = vi.fn<(filter: AddedByFilter) => void>();
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const ui = (cols: never, filter: AddedByFilter) => (
+      <QueryClientProvider client={qc}>
+        <TooltipProvider>
+          <KanbanBoardV2 columns={cols} jobId={10} addedBy={filter} onAddedByChange={onAddedByChange} />
+        </TooltipProvider>
+      </QueryClientProvider>
+    );
+    const view = render(ui(columns, addedBy));
+    return {
+      onAddedByChange,
+      rerender: (cols: never, filter: AddedByFilter = addedBy) => view.rerender(ui(cols, filter)),
+    };
+  }
+
+  async function openPerson(name: string) {
+    const link = await screen.findByRole("link", { name });
+    fireEvent.click(link.closest("[data-kanban-card]") as HTMLElement);
+    return screen.findByRole("complementary", { name: "Panel osoby" });
+  }
+
+  const moveCalls = () => post.mock.calls.filter((c) => c[0] === "/api/pipeline/move");
+
+  it("„Ty”: karty innych znikają, kolumna mówi „2 z 5”, strzałki chodzą po Twoich w „Nowych”", async () => {
+    const { onAddedByChange } = renderFiltered({ kind: "user", userId: 7 });
+    expect(await screen.findByRole("group", { name: "Nowi, liczba kandydatów: 2 z 5" })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Adam Nowak" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "Emil Bąk" })).toBeNull();
+
+    const panel = await openPerson("Beata Lis");
+    expect(within(panel).getByText("1 z 2")).toBeInTheDocument();
+    expect(within(panel).getByTestId("dock-queue-label")).toHaveTextContent("Nowi · dodani przez Ciebie");
+    expect(within(panel).queryByRole("status", { name: "Koniec kolejki" })).toBeNull();
+
+    fireEvent.click(within(panel).getByRole("button", { name: "Następna karta" }));
+    await waitFor(() => expect(within(panel).getByText("2 z 2")).toBeInTheDocument());
+    expect(within(panel).getAllByText("Dorota Wójcik").length).toBeGreaterThan(0);
+    expect(within(panel).getByRole("button", { name: "Następna karta" })).toBeDisabled();
+
+    // Koniec kolejki (D4): Screening nie ma Twoich osób, więc bez „Dalej”.
+    const end = within(panel).getByRole("status", { name: "Koniec kolejki" });
+    expect(end).toHaveTextContent("To ostatnia z 2 osób w kolejce.");
+    expect(within(end).queryByRole("button", { name: /Dalej/ })).toBeNull();
+    fireEvent.click(within(end).getByRole("button", { name: "Wszyscy (5)" }));
+    expect(onAddedByChange).toHaveBeenCalledWith(ADDED_BY_ALL);
+    fireEvent.click(within(end).getByRole("button", { name: "Od pierwszej" }));
+    await waitFor(() => expect(within(panel).getByText("1 z 2")).toBeInTheDocument());
+    expect(within(panel).getAllByText("Beata Lis").length).toBeGreaterThan(0);
+  });
+
+  it("bez filtra kolejka to cała kolumna „Nowi” (5), a nie cała Tablica (6)", async () => {
+    renderFiltered(ADDED_BY_ALL);
+    expect(await screen.findByRole("group", { name: "Nowi, liczba kandydatów: 5" })).toBeInTheDocument();
+    const panel = await openPerson("Adam Nowak");
+    expect(within(panel).getByText("1 z 5")).toBeInTheDocument();
+    expect(within(panel).getByTestId("dock-queue-label")).toHaveTextContent(/^Nowi$/);
+  });
+
+  it("kolumna, z której filtr schował wszystkich, mówi to i daje „Pokaż wszystkich”", async () => {
+    const { onAddedByChange } = renderFiltered({ kind: "user", userId: 7 });
+    const screening = await screen.findByRole("group", { name: "Screening, liczba kandydatów: 0 z 1" });
+    const empty = within(screening).getByTestId("column-filter-empty");
+    expect(empty).toHaveTextContent("Brak osób dodanych przez Ciebie.");
+    fireEvent.click(within(empty).getByRole("button", { name: "Pokaż wszystkich (1)" }));
+    expect(onAddedByChange).toHaveBeenCalledWith(ADDED_BY_ALL);
+  });
+
+  it("„Brak danych” pokazuje karty bez zapisanej osoby dodającej", async () => {
+    renderFiltered({ kind: "none" });
+    expect(await screen.findByRole("link", { name: "Emil Bąk" })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Beata Lis" })).toBeNull();
+    const panel = await openPerson("Emil Bąk");
+    expect(within(panel).getByTestId("dock-queue-label")).toHaveTextContent("Nowi · bez danych o dodającym");
+  });
+
+  it("upuszczenie przy filtrze przesuwa kartę, którą trzymasz — po numerze karty, nie po pozycji", async () => {
+    renderFiltered({ kind: "user", userId: 7 });
+    await screen.findByRole("link", { name: "Dorota Wójcik" });
+    act(() =>
+      dnd.onDragEnd?.({
+        draggableId: String(DOROTA.id),
+        type: "DEFAULT",
+        reason: "DROP",
+        mode: "FLUID",
+        combine: null,
+        source: { droppableId: "def:601", index: 0 },
+        destination: { droppableId: "def:602", index: 0 },
+      }),
+    );
+    await waitFor(() => expect(moveCalls()).toHaveLength(1));
+    expect(moveCalls()[0][1]).toMatchObject({ candidate_id: DOROTA.candidate_id });
+  });
+
+  it("osoba wyszła z kolumny: panel zostaje, „Wróć do kolejki” prowadzi do tej, która stała za nią", async () => {
+    const { rerender } = renderFiltered(ADDED_BY_ALL);
+    const panel = await openPerson("Beata Lis");
+    expect(within(panel).getByText("2 z 5")).toBeInTheDocument();
+
+    // Beata przeszła na Screening (np. „Zapisz i przekaż dalej”).
+    rerender(boardColumns([ADAM, CEZARY, DOROTA, EMIL], [FILIP, { ...BEATA, id: 1942, stage: "screening" }]));
+    await waitFor(() => expect(within(panel).getByRole("button", { name: "Wróć do kolejki" })).toBeInTheDocument());
+    expect(within(panel).getAllByText("Beata Lis").length).toBeGreaterThan(0);
+    expect(within(panel).getByTestId("dock-queue-label")).toHaveTextContent("Nowi");
+
+    fireEvent.click(within(panel).getByRole("button", { name: "Wróć do kolejki" }));
+    await waitFor(() => expect(within(panel).getByText("2 z 4")).toBeInTheDocument());
+    expect(within(panel).getAllByText("Cezary Mróz").length).toBeGreaterThan(0);
+  });
+
+  it("filtr odznacza osoby, które schował — pasek zaznaczonych nie działa na niewidocznych", async () => {
+    const { rerender } = renderFiltered(ADDED_BY_ALL);
+    fireEvent.click(await screen.findByRole("checkbox", { name: "Zaznacz Adam Nowak" }));
+    expect(await screen.findByText(/Zaznaczono/)).toBeInTheDocument();
+    rerender(boardColumns(), { kind: "user", userId: 7 });
+    await waitFor(() => expect(screen.queryByText(/Zaznaczono/)).toBeNull());
   });
 });

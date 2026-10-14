@@ -63,7 +63,9 @@ rekrutacji i pasek filtrów z 24.09 oraz blok propozycji w „Nowych” z 22.09.
     Kafla nie ma (`CandidateWindowTab` = kafle + `manual`).
 - **Tablica bez paska filtrów** (nazwisko, „Mój ruch”, „Filtry”, „N w procesie”,
   SLA w pasku — usunięte bez zamiennika; plakietki „Twój ruch” i SLA kolumn
-  zostają). **„Zamknięci” to wąska kolumna obok Tablicy** (`board-closed-column`,
+  zostają). Wyjątek od 14.10.2026: jeden przycisk „Kto dodał” w linii faktów
+  nagłówka (`nastepna-osoba-po-odrzuceniu.md`, sekcja „Kolejka w kolumnie…”);
+  kolejny filtr = nowa decyzja. **„Zamknięci” to wąska kolumna obok Tablicy** (`board-closed-column`,
   poza przewijanym obszarem): cztery strefy upuszczenia z tymi samymi
   `droppableId` co dawne chipy (`closedChips`), klik rozwija kolumny zamkniętych.
 - **Tytuł roboczy nie bierze zdań z must-have** (`job_working_title._is_prose`

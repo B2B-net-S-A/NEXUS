@@ -321,3 +321,13 @@ describe("JobDetailCompactHeader", () => {
     expect(within(bare).queryByTestId("finish-job")).toBeNull();
   });
 });
+
+describe("JobDetailCompactHeader — miejsce na filtr Tablicy (14.10.2026)", () => {
+  it("`factsTrailing` stoi w linii faktów, za Klientem, Budżetem i Trybem pracy", () => {
+    renderHeader({ factsTrailing: <button type="button">Kto dodał: wszyscy</button> });
+    const facts = screen.getByTestId("job-header-facts");
+    const trailing = screen.getByRole("button", { name: "Kto dodał: wszyscy" });
+    expect(facts.parentElement).toContainElement(trailing);
+    expect(facts).not.toContainElement(trailing);
+  });
+});

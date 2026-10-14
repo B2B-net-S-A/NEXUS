@@ -537,6 +537,65 @@ describe("PipelineCandidateDock — nawigator, oś czasu i główna akcja", () =
     expect(onSelectPrevious).not.toHaveBeenCalled();
   });
 
+  it("za licznikiem stoi nazwa kolejki; z menu „Kto dodał” zmienia filtr (14.10.2026)", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    renderDock({
+      position: 1,
+      total: 2,
+      queueLabel: "Nowi · dodani przez Ciebie",
+      addedByMenu: {
+        options: [
+          { filter: { kind: "all" }, key: "all", label: "Wszyscy", count: 5, isViewer: false },
+          { filter: { kind: "user", userId: 7 }, key: "user:7", label: "Ty", count: 2, isViewer: true },
+        ],
+        value: { kind: "user", userId: 7 },
+        onChange,
+      },
+    });
+    const label = screen.getByTestId("dock-queue-label");
+    expect(label).toHaveTextContent("Nowi · dodani przez Ciebie");
+    await user.click(label);
+    const menu = await screen.findByRole("menu");
+    await user.click(within(menu).getByTestId("added-by-option-all"));
+    expect(onChange).toHaveBeenCalledWith({ kind: "all" });
+  });
+
+  it("bez menu nazwa kolejki jest zwykłym tekstem; przy „Wróć do kolejki” też jest", () => {
+    renderDock({ position: null, total: 2, onReturnToQueue: vi.fn(), queueLabel: "Screening" });
+    expect(screen.getByRole("button", { name: "Wróć do kolejki" })).toBeTruthy();
+    expect(screen.getByTestId("dock-queue-label").tagName).toBe("SPAN");
+    expect(screen.getByTestId("dock-queue-label")).toHaveTextContent("Screening");
+  });
+
+  it("koniec kolejki: pasek z „Od pierwszej”, „Wszyscy (N)” i „Dalej” (D4)", async () => {
+    const user = userEvent.setup();
+    const onFirst = vi.fn();
+    const showAll = vi.fn();
+    const next = vi.fn();
+    renderDock({
+      position: 3,
+      total: 3,
+      queueEnd: {
+        count: 3,
+        onFirst,
+        showAll: { label: "Wszyscy (8)", onClick: showAll },
+        next: { label: "Dalej: Screening (4)", onClick: next },
+      },
+    });
+    const end = screen.getByRole("status", { name: "Koniec kolejki" });
+    expect(end).toHaveTextContent("To ostatnia z 3 osób w kolejce.");
+    await user.click(within(end).getByRole("button", { name: "Od pierwszej" }));
+    await user.click(within(end).getByRole("button", { name: "Wszyscy (8)" }));
+    await user.click(within(end).getByRole("button", { name: "Dalej: Screening (4)" }));
+    expect([onFirst, showAll, next].map((fn) => fn.mock.calls.length)).toEqual([1, 1, 1]);
+  });
+
+  it("jedyna osoba w kolejce i nic dalej — bez paska końca", () => {
+    renderDock({ position: 1, total: 1, queueEnd: { count: 1 } });
+    expect(screen.queryByRole("status", { name: "Koniec kolejki" })).toBeNull();
+  });
+
   it("podtytuł składa się wyłącznie ze znanych członów", async () => {
     renderDock({ matchScore: 56 });
     expect(

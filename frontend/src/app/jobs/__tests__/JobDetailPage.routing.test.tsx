@@ -646,3 +646,53 @@ describe("strona rekrutacji — prowadzenie rekrutacji za uprawnieniem", () => {
     expect(await closeMenuItem()).not.toBeInTheDocument();
   });
 });
+
+describe("strona rekrutacji — filtr „Kto dodał” (14.10.2026, D2–D3)", () => {
+  const card = (id: number, by: number | null, name: string | null) => ({
+    id: 500 + id,
+    candidate_id: id,
+    stage: "new",
+    added_to_job_by_id: by,
+    added_to_job_by_name: name,
+  });
+  const BOARD = {
+    columns: [
+      {
+        stage: "new",
+        name: "Nowi",
+        category: "internal",
+        stage_def_id: 1,
+        count: 3,
+        items: [card(1, 9, "Ada Admin"), card(2, 5, "Paulina Wrona"), card(3, 9, "Ada Admin")],
+      },
+    ],
+    off_template: null,
+  };
+
+  beforeEach(() => {
+    apiMock.get.mockImplementation((url: string) => {
+      if (url === "/api/jobs/42") return Promise.resolve({ data: JOB });
+      if (url === "/api/pipeline/kanban/42") return Promise.resolve({ data: BOARD });
+      return Promise.resolve({ data: [] });
+    });
+  });
+
+  it("?added_by= trafia do Tablicy i na przycisk w nagłówku; „✕” zdejmuje parametr z adresu", async () => {
+    window.history.replaceState(null, "", "/jobs/42?added_by=9&tab=board");
+    renderPage("added_by=9&tab=board");
+    const trigger = await screen.findByTestId("added-by-trigger");
+    expect(trigger).toHaveTextContent("Kto dodał:Ty· 2 z 3");
+    expect(seen.kanban?.addedBy).toEqual({ kind: "user", userId: 9 });
+
+    await userEvent.click(screen.getByTestId("added-by-clear"));
+    expect(window.location.search).toBe("?tab=board");
+    // Zapis bez routera Nexta — strona nie przewija się na górę.
+    expect(nav.replace).not.toHaveBeenCalled();
+  });
+
+  it("bez parametru: „Kto dodał: wszyscy”, Tablica dostaje filtr „wszyscy”", async () => {
+    renderPage();
+    expect(await screen.findByTestId("added-by-trigger")).toHaveTextContent("Kto dodał:wszyscy");
+    expect(seen.kanban?.addedBy).toEqual({ kind: "all" });
+  });
+});
