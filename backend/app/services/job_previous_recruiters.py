@@ -1,7 +1,8 @@
 """„Poprzedni rekruter” — uśpienie i powrót zespołu rekrutacji (14.10.2026).
 
 Prośba Head of Recruitment, decyzje Artura tego samego dnia
-(``docs/claude/rekrutacja-tablica/poprzedni-rekruter.md``):
+(``docs/claude/rekrutacja-tablica/role-przy-rekrutacji-delivery-lead-rekruter.md``,
+sekcja „Poprzedni rekruter”):
 
 * zamknięcie rekrutacji albo zejście z P1 (na „Bez priorytetu” albo
   „Przyjmujemy kandydatów”) przenosi wszystkich, którzy pracowali jako

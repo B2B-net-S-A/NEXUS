@@ -77,6 +77,9 @@ const GENERIC_ACTION_LABELS: Record<string, string> = {
   owner_assigned: "Przypisano opiekuna",
   owner_released: "Zwolniono opiekuna",
   collaborator_added: "Dodano współpracownika",
+  recruiters_parked: "Zespół do poprzednich rekruterów",
+  recruiters_restored: "Poprzedni rekruterzy wrócili",
+  previous_recruiter_dismissed: "Usunięto z poprzednich rekruterów",
   champion_profile_updated: "Zaktualizowano profil Championa",
   champion_verification_updated: "Zaktualizowano weryfikację Championa",
 };

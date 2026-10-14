@@ -1596,7 +1596,15 @@ export type JobHandoffChannel = "linkedin" | "database" | "mixed";
  * (`assignment_mode`) albo osobę (`recruiter_id`) i kanał.
  */
 export type JobPublishPayload =
-  | { assignment_mode: "keep"; reason?: string | null }
+  | {
+      assignment_mode: "keep";
+      reason?: string | null;
+      /**
+       * „Priorytet po otwarciu” (14.10.2026): przy P1 wracają „Poprzedni
+       * rekruterzy”, przy innym zostają wśród poprzednich. Brak = obecny.
+       */
+      priority?: "urgent" | "high" | "medium" | "low";
+    }
   | ((
       | { assignment_mode: "automatic"; recruiter_id?: never }
       | { recruiter_id: number; assignment_mode?: never }

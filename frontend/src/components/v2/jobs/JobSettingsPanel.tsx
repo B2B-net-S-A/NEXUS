@@ -21,7 +21,10 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { SegmentedRadio } from "@/components/ui/segmented-radio";
 import { JobCategoryRow } from "@/components/v2/jobs/JobCategoryRow";
 import { RequestPriorityChip } from "@/components/v2/jobs/RequestPriorityChip";
-import { useJobPriorityChange } from "@/components/v2/jobs/useJobPriorityChange";
+import {
+  useJobPriorityChange,
+  type JobPriorityTeam,
+} from "@/components/v2/jobs/useJobPriorityChange";
 
 interface DirectoryUser {
   id: number;
@@ -54,6 +57,16 @@ export interface JobSettingsPanelProps {
    * wiersza nie ma.
    */
   recruiters?: ReactNode;
+  /**
+   * Treść wiersza „Poprzedni rekruter” (`PreviousRecruitersRow`, 14.10.2026).
+   * Bez niej — albo gdy nikt nie przeszedł do poprzednich — wiersza nie ma.
+   */
+  previousRecruiters?: ReactNode;
+  /**
+   * Zespół, o który pole „Priorytet” pyta przy zejściu z P1 (osoby przejdą
+   * do „Poprzedni rekruter”). Brak = bez pytania.
+   */
+  priorityTeam?: JobPriorityTeam;
   /** Główna kategoria kompetencji rekrutacji (`competence_category_id`). */
   categoryId: number | null;
   /** Priorytet w trzech poziomach — `priorityLevelOf(job)`. */
@@ -108,6 +121,8 @@ export function JobSettingsPanel({
   hiredCount = null,
   canEdit,
   recruiters,
+  previousRecruiters,
+  priorityTeam,
   categoryId,
   priorityLevel,
   canSetPriority,
@@ -234,6 +249,9 @@ export function JobSettingsPanel({
       {recruiters !== undefined ? (
         <StackedRow label="Rekruter">{recruiters}</StackedRow>
       ) : null}
+      {previousRecruiters ? (
+        <StackedRow label="Poprzedni rekruter">{previousRecruiters}</StackedRow>
+      ) : null}
 
       <StackedRow label="Kategoria">
         <JobCategoryRow categoryId={categoryId} jobId={jobId} canManage={canEdit} />
@@ -299,7 +317,12 @@ export function JobSettingsPanel({
         }
       />
 
-      <PriorityRow jobId={jobId} level={priorityLevel} canSet={canSetPriority} />
+      <PriorityRow
+        jobId={jobId}
+        level={priorityLevel}
+        canSet={canSetPriority}
+        team={priorityTeam}
+      />
     </section>
   );
 }
@@ -313,13 +336,15 @@ function PriorityRow({
   jobId,
   level,
   canSet,
+  team,
 }: {
   jobId: number;
   level: PriorityLevel;
   canSet: boolean;
+  team?: JobPriorityTeam;
 }) {
   const labelId = useId();
-  const { value, change } = useJobPriorityChange(jobId, level);
+  const { value, change, confirmDialog } = useJobPriorityChange(jobId, level, team);
 
   if (!canSet) {
     return (
@@ -348,6 +373,7 @@ function PriorityRow({
         onChange={change}
         options={PRIORITY_LEVEL_OPTIONS}
       />
+      {confirmDialog}
     </StackedRow>
   );
 }

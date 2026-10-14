@@ -290,7 +290,12 @@ export function useNotifications({
             // i obłożenie” od razu, nie po 5-minutowej siatce odpytywania.
             queryClient.invalidateQueries({ queryKey: BOARD_TASKS_QUERY_KEY });
             queryClient.invalidateQueries({ queryKey: REQUEST_BOARD_QUERY_KEY });
-          } else if (notif.notification_type === "request_assignment_changed") {
+          } else if (
+            notif.notification_type === "request_assignment_changed" ||
+            // „Poprzedni rekruter” (14.10.2026): zespół zszedł z P1 / wrócił.
+            notif.notification_type === "recruiter_parked" ||
+            notif.notification_type === "recruiter_restored"
+          ) {
             // Ktoś właśnie dostał request do pracy (akceptacja propozycji,
             // przydział automatu): zmienia się obsada rekrutacji, lista
             // „Moje”, jej liczniki i obłożenie na pulpicie — ten sam zestaw co

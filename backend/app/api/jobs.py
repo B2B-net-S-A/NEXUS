@@ -2689,6 +2689,13 @@ async def update_job(
             owner=await db.get(User, job.recruiter_id),
             actor_id=current_user.id,
         )
+        await _settle_previous_recruiters_on_owner_change(
+            db,
+            job_id=job.id,
+            previous_owner_id=_recruiter_before,
+            owner_id=job.recruiter_id,
+            actor_id=current_user.id,
+        )
     # Hiring manager musi być kontaktem klienta rekrutacji. Jawnie wskazany
     # z innej firmy = 422; zmiana klienta zdejmuje HM poprzedniego klienta,
     # zamiast zostawić na rekrutacji osobę z cudzej firmy (25.09.2026).
@@ -5182,6 +5189,34 @@ async def _notify_new_owner(db: AsyncSession, *, job: Job, user_id: int) -> None
     )
 
 
+async def _settle_previous_recruiters_on_owner_change(
+    db: AsyncSession,
+    *,
+    job_id: int,
+    previous_owner_id: Optional[int],
+    owner_id: int,
+    actor_id: int,
+) -> None:
+    """„Poprzedni rekruter” (14.10.2026) po ręcznym wskazaniu prowadzącego.
+
+    Człowiek wskazał tę osobę, więc pracuje (``readded``); osoba, którą
+    zastąpił, nie wraca przy powrocie na P1 (``removed``). Wołają ``/owner``,
+    ``/claim``, PATCH ``recruiter_id`` i ręczne przekazanie do searchu — nie
+    ponowne otwarcie z zachowaniem zespołu (tam decyduje priorytet).
+    """
+    await clear_parked(
+        db, job_id=job_id, user_id=owner_id, reason="readded", actor_id=actor_id
+    )
+    if previous_owner_id is not None and previous_owner_id != owner_id:
+        await clear_parked(
+            db,
+            job_id=job_id,
+            user_id=previous_owner_id,
+            reason="removed",
+            actor_id=actor_id,
+        )
+
+
 async def _sync_work_assignments_with_owner(
     db: AsyncSession,
     *,
@@ -5221,20 +5256,7 @@ async def _sync_work_assignments_with_owner(
     new_owner_id = owner.id if owner is not None else None
     if owner is not None and owner.id not in (actor_id, previous_owner_id):
         await _notify_new_owner(db, job=job, user_id=owner.id)
-    # „Poprzedni rekruter” (14.10.2026): człowiek wskazał tę osobę — pracuje;
-    # osoba zastąpiona nie wraca przy powrocie na P1.
-    if owner is not None:
-        await clear_parked(
-            db, job_id=job.id, user_id=owner.id, reason="readded", actor_id=actor_id
-        )
     if previous_owner_id is not None and previous_owner_id != new_owner_id:
-        await clear_parked(
-            db,
-            job_id=job.id,
-            user_id=previous_owner_id,
-            reason="removed",
-            actor_id=actor_id,
-        )
         await db.execute(
             sql_update(JobWorkAssignment)
             .where(
@@ -5327,6 +5349,13 @@ async def assign_owner(
         job=job,
         previous_owner_id=previous_owner_id,
         owner=target,
+        actor_id=current_user.id,
+    )
+    await _settle_previous_recruiters_on_owner_change(
+        db,
+        job_id=job.id,
+        previous_owner_id=previous_owner_id,
+        owner_id=target.id,
         actor_id=current_user.id,
     )
     db.add(
@@ -5490,6 +5519,13 @@ async def claim_job(
         job=job,
         previous_owner_id=previous_owner_id,
         owner=current_user,
+        actor_id=current_user.id,
+    )
+    await _settle_previous_recruiters_on_owner_change(
+        db,
+        job_id=job.id,
+        previous_owner_id=previous_owner_id,
+        owner_id=current_user.id,
         actor_id=current_user.id,
     )
     db.add(

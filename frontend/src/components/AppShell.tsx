@@ -96,6 +96,7 @@ import {
   manualCollaboratorIds,
   saveCollaboratorChanges,
 } from "@/lib/job-collaborators";
+import { ownerIsPrevious, previousRecruitersOf } from "@/lib/job-team";
 import {
   sameChoice,
   saveHiringManager,
@@ -1584,6 +1585,12 @@ interface JobFormData {
   train_name: string;
 }
 
+/** Ręcznie dopisani współpracownicy bez „Poprzednich rekruterów” (14.10.2026). */
+function workingCollaboratorIds(job: any): number[] {
+  const parked = new Set(previousRecruitersOf(job).map((person) => person.user_id));
+  return manualCollaboratorIds(job.collaborators).filter((id) => !parked.has(id));
+}
+
 function jobToForm(j: any): JobFormData {
   return {
     title: j.title ?? "",
@@ -1601,7 +1608,8 @@ function jobToForm(j: any): JobFormData {
     rate_budget_hourly_min: j.rate_budget_hourly_min ? String(j.rate_budget_hourly_min) : "",
     priority: j.priority ?? "medium",
     deadline: j.deadline ? j.deadline.slice(0, 10) : "",
-    recruiter_id: j.recruiter_id ? String(j.recruiter_id) : "",
+    // „Poprzedni rekruter” (14.10.2026) nie prowadzi — pole zostaje puste.
+    recruiter_id: j.recruiter_id && !ownerIsPrevious(j) ? String(j.recruiter_id) : "",
     tac_id: j.tac_id ? String(j.tac_id) : "",
     delivery_lead_id: j.delivery_lead_id ? String(j.delivery_lead_id) : "",
     pipeline_template_id: j.pipeline_template_id ? String(j.pipeline_template_id) : "",
@@ -1972,8 +1980,10 @@ export function EditJobModal({
   // wysyła je tylko po zmianie (pusty tytuł = powrót do automatu).
   const [names, setNames] = useState<JobNamesDraft>(() => jobNamesDraft(job));
   // „Kolejne osoby” dopisane ręcznie (bez `auto_cc`) — zapis osobnymi trasami po PATCH-u.
+  // „Poprzedni rekruterzy” (14.10.2026) nie pracują: okno ich nie podsuwa, a
+  // porównanie zmian ich pomija — inaczej zapis bez zmian by ich zdejmował.
   const [collaborators, setCollaborators] = useState<number[]>(() =>
-    manualCollaboratorIds(job.collaborators),
+    workingCollaboratorIds(job),
   );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -2031,10 +2041,10 @@ export function EditJobModal({
   /** `null` = zapisane (albo bez zmian); inaczej polskie zdanie o błędzie. */
   const saveCollaborators = async (primaryOwnerId: number | null): Promise<string | null> => {
     const changes = collaboratorChanges(
-      manualCollaboratorIds(job.collaborators),
+      workingCollaboratorIds(job),
       collaborators,
       primaryOwnerId,
-      job.recruiter_id ?? null,
+      ownerIsPrevious(job) ? null : (job.recruiter_id ?? null),
     );
     if (!hasCollaboratorChanges(changes)) return null;
     return saveCollaboratorChanges(job.id, changes);
@@ -2097,7 +2107,7 @@ export function EditJobModal({
         // a w tym czasie rekrutera mógł wpisać automat albo pulpit.
         recruiter_id: form.recruiter_id
           ? Number(form.recruiter_id)
-          : job.recruiter_id
+          : job.recruiter_id && !ownerIsPrevious(job)
             ? null
             : undefined,
         // Pola usunięte z formularza 22.09.2026 (TAC, typ, widełki, priorytet,

@@ -742,3 +742,67 @@ describe("JobOwnershipPanel — zapisy", () => {
     ).toBeInTheDocument();
   });
 });
+
+describe("JobOwnershipPanel — „Poprzedni rekruter” (14.10.2026)", () => {
+  // Prowadzący uśpiony przy zejściu z P1: `recruiter_id` zostaje, ale nie pracuje.
+  const parked: JobOwnershipJob = {
+    status: "published",
+    primary_owner: firstAsOwner,
+    recruiters: [],
+    previous_recruiters: [
+      {
+        user_id: first.user_id,
+        name: first.name,
+        via: "owner",
+        reason: "priority",
+        parked_at: "2026-10-14T13:02:00Z",
+        parked_by_name: "Gosia Delivery",
+        will_return: true,
+      },
+    ],
+  };
+
+  it("pusty wiersz mówi zdaniem, kiedy wrócą, bez bursztynowego „Bez rekrutera”", () => {
+    renderPanel(parked, { as: deliveryLead });
+
+    expect(
+      screen.getByText("Nikt teraz nie pracuje. Poprzedni wrócą, gdy rekrutacja wróci na P1."),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Bez rekrutera")).not.toBeInTheDocument();
+  });
+
+  it("rola przydzielająca dokłada kolejną osobę (bez „Przypisz…” — poprzedni wrócą obok niej)", async () => {
+    const user = userEvent.setup();
+    renderPanel(parked, { as: deliveryLead });
+
+    expect(actions()).toEqual(["+ Dodaj osobę"]);
+    await user.click(screen.getByRole("button", { name: "+ Dodaj osobę" }));
+    await user.click(await screen.findByRole("option", { name: /Darek Makietowy/ }));
+
+    await waitFor(() =>
+      expect(apiMock.post).toHaveBeenCalledWith(`/api/jobs/${JOB_ID}/collaborators`, {
+        user_id: 34,
+      }),
+    );
+    expect(apiMock.post).not.toHaveBeenCalledWith(
+      `/api/jobs/${JOB_ID}/owner`,
+      expect.anything(),
+    );
+  });
+
+  it("uśpiony prowadzący nie zajmuje fotela — rekruter może wziąć rekrutację", () => {
+    renderPanel(parked, { as: recruiter });
+
+    expect(actions()).toContain("Biorę");
+  });
+
+  it("przy zamkniętej rekrutacji zdanie mówi o ponownym otwarciu", () => {
+    renderPanel({ ...parked, status: "closed" }, { as: deliveryLead });
+
+    expect(
+      screen.getByText(
+        "Nikt teraz nie pracuje. Poprzedni wrócą, gdy rekrutacja zostanie otwarta ponownie z priorytetem P1.",
+      ),
+    ).toBeInTheDocument();
+  });
+});

@@ -24,12 +24,16 @@ vi.mock("@/lib/api", () => ({
 }));
 vi.mock("@/components/Toast", () => ({ useToast: () => toast }));
 
-function renderMenu(level: PriorityLevel, canSet: boolean) {
+function renderMenu(
+  level: PriorityLevel,
+  canSet: boolean,
+  team?: { workingNames?: readonly string[]; closed?: boolean },
+) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const invalidate = vi.spyOn(client, "invalidateQueries");
   render(
     <QueryClientProvider client={client}>
-      <JobPriorityMenu jobId={42} level={level} canSet={canSet} />
+      <JobPriorityMenu jobId={42} level={level} canSet={canSet} team={team} />
     </QueryClientProvider>,
   );
   return { invalidate };
@@ -109,5 +113,25 @@ describe("JobPriorityMenu", () => {
     await userEvent.click(chip());
     await userEvent.click(await screen.findByTestId("job-priority-option-p1"));
     expect(patchMock).not.toHaveBeenCalled();
+  });
+
+  it("zejście z P1 pyta o potwierdzenie — zespół przejdzie do „Poprzedni rekruter” (14.10.2026)", async () => {
+    patchMock.mockResolvedValue({ data: {} });
+    renderMenu("p1", true, { workingNames: ["Anna Kowalska"] });
+
+    await userEvent.click(chip());
+    await userEvent.click(await screen.findByTestId("job-priority-option-p2"));
+
+    const dialog = await screen.findByRole("dialog");
+    expect(dialog).toHaveTextContent(
+      "Anna Kowalska przejdzie do „Poprzedni rekruter”",
+    );
+    expect(patchMock).not.toHaveBeenCalled();
+    await userEvent.click(
+      within(dialog).getByRole("button", { name: "Zmień na „Bez priorytetu”" }),
+    );
+    await waitFor(() =>
+      expect(patchMock).toHaveBeenCalledWith("/api/jobs/42", { priority: "medium" }),
+    );
   });
 });

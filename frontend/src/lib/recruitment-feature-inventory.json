@@ -230,6 +230,22 @@
    "v3_home": "Profil Championa → Zespół i ogłoszenie → Priorytet"
   },
   {
+   "id": "team.previous-recruiters",
+   "area": "naglowek",
+   "opis": "„Poprzedni rekruter” — osoby uśpione przy zejściu z P1 albo zamknięciu, wracają przy P1; „Usuń z poprzednich” dla roli przydzielającej (14.10.2026)",
+   "file": "components/v2/jobs/PreviousRecruitersRow.tsx",
+   "marker": "dismissPreviousRecruiter",
+   "v3_home": "Profil Championa → Zespół i ogłoszenie → Poprzedni rekruter"
+  },
+  {
+   "id": "team.priority-confirm",
+   "area": "naglowek",
+   "opis": "Potwierdzenie zejścia z P1, gdy ktoś pracuje — zespół przejdzie do „Poprzedni rekruter” (pole „Priorytet” i plakietka w nagłówku)",
+   "file": "components/v2/jobs/useJobPriorityChange.ts",
+   "marker": "leavingP1Confirm",
+   "v3_home": "Profil Championa → Zespół i ogłoszenie → Priorytet; nagłówek rekrutacji → plakietka priorytetu"
+  },
+  {
    "id": "header.recruiter-subtitle",
    "area": "naglowek",
    "opis": "Kto jest rekruterem rekrutacji: „Rekruter: X +N” albo „Bez rekrutera” (dawniej podtytuł nagłówka)",
@@ -1525,6 +1541,14 @@
    "file": "components/v2/jobs/JobDetailCompactHeader.tsx",
    "marker": "onReopenJob",
    "v3_home": "nagłówek rekrutacji → „⋯”"
+  },
+  {
+   "id": "job.reopen-priority",
+   "area": "zlecenie",
+   "opis": "„Priorytet po otwarciu” w oknie „Otwórz ponownie” (domyślnie P1) i zdanie, kto z poprzednich rekruterów wraca (14.10.2026)",
+   "file": "components/v2/jobs/JobReopenDialog.tsx",
+   "marker": "Priorytet po otwarciu",
+   "v3_home": "nagłówek rekrutacji → „⋯” → Otwórz ponownie"
   },
   {
    "id": "board.pending-jobs",

@@ -9,7 +9,10 @@ import {
   hasRecruiter,
   hasWorkingOwner,
   joinJob,
+  joinNames,
+  ownerIsPrevious,
   pinRecruiters,
+  previousRecruitersOf,
   proposedRecruiters,
   recruitersOf,
   recruitersSummary,
@@ -333,5 +336,47 @@ describe("claimJob i joinJob", () => {
   it("dołączenie dopisuje zalogowaną osobę jako współpracownika", async () => {
     await joinJob(12, 44);
     expect(apiPost).toHaveBeenCalledWith("/api/jobs/12/collaborators", { user_id: 44 });
+  });
+});
+
+describe("„Poprzedni rekruter” (14.10.2026)", () => {
+  const anna = {
+    user_id: 21,
+    name: "Anna Kowalska",
+    via: "owner" as const,
+    reason: "priority" as const,
+    parked_at: "2026-10-14T13:02:00Z",
+    parked_by_name: null,
+    will_return: true,
+  };
+
+  it("lista poprzednich: z pola albo pusta", () => {
+    expect(previousRecruitersOf({ previous_recruiters: [anna] })).toEqual([anna]);
+    expect(previousRecruitersOf({})).toEqual([]);
+    expect(previousRecruitersOf(null)).toEqual([]);
+  });
+
+  it("uśpiony prowadzący = brak prowadzącego", () => {
+    expect(ownerIsPrevious({ previous_recruiters: [anna] })).toBe(true);
+    expect(
+      ownerIsPrevious({ previous_recruiters: [{ ...anna, via: "collaborator" }] }),
+    ).toBe(false);
+  });
+
+  it("zapas bez `recruiters` nie pokazuje poprzednich jako pracujących", () => {
+    expect(
+      recruitersOf({
+        primary_owner: { id: 21, name: "Anna Kowalska" },
+        collaborators: [{ id: 22, name: "Piotr Nowak", source: "manual" }],
+        previous_recruiters: [anna],
+      }).map((person) => person.user_id),
+    ).toEqual([22]);
+  });
+
+  it("imiona w zdaniu", () => {
+    expect(joinNames([])).toBe("");
+    expect(joinNames(["Anna"])).toBe("Anna");
+    expect(joinNames(["Anna", "Piotr"])).toBe("Anna i Piotr");
+    expect(joinNames(["Anna", "Piotr", "Ewa"])).toBe("Anna, Piotr i Ewa");
   });
 });

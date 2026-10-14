@@ -133,7 +133,9 @@ describe("JobReopenDialog", () => {
     // Bez pola wyboru rekrutera i kanału — zostaje dotychczasowa osoba.
     expect(screen.queryByTestId("job-reopen-recruiter")).toBeNull();
     expect(screen.queryByLabelText("Kanał pracy")).toBeNull();
-    expect(screen.queryByRole("radiogroup")).toBeNull();
+    // Jedyny wybór to „Priorytet po otwarciu” (14.10.2026), domyślnie P1.
+    expect(screen.getByRole("radiogroup", { name: "Priorytet po otwarciu" })).toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: "P1 Pilne" })).toBeChecked();
     expect(screen.getByTestId("job-reopen-recruiter-note")).toHaveTextContent(
       "Zmienisz go w zakładce „Zespół i ogłoszenie”.",
     );
@@ -146,6 +148,7 @@ describe("JobReopenDialog", () => {
     await waitFor(() =>
       expect(mocks.publish).toHaveBeenCalledWith(9, {
         assignment_mode: "keep",
+        priority: "urgent",
         reason: "klient wrócił",
       }),
     );
@@ -209,15 +212,15 @@ describe("JobReopenDialog", () => {
 
   it("bez rekrutera przy włączonym automacie: obietnica przydziału tylko dla P1", async () => {
     mockReadiness({ ready: true, allocation_mode: "auto" });
-    const urgent = renderDialog("reopen", { cachedJob: { priority_level: "p1" } });
+    // Priorytet po otwarciu wybiera okno (domyślnie P1), nie zapis w rekrutacji.
+    renderDialog("reopen", { cachedJob: { priority_level: "p2" } });
     await waitFor(() =>
       expect(screen.getByTestId("job-reopen-recruiter-note")).toHaveTextContent(
         "Rekrutacja nie ma rekrutera — po otwarciu przydzieli go automat.",
       ),
     );
-    urgent.unmount();
 
-    renderDialog("reopen", { cachedJob: { priority_level: "p2" } });
+    fireEvent.click(screen.getByRole("radio", { name: "Bez priorytetu" }));
     await waitFor(() =>
       expect(screen.getByTestId("job-reopen-recruiter-note")).toHaveTextContent(
         "Rekrutacja nie ma rekrutera — automat dobiera go tylko przy priorytecie P1, więc po otwarciu wskaże go Head of Recruitment.",
@@ -236,7 +239,71 @@ describe("JobReopenDialog", () => {
     );
     fireEvent.click(screen.getByTestId("job-reopen-submit"));
     await waitFor(() =>
-      expect(mocks.publish).toHaveBeenCalledWith(9, { assignment_mode: "keep" }),
+      expect(mocks.publish).toHaveBeenCalledWith(9, {
+        assignment_mode: "keep",
+        priority: "urgent",
+      }),
+    );
+  });
+
+  it("„Poprzedni rekruter”: przy P1 okno mówi, kto wraca; przy innym priorytecie — kto zostaje (14.10.2026)", async () => {
+    mockReadiness({ ready: true });
+    mocks.publish.mockResolvedValue({ data: {} });
+    renderDialog("reopen", {
+      cachedJob: {
+        priority_level: "p1",
+        previous_recruiters: [
+          {
+            user_id: 21,
+            name: "Anna Kowalska",
+            via: "owner",
+            reason: "closed",
+            parked_at: "2026-10-14T13:02:00Z",
+            parked_by_name: "Marta Zielińska",
+            will_return: true,
+          },
+          {
+            user_id: 22,
+            name: "Piotr Nowak",
+            via: "collaborator",
+            reason: "closed",
+            parked_at: "2026-10-14T13:02:00Z",
+            parked_by_name: "Marta Zielińska",
+            will_return: true,
+          },
+          {
+            user_id: 23,
+            name: "Ewa Konto Nieaktywne",
+            via: "collaborator",
+            reason: "closed",
+            parked_at: "2026-10-14T13:02:00Z",
+            parked_by_name: null,
+            will_return: false,
+          },
+        ],
+      },
+    });
+
+    await waitFor(() =>
+      expect(screen.getByTestId("job-reopen-recruiter-note")).toHaveTextContent(
+        "Wracają poprzedni rekruterzy: Anna Kowalska i Piotr Nowak.",
+      ),
+    );
+    expect(screen.getByTestId("job-reopen-recruiter-note")).not.toHaveTextContent(
+      "Ewa Konto Nieaktywne",
+    );
+
+    fireEvent.click(screen.getByRole("radio", { name: "Bez priorytetu" }));
+    expect(screen.getByTestId("job-reopen-recruiter-note")).toHaveTextContent(
+      "Anna Kowalska i Piotr Nowak zostaną wśród poprzednich rekruterów.",
+    );
+    await waitFor(() => expect(screen.getByTestId("job-reopen-submit")).toBeEnabled());
+    fireEvent.click(screen.getByTestId("job-reopen-submit"));
+    await waitFor(() =>
+      expect(mocks.publish).toHaveBeenCalledWith(9, {
+        assignment_mode: "keep",
+        priority: "medium",
+      }),
     );
   });
 

@@ -14,6 +14,10 @@
  * Rekruter (09.10.2026): „Otwórz ponownie” o niego NIE pyta — zamknięcie nie
  * czyści rekrutera, więc zostaje dotychczasowy (`assignment_mode: "keep"`),
  * a gdy go nie ma, przydziela automat albo wskazuje Head of Recruitment.
+ *
+ * „Priorytet po otwarciu” (14.10.2026, „Poprzedni rekruter”): zamknięcie
+ * przenosi zespół do poprzednich; przy P1 (domyślnie) wraca, przy innym
+ * priorytecie zostaje wśród poprzednich — okno mówi, kto wraca.
  * „Dokończ i opublikuj” (stary szkic nigdy nie miał rekrutera) pyta jak
  * „Przekaż do searchu”: automat albo osoba (`RecruiterAssignmentChoice`).
  *
@@ -60,7 +64,15 @@ import {
   type RecruiterAssignment,
 } from "@/lib/recruiter-assignment";
 import { hasRecruiterRole } from "@/lib/job-collaborators";
-import { automatAssigns, priorityLevelOf } from "@/lib/request-priority";
+import { joinNames, type PreviousRecruiter } from "@/lib/job-team";
+import {
+  automatAssigns,
+  PRIORITY_LEVEL_OPTIONS,
+  priorityLevelOf,
+  rawPriorityForLevel,
+  type PriorityLevel,
+} from "@/lib/request-priority";
+import { SegmentedRadio } from "@/components/ui/segmented-radio";
 import { httpStatusFromError } from "@/lib/view-state";
 
 export type JobReopenMode = "reopen" | "finish";
@@ -100,6 +112,7 @@ interface ReopenCachedJob {
   deadline_not_provided?: boolean | null;
   priority_level?: string | null;
   priority?: string | null;
+  previous_recruiters?: readonly PreviousRecruiter[] | null;
 }
 
 interface ReadinessResponse {
@@ -168,6 +181,7 @@ export function JobReopenDialog({
   const recruiterLabelId = useId();
   const reasonId = useId();
   const channelId = useId();
+  const priorityLabelId = useId();
   const cachedJob = useCachedJob<ReopenCachedJob>(jobId);
   const clientId = cachedJob?.client_id ?? null;
   const knownRecruiter =
@@ -188,6 +202,8 @@ export function JobReopenDialog({
   );
   const [channel, setChannel] = useState<JobHandoffChannel>("linkedin");
   const [reason, setReason] = useState("");
+  // Nowa rekrutacja zaczyna od P1 (08.10.2026) — ponowne otwarcie też.
+  const [priority, setPriority] = useState<PriorityLevel>("p1");
   const [submitting, setSubmitting] = useState(false);
   // Braki z odmowy 422 `job_not_ready` — świeższe niż odczyt gotowości.
   const [refusedBlockers, setRefusedBlockers] = useState<JobBlockerItem[] | null>(null);
@@ -226,10 +242,16 @@ export function JobReopenDialog({
     readiness?.allocation_mode,
   );
   const automaticAvailable = automatOn && currentRecruiter == null;
-  // Automat dobiera rekrutera tylko do P1. Bez rekrutacji w cache'u priorytet
-  // jest nieznany — wtedy niczego nie przesądzamy.
-  const automatSkips =
-    cachedJob != null && !automatAssigns(priorityLevelOf(cachedJob));
+  // Automat dobiera rekrutera tylko do P1. Ponowne otwarcie ustawia priorytet
+  // z okna; bez rekrutacji w cache'u („Dokończ”) priorytet jest nieznany —
+  // wtedy niczego nie przesądzamy.
+  const automatSkips = keepTeam
+    ? !automatAssigns(priority)
+    : cachedJob != null && !automatAssigns(priorityLevelOf(cachedJob));
+  // „Poprzedni rekruter”: kto wróci przy P1 (konto aktywne, rola rekrutera).
+  const returning = (cachedJob?.previous_recruiters ?? []).filter(
+    (person) => person.will_return,
+  );
   const unavailableReason = !readinessQuery.isSuccess
     ? null
     : !automatOn
@@ -254,6 +276,7 @@ export function JobReopenDialog({
     setPickedRecruiterId(undefined);
     setChannel("linkedin");
     setReason("");
+    setPriority("p1");
     setRefusedBlockers(null);
     setRefusalMessage(null);
     setDeadlineError(null);
@@ -295,7 +318,11 @@ export function JobReopenDialog({
     if (!keepTeam && !automatic && !recruiterId) return;
     const trimmedReason = reason.trim();
     const payload: JobPublishPayload = keepTeam
-      ? { assignment_mode: "keep", ...(trimmedReason ? { reason: trimmedReason } : {}) }
+      ? {
+          assignment_mode: "keep",
+          priority: rawPriorityForLevel(priority),
+          ...(trimmedReason ? { reason: trimmedReason } : {}),
+        }
       : automatic
         ? { assignment_mode: "automatic", channel }
         : { recruiter_id: recruiterId as number, channel };
@@ -534,9 +561,48 @@ export function JobReopenDialog({
         ) : null}
 
         {keepTeam ? (
-          <p className="text-sm text-muted-foreground" data-testid="job-reopen-recruiter-note">
-            {keepTeamNote} Zmienisz go w zakładce „Zespół i ogłoszenie”.
-          </p>
+          <div className="space-y-1.5">
+            <span id={priorityLabelId} className="block text-xs font-medium text-foreground">
+              Priorytet po otwarciu
+            </span>
+            <SegmentedRadio<PriorityLevel>
+              size="sm"
+              labelledBy={priorityLabelId}
+              value={priority}
+              onChange={setPriority}
+              options={PRIORITY_LEVEL_OPTIONS}
+              disabled={submitting}
+            />
+            {returning.length > 0 ? (
+              priority === "p1" ? (
+                <p
+                  className="text-sm text-muted-foreground"
+                  data-testid="job-reopen-recruiter-note"
+                >
+                  Wracają poprzedni rekruterzy: {joinNames(returning.map((p) => p.name))}.
+                  Każda z tych osób dostanie dzwonek. Zmienisz ich w zakładce „Zespół
+                  i ogłoszenie”.
+                </p>
+              ) : (
+                <p
+                  className="rounded-md bg-warning-muted px-3 py-2 text-xs text-warning-muted-foreground"
+                  data-testid="job-reopen-recruiter-note"
+                >
+                  {joinNames(returning.map((p) => p.name))}{" "}
+                  {returning.length > 1 ? "zostaną" : "zostanie"} wśród poprzednich
+                  rekruterów. Rekrutacja będzie otwarta bez rekrutera, dopóki ktoś nie
+                  ustawi P1 albo nie doda osoby.
+                </p>
+              )
+            ) : (
+              <p
+                className="text-sm text-muted-foreground"
+                data-testid="job-reopen-recruiter-note"
+              >
+                {keepTeamNote} Zmienisz go w zakładce „Zespół i ogłoszenie”.
+              </p>
+            )}
+          </div>
         ) : (
           <>
             <div className="space-y-1.5">

@@ -1159,6 +1159,13 @@ async def handoff_core(
         owner=recruiter,
         actor_id=actor_id,
     )
+    await api._settle_previous_recruiters_on_owner_change(
+        db,
+        job_id=job_id,
+        previous_owner_id=previous_owner_id,
+        owner_id=recruiter.id,
+        actor_id=actor_id,
+    )
     db.add(
         Activity(
             entity_type="job",
