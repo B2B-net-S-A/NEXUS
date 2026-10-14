@@ -611,11 +611,14 @@ JOINT_REASON_MESSAGES: dict[str, str] = {
 async def joint_anchor(db: AsyncSession, job: Job) -> dict[str, Any]:
     """Rekrutacja, z której otwarto panel — klient i budżet do formularza wspólnego."""
     from app.models.client import Client
+    from app.services.client_identity import client_display_name_expression
     from app.services.dealbreaker_filters import resolve_job_budget_hourly
     from app.services.job_working_title import display_title
 
     client_name = (
-        await db.scalar(select(Client.name).where(Client.id == job.client_id))
+        await db.scalar(
+            select(client_display_name_expression()).where(Client.id == job.client_id)
+        )
         if job.client_id is not None
         else None
     )
@@ -666,12 +669,13 @@ async def joint_pairs(
     if not job_ids:
         return []
     from app.models.client import Client
+    from app.services.client_identity import client_display_name_expression
 
     jobs = {
         job.id: (job, client_name)
         for job, client_name in (
             await db.execute(
-                select(Job, Client.name)
+                select(Job, client_display_name_expression())
                 .outerjoin(Client, Client.id == Job.client_id)
                 .where(Job.id.in_(job_ids))
             )

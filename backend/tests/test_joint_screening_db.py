@@ -21,6 +21,8 @@ from sqlalchemy import func, select, update
 
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
+from app.models.client import Client
+from app.models.job import Job
 from app.models.note import Note
 from app.models.recruitment_pipeline import CandidateStage, PipelineStage
 from app.models.recruitment_process import ProcessStatus, RecruitmentProcess
@@ -96,6 +98,31 @@ async def test_joint_context_lists_other_pairs_with_reasons(app_client: AsyncCli
     assert pairs[later["job_id"]]["reason"] == "later_stage"
     assert pairs[claimed["job_id"]]["reason"] == "claimed"
     assert pairs[claimed["job_id"]]["claim"]["mine"] is False
+
+
+async def test_joint_context_uses_client_display_names(app_client: AsyncClient):
+    w = await _world(PipelineStage.new)
+    other = await _same_person_in(w, PipelineStage.screening)
+    async with AsyncSessionLocal() as db:
+        for job_id, label in (
+            (w["job_id"], "Kotwica NEXUS"),
+            (other["job_id"], "Para NEXUS"),
+        ):
+            client_id = await db.scalar(select(Job.client_id).where(Job.id == job_id))
+            await db.execute(
+                update(Client).where(Client.id == client_id).values(display_name=label)
+            )
+        await db.commit()
+
+    res = await app_client.get(
+        f"{URL}/joint-context",
+        params={"candidate_id": w["cand_id"], "job_id": w["job_id"]},
+        headers=w["rec_h"],
+    )
+    assert res.status_code == 200, res.text
+    body = res.json()
+    assert body["anchor"]["client_name"] == "Kotwica NEXUS"
+    assert [p["client_name"] for p in body["pairs"]] == ["Para NEXUS"]
 
 
 async def test_question_groups_join_the_same_question(app_client: AsyncClient):
