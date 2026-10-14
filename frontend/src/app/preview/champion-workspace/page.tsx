@@ -22,7 +22,12 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import { ToastProvider } from "@/components/Toast";
 import { ChampionWorkspace, type ChampionWorkspaceJob } from "@/components/champion/ChampionWorkspace";
-import { api, type ChampionProfileResponse } from "@/lib/api";
+import {
+  api,
+  type ChampionConsultantSuggestion,
+  type ChampionProfileResponse,
+} from "@/lib/api";
+import { foldText, matchRank } from "@/lib/contract-client-filter";
 import { plainBriefQueryKey, type PlainBrief } from "@/lib/api/plainKnowledge";
 import { jobAdQueryKey, type JobAdState } from "@/lib/api/jobAd";
 import { jobPortalKeys } from "@/lib/api/jobPortals";
@@ -85,6 +90,26 @@ const isoDay = (offsetDays: number) =>
 
 const DELIVERY_LEAD = { id: 61, name: "Gosia Delivery" };
 const RECRUITER = { id: 31, name: "Anna Przykładowa" };
+
+/**
+ * „Nasi konsultanci u tego klienta” w pasku „Do dopięcia” — ponad 20 osób, jak
+ * u klienta ze zgłoszenia z 14.10.2026, i jedna osoba tylko „w całej bazie”
+ * (wpisz „Spoza”). Nazwiska zmyślone.
+ */
+const FIRST_NAMES = ["Adam", "Beata", "Cezary", "Dorota", "Emil", "Felicja", "Grzegorz", "Hanna"];
+const LAST_NAMES = ["Przykładowy", "Wzorcowa", "Makietowy"];
+const CONSULTANTS_AT_CLIENT: ChampionConsultantSuggestion[] = LAST_NAMES.flatMap((last, i) =>
+  FIRST_NAMES.map((first, j) => ({
+    candidate_id: 5000 + i * 10 + j,
+    name: `${first} ${last}`,
+    job_title: j % 3 === 0 ? "Java Developer" : null,
+    since: null,
+  })),
+).sort((a, b) => a.name.localeCompare(b.name, "pl"));
+const BASE_PEOPLE = [
+  { id: 5100, name: "Józef", lastname: "Spozalisty", email: "jozef.spozalisty@example.com" },
+  { id: 5000, name: "Adam", lastname: "Przykładowy", email: "adam.p@example.com" },
+];
 
 type Persona = "dl" | "recruiter";
 
@@ -289,6 +314,11 @@ function seededClient(persona: Persona): QueryClient {
     SEED_FRESH,
   );
   qc.setQueryData(["handoff-recruiters"], [], SEED_FRESH);
+  qc.setQueryData(
+    ["champion-consultant-suggestions", JOB_ID],
+    CONSULTANTS_AT_CLIENT,
+    SEED_FRESH,
+  );
   // Klient i historia.
   qc.setQueryData(
     ["client-playbook", CLIENT_ID],
@@ -416,9 +446,18 @@ function Harness() {
   const [client, setClient] = useState<QueryClient | null>(null);
 
   useEffect(() => {
-    const blocker = api.interceptors.request.use((config) =>
-      Promise.reject(new AxiosError("preview: sieć wyłączona", "ECONNABORTED", config)),
-    );
+    const blocker = api.interceptors.request.use((config) => {
+      // Szukanie konsultanta „w całej bazie” — odpowiedź lokalna, bez sieci.
+      if (config.url === "/api/candidates" && config.params?.sort === "relevance") {
+        const query = foldText(String(config.params.q ?? ""));
+        const items = BASE_PEOPLE.filter(
+          (p) => matchRank(`${p.name} ${p.lastname}`, query) >= 0,
+        );
+        config.adapter = async () => ({ data: { items }, status: 200, statusText: "OK", headers: {}, config });
+        return config;
+      }
+      return Promise.reject(new AxiosError("preview: sieć wyłączona", "ECONNABORTED", config));
+    });
     return () => api.interceptors.request.eject(blocker);
   }, []);
 
