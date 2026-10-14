@@ -129,7 +129,7 @@ async def test_oauth_callback_rechecks_role_before_token_exchange(
     db.commit.assert_not_awaited()
 
 
-# 0445: „Automatyzacje” czytają kandydatów, ale skrzynki nie synchronizują.
+# 0446: „Automatyzacje” czytają kandydatów, ale skrzynki nie synchronizują.
 @pytest.mark.parametrize("role", [UserRole.user, UserRole.automation])
 @pytest.mark.asyncio
 async def test_webhook_sync_rechecks_connection_owner_role(

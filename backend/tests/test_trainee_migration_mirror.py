@@ -61,7 +61,7 @@ def test_enums_role_checks_and_proposal_source_are_mirrored() -> None:
 
 def test_role_is_exclusive_everywhere() -> None:
     user_model = (ROOT / "app/models/user.py").read_text()
-    # 0445 dopisała do listy „automation” — praktykant ma w niej zostać.
+    # 0446 dopisała do listy „automation” — praktykant ma w niej zostać.
     exclusive = re.search(r"WHEN role::text IN \(([^)]*)\)", user_model)
     assert exclusive is not None
     assert "'trainee'" in exclusive.group(1)

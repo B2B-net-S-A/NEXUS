@@ -30,7 +30,7 @@ FINANCE = UserRole.finance
 HOR = UserRole.head_of_recruitment
 LEAD = UserRole.delivery_lead
 TCM = UserRole.talent_community_manager
-# 0445: „Automatyzacje” — sam podgląd Delivery, bez kwot i bez zapisu.
+# 0446: „Automatyzacje” — sam podgląd Delivery, bez kwot i bez zapisu.
 AUTOMATION = UserRole.automation
 RECRUITER = UserRole.recruiter
 

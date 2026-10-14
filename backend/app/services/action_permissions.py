@@ -79,7 +79,7 @@ _GENERATOR_DEFAULTS: dict[UserRole, ActionAccess] = {
     UserRole.recruiter: ActionAccess.manage,
     UserRole.user: ActionAccess.view,
     UserRole.trainee: ActionAccess.none,
-    # 0445: rejestr umów B2B pokazuje stawki konsultantów — „Automatyzacje”
+    # 0446: rejestr umów B2B pokazuje stawki konsultantów — „Automatyzacje”
     # kwot nie widzą.
     UserRole.automation: ActionAccess.none,
 }

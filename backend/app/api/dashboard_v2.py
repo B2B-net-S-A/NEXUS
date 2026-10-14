@@ -117,7 +117,7 @@ RecruitmentOperationsUser = Annotated[
             UserRole.talent_community_manager,
             UserRole.recruiter,
             UserRole.finance,
-            # 0445: podgląd pulpitu rekrutacji; „ulubione” (PUT) stoją za
+            # 0446: podgląd pulpitu rekrutacji; „ulubione” (PUT) stoją za
             # bramką zapisu sekcji Pipeline.
             UserRole.automation,
         )

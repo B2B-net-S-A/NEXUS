@@ -1,7 +1,7 @@
 """Rola „Automatyzacje” — podgląd bez kwot i bez zapisu.
 
-Revision ID: 0445_automation_role
-Revises: 0444_also_fits_added_notification
+Revision ID: 0446_automation_role
+Revises: 0445_cv_stage_draft_snapshots
 
 Decyzja Artura 14.10.2026: osoba, która podpina procesy firmy pod NEXUSA
 (API integracyjne v1), nie dostaje roli Finanse — ta czyta wszystkie stawki
@@ -20,8 +20,8 @@ Lustro w ``entrypoint.sh`` (prod alembic bywa osierocony) — pilnuje
 
 from alembic import op
 
-revision = "0445_automation_role"
-down_revision = "0444_also_fits_added_notification"
+revision = "0446_automation_role"
+down_revision = "0445_cv_stage_draft_snapshots"
 branch_labels = None
 depends_on = None
 
@@ -109,7 +109,7 @@ def downgrade() -> None:
             SELECT 1 FROM users
             WHERE role::text = 'automation' OR roles ? 'automation'
         ) THEN
-            RAISE EXCEPTION 'Konta z rolą automation istnieją — zmień im rolę przed cofnięciem 0445';
+            RAISE EXCEPTION 'Konta z rolą automation istnieją — zmień im rolę przed cofnięciem 0446';
         END IF;
     END $$""")
     op.execute("DELETE FROM rbac_role_section_permissions WHERE role = 'automation'")

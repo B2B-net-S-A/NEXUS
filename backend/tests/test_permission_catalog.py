@@ -49,7 +49,7 @@ EXPECTED_DEFAULTS: dict[str, set[str]] = {
     "recruiter": set(),
     "user": set(),
     "trainee": set(),
-    # 0445: „Automatyzacje” — sam podgląd Delivery, bez kwot.
+    # 0446: „Automatyzacje” — sam podgląd Delivery, bez kwot.
     "automation": {"delivery_view"},
 }
 

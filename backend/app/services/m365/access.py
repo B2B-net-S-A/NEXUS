@@ -23,7 +23,7 @@ from app.services.section_permissions import resolve_effective_section_access
 def can_own_mailbox(user: User) -> bool:
     """Czy konto może mieć podłączoną skrzynkę, z której poczta trafia do bazy.
 
-    Domena kandydatów, ale bez ról tylko do odczytu (0445: „Automatyzacje”
+    Domena kandydatów, ale bez ról tylko do odczytu (0446: „Automatyzacje”
     czytają kandydatów, a poczty nie wnoszą — także konto przerobione
     z rekrutera, którego połączenie dalej istnieje).
     """

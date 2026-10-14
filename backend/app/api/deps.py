@@ -702,7 +702,7 @@ RecruiterPlus = Annotated[
 # Od 17.09.2026 (HoR w RecruiterPlus) to ten sam zbiór ról co RecruiterPlus —
 # osobna nazwa zostaje, bo opisuje inną intencję: odczyt feedów/danych z PII
 # kandydatów, które nie są „bezpiecznymi agregatami", a nie pracę rekrutera.
-# 0445: dlatego obejmuje też „Automatyzacje” (tylko odczyt). Zapisy za tym
+# 0446: dlatego obejmuje też „Automatyzacje” (tylko odczyt). Zapisy za tym
 # aliasem zatrzymuje bramka sekcji (rola ma sekcje tylko do odczytu), a trasy
 # bez niej — ``candidate_access.NOT_READ_ONLY``; pilnuje
 # ``tests/test_automation_role_access.py``.

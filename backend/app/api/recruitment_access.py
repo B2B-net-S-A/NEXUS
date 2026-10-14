@@ -111,7 +111,7 @@ _INTERNAL_OPERATIONAL_ROLES: tuple[UserRole, ...] = (
     UserRole.finance,
 )
 
-# 0445: „Automatyzacje” tylko czytają — zapisy zostają przy rolach operacyjnych.
+# 0446: „Automatyzacje” tylko czytają — zapisy zostają przy rolach operacyjnych.
 RECRUITMENT_READ_ROLES: tuple[UserRole, ...] = (
     UserRole.admin,
     UserRole.head_of_recruitment,
@@ -223,7 +223,7 @@ CalendarWriteAccess = Annotated[User, Depends(require_roles(*CALENDAR_WRITE_ROLE
 # ``oversight_bypass=False`` zostaje: to jawnie OSOBISTE widoki („moje
 # rekrutacje” w cyklu rozmów u klienta), które mają liczyć przypisanie.
 #
-# 0445: „Automatyzacje” też omijają bramkę zespołu — rekrutacje widzą wszyscy
+# 0446: „Automatyzacje” też omijają bramkę zespołu — rekrutacje widzą wszyscy
 # (decyzja Artura 14.10.2026: podgląd „jak reszta firmy”). Polecenia ta rola
 # i tak zatrzymuje wcześniej: sekcje ma tylko do odczytu, a zbiory zapisu jej
 # nie zawierają (``tests/test_automation_role_access.py``).

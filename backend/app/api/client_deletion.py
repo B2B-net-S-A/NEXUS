@@ -65,7 +65,7 @@ async def require_client_deletion_permission(
     """Imienne uprawnienie do usuwania klientów. Odmowa trafia do dziennika."""
 
     impersonating = getattr(request.state, "impersonator_id", None) is not None
-    # 0445: rola „Automatyzacje” niczego nie zapisuje na ekranach — imienne
+    # 0446: rola „Automatyzacje” niczego nie zapisuje na ekranach — imienne
     # uprawnienie zaznaczone przez pomyłkę nie otwiera jej usuwania.
     read_only_role = current_user.has_role(UserRole.automation)
     if current_user.can_delete_clients and not impersonating and not read_only_role:

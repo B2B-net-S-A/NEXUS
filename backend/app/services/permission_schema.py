@@ -71,7 +71,7 @@ _NEED_ROWS = [
 def seed_sql(roles: tuple[str, ...]) -> str:
     """SQL zasiewu dla podanych ról.
 
-    Migracja 0410 podaje listę ról ze SWOJEGO czasu: rola dodana później (0445,
+    Migracja 0410 podaje listę ról ze SWOJEGO czasu: rola dodana później (0446,
     „Automatyzacje”) nie mieści się jeszcze w CHECK-u ról tabeli akcji, a na
     świeżej bazie 0410 biegnie przed jej migracją. Siatka przy starcie podaje
     pełny ``catalog.ROLES``.

@@ -25,7 +25,7 @@ depends_on = None
 
 _PREVIOUS_CHECK = "action IN ('b2b_contract_generator', 'b2b_signature_confirmation')"
 
-# Role znane w chwili tej migracji. Role dodane później (0445: „Automatyzacje”)
+# Role znane w chwili tej migracji. Role dodane później (0446: „Automatyzacje”)
 # zasiewa ich własna migracja — na świeżej bazie CHECK ról jeszcze ich tu nie zna.
 ROLES_AT_0410: tuple[str, ...] = (
     "admin",

@@ -1,4 +1,4 @@
-"""Rola „Automatyzacje” (0445) czyta, ale niczego nie zapisuje.
+"""Rola „Automatyzacje” (0446) czyta, ale niczego nie zapisuje.
 
 Obietnica z decyzji Artura (14.10.2026): osoba od automatyzacji widzi
 rekrutacje, kandydatów, Insights oraz klientów, kontrakty i zamówienia bez

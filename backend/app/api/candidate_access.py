@@ -67,7 +67,7 @@ _INTERNAL_OPERATIONAL_ROLES: tuple[UserRole, ...] = (
     UserRole.finance,
 )
 
-# 0445: „Automatyzacje” czytają kandydatów i CV jak reszta firmy (decyzja
+# 0446: „Automatyzacje” czytają kandydatów i CV jak reszta firmy (decyzja
 # Artura 14.10.2026), ale nie ma ich w żadnym zbiorze zapisu ani eksportu,
 # a sekcje Sourcing i Pipeline mają tylko do odczytu.
 READ_ONLY_ROLES: tuple[UserRole, ...] = (UserRole.automation,)
@@ -419,7 +419,7 @@ def require_candidate_roles(
 async def forbid_read_only_roles(
     current_user: User = Depends(get_current_user),
 ) -> User:
-    """0445: odmowa dla roli tylko do odczytu na trasie z bramką odczytu.
+    """0446: odmowa dla roli tylko do odczytu na trasie z bramką odczytu.
 
     Kilka tras za ``CandidatePIIAccess``/``CandidateDocumentAccess`` coś
     zmienia albo wynosi dane hurtem (pobranie wielu CV, telefon przez
