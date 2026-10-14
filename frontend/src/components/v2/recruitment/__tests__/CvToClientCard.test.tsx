@@ -828,6 +828,22 @@ describe("CvToClientCard — po „Zapisz i przekaż dalej” (14.10.2026)", () 
     expect(progress()).not.toHaveTextContent("Dam znać dzwonkiem");
   });
 
+  it("po pominięciu ręczna generacja: „generuje się” bez obietnicy dzwonka (dzwoni tylko automat)", async () => {
+    events = [
+      {
+        id: 9,
+        kind: "cv_auto_generate_skipped",
+        created_at: new Date().toISOString(),
+        reason: "consent_screenshot_required",
+        candidate: { id: 121, name: "Jan Kowalski" },
+      },
+    ];
+    rows = [{ id: 78, status: "processing", origin: "manual" }];
+    renderCard({ forwarded: true });
+    await waitFor(() => expect(progress()).toHaveTextContent("CV generuje się (ok. 40 s)"));
+    expect(progress()).not.toHaveTextContent("Dam znać dzwonkiem");
+  });
+
   it("stare pominięcie (sprzed przekazania) nie jest odpowiedzią — dalej czekamy na automat", async () => {
     events = [
       {
