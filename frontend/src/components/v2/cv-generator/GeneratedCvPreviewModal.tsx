@@ -9,6 +9,8 @@ import api, { cvGeneratedEditorApi, type GeneratedCvItem } from "@/lib/api";
 import { alignB2bLetterheadPreview } from "@/lib/cv-docx-preview";
 import { renderDocxSafely } from "@/lib/docx-preview-safe";
 
+import { generatedCvFileUrl } from "./cv-generated-files";
+
 export interface GeneratedCvPreviewModalProps {
   item: GeneratedCvItem | null;
   onClose: () => void;
@@ -17,7 +19,8 @@ export interface GeneratedCvPreviewModalProps {
 
 /**
  * Podgląd wygenerowanego CV w aplikacji. Zwykle renderuje DOCX (docx-preview,
- * leniwie). Gdy brakuje wymaganej zgody RODO, DOCX się nie pobierze (409) —
+ * leniwie) — ten sam plik, który daje „Pobierz” (zatwierdzona wersja, gdy
+ * jest). Gdy brakuje wymaganej zgody RODO, DOCX się nie pobierze (409) —
  * wtedy pokazujemy treść z edytora, w piaskownicy iframe, bez skryptów.
  */
 export function GeneratedCvPreviewModal({ item, onClose, onDownload }: GeneratedCvPreviewModalProps) {
@@ -40,7 +43,8 @@ export function GeneratedCvPreviewModal({ item, onClose, onDownload }: Generated
           setStatus("ready");
           return;
         }
-        const res = await api.get(`/api/cv-generator/generated/${item.id}/docx`, { responseType: "blob" });
+        // Bez `intent=download` — podgląd to nie pobranie (`cv_file_downloaded`).
+        const res = await api.get(generatedCvFileUrl(item, "docx"), { responseType: "blob" });
         const host = hostRef.current;
         if (cancelled || !host) return;
         host.innerHTML = "";

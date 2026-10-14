@@ -250,7 +250,12 @@ https://claude.ai/artifact/K45m9WCNz9ypfKBE87B9dv). Zastępuje wariant B z 04.10
   Pliki w grupach (`groupCandidateFiles`, `lib/candidate-files.ts`): „CV
   kandydata” · „CV wysłane klientom” (nazwa z „B2B” albo z kodem rekrutacji
   osoby — „ZOB-2962”, numer Traffita „(42700)” — z tytułów `/history`, plus CV
-  z generatora) · „Załączniki i formularze”; „Dodaj plik” rozwija formularz
+  z generatora) · „Załączniki i formularze”. Każdy plik w grupach otwiera
+  podgląd kliknięciem w nazwę — także CV z generatora (14.10.2026,
+  `GeneratedCvPreviewModal`, ten sam plik co „Pobierz”, czyli zatwierdzona
+  wersja, gdy jest; podgląd bez `intent=download`, więc nie liczy się jako
+  pobranie). Sam „Pobierz” bez podglądu to regresja: CV wysłane klientowi
+  trzeba było ściągać na dysk, żeby je obejrzeć; „Dodaj plik” rozwija formularz
   (pusty profil — formularz od razu). Umowy: `GET /api/contracts` tylko
   z `delivery_view`; bez niego klient, daty i status z `contracts[]` w `/history`
   (front kopiuje jawnie pola bez kwot) i zdanie „Umowy prowadzi Delivery”

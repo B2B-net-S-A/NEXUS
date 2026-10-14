@@ -1057,6 +1057,13 @@ const GENERATED_CVS = [
   },
 ];
 
+/** Podgląd CV z generatora (14.10.2026) — fikcyjny plik z harnessu „CV do klienta”. */
+async function generatedCvDocx(): Promise<Blob> {
+  const response = await fetch("/preview/cv-to-client/cv-firmowe-przyklad.docx");
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  return response.blob();
+}
+
 /** Skrzynka M365 niepodłączona — okno maila pokazuje drogę do Ustawień. */
 const M365_CONNECTION = { connected: false };
 
@@ -1094,6 +1101,7 @@ const ROUTES: Array<[RegExp, (config: InternalAxiosRequestConfig) => unknown]> =
   [new RegExp(`^/api/candidate-followups/candidates/${CANDIDATE_ID}$`), () => FOLLOWUP],
   [/^\/api\/skills$/, () => ({ items: SKILLS_DICTIONARY, total: SKILLS_DICTIONARY.length })],
   [/^\/api\/cv-generator\/generated$/, () => GENERATED_CVS],
+  [/^\/api\/cv-generator\/generated\/\d+\/docx$/, () => generatedCvDocx()],
   [/^\/api\/microsoft365\/connection$/, () => M365_CONNECTION],
   [/^\/api\/interview-feedback$/, () => []],
 ];
@@ -1224,7 +1232,9 @@ function installLocalApi(): () => void {
       | ReturnType<typeof localResponse>
       | undefined;
     if (!result) return Promise.reject(error);
-    return result.ok ? Promise.resolve(result.response) : Promise.reject(result.error);
+    if (!result.ok) return Promise.reject(result.error);
+    // Dane trasy bywają obietnicą (plik DOCX z `public/`).
+    return Promise.resolve(result.response.data).then((data) => ({ ...result.response, data }));
   });
   return () => {
     api.interceptors.request.eject(requestId);
