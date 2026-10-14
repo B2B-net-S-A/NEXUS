@@ -121,14 +121,13 @@ ROLE_CAPABILITIES: dict[UserRole, frozenset[AnalyticsCapability]] = {
             AnalyticsCapability.VIEW_TENDERS_OPERATIONAL,
         }
     ),
-    # 0446: „Automatyzacje” — to, co widzi rekruter, plus operacje klientów
-    # bez kwot (ma podgląd Delivery). Bez KPI imiennych osób zespołu i bez
-    # finansów.
+    # 0446: „Automatyzacje” — to, co widzi rekruter, plus przetargi bez wartości.
+    # Bez KPI imiennych osób zespołu, operacji klientów (zakres klienta w
+    # ``analytics/scope.py`` zna tylko role zarządcze) i finansów.
     UserRole.automation: frozenset(
         {
             AnalyticsCapability.VIEW_OPERATIONAL_AGGREGATES,
             AnalyticsCapability.VIEW_RECRUITMENT_RANKING,
-            AnalyticsCapability.VIEW_CLIENT_OPERATIONS,
             AnalyticsCapability.VIEW_TENDERS_OPERATIONAL,
         }
     ),

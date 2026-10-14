@@ -11,7 +11,10 @@ from __future__ import annotations
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.candidate_access import user_can_access_candidate_domain
+from app.api.candidate_access import (
+    READ_ONLY_ROLES,
+    user_can_access_candidate_domain,
+)
 from app.models.m365 import M365Connection
 from app.models.user import User
 from app.services.section_permissions import resolve_effective_section_access
@@ -32,6 +35,10 @@ async def eligible_m365_owner(db: AsyncSession, user_id: int) -> User | None:
         return None
     await resolve_effective_section_access(db, owner)
     if not user_can_access_candidate_domain(owner):
+        return None
+    # 0446: „Automatyzacje” czytają kandydatów, ale nie wnoszą poczty do bazy —
+    # konto przerobione z rekrutera przestaje synchronizować skrzynkę.
+    if owner.has_any_role(*READ_ONLY_ROLES):
         return None
     return owner
 

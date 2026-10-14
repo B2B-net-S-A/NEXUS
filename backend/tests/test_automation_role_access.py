@@ -71,14 +71,9 @@ HANDLER_DENIED_WRITES = frozenset(
     }
 )
 
-# Odczyty ponad rekrutera z podglądem Delivery: operacje klientów i przetargi
-# bez wartości (capability analityki bez finansów).
-EXTRA_READS = frozenset(
-    {
-        "GET /api/analytics/v1/clients/{client_id}/operations",
-        "GET /api/analytics/v1/commercial/tenders",
-    }
-)
+# Odczyt ponad rekrutera z podglądem Delivery: przetargi bez wartości
+# (capability analityki bez finansów; wartości tylko z ``VIEW_FINANCE``).
+EXTRA_READS = frozenset({"GET /api/analytics/v1/commercial/tenders"})
 
 # Moduły, w których rola nie przechodzi żadnej trasy: pieniądze i umowy.
 CLOSED_MODULES = (
@@ -217,3 +212,23 @@ async def test_delete_clients_flag_still_works_for_other_roles() -> None:
         request, client_id=1, current_user=user, db=_NoClientDb()
     )
     assert allowed is user
+
+
+class _JobDb:
+    def __init__(self, job) -> None:
+        self._job = job
+
+    async def get(self, _model, _job_id):
+        return self._job
+
+
+@pytest.mark.asyncio
+async def test_automation_reads_every_recruitment_without_membership() -> None:
+    from app.api.recruitment_access import ensure_job_membership
+
+    user = User(id=9, role=UserRole.automation, roles=[UserRole.automation.value])
+    # Rekrutacja istnieje — bez członkostwa w zespole, jak u reszty firmy.
+    await ensure_job_membership(_JobDb(object()), user, 123)
+    with pytest.raises(HTTPException) as missing:
+        await ensure_job_membership(_JobDb(None), user, 123)
+    assert missing.value.status_code == 404
