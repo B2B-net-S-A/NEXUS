@@ -18,14 +18,15 @@
   "recruiter+delivery_view",
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
-  "recruiter+amounts_edit"
+  "recruiter+amounts_edit",
+  "automation"
  ],
  "routes": {
-  "GET /api/insights/integrations/runs": "PPPPPPPDPPPPPPPPPPP",
-  "GET /api/insights/integrations/runs/{run_id}/events": "PPPPPPPDPPPPPPPPPPP",
-  "GET /api/insights/integrations/summary": "PPPPPPPDPPPPPPPPPPP",
-  "PATCH /api/integrations/runs/{run_id}": "PPPPPPDDPPPPPPPPPPP",
-  "POST /api/integrations/runs": "PPPPPPDDPPPPPPPPPPP",
-  "POST /api/integrations/runs/{run_id}/events": "PPPPPPDDPPPPPPPPPPP"
+  "GET /api/insights/integrations/runs": "PPPPPPPDPPPPPPPPPPPP",
+  "GET /api/insights/integrations/runs/{run_id}/events": "PPPPPPPDPPPPPPPPPPPP",
+  "GET /api/insights/integrations/summary": "PPPPPPPDPPPPPPPPPPPP",
+  "PATCH /api/integrations/runs/{run_id}": "PPPPPPDDPPPPPPPPPPPD",
+  "POST /api/integrations/runs": "PPPPPPDDPPPPPPPPPPPD",
+  "POST /api/integrations/runs/{run_id}/events": "PPPPPPDDPPPPPPPPPPPD"
  }
 }

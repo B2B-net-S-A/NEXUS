@@ -75,6 +75,7 @@ _ROLE_LABELS: dict[UserRole, str] = {
     UserRole.recruiter: "Rekruter",
     UserRole.user: "Viewer (legacy)",
     UserRole.trainee: "Praktykant",
+    UserRole.automation: "Automatyzacje",
 }
 
 

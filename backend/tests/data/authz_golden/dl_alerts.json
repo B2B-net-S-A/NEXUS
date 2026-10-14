@@ -18,12 +18,13 @@
   "recruiter+delivery_view",
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
-  "recruiter+amounts_edit"
+  "recruiter+amounts_edit",
+  "automation"
  ],
  "routes": {
-  "GET /api/dl-alerts": "PPDPDDDDPPPDDDDDDDD",
-  "GET /api/dl-alerts/cards": "PPDPDDDDPPPDDDDDDDD",
-  "GET /api/dl-alerts/export": "PPDPDDDDPPPDDDDDDDD",
-  "POST /api/dl-alerts/{alert_id}/handled": "PPDPDDDDPPPDDDDDDDD"
+  "GET /api/dl-alerts": "PPDPDDDDPPPDDDDDDDDD",
+  "GET /api/dl-alerts/cards": "PPDPDDDDPPPDDDDDDDDD",
+  "GET /api/dl-alerts/export": "PPDPDDDDPPPDDDDDDDDD",
+  "POST /api/dl-alerts/{alert_id}/handled": "PPDPDDDDPPPDDDDDDDDD"
  }
 }

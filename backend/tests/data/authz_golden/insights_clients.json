@@ -18,11 +18,12 @@
   "recruiter+delivery_view",
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
-  "recruiter+amounts_edit"
+  "recruiter+amounts_edit",
+  "automation"
  ],
  "routes": {
-  "GET /api/insights/clients/hiring-managers": "PPPPPPPDPPPPPPPPPPP",
-  "GET /api/insights/clients/hit-ratio": "PPPPPPPDPPPPPPPPPPP",
-  "GET /api/insights/clients/ranking": "PPDDDDDDDDDDDDDDDPD"
+  "GET /api/insights/clients/hiring-managers": "PPPPPPPDPPPPPPPPPPPP",
+  "GET /api/insights/clients/hit-ratio": "PPPPPPPDPPPPPPPPPPPP",
+  "GET /api/insights/clients/ranking": "PPDDDDDDDDDDDDDDDPDD"
  }
 }

@@ -18,16 +18,17 @@
   "recruiter+delivery_view",
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
-  "recruiter+amounts_edit"
+  "recruiter+amounts_edit",
+  "automation"
  ],
  "routes": {
-  "DELETE /api/notes/{note_id}": "PPPPPPDDPPPPPPPPPPP",
-  "DELETE /api/notes/{note_id}/pin": "PPPPPPDDPPPPPPPPPPP",
-  "GET /api/notes": "PPPPPPDDPPPPPPPPPPP",
-  "GET /api/notes/{note_id}": "PPPPPPDDPPPPPPPPPPP",
-  "PATCH /api/notes/{note_id}": "PPPPPPDDPPPPPPPPPPP",
-  "POST /api/notes": "PPPPPPDDPPPPPPPPPPP",
-  "POST /api/notes/{note_id}/link-job": "PDDPDDDDPPPDDDDDDDD",
-  "POST /api/notes/{note_id}/pin": "PPPPPPDDPPPPPPPPPPP"
+  "DELETE /api/notes/{note_id}": "PPPPPPDDPPPPPPPPPPPD",
+  "DELETE /api/notes/{note_id}/pin": "PPPPPPDDPPPPPPPPPPPD",
+  "GET /api/notes": "PPPPPPDDPPPPPPPPPPPP",
+  "GET /api/notes/{note_id}": "PPPPPPDDPPPPPPPPPPPP",
+  "PATCH /api/notes/{note_id}": "PPPPPPDDPPPPPPPPPPPD",
+  "POST /api/notes": "PPPPPPDDPPPPPPPPPPPD",
+  "POST /api/notes/{note_id}/link-job": "PDDPDDDDPPPDDDDDDDDD",
+  "POST /api/notes/{note_id}/pin": "PPPPPPDDPPPPPPPPPPPD"
  }
 }

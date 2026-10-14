@@ -18,14 +18,15 @@
   "recruiter+delivery_view",
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
-  "recruiter+amounts_edit"
+  "recruiter+amounts_edit",
+  "automation"
  ],
  "routes": {
-  "DELETE /api/clients/{client_id}/portfolio-scopes/{scope_id}": "PDDDDDDDDDDDDDDDDDD",
-  "GET /api/clients/directory": "PPDPPDDDPPPDPPPPDPP",
-  "GET /api/clients/directory/export": "PPDPPDDDPPPDPPPPDPP",
-  "PATCH /api/clients/{client_id}/portfolio-scopes/{scope_id}": "PDDDDDDDDDDDDDDDDDD",
-  "PATCH /api/clients/{client_id}/portfolio-scopes/{scope_id}/placement": "PDDDDDDDDDDDDDDDDDD",
-  "POST /api/clients/{client_id}/portfolio-scopes": "PDDDDDDDDDDDDDDDDDD"
+  "DELETE /api/clients/{client_id}/portfolio-scopes/{scope_id}": "PDDDDDDDDDDDDDDDDDDD",
+  "GET /api/clients/directory": "PPDPPDDDPPPDPPPPDPPP",
+  "GET /api/clients/directory/export": "PPDPPDDDPPPDPPPPDPPP",
+  "PATCH /api/clients/{client_id}/portfolio-scopes/{scope_id}": "PDDDDDDDDDDDDDDDDDDD",
+  "PATCH /api/clients/{client_id}/portfolio-scopes/{scope_id}/placement": "PDDDDDDDDDDDDDDDDDDD",
+  "POST /api/clients/{client_id}/portfolio-scopes": "PDDDDDDDDDDDDDDDDDDD"
  }
 }

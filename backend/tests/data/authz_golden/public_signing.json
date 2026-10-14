@@ -18,11 +18,12 @@
   "recruiter+delivery_view",
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
-  "recruiter+amounts_edit"
+  "recruiter+amounts_edit",
+  "automation"
  ],
  "routes": {
-  "GET /api/public/sign/{token}": "PPPPPPPPPPPPPPPPPPP",
-  "GET /api/public/sign/{token}/pdf": "PPPPPPPPPPPPPPPPPPP",
-  "POST /api/public/sign/{token}/submit": "PPPPPPPPPPPPPPPPPPP"
+  "GET /api/public/sign/{token}": "PPPPPPPPPPPPPPPPPPPP",
+  "GET /api/public/sign/{token}/pdf": "PPPPPPPPPPPPPPPPPPPP",
+  "POST /api/public/sign/{token}/submit": "PPPPPPPPPPPPPPPPPPPP"
  }
 }

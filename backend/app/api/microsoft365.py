@@ -35,6 +35,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.candidate_access import (
+    NOT_READ_ONLY,
     CandidatePIIAccess,
     user_can_access_candidate_domain,
 )
@@ -177,7 +178,7 @@ def _mailbox_belongs_to_user(
 # ── Routes ──────────────────────────────────────────────────────────────────
 
 
-@router.get("/authorize", response_model=AuthorizeResponse)
+@router.get("/authorize", response_model=AuthorizeResponse, dependencies=NOT_READ_ONLY)
 @limiter.limit("10/minute")
 async def authorize(
     request: Request,
@@ -411,7 +412,11 @@ async def get_connection(
     )
 
 
-@router.delete("/connection", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/connection",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=NOT_READ_ONLY,
+)
 async def disconnect(
     current_user: CandidatePIIAccess,
     db: AsyncSession = Depends(get_db),
@@ -439,7 +444,11 @@ async def disconnect(
     return None
 
 
-@router.post("/sync/trigger", status_code=status.HTTP_202_ACCEPTED)
+@router.post(
+    "/sync/trigger",
+    status_code=status.HTTP_202_ACCEPTED,
+    dependencies=NOT_READ_ONLY,
+)
 @limiter.limit("10/minute")
 async def trigger_sync(
     request: Request,

@@ -18,20 +18,21 @@
   "recruiter+delivery_view",
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
-  "recruiter+amounts_edit"
+  "recruiter+amounts_edit",
+  "automation"
  ],
  "routes": {
-  "GET /api/notifications": "PPPPPPPDPPPPPPPPPPP",
-  "GET /api/notifications/chats": "PPPPPPPDPPPPPPPPPPP",
-  "GET /api/notifications/count": "PPPPPPPDPPPPPPPPPPP",
-  "GET /api/notifications/interviews": "PPPPPPPDPPPPPPPPPPP",
-  "GET /api/notifications/preferences": "PPPPPPPDPPPPPPPPPPP",
-  "PATCH /api/notifications/read-all": "PPPPPPPDPPPPPPPPPPP",
-  "PATCH /api/notifications/{notification_id}/read": "PPPPPPPDPPPPPPPPPPP",
-  "PUT /api/notifications/chats/read": "PPPPPPPDPPPPPPPPPPP",
-  "PUT /api/notifications/interviews/read": "PPPPPPPDPPPPPPPPPPP",
-  "PUT /api/notifications/preferences/{category}": "PPPPPPPDPPPPPPPPPPP",
-  "PUT /api/notifications/read-all": "PPPPPPPDPPPPPPPPPPP",
-  "PUT /api/notifications/{notification_id}/read": "PPPPPPPDPPPPPPPPPPP"
+  "GET /api/notifications": "PPPPPPPDPPPPPPPPPPPP",
+  "GET /api/notifications/chats": "PPPPPPPDPPPPPPPPPPPP",
+  "GET /api/notifications/count": "PPPPPPPDPPPPPPPPPPPP",
+  "GET /api/notifications/interviews": "PPPPPPPDPPPPPPPPPPPP",
+  "GET /api/notifications/preferences": "PPPPPPPDPPPPPPPPPPPP",
+  "PATCH /api/notifications/read-all": "PPPPPPPDPPPPPPPPPPPP",
+  "PATCH /api/notifications/{notification_id}/read": "PPPPPPPDPPPPPPPPPPPP",
+  "PUT /api/notifications/chats/read": "PPPPPPPDPPPPPPPPPPPP",
+  "PUT /api/notifications/interviews/read": "PPPPPPPDPPPPPPPPPPPP",
+  "PUT /api/notifications/preferences/{category}": "PPPPPPPDPPPPPPPPPPPP",
+  "PUT /api/notifications/read-all": "PPPPPPPDPPPPPPPPPPPP",
+  "PUT /api/notifications/{notification_id}/read": "PPPPPPPDPPPPPPPPPPPP"
  }
 }

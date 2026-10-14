@@ -18,13 +18,14 @@
   "recruiter+delivery_view",
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
-  "recruiter+amounts_edit"
+  "recruiter+amounts_edit",
+  "automation"
  ],
  "routes": {
-  "DELETE /api/competence-team/assignments/{assignment_id}": "PDPDDDDDDPDPDDDDDDD",
-  "GET /api/competence-team": "PDPDDDDDDPDPDDDDDDD",
-  "PATCH /api/competence-team/people/{user_id}/allocation": "PDPDDDDDDPDPDDDDDDD",
-  "PUT /api/competence-team/assignments": "PDPDDDDDDPDPDDDDDDD",
-  "PUT /api/competence-team/rules": "PDPDDDDDDPDPDDDDDDD"
+  "DELETE /api/competence-team/assignments/{assignment_id}": "PDPDDDDDDPDPDDDDDDDD",
+  "GET /api/competence-team": "PDPDDDDDDPDPDDDDDDDD",
+  "PATCH /api/competence-team/people/{user_id}/allocation": "PDPDDDDDDPDPDDDDDDDD",
+  "PUT /api/competence-team/assignments": "PDPDDDDDDPDPDDDDDDDD",
+  "PUT /api/competence-team/rules": "PDPDDDDDDPDPDDDDDDDD"
  }
 }

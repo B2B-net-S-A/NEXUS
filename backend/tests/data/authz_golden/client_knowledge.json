@@ -18,11 +18,12 @@
   "recruiter+delivery_view",
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
-  "recruiter+amounts_edit"
+  "recruiter+amounts_edit",
+  "automation"
  ],
  "routes": {
-  "DELETE /api/client-knowledge/{knowledge_id}": "PDDPDDDDPPPDDDPDDDD",
-  "GET /api/clients/{client_id}/knowledge": "PPDBPDDDBBBDPPPPDPP",
-  "POST /api/clients/{client_id}/knowledge": "PDDBDDDDBBBDDDPDDDD"
+  "DELETE /api/client-knowledge/{knowledge_id}": "PDDPDDDDPPPDDDPDDDDD",
+  "GET /api/clients/{client_id}/knowledge": "PPDBPDDDBBBDPPPPDPPP",
+  "POST /api/clients/{client_id}/knowledge": "PDDBDDDDBBBDDDPDDDDD"
  }
 }

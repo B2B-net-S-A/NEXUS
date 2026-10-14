@@ -18,19 +18,20 @@
   "recruiter+delivery_view",
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
-  "recruiter+amounts_edit"
+  "recruiter+amounts_edit",
+  "automation"
  ],
  "routes": {
-  "GET /api/integrations/v1/finance/order-changes": "UUUUUUUUUUUUUUUUUUU",
-  "GET /api/integrations/v1/finance/order-changes/history": "UUUUUUUUUUUUUUUUUUU",
-  "GET /api/integrations/v1/finance/order-changes/summary": "UUUUUUUUUUUUUUUUUUU",
-  "GET /api/integrations/v1/finance/order-pdfs": "UUUUUUUUUUUUUUUUUUU",
-  "GET /api/integrations/v1/finance/order-pdfs/months": "UUUUUUUUUUUUUUUUUUU",
-  "GET /api/integrations/v1/finance/order-pdfs/zip": "UUUUUUUUUUUUUUUUUUU",
-  "GET /api/integrations/v1/finance/order-pdfs/{kind}/{entry_id}/file": "UUUUUUUUUUUUUUUUUUU",
-  "GET /api/integrations/v1/finance/periods": "UUUUUUUUUUUUUUUUUUU",
-  "GET /api/integrations/v1/finance/results": "UUUUUUUUUUUUUUUUUUU",
-  "POST /api/integrations/v1/finance/imports": "UUUUUUUUUUUUUUUUUUU",
-  "POST /api/integrations/v1/finance/order-changes/checks": "UUUUUUUUUUUUUUUUUUU"
+  "GET /api/integrations/v1/finance/order-changes": "UUUUUUUUUUUUUUUUUUUU",
+  "GET /api/integrations/v1/finance/order-changes/history": "UUUUUUUUUUUUUUUUUUUU",
+  "GET /api/integrations/v1/finance/order-changes/summary": "UUUUUUUUUUUUUUUUUUUU",
+  "GET /api/integrations/v1/finance/order-pdfs": "UUUUUUUUUUUUUUUUUUUU",
+  "GET /api/integrations/v1/finance/order-pdfs/months": "UUUUUUUUUUUUUUUUUUUU",
+  "GET /api/integrations/v1/finance/order-pdfs/zip": "UUUUUUUUUUUUUUUUUUUU",
+  "GET /api/integrations/v1/finance/order-pdfs/{kind}/{entry_id}/file": "UUUUUUUUUUUUUUUUUUUU",
+  "GET /api/integrations/v1/finance/periods": "UUUUUUUUUUUUUUUUUUUU",
+  "GET /api/integrations/v1/finance/results": "UUUUUUUUUUUUUUUUUUUU",
+  "POST /api/integrations/v1/finance/imports": "UUUUUUUUUUUUUUUUUUUU",
+  "POST /api/integrations/v1/finance/order-changes/checks": "UUUUUUUUUUUUUUUUUUUU"
  }
 }

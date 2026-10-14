@@ -18,13 +18,14 @@
   "recruiter+delivery_view",
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
-  "recruiter+amounts_edit"
+  "recruiter+amounts_edit",
+  "automation"
  ],
  "routes": {
-  "GET /api/md-consumption/imports": "PPDDDDDDDDDDDDDDDPD",
-  "GET /api/md-consumption/imports/{import_id}": "PPDDDDDDDDDDDDDDDPD",
-  "POST /api/md-consumption/imports": "PPDDDDDDDDDDDDDDDPD",
-  "POST /api/md-consumption/imports/{import_id}/reprocess-polkomtel": "PPDDDDDDDDDDDDDDDPD",
-  "POST /api/md-consumption/imports/{import_id}/rows/{row_id}/assign": "PPDDDDDDDDDDDDDDDPD"
+  "GET /api/md-consumption/imports": "PPDDDDDDDDDDDDDDDPDD",
+  "GET /api/md-consumption/imports/{import_id}": "PPDDDDDDDDDDDDDDDPDD",
+  "POST /api/md-consumption/imports": "PPDDDDDDDDDDDDDDDPDD",
+  "POST /api/md-consumption/imports/{import_id}/reprocess-polkomtel": "PPDDDDDDDDDDDDDDDPDD",
+  "POST /api/md-consumption/imports/{import_id}/rows/{row_id}/assign": "PPDDDDDDDDDDDDDDDPDD"
  }
 }

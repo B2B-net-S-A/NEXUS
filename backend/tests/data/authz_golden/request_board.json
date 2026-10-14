@@ -18,14 +18,15 @@
   "recruiter+delivery_view",
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
-  "recruiter+amounts_edit"
+  "recruiter+amounts_edit",
+  "automation"
  ],
  "routes": {
-  "DELETE /api/request-board/jobs/{job_id}/people/{user_id}": "PDPPDDDDPPPPDDDDPDD",
-  "GET /api/request-board": "PPPPPPDDPPPPPPPPPPP",
-  "POST /api/request-board/jobs/{job_id}/lead-confirmation": "PDPDDDDDDPDPDDDDDDD",
-  "POST /api/request-board/jobs/{job_id}/people": "PDPPDDDDPPPPDDDDPDD",
-  "POST /api/request-board/jobs/{job_id}/proposals/{user_id}": "PDPDDDDDDPDPDDDDDDD",
-  "POST /api/request-board/proposals/accept": "PDPDDDDDDPDPDDDDDDD"
+  "DELETE /api/request-board/jobs/{job_id}/people/{user_id}": "PDPPDDDDPPPPDDDDPDDD",
+  "GET /api/request-board": "PPPPPPDDPPPPPPPPPPPP",
+  "POST /api/request-board/jobs/{job_id}/lead-confirmation": "PDPDDDDDDPDPDDDDDDDD",
+  "POST /api/request-board/jobs/{job_id}/people": "PDPPDDDDPPPPDDDDPDDD",
+  "POST /api/request-board/jobs/{job_id}/proposals/{user_id}": "PDPDDDDDDPDPDDDDDDDD",
+  "POST /api/request-board/proposals/accept": "PDPDDDDDDPDPDDDDDDDD"
  }
 }

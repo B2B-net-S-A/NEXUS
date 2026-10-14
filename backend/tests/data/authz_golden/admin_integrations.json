@@ -18,10 +18,11 @@
   "recruiter+delivery_view",
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
-  "recruiter+amounts_edit"
+  "recruiter+amounts_edit",
+  "automation"
  ],
  "routes": {
-  "GET /api/admin/integrations/jjit/status": "PDDDDDDDDDDDDDDDDDD",
-  "POST /api/admin/integrations/jjit/run": "PDDDDDDDDDDDDDDDDDD"
+  "GET /api/admin/integrations/jjit/status": "PDDDDDDDDDDDDDDDDDDD",
+  "POST /api/admin/integrations/jjit/run": "PDDDDDDDDDDDDDDDDDDD"
  }
 }

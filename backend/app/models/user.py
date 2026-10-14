@@ -35,6 +35,10 @@ class UserRole(str, enum.Enum):
     - user                — deprecated legacy viewer; no new provisioning
     - trainee             — praktykant (0374): przez program wdrożenia widzi
                             wyłącznie „Telefony na dziś”; rola wyłączna
+    - automation          — „Automatyzacje” (0446): osoba budująca automatyzacje
+                            procesów; tylko PODGLĄD rekrutacji, kandydatów,
+                            Insights oraz klientów, kontraktów i zamówień bez
+                            kwot; żadnego zapisu na ekranach; rola wyłączna
 
     ``user`` remains during the expand/contract window so legacy guards keep
     failing closed while accounts are migrated to ``recruiter``.
@@ -48,6 +52,7 @@ class UserRole(str, enum.Enum):
     recruiter = "recruiter"
     user = "user"
     trainee = "trainee"
+    automation = "automation"
 
     # Wycofane role (0411) — ALIASY rekrutera, nie osobne role. Etykiety
     # `sourcer` i `tac` zostają w typie `userrole` w Postgresie, więc wiersz
@@ -112,9 +117,11 @@ class User(Base, TimestampMixin):
         CheckConstraint(
             """
             CASE
-                WHEN role::text IN ('finance', 'user', 'trainee')
+                WHEN role::text IN ('finance', 'user', 'trainee', 'automation')
                     THEN roles = jsonb_build_array(role::text)
-                ELSE NOT (roles ?| ARRAY['finance', 'user', 'trainee']::text[])
+                ELSE NOT (
+                    roles ?| ARRAY['finance', 'user', 'trainee', 'automation']::text[]
+                )
             END
             """,
             name="ck_users_exclusive_finance_viewer_roles",
@@ -371,13 +378,14 @@ class User(Base, TimestampMixin):
             self.roles = [primary_str] + current
 
     def ensure_exclusive_roles(self) -> None:
-        """Finance, legacy viewer and trainee are exclusive personas."""
+        """Finance, legacy viewer, trainee and automation are exclusive personas."""
 
         role_values = {role.value for role in self.get_all_roles()}
         exclusive = {
             UserRole.finance.value,
             UserRole.user.value,
             UserRole.trainee.value,
+            UserRole.automation.value,
         }.intersection(role_values)
         if exclusive and len(role_values) != 1:
             role_name = sorted(exclusive)[0]

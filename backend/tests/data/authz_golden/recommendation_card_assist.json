@@ -18,11 +18,12 @@
   "recruiter+delivery_view",
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
-  "recruiter+amounts_edit"
+  "recruiter+amounts_edit",
+  "automation"
  ],
  "routes": {
-  "POST /api/recommendation-cards/note/read": "PPPPPPDDPPPPPPPPPPP",
-  "POST /api/recommendation-cards/note/read-file": "PPPPPPDDPPPPPPPPPPP",
-  "POST /api/recommendation-cards/phrase": "PPPPPPDDPPPPPPPPPPP"
+  "POST /api/recommendation-cards/note/read": "PPPPPPDDPPPPPPPPPPPD",
+  "POST /api/recommendation-cards/note/read-file": "PPPPPPDDPPPPPPPPPPPD",
+  "POST /api/recommendation-cards/phrase": "PPPPPPDDPPPPPPPPPPPD"
  }
 }

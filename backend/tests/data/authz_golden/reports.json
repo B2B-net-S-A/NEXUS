@@ -18,17 +18,18 @@
   "recruiter+delivery_view",
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
-  "recruiter+amounts_edit"
+  "recruiter+amounts_edit",
+  "automation"
  ],
  "routes": {
-  "GET /api/reports/clients": "PPPPPDDDPPPPPPDDDDD",
-  "GET /api/reports/clients/at-risk": "PPPPPDDDPPPPPPDDDDD",
-  "GET /api/reports/clients/{client_id}/trend": "PPPPPDDDPPPPPPDDDDD",
-  "GET /api/reports/delivery-leads": "PPPDPDDDPPDPPPDDDDD",
-  "GET /api/reports/delivery-leads/{dl_id}/trend": "PPPDPDDDPPDPPPDDDDD",
-  "GET /api/reports/invite-links": "PPPPPDDDPPPPPPDDDDD",
-  "GET /api/reports/my-delivery-lead": "PPPPPPPDPPPPPPPPPPP",
-  "GET /api/reports/recruitment": "PPPPPPDDPPPPPPPPPPP",
-  "GET /api/reports/sales": "PPDDDDDDDDDDDDDDDPD"
+  "GET /api/reports/clients": "PPPPPDDDPPPPPPDDDDDD",
+  "GET /api/reports/clients/at-risk": "PPPPPDDDPPPPPPDDDDDD",
+  "GET /api/reports/clients/{client_id}/trend": "PPPPPDDDPPPPPPDDDDDD",
+  "GET /api/reports/delivery-leads": "PPPDPDDDPPDPPPDDDDDD",
+  "GET /api/reports/delivery-leads/{dl_id}/trend": "PPPDPDDDPPDPPPDDDDDD",
+  "GET /api/reports/invite-links": "PPPPPDDDPPPPPPDDDDDD",
+  "GET /api/reports/my-delivery-lead": "PPPPPPPDPPPPPPPPPPPP",
+  "GET /api/reports/recruitment": "PPPPPPDDPPPPPPPPPPPP",
+  "GET /api/reports/sales": "PPDDDDDDDDDDDDDDDPDD"
  }
 }

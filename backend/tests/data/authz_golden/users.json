@@ -18,14 +18,15 @@
   "recruiter+delivery_view",
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
-  "recruiter+amounts_edit"
+  "recruiter+amounts_edit",
+  "automation"
  ],
  "routes": {
-  "GET /api/users": "PPPPPPDDPPPPPPPPPPP",
-  "GET /api/users/me/email-notifications": "PPPPPPPDPPPPPPPPPPP",
-  "GET /api/users/me/preferences": "PPPPPPPDPPPPPPPPPPP",
-  "GET /api/users/mentionable": "PPPPPPDDPPPPPPPPPPP",
-  "PATCH /api/users/me/preferences": "PPPPPPPDPPPPPPPPPPP",
-  "PUT /api/users/me/email-notifications/{kind}": "PPPPPPPDPPPPPPPPPPP"
+  "GET /api/users": "PPPPPPDDPPPPPPPPPPPP",
+  "GET /api/users/me/email-notifications": "PPPPPPPDPPPPPPPPPPPP",
+  "GET /api/users/me/preferences": "PPPPPPPDPPPPPPPPPPPP",
+  "GET /api/users/mentionable": "PPPPPPDDPPPPPPPPPPPP",
+  "PATCH /api/users/me/preferences": "PPPPPPPDPPPPPPPPPPPP",
+  "PUT /api/users/me/email-notifications/{kind}": "PPPPPPPDPPPPPPPPPPPP"
  }
 }

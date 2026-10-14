@@ -18,10 +18,11 @@
   "recruiter+delivery_view",
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
-  "recruiter+amounts_edit"
+  "recruiter+amounts_edit",
+  "automation"
  ],
  "routes": {
-  "GET /api/help/screens": "PPPPPPPDPPPPPPPPPPP",
-  "GET /api/help/screens/{key}": "PPPPPPPDPPPPPPPPPPP"
+  "GET /api/help/screens": "PPPPPPPDPPPPPPPPPPPP",
+  "GET /api/help/screens/{key}": "PPPPPPPDPPPPPPPPPPPP"
  }
 }

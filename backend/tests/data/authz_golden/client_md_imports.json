@@ -18,11 +18,12 @@
   "recruiter+delivery_view",
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
-  "recruiter+amounts_edit"
+  "recruiter+amounts_edit",
+  "automation"
  ],
  "routes": {
-  "GET /api/clients/{client_id}/md-imports": "PPDBPDDDBBBDPPPPDPP",
-  "GET /api/clients/{client_id}/md-imports/{import_id}": "PPDBPDDDBBBDPPPPDPP",
-  "GET /api/clients/{client_id}/md-imports/{import_id}/export": "PPDBPDDDBBBDPPPPDPP"
+  "GET /api/clients/{client_id}/md-imports": "PPDBPDDDBBBDPPPPDPPP",
+  "GET /api/clients/{client_id}/md-imports/{import_id}": "PPDBPDDDBBBDPPPPDPPP",
+  "GET /api/clients/{client_id}/md-imports/{import_id}/export": "PPDBPDDDBBBDPPPPDPPP"
  }
 }

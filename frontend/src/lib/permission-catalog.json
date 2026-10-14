@@ -37,7 +37,8 @@
       "default_roles": [
         "finance",
         "delivery_lead",
-        "talent_community_manager"
+        "talent_community_manager",
+        "automation"
       ]
     },
     {

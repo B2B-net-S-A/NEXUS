@@ -18,12 +18,13 @@
   "recruiter+delivery_view",
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
-  "recruiter+amounts_edit"
+  "recruiter+amounts_edit",
+  "automation"
  ],
  "routes": {
-  "GET /api/candidates/{candidate_id}/conflicts": "PPPPPPDDPPPPPPPPPPP",
-  "GET /api/conflicts": "PPPPPPDDPPPPPPPPPPP",
-  "PATCH /api/conflicts/{conflict_id}/deactivate": "PDDPDDDDPPPDDDDDDDD",
-  "POST /api/candidates/{candidate_id}/conflicts": "PDDPDDDDPPPDDDDDDDD"
+  "GET /api/candidates/{candidate_id}/conflicts": "PPPPPPDDPPPPPPPPPPPP",
+  "GET /api/conflicts": "PPPPPPDDPPPPPPPPPPPP",
+  "PATCH /api/conflicts/{conflict_id}/deactivate": "PDDPDDDDPPPDDDDDDDDD",
+  "POST /api/candidates/{candidate_id}/conflicts": "PDDPDDDDPPPDDDDDDDDD"
  }
 }

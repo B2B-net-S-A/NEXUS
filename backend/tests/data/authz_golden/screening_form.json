@@ -18,12 +18,13 @@
   "recruiter+delivery_view",
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
-  "recruiter+amounts_edit"
+  "recruiter+amounts_edit",
+  "automation"
  ],
  "routes": {
-  "GET /api/screening-form": "PPPPPPDDPPPPPPPPPPP",
-  "GET /api/screening-form/versions": "PPPPPPDDPPPPPPPPPPP",
-  "POST /api/screening-form/restore": "PPPPPPDDPPPPPPPPPPP",
-  "PUT /api/screening-form": "PPPPPPDDPPPPPPPPPPP"
+  "GET /api/screening-form": "PPPPPPDDPPPPPPPPPPPP",
+  "GET /api/screening-form/versions": "PPPPPPDDPPPPPPPPPPPP",
+  "POST /api/screening-form/restore": "PPPPPPDDPPPPPPPPPPPD",
+  "PUT /api/screening-form": "PPPPPPDDPPPPPPPPPPPD"
  }
 }

@@ -44,15 +44,22 @@ export const ROLES = [
   "talent_community_manager",
   "recruiter",
   "trainee",
+  "automation",
   "user",
 ];
 
 /**
  * Role WYŁĄCZNE — nie łączą się z żadną inną (lustro CHECK-ów w bazie).
  * Praktykant (0374) widzi tylko „Telefony na dziś”; dodatkowa rola
- * otworzyłaby mu resztę aplikacji.
+ * otworzyłaby mu resztę aplikacji. „Automatyzacje” (0446) tylko czytają —
+ * druga rola dałaby im zapis.
  */
-export const EXCLUSIVE_ROLES: readonly string[] = ["finance", "user", "trainee"];
+export const EXCLUSIVE_ROLES: readonly string[] = [
+  "finance",
+  "user",
+  "trainee",
+  "automation",
+];
 
 export function isExclusiveRole(role: string): boolean {
   return EXCLUSIVE_ROLES.includes(role);
@@ -67,6 +74,7 @@ export const ROLE_LABELS: Record<string, string> = {
   recruiter: "Rekruter",
   user: "Viewer (legacy)",
   trainee: "Praktykant",
+  automation: "Automatyzacje",
   manager: "Manager",
   client: "Klient",
 };

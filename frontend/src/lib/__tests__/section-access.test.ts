@@ -104,7 +104,17 @@ describe("central section access matrix", () => {
 
   it("derives route allowlists from the same matrix", () => {
     expect(rolesWithSectionAccess("delivery").sort()).toEqual(
-      ["admin", "delivery_lead", "finance", "talent_community_manager"].sort(),
+      [
+        "admin",
+        "automation",
+        "delivery_lead",
+        "finance",
+        "talent_community_manager",
+      ].sort(),
+    );
+    // „Automatyzacje” (0446) czytają Delivery, ale niczego tam nie zapisują.
+    expect(rolesWithSectionAccess("delivery", "write")).not.toContain(
+      "automation",
     );
     expect(rolesWithSectionAccess("finance").sort()).toEqual(
       ["admin", "finance"].sort(),

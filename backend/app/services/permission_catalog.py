@@ -48,6 +48,7 @@ ROLES: tuple[str, ...] = (
     "recruiter",
     "user",
     "trainee",
+    "automation",
 )
 
 _LEVELS = {"none": 0, "read": 1, "write": 2}
@@ -100,6 +101,7 @@ PERMISSIONS: tuple[Permission, ...] = (
             Holder("finance", _needs(delivery="read")),
             Holder("delivery_lead", _needs(delivery="read")),
             Holder("talent_community_manager", _needs(delivery="read")),
+            Holder("automation", _needs(delivery="read")),
         ),
     ),
     Permission(

@@ -124,6 +124,8 @@ PERSONAS: tuple[Persona, ...] = (
         "recruiter+finance_module", UserRole.recruiter, grants=("finance_module",)
     ),
     Persona("recruiter+amounts_edit", UserRole.recruiter, grants=("amounts_edit",)),
+    # 0446: „Automatyzacje” — podgląd bez zapisu (test_automation_role_access.py).
+    Persona("automation", UserRole.automation),
 )
 
 #: Odstępstwa produkcji od macierzy z kodu (odczyt 02.10.2026): TCM ma

@@ -18,15 +18,16 @@
   "recruiter+delivery_view",
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
-  "recruiter+amounts_edit"
+  "recruiter+amounts_edit",
+  "automation"
  ],
  "routes": {
-  "DELETE /api/jobs/{job_id}/portal-ad/publications/{portal}": "PPPPPPDDPPPPPPPPPPP",
-  "GET /api/job-ads/fixed-blocks": "PDPDDDDDDPDPDDDDDDD",
-  "GET /api/jobs/{job_id}/portal-ad": "PPPPPPDDPPPPPPPPPPP",
-  "POST /api/jobs/{job_id}/portal-ad/generate": "PPPPPPDDPPPPPPPPPPP",
-  "PUT /api/job-ads/fixed-blocks": "PDPDDDDDDPDPDDDDDDD",
-  "PUT /api/jobs/{job_id}/portal-ad": "PPPPPPDDPPPPPPPPPPP",
-  "PUT /api/jobs/{job_id}/portal-ad/publications/{portal}": "PPPPPPDDPPPPPPPPPPP"
+  "DELETE /api/jobs/{job_id}/portal-ad/publications/{portal}": "PPPPPPDDPPPPPPPPPPPD",
+  "GET /api/job-ads/fixed-blocks": "PDPDDDDDDPDPDDDDDDDD",
+  "GET /api/jobs/{job_id}/portal-ad": "PPPPPPDDPPPPPPPPPPPP",
+  "POST /api/jobs/{job_id}/portal-ad/generate": "PPPPPPDDPPPPPPPPPPPD",
+  "PUT /api/job-ads/fixed-blocks": "PDPDDDDDDPDPDDDDDDDD",
+  "PUT /api/jobs/{job_id}/portal-ad": "PPPPPPDDPPPPPPPPPPPD",
+  "PUT /api/jobs/{job_id}/portal-ad/publications/{portal}": "PPPPPPDDPPPPPPPPPPPD"
  }
 }

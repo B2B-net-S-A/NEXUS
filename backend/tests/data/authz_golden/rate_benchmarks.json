@@ -18,13 +18,14 @@
   "recruiter+delivery_view",
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
-  "recruiter+amounts_edit"
+  "recruiter+amounts_edit",
+  "automation"
  ],
  "routes": {
-  "DELETE /api/rate-benchmarks/{benchmark_id}": "PDDDDDDDDDDDDDDDDDD",
-  "GET /api/rate-benchmarks": "PPDDDDDDDDDDDDDDDPD",
-  "PATCH /api/rate-benchmarks/{benchmark_id}": "PDDDDDDDDDDDDDDDDDD",
-  "POST /api/rate-benchmarks": "PDDDDDDDDDDDDDDDDDD",
-  "POST /api/rate-benchmarks/import": "PDDDDDDDDDDDDDDDDDD"
+  "DELETE /api/rate-benchmarks/{benchmark_id}": "PDDDDDDDDDDDDDDDDDDD",
+  "GET /api/rate-benchmarks": "PPDDDDDDDDDDDDDDDPDD",
+  "PATCH /api/rate-benchmarks/{benchmark_id}": "PDDDDDDDDDDDDDDDDDDD",
+  "POST /api/rate-benchmarks": "PDDDDDDDDDDDDDDDDDDD",
+  "POST /api/rate-benchmarks/import": "PDDDDDDDDDDDDDDDDDDD"
  }
 }

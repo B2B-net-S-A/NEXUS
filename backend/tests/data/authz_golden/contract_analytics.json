@@ -18,16 +18,17 @@
   "recruiter+delivery_view",
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
-  "recruiter+amounts_edit"
+  "recruiter+amounts_edit",
+  "automation"
  ],
  "routes": {
-  "GET /api/contract-analytics/location-distribution": "PPDDDDDDDDDDDDDDDPD",
-  "GET /api/contract-analytics/margin-by-client": "PPDDDDDDDDDDDDDDDPD",
-  "GET /api/contract-analytics/margin-by-contractor": "PPDDDDDDDDDDDDDDDPD",
-  "GET /api/contract-analytics/margin-totals": "PPDDDDDDDDDDDDDDDPD",
-  "GET /api/contract-analytics/revenue-forecast": "PPDDDDDDDDDDDDDDDPD",
-  "GET /api/contract-analytics/role-client-mix": "PPDDDDDDDDDDDDDDDPD",
-  "GET /api/contract-analytics/termination-analysis": "PPDDDDDDDDDDDDDDDPD",
-  "GET /api/contract-analytics/utilization": "PPDDDDDDDDDDDDDDDPD"
+  "GET /api/contract-analytics/location-distribution": "PPDDDDDDDDDDDDDDDPDD",
+  "GET /api/contract-analytics/margin-by-client": "PPDDDDDDDDDDDDDDDPDD",
+  "GET /api/contract-analytics/margin-by-contractor": "PPDDDDDDDDDDDDDDDPDD",
+  "GET /api/contract-analytics/margin-totals": "PPDDDDDDDDDDDDDDDPDD",
+  "GET /api/contract-analytics/revenue-forecast": "PPDDDDDDDDDDDDDDDPDD",
+  "GET /api/contract-analytics/role-client-mix": "PPDDDDDDDDDDDDDDDPDD",
+  "GET /api/contract-analytics/termination-analysis": "PPDDDDDDDDDDDDDDDPDD",
+  "GET /api/contract-analytics/utilization": "PPDDDDDDDDDDDDDDDPDD"
  }
 }

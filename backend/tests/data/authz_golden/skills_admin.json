@@ -18,17 +18,18 @@
   "recruiter+delivery_view",
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
-  "recruiter+amounts_edit"
+  "recruiter+amounts_edit",
+  "automation"
  ],
  "routes": {
-  "GET /api/skills-admin/plain-terms": "PDPDDDDDDPDPDDDDDDD",
-  "GET /api/skills-admin/plain-terms/{term_id}/history": "PDPDDDDDDPDPDDDDDDD",
-  "GET /api/skills-admin/skills": "PDPDDDDDDPDPDDDDDDD",
-  "GET /api/skills-admin/unmatched-terms": "PDPDDDDDDPDPDDDDDDD",
-  "POST /api/skills-admin/skills": "PDPDDDDDDPDPDDDDDDD",
-  "POST /api/skills-admin/skills/{skill_id}/aliases": "PDPDDDDDDPDPDDDDDDD",
-  "POST /api/skills-admin/unmatched-terms/{term_id}/ignore": "PDPDDDDDDPDPDDDDDDD",
-  "POST /api/skills-admin/unmatched-terms/{term_id}/map": "PDPDDDDDDPDPDDDDDDD",
-  "PUT /api/skills-admin/plain-terms/{term_id}": "PDPDDDDDDPDPDDDDDDD"
+  "GET /api/skills-admin/plain-terms": "PDPDDDDDDPDPDDDDDDDD",
+  "GET /api/skills-admin/plain-terms/{term_id}/history": "PDPDDDDDDPDPDDDDDDDD",
+  "GET /api/skills-admin/skills": "PDPDDDDDDPDPDDDDDDDD",
+  "GET /api/skills-admin/unmatched-terms": "PDPDDDDDDPDPDDDDDDDD",
+  "POST /api/skills-admin/skills": "PDPDDDDDDPDPDDDDDDDD",
+  "POST /api/skills-admin/skills/{skill_id}/aliases": "PDPDDDDDDPDPDDDDDDDD",
+  "POST /api/skills-admin/unmatched-terms/{term_id}/ignore": "PDPDDDDDDPDPDDDDDDDD",
+  "POST /api/skills-admin/unmatched-terms/{term_id}/map": "PDPDDDDDDPDPDDDDDDDD",
+  "PUT /api/skills-admin/plain-terms/{term_id}": "PDPDDDDDDPDPDDDDDDDD"
  }
 }

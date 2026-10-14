@@ -18,14 +18,15 @@
   "recruiter+delivery_view",
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
-  "recruiter+amounts_edit"
+  "recruiter+amounts_edit",
+  "automation"
  ],
  "routes": {
-  "GET /api/candidate-contact/candidates/{candidate_id}": "PPPPPPDDPPPPPPPPPPP",
-  "GET /api/candidate-contact/oversight": "PDPDDDDDDPDPDDDDDDD",
-  "GET /api/candidate-contact/queue": "PDDDPPDDPDPPPPPPPPP",
-  "GET /api/candidate-contact/status": "PPPPPPDDPPPPPPPPPPP",
-  "POST /api/candidate-contact/cases/{case_id}/attempts": "PDDDPPDDPDPPPPPPPPP",
-  "POST /api/candidate-contact/cases/{case_id}/reassign": "PDPDDDDDDPDPDDDDDDD"
+  "GET /api/candidate-contact/candidates/{candidate_id}": "PPPPPPDDPPPPPPPPPPPP",
+  "GET /api/candidate-contact/oversight": "PDPDDDDDDPDPDDDDDDDD",
+  "GET /api/candidate-contact/queue": "PDDDPPDDPDPPPPPPPPPD",
+  "GET /api/candidate-contact/status": "PPPPPPDDPPPPPPPPPPPP",
+  "POST /api/candidate-contact/cases/{case_id}/attempts": "PDDDPPDDPDPPPPPPPPPD",
+  "POST /api/candidate-contact/cases/{case_id}/reassign": "PDPDDDDDDPDPDDDDDDDD"
  }
 }

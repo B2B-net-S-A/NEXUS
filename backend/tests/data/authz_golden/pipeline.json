@@ -18,21 +18,22 @@
   "recruiter+delivery_view",
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
-  "recruiter+amounts_edit"
+  "recruiter+amounts_edit",
+  "automation"
  ],
  "routes": {
-  "DELETE /api/pipeline/stages/share-token/{token}": "PPPPPPDDPPPPPPPPPPP",
-  "GET /api/pipeline/history/{candidate_id}/{job_id}": "PPPPPPDDPPPPPPPPPPP",
-  "GET /api/pipeline/job/{job_id}/moves": "PPPPPPDDPPPPPPPPPPP",
-  "GET /api/pipeline/kanban/{job_id}": "PPPPPPDDPPPPPPPPPPP",
-  "GET /api/pipeline/my-next-steps": "PPPPPPDDPPPPPPPPPPP",
-  "GET /api/pipeline/overview": "PPPPPPDDPPPPPPPPPPP",
-  "GET /api/pipeline/stages": "PPPPPPPDPPPPPPPPPPP",
-  "GET /api/pipeline/stages/{stage_id}/screening": "PPPPPPDDPPPPPPPPPPP",
-  "POST /api/pipeline/bulk-move": "PPPPPPDDPPPPPPPPPPP",
-  "POST /api/pipeline/claim": "PPPPPPDDPPPPPPPPPPP",
-  "POST /api/pipeline/move": "PPPPPPDDPPPPPPPPPPP",
-  "POST /api/pipeline/stages/{stage_id}/screening": "PPPPPPDDPPPPPPPPPPP",
-  "POST /api/pipeline/stages/{stage_id}/share-token": "PPPPPPDDPPPPPPPPPPP"
+  "DELETE /api/pipeline/stages/share-token/{token}": "PPPPPPDDPPPPPPPPPPPD",
+  "GET /api/pipeline/history/{candidate_id}/{job_id}": "PPPPPPDDPPPPPPPPPPPP",
+  "GET /api/pipeline/job/{job_id}/moves": "PPPPPPDDPPPPPPPPPPPP",
+  "GET /api/pipeline/kanban/{job_id}": "PPPPPPDDPPPPPPPPPPPP",
+  "GET /api/pipeline/my-next-steps": "PPPPPPDDPPPPPPPPPPPP",
+  "GET /api/pipeline/overview": "PPPPPPDDPPPPPPPPPPPP",
+  "GET /api/pipeline/stages": "PPPPPPPDPPPPPPPPPPPP",
+  "GET /api/pipeline/stages/{stage_id}/screening": "PPPPPPDDPPPPPPPPPPPP",
+  "POST /api/pipeline/bulk-move": "PPPPPPDDPPPPPPPPPPPD",
+  "POST /api/pipeline/claim": "PPPPPPDDPPPPPPPPPPPD",
+  "POST /api/pipeline/move": "PPPPPPDDPPPPPPPPPPPD",
+  "POST /api/pipeline/stages/{stage_id}/screening": "PPPPPPDDPPPPPPPPPPPD",
+  "POST /api/pipeline/stages/{stage_id}/share-token": "PPPPPPDDPPPPPPPPPPPD"
  }
 }

@@ -18,13 +18,14 @@
   "recruiter+delivery_view",
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
-  "recruiter+amounts_edit"
+  "recruiter+amounts_edit",
+  "automation"
  ],
  "routes": {
-  "GET /api/admin/section-permissions": "PDDDDDDDDDDDDDDDDDD",
-  "GET /api/admin/section-permissions/users": "PDDDDDDDDDDDDDDDDDD",
-  "GET /api/admin/section-permissions/users/{user_id}": "PDDDDDDDDDDDDDDDDDD",
-  "PUT /api/admin/section-permissions/roles": "PDDDDDDDDDDDDDDDDDD",
-  "PUT /api/admin/section-permissions/users/{user_id}": "PDDDDDDDDDDDDDDDDDD"
+  "GET /api/admin/section-permissions": "PDDDDDDDDDDDDDDDDDDD",
+  "GET /api/admin/section-permissions/users": "PDDDDDDDDDDDDDDDDDDD",
+  "GET /api/admin/section-permissions/users/{user_id}": "PDDDDDDDDDDDDDDDDDDD",
+  "PUT /api/admin/section-permissions/roles": "PDDDDDDDDDDDDDDDDDDD",
+  "PUT /api/admin/section-permissions/users/{user_id}": "PDDDDDDDDDDDDDDDDDDD"
  }
 }

@@ -18,11 +18,12 @@
   "recruiter+delivery_view",
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
-  "recruiter+amounts_edit"
+  "recruiter+amounts_edit",
+  "automation"
  ],
  "routes": {
-  "POST /api/admin/notes-insights/client-rates": "PDDDDDDDDDDDDDDDDDD",
-  "POST /api/admin/notes-insights/profile-fill": "PDDDDDDDDDDDDDDDDDD",
-  "POST /api/admin/notes-insights/sync": "PDDDDDDDDDDDDDDDDDD"
+  "POST /api/admin/notes-insights/client-rates": "PDDDDDDDDDDDDDDDDDDD",
+  "POST /api/admin/notes-insights/profile-fill": "PDDDDDDDDDDDDDDDDDDD",
+  "POST /api/admin/notes-insights/sync": "PDDDDDDDDDDDDDDDDDDD"
  }
 }

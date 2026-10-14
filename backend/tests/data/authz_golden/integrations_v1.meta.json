@@ -18,10 +18,11 @@
   "recruiter+delivery_view",
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
-  "recruiter+amounts_edit"
+  "recruiter+amounts_edit",
+  "automation"
  ],
  "routes": {
-  "GET /api/integrations/v1/me": "UUUUUUUUUUUUUUUUUUU",
-  "GET /api/integrations/v1/openapi.json": "UUUUUUUUUUUUUUUUUUU"
+  "GET /api/integrations/v1/me": "UUUUUUUUUUUUUUUUUUUU",
+  "GET /api/integrations/v1/openapi.json": "UUUUUUUUUUUUUUUUUUUU"
  }
 }

@@ -18,11 +18,12 @@
   "recruiter+delivery_view",
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
-  "recruiter+amounts_edit"
+  "recruiter+amounts_edit",
+  "automation"
  ],
  "routes": {
-  "GET /api/public/career/p/{slug}": "PPPPPPPPPPPPPPPPPPP",
-  "GET /api/public/career/r/{slug}": "PPPPPPPPPPPPPPPPPPP",
-  "POST /api/public/career/apply": "PPPPPPPPPPPPPPPPPPP"
+  "GET /api/public/career/p/{slug}": "PPPPPPPPPPPPPPPPPPPP",
+  "GET /api/public/career/r/{slug}": "PPPPPPPPPPPPPPPPPPPP",
+  "POST /api/public/career/apply": "PPPPPPPPPPPPPPPPPPPP"
  }
 }

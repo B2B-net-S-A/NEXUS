@@ -111,7 +111,16 @@ _INTERNAL_OPERATIONAL_ROLES: tuple[UserRole, ...] = (
     UserRole.finance,
 )
 
-RECRUITMENT_READ_ROLES: tuple[UserRole, ...] = _INTERNAL_OPERATIONAL_ROLES
+# 0446: „Automatyzacje” tylko czytają — zapisy zostają przy rolach operacyjnych.
+RECRUITMENT_READ_ROLES: tuple[UserRole, ...] = (
+    UserRole.admin,
+    UserRole.head_of_recruitment,
+    UserRole.delivery_lead,
+    UserRole.talent_community_manager,
+    UserRole.recruiter,
+    UserRole.finance,
+    UserRole.automation,
+)
 
 # Parity with deps.RecruiterPlus — the pre-existing move contract
 # (od 2026-09-17 z head_of_recruitment — parytet HoR z rekruterem).

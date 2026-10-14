@@ -18,15 +18,16 @@
   "recruiter+delivery_view",
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
-  "recruiter+amounts_edit"
+  "recruiter+amounts_edit",
+  "automation"
  ],
  "routes": {
-  "GET /api/kpis/me/goals": "PPPPPPPDPPPPPPPPPPP",
-  "GET /api/kpis/me/panel": "PPPPPPPDPPPPPPPPPPP",
-  "GET /api/kpis/me/today": "PPPPPPPDPPPPPPPPPPP",
-  "GET /api/kpis/team/panel": "PPPPPDDDPPPPPPDDDDD",
-  "GET /api/kpis/users/{user_id}/today": "PPPPPPDDPPPPPPPPPPP",
-  "POST /api/kpis/admin/debug-fire-nudge": "PDDDDDDDDDDDDDDDDDD",
-  "POST /api/kpis/admin/trigger-sweep": "PDDDDDDDDDDDDDDDDDD"
+  "GET /api/kpis/me/goals": "PPPPPPPDPPPPPPPPPPPP",
+  "GET /api/kpis/me/panel": "PPPPPPPDPPPPPPPPPPPP",
+  "GET /api/kpis/me/today": "PPPPPPPDPPPPPPPPPPPP",
+  "GET /api/kpis/team/panel": "PPPPPDDDPPPPPPDDDDDD",
+  "GET /api/kpis/users/{user_id}/today": "PPPPPPDDPPPPPPPPPPPD",
+  "POST /api/kpis/admin/debug-fire-nudge": "PDDDDDDDDDDDDDDDDDDD",
+  "POST /api/kpis/admin/trigger-sweep": "PDDDDDDDDDDDDDDDDDDD"
  }
 }

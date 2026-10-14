@@ -18,16 +18,17 @@
   "recruiter+delivery_view",
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
-  "recruiter+amounts_edit"
+  "recruiter+amounts_edit",
+  "automation"
  ],
  "routes": {
-  "GET /api/candidates/{candidate_id}/pipelines": "PPPPPPDDPPPPPPPPPPP",
-  "GET /api/pipeline-stages/{stage_def_id}/scorecard": "PPPPPPDDPPPPPPPPPPP",
-  "GET /api/pipeline/overview-sla": "PPPPPPDDPPPPPPPPPPP",
-  "GET /api/reports/funnel": "PPPPPPDDPPPPPPPPPPP",
-  "GET /api/reports/time-to-hire": "PPPPPPDDPPPPPPPPPPP",
-  "PATCH /api/pipeline/{candidate_stage_id}/scorecard": "PPPPPPDDPPPPPPPPPPP",
-  "POST /api/jobs/embed-all": "PDDPDDDDPPPDDDDDDDD",
-  "PUT /api/pipeline-stages/{stage_def_id}/scorecard": "PDDPDDDDPPPDDDDDDDD"
+  "GET /api/candidates/{candidate_id}/pipelines": "PPPPPPDDPPPPPPPPPPPP",
+  "GET /api/pipeline-stages/{stage_def_id}/scorecard": "PPPPPPDDPPPPPPPPPPPP",
+  "GET /api/pipeline/overview-sla": "PPPPPPDDPPPPPPPPPPPP",
+  "GET /api/reports/funnel": "PPPPPPDDPPPPPPPPPPPP",
+  "GET /api/reports/time-to-hire": "PPPPPPDDPPPPPPPPPPPP",
+  "PATCH /api/pipeline/{candidate_stage_id}/scorecard": "PPPPPPDDPPPPPPPPPPPD",
+  "POST /api/jobs/embed-all": "PDDPDDDDPPPDDDDDDDDD",
+  "PUT /api/pipeline-stages/{stage_def_id}/scorecard": "PDDPDDDDPPPDDDDDDDDD"
  }
 }

@@ -97,3 +97,39 @@ mogły założyć kontraktu, a admin nie miał czego przełączyć. Decyzje Artu
   „admin + Delivery Lead” jako bramce operacji w Delivery i Finansach opisują
   stan sprzed 0410 — dziś decyduje uprawnienie z tabeli wyżej, a zakres
   klientów działa jak opisano.
+
+## Rola „Automatyzacje”: podgląd bez kwot i bez zapisu (0446, 14.10.2026)
+
+Decyzje Artura 14.10.2026. Osoba, która podpina procesy firmy pod NEXUSA
+(API integracyjne v1), miała dostać rolę Finanse. Finanse czytają jednak
+wszystko, z każdą stawką i marżą, a uprawnienia osoby tylko dodają, więc tej
+roli nie da się przyciąć. Powstała osobna rola `automation`, na ekranie
+„Automatyzacje”.
+
+- **Co widzi:** rekrutacje, Tablicę, kandydatów z CV i notatkami (decyzja:
+  „od razu podgląd, jak reszta firmy”), Insights bez imiennych KPI zespołu
+  oraz klientów, kontrakty, zamówienia i MD przez uprawnienie „Klienci,
+  kontrakty i zamówienia: podgląd”. **Kwot nie widzi:** nie ma „Stawki i kwoty:
+  podgląd”, modułu Finanse, rejestru Generatora B2B ani stawki do klienta
+  w rekrutacji (`CLIENT_RATE_VIEW_ROLES`).
+- **Niczego nie zapisuje na ekranach.** Sekcje Sourcing, Pipeline, Insights
+  i Delivery ma tylko do odczytu, więc bramka sekcji odmawia każdego zapisu.
+  Rola jest w zbiorach ODCZYTU (`READ_ONLY_ROLES` w `candidate_access.py`,
+  `RECRUITMENT_READ_ROLES`) i w żadnym zbiorze zapisu ani eksportu. Imienne
+  „Może usuwać klientów” jej nie otwiera (`client_deletion.py`). Zapisy robią
+  automatyzacje kluczami API — ze śladem „Integracja: <nazwa>”.
+- **Rola wyłączna** (jak Finanse, Viewer, Praktykant): CHECK
+  `ck_users_exclusive_finance_viewer_roles`, `ensure_exclusive_roles`,
+  `_normalized_role_values`, mapowanie grup AAD i `EXCLUSIVE_ROLES` na froncie.
+- **Przyjmuje nadania** z „Osoby i role” (w odróżnieniu od Viewera): gdy
+  proces tego wymaga, admin dodaje osobie np. „Stawki i kwoty: podgląd”.
+- **Nie gra:** nie trafia na listy rekruterów, do automatu przydziału, ligi
+  ani celów — te listy wymieniają role jawnie.
+- **Pilnują tego testy:** `tests/test_automation_role_access.py` (w macierzy
+  bramek rola nie przechodzi żadnego zapisu, którego nie przechodzi Viewer,
+  a jej odczyty to odczyty rekrutera z podglądem Delivery),
+  `tests/test_automation_role_migration_mirror.py` (lustro 0446 w
+  `entrypoint.sh`) i persona `automation` we wzorcu `tests/data/authz_golden/`.
+- **Nowa trasa albo nowy zbiór ról:** rolę dopisuj wyłącznie do zbiorów
+  odczytu. Zbiór, który otwiera zapis, eksport albo kwoty po roli, ma jej nie
+  zawierać — test macierzy pokaże każdą zmianę.

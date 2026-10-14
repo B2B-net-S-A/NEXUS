@@ -18,19 +18,20 @@
   "recruiter+delivery_view",
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
-  "recruiter+amounts_edit"
+  "recruiter+amounts_edit",
+  "automation"
  ],
  "routes": {
-  "DELETE /api/clients/{client_id}/required-documents/{doc_id}": "BDDBDDDDBBBDDDBDDDD",
-  "DELETE /api/required-document-templates/{template_id}": "PDDDDDDDDDDDDDDDDDD",
-  "GET /api/clients/{client_id}/required-documents": "BBDBBDDDBBBDBBBBDBB",
-  "GET /api/clients/{client_id}/required-documents/{doc_id}/download": "BBDBBDDDBBBDBBBBDBB",
-  "GET /api/required-document-templates": "PPPPPPDDPPPPPPPPPPP",
-  "PATCH /api/clients/{client_id}/required-documents/{doc_id}": "BDDBDDDDBBBDDDBDDDD",
-  "PATCH /api/required-document-templates/{template_id}": "PDDDDDDDDDDDDDDDDDD",
-  "POST /api/clients/{client_id}/required-documents": "BDDBDDDDBBBDDDBDDDD",
-  "POST /api/clients/{client_id}/required-documents/apply-templates": "BDDBDDDDBBBDDDBDDDD",
-  "POST /api/clients/{client_id}/required-documents/{doc_id}/upload": "BDDBDDDDBBBDDDBDDDD",
-  "POST /api/required-document-templates": "PDDDDDDDDDDDDDDDDDD"
+  "DELETE /api/clients/{client_id}/required-documents/{doc_id}": "BDDBDDDDBBBDDDBDDDDD",
+  "DELETE /api/required-document-templates/{template_id}": "PDDDDDDDDDDDDDDDDDDD",
+  "GET /api/clients/{client_id}/required-documents": "BBDBBDDDBBBDBBBBDBBB",
+  "GET /api/clients/{client_id}/required-documents/{doc_id}/download": "BBDBBDDDBBBDBBBBDBBB",
+  "GET /api/required-document-templates": "PPPPPPDDPPPPPPPPPPPP",
+  "PATCH /api/clients/{client_id}/required-documents/{doc_id}": "BDDBDDDDBBBDDDBDDDDD",
+  "PATCH /api/required-document-templates/{template_id}": "PDDDDDDDDDDDDDDDDDDD",
+  "POST /api/clients/{client_id}/required-documents": "BDDBDDDDBBBDDDBDDDDD",
+  "POST /api/clients/{client_id}/required-documents/apply-templates": "BDDBDDDDBBBDDDBDDDDD",
+  "POST /api/clients/{client_id}/required-documents/{doc_id}/upload": "BDDBDDDDBBBDDDBDDDDD",
+  "POST /api/required-document-templates": "PDDDDDDDDDDDDDDDDDDD"
  }
 }

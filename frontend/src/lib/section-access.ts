@@ -72,6 +72,7 @@ export const ALL_USER_ROLES: readonly UserRole[] = [
   "recruiter",
   "user",
   "trainee",
+  "automation",
 ];
 
 /**
@@ -151,6 +152,16 @@ export const ROLE_SECTION_ACCESS: Record<
     pipeline: "none",
     delivery: "none",
     insights: "none",
+    finance: "none",
+    system_admin: "none",
+  },
+  // „Automatyzacje” (0446): wszędzie tylko odczyt; Delivery z uprawnienia
+  // „Klienci, kontrakty i zamówienia: podgląd”, bez kwot i modułu Finanse.
+  automation: {
+    sourcing: "read",
+    pipeline: "read",
+    delivery: "read",
+    insights: "read",
     finance: "none",
     system_admin: "none",
   },
