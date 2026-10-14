@@ -22,7 +22,7 @@ from sqlalchemy import case, delete, func, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.candidate_access import CandidateSearchAccess
+from app.api.candidate_access import NOT_READ_ONLY, CandidateSearchAccess
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.rate_limit import limiter, user_or_ip_key
@@ -246,7 +246,7 @@ async def _clear_override(
     )
 
 
-@router.post("/{candidate_id}/snooze", status_code=204)
+@router.post("/{candidate_id}/snooze", status_code=204, dependencies=NOT_READ_ONLY)
 async def snooze_person(
     candidate_id: int,
     body: SnoozeRequest,
@@ -265,7 +265,7 @@ async def snooze_person(
     await db.commit()
 
 
-@router.delete("/{candidate_id}/snooze", status_code=204)
+@router.delete("/{candidate_id}/snooze", status_code=204, dependencies=NOT_READ_ONLY)
 async def unsnooze_person(
     candidate_id: int,
     user: CandidateSearchAccess,
@@ -295,7 +295,7 @@ async def unsnooze_person(
     await db.commit()
 
 
-@router.post("/{candidate_id}/pin", status_code=204)
+@router.post("/{candidate_id}/pin", status_code=204, dependencies=NOT_READ_ONLY)
 async def pin_person(
     candidate_id: int,
     user: CandidateSearchAccess,
@@ -306,7 +306,7 @@ async def pin_person(
     await db.commit()
 
 
-@router.delete("/{candidate_id}/pin", status_code=204)
+@router.delete("/{candidate_id}/pin", status_code=204, dependencies=NOT_READ_ONLY)
 async def unpin_person(
     candidate_id: int,
     user: CandidateSearchAccess,
@@ -326,7 +326,7 @@ async def unpin_person(
     await db.commit()
 
 
-@router.post("/matches/seen", status_code=200)
+@router.post("/matches/seen", status_code=200, dependencies=NOT_READ_ONLY)
 async def mark_seen(
     body: SeenRequest,
     user: CandidateSearchAccess,

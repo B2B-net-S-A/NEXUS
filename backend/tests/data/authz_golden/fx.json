@@ -18,11 +18,12 @@
   "recruiter+delivery_view",
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
-  "recruiter+amounts_edit"
+  "recruiter+amounts_edit",
+  "automation"
  ],
  "routes": {
-  "GET /api/fx": "PPPPPPPDPPPPPPPPPPP",
-  "POST /api/fx/backfill": "PDDDDDDDDDDDDDDDDDD",
-  "POST /api/fx/refresh": "PDDDDDDDDDDDDDDDDDD"
+  "GET /api/fx": "PPPPPPPDPPPPPPPPPPPP",
+  "POST /api/fx/backfill": "PDDDDDDDDDDDDDDDDDDD",
+  "POST /api/fx/refresh": "PDDDDDDDDDDDDDDDDDDD"
  }
 }

@@ -18,18 +18,19 @@
   "recruiter+delivery_view",
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
-  "recruiter+amounts_edit"
+  "recruiter+amounts_edit",
+  "automation"
  ],
  "routes": {
-  "DELETE /api/jarvis/conversations/{conversation_id}": "PPPPPPPDPPPPPPPPPPP",
-  "GET /api/jarvis/conversations": "PPPPPPPDPPPPPPPPPPP",
-  "GET /api/jarvis/conversations/{conversation_id}": "PPPPPPPDPPPPPPPPPPP",
-  "GET /api/jarvis/status": "PPPPPPPDPPPPPPPPPPP",
-  "GET /api/jarvis/ui-events/summary": "PDDDDDDDDDDDDDDDDDD",
-  "POST /api/jarvis/actions/{action_id}/confirm": "PPPPPPPDPPPPPPPPPPP",
-  "POST /api/jarvis/actions/{action_id}/reject": "PPPPPPPDPPPPPPPPPPP",
-  "POST /api/jarvis/chat": "PPPPPPPDPPPPPPPPPPP",
-  "POST /api/jarvis/conversations/{conversation_id}/cancel": "PPPPPPPDPPPPPPPPPPP",
-  "POST /api/jarvis/ui-events": "PPPPPPPDPPPPPPPPPPP"
+  "DELETE /api/jarvis/conversations/{conversation_id}": "PPPPPPPDPPPPPPPPPPPP",
+  "GET /api/jarvis/conversations": "PPPPPPPDPPPPPPPPPPPP",
+  "GET /api/jarvis/conversations/{conversation_id}": "PPPPPPPDPPPPPPPPPPPP",
+  "GET /api/jarvis/status": "PPPPPPPDPPPPPPPPPPPP",
+  "GET /api/jarvis/ui-events/summary": "PDDDDDDDDDDDDDDDDDDD",
+  "POST /api/jarvis/actions/{action_id}/confirm": "PPPPPPPDPPPPPPPPPPPP",
+  "POST /api/jarvis/actions/{action_id}/reject": "PPPPPPPDPPPPPPPPPPPP",
+  "POST /api/jarvis/chat": "PPPPPPPDPPPPPPPPPPPP",
+  "POST /api/jarvis/conversations/{conversation_id}/cancel": "PPPPPPPDPPPPPPPPPPPP",
+  "POST /api/jarvis/ui-events": "PPPPPPPDPPPPPPPPPPPP"
  }
 }

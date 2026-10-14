@@ -18,12 +18,13 @@
   "recruiter+delivery_view",
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
-  "recruiter+amounts_edit"
+  "recruiter+amounts_edit",
+  "automation"
  ],
  "routes": {
-  "GET /api/insights/performance-flags": "PPPPPPPDPPPPPPPPPPP",
-  "GET /api/insights/performance-flags/history/{user_id}": "PDDDDDDDDDDDDDDDDDD",
-  "PATCH /api/insights/performance-flags/{flag_id}": "PDDDDDDDDDDDDDDDDDD",
-  "POST /api/insights/performance-flags": "PDDDDDDDDDDDDDDDDDD"
+  "GET /api/insights/performance-flags": "PPPPPPPDPPPPPPPPPPPP",
+  "GET /api/insights/performance-flags/history/{user_id}": "PDDDDDDDDDDDDDDDDDDD",
+  "PATCH /api/insights/performance-flags/{flag_id}": "PDDDDDDDDDDDDDDDDDDD",
+  "POST /api/insights/performance-flags": "PDDDDDDDDDDDDDDDDDDD"
  }
 }

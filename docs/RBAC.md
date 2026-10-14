@@ -10,7 +10,7 @@ brakującą pozycję. Pełny opis: `docs/permissions-nine-switches-contract.md`.
 
 | # | Klucz | Nazwa na ekranie | Domyślnie (poza adminem) |
 |---|---|---|---|
-| 1 | `delivery_view` | Klienci, kontrakty i zamówienia: podgląd | Finanse, DL, TCM |
+| 1 | `delivery_view` | Klienci, kontrakty i zamówienia: podgląd | Finanse, DL, TCM, Automatyzacje |
 | 2 | `clients_edit` | Klienci: dodawanie i edycja | DL |
 | 3 | `contracts_orders_edit` | Kontrakty i zamówienia: tworzenie i edycja | DL, Finanse |
 | 4 | `contract_status` | Zakończenie współpracy, zmiana statusu kontraktu | DL, TCM |
@@ -77,6 +77,11 @@ imienne „Może usuwać klientów”.
 | Rekruter | RW | RW | R | — |
 | Viewer `user` (legacy) | R | R | R | — |
 | Praktykant | — | — | — | — |
+| Automatyzacje (`automation`, 0446) | R | R | R | — |
+
+Rola „Automatyzacje” ma z dziewięciu uprawnień tylko podgląd Delivery, nie ma
+kwot ani modułu Finanse i niczego nie zapisuje na ekranach — opis:
+`docs/claude/uprawnienia/dziewiec-uprawnien-zamiast-rol-w-bramkach.md` (sekcja „Rola Automatyzacje”).
 
 Autoryzacja działa warstwowo: bramka sekcji → bramka uprawnienia albo roli →
 zakres rekordu → redakcja odpowiedzi. Middleware i menu są warstwą wygody;

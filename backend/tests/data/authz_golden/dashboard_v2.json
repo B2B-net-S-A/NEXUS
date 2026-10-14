@@ -18,19 +18,20 @@
   "recruiter+delivery_view",
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
-  "recruiter+amounts_edit"
+  "recruiter+amounts_edit",
+  "automation"
  ],
  "routes": {
-  "GET /api/dashboard/v2/admin-ops": "PDDDDDDDDDDDDDDDDDD",
-  "GET /api/dashboard/v2/delivery-lead": "PDDPDDDDPPPDDDDDDDD",
-  "GET /api/dashboard/v2/finance": "PPDDDDDDDDDDDDDDDPD",
-  "GET /api/dashboard/v2/head-of-recruitment": "PDPDPDDDPPDPPPDDDDD",
-  "GET /api/dashboard/v2/my-work": "PDDDDPDDDDPPPDPPPPP",
-  "GET /api/dashboard/v2/recruitment-activity": "PPPPPPDDPPPPPPPPPPP",
-  "GET /api/dashboard/v2/recruitment-activity/details": "PPPPPPDDPPPPPPPPPPP",
-  "GET /api/dashboard/v2/recruitment-operations": "PPPPPPDDPPPPPPPPPPP",
-  "GET /api/dashboard/v2/recruitment-operations/{job_id}": "PPPPPPDDPPPPPPPPPPP",
-  "GET /api/dashboard/v2/recruitment-stats": "PPPPPPDDPPPPPPPPPPP",
-  "PUT /api/dashboard/v2/recruitment-operations/{job_id}/favorite": "PPPPPPDDPPPPPPPPPPP"
+  "GET /api/dashboard/v2/admin-ops": "PDDDDDDDDDDDDDDDDDDD",
+  "GET /api/dashboard/v2/delivery-lead": "PDDPDDDDPPPDDDDDDDDD",
+  "GET /api/dashboard/v2/finance": "PPDDDDDDDDDDDDDDDPDD",
+  "GET /api/dashboard/v2/head-of-recruitment": "PDPDPDDDPPDPPPDDDDDD",
+  "GET /api/dashboard/v2/my-work": "PDDDDPDDDDPPPDPPPPPD",
+  "GET /api/dashboard/v2/recruitment-activity": "PPPPPPDDPPPPPPPPPPPP",
+  "GET /api/dashboard/v2/recruitment-activity/details": "PPPPPPDDPPPPPPPPPPPP",
+  "GET /api/dashboard/v2/recruitment-operations": "PPPPPPDDPPPPPPPPPPPP",
+  "GET /api/dashboard/v2/recruitment-operations/{job_id}": "PPPPPPDDPPPPPPPPPPPP",
+  "GET /api/dashboard/v2/recruitment-stats": "PPPPPPDDPPPPPPPPPPPP",
+  "PUT /api/dashboard/v2/recruitment-operations/{job_id}/favorite": "PPPPPPDDPPPPPPPPPPPD"
  }
 }

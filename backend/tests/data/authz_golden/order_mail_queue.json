@@ -18,19 +18,20 @@
   "recruiter+delivery_view",
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
-  "recruiter+amounts_edit"
+  "recruiter+amounts_edit",
+  "automation"
  ],
  "routes": {
-  "GET /api/order-mail/queue": "PPDPPDDDPPPDPPPPDPP",
-  "GET /api/order-mail/queue/{doc_id}": "PPDPPDDDPPPDPPPPDPP",
-  "GET /api/order-mail/queue/{doc_id}/file": "PPDPDDDDPPPDDDDDDPP",
-  "GET /api/order-mail/queue/{doc_id}/order-target": "PPDPDDDDPPPDDPDDDDD",
-  "GET /api/order-mail/recheck-runs": "PPDPPDDDPPPDPPPPDPP",
-  "GET /api/order-mail/sync/status": "PPDPPDDDPPPDPPPPDPP",
-  "POST /api/order-mail/queue/{doc_id}/apply": "PPDPDDDDPPPDDPDDDDD",
-  "POST /api/order-mail/queue/{doc_id}/dismiss": "PPDPDDDDPPPDDPDDDDD",
-  "POST /api/order-mail/queue/{doc_id}/refresh-plan": "PPDPDDDDPPPDDPDDDDD",
-  "POST /api/order-mail/queue/{doc_id}/resolved-in-order": "PPDPDDDDPPPDDPDDDDD",
-  "POST /api/order-mail/sync": "PPDPDDDDPPPDDPDDDDD"
+  "GET /api/order-mail/queue": "PPDPPDDDPPPDPPPPDPPP",
+  "GET /api/order-mail/queue/{doc_id}": "PPDPPDDDPPPDPPPPDPPP",
+  "GET /api/order-mail/queue/{doc_id}/file": "PPDPDDDDPPPDDDDDDPPD",
+  "GET /api/order-mail/queue/{doc_id}/order-target": "PPDPDDDDPPPDDPDDDDDD",
+  "GET /api/order-mail/recheck-runs": "PPDPPDDDPPPDPPPPDPPP",
+  "GET /api/order-mail/sync/status": "PPDPPDDDPPPDPPPPDPPP",
+  "POST /api/order-mail/queue/{doc_id}/apply": "PPDPDDDDPPPDDPDDDDDD",
+  "POST /api/order-mail/queue/{doc_id}/dismiss": "PPDPDDDDPPPDDPDDDDDD",
+  "POST /api/order-mail/queue/{doc_id}/refresh-plan": "PPDPDDDDPPPDDPDDDDDD",
+  "POST /api/order-mail/queue/{doc_id}/resolved-in-order": "PPDPDDDDPPPDDPDDDDDD",
+  "POST /api/order-mail/sync": "PPDPDDDDPPPDDPDDDDDD"
  }
 }

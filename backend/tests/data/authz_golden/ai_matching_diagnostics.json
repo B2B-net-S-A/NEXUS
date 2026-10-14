@@ -18,10 +18,11 @@
   "recruiter+delivery_view",
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
-  "recruiter+amounts_edit"
+  "recruiter+amounts_edit",
+  "automation"
  ],
  "routes": {
-  "GET /api/admin/ai-matching/audit": "PDDDDDDDDDDDDDDDDDD",
-  "GET /api/admin/ai-matching/diagnostics": "PDDDDDDDDDDDDDDDDDD"
+  "GET /api/admin/ai-matching/audit": "PDDDDDDDDDDDDDDDDDDD",
+  "GET /api/admin/ai-matching/diagnostics": "PDDDDDDDDDDDDDDDDDDD"
  }
 }

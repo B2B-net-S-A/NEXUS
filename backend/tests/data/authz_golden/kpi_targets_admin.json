@@ -18,12 +18,13 @@
   "recruiter+delivery_view",
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
-  "recruiter+amounts_edit"
+  "recruiter+amounts_edit",
+  "automation"
  ],
  "routes": {
-  "GET /api/kpi-targets": "PDPDDDDDDPDPDDDDDDD",
-  "GET /api/kpi-targets/history": "PDPDDDDDDPDPDDDDDDD",
-  "PUT /api/kpi-targets/role-default": "PDPDDDDDDPDPDDDDDDD",
-  "PUT /api/kpi-targets/user-target": "PDPDDDDDDPDPDDDDDDD"
+  "GET /api/kpi-targets": "PDPDDDDDDPDPDDDDDDDD",
+  "GET /api/kpi-targets/history": "PDPDDDDDDPDPDDDDDDDD",
+  "PUT /api/kpi-targets/role-default": "PDPDDDDDDPDPDDDDDDDD",
+  "PUT /api/kpi-targets/user-target": "PDPDDDDDDPDPDDDDDDDD"
  }
 }

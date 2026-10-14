@@ -18,12 +18,13 @@
   "recruiter+delivery_view",
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
-  "recruiter+amounts_edit"
+  "recruiter+amounts_edit",
+  "automation"
  ],
  "routes": {
-  "DELETE /api/help-materials/{material_id}": "PDDDDDDDDDDDDDDDDDD",
-  "GET /api/help-materials": "PPPPPPPDPPPPPPPPPPP",
-  "POST /api/help-materials": "PDDDDDDDDDDDDDDDDDD",
-  "PUT /api/help-materials/{material_id}": "PDDDDDDDDDDDDDDDDDD"
+  "DELETE /api/help-materials/{material_id}": "PDDDDDDDDDDDDDDDDDDD",
+  "GET /api/help-materials": "PPPPPPPDPPPPPPPPPPPP",
+  "POST /api/help-materials": "PDDDDDDDDDDDDDDDDDDD",
+  "PUT /api/help-materials/{material_id}": "PDDDDDDDDDDDDDDDDDDD"
  }
 }

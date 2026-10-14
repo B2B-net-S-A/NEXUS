@@ -32,7 +32,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import RecruiterPlus, get_db
+from app.api.deps import OperationalUser, RecruiterPlus, get_db
 from app.api.recruitment_access import ensure_job_membership
 from app.api.section_access import PIPELINE_SECTION_DEPENDENCIES
 from app.models.activity import Activity
@@ -136,7 +136,7 @@ async def _payload(db: AsyncSession, job: Job) -> dict:
 
 @router.get("/jobs/{job_id}/similar")
 async def get_similar_jobs(
-    job_id: int, user: RecruiterPlus, db: AsyncSession = Depends(get_db)
+    job_id: int, user: OperationalUser, db: AsyncSession = Depends(get_db)
 ):
     job = await _job(db, user, job_id)
     return await _payload(db, job)
@@ -210,7 +210,7 @@ def _person_out(person: dict) -> dict:
 @router.get("/jobs/{job_id}/similar/people")
 async def similar_jobs_people(
     job_id: int,
-    user: RecruiterPlus,
+    user: OperationalUser,
     job_ids: list[int] = Query(..., min_length=1),
     include_rest: bool = False,
     db: AsyncSession = Depends(get_db),
@@ -249,7 +249,7 @@ def _like(term: str) -> str:
 @router.get("/jobs/{job_id}/similar/search")
 async def search_jobs_to_link(
     job_id: int,
-    user: RecruiterPlus,
+    user: OperationalUser,
     q: str = Query("", max_length=120),
     db: AsyncSession = Depends(get_db),
 ):

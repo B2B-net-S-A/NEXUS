@@ -197,6 +197,7 @@ from app.api.candidate_access import (
     CandidateWriteAccess,
     CANDIDATE_DOCUMENT_ROLES,
     CANDIDATE_WRITE_ROLES,
+    NOT_READ_ONLY,
     client_rate_write_allowed,
     client_rate_write_denied,
     resolve_client_rate_write,
@@ -8568,7 +8569,7 @@ def _bulk_cv_archive_name() -> str:
     return f"nexus-cvs-{business_today().isoformat()}.zip"
 
 
-@router.post("/bulk-cv-download")
+@router.post("/bulk-cv-download", dependencies=NOT_READ_ONLY)
 async def bulk_cv_download(
     payload: BulkCvDownloadRequest,
     current_user: CandidateDocumentAccess,

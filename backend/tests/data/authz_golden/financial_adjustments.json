@@ -18,11 +18,12 @@
   "recruiter+delivery_view",
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
-  "recruiter+amounts_edit"
+  "recruiter+amounts_edit",
+  "automation"
  ],
  "routes": {
-  "GET /api/financial-adjustments": "PPDDDDDDDDDDDDDDDPD",
-  "POST /api/financial-adjustments": "PPDDDDDDDDDDDDDDDPD",
-  "POST /api/financial-adjustments/{adjustment_id}/approve": "PDDDDDDDDDDDDDDDDDD"
+  "GET /api/financial-adjustments": "PPDDDDDDDDDDDDDDDPDD",
+  "POST /api/financial-adjustments": "PPDDDDDDDDDDDDDDDPDD",
+  "POST /api/financial-adjustments/{adjustment_id}/approve": "PDDDDDDDDDDDDDDDDDDD"
  }
 }

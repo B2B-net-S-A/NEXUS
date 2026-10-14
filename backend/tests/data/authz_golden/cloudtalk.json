@@ -18,13 +18,14 @@
   "recruiter+delivery_view",
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
-  "recruiter+amounts_edit"
+  "recruiter+amounts_edit",
+  "automation"
  ],
  "routes": {
-  "DELETE /api/cloudtalk/agents/{agent_id}/assign": "PDDDDDDDDDDDDDDDDDD",
-  "GET /api/cloudtalk/agents": "PDDDDDDDDDDDDDDDDDD",
-  "POST /api/cloudtalk/agents/{agent_id}/assign": "PDDDDDDDDDDDDDDDDDD",
-  "POST /api/cloudtalk/initiate-call": "PPPPPPDDPPPPPPPPPPP",
-  "POST /api/cloudtalk/sync-agents": "PDDDDDDDDDDDDDDDDDD"
+  "DELETE /api/cloudtalk/agents/{agent_id}/assign": "PDDDDDDDDDDDDDDDDDDD",
+  "GET /api/cloudtalk/agents": "PDDDDDDDDDDDDDDDDDDD",
+  "POST /api/cloudtalk/agents/{agent_id}/assign": "PDDDDDDDDDDDDDDDDDDD",
+  "POST /api/cloudtalk/initiate-call": "PPPPPPDDPPPPPPPPPPPD",
+  "POST /api/cloudtalk/sync-agents": "PDDDDDDDDDDDDDDDDDDD"
  }
 }

@@ -18,10 +18,11 @@
   "recruiter+delivery_view",
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
-  "recruiter+amounts_edit"
+  "recruiter+amounts_edit",
+  "automation"
  ],
  "routes": {
-  "GET /api/admin/index-cleanup": "PDDDDDDDDDDDDDDDDDD",
-  "POST /api/admin/index-cleanup": "PDDDDDDDDDDDDDDDDDD"
+  "GET /api/admin/index-cleanup": "PDDDDDDDDDDDDDDDDDDD",
+  "POST /api/admin/index-cleanup": "PDDDDDDDDDDDDDDDDDDD"
  }
 }

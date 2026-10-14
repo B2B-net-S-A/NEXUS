@@ -11,6 +11,7 @@ PEP 563 + slowapi #579 zamieniają guard ``Annotated`` w parametr QUERY
 (422 na poprawnym żądaniu). Pilnuje ``tests/test_public_surface_hardening.py``.
 """
 
+import enum
 import logging
 from decimal import Decimal
 from typing import Annotated, Any, Awaitable, Callable, Generic, Optional, TypeVar
@@ -222,9 +223,33 @@ def principal_of(caller: Caller) -> ServicePrincipal:
     return caller.service
 
 
-def can_see_amounts(caller: Caller) -> bool:
-    """Stawki i kwoty w zamówieniach/kontraktach — osobny scope ``amounts:read``."""
-    return ServiceScope.amounts_read.value in principal_of(caller).scopes
+class AmountLevel(enum.IntEnum):
+    """Ile kwot widzi klucz — poziomy rosnąco, więc ``level >= sales`` działa.
+
+    Decyzja Artura 14.10.2026: rozliczenie faktur klientów potrzebuje tylko
+    kwot sprzedaży, a stawki konsultantów, koszty i marża wymagają szerszego
+    scope'u. Każde nowe pole z kwotą w v1 przechodzi przez ten poziom:
+
+    * ``sales`` (``sales_amounts:read``) — to, co płaci klient: stawka do
+      klienta, wartość i budżet zamówienia, przychód, faktury do klientów;
+    * ``all`` (``amounts:read``) — do tego to, co płacimy konsultantowi
+      (stawka konsultanta, koszt) i marża.
+    """
+
+    none = 0
+    sales = 1
+    all = 2
+
+
+def amount_level(caller: Caller) -> AmountLevel:
+    """Poziom kwot klucza. ``amounts:read`` obejmuje kwoty sprzedaży także bez
+    ``implied_scopes`` (np. principal zbudowany w teście wprost)."""
+    scopes = principal_of(caller).scopes
+    if ServiceScope.amounts_read.value in scopes:
+        return AmountLevel.all
+    if ServiceScope.sales_amounts_read.value in scopes:
+        return AmountLevel.sales
+    return AmountLevel.none
 
 
 def integration_actor(caller: Caller) -> IntegrationActor:

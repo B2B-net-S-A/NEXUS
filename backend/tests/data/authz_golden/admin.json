@@ -18,17 +18,18 @@
   "recruiter+delivery_view",
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
-  "recruiter+amounts_edit"
+  "recruiter+amounts_edit",
+  "automation"
  ],
  "routes": {
-  "DELETE /api/admin/users/{user_id}": "PDDDDDDDDDDDDDDDDDD",
-  "GET /api/admin/system": "PDDDDDDDDDDDDDDDDDD",
-  "GET /api/admin/users": "PDDDDDDDDDDDDDDDDDD",
-  "POST /api/admin/impersonate/{user_id}": "PDDDDDDDDDDDDDDDDDD",
-  "POST /api/admin/users": "PDDDDDDDDDDDDDDDDDD",
-  "POST /api/admin/users/{user_id}/reset-password": "PDDDDDDDDDDDDDDDDDD",
-  "POST /api/admin/users/{user_id}/resync-aad-groups": "PDDDDDDDDDDDDDDDDDD",
-  "POST /api/admin/users/{user_id}/send-reset-link": "PDDDDDDDDDDDDDDDDDD",
-  "PUT /api/admin/users/{user_id}": "PDDDDDDDDDDDDDDDDDD"
+  "DELETE /api/admin/users/{user_id}": "PDDDDDDDDDDDDDDDDDDD",
+  "GET /api/admin/system": "PDDDDDDDDDDDDDDDDDDD",
+  "GET /api/admin/users": "PDDDDDDDDDDDDDDDDDDD",
+  "POST /api/admin/impersonate/{user_id}": "PDDDDDDDDDDDDDDDDDDD",
+  "POST /api/admin/users": "PDDDDDDDDDDDDDDDDDDD",
+  "POST /api/admin/users/{user_id}/reset-password": "PDDDDDDDDDDDDDDDDDDD",
+  "POST /api/admin/users/{user_id}/resync-aad-groups": "PDDDDDDDDDDDDDDDDDDD",
+  "POST /api/admin/users/{user_id}/send-reset-link": "PDDDDDDDDDDDDDDDDDDD",
+  "PUT /api/admin/users/{user_id}": "PDDDDDDDDDDDDDDDDDDD"
  }
 }

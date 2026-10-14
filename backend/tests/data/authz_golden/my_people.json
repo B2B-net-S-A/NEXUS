@@ -18,16 +18,17 @@
   "recruiter+delivery_view",
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
-  "recruiter+amounts_edit"
+  "recruiter+amounts_edit",
+  "automation"
  ],
  "routes": {
-  "DELETE /api/my-people/{candidate_id}/pin": "PPPPPPDDPPPPPPPPPPP",
-  "DELETE /api/my-people/{candidate_id}/snooze": "PPPPPPDDPPPPPPPPPPP",
-  "GET /api/my-people": "PPPPPPDDPPPPPPPPPPP",
-  "GET /api/my-people/for-job/{job_id}": "PPPPPPDDPPPPPPPPPPP",
-  "GET /api/my-people/summary": "PPPPPPDDPPPPPPPPPPP",
-  "POST /api/my-people/matches/seen": "PPPPPPDDPPPPPPPPPPP",
-  "POST /api/my-people/{candidate_id}/pin": "PPPPPPDDPPPPPPPPPPP",
-  "POST /api/my-people/{candidate_id}/snooze": "PPPPPPDDPPPPPPPPPPP"
+  "DELETE /api/my-people/{candidate_id}/pin": "PPPPPPDDPPPPPPPPPPPD",
+  "DELETE /api/my-people/{candidate_id}/snooze": "PPPPPPDDPPPPPPPPPPPD",
+  "GET /api/my-people": "PPPPPPDDPPPPPPPPPPPP",
+  "GET /api/my-people/for-job/{job_id}": "PPPPPPDDPPPPPPPPPPPP",
+  "GET /api/my-people/summary": "PPPPPPDDPPPPPPPPPPPP",
+  "POST /api/my-people/matches/seen": "PPPPPPDDPPPPPPPPPPPD",
+  "POST /api/my-people/{candidate_id}/pin": "PPPPPPDDPPPPPPPPPPPD",
+  "POST /api/my-people/{candidate_id}/snooze": "PPPPPPDDPPPPPPPPPPPD"
  }
 }

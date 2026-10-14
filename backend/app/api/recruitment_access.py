@@ -111,7 +111,16 @@ _INTERNAL_OPERATIONAL_ROLES: tuple[UserRole, ...] = (
     UserRole.finance,
 )
 
-RECRUITMENT_READ_ROLES: tuple[UserRole, ...] = _INTERNAL_OPERATIONAL_ROLES
+# 0446: „Automatyzacje” tylko czytają — zapisy zostają przy rolach operacyjnych.
+RECRUITMENT_READ_ROLES: tuple[UserRole, ...] = (
+    UserRole.admin,
+    UserRole.head_of_recruitment,
+    UserRole.delivery_lead,
+    UserRole.talent_community_manager,
+    UserRole.recruiter,
+    UserRole.finance,
+    UserRole.automation,
+)
 
 # Parity with deps.RecruiterPlus — the pre-existing move contract
 # (od 2026-09-17 z head_of_recruitment — parytet HoR z rekruterem).
@@ -213,7 +222,20 @@ CalendarWriteAccess = Annotated[User, Depends(require_roles(*CALENDAR_WRITE_ROLE
 #
 # ``oversight_bypass=False`` zostaje: to jawnie OSOBISTE widoki („moje
 # rekrutacje” w cyklu rozmów u klienta), które mają liczyć przypisanie.
-_JOB_MEMBERSHIP_BYPASS_ROLES: tuple[UserRole, ...] = _INTERNAL_OPERATIONAL_ROLES
+#
+# 0446: „Automatyzacje” też omijają bramkę zespołu — rekrutacje widzą wszyscy
+# (decyzja Artura 14.10.2026: podgląd „jak reszta firmy”). Polecenia ta rola
+# i tak zatrzymuje wcześniej: sekcje ma tylko do odczytu, a zbiory zapisu jej
+# nie zawierają (``tests/test_automation_role_access.py``).
+_JOB_MEMBERSHIP_BYPASS_ROLES: tuple[UserRole, ...] = (
+    UserRole.admin,
+    UserRole.head_of_recruitment,
+    UserRole.delivery_lead,
+    UserRole.talent_community_manager,
+    UserRole.recruiter,
+    UserRole.finance,
+    UserRole.automation,
+)
 
 # Role, które omijały bramkę zespołu JUŻ przed 23.09.2026. Dla pozostałych
 # (rekruter, sourcer, TAC, Finanse) bypass sprawdza najpierw, czy rekrutacja

@@ -67,8 +67,21 @@ _INTERNAL_OPERATIONAL_ROLES: tuple[UserRole, ...] = (
     UserRole.finance,
 )
 
-CANDIDATE_READ_ROLES: tuple[UserRole, ...] = _INTERNAL_OPERATIONAL_ROLES
-CANDIDATE_DOCUMENT_ROLES: tuple[UserRole, ...] = _INTERNAL_OPERATIONAL_ROLES
+# 0446: „Automatyzacje” czytają kandydatów i CV jak reszta firmy (decyzja
+# Artura 14.10.2026), ale nie ma ich w żadnym zbiorze zapisu ani eksportu,
+# a sekcje Sourcing i Pipeline mają tylko do odczytu.
+READ_ONLY_ROLES: tuple[UserRole, ...] = (UserRole.automation,)
+
+CANDIDATE_READ_ROLES: tuple[UserRole, ...] = (
+    UserRole.admin,
+    UserRole.head_of_recruitment,
+    UserRole.delivery_lead,
+    UserRole.talent_community_manager,
+    UserRole.recruiter,
+    UserRole.finance,
+    UserRole.automation,
+)
+CANDIDATE_DOCUMENT_ROLES: tuple[UserRole, ...] = CANDIDATE_READ_ROLES
 
 # Parity with deps.RecruiterPlus. Od 2026-09-17 obejmuje head_of_recruitment
 # (decyzja Artura: HoR = pełny parytet z rekruterem; wcześniej FE bramkował
@@ -401,6 +414,28 @@ def require_candidate_roles(
         return current_user
 
     return _check
+
+
+async def forbid_read_only_roles(
+    current_user: User = Depends(get_current_user),
+) -> User:
+    """0446: odmowa dla roli tylko do odczytu na trasie z bramką odczytu.
+
+    Kilka tras za ``CandidatePIIAccess``/``CandidateDocumentAccess`` coś
+    zmienia albo wynosi dane hurtem (pobranie wielu CV, telefon przez
+    CloudTalk, podłączenie i synchronizacja poczty, przypięcia „Moich ludzi”).
+    Rekruterowi wystarcza do nich odczyt; „Automatyzacje” nie robią ich wcale.
+    """
+
+    if current_user.has_any_role(*READ_ONLY_ROLES):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=ROLE_DENIED_DETAIL,
+        )
+    return current_user
+
+
+NOT_READ_ONLY = [Depends(forbid_read_only_roles)]
 
 
 # Callable-style dependencies for routes using the `= Depends(...)` idiom

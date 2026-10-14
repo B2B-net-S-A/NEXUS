@@ -18,13 +18,14 @@
   "recruiter+delivery_view",
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
-  "recruiter+amounts_edit"
+  "recruiter+amounts_edit",
+  "automation"
  ],
  "routes": {
-  "DELETE /api/marketplace/candidates/{candidate_id}": "PPPPPPDDPPPPPPPPPPP",
-  "GET /api/marketplace/candidates": "PPPPPPDDPPPPPPPPPPP",
-  "GET /api/marketplace/candidates/{candidate_id}/matches": "PPPPPPDDPPPPPPPPPPP",
-  "GET /api/marketplace/pool": "PPPPPPDDPPPPPPPPPPP",
-  "POST /api/marketplace/candidates/{candidate_id}/add": "PPPPPPDDPPPPPPPPPPP"
+  "DELETE /api/marketplace/candidates/{candidate_id}": "PPPPPPDDPPPPPPPPPPPD",
+  "GET /api/marketplace/candidates": "PPPPPPDDPPPPPPPPPPPP",
+  "GET /api/marketplace/candidates/{candidate_id}/matches": "PPPPPPDDPPPPPPPPPPPP",
+  "GET /api/marketplace/pool": "PPPPPPDDPPPPPPPPPPPP",
+  "POST /api/marketplace/candidates/{candidate_id}/add": "PPPPPPDDPPPPPPPPPPPD"
  }
 }

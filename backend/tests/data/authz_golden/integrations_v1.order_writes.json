@@ -18,14 +18,15 @@
   "recruiter+delivery_view",
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
-  "recruiter+amounts_edit"
+  "recruiter+amounts_edit",
+  "automation"
  ],
  "routes": {
-  "PATCH /api/integrations/v1/orders/{order_id}": "UUUUUUUUUUUUUUUUUUU",
-  "POST /api/integrations/v1/order-groups/{group_id}/cancel": "UUUUUUUUUUUUUUUUUUU",
-  "POST /api/integrations/v1/order-groups/{group_id}/close": "UUUUUUUUUUUUUUUUUUU",
-  "POST /api/integrations/v1/order-groups/{group_id}/extend": "UUUUUUUUUUUUUUUUUUU",
-  "POST /api/integrations/v1/orders/{order_id}/close": "UUUUUUUUUUUUUUUUUUU",
-  "PUT /api/integrations/v1/orders/{order_id}/file": "UUUUUUUUUUUUUUUUUUU"
+  "PATCH /api/integrations/v1/orders/{order_id}": "UUUUUUUUUUUUUUUUUUUU",
+  "POST /api/integrations/v1/order-groups/{group_id}/cancel": "UUUUUUUUUUUUUUUUUUUU",
+  "POST /api/integrations/v1/order-groups/{group_id}/close": "UUUUUUUUUUUUUUUUUUUU",
+  "POST /api/integrations/v1/order-groups/{group_id}/extend": "UUUUUUUUUUUUUUUUUUUU",
+  "POST /api/integrations/v1/orders/{order_id}/close": "UUUUUUUUUUUUUUUUUUUU",
+  "PUT /api/integrations/v1/orders/{order_id}/file": "UUUUUUUUUUUUUUUUUUUU"
  }
 }

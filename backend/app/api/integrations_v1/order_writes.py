@@ -38,10 +38,11 @@ from app.api import client_order_groups as group_routes
 from app.api import client_orders as order_routes
 from app.api.integrations_v1.common import (
     INT4_MAX,
+    AmountLevel,
     IdPath,
     IntegrationRoute,
     OrdersWrite,
-    can_see_amounts,
+    amount_level,
     idempotent_write,
     principal_rate_key,
     write_policy,
@@ -191,7 +192,7 @@ async def _order_row(db: AsyncSession, order_id: int):
 
 
 async def _group_response(
-    db: AsyncSession, group_id: int, *, with_amounts: bool
+    db: AsyncSession, group_id: int, *, level: AmountLevel
 ) -> OrderGroupOut:
     group = await db.scalar(
         select(ClientOrderGroup)
@@ -199,14 +200,14 @@ async def _group_response(
         .where(ClientOrderGroup.id == group_id)
         .execution_options(populate_existing=True)
     )
-    return (await _group_out(db, [group], with_amounts=with_amounts))[0]
+    return (await _group_out(db, [group], level=level))[0]
 
 
 async def _order_response(
-    db: AsyncSession, order_id: int, *, with_amounts: bool
+    db: AsyncSession, order_id: int, *, level: AmountLevel
 ) -> OrderOut:
     row = (await db.execute(_orders_select().where(ClientOrder.id == order_id))).first()
-    return _order_out(row, with_amounts=with_amounts)
+    return _order_out(row, level=level)
 
 
 def _json(model: BaseModel) -> dict[str, Any]:
@@ -244,9 +245,7 @@ async def close_order_group(
             ),
             policy=write_policy(caller, db),
         )
-        return 200, await _group_response(
-            db, group.id, with_amounts=can_see_amounts(caller)
-        )
+        return 200, await _group_response(db, group.id, level=amount_level(caller))
 
     return await idempotent_write(
         request, db, caller, payload={"group_id": group_id, **_json(body)}, run=run
@@ -279,9 +278,7 @@ async def cancel_order_group(
             OrderGroupCancel(reason=body.reason),
             policy=write_policy(caller, db),
         )
-        return 200, await _group_response(
-            db, group.id, with_amounts=can_see_amounts(caller)
-        )
+        return 200, await _group_response(db, group.id, level=amount_level(caller))
 
     return await idempotent_write(
         request, db, caller, payload={"group_id": group_id, **_json(body)}, run=run
@@ -320,9 +317,7 @@ async def extend_order_group(
         group = await group_routes.apply_group_extend(
             db, client_id, group_id, payload, policy=write_policy(caller, db)
         )
-        return 201, await _group_response(
-            db, group.id, with_amounts=can_see_amounts(caller)
-        )
+        return 201, await _group_response(db, group.id, level=amount_level(caller))
 
     return await idempotent_write(
         request,
@@ -379,9 +374,7 @@ async def close_order(
             ),
             policy=write_policy(caller, db),
         )
-        return 200, await _order_response(
-            db, order.id, with_amounts=can_see_amounts(caller)
-        )
+        return 200, await _order_response(db, order.id, level=amount_level(caller))
 
     return await idempotent_write(
         request, db, caller, payload={"order_id": order_id, **_json(body)}, run=run
@@ -424,9 +417,7 @@ async def update_order(
             _screen_model(ClientOrderUpdate, changes),
             policy=write_policy(caller, db),
         )
-        return 200, await _order_response(
-            db, order.id, with_amounts=can_see_amounts(caller)
-        )
+        return 200, await _order_response(db, order.id, level=amount_level(caller))
 
     return await idempotent_write(
         request, db, caller, payload={"order_id": order_id, **_json(body)}, run=run
@@ -457,9 +448,7 @@ async def put_order_file(
         order = await order_routes.apply_order_file(
             db, row.client_id, order_id, file, policy=write_policy(caller, db)
         )
-        return 200, await _order_response(
-            db, order.id, with_amounts=can_see_amounts(caller)
-        )
+        return 200, await _order_response(db, order.id, level=amount_level(caller))
 
     return await idempotent_write(
         request,

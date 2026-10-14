@@ -25,6 +25,9 @@ export type UserRole =
   // Praktykant (0374) — rola WYŁĄCZNA: widzi tylko „Telefony na dziś”
   // (`/trainee`). Nie łączy się z innymi rolami (lustro finance).
   | "trainee"
+  // „Automatyzacje” (0446) — rola WYŁĄCZNA: podgląd rekrutacji, kandydatów,
+  // Insights oraz klientów, kontraktów i zamówień bez kwot; bez zapisu.
+  | "automation"
 
 // Ranga — liczbowa reprezentacja pozwala na porównanie "min rola".
 // Legacy rank helper only. Section/action access is defined by explicit
@@ -45,6 +48,9 @@ export const ROLE_RANK: Record<UserRole, number> = {
   // Najniżej z ról operacyjnych — praktykant nie przechodzi żadnej bramki
   // rangowej. Finance zostaje minimum (rola rozłączna, fail-closed).
   trainee: 0.5,
+  // Rola tylko do odczytu — rangą jak dawny viewer, żadna bramka rangowa
+  // zapisu jej nie przepuszcza.
+  automation: 1,
 }
 
 export const ROLE_LABELS: Record<UserRole, string> = {
@@ -56,6 +62,7 @@ export const ROLE_LABELS: Record<UserRole, string> = {
   recruiter: "Rekruter",
   user: "User",
   trainee: "Praktykant",
+  automation: "Automatyzacje",
 }
 
 /** Identyfikatory modułów DynaReportera (migracja B.0, 0111). Lista

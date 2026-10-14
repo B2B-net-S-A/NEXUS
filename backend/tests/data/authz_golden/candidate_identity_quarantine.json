@@ -18,11 +18,12 @@
   "recruiter+delivery_view",
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
-  "recruiter+amounts_edit"
+  "recruiter+amounts_edit",
+  "automation"
  ],
  "routes": {
-  "GET /api/candidates/{candidate_id}/identity-quarantine/{source_kind}/{source_id}": "PPPPPPDDPPPPPPPPPPP",
-  "POST /api/candidates/{candidate_id}/identity-quarantine/{source_kind}/{source_id}/override": "PDPDDDDDDPDPDDDDDDD",
-  "PUT /api/candidates/{candidate_id}/identity-quarantine/{source_kind}/{source_id}": "PPPPPPDDPPPPPPPPPPP"
+  "GET /api/candidates/{candidate_id}/identity-quarantine/{source_kind}/{source_id}": "PPPPPPDDPPPPPPPPPPPP",
+  "POST /api/candidates/{candidate_id}/identity-quarantine/{source_kind}/{source_id}/override": "PDPDDDDDDPDPDDDDDDDD",
+  "PUT /api/candidates/{candidate_id}/identity-quarantine/{source_kind}/{source_id}": "PPPPPPDDPPPPPPPPPPPD"
  }
 }

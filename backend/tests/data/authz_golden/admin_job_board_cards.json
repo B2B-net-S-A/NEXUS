@@ -18,10 +18,11 @@
   "recruiter+delivery_view",
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
-  "recruiter+amounts_edit"
+  "recruiter+amounts_edit",
+  "automation"
  ],
  "routes": {
-  "GET /api/admin/proposals/convert-integration-cards/status": "PDDDDDDDDDDDDDDDDDD",
-  "POST /api/admin/proposals/convert-integration-cards": "PDDDDDDDDDDDDDDDDDD"
+  "GET /api/admin/proposals/convert-integration-cards/status": "PDDDDDDDDDDDDDDDDDDD",
+  "POST /api/admin/proposals/convert-integration-cards": "PDDDDDDDDDDDDDDDDDDD"
  }
 }

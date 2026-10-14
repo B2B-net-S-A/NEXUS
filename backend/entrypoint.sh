@@ -158,6 +158,8 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE userrole ADD VALUE IF NOT EXISTS 'talent_community_manager'",
     # 0374: praktykant — „Telefony na dziś”.
     "ALTER TYPE userrole ADD VALUE IF NOT EXISTS 'trainee'",
+    # 0446: „Automatyzacje” — podgląd bez kwot i bez zapisu.
+    "ALTER TYPE userrole ADD VALUE IF NOT EXISTS 'automation'",
     # notificationtype: 5 trigger types + champion_profile_updated
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'dl_stage_stale_6h'",
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'client_feedback_eobd'",
@@ -1022,7 +1024,7 @@ _COLUMN_STATEMENTS = [
            updated_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
            PRIMARY KEY (role, section),
            CONSTRAINT ck_rbac_role_section_permissions_role CHECK (
-               role IN ('admin','head_of_recruitment','delivery_lead','talent_community_manager','finance','tac','recruiter','sourcer','user','trainee')
+               role IN ('admin','head_of_recruitment','delivery_lead','talent_community_manager','finance','tac','recruiter','sourcer','user','trainee','automation')
            ),
            CONSTRAINT ck_rbac_role_section_permissions_section CHECK (
                section IN ('sourcing','pipeline','delivery','insights','finance','system_admin')
@@ -1058,7 +1060,7 @@ _COLUMN_STATEMENTS = [
            updated_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
            PRIMARY KEY (role, action),
            CONSTRAINT ck_rbac_role_action_permissions_role CHECK (
-               role IN ('admin','head_of_recruitment','delivery_lead','talent_community_manager','finance','tac','recruiter','sourcer','user','trainee')
+               role IN ('admin','head_of_recruitment','delivery_lead','talent_community_manager','finance','tac','recruiter','sourcer','user','trainee','automation')
            ),
            CONSTRAINT ck_rbac_role_action_permissions_action CHECK (
                action IN ('b2b_contract_generator', 'delivery_view', 'clients_edit', 'contracts_orders_edit', 'contract_status', 'b2b_signature_confirmation', 'recruitment_manage', 'amounts_view', 'amounts_edit', 'finance_module')
@@ -5899,6 +5901,40 @@ EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
             ALTER TABLE users VALIDATE CONSTRAINT ck_users_exclusive_finance_viewer_roles;
         END IF;
     END $$""",
+    # 0446: „Automatyzacje” — rola w CHECK-ach RBAC i wyłączności, przed seedem
+    # macierzy w `_DATA_STATEMENTS` (wstawia wiersze `automation`). Lustro 1:1
+    # z migracją — pilnuje `test_automation_role_migration_mirror.py`.
+    """DO $$ BEGIN
+        IF NOT EXISTS (
+            SELECT 1 FROM pg_constraint
+            WHERE conname = 'ck_rbac_role_section_permissions_role'
+              AND pg_get_constraintdef(oid) LIKE '%automation%'
+        ) THEN
+            ALTER TABLE rbac_role_section_permissions DROP CONSTRAINT IF EXISTS ck_rbac_role_section_permissions_role;
+            ALTER TABLE rbac_role_section_permissions ADD CONSTRAINT ck_rbac_role_section_permissions_role CHECK (role IN ('admin', 'head_of_recruitment', 'delivery_lead', 'talent_community_manager', 'finance', 'tac', 'recruiter', 'sourcer', 'user', 'trainee', 'automation'));
+        END IF;
+    END $$""",
+    """DO $$ BEGIN
+        IF NOT EXISTS (
+            SELECT 1 FROM pg_constraint
+            WHERE conname = 'ck_rbac_role_action_permissions_role'
+              AND pg_get_constraintdef(oid) LIKE '%automation%'
+        ) THEN
+            ALTER TABLE rbac_role_action_permissions DROP CONSTRAINT IF EXISTS ck_rbac_role_action_permissions_role;
+            ALTER TABLE rbac_role_action_permissions ADD CONSTRAINT ck_rbac_role_action_permissions_role CHECK (role IN ('admin', 'head_of_recruitment', 'delivery_lead', 'talent_community_manager', 'finance', 'tac', 'recruiter', 'sourcer', 'user', 'trainee', 'automation'));
+        END IF;
+    END $$""",
+    """DO $$ BEGIN
+        IF NOT EXISTS (
+            SELECT 1 FROM pg_constraint
+            WHERE conname = 'ck_users_exclusive_finance_viewer_roles'
+              AND pg_get_constraintdef(oid) LIKE '%automation%'
+        ) THEN
+            ALTER TABLE users DROP CONSTRAINT IF EXISTS ck_users_exclusive_finance_viewer_roles;
+            ALTER TABLE users ADD CONSTRAINT ck_users_exclusive_finance_viewer_roles CHECK (CASE WHEN role::text IN ('finance', 'user', 'trainee', 'automation') THEN roles = jsonb_build_array(role::text) ELSE NOT (roles ?| ARRAY['finance', 'user', 'trainee', 'automation']::text[]) END) NOT VALID;
+            ALTER TABLE users VALIDATE CONSTRAINT ck_users_exclusive_finance_viewer_roles;
+        END IF;
+    END $$""",
     "ALTER TABLE candidates ADD COLUMN IF NOT EXISTS b2b_willingness VARCHAR(20)",
     "ALTER TABLE candidates ADD COLUMN IF NOT EXISTS accepts_below_min_rate BOOLEAN",
     "ALTER TABLE candidates ADD COLUMN IF NOT EXISTS accepts_more_office_days BOOLEAN",
@@ -6473,7 +6509,13 @@ _DATA_STATEMENTS = [
            ('trainee', 'delivery', 'none'),
            ('trainee', 'insights', 'none'),
            ('trainee', 'finance', 'none'),
-           ('trainee', 'system_admin', 'none')
+           ('trainee', 'system_admin', 'none'),
+           ('automation', 'sourcing', 'read'),
+           ('automation', 'pipeline', 'read'),
+           ('automation', 'delivery', 'read'),
+           ('automation', 'insights', 'read'),
+           ('automation', 'finance', 'none'),
+           ('automation', 'system_admin', 'none')
        ) AS defaults(role, section, access)
        WHERE NOT EXISTS (
            SELECT 1 FROM rbac_role_section_permissions
@@ -6529,7 +6571,8 @@ _DATA_STATEMENTS = [
            ('talent_community_manager', 'b2b_contract_generator', 'manage'),
            ('recruiter', 'b2b_contract_generator', 'manage'),
            ('user', 'b2b_contract_generator', 'view'),
-           ('trainee', 'b2b_contract_generator', 'none')
+           ('trainee', 'b2b_contract_generator', 'none'),
+           ('automation', 'b2b_contract_generator', 'none')
        ) AS defaults(role, action, access)
        WHERE NOT EXISTS (
            SELECT 1 FROM rbac_role_action_permissions
@@ -6544,6 +6587,19 @@ _DATA_STATEMENTS = [
        ON CONFLICT (role, section) DO NOTHING""",
     """INSERT INTO rbac_role_action_permissions (role, action, access)
        SELECT DISTINCT 'trainee', action, 'none'
+       FROM rbac_role_action_permissions
+       ON CONFLICT (role, action) DO NOTHING""",
+    # 0446: „Automatyzacje” — wszędzie odczyt, z uprawnień tylko podgląd
+    # Delivery. Dopisywane do istniejącej macierzy (decyzja admina wygrywa).
+    """INSERT INTO rbac_role_section_permissions (role, section, access)
+       SELECT 'automation', s.section, s.access
+       FROM (VALUES ('sourcing', 'read'), ('pipeline', 'read'),
+                    ('delivery', 'read'), ('insights', 'read'),
+                    ('finance', 'none'), ('system_admin', 'none')) AS s(section, access)
+       ON CONFLICT (role, section) DO NOTHING""",
+    """INSERT INTO rbac_role_action_permissions (role, action, access)
+       SELECT DISTINCT 'automation', action,
+              CASE WHEN action = 'delivery_view' THEN 'manage' ELSE 'none' END
        FROM rbac_role_action_permissions
        ON CONFLICT (role, action) DO NOTHING""",
     # 0256: seed domyślnej punktacji Insights. `ON CONFLICT DO NOTHING`, więc
@@ -8777,9 +8833,9 @@ _CONSTRAINT_STATEMENTS = [
             ADD CONSTRAINT ck_users_exclusive_finance_viewer_roles
             CHECK (
                 CASE
-                    WHEN role::text IN ('finance', 'user', 'trainee')
+                    WHEN role::text IN ('finance', 'user', 'trainee', 'automation')
                         THEN roles = jsonb_build_array(role::text)
-                    ELSE NOT (roles ?| ARRAY['finance', 'user', 'trainee']::text[])
+                    ELSE NOT (roles ?| ARRAY['finance', 'user', 'trainee', 'automation']::text[])
                 END
             ) NOT VALID;
     EXCEPTION WHEN duplicate_object THEN NULL; END $$""",

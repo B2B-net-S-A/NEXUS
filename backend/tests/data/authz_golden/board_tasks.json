@@ -18,15 +18,16 @@
   "recruiter+delivery_view",
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
-  "recruiter+amounts_edit"
+  "recruiter+amounts_edit",
+  "automation"
  ],
  "routes": {
-  "GET /api/board-tasks": "PPPPPPDDPPPPPPPPPPP",
-  "GET /api/board-tasks/cpro/queue": "PPPPPPDDPPPPPPPPPPP",
-  "GET /api/board-tasks/cpro/sender": "PPPPPPDDPPPPPPPPPPP",
-  "GET /api/board-tasks/dl-review-row": "PPPPPPDDPPPPPPPPPPP",
-  "GET /api/board-tasks/dl-send": "PPPPPPDDPPPPPPPPPPP",
-  "POST /api/board-tasks/dl-send/{stage_id}/nudge": "PPPPPPDDPPPPPPPPPPP",
-  "PUT /api/board-tasks/cpro/sender": "PPPPPPDDPPPPPPPPPPP"
+  "GET /api/board-tasks": "PPPPPPDDPPPPPPPPPPPP",
+  "GET /api/board-tasks/cpro/queue": "PPPPPPDDPPPPPPPPPPPP",
+  "GET /api/board-tasks/cpro/sender": "PPPPPPDDPPPPPPPPPPPP",
+  "GET /api/board-tasks/dl-review-row": "PPPPPPDDPPPPPPPPPPPP",
+  "GET /api/board-tasks/dl-send": "PPPPPPDDPPPPPPPPPPPP",
+  "POST /api/board-tasks/dl-send/{stage_id}/nudge": "PPPPPPDDPPPPPPPPPPPD",
+  "PUT /api/board-tasks/cpro/sender": "PPPPPPDDPPPPPPPPPPPD"
  }
 }

@@ -18,12 +18,13 @@
   "recruiter+delivery_view",
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
-  "recruiter+amounts_edit"
+  "recruiter+amounts_edit",
+  "automation"
  ],
  "routes": {
-  "GET /api/champion-suggestions/{suggestion_id}": "PPPPPPDDPPPPPPPPPPP",
-  "POST /api/champion-suggestions/{suggestion_id}/apply": "PPPPPPDDPPPPPPPPPPP",
-  "POST /api/champion-suggestions/{suggestion_id}/rate": "PPPPPPDDPPPPPPPPPPP",
-  "POST /api/champion-suggestions/{suggestion_id}/reject": "PPPPPPDDPPPPPPPPPPP"
+  "GET /api/champion-suggestions/{suggestion_id}": "PPPPPPDDPPPPPPPPPPPD",
+  "POST /api/champion-suggestions/{suggestion_id}/apply": "PPPPPPDDPPPPPPPPPPPD",
+  "POST /api/champion-suggestions/{suggestion_id}/rate": "PPPPPPDDPPPPPPPPPPPD",
+  "POST /api/champion-suggestions/{suggestion_id}/reject": "PPPPPPDDPPPPPPPPPPPD"
  }
 }

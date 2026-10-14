@@ -18,13 +18,14 @@
   "recruiter+delivery_view",
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
-  "recruiter+amounts_edit"
+  "recruiter+amounts_edit",
+  "automation"
  ],
  "routes": {
-  "GET /api/clients/{client_id}/playbook": "PPPPPPDDPPPPPPPPPPP",
-  "GET /api/clients/{client_id}/playbook/history": "PPDPPDDDPPPDPPPPDPP",
-  "GET /api/settings/client-playbooks": "PPPPPPDDPPPPPPPPPPP",
-  "POST /api/clients/{client_id}/playbook/seed": "PDDPDDDDPPPDDDPDDDD",
-  "PUT /api/clients/{client_id}/playbook": "PDDPDDDDPPPDDDPDDDD"
+  "GET /api/clients/{client_id}/playbook": "PPPPPPDDPPPPPPPPPPPP",
+  "GET /api/clients/{client_id}/playbook/history": "PPDPPDDDPPPDPPPPDPPP",
+  "GET /api/settings/client-playbooks": "PPPPPPDDPPPPPPPPPPPP",
+  "POST /api/clients/{client_id}/playbook/seed": "PDDPDDDDPPPDDDPDDDDD",
+  "PUT /api/clients/{client_id}/playbook": "PDDPDDDDPPPDDDPDDDDD"
  }
 }

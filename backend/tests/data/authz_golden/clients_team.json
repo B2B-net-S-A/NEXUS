@@ -18,13 +18,14 @@
   "recruiter+delivery_view",
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
-  "recruiter+amounts_edit"
+  "recruiter+amounts_edit",
+  "automation"
  ],
  "routes": {
-  "DELETE /api/clients/{client_id}/tacs/{user_id}": "PDDDDDDDDPDDDDDDDDD",
-  "GET /api/clients/{client_id}/team": "PPDPPDDDPPPDPPPPDPP",
-  "POST /api/clients/{client_id}/tacs": "PDDDDDDDDPDDDDDDDDD",
-  "PUT /api/clients/{client_id}/tacs/{user_id}/first-priority": "PDDDDDDDDPDDDDDDDDD",
-  "PUT /api/clients/{client_id}/tacs/{user_id}/toggle-primary": "PDDDDDDDDPDDDDDDDDD"
+  "DELETE /api/clients/{client_id}/tacs/{user_id}": "PDDDDDDDDPDDDDDDDDDD",
+  "GET /api/clients/{client_id}/team": "PPDPPDDDPPPDPPPPDPPP",
+  "POST /api/clients/{client_id}/tacs": "PDDDDDDDDPDDDDDDDDDD",
+  "PUT /api/clients/{client_id}/tacs/{user_id}/first-priority": "PDDDDDDDDPDDDDDDDDDD",
+  "PUT /api/clients/{client_id}/tacs/{user_id}/toggle-primary": "PDDDDDDDDPDDDDDDDDDD"
  }
 }

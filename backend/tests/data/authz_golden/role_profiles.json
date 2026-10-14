@@ -18,11 +18,12 @@
   "recruiter+delivery_view",
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
-  "recruiter+amounts_edit"
+  "recruiter+amounts_edit",
+  "automation"
  ],
  "routes": {
-  "GET /api/role-profiles": "PPPPPPPDPPPPPPPPPPP",
-  "GET /api/role-profiles/{role_id}": "PPPPPPPDPPPPPPPPPPP",
-  "PUT /api/role-profiles/{role_id}": "PDPDDDDDDPDPDDDDDDD"
+  "GET /api/role-profiles": "PPPPPPPDPPPPPPPPPPPP",
+  "GET /api/role-profiles/{role_id}": "PPPPPPPDPPPPPPPPPPPP",
+  "PUT /api/role-profiles/{role_id}": "PDPDDDDDDPDPDDDDDDDD"
  }
 }

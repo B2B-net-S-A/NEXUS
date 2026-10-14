@@ -18,16 +18,17 @@
   "recruiter+delivery_view",
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
-  "recruiter+amounts_edit"
+  "recruiter+amounts_edit",
+  "automation"
  ],
  "routes": {
-  "GET /api/competitions/current": "PPPPPPPDPPPPPPPPPPP",
-  "GET /api/competitions/history": "PPPPPPPDPPPPPPPPPPP",
-  "GET /api/competitions/monthly-races": "PPPPPPPDPPPPPPPPPPP",
-  "GET /api/competitions/my-league": "PPPPPPPDPPPPPPPPPPP",
-  "GET /api/competitions/my-position": "PPPPPPPDPPPPPPPPPPP",
-  "GET /api/competitions/ties": "PDDDDDDDDDDDDDDDDDD",
-  "POST /api/competitions/freeze": "PDDDDDDDDDDDDDDDDDD",
-  "POST /api/competitions/{type}/{period}/resolve-tie": "PDDDDDDDDDDDDDDDDDD"
+  "GET /api/competitions/current": "PPPPPPPDPPPPPPPPPPPP",
+  "GET /api/competitions/history": "PPPPPPPDPPPPPPPPPPPP",
+  "GET /api/competitions/monthly-races": "PPPPPPPDPPPPPPPPPPPP",
+  "GET /api/competitions/my-league": "PPPPPPPDPPPPPPPPPPPP",
+  "GET /api/competitions/my-position": "PPPPPPPDPPPPPPPPPPPP",
+  "GET /api/competitions/ties": "PDDDDDDDDDDDDDDDDDDD",
+  "POST /api/competitions/freeze": "PDDDDDDDDDDDDDDDDDDD",
+  "POST /api/competitions/{type}/{period}/resolve-tie": "PDDDDDDDDDDDDDDDDDDD"
  }
 }

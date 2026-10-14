@@ -18,14 +18,15 @@
   "recruiter+delivery_view",
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
-  "recruiter+amounts_edit"
+  "recruiter+amounts_edit",
+  "automation"
  ],
  "routes": {
-  "GET /api/calls/cloudtalk-status": "PPPPPPDDPPPPPPPPPPP",
-  "GET /api/calls/stats": "PPPPPPDDPPPPPPPPPPP",
-  "GET /api/candidates/{candidate_id}/calls": "PPPPPPDDPPPPPPPPPPP",
-  "GET /api/candidates/{candidate_id}/calls/{call_id}": "PPPPPPDDPPPPPPPPPPP",
-  "POST /api/calls": "PPPPPPDDPPPPPPPPPPP",
-  "POST /api/calls/webhook": "PPPPPPPPPPPPPPPPPPP"
+  "GET /api/calls/cloudtalk-status": "PPPPPPDDPPPPPPPPPPPP",
+  "GET /api/calls/stats": "PPPPPPDDPPPPPPPPPPPP",
+  "GET /api/candidates/{candidate_id}/calls": "PPPPPPDDPPPPPPPPPPPP",
+  "GET /api/candidates/{candidate_id}/calls/{call_id}": "PPPPPPDDPPPPPPPPPPPP",
+  "POST /api/calls": "PPPPPPDDPPPPPPPPPPPD",
+  "POST /api/calls/webhook": "PPPPPPPPPPPPPPPPPPPP"
  }
 }

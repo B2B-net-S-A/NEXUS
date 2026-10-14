@@ -28,6 +28,7 @@ const ALL_ROLES: UserRole[] = [
   "recruiter",
   "user",
   "trainee",
+  "automation",
 ];
 
 const mkUser = (role: UserRole) => ({ role });
@@ -48,7 +49,10 @@ const mkUser = (role: UserRole) => ({ role });
 const EXPECTED: Record<
   Capability,
   Record<
-    Exclude<UserRole, "finance" | "talent_community_manager" | "trainee">,
+    Exclude<
+      UserRole,
+      "finance" | "talent_community_manager" | "trainee" | "automation"
+    >,
     boolean
   >
 > = {
@@ -345,6 +349,31 @@ function traineeExpected(capability: Capability): boolean {
 }
 
 /**
+ * „Automatyzacje” (0446) tylko czytają: wejścia do kandydatów, radaru
+ * i Delivery (uprawnienie „Klienci, kontrakty i zamówienia: podgląd”), żadnej
+ * akcji zapisu ani modułu Finanse.
+ */
+const AUTOMATION_CAPABILITIES: ReadonlySet<Capability> = new Set([
+  // Imienne statystyki rekrutacji i „Moi ludzie” czyta każdy, kto czyta
+  // kandydatów (`OperationalUser`, `CandidateSearchAccess`).
+  "dashboard.recruitment_stats.view",
+  "nav.my_people",
+  "nav.candidates",
+  "nav.talents",
+  "nav.talent_radar",
+  "nav.sourcing",
+  "nav.clients",
+  "nav.my_clients",
+  "nav.order_mail",
+  "nav.my_relationships",
+  "nav.contracts",
+]);
+
+function automationExpected(capability: Capability): boolean {
+  return AUTOMATION_CAPABILITIES.has(capability);
+}
+
+/**
  * Reguła dla `finance` (decyzja produktowa Artura 19.08 — pełny dostęp
  * operacyjny): Finance ma tier recruitera, własny moduł oraz jawne moduły
  * business-read kontraktów i klientów. Wyliczana z macierzy, nie ręczna
@@ -478,7 +507,9 @@ describe("hasCapability — pełna macierz rola × capability", () => {
             ? talentCommunityManagerExpected(capability)
             : role === "trainee"
               ? traineeExpected(capability)
-              : EXPECTED[capability][role];
+              : role === "automation"
+                ? automationExpected(capability)
+                : EXPECTED[capability][role];
       it(`${role} ${expected ? "MA" : "NIE ma"} ${capability}`, () => {
         expect(hasCapability(mkUser(role), capability)).toBe(expected);
       });
@@ -1454,6 +1485,10 @@ const SIDEBAR_ROLE_GATED_WITHOUT_CAPABILITY: readonly string[] = [
   // `ContactCaller`), nie wejściem nawigacyjnym do modułu — patrz komentarz
   // przy tym wpisie w middleware.ts.
   "/candidates/contact-queue",
+  // Generator umów B2B: drabinka akcji `b2b_contract_generator`, nie lista
+  // ról — „Automatyzacje” (0446) mają w niej „none”, bo rejestr pokazuje
+  // stawki konsultantów.
+  "/contracts/b2b-generator",
   // Zgłoszenia z publicznych aplikacji: backend bramkuje je przez
   // CandidateWriteAccess + membership do oferty, więc sama lista ról nie
   // wystarcza do decyzji o widoczności ekranu.

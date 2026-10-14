@@ -18,13 +18,14 @@
   "recruiter+delivery_view",
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
-  "recruiter+amounts_edit"
+  "recruiter+amounts_edit",
+  "automation"
  ],
  "routes": {
-  "GET /api/integrations/v1/order-groups": "UUUUUUUUUUUUUUUUUUU",
-  "GET /api/integrations/v1/order-groups/{group_id}": "UUUUUUUUUUUUUUUUUUU",
-  "GET /api/integrations/v1/orders": "UUUUUUUUUUUUUUUUUUU",
-  "GET /api/integrations/v1/orders/{order_id}": "UUUUUUUUUUUUUUUUUUU",
-  "GET /api/integrations/v1/orders/{order_id}/md-consumptions": "UUUUUUUUUUUUUUUUUUU"
+  "GET /api/integrations/v1/order-groups": "UUUUUUUUUUUUUUUUUUUU",
+  "GET /api/integrations/v1/order-groups/{group_id}": "UUUUUUUUUUUUUUUUUUUU",
+  "GET /api/integrations/v1/orders": "UUUUUUUUUUUUUUUUUUUU",
+  "GET /api/integrations/v1/orders/{order_id}": "UUUUUUUUUUUUUUUUUUUU",
+  "GET /api/integrations/v1/orders/{order_id}/md-consumptions": "UUUUUUUUUUUUUUUUUUUU"
  }
 }

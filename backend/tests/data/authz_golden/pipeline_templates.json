@@ -18,22 +18,23 @@
   "recruiter+delivery_view",
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
-  "recruiter+amounts_edit"
+  "recruiter+amounts_edit",
+  "automation"
  ],
  "routes": {
-  "DELETE /api/pipeline-templates/{template_id}": "PDDPDDDDPPPDDDDDDDD",
-  "DELETE /api/pipeline-templates/{template_id}/rejection-reasons/{reason_id}": "PDDPDDDDPPPDDDDDDDD",
-  "DELETE /api/pipeline-templates/{template_id}/stages/{stage_id}": "PDDPDDDDPPPDDDDDDDD",
-  "GET /api/pipeline-templates": "PPPPPPPDPPPPPPPPPPP",
-  "GET /api/pipeline-templates/{template_id}": "PPPPPPPDPPPPPPPPPPP",
-  "PATCH /api/pipeline-templates/{template_id}": "PDDPDDDDPPPDDDDDDDD",
-  "PATCH /api/pipeline-templates/{template_id}/rejection-reasons/{reason_id}": "PDDPDDDDPPPDDDDDDDD",
-  "PATCH /api/pipeline-templates/{template_id}/stages/reorder": "PDDPDDDDPPPDDDDDDDD",
-  "PATCH /api/pipeline-templates/{template_id}/stages/{stage_id}": "PDDPDDDDPPPDDDDDDDD",
-  "POST /api/pipeline-templates": "PDDPDDDDPPPDDDDDDDD",
-  "POST /api/pipeline-templates/assign-to-job/{job_id}": "PDDPDDDDPPPDDDDDDDD",
-  "POST /api/pipeline-templates/{template_id}/clone": "PDDPDDDDPPPDDDDDDDD",
-  "POST /api/pipeline-templates/{template_id}/rejection-reasons": "PDDPDDDDPPPDDDDDDDD",
-  "POST /api/pipeline-templates/{template_id}/stages": "PDDPDDDDPPPDDDDDDDD"
+  "DELETE /api/pipeline-templates/{template_id}": "PDDPDDDDPPPDDDDDDDDD",
+  "DELETE /api/pipeline-templates/{template_id}/rejection-reasons/{reason_id}": "PDDPDDDDPPPDDDDDDDDD",
+  "DELETE /api/pipeline-templates/{template_id}/stages/{stage_id}": "PDDPDDDDPPPDDDDDDDDD",
+  "GET /api/pipeline-templates": "PPPPPPPDPPPPPPPPPPPP",
+  "GET /api/pipeline-templates/{template_id}": "PPPPPPPDPPPPPPPPPPPP",
+  "PATCH /api/pipeline-templates/{template_id}": "PDDPDDDDPPPDDDDDDDDD",
+  "PATCH /api/pipeline-templates/{template_id}/rejection-reasons/{reason_id}": "PDDPDDDDPPPDDDDDDDDD",
+  "PATCH /api/pipeline-templates/{template_id}/stages/reorder": "PDDPDDDDPPPDDDDDDDDD",
+  "PATCH /api/pipeline-templates/{template_id}/stages/{stage_id}": "PDDPDDDDPPPDDDDDDDDD",
+  "POST /api/pipeline-templates": "PDDPDDDDPPPDDDDDDDDD",
+  "POST /api/pipeline-templates/assign-to-job/{job_id}": "PDDPDDDDPPPDDDDDDDDD",
+  "POST /api/pipeline-templates/{template_id}/clone": "PDDPDDDDPPPDDDDDDDDD",
+  "POST /api/pipeline-templates/{template_id}/rejection-reasons": "PDDPDDDDPPPDDDDDDDDD",
+  "POST /api/pipeline-templates/{template_id}/stages": "PDDPDDDDPPPDDDDDDDDD"
  }
 }

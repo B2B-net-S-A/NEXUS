@@ -18,14 +18,15 @@
   "recruiter+delivery_view",
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
-  "recruiter+amounts_edit"
+  "recruiter+amounts_edit",
+  "automation"
  ],
  "routes": {
-  "GET /api/search/": "PPPPPPPDPPPPPPPPPPP",
-  "GET /api/search/global": "PPPPPPPDPPPPPPPPPPP",
-  "POST /api/search/candidates": "PPPPPPDDPPPPPPPPPPP",
-  "POST /api/search/candidates/diagnostics": "PPPPPPDDPPPPPPPPPPP",
-  "POST /api/search/candidates/scores": "PPPPPPDDPPPPPPPPPPP",
-  "POST /api/search/semantic": "PPPPPPDDPPPPPPPPPPP"
+  "GET /api/search/": "PPPPPPPDPPPPPPPPPPPP",
+  "GET /api/search/global": "PPPPPPPDPPPPPPPPPPPP",
+  "POST /api/search/candidates": "PPPPPPDDPPPPPPPPPPPP",
+  "POST /api/search/candidates/diagnostics": "PPPPPPDDPPPPPPPPPPPP",
+  "POST /api/search/candidates/scores": "PPPPPPDDPPPPPPPPPPPP",
+  "POST /api/search/semantic": "PPPPPPDDPPPPPPPPPPPP"
  }
 }

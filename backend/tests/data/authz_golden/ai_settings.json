@@ -18,13 +18,14 @@
   "recruiter+delivery_view",
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
-  "recruiter+amounts_edit"
+  "recruiter+amounts_edit",
+  "automation"
  ],
  "routes": {
-  "GET /api/settings/ai": "PDDDDDDDDDDDDDDDDDD",
-  "GET /api/settings/ai/auto-match": "PDDDDDDDDDDDDDDDDDD",
-  "GET /api/settings/ai/qc-quality": "PDDDDDDDDDDDDDDDDDD",
-  "PATCH /api/settings/ai/qc-quality/{key}": "PDDDDDDDDDDDDDDDDDD",
-  "POST /api/settings/ai/alerts/test": "PDDDDDDDDDDDDDDDDDD"
+  "GET /api/settings/ai": "PDDDDDDDDDDDDDDDDDDD",
+  "GET /api/settings/ai/auto-match": "PDDDDDDDDDDDDDDDDDDD",
+  "GET /api/settings/ai/qc-quality": "PDDDDDDDDDDDDDDDDDDD",
+  "PATCH /api/settings/ai/qc-quality/{key}": "PDDDDDDDDDDDDDDDDDDD",
+  "POST /api/settings/ai/alerts/test": "PDDDDDDDDDDDDDDDDDDD"
  }
 }

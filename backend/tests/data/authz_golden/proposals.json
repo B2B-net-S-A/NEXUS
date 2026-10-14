@@ -18,11 +18,12 @@
   "recruiter+delivery_view",
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
-  "recruiter+amounts_edit"
+  "recruiter+amounts_edit",
+  "automation"
  ],
  "routes": {
-  "GET /api/jobs/{job_id}/proposals": "PPPPPPDDPPPPPPPPPPP",
-  "GET /api/jobs/{job_id}/proposals/latest": "PPPPPPDDPPPPPPPPPPP",
-  "POST /api/jobs/{job_id}/proposals/regenerate": "PPPPPPDDPPPPPPPPPPP"
+  "GET /api/jobs/{job_id}/proposals": "PPPPPPDDPPPPPPPPPPPP",
+  "GET /api/jobs/{job_id}/proposals/latest": "PPPPPPDDPPPPPPPPPPPP",
+  "POST /api/jobs/{job_id}/proposals/regenerate": "PPPPPPDDPPPPPPPPPPPD"
  }
 }

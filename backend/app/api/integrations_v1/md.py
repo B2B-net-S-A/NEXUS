@@ -38,13 +38,14 @@ from sqlalchemy.orm import selectinload
 from app.api import client_order_groups as group_routes
 from app.api import md_consumption as md_routes
 from app.api.integrations_v1.common import (
+    AmountLevel,
     IdPath,
     IntegrationRoute,
     MdRead,
     MdWrite,
     Page,
     PageQuery,
-    can_see_amounts,
+    amount_level,
     dry_run_response,
     idempotent_write,
     integration_actor,
@@ -93,11 +94,18 @@ def _row_without_amounts(row: ImportRowRead) -> ImportRowRead:
     return row.model_copy(update={"invoice_amount": None, "notes_raw": None})
 
 
+def _sees_amounts(caller) -> bool:
+    """Kwoty faktur z raportu MD klienta to kwoty sprzedaży (to, co
+    fakturujemy klientowi) — wystarcza ``sales_amounts:read``."""
+    return amount_level(caller) >= AmountLevel.sales
+
+
 def _without_amounts(detail: ImportDetail, caller) -> ImportDetail:
     """Kwoty faktur (wiersze kosztowe), surowe „Uwagi” i pominięte wiersze
-    arkusza tylko ze scope'em ``amounts:read`` — ``md:read`` jest operacyjny
-    (liczby MD), jak na ekranie bez podglądu kwot (przegląd PR 2A)."""
-    if can_see_amounts(caller):
+    arkusza tylko z kwotami sprzedaży (``sales_amounts:read`` albo
+    ``amounts:read``) — ``md:read`` jest operacyjny (liczby MD), jak na
+    ekranie bez podglądu kwot (przegląd PR 2A)."""
+    if _sees_amounts(caller):
         return detail
     return detail.model_copy(
         update={
@@ -162,7 +170,8 @@ async def get_md_import(
     caller: MdRead,
     db: AsyncSession = Depends(get_db),
 ) -> ImportDetail:
-    """Partia z wierszami. Kwoty faktur i „Uwagi” tylko z ``amounts:read``."""
+    """Partia z wierszami. Kwoty faktur i „Uwagi” tylko ze
+    ``sales_amounts:read`` (albo ``amounts:read``)."""
     batch = await db.get(MdConsumptionImport, import_id)
     if batch is None:
         raise HTTPException(404, detail="Import nie istnieje.")
@@ -304,7 +313,7 @@ async def assign_md_import_row(
             user=integration_actor(caller),
             db=db,
         )
-        return 200, result if can_see_amounts(caller) else _row_without_amounts(result)
+        return 200, result if _sees_amounts(caller) else _row_without_amounts(result)
 
     return await idempotent_write(
         request,
@@ -405,7 +414,7 @@ async def put_order_md_consumption(
         row = (
             await db.execute(_orders_select().where(ClientOrder.id == line.id))
         ).first()
-        return 200, _order_out(row, with_amounts=False)
+        return 200, _order_out(row, level=amount_level(caller))
 
     return await idempotent_write(
         request,

@@ -18,13 +18,14 @@
   "recruiter+delivery_view",
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
-  "recruiter+amounts_edit"
+  "recruiter+amounts_edit",
+  "automation"
  ],
  "routes": {
-  "DELETE /api/shortlist/{entry_id}": "PPPPPPDDPPPPPPPPPPP",
-  "GET /api/jobs/{job_id}/shortlist": "PPPPPPDDPPPPPPPPPPP",
-  "PATCH /api/shortlist/{entry_id}": "PPPPPPDDPPPPPPPPPPP",
-  "POST /api/jobs/{job_id}/shortlist": "PPPPPPDDPPPPPPPPPPP",
-  "POST /api/shortlist/{entry_id}/promote": "PPPPPPDDPPPPPPPPPPP"
+  "DELETE /api/shortlist/{entry_id}": "PPPPPPDDPPPPPPPPPPPD",
+  "GET /api/jobs/{job_id}/shortlist": "PPPPPPDDPPPPPPPPPPPP",
+  "PATCH /api/shortlist/{entry_id}": "PPPPPPDDPPPPPPPPPPPD",
+  "POST /api/jobs/{job_id}/shortlist": "PPPPPPDDPPPPPPPPPPPD",
+  "POST /api/shortlist/{entry_id}/promote": "PPPPPPDDPPPPPPPPPPPD"
  }
 }

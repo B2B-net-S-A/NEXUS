@@ -18,11 +18,12 @@
   "recruiter+delivery_view",
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
-  "recruiter+amounts_edit"
+  "recruiter+amounts_edit",
+  "automation"
  ],
  "routes": {
-  "GET /api/integrations/v1/contracts": "UUUUUUUUUUUUUUUUUUU",
-  "GET /api/integrations/v1/contracts/{contract_id}": "UUUUUUUUUUUUUUUUUUU",
-  "GET /api/integrations/v1/contracts/{contract_id}/rate-history": "UUUUUUUUUUUUUUUUUUU"
+  "GET /api/integrations/v1/contracts": "UUUUUUUUUUUUUUUUUUUU",
+  "GET /api/integrations/v1/contracts/{contract_id}": "UUUUUUUUUUUUUUUUUUUU",
+  "GET /api/integrations/v1/contracts/{contract_id}/rate-history": "UUUUUUUUUUUUUUUUUUUU"
  }
 }

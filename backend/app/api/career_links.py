@@ -24,7 +24,7 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import RecruiterPlus
+from app.api.deps import OperationalUser, RecruiterPlus
 from app.api.recruitment_access import ensure_job_membership
 from app.api.section_access import PIPELINE_SECTION_DEPENDENCIES
 from app.core.database import get_db
@@ -369,7 +369,7 @@ async def _profile_response(
 
 @router.get("/jobs/{job_id}/public-profile", response_model=PublicProfileResponse)
 async def get_public_profile(
-    job_id: int, current_user: RecruiterPlus, db: AsyncSession = Depends(get_db)
+    job_id: int, current_user: OperationalUser, db: AsyncSession = Depends(get_db)
 ) -> PublicProfileResponse:
     job = await _load_job(db, current_user, job_id)
     profile = await db.get(JobPublicProfile, job_id)

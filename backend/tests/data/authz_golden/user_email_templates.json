@@ -18,14 +18,15 @@
   "recruiter+delivery_view",
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
-  "recruiter+amounts_edit"
+  "recruiter+amounts_edit",
+  "automation"
  ],
  "routes": {
-  "DELETE /api/user-email-templates/{template_id}": "PPPPPPPDPPPPPPPPPPP",
-  "GET /api/user-email-templates": "PPPPPPPDPPPPPPPPPPP",
-  "GET /api/user-email-templates/{template_id}": "PPPPPPPDPPPPPPPPPPP",
-  "POST /api/user-email-templates": "PPPPPPDDPPPPPPPPPPP",
-  "POST /api/user-email-templates/{template_id}/render": "PPPPPPDDPPPPPPPPPPP",
-  "PUT /api/user-email-templates/{template_id}": "PPPPPPPDPPPPPPPPPPP"
+  "DELETE /api/user-email-templates/{template_id}": "PPPPPPPDPPPPPPPPPPPP",
+  "GET /api/user-email-templates": "PPPPPPPDPPPPPPPPPPPP",
+  "GET /api/user-email-templates/{template_id}": "PPPPPPPDPPPPPPPPPPPP",
+  "POST /api/user-email-templates": "PPPPPPDDPPPPPPPPPPPD",
+  "POST /api/user-email-templates/{template_id}/render": "PPPPPPDDPPPPPPPPPPPP",
+  "PUT /api/user-email-templates/{template_id}": "PPPPPPPDPPPPPPPPPPPP"
  }
 }

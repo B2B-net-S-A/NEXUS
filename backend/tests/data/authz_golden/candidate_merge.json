@@ -18,10 +18,11 @@
   "recruiter+delivery_view",
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
-  "recruiter+amounts_edit"
+  "recruiter+amounts_edit",
+  "automation"
  ],
  "routes": {
-  "GET /api/candidates/{candidate_id}/merge-preview": "PDPDDDDDDPDPDDDDDDD",
-  "POST /api/candidates/{candidate_id}/merge": "PDPDDDDDDPDPDDDDDDD"
+  "GET /api/candidates/{candidate_id}/merge-preview": "PDPDDDDDDPDPDDDDDDDD",
+  "POST /api/candidates/{candidate_id}/merge": "PDPDDDDDDPDPDDDDDDDD"
  }
 }

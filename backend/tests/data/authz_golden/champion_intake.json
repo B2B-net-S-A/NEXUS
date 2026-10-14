@@ -18,11 +18,12 @@
   "recruiter+delivery_view",
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
-  "recruiter+amounts_edit"
+  "recruiter+amounts_edit",
+  "automation"
  ],
  "routes": {
-  "GET /api/champion/template": "PPPPPPDDPPPPPPPPPPP",
-  "POST /api/champion/preview": "PPPPPPDDPPPPPPPPPPP",
-  "POST /api/champion/validate": "PPPPPPDDPPPPPPPPPPP"
+  "GET /api/champion/template": "PPPPPPDDPPPPPPPPPPPP",
+  "POST /api/champion/preview": "PPPPPPDDPPPPPPPPPPPD",
+  "POST /api/champion/validate": "PPPPPPDDPPPPPPPPPPPD"
  }
 }

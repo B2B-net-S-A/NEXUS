@@ -11,10 +11,26 @@ from __future__ import annotations
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.candidate_access import user_can_access_candidate_domain
+from app.api.candidate_access import (
+    READ_ONLY_ROLES,
+    user_can_access_candidate_domain,
+)
 from app.models.m365 import M365Connection
 from app.models.user import User
 from app.services.section_permissions import resolve_effective_section_access
+
+
+def can_own_mailbox(user: User) -> bool:
+    """Czy konto może mieć podłączoną skrzynkę, z której poczta trafia do bazy.
+
+    Domena kandydatów, ale bez ról tylko do odczytu (0446: „Automatyzacje”
+    czytają kandydatów, a poczty nie wnoszą — także konto przerobione
+    z rekrutera, którego połączenie dalej istnieje).
+    """
+
+    return user_can_access_candidate_domain(user) and not user.has_any_role(
+        *READ_ONLY_ROLES
+    )
 
 
 class M365OwnerIneligible(RuntimeError):
@@ -31,7 +47,7 @@ async def eligible_m365_owner(db: AsyncSession, user_id: int) -> User | None:
     if owner is None:
         return None
     await resolve_effective_section_access(db, owner)
-    if not user_can_access_candidate_domain(owner):
+    if not can_own_mailbox(owner):
         return None
     return owner
 

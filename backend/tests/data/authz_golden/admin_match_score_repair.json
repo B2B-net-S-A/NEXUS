@@ -18,10 +18,11 @@
   "recruiter+delivery_view",
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
-  "recruiter+amounts_edit"
+  "recruiter+amounts_edit",
+  "automation"
  ],
  "routes": {
-  "GET /api/admin/match-score-repair/preview": "PDDDDDDDDDDDDDDDDDD",
-  "POST /api/admin/match-score-repair/repair": "PDDDDDDDDDDDDDDDDDD"
+  "GET /api/admin/match-score-repair/preview": "PDDDDDDDDDDDDDDDDDDD",
+  "POST /api/admin/match-score-repair/repair": "PDDDDDDDDDDDDDDDDDDD"
  }
 }

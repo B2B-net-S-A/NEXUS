@@ -15,6 +15,12 @@ Różnice wobec ekranu, świadome:
 * każdy zapis zostawia wpis w Historii zdarzeń z kontem serwisowym jako
   autorem (ekran dotąd nie zostawiał żadnego przy edycji).
 
+Kwoty: faktura do klienta to sprzedaż — kwotę widać z samego
+``invoices:read``. Faktura od kontraktora to koszt — kwota tylko
+z ``amounts:read`` (decyzja Artura 14.10.2026), inaczej ``null``
+i ``costs_redacted = true``. DSO liczy wyłącznie faktury do klientów, więc
+zostaje przy ``invoices:read``.
+
 Moduł NIE MOŻE mieć ``from __future__ import annotations`` (slowapi #579).
 """
 
@@ -30,6 +36,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api import invoices as invoice_routes
 from app.api.integrations_v1.common import (
+    AmountLevel,
     IdPath,
     IntegrationRoute,
     InvoicesRead,
@@ -38,6 +45,7 @@ from app.api.integrations_v1.common import (
     Page,
     PageQuery,
     PageSizeQuery,
+    amount_level,
     dry_run_response,
     idempotent_write,
     integration_actor,
@@ -80,6 +88,9 @@ class InvoiceUpdateIn(invoice_routes.InvoiceUpdate):
 
 
 class InvoiceOut(BaseModel):
+    """``amount`` faktury od kontraktora (koszt) jest ``null`` bez
+    ``amounts:read`` — wtedy ``costs_redacted = true``."""
+
     id: int
     contract_id: int
     direction: str
@@ -90,6 +101,7 @@ class InvoiceOut(BaseModel):
     due_date: Optional[date]
     paid_date: Optional[date]
     amount: Money
+    costs_redacted: bool
     currency: str
     status: str
     notes: Optional[str]
@@ -97,18 +109,32 @@ class InvoiceOut(BaseModel):
     updated_at: datetime
 
 
-def invoice_out(inv: Invoice) -> InvoiceOut:
+def _is_cost(direction) -> bool:
+    return (
+        getattr(direction, "value", direction) == InvoiceDirection.from_contractor.value
+    )
+
+
+def invoice_out(
+    inv: Invoice, *, level: AmountLevel, cost: Optional[bool] = None
+) -> InvoiceOut:
+    """``cost`` = czy to koszt (faktura od kontraktora); domyślnie z bieżącego
+    kierunku, przy zmianie — z kierunku sprzed zmiany."""
+    direction = getattr(inv.direction, "value", inv.direction)
+    costs = level is AmountLevel.all
+    is_cost = _is_cost(direction) if cost is None else cost
     return InvoiceOut(
         id=inv.id,
         contract_id=inv.contract_id,
-        direction=getattr(inv.direction, "value", inv.direction),
+        direction=direction,
         invoice_number=inv.invoice_number,
         period_year=inv.period_year,
         period_month=inv.period_month,
         issue_date=inv.issue_date,
         due_date=inv.due_date,
         paid_date=inv.paid_date,
-        amount=inv.amount,
+        amount=None if is_cost and not costs else inv.amount,
+        costs_redacted=not costs,
         currency=inv.currency,
         status=getattr(inv.status, "value", inv.status),
         notes=inv.notes,
@@ -124,7 +150,7 @@ def invoice_out(inv: Invoice) -> InvoiceOut:
 @limiter.limit(read_rate_limit, key_func=principal_rate_key)
 async def list_invoices(
     request: Request,
-    _caller: InvoicesRead,
+    caller: InvoicesRead,
     db: AsyncSession = Depends(get_db),
     page: PageQuery = 1,
     page_size: PageSizeQuery = 200,
@@ -136,7 +162,9 @@ async def list_invoices(
     overdue_only: bool = Query(False),
     updated_since: Optional[datetime] = Query(None),
 ) -> dict:
-    """Faktury sortowane po id. ``overdue_only`` = wystawione/wysłane po terminie."""
+    """Faktury sortowane po id. ``overdue_only`` = wystawione/wysłane po terminie.
+    Kwota faktury od kontraktora tylko z ``amounts:read``."""
+    level = amount_level(caller)
     query = select(Invoice)
     if contract_id is not None:
         query = query.where(Invoice.contract_id == contract_id)
@@ -171,7 +199,10 @@ async def list_invoices(
         .all()
     )
     return page_of(
-        [invoice_out(r) for r in rows], page=page, page_size=page_size, total=total
+        [invoice_out(r, level=level) for r in rows],
+        page=page,
+        page_size=page_size,
+        total=total,
     )
 
 
@@ -196,13 +227,13 @@ async def invoices_dso(
 async def get_invoice(
     request: Request,
     invoice_id: IdPath,
-    _caller: InvoicesRead,
+    caller: InvoicesRead,
     db: AsyncSession = Depends(get_db),
 ) -> InvoiceOut:
     inv = await db.get(Invoice, invoice_id)
     if inv is None:
         raise HTTPException(404, detail="Faktura nie istnieje.")
-    return invoice_out(inv)
+    return invoice_out(inv, level=amount_level(caller))
 
 
 # ── Zapis ────────────────────────────────────────────────────────────────────
@@ -292,7 +323,7 @@ async def create_invoice(
             client_id=contract.client_id,
             details={"contract_id": contract.id, "direction": direction},
         )
-        return 201, invoice_out(inv)
+        return 201, invoice_out(inv, level=amount_level(caller))
 
     if dry_run:
         return await dry_run_response(db, run)
@@ -310,8 +341,12 @@ async def update_invoice(
     caller: InvoicesWrite,
     db: AsyncSession = Depends(get_db),
 ) -> Response:
-    """Zmiana pól faktury (np. ``paid_date`` + ``status=paid`` po zapłacie)."""
+    """Zmiana pól faktury (np. ``paid_date`` + ``status=paid`` po zapłacie).
+    Zmiana kierunku faktury od kontraktora (albo na nią) wymaga
+    ``amounts:read`` — inaczej 403: przestawienie kosztu na „do klienta”
+    odsłoniłoby jego kwotę."""
     changes = body.model_dump(exclude_unset=True)
+    level = amount_level(caller)
 
     async def run():
         inv = await db.scalar(
@@ -319,6 +354,24 @@ async def update_invoice(
         )
         if inv is None:
             raise HTTPException(404, detail="Faktura nie istnieje.")
+        was_cost = _is_cost(inv.direction)
+        if (
+            "direction" in changes
+            and level is not AmountLevel.all
+            and (was_cost or _is_cost(changes["direction"]))
+        ):
+            raise HTTPException(
+                403,
+                detail={
+                    "error": "insufficient_scope",
+                    "message": (
+                        "Zmiana kierunku faktury od kontraktora wymaga scope'u "
+                        "amounts:read (kwota kosztu)."
+                    ),
+                    "required": ["amounts:read"],
+                    "missing": ["amounts:read"],
+                },
+            )
         new_direction = changes.get("direction", inv.direction)
         direction = getattr(new_direction, "value", new_direction)
         number = changes.get("invoice_number", inv.invoice_number)
@@ -349,7 +402,7 @@ async def update_invoice(
                 "before": {k: str(getattr(v, "value", v)) for k, v in before.items()},
             },
         )
-        return 200, invoice_out(inv)
+        return 200, invoice_out(inv, level=level, cost=was_cost)
 
     return await idempotent_write(
         request, db, caller, payload={"id": invoice_id, **changes}, run=run
@@ -395,7 +448,7 @@ async def cancel_invoice(
             client_id=getattr(contract, "client_id", None),
             reason=body.reason,
         )
-        return 200, invoice_out(inv)
+        return 200, invoice_out(inv, level=amount_level(caller))
 
     return await idempotent_write(
         request, db, caller, payload={"id": invoice_id, "reason": body.reason}, run=run

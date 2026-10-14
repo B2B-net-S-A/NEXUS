@@ -35,8 +35,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.candidate_access import (
+    NOT_READ_ONLY,
     CandidatePIIAccess,
-    user_can_access_candidate_domain,
 )
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal, get_db
@@ -48,6 +48,7 @@ from app.models.m365 import GraphSubscription, M365Connection, M365SyncStatus
 from app.models.user import User
 from app.services.m365 import oauth as m365_oauth
 from app.services.m365 import webhooks as m365_webhooks
+from app.services.m365.access import can_own_mailbox
 from app.services.m365.calendar import get_free_busy
 from app.services.m365.error_codes import M365ErrorCode, classify_m365_error
 from app.services.m365.graph_client import GraphClient, GraphRequestError
@@ -177,7 +178,7 @@ def _mailbox_belongs_to_user(
 # ── Routes ──────────────────────────────────────────────────────────────────
 
 
-@router.get("/authorize", response_model=AuthorizeResponse)
+@router.get("/authorize", response_model=AuthorizeResponse, dependencies=NOT_READ_ONLY)
 @limiter.limit("10/minute")
 async def authorize(
     request: Request,
@@ -244,7 +245,7 @@ async def callback(
     # (or the legacy viewer role) after opening the Microsoft consent page.
     user_id = parsed_state.user_id
     user = await db.get(User, user_id)
-    if user is None or not user_can_access_candidate_domain(user):
+    if user is None or not can_own_mailbox(user):
         return RedirectResponse(
             _frontend_callback_url(
                 "error", "Microsoft 365 is unavailable for this account"
@@ -411,7 +412,11 @@ async def get_connection(
     )
 
 
-@router.delete("/connection", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/connection",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=NOT_READ_ONLY,
+)
 async def disconnect(
     current_user: CandidatePIIAccess,
     db: AsyncSession = Depends(get_db),
@@ -439,7 +444,11 @@ async def disconnect(
     return None
 
 
-@router.post("/sync/trigger", status_code=status.HTTP_202_ACCEPTED)
+@router.post(
+    "/sync/trigger",
+    status_code=status.HTTP_202_ACCEPTED,
+    dependencies=NOT_READ_ONLY,
+)
 @limiter.limit("10/minute")
 async def trigger_sync(
     request: Request,
@@ -776,7 +785,7 @@ async def _webhook_dispatch_sync(connection_id: int) -> None:
         if conn is None or not conn.is_active:
             return
         owner = await db.get(User, conn.user_id)
-        if owner is None or not user_can_access_candidate_domain(owner):
+        if owner is None or not can_own_mailbox(owner):
             logger.warning(
                 "webhook-dispatched sync refused for ineligible connection_id=%s",
                 connection_id,

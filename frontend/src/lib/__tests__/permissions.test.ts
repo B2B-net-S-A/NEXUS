@@ -48,6 +48,8 @@ const EXPECTED_DEFAULTS: Record<UserRole, Permission[]> = {
   recruiter: [],
   user: [],
   trainee: [],
+  // 0446: „Automatyzacje” — sam podgląd Delivery, bez kwot.
+  automation: ["delivery_view"],
 };
 
 const sorted = (values: Iterable<string>) => [...values].sort();

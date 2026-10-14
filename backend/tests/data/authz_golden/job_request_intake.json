@@ -18,16 +18,17 @@
   "recruiter+delivery_view",
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
-  "recruiter+amounts_edit"
+  "recruiter+amounts_edit",
+  "automation"
  ],
  "routes": {
-  "GET /api/job-intake/delivery-lead": "PDDPDDDDPPPDDDDDPDD",
-  "GET /api/job-intake/handoff-options": "PDDPDDDDPPPDDDDDPDD",
-  "POST /api/job-intake/category-suggestion": "PDDPDDDDPPPDDDDDPDD",
-  "POST /api/job-intake/critical-suggestion": "PPPPPPDDPPPPPPPPPPP",
-  "POST /api/job-intake/public-draft": "PDDPDDDDPPPDDDDDPDD",
-  "POST /api/job-intake/read": "PDDPDDDDPPPDDDDDPDD",
-  "POST /api/job-intake/read-file": "PDDPDDDDPPPDDDDDPDD",
-  "POST /api/job-intake/requirement-rows": "PPPPPPDDPPPPPPPPPPP"
+  "GET /api/job-intake/delivery-lead": "PDDPDDDDPPPDDDDDPDDD",
+  "GET /api/job-intake/handoff-options": "PDDPDDDDPPPDDDDDPDDD",
+  "POST /api/job-intake/category-suggestion": "PDDPDDDDPPPDDDDDPDDD",
+  "POST /api/job-intake/critical-suggestion": "PPPPPPDDPPPPPPPPPPPP",
+  "POST /api/job-intake/public-draft": "PDDPDDDDPPPDDDDDPDDD",
+  "POST /api/job-intake/read": "PDDPDDDDPPPDDDDDPDDD",
+  "POST /api/job-intake/read-file": "PDDPDDDDPPPDDDDDPDDD",
+  "POST /api/job-intake/requirement-rows": "PPPPPPDDPPPPPPPPPPPP"
  }
 }

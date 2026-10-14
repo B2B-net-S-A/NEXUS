@@ -99,6 +99,12 @@ const OPERATIONAL: readonly UserRole[] = [
   "finance",
 ];
 
+/** Role operacyjne plus „Automatyzacje” (0446) — lustro odczytowych zbiorów
+ *  `OperationalUser`, `CANDIDATE_READ_ROLES` i `RECRUITMENT_READ_ROLES`
+ *  (deps.py, candidate_access.py, recruitment_access.py). Tylko dla wejść
+ *  nawigacyjnych i odczytów, nigdy dla akcji. */
+const OPERATIONAL_READ: readonly UserRole[] = [...OPERATIONAL, "automation"];
+
 /** Odpowiednik backendowego `RecruiterPlus`. Od 2026-09-17 Z
  *  `head_of_recruitment` (decyzja Artura: HoR = pełny parytet z rekruterem;
  *  wcześniej HoR widział akcje liczone z sekcji i dostawał 403 na zapisie). */
@@ -159,6 +165,7 @@ const ALL_ROLES: readonly UserRole[] = [
   "talent_community_manager",
   "recruiter",
   "user",
+  "automation",
 ];
 
 /**
@@ -244,20 +251,20 @@ export const CAPABILITY_ROLES: Record<Capability, readonly UserRole[]> = {
   // docstring tego endpointu wciąż twierdzi, że finance dostaje 403 — jest
   // nieaktualny od 19.08, wiążący jest guard (`OperationalUser` zawiera
   // `UserRole.finance`).
-  "dashboard.recruitment_stats.view": OPERATIONAL,
+  "dashboard.recruitment_stats.view": OPERATIONAL_READ,
 
   // Nawigacja — odwzorowanie ROLE_ROUTES z `middleware.ts` oraz bramek
   // sidebara. Trzymane tutaj, żeby Command Palette nie utrzymywała drugiej,
   // rozjeżdżającej się kopii.
-  "nav.candidates": OPERATIONAL,
+  "nav.candidates": OPERATIONAL_READ,
   // Panel „Moi ludzie" — GET /api/my-people → CandidateSearchAccess
   // (backend/app/api/my_people.py), ten sam guard co lista kandydatów.
-  "nav.my_people": OPERATIONAL,
-  "nav.talents": OPERATIONAL,
+  "nav.my_people": OPERATIONAL_READ,
+  "nav.talents": OPERATIONAL_READ,
   // Radar dla KAŻDEJ roli (decyzja produktowa 19.08) — backend lustrzanie
   // na CurrentUser, middleware bez wpisu (= brak zawężenia).
   "nav.talent_radar": ALL_ROLES,
-  "nav.sourcing": OPERATIONAL,
+  "nav.sourcing": OPERATIONAL_READ,
   // Klienci, kontrakty, zamówienia → uprawnienie `delivery_view`.
   "nav.clients": BY_PERMISSION_ONLY,
   "nav.my_clients": BY_PERMISSION_ONLY,

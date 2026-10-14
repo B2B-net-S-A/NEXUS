@@ -26,7 +26,7 @@ from sqlalchemy import update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import HeadOfRecruitmentPlus, RecruiterPlus
+from app.api.deps import HeadOfRecruitmentPlus, OperationalUser, RecruiterPlus
 from app.api.recruitment_access import ensure_job_membership
 from app.api.section_access import PIPELINE_SECTION_DEPENDENCIES
 from app.core.database import get_db
@@ -127,7 +127,7 @@ async def _response(
 
 @router.get("/jobs/{job_id}/portal-ad", response_model=JobAdResponse)
 async def get_portal_ad(
-    job_id: int, current_user: RecruiterPlus, db: AsyncSession = Depends(get_db)
+    job_id: int, current_user: OperationalUser, db: AsyncSession = Depends(get_db)
 ) -> JobAdResponse:
     job = await _load_job(db, current_user, job_id)
     return await _response(

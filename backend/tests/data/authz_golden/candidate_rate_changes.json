@@ -18,14 +18,15 @@
   "recruiter+delivery_view",
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
-  "recruiter+amounts_edit"
+  "recruiter+amounts_edit",
+  "automation"
  ],
  "routes": {
-  "GET /api/rate-changes": "PPPPPPDDPPPPPPPPPPP",
-  "GET /api/rate-changes/active-processes": "PPPPPPDDPPPPPPPPPPP",
-  "POST /api/rate-changes": "PPPPPPDDPPPPPPPPPPP",
-  "POST /api/rate-changes/{change_id}/decision": "PPPPPPDDPPPPPPPPPPP",
-  "POST /api/rate-changes/{change_id}/negotiation": "PPPPPPDDPPPPPPPPPPP",
-  "POST /api/rate-changes/{change_id}/outcome": "PPPPPPDDPPPPPPPPPPP"
+  "GET /api/rate-changes": "PPPPPPDDPPPPPPPPPPPP",
+  "GET /api/rate-changes/active-processes": "PPPPPPDDPPPPPPPPPPPP",
+  "POST /api/rate-changes": "PPPPPPDDPPPPPPPPPPPD",
+  "POST /api/rate-changes/{change_id}/decision": "PPPPPPDDPPPPPPPPPPPD",
+  "POST /api/rate-changes/{change_id}/negotiation": "PPPPPPDDPPPPPPPPPPPD",
+  "POST /api/rate-changes/{change_id}/outcome": "PPPPPPDDPPPPPPPPPPPD"
  }
 }

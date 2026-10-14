@@ -18,14 +18,15 @@
   "recruiter+delivery_view",
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
-  "recruiter+amounts_edit"
+  "recruiter+amounts_edit",
+  "automation"
  ],
  "routes": {
-  "GET /api/clients": "PPDPPDDDPPPDPPPPDPP",
-  "GET /api/clients/{client_id}": "PPDPPDDDPPPDPPPPDPP",
-  "GET /api/clients/{client_id}/profile": "PPDPPDDDPPPDPPPPDPP",
-  "PATCH /api/clients/{client_id}": "PDDPDDDDPPPDDDPDDDD",
-  "POST /api/clients": "PDDPDDDDPPPDDDPDDDD",
-  "POST /api/clients/{client_id}/merge-into/{target_id}": "PDDDDDDDDDDDDDDDDDD"
+  "GET /api/clients": "PPDPPDDDPPPDPPPPDPPP",
+  "GET /api/clients/{client_id}": "PPDPPDDDPPPDPPPPDPPP",
+  "GET /api/clients/{client_id}/profile": "PPDPPDDDPPPDPPPPDPPP",
+  "PATCH /api/clients/{client_id}": "PDDPDDDDPPPDDDPDDDDD",
+  "POST /api/clients": "PDDPDDDDPPPDDDPDDDDD",
+  "POST /api/clients/{client_id}/merge-into/{target_id}": "PDDDDDDDDDDDDDDDDDDD"
  }
 }

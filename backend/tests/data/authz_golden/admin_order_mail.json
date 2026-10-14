@@ -18,12 +18,13 @@
   "recruiter+delivery_view",
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
-  "recruiter+amounts_edit"
+  "recruiter+amounts_edit",
+  "automation"
  ],
  "routes": {
-  "GET /api/admin/order-mail/cleanup-receipt": "PDDDDDDDDDDDDDDDDDD",
-  "GET /api/admin/order-mail/documents": "PDDDDDDDDDDDDDDDDDD",
-  "GET /api/admin/order-mail/status": "PDDDDDDDDDDDDDDDDDD",
-  "POST /api/admin/order-mail/sync": "PDDDDDDDDDDDDDDDDDD"
+  "GET /api/admin/order-mail/cleanup-receipt": "PDDDDDDDDDDDDDDDDDDD",
+  "GET /api/admin/order-mail/documents": "PDDDDDDDDDDDDDDDDDDD",
+  "GET /api/admin/order-mail/status": "PDDDDDDDDDDDDDDDDDDD",
+  "POST /api/admin/order-mail/sync": "PDDDDDDDDDDDDDDDDDDD"
  }
 }
