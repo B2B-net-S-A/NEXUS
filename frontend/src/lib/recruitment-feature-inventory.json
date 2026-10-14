@@ -123,7 +123,7 @@
    "opis": "Dodaj kandydata (szybko po nazwisku)",
    "file": "app/jobs/[id]/page.tsx",
    "marker": "AddCandidatesQuickModal",
-   "v3_home": "menu „⋯” → Dodaj po nazwisku; link nad Tablicą w pasku „Kandydaci do dodania”"
+   "v3_home": "menu „⋯” → Dodaj po nazwisku; „Dodaj ▾” w linii „Kandydaci do dodania” nagłówka"
   },
   {
    "id": "header.ai-writer",
@@ -139,7 +139,7 @@
    "opis": "Licznik nieprzeczytanych czatu",
    "file": "components/v2/jobs/JobDetailCompactHeader.tsx",
    "marker": "unread",
-   "v3_home": "przycisk Historia i czat"
+   "v3_home": "ikona „Historia i czat” w linii tytułu (licznik na ikonie, nazwa w dymku — 14.10.2026)"
   },
   {
    "id": "header.edit",
@@ -324,7 +324,7 @@
    "opis": "Widok przeglądowy / kolumnowy",
    "file": "components/v2/pages/KanbanBoardV2.tsx",
    "marker": "kanban-view",
-   "v3_home": "pasek „Kandydaci do dodania” nad Tablicą (prawa strona)"
+   "v3_home": "nad kolumnami Tablicy, po prawej (tylko przy ponad 10 kolumnach; do 14.10.2026 w pasku „Kandydaci do dodania”)"
   },
   {
    "id": "src.ai-admin",
@@ -806,7 +806,7 @@
    "opis": "„Podobne rekrutacje”: sugestie, dodanie własnej, osoby wysłane do klienta i pozostali z tych rekrutacji, przepięcie do Nowych jednym kliknięciem",
    "file": "components/v2/recruitment/AddCandidatesPanel.tsx",
    "marker": "useSimilarJobsTab",
-   "v3_home": "kafel „Podobne rekrutacje” nad Tablicą → okno „Kandydaci do dodania” (?win=add&wintab=similar; stary ?win=similar działa)"
+   "v3_home": "„Podobne rekrutacje” w linii źródeł nagłówka → okno „Kandydaci do dodania” (?win=add&wintab=similar; stary ?win=similar działa)"
   },
   {
    "id": "header.similar-person-preview",
@@ -933,10 +933,10 @@
   {
    "id": "board.added-by-filter",
    "area": "naglowek",
-   "opis": "Filtr „Kto dodał” Tablicy: jeden przycisk w linii faktów nagłówka, menu z liczbą osób w toku (Wszyscy, Ty, inne osoby, Brak danych), „✕” wraca do wszystkich; tylko w adresie `?added_by=` (14.10.2026)",
+   "opis": "Filtr „Kto dodał” Tablicy: jeden przycisk w nagłówku (od 14.10.2026 w linii źródeł kandydatów; w zwiniętym nagłówku tylko włączony), menu z liczbą osób w toku (Wszyscy, Ty, inne osoby, Brak danych), „✕” wraca do wszystkich; tylko w adresie `?added_by=` (14.10.2026)",
    "file": "components/v2/jobs/AddedByFilter.tsx",
    "marker": "added-by-filter",
-   "v3_home": "nagłówek rekrutacji → „Kto dodał” obok Klienta, Budżetu i Trybu pracy"
+   "v3_home": "nagłówek rekrutacji → trzecia linia, po prawej od „Kandydatów do dodania”"
   },
   {
    "id": "board.filter-empty-column",
@@ -1058,7 +1058,7 @@
    "opis": "„Kandydaci do dodania”: jedno okno z czterema źródłami (podobne rekrutacje, nowi z ogłoszeń, propozycje z bazy, szukaj w bazie); dodani trafiają do „Nowych” z blokadą 12 h",
    "file": "components/v2/recruitment/AddCandidatesPanel.tsx",
    "marker": "AddCandidatesPanel",
-   "v3_home": "kafle nad Tablicą → okno „Kandydaci do dodania”"
+   "v3_home": "linia źródeł w nagłówku rekrutacji → okno „Kandydaci do dodania”"
   },
   {
    "id": "cv.to-client-card",
@@ -1296,7 +1296,7 @@
   {
    "id": "header.fact-tiles",
    "area": "naglowek",
-   "opis": "Trzy wyróżnione fakty pod tytułem: Klient · Budżet · Tryb pracy; brak wartości = „nie podano”, budżet ukryty dla roli bez wglądu",
+   "opis": "Fakty pod tytułem: Klient · Budżet · Tryb pracy (ikona zamiast etykiety, etykieta w dymku — 14.10.2026); brak wartości = „nie podano”, budżet ukryty dla roli bez wglądu",
    "file": "components/v2/jobs/JobDetailCompactHeader.tsx",
    "marker": "job-header-facts",
    "v3_home": "nagłówek rekrutacji"
@@ -1304,10 +1304,34 @@
   {
    "id": "header.client-line",
    "area": "naglowek",
-   "opis": "Linia pod tytułem: nazwa stanowiska od klienta, numer zapytania klienta i nasz numer",
+   "opis": "Nazwa stanowiska od klienta, numer zapytania klienta i nasz numer (do 14.10.2026 linia pod tytułem)",
    "file": "components/v2/jobs/JobDetailCompactHeader.tsx",
    "marker": "header-client-line",
-   "v3_home": "nagłówek rekrutacji"
+   "v3_home": "dymek tytułu rekrutacji (i tekst dla czytnika ekranu)"
+  },
+  {
+   "id": "header.priority-level",
+   "area": "naglowek",
+   "opis": "Priorytet rekrutacji przed tytułem: „P1”, „Bez priorytetu”, „Przyjmujemy”; Delivery Lead, Head of Recruitment i administrator zmieniają go z menu (zapis od razu), pozostali widzą plakietkę (14.10.2026)",
+   "file": "components/v2/jobs/JobPriorityMenu.tsx",
+   "marker": "job-header-priority",
+   "v3_home": "nagłówek rekrutacji → plakietka przed tytułem (też Profil Championa › Zespół)"
+  },
+  {
+   "id": "header.recruiter",
+   "area": "naglowek",
+   "opis": "Fakt „Rekruter”: kto pracuje (zalogowana osoba jako „Ty”), „Bez rekrutera”, propozycja automatu; okienko z panelem zespołu (Zmień, Zdejmij, Dodaj osobę, Biorę, Dołącz, propozycje) i Delivery Leadem (14.10.2026)",
+   "file": "components/v2/jobs/JobRecruiterFact.tsx",
+   "marker": "job-header-recruiter",
+   "v3_home": "nagłówek rekrutacji → linia faktów, po Trybie pracy"
+  },
+  {
+   "id": "header.collapse",
+   "area": "naglowek",
+   "opis": "„Zwiń nagłówek”: zostaje linia tytułu z priorytetem, statusem i awatarami rekruterów; pamiętane per osoba, domyślnie rozwinięty (14.10.2026)",
+   "file": "components/v2/jobs/JobDetailCompactHeader.tsx",
+   "marker": "job-header-collapse",
+   "v3_home": "nagłówek rekrutacji → przycisk ˄ po prawej od „⋯”"
   },
   {
    "id": "header.menu-full-review",
@@ -1323,7 +1347,7 @@
    "opis": "Dodanie kandydata z pliku CV do rekrutacji",
    "file": "components/v2/jobs/JobDetailCompactHeader.tsx",
    "marker": "menu-add-from-cv",
-   "v3_home": "menu „⋯” → Dodaj z pliku CV; link „albo z pliku CV” nad Tablicą"
+   "v3_home": "menu „⋯” → Dodaj z pliku CV; „Dodaj ▾” w linii „Kandydaci do dodania” nagłówka"
   },
   {
    "id": "header.menu-empty-columns",
@@ -1336,10 +1360,10 @@
   {
    "id": "board.sources-strip",
    "area": "pipeline",
-   "opis": "Pasek „Kandydaci do dodania”: cztery kafle źródeł z liczbami (Podobne rekrutacje, Nowi z ogłoszeń z 7 dni, Propozycje z bazy, Szukaj w bazie)",
+   "opis": "„Kandydaci do dodania”: cztery źródła z liczbami (Podobne rekrutacje, Nowi z ogłoszeń z 7 dni, Propozycje z bazy, Szukaj w bazie), opis w dymku, „Dodaj ▾” po nazwisku i z pliku CV",
    "file": "components/v2/jobs/CandidateSourcesStrip.tsx",
    "marker": "candidate-sources-strip",
-   "v3_home": "nad Tablicą"
+   "v3_home": "nagłówek rekrutacji → trzecia linia, tylko na Tablicy (do 14.10.2026 osobny pasek nad Tablicą)"
   },
   {
    "id": "board.sources-window",
@@ -1347,7 +1371,7 @@
    "opis": "Jedno okno „Kandydaci do dodania” z czterema zakładkami; w każdej lista + podgląd osoby obok, zaznaczenie, „Dodaj N do Nowych”, „Pomiń” z powodem",
    "file": "components/v2/recruitment/AddCandidatesPanel.tsx",
    "marker": "Źródło kandydatów",
-   "v3_home": "kafel nad Tablicą (?win=add&wintab=…)"
+   "v3_home": "źródło w linii „Kandydaci do dodania” nagłówka (?win=add&wintab=…)"
   },
   {
    "id": "board.sources-dismiss-bulk",

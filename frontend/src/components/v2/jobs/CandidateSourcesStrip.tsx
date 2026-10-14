@@ -1,23 +1,29 @@
 "use client";
 
 /**
- * Pasek „Kandydaci do dodania” nad Tablicą rekrutacji (02.10.2026, makieta B:
- * https://claude.ai/artifact/ASHNaTXA9omvTH393cQjCv).
+ * „Kandydaci do dodania” — trzecia linia nagłówka rekrutacji (14.10.2026,
+ * K-D1, makieta https://claude.ai/artifact/DZWUbWtiQLrnzm81RwLvDP). Do tego dnia
+ * osobny pasek z kaflami nad Tablicą (02.10.2026): przy 1280×720 razem
+ * z nagłówkiem zajmował prawie pół ekranu.
  *
- * Cztery kafle = cztery źródła kandydatów, każdy z liczbą i jednym zdaniem.
- * Klik otwiera okno „Kandydaci do dodania” na właściwej zakładce. Zastąpił
- * blok propozycji w kolumnie „Nowi” („Propozycje z bazy · N”, pasek przepięć,
- * „Znajdź w bazie (AI)”) i przycisk „Dodaj kandydatów” w nagłówku.
+ * Cztery przyciski = cztery źródła kandydatów, każdy z liczbą; zdanie opisu
+ * stoi w dymku i dla czytnika ekranu. Klik otwiera okno „Kandydaci do dodania”
+ * na właściwej zakładce. „Dodaj” to menu: po nazwisku albo z pliku CV.
  *
  * Liczby są tanie: liczniki propozycji liczy serwer jednym zapytaniem
  * (`proposal-counts`), a skrzynka propozycji ładuje się dopiero w oknie.
  * Brak liczby to „—”, nigdy zero — zero znaczyłoby „nie ma nikogo”.
  */
 
-import type { ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Database, Inbox, Link2, Search, UserPlus, type LucideIcon } from "lucide-react";
+import { ChevronDown, FileUp, Plus, UserPlus } from "lucide-react";
 
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { fetchCandidateListPage } from "@/components/v2/pages/candidate-list-query";
 import type { CandidateSourceTab } from "@/components/v2/recruitment/types";
 import { useJobSearchSeed } from "@/components/v2/recruitment/useJobSearchSeed";
@@ -27,7 +33,6 @@ import { requirementLabel } from "@/lib/keyword-requirements";
 import { useSimilarJobs } from "@/lib/similar-jobs-api";
 import { similarPeopleTotal } from "@/lib/similar-reassign";
 import { filtersToApiParams } from "@/lib/url-filters";
-import { cn } from "@/lib/utils";
 
 /** `number` = policzono, `"loading"` = w toku, `null` = nie wiadomo. */
 export type SourceCount = number | "loading" | null;
@@ -38,11 +43,11 @@ export interface CandidateSourceTile {
   description: string;
 }
 
-const TILE_META: Record<CandidateSourceTab, { title: string; icon: LucideIcon; action: string }> = {
-  similar: { title: "Podobne rekrutacje", icon: Link2, action: "Pokaż" },
-  postings: { title: "Nowi z ogłoszeń", icon: Inbox, action: "Pokaż" },
-  base: { title: "Propozycje z bazy", icon: Database, action: "Przejrzyj" },
-  search: { title: "Szukaj w bazie", icon: Search, action: "Otwórz" },
+const TILE_TITLE: Record<CandidateSourceTab, string> = {
+  similar: "Podobne rekrutacje",
+  postings: "Nowi z ogłoszeń",
+  base: "Propozycje z bazy",
+  search: "Szukaj w bazie",
 };
 
 export interface CandidateSourcesStripViewProps {
@@ -51,8 +56,11 @@ export interface CandidateSourcesStripViewProps {
   /** „Dodaj po nazwisku” / „z pliku CV” — brak = rola bez prawa dodawania. */
   onAddByName?: () => void;
   onAddFromCv?: () => void;
-  /** Miejsce na przełącznik widoku tablicy (rzadko widoczny). */
-  trailing?: ReactNode;
+}
+
+/** Pozycja menu otwiera okno — po zamknięciu menu, nie w trakcie (fokus). */
+function deferMenuAction(action: () => void) {
+  window.setTimeout(action, 0);
 }
 
 /** Sam wygląd — bez zapytań (harness `/preview/job-detail`). */
@@ -61,102 +69,78 @@ export function CandidateSourcesStripView({
   onOpen,
   onAddByName,
   onAddFromCv,
-  trailing,
 }: CandidateSourcesStripViewProps) {
   return (
     <section
       aria-label="Kandydaci do dodania"
       data-testid="candidate-sources-strip"
       data-help="jobs.board.sources"
-      className="@container space-y-2 rounded-lg bg-primary/5 px-3 py-2.5"
+      className="flex min-w-0 flex-wrap items-center gap-1.5"
     >
-      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
-        <h2 className="text-[11px] font-semibold uppercase tracking-eyebrow text-muted-foreground">
-          Kandydaci do dodania
-        </h2>
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-          {onAddByName ? (
+      {tiles.map((tile) => (
+        <button
+          key={tile.tab}
+          type="button"
+          onClick={() => onOpen(tile.tab)}
+          data-testid={`source-tile-${tile.tab}`}
+          title={tile.description}
+          className="inline-flex h-7 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md border border-primary/25 bg-card px-2.5 text-[13px] font-semibold text-foreground transition-colors hover:border-primary/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring pointer-coarse:min-h-9"
+        >
+          {TILE_TITLE[tile.tab]}
+          <span
+            className="font-bold tabular-nums"
+            data-testid={`source-tile-${tile.tab}-count`}
+          >
+            {tile.count === "loading" ? (
+              <span className="text-muted-foreground" aria-label="liczę">
+                …
+              </span>
+            ) : tile.count === null ? (
+              <span className="text-muted-foreground" aria-label="nie policzono">
+                —
+              </span>
+            ) : (
+              tile.count
+            )}
+          </span>
+          <span className="sr-only">— {tile.description}</span>
+        </button>
+      ))}
+      {onAddByName || onAddFromCv ? (
+        <DropdownMenu modal={false}>
+          <DropdownMenuTrigger asChild>
             <button
               type="button"
-              onClick={onAddByName}
-              data-testid="sources-add-by-name"
-              className="inline-flex items-center gap-1.5 text-xs font-semibold text-primary hover:underline"
+              data-testid="sources-add"
+              className="hit-area inline-flex h-7 shrink-0 items-center gap-1 whitespace-nowrap rounded-md px-1.5 text-[13px] font-semibold text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
-              <UserPlus className="h-3.5 w-3.5" aria-hidden="true" />
-              Dodaj po nazwisku
+              <Plus className="h-3.5 w-3.5" aria-hidden="true" />
+              Dodaj
+              <ChevronDown className="h-3 w-3" aria-hidden="true" />
             </button>
-          ) : null}
-          {onAddFromCv ? (
-            <button
-              type="button"
-              onClick={onAddFromCv}
-              data-testid="sources-add-from-cv"
-              className="text-xs font-semibold text-primary hover:underline"
-            >
-              albo z pliku CV
-            </button>
-          ) : null}
-          {trailing}
-        </div>
-      </div>
-      {/* Układ po szerokości PASKA, nie okna: menu, szyna kart i dok zabierają
-          miejsce. Na laptopie (pasek < 1024 px) kafel to jedna linia: nazwa
-          i liczba, bez ikony i słowa „Pokaż” (cały kafel jest przyciskiem,
-          opis w podpowiedzi) — przy 1280×720 nazwa łamała się na trzy wiersze
-          (04.10.2026). */}
-      <div className="grid grid-cols-1 gap-2 @lg:grid-cols-2 @3xl:grid-cols-4">
-        {tiles.map((tile) => {
-          const meta = TILE_META[tile.tab];
-          const Icon = meta.icon;
-          return (
-            <button
-              key={tile.tab}
-              type="button"
-              onClick={() => onOpen(tile.tab)}
-              data-testid={`source-tile-${tile.tab}`}
-              title={tile.description}
-              className={cn(
-                "grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2.5 rounded-lg border border-primary/25 bg-card px-3 py-1.5 text-left transition-colors @5xl:min-h-[68px] @5xl:grid-cols-[2rem_minmax(0,1fr)_auto] @5xl:items-start @5xl:py-2",
-                "hover:border-primary/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-              )}
-            >
-              <span
-                aria-hidden="true"
-                className="hidden h-8 w-8 items-center justify-center rounded-md bg-primary/10 text-primary @5xl:flex"
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" className="w-56">
+            {onAddByName ? (
+              <DropdownMenuItem
+                onSelect={() => deferMenuAction(onAddByName)}
+                data-testid="sources-add-by-name"
               >
-                <Icon className="h-4 w-4" />
-              </span>
-              <span className="min-w-0">
-                <span className="block truncate text-[13px] font-semibold leading-tight text-foreground @5xl:whitespace-normal">
-                  {meta.title}
-                </span>
-                <span className="mt-0.5 line-clamp-2 hidden text-xs leading-snug text-muted-foreground @5xl:block">
-                  {tile.description}
-                </span>
-              </span>
-              <span className="flex items-baseline gap-2 text-right @5xl:block">
-                <span
-                  className="block text-lg font-bold leading-tight tabular-nums text-foreground"
-                  data-testid={`source-tile-${tile.tab}-count`}
-                >
-                  {tile.count === "loading" ? (
-                    <span className="text-muted-foreground" aria-label="liczę">
-                      …
-                    </span>
-                  ) : tile.count === null ? (
-                    <span className="text-muted-foreground" aria-label="nie policzono">
-                      —
-                    </span>
-                  ) : (
-                    tile.count
-                  )}
-                </span>
-                <span className="hidden text-xs font-semibold text-primary @5xl:block">{meta.action}</span>
-              </span>
-            </button>
-          );
-        })}
-      </div>
+                <UserPlus className="h-4 w-4" aria-hidden="true" />
+                Dodaj po nazwisku
+              </DropdownMenuItem>
+            ) : null}
+            {onAddFromCv ? (
+              <DropdownMenuItem
+                onSelect={() => deferMenuAction(onAddFromCv)}
+                data-testid="sources-add-from-cv"
+              >
+                <FileUp className="h-4 w-4" aria-hidden="true" />
+                Dodaj z pliku CV
+              </DropdownMenuItem>
+            ) : null}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      ) : null}
     </section>
   );
 }
@@ -187,7 +171,6 @@ export interface CandidateSourcesStripProps {
   onOpen: (tab: CandidateSourceTab) => void;
   onAddByName?: () => void;
   onAddFromCv?: () => void;
-  trailing?: ReactNode;
 }
 
 export function CandidateSourcesStrip({
@@ -197,7 +180,6 @@ export function CandidateSourcesStrip({
   onOpen,
   onAddByName,
   onAddFromCv,
-  trailing,
 }: CandidateSourcesStripProps) {
   const similar = useSimilarJobs(jobId, canSeeSimilar);
   const counts = useQuery({
@@ -298,7 +280,6 @@ export function CandidateSourcesStrip({
       onOpen={onOpen}
       onAddByName={onAddByName}
       onAddFromCv={onAddFromCv}
-      trailing={trailing}
     />
   );
 }
