@@ -27,10 +27,19 @@ import {
  type RejectionEmailFieldState,
  type RejectionEmailPeople,
 } from "@/components/v2/modals/RejectionEmailField";
+import {
+ RejectionWorkModeField,
+ type RejectionWorkModeChoice,
+ type RejectionWorkModeJob,
+ type RejectionWorkModeProfile,
+} from "@/components/v2/modals/RejectionWorkModeField";
+import { WORK_MODE_MISMATCH_REASON } from "@/lib/rejection-reasons";
 
 interface RejectionReason {
  id: string;
  label: string;
+ /** Klucz danych powodu — `work_mode_mismatch` otwiera pytanie o dni w biurze. */
+ name?: string;
  applies_to: ("rejected" |"withdrawn")[];
 }
 
@@ -80,7 +89,10 @@ interface Props {
  cancelAgreementId?: number | null,
  /** Temat i treść maila poprawione w podglądzie (jedna osoba, 13.10.2026);
   *  `null` — treść domyślna. */
- emailText?: RejectionEmailText | null
+ emailText?: RejectionEmailText | null,
+ /** Powód „Nie akceptuje trybu pracy” (14.10.2026): ile dni w biurze
+  *  kandydat akceptuje i czy zapisać to na profilu; `null` przy innym powodzie. */
+ workMode?: RejectionWorkModeChoice | null
  ) => void;
  /** Wstępny wybór „kto kończy" (np. upuszczenie na „Odrzucony przez klienta"). */
  initialEndedBy?: Exclude<EndedBy, "candidate"> | null;
@@ -112,6 +124,11 @@ interface Props {
  /** Zapis ruchu w toku — „Potwierdź” zablokowany, bo drugi klik wysłałby
   *  drugi ruch (z panelu osoby już przy następnej osobie; audyt 13.10.2026). */
  pending?: boolean;
+ /** Tryb pracy rekrutacji — pytanie przy „Nie akceptuje trybu pracy” pokazuje
+  *  tylko mniej dni, niż wymaga rekrutacja. Bez propu: 0–4 dni. */
+ workModeJob?: RejectionWorkModeJob | null;
+ /** Tryb pracy z profilu (tylko przy jednej osobie) — „Teraz na profilu: …”. */
+ profileWorkMode?: RejectionWorkModeProfile | null;
 }
 
 const EMAIL_STATE_IDLE: RejectionEmailFieldState = {
@@ -142,6 +159,8 @@ export function RejectionV2({
  nextPerson,
  emailPreview = null,
  pending = false,
+ workModeJob = null,
+ profileWorkMode,
 }: Props) {
  // Notatkę startową czytamy tylko przy otwarciu (efekt resetu niżej) —
  // zmiana propa przy otwartym oknie nie kasuje tego, co ktoś już wpisał.
@@ -182,6 +201,11 @@ export function RejectionV2({
  // pusty, a przycisk "Potwierdź" byłby trwale zablokowany.
  const [freeReason, setFreeReason] = useState("");
 
+ // „Nie akceptuje trybu pracy” (D2–D3): domyślnie „Tylko zdalnie” i zapis
+ // na profilu — najświeższa deklaracja z rozmowy nadpisuje profil.
+ const [officeDays, setOfficeDays] = useState(0);
+ const [saveWorkMode, setSaveWorkMode] = useState(true);
+
  // Reset defaults when modal re-opens (e.g. user bails, opens again).
  useEffect(() => {
  if (open) {
@@ -193,6 +217,8 @@ export function RejectionV2({
  setFreeReason("");
  setEndedBy(initialEndedBy ?? "recruiter");
  setCancelAgreement(true);
+ setOfficeDays(0);
+ setSaveWorkMode(true);
  }
  }, [open, initialEndedBy]);
  const endedByValue: EndedBy = terminalType === "withdrawn" ? "candidate" : endedBy;
@@ -202,6 +228,9 @@ export function RejectionV2({
 
  const filtered = reasons.filter((r) => r.applies_to.includes(terminalType));
  const hasReasons = filtered.length > 0;
+ const workModeReason =
+ filtered.find((r) => r.id === reasonId)?.name === WORK_MODE_MISMATCH_REASON;
+ const several = (emailPreview?.people.length ?? 1) > 1;
 
  const handleConfirm = () => {
  // Zawsze jawny boolean — serwer planuje mail WYŁĄCZNIE przy `true`.
@@ -220,7 +249,10 @@ export function RejectionV2({
  undefined,
  endedByValue,
  cancelAgreementId,
- emailText
+ emailText,
+ workModeReason
+ ? { maxOnsiteDays: officeDays, saveToProfile: saveWorkMode }
+ : null
  );
  return;
  }
@@ -306,13 +338,23 @@ export function RejectionV2({
  {hasReasons ? (
  <RadioGroup value={reasonId} onValueChange={setReasonId}>
  {filtered.map((r) => (
- <label
- key={r.id}
- className="flex items-center gap-2 text-sm cursor-pointer rounded-md p-1.5 hover:bg-primary/10"
- >
+ <React.Fragment key={r.id}>
+ <label className="flex items-center gap-2 text-sm cursor-pointer rounded-md p-1.5 hover:bg-primary/10">
  <RadioGroupItem value={r.id} />
  <span>{r.label}</span>
  </label>
+ {r.id === reasonId && workModeReason ? (
+ <RejectionWorkModeField
+ job={workModeJob}
+ profile={several ? undefined : profileWorkMode}
+ several={several}
+ days={officeDays}
+ onDaysChange={setOfficeDays}
+ saveToProfile={saveWorkMode}
+ onSaveToProfileChange={setSaveWorkMode}
+ />
+ ) : null}
+ </React.Fragment>
  ))}
  </RadioGroup>
  ) : (

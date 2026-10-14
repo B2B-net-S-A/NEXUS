@@ -243,6 +243,20 @@ def set_office_days_limit(candidate: Any, days: Optional[int]) -> bool:
     return changed
 
 
+# Skąd jest tryb pracy na profilu (14.10.2026). Dziś pisze go tylko odrzucenie
+# z powodem „Nie akceptuje trybu pracy” — profil pokazuje wtedy „z odrzucenia
+# · data · rekrutacja”. Klucz żyje w `preferences` obok `remote_modes`
+# i znika przy każdej innej ZMIANIE trybu pracy: źródło ma sens tylko, dopóki
+# wartość pochodzi z tego odrzucenia.
+WORK_MODE_ORIGIN_KEY = "_work_mode_origin"
+
+
+def drop_work_mode_origin_if_changed(candidate: Any, before: dict) -> None:
+    """Zdejmij źródło trybu pracy, gdy tryb różni się od ``before``."""
+    if profile_work_mode(candidate) != before:
+        _set_preference(candidate, WORK_MODE_ORIGIN_KEY, None)
+
+
 def set_profile_work_mode(
     candidate: Any, *, modes: list[str], max_onsite_days: Optional[int]
 ) -> dict:
@@ -250,7 +264,49 @@ def set_profile_work_mode(
     before = profile_work_mode(candidate)
     _set_preference(candidate, "remote_modes", _ordered_modes(modes) or None)
     set_office_days_limit(candidate, max_onsite_days)
+    drop_work_mode_origin_if_changed(candidate, before)
     return {"before": before, "after": profile_work_mode(candidate)}
+
+
+def set_work_mode_from_rejection(
+    candidate: Any,
+    *,
+    max_onsite_days: int,
+    job_id: int,
+    job_title: Optional[str],
+    stage_id: Optional[int],
+    user_id: int,
+    user_name: Optional[str],
+    at_iso: str,
+) -> dict:
+    """Tryb pracy z odrzucenia „Nie akceptuje trybu pracy” (14.10.2026).
+
+    Najświeższa deklaracja z rozmowy nadpisuje profil (decyzja D3). Tryby
+    wynikają z dni jak wszędzie (`modes_for_office_days`). Odrzucenie za biuro
+    znaczy, że kandydat odmówił — dawna zgoda „można dzwonić z większą liczbą
+    dni” przestaje obowiązywać także wtedy, gdy limit się nie zmienił.
+    """
+    change = set_profile_work_mode(
+        candidate,
+        modes=modes_for_office_days(max_onsite_days),
+        max_onsite_days=max_onsite_days,
+    )
+    if getattr(candidate, "accepts_more_office_days", None) is not None:
+        candidate.accepts_more_office_days = None
+    _set_preference(
+        candidate,
+        WORK_MODE_ORIGIN_KEY,
+        {
+            "source": "rejection",
+            "job_id": job_id,
+            "job_title": job_title,
+            "stage_id": stage_id,
+            "by_user_id": user_id,
+            "by_name": user_name,
+            "at": at_iso,
+        },
+    )
+    return change
 
 
 def fill_work_mode_from_notes(candidate: Any, insights: Any) -> dict[str, int]:

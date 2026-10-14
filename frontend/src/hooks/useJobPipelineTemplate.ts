@@ -51,6 +51,7 @@ function mapReasons(reasons: readonly RejectionReasonDef[]): PipelineRejectionRe
     // okna odrzucenia jest historycznie tekstowy.
     id: r.id as unknown as string,
     label: rejectionReasonLabel(r),
+    name: r.name,
     applies_to: [r.category as "rejected" | "withdrawn"],
   }));
 }

@@ -479,6 +479,14 @@
    "v3_home": "RejectionV2"
   },
   {
+   "id": "move.rejection-work-mode",
+   "area": "ruch",
+   "opis": "Powód „Nie akceptuje trybu pracy” w oknie odrzucenia: pytanie, ile dni w biurze kandydat akceptuje (tylko mniej, niż wymaga rekrutacja), i zapis trybu pracy na profilu z podglądem „Teraz na profilu” (14.10.2026)",
+   "file": "components/v2/modals/RejectionWorkModeField.tsx",
+   "marker": "Ile dni w biurze kandydat akceptuje?",
+   "v3_home": "RejectionV2"
+  },
+  {
    "id": "move.verified-rate",
    "area": "ruch",
    "opis": "Stawka przy „Zweryfikowany” — okno tylko, gdy para nie ma stawki etapu (D2, 14.10.2026)",

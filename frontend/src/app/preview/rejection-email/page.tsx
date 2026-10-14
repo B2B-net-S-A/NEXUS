@@ -8,6 +8,9 @@
 //   popraw treść, „Przywróć treść domyślną”.
 // `?state=blocked` — brak skrzynki Microsoft 365: checkbox wyłączony z powodem.
 // `?state=bulk` — trzy osoby, jedna bez maila: podgląd tylko do odczytu.
+// `?state=work_mode` — powód „Nie akceptuje trybu pracy” (14.10.2026):
+//   rekrutacja hybrydowa z 2 dniami w biurze, na profilu „Hybrydowo · do
+//   3 dni”; po wyborze powodu pytanie o dni i podgląd zmiany na profilu.
 
 import { useEffect, useMemo, useState } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -18,7 +21,7 @@ import {
   type RejectionEmailPreview,
 } from "@/lib/rejection-email";
 
-type State = "one" | "blocked" | "bulk";
+type State = "one" | "blocked" | "bulk" | "work_mode";
 
 const JOB_ID = 9001;
 const BODY =
@@ -37,6 +40,7 @@ const PEOPLE: Record<State, { candidateId: number; name: string }[]> = {
     { candidateId: 502, name: "Jan Testowy" },
     { candidateId: 503, name: "Ewa Fikcyjna" },
   ],
+  work_mode: [{ candidateId: 521, name: "Tomasz Przykładowy" }],
 };
 
 const PREVIEW: Record<State, RejectionEmailPreview> = {
@@ -61,6 +65,11 @@ const PREVIEW: Record<State, RejectionEmailPreview> = {
       { candidate_id: 503, to_email: "ewa.fikcyjna@example.com", skip_reason: "not_client_visible" },
     ],
   },
+  work_mode: {
+    subject: SUBJECT,
+    body: BODY,
+    people: [{ candidate_id: 521, to_email: "tomasz.przykladowy@example.com", skip_reason: null }],
+  },
 };
 
 const REASONS = [
@@ -68,11 +77,18 @@ const REASONS = [
   { id: "2", label: "Za wysokie oczekiwania finansowe", applies_to: ["rejected" as const] },
   { id: "3", label: "Nie spełnia wymagań technicznych", applies_to: ["rejected" as const] },
   { id: "4", label: "Zatrudniony gdzie indziej", applies_to: ["rejected" as const] },
+  {
+    id: "5",
+    name: "work_mode_mismatch",
+    label: "Nie akceptuje trybu pracy (biuro / hybryda)",
+    applies_to: ["rejected" as const],
+  },
+  { id: "6", label: "Inne", applies_to: ["rejected" as const] },
 ];
 
 function readState(): State {
   const raw = new URLSearchParams(window.location.search).get("state");
-  return raw === "blocked" || raw === "bulk" ? raw : "one";
+  return raw === "blocked" || raw === "bulk" || raw === "work_mode" ? raw : "one";
 }
 
 export default function RejectionEmailHarness() {
@@ -109,9 +125,17 @@ export default function RejectionEmailHarness() {
         reasons={REASONS}
         emailAvailable
         subject={
-          state === "bulk" ? null : { name: "Anna Przykładowa", stageLabel: "Rozmowa u klienta" }
+          state === "bulk"
+            ? null
+            : { name: PEOPLE[state][0].name, stageLabel: "Rozmowa u klienta" }
         }
         emailPreview={{ jobId: JOB_ID, people: PEOPLE[state] }}
+        workModeJob={
+          state === "work_mode" ? { remotePolicy: "hybrid", onsiteDaysPerWeek: 2 } : null
+        }
+        profileWorkMode={
+          state === "work_mode" ? { modes: ["remote", "hybrid"], days: 3 } : undefined
+        }
         onConfirm={() => {}}
       />
     </QueryClientProvider>
