@@ -1234,7 +1234,7 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  />
  )}
  {/* Stan CV firmowego (14.10.2026, `cvStateBadge` — ta sama reguła
- co wiersz tabeli): automat pisze CV, „CV gotowe · N do poprawy” /
+ co wiersz tabeli): automat pisze CV, „CV gotowe · QC: N do poprawy” /
  „bez uwag” po QC na „Zweryfikowanym”, „CV gotowe w tle” przed QC. */}
  {cvBadge && (
  <span

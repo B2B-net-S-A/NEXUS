@@ -291,8 +291,8 @@ export function rowBadges(row: ProcessPersonRow, ctx: RowBadgeContext = {}): Row
     });
   }
   // Stan CV firmowego (14.10.2026) — ta sama reguła co karta Tablicy
-  // (`cvStateBadge`): „CV w przygotowaniu…”, „CV gotowe · N do poprawy” /
-  // „bez uwag” na „Zweryfikowanym”, „CV gotowe w tle”, gdy QC jeszcze nie biegło.
+  // (`cvStateBadge`): „CV w przygotowaniu…”, „CV gotowe · QC: N do poprawy” /
+  // „QC bez uwag” na „Zweryfikowanym”, „CV gotowe w tle”, gdy QC jeszcze nie biegło.
   const cv = cvStateBadge(item, placeStage(column).column);
   if (cv) {
     out.push({
