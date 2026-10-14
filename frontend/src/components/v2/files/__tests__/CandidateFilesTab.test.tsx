@@ -12,8 +12,15 @@ const showToast = vi.fn();
 
 vi.mock("@/lib/api", () => ({
   default: { get: vi.fn(), post: vi.fn(), patch: vi.fn(), delete: vi.fn() },
+  cvGeneratedEditorApi: { get: vi.fn() },
   extractErrorMsg: (error: unknown) =>
     (error as { message?: string })?.message ?? "",
+}));
+
+// Podgląd CV z generatora renderuje DOCX — w jsdom wystarczy, że render się
+// zakończy.
+vi.mock("@/lib/docx-preview-safe", () => ({
+  renderDocxSafely: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("@/components/Toast", () => ({
@@ -612,6 +619,67 @@ describe("CandidateFilesTab — grupy plików (E5, 13.10.2026)", () => {
     const attachments = group(/Załączniki i formularze/);
     expect(within(attachments).getByText("Załącznik nr 2 — oświadczenie.pdf")).toBeInTheDocument();
     expect(within(attachments).getByText("certyfikat.pdf")).toBeInTheDocument();
+  });
+
+  const generatedCv = (overrides: Record<string, unknown> = {}) => ({
+    id: 70,
+    filename: "Kowalski_CV_PL.docx",
+    status: "ready",
+    candidate_name: "Jan Kowalski",
+    language: "pl",
+    blind: false,
+    mode: "polished",
+    job_title: "Java Developer",
+    can_download: true,
+    can_delete: false,
+    ...overrides,
+  });
+
+  it("klik w nazwę CV z generatora otwiera podgląd zatwierdzonej wersji — bez pobrania (14.10.2026)", async () => {
+    mockApi([file(1, "cv.pdf", { is_primary: true })], [generatedCv({ approved_version_id: 9 })]);
+    const user = userEvent.setup();
+    renderTab();
+
+    const client = await screen.findByRole("region", { name: /CV wysłane klientom/ });
+    await user.click(within(client).getByRole("button", { name: "Kowalski_CV_PL.docx" }));
+
+    expect(await screen.findByRole("dialog")).toBeInTheDocument();
+    // Ten sam plik, który daje „Pobierz” (zatwierdzona wersja), ale bez
+    // `intent=download` — podgląd nie jest wpisem `cv_file_downloaded`.
+    await waitFor(() =>
+      expect(api.get).toHaveBeenCalledWith(
+        "/api/cv-generator/generated/70/approved/9/docx",
+        { responseType: "blob" },
+      ),
+    );
+    expect(
+      vi.mocked(api.get).mock.calls.some(([url]) => String(url).includes("intent=download")),
+    ).toBe(false);
+  });
+
+  it("CV z generatora bez zatwierdzonej wersji — podgląd bieżącego pliku", async () => {
+    mockApi([file(1, "cv.pdf", { is_primary: true })], [generatedCv()]);
+    const user = userEvent.setup();
+    renderTab();
+
+    const client = await screen.findByRole("region", { name: /CV wysłane klientom/ });
+    await user.click(within(client).getByRole("button", { name: "Kowalski_CV_PL.docx" }));
+
+    await waitFor(() =>
+      expect(api.get).toHaveBeenCalledWith("/api/cv-generator/generated/70/docx", {
+        responseType: "blob",
+      }),
+    );
+  });
+
+  it("CV z generatora, którego nie da się pobrać, nie udaje podglądu", async () => {
+    mockApi([file(1, "cv.pdf", { is_primary: true })], [generatedCv({ can_download: false })]);
+    renderTab();
+
+    const client = await screen.findByRole("region", { name: /CV wysłane klientom/ });
+    expect(within(client).getByText("Kowalski_CV_PL.docx")).toBeInTheDocument();
+    expect(within(client).queryByRole("button", { name: "Kowalski_CV_PL.docx" })).toBeNull();
+    expect(within(client).queryByRole("button", { name: "Pobierz" })).toBeNull();
   });
 
   it("każda grupa zachowuje akcje wiersza „⋯”", async () => {
