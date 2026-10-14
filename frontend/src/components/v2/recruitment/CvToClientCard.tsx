@@ -601,6 +601,7 @@ export function CvToClientCard({
           origin,
           skipReason: freshSkip ? autoCvSkipReason(freshSkip) : null,
           expired: forwardExpired,
+          manual: pending != null,
           checks,
         })
       : null;

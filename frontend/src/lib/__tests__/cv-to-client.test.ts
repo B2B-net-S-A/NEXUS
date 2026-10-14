@@ -331,4 +331,12 @@ describe("po „Zapisz i przekaż dalej” (14.10.2026)", () => {
     expect(forwardProgress({ ...base, state: { kind: "generating" } }).waiting).toBe(true);
     expect(forwardProgress({ ...base, state: { kind: "failed" } }).cv.tone).toBe("warn");
   });
+
+  it("dzwonek obiecuje tylko automat: po pominięciu i przy generacji z karty nie", () => {
+    const generating = { kind: "generating" } as const;
+    const afterSkip = forwardProgress({ ...base, state: generating, skipReason: "brak pliku CV" });
+    expect(afterSkip.cv.tone).toBe("busy");
+    expect(afterSkip.waiting).toBe(false);
+    expect(forwardProgress({ ...base, state: generating, manual: true }).waiting).toBe(false);
+  });
 });

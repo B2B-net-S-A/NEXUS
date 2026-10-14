@@ -389,6 +389,53 @@ def test_extract_phone_rejects_short_numbers():
     assert cvp._extract_phone_from_text(cv) is None
 
 
+@pytest.mark.parametrize(
+    "line",
+    [
+        # 14.10.2026: CV bez telefonu dostało „03.2018 - 12.2” jako numer.
+        "03.2018 - 12.2021 | Python Developer | Software House Demo",
+        "03.2018-12.2021 Python Developer",
+        "2018.03 - 2021.12 Senior Developer",
+        "1.2019 - 12.2021 Analityk",
+        "2015 2016 2017 2018",
+        "Oczekiwania: 15 000 - 20 000 zł netto",
+        "PESEL 85010112345",
+        "NIP 123-456-32-18",
+        "Konto: 12 1050 1234 5678 9012 3456 7890",
+    ],
+)
+def test_extract_phone_ignores_dates_and_other_numbers(line):
+    cv = f"Jan Kowalski\nemail: j@example.com\n{line}\n"
+    assert cvp._extract_phone_from_text(cv) is None
+
+
+@pytest.mark.parametrize(
+    ("line", "expected"),
+    [
+        ("Tel: 513 610 457", "513 610 457"),
+        ("Tel: 513610457", "513610457"),
+        ("tel. +48 513-610-457", "+48 513-610-457"),
+        ("Telefon: 0048 513 610 457", "0048 513 610 457"),
+        ("(+48) 513 610 457", "513 610 457"),
+        ("+48 22 123 45 67", "+48 22 123 45 67"),
+        ("Kontakt: 513 610 457.", "513 610 457"),
+    ],
+)
+def test_extract_phone_keeps_real_numbers(line, expected):
+    cv = f"Jan Kowalski\n{line}\n01.2022 - obecnie | Senior Developer\n"
+    assert cvp._extract_phone_from_text(cv) == expected
+
+
+def test_extract_phone_skips_dates_and_finds_number_further_down():
+    cv = (
+        "Jan Kowalski\n"
+        "03.2018 - 12.2021 | Python Developer\n"
+        "Kontakt\n"
+        "Tel: 600 123 456\n"
+    )
+    assert cvp._extract_phone_from_text(cv) == "600 123 456"
+
+
 def test_split_name_from_header_picks_first_nonempty_line():
     cv = "Jan Kowalski\nSenior Python Developer\nj@x.com"
     first, last = cvp._split_name_from_header(cv)

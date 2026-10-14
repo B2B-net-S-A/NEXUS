@@ -116,9 +116,12 @@ describe("DlSendTopbarButton — licznik „Do wysłania” w górnym pasku", ()
     expect(second).toHaveTextContent("Analityk danych (BI) · Telko Przykładowe");
     expect(second).not.toHaveTextContent("przekazał(a)");
     expect(second).not.toHaveTextContent("Cpro");
-    expect(screen.getByRole("link", { name: /Adam Fikcyjny/ })).toHaveTextContent(
-      "Java Developer · Bank Przykładowy · → Cpro · przekazał(a) Ola Rekruterska",
-    );
+    // Nordea (14.10.2026): znacznik przy nazwisku, nie na końcu ucinanej linii.
+    const nordea = screen.getByRole("link", { name: /Adam Fikcyjny/ });
+    expect(nordea).toHaveTextContent("Java Developer · Bank Przykładowy · przekazał(a) Ola Rekruterska");
+    expect(nordea).not.toHaveTextContent("→ Cpro");
+    const badge = within(nordea).getByText("do Cpro");
+    expect(badge.closest(".truncate")).toBeNull();
 
     expect(screen.getByRole("link", { name: "Przejrzyj po kolei (3)" })).toHaveAttribute(
       "href",

@@ -87,8 +87,10 @@ Po przekazaniu z formularza screeningu panel przechodzi na „CV”, a karta
   „Praca w tle”), aż pojawi się wiersz CV albo powód pominięcia, najdłużej
   5 minut — potem krok CV prosi o ręczną generację. Pominięcie starsze niż
   przekazanie (z zapasem 2 min na zegar) nie jest odpowiedzią.
-- **„Dam znać dzwonkiem, gdy CV będzie gotowe…”** stoi, dopóki CV powstaje
-  (dzwonek `cv_ready` wysyła serwer). **„Następna w Screeningu: <Imię> ·
+- **„Dam znać dzwonkiem, gdy CV będzie gotowe…”** stoi, dopóki CV robi
+  automat (dzwonek `cv_ready` wysyła serwer tylko po podpięciu przez automat).
+  Po pominięciu przez automat i przy generacji zleconej z karty zdania nie ma
+  (`forwardProgress(…, { manual })`, poprawka po teście na produkcji 14.10.2026). **„Następna w Screeningu: <Imię> ·
   Otwórz ›”** pokazuje się, gdy `nextInColumn(osoba, "screening")` kogoś
   zwraca; panel nie skacze sam (`openPerson` dopiero po kliknięciu).
 - Harness `/preview/cv-to-client`: osoba „po przekazaniu — CV się generuje”

@@ -9,7 +9,8 @@ stare przypomnienie o etapie „CV wysłane” — 4 695 wpisów do 8 osób.
 
 - **Jedna reguła na serwerze: `services/dl_send_queue.py`.** Wiersz = najnowszy
   wiersz pary na etapie QC opublikowanej rekrutacji (od 13.10.2026 także
-  Nordei: `cpro=True`, celem jest etap „Wysłać do Cpro”, dopisek „→ Cpro” —
+  Nordei: `cpro=True`, celem jest etap „Wysłać do Cpro”, plakietka „do Cpro”
+  i przycisk „Przejrzyj → Cpro” —
   `rekrutacja-tablica/nordea-akceptacja-dl-przed-cpro.md`),
   BEZ okna czasu (do tej daty 30 dni — karta znikała z pulpitu, choć stała na
   Tablicy). Czytają go pulpit (`board_tasks.load_snapshot`), górny pasek i menu

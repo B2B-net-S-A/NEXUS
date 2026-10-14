@@ -18,8 +18,11 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ArrowRight, Send } from "lucide-react";
 
+import { Badge } from "@/components/ui/badge";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
+  CPRO_ROW_BADGE,
+  CPRO_ROW_HINT,
   useDlSendQueue,
   waitingFor,
   type DlSendQueueResponse,
@@ -133,13 +136,21 @@ export function DlSendPanel({ queue, onNavigate, onJobsList = false }: DlSendPan
               className="flex items-center gap-3 px-4 py-2.5 transition-colors hover:bg-accent focus-visible:bg-accent focus-visible:outline-none"
             >
               <span className="min-w-0 flex-1">
-                <span className="block truncate text-sm font-medium text-foreground" title={row.candidate_name}>
-                  {row.candidate_name}
+                {/* Nordea (14.10.2026): plakietka przy nazwisku — dopisek na
+                    końcu linii rekrutacji ucinał się w okienku 384 px. */}
+                <span className="flex min-w-0 items-center gap-1.5">
+                  <span className="truncate text-sm font-medium text-foreground" title={row.candidate_name}>
+                    {row.candidate_name}
+                  </span>
+                  {row.cpro ? (
+                    <Badge size="sm" variant="info" title={CPRO_ROW_HINT} className="shrink-0">
+                      {CPRO_ROW_BADGE}
+                    </Badge>
+                  ) : null}
                 </span>
                 <span className="block truncate text-xs text-muted-foreground">
                   {row.job_working_title?.trim() || row.job_title}
                   {row.client_name ? ` · ${row.client_name}` : ""}
-                  {row.cpro ? " · → Cpro" : ""}
                   {row.handed_over_by_name ? ` · przekazał(a) ${row.handed_over_by_name}` : ""}
                 </span>
               </span>

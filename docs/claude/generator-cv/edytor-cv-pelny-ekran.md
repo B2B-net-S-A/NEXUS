@@ -632,3 +632,19 @@ zapisanej treści, więc widać obieg poprawka → autozapis → świeża lista.
 `app/preview/__tests__/cv-editor-harness.test.tsx` montuje całą stronę bez atrapy
 Tiptapa; testy okna (`CVBrandedEditModal.test.tsx`) mają atrapę, więc zachowania
 zależnego od prawdziwego edytora nie złapią.
+
+## Strażnik klauzuli: koszt liniowy i odmowa pustego zapisu (14.10.2026)
+
+Audyt 13.10.2026 (punkty 1–2): `keep_rodo_clause` przy każdym akapicie
+wyglądającym na klauzulę sklejał od nowa cały tekst opakowania — tysiące
+akapitów w jednym `<div>` (500 KB mieści się w `CV_CONTENT_HTML_MAX`) to
+minuty CPU synchronicznie w trasie `async` jedynego procesu uvicorna, czyli
+stojący NEXUS. Teraz `is_rodo_node` czyta tylko początek tekstu
+(`_leading_text`, `_PROBE_CHARS`), a wyniki dla elementów jednego drzewa są
+zapamiętywane w obrębie przebiegu (`seen`) — 500 KB w ~0,9 s, rośnie liniowo
+(`tests/test_rodo_clause_cost.py`). Drugi punkt: `PATCH …/cv/branded`
+z treścią, z której po sanitizerze nic nie zostaje (`""`, `<style>…</style>`),
+zapisywał pusty szkic, a pusty szkic zdejmował ochronę klauzuli przy
+następnym zapisie. Teraz 422 „CV nie może być puste.” — jak zatwierdzenie
+i edytor generatora. Pusty dokument z edytora (`<p></p>`) przechodzi jak dotąd.
+

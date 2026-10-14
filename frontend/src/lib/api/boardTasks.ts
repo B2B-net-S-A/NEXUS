@@ -85,6 +85,15 @@ export interface BoardTaskRow {
   cpro?: boolean;
 }
 
+/** Plakietka wiersza Nordei w pasie „Do wysłania do klienta” i w okienku paska
+ *  (14.10.2026). Stoi poza linią rekrutacji, bo ta ucina się przy 1280 px. */
+export const CPRO_ROW_BADGE = "do Cpro";
+export const CPRO_ROW_HINT = "Nordea: przegląd kończy akceptacja do kolejki Cpro — nic nie idzie do klienta.";
+/** Przycisk przeglądu u Nordei — pas i karta Tablicy. Krótka, bo przy 1280 px
+ *  z przypiętym menu kolumna przycisku w pasie ma 131 px treści: „Przejrzyj
+ *  i zaakceptuj” (150 px) wychodził poza komórkę (pomiar 14.10.2026). */
+export const CPRO_REVIEW_LABEL = "Przejrzyj → Cpro";
+
 /** Pilność w dniach roboczych od gotowości: 0 / 1 / 2 i więcej. */
 export type DlSendUrgency = "fresh" | "due" | "late";
 

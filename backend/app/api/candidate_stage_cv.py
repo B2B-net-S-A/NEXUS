@@ -1447,9 +1447,15 @@ async def update_branded_cv(
             ),
         )
 
-    csv.branded_draft_html = keep_rodo_clause(
+    cleaned = keep_rodo_clause(
         csv.branded_draft_html, sanitize_cv_html(payload.content_html)
     )
+    if not cleaned.strip():
+        # Pusty szkic zdejmował ochronę klauzuli RODO: następny zapis
+        # z podmienioną klauzulą przechodził (audyt 13.10.2026). Jak przy
+        # zatwierdzeniu i w edytorze generatora.
+        raise HTTPException(status_code=422, detail="CV nie może być puste.")
+    csv.branded_draft_html = cleaned
     action = "branded_cv_edited"
     details = {"length": len(csv.branded_draft_html)}
     csv.edit_revision += 1

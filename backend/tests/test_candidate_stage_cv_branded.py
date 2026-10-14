@@ -285,6 +285,38 @@ async def test_patch_branded_saves_content(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("empty", ["", "   ", "<style>x</style>", "<script>a</script>"])
+async def test_patch_with_nothing_left_after_cleaning_is_refused(
+    app_client: AsyncClient, app_auth_headers: dict, empty: str
+):
+    """Audyt 13.10.2026, pkt 2: pusty zapis zdejmował ochronę klauzuli RODO —
+    następny zapis z podmienioną klauzulą przechodził, a zatwierdzenie
+    przypinało ją w Wordzie. Pusta treść = 422 jak przy zatwierdzeniu
+    i w edytorze generatora; szkic zostaje bez zmian."""
+    from app.services.cv_generator_b2b.docx_renderer import TRANSLATIONS
+
+    clause = TRANSLATIONS["pl"]["rodo"]
+    saved = f'<h1>Brand</h1><p>Treść CV</p><p class="rodo">{clause}</p>'
+    sid, _, _ = await _seed_full_stage()
+    await _seed_draft(sid, saved)
+
+    res = await _patch(
+        app_client,
+        f"/api/candidates/stages/{sid}/cv/branded",
+        headers=app_auth_headers,
+        json={"content_html": empty},
+    )
+
+    assert res.status_code == 422, res.text
+    assert res.json()["detail"] == "CV nie może być puste."
+    async with AsyncSessionLocal() as db:
+        csv = await db.scalar(
+            select(CandidateStageCV).where(CandidateStageCV.candidate_stage_id == sid)
+        )
+        assert csv.branded_draft_html == saved
+
+
+@pytest.mark.asyncio
 async def test_saving_and_approving_keep_the_saved_consent_clause(
     app_client: AsyncClient, app_auth_headers: dict
 ):

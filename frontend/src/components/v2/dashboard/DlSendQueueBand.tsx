@@ -35,6 +35,9 @@ import { DlReviewQueueDialog } from "@/components/v2/recruitment/dl-review/DlRev
 import { QcStatusBadge } from "@/components/v2/recruitment/QcStatusBadge";
 import { useReviewSequence } from "@/hooks/useReviewSequence";
 import {
+  CPRO_REVIEW_LABEL,
+  CPRO_ROW_BADGE,
+  CPRO_ROW_HINT,
   splitDlSendRows,
   useBoardTasks,
   waitingFor,
@@ -96,13 +99,9 @@ const stageIdOf = (row: BoardTaskRow): number => row.stage_id;
 /** Od kiedy osoba czeka na Delivery Leada; starszy serwer nie zna `ready_since`. */
 const sinceOf = (row: BoardTaskRow): string => row.ready_since ?? row.since;
 
-/** Nordea (13.10.2026): przegląd kończy akceptacja do kolejki Cpro. */
-const CPRO_ROW_SUFFIX = " · → Cpro";
-
 function jobLine(row: BoardTaskRow): string {
   const title = row.job_working_title?.trim() || row.job_title;
-  const line = row.client_name ? `${title} · ${row.client_name}` : title;
-  return row.cpro ? `${line}${CPRO_ROW_SUFFIX}` : line;
+  return row.client_name ? `${title} · ${row.client_name}` : title;
 }
 
 /**
@@ -140,6 +139,8 @@ interface SendRowsTableProps {
   /** `muted` — karta nie jest jeszcze ruchem Delivery Leada: bez koloru pilności. */
   tone: RowTone;
   actionLabel: string;
+  /** Etykieta przycisku w wierszu Nordei (akceptacja do Cpro); bez niej `actionLabel`. */
+  cproActionLabel?: string;
   /** Początek nazwy przycisku wiersza („Przejrzyj: Anna Nowak”). */
   actionName: string;
   onReview: (row: BoardTaskRow) => void;
@@ -162,6 +163,7 @@ function SendRowsTable({
   rows,
   tone,
   actionLabel,
+  cproActionLabel,
   actionName,
   onReview,
   readyByJob,
@@ -219,8 +221,16 @@ function SendRowsTable({
                   <p className="truncate" title={job}>
                     {job}
                   </p>
-                  {due || (sameJob > 1 && onCompare) ? (
+                  {row.cpro || due || (sameJob > 1 && onCompare) ? (
                     <p className="mt-0.5 text-[11px] text-muted-foreground">
+                      {/* Nordea (14.10.2026): znacznik w drugiej linii, która się
+                          nie ucina — dopisek na końcu linii rekrutacji znikał
+                          za wielokropkiem przy 1280 px. */}
+                      {row.cpro ? (
+                        <Badge size="sm" variant="info" title={CPRO_ROW_HINT} className="mr-1.5 align-[1px]">
+                          {CPRO_ROW_BADGE}
+                        </Badge>
+                      ) : null}
                       {due ? `termin ${due}` : null}
                       {sameJob > 1 && onCompare ? (
                         <>
@@ -279,7 +289,7 @@ function SendRowsTable({
                     onClick={() => onReview(row)}
                     aria-label={`${actionName}: ${row.candidate_name}`}
                   >
-                    {actionLabel}
+                    {row.cpro && cproActionLabel ? cproActionLabel : actionLabel}
                   </Button>
                 </td>
               </tr>
@@ -490,6 +500,7 @@ function DlSendQueue({
                 rows={showAll ? ready : ready.slice(0, DL_SEND_ROWS)}
                 tone="ready"
                 actionLabel={canSend ? "Przejrzyj i wyślij" : "Przejrzyj"}
+                cproActionLabel={canSend ? CPRO_REVIEW_LABEL : undefined}
                 actionName="Przejrzyj"
                 onReview={setReviewing}
                 readyByJob={readyByJob}
