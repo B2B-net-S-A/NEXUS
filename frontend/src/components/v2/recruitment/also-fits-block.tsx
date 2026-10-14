@@ -31,7 +31,7 @@ export function alsoFitsSlot(
       readOnly={readOnly}
       onAdd={(jobIds) => alsoFits.add(candidateId, jobIds)}
       onUndo={(jobId) => alsoFits.undo(candidateId, jobId)}
-      onRetry={() => alsoFits.retry(candidateId)}
+      onRetry={() => alsoFits.recheck(candidateId)}
       onRequest={() => alsoFits.request(candidateId)}
     />
   );

@@ -45,7 +45,8 @@ export interface AlsoFits {
   forCandidate: (candidateId: number) => AlsoFitsRowModel | null;
   add: (candidateId: number, jobIds: readonly number[]) => void;
   undo: (candidateId: number, jobId: number) => void;
-  retry: (candidateId: number) => void;
+  /** „Ponów” po awarii (nazwa nie `retry` — strażnik ponowień w `QueryProvider.test`). */
+  recheck: (candidateId: number) => void;
   /** Sprawdź osobę, o którą nie pytaliśmy sami (`status: "idle"`). */
   request: (candidateId: number) => void;
 }
@@ -196,7 +197,7 @@ export function useAlsoFitsJobs({
     [refreshAfter, setError, setPair],
   );
 
-  const retry = useCallback(
+  const recheck = useCallback(
     (candidateId: number) => {
       void queryClient.refetchQueries({ queryKey: alsoFitsKeys.one(fromJobId, candidateId) });
     },
@@ -239,5 +240,5 @@ export function useAlsoFitsJobs({
     [ids, enabled, addedIds, results, states, errors, undoWindow.expired],
   );
 
-  return { forCandidate, add, undo, retry, request };
+  return { forCandidate, add, undo, recheck, request };
 }
