@@ -13,6 +13,7 @@ import { Check, Layers } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { AlsoFitsJob } from "@/lib/also-fits-api";
 import type { JointContextPair } from "@/lib/api/screeningForm";
+import { JOINT_MAX_OTHERS } from "@/lib/joint-screening";
 import { cn } from "@/lib/utils";
 
 const COLUMN_LABEL: Record<string, string> = { new: "Nowi", screening: "Screening" };
@@ -50,6 +51,7 @@ export function JointScreeningPicker({
 }: JointScreeningPickerProps) {
   if (pairs.length === 0 && suggestions.length === 0) return null;
   const count = selected.size + 1;
+  const full = selected.size >= JOINT_MAX_OTHERS;
   return (
     <section
       aria-label="Screening dla"
@@ -79,6 +81,7 @@ export function JointScreeningPicker({
         {pairs.map((pair) => {
           const id = `joint-pair-${pair.job_id}`;
           const claim = claimLine(pair);
+          const blockedByLimit = pair.selectable && full && !selected.has(pair.job_id);
           return (
             <li
               key={pair.job_id}
@@ -92,7 +95,7 @@ export function JointScreeningPicker({
                 type="checkbox"
                 className="mt-0.5 h-4 w-4 shrink-0 accent-[hsl(var(--primary))]"
                 checked={selected.has(pair.job_id)}
-                disabled={!pair.selectable}
+                disabled={!pair.selectable || blockedByLimit}
                 onChange={() => onToggle(pair.job_id)}
               />
               <label htmlFor={id} className="min-w-0 flex-1">
@@ -126,7 +129,7 @@ export function JointScreeningPicker({
               size="sm"
               variant="outline"
               className="h-7 shrink-0 px-2 text-xs"
-              disabled={addingJobId != null}
+              disabled={addingJobId != null || full}
               onClick={() => onAddAndJoin(job.job_id)}
             >
               {addingJobId === job.job_id ? "Dodaję…" : "+ Dodaj i dołącz"}
@@ -134,6 +137,11 @@ export function JointScreeningPicker({
           </li>
         ))}
       </ul>
+      {full && (pairs.some((p) => p.selectable && !selected.has(p.job_id)) || suggestions.length > 0) ? (
+        <p className="mt-2 text-xs text-muted-foreground">
+          Najwyżej {JOINT_MAX_OTHERS + 1} rekrutacje w jednej rozmowie — odznacz jedną, żeby dodać inną.
+        </p>
+      ) : null}
       {error ? (
         <p role="alert" className="mt-2 text-xs text-destructive-muted-foreground">
           {error}

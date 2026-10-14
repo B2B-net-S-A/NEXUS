@@ -4,11 +4,16 @@
  * pytań, przekazanie per rekrutacja, deal-breaker zatrzymuje tylko swoją parę.
  */
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { JointContextPair, ScreeningFormSave, ScreeningFormState } from "@/lib/api/screeningForm";
+import {
+  screeningFormQueryKey,
+  type JointContextPair,
+  type ScreeningFormSave,
+  type ScreeningFormState,
+} from "@/lib/api/screeningForm";
 import { formSaveResult, formState } from "@/components/v2/screening-form/__tests__/screening-form-fixtures";
 
 const mocks = vi.hoisted(() => ({ get: vi.fn(), put: vi.fn(), send: vi.fn(), readNote: vi.fn() }));
@@ -26,18 +31,23 @@ vi.mock("@/lib/api/recommendationCards", async (importOriginal) => ({
 }));
 // Pasek notatki ma własne testy — tu tylko oddaje odczyt kotwicy.
 vi.mock("@/components/v2/screening-form/NoteFillBar", () => ({
-  NoteFillBar: (props: { onProposal: (p: unknown, s: { text: string }) => void }) => (
-    <button
-      type="button"
-      onClick={() =>
-        props.onProposal(
-          { fields: [{ key: "availability", proposed: "od 1.11" }], answers: [], text: "Rozmowa: od 1.11", available: true },
-          { text: "Rozmowa: od 1.11" },
-        )
-      }
-    >
-      wklej notatkę
-    </button>
+  NoteFillBar: (props: { onProposal: (p: unknown, s: { text: string }) => void; onUndo: () => void }) => (
+    <>
+      <button
+        type="button"
+        onClick={() =>
+          props.onProposal(
+            { fields: [{ key: "availability", proposed: "od 1.11" }], answers: [], text: "Rozmowa: od 1.11", available: true },
+            { text: "Rozmowa: od 1.11" },
+          )
+        }
+      >
+        wklej notatkę
+      </button>
+      <button type="button" onClick={props.onUndo}>
+        cofnij notatkę
+      </button>
+    </>
   ),
 }));
 vi.mock("@/hooks/usePipelineMoveCore", () => ({
@@ -93,7 +103,7 @@ function mount() {
       />
     </QueryClientProvider>,
   );
-  return { onForwarded };
+  return { onForwarded, client };
 }
 
 function putFor(jobId: number): ScreeningFormSave | undefined {
@@ -127,6 +137,64 @@ async function answerAll(user: ReturnType<typeof userEvent.setup>, { dealBreaker
 }
 
 describe("JointScreeningForm", () => {
+  it("„Cofnij wypełnienie” takes back only what the note filled in", async () => {
+    const user = userEvent.setup();
+    states[201] = { ...states[201], assist_enabled: true };
+    mocks.readNote.mockResolvedValue({ fields: [], answers: [], text: "Rozmowa: od 1.11", available: true });
+    mount();
+    await user.type(await screen.findByLabelText("Jak używałeś RxJS w produkcji?"), "Strumienie");
+    await user.click(screen.getByRole("button", { name: "wklej notatkę" }));
+    expect(await screen.findByDisplayValue("od 1.11")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "cofnij notatkę" }));
+    expect(screen.queryByDisplayValue("od 1.11")).toBeNull();
+    expect(screen.getByLabelText("Jak używałeś RxJS w produkcji?")).toHaveValue("Strumienie");
+  });
+
+  it("someone else's save in between is not reverted by fields this conversation did not touch", async () => {
+    const user = userEvent.setup();
+    const { client } = mount();
+    await user.type(await screen.findByLabelText("Od kiedy możesz zacząć?"), "Od 1.11");
+    // Ktoś zapisał „Notatkę” w drugiej rekrutacji — formularz wspólny dostaje to w tle.
+    const fresh = {
+      ...states[202],
+      version: 4,
+      state_token: "token-4",
+      card: { ...states[202].card, fields: { recommendation: { raw: "Zapis kogoś innego", source: "manual" } as never } },
+    };
+    states[202] = fresh;
+    act(() => client.setQueryData(screeningFormQueryKey(202, CANDIDATE), fresh));
+    await user.click(screen.getByRole("tab", { name: /Angular Developer/ }));
+    expect(await screen.findByDisplayValue("Zapis kogoś innego")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Zapisz w 2" }));
+    await waitFor(() => expect(putFor(202)).toBeDefined());
+    const b = putFor(202)!;
+    expect(b.expected_version).toBe(4);
+    expect(b.card?.fields ?? {}).not.toHaveProperty("recommendation");
+    expect(b.sheet?.answers.find((x) => x.question_id === "q1")?.response).toBe("Od 1.11");
+  });
+
+  it("a field typed for one recruitment is saved only there", async () => {
+    const user = userEvent.setup();
+    mount();
+    await screen.findByText("Wspólne · zadajesz raz");
+    await user.click(screen.getByRole("tab", { name: /Angular Developer/ }));
+    await user.type(screen.getByLabelText(/· dla Angular Developer/), "Mocny w RxJS");
+    await user.click(screen.getByRole("button", { name: "Zapisz w 2" }));
+    await waitFor(() => expect(putFor(202)).toBeDefined());
+    expect(putFor(202)?.card?.fields?.recommendation).toBe("Mocny w RxJS");
+    expect(putFor(201)?.card?.fields ?? {}).not.toHaveProperty("recommendation");
+  });
+
+  it("a shared question shows another recruitment's saved answer that stays unless edited", async () => {
+    const sheet = (question_id: string, response: string) =>
+      ({ answers: [{ question_id, response, deal_breaker_hit: false }], overall_fit: "uncertain", notes: "" }) as never;
+    states[201] = { ...states[201], sheet: sheet("q1", "Formularze na strumieniach") };
+    states[202] = { ...states[202], sheet: sheet("q2", "Tylko w testach") };
+    mount();
+    expect(await screen.findByLabelText("Jak używałeś RxJS w produkcji?")).toHaveValue("Formularze na strumieniach");
+    expect(screen.getByText("W Angular Developer: Tylko w testach")).toBeInTheDocument();
+  });
+
   it("one conversation note: read for every recruitment, created by the first save, linked by the next", async () => {
     const user = userEvent.setup();
     states[201] = { ...states[201], assist_enabled: true };

@@ -9,9 +9,15 @@
  * przed „Zapisz i przekaż dalej”.
  *
  * Reguła pól wspólnych (warunki, red flags, „Czy pracował u Klienta” per
- * klient): pole ruszone w tej rozmowie trafia do każdej pary; nieruszone
- * uzupełnia tylko pary, w których jest puste — nic, co para już ma, nie
- * znika bez ruchu rekrutera.
+ * klient, odpowiedź na wspólne pytanie): pole ruszone w tej rozmowie trafia
+ * do każdej pary; nieruszone uzupełnia tylko pary, w których jest puste — nic,
+ * co para już ma, nie znika bez ruchu rekrutera.
+ *
+ * Rzut liczy się od NAJŚWIEŻSZEGO stanu pary (ten sam, którego odcisk idzie
+ * w zapisie): pole nieruszone bierze wartość serwera, ruszone — wartość
+ * z rozmowy. Inaczej zapis po odświeżeniu w tle odesłałby wartości sprzed
+ * otwarcia formularza ze świeżym odciskiem i po cichu cofnął cudzą zmianę
+ * (tak samo pojedynczy formularz: `keepDirtyValues` + różnice od `baseState`).
  */
 
 import type { RateUnit, ScreeningQuestion } from "@/lib/api";
@@ -35,6 +41,12 @@ export const SHARED_TERMS_KEYS = ["availability", "work_mode", "location", "nati
 export const SHARED_ASSESSMENT_KEYS = ["red_flags"] as const;
 /** Pole o kliencie — jedno na klienta, nie na rekrutację. */
 export const CLIENT_KEY = "worked_at_client";
+
+/**
+ * Ile innych rekrutacji w jednej rozmowie: `GET /api/screening-form/question-groups`
+ * przyjmuje 2–4 rekrutacje (kotwica + 3).
+ */
+export const JOINT_MAX_OTHERS = 3;
 
 const SHARED_KEYS: ReadonlySet<string> = new Set<string>([...SHARED_TERMS_KEYS, ...SHARED_ASSESSMENT_KEYS]);
 
@@ -189,18 +201,33 @@ export function jointDefaults(pairs: readonly JointPair[], groups: readonly Join
   };
 }
 
+interface RateDirty {
+  rate_amount?: boolean;
+  rate_unit?: boolean;
+  rate_currency?: boolean;
+}
+
 /** Pola ruszone w tej rozmowie (`formState.dirtyFields` RHF). */
 export interface JointDirty {
-  shared?: { card?: Record<string, boolean | undefined>; rate_amount?: boolean; rate_unit?: boolean; rate_currency?: boolean };
+  shared?: { card?: Record<string, boolean | undefined>; same_rate?: boolean } & RateDirty;
   clients?: Record<string, boolean | undefined>;
+  answers?: Record<string, boolean | undefined>;
+  hits?: Record<string, boolean | undefined>;
+  jobs?: Record<string, ({ overall_fit?: boolean; card?: Record<string, boolean | undefined> } & RateDirty) | undefined>;
 }
+
+const rateTouched = (dirty: RateDirty | undefined) =>
+  Boolean(dirty?.rate_amount || dirty?.rate_unit || dirty?.rate_currency);
 
 function overlay(base: string, value: string, touched: boolean): string {
   if (touched) return value;
   return base.trim() ? base : value;
 }
 
-/** Wartości pojedynczego formularza pary z formularza wspólnego. */
+/**
+ * Wartości pojedynczego formularza pary z formularza wspólnego. `pair.state`
+ * ma być stanem, z którym pójdzie zapis (najświeższym z pamięci zapytań).
+ */
 export function projectPair(
   values: JointValues,
   pair: JointPair,
@@ -221,8 +248,9 @@ export function projectPair(
     }
   }
   const own = values.jobs[jobKey(pair.jobId)];
+  const ownDirty = dirty.jobs?.[jobKey(pair.jobId)];
   for (const [key, value] of Object.entries(own?.card ?? {})) {
-    if (editable.has(key)) card[key] = value;
+    if (editable.has(key) && ownDirty?.card?.[key]) card[key] = value;
   }
 
   const answers = { ...d.answers };
@@ -230,11 +258,12 @@ export function projectPair(
     for (const member of group.members) {
       if (member.jobId !== pair.jobId || !answers[member.questionId]) continue;
       const before = answers[member.questionId];
-      const response = values.answers[group.key] ?? before.response;
+      const response = overlay(before.response, values.answers[group.key] ?? "", Boolean(dirty.answers?.[group.key]));
+      const hit = hitKey(pair.jobId, member.questionId);
       answers[member.questionId] = {
         ...before,
         response,
-        deal_breaker_hit: Boolean(values.hits[hitKey(pair.jobId, member.questionId)]),
+        deal_breaker_hit: dirty.hits?.[hit] ? Boolean(values.hits[hit]) : before.deal_breaker_hit,
         // Odpowiedź z tej rozmowy jest odpowiedzią człowieka.
         origin: response.trim() === before.response.trim() ? before.origin : "manual",
         keywords: response.trim() === before.response.trim() ? before.keywords : null,
@@ -242,17 +271,22 @@ export function projectPair(
     }
   }
 
-  const touchedRate = Boolean(dirty.shared?.rate_amount || dirty.shared?.rate_unit || dirty.shared?.rate_currency);
+  // Stawka: „Ta sama stawka” = kwota z pola wspólnego (ta, którą widać), gdy
+  // rekruter ruszył stawkę albo przełącznik, i dla pary bez własnej stawki;
+  // nieruszona — stawka startowa pary. Osobne stawki: ruszona albo startowa.
+  const start = rateFields(initialRate(pair.state));
   const rate = values.shared.same_rate
-    ? touchedRate
+    ? dirty.shared?.same_rate || rateTouched(dirty.shared) || !start.rate_amount.trim()
       ? values.shared
-      : (own ?? values.shared)
-    : (own ?? values.shared);
+      : start
+    : own && rateTouched(ownDirty)
+      ? own
+      : start;
 
   return {
     ...d,
     answers,
-    overall_fit: own?.overall_fit ?? d.overall_fit,
+    overall_fit: own && ownDirty?.overall_fit ? own.overall_fit : d.overall_fit,
     card,
     rate_amount: rate.rate_amount,
     rate_unit: rate.rate_unit,

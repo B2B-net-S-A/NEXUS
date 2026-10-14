@@ -54,6 +54,24 @@ describe("JointScreeningPicker — „Screening dla” (B1)", () => {
     expect(screen.getByRole("alert")).toHaveTextContent("zamkniętą kartę");
   });
 
+  it("stops at four recruitments in one conversation", () => {
+    render(
+      <JointScreeningPicker
+        anchorTitle="A"
+        pairs={[2, 3, 4, 5].map((job_id) => pair({ job_id, title: `Rekrutacja ${job_id}` }))}
+        suggestions={[{ job_id: 9, title: "Frontend Lead", client_name: null, score: 72, matching_must: [], gap_must: [] }]}
+        selected={new Set([2, 3, 4])}
+        onToggle={vi.fn()}
+        onAddAndJoin={vi.fn()}
+        addingJobId={null}
+      />,
+    );
+    expect(screen.getByRole("checkbox", { name: /Rekrutacja 5/ })).toBeDisabled();
+    expect(screen.getByRole("checkbox", { name: /Rekrutacja 4/ })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "+ Dodaj i dołącz" })).toBeDisabled();
+    expect(screen.getByText(/Najwyżej 4 rekrutacje w jednej rozmowie/)).toBeInTheDocument();
+  });
+
   it("renders nothing when the person is in no other recruitment and nothing else fits", () => {
     const { container } = render(
       <JointScreeningPicker

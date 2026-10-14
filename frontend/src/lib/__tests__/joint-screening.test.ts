@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { formState } from "@/components/v2/screening-form/__tests__/screening-form-fixtures";
 import {
+  JOINT_MAX_OTHERS,
   budgetVerdict,
   completeGroups,
   dealBreakerHit,
@@ -83,8 +84,9 @@ describe("joint screening — rzut na parę", () => {
     values.answers[groups[0].key] = "Formularze na strumieniach";
     values.answers[groups[1].key] = "Nie — tylko zdalnie";
     values.hits[hitKey(1, "q2")] = true;
-    const a = projectPair(values, A, groups);
-    const b = projectPair(values, B, groups);
+    const dirty = { answers: { [groups[0].key]: true, [groups[1].key]: true }, hits: { [hitKey(1, "q2")]: true } };
+    const a = projectPair(values, A, groups, dirty);
+    const b = projectPair(values, B, groups, dirty);
     expect(a.answers.q1.response).toBe("Formularze na strumieniach");
     expect(b.answers.q2.response).toBe("Formularze na strumieniach");
     expect(b.answers.q1.response).toBe("");
@@ -109,14 +111,67 @@ describe("joint screening — rzut na parę", () => {
     expect(projectPair(values, filled, g, { shared: { card: { work_mode: true } } }).card.work_mode).toBe("hybrydowo");
   });
 
-  it("an untouched shared rate keeps each pair's own start rate; touched — the shared one", () => {
-    const values = jointDefaults([A, B], groups);
-    values.jobs[jobKey(2)].rate_amount = "120";
-    values.shared.rate_amount = "110";
-    expect(projectPair(values, B, groups).rate_amount).toBe("120");
-    expect(projectPair(values, B, groups, { shared: { rate_amount: true } }).rate_amount).toBe("110");
-    values.shared.same_rate = false;
-    expect(projectPair(values, B, groups, { shared: { rate_amount: true } }).rate_amount).toBe("120");
+  const rated = (jobId: number, amount: number | null, overrides: Partial<JointPair> = {}) =>
+    pair(jobId, QA, overrides, {
+      rate: amount == null ? null : { amount, unit: "hourly", currency: "PLN", source: "stage", at: null },
+    });
+
+  it("the shared rate on screen is the rate saved — also for a pair that had none", () => {
+    const a = rated(1, null, { anchor: true });
+    const b = rated(2, 150);
+    const values = jointDefaults([a, b], []);
+    expect(values.shared.same_rate).toBe(true);
+    expect(values.shared.rate_amount).toBe("150");
+    expect(projectPair(values, a, []).rate_amount).toBe("150");
+    expect(buildSavePayload(a.state, projectPair(values, a, [])).payload.rate?.amount).toBe(150);
+    expect(projectPair(values, b, []).rate_amount).toBe("150");
+  });
+
+  it("different rates stay per recruitment until „Ta sama stawka” is ticked", () => {
+    const a = rated(1, 110, { anchor: true });
+    const b = rated(2, 130);
+    const values = jointDefaults([a, b], []);
+    expect(values.shared.same_rate).toBe(false);
+    expect(projectPair(values, b, []).rate_amount).toBe("130");
+    values.jobs[jobKey(2)].rate_amount = "125";
+    expect(projectPair(values, b, [], { jobs: { [jobKey(2)]: { rate_amount: true } } }).rate_amount).toBe("125");
+    // Zaznaczenie „Ta sama stawka” bez zmiany kwoty: zapis = kwota widoczna w polu.
+    values.shared.same_rate = true;
+    expect(projectPair(values, b, [], { shared: { same_rate: true } }).rate_amount).toBe("110");
+    values.shared.rate_amount = "140";
+    expect(projectPair(values, a, [], { shared: { same_rate: true, rate_amount: true } }).rate_amount).toBe("140");
+  });
+
+  it("untouched per-recruitment fields follow the fresh server state; touched ones win", () => {
+    const withCard = (raw: string) =>
+      pair(2, QB, {}, { card: { ...formState().card, fields: { recommendation: { raw, source: "manual" } as never } } });
+    const old = withCard("R1");
+    const values = jointDefaults([A, old], completeGroups([A, old], SERVER));
+    // Ktoś zapisał tę parę obok — formularz wspólny ma jeszcze R1.
+    const fresh = { ...withCard("R2 od kogoś"), state: { ...withCard("R2 od kogoś").state, version: 4, state_token: "T2" } };
+    const g = completeGroups([A, fresh], SERVER);
+    const untouched = buildSavePayload(fresh.state, projectPair(values, fresh, g));
+    expect(untouched.payload.card?.fields ?? {}).not.toHaveProperty("recommendation");
+    values.jobs[jobKey(2)].card.recommendation = "Moja";
+    const touched = projectPair(values, fresh, g, { jobs: { [jobKey(2)]: { card: { recommendation: true } } } });
+    expect(touched.card.recommendation).toBe("Moja");
+  });
+
+  it("an untouched shared question keeps the answer another recruitment already has", () => {
+    const sheet = (question_id: string, response: string) =>
+      ({ answers: [{ question_id, response, deal_breaker_hit: false }], overall_fit: "uncertain", notes: "" }) as never;
+    const a = pair(1, QA, { anchor: true }, { sheet: sheet("q1", "Odpowiedź A") });
+    const b = pair(2, QB, {}, { sheet: sheet("q2", "Odpowiedź B zapisana") });
+    const g = completeGroups([a, b], SERVER);
+    const values = jointDefaults([a, b], g);
+    expect(values.answers[g[0].key]).toBe("Odpowiedź A");
+    expect(projectPair(values, b, g).answers.q2.response).toBe("Odpowiedź B zapisana");
+    values.answers[g[0].key] = "Nowa w rozmowie";
+    expect(projectPair(values, b, g, { answers: { [g[0].key]: true } }).answers.q2.response).toBe("Nowa w rozmowie");
+  });
+
+  it("question groups accept at most four recruitments, so at most three besides the anchor", () => {
+    expect(JOINT_MAX_OTHERS).toBe(3);
   });
 
   it("names what blocks forwarding a pair", () => {

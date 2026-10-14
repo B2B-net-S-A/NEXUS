@@ -56,7 +56,14 @@ import { proposalsBulkApi } from "@/lib/candidate-search-api";
 import { useJointScreeningIntent } from "@/store/joint-screening";
 import { ScreeningLegacyText, ScreeningSummaryView } from "@/components/v2/screening-form/ScreeningSummaryView";
 import { interviewQuestionsApi } from "@/lib/api";
-import { jointContextQueryKey, useJointContext, useScreeningFormState } from "@/lib/api/screeningForm";
+import {
+  jointContextQueryKey,
+  useJointContext,
+  useScreeningFormState,
+  type JointContextAnchor,
+  type JointContextPair,
+} from "@/lib/api/screeningForm";
+import { JOINT_MAX_OTHERS } from "@/lib/joint-screening";
 import { placeStage } from "@/lib/board-stages";
 import { terminalOf } from "@/lib/kanban-terminal";
 import { VERIFIED_STAGE, findStageColumn, isNewColumn, itemFullName } from "@/lib/pipeline-flow";
@@ -115,6 +122,13 @@ export interface ScreeningWorkbenchProps extends Omit<WorkbenchPanelProps, "layo
   previewLoaders?: Pick<PreviewProps, "loadDocumentBlob" | "loadOriginalBlob" | "loadStageCvFile">;
 }
 
+interface JointSelection {
+  candidateId: number;
+  anchor: JointContextAnchor;
+  others: JointContextPair[];
+  verifiedStageDefId: number | null;
+}
+
 export function ScreeningWorkbench({
   jobId,
   jobBudgetHourly,
@@ -164,16 +178,26 @@ export function ScreeningWorkbench({
   const [jointIds, setJointIds] = useState<ReadonlySet<number>>(() => new Set());
   const [addingJobId, setAddingJobId] = useState<number | null>(null);
   const consumeIntent = useJointScreeningIntent((s) => s.consume);
+  const intent = useJointScreeningIntent((s) => s.intent);
   const queryClient = useQueryClient();
   const [jointError, setJointError] = useState<string | null>(null);
-  // Inna osoba = nowa rozmowa; „Screening razem” z karty zaznacza od razu.
-  // Tylko przy zmianie osoby — podwójny efekt (StrictMode) nie czyści wyboru.
+  // Trwający zapis wspólny: ten sam wybór do zamknięcia karty wyniku, choć
+  // kotwica przeszła dalej, a lista rekrutacji się odświeżyła.
+  const [jointSession, setJointSession] = useState<JointSelection | null>(null);
+  // Inna osoba = nowa rozmowa; „Screening razem” z karty zaznacza od razu —
+  // także dla osoby, której panel jest już otwarty. Pusty odbiór (podwójny
+  // efekt StrictMode) niczego nie czyści.
   const jointFor = useRef<number | null>(null);
   useEffect(() => {
-    if (jointFor.current === candidateId) return;
-    jointFor.current = candidateId;
-    setJointIds(new Set(candidateId > 0 ? consumeIntent(candidateId) : []));
-  }, [candidateId, consumeIntent]);
+    if (jointFor.current !== candidateId) {
+      jointFor.current = candidateId;
+      setJointIds(new Set());
+      setJointSession(null);
+    }
+    if (candidateId <= 0 || intent?.candidateId !== candidateId) return;
+    const ids = consumeIntent(candidateId);
+    if (ids.length > 0) setJointIds(new Set(ids.slice(0, JOINT_MAX_OTHERS)));
+  }, [candidateId, intent, consumeIntent]);
   // „Wgraj CV” w podglądzie — ta sama bramka co kafelek w doku osoby.
   const canManageDocuments = useCapability("candidate.document.manage");
 
@@ -260,13 +284,15 @@ export function ScreeningWorkbench({
   const jointSuggestions = (Array.isArray(alsoFitsQuery.data?.jobs) ? alsoFitsQuery.data.jobs : []).filter(
     (job) => !inContext.has(job.job_id),
   );
-  const selectedJoint = new Set([...jointIds].filter((id) => jointPairs.some((p) => p.job_id === id && p.selectable)));
+  const selectedJoint = new Set(
+    [...jointIds].filter((id) => jointPairs.some((p) => p.job_id === id && p.selectable)).slice(0, JOINT_MAX_OTHERS),
+  );
   const selectedPairs = jointPairs.filter((p) => selectedJoint.has(p.job_id));
   const toggleJoint = (id: number) =>
     setJointIds((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
-      else next.add(id);
+      else if (next.size < JOINT_MAX_OTHERS) next.add(id);
       return next;
     });
   // „+ Dodaj i dołącz”: dodanie jak w oknie „Kandydaci do dodania” (źródło
@@ -290,11 +316,19 @@ export function ScreeningWorkbench({
         void queryClient.invalidateQueries({ queryKey: alsoFitsKeys.one(jobId, item.candidate_id) });
         void queryClient.invalidateQueries({ queryKey: ["kanban", String(otherJobId)] });
         void queryClient.invalidateQueries({ queryKey: ["kanban", String(jobId)] });
-        setJointIds((prev) => new Set([...prev, otherJobId]));
+        setJointIds((prev) => (prev.size < JOINT_MAX_OTHERS ? new Set([...prev, otherJobId]) : prev));
       })
       .catch((error: unknown) => setJointError(apiErrorMessage(error, "Nie udało się dodać do tej rekrutacji.")))
       .finally(() => setAddingJobId(null));
   };
+
+  // Wybór z „Screening dla” albo zamrożony na czas zapisu (`jointSession`).
+  const liveJoint: JointSelection | null =
+    jointEnabled && jointAnchor && selectedPairs.length > 0
+      ? { candidateId: item.candidate_id, anchor: jointAnchor, others: selectedPairs, verifiedStageDefId: forward?.stageDefId ?? null }
+      : null;
+  const jointSaving = jointSession != null && jointSession.candidateId === item.candidate_id;
+  const activeJoint = jointSaving ? jointSession : liveJoint;
 
   const badges = (
     <>
@@ -352,7 +386,7 @@ export function ScreeningWorkbench({
             onOpenHistory={openHistory}
           />
         ) : null}
-        {jointEnabled ? (
+        {jointEnabled && !jointSaving ? (
           <JointScreeningPicker
             anchorTitle={jointAnchor?.title ?? "Ta rekrutacja"}
             pairs={jointPairs}
@@ -364,22 +398,23 @@ export function ScreeningWorkbench({
             error={jointError}
           />
         ) : null}
-        {jointEnabled && jointAnchor && selectedPairs.length > 0 ? (
+        {activeJoint ? (
           <JointScreeningForm
-            key={`${item.candidate_id}:${selectedPairs.map((p) => p.job_id).join(",")}`}
+            key={`${item.candidate_id}:${activeJoint.others.map((p) => p.job_id).join(",")}`}
             candidateId={item.candidate_id}
             candidateName={name}
             anchor={{
               jobId,
-              title: jointAnchor.title,
-              clientId: jointAnchor.client_id,
-              clientName: jointAnchor.client_name,
-              budgetHourly: jobBudgetHourly ?? jointAnchor.budget_hourly,
-              verifiedStageDefId: forward?.stageDefId ?? null,
+              title: activeJoint.anchor.title,
+              clientId: activeJoint.anchor.client_id,
+              clientName: activeJoint.anchor.client_name,
+              budgetHourly: jobBudgetHourly ?? activeJoint.anchor.budget_hourly,
+              verifiedStageDefId: activeJoint.verifiedStageDefId,
             }}
-            others={selectedPairs}
+            others={activeJoint.others}
             onMoved={onMoved}
             onForwarded={onForwarded ? () => onForwarded(item.candidate_id) : undefined}
+            onSessionChange={(active) => setJointSession(active ? activeJoint : null)}
           />
         ) : (
         <ScreeningFullForm

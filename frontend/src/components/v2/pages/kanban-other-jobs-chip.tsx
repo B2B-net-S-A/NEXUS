@@ -13,6 +13,7 @@ import { Layers } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { JOINT_MAX_OTHERS } from "@/lib/joint-screening";
 import { cn } from "@/lib/utils";
 
 import type { KanbanItem, OtherOpenJob } from "./kanban-shared";
@@ -103,10 +104,10 @@ export function OtherJobsChip({
               className="mt-2 w-full"
               onClick={() => {
                 setOpen(false);
-                onScreenTogether(jobs.map((job) => job.job_id));
+                onScreenTogether(jobs.slice(0, JOINT_MAX_OTHERS).map((job) => job.job_id));
               }}
             >
-              Screening razem ({jobs.length + 1})
+              Screening razem ({Math.min(jobs.length, JOINT_MAX_OTHERS) + 1})
             </Button>
           </>
         ) : null}

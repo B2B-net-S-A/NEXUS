@@ -20,7 +20,7 @@
  * „Ułóż w zdanie”.
  */
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useQueries, useQueryClient } from "@tanstack/react-query";
 import { FormProvider, useForm, type UseFormReturn } from "react-hook-form";
@@ -90,6 +90,12 @@ export interface JointScreeningFormProps {
   onMoved?: () => void;
   /** Kotwica przeszła na „Zweryfikowany” — po zamknięciu karty wyniku. */
   onForwarded?: () => void;
+  /**
+   * Zapis ruszył (`true`) / karta wyniku zamknięta (`false`). Gospodarz trzyma
+   * wtedy formularz z tym samym wyborem — przesunięta kotwica i odświeżona
+   * lista rekrutacji nie mogą schować karty wyniku pozostałych par.
+   */
+  onSessionChange?: (active: boolean) => void;
 }
 
 type ResultKind = "saved" | "unchanged" | "moved" | "save_failed" | "move_refused" | "deal_breaker" | "no_stage";
@@ -170,10 +176,26 @@ function JointFormBody({
   groups,
   onMoved,
   onForwarded,
+  onSessionChange,
 }: JointScreeningFormProps & { pairs: JointPair[]; groups: JointGroup[] }) {
   const queryClient = useQueryClient();
   const anchor = pairs.find((p) => p.anchor) ?? pairs[0];
   const methods = useForm<JointValues>({ defaultValues: jointDefaults(pairs, groups) });
+  // Odczyt w renderze zapisuje subskrypcję RHF — bez niej `dirtyFields`
+  // w `run` mogłoby nie znać ruszonych pól.
+  void methods.formState.dirtyFields;
+
+  // Odświeżenie stanu pary w tle (cudzy zapis, nasz zapis): pola nieruszone
+  // pokazują świeże wartości, ruszone zostają — jak pojedynczy formularz.
+  const signature = pairs.map((p) => `${p.jobId}:${p.state.version}:${p.state.state_token}`).join("|");
+  const hydrated = useRef(signature);
+  const pairsRef = useRef(pairs);
+  pairsRef.current = pairs;
+  useEffect(() => {
+    if (hydrated.current === signature) return;
+    hydrated.current = signature;
+    methods.reset(jointDefaults(pairsRef.current, groups), { keepDirtyValues: true });
+  }, [signature, groups, methods]);
   const moveCore = usePipelineMoveCore({ jobId: anchor.jobId });
   const [busy, setBusy] = useState<"save" | "forward" | null>(null);
   const [blockers, setBlockers] = useState<Array<{ title: string; items: string[] }>>([]);
@@ -181,6 +203,8 @@ function JointFormBody({
   const [tab, setTab] = useState(anchor.jobId);
   const [note, setNote] = useState<NoteImport | null>(null);
   const [noteSummary, setNoteSummary] = useState<NoteFillSummary | null>(null);
+  // Co wpisała notatka — „Cofnij wypełnienie” zdejmuje tylko to.
+  const noteFills = useRef<Array<{ path: string; before: unknown; filled: string }>>([]);
 
   // Notatka z rozmowy: odczyt kotwicy przyszedł z paska, pozostałe rekrutacje
   // czytamy tym samym tekstem (każda ma własne pytania i wzór pól).
@@ -194,6 +218,7 @@ function JointFormBody({
     let filled = 0;
     const apply = (pair: JointPair, read: NoteProposal) => {
       for (const [path, value] of noteFillPatches(methods.getValues(), pair, groups, read)) {
+        noteFills.current.push({ path, before: methods.getValues(path as "answers"), filled: value });
         methods.setValue(path as "answers", value as never, { shouldDirty: true });
         filled += 1;
       }
@@ -204,7 +229,13 @@ function JointFormBody({
     setNoteSummary({ filled, offers: 0, sourceName: source.source_name ?? null });
   };
   const undoNote = () => {
-    methods.reset(jointDefaults(pairs, groups));
+    // Pole poprawione po wypełnieniu zostaje — jak `note.undo` w pojedynczym formularzu.
+    for (const fill of [...noteFills.current].reverse()) {
+      if (methods.getValues(fill.path as "answers") === (fill.filled as never)) {
+        methods.setValue(fill.path as "answers", fill.before as never, { shouldDirty: true });
+      }
+    }
+    noteFills.current = [];
     setNote(null);
     setNoteSummary(null);
   };
@@ -247,9 +278,13 @@ function JointFormBody({
   const run = async (forward: boolean) => {
     const values = methods.getValues();
     const dirty = methods.formState.dirtyFields as JointDirty;
+    // Rzut i zapis z tego samego, najświeższego stanu pary (wersja i odcisk).
     const plans = [...pairs]
       .sort((a, b) => Number(b.anchor) - Number(a.anchor))
-      .map((pair) => ({ pair, projected: projectPair(values, pair, groups, dirty) }));
+      .map((pair) => {
+        const fresh = { ...pair, state: latest(pair) };
+        return { pair: fresh, projected: projectPair(values, fresh, groups, dirty) };
+      });
     if (forward) {
       const missing = plans
         .map(({ pair, projected }) => ({ title: pair.title, items: forwardBlockers(pair, projected) }))
@@ -258,12 +293,13 @@ function JointFormBody({
       if (missing.length > 0) return;
     }
     setBusy(forward ? "forward" : "save");
+    onSessionChange?.(true);
     const out: PairResult[] = [];
     // Jedna notatka na rozmowę: zakłada ją pierwszy zapis, następne ją wskazują.
     let noteImport: NoteImport | null = note;
     try {
       for (const { pair, projected } of plans) {
-        const state = latest(pair);
+        const state = pair.state;
         const plan = buildSavePayload(state, projected, { noteImport });
         let version = state.process_state_version;
         if (plan.hasChanges) {
@@ -310,6 +346,7 @@ function JointFormBody({
     if (out.every((r) => r.kind !== "save_failed")) {
       setNote(null);
       setNoteSummary(null);
+      noteFills.current = [];
     }
     setResults(out);
   };
@@ -329,6 +366,7 @@ function JointFormBody({
   const closeResults = () => {
     const anchorMoved = results?.some((r) => r.jobId === anchor.jobId && r.kind === "moved");
     setResults(null);
+    onSessionChange?.(false);
     if (anchorMoved) onForwarded?.();
   };
 
@@ -596,6 +634,17 @@ function QuestionCard({ methods, pairs, group }: { methods: UseFormReturn<JointV
   const [first, ...rest] = members;
   const id = `joint-answer-${group.key}`;
   const anyHit = members.some(({ member }) => methods.watch(`hits.${hitKey(member.jobId, member.questionId)}`));
+  const value = (methods.watch(`answers.${group.key}`) as string | undefined) ?? "";
+  // Jak przy polach wspólnych: zapisana inna odpowiedź zostaje, dopóki rekruter nie ruszy pola.
+  const differing =
+    members.length > 1
+      ? members
+          .map(({ pair, member }) => ({
+            pair,
+            saved: formDefaultsFromState(pair.state).answers?.[member.questionId]?.response ?? "",
+          }))
+          .filter(({ saved }) => saved.trim() && saved.trim() !== value.trim())
+      : [];
   return (
     <div className={cn("space-y-2 rounded-lg border bg-background/40 p-3", anyHit ? "border-destructive/40" : "border-border")}>
       <label htmlFor={id} className="block text-sm font-semibold text-foreground">
@@ -616,6 +665,11 @@ function QuestionCard({ methods, pairs, group }: { methods: UseFormReturn<JointV
         </dl>
       ) : null}
       <Textarea id={id} rows={2} placeholder="Jak odpowiedział kandydat?" {...methods.register(`answers.${group.key}`)} />
+      {differing.map(({ pair, saved }) => (
+        <p key={pair.jobId} className="text-[11px] text-muted-foreground">
+          W {pair.title}: {saved}
+        </p>
+      ))}
       {members
         .filter(({ question }) => question.deal_breaker)
         .map(({ pair, member }) => (
