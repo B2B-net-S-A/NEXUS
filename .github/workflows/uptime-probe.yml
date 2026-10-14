@@ -436,3 +436,61 @@ jobs:
             notify "Kopia off-site NEXUS nieświeża lub niekompletna" \
               "\`LATEST.json\` kopii off-site jest nieczytelny, za stary albo brakuje w nim artefaktu (postgres / uploads / cv_corpus / qdrant). Procedura: \`docs/runbook-backup-201.md\`."
           fi
+
+  # ── Noc bez wdrożenia (okno 19:00–07:00, decyzja Artura 14.10.2026) ────────
+  # Merge'e z dnia wdraża wieczorny `schedule` w deploy.yml. Cron GitHuba
+  # potrafi nie przyjść wcale (26.09.2026) — wtedy zmiany czekałyby kolejną
+  # dobę bez śladu. W dzień ta sonda sprawdza, czy na produkcji są wszystkie
+  # merge'e sprzed 07:00 (przy zielonej bramce HEAD-a; czerwoną obsługuje
+  # alarm wstrzymania w deploy.yml).
+  night-deploy:
+    name: Noc bez wdrożenia (okno 19:00–07:00)
+    if: ${{ github.event_name == 'schedule' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    permissions:
+      contents: read
+      actions: read
+      issues: write
+    steps:
+      - name: Checkout (tylko .github/scripts)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          sparse-checkout: .github/scripts
+      - name: Czy noc wdrożyła merge'e sprzed 07:00?
+        id: night
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FREEZE_WINDOW: ${{ vars.DEPLOY_FREEZE_WINDOW || '7-19' }}
+        run: |
+          set -u
+          live=$(curl -sS --max-time 15 https://api.nexus.dynaminds.pl/api/health | jq -r '.version // ""' 2>/dev/null || echo "")
+          python3 .github/scripts/select_release_sha.py night-check \
+            --repo "${{ github.repository }}" --branch main \
+            --live "$live" --freeze-window "$FREEZE_WINDOW"
+      - name: Alarm — noc bez wdrożenia
+        if: ${{ steps.night.outputs.night_alert != '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          REASON: ${{ steps.night.outputs.night_alert }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -eu
+          {
+            echo "Nocne okno wdrożeń minęło, a produkcja nie ma zmian z maina: **${REASON}**."
+            echo
+            echo "Wieczorne przebiegi Deploy nie wdrożyły HEAD-a (cron GitHuba nie przyszedł albo bieg padł)."
+            echo "Następna szansa: dziś po 19:00. Awaryjnie w dzień — tylko na polecenie Artura"
+            echo "(Deploy → Run workflow z emergency=true i powodem)."
+            echo
+            echo "Bieg: ${RUN_URL}"
+          } > "$RUNNER_TEMP/night-alert.md"
+          bash .github/scripts/alert_issue.sh open "Deploy NEXUS — noc bez wdrożenia" "$RUNNER_TEMP/night-alert.md"
+      - name: Zamknij alarm nocy
+        if: ${{ steps.night.outputs.checked == 'true' && steps.night.outputs.night_alert == '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: bash .github/scripts/alert_issue.sh resolve "Deploy NEXUS — noc bez wdrożenia" "Produkcja ma wszystkie merge'e sprzed okna ciszy."

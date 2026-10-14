@@ -5,6 +5,10 @@ allowed-tools: Bash(source:*), Bash(curl:*), Bash(jq:*)
 
 Rollback **nexus** do poprzedniego deployment.
 
+**Okno wdrożeń 19:00–07:00 (Europe/Warsaw, decyzja Artura 14.10.2026):** rollback to też
+przebudowa produkcji z przerwą dla użytkowników. W dzień — wyłącznie na wyraźne polecenie
+Artura w czacie.
+
 **Opcja A — Coolify panel (preferowane, ETA 1 min):**
 
 URL: https://coolify-nexus.dynaminds.pl
