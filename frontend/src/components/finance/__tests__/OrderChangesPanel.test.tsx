@@ -113,7 +113,7 @@ const DATA: OrderChangesResponse = {
     {
       ...ref,
       order_id: 12,
-      consultant_name: "Kamil Nowicki",
+      consultant_name: "Kamil Przykładowy",
       gap_id: 2,
       ended_on: "2026-08-31",
       detected_on: "2026-09-01",

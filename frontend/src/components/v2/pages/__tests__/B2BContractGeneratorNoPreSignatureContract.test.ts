@@ -1,7 +1,7 @@
 /**
  * Strażnik: generator nie zakłada kontraktu przed podpisem.
  *
- * Zgłoszenie 09.2026 (umowa 1506/2026, Adam Grono): dokument ze statusem
+ * Zgłoszenie 09.2026 (umowa 1506/2026): dokument ze statusem
  * podpisu „Niepodpisana" miał w systemie kontrakt. Winna była poczta zamówień
  * (patrz `backend/tests/test_order_mail_person_already_in_base.py`), ale
  * generator miał własną, drugą drogę: trzy przyciski podpisu wołały

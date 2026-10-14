@@ -1,7 +1,7 @@
 """„Zczytaj i uzupełnij całe zamówienie" — plan z jednego PDF-a (ticket 09.2026).
 
-Kryterium akceptacji: PDF BIK z dwiema pozycjami (Krzysztof Suwała, Paweł
-Łaski) daje w jednym kroku karty obu osób — stawka kosztowa z kontraktu,
+Kryterium akceptacji: PDF BIK z dwiema pozycjami (Krzysztof Próbała, Paweł
+Łęgowy) daje w jednym kroku karty obu osób — stawka kosztowa z kontraktu,
 stawka przychodowa i MD z PDF-a, każda wartość z opisem źródła.
 """
 
@@ -25,11 +25,11 @@ Numer/data zamówienia
 Na fakturze proszę powołać się na nr zamówienia : 4500030845
 Poz.Przedmiot Ilość zamów. Jedn. Cena jednostk. Wart.netto
 10 Rozwój Strumienia Detalicznego 35,000 SZT 1.080,00 37.800,00
-Profil UR - Krzysztof Suwała
+Profil UR - Krzysztof Próbała
 Obowiązująca stawka za osobę wynosi 1080,- zł/MD
 W wymiarze 35 MD (roboczo dni). Rozliczenie w trybie T&M.
 20 Rozwój Strumienia Detalicznego 42,000 SZT 1.280,00 53.760,00
-Profil UR - Paweł Łaski
+Profil UR - Paweł Łęgowy
 Obowiązująca stawka za osobę wynosi 1280,- zł/MD
 W wymiarze 42 MD (roboczo dni). Rozliczenie w trybie T&M.
 Łącz. wart. netto bez VAT 91.560,00 PLN
@@ -37,14 +37,14 @@ W wymiarze 42 MD (roboczo dni). Rozliczenie w trybie T&M.
 
 
 def test_position_labels_follow_the_table_rows():
-    assert document_position_labels(BIK_TEXT, ["Krzysztof Suwała", "Paweł Łaski"]) == [
+    assert document_position_labels(BIK_TEXT, ["Krzysztof Próbała", "Paweł Łęgowy"]) == [
         "10",
         "20",
     ]
 
 
 def test_position_labels_do_not_depend_on_row_order():
-    assert document_position_labels(BIK_TEXT, ["Paweł Łaski", "Krzysztof Suwała"]) == [
+    assert document_position_labels(BIK_TEXT, ["Paweł Łęgowy", "Krzysztof Próbała"]) == [
         "20",
         "10",
     ]
@@ -76,7 +76,7 @@ def test_position_label_is_unknown_rather_than_borrowed():
 # ── Endpoint ────────────────────────────────────────────────────────────────
 
 
-async def _seed_bik_client(*, prefix_laski: str = "") -> dict[str, int]:
+async def _seed_bik_client(*, prefix_legowy: str = "") -> dict[str, int]:
     from app.core.database import AsyncSessionLocal
     from app.models.candidate import Candidate
     from app.models.client import Client
@@ -89,9 +89,9 @@ async def _seed_bik_client(*, prefix_laski: str = "") -> dict[str, int]:
         await db.flush()
         ids: dict[str, int] = {"client_id": client.id}
         people = (
-            ("suwala", "Krzysztof", "Suwała", Decimal("148.750")),
+            ("probala", "Krzysztof", "Próbała", Decimal("148.750")),
             # Zapis bez polskich znaków — ticket: ma dopasować się automatycznie.
-            ("laski", f"{prefix_laski}Pawel".strip(), "Laski", Decimal("160.000")),
+            ("legowy", f"{prefix_legowy}Pawel".strip(), "Legowy", Decimal("160.000")),
         )
         for key, name, lastname, rate in people:
             candidate = Candidate(
@@ -146,14 +146,14 @@ def _patch_pipeline(monkeypatch) -> None:
             currency="PLN",
             consultant_rows=[
                 ConsultantOrderRow(
-                    consultant_name="Krzysztof Suwała",
+                    consultant_name="Krzysztof Próbała",
                     rate_client=Decimal("1080"),
                     rate_unit="day",
                     md_total=Decimal("35"),
                     uncertain=False,
                 ),
                 ConsultantOrderRow(
-                    consultant_name="Paweł Łaski",
+                    consultant_name="Paweł Łęgowy",
                     rate_client=Decimal("1280"),
                     rate_unit="day",
                     md_total=Decimal("42"),
@@ -189,38 +189,38 @@ async def test_bik_pdf_fills_every_consultant_card_in_one_step(
     assert data["total_value"] == 91560
     assert len(data["lines"]) == 2
 
-    suwala, laski = data["lines"]
-    assert suwala["document_name"] == "Krzysztof Suwała"
-    assert suwala["match_status"] == "auto"
-    assert suwala["contract"]["contract_id"] == ids["suwala_contract"]
+    probala, legowy = data["lines"]
+    assert probala["document_name"] == "Krzysztof Próbała"
+    assert probala["match_status"] == "auto"
+    assert probala["contract"]["contract_id"] == ids["probala_contract"]
     # Stawka kosztowa — z kontraktu; przychodowa i MD — z PDF-a, poz. 10.
-    assert suwala["contract"]["rate_cost"] == 148.75
-    assert suwala["contract"]["rate_cost_unit"] == "daily"
-    assert suwala["rate_revenue"] == 1080
-    assert suwala["rate_revenue_unit"] == "day"
-    assert suwala["md_total"] == 35
-    assert suwala["position_label"] == "10"
+    assert probala["contract"]["rate_cost"] == 148.75
+    assert probala["contract"]["rate_cost_unit"] == "daily"
+    assert probala["rate_revenue"] == 1080
+    assert probala["rate_revenue_unit"] == "day"
+    assert probala["md_total"] == 35
+    assert probala["position_label"] == "10"
 
-    # „Pawel Laski" (bez polskich znaków) → automatycznie do „Paweł Łaski".
-    assert laski["match_status"] == "auto"
-    assert laski["contract"]["contract_id"] == ids["laski_contract"]
-    assert laski["contract"]["contractor_name"] == "Pawel Laski"
-    assert laski["md_total"] == 42
-    assert laski["position_label"] == "20"
+    # „Pawel Legowy" (bez polskich znaków) → automatycznie do „Paweł Łęgowy".
+    assert legowy["match_status"] == "auto"
+    assert legowy["contract"]["contract_id"] == ids["legowy_contract"]
+    assert legowy["contract"]["contractor_name"] == "Pawel Legowy"
+    assert legowy["md_total"] == 42
+    assert legowy["position_label"] == "20"
 
 
 async def test_prefixed_contractor_name_needs_confirmation(
     app_client: AsyncClient, app_auth_headers: dict, monkeypatch
 ):
-    ids = await _seed_bik_client(prefix_laski="Active ")
+    ids = await _seed_bik_client(prefix_legowy="Active ")
     _patch_pipeline(monkeypatch)
 
     resp = await _post_pdf(app_client, ids["client_id"], app_auth_headers)
     assert resp.status_code == 200, resp.text
-    laski = resp.json()["lines"][1]
-    assert laski["match_status"] == "confirm"
-    assert laski["contract"]["contractor_name"] == "Active Pawel Laski"
-    assert "Active" in laski["match_reason"]
+    legowy = resp.json()["lines"][1]
+    assert legowy["match_status"] == "confirm"
+    assert legowy["contract"]["contractor_name"] == "Active Pawel Legowy"
+    assert "Active" in legowy["match_reason"]
 
 
 async def test_duplicate_name_at_the_client_is_never_picked_automatically(
@@ -234,7 +234,7 @@ async def test_duplicate_name_at_the_client_is_never_picked_automatically(
     async with AsyncSessionLocal() as db:
         namesake = Candidate(
             name="Krzysztof",
-            lastname="Suwala",
+            lastname="Probala",
             email=f"plan-namesake-{uuid.uuid4().hex[:6]}@example.com",
         )
         db.add(namesake)
@@ -252,10 +252,10 @@ async def test_duplicate_name_at_the_client_is_never_picked_automatically(
 
     resp = await _post_pdf(app_client, ids["client_id"], app_auth_headers)
     assert resp.status_code == 200, resp.text
-    suwala = resp.json()["lines"][0]
-    assert suwala["match_status"] == "ambiguous"
-    assert suwala["contract"] is None
-    assert len(suwala["options"]) == 2
+    probala = resp.json()["lines"][0]
+    assert probala["match_status"] == "ambiguous"
+    assert probala["contract"] is None
+    assert len(probala["options"]) == 2
 
 
 async def test_rates_are_redacted_for_a_delivery_lead_outside_the_portfolio(
@@ -352,8 +352,8 @@ async def test_md_order_with_all_consultants_is_created_active_in_one_call(
             "md_budget_mode": "per_person",
             "status": "active",
             "lines": [
-                _line(ids["suwala_contract"], md=35),
-                _line(ids["laski_contract"], md=42),
+                _line(ids["probala_contract"], md=35),
+                _line(ids["legowy_contract"], md=42),
             ],
         },
         headers=app_auth_headers,
@@ -369,7 +369,7 @@ async def test_active_md_order_without_complete_budgets_is_rejected(
     app_client: AsyncClient, app_auth_headers: dict, lines_md
 ):
     ids = await _seed_bik_client()
-    contracts = [ids["suwala_contract"], ids["laski_contract"]]
+    contracts = [ids["probala_contract"], ids["legowy_contract"]]
     resp = await app_client.post(
         f"/api/clients/{ids['client_id']}/order-groups",
         json={
@@ -481,16 +481,16 @@ async def test_endpoint_uses_the_client_table_rule_for_the_card_rate(
         apply=lambda result, ctx: result,
         order=10,
         extract_rows=lambda text: [
-            _row("Krzysztof Suwała", "1180", "day", "35"),
-            _row("Paweł Łaski", "1280", "day", "42"),
+            _row("Krzysztof Próbała", "1180", "day", "35"),
+            _row("Paweł Łęgowy", "1280", "day", "42"),
         ],
     )
     monkeypatch.setattr(og, "active_policies", lambda client_id: [policy])
 
     resp = await _post_pdf(app_client, ids["client_id"], app_auth_headers)
     assert resp.status_code == 200, resp.text
-    suwala, laski = resp.json()["lines"]
-    assert suwala["rate_revenue"] == 1180
-    assert any("różniła się od tabeli" in w for w in suwala["warnings"])
-    assert laski["rate_revenue"] == 1280
-    assert not any("tabeli" in w for w in laski["warnings"])
+    probala, legowy = resp.json()["lines"]
+    assert probala["rate_revenue"] == 1180
+    assert any("różniła się od tabeli" in w for w in probala["warnings"])
+    assert legowy["rate_revenue"] == 1280
+    assert not any("tabeli" in w for w in legowy["warnings"])

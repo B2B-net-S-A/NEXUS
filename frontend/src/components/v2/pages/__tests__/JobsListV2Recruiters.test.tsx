@@ -478,15 +478,15 @@ describe("JobsListV2 — kolumna „Rekruter” i priorytet w wierszu", () => {
         id: 1,
         title: "Z Delivery Leadem",
         recruiters: [],
-        delivery_lead_user: { id: 9, name: "Martyna Witkowska" },
+        delivery_lead_user: { id: 9, name: "Maria Wzorcowa" },
       }),
       jobRow({ id: 2, title: "Bez Delivery Leada", recruiters: [person(3, "Anna Nowak")] }),
     ]);
     renderJobs();
     await screen.findByText("Z Delivery Leadem");
     const dl = screen.getByTestId("job-delivery-lead");
-    expect(dl).toHaveTextContent("DL: Martyna W.");
-    expect(dl).toHaveAttribute("title", "Delivery Lead: Martyna Witkowska");
+    expect(dl).toHaveTextContent("DL: Maria W.");
+    expect(dl).toHaveAttribute("title", "Delivery Lead: Maria Wzorcowa");
     expect(screen.getAllByTestId("job-delivery-lead")).toHaveLength(1);
     expect(screen.queryByRole("columnheader", { name: /Delivery Lead/ })).not.toBeInTheDocument();
   });

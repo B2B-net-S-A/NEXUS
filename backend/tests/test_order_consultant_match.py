@@ -1,7 +1,7 @@
 """Reguła tolerancji dopasowania osoby z PDF-a do kontraktu (ticket 09.2026).
 
 Kryteria akceptacji ticketu „Automatyzacja tworzenia zamówień MD/Kosztowe":
-* „Pawel Laski" w kontrakcie dopasowuje się automatycznie do „Paweł Łaski",
+* „Pawel Legowy" w kontrakcie dopasowuje się automatycznie do „Paweł Łęgowy",
 * „Active Jan Kowalski" dopasowuje się do „Jan Kowalski" z odznaką do potwierdzenia,
 * „Jan Kowalczyk" NIE jest dopasowany do „Jan Kowalski",
 * dwie różne osoby o tym samym imieniu i nazwisku u klienta → ręczny wybór.
@@ -69,7 +69,7 @@ def test_core_is_the_last_two_capitalized_words(value, prefix, core):
 
 
 def test_polish_diacritics_alone_are_an_automatic_match():
-    match = match_names("Paweł Łaski", "Pawel Laski")
+    match = match_names("Paweł Łęgowy", "Pawel Legowy")
     assert match is not None and match.level == MATCH_AUTO
 
 
@@ -126,7 +126,7 @@ def test_reversed_first_and_last_name_needs_confirmation():
 
 
 def test_prefix_in_the_document_is_tolerated_but_confirmed():
-    match = match_names("Profil UR – Paweł Łaski", "Pawel Laski")
+    match = match_names("Profil UR – Paweł Łęgowy", "Pawel Legowy")
     assert match is not None
     assert match.level == MATCH_CONFIRM
     assert match.document_prefix == "Profil UR"
@@ -137,8 +137,8 @@ def test_prefix_in_the_document_is_tolerated_but_confirmed():
 
 def test_single_contract_with_identical_name_is_picked_automatically():
     result = resolve_contract(
-        "Paweł Łaski",
-        [_contract(1, "Pawel Laski"), _contract(2, "Krzysztof Suwała")],
+        "Paweł Łęgowy",
+        [_contract(1, "Pawel Legowy"), _contract(2, "Krzysztof Próbała")],
     )
     assert result.status == MATCH_AUTO
     assert result.contract is not None and result.contract.contract_id == 1
