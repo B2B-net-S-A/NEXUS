@@ -127,6 +127,9 @@ CATEGORY_BY_TYPE: dict[NotificationType, NotificationCategory] = {
     # Ruchy w rekrutacjach
     _T.stage_changed: _C.pipeline,
     _T.stage_rule: _C.pipeline,
+    # 0440: CV firmowe gotowe do sprawdzenia / automat go nie zrobił —
+    # informacja o własnej karcie, jak ruch etapu (do wyciszenia).
+    _T.cv_ready: _C.pipeline,
     _T.candidate_rate_change: _C.pipeline,
     _T.candidate_added: _C.pipeline,
     _T.champion_profile_updated: _C.pipeline,

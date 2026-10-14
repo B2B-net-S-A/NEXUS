@@ -225,6 +225,11 @@ class NotificationType(str, enum.Enum):
     # u którego pracuje (admini jako zapas); related_entity=
     # (candidate_stage, id wiersza etapu). Bez maila.
     consultant_in_other_recruitment = "consultant_in_other_recruitment"
+    # 0440: automat auto-CV podpiął CV firmowe po ruchu na „Zweryfikowany”
+    # i QC je policzyło („CV gotowe do sprawdzenia”) albo automat go nie zrobił
+    # z powodem, przy którym rekruter musi zadziałać sam. Do osoby, która
+    # przesunęła kartę; related_entity=(candidate_stage, id). Bez maila.
+    cv_ready = "cv_ready"
 
 
 class Notification(Base, TimestampMixin):

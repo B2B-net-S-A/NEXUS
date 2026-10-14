@@ -91,6 +91,32 @@ async def for_stage(db: AsyncSession, stage_id: int) -> Optional[str]:
     return (await for_stages(db, [stage_id])).get(stage_id)
 
 
+async def with_author(db: AsyncSession, stage_id: int) -> Optional[dict]:
+    """Uwaga wiersza etapu z autorem i czasem — ``{text, author_name,
+    created_at}`` albo ``None`` (przegląd Delivery Leada, 14.10.2026)."""
+
+    from app.models.user import User  # noqa: PLC0415
+
+    row = (
+        await db.execute(
+            select(Note.content, Note.created_at, User.name)
+            .outerjoin(User, User.id == Note.author_id)
+            .where(
+                Note.external_source == note_kinds.REMARK_SOURCE,
+                Note.external_id == str(stage_id),
+            )
+            .limit(1)
+        )
+    ).first()
+    if row is None or not clean(row.content):
+        return None
+    return {
+        "text": row.content.strip(),
+        "author_name": row.name,
+        "created_at": row.created_at,
+    }
+
+
 __all__ = [
     "MAX_CHARS",
     "SHORT_CHARS",
@@ -99,4 +125,5 @@ __all__ = [
     "for_stages",
     "record",
     "short",
+    "with_author",
 ]

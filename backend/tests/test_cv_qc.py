@@ -2436,7 +2436,11 @@ async def test_gate_blocks_cv_sent_until_qc_passes_or_dl_overrides(
             for c in col["items"]
             if c["candidate_id"] == world["candidate_id"]
         ]
-        assert cards and cards[0]["qc"] == {
+        assert cards
+        qc_card = dict(cards[0]["qc"])
+        # Uwagi nieblokujące przebiegu (14.10.2026) — liczba zależy od reguł QC.
+        assert isinstance(qc_card.pop("warnings_count"), int)
+        assert qc_card == {
             "status": "failed",
             "blocking_failed": 2,
             "ok_at": None,

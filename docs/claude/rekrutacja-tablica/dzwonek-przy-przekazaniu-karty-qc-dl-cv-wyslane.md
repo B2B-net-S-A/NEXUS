@@ -26,6 +26,15 @@ znało tylko `jobs.recruiter_id` (osobę z automatu przydziału albo nikogo).
   przeciągnięcie) dzwoni do osoby, która przekazała ją do QC, i do rekrutera
   kandydata: „Wróciło do poprawy”, z uwagą Delivery Leada, gdy ją zostawił.
   Oba zwroty to `BACKWARD_REASONS` — jedyne przekazania będące ruchem wstecz.
+- **QC CV nie przeszło po przekazaniu = zadanie rekrutera (14.10.2026).**
+  Wejście do „QC CV” (`pipeline._spawn_cv_qc_after_move`, także `/bulk-move`)
+  liczy QC z `notify_recruiter_on_fail=True`: przebieg niezaliczony i bez
+  obejścia dzwoni `board_task_waiting` „QC CV do poprawy: <osoba>” do
+  rekrutera kandydata (`pair_recruiter_id`), link do sekcji CV panelu osoby,
+  encja = wiersz „QC CV” (najwyżej raz dziennie). Początek tytułu
+  `TITLE_QC_FAILED` stoi w `RETURNED_TITLE_PREFIXES`, więc mail idzie jako
+  „CV wróciło do poprawy” — ten sam adresat i ta sama czynność, a „CV czeka na
+  przegląd” to mail Delivery Leada. QC po podpięciu CV tej flagi nie ma.
 - **Zadanie ≠ informacja o ruchu (0408).** Przegląd DL, kolejka Cpro i oba
   zwroty do poprawy (`TASK_REASONS`) idą typem `board_task_waiting` — kategoria
   „Wzmianki”, której nie da się wyciszyć, bo na odbiorcę czeka kandydat.

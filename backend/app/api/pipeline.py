@@ -470,7 +470,10 @@ async def _cancel_pending_rejection_emails(
 def _spawn_cv_qc_after_move(target_column: str, stage_id: int, actor_id: int) -> None:
     """QC CV liczy się samo po wejściu do kolumny „QC CV” (Rekrutacja v5).
 
-    Ten sam wyłącznik co bramka (w testach wyłączony autouse-fixturą).
+    Ten sam wyłącznik co bramka (w testach wyłączony autouse-fixturą). QC,
+    które nie przeszło i którego nikt nie przepuścił, dzwoni do rekrutera
+    kandydata („QC CV do poprawy”, 14.10.2026) — tylko z tej ścieżki, nie po
+    podpięciu CV.
     """
     if target_column != "cv_qc":
         return
@@ -480,7 +483,9 @@ def _spawn_cv_qc_after_move(target_column: str, stage_id: int, actor_id: int) ->
 
         if _settings.CV_QC_GATE_ENABLED:
             _spawn(
-                _cv_qc.run_after_move(stage_id, actor_id),
+                _cv_qc.run_after_move(
+                    stage_id, actor_id, notify_recruiter_on_fail=True
+                ),
                 f"cv_qc stage={stage_id}",
             )
     except Exception as _exc:  # noqa: BLE001 — automat nigdy nie psuje ruchu
@@ -2404,7 +2409,8 @@ async def _viewer_owns_dl_review(
 ) -> bool:
     """Czy przegląd przed wysłaniem do klienta w ``job`` należy do patrzącego.
 
-    Ta sama reguła co „Czeka na Ciebie” na pulpicie (`board_tasks.reviews_as_dl`):
+    Ta sama reguła co pas „Do wysłania do klienta” na pulpicie
+    (`board_tasks.reviews_as_dl`):
     Delivery Lead wpisany w rekrutacji, a bez niego — Delivery Lead z portfelem
     klienta. Nieaktywny DL rekrutacji liczy się jak brak DL-a (lustro
     `_LATEST_SQL`). U Nordei to akceptacja do kolejki Cpro (13.10.2026) —
@@ -2433,6 +2439,28 @@ async def _viewer_owns_dl_review(
     )
 
 
+async def _job_stages_generating_auto_cv(db: AsyncSession, job_id: int) -> set[int]:
+    """Wiersze etapu rekrutacji, dla których automat auto-CV właśnie generuje
+    dokument (``origin="auto"``, ``status="processing"``) — jedno zapytanie.
+
+    Zadanie przerwane utratą wykonawcy `recovery_loop` przestawia na
+    ``failed``, więc „w przygotowaniu” nie wisi bez końca.
+    """
+    from app.models.cv_generated_document import CvGeneratedDocument
+
+    rows = await db.scalars(
+        select(CvGeneratedDocument.stage_id)
+        .where(
+            CvGeneratedDocument.job_id == job_id,
+            CvGeneratedDocument.stage_id.is_not(None),
+            CvGeneratedDocument.origin == "auto",
+            CvGeneratedDocument.status == "processing",
+        )
+        .distinct()
+    )
+    return {int(stage_id) for stage_id in rows.all()}
+
+
 async def build_kanban_view(
     db: AsyncSession,
     job: Job,
@@ -2440,6 +2468,7 @@ async def build_kanban_view(
     viewer: Optional[User] = None,
     with_followups: bool = True,
     with_employment: bool = True,
+    with_cv_state: bool = True,
 ) -> KanbanView:
     """The board of ``job`` — shared by ``/kanban/{job_id}`` and ``/my-next-steps``.
 
@@ -2676,6 +2705,11 @@ async def build_kanban_view(
     from app.services.cv_auto_review import job_stages_with_ready_auto_cv
 
     auto_cv_stage_ids = await job_stages_with_ready_auto_cv(db, job_id)
+    # Droga rekrutera do DL (14.10.2026): automat właśnie generuje CV dla
+    # wiersza etapu — karta mówi „CV w przygotowaniu…”. Też jedno zapytanie.
+    generating_stage_ids = (
+        await _job_stages_generating_auto_cv(db, job_id) if with_cv_state else set()
+    )
     # Rekrutacja v5 (0361): stan QC CV każdej karty — jedno zapytanie hurtowe
     # (najnowszy przebieg pary; obejście DL/admina = `overridden`).
     from app.services.cv_qc import pair_statuses
@@ -2696,6 +2730,18 @@ async def build_kanban_view(
     from app.services import candidate_rate_change as _rate_change
 
     job_has_questions = bool(screening_sheets.question_texts(job.champion_profile))
+    # Para ma CV firmowe — ta sama reguła co wymaganie ruchu na „QC CV”
+    # (`company_cv_refs`, hurtem: najwyżej 4 zapytania na tablicę). Karta
+    # z „Zweryfikowanego” wie przed ruchem, że CV brakuje (14.10.2026).
+    company_cv_pairs = (
+        set(
+            await move_requirements.company_cv_refs(
+                db, [(cid, job_id) for cid in candidate_ids]
+            )
+        )
+        if with_cv_state
+        else None
+    )
 
     # 0418: otwarta sprawa zmiany stawki pary — plakietka na karcie.
     rate_change_by_candidate = await _rate_change.open_badges_for_job(db, job_id=job_id)
@@ -2800,6 +2846,14 @@ async def build_kanban_view(
         payload["contact_case"] = contact_case_by_candidate.get(e.candidate_id)
         payload["process_state_version"] = process_versions.get(e.candidate_id, 0)
         payload["auto_cv_ready"] = e.id in auto_cv_stage_ids
+        payload["auto_cv_state"] = (
+            "processing" if e.id in generating_stage_ids else None
+        )
+        payload["company_cv"] = (
+            (e.candidate_id, job_id) in company_cv_pairs
+            if company_cv_pairs is not None
+            else None
+        )
         payload["qc"] = qc_by_pair.get((e.candidate_id, job_id))
         card = card_by_candidate.get(e.candidate_id)
         payload["card"] = (
@@ -3084,12 +3138,15 @@ async def my_next_steps(
                 client_name=job.client.name if job.client else None,
                 # Follow-up (0372) liczy ~14 zapytań na tablicę — „Moje
                 # następne kroki” składa do 25 tablic, a plakietki nie pokazuje.
+                # Stan CV firmowego (14.10.2026) też nie: `company_cv=None`
+                # znaczy „nie wiadomo” i niczego nie blokuje.
                 view=await build_kanban_view(
                     db,
                     job,
                     viewer=current_user,
                     with_followups=False,
                     with_employment=False,
+                    with_cv_state=False,
                 ),
             )
         )
