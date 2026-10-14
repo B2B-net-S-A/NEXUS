@@ -108,3 +108,24 @@ def test_role_cannot_be_combined() -> None:
         assert "automation" in str(exc)
     else:  # pragma: no cover - czytelny komunikat zamiast cichego przejścia
         raise AssertionError("rola automation połączyła się z rekruterem")
+
+
+def test_named_permissions_migration_seeds_only_roles_known_at_0410() -> None:
+    """Na świeżej bazie 0410 biegnie przed 0445 — wiersz ``automation`` złamałby
+    CHECK ról tabeli akcji (pełne CI 14.10.2026). Rolę zasiewa 0445 i siatka
+    przy starcie."""
+    import importlib.util
+
+    from app.services import permission_schema as schema
+
+    path = ROOT / "alembic/versions/0410_named_permissions.py"
+    spec = importlib.util.spec_from_file_location("named_permissions_0410", path)
+    assert spec and spec.loader
+    migration = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(migration)
+
+    assert "automation" not in migration.ROLES_AT_0410
+    assert set(migration.ROLES_AT_0410) | {"automation"} == set(catalog.ROLES)
+    frozen = schema.seed_sql(migration.ROLES_AT_0410)
+    assert "('automation')" not in frozen
+    assert "('automation')" in schema.SEED_SQL

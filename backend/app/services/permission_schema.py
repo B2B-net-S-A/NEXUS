@@ -49,7 +49,6 @@ def _values(rows: list[str]) -> str:
     return ",\n        ".join(rows)
 
 
-_ROLE_ROWS = [f"('{role}')" for role in catalog.ROLES]
 _ACTION_ROWS = [f"('{key}')" for key in catalog.SEEDED_KEYS]
 _HOLDER_ROWS = [
     f"('{holder.role}', '{permission.key}')"
@@ -65,13 +64,23 @@ _NEED_ROWS = [
     for section, minimum in holder.needs
 ]
 
+
 # Zasiew: wiersz dla KAŻDEJ pary rola × uprawnienie. „manage” dostaje admin
 # oraz domyślny posiadacz, którego ZAPISANE sekcje spełniają progi; reszta
 # dostaje jawne „none”. Istniejącego wiersza nie rusza (decyzja z panelu wygrywa).
-SEED_SQL = f"""
+def seed_sql(roles: tuple[str, ...]) -> str:
+    """SQL zasiewu dla podanych ról.
+
+    Migracja 0410 podaje listę ról ze SWOJEGO czasu: rola dodana później (0445,
+    „Automatyzacje”) nie mieści się jeszcze w CHECK-u ról tabeli akcji, a na
+    świeżej bazie 0410 biegnie przed jej migracją. Siatka przy starcie podaje
+    pełny ``catalog.ROLES``.
+    """
+
+    return f"""
 WITH roles(role) AS (
     VALUES
-        {_values(_ROLE_ROWS)}
+        {_values([f"('{role}')" for role in roles])}
 ),
 actions(action) AS (
     VALUES
@@ -115,6 +124,10 @@ FROM roles CROSS JOIN actions
 ON CONFLICT (role, action) DO NOTHING
 """
 
+
+SEED_SQL = seed_sql(catalog.ROLES)
+
+
 # Podpis B2B u TAC był włączony od 0282, ale nigdy nie działał (zakres klienta
 # zawsze odmawiał). Ekran ma mówić prawdę, więc wiersz, którego nikt nie
 # ustawił ręcznie, przechodzi na „none”. Wiersz zmieniony w panelu zostaje.
@@ -146,12 +159,12 @@ SELECT (
 """
 
 
-def apply_statements() -> list[str]:
+def apply_statements(roles: tuple[str, ...] = catalog.ROLES) -> list[str]:
     """Pełna naprawa w kolejności wykonania: CHECK → zasiew → TAC → rewizja."""
 
     return [
         *widen_action_checks_sql(),
-        SEED_SQL,
+        seed_sql(roles),
         TAC_SIGNATURE_SQL,
         BUMP_REVISION_SQL,
     ]
