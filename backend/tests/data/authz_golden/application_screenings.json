@@ -18,10 +18,11 @@
   "recruiter+delivery_view",
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
-  "recruiter+amounts_edit"
+  "recruiter+amounts_edit",
+  "automation"
  ],
  "routes": {
-  "GET /api/jobs/{job_id}/screened-out": "PPPPPPPDPPPPPPPPPPP",
-  "POST /api/jobs/{job_id}/screened-out/{screening_id}/add": "PPPPPPDDPPPPPPPPPPP"
+  "GET /api/jobs/{job_id}/screened-out": "PPPPPPPDPPPPPPPPPPPP",
+  "POST /api/jobs/{job_id}/screened-out/{screening_id}/add": "PPPPPPDDPPPPPPPPPPPD"
  }
 }

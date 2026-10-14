@@ -53,7 +53,11 @@ const SCOPES: ScopeInfoDto[] = [
   { value: "finance:write", label: "Finanse: zapis („Zrobione”, import wyników)" },
   { value: "invoices:read", label: "Faktury: odczyt (rejestr, DSO)" },
   { value: "invoices:write", label: "Faktury: zapis (wystawienie, zmiana, anulowanie)" },
-  { value: "amounts:read", label: "Stawki i kwoty: podgląd w zamówieniach i kontraktach" },
+  {
+    value: "sales_amounts:read",
+    label: "Kwoty sprzedaży: stawki do klienta, wartości i budżety zamówień, przychód, faktury do klientów",
+  },
+  { value: "amounts:read", label: "Wszystkie kwoty: także stawki konsultantów, koszty i marża" },
 ];
 
 const CONFIG: ServiceAccountConfigDto = {
@@ -95,7 +99,7 @@ function seedAccounts(now: Date): ServiceAccountDto[] {
         "md:write",
         "finance:write",
         "invoices:read",
-        "amounts:read",
+        "sales_amounts:read",
       ],
       is_active: true,
       created_by: 1,

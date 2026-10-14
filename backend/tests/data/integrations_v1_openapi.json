@@ -319,6 +319,10 @@
             ],
             "title": "Contract Type"
           },
+          "costs_redacted": {
+            "title": "Costs Redacted",
+            "type": "boolean"
+          },
           "end_date": {
             "anyOf": [
               {
@@ -478,6 +482,7 @@
           "rate_client_currency",
           "rate_candidate_currency",
           "amounts_redacted",
+          "costs_redacted",
           "rates",
           "updated_at"
         ],
@@ -508,7 +513,7 @@
         "type": "object"
       },
       "ContractRatesOut": {
-        "description": "Stawki obowiązujące dnia ``as_of`` (z harmonogramów).",
+        "description": "Stawki obowiązujące dnia ``as_of`` (z harmonogramów).\n\nStawka konsultanta i marża (``rate_candidate``, ``margin`` i ich\nmiesięczne odpowiedniki) są ``null`` bez ``amounts:read``.",
         "properties": {
           "as_of": {
             "format": "date",
@@ -1100,8 +1105,13 @@
         "title": "FinanceResultRow",
         "type": "object"
       },
-      "FinanceResultsResponse": {
+      "FinanceResultsOut": {
+        "description": "Wyniki miesiąca. Bez ``amounts:read`` (``costs_redacted``) wiersze nie\nmają stawki kosztowej MD, wynagrodzenia i marży, a kafle — kosztu i marży.",
         "properties": {
+          "costs_redacted": {
+            "title": "Costs Redacted",
+            "type": "boolean"
+          },
           "month": {
             "title": "Month",
             "type": "integer"
@@ -1122,7 +1132,7 @@
             "type": "integer"
           },
           "totals": {
-            "$ref": "#/components/schemas/FinanceTotals"
+            "$ref": "#/components/schemas/FinanceTotalsOut"
           },
           "year": {
             "title": "Year",
@@ -1135,13 +1145,14 @@
           "run_id",
           "rows",
           "totals",
-          "needs_completion_count"
+          "needs_completion_count",
+          "costs_redacted"
         ],
-        "title": "FinanceResultsResponse",
+        "title": "FinanceResultsOut",
         "type": "object"
       },
-      "FinanceTotals": {
-        "description": "Kafle. Liczone SERWEROWO z tych samych wierszy, które zwraca `/results`.\n\nKafel będący sumą innych liczb niż widoczne pod nim jest niemożliwy do\nzweryfikowania wzrokiem — dlatego nie ma tu osobnego zapytania agregującego.",
+      "FinanceTotalsOut": {
+        "description": "Kafle miesiąca; koszt, marża i ich pochodne bez ``amounts:read`` = ``null``.",
         "properties": {
           "avg_margin_pct": {
             "anyOf": [
@@ -1155,17 +1166,37 @@
             "title": "Avg Margin Pct"
           },
           "cost": {
-            "title": "Cost",
-            "type": "number"
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cost"
           },
           "cost_without_margin": {
-            "default": 0.0,
-            "title": "Cost Without Margin",
-            "type": "number"
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cost Without Margin"
           },
           "margin": {
-            "title": "Margin",
-            "type": "number"
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Margin"
           },
           "revenue": {
             "title": "Revenue",
@@ -1180,9 +1211,10 @@
         "required": [
           "cost",
           "revenue",
-          "margin"
+          "margin",
+          "cost_without_margin"
         ],
-        "title": "FinanceTotals",
+        "title": "FinanceTotalsOut",
         "type": "object"
       },
       "GroupCancelIn": {
@@ -1880,6 +1912,7 @@
         "type": "object"
       },
       "InvoiceOut": {
+        "description": "``amount`` faktury od kontraktora (koszt) jest ``null`` bez\n``amounts:read`` — wtedy ``costs_redacted = true``.",
         "properties": {
           "amount": {
             "anyOf": [
@@ -1895,6 +1928,10 @@
           "contract_id": {
             "title": "Contract Id",
             "type": "integer"
+          },
+          "costs_redacted": {
+            "title": "Costs Redacted",
+            "type": "boolean"
           },
           "created_at": {
             "format": "date-time",
@@ -2000,6 +2037,7 @@
           "due_date",
           "paid_date",
           "amount",
+          "costs_redacted",
           "currency",
           "status",
           "notes",
@@ -2814,30 +2852,8 @@
         "title": "OrderChangesCounts",
         "type": "object"
       },
-      "OrderChangesPeriod": {
-        "properties": {
-          "label": {
-            "title": "Label",
-            "type": "string"
-          },
-          "month": {
-            "title": "Month",
-            "type": "integer"
-          },
-          "year": {
-            "title": "Year",
-            "type": "integer"
-          }
-        },
-        "required": [
-          "year",
-          "month",
-          "label"
-        ],
-        "title": "OrderChangesPeriod",
-        "type": "object"
-      },
-      "OrderChangesResponse": {
+      "OrderChangesOut": {
+        "description": "Audyt miesiąca. Bez ``amounts:read`` (``costs_redacted``): ``rate_cost``,\nkwoty zmiany stawki kosztowej i koszt w opisach są ukryte, a klucz pozycji\nszkicu ma skrót zamiast stawek.",
         "properties": {
           "can_check": {
             "default": false,
@@ -2862,6 +2878,10 @@
               }
             ],
             "title": "Changes Tracked Since"
+          },
+          "costs_redacted": {
+            "title": "Costs Redacted",
+            "type": "boolean"
           },
           "counts": {
             "$ref": "#/components/schemas/OrderChangesCounts"
@@ -2924,9 +2944,33 @@
           "ending_orders",
           "gaps",
           "gaps_tracked_since",
-          "open_gaps_total"
+          "open_gaps_total",
+          "costs_redacted"
         ],
-        "title": "OrderChangesResponse",
+        "title": "OrderChangesOut",
+        "type": "object"
+      },
+      "OrderChangesPeriod": {
+        "properties": {
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "month": {
+            "title": "Month",
+            "type": "integer"
+          },
+          "year": {
+            "title": "Year",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "year",
+          "month",
+          "label"
+        ],
+        "title": "OrderChangesPeriod",
         "type": "object"
       },
       "OrderChangesSummaryResponse": {
@@ -3751,6 +3795,10 @@
             ],
             "title": "Client Name"
           },
+          "costs_redacted": {
+            "title": "Costs Redacted",
+            "type": "boolean"
+          },
           "end_date": {
             "anyOf": [
               {
@@ -3847,6 +3895,7 @@
           "md_budget_total",
           "md_budget_remaining",
           "amounts_redacted",
+          "costs_redacted",
           "budget_amount",
           "budget_remaining",
           "has_file",
@@ -3899,6 +3948,28 @@
           "summary"
         ],
         "title": "OrderHistoryEntry",
+        "type": "object"
+      },
+      "OrderHistoryOut": {
+        "description": "Historia zamówienia; bez ``amounts:read`` opisy nie podają kosztu.",
+        "properties": {
+          "costs_redacted": {
+            "title": "Costs Redacted",
+            "type": "boolean"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/OrderHistoryEntry"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items",
+          "costs_redacted"
+        ],
+        "title": "OrderHistoryOut",
         "type": "object"
       },
       "OrderItemCheck": {
@@ -3997,6 +4068,10 @@
           "contract_id": {
             "title": "Contract Id",
             "type": "integer"
+          },
+          "costs_redacted": {
+            "title": "Costs Redacted",
+            "type": "boolean"
           },
           "created_at": {
             "format": "date-time",
@@ -4150,6 +4225,7 @@
           "rate_unit",
           "currency",
           "amounts_redacted",
+          "costs_redacted",
           "rate_cost",
           "rate_revenue",
           "md_total",
@@ -4756,6 +4832,7 @@
         "type": "object"
       },
       "RateHistoryOut": {
+        "description": "``candidate`` (stawki konsultanta) jest pusty, gdy ``costs_redacted``.",
         "properties": {
           "candidate": {
             "items": {
@@ -4774,6 +4851,10 @@
           "contract_id": {
             "title": "Contract Id",
             "type": "integer"
+          },
+          "costs_redacted": {
+            "title": "Costs Redacted",
+            "type": "boolean"
           },
           "rate_candidate_currency": {
             "anyOf": [
@@ -4815,7 +4896,8 @@
           "rate_client_currency",
           "rate_candidate_currency",
           "candidate",
-          "client"
+          "client",
+          "costs_redacted"
         ],
         "title": "RateHistoryOut",
         "type": "object"
@@ -5026,22 +5108,6 @@
           "email"
         ],
         "title": "PersonOut",
-        "type": "object"
-      },
-      "app__schemas__finance_order_changes__OrderHistoryResponse": {
-        "properties": {
-          "items": {
-            "items": {
-              "$ref": "#/components/schemas/OrderHistoryEntry"
-            },
-            "title": "Items",
-            "type": "array"
-          }
-        },
-        "required": [
-          "items"
-        ],
-        "title": "OrderHistoryResponse",
         "type": "object"
       }
     },
@@ -5450,7 +5516,7 @@
     },
     "/api/integrations/v1/contracts/{contract_id}/rate-history": {
       "get": {
-        "description": "Kroki harmonogramów stawek (od najstarszego). Wymaga ``amounts:read``.",
+        "description": "Kroki harmonogramów stawek (od najstarszego). Stawki do klienta ze\n``sales_amounts:read``; stawki konsultanta (``candidate``) tylko\nz ``amounts:read`` — bez niego lista jest pusta i ``costs_redacted = true``.",
         "operationId": "contract_rate_history_api_integrations_v1_contracts__contract_id__rate_history_get",
         "parameters": [
           {
@@ -5606,7 +5672,7 @@
     },
     "/api/integrations/v1/finance/order-changes": {
       "get": {
-        "description": "Audyt miesiąca (domyślnie bieżący, czas Europe/Warsaw) z „Zrobione”.\n\nPozycja ma ``item_key`` — tym kluczem odhacza się ją w\n``POST /finance/order-changes/checks``.",
+        "description": "Audyt miesiąca (domyślnie bieżący, czas Europe/Warsaw) z „Zrobione”.\n\nPozycja ma ``item_key`` — tym kluczem odhacza się ją w\n``POST /finance/order-changes/checks``. Koszty (``rate_cost``, kwoty\nzmiany stawki kosztowej) tylko z ``amounts:read``.",
         "operationId": "order_changes_api_integrations_v1_finance_order_changes_get",
         "parameters": [
           {
@@ -5720,7 +5786,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/OrderChangesResponse"
+                  "$ref": "#/components/schemas/OrderChangesOut"
                 }
               }
             },
@@ -5745,7 +5811,7 @@
     },
     "/api/integrations/v1/finance/order-changes/checks": {
       "post": {
-        "description": "Pozycja musi istnieć w audycie miesiąca — inaczej 409 (widok nieaktualny).",
+        "description": "Pozycja musi istnieć w audycie miesiąca — inaczej 409 (widok nieaktualny).\n``item_key`` dokładnie taki, jaki podał odczyt tym kluczem API.",
         "operationId": "set_check_api_integrations_v1_finance_order_changes_checks_post",
         "requestBody": {
           "content": {
@@ -5787,6 +5853,7 @@
     },
     "/api/integrations/v1/finance/order-changes/history": {
       "get": {
+        "description": "Opisy zmian stawki kosztowej podają kwoty tylko z ``amounts:read``.",
         "operationId": "order_changes_history_api_integrations_v1_finance_order_changes_history_get",
         "parameters": [
           {
@@ -5831,7 +5898,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/app__schemas__finance_order_changes__OrderHistoryResponse"
+                  "$ref": "#/components/schemas/OrderHistoryOut"
                 }
               }
             },
@@ -6140,6 +6207,7 @@
     },
     "/api/integrations/v1/finance/results": {
       "get": {
+        "description": "Przychód i faktura z ``finance:read``; stawka kosztowa MD,\nwynagrodzenie i marża tylko z ``amounts:read``.",
         "operationId": "finance_results_api_integrations_v1_finance_results_get",
         "parameters": [
           {
@@ -6170,7 +6238,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/FinanceResultsResponse"
+                  "$ref": "#/components/schemas/FinanceResultsOut"
                 }
               }
             },
@@ -6195,7 +6263,7 @@
     },
     "/api/integrations/v1/invoices": {
       "get": {
-        "description": "Faktury sortowane po id. ``overdue_only`` = wystawione/wysłane po terminie.",
+        "description": "Faktury sortowane po id. ``overdue_only`` = wystawione/wysłane po terminie.\nKwota faktury od kontraktora tylko z ``amounts:read``.",
         "operationId": "list_invoices_api_integrations_v1_invoices_get",
         "parameters": [
           {
@@ -6485,7 +6553,7 @@
         ]
       },
       "patch": {
-        "description": "Zmiana pól faktury (np. ``paid_date`` + ``status=paid`` po zapłacie).",
+        "description": "Zmiana pól faktury (np. ``paid_date`` + ``status=paid`` po zapłacie).\nZmiana kierunku faktury od kontraktora (albo na nią) wymaga\n``amounts:read`` — inaczej 403: przestawienie kosztu na „do klienta”\nodsłoniłoby jego kwotę.",
         "operationId": "update_invoice_api_integrations_v1_invoices__invoice_id__patch",
         "parameters": [
           {
@@ -6736,7 +6804,7 @@
     },
     "/api/integrations/v1/md/imports/{import_id}": {
       "get": {
-        "description": "Partia z wierszami. Kwoty faktur i „Uwagi” tylko z ``amounts:read``.",
+        "description": "Partia z wierszami. Kwoty faktur i „Uwagi” tylko ze\n``sales_amounts:read`` (albo ``amounts:read``).",
         "operationId": "get_md_import_api_integrations_v1_md_imports__import_id__get",
         "parameters": [
           {

@@ -18,10 +18,11 @@
   "recruiter+delivery_view",
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
-  "recruiter+amounts_edit"
+  "recruiter+amounts_edit",
+  "automation"
  ],
  "routes": {
-  "GET /api/admin/screening-note-backfill/status": "PDDDDDDDDDDDDDDDDDD",
-  "POST /api/admin/screening-note-backfill": "PDDDDDDDDDDDDDDDDDD"
+  "GET /api/admin/screening-note-backfill/status": "PDDDDDDDDDDDDDDDDDDD",
+  "POST /api/admin/screening-note-backfill": "PDDDDDDDDDDDDDDDDDDD"
  }
 }

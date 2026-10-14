@@ -19,7 +19,7 @@ const SCOPES = [
   { value: "clients:read", label: "Klienci: odczyt (nazwa, NIP, Delivery Lead)" },
   { value: "md:read", label: "Zużycie MD: odczyt (salda, importy)" },
   { value: "md:write", label: "Zużycie MD: zapis (import, przypisanie wiersza, korekta miesiąca)" },
-  { value: "amounts:read", label: "Stawki i kwoty: podgląd w zamówieniach i kontraktach" },
+  { value: "amounts:read", label: "Wszystkie kwoty: także stawki konsultantów, koszty i marża" },
   { value: "traffit:sync", label: "Uruchamianie synchronizacji Traffit" },
 ];
 

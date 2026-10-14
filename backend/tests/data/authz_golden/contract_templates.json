@@ -18,14 +18,15 @@
   "recruiter+delivery_view",
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
-  "recruiter+amounts_edit"
+  "recruiter+amounts_edit",
+  "automation"
  ],
  "routes": {
-  "DELETE /api/contract-templates/{template_id}": "PDDDDDDDDDDDDDDDDDD",
-  "GET /api/contract-templates": "PPDBDDDDBBBDDDDDDPP",
-  "GET /api/contract-templates/{template_id}": "PPDBDDDDBBBDDDDDDPP",
-  "GET /api/contract-templates/{template_id}/render": "PPDBDDDDBBBDDDDDDPP",
-  "PATCH /api/contract-templates/{template_id}": "PDDDDDDDDDDDDDDDDDD",
-  "POST /api/contract-templates": "PDDDDDDDDDDDDDDDDDD"
+  "DELETE /api/contract-templates/{template_id}": "PDDDDDDDDDDDDDDDDDDD",
+  "GET /api/contract-templates": "PPDBDDDDBBBDDDDDDPPD",
+  "GET /api/contract-templates/{template_id}": "PPDBDDDDBBBDDDDDDPPD",
+  "GET /api/contract-templates/{template_id}/render": "PPDBDDDDBBBDDDDDDPPD",
+  "PATCH /api/contract-templates/{template_id}": "PDDDDDDDDDDDDDDDDDDD",
+  "POST /api/contract-templates": "PDDDDDDDDDDDDDDDDDDD"
  }
 }

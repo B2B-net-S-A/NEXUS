@@ -18,10 +18,11 @@
   "recruiter+delivery_view",
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
-  "recruiter+amounts_edit"
+  "recruiter+amounts_edit",
+  "automation"
  ],
  "routes": {
-  "PATCH /api/integrations/v1/contracts/{contract_id}": "UUUUUUUUUUUUUUUUUUU",
-  "POST /api/integrations/v1/contracts/{contract_id}/status": "UUUUUUUUUUUUUUUUUUU"
+  "PATCH /api/integrations/v1/contracts/{contract_id}": "UUUUUUUUUUUUUUUUUUUU",
+  "POST /api/integrations/v1/contracts/{contract_id}/status": "UUUUUUUUUUUUUUUUUUUU"
  }
 }

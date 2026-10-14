@@ -18,12 +18,13 @@
   "recruiter+delivery_view",
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
-  "recruiter+amounts_edit"
+  "recruiter+amounts_edit",
+  "automation"
  ],
  "routes": {
-  "GET /api/candidate-search/jobs/{job_id}/latest-run": "PPPPPPPDPPPPPPPPPPP",
-  "GET /api/candidate-search/jobs/{job_id}/requirements": "PPPPPPPDPPPPPPPPPPP",
-  "GET /api/candidate-search/runs/{run_id}": "PPPPPPPDPPPPPPPPPPP",
-  "POST /api/candidate-search/runs": "PPPPPPPDPPPPPPPPPPP"
+  "GET /api/candidate-search/jobs/{job_id}/latest-run": "PPPPPPPDPPPPPPPPPPPP",
+  "GET /api/candidate-search/jobs/{job_id}/requirements": "PPPPPPPDPPPPPPPPPPPP",
+  "GET /api/candidate-search/runs/{run_id}": "PPPPPPPDPPPPPPPPPPPP",
+  "POST /api/candidate-search/runs": "PPPPPPPDPPPPPPPPPPPP"
  }
 }

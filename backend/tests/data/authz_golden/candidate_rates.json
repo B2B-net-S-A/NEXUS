@@ -18,11 +18,12 @@
   "recruiter+delivery_view",
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
-  "recruiter+amounts_edit"
+  "recruiter+amounts_edit",
+  "automation"
  ],
  "routes": {
-  "GET /api/candidates/{candidate_id}/rate-overview": "PPPPPPDDPPPPPPPPPPP",
-  "GET /api/candidates/{candidate_id}/recruitment-rate-hints": "PPPPPPDDPPPPPPPPPPP",
-  "PUT /api/candidates/{candidate_id}/rate-observations/{key}": "PPPPPPDDPPPPPPPPPPP"
+  "GET /api/candidates/{candidate_id}/rate-overview": "PPPPPPDDPPPPPPPPPPPP",
+  "GET /api/candidates/{candidate_id}/recruitment-rate-hints": "PPPPPPDDPPPPPPPPPPPP",
+  "PUT /api/candidates/{candidate_id}/rate-observations/{key}": "PPPPPPDDPPPPPPPPPPPD"
  }
 }

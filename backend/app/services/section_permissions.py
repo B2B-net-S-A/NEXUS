@@ -116,6 +116,15 @@ DEFAULT_ROLE_SECTION_ACCESS: dict[UserRole, dict[ProductSection, SectionAccess]]
     # 0374: praktykant nie ma żadnej sekcji — jego ekran stoi poza sekcjami
     # (`/api/trainee/*`, ``TraineeUser``).
     UserRole.trainee: _policy(),
+    # 0446: „Automatyzacje” — wszędzie tylko odczyt, więc bramka sekcji odmawia
+    # każdego zapisu. Delivery „read” to próg zasiewu podglądu Delivery
+    # (sekcja sama wynika z uprawnień); kwot i modułu Finanse rola nie ma.
+    UserRole.automation: _policy(
+        sourcing=SectionAccess.read,
+        pipeline=SectionAccess.read,
+        delivery=SectionAccess.read,
+        insights=SectionAccess.read,
+    ),
 }
 
 # Backwards-compatible export name. Tests use it as the migration seed contract.

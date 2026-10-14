@@ -18,21 +18,22 @@
   "recruiter+delivery_view",
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
-  "recruiter+amounts_edit"
+  "recruiter+amounts_edit",
+  "automation"
  ],
  "routes": {
-  "GET /api/admin/traffit/added-dates-repair/status": "UUUUUUUUUUUUUUUUUUU",
-  "GET /api/admin/traffit/file-dates-repair/status": "UUUUUUUUUUUUUUUUUUU",
-  "GET /api/admin/traffit/notes-repair/status": "UUUUUUUUUUUUUUUUUUU",
-  "GET /api/admin/traffit/sync/status": "UUUUUUUUUUUUUUUUUUU",
-  "GET /api/admin/traffit/transfer/status": "UUUUUUUUUUUUUUUUUUU",
-  "GET /api/admin/traffit/twins-merge/status": "UUUUUUUUUUUUUUUUUUU",
-  "POST /api/admin/traffit/added-dates-repair": "UUUUUUUUUUUUUUUUUUU",
-  "POST /api/admin/traffit/file-dates-repair": "UUUUUUUUUUUUUUUUUUU",
-  "POST /api/admin/traffit/notes-repair": "UUUUUUUUUUUUUUUUUUU",
-  "POST /api/admin/traffit/notes-repair/recruitments": "UUUUUUUUUUUUUUUUUUU",
-  "POST /api/admin/traffit/sync": "UUUUUUUUUUUUUUUUUUU",
-  "POST /api/admin/traffit/transfer": "UUUUUUUUUUUUUUUUUUU",
-  "POST /api/admin/traffit/twins-merge": "UUUUUUUUUUUUUUUUUUU"
+  "GET /api/admin/traffit/added-dates-repair/status": "UUUUUUUUUUUUUUUUUUUU",
+  "GET /api/admin/traffit/file-dates-repair/status": "UUUUUUUUUUUUUUUUUUUU",
+  "GET /api/admin/traffit/notes-repair/status": "UUUUUUUUUUUUUUUUUUUU",
+  "GET /api/admin/traffit/sync/status": "UUUUUUUUUUUUUUUUUUUU",
+  "GET /api/admin/traffit/transfer/status": "UUUUUUUUUUUUUUUUUUUU",
+  "GET /api/admin/traffit/twins-merge/status": "UUUUUUUUUUUUUUUUUUUU",
+  "POST /api/admin/traffit/added-dates-repair": "UUUUUUUUUUUUUUUUUUUU",
+  "POST /api/admin/traffit/file-dates-repair": "UUUUUUUUUUUUUUUUUUUU",
+  "POST /api/admin/traffit/notes-repair": "UUUUUUUUUUUUUUUUUUUU",
+  "POST /api/admin/traffit/notes-repair/recruitments": "UUUUUUUUUUUUUUUUUUUU",
+  "POST /api/admin/traffit/sync": "UUUUUUUUUUUUUUUUUUUU",
+  "POST /api/admin/traffit/transfer": "UUUUUUUUUUUUUUUUUUUU",
+  "POST /api/admin/traffit/twins-merge": "UUUUUUUUUUUUUUUUUUUU"
  }
 }

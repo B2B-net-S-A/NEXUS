@@ -19,6 +19,7 @@ MIGRATION_PATH = BACKEND_ROOT / "alembic/versions/0269_configurable_section_rbac
 # Role dodane po 0269 — ich wiersze zasiewa ich własna migracja, nie 0269.
 ROLES_ADDED_AFTER_0269: dict[str, str] = {
     UserRole.trainee.value: "0374_trainee_call_lists.py",
+    UserRole.automation.value: "0446_automation_role.py",
 }
 
 # Role wycofane w 0411 (sourcer, TAC → rekruter). Zamrożona migracja 0269 nadal
@@ -85,8 +86,11 @@ def test_roles_added_after_0269_are_seeded_by_their_own_migration() -> None:
     for role, migration_file in ROLES_ADDED_AFTER_0269.items():
         source = (BACKEND_ROOT / "alembic/versions" / migration_file).read_text()
         assert "INSERT INTO rbac_role_section_permissions" in source
-        assert f"SELECT '{role}', section, 'none'" in source
-        assert all(
-            DEFAULT_ROLE_SECTION_ACCESS[UserRole(role)][section].name == "none"
-            for section in ProductSection
-        )
+        policy = DEFAULT_ROLE_SECTION_ACCESS[UserRole(role)]
+        if all(access.name == "none" for access in policy.values()):
+            assert f"SELECT '{role}', section, 'none'" in source
+            continue
+        # 0446: rola z sekcjami do odczytu wpisuje poziom każdej sekcji jawnie.
+        assert f"SELECT '{role}', s.section, s.access" in source
+        for section, access in policy.items():
+            assert f"('{section.value}', '{access.name}')" in source

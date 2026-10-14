@@ -131,56 +131,27 @@ export function pairCompanyCv(
   return item.status === "ok";
 }
 
-/** CV firmowe PARY z `GET …/cv-share-tokens` (`branded_cv`). */
-export interface DockPairBranded {
-  status: "none" | "draft" | "finalized" | string;
-  stage_id: number | null;
-  stage_name: string | null;
-  finalized_at: string | null;
-}
-
 /**
- * CV firmowe pary leżące na INNYM etapie niż bieżący — ruch na kolejną
- * kolumnę zakłada nowy wiersz etapu bez CV, a dokument zostaje na etapie,
- * na którym powstał (runda 10, F23). `null` = etap ma własne CV albo para
- * nie ma żadnego.
+ * Zdanie o CV firmowym PARY (osoba × rekrutacja). `branded` to stan CV z
+ * wiersza, na którym CV leży — bieżącego albo wskazanego przez serwer
+ * (`pair_source_stage_id`, `useStageBrandedCv`). Do 14.10.2026 CV z
+ * poprzedniego etapu dostawało dopisek „…z etapu X, nie podpięte do
+ * bieżącego etapu”, który Delivery Lead czytał jak „tu nie ma CV” (D2).
  */
-export function pairCvOnOtherStage(
-  stageBranded: StageBrandedSummary | null | undefined,
-  pair: DockPairBranded | null | undefined,
-  currentStageId: number,
-): DockPairBranded | null {
-  if (stageCvStatus(stageBranded) !== "none") return null;
-  if (!pair || (pair.status !== "draft" && pair.status !== "finalized")) return null;
-  if (pair.stage_id == null || pair.stage_id === currentStageId) return null;
-  return pair;
-}
-
 export function companyCvSentence(
   branded: DockBrandedInput | null | undefined,
-  opts: { pairHasCompanyCv?: boolean | null; pairBranded?: DockPairBranded | null } = {},
+  opts: { pairHasCompanyCv?: boolean | null } = {},
 ): {
   text: string;
   tone: "success" | "info" | "neutral" | "warning";
 } {
   const status = stageCvStatus(branded);
-  if (status === "none" && opts.pairBranded) {
-    const pair = opts.pairBranded;
-    const where = pair.stage_name ? ` — z etapu „${pair.stage_name}”` : "";
-    if (pair.status === "finalized") {
-      return {
-        text: `CV firmowe: zatwierdzone${pair.finalized_at ? ` ${formatDate(pair.finalized_at)}` : ""}${where}, nie podpięte do bieżącego etapu`,
-        tone: "success",
-      };
-    }
-    return { text: `CV firmowe: szkic${where}, nie podpięte do bieżącego etapu`, tone: "info" };
-  }
   if (status === "none") {
-    // Etap nie ma własnego CV (brak wiersza → 404 albo stan „none”), a para
-    // ma CV firmowe gdzie indziej — ramka „Następny etap” pokazuje wtedy ✓,
-    // więc „brak” byłby sprzecznością na jednym ekranie.
+    // Para nie ma CV etapu, ale lista wymagań liczy CV firmowe z plików
+    // kandydata (gotowe CV z generatora albo plik „…B2B…”) — ramka „Następny
+    // etap” pokazuje wtedy ✓, więc „brak” byłby sprzecznością na jednym ekranie.
     if (opts.pairHasCompanyCv) {
-      return { text: "CV firmowe: gotowe (nie podpięte do tego etapu)", tone: "success" };
+      return { text: "CV firmowe: gotowe (w plikach kandydata)", tone: "success" };
     }
     return { text: "CV firmowe: brak", tone: "warning" };
   }

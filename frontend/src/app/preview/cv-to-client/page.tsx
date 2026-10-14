@@ -66,7 +66,16 @@ const CLIENT_ID = 7;
 const REVISION = 2;
 const FRESH = { updatedAt: Date.now() + 86_400_000 };
 
-type Variant = "sources" | "regenerate" | "counter" | "clean" | "qcdown" | "forwarded" | "skipped" | "rewrite";
+type Variant =
+  | "sources"
+  | "regenerate"
+  | "counter"
+  | "clean"
+  | "qcdown"
+  | "forwarded"
+  | "skipped"
+  | "rewrite"
+  | "sent";
 
 interface Person {
   stageId: number;
@@ -85,6 +94,8 @@ const PEOPLE: readonly Person[] = [
   { stageId: 706, candidateId: 36, name: "Ewa Testowa", label: "Po przekazaniu — CV się generuje", variant: "forwarded" },
   { stageId: 707, candidateId: 37, name: "Olga Wzorcowa", label: "Po przekazaniu — automat pominął osobę", variant: "skipped" },
   { stageId: 708, candidateId: 39, name: "Lena Przykładowa", label: "„Napisz od nowa” — Twoje poprawki zostają", variant: "rewrite" },
+  // D3 (14.10.2026): osoba już u klienta — karta bez podmiany CV.
+  { stageId: 709, candidateId: 40, name: "Karol Przykładowy", label: "Po „CV wysłane” — bez podmiany CV", variant: "sent" },
 ];
 
 /** „Napisz od nowa” (PR 5): nowa generacja i podmiana szkicu odpowiadają z pamięci. */
@@ -400,6 +411,7 @@ function Harness() {
               forwarded={FORWARDED.has(person.variant)}
               nextInScreening={person.variant === "forwarded" ? NEXT_IN_SCREENING : null}
               onOpenPerson={() => setOpened(NEXT_IN_SCREENING.name)}
+              lockedAfterSend={person.variant === "sent"}
               loadStageCvFile={loadPreviewFile}
               loadStageCvPdf={loadPreviewPages}
             />

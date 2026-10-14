@@ -18,10 +18,11 @@
   "recruiter+delivery_view",
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
-  "recruiter+amounts_edit"
+  "recruiter+amounts_edit",
+  "automation"
  ],
  "routes": {
-  "GET /api/skills": "PPPPPPPDPPPPPPPPPPP",
-  "GET /api/skills/autocomplete": "PPPPPPPDPPPPPPPPPPP"
+  "GET /api/skills": "PPPPPPPDPPPPPPPPPPPP",
+  "GET /api/skills/autocomplete": "PPPPPPPDPPPPPPPPPPPP"
  }
 }

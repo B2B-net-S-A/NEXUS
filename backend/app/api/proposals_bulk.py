@@ -27,7 +27,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import RecruiterPlus
+from app.api.deps import OperationalUser, RecruiterPlus
 from app.api.recruitment_access import ensure_job_membership
 from app.api.section_access import PIPELINE_SECTION_DEPENDENCIES
 from app.core.database import get_db
@@ -243,7 +243,7 @@ class AssignableStage(BaseModel):
 )
 async def list_assignable_stages(
     job_id: int,
-    current_user: RecruiterPlus,
+    current_user: OperationalUser,
     db: AsyncSession = Depends(get_db),
 ) -> list[AssignableStage]:
     job = await db.scalar(select(Job).where(Job.id == job_id))

@@ -764,6 +764,38 @@ describe("token sprzed połączenia ról (02.10.2026) — `tac` i `sourcer` licz
   })
 })
 
+describe("„Automatyzacje” (0446) — podgląd bez zapisu", () => {
+  const automation = makeToken({
+    role: "automation",
+    roles: ["automation"],
+    exp: now() + HOUR,
+  })
+
+  it.each([
+    "/jobs",
+    "/candidates",
+    "/talent-radar",
+    "/clients",
+    "/contracts",
+    "/insights",
+    "/calendar",
+  ])("%s jest otwarte (odczyt)", (route) => {
+    expect(destination(route, automation)).toBe("pass")
+  })
+
+  it.each([
+    "/finance",
+    "/applications",
+    "/academy",
+    "/candidates/contact-queue",
+    "/settings/api-keys",
+    "/settings/cv-rules",
+    "/trainees",
+  ])("%s daje /403", (route) => {
+    expect(destination(route, automation)).toBe("/403")
+  })
+})
+
 describe("praktykant (0374) — jeden ekran", () => {
   const trainee = makeToken({ role: "trainee", roles: ["trainee"], exp: now() + HOUR })
 

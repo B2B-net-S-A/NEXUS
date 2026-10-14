@@ -26,7 +26,7 @@ _ACTION_ACCESS_VALUES = "'none', 'view', 'generate', 'manage'"
 _ROLE_VALUES = (
     "'admin', 'head_of_recruitment', 'delivery_lead', "
     "'talent_community_manager', 'finance', 'tac', 'recruiter', 'sourcer', 'user', "
-    "'trainee'"
+    "'trainee', 'automation'"
 )
 
 

@@ -18,10 +18,11 @@
   "recruiter+delivery_view",
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
-  "recruiter+amounts_edit"
+  "recruiter+amounts_edit",
+  "automation"
  ],
  "routes": {
-  "GET /api/jobs/{job_id}/plain-brief": "PPPPPPPDPPPPPPPPPPP",
-  "PUT /api/jobs/{job_id}/role-profile": "PDPDDDDDDPDPDDDDDDD"
+  "GET /api/jobs/{job_id}/plain-brief": "PPPPPPPDPPPPPPPPPPPP",
+  "PUT /api/jobs/{job_id}/role-profile": "PDPDDDDDDPDPDDDDDDDD"
  }
 }

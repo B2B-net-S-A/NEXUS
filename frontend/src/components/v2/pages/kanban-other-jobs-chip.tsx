@@ -7,10 +7,13 @@
  * z `GET /api/pipeline/kanban/{id}` (`services/also_fits.py`).
  */
 
+import { useState } from "react";
 import Link from "next/link";
 import { Layers } from "lucide-react";
 
+import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { JOINT_MAX_OTHERS } from "@/lib/joint-screening";
 import { cn } from "@/lib/utils";
 
 import type { KanbanItem, OtherOpenJob } from "./kanban-shared";
@@ -32,16 +35,20 @@ export function OtherJobsChip({
   item,
   fullName,
   className,
+  onScreenTogether,
 }: {
   item: KanbanItem;
   fullName: string;
   className?: string;
+  /** „Screening razem” — panel osoby z tymi rekrutacjami zaznaczonymi (PR 2, 14.10.2026). */
+  onScreenTogether?: (jobIds: number[]) => void;
 }) {
+  const [open, setOpen] = useState(false);
   const jobs: OtherOpenJob[] = item.other_open_jobs ?? [];
   if (jobs.length === 0) return null;
   const firstName = fullName.split(" ")[0] || fullName;
   return (
-    <Popover>
+    <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <button
           type="button"
@@ -86,6 +93,24 @@ export function OtherJobsChip({
             </li>
           ))}
         </ul>
+        {onScreenTogether ? (
+          <>
+            <p className="mt-2 text-xs text-muted-foreground">
+              Jedna rozmowa wystarczy: formularz pokaże pytania wszystkich rekrutacji, a wspólne tylko raz.
+            </p>
+            <Button
+              type="button"
+              size="sm"
+              className="mt-2 w-full"
+              onClick={() => {
+                setOpen(false);
+                onScreenTogether(jobs.slice(0, JOINT_MAX_OTHERS).map((job) => job.job_id));
+              }}
+            >
+              Screening razem ({Math.min(jobs.length, JOINT_MAX_OTHERS) + 1})
+            </Button>
+          </>
+        ) : null}
       </PopoverContent>
     </Popover>
   );

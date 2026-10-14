@@ -18,12 +18,13 @@
   "recruiter+delivery_view",
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
-  "recruiter+amounts_edit"
+  "recruiter+amounts_edit",
+  "automation"
  ],
  "routes": {
-  "DELETE /api/jobs/{job_id}/files/{file_id}": "PPPPPPDDPPPPPPPPPPP",
-  "GET /api/jobs/{job_id}/files": "PPPPPPDDPPPPPPPPPPP",
-  "GET /api/jobs/{job_id}/files/{file_id}/content": "PPPPPPDDPPPPPPPPPPP",
-  "POST /api/jobs/{job_id}/files": "PPPPPPDDPPPPPPPPPPP"
+  "DELETE /api/jobs/{job_id}/files/{file_id}": "PPPPPPDDPPPPPPPPPPPD",
+  "GET /api/jobs/{job_id}/files": "PPPPPPDDPPPPPPPPPPPP",
+  "GET /api/jobs/{job_id}/files/{file_id}/content": "PPPPPPDDPPPPPPPPPPPP",
+  "POST /api/jobs/{job_id}/files": "PPPPPPDDPPPPPPPPPPPD"
  }
 }

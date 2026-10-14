@@ -18,13 +18,14 @@
   "recruiter+delivery_view",
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
-  "recruiter+amounts_edit"
+  "recruiter+amounts_edit",
+  "automation"
  ],
  "routes": {
-  "GET /api/integrations/v1/md/imports": "UUUUUUUUUUUUUUUUUUU",
-  "GET /api/integrations/v1/md/imports/{import_id}": "UUUUUUUUUUUUUUUUUUU",
-  "POST /api/integrations/v1/md/imports": "UUUUUUUUUUUUUUUUUUU",
-  "POST /api/integrations/v1/md/imports/{import_id}/rows/{row_id}/assign": "UUUUUUUUUUUUUUUUUUU",
-  "PUT /api/integrations/v1/orders/{order_id}/md-consumptions/{period_month}": "UUUUUUUUUUUUUUUUUUU"
+  "GET /api/integrations/v1/md/imports": "UUUUUUUUUUUUUUUUUUUU",
+  "GET /api/integrations/v1/md/imports/{import_id}": "UUUUUUUUUUUUUUUUUUUU",
+  "POST /api/integrations/v1/md/imports": "UUUUUUUUUUUUUUUUUUUU",
+  "POST /api/integrations/v1/md/imports/{import_id}/rows/{row_id}/assign": "UUUUUUUUUUUUUUUUUUUU",
+  "PUT /api/integrations/v1/orders/{order_id}/md-consumptions/{period_month}": "UUUUUUUUUUUUUUUUUUUU"
  }
 }

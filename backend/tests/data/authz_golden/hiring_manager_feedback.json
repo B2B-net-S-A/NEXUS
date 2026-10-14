@@ -18,10 +18,11 @@
   "recruiter+delivery_view",
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
-  "recruiter+amounts_edit"
+  "recruiter+amounts_edit",
+  "automation"
  ],
  "routes": {
-  "GET /api/jobs/{job_id}/hiring-manager-feedback": "PPPPPPDDPPPPPPPPPPP",
-  "POST /api/jobs/{job_id}/hiring-manager-feedback": "PPPPPPDDPPPPPPPPPPP"
+  "GET /api/jobs/{job_id}/hiring-manager-feedback": "PPPPPPDDPPPPPPPPPPPP",
+  "POST /api/jobs/{job_id}/hiring-manager-feedback": "PPPPPPDDPPPPPPPPPPPD"
  }
 }

@@ -302,9 +302,9 @@ describe("PersonWorkbenchTabs — zakładka z etapu i kontekst warsztatów", () 
     expect(mocks.apiGet).not.toHaveBeenCalledWith("/api/jobs/42/background-events", expect.anything());
   });
 
-  it("warsztaty Screening i CV dostają podgląd tylko do odczytu na osobę spoza kolejki", () => {
+  it("Screening dostaje podgląd tylko do odczytu na osobę spoza kolejki; CV nie — warsztat sam pokazuje kartę (D3)", () => {
     renderTabs({ candidateId: 4, section: "cv" });
-    expect(mocks.workbenchProps.cv.panelFallback).toBeTruthy();
+    expect(mocks.workbenchProps.cv.panelFallback).toBeUndefined();
     renderTabs({ candidateId: 4, section: "screening" });
     expect(mocks.workbenchProps.screening.panelFallback).toBeTruthy();
   });

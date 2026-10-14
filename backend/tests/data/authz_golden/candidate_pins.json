@@ -18,12 +18,13 @@
   "recruiter+delivery_view",
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
-  "recruiter+amounts_edit"
+  "recruiter+amounts_edit",
+  "automation"
  ],
  "routes": {
-  "DELETE /api/candidates/{candidate_id}/pin": "PPPPPPDDPPPPPPPPPPP",
-  "GET /api/candidates/pins": "PPPPPPDDPPPPPPPPPPP",
-  "GET /api/candidates/{candidate_id}/pin": "PPPPPPDDPPPPPPPPPPP",
-  "POST /api/candidates/{candidate_id}/pin": "PPPPPPDDPPPPPPPPPPP"
+  "DELETE /api/candidates/{candidate_id}/pin": "PPPPPPDDPPPPPPPPPPPD",
+  "GET /api/candidates/pins": "PPPPPPDDPPPPPPPPPPPP",
+  "GET /api/candidates/{candidate_id}/pin": "PPPPPPDDPPPPPPPPPPPP",
+  "POST /api/candidates/{candidate_id}/pin": "PPPPPPDDPPPPPPPPPPPD"
  }
 }

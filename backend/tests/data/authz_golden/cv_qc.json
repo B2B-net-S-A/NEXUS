@@ -18,16 +18,17 @@
   "recruiter+delivery_view",
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
-  "recruiter+amounts_edit"
+  "recruiter+amounts_edit",
+  "automation"
  ],
  "routes": {
-  "GET /api/pipeline/stages/{stage_id}/qc": "PPPPPPDDPPPPPPPPPPP",
-  "POST /api/pipeline/stages/{stage_id}/qc/apply": "PPPPPPDDPPPPPPPPPPP",
-  "POST /api/pipeline/stages/{stage_id}/qc/confirm": "PPPPPPDDPPPPPPPPPPP",
-  "POST /api/pipeline/stages/{stage_id}/qc/dismiss": "PPPPPPDDPPPPPPPPPPP",
-  "POST /api/pipeline/stages/{stage_id}/qc/dismissals/{dismissal_id}/restore": "PPPPPPDDPPPPPPPPPPP",
-  "POST /api/pipeline/stages/{stage_id}/qc/fixes": "PPPPPPDDPPPPPPPPPPP",
-  "POST /api/pipeline/stages/{stage_id}/qc/override": "PPPPPPDDPPPPPPPPPPP",
-  "POST /api/pipeline/stages/{stage_id}/qc/transform": "PPPPPPDDPPPPPPPPPPP"
+  "GET /api/pipeline/stages/{stage_id}/qc": "PPPPPPDDPPPPPPPPPPPP",
+  "POST /api/pipeline/stages/{stage_id}/qc/apply": "PPPPPPDDPPPPPPPPPPPD",
+  "POST /api/pipeline/stages/{stage_id}/qc/confirm": "PPPPPPDDPPPPPPPPPPPD",
+  "POST /api/pipeline/stages/{stage_id}/qc/dismiss": "PPPPPPDDPPPPPPPPPPPD",
+  "POST /api/pipeline/stages/{stage_id}/qc/dismissals/{dismissal_id}/restore": "PPPPPPDDPPPPPPPPPPPD",
+  "POST /api/pipeline/stages/{stage_id}/qc/fixes": "PPPPPPDDPPPPPPPPPPPD",
+  "POST /api/pipeline/stages/{stage_id}/qc/override": "PPPPPPDDPPPPPPPPPPPD",
+  "POST /api/pipeline/stages/{stage_id}/qc/transform": "PPPPPPDDPPPPPPPPPPPD"
  }
 }

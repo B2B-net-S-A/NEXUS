@@ -77,10 +77,20 @@ integratora: `docs/api/integracje-v1.md` (bez nazwisk — repo jest publiczne).
   kontraktowe przestałyby widzieć trasy). Trasy ekranów dla klucza nadal 401.
 - **Scope'y v1** w `ServiceScope`: `clients:read`, `contracts:read|write`,
   `orders:read|write`, `md:read|write`, `finance:read|write`,
-  `invoices:read|write`, `amounts:read|write`.
-  `X:write` obejmuje `X:read` (`implied_scopes`, liczone przy budowie
-  `ServicePrincipal`, nie w `granted_scopes()`). Kwoty w zamówieniach, kontraktach i wierszach importu MD
-  wyłącznie z `amounts:read` (`can_see_amounts`), inaczej `null` + `amounts_redacted`.
+  `invoices:read|write`, `sales_amounts:read`, `amounts:read|write`.
+  `X:write` obejmuje `X:read`, a `amounts:read` obejmuje `sales_amounts:read`
+  (`implied_scopes`, liczone przy budowie `ServicePrincipal`, nie w `granted_scopes()`).
+- **Kwoty w dwóch poziomach (decyzja Artura 14.10.2026):** `sales_amounts:read` =
+  to, co płaci klient (stawka do klienta, wartość i budżet zamówienia, przychód,
+  faktury do klientów); stawka konsultanta, koszt i marża **wyłącznie z `amounts:read`**,
+  bo automatyzacja rozliczająca faktury klientów nie ma widzieć kosztów. Każde pole
+  z kwotą w v1 idzie przez `common.amount_level` (`AmountLevel.none|sales|all`),
+  nie przez sprawdzenie scope'u w trasie. Ukryte pole = `null`; `amounts_redacted`
+  (żadnych kwot) i `costs_redacted` (bez kosztów i marży). Finanse i faktury
+  pokazują sprzedaż z samego `finance:read`/`invoices:read`, koszty dopiero
+  z `amounts:read` — także w napisach: klucz pozycji szkicu w Zmianach (skrót HMAC)
+  i opisy historii (`finance._summary_without_costs`, test buduje opisy prawdziwymi
+  funkcjami ekranu). Klasyfikacja pól: tabela „Kwoty” w `docs/api/integracje-v1.md`.
 - **Nowa trasa v1 = scope (zależność `require_service_scope(..., allow_admin_jwt=False)`
   albo `require_service_scope_any` dla meta) + `@limiter.limit(read_rate_limit|write_rate_limit,
   key_func=principal_rate_key)` + test klasy scope'u w `tests/test_integrations_v1_api.py`

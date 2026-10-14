@@ -15,6 +15,7 @@ się pod NEXUSA przez stabilne API dla automatyzacji. Dokumentacja dla integrato
 | Odczyt: klienci, kontrakty (+historia stawek), zamówienia i grupy MD, zużycie MD, importy MD, Finanse (zmiany, PDF-y, ZIP, wyniki), faktury i DSO | gotowe | 25 tras GET; `TestReadScopes` |
 | Zapis: import MD (409 na powtórzony plik), przypisanie wiersza, korekta MD za miesiąc, „Zrobione”, import wyników, faktury (create/patch/cancel) | gotowe | 9 tras; `TestMdImport`, `TestFinanceChecks`, `TestInvoicesWrite` |
 | Kwoty tylko z `amounts:read` (zamówienia, kontrakty, wiersze importu MD) | gotowe | `TestAmountsScope`, `test_md_import_rows_hide_invoice_amounts_without_amounts_read` |
+| Kwoty rozdzielone (PR 3, 14.10): `sales_amounts:read` = to, co płaci klient; koszty, marża, stawki konsultantów, faktury od kontraktorów i aneksy umów tylko z `amounts:read`; `costs_redacted` | gotowe | `test_integrations_v1_contract.py`, `TestAmountsScope` |
 | Ekran „Ustawienia → Klucze API” | gotowe | `frontend/src/app/settings/api-keys/`, harness `/preview/api-keys`; vitest 431 passed |
 | OAuth: mapa tras zależna od metody (+5 tras scraperów) | gotowe | `services/oauth_route_scopes.py`; `tests/test_oauth_route_scopes_methods.py` |
 | Migracja 0443 + lustro `entrypoint.sh` | gotowe | `tests/test_entrypoint_order_change_source_mirror.py` |

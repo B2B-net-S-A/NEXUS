@@ -69,6 +69,11 @@ const PIPELINE_OPERATIONAL_ROLES = PIPELINE_ROLES.filter(
   (role) => role !== "user",
 );
 const DELIVERY_ROLES = sectionRoles("delivery");
+// „Automatyzacje” (0446) mają w sekcjach tylko odczyt. Ekrany, które istnieją
+// po to, żeby coś zapisać (kolejka zgłoszeń, Akademia), dostają /403 zamiast
+// pustego ekranu z odmową z API.
+const WITHOUT_READ_ONLY = (roles: UserRole[]): UserRole[] =>
+  roles.filter((role) => role !== "automation");
 const INSIGHTS_ROLES = sectionRoles("insights");
 const SYSTEM_ADMIN_ROLES = sectionRoles("system_admin");
 
@@ -136,7 +141,7 @@ const ROLE_ROUTES: RouteAccessRule[] = [
   // Akademia (0369) = sekcja Pipeline + RecruiterPlus w backendzie.
   {
     prefix: "/academy",
-    roles: PIPELINE_OPERATIONAL_ROLES,
+    roles: WITHOUT_READ_ONLY(PIPELINE_OPERATIONAL_ROLES),
     section: "pipeline",
     enforceRoles: true,
   },
@@ -322,7 +327,7 @@ const ROLE_ROUTES: RouteAccessRule[] = [
   // (parytet z rekruterem), więc HoR nie jest już odcinany (audyt ról U5).
   {
     prefix: "/applications",
-    roles: SOURCING_OPERATIONAL_ROLES,
+    roles: WITHOUT_READ_ONLY(SOURCING_OPERATIONAL_ROLES),
     section: "sourcing",
     enforceRoles: true,
   },

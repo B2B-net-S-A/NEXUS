@@ -18,13 +18,14 @@
   "recruiter+delivery_view",
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
-  "recruiter+amounts_edit"
+  "recruiter+amounts_edit",
+  "automation"
  ],
  "routes": {
-  "DELETE /api/contacts/{contact_id}": "PDDPDDDDPPPDDDPDDDD",
-  "GET /api/clients/{client_id}/contacts": "PPPPPPPDPPPPPPPPPPP",
-  "GET /api/contacts": "PPPBPBDDBBBPPPPPBPP",
-  "POST /api/contacts": "PDDPDDDDPPPDDDPDDDD",
-  "PUT /api/contacts/{contact_id}": "PPDPPDDDPPPDPPPDDDP"
+  "DELETE /api/contacts/{contact_id}": "PDDPDDDDPPPDDDPDDDDD",
+  "GET /api/clients/{client_id}/contacts": "PPPPPPPDPPPPPPPPPPPP",
+  "GET /api/contacts": "PPPBPBDDBBBPPPPPBPPP",
+  "POST /api/contacts": "PDDPDDDDPPPDDDPDDDDD",
+  "PUT /api/contacts/{contact_id}": "PPDPPDDDPPPDPPPDDDPD"
  }
 }

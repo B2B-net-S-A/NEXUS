@@ -18,14 +18,15 @@
   "recruiter+delivery_view",
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
-  "recruiter+amounts_edit"
+  "recruiter+amounts_edit",
+  "automation"
  ],
  "routes": {
-  "GET /api/recruitment-allocation/jobs/{job_id}": "PPPPPPDDPPPPPPPPPPP",
-  "GET /api/recruitment-allocation/mine": "PPPPPPDDPPPPPPPPPPP",
-  "GET /api/recruitment-allocation/onboarding": "PPPPPPDDPPPPPPPPPPP",
-  "GET /api/recruitment-allocation/team": "PDPDDDDDDPDPDDDDDDD",
-  "PATCH /api/recruitment-allocation/onboarding/{item_id}": "PPPPPPDDPPPPPPPPPPP",
-  "PUT /api/recruitment-allocation/mode": "PDPDDDDDDPDPDDDDDDD"
+  "GET /api/recruitment-allocation/jobs/{job_id}": "PPPPPPDDPPPPPPPPPPPP",
+  "GET /api/recruitment-allocation/mine": "PPPPPPDDPPPPPPPPPPPP",
+  "GET /api/recruitment-allocation/onboarding": "PPPPPPDDPPPPPPPPPPPP",
+  "GET /api/recruitment-allocation/team": "PDPDDDDDDPDPDDDDDDDD",
+  "PATCH /api/recruitment-allocation/onboarding/{item_id}": "PPPPPPDDPPPPPPPPPPPD",
+  "PUT /api/recruitment-allocation/mode": "PDPDDDDDDPDPDDDDDDDD"
  }
 }

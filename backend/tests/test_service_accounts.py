@@ -140,6 +140,26 @@ class TestScopeVocabulary:
         # Zapis bez odpowiadającego odczytu w słowniku niczego nie dokłada.
         assert implied_scopes(frozenset({"bogus:write"})) == {"bogus:write"}
 
+    def test_all_amounts_include_sales_amounts_but_not_the_other_way(self):
+        """Decyzja Artura 14.10.2026: koszty i marża tylko z ``amounts:read``,
+        który obejmuje kwoty sprzedaży; ``sales_amounts:read`` nie daje kosztów."""
+        assert implied_scopes(frozenset({"amounts:read"})) == {
+            "amounts:read",
+            "sales_amounts:read",
+        }
+        assert implied_scopes(frozenset({"amounts:write"})) == {
+            "amounts:write",
+            "amounts:read",
+            "sales_amounts:read",
+        }
+        assert implied_scopes(frozenset({"sales_amounts:read"})) == {
+            "sales_amounts:read"
+        }
+        assert SCOPE_LABELS[ServiceScope.sales_amounts_read].startswith(
+            "Kwoty sprzedaży"
+        )
+        assert SCOPE_LABELS[ServiceScope.amounts_read].startswith("Wszystkie kwoty")
+
     def test_every_scope_has_polish_label(self):
         for scope in ServiceScope:
             assert SCOPE_LABELS.get(scope)

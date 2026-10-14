@@ -125,7 +125,7 @@ const ATTACHMENT_NAME = /za[łl][aą]cznik|formularz|(^|[^a-z])swz([^a-z]|$)/i;
 export interface CandidateFileGroups<T> {
   /** „CV kandydata” — CV od kandydata; główne CV zawsze tutaj. */
   own: T[];
-  /** „CV wysłane klientom” — pliki „…B2B…” i pliki z kodem rekrutacji osoby. */
+  /** „CV dla klientów” — pliki „…B2B…” i pliki z kodem rekrutacji osoby. */
   client: T[];
   /** „Załączniki i formularze” — załączniki, formularze, SWZ i pliki nie-CV. */
   attachments: T[];

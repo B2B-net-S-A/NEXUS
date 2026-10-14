@@ -927,7 +927,7 @@ function seedCardPanel(qc: QueryClient, item: KanbanItem, columnName: string): v
     observations: [],
     paid: [],
   });
-  seedFresh(qc, candidateQueryKeys.quickView(candidateId), {
+  const quickView = {
     candidate: { id: candidateId, ...fullName, city: "Warszawa", location: "Warszawa" },
     current_position: { title: "Frontend Developer", started_at: "2023-03-01", precision: "month" },
     availability: { status: "open_to_offers", available_from: null, notice_period: 1, notice_period_unit: "months" },
@@ -936,7 +936,10 @@ function seedCardPanel(qc: QueryClient, item: KanbanItem, columnName: string): v
     contact_attempts: 0,
     cv_highlights: { years_experience: 6 },
     capabilities: { can_assign: true, can_mark_employed: false, can_view_documents: true, can_open_full_profile: true },
-  });
+  };
+  seedFresh(qc, candidateQueryKeys.quickView(candidateId), quickView);
+  // „Co już wiemy” w panelu pyta o inne rekrutacje osoby — bez bieżącej (14.10.2026).
+  seedFresh(qc, candidateQueryKeys.quickViewExcluding(candidateId, JOB_ID), { ...quickView, current_recruitments_total: 0 });
   seedFresh(qc, pinnedNotesQueryKey(candidateId), { items: [] });
   seedFresh(qc, candidateQueryKeys.cvDocuments(candidateId), []);
   seedFresh(qc, ["cv-original", item.id], {
@@ -967,6 +970,30 @@ function seedCardPanel(qc: QueryClient, item: KanbanItem, columnName: string): v
     snapshot_filename: null,
     rendered_from_default: false,
   });
+  // D1–D3 (14.10.2026): „Karol” jest u klienta, a zatwierdzone CV firmowe leży
+  // na wierszu etapu sprzed ruchu — dok pokazuje „Pobierz Word / PDF” tego CV.
+  if (fromNotes) {
+    const pairStageId = 9000 + item.id;
+    seedFresh(qc, stageBrandedQueryKey(item.id), {
+      edit_revision: 0,
+      version: 0,
+      candidate_stage_id: item.id,
+      status: "none",
+      pair_source_stage_id: pairStageId,
+      pair_source_status: "finalized",
+    });
+    seedFresh(qc, stageBrandedQueryKey(pairStageId), {
+      edit_revision: 3,
+      version: 1,
+      candidate_stage_id: pairStageId,
+      status: "finalized",
+      from_generator: true,
+      content_html: "<p>CV</p>",
+      updated_at: "2026-10-13T15:00:00Z",
+      finalized_at: "2026-10-13T15:00:00Z",
+      consent_missing: false,
+    });
+  }
 }
 
 function seededClient(): QueryClient {

@@ -9,11 +9,19 @@
   ekranie; ``dry_run`` = odczyt arkusza i sprawdzenie konfliktu okresu, bez
   zapisu pliku — plik trafia na dysk PRZED wierszem w bazie).
 
+Kwoty: ``finance:read`` to moduł rozliczeń, więc kwoty sprzedaży (stawka do
+klienta, przychód, faktura) widzi z samego scope'u. Koszty — stawka
+konsultanta, wynagrodzenie, marża — tylko z ``amounts:read`` (decyzja Artura
+14.10.2026); bez niego są ``null`` i ``costs_redacted = true``. Patrz
+„Koszty tylko z amounts:read” niżej.
+
 Moduł NIE MOŻE mieć ``from __future__ import annotations`` (slowapi #579).
 """
 
 import asyncio
 import hashlib
+import hmac
+import re
 from datetime import date, datetime
 from typing import Optional
 
@@ -34,11 +42,14 @@ from starlette.concurrency import run_in_threadpool
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api import finance as finance_routes
+from app.api.deps import Caller
 from app.api.integrations_v1.common import (
+    AmountLevel,
     FinanceRead,
     FinanceWrite,
     IdPath,
     IntegrationRoute,
+    amount_level,
     idempotent_write,
     integration_actor,
     principal_of,
@@ -46,6 +57,7 @@ from app.api.integrations_v1.common import (
     read_rate_limit,
     write_rate_limit,
 )
+from app.core.config import settings
 from app.core.database import get_db
 from app.core.rate_limit import limiter
 from app.models.service_account import ServiceScope
@@ -53,6 +65,8 @@ from app.schemas.finance import (
     FinanceImportResult,
     FinancePeriod,
     FinanceResultsResponse,
+    FinanceTotals,
+    MoneyPLN,
 )
 from app.schemas.finance_order_changes import (
     OrderChangesResponse,
@@ -76,12 +90,168 @@ from app.core.http_headers import content_disposition_attachment
 router = APIRouter(route_class=IntegrationRoute)
 
 
+# ── Koszty tylko z amounts:read ──────────────────────────────────────────────
+#
+# Sprzedaż (stawka do klienta, przychód, faktura) widać z ``finance:read``.
+# Koszt — stawka konsultanta, stawka kosztowa MD, wynagrodzenie — i marża
+# dopiero z ``amounts:read``. Koszt siedzi też w dwóch napisach, które nie są
+# polami kwot: w kluczu pozycji szkicu (``order_change_checks._order_state``)
+# i w opisach historii i odhaczeń (``finance_order_changes._change_description``,
+# ``order_change_checks._event_summary``). Oba są tu czyszczone; testy
+# budują opisy prawdziwymi funkcjami, więc zmiana ich treści zapali test.
+
+
+def _sees_costs(caller: Caller) -> bool:
+    return amount_level(caller) is AmountLevel.all
+
+
+# Aneks przedłużający umowę (``kind = "amendment"``) bywa aneksem z konsultantem
+# — dokument może podawać jego stawkę. Bez ``amounts:read`` API go nie
+# pokazuje i nie wydaje; zamówienia klientów (sprzedaż) zostają.
+def _visible_pdf_entries(entries: list, caller: Caller) -> list:
+    if _sees_costs(caller):
+        return entries
+    return [entry for entry in entries if entry.kind != "amendment"]
+
+
+def _hidden_item_key(key: str) -> str:
+    """Klucz pozycji bez kwot dla klucza bez ``amounts:read``.
+
+    Klucz szkicu niesie stawki (``…:draft:<start>:<koszt>:<przychód>``) —
+    w ich miejsce idzie skrót HMAC całego klucza. Skrót bez sekretu dałoby się
+    odwrócić zgadywaniem stawki; z sekretem nie. Zmiana stawki szkicu zmienia
+    skrót tak samo jak klucz, więc odhaczenie nieaktualnej pozycji dalej daje
+    409. Klucze bez kwot zostają bez zmian (te same co na ekranie).
+    """
+    head, separator, _ = key.partition(":draft:")
+    if not separator:
+        return key
+    pepper = f"integrations-v1:item-key:{settings.SECRET_KEY}".encode()
+    digest = hmac.new(pepper, key.encode(), hashlib.sha256).hexdigest()[:32]
+    return f"{head}:draft:h{digest}"
+
+
+_COST_RATE_CHANGE = "Zmiana stawki kosztowej"
+#: „…; koszt 1 200,00 PLN/MD, przychód …” (``_new_order_value``) — do przecinka
+#: przed przychodem albo do końca napisu (opis odhaczenia bywa ucięty).
+_NEW_ORDER_COST = re.compile(r"(; koszt ).*?(?=, przychód |$)")
+
+
+def _summary_without_costs(text: str) -> str:
+    if text.startswith(_COST_RATE_CHANGE):
+        return f"{_COST_RATE_CHANGE} (kwoty tylko z amounts:read)"
+    return _NEW_ORDER_COST.sub(r"\1ukryty", text)
+
+
+def _changes_without_costs(response: OrderChangesResponse) -> dict:
+    """Pola listy do podmiany: bez stawek kosztowych, kluczy i opisów z kosztem."""
+
+    def change(item):
+        update = {"rate_cost": None, "item_key": _hidden_item_key(item.item_key)}
+        if item.kind == "rate_cost":
+            update.update(old_amount=None, new_amount=None)
+        return item.model_copy(update=update)
+
+    def entry(item):
+        return item.model_copy(
+            update={"rate_cost": None, "item_key": _hidden_item_key(item.item_key)}
+        )
+
+    def exit_(item):
+        return item.model_copy(update={"rate_cost": None})
+
+    return {
+        "changes": [change(item) for item in response.changes],
+        "entries": [entry(item) for item in response.entries],
+        "exits": [exit_(item) for item in response.exits],
+        "ending_orders": [exit_(item) for item in response.ending_orders],
+        "superseded": [
+            check.model_copy(
+                update={
+                    "item_key": _hidden_item_key(check.item_key),
+                    "summary": _summary_without_costs(check.summary),
+                }
+            )
+            for check in response.superseded
+        ],
+    }
+
+
+def _find_item(response: OrderChangesResponse, key: str, *, costs: bool):
+    """Jak ``order_change_checks.find_item``, z kluczem w tej postaci, w jakiej
+    klucz go widzi. Bez ``amounts:read`` pełny klucz szkicu NIE jest
+    przyjmowany — inaczej 200/409 zdradzałoby zgadniętą stawkę."""
+    for tab, item in order_change_checks.iter_items(response):
+        real = order_change_checks.item_key(tab, item)
+        if key == (real if costs else _hidden_item_key(real)):
+            return tab, item
+    return None
+
+
+class OrderChangesOut(OrderChangesResponse):
+    """Audyt miesiąca. Bez ``amounts:read`` (``costs_redacted``): ``rate_cost``,
+    kwoty zmiany stawki kosztowej i koszt w opisach są ukryte, a klucz pozycji
+    szkicu ma skrót zamiast stawek."""
+
+    costs_redacted: bool
+
+
+class OrderHistoryOut(OrderHistoryResponse):
+    """Historia zamówienia; bez ``amounts:read`` opisy nie podają kosztu."""
+
+    costs_redacted: bool
+
+
+class FinanceTotalsOut(FinanceTotals):
+    """Kafle miesiąca; koszt, marża i ich pochodne bez ``amounts:read`` = ``null``."""
+
+    cost: Optional[MoneyPLN]
+    margin: Optional[MoneyPLN]
+    cost_without_margin: Optional[MoneyPLN]
+
+
+class FinanceResultsOut(FinanceResultsResponse):
+    """Wyniki miesiąca. Bez ``amounts:read`` (``costs_redacted``) wiersze nie
+    mają stawki kosztowej MD, wynagrodzenia i marży, a kafle — kosztu i marży."""
+
+    totals: FinanceTotalsOut
+    costs_redacted: bool
+
+
+_RESULT_ROW_COSTS = (
+    "cost_rate_md",
+    "compensation",
+    "margin_pln",
+    "margin_pct",
+    "margin_percent",
+)
+_RESULT_TOTAL_COSTS = ("cost", "margin", "avg_margin_pct", "cost_without_margin")
+
+
+def _results_out(result: FinanceResultsResponse, *, costs: bool) -> FinanceResultsOut:
+    rows = result.rows
+    totals = result.totals.model_dump()
+    if not costs:
+        hidden = dict.fromkeys(_RESULT_ROW_COSTS)
+        rows = [row.model_copy(update=hidden) for row in rows]
+        totals.update(dict.fromkeys(_RESULT_TOTAL_COSTS))
+    return FinanceResultsOut(
+        year=result.year,
+        month=result.month,
+        run_id=result.run_id,
+        rows=rows,
+        totals=FinanceTotalsOut(**totals),
+        needs_completion_count=result.needs_completion_count,
+        costs_redacted=not costs,
+    )
+
+
 # ── Zmiany w zamówieniach ────────────────────────────────────────────────────
 
 
 @router.get(
     "/finance/order-changes",
-    response_model=OrderChangesResponse,
+    response_model=OrderChangesOut,
     summary="Zmiany w zamówieniach za miesiąc",
 )
 @limiter.limit(read_rate_limit, key_func=principal_rate_key)
@@ -99,14 +269,18 @@ async def order_changes(
     """Audyt miesiąca (domyślnie bieżący, czas Europe/Warsaw) z „Zrobione”.
 
     Pozycja ma ``item_key`` — tym kluczem odhacza się ją w
-    ``POST /finance/order-changes/checks``.
+    ``POST /finance/order-changes/checks``. Koszty (``rate_cost``, kwoty
+    zmiany stawki kosztowej) tylko z ``amounts:read``.
     """
     year, month = finance_routes._order_changes_period(year, month)
     filters = finance_routes._order_changes_filters(q, client_id, date_from, date_to)
     full = await build_order_changes(db, year, month)
     can_check = ServiceScope.finance_write.value in principal_of(caller).scopes
     decorated = await order_change_checks.decorate(db, full, can_check=can_check)
-    return apply_filters(decorated, filters)
+    response = apply_filters(decorated, filters)
+    costs = _sees_costs(caller)
+    hidden = {} if costs else _changes_without_costs(response)
+    return OrderChangesOut(**{**dict(response), **hidden}, costs_redacted=not costs)
 
 
 @router.get(
@@ -125,20 +299,29 @@ async def order_changes_summary(
 
 @router.get(
     "/finance/order-changes/history",
-    response_model=OrderHistoryResponse,
+    response_model=OrderHistoryOut,
     summary="Historia zamówienia: zmiany i odhaczenia",
 )
 @limiter.limit(read_rate_limit, key_func=principal_rate_key)
 async def order_changes_history(
     request: Request,
-    _caller: FinanceRead,
+    caller: FinanceRead,
     db: AsyncSession = Depends(get_db),
     order_id: Optional[int] = Query(None, ge=1, le=2_147_483_647),
     order_group_id: Optional[int] = Query(None, ge=1, le=2_147_483_647),
 ):
-    return await finance_routes.get_order_change_history(
+    """Opisy zmian stawki kosztowej podają kwoty tylko z ``amounts:read``."""
+    history = await finance_routes.get_order_change_history(
         _user=None, order_id=order_id, order_group_id=order_group_id, db=db
     )
+    costs = _sees_costs(caller)
+    items = history.items
+    if not costs:
+        items = [
+            entry.model_copy(update={"summary": _summary_without_costs(entry.summary)})
+            for entry in items
+        ]
+    return OrderHistoryOut(items=items, costs_redacted=not costs)
 
 
 class CheckIn(BaseModel):
@@ -169,11 +352,13 @@ async def set_check(
     caller: FinanceWrite,
     db: AsyncSession = Depends(get_db),
 ) -> Response:
-    """Pozycja musi istnieć w audycie miesiąca — inaczej 409 (widok nieaktualny)."""
+    """Pozycja musi istnieć w audycie miesiąca — inaczej 409 (widok nieaktualny).
+    ``item_key`` dokładnie taki, jaki podał odczyt tym kluczem API."""
+    costs = _sees_costs(caller)
 
     async def run():
         response = await build_order_changes(db, body.year, body.month)
-        found = order_change_checks.find_item(response, body.item_key)
+        found = _find_item(response, body.item_key, costs=costs)
         if found is None:
             raise HTTPException(
                 409,
@@ -232,7 +417,7 @@ async def order_pdf_months(
 @limiter.limit(read_rate_limit, key_func=principal_rate_key)
 async def order_pdfs(
     request: Request,
-    _caller: FinanceRead,
+    caller: FinanceRead,
     db: AsyncSession = Depends(get_db),
     year: Optional[int] = Query(None, ge=2000, le=2100),
     month: Optional[int] = Query(None, ge=1, le=12),
@@ -242,6 +427,7 @@ async def order_pdfs(
     entries = await finance_order_pdfs.collect_entries(
         db, window=finance_order_pdfs.month_bounds(year, month)
     )
+    entries = _visible_pdf_entries(entries, caller)
     todo_orders, todo_groups = await finance_routes._pending_change_orders(
         db, year, month
     )
@@ -276,7 +462,7 @@ async def order_pdfs(
 @limiter.limit(read_rate_limit, key_func=principal_rate_key)
 async def order_pdfs_zip(
     request: Request,
-    _caller: FinanceRead,
+    caller: FinanceRead,
     db: AsyncSession = Depends(get_db),
     year: int = Query(..., ge=2000, le=2100),
     month: int = Query(..., ge=1, le=12),
@@ -289,6 +475,7 @@ async def order_pdfs_zip(
     entries = await finance_order_pdfs.collect_entries(
         db, window=finance_order_pdfs.month_bounds(year, month)
     )
+    entries = _visible_pdf_entries(entries, caller)
     if client_id is not None:
         entries = [e for e in entries if e.client_id == client_id]
     if files is not None:
@@ -331,9 +518,22 @@ async def order_pdf_file(
     request: Request,
     kind: finance_order_pdfs.PdfKind,
     entry_id: IdPath,
-    _caller: FinanceRead,
+    caller: FinanceRead,
     db: AsyncSession = Depends(get_db),
 ):
+    if kind == "amendment" and not _sees_costs(caller):
+        raise HTTPException(
+            403,
+            detail={
+                "error": "insufficient_scope",
+                "message": (
+                    "Aneks do umowy może podawać stawkę konsultanta — "
+                    "wymaga scope'u amounts:read."
+                ),
+                "required": ["amounts:read"],
+                "missing": ["amounts:read"],
+            },
+        )
     entry = await finance_order_pdfs.find_entry(db, kind, entry_id)
     if entry is None:
         raise HTTPException(404, detail="Nie znaleziono pliku zamówienia.")
@@ -370,18 +570,20 @@ async def finance_periods(
 
 @router.get(
     "/finance/results",
-    response_model=FinanceResultsResponse,
+    response_model=FinanceResultsOut,
     summary="Wyniki miesiąca (koszt, przychód, marża)",
 )
 @limiter.limit(read_rate_limit, key_func=principal_rate_key)
 async def finance_results(
     request: Request,
-    _caller: FinanceRead,
+    caller: FinanceRead,
     db: AsyncSession = Depends(get_db),
     year: int = Query(..., ge=2000, le=2100),
     month: int = Query(..., ge=1, le=12),
 ):
-    return await finance_routes.get_results(
+    """Przychód i faktura z ``finance:read``; stawka kosztowa MD,
+    wynagrodzenie i marża tylko z ``amounts:read``."""
+    result = await finance_routes.get_results(
         _user=None,
         year=year,
         month=month,
@@ -390,6 +592,7 @@ async def finance_results(
         direction="asc",
         db=db,
     )
+    return _results_out(result, costs=_sees_costs(caller))
 
 
 class FinanceImportDryRun(BaseModel):

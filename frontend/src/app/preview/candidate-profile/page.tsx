@@ -248,7 +248,7 @@ const HISTORY = {
       },
     },
     // 13.10.2026 (E3): tabela „W toku” — ruch po naszej stronie i kod
-    // rekrutacji w tytule (plik „…ZOB-2962…” trafia do „CV wysłane klientom”).
+    // rekrutacji w tytule (plik „…ZOB-2962…” trafia do „CV dla klientów”).
     {
       job_id: 504,
       job_title: "Kafka Engineer (ZOB-2962)",
@@ -1051,6 +1051,26 @@ const GENERATED_CVS = [
     blind: false,
     mode: "polished",
     created_at: daysAgo(4),
+    created_by_name: "Ola Nowak",
+    can_download: true,
+    can_delete: false,
+    // D4 (14.10.2026): podpięte jako CV firmowe rekrutacji — „Pobierz” daje CV etapu.
+    stage_cv_stage_id: 9801,
+    stage_cv_status: "draft",
+    stage_cv_updated_at: daysAgo(1),
+  },
+  {
+    id: 802,
+    filename: "Marta_Kowalczyk_CV_PL.docx",
+    status: "ready",
+    candidate_id: CANDIDATE_ID,
+    candidate_name: "Marta Kowalczyk",
+    job_id: 501,
+    job_title: "Java Developer",
+    language: "pl",
+    blind: false,
+    mode: "polished",
+    created_at: daysAgo(6),
     created_by_name: "Ola Nowak",
     can_download: true,
     can_delete: false,

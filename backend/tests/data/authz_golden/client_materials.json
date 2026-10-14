@@ -18,14 +18,15 @@
   "recruiter+delivery_view",
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
-  "recruiter+amounts_edit"
+  "recruiter+amounts_edit",
+  "automation"
  ],
  "routes": {
-  "DELETE /api/clients/{client_id}/one-pagers/{one_pager_id}": "BDDBDDDDBBBDDDBDDDD",
-  "GET /api/clients/{client_id}/contract-terms": "BBDBDDDDBBBDDDDDDBB",
-  "GET /api/clients/{client_id}/one-pagers": "BBDBBDDDBBBDBBBBDBB",
-  "GET /api/clients/{client_id}/one-pagers/{one_pager_id}/download": "BBDBBDDDBBBDBBBBDBB",
-  "POST /api/clients/{client_id}/one-pagers": "BDDBDDDDBBBDDDBDDDD",
-  "PUT /api/clients/{client_id}/contract-terms": "BBDBDDDDBBBDDDDDDDD"
+  "DELETE /api/clients/{client_id}/one-pagers/{one_pager_id}": "BDDBDDDDBBBDDDBDDDDD",
+  "GET /api/clients/{client_id}/contract-terms": "BBDBDDDDBBBDDDDDDBBD",
+  "GET /api/clients/{client_id}/one-pagers": "BBDBBDDDBBBDBBBBDBBB",
+  "GET /api/clients/{client_id}/one-pagers/{one_pager_id}/download": "BBDBBDDDBBBDBBBBDBBB",
+  "POST /api/clients/{client_id}/one-pagers": "BDDBDDDDBBBDDDBDDDDD",
+  "PUT /api/clients/{client_id}/contract-terms": "BBDBDDDDBBBDDDDDDDDD"
  }
 }

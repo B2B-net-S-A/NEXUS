@@ -25,7 +25,11 @@ const CATALOG = [
   { value: "clients:read", label: "Klienci: odczyt (nazwa, NIP, Delivery Lead)" },
   { value: "md:read", label: "Zużycie MD: odczyt (salda, importy)" },
   { value: "md:write", label: "Zużycie MD: zapis (import, przypisanie wiersza, korekta miesiąca)" },
-  { value: "amounts:read", label: "Stawki i kwoty: podgląd w zamówieniach i kontraktach" },
+  { value: "amounts:read", label: "Wszystkie kwoty: także stawki konsultantów, koszty i marża" },
+  {
+    value: "sales_amounts:read",
+    label: "Kwoty sprzedaży: stawki do klienta, wartości i budżety zamówień, przychód, faktury do klientów",
+  },
   { value: "reports:read", label: "Raporty: odczyt" },
 ];
 
@@ -52,6 +56,12 @@ describe("groupScopes — grupy uprawnień na ekranie", () => {
       { value: "reports:read", label: "Raporty: odczyt" },
       { value: "zzz:legacy", label: "zzz:legacy" },
     ]);
+  });
+
+  it("„Kwoty”: najpierw kwoty sprzedaży, potem wszystkie kwoty — niezależnie od kolejności w koncie", () => {
+    const groups = groupScopes(["amounts:read", "sales_amounts:read"], CATALOG);
+    expect(groups.map((g) => g.title)).toEqual(["Kwoty"]);
+    expect(groups[0].scopes.map((s) => s.value)).toEqual(["sales_amounts:read", "amounts:read"]);
   });
 
   it("konto bez uprawnień nie ma żadnej grupy, a powtórzony scope liczy się raz", () => {

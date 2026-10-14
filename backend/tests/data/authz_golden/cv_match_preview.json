@@ -18,9 +18,10 @@
   "recruiter+delivery_view",
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
-  "recruiter+amounts_edit"
+  "recruiter+amounts_edit",
+  "automation"
  ],
  "routes": {
-  "POST /api/recommendations/cv-upload-preview": "PPPPPPDDPPPPPPPPPPP"
+  "POST /api/recommendations/cv-upload-preview": "PPPPPPDDPPPPPPPPPPPP"
  }
 }

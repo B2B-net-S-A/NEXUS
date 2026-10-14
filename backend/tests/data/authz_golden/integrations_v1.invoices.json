@@ -18,14 +18,15 @@
   "recruiter+delivery_view",
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
-  "recruiter+amounts_edit"
+  "recruiter+amounts_edit",
+  "automation"
  ],
  "routes": {
-  "GET /api/integrations/v1/invoices": "UUUUUUUUUUUUUUUUUUU",
-  "GET /api/integrations/v1/invoices/dso": "UUUUUUUUUUUUUUUUUUU",
-  "GET /api/integrations/v1/invoices/{invoice_id}": "UUUUUUUUUUUUUUUUUUU",
-  "PATCH /api/integrations/v1/invoices/{invoice_id}": "UUUUUUUUUUUUUUUUUUU",
-  "POST /api/integrations/v1/invoices": "UUUUUUUUUUUUUUUUUUU",
-  "POST /api/integrations/v1/invoices/{invoice_id}/cancel": "UUUUUUUUUUUUUUUUUUU"
+  "GET /api/integrations/v1/invoices": "UUUUUUUUUUUUUUUUUUUU",
+  "GET /api/integrations/v1/invoices/dso": "UUUUUUUUUUUUUUUUUUUU",
+  "GET /api/integrations/v1/invoices/{invoice_id}": "UUUUUUUUUUUUUUUUUUUU",
+  "PATCH /api/integrations/v1/invoices/{invoice_id}": "UUUUUUUUUUUUUUUUUUUU",
+  "POST /api/integrations/v1/invoices": "UUUUUUUUUUUUUUUUUUUU",
+  "POST /api/integrations/v1/invoices/{invoice_id}/cancel": "UUUUUUUUUUUUUUUUUUUU"
  }
 }

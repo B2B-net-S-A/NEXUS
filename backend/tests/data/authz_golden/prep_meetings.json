@@ -18,13 +18,14 @@
   "recruiter+delivery_view",
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
-  "recruiter+amounts_edit"
+  "recruiter+amounts_edit",
+  "automation"
  ],
  "routes": {
-  "GET /api/interview-cycle/prep-quality": "PPPPPPDDPPPPPPPPPPP",
-  "GET /api/interview-cycle/preps/options": "PPPPPPDDPPPPPPPPPPP",
-  "GET /api/interview-cycle/preps/{event_id}": "PPPPPPDDPPPPPPPPPPP",
-  "GET /api/interview-cycle/preps/{event_id}/transcript": "PPPPPPDDPPPPPPPPPPP",
-  "POST /api/interview-cycle/preps": "PPPPPPDDPPPPPPPPPPP"
+  "GET /api/interview-cycle/prep-quality": "PPPPPPDDPPPPPPPPPPPP",
+  "GET /api/interview-cycle/preps/options": "PPPPPPDDPPPPPPPPPPPD",
+  "GET /api/interview-cycle/preps/{event_id}": "PPPPPPDDPPPPPPPPPPPP",
+  "GET /api/interview-cycle/preps/{event_id}/transcript": "PPPPPPDDPPPPPPPPPPPP",
+  "POST /api/interview-cycle/preps": "PPPPPPDDPPPPPPPPPPPD"
  }
 }

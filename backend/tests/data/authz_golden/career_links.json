@@ -18,17 +18,18 @@
   "recruiter+delivery_view",
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
-  "recruiter+amounts_edit"
+  "recruiter+amounts_edit",
+  "automation"
  ],
  "routes": {
-  "DELETE /api/me/career-link": "PPPPPPDDPPPPPPPPPPP",
-  "GET /api/jobs/{job_id}/public-profile": "PPPPPPDDPPPPPPPPPPP",
-  "GET /api/me/career-link": "PPPPPPDDPPPPPPPPPPP",
-  "GET /api/me/career-link/slug-available": "PPPPPPDDPPPPPPPPPPP",
-  "POST /api/jobs/{job_id}/public-profile/approve": "PPPPPPDDPPPPPPPPPPP",
-  "POST /api/jobs/{job_id}/public-profile/draft": "PPPPPPDDPPPPPPPPPPP",
-  "PUT /api/jobs/{job_id}/public-profile": "PPPPPPDDPPPPPPPPPPP",
-  "PUT /api/jobs/{job_id}/public-profile/visibility": "PPPPPPDDPPPPPPPPPPP",
-  "PUT /api/me/career-link": "PPPPPPDDPPPPPPPPPPP"
+  "DELETE /api/me/career-link": "PPPPPPDDPPPPPPPPPPPD",
+  "GET /api/jobs/{job_id}/public-profile": "PPPPPPDDPPPPPPPPPPPP",
+  "GET /api/me/career-link": "PPPPPPDDPPPPPPPPPPPD",
+  "GET /api/me/career-link/slug-available": "PPPPPPDDPPPPPPPPPPPD",
+  "POST /api/jobs/{job_id}/public-profile/approve": "PPPPPPDDPPPPPPPPPPPD",
+  "POST /api/jobs/{job_id}/public-profile/draft": "PPPPPPDDPPPPPPPPPPPD",
+  "PUT /api/jobs/{job_id}/public-profile": "PPPPPPDDPPPPPPPPPPPD",
+  "PUT /api/jobs/{job_id}/public-profile/visibility": "PPPPPPDDPPPPPPPPPPPD",
+  "PUT /api/me/career-link": "PPPPPPDDPPPPPPPPPPPD"
  }
 }

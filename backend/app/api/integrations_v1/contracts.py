@@ -2,9 +2,11 @@
 
 Kształt jest węższy niż widok ekranu (ponad 60 pól) — to umowa z
 automatyzacjami: osoba, klient, okres, status, jednostka i waluta stawki.
-Stawki, marża i harmonogramy wyłącznie ze scope'em ``amounts:read`` (jak
-„Stawki i kwoty: podgląd” u ludzi); bez niego ``rates`` = ``null`` i
-``amounts_redacted = true``. Stawki z harmonogramów na dzień firmy
+Kwoty według poziomu klucza (``common.amount_level``): stawka do klienta ze
+``sales_amounts:read``, stawka konsultanta i marża dopiero z ``amounts:read``
+(jak „Stawki i kwoty: podgląd” u ludzi). Bez kwot ``rates`` = ``null``
+i ``amounts_redacted = true``; bez kosztów pola kosztowe w ``rates`` są
+``null`` i ``costs_redacted = true``. Stawki z harmonogramów na dzień firmy
 (``effective_rate_fields``), nigdy z cache'owanych kolumn.
 
 Moduł NIE MOŻE mieć ``from __future__ import annotations`` (slowapi #579).
@@ -22,6 +24,7 @@ from sqlalchemy.orm import selectinload
 
 from app.api.deps import Caller
 from app.api.integrations_v1.common import (
+    AmountLevel,
     ContractsRead,
     IdPath,
     IntegrationRoute,
@@ -29,7 +32,7 @@ from app.api.integrations_v1.common import (
     Page,
     PageQuery,
     PageSizeQuery,
-    can_see_amounts,
+    amount_level,
     page_of,
     principal_rate_key,
     read_rate_limit,
@@ -52,7 +55,10 @@ class PersonOut(BaseModel):
 
 
 class ContractRatesOut(BaseModel):
-    """Stawki obowiązujące dnia ``as_of`` (z harmonogramów)."""
+    """Stawki obowiązujące dnia ``as_of`` (z harmonogramów).
+
+    Stawka konsultanta i marża (``rate_candidate``, ``margin`` i ich
+    miesięczne odpowiedniki) są ``null`` bez ``amounts:read``."""
 
     as_of: date
     rate_candidate: Money
@@ -82,6 +88,7 @@ class ContractOut(BaseModel):
     rate_client_currency: Optional[str]
     rate_candidate_currency: Optional[str]
     amounts_redacted: bool
+    costs_redacted: bool
     rates: Optional[ContractRatesOut]
     updated_at: datetime
 
@@ -94,12 +101,15 @@ class RateStepOut(BaseModel):
 
 
 class RateHistoryOut(BaseModel):
+    """``candidate`` (stawki konsultanta) jest pusty, gdy ``costs_redacted``."""
+
     contract_id: int
     rate_unit: Optional[str]
     rate_client_currency: Optional[str]
     rate_candidate_currency: Optional[str]
     candidate: list[RateStepOut]
     client: list[RateStepOut]
+    costs_redacted: bool
 
 
 def _value(raw) -> Optional[str]:
@@ -112,20 +122,25 @@ def _dec(raw) -> Optional[Decimal]:
     return None if raw is None else Decimal(str(raw))
 
 
-def contract_out(contract: Contract, *, with_amounts: bool, on: date) -> ContractOut:
+def contract_out(contract: Contract, *, level: AmountLevel, on: date) -> ContractOut:
     contact = resolve_for_contract(contract)
     candidate = contract.candidate
+    costs = level is AmountLevel.all
     rates: Optional[ContractRatesOut] = None
-    if with_amounts:
+    if level >= AmountLevel.sales:
         fields = effective_rate_fields(contract, on)
+
+        def cost(name: str) -> Optional[Decimal]:
+            return _dec(fields[name]) if costs else None
+
         rates = ContractRatesOut(
             as_of=on,
-            rate_candidate=_dec(fields["rate_candidate"]),
+            rate_candidate=cost("rate_candidate"),
             rate_client=_dec(fields["rate_client"]),
-            margin=_dec(fields["margin"]),
-            monthly_rate_candidate=_dec(fields["monthly_rate_candidate"]),
+            margin=cost("margin"),
+            monthly_rate_candidate=cost("monthly_rate_candidate"),
             monthly_rate_client=_dec(fields["monthly_rate_client"]),
-            monthly_margin=_dec(fields["monthly_margin"]),
+            monthly_margin=cost("monthly_margin"),
         )
     return ContractOut(
         id=contract.id,
@@ -151,15 +166,16 @@ def contract_out(contract: Contract, *, with_amounts: bool, on: date) -> Contrac
         billing_hours_per_month=contract.billing_hours_per_month,
         rate_client_currency=contract.resolved_rate_client_currency,
         rate_candidate_currency=contract.resolved_rate_candidate_currency,
-        amounts_redacted=not with_amounts,
+        amounts_redacted=level is AmountLevel.none,
+        costs_redacted=not costs,
         rates=rates,
         updated_at=contract.updated_at,
     )
 
 
-def _base_query(with_amounts: bool):
+def _base_query(level: AmountLevel):
     options = [selectinload(Contract.candidate), selectinload(Contract.client)]
-    if with_amounts:
+    if level >= AmountLevel.sales:
         options.extend(RATE_SCHEDULE_LOADS)
     return select(Contract).options(*options)
 
@@ -180,8 +196,8 @@ async def list_contracts(
     updated_since: Optional[datetime] = Query(None),
 ) -> dict:
     """Kontrakty sortowane po id. ``void`` (anulowane) tylko przez filtr ``status``."""
-    with_amounts = can_see_amounts(caller)
-    query = _base_query(with_amounts)
+    level = amount_level(caller)
+    query = _base_query(level)
     if status:
         query = query.where(Contract.status.in_(status))
     else:
@@ -213,13 +229,13 @@ async def list_contracts(
         .all()
     )
     today = business_today()
-    items = [contract_out(c, with_amounts=with_amounts, on=today) for c in contracts]
+    items = [contract_out(c, level=level, on=today) for c in contracts]
     return page_of(items, page=page, page_size=page_size, total=total)
 
 
-async def _load(db: AsyncSession, contract_id: int, with_amounts: bool) -> Contract:
+async def _load(db: AsyncSession, contract_id: int, level: AmountLevel) -> Contract:
     contract = (
-        (await db.execute(_base_query(with_amounts).where(Contract.id == contract_id)))
+        (await db.execute(_base_query(level).where(Contract.id == contract_id)))
         .scalars()
         .unique()
         .one_or_none()
@@ -240,23 +256,27 @@ async def get_contract(
         None, description="Stawki na ten dzień (domyślnie dziś)."
     ),
 ) -> ContractOut:
-    with_amounts = can_see_amounts(caller)
-    contract = await _load(db, contract_id, with_amounts)
-    return contract_out(
-        contract, with_amounts=with_amounts, on=as_of or business_today()
-    )
+    level = amount_level(caller)
+    contract = await _load(db, contract_id, level)
+    return contract_out(contract, level=level, on=as_of or business_today())
 
 
-def _require_amounts(caller: Caller) -> None:
-    if not can_see_amounts(caller):
+def _require_amounts(caller: Caller) -> AmountLevel:
+    level = amount_level(caller)
+    if level is AmountLevel.none:
         raise HTTPException(
             403,
             detail={
                 "error": "insufficient_scope",
-                "message": "Historia stawek wymaga scope'u amounts:read.",
-                "required": ["amounts:read"],
+                "message": (
+                    "Historia stawek wymaga scope'u sales_amounts:read "
+                    "(stawki do klienta) albo amounts:read (wszystkie stawki)."
+                ),
+                "required": ["sales_amounts:read"],
+                "missing": ["sales_amounts:read"],
             },
         )
+    return level
 
 
 @router.get(
@@ -271,9 +291,12 @@ async def contract_rate_history(
     caller: ContractsRead,
     db: AsyncSession = Depends(get_db),
 ) -> RateHistoryOut:
-    """Kroki harmonogramów stawek (od najstarszego). Wymaga ``amounts:read``."""
-    _require_amounts(caller)
-    contract = await _load(db, contract_id, True)
+    """Kroki harmonogramów stawek (od najstarszego). Stawki do klienta ze
+    ``sales_amounts:read``; stawki konsultanta (``candidate``) tylko
+    z ``amounts:read`` — bez niego lista jest pusta i ``costs_redacted = true``."""
+    level = _require_amounts(caller)
+    costs = level is AmountLevel.all
+    contract = await _load(db, contract_id, level)
     return RateHistoryOut(
         contract_id=contract.id,
         rate_unit=_value(contract.rate_unit),
@@ -286,7 +309,8 @@ async def contract_rate_history(
                 effective_to=getattr(step, "effective_to", None),
             )
             for step in sorted(
-                contract.candidate_rate_schedule or [], key=lambda s: s.effective_from
+                (contract.candidate_rate_schedule or []) if costs else [],
+                key=lambda s: s.effective_from,
             )
         ],
         client=[
@@ -299,4 +323,5 @@ async def contract_rate_history(
                 contract.client_rate_schedule or [], key=lambda s: s.effective_from
             )
         ],
+        costs_redacted=not costs,
     )

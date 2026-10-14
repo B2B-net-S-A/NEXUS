@@ -44,7 +44,12 @@ export const SCOPE_GROUPS: readonly ScopeGroupDefinition[] = [
       "invoices:write",
     ],
   },
-  { id: "amounts", title: "Kwoty", scopes: ["amounts:read", "amounts:write"] },
+  // Węższy przed szerszym: kwoty sprzedaży, potem wszystkie (z kosztami i marżą).
+  {
+    id: "amounts",
+    title: "Kwoty",
+    scopes: ["sales_amounts:read", "amounts:read", "amounts:write"],
+  },
   {
     id: "ops",
     title: "Operacyjne",

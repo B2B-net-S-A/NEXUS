@@ -100,6 +100,14 @@ class ServiceScope(str, enum.Enum):
     finance_write = "finance:write"
     invoices_read = "invoices:read"
     invoices_write = "invoices:write"
+    # Kwoty w dwóch poziomach (decyzja Artura 14.10.2026): automatyzacja
+    # rozliczająca faktury klientów potrzebuje tylko kwot sprzedaży — tego, co
+    # płaci klient (stawka do klienta, wartość i budżet zamówienia, przychód,
+    # faktury do klientów). Stawki konsultantów, koszty i marża są wyłącznie
+    # w ``amounts:read``, który obejmuje ``sales_amounts:read``
+    # (``implied_scopes``). Poziom dla trasy liczy
+    # ``integrations_v1.common.amount_level``.
+    sales_amounts_read = "sales_amounts:read"
     amounts_read = "amounts:read"
     # Zapis zamówień i kontraktów (PR 2B, ``WritePolicy``): cykl życia
     # zamówień MD/kosztowych, zakończenie i data końca zamówienia, PDF
@@ -128,7 +136,11 @@ SCOPE_LABELS: dict[ServiceScope, str] = {
     ServiceScope.finance_write: "Finanse: zapis („Zrobione”, import wyników)",
     ServiceScope.invoices_read: "Faktury: odczyt (rejestr, DSO)",
     ServiceScope.invoices_write: "Faktury: zapis (wystawienie, zmiana, anulowanie)",
-    ServiceScope.amounts_read: "Stawki i kwoty: podgląd w zamówieniach i kontraktach",
+    ServiceScope.sales_amounts_read: (
+        "Kwoty sprzedaży: stawki do klienta, wartości i budżety zamówień, "
+        "przychód, faktury do klientów"
+    ),
+    ServiceScope.amounts_read: "Wszystkie kwoty: także stawki konsultantów, koszty i marża",
     ServiceScope.orders_write: (
         "Zamówienia: zapis (zakończenie, przedłużenie, anulowanie, data końca, PDF)"
     ),
@@ -138,8 +150,15 @@ SCOPE_LABELS: dict[ServiceScope, str] = {
 }
 
 
+#: Szerszy odczyt obejmuje węższy: wszystkie kwoty to także kwoty sprzedaży.
+_READ_INCLUDES: dict[str, frozenset[str]] = {
+    ServiceScope.amounts_read.value: frozenset({ServiceScope.sales_amounts_read.value}),
+}
+
+
 def implied_scopes(granted: frozenset[str]) -> frozenset[str]:
-    """Uprawnienia efektywne: ``X:write`` daje też ``X:read`` (jeśli istnieje).
+    """Uprawnienia efektywne: ``X:write`` daje też ``X:read`` (jeśli istnieje),
+    a ``amounts:read`` — także ``sales_amounts:read`` (``_READ_INCLUDES``).
 
     Liczone przy budowie ``ServicePrincipal``, nie w ``granted_scopes()`` —
     tamto czyta też ekran admina, który ma pokazywać to, co NADANO.
@@ -150,7 +169,10 @@ def implied_scopes(granted: frozenset[str]) -> frozenset[str]:
         for scope in granted
         if scope.endswith(":write") and scope[: -len(":write")] + ":read" in known
     }
-    return frozenset(granted | extra)
+    effective = set(granted | extra)
+    for scope in list(effective):
+        effective |= _READ_INCLUDES.get(scope, frozenset())
+    return frozenset(effective)
 
 
 class ServiceAccount(Base, TimestampMixin):

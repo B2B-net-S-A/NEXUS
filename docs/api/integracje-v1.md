@@ -47,23 +47,45 @@ odejście czy awans pracownika nie zmienia uprawnień automatyzacji.
 | `orders:read` | Zamówienia i zamówienia MD/kosztowe z liniami |
 | `md:read` | Zużycie MD linii, importy raportów MD (liczby MD, bez kwot) |
 | `md:write` | Import raportu MD, przypisanie wiersza, korekta MD za miesiąc |
-| `finance:read` | Finanse → Zmiany w zamówieniach, Zamówienia PDF, wyniki miesiąca — **z kwotami** (stawki w zmianach, koszt/przychód/marża, PDF-y zamówień) |
+| `finance:read` | Finanse → Zmiany w zamówieniach, Zamówienia PDF, wyniki miesiąca — **z kwotami sprzedaży** (stawka do klienta, przychód, faktura, PDF-y zamówień); koszty i marża tylko z `amounts:read` |
 | `finance:write` | „Zrobione” w Zmianach, import arkusza wyników |
-| `invoices:read` | Rejestr faktur, DSO — **z kwotami** |
+| `invoices:read` | Rejestr faktur, DSO — **z kwotami faktur do klientów**; kwota faktury od kontraktora tylko z `amounts:read` |
 | `invoices:write` | Wystawienie, zmiana i anulowanie faktury |
-| `amounts:read` | Stawki i kwoty w zamówieniach, kontraktach i wierszach importów MD |
+| `sales_amounts:read` | **Kwoty sprzedaży** — to, co płaci klient: stawka do klienta, wartość i budżet zamówienia, przychód, kwoty faktur w importach MD |
+| `amounts:read` | **Wszystkie kwoty** — kwoty sprzedaży oraz stawki konsultantów, koszty i marża; obejmuje `sales_amounts:read` |
 | `orders:write` | Zamówienia: zakończenie, przedłużenie i anulowanie zamówienia MD/kosztowego, zakończenie zamówienia okresowego, data końca i notatka, PDF zamówienia |
 | `contracts:write` | Kontrakty: data końca w przyszłości |
 | `contracts:status` | Kontrakty: zmiana statusu i data końca, która kończy albo przywraca współpracę |
 | `amounts:write` | Zmiana stawek i kwot przy zapisie zamówień (stawki zamówienia, osoby i budżety w przedłużeniu) — obejmuje `amounts:read` |
 
-- `X:write` obejmuje `X:read`.
+- `X:write` obejmuje `X:read`, a `amounts:read` obejmuje `sales_amounts:read`.
 - **Zapis kwot** wymaga `amounts:write` niezależnie od `orders:write` — zapis bez
   niego dostaje `403 insufficient_scope` z listą pól (`details.fields`).
-- **Kwoty:** `finance:*` i `invoices:*` z definicji zawierają pieniądze (to moduły
-  rozliczeń). W zamówieniach, kontraktach i importach MD kwoty są tylko ze scope'em
-  `amounts:read` — bez niego pola kwot są `null` (zamówienia i kontrakty mają też
-  `"amounts_redacted": true`), a wiersze importu MD nie mają kwot faktur ani „Uwag”.
+- **Kwoty są w dwóch poziomach.** Automatyzacja, która rozlicza faktury klientów,
+  potrzebuje tylko `sales_amounts:read`. Stawki konsultantów, koszty i marżę daje
+  wyłącznie `amounts:read`.
+
+  | Gdzie | Kwoty sprzedaży (`sales_amounts:read`) | Koszty i marża (tylko `amounts:read`) |
+  |---|---|---|
+  | Kontrakty (`rates`) | `rate_client`, `monthly_rate_client` | `rate_candidate`, `monthly_rate_candidate`, `margin`, `monthly_margin` |
+  | Historia stawek kontraktu | `client` | `candidate` |
+  | Zamówienia i linie | `rate_revenue` | `rate_cost` |
+  | Zamówienia MD/kosztowe | `budget_amount`, `budget_remaining` | — |
+  | Importy MD | `invoice_amount` i „Uwagi” wierszy, pominięte wiersze | — |
+  | Finanse → Zmiany w zamówieniach (`finance:read`) | `rate_revenue`, kwoty zmiany stawki przychodowej | `rate_cost`, kwoty zmiany stawki kosztowej, koszt w opisach historii |
+  | Finanse → wyniki (`finance:read`) | `revenue_rate_md`, `invoice_amount`, kafel `revenue` | `cost_rate_md`, `compensation`, `margin_pln`, `margin_pct`, `margin_percent`, kafle `cost`, `margin`, `avg_margin_pct`, `cost_without_margin` |
+  | Faktury (`invoices:read`) | `amount` faktur do klientów, DSO | `amount` faktur od kontraktorów |
+
+  W Finansach i fakturach kwoty sprzedaży są widoczne już z `finance:read`
+  i `invoices:read` (to moduły rozliczeń).
+- **Pola ukryte mają wartość `null`.** Dwie flagi mówią, co ukryto:
+  - `amounts_redacted: true` — klucz nie widzi żadnych kwot (zamówienia, zamówienia
+    MD/kosztowe, kontrakty); bez kwot `rates` kontraktu jest `null`;
+  - `costs_redacted: true` — klucz nie widzi kosztów i marży (kontrakty, historia
+    stawek, zamówienia, Zmiany w zamówieniach i ich historia, wyniki miesiąca,
+    faktury). W historii stawek lista `candidate` jest wtedy pusta.
+
+  Wiersze importu MD bez kwot sprzedaży nie mają kwot faktur ani „Uwag”.
 - **Dane osobowe:** kontrakty i zamówienia podają konsultanta — imię i nazwisko,
   identyfikator osoby, a kontrakty także e-mail kontaktowy (potrzebne do rozliczeń
   i łączenia z innymi systemami). API **nie udostępnia** kandydatów spoza
@@ -107,7 +129,7 @@ odejście czy awans pracownika nie zmienia uprawnień automatyzacji.
 | GET | `/clients/{client_id}` | `clients:read` |
 | GET | `/contracts?status=&client_id=&active_on=&updated_since=` | `contracts:read` |
 | GET | `/contracts/{contract_id}?as_of=` | `contracts:read` |
-| GET | `/contracts/{contract_id}/rate-history` | `contracts:read` + `amounts:read` |
+| GET | `/contracts/{contract_id}/rate-history` | `contracts:read` + `sales_amounts:read` (stawki konsultanta z `amounts:read`) |
 | GET | `/orders?client_id=&contract_id=&order_group_id=&status=&active_on=&updated_since=` | `orders:read` |
 | GET | `/orders/{order_id}` | `orders:read` |
 | GET | `/orders/{order_id}/md-consumptions` | `md:read` |
@@ -218,8 +240,17 @@ odejście czy awans pracownika nie zmienia uprawnień automatyzacji.
 - **„Zmiany w zamówieniach”** to audyt miesiąca w zakładkach: Zmiany, Wejścia,
   Zejścia, Kończące się, Braki. Domyślnie bieżący miesiąc.
   - Każda pozycja ma `item_key` — tym kluczem odhacza się ją jako „Zrobione”.
+    Podaj klucz dokładnie taki, jaki zwrócił odczyt tym samym kluczem API: klucz
+    szkicu zamówienia zawiera stawki, więc bez `amounts:read` przychodzi w postaci
+    skrótu (`…:draft:h…`).
   - Pozycja, której nie ma już w audycie (zamówienie zmieniło się w międzyczasie),
     daje `409 item_not_in_month`. Pobierz audyt ponownie.
+- **Koszty w Finansach** (stawka kosztowa, wynagrodzenie, marża, zmiana stawki
+  kosztowej) są tylko z `amounts:read` — bez niego `null` i `costs_redacted: true`.
+  Opisy w historii zamówienia nie podają wtedy kwot kosztu.
+- **Aneksy przedłużające umowę** (pliki `kind = "amendment"`) mogą podawać stawkę
+  konsultanta, więc lista, ZIP i pobranie pokazują je tylko z `amounts:read`
+  (bez niego aneksu nie ma na liście, a pobranie daje `403 insufficient_scope`).
 - **Pobranie PDF-a przez API nie zmienia** statusu „Nowy / Pobrane” w Finansach —
   ten status należy do ludzi.
 - **Import arkusza wyników:** miesiąc z istniejącym importem bez `replace=true`
@@ -237,6 +268,11 @@ odejście czy awans pracownika nie zmienia uprawnień automatyzacji.
 | POST | `/invoices/{invoice_id}/cancel` (`{"reason": …}`) | `invoices:write` |
 
 - `direction`: `to_client` | `from_contractor`.
+- Kwota faktury od kontraktora (`from_contractor`) to koszt — bez `amounts:read`
+  jest `null` (`costs_redacted: true`), także w odpowiedzi na zapis. DSO liczy
+  wyłącznie faktury do klientów.
+- Zmiana kierunku (`direction`) faktury od kontraktora albo na `from_contractor`
+  wymaga `amounts:read` — bez niego `403 insufficient_scope`.
 - `status`: `issued` | `sent` | `paid` | `overdue` | `cancelled`.
 - Kwota: > 0, najwyżej 2 miejsca po przecinku.
 - Ten sam numer, kierunek i kontrakt drugi raz daje `409 duplicate_invoice`.

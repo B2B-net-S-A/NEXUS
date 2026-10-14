@@ -18,13 +18,14 @@
   "recruiter+delivery_view",
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
-  "recruiter+amounts_edit"
+  "recruiter+amounts_edit",
+  "automation"
  ],
  "routes": {
-  "DELETE /api/procedures/{procedure_id}": "PDDDDDDDDDDDDDDDDDD",
-  "GET /api/procedures": "PPPPPPPDPPPPPPPPPPP",
-  "GET /api/procedures/{id_or_slug}": "PPPPPPPDPPPPPPPPPPP",
-  "POST /api/procedures": "PDDDDDDDDDDDDDDDDDD",
-  "PUT /api/procedures/{procedure_id}": "PDDDDDDDDDDDDDDDDDD"
+  "DELETE /api/procedures/{procedure_id}": "PDDDDDDDDDDDDDDDDDDD",
+  "GET /api/procedures": "PPPPPPPDPPPPPPPPPPPP",
+  "GET /api/procedures/{id_or_slug}": "PPPPPPPDPPPPPPPPPPPP",
+  "POST /api/procedures": "PDDDDDDDDDDDDDDDDDDD",
+  "PUT /api/procedures/{procedure_id}": "PDDDDDDDDDDDDDDDDDDD"
  }
 }

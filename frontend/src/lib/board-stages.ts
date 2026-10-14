@@ -92,6 +92,15 @@ export function boardColumnStep(key: BoardColumnKey | null | undefined): number 
   return at < 0 ? null : at + 1;
 }
 
+/**
+ * Osoba jest już u klienta: „CV wysłane” i dalsze kolumny (rozmowa, umowa,
+ * zatrudniony). Zamknięci (`closed`) nie — z kolumny nie wynika, czy CV wyszło.
+ */
+export function isAtClientColumn(key: BoardColumnKey | null | undefined): boolean {
+  const step = boardColumnStep(key);
+  return step != null && step >= BOARD_COLUMN_ORDER.indexOf("cv_sent") + 1;
+}
+
 export const STAGE_BADGE_LABEL: Record<StageBadgeKey, string> = {
   posting: "Z ogłoszenia",
   acceptance: "Akceptacja",

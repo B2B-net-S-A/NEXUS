@@ -18,13 +18,14 @@
   "recruiter+delivery_view",
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
-  "recruiter+amounts_edit"
+  "recruiter+amounts_edit",
+  "automation"
  ],
  "routes": {
-  "GET /api/dashboard/kpis": "PDPDDDDDDPDPDDDDDDD",
-  "GET /api/dashboard/pipeline-funnel": "PDPDDDDDDPDPDDDDDDD",
-  "GET /api/dashboard/recent-activity": "PPPPPPDDPPPPPPPPPPP",
-  "GET /api/dashboard/recent-hires": "PPPPPPDDPPPPPPPPPPP",
-  "GET /api/dashboard/stats": "PDPDDDDDDPDPDDDDDDD"
+  "GET /api/dashboard/kpis": "PDPDDDDDDPDPDDDDDDDD",
+  "GET /api/dashboard/pipeline-funnel": "PDPDDDDDDPDPDDDDDDDD",
+  "GET /api/dashboard/recent-activity": "PPPPPPDDPPPPPPPPPPPP",
+  "GET /api/dashboard/recent-hires": "PPPPPPDDPPPPPPPPPPPP",
+  "GET /api/dashboard/stats": "PDPDDDDDDPDPDDDDDDDD"
  }
 }

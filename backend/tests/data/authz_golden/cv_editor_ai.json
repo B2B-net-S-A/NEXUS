@@ -18,11 +18,12 @@
   "recruiter+delivery_view",
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
-  "recruiter+amounts_edit"
+  "recruiter+amounts_edit",
+  "automation"
  ],
  "routes": {
-  "POST /api/pipeline/stages/{stage_id}/cv-ai/command": "PPPPPPDDPPPPPPPPPPP",
-  "POST /api/pipeline/stages/{stage_id}/cv-ai/confirm-fact": "PPPPPPDDPPPPPPPPPPP",
-  "POST /api/pipeline/stages/{stage_id}/cv-ai/selection": "PPPPPPDDPPPPPPPPPPP"
+  "POST /api/pipeline/stages/{stage_id}/cv-ai/command": "PPPPPPDDPPPPPPPPPPPD",
+  "POST /api/pipeline/stages/{stage_id}/cv-ai/confirm-fact": "PPPPPPDDPPPPPPPPPPPD",
+  "POST /api/pipeline/stages/{stage_id}/cv-ai/selection": "PPPPPPDDPPPPPPPPPPPD"
  }
 }

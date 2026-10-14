@@ -18,13 +18,14 @@
   "recruiter+delivery_view",
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
-  "recruiter+amounts_edit"
+  "recruiter+amounts_edit",
+  "automation"
  ],
  "routes": {
-  "GET /api/clients/{client_id}/contract-structure": "PPDBPDDDBBBDPPPPDPP",
-  "GET /api/clients/{client_id}/executive-contracts/review": "PPDBPDDDBBBDPPPPDPP",
-  "PATCH /api/clients/{client_id}/executive-contracts/{ec_id}": "PPDBDDDDBBBDDPDDDDD",
-  "POST /api/clients/{client_id}/executive-contracts": "PPDBDDDDBBBDDPDDDDD",
-  "POST /api/clients/{client_id}/executive-contracts/assignments": "PPDBDDDDBBBDDPDDDDD"
+  "GET /api/clients/{client_id}/contract-structure": "PPDBPDDDBBBDPPPPDPPP",
+  "GET /api/clients/{client_id}/executive-contracts/review": "PPDBPDDDBBBDPPPPDPPP",
+  "PATCH /api/clients/{client_id}/executive-contracts/{ec_id}": "PPDBDDDDBBBDDPDDDDDD",
+  "POST /api/clients/{client_id}/executive-contracts": "PPDBDDDDBBBDDPDDDDDD",
+  "POST /api/clients/{client_id}/executive-contracts/assignments": "PPDBDDDDBBBDDPDDDDDD"
  }
 }
