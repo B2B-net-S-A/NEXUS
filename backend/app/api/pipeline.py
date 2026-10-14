@@ -1555,6 +1555,22 @@ async def move_candidate(
 
     if legacy_enum == PipelineStage.verified:
         # Stawka jest OPCJONALNA (17.09.2026) — brak stawki to 200, nie 422.
+        if expected_rate_value is None:
+            # D2 (14.10.2026): Tablica przesuwa parę ze stawką bez okna stawki
+            # i bez stawki w żądaniu — nowy wiersz dostaje najnowszą stawkę pary
+            # (`pair_rates`, ta sama reguła co karta), żeby porównanie
+            # z budżetem i odznaka „ponad budżet” liczyły się jak po oknie.
+            from app.services.candidate_rate_change import pair_rates
+
+            carried = await pair_rates(
+                db, candidate_id=data.candidate_id, job_id=data.job_id
+            )
+            if carried["amount"] is not None:
+                expected_rate_value = carried["amount"]
+                expected_rate_unit = (
+                    RateUnit(carried["unit"]) if carried["unit"] else None
+                )
+                expected_rate_currency = str(carried["currency"] or "PLN")
         if job.salary_max is not None:
             budget_max_snapshot = int(job.salary_max)
         if job.salary_max is not None and expected_rate_value is not None:

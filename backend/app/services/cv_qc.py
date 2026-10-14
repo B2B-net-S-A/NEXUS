@@ -3706,13 +3706,20 @@ def _no_fixes(status: str) -> dict:
 
 
 async def generate_fixes(
-    db: AsyncSession, stage: CandidateStage, *, user_id: int
+    db: AsyncSession,
+    stage: CandidateStage,
+    *,
+    user_id: int,
+    _on_cv_row: bool = False,
 ) -> dict:
     """Propozycje zdań dla braków w rolach (`critical_skills`, `must_in_roles`).
     Nigdy nie rzuca.
 
     Pamięć per (wiersz etapu, skrót wejścia) w `dz_review_hints` — ten sam CV
     i te same braki czytają zapamiętany wynik zamiast płacić drugi raz.
+    Kluczem jest wiersz, na którym LEŻY CV pary (14.10.2026): okno QC pyta
+    z bieżącego wiersza karty, edytor i automat z wiersza CV — bez tego karta
+    w „QC CV” płaciła za model drugi raz.
     """
 
     from app.models.ai_feature import AIFeatureKey
@@ -3732,6 +3739,15 @@ async def generate_fixes(
         return _no_fixes("unavailable")
     if src.generated is None:
         return _no_fixes("no_cv")
+    cv_stage_id = src.generated.get("stage_id")
+    if not _on_cv_row and cv_stage_id and cv_stage_id != stage.id:
+        cv_stage = await db.get(CandidateStage, cv_stage_id)
+        if (
+            cv_stage is not None
+            and cv_stage.candidate_id == stage.candidate_id
+            and cv_stage.job_id == stage.job_id
+        ):
+            return await generate_fixes(db, cv_stage, user_id=user_id, _on_cv_row=True)
     if src.generated["source"] == "document":
         return _no_fixes("not_editable")
     material = fixes_material(src, checks, notes, answers)
@@ -3792,19 +3808,38 @@ async def generate_fixes(
 
 
 async def load_fix(db: AsyncSession, stage_id: int, fix_id: str) -> Optional[dict]:
-    """Zapamiętana poprawka po id (``f<n>-<skrót wejścia>``)."""
+    """Zapamiętana poprawka po id (``f<n>-<skrót wejścia>``).
+
+    Szuka we wszystkich wierszach etapu tej pary (14.10.2026): propozycje
+    leżą pod wierszem z CV (`generate_fixes`), a okno QC nakłada je z bieżącego
+    wiersza karty."""
 
     from app.models.dz_review_hint import DzReviewHint
 
     match = re.fullmatch(r"f\d{1,3}-([0-9a-f]{12})", fix_id or "")
     if not match:
         return None
+    pair = (
+        await db.execute(
+            select(CandidateStage.candidate_id, CandidateStage.job_id).where(
+                CandidateStage.id == stage_id
+            )
+        )
+    ).first()
+    if pair is None:
+        return None
+    pair_stage_ids = select(CandidateStage.id).where(
+        CandidateStage.candidate_id == pair.candidate_id,
+        CandidateStage.job_id == pair.job_id,
+    )
     rows = (
         await db.execute(
-            select(DzReviewHint.payload).where(
-                DzReviewHint.candidate_stage_id == stage_id,
+            select(DzReviewHint.payload)
+            .where(
+                DzReviewHint.candidate_stage_id.in_(pair_stage_ids),
                 DzReviewHint.input_hash.like(f"{match.group(1)}%"),
             )
+            .order_by((DzReviewHint.candidate_stage_id == stage_id).desc())
         )
     ).scalars()
     for payload in rows:
