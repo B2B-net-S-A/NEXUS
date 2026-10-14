@@ -26,6 +26,7 @@ from docx.oxml.ns import qn
 from docx.shared import Inches, Pt, RGBColor
 from lxml import etree
 
+from app.core.docx_metadata import clear_author_metadata
 from app.services.cv_text_align import cv_text_align
 from app.services.skill_normalize import is_taxonomy_technology, tech_alias_forms
 
@@ -1834,6 +1835,8 @@ def render_cv_to_bytes(
         add_consent_screenshot(doc, _consent["_bytes"], t["consent_heading"])
 
     add_bottom_pinned_rodo(doc, t["rodo"])
+    # Plik idzie do klienta: bez autora z szablonu.
+    clear_author_metadata(doc)
 
     out = io.BytesIO()
     doc.save(out)

@@ -167,6 +167,26 @@ działa dalej.
   `SELECT details->>'surface', details->>'state', count(*) FROM activities
   WHERE action = 'cv_file_downloaded' GROUP BY 1, 2`.
 
+## Plik dla klienta bez autora z szablonu (14.10.2026)
+
+Szablon firmowy CV (i zamrożony szablon etapu, i szablon z reguły klienta)
+niesie w `docProps/core.xml` login i imię i nazwisko osoby, która go ostatnio
+zapisała. Oba renderery Worda przepisywały te pola do każdego pliku CV, więc
+klient widział we „Właściwościach” pracownika firmy — a PDF z LibreOffice
+miał go w polu `Author`.
+
+- `render_approved_docx` (treść edytora) i `render_cv_to_bytes` (generator)
+  wołają przed zapisem `app.core.docx_metadata.clear_author_metadata`: autor,
+  „ostatnio zapisał”, tytuł, temat, komentarze, słowa kluczowe, kategoria,
+  stan, identyfikator i wersja są puste. Język i daty zostają.
+- Puste, nie „nazwa firmy”: szablony bywają różnych marek, a pusty autor nic
+  o nikim nie mówi. Nowy renderer pliku dla klienta woła tę samą funkcję.
+- Pliki zatwierdzone wcześniej leżą w bazie (`cv_document_versions.docx_content`)
+  i wychodzą bajt w bajt — mają stare pola, dopóki ktoś nie zatwierdzi nowej
+  wersji. Czyszczenie ich to zapis na produkcji (decyzja Artura).
+- Test: `tests/test_cv_docx_author_metadata.py` (oba renderery, szablon
+  firmowy i szablon z wypełnionymi polami).
+
 ## Panel „Do poprawy” (PR 2, 12.10.2026)
 
 Jedno miejsce na to, co system już wie o CV: QC CV pary, uwagi generatora
