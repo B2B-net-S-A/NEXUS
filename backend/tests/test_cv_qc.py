@@ -1818,8 +1818,14 @@ async def test_a_stored_proposal_with_a_rate_can_no_longer_be_applied() -> None:
     }
 
     class _Db:
+        # `load_fix` pyta najpierw o parę wiersza (14.10.2026: propozycje leżą
+        # pod wierszem z CV, szukane we wszystkich wierszach pary), potem
+        # o zapamiętane propozycje.
         async def execute(self, _stmt):
-            return SimpleNamespace(scalars=lambda: iter([{"fixes": [clean, paid]}]))
+            return SimpleNamespace(
+                first=lambda: SimpleNamespace(candidate_id=3, job_id=4),
+                scalars=lambda: iter([{"fixes": [clean, paid]}]),
+            )
 
     assert await qc.load_fix(_Db(), 5, clean["id"]) == clean
     assert await qc.load_fix(_Db(), 5, paid["id"]) is None
