@@ -30,7 +30,9 @@ from __future__ import annotations
 from typing import Iterable, Literal, Optional
 
 from sqlalchemy import case
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.activity import Activity
 from app.models.job import Job, JobPriority
 
 PriorityLevel = Literal["p1", "p2", "accepting"]
@@ -83,6 +85,33 @@ def priority_rank(priority: object) -> int:
 def is_passive(priority: object) -> bool:
     """„Przyjmujemy kandydatów” — automat nikogo nie proponuje."""
     return level_of(priority) == "accepting"
+
+
+PRIORITY_CHANGED_ACTION = "priority_changed"
+
+
+def record_level_change(
+    db: AsyncSession, job: Job, *, before: object, actor_id: Optional[int]
+) -> None:
+    """Ślad zmiany poziomu priorytetu (14.10.2026): ``{"from", "to"}`` poziomami.
+
+    Lista „Nowe rekrutacje P1 — kto prowadzi” liczy cykl od wejścia na P1
+    (``new_job_leads``), a wpis ``updated`` niesie tylko nowe wartości — okno
+    edycji odsyła priorytet przy każdym zapisie. Zmiana w obrębie poziomu
+    (``urgent`` → ``high``) nic nie zapisuje.
+    """
+    old, new = level_of(before), level_of(job.priority)
+    if old == new:
+        return
+    db.add(
+        Activity(
+            entity_type="job",
+            entity_id=job.id,
+            action=PRIORITY_CHANGED_ACTION,
+            user_id=actor_id,
+            details={"from": old, "to": new},
+        )
+    )
 
 
 def priority_rank_expr(column: Optional[object] = None):

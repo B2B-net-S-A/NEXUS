@@ -65,7 +65,7 @@ class PendingProposal:
     role: str  # recruiter | sourcer
     # Jak kategorie osoby mają się do requestu: first | second | other.
     fit: str
-    # Ile requestów „Szukamy” bez championa osoba ma teraz w pracy.
+    # Ile requestów P1 „Szukamy” bez championa osoba ma teraz w pracy.
     load: int
     # Do kiedy osoba jest dziś na urlopie; ``None`` = pracuje albo nie wiadomo.
     leave_until: Optional[date]
@@ -156,8 +156,12 @@ async def load_pending(db: AsyncSession) -> list[PendingProposal]:
     ]
     if not rows:
         return []
+    # Obłożenie = requesty P1 (14.10.2026), jak na pulpicie i w automacie.
     load = Counter(
-        person.user_id for people in team.values() for person in working(people)
+        person.user_id
+        for job_id, people in team.items()
+        if requests[job_id].automat_assigns
+        for person in working(people)
     )
     first: dict[int, set[int]] = {}
     second: dict[int, set[int]] = {}

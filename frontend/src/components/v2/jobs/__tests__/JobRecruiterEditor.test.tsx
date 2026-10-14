@@ -345,9 +345,9 @@ describe("RecruiterCellEditor — lista wyboru", () => {
       expect.stringContaining("Michał Makietowy"),
       "Ula Spozapuli",
     ]);
-    expect(options[1]).toContain("1 request");
+    expect(options[1]).toContain("1 P1");
     expect(options[1]).toContain("+ 2 do akceptacji");
-    expect(options[2]).toContain("3 requesty");
+    expect(options[2]).toContain("3 P1");
     expect(screen.getByText("Brak danych o urlopach — lista ich nie uwzględnia.")).toBeInTheDocument();
   });
 

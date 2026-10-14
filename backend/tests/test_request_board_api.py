@@ -115,12 +115,13 @@ async def test_board_shows_manual_person_and_champion_is_not_load(
     from datetime import datetime, timezone
 
     from app.core.database import AsyncSessionLocal
-    from app.models.job import Job
+    from app.models.job import Job, JobPriority
 
     searching = await _seed_job(work_state="searching")
+    urgent = await _seed_job(work_state="searching")
     champion = await _seed_job(work_state="searching")
     person = await _seed_recruiter()
-    for job_id in (searching, champion):
+    for job_id in (searching, urgent, champion):
         added = await app_client.post(
             f"/api/request-board/jobs/{job_id}/people",
             json={"user_id": person, "role": "recruiter"},
@@ -131,6 +132,7 @@ async def test_board_shows_manual_person_and_champion_is_not_load(
     async with AsyncSessionLocal() as db:
         job = await db.get(Job, champion)
         job.champion_found_at = datetime.now(timezone.utc)
+        (await db.get(Job, urgent)).priority = JobPriority.urgent
         await db.commit()
 
     board = (
@@ -146,10 +148,13 @@ async def test_board_shows_manual_person_and_champion_is_not_load(
     assert rows[searching]["priority_level"] == "p2"
     assert rows[searching]["delivery_lead"] is None
     assert rows[searching]["opened_effective_at"] is not None
+    # Obłożenie liczy tylko P1 (decyzja Artura 14.10.2026); request bez
+    # priorytetu to `outside_p1`, champion nie liczy się nigdzie.
     load = {p["user_id"]: p for p in board["load"]}
     assert load[person]["count"] == 1
     assert load[person]["proposed"] == 0
-    assert [r["job_id"] for r in load[person]["requests"]] == [searching]
+    assert load[person]["outside_p1"] == 1
+    assert [r["job_id"] for r in load[person]["requests"]] == [urgent]
 
     removed = await app_client.delete(
         f"/api/request-board/jobs/{searching}/people/{person}",

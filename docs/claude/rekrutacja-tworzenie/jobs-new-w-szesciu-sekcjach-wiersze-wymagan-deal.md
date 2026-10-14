@@ -86,16 +86,20 @@ z „wymagań do wyszukiwania” powtarzało must, deal breaker miały 3 z 99 py
   (`request_allocation_notices.notify_assigned`), poranny skrót w `auto` niesie
   już tylko zwolnienia. Tryb `shadow` (propozycja do akceptacji) zostaje w kodzie;
   etykieta opcji zależy od trybu („Przydzieli automat” / „Zaproponuje automat”).
-- **Head of Recruitment widzi „Nowe rekrutacje — kto prowadzi”** w „Czeka na
+- **Head of Recruitment widzi „Nowe rekrutacje P1 — kto prowadzi”** w „Czeka na
   Ciebie” (`services/new_job_leads.py`, pole `new_job_leads` w
-  `GET /api/board-tasks`, tylko `PROPOSAL_DECISION_ROLES`): rekrutacje przekazane
-  do searchu w 7 dniach, prowadzący, źródło (automat / wskazany ręcznie),
-  kategoria, liczba uczestników. Lista informacyjna — nie wchodzi do licznika;
-  „Zmień” zapisuje przez `POST /api/jobs/{id}/owner`. Filtry (09.10.2026:
-  klient, kategoria, Delivery Lead, prowadzący, priorytet) działają
+  `GET /api/board-tasks`, tylko `PROPOSAL_DECISION_ROLES`): rekrutacje P1 bez
+  championa z cyklem z 7 dni, o których prowadzącym Head of Recruitment jeszcze
+  nie zdecydował (od 14.10.2026 — reguły w
+  `rekrutacja-tablica/przydzial-ludzi-do-requestow-stany-requestu-i.md`, sekcja
+  o liście P1 i obłożeniu P1), prowadzący, źródło
+  (automat / wskazany ręcznie), kategoria, liczba uczestników. Lista
+  informacyjna — nie wchodzi do licznika; „Zmień” zapisuje przez
+  `POST /api/jobs/{id}/owner`. Filtry (09.10.2026: klient, kategoria, Delivery
+  Lead, prowadzący; priorytet znika sam, bo lista ma jeden poziom) działają
   w przeglądarce na wierszach z odpowiedzi (`lib/new-job-leads-filters.ts`),
-  więc `MAX_ROWS` (100) jest bezpiecznikiem, nie stroną — wiersz ucięty limitem
-  byłby dla filtrów niewidoczny. Wybór jest zapamiętany w przeglądarce per
+  więc `MAX_ROWS` (100) jest bezpiecznikiem, nie stroną — i od 14.10.2026 tnie
+  wynik po odrzuceniu potwierdzonych, nie zapytanie. Wybór jest zapamiętany w przeglądarce per
   konto (`nexus:new-job-leads-filters:<id>`) i wylogowanie go nie czyści;
   filtr, którego wartości nie ma dziś na liście, nie działa, ale wraca, gdy
   taka rekrutacja znowu się pojawi. Ten sam pasek (`LeadFiltersBar`,
@@ -109,7 +113,7 @@ z „wymagań do wyszukiwania” powtarzało must, deal breaker miały 3 z 99 py
   `LoadPeople` z `request-board/LoadPanel.tsx` w wariancie `columns` — osoby
   w kolumnach, requesty klikniętej osoby pod listą). Widać je tylko osobie
   decydującej o przydziale (`can_decide_proposals`) i tylko, gdy „Propozycje
-  automatu” albo „Nowe rekrutacje — kto prowadzi” mają wiersze; bez tego panel
+  automatu” albo „Nowe rekrutacje P1 — kto prowadzi” mają wiersze; bez tego panel
   nie pyta o tablicę requestów. Do liczników zadań się nie liczy. Odznacza się
   je w „Listy nad pulpitem” (klucz `team_load` — jedyny, którego nie ma
   w odpowiedzi `/api/board-tasks`, więc sprawdza go sam panel).

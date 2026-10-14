@@ -411,15 +411,26 @@ async def test_published_job_without_handoff_is_listed_for_head_of_recruitment(
 ):
     from app.services import new_job_leads
 
+    from app.models.job import JobPriority
+
     monkeypatch.setattr(new_job_leads, "MAX_ROWS", 100_000)
     world = await _world(people=0)
     handed = await _world(people=0)
+    # Lista jest tylko dla P1 (decyzja Artura 14.10.2026) — także „bez przekazania”.
+    standard = await _world(people=0)
     async with AsyncSessionLocal() as db:
         await db.execute(
-            update(Job).where(Job.id == world["job_id"]).values(is_open=False)
+            update(Job)
+            .where(Job.id == world["job_id"])
+            .values(is_open=False, priority=JobPriority.urgent)
         )
         await db.execute(
-            update(Job).where(Job.id == handed["job_id"]).values(is_open=True)
+            update(Job)
+            .where(Job.id == handed["job_id"])
+            .values(is_open=True, priority=JobPriority.urgent)
+        )
+        await db.execute(
+            update(Job).where(Job.id == standard["job_id"]).values(is_open=False)
         )
         await db.commit()
         leads = await new_job_leads.load_new_job_leads(
@@ -430,6 +441,7 @@ async def test_published_job_without_handoff_is_listed_for_head_of_recruitment(
     assert handed["job_id"] not in by_job or (
         by_job[handed["job_id"]].pending_reason != "not_handed_off"
     )
+    assert standard["job_id"] not in by_job
 
 
 pytestmark = pytest.mark.asyncio

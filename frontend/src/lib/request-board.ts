@@ -18,6 +18,7 @@ import {
   workingRecruiters,
   type RecruiterLike,
 } from "@/lib/job-team"
+import { defaultSortForScope, encodeJobsListUrl } from "@/lib/jobs-url-filters"
 import { pluralPl } from "@/lib/plural-pl"
 import {
   isPriorityLevel,
@@ -409,6 +410,44 @@ export function leadOptions(board: Pick<RequestBoard, "requests">): {
 }
 
 // ── Obłożenie ───────────────────────────────────────────────────────────────
+//
+// Obłożenie liczy tylko rekrutacje P1 (prośba Head of Recruitment, decyzja
+// Artura 14.10.2026): `count` i `proposed` z serwera są już P1, a rekrutacje
+// bez priorytetu i „Przyjmujemy” przychodzą osobno jako `outside_p1`.
+
+/** „1 rekrutacja P1”, „3 rekrutacje P1”, „5 rekrutacji P1”. */
+export function p1Word(n: number): string {
+  return pluralPl(n, "rekrutacja P1", "rekrutacje P1", "rekrutacji P1")
+}
+
+/** Liczba przy osobie w okienkach wyboru: „3 P1”. */
+export function p1LoadLabel(count: number): string {
+  return `${count} P1`
+}
+
+/**
+ * Skala paska obłożenia: najbardziej obłożona osoba na liście ma pełny pasek
+ * (propozycje się doliczają). Do 14.10.2026 stała 5 — przy obłożeniu ze
+ * wszystkich priorytetów 13 z 15 osób miało pełny pasek.
+ */
+export function loadBarScale(load: readonly LoadPerson[]): number {
+  return Math.max(1, ...load.map((person) => person.count + (person.proposed ?? 0)))
+}
+
+/** Lista rekrutacji osoby spoza P1 — te, które nie liczą się do obłożenia. */
+export function outsideP1Href(userId: number): string {
+  const query = encodeJobsListUrl({
+    scope: "open",
+    defaultScope: "open",
+    keepScope: true,
+    deadline: "any",
+    sort: defaultSortForScope("open"),
+    stages: ["searching"],
+    workedBy: [userId],
+    priorityLevels: ["p2", "accepting"],
+  })
+  return `/jobs?${query}`
+}
 
 /** Od najbardziej obłożonej osoby; liczą się requesty w pracy, nie propozycje. */
 export function orderLoad(load: readonly LoadPerson[]): LoadPerson[] {
@@ -481,15 +520,16 @@ export function recruiterPickOptions(
 }
 
 /**
- * Liczba przy osobie: „2” albo „2 + 1” (requesty w pracy + propozycje czekające
- * na akceptację) oraz to samo słowami — dla czytnika ekranu i podpowiedzi.
+ * Liczba przy osobie: „2” albo „2 + 1” (rekrutacje P1 w pracy + propozycje
+ * czekające na akceptację) oraz to samo słowami — dla czytnika ekranu
+ * i podpowiedzi.
  */
 export function loadSummary(person: Pick<LoadPerson, "count" | "proposed">): {
   label: string
   spoken: string
 } {
   const proposed = person.proposed ?? 0
-  const working = `${person.count} ${requestWord(person.count)}`
+  const working = `${person.count} ${p1Word(person.count)}`
   if (proposed <= 0) return { label: String(person.count), spoken: working }
   return {
     label: `${person.count} + ${proposed}`,

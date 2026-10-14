@@ -1529,7 +1529,7 @@
   {
    "id": "dashboard.new-job-leads",
    "area": "pulpit",
-   "opis": "„Nowe rekrutacje — kto prowadzi”: lista dla Head of Recruitment i admina z rekruterem prowadzącym (automat / wskazany ręcznie), kategorią, liczbą uczestników i „Zmień”; filtry: klient, kategoria, Delivery Lead, prowadzący, priorytet",
+   "opis": "„Nowe rekrutacje P1 — kto prowadzi”: lista dla Head of Recruitment i admina — rekrutacje P1 bez championa, o których prowadzącym HoR jeszcze nie zdecydował (zespół ustawiony na dowolnym ekranie = „Potwierdź”), z rekruterem prowadzącym (automat / wskazany ręcznie), kategorią, liczbą uczestników, „Potwierdź”, „Zmień” i powodem powrotu („Wraca… było X”); filtry: klient, kategoria, Delivery Lead, prowadzący",
    "file": "components/v2/dashboard/BoardTasksPanel.tsx",
    "marker": "NewJobLeadsSection",
    "v3_home": "Pulpit → Czeka na Ciebie"

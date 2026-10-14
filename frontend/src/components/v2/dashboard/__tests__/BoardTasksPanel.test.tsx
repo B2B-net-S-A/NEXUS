@@ -594,7 +594,7 @@ function leadRow(over: Record<string, unknown> = {}) {
   };
 }
 
-describe("BoardTasksPanel — „Nowe rekrutacje — kto prowadzi”", () => {
+describe("BoardTasksPanel — „Nowe rekrutacje P1 — kto prowadzi”", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     useAuthStore.setState({ user: { id: 1, role: "head_of_recruitment" }, realUser: null } as never);
@@ -604,7 +604,7 @@ describe("BoardTasksPanel — „Nowe rekrutacje — kto prowadzi”", () => {
   it("same rekrutacje z prowadzącymi: lista jest widoczna, ale nic nie „czeka”", async () => {
     mockQueue({ new_job_leads: [leadRow()] });
     renderPanel();
-    const section = await screen.findByRole("region", { name: "Nowe rekrutacje — kto prowadzi" });
+    const section = await screen.findByRole("region", { name: "Nowe rekrutacje P1 — kto prowadzi" });
     expect(within(section).getByRole("link", { name: "Analityk biznesowy" })).toHaveAttribute(
       "href",
       "/jobs/51",
@@ -631,7 +631,7 @@ describe("BoardTasksPanel — „Nowe rekrutacje — kto prowadzi”", () => {
       .map((region) => region.getAttribute("aria-label"));
     expect(sections).toEqual([
       "Propozycje automatu do akceptacji",
-      "Nowe rekrutacje — kto prowadzi",
+      "Nowe rekrutacje P1 — kto prowadzi",
       "Obłożenie",
       "Wysłane do Cpro",
     ]);
@@ -664,7 +664,7 @@ describe("BoardTasksPanel — „Nowe rekrutacje — kto prowadzi”", () => {
       return Promise.resolve({ data: [] });
     });
     renderPanel();
-    const section = await screen.findByRole("region", { name: "Nowe rekrutacje — kto prowadzi" });
+    const section = await screen.findByRole("region", { name: "Nowe rekrutacje P1 — kto prowadzi" });
     await userEvent.click(
       within(section).getByRole("button", { name: "Zmień prowadzącego: Analityk biznesowy" }),
     );
@@ -683,7 +683,7 @@ describe("BoardTasksPanel — „Nowe rekrutacje — kto prowadzi”", () => {
     mockQueue({ ...queue, cpro_sent: [row("cpro_sent")] });
     renderPanel();
     await screen.findByRole("region", { name: "Wysłane do Cpro" });
-    expect(screen.queryByRole("region", { name: "Nowe rekrutacje — kto prowadzi" })).toBeNull();
+    expect(screen.queryByRole("region", { name: "Nowe rekrutacje P1 — kto prowadzi" })).toBeNull();
   });
 
   it("pusta lista bez innych zadań nie zostawia pustej ramki", async () => {
@@ -733,7 +733,7 @@ describe("BoardTasksPanel — „Obłożenie” przy listach przydziału (09.10.
     useAuthStore.setState({ user: { id: 1, role: "head_of_recruitment" }, realUser: null } as never);
   });
 
-  it("stoi pod „Nowe rekrutacje — kto prowadzi”: osoby od najbardziej obłożonej, klik pokazuje requesty", async () => {
+  it("stoi pod „Nowe rekrutacje P1 — kto prowadzi”: osoby od najbardziej obłożonej, klik pokazuje requesty", async () => {
     mockQueueWithBoard({
       can_decide_proposals: true,
       new_job_leads: [leadRow()],
@@ -747,7 +747,7 @@ describe("BoardTasksPanel — „Obłożenie” przy listach przydziału (09.10.
       expect.stringContaining("Marek Dąb"),
       expect.stringContaining("Ewa Kalina"),
     ]);
-    expect(marek).toHaveAccessibleName("Marek Dąb, 3 requesty · 1 propozycja do akceptacji");
+    expect(marek).toHaveAccessibleName("Marek Dąb, 3 rekrutacje P1 · 1 propozycja do akceptacji");
     expect(within(load).queryByRole("group", { name: "Requesty: Marek Dąb" })).toBeNull();
     await userEvent.click(marek);
     const requests = within(load).getByRole("group", { name: "Requesty: Marek Dąb" });
@@ -766,7 +766,7 @@ describe("BoardTasksPanel — „Obłożenie” przy listach przydziału (09.10.
   it("same rekrutacje z prowadzącymi: obłożenie stoi obok nich, poza „Czeka na Ciebie”", async () => {
     mockQueueWithBoard({ can_decide_proposals: true, new_job_leads: [leadRow()] });
     renderPanel();
-    await screen.findByRole("region", { name: "Nowe rekrutacje — kto prowadzi" });
+    await screen.findByRole("region", { name: "Nowe rekrutacje P1 — kto prowadzi" });
     const load = await screen.findByRole("region", { name: "Obłożenie" });
     expect(await within(load).findByRole("button", { name: /Ewa Kalina/ })).toBeInTheDocument();
     expect(screen.queryByRole("region", { name: "Czeka na Ciebie" })).toBeNull();
@@ -788,7 +788,7 @@ describe("BoardTasksPanel — „Obłożenie” przy listach przydziału (09.10.
         <BoardTasksPanel hiddenPanels={new Set(["team_load"] as const)} />
       </QueryClientProvider>,
     );
-    await screen.findByRole("region", { name: "Nowe rekrutacje — kto prowadzi" });
+    await screen.findByRole("region", { name: "Nowe rekrutacje P1 — kto prowadzi" });
     expect(screen.queryByRole("region", { name: "Obłożenie" })).toBeNull();
     expect(get).not.toHaveBeenCalledWith("/api/request-board");
   });
