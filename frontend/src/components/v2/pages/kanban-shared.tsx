@@ -90,6 +90,12 @@ export interface KanbanItem {
  // Automaty (21.09.2026): na TYM etapie leży gotowe auto-CV czekające na
  // przegląd człowieka. Brak pola (starsza odpowiedź) = brak odznaki.
  auto_cv_ready?: boolean;
+ // Droga rekrutera do DL (14.10.2026): automat CV właśnie generuje szkic dla
+ // TEGO etapu („CV w przygotowaniu…”). Brak pola = starszy serwer.
+ auto_cv_state?: "processing" | null;
+ // Para ma CV firmowe (szkic albo zatwierdzone) — `knownForwardGap` z
+ // „Zweryfikowany” na „QC CV”. Brak pola / `null` = nie wiadomo (bez blokady).
+ company_cv?: boolean | null;
  // Stawka z profilu kandydata (PLN/h) — podpowiedź w oknie „Zweryfikowany".
  candidate_expected_rate_hourly?: string | number | null;
  // „Stawka od” (0414): najniższa stawka z 18 miesięcy — podpowiedź, gdy karta
@@ -222,6 +228,8 @@ export interface KanbanItem {
   /** Kiedy QC przeszło albo ktoś je przepuścił (ISO) — od tej chwili karta
    *  czeka na wysłanie do klienta. Brak = starszy serwer albo QC bez zaliczenia. */
   ok_at?: string | null;
+  /** Uwagi nieblokujące najnowszego przebiegu (14.10.2026) — „CV gotowe · N do poprawy”. */
+  warnings_count?: number;
  } | null;
  // Karta rekomendacji (0413): stan karty pary i liczba notatek „nie odebrał”.
  // `card: null` = pary nie ma jeszcze w kartach.

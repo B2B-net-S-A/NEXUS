@@ -125,7 +125,8 @@ export interface ScreeningFormState {
   rate: (FormRate & { source: "stage" | "card"; at: string | null }) | null;
   /** Stawka zapisana tekstem („130–150 zł/h”), gdy `rate` jest puste. */
   rate_text?: string | null;
-  rate_hints: { card: FormRate | null; rate_from: FormRate | null };
+  /** `card_raw` — dosłowny tekst stawki z karty (14.10.2026), gdy `card` jest. */
+  rate_hints: { card: FormRate | null; card_raw?: string | null; rate_from: FormRate | null };
   /** Zmiana stawki otworzy sprawę u Delivery Leada (kolumna od „Zweryfikowany”). */
   rate_change_notifies: boolean;
   can_edit_rate: boolean;
@@ -199,7 +200,8 @@ export interface ScreeningFormSave {
   } | null;
   /** `null` = stawka bez zmian. */
   rate: FormRate | null;
-  note_import: { text: string; source_name?: string | null } | null;
+  /** `note_id` — notatka zapisana już w doku (D3, 14.10.2026); serwer jej nie dubluje. */
+  note_import: { text: string; source_name?: string | null; note_id?: number | null } | null;
 }
 
 export interface ScreeningFormSaveResult extends ScreeningFormState {

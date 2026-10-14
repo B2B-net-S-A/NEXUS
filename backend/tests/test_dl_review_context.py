@@ -417,3 +417,91 @@ async def test_context_redaction_matrix_and_prefill(
                 await db.execute(delete(Candidate).where(Candidate.id == stranger_id))
             await db.commit()
         await _cleanup(world, [rec_id, rm_id, admin_id, dl_in_id, dl_out_id, hor_dl_id])
+
+
+@pytest.mark.asyncio
+async def test_context_shows_the_recruiters_handoff_remark_on_top(
+    api_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """D6 (14.10.2026): zdanie rekrutera przy przekazaniu na „QC CV” to
+    uwaga wiersza etapu „QC CV” — Delivery Lead czyta ją w przeglądzie.
+    Uwaga z „Wróć do poprawy” (na wierszu „Zweryfikowany”) nią nie jest."""
+    from sqlalchemy import select as sa_select
+
+    from app.models.note import Note
+    from app.services import note_kinds
+
+    world = await _seed_world()
+    monkeypatch.setenv("NORDEA_ORDER_NUMBER_CLIENT_IDS", "")
+    cid, jid, defs = world["candidate_id"], world["job_id"], world["defs"]
+    rec_id, rec_creds = await _seed_user(UserRole.recruiter)
+    admin_id, admin_creds = await _seed_user(UserRole.admin)
+    remark = "Dostępny od 1.11, w CV dopisałem projekt z Kafką."
+    try:
+        async with AsyncSessionLocal() as db:
+            db.add(
+                CandidateStage(
+                    candidate_id=cid,
+                    job_id=jid,
+                    stage="screening",
+                    stage_def_id=defs["screening"],
+                    moved_by=rec_id,
+                    screening_answers={
+                        "answers": [{"question_id": "q1", "response": "Kafka 3 lata"}],
+                        "overall_fit": "fit",
+                    },
+                    moved_at=datetime.now(timezone.utc) - timedelta(hours=2),
+                )
+            )
+            await db.commit()
+        rec = await _login(api_client, rec_creds)
+        await _move(
+            api_client,
+            rec,
+            world,
+            "verified",
+            expected_rate_value="140",
+            expected_rate_unit="hourly",
+            expected_rate_currency="PLN",
+        )
+        qc_row = (
+            await _move(api_client, rec, world, "qc", recruiter_remark=remark)
+        ).json()["id"]
+        admin = await _login(api_client, admin_creds)
+        url = f"/api/dl-review/context?candidate_id={cid}&job_id={jid}"
+        body = (await api_client.get(url, headers=admin)).json()
+        assert body["stage_id"] == qc_row
+        handoff = body["recruiter_handoff_remark"]
+        assert handoff["text"] == remark
+        async with AsyncSessionLocal() as db:
+            rec_name = (await db.get(User, rec_id)).name
+            assert handoff["author_name"] == rec_name
+            assert handoff["created_at"]
+            # Uwaga na wierszu „Zweryfikowany” (zwrot do poprawy) nie jest
+            # uwagą rekrutera — także gdy to najnowszy wiersz pary.
+            verified_row = await db.scalar(
+                sa_select(CandidateStage.id).where(
+                    CandidateStage.candidate_id == cid,
+                    CandidateStage.job_id == jid,
+                    CandidateStage.stage_def_id == defs["verified"],
+                )
+            )
+            db.add(
+                Note(
+                    content="Dopisz Spring do CV.",
+                    candidate_id=cid,
+                    job_id=jid,
+                    author_id=admin_id,
+                    external_source=note_kinds.REMARK_SOURCE,
+                    external_id=str(verified_row),
+                    kind=note_kinds.DL_REVIEW,
+                )
+            )
+            await db.commit()
+            assert await svc.recruiter_handoff_remark(db, verified_row) is None
+            assert (await svc.recruiter_handoff_remark(db, qc_row))["text"] == remark
+    finally:
+        async with AsyncSessionLocal() as db:
+            await db.execute(delete(Note).where(Note.candidate_id == cid))
+            await db.commit()
+        await _cleanup(world, [rec_id, admin_id])

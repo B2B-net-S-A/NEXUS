@@ -17,7 +17,9 @@ Zapis (``save``) to jedna transakcja, w tej kolejności:
    (``state_token``) = odcisk stanu pary pod blokadą (inaczej 409
    ``SCREENING_FORM_VERSION_CONFLICT``);
 4. gdy nic się nie zmienia — koniec, bez notatki i bez wersji;
-5. notatka z „Uzupełnij z notatki” jako zwykła notatka z rozmowy (HUMAN);
+5. notatka z „Uzupełnij z notatki” jako zwykła notatka z rozmowy (HUMAN) —
+   albo, z ``note_import.note_id`` (D3, 14.10.2026), notatka zapisana już
+   w doku osoby, bez drugiej kopii (``_reused_note``);
 6. arkusz na NAJNOWSZY wiersz etapu (``humanize_origins`` → ``stamp_sheet``);
 7. pola karty różne od wartości efektywnej (``save_manual``);
 8. stawka przez ``change_rate(source="screening")`` — przed „Zweryfikowany”
@@ -25,7 +27,9 @@ Zapis (``save``) to jedna transakcja, w tej kolejności:
    pole karty ``rate`` dostaje tekst tej stawki;
 9. wersja ``baseline``/``external`` (stan sprzed zapisu, gdy różni się od
    ostatniej wersji — ślad starych tras i automatów), wersja zapisu
-   i dziennik z samymi nazwami pól.
+   i dziennik z samymi nazwami pól;
+10. zapis, który dodał wersję w „Nowych”/„Screeningu”, bierze wolną osobę na
+    12 h jak „Biorę” (``_claim_on_save``, P2 14.10.2026).
 
 Maile (zmiana stawki) i oznaczenie wyników dopasowania idą po commicie,
 w trasie (``api/screening_form.py``).
@@ -109,6 +113,23 @@ UNDO_REFUSED_MESSAGE = (
     "Cofnąć można tylko swój ostatni zapis tego formularza — przywróć wersję "
     "z historii zmian."
 )
+# D3 (14.10.2026): rodzaje notatki, z którą zapisu formularza NIE wiążemy.
+# Reguła rodzajów czyta krótką notatkę z rozmowy także jako „status”,
+# „umawianie” czy „próbę kontaktu” („Rozmowa ok, zdalnie, od grudnia” →
+# status) — lista dozwolonych odrzucała dokładnie notatki, które formularz ma
+# czytać (przegląd 14.10.2026). Odmawiamy tylko rodzajom spoza rozmowy
+# rekrutera i wpisom Delivery Leada o stawce do klienta (widoczność).
+NOTE_REUSE_REFUSED_KINDS = frozenset(
+    {
+        note_kinds.AUTOMATCH,
+        note_kinds.APPLICATION_FORM,
+        note_kinds.PREP_SUMMARY,
+        note_kinds.EMAIL,
+        note_kinds.DL_RATE,
+        note_kinds.DL_REVIEW,
+        note_kinds.CONTRACTOR,
+    }
+)
 _CURRENCY_RE = re.compile(r"[A-Za-z]{3}")
 _CENT = Decimal("0.01")
 
@@ -156,6 +177,9 @@ class RateInput(BaseModel):
 class NoteImportInput(BaseModel):
     text: str = Field(min_length=1, max_length=NOTE_MAX_CHARS * 2)
     source_name: Optional[str] = Field(default=None, max_length=SOURCE_NAME_MAX)
+    # D3 (14.10.2026): notatka zapisana już w doku osoby („Zapisz notatkę
+    # i wypełnij formularz”) — zapis wiąże z nią wersję zamiast zakładać drugą.
+    note_id: Optional[int] = Field(default=None, gt=0)
 
 
 class SaveInput(BaseModel):
@@ -675,6 +699,7 @@ async def load_state(
         else None
     )
     card_hourly = cards.card_rate_hourly(current.fields.get("rate"))
+    card_raw = str((current.fields.get("rate") or {}).get("raw") or "").strip() or None
     rate_from = rate_summary(candidate).get("rate_from_hourly")
     assist_enabled = bool(settings.RECOMMENDATION_CARD_ASSIST_ENABLED)
     editable = state.reason is None and can_write
@@ -724,6 +749,9 @@ async def load_state(
                 if card_hourly is not None
                 else None
             ),
+            # Dosłowny tekst stawki z karty (14.10.2026) — formularz wpisuje
+            # stawkę z karty w puste pole i mówi pod nim, skąd jest.
+            "card_raw": card_raw if card_hourly is not None else None,
             "rate_from": (
                 _form_rate(rate_from, "hourly", "PLN")
                 if rate_from is not None
@@ -813,6 +841,8 @@ class SaveOutcome:
     # "not_in_version" (wersja nie miała stawki, a stawka jest — zostaje).
     rate_not_restored_reason: Optional[str] = None
     skipped_answers: list[str] = field(default_factory=list)
+    # Zapis wziął osobę na 12 h (``_claim_on_save``) — trasa powiadamia Tablice.
+    claimed: bool = False
 
 
 @dataclass
@@ -964,6 +994,7 @@ async def _apply(
     action: str,
     rate_reason: str,
     note_import: Optional[NoteImportInput] = None,
+    reused_note: Optional[Note] = None,
     restored_from: Optional[int] = None,
 ) -> SaveOutcome:
     """Wspólny aplikator zapisu i przywracania — patrz docstring modułu."""
@@ -1011,7 +1042,11 @@ async def _apply(
 
     now = datetime.now(timezone.utc)
     note: Optional[Note] = None
-    if note_import is not None:
+    if reused_note is not None:
+        # D3: notatka z doku jest już w historii — wersja wiąże się z nią.
+        note = reused_note
+        outcome.note_id = note.id
+    elif note_import is not None:
         # Zwykła notatka z rozmowy, NIE notatka-karta: projekcja kart (0413)
         # wpisałaby do karty także to, czego rekruter nie przyjął.
         note = Note(
@@ -1235,6 +1270,91 @@ async def _prepare(
     return state, head
 
 
+async def _claim_on_save(db: AsyncSession, *, state: PairState, user: User) -> bool:
+    """Zapis formularza w „Nowych”/„Screeningu” bierze wolną osobę na 12 h.
+
+    P2 (14.10.2026): panel nie ma już „Biorę — 12 h” przed formularzem —
+    rozmowę zaczyna się od razu, a zapis, który dodał wersję, robi to samo co
+    „Biorę” (trasa ``claim_candidate``: blokada i wpis ``candidate_claimed``).
+    Przywrócenie wersji osoby nie bierze. Cudzej aktywnej blokady zapis nie
+    przejmuje: rekrutera zatrzymuje wcześniej 423 (``assert_can_act``),
+    a admin, Delivery Lead i Head of Recruitment zapisują bez przejęcia.
+    Własnej blokady nie przedłuża (jak „Biorę”). Blokadę kandydata trzyma
+    już ``_lock_pair`` — ta sama kolejność co trasa.
+    """
+    newest = state.newest
+    if (
+        state.process is None
+        or newest is None
+        or state.column not in candidate_claim.CLAIM_COLUMNS
+    ):
+        return False
+    # Świeży odczyt pod blokadą — proces z sesji mógł być wczytany przed nią.
+    process = await db.scalar(
+        select(RecruitmentProcess)
+        .where(RecruitmentProcess.id == state.process.id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if process is None or _value(process.status) != "open":
+        return False
+    now = candidate_claim.utcnow()
+    previous = candidate_claim.claim_state(
+        process, await candidate_claim.inactive_holders(db, [process])
+    )
+    if previous.active(now):
+        return False
+    candidate_claim.set_claim(process, user.id, now)
+    db.add(
+        Activity(
+            entity_type="pipeline",
+            entity_id=newest.id,
+            action="candidate_claimed",
+            user_id=user.id,
+            details={
+                "candidate_id": process.candidate_id,
+                "job_id": process.job_id,
+                "taken_over_from": None,
+                "claimed_until": process.claimed_until.isoformat(),
+            },
+        )
+    )
+    await db.flush()
+    return True
+
+
+async def _reused_note(
+    db: AsyncSession,
+    *,
+    note_id: int,
+    candidate_id: int,
+    job_id: int,
+    user: User,
+) -> Note:
+    """Notatka z doku, którą zapis formularza przyjmuje zamiast drugiej (D3).
+
+    Ta sama para, autor = zapisujący, notatka wpisana ręcznie (bez
+    ``external_source`` — nie automat, integracja ani uwaga etapu), rodzaj spoza
+    ``NOTE_REUSE_REFUSED_KINDS`` i nie usunięta u źródła — inaczej 422, zanim
+    cokolwiek się zapisze.
+    """
+    note = await db.get(Note, note_id)
+    if (
+        note is None
+        or note.candidate_id != candidate_id
+        or note.job_id != job_id
+        or note.author_id != user.id
+        or note.external_source is not None
+        or note.kind in NOTE_REUSE_REFUSED_KINDS
+        or note.source_deleted_at is not None
+    ):
+        raise _invalid(
+            "Tej notatki nie da się powiązać z formularzem — wklej jej tekst "
+            "w „Uzupełnij z notatki”."
+        )
+    return note
+
+
 async def save(
     db: AsyncSession,
     *,
@@ -1252,6 +1372,17 @@ async def save(
         candidate=candidate,
         job=job,
         expected_version=data.expected_version,
+    )
+    reused_note = (
+        await _reused_note(
+            db,
+            note_id=data.note_import.note_id,
+            candidate_id=candidate.id,
+            job_id=job.id,
+            user=user,
+        )
+        if data.note_import is not None and data.note_import.note_id is not None
+        else None
     )
     current = await _load_current(
         db,
@@ -1286,7 +1417,7 @@ async def save(
         origins={key: value.model_dump() for key, value in origins.items()},
         rate=_rate_target(data.rate.model_dump() if data.rate is not None else None),
     )
-    return await _apply(
+    outcome = await _apply(
         db,
         user=user,
         candidate_id=candidate.id,
@@ -1299,7 +1430,11 @@ async def save(
         action="save",
         rate_reason="conversation",
         note_import=data.note_import,
+        reused_note=reused_note,
     )
+    if outcome.saved_version is not None:
+        outcome.claimed = await _claim_on_save(db, state=state, user=user)
+    return outcome
 
 
 def _assert_undo_allowed(head: _Head, *, version_no: int, user: User) -> None:

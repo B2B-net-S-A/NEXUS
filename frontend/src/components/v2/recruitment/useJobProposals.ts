@@ -22,6 +22,7 @@ import {
 import { useToast } from "@/components/Toast";
 import { useFullCandidateSearch } from "@/hooks/useFullCandidateSearch";
 import {
+  candidatesApi,
   historicalCandidatesApi,
   matchingApi,
   proposalsApi,
@@ -80,6 +81,15 @@ export interface AddToJobOptions {
   initialStageLegacy?: string | null;
   note?: string | null;
   tags?: string[];
+}
+
+/**
+ * Wynik dodania dla wołającego (okno „Kandydaci do dodania” zostawia dodane
+ * osoby na liście z „Cofnij”). Komunikat i ukrycie wierszy robi hook jak dotąd.
+ */
+export interface AddToJobCallbacks {
+  onSuccess?: (response: BulkProposalsResponse) => void;
+  onSettled?: () => void;
 }
 
 interface AddGroup {
@@ -502,7 +512,37 @@ export function useJobProposals(jobId: number, options: UseJobProposalsOptions) 
     onError: (error) => showError(assignErrorMessage(error)),
   });
 
-  const { mutate: addMutate } = addMutation;
+  /**
+   * „Cofnij” dodania z okna „Kandydaci do dodania” (14.10.2026): usunięcie
+   * osoby z rekrutacji. Serwer do 15 min od wejścia oddaje jej propozycję
+   * (`added` → `proposed`), więc po odświeżeniu źródeł osoba wraca na listę.
+   * Obietnica kończy się PO odświeżeniu — wiersz nie mignie pustką.
+   * `false` = nie cofnięto (komunikat już pokazany).
+   */
+  const undoAdd = useCallback(
+    async (candidateId: number): Promise<boolean> => {
+      if (readOnly) return false;
+      try {
+        await candidatesApi.removeFromRecruitment(candidateId, jobId, { quickUndo: true });
+      } catch (error) {
+        showError(apiErrorMessage(error, "Nie udało się cofnąć dodania."));
+        return false;
+      }
+      setHiddenIds((prev) => new Set([...prev].filter((id) => id !== candidateId)));
+      await Promise.allSettled([
+        queryClient.invalidateQueries({ queryKey: ["kanban", String(jobId)] }),
+        queryClient.invalidateQueries({ queryKey: ["kanban", jobId] }),
+        queryClient.invalidateQueries({ queryKey: ["pipeline-scores"] }),
+        queryClient.invalidateQueries({ queryKey: jobProposalsKeys.all(jobId) }),
+      ]);
+      void queryClient.invalidateQueries({ queryKey: ["jobs"] });
+      void queryClient.invalidateQueries({ queryKey: ["jobs-v2"] });
+      return true;
+    },
+    [readOnly, jobId, queryClient, showError],
+  );
+
+  const { mutate: addMutate, mutateAsync: addMutateAsync } = addMutation;
   const { mutate: dismissMutate } = dismissMutation;
   const { mutate: shortlistMutate } = shortlistMutation;
 
@@ -557,9 +597,21 @@ export function useJobProposals(jobId: number, options: UseJobProposalsOptions) 
       },
     },
     addToJob: useCallback(
-      (candidateIds: number[], opts: AddToJobOptions = {}) => addMutate({ candidateIds, opts }),
-      [addMutate],
+      (candidateIds: number[], opts: AddToJobOptions = {}, callbacks?: AddToJobCallbacks) => {
+        if (!callbacks) {
+          addMutate({ candidateIds, opts });
+          return;
+        }
+        // `mutateAsync`, bo callbacki przekazane do `mutate` dostaje tylko
+        // OSTATNIE z kilku równoległych wywołań — dwa szybkie „+ Dodaj” gubiły
+        // wynik pierwszego. Błąd pokazuje `onError` mutacji.
+        void addMutateAsync({ candidateIds, opts })
+          .then((response) => callbacks.onSuccess?.(response), () => undefined)
+          .finally(() => callbacks.onSettled?.());
+      },
+      [addMutate, addMutateAsync],
     ),
+    undoAdd,
     adding: addMutation.isPending,
     dismiss: useCallback(
       (candidateIds: number[], feedback: DismissFeedback) => dismissMutate({ candidateIds, feedback }),

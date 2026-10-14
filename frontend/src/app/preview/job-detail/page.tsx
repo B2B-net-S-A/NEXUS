@@ -16,8 +16,11 @@
  *
  * `?empty=1` — puste kolumny widoczne (ustawienie z menu „⋯”),
  * `?rail=1` — menu zwinięte do szyny 60 px także od 1280 px,
- * `?sources=similar|postings|base|search` — okno „Kandydaci do dodania”
- * otwarte od razu na tej zakładce,
+ * `?sources=similar|postings|base|search|manual` — okno „Kandydaci do dodania”
+ * otwarte od razu na tej zakładce (14.10.2026: dopasowanie liczone bez
+ * przycisku — `/api/search/candidates/scores` odpowiada lokalnie z zasiewu,
+ * „+ Dodaj” w wierszach, po jednej osobie w stanie „Dodano · Cofnij” na
+ * „Propozycjach z bazy” i w „Szukaj w bazie”, „Szukaj ręcznie” jako zakładka),
  * `?closed=1` — rekrutacja zamknięta („Otwórz ponownie…” w menu „⋯”),
  * `?reopen=1` — zamknięta z otwartym oknem „Otwórz ponownie” i fikcyjnymi
  * brakami (04.10.2026),
@@ -39,6 +42,12 @@ import { JobDetailCompactHeader } from "@/components/v2/jobs/JobDetailCompactHea
 import { reassignContextQueryKey } from "@/components/v2/jobs/ScreeningReassignSuggestions";
 import { RequestStatusBadge } from "@/components/v2/jobs/JobListCells";
 import { candidateQueryKeys, candidateViewerScopeKey } from "@/components/v2/pages/candidate-query-keys";
+import {
+  CANDIDATES_BASE_TOTAL_QUERY_KEY,
+  candidatesListApiParams,
+  candidatesListQueryKey,
+} from "@/components/v2/pages/CandidatesListV2";
+import { cloudTalkStatusQueryKey } from "@/hooks/useCloudTalkEnabled";
 import { pairMovesQueryKey } from "@/components/v2/recruitment/JobMoveLog";
 import { pinnedNotesQueryKey } from "@/components/v2/recruitment/PinnedCandidateNotes";
 import { KanbanBoardV2 } from "@/components/v2/pages/KanbanBoardV2";
@@ -50,7 +59,7 @@ import { JobReopenDialog } from "@/components/v2/jobs/JobReopenDialog";
 import { JobFilesSlideOver } from "@/components/v2/recruitment/slideovers/JobFilesSlideOver";
 import type { JobFilesResponse } from "@/lib/api/jobFiles";
 import { Badge } from "@/components/ui/badge";
-import { CANDIDATE_SOURCE_TABS, type CandidateSourceTab } from "@/components/v2/recruitment/types";
+import { CANDIDATE_WINDOW_TABS, type CandidateWindowTab } from "@/components/v2/recruitment/types";
 import { searchBaseKey } from "@/components/v2/recruitment/useSearchBaseTab";
 import { screenedOutQueryKey } from "@/lib/api/applicationScreenings";
 import { recruitmentRateHintsQueryKey } from "@/lib/api/recruitmentRateHints";
@@ -509,6 +518,33 @@ const SIMILAR_PEOPLE: PersonSeed[] = [
   { id: 533, first: "Robert", last: "Demo", facts: { title: "Programista Frontend", years_experience: 10, city: "Kraków", expected_rate_hourly: 105 }, score: 81, breakdown: measured(81, ["Angular", "TypeScript"]) },
   { id: 534, first: "Lena", last: "Szkicowa", facts: { title: "Junior Frontend Developer", years_experience: 2, city: "Łódź" }, score: 55, breakdown: measured(55, ["TypeScript"], ["Angular"]) },
 ];
+
+/** „Szukaj ręcznie” (zakładka okna, 14.10.2026): wyniki pełnej wyszukiwarki. */
+const MANUAL: PersonSeed[] = [
+  ...SEARCH,
+  { id: 541, first: "Zofia", last: "Próbkowa", facts: { title: "Frontend Developer", years_experience: 4, city: "Szczecin", expected_rate_hourly: 78 }, score: 66, breakdown: measured(66, ["Angular"], ["TypeScript"]) },
+  { id: 542, first: "Michał", last: "Atrapowy", facts: { title: "Senior Angular Developer", years_experience: 11, city: "Warszawa", expected_rate_hourly: 120 }, score: 80, breakdown: measured(80, ["Angular", "TypeScript"]) },
+];
+
+/** Osoby „dodane w tym oknie” — wiersz „Dodano do „Nowych” · rezerwacja 12 h · Cofnij”. */
+const ADDED_IN_WINDOW: readonly number[] = [BASE[1].id, SEARCH[1].id];
+
+/** Dopasowanie każdej fikcyjnej osoby — odpowiedź lokalna na `/scores`. */
+const SCORE_SEEDS = new Map(
+  [...POSTINGS, ...BASE, ...SEARCH, ...SIMILAR_PEOPLE, ...MANUAL].map((p) => [p.id, p] as const),
+);
+
+function fakeMatchScores(candidateIds: readonly number[]) {
+  const scores: Record<string, number> = {};
+  const breakdowns: Record<string, MatchBreakdown> = {};
+  for (const id of candidateIds) {
+    const seed = SCORE_SEEDS.get(id);
+    if (!seed) continue;
+    if (seed.score !== null) scores[String(id)] = seed.score;
+    breakdowns[String(id)] = seed.breakdown;
+  }
+  return { scores, breakdowns, profile_key: "preview" };
+}
 
 function factsOf(seed: PersonSeed): ProposalFacts {
   return {
@@ -1017,10 +1053,38 @@ function seededClient(): QueryClient {
     pageParams: [1],
   });
   seedFresh(qc, ["job-search-base-count", JOB_ID, filtersKey], 42);
-  seedFresh(qc, ["job-search-base-scores", JOB_ID, SEARCH.map((p) => p.id).join(",")], {
-    scores: Object.fromEntries(SEARCH.map((p) => [String(p.id), p.score])),
-    breakdowns: {},
+  seedFresh(
+    qc,
+    ["job-search-base-scores", JOB_ID, SEARCH.map((p) => p.id).join(",")],
+    fakeMatchScores(SEARCH.map((p) => p.id)),
+  );
+
+  // „Szukaj ręcznie” (zakładka okna): lista tym samym kluczem co wyszukiwarka
+  // osadzona (`CandidatesListV2 embed`, strona 1 po 50) i jej stałe odczyty.
+  seedFresh(qc, candidatesListQueryKey(candidatesListApiParams(filters, 1, 50)), {
+    items: MANUAL.map((p) => ({
+      id: p.id,
+      name: p.first,
+      lastname: p.last,
+      status: "active",
+      linkedin_current_title: p.facts.title ?? null,
+      years_it_experience: p.facts.years_experience ?? null,
+      city: p.facts.city ?? null,
+      expected_rate_hourly: p.facts.expected_rate_hourly ?? null,
+      skills: ["Angular", "TypeScript"],
+    })),
+    total: 57,
+    page: 1,
+    page_size: 50,
+    text_mode_applied: "literal",
   });
+  seedFresh(qc, CANDIDATES_BASE_TOTAL_QUERY_KEY, { items: [], total: 12481, page: 1, page_size: 1 });
+  seedFresh(qc, ["saved-searches", "candidates"], []);
+  seedFresh(qc, ["candidate-pins"], []);
+  seedFresh(qc, ["competence-categories-active"], []);
+  seedFresh(qc, cloudTalkStatusQueryKey, { enabled: false });
+  seedFresh(qc, ["clients-lookup"], []);
+  seedFresh(qc, ["users-directory"], []);
 
   for (const seed of [...POSTINGS, ...BASE, ...SEARCH, ...SIMILAR_PEOPLE]) seedPerson(qc, seed);
 
@@ -1125,15 +1189,27 @@ function JobDetailHarness() {
   const [filesOpen, setFilesOpen] = useState(params.get("files") === "1");
   const [closeOpen, setCloseOpen] = useState(params.get("close") === "1");
   const [client] = useState(seededClient);
-  const [sourceTab, setSourceTab] = useState<CandidateSourceTab | null>(
-    CANDIDATE_SOURCE_TABS.includes(initialSources as CandidateSourceTab)
-      ? (initialSources as CandidateSourceTab)
+  const [sourceTab, setSourceTab] = useState<CandidateWindowTab | null>(
+    CANDIDATE_WINDOW_TABS.includes(initialSources as CandidateWindowTab)
+      ? (initialSources as CandidateWindowTab)
       : null,
   );
   const [ready, setReady] = useState(false);
   const hideEmptyColumns = useUiStore((s) => s.hideEmptyKanbanColumns);
   useEffect(() => {
     const blocker = api.interceptors.request.use((config) => {
+      // Dopasowanie liczone bez przycisku (14.10.2026) — odpowiedź z zasiewu.
+      if (config.url === "/api/search/candidates/scores") {
+        const ids = (config.data as { candidate_ids?: number[] } | undefined)?.candidate_ids ?? [];
+        config.adapter = async () => ({
+          data: fakeMatchScores(ids),
+          status: 200,
+          statusText: "OK",
+          headers: {},
+          config,
+        });
+        return config;
+      }
       if (config.url === MOVE_REQUIREMENTS_URL) {
         config.adapter = async () => ({
           data: MOVE_REQUIREMENTS,
@@ -1358,7 +1434,7 @@ function JobDetailHarness() {
                         onTabChange={setSourceTab}
                         budgetHourly={JOB.effective_budget_hourly}
                         pipelineCandidateIds={[]}
-                        onOpenManualSearch={noop}
+                        initialAddedIds={ADDED_IN_WINDOW}
                         onOpenChampionSearch={noop}
                         onOpenFullList={noop}
                       />

@@ -745,6 +745,51 @@ describe("DlReviewPanel — przegląd DL przed wysłaniem CV do klienta", () => 
     expect(screen.getByRole("dialog", { name: "QC CV" })).toHaveTextContent("QC etapu 11");
   });
 
+  describe("uwaga rekrutera z przekazania (14.10.2026)", () => {
+    it("stoi na górze kolumny decyzji, nad „Warunkami”, z autorem", async () => {
+      mockApi({
+        context: {
+          ...CONTEXT,
+          recruiter_handoff_remark: {
+            text: "Kandydat dostępny od listopada, woli hybrydę.",
+            author_name: "Marta Rekruterka",
+            created_at: "2026-10-14T09:00:00Z",
+          },
+        },
+      });
+      renderPanel();
+      const remark = await screen.findByTestId("dl-review-recruiter-remark");
+      expect(remark).toHaveTextContent("Od rekrutera (Marta Rekruterka): Kandydat dostępny od listopada, woli hybrydę.");
+      const decision = screen.getByTestId("dl-review-decision");
+      expect(decision).toContainElement(remark);
+      const terms = within(decision).getByText("Warunki wobec rekrutacji");
+      // Uwaga przed „Warunkami” w kolejności dokumentu.
+      expect(remark.compareDocumentPosition(terms) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    });
+
+    it("bez autora — samo „Od rekrutera”; bez uwagi (albo pusta) — nic", async () => {
+      mockApi({
+        context: { ...CONTEXT, recruiter_handoff_remark: { text: "Pilne.", author_name: null, created_at: "2026-10-14T09:00:00Z" } },
+      });
+      const first = renderPanel();
+      expect(await screen.findByTestId("dl-review-recruiter-remark")).toHaveTextContent("Od rekrutera: Pilne.");
+      first.view.unmount();
+
+      mockApi({
+        context: { ...CONTEXT, recruiter_handoff_remark: { text: "  ", author_name: "X", created_at: "2026-10-14T09:00:00Z" } },
+      });
+      const second = renderPanel();
+      expect(await screen.findByText("…Java 17 w banku…")).toBeTruthy();
+      expect(screen.queryByTestId("dl-review-recruiter-remark")).toBeNull();
+      second.view.unmount();
+
+      mockApi();
+      renderPanel();
+      expect(await screen.findByText("…Java 17 w banku…")).toBeTruthy();
+      expect(screen.queryByTestId("dl-review-recruiter-remark")).toBeNull();
+    });
+  });
+
   describe("karta przesunięta mimo uwag QC (tryb doradczy)", () => {
     const OVERRIDE_AT = "2026-10-12T10:00:00Z";
     const overridden = (qc_override: Record<string, unknown> | null) => ({

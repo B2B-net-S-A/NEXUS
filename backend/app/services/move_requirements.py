@@ -733,8 +733,9 @@ def build_requirements(facts: PairFacts, to_column: str) -> dict[str, Any]:
             )
     elif to_column == "cv_sent" and not facts.is_client_sender:
         # Wysyłka do klienta należy do Delivery Leada: rekruter przekazuje
-        # osobę do „QC CV" (to jest „Czeka na Twój przegląd" DL). Blokuje więc
-        # tylko to, co jest potrzebne do wejścia do „QC CV".
+        # osobę do „QC CV" (tam DL ją przegląda; na pulpicie DL-a to pas „Do
+        # wysłania do klienta"). Blokuje więc tylko to, co jest potrzebne do
+        # wejścia do „QC CV".
         qc_index = BOARD_COLUMN_ORDER.index("cv_qc")
         blocking = [
             item
@@ -748,7 +749,12 @@ def build_requirements(facts: PairFacts, to_column: str) -> dict[str, Any]:
                 None if from_column == "cv_qc" else facts.qc_stage_def_id
             ),
         }
-        owner_note = "CV wysyła Delivery Lead — trafi do jego „Czeka na Ciebie”."
+        # 14.10.2026: sekcji „Czeka na Ciebie” z przeglądami DL-a już nie ma
+        # (pas „Do wysłania do klienta”, 13.10.2026) — zdanie mówi, gdzie
+        # osoba faktycznie czeka.
+        owner_note = (
+            "Osoba czeka u Delivery Leada w kolumnie „QC CV” — CV do klienta wysyła on."
+        )
 
     if blocking and primary["kind"] != "blocked":
         primary = {

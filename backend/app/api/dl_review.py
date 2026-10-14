@@ -141,6 +141,14 @@ class QcOverrideOut(BaseModel):
     at: datetime
 
 
+class HandoffRemarkOut(BaseModel):
+    """Uwaga rekrutera przy przekazaniu na „QC CV” (`stage_remarks`, 14.10.2026)."""
+
+    text: str
+    author_name: Optional[str] = None
+    created_at: datetime
+
+
 class DlReviewContext(BaseModel):
     candidate_id: int
     candidate_name: str
@@ -170,6 +178,8 @@ class DlReviewContext(BaseModel):
     job_sends: list[SendOut]
     last_contract: Optional[LastContractOut] = None
     fix_options: list[FixOptionOut]
+    # Rekruter dopisał zdanie przy przekazaniu — DL czyta je na górze przeglądu.
+    recruiter_handoff_remark: Optional[HandoffRemarkOut] = None
 
 
 class DlReviewQueueItem(BaseModel):

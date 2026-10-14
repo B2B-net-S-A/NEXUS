@@ -14,7 +14,7 @@ import * as React from "react";
 import { act, cleanup as rtlCleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 const kanban = vi.fn();
 const post = vi.fn();
@@ -176,9 +176,23 @@ vi.mock("@/components/v2/person/PersonWorkbenchTabs", async (importOriginal) => 
         rejectFollowUp?: (
           candidateId: number,
         ) => { onMoved: (info: { reasonLabel: string | null }) => void } | undefined;
+        onForwarded?: (candidateId: number) => void;
+        forwardedCandidateId?: number | null;
+        nextInColumn?: (
+          candidateId: number,
+          column: string,
+        ) => { candidateId: number; name: string; detail?: string | null } | null;
+        openPerson?: (candidateId: number) => void;
+        noteFill?: unknown;
       };
     }) => (
-      <div data-testid="person-workbench-stub" data-section={section} data-candidate={row.candidateId}>
+      <div
+        data-testid="person-workbench-stub"
+        data-section={section}
+        data-candidate={row.candidateId}
+        data-forwarded={String(workbenchContext?.forwardedCandidateId ?? "")}
+        data-note-fill={workbenchContext?.noteFill ? "yes" : "no"}
+      >
         <input aria-label="pole warsztatu" defaultValue="" />
         <button type="button" onClick={() => onSectionChange("contract")}>
           zakładka umowa
@@ -192,6 +206,20 @@ vi.mock("@/components/v2/person/PersonWorkbenchTabs", async (importOriginal) => 
         >
           formularz: odrzucono
         </button>
+        {/* Jak „Zapisz i przekaż dalej”: udany ruch, potem przejście panelu. */}
+        <button type="button" onClick={() => workbenchContext?.onForwarded?.(row.candidateId)}>
+          formularz: przekazano
+        </button>
+        {(() => {
+          const next = workbenchContext?.nextInColumn?.(row.candidateId, "new") ?? null;
+          return next ? (
+            <button type="button" onClick={() => workbenchContext?.openPerson?.(next.candidateId)}>
+              {`następna w Nowych: ${next.name}${next.detail ? ` · ${next.detail}` : ""}`}
+            </button>
+          ) : (
+            <span>brak następnej w Nowych</span>
+          );
+        })()}
       </div>
     ),
   };
@@ -2800,7 +2828,10 @@ describe("KanbanBoardV2 — „Rozwiń”: pełne narzędzia w tym samym panelu 
         category: "internal",
         stage_def_id: 13,
         count: 1,
-        items: [{ id: 777, candidate_id: 5, name: "Anna", lastname: "Kowalska", stage: "verified", days_in_stage: 1 }],
+        // Bez CV firmowego strzałka otwiera okno (znany brak, 14.10.2026).
+        items: [
+          { id: 777, candidate_id: 5, name: "Anna", lastname: "Kowalska", stage: "verified", days_in_stage: 1, company_cv: false },
+        ],
       },
       { stage: "interview", name: "QC CV", category: "internal", stage_def_id: 14, count: 0, items: [] },
     ]);
@@ -3250,5 +3281,275 @@ describe("KanbanBoardV2 — „Odrzuć” w formularzu screeningu też przenosi 
     expect(within(panel).getByRole("status", { name: "Poprzednia osoba" })).toHaveTextContent(
       "Odrzucono: Michał Zieliński · Brak Azure",
     );
+  });
+});
+
+// ── Strzałka „→” bez okna z „Cofnij” i odznaki CV (D7, 14.10.2026) ─────────
+describe("KanbanBoardV2 — strzałka „→”: ruch od razu z „Cofnij” (14.10.2026)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    kanban.mockResolvedValue({ data: { columns: [] } });
+    post.mockResolvedValue({ data: {} });
+    useAuthStore.setState({ user: { id: 1, role: "admin" } } as never);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  const moveCalls = () => post.mock.calls.filter((c) => c[0] === "/api/pipeline/move");
+  const columnOf = (container: HTMLElement, id: number) =>
+    container.querySelector(`[data-candidate-id="${id}"]`)?.closest("[data-colid]")?.getAttribute("data-colid");
+
+  async function clickArrow(name: string) {
+    const card = (await screen.findByRole("link", { name })).closest("[data-kanban-card]") as HTMLElement;
+    vi.useFakeTimers();
+    fireEvent.click(within(card).getByRole("button", { name: new RegExp(`Przesuń ${name} na następny etap`) }));
+  }
+
+  it("z „Nowych” na „Screening”: bez okna, karta od razu w Screeningu, żądanie po 10 s", async () => {
+    const { container } = renderBoard(defaultB2BColumns());
+    // „Nowi / Analiza CV” — pierwsza karta (2000).
+    await clickArrow("Kandydat Nowi /0");
+    expect(screen.queryByTestId("move-next-dialog")).toBeNull();
+    expect(columnOf(container, 2000)).toBe("def:301");
+    expect(toastAction).toHaveBeenCalledWith(
+      "Kandydat Nowi /0 → Screening",
+      expect.objectContaining({ actionLabel: "Cofnij", durationMs: 10_000 }),
+    );
+    expect(moveCalls()).toHaveLength(0);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10_000);
+    });
+    expect(moveCalls()).toHaveLength(1);
+    expect(moveCalls()[0][1]).toMatchObject({ candidate_id: 2000, stage: "screening", stage_def_id: 301 });
+  });
+
+  it("„Cofnij” wraca kartę na miejsce bez żadnego żądania", async () => {
+    const { container } = renderBoard(defaultB2BColumns());
+    await clickArrow("Kandydat Nowi /0");
+    const onAction = toastAction.mock.calls[0][1].onAction as () => void;
+    act(() => onAction());
+    expect(columnOf(container, 2000)).toBe("def:300");
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(15_000);
+    });
+    expect(moveCalls()).toHaveLength(0);
+  });
+
+  it("zamknięcie Tablicy przed upływem 10 s wysyła ruch od razu", async () => {
+    const { unmount } = renderBoard(defaultB2BColumns());
+    await clickArrow("Kandydat Nowi /0");
+    expect(moveCalls()).toHaveLength(0);
+    unmount();
+    expect(moveCalls()).toHaveLength(1);
+    expect(moveCalls()[0][1]).toMatchObject({ candidate_id: 2000, stage: "screening" });
+  });
+
+  it("otwarcie tej osoby w panelu wysyła odłożony ruch od razu (panel czyta stan z serwera)", async () => {
+    renderBoard(defaultB2BColumns());
+    await clickArrow("Kandydat Nowi /0");
+    expect(moveCalls()).toHaveLength(0);
+    vi.useRealTimers();
+    fireEvent.click(document.querySelector('[data-candidate-id="2000"]') as HTMLElement);
+    await waitFor(() => expect(moveCalls()).toHaveLength(1));
+    expect(moveCalls()[0][1]).toMatchObject({ candidate_id: 2000, stage: "screening" });
+  });
+
+  it("odświeżenie tablicy w ciągu 10 s nie cofa karty", async () => {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const view = (columns: unknown) => (
+      <QueryClientProvider client={qc}>
+        <TooltipProvider>
+          <KanbanBoardV2 columns={columns as never} jobId={10} />
+        </TooltipProvider>
+      </QueryClientProvider>
+    );
+    const { container, rerender } = render(view(defaultB2BColumns()));
+    await clickArrow("Kandydat Nowi /0");
+    // Nowa odpowiedź serwera (np. po innym ruchu) — serwer jeszcze nie wie o strzałce.
+    rerender(view(defaultB2BColumns()));
+    expect(columnOf(container, 2000)).toBe("def:301");
+  });
+
+  it("ze „Zweryfikowanego” bez CV firmowego strzałka otwiera „Przesuń dalej” (znany brak)", async () => {
+    const columns = defaultB2BColumns() as unknown as Array<Record<string, unknown>>;
+    columns[2] = {
+      ...columns[2],
+      count: 1,
+      items: [
+        { id: 7201, candidate_id: 8201, stage: "verified", name: "Olek", lastname: "Bezcv", days_in_stage: 1, company_cv: false },
+      ],
+    };
+    renderBoard(columns as never);
+    const card = (await screen.findByRole("link", { name: "Olek Bezcv" })).closest("[data-kanban-card]") as HTMLElement;
+    const arrow = within(card).getByRole("button", { name: /Przesuń Olek Bezcv na następny etap/ });
+    expect(arrow).toHaveAttribute("data-gap", "true");
+    expect(arrow).toHaveAttribute("title", expect.stringContaining("Brak CV firmowego"));
+    fireEvent.click(arrow);
+    expect(await screen.findByTestId("move-next-dialog")).toBeTruthy();
+    expect(toastAction).not.toHaveBeenCalled();
+    expect(moveCalls()).toHaveLength(0);
+  });
+
+  it("„Zweryfikowany” ze stawką etapu ze Screeningu: strzałka bez okna stawki (D2)", async () => {
+    const columns = defaultB2BColumns() as unknown as Array<Record<string, unknown>>;
+    columns[1] = {
+      ...columns[1],
+      items: [
+        {
+          id: 1100,
+          candidate_id: 2100,
+          stage: "screening",
+          name: "Kandydat",
+          lastname: "Screen0",
+          days_in_stage: 2,
+          screening_done: true,
+          expected_rate_value: "140.00",
+          expected_rate_unit: "hourly",
+          expected_rate_currency: "PLN",
+        },
+      ],
+    };
+    const { container } = renderBoard(columns as never);
+    await clickArrow("Kandydat Screen0");
+    expect(screen.queryByTestId("move-next-dialog")).toBeNull();
+    expect(screen.queryByLabelText("Kwota")).toBeNull();
+    expect(columnOf(container, 2100)).toBe("def:302");
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10_000);
+    });
+    expect(moveCalls()).toHaveLength(1);
+    expect(moveCalls()[0][1]).toMatchObject({ candidate_id: 2100, stage: "verified" });
+    expect(moveCalls()[0][1]).not.toHaveProperty("expected_rate_value");
+  });
+});
+
+describe("KanbanBoardV2 — stan CV na karcie „Zweryfikowanego” (14.10.2026)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    kanban.mockResolvedValue({ data: { columns: [] } });
+  });
+
+  it("w przygotowaniu, gotowe z liczbą do poprawy, gotowe bez uwag", async () => {
+    const columns = defaultB2BColumns() as unknown as Array<Record<string, unknown>>;
+    columns[2] = {
+      ...columns[2],
+      count: 3,
+      items: [
+        { id: 7301, candidate_id: 8301, stage: "verified", name: "Ala", lastname: "Pisze", days_in_stage: 1, auto_cv_state: "processing" },
+        {
+          id: 7302,
+          candidate_id: 8302,
+          stage: "verified",
+          name: "Bartek",
+          lastname: "Poprawki",
+          days_in_stage: 1,
+          company_cv: true,
+          qc: { status: "failed", blocking_failed: 1, warnings_count: 1 },
+        },
+        {
+          id: 7303,
+          candidate_id: 8303,
+          stage: "verified",
+          name: "Celina",
+          lastname: "Czysta",
+          days_in_stage: 1,
+          company_cv: true,
+          qc: { status: "passed", blocking_failed: 0, warnings_count: 0 },
+        },
+      ],
+    };
+    renderBoard(columns as never);
+    const badge = async (name: string) =>
+      within((await screen.findByRole("link", { name })).closest("[data-kanban-card]") as HTMLElement).getByTestId(
+        "card-cv-state",
+      );
+    expect(await badge("Ala Pisze")).toHaveTextContent("CV w przygotowaniu…");
+    expect(await badge("Bartek Poprawki")).toHaveTextContent("CV gotowe · 2 do poprawy");
+    expect(await badge("Celina Czysta")).toHaveTextContent("CV gotowe · bez uwag");
+  });
+});
+
+describe("KanbanBoardV2 — panel osoby: przekazanie dalej, następna w kolumnie, kanał notatki (14.10.2026)", () => {
+  const ctx = { clientId: 3, clientName: "Bank Alfa", onMoved: vi.fn(), canCloseJob: false };
+  const query = { isLoading: false, isError: false, error: null, isSuccess: true, refetch: vi.fn() };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    kanban.mockResolvedValue({ data: { columns: [] } });
+    post.mockResolvedValue({ data: {} });
+  });
+
+  function renderPeople() {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    return render(
+      <QueryClientProvider client={qc}>
+        <TooltipProvider>
+          <KanbanBoardV2
+            columns={[
+              {
+                stage: "new",
+                name: "Nowi",
+                category: "internal",
+                stage_def_id: 11,
+                count: 3,
+                items: [
+                  { id: 701, candidate_id: 7, name: "Michał", lastname: "Zieliński", stage: "new", days_in_stage: 1 },
+                  { id: 702, candidate_id: 8, name: "Anna", lastname: "Wiśniewska", stage: "new", days_in_stage: 3 },
+                  { id: 703, candidate_id: 9, name: "Ola", lastname: "Ostatnia", stage: "new", days_in_stage: 0 },
+                ],
+              },
+            ] as never}
+            jobId={10}
+            workbenchContext={ctx}
+            kanbanQueryState={query}
+            onInitialWorkbenchHandled={vi.fn()}
+          />
+        </TooltipProvider>
+      </QueryClientProvider>,
+    );
+  }
+
+  it("„następna w kolumnie” idzie za osobą w kolejności „›”, a „otwórz” pokazuje ją w panelu", async () => {
+    renderPeople();
+    fireEvent.click(
+      (await screen.findByRole("link", { name: "Michał Zieliński" })).closest("[data-kanban-card]") as HTMLElement,
+    );
+    const stub = await screen.findByTestId("person-workbench-stub");
+    expect(stub).toHaveAttribute("data-note-fill", "yes");
+    const next = within(stub).getByRole("button", { name: "następna w Nowych: Anna Wiśniewska · czeka 3 dni" });
+    fireEvent.click(next);
+    await waitFor(() => expect(screen.getByTestId("person-workbench-stub")).toHaveAttribute("data-candidate", "8"));
+    // Za ostatnią osobą — pierwsza od góry, nie ona sama.
+    fireEvent.click(
+      within(screen.getByTestId("person-workbench-stub")).getByRole("button", {
+        name: "następna w Nowych: Ola Ostatnia · czeka od dziś",
+      }),
+    );
+    await waitFor(() => expect(screen.getByTestId("person-workbench-stub")).toHaveAttribute("data-candidate", "9"));
+    expect(
+      within(screen.getByTestId("person-workbench-stub")).getByRole("button", {
+        name: "następna w Nowych: Michał Zieliński · czeka 1 dzień",
+      }),
+    ).toBeTruthy();
+  });
+
+  it("„Zapisz i przekaż dalej” przenosi panel na „CV” i zapamiętuje osobę; inna osoba czyści znacznik", async () => {
+    renderPeople();
+    fireEvent.click(
+      (await screen.findByRole("link", { name: "Michał Zieliński" })).closest("[data-kanban-card]") as HTMLElement,
+    );
+    const stub = await screen.findByTestId("person-workbench-stub");
+    expect(stub).toHaveAttribute("data-section", "screening");
+    fireEvent.click(within(stub).getByRole("button", { name: "formularz: przekazano" }));
+    await waitFor(() => expect(screen.getByTestId("person-workbench-stub")).toHaveAttribute("data-section", "cv"));
+    expect(screen.getByTestId("person-workbench-stub")).toHaveAttribute("data-forwarded", "7");
+
+    fireEvent.click(
+      within(screen.getByTestId("person-workbench-stub")).getByRole("button", { name: /następna w Nowych: Anna/ }),
+    );
+    await waitFor(() => expect(screen.getByTestId("person-workbench-stub")).toHaveAttribute("data-candidate", "8"));
+    expect(screen.getByTestId("person-workbench-stub")).toHaveAttribute("data-forwarded", "");
   });
 });

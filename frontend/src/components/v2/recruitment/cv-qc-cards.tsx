@@ -9,6 +9,10 @@
  * z ekranu i nakłada jednym cofalnym krokiem (`qc/transform`). „Pokaż w CV”
  * pojawia się tylko tam, gdzie kontekst podaje `locate`.
  *
+ * Propozycje AI (D5, 14.10.2026) ładują się same, gdy jest pozycja z poprawką
+ * AI — serwer liczy je zaraz po automacie, więc zwykle to odczyt z pamięci.
+ * Przycisku „Zaproponuj poprawki (AI)” już nie ma; zostaje „Ponów” po awarii.
+ *
  * „To nieprawda” (D5, 13.10.2026): przy pozycji, którą da się pominąć, jest
  * przycisk z formularzem powodu; pominięte pozycje stoją zwinięte w „Pominięte”
  * z „Przywróć”. Uwagę blokującą pomija tylko osoba z prawem obejścia
@@ -116,6 +120,7 @@ export interface ActionContext {
   /** „Potwierdzone z kandydatem” — działa także, gdy CV nie da się edytować. */
   confirm: (body: QcConfirmBody, onSaved?: () => void) => void;
   confirming: boolean;
+  /** Przewija do sekcji „Propozycje AI” (propozycje ładują się same). */
   requestAiFixes: () => void;
   copyQuestion: (item: QcItem) => void;
   /** Edytor sprawdzanego CV — `null`, gdy tego CV nie da się edytować w NEXUSIE. */
@@ -179,7 +184,9 @@ function GeneratorOpener({ data, children }: { data: QcResult; children: (open: 
 }
 
 function CheckActions({ check, ctx }: { check: QcCheck; ctx: ActionContext }) {
-  const kinds = checkLevelFixes(check);
+  // Poprawki AI ładują się same w sekcji „Propozycje AI” (D5, 14.10.2026) —
+  // bez przycisku „Zaproponuj poprawki (AI)” przy sprawdzeniu.
+  const kinds = checkLevelFixes(check).filter((kind) => kind !== "ai");
   if (kinds.length === 0 || check.status === "pass") return null;
   return (
     <div className="flex flex-wrap gap-2">
@@ -210,12 +217,7 @@ function CheckActions({ check, ctx }: { check: QcCheck; ctx: ActionContext }) {
             </Button>
           );
         }
-        return (
-          <Button key={kind} size="sm" variant="outline" disabled={!ctx.editable} onClick={ctx.requestAiFixes}>
-            <Sparkles className="size-3.5" aria-hidden />
-            Zaproponuj poprawki (AI)
-          </Button>
-        );
+        return null;
       })}
     </div>
   );
@@ -1126,19 +1128,22 @@ export interface AiFixesViewProps {
   /** `id` sekcji — przycisk „Dopisz zdania (AI)” przewija do niej. */
   sectionId: string;
   ctx: ActionContext;
-  /** Odpowiedź serwera; `undefined` = jeszcze nie proszono o propozycje. */
+  /** Odpowiedź serwera; `undefined` = propozycje jeszcze się ładują. */
   data: QcFixesResponse | undefined;
   loading: boolean;
   failed: boolean;
   /** Propozycje bez odrzuconych i już zastosowanych. */
   visible: QcFix[];
-  onRequest: () => void;
   onRetry: () => void;
   onApply: (fix: QcFix, text?: string) => void;
   onDismiss: (id: string) => void;
 }
 
-/** Sekcja „Propozycje AI” bez zapytań — okno QC i edytor CV podają jej stan. */
+/**
+ * Sekcja „Propozycje AI” bez zapytań — okno QC i edytor CV podają jej stan.
+ * Propozycje ładują się same (D5, 14.10.2026): bez odpowiedzi i bez awarii
+ * sekcja mówi, że je przygotowuje — nie ma przycisku „Zaproponuj”.
+ */
 export function AiFixesView({
   sectionId,
   ctx,
@@ -1146,7 +1151,6 @@ export function AiFixesView({
   loading,
   failed,
   visible,
-  onRequest,
   onRetry,
   onApply,
   onDismiss,
@@ -1154,29 +1158,29 @@ export function AiFixesView({
   let body: React.ReactNode;
   if (!ctx.editable) {
     body = <p className="text-sm text-muted-foreground">{CV_NOT_EDITABLE_MESSAGE}</p>;
-  } else if (loading) {
-    body = (
-      <p className="flex items-center gap-2 text-sm text-muted-foreground">
-        <Loader2 className="size-4 animate-spin" aria-hidden />
-        Luna porównuje CV z oryginałem i notatkami…
-      </p>
-    );
   } else if (failed || data?.status === "unavailable") {
     body = (
       <div role="status" className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
         <AlertTriangle className="size-4 text-warning" aria-hidden />
         Propozycje AI są chwilowo niedostępne — poprawki zrób w edytorze CV.
-        <Button size="sm" variant="outline" onClick={onRetry}>
-          <RefreshCw className="size-3.5" aria-hidden />
+        <Button size="sm" variant="outline" onClick={onRetry} disabled={loading}>
+          {loading ? <Loader2 className="size-3.5 animate-spin" aria-hidden /> : <RefreshCw className="size-3.5" aria-hidden />}
           Ponów
         </Button>
       </div>
     );
-  } else if (data?.status === "no_cv") {
+  } else if (loading || !data) {
+    body = (
+      <p aria-live="polite" className="flex items-center gap-2 text-sm text-muted-foreground">
+        <Loader2 className="size-4 animate-spin" aria-hidden />
+        Przygotowuję poprawki AI…
+      </p>
+    );
+  } else if (data.status === "no_cv") {
     body = <p className="text-sm text-muted-foreground">Najpierw wygeneruj CV — AI poprawia istniejące CV.</p>;
-  } else if (data?.status === "not_editable") {
+  } else if (data.status === "not_editable") {
     body = <p className="text-sm text-muted-foreground">{CV_NOT_EDITABLE_MESSAGE}</p>;
-  } else if (data) {
+  } else {
     body =
       visible.length === 0 ? (
         <p className="text-sm text-muted-foreground">
@@ -1189,18 +1193,6 @@ export function AiFixesView({
           ))}
         </ul>
       );
-  } else {
-    body = (
-      <div className="flex flex-wrap items-center gap-2">
-        <p className="text-sm text-muted-foreground">
-          AI zaproponuje zdania z pokryciem w oryginalnym CV albo notatkach — bez źródła nie ma poprawki.
-        </p>
-        <Button size="sm" variant="outline" onClick={onRequest}>
-          <Sparkles className="size-3.5" aria-hidden />
-          Zaproponuj poprawki (AI)
-        </Button>
-      </div>
-    );
   }
 
   return (

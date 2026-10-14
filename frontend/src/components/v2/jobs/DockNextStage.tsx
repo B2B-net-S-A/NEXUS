@@ -11,7 +11,9 @@
  * (`onMove` → `requestMove` tablicy — okna stawki, ostrzeżenia i bramki
  * serwera bez zmian), „hand_to_dl”/„hand_to_cpro” = przekazanie jak w oknie,
  * „blocked” = przycisk wyłączony z powodem. Do 24.09.2026 ramka ignorowała
- * `primary` i obiecywała ruch, którego serwer albo tablica odmawiały.
+ * `primary` i obiecywała ruch, którego serwer albo tablica odmawiały. Osoba
+ * już w „QC CV” (przekazana DL) nie ma przycisku — ramka mówi „Czeka
+ * u Delivery Leada od …” albo co poprawić w CV (14.10.2026).
  *
  * Awaria wymagań nie blokuje przycisku ruchu.
  */
@@ -21,7 +23,7 @@ import { AlertCircle, ArrowRight, Loader2 } from "lucide-react";
 
 import { useToast } from "@/components/Toast";
 import { Button } from "@/components/ui/button";
-import type { KanbanColumn } from "@/components/v2/pages/kanban-shared";
+import type { KanbanColumn, KanbanItem } from "@/components/v2/pages/kanban-shared";
 import { MoveRequirementList } from "@/components/v2/recruitment/MoveRequirementList";
 import { apiErrorMessage } from "@/lib/api-error";
 import {
@@ -33,7 +35,9 @@ import {
 } from "@/lib/api/moveRequirements";
 import { boardColumnLabel, boardColumnStep, type BoardColumnKey } from "@/lib/board-stages";
 import { planPrimaryStep } from "@/lib/move-primary";
+import { dlWaitingStatus } from "@/lib/board-card-badges";
 import { countPl } from "@/lib/plural-pl";
+import { cn } from "@/lib/utils";
 
 /**
  * Nazwa i numer kolumny docelowej. Serwer zna kolumnę (`to_column`); przed
@@ -106,6 +110,8 @@ export interface DockNextStageProps {
    * arkusza screeningu) — wtedy wymagania liczymy od nowa.
    */
   refreshToken?: unknown;
+  /** Karta z Tablicy — „Czeka u Delivery Leada od …” w „QC CV” (14.10.2026). */
+  item?: KanbanItem;
 }
 
 export function DockNextStage({
@@ -118,6 +124,7 @@ export function DockNextStage({
   onAction,
   canAct,
   refreshToken,
+  item,
 }: DockNextStageProps) {
   const { showSuccess, showError } = useToast();
   const toStageDefId = target.stage_def_id ?? null;
@@ -132,6 +139,7 @@ export function DockNextStage({
   // Bez odpowiedzi serwera (ładowanie, awaria) przycisk robi zwykły ruch —
   // serwer i tak sprawdzi swoje bramki.
   const step = data?.primary ? planPrimaryStep(data, gaps) : ({ type: "move" } as const);
+  const waiting = step.type === "waiting" ? dlWaitingStatus(item, new Date()) : null;
   const primaryKind = data?.primary?.kind ?? "move";
   const handsOver = primaryKind === "hand_to_dl" || primaryKind === "hand_to_cpro";
   const buttonDisabled =
@@ -148,9 +156,6 @@ export function DockNextStage({
         if (!onMoveToStageDef) return;
         onMoveToStageDef(step.stageDefId);
         if (step.notice) showSuccess(step.notice);
-        return;
-      case "notice":
-        showSuccess(step.message);
         return;
       case "error":
         showError(step.message);
@@ -223,13 +228,25 @@ export function DockNextStage({
               możesz przenieść osobę już teraz.
             </p>
           ) : null}
-          {data.owner_note && (
+          {waiting ? (
+            <p
+              role="status"
+              data-testid="dock-next-stage-waiting"
+              data-ready={waiting.ready ? "true" : "false"}
+              className={cn(
+                "rounded-md px-2 py-1 text-[11px] leading-snug",
+                waiting.ready ? "bg-card text-foreground" : "bg-warning/10 text-warning",
+              )}
+            >
+              {waiting.text}
+            </p>
+          ) : data.owner_note ? (
             <p className="rounded-md bg-muted px-2 py-1 text-[11px] text-muted-foreground">{data.owner_note}</p>
-          )}
+          ) : null}
         </>
       ) : null}
 
-      {!readOnly && (
+      {!readOnly && !waiting && (
         <>
           <Button
             size="sm"

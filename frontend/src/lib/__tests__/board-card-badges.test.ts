@@ -15,6 +15,8 @@ import {
   type CardBadgeContext,
   compactCardBadge,
   cardShortName,
+  cvStateBadge,
+  dlWaitingStatus,
   shortStepLabel,
 } from "@/lib/board-card-badges";
 import { WHY_CANDIDATE_LABEL, nextActionFor } from "@/lib/pipeline-next-action";
@@ -193,6 +195,18 @@ describe("Rekrutacja v5: chip QC, znany brak i „kto ma ruch”", () => {
       "QC: 2 do poprawy",
     );
     expect(knownForwardGap(item({ qc: { status: "unchecked", blocking_failed: 0 } }), "cv_qc")).toBeNull();
+  });
+
+  // 14.10.2026: przeciągnięcie ze „Zweryfikowanego” bez CV firmowego wkładało
+  // osobę wprost do kolejki Delivery Leada w „QC CV”.
+  it("ze „Zweryfikowanego” bez CV firmowego strzałka jest szara; nieznany stan CV nie jest brakiem", () => {
+    expect(knownForwardGap(item({ company_cv: false }), "verified")).toBe("Brak CV firmowego");
+    expect(knownForwardGap(item({ company_cv: true }), "verified")).toBeNull();
+    // Starszy serwer (brak pola) albo `null` = nie wiadomo — bez blokady.
+    expect(knownForwardGap(item({}), "verified")).toBeNull();
+    expect(knownForwardGap(item({ company_cv: null }), "verified")).toBeNull();
+    // Pole dotyczy tylko wyjścia ze „Zweryfikowanego”.
+    expect(knownForwardGap(item({ company_cv: false }), "screening")).toBeNull();
   });
 
   it("w QC CV ruch ma rekruter (poprawki), DL (wysyłka albo akceptacja do Cpro) albo osoba od Cpro", () => {
@@ -565,5 +579,88 @@ describe("„Nowy · N dni” — osoba świeżo w bazie (13.10.2026)", () => {
 
   it("dodana dziś", () => {
     expect(labels(fresh({ candidate_added_at: "2026-09-23T06:00:00Z" }), ctx())).toContain("Nowy · dziś");
+  });
+});
+
+describe("stan CV firmowego na karcie (14.10.2026)", () => {
+  const label = (i: KanbanItem, column: Parameters<typeof cvStateBadge>[1] = "verified") =>
+    cvStateBadge(i, column)?.label ?? null;
+
+  it("automat pisze CV — „CV w przygotowaniu…”, nawet gdy stare CV ma wynik QC", () => {
+    expect(label(item({ auto_cv_state: "processing" }))).toBe("CV w przygotowaniu…");
+    expect(
+      label(item({ auto_cv_state: "processing", company_cv: true, qc: { status: "passed", blocking_failed: 0 } })),
+    ).toBe("CV w przygotowaniu…");
+  });
+
+  it("CV jest i QC biegło: ile do poprawy (blokujące + uwagi) albo „bez uwag”", () => {
+    const withCv = (qc: KanbanItem["qc"]) => item({ company_cv: true, qc });
+    expect(label(withCv({ status: "failed", blocking_failed: 2, warnings_count: 1 }))).toBe(
+      "CV gotowe · 3 do poprawy",
+    );
+    expect(label(withCv({ status: "passed", blocking_failed: 0, warnings_count: 2 }))).toBe(
+      "CV gotowe · 2 do poprawy",
+    );
+    // Starszy serwer bez `warnings_count` — liczą się same blokujące.
+    expect(label(withCv({ status: "passed", blocking_failed: 0 }))).toBe("CV gotowe · bez uwag");
+    expect(label(withCv({ status: "overridden", blocking_failed: 0, warnings_count: 0 }))).toBe(
+      "CV gotowe · bez uwag",
+    );
+    expect(cvStateBadge(withCv({ status: "passed", blocking_failed: 0 }), "verified")?.tone).toBe("ok");
+    expect(cvStateBadge(withCv({ status: "failed", blocking_failed: 1 }), "verified")?.tone).toBe("wait");
+    // Gotowe auto-CV bez pola `company_cv` (starszy serwer) też jest CV.
+    expect(
+      label(item({ auto_cv_ready: true, qc: { status: "passed", blocking_failed: 0, warnings_count: 0 } })),
+    ).toBe("CV gotowe · bez uwag");
+  });
+
+  it("QC jeszcze nie biegło — gotowe auto-CV zostaje „CV gotowe w tle” (sprawdź przed wysyłką)", () => {
+    expect(label(item({ auto_cv_ready: true }))).toBe("CV gotowe w tle");
+    expect(label(item({ auto_cv_ready: true, company_cv: true, qc: { status: "unchecked", blocking_failed: 0 } }))).toBe(
+      "CV gotowe w tle",
+    );
+    expect(cvStateBadge(item({ auto_cv_ready: true }), "verified")?.title).toMatch(/sprawdź je przed wysyłką/);
+  });
+
+  it("bez CV firmowego i bez automatu — nic; wynik QC tylko na „Zweryfikowanym”", () => {
+    expect(label(item({}))).toBeNull();
+    expect(label(item({ company_cv: false, qc: { status: "failed", blocking_failed: 1 } }))).toBeNull();
+    // W „QC CV” wynik pokazuje chip QC — bez drugiej plakietki.
+    expect(label(item({ company_cv: true, qc: { status: "failed", blocking_failed: 1 } }), "cv_qc")).toBeNull();
+  });
+});
+
+describe("„Czeka u Delivery Leada” w oknie i ramce ruchu (14.10.2026)", () => {
+  it("gotowa karta: od kiedy czeka (od gotowości, kalendarzowo)", () => {
+    expect(
+      dlWaitingStatus(
+        item({
+          moved_at: "2026-09-18T08:00:00Z",
+          qc: { status: "passed", blocking_failed: 0, ok_at: "2026-09-20T08:00:00Z" },
+        }),
+        NOW,
+      ),
+    ).toEqual({ ready: true, text: "Czeka u Delivery Leada od 3 dni." });
+    expect(
+      dlWaitingStatus(
+        item({ moved_at: "2026-09-22T08:00:00Z", qc: { status: "overridden", blocking_failed: 1, ok_at: "2026-09-22T09:00:00Z" } }),
+        NOW,
+      ).text,
+    ).toBe("Czeka u Delivery Leada od 1 dnia.");
+    expect(
+      dlWaitingStatus(
+        item({ moved_at: "2026-09-23T06:00:00Z", qc: { status: "passed", blocking_failed: 0, ok_at: "2026-09-23T07:00:00Z" } }),
+        NOW,
+      ).text,
+    ).toBe("Czeka u Delivery Leada od dziś.");
+  });
+
+  it("QC nie przeszło albo nie biegło — co ma zrobić rekruter", () => {
+    expect(dlWaitingStatus(item({ qc: { status: "failed", blocking_failed: 2 } }), NOW)).toEqual({
+      ready: false,
+      text: "QC: 2 do poprawy — popraw CV, zanim Delivery Lead je zobaczy.",
+    });
+    expect(dlWaitingStatus(item({}), NOW).text).toMatch(/^QC jeszcze nie sprawdzone/);
+    expect(dlWaitingStatus(null, NOW).ready).toBe(false);
   });
 });

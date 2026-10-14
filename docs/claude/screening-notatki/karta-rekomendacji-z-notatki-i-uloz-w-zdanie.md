@@ -43,3 +43,16 @@ Harness `/preview/screening-form?state=note`. Raport:
   arkuszem. `AIFeatureKey.screening_answer_phrasing` (F29).
 - Odczyt notatki nie jest już blokowany przy niezapisanych zmianach — od 0424
   wypełnia tylko puste pola formularza, a przy pełnych proponuje „Użyj”.
+- **Jedna notatka wypełnia formularz (D3, 14.10.2026).** Gdy formularz screeningu osoby jest otwarty po
+  „Rozwiń” i przyjmuje notatkę (ten sam warunek co pasek „Uzupełnij z notatki”: włączona funkcja i prawo
+  zapisu), pole notatki w doku ma drugi przycisk „Zapisz notatkę i wypełnij formularz” (Enter dalej tylko
+  dodaje notatkę). Notatka zapisuje się zwykłą drogą (`POST /api/notes`), dok przekazuje jej numer i treść
+  formularzowi kanałem `lib/note-fill-channel.ts`, a formularz czyta ją trasą `/note/read` i wypełnia puste
+  pola jak przy wklejeniu. Zapis formularza odsyła `note_import.note_id`: serwer wiąże wersję i pochodzenie
+  pól z tą notatką i NIE zakłada drugiej (`screening_form._reused_note`). Notatkę przyjmuje tylko z tej
+  samej pary, autorstwa zapisującego, nieusuniętą u źródła i rodzaju z `NOTE_REUSE_KINDS` (`human`,
+  `screening_facts`, `card` — reguła rodzajów robi z notatki z rozmowy także te dwa; sama `human` zamykałaby
+  drogę dla „Stawka 150, od listopada…”); inaczej 422 `SCREENING_FORM_INVALID` przed jakimkolwiek zapisem.
+  Treść i rodzaj notatki z doku zostają, jakie były. Porażka odczytu: formularz pokazuje powód, dok mówi, że
+  notatka jest zapisana, a formularza nie wypełnił. Formularz z niezapisanym wypełnieniem z innej notatki
+  drugiej nie przyjmuje.

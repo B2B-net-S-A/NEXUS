@@ -1,10 +1,11 @@
 /**
  * ScreeningWorkbench — sekcja „Screening” panelu osoby (0424, 07.10.2026).
  *
- * Gospodarz decyduje, CO stoi po lewej (profil przed telefonem, formularz,
+ * Gospodarz decyduje, CO stoi po lewej (blok „Co już wiemy” i formularz,
  * historia zakończonego procesu) i z jakimi ruchami, a obok zawsze podgląd
  * CV/wymagań. Sam formularz i podgląd mają własne testy — tu są stubami,
- * które mówią, jakie propsy dostały.
+ * które mówią, jakie propsy dostały. Od 14.10.2026 (P2) bez kroku „Zacznij
+ * screening”: formularz stoi od razu także w „Nowych”.
  */
 
 import { render, screen, waitFor, within } from "@testing-library/react";
@@ -34,31 +35,31 @@ vi.mock("@/components/v2/screening-form/ScreeningFullForm", () => ({
     reject: { stage: string; previousStage: string } | null;
     readOnly: boolean;
     banner?: React.ReactNode;
+    onForwarded?: () => void;
+    noteFill?: unknown;
   }) => (
     <div data-testid="full-form">
       <span>formularz kandydata {props.candidateId}</span>
       <span>{props.forward ? `dalej: ${props.forward.label} (${props.forward.stageDefId})` : "bez ruchu dalej"}</span>
       <span>{props.reject ? `odrzuć: ${props.reject.stage} z ${props.reject.previousStage}` : "bez odrzucenia"}</span>
       <span>{props.readOnly ? "tylko odczyt" : "edycja"}</span>
+      <span>{props.noteFill ? "z kanałem notatki" : "bez kanału notatki"}</span>
+      {props.onForwarded ? (
+        <button type="button" onClick={props.onForwarded}>
+          przekazano dalej
+        </button>
+      ) : null}
       {props.banner}
     </div>
   ),
 }));
 
 vi.mock("@/components/v2/screening-form/BeforeCallProfile", () => ({
-  BeforeCallProfile: (props: { onStartScreening: () => void; onTake?: () => void; onOpenHistory?: () => void }) => (
+  BeforeCallProfile: (props: { readOnly: boolean; onOpenHistory?: () => void }) => (
     <div data-testid="before-call">
-      <button type="button" onClick={props.onStartScreening}>
-        Zacznij screening
-      </button>
       <button type="button" onClick={props.onOpenHistory}>
         Pokaż wcześniejsze notatki
       </button>
-      {props.onTake ? (
-        <button type="button" onClick={props.onTake}>
-          Biorę — 12 h
-        </button>
-      ) : null}
     </div>
   ),
 }));
@@ -91,6 +92,7 @@ vi.mock("@/components/v2/screening-form/ScreeningFormHistory", () => ({
 }));
 
 import { ScreeningWorkbench } from "@/components/v2/jobs/ScreeningWorkbench";
+import { createNoteFillChannel } from "@/lib/note-fill-channel";
 import { PersonPanelSideProvider, PersonPanelSideZone } from "@/components/v2/person/PersonPanelSide";
 import type { KanbanColumn, KanbanItem } from "@/components/v2/pages/kanban-shared";
 
@@ -193,23 +195,29 @@ beforeEach(() => {
 });
 
 describe("ScreeningWorkbench — co stoi po lewej", () => {
-  it("„Nowi” bez zapisanego formularza: profil przed telefonem i CV obok; „Zacznij screening” otwiera formularz", async () => {
-    const user = userEvent.setup();
+  it("„Nowi” bez zapisanego formularza: od razu formularz, nad nim „Co już wiemy”, CV obok (P2, 14.10.2026)", async () => {
     renderWorkbench();
-    expect(await screen.findByTestId("before-call")).toBeVisible();
-    expect(screen.queryByTestId("full-form")).toBeNull();
+    const form = await screen.findByTestId("full-form");
+    expect(form).toHaveTextContent("dalej: Zweryfikowany (4)");
+    expect(form).toHaveTextContent("odrzuć: rejected z new");
+    const known = screen.getByTestId("before-call");
+    expect(Boolean(known.compareDocumentPosition(form) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
     expect(await screen.findByTestId("preview-pane")).toHaveTextContent("podgląd: cv · etap 11");
+    // Bez kroku „Zacznij screening” i bez „Biorę — 12 h” — pierwszy zapis bierze osobę sam.
+    expect(screen.queryByRole("button", { name: /Zacznij screening/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Biorę/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Profil przed telefonem/ })).toBeNull();
+  });
 
-    await user.click(screen.getByRole("button", { name: "Zacznij screening" }));
-    expect(screen.getByTestId("full-form")).toHaveTextContent("dalej: Zweryfikowany (4)");
-    expect(screen.getByTestId("full-form")).toHaveTextContent("odrzuć: rejected z new");
-    expect(screen.getByTestId("before-call")).not.toBeVisible();
-    expect(screen.getByTestId("preview-pane")).toHaveTextContent("podgląd: requirements");
-
-    // Powrót do profilu nie gubi formularza (zostaje zamontowany).
-    await user.click(screen.getByRole("button", { name: /Profil przed telefonem/ }));
-    expect(screen.getByTestId("before-call")).toBeVisible();
-    expect(screen.getByTestId("full-form")).not.toBeVisible();
+  it("udane „Zapisz i przekaż dalej” mówi panelowi, kogo przekazano; kanał notatki idzie do formularza", async () => {
+    const user = userEvent.setup();
+    const onForwarded = vi.fn();
+    const noteFill = createNoteFillChannel();
+    renderWorkbench({ onForwarded, noteFill });
+    const form = await screen.findByTestId("full-form");
+    expect(form).toHaveTextContent("z kanałem notatki");
+    await user.click(within(form).getByRole("button", { name: "przekazano dalej" }));
+    expect(onForwarded).toHaveBeenCalledWith(111);
   });
 
   it("„Pokaż” przy wcześniejszych notatkach otwiera historię osoby w podglądzie, na zakładce CV", async () => {
@@ -235,31 +243,26 @@ describe("ScreeningWorkbench — co stoi po lewej", () => {
     expect(screen.getByTestId("preview-pane")).not.toHaveTextContent("historia osoby");
   });
 
-  it("„Biorę — 12 h” z profilu przed telefonem woła blokadę dla tej osoby", async () => {
-    const user = userEvent.setup();
-    const { onTake } = renderWorkbench();
-    await user.click(await screen.findByRole("button", { name: "Biorę — 12 h" }));
-    expect(onTake).toHaveBeenCalledWith(expect.objectContaining({ candidate_id: 111 }));
-  });
-
-  it("„Screening”: od razu formularz z wymaganiami obok", async () => {
+  it("„Screening”: formularz z wymaganiami obok, nad nim „Co już wiemy”", async () => {
     renderWorkbench({ focusCandidateId: 112 });
     expect(await screen.findByTestId("full-form")).toHaveTextContent("formularz kandydata 112");
     expect(screen.getByTestId("full-form")).toHaveTextContent("odrzuć: rejected z screening");
-    expect(screen.queryByTestId("before-call")).toBeNull();
+    expect(screen.getByTestId("before-call")).toBeInTheDocument();
     expect(await screen.findByTestId("preview-pane")).toHaveTextContent("podgląd: requirements · etap 12");
   });
 
-  it("„Nowi” z zapisanym formularzem nie wraca do profilu przed telefonem", async () => {
+  it("„Nowi” z zapisanym formularzem: ten sam układ, podgląd dalej od CV", async () => {
     states.set(111, formState({ candidate_id: 111, job_id: 7, stage_id: 11, version: 1, versions_count: 1 }));
     renderWorkbench();
     expect(await screen.findByTestId("full-form")).toBeInTheDocument();
-    expect(screen.queryByTestId("before-call")).toBeNull();
+    expect(screen.getByTestId("before-call")).toBeInTheDocument();
+    expect(await screen.findByTestId("preview-pane")).toHaveTextContent("podgląd: cv");
   });
 
-  it("po „CV wysłane”: formularz z banerem D8, bez ruchu dalej i odrzucenia", async () => {
+  it("po „CV wysłane”: formularz z banerem D8, bez ruchu dalej, odrzucenia i bloku „Co już wiemy”", async () => {
     renderWorkbench({ focusCandidateId: 113 });
     const form = await screen.findByTestId("full-form");
+    expect(screen.queryByTestId("before-call")).toBeNull();
     expect(form).toHaveTextContent("bez ruchu dalej");
     expect(form).toHaveTextContent("bez odrzucenia");
     expect(await screen.findByTestId("screening-after-cv-sent")).toHaveTextContent(

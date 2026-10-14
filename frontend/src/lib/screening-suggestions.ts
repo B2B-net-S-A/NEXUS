@@ -50,6 +50,15 @@ export function notedAtLabel(value: string | null | undefined): string | null {
   return match ? `${match[3]}.${match[2]}` : null;
 }
 
+/** „2.04.2025” z daty ISO, „04.2025” z samego miesiąca (`as_of` notatki); inaczej `null`. */
+export function notedAtDateLabel(value: string | null | undefined): string | null {
+  const text = value?.trim() ?? "";
+  const day = ISO_DATE.exec(text);
+  if (day) return `${Number(day[3])}.${day[2]}.${day[1]}`;
+  const month = /^(\d{4})-(\d{2})$/.exec(text);
+  return month ? `${month[2]}.${month[1]}` : null;
+}
+
 function isoDatePl(value: string): string {
   const match = ISO_DATE.exec(value);
   return match ? `${match[3]}.${match[2]}.${match[1]}` : value;

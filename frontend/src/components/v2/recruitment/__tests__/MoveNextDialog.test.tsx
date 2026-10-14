@@ -133,7 +133,9 @@ describe("MoveNextDialog", () => {
     expect(props.onMove).toHaveBeenCalledWith(target);
   });
 
-  it("hand_to_dl: toast o kolejce DL i zamknięcie — bez ruchu", async () => {
+  // 14.10.2026: osoba już w „QC CV” — zamiast przycisku z toastem o „Czeka na
+  // Ciebie” (kolejki, której rekruter nie ma) okno mówi, od kiedy czeka u DL.
+  function respondWaiting() {
     respond({
       from_column: "cv_qc",
       to_column: "cv_sent",
@@ -146,15 +148,50 @@ describe("MoveNextDialog", () => {
           action: { kind: "set_client_rate", label: "Wpisz stawkę" },
         },
       ],
-      primary: { kind: "hand_to_dl", label: "Przekaż do Delivery Leada" },
-      owner_note: "CV wysyła Delivery Lead — trafi do jego „Czeka na Ciebie”.",
+      primary: { kind: "hand_to_dl", label: "Przekaż do Delivery Leada", target_stage_def_id: null },
+      owner_note: "Osoba czeka u Delivery Leada w kolumnie „QC CV” — CV do klienta wysyła on.",
     });
-    const props = renderDialog({ targetKey: "cv_sent", fromKey: "cv_qc" });
-    expect(await screen.findByTestId("move-next-owner-note")).toHaveTextContent("CV wysyła Delivery Lead");
-    await userEvent.click(screen.getByTestId("move-next-primary"));
-    expect(toastSuccess).toHaveBeenCalledWith(HAND_TO_DL_MESSAGE);
+  }
+
+  it("hand_to_dl w „QC CV”: „Czeka u Delivery Leada od …” i bez głównego przycisku", async () => {
+    respondWaiting();
+    const today = new Date().toISOString();
+    const props = renderDialog({
+      targetKey: "cv_sent",
+      fromKey: "cv_qc",
+      item: {
+        ...item,
+        stage: "interview",
+        moved_at: today,
+        qc: { status: "passed", blocking_failed: 0, ok_at: today },
+      } as never,
+    });
+    const status = await screen.findByTestId("move-next-waiting");
+    expect(status).toHaveTextContent("Czeka u Delivery Leada od dziś.");
+    expect(status).toHaveAttribute("data-ready", "true");
+    expect(screen.queryByTestId("move-next-primary")).toBeNull();
+    // Zdanie serwera o „Czeka na Ciebie” nie stoi obok stanu.
+    expect(screen.queryByTestId("move-next-owner-note")).toBeNull();
+    expect(screen.queryByText(/Czeka na Ciebie/)).toBeNull();
+    // Stopka (krzyżyk okna też nazywa się „Zamknij”).
+    const closeButtons = screen.getAllByRole("button", { name: "Zamknij" });
+    await userEvent.click(closeButtons[closeButtons.length - 1]);
     expect(props.onOpenChange).toHaveBeenCalledWith(false);
+    expect(toastSuccess).not.toHaveBeenCalled();
     expect(props.onMove).not.toHaveBeenCalled();
+  });
+
+  it("hand_to_dl w „QC CV” przy QC do poprawy: co rekruter musi zrobić, zanim DL zobaczy CV", async () => {
+    respondWaiting();
+    renderDialog({
+      targetKey: "cv_sent",
+      fromKey: "cv_qc",
+      item: { ...item, stage: "interview", qc: { status: "failed", blocking_failed: 2 } } as never,
+    });
+    const status = await screen.findByTestId("move-next-waiting");
+    expect(status).toHaveTextContent("QC: 2 do poprawy — popraw CV, zanim Delivery Lead je zobaczy.");
+    expect(status).toHaveAttribute("data-ready", "false");
+    expect(screen.queryByTestId("move-next-primary")).toBeNull();
   });
 
   it("hand_to_dl ze „Zweryfikowanego”: przesuwa na QC CV, żeby DL ją zobaczył", async () => {

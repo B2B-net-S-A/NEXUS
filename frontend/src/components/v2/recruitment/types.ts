@@ -44,6 +44,8 @@ export type RecruitmentSlideOver =
   // Pliki rekrutacji: request klienta i załączniki (0428, 09.10.2026).
   | "files"
   | "history-chat"
+  // Od 14.10.2026 zakładka „Szukaj ręcznie” okna „Kandydaci do dodania”;
+  // adres zostaje czytany (stare linki), stan strony zna już tylko `add`.
   | "manual-search"
   // Panel „Podobne rekrutacje” — przepięcia jednym kliknięciem (25.09.2026).
   // Od 02.10.2026 to zakładka okna „Kandydaci do dodania”; adres zostaje
@@ -60,6 +62,18 @@ export const CANDIDATE_SOURCE_TABS: readonly CandidateSourceTab[] = [
   "postings",
   "base",
   "search",
+];
+
+/**
+ * Zakładki okna „Kandydaci do dodania”: źródła z kafli i „Szukaj ręcznie”
+ * (14.10.2026 — dawne osobne okno, `?win=add&wintab=manual`). Kafla nie ma:
+ * do ręcznego szukania prowadzi „Zmień słowa i filtry” i dotychczasowe wejścia.
+ */
+export type CandidateWindowTab = CandidateSourceTab | "manual";
+
+export const CANDIDATE_WINDOW_TABS: readonly CandidateWindowTab[] = [
+  ...CANDIDATE_SOURCE_TABS,
+  "manual",
 ];
 
 /** Skąd pochodzi propozycja (kolumna „Źródło"; jedna osoba może mieć kilka). */

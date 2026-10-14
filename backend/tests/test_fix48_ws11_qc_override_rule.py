@@ -102,6 +102,7 @@ def _run(**kw) -> SimpleNamespace:
         job_id=2,
         passed=True,
         blocking_failed=0,
+        warnings_count=0,
         created_at=AT,
         dismissed=None,
         has_override=False,
@@ -127,6 +128,7 @@ async def test_pass_through_dismissals_is_overridden_while_they_last() -> None:
         "blocking_failed": 0,
         "ok_at": AT,
         "dismissed_blocking": 2,
+        "warnings_count": 0,
     }
 
 
@@ -140,6 +142,7 @@ async def test_returned_card_without_a_new_run_is_no_longer_passed_through() -> 
         "blocking_failed": 2,
         "ok_at": None,
         "dismissed_blocking": 0,
+        "warnings_count": 0,
     }
     out = await _status([_run(dismissed="1")], [])
     assert out["status"] == "failed" and out["blocking_failed"] == 1
@@ -160,6 +163,7 @@ async def test_plain_pass_and_plain_failure_are_unchanged() -> None:
         "blocking_failed": 3,
         "ok_at": None,
         "dismissed_blocking": 0,
+        "warnings_count": 0,
     }
 
 

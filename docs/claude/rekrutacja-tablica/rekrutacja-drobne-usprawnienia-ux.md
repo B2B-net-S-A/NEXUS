@@ -35,8 +35,9 @@ Makiety: https://claude.ai/artifact/1gapo2YTWp7oYbZp9pBdBo (decyzje Artura
 - **Propozycje** (`GET /api/jobs/{id}/proposal-facts`,
   `services/proposal_facts.py`): stanowisko, staż, miasto, tryb, dostępność,
   stawka kandydata dla wszystkich ról (decyzja Artura 27.09.2026), historia u tego klienta; bez danych
-  kontaktowych, stała liczba zapytań, ≤ 100 osób. „Policz dopasowanie dla N”
-  idzie przez `useVisibleMatchScores` (paczki po 20).
+  kontaktowych, stała liczba zapytań, ≤ 100 osób. Dopasowanie liczy
+  `useVisibleMatchScores` (paczki po 20) — od 14.10.2026 samo dla widocznych
+  wierszy, bez „Policz dopasowanie dla N” (`droga-rekrutera-do-dl.md`, D1).
 - **Ramka „Następny etap” i okno „Przesuń dalej” mają JEDNĄ regułę przycisku**
   (`lib/move-primary.ts`, `planPrimaryStep`): `hand_to_dl`/`hand_to_cpro` =
   przekazanie na etap `primary.target_stage_def_id`, `blocked` = przycisk

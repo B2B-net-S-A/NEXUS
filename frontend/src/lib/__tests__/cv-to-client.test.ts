@@ -4,6 +4,7 @@ import type { QcCheck } from "@/lib/api/cvQc";
 import {
   cvChecksBeforeSending,
   cvToClientShouldPoll,
+  forwardProgress,
   pairSourceStageId,
   resolveCvToClient,
   stageCvBadge,
@@ -278,5 +279,56 @@ describe("cvChecksBeforeSending — jedna liczba na karcie (13.10.2026)", () => 
 
   it("bez uwag to zero", () => {
     expect(cvChecksBeforeSending({ checks: [check({ key: "dates", status: "pass" })], warnings: [], findings: [] })).toBe(0);
+  });
+});
+
+describe("po „Zapisz i przekaż dalej” (14.10.2026)", () => {
+  const none = resolveCvToClient({ branded: { status: "none" }, rows: [] });
+
+  it("karta pyta dalej w stanie „brak”, dopóki czeka na automat", () => {
+    expect(cvToClientShouldPoll(none, null)).toBe(false);
+    expect(cvToClientShouldPoll(none, null, { awaitingAuto: true })).toBe(true);
+    const ready = resolveCvToClient({ branded: { status: "draft", from_generator: true }, rows: [] });
+    expect(cvToClientShouldPoll(ready, null, { awaitingAuto: true })).toBe(false);
+  });
+
+  const LOADING = { status: "loading" as const, count: 0 };
+  const base = { origin: null, skipReason: null, expired: false, checks: LOADING };
+
+  it("brak CV: generuje się, potem powód pominięcia albo prośba po suficie czasu", () => {
+    expect(forwardProgress({ ...base, state: none })).toEqual({
+      cv: { tone: "busy", text: "CV generuje się (ok. 40 s)" },
+      qc: { tone: "pending", text: "QC — po CV" },
+      waiting: true,
+    });
+    expect(forwardProgress({ ...base, state: none, skipReason: "reguła klienta wymaga zrzutu zgody RODO" }).cv).toEqual({
+      tone: "info",
+      text: "CV nie powstało automatycznie: reguła klienta wymaga zrzutu zgody RODO",
+    });
+    const late = forwardProgress({ ...base, state: none, expired: true });
+    expect(late.cv.tone).toBe("warn");
+    expect(late.waiting).toBe(false);
+  });
+
+  it("gotowe CV: źródło gotowego CV i stan QC", () => {
+    const ready = { kind: "ready" as const };
+    expect(forwardProgress({ ...base, state: ready, origin: { badge: "z pliku Word" } }).cv.text).toBe(
+      "CV firmowe: z pliku Word",
+    );
+    expect(forwardProgress({ ...base, state: ready }).cv.text).toBe("CV gotowe");
+    expect(forwardProgress({ ...base, state: ready }).qc.text).toBe("QC: liczę…");
+    expect(forwardProgress({ ...base, state: ready, checks: { status: "ready", count: 3 } }).qc).toEqual({
+      tone: "warn",
+      text: "QC: 3 do poprawy",
+    });
+    expect(forwardProgress({ ...base, state: ready, checks: { status: "ready", count: 0 } }).qc.text).toBe("QC: bez uwag");
+    expect(forwardProgress({ ...base, state: ready, checks: { status: "failed", count: 0 } }).qc.text).toBe(
+      "QC: nie udało się policzyć",
+    );
+  });
+
+  it("generacja w toku i nieudana", () => {
+    expect(forwardProgress({ ...base, state: { kind: "generating" } }).waiting).toBe(true);
+    expect(forwardProgress({ ...base, state: { kind: "failed" } }).cv.tone).toBe("warn");
   });
 });

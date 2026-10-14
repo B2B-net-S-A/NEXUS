@@ -40,6 +40,14 @@
  * PR 5: „Historia” — zatwierdzone wersje i powrót pliku Word
  * (`cv-editor/useCvHistory`, `CvEditorHistory`). Panel zajmuje miejsce planu
  * zmian (jedno albo drugie), a treść trafia do CV dopiero po obejrzeniu różnic.
+ *
+ * D6 (14.10.2026): z propem `handoff` (karta na „Zweryfikowany”) stopka ma
+ * „Uwaga dla Delivery Leada”, stan QC, „Zapisz” i „Zapisz i przekaż do DL →”.
+ * Zapis jest ten sam co „Zapisz” (szkic, pola w nawiasach); ruch karty robi
+ * wołający, a zatwierdzenie w tle rusza dopiero po udanym ruchu i zamknięciu
+ * okna — zatwierdzenie pod otwartym edytorem rozjechałoby wersję szkicu przy
+ * następnym autozapisie. Blokady QC zamieniają przycisk w „Przekaż mimo
+ * uwag…” (okno obejścia QC z powodem). Bez `handoff` okno jest jak dotąd.
  */
 
 import { useState, useEffect, useRef, type ReactNode } from "react";
@@ -59,6 +67,8 @@ import {
 } from "lucide-react";
 
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import { CvEditorHandoffBar } from "@/components/v2/cv-editor/CvEditorHandoffBar";
+import { QcOverrideDialog } from "@/components/v2/recruitment/QcOverrideDialog";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { CvDraftSession, type CvSaveState } from "@/lib/cv-draft-session";
@@ -105,8 +115,17 @@ import {
 import { withDownloadIntent } from "@/lib/cv-download-intent";
 import { cvPlaceholders, type CvLang } from "@/lib/cv-editor-blocks";
 import { cvEditorExtensions, loadCvHtml } from "@/lib/cv-editor-structure";
+import { apiErrorMessage } from "@/lib/api-error";
+import {
+  handedOffMessage,
+  handoffGate,
+  handoffStatus,
+  type CvEditorHandoff,
+} from "@/lib/cv-editor-handoff";
+import { hasPermission } from "@/lib/permissions";
 import { useElementWidth } from "@/lib/use-element-width";
 import { cn } from "@/lib/utils";
+import { useAuthStore } from "@/store/auth";
 
 /** Od tej szerokości okna (px) panel stoi obok kartki; węziej — przełącznik. */
 const SIDE_BY_SIDE_MIN_WIDTH = 1180;
@@ -190,6 +209,11 @@ type Props = {
   commandApi?: CvEditorCommandApi;
   /** Harness: wersje CV i treść pliku Word z pamięci zamiast sieci. */
   historyApi?: CvEditorHistoryApi;
+  /**
+   * Przekazanie Delivery Leadowi ze stopki (D6, 14.10.2026) — tylko CV etapu,
+   * gdy karta stoi na „Zweryfikowany”. Bez propa edytor wygląda jak dotąd.
+   */
+  handoff?: CvEditorHandoff;
 } & ({ stageId: number; generatedId?: never } | { generatedId: number; stageId?: never });
 
 function getErrorMessage(e: unknown): string {
@@ -247,9 +271,12 @@ function CVBrandedEditContent({
   aiApi,
   commandApi,
   historyApi,
+  handoff: handoffProp,
 }: Props) {
   const stageId = (generatedId ?? pipelineStageId)!;
   const isGenerated = generatedId !== undefined;
+  // Ruch karty ma tylko CV etapu — wynik generatora nie ma karty.
+  const handoff = isGenerated ? undefined : handoffProp;
   const scopeKey = isGenerated ? "cv-generated-editor" : "cv-branded";
   const editorApi: CvEditorApi =
     editorApiOverride ?? (isGenerated ? cvGeneratedEditorApi : candidateStageCvApi.branded);
@@ -465,39 +492,32 @@ function CVBrandedEditContent({
   };
 
   /**
-   * „Zapisz”: zapis szkicu → zamknięcie okna → zatwierdzenie w tle. Niczego
-   * nie zmienione w zatwierdzonej wersji = samo zamknięcie.
+   * Zapis jak przed zatwierdzeniem: szkic na serwer, potem pola w nawiasach.
+   * `null` = nie da się (komunikat już stoi); `payload: null` = zatwierdzona
+   * wersja bez zmian — nie ma czego zatwierdzać.
    */
-  const saveAndApprove = async () => {
+  const saveForApproval = async (): Promise<{ payload: CvDraftPayload | null } | null> => {
     const session = sessionRef.current;
-    if (!session || submitting) return;
-    setSubmitting(true);
+    if (!session) return null;
     try {
       await flush();
     } catch (error) {
       reportSaveProblem(error);
-      setSubmitting(false);
-      return;
+      return null;
     }
     setSaveProblem(null);
     const current = sessionRef.current ?? session;
-    if (current.state === "finalized") {
-      setSubmitting(false);
-      onOpenChange(false);
-      return;
-    }
+    if (current.state === "finalized") return { payload: null };
     // Nowe bloki mają pola w nawiasach kwadratowych. Szkic z nimi zapisuje
     // się normalnie, ale do zatwierdzenia (i do klienta) nie mogą pójść.
     const missing = cvPlaceholders(current.html);
     if (missing.length > 0) {
       setUnfilled(missing);
-      setSubmitting(false);
-      return;
+      return null;
     }
-    const payload = { content_html: current.html, expected_revision: current.revision };
-    setSubmitting(false);
-    onOpenChange(false);
-    showSuccess("Zapisano. Sprawdzamy treść w tle.");
+    return { payload: { content_html: current.html, expected_revision: current.revision } };
+  };
+  const approveInBackground = (payload: CvDraftPayload) => {
     void startBackgroundApproval(
       {
         key: approvalKey,
@@ -510,6 +530,77 @@ function CVBrandedEditContent({
       },
       { success: showSuccess, error: showError },
     );
+  };
+
+  /**
+   * „Zapisz”: zapis szkicu → zamknięcie okna → zatwierdzenie w tle. Niczego
+   * nie zmienione w zatwierdzonej wersji = samo zamknięcie.
+   */
+  const saveAndApprove = async () => {
+    if (!sessionRef.current || submitting) return;
+    setSubmitting(true);
+    const saved = await saveForApproval();
+    setSubmitting(false);
+    if (!saved) return;
+    onOpenChange(false);
+    if (!saved.payload) return;
+    showSuccess("Zapisano. Sprawdzamy treść w tle.");
+    approveInBackground(saved.payload);
+  };
+
+  // ── Przekazanie Delivery Leadowi (D6) ─────────────────────────────────────
+  const [remark, setRemark] = useState("");
+  const [handoffError, setHandoffError] = useState<string | null>(null);
+  const [overrideOpen, setOverrideOpen] = useState(false);
+  const impersonating = useAuthStore((s) => s.realUser !== null);
+  const me = useAuthStore((s) => s.user);
+  const gate = handoffGate(issueCount, {
+    impersonating,
+    canManage: hasPermission(me, "recruitment_manage"),
+    advisoryFallback: handoff?.advisory,
+  });
+
+  /** Zapis jak „Zapisz”, ruch karty u wołającego; zatwierdzenie w tle dopiero po ruchu. */
+  const saveAndHandOff = async () => {
+    if (!handoff || !sessionRef.current || submitting) return;
+    setSubmitting(true);
+    setHandoffError(null);
+    try {
+      const saved = await saveForApproval();
+      if (!saved) return;
+      let moved = false;
+      try {
+        moved = await handoff.onSaveAndHandOff(remark.trim());
+      } catch (error) {
+        setHandoffError(
+          `${apiErrorMessage(error, "Nie udało się przekazać Delivery Leadowi.")} CV jest zapisane — spróbuj ponownie.`,
+        );
+        return;
+      }
+      if (!moved) {
+        // Powód odmowy pokazał już rdzeń ruchu (komunikat obok).
+        setHandoffError("Karta nie przeszła do Delivery Leada. CV jest zapisane — spróbuj ponownie.");
+        return;
+      }
+      onOpenChange(false);
+      showSuccess(handedOffMessage(candidateName, saved.payload != null));
+      if (saved.payload) approveInBackground(saved.payload);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  /** „Przekaż mimo uwag…”: pola w nawiasach sprawdzamy przed oknem obejścia. */
+  const openOverride = () => {
+    if (submitting) return;
+    const html = liveEditor()?.getHTML() ?? sessionRef.current?.html ?? "";
+    const missing = cvPlaceholders(html);
+    if (missing.length > 0) {
+      setUnfilled(missing);
+      return;
+    }
+    setHandoffError(null);
+    setOverrideOpen(true);
   };
 
   const handlePrint = async () => {
@@ -798,14 +889,17 @@ function CVBrandedEditContent({
               >
                 Zamknij
               </Button>
-              <Button
-                size="sm"
-                onClick={() => void saveAndApprove()}
-                disabled={!data || noCv || submitting || creatingDraft}
-              >
-                {submitting ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Save className="h-3.5 w-3.5 mr-1.5" />}
-                Zapisz
-              </Button>
+              {/* Z przekazaniem „Zapisz” stoi w stopce obok „Zapisz i przekaż do DL”. */}
+              {handoff && hasCv ? null : (
+                <Button
+                  size="sm"
+                  onClick={() => void saveAndApprove()}
+                  disabled={!data || noCv || submitting || creatingDraft}
+                >
+                  {submitting ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Save className="h-3.5 w-3.5 mr-1.5" />}
+                  Zapisz
+                </Button>
+              )}
             </div>
           </div>
 
@@ -1023,8 +1117,33 @@ function CVBrandedEditContent({
               </aside>
             ) : null}
           </div>
+          {handoff && hasCv ? (
+            <CvEditorHandoffBar
+              gate={gate}
+              status={handoffStatus(issueCount, gate)}
+              remark={remark}
+              onRemarkChange={setRemark}
+              busy={submitting}
+              disabled={!data || creatingDraft}
+              error={handoffError}
+              onSave={() => void saveAndApprove()}
+              onHandOff={() => void saveAndHandOff()}
+              onOverride={openOverride}
+            />
+          ) : null}
         </DialogContent>
       </Dialog>
+      {overrideOpen && handoff && gate.kind === "override" ? (
+        <QcOverrideDialog
+          stageId={stageId}
+          open
+          onOpenChange={setOverrideOpen}
+          pending={gate.pending}
+          advisory={gate.advisory}
+          // Powód zapisany — dalej to samo co „Zapisz i przekaż do DL”.
+          onDone={() => void saveAndHandOff()}
+        />
+      ) : null}
 
       {confirmDiscard ? (
         <Dialog open onOpenChange={() => setConfirmDiscard(false)}>

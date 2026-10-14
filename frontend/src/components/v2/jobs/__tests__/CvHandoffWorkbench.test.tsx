@@ -15,7 +15,7 @@
  * WYŁĄCZNIE sekcją panelu osoby — pełnoekranowego układu z kolejką już nie ma.
  */
 
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -101,12 +101,16 @@ vi.mock("@/hooks/useCapability", () => ({
 }));
 
 // Karta „CV do klienta” ma własne zapytania i testy — tu liczy się, CO dostaje.
+const card = vi.hoisted(() => ({ props: null as null | Record<string, unknown> }));
 vi.mock("@/components/v2/recruitment/CvToClientCard", () => ({
-  CvToClientCard: (p: { stageId: number; candidateId: number; jobId: number; readOnly: boolean }) => (
-    <div data-testid="cv-to-client-card-stub">
-      {`card:${p.stageId}/${p.candidateId}/${p.jobId}/${p.readOnly ? "ro" : "rw"}`}
-    </div>
-  ),
+  CvToClientCard: (p: { stageId: number; candidateId: number; jobId: number; readOnly: boolean }) => {
+    card.props = p as unknown as Record<string, unknown>;
+    return (
+      <div data-testid="cv-to-client-card-stub">
+        {`card:${p.stageId}/${p.candidateId}/${p.jobId}/${p.readOnly ? "ro" : "rw"}`}
+      </div>
+    );
+  },
 }));
 // Reguła CV klienta — szyna makiety wypisuje ją klockami, więc test musi móc
 // podać ZATWIERDZONĄ regułę (bez `is_active` obowiązuje baner „brak reguł").
@@ -805,5 +809,127 @@ describe("centralne reguły CV — tryb obróbki", () => {
     expect(screen.getByText(/można zmienić w generatorze/)).toBeTruthy();
     expect(screen.queryByText(/Tryb: automatyczny/)).toBeNull();
     expect(screen.queryByText(/ustalony z kontekstu rekrutacji/)).toBeNull();
+  });
+});
+
+describe("„Zapisz i przekaż do DL” ze stopki edytora (D6, 14.10.2026)", () => {
+  const QC_COLUMN: KanbanColumn = {
+    stage: "interview",
+    name: "QC CV",
+    category: "internal",
+    stage_def_id: 9,
+    count: 0,
+    items: [],
+  };
+  const CPRO_COLUMN: KanbanColumn = {
+    stage: "screening",
+    name: "NORDEA: Wysłać do Cpro",
+    category: "internal",
+    stage_def_id: 10,
+    count: 0,
+    items: [],
+  };
+  type Handoff = { onSaveAndHandOff: (remark: string) => Promise<boolean> };
+  const handoff = () => card.props?.handoff as Handoff | undefined;
+
+  beforeEach(() => {
+    card.props = null;
+  });
+
+  it("na „Zweryfikowany” karta dostaje przekazanie: ruch na „QC CV” z uwagą i wersją procesu", async () => {
+    const [verified, sent] = columns([item({ process_state_version: 6 })]);
+    const { onMoved } = renderWorkbench({ columns: [verified, CPRO_COLUMN, QC_COLUMN, sent] });
+    expect(handoff()).toBeDefined();
+    let moved = false;
+    await act(async () => {
+      moved = await handoff()!.onSaveAndHandOff("Dostępny od listopada.");
+    });
+    expect(moved).toBe(true);
+    // Cel to „QC CV” (przegląd DL), nie etap kolejki Cpro — także u Nordei.
+    expect(move).toHaveBeenCalledWith({
+      candidate_id: 121,
+      job_id: 7,
+      stage_def_id: 9,
+      expected_state_version: 6,
+      recruiter_remark: "Dostępny od listopada.",
+    });
+    expect(onMoved).toHaveBeenCalled();
+  });
+
+  it("pusta uwaga nie idzie jako pusty tekst", async () => {
+    const [verified, sent] = columns([item()]);
+    renderWorkbench({ columns: [verified, QC_COLUMN, sent] });
+    await act(async () => {
+      await handoff()!.onSaveAndHandOff("");
+    });
+    expect(move.mock.calls[0][0]).toMatchObject({ stage_def_id: 9, recruiter_remark: undefined });
+  });
+
+  it("odmowa (konflikt wersji): `false`, komunikat z rdzenia i odświeżenie Tablicy", async () => {
+    move.mockRejectedValueOnce({ response: { status: 409, data: { detail: { code: "PIPELINE_VERSION_CONFLICT" } } } });
+    const [verified, sent] = columns([item()]);
+    const { onMoved } = renderWorkbench({ columns: [verified, QC_COLUMN, sent] });
+    let moved = true;
+    await act(async () => {
+      moved = await handoff()!.onSaveAndHandOff("x");
+    });
+    expect(moved).toBe(false);
+    expect(showError).toHaveBeenCalled();
+    expect(onMoved).toHaveBeenCalled();
+  });
+
+  it("bez etapu „QC CV” w szablonie, tylko do odczytu albo poza „Zweryfikowany” — bez przekazania", () => {
+    renderWorkbench();
+    expect(handoff()).toBeUndefined();
+
+    const [verified, sent] = columns([item()]);
+    renderWorkbench({ columns: [verified, QC_COLUMN, sent], readOnly: true });
+    expect(handoff()).toBeUndefined();
+
+    const screening: KanbanColumn = {
+      stage: "screening",
+      name: "Screening",
+      category: "internal",
+      stage_def_id: 3,
+      count: 1,
+      items: [item({ id: 11, candidate_id: 111, stage: "screening" })],
+    };
+    renderWorkbench({ columns: [screening, ...columns([]), QC_COLUMN], focusCandidateId: 111 });
+    expect(card.props?.stageId).toBe(11);
+    expect(handoff()).toBeUndefined();
+  });
+
+  it("po „Zapisz i przekaż dalej” karta dostaje postęp i następną osobę ze Screeningu", () => {
+    const openPerson = vi.fn();
+    const nextInColumn = vi.fn(() => ({ candidateId: 55, name: "Ewa Nowak", detail: null }));
+    // Tuż po ruchu Tablica bywa jeszcze sprzed odświeżenia — osoba stoi w „Screeningu”.
+    const screening: KanbanColumn = {
+      stage: "screening",
+      name: "Screening",
+      category: "internal",
+      stage_def_id: 3,
+      count: 1,
+      items: [item({ id: 11, candidate_id: 111, stage: "screening" })],
+    };
+    renderWorkbench({
+      columns: [screening, ...columns([])],
+      focusCandidateId: 111,
+      forwarded: true,
+      nextInColumn,
+      openPerson,
+    });
+    expect(nextInColumn).toHaveBeenCalledWith(111, "screening");
+    expect(card.props).toMatchObject({
+      forwarded: true,
+      nextInScreening: { candidateId: 55, name: "Ewa Nowak" },
+      onOpenPerson: openPerson,
+    });
+  });
+
+  it("bez `forwarded` nie pyta o następną osobę", () => {
+    const nextInColumn = vi.fn(() => null);
+    renderWorkbench({ nextInColumn });
+    expect(nextInColumn).not.toHaveBeenCalled();
+    expect(card.props).toMatchObject({ forwarded: false, nextInScreening: null });
   });
 });

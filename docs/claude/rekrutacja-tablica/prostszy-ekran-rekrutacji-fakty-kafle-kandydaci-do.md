@@ -29,7 +29,7 @@ rekrutacji i pasek filtrów z 24.09 oraz blok propozycji w „Nowych” z 22.09.
   „—”, nigdy zero. Poniżej 1024 px szerokości PASKA kafel jest jedną linią
   (`@container`), żeby Tablica na laptopie zaczynała się wysoko.
 - **Jedno okno dla wszystkich źródeł** (`AddCandidatesPanel`, `?win=add&wintab=
-  similar|postings|base|search`; stary `?win=similar` działa): w każdej
+  similar|postings|base|search|manual`; stary `?win=similar` działa): w każdej
   zakładce lista + podgląd osoby OBOK (`PersonPreview`, ten sam co w podobnych
   rekrutacjach), zaznaczenie i „Dodaj N do Nowych”. Zakładki to haki zwracające
   sloty (`SourceTabSlots`: toolbar, body, footer, sidePane) — zostają
@@ -54,6 +54,13 @@ rekrutacji i pasek filtrów z 24.09 oraz blok propozycji w „Nowych” z 22.09.
     zakładka NIE pokazuje całej bazy — odsyła do Championa i „Szukaj ręcznie”.
     Zastąpiła „Znajdź w bazie (AI)”; ręczny pełny przegląd AI startuje z menu
     „⋯” (`fullReviewRequest` — raz na kliknięcie, nigdy przy otwarciu okna).
+  - „Szukaj ręcznie” (14.10.2026) to piąta zakładka tego okna, nie osobne
+    okno: `ManualSearchPanel` w oknie szerokim, bez podglądu osoby obok, liczba
+    na zakładce „—”. „Zmień słowa i filtry” i „Szukaj ręcznie” w „Szukaj
+    w bazie” przełączają zakładkę (okno zostaje, zaznaczenia też); po pierwszym
+    wejściu wyszukiwarka zostaje zamontowana (ukryta poza zakładką). Stare
+    `?win=manual-search` i `?tab=manual-search` otwierają `win=add&wintab=manual`.
+    Kafla nie ma (`CandidateWindowTab` = kafle + `manual`).
 - **Tablica bez paska filtrów** (nazwisko, „Mój ruch”, „Filtry”, „N w procesie”,
   SLA w pasku — usunięte bez zamiennika; plakietki „Twój ruch” i SLA kolumn
   zostają). **„Zamknięci” to wąska kolumna obok Tablicy** (`board-closed-column`,
@@ -68,3 +75,40 @@ rekrutacji i pasek filtrów z 24.09 oraz blok propozycji w „Nowych” z 22.09.
 - **Laptop 1280 × 720:** kolumna „Nowi” zaczyna się na ~56% wysokości okna
   (`/preview/job-detail?empty=1`). Harness ma zasiane wszystkie cztery źródła:
   `?sources=similar|postings|base|search` otwiera okno od razu.
+
+## Wiersz listy: dopasowanie bez klikania, „+ Dodaj” z „Cofnij”, powód (14.10.2026)
+
+Decyzja Artura D1 + P1 (14.10.2026) — rekruter klikał kafel, „Policz
+dopasowanie dla N”, otwierał osobę, zaznaczał i dopiero dodawał.
+
+- **Dopasowanie liczy się samo.** Przycisku „Policz dopasowanie dla N” nie ma:
+  wiersz `PickList` zgłasza się, gdy wejdzie na ekran (`IntersectionObserver`;
+  bez niego — jsdom — pierwszych 20), a okno woła `useVisibleMatchScores`
+  (paczki po 20, ponowienia 429). To tani odczyt wektorowy, nie LLM. Bez
+  wyniku i bez błędu wiersz mówi „liczę…”, błąd — „nie policzono — ponów”,
+  brak pomiaru — „Ocena niepełna”, nigdy 0. Lista dla hooka tylko rośnie
+  (nowa tożsamość listy zeruje wyniki). Pełny przegląd AI nadal tylko z „⋯”.
+- **„+ Dodaj” w wierszu** propozycji („Nowi z ogłoszeń”, „Propozycje z bazy”)
+  i „Szukaj w bazie” — nie w „Podobnych rekrutacjach” (to przepięcie). Ta sama
+  droga co stopka: `proposals.addToJob` / `proposals/bulk` ze źródłem
+  `manual_search`. Zaznaczenie i „Dodaj N do Nowych” zostają. Odmowy (zamknięta
+  karta, weto HM) mają dotychczasowe komunikaty; weto blokuje też „+ Dodaj”.
+- **Dodana osoba zostaje na liście** w swoim miejscu: „Dodano do „Nowych” ·
+  rezerwacja 12 h · Cofnij” (okno trzyma kopię wiersza, bo źródła już jej nie
+  zwracają — `withKeptRows`). „Cofnij” = `DELETE /api/candidates/{id}/
+  recruitments/{job_id}`. Do 15 min od wejścia osoby (najstarszy wiersz etapu)
+  serwer oddaje jej propozycję (`added` → `proposed`,
+  `job_proposals.reopen_after_quick_undo`), więc wiersz wraca do zwykłego
+  stanu; później propozycja zostaje `added`, a pominięta (`dismissed`) — pominięta.
+- **Powód w wierszu:** do trzech chipów i „+N” za resztę (tokeny
+  `success-muted` / `destructive-muted` / `warning-muted`): „✓ spełnia”,
+  „✕ brakuje”, „? zapytaj w rozmowie”, najpierw po jednym z rodzaju
+  (`reason-chips.ts`). Chipy stoją pod CAŁYM wierszem (także pod „+ Dodaj”
+  i strzałką), najwyżej dwie linie, etykieta do 18 znaków, cała w podpowiedzi
+  — obok przycisków w oknie 540 px mieściły 1–3 litery. Propozycje — z `detail.requirements` (bez zapytania),
+  „Szukaj w bazie” — z `matching_must` / `gap_must` odpowiedzi `/scores`,
+  „zapytaj” — must-have zdaniem (`not_searchable_must`). Jednolinijkowy powód
+  (`row.reason`) zostaje.
+- Harness: `/preview/job-detail?sources=base|search|manual` — wyniki z zasiewu
+  (`/scores` odpowiada lokalnie), po jednej osobie w stanie „Dodano · Cofnij”
+  (`initialAddedIds`).

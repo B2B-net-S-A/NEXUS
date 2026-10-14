@@ -10,6 +10,8 @@
  */
 
 import { eligibilityWarningBadges } from "@/lib/eligibility-reason-labels";
+import { cvStateBadge, type CardBadgeTone } from "@/lib/board-card-badges";
+import { placeStage } from "@/lib/board-stages";
 import {
   colId,
   columnLabel,
@@ -242,6 +244,12 @@ export interface RowBadge {
   title: string;
 }
 
+/** Tabela ma trzy tony — reszta tonów karty czyta się tu jak informacja. */
+const ROW_TONE_BY_CARD_TONE: Partial<Record<CardBadgeTone, RowBadgeTone>> = {
+  wait: "warning",
+  urgent: "danger",
+};
+
 export interface RowBadgeContext {
   /** Definicje etapów ze scorecardem (z szablonu rekrutacji). */
   stagesWithScorecard?: ReadonlySet<number> | null;
@@ -282,14 +290,16 @@ export function rowBadges(row: ProcessPersonRow, ctx: RowBadgeContext = {}): Row
       title: warning.title,
     });
   }
-  // `=== true`: odznaka obiecuje gotowy dokument, więc brak pola jej nie daje.
-  if (item.auto_cv_ready === true) {
+  // Stan CV firmowego (14.10.2026) — ta sama reguła co karta Tablicy
+  // (`cvStateBadge`): „CV w przygotowaniu…”, „CV gotowe · N do poprawy” /
+  // „bez uwag” na „Zweryfikowanym”, „CV gotowe w tle”, gdy QC jeszcze nie biegło.
+  const cv = cvStateBadge(item, placeStage(column).column);
+  if (cv) {
     out.push({
       key: "auto-cv",
-      label: "CV gotowe w tle",
-      tone: "info",
-      title:
-        "CV wygenerowane automatycznie po weryfikacji czeka w sekcji „CV do klienta” — sprawdź je przed wysyłką.",
+      label: cv.label,
+      tone: ROW_TONE_BY_CARD_TONE[cv.tone] ?? "info",
+      title: cv.title ?? cv.label,
     });
   }
   if (SCREENING_BADGE_STAGES.has(item.stage) && item.screening_done === false) {

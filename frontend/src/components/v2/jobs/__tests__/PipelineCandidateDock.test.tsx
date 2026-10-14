@@ -110,6 +110,7 @@ import { WorkbenchBelowTabsContext } from "@/components/v2/person/WorkbenchBelow
 import type { KanbanColumn, KanbanItem } from "@/components/v2/pages/kanban-shared";
 import { formState } from "@/components/v2/screening-form/__tests__/screening-form-fixtures";
 import type { ScreeningFormState } from "@/lib/api/screeningForm";
+import { createNoteFillChannel, type NoteFillReceiver } from "@/lib/note-fill-channel";
 import { useAuthStore } from "@/store/auth";
 
 /** Stan formularza screeningu pary z doku (kandydat 42, rekrutacja 10, wiersz etapu 501). */
@@ -1905,6 +1906,85 @@ describe("PipelineCandidateDock — pole notatki: duże okno i szkic (12.10.2026
     await user.type(noteBox(), "Chce hybrydę{Enter}");
     await waitFor(() => expect(noteBox()).toHaveValue(""));
     expect(sessionStorage.getItem(DRAFT_KEY)).toBeNull();
+  });
+
+  describe("„Zapisz notatkę i wypełnij formularz” (D3, 14.10.2026)", () => {
+    const FILL = "Zapisz notatkę i wypełnij formularz";
+
+    function withReceiver(receiver: NoteFillReceiver) {
+      const channel = createNoteFillChannel();
+      channel.register(42, receiver);
+      return channel;
+    }
+
+    it("przycisk jest tylko wtedy, gdy formularz tej osoby czeka na notatkę", async () => {
+      const user = userEvent.setup();
+      const view = render(dockTree());
+      await user.type(noteBox(), "Rozmowa: Java 6 lat");
+      expect(screen.queryByRole("button", { name: FILL })).toBeNull();
+      view.unmount();
+
+      const other = createNoteFillChannel();
+      other.register(43, vi.fn());
+      render(dockTree({ noteFill: other }));
+      await user.click(noteBox());
+      expect(screen.queryByRole("button", { name: FILL })).toBeNull();
+    });
+
+    it("zapisuje notatkę zwykłą drogą i przekazuje jej numer i treść formularzowi", async () => {
+      apiPost.mockImplementation((url: string) =>
+        url === "/api/notes" ? Promise.resolve({ data: { id: 77 } }) : Promise.resolve({ data: {} }),
+      );
+      const receiver = vi.fn().mockResolvedValue(undefined);
+      const user = userEvent.setup();
+      render(dockTree({ noteFill: withReceiver(receiver) }));
+      await user.type(noteBox(), "Rozmowa: Java 6 lat, od zaraz");
+      await user.click(screen.getByRole("button", { name: FILL }));
+
+      await waitFor(() => expect(receiver).toHaveBeenCalledWith({ noteId: 77, text: "Rozmowa: Java 6 lat, od zaraz" }));
+      expect(notePosts()).toEqual([
+        [
+          "/api/notes",
+          { candidate_id: 42, job_id: 10, content: "Rozmowa: Java 6 lat, od zaraz", note_type: "general" },
+        ],
+      ]);
+      await waitFor(() =>
+        expect(toastSuccess).toHaveBeenCalledWith(
+          "Notatka dodana i przekazana do formularza screeningu — sprawdź pola i zapisz formularz.",
+        ),
+      );
+      expect(toastSuccess).not.toHaveBeenCalledWith("Notatka dodana.");
+      expect(noteBox()).toHaveValue("");
+    });
+
+    it("gdy formularz notatki nie przyjął, notatka i tak jest zapisana — komunikat to mówi", async () => {
+      apiPost.mockImplementation((url: string) =>
+        url === "/api/notes" ? Promise.resolve({ data: { id: 78 } }) : Promise.resolve({ data: {} }),
+      );
+      const receiver = vi.fn().mockRejectedValue(new Error("Luna nie odpowiada"));
+      const user = userEvent.setup();
+      render(dockTree({ noteFill: withReceiver(receiver) }));
+      await user.type(noteBox(), "Rozmowa: Java 6 lat");
+      await user.click(screen.getByRole("button", { name: FILL }));
+
+      await waitFor(() =>
+        expect(toastError).toHaveBeenCalledWith(
+          "Notatka dodana i zostaje w historii, ale formularza z niej nie wypełniłem.",
+        ),
+      );
+      expect(notePosts()).toHaveLength(1);
+      expect(sessionStorage.getItem(DRAFT_KEY)).toBeNull();
+    });
+
+    it("Enter dalej tylko dodaje notatkę", async () => {
+      apiPost.mockImplementation(() => Promise.resolve({ data: { id: 79 } }));
+      const receiver = vi.fn().mockResolvedValue(undefined);
+      const user = userEvent.setup();
+      render(dockTree({ noteFill: withReceiver(receiver) }));
+      await user.type(noteBox(), "Oddzwonić po 15{Enter}");
+      await waitFor(() => expect(toastSuccess).toHaveBeenCalledWith("Notatka dodana."));
+      expect(receiver).not.toHaveBeenCalled();
+    });
   });
 
   it("szkic znika z pamięci w chwili wysłania, a po błędzie zapisu wraca", async () => {

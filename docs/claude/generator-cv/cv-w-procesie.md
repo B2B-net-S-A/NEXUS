@@ -65,4 +65,32 @@ i Tablica pokazują liczbę rzeczy do sprawdzenia bez otwierania okna QC.
   więc może się różnić od liczby w karcie). Karta liczy wszystkie uwagi
   kontroli AI, edytor — te, których linia nadal stoi w CV.
 - Harness `/preview/cv-to-client` (panel z domyślnymi, „Wygeneruj ponownie”
-  z ostatnim wyborem, liczba 4, nic do sprawdzenia, awaria QC).
+  z ostatnim wyborem, liczba 4, nic do sprawdzenia, awaria QC, dwa stany po
+  przekazaniu — niżej).
+
+## Blok postępu po „Zapisz i przekaż dalej” (14.10.2026, P3)
+
+Część „Drogi rekrutera do DL” (`rekrutacja-tablica/droga-rekrutera-do-dl.md`).
+Po przekazaniu z formularza screeningu panel przechodzi na „CV”, a karta
+(`forwarded` z `CvHandoffWorkbench`) pokazuje nad treścią trzy kroki:
+
+- **Screening zapisany ✓ → CV → QC** (`forwardProgress` w
+  `lib/cv-to-client.ts`). CV: „generuje się (ok. 40 s)”, „gotowe”, przy CV,
+  które para już miała — „CV firmowe: <źródło>” z plakietki pochodzenia
+  (`stageCvOrigin`: z pliku Word, z rekrutacji X, przeniesione), a gdy automat
+  pominął osobę — powód z „Pracy w tle” (`autoCvSkipReason`). QC: „liczę…”,
+  „N do poprawy” (ta sama liczba co „N rzeczy do sprawdzenia”, te same
+  zapytania — `useCvChecksCount`), „bez uwag”.
+- **Karta pyta sama.** Tuż po ruchu wiersza auto-CV jeszcze nie ma (stan
+  „brak”), a dotąd karta w tym stanie nie pytała wcale. Z `forwarded` pyta co
+  4 s (`cvToClientShouldPoll(…, { awaitingAuto })`: lista generacji, CV etapu,
+  „Praca w tle”), aż pojawi się wiersz CV albo powód pominięcia, najdłużej
+  5 minut — potem krok CV prosi o ręczną generację. Pominięcie starsze niż
+  przekazanie (z zapasem 2 min na zegar) nie jest odpowiedzią.
+- **„Dam znać dzwonkiem, gdy CV będzie gotowe…”** stoi, dopóki CV powstaje
+  (dzwonek `cv_ready` wysyła serwer). **„Następna w Screeningu: <Imię> ·
+  Otwórz ›”** pokazuje się, gdy `nextInColumn(osoba, "screening")` kogoś
+  zwraca; panel nie skacze sam (`openPerson` dopiero po kliknięciu).
+- Harness `/preview/cv-to-client`: osoba „po przekazaniu — CV się generuje”
+  (po 12 s automat „kończy” CV, QC daje liczbę; odczyty karty odpowiada
+  pamięć harnessu, bez sieci) i „automat pominął osobę”.

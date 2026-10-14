@@ -207,8 +207,12 @@ i kontrola AI ostatniej zatwierdzonej wersji. Komponent
   zatwierdza się pojedynczo. Listę pilnuje SERWER (`cv_qc.BULK_ACTIONS`, pole
   `bulk`), front tylko jej nie wysyła (`bulkPlan`). Poprawka, której nie da się
   nałożyć, wraca w `skipped` z powodem (200, nie 422) i nie zatrzymuje
-  pozostałych. Propozycji AI panel nie pobiera sam — to płatne wywołanie,
-  rekruter klika. Zdania AI serwer nakłada PIERWSZE, niezależnie od kolejności
+  pozostałych. Od 14.10.2026 (D5) propozycje AI ładują się same, gdy QC ma
+  pozycję z poprawką AI (`fix: "ai"`) — serwer liczy je zaraz po automacie
+  i pamięta per treść, więc zwykle to odczyt z pamięci. Przycisku „Zaproponuj
+  poprawki (AI)” nie ma (w oknie QC też); zostaje „Przygotowuję poprawki AI…”
+  i „Ponów” po awarii, a „Popraw wszystko” bierze zdania AI od razu. Bez
+  pozycji z poprawką AI panel o propozycje nie pyta. Zdania AI serwer nakłada PIERWSZE, niezależnie od kolejności
   w żądaniu: szukają swojej linii po tekście, a pisownia ten tekst zmienia
   (poprawka AI wracała jako „punkt się zmienił”).
 - **„Tytuł” nie wchodzi do „Popraw wszystko”,** choć był na makiecie:
@@ -251,9 +255,12 @@ i kontrola AI ostatniej zatwierdzonej wersji. Komponent
   (zadanie, informacja albo pominięcie). Kolejność: „Popraw wszystko”, grupy
   sekcji, propozycje AI, „Zapytaj kandydata”, „Pominięte”, „Informacje”,
   „W porządku”. Edytor bez etapu ma dalej osobny blok uwag generatora.
-- **Panel nie ma obejścia QC ani ruchu karty** — to zostaje w oknie QC. Karty
-  są wspólne (`recruitment/cv-qc-cards.tsx`); „Pokaż w CV” i odnośniki
-  w nowej karcie włącza kontekst edytora (`locate`, `linksInNewTab`).
+- **Panel nie ma obejścia QC ani ruchu karty** — przekazanie Delivery
+  Leadowi (z obejściem „Przekaż mimo uwag…”) stoi w stopce edytora, sekcja
+  „Przekazanie Delivery Leadowi ze stopki” niżej (D6, 14.10.2026); panel
+  podaje stopce wynik QC przez `onCount` (`CvIssueCount.qc`). Karty są wspólne
+  (`recruitment/cv-qc-cards.tsx`); „Pokaż w CV” i odnośniki w nowej karcie
+  włącza kontekst edytora (`locate`, `linksInNewTab`).
 - **Układ:** 1180–1539 px (laptop 1280) — obok kartki JEDEN panel: źródła
   (440 px, lewa) albo „Do poprawy” (360 px, prawa); od 1540 px oba; węziej
   przełącznik kolumny. Gdy są uwagi, „Do poprawy” otwiera się samo, raz. Panel
@@ -567,14 +574,59 @@ jednym przyciskiem — wstawiają treść do edytora.
   dodał do konwertera drugie wejście.
 - **Edytor wyniku generatora** (bez etapu) nie ma historii.
 
+## Przekazanie Delivery Leadowi ze stopki (D6, 14.10.2026)
+
+Decyzja Artura D6 z „Drogi rekrutera do DL”
+(`rekrutacja-tablica/droga-rekrutera-do-dl.md`): rekruter sprawdza i poprawia
+CV w jednym miejscu i przekazuje osobę Delivery Leadowi jednym kliknięciem.
+
+- **Prop `handoff` (`CvEditorHandoff`, reguła w `lib/cv-editor-handoff.ts`).**
+  Podaje go `jobs/CvHandoffWorkbench` przez kartę „CV do klienta” do każdego
+  otwarcia edytora z karty — tylko gdy karta stoi na „Zweryfikowany”
+  (`placeStage(...).column === "verified"`), nie jest tylko do odczytu, a
+  szablon ma etap „QC CV”. Bez propa okno wygląda jak dotąd; wynik generatora
+  (bez etapu) stopki nie ma nigdy. Działa dla każdego źródła CV (generator,
+  kopia z innej rekrutacji, plik Word z profilu albo z dysku).
+- **Stopka** (`cv-editor/CvEditorHandoffBar.tsx`): pole „Uwaga dla Delivery
+  Leada (opcjonalnie)” (2000 znaków = `StageMove.recruiter_remark`, żyje do
+  zamknięcia okna), linia stanu („N rzeczy do decyzji · nic nie blokuje
+  wysyłki” / „… · 1 blokuje wysyłkę”), „Zapisz” (z paska przechodzi do
+  stopki) i „Zapisz i przekaż do DL →”.
+- **Kolejność: zapis jak „Zapisz” (szkic, pola w nawiasach) → ruch →
+  zamknięcie → zatwierdzenie w tle.** Zatwierdzenie rusza dopiero po udanym
+  ruchu: przy odmowie edytor zostaje otwarty, a zatwierdzenie pod otwartym
+  oknem zmieniłoby wersję szkicu i następny autozapis dostałby 409. Odmowa =
+  komunikat rdzenia ruchu i zdanie w stopce „CV jest zapisane”.
+- **Ruch** idzie `usePipelineMoveCore` (bez własnego `POST /api/pipeline/move`)
+  na `stage_def_id` kolumny `cv_qc` bez znacznika Cpro — u Nordei ten sam
+  etap, bo tam „QC CV” to przegląd DL przed kolejką Cpro — z
+  `expected_state_version` karty i `recruiter_remark` (pustej uwagi nie
+  wysyłamy). Konflikt wersji odświeża Tablicę, edytor zostaje.
+- **Blokady QC.** Wejście do „QC CV” nie ma bramki QC na serwerze, więc
+  obejście jest decyzją produktu: gdy QC tej treści ma blokady i nie jest
+  przepuszczone, przycisk to „Przekaż mimo uwag…” → `QcOverrideDialog` (powód;
+  Delivery Lead dostaje dzwonek obejścia) → zapis i ruch. Kto może przepuścić,
+  mówi serwer (`can_override`, `advisory`); bez tego prawa (poza trybem
+  doradczym) przycisk jest wyłączony z powodem. Pola w nawiasach sprawdzamy
+  przed oknem obejścia, żeby nie zapisać obejścia bez ruchu. Gdy QC się
+  liczy, przycisk czeka; awaria QC nie blokuje (DL widzi wynik w przeglądzie).
+- Stan QC stopka bierze z panelu „Do poprawy” (`CvIssueCount.qc` — wynik tej
+  treści, `null` przy QC innego CV pary). Lista dotyczy ostatnio zapisanej
+  treści, więc poprawka sprzed sekundy liczy się dopiero po autozapisie.
+- Toast po sukcesie: „<Imię> — przekazano Delivery Leadowi. Sprawdzamy treść
+  CV w tle.” — bez odmiany po rodzaju („przekazana/przekazany”).
+
 ## Harness
 
-`/preview/cv-editor?state=draft|finalized|conflict|nosources|clean|qcdown|aidown` —
+`/preview/cv-editor?state=draft|finalized|conflict|nosources|clean|qcdown|aidown|handoff|handoff-blocking` —
 prawdziwy edytor na stanie z pamięci (`editorApi`, `issuesApi`, `aiApi`, `commandApi`, `historyApi`,
 `editorFiles`, `sourceLoaders` jako propsy okna), źródła z zasiewu, sieć odcięta.
 „AI na zaznaczeniu” dostaje propozycje z `ai-fixture.ts` (proste przekształcenia
 tekstu, bez modelu), a „Polecenie” plan z `command-fixture.ts` (`commandApi`). „Historia”
-ma dwie wersje i plik Word z `history-fixture.ts` (`uszkodzony.docx` = odmowa serwera). Panel
+ma dwie wersje i plik Word z `history-fixture.ts` (`uszkodzony.docx` = odmowa serwera).
+`handoff` ma stopkę przekazania na treści bez blokad (ruch w pamięci, strona
+pisze, z jaką uwagą), `handoff-blocking` — „Przekaż mimo uwag…” i okno obejścia
+(jego zapis idzie przez API, więc w harnessie kończy się komunikatem). Panel
 „Do poprawy” dostaje dane z `issues-fixture.ts`: „QC” liczy się tam z ostatnio
 zapisanej treści, więc widać obieg poprawka → autozapis → świeża lista. Test
 `app/preview/__tests__/cv-editor-harness.test.tsx` montuje całą stronę bez atrapy

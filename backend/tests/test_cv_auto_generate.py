@@ -806,8 +806,14 @@ async def test_attach_failure_is_swallowed(monkeypatch):
     )
 
 
-async def test_failed_generation_is_a_feed_entry_not_a_notification(monkeypatch):
-    from app.models.notification import Notification
+async def test_failed_generation_is_a_feed_entry_and_a_cv_ready_bell(monkeypatch):
+    """Do 14.10.2026 nieudana generacja była WYŁĄCZNIE wpisem w „Pracy w tle”
+    i rekruter czekał w ciemno na CV, które nie powstanie. Decyzja Artura
+    z 14.10.2026 (droga rekrutera do DL): osoba, która przesunęła kartę,
+    dostaje dzwonek ``cv_ready`` „Automat nie zrobił CV” z powodem — musi
+    zrobić CV sama. Seria awarii nadal idzie tylko do adminów
+    (``automation_failing``), nie do rekrutera."""
+    from app.models.notification import Notification, NotificationType
     from app.services import automation_failures as failures
 
     recorded: list[tuple] = []
@@ -827,11 +833,16 @@ async def test_failed_generation_is_a_feed_entry_not_a_notification(monkeypatch)
     assert event.details["message"] == "Generacja CV zakończyła się błędem."
     assert recorded == [(failures.KIND_AUTO_CV, "generation_failed", world["job_id"])]
     async with AsyncSessionLocal() as db:
-        assert (
-            await db.scalar(
-                select(Notification.id).where(Notification.user_id == world["user_id"])
+        bells = (
+            await db.execute(
+                select(Notification.notification_type, Notification.title).where(
+                    Notification.user_id == world["user_id"]
+                )
             )
-        ) is None
+        ).all()
+    assert [(ntype, title.split(":")[0]) for ntype, title in bells] == [
+        (NotificationType.cv_ready, "Automat nie zrobił CV")
+    ]
 
 
 # ── lustro DDL ──────────────────────────────────────────────────────────────

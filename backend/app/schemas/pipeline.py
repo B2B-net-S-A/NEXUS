@@ -227,9 +227,17 @@ class CandidateStageResponse(BaseModel):
     # przez system i nikt go jeszcze nie zatwierdził — „CV gotowe w tle —
     # sprawdź i wyślij". Wypełnia tylko tablica.
     auto_cv_ready: bool = False
+    # Droga rekrutera do DL (14.10.2026): automat CV właśnie generuje szkic dla
+    # TEGO wiersza etapu („CV w przygotowaniu…”) — `"processing"`, inaczej
+    # `None`. Wypełnia tylko tablica.
+    auto_cv_state: Optional[Literal["processing"]] = None
+    # Para ma CV firmowe (`move_requirements.company_cv_refs` — ta sama reguła
+    # co wymaganie ruchu na „QC CV”). `None` = endpoint tego nie liczy
+    # (ruch, historia). Wypełnia tylko tablica.
+    company_cv: Optional[bool] = None
     # QC CV (Rekrutacja v5, 0361): `{"status": "passed|failed|overridden|
-    # unchecked", "blocking_failed": int}` — najnowszy przebieg pary.
-    # Wypełnia tylko tablica.
+    # unchecked", "blocking_failed": int, "warnings_count": int, …}` —
+    # najnowszy przebieg pary (`cv_qc.pair_statuses`). Wypełnia tylko tablica.
     qc: Optional[dict] = None
     # Karta rekomendacji (0413): `{"status": "complete|partial|empty",
     # "missing": int, "answers": int, "rate_hourly": float | None}` albo `None`,

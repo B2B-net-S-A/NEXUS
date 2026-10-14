@@ -17,6 +17,11 @@
  * - `ScreeningFullFormView` — sam widok (harness `/preview/screening-form`);
  * - `ScreeningFullForm` — zapis, ruch „Zapisz i przekaż dalej”, odrzucenie.
  *
+ * Od 14.10.2026: etap bez stawki dostaje stawkę na start z podpisem, skąd jest
+ * (D2, `ratePrefill`), notatka zapisana w doku osoby wypełnia formularz bez
+ * drugiej kopii (D3, `noteFill`), a udane „Zapisz i przekaż dalej” woła
+ * `onForwarded` (P3).
+ *
  * Konflikt wersji (ktoś zapisał w międzyczasie) nie kasuje pracy: formularz
  * wczytuje nowszy stan i zostawia niezapisane zmiany (`keepDirtyValues`).
  * Odświeżenie w tle robi to samo: pola, których rekruter nie ruszył, pokazują
@@ -57,7 +62,8 @@ import { useCapability } from "@/hooks/useCapability";
 import { usePipelineMoveCore } from "@/hooks/usePipelineMoveCore";
 import { candidatesApi, type RateUnit, type ScreeningQuestion } from "@/lib/api";
 import { apiErrorMessage } from "@/lib/api-error";
-import type { NoteProposal } from "@/lib/api/recommendationCards";
+import { recommendationCardsApi, type NoteProposal } from "@/lib/api/recommendationCards";
+import type { NoteFillChannel, NoteFillReceiver } from "@/lib/note-fill-channel";
 import {
   isScreeningFormReadOnly,
   screeningFormConflictOf,
@@ -93,16 +99,20 @@ import {
   formQuestions,
   mergeLegacyNote,
   missingAnswersForForward,
+  ratePrefill,
+  ratePrefillCaption,
   rateFromValues,
   rateNotRestoredMessage,
+  sameRate,
   type NoteFill,
   type NoteHint,
   type NoteImport,
   type NoteOffer,
+  type RatePrefill,
   type ScreeningFullFormValues,
 } from "@/lib/screening-form";
 import { onsiteText } from "@/lib/person-facts";
-import type { ScreeningSuggestions } from "@/lib/screening-suggestions";
+import { rateSuggestionFill, type ScreeningSuggestions } from "@/lib/screening-suggestions";
 import { cn } from "@/lib/utils";
 import { evaluateRateGate } from "@/lib/verified-rate-gate";
 import { fixFieldState } from "@/lib/screening-fix-request";
@@ -162,6 +172,13 @@ export interface ScreeningFormModel {
   hints: NoteHint[];
   /** Stawka wpisana z notatki (plakietka przy polu). */
   rateFromNote: boolean;
+  /**
+   * Stawka wpisana na start, gdy etap jej nie ma (D2, 14.10.2026) — pod polem
+   * stoi, skąd jest, dopóki pole ma tę wartość.
+   */
+  ratePrefilled: RatePrefill | null;
+  /** Rekruter sam ruszył stawkę — formularz nie wpisze jej ponownie. */
+  touchRate: () => void;
   notice: string | null;
   setNotice: (notice: string | null) => void;
   /** Wypełnia puste miejsca z notatki; mówi, ile wypełnił i ile czeka na „Użyj”. */
@@ -189,8 +206,45 @@ export function useScreeningFormModel(state: ScreeningFormState | undefined): Sc
   const [offers, setOffers] = useState<NoteOffer[]>([]);
   const [hints, setHints] = useState<NoteHint[]>([]);
   const [rateFromNote, setRateFromNote] = useState(false);
+  const [ratePrefilled, setRatePrefilledState] = useState<RatePrefill | null>(null);
+  // Ref obok stanu: wypełnienie z notatki zaraz po hydratacji widzi już wpis.
+  const ratePrefilledRef = useRef<RatePrefill | null>(null);
+  const setRatePrefilled = useCallback((next: RatePrefill | null) => {
+    ratePrefilledRef.current = next;
+    setRatePrefilledState(next);
+  }, []);
+  // Para, w której rekruter sam ruszył stawkę — odświeżenie w tle nie wpisze
+  // jej z powrotem po wyczyszczeniu pola.
+  const rateTouched = useRef<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const questions = useMemo(() => (state ? formQuestions(state) : []), [state]);
+
+  // D2 (14.10.2026): etap bez stawki — pole dostaje stawkę z notatki, karty
+  // albo „Stawkę od” jako zmianę formularza, więc zapisze się z „Zapisz”.
+  // Po `reset`, bo ten ustawia wartości startowe ze stanu serwera.
+  const prefillRate = useCallback(
+    (next: ScreeningFormState) => {
+      const key = `${next.candidate_id}:${next.job_id}`;
+      const pick = rateTouched.current === key ? null : ratePrefill(next);
+      const current = rateFromValues(methods.getValues());
+      // Stawka z karty stoi w polu od wartości startowych — nowsza notatka ją zastępuje.
+      const fromCard = next.rate?.source === "card" && sameRate(current, next.rate);
+      if (!pick || (current != null && !fromCard)) {
+        setRatePrefilled(null);
+        return;
+      }
+      if (!sameRate(current, pick.rate)) {
+        methods.setValue("rate_amount", String(pick.rate.amount), SET);
+        methods.setValue("rate_unit", pick.rate.unit, SET);
+        methods.setValue("rate_currency", pick.rate.currency || "PLN", SET);
+      }
+      setRatePrefilled(pick);
+    },
+    [methods, setRatePrefilled],
+  );
+  const touchRate = useCallback(() => {
+    if (state) rateTouched.current = `${state.candidate_id}:${state.job_id}`;
+  }, [state]);
 
   // Subskrypcja `isDirty` w renderze — efekt hydratacji czyta świeżą wartość.
   const dirty = methods.formState.isDirty;
@@ -236,8 +290,10 @@ export function useScreeningFormModel(state: ScreeningFormState | undefined): Sc
     if (!prev || prev.key !== key) {
       clearNote();
       setNotice(null);
+      rateTouched.current = null;
     }
-  }, [state, methods, clearNote]);
+    prefillRate(state);
+  }, [state, methods, clearNote, prefillRate]);
 
   const markSaved = useCallback(
     (result: ScreeningFormState) => {
@@ -249,8 +305,9 @@ export function useScreeningFormModel(state: ScreeningFormState | undefined): Sc
       methods.reset(formDefaultsFromState(result));
       clearNote();
       setNotice(null);
+      prefillRate(result);
     },
-    [methods, clearNote],
+    [methods, clearNote, prefillRate],
   );
 
   const baseState = useCallback(() => hydrated.current?.state ?? null, []);
@@ -302,7 +359,12 @@ export function useScreeningFormModel(state: ScreeningFormState | undefined): Sc
   const applyNote = useCallback<ScreeningFormModel["applyNote"]>(
     (proposal, source) => {
       if (!state) return { filled: 0, offers: 0 };
-      const result = applyNoteProposal(methods.getValues(), proposal, {
+      const values = methods.getValues();
+      // Stawka wpisana na start (D2) to podpowiedź — stawka z notatki z rozmowy
+      // ją zastępuje, zamiast czekać na „Użyj”.
+      const prefilled = ratePrefilledRef.current;
+      const prefilledUntouched = prefilled != null && sameRate(rateFromValues(values), prefilled.rate);
+      const result = applyNoteProposal(prefilledUntouched ? { ...values, rate_amount: "" } : values, proposal, {
         editableCardKeys: editableCardKeys(state),
         canEditRate: state.can_edit_rate,
         questionIds: questions.map((q) => q.id),
@@ -346,6 +408,8 @@ export function useScreeningFormModel(state: ScreeningFormState | undefined): Sc
     offers,
     hints,
     rateFromNote,
+    ratePrefilled,
+    touchRate,
     notice,
     setNotice,
     applyNote,
@@ -483,12 +547,30 @@ export function ScreeningFullFormView({
   });
   const nonPln = (values.rate_currency || "PLN").toUpperCase() !== "PLN";
   const setRate = (rate: FormRate) => {
+    model.touchRate();
     methods.setValue("rate_amount", String(rate.amount), SET);
     methods.setValue("rate_unit", rate.unit, SET);
     methods.setValue("rate_currency", rate.currency || "PLN", SET);
   };
   const rateOffer = offerById.get("rate");
   const rateHint = hints.find((h) => h.id === "rate");
+  // D2 (14.10.2026): stawka wpisana na start mówi pod polem, skąd jest;
+  // podpowiedź z tą samą wartością co w polu znika (zostają inne).
+  const fieldRate = rateFromValues(values);
+  const prefilled =
+    model.ratePrefilled && sameRate(fieldRate, model.ratePrefilled.rate) ? model.ratePrefilled : null;
+  const inField = (rate: FormRate | null | undefined) => rate != null && sameRate(fieldRate, rate);
+  const noteRate = (state.suggestions_from_notes as ScreeningSuggestions | undefined)?.rate;
+  const noteRateFill = noteRate ? rateSuggestionFill(noteRate) : null;
+  const noteRateInField =
+    noteRateFill != null &&
+    inField({ amount: Number(noteRateFill.rate), unit: noteRateFill.unit, currency: "PLN" });
+  const rateBlockRef = useRef<HTMLDivElement | null>(null);
+  const focusRate = () => {
+    const input = rateBlockRef.current?.querySelector<HTMLInputElement>("#screening-form-rate-value");
+    input?.focus();
+    input?.select();
+  };
 
   const renderQuestionExtra = (reassignExtra: (q: ScreeningQuestion, i: number) => ReactNode) =>
     function QuestionExtra(q: ScreeningQuestion, i: number): ReactNode {
@@ -657,7 +739,11 @@ export function ScreeningFullFormView({
           <SectionTitle hint="Te pola widzi Delivery Lead przed wysłaniem CV.">
             Warunki
           </SectionTitle>
-          <div className="space-y-2 rounded-lg border border-border bg-background/40 p-3" data-testid="screening-form-rate">
+          <div
+            ref={rateBlockRef}
+            className="space-y-2 rounded-lg border border-border bg-background/40 p-3"
+            data-testid="screening-form-rate"
+          >
             <div className="flex flex-wrap items-center gap-2">
               <p className="text-xs font-medium text-foreground">Stawka kandydata w tej rekrutacji</p>
               <FixMark state={fixState("candidate_rate")} />
@@ -675,14 +761,31 @@ export function ScreeningFullFormView({
             <VerifiedRateFields
               rate={values.rate_amount ?? ""}
               onRateChange={(next) => {
+                model.touchRate();
                 methods.setValue("rate_amount", next, SET);
               }}
               unit={values.rate_unit ?? "hourly"}
-              onUnitChange={(next: RateUnit) => methods.setValue("rate_unit", next, SET)}
+              onUnitChange={(next: RateUnit) => {
+                model.touchRate();
+                methods.setValue("rate_unit", next, SET);
+              }}
               gate={gate}
               disabled={!state.can_edit_rate}
               idPrefix="screening-form-rate"
             />
+            {prefilled ? (
+              <p className="text-[11px] text-muted-foreground [overflow-wrap:anywhere]" data-testid="rate-prefill-origin">
+                {ratePrefillCaption(prefilled.origin)} ·{" "}
+                <button
+                  type="button"
+                  onClick={focusRate}
+                  className="font-medium text-primary hover:underline"
+                  aria-label="Zmień stawkę kandydata"
+                >
+                  zmień
+                </button>
+              </p>
+            ) : null}
             {!state.can_edit_rate ? (
               <p className="text-[11px] text-muted-foreground">
                 Nie możesz zmieniać stawki kandydata w tej rekrutacji — pole jest tylko do odczytu.
@@ -690,14 +793,16 @@ export function ScreeningFullFormView({
             ) : null}
             {state.can_edit_rate ? (
               <div className="flex flex-wrap gap-1.5">
-                {state.rate_hints?.card ? (
+                {state.rate_hints?.card && !inField(state.rate_hints.card) ? (
+                  // Stawka z karty rekomendacji (14.10.2026: „Z karty”, nie „Z notatki” —
+                  // pod polem „z notatki” znaczy stawkę z notatek rekrutera).
                   <HintChip
-                    label="Z notatki"
+                    label="Z karty"
                     text={formatFormRate(state.rate_hints.card)}
                     onUse={() => setRate(state.rate_hints.card as FormRate)}
                   />
                 ) : null}
-                {state.rate_hints?.rate_from ? (
+                {state.rate_hints?.rate_from && !inField(state.rate_hints.rate_from) ? (
                   <HintChip
                     label="Stawka od"
                     text={formatFormRate(state.rate_hints.rate_from)}
@@ -706,16 +811,19 @@ export function ScreeningFullFormView({
                 ) : null}
               </div>
             ) : null}
-            <ScreeningSuggestionChips
-              only="rate"
-              suggestions={state.suggestions_from_notes as ScreeningSuggestions | undefined}
-              disabled={!state.can_edit_rate}
-              onUseRate={(fill) => {
-                methods.setValue("rate_amount", fill.rate, SET);
-                methods.setValue("rate_unit", fill.unit, SET);
-                methods.setValue("rate_currency", "PLN", SET);
-              }}
-            />
+            {!noteRateInField ? (
+              <ScreeningSuggestionChips
+                only="rate"
+                suggestions={state.suggestions_from_notes as ScreeningSuggestions | undefined}
+                disabled={!state.can_edit_rate}
+                onUseRate={(fill) => {
+                  model.touchRate();
+                  methods.setValue("rate_amount", fill.rate, SET);
+                  methods.setValue("rate_unit", fill.unit, SET);
+                  methods.setValue("rate_currency", "PLN", SET);
+                }}
+              />
+            ) : null}
             {rateOffer ? (
               <OfferChip
                 offer={rateOffer}
@@ -844,6 +952,13 @@ export interface ScreeningFullFormProps {
   readOnly?: boolean;
   banner?: ReactNode;
   onMoved?: () => void;
+  /**
+   * P3 (14.10.2026): „Zapisz i przekaż dalej” przeszło. Tylko po udanym ruchu —
+   * `onMoved` woła się też po konflikcie wersji i po odrzuceniu.
+   */
+  onForwarded?: () => void;
+  /** D3 (14.10.2026): notatka zapisana w doku osoby wypełnia ten formularz. */
+  noteFill?: NoteFillChannel;
   onSaved?: (result: ScreeningFormSaveResult) => void;
   onOpenChampion?: () => void;
   /** Okno z formularzem: „Anuluj” i zamknięcie po zapisie. */
@@ -864,6 +979,8 @@ export function ScreeningFullForm({
   readOnly = false,
   banner,
   onMoved,
+  onForwarded,
+  noteFill,
   onSaved,
   onOpenChampion,
   onCancel,
@@ -901,6 +1018,55 @@ export function ScreeningFullForm({
 
   const save = useSaveScreeningForm({ onSaved: (result) => model.markSaved(result) });
   const moveCore = usePipelineMoveCore({ jobId });
+
+  // D3 (14.10.2026): „Zapisz notatkę i wypełnij formularz” w doku osoby. Ten
+  // sam warunek co pasek „Uzupełnij z notatki”, ta sama trasa odczytu; zapis
+  // formularza odsyła `note_id`, więc notatka nie powstaje drugi raz.
+  const canReceiveNote = Boolean(state?.assist_enabled) && editable;
+  const scopeRef = useRef("");
+  scopeRef.current = `${candidateId}:${jobId}`;
+  const modelRef = useRef(model);
+  modelRef.current = model;
+  const [readingDockNote, setReadingDockNote] = useState(false);
+  const readingRef = useRef(false);
+  const receiveNote = useRef<NoteFillReceiver | null>(null);
+  receiveNote.current = async ({ noteId, text }) => {
+    const scope = `${candidateId}:${jobId}`;
+    if (modelRef.current.note || readingRef.current) {
+      const message = "Formularz ma już wypełnienie z innej notatki — zapisz go albo cofnij wypełnienie.";
+      showError(message);
+      throw new Error(message);
+    }
+    let proposal: NoteProposal;
+    readingRef.current = true;
+    setReadingDockNote(true);
+    try {
+      proposal = await recommendationCardsApi.readNote(candidateId, jobId, text);
+    } catch (err) {
+      showError(apiErrorMessage(err, "Nie udało się odczytać notatki. Spróbuj ponownie."));
+      throw err;
+    } finally {
+      readingRef.current = false;
+      setReadingDockNote(false);
+    }
+    // Odczyt trwa do minuty — wynik liczy się tylko dla osoby, dla której ruszył.
+    if (scopeRef.current !== scope) throw new Error("Formularz pokazuje już inną osobę.");
+    if (proposal.message && !proposal.available) showError(proposal.message);
+    const applied = modelRef.current.applyNote(proposal, {
+      text: proposal.text || text,
+      source_name: null,
+      note_id: noteId,
+    });
+    if (applied.filled === 0 && applied.offers === 0) {
+      showInfo("Notatka nie wniosła nic nowego — formularz ma już te wartości.");
+    }
+  };
+  useEffect(() => {
+    if (!noteFill || !canReceiveNote) return;
+    return noteFill.register(candidateId, (note) =>
+      receiveNote.current ? receiveNote.current(note) : Promise.reject(new Error("Formularz nie jest gotowy.")),
+    );
+  }, [noteFill, canReceiveNote, candidateId]);
 
   const reasonsQuery = useQuery<RejectionReasonOption[]>({
     queryKey: ["job-rejection-reasons", jobId],
@@ -1075,6 +1241,7 @@ export function ScreeningFullForm({
       if (outcome.ok) {
         showSuccess(`${candidateName} — przekazano dalej: ${forward.label}.`);
         onMoved?.();
+        onForwarded?.();
       } else if (outcome.refusal.kind === "version_conflict") {
         onMoved?.();
       }
@@ -1331,6 +1498,7 @@ export function ScreeningFullForm({
                       filled: model.note.filled,
                       offers: model.offers.length,
                       sourceName: model.note.source.source_name ?? null,
+                      noteSaved: model.note.source.note_id != null,
                     }
                   : null
               }
@@ -1342,6 +1510,7 @@ export function ScreeningFullForm({
               }}
               onUndo={model.undoNote}
               disabled={busy}
+              readingDockNote={readingDockNote}
             />
           ) : null
         }

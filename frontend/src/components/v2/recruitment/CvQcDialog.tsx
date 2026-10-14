@@ -11,7 +11,9 @@
  * naprawy), „Warto poprawić — nie blokuje” i zwinięte „W porządku”. Blokują
  * tylko: brak CV, umiejętności krytyczne, treści spoza oryginału i reguły
  * klienta. Poprawki AI (GPT-6 Luna) pokazują źródło — rekruter je akceptuje,
- * edytuje albo odrzuca. Każda zmiana zwraca świeży wynik QC.
+ * edytuje albo odrzuca. Każda zmiana zwraca świeży wynik QC. Od 14.10.2026
+ * (D5) propozycje ładują się same, gdy QC ma pozycję z poprawką AI — serwer
+ * liczy je zaraz po automacie, więc zwykle to odczyt z pamięci.
  *
  * Karta krytycznej w roli pokazuje dowód z oryginału (zdanie z opisu roli,
  * lista technologii albo nazwa stanowiska) — bez zdania w oryginale karta każe
@@ -322,19 +324,10 @@ function Explainer({ data }: { data: QcResult }) {
   );
 }
 
-function AiFixes({
-  stageId,
-  ctx,
-  requested,
-  onRequest,
-}: {
-  stageId: number;
-  ctx: ActionContext;
-  requested: boolean;
-  onRequest: () => void;
-}) {
+function AiFixes({ stageId, ctx }: { stageId: number; ctx: ActionContext }) {
   const queryClient = useQueryClient();
-  const fixes = useCvQcFixes(stageId, requested && ctx.editable);
+  // D5: bez kliknięcia — sekcja stoi tylko przy pozycji z poprawką AI.
+  const fixes = useCvQcFixes(stageId, ctx.editable);
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
   const data = fixes.data;
   const visible = (data?.fixes ?? []).filter((f) => !dismissed.has(f.id));
@@ -357,7 +350,6 @@ function AiFixes({
       loading={fixes.isFetching && !data}
       failed={fixes.isError}
       visible={visible}
-      onRequest={onRequest}
       onRetry={() => void fixes.refetch()}
       onApply={applyFix}
       onDismiss={(id) => setDismissed((prev) => new Set(prev).add(id))}
@@ -416,7 +408,6 @@ export function CvQcBody({
   // Jak „Przepuść mimo QC”: w podglądzie jako inny użytkownik — nikomu.
   const impersonating = useAuthStore((s) => s.realUser !== null);
   const [notEditable, setNotEditable] = useState(false);
-  const [aiRequested, setAiRequested] = useState(false);
   const editable = !notEditable && data.cv?.editable !== false && data.cv != null;
 
   const ctx: ActionContext = {
@@ -449,7 +440,6 @@ export function CvQcBody({
       }),
     confirming: confirm.isPending,
     requestAiFixes: () => {
-      setAiRequested(true);
       if (typeof document !== "undefined") {
         document.getElementById(`qc-ai-${stageId}`)?.scrollIntoView?.({ block: "nearest" });
       }
@@ -533,7 +523,7 @@ export function CvQcBody({
           </p>
         )}
         {data.cv && hasAiGaps ? (
-          <AiFixes stageId={stageId} ctx={ctx} requested={aiRequested} onRequest={() => setAiRequested(true)} />
+          <AiFixes stageId={stageId} ctx={ctx} />
         ) : null}
         {notes.length > 0 ? (
           <section aria-label="Warto poprawić — nie blokuje" className="space-y-2">

@@ -18,3 +18,8 @@ dzwonka z kreską prosto w dzwonku), które KATEGORIE powiadomień do niego traf
   nieprzeczytane zostają — „Cofnij" niczego nie gasi).
 - Testy wyciszeń na wspólnej bazie MUSZĄ sprzątać po sobie (fixture `admin_id`):
   admin z `app_client` jest odbiorcą w cudzych testach („komplet obsady").
+- **`cv_ready` (0440, 14.10.2026)** — „CV gotowe do sprawdzenia” i „Automat
+  nie zrobił CV” z automatu auto-CV (`services/cv_auto_generate.py`) do osoby,
+  która przesunęła kartę. Kategoria „Ruchy w rekrutacjach” (jak `stage_rule`,
+  do wyciszenia), sekcja Rekrutacje, bez maila. Front potrzebuje ikony typu
+  w `NotificationsDropdown.tsx`.

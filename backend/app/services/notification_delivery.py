@@ -91,7 +91,8 @@ CATALOG = (
         id="cv_returned",
         label="CV wróciło do poprawy",
         module="Rekrutacje",
-        trigger="Delivery Lead cofnął kandydata z „QC CV” albo z kolejki Cpro.",
+        trigger="Delivery Lead cofnął kandydata z „QC CV” albo z kolejki Cpro; "
+        "QC CV nie przeszło po przekazaniu kandydata do „QC CV”.",
         recipient_rule="Osoba, która przekazała kartę, i rekruter kandydata.",
     ),
     dict(

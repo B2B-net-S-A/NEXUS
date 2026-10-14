@@ -47,5 +47,12 @@ porównania z innymi osobami; „Wróć do poprawy” niosło jedno zdanie, wię
   2+ osoby). Wiersz niesie wiersz kolejki pulpitu, więc „Przejrzyj” nie robi drugiego żądania.
   Od 13.10.2026 wejście z pulpitu to „porównaj” w pasie „Do wysłania do klienta” (sekcji „Czeka na Twój
   przegląd” już nie ma), a przegląd umie iść „po kolei” — `rekrutacja-tablica/do-wyslania-do-klienta-kolejka-delivery-leada.md`.
-- Harness `/preview/dl-review` (`?state=queue`, `?state=returned`, `?as=recruiter`). Wzmianki w sekcjach 0352
+- **Uwaga rekrutera z przekazania (14.10.2026, „Droga rekrutera do DL”, D6):** „Zapisz i przekaż do DL”
+  w edytorze CV niesie `recruiter_remark` — uwagę wiersza etapu „QC CV” (`stage_remarks`). Kontekst przeglądu
+  zwraca ją jako `recruiter_handoff_remark: {text, author_name, created_at}` (`dl_review.recruiter_handoff_remark`)
+  tylko, gdy najnowszy wiersz pary stoi w „QC CV” i nie jest kolejką Cpro; uwaga z „Wróć do poprawy” (wiersz
+  „Zweryfikowany”) nią nie jest. Przegląd pokazuje ją na górze kolumny decyzji, nad „Warunkami wobec
+  rekrutacji”: „Od rekrutera (Imię Nazwisko): …” w ramce info z tokenów (`DlReviewPanel`, przez `facts` —
+  `DecisionPanel` bez zmian). Brak albo pusty tekst = nic.
+- Harness `/preview/dl-review` (`?state=queue`, `?state=returned`, `?as=recruiter`; kontekst ma uwagę rekrutera). Wzmianki w sekcjach 0352
   i 0413 o przeglądzie bez marży i o „Wróć do poprawy” z samą uwagą opisują stan sprzed 08.10.2026.

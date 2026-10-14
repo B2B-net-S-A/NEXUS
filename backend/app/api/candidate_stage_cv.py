@@ -1070,10 +1070,24 @@ async def select_generated_cv(
     await db.refresh(csv)
     # CV w procesie (13.10.2026): QC nowej wersji liczy się w tle, jak po
     # podpięciu z generatora — plakietka na Tablicy nie czeka na okno QC.
+    _schedule_qc_after_attach(background_tasks, stage_id, current_user.id)
+    return _build_branded_response(csv)
+
+
+def _schedule_qc_after_attach(
+    background_tasks: BackgroundTasks, stage_id: int, user_id: int
+) -> None:
+    """QC nowego szkicu etapu po odpowiedzi (`cv_auto_generate.qc_after_attach`).
+
+    Każde źródło CV firmowego — wersja z generatora, plik z profilu, plik
+    z dysku i CV z innej rekrutacji — dostaje to samo: QC od razu, a na
+    „Zweryfikowanym” i dalej także poprawki AI w pamięci edytora (14.10.2026).
+    Bez dzwonka: rekruter sam właśnie wybrał to CV. Wyjątek po odpowiedzi
+    niczego nie cofa — `qc_after_attach` nigdy nie rzuca.
+    """
     from app.services.cv_auto_generate import qc_after_attach
 
-    background_tasks.add_task(qc_after_attach, stage_id, current_user.id)
-    return _build_branded_response(csv)
+    background_tasks.add_task(qc_after_attach, stage_id, user_id)
 
 
 async def read_word_upload(file: UploadFile) -> tuple[bytes, str]:
@@ -1183,13 +1197,15 @@ async def select_document_cv(
     stage_id: int,
     payload: CVBrandedSelectDocument,
     current_user: CandidateWriteAccess,
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
 ) -> CVBrandedResponse:
     """Wczytaj plik Word z profilu kandydata jako SZKIC CV firmowego etapu.
 
     Gotowe CV dla klientów leżą w profilach jako pliki „…B2B…” (09.10.2026:
     34 z 50 osób w screeningu). Plik jest tylko czytany — w profilu zostaje
-    bez zmian; treść trafia do edytora bez AI (`cv_docx_import`).
+    bez zmian; treść trafia do edytora bez AI (`cv_docx_import`). QC w tle
+    jak po `select-generated` (14.10.2026).
     """
     from app.models.candidate_document import (
         CandidateDocument,
@@ -1231,7 +1247,7 @@ async def select_document_cv(
         raise HTTPException(
             503, "Nie udało się pobrać pliku z magazynu. Spróbuj ponownie za chwilę."
         ) from error
-    return await _import_docx_as_draft(
+    response = await _import_docx_as_draft(
         db,
         csv,
         content,
@@ -1244,6 +1260,8 @@ async def select_document_cv(
             "source_document_sha256": hashlib.sha256(content).hexdigest(),
         },
     )
+    _schedule_qc_after_attach(background_tasks, stage_id, current_user.id)
+    return response
 
 
 @router.post(
@@ -1253,6 +1271,7 @@ async def select_document_cv(
 async def upload_stage_cv(
     stage_id: int,
     current_user: CandidateWriteAccess,
+    background_tasks: BackgroundTasks,
     file: UploadFile = File(..., description="Gotowe CV dla klienta (.docx)"),
     expected_revision: int = Form(..., ge=0),
     db: AsyncSession = Depends(get_db),
@@ -1264,12 +1283,12 @@ async def upload_stage_cv(
     osoby i źródłem dla generatora oraz auto-CV, a powtórne wgranie tych
     samych bajtów przemianowałoby istniejący plik. Zostaje po nim nazwa
     i skrót treści w śladzie; ponowne użycie w innej rekrutacji daje
-    `select-stage-cv`.
+    `select-stage-cv`. QC w tle jak po `select-generated` (14.10.2026).
     """
     csv = await _load_csv_for_stage(db, stage_id, current_user, create_missing=True)
     check_revision(csv, expected_revision)
     content, filename = await read_word_upload(file)
-    return await _import_docx_as_draft(
+    response = await _import_docx_as_draft(
         db,
         csv,
         content,
@@ -1282,6 +1301,8 @@ async def upload_stage_cv(
             "upload_sha256": hashlib.sha256(content).hexdigest(),
         },
     )
+    _schedule_qc_after_attach(background_tasks, stage_id, current_user.id)
+    return response
 
 
 @router.get(
@@ -1326,13 +1347,15 @@ async def select_stage_cv(
     stage_id: int,
     payload: CVBrandedSelectStageCv,
     current_user: CandidateWriteAccess,
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
 ) -> CVBrandedResponse:
     """CV etapu tej osoby z INNEJ rekrutacji → szkic tej (12.10.2026).
 
     Kopia bierze treść po poprawkach rekrutera (zatwierdzoną, a bez niej
     szkic) — `select-generated` dla innej rekrutacji renderuje wynik
-    generatora od nowa i je gubi. Źródło zostaje nietknięte.
+    generatora od nowa i je gubi. Źródło zostaje nietknięte. QC w tle jak po
+    `select-generated` (14.10.2026).
     """
     csv = await _load_csv_for_stage(
         db, stage_id, current_user, lock=True, create_missing=True
@@ -1352,6 +1375,7 @@ async def select_stage_cv(
     await copy_stage_cv(db, csv, source, user_id=current_user.id)
     await db.commit()
     await db.refresh(csv)
+    _schedule_qc_after_attach(background_tasks, stage_id, current_user.id)
     return _build_branded_response(csv)
 
 

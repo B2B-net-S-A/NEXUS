@@ -21,7 +21,6 @@ const seen = vi.hoisted(() => ({
   order: null as Record<string, unknown> | null,
   history: null as Record<string, unknown> | null,
   questions: null as Record<string, unknown> | null,
-  manual: null as Record<string, unknown> | null,
   header: null as Record<string, unknown> | null,
   champion: null as Record<string, unknown> | null,
   workspace: null as Record<string, unknown> | null,
@@ -120,9 +119,6 @@ vi.mock("@/components/v2/recruitment/slideovers/HistoryChatSlideOver", () => ({
 }));
 vi.mock("@/components/v2/recruitment/slideovers/QuestionBankSlideOver", () => ({
   QuestionBankSlideOver: stub("questions", "questions-window"),
-}));
-vi.mock("@/components/v2/recruitment/slideovers/ManualSearchSlideOver", () => ({
-  ManualSearchSlideOver: stub("manual", "manual-window"),
 }));
 vi.mock("@/components/v2/recruitment/ProposalsSegment", () => ({
   ProposalsSegment: stub("proposals", "proposals-screen"),
@@ -287,7 +283,7 @@ describe("strona rekrutacji — stare adresy", () => {
     expect(seen.history).toMatchObject({ open: true, initialTab: "request" });
   });
 
-  it("?tab=portals → okno „Zlecenie” z sekcją portali (R5-8); ?tab=questions → baza pytań; ?tab=manual-search → wyszukiwarka", async () => {
+  it("?tab=portals → okno „Zlecenie” z sekcją portali (R5-8); ?tab=questions → baza pytań; ?tab=manual-search → zakładka „Szukaj ręcznie”", async () => {
     // 04.10.2026: portale żyją w zakładce „Zespół i ogłoszenie” Profilu
     // Championa — stary adres prowadzi tam wprost, z rozwiniętymi portalami.
     const first = renderPage("tab=portals");
@@ -301,8 +297,10 @@ describe("strona rekrutacji — stare adresy", () => {
     const second = renderPage("tab=questions");
     expect(await screen.findByTestId("questions-window")).toBeInTheDocument();
     second.unmount();
+    // 14.10.2026: „Szukaj ręcznie” to zakładka okna „Kandydaci do dodania”.
     renderPage("tab=manual-search");
-    expect(await screen.findByTestId("manual-window")).toBeInTheDocument();
+    expect(await screen.findByTestId("add-window")).toBeInTheDocument();
+    expect(seen.add).toMatchObject({ open: true, tab: "manual" });
   });
 
   it("miękka nawigacja na tej samej rekrutacji (klik w powiadomienie) też działa", async () => {
@@ -495,6 +493,24 @@ describe("strona rekrutacji — nagłówek i „Kandydaci do dodania” (02.10.2
     renderPage("win=similar");
     expect(await screen.findByTestId("add-window")).toBeInTheDocument();
     expect(seen.add).toMatchObject({ open: true, tab: "similar" });
+  });
+
+  it("stary adres ?win=manual-search otwiera okno źródeł na „Szukaj ręcznie” i przepisuje adres", async () => {
+    renderPage("win=manual-search");
+    expect(await screen.findByTestId("add-window")).toBeInTheDocument();
+    expect(seen.add).toMatchObject({ open: true, tab: "manual" });
+    await waitFor(() =>
+      expect(nav.replace).toHaveBeenCalledWith("/jobs/42?win=add&wintab=manual", { scroll: false }),
+    );
+  });
+
+  it("„Szukaj ręcznie” z ekranu propozycji otwiera zakładkę okna, nie osobne okno", async () => {
+    renderPage("tab=people&seg=proposals");
+    await screen.findByTestId("proposals-screen");
+    act(() => (seen.proposals?.onOpenManualSearch as () => void)());
+    expect(await screen.findByTestId("add-window")).toBeInTheDocument();
+    expect(seen.add).toMatchObject({ open: true, tab: "manual" });
+    expect(window.location.search).toContain("win=add&wintab=manual");
   });
 
   it("„Przeszukaj całą bazę (AI)” z menu „⋯” otwiera „Propozycje z bazy” i zleca przegląd", async () => {

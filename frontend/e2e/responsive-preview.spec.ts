@@ -338,6 +338,10 @@ test.describe("panel osoby — duży podgląd po lewej na laptopie", () => {
     await page.setViewportSize({ width: 1280, height: 720 });
     await page.goto("/preview/screening-form?state=nowi");
     const profile = page.getByTestId("before-call-profile");
+    // 14.10.2026: blok „Co już wiemy” startuje zwinięty do dwóch linii, żeby
+    // formularz ze stawką był widoczny bez przewijania przy 1280 × 720.
+    await expect(page.getByRole("spinbutton", { name: /Kwota|Stawka/ }).first()).toBeInViewport();
+    await profile.getByRole("button", { name: /Co już wiemy/ }).click();
     const conditions = profile.getByTestId("before-call-conditions");
     await expect(conditions).toContainText("150 zł/h");
     await expect(conditions).toContainText("ostatnio podana 03.2025");

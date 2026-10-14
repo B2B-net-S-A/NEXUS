@@ -3,9 +3,12 @@ import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { CandidateSourceTab } from "@/components/v2/recruitment/types";
+import type { CandidateWindowTab } from "@/components/v2/recruitment/types";
 
 const addToJob = vi.fn();
+const undoAdd = vi.fn();
+const removeFromRecruitment = vi.fn();
+const manualPanel = vi.fn();
 const dismiss = vi.fn();
 const startRun = vi.fn();
 const bulkAdd = vi.fn();
@@ -56,6 +59,7 @@ const proposalsState = {
   entries: [] as ReturnType<typeof entry>[],
   adding: false,
   addToJob: (...a: unknown[]) => addToJob(...a),
+  undoAdd: (...a: unknown[]) => undoAdd(...a),
   dismiss: (...a: unknown[]) => dismiss(...a),
   dismissing: false,
   status: {
@@ -109,6 +113,13 @@ vi.mock("@/lib/api", () => ({
   default: { get: vi.fn() },
   api: { get: vi.fn() },
   championApi: { get: (...a: unknown[]) => championGet(...a) },
+  candidatesApi: { removeFromRecruitment: (...a: unknown[]) => removeFromRecruitment(...a) },
+}));
+vi.mock("@/components/v2/recruitment/ManualSearchPanel", () => ({
+  ManualSearchPanel: (props: Record<string, unknown>) => {
+    manualPanel(props);
+    return <div data-testid="manual-search-panel" />;
+  },
 }));
 vi.mock("@/components/v2/pages/candidate-list-query", () => ({
   fetchCandidateListPage: (...a: unknown[]) => listPage(...a),
@@ -174,11 +185,11 @@ function panelProps(overrides: Record<string, unknown> = {}) {
     onOpenChange: vi.fn(),
     jobId: 5,
     job: JOB,
-    tab: "base" as CandidateSourceTab,
+    tab: "base" as CandidateWindowTab,
     onTabChange: vi.fn(),
     budgetHourly: 160,
     pipelineCandidateIds: [99],
-    onOpenManualSearch: vi.fn(),
+    onManualAdded: vi.fn(),
     onOpenChampionSearch: vi.fn(),
     onOpenFullList: vi.fn(),
     ...overrides,
@@ -200,6 +211,9 @@ function renderPanel(overrides: Record<string, unknown> = {}) {
 describe("AddCandidatesPanel — okno „Kandydaci do dodania”", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // D1 (14.10.2026): wynik liczy się sam dla widocznych wierszy — każdy test
+    // z wierszami pyta o dopasowanie, więc atrapa zawsze odpowiada obietnicą.
+    matchScores.mockResolvedValue({ scores: {}, breakdowns: {}, profile_key: "p:1" });
     proposalsState.entries = [];
     proposalsState.status.run.data = undefined;
     proposalsState.status.run.runId = null;
@@ -227,7 +241,7 @@ describe("AddCandidatesPanel — okno „Kandydaci do dodania”", () => {
     expect(countsApi).not.toHaveBeenCalled();
   });
 
-  it("cztery zakładki źródeł z liczbami; klik zmienia zakładkę przez stronę", async () => {
+  it("zakładki źródeł z liczbami (ręczne szukanie bez liczby); klik zmienia zakładkę przez stronę", async () => {
     similarPayload = { reassignable_people: 19, other_people: 6 };
     proposalsState.entries = [
       entry(1, "Anna Baza", ["inbox"], { sources: ["full_base"] }),
@@ -241,6 +255,7 @@ describe("AddCandidatesPanel — okno „Kandydaci do dodania”", () => {
       "Nowi z ogłoszeń· 2",
       "Propozycje z bazy· 1",
       "Szukaj w bazie",
+      "Szukaj ręcznie· —",
     ]);
     expect(screen.getByRole("tab", { name: /Propozycje z bazy/ })).toHaveAttribute("aria-selected", "true");
 
@@ -320,7 +335,7 @@ describe("AddCandidatesPanel — okno „Kandydaci do dodania”", () => {
     );
     expect(submit).toHaveTextContent("Dodaj 1 do Nowych");
     await userEvent.click(submit);
-    expect(addToJob).toHaveBeenCalledWith([1]);
+    expect(addToJob).toHaveBeenCalledWith([1], {}, expect.anything());
     expect(bulkAdd).not.toHaveBeenCalled();
   });
 
@@ -339,7 +354,7 @@ describe("AddCandidatesPanel — okno „Kandydaci do dodania”", () => {
     expect(screen.getByTestId("add-candidates-submit")).toHaveTextContent("Dodaj 0 do Nowych");
     await userEvent.click(within(postings).getByRole("checkbox", { name: "Zaznacz Piotr Ogłoszenie" }));
     await userEvent.click(screen.getByTestId("add-candidates-submit"));
-    expect(addToJob).toHaveBeenCalledWith([2]);
+    expect(addToJob).toHaveBeenCalledWith([2], {}, expect.anything());
 
     // Zaznaczenie z drugiej zakładki czeka tam, gdzie je zostawiono.
     rerender({ tab: "base" });
@@ -511,7 +526,7 @@ describe("AddCandidatesPanel — okno „Kandydaci do dodania”", () => {
     expect(factsApi).toHaveBeenCalledWith(5, [1, 2], expect.anything());
   });
 
-  it("„Policz dopasowanie dla N”: wynik w miejscu „nie policzono”, niezmierzony = „Ocena niepełna”", async () => {
+  it("dopasowanie liczy się samo dla wierszy na ekranie — bez przycisku (D1); niezmierzony = „Ocena niepełna”", async () => {
     proposalsState.entries = [
       entry(1, "Anna Pierwsza", ["similar"], { fitScore: null }),
       entry(2, "Bartek Drugi", ["similar"], { fitScore: null }),
@@ -524,14 +539,14 @@ describe("AddCandidatesPanel — okno „Kandydaci do dodania”", () => {
     });
     renderPanel();
     const list = await screen.findByRole("list", { name: "Propozycje z bazy" });
-    expect(within(list).getAllByText("nie policzono")).toHaveLength(2);
-    await userEvent.click(screen.getByRole("button", { name: /Policz dopasowanie dla 2/ }));
+    expect(screen.queryByRole("button", { name: /Policz dopasowanie/ })).toBeNull();
     await within(list).findByText("71%");
     expect(within(list).getByText("Ocena niepełna")).toBeTruthy();
     expect(within(list).getByText("64%")).toBeTruthy();
+    expect(within(list).queryByText("nie policzono")).toBeNull();
+    // Jedno zapytanie (paczka do 20) i tylko o osoby bez wyniku.
     expect(matchScores).toHaveBeenCalledTimes(1);
     expect([...matchScores.mock.calls[0][1]].sort()).toEqual([1, 2]);
-    expect(screen.queryByRole("button", { name: /Policz dopasowanie/ })).toBeNull();
   });
 
   it("po dodaniu osoby policzone wyniki pozostałych zostają (nie wracają do „liczę…”)", async () => {
@@ -543,7 +558,6 @@ describe("AddCandidatesPanel — okno „Kandydaci do dodania”", () => {
     matchScores.mockResolvedValue({ scores: { "1": 81, "2": 72, "3": 63 }, breakdowns: {}, profile_key: "p:1" });
     const { rerender } = renderPanel();
     const list = await screen.findByRole("list", { name: "Propozycje z bazy" });
-    await userEvent.click(screen.getByRole("button", { name: /Policz dopasowanie dla 3/ }));
     await within(list).findByText("81%");
 
     proposalsState.entries = proposalsState.entries.filter((e) => e.row.candidateId !== 1);
@@ -561,12 +575,205 @@ describe("AddCandidatesPanel — okno „Kandydaci do dodania”", () => {
     matchScores.mockRejectedValueOnce({ response: { status: 500 } });
     renderPanel();
     await screen.findByRole("list", { name: "Propozycje z bazy" });
-    await userEvent.click(screen.getByRole("button", { name: /Policz dopasowanie dla 1/ }));
     const retry = await screen.findByRole("button", { name: "nie policzono — ponów" });
     expect(screen.queryByText("0%")).toBeNull();
     matchScores.mockResolvedValueOnce({ scores: { "1": 55 }, breakdowns: {}, profile_key: "p:1" });
     await userEvent.click(retry);
     await screen.findByText("55%");
+  });
+
+  describe("„+ Dodaj” w wierszu i „Cofnij” (P1, 14.10.2026)", () => {
+    const succeed = (added: number[]) =>
+      addToJob.mockImplementation(
+        (_ids: number[], _opts: unknown, callbacks?: { onSuccess?: (r: unknown) => void; onSettled?: () => void }) => {
+          // Hook chowa dodanych w źródłach — tu: znikają z `entries`.
+          proposalsState.entries = proposalsState.entries.filter((e) => !added.includes(e.row.candidateId));
+          callbacks?.onSuccess?.({ added, skipped: [], warnings: [], total_added: added.length, total_skipped: 0 });
+          callbacks?.onSettled?.();
+        },
+      );
+
+    it("jedno kliknięcie dodaje osobę; wiersz zostaje z „Dodano do „Nowych” · rezerwacja 12 h · Cofnij”", async () => {
+      proposalsState.entries = [
+        entry(1, "Anna Pierwsza", ["inbox"], { sources: ["full_base"] }),
+        entry(2, "Bartek Drugi", ["inbox"], { sources: ["full_base"] }),
+      ];
+      succeed([1]);
+      const { rerender } = renderPanel();
+      const list = await screen.findByRole("list", { name: "Propozycje z bazy" });
+      await userEvent.click(within(list).getByRole("button", { name: "Dodaj do „Nowych”: Anna Pierwsza" }));
+      expect(addToJob).toHaveBeenCalledWith([1], {}, expect.anything());
+      rerender();
+
+      const row = within(screen.getByRole("list", { name: "Propozycje z bazy" }))
+        .getByText("Anna Pierwsza")
+        .closest("li") as HTMLElement;
+      expect(within(row).getByTestId("pick-row-added")).toHaveTextContent("Dodano do „Nowych” · rezerwacja 12 h");
+      expect(within(row).getByRole("checkbox")).toBeDisabled();
+      expect(within(row).queryByRole("button", { name: /Dodaj do „Nowych”/ })).toBeNull();
+      expect(within(row).queryByRole("button", { name: /Pomiń:/ })).toBeNull();
+      // Kolejność się nie zmienia — dodana osoba stoi tam, gdzie stała.
+      const names = within(screen.getByRole("list", { name: "Propozycje z bazy" }))
+        .getAllByRole("checkbox")
+        .map((c) => c.getAttribute("aria-label"));
+      expect(names).toEqual(["Zaznacz Anna Pierwsza", "Zaznacz Bartek Drugi"]);
+    });
+
+    it("„Cofnij” usuwa osobę z rekrutacji i wiersz wraca do zwykłego stanu", async () => {
+      const anna = entry(1, "Anna Pierwsza", ["inbox"], { sources: ["full_base"] });
+      proposalsState.entries = [anna];
+      succeed([1]);
+      undoAdd.mockImplementation(async () => {
+        // Serwer oddał propozycję — źródła znów zwracają osobę.
+        proposalsState.entries = [anna];
+        return true;
+      });
+      const { rerender } = renderPanel();
+      const list = await screen.findByRole("list", { name: "Propozycje z bazy" });
+      await userEvent.click(within(list).getByRole("button", { name: "Dodaj do „Nowych”: Anna Pierwsza" }));
+      rerender();
+      await userEvent.click(screen.getByRole("button", { name: "Cofnij dodanie: Anna Pierwsza" }));
+      expect(undoAdd).toHaveBeenCalledWith(1);
+      await waitFor(() => expect(screen.queryByTestId("pick-row-added")).toBeNull());
+      const row = within(screen.getByRole("list", { name: "Propozycje z bazy" }))
+        .getByText("Anna Pierwsza")
+        .closest("li") as HTMLElement;
+      expect(within(row).getByRole("checkbox")).toBeEnabled();
+      expect(within(row).getByRole("button", { name: "Dodaj do „Nowych”: Anna Pierwsza" })).toBeTruthy();
+    });
+
+    it("nieudane „Cofnij” zostawia wiersz jako dodany", async () => {
+      proposalsState.entries = [entry(1, "Anna Pierwsza", ["inbox"], { sources: ["full_base"] })];
+      succeed([1]);
+      undoAdd.mockResolvedValue(false);
+      const { rerender } = renderPanel();
+      await userEvent.click(
+        await screen.findByRole("button", { name: "Dodaj do „Nowych”: Anna Pierwsza" }),
+      );
+      rerender();
+      await userEvent.click(screen.getByRole("button", { name: "Cofnij dodanie: Anna Pierwsza" }));
+      await waitFor(() => expect(undoAdd).toHaveBeenCalled());
+      expect(screen.getByTestId("pick-row-added")).toBeTruthy();
+    });
+
+    it("odmowa serwera (np. zamknięta karta) nie udaje dodania — wiersz zostaje zwykły", async () => {
+      proposalsState.entries = [entry(1, "Anna Pierwsza", ["inbox"], { sources: ["full_base"] })];
+      addToJob.mockImplementation(
+        (_ids: number[], _opts: unknown, callbacks?: { onSuccess?: (r: unknown) => void }) =>
+          callbacks?.onSuccess?.({
+            added: [],
+            skipped: [{ candidate_id: 1, reason: "closed_in_job" }],
+            warnings: [],
+            total_added: 0,
+            total_skipped: 1,
+          }),
+      );
+      renderPanel();
+      await userEvent.click(
+        await screen.findByRole("button", { name: "Dodaj do „Nowych”: Anna Pierwsza" }),
+      );
+      expect(screen.queryByTestId("pick-row-added")).toBeNull();
+      expect(screen.getByRole("button", { name: "Dodaj do „Nowych”: Anna Pierwsza" })).toBeTruthy();
+    });
+
+    it("weto HM blokuje też „+ Dodaj”; do odczytu nie ma przycisku", async () => {
+      const jan = entry(4, "Jan Weto", ["inbox"]);
+      proposalsState.entries = [
+        entry(1, "Anna Pierwsza", ["inbox"]),
+        {
+          ...jan,
+          detail: {
+            ...jan.detail,
+            eligibility: {
+              reason_code: "hm_veto",
+              reason: "Brak bankowości",
+              assignment_allowed: false,
+              visibility: "warn",
+              severity: "hard",
+              secondary: [],
+            },
+          },
+        } as never,
+      ];
+      const { rerender } = renderPanel({ readOnly: true });
+      await screen.findByRole("list", { name: "Propozycje z bazy" });
+      expect(screen.queryByRole("button", { name: /Dodaj do „Nowych”/ })).toBeNull();
+      rerender({ readOnly: false });
+      expect(screen.getByRole("button", { name: "Dodaj do „Nowych”: Anna Pierwsza" })).toBeEnabled();
+      const veto = screen.getByRole("button", { name: "Dodaj do „Nowych”: Jan Weto" });
+      expect(veto).toBeDisabled();
+      expect(veto).toHaveAttribute("title", "Weto HM: Brak bankowości");
+    });
+  });
+
+  it("powód w wierszu: do trzech chipów z wymagań propozycji i „zapytaj” z must-have zdaniem", async () => {
+    countsApi.mockResolvedValue({
+      job_id: 5, days: 7, postings_recent: 0, base: 1, screened_out: 0,
+      not_searchable_must: ["5 lat w bankowości"],
+    });
+    const anna = entry(1, "Anna Pierwsza", ["inbox"], { sources: ["full_base"], reason: "Spełnia: Java" });
+    proposalsState.entries = [
+      {
+        ...anna,
+        detail: {
+          ...anna.detail,
+          requirements: [
+            { label: "Java", level: "must", status: "met", verified: false },
+            { label: "Kafka", level: "must", status: "not_met", verified: false },
+            { label: "Spring", level: "must", status: "met", verified: false },
+          ],
+        },
+      } as never,
+    ];
+    renderPanel();
+    const list = await screen.findByRole("list", { name: "Propozycje z bazy" });
+    // Jednolinijkowy powód zostaje.
+    expect(within(list).getByText("Spełnia: Java")).toBeTruthy();
+    const chips = await within(list).findByRole("group", { name: "Dlaczego ta osoba" });
+    await waitFor(() =>
+      expect([...chips.children].map((c) => [c.getAttribute("data-tone"), c.textContent])).toEqual([
+        ["met", "✓Spełnia: Java"],
+        ["gap", "✕Brakuje: Kafka"],
+        ["ask", "?Nie wiemy — zapytaj w rozmowie: 5 lat w bankowości"],
+        ["more", "+1I jeszcze: Spełnia: Spring"],
+      ]),
+    );
+  });
+
+  describe("„Szukaj ręcznie” jako zakładka okna (14.10.2026)", () => {
+    it("zakładka montuje wyszukiwarkę w szerokim oknie, bez podglądu osoby i bez stopki", async () => {
+      renderPanel({ tab: "manual" });
+      const panel = await screen.findByTestId("add-candidates-panel");
+      expect(panel.className).toContain("sm:max-w-[min(1100px,92vw)]");
+      expect(screen.getByTestId("manual-search-panel")).toBeTruthy();
+      expect(manualPanel).toHaveBeenLastCalledWith(
+        expect.objectContaining({ jobId: 5, job: JOB, readOnly: false }),
+      );
+      expect(screen.getByText(/Filtry wypełnione z rekrutacji „Analityk KYC”/)).toBeTruthy();
+      expect(screen.queryByTestId("add-candidates-submit")).toBeNull();
+    });
+
+    it("przełączanie zakładek nie odmontowuje wyszukiwarki (filtry i zaznaczenia zostają)", async () => {
+      const { rerender } = renderPanel({ tab: "manual" });
+      await screen.findByTestId("manual-search-panel");
+      const mounts = manualPanel.mock.calls.length;
+      rerender({ tab: "base" });
+      const hidden = screen.getByTestId("manual-search-tab");
+      expect(hidden).not.toBeVisible();
+      expect((await screen.findByTestId("add-candidates-panel")).className).toContain("sm:max-w-[540px]");
+      rerender({ tab: "manual" });
+      expect(screen.getByTestId("manual-search-tab")).toBeVisible();
+      // Ten sam egzemplarz — nowe rendery, nie nowy montaż z czystym stanem.
+      expect(manualPanel.mock.calls.length).toBeGreaterThanOrEqual(mounts);
+      expect(screen.getAllByTestId("manual-search-panel")).toHaveLength(1);
+    });
+
+    it("strzałka w prawo z „Szukaj w bazie” prowadzi do „Szukaj ręcznie”", async () => {
+      const { props } = renderPanel({ tab: "search" });
+      const current = await screen.findByRole("tab", { name: /Szukaj w bazie/ });
+      fireEvent.keyDown(current, { key: "ArrowRight" });
+      expect(props.onTabChange).toHaveBeenCalledWith("manual");
+    });
   });
 
   it("„Przeszukaj całą bazę (AI)” z menu startuje przegląd raz na żądanie i nigdy przy otwarciu", async () => {
@@ -817,11 +1024,82 @@ describe("AddCandidatesPanel — okno „Kandydaci do dodania”", () => {
         }),
       );
       await waitFor(() => expect(showSuccess).toHaveBeenCalledWith("Dodano do Nowych: 1."));
-      // U4 (audyt 06.10.2026): do odświeżenia listy wiersz mówi „Dodano”
-      // i nie da się go zaznaczyć drugi raz.
-      expect(within(results).getByText("Dodano do „Nowych”")).toBeTruthy();
+      // Dodana osoba zostaje na liście z „Cofnij” i nie da się jej zaznaczyć drugi raz.
+      const row = within(results).getByText("Hanna Pietrzyk").closest("li") as HTMLElement;
+      expect(within(row).getByTestId("pick-row-added")).toHaveTextContent("Dodano do „Nowych” · rezerwacja 12 h");
       expect(within(results).getByRole("checkbox", { name: "Zaznacz Hanna Pietrzyk" })).toBeDisabled();
       expect(screen.getByTestId("search-base-submit")).toHaveTextContent("Dodaj 0 do Nowych");
+    });
+
+    it("„+ Dodaj” w wierszu: jedna osoba, ta sama droga; po odświeżeniu wiersz zostaje; „Cofnij” go oddaje", async () => {
+      withRows();
+      const marta = { id: 31, name: "Marta", lastname: "Wilczek", match_snippets: [] };
+      const hanna = { id: 32, name: "Hanna", lastname: "Pietrzyk", match_snippets: [] };
+      listPage.mockResolvedValue({ items: [marta, hanna], total: 2, page: 1, page_size: 20 });
+      matchScores.mockResolvedValue({
+        scores: { "31": 84 },
+        breakdowns: { "31": { total: 84, measurement: "measured", matching_must: ["KYC"], gap_must: ["AML"] } },
+      });
+      bulkAdd.mockResolvedValue({ added: [31], skipped: [], warnings: [], total_added: 1, total_skipped: 0 });
+      renderPanel({ tab: "search" });
+      const results = await screen.findByRole("list", { name: "Wyniki wyszukiwania" }, SLOW);
+      // Chipy powodu z rozbicia dopasowania.
+      const reasons = await within(results).findByRole("group", { name: "Dlaczego ta osoba" });
+      expect(reasons).toHaveTextContent("KYC");
+      expect(reasons).toHaveTextContent("AML");
+
+      // Odświeżenie wyników już Marty nie zwraca (jest w rekrutacji).
+      listPage.mockResolvedValue({ items: [hanna], total: 1, page: 1, page_size: 20 });
+      await userEvent.click(within(results).getByRole("button", { name: "Dodaj do „Nowych”: Marta Wilczek" }));
+      await waitFor(() =>
+        expect(bulkAdd).toHaveBeenCalledWith(5, {
+          candidate_ids: [31],
+          initial_stage_legacy: "new",
+          source: "manual_search",
+        }),
+      );
+      await waitFor(() => expect(listPage).toHaveBeenCalledTimes(2));
+      const row = (await screen.findByTestId("pick-row-added")).closest("li") as HTMLElement;
+      expect(row).toHaveTextContent("Marta Wilczek");
+      expect(row).toHaveTextContent("84%");
+
+      // „Cofnij” = usunięcie z rekrutacji; osoba wraca do wyników jako zwykły wiersz.
+      removeFromRecruitment.mockResolvedValue({ data: {} });
+      listPage.mockResolvedValue({ items: [marta, hanna], total: 2, page: 1, page_size: 20 });
+      await userEvent.click(within(row).getByRole("button", { name: "Cofnij dodanie: Marta Wilczek" }));
+      expect(removeFromRecruitment).toHaveBeenCalledWith(31, 5, { quickUndo: true });
+      await waitFor(() => expect(screen.queryByTestId("pick-row-added")).toBeNull());
+      expect(
+        within(screen.getByRole("list", { name: "Wyniki wyszukiwania" })).getByRole("button", {
+          name: "Dodaj do „Nowych”: Marta Wilczek",
+        }),
+      ).toBeTruthy();
+    });
+
+    it("nieudane „Cofnij” w wyszukiwaniu mówi dlaczego i zostawia wiersz dodany", async () => {
+      withRows();
+      listPage.mockResolvedValue({
+        items: [{ id: 31, name: "Marta", lastname: "Wilczek", match_snippets: [] }],
+        total: 1, page: 1, page_size: 20,
+      });
+      matchScores.mockResolvedValue({ scores: {}, breakdowns: {} });
+      bulkAdd.mockResolvedValue({ added: [31], skipped: [], warnings: [], total_added: 1, total_skipped: 0 });
+      removeFromRecruitment.mockRejectedValue({ response: { status: 409, data: { detail: "Blokada 12 h innej osoby." } } });
+      renderPanel({ tab: "search" });
+      const results = await screen.findByRole("list", { name: "Wyniki wyszukiwania" }, SLOW);
+      await userEvent.click(within(results).getByRole("button", { name: "Dodaj do „Nowych”: Marta Wilczek" }));
+      await userEvent.click(await screen.findByRole("button", { name: "Cofnij dodanie: Marta Wilczek" }));
+      await waitFor(() => expect(showError).toHaveBeenCalledWith("Blokada 12 h innej osoby."));
+      expect(screen.getByTestId("pick-row-added")).toBeTruthy();
+    });
+
+    it("„Zmień słowa i filtry” przełącza na zakładkę „Szukaj ręcznie” — okno zostaje otwarte", async () => {
+      withRows();
+      listPage.mockResolvedValue({ items: [], total: 0, page: 1, page_size: 20 });
+      const { props } = renderPanel({ tab: "search" });
+      await userEvent.click(await screen.findByRole("button", { name: "Zmień słowa i filtry" }, SLOW));
+      expect(props.onTabChange).toHaveBeenCalledWith("manual");
+      expect(props.onOpenChange).not.toHaveBeenCalled();
     });
 
     it("osoba, która już jest w rekrutacji, schodzi z zaznaczenia (U4)", async () => {
@@ -878,8 +1156,7 @@ describe("AddCandidatesPanel — okno „Kandydaci do dodania”", () => {
       await userEvent.click(within(empty).getByRole("button", { name: "Otwórz Championa" }));
       expect(props.onOpenChampionSearch).toHaveBeenCalled();
       await userEvent.click(within(empty).getByRole("button", { name: "Szukaj ręcznie" }));
-      expect(props.onOpenManualSearch).toHaveBeenCalled();
-      expect(props.onOpenChange).toHaveBeenCalledWith(false);
+      expect(props.onTabChange).toHaveBeenCalledWith("manual");
     });
 
     it("awaria wyszukiwania to błąd z „Ponów”, nie pusta lista", async () => {

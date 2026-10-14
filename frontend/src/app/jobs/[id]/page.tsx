@@ -99,9 +99,8 @@ import { QuestionBankSlideOver } from "@/components/v2/recruitment/slideovers/Qu
 import { JobFilesSlideOver } from "@/components/v2/recruitment/slideovers/JobFilesSlideOver";
 import { fetchJobFiles, jobFilesKey } from "@/lib/api/jobFiles";
 import { HistoryChatSlideOver } from "@/components/v2/recruitment/slideovers/HistoryChatSlideOver";
-import { ManualSearchSlideOver } from "@/components/v2/recruitment/slideovers/ManualSearchSlideOver";
 import type {
-  CandidateSourceTab,
+  CandidateWindowTab,
   PersonPanelSection,
   RecruitmentSegment,
   RecruitmentSlideOver,
@@ -239,8 +238,8 @@ export default function JobDetailPage() {
     urlState.orderSection,
     null,
   );
-  // Okno „Kandydaci do dodania”: `?win=add&wintab=similar|postings|base|search`.
-  const [sourceTab, setSourceTab] = useUrlSyncedState<CandidateSourceTab>(
+  // Okno „Kandydaci do dodania”: `?win=add&wintab=similar|postings|base|search|manual`.
+  const [sourceTab, setSourceTab] = useUrlSyncedState<CandidateWindowTab>(
     urlState.sourceTab,
     null,
   );
@@ -366,13 +365,20 @@ export default function JobDetailPage() {
       opts: {
         historyTab?: JobHistoryChatTab;
         orderSection?: JobOrderSection;
-        sourceTab?: CandidateSourceTab;
+        sourceTab?: CandidateWindowTab;
       } = {},
     ) => {
-      // Dawne „Podobne rekrutacje” to zakładka okna źródeł.
-      const target: RecruitmentSlideOver = kind === "similar" ? "add" : kind;
-      const source: CandidateSourceTab | null =
-        target === "add" ? (kind === "similar" ? "similar" : (opts.sourceTab ?? "base")) : null;
+      // Dawne „Podobne rekrutacje” i „Szukaj ręcznie” to zakładki okna źródeł.
+      const target: RecruitmentSlideOver =
+        kind === "similar" || kind === "manual-search" ? "add" : kind;
+      const source: CandidateWindowTab | null =
+        target === "add"
+          ? kind === "similar"
+            ? "similar"
+            : kind === "manual-search"
+              ? "manual"
+              : (opts.sourceTab ?? "base")
+          : null;
       setSlideOverState(target);
       setHistoryTab(target === "history-chat" ? (opts.historyTab ?? "all") : null);
       setOrderSection(target === "order" ? (opts.orderSection ?? null) : null);
@@ -393,7 +399,7 @@ export default function JobDetailPage() {
   }, [setSlideOverState, setHistoryTab, setOrderSection, setSourceTab]);
   /** Kafle nad Tablicą i zakładki okna „Kandydaci do dodania”. */
   const openSources = useCallback(
-    (tab: CandidateSourceTab) => openSlideOver("add", { sourceTab: tab }),
+    (tab: CandidateWindowTab) => openSlideOver("add", { sourceTab: tab }),
     [openSlideOver],
   );
   const slideOverOpenChange = (kind: RecruitmentSlideOver) => (open: boolean) => {
@@ -884,8 +890,9 @@ export default function JobDetailPage() {
       />
 
       {/* Okno „Kandydaci do dodania” (02.10.2026) — `?win=add&wintab=<źródło>`;
-          dawne `?win=similar` otwiera zakładkę „Podobne rekrutacje”. Bez prawa
-          zapisu okno jest do odczytu. */}
+          dawne `?win=similar` otwiera zakładkę „Podobne rekrutacje”, a dawne
+          okno „Szukaj ręcznie” (`?win=manual-search`) zakładkę `manual`
+          (14.10.2026). Bez prawa zapisu okno jest do odczytu. */}
       <AddCandidatesPanel
         open={slideOver === "add"}
         onOpenChange={slideOverOpenChange("add")}
@@ -896,7 +903,7 @@ export default function JobDetailPage() {
         budgetHourly={jobBudgetHourly(job)}
         pipelineCandidateIds={pipelineCandidateIds}
         readOnly={!canWritePipeline}
-        onOpenManualSearch={() => openSlideOver("manual-search")}
+        onManualAdded={invalidateKanban}
         onOpenChampionSearch={() =>
           openChampion(canEditChampion ? { block: "search" } : {})
         }
@@ -1017,14 +1024,6 @@ export default function JobDetailPage() {
         chatUnreadCount={chatUnread?.unread_count ?? 0}
         columns={kanban ? kanbanColumns : undefined}
       />
-      <ManualSearchSlideOver
-        open={slideOver === "manual-search"}
-        onOpenChange={slideOverOpenChange("manual-search")}
-        jobId={jobId}
-        job={job}
-        readOnly={!canWritePipeline}
-        onBulkAdded={invalidateKanban}
-      />
 
       {/* ── „Do przejrzenia" — pełna lista (makieta 4): propozycje z bazy
           i shortlista. Wejście: „Przejrzyj wszystkich" z pierwszej kolumny
@@ -1084,7 +1083,7 @@ export default function JobDetailPage() {
               readOnly={!canWritePipeline}
               canOpenProfile={canOpenCandidateProfile}
               highlight={highlightProposals}
-              onOpenManualSearch={() => openSlideOver("manual-search")}
+              onOpenManualSearch={() => openSources("manual")}
               onOpenQuickAdd={() => setShowAddCandidates(true)}
               onWriteEmail={setEmailCandidateId}
               // Dawna lewa kolumna AI Matching: lista wymagań + ich edycja.
@@ -1285,7 +1284,7 @@ export default function JobDetailPage() {
                 if (anchor) scrollToWhenReady(anchor);
               }}
               onOpenManualSearch={
-                canWritePipeline ? () => openSlideOver("manual-search") : undefined
+                canWritePipeline ? () => openSources("manual") : undefined
               }
               onWriteAnnouncement={onWriteAnnouncement}
               onGenerateInviteLink={onGenerateInviteLink}

@@ -83,7 +83,12 @@ TITLE_QC_RETURNED = "Wróciło do poprawy:"
 # zadanie dla DL, nie zwrot — poza `RETURNED_TITLE_PREFIXES`, żeby mail szedł
 # jako „CV czeka na przegląd”.
 TITLE_DL_NUDGE = "Wciąż czeka na wysyłkę:"
-RETURNED_TITLE_PREFIXES = (TITLE_CPRO_RETURNED, TITLE_QC_RETURNED)
+# QC po przekazaniu do „QC CV” nie przeszło (14.10.2026, `cv_qc.run_after_move`)
+# — zadanie dla REKRUTERA: poprawić CV, zanim Delivery Lead je wyśle. Mailem
+# idzie jak zwrot do poprawy (ten sam adresat i ta sama czynność), nie jako
+# „CV czeka na przegląd”, który jest mailem Delivery Leada.
+TITLE_QC_FAILED = "QC CV do poprawy:"
+RETURNED_TITLE_PREFIXES = (TITLE_CPRO_RETURNED, TITLE_QC_RETURNED, TITLE_QC_FAILED)
 
 CV_SENT_COLUMN = "cv_sent"
 # Kolumny, z których ruch na „CV wysłane” jest wysłaniem karty przekazanej

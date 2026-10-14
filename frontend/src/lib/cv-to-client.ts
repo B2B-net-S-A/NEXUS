@@ -283,14 +283,23 @@ export function resolveCvToClient({
   return { ...base, kind: "none" };
 }
 
-/** Czy karta ma dalej odpytywać serwer (generacja w toku albo czekamy na podpięcie). */
+/**
+ * Czy karta ma dalej odpytywać serwer (generacja w toku albo czekamy na podpięcie).
+ *
+ * `awaitingAuto` (14.10.2026): osobę przed chwilą przekazano dalej z formularza
+ * screeningu, a automat CV jeszcze nie założył wiersza generacji — bez tego
+ * karta w stanie „brak” nie pytałaby wcale i blok postępu stałby w miejscu.
+ * Wołający gasi to, gdy zna powód pominięcia albo minął sufit czasu.
+ */
 export function cvToClientShouldPoll(
   state: CvToClientState,
   pendingGeneratedId: number | null,
+  { awaitingAuto = false }: { awaitingAuto?: boolean } = {},
 ): boolean {
   // Generacja w toku — także obok gotowego CV („Wygeneruj ponownie”): nowa
   // wersja ma się pojawić sama jako „Użyj nowej wersji”.
   if (state.generating) return true;
+  if (awaitingAuto && (state.kind === "none" || state.kind === "unattached")) return true;
   if (pendingGeneratedId == null) return false;
   // Zleciliśmy generację z tej karty: dopóki wiersza nie widać albo etap nie
   // dostał jeszcze szkicu, pytamy dalej (serwer podpina CV chwilę PO tym, jak
@@ -335,4 +344,74 @@ export function cvChecksBeforeSending({ checks, warnings, findings }: CvChecksIn
   const split = splitChecks(checks);
   const review = classifyCvWarnings(warnings).review;
   return split.tasks.length + split.notes.length + warningsBeyondQc(review, checks).kept.length + findings.length;
+}
+
+// ── Blok postępu po „Zapisz i przekaż dalej” (14.10.2026, P3) ──────────────
+
+/** Wygląd kroku: zrobione, w toku, czeka na poprzedni, uwaga, informacja. */
+export type ForwardStepTone = "done" | "busy" | "pending" | "warn" | "info";
+
+export interface ForwardStep {
+  tone: ForwardStepTone;
+  text: string;
+}
+
+export interface ForwardProgressInput {
+  state: Pick<CvToClientState, "kind">;
+  /** Plakietka pochodzenia CV wybranego zamiast generacji (`stageCvOrigin`). */
+  origin: { badge: string } | null;
+  /** Powód pominięcia auto-CV po tym przekazaniu (zdanie z „Pracy w tle”). */
+  skipReason: string | null;
+  /** Minął sufit czekania na automat. */
+  expired: boolean;
+  /** Liczba rzeczy do sprawdzenia (`cvChecksBeforeSending`) i stan odczytu. */
+  checks: { status: "loading" | "failed" | "forbidden" | "ready"; count: number };
+}
+
+export interface ForwardProgress {
+  cv: ForwardStep;
+  qc: ForwardStep;
+  /** CV jeszcze powstaje — karta mówi, że da znać dzwonkiem. */
+  waiting: boolean;
+}
+
+/**
+ * Trzy kroki po przekazaniu z formularza: screening zapisany → CV → QC.
+ * Działa dla każdego źródła CV: automat, CV wybrane z profilu, z innej
+ * rekrutacji albo wgrane z dysku (wtedy krok CV mówi „CV firmowe: …”).
+ */
+export function forwardProgress({ state, origin, skipReason, expired, checks }: ForwardProgressInput): ForwardProgress {
+  const generating: ForwardStep = { tone: "busy", text: "CV generuje się (ok. 40 s)" };
+  let cv: ForwardStep;
+  switch (state.kind) {
+    case "ready":
+      cv = origin ? { tone: "done", text: `CV firmowe: ${origin.badge}` } : { tone: "done", text: "CV gotowe" };
+      break;
+    case "generating":
+      cv = generating;
+      break;
+    case "unattached":
+      cv = { tone: "busy", text: "CV gotowe — podpinam do tej rekrutacji" };
+      break;
+    case "failed":
+      cv = { tone: "warn", text: "CV nie powstało — spróbuj ponownie niżej" };
+      break;
+    case "legacy":
+      cv = { tone: "warn", text: "CV ze starego szablonu — wygeneruj nowe niżej" };
+      break;
+    default:
+      cv = skipReason
+        ? { tone: "info", text: `CV nie powstało automatycznie: ${skipReason}` }
+        : expired
+          ? { tone: "warn", text: "CV jeszcze nie powstało — wygeneruj je albo użyj gotowego niżej" }
+          : generating;
+  }
+  let qc: ForwardStep;
+  if (state.kind !== "ready") qc = { tone: "pending", text: "QC — po CV" };
+  else if (checks.status === "loading") qc = { tone: "busy", text: "QC: liczę…" };
+  else if (checks.status === "failed") qc = { tone: "warn", text: "QC: nie udało się policzyć" };
+  else if (checks.status === "forbidden") qc = { tone: "pending", text: "QC: bez dostępu" };
+  else if (checks.count === 0) qc = { tone: "done", text: "QC: bez uwag" };
+  else qc = { tone: "warn", text: `QC: ${checks.count} do poprawy` };
+  return { cv, qc, waiting: cv.tone === "busy" };
 }

@@ -63,7 +63,8 @@ stare przypomnienie o etapie „CV wysłane” — 4 695 wpisów do 8 osób.
   1280×720) — karta właściciela ma „Twój ruch”, plakietkę „Czeka na Ciebie ·
   N dni” i przycisk „Przejrzyj i wyślij”; „Przejrzyj po kolei (N)” zastępuje
   opis kolumny od 2 gotowych osób. `onAdvance` otwiera „Przesuń dalej”, nie
-  przegląd — przycisk idzie przez `onReviewSend`.
+  przegląd — przycisk idzie przez `onReviewSend`. Strzałka karty bez braków ma
+  od 14.10.2026 własną obsługę (ruch odroczony z „Cofnij”, `droga-rekrutera-do-dl.md`, D7).
 - **Tablica liczy jak pas (14.10.2026).** Karta niesie `dl_send_counts`: rekrutacja opublikowana
   i bieżący etap nie z importu Traffita, czyli ten sam zakres co `dl_send_queue`. Przy `false`
   karta nie ma „Czeka na Ciebie” ani „Czeka na DL”, nie ma „Twój ruch” i nie wchodzi do

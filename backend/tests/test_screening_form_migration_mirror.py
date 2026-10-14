@@ -64,7 +64,9 @@ def test_checks_cover_every_value_the_code_writes() -> None:
     for value in (*ACTIONS, *SOURCES):
         assert f"'{value}'" in ddl
     source = Path(screening_form.__file__).read_text(encoding="utf-8")
-    activities = {"screening_answered", "screening_form_saved"}  # dziennik, nie wersja
+    # Dziennik (`Activity`), nie wersja formularza — także rezerwacja 12 h przy
+    # pierwszym zapisie (`_claim_on_save`, 14.10.2026).
+    activities = {"screening_answered", "screening_form_saved", "candidate_claimed"}
     written = set(re.findall(r'action="([a-z_]+)"', source)) - activities
     assert written >= {"baseline", "external", "save"}
     assert written <= set(ACTIONS), written - set(ACTIONS)

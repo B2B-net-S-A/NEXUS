@@ -5601,6 +5601,14 @@ async def remove_candidate_from_recruitment(
     job_id: DbIdPath,
     current_user: RecruiterPlus,
     db: AsyncSession = Depends(get_db),
+    quick_undo: bool = Query(
+        False,
+        description=(
+            "„Cofnij” zaraz po „+ Dodaj” w oknie „Kandydaci do dodania”: tylko "
+            "do 15 min od wejścia, przy jednym wierszu etapu bez arkusza; "
+            "osoba wraca na listę propozycji."
+        ),
+    ),
 ):
     """Usuń kandydata z rekrutacji (oferty) — kasuje całą jego obecność w
     pipeline tej oferty.
@@ -5751,6 +5759,23 @@ async def remove_candidate_from_recruitment(
 
     job_title = await db.scalar(select(Job.title).where(Job.id == job_id))
     removed_stages = [s.stage.value for s in stage_rows]
+    # Wejście osoby do rekrutacji — czytane PRZED skasowaniem wierszy etapu.
+    entered_at = min(s.created_at for s in stage_rows)
+    if quick_undo:
+        # „Cofnij” z listy to cofnięcie pomyłki, nie korekta procesu: osoba,
+        # która ma już ruch albo zapisany screening, schodzi z rekrutacji tylko
+        # z panelu osoby, z potwierdzeniem (przegląd 14.10.2026).
+        from app.services.job_proposals import quick_undo_allowed
+
+        if not quick_undo_allowed(stage_rows, entered_at=entered_at):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    "Tej osoby nie cofniesz już z listy — jest w rekrutacji dłużej "
+                    "niż 15 minut albo ma ruch lub zapisany screening. Usuń ją "
+                    "z rekrutacji w panelu osoby."
+                ),
+            )
 
     # Zarchiwizuj PRZED skasowaniem. Korekta nadal usuwa kandydata z pipeline'u
     # — to jej cel i UX się nie zmienia — ale dowód przebiegu procesu zostaje.
@@ -5811,6 +5836,16 @@ async def remove_candidate_from_recruitment(
             job_id=job_id,
             actor_user_id=current_user.id,
             reason="removed_from_recruitment",
+        )
+
+    # „Cofnij” zaraz po „+ Dodaj” w oknie „Kandydaci do dodania” (14.10.2026):
+    # osoba wraca na listę propozycji tej rekrutacji. Zwykłe usunięcie
+    # (korekta z panelu osoby) propozycji nie przywraca.
+    if quick_undo:
+        from app.services.job_proposals import reopen_after_quick_undo
+
+        await reopen_after_quick_undo(
+            db, job_id=job_id, candidate_id=candidate_id, entered_at=entered_at
         )
 
     db.add(

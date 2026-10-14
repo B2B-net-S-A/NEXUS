@@ -1663,6 +1663,43 @@ async def test_fix_proposals_read_notes_without_commercial_card_fields(
     assert "wdrażał Helm na Kubernetes" in seen["notes"]
 
 
+@pytest.mark.asyncio
+async def test_fix_proposals_are_keyed_on_the_row_holding_the_cv(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Okno QC pyta z wiersza karty w „QC CV”, a CV leży na wierszu
+    „Zweryfikowany” (tam liczy je automat i edytor). Propozycje liczą się na
+    wierszu z CV, więc drugi odczyt trafia w pamięć zamiast płacić za model
+    (przegląd 14.10.2026)."""
+    qc_row = SimpleNamespace(id=20, candidate_id=3, job_id=4)
+    cv_row = SimpleNamespace(id=10, candidate_id=3, job_id=4)
+    evaluated_on: list[int] = []
+
+    async def evaluated(_db, stage):
+        evaluated_on.append(stage.id)
+        src = SimpleNamespace(
+            generated={"source": "branded", "stage_id": cv_row.id},
+            candidate=SimpleNamespace(id=3),
+            job=SimpleNamespace(champion_profile=None),
+        )
+        return src, [], ""
+
+    async def rows(_db, _candidate_id):
+        return []
+
+    class _Db:
+        async def get(self, _model, ident):
+            return cv_row if ident == cv_row.id else None
+
+    monkeypatch.setattr(qc, "evaluate", evaluated)
+    monkeypatch.setattr(qc, "_note_rows", rows)
+    monkeypatch.setattr(qc, "fixes_material", lambda *_a, **_k: {"items": []})
+    out = await qc.generate_fixes(_Db(), qc_row, user_id=1)
+    assert out["status"] == "ok"
+    # Najpierw wiersz karty (skąd wiadomo, gdzie leży CV), potem wiersz CV.
+    assert evaluated_on == [qc_row.id, cv_row.id]
+
+
 def _money_fix(proposed: str, quote: str, current: str | None = None) -> str:
     return json.dumps(
         {
@@ -1781,8 +1818,14 @@ async def test_a_stored_proposal_with_a_rate_can_no_longer_be_applied() -> None:
     }
 
     class _Db:
+        # `load_fix` pyta najpierw o parę wiersza (14.10.2026: propozycje leżą
+        # pod wierszem z CV, szukane we wszystkich wierszach pary), potem
+        # o zapamiętane propozycje.
         async def execute(self, _stmt):
-            return SimpleNamespace(scalars=lambda: iter([{"fixes": [clean, paid]}]))
+            return SimpleNamespace(
+                first=lambda: SimpleNamespace(candidate_id=3, job_id=4),
+                scalars=lambda: iter([{"fixes": [clean, paid]}]),
+            )
 
     assert await qc.load_fix(_Db(), 5, clean["id"]) == clean
     assert await qc.load_fix(_Db(), 5, paid["id"]) is None
@@ -2436,7 +2479,11 @@ async def test_gate_blocks_cv_sent_until_qc_passes_or_dl_overrides(
             for c in col["items"]
             if c["candidate_id"] == world["candidate_id"]
         ]
-        assert cards and cards[0]["qc"] == {
+        assert cards
+        qc_card = dict(cards[0]["qc"])
+        # Uwagi nieblokujące przebiegu (14.10.2026) — liczba zależy od reguł QC.
+        assert isinstance(qc_card.pop("warnings_count"), int)
+        assert qc_card == {
             "status": "failed",
             "blocking_failed": 2,
             "ok_at": None,

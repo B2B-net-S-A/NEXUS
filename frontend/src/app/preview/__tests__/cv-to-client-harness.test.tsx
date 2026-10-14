@@ -7,7 +7,7 @@
  * „QC nie odpowiada” — i to zatrzymuje interceptor.
  */
 
-import { configure, render, screen, waitFor, within } from "@testing-library/react";
+import { act, configure, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { Axios, type AxiosAdapter, type AxiosResponse, type InternalAxiosRequestConfig } from "axios";
 import { afterEach, beforeAll, expect, it, vi } from "vitest";
 
@@ -59,8 +59,43 @@ it("pokazuje panel „Z czego powstało” i jedną liczbę rzeczy do sprawdzeni
   const down = screen.getByRole("region", { name: "QC nie odpowiada" });
   expect(await within(down).findByText(/Nie udało się policzyć rzeczy do sprawdzenia/)).toBeInTheDocument();
 
-  // Nic nie wyszło z przeglądarki; próba była tylko dla niezasianego QC.
+  // Po „Zapisz i przekaż dalej” (14.10.2026): postęp CV → QC i następna osoba.
+  const forwarded = screen.getByRole("region", { name: "Po przekazaniu — CV się generuje" });
+  const progress = await within(forwarded).findByTestId("cv-forward-progress");
+  expect(progress).toHaveTextContent("Screening zapisany");
+  expect(progress).toHaveTextContent("CV generuje się (ok. 40 s)");
+  expect(progress).toHaveTextContent("QC — po CV");
+  expect(progress).toHaveTextContent("Dam znać dzwonkiem, gdy CV będzie gotowe.");
+  fireEvent.click(within(progress).getByRole("button", { name: /Następna w Screeningu: Kamil Przykładowy/ }));
+  expect(screen.getByTestId("harness-opened")).toHaveTextContent("Kamil Przykładowy");
+
+  const skipped = screen.getByRole("region", { name: "Po przekazaniu — automat pominął osobę" });
+  expect(await within(skipped).findByTestId("cv-forward-progress")).toHaveTextContent(
+    "CV nie powstało automatycznie: reguła klienta wymaga zrzutu zgody RODO",
+  );
+
+  // Nic nie wyszło z przeglądarki; próba sieci była tylko dla niezasianego QC,
+  // a odczyty karty po przekazaniu (co 4 s) odpowiada pamięć harnessu.
   expect(sent).toEqual([]);
-  const urls = attempts.mock.calls.map(([config]) => (config as { url?: string }).url);
-  expect(urls.every((url) => url === "/api/pipeline/stages/705/qc")).toBe(true);
+  const urls = attempts.mock.calls.map(([config]) => (config as { url?: string }).url ?? "");
+  const memory = /^\/api\/(cv-generator\/generated|candidates\/stages\/\d+\/cv\/branded|jobs\/88\/background-events)$/;
+  expect(urls.filter((url) => !memory.test(url)).every((url) => url === "/api/pipeline/stages/705/qc")).toBe(true);
+});
+
+it("po przekazaniu karta pyta pamięć harnessu, aż automat skończy CV — bez sieci", async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  try {
+    render(<CvToClientPreviewPage />);
+    const forwarded = await screen.findByRole("region", { name: "Po przekazaniu — CV się generuje" });
+    expect(await within(forwarded).findByTestId("cv-forward-progress")).toHaveTextContent("CV generuje się");
+    await act(async () => {
+      vi.advanceTimersByTime(12_500);
+    });
+    const progress = within(forwarded).getByTestId("cv-forward-progress");
+    await waitFor(() => expect(progress).toHaveTextContent("CV gotowe"));
+    await waitFor(() => expect(progress).toHaveTextContent("QC: 2 do poprawy"));
+    expect(sent).toEqual([]);
+  } finally {
+    vi.useRealTimers();
+  }
 });

@@ -908,6 +908,53 @@ async def _last_contract(
     }
 
 
+async def recruiter_handoff_remark(
+    db: AsyncSession, stage_id: int
+) -> Optional[dict[str, Any]]:
+    """Uwaga rekrutera przy przekazaniu karty na „QC CV” (14.10.2026, D6).
+
+    Ruch na „QC CV” zapisuje ``recruiter_remark`` jako uwagę wiersza etapu
+    (`stage_remarks`). Delivery Lead widzi ją na górze przeglądu — tylko gdy
+    najnowszy wiersz pary stoi w „QC CV”. Uwaga z „Wróć do poprawy” leży na
+    wierszu „Zweryfikowany” (to DL pisze do rekrutera), a wiersz kolejki Cpro
+    u Nordei — choć w tej samej kolumnie — niesie uwagę akceptującego DL-a;
+    obie nie są „uwagą rekrutera”.
+    """
+    from app.models.pipeline_template import PipelineStageDef  # noqa: PLC0415
+    from app.services import stage_remarks  # noqa: PLC0415
+    from app.services.board_stage_badges import (  # noqa: PLC0415
+        CV_QC_COLUMN,
+        board_column_for,
+        is_cpro_stage,
+    )
+
+    row = (
+        await db.execute(
+            select(
+                CandidateStage.stage,
+                PipelineStageDef.name,
+                PipelineStageDef.category,
+                PipelineStageDef.terminal_type,
+            )
+            .outerjoin(
+                PipelineStageDef, PipelineStageDef.id == CandidateStage.stage_def_id
+            )
+            .where(CandidateStage.id == stage_id)
+        )
+    ).first()
+    if row is None:
+        return None
+    column = board_column_for(
+        row.name,
+        _value(row.stage),
+        category=_value(row.category),
+        terminal_type=_value(row.terminal_type),
+    )
+    if column != CV_QC_COLUMN or is_cpro_stage(row.name):
+        return None
+    return await stage_remarks.with_author(db, stage_id)
+
+
 def _budget(job: Job) -> dict[str, Optional[float]]:
     from app.services.dealbreaker_filters import resolve_job_budget_hourly  # noqa: PLC0415
     from app.services.job_budget_range import effective_min  # noqa: PLC0415
@@ -1056,6 +1103,7 @@ async def build_context(
             db, candidate_id, access=access, today=today
         ),
         "fix_options": [o.as_dict() for o in screening_fix_requests.fix_options(job)],
+        "recruiter_handoff_remark": await recruiter_handoff_remark(db, facts.stage_id),
     }
 
 
@@ -1122,6 +1170,7 @@ __all__ = [
     "hourly_pln",
     "job_requirement_inputs",
     "pick_client_rate_hint",
+    "recruiter_handoff_remark",
     "requirements_score",
     "risks_for",
 ]

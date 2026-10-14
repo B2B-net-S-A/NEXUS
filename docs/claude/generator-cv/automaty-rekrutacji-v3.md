@@ -168,7 +168,28 @@ stan auto-CV czytany NA ŻYWO z wiersza dokumentu).
   `auto_cv_ready` (jedno zapytanie na tablicę). „Wymaga przeglądu" ma JEDNĄ
   definicję (`services/cv_auto_review.py`): brak zatwierdzonej wersji z tej
   generacji i brak etapu, który ma ją jako `finalized`.
-- **Awarie automatów: rekruter bez dzwonka, admin po serii**
+- **C. Rekruter nie czeka w ciemno na CV (14.10.2026, decyzja Artura).**
+  Szkic automatu (`attach_as_stage_draft` z domyślnym `ATTACH_ACTION`) →
+  `qc_after_attach(notify_ready=True)`: QC (`cv_qc.run_after_move`), potem —
+  gdy przebieg ma uwagi, CV jest edytowalne, a karta stoi na „Zweryfikowanym”
+  albo dalej — poprawki AI raz z góry (`cv_qc.generate_fixes`, pamięć
+  `dz_review_hints` na wierszu z CV, tym samym, na którym otwiera się edytor),
+  na końcu dzwonek `cv_ready` do osoby, która przesunęła kartę: „CV gotowe do
+  sprawdzenia: <osoba>”, treść „<rekrutacja> · QC: N uwag (M blokuje)” albo
+  „· QC bez uwag” (bez QC — sam tytuł), link `…?candidate=…&panel=cv`.
+  Ręczna generacja z etapem, `select-generated`, `select-document`,
+  `branded/upload` i `select-stage-cv` dostają QC i poprawki (te od
+  „Zweryfikowanego”), bez dzwonka. Pominięcie albo awaria, przy których
+  rekruter musi zrobić CV sam (`NOT_DONE_REASONS`: brak klienta, brak pliku
+  CV, zrzut zgody, dane reguły klienta, generator niedostępny, nieudana
+  generacja i każda inna awaria), dzwoni `cv_ready` „Automat nie zrobił CV:
+  <osoba>” z polskim powodem (lustro `SKIP_REASON_PL`). Bez dzwonka:
+  `pair_cv_exists`, `already_generated`, `no_permission`. `pair_cv_exists`
+  sprawdza się PRZED plikiem w profilu i robi QC + poprawki istniejącego CV
+  pary. Karta Tablicy: `auto_cv_state: "processing"` (wiersz etapu
+  z dokumentem `origin="auto"` w toku), `company_cv` (`company_cv_refs`)
+  i `qc.warnings_count`; „Moje następne kroki” ich nie liczą (`None`).
+- **Awarie automatów: admin po serii; rekruter przy auto-CV od 14.10.2026**
   (`services/automation_failures.py`). Awaria = wpis z polskim powodem w „Pracy
   w tle" (`auto_full_review_failed`, `auto_match_failed`,
   `cv_auto_generate_failed`) + `logger.error` (→ Sentry). TEN SAM automat 3 razy
@@ -177,6 +198,7 @@ stan auto-CV czytany NA ŻYWO z wiersza dokumentu).
   `automation_failing` na serię, tylko dla adminów (`ADMIN_ONLY_NOTIFICATION_TYPES`).
   Pominięcia (reguła klienta, brak CV) NIE są awariami. Sukces bez otwartej
   serii nie dotyka bazy (`_known_clean`) — auto-match księguje go przy każdym CV.
+  Rekruter dostaje przy auto-CV tylko `cv_ready` z punktu wyżej (nie serię).
 - **Obserwowalność dysku:** `GET /api/admin/index-coverage` → `candidate_search`
   niesie `auto_runs`, `auto_runs_rows` i `auto_runs_estimated_bytes` (szacunek
   proporcjonalny do migawek populacji — dokładny pomiar wymagałby skanu).

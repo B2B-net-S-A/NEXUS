@@ -102,6 +102,10 @@ def test_recruiter_hands_the_send_to_the_delivery_lead() -> None:
     assert result["primary"]["target_stage_def_id"] is None
     assert _item(result, "client_rate")["status"] == "waiting"
     assert "Delivery Lead" in result["owner_note"]
+    # 14.10.2026: sekcji „Czeka na Ciebie” z przeglądami DL-a już nie ma —
+    # zdanie mówi, gdzie osoba czeka naprawdę.
+    assert "Czeka na Ciebie" not in result["owner_note"]
+    assert "„QC CV”" in result["owner_note"]
 
 
 def test_hand_to_dl_from_verified_targets_the_qc_stage() -> None:

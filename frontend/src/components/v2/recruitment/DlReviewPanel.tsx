@@ -31,6 +31,10 @@
  * kartę mimo uwag QC (tryb doradczy, 12.10.2026), nad decyzją stoi baner: kto,
  * kiedy, dlaczego i ile rzeczy zostało do sprawdzenia, z „Otwórz QC”.
  *
+ * Uwaga rekrutera z przekazania (14.10.2026, „Zapisz i przekaż do DL”
+ * w edytorze CV) stoi na górze kolumny decyzji, nad „Warunkami” — kontekst
+ * daje `recruiter_handoff_remark`; bez uwagi nie ma ramki.
+ *
  * Układ zależy od zmierzonej szerokości PRZEGLĄDU, nie okna (`dlReviewMode`):
  * na Tablicy przegląd stoi w panelu osoby `review` na całą szerokość, na
  * pulpicie w oknie `min(100vw,2000px)`.
@@ -412,6 +416,9 @@ export function DlReviewBody({
     });
   }, [hint, canSend]);
 
+  // Uwaga rekrutera z „Zapisz i przekaż do DL” (14.10.2026) — nad „Warunkami”.
+  const remarkRaw = context.data?.recruiter_handoff_remark ?? null;
+  const handoffRemark = remarkRaw && remarkRaw.text?.trim() ? remarkRaw : null;
   // Karta przesunięta mimo uwag QC — DL widzi to, zanim wyśle CV do klienta.
   const qcOverride =
     context.data?.qc_status === "overridden" ? (context.data.qc_override ?? null) : null;
@@ -722,6 +729,18 @@ export function DlReviewBody({
           contextLoading={context.isLoading}
           facts={
             <>
+              {handoffRemark ? (
+                <p
+                  role="note"
+                  data-testid="dl-review-recruiter-remark"
+                  className="rounded-lg border border-info/30 bg-info-muted px-3 py-2 text-xs text-info-muted-foreground [overflow-wrap:anywhere]"
+                >
+                  <span className="font-semibold">
+                    Od rekrutera{handoffRemark.author_name ? ` (${handoffRemark.author_name})` : ""}:
+                  </span>{" "}
+                  {handoffRemark.text}
+                </p>
+              ) : null}
               <PersonFacts
                 testId="dl-review-person-facts"
                 rows={[

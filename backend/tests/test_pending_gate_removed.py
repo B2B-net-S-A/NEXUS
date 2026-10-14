@@ -165,6 +165,44 @@ async def _cleanup(*, candidate_ids: list[int], job_ids: list[int]) -> None:
 
 
 @pytest.mark.asyncio
+async def test_quiet_move_carries_the_pair_rate_and_flags_budget(
+    pv_client: AsyncClient,
+):
+    """D2 (14.10.2026): Tablica przesuwa parę, która ma już stawkę, bez okna
+    stawki i bez stawki w żądaniu. Nowy wiersz „Zweryfikowany” dostaje
+    najnowszą stawkę pary, więc „ponad budżet” liczy się jak po oknie."""
+    recr_uid, email, pw = await _seed_user(UserRole.recruiter, "quiet-carry")
+    headers = await _login(pv_client, email, pw)
+    cand_id = await _seed_candidate()
+    job_id = await _seed_job(salary_max=20000, recruiter_id=recr_uid)
+    await enter_pipeline(pv_client, headers, cand_id, job_id)
+    async with AsyncSessionLocal() as db:
+        row = await db.scalar(
+            select(CandidateStage).where(
+                CandidateStage.candidate_id == cand_id,
+                CandidateStage.job_id == job_id,
+            )
+        )
+        row.expected_rate_value = 150
+        row.expected_rate_unit = "hourly"
+        row.expected_rate_currency = "PLN"
+        await db.commit()
+    try:
+        resp = await pv_client.post(
+            "/api/pipeline/move",
+            headers=headers,
+            json={"candidate_id": cand_id, "job_id": job_id, "stage": "verified"},
+        )
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        # 150 zł/h × 168 = 25 200 zł/mies. > 20 000.
+        assert body["expected_rate_value"] in ("150.00", "150")
+        assert body["budget_exceeded"] is True
+    finally:
+        await _cleanup(candidate_ids=[cand_id], job_ids=[job_id])
+
+
+@pytest.mark.asyncio
 async def test_above_budget_stays_active_and_flags_budget(
     pv_client: AsyncClient,
 ):

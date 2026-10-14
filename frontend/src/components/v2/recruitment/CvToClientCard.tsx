@@ -35,12 +35,23 @@
  * Karta NICZEGO nie blokuje („Kanban bez bramek”): ruch na „CV wysłane”
  * i stawka do klienta żyją obok, w warsztacie wysyłki. Brak zgody RODO
  * wyłącza wyłącznie pobranie pliku — serwer i tak odpowiada wtedy 409.
+ *
+ * 14.10.2026 („Droga rekrutera do DL”): `handoff` idzie do każdego otwarcia
+ * edytora z tej karty (stopka „Zapisz i przekaż do DL”, D6) — wołający podaje
+ * go tylko na „Zweryfikowany”. Po „Zapisz i przekaż dalej” w formularzu
+ * (`forwarded`) karta pokazuje nad treścią blok postępu: screening → CV → QC,
+ * pyta serwer co 4 s, aż automat założy CV albo powie, czemu go nie zrobił
+ * (najdłużej 5 min), i daje „Następna w Screeningu” — bez samego skoku.
  */
 
 import { useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  AlertTriangle,
+  CheckCircle2,
+  ChevronRight,
+  Circle,
   Download,
   Eye,
   FileText,
@@ -65,14 +76,17 @@ import {
 import { withDownloadIntent } from "@/lib/cv-download-intent";
 import { CV_CONTENT_MODES } from "@/lib/cv-generator";
 import { cvAiSourcesQueryKey } from "@/lib/cv-ai-sources";
+import type { CvEditorHandoff } from "@/lib/cv-editor-handoff";
 import {
   cvToClientIssuesQueryKey,
   cvToClientQcQueryKey,
   cvToClientRowsQueryKey,
   cvToClientShouldPoll,
+  forwardProgress,
   resolveCvToClient,
   stageBrandedQueryKey,
   stageCvOrigin,
+  type ForwardStep,
 } from "@/lib/cv-to-client";
 import { bestReadyCv, otherReadyCvCount, type StageCvOption } from "@/lib/stage-cv-options";
 import {
@@ -82,7 +96,7 @@ import {
   jobBackgroundEventsQueryKey,
   latestAutoCvSkip,
 } from "@/lib/job-background-events";
-import { formatDate } from "@/lib/utils";
+import { cn, formatDate } from "@/lib/utils";
 import { useCvToClientRows } from "@/hooks/useCvToClientRows";
 import { useStageBrandedCv } from "@/hooks/useStageBrandedCv";
 import { useToast } from "@/components/Toast";
@@ -92,7 +106,7 @@ import { ConsentAttachButton } from "@/components/v2/cv-generator/ConsentAttachB
 import { CVOriginalPreviewModal } from "@/components/v2/modals/CVOriginalPreviewModal";
 import { CvGeneratePanel } from "@/components/v2/recruitment/CvGeneratePanel";
 import { CvHtmlPreviewDialog } from "@/components/v2/recruitment/CvHtmlPreviewDialog";
-import { CvToClientChecks } from "@/components/v2/recruitment/CvToClientChecks";
+import { CvToClientChecks, useCvChecksCount } from "@/components/v2/recruitment/CvToClientChecks";
 import { UseOtherCvDialog } from "@/components/v2/recruitment/UseOtherCvDialog";
 import { useReadyCvChoice } from "@/components/v2/recruitment/useReadyCvChoice";
 
@@ -109,6 +123,17 @@ const POLL_MS = 4000;
 /** Po tylu minutach przestajemy czekać na podpięcie — dalej decyduje człowiek. */
 const PENDING_TIMEOUT_MS = 5 * 60_000;
 
+/** Ostatnie pominięcie auto-CV tej osoby z „Pracy w tle” rekrutacji (albo `null`). */
+function useAutoCvSkip(jobId: number, candidateId: number) {
+  const query = useQuery({
+    queryKey: jobBackgroundEventsQueryKey(jobId, BACKGROUND_EVENTS_STEP),
+    queryFn: () => jobBackgroundEventsApi.list(jobId, BACKGROUND_EVENTS_STEP),
+    retry: false,
+    staleTime: 30_000,
+  });
+  return latestAutoCvSkip(query.data?.items ?? [], candidateId);
+}
+
 /**
  * Dlaczego automat NIE przygotował CV tej osoby (np. reguła klienta wymaga
  * zrzutu zgody RODO). Źródłem jest „Praca w tle” rekrutacji — ten sam klucz
@@ -116,13 +141,7 @@ const PENDING_TIMEOUT_MS = 5 * 60_000;
  * bramka: ładowanie, błąd i brak zdarzenia nie rysują nic.
  */
 export function AutoCvSkipNotice({ jobId, candidateId }: { jobId: number; candidateId: number }) {
-  const query = useQuery({
-    queryKey: jobBackgroundEventsQueryKey(jobId, BACKGROUND_EVENTS_STEP),
-    queryFn: () => jobBackgroundEventsApi.list(jobId, BACKGROUND_EVENTS_STEP),
-    retry: false,
-    staleTime: 30_000,
-  });
-  const skipped = latestAutoCvSkip(query.data?.items ?? [], candidateId);
+  const skipped = useAutoCvSkip(jobId, candidateId);
   if (!skipped) return null;
   return (
     <p
@@ -136,6 +155,77 @@ export function AutoCvSkipNotice({ jobId, candidateId }: { jobId: number; candid
         wygenerować ręcznie.
       </span>
     </p>
+  );
+}
+
+/** Następna osoba w kolumnie Tablicy (lustro `NextInColumn` panelu osoby). */
+export interface CvCardNextPerson {
+  candidateId: number;
+  name: string;
+  detail?: string | null;
+}
+
+const STEP_ICON: Record<ForwardStep["tone"], React.ReactNode> = {
+  done: <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-success" aria-hidden />,
+  busy: <Loader2 className="mt-0.5 h-3.5 w-3.5 shrink-0 animate-spin text-primary" aria-hidden />,
+  pending: <Circle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />,
+  warn: <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" aria-hidden />,
+  info: <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-info" aria-hidden />,
+};
+
+/** Krok bloku postępu: ikona stanu i zdanie. */
+function ProgressStep({ step }: { step: ForwardStep }) {
+  return (
+    <li className="flex items-start gap-2" data-tone={step.tone}>
+      {STEP_ICON[step.tone]}
+      <span className={cn("min-w-0 [overflow-wrap:anywhere]", step.tone === "pending" && "text-muted-foreground")}>
+        {step.text}
+      </span>
+    </li>
+  );
+}
+
+/**
+ * Blok postępu po „Zapisz i przekaż dalej” (P3, 14.10.2026): screening
+ * zapisany → CV → QC, zdanie o dzwonku i „Następna w Screeningu”.
+ */
+function ForwardProgressBlock({
+  cv,
+  qc,
+  waiting,
+  next,
+  onOpenPerson,
+}: ReturnType<typeof forwardProgress> & {
+  next: CvCardNextPerson | null;
+  onOpenPerson?: (candidateId: number) => void;
+}) {
+  return (
+    <div data-testid="cv-forward-progress" className="space-y-2 rounded-lg border border-border bg-muted/30 px-3 py-2">
+      <ol aria-label="Po przekazaniu" className="space-y-1 text-xs text-foreground">
+        <ProgressStep step={{ tone: "done", text: "Screening zapisany" }} />
+        <ProgressStep step={cv} />
+        <ProgressStep step={qc} />
+      </ol>
+      {waiting ? (
+        <p className="text-[11px] text-muted-foreground">
+          Dam znać dzwonkiem, gdy CV będzie gotowe. Możesz w tym czasie zająć się kolejną osobą.
+        </p>
+      ) : null}
+      {next && onOpenPerson ? (
+        <Button
+          size="sm"
+          variant="outline"
+          className="h-auto max-w-full whitespace-normal py-1 text-left"
+          onClick={() => onOpenPerson(next.candidateId)}
+        >
+          <span className="min-w-0 [overflow-wrap:anywhere]">
+            Następna w Screeningu: {next.name}
+            {next.detail ? <span className="text-muted-foreground"> ({next.detail})</span> : null} · Otwórz
+          </span>
+          <ChevronRight className="h-3.5 w-3.5 shrink-0" aria-hidden />
+        </Button>
+      ) : null}
+    </div>
   );
 }
 
@@ -197,6 +287,18 @@ export interface CvToClientCardProps {
   readOnly: boolean;
   /** Harness `/preview/cv-to-client`: panel „Z czego powstało” otwarty od razu. */
   initialGenerateOpen?: boolean;
+  /**
+   * Przekazanie Delivery Leadowi ze stopki edytora (D6, 14.10.2026) — idzie
+   * do każdego otwarcia edytora z tej karty. Wołający podaje je tylko, gdy
+   * karta stoi na „Zweryfikowany” i nie jest tylko do odczytu.
+   */
+  handoff?: CvEditorHandoff;
+  /** Osobę przed chwilą przekazano dalej z formularza — blok postępu (P3). */
+  forwarded?: boolean;
+  /** „Następna w Screeningu” — kto czeka w kolejności Tablicy; `null` = nikt. */
+  nextInScreening?: CvCardNextPerson | null;
+  /** Otwiera wskazaną osobę w panelu (jak „›”); bez niego przycisku nie ma. */
+  onOpenPerson?: (candidateId: number) => void;
 }
 
 export function CvToClientCard({
@@ -207,6 +309,10 @@ export function CvToClientCard({
   jobTitle,
   readOnly,
   initialGenerateOpen = false,
+  handoff,
+  forwarded = false,
+  nextInScreening = null,
+  onOpenPerson,
 }: CvToClientCardProps) {
   const queryClient = useQueryClient();
   const { showSuccess, showError } = useToast();
@@ -304,10 +410,36 @@ export function CvToClientCard({
   ) : null;
   const origin = stageCvOrigin(branded);
 
+  // Po „Zapisz i przekaż dalej” (14.10.2026): automat CV rusza po ruchu, ale
+  // jego wiersz pojawia się chwilę później. Do tego czasu karta pyta sama —
+  // aż do wiersza CV, powodu pominięcia z „Pracy w tle” albo sufitu 5 minut.
+  const [forwardedAt, setForwardedAt] = useState<number | null>(() => (forwarded ? Date.now() : null));
+  const [forwardExpired, setForwardExpired] = useState(false);
+  useEffect(() => {
+    if (!forwarded) {
+      setForwardedAt(null);
+      return;
+    }
+    setForwardedAt(Date.now());
+    setForwardExpired(false);
+    const timer = setTimeout(() => setForwardExpired(true), PENDING_TIMEOUT_MS);
+    return () => clearTimeout(timer);
+  }, [forwarded]);
+  const skip = useAutoCvSkip(jobId, candidateId);
+  // Stare pominięcie (np. z poprzedniej weryfikacji) nie jest odpowiedzią na
+  // to przekazanie; dwie minuty zapasu na rozjazd zegara przeglądarki i serwera.
+  const freshSkip =
+    forwarded && skip && (forwardedAt == null || !skip.created_at || Date.parse(skip.created_at) >= forwardedAt - 120_000)
+      ? skip
+      : null;
+  const awaitingAuto = forwarded && !forwardExpired && freshSkip == null;
+
   // Odpytywanie: generacja w toku albo czekamy na podpięcie zleconej z karty.
   // Sufit czasu — etap ze starym szkicem nie dostanie podpięcia nigdy, a karta
   // i tak pokazuje wtedy „Użyj tej wersji”.
-  const polling = cvToClientShouldPoll(state, pendingId) && pending?.expired !== true;
+  const polling =
+    (cvToClientShouldPoll(state, pendingId) && pending?.expired !== true) ||
+    cvToClientShouldPoll(state, null, { awaitingAuto });
   useEffect(() => {
     if (!polling) return;
     const id = setInterval(() => {
@@ -318,9 +450,13 @@ export function CvToClientCard({
       if (pairStageId != null) {
         void queryClient.invalidateQueries({ queryKey: stageBrandedQueryKey(pairStageId) });
       }
+      // Powód pominięcia auto-CV przychodzi z „Pracy w tle”.
+      if (awaitingAuto) {
+        void queryClient.invalidateQueries({ queryKey: jobBackgroundEventsQueryKey(jobId, BACKGROUND_EVENTS_STEP) });
+      }
     }, POLL_MS);
     return () => clearInterval(id);
-  }, [polling, queryClient, candidateId, jobId, stageId, pairStageId]);
+  }, [polling, awaitingAuto, queryClient, candidateId, jobId, stageId, pairStageId]);
 
   // Koniec czekania: serwer podpiął CV (etap ma treść) albo generacja padła.
   useEffect(() => {
@@ -454,6 +590,20 @@ export function CvToClientCard({
   const modeLabel =
     CV_CONTENT_MODES.find((mode) => mode.value === attached?.content_mode)?.label ?? null;
   const languageLabel = attached?.language ? attached.language.toUpperCase() : null;
+
+  // Blok postępu liczy rzeczy do sprawdzenia tymi samymi odczytami co karta.
+  const checks = useCvChecksCount(cvStageId, branded?.edit_revision ?? null, forwarded && state.kind === "ready");
+  // Awaria wczytania nie udaje „CV się generuje” — mówi o niej treść karty.
+  const progress =
+    forwarded && !loading && !(loadFailed && !branded)
+      ? forwardProgress({
+          state,
+          origin,
+          skipReason: freshSkip ? autoCvSkipReason(freshSkip) : null,
+          expired: forwardExpired,
+          checks,
+        })
+      : null;
 
   let body: React.ReactNode;
   if (loading) {
@@ -743,6 +893,9 @@ export function CvToClientCard({
       className="space-y-3 rounded-xl border border-border bg-card p-3"
     >
       <h3 className="text-sm font-semibold text-foreground">CV do klienta</h3>
+      {progress ? (
+        <ForwardProgressBlock {...progress} next={nextInScreening} onOpenPerson={onOpenPerson} />
+      ) : null}
       {body}
       {generateOpen && !readOnly ? (
         <CvGeneratePanel
@@ -791,6 +944,7 @@ export function CvToClientCard({
           stageId={cvStageId}
           jobTitle={jobLabel}
           candidateName={candidateName}
+          handoff={handoff}
         />
       ) : null}
       {choice.confirmDialog}

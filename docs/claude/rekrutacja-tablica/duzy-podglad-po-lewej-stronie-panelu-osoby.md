@@ -61,6 +61,17 @@ Tylko front, bez API i migracji.
   `tel:`, ikony kopiują; czego profil nie ma, tego nie pokazujemy. Dane z zapytania o profil, które dok i tak robi.
 - **Formularz screeningu zaczyna się od „Warunków”** (stawka, dostępność, tryb), potem pytania z Profilu
   Championa i „Ocena” — także w widoku tylko do odczytu. Prośba rekruterów 09.10.2026; nie odwracaj kolejności.
+- **„Co już wiemy” nad formularzem (P2, 14.10.2026).** Zakładka „Screening” w „Nowych” i „Screeningu” pokazuje
+  od razu formularz — bez profilu przed telefonem jako osobnego kroku, „Zacznij screening” i „Biorę — 12 h”
+  (osobę bierze pierwszy zapis formularza). Nad formularzem zwijany blok `screening-form/BeforeCallProfile.tsx`:
+  „Kandydat” (z „W bazie od”), „Warunki — co już wiemy”, „Wcześniej u nas” z „Pokaż” (historia w podglądzie po
+  lewej), „W innych rekrutacjach”; w głowie „Nie odebrał”. Blok jest ZAWSZE zwinięty na start do dwóch
+  krótkich linii (stawka ostatnio podana albo „Stawka od” · dostępność · tryb pracy; „W bazie od” ·
+  „Wcześniej u nas: stanowisko, klient — wynik · miesiąc” · „W innych rekrutacjach: N”), pełne fakty po
+  „Pokaż wszystko”. Rozwinięty na start zajmował przy 1280 × 720 całą prawą kolumnę i stawka formularza była
+  pod zgięciem (przegląd 14.10.2026) — nie przywracaj. Awaria odczytu ma w zwiniętym bloku własną linię. Blok
+  stoi pod paskiem zakładek, więc pasek się nie przesuwa. Podgląd po lewej zaczyna w „Nowych” od CV, w „Screeningu” od wymagań. „Ostatnia
+  notatka” z dawnego profilu zniknęła — notatki są w panelu osoby. Harness `/preview/screening-form?state=nowi`.
 - **Zwijanie CV i wymagań (13.10.2026, zgłoszenie rekrutera, D1–D4; makiety
   https://claude.ai/artifact/3DY3nu6cNPP2d93Bx8wL6k, raport `docs/preview-collapse-completion-report.md`).**
   Dwa przełączniki: „Zwiń CV” (koniec paska źródeł CV) i „Zwiń wymagania” (nad kolumną „Wymagania” / w zakładkach

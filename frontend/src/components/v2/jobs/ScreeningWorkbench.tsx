@@ -11,10 +11,14 @@
  * podgląd stoi w dużej LEWEJ strefie panelu osoby (`PersonPanelSide`), a ta
  * sekcja zajmuje prawą kolumnę; w wąskim oknie podgląd zostaje w miejscu,
  * pod przyciskiem „Pokaż CV i wymagania”:
- * - osoba w „Nowych” bez zapisanego formularza: profil przed telefonem
- *   (`BeforeCallProfile`) i CV obok; „Zacznij screening” otwiera formularz,
- * - „Screening” i dalsze etapy: formularz i wymagania obok; od „CV wysłane”
- *   formularz dalej da się poprawić (D8) z banerem, co ta zmiana znaczy,
+ * - „Nowi” i „Screening”: od razu formularz, nad nim blok „Co już wiemy”
+ *   (`BeforeCallProfile`, P2 14.10.2026 — zwinięty do dwóch linii faktów, żeby
+ *   stawka formularza była widoczna bez przewijania przy 1280 × 720); do tej
+ *   daty „Nowi” dostawali najpierw sam profil
+ *   z „Zacznij screening” i „Biorę — 12 h” (pierwszy zapis bierze teraz osobę
+ *   na 12 h sam). Podgląd w „Nowych” zaczyna od CV, w „Screeningu” od wymagań,
+ * - dalsze etapy: formularz i wymagania obok; od „CV wysłane” formularz dalej
+ *   da się poprawić (D8) z banerem, co ta zmiana znaczy,
  * - proces zakończony: widok „Screening” tylko do odczytu i historia.
  *
  * Gospodarz zostaje tu (plakietki, Prep-kit, „Baza pytań”, formularz,
@@ -30,7 +34,7 @@ import { useMemo, useRef, useState, type ComponentProps } from "react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
-import { BookOpen, ChevronLeft, ExternalLink, HelpCircle, PanelRight, Sparkles, UserX } from "lucide-react";
+import { BookOpen, ExternalLink, HelpCircle, PanelRight, Sparkles, UserX } from "lucide-react";
 
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import { Badge } from "@/components/ui/badge";
@@ -38,6 +42,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { JobDetailTab } from "@/components/v2/jobs/JobDetailCompactHeader";
 import type { KanbanColumn, KanbanItem } from "@/components/v2/pages/kanban-shared";
+import type { NoteFillChannel } from "@/lib/note-fill-channel";
 import { PersonPanelSide, usePersonPanelSideActive } from "@/components/v2/person/PersonPanelSide";
 import type { WorkbenchPanelProps } from "@/components/v2/recruitment/types";
 import { BeforeCallProfile } from "@/components/v2/screening-form/BeforeCallProfile";
@@ -50,7 +55,7 @@ import { placeStage } from "@/lib/board-stages";
 import { terminalOf } from "@/lib/kanban-terminal";
 import { VERIFIED_STAGE, findStageColumn, isNewColumn, itemFullName } from "@/lib/pipeline-flow";
 import { isOverHourlyBudget } from "@/lib/rate-to-hourly";
-import { AFTER_CV_SENT_COLUMNS, hasSheetContent } from "@/lib/screening-form";
+import { AFTER_CV_SENT_COLUMNS } from "@/lib/screening-form";
 import type { RejectFollowUp } from "@/lib/reject-follow-up";
 import { encodeJobBackRef } from "@/lib/url-filters";
 import { cn } from "@/lib/utils";
@@ -89,10 +94,17 @@ export interface ScreeningWorkbenchProps extends Omit<WorkbenchPanelProps, "layo
   onMoved: () => void;
   readOnly: boolean;
   onTabChange: (tab: JobDetailTab) => void;
-  /** „Biorę — 12 h” z profilu przed telefonem — ta sama blokada co karta. */
+  /**
+   * Od 14.10.2026 nieużywane — „Biorę — 12 h” zniknęło sprzed formularza
+   * (pierwszy zapis bierze osobę sam); prop zostaje dla kontekstu panelu.
+   */
   onTake?: (item: KanbanItem) => void;
   /** Panel osoby: dokąd przejść po „Odrzuć” w formularzu (13.10.2026). */
   rejectFollowUp?: (candidateId: number) => RejectFollowUp | undefined;
+  /** „Zapisz i przekaż dalej” przeszło — panel przechodzi na „CV” (14.10.2026). */
+  onForwarded?: (candidateId: number) => void;
+  /** D3: formularz przyjmuje notatkę zapisaną w doku (14.10.2026). */
+  noteFill?: NoteFillChannel;
   /** Harness `/preview/screening-form`: bajty CV z plików statycznych, bez API. */
   previewLoaders?: Pick<PreviewProps, "loadDocumentBlob" | "loadOriginalBlob" | "loadStageCvFile">;
 }
@@ -109,8 +121,9 @@ export function ScreeningWorkbench({
   onMoved,
   readOnly,
   onTabChange,
-  onTake,
   rejectFollowUp,
+  onForwarded,
+  noteFill,
   previewLoaders,
   focusCandidateId = null,
   panelFallback,
@@ -139,13 +152,9 @@ export function ScreeningWorkbench({
     staleTime: 60_000,
   });
 
-  const [started, setStarted] = useState(false);
-  // Formularz raz otwarty zostaje zamontowany — powrót do profilu przed
-  // telefonem nie gubi wpisanych odpowiedzi.
-  const [formMounted, setFormMounted] = useState(false);
   const [previewTab, setPreviewTab] = useState<PreviewTab | null>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
-  // „Historia osoby” w podglądzie — otwiera ją też „Pokaż” w profilu przed telefonem.
+  // „Historia osoby” w podglądzie — otwiera ją też „Pokaż” w bloku „Co już wiemy”.
   const [historyOpen, setHistoryOpen] = useState(false);
   const previewColumnRef = useRef<HTMLDivElement | null>(null);
   // Od 1024 px szerokości okna podgląd stoi w lewej strefie panelu osoby.
@@ -181,14 +190,10 @@ export function ScreeningWorkbench({
   const name = itemFullName(item);
   const entry = isNewColumn(col);
   const inNew = entry && placeStage(col).column === "new";
-  // Stan jeszcze się nie wczytał (albo odczyt padł) = traktujemy jak pusty:
-  // profil przed telefonem nie potrzebuje formularza, a „Zacznij screening” i tak go otworzy.
-  const formIsEmpty = state == null || (state.version === 0 && !hasSheetContent(state));
   const ended =
     state != null && !state.editable && state.read_only_reason != null && ENDED_REASONS.has(state.read_only_reason);
-  // „Nowi” bez zapisanego formularza: najpierw profil przed telefonem.
-  const showBeforeCall = inNew && formIsEmpty && !started;
-  const tab: PreviewTab = previewTab ?? (showBeforeCall ? "cv" : "requirements");
+  // Przed telefonem („Nowi”) rekruter czyta CV, w trakcie rozmowy — wymagania.
+  const tab: PreviewTab = previewTab ?? (inNew ? "cv" : "requirements");
 
   const forward =
     entry && verifiedCol && !readOnly
@@ -205,11 +210,6 @@ export function ScreeningWorkbench({
       : null;
   const afterCvSent = state?.board_column != null && AFTER_CV_SENT_COLUMNS.has(state.board_column);
 
-  const startScreening = () => {
-    setStarted(true);
-    setFormMounted(true);
-    setPreviewTab("requirements");
-  };
   // Historia stoi w zakładce CV podglądu; w wąskim oknie podgląd trzeba też odsłonić.
   const openHistory = () => {
     setHistoryOpen(true);
@@ -241,7 +241,7 @@ export function ScreeningWorkbench({
   );
 
   let left;
-  if (formQuery.isLoading && !showBeforeCall) {
+  if (formQuery.isLoading) {
     left = <Skeleton className="h-64 w-full rounded-xl" />;
   } else if (ended && state) {
     left = (
@@ -266,57 +266,44 @@ export function ScreeningWorkbench({
     );
   } else {
     left = (
-      <>
-        {inNew && (showBeforeCall || formMounted) ? (
-          <div hidden={!showBeforeCall}>
-            <BeforeCallProfile
-              item={item}
-              jobId={jobId}
-              readOnly={readOnly}
-              onTake={onTake ? () => onTake(item) : undefined}
-              onStartScreening={startScreening}
-              onOpenHistory={openHistory}
-            />
-          </div>
+      <div className="space-y-3">
+        {/* P2 (14.10.2026): to, co już wiemy, nad formularzem — bez kroku „Zacznij screening”. */}
+        {entry ? (
+          <BeforeCallProfile
+            key={item.candidate_id}
+            item={item}
+            jobId={jobId}
+            readOnly={readOnly}
+            onOpenHistory={openHistory}
+          />
         ) : null}
-        {!showBeforeCall || formMounted ? (
-          <div hidden={showBeforeCall} className="space-y-2">
-            {inNew && formIsEmpty ? (
-              <button
-                type="button"
-                onClick={() => setStarted(false)}
-                className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
+        <ScreeningFullForm
+          candidateId={item.candidate_id}
+          jobId={jobId}
+          candidateName={name}
+          jobBudgetHourly={jobBudgetHourly}
+          forward={forward}
+          reject={reject}
+          rejectFollowUp={rejectFollowUp ? () => rejectFollowUp(item.candidate_id) : undefined}
+          readOnly={readOnly}
+          onMoved={onMoved}
+          onForwarded={onForwarded ? () => onForwarded(item.candidate_id) : undefined}
+          noteFill={noteFill}
+          onOpenChampion={() => onTabChange("champion")}
+          banner={
+            afterCvSent ? (
+              <p
+                role="note"
+                data-testid="screening-after-cv-sent"
+                className="rounded-md border border-info/30 bg-info-muted px-3 py-2 text-xs text-info-muted-foreground"
               >
-                <ChevronLeft className="h-3.5 w-3.5" aria-hidden /> Profil przed telefonem
-              </button>
-            ) : null}
-            <ScreeningFullForm
-              candidateId={item.candidate_id}
-              jobId={jobId}
-              candidateName={name}
-              jobBudgetHourly={jobBudgetHourly}
-              forward={forward}
-              reject={reject}
-              rejectFollowUp={rejectFollowUp ? () => rejectFollowUp(item.candidate_id) : undefined}
-              readOnly={readOnly}
-              onMoved={onMoved}
-              onOpenChampion={() => onTabChange("champion")}
-              banner={
-                afterCvSent ? (
-                  <p
-                    role="note"
-                    data-testid="screening-after-cv-sent"
-                    className="rounded-md border border-info/30 bg-info-muted px-3 py-2 text-xs text-info-muted-foreground"
-                  >
-                    CV tej osoby poszło już do klienta. Zmiana w formularzu poprawia to, co widzi Delivery Lead,
-                    i trafi do następnego CV firmowego — klient nie dostaje jej automatycznie.
-                  </p>
-                ) : null
-              }
-            />
-          </div>
-        ) : null}
-      </>
+                CV tej osoby poszło już do klienta. Zmiana w formularzu poprawia to, co widzi Delivery Lead,
+                i trafi do następnego CV firmowego — klient nie dostaje jej automatycznie.
+              </p>
+            ) : null
+          }
+        />
+      </div>
     );
   }
 

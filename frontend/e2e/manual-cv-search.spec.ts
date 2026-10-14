@@ -29,14 +29,15 @@ test.describe("Manual CV search V2", () => {
     await expect(page.getByLabel("Szukaj kandydatów")).toHaveValue("python");
   });
 
-  test("job profile exposes 'Szukaj ręcznie' slide-over", async ({ page }) => {
-    // Pick the first job in the list to exercise the slide-over.
+  test("job profile exposes 'Szukaj ręcznie' tab of the sources window", async ({ page }) => {
+    // Pick the first job in the list to exercise the window.
     await page.goto("/jobs");
     const firstJobLink = page.locator('a[href^="/jobs/"]').first();
     await firstJobLink.click();
-    // Wersja 3: dawna zakładka „Wyszukaj manualnie" to okno obok tabeli osób.
+    // 14.10.2026: „Szukaj ręcznie" to zakładka okna „Kandydaci do dodania”
+    // (`?win=add&wintab=manual`), nie osobne okno.
     await page.getByRole("button", { name: /Szukaj ręcznie/ }).first().click();
-    const manualSearch = page.getByTestId("manual-search-slideover");
+    const manualSearch = page.getByTestId("manual-search-tab");
     await expect(manualSearch).toBeVisible({ timeout: 10_000 });
     // The embedded view shares the heading with /candidates/search.
     await expect(

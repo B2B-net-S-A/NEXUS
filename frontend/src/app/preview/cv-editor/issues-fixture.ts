@@ -145,6 +145,14 @@ export function withoutIssues(html: string): string {
     .replace(KAFKA_LINE, bold(KAFKA_FIX.proposed_text));
 }
 
+/**
+ * Treść bez blokad QC (Kafka opisana w roli, bez „Jenkins”), ale z uwagami —
+ * stan `?state=handoff`: stopka mówi „N rzeczy do decyzji · nic nie blokuje”.
+ */
+export function withoutBlocking(html: string): string {
+  return html.replaceAll(`, ${UNSUPPORTED}`, "").replace(KAFKA_LINE, bold(KAFKA_FIX.proposed_text));
+}
+
 /** Pominięcie z pamięci harnessu — autor fikcyjny, data z chwili kliknięcia. */
 function memoryDismissal(id: number, reason: QcDismissReason, note: string | undefined): QcDismissal {
   return {

@@ -43,6 +43,7 @@ from app.models.job import Job
 from app.models.user import User, UserRole
 from app.services import candidate_rate_change as rate_change
 from app.services import screening_form as form
+from app.services.pipeline_realtime import broadcast_pipeline_changed
 from app.services.section_permissions import (
     ProductSection,
     SectionAccess,
@@ -132,6 +133,7 @@ async def _finish(
     outcome: form.SaveOutcome,
 ) -> dict[str, Any]:
     """Commit, maile o zmianie stawki i oznaczenie wyników — dopiero po zapisie."""
+    actor_id = user.id  # przed commitem — obiekty sesji wygasają
     await db.commit()
     await rate_change.send_pending_emails(outcome.emails)
     cache_invalidated = True
@@ -145,6 +147,12 @@ async def _finish(
     state = await form.load_state(
         db, user=user, candidate=candidate, job=job, can_write=True
     )
+    if outcome.claimed:
+        # Zapis wziął osobę na 12 h (14.10.2026) — Tablice zespołu odświeżają
+        # kartę jak po „Biorę”. Na końcu: savepoint rozgłoszenia otwiera
+        # transakcję, a wycofanie po nieudanym oznaczeniu wyników wygasiłoby
+        # wtedy `user`, którego `load_state` jeszcze potrzebuje.
+        await broadcast_pipeline_changed(db, job_id, actor_id)
     return {
         **state,
         "saved_version": outcome.saved_version,

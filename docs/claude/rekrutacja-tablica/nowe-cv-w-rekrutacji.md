@@ -1,5 +1,5 @@
 # Nowe CV w rekrutacji — kafelek w panelu osoby i „Dodaj do rekrutacji z tym CV” (13.10.2026)
-<!-- indeks: „Wgraj nowe CV” w sekcji CV panelu osoby i upuszczenie pliku na panel, trasa `…/cv/original/upload` (główne CV + kopia etapu w jednej transakcji, tylko PDF/DOC/DOCX), „W profilu jest nowsze CV · Użyj w tej rekrutacji”, „CV firmowe powstało z poprzedniego CV”, kwarantanna, okno „Dodaj z CV” przy osobie z bazy (Nowi, podmiana, przywrócenie, identyczny plik) -->
+<!-- indeks: „Wgraj nowe CV” w sekcji CV panelu osoby i upuszczenie pliku na panel, trasa `…/cv/original/upload` (główne CV + kopia etapu w jednej transakcji, tylko PDF/DOC/DOCX), „W profilu jest nowsze CV · Użyj w tej rekrutacji”, „CV firmowe powstało z poprzedniego CV”, kwarantanna, okno „Dodaj z CV” przy osobie z bazy -->
 
 Dwa zgłoszenia rekruterów z 13.10.2026. Pierwsze: w panelu osoby nie dało się
 wgrać CV, gdy osoba miała już jakiekolwiek CV — trzeba było wyjść do profilu,

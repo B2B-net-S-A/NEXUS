@@ -22,6 +22,13 @@
 //
 // „Historia” dostaje dwie zatwierdzone wersje i treść „z pliku Word”
 // z `history-fixture.ts` (dowolny plik .docx; `uszkodzony.docx` pokazuje błąd).
+//
+// `handoff` / `handoff-blocking` (14.10.2026, D6): karta stoi na
+// „Zweryfikowany”, więc stopka ma „Uwaga dla Delivery Leada” i „Zapisz
+// i przekaż do DL →”. Ruch karty jest w pamięci (pół sekundy, potem „przeszło”)
+// i strona pisze, z jaką uwagą. `handoff-blocking` ma blokady QC — przycisk to
+// „Przekaż mimo uwag…”, które otwiera okno obejścia QC; jego zapis idzie przez
+// API, więc w harnessie kończy się komunikatem o wyłączonej sieci.
 
 import { useEffect, useMemo, useState } from "react";
 import { AxiosError, type AxiosResponse } from "axios";
@@ -51,7 +58,7 @@ import { useAuthStore } from "@/store/auth";
 import { memoryAiApi } from "./ai-fixture";
 import { memoryCommandApi } from "./command-fixture";
 import { memoryHistoryApi } from "./history-fixture";
-import { GENERATOR_ONLY_WARNINGS, memoryIssuesApi, withoutIssues } from "./issues-fixture";
+import { GENERATOR_ONLY_WARNINGS, memoryIssuesApi, withoutBlocking, withoutIssues } from "./issues-fixture";
 
 const JOB_ID = 201;
 const CANDIDATE_ID = 101;
@@ -60,7 +67,16 @@ const GENERATED_ID = 77;
 const DAY_MS = 86_400_000;
 const SEED_FRESH = { updatedAt: Date.now() + DAY_MS };
 
-type HarnessState = "draft" | "finalized" | "conflict" | "nosources" | "clean" | "qcdown" | "aidown";
+type HarnessState =
+  | "draft"
+  | "finalized"
+  | "conflict"
+  | "nosources"
+  | "clean"
+  | "qcdown"
+  | "aidown"
+  | "handoff"
+  | "handoff-blocking";
 const STATES: Record<HarnessState, string> = {
   draft: "Szkic",
   finalized: "Zatwierdzona wersja",
@@ -69,7 +85,10 @@ const STATES: Record<HarnessState, string> = {
   clean: "Bez uwag",
   qcdown: "QC niedostępne",
   aidown: "AI niedostępne",
+  handoff: "Przekazanie do DL",
+  "handoff-blocking": "Przekazanie mimo uwag",
 };
+const HANDOFF_STATES: ReadonlySet<HarnessState> = new Set(["handoff", "handoff-blocking"]);
 
 const RODO =
   "Wyrażam zgodę na przetwarzanie moich danych osobowych zawartych w przekazanych przeze mnie " +
@@ -122,7 +141,8 @@ function brandedState(state: HarnessState): CVBrandedState {
     version: finalized ? 2 : 3,
     candidate_stage_id: state === "nosources" ? null : STAGE_ID,
     status: finalized ? "finalized" : "draft",
-    content_html: state === "clean" ? withoutIssues(CV_HTML) : CV_HTML,
+    content_html:
+      state === "clean" ? withoutIssues(CV_HTML) : state === "handoff" ? withoutBlocking(CV_HTML) : CV_HTML,
     template: "standard",
     language: "pl",
     updated_at: "2026-10-12T12:32:00Z",
@@ -328,6 +348,8 @@ export default function CvEditorPreviewPage() {
   const [ready, setReady] = useState(false);
   const [open, setOpen] = useState(true);
   const [state, setState] = useState<HarnessState>("draft");
+  // Ruch karty z pamięci: co „przeszło” i z jaką uwagą — strona to wypisuje.
+  const [handedOff, setHandedOff] = useState<string | null>(null);
   const queryClient = useMemo(() => seededClient(state), [state]);
   const backend = useMemo(() => {
     const initial = brandedState(state);
@@ -339,6 +361,15 @@ export default function CvEditorPreviewPage() {
       aiApi: memoryAiApi(state === "aidown"),
       commandApi: memoryCommandApi(state === "aidown"),
       historyApi: memoryHistoryApi(initial.content_html ?? ""),
+      handoff: HANDOFF_STATES.has(state)
+        ? {
+            onSaveAndHandOff: async (remark: string) => {
+              await new Promise((resolve) => setTimeout(resolve, 500));
+              setHandedOff(remark);
+              return true;
+            },
+          }
+        : undefined,
     };
   }, [state]);
 
@@ -380,6 +411,7 @@ export default function CvEditorPreviewPage() {
                 aria-pressed={state === key}
                 onClick={() => {
                   setState(key);
+                  setHandedOff(null);
                   setOpen(true);
                 }}
                 className={state === key ? "font-semibold text-primary" : "text-foreground"}
@@ -391,6 +423,11 @@ export default function CvEditorPreviewPage() {
               Otwórz edytor
             </Button>
           </div>
+          {handedOff !== null ? (
+            <p role="status" data-testid="harness-handed-off" className="text-sm text-muted-foreground">
+              Karta przeszła do „QC CV”{handedOff ? ` z uwagą: „${handedOff}”` : " bez uwagi"}.
+            </p>
+          ) : null}
         </main>
         <CVBrandedEditModal
           key={state}
@@ -404,6 +441,7 @@ export default function CvEditorPreviewPage() {
           aiApi={backend.aiApi}
           commandApi={backend.commandApi}
           historyApi={backend.historyApi}
+          handoff={backend.handoff}
           generatorWarnings={state === "nosources" ? GENERATOR_ONLY_WARNINGS : undefined}
           editorFiles={MEMORY_FILES}
           sourceLoaders={SOURCE_LOADERS}

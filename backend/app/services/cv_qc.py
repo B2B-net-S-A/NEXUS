@@ -2939,6 +2939,9 @@ async def pair_statuses(
     przebiegu albo najwcześniejszego obowiązującego obejścia; ``None`` przy
     ``failed`` i ``unchecked``. Od tej chwili Delivery Lead „czeka” z wysyłką
     (`services/dl_send_queue.py`) — czas poprawek rekrutera się nie liczy.
+
+    ``warnings_count`` — uwagi nieblokujące najnowszego przebiegu (14.10.2026,
+    karta „CV gotowe · N do poprawy”); 0 bez przebiegu.
     """
 
     wanted = {(int(c), int(j)) for c, j in pairs}
@@ -2948,6 +2951,7 @@ async def pair_statuses(
             "blocking_failed": 0,
             "ok_at": None,
             "dismissed_blocking": 0,
+            "warnings_count": 0,
         }
         for pair in wanted
     }
@@ -2971,6 +2975,7 @@ async def pair_statuses(
                 CvQcRun.job_id,
                 CvQcRun.passed,
                 CvQcRun.blocking_failed,
+                CvQcRun.warnings_count,
                 CvQcRun.created_at,
                 CvQcRun.result["dismissed_blocking"].astext.label("dismissed"),
                 has_override,
@@ -3032,6 +3037,7 @@ async def pair_statuses(
             ),
             "ok_at": ok_at,
             "dismissed_blocking": dismissed if passed else 0,
+            "warnings_count": int(row.warnings_count or 0),
         }
     return out
 
@@ -3050,13 +3056,85 @@ def gate_applies(
     return current_column in ("new", "screening", "verified", "cv_qc")
 
 
-async def run_after_move(stage_id: int, user_id: Optional[int]) -> None:
-    """QC w tle po wejściu karty do kolumny „QC CV” (24.09.2026).
+def _uwag(count: int) -> str:
+    if count == 1:
+        return "uwaga"
+    if count % 10 in (2, 3, 4) and count % 100 not in (12, 13, 14):
+        return "uwagi"
+    return "uwag"
+
+
+def findings_text(blocking: int, warnings: int) -> str:
+    """„QC: 3 uwagi (1 blokuje)” / „QC bez uwag” — dzwonki po QC (14.10.2026).
+
+    Liczba = rzeczy do poprawy (blokujące) + uwagi; ta sama suma co karta
+    „CV gotowe · N do poprawy”.
+    """
+
+    total = max(0, int(blocking or 0)) + max(0, int(warnings or 0))
+    if total == 0:
+        return "QC bez uwag"
+    text = f"QC: {total} {_uwag(total)}"
+    return f"{text} ({blocking} blokuje)" if blocking else text
+
+
+async def _notify_recruiter_of_failed_qc(
+    db: AsyncSession, stage: CandidateStage, result: dict
+) -> None:
+    """Zadanie dla rekrutera kandydata: QC po przekazaniu do „QC CV” nie
+    przeszło i nikt go nie przepuścił.
+
+    Delivery Lead dostał „CV do przeglądu”, a rekruter dotąd nie wiedział,
+    że CV czeka na jego poprawki. Typ ``board_task_waiting`` (imienne zadanie,
+    nie do wyciszenia); encja = wiersz etapu „QC CV”, więc dzwonek jest
+    najwyżej raz dziennie na parę (`ix_notif_dedup_daily`). Początek tytułu
+    stoi w `RETURNED_TITLE_PREFIXES` — kolejka maili wysyła go jako „CV
+    wróciło do poprawy”, nie „CV czeka na przegląd”. Bez commitu.
+    """
+
+    from app.models.notification import NotificationType
+    from app.services.notification_triggers import emit
+    from app.services.stage_handoff_recipients import TITLE_QC_FAILED, pair_recruiter_id
+
+    recruiter_id = await pair_recruiter_id(
+        db, candidate_id=stage.candidate_id, job_id=stage.job_id
+    )
+    if recruiter_id is None:
+        return
+    message = (
+        f"{result.get('job_title') or 'Rekrutacja'} · "
+        f"{findings_text(result['blocking_failed'], result['warnings_count'])}"
+    )
+    await emit(
+        db,
+        user_id=recruiter_id,
+        title=f"{TITLE_QC_FAILED} {result.get('candidate_name') or 'Kandydat'}"[:255],
+        message=message[:500],
+        ntype=NotificationType.board_task_waiting,
+        related_entity_type="candidate_stage",
+        related_entity_id=stage.id,
+        link=f"/jobs/{stage.job_id}?candidate={stage.candidate_id}&panel=cv",
+    )
+
+
+async def run_after_move(
+    stage_id: int,
+    user_id: Optional[int],
+    *,
+    notify_recruiter_on_fail: bool = False,
+) -> Optional[dict]:
+    """QC w tle po wejściu karty do kolumny „QC CV” (24.09.2026) i po
+    podpięciu CV do etapu (`cv_auto_generate.qc_after_attach`).
 
     Bez tego tablica, przegląd DL i kolejka Cpro pokazywały „QC nie
     sprawdzone”, dopóki ktoś nie otworzył okna QC. Własna sesja, nigdy nie
     rzuca — ruch już się zapisał; awaria = brak przebiegu (liczy się przy
-    otwarciu okna albo w bramce).
+    otwarciu okna albo w bramce) i wynik ``None``.
+
+    ``notify_recruiter_on_fail`` — tylko po wejściu do „QC CV” (14.10.2026):
+    QC nie przeszło i nikt go nie przepuścił = dzwonek „QC CV do poprawy”
+    dla rekrutera kandydata. Po podpięciu CV nie dzwoni — tam informuje
+    `cv_ready` automatu.
     """
 
     from app.core.database import AsyncSessionLocal
@@ -3065,13 +3143,26 @@ async def run_after_move(stage_id: int, user_id: Optional[int]) -> None:
         async with AsyncSessionLocal() as db:
             stage = await db.get(CandidateStage, stage_id)
             if stage is None:
-                return
-            await run_qc(db, stage, user_id=user_id, persist=True)
+                return None
+            result = await run_qc(db, stage, user_id=user_id, persist=True)
             await db.commit()
     except Exception:  # noqa: BLE001 — automat nigdy nie psuje ruchu
         logger.warning(
             "[cv_qc] background run failed stage=%s", stage_id, exc_info=True
         )
+        return None
+    if notify_recruiter_on_fail and not result["passed"] and result["override"] is None:
+        try:
+            async with AsyncSessionLocal() as db:
+                stage = await db.get(CandidateStage, stage_id)
+                if stage is not None:
+                    await _notify_recruiter_of_failed_qc(db, stage, result)
+                    await db.commit()
+        except Exception:  # noqa: BLE001 — dzwonek nie cofa przebiegu QC
+            logger.warning(
+                "[cv_qc] failed-QC bell not sent stage=%s", stage_id, exc_info=True
+            )
+    return result
 
 
 async def assert_qc_passed(
@@ -3615,13 +3706,20 @@ def _no_fixes(status: str) -> dict:
 
 
 async def generate_fixes(
-    db: AsyncSession, stage: CandidateStage, *, user_id: int
+    db: AsyncSession,
+    stage: CandidateStage,
+    *,
+    user_id: int,
+    _on_cv_row: bool = False,
 ) -> dict:
     """Propozycje zdań dla braków w rolach (`critical_skills`, `must_in_roles`).
     Nigdy nie rzuca.
 
     Pamięć per (wiersz etapu, skrót wejścia) w `dz_review_hints` — ten sam CV
     i te same braki czytają zapamiętany wynik zamiast płacić drugi raz.
+    Kluczem jest wiersz, na którym LEŻY CV pary (14.10.2026): okno QC pyta
+    z bieżącego wiersza karty, edytor i automat z wiersza CV — bez tego karta
+    w „QC CV” płaciła za model drugi raz.
     """
 
     from app.models.ai_feature import AIFeatureKey
@@ -3641,6 +3739,15 @@ async def generate_fixes(
         return _no_fixes("unavailable")
     if src.generated is None:
         return _no_fixes("no_cv")
+    cv_stage_id = src.generated.get("stage_id")
+    if not _on_cv_row and cv_stage_id and cv_stage_id != stage.id:
+        cv_stage = await db.get(CandidateStage, cv_stage_id)
+        if (
+            cv_stage is not None
+            and cv_stage.candidate_id == stage.candidate_id
+            and cv_stage.job_id == stage.job_id
+        ):
+            return await generate_fixes(db, cv_stage, user_id=user_id, _on_cv_row=True)
     if src.generated["source"] == "document":
         return _no_fixes("not_editable")
     material = fixes_material(src, checks, notes, answers)
@@ -3701,19 +3808,38 @@ async def generate_fixes(
 
 
 async def load_fix(db: AsyncSession, stage_id: int, fix_id: str) -> Optional[dict]:
-    """Zapamiętana poprawka po id (``f<n>-<skrót wejścia>``)."""
+    """Zapamiętana poprawka po id (``f<n>-<skrót wejścia>``).
+
+    Szuka we wszystkich wierszach etapu tej pary (14.10.2026): propozycje
+    leżą pod wierszem z CV (`generate_fixes`), a okno QC nakłada je z bieżącego
+    wiersza karty."""
 
     from app.models.dz_review_hint import DzReviewHint
 
     match = re.fullmatch(r"f\d{1,3}-([0-9a-f]{12})", fix_id or "")
     if not match:
         return None
+    pair = (
+        await db.execute(
+            select(CandidateStage.candidate_id, CandidateStage.job_id).where(
+                CandidateStage.id == stage_id
+            )
+        )
+    ).first()
+    if pair is None:
+        return None
+    pair_stage_ids = select(CandidateStage.id).where(
+        CandidateStage.candidate_id == pair.candidate_id,
+        CandidateStage.job_id == pair.job_id,
+    )
     rows = (
         await db.execute(
-            select(DzReviewHint.payload).where(
-                DzReviewHint.candidate_stage_id == stage_id,
+            select(DzReviewHint.payload)
+            .where(
+                DzReviewHint.candidate_stage_id.in_(pair_stage_ids),
                 DzReviewHint.input_hash.like(f"{match.group(1)}%"),
             )
+            .order_by((DzReviewHint.candidate_stage_id == stage_id).desc())
         )
     ).scalars()
     for payload in rows:

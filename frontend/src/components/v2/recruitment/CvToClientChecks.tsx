@@ -36,46 +36,39 @@ export interface CvToClientChecksProps {
   onReview: () => void;
 }
 
-export function CvToClientChecks({ stageId, revision, readOnly, onReview }: CvToClientChecksProps) {
+export interface CvChecksCount {
+  status: "loading" | "failed" | "forbidden" | "ready";
+  count: number;
+  retry: () => void;
+}
+
+/**
+ * Liczba rzeczy do sprawdzenia przed wysłaniem — te same dwa odczyty (i klucze)
+ * co karta, więc blok postępu po przekazaniu (14.10.2026) nie pyta drugi raz.
+ */
+export function useCvChecksCount(stageId: number, revision: number | null, enabled = true): CvChecksCount {
   const qcQuery = useQuery({
     queryKey: cvToClientQcQueryKey(stageId, revision),
     queryFn: () => networkIssuesApi.qc(stageId),
     staleTime: 30_000,
+    enabled,
   });
   const issuesQuery = useQuery({
     queryKey: cvToClientIssuesQueryKey(stageId, revision),
     queryFn: () => networkIssuesApi.issues(stageId),
     staleTime: 30_000,
+    enabled,
   });
-
+  const retry = () => {
+    if (qcQuery.isError) void qcQuery.refetch();
+    if (issuesQuery.isError) void issuesQuery.refetch();
+  };
   // QC tej rekrutacji jest tylko dla zespołu — bez dostępu karta o nim milczy.
-  if (isForbiddenError(qcQuery.error) || isForbiddenError(issuesQuery.error)) return null;
-
-  if (qcQuery.isPending || issuesQuery.isPending) {
-    return (
-      <p role="status" className="flex items-center gap-1.5 text-xs text-muted-foreground">
-        <Loader2 className="size-3 animate-spin" aria-hidden /> Sprawdzam CV przed wysłaniem…
-      </p>
-    );
+  if (isForbiddenError(qcQuery.error) || isForbiddenError(issuesQuery.error)) {
+    return { status: "forbidden", count: 0, retry };
   }
-  if (qcQuery.isError || issuesQuery.isError) {
-    return (
-      <p role="alert" className="text-xs text-destructive-muted-foreground">
-        Nie udało się policzyć rzeczy do sprawdzenia — to nie znaczy, że ich nie ma.{" "}
-        <button
-          type="button"
-          className="font-medium underline underline-offset-2"
-          onClick={() => {
-            if (qcQuery.isError) void qcQuery.refetch();
-            if (issuesQuery.isError) void issuesQuery.refetch();
-          }}
-        >
-          Ponów
-        </button>
-      </p>
-    );
-  }
-
+  if (qcQuery.isPending || issuesQuery.isPending) return { status: "loading", count: 0, retry };
+  if (qcQuery.isError || issuesQuery.isError) return { status: "failed", count: 0, retry };
   const qc = qcQuery.data;
   const issues = issuesQuery.data;
   // QC bierze zatwierdzone CV pary; gdy opisuje inny wiersz etapu, jego lista
@@ -86,6 +79,31 @@ export function CvToClientChecks({ stageId, revision, readOnly, onReview }: CvTo
     warnings: issues.generator_warnings,
     findings: issues.content_review.findings,
   });
+  return { status: "ready", count, retry };
+}
+
+export function CvToClientChecks({ stageId, revision, readOnly, onReview }: CvToClientChecksProps) {
+  const { status, count, retry } = useCvChecksCount(stageId, revision);
+
+  if (status === "forbidden") return null;
+
+  if (status === "loading") {
+    return (
+      <p role="status" className="flex items-center gap-1.5 text-xs text-muted-foreground">
+        <Loader2 className="size-3 animate-spin" aria-hidden /> Sprawdzam CV przed wysłaniem…
+      </p>
+    );
+  }
+  if (status === "failed") {
+    return (
+      <p role="alert" className="text-xs text-destructive-muted-foreground">
+        Nie udało się policzyć rzeczy do sprawdzenia — to nie znaczy, że ich nie ma.{" "}
+        <button type="button" className="font-medium underline underline-offset-2" onClick={retry}>
+          Ponów
+        </button>
+      </p>
+    );
+  }
 
   if (count === 0) {
     return (
