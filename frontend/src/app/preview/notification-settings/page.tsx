@@ -217,7 +217,7 @@ function myEmails(persona: Persona): MyEmailNotifications {
     {
       id: "cv_returned",
       label: "CV wróciło do poprawy",
-      description: "Delivery Lead cofnął kandydata z „QC CV” albo z kolejki Cpro.",
+      description: "Delivery Lead cofnął kandydata z „QC CV” albo z kolejki Cpro; QC CV nie przeszło po przekazaniu.",
       ...on,
     },
     {

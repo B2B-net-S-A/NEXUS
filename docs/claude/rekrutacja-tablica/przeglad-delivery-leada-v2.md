@@ -31,10 +31,6 @@ porównania z innymi osobami; „Wróć do poprawy” niosło jedno zdanie, wię
   z wglądem w kwoty, a mediana i zakres dopiero od 3 osób (`MIN_AGGREGATE_SIZE` — przy 1–2 zdradzałyby stawkę
   konkretnej osoby). Osoba bez wiersza etapu w rekrutacji = 404. Podpowiedź stawki do klienta: ta para, potem
   ostatnia wysyłka tej osoby do tego klienta.
-- **Uwaga rekrutera na górze przeglądu (14.10.2026):** `recruiter_remark` z ruchu na „QC CV” to uwaga
-  wiersza etapu (`stage_remarks`); kontekst niesie ją jako `recruiter_handoff_remark: {text, author_name,
-  created_at}` (`dl_review.recruiter_handoff_remark`) tylko, gdy najnowszy wiersz pary stoi w „QC CV” i nie jest
-  kolejką Cpro. Uwaga z „Wróć do poprawy” (wiersz „Zweryfikowany”) nią nie jest.
 - **Marżę liczy przeglądarka** (`lib/dl-review-margin.ts`): stawka do klienta − stawka kandydata po przeliczeniu
   na zł/h (dzień ÷ 8, miesiąc ÷ 168), miesięcznie × 168; waluta inna niż PLN albo brak stawki kandydata = „nie do
   porównania”, nigdy zero. Ostrzeżenie przy marży poniżej mediany klienta.
@@ -51,12 +47,12 @@ porównania z innymi osobami; „Wróć do poprawy” niosło jedno zdanie, wię
   2+ osoby). Wiersz niesie wiersz kolejki pulpitu, więc „Przejrzyj” nie robi drugiego żądania.
   Od 13.10.2026 wejście z pulpitu to „porównaj” w pasie „Do wysłania do klienta” (sekcji „Czeka na Twój
   przegląd” już nie ma), a przegląd umie iść „po kolei” — `rekrutacja-tablica/do-wyslania-do-klienta-kolejka-delivery-leada.md`.
-- **Uwaga rekrutera z przekazania (14.10.2026, „Droga rekrutera do DL”, D6):**
-  „Zapisz i przekaż do DL” w edytorze CV niesie `recruiter_remark`, a kontekst
-  przeglądu zwraca ją jako `recruiter_handoff_remark` (`{text, author_name,
-  created_at}`). Przegląd pokazuje ją na górze kolumny decyzji, nad „Warunkami
-  wobec rekrutacji”: „Od rekrutera (Imię Nazwisko): …” w ramce info z tokenów
-  (`DlReviewPanel`, przez `facts` — `DecisionPanel` bez zmian). Brak albo pusty
-  tekst = nic.
+- **Uwaga rekrutera z przekazania (14.10.2026, „Droga rekrutera do DL”, D6):** „Zapisz i przekaż do DL”
+  w edytorze CV niesie `recruiter_remark` — uwagę wiersza etapu „QC CV” (`stage_remarks`). Kontekst przeglądu
+  zwraca ją jako `recruiter_handoff_remark: {text, author_name, created_at}` (`dl_review.recruiter_handoff_remark`)
+  tylko, gdy najnowszy wiersz pary stoi w „QC CV” i nie jest kolejką Cpro; uwaga z „Wróć do poprawy” (wiersz
+  „Zweryfikowany”) nią nie jest. Przegląd pokazuje ją na górze kolumny decyzji, nad „Warunkami wobec
+  rekrutacji”: „Od rekrutera (Imię Nazwisko): …” w ramce info z tokenów (`DlReviewPanel`, przez `facts` —
+  `DecisionPanel` bez zmian). Brak albo pusty tekst = nic.
 - Harness `/preview/dl-review` (`?state=queue`, `?state=returned`, `?as=recruiter`; kontekst ma uwagę rekrutera). Wzmianki w sekcjach 0352
   i 0413 o przeglądzie bez marży i o „Wróć do poprawy” z samą uwagą opisują stan sprzed 08.10.2026.

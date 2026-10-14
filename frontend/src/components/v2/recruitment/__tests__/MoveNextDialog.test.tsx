@@ -149,7 +149,7 @@ describe("MoveNextDialog", () => {
         },
       ],
       primary: { kind: "hand_to_dl", label: "Przekaż do Delivery Leada", target_stage_def_id: null },
-      owner_note: "CV wysyła Delivery Lead — trafi do jego „Czeka na Ciebie”.",
+      owner_note: "Osoba czeka u Delivery Leada w kolumnie „QC CV” — CV do klienta wysyła on.",
     });
   }
 
