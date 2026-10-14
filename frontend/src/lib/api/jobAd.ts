@@ -279,7 +279,11 @@ export function activePublication(
   return publications.find((item) => item.portal === portal && !item.removed_at) ?? null;
 }
 
-const PORTAL_DOMAINS: Record<AdPortal, string> = { pracuj: "pracuj.pl", jjit: "justjoin.it" };
+// RocketJobs połączył się z JustJoin.IT — ogłoszenie wisi też pod rocketjobs.pl.
+const PORTAL_DOMAINS: Record<AdPortal, readonly string[]> = {
+  pracuj: ["pracuj.pl"],
+  jjit: ["justjoin.it", "rocketjobs.pl"],
+};
 
 /**
  * Adres ogłoszenia do odnośnika — tak, jak przeczyta go przeglądarka; `null` =
@@ -291,8 +295,9 @@ export function portalAdHref(portal: AdPortal, url: string | null | undefined): 
   if (!url) return null;
   try {
     const parsed = new URL(url);
-    const domain = PORTAL_DOMAINS[portal];
-    const onPortal = parsed.hostname === domain || parsed.hostname.endsWith(`.${domain}`);
+    const onPortal = PORTAL_DOMAINS[portal].some(
+      (domain) => parsed.hostname === domain || parsed.hostname.endsWith(`.${domain}`),
+    );
     const web = parsed.protocol === "https:" || parsed.protocol === "http:";
     return web && onPortal ? parsed.href : null;
   } catch {

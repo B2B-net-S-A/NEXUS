@@ -37,9 +37,13 @@ from app.services.job_ad_publication_schema import (
 
 _HASH_VERSION = "v1"
 # Link prowadzi z listy rekrutacji prosto na portal — przyjmujemy tylko adres
-# tego portalu, nie dowolną stronę.
-_PORTAL_DOMAINS = {PORTAL_PRACUJ: "pracuj.pl", PORTAL_JJIT: "justjoin.it"}
-_PORTAL_NAMES = {PORTAL_PRACUJ: "Pracuj.pl", PORTAL_JJIT: "JustJoin.IT"}
+# tego portalu, nie dowolną stronę. RocketJobs połączył się z JustJoin.IT
+# i ogłoszenie z panelu JustJoin.IT wisi też pod rocketjobs.pl (14.10.2026).
+_PORTAL_DOMAINS = {
+    PORTAL_PRACUJ: ("pracuj.pl",),
+    PORTAL_JJIT: ("justjoin.it", "rocketjobs.pl"),
+}
+_PORTAL_NAMES = {PORTAL_PRACUJ: "Pracuj.pl", PORTAL_JJIT: "JustJoin.IT albo RocketJobs"}
 # Cały `netloc` musi być nazwą hosta: litery ASCII, cyfry, łączniki i kropki.
 _HOST = re.compile(r"[a-z0-9-]+(?:\.[a-z0-9-]+)+")
 
@@ -98,11 +102,13 @@ def clean_url(value: Optional[str], portal: str) -> Optional[str]:
     except ValueError:
         raise refusal from None
     host = parts.netloc.lower()
-    domain = _PORTAL_DOMAINS[portal]
     if (
         parts.scheme not in ("http", "https")
         or not _HOST.fullmatch(host)
-        or not (host == domain or host.endswith("." + domain))
+        or not any(
+            host == domain or host.endswith("." + domain)
+            for domain in _PORTAL_DOMAINS[portal]
+        )
     ):
         raise refusal
     return text
