@@ -2807,7 +2807,7 @@ export const pipelineApi = {
 
 // ── Recommendations (Phase 2) ────────────────────────────────────────────────
 export interface LayerPoints {
-  points: number;
+  points: number | null;
   max: number;
   reason: string;
 }
