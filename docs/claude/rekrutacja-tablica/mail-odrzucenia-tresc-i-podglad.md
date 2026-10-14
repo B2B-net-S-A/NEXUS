@@ -109,9 +109,12 @@ informacja ginęła dla wyszukiwania.
   Przy jednej osobie „Teraz na profilu: …”; przy kilku zapis idzie do każdej
   osoby, bez podglądu.
 - `RejectionWorkModeField` + `useRejectionWorkModeContext` (tryb pracy
-  rekrutacji z `["job", id]`, profil z `candidateQueryKeys.detail`). Okno
-  działa w trzech miejscach: Tablica (`usePipelineMove`), panel osoby
-  (`ScreeningFullForm`), zakładka rozmów (`JobInterviewsTab`).
+  rekrutacji z `["job", id]`, profil z `candidateQueryKeys.detail`). Pytanie
+  jest w czterech miejscach: Tablica (`usePipelineMove`), panel osoby
+  (`ScreeningFullForm`), zakładka rozmów (`JobInterviewsTab`) i odrzucenie
+  w przeglądzie Delivery Leada (`DlReviewPanel`, własna lista powodów, bez
+  `RejectionV2`). Nowe miejsce, które wysyła `rejection_reason_id` do
+  `/move`, musi je mieć — inaczej ten powód kończy się 422.
 
 ### Serwer
 

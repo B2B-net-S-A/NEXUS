@@ -49,6 +49,8 @@ interface Props {
   onDaysChange: (days: number) => void;
   saveToProfile: boolean;
   onSaveToProfileChange: (save: boolean) => void;
+  /** Wcięcie pod pozycją listy powodów (okno odrzucenia); bez listy — `false`. */
+  inset?: boolean;
 }
 
 export function RejectionWorkModeField({
@@ -59,6 +61,7 @@ export function RejectionWorkModeField({
   onDaysChange,
   saveToProfile,
   onSaveToProfileChange,
+  inset = true,
 }: Props) {
   const choices = officeDaysChoices(job?.onsiteDaysPerWeek ?? null);
   const jobLine = jobWorkModeLine(job?.remotePolicy, job?.onsiteDaysPerWeek);
@@ -67,7 +70,7 @@ export function RejectionWorkModeField({
   return (
     <div
       data-testid="rejection-work-mode"
-      className="ml-6 space-y-2 rounded-md border border-border border-l-2 border-l-primary px-3 py-2.5"
+      className={`${inset ? "ml-6 " : ""}space-y-2 rounded-md border border-border border-l-2 border-l-primary px-3 py-2.5`}
     >
       <FormField
         label="Ile dni w biurze kandydat akceptuje?"
