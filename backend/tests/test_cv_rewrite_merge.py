@@ -152,3 +152,47 @@ def test_everything_different_is_not_treated_as_hand_edits() -> None:
     result = merge_rewrite(PREVIOUS, _editor(_generated(other)), NEW)
     assert not result.recognized
     assert result.html == NEW
+
+
+# ── Przegląd PR 5: klucz stanowiska ─────────────────────────────────────────
+
+
+def test_role_title_with_now_inside_a_word_keeps_one_role() -> None:
+    # „Snowflake” zawiera „now” — klucz brał to za datę, a nowa generacja
+    # skraca tytuł: rola lądowała w wyniku dwa razy.
+    before = copy.deepcopy(PAYLOAD)
+    before["experience"][0]["position"] = "Snowflake Data Engineer"
+    after = _newer()
+    after["experience"][0]["position"] = "Data Engineer"
+    draft = _editor(_generated(before)).replace(
+        "Code review.", "Code review w zespole."
+    )
+    result = merge_rewrite(_generated(before), draft, _generated(after))
+    assert result.recognized
+    assert result.html.count("Bank Przykładowy") == 1
+    assert "Code review w zespole." in result.html
+
+
+def test_two_roles_with_the_same_company_and_dates_are_not_guessed() -> None:
+    # Dwie role w tej samej firmie z tymi samymi datami: po zmianie kolejności
+    # w nowej generacji nie wiadomo, która jest która — cała nowa wersja.
+    twin = copy.deepcopy(PAYLOAD)
+    twin["experience"][1].update(
+        company="Bank Przykładowy", dates="03.2021 – obecnie", position="Tech Lead"
+    )
+    swapped = copy.deepcopy(twin)
+    swapped["experience"].reverse()
+    draft = _editor(_generated(twin)).replace("Code review.", "Code review w zespole.")
+    result = merge_rewrite(_generated(twin), draft, _generated(swapped))
+    assert not result.recognized
+    assert result.html == _generated(swapped)
+
+
+def test_different_roles_in_the_new_generation_are_not_guessed() -> None:
+    other = _newer()
+    other["experience"][1]["company"] = "Logistyka Przykład S.A."
+    draft = _editor(PREVIOUS).replace(
+        "Rozwój systemu śledzenia przesyłek.", "Ręczna poprawka."
+    )
+    result = merge_rewrite(PREVIOUS, draft, _generated(other))
+    assert not result.recognized

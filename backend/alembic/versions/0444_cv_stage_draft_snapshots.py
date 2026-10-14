@@ -28,6 +28,8 @@ UPGRADE = [
         REFERENCES cv_generated_documents(id) ON DELETE SET NULL,
     branded_from_generator BOOLEAN NOT NULL DEFAULT false,
     render_metadata JSON NULL,
+    branded_template VARCHAR(20) NULL,
+    branded_language VARCHAR(10) NULL,
     edit_revision INTEGER NOT NULL,
     reason VARCHAR(16) NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),

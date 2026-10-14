@@ -72,3 +72,26 @@ sekcja „„Napisz od nowa””. Bazą jest PR 4 (asystent w kolumnie).
   wersji z paskiem, podpowiedzi asystenta. Pierwszy zrzut pokazał ucięty
   placeholder w wąskiej karcie i dwulinijkową podpowiedź pod każdą kartą.
   Placeholder skrócony do „Co poprawić?”, przykład w jednej linii.
+
+## Przeglądy przed PR-em (Python, TypeScript, bezpieczeństwo)
+
+Każdy błąd z testem, który padał przed poprawką:
+
+- **„Wróć do poprzedniej” bez „anonimowe” i języka** (bezpieczeństwo,
+  Python): migawka nie trzymała szablonu ani języka, więc CV z nazwiskiem
+  mogło wrócić jako anonimowe. Migawka trzyma je teraz (kolumny w 0444).
+- **Uwaga zamykała swoje ogrodzenie** (bezpieczeństwo): `recruiter_instruction`
+  nie było na liście `prompt_fencing`; teraz `recruiter_*`.
+- **Klucz stanowiska** (Python): wzorzec dat łapał „now” w „Snowflake” —
+  rola lądowała w wyniku dwa razy; dwie role w tej samej firmie z tymi
+  samymi datami po zmianie kolejności gubiły jedną. Daty = linia bez nazwy
+  roli; duplikaty albo inny zestaw ról = „nie rozpoznano”.
+- **Start przed regułą klienta** (TypeScript): mógł pominąć zgodę RODO
+  i wymagane pola. Reguła w drodze jest teraz brakiem.
+- **Start z domyślnymi sprzed polityki** (TypeScript): język i numer
+  projektu z polityki nie trafiały do generacji. Start rusza przebieg później.
+- **Ponowienie dopisywało notatkę** (TypeScript) i **druga generacja
+  z edytora w trakcie pierwszej** (TypeScript) — poprawione.
+- **Numer migracji**: #2227 (inna sesja) też ma 0444. Kto wchodzi drugi,
+  przenumerowuje — sprawdzane przed zdjęciem draftu.
+

@@ -940,11 +940,18 @@ poprawione części zostają, „Wróć do poprzedniej” jednym kliknięciem.
   pod otwartym edytorem z autozapisem to wyścig). „Wygeneruj ponownie” w „⋯”
   zostaje (pełny panel ustawień).
 - **Panel generacji w trybie „Napisz od nowa”** (`CvGeneratePanel` z
-  `rewrite`) rusza sam, gdy dane się ustaliły i nic nie czeka na rekrutera
-  (braki, zgoda RODO, błąd) — inaczej zostaje otwarty jak zwykły panel.
+  `rewrite`) rusza sam, gdy dane się ustaliły (także reguła CV klienta —
+  `rulePending` w `missingInputs`) i nic nie czeka na rekrutera (braki,
+  zgoda RODO, błąd) — inaczej zostaje otwarty jak zwykły panel. Start rusza
+  przebieg później niż „ustalone”, żeby `submit` miał domyślne z polityki
+  (język, numer projektu). Uwaga zapisuje się w notatkach raz na treść
+  (ponowienie po błędzie nie dopisuje drugiej). W trakcie generacji karta nie
+  daje „Napisz od nowa” ani w polu, ani edytorowi.
 - **Uwaga rekrutera**: najpierw notatka pary „Uwaga do CV: …” (fakty z tego
   zdania stają się źródłem, generator czyta notatki pary), potem
-  `GenerateRequest.instruction` (≤ 300 znaków). Serwer wycina stawki
+  `GenerateRequest.instruction` (≤ 300 znaków; `recruiter_*` jest na liście
+  znaczników neutralizowanych przez `prompt_fencing`, więc uwaga nie zamknie
+  swojego ogrodzenia). Serwer wycina stawki
   (`recruiter_instruction` → `strip_rates_and_availability`), zamraża ją
   w źródle zadania (`CandidateGenerationSource.instruction`, domyślna `""`,
   stare zadania dekodują się bez niej) i w promptach legacy_v7 wkłada jako
@@ -955,7 +962,10 @@ poprawione części zostają, „Wróć do poprzedniej” jednym kliknięciem.
   `select-generated` z `keep_edits`): szkic porównany z generacją, z której
   powstał (`csv.generated_document_id`, HTML z `render_interactive_html`).
   Części: nagłówek CV, sekcje (`data-cv-section`), stanowiska po firmie
-  i datach. Sam tekst — pogrubienie i wyrównanie to nie poprawka. Część
+  i datach (daty = linia stanowiska bez pogrubionej nazwy roli, bo nazwa
+  roli zmienia się między generacjami). Sam tekst — pogrubienie i wyrównanie
+  to nie poprawka. Dwa stanowiska o tej samej firmie i datach albo inny
+  zestaw stanowisk w nowej generacji = „nie rozpoznano” (nie zgadujemy). Część
   zmieniona zostaje w wersji rekrutera, usunięta nie wraca, dopisana stoi tam,
   gdzie stała; klauzula RODO zawsze z nowej wersji. Gdy nie da się rozpoznać
   (szkic nie z generatora, brak sekcji, ≥ 3 części z treścią i wszystkie
@@ -968,8 +978,9 @@ poprawione części zostają, „Wróć do poprzedniej” jednym kliknięciem.
   niezatwierdzony szkic nie znika już bez śladu. `POST
   …/cv/branded/restore-previous` (bramka jak `select-generated`) wraca do
   najnowszej migawki `replaced`, której nie przywrócono; bieżący szkic idzie
-  do migawki `restore` — nic nie ginie. Treść, pochodzenie i metadane z
-  migawki, szablon i zgoda zostają bieżące.
+  do migawki `restore` — nic nie ginie. Treść, pochodzenie, metadane,
+  „anonimowe” (`branded_template`) i język z migawki; plik szablonu i zgoda
+  zostają bieżące.
 - **Pasek w karcie** „Nowa wersja CV. „X” zostało w Twojej wersji.” z „Wróć do
   poprzedniej” — tylko w odpowiedzi na podmianę z `keep_edits`; znika, gdy
   szkic dostanie kolejny zapis.

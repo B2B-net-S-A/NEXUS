@@ -5704,7 +5704,7 @@ END $$""",
     "CREATE INDEX IF NOT EXISTS ix_cv_qc_runs_pair_created "
     "ON cv_qc_runs (candidate_id, job_id, created_at DESC)",
     # 0444: migawki szkicu CV etapu przed „Napisz od nowa” (Edytor CV 3, PR 5).
-    # Lustro 1:1 z migracją — pilnuje `test_cv_stage_draft_snapshots.py`.
+    # Lustro 1:1 z migracją — pilnuje `test_candidate_stage_cv_branded.py`.
     """CREATE TABLE IF NOT EXISTS cv_stage_draft_snapshots (
     id SERIAL PRIMARY KEY,
     candidate_stage_cv_id INTEGER NOT NULL
@@ -5714,6 +5714,8 @@ END $$""",
         REFERENCES cv_generated_documents(id) ON DELETE SET NULL,
     branded_from_generator BOOLEAN NOT NULL DEFAULT false,
     render_metadata JSON NULL,
+    branded_template VARCHAR(20) NULL,
+    branded_language VARCHAR(10) NULL,
     edit_revision INTEGER NOT NULL,
     reason VARCHAR(16) NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),

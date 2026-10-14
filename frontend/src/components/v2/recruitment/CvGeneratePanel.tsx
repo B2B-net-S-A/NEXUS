@@ -179,13 +179,21 @@ function CvGeneratePanelForm({
 
   // „Napisz od nowa” rusza samo, gdy dane się ustaliły i nic nie czeka na
   // rekrutera (braki, zgoda RODO, błąd) — inaczej panel zostaje otwarty.
+  // Dwa kroki: domyślne z polityki i reguły (język, numer projektu) hook
+  // ustawia w tym samym przebiegu, w którym dane przychodzą — start rusza
+  // w następnym, z nimi w `submit`.
   const { submit } = g;
+  const quiet = rewrite !== undefined && settled && !attention && ready;
+  const [armed, setArmed] = useState(false);
   const started = useRef(false);
   useEffect(() => {
-    if (rewrite === undefined || started.current || !settled || attention || !ready) return;
+    if (quiet && !armed) setArmed(true);
+  }, [quiet, armed]);
+  useEffect(() => {
+    if (!armed || !quiet || started.current) return;
     started.current = true;
     submit();
-  }, [rewrite, settled, attention, ready, submit]);
+  }, [armed, quiet, submit]);
 
   const sourcesRows = (
     <AiSourcesRows

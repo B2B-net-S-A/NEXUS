@@ -702,6 +702,7 @@ export function CvToClientCard({
   };
   /** „Napisz od nowa” z karty albo z asystenta w edytorze (edytor zamknął się sam). */
   const startRewrite = (instruction: string) => {
+    if (!rewriteAvailable) return;
     setRewrite(instruction.trim());
     setRewriteText("");
     setRewriteResult(null);
@@ -715,6 +716,8 @@ export function CvToClientCard({
   // CV pary z innego wiersza etapu (runda 11): bieżący wiersz jest pusty, więc
   // serwer podepnie nową wersję do niego sam — szkicu tamtego wiersza nie ruszamy.
   const replacesDraft = hasCv && pairStageId == null;
+  // „Napisz od nowa” tylko, gdy nic innego nie podmienia szkicu tej karty.
+  const rewriteAvailable = !readOnly && replacesDraft && !generateOpen && !pending && !replacing;
   const onEnqueued = (generatedId: number) => {
     setPending({
       id: generatedId,
@@ -968,7 +971,7 @@ export function CvToClientCard({
             </button>
           </div>
         ) : null}
-        {!readOnly && replacesDraft && !generateOpen && !pending && !replacing ? (
+        {rewriteAvailable ? (
           <form
             aria-label="Napisz od nowa"
             className="space-y-1 border-t border-border pt-2"
@@ -1218,7 +1221,8 @@ export function CvToClientCard({
             if (!open) refresh();
           }}
           onRegenerate={openGenerator}
-          onRewrite={!readOnly && replacesDraft ? startRewrite : undefined}
+          // W trakcie generacji drugiej nie zlecamy — wynik pierwszej by przepadł.
+          onRewrite={rewriteAvailable ? startRewrite : undefined}
           initialPanel={editorPanel}
           stageId={cvStageId}
           jobTitle={jobLabel}

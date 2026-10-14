@@ -1507,6 +1507,54 @@ async def test_rewrite_keeps_hand_edited_role_and_previous_draft_comes_back(
     assert reasons[-1] == "restore"
 
 
+async def test_restore_previous_brings_back_blind_flag_and_language_of_the_snapshot(
+    app_client, app_auth_headers
+):
+    """Przegląd PR 5: treść wracała z migawki, a „anonimowe” i język zostawały
+    z bieżącej wersji — CV z nazwiskiem oznaczone jako anonimowe."""
+    import copy
+
+    sid, cid, jid = await _seed_full_stage()
+    base = f"/api/candidates/stages/{sid}/cv/branded"
+    initial = (await app_client.get(base, headers=app_auth_headers)).json()
+    plain = await _ready_generation(cid, jid, _REWRITE_A)
+    blind_payload = copy.deepcopy(_REWRITE_A)
+    blind_payload.update(blind_cv=True, language="en")
+    blind = await _ready_generation(cid, jid, blind_payload)
+
+    first = await app_client.post(
+        base + "/select-generated",
+        headers=app_auth_headers,
+        json={
+            "expected_revision": initial["edit_revision"],
+            "generated_document_id": plain,
+        },
+    )
+    assert first.status_code == 200, first.text
+    assert (first.json()["template"], first.json()["language"]) == ("standard", "pl")
+    second = await app_client.post(
+        base + "/select-generated",
+        headers=app_auth_headers,
+        json={
+            "expected_revision": first.json()["edit_revision"],
+            "generated_document_id": blind,
+        },
+    )
+    assert second.status_code == 200, second.text
+    assert (second.json()["template"], second.json()["language"]) == ("blind", "en")
+    restored = await app_client.post(
+        base + "/restore-previous",
+        headers=app_auth_headers,
+        json={"expected_revision": second.json()["edit_revision"]},
+    )
+    assert restored.status_code == 200, restored.text
+    assert (restored.json()["template"], restored.json()["language"]) == (
+        "standard",
+        "pl",
+    )
+    assert restored.json()["content_html"] == first.json()["content_html"]
+
+
 async def test_restore_previous_refuses_stale_revision_and_missing_snapshot(
     app_client, app_auth_headers
 ):
@@ -1558,6 +1606,8 @@ def test_snapshot_migration_is_mirrored_in_entrypoint_and_model() -> None:
         "candidate_stage_cv_id INTEGER NOT NULL REFERENCES candidate_stage_cvs(id) ON DELETE CASCADE",
         "generated_document_id INTEGER NULL REFERENCES cv_generated_documents(id) ON DELETE SET NULL",
         "CHECK (reason IN ('replaced', 'restore'))",
+        "branded_template VARCHAR(20) NULL",
+        "branded_language VARCHAR(10) NULL",
         "CREATE INDEX IF NOT EXISTS ix_cv_stage_draft_snapshots_cv",
     ):
         assert fragment in squash(migration), fragment

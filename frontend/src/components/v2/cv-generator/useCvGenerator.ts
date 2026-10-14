@@ -105,6 +105,7 @@ export function useCvGenerator({
   const [processChoice, setProcessChoice] = useState("");
   const [sourceChoice, setSourceChoice] = useState<number | null>(null);
   const [noteDraft, setNoteDraft] = useState("");
+  const notedInstruction = useRef<string | null>(null);
   const [championOverride, setChampionOverride] = useState<ChampionOverride | null>(null);
   const [championPreview, setChampionPreview] = useState<{ file: File; data: ChampionPreview } | null>(null);
   const [championBusy, setChampionBusy] = useState(false);
@@ -254,6 +255,7 @@ export function useCvGenerator({
 
   const missing = missingInputs({
     policyPending: clientId != null && policyQuery.isPending,
+    rulePending: clientId != null && ruleQuery.isPending,
     policyError: policyQuery.isError,
     recruitment,
     recruitmentsLoading: recruitmentsQuery.isPending,
@@ -352,7 +354,10 @@ export function useCvGenerator({
         setNoteDraft("");
         void queryClient.invalidateQueries({ queryKey: ["cv-gen-recruitments", candidate.id] });
       }
-      if (instruction.trim()) {
+      // Uwaga raz na treść — ponowienie po błędzie generacji nie dopisuje
+      // kolejnej notatki (każda byłaby źródłem dla modelu).
+      if (instruction.trim() && notedInstruction.current !== instruction.trim()) {
+        notedInstruction.current = instruction.trim();
         await api.post("/api/notes", {
           content: `Uwaga do CV: ${instruction.trim()}`,
           note_type: "general",

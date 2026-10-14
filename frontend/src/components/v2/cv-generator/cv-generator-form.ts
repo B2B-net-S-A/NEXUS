@@ -92,6 +92,8 @@ export function languagePayload(choice: CvLanguageChoice): {
 export interface MissingInput {
   /** Zasady klienta się wczytują / nie dało się ich odczytać. */
   policyPending: boolean;
+  /** Reguła CV klienta w drodze — od niej zależą zgoda RODO, stanowisko, numer projektu. */
+  rulePending?: boolean;
   policyError: boolean;
   /** Wybrany proces — `null`, dopóki rekruter go nie wskaże. */
   recruitment: RecruitmentOption | null;
@@ -123,7 +125,7 @@ export interface MissingInput {
  */
 export function missingInputs(input: MissingInput): string[] {
   const items: string[] = [];
-  if (input.policyPending) items.push("Zasady CV klienta — wczytuję…");
+  if (input.policyPending || input.rulePending) items.push("Zasady CV klienta — wczytuję…");
   if (input.policyError) items.push("Zasady CV klienta — nie udało się ich odczytać, odśwież stronę.");
 
   if (input.recruitmentsLoading) items.push("Procesy kandydata — wczytuję…");

@@ -35,6 +35,8 @@ def snapshot_draft(
         generated_document_id=csv.generated_document_id,
         branded_from_generator=bool(csv.branded_from_generator),
         render_metadata=copy.deepcopy(csv.branded_render_metadata),
+        branded_template=csv.branded_template,
+        branded_language=csv.branded_language,
         edit_revision=csv.edit_revision or 0,
         reason=reason,
         created_by=user_id,

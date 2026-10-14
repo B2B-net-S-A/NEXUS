@@ -708,6 +708,89 @@ describe("CvToClientCard — „Napisz od nowa” (Edytor CV 3, PR 5)", () => {
     expect(screen.queryByTestId("editor-stub")).toBeNull();
   });
 
+  /** Odczyt `url` przychodzi dopiero po `ms` — reszta jak w `beforeEach`. */
+  function slowGet(match: (url: string) => boolean, data: unknown, ms = 400) {
+    const base = mocks.apiGet.getMockImplementation()!;
+    mocks.apiGet.mockImplementation((url: string, config?: { params?: Record<string, unknown> }) =>
+      match(url)
+        ? new Promise((resolve) => setTimeout(() => resolve({ data }), ms))
+        : base(url, config),
+    );
+  }
+
+  async function startRewrite(text: string) {
+    const form = await screen.findByRole("form", { name: "Napisz od nowa" });
+    if (text) await userEvent.type(within(form).getByRole("textbox", { name: "Co poprawić?" }), text);
+    await userEvent.click(within(form).getByRole("button", { name: /Napisz od nowa/ }));
+  }
+
+  // Przegląd PR 5: start ruszał, zanim przyszła reguła klienta — z pominięciem zgody RODO.
+  it("reguła klienta wymaga zgody RODO: panel czeka na rekrutera, nie generuje sam", async () => {
+    mocks.brandedGet.mockResolvedValue({ data: DRAFT });
+    rows = [{ id: 5, status: "ready", package_id: 5 }];
+    slowGet((url) => url.endsWith("/rule-for-generation"), { is_active: true, requires_rodo_consent_block: true });
+    renderCard();
+    await startRewrite("krócej");
+    const panel = await screen.findByTestId("cv-generate-panel");
+    await act(() => new Promise((resolve) => setTimeout(resolve, 900)));
+    expect(mocks.apiPost).not.toHaveBeenCalled();
+    expect(panel).toBeInTheDocument();
+  }, 20000);
+
+  // Przegląd PR 5: start brał domyślne sprzed odczytu polityki (język, numer projektu).
+  it("polityka klienta przychodzi ostatnia: generacja bierze jej język i numer projektu", async () => {
+    mocks.brandedGet.mockResolvedValue({ data: DRAFT });
+    rows = [{ id: 5, status: "ready", package_id: 5 }];
+    slowGet((url) => url === "/api/cv-generator/policy", {
+      managed: true,
+      effective_policy: { cv_language: "en" },
+      project_ref: "PRJ-9",
+    });
+    renderCard();
+    await startRewrite("");
+    await waitFor(() => expect(mocks.apiPost).toHaveBeenCalledWith("/api/cv-generator/generate", expect.anything(), expect.anything()));
+    const payload = mocks.apiPost.mock.calls.find(([url]) => url === "/api/cv-generator/generate")![1];
+    expect(payload).toMatchObject({ language: "en", project_ref: "PRJ-9" });
+  }, 20000);
+
+  // Przegląd PR 5: każde ponowienie po błędzie dopisywało kolejną notatkę „Uwaga do CV”.
+  it("ponowienie po błędzie nie zapisuje uwagi drugi raz", async () => {
+    mocks.brandedGet.mockResolvedValue({ data: DRAFT });
+    rows = [{ id: 5, status: "ready", package_id: 5 }];
+    let attempt = 0;
+    mocks.apiPost.mockImplementation(async (url: string) => {
+      if (url === "/api/notes") return { data: { id: 1 } };
+      attempt += 1;
+      if (attempt === 1) throw { response: { status: 422, data: { detail: "Chwilowy błąd." } } };
+      return { data: { id: 77, status: "processing", candidate_name: "Jan Kowalski" } };
+    });
+    renderCard();
+    await startRewrite("krócej");
+    const panel = await screen.findByTestId("cv-generate-panel");
+    expect(await within(panel).findByRole("alert")).toHaveTextContent("Chwilowy błąd.");
+    await userEvent.click(within(panel).getByRole("button", { name: /Napisz od nowa/ }));
+    await waitFor(() => expect(attempt).toBe(2));
+    expect(mocks.apiPost.mock.calls.filter(([url]) => url === "/api/notes")).toHaveLength(1);
+  }, 20000);
+
+  // Przegląd PR 5: z edytora dało się zlecić drugą generację w trakcie pierwszej.
+  it("w trakcie generacji edytor nie dostaje „Napisz od nowa”", async () => {
+    mocks.brandedGet.mockResolvedValue({ data: DRAFT });
+    rows = [{ id: 5, status: "ready", package_id: 5 }];
+    mocks.apiPost.mockImplementation(async (url: string) => {
+      if (url === "/api/notes") return { data: { id: 1 } };
+      rows = [{ id: 5, status: "ready", package_id: 5 }, { id: 77, status: "processing", package_id: 77 }];
+      return { data: { id: 77, status: "processing", candidate_name: "Jan Kowalski" } };
+    });
+    renderCard();
+    await startRewrite("krócej");
+    await waitFor(() => expect(mocks.apiPost).toHaveBeenCalledWith("/api/cv-generator/generate", expect.anything(), expect.anything()));
+    await waitFor(() => expect(screen.queryByTestId("cv-generate-panel")).toBeNull());
+    await userEvent.click(await screen.findByRole("button", { name: /Otwórz i popraw/ }));
+    await screen.findByTestId("editor-stub");
+    expect(mocks.editorProps?.onRewrite).toBeUndefined();
+  }, 20000);
+
   it("tylko do odczytu: bez pola i bez przekazania z edytora", async () => {
     mocks.brandedGet.mockResolvedValue({ data: DRAFT });
     rows = [{ id: 5, status: "ready", package_id: 5 }];

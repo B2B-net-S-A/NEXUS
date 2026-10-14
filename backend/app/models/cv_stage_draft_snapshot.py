@@ -49,6 +49,9 @@ class CvStageDraftSnapshot(Base):
         Boolean, nullable=False, default=False
     )
     render_metadata: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    # „blind” / „standard” i język szkicu — „anonimowe” wraca razem z treścią.
+    branded_template: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    branded_language: Mapped[str | None] = mapped_column(String(10), nullable=True)
     edit_revision: Mapped[int] = mapped_column(Integer, nullable=False)
     reason: Mapped[str] = mapped_column(String(16), nullable=False)
     created_at: Mapped[datetime] = mapped_column(

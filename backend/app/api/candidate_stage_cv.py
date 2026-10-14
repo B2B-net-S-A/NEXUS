@@ -1146,8 +1146,8 @@ async def restore_previous_branded_draft(
 ) -> CVBrandedResponse:
     """„Wróć do poprzedniej” (Edytor CV 3, PR 5): szkic sprzed ostatniej podmiany.
 
-    Treść, pochodzenie i metadane szkicu wracają z migawki; szablon i zgoda
-    zostają bieżące (zamrożone na etapie). Bieżący szkic idzie do migawki
+    Treść, pochodzenie, metadane, „anonimowe” i język wracają z migawki; plik
+    szablonu i zgoda zostają bieżące (zamrożone na etapie). Bieżący szkic idzie do migawki
     ``restore`` — nic nie ginie. Zatwierdzona wersja zamraża się jak przy
     każdej zmianie szkicu.
     """
@@ -1166,8 +1166,10 @@ async def restore_previous_branded_draft(
         consent=csv.branded_consent_content,
         filename=csv.branded_docx_filename,
         metadata=dict(previous.render_metadata or csv.branded_render_metadata or {}),
-        blind=csv.branded_template == "blind",
-        language=csv.branded_language or "pl",
+        # Anonimowe i język wracają z migawki razem z treścią (przegląd PR 5:
+        # z bieżącej wersji dawały CV z nazwiskiem oznaczone jako anonimowe).
+        blind=(previous.branded_template or csv.branded_template) == "blind",
+        language=previous.branded_language or csv.branded_language or "pl",
         generated_document_id=previous.generated_document_id,
         from_generator=previous.branded_from_generator,
         user_id=current_user.id,

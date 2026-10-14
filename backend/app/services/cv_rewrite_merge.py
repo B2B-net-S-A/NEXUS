@@ -19,6 +19,7 @@ wersję i mówimy to wprost; poprzednia zostaje w migawce szkicu.
 
 from __future__ import annotations
 
+import copy
 import re
 import unicodedata
 from dataclasses import dataclass, field
@@ -28,7 +29,7 @@ from lxml.html import HtmlElement
 
 from app.services.cv_rodo_clause import is_rodo_text
 
-_DATE = re.compile(r"\d{1,2}\.\d{4}|\d{4}|obecnie|present|now", re.IGNORECASE)
+_DASH = re.compile(r"\s*[-–—]\s*")
 _HEADINGS = {"h1", "h2", "h3"}
 # Tyle części musi się różnić naraz, żeby uznać, że różni się „wszystko” —
 # przy dwóch częściach to może być zwykła praca rekrutera.
@@ -93,12 +94,25 @@ def _label(text: str) -> str:
     return text[:1].upper() + text[1:].lower() if text.isupper() else text
 
 
+def _dates(role: HtmlElement) -> str:
+    """Daty z linii stanowiska: to, co zostaje bez pogrubionej nazwy roli.
+
+    Nazwa roli zmienia się między generacjami („Snowflake Data Engineer” →
+    „Data Engineer”), daty — nie (przegląd PR 5: wzorzec dat łapał „now”
+    w środku słowa i rola lądowała w wyniku dwa razy).
+    """
+    line = copy.deepcopy(role)
+    for bold in line.xpath(".//strong|.//b"):
+        bold.drop_tree()
+    return _DASH.sub("-", _plain(line)).lower()
+
+
 def _role_key(part: _Part) -> tuple[str, str]:
     role = next((b for b in part.blocks if b.get("data-cv-section") == "role"), None)
     employer = next(
         (b for b in part.blocks if b.get("data-cv-section") == "employer"), None
     )
-    dates = " ".join(_DATE.findall(_plain(role))).lower() if role is not None else ""
+    dates = _dates(role) if role is not None else ""
     if employer is not None:
         company = _plain(employer).split(" · ")[0].strip()
         if company:
@@ -164,6 +178,17 @@ def merge_rewrite(previous: str, draft: str, new: str) -> MergeResult:
         return any(part.key.startswith("section:") for part in parts)
 
     if not (sections(previous_parts) and sections(draft_parts) and sections(new_parts)):
+        return MergeResult(new, (), recognized=False)
+
+    def roles(parts: list[_Part]) -> list[str]:
+        return [part.key for part in parts if part.key.startswith("role:")]
+
+    # Stanowiska bez jednoznacznego klucza (ta sama firma i daty) albo inny
+    # zestaw stanowisk w nowej generacji: nie zgadujemy, która rola jest która
+    # (przegląd PR 5 — zamiana kolejności gubiła rolę bez śladu).
+    if any("#" in key for key in roles(previous_parts) + roles(new_parts)) or set(
+        roles(previous_parts)
+    ) != set(roles(new_parts)):
         return MergeResult(new, (), recognized=False)
 
     before = {part.key: part.text for part in previous_parts}
