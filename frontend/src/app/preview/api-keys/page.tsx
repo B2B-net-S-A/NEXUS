@@ -36,7 +36,8 @@ type State = "list" | "revealed" | "create" | "empty" | "disabled" | "loading" |
 const STATES: readonly State[] = ["list", "revealed", "create", "empty", "disabled", "loading", "error"];
 
 const DAY = 24 * 60 * 60 * 1000;
-const FAKE_KEY = "nxs_v2_000000000000000000000009_PODGLAD-to-nie-jest-prawdziwy-klucz";
+// Część id nie jest hex — gitleaks (`nexus-service-account-key`) nie bierze tego za klucz.
+const FAKE_KEY = "nxs_v2_PODGLADxxxxxxxxxxxxxxxxx_to-nie-jest-prawdziwy-klucz-api";
 
 const SCOPES: ScopeInfoDto[] = [
   { value: "traffit:sync", label: "Uruchamianie synchronizacji Traffit" },
