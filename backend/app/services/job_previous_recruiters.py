@@ -293,21 +293,28 @@ async def restore_team(
 ) -> list[int]:
     """Osoby z „Poprzedni rekruter” znowu pracują nad rekrutacją.
 
-    Konto nieaktywne albo bez roli rekrutera nie wraca (``skipped`` —
-    rekruterem jest tylko rola rekrutera, decyzja Artura 14.10.2026). Osoba,
-    która po zdjęciu znacznika nadal nie pracuje, dostaje drogę z powrotem:
-    przypisanie automatu wraca jako przypisanie automatu (planer zwolni je
-    za urlop jak każde inne), reszta — trwały wpis w zespole (prowadzący,
-    którego fotel zajął ktoś inny, zostaje kolejną osobą).
+    Najpierw porządek jak przy ponownym otwarciu
+    (``job_team.settle_team_without_recruiter_role``): osoba bez roli
+    rekrutera schodzi z zespołu (rekruterem jest tylko rola rekrutera,
+    decyzja Artura 14.10.2026) — sam znacznik ``skipped`` zostawiłby jej
+    wiersze i wróciłaby do pracy. Konto nieaktywne nie wraca (``skipped``;
+    nieaktywne konto i tak nie pracuje). Prowadzący, którego fotel zajął
+    w międzyczasie ktoś inny, nie wraca (``removed``) — ludzkie drogi zmiany
+    prowadzącego zdejmują mu znacznik same, więc to tylko zapis spoza nich.
+    Osoba, która po zdjęciu znacznika nadal nie pracuje, dostaje drogę
+    z powrotem: przypisanie automatu wraca jako przypisanie automatu (planer
+    zwolni je za urlop jak każde inne), reszta — trwały wpis w zespole.
     ``exclude_user_ids`` zostają wśród poprzednich. Zwraca przywróconych.
     """
     from app.services.job_team import (  # noqa: PLC0415
         WORK_ROLES,
         add_manual_member,
         recruiters_for_jobs,
+        settle_team_without_recruiter_role,
         working,
     )
 
+    await settle_team_without_recruiter_role(db, job=job, actor_id=actor_id)
     excluded = set(exclude_user_ids)
     rows = (
         await db.scalars(
@@ -326,9 +333,14 @@ async def restore_team(
         eligible = (
             person is not None and person.is_active and person.has_any_role(*WORK_ROLES)
         )
+        seat_taken = row.via == "owner" and job.recruiter_id != row.user_id
         row.cleared_at = now
         row.cleared_by_id = actor_id
-        row.cleared_reason = "restored" if eligible else "skipped"
+        row.cleared_reason = (
+            "removed" if seat_taken else "restored" if eligible else "skipped"
+        )
+        if seat_taken:
+            continue
         if eligible:
             restored.append(row)
         else:

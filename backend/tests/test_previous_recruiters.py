@@ -289,12 +289,79 @@ async def test_dismissed_previous_recruiter_does_not_come_back(
     )
     assert again.status_code == 404, again.text
 
+    # Usunięty z poprzednich nie pracuje też przy P2 — schodzi z zespołu.
+    payload = await _job(app_client, app_auth_headers, job_id)
+    assert collaborator not in _working(payload)
+    assert collaborator not in _previous(payload)
+
     await _set_priority(app_client, app_auth_headers, job_id, "urgent")
     assert _working(await _job(app_client, app_auth_headers, job_id)) == {
         owner,
         assignee,
     }
     assert await _cleared_reason(job_id, collaborator) == "dismissed"
+
+
+async def test_dismissed_owner_leaves_the_recruiter_field(
+    app_client: AsyncClient, app_auth_headers: dict
+) -> None:
+    job_id, owner, collaborator, assignee = await _team_job()
+    await _set_priority(app_client, app_auth_headers, job_id, "medium")
+
+    dismissed = await app_client.delete(
+        f"/api/jobs/{job_id}/previous-recruiters/{owner}", headers=app_auth_headers
+    )
+    assert dismissed.status_code == 204, dismissed.text
+
+    payload = await _job(app_client, app_auth_headers, job_id)
+    assert payload["recruiter_id"] is None
+    assert _working(payload) == set()
+    assert set(_previous(payload)) == {collaborator, assignee}
+    await _set_priority(app_client, app_auth_headers, job_id, "urgent")
+    assert _working(await _job(app_client, app_auth_headers, job_id)) == {
+        collaborator,
+        assignee,
+    }
+
+
+async def test_owner_without_the_recruiter_role_does_not_come_back_as_recruiter(
+    app_client: AsyncClient, app_auth_headers: dict
+) -> None:
+    """Rekruterem jest tylko rola rekrutera — prowadzący, który ją stracił
+    (np. DL z Traffita), przy powrocie na P1 schodzi z pola „Rekruter”."""
+    job_id, owner, collaborator, assignee = await _team_job()
+    await _set_priority(app_client, app_auth_headers, job_id, "medium")
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            update(User)
+            .where(User.id.in_([owner, collaborator]))
+            .values(role=UserRole.delivery_lead, roles=["delivery_lead"])
+        )
+        await db.commit()
+
+    await _set_priority(app_client, app_auth_headers, job_id, "urgent")
+
+    payload = await _job(app_client, app_auth_headers, job_id)
+    assert _working(payload) == {assignee}
+    assert payload["recruiter_id"] is None
+    assert _previous(payload) == {}
+
+
+async def test_picking_the_parked_owner_in_the_edit_window_brings_them_back(
+    app_client: AsyncClient, app_auth_headers: dict
+) -> None:
+    job_id, owner, _collaborator, _assignee = await _team_job()
+    await _set_priority(app_client, app_auth_headers, job_id, "medium")
+
+    saved = await app_client.patch(
+        f"/api/jobs/{job_id}", json={"recruiter_id": owner}, headers=app_auth_headers
+    )
+    assert saved.status_code == 200, saved.text
+
+    payload = await _job(app_client, app_auth_headers, job_id)
+    assert owner in _working(payload)
+    assert owner not in _previous(payload)
+    assert await _cleared_reason(job_id, owner) == "readded"
 
 
 async def test_dismissing_needs_the_right_to_staff_the_job(
@@ -336,12 +403,14 @@ async def test_inactive_and_role_less_people_stay_out_on_return(
 
 async def test_parked_owner_can_claim_the_job_back(app_client: AsyncClient) -> None:
     owner, email, password = await _seed_login_user(UserRole.recruiter, "prevclaim")
+    # `is_open=False`: przejęcie bez planu priorytetów — wiersz zapotrzebowania
+    # blokowałby sprzątanie rekrutacji po teście.
     job_id = await _seed_published_job(
         "PrevClaim",
         work_state="searching",
         recruiter_id=owner,
         priority=JobPriority.urgent,
-        is_open=True,
+        is_open=False,
     )
     _SEEDED.append(job_id)
     from app.services.job_previous_recruiters import park_team

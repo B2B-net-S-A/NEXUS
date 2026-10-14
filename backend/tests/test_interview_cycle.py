@@ -346,7 +346,11 @@ async def test_client_interview_reminder_goes_to_event_owner_on_candidate_side(
     async def active(db, user_id):
         return True
 
+    async def working_owner_id(_db, job):  # nikt nie jest „Poprzednim rekruterem”
+        return job.recruiter_id
+
     monkeypatch.setattr(nt, "_user_is_active", active)
+    monkeypatch.setattr(nt, "working_owner_id", working_owner_id)
     assert await nt._post_interview_recipients(None, ev, _Job(), client_side=False) == [
         11
     ]

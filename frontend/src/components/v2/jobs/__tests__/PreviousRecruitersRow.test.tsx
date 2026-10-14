@@ -98,7 +98,7 @@ describe("PreviousRecruitersRow", () => {
 
     await user.click(screen.getByRole("button", { name: "Usuń z poprzednich: Anna Kowalska" }));
     const dialog = await screen.findByRole("dialog");
-    expect(dialog).toHaveTextContent("Ta osoba nie wróci do rekrutacji");
+    expect(dialog).toHaveTextContent("Ta osoba zejdzie z zespołu rekrutacji i nie wróci");
     await user.click(within(dialog).getByRole("button", { name: "Usuń z poprzednich" }));
 
     await waitFor(() =>

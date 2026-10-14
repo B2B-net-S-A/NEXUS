@@ -46,8 +46,8 @@ function initialsOf(name: string): string {
  *
  * Osoby, które pracowały, aż rekrutacja zeszła z P1 albo została zamknięta.
  * Nie pracują (nie ma ich w „Moich”, w obłożeniu ani w dzwonkach
- * rekrutacji) i wracają same przy P1. „Usuń z poprzednich” = osoba nie
- * wróci; wiersze zespołu i historia zostają.
+ * rekrutacji) i wracają same przy P1. „Usuń z poprzednich” = osoba schodzi
+ * z zespołu jak przy „Zdejmij” i nie wróci; historia zostaje.
  */
 export function PreviousRecruitersRow({
   jobId,
@@ -67,7 +67,7 @@ export function PreviousRecruitersRow({
     const confirmed = await askConfirm({
       title: `Usunąć ${person.name} z poprzednich?`,
       description:
-        "Ta osoba nie wróci do rekrutacji, gdy ta wróci na P1. Historia zostaje.",
+        "Ta osoba zejdzie z zespołu rekrutacji i nie wróci, gdy rekrutacja wróci na P1. Historia zostaje.",
       confirmLabel: "Usuń z poprzednich",
     });
     if (!confirmed) return;

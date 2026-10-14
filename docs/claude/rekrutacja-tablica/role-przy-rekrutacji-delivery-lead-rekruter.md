@@ -291,10 +291,14 @@ Zamknięcie przypisań nie zwalnia — robi to automat (`finished`).
 
 ### Kto nie wraca przy P1
 
-- konto nieaktywne i osoba bez roli rekrutera (`skipped`);
+- konto nieaktywne i osoba bez roli rekrutera (`skipped`; powrót zaczyna od
+  `settle_team_without_recruiter_role`, więc osoba bez roli schodzi z zespołu
+  jak przy ponownym otwarciu);
 - osoba usunięta przyciskiem „Usuń z poprzednich”
-  (`DELETE /api/jobs/{id}/previous-recruiters/{user_id}`, bramka jak
-  `DELETE /owner`; `dismissed`);
+  (`DELETE /api/jobs/{id}/previous-recruiters/{user_id}`, bramka i skutek
+  jak `DELETE /owner` — `remove_recruiter`, bo samo zamknięcie znacznika
+  zostawiłoby jej wiersze i od razu znowu by „pracowała”; `dismissed`);
+- prowadzący, którego fotel zajął w międzyczasie ktoś inny (`removed`);
 - osoba zdjęta z zespołu (`remove_recruiter`, `DELETE /collaborators`,
   zastąpiony prowadzący; `removed`).
 

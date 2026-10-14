@@ -2681,6 +2681,20 @@ async def update_job(
     # Okno edycji zmienia rekrutera PATCH-em, nie przez `/owner` — rola
     # „Rekruter” ma po obu drogach wyglądać tak samo (02.10.2026): poprzednia
     # osoba traci aktywne przypisanie, nowa dostaje je w puli przydziału.
+    if (
+        "recruiter_id" in data.model_fields_set
+        and data.recruiter_id is not None
+        and not recruiter_changed
+    ):
+        # Okno edycji nie podsuwa „Poprzedniego rekrutera” (14.10.2026) —
+        # wybrany z listy wraca do pracy, choć pole się nie zmienia.
+        await clear_parked(
+            db,
+            job_id=job.id,
+            user_id=data.recruiter_id,
+            reason="readded",
+            actor_id=current_user.id,
+        )
     if recruiter_changed and data.recruiter_id is not None:
         await _sync_work_assignments_with_owner(
             db,
@@ -5422,10 +5436,11 @@ async def dismiss_previous_recruiter(
 ):
     """„Usuń z poprzednich” — osoba nie wróci przy powrocie na P1 (14.10.2026).
 
-    Ta sama bramka co zdjęcie rekrutera (``DELETE /owner``): decyzja
-    o obsadzie. Wiersze zespołu (prowadzący, ręczne dopisanie) zostają —
-    dostęp i historia na nich wiszą — znika tylko powrót. 404, gdy osoby nie
-    ma wśród poprzednich.
+    Ta sama bramka i ten sam skutek co „Zdejmij” (``DELETE /owner``,
+    ``job_team.remove_recruiter``): osoba schodzi z zespołu — prowadzący
+    traci pole „Rekruter”, ręczny wpis znika. Samo zamknięcie znacznika
+    zostawiłoby jej wiersze, więc od razu znowu by „pracowała”. 404, gdy
+    osoby nie ma wśród poprzednich.
     """
     await allocation_lock(db)
     job = await db.scalar(select(Job).where(Job.id == job_id).with_for_update())
@@ -5440,6 +5455,7 @@ async def dismiss_previous_recruiter(
             status_code=404,
             detail="Tej osoby nie ma wśród poprzednich rekruterów.",
         )
+    await remove_recruiter(db, job=job, user_id=user_id, actor_id=current_user.id)
     db.add(
         Activity(
             entity_type="job",
