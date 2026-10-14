@@ -10,7 +10,7 @@
  * własną logikę tonu i odmiany — testowalną bez montowania całej listy.
  */
 import { countPl } from "@/lib/plural-pl";
-import { ArrowLeftRight } from "lucide-react";
+import { ArrowLeftRight, History } from "lucide-react";
 import Link from "next/link";
 import type { MouseEvent } from "react";
 
@@ -26,10 +26,12 @@ import { AD_PORTALS, portalAdHref, type JobAdPublicationBrief } from "@/lib/api/
 import { shortenPersonName } from "@/lib/job-header-subtitle";
 import {
   pinRecruiters,
+  previousRecruitersOf,
   recruitersOf,
   workingRecruiters,
   type JobRecruiter,
   type JobTeamSource,
+  type PreviousRecruiter,
 } from "@/lib/job-team";
 import type { PriorityLevel } from "@/lib/request-priority";
 import {
@@ -564,6 +566,45 @@ export function jobOpenedDate(job: JobListRowFields): string | null {
  * „Bez rekrutera” — nikt nie pracuje nad rekrutacją. Tło i tekst z pary
  * `warning-muted`: sam `text-warning` na białym nie ma kontrastu.
  */
+/**
+ * Komórka „Rekruter”, gdy cały zespół jest wśród „Poprzednich rekruterów”
+ * (14.10.2026 — zejście z P1 albo zamknięcie): szare nazwisko i „poprzedni”
+ * zamiast bursztynowego „Bez rekrutera” — to stan zamierzony, nie brak.
+ * Dwie linie jak propozycja automatu, żeby nie poszerzać kolumny przy 1280 px.
+ */
+export function PreviousRecruitersPill({
+  people,
+}: {
+  people: readonly PreviousRecruiter[];
+}) {
+  const first = shortenPersonName(people[0].name) ?? people[0].name;
+  const more = people.length - 1;
+  const tooltip = `${
+    people.length === 1 ? "Poprzedni rekruter" : "Poprzedni rekruterzy"
+  }: ${people.map((person) => person.name).join(", ")} — wrócą przy P1`;
+  return (
+    <span
+      title={tooltip}
+      data-testid="job-previous-recruiter"
+      className="inline-flex min-w-0 max-w-full flex-col leading-tight text-muted-foreground"
+    >
+      <span aria-hidden="true" className="flex min-w-0 items-center gap-1 text-xs">
+        <History className="h-3 w-3 shrink-0" />
+        <span className="min-w-0 truncate">{first}</span>
+        {more > 0 ? (
+          <span className="shrink-0 rounded-full bg-muted px-1.5 text-[10px] font-medium">
+            +{more}
+          </span>
+        ) : null}
+      </span>
+      <span aria-hidden="true" className="text-[11px]">
+        poprzedni
+      </span>
+      <span className="sr-only">{tooltip}</span>
+    </span>
+  );
+}
+
 export function NoRecruiterPill({ className }: { className?: string }) {
   return (
     <span
@@ -611,9 +652,14 @@ export function JobRecruiterCell({
   const viewerId = useAuthStore((s) => s.user?.id);
   const people = pinRecruiters(recruitersOf(job), [...highlightIds, viewerId]);
   const mine = myCandidatesOutsideTeam(job, viewerId);
+  const previous = previousRecruitersOf(job);
   const content =
     people.length === 0 ? (
-      <NoRecruiterPill />
+      previous.length > 0 ? (
+        <PreviousRecruitersPill people={previous} />
+      ) : (
+        <NoRecruiterPill />
+      )
     ) : (
       <span className="flex min-w-0">
         <RecruiterChips compact maxNames={2} size="sm" people={people} />

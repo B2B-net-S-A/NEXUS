@@ -52,6 +52,7 @@ from app.models.screening_note import ScreeningNote
 from app.models.user import User, UserRole
 from app.schemas.pipeline import STAGE_LABELS
 from app.services.calendar_auto_complete import mark_ended_interviews_completed
+from app.services.job_previous_recruiters import working_owner_id
 from app.services.notification_access import notification_recipient_has_access
 from app.services.notification_ws_after_commit import queue_ws_notification
 from app.services.job_working_title import display_title
@@ -736,7 +737,10 @@ async def check_stage_stuck_7d(
         # osoby → zapas jak przy alertach DL-owych (runda 6 audytu). Do tej
         # pory 65% tych przypomnień szło na konta nieaktywne i przepadało.
         if job.id not in recipients_by_job:
-            recruiter = await _operational_recipient(db, [job.recruiter_id])
+            # „Poprzedni rekruter” (14.10.2026) = brak osoby → zapas na DL-a.
+            recruiter = await _operational_recipient(
+                db, [await working_owner_id(db, job)]
+            )
             recipients_by_job[job.id] = (
                 [recruiter] if recruiter else await _delivery_lead_targets(db, job)
             )
@@ -839,13 +843,15 @@ async def _post_interview_recipients(
             db,
             [
                 event.operational_owner_id or event.created_by,
-                job.recruiter_id if job else None,
+                await working_owner_id(db, job) if job else None,
             ],
         )
         if owner:
             return [owner]
         return await _delivery_lead_targets(db, job) if job is not None else []
-    recruiter = await _operational_recipient(db, [job.recruiter_id if job else None])
+    recruiter = await _operational_recipient(
+        db, [await working_owner_id(db, job) if job else None]
+    )
     if recruiter:
         recipients.append(recruiter)
     if client_side and job and job.delivery_lead_id:

@@ -294,7 +294,17 @@ async def handoff_recipients(
         recruiter = await pair_recruiter_id(
             db, candidate_id=candidate_id, job_id=job.id
         )
-        ids = (job.recruiter_id, recruiter, *await _dl_reviewers(db, job))
+        # „Poprzedni rekruter” (14.10.2026) dostaje dzwonek tylko jako
+        # rekruter pary.
+        from app.services.job_previous_recruiters import (  # noqa: PLC0415
+            working_owner_id,
+        )
+
+        ids = (
+            await working_owner_id(db, job),
+            recruiter,
+            *await _dl_reviewers(db, job),
+        )
         return kind, [uid for uid in dict.fromkeys(ids) if uid is not None]
     return None, []
 

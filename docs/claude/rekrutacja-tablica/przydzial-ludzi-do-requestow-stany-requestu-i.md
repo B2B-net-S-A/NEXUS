@@ -52,7 +52,9 @@ z kategorią, brak urlopów z Compassa, jednorazowa kolejka przy handoffie) —
   (przebieg co 30 s) brała następną najmniej obłożoną — blokada `_blocked`
   dotyczy pary (request, osoba), nie requestu. Teraz request P2
   i „Przyjmujemy kandydatów” zostaje „Bez rekrutera”, dopóki człowiek kogoś
-  nie doda. Osoby już przypisane do P2 zostają: planer nie rusza działających
+  nie doda. Osoby już przypisane do P2 zostają (dotyczy rekrutacji, które
+  były P2 od początku albo dostały osobę przy P2 — zejście z P1 przenosi zespół
+  do „Poprzedni rekruter”, `role-przy-rekrutacji-delivery-lead-rekruter.md`, sekcja „Poprzedni rekruter”): planer nie rusza działających
   przypisań, a **urlop nie zwalnia osoby z requestu innego niż P1** — nikt by
   jej nie zastąpił, a zwolnienie automatu jest trwałe (`_auto_released`), więc
   po jednym dniu urlopu request zostałby bez rekrutera. „Poza przydziałem”,

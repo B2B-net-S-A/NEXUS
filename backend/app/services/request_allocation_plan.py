@@ -73,6 +73,8 @@ RELEASE_REASONS = {
     "not_p1": "Automat dobiera tylko do requestów P1",
     "rejected": "Propozycja odrzucona",
     "replaced": "Wybrano inną osobę",
+    # 14.10.2026: zejście z P1 — osoba przeszła do „Poprzedni rekruter”.
+    "parked": "Rekrutacja zeszła z P1",
 }
 
 # Runda 9 (R9-V2-1): zwolniona PROPOZYCJA automatu (tryb podglądu) nie jest

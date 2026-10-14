@@ -717,6 +717,9 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'cv_ready'",
     # 0444: osoba dodana do rekrutacji z „Pasuje też do” (do rekruterów tej rekrutacji).
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'also_fits_added'",
+    # 0447: „Poprzedni rekruter” — zespół uśpiony przy zejściu z P1 / przywrócony.
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'recruiter_parked'",
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'recruiter_restored'",
     # callstatus: zapisywane przez POST /api/cloudtalk/initiate-call. Uśpione,
     # bo CLOUDTALK_ENABLED=false — ale leży dokładnie na ścieżce aktywacji.
     "ALTER TYPE callstatus ADD VALUE IF NOT EXISTS 'initiated'",
@@ -5756,6 +5759,36 @@ END $$""",
     "WHERE restored_at IS NULL",
     "CREATE INDEX IF NOT EXISTS ix_cv_finding_dismissals_created "
     "ON cv_finding_dismissals (created_at)",
+    # 0447: „Poprzedni rekruter” (14.10.2026). Lustro 1:1 z migracją —
+    # pilnuje `test_previous_recruiters_migration.py`.
+    """CREATE TABLE IF NOT EXISTS job_previous_recruiters (
+    id SERIAL PRIMARY KEY,
+    job_id INTEGER NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    via VARCHAR(20) NOT NULL,
+    assignment_source VARCHAR(20) NULL,
+    reason VARCHAR(20) NOT NULL,
+    parked_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    parked_by_id INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
+    cleared_at TIMESTAMPTZ NULL,
+    cleared_reason VARCHAR(20) NULL,
+    cleared_by_id INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
+    CONSTRAINT ck_job_previous_recruiters_via
+        CHECK (via IN ('owner', 'assignment', 'collaborator')),
+    CONSTRAINT ck_job_previous_recruiters_assignment_source
+        CHECK (assignment_source IS NULL OR assignment_source IN ('auto', 'manual')),
+    CONSTRAINT ck_job_previous_recruiters_reason
+        CHECK (reason IN ('closed', 'priority')),
+    CONSTRAINT ck_job_previous_recruiters_cleared_reason
+        CHECK (cleared_reason IS NULL OR cleared_reason IN
+            ('restored', 'dismissed', 'readded', 'removed', 'skipped'))
+)""",
+    "CREATE INDEX IF NOT EXISTS ix_job_previous_recruiters_job_id "
+    "ON job_previous_recruiters (job_id)",
+    "CREATE UNIQUE INDEX IF NOT EXISTS ux_job_previous_recruiters_open "
+    "ON job_previous_recruiters (job_id, user_id) WHERE cleared_at IS NULL",
+    "CREATE INDEX IF NOT EXISTS ix_job_previous_recruiters_user_open "
+    "ON job_previous_recruiters (user_id) WHERE cleared_at IS NULL",
     # 0370: prepy w Teams — spotkanie, transkrypt i ocena. Lustro 1:1 z
     # migracją — pilnuje `test_prep_meetings_schema.py`.
     """CREATE TABLE IF NOT EXISTS prep_meetings (

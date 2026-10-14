@@ -39,6 +39,7 @@ from app.models.candidate_contact import (
 from app.models.job import Job, JobPriority, JobStatus
 from app.models.job_collaborator import JobCollaborator
 from app.models.user import User, UserRole
+from app.services.job_previous_recruiters import working_owner_id
 
 WARSAW = ZoneInfo("Europe/Warsaw")
 QUEUE_LIMIT = 20
@@ -731,6 +732,11 @@ async def _assign_best_owner(
     # If that exact owner is absent/inactive/full, fallback is global by load;
     # an owner of the second opportunity does not get another priority jump.
     first_job = ordered_jobs[0][0] if job_rows else None
+    # „Poprzedni rekruter” (14.10.2026) nie ma pierwszeństwa — przydział
+    # spada na globalny wybór po obciążeniu.
+    first_owner_id = (
+        await working_owner_id(db, first_job) if first_job is not None else None
+    )
 
     async def _claim_from_pool(skipped: set[int]) -> tuple[bool, bool]:
         """Zwraca (przypisano, pula_miała_kogokolwiek) dla puli bez `skipped`."""
@@ -791,8 +797,8 @@ async def _assign_best_owner(
             return False, contended
 
         preferred = (
-            [first_job.recruiter_id]
-            if first_job is not None and first_job.recruiter_id in by_id
+            [first_owner_id]
+            if first_owner_id is not None and first_owner_id in by_id
             else []
         )
         load_rows = (
@@ -1064,8 +1070,13 @@ async def _assign_handoff_owner(
         ),
     )
     first_job = ordered_jobs[0][0] if ordered_jobs else None
-    if first_job is not None and first_job.recruiter_id in by_id:
-        case.owner_user_id = first_job.recruiter_id
+    # „Poprzedni rekruter” (14.10.2026) nie przejmuje sprawy jako prowadzący
+    # pierwszej rekrutacji — dalej wybór po obciążeniu.
+    first_owner_id = (
+        await working_owner_id(db, first_job) if first_job is not None else None
+    )
+    if first_owner_id is not None and first_owner_id in by_id:
+        case.owner_user_id = first_owner_id
         case.assigned_at = case.assigned_at or occurred_at
         return
     if not by_id:

@@ -152,7 +152,14 @@ async def _resolve_user_ids_for_rule(
         # się samo `jobs.recruiter_id`: przy rekrutacji z automatu przydziału
         # albo bez prowadzącego osoba pracująca z kandydatem nie dowiadywała
         # się, że DL wysłał jej CV do klienta.
-        ids = [job.recruiter_id] if job.recruiter_id else []
+        # „Poprzedni rekruter” (14.10.2026) nie pracuje nad rekrutacją —
+        # dzwonek dostaje tylko, gdy prowadzi tego kandydata (para niżej).
+        from app.services.job_previous_recruiters import (  # noqa: PLC0415
+            working_owner_id,
+        )
+
+        owner_id = await working_owner_id(db, job)
+        ids = [owner_id] if owner_id else []
         pair_recruiter = await pair_recruiter_id(
             db, candidate_id=candidate.id, job_id=job.id
         )

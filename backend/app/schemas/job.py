@@ -20,7 +20,7 @@ from app.models.job import (
 )
 from app.schemas.candidate import _normalize_skill_list
 from app.schemas.job_ad_publication import JobAdPublicationOut
-from app.schemas.job_team import JobRecruiterOut
+from app.schemas.job_team import JobPreviousRecruiterOut, JobRecruiterOut
 from app.schemas.matching_requirements import MatchingRequirements
 from app.services.job_priority import default_priority_for_new_job, level_of
 
@@ -379,6 +379,8 @@ class JobResponse(BaseModel):
     # plus propozycje automatu z ``proposed=True`` (`services/job_team`).
     # Wypełniają lista i ``GET /api/jobs/{id}``; inne odpowiedzi niosą pustą.
     recruiters: list[JobRecruiterOut] = []
+    # „Poprzedni rekruter” — osoby uśpione przy zejściu z P1 albo zamknięciu.
+    previous_recruiters: list[JobPreviousRecruiterOut] = []
     # Aktywne ogłoszenia wklejone ręcznie na portalach (0432); wypełnia lista
     # i `GET /api/jobs/{id}` (`job_ad.publications.for_jobs`).
     ad_publications: list[JobAdPublicationOut] = []
@@ -633,6 +635,9 @@ class JobPublishRequest(JobHandoffRequest):
 
     assignment_mode: Literal["manual", "automatic", "keep"] = "manual"
     reason: Optional[str] = Field(default=None, max_length=500)
+    # „Priorytet po otwarciu” (14.10.2026): przy P1 wracają „Poprzedni
+    # rekruterzy”, przy innym zostają wśród poprzednich. Brak = obecny poziom.
+    priority: Optional[JobPriority] = None
 
 
 JobCreate.model_rebuild()

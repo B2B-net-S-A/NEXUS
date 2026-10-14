@@ -30,7 +30,7 @@ import { positiveIntParam } from "@/lib/client-tab";
 import { resolveUrlTab } from "@/lib/url-tab";
 import { WS_BACKED_SAFETY_POLL_MS } from "@/lib/polling";
 import { jobHeaderFacts } from "@/lib/job-header-facts";
-import { recruitersOf, recruitersSummary } from "@/lib/job-team";
+import { recruitersOf, recruitersSummary, workingRecruiters } from "@/lib/job-team";
 import { invalidateJobTeam } from "@/lib/job-team-cache";
 import {
   JOB_DETAIL_DEFAULT_VIEW,
@@ -857,6 +857,11 @@ export default function JobDetailPage() {
             jobId={jobId}
             level={priorityLevelOf(job)}
             canSet={canSetPriority}
+            // Zejście z P1 przenosi zespół do „Poprzedni rekruter” — menu pyta.
+            team={{
+              workingNames: workingRecruiters(recruitersOf(job)).map((p) => p.name),
+              closed: job.status === "closed",
+            }}
           />
         }
         recruiter={recruiterFact(false)}

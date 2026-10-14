@@ -3245,7 +3245,7 @@ async def my_next_steps(
     """
     from app.api.jobs import (  # noqa: PLC0415 — import cycle
         _live_work_assignment_job_ids,
-        jobs_mine_clause,
+        jobs_mine_working_clause,
     )
 
     # Runda 10 (R10-V2-2): członkostwo filtrujemy w SQL PRZED LIMIT — inaczej
@@ -3256,7 +3256,8 @@ async def my_next_steps(
             select(Job)
             .options(selectinload(Job.client))
             .where(
-                jobs_mine_clause(current_user),
+                # „Poprzedni rekruter” (14.10.2026) nie ma tu następnych kroków.
+                jobs_mine_working_clause(current_user),
                 Job.status != JobStatus.closed,
                 job_scope_clause(current_user, Job.id, oversight_bypass=False),
             )

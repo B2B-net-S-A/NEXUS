@@ -19,6 +19,17 @@ import pytest_asyncio
 from app.services import notification_triggers as nt
 
 
+@pytest.fixture(autouse=True)
+def _nobody_is_a_previous_recruiter(monkeypatch):
+    """Atrapy sesji nie znają tabeli „Poprzedni rekruter” (14.10.2026) — tu
+    nikt nie jest uśpiony; regułę sprawdza `test_previous_recruiters.py`."""
+
+    async def working_owner_id(_db, job):
+        return job.recruiter_id
+
+    monkeypatch.setattr(nt, "working_owner_id", working_owner_id)
+
+
 def test_exports_the_core_triggers():
     names = {
         "check_client_feedback_eobd",

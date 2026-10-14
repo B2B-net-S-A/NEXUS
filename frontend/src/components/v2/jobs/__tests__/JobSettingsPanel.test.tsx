@@ -431,6 +431,82 @@ describe("JobSettingsPanel — Priorytet", () => {
     );
   });
 
+  describe("zejście z P1 przenosi zespół do „Poprzedni rekruter” (14.10.2026)", () => {
+    const team = { workingNames: ["Anna Kowalska", "Piotr Nowak"] };
+
+    it("pyta przed zapisem i zapisuje dopiero po potwierdzeniu", async () => {
+      const user = userEvent.setup();
+      renderPanel({ priorityLevel: "p1", priorityTeam: team });
+
+      await user.click(priorityOption("Bez priorytetu"));
+
+      const dialog = await screen.findByRole("dialog");
+      expect(dialog).toHaveTextContent("Zdjąć priorytet P1?");
+      expect(dialog).toHaveTextContent(
+        "Anna Kowalska i Piotr Nowak przejdą do „Poprzedni rekruter”",
+      );
+      expect(patchMock).not.toHaveBeenCalled();
+      await user.click(
+        within(dialog).getByRole("button", { name: "Zmień na „Bez priorytetu”" }),
+      );
+      await waitFor(() =>
+        expect(patchMock).toHaveBeenCalledWith("/api/jobs/501", { priority: "medium" }),
+      );
+    });
+
+    it("anulowanie zostawia P1 i niczego nie zapisuje", async () => {
+      const user = userEvent.setup();
+      renderPanel({ priorityLevel: "p1", priorityTeam: team });
+
+      await user.click(priorityOption("Przyjmujemy kandydatów"));
+      const dialog = await screen.findByRole("dialog");
+      await user.click(within(dialog).getByRole("button", { name: "Anuluj" }));
+
+      await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+      expect(priorityOption("P1 Pilne")).toBeChecked();
+      expect(patchMock).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ["bez zespołu", { workingNames: [] }],
+      ["przy zamkniętej rekrutacji", { ...team, closed: true }],
+    ])("%s zapisuje od razu", async (_label, priorityTeam) => {
+      const user = userEvent.setup();
+      renderPanel({ priorityLevel: "p1", priorityTeam });
+
+      await user.click(priorityOption("Bez priorytetu"));
+
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+      await waitFor(() =>
+        expect(patchMock).toHaveBeenCalledWith("/api/jobs/501", { priority: "medium" }),
+      );
+    });
+
+    it("powrót na P1 nie pyta", async () => {
+      const user = userEvent.setup();
+      renderPanel({ priorityLevel: "p2", priorityTeam: team });
+
+      await user.click(priorityOption("P1 Pilne"));
+
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+      await waitFor(() =>
+        expect(patchMock).toHaveBeenCalledWith("/api/jobs/501", { priority: "urgent" }),
+      );
+    });
+  });
+
+  it("wiersz „Poprzedni rekruter” stoi zaraz pod „Rekruter”, gdy dok go podaje", () => {
+    renderPanel({
+      recruiters: <span>obsada</span>,
+      previousRecruiters: <span>Anna Kowalska</span>,
+    });
+
+    const labels = screen
+      .getAllByText(/^(Rekruter|Poprzedni rekruter|Kategoria)$/)
+      .map((node) => node.textContent);
+    expect(labels).toEqual(["Rekruter", "Poprzedni rekruter", "Kategoria"]);
+  });
+
   it("kliknięcie zaznaczonego poziomu niczego nie zapisuje", async () => {
     const user = userEvent.setup();
     renderPanel({ priorityLevel: "p2" });

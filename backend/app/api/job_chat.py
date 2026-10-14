@@ -323,7 +323,9 @@ async def create_message(
 
     # Notyfikacje persistent — każdy członek projektu (poza autorem) dostaje
     # standardowy `job_chat_message`; mention'y dostają DODATKOWO `job_chat_mention`.
-    member_ids = await list_job_member_ids(db, job_id)
+    # „Poprzedni rekruter” (14.10.2026) nie dostaje dzwonka o każdej wiadomości
+    # — wzmianka dalej go budzi, a czat zna go jak dotąd.
+    member_ids = await list_job_member_ids(db, job_id, include_parked=False)
     target_ids = [uid for uid in member_ids if uid != current_user.id]
     link = _message_link(job_id, msg.id)
     snippet = _reply_preview(data.content, limit=140)

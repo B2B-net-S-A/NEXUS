@@ -97,7 +97,7 @@ from app.schemas.job import (
     UserBrief,
 )
 from app.schemas.job_ad_publication import JobAdPublicationOut
-from app.schemas.job_team import JobRecruiterOut
+from app.schemas.job_team import JobPreviousRecruiterOut, JobRecruiterOut
 from app.api.body_validation import validated_body
 from app.api.clients_team import TAC_ASSIGNABLE_ROLES
 from app.api.candidate_access import redact_job_for_viewer, resolve_client_rate_write
@@ -155,8 +155,17 @@ from app.services.candidate_search_predicates import (
 )
 from app.services.job_ad.publications import Publication as AdPublication
 from app.services.job_ad.publications import for_jobs as ad_publications_for_jobs
+from app.services.job_previous_recruiters import (
+    apply_priority_transition,
+    clear_parked,
+    parked_exists,
+    park_team,
+    previous_recruiters_for_jobs,
+    restore_team,
+)
 from app.services.job_priority import (
     PRIORITY_LEVELS,
+    level_of,
     priorities_for_levels,
     priority_rank_expr,
     record_level_change,
@@ -729,6 +738,16 @@ def _ad_publications_payload(items: list[AdPublication]) -> list[dict]:
     ]
 
 
+def _previous_recruiters_payload(people: list) -> list[dict]:
+    """„Poprzedni rekruter” do odpowiedzi (``JobPreviousRecruiterOut``)."""
+    return [
+        JobPreviousRecruiterOut.model_validate(
+            person, from_attributes=True
+        ).model_dump()
+        for person in people
+    ]
+
+
 def _recruiters_payload(people: list[TeamPerson]) -> list[dict]:
     """Rola „Rekruter” do odpowiedzi — ten sam kształt na liście, w szczegółach
     i na pulpicie (``JobRecruiterOut``); propozycja automatu ma ``proposed``."""
@@ -853,6 +872,26 @@ def jobs_mine_clause(current_user: User):
     )
 
 
+def jobs_mine_working_clause(current_user: User):
+    """„Moje” bez rekrutacji, przy których osoba jest „Poprzednim rekruterem”.
+
+    14.10.2026 (prośba Head of Recruitment): zejście z P1 albo zamknięcie
+    usypia zespół — rekrutacja znika z „Moich” osoby, choć jej wiersze zostają.
+    ``jobs_mine_clause`` zostaje bez zmian dla kreatora metryk („me” liczy też
+    zamknięte rekrutacje — historia nie może zniknąć). Delivery Lead nie jest
+    usypiany.
+    """
+    return or_(
+        and_(
+            operational_owner_clause(Job.recruiter_id, current_user),
+            ~parked_exists(Job.id, Job.recruiter_id),
+        ),
+        operational_owner_clause(Job.delivery_lead_id, current_user),
+        Job.id.in_(manual_collaborator_job_ids([current_user.id], exclude_parked=True)),
+        Job.id.in_(working_assignment_job_ids([current_user.id], exclude_parked=True)),
+    )
+
+
 def jobs_my_category_clause(current_user: User):
     """Zakres „Moja kategoria” — NIEZAMKNIĘTE rekrutacje, których GŁÓWNA
     kategoria kompetencji jest jedną z kategorii osoby (1. albo 2. priorytet).
@@ -893,11 +932,12 @@ def jobs_mine_list_clause(current_user: User):
     Decyzja Artura 07.10.2026: rekruter przepina swoich kandydatów do
     rekrutacji, do których nie jest przypisany, i ma do nich wracać z „Moje”.
     Kolumna „Rekruter”, obłożenie i ``jobs_mine_clause`` (czytany przez
-    „Moje następne kroki” i kreator metryk) zostają bez zmian — prowadzenie
-    kandydata nie czyni z osoby Rekrutera rekrutacji.
+    kreator metryk) zostają bez zmian — prowadzenie kandydata nie czyni
+    z osoby Rekrutera rekrutacji. „Poprzedni rekruter” (14.10.2026) wypada,
+    chyba że prowadzi tu własnego kandydata.
     """
     return or_(
-        jobs_mine_clause(current_user),
+        jobs_mine_working_clause(current_user),
         Job.id.in_(my_open_process_job_ids(current_user)),
     )
 
@@ -1436,13 +1476,22 @@ async def list_jobs(
         )
     # „Rekruter: ja, nikt” = którykolwiek z warunków (LUB). Przez AND
     # („ktoś pracuje” i „nikt nie pracuje”) lista byłaby zawsze pusta.
+    # Zakres „Wszystkie” (bez `open_only`) znajduje też rekrutacje, przy
+    # których osoba jest „Poprzednim rekruterem” (14.10.2026) — inaczej po
+    # zamknięciu nikt nie znalazłby swoich zamkniętych rekrutacji.
+    include_parked = not open_only
     if worked_by and nobody_working:
         query = query.where(
-            or_(jobs_worked_by_clause(worked_by), jobs_nobody_working_clause())
+            or_(
+                jobs_worked_by_clause(worked_by, include_parked=include_parked),
+                jobs_nobody_working_clause(),
+            )
         )
     else:
         if worked_by:
-            query = query.where(jobs_worked_by_clause(worked_by))
+            query = query.where(
+                jobs_worked_by_clause(worked_by, include_parked=include_parked)
+            )
         if nobody_working is not None:
             nobody = jobs_nobody_working_clause()
             query = query.where(nobody if nobody_working else not_(nobody))
@@ -1660,6 +1709,7 @@ async def list_jobs(
     # Rola „Rekruter” — jedno wywołanie na stronę, ta sama reguła co filtr
     # `worked_by` i pulpit „Requesty i obłożenie” (`services/job_team`).
     recruiters_by_job = await recruiters_for_jobs(db, job_ids)
+    previous_by_job = await previous_recruiters_for_jobs(db, job_ids)
     # Kolumna „Ogłoszenia” (0432) — też jedno zapytanie na stronę.
     ad_publications_by_job = await ad_publications_for_jobs(db, job_ids)
 
@@ -1780,6 +1830,9 @@ async def list_jobs(
             collab_map.get(j.id, []), user_brief_map
         )
         d["recruiters"] = _recruiters_payload(recruiters_by_job.get(j.id, []))
+        d["previous_recruiters"] = _previous_recruiters_payload(
+            previous_by_job.get(j.id, [])
+        )
         d["ad_publications"] = _ad_publications_payload(
             ad_publications_by_job.get(j.id, [])
         )
@@ -2288,6 +2341,9 @@ async def get_job(
     payload["recruiters"] = _recruiters_payload(
         (await recruiters_for_jobs(db, [job.id])).get(job.id, [])
     )
+    payload["previous_recruiters"] = _previous_recruiters_payload(
+        (await previous_recruiters_for_jobs(db, [job.id])).get(job.id, [])
+    )
     payload["ad_publications"] = _ad_publications_payload(
         (await ad_publications_for_jobs(db, [job.id])).get(job.id, [])
     )
@@ -2393,9 +2449,12 @@ async def update_job(
     # Rekrutera zmienia w PATCH wyłącznie osoba z pełną redakcją (uprawnienie
     # do prowadzenia rekrutacji — `JOB_MEMBER_LOCKED_FIELDS`); pozostali
     # dostaną 403 niżej, więc nie zajmują globalnej blokady na czas odmowy.
-    if "recruiter_id" in data.model_fields_set and has_permission(
-        current_user, ProductAction.recruitment_manage
-    ):
+    # Zmiana priorytetu usypia albo przywraca zespół i jego przypisania
+    # („Poprzedni rekruter”, 14.10.2026) — ta sama blokada, ta sama kolejność.
+    if (
+        "recruiter_id" in data.model_fields_set
+        and has_permission(current_user, ProductAction.recruitment_manage)
+    ) or ("priority" in data.model_fields_set and data.priority is not None):
         await allocation_lock(db)
     result = await db.execute(select(Job).where(Job.id == job_id).with_for_update())
     job = result.scalar_one_or_none()
@@ -2622,12 +2681,33 @@ async def update_job(
     # Okno edycji zmienia rekrutera PATCH-em, nie przez `/owner` — rola
     # „Rekruter” ma po obu drogach wyglądać tak samo (02.10.2026): poprzednia
     # osoba traci aktywne przypisanie, nowa dostaje je w puli przydziału.
+    if (
+        "recruiter_id" in data.model_fields_set
+        and data.recruiter_id is not None
+        and not recruiter_changed
+    ):
+        # Okno edycji nie podsuwa „Poprzedniego rekrutera” (14.10.2026) —
+        # wybrany z listy wraca do pracy, choć pole się nie zmienia.
+        await clear_parked(
+            db,
+            job_id=job.id,
+            user_id=data.recruiter_id,
+            reason="readded",
+            actor_id=current_user.id,
+        )
     if recruiter_changed and data.recruiter_id is not None:
         await _sync_work_assignments_with_owner(
             db,
             job=job,
             previous_owner_id=_recruiter_before,
             owner=await db.get(User, job.recruiter_id),
+            actor_id=current_user.id,
+        )
+        await _settle_previous_recruiters_on_owner_change(
+            db,
+            job_id=job.id,
+            previous_owner_id=_recruiter_before,
+            owner_id=job.recruiter_id,
             actor_id=current_user.id,
         )
     if recruiter_changed:
@@ -2729,6 +2809,16 @@ async def update_job(
     status_flipped = "status" in updates and prev_status != new_status
     if status_flipped:
         if new_status == JobStatus.closed:
+            # Lustro `close_job_core`: zespół do „Poprzedni rekruter” (bez
+            # dzwonka), PRZED zmianą stanu requestu.
+            await park_team(
+                db,
+                job,
+                reason="closed",
+                actor_id=current_user.id,
+                notify=False,
+                release_assignments=False,
+            )
             job.closed_at = datetime.now(timezone.utc)
             # Lustro `close_job`. Odwrotnie NIE działa: wyjście ze stanu
             # `closed` nie wskrzesza `is_open`, bo „prowadzimy tę rekrutację"
@@ -2766,6 +2856,13 @@ async def update_job(
                     actor_id=current_user.id,
                     reason="job_reopened",
                 )
+
+    # „Poprzedni rekruter” (14.10.2026): zejście z P1 usypia zespół, powrót
+    # na P1 go przywraca. Zamknięta rekrutacja — nic (helper sprawdza status).
+    if "priority" in updates:
+        await apply_priority_transition(
+            db, job, previous_priority=_priority_before, actor_id=current_user.id
+        )
 
     # Inna kategoria = inni uczestnicy: osoby poprzedniej kategorii schodzą,
     # osoby nowej dochodzą. Dopisani ręcznie i zdjęci z rekrutacji zostają.
@@ -3323,6 +3420,17 @@ async def publish_job(
                 ),
             },
         )
+    reopening = job.status == JobStatus.closed
+    if payload is not None and payload.priority is not None:
+        # „Priorytet po otwarciu” — ta sama reguła co pole „Priorytet”.
+        if payload.priority != job.priority and not await user_can_set_job_priority(
+            db, current_user, job
+        ):
+            raise HTTPException(
+                status_code=403,
+                detail="Priorytet rekrutacji ustawia Delivery Lead albo Head of Recruitment.",
+            )
+        job.priority = payload.priority
     effects = job_lifecycle.PostCommit(background_tasks)
     await job_lifecycle.publish_core(
         db, job, current_user, effects, reason=payload.reason if payload else None
@@ -3335,9 +3443,35 @@ async def publish_job(
             db, job, current_user, effects, top_k=payload.top_k if payload else None
         )
     else:
+        previous_owner_id = job.recruiter_id
         handoff = await job_lifecycle.handoff_core(
             db, job, payload, current_user, effects
         )
+        if reopening and level_of(job.priority) == "p1":
+            # „Poprzedni rekruterzy” wracają przy P1 — poza prowadzącym,
+            # którego ta decyzja zastąpiła (14.10.2026).
+            replaced = (
+                {previous_owner_id}
+                if previous_owner_id is not None
+                and previous_owner_id != job.recruiter_id
+                else set()
+            )
+            for user_id in replaced:
+                await clear_parked(
+                    db,
+                    job_id=job.id,
+                    user_id=user_id,
+                    reason="removed",
+                    actor_id=current_user.id,
+                )
+            await restore_team(
+                db,
+                job,
+                actor_id=current_user.id,
+                notify=True,
+                exclude_user_ids=replaced,
+                skip_bell_for=[job.recruiter_id] if job.recruiter_id else [],
+            )
     await db.commit()
     await job_lifecycle.run_post_commit(effects)
     return {
@@ -5074,6 +5208,34 @@ async def _notify_new_owner(db: AsyncSession, *, job: Job, user_id: int) -> None
     )
 
 
+async def _settle_previous_recruiters_on_owner_change(
+    db: AsyncSession,
+    *,
+    job_id: int,
+    previous_owner_id: Optional[int],
+    owner_id: int,
+    actor_id: int,
+) -> None:
+    """„Poprzedni rekruter” (14.10.2026) po ręcznym wskazaniu prowadzącego.
+
+    Człowiek wskazał tę osobę, więc pracuje (``readded``); osoba, którą
+    zastąpił, nie wraca przy powrocie na P1 (``removed``). Wołają ``/owner``,
+    ``/claim``, PATCH ``recruiter_id`` i ręczne przekazanie do searchu — nie
+    ponowne otwarcie z zachowaniem zespołu (tam decyduje priorytet).
+    """
+    await clear_parked(
+        db, job_id=job_id, user_id=owner_id, reason="readded", actor_id=actor_id
+    )
+    if previous_owner_id is not None and previous_owner_id != owner_id:
+        await clear_parked(
+            db,
+            job_id=job_id,
+            user_id=previous_owner_id,
+            reason="removed",
+            actor_id=actor_id,
+        )
+
+
 async def _sync_work_assignments_with_owner(
     db: AsyncSession,
     *,
@@ -5208,6 +5370,13 @@ async def assign_owner(
         owner=target,
         actor_id=current_user.id,
     )
+    await _settle_previous_recruiters_on_owner_change(
+        db,
+        job_id=job.id,
+        previous_owner_id=previous_owner_id,
+        owner_id=target.id,
+        actor_id=current_user.id,
+    )
     db.add(
         Activity(
             entity_type="job",
@@ -5258,6 +5427,50 @@ async def release_owner(
     return await get_job(job_id, current_user, db)
 
 
+@router.delete(
+    "/{job_id}/previous-recruiters/{user_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def dismiss_previous_recruiter(
+    job_id: int,
+    user_id: int,
+    current_user: JobStaffingUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """„Usuń z poprzednich” — osoba nie wróci przy powrocie na P1 (14.10.2026).
+
+    Ta sama bramka i ten sam skutek co „Zdejmij” (``DELETE /owner``,
+    ``job_team.remove_recruiter``): osoba schodzi z zespołu — prowadzący
+    traci pole „Rekruter”, ręczny wpis znika. Samo zamknięcie znacznika
+    zostawiłoby jej wiersze, więc od razu znowu by „pracowała”. 404, gdy
+    osoby nie ma wśród poprzednich.
+    """
+    await allocation_lock(db)
+    job = await db.scalar(select(Job).where(Job.id == job_id).with_for_update())
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    await _ensure_delivery_lead_job_visible(job, current_user, db)
+    cleared = await clear_parked(
+        db, job_id=job_id, user_id=user_id, reason="dismissed", actor_id=current_user.id
+    )
+    if not cleared:
+        raise HTTPException(
+            status_code=404,
+            detail="Tej osoby nie ma wśród poprzednich rekruterów.",
+        )
+    await remove_recruiter(db, job=job, user_id=user_id, actor_id=current_user.id)
+    db.add(
+        Activity(
+            entity_type="job",
+            entity_id=job_id,
+            action="previous_recruiter_dismissed",
+            user_id=current_user.id,
+            details={"user_id": user_id},
+        )
+    )
+    await db.commit()
+
+
 @router.post("/{job_id}/claim", response_model=JobResponse)
 async def claim_job(
     job_id: int,
@@ -5284,8 +5497,12 @@ async def claim_job(
     # Runda 9 (R9-V2-2): prowadzący z nieaktywnym kontem to brak prowadzącego —
     # do tej rundy przejęcie takiej rekrutacji kończyło się 409, a front nie
     # pokazywał „Przejmij”, więc nikt nie mógł jej prowadzić.
-    if job.recruiter_id is not None and await db.scalar(
-        select(User.is_active).where(User.id == job.recruiter_id)
+    # „Poprzedni rekruter” (14.10.2026) też nie prowadzi — rekrutację może
+    # wziąć ktoś inny albo ta sama osoba z powrotem.
+    if (
+        job.recruiter_id is not None
+        and await db.scalar(select(User.is_active).where(User.id == job.recruiter_id))
+        and not await db.scalar(select(parked_exists(job.id, job.recruiter_id)))
     ):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -5300,7 +5517,8 @@ async def claim_job(
             detail="Zamkniętej rekrutacji nie można przejąć.",
         )
 
-    # Poprzedni prowadzący może tu być tylko nieaktywnym kontem (wyżej 409).
+    # Poprzedni prowadzący może tu być tylko nieaktywnym kontem albo osobą
+    # wśród „Poprzednich rekruterów” (wyżej 409).
     previous_owner_id = job.recruiter_id
     if job.is_open and current_user.has_role(UserRole.recruiter):
         channel = PriorityChannel.linkedin
@@ -5320,6 +5538,13 @@ async def claim_job(
         job=job,
         previous_owner_id=previous_owner_id,
         owner=current_user,
+        actor_id=current_user.id,
+    )
+    await _settle_previous_recruiters_on_owner_change(
+        db,
+        job_id=job.id,
+        previous_owner_id=previous_owner_id,
+        owner_id=current_user.id,
         actor_id=current_user.id,
     )
     db.add(
@@ -5409,7 +5634,10 @@ async def add_collaborator(
             status_code=409,
             detail=RECRUITER_ROLE_REQUIRED_DETAIL,
         )
-    if job.recruiter_id == target.id:
+    owner_parked = job.recruiter_id == target.id and bool(
+        await db.scalar(select(parked_exists(job.id, target.id)))
+    )
+    if job.recruiter_id == target.id and not owner_parked:
         raise HTTPException(
             status_code=409,
             detail="User is already the primary owner of this job",
@@ -5518,6 +5746,14 @@ async def remove_collaborator(
                 await db.commit()
                 return
         await db.delete(link)
+        # Zdjęta osoba nie wraca przy powrocie na P1 („Poprzedni rekruter”).
+        await clear_parked(
+            db,
+            job_id=job_id,
+            user_id=user_id,
+            reason="removed",
+            actor_id=current_user.id,
+        )
     # Feedback loop: when an auto_cc collaborator is removed we log to Activity
     # so Head of Recruitment can spot patterns (e.g. one sourcer removed 10×
     # from the same CC → revise user↔CC mapping).

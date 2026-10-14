@@ -346,6 +346,8 @@ def redact_job_for_viewer(job_dict: dict, user: User) -> dict:
     # Rola „Rekruter” (02.10.2026) to ta sama obsada pod inną nazwą.
     if "recruiters" in job_dict:
         job_dict["recruiters"] = []
+    if "previous_recruiters" in job_dict:
+        job_dict["previous_recruiters"] = []
     return job_dict
 
 

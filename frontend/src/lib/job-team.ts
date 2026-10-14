@@ -12,6 +12,10 @@
  * Serwer oddaje te osoby w polu `recruiters` (wiersz listy i szczegóły
  * rekrutacji) oraz w `people` requestu na pulpicie „Requesty i obłożenie”.
  * Funkcje listy przyjmują oba kształty (`RecruiterLike`).
+ *
+ * „Poprzedni rekruter” (14.10.2026, `previous_recruiters`): osoby uśpione
+ * przy zejściu z P1 albo zamknięciu — nie pracują, wracają przy P1
+ * (`backend/app/services/job_previous_recruiters.py`).
  */
 
 import api from "@/lib/api";
@@ -52,6 +56,20 @@ interface LegacyTeamUser {
   is_active?: boolean | null;
 }
 
+/** „Poprzedni rekruter” — lustro `JobPreviousRecruiterOut`. */
+export interface PreviousRecruiter {
+  user_id: number;
+  name: string;
+  via: RecruiterVia;
+  /** `closed` — zamknięcie rekrutacji, `priority` — zejście z P1. */
+  reason: "closed" | "priority";
+  /** ISO — kiedy osoba przeszła do poprzednich. */
+  parked_at: string;
+  parked_by_name: string | null;
+  /** Wróci przy P1: konto aktywne i rola rekrutera. */
+  will_return: boolean;
+}
+
 /** Pola rekrutacji (wiersz listy, szczegóły), z których czytamy Rekruterów. */
 export interface JobTeamSource {
   /**
@@ -61,6 +79,8 @@ export interface JobTeamSource {
    * rekrutację, zamiast czytać Rekruterów z odpowiedzi.
    */
   recruiters?: readonly JobRecruiter[] | null;
+  /** „Poprzedni rekruter” (14.10.2026); brak pola = nikt. */
+  previous_recruiters?: readonly PreviousRecruiter[] | null;
   /** Zapas dla starszego backendu i starych fixture'ów. */
   primary_owner?: LegacyTeamUser | null;
   collaborators?: readonly LegacyTeamUser[] | null;
@@ -68,7 +88,10 @@ export interface JobTeamSource {
 
 function legacyRecruiters(job: JobTeamSource): JobRecruiter[] {
   const people: JobRecruiter[] = [];
-  const seen = new Set<number>();
+  // Poprzedni rekruterzy nie pracują, choć zostają w polach zespołu.
+  const seen = new Set<number>(
+    previousRecruitersOf(job).map((person) => person.user_id),
+  );
   const add = (user: LegacyTeamUser, via: RecruiterVia) => {
     // Nieaktywne konto nie pracuje (ta sama reguła co filtr „Rekruter”).
     if (user.is_active === false || seen.has(user.id)) return;
@@ -99,6 +122,32 @@ export function recruitersOf(
   if (!job) return [];
   if (Array.isArray(job.recruiters)) return job.recruiters;
   return legacyRecruiters(job);
+}
+
+/** „Poprzedni rekruter” rekrutacji, w kolejności przeniesienia. */
+export function previousRecruitersOf(
+  job: JobTeamSource | null | undefined,
+): readonly PreviousRecruiter[] {
+  return Array.isArray(job?.previous_recruiters) ? job.previous_recruiters : [];
+}
+
+/** Czy prowadzący rekrutacji jest wśród poprzednich (uśpiony = brak prowadzącego). */
+export function ownerIsPrevious(job: JobTeamSource | null | undefined): boolean {
+  return previousRecruitersOf(job).some((person) => person.via === "owner");
+}
+
+/** „Anna”, „Anna i Piotr”, „Anna, Piotr i Ewa” — imiona w zdaniu. */
+export function joinNames(names: readonly string[]): string {
+  if (names.length <= 1) return names[0] ?? "";
+  return `${names.slice(0, -1).join(", ")} i ${names[names.length - 1]}`;
+}
+
+/** „Usuń z poprzednich” — osoba nie wróci przy powrocie na P1. */
+export async function dismissPreviousRecruiter(
+  jobId: number,
+  userId: number,
+): Promise<void> {
+  await api.delete(`/api/jobs/${jobId}/previous-recruiters/${userId}`);
 }
 
 /** Osoby, które pracują — bez propozycji czekających na decyzję. */

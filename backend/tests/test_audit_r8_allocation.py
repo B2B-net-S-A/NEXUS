@@ -39,7 +39,8 @@ def _db_with_job(job):
     async def get(model, key):
         return job if model.__name__ == "Job" else None
 
-    return SimpleNamespace(get=get)
+    # `scalar` = sprawdzenie „Poprzedniego rekrutera” — nikt nie jest uśpiony.
+    return SimpleNamespace(get=get, scalar=AsyncMock(return_value=None))
 
 
 @pytest.mark.asyncio
@@ -115,6 +116,12 @@ async def test_similar_job_recipients_skip_the_dead_and_tac(monkeypatch) -> None
 
     monkeypatch.setattr(notify, "_operational_recipient", recipient)
     monkeypatch.setattr(notify, "_delivery_lead_targets", AsyncMock(return_value=[5]))
+    # Nikt nie jest „Poprzednim rekruterem” (14.10.2026).
+    monkeypatch.setattr(
+        notify,
+        "working_owner_id",
+        AsyncMock(side_effect=lambda _db, job: job.recruiter_id),
+    )
     assert await notify._recipients(SimpleNamespace(), job) == [2]
     active.clear()
     assert await notify._recipients(SimpleNamespace(), job) == [5]

@@ -11,6 +11,8 @@ import {
   claimJob,
   hasWorkingOwner,
   joinJob,
+  ownerIsPrevious,
+  previousRecruitersOf,
   recruitersOf,
   workingRecruiters,
   type JobRecruiter,
@@ -140,11 +142,16 @@ export function JobOwnershipPanel({
   const people = recruitersOf(job);
   const working = workingRecruiters(people);
   const ownerWorking = hasWorkingOwner(people);
+  // „Poprzedni rekruter” (14.10.2026): uśpiony prowadzący nie prowadzi —
+  // jego fotel jest wolny, a nowa osoba dochodzi jako kolejna, żeby przy
+  // powrocie na P1 wrócił obok niej (zespół = suma).
+  const previous = previousRecruitersOf(job);
+  const ownerParked = ownerIsPrevious(job);
   const meId = currentUser?.id ?? null;
   const onList = meId != null && working.some((p) => p.user_id === meId);
   // Head of Recruitment przydziela innych, ale sam rekruterem nie zostaje.
   const eligible = hasRole(currentUser, ...CLAIM_ELIGIBLE_ROLES);
-  const ownerSeatTaken = hasActiveOwner(job.primary_owner);
+  const ownerSeatTaken = hasActiveOwner(job.primary_owner) && !ownerParked;
   // „Biorę” przy wolnej rekrutacji; zamkniętej nikt już nie bierze (serwer: 409).
   const canClaim =
     canWritePipeline && eligible && !ownerSeatTaken && job.status !== "closed";
@@ -161,7 +168,7 @@ export function JobOwnershipPanel({
   const canAssign = canStaff && job.status !== "closed";
   // Rola przydzielająca bez pracującego pierwszego rekrutera ma „Przypisz…”;
   // „+ Dodaj osobę” zrobiłoby wtedy to samo (`addRecruiter` ustawia pierwszego).
-  const canAdd = canStaff ? ownerWorking : access.canEdit;
+  const canAdd = canStaff ? ownerWorking || ownerParked : access.canEdit;
 
   const workingIds = working.map((p) => p.user_id);
 
@@ -219,7 +226,7 @@ export function JobOwnershipPanel({
   // „Co dalej” tylko wtedy, gdy nie ma nikogo — także propozycji (ta mówi sama
   // za siebie: czeka na akceptację).
   const inactiveOwnerNote =
-    job.primary_owner && !ownerSeatTaken
+    job.primary_owner && !hasActiveOwner(job.primary_owner)
       ? `${job.primary_owner.name} ma nieaktywne konto. `
       : "";
   // Automat dobiera rekrutera tylko do P1 — przy pozostałych priorytetach nie
@@ -228,6 +235,10 @@ export function JobOwnershipPanel({
   const nextStep =
     people.length > 0
       ? null
+      : previous.length > 0
+        ? job.status === "closed"
+          ? "Nikt teraz nie pracuje. Poprzedni wrócą, gdy rekrutacja zostanie otwarta ponownie z priorytetem P1."
+          : "Nikt teraz nie pracuje. Poprzedni wrócą, gdy rekrutacja wróci na P1."
       : `${inactiveOwnerNote}${
           canStaff
             ? automatSkips
@@ -253,7 +264,9 @@ export function JobOwnershipPanel({
           !person.proposed && canRemoveRecruiter(person, access)
         }
         proposalActions={proposalActions}
-        emptyLabel={NO_RECRUITER_LABEL}
+        // Przy poprzednich rekruterach pusty wiersz to stan zamierzony —
+        // mówi o nim zdanie niżej, bez bursztynowej plakietki.
+        emptyLabel={previous.length > 0 ? undefined : NO_RECRUITER_LABEL}
       />
       {nextStep ? (
         <p className="text-[11px] leading-snug text-muted-foreground">
@@ -262,7 +275,7 @@ export function JobOwnershipPanel({
       ) : null}
       {hasActions ? (
         <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1.5">
-          {canAssign && !ownerWorking ? (
+          {canAssign && !ownerWorking && !ownerParked ? (
             <Button
               type="button"
               size="sm"
@@ -325,7 +338,7 @@ export function JobOwnershipPanel({
               excludeIds={workingIds}
               emptyLabel="Wszyscy już pracują nad tą rekrutacją."
               onPick={(user) =>
-                void add(user, { hasWorkingOwner: ownerWorking })
+                void add(user, { hasWorkingOwner: ownerWorking || ownerParked })
               }
               trigger={
                 <button

@@ -44,6 +44,7 @@ from app.models.notification import NotificationType
 from app.models.talent_pool import TalentPool, TalentPoolMembership
 from app.models.user import User
 from app.core.scheduling import business_today
+from app.services.job_previous_recruiters import working_owner_id
 
 logger = logging.getLogger(__name__)
 
@@ -272,7 +273,9 @@ async def _resolve_marketplace_recipients(
     sam user. Skipujemy inactive userów.
     """
     cand_owner = candidate.created_by
-    job_owner = job.recruiter_id
+    # „Poprzedni rekruter” (14.10.2026) nie dostaje alertu z targu jako
+    # prowadzący; bez odbiorcy para nie trafia do logu i czeka na powrót.
+    job_owner = await working_owner_id(db, job)
 
     unique_owners = {oid for oid in (cand_owner, job_owner) if oid is not None}
     if not unique_owners:

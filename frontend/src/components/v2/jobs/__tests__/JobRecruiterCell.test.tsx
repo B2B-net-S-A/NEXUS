@@ -112,3 +112,57 @@ describe("JobRecruiterCell", () => {
     expect(cell.getByText("+3")).toBeInTheDocument();
   });
 });
+
+describe("JobRecruiterCell — „Poprzedni rekruter” (14.10.2026)", () => {
+  beforeEach(() => {
+    useAuthStore.setState({ user: { id: ME } as User });
+  });
+
+  const previous = (user_id: number, name: string) => ({
+    user_id,
+    name,
+    via: "owner" as const,
+    reason: "priority" as const,
+    parked_at: "2026-10-14T13:02:00Z",
+    parked_by_name: null,
+    will_return: true,
+  });
+
+  it("cały zespół wśród poprzednich: szare „poprzedni” zamiast „Bez rekrutera”", () => {
+    render(
+      <JobRecruiterCell
+        job={job({
+          recruiters: [],
+          previous_recruiters: [previous(3, "Tomasz Lis"), previous(4, "Ewa Mazur")],
+        })}
+      />,
+    );
+
+    const cell = screen.getByTestId("job-previous-recruiter");
+    expect(cell).toHaveTextContent("Tomasz L.");
+    expect(cell).toHaveTextContent("+1");
+    expect(cell).toHaveTextContent("poprzedni");
+    expect(cell).toHaveAttribute(
+      "title",
+      "Poprzedni rekruterzy: Tomasz Lis, Ewa Mazur — wrócą przy P1",
+    );
+    expect(screen.queryByTestId("job-no-recruiter")).not.toBeInTheDocument();
+  });
+
+  it("ktoś pracuje — poprzedni nie zasłaniają rekrutera", () => {
+    render(
+      <JobRecruiterCell
+        job={job({ previous_recruiters: [previous(3, "Tomasz Lis")] })}
+      />,
+    );
+
+    expect(screen.queryByTestId("job-previous-recruiter")).not.toBeInTheDocument();
+    expect(screen.getByTestId("job-recruiter-cell")).toHaveTextContent("Osoba 1");
+  });
+
+  it("bez nikogo i bez poprzednich zostaje „Bez rekrutera”", () => {
+    render(<JobRecruiterCell job={job({ recruiters: [] })} />);
+
+    expect(screen.getByTestId("job-no-recruiter")).toBeInTheDocument();
+  });
+});

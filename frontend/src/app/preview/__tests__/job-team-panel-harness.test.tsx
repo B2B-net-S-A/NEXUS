@@ -214,4 +214,22 @@ describe("/preview/job-team-panel", () => {
     // …ale do transportu nie doszło nic.
     expect(sent).toEqual([]);
   });
+
+  it("„Poprzedni rekruter” (14.10.2026): osoby w osobnym wierszu, DL dokłada kolejną osobę, nie przypisuje od nowa", async () => {
+    await renderAs(null);
+    const parked = screen.getByRole("region", { name: "Poprzedni rekruter" });
+
+    expect(recruiterActions(parked)).toEqual(["+ Dodaj osobę"]);
+    expect(
+      within(parked).getByText(
+        "Nikt teraz nie pracuje. Poprzedni wrócą, gdy rekrutacja wróci na P1.",
+      ),
+    ).toBeInTheDocument();
+    const previous = within(parked).getByTestId("job-previous-recruiters");
+    expect(within(previous).getByText("Bartek Testowy")).toBeInTheDocument();
+    expect(within(previous).getByText("Celina Wzorcowa")).toBeInTheDocument();
+    expect(
+      within(previous).getByRole("button", { name: "Usuń z poprzednich: Bartek Testowy" }),
+    ).toBeInTheDocument();
+  });
 });

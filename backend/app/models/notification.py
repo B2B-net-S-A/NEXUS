@@ -235,6 +235,12 @@ class NotificationType(str, enum.Enum):
     # rekrutacji, bez osoby, która dodała; related_entity=(candidate, id).
     # Bez maila.
     also_fits_added = "also_fits_added"
+    # 0447: „Poprzedni rekruter” — rekrutacja zeszła z P1, osoba przeszła do
+    # poprzednich rekruterów (``recruiter_parked``) albo wróciła na P1 i osoba
+    # znowu nad nią pracuje (``recruiter_restored``). Do osób z zespołu poza
+    # tą, która zmieniła priorytet; related_entity=(job, id). Bez maila.
+    recruiter_parked = "recruiter_parked"
+    recruiter_restored = "recruiter_restored"
 
 
 class Notification(Base, TimestampMixin):

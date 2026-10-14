@@ -143,7 +143,11 @@ async def is_member_of_job(
 
 
 async def list_job_member_ids(
-    db: AsyncSession, job_id: int, *, include_category_participants: bool = True
+    db: AsyncSession,
+    job_id: int,
+    *,
+    include_category_participants: bool = True,
+    include_parked: bool = True,
 ) -> list[int]:
     """Zwraca unikalną listę user_id członków projektu (z adminami).
 
@@ -153,6 +157,11 @@ async def list_job_member_ids(
     kategorii widzi rekrutację w „Moja kategoria”, ale nie dostaje jej
     powiadomień). Dostęp (wzmianki, czat, prepy) liczy się z uczestnikami —
     domyślne ``True``.
+
+    ``include_parked=False`` pomija „Poprzednich rekruterów” (14.10.2026,
+    zejście z P1 albo zamknięcie) — też tylko producenci dzwonków: osoba nad
+    rekrutacją nie pracuje, ale czat, wzmianki i dostęp ją znają. Delivery
+    Lead i TAC rekrutacji zostają zawsze.
     """
     job = await db.get(Job, job_id)
     if job is None:
@@ -208,6 +217,12 @@ async def list_job_member_ids(
             )
         )
         member_ids.update(members.all())
+
+    if not include_parked:
+        from app.services.job_previous_recruiters import load_parked  # noqa: PLC0415
+
+        asleep = (await load_parked(db, [job_id])).get(job_id, set())
+        member_ids -= asleep - {job.delivery_lead_id, job.tac_id}
 
     # Wszyscy admini systemu (małych liczb użytkowników — OK)
     admins = await db.execute(

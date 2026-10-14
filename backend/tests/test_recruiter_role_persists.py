@@ -28,7 +28,7 @@ from sqlalchemy import select, update
 
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
-from app.models.job import Job, JobStatus
+from app.models.job import Job
 from app.models.job_collaborator import JobCollaborator, JobCollaboratorSource
 from app.models.job_work_assignment import JobWorkAssignment
 from app.models.user import UserRole
@@ -140,9 +140,6 @@ async def _leave_pool(job_id: int, exit_state: str) -> None:
         job = await db.get(Job, job_id)
         if exit_state == "champion":
             job.champion_found_at = now
-        elif exit_state == "finished":
-            job.status = JobStatus.closed
-            job.work_state = "finished"
         else:
             job.work_state = exit_state
         job.work_state_changed_at = now
@@ -160,9 +157,9 @@ async def _leave_pool(job_id: int, exit_state: str) -> None:
 # ── Pulpit „Requesty i obłożenie” ────────────────────────────────────────────
 
 
-@pytest.mark.parametrize(
-    "exit_state", ["champion", "client_silent", "to_review", "finished"]
-)
+# Zamknięcie od 14.10.2026 przenosi zespół do „Poprzedni rekruter” —
+# pilnuje `test_previous_recruiters.py::test_closing_parks_the_team_quietly…`.
+@pytest.mark.parametrize("exit_state", ["champion", "client_silent", "to_review"])
 async def test_person_added_from_the_board_stays_after_the_request_leaves_the_pool(
     app_client: AsyncClient, app_auth_headers: dict, exit_state: str
 ) -> None:

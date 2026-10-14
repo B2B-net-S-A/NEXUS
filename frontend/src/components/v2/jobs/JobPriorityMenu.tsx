@@ -19,7 +19,7 @@ import {
   type PriorityLevel,
 } from "@/lib/request-priority";
 import { cn } from "@/lib/utils";
-import { useJobPriorityChange } from "./useJobPriorityChange";
+import { useJobPriorityChange, type JobPriorityTeam } from "./useJobPriorityChange";
 
 /** Wygląd plakietki per poziom: P1 w tonie alarmu, „Przyjmujemy” przygaszone. */
 const TONE: Record<PriorityLevel, string> = {
@@ -48,6 +48,11 @@ export interface JobPriorityMenuProps {
   level: PriorityLevel;
   /** `useJobTeamPermissions(job).canSetPriority`. */
   canSet: boolean;
+  /**
+   * Zespół rekrutacji: zejście z P1 przenosi go do „Poprzedni rekruter”
+   * (14.10.2026), więc menu pyta wtedy o potwierdzenie. Brak = bez pytania.
+   */
+  team?: JobPriorityTeam;
 }
 
 /**
@@ -60,8 +65,13 @@ export interface JobPriorityMenuProps {
  * zmieniają poziom z menu — zapis od razu, jak w panelu „Zespół”. Pozostali
  * widzą samą plakietkę z dymkiem, kto ją zmienia.
  */
-export function JobPriorityMenu({ jobId, level, canSet }: JobPriorityMenuProps) {
-  const { value, change } = useJobPriorityChange(jobId, level);
+export function JobPriorityMenu({
+  jobId,
+  level,
+  canSet,
+  team,
+}: JobPriorityMenuProps) {
+  const { value, change, confirmDialog } = useJobPriorityChange(jobId, level, team);
 
   if (!canSet) {
     return (
@@ -125,6 +135,7 @@ export function JobPriorityMenu({ jobId, level, canSet }: JobPriorityMenuProps) 
           i administrator.
         </p>
       </DropdownMenuContent>
+      {confirmDialog}
     </DropdownMenu>
   );
 }

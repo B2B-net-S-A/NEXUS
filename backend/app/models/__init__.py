@@ -779,6 +779,7 @@ from app.models.competition_period_closure import (  # noqa: F401
 
 # 0371: kto pracuje nad requestem (automat przydziału + ręczne dodanie).
 from app.models.job_work_assignment import JobWorkAssignment  # noqa: F401
+from app.models.job_previous_recruiter import JobPreviousRecruiter  # noqa: F401
 
 # 0404: ocena zgłoszeń z linku rekrutacji przez AI przed wejściem do „Nowi”.
 from app.models.application_screening import ApplicationScreening  # noqa: F401

@@ -689,6 +689,9 @@ async def test_reopen_goes_through_the_gate_and_keeps_the_recruiter(
         assert (handoffs[-1].details or {}) == {
             "assignment_mode": "keep",
             "recruiter_id": recruiter_id,
+            # Zamknięcie przeniosło go do „Poprzedni rekruter”, otwarcie przy
+            # P1 (domyślnym) go przywróciło (14.10.2026).
+            "restored_user_ids": [recruiter_id],
         }
     assert rung == [recruiter_id]
 

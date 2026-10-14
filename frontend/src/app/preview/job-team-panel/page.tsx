@@ -153,6 +153,47 @@ const CASES: {
     },
   },
   {
+    heading: "Poprzedni rekruter",
+    note: "Rekrutacja zeszła z P1 — zespół czeka wśród poprzednich i wróci przy P1 (14.10.2026).",
+    job: {
+      ...BASE_JOB,
+      id: 104,
+      title: "Inżynier DevOps",
+      competence_category_id: CATEGORY_ID,
+      deadline: isoDay(14),
+      deadline_time: null,
+      priority_level: "p2",
+      primary_owner: {
+        id: bartek.user_id,
+        name: bartek.name,
+        email: "bartek@example.com",
+        role: "recruiter",
+        is_active: true,
+      },
+      recruiters: [],
+      previous_recruiters: [
+        {
+          user_id: bartek.user_id,
+          name: bartek.name,
+          via: "owner",
+          reason: "priority",
+          parked_at: `${isoDay(-1)}T13:02:00Z`,
+          parked_by_name: DELIVERY_LEAD.name,
+          will_return: true,
+        },
+        {
+          user_id: celina.user_id,
+          name: celina.name,
+          via: "collaborator",
+          reason: "priority",
+          parked_at: `${isoDay(-1)}T13:02:00Z`,
+          parked_by_name: DELIVERY_LEAD.name,
+          will_return: true,
+        },
+      ],
+    },
+  },
+  {
     heading: "Bez rekrutera",
     note: "Nikogo przy rekrutacji i brak propozycji automatu; nie ma też kategorii ani terminu.",
     job: {

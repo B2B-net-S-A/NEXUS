@@ -33,6 +33,7 @@ from app.models.interview_feedback import (
 )
 from app.models.job import Job
 from app.models.notification import NotificationType
+from app.services.job_previous_recruiters import working_owner_id
 from app.services.notification_triggers import (
     _delivery_lead_targets,
     _operational_recipient,
@@ -73,9 +74,10 @@ async def apply_post_feedback_actions(
     # a gdy jego konta już nie ma, autor feedbacku (zastępstwo z COMPASS
     # wygrywa); bez obu DL rekrutacji albo Head of Recruitment. Do tej pory
     # nieaktywny prowadzący połykał „Klient idzie dalej / odrzucił” w `emit`.
-    recipient = await _operational_recipient(
-        db, [job.recruiter_id if job else None, feedback.author_id]
-    )
+    # „Poprzedni rekruter” (14.10.2026) nie dostaje werdyktu — dzwonek idzie
+    # do autora feedbacku, a bez niego do DL-a.
+    owner_id = await working_owner_id(db, job) if job is not None else None
+    recipient = await _operational_recipient(db, [owner_id, feedback.author_id])
     if recipient is not None:
         recipients = [recipient]
     elif job is not None:

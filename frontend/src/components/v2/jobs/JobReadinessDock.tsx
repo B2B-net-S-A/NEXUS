@@ -72,10 +72,13 @@ import {
 import {
   claimJob,
   hasRecruiter,
+  ownerIsPrevious,
+  previousRecruitersOf,
   proposedRecruiters,
   recruitersOf,
   workingRecruiters,
 } from "@/lib/job-team";
+import { PreviousRecruitersRow } from "@/components/v2/jobs/PreviousRecruitersRow";
 import { formatJobBudgetLabel } from "@/lib/job-budget";
 import { invalidateJobTeam } from "@/lib/job-team-cache";
 import { priorityLevelOf, type PrioritySource } from "@/lib/request-priority";
@@ -568,7 +571,8 @@ export function JobReadinessDock({
   const canClaim =
     canWritePipeline &&
     claimEligible &&
-    !hasActiveOwner(job.primary_owner) &&
+    // Prowadzący wśród „Poprzednich rekruterów” (14.10.2026) nie prowadzi.
+    (!hasActiveOwner(job.primary_owner) || ownerIsPrevious(job)) &&
     // Zamkniętej rekrutacji nikt już nie bierze (serwer odpowiada 409).
     job.status !== "closed" &&
     !claimMutation.isSuccess;
@@ -578,6 +582,7 @@ export function JobReadinessDock({
   const recruiters = recruitersOf(job);
   const workingNames = workingRecruiters(recruiters).map((person) => person.name);
   const proposedNames = proposedRecruiters(recruiters).map((person) => person.name);
+  const previousCount = previousRecruitersOf(job).length;
   const ownerItem: ReadinessItem = {
     key: "owner",
     done: hasRecruiter(recruiters),
@@ -587,6 +592,8 @@ export function JobReadinessDock({
         ? workingNames.join(", ")
         : proposedNames.length > 0
           ? `Bez rekrutera — propozycja automatu (${proposedNames.join(", ")}) czeka na akceptację Head of Recruitment.`
+          : previousCount > 0
+            ? "Bez rekrutera — poprzedni wrócą, gdy rekrutacja wróci na P1."
           : job.primary_owner && !hasActiveOwner(job.primary_owner)
             ? `Bez rekrutera — ${job.primary_owner.name} ma nieaktywne konto.`
             : "Bez rekrutera — nikt jeszcze nie pracuje nad tą rekrutacją.",
@@ -977,6 +984,17 @@ export function JobTeamTab({
   const queryClient = useQueryClient();
   // Ta sama reguła co nagłówek rekrutacji (plakietka priorytetu, fakt „Rekruter”).
   const { editScope, canSetPriority } = useJobTeamPermissions(job);
+  // „Poprzedni rekruter” (14.10.2026): usuwa z listy rola przydzielająca —
+  // ta sama reguła co „Zdejmij” w panelu zespołu (`can_staff`).
+  const authUser = useAuthStore((s) => s.user);
+  const impersonating = useAuthStore((s) => s.realUser !== null);
+  const staffCapability = useCapability("job.recruiter.assign");
+  const canStaff =
+    !impersonating &&
+    hasSectionAccess(authUser, "pipeline", "write") &&
+    (typeof job.can_staff === "boolean" ? job.can_staff : staffCapability);
+  const previous = previousRecruitersOf(job);
+  const closed = job.status === "closed";
 
   return (
     <div className="space-y-4">
@@ -992,6 +1010,20 @@ export function JobTeamTab({
         categoryId={job.competence_category_id ?? null}
         priorityLevel={priorityLevelOf(job)}
         canSetPriority={canSetPriority}
+        priorityTeam={{
+          workingNames: workingRecruiters(recruitersOf(job)).map((p) => p.name),
+          closed,
+        }}
+        previousRecruiters={
+          previous.length > 0 ? (
+            <PreviousRecruitersRow
+              jobId={jobId}
+              people={previous}
+              canStaff={canStaff}
+              closed={closed}
+            />
+          ) : undefined
+        }
         recruiters={
           <JobOwnershipPanel
             jobId={jobId}

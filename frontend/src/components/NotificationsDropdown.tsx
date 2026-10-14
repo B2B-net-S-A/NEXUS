@@ -47,6 +47,7 @@ import {
   ShieldAlert,
   Package,
   ListChecks,
+  History,
   Workflow,
   ClipboardList,
   BellOff,
@@ -453,6 +454,17 @@ const TYPE_CONFIG: Record<
   // 0371: automat przydziału requestów i requesty do decyzji DL.
   // „Nowy request do pracy” — po akceptacji propozycji albo przydziale automatu.
   request_assignment_changed: {
+    icon: <ListChecks className="w-3.5 h-3.5" />,
+    color: "text-primary",
+    bgColor: "bg-primary/15",
+  },
+  // „Poprzedni rekruter” (14.10.2026): rekrutacja zeszła z P1 / wróciła na P1.
+  recruiter_parked: {
+    icon: <History className="w-3.5 h-3.5" />,
+    color: "text-muted-foreground",
+    bgColor: "bg-muted",
+  },
+  recruiter_restored: {
     icon: <ListChecks className="w-3.5 h-3.5" />,
     color: "text-primary",
     bgColor: "bg-primary/15",

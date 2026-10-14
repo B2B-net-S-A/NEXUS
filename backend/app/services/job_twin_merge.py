@@ -548,6 +548,17 @@ async def _close_copy(
     if source.status == JobStatus.closed:
         return False
     api = job_lifecycle._api()  # noqa: SLF001 — to samo wejście co zamknięcie
+    # Lustro `close_job_core`: zespół duplikatu do „Poprzedni rekruter”.
+    from app.services.job_previous_recruiters import park_team  # noqa: PLC0415
+
+    await park_team(
+        db,
+        source,
+        reason="closed",
+        actor_id=actor_id,
+        notify=False,
+        release_assignments=False,
+    )
     source.status = JobStatus.closed
     source.is_open = False
     source.close_notes = f"Duplikat z Traffita — scalona z rekrutacją #{target.id}."

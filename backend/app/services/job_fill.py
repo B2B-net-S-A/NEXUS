@@ -128,9 +128,10 @@ async def suggest_closing_when_fully_staffed(db: AsyncSession, job: "Job") -> in
             )
             from app.services.notification_triggers import emit  # noqa: PLC0415
 
-            # Uczestnicy z kategorii nie dostają dzwonków rekrutacji (D7).
+            # Uczestnicy z kategorii nie dostają dzwonków rekrutacji (D7),
+            # „Poprzedni rekruterzy” też nie (14.10.2026).
             recipient_ids = await list_job_member_ids(
-                db, job_id, include_category_participants=False
+                db, job_id, include_category_participants=False, include_parked=False
             )
             title = f"Rekrutacja '{job.title}' ma komplet obsady"
             message = (
