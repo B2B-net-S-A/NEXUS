@@ -27,6 +27,8 @@ from app.services.employment_marker import (
 
 TODAY = date(2026, 10, 13)
 HIRED_AT = datetime(2022, 3, 1, 9, 0, tzinfo=timezone.utc)
+# Reguła umów bez reguły wieku etapu (`STALE_HIRE_DAYS`): „dziś” tuż po zatrudnieniu.
+SOON_AFTER_HIRE = date(2022, 4, 1)
 
 BANK = SimpleNamespace(id=5, name="Bank Przykładowy", display_name=None)
 TELEKOM = SimpleNamespace(id=7, name="Telekom Przykładowy", display_name=None)
@@ -139,7 +141,9 @@ def test_ended_contract_at_another_client_does_not_touch_the_hire():
         _contract(10, ContractStatus.ended, client=TELEKOM, end_date=date(2024, 6, 30))
     )
 
-    _, signals = rows_from_candidate(candidate)
+    # „Dziś” miesiąc po zatrudnieniu: test reguły umów, nie wieku etapu
+    # (zatrudnienie bez umowy starsze niż 12 miesięcy to historia, 14.10.2026).
+    _, signals = rows_from_candidate(candidate, today=SOON_AFTER_HIRE)
 
     assert [s.client_id for s in signals] == [5]
 
@@ -154,7 +158,10 @@ def test_hire_closed_by_contract_rule():
 
     def closed(*contracts, client_id=5, hired_at=HIRED_AT):
         return hire_closed_by_contract(
-            client_id=client_id, hired_at=hired_at, contracts=contracts
+            client_id=client_id,
+            hired_at=hired_at,
+            contracts=contracts,
+            today=SOON_AFTER_HIRE,
         )
 
     assert closed(ended_2024) is True

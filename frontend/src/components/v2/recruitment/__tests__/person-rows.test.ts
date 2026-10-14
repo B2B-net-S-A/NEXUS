@@ -152,8 +152,8 @@ describe("buildProcessRows", () => {
         .filter((b) => b.key === "auto-cv")
         .map((b) => [b.label, b.tone]);
     expect(cv(1)).toEqual([["CV w przygotowaniu…", "info"]]);
-    expect(cv(2)).toEqual([["CV gotowe · 3 do poprawy", "warning"]]);
-    expect(cv(3)).toEqual([["CV gotowe · bez uwag", "info"]]);
+    expect(cv(2)).toEqual([["CV gotowe · QC: 3 do poprawy", "warning"]]);
+    expect(cv(3)).toEqual([["CV gotowe · QC bez uwag", "info"]]);
     expect(cv(4)).toEqual([]);
   });
 

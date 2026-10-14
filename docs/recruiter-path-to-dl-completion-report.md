@@ -23,7 +23,7 @@ QC): 24 → 15 kliknięć; czekanie na CV i propozycje AI dzieje się w tle.
 | D5 | Po automacie QC i propozycje poprawek AI od razu; edytor i okno QC ładują propozycje same | `cv_auto_generate._prefetch_fixes`, `CvEditorIssues.tsx`, `CvQcDialog.tsx` |
 | D6 | Stopka edytora: „Uwaga dla Delivery Leada”, „Zapisz i przekaż do DL”, „Przekaż mimo uwag…”; uwaga na górze przeglądu DL | `CvEditorHandoffBar.tsx`, `CvHandoffWorkbench.tsx`, `dl_review.recruiter_handoff_remark`, `DlReviewPanel.tsx` |
 | D7 | Strzałka bez braków przesuwa od razu z „Cofnij” (ruch odroczony o 10 s); brak CV firmowego z „Zweryfikowany” = brak | `usePipelineMove.deferMove`, `board-card-badges.knownForwardGap` |
-| — | „Czeka u Delivery Leada od …” zamiast martwego „Przekaż Delivery Leadowi”; dzwonek-zadanie „QC CV do poprawy”; plakietki „CV w przygotowaniu…” / „CV gotowe · N do poprawy” | `move-primary.ts`, `MoveNextDialog.tsx`, `cv_qc.run_after_move` |
+| — | „Czeka u Delivery Leada od …” zamiast martwego „Przekaż Delivery Leadowi”; dzwonek-zadanie „QC CV do poprawy”; plakietki „CV w przygotowaniu…” / „CV gotowe · QC: N do poprawy” | `move-primary.ts`, `MoveNextDialog.tsx`, `cv_qc.run_after_move` |
 
 Gotowe CV i upload zostają (pytanie Artura 14.10): wybór CV z profilu, „Użyj innego
 CV”, wgranie CV firmowego z dysku i „Wgraj nowe CV” działają jak wcześniej; QC liczy

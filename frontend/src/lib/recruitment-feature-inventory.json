@@ -2389,7 +2389,7 @@
   {
    "id": "card.cv-state",
    "area": "pipeline",
-   "opis": "Plakietka CV na karcie w „Zweryfikowany”: „CV w przygotowaniu…”, „CV gotowe · N do poprawy”, „CV gotowe · bez uwag”",
+   "opis": "Plakietka CV na karcie w „Zweryfikowany”: „CV w przygotowaniu…”, „CV gotowe · QC: N do poprawy”, „CV gotowe · QC bez uwag”",
    "file": "lib/board-card-badges.ts",
    "marker": "cvStateBadge",
    "v3_home": "Tablica → karta w „Zweryfikowany”"

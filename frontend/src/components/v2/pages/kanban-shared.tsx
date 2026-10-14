@@ -228,7 +228,7 @@ export interface KanbanItem {
   /** Kiedy QC przeszło albo ktoś je przepuścił (ISO) — od tej chwili karta
    *  czeka na wysłanie do klienta. Brak = starszy serwer albo QC bez zaliczenia. */
   ok_at?: string | null;
-  /** Uwagi nieblokujące najnowszego przebiegu (14.10.2026) — „CV gotowe · N do poprawy”. */
+  /** Uwagi nieblokujące najnowszego przebiegu (14.10.2026) — „CV gotowe · QC: N do poprawy”. */
   warnings_count?: number;
  } | null;
  // Karta rekomendacji (0413): stan karty pary i liczba notatek „nie odebrał”.

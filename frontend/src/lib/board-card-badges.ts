@@ -224,7 +224,10 @@ export function dlWaitingStatus(item: KanbanItem | null | undefined, now: Date):
  * Jedna plakietka o CV firmowym — karta Tablicy i wiersz tabeli osób:
  * automat jeszcze pisze CV, CV jest i QC już je sprawdziło (ile do poprawy —
  * uwagi blokujące i nieblokujące razem), albo gotowe auto-CV czeka na
- * przegląd (QC jeszcze nie biegło). Wynik QC pokazujemy tylko na
+ * przegląd (QC jeszcze nie biegło). Liczba mówi „QC:” (14.10.2026): karta CV
+ * liczy więcej — QC, uwagi generatora i kontrolę AI („N rzeczy do
+ * sprawdzenia”), a goła liczba dawała na jednym ekranie dwie różne wartości
+ * (rekrutacja 789128: plakietka 1, karta 8). Wynik QC pokazujemy tylko na
  * „Zweryfikowanym” — w „QC CV” mówi o nim chip QC. `=== true`: odznaka
  * obiecuje gotowy dokument, więc brak pola (starszy serwer) jej nie daje.
  */
@@ -246,15 +249,17 @@ export function cvStateBadge(item: KanbanItem, column: BoardColumnKey | null): C
     return toFix > 0
       ? {
           key: "cv_state",
-          label: `CV gotowe · ${toFix} do poprawy`,
+          label: `CV gotowe · QC: ${toFix} do poprawy`,
           tone: "wait",
-          title: "CV firmowe jest gotowe, a QC znalazło rzeczy do poprawy — popraw je, zanim przekażesz osobę dalej.",
+          title:
+            "CV firmowe jest gotowe, a QC znalazło rzeczy do poprawy. Pełna lista (z uwagami generatora i kontrolą AI) jest w karcie CV.",
         }
       : {
           key: "cv_state",
-          label: "CV gotowe · bez uwag",
+          label: "CV gotowe · QC bez uwag",
           tone: "ok",
-          title: "CV firmowe jest gotowe i QC nie ma uwag — możesz przekazać osobę do „QC CV”.",
+          title:
+            "CV firmowe jest gotowe i QC nie ma uwag. Uwagi generatora i kontrolę AI pokazuje karta CV.",
         };
   }
   if (item.auto_cv_ready === true) {

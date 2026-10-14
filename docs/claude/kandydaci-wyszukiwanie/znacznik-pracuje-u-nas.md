@@ -142,3 +142,14 @@ końca”. Teraz obowiązuje:
 - **Dzwonek o zatrudnieniu też raz na parę** osoba–rekrutacja (cofnięcie
   z „Zatrudniony” i ponowne zatrudnienie nie dzwoni drugi raz). Liczy się tylko
   wcześniejszy dzwonek o zatrudnieniu — dzwonek o „CV wysłane” go nie zastępuje.
+- **„Zatrudniony” bez żadnej umowy u klienta liczy się 12 miesięcy (decyzja
+  Artura 14.10.2026).** Etap starszy niż `STALE_HIRE_DAYS` (365 dni), gdy osoba
+  nie ma u klienta tej rekrutacji ŻADNEJ umowy, nie daje już „Pracuje u nas”
+  (znacznik, stare pole `employment`, filtry `at_client` / `available`). Powód:
+  pomiar produkcji 14.10 — 85 osób na „Zatrudniony” bez umowy w NEXUSIE (80
+  z rekrutacji Traffita, 65 zatrudnionych ponad rok temu) „pracowało u nas”
+  na zawsze. Świeże zatrudnienie bez umowy (umowa dopiero powstaje) zostaje
+  sygnałem. Jakakolwiek umowa u klienta — trwająca albo zakończona — oddaje
+  sprawę regule umów (`hire_closed_by_contract`), nie wiekowi etapu. Lustro SQL
+  w `hire_closed_by_contract_clause(today)`; testy
+  `test_stale_hire_without_contract*.py`.

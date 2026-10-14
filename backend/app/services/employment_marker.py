@@ -61,6 +61,7 @@ from sqlalchemy import union_all
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
+from app.core.scheduling import business_today
 from app.models.candidate_conflict import CandidateConflict, ConflictType
 from app.models.client import Client
 from app.models.client_order import ClientOrder, ClientOrderStatus
@@ -202,11 +203,19 @@ def _closed_on(contract: Any) -> Optional[date]:
     return voided_at.date() if voided_at is not None else None
 
 
+# „Zatrudniony” bez żadnej umowy u klienta liczy się najwyżej tyle dni
+# (decyzja Artura 14.10.2026: 12 miesięcy). Umowa nowej osoby powstaje
+# w tygodniach, a starsze etapy bez umowy to głównie zatrudnienia z czasów
+# Traffita — 85 osób na produkcji 14.10.2026, 65 ponad rok temu.
+STALE_HIRE_DAYS = 365
+
+
 def hire_closed_by_contract(
     *,
     client_id: Optional[int],
     hired_at: Optional[datetime],
     contracts: Iterable[Any],
+    today: Optional[date] = None,
 ) -> bool:
     """Etap „Zatrudniony” u klienta jest już historią.
 
@@ -216,8 +225,12 @@ def hire_closed_by_contract(
     końca też zamyka — wiemy, że się skończyła. Umowa zakończona PRZED
     zatrudnieniem nie zamyka: to ponowne zatrudnienie u tego samego klienta.
 
+    Bez żadnej umowy u tego klienta etap jest historią, gdy minęło ponad
+    ``STALE_HIRE_DAYS`` dni od zatrudnienia (14.10.2026) — inaczej osoba
+    zatrudniona lata temu w Traffit „pracowała u nas” na zawsze.
+
     Lustro SQL: :func:`hire_closed_by_contract_clause`. Czyta je znacznik
-    i powinno czytać stare pole ``employment`` (niezmiennik znacznika).
+    i stare pole ``employment`` (niezmiennik znacznika).
     """
     if client_id is None:
         return False
@@ -226,6 +239,11 @@ def hire_closed_by_contract(
         for contract in contracts
         if getattr(contract, "client_id", None) == client_id
     ]
+    if not at_client:
+        if hired_at is None:
+            return False
+        today = today or business_today()
+        return hired_at.date() < today - timedelta(days=STALE_HIRE_DAYS)
     if any(contract.status in _OPEN_CONTRACT_STATUSES for contract in at_client):
         return False
     hired_on = hired_at.date() if hired_at is not None else None
@@ -392,7 +410,9 @@ def marker_client_ids(
 # ── Wiersze z relacji już wczytanych (lista kandydatów) ─────────────────────
 
 
-def rows_from_candidate(candidate: Any) -> tuple[list[ContractRow], list[SignalRow]]:
+def rows_from_candidate(
+    candidate: Any, today: Optional[date] = None
+) -> tuple[list[ContractRow], list[SignalRow]]:
     """Wiersze reguły z relacji wczytanych przez ``_candidate_list_options``.
 
     Lista kandydatów ma umowy, konflikty i etapy w pamięci — znacznik nie
@@ -441,6 +461,7 @@ def rows_from_candidate(candidate: Any) -> tuple[list[ContractRow], list[SignalR
             client_id=client.id if client else None,
             hired_at=stage.moved_at,
             contracts=candidate.contracts or [],
+            today=today,
         ):
             continue
         signals.append(
@@ -492,11 +513,13 @@ def _order_finished(order: Any = ClientOrder, *, today: date) -> Any:
     )
 
 
-def hire_closed_by_contract_clause() -> Any:
+def hire_closed_by_contract_clause(today: Optional[date] = None) -> Any:
     """Lustro SQL :func:`hire_closed_by_contract` dla zapytania po
     ``CandidateStage`` złączonym z ``Job`` (korelacja po obu)."""
     closed = aliased(Contract)
     still_open = aliased(Contract)
+    any_contract = aliased(Contract)
+    stale_before = (today or business_today()) - timedelta(days=STALE_HIRE_DAYS)
     closed_on = func.coalesce(
         closed.end_date, closed.terminated_at, cast(closed.voided_at, Date)
     )
@@ -522,10 +545,24 @@ def hire_closed_by_contract_clause() -> Any:
         )
         .exists()
     )
-    return and_(closed_after_hire, ~open_at_client)
+    contract_at_client = (
+        select(1)
+        .where(
+            any_contract.candidate_id == CandidateStage.candidate_id,
+            any_contract.client_id == Job.client_id,
+        )
+        .exists()
+    )
+    return or_(
+        and_(closed_after_hire, ~open_at_client),
+        and_(
+            ~contract_at_client,
+            cast(CandidateStage.moved_at, Date) < stale_before,
+        ),
+    )
 
 
-def current_hired_signal_exists(candidate_id: Any) -> Any:
+def current_hired_signal_exists(candidate_id: Any, today: Optional[date] = None) -> Any:
     """``EXISTS``: osoba stoi dziś na „Zatrudniony”, a umowa u klienta tej
     rekrutacji tego nie zamknęła — sygnał ``pipeline`` znacznika.
 
@@ -539,14 +576,14 @@ def current_hired_signal_exists(candidate_id: Any) -> Any:
         .where(
             CandidateStage.candidate_id == candidate_id,
             current_hired_stage_clause(),
-            ~hire_closed_by_contract_clause(),
+            ~hire_closed_by_contract_clause(today),
         )
         .exists()
     )
 
 
 async def _load_source_rows(
-    db: AsyncSession, candidate_ids: Sequence[int]
+    db: AsyncSession, candidate_ids: Sequence[int], today: Optional[date] = None
 ) -> tuple[list[ContractRow], list[SignalRow]]:
     name = client_display_name_expression()
     contracts_q = (
@@ -597,7 +634,7 @@ async def _load_source_rows(
         .where(
             CandidateStage.candidate_id.in_(candidate_ids),
             current_hired_stage_clause(),
-            ~hire_closed_by_contract_clause(),
+            ~hire_closed_by_contract_clause(today),
         )
     )
     rows = (await db.execute(union_all(contracts_q, conflicts_q, hired_q))).all()
@@ -757,7 +794,7 @@ async def load_employment_markers(
     out: dict[int, Optional[EmploymentMarker]] = {cid: None for cid in ids}
     if not ids:
         return out
-    contracts, signals = await _load_source_rows(db, ids)
+    contracts, signals = await _load_source_rows(db, ids, today)
     family = await job_client_family(db, job_client_id)
     out.update(
         await markers_from_rows(
