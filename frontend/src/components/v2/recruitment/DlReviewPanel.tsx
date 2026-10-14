@@ -91,7 +91,12 @@ import { invalidateAfterPipelineVersionConflict } from "@/lib/pipeline-version-c
 import type { PipelineMovePayload } from "@/lib/pipeline-move-core";
 import { usePipelineMoveCore } from "@/hooks/usePipelineMoveCore";
 import { hasPermission, permissionLabel } from "@/lib/permissions";
-import { loadJobRejectionReasons } from "@/lib/rejection-reasons";
+import { loadJobRejectionReasons, WORK_MODE_MISMATCH_REASON } from "@/lib/rejection-reasons";
+import { RejectionWorkModeField } from "@/components/v2/modals/RejectionWorkModeField";
+import {
+  useRejectionProfileWorkMode,
+  useRejectionWorkModeJob,
+} from "@/hooks/useRejectionWorkModeContext";
 import { useElementWidth } from "@/lib/use-element-width";
 import { cn, formatDate } from "@/lib/utils";
 import { getUserRoles, useAuthStore } from "@/store/auth";
@@ -348,6 +353,10 @@ export function DlReviewBody({
   const [rejecting, setRejecting] = useState(false);
   const [reasonId, setReasonId] = useState("");
   const [freeReason, setFreeReason] = useState("");
+  // „Nie akceptuje trybu pracy” (14.10.2026): to samo pytanie co w oknie
+  // odrzucenia — domyślnie „Tylko zdalnie” z zapisem na profilu.
+  const [officeDays, setOfficeDays] = useState(0);
+  const [saveWorkMode, setSaveWorkMode] = useState(true);
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState<PendingAction | null>(null);
   const [warning, setWarning] = useState<{ action: PendingAction; reason: string } | null>(null);
@@ -446,6 +455,10 @@ export function DlReviewBody({
     () => (reasons.data ?? []).filter((r) => r.applies_to.includes("rejected")),
     [reasons.data],
   );
+  const workModeReason =
+    rejectedReasons.find((r) => r.id === reasonId)?.name === WORK_MODE_MISMATCH_REASON;
+  const workModeJob = useRejectionWorkModeJob(jobId, rejecting);
+  const profileWorkMode = useRejectionProfileWorkMode(task.candidate_id, rejecting);
 
   // „W tej rekrutacji” (0414): stawka z wiersza weryfikacji, a bez niej —
   // ze screeningu tej pary (PLN/h). Obok „Stawka od” (najniższa z 18 miesięcy),
@@ -522,6 +535,12 @@ export function DlReviewBody({
         ended_by: "delivery_lead",
         rejection_reason_id: reasonId ? Number(reasonId) : undefined,
         rejection_reason: !reasonId && freeReason.trim() ? freeReason.trim() : undefined,
+        ...(workModeReason
+          ? {
+              work_mode_max_onsite_days: officeDays,
+              work_mode_save_to_profile: saveWorkMode,
+            }
+          : {}),
       });
     }
     if (sentRemark) payload.recruiter_remark = sentRemark;
@@ -901,6 +920,18 @@ export function DlReviewBody({
                   />
                 </label>
               )}
+              {workModeReason ? (
+                <RejectionWorkModeField
+                  job={workModeJob}
+                  profile={profileWorkMode}
+                  several={false}
+                  days={officeDays}
+                  onDaysChange={setOfficeDays}
+                  saveToProfile={saveWorkMode}
+                  onSaveToProfileChange={setSaveWorkMode}
+                  inset={false}
+                />
+              ) : null}
               <div className="flex justify-end gap-2">
                 <Button size="sm" variant="ghost" onClick={() => setRejecting(false)} disabled={busy !== null}>
                   Anuluj

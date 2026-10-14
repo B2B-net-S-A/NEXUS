@@ -1265,6 +1265,8 @@ export const matchingApi = {
           | "ok"
           | "days_exceeded"
           | "over_consented"
+          // Za mało dni, bo kandydat chce tylko zdalnie — mówi to `remote_fit`.
+          | "remote_only"
           | "city_mismatch"
           | "unknown"
           | "not_required";

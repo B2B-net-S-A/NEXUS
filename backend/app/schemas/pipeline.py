@@ -56,6 +56,12 @@ class StageMove(BaseModel):
     # przy tytule rekrutacji do 255 znaków ma ~276 (przegląd PR #2185).
     rejection_email_subject: Optional[str] = Field(None, max_length=998)
     rejection_email_body: Optional[str] = Field(None, max_length=5000)
+    # Powód „Nie akceptuje trybu pracy” (`work_mode_mismatch`, 14.10.2026):
+    # ile dni w biurze kandydat akceptuje (0 = tylko zdalnie). Przy tym
+    # powodzie wymagane, przy każdym innym → 422. `save_to_profile` = zapis
+    # trybu pracy na profilu (ptaszek w oknie, domyślnie włączony).
+    work_mode_max_onsite_days: Optional[int] = Field(None, ge=0, le=4)
+    work_mode_save_to_profile: bool = True
 
     # ── Stawka kandydata przy ruchu na `verified` (0056, zmiana 17.09.2026) ─
     # OPCJONALNA. Do 17.09.2026 brak stawki dawał 422, a stawka ponad

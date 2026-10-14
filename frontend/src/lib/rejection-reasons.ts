@@ -15,9 +15,16 @@
 
 import api, { pipelineTemplatesApi, type RejectionReasonDef } from "@/lib/api";
 
+/** Klucz powodu „Nie akceptuje trybu pracy” (0442) — lustro
+ *  `rejection_reason_labels.WORK_MODE_MISMATCH`. Okno odrzucenia pyta przy nim,
+ *  ile dni w biurze kandydat akceptuje, a serwer zapisuje to na profilu. */
+export const WORK_MODE_MISMATCH_REASON = "work_mode_mismatch";
+
 export interface RejectionReasonOption {
   id: string;
   label: string;
+  /** Klucz danych powodu (`rejection_reasons.name`). */
+  name?: string;
   applies_to: ("rejected" | "withdrawn")[];
   /**
    * Czy ten powód jest werdyktem o OSOBIE — tylko takie blokują ponowne
@@ -48,6 +55,7 @@ export function mapRejectionReasons(
     .map((r) => ({
       id: String(r.id),
       label: rejectionReasonLabel(r),
+      name: r.name,
       applies_to: [r.category as "rejected" | "withdrawn"],
       disqualifies_person: Boolean(r.disqualifies_person),
     }));

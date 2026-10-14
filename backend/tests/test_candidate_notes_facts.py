@@ -175,6 +175,73 @@ def test_changing_office_limit_clears_consent_for_more_days():
     assert filled.accepts_more_office_days is None
 
 
+def _rejection_kwargs(**kw):
+    base = dict(
+        job_id=11,
+        job_title="Java Developer",
+        stage_id=22,
+        user_id=33,
+        user_name="Rekruter A",
+        at_iso="2026-10-14T10:00:00+00:00",
+    )
+    base.update(kw)
+    return base
+
+
+def test_rejection_writes_work_mode_with_origin_and_clears_consent():
+    """14.10.2026: odrzucenie „Nie akceptuje trybu pracy” nadpisuje profil."""
+    from app.services.candidate_notes_facts import (
+        WORK_MODE_ORIGIN_KEY,
+        set_work_mode_from_rejection,
+    )
+
+    cand = _cand(
+        preferences={"remote_modes": ["remote", "hybrid"], "industries": ["fintech"]},
+        max_onsite_days_per_week=0,
+        accepts_more_office_days=True,
+    )
+    change = set_work_mode_from_rejection(
+        cand, max_onsite_days=0, **_rejection_kwargs()
+    )
+    assert change["after"] == {"modes": ["remote"], "max_onsite_days": 0}
+    assert cand.preferences["industries"] == ["fintech"]  # reszta preferencji zostaje
+    # Ten sam limit (0), ale kandydat właśnie odmówił biura — zgoda przepada.
+    assert cand.accepts_more_office_days is None
+    assert cand.preferences[WORK_MODE_ORIGIN_KEY] == {
+        "source": "rejection",
+        "job_id": 11,
+        "job_title": "Java Developer",
+        "stage_id": 22,
+        "by_user_id": 33,
+        "by_name": "Rekruter A",
+        "at": "2026-10-14T10:00:00+00:00",
+    }
+
+
+def test_rejection_with_office_days_keeps_hybrid():
+    from app.services.candidate_notes_facts import set_work_mode_from_rejection
+
+    cand = _cand()
+    set_work_mode_from_rejection(cand, max_onsite_days=2, **_rejection_kwargs())
+    assert cand.preferences["remote_modes"] == ["remote", "hybrid"]
+    assert cand.max_onsite_days_per_week == 2
+
+
+def test_another_work_mode_change_drops_rejection_origin_but_same_value_keeps_it():
+    from app.services.candidate_notes_facts import (
+        WORK_MODE_ORIGIN_KEY,
+        set_profile_work_mode,
+        set_work_mode_from_rejection,
+    )
+
+    cand = _cand()
+    set_work_mode_from_rejection(cand, max_onsite_days=0, **_rejection_kwargs())
+    set_profile_work_mode(cand, modes=["remote"], max_onsite_days=0)
+    assert WORK_MODE_ORIGIN_KEY in cand.preferences
+    set_profile_work_mode(cand, modes=["remote", "hybrid"], max_onsite_days=1)
+    assert WORK_MODE_ORIGIN_KEY not in cand.preferences
+
+
 def test_work_mode_fill_is_per_field():
     cand = _cand(preferences={"remote_modes": ["remote"]})
     stats = fill_work_mode_from_notes(

@@ -158,6 +158,25 @@ describe("CandidateProfileFactsBar", () => {
     prepareApi();
   });
 
+  it("tryb pracy z odrzucenia pokazuje źródło: data i rekrutacja (14.10.2026)", () => {
+    renderBar({
+      preferences: {
+        remote_modes: ["remote"],
+        _work_mode_origin: {
+          source: "rejection",
+          at: "2026-10-14T08:30:00+00:00",
+          job_title: "Java Developer",
+          by_name: "Rekruter A",
+        },
+      },
+      max_onsite_days_per_week: 0,
+    });
+    expect(screen.getByText("Tylko zdalnie")).toBeInTheDocument();
+    expect(
+      screen.getByText("z odrzucenia · 14.10.2026 · Java Developer"),
+    ).toHaveAttribute("data-fact-origin");
+  });
+
   it("pod wartością z profilu pokazuje, co i kiedy ustalono w rozmowie, oraz narodowość ze screeningu", async () => {
     const fact = (key: string, label: string, raw: string, extra: object = {}) => ({
       key,

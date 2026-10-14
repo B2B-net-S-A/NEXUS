@@ -154,17 +154,23 @@ def work_time_fit_status(candidate, inputs: "DealbreakerInputs") -> str:
 
 
 def remote_only_refuses_office(candidate) -> bool:
-    """True tylko przy POZYTYWNYM „wyłącznie zdalnie" z notatek.
+    """True tylko przy POZYTYWNYM „wyłącznie zdalnie" — z profilu albo z notatek.
 
-    Źródło: ``_notes_insights.preferences.remote_only`` — pole strukturalne
-    ekstrakcji rozmów (True u 1 382 kandydatów, False u 5 893; reszta to
-    nieznane i PRZECHODZI). Świadomie nie zgadujemy z wolnego tekstu.
+    Źródła: profil (0 dni w biurze albo sam tryb „zdalnie”) i
+    ``_notes_insights.preferences.remote_only`` — pole strukturalne ekstrakcji
+    rozmów (True u 1 382 kandydatów, False u 5 893; reszta to nieznane
+    i PRZECHODZI). Świadomie nie zgadujemy z wolnego tekstu.
 
     Runda 9 (R9-N8-6): notatka jest słabszym źródłem niż profil. Profil,
     który jej przeczy — tryb hybrydowy/stacjonarny, limit dni w biurze większy
     od zera albo zgoda na więcej dni — wygrywa; o biurze decyduje wtedy bramka
-    dni (``office_days_exceeded``). Profil „tylko zdalnie” (zwykle uzupełniony
-    z tej samej notatki) niczego nie zmienia.
+    dni (``office_days_exceeded``).
+
+    D4 (14.10.2026): profil „tylko zdalnie” waży tyle samo co notatka. Pisze
+    go odrzucenie „Nie akceptuje trybu pracy”, telefon praktykanta albo
+    rekruter ołówkiem — wcześniej taki profil przy rekrutacji hybrydowej bez
+    liczby dni nie dawał żadnego ostrzeżenia. Pomiar 14.10: 1 607 profili
+    „tylko zdalnie”, z czego 286 bez tego samego w notatkach.
     """
     from app.services.location_utils import _notes_insights_dict
 
@@ -179,6 +185,10 @@ def remote_only_refuses_office(candidate) -> bool:
     )
     if isinstance(modes, list) and {"hybrid", "onsite"} & set(modes):
         return False
+    if days == 0 and not isinstance(days, bool):
+        return True
+    if isinstance(modes, list) and modes == ["remote"]:
+        return True
     ins = _notes_insights_dict(candidate)
     if ins is None:
         return False
@@ -701,19 +711,23 @@ def rate_fit_status(candidate, inputs: DealbreakerInputs) -> str:
 
 
 def office_fit_status(candidate, inputs: DealbreakerInputs) -> str:
-    """`"ok" | "days_exceeded" | "over_consented" | "city_mismatch" | "unknown" |
-    "not_required"`.
+    """`"ok" | "days_exceeded" | "over_consented" | "remote_only" |
+    "city_mismatch" | "unknown" | "not_required"`.
 
     `"not_required"` gdy oferta w ogóle nie wymaga jawnej liczby dni w biurze —
     odróżnia „biuro nas nie dotyczy" od „nie wiemy, ile dni". `"over_consented"`:
     oferta chce więcej dni niż deklaracja kandydata, ale kandydat zgodził się
-    w rozmowie na telefon z taką ofertą.
+    w rozmowie na telefon z taką ofertą. `"remote_only"` (14.10.2026): za mało
+    dni, bo kandydat chce tylko zdalnie — mówi to już plakietka
+    `remote_fit_status`, więc dni nie dają drugiej („Mniej dni w biurze”).
     """
     if not inputs.requires_office_days:
         return "not_required"
     if office_days_exceeded(candidate, inputs.onsite_days_per_week):
         if candidate_consents_more_office_days(candidate):
             return "over_consented"
+        if remote_fit_status(candidate, inputs) == "prefers_remote":
+            return "remote_only"
         return "days_exceeded"
     if office_city_mismatch(
         candidate, inputs.office_tokens, required_days=inputs.onsite_days_per_week

@@ -49,6 +49,7 @@ from app.services.board_stage_badges import (
 from app.services import (
     champion_view,
     move_requirements,
+    rejection_reason_labels,
     screening_fix_requests,
     stage_handoff_recipients,
     stage_remarks,
@@ -641,6 +642,55 @@ async def _record_rate_from_move(
             )
             await db.flush()
     await recompute_safely(db, [candidate_id])
+
+
+async def _record_work_mode_from_rejection(
+    db: AsyncSession,
+    *,
+    candidate_id: int,
+    job: Job,
+    stage: CandidateStage,
+    max_onsite_days: int,
+    user: User,
+) -> None:
+    """Odrzucenie „Nie akceptuje trybu pracy” zapisuje tryb pracy na profilu.
+
+    Ta sama ścieżka co ołówek „Tryb pracy” na profilu (audyt
+    ``candidate_work_mode_changed``, odświeżenie wyników dopasowań), tylko ze
+    źródłem — rekrutacja i etap, z którego przyszła deklaracja.
+    """
+    from app.services.candidate_notes_facts import set_work_mode_from_rejection
+    from app.services.match_score_cache import mark_stale_for_candidate
+
+    candidate = await db.scalar(
+        select(Candidate).where(Candidate.id == candidate_id).with_for_update()
+    )
+    if candidate is None:
+        return
+    job_title = job.working_title or job.title
+    change = set_work_mode_from_rejection(
+        candidate,
+        max_onsite_days=max_onsite_days,
+        job_id=job.id,
+        job_title=job_title,
+        stage_id=stage.id,
+        user_id=user.id,
+        user_name=user.name,
+        at_iso=stage.moved_at.isoformat(),
+    )
+    candidate_audit.record_candidate_audit(
+        db,
+        action=candidate_audit.WORK_MODE_CHANGED,
+        user_id=user.id,
+        entity_id=candidate_id,
+        details={
+            **change,
+            "source": "rejection",
+            "job_id": job.id,
+            "stage_id": stage.id,
+        },
+    )
+    await mark_stale_for_candidate(db, candidate_id)
 
 
 def _stage_response(
@@ -1491,6 +1541,7 @@ async def move_candidate(
     # M4 PR-02 (audyt P1.1): walidacja powodu ZAWSZE gdy podany — dotąd
     # legacy `rejected` zapisywał dowolny FK bez sprawdzenia template'u,
     # kategorii i stage-bindingu.
+    reason: Optional[RejectionReason] = None
     if data.rejection_reason_id:
         reason = await db.scalar(
             select(RejectionReason).where(
@@ -1544,6 +1595,25 @@ async def move_candidate(
                 status_code=422,
                 detail="Powód jest przypisany do innego etapu.",
             )
+    # Powód „Nie akceptuje trybu pracy” (14.10.2026): liczba dni w biurze,
+    # które kandydat akceptuje, jest przy nim obowiązkowa (trafia na profil),
+    # a przy każdym innym ruchu nie ma czego zapisać.
+    work_mode_rejection = (
+        reason is not None and reason.name == rejection_reason_labels.WORK_MODE_MISMATCH
+    )
+    if work_mode_rejection and data.work_mode_max_onsite_days is None:
+        raise HTTPException(
+            status_code=422,
+            detail="Podaj, ile dni w biurze kandydat akceptuje.",
+        )
+    if not work_mode_rejection and data.work_mode_max_onsite_days is not None:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "Liczbę dni w biurze podaje się tylko przy powodzie "
+                "„Nie akceptuje trybu pracy”."
+            ),
+        )
 
     # ── Stawka przy ruchu na `verified` (0056; bramka zdjęta 17.09.2026) ──
     # Stawka jest OPCJONALNA i NIGDY nie ustawia `pending` (decyzja właściciela:
@@ -1667,6 +1737,15 @@ async def move_candidate(
             currency=expected_rate_currency,
             is_minimum=data.expected_rate_is_minimum,
             actor_id=current_user.id,
+        )
+    if work_mode_rejection and data.work_mode_save_to_profile:
+        await _record_work_mode_from_rejection(
+            db,
+            candidate_id=data.candidate_id,
+            job=job,
+            stage=stage,
+            max_onsite_days=data.work_mode_max_onsite_days,
+            user=current_user,
         )
     stage_remarks.record(
         db, stage=stage, author_id=current_user.id, text=data.recruiter_remark

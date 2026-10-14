@@ -6504,15 +6504,22 @@ async def update_candidate(
                 status_code=status.HTTP_409_CONFLICT, detail=duplicate_message
             )
 
+    from app.services.candidate_notes_facts import (
+        drop_work_mode_origin_if_changed,
+        profile_work_mode,
+        set_office_days_limit,
+    )
+
+    work_mode_before = profile_work_mode(candidate)
     office_days = updates.pop("max_onsite_days_per_week", _MISSING)
     for field, value in updates.items():
         setattr(candidate, field, value)
     if office_days is not _MISSING:
-        from app.services.candidate_notes_facts import set_office_days_limit
-
         # Runda 9 (R9-N8-5): zmiana limitu dni czyści zgodę na więcej dni.
         set_office_days_limit(candidate, office_days)
         updates["max_onsite_days_per_week"] = office_days
+    # Ręczna zmiana trybu pracy zdejmuje „z odrzucenia · …” (14.10.2026).
+    drop_work_mode_origin_if_changed(candidate, work_mode_before)
     activity = Activity(
         entity_type="candidate",
         entity_id=candidate.id,

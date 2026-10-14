@@ -162,6 +162,8 @@ interface HarnessOptions {
   /** Tablica tylko do odczytu, m.in. w podglądzie jako inny użytkownik. */
   readOnly?: boolean;
   onVerifiedRequirementsMissing?: UsePipelineMoveOptions["onVerifiedRequirementsMissing"];
+  /** Słownik powodów okna odrzucenia — domyślnie pusty (wolny tekst). */
+  rejectionReasons?: UsePipelineMoveOptions["job"]["rejectionReasons"];
 }
 
 function Harness({
@@ -175,7 +177,7 @@ function Harness({
 }) {
   controls = usePipelineMove({
     jobId: JOB_ID,
-    job: { budgetHourly: 150, rejectionReasons: [] },
+    job: { budgetHourly: 150, rejectionReasons: options.rejectionReasons ?? [] },
     columns,
     readOnly: options.readOnly ?? false,
     canWriteClientRate: false,
@@ -828,6 +830,55 @@ describe("usePipelineMove — odrzucenie z notatką startową", () => {
     fireEvent.click(screen.getByRole("button", { name: "Potwierdź" }));
     await waitFor(() => expect(post).toHaveBeenCalledTimes(1));
     expect(post.mock.calls[0][1].notes).toContain("Odpada, gdy: brak Javy");
+  });
+});
+
+describe("usePipelineMove — odrzucenie za tryb pracy (14.10.2026)", () => {
+  const reasons = [
+    {
+      id: "9",
+      name: "work_mode_mismatch",
+      label: "Nie akceptuje trybu pracy (biuro / hybryda)",
+      applies_to: ["rejected" as const],
+    },
+  ];
+
+  it("wysyła dni w biurze i zapis na profilu przy każdej odrzucanej osobie", async () => {
+    const items = [1, 2].map((n) =>
+      card({ id: 40 + n, candidate_id: 400 + n, stage: "client_interview" })
+    );
+    const b = board({ client: items });
+    post.mockResolvedValue({ data: { id: 800 } });
+    mount(b.all, undefined, { rejectionReasons: reasons });
+
+    React.act(() => controls.requestReject(items));
+    fireEvent.click(await screen.findByText("Nie akceptuje trybu pracy (biuro / hybryda)"));
+    fireEvent.click(screen.getByText("Do 1 dnia"));
+    fireEvent.click(screen.getByRole("button", { name: "Potwierdź" }));
+
+    await waitFor(() => expect(post).toHaveBeenCalledTimes(2));
+    for (const call of post.mock.calls) {
+      expect(call[1]).toMatchObject({
+        rejection_reason_id: "9",
+        work_mode_max_onsite_days: 1,
+        work_mode_save_to_profile: true,
+      });
+    }
+  });
+
+  it("inny ruch nie niesie pól trybu pracy", async () => {
+    const item = card({ id: 50, candidate_id: 500, stage: "client_interview" });
+    const b = board({ client: [item] });
+    post.mockResolvedValue({ data: { id: 801 } });
+    mount(b.all);
+
+    React.act(() => controls.requestReject(item));
+    const reason = await screen.findByPlaceholderText(/brak wymaganych kompetencji/);
+    fireEvent.change(reason, { target: { value: "Za wysoka stawka" } });
+    fireEvent.click(screen.getByRole("button", { name: "Potwierdź" }));
+    await waitFor(() => expect(post).toHaveBeenCalledTimes(1));
+    expect(post.mock.calls[0][1].work_mode_max_onsite_days).toBeUndefined();
+    expect(post.mock.calls[0][1].work_mode_save_to_profile).toBeUndefined();
   });
 });
 

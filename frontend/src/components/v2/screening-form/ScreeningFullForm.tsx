@@ -42,6 +42,11 @@ import { ScreeningReassignSuggestions } from "@/components/v2/jobs/ScreeningReas
 import { RejectionV2, type CandidateOfferResponse } from "@/components/v2/modals/RejectionV2";
 import type { RejectionEmailText } from "@/lib/rejection-email";
 import { candidateQueryKeys } from "@/components/v2/pages/candidate-query-keys";
+import type { RejectionWorkModeChoice } from "@/components/v2/modals/RejectionWorkModeField";
+import {
+  useRejectionProfileWorkMode,
+  useRejectionWorkModeJob,
+} from "@/hooks/useRejectionWorkModeContext";
 import { PhraseAllBar } from "@/components/v2/screening/PhraseAllBar";
 import {
   PhraseButton,
@@ -1097,6 +1102,9 @@ export function ScreeningFullForm({
     staleTime: 60_000,
   });
   const profileWorkMode = onsiteText(profileQuery.data?.max_onsite_days_per_week);
+  // Okno odrzucenia: pytanie o dni w biurze przy „Nie akceptuje trybu pracy”.
+  const rejectWorkModeJob = useRejectionWorkModeJob(jobId, rejectOpen);
+  const rejectProfileWorkMode = useRejectionProfileWorkMode(candidateId, rejectOpen);
 
   const handleSaveError = (err: unknown) => {
     const conflict = screeningFormConflictOf(err);
@@ -1291,6 +1299,7 @@ export function ScreeningFullForm({
       freeReason?: string;
       followUp?: RejectFollowUp;
       emailText?: RejectionEmailText | null;
+      workMode?: RejectionWorkModeChoice | null;
     }) => {
       if (!reject || !state) throw new Error("Brak etapu docelowego.");
       return moveCore.send(
@@ -1305,6 +1314,8 @@ export function ScreeningFullForm({
           send_rejection_email: vars.sendRejectionEmail ?? undefined,
           rejection_email_subject: vars.emailText?.subject,
           rejection_email_body: vars.emailText?.body,
+          work_mode_max_onsite_days: vars.workMode?.maxOnsiteDays,
+          work_mode_save_to_profile: vars.workMode?.saveToProfile,
           candidate_offer_response: vars.offerResponse ?? undefined,
           expected_state_version: state.process_state_version,
         },
@@ -1535,6 +1546,8 @@ export function ScreeningFullForm({
           nextPerson={rejectSnapshot ? rejectSnapshot.next : undefined}
           emailPreview={{ jobId, people: [{ candidateId, name: candidateName }] }}
           pending={rejectMut.isPending}
+          workModeJob={rejectWorkModeJob}
+          profileWorkMode={rejectProfileWorkMode}
           onConfirm={(
             reasonId,
             notes,
@@ -1544,6 +1557,7 @@ export function ScreeningFullForm({
             _endedBy,
             _cancelAgreementId,
             emailText,
+            workMode,
           ) =>
             rejectMut.mutate({
               reasonId,
@@ -1553,6 +1567,7 @@ export function ScreeningFullForm({
               freeReason,
               followUp: rejectSnapshot,
               emailText,
+              workMode,
             })
           }
         />
