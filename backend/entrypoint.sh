@@ -8078,7 +8078,7 @@ SELECT 'job', id, 'archived',
      WHERE job_collaborators.source <> 'manual'::jobcollaboratorsource
         OR job_collaborators.removed_from_auto_cc
 """,
-    # 0441 — jednorazowo: powód „Nie akceptuje trybu pracy” w każdym szablonie
+    # 0442 — jednorazowo: powód „Nie akceptuje trybu pracy” w każdym szablonie
     # (odrzucenie i rezygnacja), tuż przed „Inne”. Marker w tym samym
     # statemencie: bez niego każdy start przywracałby powód skasowany przez
     # admina. Lustro migracji (pilnuje `test_work_mode_rejection_reason_seed.py`).

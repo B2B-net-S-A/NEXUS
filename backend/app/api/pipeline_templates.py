@@ -153,7 +153,7 @@ async def get_template(
         .where(
             RejectionReason.template_id == template_id, RejectionReason.active.is_(True)
         )
-        # `id` rozstrzyga remis kolejności (0441 stawia nowy powód z tą samą
+        # `id` rozstrzyga remis kolejności (0442 stawia nowy powód z tą samą
         # wartością co poprzedni, żeby stał tuż przed „Inne”).
         .order_by(RejectionReason.category, RejectionReason.order, RejectionReason.id)
     )

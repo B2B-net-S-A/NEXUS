@@ -1,4 +1,4 @@
-"""Migracja 0441 (powód „Nie akceptuje trybu pracy”) i jej lustro w ``entrypoint.sh``.
+"""Migracja 0442 (powód „Nie akceptuje trybu pracy”) i jej lustro w ``entrypoint.sh``.
 
 Prod alembic bywa osierocony — ``_DATA_STATEMENTS`` JEST wdrożeniem, więc
 seed musi tam być, musi być jednorazowy (marker w tym samym statemencie,
@@ -21,12 +21,12 @@ from app.services.rejection_reason_labels import (
 _BACKEND = Path(__file__).resolve().parents[1]
 _ENTRYPOINT = (_BACKEND / "entrypoint.sh").read_text(encoding="utf-8")
 _MIGRATION_PATH = (
-    _BACKEND / "alembic" / "versions" / "0441_work_mode_rejection_reason.py"
+    _BACKEND / "alembic" / "versions" / "0442_work_mode_rejection_reason.py"
 )
 
 
 def _migration():
-    spec = importlib.util.spec_from_file_location("m0441", _MIGRATION_PATH)
+    spec = importlib.util.spec_from_file_location("m0442", _MIGRATION_PATH)
     module = importlib.util.module_from_spec(spec)
     assert spec.loader is not None
     spec.loader.exec_module(module)

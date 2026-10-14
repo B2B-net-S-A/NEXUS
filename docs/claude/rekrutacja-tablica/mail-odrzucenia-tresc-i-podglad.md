@@ -89,7 +89,7 @@ informacja ginęła dla wyszukiwania.
   PO KLUCZU (`WORK_MODE_MISMATCH`, front `WORK_MODE_MISMATCH_REASON`), jak
   `counter_offer` w ocenie ryzyka — nie zmieniaj nazwy wiersza w bazie.
 - Jest w każdym szablonie procesu, w odrzuceniu i w rezygnacji kandydata,
-  tuż przed „Inne” (migracja 0441 + lustro w `entrypoint.sh`, jednorazowe
+  tuż przed „Inne” (migracja 0442 + lustro w `entrypoint.sh`, jednorazowe
   przez marker `work_mode_rejection_reason_seeded`, żeby start nie
   przywracał powodu skasowanego przez admina). Lista powodów sortuje się
   `order, id`.

@@ -1,7 +1,7 @@
 """Powód „Nie akceptuje trybu pracy” w każdym szablonie procesu.
 
-Revision ID: 0441_work_mode_rejection_reason
-Revises: 0440_cv_ready_notification
+Revision ID: 0442_work_mode_rejection_reason
+Revises: 0441_cv_text_align
 
 Decyzja Artura 14.10.2026 (propozycja rekrutera): przy odrzuceniu i przy
 rezygnacji kandydata jest powód ``work_mode_mismatch`` („Nie akceptuje trybu
@@ -19,8 +19,8 @@ Powód nie jest werdyktem o osobie (``disqualifies_person = false``).
 
 from alembic import op
 
-revision = "0441_work_mode_rejection_reason"
-down_revision = "0440_cv_ready_notification"
+revision = "0442_work_mode_rejection_reason"
+down_revision = "0441_cv_text_align"
 branch_labels = None
 depends_on = None
 
@@ -53,7 +53,7 @@ BEGIN
         JOIN rejection_reasons r ON r.id = s.rejection_reason_id
         WHERE r.name = 'work_mode_mismatch'
     ) THEN
-        RAISE EXCEPTION 'Downgrade 0441 odmawia: są ruchy z powodem work_mode_mismatch.';
+        RAISE EXCEPTION 'Downgrade 0442 odmawia: są ruchy z powodem work_mode_mismatch.';
     END IF;
 END $$"""
 

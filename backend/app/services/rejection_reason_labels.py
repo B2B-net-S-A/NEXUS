@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-# „Nie akceptuje trybu pracy” (14.10.2026, migracja 0441): jedyny powód, który
+# „Nie akceptuje trybu pracy” (14.10.2026, migracja 0442): jedyny powód, który
 # coś zapisuje poza procesem — tryb pracy na profilu kandydata
 # (`candidate_notes_facts.set_work_mode_from_rejection`). Rozpoznawany po
 # kluczu, jak `counter_offer` w ocenie ryzyka.

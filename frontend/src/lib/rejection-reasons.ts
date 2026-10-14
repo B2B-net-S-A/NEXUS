@@ -15,7 +15,7 @@
 
 import api, { pipelineTemplatesApi, type RejectionReasonDef } from "@/lib/api";
 
-/** Klucz powodu „Nie akceptuje trybu pracy” (0441) — lustro
+/** Klucz powodu „Nie akceptuje trybu pracy” (0442) — lustro
  *  `rejection_reason_labels.WORK_MODE_MISMATCH`. Okno odrzucenia pyta przy nim,
  *  ile dni w biurze kandydat akceptuje, a serwer zapisuje to na profilu. */
 export const WORK_MODE_MISMATCH_REASON = "work_mode_mismatch";
