@@ -283,17 +283,32 @@ it("usunięcie jedynego miejsca z wymaganiem: „Nie” niczego nie zmienia, „
   const editor = liveEditor(dialog);
   const before = editor.getHTML();
   const assistant = await openAssistant(dialog);
-  fireEvent.click(within(assistant).getByRole("button", { name: "Usuń najstarsze role" }));
+  // Z „Napisz od nowa…” w podpowiedziach „Usuń najstarsze role” wpisuje się słowami.
+  expect(within(assistant).queryByRole("button", { name: "Usuń najstarsze role" })).toBeNull();
+  say(assistant, "usuń najstarsze stanowiska");
   const first = await within(assistant).findByText(/nie będzie „JUnit”/, {}, SLOW);
   fireEvent.click(within(first.closest('[data-testid="cv-assistant-reply"]') as HTMLElement).getByRole("button", { name: "Nie" }));
   expect(await within(assistant).findByText("Pominięte.")).toBeInTheDocument();
   expect(editor.getHTML()).toBe(before);
 
-  fireEvent.click(within(assistant).getByRole("button", { name: "Usuń najstarsze role" }));
+  say(assistant, "usuń najstarsze stanowiska");
   await waitFor(() => expect(within(assistant).getAllByText(/nie będzie „JUnit”/)).toHaveLength(2), SLOW);
   const second = within(assistant).getAllByText(/nie będzie „JUnit”/)[1].closest('[data-testid="cv-assistant-reply"]') as HTMLElement;
   fireEvent.click(within(second).getByRole("button", { name: "Tak, zmień" }));
   await waitFor(() => expect(editor.getHTML()).not.toContain("Software House Przykład"));
+  noNetwork();
+});
+
+it("„Napisz od nowa…”: podpowiedź wpisuje początek zdania, Enter zapisuje, zamyka edytor i oddaje uwagę karcie", async () => {
+  const dialog = await openEditor();
+  const assistant = await openAssistant(dialog);
+  fireEvent.click(within(assistant).getByRole("button", { name: "Napisz od nowa…" }));
+  const field = within(assistant).getByRole("textbox", { name: "Napisz, co zmienić" });
+  expect(field).toHaveValue("Napisz od nowa: ");
+  fireEvent.change(field, { target: { value: "Napisz od nowa: więcej o Kafce" } });
+  fireEvent.keyDown(field, { key: "Enter" });
+  expect(await screen.findByTestId("harness-rewrite", {}, SLOW)).toHaveTextContent("z uwagą: „więcej o Kafce”");
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   noNetwork();
 });
 

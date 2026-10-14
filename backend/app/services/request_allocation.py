@@ -485,9 +485,11 @@ async def _unseen_workers(
     requestu, a człowiek wpisał go ponownie. Taki request jest pokryty
     (propozycja przy nim znika), a osoba ma go w obłożeniu.
 
-    Zwraca (requesty z taką osobą, ile takich requestów ma każda osoba).
+    Zwraca (requesty z taką osobą, ile takich requestów P1 ma każda osoba —
+    obłożenie liczy tylko P1, 14.10.2026).
     """
     active = {(row.job_id, row.user_id) for row in live if row.state == "active"}
+    p1 = {request.job_id for request in requests if request.automat_assigns}
     team = await recruiters_for_jobs(db, [request.job_id for request in requests])
     staffed: set[int] = set()
     extra_load: dict[int, int] = {}
@@ -496,7 +498,8 @@ async def _unseen_workers(
             if (job_id, person.user_id) in active:
                 continue
             staffed.add(job_id)
-            extra_load[person.user_id] = extra_load.get(person.user_id, 0) + 1
+            if job_id in p1:
+                extra_load[person.user_id] = extra_load.get(person.user_id, 0) + 1
     return frozenset(staffed), extra_load
 
 

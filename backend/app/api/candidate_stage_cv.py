@@ -87,6 +87,12 @@ from app.services.html_sanitizer import sanitize_cv_html
 from app.services import cv_editor_issues
 from app.services.cv_download_log import log_cv_download
 from app.services.cv_rodo_clause import keep_rodo_clause
+from app.services.cv_rewrite_merge import MergeResult, merge_rewrite
+from app.services.cv_draft_snapshots import (
+    latest_restorable,
+    mark_restored,
+    snapshot_draft,
+)
 from app.services.cv_document_versions import (
     check_revision,
     freeze_approved_version,
@@ -123,6 +129,8 @@ from app.schemas.candidate_stage_cv import (
     CVBrandedSelectDocument,
     CVEditorDismissRequest,
     CVEditorIssues,
+    CVBrandedRestorePrevious,
+    CVBrandedRewrite,
     CVBrandedSelectGenerated,
     CVBrandedSelectStageCv,
     CVOriginalSnapshotResponse,
@@ -824,13 +832,17 @@ async def apply_generated_to_stage_cv(
     user_id: Optional[int],
     approved=None,
     activity_action: str = "branded_cv_selected_from_generator",
-) -> None:
+    keep_edits: bool = False,
+) -> Optional[MergeResult]:
     """Wczytaj wygenerowane CV jako SZKIC brandowanego CV etapu. Bez commitu.
 
     Jedna ścieżka dla kliknięcia „Zastąp szkic i otwórz edytor" i dla auto-CV po
     ruchu na „Zweryfikowany" (`services/cv_auto_generate.py`). Wynik to zawsze
     ``branded_status="draft"`` — zatwierdza wyłącznie człowiek (`finalize`).
     Wołający trzyma blokadę wiersza i sprawdził rewizję / stan.
+
+    ``keep_edits`` („Napisz od nowa”, PR 5): części szkicu poprawione ręcznie
+    zostają w wersji rekrutera; zwraca wynik scalenia (co zostało).
     """
     from app.services.cv_generator_b2b.html_export import render_interactive_html
     from app.services.cv_generator_b2b.public_view import build_public_payload
@@ -865,6 +877,13 @@ async def apply_generated_to_stage_cv(
         raise HTTPException(
             422, {"code": "cv_editor_assets_unavailable", "message": str(error)}
         ) from error
+    merge = None
+    if keep_edits and approved is None and (csv.branded_draft_html or "").strip():
+        # Pochodzenie (`capture_editor_origin`) liczymy z czystej generacji —
+        # scalony szkic to już treść poprawiana przez człowieka.
+        previous = await _generated_document_html(db, csv.generated_document_id)
+        merge = merge_rewrite(previous, csv.branded_draft_html, html)
+        html = sanitize_cv_html(merge.html)
     # Runda 7 (R7-X4-1): wymóg zgody zamrożony na kopii — usunięcie
     # wygenerowanego CV (FK SET NULL) nie może zdjąć blokady pobrania.
     await _write_stage_draft(
@@ -881,8 +900,30 @@ async def apply_generated_to_stage_cv(
         from_generator=True,
         user_id=user_id,
         activity_action=activity_action,
-        activity_details={"generated_document_id": generated.id},
+        activity_details={"generated_document_id": generated.id}
+        | (
+            {"kept_parts": len(merge.kept), "edits_recognized": merge.recognized}
+            if merge is not None
+            else {}
+        ),
     )
+    return merge
+
+
+async def _generated_document_html(
+    db: AsyncSession, generated_document_id: Optional[int]
+) -> str:
+    """HTML generacji, z której powstał szkic — „przed poprawkami rekrutera”."""
+    from app.services.cv_generator_b2b.html_export import render_interactive_html
+    from app.services.cv_generator_b2b.public_view import build_public_payload
+
+    if generated_document_id is None:
+        return ""
+    generated = await db.get(CvGeneratedDocument, generated_document_id)
+    if generated is None or not generated.render_payload:
+        return ""
+    public = build_public_payload(generated.render_payload)
+    return sanitize_cv_html(render_interactive_html(public, [], document_only=True))
 
 
 async def _write_stage_draft(
@@ -1046,6 +1087,10 @@ async def select_generated_cv(
         raise HTTPException(404, "Nie znaleziono CV tego kandydata.")
     if generated.status != "ready" or not generated.render_payload:
         raise HTTPException(422, "Wybierz zakończoną generację CV.")
+    # PR 5: szkic sprzed podmiany zostaje w migawce („Wróć do poprzedniej”) —
+    # do 14.10.2026 niezatwierdzony szkic znikał bez śladu.
+    snapshot = snapshot_draft(db, csv, user_id=current_user.id, reason="replaced")
+    merge = None
     if generated.job_id != csv.job_id:
         if payload.document_version_id is not None:
             raise HTTPException(
@@ -1065,13 +1110,74 @@ async def select_generated_cv(
             approved = await approved_version_for_generation(
                 db, generated, payload.document_version_id
             )
-        await apply_generated_to_stage_cv(
-            db, csv, generated, user_id=current_user.id, approved=approved
+        merge = await apply_generated_to_stage_cv(
+            db,
+            csv,
+            generated,
+            user_id=current_user.id,
+            approved=approved,
+            keep_edits=payload.keep_edits,
         )
     await db.commit()
     await db.refresh(csv)
     # CV w procesie (13.10.2026): QC nowej wersji liczy się w tle, jak po
     # podpięciu z generatora — plakietka na Tablicy nie czeka na okno QC.
+    _schedule_qc_after_attach(background_tasks, stage_id, current_user.id)
+    response = _build_branded_response(csv)
+    if payload.keep_edits:
+        response.rewrite = CVBrandedRewrite(
+            kept=list(merge.kept) if merge else [],
+            recognized=merge.recognized if merge else False,
+            can_restore=snapshot is not None,
+        )
+    return response
+
+
+@router.post(
+    "/candidates/stages/{stage_id}/cv/branded/restore-previous",
+    response_model=CVBrandedResponse,
+)
+async def restore_previous_branded_draft(
+    stage_id: int,
+    payload: CVBrandedRestorePrevious,
+    current_user: CandidateWriteAccess,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+) -> CVBrandedResponse:
+    """„Wróć do poprzedniej” (Edytor CV 3, PR 5): szkic sprzed ostatniej podmiany.
+
+    Treść, pochodzenie, metadane, „anonimowe” i język wracają z migawki; plik
+    szablonu i zgoda zostają bieżące (zamrożone na etapie). Bieżący szkic idzie do migawki
+    ``restore`` — nic nie ginie. Zatwierdzona wersja zamraża się jak przy
+    każdej zmianie szkicu.
+    """
+    csv = await _load_csv_for_stage(db, stage_id, current_user, lock=True)
+    check_revision(csv, payload.expected_revision)
+    previous = await latest_restorable(db, csv.id)
+    if previous is None:
+        raise HTTPException(404, "Nie ma poprzedniej wersji szkicu do przywrócenia.")
+    snapshot_draft(db, csv, user_id=current_user.id, reason="restore")
+    mark_restored(previous, user_id=current_user.id)
+    await _write_stage_draft(
+        db,
+        csv,
+        html=previous.content_html,
+        template=csv.branded_template_content,
+        consent=csv.branded_consent_content,
+        filename=csv.branded_docx_filename,
+        metadata=dict(previous.render_metadata or csv.branded_render_metadata or {}),
+        # Anonimowe i język wracają z migawki razem z treścią (przegląd PR 5:
+        # z bieżącej wersji dawały CV z nazwiskiem oznaczone jako anonimowe).
+        blind=(previous.branded_template or csv.branded_template) == "blind",
+        language=previous.branded_language or csv.branded_language or "pl",
+        generated_document_id=previous.generated_document_id,
+        from_generator=previous.branded_from_generator,
+        user_id=current_user.id,
+        activity_action="branded_cv_previous_restored",
+        activity_details={"snapshot_id": previous.id},
+    )
+    await db.commit()
+    await db.refresh(csv)
     _schedule_qc_after_attach(background_tasks, stage_id, current_user.id)
     return _build_branded_response(csv)
 

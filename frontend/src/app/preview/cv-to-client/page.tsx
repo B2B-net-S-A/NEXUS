@@ -66,7 +66,7 @@ const CLIENT_ID = 7;
 const REVISION = 2;
 const FRESH = { updatedAt: Date.now() + 86_400_000 };
 
-type Variant = "sources" | "regenerate" | "counter" | "clean" | "qcdown" | "forwarded" | "skipped";
+type Variant = "sources" | "regenerate" | "counter" | "clean" | "qcdown" | "forwarded" | "skipped" | "rewrite";
 
 interface Person {
   stageId: number;
@@ -84,7 +84,12 @@ const PEOPLE: readonly Person[] = [
   { stageId: 705, candidateId: 35, name: "Tomasz Wzorcowy", label: "QC nie odpowiada", variant: "qcdown" },
   { stageId: 706, candidateId: 36, name: "Ewa Testowa", label: "Po przekazaniu — CV się generuje", variant: "forwarded" },
   { stageId: 707, candidateId: 37, name: "Olga Wzorcowa", label: "Po przekazaniu — automat pominął osobę", variant: "skipped" },
+  { stageId: 708, candidateId: 39, name: "Lena Przykładowa", label: "„Napisz od nowa” — Twoje poprawki zostają", variant: "rewrite" },
 ];
+
+/** „Napisz od nowa” (PR 5): nowa generacja i podmiana szkicu odpowiadają z pamięci. */
+const REWRITE = PEOPLE.find((person) => person.variant === "rewrite")!;
+const REWRITTEN_ID = 9990;
 
 /** Bez gotowego CV na starcie: brak, przekazanie w toku, pominięcie automatu. */
 const NO_CV_AT_START: ReadonlySet<Variant> = new Set(["sources", "forwarded", "skipped"]);
@@ -282,6 +287,17 @@ function seed(qc: QueryClient) {
       );
     }
     if (willHaveCv) qc.setQueryData(cvToClientIssuesQueryKey(person.stageId, REVISION), issues(person), FRESH);
+    // Po „Napisz od nowa” i „Wróć do poprzedniej” szkic ma kolejne wersje.
+    if (person.variant === "rewrite") {
+      for (const revision of [REVISION + 1, REVISION + 2]) {
+        qc.setQueryData(
+          cvToClientQcQueryKey(person.stageId, revision),
+          { stage_id: person.stageId, cv: { stage_id: person.stageId }, checks: [] },
+          FRESH,
+        );
+        qc.setQueryData(cvToClientIssuesQueryKey(person.stageId, revision), issues(person), FRESH);
+      }
+    }
   }
   qc.setQueryData(
     jobBackgroundEventsQueryKey(JOB_ID, BACKGROUND_EVENTS_STEP),
@@ -305,7 +321,39 @@ function seed(qc: QueryClient) {
  * Odczyty, o które karta pyta sama po przekazaniu (co 4 s) — odpowiedź z cache
  * harnessu, bez sieci. `undefined` = to nie jest odczyt z pamięci.
  */
+/** Zapisy „Napisz od nowa” osoby z harnessu: notatka, generacja, podmiana, powrót. */
+function rewriteAnswer(qc: QueryClient, config: InternalAxiosRequestConfig): unknown {
+  const url = config.url ?? "";
+  const body = (typeof config.data === "string" ? JSON.parse(config.data) : config.data) ?? {};
+  const base = `/api/candidates/stages/${REWRITE.stageId}/cv/branded`;
+  if (url === "/api/notes" && body.candidate_id === REWRITE.candidateId) return { id: 1 };
+  if (url === "/api/cv-generator/generate" && body.stage_id === REWRITE.stageId) {
+    qc.setQueryData(cvToClientRowsQueryKey(REWRITE.candidateId, JOB_ID), [
+      readyRow(REWRITE, "manual"),
+      { ...readyRow(REWRITE, "manual"), id: REWRITTEN_ID, created_at: new Date().toISOString() },
+    ]);
+    return { id: REWRITTEN_ID, status: "processing", candidate_name: REWRITE.name };
+  }
+  if (url === `${base}/select-generated`) {
+    const next = {
+      ...branded(REWRITE, true),
+      generated_document_id: REWRITTEN_ID,
+      edit_revision: REVISION + 1,
+      rewrite: { kept: ["Logistyka Przykład"], recognized: true, can_restore: true },
+    };
+    qc.setQueryData(stageBrandedQueryKey(REWRITE.stageId), next);
+    return next;
+  }
+  if (url === `${base}/restore-previous`) {
+    const next = { ...branded(REWRITE, true), edit_revision: REVISION + 2 };
+    qc.setQueryData(stageBrandedQueryKey(REWRITE.stageId), next);
+    return next;
+  }
+  return undefined;
+}
+
 function memoryAnswer(qc: QueryClient, config: InternalAxiosRequestConfig): unknown {
+  if ((config.method ?? "get").toLowerCase() === "post") return rewriteAnswer(qc, config);
   if ((config.method ?? "get").toLowerCase() !== "get") return undefined;
   const url = config.url ?? "";
   if (url === "/api/cv-generator/generated" && config.params?.job_id === JOB_ID) {

@@ -69,6 +69,12 @@ export interface UseCvGeneratorOptions {
   prefillCandidateName?: string;
   prefillJobId?: number | null;
   onEnqueued?: (generatedId: number) => void;
+  /**
+   * „Napisz od nowa” (Edytor CV 3, PR 5): uwaga rekrutera. Przed generacją
+   * zapisuje się w notatkach rekrutacji (fakty z tego zdania stają się
+   * źródłem), a model dostaje ją jako życzenie co do formy.
+   */
+  instruction?: string;
 }
 
 export interface CvGenerationResult {
@@ -86,6 +92,7 @@ export function useCvGenerator({
   prefillCandidateName,
   prefillJobId,
   onEnqueued,
+  instruction = "",
 }: UseCvGeneratorOptions) {
   const toast = useToast();
   const queryClient = useQueryClient();
@@ -98,6 +105,7 @@ export function useCvGenerator({
   const [processChoice, setProcessChoice] = useState("");
   const [sourceChoice, setSourceChoice] = useState<number | null>(null);
   const [noteDraft, setNoteDraft] = useState("");
+  const notedInstruction = useRef<string | null>(null);
   const [championOverride, setChampionOverride] = useState<ChampionOverride | null>(null);
   const [championPreview, setChampionPreview] = useState<{ file: File; data: ChampionPreview } | null>(null);
   const [championBusy, setChampionBusy] = useState(false);
@@ -247,6 +255,7 @@ export function useCvGenerator({
 
   const missing = missingInputs({
     policyPending: clientId != null && policyQuery.isPending,
+    rulePending: clientId != null && ruleQuery.isPending,
     policyError: policyQuery.isError,
     recruitment,
     recruitmentsLoading: recruitmentsQuery.isPending,
@@ -345,6 +354,17 @@ export function useCvGenerator({
         setNoteDraft("");
         void queryClient.invalidateQueries({ queryKey: ["cv-gen-recruitments", candidate.id] });
       }
+      // Uwaga raz na treść — ponowienie po błędzie generacji nie dopisuje
+      // kolejnej notatki (każda byłaby źródłem dla modelu).
+      if (instruction.trim() && notedInstruction.current !== instruction.trim()) {
+        notedInstruction.current = instruction.trim();
+        await api.post("/api/notes", {
+          content: `Uwaga do CV: ${instruction.trim()}`,
+          note_type: "general",
+          candidate_id: candidate.id,
+          job_id: recruitment.job_id,
+        });
+      }
       const payload = buildGeneratePayload({
         candidateId: candidate.id,
         recruitment,
@@ -357,6 +377,7 @@ export function useCvGenerator({
         championProfile: championOverride?.profile ?? null,
         consentToken,
         sources: aiSources,
+        instruction,
       });
       return (await withCvGenerationRequest("/api/cv-generator/generate", payload, (key) =>
         api.post<CvGenerateEnqueued>("/api/cv-generator/generate", payload, {

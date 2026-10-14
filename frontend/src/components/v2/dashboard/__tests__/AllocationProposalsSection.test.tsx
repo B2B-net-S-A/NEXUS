@@ -141,18 +141,18 @@ describe("proposalReasons — dlaczego automat proponuje tę osobę", () => {
   });
 
   it("obłożenie w poprawnej polszczyźnie", () => {
-    expect(texts({ load: 0 })[1]).toBe("bez requestów");
-    expect(texts({ load: 1 })[1]).toBe("ma 1 request");
-    expect(texts({ load: 3 })[1]).toBe("ma 3 requesty");
-    expect(texts({ load: 5 })[1]).toBe("ma 5 requestów");
-    expect(texts({ load: 12 })[1]).toBe("ma 12 requestów");
-    expect(texts({ load: 22 })[1]).toBe("ma 22 requesty");
+    expect(texts({ load: 0 })[1]).toBe("bez rekrutacji P1");
+    expect(texts({ load: 1 })[1]).toBe("ma 1 rekrutacja P1");
+    expect(texts({ load: 3 })[1]).toBe("ma 3 rekrutacje P1");
+    expect(texts({ load: 5 })[1]).toBe("ma 5 rekrutacji P1");
+    expect(texts({ load: 12 })[1]).toBe("ma 12 rekrutacji P1");
+    expect(texts({ load: 22 })[1]).toBe("ma 22 rekrutacje P1");
   });
 
   it("urlop jest powodem; liczba pasujących w bazie już nie (02.10.2026)", () => {
     expect(texts({ leave_until: "2026-10-09" })).toEqual([
       "1. priorytet w kategorii",
-      "ma 2 requesty",
+      "ma 2 rekrutacje P1",
       "urlop do 09.10",
     ]);
     // Próg „od N pasujących w bazie → sourcer” zniknął razem z podziałem ról,
@@ -216,7 +216,7 @@ describe("AllocationProposalsSection — propozycje automatu do akceptacji", () 
     expect(java.getByText("Marek Dąb")).toBeInTheDocument();
     // Bez dopisku roli przy osobie — każda proponowana osoba to rekruter.
     expect(java.queryByText("rekruter")).not.toBeInTheDocument();
-    expect(java.getByTestId("proposal-reasons")).toHaveTextContent("1. priorytet w kategorii · ma 2 requesty");
+    expect(java.getByTestId("proposal-reasons")).toHaveTextContent("1. priorytet w kategorii · ma 2 rekrutacje P1");
 
     const cloud = within(rowOf("Administrator chmury"));
     // Bez Delivery Leada i terminu: brak pozycji albo „bez terminu”, nie puste „DL:”.
@@ -225,13 +225,13 @@ describe("AllocationProposalsSection — propozycje automatu do akceptacji", () 
     );
     expect(cloud.queryByTitle(/P2/)).not.toBeInTheDocument();
     expect(cloud.getByTestId("proposal-reasons")).toHaveTextContent(
-      "2. priorytet w kategorii · bez requestów",
+      "2. priorytet w kategorii · bez rekrutacji P1",
     );
     expect(cloud.getByTestId("proposal-reasons")).not.toHaveTextContent("w bazie");
 
     const tester = within(rowOf("Tester automatyzujący"));
     expect(tester.getByTestId("proposal-reasons")).toHaveTextContent(
-      "spoza kategorii · ma 5 requestów · urlop do 09.10",
+      "spoza kategorii · ma 5 rekrutacji P1 · urlop do 09.10",
     );
     expect(tester.getByText("urlop do 09.10")).toHaveClass("text-warning");
     expect(tester.getByText("spoza kategorii")).toHaveClass("text-warning");
@@ -323,10 +323,10 @@ describe("AllocationProposalsSection — propozycje automatu do akceptacji", () 
     expect(get).toHaveBeenCalledWith("/api/request-board");
     const options = await screen.findAllByRole("option");
     expect(options.map((o) => o.textContent)).toEqual([
-      "Marek Dąbpropozycja automatu2 requesty+ 1 do akceptacji",
-      "Maja Cis0 requestów+ 1 do akceptacji",
-      "Kinga Olcha4 requesty",
-      "Julia Sosnaurlop do 09.100 requestów",
+      "Marek Dąbpropozycja automatu2 P1+ 1 do akceptacji",
+      "Maja Cis0 P1+ 1 do akceptacji",
+      "Kinga Olcha4 P1",
+      "Julia Sosnaurlop do 09.100 P1",
     ]);
     // Proponowanej osoby nie da się „zmienić na nią samą”.
     expect(options[0]).toHaveAttribute("aria-disabled", "true");

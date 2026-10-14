@@ -70,24 +70,20 @@ const BOARD: RequestBoard = {
     { job_id: 41, title: "Tester automatyzujący", client_name: "Klient Beta", category_id: 4, deadline: null, sent: 0, champion: false, priority_level: "accepting", delivery_lead: null, opened_effective_at: "2026-09-23T12:00:00Z", people: [] },
     { job_id: 51, title: "Product Owner", client_name: "Klient Gamma", category_id: 5, deadline: "2026-10-09", sent: 2, champion: false, priority_level: "p2", delivery_lead: leads.henryk, opened_effective_at: "2026-09-10T08:00:00Z", people: [{ ...people.ewa, proposed: false, source: "manual", via: "assignment", assigned_by_name: "Gosia Delivery" }] },
   ],
-  // `count` = requesty w pracy (bez championa), `proposed` = propozycje do akceptacji.
+  // `count` = rekrutacje P1 w pracy (bez championa, 14.10.2026), `proposed` =
+  // propozycje do akceptacji, `outside_p1` = rekrutacje bez priorytetu
+  // i „Przyjmujemy” (poza obłożeniem).
   load: [
     { ...people.anna, count: 1, proposed: 1, leave_until: null, requests: [
       { job_id: 21, title: "Senior Java Developer", client_name: "Klient Gamma", deadline: "2026-09-26", proposed: false },
       { job_id: 11, title: "DevOps Engineer (Azure)", client_name: "Klient Alfa", deadline: "2026-09-30", proposed: true },
     ] },
-    { ...people.bartek, count: 1, proposed: 0, leave_until: null, requests: [
-      { job_id: 12, title: "Data Engineer", client_name: "Klient Beta", deadline: "2026-09-23", proposed: false },
-    ] },
+    { ...people.bartek, count: 0, proposed: 0, outside_p1: 1, leave_until: null, requests: [] },
     { ...people.celina, count: 1, proposed: 0, leave_until: null, requests: [
       { job_id: 21, title: "Senior Java Developer", client_name: "Klient Gamma", deadline: "2026-09-26", proposed: false },
     ] },
-    { ...people.darek, count: 1, proposed: 0, leave_until: null, requests: [
-      { job_id: 22, title: "Kotlin Developer", client_name: "Klient Delta", deadline: "2026-10-07", proposed: false },
-    ] },
-    { ...people.ewa, count: 1, proposed: 0, leave_until: "2026-09-29", requests: [
-      { job_id: 51, title: "Product Owner", client_name: "Klient Gamma", deadline: "2026-10-09", proposed: false },
-    ] },
+    { ...people.darek, count: 0, proposed: 0, outside_p1: 1, leave_until: null, requests: [] },
+    { ...people.ewa, count: 0, proposed: 0, outside_p1: 1, leave_until: "2026-09-29", requests: [] },
   ],
   changes: [
     { at: "2026-09-24T06:30:00Z", kind: "champion", job_id: 23, title: "React Developer", client_name: "Klient Alfa", user_name: null, reason: "Mamy championa" },

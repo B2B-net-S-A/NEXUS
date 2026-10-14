@@ -92,6 +92,8 @@ export function languagePayload(choice: CvLanguageChoice): {
 export interface MissingInput {
   /** Zasady klienta się wczytują / nie dało się ich odczytać. */
   policyPending: boolean;
+  /** Reguła CV klienta w drodze — od niej zależą zgoda RODO, stanowisko, numer projektu. */
+  rulePending?: boolean;
   policyError: boolean;
   /** Wybrany proces — `null`, dopóki rekruter go nie wskaże. */
   recruitment: RecruitmentOption | null;
@@ -123,7 +125,7 @@ export interface MissingInput {
  */
 export function missingInputs(input: MissingInput): string[] {
   const items: string[] = [];
-  if (input.policyPending) items.push("Zasady CV klienta — wczytuję…");
+  if (input.policyPending || input.rulePending) items.push("Zasady CV klienta — wczytuję…");
   if (input.policyError) items.push("Zasady CV klienta — nie udało się ich odczytać, odśwież stronę.");
 
   if (input.recruitmentsLoading) items.push("Procesy kandydata — wczytuję…");
@@ -196,6 +198,8 @@ export interface GeneratePayloadInput {
   consentToken: string | null;
   /** Przełączniki „Z czego powstało”; `null` = serwer bierze domyślne. */
   sources?: CvAiSourceToggles | null;
+  /** „Napisz od nowa” (PR 5): uwaga rekrutera dla modelu. */
+  instruction?: string;
 }
 
 /**
@@ -218,6 +222,7 @@ export function buildGeneratePayload(input: GeneratePayloadInput): CvGeneratePay
   if (input.championProfile) payload.champion_profile = input.championProfile;
   if (input.consentToken) payload.consent_screenshot_token = input.consentToken;
   if (input.sources) payload.sources = { ...input.sources };
+  if (input.instruction?.trim()) payload.instruction = input.instruction.trim();
   return payload;
 }
 
