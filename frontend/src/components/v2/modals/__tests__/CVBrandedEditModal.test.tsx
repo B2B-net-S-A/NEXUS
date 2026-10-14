@@ -54,9 +54,12 @@ vi.mock("@/components/v2/cv-editor/useCvSelectionAi", () => ({
 vi.mock("@/components/v2/cv-editor/useCvHistory", () => ({
   useCvHistory: () => ({ enabled: false, open: false, busy: false, show: () => undefined, close: () => undefined }),
 }));
-vi.mock("@/components/v2/cv-editor/CvEditorWordPreview", () => ({
-  CvEditorWordPreview: ({ load }: { load: () => Promise<Blob> }) => (
-    <button onClick={() => void load()}>wczytaj podgląd Word</button>
+vi.mock("@/components/v2/cv/CvPagesPreview", () => ({
+  CvPagesPreview: ({ loadPdf, loadDocx }: { loadPdf: () => Promise<Blob>; loadDocx: () => Promise<Blob> }) => (
+    <>
+      <button onClick={() => void loadPdf()}>wczytaj strony</button>
+      <button onClick={() => void loadDocx()}>wczytaj podgląd Word</button>
+    </>
   ),
 }));
 const toast = vi.hoisted(() => ({ showSuccess: vi.fn(), showError: vi.fn() }));
@@ -396,7 +399,7 @@ it("pola w nawiasach z nowych bloków zatrzymują „Zapisz”, ale szkic się z
   finalize.mockRestore();
 });
 
-it("„Podgląd Word” rysuje plik z bieżącej treści i nie liczy się jako pobranie", async () => {
+it("„Jak u klienta” rysuje strony i plik z bieżącej treści i nie liczy się jako pobranie", async () => {
   state.html = state.stored = "<p>Old text</p>";
   state.snapshot = ""; state.status = "draft"; state.revision = 1;
   vi.clearAllMocks();
@@ -404,8 +407,13 @@ it("„Podgląd Word” rysuje plik z bieżącej treści i nie liczy się jako p
   render(<QueryClientProvider client={qc}><CVBrandedEditModal open onOpenChange={() => {}}
     stageId={21} candidateName="Synthetic" /></QueryClientProvider>);
   fireEvent.change(await screen.findByLabelText("audit editor"), {target: {value: "<p>Unsaved text</p>"}});
-  fireEvent.click(screen.getByRole("button", {name: "Podgląd Word"}));
-  fireEvent.click(await screen.findByRole("button", {name: "wczytaj podgląd Word"}));
+  fireEvent.click(screen.getByRole("button", {name: "Jak u klienta"}));
+  fireEvent.click(await screen.findByRole("button", {name: "wczytaj strony"}));
+  await waitFor(() => expect(postAuthenticatedDownload).toHaveBeenCalledWith(
+    "/api/candidates/stages/21/cv/branded/preview-pdf",
+    {content_html: "<p>Unsaved text</p>", expected_revision: 1},
+  ));
+  fireEvent.click(screen.getByRole("button", {name: "wczytaj podgląd Word"}));
   await waitFor(() => expect(postAuthenticatedDownload).toHaveBeenCalledWith(
     "/api/candidates/stages/21/cv/branded/preview-docx",
     {content_html: "<p>Unsaved text</p>", expected_revision: 1},

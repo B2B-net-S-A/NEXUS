@@ -44,15 +44,19 @@ import { useAuthStore } from "@/store/auth";
 
 const JOB_ID = 88;
 
-// „Podgląd” karty pokazuje plik Word. W harnessie nie ma serwera, który
-// złożyłby go z treści, a POST-y są blokowane — przykładowy plik w szablonie
-// firmowym z fikcyjnym CV (wygenerowany kodem `cv_approved_docx`).
+// „Podgląd” karty pokazuje strony PDF z pliku Word (zapas: sam plik Word).
+// W harnessie nie ma serwera, który złożyłby je z treści, a POST-y są
+// blokowane — przykładowe pliki w szablonie firmowym z fikcyjnym CV (Word
+// z kodu `cv_approved_docx`, PDF z niego przez LibreOffice z Montserrat).
 const PREVIEW_FILE = "/preview/cv-to-client/cv-firmowe-przyklad.docx";
-async function loadPreviewFile(): Promise<{ blob: Blob }> {
-  const response = await fetch(PREVIEW_FILE);
+const PREVIEW_PAGES = "/preview/cv-to-client/cv-firmowe-przyklad.pdf";
+async function loadStatic(path: string): Promise<{ blob: Blob }> {
+  const response = await fetch(path);
   if (!response.ok) throw new Error(`HTTP ${response.status}`);
   return { blob: await response.blob() };
 }
+const loadPreviewFile = () => loadStatic(PREVIEW_FILE);
+const loadPreviewPages = () => loadStatic(PREVIEW_PAGES);
 const CLIENT_ID = 7;
 const REVISION = 2;
 const FRESH = { updatedAt: Date.now() + 86_400_000 };
@@ -343,6 +347,7 @@ function Harness() {
               nextInScreening={person.variant === "forwarded" ? NEXT_IN_SCREENING : null}
               onOpenPerson={() => setOpened(NEXT_IN_SCREENING.name)}
               loadStageCvFile={loadPreviewFile}
+              loadStageCvPdf={loadPreviewPages}
             />
           </section>
         ))}

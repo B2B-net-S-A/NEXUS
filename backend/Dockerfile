@@ -32,7 +32,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     tesseract-ocr-eng \
     poppler-utils \
     gosu \
+    libreoffice-writer-nogui \
+    fonts-crosextra-carlito \
+    fontconfig \
     && rm -rf /var/lib/apt/lists/*
+
+# Edytor CV 3 (J2, 14.10.2026): podgląd CV jako strony PDF z pliku Word
+# (`app/services/cv_pdf_preview.py`) — LibreOffice bez GUI powyżej. Czcionka
+# szablonu CV (Montserrat, SIL OFL) z repo, bo pakiet `fonts-montserrat` nie
+# jest pewny w każdej wersji Debiana obrazu bazowego; pliki mają nazwy rodzin,
+# które piszą pliki CV („Montserrat SemiBold”, „Montserrat Medium”…).
+COPY app/assets/fonts/montserrat/ /usr/share/fonts/truetype/montserrat/
+RUN fc-cache -f
 
 # Install Python dependencies
 # BuildKit cache mount: wheels persist across deploys so subsequent builds

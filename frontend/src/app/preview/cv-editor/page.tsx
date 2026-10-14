@@ -211,8 +211,10 @@ async function staticFile(path: string): Promise<Blob> {
   return response.blob();
 }
 
-// To samo fikcyjne CV w szablonie firmowym (Montserrat, wyjustowana treść).
+// To samo fikcyjne CV w szablonie firmowym (Montserrat, wyjustowana treść)
+// i jego strony PDF („Jak u klienta”; na serwerze z LibreOffice).
 const WORD_FILE = "/preview/cv-to-client/cv-firmowe-przyklad.docx";
+const PAGES_FILE = "/preview/cv-to-client/cv-firmowe-przyklad.pdf";
 const PDF_FILE = "/preview/cv-search/cv-tekst.pdf";
 
 // Statyczny plik zamiast renderu z treści: w harnessie nie ma serwera, który
@@ -221,6 +223,8 @@ const MEMORY_FILES: CvEditorFiles = {
   draftDocx: async () => ({ blob: await staticFile(WORD_FILE), filename: "SZKIC_CV_przyklad.docx" }),
   downloadApproved: async () => undefined,
   previewApproved: () => staticFile(WORD_FILE),
+  draftPdf: () => staticFile(PAGES_FILE),
+  previewApprovedPdf: () => staticFile(PAGES_FILE),
   print: async () => undefined,
 };
 

@@ -16,7 +16,9 @@ const mocks = vi.hoisted(() => ({
   brandedGet: vi.fn(),
   showError: vi.fn(),
   fetchStageCvFile: vi.fn(),
+  fetchStageCvPdf: vi.fn(),
   previewLoad: null as null | (() => Promise<Blob>),
+  previewLoadPdf: null as null | (() => Promise<Blob>),
 }));
 
 vi.mock("@/lib/api", () => ({
@@ -29,12 +31,18 @@ vi.mock("@/components/Toast", () => ({
 }));
 vi.mock("@/lib/stage-cv-file", () => ({
   fetchStageCvFile: (...a: unknown[]) => mocks.fetchStageCvFile(...a),
+  fetchStageCvPdf: (...a: unknown[]) => mocks.fetchStageCvPdf(...a),
 }));
-// Podgląd pliku CV etapu (docx-preview) — atrapa trzyma loader i pokazuje zapas.
-vi.mock("@/components/v2/cv-editor/CvEditorWordPreview", () => ({
-  CvEditorWordPreview: (props: { load: () => Promise<Blob>; fallback?: React.ReactNode }) => {
-    mocks.previewLoad = props.load;
-    return <div data-testid="word-preview">{props.fallback}</div>;
+// Strony CV etapu (PDF, zapas: plik Word) — atrapa trzyma loadery i pokazuje zapas.
+vi.mock("@/components/v2/cv/CvPagesPreview", () => ({
+  CvPagesPreview: (props: {
+    loadPdf: () => Promise<Blob>;
+    loadDocx: () => Promise<Blob>;
+    fallback?: React.ReactNode;
+  }) => {
+    mocks.previewLoadPdf = props.loadPdf;
+    mocks.previewLoad = props.loadDocx;
+    return <div data-testid="pages-preview">{props.fallback}</div>;
   },
 }));
 // Podgląd pliku (pdf.js, docx-preview) siedzi za `dynamic()`.
@@ -182,13 +190,17 @@ describe("UseOtherCvDialog", () => {
     });
     const blob = new Blob(["docx"]);
     mocks.fetchStageCvFile.mockResolvedValue({ blob, filename: "CV.docx" });
+    const pages = new Blob(["%PDF"]);
+    mocks.fetchStageCvPdf.mockResolvedValue({ blob: pages, filename: "CV.pdf" });
     renderDialog(choice());
 
     await userEvent.click(screen.getByRole("button", { name: "Podgląd: DevOps Engineer" }));
 
-    expect(await screen.findByTestId("word-preview")).toBeInTheDocument();
+    expect(await screen.findByTestId("pages-preview")).toBeInTheDocument();
+    await expect(mocks.previewLoadPdf?.()).resolves.toBe(pages);
     await expect(mocks.previewLoad?.()).resolves.toBe(blob);
     // Bez intencji pobrania — podgląd nie jest pobraniem.
+    expect(mocks.fetchStageCvPdf).toHaveBeenCalledWith(31);
     expect(mocks.fetchStageCvFile).toHaveBeenCalledWith(31);
     await waitFor(() => expect(mocks.brandedGet).toHaveBeenCalledWith(31));
     // Zapas, gdy pliku nie da się pokazać: ta sama treść w układzie kartki.

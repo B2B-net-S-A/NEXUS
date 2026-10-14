@@ -79,7 +79,7 @@ it("otwiera szkic z kartką CV i nie wysyła żadnego żądania", async () => {
   expect(paper.querySelector(".cv-rodo-locked")).toHaveAttribute("contenteditable", "false");
   expect(within(dialog).getByRole("button", { name: "Cofnij" })).toBeDisabled();
 
-  fireEvent.click(within(dialog).getByRole("button", { name: "Podgląd Word" }));
+  fireEvent.click(within(dialog).getByRole("button", { name: "Jak u klienta" }));
   expect(await within(dialog).findByTestId("word-preview")).toBeInTheDocument();
   fireEvent.click(within(dialog).getByRole("button", { name: "Edycja" }));
   noNetwork();

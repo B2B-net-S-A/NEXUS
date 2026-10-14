@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * „Podgląd Word” w edytorze CV: prawdziwy plik DOCX z BIEŻĄCEJ treści edytora,
+ * Zapas „Jak u klienta” w edytorze CV: prawdziwy plik DOCX z BIEŻĄCEJ treści edytora,
  * narysowany tą samą drogą co podgląd CV firmowego w panelu osoby
  * (`StageCvPreview`). Kartka edytora odwzorowuje układ szablonu, ale to ten
  * plik dostaje klient.

@@ -36,7 +36,7 @@ import {
 } from "@/components/ui/dialog";
 import { CvFilePreviewDialog } from "@/components/v2/cv/CvFilePreviewDialog";
 import { normalizeCvAlign } from "@/lib/cv-editor-align";
-import { fetchStageCvFile } from "@/lib/stage-cv-file";
+import { fetchStageCvFile, fetchStageCvPdf } from "@/lib/stage-cv-file";
 import type { ReadyCvChoice } from "@/components/v2/recruitment/useReadyCvChoice";
 import { StageCvPicker } from "@/components/v2/screening-form/StageCvPicker";
 
@@ -205,6 +205,7 @@ export function UseOtherCvDialog({
             if (!next) setPreviewStage(null);
           }}
           title={`${previewStage.title} — ${candidateName}`}
+          loadPdf={() => fetchStageCvPdf(previewStageId).then((file) => file.blob)}
           load={() => fetchStageCvFile(previewStageId).then((file) => file.blob)}
           fallbackHtml={stagePreviewQuery.isSuccess ? (stagePreviewQuery.data.content_html ?? null) : null}
           language={stagePreviewQuery.data?.language === "en" ? "en" : "pl"}

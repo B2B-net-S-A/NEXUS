@@ -103,7 +103,21 @@ EXPECTED = {
     "stage-version-docx": ("candidate_stage_cv", "docx", "approved", 1),
     "stage-preview-docx": ("candidate_stage_cv", "docx", "draft", 2),
     "stage-print": ("candidate_stage_cv", "print", "draft", 2),
+    # Edytor CV 3 (J2): strony PDF z tego samego pliku Word.
+    "editor-preview-pdf": ("cv_generated_document", "pdf", "draft", 1),
+    "stage-version-pdf": ("candidate_stage_cv", "pdf", "approved", 1),
+    "stage-preview-pdf": ("candidate_stage_cv", "pdf", "draft", 2),
 }
+
+
+@pytest.fixture(autouse=True)
+def _fake_pdf(monkeypatch):
+    """W CI nie ma LibreOffice — zamiana na PDF podstawiona stałym wynikiem."""
+
+    async def fake(docx: bytes) -> bytes:
+        return b"%PDF-1.7 podglad"
+
+    monkeypatch.setattr("app.api.cv_pdf_preview.pdf_from_docx", fake)
 
 
 async def _entries(user_id: int) -> list[Activity]:

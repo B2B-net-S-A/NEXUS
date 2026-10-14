@@ -78,7 +78,7 @@ vi.mock("@/components/v2/cv-editor/useCvHistory", async () => {
 vi.mock("@/components/v2/cv-editor/CvEditorHistory", () => ({
   CvEditorHistory: () => <div data-testid="history" />,
 }));
-vi.mock("@/components/v2/cv-editor/CvEditorWordPreview", () => ({ CvEditorWordPreview: () => null }));
+vi.mock("@/components/v2/cv/CvPagesPreview", () => ({ CvPagesPreview: () => null }));
 vi.mock("@/components/v2/cv-editor/CvEditorIssues", async () => {
   const { useEffect } = await import("react");
   return {

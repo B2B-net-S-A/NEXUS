@@ -64,6 +64,7 @@ _RATE_LIMITED_MODULES = (
     "api/cv_editor_ai.py",
     # Podgląd importu Worda w edytorze CV: upload do 10 MB i konwersja na żądanie.
     "api/cv_editor_import.py",
+    "api/cv_pdf_preview.py",
 )
 
 # Moduły, których docstringi tras trafiają do publicznego /openapi.json.
