@@ -6479,6 +6479,15 @@ export interface GeneratedCvItem {
   consent_required?: boolean;
   /** Zrzutu jeszcze nie ma — pobranie DOCX/HTML kończy się 409. */
   consent_missing?: boolean;
+  /**
+   * Wiersz etapu rekrutacji, do którego podpięto ten dokument (D4, 14.10.2026).
+   * Gdy jest, „Pobierz” w profilu daje CV etapu z poprawkami z edytora i po QC
+   * (`fetchStageCvFile`), a nie surowy plik generatora.
+   */
+  stage_cv_stage_id?: number | null;
+  stage_cv_status?: "draft" | "finalized" | null;
+  stage_cv_updated_at?: string | null;
+  stage_cv_finalized_at?: string | null;
 }
 
 export interface CvGeneratedListParams {
