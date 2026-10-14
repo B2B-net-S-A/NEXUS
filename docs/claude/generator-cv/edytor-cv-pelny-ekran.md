@@ -288,6 +288,11 @@ i kontrola AI ostatniej zatwierdzonej wersji. Komponent
 
 ## AI na zaznaczeniu (PR 3, 13.10.2026)
 
+> Interfejs (dymek, menu „AI”, karta „było / będzie”) zastąpił 14.10.2026
+> asystent w kolumnie — sekcja „Asystent w kolumnie” niżej. Reguły
+> sprawdzania faktów (`cv_selection_ai.check`) obowiązują dalej, bo woła je
+> asystent; trasa `cv-ai/selection` stoi bez ekranu.
+
 Rekruter zaznacza fragment CV i wybiera: **Skróć · Rozwiń z oryginału ·
 Przeredaguj · Popraw język · Na angielski** (dymek nad zaznaczeniem albo menu
 „AI” w pasku). Wynik to zawsze PROPOZYCJA na karcie „było / będzie” — do CV
@@ -415,6 +420,11 @@ trafia dopiero po „Przyjmij”.
   i powodem odmowy — bez tekstu CV i propozycji.
 
 ## Polecenie dla całego CV (PR 4, 13.10.2026)
+
+> Pole „Polecenie”, panel planu i „Zastosuj zaznaczone” zastąpił 14.10.2026
+> asystent w kolumnie (sekcja niżej). Obowiązuje dalej: model zwraca plan na
+> numerach wierszy, kod sprawdza każdą operację (`verify_plan`), struktura
+> Worda i klauzula są poza zasięgiem modelu.
 
 Przycisk „Polecenie” w pasku otwiera pole: własne słowa („skróć do dwóch stron,
 zostaw wszystko o Kafce”) albo gotowe polecenie. Wynik to **plan zmian** —
@@ -760,8 +770,7 @@ Zespół mówił, że w edytorze „jest chaos” i woli ChatGPT. Artur: „bard
 bardzo prosto” (makiety „Ekran 1” i „Ekran 5”). Siedem zasad z makiet, którymi
 mierzymy każdą zmianę edytora i karty:
 
-1. Jedno miejsce do AI (PR 4: kolumna asystenta; do tego czasu polecenie
-   i AI na zaznaczeniu są w „Więcej”).
+1. Jedno miejsce do AI — kolumna asystenta (PR 4).
 2. Problem = jeden przycisk przy pozycji.
 3. AI zmienia od razu, z „Cofnij” (PR 4).
 4. Nic nie ginie — poprzednia wersja jedno kliknięcie wstecz.
@@ -777,9 +786,10 @@ Obowiązuje:
   u klienta”, stan zapisu z godziną („Zapisano 14:01”), „Oryginał”, „Pobierz
   Word”. Nie dokładaj przycisków do paska — nowe polecenie idzie do „Więcej”.
 - **„Więcej”**: Dodaj, Typ akapitu, Stanowisko pod kursorem (wyżej, niżej,
-  powiel, usuń), AI na zaznaczonym tekście, „Wyjustuj całe CV” / „Całe CV do
-  lewej” (`setCvAlignEverywhere`, jeden krok cofania, bez klauzuli), polecenie,
-  „Historia wersji”, „Pobierz PDF”, „Drukuj”. Menu działa także w „Jak
+  powiel, usuń), „Wyjustuj całe CV” / „Całe CV do lewej”
+  (`setCvAlignEverywhere`, jeden krok cofania, bez klauzuli), „Historia
+  wersji”, „Pobierz PDF”, „Drukuj”. AI i polecenia nie ma w „Więcej” — od PR 4
+  jest w kolumnie asystenta. Menu działa także w „Jak
   u klienta” (pliki, historia); polecenia treści są wtedy wyłączone.
 - **„Pogrub wymagania (N)”**: N z wyniku QC (`boldRequirements` w
   `lib/cv-editor-issues.ts`: niepogrubione must i — przy polityce must + nice —
@@ -810,3 +820,88 @@ Obowiązuje:
 - `initialPanel: "history"` (menu „⋯” karty) otwiera edytor od razu na
   historii; `"issues"` („Sprawdź i popraw”) — na „Do poprawy”.
 
+## Asystent w kolumnie (Edytor CV 3, PR 4, 14.10.2026)
+
+Jedno miejsce do AI (zasada 1): kolumna asystenta pod „Do poprawy” zastępuje
+dymek AI nad zaznaczeniem, menu „AI” w pasku i pole „Polecenie” z panelem
+planu. Rekruter pisze jak do czatu („rolę w Logistyce skróć do 3 punktów”,
+„pogrub Kafkę”, „stanowisko: Senior Java Engineer”) albo klika podpowiedź:
+„Skróć do 2 stron”, „Więcej o wymaganiach klienta”, „Popraw język i styl”,
+„Usuń najstarsze role”. Front: `cv-editor/useCvAssistant.ts`,
+`CvEditorAssistant.tsx`; serwer: `services/cv_command_ai.py`,
+`POST /stages/{id}/cv-ai/command` i `…/cv-ai/confirm-fact`.
+
+- **Zmiana od razu, z „Cofnij”** (zasada 3). Operacje, które przeszły
+  `verify_plan`, edytor nakłada od razu jedną transakcją
+  (`lib/cv-editor-command.applyChanges`) — jeden krok Ctrl+Z i jedno
+  „Cofnij” przy odpowiedzi. „Cofnij” działa, dopóki nikt nie zmienił CV po tej
+  zmianie (`editor.state.doc === after`); potem jest wyłączony z podpowiedzią
+  o Ctrl+Z. Zmienioną treść podświetla dekoracja widoku `CvAssistantHighlight`
+  (`.cv-assistant-new`, zielone tło) — nie trafia do HTML ani do Worda.
+  Podświetlenie gaśnie przy następnej wiadomości i przy cofnięciu.
+- **Kartka czeka na odpowiedź** (`locked`): plan odnosi się do numerów wierszy
+  z chwili wysłania, więc do odpowiedzi kartka, „Do poprawy”, historia
+  i pliki są wyłączone. Szkic na zatwierdzonej wersji (`ensureDraft`) powstaje
+  dopiero przy pierwszej nakładanej zmianie — pytanie bez odpowiedzi szkicu
+  nie zakłada.
+- **Nowe operacje** (obok `remove`, `replace`, `merge`, `reorder`,
+  `remove_role`, `remove_section`): `add` (nowy punkt albo akapit po
+  wskazanym wierszu tej samej części CV), `bold` / `unbold` (lista słów;
+  nagłówki pomijane), `considered_for` (wiersz „Rozważany na stanowisko:”,
+  etykieta zostaje, kwoty odrzucane). Struktura Worda i klauzula RODO dalej
+  poza zasięgiem modelu.
+- **Pytamy tylko, gdy musimy** (zasada 6), z „Tak” i „Nie” w odpowiedzi:
+  - `ask: "source"` — nowa treść ma fakt, którego nie ma w wierszach CV,
+    oryginale ani notatkach pary (`_sources`: źródła QC + notatki bez pól
+    ukrytych przed CV). „Nie widzę „Terraform” w CV ani w notatkach. Kandydat
+    mówił o tym na rozmowie?”. „Tak, dopisz” najpierw zapisuje notatkę
+    (`confirm_fact`), potem nakłada zmianę.
+  - `ask: "loses"` — po zmianie w CV nie byłoby wymagania klienta, które
+    stało tylko w tym miejscu. „Tak, zmień” nakłada zmianę.
+  Wiersze operacji z pytaniem odnajdujemy przy odpowiedzi po treści, rodzaju
+  i sekcji (`remap`) — wcześniejsze zmiany z tej samej wiadomości przesuwają
+  numery. Gdy wiersza już nie ma, odpowiedź mówi to wprost.
+- **Fakt z rozmowy = notatka QC.** `confirm_fact` zapisuje notatkę pary
+  „Potwierdzone z kandydatem: X — treść” z `external_source` jak „Potwierdzone
+  z kandydatem” w QC (`note_kinds.QC_CONFIRM_SOURCE`), więc QC przyjmuje fakt
+  jako źródło, a autor i data są w notatkach rekrutacji. Kwot nie zapisujemy
+  nigdy (`_MONEY` → 422); pusta treść → 422. Trasa: 20/min, bramka jak
+  `cv-ai/command` (członkostwo w rekrutacji, klucz integracji → 403).
+- **Rozmowa jako kontekst.** Przeglądarka wysyła do 6 ostatnich wiadomości
+  (po 500 znaków) i numery wierszy zaznaczenia (do 60); prompt
+  `CV_EDITOR_COMMAND` v2 grodzi je w `<conversation>` i `<selected_lines>`
+  jako dane, nie polecenia. Zaznaczony tekst to kontekst wiadomości („Dotyczy
+  zaznaczenia: …” nad polem). Ślad użycia (`_log`): rodzaje operacji, pytania,
+  liczba wiadomości i zaznaczonych wierszy — bez treści.
+- **Kolumna przy 1280 × 720**: „Do poprawy” zwijane nagłówkiem panelu
+  (`heading` + `collapsed` w `CvEditorIssues` — jeden nagłówek, nie dwa),
+  rozwinięte domyślnie przy blokadach wysyłki, awarii QC i z „Sprawdź
+  i popraw”; zwinięte panel dalej liczy znaczniki i liczbę w pasku. Asystent
+  ma co najmniej 18rem (nagłówek, dwa rzędy podpowiedzi, pole i kilka linii
+  rozmowy), rozwinięta lista 2 : 3 z asystentem; rozmowa przewija się do
+  najnowszej odpowiedzi. Edytor wyniku generatora (bez etapu) asystenta nie
+  ma — kolumna jak w PR 3.
+- **Kwoty** (przegląd PR 4): jeden detektor `cv_command_ai.has_amount` —
+  wspólny `money_text` (`MONEY_RE`, `is_rate_text`) plus kod waluty przed
+  liczbą („PLN 15000”), „brutto/netto”, „per hour”, „za dzień”. Stawka nie
+  wchodzi do CV nigdy; inna kwota (budżet projektu) tylko ta sama, która stała
+  w zastępowanym tekście — liczba gdzie indziej w stanowisku niczego nie
+  odblokowuje. Notatka z `confirm-fact` z kwotą → 422. „Rate limiting”,
+  „50k użytkowników”, „10 tys. żądań” to fakty, nie pieniądze.
+- **Dopisanie nie zajmuje wiersza**, za którym staje: dwa punkty za tym samym
+  wierszem i nowa treść tego wiersza w jednym planie są w porządku. Wiersz-
+  kotwica nie może za to zniknąć (`remove`, `merge`, `remove_role`,
+  `remove_section`) ani dostać nowej kolejności swojej listy (`reorder`) —
+  `overlap`. Edytor nakłada zmiany od końca dokumentu, w tym samym miejscu
+  najpierw dłuższą, a wstawienia w kolejności planu.
+- **Odpowiedź na pytanie po innych zmianach** szuka wiersza po treści; ten sam
+  tekst w kilku miejscach = po kolejności wystąpienia, a gdy liczba wystąpień
+  się zmieniła — „CV zmieniło się…”, bez zgadywania.
+- **Zapis czeka na asystenta**: „Gotowe” i „Gotowe, przekaż do DL” są
+  wyłączone, dopóki asystent liczy albo nakłada odpowiedź na pytanie.
+  Odpowiedź, która przyjdzie po zablokowaniu edytora, nie wchodzi
+  („Odpowiedź przyszła, gdy CV się zapisywało…”).
+- **Escape** w kolumnie (`data-cv-panel`, `Marked.tsx`) nie zamyka edytora.
+- Harness `/preview/cv-editor`: `command-fixture.ts` odpowiada bez sieci
+  (skrócenie, „terraform” z pytaniem o źródło, „stanowisko: …”, pogrubienie,
+  „Usuń najstarsze role” z pytaniem o wymaganie).

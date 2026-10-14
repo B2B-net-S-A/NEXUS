@@ -2048,7 +2048,8 @@
    "opis": "AI na zaznaczonym fragmencie CV: dymek nad zaznaczeniem (pogrubienie, Skróć, Rozwiń z oryginału, Przeredaguj, Popraw język, Na angielski) i menu „AI” w pasku narzędzi",
    "file": "components/v2/cv-editor/CvEditorSelectionAi.tsx",
    "marker": "Zaznaczony tekst",
-   "v3_home": "karta „CV do klienta” → Otwórz i popraw → zaznacz tekst"
+   "v3_home": "karta „CV do klienta” → Otwórz i popraw → zaznacz tekst",
+   "removed_reason": "Dymek i menu „AI” nad zaznaczeniem zastąpił asystent w kolumnie (Edytor CV 3, PR 4, zasada „jedno miejsce do AI”): zaznaczony tekst jest kontekstem wiadomości do asystenta."
   },
   {
    "id": "cv.editor-ai-proposal",
@@ -2056,7 +2057,8 @@
    "opis": "Propozycja AI zawsze do decyzji: karta „było / będzie” z „Przyjmij”, „Doprecyzuj”, „Jeszcze raz”, „Odrzuć”; przyjęcie to jedna cofalna zmiana, szkic na zatwierdzonej wersji powstaje dopiero wtedy",
    "file": "components/v2/cv-editor/CvAiProposalCard.tsx",
    "marker": "Doprecyzuj",
-   "v3_home": "karta „CV do klienta” → Otwórz i popraw → zaznacz tekst"
+   "v3_home": "karta „CV do klienta” → Otwórz i popraw → zaznacz tekst",
+   "removed_reason": "Karta propozycji AI („Przyjmij”, „Doprecyzuj”) zastąpiona zmianą od razu na kartce z „Cofnij” w asystencie (Edytor CV 3, PR 4); doprecyzowanie to kolejna wiadomość w rozmowie."
   },
   {
    "id": "cv.editor-ai-source",
@@ -2064,15 +2066,32 @@
    "opis": "„Rozwiń z oryginału” tylko z cytatem sprawdzonym przez serwer: plakietka „Zgodne ze źródłem”, cytat w karcie i „Pokaż w oryginale” (wyszukanie w oryginalnym CV obok)",
    "file": "components/v2/cv-editor/CvAiProposalCard.tsx",
    "marker": "Pokaż w oryginale",
-   "v3_home": "karta „CV do klienta” → Otwórz i popraw → zaznacz tekst"
+   "v3_home": "karta „CV do klienta” → Otwórz i popraw → zaznacz tekst",
+   "removed_reason": "„Pokaż w oryginale” z karty propozycji zniknęło razem z kartą (Edytor CV 3, PR 4): asystent sprawdza nowy fakt w oryginale CV i notatkach po stronie serwera, a fakt bez źródła wraca pytaniem „Kandydat mówił o tym na rozmowie?”. Oryginał jest pod „Oryginał” w nagłówku."
   },
   {
    "id": "cv.editor-command",
    "area": "cv",
-   "opis": "Polecenie własnymi słowami dla całego CV: pasek z polem i gotowymi poleceniami (skróć, usuń najstarsze role, ułóż punkty według wymagań, ujednolić formę zdań) → „Przygotuj zmiany”",
-   "file": "components/v2/cv-editor/CvEditorCommandBar.tsx",
-   "marker": "Przygotuj zmiany",
-   "v3_home": "karta „CV do klienta” → Otwórz i popraw → Więcej → Polecenie dla całego CV"
+   "opis": "Asystent w kolumnie edytora CV (Edytor CV 3, PR 4): rekruter pisze jak do czatu albo wybiera podpowiedź, zmiany są od razu na kartce na zielono z jednym „Cofnij” na wiadomość; zaznaczony tekst to kontekst wiadomości (zastąpił „Polecenie”, plan zmian i dymek AI)",
+   "file": "components/v2/cv-editor/CvEditorAssistant.tsx",
+   "marker": "Napisz, co zmienić",
+   "v3_home": "karta „CV do klienta” → Otwórz i popraw → kolumna „Asystent CV”"
+  },
+  {
+   "id": "cv.editor-assistant-fact",
+   "area": "cv",
+   "opis": "Fakt spoza CV i źródeł w asystencie: pytanie „Kandydat mówił o tym na rozmowie?”; „Tak, dopisz” zapisuje notatkę pary „Potwierdzone z kandydatem: …” (autor, data, bez kwot) i dopiero wtedy zmienia CV; usunięcie jedynego miejsca z wymaganiem klienta pyta „Zmienić mimo to?”",
+   "file": "components/v2/cv-editor/useCvAssistant.ts",
+   "marker": "confirmFact",
+   "v3_home": "karta „CV do klienta” → Otwórz i popraw → kolumna „Asystent CV” → pytanie"
+  },
+  {
+   "id": "cv.editor-assistant-undo",
+   "area": "cv",
+   "opis": "„Cofnij” przy każdej odpowiedzi asystenta — cofa całą zmianę z tej wiadomości, dopóki CV się po niej nie zmieniło",
+   "file": "components/v2/cv-editor/CvEditorAssistant.tsx",
+   "marker": "Cofnięte.",
+   "v3_home": "karta „CV do klienta” → Otwórz i popraw → kolumna „Asystent CV”"
   },
   {
    "id": "cv.editor-plan",
@@ -2080,7 +2099,8 @@
    "opis": "Plan zmian: operacje sprawdzone przez serwer z polami wyboru, podgląd na kartce (co znika, co się zmienia), ostrzeżenie o znikającym wymaganiu klienta, „Zastosuj zaznaczone” jedną cofalną zmianą i „Odrzuć plan”",
    "file": "components/v2/cv-editor/CvEditorPlan.tsx",
    "marker": "Zastosuj zaznaczone",
-   "v3_home": "karta „CV do klienta” → Otwórz i popraw → Więcej → Polecenie dla całego CV"
+   "v3_home": "karta „CV do klienta” → Otwórz i popraw → Więcej → Polecenie dla całego CV",
+   "removed_reason": "Plan zmian z polami wyboru i „Zastosuj zaznaczone” zastąpił asystent w kolumnie (Edytor CV 3, PR 4, decyzja Artura D1 i zasada „AI zmienia od razu”): zmiany idą od razu z „Cofnij” na wiadomość, a pytanie pada tylko przy fakcie bez źródła i przy usunięciu jedynego miejsca z wymaganiem klienta."
   },
   {
    "id": "cv.editor-history",

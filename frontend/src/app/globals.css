@@ -1214,43 +1214,11 @@ body:has(aside[data-person-panel][data-cover]:not([hidden])) [data-app-sidebar] 
   background: hsl(var(--primary) / 0.14);
   box-shadow: 0 0 0 1px hsl(var(--primary) / 0.35);
 }
-/* Podgląd planu zmian („polecenie dla całego CV”): co zniknie, co się zmieni,
-   co zmieni miejsce. Dekoracje widoku — treść dokumentu jest nietknięta. */
-.cv-paper .ProseMirror .cv-plan-remove {
-  background: hsl(var(--destructive) / 0.08);
-  color: hsl(var(--muted-foreground));
-  text-decoration: line-through;
-  text-decoration-color: hsl(var(--destructive) / 0.7);
-}
-.cv-paper .ProseMirror .cv-plan-change {
-  background: hsl(var(--warning) / 0.1);
-}
-.cv-paper .ProseMirror .cv-plan-change > p,
-.cv-paper .ProseMirror p.cv-plan-change {
-  color: hsl(var(--muted-foreground));
-  text-decoration: line-through;
-  text-decoration-color: hsl(var(--muted-foreground) / 0.6);
-}
-.cv-paper .ProseMirror .cv-plan-new {
-  /* `inline-block`, nie `block`: przekreślenie zmienianego wiersza nie
-     przechodzi wtedy na nową treść pokazaną pod nim. */
-  display: inline-block;
-  width: 100%;
-  margin-top: 2px;
-  border-radius: 3px;
-  padding: 1px 4px;
-  background: hsl(var(--success) / 0.14);
-  color: hsl(var(--foreground));
-  text-decoration: none;
-}
-.cv-paper .ProseMirror .cv-plan-move {
-  background: hsl(var(--primary) / 0.08);
-}
-.cv-paper .ProseMirror .cv-plan-move::after {
-  content: " → " attr(data-cv-plan-order);
-  color: hsl(var(--primary));
-  font-size: 0.85em;
-  font-weight: 600;
+/* Zmiany asystenta (Edytor CV 3, PR 4): treść, którą asystent właśnie zmienił,
+   na zielono — dekoracja widoku, gaśnie przy następnej wiadomości. */
+.cv-paper .ProseMirror .cv-assistant-new {
+  border-radius: 2px;
+  background: hsl(var(--success) / 0.18);
 }
 /* Miejsce wskazane przez „Pokaż w CV” — gaśnie po chwili. */
 .cv-paper .ProseMirror .cv-issue-focus {

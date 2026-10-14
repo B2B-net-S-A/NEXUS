@@ -46,6 +46,8 @@ def test_cv_editor_ai_routes_are_under_the_scope_contract() -> None:
     for path in (
         "/api/pipeline/stages/{stage_id}/cv-ai/selection",
         "/api/pipeline/stages/{stage_id}/cv-ai/command",
+        # Edytor CV 3, PR 4: „Tak, dopisz” zapisuje notatkę pary.
+        "/api/pipeline/stages/{stage_id}/cv-ai/confirm-fact",
     ):
         assert routes.get(("POST", path)) is True, path
 
@@ -68,15 +70,21 @@ async def test_outsider_is_refused_before_the_model(
     guard = AsyncMock(side_effect=HTTPException(403, "Brak dostępu."))
     selection = AsyncMock()
     plan = AsyncMock()
+    confirm = AsyncMock()
     monkeypatch.setattr(route, "ensure_job_membership", guard)
     monkeypatch.setattr(route.cv_selection_ai, "propose", selection)
     monkeypatch.setattr(route.cv_command_ai, "propose_plan", plan)
+    monkeypatch.setattr(route.cv_command_ai, "confirm_fact", confirm)
     request = SimpleNamespace(state=SimpleNamespace())
     user = SimpleNamespace(id=1)
 
     for handler, payload in (
         (route.propose_for_selection, SelectionRequest(**SELECTION)),
         (route.propose_plan_for_command, CommandRequest(**COMMAND)),
+        (
+            route.confirm_fact_from_conversation,
+            route.ConfirmFactRequest(term="Terraform"),
+        ),
     ):
         db = _Db()
         with pytest.raises(HTTPException) as refused:
@@ -90,9 +98,10 @@ async def test_outsider_is_refused_before_the_model(
         assert refused.value.status_code == 403
         assert db.committed is False
 
-    assert [call.args[2] for call in guard.await_args_list] == [9, 9]
+    assert [call.args[2] for call in guard.await_args_list] == [9, 9, 9]
     selection.assert_not_awaited()
     plan.assert_not_awaited()
+    confirm.assert_not_awaited()
 
 
 # ── przez HTTP, na bazie (CI) ───────────────────────────────────────────────

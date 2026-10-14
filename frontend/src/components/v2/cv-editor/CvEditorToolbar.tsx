@@ -8,8 +8,9 @@
  * Edytor CV 3 (PR 3, 14.10.2026, „bardzo prosto”): w pasku zostaje to, czego
  * używa się co chwilę — cofnij, pogrubienie, lista, wyrównanie i „Pogrub
  * wymagania (N)”. Reszta (dodawanie bloków, typ akapitu, stanowisko pod
- * kursorem, AI na zaznaczeniu, wyrównanie całego CV oraz pozycje okna:
- * polecenie, historia, pliki) jest w jednym menu „Więcej”.
+ * kursorem, wyrównanie całego CV oraz pozycje okna: historia, pliki) jest
+ * w jednym menu „Więcej”. AI jest w jednym miejscu — w kolumnie asystenta
+ * (PR 4).
  */
 
 import { Fragment, useRef, type ReactNode } from "react";
@@ -25,7 +26,6 @@ import {
   List,
   Plus,
   Redo2,
-  Sparkles,
   Trash2,
   Undo2,
 } from "lucide-react";
@@ -44,9 +44,7 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import type { CvSelectionAiController } from "@/components/v2/cv-editor/useCvSelectionAi";
 import { useConfirmV2 } from "@/components/v2/modals/ConfirmV2";
-import { CV_AI_ACTIONS } from "@/lib/api/cvEditorAi";
 import {
   CV_DEFAULT_ALIGN,
   cvAlignAt,
@@ -99,11 +97,6 @@ export interface CvEditorToolbarProps {
   defaultAlign?: CvAlign;
   disabled?: boolean;
   /**
-   * „AI na zaznaczeniu”: drugie wejście obok dymka nad tekstem — dla klawiatury
-   * i telefonu, gdzie dymek bywa niewygodny. Brak = edytor bez AI.
-   */
-  ai?: CvSelectionAiController;
-  /**
    * „Pogrub wymagania (N)”: liczba z QC (`null` — QC jeszcze liczy albo nie
    * odpowiada). Brak = edytor bez QC (wynik generatora bez etapu).
    */
@@ -127,7 +120,6 @@ export function CvEditorToolbar({
   language,
   defaultAlign = CV_DEFAULT_ALIGN,
   disabled = false,
-  ai,
   boldRequirements,
   moreGroups = NO_GROUPS,
 }: CvEditorToolbarProps) {
@@ -380,35 +372,6 @@ export function CvEditorToolbar({
                   <Trash2 aria-hidden className="h-4 w-4" />
                   Usuń stanowisko
                 </DropdownMenuItem>
-              </DropdownMenuSubContent>
-            </DropdownMenuSub>
-          ) : null}
-          {ai?.enabled ? (
-            <DropdownMenuSub>
-              <DropdownMenuSubTrigger
-                disabled={disabled || ai.phase !== "idle"}
-                aria-label="AI na zaznaczonym tekście"
-                className="gap-2"
-              >
-                <Sparkles aria-hidden className="h-4 w-4 text-primary" />
-                AI na zaznaczonym tekście
-              </DropdownMenuSubTrigger>
-              <DropdownMenuSubContent className="max-w-72">
-                <DropdownMenuLabel className="font-normal text-muted-foreground">
-                  {ai.selection.ok
-                    ? "Propozycja dla zaznaczonego tekstu"
-                    : (ai.selection.reason ?? "Zaznacz fragment w akapicie albo punkcie.")}
-                </DropdownMenuLabel>
-                <DropdownMenuSeparator />
-                {CV_AI_ACTIONS.map((item) => (
-                  <DropdownMenuItem
-                    key={item.action}
-                    disabled={!ai.selection.ok}
-                    onSelect={() => ai.start(item.action)}
-                  >
-                    {item.label}
-                  </DropdownMenuItem>
-                ))}
               </DropdownMenuSubContent>
             </DropdownMenuSub>
           ) : null}
