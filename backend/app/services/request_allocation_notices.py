@@ -180,9 +180,10 @@ async def _assignment_notices(db: AsyncSession, *, now: datetime) -> int:
         }
     per_user: dict[int, dict[str, list[str]]] = {}
     for user_id, job_id, state, _assigned, _released, reason, title in rows:
-        if state != "active" and is_silent_release(reason):
+        if state != "active" and (is_silent_release(reason) or reason == "parked"):
             # Wycofana propozycja albo zdjęcie, po którym przypisano tę osobę
-            # ponownie — patrz `is_silent_release`.
+            # ponownie — patrz `is_silent_release`. Zejście z P1 („Poprzedni
+            # rekruter”) osoba dostała od razu osobnym dzwonkiem.
             continue
         if state == "active" and (user_id, job_id) in announced:
             continue

@@ -420,6 +420,9 @@ async def test_digest_uses_each_recipient_profile_without_unknown_notification(
         async def execute(self, stmt):
             return Result()
 
+        async def scalar(self, stmt):
+            return None  # nikt nie jest „Poprzednim rekruterem”
+
         async def commit(self):
             pass
 
@@ -485,6 +488,9 @@ async def test_digest_only_for_requests_in_work_and_falls_back_to_the_dl(
         async def execute(self, stmt):
             statements.append(stmt)
             return Result()
+
+        async def scalar(self, stmt):
+            return None  # nikt nie jest „Poprzednim rekruterem”
 
         async def commit(self):
             pass

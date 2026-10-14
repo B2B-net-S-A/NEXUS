@@ -1096,7 +1096,11 @@ async def handoff_core(
                 409,
                 "Automat przydziału jest wyłączony — wybierz rekrutera ręcznie.",
             )
-        if job.recruiter_id is not None:
+        # Prowadzący wśród „Poprzednich rekruterów” nie pracuje — automat
+        # może dobrać osobę (14.10.2026).
+        from app.services.job_previous_recruiters import working_owner_id
+
+        if await working_owner_id(db, job) is not None:
             raise HTTPException(409, "Rekrutacja ma już rekrutera; zmień go ręcznie")
         job.is_open = True
         job.needs_sourcing = True
@@ -1190,9 +1194,16 @@ async def reopen_keep_team_core(
       rekrutacja stoi jako „Bez rekrutera” i w kolejce Head of Recruitment
       „Nowe rekrutacje — kto prowadzi”.
 
+    „Poprzedni rekruter” (14.10.2026): przy P1 zespół uśpiony przy
+    zamknięciu (albo wcześniej, przy zejściu z P1) wraca; przy innym
+    priorytecie zostaje wśród poprzednich, a uśpiony prowadzący to brak
+    prowadzącego (bez przypisania i dzwonka).
+
     Wołający trzyma ``allocation_lock`` i blokadę wiersza, a ``publish_core``
     i bramka braków są już za nim. Bez commitu.
     """
+    from app.services.job_previous_recruiters import restore_team, working_owner_id
+    from app.services.job_priority import level_of
     from app.services.job_team import settle_team_without_recruiter_role
     from app.services.request_work_state import set_work_state
 
@@ -1218,8 +1229,18 @@ async def reopen_keep_team_core(
             owner=None,
             actor_id=actor_id,
         )
+    restored: list[int] = []
+    if level_of(job.priority) == "p1":
+        # Prowadzący dostaje niżej dzisiejszy dzwonek „request wrócił”.
+        restored = await restore_team(
+            db,
+            job,
+            actor_id=actor_id,
+            notify=True,
+            skip_bell_for=[job.recruiter_id] if job.recruiter_id else [],
+        )
     owner: Optional[User] = None
-    if job.recruiter_id is not None:
+    if await working_owner_id(db, job) is not None:
         owner = await db.scalar(select(User).where(User.id == job.recruiter_id))
         if owner is not None and not owner.is_active:
             # Nieaktywne konto = brak osoby (runda 4 audytu 25.09.2026).
@@ -1249,6 +1270,7 @@ async def reopen_keep_team_core(
             details={
                 "assignment_mode": "keep",
                 "recruiter_id": owner.id if owner is not None else None,
+                **({"restored_user_ids": restored} if restored else {}),
                 **settled,
             },
         )
@@ -1360,15 +1382,27 @@ async def close_job_core(
     Atomically: status → closed, closed_at = now, close_reason + close_notes.
     Zamknięta rekrutacja nie jest przez nikogo prowadzona (``is_open``),
     jest „Zakończona” w porządku requestów i zamyka ogłoszenia na portalach.
+    Zespół przechodzi do „Poprzedni rekruter” (bez dzwonka) — wraca przy
+    ponownym otwarciu przy P1.
     """
     from app.services.candidate_contact_hooks import (
         maybe_close_job_contact_opportunities,
     )
     from app.services.job_portals.service import close_live_postings
+    from app.services.job_previous_recruiters import park_team
     from app.services.job_proposals import expire_open_for_job
     from app.services.request_work_state import set_work_state
 
     api = _api()
+    # PRZED zmianą stanu: ręczne zdjęcie liczy się od ``work_state_changed_at``.
+    await park_team(
+        db,
+        job,
+        reason="closed",
+        actor_id=actor_id,
+        notify=False,
+        release_assignments=False,
+    )
     job.status = JobStatus.closed
     job.closed_at = datetime.now(timezone.utc)
     job.is_open = False

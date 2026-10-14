@@ -793,6 +793,7 @@ async def send_daily_digests() -> int:
     ``digested_at`` zamyka wiersze; dobowy dedup ``emit`` chroni przed
     powtórką przy równoległym przebiegu.
     """
+    from app.services.job_previous_recruiters import working_owner_id
     from app.services.notification_triggers import emit
 
     if local_now().hour < DIGEST_HOUR_LOCAL:
@@ -816,7 +817,8 @@ async def send_daily_digests() -> int:
             job = await db.get(Job, job_id)
             recipient = None
             if job is not None:
-                recipient = job.recruiter_id or job.delivery_lead_id
+                # „Poprzedni rekruter” (14.10.2026) nie dostaje skrótu — idzie do DL.
+                recipient = await working_owner_id(db, job) or job.delivery_lead_id
             if recipient is not None and job is not None:
                 title = getattr(job, "working_title", None) or job.title
                 await emit(

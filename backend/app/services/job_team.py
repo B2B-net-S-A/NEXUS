@@ -22,6 +22,12 @@ Propozycja automatu (``state = 'proposed'``) NIE jest pracą: dopóki Head of
 Recruitment jej nie zaakceptuje, nikt nie jest przypisany. Loader oddaje ją
 osobno (``proposed=True``), klauzule SQL jej nie liczą.
 
+Osoba z „Poprzedni rekruter” (``job_previous_recruiters``, 14.10.2026 —
+zamknięcie albo zejście z P1) NIE pracuje, choć jej wiersze zostają: loader
+i klauzule zespołu ją pomijają. Dostęp i historia (``is_member_of_job``,
+umowy B2B, metryki) czytają gołe ``working_assignment_job_ids`` /
+``manual_collaborator_job_ids`` bez ``exclude_parked`` i jej nie gubią.
+
 Loader (``recruiters_for_jobs``) i klauzule SQL (``jobs_worked_by_clause``,
 ``jobs_nobody_working_clause``) muszą dawać ten sam zbiór — pilnuje tego
 ``tests/test_job_team.py``. Zmieniasz jedno, zmień drugie.
@@ -42,6 +48,12 @@ from app.models.job import Job
 from app.models.job_collaborator import JobCollaborator, JobCollaboratorSource
 from app.models.job_work_assignment import WORK_ROLE, JobWorkAssignment
 from app.models.user import User, UserRole
+from app.services.job_previous_recruiters import (
+    clear_parked,
+    load_parked,
+    parked_exists,
+    parked_job_ids,
+)
 
 
 @dataclass(frozen=True)
@@ -65,11 +77,14 @@ WORK_ROLES = (UserRole.recruiter,)
 # ── Klauzule SQL (filtry listy, zakres „Moje”, liczniki) ────────────────────
 
 
-def working_assignment_job_ids(user_ids: Optional[list[int]] = None):
+def working_assignment_job_ids(
+    user_ids: Optional[list[int]] = None, *, exclude_parked: bool = False
+):
     """Rekrutacje z AKTYWNYM przypisaniem (punkt 2 reguły).
 
     Propozycja (``proposed``) i lustro prowadzącego (``source = 'owner'``) się
-    nie liczą; liczą się wyłącznie aktywne konta.
+    nie liczą; liczą się wyłącznie aktywne konta. ``exclude_parked`` — reguła
+    zespołu (bez „Poprzednich rekruterów”); bez niego — dostęp i historia.
     """
     subq = (
         select(JobWorkAssignment.job_id)
@@ -82,6 +97,10 @@ def working_assignment_job_ids(user_ids: Optional[list[int]] = None):
     )
     if user_ids is not None:
         subq = subq.where(JobWorkAssignment.user_id.in_(user_ids))
+    if exclude_parked:
+        subq = subq.where(
+            ~parked_exists(JobWorkAssignment.job_id, JobWorkAssignment.user_id)
+        )
     return subq
 
 
@@ -89,8 +108,9 @@ def owner_is_working_clause():
     """Prowadzący (``jobs.recruiter_id``) pracuje nad rekrutacją (punkt 1).
 
     Liczy się aktywne konto; prowadzący zdjęty RĘCZNIE w bieżącym stanie
-    requestu nie wraca (lustro ``request_allocation._blocked``). Klauzula
-    skorelowana z zewnętrznym ``Job`` — nie podzapytanie po ``jobs``.
+    requestu nie wraca (lustro ``request_allocation._blocked``), tak samo
+    prowadzący wśród „Poprzednich rekruterów”. Klauzula skorelowana
+    z zewnętrznym ``Job`` — nie podzapytanie po ``jobs``.
     """
     active_owner = exists(
         select(User.id).where(User.id == Job.recruiter_id, User.is_active.is_(True))
@@ -107,14 +127,22 @@ def owner_is_working_clause():
             ),
         )
     )
-    return and_(Job.recruiter_id.is_not(None), active_owner, not_(released_manually))
+    return and_(
+        Job.recruiter_id.is_not(None),
+        active_owner,
+        not_(released_manually),
+        not_(parked_exists(Job.id, Job.recruiter_id)),
+    )
 
 
-def manual_collaborator_job_ids(user_ids: Optional[list[int]] = None):
+def manual_collaborator_job_ids(
+    user_ids: Optional[list[int]] = None, *, exclude_parked: bool = False
+):
     """Rekrutacje z RĘCZNIE dopisanym współpracownikiem (punkt 3).
 
     Wiersze ``auto_cc`` (cała kategoria kompetencji) się nie liczą — to
     informacja, kto może request wziąć, a nie kto nad nim pracuje.
+    ``exclude_parked`` jak w ``working_assignment_job_ids``.
     """
     subq = (
         select(JobCollaborator.job_id)
@@ -127,24 +155,38 @@ def manual_collaborator_job_ids(user_ids: Optional[list[int]] = None):
     )
     if user_ids is not None:
         subq = subq.where(JobCollaborator.user_id.in_(user_ids))
+    if exclude_parked:
+        subq = subq.where(
+            ~parked_exists(JobCollaborator.job_id, JobCollaborator.user_id)
+        )
     return subq
 
 
-def jobs_worked_by_clause(user_ids: list[int]):
-    """Filtr „Rekruter” — któraś z osób jest Rekruterem rekrutacji."""
-    return or_(
+def jobs_worked_by_clause(user_ids: list[int], *, include_parked: bool = False):
+    """Filtr „Rekruter” — któraś z osób jest Rekruterem rekrutacji.
+
+    ``include_parked`` (zakres „Wszystkie”): także rekrutacje, przy których
+    osoba jest wśród „Poprzednich rekruterów” — inaczej po zamknięciu nikt nie
+    znalazłby swoich zamkniętych rekrutacji. Jawnie, bo zwolnione przy
+    zejściu z P1 przypisanie samo by jej nie znalazło.
+    """
+    clause = or_(
         and_(Job.recruiter_id.in_(user_ids), owner_is_working_clause()),
-        Job.id.in_(working_assignment_job_ids(user_ids)),
-        Job.id.in_(manual_collaborator_job_ids(user_ids)),
+        Job.id.in_(working_assignment_job_ids(user_ids, exclude_parked=True)),
+        Job.id.in_(manual_collaborator_job_ids(user_ids, exclude_parked=True)),
     )
+    if include_parked:
+        clause = or_(clause, Job.id.in_(parked_job_ids(user_ids)))
+    return clause
 
 
 def jobs_nobody_working_clause():
-    """„Bez rekrutera” — nikt nie pracuje; sama propozycja automatu to za mało."""
+    """„Bez rekrutera” — nikt nie pracuje; sama propozycja automatu to za mało,
+    a cały zespół wśród „Poprzednich rekruterów” też."""
     return and_(
         not_(owner_is_working_clause()),
-        Job.id.not_in(working_assignment_job_ids()),
-        Job.id.not_in(manual_collaborator_job_ids()),
+        Job.id.not_in(working_assignment_job_ids(exclude_parked=True)),
+        Job.id.not_in(manual_collaborator_job_ids(exclude_parked=True)),
     )
 
 
@@ -158,7 +200,8 @@ async def recruiters_for_jobs(
 
     Kolejność: prowadzący, aktywne przypisania (od najstarszego), ręczni
     współpracownicy, na końcu propozycje automatu (``proposed=True``). Każda
-    osoba występuje raz. Rekrutacja bez nikogo ma pustą listę.
+    osoba występuje raz. Rekrutacja bez nikogo ma pustą listę. „Poprzedni
+    rekruterzy” (``job_previous_recruiters``) nie pracują — pomijamy ich.
     """
     ids = sorted({int(job_id) for job_id in job_ids})
     out: dict[int, list[TeamPerson]] = {job_id: [] for job_id in ids}
@@ -226,6 +269,7 @@ async def recruiters_for_jobs(
         )
     ).all()
 
+    parked = await load_parked(db, ids)
     wanted = {uid for uid in owners.values() if uid is not None}
     wanted.update(user_id for _job_id, user_id in collaborator_rows)
     users: dict[int, User] = {}
@@ -256,7 +300,12 @@ async def recruiters_for_jobs(
         people: list[TeamPerson] = []
         seen: set[int] = set()
         live = rows_by_job.get(job_id, [])
-        active = [r for r in live if r.state == "active" and r.source != "owner"]
+        asleep = parked.get(job_id, set())
+        active = [
+            r
+            for r in live
+            if r.state == "active" and r.source != "owner" and r.user_id not in asleep
+        ]
 
         owner_id = owners.get(job_id)
         owner = users.get(owner_id) if owner_id is not None else None
@@ -264,6 +313,7 @@ async def recruiters_for_jobs(
             owner is not None
             and owner.is_active
             and (job_id, owner.id) not in released_owners
+            and owner.id not in asleep
         ):
             own_row = next((r for r in active if r.user_id == owner.id), None)
             people.append(
@@ -293,7 +343,7 @@ async def recruiters_for_jobs(
             seen.add(row.user_id)
         for user_id in collaborators_by_job.get(job_id, []):
             user = users.get(user_id)
-            if user is None or user_id in seen:
+            if user is None or user_id in seen or user_id in asleep:
                 continue
             people.append(
                 TeamPerson(
@@ -331,7 +381,12 @@ def working(people: Iterable[TeamPerson]) -> list[TeamPerson]:
 
 
 async def add_manual_member(
-    db: AsyncSession, *, job_id: int, user_id: int, actor_id: Optional[int]
+    db: AsyncSession,
+    *,
+    job_id: int,
+    user_id: int,
+    actor_id: Optional[int],
+    unpark: bool = True,
 ) -> bool:
     """Trwały wpis osoby w roli „Rekruter” (punkt 3 reguły) — lustro ``remove_recruiter``.
 
@@ -345,14 +400,27 @@ async def add_manual_member(
     Prowadzący (``jobs.recruiter_id``) wiersza nie dostaje — jest przy
     rekrutacji z urzędu. Wiersz ``auto_cc`` (cała kategoria) albo zdjęty
     wcześniej staje się ``manual``. Zwraca ``True``, gdy wiersz powstał albo
-    zmienił się na ręczny. Bez commitu.
+    zmienił się na ręczny, albo osoba wróciła z „Poprzednich rekruterów”.
+    Bez commitu.
+
+    Człowiek, który dodaje osobę z „Poprzednich rekruterów”, przywraca ją
+    (``unpark``) — także prowadzącego, który wiersza nie dostaje. Wyjątek:
+    powrót ludzi po zdjęciu championa (``unpark=False``) to nie decyzja
+    o tej osobie.
     """
     # Sesja nie robi autoflush: prowadzący wpisany chwilę wcześniej na obiekcie
     # rekrutacji musi być w bazie, zanim go odczytamy.
     await db.flush()
+    unparked = (
+        await clear_parked(
+            db, job_id=job_id, user_id=user_id, reason="readded", actor_id=actor_id
+        )
+        if unpark
+        else False
+    )
     owner_id = await db.scalar(select(Job.recruiter_id).where(Job.id == job_id))
     if owner_id == user_id:
-        return False
+        return unparked
     previous_source = await db.scalar(
         select(JobCollaborator.source).where(
             JobCollaborator.job_id == job_id, JobCollaborator.user_id == user_id
@@ -377,7 +445,7 @@ async def add_manual_member(
         .returning(JobCollaborator.id)
     )
     if changed is None:
-        return False
+        return unparked
     details: dict = {"collaborator_id": user_id}
     if previous_source is not None:
         details["promoted_from"] = "auto_cc"
@@ -418,6 +486,10 @@ async def remove_recruiter(
 
     removed = False
     was_owner = job.recruiter_id == user_id
+    # Zdjęta osoba nie wraca przy powrocie na P1.
+    await clear_parked(
+        db, job_id=job.id, user_id=user_id, reason="removed", actor_id=actor_id
+    )
     # Prowadzący PRZED przypisaniem: ``manual_remove`` zdejmuje prowadzącego
     # wpisanego przez automat UPDATE-em, który sesja od razu odbija na obiekcie
     # ``job`` (``recruiter_id`` puste) — po nim ten warunek byłby fałszywy,
@@ -523,6 +595,10 @@ async def settle_team_without_recruiter_role(
                 job.delivery_lead_id = owner.id
                 job.delivery_lead_auto_filled = False
             job.recruiter_id = None
+            # Inaczej DL zostałby „Poprzednim rekruterem” tej rekrutacji.
+            await clear_parked(
+                db, job_id=job.id, user_id=owner.id, reason="skipped", actor_id=actor_id
+            )
 
     links = (
         await db.scalars(
@@ -538,6 +614,9 @@ async def settle_team_without_recruiter_role(
         if person is None or person.has_any_role(*WORK_ROLES):
             continue
         dropped.append(link.user_id)
+        await clear_parked(
+            db, job_id=job.id, user_id=link.user_id, reason="skipped", actor_id=actor_id
+        )
         await db.delete(link)
         db.add(
             Activity(

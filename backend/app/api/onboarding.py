@@ -145,8 +145,24 @@ async def _apply_dl_onboarding(
         payload.priority_job_ids + payload.needs_sourcing_job_ids,
     )
 
-    for job_id in set(payload.priority_job_ids):
-        scoped_jobs[job_id].priority = JobPriority.high
+    if payload.priority_job_ids:
+        # Powrót na P1 przywraca „Poprzednich rekruterów” (14.10.2026) —
+        # przypisania chroni blokada przydziału.
+        from app.services.job_previous_recruiters import (  # noqa: PLC0415
+            apply_priority_transition,
+        )
+        from app.services.recruitment_allocation import (  # noqa: PLC0415
+            allocation_lock,
+        )
+
+        await allocation_lock(db)
+        for job_id in set(payload.priority_job_ids):
+            job = scoped_jobs[job_id]
+            previous = job.priority
+            job.priority = JobPriority.high
+            await apply_priority_transition(
+                db, job, previous_priority=previous, actor_id=user.id
+            )
     for job_id in set(payload.needs_sourcing_job_ids):
         scoped_jobs[job_id].needs_sourcing = True
 
@@ -185,6 +201,13 @@ async def _apply_recruiter_onboarding(
             },
         )
         await db.execute(stmt)
+        # Własny wybór = osoba pracuje — także ta wśród „Poprzednich rekruterów”.
+        from app.services.job_previous_recruiters import clear_parked  # noqa: PLC0415
+
+        for jid in set(payload.active_job_ids):
+            await clear_parked(
+                db, job_id=jid, user_id=user.id, reason="readded", actor_id=user.id
+            )
 
     return payload
 

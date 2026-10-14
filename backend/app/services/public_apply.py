@@ -773,6 +773,7 @@ async def _notify_owner(
     job_id = link.job_id
     try:
         from app.models.user import User
+        from app.services.job_previous_recruiters import working_owner_id
         from app.services.notification_triggers import emit
 
         job_title: Optional[str] = None
@@ -782,9 +783,12 @@ async def _notify_owner(
             job_title = job.title if job else None
             owner = await db.get(User, owner_id) if owner_id is not None else None
             if job is not None and not (owner and owner.is_active):
+                # „Poprzedni rekruter” (14.10.2026) nie dostaje zgłoszeń z cudzego
+                # linku — zostaje Delivery Lead.
+                working_id = await working_owner_id(db, job)
                 recipients = [
                     uid
-                    for uid in dict.fromkeys((job.recruiter_id, job.delivery_lead_id))
+                    for uid in dict.fromkeys((working_id, job.delivery_lead_id))
                     if uid is not None and uid != owner_id
                 ]
         person = f"{applicant.first_name} {applicant.last_name}".strip()

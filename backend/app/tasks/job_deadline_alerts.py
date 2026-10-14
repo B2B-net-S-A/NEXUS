@@ -54,6 +54,7 @@ from app.models.job_collaborator import JobCollaborator, JobCollaboratorSource
 from app.models.notification import Notification, NotificationType
 from app.models.user import User
 from app.services.email import email_channel_enabled, send_email
+from app.services.job_previous_recruiters import load_parked
 from app.services.notification_delivery import (
     email_queue_clause,
     email_wanted,
@@ -103,8 +104,12 @@ async def _assigned_user_ids(db: AsyncSession, job: Job) -> list[int]:
     owner recruiter + DL + TAC + aktywni collaboratorzy, przefiltrowani do
     kont aktywnych z dostępem do domeny kandydatów (ten sam kontrakt co Job Chat).
     """
+    # „Poprzedni rekruter” (14.10.2026) nie dostaje alertu o terminie — ani
+    # jako prowadzący, ani jako ręcznie dopisany; DL i TAC zostają.
+    parked = (await load_parked(db, [job.id])).get(job.id, set())
+    owner_id = job.recruiter_id if job.recruiter_id not in parked else None
     candidate_ids: set[int] = set()
-    for uid in (job.recruiter_id, job.delivery_lead_id, job.tac_id):
+    for uid in (owner_id, job.delivery_lead_id, job.tac_id):
         if uid:
             candidate_ids.add(uid)
 
@@ -116,7 +121,7 @@ async def _assigned_user_ids(db: AsyncSession, job: Job) -> list[int]:
         .where(JobCollaborator.source != JobCollaboratorSource.auto_cc)
     )
     for (uid,) in rows.all():
-        if uid:
+        if uid and uid not in parked:
             candidate_ids.add(uid)
 
     if not candidate_ids:

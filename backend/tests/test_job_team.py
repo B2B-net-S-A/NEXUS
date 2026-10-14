@@ -103,6 +103,7 @@ async def test_add_manual_member_skips_the_owner() -> None:
     db = AsyncMock()
     db.add = Mock()
     db.scalar.return_value = 7  # jobs.recruiter_id
+    db.execute.return_value = Mock(rowcount=0)  # nie był wśród poprzednich
 
     assert await add_manual_member(db, job_id=5, user_id=7, actor_id=1) is False
     # Sesja nie robi autoflush — prowadzący wpisany przed chwilą musi być w bazie.
@@ -122,6 +123,7 @@ async def test_add_manual_member_upserts_and_promotes_a_category_row() -> None:
     db.add = Mock()
     # Prowadzący, źródło istniejącego wiersza, id wiersza po upsercie.
     db.scalar.side_effect = [3, JobCollaboratorSource.auto_cc, 41]
+    db.execute.return_value = Mock(rowcount=0)
 
     assert await add_manual_member(db, job_id=5, user_id=9, actor_id=1) is True
 
@@ -153,9 +155,93 @@ async def test_add_manual_member_reports_no_change_for_a_manual_row() -> None:
     db.add = Mock()
     # Upsert z warunkiem WHERE nie zwraca wiersza, gdy nic nie zmienił.
     db.scalar.side_effect = [3, JobCollaboratorSource.manual, None]
+    db.execute.return_value = Mock(rowcount=0)
 
     assert await add_manual_member(db, job_id=5, user_id=9, actor_id=1) is False
     db.add.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_add_manual_member_brings_a_parked_owner_back() -> None:
+    """Prowadzący wśród „Poprzednich rekruterów” (14.10.2026) dodany przez
+    człowieka wraca do pracy, choć wiersza współpracownika nie dostaje."""
+    from unittest.mock import AsyncMock, Mock
+
+    from app.services.job_team import add_manual_member
+
+    db = AsyncMock()
+    db.add = Mock()
+    db.scalar.return_value = 7  # jobs.recruiter_id
+    db.execute.return_value = Mock(rowcount=1)  # znacznik zdjęty
+
+    assert await add_manual_member(db, job_id=5, user_id=7, actor_id=1) is True
+    sql = _sql(db.execute.await_args.args[0])
+    assert sql.startswith("UPDATE job_previous_recruiters"), sql
+    assert "cleared_reason='readded'" in sql, sql
+    assert "job_previous_recruiters.cleared_at IS NULL" in sql, sql
+    db.add.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_add_manual_member_can_leave_a_parked_person_parked() -> None:
+    """Powrót ludzi po zdjęciu championa to nie decyzja o osobie (``unpark=False``)."""
+    from unittest.mock import AsyncMock, Mock
+
+    from app.models.job_collaborator import JobCollaboratorSource
+    from app.services.job_team import add_manual_member
+
+    db = AsyncMock()
+    db.add = Mock()
+    db.scalar.side_effect = [3, JobCollaboratorSource.manual, None]
+
+    assert (
+        await add_manual_member(db, job_id=5, user_id=9, actor_id=1, unpark=False)
+        is False
+    )
+    db.execute.assert_not_awaited()
+
+
+def test_team_clauses_leave_out_previous_recruiters() -> None:
+    """„Poprzedni rekruter” nie pracuje: klauzule zespołu go pomijają, a gołe
+    podzapytania (dostęp, umowy B2B, metryki) dalej go znają."""
+    from app.services.job_team import (
+        jobs_nobody_working_clause,
+        jobs_worked_by_clause,
+        manual_collaborator_job_ids,
+        owner_is_working_clause,
+        working_assignment_job_ids,
+    )
+
+    for clause in (
+        jobs_worked_by_clause([1]),
+        jobs_nobody_working_clause(),
+        owner_is_working_clause(),
+        working_assignment_job_ids([1], exclude_parked=True),
+        manual_collaborator_job_ids([1], exclude_parked=True),
+    ):
+        sql = _sql(clause)
+        assert "job_previous_recruiters.cleared_at IS NULL" in sql, sql
+    for access in (working_assignment_job_ids([1]), manual_collaborator_job_ids([1])):
+        assert "job_previous_recruiters" not in _sql(access)
+    # Zakres „Wszystkie”: były rekruter znajduje swoje zamknięte rekrutacje.
+    everything = _sql(jobs_worked_by_clause([1], include_parked=True))
+    assert everything.count("job_previous_recruiters") > _sql(
+        jobs_worked_by_clause([1])
+    ).count("job_previous_recruiters"), everything
+
+
+def test_mine_list_leaves_out_previous_recruiters_but_metrics_keep_them() -> None:
+    from app.api.jobs import (
+        jobs_mine_clause,
+        jobs_mine_list_clause,
+        jobs_mine_working_clause,
+    )
+
+    user = SimpleNamespace(id=7, roles=["recruiter"], role="recruiter")
+    assert "job_previous_recruiters" in _sql(jobs_mine_working_clause(user))
+    assert "job_previous_recruiters" in _sql(jobs_mine_list_clause(user))
+    # Kreator metryk („me”) liczy też zamknięte — historia nie znika.
+    assert "job_previous_recruiters" not in _sql(jobs_mine_clause(user))
 
 
 # ── Parzystość loader ⇔ SQL (baza) ───────────────────────────────────────────

@@ -33,6 +33,7 @@ from app.core.database import AsyncSessionLocal
 from app.models.candidate import AvailabilityStatus, Candidate
 from app.models.job import Job
 from app.models.notification import NotificationType
+from app.services.job_previous_recruiters import working_owner_id
 from app.services.notification_triggers import (
     _delivery_lead_targets,
     _operational_recipient,
@@ -218,8 +219,14 @@ async def _recipients(db: AsyncSession, job: Job) -> list[int]:
     zamiast przepaść w ``emit``. TAC wypadł z adresatów — funkcji TAC nie
     używamy (decyzja Artura 22.09.2026).
     """
+    owner_id = await working_owner_id(db, job)
+    # „Poprzedni rekruter” (14.10.2026) nie dostaje dzwonka — także wtedy,
+    # gdy to on założył rekrutację.
+    parked_id = job.recruiter_id if owner_id is None else None
     out: list[int] = []
-    for owner in (job.recruiter_id, job.created_by):
+    for owner in (owner_id, job.created_by):
+        if parked_id is not None and owner == parked_id:
+            continue
         performer = await _operational_recipient(db, [owner])
         if performer is not None and performer not in out:
             out.append(performer)

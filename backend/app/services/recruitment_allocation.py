@@ -42,6 +42,7 @@ from app.models.proposal_snapshot import (
     STATUS_PENDING,
 )
 from app.core.config import settings
+from app.services.job_previous_recruiters import load_parked
 from app.services.job_readiness import job_readiness_blockers
 from app.services.priority_work_service import (
     OPERATIONAL_ROLES,
@@ -246,6 +247,13 @@ async def load_workloads(
             )
         ).all()
     )
+    # „Poprzedni rekruter” (zejście z P1, 14.10.2026) nad requestem nie pracuje.
+    parked = await load_parked(db, by_id)
+    commitments = {
+        (owner, job_id)
+        for owner, job_id in commitments
+        if owner not in parked.get(job_id, ())
+    }
     for owner, job_id in commitments:
         load, inherited = target(owner)
         if load is None:

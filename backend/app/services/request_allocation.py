@@ -59,6 +59,7 @@ from app.models.job_proposal import JobProposal
 from app.models.job_work_assignment import JobWorkAssignment
 from app.models.recruitment_process import ProcessStatus, RecruitmentProcess
 from app.models.user import User, UserRole
+from app.services.job_previous_recruiters import parked_exists
 from app.services.job_priority import is_passive, priority_rank
 from app.services.job_team import add_manual_member, recruiters_for_jobs, working
 from app.services.request_allocation_plan import (
@@ -324,11 +325,17 @@ async def _adopt_owners(
         .values(state="released", released_at=now, release_reason="owner_changed")
         .execution_options(synchronize_session=False)
     )
+    # Prowadzący wśród „Poprzednich rekruterów” (zejście z P1) nie pracuje —
+    # adopcja przywróciłaby go co przebieg i liczyła w obłożeniu.
     owners = (
         await db.execute(
             select(Job.id, Job.recruiter_id)
             .join(User, User.id == Job.recruiter_id)
-            .where(_pool_clause(), User.is_active.is_(True))
+            .where(
+                _pool_clause(),
+                User.is_active.is_(True),
+                ~parked_exists(Job.id, Job.recruiter_id),
+            )
         )
     ).all()
     if not owners:
@@ -1055,9 +1062,10 @@ async def restore_after_champion_removed(
             if role == "recruiter":
                 await _set_owner_if_empty(db, job_id, user_id)
             # Osoby zwolnione przez championa przed 12.10.2026 nie miały
-            # trwałego wpisu w zespole — dostają go przy powrocie.
+            # trwałego wpisu w zespole — dostają go przy powrocie. Powrót po
+            # championie to nie decyzja o osobie: „Poprzedni rekruter” zostaje.
             await add_manual_member(
-                db, job_id=job_id, user_id=user_id, actor_id=assigned_by
+                db, job_id=job_id, user_id=user_id, actor_id=assigned_by, unpark=False
             )
     await db.flush()
     return restored

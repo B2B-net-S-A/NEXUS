@@ -339,6 +339,7 @@ async def _notify(
 ) -> int:
     from app.models.notification import NotificationType
     from app.models.user import User
+    from app.services.job_previous_recruiters import working_owner_id
     from app.services.notification_triggers import emit
 
     sent = 0
@@ -347,7 +348,9 @@ async def _notify(
             continue
         job = jobs_by_id[d.job_id]
         candidate = candidates_by_id[d.candidate_id]
-        recipient_ids = {uid for uid in (job.recruiter_id, job.tac_id) if uid}
+        # „Poprzedni rekruter” (14.10.2026) nie dostaje dzwonka auto-matchu.
+        owner_id = await working_owner_id(db, job)
+        recipient_ids = {uid for uid in (owner_id, job.tac_id) if uid}
         if not recipient_ids:
             continue
         active = (

@@ -20,6 +20,7 @@ from fastapi import HTTPException, status
 from sqlalchemy import (
     Integer,
     Select,
+    and_,
     column,
     func,
     or_,
@@ -31,6 +32,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.selectable import Subquery
 
 from app.api.jobs import _live_work_assignment_job_ids
+from app.services.job_previous_recruiters import parked_exists
 from app.services.job_team import manual_collaborator_job_ids
 from app.api.recruitment_access import job_scope_clause
 from app.services.workforce_availability import (
@@ -217,17 +219,25 @@ def _job_filters(
         # active collaborator row bearing this exact user's id.
         filters.append(
             or_(
-                operational_owner_clause(Job.recruiter_id, user),
+                # „Poprzedni rekruter” (14.10.2026) nie ma rekrutacji
+                # w „Moich przypisanych” — ani jako prowadzący, ani jako
+                # dopisany czy z przydziału.
+                and_(
+                    operational_owner_clause(Job.recruiter_id, user),
+                    ~parked_exists(Job.id, Job.recruiter_id),
+                ),
                 operational_owner_clause(Job.delivery_lead_id, user),
                 operational_owner_clause(Job.tac_id, user),
                 # Tylko dopisani RĘCZNIE: wiersz `auto_cc` to cała kategoria
                 # dopisana automatycznie, czyli „do wzięcia”, nie „moje” —
                 # ta sama reguła co zakres „Moje” na liście rekrutacji.
-                Job.id.in_(manual_collaborator_job_ids([user.id])),
+                Job.id.in_(manual_collaborator_job_ids([user.id], exclude_parked=True)),
                 # Runda 9 (bliźniak R9-N15-2): AKTYWNE przypisanie z przydziału
                 # requestów to też „moja” rekrutacja — ta sama reguła co „Moje”
                 # na liście /jobs. Propozycja automatu się nie liczy.
-                Job.id.in_(_live_work_assignment_job_ids([user.id])),
+                Job.id.in_(
+                    _live_work_assignment_job_ids([user.id], exclude_parked=True)
+                ),
             )
         )
     normalized_q = (q or "").strip()

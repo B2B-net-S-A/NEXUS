@@ -217,12 +217,14 @@ async def _digest_recipients(db, job: Job) -> set[int]:
     """Prowadzący przez zastępstwo z COMPASS; bez nikogo — DL rekrutacji
     (a bez niego Head of Recruitment). Lustro ``similar_job_notify._recipients``
     (R8-X1-6). TAC wypadł — funkcji TAC nie używamy (22.09.2026)."""
+    from app.services.job_previous_recruiters import working_owner_id
     from app.services.notification_triggers import (
         _delivery_lead_targets,
         _operational_recipient,
     )
 
-    performer = await _operational_recipient(db, [job.recruiter_id])
+    # „Poprzedni rekruter” (14.10.2026) nie dostaje digestu — idzie do DL-a.
+    performer = await _operational_recipient(db, [await working_owner_id(db, job)])
     if performer is not None:
         return {performer}
     return set(await _delivery_lead_targets(db, job))

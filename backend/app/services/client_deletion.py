@@ -565,9 +565,19 @@ async def _close_open_recruitments(
         .scalars()
         .all()
     )
+    from app.services.job_previous_recruiters import park_team  # noqa: PLC0415
     from app.services.job_proposals import expire_open_for_job  # noqa: PLC0415
 
     for job in jobs:
+        # Lustro `close_job_core`: zespół do „Poprzedni rekruter”, bez dzwonka.
+        await park_team(
+            db,
+            job,
+            reason="closed",
+            actor_id=actor.id,
+            notify=False,
+            release_assignments=False,
+        )
         job.status = JobStatus.closed
         job.is_open = False
         # Audyt 06.10.2026 (R6): zamknięta rekrutacja nie trzyma propozycji.
