@@ -41,6 +41,17 @@ export const PRIORITY_LEVEL_SHORT_LABEL: Record<PriorityLevel, string> = {
   accepting: "Przyjmujemy",
 };
 
+/**
+ * Co poziom robi — jedno zdanie pod opcją w menu priorytetu nagłówka
+ * rekrutacji (14.10.2026). Mówi to samo co `automatAssigns` i sort
+ * „Wymaga uwagi” listy.
+ */
+export const PRIORITY_LEVEL_HINT: Record<PriorityLevel, string> = {
+  p1: "Na górze listy przy sortowaniu „Wymaga uwagi”. Gdy nikt nie pracuje, automat proponuje rekrutera.",
+  p2: "Bez plakietki na liście. Rekrutera wskazuje człowiek.",
+  accepting: "Nie szukamy aktywnie — automat nikogo nie proponuje.",
+};
+
 /** Gotowe opcje wyboru (przełącznik priorytetu, filtr listy). */
 export const PRIORITY_LEVEL_OPTIONS: ReadonlyArray<{
   value: PriorityLevel;

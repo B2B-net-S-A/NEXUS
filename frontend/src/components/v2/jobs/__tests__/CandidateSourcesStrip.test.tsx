@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -98,26 +98,33 @@ describe("CandidateSourcesStripView — pasek „Kandydaci do dodania”", () =>
     expect(count("search")).toHaveTextContent("0");
   });
 
-  it("„Dodaj po nazwisku” i „z pliku CV” tylko dla roli z prawem dodawania", async () => {
+  it("„Dodaj ▾” — menu „po nazwisku” i „z pliku CV”, tylko dla roli z prawem dodawania", async () => {
     const onAddByName = vi.fn();
     const onAddFromCv = vi.fn();
     const { rerender } = render(<CandidateSourcesStripView tiles={TILES} onOpen={vi.fn()} />);
-    expect(screen.queryByTestId("sources-add-by-name")).toBeNull();
-    expect(screen.queryByTestId("sources-add-from-cv")).toBeNull();
+    expect(screen.queryByTestId("sources-add")).toBeNull();
     rerender(
       <CandidateSourcesStripView
         tiles={TILES}
         onOpen={vi.fn()}
         onAddByName={onAddByName}
         onAddFromCv={onAddFromCv}
-        trailing={<span data-testid="view-controls" />}
       />,
     );
-    await userEvent.click(screen.getByTestId("sources-add-by-name"));
-    await userEvent.click(screen.getByTestId("sources-add-from-cv"));
-    expect(onAddByName).toHaveBeenCalled();
-    expect(onAddFromCv).toHaveBeenCalled();
-    expect(screen.getByTestId("view-controls")).toBeTruthy();
+    await userEvent.click(screen.getByTestId("sources-add"));
+    await userEvent.click(await screen.findByTestId("sources-add-by-name"));
+    await waitFor(() => expect(onAddByName).toHaveBeenCalled());
+    await userEvent.click(screen.getByTestId("sources-add"));
+    await userEvent.click(await screen.findByTestId("sources-add-from-cv"));
+    await waitFor(() => expect(onAddFromCv).toHaveBeenCalled());
+  });
+
+  it("jedna linia przycisków: opis źródła w dymku i dla czytnika ekranu, nie na widoku", () => {
+    render(<CandidateSourcesStripView tiles={TILES} onOpen={vi.fn()} />);
+    const tile = screen.getByTestId("source-tile-similar");
+    expect(tile).toHaveAttribute("title", "19 wysłanych do klienta");
+    expect(within(tile).getByText("— 19 wysłanych do klienta")).toHaveClass("sr-only");
+    expect(tile).toHaveTextContent(/^Podobne rekrutacje25/);
   });
 });
 

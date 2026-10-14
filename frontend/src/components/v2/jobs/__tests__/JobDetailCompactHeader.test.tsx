@@ -63,25 +63,36 @@ describe("JobDetailCompactHeader", () => {
     expect(screen.getByTestId("header-client-line")).toHaveTextContent("nasz nr REF-505734");
   });
 
-  it("laptop 1280 px: tytuł i linia klienta w jednej linii, status obok tytułu, pełny tekst w dymku", () => {
+  it("laptop 1280 px: tytuł w jednej linii, status obok; nazwa od klienta w dymku tytułu (K-D3)", () => {
     renderHeader({ clientTitle: "Analityk Biznesowo-Systemowy KYC/AML", clientReference: "CABP/001/2026" });
     const title = screen.getByTestId("job-header-title");
     expect(title.className).toMatch(/(^| )truncate( |$)/);
     expect(title.className).not.toMatch(/line-clamp/);
-    expect(title).toHaveAttribute("title", "Analityk KYC/AML");
+    expect(title).toHaveAttribute(
+      "title",
+      "Analityk KYC/AML\nU klienta: „Analityk Biznesowo-Systemowy KYC/AML” · nr u klienta CABP/001/2026 · nasz nr REF-505734",
+    );
     // Status w tym samym wierszu co tytuł (wspólny rodzic, bez zawijania).
     expect(title.parentElement).toContainElement(screen.getByText("Szukamy"));
     expect(title.parentElement?.className).not.toMatch(/flex-wrap/);
-    const line = screen.getByTestId("header-client-line");
-    expect(line.className).toMatch(/(^| )truncate( |$)/);
-    expect(line).toHaveAttribute("title");
+    // Linia pod tytułem nie zajmuje miejsca — zostaje dla czytnika ekranu.
+    expect(screen.getByTestId("header-client-line")).toHaveClass("sr-only");
   });
 
-  it("fakty bez ikony: etykieta i wartość w jednej linii", () => {
+  it("bez nazwy od klienta i numerów dymek tytułu to sam tytuł", () => {
+    renderHeader({ referenceNumber: null });
+    expect(screen.getByTestId("job-header-title")).toHaveAttribute("title", "Analityk KYC/AML");
+  });
+
+  it("fakty z ikoną zamiast etykiety (K-D2): etykieta w dymku i dla czytnika ekranu", () => {
     renderHeader();
     const fact = screen.getByTestId("job-header-fact-client");
-    expect(fact.querySelector("svg")).toBeNull();
-    expect(fact.className).toMatch(/items-baseline/);
+    expect(fact.querySelector("svg")).not.toBeNull();
+    expect(within(fact).getByText("Klient")).toHaveClass("sr-only");
+    expect(fact).toHaveAttribute("title", "Klient: Bank Przykładowy S.A.");
+    // Pierwsza ustępuje nazwa klienta, budżet nigdy.
+    expect(fact.className).toMatch(/max-w-60/);
+    expect(screen.getByTestId("job-header-fact-budget").className).toMatch(/shrink-0/);
   });
 
   it("bez nazwy od klienta i numerów linii pod tytułem nie ma", () => {
@@ -145,12 +156,13 @@ describe("JobDetailCompactHeader", () => {
     expect(screen.getByTestId("open-champion-profile")).not.toHaveTextContent("brakuje");
   });
 
-  it("„Historia i czat” mówi o nieprzeczytanych także czytnikowi ekranu", async () => {
+  it("„Historia i czat” to ikona z licznikiem (K-D4); nazwa i liczba dla czytnika ekranu", async () => {
     const { onOpenHistoryChat } = renderHeader({ chatUnreadCount: 120 });
     const button = screen.getByRole("button", {
       name: "Historia i czat, ponad 99 nieprzeczytane",
     });
-    expect(button).toHaveTextContent("99+");
+    expect(button).toHaveTextContent(/^99\+$/);
+    expect(button).toHaveAttribute("title", "Historia i czat");
     await userEvent.click(button);
     expect(onOpenHistoryChat).toHaveBeenCalled();
   });
@@ -322,12 +334,73 @@ describe("JobDetailCompactHeader", () => {
   });
 });
 
-describe("JobDetailCompactHeader — miejsce na filtr Tablicy (14.10.2026)", () => {
-  it("`factsTrailing` stoi w linii faktów, za Klientem, Budżetem i Trybem pracy", () => {
-    renderHeader({ factsTrailing: <button type="button">Kto dodał: wszyscy</button> });
+describe("JobDetailCompactHeader — priorytet, rekruter, źródła i „Zwiń” (K-D1–K-D5, 14.10.2026)", () => {
+  it("priorytet stoi przed tytułem, „Rekruter” w linii faktów", () => {
+    renderHeader({
+      priority: <span data-testid="slot-priority">P1</span>,
+      recruiter: <button type="button">Rekruter: Marta N.</button>,
+    });
+    const title = screen.getByTestId("job-header-title");
+    const priority = screen.getByTestId("slot-priority");
+    expect(title.parentElement).toContainElement(priority);
+    expect(
+      priority.compareDocumentPosition(title) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
     const facts = screen.getByTestId("job-header-facts");
-    const trailing = screen.getByRole("button", { name: "Kto dodał: wszyscy" });
-    expect(facts.parentElement).toContainElement(trailing);
-    expect(facts).not.toContainElement(trailing);
+    const recruiter = screen.getByRole("button", { name: "Rekruter: Marta N." });
+    expect(facts.parentElement).toContainElement(recruiter);
+    expect(facts).not.toContainElement(recruiter);
+  });
+
+  it("źródła kandydatów i „Kto dodał” w trzeciej linii nagłówka (K-D1)", () => {
+    renderHeader({
+      sources: <section aria-label="Kandydaci do dodania" />,
+      sourcesTrailing: <button type="button">Kto dodał: wszyscy</button>,
+    });
+    const row = screen.getByTestId("job-header-sources-row");
+    expect(row).toContainElement(screen.getByRole("region", { name: "Kandydaci do dodania" }));
+    expect(row).toContainElement(screen.getByRole("button", { name: "Kto dodał: wszyscy" }));
+    expect(screen.getByTestId("job-header-facts")).not.toContainElement(row);
+  });
+
+  it("bez źródeł (np. „Profil Championa”) trzeciej linii nie ma", () => {
+    renderHeader();
+    expect(screen.queryByTestId("job-header-sources-row")).toBeNull();
+  });
+
+  it("„Zwiń” zostawia linię tytułu z awatarami i włączonym filtrem (K-D5)", async () => {
+    const onToggleCollapsed = vi.fn();
+    const slots = {
+      recruiter: <span data-testid="slot-recruiter" />,
+      recruiterCompact: <span data-testid="slot-recruiter-compact" />,
+      sources: <section aria-label="Kandydaci do dodania" />,
+      collapsedExtras: <span data-testid="slot-filter" />,
+      onToggleCollapsed,
+    };
+    const open = renderHeader(slots);
+    const toggle = screen.getByTestId("job-header-collapse");
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    expect(toggle).toHaveAccessibleName("Zwiń nagłówek do jednej linii");
+    expect(screen.getByTestId("slot-recruiter")).toBeTruthy();
+    expect(screen.queryByTestId("slot-recruiter-compact")).toBeNull();
+    expect(screen.queryByTestId("slot-filter")).toBeNull();
+    await userEvent.click(toggle);
+    expect(onToggleCollapsed).toHaveBeenCalled();
+    open.unmount();
+
+    renderHeader({ ...slots, collapsed: true });
+    expect(screen.getByTestId("job-header-collapse")).toHaveAttribute("aria-expanded", "false");
+    expect(screen.getByTestId("job-header-collapse")).toHaveAccessibleName("Rozwiń nagłówek");
+    expect(screen.queryByTestId("job-header-facts")).toBeNull();
+    expect(screen.queryByTestId("job-header-sources-row")).toBeNull();
+    expect(screen.queryByTestId("slot-recruiter")).toBeNull();
+    const title = screen.getByTestId("job-header-title");
+    expect(title.parentElement).toContainElement(screen.getByTestId("slot-recruiter-compact"));
+    expect(title.parentElement).toContainElement(screen.getByTestId("slot-filter"));
+  });
+
+  it("bez obsługi zwijania nie ma przycisku „Zwiń”", () => {
+    renderHeader();
+    expect(screen.queryByTestId("job-header-collapse")).toBeNull();
   });
 });

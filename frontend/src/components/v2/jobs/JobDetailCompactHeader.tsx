@@ -6,6 +6,8 @@ import {
   BookOpen,
   Paperclip,
   Building2,
+  ChevronDown,
+  ChevronUp,
   ClipboardList,
   Columns3,
   Copy,
@@ -13,6 +15,7 @@ import {
   FileText,
   FileUp,
   Link2,
+  MapPin,
   Megaphone,
   MessageCircle,
   PencilLine,
@@ -23,13 +26,15 @@ import {
   Trophy,
   UserPlus,
   Users,
+  Wallet,
   XCircle,
+  type LucideIcon,
 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import type { JobDetailView } from "@/lib/job-detail-routing";
-import type { JobHeaderFact } from "@/lib/job-header-facts";
+import type { JobHeaderFact, JobHeaderFactKey } from "@/lib/job-header-facts";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -79,8 +84,27 @@ interface JobDetailCompactHeaderProps {
   badges?: ReactNode;
   /** Klient · Budżet · Tryb pracy (`lib/job-header-facts.ts`). */
   facts: readonly JobHeaderFact[];
-  /** Po prawej stronie linii faktów — na Tablicy filtr „Kto dodał” (14.10.2026). */
-  factsTrailing?: ReactNode;
+  /** Plakietka priorytetu przed tytułem (`JobPriorityMenu`, 14.10.2026). */
+  priority?: ReactNode;
+  /** Czwarty fakt „Rekruter” (`JobRecruiterFact`). */
+  recruiter?: ReactNode;
+  /** Ten sam fakt w zwiniętym nagłówku — same awatary, w linii tytułu. */
+  recruiterCompact?: ReactNode;
+  /**
+   * Trzecia linia, tylko na Tablicy: „Kandydaci do dodania”
+   * (`CandidateSourcesStrip`) — do 14.10.2026 osobny pasek nad Tablicą.
+   */
+  sources?: ReactNode;
+  /** Po prawej w linii źródeł — filtr Tablicy „Kto dodał”. */
+  sourcesTrailing?: ReactNode;
+  /**
+   * Nagłówek zwinięty do linii tytułu (K-D5). `onToggleCollapsed` brak = bez
+   * przycisku „Zwiń”.
+   */
+  collapsed?: boolean;
+  onToggleCollapsed?: () => void;
+  /** W zwiniętym nagłówku: włączony filtr „Kto dodał”, żeby nie był ukryty. */
+  collapsedExtras?: ReactNode;
   presence?: ReactNode;
   /** Aktywny widok: „Tablica" albo „Profil Championa" (`people` = lista „Do przejrzenia"). */
   activeView: JobDetailView;
@@ -160,6 +184,23 @@ interface JobDetailCompactHeaderProps {
   onFinishJob?: () => void;
 }
 
+/** Ikona faktu zamiast etykiety (K-D2, 14.10.2026) — etykieta w dymku. */
+const FACT_ICON: Record<JobHeaderFactKey, LucideIcon> = {
+  client: Building2,
+  budget: Wallet,
+  work_mode: MapPin,
+};
+
+/**
+ * Kto ustępuje, gdy linia faktów jest za ciasna (laptop 1280 px z menu):
+ * najpierw nazwa klienta (najwyżej 15rem), potem tryb pracy; budżet nigdy.
+ */
+const FACT_SHRINK: Record<JobHeaderFactKey, string> = {
+  client: "max-w-60 shrink-[4]",
+  budget: "shrink-0",
+  work_mode: "shrink",
+};
+
 function deferMenuAction(action: () => void) {
   window.setTimeout(action, 0);
 }
@@ -174,6 +215,13 @@ function deferMenuAction(action: () => void) {
  * z „Najbliższym krokiem” i przyciski „Dodaj kandydatów”, „Podobne
  * rekrutacje”, „Oznacz: mamy championa”. Żadna funkcja nie znika: to, co
  * zeszło z widoku, jest w menu „⋯” (albo na kaflach „Kandydaci do dodania”).
+ *
+ * 14.10.2026 (K-D1–K-D5, https://claude.ai/artifact/DZWUbWtiQLrnzm81RwLvDP):
+ * jedna karta w trzech cienkich liniach, bo przy 1280×720 nagłówek z paskiem
+ * kandydatów zabierał prawie pół ekranu — (1) priorytet, tytuł, status,
+ * zakładki, ikona „Historia i czat”, „⋯”, „Zwiń”; (2) fakty z ikoną
+ * i „Rekruter”; (3) na Tablicy źródła kandydatów i „Kto dodał”. Nazwa od
+ * klienta i numery są w dymku tytułu. Zwinięty = sama linia 1.
  */
 export function JobDetailCompactHeader({
   title,
@@ -182,7 +230,14 @@ export function JobDetailCompactHeader({
   referenceNumber,
   badges,
   facts,
-  factsTrailing,
+  priority,
+  recruiter,
+  recruiterCompact,
+  sources,
+  sourcesTrailing,
+  collapsed = false,
+  onToggleCollapsed,
+  collapsedExtras,
   presence,
   activeView,
   onViewChange,
@@ -231,50 +286,33 @@ export function JobDetailCompactHeader({
   const hasAdding = Boolean(onAddByName || onAddFromCv || onStartFullReview || onOpenMyPeople);
 
   return (
-    <header className="space-y-2 rounded-lg border border-border bg-card px-4 py-3">
-      {/* `flex-wrap`: na laptopie 1280 px zakładki i przyciski schodzą pod
-          tytuł, zamiast go ucinać. */}
-      <div className="flex flex-wrap items-start gap-x-3 gap-y-2">
-        <div className="min-w-0 flex-[1_1_22rem]">
-          {/* Tytuł w jednej linii, status obok (04.10.2026 — lekkie uproszczenie
-              na laptopie 1280×720): pełny tytuł w dymku. Odznaki mogą się
-              zawinąć w swoim pudełku, tytuł ma nie mniej niż 6rem. */}
-          <div className="flex min-w-0 items-center gap-2">
-            <h1
-              className="min-w-[6rem] flex-[0_1_auto] truncate text-xl font-semibold leading-tight text-foreground"
-              title={title}
-              data-testid="job-header-title"
-            >
-              {title}
-            </h1>
-            {badges ? (
-              <div className="flex min-w-0 flex-wrap items-center gap-1.5">{badges}</div>
-            ) : null}
-          </div>
-          {clientLine.length > 0 ? (
-            <p
-              className="mt-1 truncate text-[13px] text-muted-foreground"
-              data-testid="header-client-line"
-              title={clientLine.join(" · ")}
-            >
-              {clientTitle ? (
-                <span data-testid="header-client-title">U klienta: „{clientTitle}”</span>
-              ) : null}
-              {clientReference ? (
-                <span data-testid="header-client-reference">
-                  {clientTitle ? " · " : ""}nr u klienta {clientReference}
-                </span>
-              ) : null}
-              {referenceNumber ? (
-                <span>
-                  {clientTitle || clientReference ? " · " : ""}nasz nr {referenceNumber}
-                </span>
-              ) : null}
-            </p>
+    <header
+      className="space-y-1.5 rounded-lg border border-border bg-card px-3 py-2"
+      data-testid="job-header"
+      data-collapsed={collapsed ? "true" : undefined}
+    >
+      {/* `flex-wrap`: w wąskim oknie zakładki i przyciski schodzą pod tytuł,
+          zamiast go ucinać. */}
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+        {/* Priorytet, tytuł w jednej linii i status obok (14.10.2026, K1):
+            pełny tytuł i nazwa od klienta w dymku. Tytuł ma nie mniej niż 6rem. */}
+        <div className="flex min-w-0 flex-[1_1_22rem] items-center gap-2">
+          {priority}
+          <h1
+            className="min-w-[6rem] flex-[0_1_auto] truncate text-lg font-semibold leading-tight text-foreground"
+            title={[title, ...(clientLine.length > 0 ? [clientLine.join(" · ")] : [])].join("\n")}
+            data-testid="job-header-title"
+          >
+            {title}
+          </h1>
+          {badges ? (
+            <div className="flex min-w-0 shrink-0 items-center gap-1.5">{badges}</div>
           ) : null}
+          {collapsed ? recruiterCompact : null}
+          {collapsed ? collapsedExtras : null}
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-1.5">
           {/* Dwa widoki rekrutacji jako zakładki. Pełna lista „Do przejrzenia”
               (`tab=people`) nie jest zakładką — z niej wraca „Tablica”. */}
           <nav
@@ -287,7 +325,7 @@ export function JobDetailCompactHeader({
               aria-current={activeView === "board" ? "page" : undefined}
               data-testid="view-board"
               className={cn(
-                "inline-flex h-8 items-center gap-1.5 rounded-md px-3 text-[13px] font-medium transition-colors",
+                "inline-flex h-7 items-center gap-1.5 rounded-md px-3 text-[13px] font-medium transition-colors pointer-coarse:h-9",
                 activeView === "board"
                   ? "bg-card text-primary shadow-sm"
                   : "text-muted-foreground hover:text-foreground",
@@ -304,7 +342,7 @@ export function JobDetailCompactHeader({
               aria-current={activeView === "champion" ? "page" : undefined}
               data-testid="open-champion-profile"
               className={cn(
-                "inline-flex h-8 items-center gap-1.5 rounded-md px-3 text-[13px] font-medium transition-colors",
+                "inline-flex h-7 items-center gap-1.5 rounded-md px-3 text-[13px] font-medium transition-colors pointer-coarse:h-9",
                 activeView === "champion"
                   ? "bg-card text-primary shadow-sm"
                   : "text-muted-foreground hover:text-foreground",
@@ -322,18 +360,26 @@ export function JobDetailCompactHeader({
 
           {presence}
 
+          {/* Sama ikona z licznikiem (K-D4, 14.10.2026): napis zabierał tytułowi
+              ok. 100 px przy 1280 px. Nazwa w dymku i dla czytnika ekranu. */}
           <Button
             type="button"
-            size="sm"
+            size="icon-sm"
             variant="outline"
+            className="relative"
             onClick={onOpenHistoryChat}
             aria-label={unreadLabel}
+            title="Historia i czat"
             data-testid="open-history-chat"
           >
             <MessageCircle className="h-4 w-4" aria-hidden="true" />
-            Historia i czat
             {chatUnreadCount > 0 ? (
-              <Badge variant="danger" size="sm" className="tabular-nums" aria-hidden="true">
+              <Badge
+                variant="danger"
+                size="sm"
+                className="absolute -right-2 -top-2 min-w-4 justify-center px-1 tabular-nums"
+                aria-hidden="true"
+              >
                 {chatUnreadCount > 99 ? "99+" : chatUnreadCount}
               </Badge>
             ) : null}
@@ -560,41 +606,105 @@ export function JobDetailCompactHeader({
               ) : null}
             </DropdownMenuContent>
           </DropdownMenu>
+
+          {onToggleCollapsed ? (
+            <Button
+              type="button"
+              size="icon-sm"
+              variant="outline"
+              onClick={onToggleCollapsed}
+              aria-expanded={!collapsed}
+              aria-label={collapsed ? "Rozwiń nagłówek" : "Zwiń nagłówek do jednej linii"}
+              title={collapsed ? "Rozwiń nagłówek" : "Zwiń nagłówek — więcej miejsca na Tablicę"}
+              data-testid="job-header-collapse"
+              className={cn(collapsed && "border-primary/40 bg-primary/10")}
+            >
+              {collapsed ? (
+                <ChevronDown className="h-4 w-4" aria-hidden="true" />
+              ) : (
+                <ChevronUp className="h-4 w-4" aria-hidden="true" />
+              )}
+            </Button>
+          ) : null}
         </div>
       </div>
 
-      {/* Klient · Budżet · Tryb pracy — trzy rzeczy, które rekruter sprawdza
-          przed każdym telefonem. Brak wartości to „nie podano”, nie pustka.
-          Po prawej `factsTrailing` — na Tablicy filtr „Kto dodał” (14.10.2026). */}
-      <div className="flex flex-wrap items-center gap-2">
-      <dl className="flex flex-wrap gap-2" data-testid="job-header-facts">
-        {facts.map((fact) => {
-          // Etykieta i wartość w jednej linii, bez kwadratowej ikony —
-          // te same trzy pola, niższe o ok. 16 px (04.10.2026).
-          return (
-            <div
-              key={fact.key}
-              className="flex min-w-0 items-baseline gap-1.5 rounded-lg border border-primary/20 bg-primary/5 px-3 py-1"
-              data-testid={`job-header-fact-${fact.key}`}
+      {/* Nazwa od klienta i numery (0380) — w dymku tytułu (K-D3, 14.10.2026);
+          tu zostają dla czytników ekranu. */}
+      {clientLine.length > 0 ? (
+        <p className="sr-only" data-testid="header-client-line">
+          {clientTitle ? (
+            <span data-testid="header-client-title">U klienta: „{clientTitle}”</span>
+          ) : null}
+          {clientReference ? (
+            <span data-testid="header-client-reference">
+              {clientTitle ? " · " : ""}nr u klienta {clientReference}
+            </span>
+          ) : null}
+          {referenceNumber ? (
+            <span>
+              {clientTitle || clientReference ? " · " : ""}nasz nr {referenceNumber}
+            </span>
+          ) : null}
+        </p>
+      ) : null}
+
+      {collapsed ? null : (
+        <>
+          {/* Klient · Budżet · Tryb pracy · Rekruter — rzeczy, które rekruter
+              sprawdza przed każdym telefonem. Ikona zamiast etykiety (K-D2):
+              jedna linia przy 1280 px; etykieta w dymku i dla czytnika ekranu.
+              Pierwsza kurczy się nazwa klienta, budżet nigdy. Brak wartości to
+              „nie podano”, nie pustka. */}
+          <div className="flex min-w-0 flex-wrap items-center gap-1.5 lg:flex-nowrap">
+            <dl
+              className="flex min-w-0 flex-wrap items-center gap-1.5 lg:flex-nowrap"
+              data-testid="job-header-facts"
             >
-              <dt className="shrink-0 text-[11px] font-semibold uppercase tracking-eyebrow text-muted-foreground">
-                {fact.label}
-              </dt>
-              <dd
-                className={cn(
-                  "min-w-0 truncate text-sm font-semibold leading-tight",
-                  fact.value ? "text-foreground" : "font-normal text-muted-foreground",
-                )}
-                title={fact.value ?? undefined}
-              >
-                {fact.value ?? "nie podano"}
-              </dd>
+              {facts.map((fact) => {
+                const Icon = FACT_ICON[fact.key];
+                return (
+                  <div
+                    key={fact.key}
+                    className={cn(
+                      "flex h-7 min-w-0 items-center gap-1.5 rounded-md border border-primary/20 bg-primary/5 px-2.5",
+                      FACT_SHRINK[fact.key],
+                    )}
+                    data-testid={`job-header-fact-${fact.key}`}
+                    title={`${fact.label}: ${fact.value ?? "nie podano"}`}
+                  >
+                    <dt className="flex shrink-0 items-center">
+                      <Icon className="h-3.5 w-3.5 text-primary" aria-hidden="true" />
+                      <span className="sr-only">{fact.label}</span>
+                    </dt>
+                    <dd
+                      className={cn(
+                        "min-w-0 truncate text-[13px] font-semibold leading-tight",
+                        fact.value ? "text-foreground" : "font-normal text-muted-foreground",
+                      )}
+                    >
+                      {fact.value ?? "nie podano"}
+                    </dd>
+                  </div>
+                );
+              })}
+            </dl>
+            {recruiter}
+          </div>
+
+          {/* Kandydaci do dodania + filtr „Kto dodał” — tylko na Tablicy
+              (K-D1, 14.10.2026; do tego dnia osobny pasek nad Tablicą). */}
+          {sources || sourcesTrailing ? (
+            <div
+              className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-t border-border pt-1.5"
+              data-testid="job-header-sources-row"
+            >
+              {sources ? <div className="min-w-0">{sources}</div> : null}
+              {sourcesTrailing ? <div className="ml-auto">{sourcesTrailing}</div> : null}
             </div>
-          );
-        })}
-      </dl>
-      {factsTrailing ? <div className="ml-auto">{factsTrailing}</div> : null}
-      </div>
+          ) : null}
+        </>
+      )}
     </header>
   );
 }

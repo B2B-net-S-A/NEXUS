@@ -56,6 +56,7 @@ import {
   type JobOwnershipJob,
 } from "@/components/v2/jobs/JobOwnershipPanel";
 import { JobSettingsPanel } from "@/components/v2/jobs/JobSettingsPanel";
+import { useJobTeamPermissions } from "@/components/v2/jobs/useJobTeamPermissions";
 import { HiringManagerPicker } from "@/components/jobs/HiringManagerPicker";
 import { JobPriorityContext } from "@/components/v2/priority-work";
 import { RequestHistorySection } from "@/components/RequestHistorySection";
@@ -974,22 +975,8 @@ export function JobTeamTab({
   job: JobTeamTabJob;
 }) {
   const queryClient = useQueryClient();
-  const authUser = useAuthStore((s) => s.user);
-  const impersonating = useAuthStore((s) => s.realUser !== null);
-  const canWritePipeline = canMutateSection(authUser, "pipeline", impersonating);
-  const canUpdateJob = useCapability("job.update");
-  const priorityCapability = useCapability("job.priority.update");
-  // Ta sama reguła co w doku: pełna edycja (`job.update`) albo treść (`can_edit`).
-  const editScope = jobEditScope(job, {
-    canWritePipeline,
-    canManageJob: canUpdateJob,
-  });
-  // `can_set_priority` z serwera zna zakres Delivery Leada; capability to rola.
-  const canSetPriority =
-    canWritePipeline &&
-    (typeof job.can_set_priority === "boolean"
-      ? job.can_set_priority
-      : priorityCapability);
+  // Ta sama reguła co nagłówek rekrutacji (plakietka priorytetu, fakt „Rekruter”).
+  const { editScope, canSetPriority } = useJobTeamPermissions(job);
 
   return (
     <div className="space-y-4">

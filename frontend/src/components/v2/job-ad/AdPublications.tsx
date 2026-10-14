@@ -242,7 +242,9 @@ export function AdPublications({
                 >
                   <label className="flex min-w-[240px] flex-1 flex-col gap-1">
                     <span className="text-xs text-muted-foreground">
-                      Link do ogłoszenia na {label} (możesz dodać później)
+                      {/* RocketJobs połączył się z JustJoin.IT — serwer przyjmuje oba adresy. */}
+                      Link do ogłoszenia na {label}
+                      {key === "jjit" ? " albo RocketJobs" : ""} (możesz dodać później)
                     </span>
                     {/* Zwykłe pole: adres sprawdza serwer i odpowiada po polsku. */}
                     <Input

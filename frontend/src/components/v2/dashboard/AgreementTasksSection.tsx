@@ -11,7 +11,8 @@
  *    okno co w rejestrze, ono zakłada kontrakt i zamówienie,
  *  - do zamknięcia: karta odrzucona/rezygnacja przy umowie „W trakcie”
  *    („Anuluj umowę”) albo przy podpisanej umowie z trwającym kontraktem
- *    („Zakończ współpracę” w kontrakcie).
+ *    („Sprawdź” → kontrakt). Nie „Zakończ współpracę”: karta bywa zamknięta
+ *    błędnie, a osoba pracuje dalej (decyzja Artura 14.10.2026).
  * Twoje prośby, na które czekasz, stoją w „U innych” (`AgreementWaitingSection`).
  */
 
@@ -246,9 +247,9 @@ export function AgreementTasksSection({ tasks }: { tasks: AgreementTasks | null 
                   <Button size="sm" variant="outline" asChild>
                     <Link
                       href={`/contracts/${row.contract_id}`}
-                      aria-label={`Zakończ współpracę: ${row.candidate_name}`}
+                      aria-label={`Sprawdź: ${row.candidate_name}`}
                     >
-                      Zakończ współpracę
+                      Sprawdź
                     </Link>
                   </Button>
                 ) : (
