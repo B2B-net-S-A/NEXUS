@@ -156,8 +156,8 @@ function PersonRequests({
       {/* Poza obłożeniem, ale nie znika bez śladu: liczba i link do listy. */}
       {outside > 0 && (
         <li className="text-xs text-muted-foreground" data-testid="load-outside-p1">
-          Poza P1: {outside} {pluralPl(outside, "rekrutacja", "rekrutacje", "rekrutacji")} — nie
-          liczą się do obłożenia.{" "}
+          Poza P1: {outside} {pluralPl(outside, "rekrutacja", "rekrutacje", "rekrutacji")} —{" "}
+          {pluralPl(outside, "nie liczy się", "nie liczą się", "nie liczy się")} do obłożenia.{" "}
           <Link href={outsideP1Href(person.user_id)} className="font-medium text-primary hover:underline">
             Pokaż na liście rekrutacji
           </Link>
