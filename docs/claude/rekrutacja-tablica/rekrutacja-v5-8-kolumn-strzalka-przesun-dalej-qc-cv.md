@@ -33,8 +33,11 @@ osobę od Cpro per rekrutacja (0353) i kolejkę „Czeka na DZ” (0348).
   przycisk dawał toast o kolejce „Czeka na Ciebie”, której rekruter nie ma.
   **Stan CV na karcie „Zweryfikowanego”** (`cvStateBadge`, ta sama reguła
   w tabeli osób): „CV w przygotowaniu…” (`auto_cv_state`), po QC „CV gotowe ·
-  N do poprawy” (blokujące + uwagi, `warnings_count`) albo „· bez uwag”,
-  a przed QC dawne „CV gotowe w tle”.
+  QC: N do poprawy” (blokujące + uwagi, `warnings_count`) albo „· QC bez
+  uwag”, a przed QC dawne „CV gotowe w tle”. Napis mówi „QC”, bo karta CV
+  liczy więcej (QC + uwagi generatora + kontrola AI, „N rzeczy do
+  sprawdzenia”) — goła liczba dawała na jednym ekranie dwie różne wartości
+  (przegląd produkcji 14.10.2026).
 - **QC CV zamiast DZ** (`services/cv_qc.py`, `api/cv_qc.py`, tabela `cv_qc_runs`).
   **Od 02.10.2026 blokują CZTERY sprawdzenia** (decyzja Artura; do tej daty
   blokowało siedem i QC przeszła 1 z 8 par, bo „każde must z maila klienta
