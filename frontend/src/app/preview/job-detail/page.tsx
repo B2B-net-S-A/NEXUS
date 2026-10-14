@@ -27,6 +27,11 @@
  * `?files=1` — otwarte okno „Pliki” z menu „⋯” (0428, 09.10.2026),
  * `?close=1` — otwarte okno „Zamknij rekrutację z powodem”; pierwsze
  * zamknięcie dostaje fikcyjne ostrzeżenie o osobach w toku (13.10.2026).
+ *
+ * Nagłówek K1–K3 (14.10.2026): `?prio=p2|accepting` — poziom priorytetu
+ * (domyślnie P1), `?team=me|none|proposal` — obsada (domyślnie dwie inne
+ * osoby), `?client=long` — długa nazwa klienta, `?collapsed=1` — nagłówek
+ * zwinięty, `?readonly=1` — rola bez zmiany priorytetu i przydziału.
  */
 
 import { Suspense, useEffect, useMemo, useState } from "react";
@@ -39,6 +44,10 @@ import { ToastProvider } from "@/components/Toast";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { CandidateSourcesStrip } from "@/components/v2/jobs/CandidateSourcesStrip";
 import { JobDetailCompactHeader } from "@/components/v2/jobs/JobDetailCompactHeader";
+import { JobPriorityMenu } from "@/components/v2/jobs/JobPriorityMenu";
+import { JobRecruiterFact } from "@/components/v2/jobs/JobRecruiterFact";
+import type { JobRecruiter } from "@/lib/job-team";
+import { isPriorityLevel } from "@/lib/request-priority";
 import { reassignContextQueryKey } from "@/components/v2/jobs/ScreeningReassignSuggestions";
 import { RequestStatusBadge } from "@/components/v2/jobs/JobListCells";
 import { candidateQueryKeys, candidateViewerScopeKey } from "@/components/v2/pages/candidate-query-keys";
@@ -178,6 +187,24 @@ const JOB = {
   must_skills: ["Angular", "TypeScript", PROSE_MUST],
   champion_profile: CHAMPION_PROFILE,
 };
+
+/** Obsada rekrutacji w nagłówku (`?team=`) — wyłącznie fikcyjne osoby. */
+const HARNESS_TEAM: Record<string, JobRecruiter[]> = {
+  others: [
+    { user_id: 12, name: "Ewa Testowa", via: "owner", proposed: false, assigned_by_name: "Olga Wzorcowa" },
+    { user_id: 13, name: "Piotr Sowa", via: "collaborator", proposed: false, assigned_by_name: null },
+  ],
+  me: [
+    { user_id: 7, name: "Marta Nowak", via: "owner", proposed: false, assigned_by_name: "Olga Wzorcowa" },
+    { user_id: 13, name: "Piotr Sowa", via: "collaborator", proposed: false, assigned_by_name: null },
+  ],
+  none: [],
+  proposal: [
+    { user_id: 14, name: "Jan Próbny", via: "assignment", proposed: true, assigned_by_name: null },
+  ],
+};
+
+const LONG_CLIENT_NAME = "Powszechna Kasa Przykładowa Bank Polski Spółka Akcyjna";
 
 const REQUIREMENTS: MatchingRequirements = {
   version: 1,
@@ -1208,6 +1235,30 @@ function JobDetailHarness() {
   const [reopenOpen, setReopenOpen] = useState(reopenOnStart);
   const [filesOpen, setFilesOpen] = useState(params.get("files") === "1");
   const [closeOpen, setCloseOpen] = useState(params.get("close") === "1");
+  const prioParam = params.get("prio");
+  const priorityLevel = isPriorityLevel(prioParam) ? prioParam : "p1";
+  const team = HARNESS_TEAM[params.get("team") ?? "others"] ?? HARNESS_TEAM.others;
+  const readOnlyRole = params.get("readonly") === "1";
+  const [headerCollapsed, setHeaderCollapsed] = useState(params.get("collapsed") === "1");
+  const headerJob = useMemo(
+    () => ({
+      ...JOB,
+      client_name: params.get("client") === "long" ? LONG_CLIENT_NAME : JOB.client_name,
+      priority_level: priorityLevel,
+      recruiters: team,
+      // Prowadzący jak z serwera — bez niego panel zespołu proponuje „Biorę”.
+      primary_owner: (() => {
+        const owner = team.find((person) => person.via === "owner");
+        return owner
+          ? { id: owner.user_id, name: owner.name, email: "owner@example.com", role: "recruiter" as const }
+          : null;
+      })(),
+      delivery_lead_user: { name: "Olga Wzorcowa" },
+      can_staff: !readOnlyRole,
+      status: closed ? "closed" : "published",
+    }),
+    [params, priorityLevel, team, readOnlyRole, closed],
+  );
   const [client] = useState(seededClient);
   const [sourceTab, setSourceTab] = useState<CandidateWindowTab | null>(
     CANDIDATE_WINDOW_TABS.includes(initialSources as CandidateWindowTab)
@@ -1363,13 +1414,60 @@ function JobDetailHarness() {
                             <RequestStatusBadge status="searching" />
                           )
                         }
-                        facts={jobHeaderFacts(JOB)}
-                        factsTrailing={
+                        facts={jobHeaderFacts(headerJob)}
+                        priority={
+                          <JobPriorityMenu
+                            jobId={JOB_ID}
+                            level={priorityLevel}
+                            canSet={!readOnlyRole}
+                          />
+                        }
+                        recruiter={
+                          <JobRecruiterFact
+                            jobId={JOB_ID}
+                            jobTitle={JOB.working_title}
+                            job={headerJob}
+                            canEdit={!readOnlyRole}
+                            onOpenTeam={noop}
+                          />
+                        }
+                        recruiterCompact={
+                          <JobRecruiterFact
+                            jobId={JOB_ID}
+                            jobTitle={JOB.working_title}
+                            job={headerJob}
+                            canEdit={!readOnlyRole}
+                            onOpenTeam={noop}
+                            compact
+                          />
+                        }
+                        sources={
+                          <CandidateSourcesStrip
+                            jobId={JOB_ID}
+                            job={JOB}
+                            canSeeSimilar
+                            onOpen={setSourceTab}
+                            onAddByName={noop}
+                            onAddFromCv={noop}
+                          />
+                        }
+                        sourcesTrailing={
                           <AddedByFilterButton
                             options={addedByMenuOptions}
                             value={addedBy}
                             onChange={setAddedBy}
                           />
+                        }
+                        collapsed={headerCollapsed}
+                        onToggleCollapsed={() => setHeaderCollapsed((value) => !value)}
+                        collapsedExtras={
+                          addedBy.kind !== "all" ? (
+                            <AddedByFilterButton
+                              options={addedByMenuOptions}
+                              value={addedBy}
+                              onChange={setAddedBy}
+                            />
+                          ) : undefined
                         }
                         presence={
                           <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-primary text-xs font-semibold text-primary-foreground">
@@ -1420,6 +1518,7 @@ function JobDetailHarness() {
                       ) : null}
                       <KanbanBoardV2
                         columns={columns()}
+                        headerCollapsed={headerCollapsed}
                         addedBy={addedBy}
                         onAddedByChange={setAddedBy}
                         jobId={JOB_ID}
@@ -1440,17 +1539,6 @@ function JobDetailHarness() {
                           isSuccess: true,
                           refetch: noop,
                         }}
-                        renderAbove={(viewControls) => (
-                          <CandidateSourcesStrip
-                            jobId={JOB_ID}
-                            job={JOB}
-                            canSeeSimilar
-                            onOpen={setSourceTab}
-                            onAddByName={noop}
-                            onAddFromCv={noop}
-                            trailing={viewControls}
-                          />
-                        )}
                       />
                       <JobFilesSlideOver
                         open={filesOpen}

@@ -92,17 +92,22 @@ vi.mock("@/store/auth", async (importOriginal) => ({
     sel({ user: auth.user, realUser: auth.realUser }),
   hasRole: () => true,
 }));
-vi.mock("@/lib/section-access", () => ({ hasSectionAccess: () => true }));
+// `canMutateSection` (prawa zespołu w nagłówku) zostaje prawdziwy: „podgląd
+// jako” nadal odbiera zapis.
+vi.mock("@/lib/section-access", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/section-access")>()),
+  hasSectionAccess: () => true,
+}));
 vi.mock("@/store/tabs", () => ({
   useTabsStore: (sel: (s: unknown) => unknown) => sel({ openTab: vi.fn() }),
 }));
 
-// Tablica renderuje to, co strona wkłada nad kolumny (pasek „Kandydaci do dodania”).
+// Tablica: od 14.10.2026 nic nie stoi nad kolumnami — „Kandydaci do dodania”
+// są trzecią linią nagłówka.
 vi.mock("@/components/v2/pages/KanbanBoardV2", () => ({
   KanbanBoardV2: (props: Record<string, unknown>) => {
     seen.kanban = props;
-    const above = props.renderAbove as ((controls: React.ReactNode) => React.ReactNode) | undefined;
-    return <div data-testid="kanban">{above ? above(null) : null}</div>;
+    return <div data-testid="kanban" />;
   },
 }));
 vi.mock("@/components/v2/jobs/CandidateSourcesStrip", () => ({
@@ -194,6 +199,8 @@ function renderPage(search = "") {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // „Zwiń” nagłówka jest pamiętane w przeglądarce — każdy test zaczyna od rozwiniętego.
+  window.localStorage.clear();
   for (const key of Object.keys(seen) as Array<keyof typeof seen>) seen[key] = null;
   auth.user = { id: 9, role: "admin" };
   auth.realUser = null;
@@ -471,9 +478,10 @@ describe("strona rekrutacji — nagłówek i „Kandydaci do dodania” (02.10.2
     expect(screen.getByTestId("header-client-reference")).toHaveTextContent("ZOB-1");
   });
 
-  it("kafel nad Tablicą otwiera okno źródeł na swojej zakładce i zapisuje to w adresie", async () => {
+  it("źródło w nagłówku otwiera okno źródeł na swojej zakładce i zapisuje to w adresie", async () => {
     renderPage();
-    await screen.findByTestId("sources-strip");
+    const strip = await screen.findByTestId("sources-strip");
+    expect(screen.getByTestId("job-header-sources-row")).toContainElement(strip);
     expect(seen.strip).toMatchObject({ jobId: 42, canSeeSimilar: true });
     expect(seen.add).toMatchObject({ open: false });
 
@@ -544,7 +552,61 @@ describe("strona rekrutacji — nagłówek i „Kandydaci do dodania” (02.10.2
     await waitFor(() => expect(seen.kanban?.workbenchContext).toBeTruthy());
     expect(seen.kanban).not.toHaveProperty("focusColumnRequest");
     expect(seen.kanban).not.toHaveProperty("onOpenAddCandidates");
-    expect(typeof seen.kanban?.renderAbove).toBe("function");
+    // „Kandydaci do dodania” nie stoją już nad kolumnami (K-D1, 14.10.2026).
+    expect(seen.kanban?.renderAbove).toBeUndefined();
+  });
+});
+
+describe("strona rekrutacji — priorytet, rekruter i „Zwiń” w nagłówku (14.10.2026)", () => {
+  beforeEach(() => {
+    apiMock.get.mockImplementation((url: string) => {
+      if (url === "/api/jobs/42") {
+        return Promise.resolve({
+          data: {
+            ...JOB,
+            priority_level: "p1",
+            can_set_priority: true,
+            can_staff: true,
+            recruiters: [
+              { user_id: 31, name: "Ewa Testowa", via: "owner", proposed: false, assigned_by_name: null },
+            ],
+            delivery_lead_user: { id: 5, name: "Olga Wzorcowa" },
+          },
+        });
+      }
+      if (url === "/api/pipeline/kanban/42") return Promise.resolve({ data: KANBAN });
+      return Promise.resolve({ data: [] });
+    });
+  });
+
+  it("plakietka priorytetu przed tytułem i fakt „Rekruter” w linii faktów", async () => {
+    renderPage();
+    const priority = await screen.findByTestId("job-header-priority");
+    expect(priority).toHaveTextContent("P1");
+    expect(screen.getByTestId("job-header-title").parentElement).toContainElement(priority);
+    const recruiter = screen.getByTestId("job-header-recruiter");
+    expect(recruiter).toHaveTextContent("Ewa T.");
+    expect(screen.getByTestId("job-header-facts").parentElement).toContainElement(recruiter);
+  });
+
+  it("„Zwiń” zostawia linię tytułu i jest pamiętane dla osoby po ponownym wejściu", async () => {
+    const first = renderPage();
+    await screen.findByTestId("sources-strip");
+    expect(seen.kanban?.headerCollapsed).toBe(false);
+    await userEvent.click(screen.getByTestId("job-header-collapse"));
+    // Tablica dostaje zmianę — to sygnał do ponownego pomiaru wysokości kolumn.
+    await waitFor(() => expect(seen.kanban?.headerCollapsed).toBe(true));
+    expect(screen.queryByTestId("job-header-facts")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("sources-strip")).not.toBeInTheDocument();
+    expect(window.localStorage.getItem("nexus:job-header-collapsed:9")).toBe("1");
+    first.unmount();
+
+    renderPage();
+    await screen.findByTestId("job-header-title");
+    await waitFor(() =>
+      expect(screen.getByTestId("job-header-collapse")).toHaveAttribute("aria-expanded", "false"),
+    );
+    expect(screen.queryByTestId("job-header-facts")).not.toBeInTheDocument();
   });
 });
 
