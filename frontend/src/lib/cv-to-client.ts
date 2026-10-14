@@ -364,6 +364,8 @@ export interface ForwardProgressInput {
   skipReason: string | null;
   /** Minął sufit czekania na automat. */
   expired: boolean;
+  /** Generację zlecono z tej karty — dzwonek „CV gotowe” wysyła tylko automat. */
+  manual?: boolean;
   /** Liczba rzeczy do sprawdzenia (`cvChecksBeforeSending`) i stan odczytu. */
   checks: { status: "loading" | "failed" | "forbidden" | "ready"; count: number };
 }
@@ -371,7 +373,7 @@ export interface ForwardProgressInput {
 export interface ForwardProgress {
   cv: ForwardStep;
   qc: ForwardStep;
-  /** CV jeszcze powstaje — karta mówi, że da znać dzwonkiem. */
+  /** CV robi automat i jeszcze powstaje — karta mówi, że da znać dzwonkiem. */
   waiting: boolean;
 }
 
@@ -380,7 +382,14 @@ export interface ForwardProgress {
  * Działa dla każdego źródła CV: automat, CV wybrane z profilu, z innej
  * rekrutacji albo wgrane z dysku (wtedy krok CV mówi „CV firmowe: …”).
  */
-export function forwardProgress({ state, origin, skipReason, expired, checks }: ForwardProgressInput): ForwardProgress {
+export function forwardProgress({
+  state,
+  origin,
+  skipReason,
+  expired,
+  manual = false,
+  checks,
+}: ForwardProgressInput): ForwardProgress {
   const generating: ForwardStep = { tone: "busy", text: "CV generuje się (ok. 40 s)" };
   let cv: ForwardStep;
   switch (state.kind) {
@@ -413,5 +422,7 @@ export function forwardProgress({ state, origin, skipReason, expired, checks }: 
   else if (checks.status === "forbidden") qc = { tone: "pending", text: "QC: bez dostępu" };
   else if (checks.count === 0) qc = { tone: "done", text: "QC: bez uwag" };
   else qc = { tone: "warn", text: `QC: ${checks.count} do poprawy` };
-  return { cv, qc, waiting: cv.tone === "busy" };
+  // Dzwonek `cv_ready` wysyła tylko automat (`cv_auto_generate`): po jego
+  // pominięciu i przy generacji zleconej z karty karta niczego nie obiecuje.
+  return { cv, qc, waiting: cv.tone === "busy" && !skipReason && !manual };
 }
