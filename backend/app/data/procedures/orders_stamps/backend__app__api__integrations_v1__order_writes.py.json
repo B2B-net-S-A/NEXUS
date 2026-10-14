@@ -1,4 +1,4 @@
 {
-  "sha256": "47112e18cb94687da7635cce8058dd83b28b566dd372316dcc9e5d6a77e6bda1",
+  "sha256": "fa03da337b8bbfe8bc4fdc4c56d1f25f0525bab379ccced2248e620a643f4efa",
   "source": "backend/app/api/integrations_v1/order_writes.py"
 }

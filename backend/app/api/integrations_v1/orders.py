@@ -6,7 +6,10 @@ efektywny (``COALESCE(linia, grupa)``, koniec udziału osoby) i stawki liczy
 ``services/order_facts`` — ta sama reguła co Finanse → Zmiany w zamówieniach
 i Braki, więc API i ekran Finansów nie rozjadą się.
 
-Stawki wyłącznie ze scope'em ``amounts:read``. Liczby MD (budżet, saldo,
+Kwoty według poziomu klucza (``common.amount_level``): stawka do klienta
+(``rate_revenue``) i kwota zamówienia kosztowego (``budget_amount``,
+``budget_remaining``) ze ``sales_amounts:read``, stawka konsultanta
+(``rate_cost``) dopiero z ``amounts:read``. Liczby MD (budżet, saldo,
 zejścia) są operacyjne — jak na ekranie, widzi je każdy z dostępem do
 zamówień. PDF-y zamówień: ``/finance/order-pdfs`` (scope ``finance:read``).
 
@@ -29,6 +32,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.api.integrations_v1.common import (
+    AmountLevel,
     IdPath,
     IntegrationRoute,
     MdRead,
@@ -37,7 +41,7 @@ from app.api.integrations_v1.common import (
     Page,
     PageQuery,
     PageSizeQuery,
-    can_see_amounts,
+    amount_level,
     page_of,
     principal_rate_key,
     read_rate_limit,
@@ -80,6 +84,7 @@ class OrderOut(BaseModel):
     rate_unit: Optional[str]
     currency: Optional[str]
     amounts_redacted: bool
+    costs_redacted: bool
     rate_cost: Money
     rate_revenue: Money
     md_total: Optional[Decimal]
@@ -89,7 +94,7 @@ class OrderOut(BaseModel):
     updated_at: datetime
 
 
-def _order_out(row, *, with_amounts: bool) -> OrderOut:
+def _order_out(row, *, level: AmountLevel) -> OrderOut:
     fact = fact_from_row(row)
     return OrderOut(
         id=fact.order_id,
@@ -107,9 +112,10 @@ def _order_out(row, *, with_amounts: bool) -> OrderOut:
         end_date=fact.end,
         rate_unit=fact.rate_unit,
         currency=fact.currency,
-        amounts_redacted=not with_amounts,
-        rate_cost=fact.rate_cost if with_amounts else None,
-        rate_revenue=fact.rate_revenue if with_amounts else None,
+        amounts_redacted=level is AmountLevel.none,
+        costs_redacted=level is not AmountLevel.all,
+        rate_cost=fact.rate_cost if level is AmountLevel.all else None,
+        rate_revenue=fact.rate_revenue if level >= AmountLevel.sales else None,
         md_total=fact.md_total,
         md_remaining=fact.md_remaining,
         has_file=bool(row.filename),
@@ -142,7 +148,7 @@ async def list_orders(
     updated_since: Optional[datetime] = Query(None),
 ) -> dict:
     """Zamówienia i linie zamówień MD sortowane po id."""
-    with_amounts = can_see_amounts(caller)
+    level = amount_level(caller)
     conditions = []
     if client_id is not None:
         conditions.append(ClientOrder.client_id == client_id)
@@ -174,7 +180,7 @@ async def list_orders(
             .limit(page_size)
         )
     ).all()
-    items = [_order_out(row, with_amounts=with_amounts) for row in rows]
+    items = [_order_out(row, level=level) for row in rows]
     return page_of(items, page=page, page_size=page_size, total=total)
 
 
@@ -189,7 +195,7 @@ async def get_order(
     row = (await db.execute(_orders_select().where(ClientOrder.id == order_id))).first()
     if row is None:
         raise HTTPException(404, detail="Zamówienie nie istnieje.")
-    return _order_out(row, with_amounts=can_see_amounts(caller))
+    return _order_out(row, level=amount_level(caller))
 
 
 class MdConsumptionMonthOut(BaseModel):
@@ -253,6 +259,7 @@ class OrderGroupOut(BaseModel):
     md_budget_total: Optional[Decimal]
     md_budget_remaining: Optional[Decimal]
     amounts_redacted: bool
+    costs_redacted: bool
     budget_amount: Money
     budget_remaining: Money
     has_file: bool
@@ -267,7 +274,7 @@ def _group_type(group: ClientOrderGroup) -> str:
 
 
 async def _group_out(
-    db: AsyncSession, groups: list[ClientOrderGroup], *, with_amounts: bool
+    db: AsyncSession, groups: list[ClientOrderGroup], *, level: AmountLevel
 ) -> list[OrderGroupOut]:
     ids = [g.id for g in groups]
     lines: dict[int, list[OrderOut]] = {}
@@ -280,7 +287,7 @@ async def _group_out(
             )
         ).all()
         for row in rows:
-            out = _order_out(row, with_amounts=with_amounts)
+            out = _order_out(row, level=level)
             lines.setdefault(out.order_group_id or 0, []).append(out)
     return [
         OrderGroupOut(
@@ -296,9 +303,12 @@ async def _group_out(
             is_md_budget_based=bool(g.is_md_budget_based),
             md_budget_total=g.md_budget_total,
             md_budget_remaining=g.md_budget_remaining,
-            amounts_redacted=not with_amounts,
-            budget_amount=g.budget_amount if with_amounts else None,
-            budget_remaining=g.budget_remaining if with_amounts else None,
+            amounts_redacted=level is AmountLevel.none,
+            costs_redacted=level is not AmountLevel.all,
+            budget_amount=g.budget_amount if level >= AmountLevel.sales else None,
+            budget_remaining=(
+                g.budget_remaining if level >= AmountLevel.sales else None
+            ),
             has_file=bool(g.filename),
             lines=lines.get(g.id, []),
             updated_at=g.updated_at,
@@ -327,7 +337,7 @@ async def list_order_groups(
     updated_since: Optional[datetime] = Query(None),
 ) -> dict:
     """Zamówienia wielo-konsultantowe (MD / kosztowe) z liniami osób."""
-    with_amounts = can_see_amounts(caller)
+    level = amount_level(caller)
     query = select(ClientOrderGroup).options(selectinload(ClientOrderGroup.client))
     if client_id is not None:
         query = query.where(ClientOrderGroup.client_id == client_id)
@@ -353,7 +363,7 @@ async def list_order_groups(
         .scalars()
         .all()
     )
-    items = await _group_out(db, list(groups), with_amounts=with_amounts)
+    items = await _group_out(db, list(groups), level=level)
     return page_of(items, page=page, page_size=page_size, total=total)
 
 
@@ -376,4 +386,4 @@ async def get_order_group(
     )
     if group is None:
         raise HTTPException(404, detail="Zamówienie nie istnieje.")
-    return (await _group_out(db, [group], with_amounts=can_see_amounts(caller)))[0]
+    return (await _group_out(db, [group], level=amount_level(caller)))[0]

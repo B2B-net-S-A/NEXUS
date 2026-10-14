@@ -27,11 +27,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api import contracts as contract_routes
 from app.api.integrations_v1.common import (
+    AmountLevel,
     ContractsStatus,
     ContractsWrite,
     IdPath,
     IntegrationRoute,
-    can_see_amounts,
+    amount_level,
     idempotent_write,
     principal_rate_key,
     write_policy,
@@ -69,12 +70,12 @@ async def _assert_exists(db: AsyncSession, contract_id: int) -> None:
 
 
 async def _contract_response(
-    db: AsyncSession, contract_id: int, *, with_amounts: bool
+    db: AsyncSession, contract_id: int, *, level: AmountLevel
 ) -> ContractOut:
     contract = (
         (
             await db.execute(
-                _base_query(with_amounts)
+                _base_query(level)
                 .where(Contract.id == contract_id)
                 .execution_options(populate_existing=True)
             )
@@ -83,7 +84,7 @@ async def _contract_response(
         .unique()
         .one()
     )
-    return contract_out(contract, with_amounts=with_amounts, on=business_today())
+    return contract_out(contract, level=level, on=business_today())
 
 
 @router.patch(
@@ -114,7 +115,7 @@ async def update_contract(
             policy=write_policy(caller, db),
         )
         return 200, await _contract_response(
-            db, contract.id, with_amounts=can_see_amounts(caller)
+            db, contract.id, level=amount_level(caller)
         )
 
     return await idempotent_write(
@@ -153,7 +154,7 @@ async def update_contract_status(
             policy=write_policy(caller, db),
         )
         return 200, await _contract_response(
-            db, contract.id, with_amounts=can_see_amounts(caller)
+            db, contract.id, level=amount_level(caller)
         )
 
     return await idempotent_write(
