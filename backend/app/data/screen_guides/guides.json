@@ -33,7 +33,7 @@
     ],
     "pitfalls": [
       "Lista otwiera się z Twoimi ostatnimi filtrami (bez tekstu z wyszukiwarki). Pusta albo krótka lista nie znaczy, że rekrutacji nie ma — kliknij „Wyczyść” albo przełącz zakres na „Moja kategoria”, „Otwarte” lub „Wszystkie”.",
-      "Przerywana ramka z dopiskiem „propozycja” w kolumnie „Rekruter” to propozycja automatu. Dopóki Head of Recruitment jej nie zaakceptuje, nikt nie jest przypisany, a rekrutacja liczy się jako „Bez rekrutera”.",
+      "Przerywana ramka z dopiskiem „propozycja” w kolumnie „Rekruter” to propozycja automatu. Dopóki Head of Recruitment jej nie zaakceptuje, nikt nie jest przypisany, a rekrutacja liczy się jako „Bez rekrutera”. Admin, Head of Recruitment i Delivery Lead zmieniają Rekrutera kliknięciem w tę kolumnę (poza zamkniętymi rekrutacjami) — tam też Head of Recruitment akceptuje propozycję.",
       "Sortowanie „Wymaga uwagi” stawia na górze rekrutacje P1 (pilne), potem te z największą liczbą kandydatów czekających na Twój ruch.",
       "„Do przejrzenia”, „Szukamy” i „Klient milczy” to stan nadany przez Delivery Leada w „Porządku w requestach” (przycisk nad listą, widzą go DL, Head of Recruitment i admin); ten sam stan stoi w wierszu listy. Rekrutacje obsadzone i zakończone nie mają osobnego stanu nad listą — są pod „Wszystkie”."
     ],

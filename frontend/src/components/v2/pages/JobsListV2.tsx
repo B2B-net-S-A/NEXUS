@@ -298,6 +298,8 @@ function JobsTable({
   onInvite,
   onSimilar,
   workedBy,
+  canStaff,
+  canDecideProposals,
 }: {
   items: any[];
   /** Rekrutacja otwarta w doku podglądu — jej wiersz jest podświetlony. */
@@ -311,6 +313,10 @@ function JobsTable({
   onSimilar: (id: number) => void;
   /** Filtr „Rekruter” — te osoby komórka pokazuje z nazwiska jako pierwsze. */
   workedBy: readonly number[];
+  /** Przydziela i zdejmuje rekruterów (`job.recruiter.assign`) — kolumna „Rekruter” z edycją. */
+  canStaff: boolean;
+  /** Rozstrzyga propozycje automatu (`request.proposal.decide`). */
+  canDecideProposals: boolean;
 }) {
   return (
     // Jeden układ dla każdej szerokości (02.10.2026): wiersz to nazwa stanowiska,
@@ -488,7 +494,20 @@ function JobsTable({
                 <JobDeadlineCell deadline={job.deadline} deadlineTime={job.deadline_time} />
               </TableCell>
               <TableCell className={NARROW_CELL}>
-                <JobRecruiterCell job={job} highlightIds={workedBy} />
+                <JobRecruiterCell
+                  job={job}
+                  highlightIds={workedBy}
+                  // Zamkniętej rekrutacji obsady już się nie zmienia (serwer: 409).
+                  edit={
+                    canStaff && !locked && job.status !== "closed"
+                      ? {
+                          jobId: job.id,
+                          jobTitle: jobDisplayTitle(job),
+                          canDecide: canDecideProposals,
+                        }
+                      : undefined
+                  }
+                />
               </TableCell>
               <TableCell className={NARROW_CELL}>
                 <JobAdPublicationsCell job={job} />
@@ -806,6 +825,12 @@ export function JobsListV2({
   const can = useCapabilities();
   const canCreateJob = can["job.create"];
   const canInvite = can["invite_link.create"];
+  // Kolumna „Rekruter” z edycją: admin, Head of Recruitment, Delivery Lead
+  // (prośba Head of Recruitment, 14.10.2026). Zakres Delivery Leada w rekrutacjach jest
+  // ogólnofirmowy, więc wystarcza capability — `can_staff` szczegółów
+  // rekrutacji dałby ten sam wynik.
+  const canStaff = can["job.recruiter.assign"] === true;
+  const canDecideProposals = can["request.proposal.decide"] === true;
 
   const {
     data,
@@ -1327,6 +1352,8 @@ export function JobsListV2({
               onInvite={canInvite ? (id) => setInviteModalForJob(id) : undefined}
               onSimilar={(id) => setSimilarForJob(id)}
               workedBy={filterValue.workedBy}
+              canStaff={canStaff}
+              canDecideProposals={canDecideProposals}
             />
           )}
 

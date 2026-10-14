@@ -1,27 +1,22 @@
 "use client";
 
 import { useState, type ReactElement, type ReactNode } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 
 import api from "@/lib/api";
-import { apiErrorMessage } from "@/lib/api-error";
-import { decideProposal } from "@/lib/api/requestAllocation";
 import { COLLABORATOR_ROLES } from "@/lib/job-collaborators";
 import {
-  addRecruiter,
   assignedByCaption,
   canRemoveRecruiter,
   claimJob,
   hasWorkingOwner,
   joinJob,
   recruitersOf,
-  removeRecruiter,
   workingRecruiters,
   type JobRecruiter,
   type JobTeamSource,
   type RecruiterAccess,
 } from "@/lib/job-team";
-import { invalidateJobTeam } from "@/lib/job-team-cache";
 import {
   automatAssigns,
   priorityLevelOf,
@@ -30,7 +25,6 @@ import {
 import { hasSectionAccess } from "@/lib/section-access";
 import { hasRole, ROLE_LABELS, useAuthStore, type UserRole } from "@/store/auth";
 import { useCapability } from "@/hooks/useCapability";
-import { useToast } from "@/components/Toast";
 import { Button } from "@/components/ui/button";
 import {
   Command,
@@ -46,9 +40,9 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { PickerQueryState } from "@/components/v2/filters/PickerQueryState";
-import { useConfirmV2 } from "@/components/v2/modals/ConfirmV2";
 import { ReassignOwnerV2 } from "@/components/v2/modals/ReassignOwnerV2";
 import { RecruiterChips } from "./RecruiterChips";
+import { useRecruiterActions } from "./useRecruiterActions";
 import {
   CLAIM_ELIGIBLE_ROLES,
   hasActiveOwner,
@@ -111,15 +105,11 @@ export function JobOwnershipPanel({
   job,
   canEdit,
 }: JobOwnershipPanelProps) {
-  const queryClient = useQueryClient();
-  const toast = useToast();
-  const { askConfirm, confirmDialog } = useConfirmV2();
   const currentUser = useAuthStore((s) => s.user);
   const impersonating = useAuthStore((s) => s.realUser !== null);
   const staffCapability = useCapability("job.recruiter.assign");
   const canDecide = useCapability("request.proposal.decide");
   const [reassignOpen, setReassignOpen] = useState(false);
-  const [pending, setPending] = useState<string | null>(null);
 
   const canWritePipeline =
     !impersonating && hasSectionAccess(currentUser, "pipeline", "write");
@@ -127,6 +117,9 @@ export function JobOwnershipPanel({
   const canStaff =
     canWritePipeline &&
     (typeof job.can_staff === "boolean" ? job.can_staff : staffCapability);
+  // Zapisy i komunikaty wspólne z kolumną „Rekruter” listy rekrutacji.
+  const { pending, run, remove, decide, replaceProposal, add, confirmDialog } =
+    useRecruiterActions({ jobId, canStaff });
   const access: RecruiterAccess = {
     canStaff,
     canDecide,
@@ -159,71 +152,6 @@ export function JobOwnershipPanel({
   // „+ Dodaj osobę” zrobiłoby wtedy to samo (`addRecruiter` ustawia pierwszego).
   const canAdd = canStaff ? ownerWorking : access.canEdit;
 
-  /**
-   * Każdy zapis kończy się odświeżeniem obsady — także nieudany: 409 znaczy,
-   * że ktoś zmienił ją w międzyczasie i ekran pokazuje nieaktualny stan.
-   */
-  const run = async (
-    key: string,
-    action: () => Promise<unknown>,
-    messages: { done: string; failed: string },
-  ) => {
-    if (pending != null) return;
-    setPending(key);
-    try {
-      await action();
-      toast.showSuccess(messages.done);
-    } catch (err) {
-      toast.showError(apiErrorMessage(err, messages.failed));
-    } finally {
-      invalidateJobTeam(queryClient, jobId);
-      setPending(null);
-    }
-  };
-
-  const remove = async (person: JobRecruiter) => {
-    if (pending != null) return;
-    const self = person.user_id === meId;
-    const confirmed = await askConfirm({
-      title: self
-        ? "Zdjąć siebie z tej rekrutacji?"
-        : `Zdjąć ${person.name} z tej rekrutacji?`,
-      description: self
-        ? "Przestaniesz być rekruterem tej rekrutacji."
-        : `${person.name} przestanie być rekruterem tej rekrutacji.`,
-      confirmLabel: "Zdejmij",
-    });
-    if (!confirmed) return;
-    await run(
-      `remove:${person.user_id}`,
-      () => removeRecruiter(jobId, person, { canStaff }),
-      {
-        done: self
-          ? "Nie jesteś już rekruterem tej rekrutacji."
-          : `${person.name}: zdjęto z rekrutacji.`,
-        failed: "Nie udało się zdjąć osoby z rekrutacji.",
-      },
-    );
-  };
-
-  const decide = (
-    person: JobRecruiter,
-    decision: "accept" | "reject",
-  ) =>
-    run(
-      `${decision}:${person.user_id}`,
-      () => decideProposal(jobId, person.user_id, { decision }),
-      decision === "accept"
-        ? {
-            done: `${person.name} pracuje nad tą rekrutacją.`,
-            failed: "Nie udało się zaakceptować propozycji.",
-          }
-        : {
-            done: "Propozycja automatu odrzucona.",
-            failed: "Nie udało się odrzucić propozycji.",
-          },
-    );
-
   const workingIds = working.map((p) => p.user_id);
 
   const proposalActions = canDecide
@@ -244,20 +172,7 @@ export function JobOwnershipPanel({
             roles={PROPOSAL_REPLACEMENT_ROLES}
             excludeIds={[person.user_id, ...workingIds]}
             emptyLabel="Nie ma innej osoby do wskazania."
-            onPick={(user) =>
-              void run(
-                `replace:${person.user_id}`,
-                () =>
-                  decideProposal(jobId, person.user_id, {
-                    decision: "replace",
-                    replacement_user_id: user.id,
-                  }),
-                {
-                  done: `${user.name} pracuje nad tą rekrutacją zamiast propozycji automatu.`,
-                  failed: "Nie udało się zmienić propozycji.",
-                },
-              )
-            }
+            onPick={(user) => void replaceProposal(person, user)}
             trigger={
               <button
                 type="button"
@@ -399,18 +314,7 @@ export function JobOwnershipPanel({
               excludeIds={workingIds}
               emptyLabel="Wszyscy już pracują nad tą rekrutacją."
               onPick={(user) =>
-                void run(
-                  "add",
-                  () =>
-                    addRecruiter(jobId, user.id, {
-                      hasWorkingOwner: ownerWorking,
-                      canStaff,
-                    }),
-                  {
-                    done: `${user.name}: dodano do rekrutacji.`,
-                    failed: "Nie udało się dodać osoby do rekrutacji.",
-                  },
-                )
+                void add(user, { hasWorkingOwner: ownerWorking })
               }
               trigger={
                 <button

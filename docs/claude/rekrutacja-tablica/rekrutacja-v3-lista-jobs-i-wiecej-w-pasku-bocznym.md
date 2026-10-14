@@ -107,6 +107,40 @@ miejsce, nie zbiór funkcji.
   prowadzącego i Head of Recruitment czytał to jako błąd filtra. Nazwisk nie
   stawiaj w jednej linii — kolumna ma 120 px, a tabela ledwo mieści się przy
   1280 px.
+- **„Rekruter” edytowany z listy (prośba Head of Recruitment, decyzje Artura 14.10.2026).**
+  Osoba z capability `job.recruiter.assign` (admin, Head of Recruitment,
+  uprawnienie `recruitment_manage` = Delivery Lead) klika osoby albo „Bez
+  rekrutera” w wierszu niezamkniętej rekrutacji i dostaje okienko
+  (`RecruiterCellEditor` w `v2/jobs/JobRecruiterEditor.tsx`); reszta ról ma
+  komórkę tylko do odczytu, a „Biorę”/„Dołącz” dalej w podglądzie. Zakres
+  Delivery Leada w rekrutacjach jest ogólnofirmowy (`delivery_lead_job_pairs`
+  → `None`), więc wiersz listy nie potrzebuje `can_staff`. Reguły:
+  - **Zapisy = panel „Zespół”**, wspólny hook `useRecruiterActions` (nie
+    kopiuj tras do komponentu): bez pracującego prowadzącego `POST /owner`,
+    z prowadzącym `POST /collaborators`, „×” → potwierdzenie →
+    `DELETE /api/request-board/jobs/{id}/people/{uid}`. Gdy nikt nie pracuje,
+    a jest propozycja automatu, wybór osoby przez Head of Recruitment/admina to
+    `decideProposal(…, replace)` — decyzja liczy się do trafności automatu.
+    Trasy pulpitu `POST …/people` tu nie używamy: przyjmuje tylko requesty
+    „Szukamy” bez championa, a lista pokazuje każdy stan.
+  - **Osoby w okienku = `boardPeople`**: propozycja tylko przy rekrutacji, nad
+    którą nikt nie pracuje — przy obsadzonej „Akceptuj” kończyłoby się 409.
+  - **Lista wyboru** (`recruiterPickOptions` w `lib/request-board.ts`): osoby
+    z rolą rekrutera bez pracujących, obłożenie z pulpitu (`useRequestBoard`,
+    wczytywane dopiero po otwarciu), od najmniej obłożonej; osoby spoza puli
+    automatu bez liczby na końcu. Lista wisi na katalogu `/api/users` (jego
+    awaria = błąd); awaria obłożenia nie blokuje przypisania. Urlopy pokaże
+    dopiero `COMPASS_AVAILABILITY_ENABLED` — do tego czasu stopka „Brak danych
+    o urlopach”.
+  - **Okienko jest `modal`** (klik obok tylko zamyka, nie otwiera wiersza),
+    a korzeń edytora zatrzymuje kliknięcia — zdarzenia React z portali idą do
+    `<tr>`. Fokus po otwarciu w polu szukania, nie na „×”. Okno potwierdzenia
+    (`ConfirmV2`, z-50) leży pod okienkiem (z-110), więc na czas potwierdzenia
+    okienko dostaje `invisible`.
+  - **Akcje stoją, dopóki lista się odświeża** (`useIsFetching(["jobs-v2"])`):
+    wiersz sprzed zapisu kazałby po „×” prowadzącego dopisać kolejną osobę
+    jako współpracownika zamiast prowadzącego. Przy filtrze „Bez rekrutera”
+    obsadzony wiersz znika razem z okienkiem.
 - **Wiersz = nazwa stanowiska + jedna linia (decyzja Artura 02.10.2026,
   makieta https://claude.ai/artifact/6o8S6SDErWyrBYqafTFCkY).** Linia 1:
   plakietka priorytetu (`RequestPriorityChip`; P2 bez plakietki) i sama rola —

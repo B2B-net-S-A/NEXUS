@@ -18,6 +18,9 @@
  *
  * Wiersze pokazują kolumnę „Rekruter” w każdym stanie (jedna osoba, dwie
  * z „+1”, sama propozycja automatu, nikt) oraz priorytety P1 i „Przyjmujemy”.
+ * Oglądający to admin, więc klik w osoby otwiera okienko edycji Rekrutera —
+ * katalog osób i obłożenie są zasiane, a zapisy zatrzymuje bezpiecznik sieci
+ * (wtedy lista odświeża się z błędem — ścieżki zapisu sprawdzają testy).
  * Dwa pierwsze mają osoby gotowe do wysłania do klienta (`dl_send_ready_count`
  * — wypełniona komórka „QC”), a filtr „Do wysłania do klienta” z „Więcej
  * filtrów” ma zasiane oba warianty (`?tosend=mine`, `?tosend=stale`).
@@ -51,6 +54,7 @@ import {
   OPEN_TABS_RAIL_CLASS,
   OpenTabsRailFrame,
 } from "@/components/v2/shell/OpenTabsRail";
+import { REQUEST_BOARD_QUERY_KEY, type RequestBoard } from "@/lib/api/requestAllocation";
 import type { JobRecruiter } from "@/lib/job-team";
 import { useAuthStore } from "@/store/auth";
 import type { Tab } from "@/store/tabs";
@@ -364,6 +368,40 @@ const BASE: Omit<JobsListQueryState, "mine" | "openOnly" | "sort"> = {
   deadline: "any",
 };
 
+/**
+ * Katalog osób (`/api/users`) do okienka kolumny „Rekruter”: rekruterzy
+ * z wierszy, jedna osoba spoza obłożenia (bez liczby) i Delivery Lead bez
+ * roli rekrutera — tego lista wyboru nie pokazuje.
+ */
+const DIRECTORY = [
+  { id: VIEWER_ID, name: "Preview Rekruter", role: "admin", roles: ["admin", "recruiter", "delivery_lead"] },
+  { id: 10, name: "Jan Nowak", role: "recruiter", roles: ["recruiter"] },
+  { id: 41, name: "Marta Kowalska", role: "recruiter", roles: ["recruiter"] },
+  { id: FILTERED_PERSON, name: "Anna Współpracowniczka", role: "recruiter", roles: ["recruiter"] },
+  { id: 72, name: "Piotr Przykładowy", role: "recruiter", roles: ["recruiter"] },
+  { id: 73, name: "Zenon Makietowy", role: "recruiter", roles: ["recruiter"] },
+  { id: 75, name: "Damian Liderowy", role: "delivery_lead", roles: ["delivery_lead"] },
+];
+
+/** Obłożenie z pulpitu „Requesty i obłożenie” — liczby przy osobach w okienku. */
+const REQUEST_BOARD: RequestBoard = {
+  mode: "shadow",
+  // Jak na produkcji bez Compassa: okienko mówi, że urlopów nie zna.
+  availability_known: false,
+  groups: [],
+  requests: [],
+  changes: [],
+  load: [
+    { user_id: 10, name: "Jan Nowak", count: 3, leave_until: null, requests: [] },
+    { user_id: 41, name: "Marta Kowalska", count: 2, leave_until: null, requests: [] },
+    { user_id: FILTERED_PERSON, name: "Anna Współpracowniczka", count: 1, leave_until: null, requests: [] },
+    { user_id: 72, name: "Piotr Przykładowy", count: 0, proposed: 1, leave_until: null, requests: [] },
+    { user_id: VIEWER_ID, name: "Preview Rekruter", count: 1, leave_until: null, requests: [] },
+  ],
+};
+
+const SEED_FRESH_UNTIL = Date.now() + 24 * 60 * 60 * 1000;
+
 const page = (items: unknown[]) => ({
   items,
   total: items.length,
@@ -492,7 +530,13 @@ function seededClient(): QueryClient {
   // Okienka paska filtrów (klucze z samych literałów — pilnuje ich
   // `harness-seeds.test.ts`).
   qc.setQueryData(["clients-lookup"], []);
-  qc.setQueryData(["users-directory"], []);
+  // Katalog osób czyta też okienko kolumny „Rekruter” (oglądający to admin).
+  // Znacznik czasu w przyszłości: okienko ma własny `staleTime`, a bez tego
+  // otwarcie po minucie pytałoby sieć.
+  qc.setQueryData(["users-directory"], DIRECTORY, { updatedAt: SEED_FRESH_UNTIL });
+  qc.setQueryData<RequestBoard>(REQUEST_BOARD_QUERY_KEY, REQUEST_BOARD, {
+    updatedAt: SEED_FRESH_UNTIL,
+  });
   // Krótka plakietka kategorii pod tytułem czyta ten katalog.
   qc.setQueryData(
     ["competence-categories-active"],

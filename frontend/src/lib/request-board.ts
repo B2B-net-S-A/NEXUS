@@ -11,7 +11,13 @@ import type {
   RequestBoard,
 } from "@/lib/api/requestAllocation"
 import type { RequestBoardScope } from "@/lib/api/userDashboard"
-import { hasRecruiter, proposedRecruiters, workingRecruiters } from "@/lib/job-team"
+import { hasRecruiterRole } from "@/lib/job-collaborators"
+import {
+  hasRecruiter,
+  proposedRecruiters,
+  workingRecruiters,
+  type RecruiterLike,
+} from "@/lib/job-team"
 import { pluralPl } from "@/lib/plural-pl"
 import {
   isPriorityLevel,
@@ -233,11 +239,13 @@ export function deadlineLabel(deadline: string | null, today: string): string {
  * obsadzonym requeście albo przy requeście z championem (ten wypada z puli
  * automatu) jest już nieaktualna — serwer nie pokazuje jej Head of Recruitment
  * i odmawia akceptacji (409), a automat wycofa ją przy najbliższym przebiegu.
- * Chip z „Akceptuj” kończyłby się wtedy samym błędem.
+ * Chip z „Akceptuj” kończyłby się wtedy samym błędem. Ta sama reguła
+ * w kolumnie „Rekruter” listy rekrutacji (osoby z `recruitersOf`).
  */
-export function boardPeople(
-  request: Pick<BoardRequest, "people"> & Partial<Pick<BoardRequest, "champion">>,
-): BoardPerson[] {
+export function boardPeople<T extends RecruiterLike = BoardPerson>(request: {
+  people: readonly T[]
+  champion?: boolean
+}): T[] {
   const working = workingRecruiters(request.people)
   if (working.length > 0 || request.champion) return working
   return proposedRecruiters(request.people)
@@ -407,6 +415,69 @@ export function orderLoad(load: readonly LoadPerson[]): LoadPerson[] {
   return [...load].sort(
     (a, b) => b.count - a.count || a.name.localeCompare(b.name, "pl"),
   )
+}
+
+/** Osoba z katalogu `/api/users` — tyle, ile potrzeba listom wyboru. */
+export interface DirectoryPerson {
+  id: number
+  name: string
+  role?: string | null
+  roles?: readonly string[] | null
+  is_active?: boolean | null
+}
+
+export interface RecruiterPickOption {
+  user_id: number
+  name: string
+  /**
+   * Requesty, nad którymi osoba pracuje; `null` = nie ma jej w obłożeniu
+   * pulpitu (poza pulą automatu albo obłożenie się nie wczytało).
+   */
+  count: number | null
+  /** Propozycje automatu czekające na akceptację. */
+  proposed: number
+  leave_until: string | null
+}
+
+/**
+ * Lista wyboru w kolumnie „Rekruter” listy rekrutacji: osoby z rolą
+ * rekrutera (lustro `_OWNERSHIP_ELIGIBLE_ROLES`) bez tych, które już
+ * pracują, z obłożeniem z pulpitu. Kolejność jak „Zmień” przy propozycji
+ * automatu: od najmniej obłożonej, osoby na urlopie na końcu; za nimi,
+ * alfabetycznie, osoby spoza obłożenia — ich liczby nie znamy.
+ */
+export function recruiterPickOptions(
+  directory: readonly DirectoryPerson[],
+  load: readonly LoadPerson[] | null,
+  excludeIds: readonly number[],
+  query: string,
+): RecruiterPickOption[] {
+  const loadById = new Map((load ?? []).map((person) => [person.user_id, person]))
+  const excluded = new Set(excludeIds)
+  const needle = fold(query.trim())
+  return directory
+    .filter(
+      (person) =>
+        person.is_active !== false &&
+        !excluded.has(person.id) &&
+        hasRecruiterRole(person) &&
+        (!needle || fold(person.name).includes(needle)),
+    )
+    .map((person) => {
+      const loaded = loadById.get(person.id)
+      return {
+        user_id: person.id,
+        name: person.name,
+        count: loaded ? loaded.count : null,
+        proposed: loaded?.proposed ?? 0,
+        leave_until: loaded?.leave_until ?? null,
+      }
+    })
+    .sort((a, b) => {
+      if ((a.count === null) !== (b.count === null)) return a.count === null ? 1 : -1
+      if (Boolean(a.leave_until) !== Boolean(b.leave_until)) return a.leave_until ? 1 : -1
+      return (a.count ?? 0) - (b.count ?? 0) || a.name.localeCompare(b.name, "pl")
+    })
 }
 
 /**
