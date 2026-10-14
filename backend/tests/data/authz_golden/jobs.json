@@ -25,6 +25,7 @@
   "DELETE /api/jobs/{job_id}/champion-profile/briefing": "PDDPDDDDPPPDDDDDDDD",
   "DELETE /api/jobs/{job_id}/collaborators/{user_id}": "PPPPPPDDPPPPPPPPPPP",
   "DELETE /api/jobs/{job_id}/owner": "PDPPDDDDPPPPDDDDPDD",
+  "DELETE /api/jobs/{job_id}/previous-recruiters/{user_id}": "PDPPDDDDPPPPDDDDPDD",
   "GET /api/jobs": "PPPPPPPDPPPPPPPPPPP",
   "GET /api/jobs/hiring-manager-options": "PPPPPPDDPPPPPPPPPPP",
   "GET /api/jobs/quick-counts": "PPPPPPPDPPPPPPPPPPP",
