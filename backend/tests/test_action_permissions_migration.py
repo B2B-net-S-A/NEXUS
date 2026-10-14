@@ -32,7 +32,7 @@ SEED_DIVERGENCE_AFTER_0273: dict[str, tuple[str, str]] = {
 # Role dodane po 0273 — ich wiersze zasiewa ich własna migracja.
 ROLES_ADDED_AFTER_0273: dict[str, str] = {
     UserRole.trainee.value: "0374_trainee_call_lists.py",
-    UserRole.automation.value: "0446_automation_role.py",
+    UserRole.automation.value: "0445_automation_role.py",
 }
 
 # Role wycofane w 0411 (sourcer, TAC → rekruter). Zamrożona migracja 0273 nadal
@@ -128,7 +128,7 @@ def test_roles_added_after_0273_are_seeded_by_their_own_migration() -> None:
         assert "INSERT INTO rbac_role_action_permissions" in source
         assert f"SELECT DISTINCT '{role}', action" in source
         # Komplet wierszy dla każdej akcji; „manage” dokładnie tam, gdzie daje
-        # je domyślna polityka roli (0446: podgląd Delivery „Automatyzacji”).
+        # je domyślna polityka roli (0445: podgląd Delivery „Automatyzacji”).
         granted = {
             action.value
             for action, access in DEFAULT_ROLE_ACTION_ACCESS[UserRole(role)].items()

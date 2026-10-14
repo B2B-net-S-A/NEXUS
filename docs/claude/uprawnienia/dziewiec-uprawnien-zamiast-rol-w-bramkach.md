@@ -98,7 +98,7 @@ mogły założyć kontraktu, a admin nie miał czego przełączyć. Decyzje Artu
   stan sprzed 0410 — dziś decyduje uprawnienie z tabeli wyżej, a zakres
   klientów działa jak opisano.
 
-## Rola „Automatyzacje”: podgląd bez kwot i bez zapisu (0446, 14.10.2026)
+## Rola „Automatyzacje”: podgląd bez kwot i bez zapisu (0445, 14.10.2026)
 
 Decyzje Artura 14.10.2026. Osoba, która podpina procesy firmy pod NEXUSA
 (API integracyjne v1), miała dostać rolę Finanse. Finanse czytają jednak
@@ -117,7 +117,12 @@ roli nie da się przyciąć. Powstała osobna rola `automation`, na ekranie
   Rola jest w zbiorach ODCZYTU (`READ_ONLY_ROLES` w `candidate_access.py`,
   `RECRUITMENT_READ_ROLES`) i w żadnym zbiorze zapisu ani eksportu. Imienne
   „Może usuwać klientów” jej nie otwiera (`client_deletion.py`). Zapisy robią
-  automatyzacje kluczami API — ze śladem „Integracja: <nazwa>”.
+  automatyzacje kluczami API — ze śladem „Integracja: <nazwa>”. Jak stary
+  Viewer zostawia tylko własne ślady: przebiegi wyszukiwania, rozmowy
+  z Jarvisem, ustawienia pulpitu i powiadomień.
+- **Rekrutacje bez członkostwa w zespole** (`_JOB_MEMBERSHIP_BYPASS_ROLES`),
+  jak reszta firmy. Poczty M365 nie synchronizuje (`eligible_m365_owner`),
+  także konto przerobione z rekrutera.
 - **Rola wyłączna** (jak Finanse, Viewer, Praktykant): CHECK
   `ck_users_exclusive_finance_viewer_roles`, `ensure_exclusive_roles`,
   `_normalized_role_values`, mapowanie grup AAD i `EXCLUSIVE_ROLES` na froncie.
@@ -128,7 +133,7 @@ roli nie da się przyciąć. Powstała osobna rola `automation`, na ekranie
 - **Pilnują tego testy:** `tests/test_automation_role_access.py` (w macierzy
   bramek rola nie przechodzi żadnego zapisu, którego nie przechodzi Viewer,
   a jej odczyty to odczyty rekrutera z podglądem Delivery),
-  `tests/test_automation_role_migration_mirror.py` (lustro 0446 w
+  `tests/test_automation_role_migration_mirror.py` (lustro 0445 w
   `entrypoint.sh`) i persona `automation` we wzorcu `tests/data/authz_golden/`.
 - **Nowa trasa albo nowy zbiór ról:** rolę dopisuj wyłącznie do zbiorów
   odczytu. Zbiór, który otwiera zapis, eksport albo kwoty po roli, ma jej nie

@@ -35,7 +35,7 @@ class UserRole(str, enum.Enum):
     - user                — deprecated legacy viewer; no new provisioning
     - trainee             — praktykant (0374): przez program wdrożenia widzi
                             wyłącznie „Telefony na dziś”; rola wyłączna
-    - automation          — „Automatyzacje” (0446): osoba budująca automatyzacje
+    - automation          — „Automatyzacje” (0445): osoba budująca automatyzacje
                             procesów; tylko PODGLĄD rekrutacji, kandydatów,
                             Insights oraz klientów, kontraktów i zamówień bez
                             kwot; żadnego zapisu na ekranach; rola wyłączna

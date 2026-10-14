@@ -112,7 +112,7 @@ describe("central section access matrix", () => {
         "talent_community_manager",
       ].sort(),
     );
-    // „Automatyzacje” (0446) czytają Delivery, ale niczego tam nie zapisują.
+    // „Automatyzacje” (0445) czytają Delivery, ale niczego tam nie zapisują.
     expect(rolesWithSectionAccess("delivery", "write")).not.toContain(
       "automation",
     );

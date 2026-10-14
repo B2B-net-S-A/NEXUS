@@ -158,7 +158,7 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE userrole ADD VALUE IF NOT EXISTS 'talent_community_manager'",
     # 0374: praktykant — „Telefony na dziś”.
     "ALTER TYPE userrole ADD VALUE IF NOT EXISTS 'trainee'",
-    # 0446: „Automatyzacje” — podgląd bez kwot i bez zapisu.
+    # 0445: „Automatyzacje” — podgląd bez kwot i bez zapisu.
     "ALTER TYPE userrole ADD VALUE IF NOT EXISTS 'automation'",
     # notificationtype: 5 trigger types + champion_profile_updated
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'dl_stage_stale_6h'",
@@ -5877,7 +5877,7 @@ EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
             ALTER TABLE users VALIDATE CONSTRAINT ck_users_exclusive_finance_viewer_roles;
         END IF;
     END $$""",
-    # 0446: „Automatyzacje” — rola w CHECK-ach RBAC i wyłączności, przed seedem
+    # 0445: „Automatyzacje” — rola w CHECK-ach RBAC i wyłączności, przed seedem
     # macierzy w `_DATA_STATEMENTS` (wstawia wiersze `automation`). Lustro 1:1
     # z migracją — pilnuje `test_automation_role_migration_mirror.py`.
     """DO $$ BEGIN
@@ -6565,7 +6565,7 @@ _DATA_STATEMENTS = [
        SELECT DISTINCT 'trainee', action, 'none'
        FROM rbac_role_action_permissions
        ON CONFLICT (role, action) DO NOTHING""",
-    # 0446: „Automatyzacje” — wszędzie odczyt, z uprawnień tylko podgląd
+    # 0445: „Automatyzacje” — wszędzie odczyt, z uprawnień tylko podgląd
     # Delivery. Dopisywane do istniejącej macierzy (decyzja admina wygrywa).
     """INSERT INTO rbac_role_section_permissions (role, section, access)
        SELECT 'automation', s.section, s.access

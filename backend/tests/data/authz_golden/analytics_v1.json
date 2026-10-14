@@ -24,7 +24,7 @@
  "routes": {
   "GET /api/analytics/v1/calls/aggregate": "PPPPPPDDPPPPPPPPPPPP",
   "GET /api/analytics/v1/clients/{client_id}/finance": "PPDDDDDDDDDDDDDDDPDD",
-  "GET /api/analytics/v1/clients/{client_id}/operations": "PPPPPDDDPPPPPPDDDDDP",
+  "GET /api/analytics/v1/clients/{client_id}/operations": "PPPPPDDDPPPPPPDDDDDD",
   "GET /api/analytics/v1/commercial/tenders": "PPDPPDDDPPPDPPDDDDDP",
   "GET /api/analytics/v1/executive/board": "PPDDDDDDDDDDDDDDDPDD",
   "GET /api/analytics/v1/finance/clients": "PPDDDDDDDDDDDDDDDPDD",

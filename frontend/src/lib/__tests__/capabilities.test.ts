@@ -349,7 +349,7 @@ function traineeExpected(capability: Capability): boolean {
 }
 
 /**
- * „Automatyzacje” (0446) tylko czytają: wejścia do kandydatów, radaru
+ * „Automatyzacje” (0445) tylko czytają: wejścia do kandydatów, radaru
  * i Delivery (uprawnienie „Klienci, kontrakty i zamówienia: podgląd”), żadnej
  * akcji zapisu ani modułu Finanse.
  */
@@ -1486,7 +1486,7 @@ const SIDEBAR_ROLE_GATED_WITHOUT_CAPABILITY: readonly string[] = [
   // przy tym wpisie w middleware.ts.
   "/candidates/contact-queue",
   // Generator umów B2B: drabinka akcji `b2b_contract_generator`, nie lista
-  // ról — „Automatyzacje” (0446) mają w niej „none”, bo rejestr pokazuje
+  // ról — „Automatyzacje” (0445) mają w niej „none”, bo rejestr pokazuje
   // stawki konsultantów.
   "/contracts/b2b-generator",
   // Zgłoszenia z publicznych aplikacji: backend bramkuje je przez

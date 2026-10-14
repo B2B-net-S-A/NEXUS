@@ -58,7 +58,7 @@ export const ROLE_ACTION_ACCESS: Record<
   user: { b2b_contract_generator: "view", b2b_signature_confirmation: "none" },
   // Praktykant (0374) nie ma dostępu do generatorów — jeden ekran telefonów.
   trainee: { b2b_contract_generator: "none", b2b_signature_confirmation: "none" },
-  // „Automatyzacje” (0446): rejestr umów B2B pokazuje stawki — bez dostępu.
+  // „Automatyzacje” (0445): rejestr umów B2B pokazuje stawki — bez dostępu.
   automation: {
     b2b_contract_generator: "none",
     b2b_signature_confirmation: "none",

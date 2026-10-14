@@ -764,7 +764,7 @@ describe("token sprzed połączenia ról (02.10.2026) — `tac` i `sourcer` licz
   })
 })
 
-describe("„Automatyzacje” (0446) — podgląd bez zapisu", () => {
+describe("„Automatyzacje” (0445) — podgląd bez zapisu", () => {
   const automation = makeToken({
     role: "automation",
     roles: ["automation"],

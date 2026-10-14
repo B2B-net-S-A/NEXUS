@@ -20,6 +20,19 @@ from app.models.user import User
 from app.services.section_permissions import resolve_effective_section_access
 
 
+def can_own_mailbox(user: User) -> bool:
+    """Czy konto może mieć podłączoną skrzynkę, z której poczta trafia do bazy.
+
+    Domena kandydatów, ale bez ról tylko do odczytu (0445: „Automatyzacje”
+    czytają kandydatów, a poczty nie wnoszą — także konto przerobione
+    z rekrutera, którego połączenie dalej istnieje).
+    """
+
+    return user_can_access_candidate_domain(user) and not user.has_any_role(
+        *READ_ONLY_ROLES
+    )
+
+
 class M365OwnerIneligible(RuntimeError):
     """Raised before Graph access when the connection owner is not eligible."""
 
@@ -34,11 +47,7 @@ async def eligible_m365_owner(db: AsyncSession, user_id: int) -> User | None:
     if owner is None:
         return None
     await resolve_effective_section_access(db, owner)
-    if not user_can_access_candidate_domain(owner):
-        return None
-    # 0446: „Automatyzacje” czytają kandydatów, ale nie wnoszą poczty do bazy —
-    # konto przerobione z rekrutera przestaje synchronizować skrzynkę.
-    if owner.has_any_role(*READ_ONLY_ROLES):
+    if not can_own_mailbox(owner):
         return None
     return owner
 

@@ -99,7 +99,7 @@ const OPERATIONAL: readonly UserRole[] = [
   "finance",
 ];
 
-/** Role operacyjne plus „Automatyzacje” (0446) — lustro odczytowych zbiorów
+/** Role operacyjne plus „Automatyzacje” (0445) — lustro odczytowych zbiorów
  *  `OperationalUser`, `CANDIDATE_READ_ROLES` i `RECRUITMENT_READ_ROLES`
  *  (deps.py, candidate_access.py, recruitment_access.py). Tylko dla wejść
  *  nawigacyjnych i odczytów, nigdy dla akcji. */

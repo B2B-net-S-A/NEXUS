@@ -14,7 +14,7 @@ panelu. Decyzje Artura z 02.10.2026.
 
 | # | Klucz | Nazwa na ekranie | Grupa | Domyślnie (poza adminem) |
 |---|---|---|---|---|
-| 1 | `delivery_view` | Klienci, kontrakty i zamówienia: podgląd | Klienci i kontrakty | Finanse, DL, TCM, Automatyzacje (0446) |
+| 1 | `delivery_view` | Klienci, kontrakty i zamówienia: podgląd | Klienci i kontrakty | Finanse, DL, TCM, Automatyzacje (0445) |
 | 2 | `clients_edit` | Klienci: dodawanie i edycja | Klienci i kontrakty | DL |
 | 3 | `contracts_orders_edit` | Kontrakty i zamówienia: tworzenie i edycja | Klienci i kontrakty | DL, Finanse |
 | 4 | `contract_status` | Zakończenie współpracy, zmiana statusu kontraktu | Klienci i kontrakty | DL, TCM |

@@ -1,4 +1,4 @@
-"""Rola „Automatyzacje” (0446): lustro migracji w entrypoint.sh i rejestracje.
+"""Rola „Automatyzacje” (0445): lustro migracji w entrypoint.sh i rejestracje.
 
 Prod alembic bywa osierocony — entrypoint JEST wdrożeniem schematu. Bez
 poszerzonych CHECK-ów zasiew macierzy przy starcie wywróciłby się na wierszu
@@ -26,7 +26,7 @@ from app.services.section_permissions import (
 )
 
 ROOT = Path(__file__).resolve().parents[1]
-MIGRATION = ROOT / "alembic/versions/0446_automation_role.py"
+MIGRATION = ROOT / "alembic/versions/0445_automation_role.py"
 
 
 def _squash(text: str) -> str:
