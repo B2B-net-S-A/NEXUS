@@ -1,7 +1,7 @@
 """Migawki szkicu CV etapu przed „Napisz od nowa” (Edytor CV 3, PR 5).
 
-Revision ID: 0444_cv_stage_draft_snapshots
-Revises: 0443_integrations_v1
+Revision ID: 0445_cv_stage_draft_snapshots
+Revises: 0444_also_fits_added_notification
 
 Nowa generacja nadpisywała niezatwierdzony szkic CV etapu bez śladu.
 ``cv_stage_draft_snapshots`` trzyma szkic sprzed podmiany: „Wróć do
@@ -13,8 +13,8 @@ Lustro w ``entrypoint.sh`` (prod alembic bywa osierocony).
 
 from alembic import op
 
-revision = "0444_cv_stage_draft_snapshots"
-down_revision = "0443_integrations_v1"
+revision = "0445_cv_stage_draft_snapshots"
+down_revision = "0444_also_fits_added_notification"
 branch_labels = None
 depends_on = None
 
@@ -47,7 +47,7 @@ UPGRADE = [
 REFUSE_WITH_ROWS = """DO $$
 BEGIN
     IF EXISTS (SELECT 1 FROM cv_stage_draft_snapshots) THEN
-        RAISE EXCEPTION 'Downgrade 0444 odmawia: cv_stage_draft_snapshots ma migawki szkiców CV, których nie ma nigdzie indziej.';
+        RAISE EXCEPTION 'Downgrade 0445 odmawia: cv_stage_draft_snapshots ma migawki szkiców CV, których nie ma nigdzie indziej.';
     END IF;
 END $$"""
 

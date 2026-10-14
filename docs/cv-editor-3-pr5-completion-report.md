@@ -30,7 +30,7 @@ sekcja „„Napisz od nowa””. Bazą jest PR 4 (asystent w kolumnie).
   usunięta nie wraca, dopisana stoi na swoim miejscu. Gdy nie da się tego
   rozpoznać, wchodzi cała nowa wersja i karta mówi to wprost.
 - **Nic nie ginie.** Migawka szkicu przed każdą podmianą
-  (`cv_stage_draft_snapshots`, migracja 0444 + lustro w entrypoint)
+  (`cv_stage_draft_snapshots`, migracja 0445 + lustro w entrypoint)
   i `POST …/cv/branded/restore-previous`. W karcie pasek „Nowa wersja CV.
   „X” zostało w Twojej wersji.” z przyciskiem „Wróć do poprzedniej”.
 
@@ -56,7 +56,7 @@ sekcja „„Napisz od nowa””. Bazą jest PR 4 (asystent w kolumnie).
   - generator (`test_cv_generator_legacy_v7.py`, +3): ogrodzona uwaga za
     źródłami, prompt systemowy bez zmian, brak tagu bez uwagi, stawki
     wycięte;
-  - lustro migracji 0444.
+  - lustro migracji 0445.
 - Backend z bazą (CI): podmiana z `keep_edits` (zostaje „Beta”), „Wróć do
   poprzedniej”, migawka `restore`, 409 i 404, wzorzec authz nowej trasy.
 - Frontend lokalnie:
@@ -79,7 +79,7 @@ Każdy błąd z testem, który padał przed poprawką:
 
 - **„Wróć do poprzedniej” bez „anonimowe” i języka** (bezpieczeństwo,
   Python): migawka nie trzymała szablonu ani języka, więc CV z nazwiskiem
-  mogło wrócić jako anonimowe. Migawka trzyma je teraz (kolumny w 0444).
+  mogło wrócić jako anonimowe. Migawka trzyma je teraz (kolumny w 0445).
 - **Uwaga zamykała swoje ogrodzenie** (bezpieczeństwo): `recruiter_instruction`
   nie było na liście `prompt_fencing`; teraz `recruiter_*`.
 - **Klucz stanowiska** (Python): wzorzec dat łapał „now” w „Snowflake” —
@@ -92,6 +92,7 @@ Każdy błąd z testem, który padał przed poprawką:
   projektu z polityki nie trafiały do generacji. Start rusza przebieg później.
 - **Ponowienie dopisywało notatkę** (TypeScript) i **druga generacja
   z edytora w trakcie pierwszej** (TypeScript) — poprawione.
-- **Numer migracji**: #2227 (inna sesja) też ma 0444. Kto wchodzi drugi,
-  przenumerowuje — sprawdzane przed zdjęciem draftu.
+- **Numer migracji**: #2227 (inna sesja) też miał 0444 i wszedł pierwszy
+  (wspólna grupa w kolejce dała dwie głowy alembica) — ta migracja to 0445
+  po `0444_also_fits_added_notification`, jak uzgodniono z tamtą sesją.
 

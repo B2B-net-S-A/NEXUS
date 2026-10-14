@@ -1,4 +1,4 @@
-"""Szkic CV etapu sprzed podmiany nową generacją (Edytor CV 3, PR 5, 0444).
+"""Szkic CV etapu sprzed podmiany nową generacją (Edytor CV 3, PR 5, 0445).
 
 Do 14.10.2026 „Wygeneruj ponownie” nadpisywało niezatwierdzony szkic bez
 śladu (zatwierdzona wersja zostawała w `cv_document_versions`). Migawka

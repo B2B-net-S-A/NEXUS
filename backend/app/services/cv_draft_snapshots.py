@@ -1,4 +1,4 @@
-"""Migawki szkicu CV etapu (Edytor CV 3, PR 5, migracja 0444).
+"""Migawki szkicu CV etapu (Edytor CV 3, PR 5, migracja 0445).
 
 Podmiana szkicu nową generacją zapisuje najpierw migawkę dotychczasowego
 szkicu — „Wróć do poprzedniej” wraca do niej. Powrót też robi migawkę

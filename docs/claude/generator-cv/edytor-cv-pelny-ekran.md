@@ -974,7 +974,7 @@ poprawione części zostają, „Wróć do poprzedniej” jednym kliknięciem.
   generacji. Karta podpina „Napisz od nowa” z BIEŻĄCĄ wersją szkicu i dopiero
   po zamknięciu edytora.
 - **Migawka szkicu przed każdą podmianą** w `select-generated`
-  (`cv_stage_draft_snapshots`, migracja 0444 + lustro w entrypoint):
+  (`cv_stage_draft_snapshots`, migracja 0445 + lustro w entrypoint):
   niezatwierdzony szkic nie znika już bez śladu. `POST
   …/cv/branded/restore-previous` (bramka jak `select-generated`) wraca do
   najnowszej migawki `replaced`, której nie przywrócono; bieżący szkic idzie

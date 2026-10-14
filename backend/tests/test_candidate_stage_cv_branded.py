@@ -1599,7 +1599,7 @@ def test_snapshot_migration_is_mirrored_in_entrypoint_and_model() -> None:
 
     root = Path(__file__).resolve().parents[1]
     entry = (root / "entrypoint.sh").read_text()
-    migration = (root / "alembic/versions/0444_cv_stage_draft_snapshots.py").read_text()
+    migration = (root / "alembic/versions/0445_cv_stage_draft_snapshots.py").read_text()
     squash = lambda t: re.sub(r"\s+", " ", t)  # noqa: E731
     for fragment in (
         "CREATE TABLE IF NOT EXISTS cv_stage_draft_snapshots (",
@@ -1612,7 +1612,7 @@ def test_snapshot_migration_is_mirrored_in_entrypoint_and_model() -> None:
     ):
         assert fragment in squash(migration), fragment
         assert fragment in squash(entry), fragment
-    assert 'down_revision = "0443_integrations_v1"' in migration
+    assert 'down_revision = "0444_also_fits_added_notification"' in migration
     from app.models.cv_stage_draft_snapshot import CvStageDraftSnapshot
 
     columns = set(CvStageDraftSnapshot.__table__.columns.keys())
