@@ -221,10 +221,11 @@ async def test_manual_profile_change_drops_the_rejection_origin(
     )
     assert r.status_code == 200, r.text
 
-    # Zapis bez zmiany trybu pracy (np. miasto) zostawia źródło.
+    # Zapis bez zmiany trybu pracy (np. lata doświadczenia) zostawia źródło.
+    # Miasto ma własną trasę — PATCH kandydata go odrzuca (422).
     r = await app_client.patch(
         f"/api/candidates/{cand}",
-        json={"city": "Łódź"},
+        json={"years_it_experience": 6},
         headers=app_auth_headers,
     )
     assert r.status_code == 200, r.text
