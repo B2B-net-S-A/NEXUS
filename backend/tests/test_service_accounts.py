@@ -30,6 +30,7 @@ from app.models.service_account import (
     ServiceAccount,
     ServiceAccountKey,
     ServiceScope,
+    implied_scopes,
 )
 from app.services.service_account_auth import (
     ServiceKeyError,
@@ -114,14 +115,30 @@ class TestExpiryPolicy:
 
 class TestScopeVocabulary:
     def test_no_candidate_data_scope_exists(self):
-        """Klucz do syncu Traffita nie ma jak sięgnąć po dane kandydatów.
+        """Klucz nie ma jak sięgnąć po dane kandydatów.
 
         To nie jest kwestia ostrożnej konfiguracji konta — takiego uprawnienia
         po prostu nie ma w słowniku, więc nikt nie może go przyznać.
+
+        Od 14.10.2026 (API integracyjne v1) słownik ma scope'y rozliczeń,
+        w tym ``clients:read`` — świadomie: automatyzacja rozliczeń musi znać
+        klienta (nazwa, NIP, Delivery Lead). Otwiera on wyłącznie trasy
+        ``/api/integrations/v1/clients*``, a nie ``/api/clients`` ekranów
+        (``test_key_cannot_reach_domain_data``). Kandydaci, rekrutacje
+        i notatki nadal nie mają żadnego scope'u.
         """
         values = {scope.value for scope in ServiceScope}
         for forbidden in ("candidate:read", "candidate:write", "client:read"):
             assert forbidden not in values
+        for value in values:
+            resource = value.split(":", 1)[0]
+            assert resource not in {"candidate", "candidates", "jobs", "job", "notes"}, value
+
+    def test_write_scope_implies_read_scope(self):
+        assert implied_scopes(frozenset({"md:write"})) == {"md:write", "md:read"}
+        assert implied_scopes(frozenset({"traffit:sync"})) == {"traffit:sync"}
+        # Zapis bez odpowiadającego odczytu w słowniku niczego nie dokłada.
+        assert implied_scopes(frozenset({"bogus:write"})) == {"bogus:write"}
 
     def test_every_scope_has_polish_label(self):
         for scope in ServiceScope:

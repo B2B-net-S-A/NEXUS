@@ -4788,7 +4788,7 @@ END $$""",
         CONSTRAINT ck_order_change_events_field
             CHECK (field IN ('rate_cost', 'rate_revenue', 'end_date')),
         CONSTRAINT ck_order_change_events_source
-            CHECK (source IN ('user', 'system'))
+            CHECK (source IN ('user', 'system', 'integration'))
     )""",
     "CREATE INDEX IF NOT EXISTS ix_order_change_events_created_at "
     "ON order_change_events (created_at)",
@@ -6017,6 +6017,41 @@ EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
     # 0415: rekrutacja bez szkiców — „Klient nie podał” przy HM i terminie.
     "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS hiring_manager_not_provided BOOLEAN NOT NULL DEFAULT false",
     "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS deadline_not_provided BOOLEAN NOT NULL DEFAULT false",
+    # 0443: API integracyjne v1 — paragony zapisów (idempotencja + rejestr
+    # „co zapisała automatyzacja”). Bez tabeli każdy zapis v1 pada na
+    # UndefinedTable. CHECK źródła „integration” w `_CONSTRAINT_STATEMENTS`.
+    """CREATE TABLE IF NOT EXISTS integration_write_receipts (
+        id SERIAL PRIMARY KEY,
+        service_account_id INTEGER NOT NULL
+            REFERENCES service_accounts(id) ON DELETE CASCADE,
+        key_id VARCHAR(64) NOT NULL,
+        idempotency_key VARCHAR(80) NOT NULL,
+        method VARCHAR(8) NOT NULL,
+        route VARCHAR(255) NOT NULL,
+        payload_sha256 VARCHAR(64) NOT NULL,
+        state VARCHAR(16) NOT NULL DEFAULT 'pending',
+        status_code INTEGER,
+        response_json JSONB,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        completed_at TIMESTAMPTZ,
+        CONSTRAINT uq_integration_write_receipts_account_key
+            UNIQUE (service_account_id, idempotency_key),
+        CONSTRAINT ck_integration_write_receipts_state
+            CHECK (state IN ('pending', 'done'))
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_integration_write_receipts_account_created "
+    "ON integration_write_receipts (service_account_id, created_at)",
+    # 0443: listener `order_change_audit` zapisuje autora-konto przy KAŻDEJ
+    # zmianie zamówienia kluczem — bez kolumny pada zapis zamówienia.
+    "ALTER TABLE order_change_events "
+    "ADD COLUMN IF NOT EXISTS created_by_service_account_id INTEGER",
+    "ALTER TABLE md_consumption_imports "
+    "ADD COLUMN IF NOT EXISTS file_sha256 VARCHAR(64)",
+    "ALTER TABLE md_consumption_imports "
+    "ADD COLUMN IF NOT EXISTS uploaded_by_service_account_id INTEGER "
+    "REFERENCES service_accounts(id) ON DELETE SET NULL",
+    "CREATE INDEX IF NOT EXISTS ix_md_consumption_imports_file_sha256 "
+    "ON md_consumption_imports (period_month, file_sha256)",
 ]
 
 _ROLE_DASHBOARD_CUTOVER_SQL = r"""
@@ -8111,6 +8146,16 @@ SELECT 'job', id, 'archived',
 # Bez tego jedna zabłąkana wartość zablokowałaby start kontenera. VALIDATE
 # CONSTRAINT można uruchomić później, świadomie, po policzeniu sierot.
 _CONSTRAINT_STATEMENTS = [
+    # 0443: źródło „integration” (zapis kluczem API v1). Poszerzenie domeny =
+    # jawny DROP+ADD w jednym bloku; JEDYNA definicja poza CREATE TABLE —
+    # pilnuje `tests/test_entrypoint_order_change_source_mirror.py`.
+    """DO $$ BEGIN
+        ALTER TABLE order_change_events
+            DROP CONSTRAINT IF EXISTS ck_order_change_events_source;
+        ALTER TABLE order_change_events
+            ADD CONSTRAINT ck_order_change_events_source
+            CHECK (source IN ('user', 'system', 'integration'));
+    END $$""",
     # 0381: akcja czekająca na worker portali — zamknięty słownik.
     """DO $$ BEGIN
         ALTER TABLE job_postings ADD CONSTRAINT ck_job_postings_pending_action

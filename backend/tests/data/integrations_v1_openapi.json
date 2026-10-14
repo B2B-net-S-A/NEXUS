@@ -1,0 +1,6805 @@
+{
+  "components": {
+    "schemas": {
+      "AssignIn": {
+        "description": "Linia z listy dopasowań wiersza. Bez ``confirm_overflow`` z ekranu —\nprzekroczenie salda zatwierdza człowiek.",
+        "properties": {
+          "order_id": {
+            "maximum": 2147483647.0,
+            "minimum": 1.0,
+            "title": "Order Id",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "order_id"
+        ],
+        "title": "AssignIn",
+        "type": "object"
+      },
+      "Body_create_md_import_api_integrations_v1_md_imports_post": {
+        "properties": {
+          "file": {
+            "contentMediaType": "application/octet-stream",
+            "description": "Raport MD w formacie XLSX.",
+            "title": "File",
+            "type": "string"
+          },
+          "period_month": {
+            "pattern": "^\\d{4}-\\d{2}$",
+            "title": "Period Month",
+            "type": "string"
+          }
+        },
+        "required": [
+          "file",
+          "period_month"
+        ],
+        "title": "Body_create_md_import_api_integrations_v1_md_imports_post",
+        "type": "object"
+      },
+      "Body_finance_import_api_integrations_v1_finance_imports_post": {
+        "properties": {
+          "file": {
+            "contentMediaType": "application/octet-stream",
+            "title": "File",
+            "type": "string"
+          },
+          "month": {
+            "maximum": 12.0,
+            "minimum": 1.0,
+            "title": "Month",
+            "type": "integer"
+          },
+          "replace": {
+            "default": false,
+            "title": "Replace",
+            "type": "boolean"
+          },
+          "year": {
+            "maximum": 2100.0,
+            "minimum": 2000.0,
+            "title": "Year",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "file",
+          "year",
+          "month"
+        ],
+        "title": "Body_finance_import_api_integrations_v1_finance_imports_post",
+        "type": "object"
+      },
+      "CancelIn": {
+        "properties": {
+          "reason": {
+            "maxLength": 500,
+            "minLength": 3,
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "reason"
+        ],
+        "title": "CancelIn",
+        "type": "object"
+      },
+      "CheckIn": {
+        "properties": {
+          "done": {
+            "default": true,
+            "title": "Done",
+            "type": "boolean"
+          },
+          "item_key": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Item Key",
+            "type": "string"
+          },
+          "month": {
+            "maximum": 12.0,
+            "minimum": 1.0,
+            "title": "Month",
+            "type": "integer"
+          },
+          "year": {
+            "maximum": 2100.0,
+            "minimum": 2000.0,
+            "title": "Year",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "year",
+          "month",
+          "item_key"
+        ],
+        "title": "CheckIn",
+        "type": "object"
+      },
+      "CheckOut": {
+        "description": "Stan pozycji po zapisie; autor i czas, gdy jest odhaczona.",
+        "properties": {
+          "at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "At"
+          },
+          "by_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "By Name"
+          },
+          "done": {
+            "title": "Done",
+            "type": "boolean"
+          },
+          "item_key": {
+            "title": "Item Key",
+            "type": "string"
+          }
+        },
+        "required": [
+          "item_key",
+          "done"
+        ],
+        "title": "CheckOut",
+        "type": "object"
+      },
+      "ClientOrderStatus": {
+        "description": "Lifecycle order/zamówienia.",
+        "enum": [
+          "draft",
+          "active",
+          "paused",
+          "completed",
+          "cancelled"
+        ],
+        "title": "ClientOrderStatus",
+        "type": "string"
+      },
+      "ClientOut": {
+        "properties": {
+          "delivery_leads": {
+            "items": {
+              "$ref": "#/components/schemas/DeliveryLeadOut"
+            },
+            "title": "Delivery Leads",
+            "type": "array"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "legal_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Legal Name"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "nip": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nip"
+          },
+          "regon": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Regon"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "legal_name",
+          "nip",
+          "regon",
+          "status",
+          "delivery_leads",
+          "updated_at"
+        ],
+        "title": "ClientOut",
+        "type": "object"
+      },
+      "ContractOut": {
+        "properties": {
+          "amounts_redacted": {
+            "title": "Amounts Redacted",
+            "type": "boolean"
+          },
+          "billing_hours_per_month": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Billing Hours Per Month"
+          },
+          "client_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Id"
+          },
+          "client_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Name"
+          },
+          "contract_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Contract Type"
+          },
+          "end_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End Date"
+          },
+          "engagement_model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Engagement Model"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "job_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Job Id"
+          },
+          "person": {
+            "$ref": "#/components/schemas/app__api__integrations_v1__contracts__PersonOut"
+          },
+          "project_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project Code"
+          },
+          "project_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project Name"
+          },
+          "rate_candidate_currency": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rate Candidate Currency"
+          },
+          "rate_client_currency": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rate Client Currency"
+          },
+          "rate_unit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rate Unit"
+          },
+          "rates": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ContractRatesOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "start_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Start Date"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "terminated_at": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Terminated At"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "status",
+          "contract_type",
+          "engagement_model",
+          "person",
+          "client_id",
+          "client_name",
+          "job_id",
+          "project_code",
+          "project_name",
+          "start_date",
+          "end_date",
+          "terminated_at",
+          "rate_unit",
+          "billing_hours_per_month",
+          "rate_client_currency",
+          "rate_candidate_currency",
+          "amounts_redacted",
+          "rates",
+          "updated_at"
+        ],
+        "title": "ContractOut",
+        "type": "object"
+      },
+      "ContractRatesOut": {
+        "description": "Stawki obowiązujące dnia ``as_of`` (z harmonogramów).",
+        "properties": {
+          "as_of": {
+            "format": "date",
+            "title": "As Of",
+            "type": "string"
+          },
+          "margin": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Margin"
+          },
+          "monthly_margin": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Monthly Margin"
+          },
+          "monthly_rate_candidate": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Monthly Rate Candidate"
+          },
+          "monthly_rate_client": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Monthly Rate Client"
+          },
+          "rate_candidate": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rate Candidate"
+          },
+          "rate_client": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rate Client"
+          }
+        },
+        "required": [
+          "as_of",
+          "rate_candidate",
+          "rate_client",
+          "margin",
+          "monthly_rate_candidate",
+          "monthly_rate_client",
+          "monthly_margin"
+        ],
+        "title": "ContractRatesOut",
+        "type": "object"
+      },
+      "ContractStatus": {
+        "enum": [
+          "draft",
+          "ready_for_signature",
+          "active",
+          "ending",
+          "ended",
+          "void"
+        ],
+        "title": "ContractStatus",
+        "type": "string"
+      },
+      "DeliveryLeadOut": {
+        "properties": {
+          "email": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Email"
+          },
+          "is_head": {
+            "title": "Is Head",
+            "type": "boolean"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "user_id": {
+            "title": "User Id",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "user_id",
+          "name",
+          "email",
+          "is_head"
+        ],
+        "title": "DeliveryLeadOut",
+        "type": "object"
+      },
+      "DsoRow": {
+        "properties": {
+          "avg_dso_days": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Avg Dso Days"
+          },
+          "client_id": {
+            "title": "Client Id",
+            "type": "integer"
+          },
+          "client_name": {
+            "title": "Client Name",
+            "type": "string"
+          },
+          "currency": {
+            "default": "PLN",
+            "title": "Currency",
+            "type": "string"
+          },
+          "fx_incomplete": {
+            "default": false,
+            "title": "Fx Incomplete",
+            "type": "boolean"
+          },
+          "invoices": {
+            "title": "Invoices",
+            "type": "integer"
+          },
+          "outstanding": {
+            "title": "Outstanding",
+            "type": "number"
+          },
+          "paid_amount": {
+            "title": "Paid Amount",
+            "type": "number"
+          },
+          "total_amount": {
+            "title": "Total Amount",
+            "type": "number"
+          }
+        },
+        "required": [
+          "client_id",
+          "client_name",
+          "invoices",
+          "total_amount",
+          "paid_amount",
+          "outstanding",
+          "avg_dso_days"
+        ],
+        "title": "DsoRow",
+        "type": "object"
+      },
+      "FinanceImportRejection": {
+        "properties": {
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "row_number": {
+            "title": "Row Number",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "row_number",
+          "reason"
+        ],
+        "title": "FinanceImportRejection",
+        "type": "object"
+      },
+      "FinanceImportResult": {
+        "description": "Podsumowanie udanego importu (panel po wgraniu pliku).",
+        "properties": {
+          "imported": {
+            "title": "Imported",
+            "type": "integer"
+          },
+          "month": {
+            "title": "Month",
+            "type": "integer"
+          },
+          "needs_completion": {
+            "title": "Needs Completion",
+            "type": "integer"
+          },
+          "rejected": {
+            "title": "Rejected",
+            "type": "integer"
+          },
+          "rejections": {
+            "items": {
+              "$ref": "#/components/schemas/FinanceImportRejection"
+            },
+            "title": "Rejections",
+            "type": "array"
+          },
+          "replaced_run_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Replaced Run Id"
+          },
+          "run_id": {
+            "title": "Run Id",
+            "type": "integer"
+          },
+          "year": {
+            "title": "Year",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "run_id",
+          "year",
+          "month",
+          "imported",
+          "needs_completion",
+          "rejected"
+        ],
+        "title": "FinanceImportResult",
+        "type": "object"
+      },
+      "FinancePeriod": {
+        "description": "Pozycja selektora miesiąca — wyłącznie okresy, które mają import.",
+        "properties": {
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "month": {
+            "title": "Month",
+            "type": "integer"
+          },
+          "row_count": {
+            "title": "Row Count",
+            "type": "integer"
+          },
+          "run_id": {
+            "title": "Run Id",
+            "type": "integer"
+          },
+          "year": {
+            "title": "Year",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "year",
+          "month",
+          "label",
+          "run_id",
+          "row_count"
+        ],
+        "title": "FinancePeriod",
+        "type": "object"
+      },
+      "FinanceResultRow": {
+        "properties": {
+          "client_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Name"
+          },
+          "compensation": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Compensation"
+          },
+          "consultant_name": {
+            "title": "Consultant Name",
+            "type": "string"
+          },
+          "cost_rate_md": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cost Rate Md"
+          },
+          "edited_fields": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Edited Fields",
+            "type": "array"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "invoice_amount": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Invoice Amount"
+          },
+          "margin_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Margin Pct"
+          },
+          "margin_percent": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Margin Percent"
+          },
+          "margin_pln": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Margin Pln"
+          },
+          "md_count": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Md Count"
+          },
+          "revenue_rate_md": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revenue Rate Md"
+          },
+          "row_number": {
+            "title": "Row Number",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "row_number",
+          "consultant_name"
+        ],
+        "title": "FinanceResultRow",
+        "type": "object"
+      },
+      "FinanceResultsResponse": {
+        "properties": {
+          "month": {
+            "title": "Month",
+            "type": "integer"
+          },
+          "needs_completion_count": {
+            "title": "Needs Completion Count",
+            "type": "integer"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/FinanceResultRow"
+            },
+            "title": "Rows",
+            "type": "array"
+          },
+          "run_id": {
+            "title": "Run Id",
+            "type": "integer"
+          },
+          "totals": {
+            "$ref": "#/components/schemas/FinanceTotals"
+          },
+          "year": {
+            "title": "Year",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "year",
+          "month",
+          "run_id",
+          "rows",
+          "totals",
+          "needs_completion_count"
+        ],
+        "title": "FinanceResultsResponse",
+        "type": "object"
+      },
+      "FinanceTotals": {
+        "description": "Kafle. Liczone SERWEROWO z tych samych wierszy, które zwraca `/results`.\n\nKafel będący sumą innych liczb niż widoczne pod nim jest niemożliwy do\nzweryfikowania wzrokiem — dlatego nie ma tu osobnego zapytania agregującego.",
+        "properties": {
+          "avg_margin_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Avg Margin Pct"
+          },
+          "cost": {
+            "title": "Cost",
+            "type": "number"
+          },
+          "cost_without_margin": {
+            "default": 0.0,
+            "title": "Cost Without Margin",
+            "type": "number"
+          },
+          "margin": {
+            "title": "Margin",
+            "type": "number"
+          },
+          "revenue": {
+            "title": "Revenue",
+            "type": "number"
+          },
+          "rows_without_margin": {
+            "default": 0,
+            "title": "Rows Without Margin",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "cost",
+          "revenue",
+          "margin"
+        ],
+        "title": "FinanceTotals",
+        "type": "object"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "ImportDetail": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "filename": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Filename"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "period_month": {
+            "title": "Period Month",
+            "type": "string"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/ImportRowRead"
+            },
+            "title": "Rows",
+            "type": "array"
+          },
+          "rows_ambiguous": {
+            "default": 0,
+            "title": "Rows Ambiguous",
+            "type": "integer"
+          },
+          "rows_applied": {
+            "default": 0,
+            "title": "Rows Applied",
+            "type": "integer"
+          },
+          "rows_cost_applied": {
+            "default": 0,
+            "title": "Rows Cost Applied",
+            "type": "integer"
+          },
+          "rows_cost_unmatched": {
+            "default": 0,
+            "title": "Rows Cost Unmatched",
+            "type": "integer"
+          },
+          "rows_total": {
+            "default": 0,
+            "title": "Rows Total",
+            "type": "integer"
+          },
+          "rows_unmatched": {
+            "default": 0,
+            "title": "Rows Unmatched",
+            "type": "integer"
+          },
+          "sheet_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sheet Name"
+          },
+          "skipped_rows": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Skipped Rows",
+            "type": "array"
+          },
+          "uploaded_by_service_account_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Uploaded By Service Account Id"
+          },
+          "uploaded_by_user_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Uploaded By User Id"
+          }
+        },
+        "required": [
+          "id",
+          "period_month",
+          "created_at"
+        ],
+        "title": "ImportDetail",
+        "type": "object"
+      },
+      "ImportRowRead": {
+        "properties": {
+          "consultant_name": {
+            "title": "Consultant Name",
+            "type": "string"
+          },
+          "cost_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cost Status"
+          },
+          "cost_status_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cost Status Label"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "invoice_amount": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Invoice Amount"
+          },
+          "matched": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LineOption"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "matched_order_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Matched Order Id"
+          },
+          "md_reported": {
+            "title": "Md Reported",
+            "type": "number"
+          },
+          "merged_rows": {
+            "default": 1,
+            "title": "Merged Rows",
+            "type": "integer"
+          },
+          "notes_raw": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes Raw"
+          },
+          "options": {
+            "items": {
+              "$ref": "#/components/schemas/LineOption"
+            },
+            "title": "Options",
+            "type": "array"
+          },
+          "order_number_hint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Order Number Hint"
+          },
+          "overflow_md": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Overflow Md"
+          },
+          "resolved_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resolved At"
+          },
+          "row_number": {
+            "title": "Row Number",
+            "type": "integer"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "status_label": {
+            "title": "Status Label",
+            "type": "string"
+          },
+          "status_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status Reason"
+          }
+        },
+        "required": [
+          "id",
+          "row_number",
+          "consultant_name",
+          "md_reported",
+          "status",
+          "status_label"
+        ],
+        "title": "ImportRowRead",
+        "type": "object"
+      },
+      "ImportSummary": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "filename": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Filename"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "period_month": {
+            "title": "Period Month",
+            "type": "string"
+          },
+          "rows_ambiguous": {
+            "default": 0,
+            "title": "Rows Ambiguous",
+            "type": "integer"
+          },
+          "rows_applied": {
+            "default": 0,
+            "title": "Rows Applied",
+            "type": "integer"
+          },
+          "rows_cost_applied": {
+            "default": 0,
+            "title": "Rows Cost Applied",
+            "type": "integer"
+          },
+          "rows_cost_unmatched": {
+            "default": 0,
+            "title": "Rows Cost Unmatched",
+            "type": "integer"
+          },
+          "rows_total": {
+            "default": 0,
+            "title": "Rows Total",
+            "type": "integer"
+          },
+          "rows_unmatched": {
+            "default": 0,
+            "title": "Rows Unmatched",
+            "type": "integer"
+          },
+          "uploaded_by_service_account_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Uploaded By Service Account Id"
+          },
+          "uploaded_by_user_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Uploaded By User Id"
+          }
+        },
+        "required": [
+          "id",
+          "period_month",
+          "created_at"
+        ],
+        "title": "ImportSummary",
+        "type": "object"
+      },
+      "InvoiceCreateIn": {
+        "description": "Model ekranu (walidacja kwoty i numeru) z granicami pól — wartość spoza\nint4 albo za długa waluta dawała 500 z bazy zamiast 422 (przegląd PR 2A),\na integrator ponawia 5xx.",
+        "properties": {
+          "amount": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              }
+            ],
+            "title": "Amount"
+          },
+          "contract_id": {
+            "maximum": 2147483647.0,
+            "minimum": 1.0,
+            "title": "Contract Id",
+            "type": "integer"
+          },
+          "currency": {
+            "default": "PLN",
+            "maxLength": 3,
+            "minLength": 3,
+            "title": "Currency",
+            "type": "string"
+          },
+          "direction": {
+            "$ref": "#/components/schemas/InvoiceDirection"
+          },
+          "due_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Due Date"
+          },
+          "invoice_number": {
+            "title": "Invoice Number",
+            "type": "string"
+          },
+          "issue_date": {
+            "format": "date",
+            "title": "Issue Date",
+            "type": "string"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          },
+          "paid_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Paid Date"
+          },
+          "pdf_document_id": {
+            "anyOf": [
+              {
+                "maximum": 2147483647.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pdf Document Id"
+          },
+          "period_month": {
+            "anyOf": [
+              {
+                "maximum": 12.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Period Month"
+          },
+          "period_year": {
+            "anyOf": [
+              {
+                "maximum": 2100.0,
+                "minimum": 2000.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Period Year"
+          },
+          "status": {
+            "$ref": "#/components/schemas/InvoiceStatus",
+            "default": "issued"
+          }
+        },
+        "required": [
+          "direction",
+          "issue_date",
+          "contract_id"
+        ],
+        "title": "InvoiceCreateIn",
+        "type": "object"
+      },
+      "InvoiceDirection": {
+        "enum": [
+          "to_client",
+          "from_contractor"
+        ],
+        "title": "InvoiceDirection",
+        "type": "string"
+      },
+      "InvoiceLine": {
+        "description": "Pozycja faktury cyklicznej Nordei zapisana przy zamówieniu (ticket 8).\n\n``index`` to pozycja linii w zapisie zamówienia — pod nim idzie ręczna\npoprawka. ``[brak]`` w ``text`` = pole nieodczytane z PDF-a.",
+        "properties": {
+          "consultant": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Consultant"
+          },
+          "edited_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Edited At"
+          },
+          "edited_by_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Edited By Name"
+          },
+          "index": {
+            "title": "Index",
+            "type": "integer"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "index",
+          "text"
+        ],
+        "title": "InvoiceLine",
+        "type": "object"
+      },
+      "InvoiceOut": {
+        "properties": {
+          "amount": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Amount"
+          },
+          "contract_id": {
+            "title": "Contract Id",
+            "type": "integer"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "currency": {
+            "title": "Currency",
+            "type": "string"
+          },
+          "direction": {
+            "title": "Direction",
+            "type": "string"
+          },
+          "due_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Due Date"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "invoice_number": {
+            "title": "Invoice Number",
+            "type": "string"
+          },
+          "issue_date": {
+            "format": "date",
+            "title": "Issue Date",
+            "type": "string"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          },
+          "paid_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Paid Date"
+          },
+          "period_month": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Period Month"
+          },
+          "period_year": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Period Year"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "contract_id",
+          "direction",
+          "invoice_number",
+          "period_year",
+          "period_month",
+          "issue_date",
+          "due_date",
+          "paid_date",
+          "amount",
+          "currency",
+          "status",
+          "notes",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "InvoiceOut",
+        "type": "object"
+      },
+      "InvoiceStatus": {
+        "enum": [
+          "issued",
+          "sent",
+          "paid",
+          "overdue",
+          "cancelled"
+        ],
+        "title": "InvoiceStatus",
+        "type": "string"
+      },
+      "InvoiceUpdateIn": {
+        "properties": {
+          "amount": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Amount"
+          },
+          "currency": {
+            "anyOf": [
+              {
+                "maxLength": 3,
+                "minLength": 3,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Currency"
+          },
+          "direction": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/InvoiceDirection"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "due_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Due Date"
+          },
+          "invoice_number": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Invoice Number"
+          },
+          "issue_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Issue Date"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          },
+          "paid_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Paid Date"
+          },
+          "pdf_document_id": {
+            "anyOf": [
+              {
+                "maximum": 2147483647.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pdf Document Id"
+          },
+          "period_month": {
+            "anyOf": [
+              {
+                "maximum": 12.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Period Month"
+          },
+          "period_year": {
+            "anyOf": [
+              {
+                "maximum": 2100.0,
+                "minimum": 2000.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Period Year"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/InvoiceStatus"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "title": "InvoiceUpdateIn",
+        "type": "object"
+      },
+      "LineConsumptionUpsert": {
+        "description": "Ręczny wpis zejścia MD za miesiąc (``PUT …/consumptions/{RRRR-MM}``).\n\nMiesiąc jest w ścieżce, nie w ciele: to klucz idempotencji\n(``UNIQUE (order_id, period_month)``), więc powtórny PUT nadpisuje, nie\ndokłada. Oba statusy liczą się do zużycia — status opisuje etap\nrozliczenia miesiąca, nie to, czy MD zeszły z budżetu.",
+        "properties": {
+          "md_reported": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,10}|(?=[\\d.]{1,17}0*$)\\d{0,10}\\.\\d{0,6}0*$)",
+                "type": "string"
+              }
+            ],
+            "title": "Md Reported"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "maxLength": 255,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "enum": [
+                  "accepted",
+                  "protocol"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status"
+          }
+        },
+        "required": [
+          "md_reported"
+        ],
+        "title": "LineConsumptionUpsert",
+        "type": "object"
+      },
+      "LineOption": {
+        "description": "Linia do wyboru przy wierszu „wymaga przypisania\".\n\nProjekcja jest WĄSKA celowo: numer zamówienia, klient i konsultant — tyle,\nile trzeba, żeby wskazać właściwe zamówienie. Bez identyfikatora kandydata,\nkontraktu i stawek, bo moduł Finanse nie jest powierzchnią kandydacką.",
+        "properties": {
+          "client_id": {
+            "title": "Client Id",
+            "type": "integer"
+          },
+          "client_name": {
+            "title": "Client Name",
+            "type": "string"
+          },
+          "consultant_name": {
+            "title": "Consultant Name",
+            "type": "string"
+          },
+          "md_remaining": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Md Remaining"
+          },
+          "order_id": {
+            "title": "Order Id",
+            "type": "integer"
+          },
+          "order_number": {
+            "title": "Order Number",
+            "type": "string"
+          }
+        },
+        "required": [
+          "order_id",
+          "order_number",
+          "client_id",
+          "client_name",
+          "consultant_name"
+        ],
+        "title": "LineOption",
+        "type": "object"
+      },
+      "MdConsumptionMonthOut": {
+        "properties": {
+          "md_reported": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Md Reported",
+            "type": "string"
+          },
+          "period_month": {
+            "title": "Period Month",
+            "type": "string"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          }
+        },
+        "required": [
+          "period_month",
+          "md_reported",
+          "source"
+        ],
+        "title": "MdConsumptionMonthOut",
+        "type": "object"
+      },
+      "MeOut": {
+        "properties": {
+          "account": {
+            "title": "Account",
+            "type": "string"
+          },
+          "key_expires_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Key Expires At"
+          },
+          "key_expires_in_days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Key Expires In Days"
+          },
+          "key_expires_soon": {
+            "title": "Key Expires Soon",
+            "type": "boolean"
+          },
+          "key_id": {
+            "title": "Key Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "scopes": {
+            "items": {
+              "$ref": "#/components/schemas/ScopeOut"
+            },
+            "title": "Scopes",
+            "type": "array"
+          }
+        },
+        "required": [
+          "account",
+          "name",
+          "key_id",
+          "scopes",
+          "key_expires_at",
+          "key_expires_in_days",
+          "key_expires_soon"
+        ],
+        "title": "MeOut",
+        "type": "object"
+      },
+      "OrderChangeItem": {
+        "properties": {
+          "author_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Author Name"
+          },
+          "client_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Id"
+          },
+          "client_name": {
+            "title": "Client Name",
+            "type": "string"
+          },
+          "consultant_name": {
+            "title": "Consultant Name",
+            "type": "string"
+          },
+          "contract_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Contract Id"
+          },
+          "currency": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Currency"
+          },
+          "done": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/OrderItemCheck"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "effective_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Effective Date"
+          },
+          "engagement_since": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Engagement Since"
+          },
+          "entered_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Entered At"
+          },
+          "entered_automatically": {
+            "default": false,
+            "title": "Entered Automatically",
+            "type": "boolean"
+          },
+          "entered_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Entered By"
+          },
+          "event_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Event Id"
+          },
+          "from_order_mail": {
+            "default": false,
+            "title": "From Order Mail",
+            "type": "boolean"
+          },
+          "is_whole_order": {
+            "default": false,
+            "title": "Is Whole Order",
+            "type": "boolean"
+          },
+          "item_key": {
+            "default": "",
+            "title": "Item Key",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "rate_cost",
+              "rate_revenue",
+              "end_date",
+              "additional_project",
+              "order_continuation",
+              "client_change"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "new_amount": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "New Amount"
+          },
+          "new_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "New Date"
+          },
+          "new_unit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "New Unit"
+          },
+          "occurred_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Occurred At"
+          },
+          "old_amount": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Old Amount"
+          },
+          "old_currency": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Old Currency"
+          },
+          "old_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Old Date"
+          },
+          "old_unit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Old Unit"
+          },
+          "order_end": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Order End"
+          },
+          "order_group_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Order Group Id"
+          },
+          "order_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Order Id"
+          },
+          "order_number": {
+            "title": "Order Number",
+            "type": "string"
+          },
+          "order_start": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Order Start"
+          },
+          "order_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Order Status"
+          },
+          "other_client_names": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Other Client Names",
+            "type": "array"
+          },
+          "pdf": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/OrderPdfRef"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "previous_client_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Previous Client Name"
+          },
+          "previous_end_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Previous End Date"
+          },
+          "previous_order_number": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Previous Order Number"
+          },
+          "rate_cost": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rate Cost"
+          },
+          "rate_revenue": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rate Revenue"
+          },
+          "rate_unit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rate Unit"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "enum": [
+                  "user",
+                  "system",
+                  "integration"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source"
+          },
+          "start_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Start Date"
+          }
+        },
+        "required": [
+          "client_name",
+          "consultant_name",
+          "order_number",
+          "kind"
+        ],
+        "title": "OrderChangeItem",
+        "type": "object"
+      },
+      "OrderChangesCounts": {
+        "properties": {
+          "changes": {
+            "title": "Changes",
+            "type": "integer"
+          },
+          "ending": {
+            "title": "Ending",
+            "type": "integer"
+          },
+          "entries": {
+            "title": "Entries",
+            "type": "integer"
+          },
+          "exits": {
+            "title": "Exits",
+            "type": "integer"
+          },
+          "gaps": {
+            "title": "Gaps",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "changes",
+          "entries",
+          "exits",
+          "ending",
+          "gaps"
+        ],
+        "title": "OrderChangesCounts",
+        "type": "object"
+      },
+      "OrderChangesPeriod": {
+        "properties": {
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "month": {
+            "title": "Month",
+            "type": "integer"
+          },
+          "year": {
+            "title": "Year",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "year",
+          "month",
+          "label"
+        ],
+        "title": "OrderChangesPeriod",
+        "type": "object"
+      },
+      "OrderChangesResponse": {
+        "properties": {
+          "can_check": {
+            "default": false,
+            "title": "Can Check",
+            "type": "boolean"
+          },
+          "changes": {
+            "items": {
+              "$ref": "#/components/schemas/OrderChangeItem"
+            },
+            "title": "Changes",
+            "type": "array"
+          },
+          "changes_tracked_since": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Changes Tracked Since"
+          },
+          "counts": {
+            "$ref": "#/components/schemas/OrderChangesCounts"
+          },
+          "ending_orders": {
+            "items": {
+              "$ref": "#/components/schemas/OrderExitItem"
+            },
+            "title": "Ending Orders",
+            "type": "array"
+          },
+          "entries": {
+            "items": {
+              "$ref": "#/components/schemas/OrderEntryItem"
+            },
+            "title": "Entries",
+            "type": "array"
+          },
+          "exits": {
+            "items": {
+              "$ref": "#/components/schemas/OrderExitItem"
+            },
+            "title": "Exits",
+            "type": "array"
+          },
+          "gaps": {
+            "items": {
+              "$ref": "#/components/schemas/OrderGapItem"
+            },
+            "title": "Gaps",
+            "type": "array"
+          },
+          "gaps_tracked_since": {
+            "format": "date",
+            "title": "Gaps Tracked Since",
+            "type": "string"
+          },
+          "open_gaps_total": {
+            "title": "Open Gaps Total",
+            "type": "integer"
+          },
+          "period": {
+            "$ref": "#/components/schemas/OrderChangesPeriod"
+          },
+          "superseded": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/SupersededCheck"
+            },
+            "title": "Superseded",
+            "type": "array"
+          }
+        },
+        "required": [
+          "period",
+          "counts",
+          "changes",
+          "entries",
+          "exits",
+          "ending_orders",
+          "gaps",
+          "gaps_tracked_since",
+          "open_gaps_total"
+        ],
+        "title": "OrderChangesResponse",
+        "type": "object"
+      },
+      "OrderChangesSummaryResponse": {
+        "description": "Liczniki „do zrobienia\" bieżącego miesiąca — badge w menu Finansów.",
+        "properties": {
+          "period": {
+            "$ref": "#/components/schemas/OrderChangesPeriod"
+          },
+          "tabs": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/OrderChangesTabSummary"
+            },
+            "title": "Tabs",
+            "type": "object"
+          },
+          "todo": {
+            "title": "Todo",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "period",
+          "tabs",
+          "todo"
+        ],
+        "title": "OrderChangesSummaryResponse",
+        "type": "object"
+      },
+      "OrderChangesTabSummary": {
+        "properties": {
+          "todo": {
+            "title": "Todo",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "total",
+          "todo"
+        ],
+        "title": "OrderChangesTabSummary",
+        "type": "object"
+      },
+      "OrderEntryItem": {
+        "description": "Wejście = osoba, która zaczyna z nami współpracę po raz pierwszy.\n\nKontynuacja u tego samego klienta, przejście do innego klienta i dodatkowy\nprojekt NIE są wejściami — idą do Zmian (``OrderChangeItem``). Dlatego nie\nma tu już pól ``is_continuation`` / ``additional_project``: po korekcie\nkwalifikacji byłyby zawsze fałszywe, a pole, które zawsze kłamie w jedną\nstronę, zaprasza do budowania na nim.\n\nPierwsza współpraca wynika z UMOWY, nie tylko z wiersza zamówienia —\nrejestr zamówień bywa młodszy niż współpraca, którą opisuje.",
+        "properties": {
+          "client_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Id"
+          },
+          "client_name": {
+            "title": "Client Name",
+            "type": "string"
+          },
+          "consultant_name": {
+            "title": "Consultant Name",
+            "type": "string"
+          },
+          "contract_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Contract Id"
+          },
+          "currency": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Currency"
+          },
+          "done": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/OrderItemCheck"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "end_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End Date"
+          },
+          "entered_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Entered At"
+          },
+          "entered_automatically": {
+            "default": false,
+            "title": "Entered Automatically",
+            "type": "boolean"
+          },
+          "entered_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Entered By"
+          },
+          "from_order_mail": {
+            "default": false,
+            "title": "From Order Mail",
+            "type": "boolean"
+          },
+          "invoice_lines": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/InvoiceLine"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Invoice Lines"
+          },
+          "item_key": {
+            "default": "",
+            "title": "Item Key",
+            "type": "string"
+          },
+          "order_end": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Order End"
+          },
+          "order_group_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Order Group Id"
+          },
+          "order_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Order Id"
+          },
+          "order_number": {
+            "title": "Order Number",
+            "type": "string"
+          },
+          "order_start": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Order Start"
+          },
+          "order_type": {
+            "enum": [
+              "periodic",
+              "cost",
+              "md"
+            ],
+            "title": "Order Type",
+            "type": "string"
+          },
+          "pdf": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/OrderPdfRef"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "rate_cost": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rate Cost"
+          },
+          "rate_revenue": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rate Revenue"
+          },
+          "rate_unit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rate Unit"
+          },
+          "start_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Start Date"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "client_name",
+          "consultant_name",
+          "order_number",
+          "order_type",
+          "status"
+        ],
+        "title": "OrderEntryItem",
+        "type": "object"
+      },
+      "OrderExitItem": {
+        "properties": {
+          "client_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Id"
+          },
+          "client_name": {
+            "title": "Client Name",
+            "type": "string"
+          },
+          "consultant_name": {
+            "title": "Consultant Name",
+            "type": "string"
+          },
+          "contract_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Contract Id"
+          },
+          "currency": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Currency"
+          },
+          "done": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/OrderItemCheck"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "end_date": {
+            "format": "date",
+            "title": "End Date",
+            "type": "string"
+          },
+          "entered_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Entered At"
+          },
+          "entered_automatically": {
+            "default": false,
+            "title": "Entered Automatically",
+            "type": "boolean"
+          },
+          "entered_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Entered By"
+          },
+          "from_order_mail": {
+            "default": false,
+            "title": "From Order Mail",
+            "type": "boolean"
+          },
+          "intent": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Intent"
+          },
+          "item_key": {
+            "default": "",
+            "title": "Item Key",
+            "type": "string"
+          },
+          "order_end": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Order End"
+          },
+          "order_group_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Order Group Id"
+          },
+          "order_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Order Id"
+          },
+          "order_number": {
+            "title": "Order Number",
+            "type": "string"
+          },
+          "order_start": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Order Start"
+          },
+          "order_type": {
+            "enum": [
+              "periodic",
+              "cost",
+              "md"
+            ],
+            "title": "Order Type",
+            "type": "string"
+          },
+          "pdf": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/OrderPdfRef"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "rate_cost": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rate Cost"
+          },
+          "rate_revenue": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rate Revenue"
+          },
+          "rate_unit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rate Unit"
+          },
+          "start_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Start Date"
+          },
+          "verdict": {
+            "enum": [
+              "ended_intent",
+              "no_successor",
+              "ending_pending"
+            ],
+            "title": "Verdict",
+            "type": "string"
+          },
+          "verdict_label": {
+            "title": "Verdict Label",
+            "type": "string"
+          }
+        },
+        "required": [
+          "client_name",
+          "consultant_name",
+          "order_number",
+          "end_date",
+          "order_type",
+          "verdict",
+          "verdict_label"
+        ],
+        "title": "OrderExitItem",
+        "type": "object"
+      },
+      "OrderGapItem": {
+        "properties": {
+          "client_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Id"
+          },
+          "client_name": {
+            "title": "Client Name",
+            "type": "string"
+          },
+          "consultant_name": {
+            "title": "Consultant Name",
+            "type": "string"
+          },
+          "contract_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Contract Id"
+          },
+          "delay_days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Delay Days"
+          },
+          "detected_on": {
+            "format": "date",
+            "title": "Detected On",
+            "type": "string"
+          },
+          "done": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/OrderItemCheck"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "ended_on": {
+            "format": "date",
+            "title": "Ended On",
+            "type": "string"
+          },
+          "entered_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Entered At"
+          },
+          "entered_automatically": {
+            "default": false,
+            "title": "Entered Automatically",
+            "type": "boolean"
+          },
+          "entered_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Entered By"
+          },
+          "episode": {
+            "default": 0,
+            "title": "Episode",
+            "type": "integer"
+          },
+          "from_order_mail": {
+            "default": false,
+            "title": "From Order Mail",
+            "type": "boolean"
+          },
+          "gap_id": {
+            "title": "Gap Id",
+            "type": "integer"
+          },
+          "item_key": {
+            "default": "",
+            "title": "Item Key",
+            "type": "string"
+          },
+          "order_end": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Order End"
+          },
+          "order_group_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Order Group Id"
+          },
+          "order_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Order Id"
+          },
+          "order_number": {
+            "title": "Order Number",
+            "type": "string"
+          },
+          "order_start": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Order Start"
+          },
+          "pdf": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/OrderPdfRef"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "resolved_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resolved At"
+          },
+          "resolved_order_number": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resolved Order Number"
+          },
+          "status": {
+            "enum": [
+              "open",
+              "filled_late"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "client_name",
+          "consultant_name",
+          "order_number",
+          "gap_id",
+          "ended_on",
+          "detected_on",
+          "status"
+        ],
+        "title": "OrderGapItem",
+        "type": "object"
+      },
+      "OrderGroupOut": {
+        "properties": {
+          "amounts_redacted": {
+            "title": "Amounts Redacted",
+            "type": "boolean"
+          },
+          "budget_amount": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Budget Amount"
+          },
+          "budget_remaining": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Budget Remaining"
+          },
+          "client_id": {
+            "title": "Client Id",
+            "type": "integer"
+          },
+          "client_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Name"
+          },
+          "end_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End Date"
+          },
+          "has_file": {
+            "title": "Has File",
+            "type": "boolean"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "is_cost_based": {
+            "title": "Is Cost Based",
+            "type": "boolean"
+          },
+          "is_md_budget_based": {
+            "title": "Is Md Budget Based",
+            "type": "boolean"
+          },
+          "lines": {
+            "items": {
+              "$ref": "#/components/schemas/OrderOut"
+            },
+            "title": "Lines",
+            "type": "array"
+          },
+          "md_budget_remaining": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Md Budget Remaining"
+          },
+          "md_budget_total": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Md Budget Total"
+          },
+          "order_number": {
+            "title": "Order Number",
+            "type": "string"
+          },
+          "order_type": {
+            "title": "Order Type",
+            "type": "string"
+          },
+          "start_date": {
+            "format": "date",
+            "title": "Start Date",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "order_number",
+          "order_type",
+          "status",
+          "client_id",
+          "client_name",
+          "start_date",
+          "end_date",
+          "is_cost_based",
+          "is_md_budget_based",
+          "md_budget_total",
+          "md_budget_remaining",
+          "amounts_redacted",
+          "budget_amount",
+          "budget_remaining",
+          "has_file",
+          "lines",
+          "updated_at"
+        ],
+        "title": "OrderGroupOut",
+        "type": "object"
+      },
+      "OrderHistoryEntry": {
+        "properties": {
+          "at": {
+            "format": "date-time",
+            "title": "At",
+            "type": "string"
+          },
+          "automatic": {
+            "default": false,
+            "title": "Automatic",
+            "type": "boolean"
+          },
+          "by_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "By Name"
+          },
+          "kind": {
+            "enum": [
+              "change",
+              "checked",
+              "unchecked"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "summary": {
+            "title": "Summary",
+            "type": "string"
+          }
+        },
+        "required": [
+          "at",
+          "kind",
+          "summary"
+        ],
+        "title": "OrderHistoryEntry",
+        "type": "object"
+      },
+      "OrderItemCheck": {
+        "description": "Kto i kiedy odhaczył pozycję jako „Zrobione\".",
+        "properties": {
+          "at": {
+            "format": "date-time",
+            "title": "At",
+            "type": "string"
+          },
+          "by_name": {
+            "title": "By Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "by_name",
+          "at"
+        ],
+        "title": "OrderItemCheck",
+        "type": "object"
+      },
+      "OrderMdConsumptionsOut": {
+        "properties": {
+          "md_remaining": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Md Remaining"
+          },
+          "md_total": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Md Total"
+          },
+          "months": {
+            "items": {
+              "$ref": "#/components/schemas/MdConsumptionMonthOut"
+            },
+            "title": "Months",
+            "type": "array"
+          },
+          "order_group_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Order Group Id"
+          },
+          "order_id": {
+            "title": "Order Id",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "order_id",
+          "order_group_id",
+          "md_total",
+          "md_remaining",
+          "months"
+        ],
+        "title": "OrderMdConsumptionsOut",
+        "type": "object"
+      },
+      "OrderOut": {
+        "properties": {
+          "amounts_redacted": {
+            "title": "Amounts Redacted",
+            "type": "boolean"
+          },
+          "client_id": {
+            "title": "Client Id",
+            "type": "integer"
+          },
+          "client_name": {
+            "title": "Client Name",
+            "type": "string"
+          },
+          "contract_id": {
+            "title": "Contract Id",
+            "type": "integer"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "currency": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Currency"
+          },
+          "end_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End Date"
+          },
+          "has_file": {
+            "title": "Has File",
+            "type": "boolean"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "md_remaining": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Md Remaining"
+          },
+          "md_total": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Md Total"
+          },
+          "number": {
+            "title": "Number",
+            "type": "string"
+          },
+          "order_group_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Order Group Id"
+          },
+          "order_type": {
+            "title": "Order Type",
+            "type": "string"
+          },
+          "person": {
+            "$ref": "#/components/schemas/OrderPersonOut"
+          },
+          "rate_cost": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rate Cost"
+          },
+          "rate_revenue": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rate Revenue"
+          },
+          "rate_unit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rate Unit"
+          },
+          "start_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Start Date"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "number",
+          "order_type",
+          "status",
+          "order_group_id",
+          "contract_id",
+          "person",
+          "client_id",
+          "client_name",
+          "start_date",
+          "end_date",
+          "rate_unit",
+          "currency",
+          "amounts_redacted",
+          "rate_cost",
+          "rate_revenue",
+          "md_total",
+          "md_remaining",
+          "has_file",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "OrderOut",
+        "type": "object"
+      },
+      "OrderPdfClient": {
+        "properties": {
+          "client_id": {
+            "title": "Client Id",
+            "type": "integer"
+          },
+          "client_name": {
+            "title": "Client Name",
+            "type": "string"
+          },
+          "files": {
+            "items": {
+              "$ref": "#/components/schemas/OrderPdfFile"
+            },
+            "title": "Files",
+            "type": "array"
+          }
+        },
+        "required": [
+          "client_id",
+          "client_name",
+          "files"
+        ],
+        "title": "OrderPdfClient",
+        "type": "object"
+      },
+      "OrderPdfFile": {
+        "properties": {
+          "consultant_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Consultant Name"
+          },
+          "download_name": {
+            "title": "Download Name",
+            "type": "string"
+          },
+          "downloaded_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Downloaded At"
+          },
+          "end": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End"
+          },
+          "entry_type": {
+            "enum": [
+              "new",
+              "extension",
+              "amendment"
+            ],
+            "title": "Entry Type",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "kind": {
+            "enum": [
+              "order",
+              "group",
+              "amendment"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "order_number": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Order Number"
+          },
+          "original_name": {
+            "title": "Original Name",
+            "type": "string"
+          },
+          "pending_change": {
+            "default": false,
+            "title": "Pending Change",
+            "type": "boolean"
+          },
+          "period_invalid": {
+            "default": false,
+            "title": "Period Invalid",
+            "type": "boolean"
+          },
+          "start": {
+            "format": "date",
+            "title": "Start",
+            "type": "string"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status"
+          },
+          "uploaded_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Uploaded At"
+          }
+        },
+        "required": [
+          "kind",
+          "id",
+          "download_name",
+          "original_name",
+          "consultant_name",
+          "start",
+          "end",
+          "entry_type",
+          "status",
+          "order_number",
+          "uploaded_at"
+        ],
+        "title": "OrderPdfFile",
+        "type": "object"
+      },
+      "OrderPdfMonth": {
+        "properties": {
+          "clients": {
+            "title": "Clients",
+            "type": "integer"
+          },
+          "files": {
+            "title": "Files",
+            "type": "integer"
+          },
+          "month": {
+            "title": "Month",
+            "type": "string"
+          }
+        },
+        "required": [
+          "month",
+          "clients",
+          "files"
+        ],
+        "title": "OrderPdfMonth",
+        "type": "object"
+      },
+      "OrderPdfMonthsResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/OrderPdfMonth"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "OrderPdfMonthsResponse",
+        "type": "object"
+      },
+      "OrderPdfRef": {
+        "description": "PDF zamówienia, do którego należy pozycja — ten sam plik, który widać\nw „Zamówieniach PDF\" (miesiąc i klient prowadzą tam jednym kliknięciem).",
+        "properties": {
+          "client_id": {
+            "title": "Client Id",
+            "type": "integer"
+          },
+          "download_name": {
+            "title": "Download Name",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "kind": {
+            "enum": [
+              "order",
+              "group",
+              "amendment"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "month": {
+            "title": "Month",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "id",
+          "month",
+          "client_id",
+          "download_name"
+        ],
+        "title": "OrderPdfRef",
+        "type": "object"
+      },
+      "OrderPdfsResponse": {
+        "properties": {
+          "clients": {
+            "items": {
+              "$ref": "#/components/schemas/OrderPdfClient"
+            },
+            "title": "Clients",
+            "type": "array"
+          },
+          "month": {
+            "title": "Month",
+            "type": "integer"
+          },
+          "year": {
+            "title": "Year",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "year",
+          "month",
+          "clients"
+        ],
+        "title": "OrderPdfsResponse",
+        "type": "object"
+      },
+      "OrderPersonOut": {
+        "properties": {
+          "candidate_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Candidate Id"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "candidate_id",
+          "name"
+        ],
+        "title": "OrderPersonOut",
+        "type": "object"
+      },
+      "Page_ClientOut_": {
+        "properties": {
+          "has_more": {
+            "title": "Has More",
+            "type": "boolean"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ClientOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "page": {
+            "title": "Page",
+            "type": "integer"
+          },
+          "page_size": {
+            "title": "Page Size",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "page",
+          "page_size",
+          "total",
+          "has_more"
+        ],
+        "title": "Page[ClientOut]",
+        "type": "object"
+      },
+      "Page_ContractOut_": {
+        "properties": {
+          "has_more": {
+            "title": "Has More",
+            "type": "boolean"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ContractOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "page": {
+            "title": "Page",
+            "type": "integer"
+          },
+          "page_size": {
+            "title": "Page Size",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "page",
+          "page_size",
+          "total",
+          "has_more"
+        ],
+        "title": "Page[ContractOut]",
+        "type": "object"
+      },
+      "Page_ImportSummary_": {
+        "properties": {
+          "has_more": {
+            "title": "Has More",
+            "type": "boolean"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ImportSummary"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "page": {
+            "title": "Page",
+            "type": "integer"
+          },
+          "page_size": {
+            "title": "Page Size",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "page",
+          "page_size",
+          "total",
+          "has_more"
+        ],
+        "title": "Page[ImportSummary]",
+        "type": "object"
+      },
+      "Page_InvoiceOut_": {
+        "properties": {
+          "has_more": {
+            "title": "Has More",
+            "type": "boolean"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/InvoiceOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "page": {
+            "title": "Page",
+            "type": "integer"
+          },
+          "page_size": {
+            "title": "Page Size",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "page",
+          "page_size",
+          "total",
+          "has_more"
+        ],
+        "title": "Page[InvoiceOut]",
+        "type": "object"
+      },
+      "Page_OrderGroupOut_": {
+        "properties": {
+          "has_more": {
+            "title": "Has More",
+            "type": "boolean"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/OrderGroupOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "page": {
+            "title": "Page",
+            "type": "integer"
+          },
+          "page_size": {
+            "title": "Page Size",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "page",
+          "page_size",
+          "total",
+          "has_more"
+        ],
+        "title": "Page[OrderGroupOut]",
+        "type": "object"
+      },
+      "Page_OrderOut_": {
+        "properties": {
+          "has_more": {
+            "title": "Has More",
+            "type": "boolean"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/OrderOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "page": {
+            "title": "Page",
+            "type": "integer"
+          },
+          "page_size": {
+            "title": "Page Size",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "page",
+          "page_size",
+          "total",
+          "has_more"
+        ],
+        "title": "Page[OrderOut]",
+        "type": "object"
+      },
+      "RateHistoryOut": {
+        "properties": {
+          "candidate": {
+            "items": {
+              "$ref": "#/components/schemas/RateStepOut"
+            },
+            "title": "Candidate",
+            "type": "array"
+          },
+          "client": {
+            "items": {
+              "$ref": "#/components/schemas/RateStepOut"
+            },
+            "title": "Client",
+            "type": "array"
+          },
+          "contract_id": {
+            "title": "Contract Id",
+            "type": "integer"
+          },
+          "rate_candidate_currency": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rate Candidate Currency"
+          },
+          "rate_client_currency": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rate Client Currency"
+          },
+          "rate_unit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rate Unit"
+          }
+        },
+        "required": [
+          "contract_id",
+          "rate_unit",
+          "rate_client_currency",
+          "rate_candidate_currency",
+          "candidate",
+          "client"
+        ],
+        "title": "RateHistoryOut",
+        "type": "object"
+      },
+      "RateStepOut": {
+        "properties": {
+          "effective_from": {
+            "format": "date",
+            "title": "Effective From",
+            "type": "string"
+          },
+          "effective_to": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Effective To"
+          },
+          "rate": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rate"
+          },
+          "source_order_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Order Id"
+          }
+        },
+        "required": [
+          "rate",
+          "effective_from"
+        ],
+        "title": "RateStepOut",
+        "type": "object"
+      },
+      "ScopeOut": {
+        "properties": {
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "value": {
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": [
+          "value",
+          "label"
+        ],
+        "title": "ScopeOut",
+        "type": "object"
+      },
+      "SupersededCheck": {
+        "description": "Odhaczona pozycja, której już nie ma w bieżącym widoku miesiąca.\n\nPozycja liczona z bieżącego stanu (np. zejście z datą końca) znika po\nponownej zmianie zamówienia — jej odhaczenie zostaje w historii karty\n(„Zmieniono ponownie\").",
+        "properties": {
+          "done": {
+            "$ref": "#/components/schemas/OrderItemCheck"
+          },
+          "item_key": {
+            "title": "Item Key",
+            "type": "string"
+          },
+          "order_group_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Order Group Id"
+          },
+          "order_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Order Id"
+          },
+          "summary": {
+            "title": "Summary",
+            "type": "string"
+          },
+          "tab": {
+            "enum": [
+              "changes",
+              "entries",
+              "exits",
+              "ending",
+              "gaps"
+            ],
+            "title": "Tab",
+            "type": "string"
+          }
+        },
+        "required": [
+          "item_key",
+          "tab",
+          "summary",
+          "done"
+        ],
+        "title": "SupersededCheck",
+        "type": "object"
+      },
+      "ValidationError": {
+        "properties": {
+          "ctx": {
+            "title": "Context",
+            "type": "object"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Location",
+            "type": "array"
+          },
+          "msg": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Error Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError",
+        "type": "object"
+      },
+      "app__api__integrations_v1__contracts__PersonOut": {
+        "properties": {
+          "candidate_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Candidate Id"
+          },
+          "email": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Email"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          }
+        },
+        "required": [
+          "candidate_id",
+          "name",
+          "email"
+        ],
+        "title": "PersonOut",
+        "type": "object"
+      },
+      "app__schemas__finance_order_changes__OrderHistoryResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/OrderHistoryEntry"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "OrderHistoryResponse",
+        "type": "object"
+      }
+    },
+    "securitySchemes": {
+      "ApiKeyHeader": {
+        "description": "Klucz konta serwisowego (Ustawienia → Klucze API).",
+        "in": "header",
+        "name": "X-API-Key",
+        "type": "apiKey"
+      }
+    }
+  },
+  "info": {
+    "description": "API dla automatyzacji procesów firmy (na start rozliczanie klientów). Uwierzytelnienie: nagłówek X-API-Key. Zapisy wymagają nagłówka Idempotency-Key (UUID). Wdrożenia NEXUSA odbywają się 19:00–07:00 (Europe/Warsaw) — w tym oknie możliwa ~2-minutowa przerwa; ponawiaj 502/503 z odstępem.",
+    "title": "NEXUS — API integracyjne",
+    "version": "1.0.0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/api/integrations/v1/clients": {
+      "get": {
+        "description": "Klienci widoczni w NEXUSIE, sortowani po id (stabilne stronicowanie).",
+        "operationId": "list_clients_api_integrations_v1_clients_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "maximum": 100000,
+              "minimum": 1,
+              "title": "Page",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page_size",
+            "required": false,
+            "schema": {
+              "default": 200,
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Page Size",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Fragment nazwy albo NIP.",
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Fragment nazwy albo NIP.",
+              "title": "Q"
+            }
+          },
+          {
+            "description": "Tylko klienci zmienieni od tej chwili (ISO 8601).",
+            "in": "query",
+            "name": "updated_since",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Tylko klienci zmienieni od tej chwili (ISO 8601).",
+              "title": "Updated Since"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_ClientOut_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Lista klientów",
+        "tags": [
+          "integrations-v1"
+        ]
+      }
+    },
+    "/api/integrations/v1/clients/{client_id}": {
+      "get": {
+        "operationId": "get_client_api_integrations_v1_clients__client_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "client_id",
+            "required": true,
+            "schema": {
+              "maximum": 2147483647,
+              "minimum": 1,
+              "title": "Client Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClientOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Klient",
+        "tags": [
+          "integrations-v1"
+        ]
+      }
+    },
+    "/api/integrations/v1/contracts": {
+      "get": {
+        "description": "Kontrakty sortowane po id. ``void`` (anulowane) tylko przez filtr ``status``.",
+        "operationId": "list_contracts_api_integrations_v1_contracts_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "maximum": 100000,
+              "minimum": 1,
+              "title": "Page",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page_size",
+            "required": false,
+            "schema": {
+              "default": 200,
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Page Size",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "items": {
+                    "$ref": "#/components/schemas/ContractStatus"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          },
+          {
+            "in": "query",
+            "name": "client_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maximum": 2147483647,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Client Id"
+            }
+          },
+          {
+            "description": "Tylko umowy trwające tego dnia (start ≤ dzień ≤ koniec).",
+            "in": "query",
+            "name": "active_on",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Tylko umowy trwające tego dnia (start ≤ dzień ≤ koniec).",
+              "title": "Active On"
+            }
+          },
+          {
+            "in": "query",
+            "name": "updated_since",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Updated Since"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_ContractOut_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Lista kontraktów",
+        "tags": [
+          "integrations-v1"
+        ]
+      }
+    },
+    "/api/integrations/v1/contracts/{contract_id}": {
+      "get": {
+        "operationId": "get_contract_api_integrations_v1_contracts__contract_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "contract_id",
+            "required": true,
+            "schema": {
+              "maximum": 2147483647,
+              "minimum": 1,
+              "title": "Contract Id",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Stawki na ten dzień (domyślnie dziś).",
+            "in": "query",
+            "name": "as_of",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Stawki na ten dzień (domyślnie dziś).",
+              "title": "As Of"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContractOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Kontrakt",
+        "tags": [
+          "integrations-v1"
+        ]
+      }
+    },
+    "/api/integrations/v1/contracts/{contract_id}/rate-history": {
+      "get": {
+        "description": "Kroki harmonogramów stawek (od najstarszego). Wymaga ``amounts:read``.",
+        "operationId": "contract_rate_history_api_integrations_v1_contracts__contract_id__rate_history_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "contract_id",
+            "required": true,
+            "schema": {
+              "maximum": 2147483647,
+              "minimum": 1,
+              "title": "Contract Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RateHistoryOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Historia stawek kontraktu",
+        "tags": [
+          "integrations-v1"
+        ]
+      }
+    },
+    "/api/integrations/v1/finance/imports": {
+      "post": {
+        "description": "Jak „Wgraj arkusz” w Finansach: istniejący miesiąc bez ``replace`` = 409.",
+        "operationId": "finance_import_api_integrations_v1_finance_imports_post",
+        "parameters": [
+          {
+            "description": "Odczyt arkusza i konflikt okresu, bez zapisu.",
+            "in": "query",
+            "name": "dry_run",
+            "required": false,
+            "schema": {
+              "default": false,
+              "description": "Odczyt arkusza i konflikt okresu, bez zapisu.",
+              "title": "Dry Run",
+              "type": "boolean"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_finance_import_api_integrations_v1_finance_imports_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FinanceImportResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Import arkusza wyników miesiąca (XLSX)",
+        "tags": [
+          "integrations-v1"
+        ]
+      }
+    },
+    "/api/integrations/v1/finance/order-changes": {
+      "get": {
+        "description": "Audyt miesiąca (domyślnie bieżący, czas Europe/Warsaw) z „Zrobione”.\n\nPozycja ma ``item_key`` — tym kluczem odhacza się ją w\n``POST /finance/order-changes/checks``.",
+        "operationId": "order_changes_api_integrations_v1_finance_order_changes_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "year",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maximum": 2100,
+                  "minimum": 2000,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Year"
+            }
+          },
+          {
+            "in": "query",
+            "name": "month",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maximum": 12,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Month"
+            }
+          },
+          {
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Q"
+            }
+          },
+          {
+            "in": "query",
+            "name": "client_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maximum": 2147483647,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Client Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "date_from",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Date From"
+            }
+          },
+          {
+            "in": "query",
+            "name": "date_to",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Date To"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrderChangesResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Zmiany w zamówieniach za miesiąc",
+        "tags": [
+          "integrations-v1"
+        ]
+      }
+    },
+    "/api/integrations/v1/finance/order-changes/checks": {
+      "post": {
+        "description": "Pozycja musi istnieć w audycie miesiąca — inaczej 409 (widok nieaktualny).",
+        "operationId": "set_check_api_integrations_v1_finance_order_changes_checks_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CheckIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CheckOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Odhacz pozycję jako „Zrobione” (albo cofnij)",
+        "tags": [
+          "integrations-v1"
+        ]
+      }
+    },
+    "/api/integrations/v1/finance/order-changes/history": {
+      "get": {
+        "operationId": "order_changes_history_api_integrations_v1_finance_order_changes_history_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "order_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maximum": 2147483647,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Order Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "order_group_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maximum": 2147483647,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Order Group Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/app__schemas__finance_order_changes__OrderHistoryResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Historia zamówienia: zmiany i odhaczenia",
+        "tags": [
+          "integrations-v1"
+        ]
+      }
+    },
+    "/api/integrations/v1/finance/order-changes/summary": {
+      "get": {
+        "operationId": "order_changes_summary_api_integrations_v1_finance_order_changes_summary_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrderChangesSummaryResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Liczniki „Do zrobienia” bieżącego miesiąca",
+        "tags": [
+          "integrations-v1"
+        ]
+      }
+    },
+    "/api/integrations/v1/finance/order-pdfs": {
+      "get": {
+        "description": "Klienci i pliki; ``pending_change`` = zamówienie ma „Do zrobienia” w Zmianach.",
+        "operationId": "order_pdfs_api_integrations_v1_finance_order_pdfs_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "year",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maximum": 2100,
+                  "minimum": 2000,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Year"
+            }
+          },
+          {
+            "in": "query",
+            "name": "month",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maximum": 12,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Month"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrderPdfsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "PDF-y zamówień startujących w miesiącu",
+        "tags": [
+          "integrations-v1"
+        ]
+      }
+    },
+    "/api/integrations/v1/finance/order-pdfs/months": {
+      "get": {
+        "operationId": "order_pdf_months_api_integrations_v1_finance_order_pdfs_months_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrderPdfMonthsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Miesiące z PDF-ami zamówień",
+        "tags": [
+          "integrations-v1"
+        ]
+      }
+    },
+    "/api/integrations/v1/finance/order-pdfs/zip": {
+      "get": {
+        "description": "Jak „Pobierz ZIP” w Finansach; brakujący plik trafia do ``BRAKUJACE_PLIKI.txt``.",
+        "operationId": "order_pdfs_zip_api_integrations_v1_finance_order_pdfs_zip_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "year",
+            "required": true,
+            "schema": {
+              "maximum": 2100,
+              "minimum": 2000,
+              "title": "Year",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "month",
+            "required": true,
+            "schema": {
+              "maximum": 12,
+              "minimum": 1,
+              "title": "Month",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "client_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maximum": 2147483647,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Client Id"
+            }
+          },
+          {
+            "description": "np. order:1,group:2",
+            "in": "query",
+            "name": "files",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 20000,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "np. order:1,group:2",
+              "title": "Files"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "ZIP z PDF-ami zamówień miesiąca",
+        "tags": [
+          "integrations-v1"
+        ]
+      }
+    },
+    "/api/integrations/v1/finance/order-pdfs/{kind}/{entry_id}/file": {
+      "get": {
+        "operationId": "order_pdf_file_api_integrations_v1_finance_order_pdfs__kind___entry_id__file_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "kind",
+            "required": true,
+            "schema": {
+              "enum": [
+                "order",
+                "group",
+                "amendment"
+              ],
+              "title": "Kind",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "entry_id",
+            "required": true,
+            "schema": {
+              "maximum": 2147483647,
+              "minimum": 1,
+              "title": "Entry Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "PDF zamówienia (nazwa z nazwiskiem i okresem)",
+        "tags": [
+          "integrations-v1"
+        ]
+      }
+    },
+    "/api/integrations/v1/finance/periods": {
+      "get": {
+        "operationId": "finance_periods_api_integrations_v1_finance_periods_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/FinancePeriod"
+                  },
+                  "title": "Response Finance Periods Api Integrations V1 Finance Periods Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Miesiące z aktualnym importem wyników",
+        "tags": [
+          "integrations-v1"
+        ]
+      }
+    },
+    "/api/integrations/v1/finance/results": {
+      "get": {
+        "operationId": "finance_results_api_integrations_v1_finance_results_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "year",
+            "required": true,
+            "schema": {
+              "maximum": 2100,
+              "minimum": 2000,
+              "title": "Year",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "month",
+            "required": true,
+            "schema": {
+              "maximum": 12,
+              "minimum": 1,
+              "title": "Month",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FinanceResultsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Wyniki miesiąca (koszt, przychód, marża)",
+        "tags": [
+          "integrations-v1"
+        ]
+      }
+    },
+    "/api/integrations/v1/invoices": {
+      "get": {
+        "description": "Faktury sortowane po id. ``overdue_only`` = wystawione/wysłane po terminie.",
+        "operationId": "list_invoices_api_integrations_v1_invoices_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "maximum": 100000,
+              "minimum": 1,
+              "title": "Page",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page_size",
+            "required": false,
+            "schema": {
+              "default": 200,
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Page Size",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "contract_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maximum": 2147483647,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Contract Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/InvoiceStatus"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          },
+          {
+            "in": "query",
+            "name": "direction",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/InvoiceDirection"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Direction"
+            }
+          },
+          {
+            "in": "query",
+            "name": "issued_from",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Issued From"
+            }
+          },
+          {
+            "in": "query",
+            "name": "issued_to",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Issued To"
+            }
+          },
+          {
+            "in": "query",
+            "name": "overdue_only",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Overdue Only",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "query",
+            "name": "updated_since",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Updated Since"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_InvoiceOut_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Rejestr faktur",
+        "tags": [
+          "integrations-v1"
+        ]
+      },
+      "post": {
+        "operationId": "create_invoice_api_integrations_v1_invoices_post",
+        "parameters": [
+          {
+            "description": "Tylko walidacja, bez zapisu.",
+            "in": "query",
+            "name": "dry_run",
+            "required": false,
+            "schema": {
+              "default": false,
+              "description": "Tylko walidacja, bez zapisu.",
+              "title": "Dry Run",
+              "type": "boolean"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InvoiceCreateIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvoiceOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Wystaw fakturę w rejestrze",
+        "tags": [
+          "integrations-v1"
+        ]
+      }
+    },
+    "/api/integrations/v1/invoices/dso": {
+      "get": {
+        "description": "Średni czas spływu należności per klient (faktury do klienta, w PLN).",
+        "operationId": "invoices_dso_api_integrations_v1_invoices_dso_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/DsoRow"
+                  },
+                  "title": "Response Invoices Dso Api Integrations V1 Invoices Dso Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "DSO per klient (PLN)",
+        "tags": [
+          "integrations-v1"
+        ]
+      }
+    },
+    "/api/integrations/v1/invoices/{invoice_id}": {
+      "get": {
+        "operationId": "get_invoice_api_integrations_v1_invoices__invoice_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "invoice_id",
+            "required": true,
+            "schema": {
+              "maximum": 2147483647,
+              "minimum": 1,
+              "title": "Invoice Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvoiceOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Faktura",
+        "tags": [
+          "integrations-v1"
+        ]
+      },
+      "patch": {
+        "description": "Zmiana pól faktury (np. ``paid_date`` + ``status=paid`` po zapłacie).",
+        "operationId": "update_invoice_api_integrations_v1_invoices__invoice_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "invoice_id",
+            "required": true,
+            "schema": {
+              "maximum": 2147483647,
+              "minimum": 1,
+              "title": "Invoice Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InvoiceUpdateIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvoiceOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Zmień fakturę",
+        "tags": [
+          "integrations-v1"
+        ]
+      }
+    },
+    "/api/integrations/v1/invoices/{invoice_id}/cancel": {
+      "post": {
+        "description": "Anulowanie zamiast usunięcia — rekord zostaje z powodem w Historii zdarzeń.",
+        "operationId": "cancel_invoice_api_integrations_v1_invoices__invoice_id__cancel_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "invoice_id",
+            "required": true,
+            "schema": {
+              "maximum": 2147483647,
+              "minimum": 1,
+              "title": "Invoice Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CancelIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvoiceOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Anuluj fakturę (status cancelled)",
+        "tags": [
+          "integrations-v1"
+        ]
+      }
+    },
+    "/api/integrations/v1/md/imports": {
+      "get": {
+        "description": "Partie importu raportów MD — od najnowszej.",
+        "operationId": "list_md_imports_api_integrations_v1_md_imports_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "maximum": 100000,
+              "minimum": 1,
+              "title": "Page",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page_size",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Page Size",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "period_month",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "pattern": "^\\d{4}-\\d{2}$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Period Month"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_ImportSummary_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Importy MD",
+        "tags": [
+          "integrations-v1"
+        ]
+      },
+      "post": {
+        "description": "Zaksięguj raport MD na linie zamówień (jak „Importy MD” w Finansach).\n\nWiersze bez jednoznacznego dopasowania i przekroczenia salda czekają na\nczłowieka (``needs_assignment`` / ``overflow``) — automat ich nie zatwierdza.",
+        "operationId": "create_md_import_api_integrations_v1_md_imports_post",
+        "parameters": [
+          {
+            "description": "Przelicz bez zapisu.",
+            "in": "query",
+            "name": "dry_run",
+            "required": false,
+            "schema": {
+              "default": false,
+              "description": "Przelicz bez zapisu.",
+              "title": "Dry Run",
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Zaimportuj mimo identycznego pliku za ten miesiąc.",
+            "in": "query",
+            "name": "force",
+            "required": false,
+            "schema": {
+              "default": false,
+              "description": "Zaimportuj mimo identycznego pliku za ten miesiąc.",
+              "title": "Force",
+              "type": "boolean"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_create_md_import_api_integrations_v1_md_imports_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImportDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Import raportu MD (XLSX)",
+        "tags": [
+          "integrations-v1"
+        ]
+      }
+    },
+    "/api/integrations/v1/md/imports/{import_id}": {
+      "get": {
+        "description": "Partia z wierszami. Kwoty faktur i „Uwagi” tylko z ``amounts:read``.",
+        "operationId": "get_md_import_api_integrations_v1_md_imports__import_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "import_id",
+            "required": true,
+            "schema": {
+              "maximum": 2147483647,
+              "minimum": 1,
+              "title": "Import Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImportDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Import MD z wierszami",
+        "tags": [
+          "integrations-v1"
+        ]
+      }
+    },
+    "/api/integrations/v1/md/imports/{import_id}/rows/{row_id}/assign": {
+      "post": {
+        "description": "Rozstrzygnij wiersz „Wymaga przypisania” wybraną linią z jego listy.",
+        "operationId": "assign_md_import_row_api_integrations_v1_md_imports__import_id__rows__row_id__assign_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "import_id",
+            "required": true,
+            "schema": {
+              "maximum": 2147483647,
+              "minimum": 1,
+              "title": "Import Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "path",
+            "name": "row_id",
+            "required": true,
+            "schema": {
+              "maximum": 2147483647,
+              "minimum": 1,
+              "title": "Row Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AssignIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImportRowRead"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Przypisz wiersz importu do linii zamówienia",
+        "tags": [
+          "integrations-v1"
+        ]
+      }
+    },
+    "/api/integrations/v1/me": {
+      "get": {
+        "description": "Test połączenia: które konto, jakie scope'y i kiedy wygasa klucz.",
+        "operationId": "me_api_integrations_v1_me_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MeOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Konto i uprawnienia klucza",
+        "tags": [
+          "integrations-v1"
+        ]
+      }
+    },
+    "/api/integrations/v1/order-groups": {
+      "get": {
+        "description": "Zamówienia wielo-konsultantowe (MD / kosztowe) z liniami osób.",
+        "operationId": "list_order_groups_api_integrations_v1_order_groups_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "maximum": 100000,
+              "minimum": 1,
+              "title": "Page",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page_size",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Page Size",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "client_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maximum": 2147483647,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Client Id"
+            }
+          },
+          {
+            "description": "draft | active | scheduled | completed | exhausted | cancelled",
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "draft | active | scheduled | completed | exhausted | cancelled",
+              "title": "Status"
+            }
+          },
+          {
+            "in": "query",
+            "name": "updated_since",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Updated Since"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_OrderGroupOut_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Lista zamówień MD i kosztowych (z liniami)",
+        "tags": [
+          "integrations-v1"
+        ]
+      }
+    },
+    "/api/integrations/v1/order-groups/{group_id}": {
+      "get": {
+        "operationId": "get_order_group_api_integrations_v1_order_groups__group_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "group_id",
+            "required": true,
+            "schema": {
+              "maximum": 2147483647,
+              "minimum": 1,
+              "title": "Group Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrderGroupOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Zamówienie MD / kosztowe z liniami",
+        "tags": [
+          "integrations-v1"
+        ]
+      }
+    },
+    "/api/integrations/v1/orders": {
+      "get": {
+        "description": "Zamówienia i linie zamówień MD sortowane po id.",
+        "operationId": "list_orders_api_integrations_v1_orders_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "maximum": 100000,
+              "minimum": 1,
+              "title": "Page",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page_size",
+            "required": false,
+            "schema": {
+              "default": 200,
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Page Size",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "client_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maximum": 2147483647,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Client Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "contract_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maximum": 2147483647,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Contract Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "order_group_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maximum": 2147483647,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Order Group Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "items": {
+                    "$ref": "#/components/schemas/ClientOrderStatus"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          },
+          {
+            "description": "Zamówienia obowiązujące tego dnia (okres efektywny).",
+            "in": "query",
+            "name": "active_on",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Zamówienia obowiązujące tego dnia (okres efektywny).",
+              "title": "Active On"
+            }
+          },
+          {
+            "in": "query",
+            "name": "updated_since",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Updated Since"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_OrderOut_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Lista zamówień",
+        "tags": [
+          "integrations-v1"
+        ]
+      }
+    },
+    "/api/integrations/v1/orders/{order_id}": {
+      "get": {
+        "operationId": "get_order_api_integrations_v1_orders__order_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "order_id",
+            "required": true,
+            "schema": {
+              "maximum": 2147483647,
+              "minimum": 1,
+              "title": "Order Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrderOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Zamówienie",
+        "tags": [
+          "integrations-v1"
+        ]
+      }
+    },
+    "/api/integrations/v1/orders/{order_id}/md-consumptions": {
+      "get": {
+        "description": "Zejścia MD osoby miesiąc po miesiącu (``YYYY-MM``) i saldo linii.",
+        "operationId": "order_md_consumptions_api_integrations_v1_orders__order_id__md_consumptions_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "order_id",
+            "required": true,
+            "schema": {
+              "maximum": 2147483647,
+              "minimum": 1,
+              "title": "Order Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrderMdConsumptionsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Zużycie MD linii zamówienia",
+        "tags": [
+          "integrations-v1"
+        ]
+      }
+    },
+    "/api/integrations/v1/orders/{order_id}/md-consumptions/{period_month}": {
+      "put": {
+        "description": "Ręczny wpis zejścia MD linii za miesiąc ``RRRR-MM``.\n\nPowtórzenie NADPISUJE miesiąc i przelicza saldo od zera — nigdy nie\ndokłada (ten sam klucz co import).",
+        "operationId": "put_order_md_consumption_api_integrations_v1_orders__order_id__md_consumptions__period_month__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "order_id",
+            "required": true,
+            "schema": {
+              "maximum": 2147483647,
+              "minimum": 1,
+              "title": "Order Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "path",
+            "name": "period_month",
+            "required": true,
+            "schema": {
+              "title": "Period Month",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LineConsumptionUpsert"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrderOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Zużycie MD linii za miesiąc (wpis albo nadpisanie)",
+        "tags": [
+          "integrations-v1"
+        ]
+      }
+    }
+  },
+  "security": [
+    {
+      "ApiKeyHeader": []
+    }
+  ]
+}

@@ -51,8 +51,8 @@ i osłabia sesje wszystkim. Migracja `0220_service_accounts` (+ lustro w `entryp
   W snapshotcie klucz jest sprawdzany **przed** legacy `X-Snapshot-Token` (w trakcie migracji
   lecą oba nagłówki naraz); `auth_mode` w odpowiedzi ma teraz trzecią wartość
   `service_account`. CRUD: `/api/settings/service-accounts` (+ `/scopes`, `/config`,
-  `/{id}/keys`, `/{id}/keys/{key_id}/revoke`) — tylko API, bez ekranu w aplikacji
-  (klucz wydaje admin żądaniem z tokenem admina).
+  `/{id}/keys`, `/{id}/keys/{key_id}/revoke`, `/{id}/writes`) — od 14.10.2026 także
+  ekran „Ustawienia → Klucze API” (`/settings/api-keys`, tylko admin).
 - **`SNAPSHOT_TOKEN` jest do wycofania**, nie do rozbudowy — jeden globalny sekret bez
   terminu, rotacji, rewokacji i atrybucji. Zostaje, dopóki cron i ops-skille (`.claude/commands/
   ops-snapshot.md`) nie przejdą na klucz ze scope'em `ops:snapshot`.
@@ -64,3 +64,46 @@ i osłabia sesje wszystkim. Migracja `0220_service_accounts` (+ lustro w `entryp
   `from __future__ import annotations` (PEP 563 + slowapi #579 → `Annotated` guardy lądują
   jako wymagane parametry QUERY, 422 na poprawnym body). Ten sam trap co
   w `candidate_activity_summary.py`.
+
+## API integracyjne v1 (`/api/integrations/v1`, 0443, 14.10.2026)
+
+Decyzja Artura 14.10.2026: procesy firmy (na start rozliczanie klientów) podpina
+się pod NEXUSA przez osobne, stabilne API na kluczach `X-API-Key`. Dokumentacja dla
+integratora: `docs/api/integracje-v1.md` (bez nazwisk — repo jest publiczne).
+
+- **Pakiet `app/api/integrations_v1/`**, każdy moduł z własnym `router`
+  (`route_class=IntegrationRoute` — koperta błędu `{"error": {code, message, details}}`),
+  montowany w pętli `integrations_v1.ROUTERS` w `main.py` (NIE `app.mount` — testy
+  kontraktowe przestałyby widzieć trasy). Trasy ekranów dla klucza nadal 401.
+- **Scope'y v1** w `ServiceScope`: `clients:read`, `contracts:read`, `orders:read`,
+  `md:read|write`, `finance:read|write`, `invoices:read|write`, `amounts:read`.
+  `X:write` obejmuje `X:read` (`implied_scopes`, liczone przy budowie
+  `ServicePrincipal`, nie w `granted_scopes()`). Kwoty w zamówieniach, kontraktach i wierszach importu MD
+  wyłącznie z `amounts:read` (`can_see_amounts`), inaczej `null` + `amounts_redacted`.
+- **Nowa trasa v1 = scope (zależność `require_service_scope(..., allow_admin_jwt=False)`
+  albo `require_service_scope_any` dla meta) + `@limiter.limit(read_rate_limit|write_rate_limit,
+  key_func=principal_rate_key)` + test klasy scope'u w `tests/test_integrations_v1_api.py`
+  + odświeżony snapshot (`INTEGRATIONS_V1_SNAPSHOT_WRITE=1`,
+  `tests/data/integrations_v1_openapi.json`).** Handler v1 nie bierze `CurrentUser`.
+  Moduły v1 są w `_RATE_LIMITED_MODULES` i `_DOCSTRING_MODULES` — docstring trasy
+  trafia do publikowanej specyfikacji.
+- **Zgodność:** dodanie pola/trasy = v1; usunięcie albo zmiana znaczenia pola = v2.
+  Projekcje v1 są własne i wąskie (np. `order_facts` dla zamówień), nie kopie DTO ekranów.
+- **Zapis = `idempotent_write`** (`Idempotency-Key`, `services/integration_receipts.py`,
+  tabela `integration_write_receipts`): paragon `pending` w tej samej transakcji co zmiana,
+  4xx nie jest zapamiętywane, `dry_run` nie zostawia paragonu (`dry_run_response` = 200
+  i `rollback`). `dry_run` tylko tam, gdzie skutki są wyłącznie w bazie (import MD po
+  wyjęciu commita do `run_md_import`, faktury); import arkusza wyników zapisuje plik
+  PRZED wierszem, więc jego `dry_run` to tylko odczyt arkusza i konflikt okresu.
+- **Autor zapisu = konto serwisowe.** `_authenticate_service_key` stempluje sesję
+  (`integration_actor.stamp_integration`): `order_change_events.source='integration'`
+  + `created_by_service_account_id` (ekran Finanse → Zmiany pokazuje „Integracja: <nazwa>”),
+  `Activity.details.via = "integration:<slug>"`, `request.state.service_principal`
+  (log `http_outcome` → `actor`, tag Sentry `integration`). Tam, gdzie kod oczekuje osoby
+  (`critical_events.record_executed`, `order_change_checks.set_check`, handlery ekranu
+  czytające wyłącznie `user.id`), idzie `IntegrationActor` — bez ról, więc każda bramka
+  uprawnień na nim pada, zamiast przepuścić. **Nigdy syntetyczny `User`.**
+- **Czego v1 świadomie nie robi:** dane kandydatów/rekrutacji/notatek, twarde usuwanie
+  (faktura → `cancel`), zatwierdzanie przekroczeń salda MD i wspólnych pul
+  (`409 requires_screen_approval`), status „Pobrane” PDF-ów ludzi, historia grupy zamówień.
+  Zapis zamówień i kontraktów: osobny PR (2B, `WritePolicy`).

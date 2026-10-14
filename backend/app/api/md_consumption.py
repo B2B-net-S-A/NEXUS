@@ -30,12 +30,13 @@ i stawek: moduł Finanse nie jest powierzchnią kandydacką.
 
 from __future__ import annotations
 
+import hashlib
 import os
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import date as date_type, datetime, timezone
 from decimal import Decimal
-from typing import Iterable, Optional
+from typing import Any, Iterable, Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from sqlalchemy import func, select
@@ -492,6 +493,7 @@ def _summary(batch: MdConsumptionImport) -> ImportSummary:
         rows_cost_applied=batch.rows_cost_applied,
         rows_cost_unmatched=batch.rows_cost_unmatched,
         uploaded_by_user_id=batch.uploaded_by_user_id,
+        uploaded_by_service_account_id=batch.uploaded_by_service_account_id,
         created_at=batch.created_at,
     )
 
@@ -978,17 +980,45 @@ async def create_import(
     period_month: str = Form(...),
 ):
     """Wgraj raport MD i zastosuj go do aktywnych linii lub wspólnych pul."""
+    payload = await file.read(MAX_UPLOAD_BYTES + 1)
+    batch, parsed = await run_md_import(
+        db,
+        payload=payload,
+        filename=file.filename or "raport.xlsx",
+        period_month=period_month,
+        user_id=user.id,
+    )
+    await db.commit()
+    await db.refresh(batch)
+    return await _detail(db, batch, parsed_sheet=parsed)
+
+
+async def run_md_import(
+    db: AsyncSession,
+    *,
+    payload: bytes,
+    filename: str,
+    period_month: str,
+    user_id: Optional[int],
+    service_account_id: Optional[int] = None,
+) -> tuple[MdConsumptionImport, Any]:
+    """Cały import raportu MD BEZ commita — zatwierdza wołający.
+
+    Wspólna droga ekranu (``POST /api/md-consumption/imports``) i API
+    integracyjnego v1 (``POST /api/integrations/v1/md/imports``, 0443). Brak
+    commita w środku to warunek ``dry_run`` w v1: przebieg liczy się w całości,
+    odpowiedź powstaje przed ``rollback`` i nic nie zostaje w bazie. Zwraca
+    partię (po ``flush`` i przeliczeniu liczników) oraz sparsowany arkusz.
+    """
     try:
         month_bounds(period_month)
     except ValueError as exc:
         raise HTTPException(422, detail=str(exc)) from exc
 
-    filename = file.filename or "raport.xlsx"
     ext = os.path.splitext(filename)[1].lower()
     if ext not in _ALLOWED_EXT:
         raise HTTPException(415, detail="Tylko pliki XLSX")
 
-    payload = await file.read(MAX_UPLOAD_BYTES + 1)
     if len(payload) > MAX_UPLOAD_BYTES:
         raise HTTPException(
             413, detail=f"Plik przekracza {MAX_UPLOAD_BYTES // (1024 * 1024)} MB"
@@ -1018,7 +1048,9 @@ async def create_import(
     batch = MdConsumptionImport(
         period_month=period_month,
         filename=filename[:255],
-        uploaded_by_user_id=user.id,
+        uploaded_by_user_id=user_id,
+        uploaded_by_service_account_id=service_account_id,
+        file_sha256=hashlib.sha256(payload).hexdigest(),
     )
     db.add(batch)
     await db.flush()
@@ -1366,7 +1398,7 @@ async def create_import(
             period_month=period_month,
             md_reported=md_total,
             import_id=batch.id,
-            user_id=user.id,
+            user_id=user_id,
             explicit_order=order_id in explicit_md_orders,
             ignore_period=order_id in period_exempt_orders,
         )
@@ -1413,7 +1445,7 @@ async def create_import(
             period_month=period_month,
             md_reported=pending_shared_md[group_id] + carried,
             import_id=batch.id,
-            user_id=user.id,
+            user_id=user_id,
             carried_md=carried,
             carried_names=carried_names,
             before_used=before_used,
@@ -1438,7 +1470,7 @@ async def create_import(
             period_month=period_month,
             invoice_amount=amount,
             import_id=batch.id,
-            user_id=user.id,
+            user_id=user_id,
         )
 
     await db.flush()
@@ -1448,15 +1480,13 @@ async def create_import(
             group=touched_groups[group_id],
             period_month=period_month,
             import_id=batch.id,
-            user_id=user.id,
+            user_id=user_id,
         )
 
     await db.flush()
     await _recount(db, batch)
-    await db.commit()
-    await db.refresh(batch)
-
-    return await _detail(db, batch, parsed_sheet=parsed)
+    await db.flush()
+    return batch, parsed
 
 
 def _authoritative_md_hints(

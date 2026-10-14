@@ -119,9 +119,9 @@ def test_sap_normalization_is_full_string_and_polkomtel_only(monkeypatch):
 
 
 def test_ordinary_import_locks_lines_then_groups_before_monthly_writes():
-    from app.api.md_consumption import create_import
+    from app.api.md_consumption import run_md_import
 
-    source = inspect.getsource(create_import)
+    source = inspect.getsource(run_md_import)
     line_locks = source.index("await _lock_finance_target_orders")
     group_locks = source.index("await _lock_finance_target_groups")
     evidence_check = source.index("_ordinary_locked_target_is_valid", group_locks)

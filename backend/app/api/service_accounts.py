@@ -35,6 +35,7 @@ from app.api.deps import AdminUser
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.rate_limit import limiter
+from app.models.integration_write_receipt import IntegrationWriteReceipt
 from app.models.service_account import (
     SCOPE_LABELS,
     ServiceAccount,
@@ -50,6 +51,7 @@ from app.schemas.service_account import (
     ServiceAccountKeyRevoke,
     ServiceAccountOut,
     ServiceAccountUpdate,
+    ServiceAccountWriteOut,
 )
 from app.services.compass_service_account_bootstrap import retire_key_ids
 from app.services.service_account_auth import default_expires_at, generate_api_key
@@ -286,6 +288,26 @@ async def revoke_key(
             extra={"key_id": key_id, "by_user_id": admin.id},
         )
     return key
+
+
+@router.get("/{account_id}/writes", response_model=List[ServiceAccountWriteOut])
+async def list_writes(
+    account_id: int,
+    _: AdminUser,
+    db: AsyncSession = Depends(get_db),
+    limit: int = 50,
+) -> List[IntegrationWriteReceipt]:
+    """Ostatnie zapisy konta przez API integracyjne v1 (najnowsze pierwsze)."""
+    await _get_account(db, account_id)
+    result = await db.execute(
+        select(IntegrationWriteReceipt)
+        .where(IntegrationWriteReceipt.service_account_id == account_id)
+        .order_by(
+            IntegrationWriteReceipt.created_at.desc(), IntegrationWriteReceipt.id.desc()
+        )
+        .limit(max(1, min(limit, 200)))
+    )
+    return list(result.scalars().all())
 
 
 @router.get("/config", response_model=dict)

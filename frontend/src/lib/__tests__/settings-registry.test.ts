@@ -235,3 +235,31 @@ describe("settings-registry — „Jakość QC” (D6, 13.10.2026)", () => {
     expect(searchSettingsItems(admin as never, "nieprawda").map((i) => i.id)).toEqual(["qc-quality"]);
   });
 });
+
+describe("settings-registry — „Klucze API” (konta serwisowe, 14.10.2026)", () => {
+  it("widzi je wyłącznie admin z dostępem do Systemu (lustro AdminUser)", () => {
+    expect(can(user("admin", { system_admin: "write" }), "api-keys")).toBe(true);
+    expect(can(user("admin", { system_admin: "none" }), "api-keys")).toBe(false);
+    for (const role of ["head_of_recruitment", "delivery_lead", "recruiter", "finance"]) {
+      expect(can(user(role, { system_admin: "write" }), "api-keys")).toBe(false);
+    }
+  });
+
+  it("ma własną trasę w obszarze System", () => {
+    expect(item("api-keys").area).toBe("sys");
+    expect(item("api-keys").hidden).toBeFalsy();
+    expect(findSettingsItemByRoute("/settings/api-keys")?.id).toBe("api-keys");
+    // Trasa z własną stroną nie otwiera się w `?item=`.
+    const admin = user("admin", { system_admin: "write" });
+    expect(resolveSettingsView(admin as never, { item: "api-keys" }).kind).toBe("home");
+  });
+
+  it("znajduje się po nagłówku, „koncie serwisowym” i „n8n”", () => {
+    const admin = user("admin", { system_admin: "write" });
+    expect(searchSettingsItems(admin as never, "x-api-key").map((i) => i.id)).toEqual(["api-keys"]);
+    expect(searchSettingsItems(admin as never, "konto serwisowe").map((i) => i.id)).toEqual(["api-keys"]);
+    expect(searchSettingsItems(admin as never, "n8n").map((i) => i.id)).toEqual(["api-keys"]);
+    // Samo „klucz” łapie też „Wykluczone placementy” (szukanie po fragmencie).
+    expect(searchSettingsItems(admin as never, "klucze api").map((i) => i.id)).toContain("api-keys");
+  });
+});

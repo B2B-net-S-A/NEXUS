@@ -808,3 +808,8 @@ from app.models.client_framework_contract_chunk import (  # noqa: F401
 from app.models.requirement_cleanup import (  # noqa: F401
     RequirementCleanupDecision,
 )
+
+# 0443: paragony zapisów API integracyjnego v1 (idempotencja + rejestr).
+from app.models.integration_write_receipt import (  # noqa: F401
+    IntegrationWriteReceipt,
+)

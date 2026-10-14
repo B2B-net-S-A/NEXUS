@@ -65,6 +65,11 @@ regexes = [
   # Slug publicznego posta LinkedIn (źródło bazy ról, historia PR #1929) —
   # ``rpa-…`` ma kształt klucza Voyage. Dokładna wartość.
   '''pa-automatyzacja-architekturait-activity-7088050127667441664-cqTG''',
+  # Atrapa klucza konta serwisowego z harnessu „Klucze API” (#2215, commit
+  # 32627e5) — same zera w id i słowa „PODGLAD-to-nie-jest-prawdziwy-klucz”;
+  # zastąpiona wartością spoza reguły, ale skan zakresu PR-a widzi stary commit.
+  # Dokładna wartość.
+  '''nxs_v2_000000000000000000000009_PODGLAD-to-nie-jest-prawdziwy-klucz''',
   # Stały, publiczny nagłówek JWT — base64 z ``{"alg":"HS256","typ":"JWT"}``.
   # Nie niesie ŻADNEGO materiału klucza (podpis to trzeci segment, którego tu
   # nie ma), a pojawia się w testach redakcji logów jako realistyczna atrapa.

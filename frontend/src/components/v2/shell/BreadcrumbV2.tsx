@@ -59,6 +59,7 @@ export const SEGMENT_LABELS: Record<string, string> = {
   upload: "Wgrywanie danych",
   ai: "Funkcje AI",
   "api-integration": "Integracja z API",
+  "api-keys": "Klucze API",
   chats: "Audyt czatów",
   "client-portfolio-preview": "Podgląd importu klientów",
   "clients-overview": "Przegląd klientów",
