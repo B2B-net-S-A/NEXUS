@@ -1420,6 +1420,13 @@ function JobDetailHarness() {
                             jobId={JOB_ID}
                             level={priorityLevel}
                             canSet={!readOnlyRole}
+                            // Jak strona rekrutacji: zejście z P1 pyta o zespół.
+                            team={{
+                              workingNames: team
+                                .filter((person) => !person.proposed)
+                                .map((person) => person.name),
+                              closed,
+                            }}
                           />
                         }
                         recruiter={
