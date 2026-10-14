@@ -523,7 +523,7 @@ export function useJobProposals(jobId: number, options: UseJobProposalsOptions) 
     async (candidateId: number): Promise<boolean> => {
       if (readOnly) return false;
       try {
-        await candidatesApi.removeFromRecruitment(candidateId, jobId);
+        await candidatesApi.removeFromRecruitment(candidateId, jobId, { quickUndo: true });
       } catch (error) {
         showError(apiErrorMessage(error, "Nie udało się cofnąć dodania."));
         return false;

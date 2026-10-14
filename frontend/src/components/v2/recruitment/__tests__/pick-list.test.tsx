@@ -130,6 +130,14 @@ describe("PickList — dopasowanie bez klikania, „+ Dodaj”, „Cofnij” i p
     expect(onUndo).toHaveBeenCalledWith(expect.objectContaining({ candidateId: 2 }));
   });
 
+  it("po oknie 15 min dodana osoba zostaje ze statusem, ale bez „Cofnij” (przegląd 14.10.2026)", () => {
+    render(
+      <PickList {...base} rows={[row({ addState: "added", undoable: false })]} onAdd={vi.fn()} onUndo={vi.fn()} />,
+    );
+    expect(screen.getByText(/Dodano do „Nowych”/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Cofnij dodanie/ })).toBeNull();
+  });
+
   it("cofanie w toku blokuje „Cofnij”; do odczytu nie ma ani „+ Dodaj”, ani „Cofnij”", () => {
     const { rerender } = render(
       <PickList {...base} rows={[row({ addState: "undoing" })]} onAdd={vi.fn()} onUndo={vi.fn()} />,

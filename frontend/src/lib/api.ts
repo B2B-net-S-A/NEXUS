@@ -787,8 +787,13 @@ export const candidatesApi = {
   // Usuń kandydata z rekrutacji — kasuje całą obecność w pipeline tej oferty
   // (wszystkie etapy + kaskadowo snapshoty CV / share-tokeny / maile odrzucenia).
   // Operacja korekcyjna, odrębna od reject/withdrawn.
-  removeFromRecruitment: (candidateId: number, jobId: number) =>
-    api.delete(`/api/candidates/${candidateId}/recruitments/${jobId}`),
+  // `quickUndo` (14.10.2026): „Cofnij” zaraz po „+ Dodaj” w oknie źródeł —
+  // serwer przyjmuje go tylko do 15 min, przy jednym wierszu etapu bez arkusza.
+  removeFromRecruitment: (candidateId: number, jobId: number, options?: { quickUndo?: boolean }) =>
+    api.delete(
+      `/api/candidates/${candidateId}/recruitments/${jobId}`,
+      options?.quickUndo ? { params: { quick_undo: true } } : undefined,
+    ),
 };
 
 export type CandidateLanguageCefrLevel =

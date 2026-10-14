@@ -194,6 +194,23 @@ describe("buildSavePayload", () => {
     expect(plan.hasChanges).toBe(true);
   });
 
+  it("po „Zweryfikowany” stawka z karty nie idzie z zapisem sama — to podpowiedź, nie zmiana stawki (przegląd 14.10.2026)", () => {
+    // Formularz jest edytowalny na każdym etapie; para z Traffita na „CV
+    // wysłane” bez stawki etapu dostałaby przy zapisie odpowiedzi zmianę
+    // stawki z dzwonkami do DL i rekrutera.
+    const card = { amount: 150, unit: "hourly" as const, currency: "PLN", source: "card" as const, at: null };
+    for (const board_column of ["verified", "cv_sent", "client_interview"]) {
+      const state = formState({ board_column, rate: card });
+      expect(buildSavePayload(state, formDefaultsFromState(state)).payload.rate).toBeNull();
+      // Rekruter świadomie zmienia stawkę — wtedy idzie.
+      expect(buildSavePayload(state, { ...formDefaultsFromState(state), rate_amount: "160" }).payload.rate).toEqual({
+        amount: 160,
+        unit: "hourly",
+        currency: "PLN",
+      });
+    }
+  });
+
   it("notatka zapisana w doku idzie z numerem — serwer jej nie dubluje (D3)", () => {
     const state = formState();
     const plan = buildSavePayload(state, formDefaultsFromState(state), {
@@ -315,6 +332,9 @@ describe("ratePrefill — stawka na start, gdy etap jej nie ma (D2, 14.10.2026)"
       ),
     ).toBeNull();
     expect(ratePrefill(formState({ can_edit_rate: false, rate_hints: hints }))).toBeNull();
+    // Tylko „Nowi” i „Screening” — dalej podpowiedź nie staje się stawką sama.
+    expect(ratePrefill(formState({ board_column: "cv_sent", rate_hints: hints }))).toBeNull();
+    expect(ratePrefill(formState({ board_column: "screening", rate_hints: hints }))).not.toBeNull();
   });
 
   it("stawka z karty w polu (etap bez stawki) też ustępuje nowszej notatce", () => {

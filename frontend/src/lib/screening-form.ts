@@ -246,8 +246,11 @@ export function buildSavePayload(
   // Serwer porównuje tylko ze stawką ETAPU (`_same_rate(current.rate, …)`).
   // Stawka z karty (`source: "card"`) stoi w polu, ale etap jej nie ma — do
   // 14.10.2026 porównanie z nią gubiło zapis i etap zostawał bez stawki.
+  // Tylko w „Nowych” i „Screeningu”: dalej stawka z karty w polu to
+  // podpowiedź, a jej zapis byłby zmianą stawki z dzwonkami do DL
+  // (przegląd 14.10.2026) — tam porównujemy z tym, co pole pokazało na start.
   const current =
-    state.rate?.source === "stage"
+    state.rate && (state.rate.source === "stage" || !ratePrefillColumn(state))
       ? { amount: state.rate.amount, unit: state.rate.unit, currency: state.rate.currency }
       : null;
   const rate = wanted && !sameRate(wanted, current) ? wanted : null;
@@ -278,6 +281,13 @@ export function buildSavePayload(
 
 // ── Stawka na start (D2, 14.10.2026) ─────────────────────────────────────
 
+/** Kolumny, w których stawka trafia do etapu z rozmowy screeningowej. */
+const RATE_PREFILL_COLUMNS: ReadonlySet<string> = new Set(["new", "screening"]);
+
+function ratePrefillColumn(state: Pick<ScreeningFormState, "board_column">): boolean {
+  return state.board_column != null && RATE_PREFILL_COLUMNS.has(state.board_column);
+}
+
 /** Skąd formularz wziął stawkę wpisaną na start — linijka pod polem. */
 export type RatePrefillOrigin =
   | { kind: "note"; quote: string; notedAt: string | null }
@@ -297,9 +307,13 @@ export interface RatePrefill {
  * formularza — zapisze się z „Zapisz”.
  */
 export function ratePrefill(
-  state: Pick<ScreeningFormState, "rate" | "rate_hints" | "can_edit_rate" | "suggestions_from_notes">,
+  state: Pick<
+    ScreeningFormState,
+    "rate" | "rate_hints" | "can_edit_rate" | "suggestions_from_notes" | "board_column"
+  >,
 ): RatePrefill | null {
-  if (!state.can_edit_rate || state.rate?.source === "stage") return null;
+  // Poza „Nowymi” i „Screeningiem” podpowiedź nie staje się stawką sama.
+  if (!state.can_edit_rate || state.rate?.source === "stage" || !ratePrefillColumn(state)) return null;
   const note = (state.suggestions_from_notes as ScreeningSuggestions | undefined)?.rate;
   const quote = note?.raw?.trim();
   const fill = note && quote ? rateSuggestionFill(note) : null;

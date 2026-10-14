@@ -707,9 +707,13 @@ async def test_note_import_is_a_human_note_and_marks_the_fields(
 
 # ── Jedna notatka wypełnia formularz (D3, 14.10.2026) ───────────────────────
 
-# Treści, które reguła rodzajów czyta jako notatkę z rozmowy: zwykłą i z faktami.
+# Treści notatek z rozmowy: zwykła, z faktami i krótkie, które reguła rodzajów
+# czyta jako „status” i „umawianie” (przegląd 14.10.2026 — lista dozwolonych
+# rodzajów odrzucała je 422).
 DOCK_NOTE = "Kafka 3 lata na produkcji, eventy płatności.\nAngielski B2, swobodnie o technologii."
 FACTS_NOTE = "Stawka 150 zł/h na B2B, dostępny od listopada, hybrydowo 2 dni."
+STATUS_NOTE = "Fajny kandydat, 6 lat Java, Spring, Kafka. Tylko UoP."
+SCHEDULING_NOTE = "Rozmowa 14:05. Kafka 3 lata, Spring Boot od 2019, zacznie od 1.11, stawka 140 zł/h B2B."
 
 
 async def _dock_note(
@@ -720,6 +724,7 @@ async def _dock_note(
     candidate_id: Optional[int] = None,
     job_id: Optional[int] = None,
     kind: Optional[str] = None,
+    external_source: Optional[str] = None,
 ) -> int:
     async with AsyncSessionLocal() as db:
         note = Note(
@@ -729,6 +734,7 @@ async def _dock_note(
             job_id=job_id or w["job_id"],
             author_id=author_id or w["rec_id"],
             kind=kind,
+            external_source=external_source,
         )
         db.add(note)
         await db.commit()
@@ -744,7 +750,9 @@ async def _note_count(w: dict) -> int:
         )
 
 
-@pytest.mark.parametrize("content", [DOCK_NOTE, FACTS_NOTE])
+@pytest.mark.parametrize(
+    "content", [DOCK_NOTE, FACTS_NOTE, STATUS_NOTE, SCHEDULING_NOTE]
+)
 async def test_a_note_saved_in_the_dock_is_linked_not_duplicated(
     app_client: AsyncClient, monkeypatch, content: str
 ):
@@ -752,7 +760,7 @@ async def test_a_note_saved_in_the_dock_is_linked_not_duplicated(
     w = await _world()
     note_id = await _dock_note(w, content=content)
     async with AsyncSessionLocal() as db:
-        assert (await db.get(Note, note_id)).kind in form.NOTE_REUSE_KINDS
+        assert (await db.get(Note, note_id)).kind not in form.NOTE_REUSE_REFUSED_KINDS
 
     body = await _put(
         app_client,
@@ -778,7 +786,7 @@ async def test_a_note_saved_in_the_dock_is_linked_not_duplicated(
 
 @pytest.mark.parametrize(
     "case",
-    ["other_author", "other_job", "other_candidate", "missing", "contact_attempt"],
+    ["other_author", "other_job", "other_candidate", "missing", "dl_rate", "external"],
 )
 async def test_a_note_from_elsewhere_is_refused(
     app_client: AsyncClient, monkeypatch, case: str
@@ -794,7 +802,8 @@ async def test_a_note_from_elsewhere_is_refused(
             author_id=w["dl_id"] if case == "other_author" else None,
             job_id=other["job_id"] if case == "other_job" else None,
             candidate_id=other["cand_id"] if case == "other_candidate" else None,
-            kind="contact_attempt" if case == "contact_attempt" else None,
+            kind="dl_rate" if case == "dl_rate" else None,
+            external_source="stage_remark" if case == "external" else None,
         )
     notes_before = await _note_count(w)
 

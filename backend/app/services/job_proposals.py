@@ -568,6 +568,22 @@ async def mark_added(
     return int(result.rowcount or 0)
 
 
+def quick_undo_allowed(
+    stage_rows: list[Any],
+    *,
+    entered_at: Optional[datetime],
+    now: Optional[datetime] = None,
+) -> bool:
+    """Czy „Cofnij” z listy wolno: jeden wiersz etapu (bez ruchu), bez arkusza
+    screeningu i najwyżej :data:`UNDO_ADD_WINDOW` od wejścia osoby."""
+    if entered_at is None or len(stage_rows) != 1:
+        return False
+    if getattr(stage_rows[0], "screening_answers", None):
+        return False
+    moment = now or datetime.now(timezone.utc)
+    return moment - entered_at <= UNDO_ADD_WINDOW
+
+
 async def reopen_after_quick_undo(
     db: AsyncSession,
     *,

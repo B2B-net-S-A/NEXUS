@@ -113,13 +113,22 @@ UNDO_REFUSED_MESSAGE = (
     "Cofnąć można tylko swój ostatni zapis tego formularza — przywróć wersję "
     "z historii zmian."
 )
-# D3 (14.10.2026): rodzaje notatki z doku, z którą wolno powiązać zapis
-# formularza. Reguła rodzajów robi z notatki z rozmowy także „fakty ze
-# screeningu” („Stawka 150, od listopada, zdalnie”) i kartę (pytanie —
-# odpowiedź); sama zwykła notatka zamykałaby tę drogę dokładnie dla notatek,
-# które formularz ma czytać.
-NOTE_REUSE_KINDS = frozenset(
-    {note_kinds.HUMAN, note_kinds.SCREENING_FACTS, note_kinds.CARD}
+# D3 (14.10.2026): rodzaje notatki, z którą zapisu formularza NIE wiążemy.
+# Reguła rodzajów czyta krótką notatkę z rozmowy także jako „status”,
+# „umawianie” czy „próbę kontaktu” („Rozmowa ok, zdalnie, od grudnia” →
+# status) — lista dozwolonych odrzucała dokładnie notatki, które formularz ma
+# czytać (przegląd 14.10.2026). Odmawiamy tylko rodzajom spoza rozmowy
+# rekrutera i wpisom Delivery Leada o stawce do klienta (widoczność).
+NOTE_REUSE_REFUSED_KINDS = frozenset(
+    {
+        note_kinds.AUTOMATCH,
+        note_kinds.APPLICATION_FORM,
+        note_kinds.PREP_SUMMARY,
+        note_kinds.EMAIL,
+        note_kinds.DL_RATE,
+        note_kinds.DL_REVIEW,
+        note_kinds.CONTRACTOR,
+    }
 )
 _CURRENCY_RE = re.compile(r"[A-Za-z]{3}")
 _CENT = Decimal("0.01")
@@ -1324,8 +1333,10 @@ async def _reused_note(
 ) -> Note:
     """Notatka z doku, którą zapis formularza przyjmuje zamiast drugiej (D3).
 
-    Ta sama para, autor = zapisujący, notatka z rozmowy (``NOTE_REUSE_KINDS``)
-    i nie usunięta u źródła — inaczej 422, zanim cokolwiek się zapisze.
+    Ta sama para, autor = zapisujący, notatka wpisana ręcznie (bez
+    ``external_source`` — nie automat, integracja ani uwaga etapu), rodzaj spoza
+    ``NOTE_REUSE_REFUSED_KINDS`` i nie usunięta u źródła — inaczej 422, zanim
+    cokolwiek się zapisze.
     """
     note = await db.get(Note, note_id)
     if (
@@ -1333,7 +1344,8 @@ async def _reused_note(
         or note.candidate_id != candidate_id
         or note.job_id != job_id
         or note.author_id != user.id
-        or note.kind not in NOTE_REUSE_KINDS
+        or note.external_source is not None
+        or note.kind in NOTE_REUSE_REFUSED_KINDS
         or note.source_deleted_at is not None
     ):
         raise _invalid(

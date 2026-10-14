@@ -51,6 +51,8 @@ export interface PickRow {
    * albo cofanie w toku.
    */
   addState?: "adding" | "added" | "undoing" | null;
+  /** „Cofnij” jeszcze działa (okno 15 min, `useUndoWindow`); `false` = minęło. */
+  undoable?: boolean;
 }
 
 /** „CV z RRRR” — neutralnie; starsze niż 2 lata w tonie ostrzeżenia. */
@@ -286,7 +288,7 @@ function PickListItem({
             >
               <Check className="h-3.5 w-3.5" aria-hidden="true" />
               Dodano do „Nowych” · rezerwacja 12 h
-              {onUndo && !readOnly ? (
+              {onUndo && !readOnly && row.undoable !== false ? (
                 <>
                   <span aria-hidden="true">·</span>
                   <button

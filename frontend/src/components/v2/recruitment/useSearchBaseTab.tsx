@@ -44,6 +44,7 @@ import { PersonPreview } from "./PersonPreview";
 import { PickList, ScoreBadge, type PickRow } from "./pick-list";
 import { breakdownReasonChips, withKeptRows } from "./reason-chips";
 import type { JobSearchSeed } from "./useJobSearchSeed";
+import { useUndoWindow } from "./useUndoWindow";
 
 export const SEARCH_BASE_PAGE = 20;
 
@@ -147,6 +148,7 @@ export function useSearchBaseTab(
   // jej nie zwraca — `kept` pamięta wiersz i jego miejsce.
   const [addedIds, setAddedIds] = useState<ReadonlySet<number>>(() => new Set(initialAddedIds ?? []));
   const [kept, setKept] = useState<ReadonlyMap<number, KeptRow>>(() => new Map());
+  const undoWindow = useUndoWindow();
   const [rowAdding, setRowAdding] = useState<ReadonlySet<number>>(() => new Set());
   const [undoing, setUndoing] = useState<ReadonlySet<number>>(() => new Set());
   // U4 (audyt 06.10.2026): osoba, która już jest w rekrutacji, do odświeżenia
@@ -230,6 +232,7 @@ export function useSearchBaseTab(
         : rowAdding.has(c.id)
           ? "adding"
           : null,
+    undoable: !undoWindow.expired.has(c.id),
     extra: c.match_snippets?.length ? (
       <FieldSnippets snippets={c.match_snippets} className="mt-0.5" />
     ) : undefined,
@@ -294,6 +297,7 @@ export function useSearchBaseTab(
         .map((row) => row.candidate_id);
       inJob.forEach((id) => gone.add(id));
       setAddedIds((prev) => new Set([...prev, ...result.added]));
+      undoWindow.start(result.added);
       setKept((prev) => {
         const next = new Map(prev);
         for (const id of result.added) {
@@ -327,7 +331,7 @@ export function useSearchBaseTab(
     if (readOnly) return;
     setUndoing((prev) => new Set([...prev, candidateId]));
     try {
-      await candidatesApi.removeFromRecruitment(candidateId, jobId);
+      await candidatesApi.removeFromRecruitment(candidateId, jobId, { quickUndo: true });
       await Promise.allSettled([
         queryClient.invalidateQueries({ queryKey: ["job-search-base", jobId] }),
         queryClient.invalidateQueries({ queryKey: ["kanban", String(jobId)] }),

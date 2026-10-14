@@ -1,9 +1,11 @@
 """„Cofnij” po „+ Dodaj” w oknie „Kandydaci do dodania” (14.10.2026).
 
-`DELETE /api/candidates/{cid}/recruitments/{job_id}` do 15 minut od wejścia
-osoby do rekrutacji oddaje jej propozycję (`added` → `proposed`), więc osoba
-wraca na listę, z której ją dodano. Późniejsze usunięcie to korekta procesu —
-propozycja zostaje `added`. Para bez propozycji: usunięcie jak dotąd.
+`DELETE /api/candidates/{cid}/recruitments/{job_id}?quick_undo=true` do 15 minut
+od wejścia osoby, przy jednym wierszu etapu bez arkusza, oddaje jej propozycję
+(`added` → `proposed`), więc osoba wraca na listę, z której ją dodano. Po oknie,
+po ruchu albo z zapisanym screeningiem szybkie cofnięcie to 409 (przegląd
+14.10.2026) — wtedy usuwa się z panelu osoby. Zwykłe usunięcie (bez
+`quick_undo`) propozycji nie rusza. Para bez propozycji: usunięcie jak dotąd.
 
 Testy serwisu bez bazy sprawdzają okno czasu; testy trasy wymagają Postgresa
 (CI).
@@ -50,6 +52,28 @@ async def test_unknown_entry_time_does_not_touch_proposals():
 
 def test_window_is_fifteen_minutes():
     assert proposals.UNDO_ADD_WINDOW == timedelta(minutes=15)
+
+
+class _Stage:
+    def __init__(self, answers=None):
+        self.screening_answers = answers
+
+
+def test_quick_undo_only_right_after_adding():
+    fresh = NOW - timedelta(minutes=2)
+    assert proposals.quick_undo_allowed([_Stage()], entered_at=fresh, now=NOW)
+    # Po oknie, po ruchu (drugi wiersz) i z zapisanym arkuszem — nie.
+    late = NOW - proposals.UNDO_ADD_WINDOW - timedelta(seconds=1)
+    assert not proposals.quick_undo_allowed([_Stage()], entered_at=late, now=NOW)
+    assert not proposals.quick_undo_allowed(
+        [_Stage(), _Stage()], entered_at=fresh, now=NOW
+    )
+    assert not proposals.quick_undo_allowed(
+        [_Stage({"answers": [{"question_id": "q1", "response": "tak"}]})],
+        entered_at=fresh,
+        now=NOW,
+    )
+    assert not proposals.quick_undo_allowed([_Stage()], entered_at=None, now=NOW)
 
 
 # ── Trasa (Postgres) ────────────────────────────────────────────────────────
@@ -112,12 +136,20 @@ async def _proposal_statuses(job_id: int, candidate_id: int) -> list[str]:
         return list(rows.all())
 
 
-async def _remove(app_client: AsyncClient, headers: dict, world: dict) -> None:
+async def _remove(
+    app_client: AsyncClient,
+    headers: dict,
+    world: dict,
+    *,
+    quick_undo: bool = True,
+    expected: int = 200,
+) -> None:
     response = await app_client.delete(
         f"/api/candidates/{world['candidate_id']}/recruitments/{world['job_id']}",
         headers=headers,
+        params={"quick_undo": "true"} if quick_undo else None,
     )
-    assert response.status_code == 200, response.text
+    assert response.status_code == expected, response.text
 
 
 async def test_undo_within_window_returns_person_to_proposals(
@@ -130,11 +162,20 @@ async def test_undo_within_window_returns_person_to_proposals(
     ]
 
 
-async def test_removal_after_window_keeps_proposal_added(
+async def test_quick_undo_after_window_is_refused(
     app_client: AsyncClient, app_auth_headers: dict
 ):
     world = await _world(entered_minutes_ago=20, proposal_status="added")
-    await _remove(app_client, app_auth_headers, world)
+    await _remove(app_client, app_auth_headers, world, expected=409)
+    assert await _proposal_statuses(world["job_id"], world["candidate_id"]) == ["added"]
+
+
+async def test_plain_removal_keeps_proposal_added(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    # Korekta z panelu osoby (bez `quick_undo`) nie oddaje propozycji, nawet zaraz.
+    world = await _world(entered_minutes_ago=2, proposal_status="added")
+    await _remove(app_client, app_auth_headers, world, quick_undo=False)
     assert await _proposal_statuses(world["job_id"], world["candidate_id"]) == ["added"]
 
 

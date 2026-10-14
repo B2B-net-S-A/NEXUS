@@ -178,7 +178,7 @@ describe("useJobProposals", () => {
       undone = await result.current.undoAdd(2);
     });
     expect(undone).toBe(true);
-    expect(mocks.removeFromRecruitment).toHaveBeenCalledWith(2, JOB);
+    expect(mocks.removeFromRecruitment).toHaveBeenCalledWith(2, JOB, { quickUndo: true });
     // Skrzynka znów zwraca osobę (serwer oddał propozycję) — hook jej nie chowa.
     await waitFor(() => expect(result.current.rows.map((r) => r.candidateId)).toContain(2));
     const keys = invalidate.mock.calls.map(([arg]) => JSON.stringify((arg as { queryKey: unknown }).queryKey));

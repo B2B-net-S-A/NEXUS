@@ -1064,7 +1064,7 @@ describe("AddCandidatesPanel — okno „Kandydaci do dodania”", () => {
       removeFromRecruitment.mockResolvedValue({ data: {} });
       listPage.mockResolvedValue({ items: [marta, hanna], total: 2, page: 1, page_size: 20 });
       await userEvent.click(within(row).getByRole("button", { name: "Cofnij dodanie: Marta Wilczek" }));
-      expect(removeFromRecruitment).toHaveBeenCalledWith(31, 5);
+      expect(removeFromRecruitment).toHaveBeenCalledWith(31, 5, { quickUndo: true });
       await waitFor(() => expect(screen.queryByTestId("pick-row-added")).toBeNull());
       expect(
         within(screen.getByRole("list", { name: "Wyniki wyszukiwania" })).getByRole("button", {

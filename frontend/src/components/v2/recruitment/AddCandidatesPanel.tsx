@@ -101,6 +101,7 @@ import { CANDIDATE_WINDOW_TABS, PROPOSAL_SOURCE_LABEL, type CandidateWindowTab }
 import { useJobProposals } from "./useJobProposals";
 import { useJobSearchSeed } from "./useJobSearchSeed";
 import { useSearchBaseTab } from "./useSearchBaseTab";
+import { useUndoWindow } from "./useUndoWindow";
 
 export { CvBadge } from "./pick-list";
 
@@ -305,6 +306,7 @@ function AddCandidatesPanelOpen({
   // liście z „Cofnij” — `kept` trzyma jej wiersz, bo źródła już jej nie zwracają.
   const [addedIds, setAddedIds] = useState<ReadonlySet<number>>(() => new Set(initialAddedIds ?? []));
   const [kept, setKept] = useState<ReadonlyMap<number, KeptEntry>>(() => new Map());
+  const undoWindow = useUndoWindow();
   const [rowAdding, setRowAdding] = useState<ReadonlySet<number>>(() => new Set());
   const [undoing, setUndoing] = useState<ReadonlySet<number>>(() => new Set());
   const [previewId, setPreviewId] = useState<number | null>(null);
@@ -449,10 +451,11 @@ function AddCandidatesPanelOpen({
             : rowAdding.has(id)
               ? "adding"
               : null,
+        undoable: !undoWindow.expired.has(id),
       };
     });
     return sortMode === "client_first" ? sortByClientHistory(rows, factsById) : rows;
-  }, [listEntries, factsById, sortMode, budgetHourly, askLabels, undoing, addedIds, rowAdding]);
+  }, [listEntries, factsById, sortMode, budgetHourly, askLabels, undoing, addedIds, rowAdding, undoWindow.expired]);
 
   // Dopasowanie bez klikania (D1, 14.10.2026) — wiersz na ekranie sam o nie
   // prosi; ta sama ścieżka co kolumna wyszukiwarki (`/api/search/candidates/
@@ -576,6 +579,7 @@ function AddCandidatesPanelOpen({
           return next;
         });
         setAddedIds((prev) => new Set([...prev, ...added]));
+        undoWindow.start(added);
       },
       onSettled: () => {
         if (perRow) setRowAdding((prev) => new Set([...prev].filter((id) => !ids.includes(id))));
