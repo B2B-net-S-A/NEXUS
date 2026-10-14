@@ -739,7 +739,7 @@ klauzuli zgody do dołu ostatniej strony. Obowiązuje:
   w `Dockerfile` do `/usr/share/fonts/truetype/montserrat/` + `fc-cache`.
   Czcionki są w repo, a nie z pakietu systemu, bo szablon potrzebuje rodzin
   o dokładnie tych nazwach. Sprawdzenie na serwerze: `fc-list | grep Montserrat`.
-- **Front**: `CvPagesPreview` w oknie „Podgląd” karty i „Użyj innego CV”
+- **Front**: `CvPagesPreview` w oknie stron karty (od PR 3: klik w miniaturę) i „Użyj innego CV”
   (`fetchStageCvPdf`, potem `fetchStageCvFile` jako zapas — oba bez intencji
   pobrania) oraz w edytorze: przełącznik „Edycja | Jak u klienta”
   (`CvEditorFiles.draftPdf` / `previewApprovedPdf`; edytor wyniku generatora
@@ -753,3 +753,60 @@ klauzuli zgody do dołu ostatniej strony. Obowiązuje:
 - Harnessy pokazują strony z `public/preview/cv-to-client/cv-firmowe-przyklad.pdf`
   (fikcyjne CV z pliku Word harnessu, LibreOffice z Montserrat, metadane bez
   autora). Po zmianie tego pliku Word wygeneruj PDF ponownie.
+
+## Prosty ekran edytora (Edytor CV 3, PR 3, 14.10.2026)
+
+Zespół mówił, że w edytorze „jest chaos” i woli ChatGPT. Artur: „bardzo,
+bardzo prosto” (makiety „Ekran 1” i „Ekran 5”). Siedem zasad z makiet, którymi
+mierzymy każdą zmianę edytora i karty:
+
+1. Jedno miejsce do AI (PR 4: kolumna asystenta; do tego czasu polecenie
+   i AI na zaznaczeniu są w „Więcej”).
+2. Problem = jeden przycisk przy pozycji.
+3. AI zmienia od razu, z „Cofnij” (PR 4).
+4. Nic nie ginie — poprzednia wersja jedno kliknięcie wstecz.
+5. Ustawienia schowane: domyślne z reguły klienta, jedna linia i „Zmień”.
+6. Pytamy tylko, gdy musimy (fakt bez źródła, usunięcie jedynego wymagania).
+7. Podgląd to plik — te same litery, układ i strony co u klienta.
+
+Obowiązuje:
+
+- **Nagłówek w jednym rzędzie** (przy 1280 px): „Zamknij” (ikona), osoba,
+  „Szkic vN”, pasek (`CvEditorToolbar`: cofnij, ponów, pogrubienie, lista,
+  „Do lewej” / „Wyjustuj”, „Pogrub wymagania (N)”, „Więcej”), „Edycja | Jak
+  u klienta”, stan zapisu z godziną („Zapisano 14:01”), „Oryginał”, „Pobierz
+  Word”. Nie dokładaj przycisków do paska — nowe polecenie idzie do „Więcej”.
+- **„Więcej”**: Dodaj, Typ akapitu, Stanowisko pod kursorem (wyżej, niżej,
+  powiel, usuń), AI na zaznaczonym tekście, „Wyjustuj całe CV” / „Całe CV do
+  lewej” (`setCvAlignEverywhere`, jeden krok cofania, bez klauzuli), polecenie,
+  „Historia wersji”, „Pobierz PDF”, „Drukuj”. Menu działa także w „Jak
+  u klienta” (pliki, historia); polecenia treści są wtedy wyłączone.
+- **„Pogrub wymagania (N)”**: N z wyniku QC (`boldRequirements` w
+  `lib/cv-editor-issues.ts`: niepogrubione must i — przy polityce must + nice —
+  mile widziane), klik woła przez `ref` panel „Do poprawy”
+  (`CvEditorIssuesHandle.boldRequirements`) — ta sama droga co „Pogrub
+  wszystkie”: `qc/transform` na treści z edytora, jeden cofalny krok,
+  autozapis. Bez wyniku QC przycisk bez liczby i wyłączony; edytor wyniku
+  generatora (bez etapu) go nie ma.
+- **Jedna kolumna obok kartki**: „Do poprawy” (domyślnie, także bez uwag
+  i przy awarii QC) albo oryginał po „Oryginał” (440 px); historia i plan
+  zmian zajmują ją na czas decyzji, „Oryginał” zamyka historię. Edytor wyniku
+  generatora bez uwag pokazuje w kolumnie oryginał. Układ dwóch paneli od
+  1540 px zniknął. Wąski ekran (< 1180 px) — przełącznik kolumny jak dotąd.
+- **„Gotowe” w stopce** zamiast „Zapisz” w nagłówku (ta sama ścieżka:
+  szkic → pola w nawiasach → zamknięcie → zatwierdzenie w tle). Z przekazaniem:
+  „Gotowe” i „Gotowe, przekaż do DL →”. „Zamknij” zamyka bez zatwierdzenia.
+  Bez CV stopki nie ma.
+- **„Pobierz PDF”**: `CvEditorFiles.draftPdf(payload, purpose)` /
+  `approvedPdf(version, purpose)` — `download` niesie intencję (wpis z
+  formatem `pdf`), `preview` nie. Edytor wyniku generatora nie ma PDF-u wersji
+  — bierze PDF z treści.
+- **Kartka jak plik** (`globals.css`, `.cv-paper`): czerwone kwadratowe
+  punkty, czerwona linia nad każdą sekcją poza pierwszą i między
+  stanowiskami, edukacja w ramce tabeli z szarym nagłówkiem „Daty / Nazwa
+  uczelni/kierunek” (sama dekoracja — treść zostaje akapitami). Papieru
+  firmowego na kartce świadomie nie ma: szablon bywa różny, a prawdziwy
+  papier jest jedno kliknięcie dalej w „Jak u klienta”.
+- `initialPanel: "history"` (menu „⋯” karty) otwiera edytor od razu na
+  historii; `"issues"` („Sprawdź i popraw”) — na „Do poprawy”.
+

@@ -10,9 +10,16 @@
  * zawsze wycinane, do tego obróbka i język. Reguły, braki i żądanie liczy ten
  * sam hook co okno (`useCvGenerator`) — osoba i rekrutacja są ustalone z góry,
  * plik CV to oryginał z „Z czego powstało”.
+ *
+ * 14.10.2026 (Edytor CV 3, „Ekran 5”): panel jest zwinięty do jednego zdania
+ * — „Z oryginału CV, Championa, screeningu i notatek · Pod rekrutację · polski
+ * · Zmień” — liczonego z tych samych przełączników, które pójdą w żądaniu.
+ * „Zmień” rozwija przełączniki, obróbkę, język i opcje zaawansowane. Panel
+ * rozwija się sam, gdy czegoś brakuje albo serwer odmówił; zgoda RODO, lista
+ * braków, błąd i „Generuj” są widoczne zawsze.
  */
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Sparkles } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -21,7 +28,19 @@ import { AdvancedOptions } from "@/components/v2/cv-generator/AdvancedOptions";
 import { AiSourcesRows } from "@/components/v2/cv-generator/AiSourcesRows";
 import { LanguageChoice } from "@/components/v2/cv-generator/LanguageChoice";
 import { ProcessingTiles } from "@/components/v2/cv-generator/ProcessingTiles";
+import {
+  advancedNeedsAttention,
+  type CvLanguageChoice,
+} from "@/components/v2/cv-generator/cv-generator-form";
 import { useCvGenerator } from "@/components/v2/cv-generator/useCvGenerator";
+import {
+  aiSourceRows,
+  CV_AI_SOURCE_KEYS,
+  type CvAiSourceKey,
+  type CvAiSources,
+  type CvAiSourceToggles,
+} from "@/lib/cv-ai-sources";
+import { CV_CONTENT_MODES } from "@/lib/cv-generator";
 import { canMutateSection } from "@/lib/section-access";
 import { useAuthStore } from "@/store/auth";
 
@@ -36,6 +55,41 @@ export interface CvGeneratePanelProps {
 }
 
 const PANEL_CLASS = "space-y-3 rounded-lg border border-primary/30 bg-primary/5 p-3";
+
+/** Źródło w dopełniaczu: „Z oryginału CV, Championa, screeningu i notatek”. */
+const SOURCE_IN_SENTENCE: Record<string, string> = {
+  original: "oryginału CV",
+  champion: "Championa",
+  answers: "screeningu",
+  notes: "notatek",
+  transcripts: "transkryptów",
+  prep: "prepu",
+};
+
+const LANGUAGE_IN_SENTENCE: Record<CvLanguageChoice, string> = {
+  pl: "polski",
+  en: "angielski",
+  both: "polski i angielski",
+};
+
+function isToggleKey(id: string): id is CvAiSourceKey {
+  return (CV_AI_SOURCE_KEYS as readonly string[]).includes(id);
+}
+
+/**
+ * Z czego model naprawdę zrobi CV: źródła „zawsze” i włączone przełączniki
+ * z materiałem (pusty przełącznik nic nie zmienia, więc go nie wymieniamy).
+ */
+export function aiSourcesSentence(data: CvAiSources, toggles: CvAiSourceToggles): string {
+  const names = aiSourceRows(data)
+    .filter((row) => row.mode === "always" || (isToggleKey(row.id) && !row.empty && toggles[row.id]))
+    .map((row) => SOURCE_IN_SENTENCE[row.id])
+    .filter((name): name is string => !!name);
+  if (names.length === 0) return "Bez materiału dla AI";
+  const list = names.length === 1 ? names[0] : `${names.slice(0, -1).join(", ")} i ${names[names.length - 1]}`;
+  // „ze screeningu”, ale „z notatek”.
+  return `${/^s[^aeiouyąęó]/i.test(list) ? "Ze" : "Z"} ${list}`;
+}
 
 export function CvGeneratePanel(props: CvGeneratePanelProps) {
   const user = useAuthStore((state) => state.user);
@@ -86,52 +140,131 @@ function CvGeneratePanelForm({
     : g.missing;
   const ready = missing.length === 0 && !otherProcess && !g.generating;
 
-  return (
-    <section aria-label="Generowanie CV" className={PANEL_CLASS} data-testid="cv-generate-panel">
+  // Dane panelu się ustaliły: proces wybrany, pliki, zasady klienta i źródła
+  // wczytane. Wcześniej lista braków niesie „wczytuję…”, a nie decyzje.
+  const sourcesLoading =
+    !notListed && (g.recruitmentsQuery.isPending || (g.recruitment != null && g.aiSourcesQuery.isPending));
+  const settled =
+    listed &&
+    !g.sourcesQuery.isPending &&
+    !(g.clientId != null && g.policyQuery.isPending) &&
+    (notListed || (g.recruitment != null && !g.aiSourcesQuery.isPending));
+  // Coś czeka na rekrutera — panel rozwija się sam i już się nie zwija
+  // (poprawka wpisywana w rozwiniętym panelu nie może go zamknąć pod palcami).
+  const attention =
+    g.lastError != null ||
+    otherProcess ||
+    g.recruitmentsQuery.isError ||
+    (settled &&
+      (missing.length > 0 ||
+        g.aiSourcesQuery.isError ||
+        advancedNeedsAttention({
+          positionRequired: g.positionRequired,
+          position: g.position,
+          projectRefRequired: g.projectRefRequired,
+          projectRef: g.projectRef,
+        })));
+  const [expanded, setExpanded] = useState(false);
+  useEffect(() => {
+    if (attention) setExpanded(true);
+  }, [attention]);
+  const open = expanded || attention;
+
+  const sourcesRows = (
+    <AiSourcesRows
+      title="Z czego powstało"
+      data={g.aiSourcesQuery.data}
+      loading={sourcesLoading}
+      error={g.aiSourcesQuery.isError}
+      onRetry={() => void g.aiSourcesQuery.refetch()}
+      value={g.aiSources}
+      onChange={g.setAiSource}
+      disabled={g.generating}
+    />
+  );
+  const modeLabel =
+    CV_CONTENT_MODES.find((mode) => mode.value === (g.capBasic ? "basic" : g.contentMode))?.label ?? null;
+
+  let choices: React.ReactNode;
+  if (open) {
+    choices = (
+      <>
+        {sourcesRows}
+        <div className="space-y-3">
+          <ProcessingTiles
+            value={g.contentMode}
+            onChange={g.setContentMode}
+            hasChampion={g.hasChampion}
+            capBasic={g.capBasic}
+            disabled={g.generating}
+            canAddChampion={false}
+            compact
+          />
+          <LanguageChoice
+            value={g.languageChoice}
+            onChange={g.setLanguageChoice}
+            policy={g.languagePolicy}
+            clientName={g.clientName}
+            disabled={g.generating}
+            compact
+          />
+        </div>
+        <AdvancedOptions
+          open={g.advancedOpen}
+          onOpenChange={g.setAdvancedOpen}
+          blind={g.blind}
+          onBlindChange={g.setBlind}
+          position={g.position}
+          onPositionChange={g.setPosition}
+          positionRequired={g.positionRequired}
+          positionFromJob={!!g.recruitment && g.position === g.recruitment.job_title}
+          projectRef={g.projectRef}
+          onProjectRefChange={g.setProjectRef}
+          projectRefVisible={g.projectRefVisible}
+          projectRefRequired={g.projectRefRequired}
+          projectRefFromJob={g.projectRefFromJob}
+        />
+      </>
+    );
+  } else if (settled && g.aiSourcesQuery.data && g.aiSources) {
+    const facts = [
+      aiSourcesSentence(g.aiSourcesQuery.data, g.aiSources),
+      modeLabel,
+      LANGUAGE_IN_SENTENCE[g.languageChoice],
+    ].filter((fact): fact is string => !!fact);
+    choices = (
+      <p data-testid="cv-generate-summary" className="text-xs text-foreground [overflow-wrap:anywhere]">
+        {facts.join(" · ")} ·{" "}
+        <button
+          type="button"
+          aria-expanded={false}
+          className="font-medium text-primary hover:underline"
+          onClick={() => setExpanded(true)}
+          disabled={g.generating}
+        >
+          Zmień
+        </button>
+      </p>
+    );
+  } else {
+    // Wczytywanie: ten sam stan co rozwinięte „Z czego powstało”, nie puste
+    // zdanie — i bez mignięcia wierszy, gdy źródła są już, a zasady klienta nie.
+    choices = (
       <AiSourcesRows
         title="Z czego powstało"
-        data={g.aiSourcesQuery.data}
-        loading={!notListed && (g.recruitmentsQuery.isPending || (g.recruitment != null && g.aiSourcesQuery.isPending))}
-        error={g.aiSourcesQuery.isError}
+        data={undefined}
+        loading
+        error={false}
         onRetry={() => void g.aiSourcesQuery.refetch()}
-        value={g.aiSources}
+        value={null}
         onChange={g.setAiSource}
-        disabled={g.generating}
       />
-      <div className="space-y-3">
-        <ProcessingTiles
-          value={g.contentMode}
-          onChange={g.setContentMode}
-          hasChampion={g.hasChampion}
-          capBasic={g.capBasic}
-          disabled={g.generating}
-          canAddChampion={false}
-          compact
-        />
-        <LanguageChoice
-          value={g.languageChoice}
-          onChange={g.setLanguageChoice}
-          policy={g.languagePolicy}
-          clientName={g.clientName}
-          disabled={g.generating}
-          compact
-        />
-      </div>
-      <AdvancedOptions
-        open={g.advancedOpen}
-        onOpenChange={g.setAdvancedOpen}
-        blind={g.blind}
-        onBlindChange={g.setBlind}
-        position={g.position}
-        onPositionChange={g.setPosition}
-        positionRequired={g.positionRequired}
-        positionFromJob={!!g.recruitment && g.position === g.recruitment.job_title}
-        projectRef={g.projectRef}
-        onProjectRefChange={g.setProjectRef}
-        projectRefVisible={g.projectRefVisible}
-        projectRefRequired={g.projectRefRequired}
-        projectRefFromJob={g.projectRefFromJob}
-      />
+    );
+  }
+
+  return (
+    <section aria-label="Generowanie CV" className={PANEL_CLASS} data-testid="cv-generate-panel">
+      {choices}
       {g.recruitment && g.consentBlocksGeneration ? (
         <ConsentScreenshotField
           context={{

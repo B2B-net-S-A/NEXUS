@@ -223,8 +223,8 @@ const MEMORY_FILES: CvEditorFiles = {
   draftDocx: async () => ({ blob: await staticFile(WORD_FILE), filename: "SZKIC_CV_przyklad.docx" }),
   downloadApproved: async () => undefined,
   previewApproved: () => staticFile(WORD_FILE),
-  draftPdf: () => staticFile(PAGES_FILE),
-  previewApprovedPdf: () => staticFile(PAGES_FILE),
+  draftPdf: async () => ({ blob: await staticFile(PAGES_FILE), filename: "SZKIC_CV_przyklad.pdf" }),
+  approvedPdf: async () => ({ blob: await staticFile(PAGES_FILE), filename: "CV_przyklad.pdf" }),
   print: async () => undefined,
 };
 

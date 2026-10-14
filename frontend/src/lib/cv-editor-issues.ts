@@ -463,6 +463,35 @@ export function bulkPlan(checks: readonly QcCheck[], fixes: readonly QcFix[]): B
   return { actions, parts };
 }
 
+// ── „Pogrub wymagania (N)” w nagłówku edytora (Edytor CV 3, PR 3) ────────────
+
+/**
+ * Wymagania klienta, których QC nie widzi pogrubionych (must-have i — przy
+ * polityce must + nice — mile widziane), i poprawki, które je pogrubiają.
+ * Ta sama droga co „Pogrub wszystkie” w panelu: `qc/transform` na treści
+ * z edytora, jeden cofalny krok. `count: null` = QC nie ma wyniku (liczy się,
+ * nie odpowiada) — przycisk bez liczby i wyłączony.
+ */
+export function boldRequirements(checks: readonly QcCheck[] | null): {
+  count: number | null;
+  actions: QcFixAction[];
+} {
+  if (checks === null) return { count: null, actions: [] };
+  const actions: QcFixAction[] = [];
+  let count = 0;
+  for (const check of checks) {
+    if (check.status !== "fail") continue;
+    const terms = check.items.filter((item) => item.fix === "bold_all").length;
+    if (terms === 0) continue;
+    count += terms;
+    const scope = check.key === "nice_bolded" ? "nice" : "must";
+    if (!actions.some((action) => action.action === "bold_all" && action.scope === scope)) {
+      actions.push({ action: "bold_all", scope });
+    }
+  }
+  return { count, actions };
+}
+
 // ── Nałożenie wyniku serwera ─────────────────────────────────────────────────
 
 interface Change {

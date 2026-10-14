@@ -35,7 +35,7 @@
  * Ta sama liczba stoi na karcie „CV do klienta” (`cvChecksBeforeSending`).
  */
 
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useImperativeHandle, useMemo, useRef, useState, type Ref } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Editor } from "@tiptap/core";
 import { CheckCircle2, ChevronRight, Loader2, LocateFixed, RefreshCw, Undo2, Wand2 } from "lucide-react";
@@ -87,6 +87,7 @@ import {
   ISSUE_SOURCE_LABEL,
   REVIEW_FINDING_LABEL,
   buildIssueList,
+  boldRequirements,
   bulkPlan,
   findingsInCv,
   fixAlreadyInCv,
@@ -136,6 +137,14 @@ export interface CvEditorIssuesProps {
   onCount?: (count: CvIssueCount) => void;
   /** Harness: dane z pamięci zamiast sieci. */
   api?: CvEditorIssuesApi;
+  /** „Pogrub wymagania (N)” z nagłówka edytora woła poprawkę tego panelu. */
+  ref?: Ref<CvEditorIssuesHandle>;
+}
+
+/** Polecenia panelu dla nagłówka edytora (Edytor CV 3, PR 3). */
+export interface CvEditorIssuesHandle {
+  /** Pogrubia wymagania klienta, których QC nie widzi pogrubionych — jak „Pogrub wszystkie”. */
+  boldRequirements: () => void;
 }
 
 /** Po tylu ms od zapisu szkicu panel prosi o świeże QC (autozapis chodzi co 2 s). */
@@ -367,6 +376,7 @@ export function CvEditorIssues({
   onShowCv,
   onCount,
   api = networkIssuesApi,
+  ref,
 }: CvEditorIssuesProps) {
   const queryClient = useQueryClient();
   const { showSuccess, showError } = useToast();
@@ -702,6 +712,15 @@ export function CvEditorIssues({
   useEffect(() => {
     onCount?.({ total, blocking, state: countState, qc: countQc });
   }, [onCount, total, blocking, countState, countQc]);
+  // Ta sama droga co „Pogrub wszystkie” przy sprawdzeniu: serwer liczy na treści
+  // z edytora, edytor nakłada wynik jednym cofalnym krokiem.
+  useImperativeHandle(ref, () => ({
+    boldRequirements: () => {
+      if (readOnly) return;
+      const { actions } = boldRequirements(checks);
+      if (actions.length > 0) void run(actions, false, "Pogrubiono wymagania klienta.");
+    },
+  }));
 
   // „Cofnij” przy wyniku „Popraw wszystko” — dopóki nic nie zmieniono po poprawce.
   const canUndoBulk = bulkOutcome != null && !editor.isDestroyed && editor.state.doc === bulkDoc.current;

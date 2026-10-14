@@ -6,9 +6,10 @@
  * Zastępuje osadzony w panelu osoby cały generator, wybór wersji „Zastąp szkic
  * i otwórz edytor” i stary szablon „CV firmowe”. Stany (makieta
  * „Rekrutacja → panel osoby → CV do klienta”):
- *  - gotowe — szkic albo zatwierdzona wersja etapu: Podgląd · Edytuj ·
- *    Pobierz DOCX, uwagi kontroli AI, zgoda RODO, „Wygeneruj ponownie”
- *    i „Użyj nowej wersji”, gdy obok leży nowsza, niepodpięta generacja;
+ *  - gotowe — szkic albo zatwierdzona wersja etapu: miniatura pierwszej
+ *    strony (klik = wszystkie strony), „Otwórz i popraw” · „Pobierz Word” ·
+ *    „⋯”, liczba rzeczy do sprawdzenia, zgoda RODO i „Użyj nowej wersji”,
+ *    gdy obok leży nowsza, niepodpięta generacja;
  *  - generuje się — ręczna generacja z tej karty albo auto-CV po weryfikacji;
  *  - brak — „Generuj CV” rozwija w karcie panel „Z czego powstało”
  *    (`CvGeneratePanel`); serwer sam podpina gotowe CV do etapu;
@@ -42,6 +43,14 @@
  * (`forwarded`) karta pokazuje nad treścią blok postępu: screening → CV → QC,
  * pyta serwer co 4 s, aż automat założy CV albo powie, czemu go nie zrobił
  * (najdłużej 5 min), i daje „Następna w Screeningu” — bez samego skoku.
+ *
+ * 14.10.2026 (Edytor CV 3, „Ekran 5”): zespół mówił, że karta jest chaotyczna.
+ * Gotowe CV to miniatura prawdziwej pierwszej strony pliku dla klienta (PDF
+ * z pliku Word, `CvFirstPageThumb`) z liczbą stron obok; „Podgląd” zastąpił
+ * klik w miniaturę, „Edytuj” — „Otwórz i popraw”, a rzadkie akcje („Pobierz
+ * PDF”, „Użyj innego CV”, „Historia wersji”, „Wygeneruj ponownie”) są w menu
+ * „⋯”. PDF stron jest pobierany raz na wersję CV i dzielony przez miniaturę
+ * i okno stron — zamiana na serwerze kosztuje ok. 2 s procesora.
  */
 
 import { useEffect, useRef, useState } from "react";
@@ -54,9 +63,12 @@ import {
   Circle,
   Download,
   Eye,
+  FileDown,
   FileText,
+  History,
   Info,
   Loader2,
+  MoreHorizontal,
   Pencil,
   RefreshCcw,
   Repeat2,
@@ -73,8 +85,9 @@ import {
   downloadBlob,
   postAuthenticatedDownload,
 } from "@/lib/authenticated-files";
-import { withDownloadIntent } from "@/lib/cv-download-intent";
+import { withDownloadIntent, type CvDownloadSurface } from "@/lib/cv-download-intent";
 import { CV_CONTENT_MODES } from "@/lib/cv-generator";
+import { countForm } from "@/lib/cv-qc";
 import { cvAiSourcesQueryKey } from "@/lib/cv-ai-sources";
 import type { CvEditorHandoff } from "@/lib/cv-editor-handoff";
 import {
@@ -102,10 +115,17 @@ import { useStageBrandedCv } from "@/hooks/useStageBrandedCv";
 import { useToast } from "@/components/Toast";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { ConsentAttachButton } from "@/components/v2/cv-generator/ConsentAttachButton";
 import { CVOriginalPreviewModal } from "@/components/v2/modals/CVOriginalPreviewModal";
 import { CvGeneratePanel } from "@/components/v2/recruitment/CvGeneratePanel";
 import { CvFilePreviewDialog } from "@/components/v2/cv/CvFilePreviewDialog";
+import { CvFirstPageThumb } from "@/components/v2/cv/CvFirstPageThumb";
 import { fetchStageCvFile, fetchStageCvPdf } from "@/lib/stage-cv-file";
 import { normalizeCvAlign } from "@/lib/cv-editor-align";
 import { CvToClientChecks, useCvChecksCount } from "@/components/v2/recruitment/CvToClientChecks";
@@ -306,9 +326,21 @@ export interface CvToClientCardProps {
    * podaje plik z pamięci — w `/preview/*` zapytania POST są blokowane.
    */
   loadStageCvFile?: (stageId: number) => Promise<{ blob: Blob }>;
-  /** Strony CV (PDF z pliku Word) do „Podglądu” — harness podaje plik z pamięci. */
-  loadStageCvPdf?: (stageId: number) => Promise<{ blob: Blob }>;
+  /**
+   * Strony CV (PDF z pliku Word): miniatura, okno stron i „Pobierz PDF”
+   * (z `download`). Harness podaje plik z pamięci.
+   */
+  loadStageCvPdf?: (
+    stageId: number,
+    opts?: { download?: CvDownloadSurface },
+  ) => Promise<{ blob: Blob; filename?: string | null }>;
 }
+
+/** Bez zgody RODO serwer i tak odpowie 409 — miniatura nie pyta wcale. */
+const noPagesWithoutConsent = () => Promise.reject(new Error("consent_required"));
+
+/** Radix oddaje fokus PO `onSelect` — okno otwarte w tym samym ticku zamknęłoby się. */
+const afterMenuCloses = (action: () => void) => () => window.setTimeout(action, 0);
 
 export function CvToClientCard({
   stageId,
@@ -332,12 +364,16 @@ export function CvToClientCard({
   // Panel „Z czego powstało” (generacja w karcie, bez okna generatora).
   const [generateOpen, setGenerateOpen] = useState(initialGenerateOpen);
   const [editorOpen, setEditorOpen] = useState(false);
-  // „Sprawdź i popraw” otwiera edytor od razu na panelu „Do poprawy”.
-  const [editorPanel, setEditorPanel] = useState<"issues" | undefined>(undefined);
+  // „Sprawdź i popraw” otwiera edytor od razu na panelu „Do poprawy”,
+  // „Historia wersji” z menu „⋯” — na historii.
+  const [editorPanel, setEditorPanel] = useState<"issues" | "history" | undefined>(undefined);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [originalOpen, setOriginalOpen] = useState(false);
   const [otherOpen, setOtherOpen] = useState(false);
   const [downloading, setDownloading] = useState(false);
+  const [downloadingPdf, setDownloadingPdf] = useState(false);
+  // Liczba stron z miniatury — ważna tylko dla wersji CV, z której pochodzi.
+  const [pages, setPages] = useState<{ key: string; count: number } | null>(null);
   // Generacja zlecona z TEJ karty — czekamy, aż serwer ją podepnie do etapu
   // (`replace` = etap miał już CV: gotową wersję podpinamy sami, jak „Użyj
   // nowej wersji”, bo serwer podpina tylko do etapu bez szkicu). Wiersz etapu
@@ -535,6 +571,44 @@ export function CvToClientCard({
     }
   };
 
+  // Strony CV (PDF z pliku Word) — raz na treść CV, wspólne dla miniatury
+  // i okna stron: zamiana na serwerze kosztuje ok. 2 s procesora. Nieudany
+  // odczyt nie zostaje w pamięci, okno stron spróbuje jeszcze raz.
+  // Edytor zapisuje szkic co kilka sekund w tym samym kluczu zapytania, który
+  // czyta karta — gdy jest otwarty, klucz stoi, a miniatura odświeża się raz,
+  // po zamknięciu (inaczej każdy autozapis to nowa zamiana i limit 20/min).
+  const liveKey = `${cvStageId}:${branded?.status ?? "none"}:${branded?.version ?? 0}:${branded?.edit_revision ?? 0}`;
+  const [pagesKey, setPagesKey] = useState(liveKey);
+  useEffect(() => {
+    if (!editorOpen) setPagesKey(liveKey);
+  }, [editorOpen, liveKey]);
+  const pagesPdf = useRef<{ key: string; promise: Promise<Blob> } | null>(null);
+  const loadPagesPdf = () => {
+    if (pagesPdf.current?.key !== pagesKey) {
+      const promise = loadStageCvPdf(cvStageId).then((file) => file.blob);
+      const entry = { key: pagesKey, promise };
+      promise.catch(() => {
+        if (pagesPdf.current === entry) pagesPdf.current = null;
+      });
+      pagesPdf.current = entry;
+    }
+    return pagesPdf.current.promise;
+  };
+
+  /** „Pobierz PDF” z menu „⋯” — serwer zapisuje pobranie (format `pdf`). */
+  const downloadPdf = async () => {
+    setDownloadingPdf(true);
+    try {
+      const file = await loadStageCvPdf(cvStageId, { download: "card" });
+      downloadBlob(file.blob, file.filename || (branded?.status === "finalized" ? "CV.pdf" : "SZKIC_CV.pdf"));
+    } catch (error) {
+      // 409 bez zgody i 503 (PDF chwilowo niedostępny) niosą polski komunikat serwera.
+      showError(apiErrorMessage(error, "Nie udało się pobrać PDF. Spróbuj za chwilę albo pobierz plik Word."));
+    } finally {
+      setDownloadingPdf(false);
+    }
+  };
+
   // Ponowna generacja przy istniejącym CV: gotową wersję podpinamy sami
   // (ta sama operacja co „Użyj nowej wersji”). Raz na generację; odmowa
   // (szkic zmienił się w innym oknie) zostawia przycisk „Użyj nowej wersji”.
@@ -564,7 +638,7 @@ export function CvToClientCard({
     setEditorOpen(false);
     setGenerateOpen(true);
   };
-  const openEditor = (panel?: "issues") => {
+  const openEditor = (panel?: "issues" | "history") => {
     setEditorPanel(panel);
     setEditorOpen(true);
   };
@@ -643,68 +717,127 @@ export function CvToClientCard({
     );
   } else if (state.kind === "ready" && branded) {
     const finalized = branded.status === "finalized";
+    // Miniatura rysuje się od nowa przy każdej wersji CV i po dołączeniu zgody.
+    const thumbKey = `${pagesKey}:${state.consentMissing ? "no-consent" : "consent"}`;
+    const pagesLabel =
+      pages?.key === pagesKey ? countForm(pages.count, ["strona", "strony", "stron"]) : null;
+    const facts = [pagesLabel, modeLabel, languageLabel].filter((fact): fact is string => !!fact);
+    const regenerateLabel = replaceFailed ? "Spróbuj ponownie" : "Wygeneruj ponownie";
     body = (
       <div className="space-y-2.5">
-        <div className="flex flex-wrap items-center gap-1.5">
-          <Badge size="sm" variant={finalized ? "success" : "info"}>
-            {finalized ? `CV gotowe · wersja ${branded.version}` : "CV gotowe · szkic"}
-          </Badge>
-          {modeLabel ? <Badge size="sm" variant="neutral">{modeLabel}</Badge> : null}
-          {languageLabel ? <Badge size="sm" variant="neutral">{languageLabel}</Badge> : null}
-          {state.needsReview ? (
-            <Badge size="sm" variant="warning" className="h-auto whitespace-normal py-0.5 text-left">
-              wygenerowane automatycznie — sprawdź przed wysyłką
-            </Badge>
-          ) : null}
-          {origin ? (
-            <Badge
-              size="sm"
-              variant={origin.tone === "warning" ? "warning" : "neutral"}
-              className="h-auto whitespace-normal py-0.5 text-left"
-              data-testid="cv-origin-badge"
-            >
-              {origin.badge}
-            </Badge>
-          ) : null}
+        <div className="flex items-start gap-3">
+          <CvFirstPageThumb
+            key={thumbKey}
+            load={state.consentMissing ? noPagesWithoutConsent : loadPagesPdf}
+            onOpen={() => setPreviewOpen(true)}
+            onPages={(count) => setPages({ key: pagesKey, count })}
+            label={`Otwórz strony CV — ${candidateName}`}
+          />
+          <div className="min-w-0 flex-1 space-y-2">
+            <div data-testid="cv-ready-facts" className="space-y-1 text-xs text-muted-foreground">
+              <Badge size="sm" variant={finalized ? "success" : "info"}>
+                {finalized ? `wersja ${branded.version}` : "szkic"}
+              </Badge>
+              {facts.length > 0 ? <p>{facts.join(" · ")}</p> : null}
+            </div>
+            {state.needsReview || origin ? (
+              <div className="flex flex-wrap items-center gap-1.5">
+                {state.needsReview ? (
+                  <Badge size="sm" variant="warning" className="h-auto whitespace-normal py-0.5 text-left">
+                    wygenerowane automatycznie — sprawdź przed wysyłką
+                  </Badge>
+                ) : null}
+                {origin ? (
+                  <Badge
+                    size="sm"
+                    variant={origin.tone === "warning" ? "warning" : "neutral"}
+                    className="h-auto whitespace-normal py-0.5 text-left"
+                    data-testid="cv-origin-badge"
+                  >
+                    {origin.badge}
+                  </Badge>
+                ) : null}
+              </div>
+            ) : null}
+            {state.attached?.origin === "auto" && state.attached.created_at ? (
+              <p className="text-[11px] text-muted-foreground">
+                Wygenerowane automatycznie {formatDate(state.attached.created_at)}, po ruchu na
+                „Zweryfikowany”.
+              </p>
+            ) : null}
+            {origin ? <p className="text-[11px] text-muted-foreground">{origin.sentence}</p> : null}
+            <div className="flex flex-wrap gap-1.5">
+              {!readOnly ? (
+                <Button size="sm" variant="outline" onClick={() => openEditor()}>
+                  <Pencil className="h-3.5 w-3.5" aria-hidden /> Otwórz i popraw
+                </Button>
+              ) : null}
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => void download()}
+                disabled={downloading || state.consentMissing}
+                loading={downloading}
+                title={
+                  state.consentMissing
+                    ? "Najpierw dołącz zrzut zgody RODO — bez niego nie pobierzesz CV."
+                    : undefined
+                }
+              >
+                <Download className="h-3.5 w-3.5" aria-hidden /> Pobierz Word
+              </Button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    aria-label="Więcej akcji CV"
+                    title="Więcej akcji CV"
+                    data-testid="cv-card-more"
+                  >
+                    <MoreHorizontal className="h-3.5 w-3.5" aria-hidden />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem
+                    disabled={downloadingPdf || state.consentMissing}
+                    title={
+                      state.consentMissing
+                        ? "Najpierw dołącz zrzut zgody RODO — bez niego nie pobierzesz CV."
+                        : undefined
+                    }
+                    onSelect={() => void downloadPdf()}
+                  >
+                    <FileDown className="h-3.5 w-3.5" aria-hidden /> Pobierz PDF
+                  </DropdownMenuItem>
+                  {!readOnly ? (
+                    <DropdownMenuItem onSelect={afterMenuCloses(() => setOtherOpen(true))}>
+                      <Repeat2 className="h-3.5 w-3.5" aria-hidden /> Użyj innego CV
+                    </DropdownMenuItem>
+                  ) : null}
+                  {!readOnly ? (
+                    <DropdownMenuItem onSelect={afterMenuCloses(() => openEditor("history"))}>
+                      <History className="h-3.5 w-3.5" aria-hidden /> Historia wersji
+                    </DropdownMenuItem>
+                  ) : null}
+                  {!readOnly && !generateOpen ? (
+                    <DropdownMenuItem onSelect={afterMenuCloses(openGenerator)}>
+                      <RefreshCcw className="h-3.5 w-3.5" aria-hidden /> Wygeneruj ponownie
+                    </DropdownMenuItem>
+                  ) : null}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+          </div>
         </div>
-        {state.attached?.origin === "auto" && state.attached.created_at ? (
-          <p className="text-[11px] text-muted-foreground">
-            Wygenerowane automatycznie {formatDate(state.attached.created_at)}, po ruchu na
-            „Zweryfikowany”.
-          </p>
-        ) : null}
-        {origin ? <p className="text-[11px] text-muted-foreground">{origin.sentence}</p> : null}
-        {readyHint}
+        {/* Pełna szerokość karty: obok miniatury zdanie i „Sprawdź i popraw” łamały się w słupek. */}
         <CvToClientChecks
           stageId={cvStageId}
           revision={branded.edit_revision ?? null}
           readOnly={readOnly}
           onReview={() => openEditor("issues")}
         />
-        <div className="flex flex-wrap gap-1.5">
-          <Button size="sm" variant="outline" onClick={() => setPreviewOpen(true)}>
-            <Eye className="h-3.5 w-3.5" aria-hidden /> Podgląd
-          </Button>
-          {!readOnly ? (
-            <Button size="sm" variant="outline" onClick={() => openEditor()}>
-              <Pencil className="h-3.5 w-3.5" aria-hidden /> Edytuj
-            </Button>
-          ) : null}
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => void download()}
-            disabled={downloading || state.consentMissing}
-            loading={downloading}
-            title={
-              state.consentMissing
-                ? "Najpierw dołącz zrzut zgody RODO — bez niego nie pobierzesz CV."
-                : undefined
-            }
-          >
-            <Download className="h-3.5 w-3.5" aria-hidden /> Pobierz DOCX
-          </Button>
-        </div>
+        {readyHint}
         {state.consentMissing ? (
           <div
             role="note"
@@ -747,10 +880,14 @@ export function CvToClientCard({
           </p>
         ) : null}
         {replaceFailed ? (
-          <p role="alert" className="text-xs text-destructive-muted-foreground">
-            Nowa wersja nie powstała
-            {replaceFailed.error_message ? `: ${replaceFailed.error_message}` : "."} Bieżące CV zostaje.
-          </p>
+          <div className="space-y-1.5">
+            <p role="alert" className="text-xs text-destructive-muted-foreground">
+              Nowa wersja nie powstała
+              {replaceFailed.error_message ? `: ${replaceFailed.error_message}` : "."} Bieżące CV zostaje.
+            </p>
+            {/* Ponowienie po awarii stoi przy komunikacie, nie tylko w „⋯”. */}
+            {!readOnly ? generateButton(regenerateLabel, false, "refresh") : null}
+          </div>
         ) : null}
         {state.candidate && !readOnly && !replacing ? (
           <div className="flex flex-wrap items-center gap-2 rounded-md border border-info/25 bg-info-muted px-2.5 py-1.5 text-xs text-info-muted-foreground">
@@ -768,12 +905,6 @@ export function CvToClientCard({
             >
               Użyj nowej wersji
             </Button>
-          </div>
-        ) : null}
-        {!readOnly ? (
-          <div className="flex flex-wrap gap-1.5">
-            {useOtherButton}
-            {generateButton(replaceFailed ? "Spróbuj ponownie" : "Wygeneruj ponownie", false, "refresh")}
           </div>
         ) : null}
       </div>
@@ -976,7 +1107,7 @@ export function CvToClientCard({
           open
           onOpenChange={setPreviewOpen}
           title={`CV do klienta — ${candidateName}`}
-          loadPdf={() => loadStageCvPdf(cvStageId).then((file) => file.blob)}
+          loadPdf={loadPagesPdf}
           load={() => loadStageCvFile(cvStageId).then((file) => file.blob)}
           fallbackHtml={branded?.content_html ?? null}
           language={branded?.language === "en" ? "en" : "pl"}
