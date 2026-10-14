@@ -128,8 +128,9 @@ rekrutację); front `components/v2/job-ad/`, `lib/api/jobAd.ts`, karta
   i ogłoszenie”) oraz kolumna „Ogłoszenia” listy (`JobAdPublicationsCell`).
   NEXUS niczego na portalu nie publikuje ani nie zdejmuje — także przy
   zamknięciu rekrutacji; wtedy sekcja i lista tylko przypominają o zdjęciu.
-  - **Link przyjmujemy wyłącznie z domeny portalu** (`pracuj.pl`,
-    `justjoin.it`): http/https i sam host — bez portu, danych logowania,
+  - **Link przyjmujemy wyłącznie z domeny portalu** (`pracuj.pl`;
+    przy JustJoin.IT `justjoin.it` albo `rocketjobs.pl`, bo RocketJobs
+    połączył się z JustJoin.IT i ogłoszenie wisi też tam — 14.10.2026): http/https i sam host — bez portu, danych logowania,
     znaków spoza ASCII i bez ukośnika wstecznego gdziekolwiek w adresie
     (`publications.clean_url`). Odnośnik z listy rekrutacji prowadzi prosto
     na zewnątrz, więc dowolny adres byłby dziurą. Przeglądarka czyta „\”
