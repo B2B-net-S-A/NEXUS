@@ -16,7 +16,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const formGet = vi.fn();
 const originalGet = vi.fn();
 const brandedGet = vi.fn();
-const pairCvGet = vi.fn();
 const candidatesGet = vi.fn();
 const apiGet = vi.fn();
 
@@ -32,7 +31,6 @@ vi.mock("@/lib/api", () => ({
   candidateStageCvApi: {
     original: { get: (...a: unknown[]) => originalGet(...a) },
     branded: { get: (...a: unknown[]) => brandedGet(...a) },
-    share: { listForRecruitment: (...a: unknown[]) => pairCvGet(...a) },
   },
   extractErrorMsg: (e: unknown) => (e instanceof Error ? e.message : "Błąd"),
 }));
@@ -103,13 +101,21 @@ function renderDock(overrides: Partial<ComponentProps<typeof PipelineCandidateDo
   );
 }
 
+/**
+ * CV firmowe pary na wierszu `stageId`. Od 14.10.2026 dok czyta je tak jak
+ * karta „CV do klienta”: bieżący wiersz bez CV wskazuje wiersz pary
+ * (`pair_source_stage_id`), a dok czyta stan CV tamtego wiersza.
+ */
 function pairCv(status: "none" | "draft" | "finalized", stageId: number | null) {
-  pairCvGet.mockResolvedValue({
-    data: {
-      items: [],
-      branded_cv: { status, stage_id: stageId, stage_name: "Zweryfikowany", finalized_at: null },
-    },
-  });
+  if (status === "none" || stageId == null || stageId === CURRENT_ROW) return;
+  brandedGet.mockImplementation((id: number) =>
+    Promise.resolve({
+      data:
+        id === stageId
+          ? { candidate_stage_id: stageId, status, from_generator: true, edit_revision: 2, version: 1 }
+          : { candidate_stage_id: CURRENT_ROW, status: "none", pair_source_stage_id: stageId, pair_source_status: status },
+    }),
+  );
 }
 
 async function openCvSection() {
@@ -209,7 +215,7 @@ describe("PipelineCandidateDock — ramka „CV firmowe z poprzedniego CV” po 
     renderDock();
     await openCvSection();
 
-    await waitFor(() => expect(pairCvGet).toHaveBeenCalled());
+    await waitFor(() => expect(brandedGet).toHaveBeenCalledWith(DRAFT_ROW));
     await screen.findByText(/CV firmowe: zatwierdzone/);
     expect(screen.queryByTestId("company-cv-stale-stub")).toBeNull();
   });
