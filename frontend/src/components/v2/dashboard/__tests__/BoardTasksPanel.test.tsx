@@ -1128,7 +1128,7 @@ describe("BoardTasksPanel — „Umowy” (04.10.2026)", () => {
     );
   });
 
-  it("podpisana umowa z trwającym kontraktem → link „Zakończ współpracę” do kontraktu", async () => {
+  it("podpisana umowa z trwającym kontraktem → link „Sprawdź” do kontraktu, bez „Zakończ współpracę”", async () => {
     mockQueue({
       agreements: {
         to_confirm: [],
@@ -1138,9 +1138,11 @@ describe("BoardTasksPanel — „Umowy” (04.10.2026)", () => {
     });
     renderPanel();
     const section = await screen.findByRole("region", { name: "Umowy do zamknięcia" });
-    expect(
-      within(section).getByRole("link", { name: "Zakończ współpracę: Ewa Zielińska" }).getAttribute("href"),
-    ).toBe("/contracts/812");
+    const link = within(section).getByRole("link", { name: "Sprawdź: Ewa Zielińska" });
+    expect(link.getAttribute("href")).toBe("/contracts/812");
+    expect(link.textContent).toBe("Sprawdź");
+    // Karta bywa zamknięta błędnie, a osoba pracuje — kafelek nie podsuwa końca współpracy.
+    expect(within(section).queryByText(/Zakończ współpracę/)).toBeNull();
   });
 
   it("same Twoje prośby → panel stoi z grupą „U innych”", async () => {

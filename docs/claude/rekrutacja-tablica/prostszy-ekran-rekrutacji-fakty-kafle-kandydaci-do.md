@@ -8,7 +8,9 @@ rekrutacji i pasek filtrów z 24.09 oraz blok propozycji w „Nowych” z 22.09.
   Klient · Budżet · Tryb pracy** (`lib/job-header-facts.ts`, brak wartości =
   „nie podano”). Po prawej tylko „Tablica | Profil Championa”, „Historia
   i czat” i „⋯”. Nie ma liczników, ścieżki „Zlecenie → … → Umowa”,
-  „Najbliższego kroku” ani podtytułu.
+  „Najbliższego kroku” ani podtytułu. **Od 14.10.2026 układ opisuje sekcja
+  „Nagłówek w trzech cienkich liniach” na końcu pliku** (priorytet, „Rekruter”,
+  źródła kandydatów w nagłówku, „Zwiń”).
 - **Nic nie znika — schodzi do menu „⋯”** (`JobDetailCompactHeader`): „Oznacz:
   mamy championa”, „Dodaj po nazwisku”, „Dodaj z pliku CV”, „Przeszukaj całą
   bazę (AI)”, „Moi ludzie do tej rekrutacji” (otwiera panel „Moi ludzie”),
@@ -17,8 +19,9 @@ rekrutacji i pasek filtrów z 24.09 oraz blok propozycji w „Nowych” z 22.09.
   pozycja w tym menu i wpis w `recruitment-feature-inventory.json`. Kotwica
   pomocy `job.champion.found` stoi na przycisku menu (pozycji zamkniętego menu
   nie ma w DOM).
-- **Pasek „Kandydaci do dodania” nad Tablicą = cztery kafle**
-  (`CandidateSourcesStrip`, wstawiany przez `KanbanBoardV2.renderAbove`):
+- **„Kandydaci do dodania” = cztery źródła** (`CandidateSourcesStrip`; do
+  14.10.2026 pasek z kaflami nad Tablicą przez `KanbanBoardV2.renderAbove`,
+  od 14.10 trzecia linia nagłówka — sekcja na końcu pliku):
   Podobne rekrutacje · Nowi z ogłoszeń (7 dni) · Propozycje z bazy · Szukaj
   w bazie. „Nowi” to zwykła kolumna — liczy tylko karty. Liczby: `GET
   /api/jobs/{id}/proposal-counts` (`postings_recent` + `base` = `total`
@@ -63,8 +66,8 @@ rekrutacji i pasek filtrów z 24.09 oraz blok propozycji w „Nowych” z 22.09.
     Kafla nie ma (`CandidateWindowTab` = kafle + `manual`).
 - **Tablica bez paska filtrów** (nazwisko, „Mój ruch”, „Filtry”, „N w procesie”,
   SLA w pasku — usunięte bez zamiennika; plakietki „Twój ruch” i SLA kolumn
-  zostają). Wyjątek od 14.10.2026: jeden przycisk „Kto dodał” w linii faktów
-  nagłówka (`nastepna-osoba-po-odrzuceniu.md`, sekcja „Kolejka w kolumnie…”);
+  zostają). Wyjątek od 14.10.2026: jeden przycisk „Kto dodał” w nagłówku (linia
+  źródeł kandydatów) (`nastepna-osoba-po-odrzuceniu.md`, sekcja „Kolejka w kolumnie…”);
   kolejny filtr = nowa decyzja. **„Zamknięci” to wąska kolumna obok Tablicy** (`board-closed-column`,
   poza przewijanym obszarem): cztery strefy upuszczenia z tymi samymi
   `droppableId` co dawne chipy (`closedChips`), klik rozwija kolumny zamkniętych.
@@ -114,6 +117,51 @@ dopasowanie dla N”, otwierał osobę, zaznaczał i dopiero dodawał.
 - Harness: `/preview/job-detail?sources=base|search|manual` — wyniki z zasiewu
   (`/scores` odpowiada lokalnie), po jednej osobie w stanie „Dodano · Cofnij”
   (`initialAddedIds`).
+
+## Nagłówek w trzech cienkich liniach — priorytet, rekruter, „Zwiń” (14.10.2026)
+
+Prośba Artura: brakowało widocznego priorytetu i rekrutera, a przy 1280×720
+(menu 240 px) nagłówek 151 px + pasek kandydatów 81 px spychały Tablicę na
+323 px. Decyzje K-D1–K-D5, makiety https://claude.ai/artifact/DZWUbWtiQLrnzm81RwLvDP.
+Harness `/preview/job-detail`: kolumna „Nowi” na 218 px (0,30 okna), po „Zwiń”
+na 145 px; próg w `e2e/responsive-preview.spec.ts` — 0,4.
+
+- **Jedna karta, trzy linie** (`JobDetailCompactHeader`): (1) priorytet, tytuł,
+  status | zakładki, obecność, ikona „Historia i czat” (licznik na ikonie,
+  nazwa w dymku — K-D4), „⋯”, „Zwiń”; (2) fakty i „Rekruter”; (3) tylko na
+  Tablicy i z wczytaną Tablicą: „Kandydaci do dodania” + „Kto dodał” po prawej
+  (K-D1). Nowy element w nagłówku nie dostaje własnej linii — najpierw sprawdź
+  pomiar na harnessie przy 1280×720.
+- **Fakty z ikoną zamiast etykiety** (K-D2): `Building2` / `Wallet` / `MapPin`,
+  etykieta jako `sr-only` w `dt` i w dymku faktu. Od `lg` linia się nie zawija:
+  pierwsza kurczy się nazwa klienta (najwyżej 15rem), potem tryb pracy, budżet
+  nigdy (`FACT_SHRINK`). Niżej linie zawijają się bez poziomego przewijania.
+- **Nazwa od klienta i numery** (K-D3): w dymku tytułu (`title` h1: tytuł,
+  nowa linia, „U klienta: … · nr u klienta … · nasz nr …”) i jako `sr-only`
+  `header-client-line` dla czytnika ekranu.
+- **Priorytet** (`JobPriorityMenu`): ta sama krótka plakietka co na liście
+  („P1”, „Bez priorytetu”, „Przyjmujemy”) — w nagłówku stoi też „Bez
+  priorytetu”. Prawo zmiany = `useJobTeamPermissions` (ta sama reguła co
+  zakładka „Zespół”: `can_set_priority` z serwera, inaczej capability); menu
+  z trzema poziomami i zdaniem z `PRIORITY_LEVEL_HINT`, zapis od razu przez
+  `useJobPriorityChange` (wspólny z polem w panelu „Zespół”). Bez prawa — sama
+  plakietka z dymkiem, kto zmienia.
+- **„Rekruter”** (`JobRecruiterFact`): reguła `recruitersOf`, zalogowana osoba
+  pierwsza jako „Ty”, jeden awatar + „+N” (awatary nie na zakładkę — tło jest
+  półprzezroczyste), bursztynowe „Bez rekrutera”, przerywana „propozycja: …”.
+  Okienko = `JobOwnershipPanel` (wszystkie akcje zespołu wg roli) + Delivery
+  Lead (`delivery_lead_user`) + link do „Profil Championa › Zespół”. Panel
+  zgłasza własne okna (`onLayerOpenChange`: potwierdzenie, „Zmień rekrutera”):
+  okienko jest wtedy `invisible`, a klik i fokus w `[role=dialog]` go nie
+  zamykają — inaczej potwierdzenie znikało razem z panelem.
+- **„Zwiń”** (K-D5): sama linia 1 + awatary rekruterów; włączony filtr „Kto
+  dodał” zostaje widoczny w linii tytułu. Pamięć per osoba w `localStorage`
+  (`lib/job-header-preferences.ts`, klucz `nexus:job-header-collapsed:<id>`,
+  domyślnie rozwinięty, poza `clearSessionArtifacts`). Dawny klucz
+  `nexus:jobHeaderCollapsed:v3` (do #1899, domyślnie zwinięty) nie wraca.
+- Przełącznik widoku Tablicy (tylko > 10 kolumn) rysuje się nad kolumnami sam
+  (`KanbanBoardV2` bez `renderAbove`). Harness: `?prio=`, `?team=me|none|proposal`,
+  `?client=long`, `?collapsed=1`, `?readonly=1`.
 
 ## „Pasuje też do” po „+ Dodaj” i „+1 rekrutacja” na karcie (14.10.2026)
 

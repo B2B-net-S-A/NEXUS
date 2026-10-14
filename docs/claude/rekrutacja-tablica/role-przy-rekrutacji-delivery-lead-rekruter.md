@@ -205,7 +205,10 @@ tylko `recruiter_id`), a Head of Recruitment nie mógł zmienić rekrutera.
   działałby dokładnie jak `p2`. Kolumna zostaje przy
   czterech wartościach; filtr listy `priority_level` (URL `prio`; klucz
   `priority` to stary, zdejmowany klucz adresu), sort „Wymaga uwagi” stawia P1
-  na górze, pole „Priorytet” jest w panelu „Zespół” i na `/jobs/new`.
+  na górze, pole „Priorytet” jest w panelu „Zespół”, na `/jobs/new` i od
+  14.10.2026 jako plakietka przed tytułem rekrutacji (`JobPriorityMenu`: ten sam
+  zapis i te same prawa — `prostszy-ekran-…`, sekcja „Nagłówek w trzech
+  cienkich liniach”).
   **Nowa rekrutacja zaczyna od P1** (decyzja Artura 08.10.2026, do tej daty
   P2): `job_priority.default_priority_for_new_job` jest domyślną wartością
   `POST /api/jobs`, a `/jobs/new` zaznacza `NEW_JOB_PRIORITY_LEVEL` (lustro

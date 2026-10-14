@@ -36,7 +36,8 @@ def _call_lines(func, name: str) -> list[int]:
     return sorted(lines)
 
 
-@pytest.mark.parametrize("handler", ["replace_order_po", "create_order_extension"])
+# `apply_order_file` — ciało `PUT …/file`, wspólne z API v1 (PR 2B).
+@pytest.mark.parametrize("handler", ["apply_order_file", "create_order_extension"])
 def test_upload_reads_the_invoice_formula_before_the_contract_lock(handler):
     from app.api import client_orders
 

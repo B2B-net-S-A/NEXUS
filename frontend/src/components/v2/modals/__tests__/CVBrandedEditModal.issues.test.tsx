@@ -82,14 +82,21 @@ vi.mock("@/components/v2/cv-editor/CvEditorToolbar", () => ({
 vi.mock("@/components/v2/cv-editor/CvEditorSources", () => ({
   CvEditorSources: () => <div data-testid="sources" />,
 }));
-vi.mock("@/components/v2/cv-editor/CvEditorSelectionAi", () => ({ CvEditorSelectionAi: () => null }));
-// Polecenie dla całego CV pracuje na prawdziwym edytorze (jak AI na zaznaczeniu) —
-// ma własne testy; atrapa edytora tego okna nie ma widoku ProseMirror.
-vi.mock("@/components/v2/cv-editor/useCvCommandPlan", () => ({
-  useCvCommandPlan: () => ({ enabled: false, phase: "idle", locked: false, discard: () => undefined }),
+// Asystent pracuje na prawdziwym edytorze — ma własne testy (harness edytora);
+// atrapa edytora tego okna nie ma widoku ProseMirror.
+vi.mock("@/components/v2/cv-editor/CvEditorAssistant", () => ({
+  CvEditorAssistant: () => <section aria-label="Asystent CV" />,
 }));
-vi.mock("@/components/v2/cv-editor/useCvSelectionAi", () => ({
-  useCvSelectionAi: () => ({ enabled: false, selection: { ok: false, reason: null, hidden: true }, phase: "idle" }),
+vi.mock("@/components/v2/cv-editor/useCvAssistant", () => ({
+  useCvAssistant: () => ({
+    enabled: false,
+    messages: [],
+    busy: false,
+    locked: false,
+    send: () => undefined,
+    answer: async () => undefined,
+    undo: () => undefined,
+  }),
 }));
 // Historia wersji porównuje dokument prawdziwego edytora — ma własne testy.
 // Tutaj atrapa trzyma samo „otwarte / zamknięte”, żeby sprawdzić układ okna.
@@ -125,15 +132,22 @@ vi.mock("@/components/v2/cv-editor/CvEditorIssues", async () => {
       ensureDraft: () => Promise<boolean>;
       onShowCv: () => void;
       ref?: import("react").Ref<{ boldRequirements: () => void }>;
+      heading?: import("react").ReactNode;
+      collapsed?: boolean;
     }) => {
       state.issuesProps.push(props as unknown as Record<string, unknown>);
       const { onCount } = props;
       useEffect(() => onCount?.(state.count), [onCount]);
       useImperativeHandle(props.ref, () => ({ boldRequirements: () => { state.bolded += 1; } }));
       return (
-        <div data-testid="issues">
-          <button onClick={() => void props.ensureDraft().then((ok) => state.drafted.push(ok))}>załóż szkic</button>
-          <button onClick={props.onShowCv}>pokaż kartkę</button>
+        <div>
+          {props.heading}
+          <div hidden={props.collapsed}>
+            <div data-testid="issues">
+              <button onClick={() => void props.ensureDraft().then((ok) => state.drafted.push(ok))}>załóż szkic</button>
+              <button onClick={props.onShowCv}>pokaż kartkę</button>
+            </div>
+          </div>
         </div>
       );
     },
@@ -463,18 +477,41 @@ it("wąski ekran: kolumna „Historia” wybiera się sama, a po zamknięciu wra
   expect(screen.getByTestId("paper").closest(".cv-paper")).not.toHaveAttribute("hidden");
 });
 
-it("historia i polecenie wykluczają się: otwarcie jednego zamyka drugie", async () => {
+// ── Kolumna: „Do poprawy” nad asystentem (Edytor CV 3, PR 4) ─────────────────
+
+const issuesToggle = () => screen.getByRole("button", { name: /^Do poprawy/ });
+const issuesBody = () => screen.getByTestId("issues").parentElement as HTMLElement;
+
+it("blokady QC: „Do poprawy” rozwinięte nad asystentem", async () => {
   await open();
-  fireEvent.click(await screen.findByRole("button", { name: "Polecenie dla całego CV" }));
-  expect(screen.getByRole("form", { name: "Polecenie dla całego CV" })).toBeInTheDocument();
+  await waitFor(() => expect(issuesToggle()).toHaveAttribute("aria-expanded", "true"));
+  expect(issuesBody()).not.toHaveAttribute("hidden");
+  expect(within(panel()).getByRole("region", { name: "Asystent CV" })).toBeInTheDocument();
+});
 
-  fireEvent.click(historyButton());
-  expect(historyShown()).toBe(true);
-  expect(screen.queryByRole("form", { name: "Polecenie dla całego CV" })).toBeNull();
+it("bez blokad „Do poprawy” jest zwinięte, ale liczy dalej; klik rozwija", async () => {
+  state.count = { total: 2, blocking: 0, state: "ready" };
+  await open();
+  await waitFor(() => expect(issuesToggle()).toHaveAttribute("aria-expanded", "false"));
+  // Zwinięty panel zostaje zamontowany: liczy znaczniki na kartce i liczbę w pasku.
+  expect(issuesBody()).toHaveAttribute("hidden");
+  expect(screen.getByTestId("issues")).toBeInTheDocument();
+  fireEvent.click(issuesToggle());
+  expect(issuesToggle()).toHaveAttribute("aria-expanded", "true");
+  expect(issuesBody()).not.toHaveAttribute("hidden");
+});
 
-  fireEvent.click(screen.getByRole("button", { name: "Polecenie dla całego CV" }));
-  expect(screen.getByRole("form", { name: "Polecenie dla całego CV" })).toBeInTheDocument();
-  expect(historyShown()).toBe(false);
+it("„Sprawdź i popraw” z karty otwiera „Do poprawy” rozwinięte także bez blokad", async () => {
+  state.count = { total: 2, blocking: 0, state: "ready" };
+  await open({ stageId: 5 }, { initialPanel: "issues" });
+  expect(issuesToggle()).toHaveAttribute("aria-expanded", "true");
+});
+
+it("wynik generatora nie ma asystenta — „Do poprawy” bez zwijania", async () => {
+  await open({ generatedId: 9 }, { generatorWarnings: ["MUST-HAVE: brak."] });
+  await waitFor(() => expect(state.issuesProps.length).toBeGreaterThan(0));
+  expect(screen.queryByRole("region", { name: "Asystent CV" })).toBeNull();
+  expect(screen.queryByRole("button", { name: /^Do poprawy/ })).toBeNull();
 });
 
 it("historia jest tylko dla CV etapu; pobranie starszej wersji niesie jej numer w nazwie pliku", async () => {

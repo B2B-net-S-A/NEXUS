@@ -1,9 +1,10 @@
 /**
- * Plan zmian dla „polecenia dla całego CV” w harnessie — bez sieci i bez modelu.
+ * Odpowiedzi asystenta w harnessie — bez sieci i bez modelu.
  *
  * Odpowiada jak trasa `cv-ai/command`: operacje na numerach wierszy, które
  * przysłał edytor. Dane są fikcyjne; reguły doboru proste i przewidywalne,
- * żeby dało się przeklikać każdy rodzaj operacji.
+ * żeby dało się przeklikać każdy rodzaj operacji (Edytor CV 3, PR 4: także
+ * dopisanie z pytaniem o źródło, pogrubienie i „Rozważany na stanowisko”).
  */
 
 import type {
@@ -25,6 +26,56 @@ function plan(body: CvCommandRequest): Draft[] {
   const text = (body.command ?? "").toLowerCase();
   const roles = [...new Set(lines.map((line) => line.role).filter((role): role is number => role != null))];
   const operations: Draft[] = [];
+
+  // „dopisz terraform …” — fakt spoza CV: asystent pyta o źródło.
+  if (text.includes("terraform")) {
+    const first = roles[0];
+    const bullet = first != null ? bulletsOfRole(lines, first)[0] : undefined;
+    if (bullet) {
+      operations.push({
+        type: "add",
+        lines: [bullet.id],
+        text: "Infrastruktura jako kod w **Terraform**.",
+        why: "Dopisany punkt z rozmowy z kandydatem.",
+        loses: [],
+        new_words: [],
+        ask: "source",
+        problem: "Terraform",
+      });
+    }
+    return operations;
+  }
+
+  // „stanowisko: X” — cel rekrutacji w linii „Rozważany na stanowisko”.
+  const target = /stanowisko:\s*(.+)$/i.exec(body.command ?? "");
+  if (target) {
+    const line = lines.find((item) => item.kind === "text" && item.text.startsWith("**Rozważany na stanowisko:**"));
+    if (line) {
+      operations.push({
+        type: "considered_for",
+        lines: [line.id],
+        text: `**Rozważany na stanowisko:** ${target[1].trim()}`,
+        why: "Nowe stanowisko, na które przedstawiamy kandydatkę.",
+        loses: [],
+        new_words: [],
+      });
+    }
+    return operations;
+  }
+
+  // „pogrub …” — terminy, które stoją w CV.
+  if (text.includes("pogrub") || body.preset === "more_requirements") {
+    operations.push({
+      type: "bold",
+      lines: [],
+      text: null,
+      why: "Wymagania klienta widoczne na pierwszy rzut oka.",
+      loses: [],
+      new_words: [],
+      terms: ["PostgreSQL", "Docker"],
+    });
+    return operations;
+  }
 
   if (body.preset === "order_by_requirements" || text.includes("kolejno")) {
     for (const role of roles) {
@@ -70,6 +121,7 @@ function plan(body: CvCommandRequest): Draft[] {
         why: "Najstarsze stanowisko, najdalej od wymagań klienta.",
         loses: ["JUnit"],
         new_words: [],
+        ask: "loses",
       });
     }
     return operations;
@@ -140,9 +192,13 @@ export function memoryCommandApi(down: boolean): CvEditorCommandApi {
       return {
         status: "ok",
         operations,
-        dropped: [{ type: "replace", reason: "new_fact", problem: "AWS" }],
+        dropped: [{ type: "replace", reason: "not_editable", problem: null }],
         message: null,
       };
+    },
+    // „Tak, dopisz”: w harnessie notatki nie ma gdzie zapisać — sama chwila zwłoki.
+    confirmFact: async () => {
+      await new Promise((resolve) => setTimeout(resolve, 150));
     },
   };
 }

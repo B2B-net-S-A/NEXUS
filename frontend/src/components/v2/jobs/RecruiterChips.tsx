@@ -53,7 +53,8 @@ function initialsOf(name: string): string {
   return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
 }
 
-function Avatar({ name, className }: { name: string; className: string }) {
+/** Awatar z inicjałami — też w fakcie „Rekruter” nagłówka rekrutacji. */
+export function RecruiterAvatar({ name, className }: { name: string; className: string }) {
   return (
     <span
       aria-hidden="true"
@@ -214,7 +215,7 @@ export function RecruiterChips<T extends RecruiterLike = RecruiterLike>({
                   : "border-border",
               )}
             >
-              <Avatar name={person.name} className={sizes.avatar} />
+              <RecruiterAvatar name={person.name} className={sizes.avatar} />
               <span className="min-w-0 truncate text-foreground" title={person.name}>
                 {person.name}
               </span>

@@ -571,8 +571,8 @@ describe("/preview/cv-editor (Edytor CV 2) — edytor z pamięci, źródła z za
     expect(harness).toContain("editorApi={backend.editorApi}");
     // Panel „Do poprawy”: QC, uwagi i poprawki też z pamięci.
     expect(harness).toContain("issuesApi={backend.issuesApi}");
-    // „AI na zaznaczeniu”: propozycje z pamięci, bez modelu.
-    expect(harness).toContain("aiApi={backend.aiApi}");
+    // Asystent (Edytor CV 3, PR 4): odpowiedzi z pamięci, bez modelu.
+    expect(harness).toContain("commandApi={backend.commandApi}");
     // „Historia”: wersje i treść pliku Word z pamięci.
     expect(harness).toContain("historyApi={backend.historyApi}");
     expect(harness).toContain("editorFiles={MEMORY_FILES}");
@@ -596,10 +596,9 @@ describe("/preview/cv-editor (Edytor CV 2) — edytor z pamięci, źródła z za
   it("części edytora nie mają własnych stałych kluczy", () => {
     for (const file of [
       "components/v2/modals/CVBrandedEditModal.tsx",
-      "components/v2/cv-editor/CvAiProposalCard.tsx",
+      "components/v2/cv-editor/CvEditorAssistant.tsx",
+      "components/v2/cv-editor/useCvAssistant.ts",
       "components/v2/cv-editor/CvEditorIssues.tsx",
-      "components/v2/cv-editor/CvEditorSelectionAi.tsx",
-      "components/v2/cv-editor/useCvSelectionAi.ts",
       "components/v2/cv-editor/CvEditorSources.tsx",
       "components/v2/cv-editor/CvEditorSourcesPane.tsx",
       "components/v2/cv-editor/CvEditorToolbar.tsx",

@@ -58,11 +58,11 @@
     "title": "Tablica rekrutacji",
     "section": "pipeline",
     "roles": ["recruiter", "delivery_lead", "head_of_recruitment", "admin"],
-    "what": "Tu prowadzisz kandydatów tej rekrutacji przez 8 kolumn: Nowi, Screening, Zweryfikowany, QC CV, CV wysłane, Rozmowa u klienta, Umowa i Zatrudniony. Nad tablicą są kafle „Kandydaci do dodania”.",
+    "what": "Tu prowadzisz kandydatów tej rekrutacji przez 8 kolumn: Nowi, Screening, Zweryfikowany, QC CV, CV wysłane, Rozmowa u klienta, Umowa i Zatrudniony. Źródła „Kandydaci do dodania” są w nagłówku.",
     "tasks": [
       {
         "q": "Od czego zacząć w tej rekrutacji?",
-        "a": "Na górze: tytuł, nazwa od klienta i trzy fakty — klient, budżet, tryb pracy. Obok „Kto dodał”: wybierz „Ty”, a tablica pokaże tylko osoby dodane przez Ciebie. Kafle „Kandydaci do dodania” pokazują, skąd wziąć ludzi. Klik w nazwisko otwiera kartę z boku; w „Nowych” i „Screeningu” na całe okno, z CV i wymaganiami po lewej (Ctrl/⌘ — pełny profil)."
+        "a": "Na górze: priorytet, tytuł (nazwa od klienta w dymku), klient, budżet, tryb pracy i „Rekruter” — klik pokazuje zespół. „Kto dodał” → „Ty” zawęża tablicę do Twoich osób, „˄” zwija nagłówek. Klik w nazwisko otwiera kartę z boku; w „Nowych” i „Screeningu” na całe okno, z CV i wymaganiami po lewej (Ctrl/⌘ — pełny profil)."
       },
       {
         "q": "Jak przesunąć kandydata dalej?",
@@ -71,7 +71,7 @@
       },
       {
         "q": "Jak dodać kandydatów?",
-        "a": "Kliknij kafel nad tablicą: „Podobne rekrutacje”, „Nowi z ogłoszeń”, „Propozycje z bazy” albo „Szukaj w bazie”. „+ Dodaj” w wierszu dodaje osobę do Nowych na 12 h („Cofnij” obok). Pod dodaną osobą „Pasuje też do” podpowiada inne rekrutacje — dodasz ją tam jednym kliknięciem. „+1 rekrutacja” na karcie: czeka też gdzie indziej.",
+        "a": "Kliknij źródło w nagłówku: „Podobne rekrutacje”, „Nowi z ogłoszeń”, „Propozycje z bazy” albo „Szukaj w bazie”. „+ Dodaj” w wierszu dodaje osobę do Nowych na 12 h („Cofnij” obok). Pod dodaną osobą „Pasuje też do” podpowiada inne rekrutacje — dodasz ją tam jednym kliknięciem. „+1 rekrutacja” na karcie: czeka też gdzie indziej.",
         "anchor": "jobs.board.sources"
       },
       {
@@ -92,7 +92,7 @@
     ],
     "anchors": [
       {"id": "jobs.board.columns", "label": "Kolumny tablicy", "describe": "Osiem kolumn etapów — strzałka „→” na karcie albo przeciąganie. W „QC CV” osoba wysyłająca CV do klienta ma na gotowej karcie „Przejrzyj i wyślij” (u Nordei „Przejrzyj → Cpro”)."},
-      {"id": "jobs.board.sources", "label": "Kandydaci do dodania", "describe": "Cztery kafle źródeł nad tablicą: podobne rekrutacje, nowi z ogłoszeń, propozycje z bazy, szukaj w bazie."},
+      {"id": "jobs.board.sources", "label": "Kandydaci do dodania", "describe": "Cztery źródła w nagłówku rekrutacji: podobne rekrutacje, nowi z ogłoszeń, propozycje z bazy, szukaj w bazie; „Dodaj” — po nazwisku albo z CV."},
       {"id": "jobs.board.closed", "label": "Zamknięci", "describe": "Wąska kolumna po prawej: zrezygnowali i odrzuceni — przez nas, przez DL, przez klienta."},
       {"id": "jobs.board.dl-compare", "label": "Porównaj kandydatów", "describe": "W nagłówku „QC CV” (Delivery Lead; u Nordei przed akceptacją do Cpro): osoby czekające na przegląd obok siebie — ocena, wymagania, koszt, start, ryzyka."}
     ],
@@ -234,7 +234,7 @@
       "Wymagania z „Czego szukamy” są tym, po czym system dopasowuje kandydatów — sama proza w opisie projektu wystarcza gorzej.",
       "Kandydata z list AI ukrywa tylko brak wymagania krytycznego: najwyżej trzy słowa do szukania (zdanie nie może być krytyczne). Gdy razem zostawiają mniej niż 20 osób, zapis pyta. Bez decyzji działa podpowiedź z historii; „Brak krytycznych” = nikt nie jest ukrywany.",
       "Budżet podany zakresem (np. 60–80) widać jako przedział, a plakietki liczą się od górnej granicy.",
-      "Tytuł w nagłówku to tytuł dla rekrutera: składa się sam z profilu (rola, must-have, lata, dziedzina), dopóki nikt go nie zmieni w „Edytuj rekrutację”. Do klienta idą nazwa i numer od klienta."
+      "Tytuł w nagłówku to tytuł dla rekrutera: składa się sam z profilu (rola, must-have, lata, dziedzina), dopóki nikt go nie zmieni w „Edytuj rekrutację”. Do klienta idą nazwa i numer od klienta — są w dymku tytułu."
     ],
     "anchors": [
       {"id": "job.champion.intake", "label": "Wygeneruj z opisu klienta", "describe": "Wypełnienie profilu z opisu klienta przez AI."},

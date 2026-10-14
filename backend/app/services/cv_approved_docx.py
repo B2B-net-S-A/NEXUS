@@ -30,6 +30,7 @@ from docx.oxml.ns import qn
 from docx.shared import Inches, Pt, RGBColor
 from lxml import html
 
+from app.core.docx_metadata import clear_author_metadata
 from app.services.cv_generator_b2b.docx_renderer import (
     add_bottom_pinned_rodo,
     add_consent_screenshot,
@@ -834,6 +835,8 @@ def render_approved_docx(
         # Same bottom-pinned clause as the generator (last page, once), with
         # the editor's emphasis.
         add_bottom_pinned_rodo(doc, "", runs=clause)
+    # Plik idzie do klienta: bez autora z szablonu.
+    clear_author_metadata(doc)
     output = BytesIO()
     doc.save(output)
     return output.getvalue()

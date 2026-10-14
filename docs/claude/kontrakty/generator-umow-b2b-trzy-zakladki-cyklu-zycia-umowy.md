@@ -431,7 +431,10 @@ Wszystko w `components/v2/pages/B2BContractGeneratorV2.tsx`.
     `requested`, `hired_unsigned` (karta „Zatrudniony” przy umowie „W trakcie”
     — D5: sprawa, nie automat), `closed_unsigned`, `closed_signed_active`; tylko
     dla posiadaczy „Podpis B2B” w ich zakresie; prośby autora w
-    `waiting_on_others`.
+    `waiting_on_others`. Przy `closed_signed_active` przycisk to „Sprawdź”
+    (link do kontraktu), nie „Zakończ współpracę” — decyzja Artura
+    14.10.2026: karta bywa zamknięta błędnie (np. ruch z Traffita), a osoba
+    pracuje i ma zamówienie, więc kafelek pyta, która strona ma rację.
   - **Ręczne „Zatrudniony” z UoP albo zleceniem zakłada kontrakt tego typu**
     (do 04.10 zawsze B2B). Stawki do klienta z etapu NIE wpisujemy do szkicu
     zamówienia z podpisu: start + stawka spełnia `complete_order_clause`, więc
@@ -439,3 +442,23 @@ Wszystko w `components/v2/pages/B2BContractGeneratorV2.tsx`.
     przychód przed zamówieniem od klienta (przegląd kodu 04.10.2026).
   - Wygenerowanie umowy NIE przesuwa karty (D4 — bramka debriefu).
 - **Kontener listy:** `max-w-6xl` → `max-w-7xl` (9 kolumn + akcje).
+
+## Plik dla Partnera bez autora z szablonu (14.10.2026)
+
+Szablony umów B2B (`templates/contract/`) mają w `docProps/core.xml` imiona
+i nazwiska osób z firmy (autor, „ostatnio zapisał”), a część szablonów
+dokumentów (`templates/documents/`) — nazwę kancelarii w `docProps/app.xml`
+(`<Company>`). docxtpl przepisywał to do każdej umowy, aneksu i wypowiedzenia
+wysyłanego Partnerowi.
+
+- `render_from_context` (umowa) i `b2b_documents.render.render_docx`
+  (aneksy, porozumienia, wypowiedzenia) przed zapisem wołają
+  `app.core.docx_metadata.clear_author_metadata`, a na gotowym pliku
+  `clear_app_properties` (firma i kierownik w `app.xml`; reszta archiwum bez
+  zmian). Pola są puste — jak w plikach CV (`generator-cv/edytor-cv-pelny-ekran.md`).
+- Testy: `test_document_file_carries_no_author_from_the_template` (każdy
+  szablon i język), `test_contract_file_carries_no_author_from_the_template`,
+  `tests/test_docx_metadata.py`.
+- Pliki wygenerowane wcześniej i zapisane w bazie mają stare pola. Dokumenty
+  Akademii (`academy_documents.py`) mają w szablonach tylko nazwę firmy — bez zmian.
+

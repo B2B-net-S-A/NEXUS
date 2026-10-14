@@ -26,6 +26,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.api.deps import Caller, require_service_scope
+from app.api.write_policy import IntegrationWritePolicy
 from app.core.config import settings
 from app.core.rate_limit import client_ip_key
 from app.models.service_account import ServiceScope
@@ -203,7 +204,10 @@ def _scoped(*scopes: ServiceScope):
 
 ClientsRead = Annotated[Caller, _scoped(ServiceScope.clients_read)]
 ContractsRead = Annotated[Caller, _scoped(ServiceScope.contracts_read)]
+ContractsWrite = Annotated[Caller, _scoped(ServiceScope.contracts_write)]
+ContractsStatus = Annotated[Caller, _scoped(ServiceScope.contracts_status)]
 OrdersRead = Annotated[Caller, _scoped(ServiceScope.orders_read)]
+OrdersWrite = Annotated[Caller, _scoped(ServiceScope.orders_write)]
 MdRead = Annotated[Caller, _scoped(ServiceScope.md_read)]
 MdWrite = Annotated[Caller, _scoped(ServiceScope.md_write)]
 FinanceRead = Annotated[Caller, _scoped(ServiceScope.finance_read)]
@@ -225,6 +229,11 @@ def can_see_amounts(caller: Caller) -> bool:
 
 def integration_actor(caller: Caller) -> IntegrationActor:
     return actor_for(principal_of(caller))
+
+
+def write_policy(caller: Caller, db: AsyncSession) -> IntegrationWritePolicy:
+    """Polityka zapisu zamówień i kontraktów konta serwisowego (PR 2B)."""
+    return IntegrationWritePolicy(principal_of(caller), db)
 
 
 # ── Kwoty i stronicowanie ────────────────────────────────────────────────────

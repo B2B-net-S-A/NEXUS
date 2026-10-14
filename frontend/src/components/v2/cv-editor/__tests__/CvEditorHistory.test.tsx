@@ -715,7 +715,7 @@ describe("panel a okno edytora", () => {
       document.removeEventListener("keydown", outside);
     }
     expect(outside).not.toHaveBeenCalled();
-    expect(panel()).toHaveAttribute("data-cv-command");
+    expect(panel()).toHaveAttribute("data-cv-panel");
   });
 
   it("„Zamknij historię” zamyka panel i porzuca porównanie", async () => {
