@@ -77,12 +77,17 @@ _EMAIL_RE = re.compile(
     r"(?<![A-Za-z0-9._%+-])[A-Za-z0-9._%+-]++@[A-Za-z0-9.-]+\.[A-Za-z]{2,}",
 )
 
-# PL phone numbers: optional +48/48 prefix, then 9 digits with optional
-# separators (space, dash, dot, non-breaking space). Captures the raw match —
-# callers may normalize to "+48 XXX XXX XXX" if needed.
+# PL phone numbers: 9 digits, optionally after +48 / 0048, with separators
+# (space, dash, dot, non-breaking space). The match is a WHOLE run of digits
+# and separators within one line, and `_extract_phone_from_text` judges the
+# run by its digit count (14.10.2026): taking the first nine digits of a longer
+# run turned job dates („03.2018 - 12.2021” → „03.2018 - 12.2”), salary ranges,
+# PESEL, NIP and account numbers into phones, and the old trailing `\s*` kept
+# the newline after a real number. Captures the raw match — callers may
+# normalize to "+48 XXX XXX XXX" if needed.
 _PHONE_PL_RE = re.compile(
-    r"(?:(?:\+|00)\s*48[\s.\-]*)?"  # optional country code
-    r"(?:\d[\s.\-]*){9}",  # exactly 9 digits with separators
+    r"(?<![\w+])"  # a run starts here, not inside a word or number
+    r"\+?\d(?:(?:[^\S\r\n]|[.\-]){0,3}\d)*",  # digits, ≤3 separators between
 )
 
 # Honorific/role tokens that should NOT appear in a detected first/last name.
@@ -116,10 +121,11 @@ def _extract_email_from_text(cv_text: str) -> Optional[str]:
 
 
 def _extract_phone_from_text(cv_text: str) -> Optional[str]:
-    """Return the first PL phone match from the CV, trimmed.
+    """Return the first PL phone number in the CV, as written.
 
-    We only accept matches whose digit-only form is 9 or 11 digits (with
-    country code) to reduce false positives on salary figures / years.
+    A run of digits counts only as a whole: 9 digits, 11 with a leading
+    "+48" or 13 with "0048". Anything longer or shorter (dates of a job,
+    salary ranges, PESEL, NIP, account numbers) is not a phone.
     """
     if not cv_text:
         return None
@@ -127,9 +133,13 @@ def _extract_phone_from_text(cv_text: str) -> Optional[str]:
     head = "\n".join(cv_text.splitlines()[:20])
     for source in (head, cv_text):
         for match in _PHONE_PL_RE.finditer(source):
-            raw = match.group(0).strip(" .-")
+            raw = match.group(0)
             digits = re.sub(r"\D", "", raw)
-            if len(digits) in (9, 11):
+            if (
+                len(digits) == 9
+                or (len(digits) == 11 and raw.startswith("+48"))
+                or (len(digits) == 13 and digits.startswith("0048"))
+            ):
                 return raw
     return None
 
