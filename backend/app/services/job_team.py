@@ -480,3 +480,79 @@ async def remove_recruiter(
         removed = True
     await db.flush()
     return removed
+
+
+async def settle_team_without_recruiter_role(
+    db: AsyncSession, *, job: Job, actor_id: Optional[int]
+) -> dict:
+    """Zdejmuje z roli „Rekruter” osoby bez roli rekrutera — przed otwarciem.
+
+    Rekruterem jest tylko rola rekrutera, główna albo dodatkowa (decyzja Artura
+    14.10.2026). W zamkniętych rekrutacjach z Traffita ``jobs.recruiter_id``
+    to zwykle „osoba odpowiedzialna” — Delivery Lead (14.10.2026: 1 017
+    zamkniętych rekrutacji z DL-em, 158 z adminem, 53 z Finansami). „Otwórz
+    ponownie” z zachowaniem zespołu robiło z niej Rekrutera: 13.10.2026 DL
+    otworzyła dwie rekrutacje Credit Agricole i stała przy nich jako
+    rekruterka, dopóki Head of Recruitment jej nie zdjął.
+
+    Prowadzący bez roli rekrutera z rolą Delivery Leada trafia na miejsce DL-a,
+    jeśli jest puste albo wypełnił je automat; DL-a wpisanego przez człowieka
+    nie ruszamy. Rekrutacja zostaje bez rekrutera — nikogo nowego nie
+    wskazujemy. Ręcznie dopisane osoby bez roli rekrutera schodzą tak samo.
+    Wołają: ponowne otwarcie z zachowaniem zespołu i przeniesienie z Traffita.
+    Bez commitu.
+    """
+    settled: dict = {}
+    if job.recruiter_id is not None:
+        owner = await db.get(User, job.recruiter_id)
+        if (
+            owner is not None
+            and owner.is_active
+            and not owner.has_any_role(*WORK_ROLES)
+        ):
+            settled["owner_without_recruiter_role"] = owner.id
+            # DL-a wpisanego przez automat (główny DL klienta) zastępujemy: u
+            # klienta z kilkoma Delivery Leadami rekrutację prowadzi ten
+            # z Traffita, a automat wpisywał wszystkim jednego.
+            lead_slot_free = job.delivery_lead_id is None or bool(
+                job.delivery_lead_auto_filled
+            )
+            if owner.has_any_role(UserRole.delivery_lead) and lead_slot_free:
+                if job.delivery_lead_id != owner.id:
+                    settled["owner_moved_to_delivery_lead"] = True
+                job.delivery_lead_id = owner.id
+                job.delivery_lead_auto_filled = False
+            job.recruiter_id = None
+
+    links = (
+        await db.scalars(
+            select(JobCollaborator).where(
+                JobCollaborator.job_id == job.id,
+                JobCollaborator.source == JobCollaboratorSource.manual,
+            )
+        )
+    ).all()
+    dropped: list[int] = []
+    for link in links:
+        person = await db.get(User, link.user_id)
+        if person is None or person.has_any_role(*WORK_ROLES):
+            continue
+        dropped.append(link.user_id)
+        await db.delete(link)
+        db.add(
+            Activity(
+                entity_type="job",
+                entity_id=job.id,
+                action="collaborator_removed",
+                user_id=actor_id,
+                details={
+                    "collaborator_id": link.user_id,
+                    "source": "manual",
+                    "reason": "no_recruiter_role",
+                },
+            )
+        )
+    if dropped:
+        settled["collaborators_without_recruiter_role"] = dropped
+    await db.flush()
+    return settled

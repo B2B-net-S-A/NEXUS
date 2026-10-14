@@ -63,7 +63,13 @@ function renderDialog(
     recruiter = null,
   }: {
     cachedJob?: Record<string, unknown>;
-    recruiter?: { id: number; name?: string | null; is_active?: boolean } | null;
+    recruiter?: {
+      id: number;
+      name?: string | null;
+      is_active?: boolean;
+      role?: string | null;
+      roles?: string[];
+    } | null;
   } = {},
 ) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -157,6 +163,34 @@ describe("JobReopenDialog", () => {
     renderDialog("reopen", { recruiter: { id: 6, name: "Rekruter Drugi" } });
     expect(await screen.findByTestId("job-reopen-recruiter-note")).toHaveTextContent(
       "Rekruter: Rekruter Drugi — zostaje bez zmian.",
+    );
+  });
+
+  it("Delivery Lead bez roli rekrutera w polu „Rekruter” schodzi przy otwarciu — okno nie obiecuje „bez zmian” (14.10.2026)", async () => {
+    mockReadiness({ ready: true, allocation_enabled: false });
+    renderDialog("reopen", {
+      recruiter: { id: 86, name: "Dela Fikcyjna", role: "delivery_lead", roles: ["delivery_lead"] },
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId("job-reopen-recruiter-note")).toHaveTextContent(
+        "Rekrutacja nie ma rekrutera — po otwarciu wskaże go Head of Recruitment.",
+      ),
+    );
+    expect(screen.getByTestId("job-reopen-recruiter-note")).not.toHaveTextContent("Dela Fikcyjna");
+  });
+
+  it("Delivery Lead z dodatkową rolą rekrutera zostaje rekruterem", async () => {
+    mockReadiness({ ready: true, allocation_enabled: false });
+    renderDialog("reopen", {
+      recruiter: {
+        id: 91,
+        name: "Dela Rekruterka",
+        role: "delivery_lead",
+        roles: ["delivery_lead", "recruiter"],
+      },
+    });
+    expect(await screen.findByTestId("job-reopen-recruiter-note")).toHaveTextContent(
+      "Rekruter: Dela Rekruterka — zostaje bez zmian.",
     );
   });
 

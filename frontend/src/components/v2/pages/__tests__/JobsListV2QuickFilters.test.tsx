@@ -526,6 +526,42 @@ describe("JobsListV2 — status requestu i podobne rekrutacje (lista v4)", () =>
     expect(screen.queryByTestId("job-needs-action")).not.toBeInTheDocument();
   });
 
+  it("pusty wynik poprzednich filtrów nie mówi „nic nie pasuje”, dopóki nie przyjdzie odpowiedź na nowe (14.10.2026)", async () => {
+    const user = userEvent.setup();
+    mockJobsResponse([]);
+    // Lista otwiera się od razu z dwoma filtrami (pamięć ostatniego widoku):
+    // wyniku dla samego drugiego filtra — jak „Rekruter: X” — nikt nie pobrał.
+    navState.search = "nobody=1&stage=champion";
+    window.history.replaceState(null, "", "/jobs?nobody=1&stage=champion");
+    renderJobs();
+    await waitFor(() =>
+      expect(latestParams()).toMatchObject({ nobody_working: true, request_stage: ["champion"] }),
+    );
+    expect(await screen.findByText(/Żadna rekrutacja nie pasuje do filtrów/)).toBeInTheDocument();
+    const chips = within(screen.getByRole("group", { name: "Stan requestu" }));
+
+    // Zdjęcie pigułki: serwer jeszcze nie odpowiedział (np. restart przy wdrożeniu).
+    let answer: (value: unknown) => void = () => undefined;
+    getMock.mockImplementation((url: string) =>
+      url === "/api/jobs"
+        ? new Promise((resolve) => {
+            answer = resolve;
+          })
+        : Promise.resolve({ data: {} }),
+    );
+    await user.click(chips.getByRole("button", { name: "Mamy championa" }));
+    await waitFor(() => {
+      expect(latestParams().request_stage).toBeUndefined();
+      expect(latestParams().nobody_working).toBe(true);
+    });
+    expect(screen.queryByText(/Żadna rekrutacja nie pasuje do filtrów/)).not.toBeInTheDocument();
+
+    answer({ data: { items: [jobRow()], total: 1, page: 1, page_size: 20 } });
+    expect(await screen.findByText("Senior Java Developer")).toBeInTheDocument();
+    navState.search = "";
+    window.history.replaceState(null, "", "/jobs");
+  });
+
   it("pigułka stanu wysyła `request_stage` i zapisuje go w adresie", async () => {
     const user = userEvent.setup();
     mockJobsResponse([jobRow()]);

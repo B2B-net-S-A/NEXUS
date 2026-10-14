@@ -24,9 +24,10 @@ export interface UserBrief {
 /**
  * Kto może sam wziąć rekrutację („Biorę”) albo do niej dołączyć („Dołącz”) —
  * lustro `_OWNERSHIP_ELIGIBLE_ROLES` w `backend/app/api/jobs.py`.
- * `POST /jobs/{id}/claim` odrzuca 403 każdą inną rolę, także te z zapisem
- * w sekcji pipeline (finance, head_of_recruitment, talent_community_manager),
- * a `POST …/collaborators` odmawia im 409. Przycisk bez tego lustra =
+ * `POST /jobs/{id}/claim` odrzuca 403 każdą inną rolę — od 14.10.2026 także
+ * Delivery Leada i admina bez roli rekrutera, wcześniej finance,
+ * head_of_recruitment i talent_community_manager — a `POST …/collaborators`
+ * odmawia im 409. Przycisk bez tego lustra =
  * gwarantowana odmowa po kliknięciu. Ten sam zbiór co role, które serwer
  * przyjmuje jako kolejną osobę przy rekrutacji.
  */

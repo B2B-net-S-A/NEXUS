@@ -343,7 +343,7 @@ async def create_job_core(
         await api._validate_owner_override(
             db,
             user_id=data.recruiter_id,
-            allowed_roles=set(api._HANDOFF_RECRUITER_ROLES),
+            allowed_roles=set(api._OWNERSHIP_ELIGIBLE_ROLES),
             field="recruiter_id",
         )
 
@@ -1127,10 +1127,10 @@ async def handoff_core(
             status_code=422,
             detail="Wybrany rekruter nie istnieje lub jest nieaktywny.",
         )
-    if not recruiter.has_any_role(*api._HANDOFF_RECRUITER_ROLES):
+    if not recruiter.has_any_role(*api._OWNERSHIP_ELIGIBLE_ROLES):
         raise HTTPException(
             status_code=422,
-            detail="Wybrany użytkownik nie może prowadzić rekrutacji.",
+            detail=api.RECRUITER_ROLE_REQUIRED_DETAIL,
         )
 
     previous_owner_id = job.recruiter_id
@@ -1193,6 +1193,7 @@ async def reopen_keep_team_core(
     Wołający trzyma ``allocation_lock`` i blokadę wiersza, a ``publish_core``
     i bramka braków są już za nim. Bez commitu.
     """
+    from app.services.job_team import settle_team_without_recruiter_role
     from app.services.request_work_state import set_work_state
 
     api = _api()
@@ -1205,6 +1206,18 @@ async def reopen_keep_team_core(
             job_id, top_k=ranking_top_k, created_by=actor_id, effects=effects
         ),
     )
+    # Prowadzący bez roli rekrutera (z Traffita zwykle Delivery Lead) nie
+    # wraca jako Rekruter (14.10.2026) — rekrutacja otwiera się bez niego.
+    previous_owner_id = job.recruiter_id
+    settled = await settle_team_without_recruiter_role(db, job=job, actor_id=actor_id)
+    if settled.get("owner_without_recruiter_role") is not None:
+        await api._sync_work_assignments_with_owner(
+            db,
+            job=job,
+            previous_owner_id=previous_owner_id,
+            owner=None,
+            actor_id=actor_id,
+        )
     owner: Optional[User] = None
     if job.recruiter_id is not None:
         owner = await db.scalar(select(User).where(User.id == job.recruiter_id))
@@ -1236,6 +1249,7 @@ async def reopen_keep_team_core(
             details={
                 "assignment_mode": "keep",
                 "recruiter_id": owner.id if owner is not None else None,
+                **settled,
             },
         )
     )

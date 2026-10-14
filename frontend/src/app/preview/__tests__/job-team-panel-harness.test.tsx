@@ -81,23 +81,23 @@ function recruiterActions(section: HTMLElement): string[] {
 }
 
 describe("/preview/job-team-panel", () => {
-  it("domyślnie patrzy Delivery Lead: przydziela i dokłada ludzi, propozycji automatu nie rozstrzyga", async () => {
+  it("domyślnie patrzy Delivery Lead: przydziela i dokłada ludzi, sam rekruterem nie zostaje, propozycji automatu nie rozstrzyga", async () => {
     const { proposal, staffed, empty } = await renderAs(null);
 
     expect(screen.getByRole("link", { name: "Delivery Lead" })).toHaveAttribute(
       "aria-current",
       "page",
     );
-    expect(recruiterActions(proposal)).toEqual(["Przypisz…", "Biorę"]);
+    // Bez roli rekrutera nie ma „Biorę” ani „Dołącz” (14.10.2026).
+    expect(recruiterActions(proposal)).toEqual(["Przypisz…"]);
     expect(within(proposal).getByText("Czeka na akceptację Head of Recruitment")).toBeInTheDocument();
     expect(recruiterActions(staffed)).toEqual([
       "Zdejmij Bartek Testowy",
       "Zdejmij Celina Wzorcowa",
-      "Dołącz",
       "Zmień rekrutera",
       "+ Dodaj osobę",
     ]);
-    expect(recruiterActions(empty)).toEqual(["Przypisz…", "Biorę"]);
+    expect(recruiterActions(empty)).toEqual(["Przypisz…"]);
     // Delivery Lead zmienia też swoje pole, termin i priorytet.
     expect(within(staffed).getByRole("button", { name: "Zmień: Termin" })).toBeInTheDocument();
     expect(within(staffed).getByRole("radiogroup", { name: "Priorytet" })).toBeInTheDocument();

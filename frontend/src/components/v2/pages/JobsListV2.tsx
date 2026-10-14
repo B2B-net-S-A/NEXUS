@@ -812,6 +812,7 @@ export function JobsListV2({
     isLoading: queryLoading,
     isError,
     isSuccess,
+    isPlaceholderData,
     error,
     refetch,
   } = useQuery({
@@ -905,8 +906,17 @@ export function JobsListV2({
     (value) => value !== "category" || categoryState === "available",
   );
 
-  const isLoading = queryLoading || !authHydrated || scopePending;
   const items = data?.items ?? [];
+  // Pusty wynik POPRZEDNICH filtrów, trzymany do czasu odpowiedzi na nowe
+  // (`keepPreviousData`), to ładowanie, nie „Żadna rekrutacja nie pasuje do
+  // filtrów” (14.10.2026: po zdjęciu „Umowa” przy „Rekruter: X” lista dalej
+  // mówiła „nic”, dopóki serwer — akurat restartowany przy wdrożeniu — nie
+  // odpowiedział; X miał 6 otwartych rekrutacji).
+  const isLoading =
+    queryLoading ||
+    !authHydrated ||
+    scopePending ||
+    (isPlaceholderData && items.length === 0);
   const total = data?.total ?? 0;
   const pageSize = data?.page_size ?? 20;
   const totalPages = Math.max(1, Math.ceil(total / pageSize));

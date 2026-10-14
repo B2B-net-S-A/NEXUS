@@ -5,6 +5,7 @@ import {
   COLLABORATOR_ROLES,
   collaboratorChanges,
   hasCollaboratorChanges,
+  hasRecruiterRole,
   manualCollaboratorIds,
   manualCollaborators,
   saveCollaboratorChanges,
@@ -37,12 +38,16 @@ describe("job-collaborators", () => {
     ]);
   });
 
-  it("role, które serwer przyjmuje jako osobę przy rekrutacji — bez Head of Recruitment i Finansów", () => {
-    expect([...COLLABORATOR_ROLES]).toEqual([
-      "admin",
-      "delivery_lead",
-      "recruiter",
-    ]);
+  it("rekruterem jest tylko rola rekrutera — bez Delivery Leada, admina, Head of Recruitment i Finansów (14.10.2026)", () => {
+    expect([...COLLABORATOR_ROLES]).toEqual(["recruiter"]);
+  });
+
+  it("rola rekrutera liczy się główna albo dodatkowa", () => {
+    expect(hasRecruiterRole({ role: "recruiter" })).toBe(true);
+    expect(hasRecruiterRole({ role: "delivery_lead", roles: ["delivery_lead", "recruiter"] })).toBe(true);
+    expect(hasRecruiterRole({ role: "delivery_lead", roles: ["delivery_lead"] })).toBe(false);
+    expect(hasRecruiterRole({ role: "admin", roles: null })).toBe(false);
+    expect(hasRecruiterRole({})).toBe(false);
   });
 
   it("różnica dopisuje nowych, zdejmuje usuniętych i pomija pierwszego rekrutera", () => {

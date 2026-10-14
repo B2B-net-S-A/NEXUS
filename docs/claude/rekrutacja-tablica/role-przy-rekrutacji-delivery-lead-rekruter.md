@@ -111,6 +111,40 @@ tylko `recruiter_id`), a Head of Recruitment nie mógł zmienić rekrutera.
   o propozycjach, zostają przy roli. `GET /api/jobs/{id}` niesie `can_staff` i `can_set_priority`
   (Delivery Lead tylko w swoim zakresie). Head of Recruitment sam nie może być
   rekruterem (`_OWNERSHIP_ELIGIBLE_ROLES` bez zmian).
+- **Rekruterem jest tylko rola rekrutera — główna albo dodatkowa (decyzja
+  Artura 14.10.2026).** Zgłoszenie „Delivery Leadzi wpisani jako rekruterzy”:
+  `/owner`, `/claim`, `/collaborators`, PATCH `recruiter_id`, `/jobs/new`,
+  przekazanie i ponowne otwarcie przyjmowały admina i DL-a (część także
+  Finanse i Head of Recruitment), a pole „Rekruter” w oknie edycji pokazywało
+  wszystkie konta. Teraz jedna lista `_OWNERSHIP_ELIGIBLE_ROLES` = `job_team.WORK_ROLES`
+  (`api/jobs.py`, lustro `COLLABORATOR_ROLES` + `hasRecruiterRole` w
+  `lib/job-collaborators.ts`): odmowa 409/403/400/422 z jednym zdaniem
+  „Rekruterem rekrutacji może być tylko osoba z rolą rekrutera.”; DL i admin
+  bez tej roli nie widzą „Biorę” / „Dołącz”, nie ma ich w „Zmień rekrutera”,
+  „+ Dodaj osobę”, „Kolejnych osobach”, polu „Rekruter” okna edycji ani
+  w filtrze „Rekruter” listy. DL, który sam rekrutuje, dostaje rekrutera jako
+  rolę dodatkową w „Osoby i role” (tak mają konta, którym 0411 zamieniło TAC
+  na rekrutera — Artur: „oni są też rekruterami”). Okno edycji zapisuje
+  niezmienione pole z dawnym DL-em bez odmowy (walidacja tylko przy zmianie).
+- **„Otwórz ponownie” z zachowaniem zespołu (14.10.2026,
+  `reopen_keep_team_core`).** Przed otwarciem
+  `job_team.settle_team_without_recruiter_role` zdejmuje z pola „Rekruter”
+  i z „Kolejnych osób” konta bez roli rekrutera (DL idzie na wolne miejsce
+  Delivery Leada, wpisanego przez człowieka nie rusza; wpis
+  `handed_off_to_search` niesie `owner_without_recruiter_role`
+  i `collaborators_without_recruiter_role`). W zamkniętych rekrutacjach
+  z Traffita w polu „Rekruter” siedzi „osoba odpowiedzialna” (14.10: 1 017
+  z DL-em, 158 z adminem, 53 z Finansami) — 13.10 DL otworzyła tak dwie
+  rekrutacje Credit Agricole i stała przy nich jako rekruterka. Okno
+  ponownego otwarcia nie obiecuje wtedy „zostaje bez zmian”.
+  **Ten sam zespół po otwarciu** (prośba Artura 14.10) daje trwały wpis 0429:
+  zamknięcie nie rusza ani prowadzącego, ani ręcznie dopisanych, a automat
+  zwalnia tylko przypisania (`finished`). Pomiar 14.10: na otwartych
+  rekrutacjach nikt nie pracuje wyłącznie przez przypisanie. Osobnego
+  „przywracania” z wierszy `finished` nie ma — wskrzeszało osoby zdjęte po
+  zamknięciu i łapało poprzedni cykl. Pilnuje
+  `test_reopen_brings_back_the_same_team` (`test_job_no_drafts.py`); nowa
+  droga dopisania osoby bez trwałego wpisu złamie ten test.
 - **Automat PROPONUJE, człowiek akceptuje.** Tryb `shadow`
   (`recruitment_allocation_state.mode`) zakłada najwyżej jedną propozycję na
   request bez Rekrutera; do akceptacji nikt nie jest przypisany ani

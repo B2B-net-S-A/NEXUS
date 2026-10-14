@@ -13,12 +13,23 @@
 import api from "@/lib/api";
 import { apiErrorMessage } from "@/lib/api-error";
 
-/** Role, które serwer przyjmuje jako osobę przy rekrutacji (`_OWNERSHIP_ELIGIBLE_ROLES`). */
-export const COLLABORATOR_ROLES = [
-  "admin",
-  "delivery_lead",
-  "recruiter",
-] as const;
+/**
+ * Role, które serwer przyjmuje jako osobę w roli „Rekruter”
+ * (`_OWNERSHIP_ELIGIBLE_ROLES`). Decyzja Artura 14.10.2026: tylko rola
+ * rekrutera, główna albo dodatkowa — Delivery Lead i admin bez niej nie są
+ * na liście wyboru i nie widzą „Biorę” / „Dołącz”.
+ */
+export const COLLABORATOR_ROLES = ["recruiter"] as const;
+
+/** Czy osoba może być w roli „Rekruter” — rola rekrutera główna albo dodatkowa. */
+export function hasRecruiterRole(user: {
+  role?: string | null;
+  roles?: readonly string[] | null;
+}): boolean {
+  return COLLABORATOR_ROLES.some(
+    (role) => user.role === role || (user.roles ?? []).includes(role),
+  );
+}
 
 export interface JobCollaboratorEntry {
   id: number;

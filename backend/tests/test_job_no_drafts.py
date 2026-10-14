@@ -748,10 +748,15 @@ async def test_reopening_your_own_job_does_not_ring_yourself(
     )
     me = (await app_client.get("/api/auth/me", headers=app_auth_headers)).json()["id"]
     # Prowadzącym jest osoba, która otwiera (wpisana wprost — test dotyczy
-    # dzwonka, nie reguły, kto może prowadzić).
+    # dzwonka, nie reguły, kto może prowadzić). Od 14.10.2026 prowadzący bez
+    # roli rekrutera schodzi przy otwarciu, więc admin ma ją jako dodatkową.
+    from app.models.user import User
+
     async with AsyncSessionLocal() as db:
         job = await db.get(Job, job_id)
         job.recruiter_id = me
+        user = await db.get(User, me)
+        user.roles = ["admin", "recruiter"]
         await db.commit()
 
     rung: list[int] = []
@@ -760,12 +765,20 @@ async def test_reopening_your_own_job_does_not_ring_yourself(
         rung.append(user_id)
 
     monkeypatch.setattr(jobs_api, "_notify_new_owner", _spy)
-    reopened = await app_client.post(
-        f"/api/jobs/{job_id}/publish", headers=app_auth_headers
-    )
-    assert reopened.status_code == 200, reopened.text
-    assert reopened.json()["recruiter_id"] == me
-    assert rung == []
+    try:
+        reopened = await app_client.post(
+            f"/api/jobs/{job_id}/publish", headers=app_auth_headers
+        )
+        assert reopened.status_code == 200, reopened.text
+        assert reopened.json()["recruiter_id"] == me
+        assert rung == []
+    finally:
+        # Baza testowa jest wspólna: admin z rolą rekrutera trafiałby do
+        # katalogu rekruterów w innych testach.
+        async with AsyncSessionLocal() as db:
+            user = await db.get(User, me)
+            user.roles = ["admin"]
+            await db.commit()
 
 
 @pytest.mark.asyncio
@@ -803,6 +816,192 @@ async def test_reopen_without_an_active_recruiter_opens_with_nobody(
     job = await _job_row(job_id)
     assert job.status == JobStatus.published and job.is_open is True
     assert job.work_state == "searching"
+
+
+async def _delivery_lead() -> int:
+    """Delivery Lead bez roli rekrutera."""
+    from app.core.database import AsyncSessionLocal
+    from app.core.security import hash_password
+    from app.models.user import User, UserRole
+
+    async with AsyncSessionLocal() as db:
+        user = User(
+            email=f"no-drafts-dl-{uuid.uuid4().hex[:8]}@example.com",
+            password_hash=hash_password("not-a-login"),
+            name="No Drafts DL",
+            role=UserRole.delivery_lead,
+            roles=["delivery_lead"],
+            is_active=True,
+        )
+        db.add(user)
+        await db.commit()
+        return user.id
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("lead_slot", ["empty", "human"])
+async def test_reopen_drops_an_owner_without_the_recruiter_role(
+    app_client, app_auth_headers, offline_matching, lead_slot
+):
+    """14.10.2026: zamknięta rekrutacja z Traffita ma w polu „Rekruter”
+    Delivery Leada („osoba odpowiedzialna”). „Otwórz ponownie” z zachowaniem
+    zespołu robiło z niego Rekrutera — 13.10 DL stała tak przy dwóch
+    rekrutacjach Credit Agricole. Teraz rekrutacja otwiera się bez rekrutera,
+    DL trafia na wolne miejsce Delivery Leada (wpisanego przez człowieka nie
+    ruszamy), a dopisany ręcznie DL schodzi z „Kolejnych osób”."""
+    from sqlalchemy import select
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.activity import Activity
+    from app.models.job import Job
+    from app.models.job_collaborator import JobCollaborator, JobCollaboratorSource
+    from tests._job_factory import complete_job_payload
+
+    created = await app_client.post(
+        "/api/jobs",
+        json=await complete_job_payload(await _client()),
+        headers=app_auth_headers,
+    )
+    assert created.status_code == 201, created.text
+    job_id = created.json()["id"]
+    closed = await app_client.post(
+        f"/api/jobs/{job_id}/close", json={"reason": "other"}, headers=app_auth_headers
+    )
+    assert closed.status_code == 200, closed.text
+
+    owner_dl = await _delivery_lead()
+    other_dl = await _delivery_lead()
+    human_dl = await _delivery_lead() if lead_slot == "human" else None
+    async with AsyncSessionLocal() as db:
+        job = await db.get(Job, job_id)
+        job.recruiter_id = owner_dl
+        job.delivery_lead_id = human_dl
+        job.delivery_lead_auto_filled = False
+        db.add(
+            JobCollaborator(
+                job_id=job_id,
+                user_id=other_dl,
+                source=JobCollaboratorSource.manual,
+            )
+        )
+        await db.commit()
+
+    reopened = await app_client.post(
+        f"/api/jobs/{job_id}/publish",
+        json={"assignment_mode": "keep"},
+        headers=app_auth_headers,
+    )
+    assert reopened.status_code == 200, reopened.text
+    assert reopened.json()["recruiter_id"] is None
+    job = await _job_row(job_id)
+    assert job.status == JobStatus.published and job.is_open is True
+    assert job.recruiter_id is None
+    assert job.delivery_lead_id == (owner_dl if lead_slot == "empty" else human_dl)
+
+    detail = await app_client.get(f"/api/jobs/{job_id}", headers=app_auth_headers)
+    assert detail.status_code == 200, detail.text
+    assert [p for p in detail.json()["recruiters"] if not p["proposed"]] == []
+
+    async with AsyncSessionLocal() as db:
+        left = await db.scalar(
+            select(JobCollaborator.id).where(
+                JobCollaborator.job_id == job_id,
+                JobCollaborator.user_id == other_dl,
+            )
+        )
+        assert left is None
+        handoff = (
+            await db.scalars(
+                select(Activity)
+                .where(
+                    Activity.entity_type == "job",
+                    Activity.entity_id == job_id,
+                    Activity.action == "handed_off_to_search",
+                )
+                .order_by(Activity.id.desc())
+            )
+        ).first()
+        assert handoff is not None
+        assert handoff.details["recruiter_id"] is None
+        assert handoff.details["owner_without_recruiter_role"] == owner_dl
+        assert handoff.details["collaborators_without_recruiter_role"] == [other_dl]
+
+
+@pytest.mark.asyncio
+async def test_reopen_brings_back_the_same_team(
+    app_client, app_auth_headers, offline_matching
+):
+    """Prośba Artura 14.10.2026: po „Otwórz ponownie” te same osoby są
+    Rekruterami co przed zamknięciem. Prowadzący i dopisane osoby mają trwały
+    wpis (0429), którego zamknięcie nie rusza — automat zwalnia przy zamknięciu
+    tylko przypisanie (``finished``), więc osoba wraca bez przywracania.
+    Osoba zdjęta ręcznie przed zamknięciem nie wraca."""
+    from sqlalchemy import update
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.job_work_assignment import JobWorkAssignment
+    from tests._job_factory import complete_job_payload, new_recruiter
+
+    owner = await new_recruiter()
+    second = await new_recruiter()
+    removed = await new_recruiter()
+    created = await app_client.post(
+        "/api/jobs",
+        json=await complete_job_payload(await _client(), recruiter_id=owner),
+        headers=app_auth_headers,
+    )
+    assert created.status_code == 201, created.text
+    job_id = created.json()["id"]
+    for person in (second, removed):
+        added = await app_client.post(
+            f"/api/jobs/{job_id}/collaborators",
+            json={"user_id": person},
+            headers=app_auth_headers,
+        )
+        assert added.status_code == 201, added.text
+    dropped = await app_client.delete(
+        f"/api/jobs/{job_id}/collaborators/{removed}", headers=app_auth_headers
+    )
+    assert dropped.status_code == 204, dropped.text
+
+    closed = await app_client.post(
+        f"/api/jobs/{job_id}/close", json={"reason": "other"}, headers=app_auth_headers
+    )
+    assert closed.status_code == 200, closed.text
+    # Przebieg automatu po zamknięciu: request wyszedł z puli.
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            update(JobWorkAssignment)
+            .where(
+                JobWorkAssignment.job_id == job_id,
+                JobWorkAssignment.state == "active",
+            )
+            .values(state="released", release_reason="finished")
+        )
+        await db.commit()
+
+    reopened = await app_client.post(
+        f"/api/jobs/{job_id}/publish",
+        json={"assignment_mode": "keep"},
+        headers=app_auth_headers,
+    )
+    assert reopened.status_code == 200, reopened.text
+    assert reopened.json()["recruiter_id"] == owner
+
+    detail = await app_client.get(f"/api/jobs/{job_id}", headers=app_auth_headers)
+    assert detail.status_code == 200, detail.text
+    team = {
+        (p["user_id"], p["via"])
+        for p in detail.json()["recruiters"]
+        if not p["proposed"]
+    }
+    assert team == {(owner, "owner"), (second, "collaborator")}
+
+    listed = await app_client.get(
+        "/api/jobs", params={"worked_by": second}, headers=app_auth_headers
+    )
+    assert listed.status_code == 200, listed.text
+    assert job_id in {j["id"] for j in listed.json()["items"]}
 
 
 @pytest.mark.asyncio

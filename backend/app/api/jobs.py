@@ -652,11 +652,18 @@ async def _auto_extract_train_name(
 # rows in `job_collaborators` — same semantics for the "Moje projekty" filter
 # but no write rights on the job itself.
 
-_OWNERSHIP_ELIGIBLE_ROLES = {
-    UserRole.admin,
-    UserRole.delivery_lead,
-    UserRole.recruiter,
-}
+# Kto może być „Rekruterem” rekrutacji — prowadzący (`/owner`, `/claim`, pole
+# „Rekruter” w oknie edycji, `/jobs/new`, „Przekaż do searchu”, ponowne
+# otwarcie) i kolejna osoba (`/collaborators`). Decyzja Artura 14.10.2026:
+# tylko rola rekrutera, główna albo dodatkowa — Delivery Lead, który sam
+# rekrutuje, ma rekrutera jako rolę dodatkową. Do tej daty te trasy przyjmowały
+# też admina i Delivery Leada (a przekazanie i okno edycji nawet Finanse i Head
+# of Recruitment), więc DL bez roli rekrutera lądował w roli „Rekruter”.
+# Lustro frontu: `COLLABORATOR_ROLES` w `lib/job-collaborators.ts`.
+_OWNERSHIP_ELIGIBLE_ROLES = frozenset(WORK_ROLES)
+RECRUITER_ROLE_REQUIRED_DETAIL = (
+    "Rekruterem rekrutacji może być tylko osoba z rolą rekrutera."
+)
 
 
 async def _hydrate_owner_map(
@@ -2503,7 +2510,7 @@ async def update_job(
         await _validate_owner_override(
             db,
             user_id=data.recruiter_id,
-            allowed_roles=set(_HANDOFF_RECRUITER_ROLES),
+            allowed_roles=set(_OWNERSHIP_ELIGIBLE_ROLES),
             field="recruiter_id",
         )
 
@@ -3662,15 +3669,6 @@ async def _save_champion_profile(
 
 
 # ── "Przekaż do searchu" — DL handoff that starts matching (P0-A) ────────────
-
-
-_HANDOFF_RECRUITER_ROLES = (
-    UserRole.admin,
-    UserRole.head_of_recruitment,
-    UserRole.delivery_lead,
-    UserRole.recruiter,
-    UserRole.finance,
-)
 
 
 @router.get("/{job_id}/readiness")
@@ -5171,7 +5169,7 @@ async def assign_owner(
     if not target.has_any_role(*_OWNERSHIP_ELIGIBLE_ROLES):
         raise HTTPException(
             status_code=409,
-            detail=f"Role {target.role.value} cannot own a job",
+            detail=RECRUITER_ROLE_REQUIRED_DETAIL,
         )
 
     previous_owner_id = job.recruiter_id
@@ -5257,13 +5255,13 @@ async def claim_job(
     """Self-assign an unassigned job to the current user.
 
     Rejects if the job already has a primary owner (409) or the current user
-    is a read-only viewer (403). Any user in the ownership-eligible role set
-    can claim.
+    has no recruiter role (403) — Delivery Lead i admin bez roli rekrutera
+    też nie (14.10.2026, `_OWNERSHIP_ELIGIBLE_ROLES`).
     """
     if not current_user.has_any_role(*_OWNERSHIP_ELIGIBLE_ROLES):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Rola tylko do odczytu nie może przejąć rekrutacji",
+            detail="Rekrutację przejmuje tylko osoba z rolą rekrutera.",
         )
 
     await allocation_lock(db)
@@ -5394,7 +5392,7 @@ async def add_collaborator(
     if not target.has_any_role(*_OWNERSHIP_ELIGIBLE_ROLES):
         raise HTTPException(
             status_code=409,
-            detail=f"Role {target.role.value} cannot be a collaborator",
+            detail=RECRUITER_ROLE_REQUIRED_DETAIL,
         )
     if job.recruiter_id == target.id:
         raise HTTPException(
