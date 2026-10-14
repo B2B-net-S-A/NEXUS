@@ -41,6 +41,7 @@ const mocks = vi.hoisted(() => ({
   editorProps: null as null | Record<string, unknown>,
   consentProps: null as null | Record<string, unknown>,
   previewLoad: null as null | (() => Promise<Blob>),
+  previewLoadPdf: null as null | (() => Promise<Blob>),
 }));
 
 vi.mock("@/lib/api", () => ({
@@ -94,10 +95,15 @@ vi.mock("@/components/v2/modals/CVOriginalPreviewModal", () => ({
   CVOriginalPreviewModal: () => <div data-testid="original-preview" />,
 }));
 // Podgląd pliku (docx-preview) — atrapa trzyma loader i pokazuje zapas.
-vi.mock("@/components/v2/cv-editor/CvEditorWordPreview", () => ({
-  CvEditorWordPreview: (props: { load: () => Promise<Blob>; fallback?: React.ReactNode }) => {
-    mocks.previewLoad = props.load;
-    return <div data-testid="word-preview">{props.fallback}</div>;
+vi.mock("@/components/v2/cv/CvPagesPreview", () => ({
+  CvPagesPreview: (props: {
+    loadPdf: () => Promise<Blob>;
+    loadDocx: () => Promise<Blob>;
+    fallback?: React.ReactNode;
+  }) => {
+    mocks.previewLoadPdf = props.loadPdf;
+    mocks.previewLoad = props.loadDocx;
+    return <div data-testid="pages-preview">{props.fallback}</div>;
   },
 }));
 
@@ -927,12 +933,17 @@ describe("CvToClientCard — podgląd = plik dla klienta (Edytor CV 3, 14.10.202
       },
     });
     const blob = new Blob(["docx"]);
+    const pages = new Blob(["%PDF"]);
     const loadStageCvFile = vi.fn().mockResolvedValue({ blob });
-    renderCard({ loadStageCvFile });
+    const loadStageCvPdf = vi.fn().mockResolvedValue({ blob: pages });
+    renderCard({ loadStageCvFile, loadStageCvPdf });
     await userEvent.click(await screen.findByRole("button", { name: /Podgląd/ }));
 
     const dialog = await screen.findByRole("dialog");
     expect(within(dialog).getByText("Tak zobaczy to klient: ten sam plik co „Pobierz”.")).toBeInTheDocument();
+    // Strony PDF z pliku Word, a sam plik Word jako zapas — oba bez intencji pobrania.
+    await expect(mocks.previewLoadPdf?.()).resolves.toBe(pages);
+    expect(loadStageCvPdf).toHaveBeenCalledWith(21);
     await expect(mocks.previewLoad?.()).resolves.toBe(blob);
     expect(loadStageCvFile).toHaveBeenCalledWith(21);
     // Zapas (gdy pliku nie da się pokazać): kartka edytora, nie surowy tekst.

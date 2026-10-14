@@ -49,6 +49,11 @@ import {
 import { VerifiedRateModal } from "@/components/v2/modals/VerifiedRateModal";
 import { ClientRateModal } from "@/components/v2/modals/ClientRateModal";
 import { RejectionV2, type EndedBy } from "@/components/v2/modals/RejectionV2";
+import type { RejectionWorkModeChoice } from "@/components/v2/modals/RejectionWorkModeField";
+import {
+  useRejectionProfileWorkMode,
+  useRejectionWorkModeJob,
+} from "@/hooks/useRejectionWorkModeContext";
 import type { RejectFollowUp } from "@/lib/reject-follow-up";
 import {
   announceRejectionEmail,
@@ -139,6 +144,8 @@ export type { RejectFollowUp };
 export interface PipelineRejectionReasonOption {
   id: string;
   label: string;
+  /** Klucz danych powodu — po nim okno rozpoznaje „Nie akceptuje trybu pracy”. */
+  name?: string;
   applies_to: ("rejected" | "withdrawn")[];
 }
 
@@ -244,6 +251,9 @@ interface MoveReason {
   endedBy?: EndedBy;
   // Temat i treść maila poprawione w oknie odrzucenia (tylko jedna osoba).
   emailText?: RejectionEmailText | null;
+  // „Nie akceptuje trybu pracy” (14.10.2026): dni w biurze i zapis na profilu
+  // — ten sam wybór dla każdej odrzucanej osoby.
+  workMode?: RejectionWorkModeChoice | null;
 }
 
 interface SendMoveOptions {
@@ -611,6 +621,10 @@ export function usePipelineMove({
           send_rejection_email: reason?.sendRejectionEmail ?? undefined,
           rejection_email_subject: reason?.emailText?.subject,
           rejection_email_body: reason?.emailText?.body,
+          work_mode_max_onsite_days: reason?.workMode?.maxOnsiteDays ?? undefined,
+          work_mode_save_to_profile: reason?.workMode
+            ? reason.workMode.saveToProfile
+            : undefined,
           candidate_offer_response: reason?.candidateOfferResponse ?? undefined,
           expected_state_version:
             opts?.checkVersion === false ? undefined : expectedStateVersionOf(item),
@@ -1460,7 +1474,8 @@ export function usePipelineMove({
     freeReason?: string,
     endedBy?: EndedBy,
     cancelAgreementId?: number | null,
-    emailText?: RejectionEmailText | null
+    emailText?: RejectionEmailText | null,
+    workMode?: RejectionWorkModeChoice | null
   ) => {
     if (!pendingRejection) return;
     const { entries, destCol, followUp } = pendingRejection;
@@ -1484,6 +1499,7 @@ export function usePipelineMove({
             freeReason,
             endedBy,
             emailText: entries.length === 1 ? emailText ?? null : null,
+            workMode: workMode ?? null,
           },
           {
             silent: entries.length > 1,
@@ -1518,6 +1534,18 @@ export function usePipelineMove({
       }
     })();
   };
+
+  // Pytanie o dni w biurze przy „Nie akceptuje trybu pracy”: tryb pracy
+  // rekrutacji i — przy jednej osobie — profilu (te same zapytania co strona
+  // rekrutacji i dok osoby, zwykle z cache'u).
+  const rejectionOpen = pendingRejection !== null;
+  const rejectionWorkModeJob = useRejectionWorkModeJob(jobId, rejectionOpen);
+  const rejectionProfileWorkMode = useRejectionProfileWorkMode(
+    pendingRejection?.entries.length === 1
+      ? pendingRejection.entries[0].item.candidate_id
+      : null,
+    rejectionOpen
+  );
 
   const dialogs: ReactNode = (
     <>
@@ -1564,6 +1592,8 @@ export function usePipelineMove({
             : null
         }
         nextPerson={pendingRejection?.followUp ? pendingRejection.followUp.next : undefined}
+        workModeJob={rejectionWorkModeJob}
+        profileWorkMode={rejectionProfileWorkMode}
         emailPreview={
           pendingRejection
             ? {

@@ -487,6 +487,14 @@
    "v3_home": "RejectionV2"
   },
   {
+   "id": "move.rejection-work-mode",
+   "area": "ruch",
+   "opis": "Powód „Nie akceptuje trybu pracy” w oknie odrzucenia: pytanie, ile dni w biurze kandydat akceptuje (tylko mniej, niż wymaga rekrutacja), i zapis trybu pracy na profilu z podglądem „Teraz na profilu” (14.10.2026)",
+   "file": "components/v2/modals/RejectionWorkModeField.tsx",
+   "marker": "Ile dni w biurze kandydat akceptuje?",
+   "v3_home": "RejectionV2"
+  },
+  {
    "id": "move.verified-rate",
    "area": "ruch",
    "opis": "Stawka przy „Zweryfikowany” — okno tylko, gdy para nie ma stawki etapu (D2, 14.10.2026)",
@@ -1955,12 +1963,20 @@
    "v3_home": "karta „CV do klienta” → Edytuj → Źródła"
   },
   {
+   "id": "cv.editor-pages-preview",
+   "area": "cv",
+   "opis": "„Jak u klienta” w edytorze i „Podgląd” w karcie: strony PDF z tego samego pliku Word (LibreOffice na serwerze), bez pobierania",
+   "file": "components/v2/cv/CvPagesPreview.tsx",
+   "marker": "Przygotowuję strony CV",
+   "v3_home": "karta „CV do klienta” → Podgląd; Edytuj → Jak u klienta"
+  },
+  {
    "id": "cv.editor-word-preview",
    "area": "cv",
-   "opis": "„Podgląd Word” w edytorze: plik DOCX złożony z bieżącej treści, bez pobierania",
+   "opis": "Zapas „Jak u klienta”: plik DOCX złożony z bieżącej treści, bez pobierania, gdy strony PDF nie powstaną",
    "file": "components/v2/cv-editor/CvEditorWordPreview.tsx",
    "marker": "Podgląd pliku Word",
-   "v3_home": "karta „CV do klienta” → Edytuj → Podgląd Word"
+   "v3_home": "karta „CV do klienta” → Edytuj → Jak u klienta (zapas)"
   },
   {
    "id": "cv.editor-rodo-locked",

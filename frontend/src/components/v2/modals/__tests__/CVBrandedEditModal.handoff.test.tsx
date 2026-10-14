@@ -71,7 +71,7 @@ vi.mock("@/components/v2/cv-editor/useCvSelectionAi", () => ({
 vi.mock("@/components/v2/cv-editor/useCvHistory", () => ({
   useCvHistory: () => ({ enabled: false, open: false, busy: false, show: () => undefined, close: () => undefined }),
 }));
-vi.mock("@/components/v2/cv-editor/CvEditorWordPreview", () => ({ CvEditorWordPreview: () => null }));
+vi.mock("@/components/v2/cv/CvPagesPreview", () => ({ CvPagesPreview: () => null }));
 vi.mock("@/components/v2/cv-editor/CvEditorIssues", async () => {
   const { useEffect } = await import("react");
   return {

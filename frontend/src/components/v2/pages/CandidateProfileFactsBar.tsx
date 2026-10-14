@@ -70,6 +70,7 @@ import {
   WORK_MODE_LABELS,
   formatWorkMode,
   profileWorkMode,
+  rejectionWorkModeOrigin,
   workModeValidationError,
   type WorkMode,
 } from "@/lib/work-mode";
@@ -1944,6 +1945,11 @@ export function CandidateProfileFactsBar({
   const viewerScope = candidateViewerScopeKey(useAuthStore((state) => state.user));
   const cardOverview = useCandidateCardOverview(candidate.id, viewerScope);
   const cardFacts = cardFactsByKey(cardOverview.data?.facts);
+  // Źródło trybu pracy: odrzucenie „Nie akceptuje trybu pracy” (14.10.2026)
+  // wygrywa z kartą rekomendacji — serwer trzyma je tylko, dopóki wartość
+  // na profilu pochodzi z tego odrzucenia, a karta mówi o starszej rozmowie.
+  const workModeOrigin =
+    rejectionWorkModeOrigin(candidate.preferences) ?? cardOrigin(cardFacts.work_mode);
   const profileRate =
     rateQuery.data?.data.amount != null ? Number(rateQuery.data.data.amount) : null;
   // „Stawka od” (0414): najniższa stawka z 18 miesięcy — ją czytają filtry
@@ -2063,7 +2069,7 @@ export function CandidateProfileFactsBar({
           icon={<Briefcase className="size-4" />}
           label="Praca"
           muted={!workModeLabel && !location}
-          origin={cardOrigin(cardFacts.work_mode)}
+          origin={workModeOrigin}
         >
           {[workModeLabel, location].filter(Boolean).join(" · ") || "Nie uzupełniono"}
         </FactShell>
@@ -2073,7 +2079,7 @@ export function CandidateProfileFactsBar({
         icon={<Briefcase className="size-4" />}
         label="Tryb pracy"
         muted={!workModeLabel}
-        origin={cardOrigin(cardFacts.work_mode)}
+        origin={workModeOrigin}
         action={
           canEditFacts ? (
             <EditFactButton

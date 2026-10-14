@@ -27,6 +27,9 @@ vi.mock("@/lib/api", () => ({
   pipelineApi: {
     move: (data: unknown) => post("/api/pipeline/move", data),
   },
+  candidatesApi: {
+    get: (id: number) => get(`/api/candidates/${id}`),
+  },
 }));
 vi.mock("@/components/Toast", () => ({
   useToast: () => ({ showSuccess, showError }),
@@ -40,6 +43,7 @@ vi.mock("@/lib/stage-cv-file", () => ({
 }));
 vi.mock("@/lib/rejection-reasons", () => ({
   loadJobRejectionReasons: (...a: unknown[]) => loadJobRejectionReasons(...a),
+  WORK_MODE_MISMATCH_REASON: "work_mode_mismatch",
 }));
 const consentProps = vi.fn();
 vi.mock("@/components/v2/cv-generator/ConsentAttachButton", () => ({
@@ -211,6 +215,15 @@ function mockApi({
     if (url === "/api/cv-generator/generated") return Promise.resolve({ data: cvs });
     if (url === "/api/screening-form") return Promise.resolve({ data: form });
     if (url === "/api/cv-generator/generated/77/docx") return Promise.resolve({ data: new Blob(["docx"]) });
+    // Pytanie o dni w biurze przy „Nie akceptuje trybu pracy” (14.10.2026).
+    if (url === "/api/jobs/31") {
+      return Promise.resolve({ data: { remote_policy: "hybrid", onsite_days_per_week: 2 } });
+    }
+    if (url === "/api/candidates/21") {
+      return Promise.resolve({
+        data: { preferences: { remote_modes: ["remote", "hybrid"] }, max_onsite_days_per_week: 3 },
+      });
+    }
     return Promise.reject(new Error(`unexpected ${url}`));
   });
 }
@@ -459,6 +472,46 @@ describe("DlReviewPanel — przegląd DL przed wysłaniem CV do klienta", () => 
       }),
     );
     expect(showSuccess).toHaveBeenCalledWith("Anna Nowak — odrzucony przez DL.");
+  });
+
+  it("„Nie akceptuje trybu pracy” pyta o dni w biurze i wysyła je z ruchem (14.10.2026)", async () => {
+    mockApi();
+    loadJobRejectionReasons.mockResolvedValue([
+      { id: "5", label: "Za wysoka stawka", applies_to: ["rejected"], disqualifies_person: false },
+      {
+        id: "9",
+        name: "work_mode_mismatch",
+        label: "Nie akceptuje trybu pracy (biuro / hybryda)",
+        applies_to: ["rejected"],
+        disqualifies_person: false,
+      },
+    ]);
+    renderPanel();
+    await userEvent.click(screen.getByRole("button", { name: /^Odrzuć…/ }));
+    const group = screen.getByRole("group", { name: "Odrzucenie przez DL" });
+    const select = await within(group).findByRole("combobox");
+    expect(within(group).queryByTestId("rejection-work-mode")).toBeNull();
+    await userEvent.selectOptions(select, "9");
+    expect(await within(group).findByText("Ta rekrutacja: hybrydowo · 2 dni w biurze w tygodniu.")).toBeTruthy();
+    expect(within(group).queryByText("Do 2 dni")).toBeNull();
+    expect(
+      await within(group).findByText(
+        "Teraz na profilu: Hybrydowo lub zdalnie · do 3 dni w biurze w tygodniu",
+      ),
+    ).toBeTruthy();
+    await userEvent.click(within(group).getByText("Do 1 dnia"));
+    await userEvent.click(within(group).getByRole("button", { name: /Potwierdź odrzucenie/ }));
+    await waitFor(() =>
+      expect(post).toHaveBeenCalledWith(
+        "/api/pipeline/move",
+        expect.objectContaining({
+          ended_by: "delivery_lead",
+          rejection_reason_id: 9,
+          work_mode_max_onsite_days: 1,
+          work_mode_save_to_profile: true,
+        }),
+      ),
+    );
   });
 
   it("„Wróć do poprawy…” otwiera okno z polami; wysyła listę pól i uwagę", async () => {

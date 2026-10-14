@@ -32,10 +32,12 @@ export const OFFICE_DAYS_BADGE_PL = "mniej dni w biurze";
 /** Kod plakietki w `ProposalRow.warnings` dla `office_fit === "days_exceeded"`. */
 export const OFFICE_DAYS_WARNING = "office_days";
 
-/** „Tylko zdalnie” z notatek przy rekrutacji hybrydowej (07.10.2026): plakietka,
- *  nie ukrycie — ukrywa dopiero praca stacjonarna albo 4+ dni w biurze. */
+/** „Tylko zdalnie” z notatek albo profilu przy rekrutacji hybrydowej
+ *  (07.10.2026, profil od 14.10.2026): plakietka, nie ukrycie — ukrywa dopiero
+ *  praca stacjonarna albo 4+ dni w biurze. Jedna plakietka: przy niej serwer
+ *  nie zgłasza już „Mniej dni w biurze” (`office_fit = "remote_only"`). */
 export const REMOTE_ONLY_WARNING = "prefers_remote";
-export const REMOTE_ONLY_BADGE_PL = "Preferuje pracę zdalną";
+export const REMOTE_ONLY_BADGE_PL = "Tylko zdalnie";
 
 /** Odpowiedź z wcześniejszej rozmowy na to samo pytanie trafiła w deal-breaker
  *  (warstwa `prior_screening`, 07.10.2026): plakietka, nie ukrycie. */

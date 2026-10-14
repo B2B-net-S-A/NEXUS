@@ -524,3 +524,131 @@ describe("RejectionV2 — zapis w toku", () => {
     expect(onConfirm).not.toHaveBeenCalled();
   });
 });
+
+describe("RejectionV2 — „Nie akceptuje trybu pracy” (14.10.2026)", () => {
+  const workModeReasons = [
+    { id: "7", label: "Za wysoka stawka", applies_to: ["rejected" as const] },
+    {
+      id: "9",
+      name: "work_mode_mismatch",
+      label: "Nie akceptuje trybu pracy (biuro / hybryda)",
+      applies_to: ["rejected" as const],
+    },
+  ];
+
+  function renderWorkMode(
+    props: Partial<React.ComponentProps<typeof RejectionV2>> = {},
+  ) {
+    const onConfirm = vi.fn();
+    renderUi(
+      <RejectionV2
+        open
+        onOpenChange={() => {}}
+        terminalType="rejected"
+        reasons={workModeReasons}
+        previousStageCategory="internal"
+        onConfirm={onConfirm}
+        {...props}
+      />,
+    );
+    return onConfirm;
+  }
+
+  it("pyta o dni w biurze dopiero po wybraniu powodu", () => {
+    renderWorkMode();
+    expect(screen.queryByTestId("rejection-work-mode")).toBeNull();
+    fireEvent.click(screen.getByText("Nie akceptuje trybu pracy (biuro / hybryda)"));
+    expect(screen.getByTestId("rejection-work-mode")).toBeInTheDocument();
+  });
+
+  it("pokazuje tylko mniej dni, niż wymaga rekrutacja, i jej tryb pracy", () => {
+    renderWorkMode({ workModeJob: { remotePolicy: "hybrid", onsiteDaysPerWeek: 2 } });
+    fireEvent.click(screen.getByText("Nie akceptuje trybu pracy (biuro / hybryda)"));
+    const choices = screen.getByRole("radiogroup", {
+      name: "Ile dni w biurze kandydat akceptuje",
+    });
+    expect(choices).toHaveTextContent("Tylko zdalnie");
+    expect(choices).toHaveTextContent("Do 1 dnia");
+    expect(choices).not.toHaveTextContent("Do 2 dni");
+    expect(
+      screen.getByText("Ta rekrutacja: hybrydowo · 2 dni w biurze w tygodniu."),
+    ).toBeInTheDocument();
+  });
+
+  it("domyślnie „Tylko zdalnie” z zapisem na profilu — idzie w 9. argumencie", () => {
+    const onConfirm = renderWorkMode();
+    fireEvent.click(screen.getByText("Nie akceptuje trybu pracy (biuro / hybryda)"));
+    expect(screen.getByText(/Tryb pracy → Tylko zdalnie/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Potwierdź" }));
+    expect(onConfirm.mock.calls[0][0]).toBe("9");
+    expect(onConfirm.mock.calls[0][8]).toEqual({ maxOnsiteDays: 0, saveToProfile: true });
+  });
+
+  it("wybrany dzień i odznaczony zapis trafiają do ruchu", () => {
+    const onConfirm = renderWorkMode();
+    fireEvent.click(screen.getByText("Nie akceptuje trybu pracy (biuro / hybryda)"));
+    fireEvent.click(screen.getByText("Do 1 dnia"));
+    expect(
+      screen.getByText(/Tryb pracy → Hybrydowo lub zdalnie · do 1 dnia w biurze/),
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("checkbox"));
+    fireEvent.click(screen.getByRole("button", { name: "Potwierdź" }));
+    expect(onConfirm.mock.calls[0][8]).toEqual({ maxOnsiteDays: 1, saveToProfile: false });
+  });
+
+  it("przy jednej osobie pokazuje, co jest teraz na profilu", () => {
+    renderWorkMode({ profileWorkMode: { modes: ["remote", "hybrid"], days: 3 } });
+    fireEvent.click(screen.getByText("Nie akceptuje trybu pracy (biuro / hybryda)"));
+    expect(screen.getByTestId("rejection-work-mode-current")).toHaveTextContent(
+      "Teraz na profilu: Hybrydowo lub zdalnie · do 3 dni w biurze w tygodniu",
+    );
+  });
+
+  it("pusty profil to „Nie uzupełniono”", () => {
+    renderWorkMode({ profileWorkMode: { modes: [], days: null } });
+    fireEvent.click(screen.getByText("Nie akceptuje trybu pracy (biuro / hybryda)"));
+    expect(screen.getByTestId("rejection-work-mode-current")).toHaveTextContent(
+      "Teraz na profilu: Nie uzupełniono",
+    );
+  });
+
+  it("kilka osób: zapis na profilach każdej, bez podglądu jednego profilu", () => {
+    mockPost.mockResolvedValue({ data: { people: [] } });
+    renderWorkMode({
+      profileWorkMode: { modes: ["remote"], days: 0 },
+      emailPreview: {
+        jobId: 1,
+        people: [
+          { candidateId: 1, name: "Anna Przykładowa" },
+          { candidateId: 2, name: "Jan Testowy" },
+        ],
+      },
+    });
+    fireEvent.click(screen.getByText("Nie akceptuje trybu pracy (biuro / hybryda)"));
+    expect(screen.getByText(/Zapisz na profilach kandydatów/)).toBeInTheDocument();
+    expect(screen.queryByTestId("rejection-work-mode-current")).toBeNull();
+  });
+
+  it("inny powód nie wysyła trybu pracy", () => {
+    const onConfirm = renderWorkMode();
+    fireEvent.click(screen.getByText("Za wysoka stawka"));
+    fireEvent.click(screen.getByRole("button", { name: "Potwierdź" }));
+    expect(onConfirm.mock.calls[0][8]).toBeNull();
+  });
+
+  it("klucz powodu przechodzi przez mapowanie słownika z API", () => {
+    const [mapped] = mapRejectionReasons([
+      {
+        id: 9,
+        template_id: 1,
+        stage_def_id: null,
+        name: "work_mode_mismatch",
+        label: "Nie akceptuje trybu pracy (biuro / hybryda)",
+        order: 4,
+        category: "rejected",
+        active: true,
+      } as RejectionReasonDef,
+    ]);
+    expect(mapped.name).toBe("work_mode_mismatch");
+  });
+});

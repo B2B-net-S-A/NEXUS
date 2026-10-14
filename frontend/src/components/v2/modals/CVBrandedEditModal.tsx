@@ -22,7 +22,7 @@
  * Edytor CV 2 (12.10.2026, decyzje D1 i D3): okno na cały ekran, kartka
  * w układzie szablonu Worda (`.cv-paper` w `globals.css`), pasek narzędzi
  * z blokami CV (`cv-editor/CvEditorToolbar`), źródła obok
- * (`cv-editor/CvEditorSources`), „Podgląd Word” z bieżącej treści i stała
+ * (`cv-editor/CvEditorSources`), „Jak u klienta” (strony PDF) z bieżącej treści i stała
  * klauzula zgody (`lib/cv-editor-structure.ts`). Logika sesji, zapisu
  * i zatwierdzenia została bez zmian.
  *
@@ -87,7 +87,7 @@ import { CvEditorPlan } from "@/components/v2/cv-editor/CvEditorPlan";
 import { useCvCommandPlan } from "@/components/v2/cv-editor/useCvCommandPlan";
 import { useCvHistory } from "@/components/v2/cv-editor/useCvHistory";
 import { CvEditorToolbar } from "@/components/v2/cv-editor/CvEditorToolbar";
-import { CvEditorWordPreview } from "@/components/v2/cv-editor/CvEditorWordPreview";
+import { CvPagesPreview } from "@/components/v2/cv/CvPagesPreview";
 import { useCvSelectionAi } from "@/components/v2/cv-editor/useCvSelectionAi";
 import { keepDialogOpenOnDocumentSearchEscape } from "@/components/v2/files/DocumentSearchBar";
 import {
@@ -143,6 +143,10 @@ export interface CvEditorFiles {
   draftDocx: (payload: CvDraftPayload, purpose: "download" | "preview") => Promise<AuthenticatedDownload>;
   downloadApproved: (version: number, filename: string) => Promise<void>;
   previewApproved: (version: number) => Promise<Blob>;
+  /** „Jak u klienta”: strony PDF szkicu z bieżącej treści (Edytor CV 3, J2). */
+  draftPdf?: (payload: CvDraftPayload) => Promise<Blob>;
+  /** „Jak u klienta”: strony PDF zatwierdzonej wersji; brak = plik Word. */
+  previewApprovedPdf?: (version: number) => Promise<Blob>;
   print: () => Promise<void>;
 }
 
@@ -167,6 +171,13 @@ function networkFiles(basePath: string): CvEditorFiles {
         filename,
       ),
     previewApproved: (version) => fetchAuthenticatedBlob(`${basePath}/versions/${version}/docx`),
+    draftPdf: (payload) =>
+      postAuthenticatedDownload(`${basePath}/preview-pdf`, payload).then((file) => file.blob),
+    // Strony PDF wersji ma tylko CV etapu; edytor wyniku generatora pokazuje
+    // wtedy plik Word (`CvPagesPreview`).
+    previewApprovedPdf: basePath.includes("/cv/branded")
+      ? (version) => fetchAuthenticatedBlob(`${basePath}/versions/${version}/pdf`)
+      : undefined,
     // Print view is Bearer-guarded — a raw window.open sends no Authorization
     // header and lands on a white "Not authenticated" page. Fetch the HTML with
     // auth and open it as a same-origin blob URL (its inline window.print() runs).
@@ -639,7 +650,19 @@ function CVBrandedEditContent({
     } catch (error) { showError(getErrorMessage(error)); }
     finally { setDownloadingDocx(false); }
   };
-  /** „Podgląd Word”: ten sam plik co „Pobierz”, z treści widocznej w edytorze. */
+  /** „Jak u klienta”: strony PDF z tego samego pliku co „Pobierz”. */
+  const loadPagesPreview = async (): Promise<Blob> => {
+    const session = sessionRef.current;
+    if (!session) throw new Error("Edytor nie wczytał jeszcze CV.");
+    await session.settle();
+    if (session.state === "finalized" && data?.docx_available) {
+      if (!files.previewApprovedPdf) throw new Error("Brak stron PDF dla tej wersji.");
+      return files.previewApprovedPdf(data.version);
+    }
+    if (!files.draftPdf) throw new Error("Brak stron PDF dla tego CV.");
+    return files.draftPdf({ content_html: session.html, expected_revision: session.revision });
+  };
+  /** Zapas „Jak u klienta”: ten sam plik co „Pobierz”, z treści widocznej w edytorze. */
   const loadWordPreview = async (): Promise<Blob> => {
     const session = sessionRef.current;
     if (!session) throw new Error("Edytor nie wczytał jeszcze CV.");
@@ -930,7 +953,7 @@ function CVBrandedEditContent({
               <div className="flex flex-none items-center gap-1" role="group" aria-label="Widok CV">
                 <ViewToggle active={mode === "edit"} onClick={() => setMode("edit")}>Edycja</ViewToggle>
                 <ViewToggle active={mode === "word"} onClick={() => { setMode("word"); setNarrowPane("cv"); }}>
-                  Podgląd Word
+                  Jak u klienta
                 </ViewToggle>
               </div>
               {!isGenerated ? (
@@ -1065,7 +1088,13 @@ function CVBrandedEditContent({
                   <div hidden={mode !== "edit"}>
                     <EditorContent editor={editor} />
                   </div>
-                  {mode === "word" ? <CvEditorWordPreview load={loadWordPreview} /> : null}
+                  {mode === "word" ? (
+                    <CvPagesPreview
+                      loadPdf={loadPagesPreview}
+                      loadDocx={loadWordPreview}
+                      className="absolute inset-0"
+                    />
+                  ) : null}
                   {editor && mode === "edit" ? (
                     <CvEditorSelectionAi
                       editor={editor}

@@ -8113,6 +8113,26 @@ SELECT 'job', id, 'archived',
      WHERE job_collaborators.source <> 'manual'::jobcollaboratorsource
         OR job_collaborators.removed_from_auto_cc
 """,
+    # 0442 — jednorazowo: powód „Nie akceptuje trybu pracy” w każdym szablonie
+    # (odrzucenie i rezygnacja), tuż przed „Inne”. Marker w tym samym
+    # statemencie: bez niego każdy start przywracałby powód skasowany przez
+    # admina. Lustro migracji (pilnuje `test_work_mode_rejection_reason_seed.py`).
+    "WITH marker AS ("
+    "INSERT INTO app_settings (key, value) "
+    "VALUES ('work_mode_rejection_reason_seeded', 'true'::jsonb) "
+    "ON CONFLICT (key) DO NOTHING RETURNING key) "
+    "INSERT INTO rejection_reasons "
+    '(template_id, name, category, "order", active, disqualifies_person, '
+    "external_source, created_at, updated_at) "
+    "SELECT t.id, 'work_mode_mismatch', c.cat::terminaltype, "
+    "COALESCE((SELECT GREATEST(r.\"order\" - 1, 0) FROM rejection_reasons r "
+    "WHERE r.template_id = t.id AND r.category::text = c.cat "
+    "AND r.name = 'Inne (' || c.cat || ')' LIMIT 1), 99), "
+    "TRUE, FALSE, 'manual', NOW(), NOW() "
+    "FROM pipeline_templates t "
+    "CROSS JOIN (VALUES ('rejected'), ('withdrawn')) AS c(cat) "
+    "WHERE EXISTS (SELECT 1 FROM marker) "
+    "ON CONFLICT (template_id, name, category) DO NOTHING",
 ]
 
 

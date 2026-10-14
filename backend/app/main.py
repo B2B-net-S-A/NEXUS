@@ -162,6 +162,7 @@ from app.api import contract_folder_docs
 from app.api import jarvis as jarvis_api
 from app.api import candidate_stage_cv as candidate_stage_cv_api
 from app.api import cv_editor_import as cv_editor_import_api
+from app.api import cv_pdf_preview as cv_pdf_preview_api
 from app.api import cv_ai_sources as cv_ai_sources_api
 from app.api import calendar
 from app.api import notifications
@@ -1596,6 +1597,10 @@ app.include_router(
 # Edytor CV 2 (PR 5): podgląd importu Worda — trasa z limitem, osobny moduł.
 app.include_router(
     cv_editor_import_api.router, prefix="/api", tags=["candidate-stage-cv"]
+)
+# Edytor CV 3 (J2): strony PDF z pliku Word — trasy z limitem, osobny moduł.
+app.include_router(
+    cv_pdf_preview_api.router, prefix="/api", tags=["candidate-stage-cv"]
 )
 app.include_router(cv_ai_sources_api.router, prefix="/api", tags=["candidate-stage-cv"])
 app.include_router(calendar.router, prefix="/api", tags=["calendar"])

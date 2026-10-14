@@ -86,6 +86,17 @@ vi.mock("@/components/v2/modals/RejectionV2", () => ({
       >
         potwierdź odrzucenie
       </button>
+      <button
+        type="button"
+        onClick={() =>
+          props.onConfirm("9", "", false, null, undefined, "recruiter", null, null, {
+            maxOnsiteDays: 0,
+            saveToProfile: true,
+          })
+        }
+      >
+        odrzuć za tryb pracy
+      </button>
     </div>
   ),
 }));
@@ -1069,6 +1080,24 @@ describe("ScreeningFullForm — odrzucenie z panelu osoby", () => {
     await user.click(screen.getByRole("button", { name: "potwierdź odrzucenie" }));
     await waitFor(() => expect(onFollowUpMoved).toHaveBeenCalledWith({ reasonLabel: "Brak Azure" }));
     expect(onMoved).toHaveBeenCalled();
+  });
+
+  it("„Nie akceptuje trybu pracy” niesie dni w biurze i zapis na profilu (14.10.2026)", async () => {
+    mocks.send.mockResolvedValue({ ok: true, data: {} });
+    const user = userEvent.setup();
+    mount({
+      reject: REJECT_TARGET,
+      rejectFollowUp: () => ({ stageLabel: "Nowi", next: null, onMoved: vi.fn() }),
+    });
+
+    await user.click(await screen.findByRole("button", { name: /^Odrzuć$/ }));
+    await user.click(screen.getByRole("button", { name: "odrzuć za tryb pracy" }));
+    await waitFor(() => expect(mocks.send).toHaveBeenCalledTimes(1));
+    expect(mocks.send.mock.calls[0][0]).toMatchObject({
+      rejection_reason_id: "9",
+      work_mode_max_onsite_days: 0,
+      work_mode_save_to_profile: true,
+    });
   });
 
   it("odmowa serwera nie przenosi panelu", async () => {

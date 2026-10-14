@@ -106,7 +106,7 @@ import { ConsentAttachButton } from "@/components/v2/cv-generator/ConsentAttachB
 import { CVOriginalPreviewModal } from "@/components/v2/modals/CVOriginalPreviewModal";
 import { CvGeneratePanel } from "@/components/v2/recruitment/CvGeneratePanel";
 import { CvFilePreviewDialog } from "@/components/v2/cv/CvFilePreviewDialog";
-import { fetchStageCvFile } from "@/lib/stage-cv-file";
+import { fetchStageCvFile, fetchStageCvPdf } from "@/lib/stage-cv-file";
 import { normalizeCvAlign } from "@/lib/cv-editor-align";
 import { CvToClientChecks, useCvChecksCount } from "@/components/v2/recruitment/CvToClientChecks";
 import { UseOtherCvDialog } from "@/components/v2/recruitment/UseOtherCvDialog";
@@ -306,6 +306,8 @@ export interface CvToClientCardProps {
    * podaje plik z pamięci — w `/preview/*` zapytania POST są blokowane.
    */
   loadStageCvFile?: (stageId: number) => Promise<{ blob: Blob }>;
+  /** Strony CV (PDF z pliku Word) do „Podglądu” — harness podaje plik z pamięci. */
+  loadStageCvPdf?: (stageId: number) => Promise<{ blob: Blob }>;
 }
 
 export function CvToClientCard({
@@ -321,6 +323,7 @@ export function CvToClientCard({
   nextInScreening = null,
   onOpenPerson,
   loadStageCvFile = fetchStageCvFile,
+  loadStageCvPdf = fetchStageCvPdf,
 }: CvToClientCardProps) {
   const queryClient = useQueryClient();
   const { showSuccess, showError } = useToast();
@@ -973,6 +976,7 @@ export function CvToClientCard({
           open
           onOpenChange={setPreviewOpen}
           title={`CV do klienta — ${candidateName}`}
+          loadPdf={() => loadStageCvPdf(cvStageId).then((file) => file.blob)}
           load={() => loadStageCvFile(cvStageId).then((file) => file.blob)}
           fallbackHtml={branded?.content_html ?? null}
           language={branded?.language === "en" ? "en" : "pl"}

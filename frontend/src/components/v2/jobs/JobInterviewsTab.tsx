@@ -76,6 +76,11 @@ import {
   RejectionV2,
   type CandidateOfferResponse,
 } from "@/components/v2/modals/RejectionV2";
+import type { RejectionWorkModeChoice } from "@/components/v2/modals/RejectionWorkModeField";
+import {
+  useRejectionProfileWorkMode,
+  useRejectionWorkModeJob,
+} from "@/hooks/useRejectionWorkModeContext";
 import {
   InterviewDecisionDock,
   InterviewDecisionDockEmpty,
@@ -261,6 +266,12 @@ export function JobInterviewsTab({
     staleTime: 5 * 60_000,
   });
   const rejectionReasons = reasonsQuery.data ?? [];
+  // Okno odrzucenia: pytanie o dni w biurze przy „Nie akceptuje trybu pracy”.
+  const terminalWorkModeJob = useRejectionWorkModeJob(jobId, pendingTerminal !== null);
+  const terminalProfileWorkMode = useRejectionProfileWorkMode(
+    pendingTerminal?.entry.item.candidate_id ?? null,
+    pendingTerminal !== null,
+  );
 
   // ── Ruch bez dialogu — ta sama droga co drag&drop na tablicy ─────────
   // Rdzeń ruchu (`usePipelineMoveCore`) obsługuje ostrzeżenie „Przenieś mimo
@@ -299,6 +310,7 @@ export function JobInterviewsTab({
       offerResponse: CandidateOfferResponse | null;
       freeReason?: string;
       emailText?: RejectionEmailText | null;
+      workMode?: RejectionWorkModeChoice | null;
     }) =>
       moveCore.send(
         {
@@ -312,6 +324,8 @@ export function JobInterviewsTab({
           send_rejection_email: vars.sendRejectionEmail ?? undefined,
           rejection_email_subject: vars.emailText?.subject,
           rejection_email_body: vars.emailText?.body,
+          work_mode_max_onsite_days: vars.workMode?.maxOnsiteDays,
+          work_mode_save_to_profile: vars.workMode?.saveToProfile,
           candidate_offer_response: vars.offerResponse ?? undefined,
           expected_state_version: expectedStateVersionOf(vars.item),
         },
@@ -473,6 +487,8 @@ export function JobInterviewsTab({
               },
             ],
           }}
+          workModeJob={terminalWorkModeJob}
+          profileWorkMode={terminalProfileWorkMode}
           onConfirm={(
             reasonId,
             notes,
@@ -482,6 +498,7 @@ export function JobInterviewsTab({
             _endedBy,
             _cancelAgreementId,
             emailText,
+            workMode,
           ) =>
             terminalMutation.mutate({
               item: pendingTerminal.entry.item,
@@ -492,6 +509,7 @@ export function JobInterviewsTab({
               offerResponse: offerResponse ?? null,
               freeReason,
               emailText,
+              workMode,
             })
           }
         />
