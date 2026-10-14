@@ -596,22 +596,22 @@ describe("stan CV firmowego na karcie (14.10.2026)", () => {
   it("CV jest i QC biegło: ile do poprawy (blokujące + uwagi) albo „bez uwag”", () => {
     const withCv = (qc: KanbanItem["qc"]) => item({ company_cv: true, qc });
     expect(label(withCv({ status: "failed", blocking_failed: 2, warnings_count: 1 }))).toBe(
-      "CV gotowe · 3 do poprawy",
+      "CV gotowe · QC: 3 do poprawy",
     );
     expect(label(withCv({ status: "passed", blocking_failed: 0, warnings_count: 2 }))).toBe(
-      "CV gotowe · 2 do poprawy",
+      "CV gotowe · QC: 2 do poprawy",
     );
     // Starszy serwer bez `warnings_count` — liczą się same blokujące.
-    expect(label(withCv({ status: "passed", blocking_failed: 0 }))).toBe("CV gotowe · bez uwag");
+    expect(label(withCv({ status: "passed", blocking_failed: 0 }))).toBe("CV gotowe · QC bez uwag");
     expect(label(withCv({ status: "overridden", blocking_failed: 0, warnings_count: 0 }))).toBe(
-      "CV gotowe · bez uwag",
+      "CV gotowe · QC bez uwag",
     );
     expect(cvStateBadge(withCv({ status: "passed", blocking_failed: 0 }), "verified")?.tone).toBe("ok");
     expect(cvStateBadge(withCv({ status: "failed", blocking_failed: 1 }), "verified")?.tone).toBe("wait");
     // Gotowe auto-CV bez pola `company_cv` (starszy serwer) też jest CV.
     expect(
       label(item({ auto_cv_ready: true, qc: { status: "passed", blocking_failed: 0, warnings_count: 0 } })),
-    ).toBe("CV gotowe · bez uwag");
+    ).toBe("CV gotowe · QC bez uwag");
   });
 
   it("QC jeszcze nie biegło — gotowe auto-CV zostaje „CV gotowe w tle” (sprawdź przed wysyłką)", () => {

@@ -20,7 +20,7 @@
  * karty w „Screeningu”, bez oceny („Dlaczego ten kandydat”) i z oceną.
  *
  * Droga rekrutera do DL (14.10.2026): w „Zweryfikowanym” stan CV firmowego —
- * „CV w przygotowaniu…”, „CV gotowe · 3 do poprawy”, „CV gotowe · bez uwag”
+ * „CV w przygotowaniu…”, „CV gotowe · QC: 3 do poprawy”, „CV gotowe · QC bez uwag”
  * i karta bez CV firmowego (szara strzałka „Brak CV firmowego” otwiera
  * „Przesuń dalej”). Strzałka na karcie bez braków przesuwa od razu z „Cofnij”
  * — żądanie i tak odrzuca blokada sieci harnessu (komunikat błędu po 10 s).
