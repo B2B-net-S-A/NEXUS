@@ -363,8 +363,22 @@ class CandidateStageResponse(BaseModel):
     # liczone względem klienta tej rekrutacji. Pulpit „Moje następne kroki”
     # go nie niesie (do 25 tablic w jednej odpowiedzi).
     employment_marker: Optional[EmploymentMarker] = None
+    # „+1 rekrutacja” (14.10.2026): inne niezamknięte rekrutacje, w których ta
+    # osoba stoi w „Nowych”/„Screeningu” (`services/also_fits.py`), najwyżej 5.
+    # Tylko Tablica; pulpit „Moje następne kroki” — pusta lista.
+    other_open_jobs: List["OtherOpenJob"] = Field(default_factory=list)
 
     model_config = {"from_attributes": True}
+
+
+class OtherOpenJob(BaseModel):
+    job_id: int
+    title: str
+    client_name: Optional[str] = None
+    column: str
+
+
+CandidateStageResponse.model_rebuild()
 
 
 class KanbanColumn(BaseModel):

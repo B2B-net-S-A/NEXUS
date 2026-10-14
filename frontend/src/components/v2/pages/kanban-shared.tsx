@@ -28,6 +28,14 @@ import type { RateChangeBadge } from "@/lib/rate-change";
 
 // ── Types ─────────────────────────────────────────────────────────────
 
+/** Inna rekrutacja, w której osoba stoi w „Nowych”/„Screeningu” (karta „+1 rekrutacja”). */
+export interface OtherOpenJob {
+ job_id: number;
+ title: string;
+ client_name: string | null;
+ column: string;
+}
+
 export interface KanbanItem {
  id: number;
  candidate_id: number;
@@ -126,6 +134,9 @@ export interface KanbanItem {
  warnings?: string[];
  // Znacznik „Pracuje u nas”; `elsewhere` względem klienta tej rekrutacji.
  employment_marker?: EmploymentMarker | null;
+ // „+1 rekrutacja” (14.10.2026): inne niezamknięte rekrutacje, w których ta
+ // osoba stoi w „Nowych”/„Screeningu” (`services/also_fits.py`), najwyżej 5.
+ other_open_jobs?: OtherOpenJob[];
  // Kto ma ruch według serwera — lustro `NextActionOwner` z
  // `lib/pipeline-next-action.ts` (unia wpisana wprost: tamten moduł importuje
  // typy stąd, więc import w drugą stronę zamknąłby cykl).

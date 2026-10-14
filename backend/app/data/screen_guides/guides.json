@@ -71,7 +71,7 @@
       },
       {
         "q": "Jak dodać kandydatów?",
-        "a": "Kliknij kafel nad tablicą: „Podobne rekrutacje”, „Nowi z ogłoszeń”, „Propozycje z bazy” albo „Szukaj w bazie”. Dopasowanie liczy się samo, a wiersz pokazuje, które wymagania są w CV. „+ Dodaj” w wierszu dodaje osobę do Nowych na 12 h rezerwacji („Cofnij” obok); kilka osób zaznacz i dodaj stopką. „Szukaj ręcznie” to zakładka tego okna.",
+        "a": "Kliknij kafel nad tablicą: „Podobne rekrutacje”, „Nowi z ogłoszeń”, „Propozycje z bazy” albo „Szukaj w bazie”. „+ Dodaj” w wierszu dodaje osobę do Nowych na 12 h („Cofnij” obok). Pod dodaną osobą „Pasuje też do” podpowiada inne rekrutacje — dodasz ją tam jednym kliknięciem. „+1 rekrutacja” na karcie: czeka też gdzie indziej.",
         "anchor": "jobs.board.sources"
       },
       {
