@@ -71,6 +71,21 @@
         "title": "Body_finance_import_api_integrations_v1_finance_imports_post",
         "type": "object"
       },
+      "Body_put_order_file_api_integrations_v1_orders__order_id__file_put": {
+        "properties": {
+          "file": {
+            "contentMediaType": "application/octet-stream",
+            "description": "PDF zamówienia (do 25 MB).",
+            "title": "File",
+            "type": "string"
+          }
+        },
+        "required": [
+          "file"
+        ],
+        "title": "Body_put_order_file_api_integrations_v1_orders__order_id__file_put",
+        "type": "object"
+      },
       "CancelIn": {
         "properties": {
           "reason": {
@@ -469,6 +484,29 @@
         "title": "ContractOut",
         "type": "object"
       },
+      "ContractPatchIn": {
+        "additionalProperties": false,
+        "properties": {
+          "end_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Ostatni dzień umowy; null = umowa bezterminowa.",
+            "title": "End Date"
+          }
+        },
+        "required": [
+          "end_date"
+        ],
+        "title": "ContractPatchIn",
+        "type": "object"
+      },
       "ContractRatesOut": {
         "description": "Stawki obowiązujące dnia ``as_of`` (z harmonogramów).",
         "properties": {
@@ -567,6 +605,26 @@
         ],
         "title": "ContractStatus",
         "type": "string"
+      },
+      "ContractStatusIn": {
+        "additionalProperties": false,
+        "properties": {
+          "status": {
+            "enum": [
+              "draft",
+              "active",
+              "ending",
+              "ended"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "ContractStatusIn",
+        "type": "object"
       },
       "DeliveryLeadOut": {
         "properties": {
@@ -668,6 +726,140 @@
           "avg_dso_days"
         ],
         "title": "DsoRow",
+        "type": "object"
+      },
+      "ExtendLineIn": {
+        "additionalProperties": false,
+        "description": "Osoba w przedłużeniu — wskazana kontraktem u tego klienta.\n\n``input_mode`` + ``input_value`` (budżet MD osoby: liczba MD albo kwota)\nprzychodzą razem albo wcale; zamówienie kosztowe i wspólna pula MD nie\nmają budżetu per osoba.",
+        "properties": {
+          "contract_id": {
+            "maximum": 2147483647.0,
+            "minimum": 1.0,
+            "title": "Contract Id",
+            "type": "integer"
+          },
+          "end_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End Date"
+          },
+          "input_mode": {
+            "anyOf": [
+              {
+                "enum": [
+                  "md",
+                  "amount"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Input Mode"
+          },
+          "input_value": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,10}|(?=[\\d.]{1,17}0*$)\\d{0,10}\\.\\d{0,6}0*$)",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Input Value"
+          },
+          "optional_md": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,10}|(?=[\\d.]{1,17}0*$)\\d{0,10}\\.\\d{0,6}0*$)",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Optional Md"
+          },
+          "rate_candidate_currency": {
+            "anyOf": [
+              {
+                "pattern": "^[A-Z]{3}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rate Candidate Currency"
+          },
+          "rate_client_currency": {
+            "anyOf": [
+              {
+                "pattern": "^[A-Z]{3}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rate Client Currency"
+          },
+          "rate_cost": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,9}|(?=[\\d.]{1,13}0*$)\\d{0,9}\\.\\d{0,3}0*$)",
+                "type": "string"
+              }
+            ],
+            "title": "Rate Cost"
+          },
+          "rate_revenue": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,9}|(?=[\\d.]{1,13}0*$)\\d{0,9}\\.\\d{0,3}0*$)",
+                "type": "string"
+              }
+            ],
+            "title": "Rate Revenue"
+          },
+          "start_date": {
+            "format": "date",
+            "title": "Start Date",
+            "type": "string"
+          }
+        },
+        "required": [
+          "contract_id",
+          "rate_cost",
+          "rate_revenue",
+          "start_date"
+        ],
+        "title": "ExtendLineIn",
         "type": "object"
       },
       "FinanceImportRejection": {
@@ -991,6 +1183,138 @@
           "margin"
         ],
         "title": "FinanceTotals",
+        "type": "object"
+      },
+      "GroupCancelIn": {
+        "additionalProperties": false,
+        "properties": {
+          "reason": {
+            "anyOf": [
+              {
+                "maxLength": 1000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          }
+        },
+        "title": "GroupCancelIn",
+        "type": "object"
+      },
+      "GroupCloseIn": {
+        "additionalProperties": false,
+        "properties": {
+          "closure_date": {
+            "format": "date",
+            "title": "Closure Date",
+            "type": "string"
+          },
+          "closure_reason": {
+            "anyOf": [
+              {
+                "maxLength": 1000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Closure Reason"
+          }
+        },
+        "required": [
+          "closure_date"
+        ],
+        "title": "GroupCloseIn",
+        "type": "object"
+      },
+      "GroupExtendIn": {
+        "additionalProperties": false,
+        "properties": {
+          "budget_amount": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,14}|(?=[\\d.]{1,18}0*$)\\d{0,14}\\.\\d{0,3}0*$)",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Budget Amount"
+          },
+          "end_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End Date"
+          },
+          "lines": {
+            "items": {
+              "$ref": "#/components/schemas/ExtendLineIn"
+            },
+            "maxItems": 200,
+            "title": "Lines",
+            "type": "array"
+          },
+          "md_budget_total": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,10}|(?=[\\d.]{1,17}0*$)\\d{0,10}\\.\\d{0,6}0*$)",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Md Budget Total"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "maxLength": 5000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          },
+          "order_number": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Order Number",
+            "type": "string"
+          },
+          "start_date": {
+            "format": "date",
+            "title": "Start Date",
+            "type": "string"
+          }
+        },
+        "required": [
+          "order_number",
+          "start_date"
+        ],
+        "title": "GroupExtendIn",
         "type": "object"
       },
       "HTTPValidationError": {
@@ -2649,6 +2973,33 @@
         "title": "OrderChangesTabSummary",
         "type": "object"
       },
+      "OrderCloseIn": {
+        "additionalProperties": false,
+        "properties": {
+          "closure_date": {
+            "format": "date",
+            "title": "Closure Date",
+            "type": "string"
+          },
+          "closure_reason": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Closure Reason"
+          }
+        },
+        "required": [
+          "closure_date"
+        ],
+        "title": "OrderCloseIn",
+        "type": "object"
+      },
       "OrderEntryItem": {
         "description": "Wejście = osoba, która zaczyna z nami współpracę po raz pierwszy.\n\nKontynuacja u tego samego klienta, przejście do innego klienta i dodatkowy\nprojekt NIE są wejściami — idą do Zmian (``OrderChangeItem``). Dlatego nie\nma tu już pól ``is_continuation`` / ``additional_project``: po korekcie\nkwalifikacji byłyby zawsze fałszywe, a pole, które zawsze kłamie w jedną\nstronę, zaprasza do budowania na nim.\n\nPierwsza współpraca wynika z UMOWY, nie tylko z wiersza zamówienia —\nrejestr zamówień bywa młodszy niż współpraca, którą opisuje.",
         "properties": {
@@ -3810,6 +4161,96 @@
         "title": "OrderOut",
         "type": "object"
       },
+      "OrderPatchIn": {
+        "additionalProperties": false,
+        "description": "Pola zmieniane przez API. Pominięte pole zostaje bez zmian, ``null``\nczyści (``end_date: null`` = bezterminowo). Stawki i waluty to kwoty —\nwymagają ``amounts:write``.",
+        "properties": {
+          "end_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End Date"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "maxLength": 5000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          },
+          "rate_candidate": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,9}|(?=[\\d.]{1,13}0*$)\\d{0,9}\\.\\d{0,3}0*$)",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rate Candidate"
+          },
+          "rate_candidate_currency": {
+            "anyOf": [
+              {
+                "maxLength": 3,
+                "minLength": 3,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rate Candidate Currency"
+          },
+          "rate_client": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,9}|(?=[\\d.]{1,13}0*$)\\d{0,9}\\.\\d{0,3}0*$)",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rate Client"
+          },
+          "rate_client_currency": {
+            "anyOf": [
+              {
+                "maxLength": 3,
+                "minLength": 3,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rate Client Currency"
+          }
+        },
+        "title": "OrderPatchIn",
+        "type": "object"
+      },
       "OrderPdfClient": {
         "properties": {
           "client_id": {
@@ -4952,6 +5393,59 @@
         "tags": [
           "integrations-v1"
         ]
+      },
+      "patch": {
+        "description": "Jak zmiana daty końca w rejestrze umów. Data skracająca umowę skraca\nteż otwarte zamówienia tej osoby; nowa data na zakończonej umowie ją\nprzywraca; data wstecz na trwającej umowie kończy ją przy nocnym\nprzeliczeniu. Umowa B2B bez zakończenia współpracy daty końca nie\ndostaje (422).",
+        "operationId": "update_contract_api_integrations_v1_contracts__contract_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "contract_id",
+            "required": true,
+            "schema": {
+              "maximum": 2147483647,
+              "minimum": 1,
+              "title": "Contract Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ContractPatchIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContractOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Zmień datę końca kontraktu",
+        "tags": [
+          "integrations-v1"
+        ]
       }
     },
     "/api/integrations/v1/contracts/{contract_id}/rate-history": {
@@ -4994,6 +5488,61 @@
           }
         },
         "summary": "Historia stawek kontraktu",
+        "tags": [
+          "integrations-v1"
+        ]
+      }
+    },
+    "/api/integrations/v1/contracts/{contract_id}/status": {
+      "post": {
+        "description": "Przejście stanu jak lista statusu w rejestrze umów: ``active`` sprawdza\nkomplet danych (szkic) albo przywraca zakończoną umowę, ``ending`` wymaga\ndaty końca, ``draft`` cofa do szkicu. ``ended`` = 409\n``termination_required`` (zakończenie z powodem jest na ekranie).",
+        "operationId": "update_contract_status_api_integrations_v1_contracts__contract_id__status_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "contract_id",
+            "required": true,
+            "schema": {
+              "maximum": 2147483647,
+              "minimum": 1,
+              "title": "Contract Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ContractStatusIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContractOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Zmień status kontraktu",
         "tags": [
           "integrations-v1"
         ]
@@ -6476,6 +7025,171 @@
         ]
       }
     },
+    "/api/integrations/v1/order-groups/{group_id}/cancel": {
+      "post": {
+        "description": "Zamówienie, które nie doszło do skutku. Tylko bez rozliczeń (zejścia\nMD, faktury) — takie się kończy, nie anuluje (409\n``order_group_has_settlements``). Przywrócenie — na ekranie.",
+        "operationId": "cancel_order_group_api_integrations_v1_order_groups__group_id__cancel_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "group_id",
+            "required": true,
+            "schema": {
+              "maximum": 2147483647,
+              "minimum": 1,
+              "title": "Group Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GroupCancelIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrderGroupOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Anuluj zamówienie MD / kosztowe",
+        "tags": [
+          "integrations-v1"
+        ]
+      }
+    },
+    "/api/integrations/v1/order-groups/{group_id}/close": {
+      "post": {
+        "description": "Jak „Zakończ” na ekranie: data końca zapisuje się zamówieniu i otwartym\nliniom od razu, status ``completed`` linie dostają, gdy dzień nadejdzie.\nData wstecz jest dozwolona (nie wcześniejsza niż start zamówienia).",
+        "operationId": "close_order_group_api_integrations_v1_order_groups__group_id__close_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "group_id",
+            "required": true,
+            "schema": {
+              "maximum": 2147483647,
+              "minimum": 1,
+              "title": "Group Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GroupCloseIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrderGroupOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Zakończ zamówienie MD / kosztowe",
+        "tags": [
+          "integrations-v1"
+        ]
+      }
+    },
+    "/api/integrations/v1/order-groups/{group_id}/extend": {
+      "post": {
+        "description": "Nowe zamówienie kontynuujące wskazane (nowy numer, okres i budżety);\npoprzednie zostaje w rejestrze bez zmian. Typ rozliczenia dziedziczy się\npo poprzedniku: kosztowe wymaga ``budget_amount``, wspólna pula MD —\n``md_budget_total``. Osoby (``lines``), kwota i pula to kwoty —\nwymagają ``amounts:write``.",
+        "operationId": "extend_order_group_api_integrations_v1_order_groups__group_id__extend_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "group_id",
+            "required": true,
+            "schema": {
+              "maximum": 2147483647,
+              "minimum": 1,
+              "title": "Group Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GroupExtendIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrderGroupOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Przedłuż zamówienie MD / kosztowe (nowe zamówienie)",
+        "tags": [
+          "integrations-v1"
+        ]
+      }
+    },
     "/api/integrations/v1/orders": {
       "get": {
         "description": "Zamówienia i linie zamówień MD sortowane po id.",
@@ -6682,6 +7396,169 @@
           }
         },
         "summary": "Zamówienie",
+        "tags": [
+          "integrations-v1"
+        ]
+      },
+      "patch": {
+        "description": "Te same reguły co edycja na ekranie: okres nie nachodzi na inne\nzamówienie tej osoby, nowy okres przelicza status, zamówienie trwające\nwskrzesza zakończony kontrakt. Inne pole niż wymienione = 422.",
+        "operationId": "update_order_api_integrations_v1_orders__order_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "order_id",
+            "required": true,
+            "schema": {
+              "maximum": 2147483647,
+              "minimum": 1,
+              "title": "Order Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OrderPatchIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrderOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Zmień zamówienie okresowe (data końca, notatka, stawki)",
+        "tags": [
+          "integrations-v1"
+        ]
+      }
+    },
+    "/api/integrations/v1/orders/{order_id}/close": {
+      "post": {
+        "description": "Kończy JEDNO zamówienie, bez dotykania umowy. Data zapisuje się od razu,\nstatus ``completed`` — gdy dzień nadejdzie. Szkic (409 ``order_is_draft``)\ni linia zamówienia MD (409 ``order_belongs_to_group``) się nie kończą.",
+        "operationId": "close_order_api_integrations_v1_orders__order_id__close_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "order_id",
+            "required": true,
+            "schema": {
+              "maximum": 2147483647,
+              "minimum": 1,
+              "title": "Order Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OrderCloseIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrderOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Zakończ zamówienie okresowe",
+        "tags": [
+          "integrations-v1"
+        ]
+      }
+    },
+    "/api/integrations/v1/orders/{order_id}/file": {
+      "put": {
+        "description": "Jeden PDF na zamówienie — nowy zastępuje poprzedni (tylko PDF, 415 dla\ninnych). Bez ``dry_run``: plik zapisuje się przed zatwierdzeniem.",
+        "operationId": "put_order_file_api_integrations_v1_orders__order_id__file_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "order_id",
+            "required": true,
+            "schema": {
+              "maximum": 2147483647,
+              "minimum": 1,
+              "title": "Order Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_put_order_file_api_integrations_v1_orders__order_id__file_put"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrderOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Wgraj albo podmień PDF zamówienia",
         "tags": [
           "integrations-v1"
         ]

@@ -75,8 +75,9 @@ integratora: `docs/api/integracje-v1.md` (bez nazwisk — repo jest publiczne).
   (`route_class=IntegrationRoute` — koperta błędu `{"error": {code, message, details}}`),
   montowany w pętli `integrations_v1.ROUTERS` w `main.py` (NIE `app.mount` — testy
   kontraktowe przestałyby widzieć trasy). Trasy ekranów dla klucza nadal 401.
-- **Scope'y v1** w `ServiceScope`: `clients:read`, `contracts:read`, `orders:read`,
-  `md:read|write`, `finance:read|write`, `invoices:read|write`, `amounts:read`.
+- **Scope'y v1** w `ServiceScope`: `clients:read`, `contracts:read|write`,
+  `orders:read|write`, `md:read|write`, `finance:read|write`,
+  `invoices:read|write`, `amounts:read|write`.
   `X:write` obejmuje `X:read` (`implied_scopes`, liczone przy budowie
   `ServicePrincipal`, nie w `granted_scopes()`). Kwoty w zamówieniach, kontraktach i wierszach importu MD
   wyłącznie z `amounts:read` (`can_see_amounts`), inaczej `null` + `amounts_redacted`.
@@ -106,4 +107,29 @@ integratora: `docs/api/integracje-v1.md` (bez nazwisk — repo jest publiczne).
 - **Czego v1 świadomie nie robi:** dane kandydatów/rekrutacji/notatek, twarde usuwanie
   (faktura → `cancel`), zatwierdzanie przekroczeń salda MD i wspólnych pul
   (`409 requires_screen_approval`), status „Pobrane” PDF-ów ludzi, historia grupy zamówień.
-  Zapis zamówień i kontraktów: osobny PR (2B, `WritePolicy`).
+- **Zapis zamówień i kontraktów (PR 2B, 14.10.2026) = jedno ciało, dwie polityki.**
+  Ciała tras ekranu są wydzielone obok tras jako `apply_*`
+  (`client_order_groups.apply_group_close|cancel|extend`,
+  `client_orders.apply_order_close|update|file`,
+  `contracts.apply_contract_update|status`) i biorą `policy: WritePolicy`
+  (`app/api/write_policy.py`) zamiast `User`. Trasa ekranu jest cienką otoczką:
+  `UserWritePolicy(user, db)` woła DOKŁADNIE te same bramki co przedtem (te same
+  argumenty, przez atrybut modułu trasy), a redakcję odpowiedzi robi otoczka.
+  Trasy v1 (`integrations_v1/order_writes.py`, `contract_writes.py`) biorą
+  `IntegrationWritePolicy` (`common.write_policy`): decyzje ze scope'ów, cała
+  firma (bez portfela DL), kwoty tylko z `amounts:write`, status kontraktu
+  i data końca, która kończy albo przywraca współpracę, tylko z `contracts:status`
+  (lustro uprawnienia „Status kontraktu”, wspólna reguła
+  `contracts.contract_update_changes_status`), odmowa `insufficient_scope` z `fields`. Nowa bramka w ciele `apply_*` = metoda polityki
+  w OBU klasach; trasa ekranu nie woła `IntegrationWritePolicy`, v1 nie woła
+  `UserWritePolicy` (`tests/test_write_policy.py`). Testy źródłowe blokad
+  i `for_write` patrzą na ciała `apply_*`, nie na otoczki.
+- **v1 węziej niż ekran:** bez zakładania i usuwania; przedłużenie tylko z osobami
+  z kontraktem (`contract_id`, bez szkiców kontraktów z `candidate_id`);
+  `PATCH /orders/{id}` = `end_date`, `notes` + stawki/waluty z `amounts:write`,
+  inne pole 422 (`extra="forbid"`), linia grupy 409; `PATCH /contracts/{id}` =
+  tylko `end_date` (stawki kontraktu zostają na ekranie — zapis harmonogramu
+  zastępuje cały harmonogram). Bez `dry_run`: zamówienia commitują
+  w `commit_order_write`, PDF ląduje na dysku przed commitem. Encji nie ładuj
+  przed ciałem (`db.get`) — `SELECT … FOR UPDATE` ciała zwróciłby obiekt z mapy
+  tożsamości z wartościami sprzed blokady; odczytuj same kolumny.

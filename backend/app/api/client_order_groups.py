@@ -62,6 +62,7 @@ from app.api.permission_access import (
     DeliveryViewUser,
 )
 from app.api.section_access import DELIVERY_SECTION_DEPENDENCIES
+from app.api.write_policy import UserWritePolicy, WritePolicy
 from app.core.database import get_db
 from app.core.scheduling import business_today
 from app.core.upload_filename import fit_filename_column
@@ -4346,7 +4347,30 @@ async def close_order_group(
     nadszedł. Bez tego rozróżnienia zakończenie zaplanowane na przyszłość
     wyłączałoby konsultanta, który dziś jeszcze pracuje.
     """
-    await _require_order_lifecycle(db, user, client_id)
+    group = await apply_group_close(
+        db, client_id, group_id, payload, policy=UserWritePolicy(user, db)
+    )
+    return await _group_to_read(
+        db,
+        group,
+        with_finance=await _can_see_finance(db, user, client_id),
+    )
+
+
+async def apply_group_close(
+    db: AsyncSession,
+    client_id: int,
+    group_id: int,
+    payload: OrderGroupClose,
+    *,
+    policy: WritePolicy,
+) -> ClientOrderGroup:
+    """„Zakończ” zamówienie MD/kosztowe — ciało trasy ekranu i API v1.
+
+    Uprawnienia i autor przez ``policy`` (``api/write_policy.py``); commit
+    przez ``commit_order_write`` (synchronizacja kontraktów, dzwonki DL).
+    """
+    await policy.require_order_lifecycle(client_id)
     _assert_multi_client(client_id)
     group = await _load_group(db, client_id, group_id)
 
@@ -4435,15 +4459,16 @@ async def close_order_group(
                 "scheduled_cancelled": True,
                 "takeover_from_order_id": line.predecessor_order_id,
                 "closure_date": payload.closure_date.isoformat(),
+                **policy.event_actor(),
             },
-            user_id=user.id,
+            user_id=policy.actor_id,
         )
 
     group.status = GROUP_STATUS_COMPLETED
     group.closure_date = payload.closure_date
     group.closure_reason = (payload.closure_reason or "").strip() or None
     group.closed_at = datetime.now(timezone.utc)
-    group.closed_by_user_id = user.id
+    group.closed_by_user_id = policy.actor_id
     if group.end_date is None or group.end_date > payload.closure_date:
         group.end_date = payload.closure_date
 
@@ -4487,16 +4512,13 @@ async def close_order_group(
                 else previous_group_end_date.isoformat()
             ),
             "lines": previous_lines,
+            **policy.event_actor(),
         },
-        user_id=user.id,
+        user_id=policy.actor_id,
     )
     await commit_order_write(db)
     await db.refresh(group)
-    return await _group_to_read(
-        db,
-        group,
-        with_finance=await _can_see_finance(db, user, client_id),
-    )
+    return group
 
 
 # Linie, które po „Przywróć” zostają na obsadzie zamówienia (R10-V1-3).
@@ -4809,7 +4831,26 @@ async def cancel_order_group(
     trafia do ``status_before_cancel``, a statusy linii do payloadu zdarzenia
     ``order_cancelled`` — z nich „Przywróć anulowane" odtwarza obsadę.
     """
-    await _require_order_lifecycle(db, user, client_id)
+    group = await apply_group_cancel(
+        db, client_id, group_id, payload, policy=UserWritePolicy(user, db)
+    )
+    return await _group_to_read(
+        db,
+        group,
+        with_finance=await _can_see_finance(db, user, client_id),
+    )
+
+
+async def apply_group_cancel(
+    db: AsyncSession,
+    client_id: int,
+    group_id: int,
+    payload: OrderGroupCancel,
+    *,
+    policy: WritePolicy,
+) -> ClientOrderGroup:
+    """„Anuluj” zamówienie MD/kosztowe — ciało trasy ekranu i API v1."""
+    await policy.require_order_lifecycle(client_id)
     _assert_multi_client(client_id)
     group = await _load_group(db, client_id, group_id)
     if group.status == GROUP_STATUS_CANCELLED:
@@ -4872,7 +4913,7 @@ async def cancel_order_group(
     group.status_before_cancel = previous_status
     group.status = GROUP_STATUS_CANCELLED
     group.cancelled_at = datetime.now(timezone.utc)
-    group.cancelled_by_user_id = user.id
+    group.cancelled_by_user_id = policy.actor_id
     group.cancellation_reason = reason
 
     record_event(
@@ -4887,16 +4928,13 @@ async def cancel_order_group(
             "previous_status": previous_status,
             "reason": reason,
             "lines": previous_lines,
+            **policy.event_actor(),
         },
-        user_id=user.id,
+        user_id=policy.actor_id,
     )
     await commit_order_write(db)
     await db.refresh(group)
-    return await _group_to_read(
-        db,
-        group,
-        with_finance=await _can_see_finance(db, user, client_id),
-    )
+    return group
 
 
 @router.post(
@@ -5063,14 +5101,31 @@ async def extend_order_group(
     kosztowego jest kosztowe, przedłużenie MD jest MD. Zmiana modelu
     rozliczeniowego w połowie współpracy to nowe zamówienie, nie przedłużenie.
     """
+    group = await apply_group_extend(
+        db, client_id, group_id, payload, policy=UserWritePolicy(user, db)
+    )
+    return await _group_to_read(
+        db,
+        group,
+        with_finance=await _can_see_finance(db, user, client_id),
+    )
+
+
+async def apply_group_extend(
+    db: AsyncSession,
+    client_id: int,
+    group_id: int,
+    payload: OrderGroupExtend,
+    *,
+    policy: WritePolicy,
+) -> ClientOrderGroup:
+    """„Przedłuż” zamówienie MD/kosztowe — ciało trasy ekranu i API v1."""
     if (
         payload.lines
         or payload.budget_amount is not None
         or payload.md_budget_total is not None
     ):
-        await _assert_line_finance_write_allowed(
-            db,
-            user,
+        await policy.assert_line_amounts_writable(
             client_id,
             {
                 "rate_candidate_currency",
@@ -5081,7 +5136,7 @@ async def extend_order_group(
                 "md_budget_total",
             },
         )
-    await _require_order_lifecycle(db, user, client_id, for_write=True)
+    await policy.require_order_lifecycle(client_id, for_write=True)
     _assert_multi_client(client_id)
     source = await _load_group(db, client_id, group_id)
     _assert_group_not_cancelled(source)
@@ -5139,7 +5194,7 @@ async def extend_order_group(
         executive_contract_id=await inheritable_executive_contract_id(
             db, source.executive_contract_id
         ),
-        created_by_user_id=user.id,
+        created_by_user_id=policy.actor_id,
     )
     db.add(group)
     await db.flush()
@@ -5158,8 +5213,9 @@ async def extend_order_group(
             payload={
                 "predecessor_group_id": source.id,
                 "successor_group_id": group.id,
+                **policy.event_actor(),
             },
-            user_id=user.id,
+            user_id=policy.actor_id,
         )
 
     for line_payload in payload.lines:
@@ -5171,8 +5227,9 @@ async def extend_order_group(
                     "w przedłużeniu"
                 ),
             )
+        # `_build_line` czyta z autora wyłącznie `.id` (konto serwisowe: None).
         line, who, contract_created = await _build_line(
-            db, group=group, payload=line_payload, user=user
+            db, group=group, payload=line_payload, user=policy.actor
         )
         await db.flush()
         origin = _line_origin_payload(line_payload)
@@ -5192,8 +5249,9 @@ async def extend_order_group(
                 "md_total": str(line.md_total),
                 "contract_created": contract_created,
                 **origin,
+                **policy.event_actor(),
             },
-            user_id=user.id,
+            user_id=policy.actor_id,
         )
 
     db.add(
@@ -5211,11 +5269,7 @@ async def extend_order_group(
     await materialize_scheduled_order_groups(db, client_id=client_id)
     await commit_order_write(db)
     await db.refresh(group)
-    return await _group_to_read(
-        db,
-        group,
-        with_finance=await _can_see_finance(db, user, client_id),
-    )
+    return group
 
 
 @router.post(

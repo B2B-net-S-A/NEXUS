@@ -1,0 +1,31 @@
+{
+ "personas": [
+  "admin",
+  "finance",
+  "head_of_recruitment",
+  "delivery_lead",
+  "talent_community_manager",
+  "recruiter",
+  "user",
+  "trainee",
+  "delivery_lead+talent_community_manager",
+  "head_of_recruitment+delivery_lead",
+  "delivery_lead+recruiter",
+  "head_of_recruitment+recruiter",
+  "talent_community_manager+recruiter",
+  "talent_community_manager+contracts_orders_edit",
+  "recruiter+clients_edit",
+  "recruiter+delivery_view",
+  "recruiter+recruitment_manage",
+  "recruiter+finance_module",
+  "recruiter+amounts_edit"
+ ],
+ "routes": {
+  "PATCH /api/integrations/v1/orders/{order_id}": "UUUUUUUUUUUUUUUUUUU",
+  "POST /api/integrations/v1/order-groups/{group_id}/cancel": "UUUUUUUUUUUUUUUUUUU",
+  "POST /api/integrations/v1/order-groups/{group_id}/close": "UUUUUUUUUUUUUUUUUUU",
+  "POST /api/integrations/v1/order-groups/{group_id}/extend": "UUUUUUUUUUUUUUUUUUU",
+  "POST /api/integrations/v1/orders/{order_id}/close": "UUUUUUUUUUUUUUUUUUU",
+  "PUT /api/integrations/v1/orders/{order_id}/file": "UUUUUUUUUUUUUUUUUUU"
+ }
+}

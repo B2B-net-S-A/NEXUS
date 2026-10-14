@@ -31,7 +31,17 @@ _APP = Path(__file__).resolve().parents[1] / "app"
 
 _V1_MODULES = tuple(
     f"api/integrations_v1/{name}.py"
-    for name in ("meta", "clients", "contracts", "orders", "md", "finance", "invoices")
+    for name in (
+        "meta",
+        "clients",
+        "contracts",
+        "contract_writes",
+        "orders",
+        "order_writes",
+        "md",
+        "finance",
+        "invoices",
+    )
 )
 
 # Moduły, w których KAŻDA trasa musi nieść jawny limit.

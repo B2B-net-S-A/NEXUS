@@ -92,6 +92,10 @@ ORDERS_LOGIC_SOURCES: tuple[str, ...] = (
     # ── API: dodawanie, edycja i odczyt PDF zamówienia ──────────────────
     "backend/app/api/client_orders.py",
     "backend/app/api/client_order_groups.py",
+    # Kto może zapisać zamówienie i jego kwoty (ekran i API integracyjne v1)
+    # oraz zapisy zamówień przez API v1 (PR 2B, 14.10.2026).
+    "backend/app/api/write_policy.py",
+    "backend/app/api/integrations_v1/order_writes.py",
     # ── Odczyt dokumentu i polityki per klient ──────────────────────────
     "backend/app/services/order_pdf_parser.py",
     # Rejestr polityk per klient: która reguła u kogo, w jakiej kolejności
