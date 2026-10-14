@@ -5703,6 +5703,28 @@ END $$""",
 )""",
     "CREATE INDEX IF NOT EXISTS ix_cv_qc_runs_pair_created "
     "ON cv_qc_runs (candidate_id, job_id, created_at DESC)",
+    # 0444: migawki szkicu CV etapu przed „Napisz od nowa” (Edytor CV 3, PR 5).
+    # Lustro 1:1 z migracją — pilnuje `test_cv_stage_draft_snapshots.py`.
+    """CREATE TABLE IF NOT EXISTS cv_stage_draft_snapshots (
+    id SERIAL PRIMARY KEY,
+    candidate_stage_cv_id INTEGER NOT NULL
+        REFERENCES candidate_stage_cvs(id) ON DELETE CASCADE,
+    content_html TEXT NOT NULL,
+    generated_document_id INTEGER NULL
+        REFERENCES cv_generated_documents(id) ON DELETE SET NULL,
+    branded_from_generator BOOLEAN NOT NULL DEFAULT false,
+    render_metadata JSON NULL,
+    edit_revision INTEGER NOT NULL,
+    reason VARCHAR(16) NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    created_by INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
+    restored_at TIMESTAMPTZ NULL,
+    restored_by INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
+    CONSTRAINT ck_cv_stage_draft_snapshots_reason
+        CHECK (reason IN ('replaced', 'restore'))
+)""",
+    "CREATE INDEX IF NOT EXISTS ix_cv_stage_draft_snapshots_cv "
+    "ON cv_stage_draft_snapshots (candidate_stage_cv_id, id DESC)",
     # 0439: pominięte uwagi QC i edytora („To nieprawda”, 13.10.2026).
     # Lustro 1:1 z migracją — pilnuje `test_cv_finding_dismissals.py`.
     """CREATE TABLE IF NOT EXISTS cv_finding_dismissals (

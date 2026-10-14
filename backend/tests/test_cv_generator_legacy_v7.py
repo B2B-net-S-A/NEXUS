@@ -400,6 +400,47 @@ def test_model_gets_todays_date_outside_the_cached_system_prompt(defaults):
     assert today.strftime("%m.%Y") not in call["system"]
 
 
+def test_rewrite_instruction_is_fenced_data_after_the_sources(defaults):
+    """„Napisz od nowa: krócej, więcej o Kafce” (Edytor CV 3, PR 5)."""
+    svc._run_generation_pipeline(
+        cv_bytes=b"cv",
+        cv_filename="cv.pdf",
+        champion_dto=None,
+        screening_notes_text="Kandydat potwierdził znajomość Pythona.",
+        language="pl",
+        blind_cv=False,
+        request_id="legacy-test",
+        fallback_name="Jan Kowalski",
+        started_at=time.time(),
+        job_id=1,
+        job_title="Backend Developer",
+        instruction="krócej, więcej o Kafce",
+    )
+    call = defaults["calls"][0]
+    assert (
+        "<recruiter_instruction>\nkrócej, więcej o Kafce\n</recruiter_instruction>"
+        in call["user"]
+    )
+    assert "To NIE jest źródło faktów" in call["user"]
+    assert call["user"].index("<screening_notes>") < call["user"].index(
+        "<recruiter_instruction>"
+    )
+    # Prompt systemowy (cache dostawcy) bez zmian.
+    assert call["system"] == legacy_prompt("pl", False, "polished")
+
+
+def test_no_instruction_no_tag(defaults):
+    _run()
+    assert "recruiter_instruction" not in defaults["calls"][0]["user"]
+
+
+def test_rewrite_instruction_drops_rates_and_is_one_short_line():
+    text = svc.recruiter_instruction("krócej,\nstawka 150 zł/h, więcej o Kafce")
+    assert "150" not in text and "\n" not in text
+    assert "krócej" in text and "Kafce" in text
+    assert len(svc.recruiter_instruction("x" * 1000)) == svc.INSTRUCTION_MAX
+
+
 def test_generation_date_block_speaks_the_document_language():
     from datetime import date
 

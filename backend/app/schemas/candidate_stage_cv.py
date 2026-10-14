@@ -44,6 +44,24 @@ class CVBrandedSelectGenerated(BaseModel):
     expected_revision: int = Field(ge=0)
     generated_document_id: int = Field(ge=1)
     document_version_id: int | None = Field(default=None, ge=1)
+    # „Napisz od nowa” (Edytor CV 3, PR 5): części szkicu poprawione ręcznie
+    # zostają w wersji rekrutera (`services/cv_rewrite_merge.py`).
+    keep_edits: bool = False
+
+
+class CVBrandedRestorePrevious(BaseModel):
+    expected_revision: int = Field(ge=0)
+
+
+class CVBrandedRewrite(BaseModel):
+    """Wynik podmiany szkicu nową generacją — zdanie i „Wróć do poprzedniej” w karcie."""
+
+    # Części zostawione w wersji rekrutera, np. „Logistyka 24”, „Języki”.
+    kept: list[str] = Field(default_factory=list)
+    # `False` = ręcznych poprawek nie dało się rozpoznać; szkic to cała nowa wersja.
+    recognized: bool = True
+    # Poprzedni szkic jest w migawce — „Wróć do poprzedniej” zadziała.
+    can_restore: bool = False
 
 
 class CVBrandedSelectDocument(BaseModel):
@@ -191,6 +209,8 @@ class CVBrandedResponse(BaseModel):
     # wiersz bez CV) — jak ``screening_source_stage_id`` przy arkuszu.
     pair_source_stage_id: Optional[int] = None
     pair_source_status: Optional[BrandedStatusLiteral] = None
+    # Tylko w odpowiedzi na podmianę szkicu nową generacją (PR 5).
+    rewrite: Optional[CVBrandedRewrite] = None
 
 
 class CVBrandedUpdate(BaseModel):

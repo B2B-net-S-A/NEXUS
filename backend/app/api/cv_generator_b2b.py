@@ -255,6 +255,10 @@ class GenerateRequest(BaseModel):
     screening_notes: str = Field(default="", max_length=20000)
     # Przełączniki źródeł z karty „CV do klienta”; tylko z etapem.
     sources: Optional[AiSourcesIn] = None
+    # „Napisz od nowa: krócej, więcej o Kafce” (Edytor CV 3, PR 5): forma
+    # i akcenty dla modelu, nie fakty — fakty z tego zdania karta zapisuje
+    # w notatkach rekrutacji przed generacją. Stawki wycinane.
+    instruction: str = Field(default="", max_length=300)
 
     @field_validator("champion_profile")
     @classmethod
@@ -2204,6 +2208,7 @@ async def enqueue_candidate_generation(
     champion_profile: Optional[dict] = None,
     screening_notes: str = "",
     sources: Optional[dict[str, bool]] = None,
+    instruction: str = "",
 ) -> tuple[int, int, str]:
     """Walidacje reguły klienta → wiersz „processing" → trwałe zadanie generacji.
 
@@ -2353,6 +2358,7 @@ async def enqueue_candidate_generation(
             champion_profile=imported_profile,
             extra_notes=screening_notes if stage_id is None else "",
             sources=sources if stage_id is not None else None,
+            instruction=instruction,
         )
     except StandaloneGenerationError as err:
         raise HTTPException(status_code=422, detail=err.message) from None
@@ -2584,6 +2590,7 @@ async def generate(
         champion_profile=payload.champion_profile,
         screening_notes=payload.screening_notes,
         sources=payload.sources.model_dump() if payload.sources else None,
+        instruction=payload.instruction,
     )
     from app.services.cv_generator_b2b.durable_jobs import execute_job
 

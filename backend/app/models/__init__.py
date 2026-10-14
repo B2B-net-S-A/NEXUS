@@ -771,6 +771,7 @@ from app.models.deleted_note_source import DeletedNoteSource  # noqa: F401
 
 # 0361: przebiegi QC CV (Rekrutacja v5) — bramka przed „CV wysłane”/Cpro.
 from app.models.cv_finding_dismissal import CvFindingDismissal  # noqa: F401
+from app.models.cv_stage_draft_snapshot import CvStageDraftSnapshot  # noqa: F401
 from app.models.cv_qc_run import CvQcRun  # noqa: F401
 from app.models.competition_period_closure import (  # noqa: F401
     CompetitionPeriodClosure,
