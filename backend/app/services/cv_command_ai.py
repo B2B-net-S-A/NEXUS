@@ -16,14 +16,33 @@ zastosować:
 
 Trasa niczego nie zapisuje: plan nakłada edytor jedną cofalną zmianą, po tym
 jak rekruter wybierze operacje, a utrwala go zwykły autozapis.
+
+Edytor CV 3, PR 4 (asystent w kolumnie, decyzje D1–D6 Artura, 14.10.2026):
+rekruter pisze jak do czatu, a edytor nakłada plan OD RAZU (jedno „Cofnij” na
+wiadomość). Dlatego:
+
+* fakt, którego nie ma w zastępowanych wierszach ani w źródłach (oryginalne
+  CV, notatki bez ustaleń handlowych), nie znika z planu — operacja wraca
+  z ``ask: "source"`` i ``problem`` („Terraform”), a edytor pyta „Kandydat
+  mówił o tym na rozmowie?”; „Tak” zapisuje notatkę pary
+  (`confirm_fact`) i dopiero wtedy nakłada zmianę,
+* usunięcie jedynego miejsca z wymaganiem klienta wraca z ``ask: "loses"``,
+* kwoty nie trafiają do CV nigdy (odrzucenie, bez pytania),
+* nowe operacje: ``add`` (punkt albo akapit za wskazanym wierszem),
+  ``bold``/``unbold`` (terminy, które stoją w CV), ``considered_for`` (cel
+  rekrutacji w linii „Rozważany na stanowisko:” — to decyzja rekrutera, nie
+  fakt o kandydacie, więc bez kontroli faktów),
+* model dostaje kilka ostatnich wiadomości rozmowy (ogrodzone) i wiersze
+  zaznaczone w edytorze.
 """
 
 from __future__ import annotations
 
 import json
 import logging
+import re
 import unicodedata
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Optional
 
 from fastapi.concurrency import run_in_threadpool
@@ -36,12 +55,13 @@ from app.models.ai_feature import AIFeatureKey
 from app.models.candidate_stage_cv import CandidateStageCV
 from app.models.job import Job
 from app.models.recruitment_pipeline import CandidateStage
-from app.services import cv_selection_ai
+from app.services import cv_qc, cv_selection_ai
 from app.services import dz_review as dz
 from app.services.ai_models import model_chain_for
 from app.services.ai_quota import ai_feature
 from app.services.cv_qc import _json_object
 from app.services.cv_rodo_clause import is_rodo_text
+from app.services.recommendation_card_parser import CV_HIDDEN_FIELDS
 from app.services.dz_review import Requirement
 from app.services.llm_prompts import CV_EDITOR_COMMAND
 from app.services.llm_providers import api_key_configured
@@ -72,7 +92,13 @@ OPERATION_TYPES = (
     "reorder",
     "remove_role",
     "remove_section",
+    "add",
+    "bold",
+    "unbold",
+    "considered_for",
 )
+# Operacje, które dopisują albo zmieniają treść — sprawdzane pod kątem faktów.
+TEXT_OPERATIONS = frozenset({"replace", "merge", "add"})
 
 # Granice wejścia (schemat trasy trzyma te same liczby).
 LINES_MAX = 400
@@ -80,6 +106,28 @@ LINE_TEXT_MAX = 1200
 COMMAND_MAX = 300
 OPERATIONS_MAX = 40
 WHY_MAX = 200
+# Asystent (PR 4): rozmowa, zaznaczenie i nowe operacje.
+HISTORY_MAX = 6
+HISTORY_TEXT_MAX = 500
+FOCUS_MAX = 60
+TERMS_MAX = 12
+TERM_MAX = 60
+CONSIDERED_MAX = 120
+PROBLEM_MAX = 120
+# Źródła, na których wolno oprzeć nowy fakt (oryginał CV + notatki) — do kontroli,
+# nie do promptu; przycięte, żeby kontrola planu była tania.
+SOURCES_MAX = 60_000
+
+# Linia „Rozważany na stanowisko:” pod nagłówkiem CV (etykiety jak w
+# `docx_renderer`, PL i EN).
+_CONSIDERED = re.compile(
+    r"^\s*(rozważany na stanowisko|considered for)\s*:", re.IGNORECASE
+)
+# Kwota albo stawka — w CV dla klienta jej nie dopisujemy, nawet za zgodą.
+_MONEY = re.compile(
+    r"\d[\d\s.,]*\s*(?:zł|pln|eur|usd|€|\$|tys\.?|k\b)|\bstawk|\bwynagrodz|\brate\b|\bsalary\b",
+    re.IGNORECASE,
+)
 
 PRESETS = {
     "shorten": (
@@ -97,6 +145,17 @@ PRESETS = {
     "unify_sentences": (
         "Ujednolić formę punktów w całym CV (ta sama forma gramatyczna, bez "
         "pierwszej osoby). Nie zmieniaj faktów."
+    ),
+    # Edytor CV 3, PR 4 — podpowiedzi pod polem asystenta.
+    "more_requirements": (
+        "Wyeksponuj to, co w CV odpowiada wymaganiom klienta: pogrub nazwy "
+        "wymagań, ustaw pasujące punkty wyżej i przeredaguj punkty tak, żeby "
+        "nazwy wymagań były widoczne. Nie dopisuj faktów."
+    ),
+    "proofread": (
+        "Popraw język i styl w całym CV: literówki, interpunkcja, pisownia nazw "
+        "technologii, jednolita forma punktów bez pierwszej osoby. Nie zmieniaj "
+        "faktów ani kolejności."
     ),
 }
 
@@ -152,6 +211,19 @@ class _Dropped(Exception):
         self.problem = problem
 
 
+@dataclass(frozen=True)
+class _Change:
+    """Co operacja robi z wierszami — wynik kontroli jednej operacji."""
+
+    ids: list[int]
+    text: Optional[str] = None
+    # `"source"` — fakt spoza CV i źródeł (rekruter potwierdza), `"loses"` —
+    # znika jedyne miejsce z wymaganiem klienta.
+    ask: Optional[str] = None
+    problem: Optional[str] = None
+    terms: tuple[str, ...] = field(default_factory=tuple)
+
+
 def _ids(value: Any, known: dict[int, Line]) -> list[int]:
     """Lista różnych, znanych numerów wierszy — albo odmowa."""
     if not isinstance(value, list) or not value:
@@ -169,9 +241,17 @@ def _ids(value: Any, known: dict[int, Line]) -> list[int]:
 class _Plan:
     """Kontrola planu na jednym zrzucie wierszy CV."""
 
-    def __init__(self, lines: list[Line], requirements: tuple[Requirement, ...]):
+    def __init__(
+        self,
+        lines: list[Line],
+        requirements: tuple[Requirement, ...],
+        sources: str = "",
+    ):
         self.lines = {item.id: item for item in lines}
         self.requirements = requirements
+        # Oryginalne CV i notatki pary (bez ustaleń handlowych): fakt, który tam
+        # stoi, nie wymaga pytania rekrutera.
+        self.sources = sources[:SOURCES_MAX]
         self.grounds = cv_selection_ai.Grounds(requirements=requirements)
         # Miejsce zwykłej treści: stanowisko albo sekcja (nagłówek, pod którym stoi).
         self.place: dict[int, tuple[str, int]] = {}
@@ -229,20 +309,51 @@ class _Plan:
         if any(i not in self.place for i in ids):
             raise _Dropped("not_editable")
 
-    def _new_text(self, source: str, text: Any) -> str:
+    def _new_text(
+        self, source: str, text: Any
+    ) -> tuple[str, Optional[str], Optional[str]]:
+        """Nowa treść po kontroli: (tekst, pytanie, o co pytamy).
+
+        Fakt spoza zastępowanych wierszy, którego nie ma też w źródłach, nie
+        odrzuca operacji — wraca z ``ask="source"``, a edytor pyta rekrutera.
+        Pozostałe powody (pusto, za długo, bez zmian, kwota) odrzucają.
+        """
         if text is not None and not isinstance(text, str):
             raise _Dropped("empty")
         # Akapit zaczynający się jak klauzula zgody edytor uznałby za klauzulę
         # i usunął przy zapisie — razem z treścią, którą miał zastąpić.
         if text and is_rodo_text(cv_selection_ai.plain(text)):
             raise _Dropped("not_editable")
+        # Kwota albo stawka nie trafia do CV dla klienta — nawet za zgodą.
+        if (
+            text
+            and _MONEY.search(cv_selection_ai.plain(text))
+            and not _MONEY.search(cv_selection_ai.plain(source))
+        ):
+            raise _Dropped("amount")
         raw = json.dumps({"text": text or ""}, ensure_ascii=False)
         checked = cv_selection_ai.check("rephrase", source, raw, self.grounds)
-        if checked["status"] != "ok":
+        if checked["status"] == "ok":
+            return checked["proposed_text"], None, None
+        if checked["reason"] != "new_fact":
             raise _Dropped(checked["reason"] or "new_fact", checked.get("problem"))
-        return checked["proposed_text"]
+        problem = checked.get("problem")
+        if self.sources:
+            # Fakt może stać w oryginale CV albo w notatkach — wtedy bez pytania.
+            again = cv_selection_ai.check(
+                "rephrase", f"{source}\n{self.sources}", raw, self.grounds
+            )
+            if again["status"] == "ok":
+                return again["proposed_text"], None, None
+            if again["reason"] != "new_fact":
+                raise _Dropped(again["reason"] or "new_fact", again.get("problem"))
+            problem = again.get("problem") or problem
+        proposed = cv_selection_ai.clean_markup(text)
+        if not proposed.strip():
+            raise _Dropped("empty")
+        return proposed, "source", (str(problem or "")[:PROBLEM_MAX] or None)
 
-    def remove(self, op: dict) -> tuple[list[int], Optional[str]]:
+    def remove(self, op: dict) -> _Change:
         ids = _ids(op.get("lines"), self.lines)
         self._editable(ids)
         gone = self.removed | set(ids)
@@ -250,14 +361,15 @@ class _Plan:
             if all(member in gone for member in self.members[place]):
                 kind = "role" if place[0] == "role" else "section"
                 raise _Dropped(f"would_empty_{kind}")
-        return ids, None
+        return _Change(ids)
 
-    def replace(self, op: dict) -> tuple[list[int], Optional[str]]:
+    def replace(self, op: dict) -> _Change:
         ids = _ids([op.get("line")], self.lines)
         self._editable(ids)
-        return ids, self._new_text(self.lines[ids[0]].text, op.get("text"))
+        text, ask, problem = self._new_text(self.lines[ids[0]].text, op.get("text"))
+        return _Change(ids, text, ask, problem)
 
-    def merge(self, op: dict) -> tuple[list[int], Optional[str]]:
+    def merge(self, op: dict) -> _Change:
         ids = _ids(op.get("lines"), self.lines)
         if len(ids) < 2:
             raise _Dropped("bad_lines")
@@ -269,9 +381,10 @@ class _Plan:
         ):
             raise _Dropped("mixed_places")
         source = " ".join(self.lines[i].text for i in ids)
-        return ids, self._new_text(source, op.get("text"))
+        text, ask, problem = self._new_text(source, op.get("text"))
+        return _Change(ids, text, ask, problem)
 
-    def reorder(self, op: dict) -> tuple[list[int], Optional[str]]:
+    def reorder(self, op: dict) -> _Change:
         ids = _ids(op.get("lines"), self.lines)
         if any(self.lines[i].kind != "bullet" or i not in self.place for i in ids):
             raise _Dropped("bad_order")
@@ -284,9 +397,9 @@ class _Plan:
             raise _Dropped("bad_order")
         if ids == current:
             raise _Dropped("unchanged")
-        return ids, None
+        return _Change(ids)
 
-    def remove_role(self, op: dict) -> tuple[list[int], Optional[str]]:
+    def remove_role(self, op: dict) -> _Change:
         role = op.get("role")
         if isinstance(role, bool) or not isinstance(role, int):
             raise _Dropped("unknown_role")
@@ -294,9 +407,9 @@ class _Plan:
             raise _Dropped("unknown_role")
         if len(self.removed_roles | {role}) >= len(self.role_lines):
             raise _Dropped("last_role")
-        return list(self.role_lines[role]), None
+        return _Change(list(self.role_lines[role]))
 
-    def remove_section(self, op: dict) -> tuple[list[int], Optional[str]]:
+    def remove_section(self, op: dict) -> _Change:
         target = op.get("line")
         # `True` to w Pythonie liczba 1 — a wiersz 1 bywa nagłówkiem sekcji.
         numbered = isinstance(target, int) and not isinstance(target, bool)
@@ -310,7 +423,97 @@ class _Plan:
         # CV bez stanowisk: przynajmniej jedna sekcja zostaje.
         if len(self.removed_sections | {line.id}) >= len(self.section_lines):
             raise _Dropped("last_section")
-        return list(self.section_lines[line.id]), None
+        return _Change(list(self.section_lines[line.id]))
+
+    # ── asystent (PR 4) ──
+
+    def add(self, op: dict) -> _Change:
+        """Nowy punkt (albo akapit) zaraz za wskazanym wierszem tego samego miejsca."""
+        ids = _ids([op.get("after")], self.lines)
+        self._editable(ids)
+        if ids[0] in self.removed:
+            raise _Dropped("overlap")
+        # Kontrola faktów na treści całego stanowiska albo sekcji, do której
+        # dopisujemy — tam stoi to, co o tym miejscu wiadomo.
+        basis = " ".join(self.lines[i].text for i in self.members[self.place[ids[0]]])
+        text, ask, problem = self._new_text(basis, op.get("text"))
+        return _Change(ids, text, ask, problem)
+
+    def _terms(self, op: dict) -> tuple[str, ...]:
+        """Terminy do (od)pogrubienia — tylko te, które naprawdę stoją w CV."""
+        raw = op.get("terms")
+        if not isinstance(raw, list) or not raw:
+            raise _Dropped("unknown_term")
+        content = [
+            cv_selection_ai.plain(item.text).casefold()
+            for item in self.lines.values()
+            if item.kind not in ("title", "heading")
+            and not is_rodo_text(cv_selection_ai.plain(item.text))
+        ]
+        found: list[str] = []
+        for value in raw[:TERMS_MAX]:
+            if not isinstance(value, str):
+                continue
+            term = " ".join(cv_selection_ai.plain(value).split())
+            if not 2 <= len(term) <= TERM_MAX:
+                continue
+            folded = term.casefold()
+            if folded in {t.casefold() for t in found}:
+                continue
+            if any(folded in text for text in content):
+                found.append(term)
+        if not found:
+            raise _Dropped("unknown_term")
+        return tuple(found)
+
+    def bold(self, op: dict) -> _Change:
+        return _Change([], terms=self._terms(op))
+
+    def unbold(self, op: dict) -> _Change:
+        return _Change([], terms=self._terms(op))
+
+    def considered_for(self, op: dict) -> _Change:
+        """Cel rekrutacji w linii „Rozważany na stanowisko:” — bez kontroli faktów.
+
+        To, na jakie stanowisko rekruter przedstawia kandydata, jest decyzją
+        rekrutera, nie faktem z życiorysu. Etykieta (z pogrubieniem) zostaje
+        z bieżącego wiersza, zmienia się tylko wartość.
+        """
+        target = next(
+            (
+                item
+                for item in self.lines.values()
+                if item.kind == "text"
+                and _CONSIDERED.match(cv_selection_ai.plain(item.text))
+            ),
+            None,
+        )
+        if target is None:
+            raise _Dropped("no_considered_line")
+        value = op.get("text")
+        if not isinstance(value, str):
+            raise _Dropped("empty")
+        value = " ".join(
+            cv_selection_ai.plain(cv_selection_ai.clean_markup(value)).split()
+        )
+        # Model bywa, że powtórzy etykietę — zostaje sama wartość.
+        value = _CONSIDERED.sub("", value).strip()
+        if not value:
+            raise _Dropped("empty")
+        if len(value) > CONSIDERED_MAX:
+            raise _Dropped("too_long")
+        if is_rodo_text(value) or _MONEY.search(value):
+            raise _Dropped("amount" if _MONEY.search(value) else "not_editable")
+        label_end = target.text.find(":") + 1
+        label = target.text[:label_end]
+        # `**Rozważany na stanowisko:**` — dwukropek bywa w środku pogrubienia.
+        if target.text[label_end : label_end + 2] == "**":
+            label = target.text[: label_end + 2]
+        if " ".join(value.split()) == " ".join(
+            cv_selection_ai.plain(target.text[len(label) :]).split()
+        ):
+            raise _Dropped("unchanged")
+        return _Change([target.id], f"{label} {value}")
 
     # ── plan ──
 
@@ -323,7 +526,7 @@ class _Plan:
         a obie przychodziłyby zaznaczone. Odznaczenie wcześniejszej operacji
         zostawia ostrzeżenie przy późniejszej — na wyrost, czyli bezpiecznie.
         """
-        if kind == "reorder":
+        if kind in ("reorder", "add", "bold", "unbold", "considered_for"):
             return []
         touched = set(ids)
         new = cv_selection_ai.plain(text or "")
@@ -343,7 +546,8 @@ class _Plan:
         if not isinstance(raw, dict) or raw.get("type") not in OPERATION_TYPES:
             raise _Dropped("unknown_type")
         kind = raw["type"]
-        ids, text = getattr(self, kind)(raw)
+        change: _Change = getattr(self, kind)(raw)
+        ids, text = change.ids, change.text
         if self.used.intersection(ids):
             raise _Dropped("overlap")
         self.used.update(ids)
@@ -357,6 +561,10 @@ class _Plan:
             self.removed.update(ids)
             self.removed_roles.add(raw["role"])
         why = cv_selection_ai.plain(cv_selection_ai.clean_markup(raw.get("why")))
+        # Dopisany punkt nie zastępuje wiersza, za którym staje.
+        replaced = "" if kind == "add" else " ".join(self.lines[i].text for i in ids)
+        loses = self._loses(kind, ids, text)
+        ask = change.ask or ("loses" if loses else None)
         return {
             "type": kind,
             "lines": ids,
@@ -364,16 +572,20 @@ class _Plan:
             "why": " ".join(why.split())[:WHY_MAX],
             # Słowa nowej treści, których nie było w zastępowanych wierszach.
             "new_words": (
-                new_words(text, " ".join(self.lines[i].text for i in ids))
-                if text
-                else []
+                new_words(text, replaced) if text and kind in TEXT_OPERATIONS else []
             ),
-            "loses": self._loses(kind, ids, text),
+            "loses": loses,
+            "ask": ask,
+            "problem": change.problem,
+            "terms": list(change.terms),
         }
 
 
 def verify_plan(
-    raw: str, lines: list[Line], requirements: tuple[Requirement, ...]
+    raw: str,
+    lines: list[Line],
+    requirements: tuple[Requirement, ...],
+    sources: str = "",
 ) -> dict:
     """Odpowiedź modelu → operacje, które przeszły kontrolę, i odrzucone z powodem.
 
@@ -383,7 +595,7 @@ def verify_plan(
     """
     data = _json_object(raw)
     proposed = data.get("operations")
-    plan = _Plan(lines, tuple(requirements))
+    plan = _Plan(lines, tuple(requirements), sources)
     operations: list[dict] = []
     dropped: list[dict] = []
     for item in (proposed if isinstance(proposed, list) else [])[:OPERATIONS_MAX]:
@@ -418,6 +630,33 @@ def command_text(payload: dict) -> str:
     return str(payload.get("command") or "").strip()[:COMMAND_MAX]
 
 
+def _history(payload: dict) -> list[dict]:
+    """Ostatnie wiadomości rozmowy z edytora — dane, nie polecenia."""
+    out: list[dict] = []
+    for item in (payload.get("history") or [])[-HISTORY_MAX:]:
+        if not isinstance(item, dict) or item.get("role") not in ("user", "assistant"):
+            continue
+        text = _visible(str(item.get("text") or "")).strip()[:HISTORY_TEXT_MAX]
+        if text:
+            out.append(
+                {
+                    "kto": "rekruter" if item["role"] == "user" else "asystent",
+                    "tekst": text,
+                }
+            )
+    return out
+
+
+def _focus(payload: dict, lines: list[Line]) -> list[int]:
+    known = {item.id for item in lines}
+    out: list[int] = []
+    for value in (payload.get("focus") or [])[:FOCUS_MAX]:
+        if isinstance(value, int) and not isinstance(value, bool) and value in known:
+            if value not in out:
+                out.append(value)
+    return out
+
+
 def build_prompt(payload: dict, lines: list[Line], requirements: tuple) -> str:
     """Prompt z danymi w znacznikach, których nie da się zamknąć od środka."""
     rows = [
@@ -432,9 +671,12 @@ def build_prompt(payload: dict, lines: list[Line], requirements: tuple) -> str:
     ]
     own = payload.get("preset") not in PRESETS
     command = command_text(payload)
+    focus = _focus(payload, lines)
     return CV_EDITOR_COMMAND.render(
         # Gotowe polecenie pochodzi z kodu; własne słowa rekrutera to dane.
         command=fence("recruiter_command", command) if own else command,
+        history=fence("conversation", json_for_prompt(_history(payload))),
+        focus=fence("selected_lines", json_for_prompt(focus)),
         requirements=fence(
             "cv_requirements",
             json_for_prompt([r.label for r in requirements][:60]),
@@ -477,17 +719,25 @@ async def _log(
             if csv_id is None:
                 return
             preset = payload.get("preset")
+            kinds: dict[str, int] = {}
+            for operation in result["operations"]:
+                kinds[operation["type"]] = kinds.get(operation["type"], 0) + 1
             db.add(
                 Activity(
                     entity_type="candidate_stage_cv",
                     entity_id=csv_id,
                     action=ACTIVITY_ACTION,
                     user_id=user_id,
+                    # Rodzaj prośby i liczby — bez treści CV i bez słów rekrutera.
                     details={
                         "preset": preset if preset in PRESETS else None,
                         "status": result["status"],
                         "operations": len(result["operations"]),
                         "dropped": len(result["dropped"]),
+                        "kinds": kinds,
+                        "asks": sum(1 for op in result["operations"] if op.get("ask")),
+                        "history": len(_history(payload)),
+                        "focus": bool(payload.get("focus")),
                     },
                 )
             )
@@ -497,6 +747,25 @@ async def _log(
             stage.id,
             exc_info=True,
         )
+
+
+async def _sources(db: AsyncSession, stage: CandidateStage) -> str:
+    """Oryginalne CV i notatki pary (bez ustaleń handlowych) — do kontroli faktów.
+
+    Nie idą do modelu: fakt, który tam stoi, nie wymaga pytania rekrutera.
+    Awaria odczytu = puste źródła, czyli każdy nowy fakt wraca z pytaniem.
+    """
+    try:
+        async with db.begin_nested():
+            src = await cv_qc._load_sources(db, stage)
+            original = src.original.get("text") or ""
+            notes = await cv_qc._notes_text(db, src.candidate.id, CV_HIDDEN_FIELDS)
+    except Exception:  # noqa: BLE001 — źródła to podpowiedź, nie warunek
+        logger.warning(
+            "[cv_command_ai] stage=%s: źródła niedostępne", stage.id, exc_info=True
+        )
+        return ""
+    return f"{original}\n{notes}".strip()
 
 
 async def propose_plan(
@@ -528,6 +797,7 @@ async def propose_plan(
         job = await db.get(Job, stage.job_id)
         must, nice = dz.job_requirements(job) if job is not None else ([], [])
         requirements = (*must, *nice)
+        sources = await _sources(db, stage)
         prompt = build_prompt(payload, lines, requirements)
         system = CV_EDITOR_COMMAND.system_prompt or ""
         async with ai_feature(db, FEATURE, user_id=user_id):
@@ -535,7 +805,9 @@ async def propose_plan(
             # żeby żądanie nie trzymało połączenia przez cały round-trip.
             await db.commit()
             raw = await run_in_threadpool(_call_model, system, prompt, chain)
-        checked = await run_in_threadpool(verify_plan, raw, lines, requirements)
+        checked = await run_in_threadpool(
+            verify_plan, raw, lines, requirements, sources
+        )
     except Exception as exc:  # noqa: BLE001 — AI to podpowiedź, nigdy bramka
         logger.warning(
             "[cv_command_ai] stage=%s failed (%s)", stage.id, type(exc).__name__
@@ -552,3 +824,67 @@ async def propose_plan(
         result = {"status": "empty", "message": message, **checked}
     await _log(db, stage, user_id, payload, result)
     return result
+
+
+# ── „Tak, dopisz” — fakt z rozmowy z kandydatem (PR 4) ──────────────────────
+
+CONFIRM_TERM_MAX = 120
+CONFIRM_TEXT_MAX = 600
+CONFIRM_ACTION = "cv_assistant_fact_confirmed"
+
+
+class ConfirmRefused(ValueError):
+    """Potwierdzenia nie zapisujemy (pusto albo kwota) — trasa odpowiada 422."""
+
+
+async def confirm_fact(
+    db: AsyncSession,
+    stage: CandidateStage,
+    *,
+    user_id: int,
+    term: str,
+    text: str,
+) -> None:
+    """Fakt, który rekruter potwierdził w asystencie, jako notatka pary.
+
+    Ten sam kształt co „Potwierdzone z kandydatem” z QC (`cv_qc.confirm_with_candidate`):
+    notatka z autorem i datą, widoczna w profilu i czytana przez QC jako
+    źródło — dzięki temu QC nie zgłasza dopisanego faktu jako „bez źródła”.
+    Kwot nie zapisujemy: CV dla klienta ich nie niesie.
+    """
+    from app.models.note import Note, NoteType  # noqa: PLC0415
+    from app.services import note_kinds  # noqa: PLC0415
+
+    literal = " ".join(cv_selection_ai.plain(term or "").split())[:CONFIRM_TERM_MAX]
+    said = " ".join(
+        cv_selection_ai.plain(cv_selection_ai.clean_markup(text or "")).split()
+    )[:CONFIRM_TEXT_MAX]
+    if not literal:
+        raise ConfirmRefused("empty")
+    if _MONEY.search(literal) or _MONEY.search(said):
+        raise ConfirmRefused("amount")
+    db.add(
+        Note(
+            content=f"Potwierdzone z kandydatem: {literal}"
+            + (f" — {said}" if said else ""),
+            note_type=NoteType.general,
+            candidate_id=stage.candidate_id,
+            job_id=stage.job_id,
+            author_id=user_id,
+            external_source=note_kinds.QC_CONFIRM_SOURCE,
+        )
+    )
+    db.add(
+        Activity(
+            entity_type="candidate_stage",
+            entity_id=stage.id,
+            action=CONFIRM_ACTION,
+            user_id=user_id,
+            details={
+                "candidate_id": stage.candidate_id,
+                "job_id": stage.job_id,
+                "term": literal,
+            },
+        )
+    )
+    await db.flush()
