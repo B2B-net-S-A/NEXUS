@@ -34,6 +34,7 @@ const mocks = vi.hoisted(() => ({
   brandedGet: vi.fn(),
   originalGet: vi.fn(),
   selectGenerated: vi.fn(),
+  restorePrevious: vi.fn(),
   selectStageCv: vi.fn(),
   selectDocument: vi.fn(),
   sources: vi.fn(),
@@ -62,6 +63,7 @@ vi.mock("@/lib/api", () => ({
     branded: {
       get: (...a: unknown[]) => mocks.brandedGet(...a),
       selectGenerated: (...a: unknown[]) => mocks.selectGenerated(...a),
+      restorePrevious: (...a: unknown[]) => mocks.restorePrevious(...a),
       selectStageCv: (...a: unknown[]) => mocks.selectStageCv(...a),
       selectDocument: (...a: unknown[]) => mocks.selectDocument(...a),
       sources: (...a: unknown[]) => mocks.sources(...a),
@@ -626,6 +628,178 @@ describe("CvToClientCard — CV gotowe", () => {
   });
 });
 
+describe("CvToClientCard — „Napisz od nowa” (Edytor CV 3, PR 5)", () => {
+  const DRAFT = { status: "draft", from_generator: true, generated_document_id: 5, edit_revision: 4, version: 1 };
+
+  it("pole w karcie: notatka z uwagą, generacja sama rusza, poprawki zostają, „Wróć do poprzedniej”", async () => {
+    mocks.brandedGet.mockResolvedValue({ data: DRAFT });
+    mocks.selectGenerated.mockResolvedValue({
+      data: {
+        ...DRAFT,
+        generated_document_id: 77,
+        edit_revision: 5,
+        rewrite: { kept: ["Logistyka Przykład"], recognized: true, can_restore: true },
+      },
+    });
+    mocks.restorePrevious.mockResolvedValue({ data: { ...DRAFT, edit_revision: 6 } });
+    rows = [{ id: 5, status: "ready", package_id: 5 }];
+    const posts: Array<[string, unknown]> = [];
+    mocks.apiPost.mockImplementation(async (url: string, body: unknown) => {
+      posts.push([url, body]);
+      if (url === "/api/notes") return { data: { id: 1 } };
+      rows = [{ id: 5, status: "ready", package_id: 5 }, { id: 77, status: "ready", package_id: 77 }];
+      return { data: { id: 77, status: "processing", candidate_name: "Jan Kowalski" } };
+    });
+    renderCard();
+    const form = await screen.findByRole("form", { name: "Napisz od nowa" });
+    await userEvent.type(within(form).getByRole("textbox", { name: "Co poprawić?" }), "krócej, więcej o Kafce");
+    await userEvent.click(within(form).getByRole("button", { name: /Napisz od nowa/ }));
+
+    // Panel w trybie „Napisz od nowa” rusza sam — bez drugiego kliknięcia.
+    expect(await screen.findByTestId("cv-rewrite-instruction")).toHaveTextContent("„krócej, więcej o Kafce”");
+    await waitFor(() => expect(posts.map(([url]) => url)).toEqual(["/api/notes", "/api/cv-generator/generate"]));
+    expect(posts[0][1]).toMatchObject({ content: "Uwaga do CV: krócej, więcej o Kafce", job_id: 42 });
+    expect(posts[1][1]).toMatchObject({ instruction: "krócej, więcej o Kafce" });
+
+    await waitFor(() =>
+      expect(mocks.selectGenerated).toHaveBeenCalledWith(21, 77, 4, undefined, { keepEdits: true }),
+    );
+    const bar = await screen.findByTestId("cv-rewrite-result");
+    expect(bar).toHaveTextContent("Nowa wersja CV. „Logistyka Przykład” zostało w Twojej wersji.");
+    expect(mocks.showSuccess).not.toHaveBeenCalledWith("CV podpięte do tej rekrutacji.");
+
+    await userEvent.click(within(bar).getByRole("button", { name: /Wróć do poprzedniej/ }));
+    await waitFor(() => expect(mocks.restorePrevious).toHaveBeenCalledWith(21, 5));
+    expect(mocks.showSuccess).toHaveBeenCalledWith("Przywrócono poprzednią wersję CV.");
+    await waitFor(() => expect(screen.queryByTestId("cv-rewrite-result")).toBeNull());
+  }, 20000);
+
+  it("nowa wersja bez rozpoznanych poprawek mówi to wprost", async () => {
+    mocks.brandedGet.mockResolvedValue({ data: DRAFT });
+    mocks.selectGenerated.mockResolvedValue({
+      data: { ...DRAFT, generated_document_id: 77, edit_revision: 5, rewrite: { kept: [], recognized: false, can_restore: true } },
+    });
+    rows = [{ id: 5, status: "ready", package_id: 5 }];
+    mocks.apiPost.mockImplementation(async () => {
+      rows = [{ id: 5, status: "ready", package_id: 5 }, { id: 77, status: "ready", package_id: 77 }];
+      return { data: { id: 77, status: "processing", candidate_name: "Jan Kowalski" } };
+    });
+    renderCard();
+    const form = await screen.findByRole("form", { name: "Napisz od nowa" });
+    // Pusta uwaga też działa: nowa wersja z zachowaniem poprawek.
+    await userEvent.click(within(form).getByRole("button", { name: /Napisz od nowa/ }));
+    expect(await screen.findByTestId("cv-rewrite-result")).toHaveTextContent(
+      "Ręcznych poprawek nie dało się rozpoznać — to cała nowa wersja.",
+    );
+    expect(mocks.apiPost).not.toHaveBeenCalledWith("/api/notes", expect.anything());
+  }, 20000);
+
+  it("„Napisz od nowa” z asystenta w edytorze trafia do tego samego panelu", async () => {
+    mocks.brandedGet.mockResolvedValue({ data: DRAFT });
+    rows = [{ id: 5, status: "ready", package_id: 5 }];
+    renderCard();
+    await userEvent.click(await screen.findByRole("button", { name: /Otwórz i popraw/ }));
+    await screen.findByTestId("editor-stub");
+    const onRewrite = mocks.editorProps?.onRewrite as ((instruction: string) => void) | undefined;
+    expect(onRewrite).toBeTypeOf("function");
+    act(() => onRewrite?.("więcej o Kafce"));
+    expect(await screen.findByTestId("cv-rewrite-instruction")).toHaveTextContent("„więcej o Kafce”");
+    // Edytor zamknął się sam (zapisany szkic), panel pracuje w karcie.
+    expect(screen.queryByTestId("editor-stub")).toBeNull();
+  });
+
+  /** Odczyt `url` przychodzi dopiero po `ms` — reszta jak w `beforeEach`. */
+  function slowGet(match: (url: string) => boolean, data: unknown, ms = 400) {
+    const base = mocks.apiGet.getMockImplementation()!;
+    mocks.apiGet.mockImplementation((url: string, config?: { params?: Record<string, unknown> }) =>
+      match(url)
+        ? new Promise((resolve) => setTimeout(() => resolve({ data }), ms))
+        : base(url, config),
+    );
+  }
+
+  async function startRewrite(text: string) {
+    const form = await screen.findByRole("form", { name: "Napisz od nowa" });
+    if (text) await userEvent.type(within(form).getByRole("textbox", { name: "Co poprawić?" }), text);
+    await userEvent.click(within(form).getByRole("button", { name: /Napisz od nowa/ }));
+  }
+
+  // Przegląd PR 5: start ruszał, zanim przyszła reguła klienta — z pominięciem zgody RODO.
+  it("reguła klienta wymaga zgody RODO: panel czeka na rekrutera, nie generuje sam", async () => {
+    mocks.brandedGet.mockResolvedValue({ data: DRAFT });
+    rows = [{ id: 5, status: "ready", package_id: 5 }];
+    slowGet((url) => url.endsWith("/rule-for-generation"), { is_active: true, requires_rodo_consent_block: true });
+    renderCard();
+    await startRewrite("krócej");
+    const panel = await screen.findByTestId("cv-generate-panel");
+    await act(() => new Promise((resolve) => setTimeout(resolve, 900)));
+    expect(mocks.apiPost).not.toHaveBeenCalled();
+    expect(panel).toBeInTheDocument();
+  }, 20000);
+
+  // Przegląd PR 5: start brał domyślne sprzed odczytu polityki (język, numer projektu).
+  it("polityka klienta przychodzi ostatnia: generacja bierze jej język i numer projektu", async () => {
+    mocks.brandedGet.mockResolvedValue({ data: DRAFT });
+    rows = [{ id: 5, status: "ready", package_id: 5 }];
+    slowGet((url) => url === "/api/cv-generator/policy", {
+      managed: true,
+      effective_policy: { cv_language: "en" },
+      project_ref: "PRJ-9",
+    });
+    renderCard();
+    await startRewrite("");
+    await waitFor(() => expect(mocks.apiPost).toHaveBeenCalledWith("/api/cv-generator/generate", expect.anything(), expect.anything()));
+    const payload = mocks.apiPost.mock.calls.find(([url]) => url === "/api/cv-generator/generate")![1];
+    expect(payload).toMatchObject({ language: "en", project_ref: "PRJ-9" });
+  }, 20000);
+
+  // Przegląd PR 5: każde ponowienie po błędzie dopisywało kolejną notatkę „Uwaga do CV”.
+  it("ponowienie po błędzie nie zapisuje uwagi drugi raz", async () => {
+    mocks.brandedGet.mockResolvedValue({ data: DRAFT });
+    rows = [{ id: 5, status: "ready", package_id: 5 }];
+    let attempt = 0;
+    mocks.apiPost.mockImplementation(async (url: string) => {
+      if (url === "/api/notes") return { data: { id: 1 } };
+      attempt += 1;
+      if (attempt === 1) throw { response: { status: 422, data: { detail: "Chwilowy błąd." } } };
+      return { data: { id: 77, status: "processing", candidate_name: "Jan Kowalski" } };
+    });
+    renderCard();
+    await startRewrite("krócej");
+    const panel = await screen.findByTestId("cv-generate-panel");
+    expect(await within(panel).findByRole("alert")).toHaveTextContent("Chwilowy błąd.");
+    await userEvent.click(within(panel).getByRole("button", { name: /Napisz od nowa/ }));
+    await waitFor(() => expect(attempt).toBe(2));
+    expect(mocks.apiPost.mock.calls.filter(([url]) => url === "/api/notes")).toHaveLength(1);
+  }, 20000);
+
+  // Przegląd PR 5: z edytora dało się zlecić drugą generację w trakcie pierwszej.
+  it("w trakcie generacji edytor nie dostaje „Napisz od nowa”", async () => {
+    mocks.brandedGet.mockResolvedValue({ data: DRAFT });
+    rows = [{ id: 5, status: "ready", package_id: 5 }];
+    mocks.apiPost.mockImplementation(async (url: string) => {
+      if (url === "/api/notes") return { data: { id: 1 } };
+      rows = [{ id: 5, status: "ready", package_id: 5 }, { id: 77, status: "processing", package_id: 77 }];
+      return { data: { id: 77, status: "processing", candidate_name: "Jan Kowalski" } };
+    });
+    renderCard();
+    await startRewrite("krócej");
+    await waitFor(() => expect(mocks.apiPost).toHaveBeenCalledWith("/api/cv-generator/generate", expect.anything(), expect.anything()));
+    await waitFor(() => expect(screen.queryByTestId("cv-generate-panel")).toBeNull());
+    await userEvent.click(await screen.findByRole("button", { name: /Otwórz i popraw/ }));
+    await screen.findByTestId("editor-stub");
+    expect(mocks.editorProps?.onRewrite).toBeUndefined();
+  }, 20000);
+
+  it("tylko do odczytu: bez pola i bez przekazania z edytora", async () => {
+    mocks.brandedGet.mockResolvedValue({ data: DRAFT });
+    rows = [{ id: 5, status: "ready", package_id: 5 }];
+    renderCard({ readOnly: true });
+    await screen.findByTestId("cv-ready-facts");
+    expect(screen.queryByRole("form", { name: "Napisz od nowa" })).toBeNull();
+  });
+});
+
 describe("CvToClientCard — jedna liczba rzeczy do sprawdzenia (13.10.2026)", () => {
   const READY = { status: "draft", from_generator: true, generated_document_id: 5, edit_revision: 3, version: 1 };
 
@@ -1167,6 +1341,7 @@ describe("CvToClientCard — miniatura i menu „⋯” (Edytor CV 3, „Ekran 5
     renderCard({ lockedAfterSend: true });
     await screen.findByTestId("cv-ready-facts");
     expect(screen.getByTestId("cv-locked-after-send")).toHaveTextContent("CV jest już u klienta");
+    expect(screen.queryByText("Napisz od nowa")).toBeNull();
     expect(screen.getByRole("button", { name: /Otwórz i popraw/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Pobierz Word/ })).toBeEnabled();
     await userEvent.click(screen.getByRole("button", { name: "Więcej akcji CV" }));

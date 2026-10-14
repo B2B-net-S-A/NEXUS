@@ -44,6 +44,8 @@ import { PersonPreview } from "./PersonPreview";
 import { PickList, ScoreBadge, type PickRow } from "./pick-list";
 import { breakdownReasonChips, withKeptRows } from "./reason-chips";
 import type { JobSearchSeed } from "./useJobSearchSeed";
+import { alsoFitsSlot } from "./also-fits-block";
+import { useAlsoFitsJobs } from "./useAlsoFitsJobs";
 import { useUndoWindow } from "./useUndoWindow";
 
 export const SEARCH_BASE_PAGE = 20;
@@ -149,6 +151,8 @@ export function useSearchBaseTab(
   const [addedIds, setAddedIds] = useState<ReadonlySet<number>>(() => new Set(initialAddedIds ?? []));
   const [kept, setKept] = useState<ReadonlyMap<number, KeptRow>>(() => new Map());
   const undoWindow = useUndoWindow();
+  // „Pasuje też do” (14.10.2026): inne rekrutacje dla osób dodanych w tym oknie.
+  const alsoFits = useAlsoFitsJobs({ fromJobId: jobId, addedIds, enabled: !readOnly });
   const [rowAdding, setRowAdding] = useState<ReadonlySet<number>>(() => new Set());
   const [undoing, setUndoing] = useState<ReadonlySet<number>>(() => new Set());
   // U4 (audyt 06.10.2026): osoba, która już jest w rekrutacji, do odświeżenia
@@ -233,6 +237,7 @@ export function useSearchBaseTab(
           ? "adding"
           : null,
     undoable: !undoWindow.expired.has(c.id),
+    alsoFits: alsoFitsSlot(alsoFits, c.id, fullName(c), readOnly),
     extra: c.match_snippets?.length ? (
       <FieldSnippets snippets={c.match_snippets} className="mt-0.5" />
     ) : undefined,

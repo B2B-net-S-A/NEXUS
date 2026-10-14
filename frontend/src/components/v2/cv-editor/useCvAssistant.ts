@@ -81,6 +81,8 @@ export interface CvAssistantController {
   /** Kartka tylko do odczytu: plan odnosi się do wierszy z chwili wysłania. */
   locked: boolean;
   send: (input: { command?: string; preset?: CvCommandPreset; label?: string }) => void;
+  /** „Napisz od nowa: …” trafia do karty (nowa generacja), nie do planu zmian. */
+  canRewrite: boolean;
   answer: (messageId: number, yes: boolean) => Promise<void>;
   undo: (messageId: number) => void;
 }
@@ -93,12 +95,18 @@ interface Options {
   /** Zakłada szkic na zatwierdzonej wersji; `false` = nie udało się. */
   ensureDraft: () => Promise<boolean>;
   api?: CvEditorCommandApi;
+  /** „Napisz od nowa” (PR 5): edytor zapisuje szkic i oddaje uwagę karcie. */
+  onRewrite?: (instruction: string) => void;
 }
 
 const MSG_FAILED = "Nie udało się przygotować zmian. Spróbuj jeszcze raz.";
 const MSG_CHANGED = "CV zmieniło się w międzyczasie — napisz jeszcze raz, co zmienić.";
 const MSG_NOTHING = "Nie znalazłem zmian, które da się zrobić w tym CV.";
 const MSG_LATE = "Odpowiedź przyszła, gdy CV się zapisywało — nic nie zmieniłem. Napisz jeszcze raz.";
+const MSG_REWRITE =
+  "Piszę CV od nowa — zapisuję i zamykam edytor. Nowa wersja pojawi się w karcie za ok. 40 s; Twoje ręczne poprawki zostaną.";
+/** „napisz od nowa: krócej…”, „Napisz CV od nowa — więcej o Kafce”. */
+const REWRITE_COMMAND = /^\s*napisz\s+(?:cv\s+)?od\s+nowa\b[\s:,.;–—-]*/i;
 
 const DEFAULT_WHY: Record<CvPlanOperation["type"], string> = {
   remove: "Usunięte",
@@ -166,7 +174,14 @@ function remap(operation: CvPlanOperation, before: readonly CvLine[], current: r
   return { ...operation, lines };
 }
 
-export function useCvAssistant({ editor, stageId, disabled, ensureDraft, api = networkCommandApi }: Options): CvAssistantController {
+export function useCvAssistant({
+  editor,
+  stageId,
+  disabled,
+  ensureDraft,
+  api = networkCommandApi,
+  onRewrite,
+}: Options): CvAssistantController {
   const { showError } = useToast();
   const enabled = !!editor && stageId != null && !disabled;
   const [messages, setMessages] = useState<AssistantMessage[]>([]);
@@ -260,6 +275,12 @@ export function useCvAssistant({ editor, stageId, disabled, ensureDraft, api = n
     const quote = empty ? null : editor.state.doc.textBetween(from, to, " ").replace(/\s+/g, " ").trim().slice(0, 120) || null;
     const previous = history(messages);
     push({ role: "user", text: input.preset ? (input.label ?? command) : command, selection: quote });
+    const rewrite = !input.preset && onRewrite ? REWRITE_COMMAND.exec(command) : null;
+    if (rewrite && onRewrite) {
+      push({ role: "assistant", text: MSG_REWRITE, tone: "info" });
+      onRewrite(command.slice(rewrite[0].length));
+      return;
+    }
     if (blocker) {
       push({ role: "assistant", text: blocker, tone: "info" });
       return;
@@ -394,6 +415,7 @@ export function useCvAssistant({ editor, stageId, disabled, ensureDraft, api = n
 
   return {
     enabled,
+    canRewrite: enabled && onRewrite != null,
     messages,
     busy: pending || answering,
     locked: pending,

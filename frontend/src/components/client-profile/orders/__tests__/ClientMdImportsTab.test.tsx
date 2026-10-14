@@ -38,7 +38,7 @@ const DETAIL: ClientMdImportDetail = {
     {
       id: 1,
       row_number: 35,
-      consultant_name: "Paweł Łaski",
+      consultant_name: "Paweł Łęgowy",
       order_number_hint: "4500030197",
       target_order_number: "4500030197",
       target_group_id: 51,
@@ -53,7 +53,7 @@ const DETAIL: ClientMdImportDetail = {
     {
       id: 2,
       row_number: 36,
-      consultant_name: "Paweł Łaski",
+      consultant_name: "Paweł Łęgowy",
       order_number_hint: "4500030845",
       target_order_number: "4500030197",
       target_group_id: 51,

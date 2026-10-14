@@ -58,6 +58,9 @@ _SCOPED_MODULES = {
     "app.api.cv_qc",
     # Jeden formularz screeningu (0424): arkusz, karta, stawka i historia pary.
     "app.api.screening_form",
+    # „Pasuje też do” (14.10.2026): rekrutacja, z której pytamy, i pula
+    # innych rekrutacji w zakresie odczytu patrzącego.
+    "app.api.also_fits",
 }
 
 # Individual routes on shared routers that address one recruitment. Matched as

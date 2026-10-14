@@ -24,7 +24,12 @@ export interface PickedPerson {
 export interface RecruiterActions {
   /** Klucz trwającego zapisu (`"add"`, `"remove:12"`…); `null` = nic nie trwa. */
   pending: string | null;
-  /** Okno potwierdzenia zdjęcia jest otwarte. */
+  /**
+   * Okno potwierdzenia zdjęcia jest otwarte. Czyta je fakt „Rekruter”
+   * w nagłówku rekrutacji (`JobRecruiterFact`), który na czas własnych okien
+   * chowa okienko — potrzebne przy panelu „Zmień rekrutera” (`Sheet` stoi pod
+   * okienkiem); samo potwierdzenie leży już nad nim (`ui/dialog.tsx`, z-110).
+   */
   confirming: boolean;
   /** Okno potwierdzenia — wołający renderuje je w swoim drzewie. */
   confirmDialog: ReactNode;

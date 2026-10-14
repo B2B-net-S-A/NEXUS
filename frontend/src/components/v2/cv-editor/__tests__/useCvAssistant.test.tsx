@@ -183,3 +183,30 @@ describe("useCvAssistant — odpowiedź na pytanie po innych zmianach", () => {
     );
   });
 });
+
+describe("useCvAssistant — „Napisz od nowa” (PR 5)", () => {
+  it("zdanie „napisz od nowa: …” idzie do karty, nie do planu zmian", () => {
+    const editor = open();
+    const commandApi = api();
+    const onRewrite = vi.fn();
+    const hook = renderHook(() =>
+      useCvAssistant({ editor, stageId: 7, disabled: false, ensureDraft: async () => true, api: commandApi, onRewrite }),
+    );
+    expect(hook.result.current.canRewrite).toBe(true);
+    act(() => hook.result.current.send({ command: "Napisz CV od nowa — krócej, więcej o Kafce" }));
+    expect(onRewrite).toHaveBeenCalledWith("krócej, więcej o Kafce");
+    expect(commandApi.plan).not.toHaveBeenCalled();
+    expect(hook.result.current.messages.at(-1)?.text).toMatch(/^Piszę CV od nowa/);
+  });
+
+  it("bez karty (edytor wyniku generatora) zdanie idzie do asystenta jak każde inne", async () => {
+    const editor = open();
+    const commandApi = api();
+    const hook = renderHook(() =>
+      useCvAssistant({ editor, stageId: 7, disabled: false, ensureDraft: async () => true, api: commandApi }),
+    );
+    expect(hook.result.current.canRewrite).toBe(false);
+    act(() => hook.result.current.send({ command: "napisz od nowa: krócej" }));
+    await waitFor(() => expect(commandApi.plan).toHaveBeenCalledTimes(1));
+  });
+});

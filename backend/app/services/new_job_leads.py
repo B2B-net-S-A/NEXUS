@@ -1,6 +1,6 @@
-"""„Nowe rekrutacje — kto prowadzi” na pulpicie Head of Recruitment.
+"""„Nowe rekrutacje P1 — kto prowadzi” na pulpicie Head of Recruitment.
 
-Lista informacyjna: rekrutacje przekazane do searchu w ostatnich dniach
+Lista informacyjna: rekrutacje P1 przekazane do searchu w ostatnich dniach
 i osoba, która je prowadzi — z automatu albo wskazana przez człowieka. Liczona
 przy odczycie, bez własnej tabeli: stan requestu daje ``jobs.work_state``,
 a prowadzącego ta sama reguła co wszędzie (``job_team.recruiters_for_jobs``).
@@ -13,9 +13,28 @@ poza każdym ekranem pracy (5 takich na produkcji).
 Lista ma koniec (decyzja Artura 07.10.2026): gdy Head of Recruitment albo admin
 potwierdzi prowadzącego („Potwierdź”) albo go zmieni, wiersz znika. Ślad to
 ``Activity`` ``new_job_lead_confirmed`` na rekrutacji z osobą, którą
-potwierdzono. Liczy się wyłącznie potwierdzenie z bieżącego przekazania
-(po ``work_state_changed_at``) i tej samej osoby — gdy automat albo ktoś inny
-zmieni potem prowadzącego, rekrutacja wraca na listę.
+potwierdzono. Liczy się wyłącznie potwierdzenie z bieżącego cyklu i tej samej
+osoby — gdy automat albo ktoś inny zmieni potem prowadzącego, rekrutacja wraca
+na listę i mówi, kto był wcześniej (``returned_from_*``).
+
+Uwagi Head of Recruitment 14.10.2026 (decyzje Artura D1–D3, reguły
+w ``docs/claude/rekrutacja-tablica/przydzial-ludzi-do-requestow-stany-requestu-i.md``,
+sekcja „Nowe rekrutacje P1 — kto prowadzi” i obłożenie P1):
+
+* **Tylko P1, bez championa.** Rekrutacja bez priorytetu i „Przyjmujemy” nie
+  czeka na decyzję o prowadzącym — automat jej nie obsadza. Wejście na P1
+  zaczyna nowy cykl (wpis ``priority_changed`` z ``job_priority``).
+* **Decyzja z każdego ekranu.** Zespół ustawiony przez Head of Recruitment albo
+  admina na pulpicie, w panelu rekrutacji, na liście czy w oknie edycji zapisuje
+  potwierdzenie (``record_team_decision``). Przy odczycie liczy się też wiersz
+  przypisania prowadzącego wpisany przez taką osobę w bieżącym cyklu — dane
+  sprzed tej reguły i ścieżki, których nikt nie dopisał.
+* **Własny początek cyklu**, nie ``jobs.work_state_changed_at``: tę kolumnę
+  przesuwa też „Mamy championa” (blokady automatu w ``request_allocation``),
+  a potwierdzenie sprzed championa ma obowiązywać dalej. Na produkcji champion
+  przywracał potwierdzone wiersze jako „przekazano dziś”.
+* **Limit po odrzuceniu potwierdzonych.** 12.10.2026 ponowne otwarcie 185
+  rekrutacji wypchnęło za limit 4 z 5 nierozstrzygniętych P1.
 """
 
 from __future__ import annotations
@@ -23,33 +42,42 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import Iterable, Optional
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import aliased
+from sqlalchemy.orm import aliased, load_only
 
 from app.models.activity import Activity
 from app.models.client import Client
 from app.models.competence_category import CompetenceCategory
 from app.models.job import Job, JobStatus
 from app.models.job_collaborator import JobCollaborator, JobCollaboratorSource
+from app.models.job_work_assignment import JobWorkAssignment
 from app.models.user import User
-from app.services.job_priority import level_of
-from app.services.job_team import recruiters_for_jobs, working
+from app.services.job_priority import (
+    PRIORITY_CHANGED_ACTION,
+    level_of,
+    priorities_for_levels,
+)
+from app.services.job_team import TeamPerson, recruiters_for_jobs, working
 from app.services.job_working_title import job_display_title_expr
 
 logger = logging.getLogger(__name__)
 
 WINDOW_DAYS = 7
-# Bezpiecznik, nie strona: listę zawęża okno dni, a filtry na pulpicie działają
-# w przeglądarce na tym, co tu wróci — wiersz ucięty limitem byłby dla nich
-# niewidoczny (09.10.2026 na produkcji: 31 przekazań w 7 dni przy limicie 30).
+# Bezpiecznik, nie strona: listę zawęża okno dni i P1, a filtry na pulpicie
+# działają w przeglądarce na tym, co tu wróci. Liczony na wyniku, po
+# odrzuceniu potwierdzonych — nigdy na zapytaniu.
 MAX_ROWS = 100
 # Automat rusza po zdarzeniu z przekazania; do tego czasu „nikt nie prowadzi”
 # znaczy „właśnie przydziela”.
 ASSIGNING_GRACE = timedelta(minutes=2)
 CONFIRMED_ACTION = "new_job_lead_confirmed"
+# Wpis ``request_work_state.set_work_state``.
+_WORK_STATE_CHANGED = "work_state_changed"
+# Powrót z „Klient milczy” to ciąg tego samego cyklu (D2).
+_SAME_CYCLE_FROM = "client_silent"
 
 
 def record_confirmation(
@@ -57,7 +85,8 @@ def record_confirmation(
 ) -> None:
     """Head of Recruitment / admin zgadza się z prowadzącym (``via``:
     ``confirm`` — przycisk, ``owner_change`` — wybrał inną osobę,
-    ``proposal`` — rozstrzygnął propozycję automatu)."""
+    ``proposal`` — rozstrzygnął propozycję automatu, ``team_change`` —
+    zmienił zespół na innym ekranie)."""
     db.add(
         Activity(
             entity_type="job",
@@ -69,10 +98,38 @@ def record_confirmation(
     )
 
 
-async def _confirmed_leads(
+def _decides(user: User) -> bool:
+    from app.api.recruitment_access import PROPOSAL_DECISION_ROLES  # noqa: PLC0415
+
+    return user.has_any_role(*PROPOSAL_DECISION_ROLES)
+
+
+async def record_team_decision(
+    db: AsyncSession, *, job_id: int, actor: User, via: str
+) -> None:
+    """Zespół rekrutacji ustawił Head of Recruitment albo admin — na dowolnym
+    ekranie (D1, 14.10.2026). Zapisuje potwierdzenie osoby, która prowadzi PO
+    zmianie. Bez prowadzącego nic: rekrutacja P1 bez nikogo ma zostać na liście.
+
+    Wołający trzyma transakcję zmiany i commituje sam; pozostałe role nic tu nie
+    zapisują (lista pokazuje Head of Recruitment, co ustawili inni).
+    """
+    if not _decides(actor):
+        return
+    await db.flush()
+    people = (await recruiters_for_jobs(db, [job_id])).get(job_id, [])
+    lead = next(iter(working(people)), None)
+    if lead is None:
+        return
+    record_confirmation(
+        db, job_id=job_id, lead_user_id=lead.user_id, actor_id=actor.id, via=via
+    )
+
+
+async def _confirmations(
     db: AsyncSession, since_by_job: dict[int, datetime]
 ) -> dict[int, int]:
-    """Osoba z ostatniego potwierdzenia bieżącego przekazania, per rekrutacja."""
+    """Osoba z ostatniego potwierdzenia bieżącego cyklu, per rekrutacja."""
     if not since_by_job:
         return {}
     rows = (
@@ -98,6 +155,123 @@ async def _confirmed_leads(
 
 
 @dataclass(frozen=True)
+class _Cycle:
+    since: datetime
+    # ``handoff`` (przekazanie, także ręczna zmiana stanu), ``reopen``
+    # (ponowne otwarcie) albo ``p1`` (wejście na P1).
+    reason: str
+
+
+async def _cycle_starts(
+    db: AsyncSession, fallback: dict[int, Optional[datetime]]
+) -> dict[int, _Cycle]:
+    """Początek bieżącego cyklu: późniejsze z wejścia do „Szukamy” i wejścia
+    na P1 (D2, D3).
+
+    Daty z dziennika (``created_at`` = początek transakcji), tak jak daty
+    potwierdzeń i wierszy przypisania — potwierdzenie zapisane w tej samej
+    transakcji co przekazanie liczy się. Rekrutacja bez wpisu wejścia
+    (sprzed dziennika stanów) bierze ``work_state_changed_at`` z ``fallback``.
+    """
+    if not fallback:
+        return {}
+    rows = (
+        await db.execute(
+            select(
+                Activity.entity_id,
+                Activity.action,
+                Activity.created_at,
+                Activity.details,
+            ).where(
+                Activity.entity_type == "job",
+                Activity.entity_id.in_(list(fallback)),
+                Activity.action.in_((_WORK_STATE_CHANGED, PRIORITY_CHANGED_ACTION)),
+            )
+        )
+    ).all()
+    entered: dict[int, tuple[datetime, str]] = {}
+    raised: dict[int, datetime] = {}
+    for job_id, action, created_at, details in rows:
+        details = details or {}
+        if created_at is None:
+            continue
+        if action == _WORK_STATE_CHANGED:
+            if (
+                details.get("to") != "searching"
+                or details.get("from") == _SAME_CYCLE_FROM
+            ):
+                continue
+            if job_id not in entered or created_at > entered[job_id][0]:
+                reason = "reopen" if details.get("reason") == "reopen" else "handoff"
+                entered[job_id] = (created_at, reason)
+        elif details.get("to") == "p1":
+            if job_id not in raised or created_at > raised[job_id]:
+                raised[job_id] = created_at
+    out: dict[int, _Cycle] = {}
+    for job_id, default in fallback.items():
+        since, reason = entered.get(job_id, (default, "handoff"))
+        raised_at = raised.get(job_id)
+        if raised_at is not None and (since is None or raised_at > since):
+            since, reason = raised_at, "p1"
+        if since is not None:
+            out[job_id] = _Cycle(since=since, reason=reason)
+    return out
+
+
+async def _placed_by_decider(
+    db: AsyncSession, leads: dict[int, tuple[int, datetime]]
+) -> set[int]:
+    """Rekrutacje, których prowadzącego Head of Recruitment albo admin wpisał
+    w bieżącym cyklu (``leads``: job → (prowadzący, początek cyklu))."""
+    if not leads:
+        return set()
+    rows = (
+        await db.execute(
+            select(
+                JobWorkAssignment.job_id,
+                JobWorkAssignment.user_id,
+                JobWorkAssignment.assigned_at,
+                JobWorkAssignment.assigned_by,
+            ).where(
+                JobWorkAssignment.job_id.in_(list(leads)),
+                JobWorkAssignment.state == "active",
+                JobWorkAssignment.assigned_by.is_not(None),
+            )
+        )
+    ).all()
+    rows = [
+        row
+        for row in rows
+        if leads[row.job_id][0] == row.user_id
+        and row.assigned_at is not None
+        and row.assigned_at >= leads[row.job_id][1]
+    ]
+    if not rows:
+        return set()
+    deciders = {
+        user.id
+        for user in (
+            await db.scalars(
+                select(User)
+                .where(User.id.in_({row.assigned_by for row in rows}))
+                .options(load_only(User.id, User.role, User.roles))
+            )
+        ).all()
+        if _decides(user)
+    }
+    return {row.job_id for row in rows if row.assigned_by in deciders}
+
+
+async def _names(db: AsyncSession, user_ids: Iterable[int]) -> dict[int, str]:
+    ids = set(user_ids)
+    if not ids:
+        return {}
+    return dict(
+        (await db.execute(select(User.id, User.name).where(User.id.in_(ids)))).all()
+    )
+
+
+@dataclass(frozen=True)
 class NewJobLead:
     job_id: int
     title: str
@@ -109,6 +283,7 @@ class NewJobLead:
     priority_level: str
     delivery_lead_name: Optional[str]
     handed_off_at: datetime
+    since_reason: str = "handoff"
     lead_user_id: Optional[int] = None
     lead_name: Optional[str] = None
     lead_role: Optional[str] = None
@@ -116,6 +291,8 @@ class NewJobLead:
     assigned_by_name: Optional[str] = None
     proposed: bool = False
     pending_reason: Optional[str] = None
+    returned_from_user_id: Optional[int] = None
+    returned_from_name: Optional[str] = None
 
 
 async def _participants(db: AsyncSession, job_ids: list[int]) -> dict[int, int]:
@@ -136,8 +313,13 @@ async def _participants(db: AsyncSession, job_ids: list[int]) -> dict[int, int]:
     }
 
 
+def _lead_of(people: list[TeamPerson]) -> Optional[TeamPerson]:
+    """Osoba pracująca, a bez niej propozycja automatu czekająca na akceptację."""
+    return next(iter(working(people)), None) or next(iter(people), None)
+
+
 async def load_new_job_leads(db: AsyncSession, *, now: datetime) -> list[NewJobLead]:
-    """Rekrutacje przekazane do searchu w ostatnich ``WINDOW_DAYS`` dniach,
+    """Rekrutacje P1, których cykl zaczął się w ostatnich ``WINDOW_DAYS`` dniach,
     od najnowszej. Stała liczba zapytań."""
     from app.services.recruitment_allocation import (  # noqa: PLC0415
         effective_allocation_mode,
@@ -147,7 +329,7 @@ async def load_new_job_leads(db: AsyncSession, *, now: datetime) -> list[NewJobL
     )
 
     delivery_lead = aliased(User)
-    jobs = (
+    pool = (
         await db.execute(
             select(
                 Job.id,
@@ -156,7 +338,6 @@ async def load_new_job_leads(db: AsyncSession, *, now: datetime) -> list[NewJobL
                 Job.competence_category_id,
                 CompetenceCategory.name_pl.label("category_name"),
                 CompetenceCategory.slug.label("category_slug"),
-                Job.priority,
                 delivery_lead.name.label("delivery_lead_name"),
                 Job.work_state_changed_at,
             )
@@ -169,31 +350,48 @@ async def load_new_job_leads(db: AsyncSession, *, now: datetime) -> list[NewJobL
             .where(
                 Job.status == JobStatus.published,
                 Job.work_state == "searching",
-                Job.work_state_changed_at >= now - timedelta(days=WINDOW_DAYS),
+                Job.champion_found_at.is_(None),
+                Job.priority.in_(priorities_for_levels(["p1"])),
             )
-            .order_by(Job.work_state_changed_at.desc(), Job.id.desc())
-            .limit(MAX_ROWS)
         )
     ).all()
-    not_handed_off = await _not_handed_off(db, exclude=[row.id for row in jobs])
+    cycles = await _cycle_starts(
+        db, {row.id: row.work_state_changed_at for row in pool}
+    )
+    window_start = now - timedelta(days=WINDOW_DAYS)
+    jobs = sorted(
+        (
+            row
+            for row in pool
+            if row.id in cycles and cycles[row.id].since >= window_start
+        ),
+        key=lambda row: (cycles[row.id].since, row.id),
+        reverse=True,
+    )
+    not_handed_off = await _not_handed_off(db, exclude=[row.id for row in pool])
     if not jobs:
-        return not_handed_off
+        return not_handed_off[:MAX_ROWS]
     job_ids = [row.id for row in jobs]
+    since_by_job = {job_id: cycles[job_id].since for job_id in job_ids}
     participants = await _participants(db, job_ids)
     teams = await recruiters_for_jobs(db, job_ids)
 
-    # Osoba pracująca, a bez niej propozycja automatu czekająca na akceptację.
     leads = {}
     for job_id in job_ids:
-        people = teams.get(job_id, [])
-        lead = next(iter(working(people)), None) or next(iter(people), None)
+        lead = _lead_of(teams.get(job_id, []))
         if lead is not None:
             leads[job_id] = lead
+    confirmed = await _confirmations(db, since_by_job)
+    placed = await _placed_by_decider(
+        db,
+        {
+            job_id: (lead.user_id, since_by_job[job_id])
+            for job_id, lead in leads.items()
+            if not lead.proposed
+        },
+    )
     # Prowadzący bez wiersza przypisania: automat wpisał go wcześniej, jeśli
     # tak mówi najnowszy zamknięty wiersz pary.
-    confirmed = await _confirmed_leads(
-        db, {row.id: row.work_state_changed_at for row in jobs}
-    )
     auto_owned = await _last_assignment_was_auto(
         db,
         [
@@ -202,10 +400,18 @@ async def load_new_job_leads(db: AsyncSession, *, now: datetime) -> list[NewJobL
             if lead.via == "owner" and lead.assignment_source is None
         ],
     )
+    # Kto prowadził przy ostatniej decyzji, gdy dziś prowadzi ktoś inny.
+    returned_from = {
+        job_id: user_id
+        for job_id, user_id in confirmed.items()
+        if (leads.get(job_id) is None or leads[job_id].user_id != user_id)
+    }
+    returned_names = await _names(db, returned_from.values())
     mode: Optional[str] = None
     out: list[NewJobLead] = []
     for row in jobs:
-        level = level_of(row.priority)
+        cycle = cycles[row.id]
+        previous = returned_from.get(row.id)
         base = dict(
             job_id=row.id,
             title=row.title,
@@ -214,25 +420,26 @@ async def load_new_job_leads(db: AsyncSession, *, now: datetime) -> list[NewJobL
             category_name=row.category_name,
             category_slug=row.category_slug,
             participants=participants.get(row.id, 0),
-            priority_level=level,
+            priority_level="p1",
             delivery_lead_name=row.delivery_lead_name,
-            handed_off_at=row.work_state_changed_at,
+            handed_off_at=cycle.since,
+            since_reason=cycle.reason,
+            returned_from_user_id=previous,
+            returned_from_name=returned_names.get(previous) if previous else None,
         )
         lead = leads.get(row.id)
         if lead is None:
-            if level == "accepting":
-                reason = "passive"
-            # Automat dobiera tylko do P1 — przy P2 „właśnie przydziela”
-            # byłoby nieprawdą.
-            elif level == "p1" and now - row.work_state_changed_at < ASSIGNING_GRACE:
+            reason = "none"
+            if now - cycle.since < ASSIGNING_GRACE:
                 if mode is None:
                     mode = await effective_allocation_mode(db)
-                reason = "assigning" if mode == "auto" else "none"
-            else:
-                reason = "none"
+                if mode == "auto":
+                    reason = "assigning"
             out.append(NewJobLead(**base, pending_reason=reason))
             continue
-        if not lead.proposed and confirmed.get(row.id) == lead.user_id:
+        if not lead.proposed and (
+            confirmed.get(row.id) == lead.user_id or row.id in placed
+        ):
             continue
         by_automat = (
             lead.assignment_source == "auto" or (row.id, lead.user_id) in auto_owned
@@ -248,11 +455,11 @@ async def load_new_job_leads(db: AsyncSession, *, now: datetime) -> list[NewJobL
                 proposed=lead.proposed,
             )
         )
-    return out + not_handed_off
+    return (out + not_handed_off)[:MAX_ROWS]
 
 
 async def _not_handed_off(db: AsyncSession, *, exclude: list[int]) -> list[NewJobLead]:
-    """Opublikowane rekrutacje bez przekazania do searchu (H7) — od najstarszej.
+    """Opublikowane rekrutacje P1 bez przekazania do searchu (H7) — od najstarszej.
 
     ``handed_off_at`` niesie wtedy datę założenia rekrutacji (przekazania nie
     było). Rekrutacje z Traffita są archiwum (zamknięte), więc tu trafiają
@@ -281,6 +488,7 @@ async def _not_handed_off(db: AsyncSession, *, exclude: list[int]) -> list[NewJo
             .where(
                 Job.status == JobStatus.published,
                 Job.is_open.is_not(True),
+                Job.priority.in_(priorities_for_levels(["p1"])),
                 *((Job.id.not_in(exclude),) if exclude else ()),
             )
             .order_by(Job.created_at.asc(), Job.id.asc())

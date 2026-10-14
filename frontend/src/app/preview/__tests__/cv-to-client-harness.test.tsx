@@ -114,3 +114,21 @@ it("po przekazaniu karta pyta pamięć harnessu, aż automat skończy CV — bez
     vi.useRealTimers();
   }
 });
+
+it("„Napisz od nowa” (Edytor CV 3, PR 5): uwaga, nowa wersja z Twoimi poprawkami i „Wróć do poprzedniej” — bez sieci", async () => {
+  render(<CvToClientPreviewPage />);
+  const card = await screen.findByRole("region", { name: "„Napisz od nowa” — Twoje poprawki zostają" });
+  const form = await within(card).findByRole("form", { name: "Napisz od nowa" });
+  fireEvent.change(within(form).getByRole("textbox", { name: "Co poprawić?" }), {
+    target: { value: "krócej, więcej o Kafce" },
+  });
+  fireEvent.click(within(form).getByRole("button", { name: /Napisz od nowa/ }));
+
+  const bar = await within(card).findByTestId("cv-rewrite-result", {}, { timeout: 10_000 });
+  expect(bar).toHaveTextContent("Nowa wersja CV. „Logistyka Przykład” zostało w Twojej wersji.");
+  fireEvent.click(within(bar).getByRole("button", { name: /Wróć do poprzedniej/ }));
+  await waitFor(() => expect(within(card).queryByTestId("cv-rewrite-result")).toBeNull());
+  expect(screen.getByText("Przywrócono poprzednią wersję CV.")).toBeInTheDocument();
+  // Zapisy odpowiedziała pamięć harnessu — nic nie wyszło do sieci.
+  expect(sent.filter((config) => (config.method ?? "get").toLowerCase() !== "get")).toEqual([]);
+}, 20_000);

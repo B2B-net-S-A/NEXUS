@@ -280,7 +280,12 @@ function columns(): KanbanColumn[] {
   nextId = 1;
   return [
     col("new", "Nowi / Analiza CV", 21, [
-      card("Anna", "Przykładowa"),
+      // „+1 rekrutacja” (14.10.2026): czeka też w Nowych innej rekrutacji.
+      card("Anna", "Przykładowa", {
+        other_open_jobs: [
+          { job_id: 4411, title: "Angular Developer", client_name: "Ubezpieczenia Demo", column: "new" },
+        ],
+      }),
       // Filtr „Kto dodał” (14.10.2026): część osób dodali inni, jedna bez danych.
       card("Jan", "Testowy", { added_to_job_by_id: 12, added_to_job_by_name: "Piotr Szkicowy" }),
       // Osoby, które u nas pracują (12.10.2026): znacznik na karcie, pigułka
@@ -575,6 +580,29 @@ const MANUAL: PersonSeed[] = [
 
 /** Osoby „dodane w tym oknie” — wiersz „Dodano do „Nowych” · rezerwacja 12 h · Cofnij”. */
 const ADDED_IN_WINDOW: readonly number[] = [BASE[1].id, SEARCH[1].id];
+
+/** „Pasuje też do” (14.10.2026) — fikcyjne rekrutacje dla osób dodanych w oknie. */
+const ALSO_FITS_JOBS: Record<number, unknown[]> = {
+  [BASE[1].id]: [
+    {
+      job_id: 4411,
+      title: "Angular Developer",
+      client_name: "Ubezpieczenia Demo",
+      score: 84,
+      matching_must: ["Angular", "RxJS", "TypeScript"],
+      gap_must: [],
+    },
+    {
+      job_id: 4412,
+      title: "Frontend Lead (Angular)",
+      client_name: "Logistyka Demo",
+      score: 72,
+      matching_must: ["Angular"],
+      gap_must: ["Prowadzenie zespołu"],
+    },
+  ],
+  [SEARCH[1].id]: [],
+};
 
 /** Dopasowanie każdej fikcyjnej osoby — odpowiedź lokalna na `/scores`. */
 const SCORE_SEEDS = new Map(
@@ -1334,6 +1362,42 @@ function JobDetailHarness() {
             config,
           });
         };
+        return config;
+      }
+      // „Pasuje też do” (14.10.2026): podpowiedzi dla osób dodanych w oknie,
+      // dodanie do innej rekrutacji i „Cofnij” — bez sieci.
+      const alsoFits = config.url?.match(/^\/api\/candidates\/(\d+)\/also-fits$/);
+      if (alsoFits) {
+        const candidateId = Number(alsoFits[1]);
+        config.adapter = async () => ({
+          data: {
+            candidate_id: candidateId,
+            from_job_id: JOB_ID,
+            status: "ok",
+            jobs: ALSO_FITS_JOBS[candidateId] ?? [],
+          },
+          status: 200,
+          statusText: "OK",
+          headers: {},
+          config,
+        });
+        return config;
+      }
+      const otherJobAdd = config.url?.match(/^\/api\/jobs\/(\d+)\/proposals\/bulk$/);
+      if (otherJobAdd && Number(otherJobAdd[1]) !== JOB_ID) {
+        const ids = (config.data as { candidate_ids?: number[] } | undefined)?.candidate_ids ?? [];
+        config.adapter = async () => ({
+          data: { added: ids, skipped: [], warnings: [], total_added: ids.length, total_skipped: 0 },
+          status: 200,
+          statusText: "OK",
+          headers: {},
+          config,
+        });
+        return config;
+      }
+      const otherJobUndo = config.url?.match(/^\/api\/candidates\/\d+\/recruitments\/(\d+)$/);
+      if (otherJobUndo && config.method === "delete" && Number(otherJobUndo[1]) !== JOB_ID) {
+        config.adapter = async () => ({ data: {}, status: 200, statusText: "OK", headers: {}, config });
         return config;
       }
       // „Wgraj nowe CV” i „Użyj w tej rekrutacji” (13.10.2026): kopia CV etapu

@@ -643,6 +643,33 @@ def test_request_with_a_person_working_without_a_row_is_covered() -> None:
 
 
 @pytest.mark.unit
+def test_load_counts_only_p1_requests() -> None:
+    # Obłożenie = requesty P1 (decyzja Artura 14.10.2026, ta sama liczba co
+    # panel „Obłożenie”): osoba 1 ma trzy requesty bez priorytetu, osoba 2
+    # jeden P1 — nowy P1 dostaje osoba 1. Do tej daty dostawała go osoba 2.
+    data = PlanInput(
+        requests=[
+            req(10, p1=False),
+            req(11, p1=False),
+            req(12, p1=False),
+            req(13),
+            req(20),
+        ],
+        people=[recruiter(1), recruiter(2)],
+        live=[
+            LiveAssignment(10, 1, "recruiter", "manual", "active"),
+            LiveAssignment(11, 1, "recruiter", "manual", "active"),
+            LiveAssignment(12, 1, "recruiter", "manual", "active"),
+            LiveAssignment(13, 2, "recruiter", "manual", "active"),
+        ],
+    )
+    changes = plan_assignments(data)
+    assert assigned(changes) == {20: 1}
+    # Osoby przy requestach spoza P1 zostają (planer ich nie rusza).
+    assert released(changes) == []
+
+
+@pytest.mark.unit
 def test_work_without_a_row_counts_in_the_persons_load() -> None:
     data = dict(requests=[req(20)], people=[recruiter(1), recruiter(2)], live=[])
     assert assigned(plan_assignments(PlanInput(**data))) == {20: 1}

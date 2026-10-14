@@ -4,12 +4,16 @@ import Link from "next/link"
 import { useMemo, useState } from "react"
 import { ChevronDown, ChevronRight } from "lucide-react"
 
+import { RequestPriorityChip } from "@/components/v2/jobs/RequestPriorityChip"
 import type { BoardChange, LoadPerson } from "@/lib/api/requestAllocation"
+import { pluralPl } from "@/lib/plural-pl"
 import {
   changesSinceLabel,
   deadlineLabel,
+  loadBarScale,
   loadSummary,
   orderLoad,
+  outsideP1Href,
 } from "@/lib/request-board"
 import { cn } from "@/lib/utils"
 
@@ -35,21 +39,24 @@ function formatWhen(iso: string): string {
   })
 }
 
-const MAX_BAR = 5
-
-/** Szerokość odcinka paska: `value` z `MAX_BAR`, najwyżej tyle, ile zostało miejsca. */
-function barShare(value: number, used = 0): string {
-  const share = Math.max(Math.min(value, MAX_BAR - Math.min(used, MAX_BAR)), 0)
-  return `${(share / MAX_BAR) * 100}%`
+/**
+ * Szerokość odcinka paska: `value` ze skali listy (`loadBarScale` — najbardziej
+ * obłożona osoba ma pełny pasek), najwyżej tyle, ile zostało miejsca.
+ */
+function barShare(value: number, scale: number, used = 0): string {
+  const share = Math.max(Math.min(value, scale - Math.min(used, scale)), 0)
+  return `${(share / scale) * 100}%`
 }
 
 /** Wiersz osoby: nazwisko (z urlopem), pasek i liczba; kliknięcie rozwija requesty. */
 function PersonRow({
   person,
+  scale,
   expanded,
   onToggle,
 }: {
   person: LoadPerson
+  scale: number
   expanded: boolean
   onToggle: () => void
 }) {
@@ -89,14 +96,14 @@ function PersonRow({
         )}
       </span>
       <span className="flex h-2.5 overflow-hidden rounded" aria-hidden>
-        <span className="h-full bg-primary" style={{ width: barShare(person.count) }} />
+        <span className="h-full bg-primary" style={{ width: barShare(person.count, scale) }} />
         {/* Propozycja: jaśniejszy odcinek z przerywaną krawędzią —
             ten sam język co przerywana ramka przy osobie. */}
         {proposed > 0 && (
           <span
             data-load-proposed
             className="h-full border border-dashed border-primary/60 bg-primary/20"
-            style={{ width: barShare(proposed, person.count) }}
+            style={{ width: barShare(proposed, scale, person.count) }}
           />
         )}
       </span>
@@ -122,10 +129,13 @@ function PersonRequests({
   today: string
   className: string
 }) {
+  const outside = person.outside_p1 ?? 0
   return (
     <ul className={className}>
       {person.requests.length === 0 ? (
-        <li className="text-xs text-muted-foreground">Brak requestów — ma miejsce na kolejny.</li>
+        <li className="text-xs text-muted-foreground">
+          Brak rekrutacji P1 — ma miejsce na kolejną.
+        </li>
       ) : (
         person.requests.map((r) => (
           <li
@@ -142,6 +152,16 @@ function PersonRequests({
             </span>
           </li>
         ))
+      )}
+      {/* Poza obłożeniem, ale nie znika bez śladu: liczba i link do listy. */}
+      {outside > 0 && (
+        <li className="text-xs text-muted-foreground" data-testid="load-outside-p1">
+          Poza P1: {outside} {pluralPl(outside, "rekrutacja", "rekrutacje", "rekrutacji")} —{" "}
+          {pluralPl(outside, "nie liczy się", "nie liczą się", "nie liczy się")} do obłożenia.{" "}
+          <Link href={outsideP1Href(person.user_id)} className="font-medium text-primary hover:underline">
+            Pokaż na liście rekrutacji
+          </Link>
+        </li>
       )}
     </ul>
   )
@@ -164,6 +184,7 @@ export function LoadPeople({
 }) {
   const [open, setOpen] = useState<number | null>(null)
   const people = useMemo(() => orderLoad(load), [load])
+  const scale = useMemo(() => loadBarScale(load), [load])
   if (people.length === 0) {
     return (
       <p className="text-sm text-muted-foreground">
@@ -180,6 +201,7 @@ export function LoadPeople({
           <li key={person.user_id}>
             <PersonRow
               person={person}
+              scale={scale}
               expanded={open === person.user_id}
               onToggle={() => toggle(person.user_id)}
             />
@@ -199,6 +221,7 @@ export function LoadPeople({
           <li key={person.user_id} className="break-inside-avoid">
             <PersonRow
               person={person}
+              scale={scale}
               expanded={open === person.user_id}
               onToggle={() => toggle(person.user_id)}
             />
@@ -231,26 +254,31 @@ export function LoadFootnote({ load }: { load: LoadPerson[] }) {
   return (
     <p className="mt-2 text-xs text-muted-foreground">
       {anyProposed ? "„+ 1” to propozycja automatu czekająca na akceptację. " : ""}
-      Requesty z championem nie liczą się do obłożenia.
+      Nie liczą się rekrutacje bez priorytetu, „Przyjmujemy” i z championem.
     </p>
   )
 }
 
+/** Podpis panelu — ten sam na pulpicie „Requesty i obłożenie” i w „Czeka na Ciebie”. */
+export const LOAD_SUBTITLE = "Ile rekrutacji P1 w stanie „Szukamy” ma każda osoba w roli „Rekruter”."
+
 /**
- * „Obłożenie” — ile requestów ma każda osoba w roli „Rekruter”. Propozycje
- * automatu przed akceptacją stoją osobno („2 + 1”): to jeszcze nie praca.
- * Kliknięcie osoby rozwija jej requesty (makieta C6).
+ * „Obłożenie” — ile rekrutacji P1 ma każda osoba w roli „Rekruter” (prośba
+ * Head of Recruitment, decyzja Artura 14.10.2026). Propozycje automatu przed
+ * akceptacją stoją osobno („2 + 1”): to jeszcze nie praca. Kliknięcie osoby
+ * rozwija jej rekrutacje P1 i liczbę tych spoza P1 (makieta C6).
  */
 export function LoadPanel({ load, today }: { load: LoadPerson[]; today: string }) {
   return (
     <section className="rounded-lg border border-border bg-card p-4" aria-label="Obłożenie">
       <div className="mb-1 flex items-baseline justify-between">
-        <h3 className="text-sm font-semibold text-foreground">Obłożenie</h3>
+        <span className="flex items-center gap-1.5">
+          <h3 className="text-sm font-semibold text-foreground">Obłożenie</h3>
+          <RequestPriorityChip level="p1" />
+        </span>
         <span className="text-xs text-muted-foreground">kliknij osobę</span>
       </div>
-      <p className="mb-2 text-xs text-muted-foreground">
-        Ile requestów ma każda osoba w roli „Rekruter”.
-      </p>
+      <p className="mb-2 text-xs text-muted-foreground">{LOAD_SUBTITLE}</p>
       <LoadPeople load={load} today={today} />
       <LoadFootnote load={load} />
     </section>

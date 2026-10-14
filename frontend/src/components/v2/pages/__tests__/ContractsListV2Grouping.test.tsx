@@ -87,7 +87,7 @@ describe("ContractsListV2 — grupowanie per osoba + kolumny stawek", () => {
               {
                 id: 467,
                 candidate_id: 10,
-                candidate_name: "Paweł Małek",
+                candidate_name: "Paweł Makietowy",
                 client_name: "Bank Pocztowy",
                 status: "active",
                 contract_type: "b2b",
@@ -184,7 +184,7 @@ describe("ContractsListV2 — grupowanie per osoba + kolumny stawek", () => {
     );
     renderList();
 
-    const link = await screen.findByRole("link", { name: "Paweł Małek" });
+    const link = await screen.findByRole("link", { name: "Paweł Makietowy" });
     expect(link.getAttribute("href")).toContain(
       "returnTo=%2Fcontracts%3Fstatus%3Ddraft%26contract_type%3Db2b%26page%3D2",
     );
@@ -222,7 +222,7 @@ describe("ContractsListV2 — grupowanie per osoba + kolumny stawek", () => {
 
   it("ma dokładnie 9 kolumn danych w kolejności priorytetu", async () => {
     const { container } = renderList();
-    await screen.findByText("Paweł Małek");
+    await screen.findByText("Paweł Makietowy");
 
     const table = container.querySelector("[data-contracts-responsive-table]");
     expect(table).toBeInTheDocument();
@@ -291,7 +291,7 @@ describe("ContractsListV2 — grupowanie per osoba + kolumny stawek", () => {
     signIn("talent_community_manager");
 
     const { container } = renderList();
-    await screen.findByText("Paweł Małek");
+    await screen.findByText("Paweł Makietowy");
 
     expect(
       screen.queryByRole("button", { name: /nowy kontrakt/i }),
@@ -313,7 +313,7 @@ describe("ContractsListV2 — grupowanie per osoba + kolumny stawek", () => {
     });
 
     renderList();
-    await screen.findByText("Paweł Małek");
+    await screen.findByText("Paweł Makietowy");
 
     expect(selectAll()).not.toBeInTheDocument();
     expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
@@ -326,7 +326,7 @@ describe("ContractsListV2 — grupowanie per osoba + kolumny stawek", () => {
     });
 
     renderList();
-    await screen.findByText("Paweł Małek");
+    await screen.findByText("Paweł Makietowy");
 
     expect(selectAll()).not.toBeInTheDocument();
     expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
@@ -339,7 +339,7 @@ describe("ContractsListV2 — grupowanie per osoba + kolumny stawek", () => {
     });
 
     renderList();
-    await screen.findByText("Paweł Małek");
+    await screen.findByText("Paweł Makietowy");
 
     expect(selectAll()).toBeInTheDocument();
     expect(screen.getAllByRole("checkbox").length).toBeGreaterThan(0);
@@ -349,7 +349,7 @@ describe("ContractsListV2 — grupowanie per osoba + kolumny stawek", () => {
     signIn("delivery_lead", {}, { id: 1, role: "admin", roles: ["admin"] });
 
     renderList();
-    await screen.findByText("Paweł Małek");
+    await screen.findByText("Paweł Makietowy");
 
     expect(selectAll()).not.toBeInTheDocument();
     expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
@@ -362,7 +362,7 @@ describe("ContractsListV2 — grupowanie per osoba + kolumny stawek", () => {
     });
 
     renderList();
-    await screen.findByText("Paweł Małek");
+    await screen.findByText("Paweł Makietowy");
 
     expect(hasColumn("Stawka kosztowa")).toBe(true);
     expect(hasColumn("Stawka przychodowa")).toBe(true);
@@ -379,7 +379,7 @@ describe("ContractsListV2 — grupowanie per osoba + kolumny stawek", () => {
     });
 
     renderList();
-    await screen.findByText("Paweł Małek");
+    await screen.findByText("Paweł Makietowy");
 
     expect(screen.getByRole("button", { name: /eksport/i })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /analityka/i })).toBeInTheDocument();
@@ -399,7 +399,7 @@ describe("ContractsListV2 — grupowanie per osoba + kolumny stawek", () => {
     });
 
     renderList();
-    await screen.findByText("Paweł Małek");
+    await screen.findByText("Paweł Makietowy");
 
     expect(screen.queryByRole("button", { name: /eksport/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: /analityka/i })).not.toBeInTheDocument();
@@ -409,7 +409,7 @@ describe("ContractsListV2 — grupowanie per osoba + kolumny stawek", () => {
 
   it("osoba u 2 klientów ma 2 widoczne pasy bez rozwijania, ze wspólną komórką kandydata", async () => {
     const { container } = renderList();
-    await screen.findByText("Paweł Małek");
+    await screen.findByText("Paweł Makietowy");
 
     expect(
       screen.getByText(/2 kontraktorów \/ 3 aktywne kontrakty/i),
@@ -418,7 +418,7 @@ describe("ContractsListV2 — grupowanie per osoba + kolumny stawek", () => {
     const groups = container.querySelectorAll("[data-contract-group]");
     expect(groups).toHaveLength(2);
     const multiGroup = Array.from(groups).find((group) =>
-      group.textContent?.includes("Paweł Małek"),
+      group.textContent?.includes("Paweł Makietowy"),
     );
     expect(multiGroup).toBeDefined();
 
@@ -430,11 +430,11 @@ describe("ContractsListV2 — grupowanie per osoba + kolumny stawek", () => {
     expect(multiGroup!.querySelector("[aria-expanded]")).not.toBeInTheDocument();
 
     const candidateCell = within(memberRows[0] as HTMLElement)
-      .getByRole("link", { name: "Paweł Małek" })
+      .getByRole("link", { name: "Paweł Makietowy" })
       .closest("td");
     expect(candidateCell).toHaveAttribute("rowspan", "2");
     expect(
-      within(memberRows[1] as HTMLElement).queryByText("Paweł Małek"),
+      within(memberRows[1] as HTMLElement).queryByText("Paweł Makietowy"),
     ).not.toBeInTheDocument();
 
     // Typ i status są danymi konkretnej umowy i pozostają dwiema ostatnimi
@@ -453,11 +453,11 @@ describe("ContractsListV2 — grupowanie per osoba + kolumny stawek", () => {
 
   it("pokazuje daty listy jako dd.mm.yy", async () => {
     const { container } = renderList();
-    await screen.findByText("Paweł Małek");
+    await screen.findByText("Paweł Makietowy");
 
     const multiGroup = Array.from(
       container.querySelectorAll("[data-contract-group]"),
-    ).find((group) => group.textContent?.includes("Paweł Małek"));
+    ).find((group) => group.textContent?.includes("Paweł Makietowy"));
     expect(multiGroup).toBeDefined();
     const rows = multiGroup!.querySelectorAll("[data-contract-member]");
     const startOf = (row: Element) =>
@@ -475,7 +475,7 @@ describe("ContractsListV2 — grupowanie per osoba + kolumny stawek", () => {
 
   it("marża ma tę samą jednostkę co stawki obok (zł/h) — raz, przy nazwie kolumny", async () => {
     const { container } = renderList();
-    await screen.findByText("Paweł Małek");
+    await screen.findByText("Paweł Makietowy");
     const margins = Array.from(container.querySelectorAll('[data-label="Marża"]'));
     const priced = margins.find((cell) => /42,50/.test(cell.textContent ?? ""));
     expect(priced).toBeDefined();
@@ -642,7 +642,7 @@ describe("ContractsListV2 — grupowanie per osoba + kolumny stawek", () => {
 
   it("klik w nagłówek sortuje po stronie serwera i przełącza kierunek", async () => {
     renderList();
-    await screen.findByText("Paweł Małek");
+    await screen.findByText("Paweł Makietowy");
 
     const lastParams = () =>
       (getMock.mock.calls.filter(([url]) => url === "/api/contracts").at(-1)?.[1] as {
@@ -673,7 +673,7 @@ describe("ContractsListV2 — grupowanie per osoba + kolumny stawek", () => {
       "status=active&start_from=2026-01-01&order_end_to=2026-12-31&sort=start_date&dir=desc";
     window.history.replaceState({}, "", `/contracts?${query}`);
     renderList(query);
-    await screen.findByText("Paweł Małek");
+    await screen.findByText("Paweł Makietowy");
     const params = (getMock.mock.calls.filter(([url]) => url === "/api/contracts").at(-1)?.[1] as {
       params: Record<string, unknown>;
     }).params;
@@ -692,7 +692,7 @@ describe("ContractsListV2 — grupowanie per osoba + kolumny stawek", () => {
 
   it("jeden responsywny DOM zachowuje komplet pól każdego klienta", async () => {
     const { container } = renderList();
-    await screen.findByText("Paweł Małek");
+    await screen.findByText("Paweł Makietowy");
 
     const table = container.querySelector("[data-contracts-responsive-table]");
     expect(table).toBeInTheDocument();
@@ -702,7 +702,7 @@ describe("ContractsListV2 — grupowanie per osoba + kolumny stawek", () => {
 
     const multiGroup = Array.from(
       container.querySelectorAll("[data-contract-group]"),
-    ).find((group) => group.textContent?.includes("Paweł Małek"));
+    ).find((group) => group.textContent?.includes("Paweł Makietowy"));
     expect(multiGroup).toBeDefined();
     const memberRows = multiGroup!.querySelectorAll("[data-contract-member]");
     const expectedLabels = [
@@ -739,7 +739,7 @@ describe("ContractsListV2 — grupowanie per osoba + kolumny stawek", () => {
 
   it("formatuje stawkę kosztową i przychodową ich własnymi walutami", async () => {
     const { container } = renderList();
-    await screen.findByText("Paweł Małek");
+    await screen.findByText("Paweł Makietowy");
     const row = Array.from(
       container.querySelectorAll("[data-contract-member]"),
     ).find((member) => member.textContent?.includes("Bank Pocztowy"));

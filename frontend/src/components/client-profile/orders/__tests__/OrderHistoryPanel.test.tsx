@@ -47,8 +47,8 @@ const TEPER_SERIES = entry({
   created_at: "2026-09-24T12:25:01Z",
   summary: "6 zmian w serii edycji",
   order_id: 146,
-  person_name: "Konrad Teper",
-  person_names: ["Konrad Teper"],
+  person_name: "Konrad Tester",
+  person_names: ["Konrad Tester"],
   changes: [
     { label: "stawka kosztowa", before: "560 zł/MD", after: "580 zł/MD" },
     { label: "budżet MD", before: "9,66 MD", after: "10 MD" },
@@ -70,7 +70,7 @@ const IMPORT = entry({
   type_label: "Import MD",
   created_at: "2026-09-23T11:40:03Z",
   summary: "Import MD za sierpień 2026 – 2 osoby, 25 MD",
-  person_names: ["Paweł Łaski", "Konrad Teper"],
+  person_names: ["Paweł Łęgowy", "Konrad Tester"],
   import_id: 2,
   import_period_month: "2026-08",
   import_people: 2,
@@ -85,8 +85,8 @@ const NEGATIVE = entry({
   created_at: "2026-09-22T10:00:00Z",
   summary: "ręczna korekta MD: 0 MD → -2 MD.",
   order_id: 145,
-  person_name: "Paweł Łaski",
-  person_names: ["Paweł Łaski"],
+  person_name: "Paweł Łęgowy",
+  person_names: ["Paweł Łęgowy"],
   changes: [{ label: "ręczna korekta MD", before: "0 MD", after: "-2 MD" }],
   balance_after: -19,
 });
@@ -106,14 +106,14 @@ describe("OrderHistoryPanel — historia zamówienia (ticket 7)", () => {
     vi.mocked(orderGroupsApi.history).mockResolvedValue({
       data: {
         entries: [TEPER_SERIES, IMPORT, NEGATIVE, entry({ key: "ev-1" })],
-        people: ["Konrad Teper", "Paweł Łaski"],
+        people: ["Konrad Tester", "Paweł Łęgowy"],
       },
     } as never);
   });
 
   it("wpis: data · autor · plakietka · osoba · „przed → po” · saldo po zmianie", async () => {
     renderPanel();
-    const row = (await screen.findByText("Konrad Teper", { selector: "span" })).closest("li")!;
+    const row = (await screen.findByText("Konrad Tester", { selector: "span" })).closest("li")!;
     expect(row).toHaveTextContent(/24\.09\.2026 \d{2}:\d{2}/);
     expect(row).toHaveTextContent("Anna Korycka");
     expect(row).toHaveTextContent("Edycja");
@@ -146,7 +146,7 @@ describe("OrderHistoryPanel — historia zamówienia (ticket 7)", () => {
 
   it("ujemne saldo po zmianie jest czerwone", async () => {
     renderPanel();
-    const row = (await screen.findByText("Paweł Łaski", { selector: "span.font-medium" })).closest("li")!;
+    const row = (await screen.findByText("Paweł Łęgowy", { selector: "span.font-medium" })).closest("li")!;
     expect(within(row).getByText("-19 MD")).toHaveClass("text-destructive");
   });
 
@@ -160,7 +160,7 @@ describe("OrderHistoryPanel — historia zamówienia (ticket 7)", () => {
     expect(screen.getByText(/Import MD za sierpień 2026/)).toBeInTheDocument();
 
     await user.selectOptions(screen.getByLabelText("Typ zdarzenia"), "all");
-    await user.selectOptions(screen.getByLabelText("Osoba"), "Paweł Łaski");
+    await user.selectOptions(screen.getByLabelText("Osoba"), "Paweł Łęgowy");
     expect(screen.queryByRole("button", { name: "6 zmian" })).toBeNull();
     expect(screen.getByText(/Import MD za sierpień 2026/)).toBeInTheDocument();
     expect(screen.queryByText(/Utworzono zamówienie/)).toBeNull();

@@ -14,7 +14,7 @@ function line(overrides: Partial<OrderLineRead> = {}): OrderLineRead {
     group_id: 51,
     contract_id: 100,
     candidate_id: 5,
-    consultant_name: "Konrad Teper",
+    consultant_name: "Konrad Tester",
     job_id: null,
     job_title: null,
     status: "active",
@@ -52,7 +52,7 @@ describe("ConsumptionButton — „Zużycie MD” zamiast kalendarza", () => {
   it("mini-wykres i ostatnia wartość: „Zużycie · sie 3,7”", async () => {
     const onClick = vi.fn();
     render(<ConsumptionButton line={line()} onClick={onClick} />);
-    const button = screen.getByRole("button", { name: "Zużycie MD — Konrad Teper" });
+    const button = screen.getByRole("button", { name: "Zużycie MD — Konrad Tester" });
     expect(button).toHaveTextContent("Zużycie · sie 3,7");
     expect(button).toHaveAttribute(
       "title",
@@ -78,7 +78,7 @@ describe("ConsumptionButton — „Zużycie MD” zamiast kalendarza", () => {
 
   it("bez zejść — sam napis „Zużycie”, bez wykresu", () => {
     render(<ConsumptionButton line={line({ consumption_recent: [] })} onClick={() => {}} />);
-    expect(screen.getByRole("button", { name: "Zużycie MD — Konrad Teper" })).toHaveTextContent(
+    expect(screen.getByRole("button", { name: "Zużycie MD — Konrad Tester" })).toHaveTextContent(
       /^Zużycie$/,
     );
     expect(screen.queryByTestId("consumption-sparkline")).toBeNull();
