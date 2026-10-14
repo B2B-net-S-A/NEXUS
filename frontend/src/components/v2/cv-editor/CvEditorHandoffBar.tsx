@@ -61,7 +61,7 @@ export function CvEditorHandoffBar({
         value={remark}
         disabled={busy}
         onChange={(event) => onRemarkChange(event.target.value)}
-        className="h-8 min-w-[220px] flex-1 rounded-md border border-input bg-background px-2.5 text-sm placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-60"
+        className="h-8 w-0 min-w-[220px] flex-1 rounded-md border border-input bg-background px-2.5 text-sm placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-60"
       />
       <p
         role="status"

@@ -211,6 +211,9 @@ function renderPanel(overrides: Record<string, unknown> = {}) {
 describe("AddCandidatesPanel — okno „Kandydaci do dodania”", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // D1 (14.10.2026): wynik liczy się sam dla widocznych wierszy — każdy test
+    // z wierszami pyta o dopasowanie, więc atrapa zawsze odpowiada obietnicą.
+    matchScores.mockResolvedValue({ scores: {}, breakdowns: {}, profile_key: "p:1" });
     proposalsState.entries = [];
     proposalsState.status.run.data = undefined;
     proposalsState.status.run.runId = null;

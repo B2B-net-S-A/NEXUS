@@ -136,10 +136,6 @@ async def _finish(
     actor_id = user.id  # przed commitem — obiekty sesji wygasają
     await db.commit()
     await rate_change.send_pending_emails(outcome.emails)
-    if outcome.claimed:
-        # Zapis wziął osobę na 12 h (14.10.2026) — Tablice zespołu odświeżają
-        # kartę jak po „Biorę”.
-        await broadcast_pipeline_changed(db, job_id, actor_id)
     cache_invalidated = True
     if outcome.sheet_changed:
         cache_invalidated = await _mark_stale(db, candidate_id)
@@ -151,6 +147,12 @@ async def _finish(
     state = await form.load_state(
         db, user=user, candidate=candidate, job=job, can_write=True
     )
+    if outcome.claimed:
+        # Zapis wziął osobę na 12 h (14.10.2026) — Tablice zespołu odświeżają
+        # kartę jak po „Biorę”. Na końcu: savepoint rozgłoszenia otwiera
+        # transakcję, a wycofanie po nieudanym oznaczeniu wyników wygasiłoby
+        # wtedy `user`, którego `load_state` jeszcze potrzebuje.
+        await broadcast_pipeline_changed(db, job_id, actor_id)
     return {
         **state,
         "saved_version": outcome.saved_version,
