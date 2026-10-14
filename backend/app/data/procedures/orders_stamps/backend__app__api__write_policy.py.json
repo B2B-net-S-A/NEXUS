@@ -1,4 +1,4 @@
 {
-  "sha256": "3883765df4adccf05daa0442eed5990f2cce960d198b3c0bf6ed6a52a5b9a159",
+  "sha256": "807776c2cf187d0eb17037c0f72e1ed37268ec670c99a3d52d1b96209f336a98",
   "source": "backend/app/api/write_policy.py"
 }

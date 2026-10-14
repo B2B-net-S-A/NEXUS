@@ -1,4 +1,4 @@
-"""Polityka zapisu zamówień i kontraktów — „kto” i „czy wolno” (PR 2B, 0441).
+"""Polityka zapisu zamówień i kontraktów — „kto” i „czy wolno” (PR 2B, migracja 0443).
 
 Te same zapisy (zakończenie, przedłużenie i anulowanie zamówienia MD,
 zakończenie i edycja zamówienia okresowego, PDF zamówienia, data końca
