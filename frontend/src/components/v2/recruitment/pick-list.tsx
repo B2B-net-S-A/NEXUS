@@ -53,6 +53,11 @@ export interface PickRow {
   addState?: "adding" | "added" | "undoing" | null;
   /** „Cofnij” jeszcze działa (okno 15 min, `useUndoWindow`); `false` = minęło. */
   undoable?: boolean;
+  /**
+   * Blok „Pasuje też do” (`AlsoFitsBlock`) — tylko pod osobą dodaną w tym
+   * oknie. Dane liczy właściciel zakładki (`useAlsoFitsJobs`), nie lista.
+   */
+  alsoFits?: ReactNode;
 }
 
 /** „CV z RRRR” — neutralnie; starsze niż 2 lata w tonie ostrzeżenia. */
@@ -304,6 +309,7 @@ function PickListItem({
               ) : null}
             </p>
           ) : null}
+          {added ? row.alsoFits : null}
           {row.extra}
           {(row.sourceLabel || row.cvBadge || row.employment || row.warnings.length > 0) && (
             <div className="mt-1 flex flex-wrap items-center gap-1">

@@ -713,6 +713,8 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'consultant_in_other_recruitment'",
     # 0440: CV firmowe gotowe do sprawdzenia / automat go nie zrobił (do rekrutera).
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'cv_ready'",
+    # 0444: osoba dodana do rekrutacji z „Pasuje też do” (do rekruterów tej rekrutacji).
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'also_fits_added'",
     # callstatus: zapisywane przez POST /api/cloudtalk/initiate-call. Uśpione,
     # bo CLOUDTALK_ENABLED=false — ale leży dokładnie na ścieżce aktywacji.
     "ALTER TYPE callstatus ADD VALUE IF NOT EXISTS 'initiated'",

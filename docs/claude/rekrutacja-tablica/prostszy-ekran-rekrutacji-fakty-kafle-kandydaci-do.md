@@ -162,3 +162,42 @@ na 145 px; próg w `e2e/responsive-preview.spec.ts` — 0,4.
 - Przełącznik widoku Tablicy (tylko > 10 kolumn) rysuje się nad kolumnami sam
   (`KanbanBoardV2` bez `renderAbove`). Harness: `?prio=`, `?team=me|none|proposal`,
   `?client=long`, `?collapsed=1`, `?readonly=1`.
+
+## „Pasuje też do” po „+ Dodaj” i „+1 rekrutacja” na karcie (14.10.2026)
+
+Decyzje Artura D1–D4 z 14.10.2026 (makiety https://claude.ai/artifact/RTUD8nEm1dRXrarnwHrE7f, A1–A2).
+Rekruter dodawał osobę do A, a ta sama osoba pasowała do innych rekrutacji — podpowiedź istniała tylko
+w profilu („Pasujące rekrutacje”, starszy wzór, bez bramki i progu). Raport: `docs/also-fits-completion-report.md`.
+
+- **Reguła = automaty i „Moi ludzie” (D1).** `GET /api/candidates/{id}/also-fits?from_job_id=A`
+  (`api/also_fits.py`, `services/also_fits.py`): pula to rekrutacje `published` + `IN_WORK_STATES`
+  w zakresie odczytu patrzącego, bez A i bez rekrutacji, w których osoba ma JAKIKOLWIEK wiersz etapu
+  (w toku albo zamknięta karta). Qdrant zawęża pulę do 8 najbliższych (tekst kandydata × wektory
+  rekrutacji), każda dostaje `my_people_matching.fits_for_job` — kanoniczny fit, kwalifikowalność
+  (weto HM, czarna lista), dowody z CV i notatek i dealbreakery z bramką „Wymagane (krytyczne)”.
+  Zostaje najwyżej 3 z wynikiem ≥ 70, zmierzonym (`measurement == "measured"`), nieukrytym
+  i dopuszczonym. Procent to ta sama liczba, którą B pokazuje w „Szukaj w bazie”. Awaria Qdranta =
+  `status: "unavailable"` → „Nie udało się sprawdzić innych rekrutacji · Ponów”, nigdy pusta lista.
+  `score_people_for_job` („Moi ludzie”) woła tę samą `fits_for_job` — jedna ocena, dwa ekrany.
+- **Gdzie (A1):** blok pod osobą dodaną w oknie „Kandydaci do dodania” — zakładki propozycji
+  i „Szukaj w bazie” (`useAlsoFitsJobs` w `AddCandidatesPanel`/`useSearchBaseTab`, prezentacja
+  `also-fits-block.tsx`, pole `PickRow.alsoFits`; `PickList` sam nic nie pobiera). Pusty wynik =
+  nic. Okno pyta samo tylko o 3 ostatnio dodane osoby (`ALSO_FITS_AUTO_CHECK`) — stopka dodaje do
+  100 naraz, a każde zapytanie to kilka pełnych ocen na serwerze; przy reszcie jest „Sprawdź, gdzie
+  jeszcze pasuje”. „Szukaj ręcznie” bloku nie ma (tam nie ma też „Cofnij”).
+- **„+ Dodaj” do B (D2)** = zwykłe `POST /api/jobs/{B}/proposals/bulk` ze źródłem `also_fits`
+  i `origin_job_id`: „Nowi”, `entry_source="added_manual"`, rezerwacja 12 h dla dodającego, „Cofnij”
+  przez 15 min (`DELETE …?quick_undo=true`). Odmowy (zamknięta karta, weto) mówią słowami serwera pod
+  rekrutacją. Po zapisie `record_also_fits_added`: wpis `Activity(candidate, also_fits_added,
+  {job_id, from_job_id})` i dzwonek `also_fits_added` (kategoria „Kandydaci”, sekcja pipeline,
+  migracja 0444 + lustro w `entrypoint.sh`) do rekruterów B (`job_team.recruiters_for_jobs` +
+  `working`) — bez osoby, która dodała; encja dzwonka to nowy wiersz etapu pary w B (dedup dzienny
+  po osobie zjadałby drugi dzwonek przy „Dodaj do wszystkich”). Dzwonek nigdy nie cofa dodania. Nowe źródło dodania żyje
+  w trzech miejscach: `BulkAddSource`, `PIPELINE_ADD_SOURCES`, `BulkAddSource` na froncie.
+- **„+N rekrutacja” na karcie (A2):** `other_open_jobs` karty Tablicy (`build_kanban_view`, jedno
+  zapytanie na Tablicę tylko o osoby z kart w „Nowych”/„Screeningu”, same tytuły rekrutacji, filtr
+  etapów w SQL; `with_other_jobs=False` w „Moich następnych krokach”) = inne niezamknięte
+  rekrutacje, w których najnowszy wiersz etapu osoby jest w „Nowych”/„Screeningu” (`board_column_for`),
+  najwyżej 5. Chip tylko na kartach w tych kolumnach (`kanban-other-jobs-chip.tsx`); okienko
+  wymienia rekrutacje i prowadzi do karty („Otwórz kartę”). „Screening razem” dochodzi w PR 2.
+- **Liczenie (D4):** weryfikacja w kilku rekrutacjach liczy się per rekrutacja, jak dotąd.

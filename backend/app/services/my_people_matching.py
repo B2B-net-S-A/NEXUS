@@ -55,6 +55,90 @@ class ScoredPerson:
     hidden: bool = False
 
 
+@dataclass
+class JobFit:
+    """Ocena jednej osoby w jednej rekrutacji — ta sama dla „Moich ludzi”
+    i „Pasuje też do” (``also_fits``)."""
+
+    candidate_id: int
+    score: Optional[int]
+    measurement: str
+    decision: object
+    hidden: bool
+    breakdown: object
+
+
+async def fits_for_job(
+    db: AsyncSession,
+    *,
+    job: Job,
+    candidates: list,
+    profile_user_id: Optional[int],
+) -> list[JobFit]:
+    """Kanoniczny fit + kwalifikowalność + dealbreakery wskazanych osób w rekrutacji.
+
+    ``hidden`` = osoba, którą przegląd bazy tej rekrutacji by ukrył (weto,
+    czarna lista, „tylko umowa o pracę”, bramka must i pozostałe dealbreakery).
+    Pulę zawęża wołający.
+    """
+    from app.services.canonical_fit import display_score, score_candidates
+    from app.services.pipeline_eligibility import evaluate_candidates_for_job
+    from app.services.request_matching_context import build_request_context
+    from app.services.requirement_verification import load_verified_requirements
+    from app.services.scoring_service import resolve_active_profile
+
+    profile = await resolve_active_profile(
+        db, user_id=profile_user_id, client_id=job.client_id
+    )
+    context = build_request_context(job, profile)
+    if candidates:
+        from app.services.must_text_evidence import attach_gate_evidence
+        from app.services.requirement_contract import search_dealbreaker_inputs
+
+        # Dowód z CV i notatek PRZED oceną (30.09.2026): ocena umiejętności
+        # czyta go tak samo jak bramka.
+        await load_verified_requirements(db, job, candidates)
+        gate_inputs = search_dealbreaker_inputs(job)
+        await attach_gate_evidence(
+            db,
+            candidates,
+            gate_inputs.gate_evidence_labels,
+            options=gate_inputs.gate_options,
+        )
+    fits = await score_candidates(db, context, candidates) if candidates else []
+    decisions = await evaluate_candidates_for_job(
+        db,
+        job=job,
+        candidate_ids=[c.id for c in candidates],
+        now=datetime.now(timezone.utc),
+    )
+
+    dealbreaker_hidden = dealbreaker_exclusions(job, candidates, decisions)
+
+    by_id = {c.id: c for c in candidates}
+    out: list[JobFit] = []
+    for i, fit in enumerate(fits):
+        cid = int(fit.breakdown.candidate_id)
+        decision = decisions.get(cid)
+        out.append(
+            JobFit(
+                candidate_id=cid,
+                score=display_score(fit.fit_score),
+                measurement=fit.measurement,
+                decision=decision,
+                # „Tylko umowa o pracę" z rozmowy praktykanta: pracujemy na
+                # B2B, więc tej osoby nie proponujemy do żadnej rekrutacji.
+                hidden=bool(decision and decision.visibility is Visibility.hidden)
+                or employment_only_refuses_b2b(by_id.get(cid))
+                or cid in dealbreaker_hidden,
+                breakdown=fit.breakdown,
+            )
+        )
+        if (i + 1) % YIELD_EVERY == 0:
+            await asyncio.sleep(0)
+    return out
+
+
 async def candidates_in_job(
     db: AsyncSession, job_id: int, ids: Iterable[int]
 ) -> set[int]:
@@ -106,11 +190,7 @@ async def score_people_for_job(
     części puli nie dostają wyniku (``measurement="not_in_pool"``) — to
     „nie liczyliśmy", nie „nie pasuje".
     """
-    from app.services.canonical_fit import display_score, score_candidates
     from app.services.embedding_service import _build_job_text
-    from app.services.pipeline_eligibility import evaluate_candidates_for_job
-    from app.services.request_matching_context import build_request_context
-    from app.services.scoring_service import resolve_active_profile
 
     ids = sorted({int(i) for i in candidate_ids})
     if not ids:
@@ -126,56 +206,18 @@ async def score_people_for_job(
         if pool
         else []
     )
-    profile = await resolve_active_profile(
-        db, user_id=profile_user_id, client_id=job.client_id
-    )
-    context = build_request_context(job, profile)
-    from app.services.requirement_verification import load_verified_requirements
-
-    if candidates:
-        from app.services.must_text_evidence import attach_gate_evidence
-        from app.services.requirement_contract import search_dealbreaker_inputs
-
-        # Dowód z CV i notatek PRZED oceną (30.09.2026): ocena umiejętności
-        # czyta go tak samo jak bramka.
-        await load_verified_requirements(db, job, candidates)
-        gate_inputs = search_dealbreaker_inputs(job)
-        await attach_gate_evidence(
-            db,
-            candidates,
-            gate_inputs.gate_evidence_labels,
-            options=gate_inputs.gate_options,
+    out = [
+        ScoredPerson(
+            candidate_id=f.candidate_id,
+            score=f.score,
+            measurement=f.measurement,
+            eligibility=eligibility_annotation(f.decision),
+            hidden=f.hidden,
         )
-    fits = await score_candidates(db, context, candidates) if candidates else []
-    decisions = await evaluate_candidates_for_job(
-        db,
-        job=job,
-        candidate_ids=[c.id for c in candidates],
-        now=datetime.now(timezone.utc),
-    )
-
-    dealbreaker_hidden = dealbreaker_exclusions(job, candidates, decisions)
-
-    by_id = {c.id: c for c in candidates}
-    out: list[ScoredPerson] = []
-    for i, fit in enumerate(fits):
-        cid = int(fit.breakdown.candidate_id)
-        decision = decisions.get(cid)
-        out.append(
-            ScoredPerson(
-                candidate_id=cid,
-                score=display_score(fit.fit_score),
-                measurement=fit.measurement,
-                eligibility=eligibility_annotation(decision),
-                # „Tylko umowa o pracę" z rozmowy praktykanta: pracujemy na
-                # B2B, więc tej osoby nie proponujemy do żadnej rekrutacji.
-                hidden=bool(decision and decision.visibility is Visibility.hidden)
-                or employment_only_refuses_b2b(by_id.get(cid))
-                or cid in dealbreaker_hidden,
-            )
+        for f in await fits_for_job(
+            db, job=job, candidates=candidates, profile_user_id=profile_user_id
         )
-        if (i + 1) % YIELD_EVERY == 0:
-            await asyncio.sleep(0)
+    ]
     scored_ids = {p.candidate_id for p in out}
     out.extend(
         ScoredPerson(
@@ -380,8 +422,10 @@ def _people_phrase(n: int) -> str:
 __all__ = [
     "dealbreaker_exclusions",
     "AutoMatchUnavailable",
+    "JobFit",
     "ScoredPerson",
     "candidates_in_job",
+    "fits_for_job",
     "last_sent_to_client",
     "run_for_job",
     "score_people_for_job",

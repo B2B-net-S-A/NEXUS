@@ -172,6 +172,7 @@ import {
  type KanbanColumn,
  type KanbanItem,
 } from "@/components/v2/pages/kanban-shared";
+import { OtherJobsChip, showsOtherJobsChip } from "@/components/v2/pages/kanban-other-jobs-chip";
 import {
  CV_SENT_STAGE,
  findStageColumn,
@@ -1240,6 +1241,13 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  >
  {qc.label}
  </button>
+ )}
+ {showsOtherJobsChip(item, boardKey) && (
+ <OtherJobsChip
+ item={item}
+ fullName={fullName}
+ className={cn(desktopOverview && "xl:pointer-fine:hidden")}
+ />
  )}
  <CardV4Badges item={item} fullName={fullName} stageBadge={stageBadge} />
  {/* Osobny wiersz na końcu: u kogo osoba u nas pracuje i do kiedy.

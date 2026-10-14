@@ -230,6 +230,11 @@ class NotificationType(str, enum.Enum):
     # z powodem, przy którym rekruter musi zadziałać sam. Do osoby, która
     # przesunęła kartę; related_entity=(candidate_stage, id). Bez maila.
     cv_ready = "cv_ready"
+    # 0444: ktoś dodał osobę do rekrutacji z podpowiedzi „Pasuje też do”
+    # (okno „Kandydaci do dodania” innej rekrutacji). Do rekruterów tej
+    # rekrutacji, bez osoby, która dodała; related_entity=(candidate, id).
+    # Bez maila.
+    also_fits_added = "also_fits_added"
 
 
 class Notification(Base, TimestampMixin):

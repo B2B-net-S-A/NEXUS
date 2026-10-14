@@ -425,6 +425,8 @@ PIPELINE_ADD_SOURCES = frozenset(
         "proposal_inbox",
         "recommendation",
         "my_people",
+        # 14.10.2026: „Pasuje też do” pod osobą dodaną do innej rekrutacji.
+        "also_fits",
         # Audyt 06.10.2026 (U2): dodanie tokenem integracji (scraper) — bez
         # tego kodu zajmowało klucze z `reason_code` NULL obok ludzkich.
         "integration",

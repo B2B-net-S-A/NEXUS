@@ -2543,6 +2543,22 @@
    "v3_home": "okno „Kandydaci do dodania” → wiersz po dodaniu"
   },
   {
+   "id": "board.sources-row-also-fits",
+   "area": "pozyskiwanie",
+   "opis": "„Pasuje też do N innych rekrutacji” pod osobą dodaną z wiersza: do 3 rekrutacji w pracy (bramka krytycznych, dopasowanie ≥ 70), „+ Dodaj” / „Dodaj do wszystkich” / „Cofnij” (14.10.2026)",
+   "file": "components/v2/recruitment/also-fits-block.tsx",
+   "marker": "Pasuje też do ",
+   "v3_home": "okno „Kandydaci do dodania” → wiersz po dodaniu"
+  },
+  {
+   "id": "board.card-other-jobs",
+   "area": "tablica",
+   "opis": "„+N rekrutacja” na karcie w Nowych/Screeningu: osoba czeka też w innej rekrutacji — okienko z listą i „Otwórz kartę” (14.10.2026)",
+   "file": "components/v2/pages/kanban-other-jobs-chip.tsx",
+   "marker": "card-other-jobs-chip",
+   "v3_home": "Tablica → karta w „Nowych”/„Screeningu”"
+  },
+  {
    "id": "board.sources-row-reasons",
    "area": "pozyskiwanie",
    "opis": "Do trzech plakietek wymagań w wierszu: „✓”, „✕”, „? zapytaj”",

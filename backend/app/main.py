@@ -115,6 +115,7 @@ from app.api import md_consumption as md_consumption_api
 from app.api import my_clients as my_clients_api
 from app.api import my_relationships as my_relationships_api
 from app.api import my_people as my_people_api
+from app.api import also_fits as also_fits_api
 from app.api import academy as academy_api
 from app.api import trainee as trainee_api
 from app.api import board_tasks as board_tasks_api
@@ -1242,6 +1243,7 @@ app.include_router(
     prefix="/api/my-people",
     tags=["my-people"],
 )
+app.include_router(also_fits_api.router, prefix="/api", tags=["also-fits"])
 app.include_router(
     academy_api.router,
     prefix="/api/academy",
