@@ -230,6 +230,8 @@ function renderState(state: HarnessState): ReactNode {
                 <CvToClientCard
                   stageId={person.stageId} candidateId={person.candidateId} candidateName={person.name}
                   jobId={CARD_JOB_ID} jobTitle="Senior Java Developer" readOnly={false}
+                  loadStageCvFile={() => staticCvFile(CARD_WORD_FILE)}
+                  loadStageCvPdf={() => staticCvFile(CARD_PAGES_FILE)}
                 />
               </div>
             </section>
@@ -247,6 +249,15 @@ function renderState(state: HarnessState): ReactNode {
 // rekrutacji, brak CV obok pliku Word), kopia z pliku bez zgody i CV
 // przeniesione przy przepięciu. Zasiew tymi samymi funkcjami kluczy co karta.
 const CARD_JOB_ID = 77;
+// Miniatura i „Podgląd” karty: przykładowe fikcyjne CV z harnessu `/preview/cv-to-client`
+// zamiast pliku z serwera (harness nie wysyła zapytań).
+const CARD_WORD_FILE = "/preview/cv-to-client/cv-firmowe-przyklad.docx";
+const CARD_PAGES_FILE = "/preview/cv-to-client/cv-firmowe-przyklad.pdf";
+async function staticCvFile(path: string): Promise<{ blob: Blob; filename: string }> {
+  const response = await fetch(path);
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  return { blob: await response.blob(), filename: path.split("/").pop() ?? "CV" };
+}
 const CARD_PEOPLE = [
   { stageId: 501, candidateId: 11, name: "Jan Kowalski", label: "Auto-CV, a osoba ma gotowe CV", variant: "ready" },
   { stageId: 502, candidateId: 12, name: "Piotr Wiśniewski", label: "Brak CV, plik Word w profilu", variant: "none" },

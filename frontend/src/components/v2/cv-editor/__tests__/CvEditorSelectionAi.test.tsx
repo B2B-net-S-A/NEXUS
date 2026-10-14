@@ -413,16 +413,21 @@ describe("AI na zaznaczonym fragmencie", () => {
     expect(screen.queryByRole("button", { name: "AI na zaznaczonym tekście" })).toBeNull();
   });
 
-  it("menu „AI” w pasku: to samo wejście dla klawiatury, z powodem, gdy nie ma czego zaznaczyć", async () => {
+  it("„AI na zaznaczonym tekście” w „Więcej”: to samo wejście dla klawiatury, z powodem, gdy nie ma czego zaznaczyć", async () => {
     const { editor, propose } = setup();
-    const trigger = screen.getByRole("button", { name: "AI na zaznaczonym tekście" });
-    fireEvent.keyDown(trigger, { key: "ArrowDown" });
+    // Edytor CV 3 (PR 3): menu AI jest podmenu „Więcej”.
+    const openAiMenu = async () => {
+      fireEvent.keyDown(screen.getByRole("button", { name: "Więcej" }), { key: "ArrowDown" });
+      fireEvent.keyDown(await screen.findByRole("menuitem", { name: "AI na zaznaczonym tekście" }), { key: "ArrowRight" });
+    };
+    await openAiMenu();
     expect(await screen.findByText("Zaznacz fragment w akapicie albo punkcie.")).toBeInTheDocument();
     expect(screen.getByRole("menuitem", { name: "Skróć" })).toHaveAttribute("aria-disabled", "true");
     fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
 
     select(editor, "Przeglądy kodu");
-    fireEvent.keyDown(screen.getByRole("button", { name: "AI na zaznaczonym tekście" }), { key: "ArrowDown" });
+    await openAiMenu();
     fireEvent.click(await screen.findByRole("menuitem", { name: "Popraw język" }));
     await waitFor(() => expect(propose).toHaveBeenCalledWith(5, expect.objectContaining({ action: "proofread", fragment: "Przeglądy kodu" })));
   });

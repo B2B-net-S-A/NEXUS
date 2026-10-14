@@ -70,6 +70,29 @@ const noNetwork = () => {
   expect(attempts).not.toHaveBeenCalled();
 };
 
+/** „Więcej” (Edytor CV 3, PR 3): polecenia spoza paska. Otwarte menu zasłania okno. */
+async function chooseMore(dialog: HTMLElement, name: string, sub?: string): Promise<void> {
+  fireEvent.keyDown(within(dialog).getByRole("button", { name: "Więcej" }), { key: "ArrowDown" });
+  if (sub) fireEvent.keyDown(await screen.findByRole("menuitem", { name: sub }), { key: "ArrowRight" });
+  fireEvent.click(await screen.findByRole("menuitem", { name }));
+  await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
+  // Pozycje okna ruszają po zamknięciu menu (takt później).
+  await act(() => new Promise((resolve) => setTimeout(resolve, 0)));
+}
+/** Pozycje „Więcej” z ich stanem — menu otwiera się i zamyka. */
+async function moreItems(dialog: HTMLElement): Promise<Map<string, boolean>> {
+  fireEvent.keyDown(within(dialog).getByRole("button", { name: "Więcej" }), { key: "ArrowDown" });
+  const menu = await screen.findByRole("menu");
+  const items = new Map(
+    within(menu)
+      .getAllByRole("menuitem")
+      .map((item) => [item.textContent?.trim() ?? "", item.getAttribute("aria-disabled") !== "true"] as const),
+  );
+  fireEvent.keyDown(menu, { key: "Escape" });
+  await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
+  return items;
+}
+
 it("otwiera szkic z kartką CV i nie wysyła żadnego żądania", async () => {
   const dialog = await openEditor();
   const paper = dialog.querySelector(".cv-paper") as HTMLElement;
@@ -85,15 +108,14 @@ it("otwiera szkic z kartką CV i nie wysyła żadnego żądania", async () => {
   noNetwork();
 });
 
-it("nowe stanowisko zatrzymuje „Zapisz”, dopóki zostały pola w nawiasach", async () => {
+it("nowe stanowisko zatrzymuje „Gotowe”, dopóki zostały pola w nawiasach", async () => {
   const dialog = await openEditor();
-  fireEvent.keyDown(within(dialog).getByRole("button", { name: "Dodaj" }), { key: "ArrowDown" });
-  fireEvent.click(await screen.findByRole("menuitem", { name: "Stanowisko" }));
+  await chooseMore(dialog, "Stanowisko", "Dodaj");
   await waitFor(() =>
     expect(dialog.querySelectorAll('.cv-paper [data-cv-section="role"]')).toHaveLength(3),
   );
 
-  fireEvent.click(within(dialog).getByRole("button", { name: "Zapisz" }));
+  fireEvent.click(within(dialog).getByRole("button", { name: "Gotowe" }));
   const alert = await within(dialog).findByText(/Uzupełnij albo usuń pola w nawiasach/);
   expect(alert).toHaveTextContent("[Stanowisko]");
   expect(alert).toHaveTextContent("Szkic jest zapisany.");
@@ -102,22 +124,23 @@ it("nowe stanowisko zatrzymuje „Zapisz”, dopóki zostały pola w nawiasach",
   noNetwork();
 });
 
-it("„Zapisz” na zatwierdzonej wersji bez zmian zamyka okno i nie zakłada szkicu", async () => {
+it("„Gotowe” na zatwierdzonej wersji bez zmian zamyka okno i nie zakłada szkicu", async () => {
   const dialog = await openEditor("finalized");
-  expect(within(dialog).getByRole("button", { name: /Pobierz zatwierdzony DOCX/ })).toBeInTheDocument();
-  fireEvent.click(within(dialog).getByRole("button", { name: "Zapisz" }));
+  expect(within(dialog).getByText("Zatwierdzona wersja 2")).toBeInTheDocument();
+  fireEvent.click(within(dialog).getByRole("button", { name: "Gotowe" }));
   await waitFor(() => expect(screen.queryByRole("dialog", { name: "Edytor CV do klienta" })).toBeNull());
 
   fireEvent.click(screen.getByRole("button", { name: "Otwórz edytor" }));
   const reopened = await screen.findByRole("dialog", { name: "Edytor CV do klienta" });
-  // Nowy szkic zmieniłby przycisk na „Pobierz szkic DOCX”.
-  expect(await within(reopened).findByRole("button", { name: /Pobierz zatwierdzony DOCX/ })).toBeInTheDocument();
+  // Nowy szkic zmieniłby stan na „Szkic v…”.
+  expect(await within(reopened).findByText("Zatwierdzona wersja 2")).toBeInTheDocument();
+  expect(within(reopened).queryByText(/^Szkic v/)).toBeNull();
   noNetwork();
 });
 
 it("wynik generatora bez rekrutacji mówi panelowi źródeł, że nie ma czego pokazać", async () => {
   const dialog = await openEditor("nosources");
-  fireEvent.click(within(dialog).getByRole("button", { name: "Źródła" }));
+  fireEvent.click(within(dialog).getByRole("button", { name: "Oryginał" }));
   expect(await within(dialog).findByTestId("sources")).toHaveTextContent("bez rekrutacji");
   noNetwork();
 });
@@ -231,7 +254,7 @@ it("polecenie dla całego CV: plan z pamięci, kartka czeka na decyzję, „Zast
   const dialog = await openEditor();
   const editor = liveEditor(dialog);
   const before = editor.getHTML();
-  fireEvent.click(within(dialog).getByRole("button", { name: "Polecenie" }));
+  await chooseMore(dialog, "Polecenie dla całego CV");
   const bar = within(dialog).getByRole("form", { name: "Polecenie dla całego CV" });
   fireEvent.click(within(bar).getByRole("button", { name: "Skróć do 2 stron" }));
 
@@ -263,9 +286,23 @@ it("polecenie dla całego CV: plan z pamięci, kartka czeka na decyzję, „Zast
   noNetwork();
 });
 
+it("„Polecenie dla całego CV” z „Więcej” zostawia fokus w polu polecenia, nie w kartce", async () => {
+  const dialog = await openEditor();
+  const editor = liveEditor(dialog);
+  const before = editor.getHTML();
+  await chooseMore(dialog, "Polecenie dla całego CV");
+  const bar = within(dialog).getByRole("form", { name: "Polecenie dla całego CV" });
+  // Menu oddaje fokus po zamknięciu — sprawdzamy także chwilę później.
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  expect(bar.contains(document.activeElement)).toBe(true);
+  // Pisanie trafia w polecenie, a nie w treść CV.
+  expect(editor.getHTML()).toBe(before);
+  noNetwork();
+});
+
 it("polecenie: Escape w trakcie liczenia planu nie zamyka edytora", async () => {
   const dialog = await openEditor();
-  fireEvent.click(within(dialog).getByRole("button", { name: "Polecenie" }));
+  await chooseMore(dialog, "Polecenie dla całego CV");
   fireEvent.click(within(dialog).getByRole("button", { name: "Skróć do 2 stron" }));
   expect(await within(dialog).findByText("Asystent przygotowuje plan zmian…")).toBeInTheDocument();
   // Pole polecenia jest wtedy wyłączone, więc klawisz trafia w `body`, nie w pasek.
@@ -279,7 +316,7 @@ it("polecenie: operacja, po której znika wymaganie, nie jest zaznaczona; „Odr
   const dialog = await openEditor();
   const editor = liveEditor(dialog);
   const before = editor.getHTML();
-  fireEvent.click(within(dialog).getByRole("button", { name: "Polecenie" }));
+  await chooseMore(dialog, "Polecenie dla całego CV");
   fireEvent.click(within(dialog).getByRole("button", { name: "Usuń najstarsze role" }));
   const plan = await within(dialog).findByRole("region", { name: "Plan zmian" });
   expect(await within(plan).findByRole("button", { name: "Zastosuj zaznaczone (0)" })).toBeDisabled();
@@ -294,7 +331,7 @@ it("polecenie: operacja, po której znika wymaganie, nie jest zaznaczona; „Odr
 
 it("polecenie przy niedostępnym asystencie: zdanie w panelu, kartka od razu do edycji", async () => {
   const dialog = await openEditor("aidown");
-  fireEvent.click(within(dialog).getByRole("button", { name: "Polecenie" }));
+  await chooseMore(dialog, "Polecenie dla całego CV");
   fireEvent.click(within(dialog).getByRole("button", { name: "Skróć do 2 stron" }));
   const plan = await within(dialog).findByRole("region", { name: "Plan zmian" });
   expect(await within(plan).findByText(/Asystent jest chwilowo niedostępny/)).toBeInTheDocument();
@@ -308,8 +345,9 @@ it("wynik generatora bez rekrutacji nie ma AI na zaznaczeniu", async () => {
   selectText(liveEditor(dialog), "Optymalizacja zapytań");
   expect(within(dialog).queryByRole("toolbar", { name: "Zaznaczony tekst" })).toBeNull();
   // Polecenie dla całego CV też wymaga rekrutacji (wymagania, uprawnienia etapu).
-  expect(within(dialog).queryByRole("button", { name: "Polecenie" })).toBeNull();
-  expect(within(dialog).queryByRole("button", { name: "AI na zaznaczonym tekście" })).toBeNull();
+  const items = await moreItems(dialog);
+  expect(items.has("Polecenie dla całego CV")).toBe(false);
+  expect(items.has("AI na zaznaczonym tekście")).toBe(false);
   noNetwork();
 });
 
@@ -320,10 +358,10 @@ it("zatwierdzona wersja: „Przyjmij” zakłada szkic i nakłada propozycję", 
   fireEvent.click(within(await within(dialog).findByRole("toolbar", { name: "Zaznaczony tekst" })).getByRole("button", { name: "Przeredaguj" }));
   const card = await within(dialog).findByRole("dialog", { name: "Propozycja AI" });
   // Samo zamówienie propozycji nie rusza zatwierdzonej wersji.
-  expect(within(dialog).getByRole("button", { name: /Pobierz zatwierdzony DOCX/ })).toBeInTheDocument();
+  expect(within(dialog).getByText("Zatwierdzona wersja 2")).toBeInTheDocument();
   fireEvent.click(await within(card).findByRole("button", { name: "Przyjmij" }));
   await waitFor(() => expect(editor.getHTML()).toContain("<li><p>Optymalizowała zapytań w PostgreSQL.</p></li>"));
-  expect(await within(dialog).findByRole("button", { name: "Pobierz szkic DOCX" })).toBeInTheDocument();
+  expect(await within(dialog).findByText(/^Szkic v/)).toBeInTheDocument();
   expect(within(dialog).queryByText(/Zaznaczony tekst zmienił się/)).toBeNull();
   noNetwork();
 });
@@ -343,7 +381,7 @@ it("Escape w karcie propozycji odrzuca propozycję, a edytor zostaje otwarty", a
 // ── Historia wersji i powrót pliku Word (PR 5) ───────────────────────────────
 
 async function openHistory(dialog: HTMLElement): Promise<HTMLElement> {
-  fireEvent.click(within(dialog).getByRole("button", { name: "Historia" }));
+  await chooseMore(dialog, "Historia wersji");
   const panel = await within(dialog).findByRole("region", { name: "Historia wersji" });
   await within(panel).findByTestId("history-version-1");
   return panel;
@@ -407,10 +445,10 @@ it("historia na zatwierdzonej wersji: bieżąca ma tę samą treść, a szkic po
   fireEvent.click(within(within(panel).getByTestId("history-version-1")).getByRole("button", { name: "Porównaj" }));
   const restore = await within(panel).findByRole("button", { name: "Przywróć treść wersji 1" });
   // Otwarcie panelu i porównanie nie ruszyły zatwierdzonej wersji.
-  expect(within(dialog).getByRole("button", { name: /Pobierz zatwierdzony DOCX/ })).toBeInTheDocument();
+  expect(within(dialog).getByText("Zatwierdzona wersja 2")).toBeInTheDocument();
   fireEvent.click(restore);
   await waitFor(() => expect(editor.getHTML()).toContain("Strojenie zapytań i indeksów w PostgreSQL."));
-  expect(await within(dialog).findByRole("button", { name: "Pobierz szkic DOCX" })).toBeInTheDocument();
+  expect(await within(dialog).findByText(/^Szkic v/)).toBeInTheDocument();
   noNetwork();
 });
 
@@ -453,21 +491,19 @@ it("plik Word: uszkodzony to komunikat, poprawny — różnice i wstawienie z kl
 
 it("historia i polecenie wykluczają się; w trakcie planu zmian „Historia” jest wyłączona", async () => {
   const dialog = await openEditor();
-  fireEvent.click(within(dialog).getByRole("button", { name: "Polecenie" }));
+  await chooseMore(dialog, "Polecenie dla całego CV");
   expect(within(dialog).getByRole("form", { name: "Polecenie dla całego CV" })).toBeInTheDocument();
   await openHistory(dialog);
   expect(within(dialog).queryByRole("form", { name: "Polecenie dla całego CV" })).toBeNull();
 
-  fireEvent.click(within(dialog).getByRole("button", { name: "Polecenie" }));
+  await chooseMore(dialog, "Polecenie dla całego CV");
   expect(within(dialog).queryByRole("region", { name: "Historia wersji" })).toBeNull();
   fireEvent.click(within(dialog).getByRole("button", { name: "Skróć do 2 stron" }));
-  const history = within(dialog).getByRole("button", { name: "Historia" });
-  expect(history).toBeDisabled();
   const plan = await within(dialog).findByRole("region", { name: "Plan zmian" });
   await within(plan).findByRole("button", { name: /Zastosuj zaznaczone/ });
-  expect(history).toBeDisabled();
+  expect((await moreItems(dialog)).get("Historia wersji")).toBe(false);
   fireEvent.click(within(plan).getByRole("button", { name: "Odrzuć plan" }));
-  expect(history).toBeEnabled();
+  expect((await moreItems(dialog)).get("Historia wersji")).toBe(true);
   noNetwork();
 });
 
@@ -482,11 +518,11 @@ it("Escape w panelu historii nie zamyka edytora", async () => {
 
 it("wynik generatora bez rekrutacji nie ma historii wersji", async () => {
   const dialog = await openEditor("nosources");
-  expect(within(dialog).queryByRole("button", { name: "Historia" })).toBeNull();
+  expect((await moreItems(dialog)).has("Historia wersji")).toBe(false);
   noNetwork();
 });
 
-it("`?state=handoff`: stopka z uwagą dla DL, „Zapisz i przekaż do DL” zamyka edytor bez sieci", async () => {
+it("`?state=handoff`: stopka z uwagą dla DL, „Gotowe, przekaż do DL” zamyka edytor bez sieci", async () => {
   const dialog = await openEditor("handoff");
   const bar = within(dialog).getByRole("group", { name: "Przekazanie Delivery Leadowi" });
   await waitFor(() =>
@@ -495,7 +531,7 @@ it("`?state=handoff`: stopka z uwagą dla DL, „Zapisz i przekaż do DL” zamy
   fireEvent.change(within(bar).getByRole("textbox", { name: "Uwaga dla Delivery Leada (opcjonalnie)" }), {
     target: { value: "Dostępna od listopada." },
   });
-  fireEvent.click(within(bar).getByRole("button", { name: /Zapisz i przekaż do DL/ }));
+  fireEvent.click(within(bar).getByRole("button", { name: /Gotowe, przekaż do DL/ }));
   await waitFor(() => expect(screen.queryByRole("dialog", { name: "Edytor CV do klienta" })).toBeNull(), {
     timeout: 4000,
   });
@@ -509,7 +545,7 @@ it("`?state=handoff-blocking`: blokady QC → „Przekaż mimo uwag…” otwier
   const dialog = await openEditor("handoff-blocking");
   const bar = within(dialog).getByRole("group", { name: "Przekazanie Delivery Leadowi" });
   await waitFor(() => expect(within(bar).getByRole("status")).toHaveTextContent(/2 blokują wysyłkę/));
-  expect(within(bar).queryByRole("button", { name: /Zapisz i przekaż do DL/ })).not.toBeInTheDocument();
+  expect(within(bar).queryByRole("button", { name: /Gotowe, przekaż do DL/ })).not.toBeInTheDocument();
   fireEvent.click(within(bar).getByRole("button", { name: "Przekaż mimo uwag…" }));
   const form = await screen.findByRole("dialog", { name: "Przesuń mimo uwag QC" });
   expect(form).toHaveTextContent("CV pójdzie dalej z 2 niepoprawionymi rzeczami");

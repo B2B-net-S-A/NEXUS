@@ -5,6 +5,10 @@
  * zasiew wystarcza panelowi „Z czego powstało” i liczbie rzeczy do sprawdzenia,
  * a jedyne zapytanie, które próbuje wyjść, to celowo niezasiane QC w stanie
  * „QC nie odpowiada” — i to zatrzymuje interceptor.
+ *
+ * Edytor CV 3, „Ekran 5” (14.10.2026): panel „Z czego powstało” jest zwinięty
+ * do jednego zdania, a miniatura gotowego CV bierze przykładowy PDF harnessu
+ * (plik z `public/`), nie API.
  */
 
 import { act, configure, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
@@ -37,14 +41,25 @@ it("pokazuje panel „Z czego powstało” i jedną liczbę rzeczy do sprawdzeni
 
   const fresh = await screen.findByRole("region", { name: "Brak CV — „Generuj CV” w karcie" });
   const panel = await within(fresh).findByTestId("cv-generate-panel");
+  // Zwinięty panel: jedno zdanie, „Generuj” bez rozwijania.
+  expect(await within(panel).findByTestId("cv-generate-summary")).toHaveTextContent(
+    "Z oryginału CV, Championa, screeningu i notatek · Pod rekrutację · polski · Zmień",
+  );
+  await waitFor(() => expect(within(panel).getByRole("button", { name: /^Generuj$/ })).toBeEnabled());
+  fireEvent.click(within(panel).getByRole("button", { name: "Zmień" }));
   expect(within(panel).getByTestId("ai-source-original")).toHaveTextContent("Anna_Przykładowa_CV.pdf");
   expect(await within(panel).findByRole("switch", { name: "Transkrypty rozmów" })).not.toBeChecked();
-  await waitFor(() => expect(within(panel).getByRole("button", { name: /^Generuj$/ })).toBeEnabled());
 
-  // „Wygeneruj ponownie”: przełączniki z wyboru bieżącej wersji.
+  // „Wygeneruj ponownie”: zdanie z wyboru bieżącej wersji (z transkryptami).
   const again = screen.getByRole("region", { name: "„Wygeneruj ponownie” — wybór z ostatniej wersji" });
-  expect(await within(again).findByRole("switch", { name: "Transkrypty rozmów" })).toBeChecked();
+  expect(await within(again).findByTestId("cv-generate-summary")).toHaveTextContent(
+    "Z oryginału CV, Championa, screeningu, notatek i transkryptów · Pod rekrutację · polski",
+  );
   expect(again).toHaveTextContent("Nowa wersja zastąpi bieżący szkic");
+  // Gotowe CV obok: miniatura pierwszej strony i menu „⋯” zamiast rzędu przycisków.
+  expect(within(again).getByRole("button", { name: "Otwórz strony CV — Jan Kowalski" })).toBeInTheDocument();
+  expect(within(again).getByRole("button", { name: "Więcej akcji CV" })).toBeInTheDocument();
+  expect(within(again).getByRole("button", { name: /Pobierz Word/ })).toBeInTheDocument();
 
   // 1 blokada + 1 uwaga QC + 1 uwaga generatora + 1 kontrola AI (dubel o Kafce i wyciszona — nie).
   const counter = screen.getByRole("region", { name: "Jedna liczba rzeczy do sprawdzenia" });

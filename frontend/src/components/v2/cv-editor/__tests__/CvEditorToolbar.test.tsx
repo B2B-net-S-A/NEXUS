@@ -1,11 +1,11 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { Editor } from "@tiptap/core";
-import { afterEach, expect, it } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
 
 import { cvOutline } from "@/lib/cv-editor-blocks";
 import { cvEditorExtensions } from "@/lib/cv-editor-structure";
 
-import { CvEditorToolbar } from "../CvEditorToolbar";
+import { CvEditorToolbar, type CvEditorToolbarProps } from "../CvEditorToolbar";
 
 const CV =
   "<h1>Dev – Anna Przykładowa</h1>" +
@@ -18,10 +18,14 @@ const CV =
 
 const editors: Editor[] = [];
 
-function mount(defaultAlign?: "justify" | "left", content = CV): Editor {
+function mount(
+  defaultAlign?: "justify" | "left",
+  content = CV,
+  extra: Partial<CvEditorToolbarProps> = {},
+): Editor {
   const editor = new Editor({ extensions: cvEditorExtensions(), content });
   editors.push(editor);
-  render(<CvEditorToolbar editor={editor} language="pl" defaultAlign={defaultAlign} />);
+  render(<CvEditorToolbar editor={editor} language="pl" defaultAlign={defaultAlign} {...extra} />);
   return editor;
 }
 
@@ -39,24 +43,59 @@ function caretIn(editor: Editor, text: string): void {
 const button = (name: string) => screen.getByRole("button", { name });
 const roles = (editor: Editor) => cvOutline(editor.state.doc).roles.map((role) => role.title);
 
+/** „Więcej” (Edytor CV 3, PR 3): reszta poleceń paska. Otwarte menu zasłania stronę. */
+async function openMore(): Promise<HTMLElement> {
+  fireEvent.keyDown(button("Więcej"), { key: "ArrowDown" });
+  return screen.findByRole("menu");
+}
+async function openSub(name: string | RegExp): Promise<HTMLElement> {
+  await openMore();
+  const trigger = await screen.findByRole("menuitem", { name });
+  fireEvent.keyDown(trigger, { key: "ArrowRight" });
+  return trigger;
+}
+async function closeMenus(): Promise<void> {
+  fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape" });
+  await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
+}
+const menuItem = (name: string | RegExp) => screen.findByRole("menuitem", { name });
+const isOff = (element: HTMLElement) => element.getAttribute("aria-disabled") === "true";
+
 afterEach(() => {
   while (editors.length) editors.pop()?.destroy();
 });
 
-it("poza stanowiskiem nie pokazuje jego przycisków, a po wczytaniu nie ma czego cofać", () => {
+it("poza stanowiskiem „Więcej” nie ma poleceń stanowiska, a po wczytaniu nie ma czego cofać", async () => {
   mount();
   expect(button("Cofnij")).toBeDisabled();
-  expect(screen.queryByRole("button", { name: "Usuń stanowisko" })).toBeNull();
+  await openMore();
+  expect(screen.queryByRole("menuitem", { name: /^Stanowisko:/ })).toBeNull();
+  await closeMenus();
 });
 
-it("przenosi stanowisko pod kursorem i wyłącza kierunek, w którym nie ma sąsiada", () => {
+it("pasek ma tylko częste polecenia; reszta jest w „Więcej”", async () => {
+  mount();
+  for (const name of ["Dodaj", "Typ akapitu: Zwykły tekst", "Usuń stanowisko"]) {
+    expect(screen.queryByRole("button", { name })).toBeNull();
+  }
+  await openMore();
+  for (const name of ["Dodaj", /^Typ akapitu:/, "Wyjustuj całe CV", "Całe CV do lewej"]) {
+    expect(await menuItem(name)).toBeInTheDocument();
+  }
+  await closeMenus();
+});
+
+it("przenosi stanowisko pod kursorem i wyłącza kierunek, w którym nie ma sąsiada", async () => {
   const editor = mount();
   caretIn(editor, "Bank Przykładowy");
-  expect(screen.getByText("Senior Developer 2021 – 2024")).toBeInTheDocument();
-  expect(button("Przenieś stanowisko wyżej")).toBeDisabled();
-  fireEvent.click(button("Przenieś stanowisko niżej"));
+  expect((await openSub(/^Stanowisko:/)).textContent).toContain("Senior Developer 2021 – 2024");
+  expect(isOff(await menuItem("Przenieś stanowisko wyżej"))).toBe(true);
+  fireEvent.click(await menuItem("Przenieś stanowisko niżej"));
   expect(roles(editor)).toEqual(["Developer 2018 – 2021", "Senior Developer 2021 – 2024"]);
-  expect(button("Przenieś stanowisko niżej")).toBeDisabled();
+  await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
+  await openSub(/^Stanowisko:/);
+  expect(isOff(await menuItem("Przenieś stanowisko niżej"))).toBe(true);
+  await closeMenus();
   expect(button("Cofnij")).toBeEnabled();
   fireEvent.click(button("Cofnij"));
   expect(roles(editor)).toEqual(["Senior Developer 2021 – 2024", "Developer 2018 – 2021"]);
@@ -65,41 +104,50 @@ it("przenosi stanowisko pod kursorem i wyłącza kierunek, w którym nie ma sąs
 it("powiela stanowisko, a usuwa dopiero po potwierdzeniu", async () => {
   const editor = mount();
   caretIn(editor, "Software House");
-  fireEvent.click(button("Powiel stanowisko"));
+  await openSub(/^Stanowisko:/);
+  fireEvent.click(await menuItem("Powiel stanowisko"));
   expect(roles(editor)).toHaveLength(3);
+  await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
 
-  fireEvent.click(button("Usuń stanowisko"));
+  await openSub(/^Stanowisko:/);
+  fireEvent.click(await menuItem("Usuń stanowisko"));
   const dialog = await screen.findByRole("dialog");
   expect(within(dialog).getByText("Usunąć stanowisko?")).toBeInTheDocument();
   expect(roles(editor)).toHaveLength(3);
   fireEvent.click(within(dialog).getByRole("button", { name: "Usuń stanowisko" }));
-  await screen.findByRole("button", { name: "Powiel stanowisko" });
-  expect(roles(editor)).toHaveLength(2);
+  await waitFor(() => expect(roles(editor)).toHaveLength(2));
   expect(editor.getHTML()).toContain("Wyrażam zgodę");
 });
 
-it("typ akapitu jest wyłączony w liście i na klauzuli zgody, a lista — na oznaczonym akapicie", () => {
+it("typ akapitu jest wyłączony w liście i na klauzuli zgody, a lista — na oznaczonym akapicie", async () => {
   const editor = mount();
   caretIn(editor, "Usługi płatnicze.");
-  expect(button("Typ akapitu: —")).toBeDisabled();
   expect(button("Lista punktowana")).toBeEnabled();
+  await openMore();
+  expect(isOff(await menuItem("Typ akapitu: —"))).toBe(true);
+  await closeMenus();
   caretIn(editor, "Bank Przykładowy");
-  expect(button("Typ akapitu: Firma")).toBeEnabled();
   expect(button("Lista punktowana")).toBeDisabled();
+  await openMore();
+  expect(isOff(await menuItem("Typ akapitu: Firma"))).toBe(false);
+  await closeMenus();
   caretIn(editor, "Wyrażam zgodę");
-  expect(button("Typ akapitu: Zwykły tekst")).toBeDisabled();
+  await openMore();
+  expect(isOff(await menuItem("Typ akapitu: Zwykły tekst"))).toBe(true);
+  await closeMenus();
 });
 
 it("„Typ akapitu” oznacza akapit, a „Dodaj” wstawia stanowisko z polami do wypełnienia", async () => {
   const editor = mount();
   caretIn(editor, "Software House");
-  fireEvent.keyDown(button("Typ akapitu: Firma"), { key: "ArrowDown" });
+  await openSub("Typ akapitu: Firma");
   fireEvent.click(await screen.findByRole("menuitemradio", { name: "Zwykły tekst" }));
   expect(editor.getHTML()).toContain("<p>Software House Przykład</p>");
+  await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
 
-  fireEvent.keyDown(button("Dodaj"), { key: "ArrowDown" });
-  expect(await screen.findByRole("menuitem", { name: "Punkt" })).toBeInTheDocument();
-  fireEvent.click(screen.getByRole("menuitem", { name: "Stanowisko" }));
+  await openSub("Dodaj");
+  expect(await menuItem("Punkt")).toBeInTheDocument();
+  fireEvent.click(await menuItem("Stanowisko"));
   expect(roles(editor)).toEqual([
     "Senior Developer 2021 – 2024",
     "Developer 2018 – 2021",
@@ -122,8 +170,8 @@ it("pogrubienie i lista działają na zaznaczeniu, wyłączony pasek nie robi ni
 
 it("menu domykane po zamknięciu edytora nie sięga do nieistniejącego widoku", async () => {
   const editor = mount();
-  fireEvent.keyDown(button("Dodaj"), { key: "ArrowDown" });
-  const item = await screen.findByRole("menuitem", { name: "Język" });
+  await openSub("Dodaj");
+  const item = await menuItem("Język");
   act(() => editor.destroy());
   // Radix oddaje fokus po zamknięciu menu; nieobsłużony wyjątek wywraca bieg vitest.
   fireEvent.keyDown(item, { key: "Escape" });
@@ -188,7 +236,73 @@ it("wyrównanie z zapisanego CV przeżywa wczytanie i zmianę typu akapitu", asy
   const editor = mount(undefined, content);
   caretIn(editor, "Bank Przykładowy");
   expect(button("Do lewej")).toHaveAttribute("aria-pressed", "true");
-  fireEvent.keyDown(button("Typ akapitu: Firma"), { key: "ArrowDown" });
+  await openSub("Typ akapitu: Firma");
   fireEvent.click(await screen.findByRole("menuitemradio", { name: "Zwykły tekst" }));
   expect(editor.getHTML()).toContain('<p style="text-align: left;">Bank Przykładowy</p>');
+});
+
+// ── Edytor CV 3, PR 3: „Wyjustuj całe CV”, „Pogrub wymagania (N)”, pozycje okna ──
+
+it("„Wyjustuj całe CV” wyrównuje każdy akapit poza klauzulą zgody i nie rusza kursora", async () => {
+  const editor = mount("left");
+  caretIn(editor, "Bank Przykładowy");
+  const caret = editor.state.selection.from;
+  await openMore();
+  fireEvent.click(await menuItem("Wyjustuj całe CV"));
+  const page = new DOMParser().parseFromString(editor.getHTML(), "text/html");
+  const align = (selector: string) =>
+    [...page.querySelectorAll<HTMLElement>(selector)].map((node) => node.style.textAlign);
+  expect(align('p[data-cv-section="role"], p[data-cv-section="employer"], li > p')).toEqual(
+    Array(5).fill("justify"),
+  );
+  expect(align('p[data-cv-section="rodo"]')).toEqual([""]);
+  expect(editor.state.selection.from).toBe(caret);
+  // Jeden krok cofania.
+  fireEvent.click(button("Cofnij"));
+  expect(editor.getHTML()).not.toContain("text-align");
+});
+
+it("„Pogrub wymagania (N)” pokazuje liczbę z QC i woła poprawkę panelu", () => {
+  const onRun = vi.fn();
+  mount(undefined, CV, { boldRequirements: { count: 3, disabled: false, onRun } });
+  fireEvent.click(button("Pogrub wymagania (3)"));
+  expect(onRun).toHaveBeenCalledTimes(1);
+});
+
+it("„Pogrub wymagania” bez liczby, gdy QC jeszcze liczy; przy zerze wyłączony z wyjaśnieniem", () => {
+  mount(undefined, CV, { boldRequirements: { count: null, disabled: false, onRun: vi.fn() } });
+  expect(button("Pogrub wymagania")).toBeDisabled();
+});
+
+it("przy zerze „Pogrub wymagania (0)” jest wyłączony i mówi dlaczego", () => {
+  mount(undefined, CV, { boldRequirements: { count: 0, disabled: false, onRun: vi.fn() } });
+  expect(button("Pogrub wymagania (0)")).toBeDisabled();
+  expect(button("Pogrub wymagania (0)")).toHaveAttribute("title", "Wymagania klienta są już pogrubione.");
+});
+
+it("edytor bez QC nie ma „Pogrub wymagania”", () => {
+  mount();
+  expect(screen.queryByRole("button", { name: /Pogrub wymagania/ })).toBeNull();
+});
+
+it("pozycje okna w „Więcej” działają także przy wyłączonym pasku (widok „Jak u klienta”)", async () => {
+  const onPdf = vi.fn();
+  const editor = new Editor({ extensions: cvEditorExtensions(), content: CV });
+  editors.push(editor);
+  render(
+    <CvEditorToolbar
+      editor={editor}
+      language="pl"
+      disabled
+      moreGroups={[[{ label: "Pobierz PDF", onSelect: onPdf }, { label: "Drukuj", onSelect: vi.fn(), disabled: true }]]}
+    />,
+  );
+  expect(button("Pogrubienie")).toBeDisabled();
+  await openMore();
+  expect(isOff(await menuItem("Dodaj"))).toBe(true);
+  expect(isOff(await menuItem("Wyjustuj całe CV"))).toBe(true);
+  expect(isOff(await menuItem("Drukuj"))).toBe(true);
+  fireEvent.click(await menuItem("Pobierz PDF"));
+  // Pozycja okna rusza po zamknięciu menu — inaczej menu zabrałoby fokus otwieranemu polu.
+  await waitFor(() => expect(onPdf).toHaveBeenCalledTimes(1));
 });

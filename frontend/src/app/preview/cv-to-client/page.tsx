@@ -18,6 +18,10 @@
 //
 // Karta po przekazaniu pyta serwer co 4 s. Te odczyty (lista generacji, CV
 // etapu, „Praca w tle”) odpowiada pamięć harnessu — dane z cache, bez sieci.
+//
+// Edytor CV 3, „Ekran 5” (14.10.2026): gotowe CV ma miniaturę pierwszej strony
+// (przykładowy PDF z `public/`, nie z API) i menu „⋯”, a panel „Z czego
+// powstało” jest zwinięty do jednego zdania z „Zmień”.
 
 import { useEffect, useState } from "react";
 import { AxiosError, type InternalAxiosRequestConfig } from "axios";
@@ -44,16 +48,17 @@ import { useAuthStore } from "@/store/auth";
 
 const JOB_ID = 88;
 
-// „Podgląd” karty pokazuje strony PDF z pliku Word (zapas: sam plik Word).
+// Miniatura, okno stron i „Pobierz PDF” karty pokazują strony PDF z pliku Word
+// (zapas okna stron: sam plik Word).
 // W harnessie nie ma serwera, który złożyłby je z treści, a POST-y są
 // blokowane — przykładowe pliki w szablonie firmowym z fikcyjnym CV (Word
 // z kodu `cv_approved_docx`, PDF z niego przez LibreOffice z Montserrat).
 const PREVIEW_FILE = "/preview/cv-to-client/cv-firmowe-przyklad.docx";
 const PREVIEW_PAGES = "/preview/cv-to-client/cv-firmowe-przyklad.pdf";
-async function loadStatic(path: string): Promise<{ blob: Blob }> {
+async function loadStatic(path: string): Promise<{ blob: Blob; filename: string }> {
   const response = await fetch(path);
   if (!response.ok) throw new Error(`HTTP ${response.status}`);
-  return { blob: await response.blob() };
+  return { blob: await response.blob(), filename: path.slice(path.lastIndexOf("/") + 1) };
 }
 const loadPreviewFile = () => loadStatic(PREVIEW_FILE);
 const loadPreviewPages = () => loadStatic(PREVIEW_PAGES);
@@ -321,9 +326,10 @@ function Harness() {
       <header className="space-y-1">
         <h1 className="text-2xl font-bold text-foreground">CV do klienta — w procesie</h1>
         <p className="text-sm text-muted-foreground">
-          Karta z panelu osoby: „Generuj CV” rozwija „Z czego powstało” w karcie (bez okna generatora), a gotowe CV
-          ma jedną liczbę rzeczy do sprawdzenia przed wysłaniem. Po „Zapisz i przekaż dalej” karta pokazuje postęp
-          CV → QC i „Następna w Screeningu”.
+          Karta z panelu osoby: „Generuj CV” rozwija w karcie zdanie „Z czego powstało” z „Zmień” (bez okna
+          generatora), a gotowe CV to miniatura pierwszej strony z liczbą stron, jedna liczba rzeczy do sprawdzenia,
+          „Otwórz i popraw”, „Pobierz Word” i menu „⋯”. Po „Zapisz i przekaż dalej” karta pokazuje postęp CV → QC
+          i „Następna w Screeningu”.
         </p>
         {opened ? (
           <p role="status" data-testid="harness-opened" className="text-sm text-muted-foreground">

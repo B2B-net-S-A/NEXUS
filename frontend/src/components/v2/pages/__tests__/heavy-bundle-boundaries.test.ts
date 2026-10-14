@@ -247,6 +247,29 @@ it("karta „CV do klienta” i okno generatora trzymają generator i edytor za 
   );
 });
 
+it("miniatura strony CV w karcie „CV do klienta” ładuje pdf.js dopiero przez pdfjs-loader", () => {
+  // Edytor CV 3, „Ekran 5” (14.10.2026): karta importuje miniaturę statycznie,
+  // a karta leży na ścieżce /jobs/[id] (panel osoby). Statyczny import pdf.js
+  // w którymkolwiek z tych plików wciągnąłby ~1 MB do chunku Tablicy.
+  const files = [
+    "components/v2/recruitment/CvToClientCard.tsx",
+    "components/v2/cv/CvFirstPageThumb.tsx",
+    "lib/pdfjs-loader.ts",
+  ];
+  const offenders = files.flatMap((file) =>
+    staticSpecifiers(fs.readFileSync(path.join(SRC, file), "utf8"))
+      .filter((spec) => /^pdfjs-dist/.test(spec))
+      .map((spec) => `${file} → ${spec}`),
+  );
+  expect(offenders).toEqual([]);
+  // …miniatura bierze pdf.js z loadera, a loader — wyrażeniem `import()`.
+  const thumb = fs.readFileSync(path.join(SRC, "components/v2/cv/CvFirstPageThumb.tsx"), "utf8");
+  expect(staticSpecifiers(thumb)).toContain("@/lib/pdfjs-loader");
+  expect(thumb).toContain("loadPdfJs()");
+  const loader = fs.readFileSync(path.join(SRC, "lib/pdfjs-loader.ts"), "utf8");
+  expect(loader).toMatch(/await import\(\s*["']pdfjs-dist["']\s*\)/);
+});
+
 it("wydzielone moduły edytora/wykresu faktycznie niosą ciężką bibliotekę", () => {
   // Gdyby import ciężkiej biblioteki wyparował z modułu docelowego, testy
   // wyżej dalej byłyby zielone, a granica `dynamic()` przestałaby cokolwiek

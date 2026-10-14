@@ -57,6 +57,18 @@ i Tablica pokazują liczbę rzeczy do sprawdzenia bez otwierania okna QC.
   uwagi generatora bez duplikatów QC + uwagi kontroli AI. „Sprawdź i popraw”
   otwiera edytor na „Do poprawy”. Awaria któregokolwiek odczytu = komunikat
   z „Ponów”, nigdy zero; „Nic do sprawdzenia” tylko po obu udanych odczytach.
+- **Prosta karta (Edytor CV 3, PR 3, 14.10.2026).** Gotowe CV to miniatura
+  prawdziwej pierwszej strony (`cv/CvFirstPageThumb.tsx`, PDF z pliku Word,
+  ładowany dopiero na ekranie, pdf.js leniwie, awaria = ikona pliku) z liczbą
+  stron, „Otwórz i popraw”, „Pobierz Word” i menu „⋯”: „Pobierz PDF”, „Użyj
+  innego CV”, „Historia wersji” (edytor otwarty na historii), „Wygeneruj
+  ponownie”. Klik w miniaturę = okno ze wszystkimi stronami (to samo żądanie
+  PDF co miniatura — jedna zamiana na wersję CV). Bez zgody RODO miniatura
+  nie pyta serwera. Liczba rzeczy do sprawdzenia stoi na pełnej szerokości
+  karty — obok miniatury łamała się w słupek. Panel „Z czego powstało” jest
+  zwinięty do zdania („Z oryginału CV, Championa… · tryb · język · Zmień”,
+  `aiSourcesSentence`) i rozwija się sam, gdy czegoś brakuje albo serwer
+  odmówił; zgoda RODO, braki, błąd i „Generuj” widać zawsze.
 - **Okno generatora** ma te same przełączniki w kroku „Proces” („Co jeszcze
   przeczyta AI”).
 - **Edytor:** jedna lista „Do poprawy” — patrz `edytor-cv-pelny-ekran.md`.

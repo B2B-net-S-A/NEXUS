@@ -58,18 +58,27 @@ export function cvAlignAt(state: EditorState, fallback: CvAlign): CvAlign | null
  * w Wordzie. Pomija klauzulę zgody. `null`, gdy nic się nie zmienia.
  */
 export function setCvAlign(align: CvAlign): CvCommand {
-  return (state) => {
-    const { from, to } = state.selection;
-    const tr = state.tr;
-    let changed = false;
-    state.doc.nodesBetween(from, to, (node, pos) => {
-      if (node.type.name !== "paragraph") return true;
-      if (!isRodoNode(node) && node.attrs.textAlign !== align) {
-        tr.setNodeAttribute(pos, "textAlign", align);
-        changed = true;
-      }
-      return false;
-    });
-    return changed ? tr : null;
-  };
+  return (state) => alignBetween(state, state.selection.from, state.selection.to, align);
+}
+
+/**
+ * „Wyjustuj całe CV” / „Całe CV do lewej” z menu „Więcej” (Edytor CV 3, PR 3):
+ * wszystkie akapity poza klauzulą zgody, bez ruszania zaznaczenia.
+ */
+export function setCvAlignEverywhere(align: CvAlign): CvCommand {
+  return (state) => alignBetween(state, 0, state.doc.content.size, align);
+}
+
+function alignBetween(state: EditorState, from: number, to: number, align: CvAlign) {
+  const tr = state.tr;
+  let changed = false;
+  state.doc.nodesBetween(from, to, (node, pos) => {
+    if (node.type.name !== "paragraph") return true;
+    if (!isRodoNode(node) && node.attrs.textAlign !== align) {
+      tr.setNodeAttribute(pos, "textAlign", align);
+      changed = true;
+    }
+    return false;
+  });
+  return changed ? tr : null;
 }
