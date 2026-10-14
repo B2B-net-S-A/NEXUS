@@ -787,6 +787,65 @@ async def test_recruiter_changed_in_the_edit_window_moves_the_work_assignment(
         await _drop_jobs([job_id])
 
 
+@pytest.mark.asyncio
+async def test_recruiter_cleared_in_the_edit_window_works_like_release(
+    ownership_client: AsyncClient,
+):
+    """Puste pole „Rekruter” w oknie edycji = „Zdejmij” (zgłoszenie Head of
+    Recruitment 14.10.2026). Do tej daty PATCH z `recruiter_id: null` zwalniał
+    osobę z powodem `owner_changed`, którego automat nie pamięta — w trybie
+    `auto` mógł ją wpisać z powrotem przy najbliższym przebiegu."""
+    from app.models.job_collaborator import JobCollaborator
+    from app.models.job_work_assignment import JobWorkAssignment
+    from app.services.request_allocation import _blocked
+
+    _, admin_email, admin_pass = await _seed_user(UserRole.admin)
+    # Jak na produkcji: Delivery Lead z rekruterem jako rolą dodatkową,
+    # wpisany przez automat.
+    rec_id, _, _ = await _seed_user(
+        UserRole.delivery_lead, extra_roles=(UserRole.recruiter,)
+    )
+    job_id = await _seed_job(recruiter_id=rec_id, in_pool=True)
+    async with AsyncSessionLocal() as db:
+        db.add_all(
+            [
+                JobWorkAssignment(
+                    job_id=job_id,
+                    user_id=rec_id,
+                    role="recruiter",
+                    source="auto",
+                    state="active",
+                ),
+                JobCollaborator(job_id=job_id, user_id=rec_id, added_by=rec_id),
+            ]
+        )
+        await db.commit()
+    try:
+        headers = await _login(ownership_client, admin_email, admin_pass)
+        resp = await ownership_client.patch(
+            f"/api/jobs/{job_id}", headers=headers, json={"recruiter_id": None}
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["recruiter_id"] is None
+        detail = await ownership_client.get(f"/api/jobs/{job_id}", headers=headers)
+        assert detail.status_code == 200, detail.text
+        assert detail.json()["recruiters"] == []
+
+        # Ze wszystkich trzech miejsc, z tym samym śladem co `DELETE /owner`.
+        assert await _work_rows(job_id) == [
+            (rec_id, "released", "auto", "recruiter", "manual")
+        ]
+        actions = await _job_actions(job_id)
+        assert actions.count("owner_released") == 1
+        assert actions.count("collaborator_removed") == 1
+
+        # Automat nie dobierze tej osoby, dopóki request nie zmieni stanu.
+        async with AsyncSessionLocal() as db:
+            assert (job_id, rec_id) in await _blocked(db)
+    finally:
+        await _drop_jobs([job_id])
+
+
 # ── Bez bazy: kiedy zmiana rekrutera rusza przypisania ───────────────────────
 
 # Stała chwila, nie „dziś” — liczy się tylko to, że znacznik championa jest.
@@ -930,8 +989,10 @@ async def test_previous_owner_is_released_only_when_the_owner_changes(monkeypatc
 
 @pytest.mark.asyncio
 async def test_cleared_owner_only_releases_the_previous_person(monkeypatch):
-    """PATCH z pustym `recruiter_id`: nie ma nowej osoby, więc nie ma czego
-    odblokowywać ani przypisywać — zostaje zwolnienie poprzedniej."""
+    """Pole wyczyszczone przez porządki bez człowieka (otwarcie bez roli
+    rekrutera, przeniesienie z Traffita): nie ma nowej osoby, więc nie ma czego
+    odblokowywać ani przypisywać — zostaje zwolnienie poprzedniej. Puste pole
+    w oknie edycji idzie przez `remove_recruiter` (test wyżej)."""
     from unittest.mock import AsyncMock
 
     from app.api import jobs as jobs_api
