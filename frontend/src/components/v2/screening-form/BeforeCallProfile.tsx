@@ -125,7 +125,7 @@ export function BeforeCallProfile({ item, jobId, readOnly, onOpenHistory }: Befo
   const candidateId = item.candidate_id;
   const query = useQuery<BeforeCallQuickView>({
     // Pod kluczem podglądu osoby — jego unieważnienie odświeża też ten widok.
-    queryKey: [...candidateQueryKeys.quickView(candidateId), { excludeJobId: jobId }],
+    queryKey: candidateQueryKeys.quickViewExcluding(candidateId, jobId),
     queryFn: ({ signal }) =>
       api
         .get(`/api/candidates/${candidateId}/quick-view`, { params: { exclude_job_id: jobId }, signal })

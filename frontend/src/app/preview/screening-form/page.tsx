@@ -930,7 +930,7 @@ function seededClient(state: HarnessState): QueryClient {
   qc.setQueryData(candidateQueryKeys.quickView(CANDIDATE_ID), QUICK_VIEW, SEED_FRESH);
   // „Co już wiemy” pyta o INNE rekrutacje (14.10.2026) — klucz z bieżącą.
   qc.setQueryData(
-    [...candidateQueryKeys.quickView(CANDIDATE_ID), { excludeJobId: JOB_ID }],
+    candidateQueryKeys.quickViewExcluding(CANDIDATE_ID, JOB_ID),
     { ...QUICK_VIEW, current_recruitments_total: QUICK_VIEW.current_recruitments.length },
     SEED_FRESH,
   );

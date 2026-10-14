@@ -845,8 +845,9 @@ describe("/preview/screening-form (0424) zasiewa formularz tymi samymi kluczami 
     expect(host).toContain('queryKey: ["job-questions", jobId]');
     expect(harness).toContain('setQueryData(["job-questions", JOB_ID]');
     const beforeCall = withoutComments(read("components/v2/screening-form/BeforeCallProfile.tsx"));
-    expect(beforeCall).toContain("queryKey: candidateQueryKeys.quickView(candidateId)");
-    expect(harness).toContain("setQueryData(candidateQueryKeys.quickView(CANDIDATE_ID)");
+    // 14.10.2026: „W innych rekrutacjach” bez bieżącej — klucz pod `quickView`.
+    expect(beforeCall).toContain("queryKey: candidateQueryKeys.quickViewExcluding(candidateId, jobId)");
+    expect(harness).toMatch(/setQueryData\(\s*candidateQueryKeys\.quickViewExcluding\(CANDIDATE_ID, JOB_ID\)/);
     // 12.10.2026: „co już wiemy” — warunki z profilu i ostatnio podana stawka.
     expect(beforeCall).toContain("queryKey: candidateQueryKeys.detail(candidateId)");
     expect(beforeCall).toContain("useRateOverview(candidateId");
