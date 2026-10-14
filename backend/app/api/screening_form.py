@@ -197,10 +197,16 @@ async def get_joint_screening_context(
     from app.api.recruitment_access import job_read_scope_clause  # noqa: PLC0415
     from app.models.recruitment_pipeline import PipelineStage  # noqa: PLC0415
 
-    await _pair(db, candidate_id, job_id)
+    _, anchor_job = await _pair(db, candidate_id, job_id)
     await ensure_job_read_access(db, user, job_id)
+    anchor = await form.joint_anchor(db, anchor_job)
     if not _can_write(user):
-        return {"candidate_id": candidate_id, "job_id": job_id, "pairs": []}
+        return {
+            "candidate_id": candidate_id,
+            "job_id": job_id,
+            "anchor": anchor,
+            "pairs": [],
+        }
     pairs = await form.joint_pairs(
         db,
         user=user,
@@ -217,7 +223,12 @@ async def get_joint_screening_context(
             db, other, legacy_stage=PipelineStage.verified
         )
         out.append({**pair, "verified_stage_def_id": verified.id if verified else None})
-    return {"candidate_id": candidate_id, "job_id": job_id, "pairs": out}
+    return {
+        "candidate_id": candidate_id,
+        "job_id": job_id,
+        "anchor": anchor,
+        "pairs": out,
+    }
 
 
 @router.get("/screening-form/question-groups")

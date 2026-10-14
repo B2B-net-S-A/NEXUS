@@ -173,6 +173,7 @@ import {
  type KanbanItem,
 } from "@/components/v2/pages/kanban-shared";
 import { OtherJobsChip, showsOtherJobsChip } from "@/components/v2/pages/kanban-other-jobs-chip";
+import { useJointScreeningIntent } from "@/store/joint-screening";
 import {
  CV_SENT_STAGE,
  findStageColumn,
@@ -772,6 +773,8 @@ interface BoardV4Ctx {
  viewerOwnsDlReview: boolean;
  /** „Przejrzyj i wyślij” — przegląd przed wysłaniem do klienta. */
  onReviewSend: (item: KanbanItem) => void;
+ /** Otwórz panel osoby jak klik w kartę („Screening razem” z okienka karty). */
+ onOpenPerson: (item: KanbanItem) => void;
 }
 const BoardV4Context = React.createContext<BoardV4Ctx | null>(null);
 
@@ -1247,6 +1250,14 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  item={item}
  fullName={fullName}
  className={cn(desktopOverview && "xl:pointer-fine:hidden")}
+ onScreenTogether={
+ v5 && !readOnly
+ ? (jobIds) => {
+ useJointScreeningIntent.getState().setIntent(item.candidate_id, jobIds);
+ v5.onOpenPerson(item);
+ }
+ : undefined
+ }
  />
  )}
  <CardV4Badges item={item} fullName={fullName} stageBadge={stageBadge} />
@@ -1988,6 +1999,10 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  },
  [jobId, queryClient, showSuccess, showError]
  );
+ // `openDock` powstaje niżej (zależy od kolumn i warsztatu) — kontekst karty
+ // woła go przez ref, żeby „Screening razem” z okienka karty otwierał panel.
+ const openDockRef = useRef<((item: KanbanItem) => void) | null>(null);
+ const openPersonViaRef = useCallback((item: KanbanItem) => openDockRef.current?.(item), []);
  const boardV4 = useMemo<BoardV4Ctx>(
  () => ({
  columnByItemId,
@@ -2002,8 +2017,9 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  canReviewAsDl,
  viewerOwnsDlReview,
  onReviewSend,
+ onOpenPerson: openPersonViaRef,
  }),
- [columnByItemId, cproEnabled, authUser?.id, readOnly, takingIds, takeCandidate, nextColumnLabel, onArrowAdvance, onOpenQc, canReviewAsDl, viewerOwnsDlReview, onReviewSend]
+ [columnByItemId, cproEnabled, authUser?.id, readOnly, takingIds, takeCandidate, nextColumnLabel, onArrowAdvance, onOpenQc, canReviewAsDl, viewerOwnsDlReview, onReviewSend, openPersonViaRef]
  );
  const [focusedColId, setFocusedColId] = useState<string | null>(() =>
  defaultFocusColumnId(columns)
@@ -2092,6 +2108,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  },
  [canSplit, columnByItemId, openWorkbench]
  );
+ openDockRef.current = openDock;
  useEffect(() => {
  onDockCandidateChange?.(dockCandidateId);
  }, [dockCandidateId, onDockCandidateChange]);

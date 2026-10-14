@@ -64,6 +64,8 @@ export interface BeforeCallQuickView {
     stage_name: string;
     moved_at: string;
   }>;
+  /** Wszystkie rekrutacje „w procesie” (lista niesie najwyżej 4) — 14.10.2026. */
+  current_recruitments_total?: number;
   contact_attempts?: number;
   cv_highlights?: { years_experience?: number | null } | null;
 }
@@ -122,9 +124,12 @@ export function BeforeCallProfile({ item, jobId, readOnly, onOpenHistory }: Befo
 
   const candidateId = item.candidate_id;
   const query = useQuery<BeforeCallQuickView>({
-    queryKey: candidateQueryKeys.quickView(candidateId),
+    // Pod kluczem podglądu osoby — jego unieważnienie odświeża też ten widok.
+    queryKey: [...candidateQueryKeys.quickView(candidateId), { excludeJobId: jobId }],
     queryFn: ({ signal }) =>
-      api.get(`/api/candidates/${candidateId}/quick-view`, { signal }).then((r) => r.data),
+      api
+        .get(`/api/candidates/${candidateId}/quick-view`, { params: { exclude_job_id: jobId }, signal })
+        .then((r) => r.data),
     enabled: candidateId > 0,
     staleTime: 30_000,
   });
@@ -133,6 +138,8 @@ export function BeforeCallProfile({ item, jobId, readOnly, onOpenHistory }: Befo
   const position = data?.current_position?.title?.trim() || null;
   const since = data?.current_position?.started_at ? formatDate(data.current_position.started_at) : null;
   const others = (data?.current_recruitments ?? []).filter((r) => r.job_id !== jobId);
+  // Serwer pomija bieżącą rekrutację i podaje sumę; starszy serwer — długość listy.
+  const othersTotal = Math.max(data?.current_recruitments_total ?? 0, others.length);
   const attempts = data?.contact_attempts ?? item.contact_attempts ?? 0;
   const match = entryMatchText(item);
   const source = entrySourceLabel(item.entry_source);
@@ -215,7 +222,7 @@ export function BeforeCallProfile({ item, jobId, readOnly, onOpenHistory }: Befo
           .filter(Boolean)
           .join(", ")} — ${[lastEndedOutcome.label, monthYear(lastEnded.last_seen)].filter(Boolean).join(" · ")}`
       : null,
-    others.length > 0 ? `W innych rekrutacjach: ${others.length}` : null,
+    othersTotal > 0 ? `W innych rekrutacjach: ${othersTotal}` : null,
   ]
     .filter(Boolean)
     .join(" · ");
@@ -437,8 +444,10 @@ export function BeforeCallProfile({ item, jobId, readOnly, onOpenHistory }: Befo
               ))}
             </ul>
           )}
-          {others.length > 4 ? (
-            <p className="text-[11px] text-muted-foreground">…i {others.length - 4} więcej — pełna lista w profilu.</p>
+          {othersTotal > Math.min(others.length, 4) ? (
+            <p className="text-[11px] text-muted-foreground">
+              …i {othersTotal - Math.min(others.length, 4)} więcej — pełna lista w profilu.
+            </p>
           ) : null}
         </section>
       </div>

@@ -83,7 +83,10 @@ async def test_joint_context_lists_other_pairs_with_reasons(app_client: AsyncCli
         headers=w["rec_h"],
     )
     assert res.status_code == 200, res.text
-    pairs = {p["job_id"]: p for p in res.json()["pairs"]}
+    body = res.json()
+    assert body["anchor"]["job_id"] == w["job_id"]
+    assert body["anchor"]["client_id"] is not None
+    pairs = {p["job_id"]: p for p in body["pairs"]}
     assert w["job_id"] not in pairs
     assert finished["job_id"] not in pairs
     assert pairs[screening["job_id"]]["selectable"] is True

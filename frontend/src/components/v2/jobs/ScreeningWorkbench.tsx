@@ -30,10 +30,10 @@
  * `next/dynamic` — pilnuje tego `heavy-bundle-boundaries.test.ts`.
  */
 
-import { useMemo, useRef, useState, type ComponentProps } from "react";
+import { useEffect, useMemo, useRef, useState, type ComponentProps } from "react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { BookOpen, ExternalLink, HelpCircle, PanelRight, Sparkles, UserX } from "lucide-react";
 
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
@@ -48,9 +48,15 @@ import type { WorkbenchPanelProps } from "@/components/v2/recruitment/types";
 import { BeforeCallProfile } from "@/components/v2/screening-form/BeforeCallProfile";
 import { ScreeningFormHistory } from "@/components/v2/screening-form/ScreeningFormHistory";
 import { ScreeningFullForm } from "@/components/v2/screening-form/ScreeningFullForm";
+import { JointScreeningForm } from "@/components/v2/screening-form/JointScreeningForm";
+import { JointScreeningPicker } from "@/components/v2/screening-form/JointScreeningPicker";
+import { alsoFitsApi, alsoFitsKeys } from "@/lib/also-fits-api";
+import { apiErrorMessage } from "@/lib/api-error";
+import { proposalsBulkApi } from "@/lib/candidate-search-api";
+import { useJointScreeningIntent } from "@/store/joint-screening";
 import { ScreeningLegacyText, ScreeningSummaryView } from "@/components/v2/screening-form/ScreeningSummaryView";
 import { interviewQuestionsApi } from "@/lib/api";
-import { useScreeningFormState } from "@/lib/api/screeningForm";
+import { jointContextQueryKey, useJointContext, useScreeningFormState } from "@/lib/api/screeningForm";
 import { placeStage } from "@/lib/board-stages";
 import { terminalOf } from "@/lib/kanban-terminal";
 import { VERIFIED_STAGE, findStageColumn, isNewColumn, itemFullName } from "@/lib/pipeline-flow";
@@ -142,6 +148,28 @@ export function ScreeningWorkbench({
   const candidateId = found?.item.candidate_id ?? -1;
   const formQuery = useScreeningFormState(candidateId, jobId, found != null);
   const state = formQuery.data;
+
+  // „Screening dla” (14.10.2026, D3): jedna rozmowa pod kilka rekrutacji —
+  // tylko w „Nowych”/„Screeningu”, z prawem zapisu i bez prośby DL o poprawki.
+  const jointEnabled =
+    found != null && isNewColumn(found.col) && !readOnly && state != null && state.editable && !state.fix_request;
+  const jointContext = useJointContext(candidateId, jobId, jointEnabled);
+  const alsoFitsQuery = useQuery({
+    queryKey: alsoFitsKeys.one(jobId, candidateId),
+    queryFn: () => alsoFitsApi.get(candidateId, jobId),
+    enabled: jointEnabled,
+    staleTime: 5 * 60 * 1000,
+    retry: false,
+  });
+  const [jointIds, setJointIds] = useState<ReadonlySet<number>>(() => new Set());
+  const [addingJobId, setAddingJobId] = useState<number | null>(null);
+  const consumeIntent = useJointScreeningIntent((s) => s.consume);
+  const queryClient = useQueryClient();
+  const [jointError, setJointError] = useState<string | null>(null);
+  // Inna osoba = nowa rozmowa; „Screening razem” z karty zaznacza od razu.
+  useEffect(() => {
+    setJointIds(new Set(candidateId > 0 ? consumeIntent(candidateId) : []));
+  }, [candidateId, consumeIntent]);
   // „Wgraj CV” w podglądzie — ta sama bramka co kafelek w doku osoby.
   const canManageDocuments = useCapability("candidate.document.manage");
 
@@ -221,6 +249,49 @@ export function ScreeningWorkbench({
     }
   };
 
+  // Starszy serwer (albo atrapa w testach) może nie oddać pól — wtedy bez trybu wspólnego.
+  const jointAnchor = jointContext.data?.anchor ?? null;
+  const jointPairs = Array.isArray(jointContext.data?.pairs) ? jointContext.data.pairs : [];
+  const inContext = new Set(jointPairs.map((p) => p.job_id));
+  const jointSuggestions = (Array.isArray(alsoFitsQuery.data?.jobs) ? alsoFitsQuery.data.jobs : []).filter(
+    (job) => !inContext.has(job.job_id),
+  );
+  const selectedJoint = new Set([...jointIds].filter((id) => jointPairs.some((p) => p.job_id === id && p.selectable)));
+  const selectedPairs = jointPairs.filter((p) => selectedJoint.has(p.job_id));
+  const toggleJoint = (id: number) =>
+    setJointIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  // „+ Dodaj i dołącz”: dodanie jak w oknie „Kandydaci do dodania” (źródło
+  // `also_fits`), potem rekrutacja wchodzi do rozmowy.
+  const addAndJoin = (otherJobId: number) => {
+    setAddingJobId(otherJobId);
+    setJointError(null);
+    proposalsBulkApi
+      .add(otherJobId, {
+        candidate_ids: [item.candidate_id],
+        initial_stage_legacy: "new",
+        source: "also_fits",
+        origin_job_id: jobId,
+      })
+      .then(async (result) => {
+        if (!result.added.includes(item.candidate_id)) {
+          setJointError(result.skipped[0]?.reason_label ?? "Nie dodano do tej rekrutacji.");
+          return;
+        }
+        await queryClient.invalidateQueries({ queryKey: jointContextQueryKey(jobId, item.candidate_id) });
+        void queryClient.invalidateQueries({ queryKey: alsoFitsKeys.one(jobId, item.candidate_id) });
+        void queryClient.invalidateQueries({ queryKey: ["kanban", String(otherJobId)] });
+        void queryClient.invalidateQueries({ queryKey: ["kanban", String(jobId)] });
+        setJointIds((prev) => new Set([...prev, otherJobId]));
+      })
+      .catch((error: unknown) => setJointError(apiErrorMessage(error, "Nie udało się dodać do tej rekrutacji.")))
+      .finally(() => setAddingJobId(null));
+  };
+
   const badges = (
     <>
       {isOverHourlyBudget(item, jobBudgetHourly) ? (
@@ -277,6 +348,36 @@ export function ScreeningWorkbench({
             onOpenHistory={openHistory}
           />
         ) : null}
+        {jointEnabled ? (
+          <JointScreeningPicker
+            anchorTitle={jointAnchor?.title ?? "Ta rekrutacja"}
+            pairs={jointPairs}
+            suggestions={jointSuggestions}
+            selected={selectedJoint}
+            onToggle={toggleJoint}
+            onAddAndJoin={addAndJoin}
+            addingJobId={addingJobId}
+            error={jointError}
+          />
+        ) : null}
+        {jointEnabled && jointAnchor && selectedPairs.length > 0 ? (
+          <JointScreeningForm
+            key={`${item.candidate_id}:${selectedPairs.map((p) => p.job_id).join(",")}`}
+            candidateId={item.candidate_id}
+            candidateName={name}
+            anchor={{
+              jobId,
+              title: jointAnchor.title,
+              clientId: jointAnchor.client_id,
+              clientName: jointAnchor.client_name,
+              budgetHourly: jobBudgetHourly ?? jointAnchor.budget_hourly,
+              verifiedStageDefId: forward?.stageDefId ?? null,
+            }}
+            others={selectedPairs}
+            onMoved={onMoved}
+            onForwarded={onForwarded ? () => onForwarded(item.candidate_id) : undefined}
+          />
+        ) : (
         <ScreeningFullForm
           candidateId={item.candidate_id}
           jobId={jobId}
@@ -303,6 +404,7 @@ export function ScreeningWorkbench({
             ) : null
           }
         />
+        )}
       </div>
     );
   }
