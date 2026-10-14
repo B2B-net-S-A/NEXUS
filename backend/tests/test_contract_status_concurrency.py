@@ -433,8 +433,9 @@ _CONTRACTS_API = (
     pathlib.Path(__file__).resolve().parents[1] / "app" / "api" / "contracts.py"
 )
 _LOCKED_HANDLERS = (
-    "update_contract",
-    "update_contract_status",
+    # Ciała tras PATCH i `/status` — wspólne z API v1 (PR 2B, `WritePolicy`).
+    "apply_contract_update",
+    "apply_contract_status",
     "void_contract_endpoint",
     "activate_contract",
     "reopen_contract_endpoint",

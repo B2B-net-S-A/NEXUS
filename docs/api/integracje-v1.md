@@ -52,8 +52,14 @@ odejście czy awans pracownika nie zmienia uprawnień automatyzacji.
 | `invoices:read` | Rejestr faktur, DSO — **z kwotami** |
 | `invoices:write` | Wystawienie, zmiana i anulowanie faktury |
 | `amounts:read` | Stawki i kwoty w zamówieniach, kontraktach i wierszach importów MD |
+| `orders:write` | Zamówienia: zakończenie, przedłużenie i anulowanie zamówienia MD/kosztowego, zakończenie zamówienia okresowego, data końca i notatka, PDF zamówienia |
+| `contracts:write` | Kontrakty: data końca w przyszłości |
+| `contracts:status` | Kontrakty: zmiana statusu i data końca, która kończy albo przywraca współpracę |
+| `amounts:write` | Zmiana stawek i kwot przy zapisie zamówień (stawki zamówienia, osoby i budżety w przedłużeniu) — obejmuje `amounts:read` |
 
 - `X:write` obejmuje `X:read`.
+- **Zapis kwot** wymaga `amounts:write` niezależnie od `orders:write` — zapis bez
+  niego dostaje `403 insufficient_scope` z listą pól (`details.fields`).
 - **Kwoty:** `finance:*` i `invoices:*` z definicji zawierają pieniądze (to moduły
   rozliczeń). W zamówieniach, kontraktach i importach MD kwoty są tylko ze scope'em
   `amounts:read` — bez niego pola kwot są `null` (zamówienia i kontrakty mają też
@@ -138,6 +144,61 @@ odejście czy awans pracownika nie zmienia uprawnień automatyzacji.
 - **Korekta za miesiąc** **nadpisuje** miesiąc i przelicza saldo — nigdy nie
   dokłada. `status`: `accepted` | `protocol` | brak.
 
+### Zamówienia i kontrakty — zapis
+
+| Metoda | Ścieżka | Scope |
+|---|---|---|
+| POST | `/order-groups/{group_id}/close` (`{"closure_date", "closure_reason"}`) | `orders:write` |
+| POST | `/order-groups/{group_id}/extend` (`{"order_number", "start_date", "end_date", "notes", "budget_amount", "md_budget_total", "lines": […]}`) | `orders:write` (+ `amounts:write` dla `lines`, `budget_amount`, `md_budget_total`) |
+| POST | `/order-groups/{group_id}/cancel` (`{"reason"}`) | `orders:write` |
+| POST | `/orders/{order_id}/close` (`{"closure_date", "closure_reason"}`) | `orders:write` |
+| PATCH | `/orders/{order_id}` (`end_date`, `notes`; stawki: `rate_client`, `rate_candidate`, `rate_client_currency`, `rate_candidate_currency`) | `orders:write` (+ `amounts:write` dla stawek i walut) |
+| PUT | `/orders/{order_id}/file` (multipart: `file`, tylko PDF, do 25 MB) | `orders:write` |
+| PATCH | `/contracts/{contract_id}` (`{"end_date": … \| null}`) | `contracts:write` (+ `contracts:status`, gdy data kończy albo przywraca współpracę) |
+| POST | `/contracts/{contract_id}/status` (`{"status": "draft" \| "active" \| "ending" \| "ended"}`) | `contracts:status` |
+
+- Reguły są **te same co na ekranie NEXUSA** (ta sama logika, te same odmowy).
+  API nie zakłada i nie usuwa zamówień ani kontraktów.
+- **Zakończenie** (zamówienia MD/kosztowego i okresowego): data końca zapisuje
+  się od razu, status `completed` linie i zamówienie okresowe dostają, gdy dzień
+  zakończenia nadejdzie. Data wstecz jest dozwolona, ale nie wcześniejsza niż
+  start zamówienia (422). Szkicu się nie kończy (`409 order_is_draft`), a linię
+  zamówienia MD/kosztowego kończy się przez jej zamówienie
+  (`409 order_belongs_to_group`).
+- **Przedłużenie** to **nowe** zamówienie (nowy numer, okres, budżety);
+  poprzednie zostaje bez zmian. Typ rozliczenia dziedziczy się po poprzedniku:
+  kosztowe wymaga `budget_amount`, wspólna pula MD — `md_budget_total`. Osoby
+  (`lines`) wskazuje się **kontraktem** u klienta (`contract_id`), ze stawkami
+  (`rate_cost`, `rate_revenue`) i — przy budżecie per osoba — `input_mode`
+  (`md` | `amount`) z `input_value`. Odpowiedź `201` z nowym zamówieniem.
+- **Anulowanie** tylko zamówienia bez rozliczeń (zejścia MD, faktury) —
+  inaczej `409 order_group_has_settlements`; takie zamówienie się kończy.
+  Przywrócenie anulowanego — na ekranie.
+- Zamówienie z otwartą decyzją o puli MD po odejściu konsultanta daje
+  `409 offboarding_decision_required` — decyzję podejmuje Delivery Lead na ekranie.
+- **`PATCH /orders/{id}`** przyjmuje wyłącznie wymienione pola (inne = `422`),
+  co najmniej jedno. `null` czyści (`"end_date": null` = bezterminowo). Działa
+  dla zamówień okresowych; linia zamówienia MD/kosztowego daje
+  `409 order_belongs_to_group`. Nowy okres nie może nachodzić na inne
+  zamówienie tej osoby (422), a zamówienie, które trwa, przywraca zakończony
+  kontrakt.
+- **PDF zamówienia:** nowy plik zastępuje poprzedni. Tylko PDF (inny plik `415`).
+- **Data końca kontraktu** działa jak w rejestrze umów: data skracająca umowę
+  skraca też otwarte zamówienia tej osoby, nowa data na zakończonej umowie ją
+  przywraca, a data wstecz na trwającej umowie kończy ją przy nocnym
+  przeliczeniu. Umowa B2B bez zakończenia współpracy daty końca nie dostaje
+  (`422`). Stawek kontraktu API nie zmienia — stawki zamówienia zmienia
+  `PATCH /orders/{id}`.
+- **Status kontraktu** przechodzi przez maszynę stanów: `active` sprawdza komplet
+  danych szkicu albo przywraca zakończoną umowę, `ending` wymaga daty końca
+  (`409`, `details.reason = ending_requires_end_date`), `ended` daje `409`
+  (`details.reason = termination_required`) — zakończenie z powodem jest na
+  ekranie („Zakończ współpracę”).
+- Te trasy **nie mają `dry_run`** — zapis zamówień zatwierdza się w trakcie,
+  a PDF zapisuje się na dysk przed zatwierdzeniem.
+- Autorem zmian jest konto serwisowe: Finanse → Zmiany w zamówieniach pokazują
+  „Integracja: <nazwa>”, a historia zamówienia MD ma wpisy bez osoby.
+
 ### Finanse
 
 | Metoda | Ścieżka | Scope |
@@ -205,7 +266,7 @@ tej samej operacji. Paragony z kluczami są przechowywane 90 dni.
 **`dry_run=true`** liczy wszystko, ale nic nie zapisuje (odpowiedź `200`
 z `"dry_run": true`). Używaj go do budowy i testów automatyzacji — NEXUS nie ma
 środowiska testowego. Działa na: `POST /md/imports`, `POST /finance/imports`,
-`POST /invoices`. Uwaga: `dry_run` importu MD na kilka sekund blokuje
+`POST /invoices`. Zapis zamówień i kontraktów `dry_run` nie ma. Uwaga: `dry_run` importu MD na kilka sekund blokuje
 przeliczane linie zamówień.
 
 ---
@@ -230,9 +291,9 @@ Każdy błąd ma ten sam kształt:
 | 401 | `unauthenticated` | Brak, zły, wygasły albo odwołany klucz |
 | 403 | `insufficient_scope` | Konto nie ma scope'u (`details.missing`) |
 | 404 | `not_found` | Rekord nie istnieje |
-| 409 | `conflict`, `duplicate_import`, `duplicate_invoice`, `idempotency_key_reused`, `idempotency_in_progress`, `idempotency_outcome_unknown`, `item_not_in_month`, `requires_screen_approval`, `conflict_retry` | Konflikt — szczegóły w `message` |
-| 413 | `payload_too_large` | Plik za duży (MD: 10 MB, wyniki: 15 MB) |
-| 415 | — | Zły typ pliku (tylko XLSX) |
+| 409 | `conflict`, `duplicate_import`, `duplicate_invoice`, `idempotency_key_reused`, `idempotency_in_progress`, `idempotency_outcome_unknown`, `item_not_in_month`, `requires_screen_approval`, `conflict_retry`, `order_belongs_to_group`, `order_is_draft`, `order_already_closed`, `order_group_has_settlements`, `offboarding_decision_required` | Konflikt — szczegóły w `message` i `details` |
+| 413 | `payload_too_large` | Plik za duży (MD: 10 MB, wyniki: 15 MB, PDF zamówienia: 25 MB) |
+| 415 | — | Zły typ pliku (importy: XLSX, zamówienie: PDF) |
 | 422 | `validation_error` | Złe dane (`details.errors`) |
 | 429 | `rate_limited` | Za dużo zapytań — `Retry-After` |
 | 502/503 | — | NEXUS się wdraża albo restartuje — ponów |

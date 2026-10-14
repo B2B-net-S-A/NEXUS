@@ -349,7 +349,8 @@ MASS_UPDATE_EXEMPT: dict[tuple[str, str], str] = {
 # pisały do zamówień przed blokadą kontraktu, którą bierze potem
 # ``commit_order_write``/``resync_contract``.
 FIELD_WRITERS: tuple[tuple[str, str], ...] = (
-    ("api/client_orders.py", "replace_order_po"),
+    # Ciało `PUT …/file` (wspólne z API v1, PR 2B).
+    ("api/client_orders.py", "apply_order_file"),
     ("api/client_orders.py", "delete_order_po"),
     ("services/contract_order_sync.py", "run_daily_order_cost_sync"),
     ("tasks/dl_portal_expiry_scanner.py", "_promote_statuses"),

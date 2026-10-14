@@ -226,6 +226,7 @@ from app.api.permission_access import (
     DeliveryViewUser,
 )
 from app.api.section_access import DELIVERY_SECTION_DEPENDENCIES
+from app.api.write_policy import UserWritePolicy, WritePolicy
 from app.services.access_scope import (
     DL_CLIENT_OUT_OF_SCOPE_DETAIL,
     apply_delivery_lead_client_scope,
@@ -3968,6 +3969,17 @@ def _assert_contract_status_change_allowed(
     i ``/terminate``.
     """
 
+    if contract_update_changes_status(contract, data):
+        ensure_permission(current_user, ProductAction.contract_status)
+
+
+def contract_update_changes_status(contract: Contract, data: ContractUpdate) -> bool:
+    """Czy PATCH kontraktu zmienia status albo zakończenie współpracy.
+
+    Jedna reguła dla ekranu (uprawnienie „Status kontraktu”) i API v1
+    (scope ``contracts:status``).
+    """
+
     changed = "status" in data.model_fields_set and data.status != contract.status
     changed = changed or any(
         field in data.model_fields_set
@@ -3985,8 +3997,7 @@ def _assert_contract_status_change_allowed(
             or (contract.status == ContractStatus.ending and data.end_date is None)
             or (live and data.end_date is not None and data.end_date < business_today())
         )
-    if changed:
-        ensure_permission(current_user, ProductAction.contract_status)
+    return changed
 
 
 def _assert_ended_revival_allowed(current_user: User, contract: Contract) -> None:
@@ -4006,13 +4017,33 @@ async def update_contract(
     current_user: ContractsOrdersOrAmountsEditUser,
     db: AsyncSession = Depends(get_db),
 ):
+    contract, detail = await apply_contract_update(
+        contract_id, data, db=db, policy=UserWritePolicy(current_user, db)
+    )
+    # Operacyjny PATCH bez pól finansowych pozostaje dostępny. Kwoty z
+    # odpowiedzi widzi tylko globalna rola finansowa albo DL tego klienta.
+    if not await _can_read_contract_finance(contract, current_user, db):
+        _redact_contract_finance(detail)
+    return detail
+
+
+async def apply_contract_update(
+    contract_id: int,
+    data: ContractUpdate,
+    *,
+    db: AsyncSession,
+    policy: WritePolicy,
+) -> tuple[Contract, ContractDetailResponse]:
+    """PATCH kontraktu — ciało trasy ekranu i API v1 (``policy``: kto i co).
+
+    Zwraca kontrakt i pełny widok (bez redakcji kwot — robi ją wołający).
+    Bez commita: zapis zatwierdza ``get_db`` (ekran) albo paragon v1.
+    """
     # Kto nie ma edycji kontraktów (wszedł samą zmianą kwot), zmienia tylko kwoty.
     assert_amounts_only(
         data.model_fields_set,
         _CONTRACT_FINANCE_WRITE_FIELDS,
-        can_edit_record=has_permission(
-            current_user, ProductAction.contracts_orders_edit
-        ),
+        can_edit_record=policy.can_edit_contracts(),
     )
     # FOR UPDATE na rodzicu — ta sama racja co w `update_contract_status`
     # (ocena statusu z pamięci obchodziła `void`), ten sam porządek blokad.
@@ -4037,16 +4068,13 @@ async def update_contract(
     contract = result.scalar_one_or_none()
     if not contract:
         raise HTTPException(status_code=404, detail="Contract not found")
-    await _ensure_delivery_lead_contract_visible(contract, current_user, db)
+    await policy.assert_contract_visible(contract)
     # Obie bramki po odczycie wiersza: kwoty zależą od klienta kontraktu,
     # a status — od wartości zapisanej (liczy się tylko realna zmiana).
-    await _assert_contract_finance_write_allowed(
-        current_user,
-        data.model_fields_set,
-        client_id=contract.client_id,
-        db=db,
+    await policy.assert_contract_amounts_writable(
+        data.model_fields_set, client_id=contract.client_id
     )
-    _assert_contract_status_change_allowed(current_user, contract, data)
+    policy.assert_contract_status_change_allowed(contract, data)
     previous_end_date = contract.end_date
     previous_start_date = contract.start_date
     state_before = ContractStateBefore.of(contract)
@@ -4123,7 +4151,7 @@ async def update_contract(
             ContractCandidateRate,
             contract.candidate_rate_schedule,
             schedule_input,
-            actor_id=current_user.id,
+            actor_id=policy.actor_id,
         )
         # A non-empty schedule is authoritative for the cached rate; an empty
         # schedule clears history and defers to the plain `rate_candidate` field
@@ -4137,7 +4165,7 @@ async def update_contract(
             ContractFrameworkRate,
             contract.framework_rate_schedule,
             framework_input,
-            actor_id=current_user.id,
+            actor_id=policy.actor_id,
         )
         # A non-empty schedule drives the cached framework_rate; an empty schedule
         # clears history and defers to the plain `framework_rate` field (set by the
@@ -4182,7 +4210,7 @@ async def update_contract(
             db,
             contract,
             ContractStatus(status_target),
-            actor_id=current_user.id,
+            actor_id=policy.actor_id,
         )
         # Umowa B2B przywrócona z „Zakończony"/„Kończący się" na „Aktywny"
         # wraca BEZTERMINOWA — ta sama reguła co wskrzeszenie zamówieniem
@@ -4209,7 +4237,7 @@ async def update_contract(
         auto_activated = await auto_activate_complete_draft(
             db,
             contract,
-            actor_id=current_user.id,
+            actor_id=policy.actor_id,
             status_explicit=False,
         )
         if auto_activated:
@@ -4249,7 +4277,7 @@ async def update_contract(
                 if contract.end_date is not None
                 else TAKEOVER_CANCEL_TERMINATION_UNDONE
             ),
-            actor_id=current_user.id,
+            actor_id=policy.actor_id,
         )
     reopened_by_end_date = False
     if not status_sent:
@@ -4314,7 +4342,7 @@ async def update_contract(
             # wracają (`undo_contract_termination`), migawka zakończenia
             # zamknięta. Do 25.09.2026 był tu surowy zapis statusu — umowa
             # wracała do aktywnych, a Generator zostawał w „Zakończonych”.
-            await reopen_contract(db, contract, actor_id=current_user.id)
+            await reopen_contract(db, contract, actor_id=policy.actor_id)
             reopened_by_end_date = True
             # Status z daty jak po zakończeniu z datą przyszłą
             # (`_status_after_termination`): umowa wypowiedziana albo kończąca
@@ -4349,7 +4377,7 @@ async def update_contract(
                 # i zaplanowane „Wejdź za konsultanta” odpadają. Znacznik
                 # zostawiony tutaj zamknąłby wiersz jako „rozwiązany” przy
                 # późniejszym, zwykłym zakończeniu (audyt 25.09.2026, runda 4).
-                await undo_contract_termination(db, contract, actor_id=current_user.id)
+                await undo_contract_termination(db, contract, actor_id=policy.actor_id)
     # Reguła zakładki „Zakończeni" (09.2026): data końca umowy wpisana w module
     # Kontrakty jest zarazem datą końca ZAMÓWIENIA tej osoby. Otwarte
     # zamówienia dostają tę samą datę (zaczynające się później — anulowane),
@@ -4370,7 +4398,7 @@ async def update_contract(
             db,
             contract.id,
             contract.end_date,
-            actor_id=current_user.id,
+            actor_id=policy.actor_id,
             # Po reaktywacji stan „przed” opisuje ZAKOŃCZONĄ umowę — nowa
             # migawka z nim pozwoliłaby „Cofnij zakończenie” wrócić do
             # zakończenia, które właśnie cofnięto.
@@ -4396,7 +4424,7 @@ async def update_contract(
                 if normalized_from_daily
                 else data.rate_client
             ),
-            actor_id=current_user.id,
+            actor_id=policy.actor_id,
             today=business_today(),
         )
     # Synchronizacja z zamówieniami tej osoby: kontrakt jest źródłem stawki
@@ -4408,7 +4436,7 @@ async def update_contract(
         order_sync = await resync_contract_safely(
             db,
             contract,
-            actor_id=current_user.id,
+            actor_id=policy.actor_id,
             auto_activate=not status_sent,
             follow_order_unit="rate_unit" not in data.model_fields_set,
             follow_order_currency=not (
@@ -4424,7 +4452,7 @@ async def update_contract(
             entity_type="contract",
             entity_id=contract_id,
             action="updated",
-            user_id=current_user.id,
+            user_id=policy.actor_id,
             details={
                 **{
                     k: (v.isoformat() if hasattr(v, "isoformat") else v)
@@ -4494,11 +4522,7 @@ async def update_contract(
     else:
         await db.refresh(contract)
         detail = _to_detail(contract)
-    # Operacyjny PATCH bez pól finansowych pozostaje dostępny. Kwoty z
-    # odpowiedzi widzi tylko globalna rola finansowa albo DL tego klienta.
-    if not await _can_read_contract_finance(contract, current_user, db):
-        _redact_contract_finance(detail)
-    return detail
+    return contract, detail
 
 
 @router.patch("/{contract_id}/status", response_model=ContractDetailResponse)
@@ -4510,6 +4534,26 @@ async def update_contract_status(
 ):
     """Change only the operational status; TCM cannot mutate other fields."""
 
+    contract = await apply_contract_status(
+        contract_id, data, db=db, policy=UserWritePolicy(current_user, db)
+    )
+    detail = _to_detail(contract)
+    if not await _can_read_contract_finance(contract, current_user, db):
+        _redact_contract_finance(detail)
+    return detail
+
+
+async def apply_contract_status(
+    contract_id: int,
+    data: ContractStatusUpdate,
+    *,
+    db: AsyncSession,
+    policy: WritePolicy,
+) -> Contract:
+    """Zmiana samego statusu kontraktu — ciało trasy ekranu i API v1.
+
+    Bez commita (jak dotąd: ``get_db`` ekranu albo paragon v1).
+    """
     # FOR UPDATE na wierszu `contracts`: maszyna stanów (`assert_transition`,
     # `revert_contract`, `void_contract`) ocenia `contract.status` Z PAMIĘCI,
     # więc dwie równoległe sesje mogły obejść terminalny `void` — pierwsza
@@ -4535,11 +4579,11 @@ async def update_contract_status(
     contract = result.scalar_one_or_none()
     if contract is None:
         raise HTTPException(status_code=404, detail="Contract not found")
-    await _ensure_delivery_lead_contract_visible(contract, current_user, db)
+    await policy.assert_contract_visible(contract)
 
     previous_status = contract.status
     await _apply_contract_status_change(
-        db, contract, data.status, actor_id=current_user.id
+        db, contract, data.status, actor_id=policy.actor_id
     )
     # „Cofnij zakończenie” z listy statusu: umowa B2B wraca BEZTERMINOWA —
     # lustro PATCH-a kontraktu. Ze starą datą nocny cron zakończyłby ją
@@ -4556,7 +4600,7 @@ async def update_contract_status(
             entity_type="contract",
             entity_id=contract_id,
             action="status_updated",
-            user_id=current_user.id,
+            user_id=policy.actor_id,
             details={
                 "from_status": previous_status.value,
                 "to_status": contract.status.value,
@@ -4565,10 +4609,7 @@ async def update_contract_status(
     )
     await db.flush()
     await db.refresh(contract)
-    detail = _to_detail(contract)
-    if not await _can_read_contract_finance(contract, current_user, db):
-        _redact_contract_finance(detail)
-    return detail
+    return contract
 
 
 @router.post("/{contract_id}/activate", response_model=ContractDetailResponse)

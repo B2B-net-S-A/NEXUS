@@ -101,6 +101,17 @@ class ServiceScope(str, enum.Enum):
     invoices_read = "invoices:read"
     invoices_write = "invoices:write"
     amounts_read = "amounts:read"
+    # Zapis zamówień i kontraktów (PR 2B, ``WritePolicy``): cykl życia
+    # zamówień MD/kosztowych, zakończenie i data końca zamówienia, PDF
+    # zamówienia, data końca i status kontraktu. Bez zakładania i usuwania.
+    # Kwoty zapisuje wyłącznie ``amounts:write`` (lustro „Stawki i kwoty:
+    # zmiana”) — obejmuje ``amounts:read``.
+    orders_write = "orders:write"
+    contracts_write = "contracts:write"
+    # Zmiana statusu / zakończenie współpracy — osobno, jak uprawnienie ludzi
+    # „Status kontraktu” w dziewięciu uprawnieniach.
+    contracts_status = "contracts:status"
+    amounts_write = "amounts:write"
 
 
 SCOPE_LABELS: dict[ServiceScope, str] = {
@@ -118,6 +129,12 @@ SCOPE_LABELS: dict[ServiceScope, str] = {
     ServiceScope.invoices_read: "Faktury: odczyt (rejestr, DSO)",
     ServiceScope.invoices_write: "Faktury: zapis (wystawienie, zmiana, anulowanie)",
     ServiceScope.amounts_read: "Stawki i kwoty: podgląd w zamówieniach i kontraktach",
+    ServiceScope.orders_write: (
+        "Zamówienia: zapis (zakończenie, przedłużenie, anulowanie, data końca, PDF)"
+    ),
+    ServiceScope.contracts_write: "Kontrakty: zapis (data końca w przyszłości)",
+    ServiceScope.contracts_status: "Kontrakty: zmiana statusu i zakończenie współpracy",
+    ServiceScope.amounts_write: "Stawki i kwoty: zmiana w zamówieniach",
 }
 
 

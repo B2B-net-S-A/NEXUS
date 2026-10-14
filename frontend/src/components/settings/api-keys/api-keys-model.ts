@@ -35,9 +35,16 @@ export const SCOPE_GROUPS: readonly ScopeGroupDefinition[] = [
   {
     id: "billing-write",
     title: "Rozliczenia — zapis",
-    scopes: ["md:write", "finance:write", "invoices:write"],
+    scopes: [
+      "orders:write",
+      "contracts:write",
+      "contracts:status",
+      "md:write",
+      "finance:write",
+      "invoices:write",
+    ],
   },
-  { id: "amounts", title: "Kwoty", scopes: ["amounts:read"] },
+  { id: "amounts", title: "Kwoty", scopes: ["amounts:read", "amounts:write"] },
   {
     id: "ops",
     title: "Operacyjne",
