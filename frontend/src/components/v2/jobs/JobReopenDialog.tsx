@@ -59,6 +59,7 @@ import {
   type AllocationMode,
   type RecruiterAssignment,
 } from "@/lib/recruiter-assignment";
+import { hasRecruiterRole } from "@/lib/job-collaborators";
 import { automatAssigns, priorityLevelOf } from "@/lib/request-priority";
 import { httpStatusFromError } from "@/lib/view-state";
 
@@ -71,7 +72,7 @@ export interface JobReopenDialogProps {
   /** `reopen` — zamknięta rekrutacja; `finish` — stary szkic albo bez przekazania. */
   mode: JobReopenMode;
   /** Pierwszy rekruter rekrutacji. Brak = z rekrutacji w cache'u (`primary_owner`). */
-  recruiter?: { id: number; name?: string | null; is_active?: boolean } | null;
+  recruiter?: ReopenRecruiter | null;
   /** „Uzupełnij” przy brakach — strona otwiera edytor Profilu Championa. */
   onOpenChampion?: () => void;
   /** Braki z zakładki „Zespół i ogłoszenie” (kategoria, liczba osób). */
@@ -79,8 +80,17 @@ export interface JobReopenDialogProps {
 }
 
 /** Pola rekrutacji z cache'u (`["job", id]`), których okno potrzebuje. */
+/** Osoba w polu „Rekruter”; rola decyduje, czy zostaje po otwarciu (14.10.2026). */
+interface ReopenRecruiter {
+  id: number;
+  name?: string | null;
+  is_active?: boolean;
+  role?: string | null;
+  roles?: string[];
+}
+
 interface ReopenCachedJob {
-  primary_owner?: { id: number; name?: string | null; is_active?: boolean } | null;
+  primary_owner?: ReopenRecruiter | null;
   client_id?: number | null;
   hiring_manager_contact_id?: number | null;
   hiring_manager_name?: string | null;
@@ -163,8 +173,14 @@ export function JobReopenDialog({
   const knownRecruiter =
     recruiter !== undefined ? recruiter : (cachedJob?.primary_owner ?? null);
   // Nieaktywne konto = brak rekrutera: serwer otwiera wtedy rekrutację bez
-  // nikogo, więc okno nie może obiecywać „zostaje bez zmian”.
-  const currentRecruiter = knownRecruiter?.is_active === false ? null : knownRecruiter;
+  // nikogo, więc okno nie może obiecywać „zostaje bez zmian”. To samo przy
+  // osobie bez roli rekrutera (14.10.2026, zwykle Delivery Lead z Traffita) —
+  // serwer zdejmuje ją przy otwarciu. Brak danych o roli = nie oceniamy.
+  const currentRecruiter =
+    knownRecruiter?.is_active === false ||
+    (knownRecruiter?.role != null && !hasRecruiterRole(knownRecruiter))
+      ? null
+      : knownRecruiter;
 
   const [assignmentChoice, setAssignmentChoice] = useState<RecruiterAssignment | null>(null);
   const [pickedRecruiterId, setPickedRecruiterId] = useState<number | null | undefined>(

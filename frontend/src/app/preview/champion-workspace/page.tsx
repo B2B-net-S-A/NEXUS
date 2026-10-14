@@ -386,7 +386,7 @@ function seededClient(persona: Persona): QueryClient {
     SEED_FRESH,
   );
   qc.setQueryData(categoryRecruitersQueryKey(CATEGORY_ID), [], SEED_FRESH);
-  qc.setQueryData(["users", "directory", "admin,delivery_lead,recruiter"], [], SEED_FRESH);
+  qc.setQueryData(["users", "directory", "recruiter"], [], SEED_FRESH);
   qc.setQueryData(
     hiringManagerOptionsKey(CLIENT_ID),
     [{ id: 501, name: "Tomasz Przykładowy", position: "Dyrektor IT" }],

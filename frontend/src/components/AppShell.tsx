@@ -92,6 +92,7 @@ import { withCurrentClient } from "@/lib/client-selection";
 import {
   collaboratorChanges,
   hasCollaboratorChanges,
+  hasRecruiterRole,
   manualCollaboratorIds,
   saveCollaboratorChanges,
 } from "@/lib/job-collaborators";
@@ -1732,6 +1733,12 @@ function JobFormFields({
   const dlAssignableUsers = users.filter((u: any) =>
     ["delivery_lead", "admin", "head_of_recruitment"].includes(u.role ?? "")
   );
+  // Pole „Rekruter”: tylko rola rekrutera, główna albo dodatkowa (14.10.2026,
+  // lustro `_OWNERSHIP_ELIGIBLE_ROLES`). Wpisany wcześniej rekruter bez tej roli
+  // zostaje na liście, żeby zapis bez zmiany pola go nie gubił.
+  const recruiterOptions = users.filter(
+    (u: any) => String(u.id) === form.recruiter_id || hasRecruiterRole(u),
+  );
   return (
     <>
       <FieldGroup label="Tytuł stanowiska" required>
@@ -1808,7 +1815,7 @@ function JobFormFields({
       <FieldGroup label="Rekruter">
         <Select value={form.recruiter_id} onChange={e => onChange("recruiter_id", e.target.value)}>
           <option value="">— bez rekrutera —</option>
-          {users.map((u: any) => (
+          {recruiterOptions.map((u: any) => (
             <option key={u.id} value={u.id}>
               {u.name || u.full_name || u.email}
               {u.role ? ` (${u.role})` : ""}

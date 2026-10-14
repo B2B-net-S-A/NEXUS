@@ -80,6 +80,11 @@ function account(
 
 const admin = account(1, "Adam Admin", "admin");
 const deliveryLead = account(7, "Gosia Delivery", "delivery_lead");
+// Delivery Lead, który sam rekrutuje — rola rekrutera jako dodatkowa (14.10.2026).
+const recruitingLead: User = {
+  ...account(14, "Dorota Rekrutująca", "delivery_lead"),
+  roles: ["delivery_lead", "recruiter"],
+};
 const headOfRecruitment = account(8, "Henryk Pokazowy", "head_of_recruitment");
 const recruiter = account(9, "Ewa Fikcyjna", "recruiter");
 const communityManager = account(12, "Hanna Wzorcowa", "talent_community_manager");
@@ -132,6 +137,12 @@ const DIRECTORY = [
   { id: 34, name: "Darek Makietowy", role: "recruiter", roles: ["recruiter"] },
   { id: 35, name: "Tola Tacowa", role: "recruiter", roles: ["recruiter"] },
   { id: 7, name: "Gosia Delivery", role: "delivery_lead", roles: ["delivery_lead"] },
+  {
+    id: 14,
+    name: "Dorota Rekrutująca",
+    role: "delivery_lead",
+    roles: ["delivery_lead", "recruiter"],
+  },
   { id: 8, name: "Henryk Pokazowy", role: "head_of_recruitment", roles: ["head_of_recruitment"] },
   { id: 40, name: "Franek Finansowy", role: "finance", roles: ["finance"] },
 ];
@@ -213,8 +224,17 @@ describe("JobOwnershipPanel — kto widzi który przycisk", () => {
 
   it.each<[string, User, Record<keyof typeof JOBS, string[]>]>([
     [
-      "Delivery Lead przydziela, zmienia i dokłada ludzi; propozycji nie rozstrzyga",
+      "Delivery Lead przydziela, zmienia i dokłada ludzi; sam rekruterem nie zostaje i propozycji nie rozstrzyga",
       deliveryLead,
+      {
+        proposalOnly: ["Przypisz…"],
+        staffed: [...REMOVE_BOTH, "Zmień rekrutera", "+ Dodaj osobę"],
+        empty: ["Przypisz…"],
+      },
+    ],
+    [
+      "Delivery Lead z dodatkową rolą rekrutera też bierze i dołącza",
+      recruitingLead,
       {
         proposalOnly: ["Przypisz…", "Biorę"],
         staffed: [...REMOVE_BOTH, "Dołącz", "Zmień rekrutera", "+ Dodaj osobę"],
@@ -231,12 +251,12 @@ describe("JobOwnershipPanel — kto widzi który przycisk", () => {
       },
     ],
     [
-      "admin ma wszystko naraz",
+      "admin rozstrzyga i przydziela; bez roli rekrutera sam rekrutacji nie bierze",
       admin,
       {
-        proposalOnly: [...ACCEPT, "Przypisz…", "Biorę"],
-        staffed: [...REMOVE_BOTH, "Dołącz", "Zmień rekrutera", "+ Dodaj osobę"],
-        empty: ["Przypisz…", "Biorę"],
+        proposalOnly: [...ACCEPT, "Przypisz…"],
+        staffed: [...REMOVE_BOTH, "Zmień rekrutera", "+ Dodaj osobę"],
+        empty: ["Przypisz…"],
       },
     ],
     [
@@ -287,7 +307,7 @@ describe("JobOwnershipPanel — kto widzi który przycisk", () => {
 
   it("`can_staff` z serwera wygrywa z rolą — Delivery Lead spoza zakresu nie przydziela", () => {
     renderPanel({ ...JOBS.staffed, can_staff: false });
-    expect(actions()).toEqual(["Zdejmij Celina Wzorcowa", "Dołącz", "+ Dodaj osobę"]);
+    expect(actions()).toEqual(["Zdejmij Celina Wzorcowa", "+ Dodaj osobę"]);
   });
 
   // Przydział idzie za uprawnieniem „Rekrutacje: zakładanie, zamykanie,
@@ -315,7 +335,7 @@ describe("JobOwnershipPanel — kto widzi który przycisk", () => {
         effective_action_access: permissionSnapshot("delivery_view", "clients_edit"),
       },
     });
-    expect(actions()).toEqual(["Zdejmij Celina Wzorcowa", "Dołącz", "+ Dodaj osobę"]);
+    expect(actions()).toEqual(["Zdejmij Celina Wzorcowa", "+ Dodaj osobę"]);
   });
 
   it("`can_staff: true` nie daje przydziału bez zapisu w sekcji ani w podglądzie „jako”", () => {
@@ -561,6 +581,7 @@ describe("JobOwnershipPanel — zapisy", () => {
       expect.stringContaining("Celina Wzorcowa"),
       expect.stringContaining("Darek Makietowy"),
       expect.stringContaining("Tola Tacowa"),
+      expect.stringContaining("Dorota Rekrutująca"),
     ]);
 
     await user.click(screen.getByRole("option", { name: /Darek Makietowy/ }));
@@ -641,7 +662,7 @@ describe("JobOwnershipPanel — zapisy", () => {
     );
   });
 
-  it("„+ Dodaj osobę”: bez osób już pracujących i bez ról, które rekruterem nie zostają", async () => {
+  it("„+ Dodaj osobę”: bez osób już pracujących i bez ról, które rekruterem nie zostają — DL tylko z dodatkową rolą rekrutera (14.10.2026)", async () => {
     const user = userEvent.setup();
     renderPanel(JOBS.staffed, { as: headOfRecruitment });
 
@@ -651,7 +672,7 @@ describe("JobOwnershipPanel — zapisy", () => {
       expect.stringContaining("Anna Przykładowa"),
       expect.stringContaining("Darek Makietowy"),
       expect.stringContaining("Tola Tacowa"),
-      expect.stringContaining("Gosia Delivery"),
+      expect.stringContaining("Dorota Rekrutująca"),
     ]);
 
     await user.click(screen.getByRole("option", { name: /Anna Przykładowa/ }));

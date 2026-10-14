@@ -28,8 +28,9 @@ interface RecruiterPickerFieldProps {
  allowEmpty?: boolean;
 }
 
-const DEFAULT_ROLES: UserRole[] = ["admin","delivery_lead","recruiter",
-];
+// Lustro `_OWNERSHIP_ELIGIBLE_ROLES` (14.10.2026): rekruterem jest tylko rola
+// rekrutera, główna albo dodatkowa.
+const DEFAULT_ROLES: UserRole[] = ["recruiter"];
 
 /**
  * Combobox-style picker that loads active ownership-eligible users from

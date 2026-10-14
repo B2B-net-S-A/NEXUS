@@ -39,7 +39,12 @@ async def ownership_client() -> AsyncClient:
         yield c
 
 
-async def _seed_user(role: UserRole, prefix: str = "own") -> tuple[int, str, str]:
+async def _seed_user(
+    role: UserRole,
+    prefix: str = "own",
+    *,
+    extra_roles: tuple[UserRole, ...] = (),
+) -> tuple[int, str, str]:
     unique = uuid.uuid4().hex[:8]
     email = f"{prefix}-{role.value}-{unique}@example.com"
     password = f"T3st_{unique}!OWN"
@@ -50,6 +55,9 @@ async def _seed_user(role: UserRole, prefix: str = "own") -> tuple[int, str, str
             name=f"Own Test {role.value} {unique}",
             role=role,
             is_active=True,
+            # Rola główna zawsze w liście (niezmiennik modelu; Finanse wymaga
+            # tego CHECK-iem), dodatkowe po niej.
+            roles=[role.value, *(r.value for r in extra_roles)],
         )
         db.add(u)
         await db.commit()
@@ -241,6 +249,161 @@ async def test_assign_owner_rejects_read_only_user(ownership_client: AsyncClient
         json={"user_id": viewer_id},
     )
     assert resp.status_code == 409, resp.text
+
+
+# ── Rekruterem tylko rola rekrutera (decyzja Artura 14.10.2026) ──────────────
+# Do tej daty `/owner`, `/claim`, `/collaborators` i PATCH `recruiter_id`
+# przyjmowały Delivery Leada i admina bez roli rekrutera — DL-e lądowali
+# w roli „Rekruter” rekrutacji. DL, który sam rekrutuje, ma rekrutera jako rolę
+# dodatkową i przechodzi.
+
+_RECRUITER_ROLE_REQUIRED = (
+    "Rekruterem rekrutacji może być tylko osoba z rolą rekrutera."
+)
+
+
+async def _recruiter_id(job_id: int) -> int | None:
+    async with AsyncSessionLocal() as db:
+        job = await db.get(Job, job_id)
+        assert job is not None
+        return job.recruiter_id
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("role", [UserRole.delivery_lead, UserRole.admin])
+async def test_assign_owner_rejects_a_person_without_the_recruiter_role(
+    ownership_client: AsyncClient, role: UserRole
+):
+    _, admin_email, admin_pass = await _seed_user(UserRole.admin)
+    target_id, _, _ = await _seed_user(role)
+    job_id = await _seed_job()
+
+    headers = await _login(ownership_client, admin_email, admin_pass)
+    resp = await ownership_client.post(
+        f"/api/jobs/{job_id}/owner", headers=headers, json={"user_id": target_id}
+    )
+    assert resp.status_code == 409, resp.text
+    assert resp.json()["detail"] == _RECRUITER_ROLE_REQUIRED
+    assert await _recruiter_id(job_id) is None
+
+
+@pytest.mark.asyncio
+async def test_assign_owner_accepts_a_delivery_lead_with_the_recruiter_role(
+    ownership_client: AsyncClient,
+):
+    _, admin_email, admin_pass = await _seed_user(UserRole.admin)
+    dl_id, _, _ = await _seed_user(
+        UserRole.delivery_lead, extra_roles=(UserRole.recruiter,)
+    )
+    job_id = await _seed_job()
+
+    headers = await _login(ownership_client, admin_email, admin_pass)
+    resp = await ownership_client.post(
+        f"/api/jobs/{job_id}/owner", headers=headers, json={"user_id": dl_id}
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["recruiter_id"] == dl_id
+
+
+@pytest.mark.asyncio
+async def test_claim_as_delivery_lead_without_the_recruiter_role_forbidden(
+    ownership_client: AsyncClient,
+):
+    """„Biorę” przy rekrutacji bez rekrutera robił z DL-a jej Rekrutera."""
+    dl_id, dl_email, dl_pass = await _seed_user(UserRole.delivery_lead)
+    job_id = await _seed_job()
+    await _grant_dl_job_scope(dl_id, job_id)
+
+    headers = await _login(ownership_client, dl_email, dl_pass)
+    resp = await ownership_client.post(f"/api/jobs/{job_id}/claim", headers=headers)
+    assert resp.status_code == 403, resp.text
+    assert await _recruiter_id(job_id) is None
+
+
+@pytest.mark.asyncio
+async def test_claim_as_delivery_lead_with_the_recruiter_role_succeeds(
+    ownership_client: AsyncClient,
+):
+    dl_id, dl_email, dl_pass = await _seed_user(
+        UserRole.delivery_lead, extra_roles=(UserRole.recruiter,)
+    )
+    job_id = await _seed_job()
+    await _grant_dl_job_scope(dl_id, job_id)
+
+    headers = await _login(ownership_client, dl_email, dl_pass)
+    resp = await ownership_client.post(f"/api/jobs/{job_id}/claim", headers=headers)
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["primary_owner"]["id"] == dl_id
+
+
+@pytest.mark.asyncio
+async def test_collaborator_without_the_recruiter_role_is_rejected(
+    ownership_client: AsyncClient,
+):
+    """„+ Dodaj osobę” i „Kolejne osoby” w oknie edycji."""
+    _, admin_email, admin_pass = await _seed_user(UserRole.admin)
+    dl_id, _, _ = await _seed_user(UserRole.delivery_lead)
+    job_id = await _seed_job()
+
+    headers = await _login(ownership_client, admin_email, admin_pass)
+    resp = await ownership_client.post(
+        f"/api/jobs/{job_id}/collaborators", headers=headers, json={"user_id": dl_id}
+    )
+    assert resp.status_code == 409, resp.text
+    assert resp.json()["detail"] == _RECRUITER_ROLE_REQUIRED
+    listed = await ownership_client.get(
+        f"/api/jobs/{job_id}/collaborators", headers=headers
+    )
+    assert listed.status_code == 200, listed.text
+    assert listed.json() == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "role",
+    [
+        UserRole.delivery_lead,
+        UserRole.admin,
+        UserRole.finance,
+        UserRole.head_of_recruitment,
+    ],
+)
+async def test_edit_window_rejects_a_recruiter_without_the_recruiter_role(
+    ownership_client: AsyncClient, role: UserRole
+):
+    """Pole „Rekruter” w oknie edycji pokazywało wszystkie konta, a serwer
+    przyjmował też Finanse i Head of Recruitment."""
+    _, admin_email, admin_pass = await _seed_user(UserRole.admin)
+    target_id, _, _ = await _seed_user(role)
+    job_id = await _seed_job(status=JobStatus.published)
+
+    headers = await _login(ownership_client, admin_email, admin_pass)
+    resp = await ownership_client.patch(
+        f"/api/jobs/{job_id}", headers=headers, json={"recruiter_id": target_id}
+    )
+    assert resp.status_code == 400, resp.text
+    assert resp.json()["detail"] == "Rekruter: ta osoba nie ma odpowiedniej roli."
+    assert await _recruiter_id(job_id) is None
+
+
+@pytest.mark.asyncio
+async def test_edit_window_keeps_an_unchanged_owner_without_the_recruiter_role(
+    ownership_client: AsyncClient,
+):
+    """Rekrutacja sprzed 14.10.2026 z DL-em w polu „Rekruter” nadal się zapisuje —
+    okno odsyła niezmienione pole przy każdym zapisie (R8-X1-3)."""
+    _, admin_email, admin_pass = await _seed_user(UserRole.admin)
+    dl_id, _, _ = await _seed_user(UserRole.delivery_lead)
+    job_id = await _seed_job(recruiter_id=dl_id, status=JobStatus.published)
+
+    headers = await _login(ownership_client, admin_email, admin_pass)
+    resp = await ownership_client.patch(
+        f"/api/jobs/{job_id}",
+        headers=headers,
+        json={"recruiter_id": dl_id, "title": "Ownership-test Job zapis"},
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["recruiter_id"] == dl_id
 
 
 # ── Head of Recruitment i rola „Rekruter” (decyzje 02.10.2026) ───────────────

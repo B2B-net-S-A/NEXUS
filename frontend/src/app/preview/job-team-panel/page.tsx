@@ -236,8 +236,8 @@ function seededClient(): QueryClient {
   qc.setQueryData(categoryRecruitersQueryKey(CATEGORY_ID), CATEGORY_PEOPLE, SEED_FRESH);
   // Okno „Przypisz rekrutera” / „Zmień rekrutera” (`RecruiterPickerField`).
   qc.setQueryData(
-    ["users", "directory", "admin,delivery_lead,recruiter"],
-    DIRECTORY.filter((user) => user.role !== "head_of_recruitment"),
+    ["users", "directory", "recruiter"],
+    DIRECTORY.filter((user) => user.role === "recruiter"),
     SEED_FRESH,
   );
   // Hiring manager klienta pod kartą zespołu.

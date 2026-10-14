@@ -295,8 +295,8 @@ async def test_handoff_rejects_non_operational_recruiter(
     from app.models.user import User, UserRole
     from app.core.security import hash_password
 
-    # Finance jest od 19.08 rolą operacyjną (może być odbiorcą handoffu) —
-    # nie-operacyjnym odbiorcą pozostaje wycofywany viewer `user`.
+    # Od 14.10.2026 odbiorcą przekazania jest tylko rola rekrutera (główna albo
+    # dodatkowa) — viewer `user` dostaje odmowę jak każda inna rola.
     job_id = await _seed_job(champion=_READY_CHAMPION)
     async with AsyncSessionLocal() as db:
         viewer = User(

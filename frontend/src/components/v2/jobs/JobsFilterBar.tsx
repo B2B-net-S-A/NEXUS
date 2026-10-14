@@ -62,6 +62,7 @@ import {
   type JobSentFilterValue,
   type JobToSendFilterValue,
 } from "@/lib/jobs-url-filters";
+import { COLLABORATOR_ROLES } from "@/lib/job-collaborators";
 import { PRIORITY_LEVEL_OPTIONS, type PriorityLevel } from "@/lib/request-priority";
 import { hasRole, useAuthStore } from "@/store/auth";
 
@@ -410,6 +411,7 @@ export function JobsFilterBar({
           <UserMultiSelect
             value={value.workedBy.filter((id) => id !== meId)}
             onChange={(ids) => onPatch({ workedBy: meSelected && meId != null ? [meId, ...ids] : ids })}
+            onlyRoles={COLLABORATOR_ROLES}
             placeholder="Dowolna osoba"
             searchPlaceholder="Szukaj osoby…"
             triggerWidthClass="w-full"

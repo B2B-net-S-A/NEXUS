@@ -62,3 +62,10 @@ czysty start (reguła z audytu rundy 10, R10-N15-12 — odwrócona tą zmianą).
 - Testy: `JobsListV2Memory.test.tsx`, `lib/__tests__/jobs-list-memory.test.ts`,
   `e2e/responsive-preview.spec.ts` („ostatnie filtry wracają po wyjściu” —
   jedyne miejsce, które sprawdza to na prawdziwym routerze).
+- **Pusty wynik poprzednich filtrów to ładowanie, nie „nic nie pasuje”
+  (14.10.2026).** Lista trzyma poprzednią stronę do czasu odpowiedzi
+  (`keepPreviousData`). Otwarta z dwoma zapamiętanymi filtrami („Rekruter: X”
+  + „Umowa” = 0) po zdjęciu jednego mówiła „Żadna rekrutacja nie pasuje do
+  filtrów”, dopóki serwer — restartowany przy wdrożeniu — nie odpowiedział,
+  choć X miał 6 otwartych rekrutacji. `JobsListV2`: `isPlaceholderData`
+  z pustą listą = `isLoading`. Pilnuje test w `JobsListV2QuickFilters.test.tsx`.

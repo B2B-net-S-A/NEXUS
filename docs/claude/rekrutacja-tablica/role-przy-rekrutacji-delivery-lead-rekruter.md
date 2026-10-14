@@ -111,6 +111,37 @@ tylko `recruiter_id`), a Head of Recruitment nie mógł zmienić rekrutera.
   o propozycjach, zostają przy roli. `GET /api/jobs/{id}` niesie `can_staff` i `can_set_priority`
   (Delivery Lead tylko w swoim zakresie). Head of Recruitment sam nie może być
   rekruterem (`_OWNERSHIP_ELIGIBLE_ROLES` bez zmian).
+- **Rekruterem jest tylko rola rekrutera — główna albo dodatkowa (decyzja
+  Artura 14.10.2026).** Zgłoszenie „Delivery Leadzi wpisani jako rekruterzy”:
+  `/owner`, `/claim`, `/collaborators`, PATCH `recruiter_id`, `/jobs/new`,
+  przekazanie i ponowne otwarcie przyjmowały admina i DL-a (część także
+  Finanse i Head of Recruitment), a pole „Rekruter” w oknie edycji pokazywało
+  wszystkie konta. Teraz jedna lista `_OWNERSHIP_ELIGIBLE_ROLES` = `job_team.WORK_ROLES`
+  (`api/jobs.py`, lustro `COLLABORATOR_ROLES` + `hasRecruiterRole` w
+  `lib/job-collaborators.ts`): odmowa 409/403/400/422 z jednym zdaniem
+  „Rekruterem rekrutacji może być tylko osoba z rolą rekrutera.”; DL i admin
+  bez tej roli nie widzą „Biorę” / „Dołącz”, nie ma ich w „Zmień rekrutera”,
+  „+ Dodaj osobę”, „Kolejnych osobach”, polu „Rekruter” okna edycji ani
+  w filtrze „Rekruter” listy. DL, który sam rekrutuje, dostaje rekrutera jako
+  rolę dodatkową w „Osoby i role” (tak mają konta, którym 0411 zamieniło TAC
+  na rekrutera — Artur: „oni są też rekruterami”). Okno edycji zapisuje
+  niezmienione pole z dawnym DL-em bez odmowy (walidacja tylko przy zmianie).
+- **„Otwórz ponownie” z zachowaniem zespołu (14.10.2026,
+  `reopen_keep_team_core`)** robi dwie rzeczy przed otwarciem:
+  `job_team.settle_team_without_recruiter_role` zdejmuje z pola „Rekruter”
+  i z „Kolejnych osób” konta bez roli rekrutera (DL idzie na wolne miejsce
+  Delivery Leada, wpisanego przez człowieka nie rusza) — w zamkniętych
+  rekrutacjach z Traffita w polu „Rekruter” siedzi „osoba odpowiedzialna”
+  (14.10: 1 017 z DL-em, 158 z adminem, 53 z Finansami), a 13.10 DL otworzyła
+  tak dwie rekrutacje Credit Agricole i stała przy nich jako rekruterka;
+  `job_team.restore_members_released_at_close` przywraca osoby, którym samo
+  zamknięcie zwolniło przypisanie (`release_reason = 'finished'` od ostatniego
+  wpisu `closed`) — trwały wpis jak przy ręcznym dopisaniu i dzwonek „Nowy
+  request do pracy”. Prośba Artura: po otwarciu te same osoby co przed
+  zamknięciem. Wpis `handed_off_to_search` niesie `owner_without_recruiter_role`,
+  `collaborators_without_recruiter_role` i `restored_member_ids`. Okno
+  ponownego otwarcia nie obiecuje „zostaje bez zmian” przy osobie bez roli
+  rekrutera.
 - **Automat PROPONUJE, człowiek akceptuje.** Tryb `shadow`
   (`recruitment_allocation_state.mode`) zakłada najwyżej jedną propozycję na
   request bez Rekrutera; do akceptacji nikt nie jest przypisany ani
