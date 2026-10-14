@@ -39,6 +39,20 @@ Makiety i decyzje: https://claude.ai/artifact/BZZRshjBDC4CMEGGP6m4Wr. PR 3 z 4
   z `dismissed_blocking` > 0, a przegląd DL pokazuje ryzyko `qc_dismissed`.
   Zwrot karty przywraca pominięcia blokad osób bez prawa wysyłki — jak
   obejście doradcze (`api/pipeline._spend_advisory_qc_override_on_return`).
+- **Zwrot karty a zapisany przebieg (14.10.2026).** Audyt 13.10 pokazał, że po
+  zwrocie karty plakietka, przegląd DL i kolejka DL mówiły „przepuszczone”, aż
+  ktoś otworzył okno QC: zwrot przywraca pominięcia, ale QC nie liczy się od
+  nowa. Teraz `cv_qc.pair_statuses` porównuje `dismissed_blocking` przebiegu
+  z trwającymi pominięciami blokad pary — gdy część przywrócono, para jest
+  `failed`, a `blocking_failed` to liczba przywróconych. Kto traci pominięcie,
+  rozstrzyga prawo wysyłki z bazy („Osoby i role”, `resolve_effective_access`
+  w `restore_on_card_return`), nie domyślny zestaw roli — do 13.10 rekruter
+  z nadanym prawem je tracił, a DL z odebranym zachowywał. Porównanie
+  przeglądu DL (D10, `dl_review.build_queue`) nazywa pominięcia `qc_dismissed`
+  jak okno osoby. Testy: `test_fix48_ws11_card_return.py`,
+  `test_fix48_ws11_qc_override_rule.py`, `test_fix48_ws11_qc_pair_status.py`,
+  `test_fix48_ws11_dl_review_queue.py`, `test_fix48_ws11_qc_quality.py`
+  (progi automatu).
 - **Pominięcie roli krytycznej nie ukrywa braku w całym CV.** Pozycja roli
   krytycznej nieobecnej w CV ma `absent_in_cv`; po jej pominięciu wraca
   pozycja „Brak w CV” dla całego CV.

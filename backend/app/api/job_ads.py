@@ -150,13 +150,22 @@ async def generate_portal_ad(
 
     Model liczy od kilku sekund do minuty. Zapis jest więc warunkowy: jeśli
     w tym czasie ktoś zapisał poprawkę albo przygotował ogłoszenie, nowa
-    treść przepada z 409 zamiast po cichu zastąpić cudzą pracę.
+    treść przepada z 409 zamiast po cichu zastąpić cudzą pracę. Istniejące
+    ogłoszenie zastępuje się tylko z wersją, którą okno miało na ekranie.
     """
     job = await _load_job(db, current_user, job_id)
     mat = await _material(db, job)
     before = await db.get(JobAd, job_id)
     existed = before is not None
     seen = before.updated_at if before is not None else None
+    if existed and data.expected_updated_at is None:
+        # Okno bez wersji myśli, że ogłoszenia nie ma (pierwsze „Przygotuj”),
+        # a ktoś je w tym czasie przygotował. Bez tej odmowy druga osoba
+        # zastępowała poprawioną treść pierwszej (audyt 13.10.2026).
+        raise _changed(
+            "Ktoś w międzyczasie przygotował to ogłoszenie. Wczytałem je — "
+            "sprawdź treść, zanim przygotujesz ją ponownie."
+        )
     if (
         data.expected_updated_at is not None
         and seen is not None

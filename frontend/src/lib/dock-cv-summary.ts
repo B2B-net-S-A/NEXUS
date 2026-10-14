@@ -35,6 +35,8 @@ export interface DockProfileCvDoc {
   is_primary: boolean;
   uploaded_at: string | null;
   created_at: string;
+  /** Plik oznaczony jako nieaktualny — serwer nie bierze go jako bieżącego CV. */
+  outdated_at?: string | null;
 }
 
 export type DockOriginalCv =
@@ -200,10 +202,11 @@ const NEWER_MARGIN_MS = 60_000;
  * Plik, który serwer skopiuje jako CV rekrutacji (`get_current_cv`): tylko
  * PDF, DOC i DOCX, najpierw główne, potem najnowsze. Główne CV w TXT czy ODT
  * nie trafia do kopii — przegląd kodu 13.10.2026: ramka obiecywała plik,
- * którego „Użyj w tej rekrutacji” nie kopiowało.
+ * którego „Użyj w tej rekrutacji” nie kopiowało. Plik „nieaktualny” też nie
+ * (`cv_source.current_cv_filters`, audyt 13.10.2026).
  */
 export function stageCopySource<T extends DockProfileCvDoc>(docs: readonly T[]): T | null {
-  const usable = docs.filter((d) => /\.(pdf|docx?)$/i.test(d.filename));
+  const usable = docs.filter((d) => /\.(pdf|docx?)$/i.test(d.filename) && !d.outdated_at);
   const at = (d: T) => Date.parse(d.uploaded_at ?? d.created_at) || 0;
   return [...usable].sort((a, b) => Number(b.is_primary) - Number(a.is_primary) || at(b) - at(a))[0] ?? null;
 }

@@ -8,6 +8,7 @@
 // z pamięci, bo podgląd nie ma sieci.
 
 import api from "@/lib/api";
+import { SLOW_ENDPOINT_TIMEOUT_MS } from "@/lib/http-timeouts";
 
 export type CvAiAction = "shorten" | "expand" | "rephrase" | "proofread" | "translate";
 
@@ -53,10 +54,10 @@ export interface CvAiResponse {
   action: string;
   /** `**tekst**` = pogrubienie — edytor zamienia je na znacznik, nigdy na HTML. */
   proposed_text: string | null;
-  /** Rozwinięcie oparte na cytacie, który serwer znalazł w źródle. */
+  /** Rozwinięcie oparte na cytacie, który serwer znalazł w źródle, bez słów spoza fragmentu i cytatu. */
   verified: boolean;
   sources: CvAiSource[];
-  /** Nowe nazwy w tłumaczeniu, które warto sprawdzić. */
+  /** Nowe nazwy w tłumaczeniu i nowe słowa z wielkiej litery na początku zdania — do sprawdzenia. */
   cautions: string[];
   reason: string | null;
   problem: string | null;
@@ -69,6 +70,12 @@ export interface CvEditorAiApi {
 }
 
 export const networkAiApi: CvEditorAiApi = {
+  // Po drugiej stronie liczy model — sufit dla LLM, nie CRUD-owe 30 s
+  // (zerwane żądanie i tak kosztuje wywołanie modelu).
   propose: (stageId, body) =>
-    api.post<CvAiResponse>(`/api/pipeline/stages/${stageId}/cv-ai/selection`, body).then((r) => r.data),
+    api
+      .post<CvAiResponse>(`/api/pipeline/stages/${stageId}/cv-ai/selection`, body, {
+        timeout: SLOW_ENDPOINT_TIMEOUT_MS,
+      })
+      .then((r) => r.data),
 };

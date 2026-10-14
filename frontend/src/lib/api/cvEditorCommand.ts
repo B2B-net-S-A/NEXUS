@@ -8,6 +8,7 @@
  */
 
 import api from "@/lib/api";
+import { SLOW_ENDPOINT_TIMEOUT_MS } from "@/lib/http-timeouts";
 
 export type CvLineKind = "title" | "heading" | "role" | "employer" | "label" | "technologies" | "bullet" | "text";
 
@@ -75,6 +76,12 @@ export interface CvEditorCommandApi {
 }
 
 export const networkCommandApi: CvEditorCommandApi = {
+  // Serwer czeka na plan do 60 s (`cv_command_ai._call_model`) — CRUD-owe 30 s
+  // zrywało żądanie, a model i tak liczył i kosztował.
   plan: (stageId, body) =>
-    api.post<CvCommandResponse>(`/api/pipeline/stages/${stageId}/cv-ai/command`, body).then((response) => response.data),
+    api
+      .post<CvCommandResponse>(`/api/pipeline/stages/${stageId}/cv-ai/command`, body, {
+        timeout: SLOW_ENDPOINT_TIMEOUT_MS,
+      })
+      .then((response) => response.data),
 };

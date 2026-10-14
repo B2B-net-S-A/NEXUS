@@ -365,7 +365,7 @@ Traffit, COMPASS, CloudTalk, kalendarz i rozmowy u klienta, prepy w Teams, archi
 - `kalendarz-rozmowy-u-klienta.md` — Kalendarz = „Rozmowy u klienta” (0338, 22.09.2026)
 - `prepy-w-teams-transkrypt-notatka-i-ocena-prepu.md` — Prepy w Teams → transkrypt, notatka i ocena prepu (0370, 23.09.2026)
 - `przeniesienie-rekrutacji-z-traffita-falami.md` — Przeniesienie rekrutacji z Traffita do NEXUSA falami (11.10.2026) · próba i wykonanie fali, lista osób per stan jako źródło prawdy, remis czasu wpisów historii, osoby zdjęte w Traffit, bliźniaki, scalenie duplikatów, skutki otwarcia
-- `traffit-daily-sync-scheduled-import.md` — Traffit daily sync (scheduled import) · wyłączony 12.10.2026 (zespół pracuje tylko w NEXUSIE) — co stoi, co zostało tylko w Traffit, jak zrobić ostatni import
+- `traffit-daily-sync-scheduled-import.md` — Traffit daily sync (scheduled import) · wyłączony na stałe 14.10.2026 (strażnik `traffit_retired.py`, 410, pętle nie startują) — co stoi, co zostało tylko w Traffit
 
 ### Programy — `docs/claude/programy/`
 

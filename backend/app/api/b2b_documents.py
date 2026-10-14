@@ -36,6 +36,7 @@ from app.api.b2b_contract_generator import (
     _DOCX_MEDIA,
     _ascii_filename,
     _assert_generator_client_access,
+    _assert_link_same_person,
     _assert_signature_client_access,
     _generated_search_clause,
     _generator_unscoped,
@@ -49,6 +50,7 @@ from app.api.b2b_contract_generator import (
     _require_signature_confirmation,
     _scope_generator_query,
     _validate_candidate_job_link,
+    apply_contract_link,
 )
 from app.api.contract_access import (
     B2BGeneratorAccess,
@@ -627,12 +629,79 @@ async def _load_subject_contract(
     return contract
 
 
+async def _reject_contract_with_own_agreement(
+    db: AsyncSession, contract_id: int
+) -> None:
+    """Kontrakt z żywą umową w rejestrze dostaje aneks przez tę umowę.
+
+    Wyszukiwarka osoby (``document_subjects``) takiego kontraktu nie pokazuje,
+    ale trasy przyjmowały go samym ``contract_id`` — aneks omijał wtedy wiersz
+    rejestru i kolejkę „Aneks uzupełnienia danych” (audyt 13.10.2026)."""
+    number = await db.scalar(
+        select(B2BGeneratedContract.contract_number)
+        .where(
+            B2BGeneratedContract.contract_id == contract_id,
+            B2BGeneratedContract.contract_status.in_(_LIVE_AGREEMENT_STATUSES),
+        )
+        .limit(1)
+    )
+    if number is not None:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"Ten kontrakt ma umowę w rejestrze ({number}) — przygotuj aneks "
+                "do tej umowy, wtedy zmieni się też wiersz rejestru."
+            ),
+        )
+
+
+_ANNEX_LINK_OTHER_PERSON = (
+    "Kontrakt dotyczy innej osoby niż aneks. Jeśli to ta sama osoba zapisana "
+    "w dwóch rekordach, najpierw scal duplikaty kandydata (profil → „Scal z…”)."
+)
+_ANNEX_LINK_OTHER_CLIENT = (
+    "Kontrakt jest u innego klienta niż aneks — wybierz kontrakt u klienta "
+    "aneksu albo przygotuj nowy aneks."
+)
+
+
+async def _assert_annex_link_same_subject(
+    db: AsyncSession, doc: B2BContractDocument, contract: Contract
+) -> None:
+    """Powiązanie nie przenosi aneksu na inną osobę ani do innego klienta.
+
+    Do 14.10.2026 „Powiąż z kontraktem” przy aneksie bez umowy w rejestrze
+    sprawdzało tylko dostęp wołającego, a potem nadpisywało osobę i klienta
+    dokumentu kontraktem — podpis zapisywał firmę, NIP i stawkę z aneksu
+    osoby A w kontrakcie osoby B (audyt 13.10.2026, pkt 7). Osobę porównujemy
+    jak „Powiąż z kontraktem” w rejestrze umów (zdublowany rekord tej samej
+    osoby przechodzi), klienta — jak aneks do umowy z rejestru. Aneks „Bez
+    kontraktu” nie zna osoby; zna klienta, przy którym go zapisano. Scalenie
+    klientów nie przenosi dokumentów generatora, więc duplikat wiąże się
+    z kontraktem klienta kanonicznego."""
+    if doc.client_id is not None and doc.client_id != contract.client_id:
+        client = await db.get(Client, doc.client_id)
+        if getattr(client, "merged_into_client_id", None) != contract.client_id:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT, detail=_ANNEX_LINK_OTHER_CLIENT
+            )
+    try:
+        # Porównuje wyłącznie ``candidate_id`` — dokument ma tę samą kolumnę
+        # co wiersz rejestru.
+        await _assert_link_same_person(db, doc, contract)
+    except HTTPException as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=_ANNEX_LINK_OTHER_PERSON
+        ) from exc
+
+
 async def _lock_parent_linking_contract(
     db: AsyncSession,
     parent: B2BGeneratedContract,
     picked_contract_id: int | None,
     *,
     may_link: bool,
+    user_id: int | None,
 ) -> tuple[B2BGeneratedContract, int | None]:
     """Zablokuj wiersz umowy bazowej; umowę bez kontraktu dowiąż do kontraktu
     tej osoby u tego klienta. Zwraca wiersz i id właśnie dowiązanego kontraktu.
@@ -648,7 +717,12 @@ async def _lock_parent_linking_contract(
     ``may_link`` = wołający prowadzi kontrakty tego klienta
     (``_binds_contracts`` + portfel). Bez tego aneks powstaje, a wiersz zostaje
     bez kontraktu — dowiązanie jest zapisem w Delivery, nie skutkiem ubocznym
-    wygenerowania dokumentu przez dowolnego użytkownika generatora."""
+    wygenerowania dokumentu przez dowolnego użytkownika generatora.
+
+    Dowiązanie idzie rdzeniem „Powiąż z kontraktem” z rejestru umów
+    (``apply_contract_link``): kontrakt dostaje numer umowy, a oś czasu umowy
+    i kontraktu — wpis. Do 14.10.2026 ustawialiśmy samo ``contract_id``
+    (audyt 13.10.2026)."""
     target: int | None = None
     if parent.contract_id is None and not may_link:
         if picked_contract_id is not None:
@@ -689,7 +763,8 @@ async def _lock_parent_linking_contract(
         )
     locked = await _load_parent(db, parent.id, lock=True)
     if target is not None and locked.contract_id is None:
-        locked.contract_id = target
+        contract = await db.get(Contract, target)
+        await apply_contract_link(db, locked, contract, user_id=user_id)
         return locked, target
     return locked, None
 
@@ -821,6 +896,7 @@ async def _serialize(
             )
         )
         void_contracts = set(found_void.all())
+    live_scans = await signed_scan.existing_scan_ids(db, rows)
     rate_visibility = await _rate_visibility(
         db,
         user,
@@ -961,7 +1037,13 @@ async def _serialize(
                     )
                 ),
                 cancelled_reason=row.cancelled_reason,
-                signed_scan_document_id=signed_scan.signed_scan_id(row),
+                # Skan usunięty z Dokumentów kontraktu (albo z kontraktem) to
+                # brak skanu, nie „Podmień skan”.
+                signed_scan_document_id=(
+                    scan_id
+                    if (scan_id := signed_scan.signed_scan_id(row)) in live_scans
+                    else None
+                ),
             )
         )
     return items
@@ -1638,6 +1720,10 @@ async def create_document(
     doc_type = _type_or_422(request.document_type)
     language = _language(doc_type, request.language)
     parent, base, links = await _resolve_subject(db, current_user, doc_type, request)
+    if parent is None and links["contract_id"] is not None:
+        # Tu, nie w `_load_subject_contract`: podgląd i „Popraw” (prefill)
+        # dzielą tamtą funkcję, a kontrakt mógł dostać umowę już po aneksie.
+        await _reject_contract_with_own_agreement(db, links["contract_id"])
     values = await _resolve_rate_clients(db, request.values)
     _validate_values(doc_type, values, base, request.refs)
     if parent is None and links["client_id"] is None and _takes_contract(doc_type):
@@ -1668,6 +1754,7 @@ async def create_document(
                 parent.client_id,
                 await resolve_delivery_lead_client_ids(current_user, db),
             ),
+            user_id=current_user.id,
         )
         links["contract_id"] = parent.contract_id
     elif parent is not None and doc_type.allows_external:
@@ -2302,7 +2389,14 @@ async def link_document_contract(
                     "albo ma już własną umowę w rejestrze."
                 ),
             )
-        parent.contract_id = body.contract_id
+        # Rdzeń „Powiąż z kontraktem” z rejestru umów: numer umowy na
+        # kontrakcie i wpis na osi czasu (audyt 13.10.2026).
+        await apply_contract_link(
+            db,
+            parent,
+            await db.get(Contract, body.contract_id),
+            user_id=current_user.id,
+        )
         doc.contract_id = body.contract_id
     else:
         if not _takes_contract(doc_type):
@@ -2323,6 +2417,8 @@ async def link_document_contract(
         contract = await _load_subject_contract(
             db, current_user, doc_type, body.contract_id
         )
+        await _assert_annex_link_same_subject(db, doc, contract)
+        await _reject_contract_with_own_agreement(db, contract.id)
         doc.contract_id = contract.id
         doc.candidate_id = contract.candidate_id
         doc.job_id = contract.job_id

@@ -6654,8 +6654,23 @@ async def contract_timeline(
 
     items: list[ContractTimelineItem] = []
 
-    for note, author_email in notes_res.all():
-        items.append(_note_timeline_item(note, author_email, viewer=current_user))
+    # Decyzja C (14.10.2026): notatka DL-a z wysyłki („Wysłany 150/100-110”)
+    # niesie cenę dla klienta — zakryta jak w profilu kandydata.
+    from app.api.candidate_access import hidden_send_note_ids
+
+    note_rows = notes_res.all()
+    send_ids = await hidden_send_note_ids(
+        db, current_user, [note.id for note, _ in note_rows]
+    )
+    for note, author_email in note_rows:
+        items.append(
+            _note_timeline_item(
+                note,
+                author_email,
+                viewer=current_user,
+                send_note=note.id in send_ids,
+            )
+        )
 
     for call, author_email in calls_res.all():
         items.append(
@@ -6682,18 +6697,23 @@ async def contract_timeline(
 
 
 def _note_timeline_item(
-    note: Note, author_email: Optional[str], *, viewer: Optional[User] = None
+    note: Note,
+    author_email: Optional[str],
+    *,
+    viewer: Optional[User] = None,
+    send_note: bool = False,
 ) -> ContractTimelineItem:
     # Notatka kontraktu niesie też candidate_id — w profilu kandydata wpis
     # o stawce do klienta (0412) jest zakryty, więc na osi kontraktu też
     # (podgląd Delivery da się nadać rekruterowi). Audyt 05.10.2026.
+    # `send_note` — notatka DL-a z wysyłki (decyzja C, 14.10.2026).
     from app.api.candidate_access import visible_note_content
 
     return ContractTimelineItem(
         id=note.id,
         kind="note",
         at=note.created_at,
-        content=visible_note_content(viewer, note)
+        content=visible_note_content(viewer, note, send_note=send_note)
         if viewer is not None
         else note.content,
         sub_type=note.note_type.value

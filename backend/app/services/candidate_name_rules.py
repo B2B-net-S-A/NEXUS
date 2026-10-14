@@ -33,9 +33,13 @@ import re
 from typing import Optional
 
 NAME_MARKER_ERROR_TYPE = "candidate_name_marker"
+# Nazwy pól jak w oknach „Dodaj kandydata” / „Edytuj dane” (AppShell). Pole
+# „Dostępność” jest tam datą — zdanie kierowało do niego „szuka aktywnie”
+# (audyt 13.10.2026).
 _NAME_MARKER_MESSAGE = (
     "Imię i nazwisko bez dopisków w nawiasie. „Szuka aktywnie” ustaw w polu "
-    "Dostępność, czarną listę w polu Status — zatrudnienie widać samo z umowy."
+    "Dyspozycyjność („Aktywnie szuka pracy”), czarną listę — w polu Status "
+    "(„Zablokowany”); zatrudnienie widać samo z umowy."
 )
 
 
@@ -136,10 +140,22 @@ _BLACKLIST_WORD_RE = re.compile(
     r"[\[(/]?\s*" + _BLACKLIST_ONLY + r"\s*[\])/]",
     re.IGNORECASE,
 )
+# Wewnątrz ZDJĘTEGO dopisku ogranicznik już był (nawias z kilkoma słowami:
+# „(dodany do czarnej listy przez klienta)”), więc wystarcza słowo. Do
+# 14.10.2026 taki nawias znikał z imienia, a status zostawał „aktywny”.
+_BLACKLIST_IN_MARKER_RE = re.compile(
+    r"(?<![" + _LETTER + r"])" + _BLACKLIST_ONLY, re.IGNORECASE
+)
 
 # „Szuka aktywnie” — granica literowa odcina „inactive” i „nieaktywny”.
 _ACTIVE_WORD_RE = re.compile(
     r"(?<![" + _LETTER + r"])(active|aktywn" + _TAIL + r")(?![" + _LETTER + r"])",
+    re.IGNORECASE,
+)
+# „(nie aktywny)”, „[not active]”, „(non-active)” to zaprzeczenie — przed
+# 14.10.2026 dawały „szuka aktywnie”.
+_NEGATED_ACTIVE_RE = re.compile(
+    r"(?<![" + _LETTER + r"])(nie|not|non|no)[\s\-]*(active|aktywn" + _TAIL + r")",
     re.IGNORECASE,
 )
 
@@ -285,19 +301,35 @@ def without_name_markers(value: Optional[str]) -> Optional[str]:
     return cleaned
 
 
-def has_blacklist_marker(*values: Optional[str]) -> bool:
-    """Czy którekolwiek z pól niesie dopisek czarnej listy (w dowolnym zapisie)."""
+def _has_blacklist(value: Optional[str]) -> bool:
+    if not value or len(value) > MAX_SCANNED_NAME_LENGTH:
+        return False
+    if _BLACKLIST_WORD_RE.search(value) is not None:
+        return True
     return any(
-        value
-        and len(value) <= MAX_SCANNED_NAME_LENGTH
-        and _BLACKLIST_WORD_RE.search(value) is not None
-        for value in values
+        _BLACKLIST_IN_MARKER_RE.search(marker)
+        for marker in strip_name_markers(value)[1]
     )
 
 
+def has_blacklist_marker(*values: Optional[str]) -> bool:
+    """Czy którekolwiek z pól niesie dopisek czarnej listy (w dowolnym zapisie).
+
+    Przyjmuje surowe imię/nazwisko (import, mapper Traffita) albo zdjęte już
+    dopiski (korekta 0436) — także wielowyrazowy nawias z „czarną listą”.
+    """
+    return any(_has_blacklist(value) for value in values)
+
+
 def has_active_marker(markers: list[str]) -> bool:
-    """Czy wśród zdjętych dopisków jest „szuka aktywnie” (active / aktywny)."""
-    return any(_ACTIVE_WORD_RE.search(marker) for marker in markers)
+    """Czy wśród zdjętych dopisków jest „szuka aktywnie” (active / aktywny).
+
+    Zaprzeczenie („nie aktywny”, „not active”) nie jest „szuka aktywnie”.
+    """
+    return any(
+        _ACTIVE_WORD_RE.search(_NEGATED_ACTIVE_RE.sub(" ", marker))
+        for marker in markers
+    )
 
 
 def strip_employment_marker(value: str) -> str:

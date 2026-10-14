@@ -545,7 +545,8 @@ export interface BoardTasksResponse {
   /** Twoje niedokończone formularze nowej rekrutacji. */
   unfinished_forms?: UnfinishedJobForm[] | null;
   /** Porządki wymagań otwartych rekrutacji — DL swoich, HoR i admin wszystkich. */
-  requirement_fixes?: RequirementFixRow[];
+  /** `null` = serwer nie policzył listy (awaria), `[]` = nic do poprawy. */
+  requirement_fixes?: RequirementFixRow[] | null;
   /** Umowy z Generatora do potwierdzenia albo zamknięcia (04.10.2026).
    *  `null`/brak = serwer jej nie policzył albo starszy backend. */
   agreements?: AgreementTasks | null;

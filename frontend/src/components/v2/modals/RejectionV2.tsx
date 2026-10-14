@@ -109,6 +109,9 @@ interface Props {
  /** Rekrutacja i odrzucane osoby — podgląd maila odrzucenia przed wysyłką
   *  (13.10.2026). Bez propu okno pokazuje sam checkbox. */
  emailPreview?: RejectionEmailPeople | null;
+ /** Zapis ruchu w toku — „Potwierdź” zablokowany, bo drugi klik wysłałby
+  *  drugi ruch (z panelu osoby już przy następnej osobie; audyt 13.10.2026). */
+ pending?: boolean;
 }
 
 const EMAIL_STATE_IDLE: RejectionEmailFieldState = {
@@ -138,6 +141,7 @@ export function RejectionV2({
  subject = null,
  nextPerson,
  emailPreview = null,
+ pending = false,
 }: Props) {
  // Notatkę startową czytamy tylko przy otwarciu (efekt resetu niżej) —
  // zmiana propa przy otwartym oknie nie kasuje tego, co ktoś już wpisał.
@@ -241,6 +245,7 @@ export function RejectionV2({
  };
 
  const submitDisabled =
+ pending ||
  (hasReasons ? !reasonId : !freeReason.trim()) ||
  (offerResponseRequired && !offerResponse) ||
  (emailAvailable && sendEmail && emailState.invalid);

@@ -155,7 +155,9 @@ from app.services.scoring_service import (
 from app.services.employment_marker import (
     ContractRow,
     SignalRow,
+    current_hired_signal_exists,
     ending_soon_exists,
+    hire_closed_by_contract,
     markers_from_rows,
     rows_from_candidate,
 )
@@ -176,7 +178,6 @@ from app.services.candidate_search_predicates import (
     business_date_range,
 )
 from app.services.pipeline_eligibility import assert_candidate_move_eligible
-from app.services.pipeline_latest import current_hired_stage_exists
 from app.services.text_cleaning import clean_rich_text
 from app.services.note_mention_render import (
     build_traffit_user_label_map,
@@ -198,6 +199,7 @@ from app.api.candidate_access import (
     client_rate_write_allowed,
     client_rate_write_denied,
     resolve_client_rate_write,
+    hidden_send_note_ids,
     note_content_hidden,
     note_rate_visibility_clause,
     user_can_view_client_rate,
@@ -601,6 +603,42 @@ def _format_note_preview(raw: str, max_chars: int = _NOTE_PREVIEW_MAX_CHARS) -> 
     return text_only[: max_chars - 1].rstrip() + "…"
 
 
+def _list_note_preview(viewer: User, row: Any, send_ids: frozenset[int]) -> str:
+    """Podgląd notatki na liście („Ostatnia rozmowa”, „ostatnia notatka”).
+
+    ``row`` niesie ``id``, ``kind``, ``author_id`` i ``content``. Notatka DL-a
+    z wysyłki (``send_ids`` z ``hidden_send_note_ids``) dostaje zdanie
+    zastępcze jak w Historii profilu — decyzja C, 14.10.2026.
+    """
+    return _format_note_preview(
+        visible_note_content(viewer, row, send_note=row.id in send_ids) or ""
+    )
+
+
+def _snippet_notes_by_candidate(
+    viewer: User, rows: Sequence[Any], send_ids: frozenset[int]
+) -> dict[int, list[str]]:
+    """Treści notatek do wycinków wyszukiwania, bez zakrytych dla ``viewer``.
+
+    Wycinek nie ma zdania zastępczego, więc notatka DL-a z wysyłki (decyzja C,
+    14.10.2026) po prostu nie jest jego źródłem — jak wpis ``dl_rate``
+    (``note_rate_visibility_clause`` w zapytaniu).
+    """
+    out: dict[int, list[str]] = {}
+    for row in rows:
+        if row.candidate_id is None or not row.content:
+            continue
+        if note_content_hidden(
+            viewer,
+            kind=row.kind,
+            author_id=row.author_id,
+            send_note=row.id in send_ids,
+        ):
+            continue
+        out.setdefault(row.candidate_id, []).append(row.content)
+    return out
+
+
 def _format_rejection_reason(
     *,
     reason_name: Optional[str],
@@ -708,8 +746,13 @@ def _at_client_predicate():
     `candidate_stages` is append-only history, so "currently hired" means a
     `hired` row with no later move for the same job (mirrored in
     `_derive_employment`; the SQL rule lives in
-    `pipeline_latest.current_hired_stage_exists`). Drives the inverse
+    `employment_marker.current_hired_signal_exists`). Drives the inverse
     `employment=available` filter too, via `not_(_at_client_predicate())`.
+
+    Od 14.10.2026 to sygnał znacznika „Pracuje u nas”: „Zatrudniony” u klienta,
+    u którego umowa osoby skończyła się po zatrudnieniu i żadna inna nie trwa
+    (`hire_closed_by_contract`), już się nie liczy — do tej pory filtr
+    i znacznik sobie przeczyły (audyt 13.10, pkt 13).
     """
     contract_exists = (
         select(1)
@@ -732,7 +775,7 @@ def _at_client_predicate():
         )
         .exists()
     )
-    hired_latest_exists = current_hired_stage_exists(Candidate.id)
+    hired_latest_exists = current_hired_signal_exists(Candidate.id)
     return or_(contract_exists, conflict_exists, hired_latest_exists)
 
 
@@ -1039,13 +1082,24 @@ def _derive_employment(candidate: Candidate) -> EmploymentInfo:
     # Pipeline signal: candidate currently sits at `hired` in some recruitment.
     # `candidate_stages` is append-only history, so "current" = the latest row
     # per job. Mirrors the hired-latest clause in `_at_client_predicate`.
+    # „Zatrudniony” zamknięty umową u tego klienta (skończyła się po
+    # zatrudnieniu, żadna inna nie trwa) to historia — jak w znaczniku
+    # (`rows_from_candidate`); do 14.10.2026 były konsultant był tu
+    # „zatrudniony” na zawsze (audyt 13.10, pkt 13).
     latest_stage_by_job: dict[int, CandidateStage] = {}
     for st in candidate.pipeline_stages or []:
         cur = latest_stage_by_job.get(st.job_id)
         if cur is None or (st.moved_at, st.id) > (cur.moved_at, cur.id):
             latest_stage_by_job[st.job_id] = st
     hired_now = [
-        st for st in latest_stage_by_job.values() if st.stage == PipelineStage.hired
+        st
+        for st in latest_stage_by_job.values()
+        if st.stage == PipelineStage.hired
+        and not hire_closed_by_contract(
+            client_id=st.job.client_id if st.job else None,
+            hired_at=st.moved_at,
+            contracts=candidate.contracts or [],
+        )
     ]
     if hired_now:
         chosen = max(hired_now, key=lambda s: (s.moved_at, s.id))
@@ -2838,8 +2892,10 @@ async def list_candidates(
 
     # „Ostatnia rozmowa” (03.10.2026): najnowsza notatka z zakładki „Rozmowy”
     # z datą i autorem oraz liczba prób kontaktu. Dwa zapytania na stronę.
+    # Podgląd powstaje niżej, po rozpoznaniu notatek z wysyłki (decyzja C).
     last_talk_by_candidate: dict[int, tuple[datetime, Optional[str], str]] = {}
     contact_attempts_by_candidate: dict[int, int] = {}
+    last_talk_rows: list[Any] = []
     if include_last_talk and items:
         page_ids = [c.id for c in items]
         last_talk_stmt = (
@@ -2848,6 +2904,9 @@ async def list_candidates(
                 Note.created_at,
                 User.name.label("author_name"),
                 Note.content,
+                Note.id,
+                Note.kind,
+                Note.author_id,
             )
             .outerjoin(User, User.id == Note.author_id)
             .where(
@@ -2859,14 +2918,7 @@ async def list_candidates(
             .distinct(Note.candidate_id)
             .order_by(Note.candidate_id, Note.created_at.desc(), Note.id.desc())
         )
-        for cand_id, created_at, author_name, content in (
-            await db.execute(last_talk_stmt)
-        ).all():
-            last_talk_by_candidate[cand_id] = (
-                created_at,
-                author_name,
-                _format_note_preview(content or ""),
-            )
+        last_talk_rows = list((await db.execute(last_talk_stmt)).all())
         contact_attempts_by_candidate = await _contact_attempt_counts(db, page_ids)
 
     # Last-activity aggregation (Phase „Search inline visibility"). 3 DISTINCT ON
@@ -2875,11 +2927,18 @@ async def list_candidates(
     last_note_by_candidate: dict[int, str] = {}
     last_rejection_by_candidate: dict[int, str] = {}
     last_rate_by_candidate: dict[int, str] = {}
+    last_note_rows: list[Any] = []
     if include_last_activity and items:
         candidate_ids = [c.id for c in items]
 
         last_note_stmt = (
-            select(Note.candidate_id, Note.content)
+            select(
+                Note.candidate_id,
+                Note.content,
+                Note.id,
+                Note.kind,
+                Note.author_id,
+            )
             .where(
                 Note.candidate_id.in_(candidate_ids),
                 # 0412: wpis automatu ani notatka ze stawką do klienta nie są
@@ -2894,10 +2953,11 @@ async def list_candidates(
                 Note.id.desc(),
             )
         )
-        for cand_id, content in (await db.execute(last_note_stmt)).all():
-            if cand_id is None or not content:
-                continue
-            last_note_by_candidate[cand_id] = _format_note_preview(content)
+        last_note_rows = [
+            row
+            for row in (await db.execute(last_note_stmt)).all()
+            if row.candidate_id is not None and row.content
+        ]
 
         last_rejection_stmt = (
             select(
@@ -2980,6 +3040,7 @@ async def list_candidates(
         t for t in extract_search_terms(None, q_all, q_any, q_any_groups) if t
     ]
     notes_by_candidate: dict[int, list[str]] = {}
+    snippet_note_rows: list[Any] = []
     if search_terms and items:
         # Runda 7 (R7-N10-5): przy słowach kluczowych tylko notatki z trafieniem,
         # zawsze najwyżej `_SNIPPET_NOTES_PER_CANDIDATE` najnowszych na osobę
@@ -3001,6 +3062,9 @@ async def list_candidates(
             select(
                 Note.candidate_id.label("candidate_id"),
                 func.left(Note.content, NOTE_CAP).label("content"),
+                Note.id.label("id"),
+                Note.kind.label("kind"),
+                Note.author_id.label("author_id"),
                 func.row_number()
                 .over(
                     partition_by=Note.candidate_id,
@@ -3011,13 +3075,37 @@ async def list_candidates(
             .where(*note_conditions)
             .subquery()
         )
-        notes_stmt = select(ranked_notes.c.candidate_id, ranked_notes.c.content).where(
-            ranked_notes.c.rn <= _SNIPPET_NOTES_PER_CANDIDATE
+        notes_stmt = select(
+            ranked_notes.c.candidate_id,
+            ranked_notes.c.content,
+            ranked_notes.c.id,
+            ranked_notes.c.kind,
+            ranked_notes.c.author_id,
+        ).where(ranked_notes.c.rn <= _SNIPPET_NOTES_PER_CANDIDATE)
+        snippet_note_rows = list((await db.execute(notes_stmt)).all())
+
+    # Decyzja C (14.10.2026): notatka DL-a z wysyłki („Wysłany 150/100-110”)
+    # niesie cenę dla klienta. Jedno rozpoznanie na stronę dla „Ostatniej
+    # rozmowy”, „ostatniej notatki” i wycinków — dwa zapytania, zero dla roli
+    # ze stawką do klienta.
+    page_send_ids = await hidden_send_note_ids(
+        db,
+        current_user,
+        [row.id for row in (*last_talk_rows, *last_note_rows, *snippet_note_rows)],
+    )
+    for row in last_talk_rows:
+        last_talk_by_candidate[row.candidate_id] = (
+            row.created_at,
+            row.author_name,
+            _list_note_preview(current_user, row, page_send_ids),
         )
-        for cid, content in (await db.execute(notes_stmt)).all():
-            if cid is None or not content:
-                continue
-            notes_by_candidate.setdefault(cid, []).append(content)
+    for row in last_note_rows:
+        last_note_by_candidate[row.candidate_id] = _list_note_preview(
+            current_user, row, page_send_ids
+        )
+    notes_by_candidate = _snippet_notes_by_candidate(
+        current_user, snippet_note_rows, page_send_ids
+    )
 
     contact_case_by_candidate = await load_contact_case_summaries(
         db, [candidate.id for candidate in items]
@@ -4618,11 +4706,16 @@ async def get_candidate_quick_view(
     mention_labels = await build_traffit_user_label_map(
         db, collect_traffit_user_ids(note.content for note, _ in note_rows)
     )
+    # Decyzja C (14.10.2026): notatka DL-a z wysyłki — bez ceny dla klienta.
+    send_ids = await hidden_send_note_ids(
+        db, current_user, [note.id for note, _ in note_rows]
+    )
     recent_notes = [
         CandidateQuickViewNote(
             id=note.id,
             content=format_quick_view_note_content(
-                visible_note_content(current_user, note), mention_labels
+                visible_note_content(current_user, note, send_note=note.id in send_ids),
+                mention_labels,
             ),
             created_at=note.created_at,
             author_name=author_name,
@@ -4778,36 +4871,47 @@ async def get_candidate_timeline(
             note.content for note, *_ in [*notes_rows, *reply_rows]
         ),
     )
+    # Decyzja C (14.10.2026): notatka DL-a z wysyłki („Wysłany 150/100-110”)
+    # niesie cenę dla klienta — zakryta jak `dl_rate` dla roli bez tej stawki.
+    send_ids = await hidden_send_note_ids(
+        db, current_user, [note.id for note, *_ in [*notes_rows, *reply_rows]]
+    )
     replies_by_note: dict[int, list[dict]] = {}
     for reply, reply_author in reply_rows:
+        reply_content = visible_note_content(
+            current_user, reply, send_note=reply.id in send_ids
+        )
         replies_by_note.setdefault(reply.parent_note_id, []).append(
             {
                 "id": reply.id,
                 "timestamp": (
                     reply.created_at.isoformat() if reply.created_at else None
                 ),
-                "content": visible_note_content(current_user, reply),
+                "content": reply_content,
                 "content_rendered": render_traffit_mentions(
-                    visible_note_content(current_user, reply), mention_label_map
+                    reply_content, mention_label_map
                 ),
                 "author_id": reply.author_id,
                 "author_name": reply_author,
             }
         )
     for note, author_name, author_email, job_title in notes_rows:
+        send_note = note.id in send_ids
+        content = visible_note_content(current_user, note, send_note=send_note)
         timeline.append(
             {
                 "type": "note",
                 "id": note.id,
                 "timestamp": note.created_at.isoformat() if note.created_at else None,
                 "note_type": note.note_type.value if note.note_type else None,
-                "content": visible_note_content(current_user, note),
-                "content_rendered": render_traffit_mentions(
-                    visible_note_content(current_user, note), mention_label_map
-                ),
+                "content": content,
+                "content_rendered": render_traffit_mentions(content, mention_label_map),
                 "kind": note.kind,
                 "content_hidden": note_content_hidden(
-                    current_user, kind=note.kind, author_id=note.author_id
+                    current_user,
+                    kind=note.kind,
+                    author_id=note.author_id,
+                    send_note=send_note,
                 ),
                 "author_id": note.author_id,
                 "author_name": author_name,
@@ -7828,9 +7932,16 @@ async def create_candidate_from_cv(
     # 4 — insert and enrich
     first_name = (parsed.get("first_name") or "").strip() or _CV_PLACEHOLDER_NAME
     last_name = (parsed.get("last_name") or "").strip() or _CV_PLACEHOLDER_NAME
+    # E-mail w INSERT-cie, nie dopiero w uzupełnianiu z CV (ta sama postać co
+    # `_apply_cv_contact_fields`): dwa równoległe zapisy tego samego adresu
+    # mijały sprawdzenie wyżej, a drugi padał na unikalnym indeksie przy
+    # uzupełnianiu → 500 (audyt 13.10.2026). Teraz SAVEPOINT i 409 jak
+    # w `POST /api/candidates`, z profilem, który wygrał wyścig.
+    new_email = str(parsed.get("email") or "").strip().lower()[:255] or None
     candidate = Candidate(
         name=first_name[:100],
         lastname=last_name[:100],
+        email=new_email,
         raw_cv_text=raw_text,
         cv_filename=safe_name,
         source="cv_upload",
@@ -7840,8 +7951,19 @@ async def create_candidate_from_cv(
     # nie nadpisze tego, co rekruter ustawił.
     for field, value in extras.items():
         setattr(candidate, field, value)
-    db.add(candidate)
-    await db.flush()  # allocate id so the file can carry it in its name
+    try:
+        async with db.begin_nested():
+            db.add(candidate)
+            await db.flush()  # allocate id so the file can carry it in its name
+    except IntegrityError as exc:
+        if not (new_email and "email" in str(exc.orig)):
+            raise
+        winner_rows = await find_candidate_by_email(db, new_email)
+        if winner_rows and not force:
+            _raise_from_cv_duplicate_conflict(winner_rows)
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=_TAKEN_EMAIL_MESSAGE
+        ) from exc
 
     # Permanent, candidate-scoped copy written from the bytes we already hold
     # (legacy `/cv-download` path); no rename of a shared scratch file.
@@ -8539,12 +8661,23 @@ async def bulk_import_candidates(
 
     from pydantic import ValidationError
 
+    from app.services.candidate_name_rules import has_blacklist_marker
+
     created: list[int] = []
     item_results: list[dict[str, Any]] = []
     for index, raw_item in enumerate(data):
         raw = dict(raw_item)
         # Import zbiorczy nie odmawia przez dopisek w imieniu — zdejmuje go
-        # przed walidacją (D6, 13.10.2026).
+        # przed walidacją (D6, 13.10.2026). Czarna lista z surowego imienia
+        # idzie najpierw do statusu, także wbrew `status` z pliku — jak korekta
+        # 0436; do 14.10.2026 osoba wchodziła jako aktywna (audyt 13.10, pkt 22).
+        raw_names = [
+            raw[field]
+            for field in ("name", "lastname")
+            if isinstance(raw.get(field), str)
+        ]
+        if has_blacklist_marker(*raw_names):
+            raw["status"] = CandidateStatus.blacklisted.value
         for name_field in ("name", "lastname"):
             if isinstance(raw.get(name_field), str):
                 raw[name_field] = without_name_markers(raw[name_field])

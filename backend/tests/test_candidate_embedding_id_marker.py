@@ -68,6 +68,11 @@ class _ProjectionDB:
     def add(self, value: object) -> None:
         self.added.append(value)
 
+    async def flush(self) -> None:
+        # `restore_stage_copies_after_quarantine` zapisuje decyzję przed wyborem
+        # następcy (audyt 13.10.2026); atrapa nie ma czego wypychać.
+        return None
+
 
 def _quarantined_candidate() -> SimpleNamespace:
     return SimpleNamespace(

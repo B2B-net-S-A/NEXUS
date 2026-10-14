@@ -47,7 +47,7 @@ import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from decimal import ROUND_HALF_UP, Decimal
-from typing import Any, Literal, Mapping, Optional
+from typing import Any, Literal, Mapping, Optional, Sequence
 
 from fastapi import HTTPException
 from pydantic import BaseModel, Field, ValidationError
@@ -234,6 +234,34 @@ def validate_save(data: SaveInput, questions: Mapping[str, str]) -> None:
             raise _invalid("Uzupełnianie formularza z notatki jest wyłączone.")
         if not note_text(data.note_import.text):
             raise _invalid("Notatka jest pusta.")
+
+
+async def assert_skip_allowed(
+    db: AsyncSession,
+    *,
+    answers: Sequence[Any],
+    previous: Any,
+    candidate_id: int,
+    job_id: int,
+    user: User,
+) -> None:
+    """422 ``SCREENING_FORM_INVALID``, gdy zapis pomija pytania bez powodu.
+
+    Reguła żyje w `screening_reassign.assert_skip_allowed` — woła ją też stara
+    trasa arkusza w `api/pipeline.py`, której nie wolno importować tego modułu
+    (historia formularza czytana tylko przez ludzi, strażnik w
+    `test_recommendation_card_ai_privacy`).
+    """
+    from app.services import screening_reassign  # noqa: PLC0415
+
+    await screening_reassign.assert_skip_allowed(
+        db,
+        answers=answers,
+        previous=previous,
+        candidate_id=candidate_id,
+        job_id=job_id,
+        user=user,
+    )
 
 
 # ── Stan pary ────────────────────────────────────────────────────────────────
@@ -1359,6 +1387,15 @@ async def save(
         head=head,
         state_token=data.state_token,
     )
+    if data.sheet is not None:
+        await assert_skip_allowed(
+            db,
+            answers=data.sheet.answers,
+            previous=current.sheet,
+            candidate_id=candidate.id,
+            job_id=job.id,
+            user=user,
+        )
     origins = (data.card.origins or {}) if data.card is not None else {}
     target = _Target(
         sheet=(

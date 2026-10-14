@@ -38,7 +38,10 @@ from app.services.candidate_language_writer import (
 )
 from app.services.candidate_profile_rate import canonical_profile_rate_amount
 from app.services.candidate_location_writer import normalize_candidate_location
-from app.services.candidate_name_rules import without_name_markers
+from app.services.candidate_name_rules import (
+    has_blacklist_marker,
+    without_name_markers,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -145,9 +148,14 @@ async def import_candidates(
     for row_num, row in enumerate(reader, start=2):  # start=2 (header is row 1)
         try:
             email = get_col(row, "email").lower() or None
-            # Dopisek w imieniu z pliku znika bez odmowy (D6, 13.10.2026).
-            name = without_name_markers(get_col(row, "name"))
-            lastname = without_name_markers(get_col(row, "lastname"))
+            # Dopisek w imieniu z pliku znika bez odmowy (D6, 13.10.2026), ale
+            # czarna lista najpierw idzie do statusu — jak korekta 0436 i mapper
+            # Traffita. Do 14.10.2026 „(czarna lista)” znikało, a osoba wchodziła
+            # jako aktywna i trafiała do propozycji (audyt 13.10.2026, pkt 22).
+            raw_name, raw_lastname = get_col(row, "name"), get_col(row, "lastname")
+            blacklisted = has_blacklist_marker(raw_name, raw_lastname)
+            name = without_name_markers(raw_name)
+            lastname = without_name_markers(raw_lastname)
 
             if not name and not lastname:
                 errors += 1
@@ -267,7 +275,11 @@ async def import_candidates(
                     location=location.projection,
                     source=source_raw[:100],
                     skills=_parse_skills(skills_raw),
-                    status=CandidateStatus.active,
+                    status=(
+                        CandidateStatus.blacklisted
+                        if blacklisted
+                        else CandidateStatus.active
+                    ),
                     # Runda 10 (R10-N13-7): autor jak w bulk-import i POST
                     # /candidates — inaczej filtr „Kto dodał / Moi kandydaci”
                     # nie widzi osób z importu CSV.

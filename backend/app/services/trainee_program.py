@@ -225,9 +225,12 @@ def item_row(item: TraineeCallItem, candidate: Candidate) -> dict[str, Any]:
         "city": candidate.city or candidate.location,
         "phone": candidate.phone,
         # „W bazie od” (0437): niedokładna data (import z Traffita bez daty
-        # u źródła) to dzień importu — lepiej nic niż fałszywy rok.
+        # u źródła) to dzień importu — lepiej nic niż fałszywy rok. Rok
+        # w kalendarzu firmy: sylwester po 23:00 to już nowy rok.
         "in_base_since": (
-            in_base.at.year if in_base.exact and in_base.at is not None else None
+            in_base.at.astimezone(ZoneInfo(settings.BUSINESS_TZ)).year
+            if in_base.exact and in_base.at is not None
+            else None
         ),
         "last_contact_at": candidate.last_contacted_at.isoformat()
         if candidate.last_contacted_at

@@ -117,7 +117,8 @@ function SourceCard({ summary }: { summary: IntegrationSourceSummary }) {
       {run ? (
         <dl className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
           <div>
-            <dt className="text-muted-foreground">Nowi w Traffit</dt>
+            {/* Od 14.10.2026 runner nie zakłada kandydatów w Traffit (Traffit wyłączony). */}
+            <dt className="text-muted-foreground">Nowi kandydaci</dt>
             <dd className="text-lg font-semibold text-foreground">{fmtNumber(stat(run, "created"))}</dd>
           </div>
           <div>
@@ -248,7 +249,7 @@ export function InsightsIntegrations() {
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <KpiCard label={`Nowi kandydaci (${days} dni)`} value={fmtNumber(totals.created)} icon={UserPlus} color="green" />
-        <KpiCard label="Duplikaty (znani w Traffit)" value={fmtNumber(totals.duplicates)} icon={Copy} color="blue" />
+        <KpiCard label="Duplikaty (znani w Traffit do 14.10.2026)" value={fmtNumber(totals.duplicates)} icon={Copy} color="blue" />
         <KpiCard label="Dodani do rekrutacji" value={fmtNumber(totals.nexus_jobs)} icon={Target} color="purple" sub="auto-match ≥ próg + must-have" />
         <KpiCard label="Błędy" value={fmtNumber(totals.errors)} icon={XCircle} color={totals.errors > 0 ? "red" : "blue"} />
       </div>

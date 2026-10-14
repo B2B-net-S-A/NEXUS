@@ -651,3 +651,54 @@ def context_payload(ctx: Optional[SuggestionContext]) -> dict:
         "previous_answers_count": len(ctx.answers),
         "earlier_conversations": ctx.conversations,
     }
+
+
+# ── „Pomiń brakujące”: kto może pominąć (zapis formularza i stara trasa) ─────
+
+SKIP_NOT_ALLOWED_MESSAGE = (
+    "„Pomiń brakujące” nie działa dla tej osoby — pytania można pominąć po "
+    "przepięciu, po screeningu w innej rekrutacji albo przy osobie zatrudnionej "
+    "przez nas. Odpowiedz na pytania albo zostaw je puste."
+)
+
+
+async def assert_skip_allowed(
+    db: AsyncSession,
+    *,
+    answers: Sequence[Any],
+    previous: Any,
+    candidate_id: int,
+    job_id: int,
+    user: User,
+) -> None:
+    """422 ``SCREENING_FORM_INVALID``, gdy zapis pomija pytania bez powodu.
+
+    „Pomiń brakujące” działa przy przepięciu, wcześniejszym screeningu albo
+    osobie zatrudnionej przez nas (`skip_missing_reason`, decyzja Artura
+    12.10.2026). Do 14.10.2026 pilnował tego tylko ekran — żądanie z pominięciem
+    ekranu zapisywało same `skipped` i spełniało bramkę „Zweryfikowany” (audyt
+    13.10.2026, pkt 6). Pominięcie zapisane wcześniej nie blokuje ponownego
+    zapisu (`skips_need_reason`). Woła to zapis formularza
+    (`screening_form.save`) i stara trasa arkusza
+    (`POST /pipeline/stages/{id}/screening`).
+    """
+    from fastapi import HTTPException  # noqa: PLC0415
+
+    from app.services import screening_form_rules  # noqa: PLC0415
+
+    if not screening_form_rules.skips_need_reason(answers, previous):
+        return
+    ctx = await suggestion_context(
+        db, candidate_id=candidate_id, job_id=job_id, user=user
+    )
+    reason = await skip_missing_reason(
+        db, candidate_id=candidate_id, job_id=job_id, ctx=ctx
+    )
+    if reason is None:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "SCREENING_FORM_INVALID",
+                "message": SKIP_NOT_ALLOWED_MESSAGE,
+            },
+        )

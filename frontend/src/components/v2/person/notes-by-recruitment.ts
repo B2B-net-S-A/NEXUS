@@ -12,7 +12,7 @@ import { isRecruitmentEnded } from "@/components/v2/candidate-profile/profile-he
 import type { RecruitmentOutcomeRow } from "@/components/v2/pages/candidate-outcomes-query";
 import { candidateStageLabel } from "@/components/v2/pages/candidate-timeline-labels";
 import { noteGroup, type NoteGroup } from "@/lib/candidate-note-groups";
-import { humanNoteCount } from "@/lib/candidate-notes-view";
+import { humanNoteCount, isHumanNote } from "@/lib/candidate-notes-view";
 import { countPl } from "@/lib/plural-pl";
 import {
   furthestBoardColumnLabel,
@@ -189,7 +189,7 @@ export function splitPersonNotes<T extends PersonNoteLike>(
     // z Traffita bez powiązania bywają z ostatnich tygodni.
     .sort((a, b) => (timeOf(b.newestAt) || 0) - (timeOf(a.newestAt) || 0));
 
-  const earlierHumanNotes = earlier.filter((note) => !note.is_system);
+  const earlierHumanNotes = earlier.filter(isHumanNote);
   const oldest = dateRange(earlierHumanNotes).oldestAt;
   return {
     here,

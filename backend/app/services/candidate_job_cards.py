@@ -26,6 +26,7 @@ from app.models.pipeline_template import PipelineStageDef
 from app.models.recruitment_pipeline import CandidateStage, PipelineStage
 from app.models.user import User
 from app.schemas.pipeline import STAGE_LABELS
+from app.services.job_working_title import job_display_title_expr
 
 
 def stage_display_label(name: Optional[str], stage: Optional[str]) -> Optional[str]:
@@ -96,7 +97,8 @@ async def latest_cards(
                 PipelineStageDef.category,
                 PipelineStageDef.terminal_type,
                 User.name,
-                Job.title,
+                # Ekran wewnętrzny: tytuł dla rekrutera, a bez niego nazwa od klienta.
+                job_display_title_expr(),
             )
             .outerjoin(
                 PipelineStageDef, PipelineStageDef.id == CandidateStage.stage_def_id

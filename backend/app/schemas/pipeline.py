@@ -218,6 +218,10 @@ class CandidateStageResponse(BaseModel):
     # wymagane jest „Dlaczego ten kandydat” — `screening_done` znaczy wtedy
     # „ocena wpisana”, a karta nie prosi o arkusz. `None` = zwykły arkusz.
     screening_requirement: Optional[str] = None
+    # Karta liczy się do „Czeka na Ciebie” przeglądu DL (opublikowana
+    # rekrutacja, etap nie z importu Traffita) — ta sama definicja co pas
+    # „Do wysłania do klienta” (audyt 13.10.2026). `None` = endpoint nie liczy.
+    dl_send_counts: Optional[bool] = None
     scorecard_done: bool = False
     # Auto-CV (21.09.2026): na TYM wierszu etapu leży gotowe CV zakolejkowane
     # przez system i nikt go jeszcze nie zatwierdził — „CV gotowe w tle —

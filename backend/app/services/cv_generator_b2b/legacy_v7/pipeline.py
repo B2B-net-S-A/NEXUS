@@ -88,6 +88,7 @@ from app.services.cv_generator_b2b.standalone_service import (
     normalize_content_mode,
 )
 from app.services.job_working_title import cv_role_title
+from app.services.money_text import strip_rates_and_availability
 from app.core.scheduling import business_today
 
 logger = logging.getLogger(__name__)
@@ -185,12 +186,18 @@ def run_legacy_generation(
     job_title = cv_role_title(job_title)
     position_fallback = cv_role_title(position_fallback)
 
+    # Stawki i dostępność nie są treścią CV. Kolektor procesu wycina je
+    # u źródła; notatki z formularza generacji (upload, CV bez procesu) idą
+    # prosto tutaj — audyt 13.10.2026. Hash notatek w migawce i provenance
+    # zostaje liczony z wejścia.
+    model_notes = strip_rates_and_availability(screening_notes_text)
+
     # ── 2. Build prompt (system = instructions, user = data in tags) ─────
     mode = normalize_content_mode(content_mode)
     system_prompt = get_prompt(language, blind_cv, mode)
 
     user_parts = [fence("cv", cv_text)]
-    screening_section = build_screening_notes_section(screening_notes_text, language)
+    screening_section = build_screening_notes_section(model_notes, language)
     if screening_section.strip():
         user_parts.append(fence("screening_notes", screening_section))
     # Only "tailored" gets the client's requirements in front of the model.
@@ -322,7 +329,7 @@ def run_legacy_generation(
     question_notes = strip_unsupported_terms(
         candidate_data,
         cv_text=cv_text,
-        screening_notes_text=screening_notes_text,
+        screening_notes_text=model_notes,
         requirements=requirements,
         language=language,
     )
@@ -351,7 +358,7 @@ def run_legacy_generation(
 
     # ── 4. Anti-fabrication seatbelt + date sanity (warnings only) ───────
     # Linie pytań rekrutera nie są dowodem (13.10.2026).
-    answers_text = screening_text_without_questions(screening_notes_text)
+    answers_text = screening_text_without_questions(model_notes)
     source_text = f"{cv_text}\n{answers_text}"
     guard_warnings = list(question_notes)
     guard_warnings.extend(_fabrication_warnings(candidate_data, source_text, language))

@@ -462,10 +462,15 @@ def _champion_present(job: Job | None) -> bool:
 
 
 def _format_screening_note(note: ScreeningNote) -> str:
-    """Only candidate competencies; commercial judgments are not CV evidence."""
+    """Only candidate competencies; commercial judgments are not CV evidence.
+
+    Wolny tekst pól (osobowość, uwagi do umiejętności) bez stawek
+    i dostępności (``money_text``) — audyt 13.10.2026: „chce 22k” szło do
+    modelu."""
     parts: list[str] = []
-    if note.personality_notes:
-        parts.append(f"Osobowość / soft skills: {note.personality_notes.strip()}")
+    personality = strip_rates_and_availability(note.personality_notes)
+    if personality:
+        parts.append(f"Osobowość / soft skills: {personality}")
     if note.verified_skills:
         try:
             skill_lines: list[str] = []
@@ -473,7 +478,7 @@ def _format_screening_note(note: ScreeningNote) -> str:
                 if isinstance(s, dict):
                     name = s.get("skill") or s.get("name") or ""
                     level = s.get("level") or ""
-                    extra = s.get("notes") or ""
+                    extra = strip_rates_and_availability(str(s.get("notes") or ""))
                     line = name
                     if level:
                         line += f" ({level})"
@@ -518,9 +523,22 @@ def _format_candidate_answers(screening_answers: Any, screening_questions: Any) 
     Only the candidate's own answers are emitted. The recruiter's ``overall_fit``
     rating, deal-breaker flags and free-text ``notes`` are deliberately left out
     — the prompt's confidentiality rules bar recruiter judgment from the CV.
+
+    Audyt 13.10.2026: pytanie bierzemy z treści zapisanej przy odpowiedzi
+    (``question_text``, jak przegląd DL), bo identyfikatory ``q1…qN`` są
+    pozycyjne i po edycji profilu wskazują inne pytanie; bieżący profil tylko
+    dla arkuszy sprzed 02.10.2026 (bez zapisanej treści). Odpowiedź bez
+    stawek i dostępności (``money_text``).
     """
     if not _has_candidate_answers(screening_answers):
         return ""
+    saved_questions = {
+        str(a.get("question_id") or "").strip(): " ".join(
+            str(a.get("question_text") or "").split()
+        )
+        for a in (screening_answers or {}).get("answers") or []
+        if isinstance(a, dict) and not a.get("skipped")
+    }
     # Odpowiedzi pominięte przy przepięciu i notatka wewnętrzna nie wchodzą
     # do CV (idzie do klienta) — ta sama reguła co share portal.
     screening_answers = client_safe_screening(screening_answers) or {}
@@ -540,10 +558,11 @@ def _format_candidate_answers(screening_answers: Any, screening_questions: Any) 
     for a in screening_answers.get("answers") or []:
         if not isinstance(a, dict):
             continue
-        response = str(a.get("response") or "").strip()
+        response = strip_rates_and_availability(str(a.get("response") or ""))
         if not response:
             continue
-        question = q_by_id.get(str(a.get("question_id") or "").strip(), "")
+        qid = str(a.get("question_id") or "").strip()
+        question = saved_questions.get(qid) or q_by_id.get(qid, "")
         lines.append(f"P: {question}\nO: {response}" if question else f"O: {response}")
     return "\n\n".join(lines)
 

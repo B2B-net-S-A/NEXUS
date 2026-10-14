@@ -1116,6 +1116,8 @@ async def build_queue(
     now: Optional[datetime] = None,
 ) -> list[dict[str, Any]]:
     """Wiersze porównania (D10) — te same loadery dla wszystkich osób naraz."""
+    from app.services.move_requirements import qc_statuses  # noqa: PLC0415
+
     now = now or datetime.now(timezone.utc)
     tasks = list(tasks)[:QUEUE_LIMIT]
     if not tasks:
@@ -1123,6 +1125,9 @@ async def build_queue(
     access = await access_for(db, user, job)
     batch = await _load_batch(db, job, [t.candidate_id for t in tasks], now=now)
     budget = _budget(job)
+    # Liczba pominiętych uwag blokujących — ryzyko `qc_dismissed` jak w oknie
+    # osoby (`build_context`), nie ogólne „przesunięte mimo uwag”.
+    qc = await qc_statuses(db, [(t.candidate_id, job.id) for t in tasks])
     out: list[dict[str, Any]] = []
     for task in tasks:
         if task.candidate_id not in batch.facts:
@@ -1134,6 +1139,10 @@ async def build_queue(
             access=access,
             budget_max=budget["max_hourly"],
             qc_status=task.qc_status,
+            qc_dismissed=int(
+                (qc.get((task.candidate_id, job.id)) or {}).get("dismissed_blocking")
+                or 0
+            ),
         )
         person.pop("_before")
         assessment = person.pop("assessment")

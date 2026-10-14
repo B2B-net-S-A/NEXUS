@@ -37,6 +37,12 @@ notatkę wysyłającego do 30 minut od ruchu (530 do 2 minut).
   wysłane” w Nordei pisze o stawce kandydata); zawiera liczbę 40–400. Tylko
   para bez stawki do klienta na żadnym etapie. Przy kilku wysyłkach liczy się
   najnowsza, która ma notatkę; z kilku notatek — najbliższa ruchowi.
+  Od 14.10.2026 godzina („14:50”, „o 14.50”) i numer telefonu (9 cyfr w grupach
+  3-3-3 albo 2-3-2-2, jeden rodzaj separatora, opcjonalnie +48) nie są kwotą
+  (`has_amount`) — audyt 13.10 pokazał, że taka liczba w notatce bliżej ruchu
+  wypychała prawdziwą notatkę z wysyłki. „150 120 130” spacjami czyta się jak
+  telefon; DL pisze „150/100-110”. Kryterium autora, okna i rekrutacji to jedna
+  funkcja `_belongs_to` dla podpowiedzi i dla zakrycia treści (niżej).
 - **Kwoty z notatki nie wpisujemy do pola.** Notatka z trzema liczbami
   („150/100-110”) nie jest jednoznaczna; jednorazowe uzupełnienie
   `client_rate_notes` świadomie takie pomija. Człowiek czyta treść i wpisuje
@@ -49,6 +55,13 @@ notatkę wysyłającego do 30 minut od ruchu (530 do 2 minut).
   dla innych ról, a `_candidate_history_response_for_user` zeruje
   `client_rate_note` razem z `client_rate`. Nowy czytelnik `send_notes` =
   ta sama bramka.
+- **Sama notatka też jest zakryta (decyzja C, 14.10.2026).** Do 14.10 rekruter
+  czytał „Wysłany 150/100-110” w Historii profilu i w „Wcześniej u nas”, bo to
+  zwykła notatka (`human`). `send_note_ids` rozpoznaje notatki z wysyłki tą samą
+  regułą (każdą w oknie, nie tylko wybraną do podpowiedzi, i także przy parze
+  ze stawką na etapie), a `GET /api/notes` (lista i pojedyncza, przypięcie)
+  zakrywa je jak `dl_rate` — szczegóły w
+  `uprawnienia/rekrutacje-i-kandydatow-widza-wszyscy-stawki-do.md`.
 - **API:** `/api/candidates/{id}/history` niesie obie podpowiedzi przy każdej
   rekrutacji (awaria odczytu podpowiedzi nie zabiera historii — savepoint
   i wpis w logu); `GET /api/candidates/{id}/recruitment-rate-hints?job_id=`

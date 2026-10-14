@@ -15,6 +15,16 @@ kolumny działa (`board_stage_badges`), import też. Zespół „nie widzi” sw
 ludzi, bo rekrutacje z Traffita są w NEXUSIE zamknięte jako archiwum (0377).
 Nie zaczynaj więc od mappera ani od częstszego syncu — to nie one blokują.
 
+**Od 14.10.2026 przeniesienie i scalenie są wyłączone na stałe** (decyzja
+Artura: z Traffita nie korzystamy, żadne importy nie mają działać). Audyt 13.10
+pokazał, że ten tor nie czytał `TRAFFIT_SYNC_ENABLED` i dalej pobierał dane
+z Traffita na żądanie. Teraz `POST /api/admin/traffit/transfer` i
+`POST /api/admin/traffit/twins-merge` odpowiadają 410 („Traffit jest wyłączony
+od 14.10.2026 — NEXUS nie importuje już danych z Traffita.”), także przy
+`dry_run=true`; strażnik: `app/services/traffit_retired.py`. Stan
+(`GET …/transfer/status`, `…/twins-merge/status`) i paragony w `app_settings`
+zostają do odczytu. Opis niżej to historia fal z 11–12.10.2026.
+
 ## Narzędzie
 
 `POST /api/admin/traffit/transfer?dry_run=…&client_id=…|job_ids=…` i
@@ -176,8 +186,8 @@ wykonanie tego samego zakresu, jak przy fali; `job_ids` to id KOPII.
   w raportach zamknięć i w Lidze DL. Kopia zamknięta wcześniej przez człowieka
   zostaje z jego powodem, a jej osoby i tak przechodzą.
 - **Kopia zostaje „Prowadzona w NEXUSIE”.** Bez tej flagi import odtworzyłby
-  w niej pary, które przeszły (zna je po `external_id`). Na scalonej kopii
-  nie klikaj „Wróć do Traffita”.
+  w niej pary, które przeszły (zna je po `external_id`). „Wróć do Traffita”
+  od 14.10.2026 nie działa (410) — Traffit jest wyłączony na stałe.
 - **Zamknięta rekrutacja NEXUSA nie przyjmuje ludzi** (`target_not_open`) —
   przepięcie schowałoby ich z Tablicy; o otwarciu decyduje Delivery Lead.
 
@@ -208,10 +218,11 @@ rekrutacji): `POST /api/admin/proposals/convert-integration-cards?job_ids=…`
 Import ruchów przełączonych rekrutacji jest pomijany (`skipped_managed`
 w statusie syncu) — ta liczba pokazuje, czy ktoś nadal rusza karty w Traffit.
 Od 12.10.2026 nocny import jest wyłączony w całości (decyzja Artura,
-`traffit-daily-sync-scheduled-import.md`); samo narzędzie przeniesienia działa
-dalej, bo czyta Traffita na żądanie.
-Cofnięcie: „Wróć do Traffita” na rekrutacji i jej zamknięcie; wiersze dopisane
-przy przeniesieniu mają `external_id` z prefiksem `transfer:`.
+`traffit-daily-sync-scheduled-import.md`); od 14.10.2026 także narzędzie
+przeniesienia i scalenia (410, patrz początek pliku).
+Cofnięcie przeniesienia przez „Wróć do Traffita” nie istnieje od 14.10.2026
+(trasa odpowiada 410, Traffit wyłączony na stałe); wiersze dopisane przy
+przeniesieniu mają `external_id` z prefiksem `transfer:`.
 
 Znany dług, którego ta zmiana nie rusza: remis czasu w imporcie dotyczy
 wszystkich rekrutacji z Traffita, nie tylko przenoszonych.

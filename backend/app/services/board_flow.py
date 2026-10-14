@@ -501,7 +501,7 @@ async def _screening(db: AsyncSession, mine: list[_Placed]) -> list[PairRow]:
     from app.services.move_requirements import (  # noqa: PLC0415
         SCREENING_SHEET,
         missing_screening_requirement,
-        sheet_filled,
+        sheet_answered,
     )
 
     pairs = [(p.row.candidate_id, p.row.job_id) for p in mine]
@@ -518,7 +518,9 @@ async def _screening(db: AsyncSession, mine: list[_Placed]) -> list[PairRow]:
             ).where(pair_key.in_(pairs))
         )
     ).all():
-        if sheet_filled(answers):
+        # Ta sama reguła co bramka „Zweryfikowany”: arkusz z odpowiedzią,
+        # nie sama lista pytań (audyt 13.10.2026).
+        if sheet_answered(answers):
             sheets.add((cid, jid))
         if rate is not None:
             stage_rates.add((cid, jid))

@@ -55,6 +55,7 @@ from app.services.career_slugs import (
     recruiter_slug_problem,
     suggest_recruiter_slug,
 )
+from app.services.job_ad.text import visible
 from app.services.public_apply import link_key
 
 router = APIRouter(dependencies=PIPELINE_SECTION_DEPENDENCIES)
@@ -393,13 +394,16 @@ async def put_public_profile(
         profile = JobPublicProfile(job_id=job_id)
         db.add(profile)
     fields = data.model_fields_set
+    # Znaki formatujące (kategoria Cf) wycinamy jak w ogłoszeniu na portale:
+    # „\u202ełz 081\u202c” przeglądarka pokazuje jako „180 zł”, a kontrola
+    # porównuje tekst bez nich i go przepuszczała (audyt 13.10.2026).
     if "public_title" in fields:
-        title = " ".join((data.public_title or "").split())
+        title = " ".join(visible(data.public_title or "").split())
         profile.public_title = title[: jpp.PUBLIC_TITLE_MAX] or None
     if "subtitle" in fields:
-        profile.subtitle = (data.subtitle or "").strip() or None
+        profile.subtitle = visible(data.subtitle or "").strip() or None
     if "about" in fields:
-        profile.about = (data.about or "").strip() or None
+        profile.about = visible(data.about or "").strip() or None
     if "sections" in fields and data.sections is not None:
         # Migawka zatwierdzenia zostaje — zmiana przełączników i tak zmienia
         # skrót treści (szkic), a ten sam zestaw nie może zgubić migawki.

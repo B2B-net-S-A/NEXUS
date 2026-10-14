@@ -127,7 +127,13 @@ kolejne PR-y dopisują swoje sekcje tutaj.
   znika, reszta stylu zostaje. Do 12.10.2026 token błędu z tinycss2 trafiał do
   serializacji i każdy taki `style` kończył zapis CV błędem 500. Wartość
   z setkami zagnieżdżonych nawiasów (`RecursionError` w tinycss2) usuwa cały
-  styl zamiast wywracać zapis.
+  styl zamiast wywracać zapis. Od 14.10.2026 znika też deklaracja z błędem
+  W WARTOŚCI (`_broken`: urwany napis `font-size: 'abc`, `f('abc`): tinycss2
+  oddawał ją bez zamykającego cudzysłowu i każdy zapis dokładał średniki
+  (`"abc;;` → `"abc;;;;`), więc ta sama treść dawała inny wynik sanitizera —
+  a ten jest porównywany przy ponownym zatwierdzeniu i w skrótach kontroli AI
+  (audyt 13.10.2026). Sanitizer ma być idempotentny; pilnuje
+  `tests/test_fix48_ws06_sanitizer_style.py`.
 - CV zapisane bez klauzuli nie ma czego chronić: pierwszy akapit klauzuli,
   który ktoś do niego dopisze, staje się chroniony przy następnym zapisie.
 - Strażnika nie ma w `_write_stage_draft`: nowy szkic z generatora albo
@@ -308,6 +314,27 @@ trafia dopiero po „Przyjmij”.
   Liczby porównujemy też po sklejeniu separatora tysięcy („500 000” =
   „500,000”), a miesiąc w propozycji poznajemy po dokładnych formach
   (`_MONTHS`), nie po rdzeniu — rdzeń łapał „mają”, „czerwone” i „major”.
+- **Nazwa na początku zdania (14.10.2026).** `unsupported_facts` z „Ułóż
+  w zdanie” pomija słowo z wielkiej litery na początku zdania i po
+  „( : ; „ " '”, więc przechodziły „Klient: Microsoft — …”, „(Allegro)”
+  i dopisane „Microsoft jako główny klient.” (audyt 13.10.2026). Tego pliku nie
+  zmieniamy (wspólny z kartą rekomendacji) — `cv_selection_ai._hidden_names`
+  sprawdza te słowa wobec fragmentu (przy „Rozwiń” także cytatów):
+  - po „( : ; „ " '”, po skrócie („np.”, „m.in.”) i z wielką literą w środku
+    słowa („AWS”, „GitHub”) to nazwa — odmowa `new_fact` (w tłumaczeniu
+    uwaga, jak inne wielkie litery),
+  - zwykły zapis z wielkiej litery na początku zdania („Microsoft”, ale też
+    „Tworzenie”) kod nie odróżni od zwykłego słowa: w „Skróć” i „Popraw
+    język” to odmowa (nie mają czego dodawać), w „Przeredaguj” i „Rozwiń”
+    uwaga na karcie (`cautions`). Pierwsze słowo propozycji, które zastąpiło
+    pierwsze słowo fragmentu („rozwój …” → „Tworzenie …”), to redakcja — bez
+    uwagi. Tłumaczenie początków zdań nie ocenia (angielski).
+- **Plakietka „Zgodne ze źródłem” (14.10.2026)** wymaga, żeby każde słowo
+  rozwinięcia stało we fragmencie albo w cytacie (`new_words`, ta sama funkcja
+  co przy poleceniu — mieszka teraz w `cv_selection_ai`). Sam istniejący cytat
+  dawał plakietkę także „…; kierował zespołem i zarządzał budżetem projektu”.
+  Bez plakietki propozycja wraca jako `ok` z `message`, które wymienia słowa
+  do sprawdzenia.
 - **Rozwinięcie nie przenosi pieniędzy do CV.** Notatki idą do modelu bez pól
   handlowych karty rekomendacji (`CV_HIDDEN_FIELDS`: stawka, red flags,
   motywacja — jak w generatorze CV). Cytat z kwotą nie jest źródłem; o tym, czy
@@ -337,6 +364,15 @@ trafia dopiero po „Przyjmij”.
   Wynik biznesowy to zawsze 200 ze statusem (`ok`, `rejected`, `no_source`,
   `not_supported`, `unavailable`); awaria modelu nigdy nie jest 5xx. Tokeny
   integracji dostają 403 (płatne wywołanie zamawia osoba). Limit 20/min.
+  Moduł jest w `_SCOPED_MODULES` kontraktu `tests/test_job_scope_contract.py`
+  (od 14.10.2026): każda jego trasa musi wołać `ensure_job_membership`, zanim
+  dotknie modelu. Bramka przepuszcza role operacyjne bez przypisania do
+  zespołu (reguła 23.09.2026), 403 dostaje dawny podgląd `user`.
+- **Przeglądarka czeka 120 s** (`SLOW_ENDPOINT_TIMEOUT_MS` w
+  `lib/api/cvEditorAi.ts` i `cvEditorCommand.ts`, od 14.10.2026). Na domyślnych
+  30 s instancji `api` przeglądarka zrywała żądanie, zanim serwer skończył
+  (polecenie czeka na model do 60 s), rekruter widział błąd, a model i tak
+  liczył — „Jeszcze raz” płaciło drugi raz.
 - **AI:** klucz `cv_selection_edit` (F30, migracja 0433 + lustro w
   `entrypoint.sh`), Sonnet 5 z zapasem Haiku — recenzent przy „Zapisz” to Luna,
   autor ma być innym modelem. Wywołanie w `ai_feature()` z commitem PRZED
@@ -446,6 +482,8 @@ dopiero to, co rekruter zostawi zaznaczone i zatwierdzi „Zastosuj zaznaczone�
 - **Trasa** `POST /api/pipeline/stages/{id}/cv-ai/command` (`api/cv_editor_ai.py`):
   bezstanowa, te same bramki co `cv-ai/selection`, 6/min, limit 400 wierszy
   i 60 tys. znaków, zawsze 200 ze statusem (`ok`, `empty`, `unavailable`).
+  Model ma do 60 s (`timeout=45`, `total_timeout=60`), przeglądarka czeka
+  `SLOW_ENDPOINT_TIMEOUT_MS` (120 s).
   Klucz AI `cv_editor_command` (F31, migracja 0434 + lustro w `entrypoint.sh`),
   wyłącznik `CV_EDITOR_COMMAND_ENABLED`. Ślad: `Activity(action="cv_command_ai")`
   z nazwą gotowego polecenia i liczbami — bez treści CV i bez własnych słów.

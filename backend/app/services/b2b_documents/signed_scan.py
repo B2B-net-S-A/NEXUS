@@ -97,6 +97,24 @@ def signed_scan_id(doc: B2BContractDocument) -> int | None:
     return value if isinstance(value, int) else None
 
 
+async def existing_scan_ids(
+    db: AsyncSession, docs: list[B2BContractDocument]
+) -> set[int]:
+    """Skany tych dokumentów, które nadal leżą w Dokumentach kontraktu.
+
+    Zapis skutku trzyma id skanu na zawsze, a skan znika razem z kontraktem
+    albo po „Usuń” w zakładce Dokumenty. Do 14.10.2026 rejestr pokazywał wtedy
+    „Podmień skan” i „Nowy plik zastąpi skan…” przy skanie, którego nie ma
+    (audyt 13.10.2026). Jedno zapytanie na stronę listy."""
+    ids = {sid for doc in docs if (sid := signed_scan_id(doc)) is not None}
+    if not ids:
+        return set()
+    found = await db.scalars(
+        select(ContractDocument.id).where(ContractDocument.id.in_(ids))
+    )
+    return set(found.all())
+
+
 async def attach(
     db: AsyncSession,
     *,

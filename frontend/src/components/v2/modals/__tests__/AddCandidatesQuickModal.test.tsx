@@ -490,3 +490,96 @@ function renderModalWithUnmount() {
     </QueryClientProvider>,
   );
 }
+
+// Audyt 13.10.2026: zaślepka „000 000 000” dawała „Ten sam telefon” i „Scal…”,
+// numer szukany po 6–8 cyfrach nie świecił, a okno dawało się zamknąć w trakcie
+// „Przywróć” (ruch karty zostawał bez swoich okien potwierdzeń).
+describe("AddCandidatesQuickModal — poprawki po audycie 13.10.2026", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.send.mockResolvedValue({ ok: true, data: {} });
+  });
+
+  afterEach(() => {
+    act(() => {
+      useAuthStore.setState({ user: null, hydrated: true });
+    });
+  });
+
+  it("dwie osoby z numerem-zaślepką „000 000 000” nie dostają „Ten sam telefon” ani „Scal…”", async () => {
+    mocks.search.mockResolvedValue({
+      items: [person(1, { phone: "000 000 000" }), person(2, { phone: "+48 000-000-000" })],
+      total: 2,
+    });
+    signIn("admin");
+    renderModal();
+
+    await screen.findByTestId("add-candidate-row-2");
+    expect(screen.queryByTestId("add-candidate-same-phone-2")).toBeNull();
+    expect(screen.queryByTestId("add-candidate-merge-2")).toBeNull();
+  });
+
+  it("numer szukany po 6 cyfrach jest podświetlony, jak trafienie z wyszukiwarki", async () => {
+    mocks.search.mockResolvedValue({
+      items: [person(1, { phone: "+48 601 204 118" })],
+      total: 1,
+      meta: {
+        interpretation: {
+          kind: "phone",
+          mode: "literal",
+          rule: "phone",
+          name: [],
+          email: null,
+          phone: "204118",
+          skills: [],
+          locations: [],
+          other: [],
+        },
+      },
+    });
+    renderModal();
+    fireEvent.change(screen.getByPlaceholderText("Imię i nazwisko, telefon albo e-mail…"), {
+      target: { value: "204 118" },
+    });
+
+    expect(await screen.findByText(/Szukam po numerze telefonu/)).toBeInTheDocument();
+    expect(screen.getByText("+48 601 204 118").className).toContain("bg-primary/20");
+  });
+
+  it("w trakcie „Przywróć” okna nie da się zamknąć; po ruchu znowu się da", async () => {
+    let finish: (value: { ok: boolean; data: unknown }) => void = () => {};
+    mocks.send.mockReturnValue(
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+    );
+    mocks.search.mockResolvedValue({ items: [person(1)], total: 1, in_job_matches: [CLOSED_IN_JOB] });
+    const onClose = vi.fn();
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={client}>
+        <AddCandidatesQuickModal open onClose={onClose} jobId={9} jobTitle="Java" />
+      </QueryClientProvider>,
+    );
+    fireEvent.change(screen.getByPlaceholderText("Imię i nazwisko, telefon albo e-mail…"), {
+      target: { value: "Anna Przykładowa" },
+    });
+
+    fireEvent.click(await screen.findByTestId("add-candidate-restore-30"));
+    await waitFor(() => expect(mocks.send).toHaveBeenCalledTimes(1));
+    const dialog = screen.getByRole("dialog", { name: "Dodaj kandydatów do pipeline" });
+    fireEvent.keyDown(dialog, { key: "Escape" });
+    fireEvent.click(screen.getByRole("button", { name: "Zamknij" }));
+    fireEvent.click(screen.getByRole("button", { name: "Anuluj" }));
+    expect(onClose).not.toHaveBeenCalled();
+
+    await act(async () => {
+      finish({ ok: true, data: {} });
+    });
+    await waitFor(() => expect(screen.getByTestId("add-candidate-restore-30")).toBeEnabled());
+    fireEvent.click(screen.getByRole("button", { name: "Zamknij" }));
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+});

@@ -444,6 +444,10 @@ async def upload_original_cv(
 
     Wszystkie odmowy padają PRZED zapisem pliku na dysk (`_ingest_candidate_cv_file`),
     którego rollback nie cofa.
+
+    Kopia etapu powstaje z bajtów tego żądania, nie z ponownego odczytu
+    głównego CV (audyt 13.10.2026): przy awarii magazynu odczyt schodził do
+    wskaźnika kandydata i kopia dostawała starsze CV pod nazwą nowego pliku.
     """
     import os
 
@@ -455,6 +459,7 @@ async def upload_original_cv(
         _read_upload_bounded,
         _sanitize_upload_filename,
     )
+    from app.services.cv_source import CurrentCV
 
     csv_row = await _load_csv_for_stage(db, stage_id, current_user, create_missing=True)
     candidate = await db.scalar(
@@ -481,17 +486,20 @@ async def upload_original_cv(
         content_type=_DOCUMENT_CONTENT_TYPES[ext],
         user_id=current_user.id,
     )
-    try:
-        csv = await refresh_original_cv_snapshot(
-            db, stage_id, user_id=current_user.id, source="manual_upload"
-        )
-    except ValueError as exc:
-        # Plik zapisany przed chwilą nie dał się odczytać jako CV — rollback
-        # cofa dokument i kopię (plik na dysku i w magazynie zostaje sierotą).
-        raise HTTPException(
-            status_code=422,
-            detail="Nie udało się odczytać wgranego pliku jako CV. Sprawdź plik i spróbuj ponownie.",
-        ) from exc
+    csv = await refresh_original_cv_snapshot(
+        db,
+        stage_id,
+        user_id=current_user.id,
+        source="manual_upload",
+        # Deduplikacja po SHA mogła wskazać istniejący wiersz — te same bajty,
+        # nazwa z wiersza, jak przy odczycie głównego CV.
+        current=CurrentCV(
+            content=content,
+            filename=document.filename,
+            language=candidate.cv_language,
+            source="stage_upload",
+        ),
+    )
     await db.commit()
     await db.refresh(candidate)
     await db.refresh(document)

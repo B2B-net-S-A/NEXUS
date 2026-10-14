@@ -6,7 +6,8 @@
  * Pokazuje „było / będzie”, źródło rozwinięcia i decyzję rekrutera. Tekst
  * propozycji i cytatów to TEKST (`**x**` → pogrubienie w React), nic nie
  * trafia na stronę jako HTML. Plakietka „Zgodne ze źródłem” pojawia się tylko
- * wtedy, gdy serwer znalazł zacytowane zdanie w oryginalnym CV albo notatkach.
+ * wtedy, gdy serwer znalazł zacytowane zdanie w oryginalnym CV albo notatkach
+ * i każde słowo propozycji stoi we fragmencie albo w cytacie (`verified`).
  */
 
 import { useId, useState } from "react";

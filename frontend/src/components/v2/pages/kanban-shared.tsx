@@ -115,6 +115,10 @@ export interface KanbanItem {
  // od której jest dostępny.
  availability_status?: string | null;
  availability_date?: string | null;
+ // „Do wysłania do klienta”: karta liczy się do „Czeka na Ciebie” (rekrutacja
+ // opublikowana, etap nie z importu Traffita — `dl_send_queue`). `false` =
+ // poza licznikami; brak pola (starszy serwer) = jak dotąd.
+ dl_send_counts?: boolean | null;
  // Kody ostrzeżeń karty w stałej kolejności (`hm_veto`, `budget_exceeded`,
  // kody polityki dopuszczalności — konflikt z klientem itd.).
  warnings?: string[];

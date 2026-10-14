@@ -258,10 +258,51 @@ async def test_list_marker_exists_exactly_when_employment_says_employed(
     app_client: AsyncClient, app_auth_headers: dict
 ):
     """Stare pole i znacznik nie mogą sobie przeczyć na tej samej stronie."""
+    from app.core.database import AsyncSessionLocal
+    from app.models.candidate import Candidate
+    from app.models.contract import Contract, ContractStatus
+    from app.models.recruitment_pipeline import CandidateStage, PipelineStage
+
     world = await _seed_world()
+    # Były konsultant (audyt 13.10, pkt 13; 14.10.2026): stary „Zatrudniony”
+    # u klienta A, umowa u A zakończona rok po zatrudnieniu. Znacznik, stare
+    # pole i filtr mówią to samo — nie pracuje u nas.
+    async with AsyncSessionLocal() as db:
+        former = Candidate(
+            name="Former",
+            lastname=f"Marker-{uuid.uuid4().hex[:8]}",
+            email=f"marker-former-{uuid.uuid4().hex[:8]}@example.com",
+        )
+        db.add(former)
+        await db.flush()
+        db.add_all(
+            [
+                CandidateStage(
+                    candidate_id=former.id,
+                    job_id=world["job_a"],
+                    stage=PipelineStage.hired,
+                    moved_at=datetime.now(timezone.utc) - timedelta(days=730),
+                ),
+                Contract(
+                    candidate_id=former.id,
+                    client_id=world["a"],
+                    job_id=world["job_a"],
+                    start_date=world["today"] - timedelta(days=700),
+                    end_date=world["today"] - timedelta(days=365),
+                    terminated_at=world["today"] - timedelta(days=365),
+                    status=ContractStatus.ended,
+                ),
+            ]
+        )
+        await db.commit()
+        former_id = former.id
 
     at_client = await _list(app_client, app_auth_headers, "at_client")
     available = await _list(app_client, app_auth_headers, "available")
+
+    assert former_id not in at_client
+    assert available[former_id]["employment"]["state"] == "on_bench"
+    assert available[former_id]["employment_marker"] is None
 
     for key, phase in (
         ("ending", "ending"),

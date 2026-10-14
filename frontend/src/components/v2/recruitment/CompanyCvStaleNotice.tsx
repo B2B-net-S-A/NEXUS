@@ -11,20 +11,26 @@
  * więc gotowa nowa wersja pojawia się tutaj jako „Użyj nowej wersji” — ten sam
  * zapis co w karcie „CV do klienta” (`branded.selectGenerated`). Zatwierdzone
  * CV i wysłane linki zostają bez zmian.
+ *
+ * Audyt 13.10.2026 (pkt 9): ruch karty zakłada nowy wiersz etapu bez CV,
+ * a szkic zostaje na wierszu, na którym powstał. Ramka czyta wtedy szkic
+ * i kopię CV z tamtego wiersza (`cvStageId`) i tam podpina nową wersję —
+ * wcześniej znikała po ruchu i CV ze starego pliku szło do klienta bez
+ * ostrzeżenia.
  */
 
 import { useEffect, useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, Loader2, Sparkles } from "lucide-react";
 
 import { useToast } from "@/components/Toast";
 import { Button } from "@/components/ui/button";
 import { CvGeneratorDialog } from "@/components/v2/cv-generator/CvGeneratorDialog";
 import { useCvToClientRows } from "@/hooks/useCvToClientRows";
-import { candidateStageCvApi, type CVBrandedState } from "@/lib/api";
+import { candidateStageCvApi, type CVBrandedState, type CVOriginalSnapshot } from "@/lib/api";
 import { apiErrorMessage } from "@/lib/api-error";
 import { cvToClientRowsQueryKey, resolveCvToClient, stageBrandedQueryKey } from "@/lib/cv-to-client";
-import { companyCvStale, companyDraftSince, type DockOriginalCv } from "@/lib/dock-cv-summary";
+import { companyCvStale, companyDraftSince, dockOriginalCv, type DockOriginalCv } from "@/lib/dock-cv-summary";
 import { formatDate } from "@/lib/utils";
 
 const POLL_MS = 4000;
@@ -51,8 +57,32 @@ function writeDismissed(stageId: number, snapshotAt: string): void {
   }
 }
 
+function isReplacedCopy(
+  copy: DockOriginalCv,
+): copy is Extract<DockOriginalCv, { kind: "snapshot" }> & { date: string } {
+  return (
+    copy.kind === "snapshot" &&
+    (copy.source === "manual_upload" || copy.source === "manual_refresh") &&
+    copy.date != null
+  );
+}
+
+/**
+ * Kopia CV, która mówi, czy szkic jest starszy od nowego CV: najpóźniej
+ * podmieniona ręcznie (wgranie albo „Użyj w tej rekrutacji”) — na bieżącym
+ * wierszu etapu albo na wierszu ze szkicem. Kopia z chwili ruchu karty jest
+ * kopią tego samego CV, więc sama o podmianie nie mówi. Bez ręcznej podmiany:
+ * pierwsza kopia (bieżącego wiersza).
+ */
+export function replacedCopy(...copies: DockOriginalCv[]): DockOriginalCv {
+  const replaced = copies.filter(isReplacedCopy);
+  replaced.sort((a, b) => Date.parse(b.date) - Date.parse(a.date));
+  return replaced[0] ?? copies[0];
+}
+
 export function CompanyCvStaleNotice({
   stageId,
+  cvStageId = stageId,
   candidateId,
   candidateName,
   jobId,
@@ -60,11 +90,14 @@ export function CompanyCvStaleNotice({
   original,
 }: {
   stageId: number;
+  /** Wiersz etapu ze szkicem CV firmowego pary — po ruchu karty poprzedni wiersz. */
+  cvStageId?: number;
   candidateId: number;
   candidateName: string;
   jobId: number;
   /** CV etapu z doku (`["cv-branded", stageId]`) — tylko własne CV tego etapu. */
   branded: CVBrandedState | undefined;
+  /** Kopia CV bieżącego wiersza etapu. */
   original: DockOriginalCv;
 }) {
   const queryClient = useQueryClient();
@@ -73,20 +106,43 @@ export function CompanyCvStaleNotice({
   const [pending, setPending] = useState<{ id: number; since: number } | null>(null);
   const [dismissed, setDismissed] = useState<string | null>(null);
   // Odczyt w efekcie: pierwszy render taki jak na serwerze.
-  useEffect(() => setDismissed(readDismissed(stageId)), [stageId]);
+  useEffect(() => setDismissed(readDismissed(cvStageId)), [cvStageId]);
 
-  const snapshotAt = original.kind === "snapshot" ? original.date : null;
+  // Szkic na innym wierszu etapu pary: jego stan i jego kopia CV (te same
+  // klucze co dok i karta „CV do klienta”).
+  const otherRow = cvStageId !== stageId;
+  const draftQuery = useQuery<CVBrandedState>({
+    queryKey: stageBrandedQueryKey(cvStageId),
+    queryFn: () => candidateStageCvApi.branded.get(cvStageId).then((r) => r.data),
+    enabled: otherRow,
+  });
+  const draftOriginalQuery = useQuery<CVOriginalSnapshot>({
+    queryKey: ["cv-original", cvStageId],
+    queryFn: () => candidateStageCvApi.original.get(cvStageId).then((r) => r.data),
+    enabled: otherRow,
+  });
+  const draft = otherRow ? draftQuery.data : branded;
+  const copy = otherRow
+    ? replacedCopy(
+        original,
+        dockOriginalCv({
+          snapshot: draftOriginalQuery.data,
+          snapshotLoading: draftOriginalQuery.isLoading,
+          profileDocs: undefined,
+          profileDocsFailed: false,
+        }),
+      )
+    : original;
+
+  const snapshotAt = copy.kind === "snapshot" ? copy.date : null;
   // Wiersze generatora są potrzebne tylko, gdy kopia CV została podmieniona ręcznie.
-  const replaced =
-    original.kind === "snapshot" &&
-    (original.source === "manual_upload" || original.source === "manual_refresh") &&
-    branded?.status === "draft";
+  const replaced = isReplacedCopy(copy) && draft?.status === "draft";
   const waiting = pending != null && Date.now() - pending.since < PENDING_TIMEOUT_MS;
   const rowsQuery = useCvToClientRows(candidateId, jobId, {
     enabled: replaced,
     refetchInterval: waiting ? POLL_MS : false,
   });
-  const state = resolveCvToClient({ branded, rows: rowsQuery.data, pendingGeneratedId: pending?.id ?? null });
+  const state = resolveCvToClient({ branded: draft, rows: rowsQuery.data, pendingGeneratedId: pending?.id ?? null });
   // Nowa wersja liczy się dopiero, gdy powstała z podmienionego CV.
   const freshVersion =
     state.candidate && snapshotAt && Date.parse(state.candidate.created_at ?? "") > Date.parse(snapshotAt)
@@ -94,16 +150,20 @@ export function CompanyCvStaleNotice({
       : null;
 
   useEffect(() => {
-    if (pending && (freshVersion || state.failed)) setPending(null);
-  }, [pending, freshVersion, state.failed]);
+    if (!pending || !(freshVersion || state.failed)) return;
+    setPending(null);
+    // Generator podpina gotowe CV do bieżącego wiersza etapu, gdy ten nie ma
+    // CV — dok ma to zobaczyć, zamiast proponować podpięcie na starym wierszu.
+    if (otherRow && freshVersion) void queryClient.invalidateQueries({ queryKey: stageBrandedQueryKey(stageId) });
+  }, [pending, freshVersion, state.failed, otherRow, queryClient, stageId]);
 
   const attach = useMutation({
     mutationFn: (generatedId: number) =>
-      candidateStageCvApi.branded.selectGenerated(stageId, generatedId, branded?.edit_revision ?? 0),
+      candidateStageCvApi.branded.selectGenerated(cvStageId, generatedId, draft?.edit_revision ?? 0),
     onSuccess: (response) => {
-      queryClient.setQueryData(stageBrandedQueryKey(stageId), response.data);
+      queryClient.setQueryData(stageBrandedQueryKey(cvStageId), response.data);
       void queryClient.invalidateQueries({ queryKey: cvToClientRowsQueryKey(candidateId, jobId) });
-      void queryClient.invalidateQueries({ queryKey: ["cv-qc", stageId] });
+      void queryClient.invalidateQueries({ queryKey: ["cv-qc", cvStageId] });
       showSuccess("CV firmowe z nowego CV podpięte do tej rekrutacji.");
     },
     onError: (error) =>
@@ -116,9 +176,9 @@ export function CompanyCvStaleNotice({
   });
 
   const stale = companyCvStale({
-    brandedStatus: branded?.status,
-    original,
-    draftSince: companyDraftSince(branded, rowsQuery.data),
+    brandedStatus: draft?.status,
+    original: copy,
+    draftSince: companyDraftSince(draft, rowsQuery.data),
   });
   if (!stale || !snapshotAt || (dismissed === snapshotAt && !waiting && !freshVersion)) return null;
 
@@ -165,7 +225,7 @@ export function CompanyCvStaleNotice({
               size="sm"
               variant="ghost"
               onClick={() => {
-                writeDismissed(stageId, snapshotAt);
+                writeDismissed(cvStageId, snapshotAt);
                 setDismissed(snapshotAt);
               }}
             >

@@ -29,6 +29,12 @@ Makiety i decyzje D1–D6: https://claude.ai/artifact/Si7j1pcC3cXxUKYMNVGWa1.
   w kolejce, tej bramki nie przechodzi drugi raz (`arrives_from_before_client_send`),
   więc „✓ Wrzucone” osoby od Cpro działa bez zmian. Stawka zapisana wcześniej
   w tej rekrutacji wystarcza.
+- **Para zamknięta z kolejki Cpro wraca przez akceptację (14.10.2026).** Wyjątek „już stoi
+  w kolejce” obejmuje tylko kartę, której najnowszy wiersz jest wierszem Cpro. Audyt 13.10
+  pokazał, że para odrzucona z kolejki wracała do niej („Przywróć”, ruch na „Wysłane do Cpro”)
+  bez Delivery Leada, bo bramki liczą się kolumną sprzed zamknięcia. Teraz taki powrót wymaga
+  uprawnienia wysyłki. Stawka zapisana wcześniej dalej wystarcza. Odmowę `/bulk-move`
+  u Nordei (403 i 422) pokrywa `test_fix48_ws01_db.py`.
 - **Dzwonek osoby od Cpro dopiero po akceptacji**, z nazwą od klienta
   i numerem w tytule (`_cpro_job_label`, temat maila to tytuł) — ta sama osoba
   w dwóch rekrutacjach Nordei nie daje dwóch identycznych dzwonków. Kwota

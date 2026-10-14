@@ -193,6 +193,22 @@ describe("BoardTasksPanel — „Czeka na Ciebie” na pulpicie", () => {
     expect(container).toBeEmptyDOMElement();
   });
 
+  it("awaria liczenia „Wymagań do poprawy” (null) → zdanie o awarii, nie pustka (audyt 13.10.2026)", async () => {
+    mockQueue({ requirement_fixes: null });
+    renderPanel();
+    expect(await screen.findByTestId("requirement-fixes-failed")).toHaveTextContent(
+      "Nie udało się policzyć „Wymagań do poprawy” — odśwież pulpit.",
+    );
+  });
+
+  it("pusta lista „Wymagań do poprawy” ([]) nie daje zdania o awarii", async () => {
+    mockQueue({ requirement_fixes: [] });
+    const { container } = renderPanel();
+    await waitFor(() => expect(get).toHaveBeenCalled());
+    expect(screen.queryByTestId("requirement-fixes-failed")).toBeNull();
+    expect(container).toBeEmptyDOMElement();
+  });
+
   it("awaria odczytu kolejki → komunikat z „Spróbuj ponownie”, nie pustka (R8-N14-1)", async () => {
     let calls = 0;
     get.mockImplementation((url: string) => {

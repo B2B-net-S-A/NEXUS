@@ -30,7 +30,8 @@ https://claude.ai/artifact/QekWy3zx3pXNEKDKQmikf6, raport:
   bezterminowa): koniec łańcucha bez kontynuacji wg `order_continuation` — to
   samo, co pokazuje lista kontraktorów. Zamówienie do końca miesiąca
   z przedłużeniem nie daje „do końca miesiąca”. Bez daty: zamówienie
-  bezterminowe, brak zamówień, aktywna linia MD z budżetem.
+  bezterminowe, brak zamówień, aktywna linia MD z budżetem. Wyjątki od
+  14.10.2026 — sekcja „Po audycie 13.10.2026” niżej.
 - **„Kończy” idzie za regułą alertów Delivery**, nie za zakładką „Kończące się
   30d”: linie zamówień MD „kończą się” tylko u klientów
   z `EXTENDED_ORDER_ALERT_CLIENT_IDS`. Zakładka liczy grupy MD na froncie
@@ -107,3 +108,37 @@ https://claude.ai/artifact/QekWy3zx3pXNEKDKQmikf6, raport:
   zawsze, gdy kartę rusza jedyny Delivery Lead klienta.
 - „CV wysłane” rozpoznajemy po kolumnie Tablicy, nie po kodzie etapu (etapy
   z szablonów Traffita mają inne kody); ruch wstecz nie dzwoni.
+
+## Po audycie 13.10.2026 (14.10.2026)
+
+Audyt pokazał, że były konsultant z dawnym etapem „Zatrudniony” zostawał
+„Pracuje u nas” na zawsze (dzwonek szedł do Delivery Leada byłego klienta,
+okno zatrudnienia pytało o nieistniejącą współpracę), a wypowiedziana umowa
+z linią MD i umowa po końcu ostatniego zamówienia mówiły „Zamówienie bez daty
+końca”. Teraz obowiązuje:
+
+- **Etap „Zatrudniony” nie jest sygnałem**, gdy umowa osoby u klienta tej
+  rekrutacji jest `ended`/`void` i skończyła się w dniu zatrudnienia albo
+  później (umowa bez żadnej daty też zamyka), a żadna inna umowa u tego
+  klienta nie trwa ani nie czeka na podpis (szkic, do podpisu). Umowa
+  zakończona PRZED zatrudnieniem nie zamyka — to ponowne zatrudnienie.
+  Reguła: `hire_closed_by_contract` (Python) i `hire_closed_by_contract_clause`
+  (SQL) w `services/employment_marker.py`. Stare pole `employment`
+  (`candidates._derive_employment`) i filtr `employment=at_client`/`available`
+  (`_at_client_predicate` → `current_hired_signal_exists`) muszą czytać to
+  samo — inaczej pęka niezmiennik „znacznik ⇔ `employed_at_client`”.
+- **Data końca = wcześniejsza z dwóch:** koniec łańcucha zamówień i data końca
+  umowy (`contracts.end_date`; umowa B2B ma ją tylko po ręcznym zakończeniu).
+  Wypowiedziana umowa z linią MD z budżetem kończy się w swojej dacie.
+- **Łańcuch, którego wszystkie zamówienia już się skończyły** (zamknięte albo
+  z datą końca w przeszłości; porzucony pusty szkic się nie liczy, zaplanowany
+  szkic z datą albo stawką — tak), daje ostatni dzień ostatniego zamówienia,
+  także przeszły: znacznik mówi „Kończy u nas <data>”, a nie „Pracuje · bez
+  daty końca”.
+- **Filtr „Kończy u nas w ciągu 60 dni”** łapie osobę tylko, gdy KAŻDA jej
+  trwająca umowa kończy się najpóźniej za 60 dni — także ta, której
+  zamówienia już się skończyły (ta sama data co w znaczniku, `_work_end_sql`).
+  Druga umowa bez końca = osoba zostaje u nas.
+- **Dzwonek o zatrudnieniu też raz na parę** osoba–rekrutacja (cofnięcie
+  z „Zatrudniony” i ponowne zatrudnienie nie dzwoni drugi raz). Liczy się tylko
+  wcześniejszy dzwonek o zatrudnieniu — dzwonek o „CV wysłane” go nie zastępuje.

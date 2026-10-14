@@ -1496,8 +1496,12 @@ class Settings(BaseSettings):
     # TRAFFIT_CLIENT_ID, TRAFFIT_CLIENT_SECRET, TRAFFIT_THROTTLE_RPS) are read
     # from the environment by TraffitConfig.from_env() — NOT declared here.
     #
-    # Kill-switch: when False the loop exits immediately and POST
-    # /api/admin/traffit/sync returns 503. Default OFF until activated.
+    # WYŁĄCZONY NA STAŁE od 14.10.2026 (decyzja Artura, moduł
+    # `app/services/traffit_retired.py`): `TRAFFIT_SYNC_ENABLED` i
+    # `CANDIDATE_CONTACT_TRAFFIT_INTAKE_ENABLED` są zawsze False niezależnie od
+    # env (walidator `_force_traffit_flags_off` niżej), pętla nie startuje,
+    # a POST /api/admin/traffit/* odpowiadają 410. Pola zostają, bo czytają je
+    # zamrożenie wyścigów, analityka i kolejka kontaktów.
 
     # ── COMPASS: dni robocze (decyzja D5) ────────────────────────────────
     # Mianownik wskaznikow „na dzien". Do 2026-08-31 Power Calling dzielil
@@ -1591,6 +1595,21 @@ class Settings(BaseSettings):
     JOB_PORTAL_STATUS_SYNC_HOURS: int = 6
 
     TRAFFIT_SYNC_ENABLED: bool = False
+
+    @field_validator("TRAFFIT_SYNC_ENABLED", "CANDIDATE_CONTACT_TRAFFIT_INTAKE_ENABLED")
+    @classmethod
+    def _force_traffit_flags_off(cls, v: bool) -> bool:
+        """Traffit wyłączony na stałe (decyzja Artura 14.10.2026).
+
+        Wartość z env przegrywa zawsze, jak przy `AAD_GROUP_RBAC_ENABLED`: do
+        14.10 import wyłączała sama zmienna, którą dało się włączyć z powrotem.
+        Flaga „włączona” bez działającego importu kazałaby zamrożeniu wyścigów
+        czekać na znacznik `__daily__`, którego już nie będzie. Testy historii
+        importera ustawiają flagę `monkeypatch.setattr` na żywym obiekcie
+        ustawień, co omija walidator. Szczegóły: `app/services/traffit_retired.py`.
+        """
+        return False
+
     # Skutki uboczne dla etapów przychodzących z importu.
     #
     # Import pisze do `candidate_stages` surowym SQL-em (świadomie — warstwa
@@ -1782,6 +1801,7 @@ class Settings(BaseSettings):
     CANDIDATE_CONTACT_ASSIGNMENT_ENABLED: bool = False
     # Enables the strict read-only recruitment_history poller.  This still
     # requires CANDIDATE_CONTACT_ENABLED and valid Traffit read credentials.
+    # Od 14.10.2026 zawsze False (Traffit wyłączony, `_force_traffit_flags_off`).
     CANDIDATE_CONTACT_TRAFFIT_INTAKE_ENABLED: bool = False
     # Required cutover boundary for automatic intake.  Rows older than this
     # timestamp remain neutral historical data and never consume queue slots.

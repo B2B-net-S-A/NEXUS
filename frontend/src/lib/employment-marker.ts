@@ -19,7 +19,11 @@ export interface EmploymentMarkerClient {
   client_name?: string | null;
   contract_id?: number | null;
   phase: EmploymentPhase;
-  /** Koniec łańcucha zamówień bez kontynuacji; brak = bez daty końca. */
+  /**
+   * Koniec pracy u klienta: koniec łańcucha zamówień bez kontynuacji albo
+   * wcześniejsza data końca wypowiedzianej umowy; może być w przeszłości
+   * (zamówienia się skończyły, umowa trwa). Brak = bez daty końca.
+   */
   order_end_date?: string | null;
   /** Tylko faza `starting`: umowa podpisana, start w przyszłości. */
   starts_on?: string | null;

@@ -14,6 +14,13 @@ domyka się przez kilkukrotne wywołanie. Robienie tego tokenem wyklikanym
 w przeglądarce znaczyło, że automatyzacja podszywa się pod człowieka
 poświadczeniem, które i tak umiera po 8 h. Scope'y są rozdzielone celowo:
 klucz monitoringu czytający status nie ma prawa uruchomić pełnego importu.
+
+Od 14.10.2026 Traffit jest wyłączony na stałe (decyzja Artura,
+``app/services/traffit_retired.py``): każda trasa POST tego modułu — sync,
+naprawy, przeniesienie fal, scalenie bliźniaków, także przebieg próbny —
+odpowiada 410 z komunikatem po polsku, po bramce uprawnień, zanim cokolwiek
+połączy się z Traffitem albo zapisze w bazie. Trasy GET ze stanem zostają:
+czytają historię z bazy NEXUSA.
 """
 
 # UWAGA: bez `from __future__ import annotations` — PEP 563 zamienia adnotacje
@@ -22,7 +29,7 @@ klucz monitoringu czytający status nie ma prawa uruchomić pełnego importu.
 # i ląduje jako wymagany parametr QUERY. Ten sam trap co w
 # `candidate_activity_summary.py`.
 
-from typing import Any, Dict, Optional
+from typing import Any, Dict, NoReturn, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -44,9 +51,18 @@ from app.services import traffit_file_dates_repair as file_dates_repair
 from app.services import traffit_notes_repair as notes_repair
 from app.services import traffit_transfer as transfer
 from app.services.traffit.client import TraffitConfig
+from app.services.traffit_retired import TraffitRetiredError, refuse_traffit
 from app.services.traffit_status import read_traffit_status
 
 router = APIRouter()
+
+
+def _traffit_retired_410(entry: str) -> NoReturn:
+    """Wejście do Traffita po 14.10.2026 → 410 z komunikatem dla operatora."""
+    try:
+        refuse_traffit(entry)
+    except TraffitRetiredError as exc:
+        raise HTTPException(status_code=status.HTTP_410_GONE, detail=str(exc)) from exc
 
 
 def _service_rate_limit() -> str:
@@ -77,6 +93,7 @@ async def trigger_traffit_sync(
 
     ``request`` jest w sygnaturze, bo wymaga go slowapi (kubełek limitu per IP).
     """
+    _traffit_retired_410("POST /api/admin/traffit/sync")
     if not settings.TRAFFIT_SYNC_ENABLED:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -161,6 +178,7 @@ async def trigger_traffit_notes_repair(
     db: AsyncSession = Depends(get_db),
 ) -> Dict[str, Any]:
     """Naprawa dat, autorów i wzmianek notatek z Traffita (w tle)."""
+    _traffit_retired_410("POST /api/admin/traffit/notes-repair")
     _traffit_configured_or_503()
     reason = notes_repair.spawn_running_guard()
     if reason:
@@ -190,6 +208,7 @@ async def trigger_traffit_note_recruitments(
     db: AsyncSession = Depends(get_db),
 ) -> Dict[str, Any]:
     """Rekrutacje notatek z aktywności osoby w Traffit (w tle, z kursorem)."""
+    _traffit_retired_410("POST /api/admin/traffit/notes-repair/recruitments")
     _traffit_configured_or_503()
     reason = notes_repair.spawn_running_guard()
     if reason:
@@ -241,6 +260,7 @@ async def trigger_traffit_file_dates_repair(
     db: AsyncSession = Depends(get_db),
 ) -> Dict[str, Any]:
     """Daty wgrania dokumentów z Traffita (w tle, z kursorem)."""
+    _traffit_retired_410("POST /api/admin/traffit/file-dates-repair")
     _traffit_configured_or_503()
     reason = file_dates_repair.spawn_running_guard()
     if reason:
@@ -290,6 +310,7 @@ async def trigger_traffit_added_dates_repair(
     db: AsyncSession = Depends(get_db),
 ) -> Dict[str, Any]:
     """Daty dodania kandydatów z Traffita (w tle, z kursorem po stronach)."""
+    _traffit_retired_410("POST /api/admin/traffit/added-dates-repair")
     _traffit_configured_or_503()
     reason = added_dates_repair.spawn_running_guard()
     if reason:
@@ -374,6 +395,7 @@ async def trigger_traffit_transfer(
     db: AsyncSession = Depends(get_db),
 ) -> Dict[str, Any]:
     """Przeniesienie fali rekrutacji z Traffita do NEXUSA (w tle)."""
+    _traffit_retired_410("POST /api/admin/traffit/transfer")
     _traffit_configured_or_503()
     scope = _transfer_scope(client_id, job_ids, active_days, include_twins)
     if not dry_run and caller.user is None:
@@ -455,6 +477,7 @@ async def trigger_traffit_twins_merge(
     db: AsyncSession = Depends(get_db),
 ) -> Dict[str, Any]:
     """Scalenie kopii z Traffita z rekrutacjami NEXUSA (w tle)."""
+    _traffit_retired_410("POST /api/admin/traffit/twins-merge")
     scope = _merge_scope(job_ids)
     if not dry_run and caller.user is None:
         # Zamknięcie kopii zapisuje, kto je wykonał — klucz API robi tylko próbę.

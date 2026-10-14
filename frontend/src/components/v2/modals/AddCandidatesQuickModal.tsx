@@ -54,7 +54,7 @@ import {
 import {
   largestHomonymGroup,
   monthLabel,
-  phoneKey,
+  phoneMatchesQuery,
   samePhoneLabel,
   samePhoneRefs,
   searchKindLine,
@@ -102,8 +102,9 @@ function ContactLine({
   location: string | null;
   interpretation: SearchTextInterpretation | null | undefined;
 }) {
+  // Podciąg cyfr jak wyszukiwarka (`phone_digits_clause`) — także przy 6–8 cyfrach.
   const phoneHit =
-    interpretation?.kind === "phone" && phoneKey(phone) === interpretation.phone;
+    interpretation?.kind === "phone" && phoneMatchesQuery(phone, interpretation.phone);
   const emailHit =
     interpretation?.kind === "email" &&
     !!email &&
@@ -329,6 +330,15 @@ export function AddCandidatesQuickModal({ open, onClose, jobId, jobTitle }: Prop
     void queryClient.invalidateQueries({ queryKey: ["my-next-steps"] });
   };
 
+  // W trakcie „Przywróć” okno zostaje: ruch karty może jeszcze pokazać swoje
+  // okna (ostrzeżenia, konflikt wersji), a po zamknięciu nie miałby ich gdzie
+  // pokazać i przycisk zostawałby zablokowany (audyt 13.10.2026). Jak
+  // `close` w `AddToRecruitmentDialog`.
+  const close = () => {
+    if (restoringId !== null) return;
+    onClose();
+  };
+
   const personById = (id: number) =>
     items.find((c) => c.id === id) ?? inJob.find((p) => p.id === id) ?? null;
 
@@ -365,7 +375,7 @@ export function AddCandidatesQuickModal({ open, onClose, jobId, jobTitle }: Prop
   // w oknie, a czytnik ekranu dostaje `role="dialog"` z tytułem. Logika
   // wyszukiwania i dodawania bez zmian.
   return (
-    <Dialog open onOpenChange={(next) => { if (!next) onClose(); }}>
+    <Dialog open onOpenChange={(next) => { if (!next) close(); }}>
       <DialogContent
         size="lg"
         hideClose
@@ -385,8 +395,9 @@ export function AddCandidatesQuickModal({ open, onClose, jobId, jobTitle }: Prop
             </div>
           </div>
           <button
-            onClick={onClose}
-            className="text-muted-foreground hover:text-foreground transition-colors"
+            onClick={close}
+            disabled={restoringId !== null}
+            className="text-muted-foreground hover:text-foreground transition-colors disabled:cursor-not-allowed disabled:opacity-50"
             aria-label="Zamknij"
           >
             <X className="w-5 h-5" />
@@ -704,8 +715,9 @@ export function AddCandidatesQuickModal({ open, onClose, jobId, jobTitle }: Prop
           </span>
           <div className="flex gap-2">
             <button
-              onClick={onClose}
-              className="px-4 py-2 text-sm border border-border rounded-lg hover:bg-muted transition-colors"
+              onClick={close}
+              disabled={restoringId !== null}
+              className="px-4 py-2 text-sm border border-border rounded-lg hover:bg-muted transition-colors disabled:cursor-not-allowed disabled:opacity-50"
             >
               Anuluj
             </button>

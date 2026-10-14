@@ -117,7 +117,6 @@ def test_a_certain_amount_far_from_the_pay_word_still_blocks():
     "text",
     [
         "rate limiting i throttling w Java 17",
-        "obsługa modułu wynagrodzenia dla 10 tys. pracowników",
     ],
 )
 def test_a_number_near_a_pay_word_without_a_currency_only_advises(text):

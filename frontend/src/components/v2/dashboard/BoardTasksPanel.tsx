@@ -222,6 +222,8 @@ export function BoardTasksPanel({
   const hasPendingJobs = hasPendingJobsContent(data.pending_jobs, data.unfinished_forms);
   // „Wymagania do poprawy” — tak samo: zaległość obok zadań, do `total` się nie liczy.
   const fixes = data.requirement_fixes ?? [];
+  // `null` = serwer nie policzył listy — mówimy to, zamiast udawać, że nic nie ma.
+  const fixesFailed = data.requirement_fixes === null;
   // Admin i Head of Recruitment widzą listę do dokończenia zwiniętą do jednej
   // linii, gdy obok są zadania — to zaległość, nie praca na dziś.
   const collapsePending = data.can_decide_proposals === true;
@@ -245,7 +247,8 @@ export function BoardTasksPanel({
       !transit &&
       leads.length === 0 &&
       !hasPendingJobs &&
-      fixes.length === 0
+      fixes.length === 0 &&
+      !fixesFailed
     ) {
       return null;
     }
@@ -269,6 +272,7 @@ export function BoardTasksPanel({
         {showLoad ? <TeamLoadSection standalone /> : null}
         <PendingJobsSection pending={data.pending_jobs} forms={data.unfinished_forms} standalone />
         <RequirementFixesSection rows={fixes} standalone />
+        {fixesFailed ? <RequirementFixesFailed /> : null}
         {transit ? <CvInTransitSection transit={transit} standalone /> : null}
       </div>
     );
@@ -327,6 +331,7 @@ export function BoardTasksPanel({
           collapsed={collapsePending}
         />
         <RequirementFixesSection rows={fixes} collapsed={collapsePending} />
+        {fixesFailed ? <RequirementFixesFailed /> : null}
         <BoardFlowSections
           flow={data.flow}
           finance={data.finance}
@@ -452,5 +457,18 @@ export function BoardTasksPanel({
       ) : null}
       <CproQueueDialog open={cproOpen} onClose={() => setCproOpen(false)} initialJobId={cproJob} />
     </div>
+  );
+}
+
+/** Awaria liczenia „Wymagań do poprawy” (`requirement_fixes: null`, audyt 13.10.2026). */
+function RequirementFixesFailed() {
+  return (
+    <p
+      role="status"
+      data-testid="requirement-fixes-failed"
+      className="rounded-xl border border-border bg-card px-4 py-3 text-sm text-muted-foreground lg:col-span-3"
+    >
+      Nie udało się policzyć „Wymagań do poprawy” — odśwież pulpit.
+    </p>
   );
 }

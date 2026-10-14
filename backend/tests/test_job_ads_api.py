@@ -206,7 +206,9 @@ async def test_model_failure_never_replaces_a_saved_ad(api: AsyncClient, monkeyp
 
     _model(monkeypatch, error=RuntimeError("529 overloaded_error"))
     failed = await api.post(
-        f"/api/jobs/{job_id}/portal-ad/generate", json={"lang": "pl"}, headers=headers
+        f"/api/jobs/{job_id}/portal-ad/generate",
+        json={"lang": "pl", "expected_updated_at": saved["updated_at"]},
+        headers=headers,
     )
     assert failed.status_code == 503, failed.text
     assert "bez zmian" in failed.json()["detail"]

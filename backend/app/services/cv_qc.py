@@ -43,9 +43,10 @@ from typing import Any, Optional
 
 from fastapi import HTTPException
 from fastapi.concurrency import run_in_threadpool
-from sqlalchemy import and_, case, func, select
+from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy import text as sql_text
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
 from app.models.candidate_stage_cv import CandidateStageCV
 from app.models.cv_generated_document import CvGeneratedDocument
@@ -2086,7 +2087,36 @@ def _is_advisory_override():
     return func.coalesce(CvQcRun.result["override_advisory"].astext, "false") == "true"
 
 
-def _override_applies():
+def _unspent_override():
+    """Warunek SQL: wiersz obejścia, którego zwrot karty jeszcze nie zużył."""
+
+    return and_(
+        CvQcRun.override_reason.is_not(None),
+        CvQcRun.result["override_spent_at"].astext.is_(None),
+    )
+
+
+# Domyślny odcisk CV w `_override_applies`: CV z najnowszego przebiegu pary.
+_LATEST_RUN_CV = object()
+
+
+def _latest_run_fingerprint():
+    """SQL: odcisk CV najnowszego przebiegu pary wiersza (podzapytanie skorelowane)."""
+
+    newest = aliased(CvQcRun)
+    return (
+        select(newest.cv_fingerprint)
+        .where(
+            newest.candidate_id == CvQcRun.candidate_id,
+            newest.job_id == CvQcRun.job_id,
+        )
+        .order_by(newest.created_at.desc(), newest.id.desc())
+        .limit(1)
+        .scalar_subquery()
+    )
+
+
+def _override_applies(cv_fingerprint: Any = _LATEST_RUN_CV):
     """Warunek SQL: wiersz jest obejściem, które nadal przepuszcza parę.
 
     Obejście osoby od wysyłki (Delivery Lead, admin) dotyczy pary bez końca.
@@ -2095,18 +2125,35 @@ def _override_applies():
     znów pyta, a kolejne „Przesuń mimo uwag…” znów go powiadamia. Bez tego
     cofnięcie karty nic by nie znaczyło — drugi ruch przechodziłby po cichu na
     starym obejściu.
+
+    Obejście doradcze dotyczy też tylko wersji CV, przy której je zrobiono
+    (``cv_fingerprint``: odcisk bieżącego CV, domyślnie z najnowszego
+    przebiegu pary), i tylko w trybie doradczym — po `CV_QC_ADVISORY=False`
+    przepuszcza wyłącznie obejście osoby od wysyłki (audyt 48 h, 13.10.2026).
     """
 
+    advisory = _is_advisory_override()
+    if not advisory_mode():
+        return and_(_unspent_override(), ~advisory)
+    current = (
+        _latest_run_fingerprint()
+        if cv_fingerprint is _LATEST_RUN_CV
+        else cv_fingerprint
+    )
     return and_(
-        CvQcRun.override_reason.is_not(None),
-        CvQcRun.result["override_spent_at"].astext.is_(None),
+        _unspent_override(),
+        or_(~advisory, CvQcRun.cv_fingerprint.is_not_distinct_from(current)),
     )
 
 
 async def has_live_advisory_override(
     db: AsyncSession, candidate_id: int, job_id: int
 ) -> bool:
-    """Czy para ma obejście doradcze, które jeszcze przepuszcza."""
+    """Czy para ma obejście doradcze, którego zwrot karty jeszcze nie zużył.
+
+    Bez warunku wersji CV i trybu: zwrot karty zużywa każde takie obejście,
+    żeby nie ożyło po powrocie do starego CV albo do trybu doradczego.
+    """
 
     return (
         await db.scalar(
@@ -2114,7 +2161,7 @@ async def has_live_advisory_override(
             .where(
                 CvQcRun.candidate_id == candidate_id,
                 CvQcRun.job_id == job_id,
-                _override_applies(),
+                _unspent_override(),
                 _is_advisory_override(),
             )
             .limit(1)
@@ -2150,9 +2197,15 @@ async def spend_advisory_overrides(
 
 
 async def _latest_override(
-    db: AsyncSession, candidate_id: int, job_id: int
+    db: AsyncSession,
+    candidate_id: int,
+    job_id: int,
+    cv_fingerprint: Any = _LATEST_RUN_CV,
 ) -> Optional[dict]:
-    """Najnowsze obejście, które przepuszcza parę (`_override_applies`)."""
+    """Najnowsze obejście, które przepuszcza parę (`_override_applies`).
+
+    ``cv_fingerprint`` — odcisk bieżącego CV (QC liczone na żywo); bez niego
+    CV najnowszego przebiegu, jak plakietka na Tablicy."""
 
     from app.models.user import User
 
@@ -2163,7 +2216,7 @@ async def _latest_override(
             .where(
                 CvQcRun.candidate_id == candidate_id,
                 CvQcRun.job_id == job_id,
-                _override_applies(),
+                _override_applies(cv_fingerprint),
             )
             .order_by(CvQcRun.created_at.desc(), CvQcRun.id.desc())
             .limit(1)
@@ -2325,12 +2378,13 @@ async def run_qc(
     critical, critical_source = critical_requirements(src.job, src.must)
     run_id: Optional[int] = None
     computed_at = datetime.now(timezone.utc)
+    fp = fingerprint(src.blocks) if src.generated is not None else None
     if persist:
         store = dict(
             candidate_id=src.candidate.id,
             job_id=src.job.id,
             stage_id=stage.id,
-            fp=fingerprint(src.blocks) if src.generated is not None else None,
+            fp=fp,
             checks=checks,
             cv_source=(src.generated or {}).get("source"),
             user_id=user_id,
@@ -2357,7 +2411,10 @@ async def run_qc(
         "passed": passed,
         "blocking_failed": blocking_failed,
         "warnings_count": warnings_count,
-        "override": await _latest_override(db, src.candidate.id, src.job.id),
+        # Obejście doradcze dotyczy CV, przy którym je zrobiono (to liczone teraz).
+        "override": await _latest_override(
+            db, src.candidate.id, src.job.id, cv_fingerprint=fp
+        ),
         "advisory": advisory_mode(),
         "confirmations": await _confirmations(db, src.candidate.id),
         "run_id": run_id,
@@ -2861,16 +2918,22 @@ async def recompute_outdated(db: AsyncSession, *, limit: int = 300) -> int:
 async def pair_statuses(
     db: AsyncSession, pairs: Iterable[tuple[int, int]]
 ) -> dict[tuple[int, int], dict]:
-    """Stan QC par (kandydat, rekrutacja) jednym zapytaniem.
+    """Stan QC par (kandydat, rekrutacja) hurtem: przebiegi jednym zapytaniem,
+    trwające pominięcia blokad drugim.
 
     ``passed`` — najnowszy przebieg przeszedł; ``overridden`` — nie przeszedł,
     ale Delivery Lead/admin kiedyś przepuścił parę; ``failed``; ``unchecked``
-    — pary nikt jeszcze nie sprawdzał. Obejście doradcze sprzed zwrotu karty
-    się nie liczy (`_override_applies`).
+    — pary nikt jeszcze nie sprawdzał. Obejście doradcze sprzed zwrotu karty,
+    przy innym CV niż w najnowszym przebiegu albo poza trybem doradczym się
+    nie liczy (`_override_applies`).
 
     Przebieg zaliczony dzięki pominięciu uwag blokujących („To nieprawda”,
     D5) to też ``overridden`` z ``dismissed_blocking`` > 0 — Delivery Lead
-    widzi, że ktoś przepuścił parę, a kolejka liczy ją jako gotową.
+    widzi, że ktoś przepuścił parę, a kolejka liczy ją jako gotową. Gdy część
+    tych pominięć przywrócono po przebiegu (zwrot karty,
+    `cv_finding_dismissals.restore_on_card_return` — QC nie liczy się wtedy od
+    nowa), przebieg już nie przechodzi: ``failed`` z przywróconymi uwagami
+    w ``blocking_failed`` (audyt 48 h, 13.10.2026).
 
     ``ok_at`` — od kiedy para jest gotowa: czas najnowszego zaliczonego
     przebiegu albo najwcześniejszego obowiązującego obejścia; ``None`` przy
@@ -2905,38 +2968,63 @@ async def pair_statuses(
         .over(partition_by=pair_window)
         .label("override_at")
     )
-    rows = await db.execute(
-        select(
-            CvQcRun.candidate_id,
-            CvQcRun.job_id,
-            CvQcRun.passed,
-            CvQcRun.blocking_failed,
-            CvQcRun.warnings_count,
-            CvQcRun.created_at,
-            CvQcRun.result["dismissed_blocking"].astext.label("dismissed"),
-            has_override,
-            override_at,
+    rows = (
+        await db.execute(
+            select(
+                CvQcRun.candidate_id,
+                CvQcRun.job_id,
+                CvQcRun.passed,
+                CvQcRun.blocking_failed,
+                CvQcRun.warnings_count,
+                CvQcRun.created_at,
+                CvQcRun.result["dismissed_blocking"].astext.label("dismissed"),
+                has_override,
+                override_at,
+            )
+            .where(
+                CvQcRun.candidate_id.in_(sorted({c for c, _ in wanted})),
+                CvQcRun.job_id.in_(sorted({j for _, j in wanted})),
+            )
+            .distinct(CvQcRun.candidate_id, CvQcRun.job_id)
+            .order_by(
+                CvQcRun.candidate_id,
+                CvQcRun.job_id,
+                CvQcRun.created_at.desc(),
+                CvQcRun.id.desc(),
+            )
         )
-        .where(
-            CvQcRun.candidate_id.in_(sorted({c for c, _ in wanted})),
-            CvQcRun.job_id.in_(sorted({j for _, j in wanted})),
+    ).all()
+    from app.models.cv_finding_dismissal import CvFindingDismissal  # noqa: PLC0415
+
+    active_dismissals = {
+        (row.candidate_id, row.job_id): int(row.active)
+        for row in await db.execute(
+            select(
+                CvFindingDismissal.candidate_id,
+                CvFindingDismissal.job_id,
+                func.count(CvFindingDismissal.id).label("active"),
+            )
+            .where(
+                CvFindingDismissal.candidate_id.in_(sorted({c for c, _ in wanted})),
+                CvFindingDismissal.job_id.in_(sorted({j for _, j in wanted})),
+                CvFindingDismissal.source == "qc",
+                CvFindingDismissal.blocking.is_(True),
+                CvFindingDismissal.restored_at.is_(None),
+            )
+            .group_by(CvFindingDismissal.candidate_id, CvFindingDismissal.job_id)
         )
-        .distinct(CvQcRun.candidate_id, CvQcRun.job_id)
-        .order_by(
-            CvQcRun.candidate_id,
-            CvQcRun.job_id,
-            CvQcRun.created_at.desc(),
-            CvQcRun.id.desc(),
-        )
-    )
+    }
     for row in rows:
         pair = (row.candidate_id, row.job_id)
         if pair not in wanted:
             continue
         dismissed = int(row.dismissed or 0) if row.passed else 0
-        if row.passed and dismissed:
+        # Pominięcia przywrócone po przebiegu — zaliczenie już nie obowiązuje.
+        returned = max(dismissed - active_dismissals.get(pair, 0), 0)
+        passed = bool(row.passed) and not returned
+        if passed and dismissed:
             status, ok_at = "overridden", row.created_at
-        elif row.passed:
+        elif passed:
             status, ok_at = "passed", row.created_at
         elif row.has_override:
             status, ok_at = "overridden", row.override_at
@@ -2944,9 +3032,11 @@ async def pair_statuses(
             status, ok_at = "failed", None
         out[pair] = {
             "status": status,
-            "blocking_failed": 0 if row.passed else int(row.blocking_failed or 0),
+            "blocking_failed": (
+                0 if passed else returned or int(row.blocking_failed or 0)
+            ),
             "ok_at": ok_at,
-            "dismissed_blocking": dismissed,
+            "dismissed_blocking": dismissed if passed else 0,
             "warnings_count": int(row.warnings_count or 0),
         }
     return out

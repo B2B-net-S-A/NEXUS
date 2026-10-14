@@ -77,6 +77,37 @@ def sheet_filled(payload: object) -> bool:
     return any(value not in (None, "", [], {}) for value in payload.values())
 
 
+def answer_has_content(item: Mapping[str, Any]) -> bool:
+    """Odpowiedź z rozmowy: tekst, pominięcie albo trafienie deal-breakera."""
+    return (
+        bool(str(item.get("response") or "").strip())
+        or bool(item.get("skipped"))
+        or bool(item.get("deal_breaker_hit"))
+    )
+
+
+def sheet_answered(payload: object) -> bool:
+    """Czy arkusz ma choć jedną odpowiedź z rozmowy — bramka „Zweryfikowany”.
+
+    Do 14.10.2026 bramka czytała ``sheet_filled``, które liczy pozycje listy.
+    Formularz wysyła każde pytanie (także puste), więc arkusz z samym
+    sprawdzeniem doświadczenia spełniał bramkę bez żadnej odpowiedzi (audyt
+    13.10.2026, pkt 5). Reguła („Arkusz z samymi sprawdzeniami doświadczenia
+    zapisuje się, ale bramki nie spełnia”) wymaga odpowiedzi, nie kompletu
+    — pytania bez odpowiedzi nadal da się zostawić puste. ``sheet_filled``
+    zostaje dla pytania „czy arkusz jest zapisany”.
+    """
+    if not isinstance(payload, dict):
+        return False
+    answers = payload.get("answers")
+    if not isinstance(answers, list):
+        # Kształt sprzed `ScreeningAnswers` — znaczenie bez zmian.
+        return sheet_filled(payload)
+    return any(
+        isinstance(item, Mapping) and answer_has_content(item) for item in answers
+    )
+
+
 @dataclass(frozen=True)
 class PairFacts:
     """Wszystko, co trzeba wiedzieć o parze (kandydat, rekrutacja)."""
@@ -987,11 +1018,12 @@ async def load_pair_facts(
         db, candidate_id=candidate.id, job_id=job.id
     )
     window = screening_window(process)
+    # Arkusz z odpowiedzią, nie sam zapisany arkusz (audyt 13.10.2026, pkt 5).
     screening_row = next(
         (
             r
             for r in rows
-            if sheet_filled(r.screening_answers) and window.covers(r.moved_at)
+            if sheet_answered(r.screening_answers) and window.covers(r.moved_at)
         ),
         None,
     )
@@ -1186,6 +1218,7 @@ async def load_pair_facts(
 __all__ = [
     "COLUMN_LABEL",
     "PairFacts",
+    "answer_has_content",
     "build_requirements",
     "card_screening_state",
     "column_label",
@@ -1196,6 +1229,7 @@ __all__ = [
     "missing_screening_requirement",
     "qc_statuses",
     "screening_requirement",
+    "sheet_answered",
     "sheet_filled",
     "stage_def_column",
 ]

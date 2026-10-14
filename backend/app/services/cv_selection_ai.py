@@ -55,7 +55,14 @@ from app.services.llm_prompts import CV_SELECTION_EDIT
 from app.services.llm_providers import api_key_configured
 from app.services.prompt_fencing import fence, json_for_prompt
 from app.services.recommendation_card_parser import CV_HIDDEN_FIELDS
-from app.services.recommendation_card_assist import _fold, unsupported_facts
+from app.services.recommendation_card_assist import (
+    _CAPITAL_STOPWORDS,
+    _WORD_RE,
+    _fold,
+    _has_counterpart,
+    _SourceWords,
+    unsupported_facts,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -136,6 +143,15 @@ MSG_ROLE_UNKNOWN = (
     "Nie udało się ustalić, którego stanowiska w oryginalnym CV dotyczy ten "
     "fragment — sprawdź, czy cytat jest z tej samej roli."
 )
+MSG_UNBACKED_WORDS = (
+    "Słowa spoza zaznaczonego tekstu i cytatu: {words}. Sprawdź je przed przyjęciem."
+)
+
+# Skrócenie i korekta nie mają powodu wprowadzać nowego słowa — nowe słowo
+# z wielkiej litery na początku zdania jest tam odmową, w redakcji uwagą.
+_NOTHING_TO_ADD = frozenset({"shorten", "proofread"})
+# Skróty, po których kropka nie kończy zdania („np. Microsoft”).
+_ABBREVIATIONS = frozenset({"np", "m.in", "tj", "tzn", "tzw", "e.g", "i.e"})
 
 
 @dataclass(frozen=True)
@@ -297,6 +313,114 @@ def _new_amount(text: str, fragment: str) -> Optional[str]:
     return None
 
 
+def _after_abbreviation(text: str, dot: int) -> bool:
+    """Kropka na pozycji ``dot`` zamyka skrót („np.”, „m.in.”), nie zdanie."""
+    start = dot
+    while start > 0 and not text[start - 1].isspace():
+        start -= 1
+    return _fold(text[start:dot]).lstrip("(") in _ABBREVIATIONS
+
+
+def _hidden_names(text: str, *sources: str) -> Iterator[tuple[str, str]]:
+    """Słowa z wielkiej litery, które pomija `unsupported_facts`, a nie ma ich w źródłach.
+
+    „Ułóż w zdanie” nie sprawdza słowa z wielkiej litery na początku zdania
+    ani po „( : ; „ " '”, więc kontrolę przechodziły „Klient: Microsoft”,
+    „(Allegro)” i dopisane zdanie „Microsoft jako główny klient.” (audyt
+    13.10.2026). Rodzaje: ``name`` — po znaku, który nie kończy zdania, po
+    skrócie albo z wielką literą w środku słowa („AWS”, „GitHub”), czyli
+    nazwa; ``start`` i ``lead`` (pierwsze słowo tekstu) — zwykły zapis
+    z wielkiej litery na początku zdania: nazwa albo zwykłe słowo
+    („Tworzenie”), czego kod nie rozróżni.
+    """
+    words = _SourceWords(_fold(" ".join(s for s in sources if s)))
+    for match in _WORD_RE.finditer(text):
+        word = match.group(0).rstrip(".-")
+        if len(word) < 2 or not word[:1].isupper():
+            continue
+        if any(ch in word for ch in "+#") or any(ch.isdigit() for ch in word):
+            continue  # słowo z cyfrą albo „+”/„#” sprawdza `unsupported_facts`
+        end = match.start()
+        while end > 0 and text[end - 1].isspace():
+            end -= 1
+        mark = text[end - 1] if end else ""
+        if mark and mark not in ".!?:;\n(„\"'":
+            continue  # w środku zdania słowo sprawdza `unsupported_facts`
+        if _fold(word) in _CAPITAL_STOPWORDS or _has_counterpart(word, words):
+            continue
+        if any(ch.isupper() for ch in word[1:]):
+            yield "name", word
+        elif not mark:
+            yield "lead", word
+        elif mark in ".!?" and not _after_abbreviation(text, end - 1):
+            yield "start", word
+        else:
+            yield "name", word
+
+
+def _first_word_reworded(text: str, fragment: str) -> bool:
+    """Propozycja nie ma już pierwszego słowa fragmentu, tylko inne na jego
+    miejscu („rozwój aplikacji” → „Tworzenie aplikacji”) — redakcja, nie dopisek."""
+    first = _WORD_RE.search(fragment)
+    if first is None:
+        return False
+    return not _has_counterpart(first.group(0).rstrip(".-"), _SourceWords(_fold(text)))
+
+
+# ── Nowe słowa wobec źródeł ──────────────────────────────────────────────────
+#
+# Kontrola faktów łapie liczby, daty, nazwy własne, tokeny z cyfrą i wymagania
+# rekrutacji. Twierdzenie pisane małą literą („prowadził zespół”, „magister
+# informatyki”) przechodzi. Dlatego plan polecenia (`cv_command_ai`) niesie przy
+# operacji słowa, których nie było w zastępowanych wierszach, a rozwinięcie
+# dostaje plakietkę „Zgodne ze źródłem” tylko bez takich słów (audyt 13.10.2026:
+# „…; kierował zespołem i zarządzał budżetem” z poprawnym cytatem dostawało
+# plakietkę).
+
+_PLAIN_WORD = re.compile(r"[^\W\d_]{3,}", re.UNICODE)
+NEW_WORDS_MAX = 6
+# Słowa łączące, które nie niosą treści (po złożeniu znaków). „nie” celowo
+# poza listą: dopisane zaprzeczenie zmienia sens zdania.
+_JOINING_WORDS = frozenset(
+    """
+    oraz lub albo dla przez przy pod nad bez ich jej jego tym tych tego tej ten
+    jak jako czy sie takze rowniez wraz miedzy ktore ktory ktora ktorych celu
+    ramach zakresie min itp itd tzw
+    and the for with from into using including within also that which was were
+    has have been its their this these via per such both while through across
+    """.split()
+)
+
+
+def _same_stem(a: str, b: str) -> bool:
+    """Ta sama rodzina wyrazów z dokładnością do odmiany („tworzyła” ~ „tworzenie”)."""
+    common = 0
+    for x, y in zip(a, b):
+        if x != y:
+            break
+        common += 1
+    return common >= 4 or (common >= 3 and min(len(a), len(b)) <= 4)
+
+
+def new_words(text: str, source: str) -> list[str]:
+    """Słowa nowego tekstu, których nie ma w źródle (z tolerancją odmiany)."""
+    by_prefix: dict[str, list[str]] = {}
+    for word in _PLAIN_WORD.findall(_fold(plain(source))):
+        by_prefix.setdefault(word[:3], []).append(word)
+    found: list[str] = []
+    for word in _PLAIN_WORD.findall(plain(text)):
+        folded = _fold(word)
+        if folded in _JOINING_WORDS or len(folded) < 3:
+            continue
+        if any(_same_stem(folded, other) for other in by_prefix.get(folded[:3], ())):
+            continue
+        if word.lower() not in found:
+            found.append(word.lower())
+        if len(found) >= NEW_WORDS_MAX:
+            break
+    return found
+
+
 def _about_pay(sentence: str) -> bool:
     return bool(
         (_RATE_WORD.search(sentence) and _MONEY.search(sentence))
@@ -453,6 +577,18 @@ def check(action: str, fragment: str, raw: str, grounds: Grounds) -> dict:
             names.append(fact)
             continue
         return _rejected("new_fact", fact, expand=expand)
+    reworded = _first_word_reworded(text, source)
+    for kind, name in _hidden_names(text, *known):
+        if action == "translate":
+            # Angielski zaczyna zdanie wielką literą — uwagą jest tylko nazwa.
+            if kind == "name":
+                names.append(name)
+            continue
+        if kind == "lead" and reworded:
+            continue
+        if kind == "name" or action in _NOTHING_TO_ADD:
+            return _rejected("new_fact", name, expand=expand)
+        caution(name)
     for requirement in _new_requirements(text, grounds, *known):
         # W tłumaczeniu wymaganie zapisane zwykłym słowem („mikroserwisów” →
         # „microservices”) to przekład, nie nowy fakt. Zapisane jak nazwa,
@@ -469,15 +605,21 @@ def check(action: str, fragment: str, raw: str, grounds: Grounds) -> dict:
         and grounds.role is None
         and any(item["kind"] == "original" for item in sources)
     )
+    # Sam istniejący cytat to za mało na plakietkę: każde słowo rozwinięcia
+    # musi stać we fragmencie albo w cytacie.
+    unbacked = new_words(text, " ".join(known)) if expand else []
+    notes = [MSG_ROLE_UNKNOWN] if unattributed else []
+    if unbacked:
+        notes.append(MSG_UNBACKED_WORDS.format(words=", ".join(unbacked)))
     return {
         "status": "ok",
         "proposed_text": proposed,
-        "verified": bool(sources) and not unattributed,
+        "verified": bool(sources) and not unattributed and not unbacked,
         "sources": sources,
         "cautions": cautions,
         "reason": None,
         "problem": None,
-        "message": MSG_ROLE_UNKNOWN if unattributed else None,
+        "message": " ".join(notes) or None,
     }
 
 

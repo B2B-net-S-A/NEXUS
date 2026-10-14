@@ -657,8 +657,9 @@ async def test_quarantined_fresh_upload_hands_primary_back_and_keeps_the_profile
     assert quarantined.is_primary is False
     assert previous.is_primary is True
     # Zdjęcie flagi musi trafić do bazy przed nadaniem jej poprzedniemu plikowi
-    # (unikalny indeks „jedno główne CV na kandydata”).
-    assert db.flushes == 1
+    # (unikalny indeks „jedno główne CV na kandydata”). Od 14.10.2026 kopia CV
+    # etapu wypycha decyzję jeszcze raz przed wyborem następcy (audyt 13.10).
+    assert db.flushes >= 1
     assert candidate.cv_filename == "stare.pdf"
     _assert_profile_untouched(candidate, db)
 

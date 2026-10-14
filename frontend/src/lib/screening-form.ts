@@ -356,11 +356,15 @@ export function assessmentMissingForForward(
   values: Pick<ScreeningFullFormValues, "card">,
 ): boolean {
   if (questions.length > 0) return false;
-  // Odpowiedzi w notatce i arkusz sprzed usunięcia pytań serwerowi wystarczają.
+  // Odpowiedzi w notatce i arkusz sprzed usunięcia pytań serwerowi wystarczają —
+  // arkusz tylko z odpowiedzią (tekst, pominięcie, deal-breaker), lustro
+  // `move_requirements.sheet_answered` (audyt 13.10.2026).
   const answeredElsewhere =
     (state.note_answers ?? []).length > 0 ||
     (state.questions ?? []).some((q) => q.source === "note") ||
-    (state.sheet?.answers ?? []).length > 0;
+    (state.sheet?.answers ?? []).some(
+      (a) => (a.response ?? "").trim() !== "" || Boolean(a.skipped) || Boolean(a.deal_breaker_hit),
+    );
   if (answeredElsewhere) return false;
   if (!editableCardKeys(state).includes("recommendation")) return false;
   if ((values.card?.recommendation ?? "").trim()) return false;

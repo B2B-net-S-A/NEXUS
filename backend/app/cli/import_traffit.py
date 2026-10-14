@@ -30,6 +30,11 @@ Sekrety w env (Coolify env vault, NIE w repo):
 Wartości — patrz docs/traffit-discovery.md.
 
 Idempotent — drugi run = 0 inserts, N updates.
+
+Od 14.10.2026 Traffit jest wyłączony na stałe (decyzja Artura,
+``app/services/traffit_retired.py``): ``main()`` kończy się kodem 3
+z komunikatem na stderr, zanim cokolwiek połączy się z Traffitem. Moduł
+zostaje jako historia migracji.
 """
 
 from __future__ import annotations
@@ -44,6 +49,7 @@ from typing import Iterable
 from app.core.database import AsyncSessionLocal
 from app.services.traffit.client import TraffitClient, TraffitConfig
 from app.services.traffit.importer import TraffitImporter
+from app.services.traffit_retired import TraffitRetiredError, refuse_traffit
 
 logger = logging.getLogger(__name__)
 
@@ -118,7 +124,16 @@ async def _run(phases: Iterable[str], *, dry_run: bool, batch_size: int) -> int:
     return exit_code
 
 
+#: Kod wyjścia przy wyłączonym Traffit — inny niż 1 (błędy wierszy) i 2 (rozjazd).
+EXIT_TRAFFIT_RETIRED = 3
+
+
 def main() -> None:
+    try:
+        refuse_traffit("cli import_traffit")
+    except TraffitRetiredError as exc:
+        print(exc, file=sys.stderr)
+        sys.exit(EXIT_TRAFFIT_RETIRED)
     parser = argparse.ArgumentParser(
         description=(
             "Traffit → Nexus migration CLI (clients, contacts, workflows, "
