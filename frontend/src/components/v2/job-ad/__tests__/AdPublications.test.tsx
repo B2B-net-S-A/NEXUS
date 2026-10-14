@@ -160,6 +160,27 @@ describe("AdPublications", () => {
     );
   });
 
+  it("pole linku JustJoin.IT mówi, że przejdzie też link z RocketJobs", () => {
+    setup(adState());
+    fireEvent.click(
+      within(row("JustJoin.IT")).getByRole("button", { name: "Oznacz jako opublikowane" }),
+    );
+    expect(
+      within(row("JustJoin.IT")).getByRole("textbox", {
+        name: "Link do ogłoszenia na JustJoin.IT albo RocketJobs (możesz dodać później)",
+      }),
+    ).toBeInTheDocument();
+
+    fireEvent.click(
+      within(row("Pracuj.pl")).getByRole("button", { name: "Oznacz jako opublikowane" }),
+    );
+    expect(
+      within(row("Pracuj.pl")).getByRole("textbox", {
+        name: "Link do ogłoszenia na Pracuj.pl (możesz dodać później)",
+      }),
+    ).toBeInTheDocument();
+  });
+
   it("klucz do odświeżenia listy to pierwszy człon klucza listy rekrutacji", () => {
     const key = jobsListQueryKey({} as Parameters<typeof jobsListQueryKey>[0]);
     expect(key[0]).toBe(JOBS_LIST_QUERY_ROOT);
