@@ -32,7 +32,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Iterable, Optional
 
-from sqlalchemy import and_, exists, func, not_, or_, select
+from sqlalchemy import and_, exists, not_, or_, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased, load_only
@@ -556,57 +556,3 @@ async def settle_team_without_recruiter_role(
         settled["collaborators_without_recruiter_role"] = dropped
     await db.flush()
     return settled
-
-
-async def restore_members_released_at_close(
-    db: AsyncSession, *, job: Job, actor_id: Optional[int]
-) -> list[int]:
-    """Przy ponownym otwarciu wracają osoby, które pracowały w chwili zamknięcia.
-
-    Prośba Artura 14.10.2026: po „Otwórz ponownie” te same osoby mają być
-    Rekruterami tak samo jak przed zamknięciem. Prowadzący i ręcznie dopisani
-    zostają (zamknięcie ich nie rusza), ale aktywne przypisanie automat zwalnia
-    z powodem ``finished``, gdy request wychodzi z puli — osoba, która miała
-    tylko przypisanie (przed 0429 albo od automatu), po otwarciu znikała.
-
-    Wracają przypisania zwolnione powodem ``finished`` od ostatniego zamknięcia
-    (wpis ``closed``), aktywne konta z rolą rekrutera; trwały wpis jak przy
-    dopisaniu przez człowieka (``add_manual_member``). Zwraca id przywróconych.
-    Bez commitu.
-    """
-    closed_at = await db.scalar(
-        select(func.max(Activity.created_at)).where(
-            Activity.entity_type == "job",
-            Activity.entity_id == job.id,
-            Activity.action == "closed",
-        )
-    )
-    if closed_at is None:
-        return []
-    user_ids = (
-        await db.scalars(
-            select(JobWorkAssignment.user_id)
-            .where(
-                JobWorkAssignment.job_id == job.id,
-                JobWorkAssignment.state == "released",
-                JobWorkAssignment.release_reason == "finished",
-                JobWorkAssignment.source != "owner",
-                JobWorkAssignment.released_at >= closed_at,
-            )
-            .distinct()
-        )
-    ).all()
-    restored: list[int] = []
-    for user_id in sorted(user_ids):
-        if user_id == job.recruiter_id:
-            continue
-        person = await db.get(User, user_id)
-        if person is None or not person.is_active:
-            continue
-        if not person.has_any_role(*WORK_ROLES):
-            continue
-        if await add_manual_member(
-            db, job_id=job.id, user_id=user_id, actor_id=actor_id
-        ):
-            restored.append(user_id)
-    return restored

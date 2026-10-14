@@ -920,24 +920,22 @@ async def test_reopen_drops_an_owner_without_the_recruiter_role(
 
 
 @pytest.mark.asyncio
-async def test_reopen_brings_back_people_released_by_the_close(
-    app_client, app_auth_headers, offline_matching, monkeypatch
+async def test_reopen_brings_back_the_same_team(
+    app_client, app_auth_headers, offline_matching
 ):
     """Prośba Artura 14.10.2026: po „Otwórz ponownie” te same osoby są
-    Rekruterami co przed zamknięciem. Automat zwalnia przypisanie powodem
-    ``finished``, gdy request wychodzi z puli — osoba z samym przypisaniem
-    po otwarciu znikała. Osoba zdjęta ręcznie przed zamknięciem nie wraca."""
-    from datetime import datetime, timedelta, timezone
-
+    Rekruterami co przed zamknięciem. Prowadzący i dopisane osoby mają trwały
+    wpis (0429), którego zamknięcie nie rusza — automat zwalnia przy zamknięciu
+    tylko przypisanie (``finished``), więc osoba wraca bez przywracania.
+    Osoba zdjęta ręcznie przed zamknięciem nie wraca."""
     from sqlalchemy import update
 
-    from app.api import jobs as jobs_api
     from app.core.database import AsyncSessionLocal
     from app.models.job_work_assignment import JobWorkAssignment
     from tests._job_factory import complete_job_payload, new_recruiter
 
     owner = await new_recruiter()
-    working = await new_recruiter()
+    second = await new_recruiter()
     removed = await new_recruiter()
     created = await app_client.post(
         "/api/jobs",
@@ -946,28 +944,17 @@ async def test_reopen_brings_back_people_released_by_the_close(
     )
     assert created.status_code == 201, created.text
     job_id = created.json()["id"]
-    async with AsyncSessionLocal() as db:
-        db.add_all(
-            [
-                JobWorkAssignment(
-                    job_id=job_id,
-                    user_id=working,
-                    role="recruiter",
-                    source="auto",
-                    state="active",
-                ),
-                JobWorkAssignment(
-                    job_id=job_id,
-                    user_id=removed,
-                    role="recruiter",
-                    source="manual",
-                    state="released",
-                    release_reason="manual",
-                    released_at=datetime.now(timezone.utc) - timedelta(hours=1),
-                ),
-            ]
+    for person in (second, removed):
+        added = await app_client.post(
+            f"/api/jobs/{job_id}/collaborators",
+            json={"user_id": person},
+            headers=app_auth_headers,
         )
-        await db.commit()
+        assert added.status_code == 201, added.text
+    dropped = await app_client.delete(
+        f"/api/jobs/{job_id}/collaborators/{removed}", headers=app_auth_headers
+    )
+    assert dropped.status_code == 204, dropped.text
 
     closed = await app_client.post(
         f"/api/jobs/{job_id}/close", json={"reason": "other"}, headers=app_auth_headers
@@ -979,23 +966,12 @@ async def test_reopen_brings_back_people_released_by_the_close(
             update(JobWorkAssignment)
             .where(
                 JobWorkAssignment.job_id == job_id,
-                JobWorkAssignment.user_id == working,
                 JobWorkAssignment.state == "active",
             )
-            .values(
-                state="released",
-                release_reason="finished",
-                released_at=datetime.now(timezone.utc),
-            )
+            .values(state="released", release_reason="finished")
         )
         await db.commit()
 
-    rung: list[int] = []
-
-    async def _spy(db, *, job, user_id):
-        rung.append(user_id)
-
-    monkeypatch.setattr(jobs_api, "_notify_new_owner", _spy)
     reopened = await app_client.post(
         f"/api/jobs/{job_id}/publish",
         json={"assignment_mode": "keep"},
@@ -1011,11 +987,10 @@ async def test_reopen_brings_back_people_released_by_the_close(
         for p in detail.json()["recruiters"]
         if not p["proposed"]
     }
-    assert team == {(owner, "owner"), (working, "collaborator")}
-    assert sorted(rung) == sorted([owner, working])
+    assert team == {(owner, "owner"), (second, "collaborator")}
 
     listed = await app_client.get(
-        "/api/jobs", params={"worked_by": working}, headers=app_auth_headers
+        "/api/jobs", params={"worked_by": second}, headers=app_auth_headers
     )
     assert listed.status_code == 200, listed.text
     assert job_id in {j["id"] for j in listed.json()["items"]}

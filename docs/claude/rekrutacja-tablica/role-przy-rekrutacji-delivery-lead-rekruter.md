@@ -127,21 +127,24 @@ tylko `recruiter_id`), a Head of Recruitment nie mógł zmienić rekrutera.
   na rekrutera — Artur: „oni są też rekruterami”). Okno edycji zapisuje
   niezmienione pole z dawnym DL-em bez odmowy (walidacja tylko przy zmianie).
 - **„Otwórz ponownie” z zachowaniem zespołu (14.10.2026,
-  `reopen_keep_team_core`)** robi dwie rzeczy przed otwarciem:
+  `reopen_keep_team_core`).** Przed otwarciem
   `job_team.settle_team_without_recruiter_role` zdejmuje z pola „Rekruter”
   i z „Kolejnych osób” konta bez roli rekrutera (DL idzie na wolne miejsce
-  Delivery Leada, wpisanego przez człowieka nie rusza) — w zamkniętych
-  rekrutacjach z Traffita w polu „Rekruter” siedzi „osoba odpowiedzialna”
-  (14.10: 1 017 z DL-em, 158 z adminem, 53 z Finansami), a 13.10 DL otworzyła
-  tak dwie rekrutacje Credit Agricole i stała przy nich jako rekruterka;
-  `job_team.restore_members_released_at_close` przywraca osoby, którym samo
-  zamknięcie zwolniło przypisanie (`release_reason = 'finished'` od ostatniego
-  wpisu `closed`) — trwały wpis jak przy ręcznym dopisaniu i dzwonek „Nowy
-  request do pracy”. Prośba Artura: po otwarciu te same osoby co przed
-  zamknięciem. Wpis `handed_off_to_search` niesie `owner_without_recruiter_role`,
-  `collaborators_without_recruiter_role` i `restored_member_ids`. Okno
-  ponownego otwarcia nie obiecuje „zostaje bez zmian” przy osobie bez roli
-  rekrutera.
+  Delivery Leada, wpisanego przez człowieka nie rusza; wpis
+  `handed_off_to_search` niesie `owner_without_recruiter_role`
+  i `collaborators_without_recruiter_role`). W zamkniętych rekrutacjach
+  z Traffita w polu „Rekruter” siedzi „osoba odpowiedzialna” (14.10: 1 017
+  z DL-em, 158 z adminem, 53 z Finansami) — 13.10 DL otworzyła tak dwie
+  rekrutacje Credit Agricole i stała przy nich jako rekruterka. Okno
+  ponownego otwarcia nie obiecuje wtedy „zostaje bez zmian”.
+  **Ten sam zespół po otwarciu** (prośba Artura 14.10) daje trwały wpis 0429:
+  zamknięcie nie rusza ani prowadzącego, ani ręcznie dopisanych, a automat
+  zwalnia tylko przypisania (`finished`). Pomiar 14.10: na otwartych
+  rekrutacjach nikt nie pracuje wyłącznie przez przypisanie. Osobnego
+  „przywracania” z wierszy `finished` nie ma — wskrzeszało osoby zdjęte po
+  zamknięciu i łapało poprzedni cykl. Pilnuje
+  `test_reopen_brings_back_the_same_team` (`test_job_no_drafts.py`); nowa
+  droga dopisania osoby bez trwałego wpisu złamie ten test.
 - **Automat PROPONUJE, człowiek akceptuje.** Tryb `shadow`
   (`recruitment_allocation_state.mode`) zakłada najwyżej jedną propozycję na
   request bez Rekrutera; do akceptacji nikt nie jest przypisany ani

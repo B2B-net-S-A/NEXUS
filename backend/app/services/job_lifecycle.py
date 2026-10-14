@@ -1193,10 +1193,7 @@ async def reopen_keep_team_core(
     Wołający trzyma ``allocation_lock`` i blokadę wiersza, a ``publish_core``
     i bramka braków są już za nim. Bez commitu.
     """
-    from app.services.job_team import (
-        restore_members_released_at_close,
-        settle_team_without_recruiter_role,
-    )
+    from app.services.job_team import settle_team_without_recruiter_role
     from app.services.request_work_state import set_work_state
 
     api = _api()
@@ -1221,8 +1218,6 @@ async def reopen_keep_team_core(
             owner=None,
             actor_id=actor_id,
         )
-    # Osoby, którym przypisanie zwolniło samo zamknięcie, wracają (14.10.2026).
-    restored = await restore_members_released_at_close(db, job=job, actor_id=actor_id)
     owner: Optional[User] = None
     if job.recruiter_id is not None:
         owner = await db.scalar(select(User).where(User.id == job.recruiter_id))
@@ -1245,9 +1240,6 @@ async def reopen_keep_team_core(
             # Ta sama osoba prowadziła wcześniej, więc wspólna funkcja nie
             # dzwoni — a rekruter musi się dowiedzieć, że request wrócił.
             await api._notify_new_owner(db, job=job, user_id=owner.id)
-    for user_id in restored:
-        if user_id != actor_id:
-            await api._notify_new_owner(db, job=job, user_id=user_id)
     db.add(
         Activity(
             entity_type="job",
@@ -1258,7 +1250,6 @@ async def reopen_keep_team_core(
                 "assignment_mode": "keep",
                 "recruiter_id": owner.id if owner is not None else None,
                 **settled,
-                **({"restored_member_ids": restored} if restored else {}),
             },
         )
     )
