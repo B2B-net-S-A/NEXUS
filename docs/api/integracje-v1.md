@@ -45,17 +45,24 @@ odejście czy awans pracownika nie zmienia uprawnień automatyzacji.
 | `clients:read` | Klienci: nazwa, NIP, REGON, status, Delivery Leadzi |
 | `contracts:read` | Kontrakty: osoba, klient, okres, status, jednostka i waluta |
 | `orders:read` | Zamówienia i zamówienia MD/kosztowe z liniami |
-| `md:read` | Zużycie MD linii, importy raportów MD |
+| `md:read` | Zużycie MD linii, importy raportów MD (liczby MD, bez kwot) |
 | `md:write` | Import raportu MD, przypisanie wiersza, korekta MD za miesiąc |
-| `finance:read` | Finanse → Zmiany w zamówieniach, Zamówienia PDF, wyniki miesiąca |
+| `finance:read` | Finanse → Zmiany w zamówieniach, Zamówienia PDF, wyniki miesiąca — **z kwotami** (stawki w zmianach, koszt/przychód/marża, PDF-y zamówień) |
 | `finance:write` | „Zrobione” w Zmianach, import arkusza wyników |
-| `invoices:read` | Rejestr faktur, DSO |
+| `invoices:read` | Rejestr faktur, DSO — **z kwotami** |
 | `invoices:write` | Wystawienie, zmiana i anulowanie faktury |
-| `amounts:read` | Stawki i kwoty w zamówieniach i kontraktach |
+| `amounts:read` | Stawki i kwoty w zamówieniach, kontraktach i wierszach importów MD |
 
 - `X:write` obejmuje `X:read`.
-- Bez `amounts:read` pola kwot są `null`, a odpowiedź ma `"amounts_redacted": true`.
-- API **nie udostępnia** danych kandydatów, rekrutacji ani notatek (RODO).
+- **Kwoty:** `finance:*` i `invoices:*` z definicji zawierają pieniądze (to moduły
+  rozliczeń). W zamówieniach, kontraktach i importach MD kwoty są tylko ze scope'em
+  `amounts:read` — bez niego pola kwot są `null` (zamówienia i kontrakty mają też
+  `"amounts_redacted": true`), a wiersze importu MD nie mają kwot faktur ani „Uwag”.
+- **Dane osobowe:** kontrakty i zamówienia podają konsultanta — imię i nazwisko,
+  identyfikator osoby, a kontrakty także e-mail kontaktowy (potrzebne do rozliczeń
+  i łączenia z innymi systemami). API **nie udostępnia** kandydatów spoza
+  kontraktów, rekrutacji ani notatek (RODO). Dane trzymaj tylko tak długo, jak
+  wymaga tego automatyzacja.
 
 ---
 
@@ -193,7 +200,7 @@ UUID dla każdej operacji.
 | Błąd 4xx | Nie jest zapamiętywany — popraw żądanie i wyślij z tym samym kluczem |
 
 Wygeneruj UUID **przed** pierwszą próbą i użyj go we wszystkich ponowieniach
-tej samej operacji.
+tej samej operacji. Paragony z kluczami są przechowywane 90 dni.
 
 **`dry_run=true`** liczy wszystko, ale nic nie zapisuje (odpowiedź `200`
 z `"dry_run": true`). Używaj go do budowy i testów automatyzacji — NEXUS nie ma

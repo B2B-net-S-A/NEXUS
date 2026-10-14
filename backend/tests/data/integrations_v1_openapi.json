@@ -1366,7 +1366,8 @@
         "title": "ImportSummary",
         "type": "object"
       },
-      "InvoiceCreate": {
+      "InvoiceCreateIn": {
+        "description": "Model ekranu (walidacja kwoty i numeru) z granicami pól — wartość spoza\nint4 albo za długa waluta dawała 500 z bazy zamiast 422 (przegląd PR 2A),\na integrator ponawia 5xx.",
         "properties": {
           "amount": {
             "anyOf": [
@@ -1381,11 +1382,15 @@
             "title": "Amount"
           },
           "contract_id": {
+            "maximum": 2147483647.0,
+            "minimum": 1.0,
             "title": "Contract Id",
             "type": "integer"
           },
           "currency": {
             "default": "PLN",
+            "maxLength": 3,
+            "minLength": 3,
             "title": "Currency",
             "type": "string"
           },
@@ -1416,6 +1421,7 @@
           "notes": {
             "anyOf": [
               {
+                "maxLength": 2000,
                 "type": "string"
               },
               {
@@ -1439,6 +1445,8 @@
           "pdf_document_id": {
             "anyOf": [
               {
+                "maximum": 2147483647.0,
+                "minimum": 1.0,
                 "type": "integer"
               },
               {
@@ -1450,6 +1458,8 @@
           "period_month": {
             "anyOf": [
               {
+                "maximum": 12.0,
+                "minimum": 1.0,
                 "type": "integer"
               },
               {
@@ -1461,6 +1471,8 @@
           "period_year": {
             "anyOf": [
               {
+                "maximum": 2100.0,
+                "minimum": 2000.0,
                 "type": "integer"
               },
               {
@@ -1479,7 +1491,7 @@
           "issue_date",
           "contract_id"
         ],
-        "title": "InvoiceCreate",
+        "title": "InvoiceCreateIn",
         "type": "object"
       },
       "InvoiceDirection": {
@@ -1684,7 +1696,7 @@
         "title": "InvoiceStatus",
         "type": "string"
       },
-      "InvoiceUpdate": {
+      "InvoiceUpdateIn": {
         "properties": {
           "amount": {
             "anyOf": [
@@ -1704,6 +1716,8 @@
           "currency": {
             "anyOf": [
               {
+                "maxLength": 3,
+                "minLength": 3,
                 "type": "string"
               },
               {
@@ -1760,6 +1774,7 @@
           "notes": {
             "anyOf": [
               {
+                "maxLength": 2000,
                 "type": "string"
               },
               {
@@ -1783,6 +1798,8 @@
           "pdf_document_id": {
             "anyOf": [
               {
+                "maximum": 2147483647.0,
+                "minimum": 1.0,
                 "type": "integer"
               },
               {
@@ -1794,6 +1811,8 @@
           "period_month": {
             "anyOf": [
               {
+                "maximum": 12.0,
+                "minimum": 1.0,
                 "type": "integer"
               },
               {
@@ -1805,6 +1824,8 @@
           "period_year": {
             "anyOf": [
               {
+                "maximum": 2100.0,
+                "minimum": 2000.0,
                 "type": "integer"
               },
               {
@@ -1824,7 +1845,7 @@
             ]
           }
         },
-        "title": "InvoiceUpdate",
+        "title": "InvoiceUpdateIn",
         "type": "object"
       },
       "LineConsumptionUpsert": {
@@ -5811,7 +5832,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/InvoiceCreate"
+                "$ref": "#/components/schemas/InvoiceCreateIn"
               }
             }
           },
@@ -5934,7 +5955,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/InvoiceUpdate"
+                "$ref": "#/components/schemas/InvoiceUpdateIn"
               }
             }
           },
@@ -6166,6 +6187,7 @@
     },
     "/api/integrations/v1/md/imports/{import_id}": {
       "get": {
+        "description": "Partia z wierszami. Kwoty faktur i „Uwagi” tylko z ``amounts:read``.",
         "operationId": "get_md_import_api_integrations_v1_md_imports__import_id__get",
         "parameters": [
           {

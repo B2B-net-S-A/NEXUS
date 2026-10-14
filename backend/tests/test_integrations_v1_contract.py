@@ -31,7 +31,9 @@ SNAPSHOT = Path(__file__).parent / "data" / "integrations_v1_openapi.json"
 
 
 def _v1_routes() -> list[tuple[str, APIRoute]]:
-    return [(path, route) for path, route in iter_api_routes(app) if path.startswith(PREFIX)]
+    return [
+        (path, route) for path, route in iter_api_routes(app) if path.startswith(PREFIX)
+    ]
 
 
 def _dependency_names(dependant) -> set[str]:
@@ -50,7 +52,9 @@ def test_v1_spec_matches_the_snapshot() -> None:
     rendered = json.dumps(spec, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
     if os.environ.get("INTEGRATIONS_V1_SNAPSHOT_WRITE") == "1":
         SNAPSHOT.write_text(rendered, encoding="utf-8")
-    assert SNAPSHOT.exists(), "brak snapshotu — uruchom z INTEGRATIONS_V1_SNAPSHOT_WRITE=1"
+    assert SNAPSHOT.exists(), (
+        "brak snapshotu — uruchom z INTEGRATIONS_V1_SNAPSHOT_WRITE=1"
+    )
     assert rendered == SNAPSHOT.read_text(encoding="utf-8"), (
         "Kształt API v1 zmienił się. Zmiana zgodna wstecz (nowe pole, nowa trasa): "
         "odśwież snapshot (INTEGRATIONS_V1_SNAPSHOT_WRITE=1) i pokaż diff w PR-ze. "
@@ -65,8 +69,14 @@ def test_every_v1_route_uses_the_v1_envelope_and_a_key_gate() -> None:
         assert isinstance(route, IntegrationRoute), path
         names = _dependency_names(route.dependant)
         assert any("require_service_scope" in name for name in names), (path, names)
-        assert not any(name.endswith("get_current_user") for name in names), (path, names)
-        assert not any(name.endswith("get_authenticated_user") for name in names), (path, names)
+        assert not any(name.endswith("get_current_user") for name in names), (
+            path,
+            names,
+        )
+        assert not any(name.endswith("get_authenticated_user") for name in names), (
+            path,
+            names,
+        )
 
 
 def test_writes_are_documented_with_idempotency() -> None:
@@ -81,3 +91,52 @@ def test_writes_are_documented_with_idempotency() -> None:
     ]
     assert writes, "brak zapisów w specyfikacji v1"
     assert "Idempotency-Key" in spec["info"]["description"]
+
+
+def _caller(*scopes: str):
+    from app.api.deps import Caller
+    from app.services.service_account_auth import ServicePrincipal
+
+    return Caller(
+        service=ServicePrincipal(
+            account_id=1, slug="test", key_id="v2$00", scopes=frozenset(scopes)
+        )
+    )
+
+
+def test_md_import_rows_hide_invoice_amounts_without_amounts_read() -> None:
+    """``md:read`` jest operacyjny: kwoty faktur z wierszy kosztowych, surowe
+    „Uwagi” i pominięte wiersze arkusza tylko z ``amounts:read`` (przegląd
+    bezpieczeństwa PR 2A)."""
+    from datetime import datetime, timezone
+    from decimal import Decimal
+
+    from app.api.integrations_v1.md import _without_amounts
+    from app.schemas.md_consumption import ImportDetail, ImportRowRead
+
+    detail = ImportDetail(
+        id=1,
+        period_month="2026-09",
+        created_at=datetime(2026, 10, 1, tzinfo=timezone.utc),
+        rows=[
+            ImportRowRead(
+                id=1,
+                row_number=2,
+                consultant_name="Osoba Testowa",
+                md_reported=Decimal("3"),
+                status="cost_only",
+                status_label="Koszt",
+                notes_raw="faktura 12 300 zł",
+                invoice_amount=Decimal("12300.00"),
+            )
+        ],
+        skipped_rows=[{"row": 5, "values": ["x", "9 999 zł"]}],
+    )
+    hidden = _without_amounts(detail, _caller("md:read"))
+    assert hidden.rows[0].invoice_amount is None
+    assert hidden.rows[0].notes_raw is None
+    assert hidden.skipped_rows == []
+    assert hidden.rows[0].md_reported == Decimal("3")
+
+    shown = _without_amounts(detail, _caller("md:read", "amounts:read"))
+    assert shown.rows[0].invoice_amount == Decimal("12300.00")

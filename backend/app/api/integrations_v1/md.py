@@ -44,6 +44,7 @@ from app.api.integrations_v1.common import (
     MdWrite,
     Page,
     PageQuery,
+    can_see_amounts,
     dry_run_response,
     idempotent_write,
     integration_actor,
@@ -86,6 +87,24 @@ from app.services.order_write_errors import commit_order_write
 from app.services.shared_md_orders import uses_shared_md_pool
 
 router = APIRouter(route_class=IntegrationRoute)
+
+
+def _row_without_amounts(row: ImportRowRead) -> ImportRowRead:
+    return row.model_copy(update={"invoice_amount": None, "notes_raw": None})
+
+
+def _without_amounts(detail: ImportDetail, caller) -> ImportDetail:
+    """Kwoty faktur (wiersze kosztowe), surowe „Uwagi” i pominięte wiersze
+    arkusza tylko ze scope'em ``amounts:read`` — ``md:read`` jest operacyjny
+    (liczby MD), jak na ekranie bez podglądu kwot (przegląd PR 2A)."""
+    if can_see_amounts(caller):
+        return detail
+    return detail.model_copy(
+        update={
+            "rows": [_row_without_amounts(r) for r in detail.rows],
+            "skipped_rows": [],
+        }
+    )
 
 
 def _requires_screen(message: str) -> HTTPException:
@@ -140,13 +159,14 @@ async def list_md_imports(
 async def get_md_import(
     request: Request,
     import_id: IdPath,
-    _caller: MdRead,
+    caller: MdRead,
     db: AsyncSession = Depends(get_db),
 ) -> ImportDetail:
+    """Partia z wierszami. Kwoty faktur i „Uwagi” tylko z ``amounts:read``."""
     batch = await db.get(MdConsumptionImport, import_id)
     if batch is None:
         raise HTTPException(404, detail="Import nie istnieje.")
-    return await md_routes._detail(db, batch)
+    return _without_amounts(await md_routes._detail(db, batch), caller)
 
 
 # ── Import raportu ───────────────────────────────────────────────────────────
@@ -207,7 +227,8 @@ async def create_md_import(
             user_id=None,
             service_account_id=principal.account_id,
         )
-        return 201, await md_routes._detail(db, batch, parsed_sheet=parsed)
+        detail = await md_routes._detail(db, batch, parsed_sheet=parsed)
+        return 201, _without_amounts(detail, caller)
 
     if dry_run:
         return await dry_run_response(db, run)
@@ -283,7 +304,7 @@ async def assign_md_import_row(
             user=integration_actor(caller),
             db=db,
         )
-        return 200, result
+        return 200, result if can_see_amounts(caller) else _row_without_amounts(result)
 
     return await idempotent_write(
         request,

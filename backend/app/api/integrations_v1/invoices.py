@@ -58,6 +58,27 @@ router = APIRouter(route_class=IntegrationRoute)
 _MAX_INT4 = 2_147_483_647
 
 
+class InvoiceCreateIn(invoice_routes.InvoiceCreate):
+    """Model ekranu (walidacja kwoty i numeru) z granicami pól — wartość spoza
+    int4 albo za długa waluta dawała 500 z bazy zamiast 422 (przegląd PR 2A),
+    a integrator ponawia 5xx."""
+
+    contract_id: int = Field(..., ge=1, le=_MAX_INT4)
+    period_month: Optional[int] = Field(None, ge=1, le=12)
+    period_year: Optional[int] = Field(None, ge=2000, le=2100)
+    pdf_document_id: Optional[int] = Field(None, ge=1, le=_MAX_INT4)
+    currency: str = Field("PLN", min_length=3, max_length=3)
+    notes: Optional[str] = Field(None, max_length=2000)
+
+
+class InvoiceUpdateIn(invoice_routes.InvoiceUpdate):
+    period_month: Optional[int] = Field(None, ge=1, le=12)
+    period_year: Optional[int] = Field(None, ge=2000, le=2100)
+    pdf_document_id: Optional[int] = Field(None, ge=1, le=_MAX_INT4)
+    currency: Optional[str] = Field(None, min_length=3, max_length=3)
+    notes: Optional[str] = Field(None, max_length=2000)
+
+
 class InvoiceOut(BaseModel):
     id: int
     contract_id: int
@@ -237,7 +258,7 @@ async def _assert_no_duplicate(
 @limiter.limit(write_rate_limit, key_func=principal_rate_key)
 async def create_invoice(
     request: Request,
-    body: invoice_routes.InvoiceCreate,
+    body: InvoiceCreateIn,
     caller: InvoicesWrite,
     db: AsyncSession = Depends(get_db),
     dry_run: bool = Query(False, description="Tylko walidacja, bez zapisu."),
@@ -285,7 +306,7 @@ async def create_invoice(
 async def update_invoice(
     request: Request,
     invoice_id: IdPath,
-    body: invoice_routes.InvoiceUpdate,
+    body: InvoiceUpdateIn,
     caller: InvoicesWrite,
     db: AsyncSession = Depends(get_db),
 ) -> Response:

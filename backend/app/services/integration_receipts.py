@@ -32,7 +32,7 @@ from typing import Any, Optional
 from uuid import UUID
 
 from fastapi import HTTPException
-from sqlalchemy import select, text
+from sqlalchemy import delete, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.integration_write_receipt import (
@@ -46,6 +46,10 @@ IDEMPOTENCY_HEADER = "Idempotency-Key"
 REPLAYED_HEADER = "Idempotent-Replayed"
 # Paragon `pending` starszy niż to = operacja przerwana (nie „trwa”).
 PENDING_STALE_AFTER = timedelta(minutes=10)
+# Paragony (z odpowiedzią) są rejestrem „co zapisała automatyzacja” i kluczem
+# idempotencji — 90 dni wystarcza na każde ponowienie, a tabela nie rośnie bez
+# końca. Klucz idempotencji jest per operacja, nie wraca po miesiącach.
+RECEIPT_RETENTION = timedelta(days=90)
 
 
 @dataclass(frozen=True)
@@ -164,6 +168,13 @@ async def begin(
             )
         return None, Replay(existing.status_code or 200, existing.response_json)
 
+    await db.execute(
+        delete(IntegrationWriteReceipt).where(
+            IntegrationWriteReceipt.service_account_id == principal.account_id,
+            IntegrationWriteReceipt.created_at
+            < datetime.now(timezone.utc) - RECEIPT_RETENTION,
+        )
+    )
     receipt = IntegrationWriteReceipt(
         service_account_id=principal.account_id,
         key_id=principal.key_id,

@@ -78,7 +78,7 @@ integratora: `docs/api/integracje-v1.md` (bez nazwisk — repo jest publiczne).
 - **Scope'y v1** w `ServiceScope`: `clients:read`, `contracts:read`, `orders:read`,
   `md:read|write`, `finance:read|write`, `invoices:read|write`, `amounts:read`.
   `X:write` obejmuje `X:read` (`implied_scopes`, liczone przy budowie
-  `ServicePrincipal`, nie w `granted_scopes()`). Kwoty w zamówieniach i kontraktach
+  `ServicePrincipal`, nie w `granted_scopes()`). Kwoty w zamówieniach, kontraktach i wierszach importu MD
   wyłącznie z `amounts:read` (`can_see_amounts`), inaczej `null` + `amounts_redacted`.
 - **Nowa trasa v1 = scope (zależność `require_service_scope(..., allow_admin_jwt=False)`
   albo `require_service_scope_any` dla meta) + `@limiter.limit(read_rate_limit|write_rate_limit,
