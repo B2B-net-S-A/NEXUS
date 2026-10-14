@@ -432,7 +432,11 @@ async def render_stage_editor_docx(csv, content_html: str) -> tuple[bytes, bytes
     """DOCX z treści edytora i ZAMROŻONYCH zasobów etapu (szablon, zgoda)."""
     from fastapi import HTTPException
 
-    from app.services.cv_approved_docx import ApprovedDocxError, render_approved_docx
+    from app.services.cv_approved_docx import (
+        ApprovedDocxError,
+        cv_text_align,
+        render_approved_docx,
+    )
     from app.services.cv_document_assets import default_template
     from app.services.cv_rodo_clause import keep_rodo_clause
     from app.services.html_sanitizer import sanitize_cv_html
@@ -446,6 +450,7 @@ async def render_stage_editor_docx(csv, content_html: str) -> tuple[bytes, bytes
             template,
             consent=csv.branded_consent_content,
             language=csv.branded_language or "pl",
+            text_align=cv_text_align(csv.branded_render_metadata),
         )
     except ApprovedDocxError as error:
         raise HTTPException(422, str(error)) from error

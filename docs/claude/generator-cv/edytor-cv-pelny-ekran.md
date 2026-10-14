@@ -648,3 +648,46 @@ zapisywał pusty szkic, a pusty szkic zdejmował ochronę klauzuli przy
 następnym zapisie. Teraz 422 „CV nie może być puste.” — jak zatwierdzenie
 i edytor generatora. Pusty dokument z edytora (`<p></p>`) przechodzi jak dotąd.
 
+
+## Podgląd = plik dla klienta i justowanie (Edytor CV 3, PR 1, 14.10.2026)
+
+Zespół: „podgląd wygląda okropnie, a po pobraniu normalnie” i „brakuje
+justowania”. Sprawdzone 14.10.2026 na fikcyjnym CV złożonym kodem z produkcji
+(makiety i zrzuty: https://claude.ai/artifact/1g1FJJ2TtojTJSFjmZQj5Z, decyzje
+J1–J3 Artura). Obowiązuje:
+
+- **„Podgląd” w karcie „CV do klienta” i w „Użyj innego CV” pokazuje PLIK**
+  (`components/v2/cv/CvFilePreviewDialog.tsx` + `CvEditorWordPreview`),
+  ładowany `fetchStageCvFile` BEZ intencji pobrania. Wcześniej
+  `CvHtmlPreviewDialog` wstawiał surowy HTML w `prose` — nie przypominał pliku
+  (usunięty). Gdy pliku nie da się pokazać (409 bez zgody RODO, 403 przy prawie
+  tylko do odczytu — `preview-docx` wymaga zapisu), pod komunikatem stoi treść
+  w układzie kartki edytora (`CvPaperHtml`, prop `fallback`). Podgląd bez zgody
+  RODO musi działać dalej — nie zamieniaj zapasu na sam komunikat.
+- **Czcionka Montserrat jest w aplikacji** (`globals.css`, `@font-face` pod
+  nazwami z pliku: „Montserrat”, „Montserrat Medium”, „Montserrat SemiBold”,
+  „Montserrat ExtraLight”; pliki i licencja w `app/fonts/`). docx-preview
+  wstawia te nazwy dosłownie, bez zapasu — bez nich CV rysowało się w Times New
+  Roman (Word bierze zapisany w pliku zamiennik Calibri, przeglądarka nie).
+  Nie przenoś tego do `next/font` — zmienia nazwę rodziny.
+- **CV jest domyślnie wyjustowane (J1).** Reguła klienta
+  `client_cv_rules.cv_text_align` (`justify` | `left`, migracja 0441 + lustro
+  w `entrypoint.sh`) jest zamrażana w `client_rule_snapshot` przy generacji
+  i czytana przez `services/cv_text_align.cv_text_align` w obu rendererach:
+  `cv_approved_docx` (styl „Approved CV Body”; nagłówki jawnie do lewej, komórki
+  tabel do lewej, klauzula RODO bez zmian) i `docx_renderer.render_cv_to_bytes`
+  (punkty, umiejętności, technologie). Brak klucza (stare CV, kopie z Worda)
+  = `justify`. Stan CV (`GET …/cv/branded`, edytor generatora) zwraca
+  `text_align`, kartka ma `data-cv-align`.
+- **Jawne wyrównanie akapitu wygrywa** w każdym bloku treści. Edytor ma
+  rozszerzenie TextAlign tylko dla akapitów (`lib/cv-editor-structure.ts`,
+  bez skrótów klawiszowych), przyciski „Do lewej” / „Wyjustuj” w pasku
+  (`lib/cv-editor-align.ts`: działają na zaznaczeniu, omijają klauzulę zgody).
+  Renderer czyta `style` węzła także w punktach (styl `li > p` czytany ZANIM
+  powstanie akapit), stanowisku, firmie, etykiecie obowiązków, technologiach,
+  umiejętnościach i językach — do 14.10.2026 gubił go wszędzie poza zwykłymi
+  akapitami (test: `tests/test_cv_approved_docx_align.py`). `setBlockKind`
+  przenosi `textAlign` przy zmianie typu akapitu.
+- Harnessy `/preview/cv-to-client` i `/preview/cv-editor` pokazują fikcyjne CV
+  w szablonie firmowym (`public/preview/cv-to-client/cv-firmowe-przyklad.docx`,
+  wygenerowany `render_approved_docx`); karta przyjmuje `loadStageCvFile`.

@@ -134,12 +134,16 @@ describe("CvRuleEditor", () => {
     fireEvent.change(screen.getByLabelText("Wyróżniane technologie — po jednej w wierszu"), {
       target: { value: "Python\nSQL" },
     });
+    // Wyrównanie (decyzja J1): domyślnie wyjustowane, klient może chcieć „do lewej”.
+    expect(screen.getByLabelText("Wyrównanie")).toHaveValue("justify");
+    fireEvent.change(screen.getByLabelText("Wyrównanie"), { target: { value: "left" } });
     fireEvent.click(screen.getByRole("button", { name: "Zapisz i włącz regułę" }));
 
     await waitFor(() => expect(mocks.put).toHaveBeenCalledTimes(1));
     const [url, body] = mocks.put.mock.calls[0] as [string, Record<string, unknown>];
     expect(url).toBe("/api/clients/5/cv-rule");
     expect(body.confirm).toBe(true);
+    expect(body.cv_text_align).toBe("left");
     expect(body.highlight_policy).toBe("explicit");
     expect(body.highlight_terms).toEqual(["Python", "SQL"]);
     expect(body.content_mode).toBe("basic");

@@ -113,6 +113,7 @@ import {
   startBackgroundApproval,
 } from "@/lib/cv-background-approval";
 import { withDownloadIntent } from "@/lib/cv-download-intent";
+import { normalizeCvAlign } from "@/lib/cv-editor-align";
 import { cvPlaceholders, type CvLang } from "@/lib/cv-editor-blocks";
 import { cvEditorExtensions, loadCvHtml } from "@/lib/cv-editor-structure";
 import { apiErrorMessage } from "@/lib/api-error";
@@ -663,6 +664,7 @@ function CVBrandedEditContent({
   }[saveState];
 
   const language: CvLang = data?.language === "en" ? "en" : "pl";
+  const textAlign = normalizeCvAlign(data?.text_align);
   const hasCv = !!data && !noCv;
   const command = useCvCommandPlan({
     editor,
@@ -916,7 +918,13 @@ function CVBrandedEditContent({
           </p>}
           {hasCv && editor ? (
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-border bg-background px-3 py-1.5">
-              <CvEditorToolbar editor={editor} language={language} disabled={mode === "word" || submitting || command.locked} ai={ai} />
+              <CvEditorToolbar
+                editor={editor}
+                language={language}
+                defaultAlign={textAlign}
+                disabled={mode === "word" || submitting || command.locked}
+                ai={ai}
+              />
               {/* Wąski ekran: przełączniki w osobnym wierszu — pasek narzędzi nie traci na nie miejsca. */}
               <div className={cn("flex flex-wrap items-center gap-x-3 gap-y-1", sideBySide ? "flex-none" : "basis-full")}>
               <div className="flex flex-none items-center gap-1" role="group" aria-label="Widok CV">
@@ -1021,6 +1029,7 @@ function CVBrandedEditContent({
               ref={setPaper}
               hidden={!showCv}
               data-cv-lang={language}
+              data-cv-align={textAlign}
               className="cv-paper relative min-h-0 min-w-0 flex-1 overflow-auto bg-muted/40 p-4"
             >
               {loadError && <div role="alert" className="mb-4 space-y-2 text-sm text-destructive">

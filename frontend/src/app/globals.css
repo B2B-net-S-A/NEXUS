@@ -923,9 +923,47 @@ body:has(aside[data-person-panel][data-cover]:not([hidden])) [data-app-sidebar] 
    `lib/cv-editor-structure.ts` (`data-cv-in` = sekcja bloku, `cv-rodo-locked`,
    `cv-role-current`). Kolory `--cv-doc-*` to kolory DOKUMENTU z szablonu
    (`docx_renderer.COLOR_HEADER` / `COLOR_TEXT`) — celowo te same w każdym
-   motywie, bo Word klienta jest biały. Czcionki szablonu (Montserrat) frontend
-   nie ładuje; dokładny plik pokazuje „Podgląd Word”.
+   motywie, bo Word klienta jest biały. Czcionka szablonu (Montserrat) jest
+   wgrana niżej pod nazwami z pliku Word, więc kartka i podgląd pliku mają te
+   same litery co Word klienta.
    ========================================================================== */
+
+/* Montserrat pod nazwami, które piszą pliki CV (`cv_approved_docx`,
+   `docx_renderer`, szablon `szablon_firmowy.docx`): docx-preview wstawia je
+   dosłownie, bez zapasu, więc bez tych deklaracji przeglądarka rysowała CV
+   w Times New Roman (sprawdzone 14.10.2026). Zwykłe `@font-face`, nie
+   `next/font` — ten zmienia nazwę rodziny. Pliki pobierają się dopiero tam,
+   gdzie ta czcionka jest użyta. Źródło i licencja: `fonts/README.md`.
+   Odmiany o stałej grubości mają `font-weight: 400`, żeby pogrubienie w nich
+   przeglądarka dorysowała jak Word. */
+@font-face {
+  font-family: "Montserrat";
+  src: url("./fonts/Montserrat-Variable.woff2") format("woff2");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Montserrat ExtraLight";
+  src: url("./fonts/Montserrat-200.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Montserrat Medium";
+  src: url("./fonts/Montserrat-500.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Montserrat SemiBold";
+  src: url("./fonts/Montserrat-600.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
 .cv-paper {
   --cv-doc-accent: #e14f4f;
   --cv-doc-text: #373535;
@@ -955,6 +993,12 @@ body:has(aside[data-person-panel][data-cover]:not([hidden])) [data-app-sidebar] 
 }
 .cv-paper .ProseMirror p {
   margin: 3px 0;
+}
+/* Wyrównanie treści jak w pliku Word (decyzja J1, 14.10.2026): domyślne
+   z reguły klienta (`data-cv-align`); akapit z jawnym `text-align` (styl
+   w linii z rozszerzenia TextAlign) wygrywa. Nagłówki zostają do lewej. */
+.cv-paper[data-cv-align="justify"] .ProseMirror p {
+  text-align: justify;
 }
 .cv-paper .ProseMirror strong {
   font-weight: 600;
