@@ -135,9 +135,7 @@ async def test_removal_after_window_keeps_proposal_added(
 ):
     world = await _world(entered_minutes_ago=20, proposal_status="added")
     await _remove(app_client, app_auth_headers, world)
-    assert await _proposal_statuses(world["job_id"], world["candidate_id"]) == [
-        "added"
-    ]
+    assert await _proposal_statuses(world["job_id"], world["candidate_id"]) == ["added"]
 
 
 async def test_undo_without_proposal_is_plain_removal(
