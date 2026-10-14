@@ -74,6 +74,7 @@ from app.models.client_order_group import ClientOrderGroup
 from app.models.contract import Contract, ContractStatus
 from app.models.order_change_event import OrderChangeEvent
 from app.models.order_gap import GAP_STATUS_FILLED_LATE, GAP_STATUS_OPEN, OrderGap
+from app.models.service_account import ServiceAccount
 from app.models.user import User
 from app.schemas.finance_order_changes import (
     InvoiceLine,
@@ -698,6 +699,29 @@ async def _changes(
         if author_ids
         else {}
     )
+    # 0443: zmiana zapisana kluczem API (`source='integration'`) — autorem jest
+    # konto serwisowe, pokazywane jako „Integracja: <nazwa>”.
+    integration_ids = sorted(
+        {
+            e.created_by_service_account_id
+            for e in events
+            if e.created_by_service_account_id
+        }
+    )
+    integrations = (
+        {
+            account_id: f"Integracja: {name}"
+            for account_id, name in (
+                await db.execute(
+                    select(ServiceAccount.id, ServiceAccount.name).where(
+                        ServiceAccount.id.in_(integration_ids)
+                    )
+                )
+            ).all()
+        }
+        if integration_ids
+        else {}
+    )
 
     items: list[OrderChangeItem] = []
     for event in events:
@@ -729,7 +753,11 @@ async def _changes(
                 new_date=event.new_date,
                 is_whole_order=whole,
                 source=event.source,
-                author_name=authors.get(event.created_by_user_id),
+                author_name=(
+                    integrations.get(event.created_by_service_account_id, "Integracja")
+                    if event.source == "integration"
+                    else authors.get(event.created_by_user_id)
+                ),
             )
         )
 

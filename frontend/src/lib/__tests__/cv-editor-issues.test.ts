@@ -3,6 +3,7 @@ import { Editor } from "@tiptap/core";
 
 import type { QcCheck, QcFix } from "../api/cvQc";
 import {
+  boldRequirements,
   buildIssueList,
   bulkPlan,
   findingsInCv,
@@ -234,6 +235,27 @@ describe("„Popraw wszystko”", () => {
   it("zaliczone sprawdzenie i lista bez poprawek dają pusty plan", () => {
     const passed = check({ key: "must_bolded", status: "pass", items: [{ term: "Java", fix: "bold_all" }] });
     expect(bulkPlan([passed], [])).toEqual({ actions: [], parts: [] });
+  });
+});
+
+describe("„Pogrub wymagania (N)” (Edytor CV 3, PR 3)", () => {
+  it("liczy niepogrubione wymagania must i nice, po jednej poprawce na zakres", () => {
+    const result = boldRequirements([
+      check({ key: "must_bolded", items: [{ term: "Java", fix: "bold_all" }, { term: "Kafka", fix: "bold_all" }] }),
+      check({ key: "nice_bolded", items: [{ term: "Terraform", fix: "bold_all" }] }),
+      check({ key: "tech_spelling", items: [{ term: "Github", fix: "spelling" }] }),
+    ]);
+    expect(result.count).toBe(3);
+    expect(result.actions).toEqual([
+      { action: "bold_all", scope: "must" },
+      { action: "bold_all", scope: "nice" },
+    ]);
+  });
+
+  it("wszystko pogrubione = zero i brak poprawki; brak wyniku QC = bez liczby", () => {
+    const passed = check({ key: "must_bolded", status: "pass", items: [{ term: "Java", fix: "bold_all" }] });
+    expect(boldRequirements([passed])).toEqual({ count: 0, actions: [] });
+    expect(boldRequirements(null)).toEqual({ count: null, actions: [] });
   });
 });
 

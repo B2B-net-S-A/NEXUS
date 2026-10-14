@@ -93,6 +93,11 @@ from app.api import insights_campaigns
 from app.api import insights_charts
 from app.api import insights_reconciliation
 from app.api import integrations_compass
+from app.api import integrations_v1
+from app.api.integrations_v1.common import (
+    IntegrationApiError,
+    integration_error_handler,
+)
 from app.api import insights_performance_flags
 from app.api import insights_team
 from app.api import insights_team_signals
@@ -987,6 +992,9 @@ app = FastAPI(
 # Rate limiter (attach first so it wraps everything)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+# API integracyjne v1: błąd trasy v1 jest WYJĄTKIEM (rollback sesji żądania),
+# a kopertę `{"error": …}` oddaje ten handler (`integrations_v1.common`).
+app.add_exception_handler(IntegrationApiError, integration_error_handler)
 
 # KOLEJNOŚĆ MA ZNACZENIE: `add_middleware` dokłada na zewnątrz, więc dodane
 # jako PIERWSZE jest najgłębiej. `UnhandledErrorMiddleware` musi być pod
@@ -1545,6 +1553,15 @@ app.include_router(
     prefix="/api/integrations/compass",
     tags=["integrations"],
 )
+# API integracyjne v1 (0443, decyzja Artura 14.10.2026): automatyzacje
+# procesów firmy (na start rozliczanie klientów) na kluczach `X-API-Key`.
+# Osobna warstwa obok tras ekranów — te dla klucza nadal są 401.
+for _integrations_v1_router in integrations_v1.ROUTERS:
+    app.include_router(
+        _integrations_v1_router,
+        prefix=integrations_v1.PREFIX,
+        tags=["integrations-v1"],
+    )
 # Plakietki ostrzeżeń i baner kampanii — obie powierzchnie mają ODCZYT dla
 # każdego zalogowanego (D7) i ZAPIS zawężony wewnątrz modułu. Ostrzeżenie
 # widoczne tylko dla wystawiającego nie zmienia niczyjego zachowania.

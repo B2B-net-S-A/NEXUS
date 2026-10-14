@@ -1,8 +1,9 @@
 /**
  * Edytor CV: przekazanie Delivery Leadowi ze stopki (D6, 14.10.2026).
  *
- * Z propem `handoff` stopka ma „Uwaga dla Delivery Leada”, stan QC, „Zapisz”
- * i „Zapisz i przekaż do DL →”. Zapis jest ten sam co „Zapisz”, ruch karty
+ * Z propem `handoff` stopka ma „Uwaga dla Delivery Leada”, stan QC, „Gotowe”
+ * i „Gotowe, przekaż do DL →” (do Edytora CV 3: „Zapisz” i „Zapisz i przekaż
+ * do DL →”). Zapis jest ten sam co „Gotowe”, ruch karty
  * robi wołający, a zatwierdzenie w tle rusza dopiero po udanym ruchu. Blokady
  * QC zamieniają przycisk w „Przekaż mimo uwag…” (okno obejścia QC). Panel
  * „Do poprawy” jest atrapą — jego licznik (z wynikiem QC) podaje test.
@@ -28,6 +29,7 @@ const state = vi.hoisted(() => ({
   calls: [] as string[],
   updates: [] as string[],
   overridePosts: [] as Array<[string, unknown]>,
+  assistantBusy: false,
 }));
 
 vi.mock("@/lib/use-element-width", () => ({ useElementWidth: () => 1280 }));
@@ -61,12 +63,21 @@ vi.mock("@/lib/cv-editor-structure", () => ({
 }));
 vi.mock("@/components/v2/cv-editor/CvEditorToolbar", () => ({ CvEditorToolbar: () => null }));
 vi.mock("@/components/v2/cv-editor/CvEditorSources", () => ({ CvEditorSources: () => null }));
-vi.mock("@/components/v2/cv-editor/CvEditorSelectionAi", () => ({ CvEditorSelectionAi: () => null }));
-vi.mock("@/components/v2/cv-editor/useCvCommandPlan", () => ({
-  useCvCommandPlan: () => ({ enabled: false, phase: "idle", locked: false, discard: () => undefined }),
+// Asystent pracuje na prawdziwym edytorze — ma własne testy (harness edytora);
+// atrapa edytora tego okna nie ma widoku ProseMirror.
+vi.mock("@/components/v2/cv-editor/CvEditorAssistant", () => ({
+  CvEditorAssistant: () => <section aria-label="Asystent CV" />,
 }));
-vi.mock("@/components/v2/cv-editor/useCvSelectionAi", () => ({
-  useCvSelectionAi: () => ({ enabled: false, selection: { ok: false, reason: null, hidden: true }, phase: "idle" }),
+vi.mock("@/components/v2/cv-editor/useCvAssistant", () => ({
+  useCvAssistant: () => ({
+    enabled: false,
+    messages: [],
+    busy: state.assistantBusy,
+    locked: state.assistantBusy,
+    send: () => undefined,
+    answer: async () => undefined,
+    undo: () => undefined,
+  }),
 }));
 vi.mock("@/components/v2/cv-editor/useCvHistory", () => ({
   useCvHistory: () => ({ enabled: false, open: false, busy: false, show: () => undefined, close: () => undefined }),
@@ -197,6 +208,7 @@ beforeEach(() => {
     calls: [],
     updates: [],
     overridePosts: [],
+    assistantBusy: false,
   });
   toast.showSuccess.mockClear();
   toast.showError.mockClear();
@@ -204,24 +216,24 @@ beforeEach(() => {
 
 afterEach(() => vi.restoreAllMocks());
 
-it("bez `handoff` edytor jest jak dotąd: „Zapisz” w pasku, bez stopki przekazania", async () => {
+it("bez `handoff` stopka ma samo „Gotowe”, bez przekazania", async () => {
   setup(null);
   await screen.findByLabelText("treść");
   expect(screen.queryByRole("group", { name: "Przekazanie Delivery Leadowi" })).not.toBeInTheDocument();
-  expect(screen.getByRole("button", { name: "Zapisz" })).toBeInTheDocument();
-  expect(screen.queryByRole("button", { name: /Zapisz i przekaż do DL/ })).not.toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Gotowe" })).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: /Gotowe, przekaż do DL/ })).not.toBeInTheDocument();
 });
 
-it("nic nie blokuje: zapis jak „Zapisz”, ruch z uwagą, zamknięcie, zatwierdzenie w tle po ruchu", async () => {
+it("nic nie blokuje: zapis jak „Gotowe”, ruch z uwagą, zamknięcie, zatwierdzenie w tle po ruchu", async () => {
   const { onOpenChange, onSaveAndHandOff } = setup();
   fireEvent.change(await screen.findByLabelText("treść"), { target: { value: "<p>Poprawione CV</p>" } });
   expect(within(bar()).getByRole("status")).toHaveTextContent("3 rzeczy do decyzji · nic nie blokuje wysyłki");
-  // „Zapisz” jest w stopce — nie drugi raz w pasku.
-  expect(screen.getAllByRole("button", { name: "Zapisz" })).toHaveLength(1);
+  // „Gotowe” jest w stopce raz — nie drugi raz obok przekazania.
+  expect(screen.getAllByRole("button", { name: "Gotowe" })).toHaveLength(1);
   fireEvent.change(within(bar()).getByRole("textbox", { name: "Uwaga dla Delivery Leada (opcjonalnie)" }), {
     target: { value: "  Kandydat dostępny od listopada.  " },
   });
-  fireEvent.click(within(bar()).getByRole("button", { name: /Zapisz i przekaż do DL/ }));
+  fireEvent.click(within(bar()).getByRole("button", { name: /Gotowe, przekaż do DL/ }));
 
   await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
   expect(onSaveAndHandOff).toHaveBeenCalledWith("Kandydat dostępny od listopada.");
@@ -241,7 +253,7 @@ it("odmowa ruchu: edytor zostaje otwarty z komunikatem, CV zapisane, bez zatwier
   fireEvent.change(within(bar()).getByRole("textbox", { name: "Uwaga dla Delivery Leada (opcjonalnie)" }), {
     target: { value: "Pilne" },
   });
-  fireEvent.click(within(bar()).getByRole("button", { name: /Zapisz i przekaż do DL/ }));
+  fireEvent.click(within(bar()).getByRole("button", { name: /Gotowe, przekaż do DL/ }));
   expect(await within(bar()).findByRole("alert")).toHaveTextContent("Karta nie przeszła do Delivery Leada. CV jest zapisane");
   expect(state.calls).toEqual(["save", "move"]);
   expect(onOpenChange).not.toHaveBeenCalledWith(false);
@@ -256,7 +268,7 @@ it("błąd sieci przy ruchu mówi, co się stało, i nie zamyka edytora", async 
     }),
   });
   await screen.findByLabelText("treść");
-  fireEvent.click(within(bar()).getByRole("button", { name: /Zapisz i przekaż do DL/ }));
+  fireEvent.click(within(bar()).getByRole("button", { name: /Gotowe, przekaż do DL/ }));
   expect(await within(bar()).findByRole("alert")).toHaveTextContent("Serwer chwilowo niedostępny. CV jest zapisane");
   expect(onOpenChange).not.toHaveBeenCalledWith(false);
 });
@@ -264,7 +276,7 @@ it("błąd sieci przy ruchu mówi, co się stało, i nie zamyka edytora", async 
 it("pola w nawiasach zatrzymują przekazanie — karta się nie rusza", async () => {
   const { onSaveAndHandOff, onOpenChange } = setup();
   fireEvent.change(await screen.findByLabelText("treść"), { target: { value: "<p>[Stanowisko]</p>" } });
-  fireEvent.click(within(bar()).getByRole("button", { name: /Zapisz i przekaż do DL/ }));
+  fireEvent.click(within(bar()).getByRole("button", { name: /Gotowe, przekaż do DL/ }));
   expect(await screen.findByText(/Uzupełnij albo usuń pola w nawiasach/)).toBeInTheDocument();
   expect(onSaveAndHandOff).not.toHaveBeenCalled();
   expect(onOpenChange).not.toHaveBeenCalledWith(false);
@@ -275,7 +287,7 @@ it("blokady QC: „Przekaż mimo uwag…” → powód obejścia → zapis i ruc
   const { onOpenChange, onSaveAndHandOff } = setup();
   fireEvent.change(await screen.findByLabelText("treść"), { target: { value: "<p>Poprawione CV</p>" } });
   expect(within(bar()).getByRole("status")).toHaveTextContent("2 rzeczy do decyzji · 1 blokuje wysyłkę");
-  expect(within(bar()).queryByRole("button", { name: /Zapisz i przekaż do DL/ })).not.toBeInTheDocument();
+  expect(within(bar()).queryByRole("button", { name: /Gotowe, przekaż do DL/ })).not.toBeInTheDocument();
   fireEvent.click(within(bar()).getByRole("button", { name: "Przekaż mimo uwag…" }));
 
   const form = await screen.findByRole("dialog", { name: "Przesuń mimo uwag QC" });
@@ -293,11 +305,11 @@ it("blokady QC poza trybem doradczym, bez prawa obejścia: przekazanie wyłączo
   state.count = { total: 1, blocking: 1, state: "ready", qc: qc({ advisory: false, can_override: false }) };
   setup();
   await screen.findByLabelText("treść");
-  const primary = within(bar()).getByRole("button", { name: /Zapisz i przekaż do DL/ });
+  const primary = within(bar()).getByRole("button", { name: /Gotowe, przekaż do DL/ });
   expect(primary).toBeDisabled();
   expect(bar()).toHaveTextContent("Najpierw popraw rzeczy, które blokują wysyłkę");
-  // „Zapisz” dalej działa.
-  expect(within(bar()).getByRole("button", { name: "Zapisz" })).toBeEnabled();
+  // „Gotowe” dalej działa.
+  expect(within(bar()).getByRole("button", { name: "Gotowe" })).toBeEnabled();
 });
 
 it("QC przepuszczone wcześniej: zwykłe przekazanie, stan mówi o obejściu", async () => {
@@ -310,7 +322,7 @@ it("QC przepuszczone wcześniej: zwykłe przekazanie, stan mówi o obejściu", a
   setup();
   await screen.findByLabelText("treść");
   expect(within(bar()).getByRole("status")).toHaveTextContent("1 rzecz do decyzji · przepuszczone mimo uwag");
-  expect(within(bar()).getByRole("button", { name: /Zapisz i przekaż do DL/ })).toBeEnabled();
+  expect(within(bar()).getByRole("button", { name: /Gotowe, przekaż do DL/ })).toBeEnabled();
 });
 
 it("QC się liczy: przekazanie czeka na wynik", async () => {
@@ -318,7 +330,24 @@ it("QC się liczy: przekazanie czeka na wynik", async () => {
   setup();
   await screen.findByLabelText("treść");
   expect(within(bar()).getByRole("status")).toHaveTextContent("Sprawdzam CV…");
-  expect(within(bar()).getByRole("button", { name: /Zapisz i przekaż do DL/ })).toBeDisabled();
+  expect(within(bar()).getByRole("button", { name: /Gotowe, przekaż do DL/ })).toBeDisabled();
+});
+
+it("asystent pracuje: „Gotowe” i przekazanie czekają na jego zmianę", async () => {
+  // Przegląd PR 4: zapis z „Gotowe” brał treść sprzed odpowiedzi asystenta,
+  // a odpowiedź wchodziła potem do zamykanego edytora.
+  state.assistantBusy = true;
+  setup();
+  await screen.findByLabelText("treść");
+  expect(within(bar()).getByRole("button", { name: "Gotowe" })).toBeDisabled();
+  expect(within(bar()).getByRole("button", { name: /Gotowe, przekaż do DL/ })).toBeDisabled();
+});
+
+it("asystent pracuje: „Gotowe” bez przekazania też czeka", async () => {
+  state.assistantBusy = true;
+  setup(null);
+  await screen.findByLabelText("treść");
+  expect(screen.getByRole("button", { name: "Gotowe" })).toBeDisabled();
 });
 
 it("wynik generatora (bez etapu) nie ma stopki nawet z `handoff`", async () => {

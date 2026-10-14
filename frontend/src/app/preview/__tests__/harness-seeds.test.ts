@@ -13,7 +13,7 @@
  * nie da się o nich nic powiedzieć statycznie).
  */
 
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
@@ -571,8 +571,8 @@ describe("/preview/cv-editor (Edytor CV 2) — edytor z pamięci, źródła z za
     expect(harness).toContain("editorApi={backend.editorApi}");
     // Panel „Do poprawy”: QC, uwagi i poprawki też z pamięci.
     expect(harness).toContain("issuesApi={backend.issuesApi}");
-    // „AI na zaznaczeniu”: propozycje z pamięci, bez modelu.
-    expect(harness).toContain("aiApi={backend.aiApi}");
+    // Asystent (Edytor CV 3, PR 4): odpowiedzi z pamięci, bez modelu.
+    expect(harness).toContain("commandApi={backend.commandApi}");
     // „Historia”: wersje i treść pliku Word z pamięci.
     expect(harness).toContain("historyApi={backend.historyApi}");
     expect(harness).toContain("editorFiles={MEMORY_FILES}");
@@ -596,10 +596,9 @@ describe("/preview/cv-editor (Edytor CV 2) — edytor z pamięci, źródła z za
   it("części edytora nie mają własnych stałych kluczy", () => {
     for (const file of [
       "components/v2/modals/CVBrandedEditModal.tsx",
-      "components/v2/cv-editor/CvAiProposalCard.tsx",
+      "components/v2/cv-editor/CvEditorAssistant.tsx",
+      "components/v2/cv-editor/useCvAssistant.ts",
       "components/v2/cv-editor/CvEditorIssues.tsx",
-      "components/v2/cv-editor/CvEditorSelectionAi.tsx",
-      "components/v2/cv-editor/useCvSelectionAi.ts",
       "components/v2/cv-editor/CvEditorSources.tsx",
       "components/v2/cv-editor/CvEditorSourcesPane.tsx",
       "components/v2/cv-editor/CvEditorToolbar.tsx",
@@ -1117,5 +1116,18 @@ describe("/preview/cv-to-client zasiewa kartę, „Z czego powstało” i liczb�
   it("odcina sieć na czas życia harnessu", () => {
     expect(harness).toContain("api.interceptors.request.use(");
     expect(harness).toContain("api.interceptors.request.eject(");
+  });
+
+  it("miniatura, okno stron i „Pobierz PDF” biorą przykładowe pliki z public/, nie API", () => {
+    // Bez `loadStageCvPdf` karta woła `fetchStageCvPdf` (odczyt CV etapu i POST
+    // `…/preview-pdf`) — w harnessie zablokowane, a miniatura byłaby samą ikoną.
+    const card = withoutComments(read("components/v2/recruitment/CvToClientCard.tsx"));
+    expect(card).toContain("<CvFirstPageThumb");
+    expect(card).toContain("loadStageCvPdf(cvStageId)");
+    expect(card).toContain('loadStageCvPdf(cvStageId, { download: "card" })');
+    expect(harness).toContain("loadStageCvPdf={loadPreviewPages}");
+    expect(harness).toContain("loadStageCvFile={loadPreviewFile}");
+    expect(harness).toContain('"/preview/cv-to-client/cv-firmowe-przyklad.pdf"');
+    expect(existsSync(join(process.cwd(), "public/preview/cv-to-client/cv-firmowe-przyklad.pdf"))).toBe(true);
   });
 });

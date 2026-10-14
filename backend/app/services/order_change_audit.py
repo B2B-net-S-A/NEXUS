@@ -48,12 +48,14 @@ from app.models.order_change_event import (
     FIELD_END_DATE,
     FIELD_RATE_COST,
     FIELD_RATE_REVENUE,
+    SOURCE_INTEGRATION,
     SOURCE_SYSTEM,
     SOURCE_USER,
     OrderChangeEvent,
 )
 
 ACTOR_INFO_KEY = "order_change_audit.actor_id"
+SERVICE_ACCOUNT_INFO_KEY = "order_change_audit.service_account_id"
 _PENDING_KEY = "order_change_audit.pending"
 MD_UNIT = "md"
 
@@ -94,6 +96,17 @@ def stamp_actor(session_info: dict, user_id: Optional[int]) -> None:
 
     if user_id is not None:
         session_info[ACTOR_INFO_KEY] = user_id
+
+
+def stamp_service_account(session_info: dict, account_id: Optional[int]) -> None:
+    """Zapamiętaj konto serwisowe (klucz API v1) dla zdarzeń tej sesji.
+
+    Bez tego zmiana stawki albo daty końca zapisana kluczem trafiała do
+    „Zmian w zamówieniach” jako „system” bez autora (0443).
+    """
+
+    if account_id is not None:
+        session_info[SERVICE_ACCOUNT_INFO_KEY] = account_id
 
 
 def _value(raw: Any) -> Any:
@@ -349,7 +362,13 @@ def _record_order_changes(session: Session) -> None:
     if not pending:
         return
     actor_id = session.info.get(ACTOR_INFO_KEY)
-    source = SOURCE_USER if isinstance(actor_id, int) else SOURCE_SYSTEM
+    account_id = session.info.get(SERVICE_ACCOUNT_INFO_KEY)
+    if isinstance(actor_id, int):
+        source = SOURCE_USER
+    elif isinstance(account_id, int):
+        source = SOURCE_INTEGRATION
+    else:
+        source = SOURCE_SYSTEM
     for snap in pending.values():
         base, changes = _events_for(snap)
         for change in changes:
@@ -363,6 +382,9 @@ def _record_order_changes(session: Session) -> None:
                     **change,
                     source=source,
                     created_by_user_id=actor_id if source == SOURCE_USER else None,
+                    created_by_service_account_id=(
+                        account_id if source == SOURCE_INTEGRATION else None
+                    ),
                 )
             )
 

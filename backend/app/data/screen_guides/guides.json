@@ -172,7 +172,7 @@
       },
       {
         "q": "Jak przygotować CV do klienta?",
-        "a": "Po „Zweryfikowany” automat robi CV firmowe i daje znać dzwonkiem „CV gotowe”. Gotowe CV wybierzesz w karcie („Użyj innego CV”), nowe CV kandydata wgrasz „Wgraj nowe CV”. „Sprawdź i popraw” otwiera edytor: „Popraw wszystko”, a w stopce „Zapisz i przekaż do DL” z uwagą dla Delivery Leada. U PKO BP pobranie czeka na zgodę RODO."
+        "a": "Po „Zweryfikowany” automat robi CV firmowe i daje znać dzwonkiem „CV gotowe”. Gotowe CV wybierzesz w karcie („Użyj innego CV”), nowe CV kandydata wgrasz „Wgraj nowe CV”. „Sprawdź i popraw” otwiera edytor: „Popraw wszystko”, a w stopce „Gotowe, przekaż do DL” z uwagą dla Delivery Leada. U PKO BP pobranie czeka na zgodę RODO."
       },
       {
         "q": "Gdzie są rozmowa u klienta i umowa?",

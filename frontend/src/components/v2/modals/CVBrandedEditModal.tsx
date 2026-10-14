@@ -32,38 +32,47 @@
  * szerokości 1180–1539 px (laptop 1280) obok kartki mieści się JEDEN panel —
  * źródła albo „Do poprawy”; od 1540 px oba.
  *
- * PR 3: „AI na zaznaczeniu” — dymek nad zaznaczonym tekstem i menu „AI” w pasku
- * (`cv-editor/useCvSelectionAi`, `CvEditorSelectionAi`). Tylko dla CV etapu
- * (potrzebne źródła i wymagania rekrutacji); propozycja trafia do CV dopiero po
- * „Przyjmij”.
- *
  * PR 5: „Historia” — zatwierdzone wersje i powrót pliku Word
- * (`cv-editor/useCvHistory`, `CvEditorHistory`). Panel zajmuje miejsce planu
- * zmian (jedno albo drugie), a treść trafia do CV dopiero po obejrzeniu różnic.
+ * (`cv-editor/useCvHistory`, `CvEditorHistory`); treść trafia do CV dopiero po
+ * obejrzeniu różnic.
+ *
+ * Edytor CV 3, PR 3 (14.10.2026, „bardzo, bardzo prosto”): nagłówek w jednym
+ * rzędzie (pasek z „Pogrub wymagania (N)” i „Więcej”, „Edycja | Jak u klienta”,
+ * stan zapisu, „Oryginał”, „Pobierz Word”), JEDNA kolumna obok kartki
+ * („Do poprawy” albo oryginał; plan zmian i historia zajmują ją na czas
+ * decyzji) i stopka z „Gotowe” zamiast „Zapisz” w nagłówku — ta sama ścieżka
+ * zapisu i zatwierdzenia w tle. Układ dwóch paneli od 1540 px zniknął.
+ *
+ * Edytor CV 3, PR 4 (14.10.2026): asystent w kolumnie (`cv-editor/useCvAssistant`,
+ * `CvEditorAssistant`) zastępuje dymek AI nad zaznaczeniem, menu „AI” i pole
+ * „Polecenie” z planem zmian. Kolumna CV etapu = „Do poprawy” (zwijane;
+ * rozwinięte przy blokadach) nad asystentem. Zmiany asystenta są od razu na
+ * kartce, w jednym kroku cofania na wiadomość.
  *
  * D6 (14.10.2026): z propem `handoff` (karta na „Zweryfikowany”) stopka ma
- * „Uwaga dla Delivery Leada”, stan QC, „Zapisz” i „Zapisz i przekaż do DL →”.
- * Zapis jest ten sam co „Zapisz” (szkic, pola w nawiasach); ruch karty robi
+ * „Uwaga dla Delivery Leada”, stan QC, „Gotowe” i „Gotowe, przekaż do DL →”.
+ * Zapis jest ten sam co „Gotowe” (szkic, pola w nawiasach); ruch karty robi
  * wołający, a zatwierdzenie w tle rusza dopiero po udanym ruchu i zamknięciu
  * okna — zatwierdzenie pod otwartym edytorem rozjechałoby wersję szkicu przy
  * następnym autozapisie. Blokady QC zamieniają przycisk w „Przekaż mimo
- * uwag…” (okno obejścia QC z powodem). Bez `handoff` okno jest jak dotąd.
+ * uwag…” (okno obejścia QC z powodem). Bez `handoff` stopka ma samo „Gotowe”.
  */
 
 import { useState, useEffect, useRef, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEditor, EditorContent } from "@tiptap/react";
 import {
+  Check,
+  ChevronDown,
+  FileText,
   History,
-  ListChecks,
   Loader2,
-  PanelLeft,
   Printer,
   Download,
   RefreshCcw,
-  Save,
   Sparkles,
   AlertCircle,
+  X,
 } from "lucide-react";
 
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
@@ -78,22 +87,24 @@ import {
   type CvEditorSourceContext,
   type CvEditorSourcesProps,
 } from "@/components/v2/cv-editor/CvEditorSources";
-import { CV_AI_CARD_ATTR } from "@/components/v2/cv-editor/CvAiProposalCard";
-import { CvEditorIssues, type CvIssueCount } from "@/components/v2/cv-editor/CvEditorIssues";
-import { CvEditorSelectionAi } from "@/components/v2/cv-editor/CvEditorSelectionAi";
-import { CvEditorCommandBar, CV_COMMAND_ATTR } from "@/components/v2/cv-editor/CvEditorCommandBar";
+import {
+  CvEditorIssues,
+  type CvEditorIssuesHandle,
+  type CvIssueCount,
+} from "@/components/v2/cv-editor/CvEditorIssues";
+import { CvEditorAssistant } from "@/components/v2/cv-editor/CvEditorAssistant";
+import { CV_PANEL_ATTR } from "@/components/v2/cv-editor/Marked";
 import { CvEditorHistory } from "@/components/v2/cv-editor/CvEditorHistory";
-import { CvEditorPlan } from "@/components/v2/cv-editor/CvEditorPlan";
-import { useCvCommandPlan } from "@/components/v2/cv-editor/useCvCommandPlan";
+import { useCvAssistant } from "@/components/v2/cv-editor/useCvAssistant";
 import { useCvHistory } from "@/components/v2/cv-editor/useCvHistory";
-import { CvEditorToolbar } from "@/components/v2/cv-editor/CvEditorToolbar";
+import { CvEditorToolbar, type CvEditorMoreItem } from "@/components/v2/cv-editor/CvEditorToolbar";
 import { CvPagesPreview } from "@/components/v2/cv/CvPagesPreview";
-import { useCvSelectionAi } from "@/components/v2/cv-editor/useCvSelectionAi";
 import { keepDialogOpenOnDocumentSearchEscape } from "@/components/v2/files/DocumentSearchBar";
 import {
   openAuthenticatedFile,
   downloadAuthenticatedFile,
   fetchAuthenticatedBlob,
+  fetchAuthenticatedDownload,
   postAuthenticatedDownload,
   downloadBlob,
   type AuthenticatedDownload,
@@ -103,7 +114,6 @@ import {
   cvGeneratedEditorApi,
   type CVBrandedState,
 } from "@/lib/api";
-import type { CvEditorAiApi } from "@/lib/api/cvEditorAi";
 import type { CvEditorCommandApi } from "@/lib/api/cvEditorCommand";
 import type { CvEditorHistoryApi } from "@/lib/api/cvEditorHistory";
 import type { CvEditorIssuesApi } from "@/lib/api/cvEditorIssues";
@@ -115,6 +125,7 @@ import {
 import { withDownloadIntent } from "@/lib/cv-download-intent";
 import { normalizeCvAlign } from "@/lib/cv-editor-align";
 import { cvPlaceholders, type CvLang } from "@/lib/cv-editor-blocks";
+import { boldRequirements } from "@/lib/cv-editor-issues";
 import { cvEditorExtensions, loadCvHtml } from "@/lib/cv-editor-structure";
 import { apiErrorMessage } from "@/lib/api-error";
 import {
@@ -128,10 +139,8 @@ import { useElementWidth } from "@/lib/use-element-width";
 import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/store/auth";
 
-/** Od tej szerokości okna (px) panel stoi obok kartki; węziej — przełącznik. */
+/** Od tej szerokości okna (px) kolumna stoi obok kartki; węziej — przełącznik. */
 const SIDE_BY_SIDE_MIN_WIDTH = 1180;
-/** Od tej szerokości mieszczą się oba panele: źródła (440) + kartka (794) + „Do poprawy” (360). */
-const BOTH_PANELS_MIN_WIDTH = 1540;
 
 const NO_ISSUES: CvIssueCount = { total: 0, blocking: 0, state: "loading" };
 
@@ -143,10 +152,10 @@ export interface CvEditorFiles {
   draftDocx: (payload: CvDraftPayload, purpose: "download" | "preview") => Promise<AuthenticatedDownload>;
   downloadApproved: (version: number, filename: string) => Promise<void>;
   previewApproved: (version: number) => Promise<Blob>;
-  /** „Jak u klienta”: strony PDF szkicu z bieżącej treści (Edytor CV 3, J2). */
-  draftPdf?: (payload: CvDraftPayload) => Promise<Blob>;
-  /** „Jak u klienta”: strony PDF zatwierdzonej wersji; brak = plik Word. */
-  previewApprovedPdf?: (version: number) => Promise<Blob>;
+  /** „Jak u klienta” i „Pobierz PDF”: PDF szkicu z bieżącej treści (Edytor CV 3, J2). */
+  draftPdf?: (payload: CvDraftPayload, purpose: "download" | "preview") => Promise<AuthenticatedDownload>;
+  /** PDF zatwierdzonej wersji; brak = PDF z treści (edytor wyniku generatora). */
+  approvedPdf?: (version: number, purpose: "download" | "preview") => Promise<AuthenticatedDownload>;
   print: () => Promise<void>;
 }
 
@@ -171,12 +180,21 @@ function networkFiles(basePath: string): CvEditorFiles {
         filename,
       ),
     previewApproved: (version) => fetchAuthenticatedBlob(`${basePath}/versions/${version}/docx`),
-    draftPdf: (payload) =>
-      postAuthenticatedDownload(`${basePath}/preview-pdf`, payload).then((file) => file.blob),
-    // Strony PDF wersji ma tylko CV etapu; edytor wyniku generatora pokazuje
-    // wtedy plik Word (`CvPagesPreview`).
-    previewApprovedPdf: basePath.includes("/cv/branded")
-      ? (version) => fetchAuthenticatedBlob(`${basePath}/versions/${version}/pdf`)
+    draftPdf: (payload, purpose) =>
+      postAuthenticatedDownload(
+        purpose === "download"
+          ? withDownloadIntent(`${basePath}/preview-pdf`, "editor")
+          : `${basePath}/preview-pdf`,
+        payload,
+      ),
+    // PDF wersji ma tylko CV etapu; edytor wyniku generatora bierze PDF z treści.
+    approvedPdf: basePath.includes("/cv/branded")
+      ? (version, purpose) =>
+          fetchAuthenticatedDownload(
+            purpose === "download"
+              ? withDownloadIntent(`${basePath}/versions/${version}/pdf`, "editor")
+              : `${basePath}/versions/${version}/pdf`,
+          )
       : undefined,
     // Print view is Bearer-guarded — a raw window.open sends no Authorization
     // header and lands on a white "Not authenticated" page. Fetch the HTML with
@@ -193,9 +211,10 @@ type Props = {
   onRegenerate?: () => void;
   /**
    * Panel otwarty od razu: „Sprawdź i popraw” z karty „CV do klienta” otwiera
-   * edytor na „Do poprawy” (także w wąskim oknie, zamiast kartki).
+   * edytor na „Do sprawdzenia” (także w wąskim oknie, zamiast kartki),
+   * „Historia wersji” z menu karty — na historii.
    */
-  initialPanel?: "issues";
+  initialPanel?: "issues" | "history";
 
   candidateName: string;
   jobTitle?: string;
@@ -215,9 +234,7 @@ type Props = {
   generatorWarnings?: readonly string[];
   /** Harness: QC, uwagi i poprawki z pamięci zamiast sieci. */
   issuesApi?: CvEditorIssuesApi;
-  /** Harness: propozycje AI dla zaznaczenia z pamięci zamiast sieci. */
-  aiApi?: CvEditorAiApi;
-  /** Harness: plan zmian dla polecenia z pamięci zamiast sieci. */
+    /** Harness: plan zmian dla polecenia z pamięci zamiast sieci. */
   commandApi?: CvEditorCommandApi;
   /** Harness: wersje CV i treść pliku Word z pamięci zamiast sieci. */
   historyApi?: CvEditorHistoryApi;
@@ -280,7 +297,6 @@ function CVBrandedEditContent({
   sourceLoaders,
   generatorWarnings,
   issuesApi,
-  aiApi,
   commandApi,
   historyApi,
   handoff: handoffProp,
@@ -307,38 +323,22 @@ function CVBrandedEditContent({
   // Pola w nawiasach z nowo wstawionych bloków, które zatrzymały „Zapisz”.
   const [unfilled, setUnfilled] = useState<string[]>([]);
   const [mode, setMode] = useState<"edit" | "word">("edit");
-  const [sourcesOpen, setSourcesOpen] = useState(true);
+  // Jedna kolumna obok kartki (Edytor CV 3, PR 3): „Do poprawy” albo oryginał
+  // („Oryginał” w nagłówku). `null` = domyślnie: oryginał tylko, gdy edytor
+  // nie ma panelu „Do poprawy” (wynik generatora bez uwag).
+  const [sourcesChoice, setSourcesChoice] = useState<boolean | null>(null);
   const issuesFirst = initialPanel === "issues";
-  const [issuesOpen, setIssuesOpen] = useState(issuesFirst);
-  // Który panel wygrywa, gdy obok kartki mieści się tylko jeden.
-  const [lastSide, setLastSide] = useState<"sources" | "issues">(issuesFirst ? "issues" : "sources");
-  const sideTouched = useRef(issuesFirst);
+  const issuesRef = useRef<CvEditorIssuesHandle>(null);
   const [issueCount, setIssueCount] = useState<CvIssueCount>(NO_ISSUES);
   const [narrowPane, setNarrowPane] = useState<"cv" | "sources" | "issues" | "plan" | "history">(
     issuesFirst ? "issues" : "cv",
   );
-  // Pasek „polecenia dla całego CV” (wynik: plan zmian w panelu obok).
-  const [commandOpen, setCommandOpen] = useState(false);
+  // Panel „Do poprawy” nad asystentem: rozwinięty, gdy są blokady albo karta
+  // otwiera edytor na uwagach; potem decyduje człowiek (`null` = sam).
+  const [issuesChoice, setIssuesChoice] = useState<boolean | null>(issuesFirst ? true : null);
   const [body, setBody] = useState<HTMLElement | null>(null);
-  // Kolumna kartki: w niej stoją dymek nad zaznaczeniem i karta propozycji AI.
-  const [paper, setPaper] = useState<HTMLElement | null>(null);
-  // „Pokaż w oryginale” z karty propozycji → „Szukaj w CV” w panelu źródeł.
-  const [sourceSearch, setSourceSearch] = useState<{ text: string; nonce: number } | null>(null);
   const bodyWidth = useElementWidth(body);
   const sideBySide = bodyWidth >= SIDE_BY_SIDE_MIN_WIDTH;
-  const bothPanels = bodyWidth >= BOTH_PANELS_MIN_WIDTH;
-
-  // Są uwagi albo QC nie odpowiada — panel „Do poprawy” otwiera się sam, raz;
-  // potem decyduje człowiek. Awaria QC schowana w zamkniętym panelu wyglądałaby
-  // jak CV bez uwag.
-  const issuesNeedAttention =
-    issueCount.state === "failed" || (issueCount.state === "ready" && issueCount.total > 0);
-  useEffect(() => {
-    if (sideTouched.current || !issuesNeedAttention) return;
-    sideTouched.current = true;
-    setIssuesOpen(true);
-    setLastSide("issues");
-  }, [issuesNeedAttention]);
 
   const { data, isLoading, error: loadError, refetch, isFetching } = useQuery<CVBrandedState>({
     queryKey: [scopeKey, stageId],
@@ -363,6 +363,13 @@ function CVBrandedEditContent({
   const sessionRef = useRef<CvDraftSession | null>(null);
   const loadedStage = useRef<number | null>(null);
   const [saveState, setSaveState] = useState<CvSaveState>("saved");
+  // „Zapisano 14:01” — godzina ostatniego autozapisu w tej sesji.
+  const [savedAt, setSavedAt] = useState<Date | null>(null);
+  const previousSaveState = useRef<CvSaveState>("saved");
+  useEffect(() => {
+    if (saveState === "saved" && previousSaveState.current === "saving") setSavedAt(new Date());
+    previousSaveState.current = saveState;
+  }, [saveState]);
   // Nowy szkic z zatwierdzonej wersji — zakładany przy PIERWSZEJ zmianie.
   const newDraftRef = useRef<Promise<void> | null>(null);
   const [creatingDraft, setCreatingDraft] = useState(false);
@@ -650,17 +657,26 @@ function CVBrandedEditContent({
     } catch (error) { showError(getErrorMessage(error)); }
     finally { setDownloadingDocx(false); }
   };
-  /** „Jak u klienta”: strony PDF z tego samego pliku co „Pobierz”. */
-  const loadPagesPreview = async (): Promise<Blob> => {
+  /** PDF tego samego pliku co „Pobierz Word”: wersja zatwierdzona albo szkic z treści. */
+  const loadPdf = async (purpose: "download" | "preview"): Promise<AuthenticatedDownload> => {
     const session = sessionRef.current;
     if (!session) throw new Error("Edytor nie wczytał jeszcze CV.");
     await session.settle();
-    if (session.state === "finalized" && data?.docx_available) {
-      if (!files.previewApprovedPdf) throw new Error("Brak stron PDF dla tej wersji.");
-      return files.previewApprovedPdf(data.version);
+    if (session.state === "finalized" && data?.docx_available && files.approvedPdf) {
+      return files.approvedPdf(data.version, purpose);
     }
-    if (!files.draftPdf) throw new Error("Brak stron PDF dla tego CV.");
-    return files.draftPdf({ content_html: session.html, expected_revision: session.revision });
+    if (!files.draftPdf) throw new Error("PDF tego CV nie jest tu dostępny.");
+    return files.draftPdf({ content_html: session.html, expected_revision: session.revision }, purpose);
+  };
+  /** „Jak u klienta”: strony PDF z tego samego pliku co „Pobierz”. */
+  const loadPagesPreview = (): Promise<Blob> => loadPdf("preview").then((file) => file.blob);
+  const downloadPdf = async () => {
+    setDownloadingDocx(true);
+    try {
+      const file = await loadPdf("download");
+      downloadBlob(file.blob, file.filename || "CV.pdf");
+    } catch (error) { showError(getErrorMessage(error)); }
+    finally { setDownloadingDocx(false); }
   };
   /** Zapas „Jak u klienta”: ten sam plik co „Pobierz”, z treści widocznej w edytorze. */
   const loadWordPreview = async (): Promise<Blob> => {
@@ -678,43 +694,36 @@ function CVBrandedEditContent({
   };
 
   const statusText = {
-    saved: "Zapisano",
+    saved: savedAt
+      ? `Zapisano ${savedAt.toLocaleTimeString("pl-PL", { hour: "2-digit", minute: "2-digit" })}`
+      : "Zapisano",
     unsaved: "Niezapisane zmiany",
     saving: "Zapisywanie…",
     error: "Błąd zapisu — poprawki pozostają w edytorze",
     finalizing: "Zapisywanie…",
-    finalized: `Zatwierdzona wersja ${data?.version ?? ""} — zmiana utworzy nowy szkic`,
+    finalized: `Zatwierdzona wersja ${data?.version ?? ""}`,
   }[saveState];
 
   const language: CvLang = data?.language === "en" ? "en" : "pl";
   const textAlign = normalizeCvAlign(data?.text_align);
   const hasCv = !!data && !noCv;
-  const command = useCvCommandPlan({
+  // Asystent (Edytor CV 3, PR 4): jedno miejsce do AI, zmiany od razu.
+  const assistant = useCvAssistant({
     editor,
     stageId: isGenerated ? undefined : stageId,
-    // Bez `creatingDraft` — jak przy AI na zaznaczeniu: szkic zakłada samo „Zastosuj”.
+    // Bez `creatingDraft`: szkic na zatwierdzonej wersji zakłada pierwsza nakładana zmiana.
     disabled: !hasCv || mode === "word" || submitting,
     ensureDraft,
     api: commandApi,
   });
-  const planOpen = command.phase !== "idle";
   useEffect(() => {
     // Bez zgłaszania „update”: Tiptap domyślnie zgłasza je przy każdej zmianie
     // trybu edycji, a dla okna to znaczy „treść się zmieniła”. „Zapisz” na
     // zatwierdzonym CV bez żadnej poprawki zakładało przez to nowy szkic.
-    // Plan zmian odnosi się do treści z chwili zamówienia — do decyzji kartka
-    // jest tylko do odczytu.
-    editor?.setEditable(!noCv && !submitting && !command.locked, false);
-  }, [editor, noCv, submitting, command.locked]);
-  const ai = useCvSelectionAi({
-    editor,
-    stageId: isGenerated ? undefined : stageId,
-    // Bez `creatingDraft`: szkic na zatwierdzonej wersji zakłada samo „Przyjmij”,
-    // a zakres czekający na propozycję przeżywa wczytanie tej samej treści.
-    disabled: !hasCv || mode === "word" || submitting || command.locked,
-    ensureDraft,
-    api: aiApi,
-  });
+    // Plan asystenta odnosi się do treści z chwili wysłania — do odpowiedzi
+    // kartka jest tylko do odczytu.
+    editor?.setEditable(!noCv && !submitting && !assistant.locked, false);
+  }, [editor, noCv, submitting, assistant.locked]);
   const history = useCvHistory({
     editor,
     stageId: isGenerated ? undefined : stageId,
@@ -735,73 +744,82 @@ function CVBrandedEditContent({
   });
   const historyOpen = history.open;
   const hasIssuesPanel = hasCv && (!isGenerated || generatorWarnings !== undefined);
-  const issuesSide = hasIssuesPanel && issuesOpen && (bothPanels || !sourcesOpen || lastSide === "issues");
-  const sourcesSide = sourcesOpen && (bothPanels || !issuesSide);
+  const sourcesSide = sourcesChoice ?? !hasIssuesPanel;
   const pane =
     (narrowPane === "issues" && !hasIssuesPanel) ||
-    (narrowPane === "plan" && !planOpen) ||
     (narrowPane === "history" && !historyOpen)
       ? "cv"
       : narrowPane;
-  // Plan zmian i historia (jedno albo drugie) zajmują miejsce panelu „Do poprawy”;
-  // przy jednym panelu naraz także źródeł.
-  const takeover = planOpen || historyOpen;
-  const showPlan = planOpen && (sideBySide || pane === "plan");
-  const showHistory = historyOpen && !planOpen && (sideBySide || pane === "history");
-  const showSources = hasCv && (sideBySide ? sourcesSide && (bothPanels || !takeover) : pane === "sources");
-  const showIssues = hasIssuesPanel && !takeover && (sideBySide ? issuesSide : pane === "issues");
+  // Historia zajmuje kolumnę na czas przeglądania.
+  const takeover = historyOpen;
+  const showHistory = historyOpen && (sideBySide || pane === "history");
+  const showSources = hasCv && (sideBySide ? sourcesSide && !takeover : pane === "sources");
+  const showIssues = hasIssuesPanel && !takeover && (sideBySide ? !sourcesSide : pane === "issues");
   const showCv = sideBySide || pane === "cv" || !hasCv;
-  // Wąski ekran: plan pokazuje się od razu, a po decyzji wraca kartka.
-  useEffect(() => {
-    setNarrowPane((current) => (planOpen ? "plan" : current === "plan" ? "cv" : current));
-  }, [planOpen]);
   useEffect(() => {
     setNarrowPane((current) => (historyOpen ? "history" : current === "history" ? "cv" : current));
   }, [historyOpen]);
-  const closeCommand = () => {
-    command.discard();
-    setCommandOpen(false);
-  };
-  // Historia i polecenie wykluczają się: otwarcie jednego zamyka drugie.
-  const openCommand = () => {
-    history.close();
-    setCommandOpen(true);
-  };
-  const openHistory = () => {
-    closeCommand();
-    history.show();
-  };
-  // Zlecone wyszukanie cytatu dotyczy tego pokazania źródeł: po ich schowaniu
-  // wygasa, żeby ponowne otwarcie nie szukało starego cytatu od nowa.
+  const openHistory = () => history.show();
+  // „Historia wersji” z menu karty „CV do klienta” otwiera edytor od razu na historii.
+  // Czekamy na gotową historię, nie na samo CV: karta ma stan CV w pamięci, więc
+  // CV jest od pierwszego renderu, a edytor (i historia) — dopiero po nim.
+  const historyFirst = useRef(initialPanel === "history");
   useEffect(() => {
-    if (!showSources) setSourceSearch(null);
-  }, [showSources]);
+    if (!historyFirst.current || !history.enabled) return;
+    historyFirst.current = false;
+    history.show();
+  }, [history]);
+  // „Oryginał”: kolumna pokazuje oryginał zamiast „Do poprawy” (i odwrotnie);
+  // otwarta historia ustępuje oryginałowi.
   const toggleSources = () => {
-    sideTouched.current = true;
-    setSourcesOpen(!sourcesSide);
-    if (!sourcesSide) setLastSide("sources");
-  };
-  const toggleIssues = () => {
-    sideTouched.current = true;
-    setIssuesOpen(!issuesSide);
-    if (!issuesSide) setLastSide("issues");
+    if (historyOpen) {
+      history.close();
+      setSourcesChoice(true);
+      return;
+    }
+    setSourcesChoice(!sourcesSide);
   };
   // Bez liczby, dopóki QC się liczy; „?” gdy nie odpowiada — zero znaczy zero.
-  const showSourceQuote = (quote: string) => {
-    // Wyszukiwarka PDF-a gubi się na łamaniu wierszy — wystarczy początek cytatu.
-    const text = quote.split(/\s+/).slice(0, 8).join(" ").slice(0, 60);
-    setSourceSearch({ text, nonce: Date.now() });
-    sideTouched.current = true;
-    setSourcesOpen(true);
-    setLastSide("sources");
-    setNarrowPane("sources");
-  };
   const issuesLabel =
     issueCount.state === "ready"
       ? `Do poprawy (${issueCount.total})`
       : issueCount.state === "failed"
         ? "Do poprawy (?)"
         : "Do poprawy";
+  const bold = boldRequirements(issueCount.state === "ready" ? (issueCount.qc?.checks ?? null) : null);
+  const canPdf = isFinalized && data?.docx_available ? !!(files.approvedPdf ?? files.draftPdf) : data?.status === "draft" && !!files.draftPdf;
+  const moreGroups: CvEditorMoreItem[][] = [
+    isGenerated
+      ? []
+      : [
+          {
+            label: historyOpen ? "Zamknij historię wersji" : "Historia wersji",
+            icon: <History aria-hidden className="h-4 w-4" />,
+            title: "Zatwierdzone wersje CV i poprawiony plik Word",
+            // Asystent liczy zmiany — historia poczeka na jego odpowiedź.
+            disabled: mode === "word" || submitting || assistant.locked || history.busy,
+            onSelect: () => (historyOpen ? history.close() : openHistory()),
+          },
+        ],
+    [
+      {
+        label: "Pobierz PDF",
+        icon: <Download aria-hidden className="h-4 w-4" />,
+        disabled: !canPdf || downloadingDocx || submitting,
+        onSelect: () => void downloadPdf(),
+      },
+      {
+        label: "Drukuj",
+        icon: <Printer aria-hidden className="h-4 w-4" />,
+        disabled: !data?.content_html || noCv,
+        onSelect: () => void handlePrint(),
+      },
+    ],
+  ];
+  // Asystent ma tylko CV etapu (rekrutacja = wymagania, notatki i uprawnienia).
+  const withAssistant = !isGenerated && hasCv;
+  const issuesExpanded =
+    issuesChoice ?? (issueCount.blocking > 0 || issueCount.state === "failed" || !withAssistant);
   const sources = isGenerated ? (
     <CvEditorSources context={sourceContext ?? null} loaders={sourceLoaders} />
   ) : (
@@ -809,7 +827,6 @@ function CVBrandedEditContent({
       stageId={stageId}
       context={sourceContext ?? undefined}
       loaders={sourceLoaders}
-      search={sourceSearch}
     />
   );
 
@@ -828,16 +845,9 @@ function CVBrandedEditContent({
             keepDialogOpenOnDocumentSearchEscape(event);
             const target = event.target;
             if (!(target instanceof HTMLElement)) return;
-            // Escape w karcie propozycji AI odrzuca propozycję (robi to sama karta).
-            // W pasku polecenia i w planie zmian Escape też nie zamyka edytora —
-            // także gdy plan się liczy: pole polecenia jest wtedy wyłączone,
-            // więc klawisz trafia w `body`, nie w pasek.
-            if (
-              planOpen ||
-              target.closest(".ProseMirror") ||
-              target.closest(`[${CV_AI_CARD_ATTR}]`) ||
-              target.closest(`[${CV_COMMAND_ATTR}]`)
-            ) {
+            // W asystencie i w historii Escape nie zamyka edytora — także gdy
+            // asystent liczy zmiany (pole jest wtedy wyłączone, klawisz trafia w `body`).
+            if (assistant.locked || target.closest(".ProseMirror") || target.closest(`[${CV_PANEL_ATTR}]`)) {
               event.preventDefault();
             }
           }}
@@ -860,72 +870,121 @@ function CVBrandedEditContent({
               <Button size="sm" variant="ghost" onClick={() => setConfirmDiscard(true)}>Zamknij bez zapisu</Button>
             </div>
           </div>}
-          <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 px-4 py-2 border-b border-border">
-            <div className="flex min-w-0 items-center gap-3">
-              <div className="min-w-0">
-                <div className="text-xs uppercase tracking-wider text-muted-foreground">
-                  CV do klienta
-                </div>
-                <div className="text-sm font-medium text-foreground truncate">
-                  {candidateName}
-                  {jobTitle ? (
-                    <span className="text-muted-foreground font-normal"> — {jobTitle}</span>
-                  ) : null}
-                </div>
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5 border-b border-border px-2 py-1.5">
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              aria-label="Zamknij"
+              title="Zamknij — poprawki są zapisane jako szkic"
+              onClick={() => void closeEditor(false)}
+            >
+              <X aria-hidden className="h-4 w-4" />
+            </Button>
+            <div className="min-w-0 max-w-[12rem] flex-none">
+              <div
+                className="truncate text-sm font-medium text-foreground"
+                title={jobTitle ? `${candidateName} — ${jobTitle}` : candidateName}
+              >
+                {candidateName}
               </div>
-              {data?.status === "draft" ? (
-                <Badge variant="info" size="sm">Szkic v{data?.version ?? 1}</Badge>
-              ) : null}
-              {command.phase === "plan" ? (
-                // Telefon: to samo zdanie stoi w nagłówku panelu planu, a plakietka ściskała tytuł.
-                <Badge variant="warning" size="sm" className="hidden sm:inline-flex">
-                  Podgląd zmian — nic nie jest jeszcze zapisane
-                </Badge>
-              ) : null}
+              {jobTitle ? <div className="truncate text-[11px] text-muted-foreground">{jobTitle}</div> : null}
             </div>
-            <div className="flex flex-wrap items-center gap-2">
+            {data?.status === "draft" ? (
+              <Badge variant="info" size="sm" className="flex-none">Szkic v{data?.version ?? 1}</Badge>
+            ) : null}
+            {hasCv && editor ? (
+              <CvEditorToolbar
+                editor={editor}
+                language={language}
+                defaultAlign={textAlign}
+                disabled={mode === "word" || submitting || assistant.locked}
+                boldRequirements={
+                  hasIssuesPanel && !isGenerated
+                    ? {
+                        count: bold.count,
+                        disabled: mode === "word" || submitting || creatingDraft || assistant.locked,
+                        onRun: () => issuesRef.current?.boldRequirements(),
+                      }
+                    : undefined
+                }
+                moreGroups={moreGroups}
+              />
+            ) : (
+              <div className="flex-1" />
+            )}
+            <div className="ml-auto flex flex-none flex-wrap items-center gap-1">
               {hasCv ? (
-                <span className="text-[11px] text-muted-foreground" role="status">
+                <div className="flex flex-none items-center gap-1" role="group" aria-label="Widok CV">
+                  <ViewToggle active={mode === "edit"} onClick={() => setMode("edit")}>Edycja</ViewToggle>
+                  <ViewToggle active={mode === "word"} onClick={() => { setMode("word"); setNarrowPane("cv"); }}>
+                    Jak u klienta
+                  </ViewToggle>
+                </div>
+              ) : null}
+              {hasCv ? (
+                <span
+                  className="px-1 text-[11px] text-muted-foreground"
+                  role="status"
+                  title={isFinalized ? "Zmiana utworzy nowy szkic — zatwierdzona wersja zostaje." : undefined}
+                >
                   {creatingDraft ? "Tworzenie nowego szkicu…" : statusText}
                 </span>
               ) : null}
-              {hasCv && saveState === "error" ? <Button size="sm" variant="outline" onClick={() => void saveCurrent()}>Ponów zapis</Button> : null}
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handlePrint}
-                disabled={!data?.content_html || noCv}
-              >
-                <Printer className="h-3.5 w-3.5 mr-1.5" />
-                Drukuj / PDF
-              </Button>
-              {!isFinalized && data?.status === "draft" && <Button size="sm" variant="outline"
-                disabled={downloadingDocx || submitting} onClick={() => void previewDocx()}>
-                <Download className="h-3.5 w-3.5 mr-1.5" /> Pobierz szkic DOCX
-              </Button>}
-              {isFinalized && data?.docx_available && <Button size="sm" variant="outline"
-                disabled={downloadingDocx} onClick={() => void downloadApproved()}>
-                <Download className="h-3.5 w-3.5 mr-1.5" /> Pobierz zatwierdzony DOCX v{data.version}
-              </Button>}
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => void closeEditor(false)}
-              >
-                Zamknij
-              </Button>
-              {/* Z przekazaniem „Zapisz” stoi w stopce obok „Zapisz i przekaż do DL”. */}
-              {handoff && hasCv ? null : (
+              {hasCv && saveState === "error" ? (
+                <Button size="sm" variant="outline" onClick={() => void saveCurrent()}>Ponów zapis</Button>
+              ) : null}
+              {hasCv && sideBySide ? (
                 <Button
                   size="sm"
-                  onClick={() => void saveAndApprove()}
-                  disabled={!data || noCv || submitting || creatingDraft}
+                  variant="ghost"
+                  aria-pressed={showSources}
+                  // Asystent liczy zmiany — kolumna z jego odpowiedzią zostaje na miejscu.
+                  disabled={assistant.locked}
+                  title="Oryginalne CV, Champion, odpowiedzi i notatki — źródła tego CV"
+                  className={cn(showSources && "bg-primary/10 text-primary hover:bg-primary/10")}
+                  onClick={toggleSources}
                 >
-                  {submitting ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Save className="h-3.5 w-3.5 mr-1.5" />}
-                  Zapisz
+                  <FileText className="h-3.5 w-3.5 mr-1.5" aria-hidden />
+                  Oryginał
                 </Button>
-              )}
+              ) : null}
+              {!isFinalized && data?.status === "draft" ? (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={downloadingDocx || submitting}
+                  title="Plik Word szkicu z treści widocznej w edytorze"
+                  onClick={() => void previewDocx()}
+                >
+                  <Download className="h-3.5 w-3.5 mr-1.5" aria-hidden /> Pobierz Word
+                </Button>
+              ) : null}
+              {isFinalized && data?.docx_available ? (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={downloadingDocx}
+                  title={`Zatwierdzona wersja ${data.version}`}
+                  onClick={() => void downloadApproved()}
+                >
+                  <Download className="h-3.5 w-3.5 mr-1.5" aria-hidden /> Pobierz Word
+                </Button>
+              ) : null}
             </div>
+            {hasCv && !sideBySide ? (
+              // Wąski ekran: kartka, oryginał i kolumna na zmianę, w osobnym wierszu.
+              <div className="flex basis-full flex-wrap items-center gap-1" role="group" aria-label="Kolumna">
+                <ViewToggle active={pane === "cv"} onClick={() => setNarrowPane("cv")}>CV</ViewToggle>
+                <ViewToggle active={pane === "sources"} onClick={() => setNarrowPane("sources")}>Oryginał</ViewToggle>
+                {hasIssuesPanel && !takeover ? (
+                  <ViewToggle active={pane === "issues"} onClick={() => setNarrowPane("issues")}>{issuesLabel}</ViewToggle>
+                ) : null}
+                {historyOpen ? (
+                  <ViewToggle active={pane === "history"} onClick={() => setNarrowPane("history")}>Historia</ViewToggle>
+                ) : null}
+              </div>
+            ) : null}
           </div>
 
           {data?.presentation_review?.status === "conflict" && <p role="alert" className="px-4 py-2 text-sm text-destructive">
@@ -939,117 +998,9 @@ function CVBrandedEditContent({
           {unfilled.length > 0 && <p role="alert" className="px-4 py-2 text-sm text-destructive">
             Uzupełnij albo usuń pola w nawiasach, zanim zapiszesz CV dla klienta: {unfilled.join(", ")}. Szkic jest zapisany.
           </p>}
-          {hasCv && editor ? (
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-border bg-background px-3 py-1.5">
-              <CvEditorToolbar
-                editor={editor}
-                language={language}
-                defaultAlign={textAlign}
-                disabled={mode === "word" || submitting || command.locked}
-                ai={ai}
-              />
-              {/* Wąski ekran: przełączniki w osobnym wierszu — pasek narzędzi nie traci na nie miejsca. */}
-              <div className={cn("flex flex-wrap items-center gap-x-3 gap-y-1", sideBySide ? "flex-none" : "basis-full")}>
-              <div className="flex flex-none items-center gap-1" role="group" aria-label="Widok CV">
-                <ViewToggle active={mode === "edit"} onClick={() => setMode("edit")}>Edycja</ViewToggle>
-                <ViewToggle active={mode === "word"} onClick={() => { setMode("word"); setNarrowPane("cv"); }}>
-                  Jak u klienta
-                </ViewToggle>
-              </div>
-              {!isGenerated ? (
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  aria-pressed={commandOpen}
-                  disabled={mode === "word" || submitting || history.busy}
-                  title="Polecenie własnymi słowami dla całego CV"
-                  className={cn("flex-none", commandOpen && "bg-primary/10 text-primary hover:bg-primary/10")}
-                  onClick={() => (commandOpen ? closeCommand() : openCommand())}
-                >
-                  <Sparkles className="h-3.5 w-3.5 mr-1.5" />
-                  Polecenie
-                </Button>
-              ) : null}
-              {!isGenerated ? (
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  aria-pressed={historyOpen}
-                  // Plan zmian czeka na decyzję — najpierw „Zastosuj” albo „Odrzuć plan”.
-                  disabled={mode === "word" || submitting || planOpen || history.busy}
-                  title="Zatwierdzone wersje CV i poprawiony plik Word"
-                  className={cn("flex-none", historyOpen && "bg-primary/10 text-primary hover:bg-primary/10")}
-                  onClick={() => (historyOpen ? history.close() : openHistory())}
-                >
-                  <History className="h-3.5 w-3.5 mr-1.5" />
-                  Historia
-                </Button>
-              ) : null}
-              {sideBySide ? (
-                <div className="flex flex-none items-center gap-1">
-                  <Button size="sm" variant="ghost" aria-pressed={sourcesSide} onClick={toggleSources}>
-                    <PanelLeft className="h-3.5 w-3.5 mr-1.5" />
-                    {sourcesSide ? "Ukryj źródła" : "Pokaż źródła"}
-                  </Button>
-                  {hasIssuesPanel ? (
-                    // Włączony tylko, gdy panel faktycznie widać: plan zmian i historia
-                    // zajmują jego miejsce. Klik przy otwartej historii zamyka ją
-                    // i pokazuje uwagi (planu nie — ten czeka na decyzję).
-                    <Button size="sm" variant="ghost" aria-pressed={issuesSide && !takeover}
-                      // Plan zmian czeka na decyzję — do tego czasu nie przełączamy panelu pod nim.
-                      disabled={planOpen}
-                      onClick={() => {
-                        if (!historyOpen) return toggleIssues();
-                        history.close();
-                        sideTouched.current = true;
-                        setIssuesOpen(true);
-                        setLastSide("issues");
-                      }}
-                      className={cn(
-                        issuesSide && !takeover && "bg-primary/10 text-primary hover:bg-primary/10",
-                        !(issuesSide && !takeover) && issueCount.blocking > 0 && "text-destructive",
-                      )}>
-                      <ListChecks className="h-3.5 w-3.5 mr-1.5" />
-                      {issuesLabel}
-                    </Button>
-                  ) : null}
-                </div>
-              ) : (
-                <div className="flex flex-none items-center gap-1" role="group" aria-label="Kolumna">
-                  <ViewToggle active={pane === "cv"} onClick={() => setNarrowPane("cv")}>CV</ViewToggle>
-                  <ViewToggle active={pane === "sources"} onClick={() => setNarrowPane("sources")}>Źródła</ViewToggle>
-                  {hasIssuesPanel && !takeover ? (
-                    <ViewToggle active={pane === "issues"} onClick={() => setNarrowPane("issues")}>{issuesLabel}</ViewToggle>
-                  ) : null}
-                  {planOpen ? (
-                    <ViewToggle active={pane === "plan"} onClick={() => setNarrowPane("plan")}>Plan zmian</ViewToggle>
-                  ) : null}
-                  {historyOpen && !planOpen ? (
-                    <ViewToggle active={pane === "history"} onClick={() => setNarrowPane("history")}>Historia</ViewToggle>
-                  ) : null}
-                </div>
-              )}
-              </div>
-            </div>
-          ) : null}
-          {hasCv && editor && commandOpen && mode === "edit" ? (
-            <CvEditorCommandBar controller={command} onClose={closeCommand} />
-          ) : null}
 
           <div ref={setBody} className="flex min-h-0 flex-1">
-            {showSources ? (
-              <aside
-                aria-label="Źródła CV"
-                className={cn(
-                  "min-h-0 min-w-0 bg-card",
-                  sideBySide ? "w-[440px] flex-none border-r border-border" : "flex-1",
-                )}
-              >
-                {sources}
-              </aside>
-            ) : null}
             <div
-              ref={setPaper}
               hidden={!showCv}
               data-cv-lang={language}
               data-cv-align={textAlign}
@@ -1095,53 +1046,73 @@ function CVBrandedEditContent({
                       className="absolute inset-0"
                     />
                   ) : null}
-                  {editor && mode === "edit" ? (
-                    <CvEditorSelectionAi
-                      editor={editor}
-                      controller={ai}
-                      container={paper}
-                      cvLanguage={language}
-                      onShowSource={showSourceQuote}
-                    />
-                  ) : null}
                 </>
               ) : null}
             </div>
+            {showSources ? (
+              <aside
+                aria-label="Źródła CV"
+                className={cn(
+                  "min-h-0 min-w-0 bg-card",
+                  sideBySide ? "w-[440px] flex-none border-l border-border" : "flex-1",
+                )}
+              >
+                {sources}
+              </aside>
+            ) : null}
             {hasIssuesPanel && editor && data ? (
-              // Zamontowany także ukryty: liczy znaczniki na kartce i licznik w pasku.
+              // Zamontowany także ukryty: liczy znaczniki na kartce i liczbę w pasku.
               <aside
                 aria-label="Do poprawy"
                 hidden={!showIssues}
                 className={cn(
-                  "min-h-0 min-w-0 bg-card",
+                  "flex min-h-0 min-w-0 flex-col bg-card",
                   sideBySide ? "w-[360px] flex-none border-l border-border" : "flex-1",
                 )}
               >
-                <CvEditorIssues
-                  editor={editor}
-                  stageId={isGenerated ? undefined : stageId}
-                  generatorWarnings={generatorWarnings}
-                  savedRevision={data.edit_revision}
-                  unsaved={saveState !== "saved" && saveState !== "finalized"}
-                  readOnly={mode === "word" || submitting || creatingDraft || command.locked}
-                  ensureDraft={ensureDraft}
-                  onShowCv={() => {
-                    setMode("edit");
-                    setNarrowPane("cv");
-                  }}
-                  onCount={setIssueCount}
-                  api={issuesApi}
-                />
-              </aside>
-            ) : null}
-            {showPlan ? (
-              <aside
-                className={cn(
-                  "min-h-0 min-w-0 bg-card",
-                  sideBySide ? "w-[360px] flex-none border-l border-border" : "flex-1",
-                )}
-              >
-                <CvEditorPlan controller={command} onShowCv={sideBySide ? undefined : () => setNarrowPane("cv")} />
+                {/* Zamontowany także zwinięty: liczy znaczniki na kartce i liczbę w pasku. */}
+                <div
+                  className={cn(
+                    "min-h-0",
+                    !withAssistant ? "flex-1" : issuesExpanded ? "flex-[2_1_0%] overflow-hidden" : "flex-none",
+                  )}
+                >
+                  <CvEditorIssues
+                    ref={issuesRef}
+                    editor={editor}
+                    stageId={isGenerated ? undefined : stageId}
+                    generatorWarnings={generatorWarnings}
+                    savedRevision={data.edit_revision}
+                    unsaved={saveState !== "saved" && saveState !== "finalized"}
+                    readOnly={mode === "word" || submitting || creatingDraft || assistant.locked}
+                    ensureDraft={ensureDraft}
+                    onShowCv={() => {
+                      setMode("edit");
+                      setNarrowPane("cv");
+                    }}
+                    onCount={setIssueCount}
+                    api={issuesApi}
+                    collapsed={withAssistant && !issuesExpanded}
+                    heading={
+                      withAssistant ? (
+                        // Edytor CV 3 (PR 4): „Do poprawy” zwijane nad asystentem — jedna kolumna.
+                        <button
+                          type="button"
+                          aria-expanded={issuesExpanded}
+                          className="-mx-1 flex items-center gap-1.5 rounded px-1 py-1 text-left text-sm font-semibold hover:bg-muted/50"
+                          onClick={() => setIssuesChoice(!issuesExpanded)}
+                        >
+                          <ChevronDown aria-hidden className={cn("h-3.5 w-3.5 transition-transform", !issuesExpanded && "-rotate-90")} />
+                          {issuesLabel}
+                          {issueCount.blocking > 0 ? (
+                            <span className="text-xs font-normal text-destructive">· blokuje wysyłkę: {issueCount.blocking}</span>
+                          ) : null}
+                        </button>
+                      ) : undefined
+                    }
+                  />
+                </div>
+                {withAssistant ? <CvEditorAssistant controller={assistant} editor={editor} /> : null}
               </aside>
             ) : null}
             {showHistory ? (
@@ -1162,12 +1133,36 @@ function CVBrandedEditContent({
               remark={remark}
               onRemarkChange={setRemark}
               busy={submitting}
-              disabled={!data || creatingDraft}
+              // Asystent liczy albo nakłada odpowiedź — zapis poczeka na zmianę.
+              disabled={!data || creatingDraft || assistant.busy}
               error={handoffError}
               onSave={() => void saveAndApprove()}
               onHandOff={() => void saveAndHandOff()}
               onOverride={openOverride}
             />
+          ) : hasCv ? (
+            <div
+              role="group"
+              aria-label="Zakończenie pracy z CV"
+              className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-border bg-card px-4 py-2"
+            >
+              <p className="text-xs text-muted-foreground">
+                Zmiany zapisują się same. „Gotowe” zamyka CV i sprawdza treść w tle.
+              </p>
+              <Button
+                size="sm"
+                className="ml-auto"
+                onClick={() => void saveAndApprove()}
+                disabled={!data || noCv || submitting || creatingDraft || assistant.busy}
+              >
+                {submitting ? (
+                  <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" aria-hidden />
+                ) : (
+                  <Check className="h-3.5 w-3.5 mr-1.5" aria-hidden />
+                )}
+                Gotowe
+              </Button>
+            </div>
           ) : null}
         </DialogContent>
       </Dialog>

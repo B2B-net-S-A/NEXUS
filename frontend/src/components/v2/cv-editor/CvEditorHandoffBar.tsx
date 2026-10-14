@@ -6,9 +6,13 @@
  * Pokazuje się tylko, gdy wołający podał `handoff` (karta na „Zweryfikowany”,
  * nie tylko do odczytu). Pole uwagi trzyma okno — wpis żyje, dopóki edytor
  * jest otwarty. Reguła przycisków i linii stanu: `lib/cv-editor-handoff.ts`.
+ *
+ * Edytor CV 3 (PR 3): „Zapisz” → „Gotowe”, „Zapisz i przekaż do DL” →
+ * „Gotowe, przekaż do DL” — treść zapisuje się sama, przycisk kończy pracę
+ * (ta sama ścieżka: szkic, pola w nawiasach, zatwierdzenie w tle).
  */
 
-import { ArrowRight, Loader2, Save } from "lucide-react";
+import { ArrowRight, Check, Loader2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { HANDOFF_REMARK_MAX, type HandoffGate } from "@/lib/cv-editor-handoff";
@@ -76,8 +80,8 @@ export function CvEditorHandoffBar({
       ) : null}
       <div className="ml-auto flex flex-none items-center gap-2">
         <Button size="sm" variant="outline" onClick={onSave} disabled={disabled || busy}>
-          <Save className="h-3.5 w-3.5 mr-1.5" aria-hidden />
-          Zapisz
+          <Check className="h-3.5 w-3.5 mr-1.5" aria-hidden />
+          Gotowe
         </Button>
         {gate.kind === "override" ? (
           <Button size="sm" onClick={onOverride} disabled={primaryDisabled}>
@@ -92,7 +96,7 @@ export function CvEditorHandoffBar({
             title={gate.kind === "blocked" ? BLOCKED_HINT : gate.kind === "waiting" ? "Czekam na wynik QC…" : undefined}
           >
             {busy ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" aria-hidden /> : null}
-            Zapisz i przekaż do DL
+            Gotowe, przekaż do DL
             <ArrowRight className="h-3.5 w-3.5 ml-1.5" aria-hidden />
           </Button>
         )}

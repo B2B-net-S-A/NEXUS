@@ -51,6 +51,7 @@ ENTITY_TYPE_LABELS: dict[str, str] = {
     "role": "Uprawnienia roli",
     "job": "Rekrutacja",
     "settings": "Ustawienia systemu",
+    "invoice": "Faktura",
 }
 
 EVENT_TYPE_LABELS: dict[str, str] = {
@@ -72,6 +73,10 @@ EVENT_TYPE_LABELS: dict[str, str] = {
     "job.delete": "Usunięcie rekrutacji",
     "notifications.role_mutes": "Zmiana powiadomień roli",
     "notifications.email_policy": "Zmiana maili automatycznych",
+    # 0443: zapisy faktur przez API integracyjne v1 (autor = konto serwisowe).
+    "invoice.create": "Wystawienie faktury (integracja)",
+    "invoice.update": "Zmiana faktury (integracja)",
+    "invoice.cancel": "Anulowanie faktury (integracja)",
 }
 
 OUTCOME_LABELS: dict[str, str] = {

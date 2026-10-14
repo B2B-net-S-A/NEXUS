@@ -880,6 +880,13 @@ class Settings(BaseSettings):
     # Limit tempa dla wywołań uwierzytelnianych kluczem API (slowapi, klucz = IP).
     SERVICE_ACCOUNT_RATE_LIMIT: str = "60/minute"
 
+    # API integracyjne v1 (`/api/integrations/v1`, 0443): limit per KONTO
+    # serwisowe i trasę (nie per IP — automatyzacje z jednej chmury dzielą IP).
+    # Odczyt ze stronicowaniem do 500 wierszy mieści się w 120/min z zapasem;
+    # zapisy rozliczeń idą po jednym, więc 30/min to sufit, nie cel.
+    INTEGRATIONS_V1_READ_RATE_LIMIT: str = "120/minute"
+    INTEGRATIONS_V1_WRITE_RATE_LIMIT: str = "30/minute"
+
     # CORS — tight by default; widen via env CORS_ORIGINS='["https://app"]'
     CORS_ORIGINS: List[str] = ["http://localhost:3000"]
 

@@ -200,7 +200,11 @@ def test_expand_built_only_from_fragment_and_quote_keeps_the_badge() -> None:
 # ── polecenie dla całego CV korzysta z tej samej kontroli ───────────────────
 
 
-def test_command_replace_with_a_name_after_a_colon_is_dropped() -> None:
+def test_command_replace_with_a_name_after_a_colon_is_a_question() -> None:
+    # Nazwa po dwukropku nie przechodzi po cichu. Od asystenta w kolumnie
+    # (Edytor CV 3, PR 4, 14.10.2026) fakt spoza CV i notatek wraca jako
+    # pytanie do rekrutera („Kandydat mówił o tym na rozmowie?”), a nie jako
+    # odrzucenie — do CV trafia dopiero po „Tak, dopisz”.
     lines = [
         command_ai.Line(0, "heading", "Doświadczenie", section="experience"),
         command_ai.Line(1, "role", "**Dev**", section="experience", role=0),
@@ -220,7 +224,6 @@ def test_command_replace_with_a_name_after_a_colon_is_dropped() -> None:
         ensure_ascii=False,
     )
     plan = command_ai.verify_plan(raw, lines, ())
-    assert plan["operations"] == []
-    assert plan["dropped"] == [
-        {"type": "replace", "reason": "new_fact", "problem": "Microsoft"}
-    ]
+    assert plan["dropped"] == []
+    [operation] = plan["operations"]
+    assert (operation["ask"], operation["problem"]) == ("source", "Microsoft")

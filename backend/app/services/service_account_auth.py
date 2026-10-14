@@ -37,7 +37,11 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
-from app.models.service_account import ServiceAccount, ServiceAccountKey
+from app.models.service_account import (
+    ServiceAccount,
+    ServiceAccountKey,
+    implied_scopes,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -81,12 +85,22 @@ class ServicePrincipal:
     account_id: int
     slug: str
     key_id: str
+    # Uprawnienia EFEKTYWNE (``X:write`` obejmuje ``X:read``), nie surowa lista.
     scopes: frozenset[str]
+    # Nazwa wyświetlana konta — do śladu „Integracja: <nazwa>” w Historii
+    # zdarzeń i dziennikach zapisów (API integracyjne v1).
+    name: str = ""
+    key_expires_at: Optional[datetime] = None
 
     @property
     def audit_label(self) -> str:
         """„Kto + którym kluczem" w jednym stringu do logów i pól ``*_by``."""
         return f"service_account:{self.slug}#{self.key_id}"
+
+    @property
+    def display_label(self) -> str:
+        """Etykieta dla ludzi (ekrany, Historia zdarzeń) — bez id klucza."""
+        return f"Integracja: {self.name or self.slug}"
 
 
 def _sha256_hex(value: str) -> str:
@@ -161,7 +175,9 @@ async def authenticate_api_key(
             account_id=account.id,
             slug=account.slug,
             key_id=key.key_id,
-            scopes=account.granted_scopes(),
+            scopes=implied_scopes(account.granted_scopes()),
+            name=account.name,
+            key_expires_at=_as_aware(key.expires_at),
         ),
         key,
     )

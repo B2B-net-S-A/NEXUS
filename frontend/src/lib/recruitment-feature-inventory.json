@@ -23,7 +23,7 @@
   {
    "id": "cv.branded",
    "area": "cv",
-   "opis": "CV do klienta: podgląd, edytor (zapis + zatwierdzenie w tle), wersje, „Użyj nowej wersji”",
+   "opis": "CV do klienta: miniatura pierwszej strony (klik = wszystkie strony), edytor „Otwórz i popraw” (zapis + zatwierdzenie w tle), wersje, „Użyj nowej wersji”",
    "file": "components/v2/recruitment/CvToClientCard.tsx",
    "marker": "CVBrandedEditModal",
    "v3_home": "panel → CV → karta „CV do klienta”"
@@ -1063,15 +1063,31 @@
   {
    "id": "cv.to-client-card",
    "area": "cv",
-   "opis": "Karta „CV do klienta” w panelu osoby (generator CV v3): gotowe / generuje się / brak („Generuj CV” rozwija w karcie panel „Z czego powstało” — od 13.10.2026 bez okna generatora) / stary szablon tylko do odczytu; jedna liczba rzeczy do sprawdzenia przed wysłaniem; plik CV kandydata z podglądem oryginału",
+   "opis": "Karta „CV do klienta” w panelu osoby (generator CV v3): gotowe / generuje się / brak („Generuj CV” rozwija w karcie panel „Z czego powstało” — od 13.10.2026 bez okna generatora) / stary szablon tylko do odczytu; jedna liczba rzeczy do sprawdzenia przed wysłaniem; plik CV kandydata z podglądem oryginału; od 14.10.2026 (Edytor CV 3) gotowe CV to miniatura prawdziwej pierwszej strony z liczbą stron, „Otwórz i popraw”, „Pobierz Word” i menu „⋯” (Pobierz PDF, Użyj innego CV, Historia wersji, Wygeneruj ponownie)",
    "file": "components/v2/recruitment/CvToClientCard.tsx",
    "marker": "export function CvToClientCard",
    "v3_home": "panel → CV"
   },
   {
+   "id": "cv.to-client-thumbnail",
+   "area": "cv",
+   "opis": "Miniatura pierwszej strony CV do klienta (PDF z pliku Word) na karcie z liczbą stron; klik otwiera wszystkie strony; bez zgody RODO i przy awarii — ikona pliku (Edytor CV 3, 14.10.2026)",
+   "file": "components/v2/cv/CvFirstPageThumb.tsx",
+   "marker": "Otwórz strony CV",
+   "v3_home": "panel → CV → karta „CV do klienta” → miniatura"
+  },
+  {
+   "id": "cv.to-client-more-menu",
+   "area": "cv",
+   "opis": "Menu „⋯” na karcie gotowego CV: Pobierz PDF (wpis pobrania), Użyj innego CV, Historia wersji (edytor otwarty na historii), Wygeneruj ponownie",
+   "file": "components/v2/recruitment/CvToClientCard.tsx",
+   "marker": "Więcej akcji CV",
+   "v3_home": "panel → CV → karta „CV do klienta” → ⋯"
+  },
+  {
    "id": "cv.to-client-consent",
    "area": "cv",
-   "opis": "Zgoda RODO na karcie „CV do klienta”: brak zrzutu wyłącza tylko pobranie DOCX, dołączenie zrzutu w miejscu (ConsentAttachButton)",
+   "opis": "Zgoda RODO na karcie „CV do klienta”: brak zrzutu wyłącza pobranie pliku (Word i PDF) i miniaturę stron, dołączenie zrzutu w miejscu (ConsentAttachButton)",
    "file": "components/v2/recruitment/CvToClientCard.tsx",
    "marker": "ConsentAttachButton",
    "v3_home": "panel → CV → karta „CV do klienta”"
@@ -1079,7 +1095,7 @@
   {
    "id": "cv.to-client-sources",
    "area": "cv",
-   "opis": "„Z czego powstało” w karcie „CV do klienta” (D4, 13.10.2026): „Generuj CV”, „Wygeneruj ponownie” i „Spróbuj ponownie” rozwijają panel w karcie — oryginalne CV i Profil Championa zawsze, przełączniki odpowiedzi ze screeningu (ile przeczy pytaniu), notatek, transkryptów (ile spoza rekrutacji) i prepu, notatki ze stawką zawsze wycinane, obróbka i język; start z wyboru bieżącej wersji; ponowna generacja przy istniejącym szkicu sama zastępuje szkic gotową wersją",
+   "opis": "„Z czego powstało” w karcie „CV do klienta” (D4, 13.10.2026): „Generuj CV”, „Wygeneruj ponownie” i „Spróbuj ponownie” rozwijają panel w karcie — oryginalne CV i Profil Championa zawsze, przełączniki odpowiedzi ze screeningu (ile przeczy pytaniu), notatek, transkryptów (ile spoza rekrutacji) i prepu, notatki ze stawką zawsze wycinane, obróbka i język; start z wyboru bieżącej wersji; ponowna generacja przy istniejącym szkicu sama zastępuje szkic gotową wersją; od 14.10.2026 panel zwinięty do jednego zdania („Z oryginału CV, Championa… · tryb · język · Zmień”), rozwija się sam przy brakach i błędach; „Wygeneruj ponownie” gotowego CV jest w menu „⋯”",
    "file": "components/v2/recruitment/CvGeneratePanel.tsx",
    "marker": "Z czego powstało",
    "v3_home": "panel → CV → karta „CV do klienta” → Generuj CV"
@@ -1114,7 +1130,7 @@
    "opis": "„Użyj innego CV” na karcie „CV do klienta” (12.10.2026): okno z gotowymi CV osoby zamiast generacji — CV etapu z innej rekrutacji, plik Word z profilu, plik z dysku",
    "file": "components/v2/recruitment/CvToClientCard.tsx",
    "marker": "Użyj innego CV",
-   "v3_home": "panel → CV → karta „CV do klienta”"
+   "v3_home": "panel → CV → karta „CV do klienta” (gotowe CV: menu „⋯”)"
   },
   {
    "id": "cv.to-client-ready-hint",
@@ -1957,18 +1973,18 @@
   {
    "id": "cv.editor-fullscreen",
    "area": "cv",
-   "opis": "Edytor CV na cały ekran: kartka w układzie szablonu Worda, akcje w górnym pasku (Drukuj / PDF, Pobierz, Zamknij, Zapisz)",
+   "opis": "Edytor CV na cały ekran: kartka w układzie szablonu Worda, nagłówek w jednym rzędzie (Zamknij, pasek, „Edycja | Jak u klienta”, stan zapisu, „Oryginał”, „Pobierz Word”), jedna kolumna obok kartki (Edytor CV 3, 14.10.2026)",
    "file": "components/v2/modals/CVBrandedEditModal.tsx",
    "marker": "Edytor CV do klienta",
-   "v3_home": "karta „CV do klienta” → Edytuj"
+   "v3_home": "karta „CV do klienta” → Otwórz i popraw"
   },
   {
    "id": "cv.editor-toolbar",
    "area": "cv",
-   "opis": "Pasek narzędzi edytora CV: cofnij/ponów, pogrubienie, lista, „Typ akapitu”, „Dodaj” (stanowisko, punkt, wiersz edukacji, grupa umiejętności, certyfikat, język)",
+   "opis": "Pasek narzędzi edytora CV: cofnij/ponów, pogrubienie, lista, „Do lewej” / „Wyjustuj”, „Pogrub wymagania (N)” i „Więcej” („Typ akapitu”, „Dodaj”: stanowisko, punkt, wiersz edukacji, grupa umiejętności, certyfikat, język)",
    "file": "components/v2/cv-editor/CvEditorToolbar.tsx",
    "marker": "Narzędzia edytora CV",
-   "v3_home": "karta „CV do klienta” → Edytuj"
+   "v3_home": "karta „CV do klienta” → Otwórz i popraw"
   },
   {
    "id": "cv.editor-role-blocks",
@@ -1976,7 +1992,7 @@
    "opis": "Stanowisko jako blok: przenieś wyżej/niżej, powiel, usuń (z potwierdzeniem) — razem z firmą, obowiązkami i technologiami",
    "file": "components/v2/cv-editor/CvEditorToolbar.tsx",
    "marker": "Powiel stanowisko",
-   "v3_home": "karta „CV do klienta” → Edytuj"
+   "v3_home": "karta „CV do klienta” → Otwórz i popraw → Więcej → Stanowisko"
   },
   {
    "id": "cv.editor-sources",
@@ -1984,7 +2000,7 @@
    "opis": "Źródła obok edytora: oryginalne CV i pliki kandydata, wymagania klienta, „Po ludzku”, notatki z rekrutacji",
    "file": "components/v2/cv-editor/CvEditorSourcesPane.tsx",
    "marker": "Notatki",
-   "v3_home": "karta „CV do klienta” → Edytuj → Źródła"
+   "v3_home": "karta „CV do klienta” → Otwórz i popraw → Oryginał"
   },
   {
    "id": "cv.editor-pages-preview",
@@ -1992,7 +2008,7 @@
    "opis": "„Jak u klienta” w edytorze i „Podgląd” w karcie: strony PDF z tego samego pliku Word (LibreOffice na serwerze), bez pobierania",
    "file": "components/v2/cv/CvPagesPreview.tsx",
    "marker": "Przygotowuję strony CV",
-   "v3_home": "karta „CV do klienta” → Podgląd; Edytuj → Jak u klienta"
+   "v3_home": "karta „CV do klienta” → miniatura strony; karta „CV do klienta” → Otwórz i popraw → Jak u klienta"
   },
   {
    "id": "cv.editor-word-preview",
@@ -2000,7 +2016,7 @@
    "opis": "Zapas „Jak u klienta”: plik DOCX złożony z bieżącej treści, bez pobierania, gdy strony PDF nie powstaną",
    "file": "components/v2/cv-editor/CvEditorWordPreview.tsx",
    "marker": "Podgląd pliku Word",
-   "v3_home": "karta „CV do klienta” → Edytuj → Jak u klienta (zapas)"
+   "v3_home": "karta „CV do klienta” → Otwórz i popraw → Jak u klienta (zapas)"
   },
   {
    "id": "cv.editor-rodo-locked",
@@ -2008,7 +2024,7 @@
    "opis": "Klauzula zgody RODO w edytorze jest stała: nie da się jej zmienić ani usunąć (serwer pilnuje tego samego przy zapisie)",
    "file": "lib/cv-editor-structure.ts",
    "marker": "cv-rodo-locked",
-   "v3_home": "karta „CV do klienta” → Edytuj"
+   "v3_home": "karta „CV do klienta” → Otwórz i popraw"
   },
   {
    "id": "cv.editor-unfilled-fields",
@@ -2016,7 +2032,7 @@
    "opis": "„Zapisz” nie zatwierdza CV, dopóki w nowo wstawionych blokach zostały pola w nawiasach kwadratowych; szkic jest zapisany",
    "file": "components/v2/modals/CVBrandedEditModal.tsx",
    "marker": "Uzupełnij albo usuń pola w nawiasach",
-   "v3_home": "karta „CV do klienta” → Edytuj"
+   "v3_home": "karta „CV do klienta” → Otwórz i popraw"
   },
   {
    "id": "cv.editor-issues-panel",
@@ -2024,7 +2040,7 @@
    "opis": "Panel „Do poprawy” w edytorze CV: jedna lista z QC CV pary (te same karty co w oknie QC), uwag generatora i kontroli AI zatwierdzonej wersji, pogrupowana po sekcjach CV z etykietą źródła przy każdej pozycji, potem „Zapytaj kandydata”, „Pominięte”, „Informacje” i „W porządku”; uwaga generatora „MUST-HAVE: X” nie dubluje pozycji QC o X (13.10.2026)",
    "file": "components/v2/cv-editor/CvEditorIssues.tsx",
    "marker": "buildIssueList",
-   "v3_home": "karta „CV do klienta” → Edytuj → Do poprawy"
+   "v3_home": "karta „CV do klienta” → Otwórz i popraw → Do poprawy"
   },
   {
    "id": "cv.editor-issues-counter",
@@ -2032,7 +2048,7 @@
    "opis": "Licznik w edytorze CV: „Do poprawy (N)” w pasku i „Blokuje wysyłkę: N” w panelu (liczba z QC na serwerze); lista odświeża się po autozapisie",
    "file": "components/v2/cv-editor/CvEditorIssues.tsx",
    "marker": "Blokuje wysyłkę:",
-   "v3_home": "karta „CV do klienta” → Edytuj → Do poprawy"
+   "v3_home": "karta „CV do klienta” → Otwórz i popraw → Do poprawy"
   },
   {
    "id": "cv.editor-issue-locate",
@@ -2040,7 +2056,7 @@
    "opis": "„Pokaż w CV”: uwaga przewija kartkę do swojego miejsca i wyróżnia je; miejsca uwag są zaznaczone w tekście (czerwone = zatrzymuje wysyłkę)",
    "file": "components/v2/recruitment/cv-qc-cards.tsx",
    "marker": "Pokaż w CV",
-   "v3_home": "karta „CV do klienta” → Edytuj → Do poprawy"
+   "v3_home": "karta „CV do klienta” → Otwórz i popraw → Do poprawy"
   },
   {
    "id": "cv.editor-fix-all",
@@ -2048,7 +2064,7 @@
    "opis": "„Popraw wszystko” w edytorze CV: pogrubienie wymagań, pisownia technologii i zdania AI z cytatem ze źródła jednym kliknięciem, z „Cofnij”; usunięcie treści i własne poprawki pojedynczo",
    "file": "components/v2/cv-editor/CvEditorIssues.tsx",
    "marker": "Popraw wszystko",
-   "v3_home": "karta „CV do klienta” → Edytuj → Do poprawy"
+   "v3_home": "karta „CV do klienta” → Otwórz i popraw → Do poprawy"
   },
   {
    "id": "cv.editor-ai-selection",
@@ -2056,7 +2072,8 @@
    "opis": "AI na zaznaczonym fragmencie CV: dymek nad zaznaczeniem (pogrubienie, Skróć, Rozwiń z oryginału, Przeredaguj, Popraw język, Na angielski) i menu „AI” w pasku narzędzi",
    "file": "components/v2/cv-editor/CvEditorSelectionAi.tsx",
    "marker": "Zaznaczony tekst",
-   "v3_home": "karta „CV do klienta” → Edytuj → zaznacz tekst"
+   "v3_home": "karta „CV do klienta” → Otwórz i popraw → zaznacz tekst",
+   "removed_reason": "Dymek i menu „AI” nad zaznaczeniem zastąpił asystent w kolumnie (Edytor CV 3, PR 4, zasada „jedno miejsce do AI”): zaznaczony tekst jest kontekstem wiadomości do asystenta."
   },
   {
    "id": "cv.editor-ai-proposal",
@@ -2064,7 +2081,8 @@
    "opis": "Propozycja AI zawsze do decyzji: karta „było / będzie” z „Przyjmij”, „Doprecyzuj”, „Jeszcze raz”, „Odrzuć”; przyjęcie to jedna cofalna zmiana, szkic na zatwierdzonej wersji powstaje dopiero wtedy",
    "file": "components/v2/cv-editor/CvAiProposalCard.tsx",
    "marker": "Doprecyzuj",
-   "v3_home": "karta „CV do klienta” → Edytuj → zaznacz tekst"
+   "v3_home": "karta „CV do klienta” → Otwórz i popraw → zaznacz tekst",
+   "removed_reason": "Karta propozycji AI („Przyjmij”, „Doprecyzuj”) zastąpiona zmianą od razu na kartce z „Cofnij” w asystencie (Edytor CV 3, PR 4); doprecyzowanie to kolejna wiadomość w rozmowie."
   },
   {
    "id": "cv.editor-ai-source",
@@ -2072,15 +2090,32 @@
    "opis": "„Rozwiń z oryginału” tylko z cytatem sprawdzonym przez serwer: plakietka „Zgodne ze źródłem”, cytat w karcie i „Pokaż w oryginale” (wyszukanie w oryginalnym CV obok)",
    "file": "components/v2/cv-editor/CvAiProposalCard.tsx",
    "marker": "Pokaż w oryginale",
-   "v3_home": "karta „CV do klienta” → Edytuj → zaznacz tekst"
+   "v3_home": "karta „CV do klienta” → Otwórz i popraw → zaznacz tekst",
+   "removed_reason": "„Pokaż w oryginale” z karty propozycji zniknęło razem z kartą (Edytor CV 3, PR 4): asystent sprawdza nowy fakt w oryginale CV i notatkach po stronie serwera, a fakt bez źródła wraca pytaniem „Kandydat mówił o tym na rozmowie?”. Oryginał jest pod „Oryginał” w nagłówku."
   },
   {
    "id": "cv.editor-command",
    "area": "cv",
-   "opis": "Polecenie własnymi słowami dla całego CV: pasek z polem i gotowymi poleceniami (skróć, usuń najstarsze role, ułóż punkty według wymagań, ujednolić formę zdań) → „Przygotuj zmiany”",
-   "file": "components/v2/cv-editor/CvEditorCommandBar.tsx",
-   "marker": "Przygotuj zmiany",
-   "v3_home": "karta „CV do klienta” → Edytuj → Polecenie"
+   "opis": "Asystent w kolumnie edytora CV (Edytor CV 3, PR 4): rekruter pisze jak do czatu albo wybiera podpowiedź, zmiany są od razu na kartce na zielono z jednym „Cofnij” na wiadomość; zaznaczony tekst to kontekst wiadomości (zastąpił „Polecenie”, plan zmian i dymek AI)",
+   "file": "components/v2/cv-editor/CvEditorAssistant.tsx",
+   "marker": "Napisz, co zmienić",
+   "v3_home": "karta „CV do klienta” → Otwórz i popraw → kolumna „Asystent CV”"
+  },
+  {
+   "id": "cv.editor-assistant-fact",
+   "area": "cv",
+   "opis": "Fakt spoza CV i źródeł w asystencie: pytanie „Kandydat mówił o tym na rozmowie?”; „Tak, dopisz” zapisuje notatkę pary „Potwierdzone z kandydatem: …” (autor, data, bez kwot) i dopiero wtedy zmienia CV; usunięcie jedynego miejsca z wymaganiem klienta pyta „Zmienić mimo to?”",
+   "file": "components/v2/cv-editor/useCvAssistant.ts",
+   "marker": "confirmFact",
+   "v3_home": "karta „CV do klienta” → Otwórz i popraw → kolumna „Asystent CV” → pytanie"
+  },
+  {
+   "id": "cv.editor-assistant-undo",
+   "area": "cv",
+   "opis": "„Cofnij” przy każdej odpowiedzi asystenta — cofa całą zmianę z tej wiadomości, dopóki CV się po niej nie zmieniło",
+   "file": "components/v2/cv-editor/CvEditorAssistant.tsx",
+   "marker": "Cofnięte.",
+   "v3_home": "karta „CV do klienta” → Otwórz i popraw → kolumna „Asystent CV”"
   },
   {
    "id": "cv.editor-plan",
@@ -2088,7 +2123,8 @@
    "opis": "Plan zmian: operacje sprawdzone przez serwer z polami wyboru, podgląd na kartce (co znika, co się zmienia), ostrzeżenie o znikającym wymaganiu klienta, „Zastosuj zaznaczone” jedną cofalną zmianą i „Odrzuć plan”",
    "file": "components/v2/cv-editor/CvEditorPlan.tsx",
    "marker": "Zastosuj zaznaczone",
-   "v3_home": "karta „CV do klienta” → Edytuj → Polecenie"
+   "v3_home": "karta „CV do klienta” → Otwórz i popraw → Więcej → Polecenie dla całego CV",
+   "removed_reason": "Plan zmian z polami wyboru i „Zastosuj zaznaczone” zastąpił asystent w kolumnie (Edytor CV 3, PR 4, decyzja Artura D1 i zasada „AI zmienia od razu”): zmiany idą od razu z „Cofnij” na wiadomość, a pytanie pada tylko przy fakcie bez źródła i przy usunięciu jedynego miejsca z wymaganiem klienta."
   },
   {
    "id": "cv.editor-history",
@@ -2096,7 +2132,7 @@
    "opis": "Historia wersji w edytorze CV: zatwierdzone wersje (kiedy, kto), „Pobierz DOCX”, „Porównaj” z bieżącą treścią — lista różnic — i „Przywróć treść wersji N” jedną cofalną zmianą; klauzula zgody zostaje z bieżącej wersji",
    "file": "components/v2/cv-editor/CvEditorHistory.tsx",
    "marker": "Przywróć treść wersji",
-   "v3_home": "karta „CV do klienta” → Edytuj → Historia"
+   "v3_home": "karta „CV do klienta” → Otwórz i popraw → Więcej → Historia wersji; karta → ⋯ → Historia wersji"
   },
   {
    "id": "cv.editor-word-import",
@@ -2104,7 +2140,7 @@
    "opis": "Powrót pliku Word: „Wgraj poprawiony plik Word” w panelu historii pokazuje różnice z bieżącą treścią, zanim cokolwiek się zmieni; „Wstaw treść z pliku Word” przyjmuje ją jedną cofalną zmianą",
    "file": "components/v2/cv-editor/CvEditorHistory.tsx",
    "marker": "Wgraj poprawiony plik Word",
-   "v3_home": "karta „CV do klienta” → Edytuj → Historia"
+   "v3_home": "karta „CV do klienta” → Otwórz i popraw → Więcej → Historia wersji"
   },
   {
    "id": "cv.download-intent",
@@ -2464,7 +2500,7 @@
    "opis": "„To nieprawda” przy uwadze generatora i kontroli AI w panelu „Do poprawy” edytora CV — pominięcie dla pary (kandydat, rekrutacja), z „Przywróć” w „Pominięte”",
    "file": "components/v2/cv-editor/CvEditorIssues.tsx",
    "marker": "dismissIssue",
-   "v3_home": "karta „CV do klienta” → Edytuj → Do poprawy"
+   "v3_home": "karta „CV do klienta” → Otwórz i popraw → Do poprawy"
   },
   {
    "id": "board.arrow-undo",
@@ -2549,10 +2585,42 @@
   {
    "id": "cv.editor-handoff",
    "area": "CV",
-   "opis": "Stopka edytora CV na „Zweryfikowany”: „Uwaga dla Delivery Leada”, „Zapisz i przekaż do DL”, „Przekaż mimo uwag…” (D6)",
+   "opis": "Stopka edytora CV na „Zweryfikowany”: „Uwaga dla Delivery Leada”, „Gotowe, przekaż do DL” (do 14.10.2026: „Zapisz i przekaż do DL”), „Przekaż mimo uwag…” (D6)",
    "file": "components/v2/cv-editor/CvEditorHandoffBar.tsx",
-   "marker": "Zapisz i przekaż do DL",
+   "marker": "Gotowe, przekaż do DL",
    "v3_home": "panel osoby → CV → „Sprawdź i popraw” → stopka edytora"
+  },
+  {
+   "id": "cv.editor-more-menu",
+   "area": "cv",
+   "opis": "„Więcej” w pasku edytora CV: Dodaj (stanowisko, punkt, wiersze), typ akapitu, stanowisko pod kursorem (wyżej, niżej, powiel, usuń), AI na zaznaczonym tekście, „Wyjustuj całe CV” / „Całe CV do lewej”, polecenie, historia, „Pobierz PDF”, „Drukuj” (Edytor CV 3, 14.10.2026)",
+   "file": "components/v2/cv-editor/CvEditorToolbar.tsx",
+   "marker": "Wyjustuj całe CV",
+   "v3_home": "karta „CV do klienta” → Otwórz i popraw → Więcej"
+  },
+  {
+   "id": "cv.editor-bold-requirements",
+   "area": "cv",
+   "opis": "„Pogrub wymagania (N)” w pasku edytora: pogrubia w całym CV wymagania klienta, których QC nie widzi pogrubionych — ta sama poprawka co „Pogrub wszystkie” w „Do poprawy”, jeden krok cofania",
+   "file": "components/v2/cv-editor/CvEditorToolbar.tsx",
+   "marker": "Pogrub wymagania",
+   "v3_home": "karta „CV do klienta” → Otwórz i popraw"
+  },
+  {
+   "id": "cv.editor-done-footer",
+   "area": "cv",
+   "opis": "Stopka edytora z „Gotowe”: zapis szkicu, pola w nawiasach, zamknięcie i zatwierdzenie w tle — zastępuje „Zapisz” z nagłówka (Edytor CV 3)",
+   "file": "components/v2/modals/CVBrandedEditModal.tsx",
+   "marker": "Zakończenie pracy z CV",
+   "v3_home": "karta „CV do klienta” → Otwórz i popraw → stopka"
+  },
+  {
+   "id": "cv.editor-pdf-download",
+   "area": "cv",
+   "opis": "„Pobierz PDF” w edytorze: PDF tego samego pliku Word (wersja zatwierdzona albo szkic z bieżącej treści), wpis pobrania z formatem pdf; „Drukuj” obok",
+   "file": "components/v2/modals/CVBrandedEditModal.tsx",
+   "marker": "Pobierz PDF",
+   "v3_home": "karta „CV do klienta” → Otwórz i popraw → Więcej → Pobierz PDF"
   },
   {
    "id": "cv.forward-progress",

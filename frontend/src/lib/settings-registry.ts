@@ -31,7 +31,7 @@ export const SETTINGS_AREAS: readonly SettingsArea[] = [
   { id: "team", name: "Zespół i dostęp", hint: "Kto ma konto, co widzi i którego klienta prowadzi" },
   { id: "rec", name: "Rekrutacja", hint: "Etapy, CV dla klientów, ranking, maile" },
   { id: "deals", name: "Umowy i stawki", hint: "Wzory umów, stawki rynkowe" },
-  { id: "sys", name: "System", hint: "Powiadomienia, AI, Traffit, portale ogłoszeniowe, listy wyboru, historia zdarzeń, wykluczone placementy" },
+  { id: "sys", name: "System", hint: "Powiadomienia, AI, klucze API, Traffit, portale ogłoszeniowe, listy wyboru, historia zdarzeń, wykluczone placementy" },
 ] as const;
 
 export type SettingsItemId =
@@ -55,6 +55,7 @@ export type SettingsItemId =
   | "contract-docs-sharepoint"
   | "ai"
   | "qc-quality"
+  | "api-keys"
   | "traffit"
   | "job-boards"
   | "teams-prep"
@@ -263,6 +264,14 @@ export const SETTINGS_ITEMS: readonly SettingsItem[] = [
     route: "/settings/ai/qc-quality",
     wide: true,
     // `GET/PATCH /api/settings/ai/qc-quality` = `AdminUser`.
+    gate: { roles: ["admin"], section: "system_admin" },
+  },
+  {
+    id: "api-keys", area: "sys", title: "Klucze API",
+    description: "Konta serwisowe i klucze X-API-Key dla automatyzacji, np. rozliczeń w n8n.",
+    keywords: "klucz klucze api x-api-key konto serwisowe integracje integracja automatyzacja n8n power automate make skrypt token",
+    route: "/settings/api-keys",
+    // `/api/settings/service-accounts` = `AdminUser`; middleware jak `/settings/api-integration`.
     gate: { roles: ["admin"], section: "system_admin" },
   },
   {

@@ -58,8 +58,8 @@ from app.api.permission_access import (
     DeliveryViewUser,
 )
 from app.api.section_access import DELIVERY_SECTION_DEPENDENCIES
+from app.api.write_policy import UserWritePolicy, WritePolicy
 from app.services.access_scope import resolve_delivery_lead_finance_client_ids
-from app.services.action_permissions import ProductAction, has_permission
 from app.services.contract_lifecycle import (
     lock_contract_then_orders,
     sync_contract_to_live_order,
@@ -2666,16 +2666,31 @@ async def update_order(
     user: ContractsOrdersOrAmountsEditUser,
     db: AsyncSession = Depends(get_db),
 ):
+    policy = UserWritePolicy(user, db)
+    order = await apply_order_update(db, client_id, order_id, payload, policy=policy)
+    # Kwoty liczone przed zapisem (polityka pamięta wynik) — jak przed wydzieleniem.
+    amounts = await policy.order_amounts(client_id)
+    return _order_response_for_user(
+        await _order_to_read(db, order), show_finance=amounts.can_read
+    )
+
+
+async def apply_order_update(
+    db: AsyncSession,
+    client_id: int,
+    order_id: int,
+    payload: ClientOrderUpdate,
+    *,
+    policy: WritePolicy,
+) -> ClientOrder:
+    """PATCH zamówienia — ciało trasy ekranu i API v1 (``policy``: kto i co)."""
     assert_amounts_only(
         payload.model_fields_set,
         _ORDER_FINANCE_WRITE_FIELDS,
-        can_edit_record=has_permission(user, ProductAction.contracts_orders_edit),
+        can_edit_record=policy.can_edit_orders(),
     )
     await _assert_client(db, client_id, for_write=True)
-    amounts = await _order_amounts(db, user, client_id)
-    _assert_order_finance_write_allowed(
-        user, payload.model_fields_set, can_finance=amounts.can_write
-    )
+    await policy.assert_order_amounts_writable(client_id, payload.model_fields_set)
     await lock_contract_then_orders(db, order_ids=[order_id])  # kontrakt → zamówienie
     order = await db.scalar(
         select(ClientOrder)
@@ -2991,7 +3006,9 @@ async def update_order(
                         "Uzupełnij numer, datę startu, obie stawki i budżet wybranego typu"
                     ),
                 )
-            await _materialize_group_after_activation(db, order, actor_id=user.id)
+            await _materialize_group_after_activation(
+                db, order, actor_id=policy.actor_id
+            )
 
     # PATCH jest osobną ścieżką wejścia do ``active``: widok inline najpierw
     # zakłada niepełny draft, a kolejne zapisy uzupełniają numer/okres/stawki.
@@ -3010,7 +3027,7 @@ async def update_order(
     )
     if order.contract is not None and patch_requires_contract_sync:
         contract_revived = await _sync_contract_after_order_extension(
-            db, order, order.contract, actor_id=user.id
+            db, order, order.contract, actor_id=policy.actor_id
         )
 
     db.add(
@@ -3018,7 +3035,7 @@ async def update_order(
             entity_type="client",
             entity_id=client_id,
             action="order_updated",
-            user_id=user.id,
+            user_id=policy.actor_id,
             details={
                 "order_id": order_id,
                 "changed": sorted(payload.model_fields_set),
@@ -3031,9 +3048,7 @@ async def update_order(
     )
     await commit_order_write(db)
     await db.refresh(order)
-    return _order_response_for_user(
-        await _order_to_read(db, order), show_finance=amounts.can_read
-    )
+    return order
 
 
 @router.post(
@@ -3074,6 +3089,24 @@ async def close_order(
     nikt nie ustalił, a która zablokowałaby porządkowanie starych danych.
     """
 
+    order = await apply_order_close(
+        db, client_id, order_id, payload, policy=UserWritePolicy(user, db)
+    )
+    amounts = await _order_amounts(db, user, client_id)
+    return _order_response_for_user(
+        await _order_to_read(db, order), show_finance=amounts.can_read
+    )
+
+
+async def apply_order_close(
+    db: AsyncSession,
+    client_id: int,
+    order_id: int,
+    payload: ClientOrderClose,
+    *,
+    policy: WritePolicy,
+) -> ClientOrder:
+    """„Zakończ” zamówienie okresowe — ciało trasy ekranu i API v1."""
     await _assert_client(db, client_id)
     await lock_contract_then_orders(db, order_ids=[order_id])  # kontrakt → zamówienie
     order = await db.scalar(
@@ -3144,7 +3177,7 @@ async def close_order(
             entity_type="client_order",
             entity_id=order.id,
             action="order_closed",
-            user_id=user.id,
+            user_id=policy.actor_id,
             details={
                 "client_id": client_id,
                 "contract_id": order.contract_id,
@@ -3162,10 +3195,7 @@ async def close_order(
     await db.flush()
     await db.refresh(order)
     await commit_order_write(db)
-    amounts = await _order_amounts(db, user, client_id)
-    return _order_response_for_user(
-        await _order_to_read(db, order), show_finance=amounts.can_read
-    )
+    return order
 
 
 @router.delete("/{client_id}/orders/{order_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -3886,8 +3916,30 @@ async def replace_order_po(
     działającą od dawna ścieżkę przedłużeń, gdzie klienci przysyłają PO również
     w Wordzie.
     """
+    order = await apply_order_file(
+        db, client_id, order_id, file, policy=UserWritePolicy(user, db)
+    )
+    amounts = await _order_amounts(db, user, client_id)
+    return _order_response_for_user(
+        await _order_to_read(db, order), show_finance=amounts.can_read
+    )
+
+
+async def apply_order_file(
+    db: AsyncSession,
+    client_id: int,
+    order_id: int,
+    file: UploadFile,
+    *,
+    policy: WritePolicy,
+) -> ClientOrder:
+    """Wgranie/podmiana PDF-a zamówienia — ciało trasy ekranu i API v1.
+
+    Plik ląduje na dysku PRZED commitem (``_attach_po_bytes``), więc ta
+    ścieżka nie ma próby bez zapisu.
+    """
     await _assert_client(db, client_id, for_write=True)
-    await _require_order_file_read(db, user, client_id)
+    await policy.require_order_file(client_id)
 
     filename = file.filename or "po.pdf"
     if not filename.lower().endswith(".pdf"):
@@ -3923,7 +3975,8 @@ async def replace_order_po(
         payload=payload_bytes,
         filename=filename,
         content_type=file.content_type,
-        user=user,
+        # `_attach_po_bytes` czyta z autora wyłącznie `.id`.
+        user=policy.actor,
     )
     nordea_invoice_lines.apply_upload_payload(order, invoice_payload)
 
@@ -3932,7 +3985,7 @@ async def replace_order_po(
             entity_type="client",
             entity_id=client_id,
             action="order_file_uploaded",
-            user_id=user.id,
+            user_id=policy.actor_id,
             details={
                 "order_id": order_id,
                 "filename": filename,
@@ -3947,10 +4000,7 @@ async def replace_order_po(
     if superseded_path:
         storage_service.delete_client_order_po(superseded_path)
     await db.refresh(order)
-    amounts = await _order_amounts(db, user, client_id)
-    return _order_response_for_user(
-        await _order_to_read(db, order), show_finance=amounts.can_read
-    )
+    return order
 
 
 @router.delete(

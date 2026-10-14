@@ -3,15 +3,14 @@ import { Editor } from "@tiptap/core";
 
 import type { CvPlanOperation } from "../api/cvEditorCommand";
 import {
+  applyChanges,
   applyPlan,
+  assistantHighlightCount,
   canApply,
   commandBlocker,
   commandLines,
   cvLines,
-  planEffect,
-  planMarkCount,
-  planMarks,
-  setPlanMarks,
+  setAssistantHighlight,
   type CvLine,
 } from "../cv-editor-command";
 import { cvEditorExtensions, loadCvHtml } from "../cv-editor-structure";
@@ -241,47 +240,109 @@ describe("zastosowanie planu", () => {
   });
 });
 
-describe("podgląd planu", () => {
-  it("pokazuje tylko zaznaczone operacje: co znika, co się zmienia, co się przestawia", () => {
+describe("asystent: nowe operacje i podświetlenie (Edytor CV 3, PR 4)", () => {
+  const html = (editor: Editor) => editor.getHTML();
+
+  it("dopisany punkt staje za wskazanym punktem tej samej listy; całość cofa jedno „Cofnij”", () => {
     const editor = open();
     const lines = cvLines(editor.state.doc);
-    const operations = [
-      op(0, "remove", [3]),
-      op(1, "merge", [9, 10], "Sprinty i spotkania."),
-      op(2, "reorder", [14]),
-      op(3, "remove_section", [15, 16]),
-    ];
-    const marks = planMarks(lines, operations, new Set([0, 1, 2]));
-    expect(marks.map((mark) => [mark.operation, mark.tone])).toEqual([
-      [0, "remove"],
-      [1, "change"],
-      [1, "remove"],
-      [2, "move"],
-    ]);
-    expect(marks[1]).toMatchObject({ from: lines[9].from, to: lines[9].to, text: "Sprinty i spotkania.", at: lines[9].innerTo });
-    expect(marks[3].order).toBe(1);
-
-    const html = editor.getHTML();
-    setPlanMarks(editor, marks);
-    // Dekoracje i podgląd nowej treści żyją w widoku — treść dokumentu się nie zmienia.
-    expect(planMarkCount(editor.state)).toBe(5);
-    expect(editor.getHTML()).toBe(html);
-    expect(editor.view.dom.querySelectorAll(".cv-plan-remove")).toHaveLength(2);
-    expect(editor.view.dom.querySelector(".cv-plan-new")?.textContent).toBe("Sprinty i spotkania.");
-    setPlanMarks(editor, []);
-    expect(planMarkCount(editor.state)).toBe(0);
+    const before = html(editor);
+    const result = applyChanges(editor.state, lines, [op(0, "add", [9], "Integracje przez **Kafka**.")]);
+    expect(result).not.toBeNull();
+    editor.view.dispatch(result!.transaction);
+    expect(html(editor)).toContain(
+      "<li><p>Udział w planowaniu sprintów.</p></li><li><p>Integracje przez <strong>Kafka</strong>.</p></li>",
+    );
+    // Zmieniona treść to nowy punkt — do podświetlenia.
+    const [range] = result!.changed;
+    expect(editor.state.doc.textBetween(range.from, range.to)).toBe("Integracje przez Kafka.");
+    editor.commands.undo();
+    expect(html(editor)).toBe(before);
   });
 
-  it("liczy, o ile krótsze będzie CV po zaznaczonych operacjach", () => {
-    const lines = cvLines(open().state.doc);
-    const operations = [op(0, "remove", [3]), op(1, "merge", [9, 10], "Sprinty i spotkania."), op(2, "reorder", [14])];
-    const all = planEffect(lines, operations, new Set([0, 1, 2]));
-    expect(all.before - all.after).toBe(
-      "Dobrze odnajduje się w zespole.".length +
-        "Udział w planowaniu sprintów.".length +
-        "Udział w spotkaniach zespołu.".length -
-        "Sprinty i spotkania.".length,
+  // Przegląd PR 4: dopisanie za X i usunięcie następnego wiersza zaczynają się
+  // w tym samym miejscu — kolejność kroków decyduje, czy dokument przeżyje.
+  it("dopisanie za punktem i usunięcie następnego punktu w jednym planie", () => {
+    const editor = open();
+    const lines = cvLines(editor.state.doc);
+    expect(apply(editor, lines, op(0, "add", [8], "Integracje przez **Kafka**."), op(1, "remove", [9]))).toBe(true);
+    expect(html(editor)).toContain(
+      "<li><p>Rozwój usług w <strong>Java 17</strong>.</p></li><li><p>Integracje przez <strong>Kafka</strong>.</p></li>" +
+        "<li><p>Udział w spotkaniach zespołu.</p></li>",
     );
-    expect(planEffect(lines, operations, new Set([2])).after).toBe(all.before);
+    expect(html(editor)).not.toContain("planowaniu");
+  });
+
+  it("dwa punkty za tym samym wierszem stają w kolejności planu", () => {
+    const editor = open();
+    const lines = cvLines(editor.state.doc);
+    expect(apply(editor, lines, op(0, "add", [8], "Pierwszy."), op(1, "add", [8], "Drugi."))).toBe(true);
+    expect(html(editor)).toContain(
+      "<li><p>Rozwój usług w <strong>Java 17</strong>.</p></li><li><p>Pierwszy.</p></li><li><p>Drugi.</p></li>" +
+        "<li><p>Udział w planowaniu sprintów.</p></li>",
+    );
+  });
+
+  it("akapit za technologiami zostaje, gdy znika następne stanowisko", () => {
+    const editor = open();
+    const lines = cvLines(editor.state.doc);
+    expect(apply(editor, lines, op(0, "add", [11], "Wcześniej: Spring."), op(1, "remove_role", [12, 13, 14]))).toBe(true);
+    expect(html(editor)).toContain("Technologie: Java, Kafka</p><p>Wcześniej: Spring.</p><h2>ZAINTERESOWANIA</h2>");
+    expect(html(editor)).not.toContain("Software House Przykład");
+  });
+
+  it("za akapitem dopisuje akapit, a nie punkt listy", () => {
+    const editor = open();
+    expect(apply(editor, cvLines(editor.state.doc), op(0, "add", [16], "Szachy."))).toBe(true);
+    expect(html(editor)).toContain("<p>Żeglarstwo, fotografia.</p><p>Szachy.</p>");
+  });
+
+  it("„Rozważany na stanowisko” podmienia tylko swoją linię", () => {
+    const editor = open(
+      CV.replace(
+        "</h1>",
+        "</h1><p><strong>Rozważany na stanowisko:</strong> Senior Java Developer</p>",
+      ),
+    );
+    const lines = cvLines(editor.state.doc);
+    const target = lines.findIndex((line) => line.text.startsWith("**Rozważany"));
+    expect(
+      apply(editor, lines, op(0, "considered_for", [target], "**Rozważany na stanowisko:** Senior Java Engineer")),
+    ).toBe(true);
+    expect(html(editor)).toContain("<p><strong>Rozważany na stanowisko:</strong> Senior Java Engineer</p>");
+  });
+
+  it("pogrubia termin wszędzie poza tytułem i nagłówkami; odpogrubia tak samo", () => {
+    const editor = open();
+    const lines = cvLines(editor.state.doc);
+    const bold = { ...op(0, "bold", []), terms: ["Kafka", "Przykładowa"] };
+    const result = applyChanges(editor.state, lines, [bold]);
+    expect(result).not.toBeNull();
+    editor.view.dispatch(result!.transaction);
+    expect(html(editor)).toContain("Technologie: Java, <strong>Kafka</strong>");
+    // „Przykładowa” stoi tylko w tytule — tytuł nie dostaje pogrubienia.
+    expect(html(editor)).toContain("<h1>Dev – Anna Przykładowa</h1>");
+    const unbold = { ...op(1, "unbold", []), terms: ["Javie"] };
+    expect(apply(editor, cvLines(editor.state.doc), unbold)).toBe(true);
+    expect(html(editor)).toContain("Ponad 7 lat doświadczenia w Javie.");
+    // Nic do pogrubienia = nic do zrobienia.
+    expect(applyChanges(editor.state, cvLines(editor.state.doc), [{ ...op(2, "bold", []), terms: ["Anna"] }])).toBeNull();
+    expect(canApply({ ...op(3, "bold", []), terms: [] }, lines)).toBe(false);
+  });
+
+  it("podświetlenie zmian żyje w widoku, przesuwa się z pisaniem i znika na żądanie", () => {
+    const editor = open();
+    const result = applyChanges(editor.state, cvLines(editor.state.doc), [op(0, "replace", [9], "Planowanie sprintów.")]);
+    editor.view.dispatch(result!.transaction);
+    const saved = html(editor);
+    setAssistantHighlight(editor, result!.changed);
+    expect(assistantHighlightCount(editor.state)).toBe(1);
+    expect(html(editor)).toBe(saved);
+    expect(editor.view.dom.querySelector(".cv-assistant-new")?.textContent).toBe("Planowanie sprintów.");
+    // Pisanie przed zmianą nie gubi podświetlenia.
+    editor.commands.insertContentAt(1, "X");
+    expect(editor.view.dom.querySelector(".cv-assistant-new")?.textContent).toBe("Planowanie sprintów.");
+    setAssistantHighlight(editor, []);
+    expect(assistantHighlightCount(editor.state)).toBe(0);
   });
 });

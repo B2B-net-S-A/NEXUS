@@ -11,6 +11,11 @@
  * 13.10.2026 (PR 4 „CV w procesie”): „Generuj CV” / „Wygeneruj ponownie”
  * rozwijają w karcie panel „Z czego powstało” zamiast okna generatora,
  * a karta pokazuje jedną liczbę rzeczy do sprawdzenia przed wysłaniem.
+ *
+ * 14.10.2026 (Edytor CV 3, „Ekran 5”): gotowe CV = miniatura pierwszej strony
+ * (klik otwiera strony), „Otwórz i popraw”, „Pobierz Word” i menu „⋯” (PDF,
+ * inne CV, historia wersji, ponowna generacja); panel „Z czego powstało”
+ * zwinięty do jednego zdania z „Zmień”.
  */
 
 import { act, configure, render, screen, waitFor, within } from "@testing-library/react";
@@ -42,6 +47,12 @@ const mocks = vi.hoisted(() => ({
   consentProps: null as null | Record<string, unknown>,
   previewLoad: null as null | (() => Promise<Blob>),
   previewLoadPdf: null as null | (() => Promise<Blob>),
+  thumbProps: null as null | {
+    load: () => Promise<Blob>;
+    onOpen: () => void;
+    onPages?: (count: number) => void;
+    label?: string;
+  },
 }));
 
 vi.mock("@/lib/api", () => ({
@@ -107,6 +118,18 @@ vi.mock("@/components/v2/cv/CvPagesPreview", () => ({
   },
 }));
 
+// Miniatura (pdf.js) ma własny test — atrapa trzyma loader i otwiera strony.
+vi.mock("@/components/v2/cv/CvFirstPageThumb", () => ({
+  CvFirstPageThumb: (props: NonNullable<typeof mocks.thumbProps>) => {
+    mocks.thumbProps = props;
+    return (
+      <button type="button" aria-label={props.label ?? "Otwórz strony CV"} onClick={props.onOpen}>
+        miniatura
+      </button>
+    );
+  },
+}));
+
 import { CvToClientCard } from "@/components/v2/recruitment/CvToClientCard";
 import { cvToClientRowsQueryKey, stageBrandedQueryKey } from "@/lib/cv-to-client";
 
@@ -144,8 +167,10 @@ let issues = { generator_warnings: [] as string[], content_review: { status: nul
 let personGenerated: Row[] = [];
 let documents: Row[] = [];
 
-function renderCard(overrides: Partial<React.ComponentProps<typeof CvToClientCard>> = {}) {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+function renderCard(
+  overrides: Partial<React.ComponentProps<typeof CvToClientCard>> = {},
+  client = new QueryClient({ defaultOptions: { queries: { retry: false } } }),
+) {
   return render(
     <QueryClientProvider client={client}>
       <CvToClientCard
@@ -173,6 +198,17 @@ function setUser(access: "read" | "write" = "write") {
   });
 }
 
+/** Menu „⋯” karty z gotowym CV. */
+async function chooseFromMore(name: string | RegExp) {
+  await userEvent.click(await screen.findByRole("button", { name: "Więcej akcji CV" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name }));
+}
+
+/** Zwinięty panel „Z czego powstało” → przełączniki, obróbka i język. */
+async function expandSources(panel: HTMLElement) {
+  await userEvent.click(await within(panel).findByRole("button", { name: "Zmień" }));
+}
+
 function generatePosts(): Array<[string, Record<string, unknown>]> {
   return mocks.apiPost.mock.calls.filter(([url]) => url === "/api/cv-generator/generate") as Array<
     [string, Record<string, unknown>]
@@ -186,6 +222,7 @@ beforeEach(() => {
   mocks.editorProps = null;
   mocks.consentProps = null;
   mocks.otherDialogProps = null;
+  mocks.thumbProps = null;
   rows = [];
   events = [];
   personGenerated = [];
@@ -235,6 +272,15 @@ describe("CvToClientCard — brak CV", () => {
     // Przycisk, który otworzył panel, znika — w panelu jest „Generuj”.
     expect(screen.queryByRole("button", { name: /Generuj CV/ })).toBeNull();
 
+    // Zwinięty panel: jedno zdanie z tych samych przełączników, które pójdą w żądaniu.
+    expect(await within(panel).findByTestId("cv-generate-summary")).toHaveTextContent(
+      "Z oryginału CV, Championa, screeningu i notatek · Pod rekrutację · polski · Zmień",
+    );
+    expect(within(panel).queryByRole("region", { name: "Z czego powstało" })).toBeNull();
+    // „Generuj” działa bez rozwijania.
+    await waitFor(() => expect(within(panel).getByRole("button", { name: /^Generuj$/ })).toBeEnabled());
+    await expandSources(panel);
+
     const sources = within(panel).getByRole("region", { name: "Z czego powstało" });
     // Wiersze pojawiają się po odczycie `…/ai-sources` („Wczytuję źródła…”).
     expect(await within(sources).findByTestId("ai-source-original")).toHaveTextContent("Jan_Kowalski_CV.pdf");
@@ -264,6 +310,7 @@ describe("CvToClientCard — brak CV", () => {
     renderCard();
     await userEvent.click(await screen.findByRole("button", { name: /Generuj CV/ }));
     const panel = await screen.findByTestId("cv-generate-panel");
+    await expandSources(panel);
     await userEvent.click(await within(panel).findByRole("switch", { name: "Transkrypty rozmów" }));
     await userEvent.click(within(panel).getByRole("switch", { name: "Odpowiedzi ze screeningu" }));
     const generate = within(panel).getByRole("button", { name: /^Generuj$/ });
@@ -291,6 +338,10 @@ describe("CvToClientCard — brak CV", () => {
     renderCard();
     await userEvent.click(await screen.findByRole("button", { name: /Generuj CV/ }));
     const panel = await screen.findByTestId("cv-generate-panel");
+    expect(await within(panel).findByTestId("cv-generate-summary")).toHaveTextContent(
+      "Z oryginału CV, Championa, notatek, transkryptów i prepu · Pod rekrutację · polski",
+    );
+    await expandSources(panel);
     expect(await within(panel).findByRole("switch", { name: "Odpowiedzi ze screeningu" })).not.toBeChecked();
     expect(within(panel).getByRole("switch", { name: "Transkrypty rozmów" })).toBeChecked();
     expect(within(panel).getByRole("switch", { name: "Podsumowania prepu" })).toBeChecked();
@@ -308,6 +359,9 @@ describe("CvToClientCard — brak CV", () => {
     await userEvent.click(generate);
     expect(await within(panel).findByRole("alert")).toHaveTextContent("Ten klient wymaga numeru projektu w CV.");
     expect(mocks.showError).toHaveBeenCalledWith("Ten klient wymaga numeru projektu w CV.");
+    // Odmowa rozwija panel sam — rekruter ma co zmienić.
+    expect(within(panel).getByRole("region", { name: "Z czego powstało" })).toBeInTheDocument();
+    expect(within(panel).queryByTestId("cv-generate-summary")).toBeNull();
   });
 
   it("tej rekrutacji nie ma na liście procesów osoby — CV nie powstanie dla innego procesu", async () => {
@@ -317,6 +371,22 @@ describe("CvToClientCard — brak CV", () => {
     const panel = await screen.findByTestId("cv-generate-panel");
     expect(await within(panel).findByTestId("cvgen-missing")).toHaveTextContent(/tej rekrutacji nie ma na liście procesów/);
     expect(within(panel).getByRole("button", { name: /^Generuj$/ })).toBeDisabled();
+    // Brak do uzupełnienia = panel rozwinięty od razu.
+    expect(within(panel).queryByTestId("cv-generate-summary")).toBeNull();
+    expect(within(panel).getByRole("group", { name: "Obróbka treści" })).toBeInTheDocument();
+  });
+
+  it("awaria odczytu źródeł rozwija panel z komunikatem, a „Generuj” działa (domyślne serwera)", async () => {
+    const base = mocks.apiGet.getMockImplementation()!;
+    mocks.apiGet.mockImplementation((url: string, config?: { params?: Record<string, unknown> }) =>
+      /\/cv\/ai-sources$/.test(url) ? Promise.reject({ response: { status: 500 } }) : base(url, config),
+    );
+    renderCard();
+    await userEvent.click(await screen.findByRole("button", { name: /Generuj CV/ }));
+    const panel = await screen.findByTestId("cv-generate-panel");
+    expect(await within(panel).findByText(/Nie udało się wczytać źródeł/)).toBeInTheDocument();
+    expect(within(panel).queryByTestId("cv-generate-summary")).toBeNull();
+    await waitFor(() => expect(within(panel).getByRole("button", { name: /^Generuj$/ })).toBeEnabled());
   });
 
   it("bez prawa zapisu w Sourcing panel mówi o uprawnieniu zamiast formularza", async () => {
@@ -391,33 +461,39 @@ describe("CvToClientCard — CV gotowe", () => {
       },
     };
     renderCard();
-    expect(await screen.findByText("CV gotowe · szkic")).toBeInTheDocument();
-    expect(screen.getByText("Pod rekrutację")).toBeInTheDocument();
-    expect(screen.getByText("EN")).toBeInTheDocument();
+    const facts = await screen.findByTestId("cv-ready-facts");
+    expect(facts).toHaveTextContent("szkic");
+    expect(facts).toHaveTextContent("Pod rekrutację · EN");
     expect(screen.getByText("wygenerowane automatycznie — sprawdź przed wysyłką")).toBeInTheDocument();
     expect(await screen.findByTestId("cv-checks-count")).toHaveTextContent("2 rzeczy do sprawdzenia przed wysłaniem");
-    expect(screen.getByRole("button", { name: /Pobierz DOCX/ })).toBeDisabled();
-    // Podgląd i edycja działają bez zgody.
-    expect(screen.getByRole("button", { name: /Podgląd/ })).toBeEnabled();
-    expect(screen.getByRole("button", { name: /Edytuj/ })).toBeEnabled();
+    expect(screen.getByRole("button", { name: /Pobierz Word/ })).toBeDisabled();
+    // Strony (miniatura) i edycja działają bez zgody.
+    expect(screen.getByRole("button", { name: "Otwórz strony CV — Jan Kowalski" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: /Otwórz i popraw/ })).toBeEnabled();
     expect(screen.getByText(/Zgoda RODO: brak zrzutu/)).toBeInTheDocument();
     expect(mocks.consentProps).toMatchObject({ generatedId: 5, hasConsent: false, compact: true });
+    // Bez zgody serwer i tak odpowie 409 — miniatura nie pyta o PDF.
+    await expect(mocks.thumbProps!.load()).rejects.toThrow();
+    expect(mocks.apiPost).not.toHaveBeenCalled();
+    // „Pobierz PDF” w „⋯” też czeka na zgodę.
+    await userEvent.click(screen.getByRole("button", { name: "Więcej akcji CV" }));
+    expect(await screen.findByRole("menuitem", { name: /Pobierz PDF/ })).toHaveAttribute("aria-disabled", "true");
   });
 
-  it("zatwierdzona wersja pobiera DOCX tej wersji; „Edytuj” otwiera edytor etapu", async () => {
+  it("zatwierdzona wersja pobiera Word tej wersji; „Otwórz i popraw” otwiera edytor etapu", async () => {
     mocks.brandedGet.mockResolvedValue({
       data: { status: "finalized", from_generator: true, generated_document_id: 5, edit_revision: 4, version: 2, docx_filename: "CV_Kowalski.docx" },
     });
     rows = [{ id: 5, status: "ready" }];
     renderCard();
-    await userEvent.click(await screen.findByRole("button", { name: /Pobierz DOCX/ }));
+    await userEvent.click(await screen.findByRole("button", { name: /Pobierz Word/ }));
     await waitFor(() =>
       expect(mocks.downloadAuthenticatedFile).toHaveBeenCalledWith(
         "/api/candidates/stages/21/cv/branded/versions/2/docx?intent=download&surface=card",
         "CV_Kowalski.docx",
       ),
     );
-    await userEvent.click(screen.getByRole("button", { name: /Edytuj/ }));
+    await userEvent.click(screen.getByRole("button", { name: /Otwórz i popraw/ }));
     expect(screen.getByTestId("editor-stub")).toHaveTextContent("editor:21");
   });
 
@@ -430,7 +506,7 @@ describe("CvToClientCard — CV gotowe", () => {
       response: { status: 409, data: { detail: { code: "consent_required", message: "Dołącz zrzut zgody RODO, aby pobrać CV." } } },
     });
     renderCard();
-    await userEvent.click(await screen.findByRole("button", { name: /Pobierz DOCX/ }));
+    await userEvent.click(await screen.findByRole("button", { name: /Pobierz Word/ }));
     await waitFor(() =>
       expect(mocks.showError).toHaveBeenCalledWith("Dołącz zrzut zgody RODO, aby pobrać CV."),
     );
@@ -479,7 +555,7 @@ describe("CvToClientCard — CV gotowe", () => {
         />
       </QueryClientProvider>,
     );
-    await userEvent.click(await screen.findByRole("button", { name: /Wygeneruj ponownie/ }));
+    await chooseFromMore(/Wygeneruj ponownie/);
     const panel = await screen.findByTestId("cv-generate-panel");
     const generate = within(panel).getByRole("button", { name: /^Generuj$/ });
     await waitFor(() => expect(generate).toBeEnabled());
@@ -513,7 +589,7 @@ describe("CvToClientCard — CV gotowe", () => {
       return { data: { id: 77, status: "processing", candidate_name: "Jan Kowalski" } };
     });
     renderCard();
-    await userEvent.click(await screen.findByRole("button", { name: /Wygeneruj ponownie/ }));
+    await chooseFromMore(/Wygeneruj ponownie/);
     const panel = await screen.findByTestId("cv-generate-panel");
     expect(screen.queryByTestId("generator-dialog")).toBeNull();
     expect(panel).toHaveTextContent("Nowa wersja zastąpi bieżący szkic, gdy będzie gotowa");
@@ -538,12 +614,13 @@ describe("CvToClientCard — CV gotowe", () => {
       return { data: { id: 77, status: "processing", candidate_name: "Jan Kowalski" } };
     });
     renderCard();
-    await userEvent.click(await screen.findByRole("button", { name: /Wygeneruj ponownie/ }));
+    await chooseFromMore(/Wygeneruj ponownie/);
     const generate = within(await screen.findByTestId("cv-generate-panel")).getByRole("button", { name: /^Generuj$/ });
     await waitFor(() => expect(generate).toBeEnabled());
     await userEvent.click(generate);
     expect(await screen.findByText(/Nowa wersja nie powstała: Model nie odpowiedział/)).toBeInTheDocument();
-    expect(screen.getByText("CV gotowe · szkic")).toBeInTheDocument();
+    expect(screen.getByTestId("cv-ready-facts")).toHaveTextContent("szkic");
+    // Ponowienie stoi przy komunikacie, nie tylko w „⋯”.
     expect(screen.getByRole("button", { name: /Spróbuj ponownie/ })).toBeInTheDocument();
     expect(mocks.selectGenerated).not.toHaveBeenCalled();
   });
@@ -581,8 +658,8 @@ describe("CvToClientCard — jedna liczba rzeczy do sprawdzenia (13.10.2026)", (
     rows = [{ id: 5, status: "ready" }];
     renderCard();
     expect(await screen.findByTestId("cv-checks-count")).toHaveTextContent("Nic do sprawdzenia przed wysłaniem");
-    // „Edytuj” otwiera edytor bez wymuszania panelu.
-    await userEvent.click(screen.getByRole("button", { name: /Edytuj/ }));
+    // „Otwórz i popraw” otwiera edytor bez wymuszania panelu.
+    await userEvent.click(screen.getByRole("button", { name: /Otwórz i popraw/ }));
     expect(mocks.editorProps?.initialPanel).toBeUndefined();
   });
 
@@ -617,8 +694,9 @@ describe("CvToClientCard — stary szablon", () => {
     expect(await screen.findByText("Stary szablon · tylko odczyt")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Podgląd/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Wygeneruj CV/ })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /Edytuj/ })).toBeNull();
-    expect(screen.queryByRole("button", { name: /Pobierz DOCX/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Otwórz i popraw/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Pobierz Word/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Więcej akcji CV" })).toBeNull();
   });
 });
 
@@ -643,18 +721,18 @@ describe("CvToClientCard — CV firmowe pary na innym etapie (runda 11, F23)", (
     );
     rows = [{ id: 5, status: "ready" }];
     renderCard();
-    expect(await screen.findByText("CV gotowe · wersja 2")).toBeInTheDocument();
+    expect(await screen.findByTestId("cv-ready-facts")).toHaveTextContent("wersja 2");
     expect(screen.queryByText(/Jeszcze nie ma CV do klienta/)).toBeNull();
     expect(screen.queryByRole("button", { name: /Generuj CV/ })).toBeNull();
     expect(mocks.brandedGet).toHaveBeenCalledWith(20);
-    await userEvent.click(screen.getByRole("button", { name: /Pobierz DOCX/ }));
+    await userEvent.click(screen.getByRole("button", { name: /Pobierz Word/ }));
     await waitFor(() =>
       expect(mocks.downloadAuthenticatedFile).toHaveBeenCalledWith(
         "/api/candidates/stages/20/cv/branded/versions/2/docx?intent=download&surface=card",
         "CV_Kowalski.docx",
       ),
     );
-    await userEvent.click(screen.getByRole("button", { name: /Edytuj/ }));
+    await userEvent.click(screen.getByRole("button", { name: /Otwórz i popraw/ }));
     expect(screen.getByTestId("editor-stub")).toHaveTextContent("editor:20");
   });
 });
@@ -719,7 +797,7 @@ describe("CvToClientCard — „Użyj innego CV” (12.10.2026)", () => {
     expect(await screen.findByTestId("cv-origin-badge")).toHaveTextContent("z pliku Word");
   });
 
-  it("CV wybrane świadomie: bez paska, z plakietką; „Użyj innego CV” otwiera okno wyboru", async () => {
+  it("CV wybrane świadomie: bez paska, z plakietką; „⋯ → Użyj innego CV” otwiera okno wyboru", async () => {
     mocks.brandedGet.mockResolvedValue({ data: COPY });
     // Starsze auto-CV tej pary nie jest „nowszą wersją” świeżo wybranej kopii.
     rows = [{ id: 5, status: "ready", origin: "auto", job_id: 42, created_at: "2026-10-12T08:00:00Z" }];
@@ -731,8 +809,10 @@ describe("CvToClientCard — „Użyj innego CV” (12.10.2026)", () => {
     expect(screen.queryByRole("button", { name: "Użyj nowej wersji" })).toBeNull();
     expect(mocks.sources).not.toHaveBeenCalled();
 
-    await userEvent.click(screen.getByRole("button", { name: /Użyj innego CV/ }));
-    expect(screen.getByTestId("use-other-cv-dialog")).toBeInTheDocument();
+    // Rzadka akcja — w menu „⋯”, nie na karcie.
+    expect(screen.queryByRole("button", { name: /Użyj innego CV/ })).toBeNull();
+    await chooseFromMore(/Użyj innego CV/);
+    expect(await screen.findByTestId("use-other-cv-dialog")).toBeInTheDocument();
     expect(mocks.otherDialogProps).toMatchObject({ candidateId: 121, candidateName: "Jan Kowalski", replaces: true });
   });
 
@@ -743,7 +823,7 @@ describe("CvToClientCard — „Użyj innego CV” (12.10.2026)", () => {
     renderCard();
 
     expect(await screen.findByText(/Zgoda RODO: brak zrzutu/)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Pobierz DOCX/ })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /Pobierz Word/ })).toBeDisabled();
     expect(mocks.consentProps).toMatchObject({ stageCopy: { candidateId: 121, stageId: 21 }, hasConsent: false });
     expect(mocks.consentProps?.generatedId).toBeUndefined();
   });
@@ -899,7 +979,7 @@ describe("CvToClientCard — po „Zapisz i przekaż dalej” (14.10.2026)", () 
     expect(onOpenPerson).toHaveBeenCalledWith(55);
   });
 
-  it("`handoff` idzie do edytora z „Edytuj” i „Sprawdź i popraw”", async () => {
+  it("`handoff` idzie do edytora z „Otwórz i popraw” i „Sprawdź i popraw”", async () => {
     mocks.brandedGet.mockResolvedValue({ data: READY });
     rows = [{ id: 5, status: "ready" }];
     issues = { generator_warnings: ["WERYFIKUJ: daty"], content_review: { status: null, version: null, findings: [] } };
@@ -913,13 +993,13 @@ describe("CvToClientCard — po „Zapisz i przekaż dalej” (14.10.2026)", () 
     mocks.brandedGet.mockResolvedValue({ data: READY });
     rows = [{ id: 5, status: "ready" }];
     renderCard();
-    await userEvent.click(await screen.findByRole("button", { name: /Edytuj/ }));
+    await userEvent.click(await screen.findByRole("button", { name: /Otwórz i popraw/ }));
     expect(mocks.editorProps?.handoff).toBeUndefined();
   });
 });
 
 describe("CvToClientCard — podgląd = plik dla klienta (Edytor CV 3, 14.10.2026)", () => {
-  it("„Podgląd” pokazuje plik CV etapu bez intencji pobrania, a treść w układzie kartki jako zapas", async () => {
+  it("miniatura otwiera strony CV etapu bez intencji pobrania, a treść w układzie kartki jako zapas", async () => {
     setUser();
     mocks.brandedGet.mockResolvedValue({
       data: {
@@ -937,12 +1017,16 @@ describe("CvToClientCard — podgląd = plik dla klienta (Edytor CV 3, 14.10.202
     const loadStageCvFile = vi.fn().mockResolvedValue({ blob });
     const loadStageCvPdf = vi.fn().mockResolvedValue({ blob: pages });
     renderCard({ loadStageCvFile, loadStageCvPdf });
-    await userEvent.click(await screen.findByRole("button", { name: /Podgląd/ }));
+    const thumb = await screen.findByRole("button", { name: "Otwórz strony CV — Jan Kowalski" });
+    // Miniatura i okno stron dzielą jeden PDF — serwer zamienia plik raz.
+    await expect(mocks.thumbProps!.load()).resolves.toBe(pages);
+    await userEvent.click(thumb);
 
     const dialog = await screen.findByRole("dialog");
     expect(within(dialog).getByText("Tak zobaczy to klient: ten sam plik co „Pobierz”.")).toBeInTheDocument();
     // Strony PDF z pliku Word, a sam plik Word jako zapas — oba bez intencji pobrania.
     await expect(mocks.previewLoadPdf?.()).resolves.toBe(pages);
+    expect(loadStageCvPdf).toHaveBeenCalledTimes(1);
     expect(loadStageCvPdf).toHaveBeenCalledWith(21);
     await expect(mocks.previewLoad?.()).resolves.toBe(blob);
     expect(loadStageCvFile).toHaveBeenCalledWith(21);
@@ -951,5 +1035,127 @@ describe("CvToClientCard — podgląd = plik dla klienta (Edytor CV 3, 14.10.202
     expect(paper).toHaveTextContent("Treść CV po poprawkach");
     expect(paper.parentElement).toHaveAttribute("data-cv-align", "left");
     expect(mocks.postAuthenticatedDownload).not.toHaveBeenCalled();
+  });
+});
+
+describe("CvToClientCard — miniatura i menu „⋯” (Edytor CV 3, „Ekran 5”, 14.10.2026)", () => {
+  const READY = {
+    status: "draft",
+    from_generator: true,
+    generated_document_id: 5,
+    edit_revision: 3,
+    version: 1,
+    content_html: "<p>CV</p>",
+  };
+
+  it("autozapisy w otwartym edytorze nie zamawiają nowych stron PDF — odświeżenie raz, po zamknięciu", async () => {
+    mocks.brandedGet.mockResolvedValue({ data: READY });
+    rows = [{ id: 5, status: "ready", content_mode: "tailored", language: "pl" }];
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const loadStageCvPdf = vi.fn().mockResolvedValue({ blob: new Blob(["%PDF"]) });
+    renderCard({ loadStageCvPdf }, client);
+    await screen.findByRole("button", { name: /Otwórz strony CV/ });
+    await mocks.thumbProps!.load();
+    expect(loadStageCvPdf).toHaveBeenCalledTimes(1);
+
+    await userEvent.click(screen.getByRole("button", { name: /Otwórz i popraw/ }));
+    await screen.findByTestId("editor-stub");
+    // Autozapis edytora podbija rewizję w tym samym kluczu, który czyta karta.
+    for (const revision of [4, 5, 6]) {
+      await act(async () => {
+        client.setQueryData(stageBrandedQueryKey(21), { ...READY, edit_revision: revision });
+        // React Query powiadamia komponenty w następnym takcie.
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+      await mocks.thumbProps!.load();
+    }
+    expect(loadStageCvPdf).toHaveBeenCalledTimes(1);
+
+    // Po zamknięciu karta czyta stan od nowa — serwer ma już rewizję po autozapisach.
+    mocks.brandedGet.mockResolvedValue({ data: { ...READY, edit_revision: 7 } });
+    act(() => (mocks.editorProps as unknown as { onOpenChange: (open: boolean) => void }).onOpenChange(false));
+    await waitFor(() => expect(screen.queryByTestId("editor-stub")).toBeNull());
+    await waitFor(async () => {
+      await mocks.thumbProps!.load();
+      expect(loadStageCvPdf).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  it("liczba stron z miniatury stoi pod stanem CV, z polską odmianą", async () => {
+    mocks.brandedGet.mockResolvedValue({ data: READY });
+    rows = [{ id: 5, status: "ready", content_mode: "tailored", language: "pl" }];
+    renderCard();
+    const facts = await screen.findByTestId("cv-ready-facts");
+    expect(facts).toHaveTextContent("szkic");
+    expect(facts).toHaveTextContent("Pod rekrutację · PL");
+    act(() => mocks.thumbProps!.onPages!(2));
+    expect(facts).toHaveTextContent("2 strony · Pod rekrutację · PL");
+    act(() => mocks.thumbProps!.onPages!(1));
+    expect(facts).toHaveTextContent("1 strona · Pod rekrutację");
+    act(() => mocks.thumbProps!.onPages!(5));
+    expect(facts).toHaveTextContent("5 stron · Pod rekrutację");
+  });
+
+  it("„Pobierz PDF” pobiera strony z intencją pobrania z karty", async () => {
+    mocks.brandedGet.mockResolvedValue({ data: READY });
+    rows = [{ id: 5, status: "ready" }];
+    const pdf = new Blob(["%PDF"]);
+    const loadStageCvPdf = vi.fn().mockResolvedValue({ blob: pdf, filename: "CV_Kowalski.pdf" });
+    renderCard({ loadStageCvPdf });
+    await chooseFromMore(/Pobierz PDF/);
+    await waitFor(() => expect(mocks.downloadBlob).toHaveBeenCalledWith(pdf, "CV_Kowalski.pdf"));
+    expect(loadStageCvPdf).toHaveBeenCalledWith(21, { download: "card" });
+  });
+
+  it("„Pobierz PDF”: odmowa serwera (503) jako polski komunikat", async () => {
+    mocks.brandedGet.mockResolvedValue({ data: READY });
+    rows = [{ id: 5, status: "ready" }];
+    const loadStageCvPdf = vi.fn().mockRejectedValue({
+      response: { status: 503, data: { detail: "PDF chwilowo niedostępny — pobierz plik Word." } },
+    });
+    renderCard({ loadStageCvPdf });
+    await chooseFromMore(/Pobierz PDF/);
+    await waitFor(() =>
+      expect(mocks.showError).toHaveBeenCalledWith("PDF chwilowo niedostępny — pobierz plik Word."),
+    );
+    expect(mocks.downloadBlob).not.toHaveBeenCalled();
+  });
+
+  it("„Historia wersji” otwiera edytor na historii", async () => {
+    mocks.brandedGet.mockResolvedValue({ data: READY });
+    rows = [{ id: 5, status: "ready" }];
+    renderCard();
+    await chooseFromMore(/Historia wersji/);
+    expect(await screen.findByTestId("editor-stub")).toHaveTextContent("editor:21");
+    expect(mocks.editorProps).toMatchObject({ stageId: 21, initialPanel: "history" });
+  });
+
+  it("menu „⋯” ma wszystkie rzadkie akcje, a pod kartą nie ma już rzędu przycisków", async () => {
+    mocks.brandedGet.mockResolvedValue({ data: READY });
+    rows = [{ id: 5, status: "ready" }];
+    renderCard();
+    await screen.findByTestId("cv-ready-facts");
+    expect(screen.queryByRole("button", { name: /Wygeneruj ponownie/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Podgląd/ })).toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: "Więcej akcji CV" }));
+    const items = await screen.findAllByRole("menuitem");
+    expect(items.map((item) => item.textContent?.trim())).toEqual([
+      "Pobierz PDF",
+      "Użyj innego CV",
+      "Historia wersji",
+      "Wygeneruj ponownie",
+    ]);
+  });
+
+  it("tylko do odczytu: bez „Otwórz i popraw”; w „⋯” zostaje samo „Pobierz PDF”", async () => {
+    mocks.brandedGet.mockResolvedValue({ data: READY });
+    rows = [{ id: 5, status: "ready" }];
+    renderCard({ readOnly: true });
+    await screen.findByTestId("cv-ready-facts");
+    expect(screen.queryByRole("button", { name: /Otwórz i popraw/ })).toBeNull();
+    expect(screen.getByRole("button", { name: /Pobierz Word/ })).toBeEnabled();
+    await userEvent.click(screen.getByRole("button", { name: "Więcej akcji CV" }));
+    const items = await screen.findAllByRole("menuitem");
+    expect(items.map((item) => item.textContent?.trim())).toEqual(["Pobierz PDF"]);
   });
 });

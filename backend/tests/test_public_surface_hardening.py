@@ -29,6 +29,21 @@ from httpx import AsyncClient
 
 _APP = Path(__file__).resolve().parents[1] / "app"
 
+_V1_MODULES = tuple(
+    f"api/integrations_v1/{name}.py"
+    for name in (
+        "meta",
+        "clients",
+        "contracts",
+        "contract_writes",
+        "orders",
+        "order_writes",
+        "md",
+        "finance",
+        "invoices",
+    )
+)
+
 # Moduły, w których KAŻDA trasa musi nieść jawny limit.
 _RATE_LIMITED_MODULES = (
     "api/public_share.py",
@@ -66,10 +81,14 @@ _RATE_LIMITED_MODULES = (
     "api/cv_editor_ai.py",
     # Podgląd importu Worda w edytorze CV: upload do 10 MB i konwersja na żądanie.
     "api/cv_editor_import.py",
+    # API integracyjne v1 (0443): powierzchnia dla automatyzacji na kluczach
+    # API — limit per konto serwisowe na każdej trasie.
+    *_V1_MODULES,
 )
 
 # Moduły, których docstringi tras trafiają do publicznego /openapi.json.
-_DOCSTRING_MODULES = ("api/auth.py", "api/candidates.py")
+# v1: docstringi tras trafiają do publikowanej specyfikacji integratora.
+_DOCSTRING_MODULES = ("api/auth.py", "api/candidates.py", *_V1_MODULES)
 
 _FORBIDDEN_IN_PUBLIC_DOCSTRING = re.compile(
     r"break[\s_-]?glass|no .{0,20}rate limit|znany brak|bez sprawdzenia HMAC",

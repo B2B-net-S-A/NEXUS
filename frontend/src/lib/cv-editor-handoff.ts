@@ -3,8 +3,9 @@
  * 14.10.2026, „Droga rekrutera do DL”).
  *
  * Gdy karta stoi na „Zweryfikowany”, edytor CV ma w stopce pole „Uwaga dla
- * Delivery Leada”, linię stanu QC, „Zapisz” i „Zapisz i przekaż do DL →”.
- * Zapis jest ten sam co „Zapisz” (szkic, pola w nawiasach, zatwierdzenie
+ * Delivery Leada”, linię stanu QC, „Gotowe” i „Gotowe, przekaż do DL →” (do PR 3
+ * Edytora CV 3: „Zapisz” i „Zapisz i przekaż do DL →”).
+ * Zapis jest ten sam co „Gotowe” (szkic, pola w nawiasach, zatwierdzenie
  * w tle), potem ruch karty na „QC CV” (`usePipelineMoveCore` u wołającego).
  * Wejście do „QC CV” nie ma bramki QC na serwerze — gdy QC ma jeszcze
  * blokady, przycisk zmienia się w „Przekaż mimo uwag…”: obejście z powodem

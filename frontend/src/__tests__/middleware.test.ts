@@ -226,6 +226,7 @@ describe("linki publiczne działają bez tokenu", () => {
     "/preview/dl-review",
     "/preview/permissions",
     "/preview/rejection-email",
+    "/preview/api-keys",
     "/kariera",
     "/kariera/r/senior-java-developer-7kq2",
     "/kariera/p/marta-n",
@@ -609,6 +610,7 @@ describe("zawężenia ról nadal obowiązują", () => {
       "/candidates/contact-queue",
       "/settings/ai",
       "/settings/api-integration",
+      "/settings/api-keys",
       "/settings/diagnostics",
       "/settings/dictionaries",
       "/settings/entity-fields",
@@ -624,6 +626,7 @@ describe("zawężenia ról nadal obowiązują", () => {
     const technicalRoutes = [
       "/settings/ai",
       "/settings/api-integration",
+      "/settings/api-keys",
       "/settings/diagnostics",
       "/settings/dictionaries",
       "/settings/entity-fields",

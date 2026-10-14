@@ -971,6 +971,9 @@ body:has(aside[data-person-panel][data-cover]:not([hidden])) [data-app-sidebar] 
   --cv-doc-faint: #9a9a9a;
   --cv-doc-rule: #eeeeee;
   --cv-doc-paper: #ffffff;
+  /* Tabela edukacji w szablonie Worda: szara linia i szary wiersz nagłówka. */
+  --cv-doc-table-rule: #bfbfbf;
+  --cv-doc-table-head: #d9d9d9;
 }
 .cv-paper .ProseMirror {
   box-sizing: border-box;
@@ -1029,6 +1032,16 @@ body:has(aside[data-person-panel][data-cover]:not([hidden])) [data-app-sidebar] 
   font-weight: 600;
   letter-spacing: 0.03em;
 }
+/* Edytor CV 3 (PR 3): w pliku sekcje rozdziela czerwona linia — nad każdym
+   nagłówkiem poza pierwszym (pod „Rozważany na stanowisko” stoi już `hr`). */
+.cv-paper .ProseMirror > h2:not(:first-child) {
+  padding-top: 14px;
+  border-top: 2px solid var(--cv-doc-accent);
+}
+.cv-paper .ProseMirror > hr + h2 {
+  padding-top: 0;
+  border-top: 0;
+}
 .cv-paper .ProseMirror h3,
 .cv-paper .ProseMirror h4 {
   margin: 8px 0 3px;
@@ -1045,13 +1058,17 @@ body:has(aside[data-person-panel][data-cover]:not([hidden])) [data-app-sidebar] 
   margin: 3px 0;
   padding-left: 16px;
 }
+/* Punkt jak w szablonie Worda: mały czerwony kwadrat na wysokości pierwszej linii. */
 .cv-paper .ProseMirror ul > li::before,
 .cv-paper .ProseMirror > p[data-cv-in="skills"]::before,
 .cv-paper .ProseMirror > p[data-cv-in="languages"]::before {
-  content: "•";
+  content: "";
   position: absolute;
-  left: 2px;
-  color: var(--cv-doc-accent);
+  top: calc(0.75em - 2.5px);
+  left: 3px;
+  width: 5px;
+  height: 5px;
+  background: var(--cv-doc-accent);
 }
 .cv-paper .ProseMirror ol {
   margin: 0;
@@ -1061,6 +1078,34 @@ body:has(aside[data-person-panel][data-cover]:not([hidden])) [data-app-sidebar] 
 .cv-paper .ProseMirror li > p {
   margin: 0;
 }
+/* Edukacja to w Wordzie tabela „Daty | Nazwa uczelni/kierunek” z szarym
+   nagłówkiem — kartka rysuje jej ramkę i wiersz nagłówka (sama dekoracja,
+   treść zostaje akapitami). */
+.cv-paper .ProseMirror > p[data-cv-in="education"] {
+  margin: 0;
+  padding: 5px 8px;
+  border: 1px solid var(--cv-doc-table-rule);
+  border-top: 0;
+  text-align: left;
+}
+.cv-paper .ProseMirror > h2 + p[data-cv-in="education"] {
+  border-top: 1px solid var(--cv-doc-table-rule);
+}
+.cv-paper .ProseMirror > h2 + p[data-cv-in="education"]::before {
+  display: block;
+  margin: -5px -8px 5px;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--cv-doc-table-rule);
+  background: var(--cv-doc-table-head);
+  font-weight: 600;
+  white-space: pre;
+}
+.cv-paper[data-cv-lang="pl"] .ProseMirror > h2 + p[data-cv-in="education"]::before {
+  content: "Daty      Nazwa uczelni/kierunek";
+}
+.cv-paper[data-cv-lang="en"] .ProseMirror > h2 + p[data-cv-in="education"]::before {
+  content: "Dates      Names of University/degrees";
+}
 /* Umiejętności i języki to w Wordzie punkty, choć w edytorze akapity. */
 .cv-paper .ProseMirror > p[data-cv-in="skills"],
 .cv-paper .ProseMirror > p[data-cv-in="languages"] {
@@ -1069,7 +1114,8 @@ body:has(aside[data-person-panel][data-cover]:not([hidden])) [data-app-sidebar] 
 .cv-paper .ProseMirror > p[data-cv-section="role"] {
   margin-top: 12px;
   padding-top: 10px;
-  border-top: 1px solid var(--cv-doc-rule);
+  /* W pliku stanowiska rozdziela ta sama czerwona linia co sekcje. */
+  border-top: 2px solid var(--cv-doc-accent);
   font-size: 14.5px;
 }
 /* Pierwsze stanowisko pod nagłówkiem sekcji nie ma linii nad sobą. */
@@ -1168,43 +1214,11 @@ body:has(aside[data-person-panel][data-cover]:not([hidden])) [data-app-sidebar] 
   background: hsl(var(--primary) / 0.14);
   box-shadow: 0 0 0 1px hsl(var(--primary) / 0.35);
 }
-/* Podgląd planu zmian („polecenie dla całego CV”): co zniknie, co się zmieni,
-   co zmieni miejsce. Dekoracje widoku — treść dokumentu jest nietknięta. */
-.cv-paper .ProseMirror .cv-plan-remove {
-  background: hsl(var(--destructive) / 0.08);
-  color: hsl(var(--muted-foreground));
-  text-decoration: line-through;
-  text-decoration-color: hsl(var(--destructive) / 0.7);
-}
-.cv-paper .ProseMirror .cv-plan-change {
-  background: hsl(var(--warning) / 0.1);
-}
-.cv-paper .ProseMirror .cv-plan-change > p,
-.cv-paper .ProseMirror p.cv-plan-change {
-  color: hsl(var(--muted-foreground));
-  text-decoration: line-through;
-  text-decoration-color: hsl(var(--muted-foreground) / 0.6);
-}
-.cv-paper .ProseMirror .cv-plan-new {
-  /* `inline-block`, nie `block`: przekreślenie zmienianego wiersza nie
-     przechodzi wtedy na nową treść pokazaną pod nim. */
-  display: inline-block;
-  width: 100%;
-  margin-top: 2px;
-  border-radius: 3px;
-  padding: 1px 4px;
-  background: hsl(var(--success) / 0.14);
-  color: hsl(var(--foreground));
-  text-decoration: none;
-}
-.cv-paper .ProseMirror .cv-plan-move {
-  background: hsl(var(--primary) / 0.08);
-}
-.cv-paper .ProseMirror .cv-plan-move::after {
-  content: " → " attr(data-cv-plan-order);
-  color: hsl(var(--primary));
-  font-size: 0.85em;
-  font-weight: 600;
+/* Zmiany asystenta (Edytor CV 3, PR 4): treść, którą asystent właśnie zmienił,
+   na zielono — dekoracja widoku, gaśnie przy następnej wiadomości. */
+.cv-paper .ProseMirror .cv-assistant-new {
+  border-radius: 2px;
+  background: hsl(var(--success) / 0.18);
 }
 /* Miejsce wskazane przez „Pokaż w CV” — gaśnie po chwili. */
 .cv-paper .ProseMirror .cv-issue-focus {

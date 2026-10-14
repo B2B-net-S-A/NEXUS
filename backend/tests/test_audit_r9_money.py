@@ -42,6 +42,17 @@ def _calls(fn: ast.AST, name: str) -> list[ast.Call]:
     ]
 
 
+def _method_calls(fn: ast.AST, name: str) -> list[ast.Call]:
+    """Wywołania ``obiekt.name(...)`` — np. ``policy.require_order_lifecycle``."""
+    return [
+        node
+        for node in ast.walk(fn)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == name
+    ]
+
+
 def _has_true_kw(call: ast.Call, kw: str) -> bool:
     return any(
         k.arg == kw and isinstance(k.value, ast.Constant) and k.value.value is True
@@ -105,11 +116,12 @@ async def test_order_write_refuses_a_merged_client_but_read_does_not(module_path
 def test_every_order_write_route_asks_for_a_writable_client():
     """Zapisy (POST/PATCH zamówień, grup, linii, przedłużenie) — ``for_write``."""
     writes = {
+        # Ciała PATCH i pliku są wspólne z API v1 (PR 2B): `apply_*`.
         "app/api/client_orders.py": {
             "create_order_extension",
-            "update_order",
+            "apply_order_update",
             "create_contract_with_order",
-            "replace_order_po",
+            "apply_order_file",
         },
         "app/api/client_order_groups.py": {
             "create_order_group",
@@ -130,9 +142,14 @@ def test_every_order_write_route_asks_for_a_writable_client():
                 f"{path}:{name} przyjmuje zapis u scalonego klienta"
             )
     groups = _functions("app/api/client_order_groups.py")
-    for name in ("reopen_order_group", "restore_order_group", "extend_order_group"):
+    for name in ("reopen_order_group", "restore_order_group"):
         calls = _calls(groups[name], "_require_order_lifecycle")
         assert calls and all(_has_true_kw(c, "for_write") for c in calls), name
+    # Przedłużenie (ciało wspólne z API v1) pyta przez politykę zapisu;
+    # `UserWritePolicy` przekazuje `for_write` do `_require_order_lifecycle`
+    # (tests/test_write_policy.py).
+    calls = _method_calls(groups["apply_group_extend"], "require_order_lifecycle")
+    assert calls and all(_has_true_kw(c, "for_write") for c in calls)
     # Odczyty zostają bez bramki scalenia.
     for name in ("_require_group_read", "_require_safe_group_read"):
         assert not any(
@@ -243,7 +260,7 @@ async def test_md_line_of_a_void_contract_is_not_revived(monkeypatch):
 
 
 def test_extension_inherits_only_an_active_executive_contract():
-    fn = _functions("app/api/client_order_groups.py")["extend_order_group"]
+    fn = _functions("app/api/client_order_groups.py")["apply_group_extend"]
     assert _calls(fn, "inheritable_executive_contract_id"), (
         "przedłużenie kopiuje umowę wykonawczą bez sprawdzenia, czy trwa"
     )

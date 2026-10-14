@@ -170,8 +170,16 @@ def _routes_by_template() -> dict[str, tuple[object, object]]:
 
 
 def _routed_request(method: str, template: str, concrete_path: str):
-    app, route = _routes_by_template()[template]
-    return _request(method, concrete_path, scope={"route": route, "app": app})
+    # Ten sam szablon bywa kilkoma trasami (GET/PATCH/DELETE kandydata) —
+    # bierzemy obiekt trasy z właściwą metodą, tak jak zrobiłby router.
+    from app.main import app
+
+    from tests._route_introspection import iter_api_routes
+
+    for path, route in iter_api_routes(app):
+        if path == template and method in (route.methods or ()):
+            return _request(method, concrete_path, scope={"route": route, "app": app})
+    raise AssertionError(f"Brak trasy {method} {template} w aplikacji")
 
 
 def test_every_mapped_template_is_a_registered_route():
@@ -180,6 +188,28 @@ def test_every_mapped_template_is_a_registered_route():
     registered = set(_routes_by_template())
     missing = sorted(set(OAUTH_ROUTE_RESOURCES) - registered)
     assert not missing, f"Mapa tras OAuth wskazuje nieistniejące trasy: {missing}"
+
+
+def test_every_mapped_method_exists_on_its_template():
+    """Wpis ``{METODA: zasoby}`` nie może wystawiać metody, której trasa nie ma.
+
+    Literówka albo małe litery (``"patch"``) dawałyby cichą odmowę po
+    włączeniu egzekwowania — scraper stanąłby mimo wpisu w mapie.
+    """
+    from app.main import app
+    from app.services.oauth_route_scopes import OAUTH_ROUTE_RESOURCES
+
+    from tests._route_introspection import api_route_methods
+
+    registered = api_route_methods(app)
+    missing = sorted(
+        (method, template)
+        for template, entry in OAUTH_ROUTE_RESOURCES.items()
+        if not isinstance(entry, tuple)
+        for method in entry
+        if (method, template) not in registered
+    )
+    assert not missing, f"Mapa tras OAuth wskazuje nieistniejące metody: {missing}"
 
 
 def test_route_template_restores_the_include_router_prefix():
@@ -215,9 +245,11 @@ async def test_enforced_wrong_resource_is_403_insufficient_scope(enforce):
 
 
 async def test_enforced_unmapped_route_is_403_not_exposed(enforce):
+    # Szablon jest w mapie (GET/PATCH dla scraperów), ale DELETE nie — metoda
+    # spoza wpisu znaczy to samo co trasa spoza mapy.
     db = _FakeDb(_client(), _user())
     request = _routed_request(
-        "GET", "/api/candidates/{candidate_id}", "/api/candidates/5"
+        "DELETE", "/api/candidates/{candidate_id}", "/api/candidates/5"
     )
 
     with pytest.raises(HTTPException) as exc:
@@ -233,7 +265,7 @@ async def test_shadow_mode_allows_unmapped_route_and_logs_the_would_be_denial(
     user = _user()
     db = _FakeDb(_client(), user)
     request = _routed_request(
-        "GET", "/api/candidates/{candidate_id}", "/api/candidates/5"
+        "DELETE", "/api/candidates/{candidate_id}", "/api/candidates/5"
     )
 
     with caplog.at_level("WARNING", logger="app.api.deps"):
@@ -244,6 +276,7 @@ async def test_shadow_mode_allows_unmapped_route_and_logs_the_would_be_denial(
     assert any(
         "would_deny" in m
         and "abc123" in m
+        and "method=DELETE" in m
         and "/api/candidates/{candidate_id}" in m
         and "route_not_exposed_to_clients" in m
         for m in messages
@@ -361,6 +394,64 @@ async def test_enforced_jjit_routes_pass_with_candidate_write(
     )
 
     assert resolved is user
+
+
+@pytest.mark.parametrize(
+    ("method", "template", "concrete"),
+    [
+        ("POST", "/api/notes", "/api/notes"),
+        ("GET", "/api/candidates/{candidate_id}", "/api/candidates/5"),
+        ("PATCH", "/api/candidates/{candidate_id}", "/api/candidates/5"),
+        (
+            "GET",
+            "/api/candidates/{candidate_id}/profile-rate",
+            "/api/candidates/5/profile-rate",
+        ),
+        (
+            "PATCH",
+            "/api/candidates/{candidate_id}/profile-rate",
+            "/api/candidates/5/profile-rate",
+        ),
+    ],
+)
+async def test_enforced_scraper_routes_pass_with_candidate_write(
+    enforce, method, template, concrete
+):
+    """D2-5 (audyt 29.09): scrapery nie mogą stanąć po włączeniu egzekwowania."""
+    user = _user()
+    db = _FakeDb(_client(), user)
+    request = _routed_request(method, template, concrete)
+
+    resolved = await _resolve_client_principal(
+        request, _payload(scope="candidate:write"), db
+    )
+
+    assert resolved is user
+
+
+@pytest.mark.parametrize(
+    ("method", "template", "concrete", "scope"),
+    [
+        (
+            "DELETE",
+            "/api/candidates/{candidate_id}",
+            "/api/candidates/5",
+            "candidate:write",
+        ),
+        ("GET", "/api/notes", "/api/notes", "candidate:read"),
+    ],
+)
+async def test_enforced_scraper_neighbours_stay_closed(
+    enforce, method, template, concrete, scope
+):
+    db = _FakeDb(_client(), _user())
+    request = _routed_request(method, template, concrete)
+
+    with pytest.raises(HTTPException) as exc:
+        await _resolve_client_principal(request, _payload(scope=scope), db)
+
+    assert exc.value.status_code == 403
+    assert exc.value.detail == "route_not_exposed_to_clients"
 
 
 async def test_scope_revoked_on_the_client_stops_an_already_issued_token():

@@ -16,7 +16,7 @@
  * (Pipeline v4), link — na etap SPRZED ruchu, gdzie leży CV.
  *
  * 14.10.2026 („Droga rekrutera do DL”, D6): na „Zweryfikowany” edytor CV
- * otwarty z karty ma w stopce „Zapisz i przekaż do DL” — warsztat podaje mu
+ * otwarty z karty ma w stopce „Gotowe, przekaż do DL” — warsztat podaje mu
  * ruch na etap „QC CV” szablonu (ten sam rdzeń ruchu, z uwagą rekrutera jako
  * `recruiter_remark`). Po „Zapisz i przekaż dalej” z formularza (`forwarded`)
  * karta pokazuje postęp CV → QC i „Następna w Screeningu”.
@@ -362,7 +362,7 @@ export function CvHandoffWorkbench({
   // to”, bramka QC CV i konflikt wersji mają te same okna co na Tablicy.
   const moveCore = usePipelineMoveCore({ jobId });
 
-  // D6 (14.10.2026): „Zapisz i przekaż do DL” ze stopki edytora — tylko gdy
+  // D6 (14.10.2026): „Gotowe, przekaż do DL” ze stopki edytora — tylko gdy
   // karta stoi na „Zweryfikowany”. Cel to etap „QC CV” szablonu (u Nordei ten
   // sam: tam jest przegląd DL przed kolejką Cpro), nie etap kolejki Cpro.
   const qcColumn = useMemo(

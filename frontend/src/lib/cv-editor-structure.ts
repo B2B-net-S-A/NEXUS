@@ -26,7 +26,7 @@ import TextAlign from "@tiptap/extension-text-align";
 
 import { CV_TEMPLATE_LABELS, cvContext, cvOutline, isRodoNode } from "./cv-editor-blocks";
 import { CvEditorAiPending } from "./cv-editor-ai";
-import { CvEditorPlanPreview } from "./cv-editor-command";
+import { CvAssistantHighlight } from "./cv-editor-command";
 import { CvEditorIssueMarks } from "./cv-editor-issue-marks";
 import { CvEditorSection } from "./cv-editor-section";
 
@@ -211,7 +211,7 @@ export function cvEditorExtensions(): Extensions {
     CvEditorStructure,
     CvEditorIssueMarks,
     CvEditorAiPending,
-    CvEditorPlanPreview,
+    CvAssistantHighlight,
   ];
 }
 

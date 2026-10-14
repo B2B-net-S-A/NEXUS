@@ -70,6 +70,29 @@ const noNetwork = () => {
   expect(attempts).not.toHaveBeenCalled();
 };
 
+/** „Więcej” (Edytor CV 3, PR 3): polecenia spoza paska. Otwarte menu zasłania okno. */
+async function chooseMore(dialog: HTMLElement, name: string, sub?: string): Promise<void> {
+  fireEvent.keyDown(within(dialog).getByRole("button", { name: "Więcej" }), { key: "ArrowDown" });
+  if (sub) fireEvent.keyDown(await screen.findByRole("menuitem", { name: sub }), { key: "ArrowRight" });
+  fireEvent.click(await screen.findByRole("menuitem", { name }));
+  await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
+  // Pozycje okna ruszają po zamknięciu menu (takt później).
+  await act(() => new Promise((resolve) => setTimeout(resolve, 0)));
+}
+/** Pozycje „Więcej” z ich stanem — menu otwiera się i zamyka. */
+async function moreItems(dialog: HTMLElement): Promise<Map<string, boolean>> {
+  fireEvent.keyDown(within(dialog).getByRole("button", { name: "Więcej" }), { key: "ArrowDown" });
+  const menu = await screen.findByRole("menu");
+  const items = new Map(
+    within(menu)
+      .getAllByRole("menuitem")
+      .map((item) => [item.textContent?.trim() ?? "", item.getAttribute("aria-disabled") !== "true"] as const),
+  );
+  fireEvent.keyDown(menu, { key: "Escape" });
+  await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
+  return items;
+}
+
 it("otwiera szkic z kartką CV i nie wysyła żadnego żądania", async () => {
   const dialog = await openEditor();
   const paper = dialog.querySelector(".cv-paper") as HTMLElement;
@@ -85,15 +108,14 @@ it("otwiera szkic z kartką CV i nie wysyła żadnego żądania", async () => {
   noNetwork();
 });
 
-it("nowe stanowisko zatrzymuje „Zapisz”, dopóki zostały pola w nawiasach", async () => {
+it("nowe stanowisko zatrzymuje „Gotowe”, dopóki zostały pola w nawiasach", async () => {
   const dialog = await openEditor();
-  fireEvent.keyDown(within(dialog).getByRole("button", { name: "Dodaj" }), { key: "ArrowDown" });
-  fireEvent.click(await screen.findByRole("menuitem", { name: "Stanowisko" }));
+  await chooseMore(dialog, "Stanowisko", "Dodaj");
   await waitFor(() =>
     expect(dialog.querySelectorAll('.cv-paper [data-cv-section="role"]')).toHaveLength(3),
   );
 
-  fireEvent.click(within(dialog).getByRole("button", { name: "Zapisz" }));
+  fireEvent.click(within(dialog).getByRole("button", { name: "Gotowe" }));
   const alert = await within(dialog).findByText(/Uzupełnij albo usuń pola w nawiasach/);
   expect(alert).toHaveTextContent("[Stanowisko]");
   expect(alert).toHaveTextContent("Szkic jest zapisany.");
@@ -102,22 +124,23 @@ it("nowe stanowisko zatrzymuje „Zapisz”, dopóki zostały pola w nawiasach",
   noNetwork();
 });
 
-it("„Zapisz” na zatwierdzonej wersji bez zmian zamyka okno i nie zakłada szkicu", async () => {
+it("„Gotowe” na zatwierdzonej wersji bez zmian zamyka okno i nie zakłada szkicu", async () => {
   const dialog = await openEditor("finalized");
-  expect(within(dialog).getByRole("button", { name: /Pobierz zatwierdzony DOCX/ })).toBeInTheDocument();
-  fireEvent.click(within(dialog).getByRole("button", { name: "Zapisz" }));
+  expect(within(dialog).getByText("Zatwierdzona wersja 2")).toBeInTheDocument();
+  fireEvent.click(within(dialog).getByRole("button", { name: "Gotowe" }));
   await waitFor(() => expect(screen.queryByRole("dialog", { name: "Edytor CV do klienta" })).toBeNull());
 
   fireEvent.click(screen.getByRole("button", { name: "Otwórz edytor" }));
   const reopened = await screen.findByRole("dialog", { name: "Edytor CV do klienta" });
-  // Nowy szkic zmieniłby przycisk na „Pobierz szkic DOCX”.
-  expect(await within(reopened).findByRole("button", { name: /Pobierz zatwierdzony DOCX/ })).toBeInTheDocument();
+  // Nowy szkic zmieniłby stan na „Szkic v…”.
+  expect(await within(reopened).findByText("Zatwierdzona wersja 2")).toBeInTheDocument();
+  expect(within(reopened).queryByText(/^Szkic v/)).toBeNull();
   noNetwork();
 });
 
 it("wynik generatora bez rekrutacji mówi panelowi źródeł, że nie ma czego pokazać", async () => {
   const dialog = await openEditor("nosources");
-  fireEvent.click(within(dialog).getByRole("button", { name: "Źródła" }));
+  fireEvent.click(within(dialog).getByRole("button", { name: "Oryginał" }));
   expect(await within(dialog).findByTestId("sources")).toHaveTextContent("bez rekrutacji");
   noNetwork();
 });
@@ -128,7 +151,8 @@ it("panel „Do poprawy” bierze QC, uwagi i poprawki z pamięci — pełny obi
   // Jedna lista: 4 z QC + 1 uwaga generatora + 1 linia kontroli AI. „MUST-HAVE: … Kafka …”
   // generatora stoi przy pozycji QC o Kafce — nie liczy się drugi raz.
   fireEvent.click(await within(dialog).findByRole("button", { name: "Do poprawy (6)" }));
-  expect(within(dialog).getByText("Blokuje wysyłkę: 2")).toBeInTheDocument();
+  // Z asystentem w kolumnie blokady są w nagłówku zwijania, nie na plakietce.
+  expect(within(dialog).getByText("· blokuje wysyłkę: 2")).toBeInTheDocument();
   expect(within(dialog).getByRole("region", { name: "Całe CV" })).toHaveTextContent("WERYFIKUJ");
   expect(within(dialog).getByRole("region", { name: "Doświadczenie" })).toHaveTextContent("Przeglądy kodu");
   expect(within(dialog).getByRole("region", { name: "Informacje" })).toHaveTextContent(
@@ -196,154 +220,155 @@ function selectText(editor: Editor, text: string): void {
   });
 }
 
-it("AI na zaznaczeniu: propozycja z pamięci, „Przyjmij” zmienia tylko zaznaczony fragment — bez sieci", async () => {
-  const dialog = await openEditor();
-  const editor = liveEditor(dialog);
-  selectText(editor, "Optymalizacja zapytań w PostgreSQL.");
-  const bubble = await within(dialog).findByRole("toolbar", { name: "Zaznaczony tekst" });
-  fireEvent.click(within(bubble).getByRole("button", { name: "Przeredaguj" }));
+// ── Asystent w kolumnie (Edytor CV 3, PR 4) ─────────────────────────────────
 
-  const card = await within(dialog).findByRole("dialog", { name: "Propozycja AI" });
-  expect(await within(card).findByText("Optymalizowała zapytań w PostgreSQL.")).toBeInTheDocument();
-  fireEvent.click(within(card).getByRole("button", { name: "Przyjmij" }));
-  await waitFor(() => expect(editor.getHTML()).toContain("<li><p>Optymalizowała zapytań w PostgreSQL.</p></li>"));
-  // Reszta CV bez zmian, klauzula na miejscu.
-  expect(editor.getHTML()).toContain("Przeglądy kodu i wdrażanie młodszych programistów.");
-  expect(dialog.querySelector(".cv-rodo-locked")).not.toBeNull();
-  noNetwork();
-});
+/** jsdom nie liczy szerokości: układ wąski, asystent w kolumnie „Do poprawy”. */
+async function openAssistant(dialog: HTMLElement): Promise<HTMLElement> {
+  fireEvent.click(await within(dialog).findByRole("button", { name: /^Do poprawy \(/ }));
+  return within(dialog).getByRole("region", { name: "Asystent CV" });
+}
 
-it("AI niedostępne: karta mówi o tym wprost, edytor działa dalej", async () => {
-  const dialog = await openEditor("aidown");
-  const editor = liveEditor(dialog);
-  const before = editor.getHTML();
-  selectText(editor, "Optymalizacja zapytań");
-  fireEvent.click(within(await within(dialog).findByRole("toolbar", { name: "Zaznaczony tekst" })).getByRole("button", { name: "Skróć" }));
-  const card = await within(dialog).findByRole("dialog", { name: "Propozycja AI" });
-  expect(await within(card).findByText(/Podpowiedź AI jest chwilowo niedostępna/)).toBeInTheDocument();
-  expect(within(card).queryByRole("button", { name: "Przyjmij" })).toBeNull();
-  fireEvent.click(within(card).getByRole("button", { name: "Zamknij" }));
-  expect(editor.getHTML()).toBe(before);
-  noNetwork();
-});
+function say(assistant: HTMLElement, text: string): void {
+  const field = within(assistant).getByRole("textbox", { name: "Napisz, co zmienić" });
+  fireEvent.change(field, { target: { value: text } });
+  fireEvent.keyDown(field, { key: "Enter" });
+}
 
-it("polecenie dla całego CV: plan z pamięci, kartka czeka na decyzję, „Zastosuj” to jedna cofalna zmiana — bez sieci", async () => {
+const SLOW = { timeout: 3000 };
+
+it("asystent: „Skróć do 2 stron” zmienia CV od razu, na zielono, jednym „Cofnij” — bez sieci", async () => {
   const dialog = await openEditor();
   const editor = liveEditor(dialog);
   const before = editor.getHTML();
-  fireEvent.click(within(dialog).getByRole("button", { name: "Polecenie" }));
-  const bar = within(dialog).getByRole("form", { name: "Polecenie dla całego CV" });
-  fireEvent.click(within(bar).getByRole("button", { name: "Skróć do 2 stron" }));
-
-  const plan = await within(dialog).findByRole("region", { name: "Plan zmian" });
-  const apply = await within(plan).findByRole("button", { name: "Zastosuj zaznaczone (3)" });
-  expect(within(dialog).getByText("Podgląd zmian — nic nie jest jeszcze zapisane")).toBeInTheDocument();
-  expect(plan).toHaveTextContent("Połącz 2 punkty w jeden");
-  expect(plan).toHaveTextContent("Usuń sekcję");
-  expect(plan).toHaveTextContent("Odrzuciła 1 propozycję asystenta");
-  // Do decyzji kartka jest tylko do odczytu i pokazuje podgląd; treść bez zmian.
+  const assistant = await openAssistant(dialog);
+  fireEvent.click(within(assistant).getByRole("button", { name: "Skróć do 2 stron" }));
+  // Do odpowiedzi kartka czeka — plan odnosi się do treści z chwili wysłania.
   expect(editor.isEditable).toBe(false);
-  expect(editor.view.dom.querySelectorAll(".cv-plan-remove").length).toBeGreaterThan(0);
-  expect(editor.view.dom.querySelector(".cv-plan-new")).not.toBeNull();
-  expect(editor.getHTML()).toBe(before);
-  // Panel „Do poprawy” ustępuje planowi.
-  expect(within(dialog).queryByRole("complementary", { name: "Do poprawy" })).toBeNull();
-
-  fireEvent.click(apply);
-  await waitFor(() => expect(within(dialog).queryByRole("region", { name: "Plan zmian" })).toBeNull());
+  expect(within(assistant).getByText(/Asystent pracuje/)).toBeInTheDocument();
+  const reply = await within(assistant).findByTestId("cv-assistant-reply", {}, SLOW);
+  expect(reply).toHaveTextContent("Zrobione — 3 zmiany, na kartce na zielono.");
   const html = editor.getHTML();
   expect(html).not.toContain("JĘZYKI");
   expect(html).toContain("Optymalizacja zapytań w PostgreSQL; przeglądy kodu i wdrażanie młodszych programistów.");
+  expect(editor.view.dom.querySelectorAll(".cv-assistant-new").length).toBeGreaterThan(0);
   expect(dialog.querySelector(".cv-rodo-locked")).not.toBeNull();
   expect(editor.isEditable).toBe(true);
-  act(() => {
-    editor.commands.undo();
-  });
+
+  fireEvent.click(within(reply).getByRole("button", { name: "Cofnij" }));
   expect(editor.getHTML()).toBe(before);
+  expect(within(reply).getByText("Cofnięte.")).toBeInTheDocument();
+  expect(editor.view.dom.querySelector(".cv-assistant-new")).toBeNull();
   noNetwork();
 });
 
-it("polecenie: Escape w trakcie liczenia planu nie zamyka edytora", async () => {
+it("fakt spoza CV: asystent pyta, „Tak, dopisz” zapisuje go i dopisuje punkt", async () => {
   const dialog = await openEditor();
-  fireEvent.click(within(dialog).getByRole("button", { name: "Polecenie" }));
-  fireEvent.click(within(dialog).getByRole("button", { name: "Skróć do 2 stron" }));
-  expect(await within(dialog).findByText("Asystent przygotowuje plan zmian…")).toBeInTheDocument();
-  // Pole polecenia jest wtedy wyłączone, więc klawisz trafia w `body`, nie w pasek.
-  fireEvent.keyDown(document.body, { key: "Escape" });
-  expect(dialog.isConnected).toBe(true);
-  expect(await within(dialog).findByRole("button", { name: /Zastosuj zaznaczone/ })).toBeInTheDocument();
+  const editor = liveEditor(dialog);
+  const assistant = await openAssistant(dialog);
+  say(assistant, "dopisz terraform w banku");
+  const question = await within(assistant).findByText(/Nie widzę „Terraform” w CV ani w notatkach/, {}, SLOW);
+  const reply = question.closest('[data-testid="cv-assistant-reply"]') as HTMLElement;
+  // Zanim rekruter odpowie, CV jest bez zmian.
+  expect(editor.getHTML()).not.toContain("Terraform");
+  expect(reply).toHaveTextContent("„Tak” zapisze w notatkach rekrutacji: „Potwierdzone z kandydatem: Terraform”.");
+  fireEvent.click(within(reply).getByRole("button", { name: "Tak, dopisz" }));
+  await waitFor(() => expect(editor.getHTML()).toContain("Infrastruktura jako kod w <strong>Terraform</strong>."));
+  expect(reply).toHaveTextContent("Dopisane. Fakt jest w notatkach rekrutacji z Twoim nazwiskiem.");
+  expect(within(reply).getByRole("button", { name: "Cofnij" })).toBeEnabled();
   noNetwork();
 });
 
-it("polecenie: operacja, po której znika wymaganie, nie jest zaznaczona; „Odrzuć plan” niczego nie zmienia", async () => {
+it("usunięcie jedynego miejsca z wymaganiem: „Nie” niczego nie zmienia, „Tak, zmień” usuwa", async () => {
   const dialog = await openEditor();
   const editor = liveEditor(dialog);
   const before = editor.getHTML();
-  fireEvent.click(within(dialog).getByRole("button", { name: "Polecenie" }));
-  fireEvent.click(within(dialog).getByRole("button", { name: "Usuń najstarsze role" }));
-  const plan = await within(dialog).findByRole("region", { name: "Plan zmian" });
-  expect(await within(plan).findByRole("button", { name: "Zastosuj zaznaczone (0)" })).toBeDisabled();
-  expect(plan).toHaveTextContent("Usuń stanowisko");
-  expect(plan).toHaveTextContent("znika wymaganie klienta: JUnit");
-  fireEvent.click(within(plan).getByRole("button", { name: "Odrzuć plan" }));
-  expect(within(dialog).queryByRole("region", { name: "Plan zmian" })).toBeNull();
+  const assistant = await openAssistant(dialog);
+  fireEvent.click(within(assistant).getByRole("button", { name: "Usuń najstarsze role" }));
+  const first = await within(assistant).findByText(/nie będzie „JUnit”/, {}, SLOW);
+  fireEvent.click(within(first.closest('[data-testid="cv-assistant-reply"]') as HTMLElement).getByRole("button", { name: "Nie" }));
+  expect(await within(assistant).findByText("Pominięte.")).toBeInTheDocument();
   expect(editor.getHTML()).toBe(before);
+
+  fireEvent.click(within(assistant).getByRole("button", { name: "Usuń najstarsze role" }));
+  await waitFor(() => expect(within(assistant).getAllByText(/nie będzie „JUnit”/)).toHaveLength(2), SLOW);
+  const second = within(assistant).getAllByText(/nie będzie „JUnit”/)[1].closest('[data-testid="cv-assistant-reply"]') as HTMLElement;
+  fireEvent.click(within(second).getByRole("button", { name: "Tak, zmień" }));
+  await waitFor(() => expect(editor.getHTML()).not.toContain("Software House Przykład"));
+  noNetwork();
+});
+
+it("pogrubienie i „Rozważany na stanowisko” z rozmowy", async () => {
+  const dialog = await openEditor();
+  const editor = liveEditor(dialog);
+  const assistant = await openAssistant(dialog);
+  say(assistant, "pogrub postgresa i dockera");
+  await waitFor(() => expect(editor.getHTML()).toContain("<strong>PostgreSQL</strong>"), SLOW);
+  expect(editor.getHTML()).toContain("<strong>Docker</strong>");
+  say(assistant, "stanowisko: Senior Java Engineer");
+  await waitFor(
+    () => expect(editor.getHTML()).toContain("<strong>Rozważany na stanowisko:</strong> Senior Java Engineer"),
+    SLOW,
+  );
+  noNetwork();
+});
+
+it("zaznaczony tekst to kontekst wiadomości", async () => {
+  const dialog = await openEditor();
+  const editor = liveEditor(dialog);
+  const assistant = await openAssistant(dialog);
+  selectText(editor, "Optymalizacja zapytań");
+  expect(await within(assistant).findByTestId("cv-assistant-selection")).toHaveTextContent(
+    "Dotyczy zaznaczenia: „Optymalizacja zapytań”",
+  );
+  say(assistant, "pogrub postgresa");
+  expect(await within(assistant).findByText("Zaznaczenie: „Optymalizacja zapytań”")).toBeInTheDocument();
+  noNetwork();
+});
+
+it("asystent niedostępny: zdanie w kolumnie, kartka od razu do edycji", async () => {
+  const dialog = await openEditor("aidown");
+  const editor = liveEditor(dialog);
+  const assistant = await openAssistant(dialog);
+  fireEvent.click(within(assistant).getByRole("button", { name: "Skróć do 2 stron" }));
+  expect(await within(assistant).findByText(/Asystent jest chwilowo niedostępny/, {}, SLOW)).toBeInTheDocument();
   expect(editor.isEditable).toBe(true);
   noNetwork();
 });
 
-it("polecenie przy niedostępnym asystencie: zdanie w panelu, kartka od razu do edycji", async () => {
-  const dialog = await openEditor("aidown");
-  fireEvent.click(within(dialog).getByRole("button", { name: "Polecenie" }));
-  fireEvent.click(within(dialog).getByRole("button", { name: "Skróć do 2 stron" }));
-  const plan = await within(dialog).findByRole("region", { name: "Plan zmian" });
-  expect(await within(plan).findByText(/Asystent jest chwilowo niedostępny/)).toBeInTheDocument();
-  expect(within(plan).queryByRole("button", { name: /Zastosuj/ })).toBeNull();
-  expect(liveEditor(dialog).isEditable).toBe(true);
+it("Escape, gdy asystent pracuje, nie zamyka edytora", async () => {
+  const dialog = await openEditor();
+  const assistant = await openAssistant(dialog);
+  fireEvent.click(within(assistant).getByRole("button", { name: "Skróć do 2 stron" }));
+  expect(within(assistant).getByText(/Asystent pracuje/)).toBeInTheDocument();
+  fireEvent.keyDown(document.body, { key: "Escape" });
+  expect(dialog.isConnected).toBe(true);
+  await within(assistant).findByTestId("cv-assistant-reply", {}, SLOW);
   noNetwork();
 });
 
-it("wynik generatora bez rekrutacji nie ma AI na zaznaczeniu", async () => {
-  const dialog = await openEditor("nosources");
-  selectText(liveEditor(dialog), "Optymalizacja zapytań");
-  expect(within(dialog).queryByRole("toolbar", { name: "Zaznaczony tekst" })).toBeNull();
-  // Polecenie dla całego CV też wymaga rekrutacji (wymagania, uprawnienia etapu).
-  expect(within(dialog).queryByRole("button", { name: "Polecenie" })).toBeNull();
-  expect(within(dialog).queryByRole("button", { name: "AI na zaznaczonym tekście" })).toBeNull();
-  noNetwork();
-});
-
-it("zatwierdzona wersja: „Przyjmij” zakłada szkic i nakłada propozycję", async () => {
+it("zatwierdzona wersja: pierwsza zmiana asystenta zakłada szkic", async () => {
   const dialog = await openEditor("finalized");
   const editor = liveEditor(dialog);
-  selectText(editor, "Optymalizacja zapytań w PostgreSQL.");
-  fireEvent.click(within(await within(dialog).findByRole("toolbar", { name: "Zaznaczony tekst" })).getByRole("button", { name: "Przeredaguj" }));
-  const card = await within(dialog).findByRole("dialog", { name: "Propozycja AI" });
-  // Samo zamówienie propozycji nie rusza zatwierdzonej wersji.
-  expect(within(dialog).getByRole("button", { name: /Pobierz zatwierdzony DOCX/ })).toBeInTheDocument();
-  fireEvent.click(await within(card).findByRole("button", { name: "Przyjmij" }));
-  await waitFor(() => expect(editor.getHTML()).toContain("<li><p>Optymalizowała zapytań w PostgreSQL.</p></li>"));
-  expect(await within(dialog).findByRole("button", { name: "Pobierz szkic DOCX" })).toBeInTheDocument();
-  expect(within(dialog).queryByText(/Zaznaczony tekst zmienił się/)).toBeNull();
+  expect(within(dialog).getByText("Zatwierdzona wersja 2")).toBeInTheDocument();
+  const assistant = await openAssistant(dialog);
+  say(assistant, "pogrub postgresa");
+  await waitFor(() => expect(editor.getHTML()).toContain("<strong>PostgreSQL</strong>"), SLOW);
+  expect(await within(dialog).findByText(/^Szkic v/)).toBeInTheDocument();
   noNetwork();
 });
 
-it("Escape w karcie propozycji odrzuca propozycję, a edytor zostaje otwarty", async () => {
-  const dialog = await openEditor();
-  const editor = liveEditor(dialog);
-  selectText(editor, "Optymalizacja zapytań w PostgreSQL.");
-  fireEvent.click(within(await within(dialog).findByRole("toolbar", { name: "Zaznaczony tekst" })).getByRole("button", { name: "Skróć" }));
-  const card = await within(dialog).findByRole("dialog", { name: "Propozycja AI" });
-  fireEvent.keyDown(await within(card).findByRole("button", { name: "Przyjmij" }), { key: "Escape" });
-  await waitFor(() => expect(within(dialog).queryByRole("dialog", { name: "Propozycja AI" })).toBeNull());
-  expect(screen.getByRole("dialog", { name: "Edytor CV do klienta" })).toBeInTheDocument();
+it("wynik generatora bez rekrutacji nie ma asystenta", async () => {
+  const dialog = await openEditor("nosources");
+  expect(within(dialog).queryByRole("region", { name: "Asystent CV" })).toBeNull();
+  const items = await moreItems(dialog);
+  expect(items.has("Polecenie dla całego CV")).toBe(false);
   noNetwork();
 });
 
 // ── Historia wersji i powrót pliku Word (PR 5) ───────────────────────────────
 
 async function openHistory(dialog: HTMLElement): Promise<HTMLElement> {
-  fireEvent.click(within(dialog).getByRole("button", { name: "Historia" }));
+  await chooseMore(dialog, "Historia wersji");
   const panel = await within(dialog).findByRole("region", { name: "Historia wersji" });
   await within(panel).findByTestId("history-version-1");
   return panel;
@@ -407,10 +432,10 @@ it("historia na zatwierdzonej wersji: bieżąca ma tę samą treść, a szkic po
   fireEvent.click(within(within(panel).getByTestId("history-version-1")).getByRole("button", { name: "Porównaj" }));
   const restore = await within(panel).findByRole("button", { name: "Przywróć treść wersji 1" });
   // Otwarcie panelu i porównanie nie ruszyły zatwierdzonej wersji.
-  expect(within(dialog).getByRole("button", { name: /Pobierz zatwierdzony DOCX/ })).toBeInTheDocument();
+  expect(within(dialog).getByText("Zatwierdzona wersja 2")).toBeInTheDocument();
   fireEvent.click(restore);
   await waitFor(() => expect(editor.getHTML()).toContain("Strojenie zapytań i indeksów w PostgreSQL."));
-  expect(await within(dialog).findByRole("button", { name: "Pobierz szkic DOCX" })).toBeInTheDocument();
+  expect(await within(dialog).findByText(/^Szkic v/)).toBeInTheDocument();
   noNetwork();
 });
 
@@ -451,23 +476,13 @@ it("plik Word: uszkodzony to komunikat, poprawny — różnice i wstawienie z kl
   noNetwork();
 });
 
-it("historia i polecenie wykluczają się; w trakcie planu zmian „Historia” jest wyłączona", async () => {
+it("gdy asystent pracuje, „Historia wersji” czeka na jego odpowiedź", async () => {
   const dialog = await openEditor();
-  fireEvent.click(within(dialog).getByRole("button", { name: "Polecenie" }));
-  expect(within(dialog).getByRole("form", { name: "Polecenie dla całego CV" })).toBeInTheDocument();
-  await openHistory(dialog);
-  expect(within(dialog).queryByRole("form", { name: "Polecenie dla całego CV" })).toBeNull();
-
-  fireEvent.click(within(dialog).getByRole("button", { name: "Polecenie" }));
-  expect(within(dialog).queryByRole("region", { name: "Historia wersji" })).toBeNull();
-  fireEvent.click(within(dialog).getByRole("button", { name: "Skróć do 2 stron" }));
-  const history = within(dialog).getByRole("button", { name: "Historia" });
-  expect(history).toBeDisabled();
-  const plan = await within(dialog).findByRole("region", { name: "Plan zmian" });
-  await within(plan).findByRole("button", { name: /Zastosuj zaznaczone/ });
-  expect(history).toBeDisabled();
-  fireEvent.click(within(plan).getByRole("button", { name: "Odrzuć plan" }));
-  expect(history).toBeEnabled();
+  const assistant = await openAssistant(dialog);
+  fireEvent.click(within(assistant).getByRole("button", { name: "Skróć do 2 stron" }));
+  expect((await moreItems(dialog)).get("Historia wersji")).toBe(false);
+  await within(assistant).findByTestId("cv-assistant-reply", {}, SLOW);
+  expect((await moreItems(dialog)).get("Historia wersji")).toBe(true);
   noNetwork();
 });
 
@@ -482,11 +497,11 @@ it("Escape w panelu historii nie zamyka edytora", async () => {
 
 it("wynik generatora bez rekrutacji nie ma historii wersji", async () => {
   const dialog = await openEditor("nosources");
-  expect(within(dialog).queryByRole("button", { name: "Historia" })).toBeNull();
+  expect((await moreItems(dialog)).has("Historia wersji")).toBe(false);
   noNetwork();
 });
 
-it("`?state=handoff`: stopka z uwagą dla DL, „Zapisz i przekaż do DL” zamyka edytor bez sieci", async () => {
+it("`?state=handoff`: stopka z uwagą dla DL, „Gotowe, przekaż do DL” zamyka edytor bez sieci", async () => {
   const dialog = await openEditor("handoff");
   const bar = within(dialog).getByRole("group", { name: "Przekazanie Delivery Leadowi" });
   await waitFor(() =>
@@ -495,7 +510,7 @@ it("`?state=handoff`: stopka z uwagą dla DL, „Zapisz i przekaż do DL” zamy
   fireEvent.change(within(bar).getByRole("textbox", { name: "Uwaga dla Delivery Leada (opcjonalnie)" }), {
     target: { value: "Dostępna od listopada." },
   });
-  fireEvent.click(within(bar).getByRole("button", { name: /Zapisz i przekaż do DL/ }));
+  fireEvent.click(within(bar).getByRole("button", { name: /Gotowe, przekaż do DL/ }));
   await waitFor(() => expect(screen.queryByRole("dialog", { name: "Edytor CV do klienta" })).toBeNull(), {
     timeout: 4000,
   });
@@ -509,7 +524,7 @@ it("`?state=handoff-blocking`: blokady QC → „Przekaż mimo uwag…” otwier
   const dialog = await openEditor("handoff-blocking");
   const bar = within(dialog).getByRole("group", { name: "Przekazanie Delivery Leadowi" });
   await waitFor(() => expect(within(bar).getByRole("status")).toHaveTextContent(/2 blokują wysyłkę/));
-  expect(within(bar).queryByRole("button", { name: /Zapisz i przekaż do DL/ })).not.toBeInTheDocument();
+  expect(within(bar).queryByRole("button", { name: /Gotowe, przekaż do DL/ })).not.toBeInTheDocument();
   fireEvent.click(within(bar).getByRole("button", { name: "Przekaż mimo uwag…" }));
   const form = await screen.findByRole("dialog", { name: "Przesuń mimo uwag QC" });
   expect(form).toHaveTextContent("CV pójdzie dalej z 2 niepoprawionymi rzeczami");
