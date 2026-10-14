@@ -43,6 +43,19 @@ Para z trafionym deal-breakerem albo odmową kwalifikowalności zostaje zapisana
   „4 pytania zamiast 6”, stawki per rekrutacja z budżetem, karta wyniku: kotwica przekazana, para z deal-breakerem
   „Przekaż mimo to”.
 
+## Poprawki po przeglądzie kodu i bezpieczeństwa
+
+- Rzut pary od najświeższego stanu i tylko ruszone pola z rozmowy — zapis po odświeżeniu w tle nie cofa cudzej
+  zmiany (test: cudzy zapis „Notatki” w drugiej rekrutacji zostaje, `expected_version` = 4).
+- Nieruszona odpowiedź na wspólne pytanie nie nadpisuje zapisanej odpowiedzi innej rekrutacji; widać ją pod polem.
+- Wspólna stawka na ekranie = stawka zapisu (para bez stawki dostaje ją; zaznaczenie „Ta sama” bez zmiany kwoty też).
+- „Cofnij wypełnienie” zdejmuje tylko pola z notatki.
+- Formularz i karta wyniku zostają do zamknięcia karty (kotwica przesunięta = wcześniej znikały odmowy pozostałych par).
+- Najwyżej 4 rekrutacje w rozmowie (5+ dawało 422 trasy grup pytań i cały formularz w błędzie).
+- Nazwa klienta z `display_name` w „Screening dla” i w podpowiedziach „Pasuje też do”.
+- Przegląd bezpieczeństwa: bez uwag blokujących (zakres DL, `CandidatePIIAccess`, `budget_hourly` = budżet
+  rekrutacji widoczny już w formularzu, nie stawka do klienta; notatka tylko autora).
+
 ## Odstępstwa od planu
 
 - Logika joint-context w `services/screening_form.py` (nie w osobnym `services/joint_screening.py`) — korzysta

@@ -68,14 +68,22 @@ Decyzje Artura D3–D4 z 14.10.2026 (makiety https://claude.ai/artifact/RTUD8nEm
   z powodem) i podpowiedzi „Pasuje też do” z „+ Dodaj i dołącz” (`proposals/bulk`, źródło `also_fits`). „Screening
   razem” z okienka „+N rekrutacja” na karcie Tablicy otwiera panel z zaznaczonymi rekrutacjami (`store/joint-screening`).
   Zaznaczenie choć jednej innej rekrutacji zamienia formularz pary na formularz wspólny (`JointScreeningForm`).
+  Najwyżej 4 rekrutacje w jednej rozmowie (kotwica + 3, `JOINT_MAX_OTHERS`) — trasa grup pytań przyjmuje 2–4;
+  „Screening razem” bierze pierwsze 3 i działa też dla osoby, której panel jest już otwarty.
 - **Jeden stan, zapis per para** (`lib/joint-screening.ts`): `projectPair` rzutuje stan wspólny na wartości
   pojedynczego formularza pary, a `buildSavePayload` z JEJ stanu buduje zwykły `PUT /api/screening-form` — wersje,
   `state_token`, blokada 12 h i 409/423 działają jak dotąd, osobno dla każdej pary. Kotwica zapisuje się pierwsza.
+  Rzut liczy się od NAJŚWIEŻSZEGO stanu pary (tego, którego odcisk idzie w zapisie): pole nieruszone w tej rozmowie
+  bierze wartość serwera, ruszone — wartość z rozmowy, a odświeżenie w tle przerysowuje pola nieruszone
+  (`keepDirtyValues`). Do 14.10.2026 (przegląd przed PR-em) zapis po odświeżeniu w tle odsyłał wartości sprzed
+  otwarcia formularza ze świeżym odciskiem i po cichu cofał cudzą zmianę.
 - **Pola wspólne** (dostępność, tryb pracy, lokalizacja, narodowość, angielski, red flags; „Czy pracował u Klienta”
-  per klient): ruszone w tej rozmowie → do każdej pary; nieruszone → tylko tam, gdzie puste; inna zapisana wartość
-  w parze → pod polem „W <rekrutacja>: …”. Stawka: „Ta sama stawka we wszystkich” zaznaczone, gdy stawki par na start
-  są równe albo puste; nieruszona wspólna stawka = stawka startowa pary (`ratePrefill` jak pojedynczy formularz);
-  porównanie z budżetem każdej rekrutacji pod polem. „Dlaczego ten kandydat”, motywacja, ogólna ocena i pozostałe
+  per klient) i odpowiedź na wspólne pytanie: ruszone w tej rozmowie → do każdej pary; nieruszone → tylko tam,
+  gdzie puste; inna zapisana wartość w parze → pod polem „W <rekrutacja>: …”. Stawka: „Ta sama stawka we
+  wszystkich” zaznaczone, gdy stawki par na start są równe albo puste; przy zaznaczonym — kwota z pola wspólnego
+  (ta, którą widać) idzie do każdej pary, gdy rekruter ruszył stawkę albo przełącznik, i do pary bez własnej
+  stawki, a nieruszona zostawia parze jej stawkę startową (`ratePrefill` jak pojedynczy formularz); osobne
+  stawki — ruszona albo startowa. Porównanie z budżetem każdej rekrutacji pod polem. „Dlaczego ten kandydat”, motywacja, ogólna ocena i pozostałe
   pola karty — osobno, w zakładkach per rekrutacja.
 - **Pytania:** grupy z `GET …/question-groups` (reguła `screening_question_groups.py`) — wspólne zadajesz raz,
   pozostałe w sekcjach „Tylko <rekrutacja>”; deal-breaker zaznaczasz per rekrutacja.
@@ -85,11 +93,14 @@ Decyzje Artura D3–D4 z 14.10.2026 (makiety https://claude.ai/artifact/RTUD8nEm
   Tablic innych rekrutacji). **Para z trafionym deal-breakerem nie przechodzi sama** — karta wyniku daje „Przekaż mimo
   to” (pojedynczy formularz deal-breakera nie blokuje) i „Otwórz jej kartę”; odmowa kwalifikowalności też ma „Przekaż
   mimo to” (z `acknowledge_eligibility`). Karta wyniku mówi per rekrutacja: przekazano / nie zapisano (komunikat
-  serwera, np. cudza rezerwacja) / zapisano bez przekazania i dlaczego. `onForwarded` (panel przechodzi na CV) dopiero
-  po zamknięciu karty wyniku, gdy kotwica przeszła.
+  serwera, np. cudza rezerwacja) / zapisano bez przekazania i dlaczego. Od startu zapisu do zamknięcia karty wyniku
+  panel trzyma formularz z tym samym wyborem (`onSessionChange`), choć kotwica jest już w „Zweryfikowanym”, a lista
+  rekrutacji się odświeżyła. `onForwarded` (panel przechodzi na CV) dopiero po zamknięciu karty wyniku, gdy kotwica
+  przeszła.
 - **Notatka z rozmowy:** pasek „Uzupełnij z notatki” odczytuje notatkę dla kotwicy, a ten sam tekst dla pozostałych
   rekrutacji (`recommendationCardsApi.readNote` per rekrutacja); wyniki trafiają tylko w puste miejsca
-  (`noteFillPatches`). Notatkę zakłada zapis pierwszej pary, kolejne wskazują ją `note_id` — serwer przyjmuje notatkę
+  (`noteFillPatches`); „Cofnij wypełnienie” zdejmuje tylko to, co wpisała notatka (pole poprawione po wypełnieniu
+  zostaje). Notatkę zakłada zapis pierwszej pary, kolejne wskazują ją `note_id` — serwer przyjmuje notatkę
   z innej rekrutacji tej osoby z tej samej rozmowy (`_joint_note_from_other_pair`, ≤ 60 min). Pochodzenie pól „z
   notatki” w trybie wspólnym nie jest zapisywane (pola idą jak wpisane ręcznie).
 - **Świadomie poza trybem wspólnym** (zostają w pojedynczym formularzu): „Użyj tej odpowiedzi” z wcześniejszych
