@@ -429,4 +429,32 @@ describe("JointScreeningForm", () => {
       keywords: "rxjs formularze",
     });
   });
+
+  it("a sentence cleared and retyped by hand is saved as the recruiter's answer, not as phrased", async () => {
+    const user = userEvent.setup();
+    states[201] = { ...states[201], assist_enabled: true };
+    mocks.phrase.mockImplementation((_c: number, _j: number, items: Array<{ key: string }>) =>
+      Promise.resolve({
+        available: true,
+        message: null,
+        language: "pl",
+        items: items.map((item) => ({ key: item.key, sentence: "Kandydat budował formularze na RxJS.", problem: null })),
+      }),
+    );
+    mount();
+    const answer = await screen.findByLabelText("Jak używałeś RxJS w produkcji?");
+    await user.type(answer, "rxjs formularze");
+    const card = answer.closest("div.rounded-lg") as HTMLElement;
+    await user.click(within(card).getByRole("button", { name: /Ułóż w zdanie/ }));
+    await user.click(await within(card).findByRole("button", { name: "Użyj zdania" }));
+    await user.clear(answer);
+    await user.type(answer, "Odpowiedź wpisana ręcznie");
+    await user.click(screen.getByRole("button", { name: "Zapisz w 2" }));
+    await waitFor(() => expect(mocks.put).toHaveBeenCalledTimes(2));
+    const saved = putFor(202)?.sheet?.answers.find((x) => x.question_id === "q2");
+    expect(saved?.response).toBe("Odpowiedź wpisana ręcznie");
+    expect(saved?.origin).toBe("manual");
+    expect(saved).not.toHaveProperty("keywords");
+  });
 });
+

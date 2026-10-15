@@ -54,6 +54,8 @@ export function ManualSearchPanel({
 }: ManualSearchPanelProps) {
   // Dodani w tym oknie (przeżywa przemontowanie listy po zmianie wymagań).
   const [added, setAdded] = useState<readonly CandidatesListAddedPerson[]>([]);
+  // Cofnięci — lista z powrotem pokazuje przy nich „Dodaj”.
+  const [undone, setUndone] = useState<ReadonlySet<number>>(() => new Set());
   const undoWindow = useUndoWindow();
   const { start: startUndoWindow } = undoWindow;
   const onAdded = useCallback(
@@ -61,6 +63,9 @@ export function ManualSearchPanel({
       const ids = new Set(people.map((p) => p.candidateId));
       // Ponowne dodanie po „Cofnij” = osoba znów na końcu (najnowsza).
       setAdded((prev) => [...prev.filter((p) => !ids.has(p.candidateId)), ...people]);
+      setUndone((prev) =>
+        [...ids].some((id) => prev.has(id)) ? new Set([...prev].filter((id) => !ids.has(id))) : prev,
+      );
       startUndoWindow([...ids]);
       onBulkAdded?.();
     },
@@ -68,6 +73,7 @@ export function ManualSearchPanel({
   );
   const onUndone = useCallback((candidateId: number) => {
     setAdded((prev) => prev.filter((p) => p.candidateId !== candidateId));
+    setUndone((prev) => new Set(prev).add(candidateId));
   }, []);
   // Wymagania obowiązkowe z zapisanego kontraktu rekrutacji — ten sam, którego
   // używa przegląd całej bazy. Lista czyta filtry startowe tylko przy
@@ -128,6 +134,7 @@ export function ManualSearchPanel({
           initialFilters: jobListFilters(source, mustLabels, critical),
           readOnly,
           onAdded,
+          undone,
           keywordsNote: hasRows
             ? `Wymagania z rekrutacji. ${mandatorySourceNote(split)} Zmiany tutaj nie zmieniają rekrutacji.`
             : undefined,

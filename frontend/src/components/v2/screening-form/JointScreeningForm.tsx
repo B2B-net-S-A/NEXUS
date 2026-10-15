@@ -263,6 +263,18 @@ function JointFormBody({
       return next;
     });
   }, []);
+  // Wyczyszczone pole traci pochodzenie (także „zdanie z haseł”) — to, co
+  // rekruter wpisze potem, jest jego odpowiedzią, jak w pojedynczym formularzu.
+  const originsRef = useRef(origins);
+  originsRef.current = origins;
+  useEffect(() => {
+    const subscription = methods.watch((_values, { name, type }) => {
+      if (type !== "change" || !name || !(name in originsRef.current)) return;
+      const value = methods.getValues(name as "answers") as unknown;
+      if (!String(value ?? "").trim()) markOrigin(name, null);
+    });
+    return () => subscription.unsubscribe();
+  }, [methods, markOrigin]);
   const earlier = useJointEarlierAnswers(pairs, true);
   const [handledHints, setHandledHints] = useState<ReadonlySet<string>>(() => new Set());
   const phrase = useJointPhrase(candidateId, pairs);

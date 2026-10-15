@@ -441,4 +441,45 @@ describe("„Szukaj ręcznie” — przycisk Szukaj i pamięć rekrutacji (25.09
       screen.queryByText("Przywrócono Twoje ostatnie wyszukiwanie w tej rekrutacji"),
     ).not.toBeInTheDocument();
   });
+
+  it("po „Cofnij” w „Dodani teraz” osoba wraca do wyników z „Dodaj”, nie z „Dodano”", async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const embed = (undone: ReadonlySet<number>) => ({
+      jobId: 7,
+      jobTitle: "Analityk Systemowy",
+      initialFilters: { ...DEFAULT_FILTERS, status: ["active", "passive"] } as CandidateFilters,
+      onAdded,
+      undone,
+    });
+    const view = render(
+      <QueryClientProvider client={client}>
+        <CandidatesListV2 embed={embed(new Set())} />
+      </QueryClientProvider>,
+    );
+    // Po dodaniu serwer ukrywa Ewę (`recruitment_match=not_assigned`).
+    bulkAdd.mockImplementation(async () => {
+      listItems = [{ id: 2, name: "Piotr", lastname: "Lis", status: "active" }];
+      listTotal = 1;
+      return { added: [1], skipped: [], warnings: [], total_added: 1, total_skipped: 0 };
+    });
+    fireEvent.click(await screen.findByRole("button", { name: "Dodaj Ewa Marczak do Nowych" }));
+    await waitFor(() => expect(onAdded).toHaveBeenCalled());
+    await waitFor(() => expect(screen.queryByText("Ewa Marczak")).not.toBeInTheDocument());
+    // „Cofnij” w pasku: Ewa znów poza rekrutacją, lista ją pokazuje.
+    listItems = [
+      { id: 1, name: "Ewa", lastname: "Marczak", status: "active" },
+      { id: 2, name: "Piotr", lastname: "Lis", status: "active" },
+    ];
+    listTotal = 2;
+    view.rerender(
+      <QueryClientProvider client={client}>
+        <CandidatesListV2 embed={embed(new Set([1]))} />
+      </QueryClientProvider>,
+    );
+    await act(async () => {
+      await client.invalidateQueries({ queryKey: ["candidates-v2"] });
+    });
+    expect(await screen.findByRole("button", { name: "Dodaj Ewa Marczak do Nowych" })).toBeEnabled();
+  });
 });
+

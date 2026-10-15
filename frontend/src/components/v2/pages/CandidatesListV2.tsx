@@ -566,6 +566,11 @@ export interface CandidatesListEmbed {
   onAdded?: (added: CandidatesListAddedPerson[]) => void;
   /** Zdanie nad słowami kluczowymi, gdy wiersze przyszły z rekrutacji. */
   keywordsNote?: string;
+  /**
+   * Osoby, którym „Cofnij” w „Dodani teraz” zdjęło dodanie — wiersz znów
+   * dostaje „Dodaj” zamiast „Dodano” (15.10.2026).
+   */
+  undone?: ReadonlySet<number>;
 }
 
 /** Osoba dodana z listy osadzonej w rekrutacji. */
@@ -1433,6 +1438,14 @@ export function CandidatesListV2({ onRequestSearch, embed }: CandidatesListV2Pro
  // ją zdejmie — do tego czasu wiersz mówi „Dodano” zamiast drugiego „Dodaj”.
  const [addedIds, setAddedIds] = useState<ReadonlySet<number>>(() => new Set());
  const embedOnAdded = embed?.onAdded;
+ const embedUndone = embed?.undone;
+ useEffect(() => {
+ if (!embedUndone?.size) return;
+ setAddedIds((prev) => {
+ if (![...embedUndone].some((id) => prev.has(id))) return prev;
+ return new Set([...prev].filter((id) => !embedUndone.has(id)));
+ });
+ }, [embedUndone]);
  const addToEmbedJob = useCallback(
  async (candidateIds: number[]) => {
  if (embedJobId == null || candidateIds.length === 0) return;
