@@ -265,6 +265,41 @@ describe("nowe CV w rekrutacji (13.10.2026)", () => {
   });
 });
 
+// 15.10.2026: gotowe CV do klienta („B2B_…docx”) z kafelka „Wgraj nowe CV”
+// idzie do CV do klienta, a w profilu zostaje obok CV kandydata.
+describe("CV do klienta z kafelka (15.10.2026)", () => {
+  it("naprawa kopii z CV do klienta: oryginał z profilu z nazwą pliku i datą", () => {
+    expect(originalCvSentence(snapshot("2026-10-15T18:00:00Z", "client_cv_repair", "Jan_Testowy_CV.pdf"))).toBe(
+      "Oryginał CV: z profilu · Jan_Testowy_CV.pdf · 15.10.2026",
+    );
+    expect(originalCvSentence({ kind: "snapshot", date: null, filename: null, source: "client_cv_repair" })).toBe(
+      "Oryginał CV: z profilu",
+    );
+  });
+
+  it("naprawa kopii nie każe generować CV firmowego od nowa", () => {
+    expect(
+      companyCvStale({
+        brandedStatus: "draft",
+        original: snapshot("2026-10-15T18:00:00Z", "client_cv_repair"),
+        draftSince: "2026-10-14T10:00:00Z",
+      }),
+    ).toBe(false);
+  });
+
+  it("plik „B2B_…” w profilu nie jest „nowszym CV” do skopiowania jako oryginał", () => {
+    const original = snapshot("2026-10-08T10:00:00Z");
+    const own = doc(21, { is_primary: true, filename: "Jan_Testowy_CV.pdf", uploaded_at: "2026-10-01T09:00:00Z" });
+    const clientCv = doc(22, { filename: "B2B_Tester_Jan_Testowy.docx", uploaded_at: "2026-10-15T09:00:00Z" });
+    expect(newerProfileCv(original, [own, clientCv])).toBeNull();
+    // Stary import bez głównego CV: najnowszym plikiem jest CV do klienta — też bez ramki.
+    expect(newerProfileCv(original, [{ ...own, is_primary: false }, clientCv])).toBeNull();
+    // Nowe CV kandydata dalej wywołuje ramkę.
+    const newOwn = doc(23, { is_primary: true, filename: "Jan_Testowy_CV_2026.pdf", uploaded_at: "2026-10-15T10:00:00Z" });
+    expect(newerProfileCv(original, [newOwn, clientCv])?.id).toBe(23);
+  });
+});
+
 describe("withoutQuarantinedCv", () => {
   const marker = (id: number) => ({ _identity_quarantine_source: { kind: "document", id } });
 

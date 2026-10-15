@@ -93,7 +93,12 @@ podpowiada gotowe CV, przepięcie przenosi je samo. Raport:
   w teczce mógłby stać się „aktualnym CV” osoby i źródłem dla generatora oraz
   auto-CV, a powtórne wgranie tych samych bajtów przemianowałoby istniejący
   plik. Zostaje nazwa i skrót treści w śladzie; ponowne użycie daje kopia CV
-  etapu.
+  etapu. Kafelek „Wgraj nowe CV” w panelu osoby (15.10.2026) zapisuje gotowe
+  CV do klienta w profilu jako „CV dla klientów”, ale tylko u osoby z głównym
+  CV — wtedy nie zostanie „aktualnym CV”
+  (`rekrutacja-tablica/nowe-cv-w-rekrutacji.md`). Od tej daty `select-document`,
+  `branded/upload` i `select-stage-cv` odmawiają po „CV wysłane” (409
+  `client_cv_locked_after_send`).
 - **`GET …/cv/branded` dla etapu bez wiersza CV to stan pusty (200), nie 404**
   — karta jest widoczna także w „Nowych” i „Screeningu” (bez sekcji wysyłki),
   a etapy z importu Traffita wiersza nie mają.

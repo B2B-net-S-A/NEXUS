@@ -80,6 +80,7 @@ import {
   type ScreeningFormState,
 } from "@/lib/api/screeningForm";
 import { candidateContactQueryKeys } from "@/lib/candidate-contact";
+import { isClientCvFilename } from "@/lib/candidate-files";
 import { stageBrandedQueryKey } from "@/lib/cv-to-client";
 import { jobHeaderFacts } from "@/lib/job-header-facts";
 import {
@@ -1285,6 +1286,47 @@ const CLOSE_WARNING = {
 /** Kopie CV etapu po „Wgraj nowe CV” w tej karcie przeglądarki (bez sieci). */
 const harnessStageCopies = new Map<number, Record<string, unknown>>();
 
+/**
+ * CV do klienta po wgraniu pliku „B2B_…docx” (15.10.2026) — `GET …/cv/branded`
+ * czyta stąd, inaczej odświeżenie po wgraniu kończyłoby się „nie udało się
+ * sprawdzić”. „Cofnij” zostawia stan „brak”, jak zasiew.
+ */
+const harnessClientCvs = new Map<number, Record<string, unknown>>();
+
+function harnessClientCv(stageId: number, filename: string | null): Record<string, unknown> {
+  const now = new Date().toISOString();
+  const blank = {
+    edit_revision: filename ? 1 : 2,
+    version: filename ? 1 : 0,
+    candidate_stage_id: stageId,
+    template: null,
+    language: filename ? "pl" : null,
+    updated_at: filename ? now : null,
+    updated_by: filename ? 7 : null,
+    updated_by_name: filename ? "Marta Nowak" : null,
+    finalized_at: null,
+    finalized_by: null,
+    finalized_by_name: null,
+    snapshot_filename: null,
+    rendered_from_default: false,
+  };
+  if (!filename) return { ...blank, status: "none", content_html: null };
+  return {
+    ...blank,
+    status: "draft",
+    source: "document",
+    from_generator: false,
+    generated_document_id: null,
+    origin: { kind: "upload", label: filename, selected_at: now },
+    docx_available: true,
+    docx_filename: filename,
+    consent_required: false,
+    consent_attached: false,
+    consent_missing: false,
+    content_html: "<h1>Senior Java Developer</h1><p>CV wczytane z pliku Word — treść fikcyjna.</p>",
+  };
+}
+
 function JobDetailHarness() {
   const params = useSearchParams();
   const showEmpty = params.get("empty") === "1";
@@ -1426,13 +1468,58 @@ function JobDetailHarness() {
         config.adapter = async () => ({ data: {}, status: 200, statusText: "OK", headers: {}, config });
         return config;
       }
+      const clientCvRead = config.url?.match(/^\/api\/candidates\/stages\/(\d+)\/cv\/branded$/);
+      const clientCvState = clientCvRead ? harnessClientCvs.get(Number(clientCvRead[1])) : undefined;
+      if (clientCvState && config.method === "get") {
+        config.adapter = async () => ({ data: clientCvState, status: 200, statusText: "OK", headers: {}, config });
+        return config;
+      }
       // „Wgraj nowe CV” i „Użyj w tej rekrutacji” (13.10.2026): kopia CV etapu
       // w pamięci strony, żeby po wgraniu panel pokazał nowy stan.
       const stageCv = config.url?.match(/^\/api\/candidates\/stages\/(\d+)\/cv\/original(\/upload|\/refresh)?$/);
       if (stageCv) {
         const stageId = Number(stageCv[1]);
+        const form = config.data instanceof FormData ? config.data : null;
+        const uploaded = form?.get("file");
+        const uploadedName = uploaded instanceof File ? uploaded.name : null;
+        // Plik „B2B_…docx” (15.10.2026) zostaje CV do klienta — oryginał bez zmian.
+        if (
+          stageCv[2] === "/upload" &&
+          form?.get("mode") !== "original" &&
+          uploadedName &&
+          isClientCvFilename(uploadedName) &&
+          uploadedName.toLowerCase().endsWith(".docx")
+        ) {
+          const clientCv = harnessClientCv(stageId, uploadedName);
+          harnessClientCvs.set(stageId, clientCv);
+          const result = {
+            candidate_stage_id: stageId,
+            candidate_id: 0,
+            job_id: JOB_ID,
+            has_snapshot: false,
+            original_cv_filename: null,
+            original_cv_language: null,
+            original_snapshot_at: null,
+            original_snapshot_source: null,
+            download_url: null,
+            ...harnessStageCopies.get(stageId),
+            outcome: "client_cv",
+            client_cv: clientCv,
+            client_cv_stage_id: stageId,
+            replaced: "none",
+            undo_available: true,
+            stored_in_profile: true,
+            uploaded_filename: uploadedName,
+          };
+          config.adapter = async () => ({ data: result, status: 200, statusText: "OK", headers: {}, config });
+          return config;
+        }
+        // „Cofnij”: plik wraca jako CV kandydata, CV do klienta do stanu sprzed wgrania.
+        if (stageCv[2] === "/upload" && form?.get("mode") === "original" && harnessClientCvs.has(stageId)) {
+          harnessClientCvs.set(stageId, harnessClientCv(stageId, null));
+        }
         if (stageCv[2]) {
-          const file = config.data instanceof FormData ? config.data.get("file") : null;
+          const file = uploaded ?? null;
           harnessStageCopies.set(stageId, {
             candidate_stage_id: stageId,
             candidate_id: 0,

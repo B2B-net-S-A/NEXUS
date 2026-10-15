@@ -35,7 +35,8 @@ raport `docs/cv-upload-in-recruitment-completion-report.md`.
   Trasa zakłada brakujący wiersz CV etapu (`create_missing=True`) — do tej daty
   etapy z importu Traffita dostawały 404. `original_snapshot_source`:
   `manual_upload` (wgrane z rekrutacji), `manual_refresh` (podmienione z profilu),
-  `quarantine_restore` (patrz niżej).
+  `quarantine_restore` (patrz niżej), `client_cv_repair` (naprawa D3 z
+  15.10.2026, patrz „Gotowe CV do klienta z kafelka”).
 - **Kwarantanna sprząta też kopie etapu** (przegląd bezpieczeństwa 13.10.2026).
   Bramka tożsamości biegnie po zapisie; gdy uzna plik za CV innej osoby, oddaje
   główne CV poprzedniemu plikowi, a `restore_stage_copies_after_quarantine`
@@ -180,6 +181,72 @@ raport `docs/cv-download-from-preview-completion-report.md`.
   jest wtedy ukryta, podgląd z własnym `CvFileDropTarget` stoi w DOM-ie
   panelu i oba obszary wgrywały ten sam plik. Zewnętrzny pomija upuszczenie
   z `defaultPrevented`.
+
+## Gotowe CV do klienta z kafelka (15.10.2026, D1–D3)
+
+Zgłoszenie rekrutera: „wgrane CV ma być CV do użycia w rekrutacji, bez
+kolejnego przeklikania”. Rekruterzy wgrywali kafelkiem gotowe CV do klienta
+(„B2B_Stanowisko_Imię_Nazwisko.docx”), a trasa robiła z niego główne CV profilu
+(AI czytało profil z wersji firmowej) i „Oryginał CV”. CV do klienta trzeba było
+potem podmienić paskiem „Ta osoba ma już gotowe CV” („Użyj tego CV” +
+„Zastąp”). Pomiar na produkcji: od 13.10 15 z 37 wgrań w panelu to takie
+pliki; 16 z 17 importów pliku z profilu dotyczyło pliku wgranego przez tę samą
+osobę najwyżej 30 min wcześniej. Makiety i decyzje:
+https://claude.ai/artifact/U6wAqaH4nqF55RF9RiWPP2, raport
+`docs/cv-upload-client-cv-completion-report.md`.
+
+- **D1 — rozpoznanie po nazwie** (`services/client_cv_upload.py`,
+  `looks_like_client_cv`): tylko `.docx`, „B2B” jako osobne słowo (lustro
+  `isClientCvFilename` z frontu) albo stały początek wzoru nazwy klienta
+  rekrutacji (`client_filename_pattern`: zatwierdzona reguła, a bez niej
+  katalog `cv_policies.json`). Samo „B2B” pomijało czterech klientów: PKO BP
+  „ZOB-…”, Orlen, Energa, Bank Pocztowy. Porównanie po zwinięciu separatorów,
+  więc „ZOB-2962_…” i „ZOB_…” (pusty projekt) pasują; początek krótszy niż
+  3 znaki nie rozpoznaje niczego. PDF „B2B” zostaje CV kandydata.
+- **Ta sama trasa, `outcome` w odpowiedzi** (`StageCvUploadResponse`):
+  `original` (jak dotąd), `client_cv` (szkic CV do klienta z importu Worda,
+  `_import_docx_as_draft` jak „Użyj tego CV”, QC w tle) albo `client_cv_kept`.
+  Przy `client_cv` główne CV profilu, odczyt AI i kopia oryginału zostają bez
+  zmian. Pole `mode=original` wymusza starą ścieżkę.
+- **Wiersz CV pary jak w karcie** (`cvStageId`): bieżący, a gdy pusty — wiersz
+  sprzed ruchu karty ze szkicem albo zatwierdzonym CV.
+- **D2 — kiedy pytamy.** Brak CV do klienta albo nieprzejrzane auto-CV
+  (`is_untouched_auto_cv`: szkic z dokumentu `origin=auto`, wpis podpięcia
+  automatu z bieżącą rewizją, bez zrzutu zgody RODO) → podmiana bez pytania,
+  z migawką szkicu. Każde inne CV (poprawione, wybrane, zatwierdzone) → 409
+  `client_cv_replace_confirm` z treścią pytania; front pyta „Zastąpić CV do
+  klienta?” i wysyła ponownie z `replace_client_cv=true`. „Nie podmieniaj” =
+  nic nie wgrywamy.
+- **„Cofnij” w komunikacie** tylko po podmianie bez pytania: ten sam plik
+  idzie z `mode=original`, a `_undo_client_cv_upload` przywraca poprzednie CV
+  do klienta (auto-CV z dokumentu generatora albo pusty stan) — wyłącznie gdy
+  CV do klienta to wciąż ten plik w nietkniętej rewizji
+  (`last_upload_if_current`). Ślad: `branded_cv_uploaded_in_recruitment`
+  (z `prior` i `replaced`) i `branded_cv_upload_undone`.
+- **Po „CV wysłane”** (`integration_cv.locked_after_send` na bieżącym wierszu
+  karty) CV do klienta się nie podmienia: plik idzie tylko do profilu
+  (`client_cv_kept`). Ta sama blokada (409 `client_cv_locked_after_send`)
+  stoi od tej daty na trasach „Użyj innego CV”: `select-document`,
+  `branded/upload`, `select-stage-cv` — wcześniej pilnował jej tylko front.
+- **Plik w profilu** jako „CV dla klientów” (niegłówny, bez odczytu AI) tylko
+  wtedy, gdy osoba ma główne CV. Bez głównego CV najnowszy plik CV staje się
+  „bieżącym CV” (`current_cv_ordering`) — źródłem generatora i kopii
+  oryginału — więc wtedy pliku nie zapisujemy, jak przy pliku z dysku
+  w karcie.
+- **CV innej osoby → 422 `client_cv_other_person`** przed jakimkolwiek zapisem
+  (`other_person_name`): nagłówek „stanowisko – imię nazwisko” z co najmniej
+  dwoma słowami po łączniku, a nazwiska osoby nie ma ani w nagłówku, ani
+  w nazwie pliku. Bramka tożsamości oryginału tego pliku nie widzi, a 15.10
+  ten sam plik trafił do panelu innej osoby. CV blind i nagłówek bez łącznika
+  przechodzą; komunikat wskazuje drogę awaryjną („Plik z dysku” w karcie).
+- **D3 — naprawa profili z okresu przejściowego:**
+  `python -m app.cli.client_cv_primary_repair` (na sucho), potem
+  `--apply --expected N`. Główne CV „B2B” wgrane od 13.10 → najnowszy własny
+  plik PDF/DOC/DOCX osoby zostaje głównym, kopie etapu z bajtami pliku do
+  klienta dostają CV osoby (`client_cv_repair` — panel nie pisze „nie
+  pasowało do tej osoby”), AI czyta profil od nowa. Osoba bez innego CV
+  zostaje bez zmian. Paragon `client_cv_primary_repair_2026_10` (same liczby)
+  blokuje drugi bieg.
 
 ## Czego nie robimy
 

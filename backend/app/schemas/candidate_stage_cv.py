@@ -3,6 +3,7 @@
 Mirror `app/schemas/contract.py` (Contract Draft):
 
 * `CVOriginalSnapshotResponse`     — GET /cv/original
+* `StageCvUploadResponse`          — POST /cv/original/upload (CV kandydata albo do klienta)
 * `CVBrandedResponse`              — GET /cv/branded (mirror ContractDraftResponse)
 * `CVBrandedUpdate`                — PATCH /cv/branded (XOR: content_html | template+language)
 * `CVBrandedFinalizeResponse`      — POST /cv/branded/finalize
@@ -211,6 +212,27 @@ class CVBrandedResponse(BaseModel):
     pair_source_status: Optional[BrandedStatusLiteral] = None
     # Tylko w odpowiedzi na podmianę szkicu nową generacją (PR 5).
     rewrite: Optional[CVBrandedRewrite] = None
+
+
+class StageCvUploadResponse(CVOriginalSnapshotResponse):
+    """Wynik wgrania CV w rekrutacji (`…/cv/original/upload`, 15.10.2026).
+
+    Pola oryginału zostają na wierzchu jak dotąd. ``outcome`` mówi, czym
+    plik się stał: CV kandydata (``original``), CV do klienta tej rekrutacji
+    (``client_cv``) albo tylko plikiem w profilu, bo klient ma już CV tej
+    osoby (``client_cv_kept``).
+    """
+
+    outcome: Literal["original", "client_cv", "client_cv_kept"] = "original"
+    uploaded_filename: Optional[str] = None
+    client_cv: Optional[CVBrandedResponse] = None
+    # Wiersz etapu z CV do klienta pary — po ruchu karty bywa wcześniejszy.
+    client_cv_stage_id: Optional[int] = None
+    # Co zastąpiło: nic, nieprzejrzane auto-CV albo CV po potwierdzeniu.
+    replaced: Optional[Literal["none", "auto_cv", "confirmed"]] = None
+    # „Cofnij” w komunikacie: tylko gdy nie zastąpiliśmy niczyjej pracy.
+    undo_available: bool = False
+    stored_in_profile: bool = False
 
 
 class CVBrandedUpdate(BaseModel):
