@@ -52,6 +52,14 @@ export const PRIORITY_LEVEL_HINT: Record<PriorityLevel, string> = {
   accepting: "Nie szukamy aktywnie — automat nikogo nie proponuje.",
 };
 
+/**
+ * P1 wstrzymany (D6, 15.10.2026): serwer oddaje `priority_paused`, gdy
+ * rekrutacja z P1 nie szuka, bo Delivery Lead wskazał championów. Poziom
+ * zostaje P1 — wraca sam, gdy odpadnie ostatni champion.
+ */
+export const PRIORITY_PAUSED_HINT =
+  "P1 wstrzymany, bo mamy championa. Wróci, gdy odpadnie ostatni champion.";
+
 /** Gotowe opcje wyboru (przełącznik priorytetu, filtr listy). */
 export const PRIORITY_LEVEL_OPTIONS: ReadonlyArray<{
   value: PriorityLevel;

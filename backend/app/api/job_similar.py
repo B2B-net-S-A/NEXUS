@@ -13,8 +13,8 @@
 * ``DELETE /api/jobs/{id}/similar/{other_id}`` — rozłącz (propozycje zostają).
 * ``POST /api/job-similarity/preview`` — sugestie dla rekrutacji jeszcze
   niezapisanej (strona „Nowa rekrutacja"; szkic embedowany na żądanie).
-* ``POST /api/jobs/{id}/champion-found`` — Delivery Lead: „Mamy championa"
-  (albo cofnięcie). Do tej chwili status requestu to „Szukamy".
+* ``POST /api/jobs/{id}/champion-found`` — tylko cofnięcie „Mamy championa”
+  (od 15.10.2026 championów wskazuje lista ``api/job_champions.py``).
 
 Sugestie od 30.09.2026 liczy wektor rekrutacji (``similarity_kind:
 "vector"``, ``similarity`` = kosinus × 100) z premią za tego samego klienta;
@@ -24,7 +24,6 @@ Uwaga: moduł bez ``from __future__ import annotations`` — slowapi/FastAPI
 czytają adnotacje ciała w czasie rejestracji trasy.
 """
 
-from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -42,7 +41,6 @@ from app.models.user import UserRole
 from app.services import candidate_claim
 from app.services import job_similarity as sim
 from app.services.recruitment_allocation import allocation_lock
-from app.services.request_allocation import restore_after_champion_removed
 
 router = APIRouter(dependencies=PIPELINE_SECTION_DEPENDENCIES)
 
@@ -488,45 +486,38 @@ async def set_champion_found(
     user: RecruiterPlus,
     db: AsyncSession = Depends(get_db),
 ):
+    """Zgodność wstecz (D1, 15.10.2026): champion to osoba — oznacza się go
+    listą ``PUT /api/jobs/{id}/champions``. Tu zostało tylko cofnięcie
+    (``found: false`` zdejmuje wszystkich championów i flagę)."""
     if not user.has_any_role(*_CHAMPION_ROLES):
         raise HTTPException(
             403,
             "„Mamy championa” oznacza Delivery Lead (albo admin / Head of Recruitment).",
         )
+    if body.found:
+        raise HTTPException(
+            422,
+            "Wskaż osoby na liście „Championi” pod plakietką statusu rekrutacji.",
+        )
     await _job(db, user, job_id)
     await ensure_job_membership(db, user, job_id)
     # Kolejność blokad jak na pulpicie: przydział → rekrutacja.
     await allocation_lock(db)
-    job = await db.get(Job, job_id, with_for_update=True)
+    job = await db.get(Job, job_id, with_for_update=True, populate_existing=True)
     if job is None:
         raise HTTPException(404, "Rekrutacja nie istnieje")
-    changed = (job.champion_found_at is not None) != body.found
-    if changed:
-        now = datetime.now(timezone.utc)
-        champion_since = job.champion_found_at
-        job.champion_found_at = now if body.found else None
-        job.champion_found_by = user.id if body.found else None
-        # Runda 8 (R8-N7-5): „Mamy championa” to widoczna zmiana stanu
-        # requestu — ręczne zdjęcia sprzed niej przestają blokować powrót
-        # osoby, a jego zdjęcie przywraca ludzi dodanych ręcznie.
-        job.work_state_changed_at = now
-        if not body.found:
-            await restore_after_champion_removed(
-                db, job_id=job_id, champion_since=champion_since, now=now
-            )
-        db.add(
-            Activity(
-                entity_type="job",
-                entity_id=job_id,
-                action="champion_found_changed",
-                user_id=user.id,
-                details={"found": body.found},
-            )
-        )
+    from app.services import job_champions  # noqa: PLC0415
+
+    try:
+        result = await job_champions.set_champions(db, job, [], actor_id=user.id)
+    except job_champions.ChampionsError as exc:
+        await db.rollback()
+        raise HTTPException(exc.status, exc.detail) from exc
+    await job_champions.notify_after_save(db, job=job, result=result, actor_id=user.id)
     await db.commit()
     return {
         "job_id": job_id,
         "champion_found": job.champion_found_at is not None,
         "champion_found_at": job.champion_found_at,
-        "changed": changed,
+        "changed": result.changed or result.before_stopped != result.after_stopped,
     }

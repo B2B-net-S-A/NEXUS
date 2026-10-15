@@ -95,6 +95,7 @@ import {
   WorkbenchRail,
 } from "@/components/v2/jobs/workbench-chrome";
 import { isOverHourlyBudget } from "@/lib/rate-to-hourly";
+import { championRemovalOutcome, type JobChampionsFields } from "@/lib/job-champions";
 
 const DECISION_OPTIONS: { value: HiringManagerDecision; label: string }[] = [
   { value: "advance", label: "Dalej" },
@@ -146,6 +147,7 @@ export function JobInterviewsTab({
 }: JobInterviewsTabProps) {
   const isPanel = layout === "panel";
   const { showSuccess, showError } = useToast();
+  const queryClient = useQueryClient();
   const [selectedCandidateId, setSelectedCandidateId] = useState<number | null>(
     null,
   );
@@ -475,6 +477,12 @@ export function JobInterviewsTab({
                 : null
           }
           previousStage={pendingTerminal.entry.col.stage}
+          // Championi (D7): to samo zdanie co w oknie odrzucenia z Tablicy.
+          championNotice={championRemovalOutcome(
+            queryClient.getQueryData<JobChampionsFields>(["job", String(jobId)]),
+            pendingTerminal.entry.item.candidate_id,
+            itemFullName(pendingTerminal.entry.item),
+          )}
           // Runda 10 (R10-V2-1): ta sama reguła dostępności maila co na
           // Tablicy (kod etapu albo kolumna), nie sama kategoria kolumny.
           emailAvailable={rejectionEmailAvailableFrom(pendingTerminal.entry.col)}

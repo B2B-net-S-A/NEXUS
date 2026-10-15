@@ -439,13 +439,19 @@ async def test_champion_found_is_delivery_lead_decision(
         headers=recruiter,
     )
     assert denied.status_code == 403
-    ok = await app_client.post(
+    # 0450 (D1, 15.10.2026): champion to osoba — „oznacz” bez osoby odpada,
+    # wskazuje się go listą `PUT /api/jobs/{id}/champions`
+    # (`test_job_champions.py`). Tu flaga jak sprzed zmiany.
+    refused = await app_client.post(
         f"/api/jobs/{world['b']}/champion-found",
         json={"found": True},
         headers=app_auth_headers,
     )
-    assert ok.status_code == 200, ok.text
-    assert ok.json()["champion_found"] is True
+    assert refused.status_code == 422, refused.text
+    async with AsyncSessionLocal() as db:
+        job_b = await db.get(Job, world["b"])
+        job_b.champion_found_at = datetime.now(timezone.utc)
+        await db.commit()
 
     listed = await app_client.get(
         "/api/jobs",

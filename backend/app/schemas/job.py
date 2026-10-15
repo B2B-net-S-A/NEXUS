@@ -317,6 +317,14 @@ class JobResponse(BaseModel):
     needs_sourcing: bool = False
     # 0341: Delivery Lead oznaczył „Mamy championa" — dalej nie szukamy.
     champion_found_at: Optional[datetime] = None
+    # 0450 (D1–D9, 15.10.2026): championi — osoby wskazane przez DL
+    # (``[{candidate_id, name}]``), liczba miejsc (``max(headcount, 1)``),
+    # zatrudnieni (tylko detal) i P1 wstrzymany przez championa.
+    # ``None`` u konta podglądu (``redact_job_for_viewer``).
+    champions: Optional[list[dict[str, Any]]] = Field(default_factory=list)
+    champion_seats: Optional[int] = 1
+    hired_count: int = 0
+    priority_paused: bool = False
     # 0341: status requestu liczony przez `job_similarity.request_status_expr`
     # (closed · filled · contract · champion · incomplete · searching).
     request_status: Optional[str] = None

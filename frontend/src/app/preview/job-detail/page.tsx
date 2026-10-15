@@ -32,6 +32,14 @@
  * (domyślnie P1), `?team=me|none|proposal` — obsada (domyślnie dwie inne
  * osoby), `?client=long` — długa nazwa klienta, `?collapsed=1` — nagłówek
  * zwinięty, `?readonly=1` — rola bez zmiany priorytetu i przydziału.
+ *
+ * Championi (15.10.2026, D1–D9): `?champion=none|two|seats|legacy` — bez
+ * championów (domyślnie), dwóch championów z „Rozmowy u klienta” (status
+ * „Championi: Karol W. +1”, P1 wstrzymany, karty i panel ze znakiem),
+ * rekrutacja na 2 miejsca z jednym championem („Szukamy · 1 z 2”), stara
+ * flaga bez osób („Mamy championa”). Plakietka statusu otwiera okienko
+ * „Championi tej rekrutacji” (z `?readonly=1` — lista do odczytu); zapis
+ * odpowiada lokalnie.
  */
 
 import { Suspense, useEffect, useMemo, useState } from "react";
@@ -49,7 +57,12 @@ import { JobRecruiterFact } from "@/components/v2/jobs/JobRecruiterFact";
 import type { JobRecruiter } from "@/lib/job-team";
 import { isPriorityLevel } from "@/lib/request-priority";
 import { reassignContextQueryKey } from "@/components/v2/jobs/ScreeningReassignSuggestions";
-import { RequestStatusBadge } from "@/components/v2/jobs/JobListCells";
+import { JobChampionsStatus } from "@/components/v2/jobs/JobChampionsStatus";
+import {
+  jobChampionsQueryKey,
+  type JobChampionEligible,
+  type JobChampionsView,
+} from "@/lib/job-champions-api";
 import { candidateQueryKeys, candidateViewerScopeKey } from "@/components/v2/pages/candidate-query-keys";
 import {
   CANDIDATES_BASE_TOTAL_QUERY_KEY,
@@ -1001,7 +1014,7 @@ function seedCardPanel(qc: QueryClient, item: KanbanItem, columnName: string): v
   }
 }
 
-function seededClient(): QueryClient {
+function seededClient(championMode: HarnessChampionMode = "none"): QueryClient {
   const qc = new QueryClient({
     defaultOptions: {
       queries: { staleTime: Infinity, retry: false, refetchOnMount: false, refetchOnWindowFocus: false },
@@ -1202,7 +1215,10 @@ function seededClient(): QueryClient {
     status: "closed",
     primary_owner: null,
     client_id: REOPEN_CLIENT_ID,
+    // Okno odrzucenia championa czyta championów z tego detalu (D7).
+    ...harnessChampionJob(championMode, "p1"),
   });
+  seedFresh(qc, jobChampionsQueryKey(JOB_ID), harnessChampionsView(championMode));
   // Hiring managera i termin ustawia się w oknie — lista kontaktów klienta.
   seedFresh(qc, ["hiring-manager-options", REOPEN_CLIENT_ID], [
     { id: 31, name: "Anna Przykładowa", position: "Kierowniczka zespołu" },
@@ -1223,6 +1239,95 @@ function seededClient(): QueryClient {
     { id: 8, name: "Piotr Zieliński", email: "piotr@example.com" },
   ]);
   return qc;
+}
+
+// ── Championi (`?champion=`, 15.10.2026) — wyłącznie osoby z kart harnessu ──
+
+type HarnessChampionMode = "none" | "two" | "seats" | "legacy";
+
+function harnessChampionMode(raw: string | null): HarnessChampionMode {
+  return raw === "two" || raw === "seats" || raw === "legacy" ? raw : "none";
+}
+
+/** Karty z `columns()`: Karol (6. karta), Bartek (sprawa stawki), Iza (umowa). */
+const KAROL_ID = 9100 + 6;
+const IZA_ID = 9100 + 8;
+const HARNESS_CHAMPION_PEOPLE: Record<number, Omit<JobChampionEligible, "is_champion">> = {
+  [IZA_ID]: { candidate_id: IZA_ID, name: "Iza Umowna", column: "contract", stage_label: "Umowa" },
+  [RATE_CASE_CANDIDATE_ID]: {
+    candidate_id: RATE_CASE_CANDIDATE_ID,
+    name: "Bartek Testowy",
+    column: "client_interview",
+    stage_label: "Rozmowa z klientem",
+  },
+  [KAROL_ID]: {
+    candidate_id: KAROL_ID,
+    name: "Karol Wzorcowy",
+    column: "client_interview",
+    stage_label: "Rozmowa z klientem",
+  },
+};
+
+const HARNESS_CHAMPION_IDS: Record<HarnessChampionMode, readonly number[]> = {
+  none: [],
+  two: [KAROL_ID, RATE_CASE_CANDIDATE_ID],
+  seats: [KAROL_ID],
+  legacy: [],
+};
+
+/** Championi zapisani w okienku tej karty przeglądarki (bez sieci). */
+let harnessSavedChampionIds: readonly number[] | null = null;
+
+function harnessChampionsView(mode: HarnessChampionMode): JobChampionsView {
+  const ids = harnessSavedChampionIds ?? HARNESS_CHAMPION_IDS[mode];
+  const seats = mode === "seats" ? 2 : 1;
+  const legacy = mode === "legacy" && harnessSavedChampionIds == null;
+  return {
+    job_id: JOB_ID,
+    can_edit: true,
+    seats,
+    hired_count: 0,
+    search_stopped: legacy || ids.length >= seats,
+    legacy_flag: legacy,
+    work_state: "searching",
+    champions: ids.map((id) => ({
+      ...HARNESS_CHAMPION_PEOPLE[id],
+      marked_by_name: "Olga Wzorcowa",
+      marked_at: "2026-10-15T10:12:00Z",
+    })),
+    // Jak serwer: od najdalszej kolumny, w kolumnie alfabetycznie.
+    eligible: [IZA_ID, RATE_CASE_CANDIDATE_ID, KAROL_ID].map((id) => ({
+      ...HARNESS_CHAMPION_PEOPLE[id],
+      is_champion: ids.includes(id),
+    })),
+  };
+}
+
+/** Pola championów w detalu rekrutacji (`GET /api/jobs/{id}`). */
+function harnessChampionJob(mode: HarnessChampionMode, priority: string) {
+  const ids = HARNESS_CHAMPION_IDS[mode];
+  const seats = mode === "seats" ? 2 : 1;
+  const stopped = mode === "legacy" || (ids.length > 0 && ids.length >= seats);
+  return {
+    request_status: stopped ? "champion" : "searching",
+    champions: ids.map((id) => ({ candidate_id: id, name: HARNESS_CHAMPION_PEOPLE[id].name })),
+    champion_seats: seats,
+    headcount: seats,
+    hired_count: 0,
+    priority_paused: stopped && priority === "p1",
+  };
+}
+
+/** Karty championów na Tablicy (`is_champion`). */
+function withChampionCards(cols: KanbanColumn[], mode: HarnessChampionMode): KanbanColumn[] {
+  const ids = HARNESS_CHAMPION_IDS[mode];
+  if (ids.length === 0) return cols;
+  return cols.map((column) => ({
+    ...column,
+    items: column.items.map((item) =>
+      ids.includes(item.candidate_id) ? { ...item, is_champion: true } : item,
+    ),
+  }));
 }
 
 const REOPEN_CLIENT_ID = 11;
@@ -1299,10 +1404,13 @@ function JobDetailHarness() {
   const priorityLevel = isPriorityLevel(prioParam) ? prioParam : "p1";
   const team = HARNESS_TEAM[params.get("team") ?? "others"] ?? HARNESS_TEAM.others;
   const readOnlyRole = params.get("readonly") === "1";
+  const championMode = harnessChampionMode(params.get("champion"));
+  const [championsOpen, setChampionsOpen] = useState(false);
   const [headerCollapsed, setHeaderCollapsed] = useState(params.get("collapsed") === "1");
   const headerJob = useMemo(
     () => ({
       ...JOB,
+      ...harnessChampionJob(championMode, priorityLevel),
       client_name: params.get("client") === "long" ? LONG_CLIENT_NAME : JOB.client_name,
       priority_level: priorityLevel,
       recruiters: team,
@@ -1317,9 +1425,9 @@ function JobDetailHarness() {
       can_staff: !readOnlyRole,
       status: closed ? "closed" : "published",
     }),
-    [params, priorityLevel, team, readOnlyRole, closed],
+    [params, priorityLevel, team, readOnlyRole, closed, championMode],
   );
-  const [client] = useState(seededClient);
+  const [client] = useState(() => seededClient(championMode));
   const [sourceTab, setSourceTab] = useState<CandidateWindowTab | null>(
     CANDIDATE_WINDOW_TABS.includes(initialSources as CandidateWindowTab)
       ? (initialSources as CandidateWindowTab)
@@ -1426,6 +1534,23 @@ function JobDetailHarness() {
         config.adapter = async () => ({ data: {}, status: 200, statusText: "OK", headers: {}, config });
         return config;
       }
+      // Championi (15.10.2026): lista i zapis w pamięci strony.
+      if (config.url === `/api/jobs/${JOB_ID}/champions`) {
+        if (config.method === "put") {
+          const body =
+            typeof config.data === "string" ? JSON.parse(config.data) : config.data;
+          harnessSavedChampionIds = (body as { candidate_ids?: number[] }).candidate_ids ?? [];
+        }
+        const view = harnessChampionsView(championMode);
+        config.adapter = async () => ({
+          data: config.method === "put" ? { ...view, changed: true, work_state_changed: false } : view,
+          status: 200,
+          statusText: "OK",
+          headers: {},
+          config,
+        });
+        return config;
+      }
       // „Wgraj nowe CV” i „Użyj w tej rekrutacji” (13.10.2026): kopia CV etapu
       // w pamięci strony, żeby po wgraniu panel pokazał nowy stan.
       const stageCv = config.url?.match(/^\/api\/candidates\/stages\/(\d+)\/cv\/original(\/upload|\/refresh)?$/);
@@ -1471,7 +1596,7 @@ function JobDetailHarness() {
     useUiStore.setState({ hideEmptyKanbanColumns: !showEmpty });
     setReady(true);
     return () => api.interceptors.request.eject(blocker);
-  }, [showEmpty]);
+  }, [showEmpty, championMode]);
   // Filtr „Kto dodał” (14.10.2026) — harness nie czyta adresu, trzyma go w stanie.
   const [addedBy, setAddedBy] = useState<AddedByFilter>(ADDED_BY_ALL);
   const addedByMenuOptions = useMemo(
@@ -1525,7 +1650,14 @@ function JobDetailHarness() {
                           closed ? (
                             <Badge variant="danger">Zamknięta</Badge>
                           ) : (
-                            <RequestStatusBadge status="searching" />
+                            <JobChampionsStatus
+                              jobId={JOB_ID}
+                              job={headerJob}
+                              canEdit={!readOnlyRole}
+                              open={championsOpen}
+                              onOpenChange={setChampionsOpen}
+                              onOpenPerson={noop}
+                            />
                           )
                         }
                         facts={jobHeaderFacts(headerJob)}
@@ -1534,6 +1666,7 @@ function JobDetailHarness() {
                             jobId={JOB_ID}
                             level={priorityLevel}
                             canSet={!readOnlyRole}
+                            paused={headerJob.priority_paused}
                             // Jak strona rekrutacji: zejście z P1 pyta o zespół.
                             team={{
                               workingNames: team
@@ -1602,8 +1735,9 @@ function JobDetailHarness() {
                         onOpenQuestions={noop}
                         onOpenFiles={() => setFilesOpen(true)}
                         filesCount={PREVIEW_FILES.items.length}
-                        championFound={false}
-                        onToggleChampion={noop}
+                        onOpenChampions={
+                          readOnlyRole || closed ? undefined : () => setChampionsOpen(true)
+                        }
                         onAddByName={noop}
                         onAddFromCv={noop}
                         onStartFullReview={() => setSourceTab("base")}
@@ -1638,7 +1772,7 @@ function JobDetailHarness() {
                         />
                       ) : null}
                       <KanbanBoardV2
-                        columns={columns()}
+                        columns={withChampionCards(columns(), championMode)}
                         headerCollapsed={headerCollapsed}
                         addedBy={addedBy}
                         onAddedByChange={setAddedBy}

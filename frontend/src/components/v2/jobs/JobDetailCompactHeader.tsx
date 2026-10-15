@@ -144,12 +144,11 @@ interface JobDetailCompactHeaderProps {
    */
   onEditFullChampion?: () => void;
   /**
-   * „Mamy championa" (0341) — przełącznik Delivery Leada. `undefined` = rola
-   * bez prawa (brak pozycji); status widać wtedy w odznace statusu.
+   * „Championi…” (D2, 15.10.2026) — otwiera to samo okienko co plakietka
+   * statusu w nagłówku (`JobChampionsStatus`). `undefined` = rola bez prawa
+   * wskazywania championów (brak pozycji).
    */
-  championFound?: boolean;
-  onToggleChampion?: () => void;
-  championPending?: boolean;
+  onOpenChampions?: () => void;
   /** „Dodaj po nazwisku” / „Dodaj z pliku CV” — brak = rola bez prawa dodawania. */
   onAddByName?: () => void;
   onAddFromCv?: () => void;
@@ -225,6 +224,9 @@ function deferMenuAction(action: () => void) {
  * zakładki, ikona „Historia i czat”, „⋯”, „Zwiń”; (2) fakty z ikoną
  * i „Rekruter”; (3) na Tablicy źródła kandydatów i „Kto dodał”. Nazwa od
  * klienta i numery są w dymku tytułu. Zwinięty = sama linia 1.
+ *
+ * 15.10.2026 (D2): championów wskazuje się w okienku plakietki statusu;
+ * pozycja „Championi…” w menu „⋯” otwiera to samo okienko.
  */
 export function JobDetailCompactHeader({
   title,
@@ -255,9 +257,7 @@ export function JobDetailCompactHeader({
   teamSummary,
   onOpenTeam,
   onEditFullChampion,
-  championFound,
-  onToggleChampion,
-  championPending,
+  onOpenChampions,
   onAddByName,
   onAddFromCv,
   onStartFullReview,
@@ -406,7 +406,6 @@ export function JobDetailCompactHeader({
                 variant="outline"
                 aria-label="Więcej akcji rekrutacji"
                 title="Więcej akcji"
-                data-help="job.champion.found"
               >
                 <Ellipsis className="h-4 w-4" />
               </Button>
@@ -436,20 +435,15 @@ export function JobDetailCompactHeader({
                 </>
               ) : null}
 
-              {onToggleChampion ? (
+              {onOpenChampions ? (
                 <>
                   <DropdownMenuItem
-                    onSelect={() => deferMenuAction(onToggleChampion)}
-                    disabled={championPending}
+                    onSelect={() => deferMenuAction(onOpenChampions)}
                     data-testid="toggle-champion"
-                    title={
-                      championFound
-                        ? "Cofnij „Mamy championa” — rekrutacja wraca do „Szukamy”"
-                        : "Mamy championa — dalej nie szukamy"
-                    }
+                    title="Kto jest championem tej rekrutacji — to samo okienko co status w nagłówku"
                   >
                     <Trophy className="h-4 w-4" />
-                    {championFound ? "Cofnij „Mamy championa”" : "Oznacz: mamy championa"}
+                    Championi…
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
                 </>

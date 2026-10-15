@@ -53,6 +53,7 @@ import {
   BellOff,
   Settings2,
   Send,
+  Trophy,
   UserCheck,
 } from "lucide-react";
 import { notificationsApi } from "@/lib/api";
@@ -279,6 +280,18 @@ const TYPE_CONFIG: Record<
     icon: <ClipboardList className="w-3.5 h-3.5" />,
     color: "text-primary",
     bgColor: "bg-primary/15",
+  },
+  // Championi rekrutacji (15.10.2026): DL wskazał albo zdjął championów;
+  // szukanie wróciło, bo odpadł ostatni champion.
+  champions_changed: {
+    icon: <Trophy className="w-3.5 h-3.5" />,
+    color: "text-medal-gold-foreground",
+    bgColor: "bg-medal-gold",
+  },
+  champion_search_resumed: {
+    icon: <Search className="w-3.5 h-3.5" />,
+    color: "text-warning",
+    bgColor: "bg-warning/15",
   },
   stage_rule: {
     icon: <Workflow className="w-3.5 h-3.5" />,

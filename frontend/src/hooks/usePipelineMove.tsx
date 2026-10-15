@@ -71,6 +71,7 @@ import { celebrate } from "@/lib/celebrate";
 import { generatorPrefillHref } from "@/lib/b2b-generator-register";
 import { pendingAgreement } from "@/lib/b2b-agreement";
 import { apiErrorMessage } from "@/lib/api-error";
+import { championRemovalOutcome, type JobChampionsFields } from "@/lib/job-champions";
 import { EmploymentNotice } from "@/components/v2/employment/EmploymentNotice";
 import dynamic from "next/dynamic";
 import {
@@ -1546,6 +1547,20 @@ export function usePipelineMove({
       : null,
     rejectionOpen
   );
+  // Odrzucenie championa (D7): co stanie się z rekrutacją — z detalu
+  // w cache'u (to samo zapytanie trzyma `useRejectionWorkModeJob`). Tylko
+  // przy jednej osobie; bez detalu okno nic nie zapowiada.
+  const championEntry =
+    pendingRejection?.entries.length === 1 && pendingRejection.entries[0].item.is_champion
+      ? pendingRejection.entries[0].item
+      : null;
+  const rejectionChampionNotice = championEntry
+    ? championRemovalOutcome(
+        queryClient.getQueryData<JobChampionsFields>(["job", String(jobId)]),
+        championEntry.candidate_id,
+        itemFullName(championEntry)
+      )
+    : null;
 
   const dialogs: ReactNode = (
     <>
@@ -1592,6 +1607,7 @@ export function usePipelineMove({
             : null
         }
         nextPerson={pendingRejection?.followUp ? pendingRejection.followUp.next : undefined}
+        championNotice={rejectionChampionNotice}
         workModeJob={rejectionWorkModeJob}
         profileWorkMode={rejectionProfileWorkMode}
         emailPreview={

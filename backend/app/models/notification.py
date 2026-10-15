@@ -241,6 +241,13 @@ class NotificationType(str, enum.Enum):
     # tą, która zmieniła priorytet; related_entity=(job, id). Bez maila.
     recruiter_parked = "recruiter_parked"
     recruiter_restored = "recruiter_restored"
+    # 0450: championi rekrutacji (D8, 15.10.2026) — Delivery Lead zapisał
+    # listę championów (``champions_changed``) albo odpadł ostatni champion
+    # i rekrutacja wraca do szukania (``champion_search_resumed``). Do
+    # rekruterów i Delivery Leada rekrutacji poza osobą, która zmieniła listę;
+    # related_entity=(job, id). Bez maila.
+    champions_changed = "champions_changed"
+    champion_search_resumed = "champion_search_resumed"
 
 
 class Notification(Base, TimestampMixin):

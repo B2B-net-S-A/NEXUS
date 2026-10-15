@@ -118,6 +118,12 @@ const MINE = [
     id: 901,
     request_status: "champion",
     request_stage: "champion",
+    // Championi (15.10.2026): imiona w dymku statusu, P1 wstrzymany.
+    champions: [
+      { candidate_id: 1, name: "Karol Wzorcowy" },
+      { candidate_id: 2, name: "Bartek Testowy" },
+    ],
+    priority_paused: true,
     similar: {
       linked_count: 1,
       linked_first: { id: 7712, title: "Java Developer (Spring)", reference_number: "REF-2026-0712" },

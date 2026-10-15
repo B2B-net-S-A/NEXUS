@@ -82,6 +82,28 @@ describe("odznaki karty — Pipeline v4", () => {
     expect(labels(item({ entry_source: "auto_match" }), ctx())[0]).toBe("Z automatu");
   });
 
+  it("champion: złota plakietka zawsze pierwsza, pełnym napisem (D3, 15.10.2026)", () => {
+    const champion = item({
+      stage: "client_interview",
+      is_champion: true,
+      entry_source: "reassign",
+      reassign_from_reference: "ZOB-1725",
+    });
+    const badges = cardBadges(champion, ctx({ column: "client_interview" }));
+    expect(badges[0]).toEqual({
+      key: "champion",
+      label: "Champion",
+      tone: "champion",
+      title: "Champion tej rekrutacji — oznaczył Delivery Lead.",
+    });
+    expect(badges[1].key).toBe("reassign");
+    // Nie skraca się do ikony — „Champion” ma być czytelny na karcie.
+    expect(compactCardBadge(badges[0])).toBeNull();
+    expect(labels(item({ stage: "client_interview" }), ctx({ column: "client_interview" }))).not.toContain(
+      "Champion",
+    );
+  });
+
   it("przepięcie niesie rekrutację źródłową", () => {
     const re = item({ entry_source: "reassign", reassign_from_title: "Java · PKO BP" });
     expect(labels(re, ctx())[0]).toBe("Przepięcie · Java · PKO BP");

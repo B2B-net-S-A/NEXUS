@@ -137,6 +137,9 @@ CATEGORY_BY_TYPE: dict[NotificationType, NotificationCategory] = {
     _T.candidate_rate_change: _C.pipeline,
     _T.candidate_added: _C.pipeline,
     _T.champion_profile_updated: _C.pipeline,
+    # 0450: championi rekrutacji — zapis listy i powrót do szukania (D8).
+    _T.champions_changed: _C.pipeline,
+    _T.champion_search_resumed: _C.pipeline,
     _T.pending_verification: _C.pipeline,
     # Zaległości i przypomnienia
     _T.stage_stuck_7d: _C.reminders,

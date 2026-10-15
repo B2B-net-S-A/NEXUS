@@ -160,7 +160,7 @@ describe("JobDetailCompactHeader", () => {
   });
 
   it("nie ma liczników, ścieżki ani przycisków, które zeszły do menu i na kafle", () => {
-    renderHeader({ onToggleChampion: vi.fn(), onAddByName: vi.fn() });
+    renderHeader({ onOpenChampions: vi.fn(), onAddByName: vi.fn() });
     expect(screen.queryByTestId("job-header-kpis")).toBeNull();
     expect(screen.queryByTestId("job-recruitment-path")).toBeNull();
     expect(screen.queryByText(/Najbliższy krok/i)).toBeNull();
@@ -238,21 +238,15 @@ describe("JobDetailCompactHeader", () => {
     expect(within(await openMenu()).queryByTestId("menu-team")).toBeNull();
   });
 
-  it("menu „⋯”: „Mamy championa” tylko dla roli z prawem i z etykietą stanu", async () => {
-    const onToggleChampion = vi.fn();
-    const first = renderHeader({ onToggleChampion, championFound: false });
+  it("menu „⋯”: „Championi…” otwiera okienko championów tylko roli z prawem (D2)", async () => {
+    const onOpenChampions = vi.fn();
+    const first = renderHeader({ onOpenChampions });
     const menu = await openMenu();
     const item = within(menu).getByTestId("toggle-champion");
-    expect(item).toHaveTextContent("Oznacz: mamy championa");
+    expect(item).toHaveTextContent("Championi…");
     await userEvent.click(item);
-    await waitFor(() => expect(onToggleChampion).toHaveBeenCalled());
+    await waitFor(() => expect(onOpenChampions).toHaveBeenCalled());
     first.unmount();
-
-    const second = renderHeader({ onToggleChampion, championFound: true });
-    expect(within(await openMenu()).getByTestId("toggle-champion")).toHaveTextContent(
-      "Cofnij „Mamy championa”",
-    );
-    second.unmount();
 
     renderHeader();
     expect(within(await openMenu()).queryByTestId("toggle-champion")).toBeNull();

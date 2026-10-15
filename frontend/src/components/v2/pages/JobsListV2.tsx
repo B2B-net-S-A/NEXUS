@@ -398,7 +398,12 @@ function JobsTable({
                 {/* Priorytet stoi przy tytule (P2 nie ma plakietki), bez
                     osobnej kolumny. */}
                 <div className="flex min-w-0 items-center gap-1.5">
-                <RequestPriorityChip level={priorityLevelOf(job)} className="shrink-0" />
+                <RequestPriorityChip
+                  level={priorityLevelOf(job)}
+                  // P1 wstrzymany, bo mamy championa (D6, 15.10.2026).
+                  paused={job.priority_paused === true}
+                  className="shrink-0"
+                />
                 {/* Numer u klienta przed nazwą (prośba DL Nordei, 15.10.2026):
                     tytuły dla rekrutera są uogólnione i bez numeru nie widać,
                     który request to który. Poza linkiem — nazwa linku zostaje
@@ -478,6 +483,7 @@ function JobsTable({
                 <RequestStageBadge
                   stage={job.request_stage}
                   fallbackStatus={job.request_status}
+                  champions={job.champions}
                 />
               </TableCell>
               <TableCell className="px-2">

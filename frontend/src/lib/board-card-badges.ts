@@ -31,7 +31,8 @@ export type CardBadgeTone =
   | "urgent"
   | "info"
   | "neutral"
-  | "rate";
+  | "rate"
+  | "champion";
 
 export interface CardBadge {
   key: string;
@@ -73,6 +74,8 @@ export const CARD_BADGE_TONE_CLASS: Record<CardBadgeTone, string> = {
   info: "bg-info/15 text-info",
   neutral: "bg-muted text-muted-foreground",
   rate: "bg-muted text-foreground tabular-nums",
+  // Championi (D3, 15.10.2026): ten sam złoty kolor co status w nagłówku.
+  champion: "bg-medal-gold text-medal-gold-foreground",
 };
 
 const RATE_UNIT_LABEL: Record<string, string> = {
@@ -424,6 +427,16 @@ function claimBadge(item: KanbanItem, ctx: CardBadgeContext): CardBadge {
 export function cardBadges(item: KanbanItem, ctx: CardBadgeContext): CardBadge[] {
   const out: CardBadge[] = [];
   const column = ctx.column;
+  // Champion pierwszy (D3, 15.10.2026) — oznacza go Delivery Lead w nagłówku
+  // rekrutacji, karta tylko to pokazuje.
+  if (item.is_champion) {
+    out.push({
+      key: "champion",
+      label: "Champion",
+      tone: "champion",
+      title: "Champion tej rekrutacji — oznaczył Delivery Lead.",
+    });
+  }
   if (item.entry_source === "reassign") {
     out.push({
       key: "reassign",

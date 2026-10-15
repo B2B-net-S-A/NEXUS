@@ -165,9 +165,10 @@ from app.services.job_previous_recruiters import (
 )
 from app.services.job_priority import (
     PRIORITY_LEVELS,
+    attention_priority_rank_expr,
     level_of,
-    priorities_for_levels,
-    priority_rank_expr,
+    priority_level_clause,
+    priority_paused,
     record_level_change,
 )
 from app.services.job_team import (
@@ -1427,7 +1428,8 @@ async def list_jobs(
         unknown = sorted(set(priority_level) - set(PRIORITY_LEVELS))
         if unknown:
             raise HTTPException(422, f"Nieznany priorytet: {', '.join(unknown)}")
-        query = query.where(Job.priority.in_(priorities_for_levels(priority_level)))
+        # D6 (15.10.2026): P1 z championem filtruje się jak „Bez priorytetu”.
+        query = query.where(priority_level_clause(priority_level))
     if opened_from is not None and opened_to is not None and opened_from > opened_to:
         raise HTTPException(
             422, "Zakres „Data otwarcia”: data początkowa późniejsza niż końcowa."
@@ -1532,8 +1534,9 @@ async def list_jobs(
         )
         query = query.outerjoin(attention, attention.c.job_id == Job.id).order_by(
             # P1 („Pilne”) zawsze na górze (02.10.2026) — tak samo ustawia
-            # kolejkę automat przydziału (`job_priority.priority_rank`).
-            priority_rank_expr().asc(),
+            # kolejkę automat przydziału (`job_priority.priority_rank`). P1
+            # z championem schodzi do reszty (D6, 15.10.2026).
+            attention_priority_rank_expr().asc(),
             func.coalesce(attention.c.needs_action_count, 0).desc(),
             # Przeterminowane przed resztą; brak terminu nie jest zaległością.
             case((Job.deadline < business_today(), 0), else_=1),
@@ -1810,10 +1813,17 @@ async def list_jobs(
             row_job_id: int(count) for row_job_id, count in carry_rows
         }
 
+    # 0450 (D3): imiona championów do dymku plakietki statusu.
+    from app.services import job_champions  # noqa: PLC0415
+
+    champion_briefs = await job_champions.live_briefs(db, [j.id for j in jobs])
     items = []
     for j in jobs:
         d = JobResponse.model_validate(j).model_dump()
         d["candidate_count"] = counts.get(j.id, 0)
+        d["champions"] = champion_briefs.get(j.id, [])
+        d["champion_seats"] = max(j.headcount or 1, 1)
+        d["priority_paused"] = priority_paused(j)
         d["primary_owner"] = (
             user_brief_map.get(j.recruiter_id) if j.recruiter_id is not None else None
         )
@@ -1890,6 +1900,10 @@ async def list_jobs(
             delivery_lead_pairs is None
             or (j.client_id, j.tac_id) in delivery_lead_pairs
         )
+        if not d["can_open"]:
+            # Imiona championów to dane kandydatów rekrutacji, której ta osoba
+            # nie otworzy — wiersz zostaje, osoby nie.
+            d["champions"] = []
         items.append(d)
 
     return {"items": items, "total": total, "page": page, "page_size": page_size}
@@ -2376,6 +2390,11 @@ async def get_job(
     from app.services.job_similarity import request_statuses  # noqa: PLC0415
 
     payload["request_status"] = (await request_statuses(db, [job.id])).get(job.id)
+    # 0450 (D1–D9): championi, miejsca, zatrudnieni (okno odrzucenia) i P1
+    # wstrzymany przez championa — plakietki nagłówka.
+    from app.services import job_champions  # noqa: PLC0415
+
+    payload.update(await job_champions.detail_fields(db, job))
     from app.services.board_stage_badges import cpro_enabled_for_client  # noqa: PLC0415
 
     payload["cpro_enabled"] = cpro_enabled_for_client(job.client_id)

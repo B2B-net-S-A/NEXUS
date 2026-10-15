@@ -28,12 +28,13 @@ function renderMenu(
   level: PriorityLevel,
   canSet: boolean,
   team?: { workingNames?: readonly string[]; closed?: boolean },
+  paused?: boolean,
 ) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const invalidate = vi.spyOn(client, "invalidateQueries");
   render(
     <QueryClientProvider client={client}>
-      <JobPriorityMenu jobId={42} level={level} canSet={canSet} team={team} />
+      <JobPriorityMenu jobId={42} level={level} canSet={canSet} team={team} paused={paused} />
     </QueryClientProvider>,
   );
   return { invalidate };
@@ -56,6 +57,25 @@ describe("JobPriorityMenu", () => {
       "P1 Pilne. Priorytet zmienia Delivery Lead albo Head of Recruitment.",
     );
     expect(screen.queryByRole("button")).toBeNull();
+  });
+
+  it("P1 wstrzymany przez championa: szara plakietka z pauzą, w menu zdanie dlaczego (D6)", async () => {
+    const hint = "P1 wstrzymany, bo mamy championa. Wróci, gdy odpadnie ostatni champion.";
+    renderMenu("p1", true, undefined, true);
+    expect(chip()).toHaveAttribute("data-paused", "true");
+    expect(chip()).toHaveTextContent("P1");
+    expect(chip().className).toContain("border-dashed");
+    expect(chip().className).not.toContain("bg-destructive-muted");
+    await userEvent.click(chip());
+    const menu = await screen.findByTestId("job-priority-menu");
+    expect(within(menu).getByTestId("job-priority-paused-note")).toHaveTextContent(hint);
+  });
+
+  it("wstrzymany P1 bez prawa zmiany: ten sam wariant i dymek z powodem", () => {
+    renderMenu("p1", false, undefined, true);
+    expect(chip().tagName).toBe("SPAN");
+    expect(chip()).toHaveAttribute("data-paused", "true");
+    expect(chip().getAttribute("title")).toContain("P1 wstrzymany, bo mamy championa.");
   });
 
   it("„Bez priorytetu” też stoi w nagłówku — pole widać, choć na liście nie ma plakietki", () => {

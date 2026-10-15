@@ -32,6 +32,25 @@ describe("RequestPriorityChip", () => {
     expect(container).toBeEmptyDOMElement();
   });
 
+  it("P1 wstrzymany przez championa: szara, przerywana ramka, pauza i zdanie dlaczego (D6)", () => {
+    render(<RequestPriorityChip level="p1" paused />);
+    const hint = "P1 wstrzymany, bo mamy championa. Wróci, gdy odpadnie ostatni champion.";
+    const chip = screen.getByTitle(hint);
+    expect(chip).toHaveAttribute("data-paused", "true");
+    expect(chip).toHaveAttribute("data-priority", "p1");
+    expect(chip.className).toContain("border-dashed");
+    expect(chip.className).toContain("text-muted-foreground");
+    expect(chip.className).not.toContain("bg-destructive-muted");
+    expect(screen.getByText("P1")).toHaveAttribute("aria-hidden", "true");
+    expect(screen.getByText(hint)).toHaveClass("sr-only");
+  });
+
+  it("wstrzymanie dotyczy tylko P1 — „Przyjmujemy” bez zmian", () => {
+    render(<RequestPriorityChip level="accepting" paused />);
+    const chip = screen.getByTitle("Przyjmujemy kandydatów");
+    expect(chip).not.toHaveAttribute("data-paused");
+  });
+
   it("brak poziomu niczego nie renderuje", () => {
     const { container, rerender } = render(<RequestPriorityChip level={null} />);
     expect(container).toBeEmptyDOMElement();

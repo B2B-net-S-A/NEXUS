@@ -18,7 +18,7 @@
       },
       {
         "q": "Co pokazuje status requestu?",
-        "a": "Każda rekrutacja ma jeden stan. „Do uzupełnienia” — stary szkic sprzed 04.10.2026; nowych szkiców nie ma. „Do przejrzenia” — nikt nie zdecydował, czy nad nią pracujemy. „Szukamy” trwa do „Mamy championa”. „Umowa” — ktoś jest na etapie umowy. „Klient milczy” — klient nie odpowiada. Kilka stanów naraz pokazuje rekrutacje w którymkolwiek z nich.",
+        "a": "Każda rekrutacja ma jeden stan. „Do uzupełnienia” — stary szkic sprzed 04.10.2026; nowych szkiców nie ma. „Do przejrzenia” — nikt nie zdecydował, czy nad nią pracujemy. „Szukamy” trwa do wskazania championów. „Umowa” — ktoś jest na etapie umowy. „Klient milczy” — klient nie odpowiada. Kilka stanów naraz pokazuje rekrutacje w którymkolwiek z nich.",
         "anchor": "jobs.list.status"
       },
       {
@@ -34,7 +34,7 @@
     "pitfalls": [
       "Lista otwiera się z Twoimi ostatnimi filtrami (bez tekstu z wyszukiwarki). Pusta albo krótka lista nie znaczy, że rekrutacji nie ma — kliknij „Wyczyść” albo przełącz zakres na „Moja kategoria”, „Otwarte” lub „Wszystkie”.",
       "Przerywana ramka z dopiskiem „propozycja” w kolumnie „Rekruter” to propozycja automatu. Dopóki Head of Recruitment jej nie zaakceptuje, nikt nie jest przypisany, a rekrutacja liczy się jako „Bez rekrutera”. Admin, Head of Recruitment i Delivery Lead zmieniają Rekrutera kliknięciem w tę kolumnę (poza zamkniętymi rekrutacjami) — tam też Head of Recruitment akceptuje propozycję.",
-      "Sortowanie „Wymaga uwagi” stawia na górze rekrutacje P1 (pilne), potem te z największą liczbą kandydatów czekających na Twój ruch.",
+      "Sortowanie „Wymaga uwagi” stawia na górze rekrutacje P1 (pilne), potem te z największą liczbą kandydatów czekających na Twój ruch. P1 z championem jest wstrzymany (szare „P1” z pauzą) i schodzi niżej.",
       "„Do przejrzenia”, „Szukamy” i „Klient milczy” to stan nadany przez Delivery Leada w „Porządku w requestach” (przycisk nad listą, widzą go DL, Head of Recruitment i admin); ten sam stan stoi w wierszu listy. Rekrutacje obsadzone i zakończone nie mają osobnego stanu nad listą — są pod „Wszystkie”."
     ],
     "anchors": [
@@ -75,8 +75,8 @@
         "anchor": "jobs.board.sources"
       },
       {
-        "q": "Gdzie są rzadsze akcje, np. „Mamy championa” albo dodanie po nazwisku?",
-        "a": "W menu „⋯” w prawym górnym rogu: „Oznacz: mamy championa”, „Dodaj po nazwisku”, „Dodaj z pliku CV”, „Przeszukaj całą bazę (AI)”, „Moi ludzie do tej rekrutacji”, skrót zlecenia, zespół, baza pytań i ukrywanie pustych kolumn."
+        "q": "Gdzie są rzadsze akcje, np. championi albo dodanie po nazwisku?",
+        "a": "W menu „⋯” w prawym górnym rogu: „Championi…” (ta sama lista co pod plakietką statusu), „Dodaj po nazwisku”, „Dodaj z pliku CV”, „Przeszukaj całą bazę (AI)”, „Moi ludzie do tej rekrutacji”, skrót zlecenia, zespół, baza pytań i ukrywanie pustych kolumn."
       },
       {
         "q": "Gdzie są odrzuceni i ci, którzy zrezygnowali?",
@@ -220,8 +220,8 @@
         "anchor": "job.champion.reconcile"
       },
       {
-        "q": "Jak oznaczyć, że mamy już championa?",
-        "a": "Delivery Lead otwiera menu „⋯” w nagłówku rekrutacji i klika „Oznacz: mamy championa”. Status zmienia się z „Szukamy” na „Mamy championa”; da się to cofnąć tą samą pozycją menu.",
+        "q": "Jak oznaczyć championa — osobę, którą chce klient?",
+        "a": "Delivery Lead klika plakietkę statusu obok tytułu rekrutacji (np. „Szukamy”), zaznacza jedną albo kilka osób i klika „Zapisz”. Ta sama lista jest w menu „⋯” → „Championi…”. Rekrutacja przestaje szukać, a P1 czeka; gdy odpadnie ostatni champion, wraca sama do „Szukamy”.",
         "anchor": "job.champion.found"
       },
       {
@@ -243,8 +243,8 @@
       {"id": "job.champion.reconcile", "label": "Uzgodnij profil i pola", "describe": "Porównanie profilu z polami rekrutacji."},
       {
         "id": "job.champion.found",
-        "label": "Mamy championa",
-        "describe": "Menu „⋯” w nagłówku rekrutacji — pozycja „Oznacz: mamy championa”.",
+        "label": "Championi",
+        "describe": "Plakietka statusu obok tytułu rekrutacji — lista „Championi” do zaznaczenia (także menu „⋯” → „Championi…”).",
         "requires": {"roles": ["admin", "delivery_lead", "head_of_recruitment"]}
       },
       {"id": "job.champion.sections", "label": "Spis sekcji", "describe": "Spis sekcji w pełnym formularzu (menu „⋯” → „Edytuj cały Profil Championa”)."}

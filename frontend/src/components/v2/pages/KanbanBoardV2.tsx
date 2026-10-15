@@ -992,8 +992,11 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  <div
  data-kanban-card=""
  data-candidate-id={item.candidate_id}
+ data-champion={item.is_champion ? "true" : undefined}
  onClick={handleCardClick}
  className={cn("group relative rounded-lg bg-card border border-border transition-all","hover:shadow-xs hover:border-primary/40",
+ // Champion (D3, 15.10.2026): złota obwódka; zaznaczenie i weto HM wygrywają.
+ item.is_champion &&"border-medal-gold-foreground/40",
  selected &&"ring-2 ring-primary border-primary",
  // Makieta kroku 04 daje karcie ~9 px oddechu; stare `p-5` (20 px) zjadało
  // przy 176 px kolumny ćwierć jej szerokości na sam padding.

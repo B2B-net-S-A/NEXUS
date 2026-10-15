@@ -8,9 +8,10 @@ Serwis `services/job_similarity.py`, trasy `api/job_similar.py`.
   acceptance/negotiation/onboarding albo etap szablonu „Umowa…") → `champion`
   → `incomplete` (szkic) → `searching`. Filtr listy (`?request_status=`, front
   `rs=`) i pole wiersza/szczegółów czytają TO SAMO wyrażenie.
-- **„Szukamy" trwa, dopóki Delivery Lead nie oznaczy „Mamy championa"**
-  (`POST /api/jobs/{id}/champion-found`, admin/DL/HoR + członkostwo;
-  `jobs.champion_found_at/by`). Liczby „w bazie" świadomie NIE pokazujemy —
+- **„Szukamy" trwa, dopóki Delivery Lead nie wskaże championów** (od
+  15.10.2026 osoby, nie sama flaga — sekcja „Championi rekrutacji” na końcu
+  pliku; `jobs.champion_found_at/by` zostaje jako flaga „nie szukamy”
+  liczona z championów). Liczby „w bazie" świadomie NIE pokazujemy —
   rekruterzy oceniają sami; „Wymaga ruchu" zdjęte z wiersza listy (sortowanie
   „Wymaga uwagi" zostaje).
 - **Przepięcie = osoba wysłana do klienta (cv_sent…negotiation, nie
@@ -200,3 +201,78 @@ Serwis `services/job_similarity.py`, trasy `api/job_similar.py`.
   aktywnych (utknęli, bez akcji, ostrzeżenia, poza szablonem, rekruter, puste
   kolumny); po prawej „N w procesie · M utknęło" i SLA. Filtry PRZYGASZAJĄ karty, nigdy
   ich nie usuwają (indeksy `@hello-pangea/dnd`).
+
+## Championi rekrutacji — osoby, kilku naraz (D1–D9, 15.10.2026)
+
+Zgłoszenie DL i rekruterów: DL nie wiedział, gdzie oznaczyć championa („⋯”),
+rekruterzy nie wiedzieli, czy champion jest i kto nim jest, a rekrutacja
+z championem dalej wyglądała na P1. Decyzje Artura D1–D9, makiety v2:
+https://claude.ai/artifact/VsMAfe4GgPC3g9LHEx2M1z. Kod: tabela `job_champions`
+(0450), serwis `services/job_champions.py` + czyste reguły
+`services/job_champion_rules.py`, trasy `api/job_champions.py`.
+
+- **Champion to osoba, może ich być kilku (D1).** `GET/PUT
+  /api/jobs/{id}/champions` — PUT przyjmuje PEŁNĄ listę `candidate_ids`
+  (pusta = zdejmij). Zapisuje admin/DL/HoR (`_CHAMPION_ROLES`, sprawdzane
+  w handlerze — macierz authz tego nie widzi, pilnuje `test_job_champions.py`)
+  z członkostwem; blokady: `allocation_lock` → wiersz rekrutacji. Stary
+  `POST …/champion-found`: `found:false` czyści listę i flagę, `found:true` = 422.
+  Oznaczenia sprzed 15.10 (sama flaga, bez osób) zostają — okienko prosi
+  DL o wskazanie osób, haki ich nie ruszają.
+- **Jedno miejsce oznaczania (D2).** Plakietka statusu w nagłówku
+  (`JobChampionsStatus`) otwiera okienko „Championi tej rekrutacji”: DL
+  zaznacza osoby i zapisuje raz; rekruter widzi listę do odczytu. Ta sama
+  lista pod „⋯” → „Championi…”. **Przy kandydatach nie ma przycisków
+  oznaczania** — Artur odrzucił je jako dodatkowe pole przy każdej osobie.
+- **Gdzie widać championa (D3) — tylko cztery istniejące elementy:**
+  plakietka statusu (`Champion: Karol W.` / `Championi: Karol W. +1` /
+  `Szukamy · 1 z 2`), plakietka „Champion” na karcie Tablicy
+  (`is_champion` w `CandidateStageResponse`, pierwsza w `cardBadges`), przy
+  nazwisku w panelu osoby, dymek plakietki statusu na liście `/jobs`
+  (`champions` w wierszu). Kolor: token `medal-gold` (jak Liga). Bez imion na
+  pulpicie i w „Profilu Championa” — świadomie. Viewer nie dostaje imion
+  (`champions` w `_VIEWER_REDACTED_JOB_FIELDS`).
+- **Kogo można wskazać (D4):** aktywna karta od „CV wysłane” wzwyż (kolumny
+  `cv_sent`, `client_interview`, `contract`, `hired` przez `board_column_for`
+  na najnowszym wierszu pary). Już wskazanego lista nie wyrzuca, nawet gdy
+  karta się cofnęła; nowa osoba spoza listy = 422 `champion_not_eligible`
+  i zero zapisu.
+- **Kiedy „nie szukamy” (D5):** |championi ∪ zatrudnieni| ≥ `max(headcount, 1)`
+  (`search_stops`). Przy jednym miejscu wystarczy pierwszy champion, kolejni
+  są zapasem. Bez żadnego championa flaga nie powstaje (komplet zatrudnionych
+  to „Obsadzona”). Przeliczają: zapis listy, zamknięcie karty championa,
+  zatrudnienie przez `/move` i API v1. Zatrudnienie z podpisu umowy B2B
+  (`b2b_contract_automation`) nie przelicza od razu — przy kilku miejscach
+  zrobi to najbliższy zapis listy albo ruch championa.
+- **P1 wstrzymany, nie zdjęty (D6).** `jobs.priority` się nie zmienia (zapis
+  „Bez priorytetu” przeniósłby zespół do „Poprzedni rekruter”). Sortowanie
+  „Wymaga uwagi” (`attention_priority_rank_expr`) i filtr poziomu
+  (`priority_level_clause`) traktują P1 z championem przy „Szukamy” jak „Bez
+  priorytetu”; pole `priority_paused` rysuje „P1” z pauzą. Automat, obłożenie
+  P1, „Nowe rekrutacje P1” i API v1 liczą swoje pule z `champion_found_at`
+  bez zmian.
+- **Champion odpada sam (D7):** ruch karty do kolumny „closed” (odrzucenie,
+  rezygnacja, „Rezerwa”) → `cleared_reason='card_closed'`; usunięcie z
+  rekrutacji albo z bazy → `removed_from_job`. Zostaje inny champion → dalej
+  „nie szukamy”; odpadł ostatni → flaga gaśnie, `restore_after_champion_removed`
+  oddaje ręcznie dodanych, P1 wraca. Przeliczenie (`job_champions.reconcile`)
+  biegnie **po commicie** ruchu / usunięcia, we własnej transakcji
+  (`_post_commit_effect` w `run_move_effects`, `reconcile_after_commit`):
+  w środku ruchu transakcja trzyma wiersz kandydata i blokadę klucza
+  rekrutacji, więc `allocation_lock` tam zakleszczyłby się z trasami zespołu.
+  Okno odrzucenia (`RejectionV2`) mówi to jednym zdaniem przed decyzją.
+  Bliźniacze rekrutacje: wiersze idą za osobą (`job_twin_merge.FOLLOW`),
+  flaga celu przelicza się przy najbliższej zmianie. Import z Traffita jest
+  wyłączony (14.10) — jego odrzucenia nie mają haka.
+- **Dzwonki (D8):** `champions_changed` po zapisie listy, która coś zmieniła;
+  `champion_search_resumed`, gdy rekrutacja wraca do szukania (zapis pustej
+  listy albo odpadł ostatni). Do pracujących rekruterów i DL rekrutacji bez
+  autora, kategoria „Ruchy w rekrutacjach”. Odpadnięcie championa, gdy zostaje
+  inny, nie dzwoni. Dzwonki idą bez `related_entity_id` (link do rekrutacji
+  zostaje) — dobowy dedup `ix_notif_dedup_daily` połknąłby drugą zmianę tego
+  samego dnia.
+- **Zapis poza „Szukamy” (D9):** niepusta lista przy „Do przejrzenia” albo
+  „Klient milczy” przestawia stan na „Szukamy” (`set_work_state`, powód
+  `champion`). Reguła z 28.09 („champion widać tylko przy Szukamy”) zostaje.
+  „Zakończony” i zamknięta rekrutacja = 409.
+

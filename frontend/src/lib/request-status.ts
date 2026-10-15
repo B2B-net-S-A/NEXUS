@@ -1,7 +1,8 @@
 /**
  * Status requestu (0341) — liczy serwer (`job_similarity.request_status_expr`),
- * front tylko nazywa. „Szukamy" trwa, dopóki Delivery Lead nie oznaczy
- * „Mamy championa" (decyzja Artura 22.09.2026).
+ * front tylko nazywa. „Szukamy" trwa, dopóki Delivery Lead nie wskaże
+ * championów na tyle miejsc, ile ma rekrutacja (decyzje Artura 22.09
+ * i 15.10.2026, `lib/job-champions.ts`).
  */
 
 export type RequestStatus =
@@ -22,7 +23,7 @@ export const REQUEST_STATUS_META: Record<
   champion: {
     label: "Mamy championa",
     tone: "client",
-    hint: "Delivery Lead ma kandydata — dalej nie szukamy.",
+    hint: "Delivery Lead wskazał championów — dalej nie szukamy.",
   },
   contract: { label: "Umowa", tone: "client", hint: "Ktoś jest na etapie umowy." },
   filled: { label: "Obsadzona", tone: "done", hint: "Komplet zatrudnionych." },
@@ -49,5 +50,5 @@ export function requestStatusOf(raw: unknown): RequestStatus | null {
     : null;
 }
 
-/** Kto może oznaczyć „Mamy championa" — lustro `_CHAMPION_ROLES` w backendzie. */
+/** Kto wskazuje championów rekrutacji — lustro `_CHAMPION_ROLES` w backendzie. */
 export const CHAMPION_ROLES = ["admin", "delivery_lead", "head_of_recruitment"] as const;
