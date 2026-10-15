@@ -106,6 +106,15 @@ import { RateHistoryDialog } from "@/components/v2/candidate-profile/RateHistory
 import api from "@/lib/api";
 import { notesAvailabilityOrigin } from "@/lib/notes-facts";
 import {
+  contractAvailability,
+  contractAvailabilityCountdown,
+  contractAvailabilityOrigin,
+  contractAvailabilityText,
+  type ContractAvailability,
+} from "@/lib/contract-availability";
+import type { EmploymentMarker } from "@/lib/employment-marker";
+import { formatIsoDatePl } from "@/lib/date-pl";
+import {
   AVAILABILITY_STATUS_OPTIONS,
   NOTICE_PERIOD_UNITS,
   availabilityDraft,
@@ -290,6 +299,13 @@ interface CandidateProfileFactsBarProps {
     notice_period_unit?: string | null;
     preferences?: unknown;
     max_onsite_days_per_week?: number | null;
+    /**
+     * Znacznik „Pracuje u nas” — przy żywej umowie dostępność i stawka idą
+     * z umowy, nie ze screeningu (15.10.2026).
+     */
+    employment_marker?: EmploymentMarker | null;
+    /** Skąd „Stawka od”; `contract` = stawka z żywej umowy. */
+    rate_from_source?: string | null;
   } & CandidateCallFacts &
     RateFromFields;
 }
@@ -373,10 +389,17 @@ function languageLabel(language: CandidateLanguagesResponse["languages"][number]
  * Linia pod wartością z profilu: co i kiedy ustalono w rozmowie (karta
  * rekomendacji). Wartość z profilu zostaje główną — po niej filtruje lista.
  */
+/**
+ * Źródło faktu. `tone: "contract"` = wartość z umowy osoby, która pracuje
+ * u nas (zielona kropka, kolor ramki „Pracuje u nas”); bez tonu — rozmowa
+ * albo notatka.
+ */
+type FactOrigin = { text: string; title: string; tone?: "contract" | "notes" };
+
 function cardOrigin(
   fact: CandidateCardFact | undefined,
   profileAmount?: number | null,
-): { text: string; title: string } | undefined {
+): FactOrigin | undefined {
   const text = cardFactLine(fact, profileAmount);
   return fact && text ? { text, title: cardFactTitle(fact) } : undefined;
 }
@@ -400,7 +423,8 @@ const FactsLayoutContext = React.createContext<{
  * albo Enter — działa też na dotyk, tooltip by nie zadziałał). Treść niesie
  * `data-fact-origin`, jak linia źródła w pozostałych układach.
  */
-function FactOriginDot({ origin }: { origin: { text: string; title: string } }) {
+function FactOriginDot({ origin }: { origin: FactOrigin }) {
+  const contract = origin.tone === "contract";
   return (
     <Popover>
       <PopoverTrigger asChild>
@@ -408,9 +432,16 @@ function FactOriginDot({ origin }: { origin: { text: string; title: string } }) 
           type="button"
           aria-label={`Źródło: ${origin.text}`}
           title={origin.title}
+          data-origin-tone={contract ? "contract" : undefined}
           className="ml-1 inline-flex size-5 shrink-0 items-center justify-center rounded-full align-middle hover:bg-accent"
         >
-          <span aria-hidden className="size-1.5 rounded-full bg-primary" />
+          <span
+            aria-hidden
+            className={cn(
+              "size-1.5 rounded-full",
+              contract ? "bg-success ring-2 ring-success-muted" : "bg-primary",
+            )}
+          />
         </button>
       </PopoverTrigger>
       <PopoverContent align="start" className="w-64 p-3 text-xs">
@@ -439,8 +470,8 @@ function FactShell({
   /** Akcja widoczna także poza trybem edycji (np. „Ponów” po awarii). */
   actionAlways?: boolean;
   muted?: boolean;
-  /** Źródło i data ustalenia z rozmowy (karta rekomendacji). */
-  origin?: { text: string; title: string };
+  /** Źródło i data ustalenia z rozmowy (karta rekomendacji) albo umowa. */
+  origin?: FactOrigin;
   /** Akcja pod opisem źródła (np. „Historia stawek”). */
   footer?: React.ReactNode;
 }) {
@@ -1046,6 +1077,37 @@ function LocationEditor({
   );
 }
 
+/**
+ * Ramka w oknie dostępności przy żywej umowie (D6, 15.10.2026): do kiedy
+ * osoba pracuje u nas i co zrobi wpisana data. Termin z umowy liczy się bez
+ * daty z profilu — stąd `null` jako data profilu.
+ */
+function availabilityContractNote(
+  marker: EmploymentMarker | null | undefined,
+): string | null {
+  const contract = contractAvailability(marker, null);
+  if (!contract) return null;
+  const client = contract.clientName ? ` (${contract.clientName})` : "";
+  const lead = contract.deliveryLead
+    ? `Delivery Lead (${contract.deliveryLead})`
+    : "Delivery Lead";
+  if (contract.kind === "starting") {
+    return `${contractAvailabilityText(contract)}${client}. Termin dostępności ustala ${lead}.`;
+  }
+  if (contract.kind === "no_end_date") {
+    return (
+      `Pracuje u nas bez daty końca zamówienia${client}. Termin ustala ${lead}; ` +
+      "data wpisana tutaj liczy się dopiero, gdy koniec pracy będzie znany."
+    );
+  }
+  return (
+    `Pracuje u nas do ${formatIsoDatePl(contract.workEnd)}${client}. Karta pokazuje ` +
+    `„${contractAvailabilityText(contract)}”. Data wcześniejsza nic nie zmieni — odejście ` +
+    `przed końcem zamówienia ustala ${lead}. Data późniejsza, np. po urlopie, zastąpi ` +
+    "termin z kontraktu."
+  );
+}
+
 function AvailabilityEditor({
   open,
   onOpenChange,
@@ -1075,6 +1137,7 @@ function AvailabilityEditor({
 
   const validationError = availabilityDraftError(draft);
   const patch = availabilityPatch(initial, draft);
+  const contractNote = availabilityContractNote(candidate.employment_marker);
   const mutation = useMutation({
     mutationFn: () => api.patch(`/api/candidates/${candidate.id}`, patch),
     onSuccess: () => {
@@ -1101,6 +1164,14 @@ function AvailabilityEditor({
           </DialogDescription>
         </DialogHeader>
         <DialogBody className="grid gap-4 sm:grid-cols-2">
+          {contractNote ? (
+            <p
+              data-testid="availability-contract-note"
+              className="rounded-lg bg-success-muted px-3 py-2 text-xs leading-5 text-success-muted-foreground sm:col-span-2"
+            >
+              {contractNote}
+            </p>
+          ) : null}
           <div className="sm:col-span-2">
             <Label htmlFor="candidate-availability-status">Czy szuka pracy</Label>
             <select
@@ -1956,15 +2027,47 @@ export function CandidateProfileFactsBar({
   // i AI. Pokazujemy ją, gdy różni się od stawki profilu albo profil jej nie ma
   // — inaczej kafel mówi to samo dwa razy.
   const rateFromAmount = toAmount(candidate.rate_from_hourly);
-  const rateFrom =
-    rateFromAmount !== null &&
-    (profileRate === null ||
-      Math.abs(rateFromAmount - profileRate) >= 0.005 ||
-      Boolean(candidate.rate_from_stale) ||
-      (candidate.rate_observation_count ?? 0) > 1)
+  // Osoba z żywą umową (15.10.2026, D4/D5): „Stawka od” = stawka z umowy —
+  // wiersz mówi „Stawka u nas” zawsze, także gdy kwota równa się profilowi.
+  const rateFromContract =
+    rateFromAmount !== null && candidate.rate_from_source === "contract";
+  const rateFrom = rateFromContract
+    ? formatRate(String(rateFromAmount))
+    : rateFromAmount !== null &&
+        (profileRate === null ||
+          Math.abs(rateFromAmount - profileRate) >= 0.005 ||
+          Boolean(candidate.rate_from_stale) ||
+          (candidate.rate_observation_count ?? 0) > 1)
       ? (rateFromText(candidate) ?? "").replace(/^od /, "")
       : null;
-  const rateSecond = rateFrom ? rateSecondLine(candidate) : null;
+  const rateSecond = rateFrom && !rateFromContract ? rateSecondLine(candidate) : null;
+  const contractClients =
+    candidate.employment_marker?.clients
+      .map((client) => client.client_name?.trim())
+      .filter(Boolean)
+      .join(", ") || null;
+  const rateContractOrigin: FactOrigin | undefined = rateFromContract
+    ? {
+        title: "Z umowy",
+        tone: "contract",
+        text:
+          `Z umowy${contractClients ? ` z ${contractClients}` : ""}: stawka konsultanta, ` +
+          "liczy się, dopóki umowa trwa." +
+          (profileRate !== null && Math.abs(profileRate - (rateFromAmount ?? 0)) >= 0.005
+            ? ` W profilu: ${formatRate(String(profileRate))}.`
+            : ""),
+      }
+    : undefined;
+  // Żywa umowa (15.10.2026, D1): termin z umowy, nie ze screeningu.
+  const contractAvail: ContractAvailability | null = contractAvailability(
+    candidate.employment_marker,
+    candidate.availability_date,
+  );
+  const contractAvailLabel = contractAvail
+    ? [contractAvailabilityText(contractAvail), contractAvailabilityCountdown(contractAvail)]
+        .filter(Boolean)
+        .join(" · ")
+    : null;
   const languagesForbidden = requestStatus(languagesQuery.error) === 403;
   const rateForbidden = requestStatus(rateQuery.error) === 403;
 
@@ -1976,10 +2079,18 @@ export function CandidateProfileFactsBar({
       <FactShell
         icon={<CalendarClock className="size-4" />}
         label="Dostępność"
-        muted={proposal ? !availabilityTerm(candidate) : !candidate.availability_status}
+        muted={
+          contractAvail
+            ? contractAvail.kind === "no_end_date"
+            : proposal
+              ? !availabilityTerm(candidate)
+              : !candidate.availability_status
+        }
         origin={
-          cardOrigin(cardFacts.availability) ??
-          notesAvailabilityOrigin(candidate)
+          contractAvail
+            ? contractAvailabilityOrigin(contractAvail)
+            : (cardOrigin(cardFacts.availability) ??
+              notesAvailabilityOrigin(candidate))
         }
         action={
           canEditAvailability ? (
@@ -1990,9 +2101,10 @@ export function CandidateProfileFactsBar({
           ) : null
         }
       >
-        {proposal
-          ? (availabilityTerm(candidate) ?? "Nie ustalono")
-          : availabilityValue(candidate)}
+        {contractAvailLabel ??
+          (proposal
+            ? (availabilityTerm(candidate) ?? "Nie ustalono")
+            : availabilityValue(candidate))}
       </FactShell>
 
       {canViewAndEditRate && !rateForbidden ? (
@@ -2022,17 +2134,18 @@ export function CandidateProfileFactsBar({
         ) : rateQuery.data ? (
           <FactShell
             icon={<WalletCards className="size-4" />}
-            label={rateFrom ? "Stawka od" : rateLabel}
+            label={rateFromContract ? "Stawka u nas" : rateFrom ? "Stawka od" : rateLabel}
             muted={rateQuery.data.data.amount == null && !rateFrom}
             origin={
-              rateFrom
+              rateContractOrigin ??
+              (rateFrom
                 ? rateSecond
                   ? {
                       text: rateSecond,
                       title: "Ostatnio podana stawka i liczba stawek w historii",
                     }
                   : undefined
-                : cardOrigin(cardFacts.rate, profileRate)
+                : cardOrigin(cardFacts.rate, profileRate))
             }
             action={
               <EditFactButton

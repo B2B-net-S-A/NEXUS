@@ -39,6 +39,12 @@ export interface EmploymentMarker {
    */
   elsewhere?: boolean | null;
   clients: EmploymentMarkerClient[];
+  /**
+   * Tylko `source === "contract"` (15.10.2026): pierwszy dzień po pracy
+   * u nas. Termin dostępności czyta `lib/contract-availability.ts`.
+   */
+  free_from?: string | null;
+  free_from_basis?: "work_end" | "no_end_date" | "starting" | null;
 }
 
 export type EmploymentMarkerTone = "success" | "warning" | "info";

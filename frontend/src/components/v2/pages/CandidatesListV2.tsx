@@ -105,6 +105,7 @@ import { CandidateProcessCell } from "@/components/v2/candidates/CandidateProces
 import { AvailabilityPill } from "@/components/ds/AvailabilityPill";
 import { EmploymentPill } from "@/components/ds/EmploymentMarker";
 import type { EmploymentMarker } from "@/lib/employment-marker";
+import { hidesAvailabilityStatus } from "@/lib/contract-availability";
 import type { EmployedPerson } from "@/components/v2/employment/EmploymentNotice";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -2556,7 +2557,9 @@ export function CandidatesListV2({ onRequestSearch, embed }: CandidatesListV2Pro
                                   zatrudnienia mają pierwszeństwo, lokalizacja
                                   ustępuje im miejsca; pełna treść w dymku. */}
                               <p className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
-                                <AvailabilityPill status={candidate.availability_status} appearance="text" />
+                                {hidesAvailabilityStatus(candidate.employment_marker) ? null : (
+                                  <AvailabilityPill status={candidate.availability_status} appearance="text" />
+                                )}
                                 {candidate.employment_marker ? (
                                   <EmploymentPill marker={candidate.employment_marker} appearance="text" />
                                 ) : null}

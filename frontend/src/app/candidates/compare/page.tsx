@@ -45,6 +45,7 @@ import { unmeasuredReason } from "@/lib/match-breakdown";
 import { isForbiddenError } from "@/lib/view-state";
 import { Button } from "@/components/ui/button";
 import { JobPicker, type JobPickerJob } from "@/components/v2/recruitment/JobPicker";
+import { contractAvailability, contractAvailabilityText } from "@/lib/contract-availability";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -220,6 +221,11 @@ function CandidateCompareCard({ candidate, job }: { candidate: any; job?: Compar
   const avatarColor = getAvatarColor(fullName);
   const score = profileCompleteness(candidate);
   const formattedLocation = formatCandidateLocation(candidate.location);
+  // Żywa umowa (15.10.2026): termin z umowy, nie ze screeningu.
+  const contractAvail = contractAvailability(
+    candidate.employment_marker,
+    candidate.availability_date,
+  );
 
   const skills: any[] = Array.isArray(candidate.skills) ? candidate.skills : [];
   // Runda 10 (F18): „Zweryfikowane technologie” — profil pokazuje je w tej
@@ -291,9 +297,11 @@ function CandidateCompareCard({ candidate, job }: { candidate: any; job?: Compar
         <div className="flex justify-between">
           <span className="text-muted-foreground">Dostępność:</span>
           <span className="font-medium">
-            {candidate.availability_date
-              ? new Date(candidate.availability_date).toLocaleDateString("pl-PL")
-              : "—"}
+            {contractAvail
+              ? contractAvailabilityText(contractAvail)
+              : candidate.availability_date
+                ? new Date(candidate.availability_date).toLocaleDateString("pl-PL")
+                : "—"}
           </span>
         </div>
         <div className="flex justify-between">

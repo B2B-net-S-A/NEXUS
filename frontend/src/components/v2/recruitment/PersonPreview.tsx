@@ -454,7 +454,15 @@ function FactsBody({ facts }: { facts: ProposalFacts | null }) {
       "W tej rekrutacji",
       facts.rate_this_job_hourly != null ? hourlyText(facts.rate_this_job_hourly) : null,
     ],
-    ["Dostępność", availabilityLabel(facts.availability_status, facts.availability_date)],
+    [
+      "Dostępność",
+      availabilityLabel(
+        facts.availability_status,
+        facts.availability_date,
+        undefined,
+        facts.employment_marker,
+      ),
+    ],
   ];
   const known = tiles.filter((tile): tile is [string, string] => tile[1] !== null);
   const history = clientHistoryLine(facts.client_history);

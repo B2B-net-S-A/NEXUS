@@ -8,7 +8,9 @@ import {
   EMPLOYMENT_ONLY_WARNING_PL,
   countBySource,
   filterProposals,
+  availabilityLabel,
   historyReason,
+  isAvailableNow,
   mergeProposals,
   splitByPostings,
   normalizeFitScore,
@@ -60,6 +62,29 @@ function recommendation(id: number, total: number | null): ProposalCandidateItem
     breakdown: {} as ProposalCandidateItem["breakdown"],
   };
 }
+
+describe("dostępność osoby z żywą umową (15.10.2026)", () => {
+  const now = new Date("2026-10-15T12:00:00");
+  const marker = {
+    phase: "working" as const,
+    source: "contract" as const,
+    clients: [{ client_name: "Bank Przykładowy", phase: "working" as const }],
+    free_from: "2026-12-01",
+    free_from_basis: "work_end" as const,
+  };
+
+  it("data ze screeningu sprzed zatrudnienia nie robi z niej „od razu”", () => {
+    expect(isAvailableNow("actively_looking", "2026-09-01", now)).toBe(true);
+    expect(isAvailableNow("actively_looking", "2026-09-01", now, marker)).toBe(false);
+    expect(availabilityLabel("actively_looking", "2026-09-01", now, marker)).toBe("od 01.12");
+  });
+
+  it("po końcu zamówień jest dostępna od razu", () => {
+    expect(
+      isAvailableNow(null, null, now, { ...marker, free_from: "2026-10-01" }),
+    ).toBe(true);
+  });
+});
 
 describe("normalizeFitScore", () => {
   it("nigdy nie zmyśla wyniku: puste, nieliczbowe i spoza skali → null", () => {

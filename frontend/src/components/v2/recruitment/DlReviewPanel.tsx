@@ -107,6 +107,8 @@ import {
   rateText,
   type ClientRateUnit,
 } from "@/lib/person-facts";
+import { contractAvailability, contractAvailabilityText } from "@/lib/contract-availability";
+import type { EmploymentMarker } from "@/lib/employment-marker";
 import { PersonFacts } from "@/components/v2/person/PersonFacts";
 
 export { RATE_UNIT_LABEL, type ClientRateUnit };
@@ -136,6 +138,8 @@ interface QuickViewSubset {
     rate_from_hourly?: number | string | null;
     rate_from_stale?: boolean | null;
     rate_from_at?: string | null;
+    /** Żywa umowa (15.10.2026): termin z umowy, nie ze screeningu. */
+    employment_marker?: EmploymentMarker | null;
   };
   current_position?: { title: string | null } | null;
   availability?: {
@@ -481,16 +485,22 @@ export function DlReviewBody({
   // Dostępność z profilu, a gdy profil jej nie zna — z karty rekomendacji
   // (ta sama wartość stoi niżej na karcie; „—” obok niej wyglądało na brak).
   const qvAvailability = quickView.data?.availability;
-  const profileAvailability = availabilityText(
-    qvAvailability
-      ? {
-          date: qvAvailability.available_from,
-          status: qvAvailability.status,
-          noticePeriod: qvAvailability.notice_period,
-          noticeUnit: qvAvailability.notice_period_unit,
-        }
-      : null,
+  const contractAvail = contractAvailability(
+    quickView.data?.candidate.employment_marker,
+    qvAvailability?.available_from,
   );
+  const profileAvailability = contractAvail
+    ? `${contractAvailabilityText(contractAvail)} · z kontraktu`
+    : availabilityText(
+        qvAvailability
+          ? {
+              date: qvAvailability.available_from,
+              status: qvAvailability.status,
+              noticePeriod: qvAvailability.notice_period,
+              noticeUnit: qvAvailability.notice_period_unit,
+            }
+          : null,
+      );
   const cardAvailability = screeningState?.card?.fields?.availability?.raw?.trim() || null;
 
   const remark = note.trim();

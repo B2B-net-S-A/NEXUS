@@ -139,6 +139,7 @@ import {
 } from "@/lib/api/recruitmentRateHints";
 import { canViewClientRate } from "@/lib/client-rate-access";
 import { availabilityText, onsiteText } from "@/lib/person-facts";
+import { contractAvailability, contractAvailabilityText } from "@/lib/contract-availability";
 import { dockNotesSummary, splitPersonNotes } from "@/components/v2/person/notes-by-recruitment";
 import { PersonContactLine } from "@/components/v2/person/PersonContactLine";
 import { PersonFacts, RateWithBudget } from "@/components/v2/person/PersonFacts";
@@ -1201,17 +1202,25 @@ export function PipelineCandidateDock({
   // „Nie odebrał” jednym kliknięciem — ta sama notatka-próba co w profilu
   // (rodzaj `contact_attempt`); ten sam hook stoi w profilu przed telefonem.
   const noAnswerMut = useNoAnswerNote({ candidateId: item.candidate_id, jobId });
-  const availabilityLabel = availabilityText(
-    candidate
-      ? {
-          date: candidate.availability_date,
-          status: candidate.availability_status,
-          noticePeriod: candidate.notice_period,
-          // Profil bez jednostki okresu wypowiedzenia — dni (jak dotąd w doku).
-          noticeUnit: candidate.notice_period_unit ?? "days",
-        }
-      : null,
+  // Żywa umowa (15.10.2026): termin z umowy, nie ze screeningu sprzed
+  // zatrudnienia — znacznik niesie karta Tablicy.
+  const contractAvail = contractAvailability(
+    item.employment_marker,
+    candidate?.availability_date ?? item.availability_date,
   );
+  const availabilityLabel = contractAvail
+    ? `${contractAvailabilityText(contractAvail)} · z kontraktu`
+    : availabilityText(
+        candidate
+          ? {
+              date: candidate.availability_date,
+              status: candidate.availability_status,
+              noticePeriod: candidate.notice_period,
+              // Profil bez jednostki okresu wypowiedzenia — dni (jak dotąd w doku).
+              noticeUnit: candidate.notice_period_unit ?? "days",
+            }
+          : null,
+      );
 
   // Modal montuje się dopiero z DANYMI (patrz render niżej) — w oknie między
   // kliknięciem a odpowiedzią pole „Do" byłoby puste. Gdy zapytanie padnie,

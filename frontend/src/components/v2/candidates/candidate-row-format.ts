@@ -13,6 +13,12 @@ import {
   type RateFromFields,
 } from "@/lib/candidate-rate";
 import { availabilityFromNotesLine, type AvailabilityFromNotes } from "@/lib/notes-facts";
+import {
+  contractAvailability,
+  contractAvailabilityOrigin,
+  contractAvailabilityText,
+} from "@/lib/contract-availability";
+import type { EmploymentMarker } from "@/lib/employment-marker";
 
 export interface CandidateRowRecruitment {
   job_id: number;
@@ -30,6 +36,8 @@ export interface CandidateRowAvailabilitySource {
   availability_from_notes?: AvailabilityFromNotes | null;
   notice_period?: number | null;
   notice_period_unit?: "days" | "weeks" | "months" | null;
+  /** Żywa umowa (15.10.2026): termin z umowy, nie ze screeningu. */
+  employment_marker?: EmploymentMarker | null;
 }
 
 /** Polskie etykiety etapów pipeline'u (klucze API listy). */
@@ -66,6 +74,8 @@ const ddmm = (iso: string): string | null => {
  * wypowiedzenia, potem deklaracja. `null` = nie wiemy.
  */
 export function availabilityCellText(c: CandidateRowAvailabilitySource): string | null {
+  const contract = contractAvailability(c.employment_marker, c.availability_date);
+  if (contract) return contractAvailabilityText(contract, "short");
   if (c.availability_date) {
     const d = ddmm(c.availability_date);
     if (d) return `od ${d}`;
@@ -95,6 +105,15 @@ export function availabilityCellText(c: CandidateRowAvailabilitySource): string 
 export function availabilityCellSecondLine(
   c: CandidateRowAvailabilitySource,
 ): { text: string; title: string } | null {
+  const contract = contractAvailability(c.employment_marker, c.availability_date);
+  if (contract) {
+    const origin = contractAvailabilityOrigin(contract);
+    const text =
+      origin.tone === "contract"
+        ? `z kontraktu${contract.clientName ? ` · ${contract.clientName}` : ""}`
+        : "z profilu · później niż umowa";
+    return { text, title: origin.text };
+  }
   if (!c.availability_date || !ddmm(c.availability_date)) return null;
   return availabilityFromNotesLine(c.availability_from_notes);
 }

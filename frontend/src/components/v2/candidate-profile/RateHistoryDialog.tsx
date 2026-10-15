@@ -277,7 +277,8 @@ function ObservationRow({
         </Badge>
       </td>
       <td className="py-2 align-top text-right">
-        {canEdit && comparable ? (
+        {/* Stawki z umowy nie da się wyłączyć — liczy się, dopóki umowa trwa. */}
+        {canEdit && comparable && o.source !== "contract" ? (
           <Button
             type="button"
             size="sm"
@@ -411,7 +412,8 @@ export function RateHistoryDialog({
                     ))}
                   </ul>
                   <p className="mt-1 text-xs text-muted-foreground">
-                    Stawki z umów nie liczą się do „Stawki od” — to cena, nie oczekiwanie.
+                    Bieżąca umowa wyznacza „Stawkę od”, dopóki trwa. Zakończone umowy się
+                    nie liczą — to cena, nie oczekiwanie.
                   </p>
                 </section>
               ) : null}

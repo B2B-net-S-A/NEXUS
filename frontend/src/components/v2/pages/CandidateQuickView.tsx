@@ -63,6 +63,11 @@ import { canMutateSection } from "@/lib/section-access";
 import { contactAttemptsLabel } from "@/lib/recommendation-card";
 import { rateCellText } from "@/components/v2/candidates/candidate-row-format";
 import { availabilityFromNotesLine, type AvailabilityFromNotes } from "@/lib/notes-facts";
+import {
+  contractAvailability,
+  contractAvailabilityOrigin,
+  contractAvailabilityText,
+} from "@/lib/contract-availability";
 
 type QuickViewDestination =
   | "summary"
@@ -326,6 +331,13 @@ export function CandidateQuickView({
   });
 
   const quickView = quickViewQuery.data;
+  // Żywa umowa (15.10.2026): termin z umowy, nie ze screeningu.
+  const contractAvail = quickView
+    ? contractAvailability(
+        quickView.candidate.employment_marker,
+        quickView.availability.available_from,
+      )
+    : null;
   const candidate = quickView?.candidate;
   const canOwnContact =
     canWriteSourcing &&
@@ -617,11 +629,17 @@ export function CandidateQuickView({
             <dl className="grid grid-cols-2 gap-2 sm:grid-cols-3" aria-label="Najważniejsze fakty">
               <FactTile
                 label="Dostępność"
-                value={availabilityLabel(quickView.availability)}
+                value={
+                  contractAvail
+                    ? contractAvailabilityText(contractAvail)
+                    : availabilityLabel(quickView.availability)
+                }
                 hint={
-                  quickView.availability.available_from
-                    ? availabilityFromNotesLine(quickView.availability.available_from_notes)
-                    : null
+                  contractAvail
+                    ? contractAvailabilityOrigin(contractAvail)
+                    : quickView.availability.available_from
+                      ? availabilityFromNotesLine(quickView.availability.available_from_notes)
+                      : null
                 }
               />
               <FactTile label="Stawka B2B" value={rate === undefined ? "—" : rate} />

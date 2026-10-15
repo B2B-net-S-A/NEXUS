@@ -1303,7 +1303,17 @@ function seededClient(employed: boolean, user: PreviewUser): QueryClient {
                 delivery_lead_name: "Olga Wzorcowa",
               },
             ],
+            // 15.10.2026: termin i stawka z umowy, nie ze screeningu.
+            free_from: "2027-01-01",
+            free_from_basis: "work_end",
           },
+          // „Szuka aktywnie” ze screeningu sprzed zatrudnienia — przy żywej
+          // umowie pigułka znika (D3).
+          availability_status: "actively_looking",
+          rate_from_hourly: "160.00",
+          rate_from_source: "contract",
+          rate_latest_hourly: "160.00",
+          rate_from_stale: false,
         }
       : CANDIDATE,
   );

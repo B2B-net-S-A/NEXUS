@@ -29,6 +29,11 @@ import type {
 } from "@/lib/job-proposals-api";
 import { SEARCH_AVAILABILITY_OPTIONS } from "@/lib/search-availability";
 import type { EmploymentMarker } from "@/lib/employment-marker";
+import {
+  contractAvailability,
+  contractAvailabilityText,
+  localIsoDay,
+} from "@/lib/contract-availability";
 import { warsawDateOf } from "@/lib/warsaw-date";
 import {
   PROPOSAL_SOURCE_LABEL,
@@ -155,12 +160,19 @@ export function formatHourlyRate(value: number | null): string | null {
   return `${Math.round(value)} zł/h`;
 }
 
-/** „Dostępny od razu" = aktywnie szuka bez daty albo data już minęła. */
+/**
+ * „Dostępny od razu" = aktywnie szuka bez daty albo data już minęła.
+ * Osoba z żywą umową (15.10.2026) — dopiero po końcu pracy u nas.
+ */
 export function isAvailableNow(
   status: string | null,
   date: string | null,
   now: Date = new Date(),
+  marker?: EmploymentMarker | null,
 ): boolean {
+  const today = localIsoDay(now);
+  const contract = contractAvailability(marker, date, today);
+  if (contract) return contract.kind === "date" && contract.date <= today;
   if (date) {
     const parsed = new Date(date);
     if (!Number.isNaN(parsed.getTime())) return parsed.getTime() <= now.getTime();
@@ -172,7 +184,10 @@ export function availabilityLabel(
   status: string | null,
   date: string | null,
   now: Date = new Date(),
+  marker?: EmploymentMarker | null,
 ): string | null {
+  const contract = contractAvailability(marker, date, localIsoDay(now));
+  if (contract) return contractAvailabilityText(contract, "short");
   if (date) {
     const parsed = new Date(date);
     if (!Number.isNaN(parsed.getTime())) {
@@ -493,7 +508,12 @@ export function mergeProposals(input: MergeProposalsInput): ProposalEntry[] {
         candidateId: d.candidateId,
         fullName: proposalFullName(d.name, d.lastname, d.candidateId),
         rateLabel: formatHourlyRate(detail.rateHourly),
-        availabilityLabel: availabilityLabel(detail.availabilityStatus, detail.availabilityDate),
+        availabilityLabel: availabilityLabel(
+          detail.availabilityStatus,
+          detail.availabilityDate,
+          undefined,
+          detail.employment,
+        ),
         fitScore: d.scores.length ? Math.max(...d.scores) : null,
         warnings,
         sources: SOURCE_ORDER.filter((s) => d.sources.has(s)),
@@ -625,7 +645,12 @@ export function filterProposals(
     // nie „ponad budżet", a takich osób jest w bazie większość.
     if (filters.inBudget && fit === "over") return false;
     if (filters.rate !== "all" && fit !== filters.rate) return false;
-    if (filters.availableNow && !isAvailableNow(detail.availabilityStatus, detail.availabilityDate, ctx.now)) return false;
+    if (
+      filters.availableNow &&
+      !isAvailableNow(detail.availabilityStatus, detail.availabilityDate, ctx.now, detail.employment)
+    ) {
+      return false;
+    }
     if (location && !fold(detail.city ?? "").includes(location)) return false;
     if (skill && !detail.requirements.some((r) => r.status === "met" && fold(r.label).includes(skill))) return false;
     return true;

@@ -83,6 +83,21 @@ describe("ProfilePersonBar — tożsamość i pigułki (E1, D4, 13.10.2026)", ()
     expect(screen.queryByText("Aktywny")).toBeNull();
   });
 
+  it("przy żywej umowie „Pracuje u nas” zastępuje „Szuka aktywnie” ze screeningu (D3, 15.10.2026)", () => {
+    renderBar({
+      availability_status: "actively_looking",
+      employment_marker: {
+        phase: "working",
+        source: "contract",
+        clients: [{ client_id: 3, client_name: "Bank Przykładowy", phase: "working" }],
+        free_from: null,
+        free_from_basis: "no_end_date",
+      },
+    });
+    expect(screen.queryByText("Szuka aktywnie")).toBeNull();
+    expect(screen.getByText(/Pracuje u nas/)).toBeInTheDocument();
+  });
+
   it("czarna lista zostaje jako jedyne ostrzeżenie statusu", () => {
     renderBar({ status: "blacklisted" });
     expect(screen.getByText("Czarna lista")).toBeInTheDocument();

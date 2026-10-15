@@ -176,6 +176,7 @@ const CANDIDATES = [
     linkedin_current_title: "Senior Java Developer",
     skills: ["Java", "Spring", "Docker"],
     availability_status: "actively_looking",
+    availability_date: "2026-08-01",
     expected_rate_hourly: 150,
     last_contacted_at: daysAgo(30),
     cv_filename: "CV_przykladowe.pdf",
@@ -194,6 +195,10 @@ const CANDIDATES = [
           delivery_lead_name: "Karol Wzorcowy",
         },
       ],
+      // 15.10.2026: termin z umowy — lista mówi „od 01.01” zamiast daty
+      // ze screeningu, a „Szuka aktywnie” znika.
+      free_from: "2027-01-01",
+      free_from_basis: "work_end",
     },
     active_recruitments: [],
   },

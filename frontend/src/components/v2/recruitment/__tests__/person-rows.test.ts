@@ -205,6 +205,27 @@ describe("availabilityLabelFor", () => {
     expect(availabilityLabelFor({ availability_date: "2026-09-01", availability_status: "not_looking" }, today)).toBe("od razu");
     expect(availabilityLabelFor({ availability_date: "2026-11-01" }, today)).toMatch(/^od /);
   });
+  it("osoba z żywą umową: termin z umowy, nie „od razu” ze screeningu (15.10.2026)", () => {
+    const employment_marker = {
+      phase: "working" as const,
+      source: "contract" as const,
+      clients: [{ client_name: "Bank Przykładowy", phase: "working" as const }],
+      free_from: "2026-12-01",
+      free_from_basis: "work_end" as const,
+    };
+    expect(
+      availabilityLabelFor({ availability_date: "2026-09-01", employment_marker }, today),
+    ).toBe("od 01.12.2026");
+    expect(
+      availabilityLabelFor(
+        {
+          availability_date: "2026-09-01",
+          employment_marker: { ...employment_marker, free_from: null, free_from_basis: "no_end_date" },
+        },
+        today,
+      ),
+    ).toBe("Bez daty końca zamówienia");
+  });
   it("status bez daty; `unknown` i brak pól to null", () => {
     expect(availabilityLabelFor({ availability_status: "open_to_offers" }, today)).toBe("Otwarty na oferty");
     expect(availabilityLabelFor({ availability_status: "unknown" }, today)).toBeNull();

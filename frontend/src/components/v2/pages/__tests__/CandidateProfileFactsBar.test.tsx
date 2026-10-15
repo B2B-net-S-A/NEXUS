@@ -966,3 +966,90 @@ describe("CandidateProfileFactsBar", () => {
     });
   });
 });
+
+describe("osoba pracująca u nas — dostępność i stawka z umowy (15.10.2026)", () => {
+  const marker = {
+    phase: "working" as const,
+    source: "contract" as const,
+    clients: [
+      {
+        client_id: 3,
+        client_name: "Bank Przykładowy",
+        phase: "working" as const,
+        order_end_date: "2026-11-30",
+        delivery_lead_name: "Anna Nowak",
+      },
+    ],
+    free_from: "2026-12-01",
+    free_from_basis: "work_end" as const,
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    auth.role = "recruiter";
+    cardOverview.data = undefined;
+    prepareApi();
+  });
+
+  it("termin z umowy zamiast daty ze screeningu, z zieloną kropką i datą z profilu w dymku", async () => {
+    const user = userEvent.setup();
+    renderBar(
+      { availability_date: "2026-09-01", employment_marker: marker },
+      "proposal",
+    );
+
+    expect(screen.getByText("od 01.12.2026")).toBeInTheDocument();
+    expect(screen.queryByText("od 01.09.2026")).toBeNull();
+    const dot = screen.getByRole("button", { name: /Źródło: Z kontraktu/ });
+    expect(dot).toHaveAttribute("data-origin-tone", "contract");
+    await user.click(dot);
+    expect(
+      await screen.findByText(/W profilu: od 01\.09\.2026 — wcześniej niż koniec pracy/),
+    ).toBeInTheDocument();
+  });
+
+  it("„Stawka u nas” ze stawki umowy, także gdy profil mówi co innego", async () => {
+    renderBar(
+      {
+        employment_marker: marker,
+        rate_from_hourly: "150.00",
+        rate_from_source: "contract",
+        rate_from_at: "2026-09-01T00:00:00+02:00",
+        rate_observation_count: 3,
+      },
+      "proposal",
+    );
+
+    expect(await screen.findByText("Stawka u nas")).toBeInTheDocument();
+    expect(screen.getByText("150 PLN netto/h")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /Źródło: Z umowy z Bank Przykładowy/ }),
+    ).toHaveAttribute("data-origin-tone", "contract");
+    expect(screen.queryByText("Stawka od")).toBeNull();
+  });
+
+  it("okno dostępności mówi, do kiedy osoba pracuje i kto ustala wcześniejsze odejście", async () => {
+    const user = userEvent.setup();
+    renderBar({ employment_marker: marker }, "column");
+
+    await user.click(screen.getByRole("button", { name: "Edytuj" }));
+    await user.click(await screen.findByRole("button", { name: "Edytuj dostępność" }));
+
+    const note = await screen.findByTestId("availability-contract-note");
+    expect(note).toHaveTextContent("Pracuje u nas do 30.11.2026 (Bank Przykładowy)");
+    expect(note).toHaveTextContent("Delivery Lead (Anna Nowak)");
+  });
+
+  it("bez daty końca zamówienia wiersz to mówi, a nie pokazuje starej daty", () => {
+    renderBar(
+      {
+        availability_date: "2026-09-01",
+        employment_marker: { ...marker, free_from: null, free_from_basis: "no_end_date" },
+      },
+      "proposal",
+    );
+
+    expect(screen.getByText("Bez daty końca zamówienia")).toBeInTheDocument();
+    expect(screen.queryByText(/01\.09\.2026/)).toBeNull();
+  });
+});

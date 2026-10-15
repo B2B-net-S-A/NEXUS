@@ -17,7 +17,7 @@
   },
   {
    "id": "c.status",
-   "opis": "„Szuka aktywnie / Otwarty na oferty / Nie szuka” zamiast statusu Aktywny/Pasywny (D4, 13.10.2026)",
+   "opis": "„Szuka aktywnie / Otwarty na oferty / Nie szuka” zamiast statusu Aktywny/Pasywny (D4, 13.10.2026); przy żywej umowie ukryte — zostaje „Pracuje u nas” (D3, 15.10.2026)",
    "file": "components/v2/candidate-profile/ProfileHeader.tsx",
    "marker": "<AvailabilityPill",
    "home": "Pasek osoby"
@@ -244,6 +244,20 @@
    "opis": "Stawka od + historia stawek",
    "file": "components/v2/pages/CandidateProfileFactsBar.tsx",
    "marker": "Historia stawek",
+   "home": "Karta „Do propozycji”"
+  },
+  {
+   "id": "f.availability_contract",
+   "opis": "Osoba z żywą umową: termin dostępności z umowy (dzień po końcu pracy u nas albo późniejsza data z profilu), zielona kropka „z kontraktu”, ramka w oknie edycji (D1, D6, 15.10.2026)",
+   "file": "components/v2/pages/CandidateProfileFactsBar.tsx",
+   "marker": "availability-contract-note",
+   "home": "Karta „Do propozycji”"
+  },
+  {
+   "id": "f.rate_contract",
+   "opis": "„Stawka u nas” — stawka konsultanta z żywej umowy jako „Stawka od” (D4, D5, 15.10.2026)",
+   "file": "components/v2/pages/CandidateProfileFactsBar.tsx",
+   "marker": "Stawka u nas",
    "home": "Karta „Do propozycji”"
   },
   {
