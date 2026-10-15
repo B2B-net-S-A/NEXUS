@@ -13,16 +13,21 @@
 # deploy padł; przy zielonym kończą się na koalescencji. Cron GitHuba zostaje
 # jako zapas.
 #
-# Token: fine-grained PAT tylko do tego repo, uprawnienie „Actions: read and
-# write”. Dostaje go wyłącznie ten kontener — backend wystawiony do internetu
-# nie. Brak tokenu = budzik śpi, zamiast restartować się w kółko.
+# Token: fine-grained PAT tylko do tego repo, „Actions: read and write” —
+# pozwala uruchomić KAŻDY workflow repo, także zmianę zmiennych produkcji.
+# Dlatego leży w pliku hosta (`/etc/nexus-deploy-window/token`, właściciel
+# uid 10001, 0400) zamontowanym tylko do tego kontenera i tylko do odczytu.
+# NIE w skarbcu Coolify: Coolify zapisuje skarbiec do `.env`, a backend
+# i frontend mają `env_file: .env` (przegląd bezpieczeństwa PR #2252).
+# Plik czytamy przy każdym slocie — wgranie albo wymiana tokenu nie wymaga
+# restartu; brak pliku = slot pominięty z wpisem w logu.
 set -eu
 
 SLOTS="19:05 21:05 23:05"
 # Kanoniczna nazwa po przeniesieniu repo do organizacji — stara
 # `artur-t-96/Nexus` daje przekierowanie, za którym POST nie idzie.
 REPO="${DEPLOY_WINDOW_REPO:-B2B-net-S-A/NEXUS}"
-TOKEN="${DEPLOY_WINDOW_GITHUB_TOKEN:-}"
+TOKEN_FILE="/run/deploy-window/token"
 export TZ=Europe/Warsaw
 
 log() {
@@ -32,15 +37,21 @@ log() {
 # 204 = Deploy uruchomiony. 4xx = zły, wygasły albo za słaby token — ponowienie
 # nic nie da. Błąd sieci i 5xx ponawiamy dwa razy co minutę.
 dispatch() {
+    if [ ! -s "$TOKEN_FILE" ] || [ ! -r "$TOKEN_FILE" ]; then
+        log "slot $1: brak czytelnego tokenu w $TOKEN_FILE — pomijam"
+        return 1
+    fi
     attempt=1
     while :; do
-        code="$(curl -sS -o "${TMPDIR:-/tmp}/dispatch-response" -w '%{http_code}' \
-            --max-time 30 -X POST \
-            -H "Authorization: Bearer $TOKEN" \
-            -H "Accept: application/vnd.github+json" \
-            -H "X-GitHub-Api-Version: 2022-11-28" \
-            -d '{"ref":"main","inputs":{"window_slot":"true"}}' \
-            "https://api.github.com/repos/$REPO/actions/workflows/deploy.yml/dispatches")" \
+        # Nagłówek z tokenem przez `--config -` (stdin), nie w argumentach —
+        # argumenty curla widać w `ps` i `docker top`.
+        code="$(printf 'header = "Authorization: Bearer %s"\n' "$(tr -d ' \r\n' < "$TOKEN_FILE")" \
+            | curl --config - -sS -o "${TMPDIR:-/tmp}/dispatch-response" -w '%{http_code}' \
+                --max-time 30 -X POST \
+                -H "Accept: application/vnd.github+json" \
+                -H "X-GitHub-Api-Version: 2022-11-28" \
+                -d '{"ref":"main","inputs":{"window_slot":"true"}}' \
+                "https://api.github.com/repos/$REPO/actions/workflows/deploy.yml/dispatches")" \
             || code="000"
         if [ "$code" = "204" ]; then
             log "slot $1: Deploy uruchomiony"
@@ -70,14 +81,11 @@ tick() {
     done
 }
 
-if [ -z "$TOKEN" ]; then
-    log "brak DEPLOY_WINDOW_GITHUB_TOKEN — budzik wyłączony"
-    while :; do
-        sleep 86400
-    done
+if [ -s "$TOKEN_FILE" ] && [ -r "$TOKEN_FILE" ]; then
+    log "budzik włączony, sloty: $SLOTS"
+else
+    log "budzik czeka na token w $TOKEN_FILE (sloty: $SLOTS)"
 fi
-
-log "budzik włączony, sloty: $SLOTS"
 fired=""
 while :; do
     tick "$(date +%H:%M)" "$(date +%F)"
