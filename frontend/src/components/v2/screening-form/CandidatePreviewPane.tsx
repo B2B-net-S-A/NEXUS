@@ -43,6 +43,8 @@ import Link from "next/link";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft,
+  Download,
+  FileDown,
   History,
   Loader2,
   PanelLeftClose,
@@ -57,6 +59,7 @@ import {
 
 import { TabbedNav } from "@/components/ds";
 import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { JobRequirementsStrip } from "@/components/champion/JobRequirementsStrip";
 import { JobRequirementsSummary } from "@/components/champion/JobRequirementsSummary";
 import { PlainBriefBlock } from "@/components/champion/plain/PlainBriefBlock";
@@ -68,6 +71,7 @@ import {
   type CandidateDocument,
 } from "@/components/v2/files/FilePreviewModal";
 import { DockCallCheatsheet } from "@/components/v2/jobs/DockCallCheatsheet";
+import { DockCvFreshness } from "@/components/v2/jobs/DockCvFreshness";
 import { useConfirmV2 } from "@/components/v2/modals/ConfirmV2";
 import { candidateNoteItems, useCandidateNotes } from "@/components/v2/pages/candidate-notes-query";
 import { candidateQueryKeys } from "@/components/v2/pages/candidate-query-keys";
@@ -91,12 +95,19 @@ import {
   useStageCvOptions,
 } from "@/components/v2/screening-form/StageCvPicker";
 import { useStageBrandedCv } from "@/hooks/useStageBrandedCv";
-import api, { candidateStageCvApi, type CVOriginalSnapshot } from "@/lib/api";
-import { downloadAuthenticatedFile, fetchAuthenticatedBlob } from "@/lib/authenticated-files";
+import api, { candidateStageCvApi, candidatesApi, type CVOriginalSnapshot } from "@/lib/api";
+import { apiErrorMessage } from "@/lib/api-error";
+import { downloadAuthenticatedFile, downloadBlob, fetchAuthenticatedBlob } from "@/lib/authenticated-files";
 import { humanNoteCount } from "@/lib/candidate-notes-view";
 import { stageBrandedQueryKey, stageCvStatus } from "@/lib/cv-to-client";
-import { dockOriginalCv, primaryProfileCv, type DockProfileCvDoc } from "@/lib/dock-cv-summary";
-import type { fetchStageCvFile } from "@/lib/stage-cv-file";
+import {
+  dockOriginalCv,
+  originalCvSentence,
+  primaryProfileCv,
+  withoutQuarantinedCv,
+  type DockProfileCvDoc,
+} from "@/lib/dock-cv-summary";
+import { fetchStageCvFile, fetchStageCvPdf } from "@/lib/stage-cv-file";
 import type { StageCvOption } from "@/lib/stage-cv-options";
 import { useElementWidth } from "@/lib/use-element-width";
 import { cn, formatDate } from "@/lib/utils";
@@ -249,11 +260,21 @@ function CvTab({
     staleTime: 30_000,
   });
   const branded = useStageBrandedCv(stageId);
+  // Plik z kwarantanny tożsamości (CV innej osoby) nie jest oryginałem — ta sama
+  // reguła co dok. Znacznik bierzemy z danych kandydata, które w panelu czyta
+  // dok: tylko z pamięci zapytań (`enabled: false`), bez drugiego żądania
+  // (harnessy `/preview/*` nie pytają sieci). `queryFn` jak w doku (#1789).
+  const candidateQuery = useQuery<{ cv_extracted_data?: unknown }>({
+    queryKey: candidateQueryKeys.detail(candidateId),
+    queryFn: () => candidatesApi.get(candidateId).then((r) => r.data as { cv_extracted_data?: unknown }),
+    enabled: false,
+  });
+  const ownProfileDocs = withoutQuarantinedCv(docsQuery.data, candidateQuery.data?.cv_extracted_data);
 
   const original = dockOriginalCv({
     snapshot: snapshotQuery.data,
     snapshotLoading: stageId != null && snapshotQuery.isLoading,
-    profileDocs: docsQuery.data as DockProfileCvDoc[] | undefined,
+    profileDocs: ownProfileDocs as DockProfileCvDoc[] | undefined,
     profileDocsFailed: docsQuery.isError,
   });
 
@@ -278,7 +299,7 @@ function CvTab({
     (_candidateId, docId) => loadOriginalBlob(docId),
     [loadOriginalBlob],
   );
-  const profileDoc = original.kind === "profile" ? (docsQuery.data ?? []).find((d) => d.id === original.doc.id) ?? null : null;
+  const profileDoc = original.kind === "profile" ? (ownProfileDocs ?? []).find((d) => d.id === original.doc.id) ?? null : null;
 
   const docs = docsQuery.data ?? [];
   const [fileId, setFileId] = useState<number | null>(null);
@@ -335,6 +356,52 @@ function CvTab({
     setFileId(documentId);
     onSourceChange("files");
   };
+
+  // „Pobierz” w pasku źródeł (15.10.2026, D1–D5) pobiera to, co widać.
+  // CV firmowe: ten sam plik co „Pobierz Word / PDF” w doku — CV etapu
+  // z poprawkami, z wiersza, na którym leży (`cvStageId`), wpis `surface=preview`.
+  // Oryginał i pliki z profilu idą bez wpisu pobrania, jak dotąd wszędzie.
+  const companyDownloadable =
+    stageId != null && branded.query.isSuccess && brandedStatus === "ready" && !(canAct && changing);
+  const companyConsentMissing = companyDownloadable && branded.query.data?.consent_missing === true;
+  const [downloadingCv, setDownloadingCv] = useState<"docx" | "pdf" | null>(null);
+  const downloadCompanyCv = async (format: "docx" | "pdf") => {
+    if (cvStageId == null) return;
+    setDownloadingCv(format);
+    try {
+      const file =
+        format === "docx"
+          ? await (loadStageCvFile ?? fetchStageCvFile)(cvStageId, { download: "preview" })
+          : await fetchStageCvPdf(cvStageId, { download: "preview" });
+      downloadBlob(file.blob, file.filename || (format === "docx" ? "CV.docx" : "CV.pdf"));
+    } catch (error) {
+      showError(
+        apiErrorMessage(
+          error,
+          format === "pdf"
+            ? "Nie udało się pobrać PDF. Spróbuj za chwilę albo pobierz plik Word."
+            : "Nie udało się pobrać CV.",
+        ),
+      );
+    } finally {
+      setDownloadingCv(null);
+    }
+  };
+  // Plik pod „Pobierz CV”: oryginał (kopia ze zgłoszenia albo CV z profilu)
+  // albo plik zaznaczony w „Innych plikach”; `hint` = skąd jest (dymek, D2).
+  let fileDownload: { doc: CandidateDocument; fromSnapshot: boolean; hint: string } | "pending" | null = null;
+  if (source === "original") {
+    const hint = originalCvSentence(original).replace(/^Oryginał CV: /, "");
+    if (original.kind === "loading") fileDownload = "pending";
+    else if (original.kind === "snapshot" && snapshotDoc) fileDownload = { doc: snapshotDoc, fromSnapshot: true, hint };
+    else if (original.kind === "profile" && profileDoc) fileDownload = { doc: profileDoc, fromSnapshot: false, hint };
+  } else if (source === "files" && selectedFile) {
+    fileDownload = {
+      doc: selectedFile,
+      fromSnapshot: false,
+      hint: `${formatDate(selectedFile.uploaded_at ?? selectedFile.created_at)}${selectedFile.is_primary ? " · główne CV" : ""}`,
+    };
+  }
 
   let body: ReactNode;
   if (source === "original") {
@@ -474,6 +541,7 @@ function CvTab({
               cvStageId={branded.cvStageId}
               revision={branded.query.data?.edit_revision}
               loadStageCvFile={loadStageCvFile}
+              hideDownload
               fill
             />
           </div>
@@ -540,9 +608,13 @@ function CvTab({
       enabled={canUpload}
       upload={upload}
       title={[cvUpload?.candidateName, cvUpload?.jobTitle].filter(Boolean).join(" · ")}
-      className="flex min-h-0 flex-1 flex-col gap-2"
+      className="@container/cvsources flex min-h-0 flex-1 flex-col gap-2"
     >
-      <div className="flex flex-wrap items-center gap-2">
+      {/* Zakładka jest kontenerem (`cvsources`): na laptopie 1280 px strefa ma ok.
+          750 px i z „Historią osoby”, „Pobierz” i „Wgraj CV” rząd by się zawijał —
+          poniżej 56 rem „Zwiń CV” zostaje ikoną, przy CV firmowym znika słowo
+          „Pobierz” i ikona przy „PDF”, a odstępy maleją (15.10.2026). */}
+      <div className="flex flex-wrap items-center gap-1.5 @min-[56rem]/cvsources:gap-2">
         <div role="group" aria-label="Które CV pokazać" className="inline-flex w-fit flex-wrap rounded-md border border-border bg-muted/30 p-0.5">
           {SOURCES.filter((option) => !sources || sources.includes(option.value)).map((option) => (
             <button
@@ -583,6 +655,66 @@ function CvTab({
             Historia osoby{history.count > 0 ? ` (${history.count})` : ""}
           </button>
         ) : null}
+        {historyOpen ? null : fileDownload === "pending" ? (
+          <Button type="button" size="sm" variant="outline" disabled data-testid="preview-cv-download">
+            <Download className="h-3.5 w-3.5" aria-hidden />
+            Pobierz CV
+          </Button>
+        ) : fileDownload ? (
+          <TooltipProvider delayDuration={300}>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  data-testid="preview-cv-download"
+                  onClick={() => download(fileDownload.doc, fileDownload.fromSnapshot)}
+                >
+                  <Download className="h-3.5 w-3.5" aria-hidden />
+                  Pobierz CV
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" align="start" className="space-y-0.5 border border-border">
+                <p className="break-all font-semibold">{fileDownload.doc.filename}</p>
+                <p className="font-normal text-muted-foreground">{fileDownload.hint}</p>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        ) : source === "company" && companyDownloadable ? (
+          <div
+            className="flex items-center gap-1.5"
+            data-testid="preview-cv-download"
+            title={companyConsentMissing ? "Bez zrzutu zgody RODO nie pobierzesz CV — dołącz go w karcie „CV do klienta”." : undefined}
+          >
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              aria-label="Pobierz Word"
+              onClick={() => void downloadCompanyCv("docx")}
+              disabled={downloadingCv != null || companyConsentMissing}
+              loading={downloadingCv === "docx"}
+            >
+              <Download className="h-3.5 w-3.5" aria-hidden />
+              <span>
+                <span className="hidden @min-[56rem]/cvsources:inline">Pobierz </span>Word
+              </span>
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              aria-label="Pobierz PDF"
+              onClick={() => void downloadCompanyCv("pdf")}
+              disabled={downloadingCv != null || companyConsentMissing}
+              loading={downloadingCv === "pdf"}
+            >
+              <FileDown className="hidden h-3.5 w-3.5 @min-[56rem]/cvsources:block" aria-hidden />
+              PDF
+            </Button>
+          </div>
+        ) : null}
         {canUpload ? (
           <>
             <input
@@ -616,15 +748,36 @@ function CvTab({
           </>
         ) : null}
         {onCollapse ? (
-          <Button type="button" size="sm" variant="ghost" className="ml-auto" onClick={onCollapse}>
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            className="ml-auto"
+            aria-label="Zwiń CV"
+            title="Zwiń CV"
+            onClick={onCollapse}
+          >
             <PanelLeftClose className="h-3.5 w-3.5" aria-hidden />
-            Zwiń CV
+            <span className="hidden @min-[56rem]/cvsources:inline">Zwiń CV</span>
           </Button>
         ) : null}
       </div>
       {/* Stałe opakowanie: `contents` nie zmienia układu, a `hidden` chowa CV
           bez odmontowania — plik nie pobiera się drugi raz po powrocie. */}
       <div hidden={historyOpen} className="contents">
+        {/* D4 (15.10.2026): „Pobierz CV” daje kopię tej rekrutacji — gdy w profilu
+            jest nowsze CV, ramka mówi to od razu. Podmiana tylko z prawem wgrania. */}
+        {source === "original" && stageId != null ? (
+          <DockCvFreshness
+            stageId={stageId}
+            original={original}
+            profileDocs={ownProfileDocs}
+            candidate={null}
+            uploadedAt={null}
+            onShowProfileCv={previewDocument}
+            canRefresh={canUpload}
+          />
+        ) : null}
         {body}
       </div>
       {history && historyMounted ? (

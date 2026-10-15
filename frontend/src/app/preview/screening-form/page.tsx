@@ -106,6 +106,7 @@ type HarnessState =
   | "cvpick"
   | "cvconsent"
   | "cvready"
+  | "cvnewer"
   | "joint";
 const STATES: ReadonlyArray<{ value: HarnessState; label: string }> = [
   { value: "nowi", label: "Nowi — formularz od razu" },
@@ -119,6 +120,7 @@ const STATES: ReadonlyArray<{ value: HarnessState; label: string }> = [
   { value: "cvpick", label: "CV firmowe — wybór z profilu" },
   { value: "cvconsent", label: "CV firmowe — klient ze zgodą" },
   { value: "cvready", label: "CV firmowe — wybrane" },
+  { value: "cvnewer", label: "W profilu jest nowsze CV" },
   { value: "joint", label: "Screening dla — dwie rekrutacje" },
 ];
 
@@ -168,6 +170,16 @@ async function loadStaticBlob(_candidateId: number, docId: number): Promise<Blob
 async function loadStaticOriginal(): Promise<Blob> {
   return loadStaticBlob(CANDIDATE_ID, 1);
 }
+
+// „W profilu jest nowsze CV” (15.10.2026, D4): główne CV wgrane po kopii ze zgłoszenia.
+const NEWER_DOCUMENTS: CandidateDocument[] = [
+  {
+    ...doc(5, "Tomasz Wzorcowy — CV 2026.pdf", "application/pdf", true),
+    uploaded_at: "2026-10-14T08:00:00Z",
+    created_at: "2026-10-14T08:00:00Z",
+  },
+  ...DOCUMENTS.map((d) => ({ ...d, is_primary: false })),
+];
 
 // CV dla klientów w profilu: plik Word da się wybrać, PDF jest tylko do podglądu.
 const CLIENT_DOCUMENTS: CandidateDocument[] = [
@@ -979,7 +991,7 @@ function seededClient(state: HarnessState): QueryClient {
   }
   qc.setQueryData(["cv-original", STAGE_ID], SNAPSHOT, SEED_FRESH);
   const cv = isCvState(state);
-  const documents = cv ? [...DOCUMENTS, ...CLIENT_DOCUMENTS] : DOCUMENTS;
+  const documents = cv ? [...DOCUMENTS, ...CLIENT_DOCUMENTS] : state === "cvnewer" ? NEWER_DOCUMENTS : DOCUMENTS;
   const branded: CVBrandedState =
     state === "cvready"
       ? { ...BRANDED_NONE, status: "draft", source: "document", from_generator: false, edit_revision: 1, version: 1 }
@@ -1105,6 +1117,7 @@ function PresentationalForm({ state, withHistory }: { state: HarnessState; withH
           budgetHourly={150}
           loadDocumentBlob={loadStaticBlob}
           loadOriginalBlob={loadStaticOriginal}
+          cvUpload={{ candidateName: "Tomasz Wzorcowy", jobTitle: "Senior Java Developer" }}
           collapsible
           className="flex-1"
         />

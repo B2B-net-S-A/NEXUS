@@ -117,6 +117,7 @@ import {
   dockOriginalCv,
   pairCompanyCv,
   originalCvSentence,
+  withoutQuarantinedCv,
   type DockProfileCvDoc,
 } from "@/lib/dock-cv-summary";
 import { useCvQc, type QcResult } from "@/lib/api/cvQc";
@@ -288,27 +289,6 @@ interface CandidateDetail extends CandidateInBase {
   cv_parsed_at?: string | null;
   /** Tu tylko znacznik kwarantanny tożsamości (`_identity_quarantine_source`). */
   cv_extracted_data?: unknown;
-}
-
-/**
- * Pliki CV z profilu bez pliku z kwarantanny tożsamości (CV innej osoby —
- * znacznik `_identity_quarantine_source` w `cv_extracted_data`). Audyt
- * 13.10.2026, pkt 8: kopia etapu jest po kwarantannie pusta, a dok sięgał
- * wtedy po najnowszy plik z profilu, czyli właśnie cudze CV. Plik, który ktoś
- * po zwolnieniu znów ustawił jako główne, zostaje. Znacznik wskazuje ostatni
- * plik z kwarantanny.
- */
-export function withoutQuarantinedCv<T extends { id: number; is_primary: boolean }>(
-  docs: readonly T[] | undefined,
-  extracted: unknown,
-): readonly T[] | undefined {
-  const marker =
-    extracted && typeof extracted === "object"
-      ? (extracted as { _identity_quarantine_source?: { kind?: unknown; id?: unknown } })
-          ._identity_quarantine_source
-      : undefined;
-  if (!docs || marker?.kind !== "document" || typeof marker.id !== "number") return docs;
-  return docs.filter((doc) => doc.id !== marker.id || doc.is_primary);
 }
 
 /** Etykiety statusu kandydata — lustro `CandidateStatus` z backendu. */

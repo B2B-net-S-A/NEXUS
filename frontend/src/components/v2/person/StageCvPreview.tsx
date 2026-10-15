@@ -53,6 +53,7 @@ export function StageCvPreview({
   fill = false,
   revision,
   loadStageCvFile = fetchStageCvFile,
+  hideDownload = false,
 }: {
   candidateId: number;
   jobId: number;
@@ -67,6 +68,11 @@ export function StageCvPreview({
   revision?: number;
   /** Harness: plik CV etapu bez sieci. */
   loadStageCvFile?: typeof fetchStageCvFile;
+  /**
+   * Podgląd po „Rozwiń” ma „Pobierz Word / PDF” w pasku źródeł (15.10.2026, D3)
+   * — drugi przycisk w treści byłby tym samym plikiem w innym miejscu.
+   */
+  hideDownload?: boolean;
 }) {
   const { showError } = useToast();
   const query = useQuery({
@@ -201,7 +207,7 @@ export function StageCvPreview({
             Do przeglądu
           </Badge>
         ) : null}
-        {fromStage || (cv?.status === "ready" && !consentMissing) ? (
+        {!hideDownload && (fromStage || (cv?.status === "ready" && !consentMissing)) ? (
           <Button size="sm" variant="outline" className="ml-auto" onClick={() => void download()}>
             <Download className="h-3.5 w-3.5" />
             Pobierz DOCX

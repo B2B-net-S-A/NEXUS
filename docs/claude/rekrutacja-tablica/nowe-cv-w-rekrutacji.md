@@ -89,6 +89,40 @@ Prop `cvUpload` (podgląd w panelu i w Screeningu): „Wgraj CV” w pasku źró
 upuszczenie pliku na podgląd i kafelek w pustym stanie. Po wgraniu podgląd
 przechodzi na „CV oryginalne”. Przegląd DL i edytor CV go nie dostają.
 
+### Pobieranie z podglądu (15.10.2026, D1–D5)
+
+Prośba z zespołu: z dużego podglądu nie dało się pobrać CV, które się ogląda
+(oryginał tylko przez dok: sekcja „CV” → „Pokaż CV oryginalne” → okno →
+„Pobierz”). Makiety i decyzje: https://claude.ai/artifact/EBFqwhJjt1CoSUGkjYnPTV,
+raport `docs/cv-download-from-preview-completion-report.md`.
+
+- **D1 — miejsce.** „Pobierz CV” stoi w pasku źródeł PRZED „Wgraj CV”, także
+  bez prawa wgrania (przegląd DL, Rozmowy) — trasy pobrania wymagają tylko
+  odczytu. Znacznik inwentarza `screening-form.preview-cv-download`.
+- **D2 — to, co widać.** „CV oryginalne” → kopia ze zgłoszenia
+  (`…/stages/{id}/cv/original/download`) albo główne CV z profilu; „Inne
+  pliki” → zaznaczony plik. Dymek: nazwa pliku i zdanie z `originalCvSentence`.
+  Plik z kwarantanny tożsamości nie jest oryginałem (`withoutQuarantinedCv`,
+  ta sama reguła co dok); znacznik z danych kandydata bierzemy tylko z pamięci
+  zapytań (`enabled: false`) — podgląd nie dokłada żądania, harnessy bez zmian.
+- **D3 — CV firmowe.** W tym samym miejscu „Pobierz Word” + „PDF”: ten sam plik
+  co dok (`fetchStageCvFile` / `fetchStageCvPdf` na `cvStageId`, wpis
+  `surface=preview`), tylko przy `stageCvStatus === "ready"` i poza „Zmień CV”.
+  Bez zgody RODO wyłączone. `StageCvPreview` dostaje `hideDownload` —
+  „Pobierz DOCX” w treści zakładki zniknęło; przegląd DL (`CvColumn`) go nie ukrywa.
+- **D4 — „aktualne”.** Nad oryginałem ramka `DockCvFreshness` („W profilu jest
+  nowsze CV”): „Pokaż” przełącza na „Inne pliki” z tym plikiem, „Użyj w tej
+  rekrutacji” tylko z prawem wgrania (`canRefresh`). Bez ramki „Pobierz CV”
+  po cichu dawałby starszy plik.
+- **D5.** Przy otwartej „Historii osoby” przycisku nie ma. Pobranie oryginału
+  i plików z profilu nie trafia do `cv_file_downloaded` — liczymy CV firmowe.
+- **Laptop 1280 px.** Strefa ma ok. 750 px; z „Historią osoby”, „Pobierz” i
+  „Wgraj CV” rząd się zawijał. Zakładka jest kontenerem `cvsources`: poniżej
+  56 rem „Zwiń CV” zostaje ikoną (z `aria-label`), przy CV firmowym znika słowo
+  „Pobierz” i ikona przy „PDF”, a odstęp spada do 6 px. Najgorszy przypadek
+  w harnessie: 707 z 745 px. Nowy przycisk w tym rzędzie = pomiar w
+  `/preview/screening-form` (stan `cvnewer` pokazuje ramkę D4).
+
 ## Okno „Dodaj z CV” w rekrutacji (`AddCandidateFromCVModal.tsx`)
 
 - Okno samo dodaje osobę do „Nowych” (`proposals/bulk`, `quick_add`) — także

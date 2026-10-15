@@ -2568,6 +2568,14 @@
    "v3_home": "panel osoby → lewa strefa → CV"
   },
   {
+   "id": "screening-form.preview-cv-download",
+   "area": "formularz screeningu",
+   "opis": "„Pobierz CV” w pasku źródeł podglądu po „Rozwiń” — pobiera to, co widać (oryginał, zaznaczony plik, CV firmowe jako Word / PDF), i ramka „W profilu jest nowsze CV”",
+   "file": "components/v2/screening-form/CandidatePreviewPane.tsx",
+   "marker": "preview-cv-download",
+   "v3_home": "panel osoby → lewa strefa → CV"
+  },
+  {
    "id": "add-from-cv.existing-person",
    "area": "naglowek",
    "opis": "Okno „Dodaj z CV” przy osobie z bazy: „Dodaj do rekrutacji z tym CV” (CV na górę profilu i „Nowi”), „Podmień CV w tej rekrutacji” przy osobie w toku, „Przywróć” przy zamkniętej karcie",
