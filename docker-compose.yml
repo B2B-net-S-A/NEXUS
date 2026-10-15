@@ -398,6 +398,22 @@ services:
       start_period: 60s
     logging: *default-logging
 
+  # Budzik okna wdrożeń (15.10.2026): o 19:05, 21:05 i 23:05 czasu
+  # warszawskiego uruchamia workflow Deploy przez API GitHuba, bo cron GitHuba
+  # przychodzi z kilkugodzinnym opóźnieniem albo wcale — deploy-window/loop.sh.
+  # Token (fine-grained PAT, „Actions: read and write”, tylko to repo) dostaje
+  # wyłącznie ten kontener; pusty = budzik śpi.
+  deploy-window:
+    build:
+      context: ./deploy-window
+      dockerfile: Dockerfile
+    image: nexus-deploy-window:latest
+    restart: unless-stopped
+    mem_limit: 32m
+    environment:
+      DEPLOY_WINDOW_GITHUB_TOKEN: ${DEPLOY_WINDOW_GITHUB_TOKEN:-}
+    logging: *default-logging
+
 volumes:
   postgres_data:
   qdrant_data:
