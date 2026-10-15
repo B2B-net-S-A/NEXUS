@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import fixture from "@/lib/__fixtures__/job-working-title-cases.json";
 import {
+  clientReferenceParts,
   composeWorkingTitle,
   jobClientLine,
   jobClientTitle,
@@ -85,5 +86,15 @@ describe("jobNamesPatch — PATCH niesie wyłącznie zmienione nazwy", () => {
     expect(
       jobNamesPatch(auto, { clientReference: "", workingTitle: "", workingTitleManual: true }),
     ).toEqual({});
+  });
+});
+
+describe("clientReferenceParts — numer u klienta (15.10.2026)", () => {
+  it("dzieli kilka numerów jednej rekrutacji i pomija puste", () => {
+    expect(clientReferenceParts("41228, 41227")).toEqual(["41228", "41227"]);
+    expect(clientReferenceParts(" ZOB 48213 ")).toEqual(["ZOB 48213"]);
+    expect(clientReferenceParts("")).toEqual([]);
+    expect(clientReferenceParts(null)).toEqual([]);
+    expect(clientReferenceParts(undefined)).toEqual([]);
   });
 });

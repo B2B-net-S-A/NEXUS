@@ -9,7 +9,7 @@
  * a zapisany wybór wygrywa na obu stronach.
  */
 
-import { act, render, screen } from "@testing-library/react";
+import { act, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -251,6 +251,24 @@ describe("JobTabsRail — karty", () => {
 
     await user.click(screen.getByRole("button", { name: "Zamknij wszystkie karty" }));
     expect(useTabsStore.getState().tabs.map((t) => t.id)).toEqual(["candidate-9"]);
+  });
+
+  it("numer u klienta w miejscu ikony; openTab dopisuje go do otwartej już karty (15.10.2026)", async () => {
+    window.localStorage.setItem(JOB_TABS_RAIL_COLLAPSED_STORAGE_KEY, "0");
+    useTabsStore.setState({
+      tabs: [oneJobTab, { id: "job-502", type: "job", entityId: 502, title: "Tester", url: "/jobs/502" }],
+      activeTabId: "job-501",
+    });
+    // Karta zapisana przed 15.10.2026 nie ma numeru — dostaje go przy otwarciu.
+    act(() => useTabsStore.getState().openTab("job", 501, "Programista Python", "41228, 41227"));
+    render(<JobTabsRail />);
+
+    const row = await screen.findByRole("button", { name: /Programista Python/ });
+    expect(within(row).getByTestId("open-tab-reference")).toHaveTextContent("41228");
+    expect(row).toHaveAttribute("title", "41228, 41227 · Programista Python");
+    const plain = screen.getByRole("button", { name: /Tester/ });
+    expect(within(plain).queryByTestId("open-tab-reference")).toBeNull();
+    expect(useTabsStore.getState().tabs.map((t) => t.id)).toEqual(["job-501", "job-502"]);
   });
 
   it("z klawiatury: Enter na wierszu otwiera kartę, Enter na „×” ją zamyka (nie otwiera)", async () => {

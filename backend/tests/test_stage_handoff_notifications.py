@@ -223,6 +223,27 @@ def test_nordea_bells_speak_about_the_cpro_acceptance(monkeypatch) -> None:
     assert title.startswith(handoff.TITLE_CPRO_QUEUE)
 
 
+def test_cpro_bell_does_not_repeat_a_number_already_in_the_client_title() -> None:
+    """15.10.2026: nazwa od klienta kończy się zwykle numerem („… (41234)”),
+    a numer z nazwy trafia teraz też do ``client_reference``."""
+
+    for reference in ("41234", "41234, 41235"):
+        title, _message, _link = emitter._inapp_content(
+            reason=handoff.REASON_CPRO_QUEUE,
+            candidate=SimpleNamespace(id=9),
+            candidate_full_name="Jan Testowy",
+            stage_display_name="Wysłać do Cpro",
+            job=SimpleNamespace(
+                id=3,
+                title="Analityk (41234)(41235)",
+                working_title="Analityk · SQL",
+                client_reference=reference,
+            ),
+            mover=None,
+        )
+        assert title == "Do wrzucenia do Cpro: Jan Testowy · Analityk (41234)(41235)"
+
+
 def test_cpro_bell_title_fits_the_column() -> None:
     title, _message, _link = emitter._inapp_content(
         reason=handoff.REASON_CPRO_QUEUE,

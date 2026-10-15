@@ -222,6 +222,8 @@ const MINE = [
     request_stage: "contract",
     similar: { linked_count: 0, linked_first: null, reassigned_count: 0, suggested: null },
     title: "Analityk biznesowy",
+    // Dwa zapytania klienta w jednej rekrutacji — znacznik „41228 +1”.
+    client_reference: "41228, 41227",
     reference_number: "REF-2026-0903",
     remote_policy: "hybrid",
     onsite_days_per_month: 2,
@@ -378,9 +380,9 @@ const MY_CATEGORY = OPEN.filter((job) => job.competence_category_id === 2);
 
 /** Fikcyjne karty szyny „Otwarte karty” — rekrutacje z listy niżej. */
 const OPEN_TABS: Tab[] = [
-  { id: "job-901", type: "job", entityId: 901, title: "Senior Java Developer · Java, Kafka", url: "/jobs/901" },
-  { id: "job-902", type: "job", entityId: 902, title: "DevOps Engineer · Azure, Terraform", url: "/jobs/902" },
-  { id: "job-903", type: "job", entityId: 903, title: "Analityk biznesowy", url: "/jobs/903" },
+  { id: "job-901", type: "job", entityId: 901, title: "Senior Java Developer · Java, Kafka", url: "/jobs/901", reference: "ZOB 48213" },
+  { id: "job-902", type: "job", entityId: 902, title: "DevOps Engineer · Azure, Terraform", url: "/jobs/902", reference: "SAP 4500123456" },
+  { id: "job-903", type: "job", entityId: 903, title: "Analityk biznesowy", url: "/jobs/903", reference: "41228, 41227" },
   { id: "job-904", type: "job", entityId: 904, title: "Tester automatyzujący", url: "/jobs/904" },
 ];
 

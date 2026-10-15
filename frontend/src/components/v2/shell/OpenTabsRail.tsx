@@ -10,6 +10,7 @@ import {
 } from "react";
 import { PanelLeftClose, PanelLeftOpen, X } from "lucide-react";
 
+import { clientReferenceParts } from "@/lib/job-names";
 import { cn } from "@/lib/utils";
 import type { Tab } from "@/store/tabs";
 
@@ -269,12 +270,15 @@ export function OpenTabsRail({
           // Podświetlenie z adresu, nie z `activeTabId` — zostaje poprawne po
           // „Wstecz” i po wejściu z linku, których store nie zainicjował.
           const isActive = currentId === tab.entityId;
+          // Numer u klienta w miejscu ikony (rekrutacje, 15.10.2026): trzy
+          // „Senior IT Analyst” różnią się dopiero numerem.
+          const reference = clientReferenceParts(tab.reference);
           return (
             <div
               key={tab.id}
               role="button"
               tabIndex={0}
-              title={tab.title}
+              title={reference.length > 0 ? `${reference.join(", ")} · ${tab.title}` : tab.title}
               onClick={() => onOpen(tab)}
               onKeyDown={(e) => {
                 // Tylko klawisz na samym wierszu: Enter na „Zamknij kartę”
@@ -292,12 +296,24 @@ export function OpenTabsRail({
                   : "text-foreground/80 hover:bg-muted hover:text-foreground",
               )}
             >
-              <Icon
-                className={cn(
-                  "h-4 w-4 shrink-0",
-                  isActive ? "text-primary" : "text-muted-foreground",
-                )}
-              />
+              {reference.length > 0 ? (
+                <span
+                  className={cn(
+                    "min-w-11 max-w-24 shrink-0 truncate text-xs font-semibold tabular-nums",
+                    isActive ? "text-primary" : "text-foreground",
+                  )}
+                  data-testid="open-tab-reference"
+                >
+                  {reference[0]}
+                </span>
+              ) : (
+                <Icon
+                  className={cn(
+                    "h-4 w-4 shrink-0",
+                    isActive ? "text-primary" : "text-muted-foreground",
+                  )}
+                />
+              )}
               <span className="flex-1 truncate text-sm">{tab.title}</span>
               <button
                 type="button"

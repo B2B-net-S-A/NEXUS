@@ -206,7 +206,7 @@ describe("JobsListV2 — pamięć ostatnich filtrów", () => {
     useAuthStore.setState({ user: null, hydrated: false });
     const user = userEvent.setup();
     renderJobs();
-    await user.type(screen.getByPlaceholderText("Tytuł, klient, technologia…"), "ja");
+    await user.type(screen.getByPlaceholderText("Numer, tytuł, klient, technologia…"), "ja");
     await new Promise((r) => setTimeout(r, 30));
     expect(jobsCalls()).toHaveLength(0);
 
@@ -216,7 +216,7 @@ describe("JobsListV2 — pamięć ostatnich filtrów", () => {
       open_only: true,
       request_stage: ["searching"],
     });
-    expect(screen.getByPlaceholderText("Tytuł, klient, technologia…")).toHaveValue("ja");
+    expect(screen.getByPlaceholderText("Numer, tytuł, klient, technologia…")).toHaveValue("ja");
   });
 
   it("link z parametrami wygrywa i nie nadpisuje pamięci, dopóki osoba czegoś nie zmieni", async () => {
@@ -304,7 +304,7 @@ describe("JobsListV2 — pamięć ostatnich filtrów", () => {
     const user = userEvent.setup();
     renderJobs();
     await waitFor(() => expect(jobsCalls()).toHaveLength(1));
-    await user.type(screen.getByPlaceholderText("Tytuł, klient, technologia…"), "java");
+    await user.type(screen.getByPlaceholderText("Numer, tytuł, klient, technologia…"), "java");
     await user.click(scopeButton(/Otwarte/));
     await waitFor(() => expect(stored()).toBe("open=1"));
     await waitFor(() => expect(latestParams()).toMatchObject({ q: "java" }));

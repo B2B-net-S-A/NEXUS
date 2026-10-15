@@ -86,6 +86,92 @@ def test_reference_from_title_only_when_unambiguous() -> None:
     assert reference_from_title("BP/007/2026", None) is None
 
 
+# Formaty numerów zmierzone na nazwach od klientów 15.10.2026; tytuły fikcyjne.
+@pytest.mark.parametrize(
+    ("title", "ours", "expected"),
+    [
+        ("Analityk IT Replacement (41234)", None, "41234"),
+        ("Data Engineer_TP#45785 (41228)(41227)", None, "41228, 41227"),
+        ("Testerzy danych (41769)/(41799)", None, "41769, 41799"),
+        ("Developer – RITM0123456", None, "RITM0123456"),
+        ("Test Automation Engineer_RITM0123457", None, "RITM0123457"),
+        ("Tester_PKN/5/000123/26", None, "PKN/5/000123/26"),
+        ("Konsultant Power BI_PKN500012326", None, "PKN500012326"),
+        ("Kierownik projektu_EITE500011826", None, "EITE500011826"),
+        ("Projektant UX (6762)", None, "6762"),
+        ("Starszy Scrum Master (270341)", None, "270341"),
+        # ZOB wygrywa jak od 0380, nawias go nie zmienia.
+        ("Analityk (ZOB-2984) (41234)", None, "ZOB 2984"),
+        # Rok i nasz numer w nawiasie to nie numer klienta.
+        ("Analityk (2026)", None, None),
+        ("Analityk IT (4918)", "31/9/2026/IT/4918", None),
+        ("Programista (2)", None, None),
+        ("Starszy analityk (DM*)", None, None),
+        ("Tester x4 Zapotrzebowanie 55 cz. I", None, None),
+        ("Analityk (41933", None, None),
+        ("Konsultanci NIS2_EITERFP20260165", None, None),
+    ],
+)
+def test_reference_from_title_reads_known_client_formats(title, ours, expected) -> None:
+    assert reference_from_title(title, ours) == expected
+
+
+def test_champion_role_loses_the_client_prefix_and_number_but_keeps_codes() -> None:
+    """D6 (15.10.2026): rola w Championie bywa przepisaną nazwą od klienta."""
+
+    def job(role: str, reference: str | None) -> SimpleNamespace:
+        return SimpleNamespace(
+            title="x",
+            client_reference=reference,
+            must_skills=["SQL"],
+            champion_profile={"basics": {"role_name": role}},
+        )
+
+    names = ["Makietex Bank"]
+    assert (
+        working_title_for_job(
+            job("Makietex: Analityk danych (41228)(41227)", "41228, 41227"), names
+        )
+        == "Analityk danych · SQL"
+    )
+    assert (
+        working_title_for_job(
+            job("Makietex - Inżynier platformy (K8s) (41234)", "41234"), names
+        )
+        == "Inżynier platformy (K8s) · SQL"
+    )
+    # Numer schodzi tylko w całości, nigdy kawałek innej liczby.
+    assert (
+        working_title_for_job(job("Inżynier 145210", "4521"), names)
+        == "Inżynier 145210 · SQL"
+    )
+    assert working_title_for_job(job("Analityk", None), names) == "Analityk · SQL"
+
+
+def test_intake_takes_the_number_from_the_quoted_client_title() -> None:
+    """D5 (15.10.2026): model brał kod projektu („PEP4989”) zamiast numeru."""
+    from app.services.job_request_intake import normalize_model_output
+
+    text = "Request: PEP4989_Domain API_Junior IT Analyst (replacement) (41970). SQL."
+    title = "PEP4989_Domain API_Junior IT Analyst (replacement) (41970)"
+    picked = normalize_model_output(
+        {"client_title": title, "client_reference": "PEP4989"}, text
+    )
+    assert picked.client_reference == "41970"
+    # Numer modelu w znanym formacie zostaje.
+    kept = normalize_model_output(
+        {"client_title": "Java (ZOB-48213)", "client_reference": "ZOB-48213"},
+        "Szukamy: Java (ZOB-48213).",
+    )
+    assert kept.client_reference == "ZOB-48213"
+    # Dwa numery to nie cytat — serwer przeczyta je z nazwy przy zakładaniu.
+    two = normalize_model_output(
+        {"client_title": "Analityk (41228)(41227)", "client_reference": "41228"},
+        "Szukamy: Analityk (41228)(41227).",
+    )
+    assert two.client_reference is None
+
+
 def test_working_title_prefers_champion_and_falls_back_to_the_title() -> None:
     champion = SimpleNamespace(
         title="Programista Java (ZOB 48213)",
@@ -359,6 +445,102 @@ async def test_backfill_fills_only_empty_names_without_touching_updated_at() -> 
         assert filled.working_title == "Programista Java · Java, Spring"
         assert filled.updated_at == stamps[archive.id]
         assert (kept.client_reference, kept.working_title) == ("SAP 1", "Ręczny")
+
+
+@needs_db
+@pytest.mark.asyncio
+async def test_reference_fill_reads_titles_and_overwrites_only_internal_codes() -> None:
+    """15.10.2026: numer z nazwy od klienta trafia do pustego pola; PEP/TP
+    z odczytu maila ustępuje numerowi z nawiasu (D4); reszta zostaje."""
+    from app.core.database import AsyncSessionLocal
+    from app.models.client import Client
+    from app.models.job import Job
+    from app.services.job_working_title import fill_client_references_from_titles
+
+    async with AsyncSessionLocal() as db:
+        client = Client(name=f"Makietex {uuid.uuid4().hex[:6]}")
+        db.add(client)
+        await db.flush()
+        champion = {"basics": {"role_name": "Makietex: Analityk danych (41234)"}}
+        empty = Job(
+            title="Makietex: Analityk danych (41234)",
+            client_id=client.id,
+            must_skills=["SQL"],
+            champion_profile=champion,
+            working_title="Makietex: Analityk danych (41234) · SQL",
+        )
+        two = Job(title="Tester_TP#45785 (41228)(41227)", client_id=client.id)
+        code = Job(
+            title="PEP4989_Analityk (41970)",
+            client_id=client.id,
+            client_reference="PEP4989",
+        )
+        paren = Job(title="Analityk", client_id=client.id, client_reference="(41855)")
+        other = Job(
+            title="Developer (41999)", client_id=client.id, client_reference="SAP 1"
+        )
+        manual = Job(
+            title="Tester (41300)",
+            client_id=client.id,
+            working_title="Ręczny",
+            working_title_auto=False,
+        )
+        none = Job(title="Architekt chmury", client_id=client.id)
+        jobs = [empty, two, code, paren, other, manual, none]
+        db.add_all(jobs)
+        await db.commit()
+        ids = {job.id for job in jobs}
+        stamps = {job.id: job.updated_at for job in jobs}
+
+    async with AsyncSessionLocal() as db:
+        receipt = await fill_client_references_from_titles(db, only_job_ids=ids)
+        await db.commit()
+    assert receipt == {
+        "jobs_seen": 7,
+        "client_references": 3,
+        "multi": 1,
+        "normalized": 1,
+        "replaced_internal_codes": 1,
+        "working_titles": 4,
+    }
+
+    async with AsyncSessionLocal() as db:
+        got = {job_id: await db.get(Job, job_id) for job_id in ids}
+        assert got[empty.id].client_reference == "41234"
+        assert got[empty.id].working_title == "Analityk danych · SQL"
+        assert got[two.id].client_reference == "41228, 41227"
+        assert got[code.id].client_reference == "41970"
+        assert got[paren.id].client_reference == "41855"
+        assert got[other.id].client_reference == "SAP 1"
+        assert (got[manual.id].client_reference, got[manual.id].working_title) == (
+            "41300",
+            "Ręczny",
+        )
+        assert got[none.id].client_reference is None
+        for job_id, job in got.items():
+            assert job.updated_at == stamps[job_id]
+
+    async with AsyncSessionLocal() as db:
+        again = await fill_client_references_from_titles(db, only_job_ids=ids)
+        await db.commit()
+    assert again["client_references"] == again["replaced_internal_codes"] == 0
+    assert again["working_titles"] == 0
+
+
+def test_reference_fill_phase_runs_after_the_title_fixes_and_never_stops_the_boot() -> (
+    None
+):
+    from app.services.job_working_title import CLIENT_REFERENCE_MARKER
+
+    assert CLIENT_REFERENCE_MARKER == "client_reference_from_title_2026_10"
+    entrypoint = (BACKEND / "entrypoint.sh").read_text()
+    fix = entrypoint.index('startup_phase "working-title-prose-fix"')
+    fill = entrypoint.index('startup_phase "client-reference-from-title"')
+    assert fix < fill
+    phase = entrypoint[fill : entrypoint.index("\nPY\n", fill)]
+    assert "fill_client_references_from_titles" in phase
+    assert "python - <<'PY' || echo" in phase
+    assert "exit" not in phase
 
 
 # ── Tytuł bez zdań + jednorazowe przeliczenie (02.10.2026) ──────────────────

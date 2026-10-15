@@ -107,7 +107,12 @@ import {
   readJobsListMemory,
   writeJobsListMemory,
 } from "@/lib/jobs-list-memory";
-import { jobDisplayTitle } from "@/lib/job-names";
+import { jobClientTitle, jobDisplayTitle } from "@/lib/job-names";
+import { useToast } from "@/components/Toast";
+import {
+  ClientReferenceChip,
+  copyClientReference,
+} from "@/components/v2/jobs/ClientReferenceChip";
 import { jobRowTitle, jobWorkModeParts } from "@/lib/job-row-summary";
 import { stageSummaryOf } from "@/lib/job-pipeline-funnel";
 import { WIDE_TABLE_CONTAINER } from "@/lib/wide-table";
@@ -318,10 +323,12 @@ function JobsTable({
   /** Rozstrzyga propozycje automatu (`request.proposal.decide`). */
   canDecideProposals: boolean;
 }) {
+  const toast = useToast();
   return (
-    // Jeden układ dla każdej szerokości (02.10.2026): wiersz to nazwa stanowiska,
-    // a pod nią kategoria, klient i tryb pracy. Wymagania, nazwa od klienta,
-    // numery i data otwarcia stoją w Podglądzie (`JobPreviewDetails`).
+    // Jeden układ dla każdej szerokości (02.10.2026): wiersz to numer u klienta
+    // (15.10.2026) i nazwa stanowiska, a pod nią kategoria, klient i tryb pracy.
+    // Wymagania, nazwa od klienta, nasz numer i data otwarcia stoją
+    // w Podglądzie (`JobPreviewDetails`).
     // `@container` zostaje dla `NARROW_CELL`.
     <div className={WIDE_TABLE_CONTAINER}>
     <Table>
@@ -392,6 +399,16 @@ function JobsTable({
                     osobnej kolumny. */}
                 <div className="flex min-w-0 items-center gap-1.5">
                 <RequestPriorityChip level={priorityLevelOf(job)} className="shrink-0" />
+                {/* Numer u klienta przed nazwą (prośba DL Nordei, 15.10.2026):
+                    tytuły dla rekrutera są uogólnione i bez numeru nie widać,
+                    który request to który. Poza linkiem — nazwa linku zostaje
+                    tytułem. */}
+                <ClientReferenceChip
+                  reference={job.client_reference}
+                  clientTitle={jobClientTitle(job)}
+                  onCopy={(reference) => void copyClientReference(reference, toast)}
+                  testId="job-row-client-reference"
+                />
                 {/* Pełny tytuł roboczy w dymku stoi na opakowaniu: `title` na
                     samym linku przejąłby w Chrome jego nazwę dostępną. */}
                 <span className="block min-w-0 truncate" title={jobDisplayTitle(job)}>
@@ -1175,7 +1192,7 @@ export function JobsListV2({
             <div className="min-w-[160px] max-w-lg flex-1" data-help="jobs.list.search">
               <Input
                 leadingIcon={<Search className="h-4 w-4" />}
-                placeholder="Tytuł, klient, technologia…"
+                placeholder="Numer, tytuł, klient, technologia…"
                 value={search}
                 onChange={(e) => {
                   setSearch(e.target.value);
