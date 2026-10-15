@@ -245,6 +245,8 @@ async def test_repair_renames_copy_and_its_approved_versions_once(monkeypatch):
                 )
             )
         await db.commit()
+        # `updated_at` po flushu z `onupdate=now()` jest wygaszony.
+        await db.refresh(csv)
         csv_id, stamp = csv.id, csv.updated_at
 
     async with AsyncSessionLocal() as db:
