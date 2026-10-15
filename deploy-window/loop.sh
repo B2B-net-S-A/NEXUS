@@ -19,7 +19,9 @@
 set -eu
 
 SLOTS="19:05 21:05 23:05"
-REPO="${DEPLOY_WINDOW_REPO:-artur-t-96/Nexus}"
+# Kanoniczna nazwa po przeniesieniu repo do organizacji — stara
+# `artur-t-96/Nexus` daje przekierowanie, za którym POST nie idzie.
+REPO="${DEPLOY_WINDOW_REPO:-B2B-net-S-A/NEXUS}"
 TOKEN="${DEPLOY_WINDOW_GITHUB_TOKEN:-}"
 export TZ=Europe/Warsaw
 

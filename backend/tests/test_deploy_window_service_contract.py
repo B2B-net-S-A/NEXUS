@@ -78,10 +78,20 @@ def _fake_curl(tmp_path: Path, code: str) -> Path:
     return calls
 
 
+def _repo_line() -> str:
+    """Prawdziwa linia ``REPO=`` z loop.sh — domyślna nazwa repo jest częścią
+    kontraktu (stara ``artur-t-96/Nexus`` przekierowuje, a POST za tym nie idzie)."""
+    src = _LOOP_SH.read_text(encoding="utf-8")
+    match = re.search(r"^REPO=.*$", src, re.M)
+    assert match, "brak linii REPO= w loop.sh"
+    return match.group(0)
+
+
 def _dispatch_script() -> str:
     return "\n".join(
         [
-            'REPO="artur-t-96/Nexus"',
+            "unset DEPLOY_WINDOW_REPO",
+            _repo_line(),
             'TOKEN="tok-test"',
             'log() { echo "$*"; }',
             _function("dispatch"),
@@ -128,7 +138,7 @@ def test_dispatch_runs_deploy_as_window_slot(tmp_path: Path) -> None:
     args = calls.read_text(encoding="utf-8").splitlines()
     assert args.count("---") == 1, "jedno wywołanie API przy 204"
     assert (
-        "https://api.github.com/repos/artur-t-96/Nexus/actions/workflows/deploy.yml/dispatches"
+        "https://api.github.com/repos/B2B-net-S-A/NEXUS/actions/workflows/deploy.yml/dispatches"
         in args
     )
     assert "Authorization: Bearer tok-test" in args
