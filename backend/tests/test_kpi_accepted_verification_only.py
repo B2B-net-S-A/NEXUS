@@ -256,6 +256,88 @@ async def _credited(db, ids) -> list[tuple[str, int]]:
     return [(r.stage, r.credit_user) for r in rows]
 
 
+async def test_second_hired_in_a_later_attempt_is_not_a_second_placement():
+    """Para zatrudniona w próbie 1 i jeszcze raz w próbie 2 — jeden placement.
+
+    Produkcja 15.10.2026: „Zatrudniony” wpisany ręcznie w NEXUSIE, a dzień
+    później ten sam z importu Traffita, który otwierał nową próbę procesu
+    chwilą zatrudnienia. Każda próba dawała placement, więc cztery pary
+    liczyły się dwa razy (październik 19 zamiast 16). Weryfikacja nowej
+    próby nadal się liczy — to jest praca, nie powtórzony wynik.
+    """
+    async with AsyncSessionLocal() as db:
+        u = uuid.uuid4().hex[:8]
+        user = User(
+            email=f"kpi-rehire-{u}@example.com",
+            password_hash=hash_password("x"),
+            name="Mover R",
+            role=UserRole.recruiter,
+            is_active=True,
+        )
+        client = Client(name=f"KPI Rehire Client {u}")
+        db.add_all([user, client])
+        await db.flush()
+        job = Job(title=f"KPI Rehire Job {u}", client_id=client.id)
+        cand = Candidate(name="Romek", lastname=f"RH-{u}")
+        db.add_all([job, cand])
+        await db.flush()
+        second_attempt_at = T0 + timedelta(days=6)
+        db.add_all(
+            [
+                CandidateStage(
+                    candidate_id=cand.id,
+                    job_id=job.id,
+                    stage=PipelineStage.hired,
+                    moved_at=T0 + timedelta(days=5),
+                    moved_by=user.id,
+                ),
+                CandidateStage(
+                    candidate_id=cand.id,
+                    job_id=job.id,
+                    stage=PipelineStage.verified,
+                    moved_at=second_attempt_at + timedelta(hours=1),
+                    moved_by=user.id,
+                    verification_status=VerificationStatus.active,
+                ),
+                CandidateStage(
+                    candidate_id=cand.id,
+                    job_id=job.id,
+                    stage=PipelineStage.hired,
+                    moved_at=second_attempt_at + timedelta(hours=2),
+                    moved_by=user.id,
+                ),
+                RecruitmentProcess(
+                    candidate_id=cand.id,
+                    job_id=job.id,
+                    client_id=client.id,
+                    attempt_no=1,
+                    status=ProcessStatus.closed,
+                    origin_kind=PriorityOriginKind.external_observed,
+                    opened_at=T0,
+                    closed_at=T0 + timedelta(days=5),
+                    kpi_eligible=False,
+                ),
+                RecruitmentProcess(
+                    candidate_id=cand.id,
+                    job_id=job.id,
+                    client_id=client.id,
+                    attempt_no=2,
+                    status=ProcessStatus.closed,
+                    origin_kind=PriorityOriginKind.external_observed,
+                    opened_at=second_attempt_at,
+                    closed_at=second_attempt_at + timedelta(hours=2),
+                    kpi_eligible=False,
+                ),
+            ]
+        )
+        await db.commit()
+        credited = await _credited(db, {"candidate_id": cand.id, "job_id": job.id})
+
+    assert sorted(credited) == [("hired", user.id), ("verified", user.id)], (
+        f"the same pair was placed twice across process attempts: {credited}"
+    )
+
+
 async def test_classified_process_without_verifier_still_credits_the_mover():
     """No accepted `verified` must not delete the milestones from KPI.
 
