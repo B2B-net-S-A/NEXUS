@@ -215,6 +215,15 @@ FinanceRead = Annotated[Caller, _scoped(ServiceScope.finance_read)]
 FinanceWrite = Annotated[Caller, _scoped(ServiceScope.finance_write)]
 InvoicesRead = Annotated[Caller, _scoped(ServiceScope.invoices_read)]
 InvoicesWrite = Annotated[Caller, _scoped(ServiceScope.invoices_write)]
+# Rekrutacja i kandydaci (15.10.2026). Dane kontaktowe nie mają własnych tras —
+# to pola profilu, które pokazuje ``sees_candidate_contact``.
+RecruitmentsRead = Annotated[Caller, _scoped(ServiceScope.recruitments_read)]
+RecruitmentsWrite = Annotated[Caller, _scoped(ServiceScope.recruitments_write)]
+CandidatesRead = Annotated[Caller, _scoped(ServiceScope.candidates_read)]
+CandidatesCv = Annotated[Caller, _scoped(ServiceScope.candidates_cv)]
+CandidatesWrite = Annotated[Caller, _scoped(ServiceScope.candidates_write)]
+NotesRead = Annotated[Caller, _scoped(ServiceScope.notes_read)]
+NotesWrite = Annotated[Caller, _scoped(ServiceScope.notes_write)]
 
 
 def principal_of(caller: Caller) -> ServicePrincipal:
@@ -250,6 +259,18 @@ def amount_level(caller: Caller) -> AmountLevel:
     if ServiceScope.sales_amounts_read.value in scopes:
         return AmountLevel.sales
     return AmountLevel.none
+
+
+def sees_candidate_contact(caller: Caller) -> bool:
+    """E-mail, telefon, LinkedIn i dane firmy kandydata — tylko z
+    ``candidates:contact``; bez niego pola są ``null`` i
+    ``contact_redacted = true``."""
+    return ServiceScope.candidates_contact.value in principal_of(caller).scopes
+
+
+def reads_candidate_cv(caller: Caller) -> bool:
+    """Tekst CV i pliki CV — tylko z ``candidates:cv``."""
+    return ServiceScope.candidates_cv.value in principal_of(caller).scopes
 
 
 def integration_actor(caller: Caller) -> IntegrationActor:

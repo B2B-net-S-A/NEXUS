@@ -76,6 +76,22 @@ describe("groupScopes — grupy uprawnień na ekranie", () => {
     expect(values).not.toContain("invoices:write");
   });
 
+  it("rekrutacja i kandydaci mają własne grupy, dane kontaktowe i CV osobno", () => {
+    const groups = groupScopes(
+      ["notes:write", "candidates:contact", "recruitments:read", "candidates:cv"],
+      [],
+    );
+    expect(groups.map((g) => g.title)).toEqual([
+      "Rekrutacja i kandydaci — odczyt",
+      "Rekrutacja i kandydaci — zapis",
+    ]);
+    expect(groups[0].scopes.map((s) => s.value)).toEqual([
+      "recruitments:read",
+      "candidates:contact",
+      "candidates:cv",
+    ]);
+  });
+
   it("chip pokazuje etykietę bez dopisku w nawiasie", () => {
     expect(shortScopeLabel("Zużycie MD: zapis (import, przypisanie wiersza)")).toBe("Zużycie MD: zapis");
     expect(shortScopeLabel("Raporty: odczyt")).toBe("Raporty: odczyt");

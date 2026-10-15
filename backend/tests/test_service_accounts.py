@@ -130,9 +130,26 @@ class TestScopeVocabulary:
         values = {scope.value for scope in ServiceScope}
         for forbidden in ("candidate:read", "candidate:write", "client:read"):
             assert forbidden not in values
-        for value in values:
-            resource = value.split(":", 1)[0]
-            assert resource not in {"candidate", "candidates", "jobs", "job", "notes"}, value
+        # 15.10.2026 (decyzja Artura): API v1 obejmuje też rekrutację
+        # i kandydatów — wyłącznie przez te scope'y, z danymi osobowymi
+        # podzielonymi na profil, kontakt, CV i notatki. Każdy inny scope
+        # tych zasobów to nowa decyzja, nie dopisek.
+        personal = {
+            value
+            for value in values
+            if value.split(":", 1)[0]
+            in {"candidate", "candidates", "jobs", "job", "notes", "recruitments"}
+        }
+        assert personal == {
+            "recruitments:read",
+            "recruitments:write",
+            "candidates:read",
+            "candidates:contact",
+            "candidates:cv",
+            "candidates:write",
+            "notes:read",
+            "notes:write",
+        }
 
     def test_write_scope_implies_read_scope(self):
         assert implied_scopes(frozenset({"md:write"})) == {"md:write", "md:read"}

@@ -143,3 +143,18 @@ integratora: `docs/api/integracje-v1.md` (bez nazwisk — repo jest publiczne).
   w `commit_order_write`, PDF ląduje na dysku przed commitem. Encji nie ładuj
   przed ciałem (`db.get`) — `SELECT … FOR UPDATE` ciała zwróciłby obiekt z mapy
   tożsamości z wartościami sprzed blokady; odczytuj same kolumny.
+- **Rekrutacja i kandydaci w v1 (15.10.2026):** scope'y `recruitments:read|write`,
+  `candidates:read|contact|cv|write`, `notes:read|write` — jedyne scope'y danych
+  osobowych (`test_no_candidate_data_scope_exists`). Kontakt to POLA profilu
+  (`sees_candidate_contact`), nie osobne trasy; koszt (oczekiwania kandydata,
+  budżet rekrutacji, stawka Championa) przez `amount_level`. Klucz to integracja
+  (`candidate_claim.is_integration_request` zna `service_principal`): osoba, która
+  się nie zgłosiła, idzie do propozycji, notatka jest systemowa (`source_ref =
+  integration:<slug>`), bez 12 h blokady i bez `UserActivity`. Ruch karty:
+  `pipeline.apply_move` z polityką (`services/recruitment_move_policy.py`) —
+  `UserMovePolicy` = stare bramki ekranu, `IntegrationMovePolicy` odmawia
+  zatrudnienia, wysyłki do klienta, Cpro, stawek i decyzji DL (403
+  `requires_screen_decision`); `IntegrationActor` nigdy nie trafia do bramek ról
+  (`NO_RIGHTS_VIEWER`). Nowy kandydat z klucza: duplikat e-mail 409
+  `duplicate_candidate`, nagrobek RODO 409 `candidate_erased`. Opis dla
+  integratora: `docs/api/integracje-v1.md`.

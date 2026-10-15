@@ -17,6 +17,529 @@
         "title": "AssignIn",
         "type": "object"
       },
+      "AvailabilityStatus": {
+        "description": "Postawa konsultanta wobec sourcingu (ortogonalna do `status` i stanu\nzatrudnienia). `status` mówi czym jest kandydat w bazie, a\n`availability_status` czy interesują go nowe projekty.",
+        "enum": [
+          "actively_looking",
+          "open_to_offers",
+          "not_looking",
+          "unknown"
+        ],
+        "title": "AvailabilityStatus",
+        "type": "string"
+      },
+      "BoardCardOut": {
+        "properties": {
+          "added_to_job_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Added To Job At"
+          },
+          "added_to_job_by": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RefOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "amounts_redacted": {
+            "title": "Amounts Redacted",
+            "type": "boolean"
+          },
+          "auto_cv_ready": {
+            "title": "Auto Cv Ready",
+            "type": "boolean"
+          },
+          "availability_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Availability Status"
+          },
+          "budget_exceeded": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Budget Exceeded"
+          },
+          "budget_max_at_move": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Budżet zamrożony przy ruchu (koszt).",
+            "title": "Budget Max At Move"
+          },
+          "candidate": {
+            "$ref": "#/components/schemas/RefOut"
+          },
+          "card_id": {
+            "description": "Wiersz bieżącego etapu pary.",
+            "title": "Card Id",
+            "type": "integer"
+          },
+          "claim_until": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Claim Until"
+          },
+          "claimed_by": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RefOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "client_rate_currency": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Rate Currency"
+          },
+          "client_rate_unit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Rate Unit"
+          },
+          "client_rate_value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Stawka do klienta (sprzedaż).",
+            "title": "Client Rate Value"
+          },
+          "company_cv": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Company Cv"
+          },
+          "costs_redacted": {
+            "title": "Costs Redacted",
+            "type": "boolean"
+          },
+          "days_in_stage": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Days In Stage"
+          },
+          "ended_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ended By"
+          },
+          "entered_stage_at": {
+            "format": "date-time",
+            "title": "Entered Stage At",
+            "type": "string"
+          },
+          "entry_source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Entry Source"
+          },
+          "expected_rate_currency": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Rate Currency"
+          },
+          "expected_rate_unit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Rate Unit"
+          },
+          "expected_rate_value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Stawka kandydata z ruchu (koszt).",
+            "title": "Expected Rate Value"
+          },
+          "interview_badge": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Etap rozmowy u klienta: kind, label, tone, at, steps, interview_event_id, tentative_interview_at — bez treści debriefu.",
+            "title": "Interview Badge"
+          },
+          "next_action_owner": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "recruiter | client | candidate | delivery | none",
+            "title": "Next Action Owner"
+          },
+          "process_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Process Id"
+          },
+          "process_state_version": {
+            "description": "Wersja procesu — odsyłana przy przesunięciu karty.",
+            "title": "Process State Version",
+            "type": "integer"
+          },
+          "process_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "open | closed | voided",
+            "title": "Process Status"
+          },
+          "qc_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Qc Status"
+          },
+          "reassign_from_job_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reassign From Job Id"
+          },
+          "recommendation_card_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recommendation Card Status"
+          },
+          "recruiter": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RefOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Właściciel procesu, a bez niego osoba, która dodała kandydata."
+          },
+          "rejection_reason_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rejection Reason Id"
+          },
+          "scorecard_done": {
+            "title": "Scorecard Done",
+            "type": "boolean"
+          },
+          "screening_done": {
+            "title": "Screening Done",
+            "type": "boolean"
+          },
+          "stage": {
+            "title": "Stage",
+            "type": "string"
+          },
+          "stage_def_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stage Def Id"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Warnings",
+            "type": "array"
+          }
+        },
+        "required": [
+          "card_id",
+          "candidate",
+          "stage",
+          "stage_def_id",
+          "process_id",
+          "process_status",
+          "process_state_version",
+          "entered_stage_at",
+          "days_in_stage",
+          "added_to_job_at",
+          "added_to_job_by",
+          "recruiter",
+          "entry_source",
+          "reassign_from_job_id",
+          "claimed_by",
+          "claim_until",
+          "next_action_owner",
+          "screening_done",
+          "scorecard_done",
+          "company_cv",
+          "auto_cv_ready",
+          "qc_status",
+          "recommendation_card_status",
+          "interview_badge",
+          "availability_status",
+          "rejection_reason_id",
+          "ended_by",
+          "warnings",
+          "amounts_redacted",
+          "costs_redacted",
+          "client_rate_value",
+          "client_rate_unit",
+          "client_rate_currency",
+          "expected_rate_value",
+          "expected_rate_unit",
+          "expected_rate_currency",
+          "budget_max_at_move",
+          "budget_exceeded"
+        ],
+        "title": "BoardCardOut",
+        "type": "object"
+      },
+      "BoardColumnOut": {
+        "properties": {
+          "cards": {
+            "items": {
+              "$ref": "#/components/schemas/BoardCardOut"
+            },
+            "title": "Cards",
+            "type": "array"
+          },
+          "category": {
+            "title": "Category",
+            "type": "string"
+          },
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "order": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Order"
+          },
+          "stage": {
+            "title": "Stage",
+            "type": "string"
+          },
+          "stage_def_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stage Def Id"
+          },
+          "terminal_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Terminal Type"
+          }
+        },
+        "required": [
+          "stage_def_id",
+          "stage",
+          "name",
+          "order",
+          "category",
+          "terminal_type",
+          "count",
+          "cards"
+        ],
+        "title": "BoardColumnOut",
+        "type": "object"
+      },
+      "BoardOffTemplateOut": {
+        "properties": {
+          "cards": {
+            "items": {
+              "$ref": "#/components/schemas/BoardCardOut"
+            },
+            "title": "Cards",
+            "type": "array"
+          },
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "missing_stage_labels": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Missing Stage Labels",
+            "type": "array"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "count",
+          "missing_stage_labels",
+          "cards"
+        ],
+        "title": "BoardOffTemplateOut",
+        "type": "object"
+      },
       "Body_create_md_import_api_integrations_v1_md_imports_post": {
         "properties": {
           "file": {
@@ -86,6 +609,27 @@
         "title": "Body_put_order_file_api_integrations_v1_orders__order_id__file_put",
         "type": "object"
       },
+      "Body_upload_candidate_cv_api_integrations_v1_candidates__candidate_id__cv_post": {
+        "properties": {
+          "file": {
+            "contentMediaType": "application/octet-stream",
+            "description": "CV: PDF, DOC albo DOCX.",
+            "title": "File",
+            "type": "string"
+          },
+          "make_primary": {
+            "default": true,
+            "description": "Główne CV (AI odświeży profil w tle). false = plik obok obecnego głównego CV; gdy osoba nie ma głównego CV, ten plik nim zostaje.",
+            "title": "Make Primary",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "file"
+        ],
+        "title": "Body_upload_candidate_cv_api_integrations_v1_candidates__candidate_id__cv_post",
+        "type": "object"
+      },
       "CancelIn": {
         "properties": {
           "reason": {
@@ -99,6 +643,1238 @@
           "reason"
         ],
         "title": "CancelIn",
+        "type": "object"
+      },
+      "CandidateCreateIn": {
+        "additionalProperties": false,
+        "description": "Nowy kandydat. E-mail jest wymagany — to reguła tożsamości („ta sama\nosoba = ten sam e-mail”); inny e-mail to inna osoba.",
+        "properties": {
+          "city": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "City"
+          },
+          "country": {
+            "anyOf": [
+              {
+                "pattern": "^[A-Za-z]{2}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Kod kraju ISO 3166-1 (PL).",
+            "title": "Country"
+          },
+          "email": {
+            "format": "email",
+            "title": "Email",
+            "type": "string"
+          },
+          "first_name": {
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "First Name",
+            "type": "string"
+          },
+          "last_name": {
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Last Name",
+            "type": "string"
+          },
+          "linkedin_url": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Adres profilu LinkedIn (linkedin.com/in/…); zapisywany w postaci kanonicznej.",
+            "title": "Linkedin Url"
+          },
+          "phone": {
+            "anyOf": [
+              {
+                "maxLength": 30,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Phone"
+          },
+          "skills": {
+            "anyOf": [
+              {
+                "items": {
+                  "maxLength": 100,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "maxItems": 200,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Skills"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "maxLength": 100,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Skąd jest osoba (np. portal albo nazwa automatyzacji).",
+            "title": "Source"
+          }
+        },
+        "required": [
+          "first_name",
+          "last_name",
+          "email"
+        ],
+        "title": "CandidateCreateIn",
+        "type": "object"
+      },
+      "CandidateCreatedOut": {
+        "properties": {
+          "created": {
+            "default": true,
+            "description": "Zawsze true — istniejący e-mail to 409, nie nadpisanie.",
+            "title": "Created",
+            "type": "boolean"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "title": "CandidateCreatedOut",
+        "type": "object"
+      },
+      "CandidateCvOut": {
+        "properties": {
+          "document_id": {
+            "title": "Document Id",
+            "type": "integer"
+          },
+          "is_primary": {
+            "description": "Czy plik jest głównym CV (odczyt AI odświeży profil w tle).",
+            "title": "Is Primary",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "document_id",
+          "is_primary"
+        ],
+        "title": "CandidateCvOut",
+        "type": "object"
+      },
+      "CandidateCvTextOut": {
+        "properties": {
+          "candidate_id": {
+            "title": "Candidate Id",
+            "type": "integer"
+          },
+          "cv_extracted_data": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cv Extracted Data"
+          },
+          "cv_language": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cv Language"
+          },
+          "cv_parsed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cv Parsed At"
+          },
+          "quarantined": {
+            "title": "Quarantined",
+            "type": "boolean"
+          },
+          "raw_cv_text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Raw Cv Text"
+          },
+          "source_document_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Document Id"
+          }
+        },
+        "required": [
+          "candidate_id",
+          "quarantined",
+          "raw_cv_text",
+          "cv_extracted_data",
+          "cv_language",
+          "cv_parsed_at",
+          "source_document_id"
+        ],
+        "title": "CandidateCvTextOut",
+        "type": "object"
+      },
+      "CandidateDocumentListOut": {
+        "properties": {
+          "candidate_id": {
+            "title": "Candidate Id",
+            "type": "integer"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/app__api__integrations_v1__candidates__CandidateDocumentOut"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "candidate_id",
+          "items"
+        ],
+        "title": "CandidateDocumentListOut",
+        "type": "object"
+      },
+      "CandidateListItemOut": {
+        "properties": {
+          "added_to_base_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Added To Base At"
+          },
+          "added_to_base_exact": {
+            "title": "Added To Base Exact",
+            "type": "boolean"
+          },
+          "availability_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Availability Date"
+          },
+          "availability_status": {
+            "title": "Availability Status",
+            "type": "string"
+          },
+          "city": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "City"
+          },
+          "competence_category_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Competence Category Id"
+          },
+          "country": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Country"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "first_name": {
+            "title": "First Name",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "last_name": {
+            "title": "Last Name",
+            "type": "string"
+          },
+          "region": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Region"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "first_name",
+          "last_name",
+          "city",
+          "country",
+          "region",
+          "competence_category_id",
+          "status",
+          "availability_status",
+          "availability_date",
+          "added_to_base_at",
+          "added_to_base_exact",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "CandidateListItemOut",
+        "type": "object"
+      },
+      "CandidateNoteOut": {
+        "properties": {
+          "author_kind": {
+            "title": "Author Kind",
+            "type": "string"
+          },
+          "author_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Author Name"
+          },
+          "content": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Content"
+          },
+          "content_hidden": {
+            "title": "Content Hidden",
+            "type": "boolean"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "group": {
+            "title": "Group",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "job_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Job Id"
+          },
+          "job_title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Job Title"
+          },
+          "kind": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Kind"
+          },
+          "note_type": {
+            "title": "Note Type",
+            "type": "string"
+          },
+          "pinned": {
+            "title": "Pinned",
+            "type": "boolean"
+          },
+          "pinned_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pinned At"
+          },
+          "reply_to": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reply To"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "group",
+          "note_type",
+          "content",
+          "content_hidden",
+          "author_name",
+          "author_kind",
+          "job_id",
+          "job_title",
+          "reply_to",
+          "pinned",
+          "pinned_at",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "CandidateNoteOut",
+        "type": "object"
+      },
+      "CandidateOut": {
+        "properties": {
+          "active_recruitments": {
+            "items": {
+              "$ref": "#/components/schemas/CandidateRecruitmentOut"
+            },
+            "title": "Active Recruitments",
+            "type": "array"
+          },
+          "added_to_base_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Added To Base At"
+          },
+          "added_to_base_exact": {
+            "title": "Added To Base Exact",
+            "type": "boolean"
+          },
+          "availability_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Availability Date"
+          },
+          "availability_status": {
+            "title": "Availability Status",
+            "type": "string"
+          },
+          "city": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "City"
+          },
+          "competence_category": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/app__api__integrations_v1__candidates__CompetenceCategoryOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "contact_redacted": {
+            "title": "Contact Redacted",
+            "type": "boolean"
+          },
+          "costs_redacted": {
+            "title": "Costs Redacted",
+            "type": "boolean"
+          },
+          "country": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Country"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "email": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Email"
+          },
+          "employment_marker": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EmploymentMarkerOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "first_name": {
+            "title": "First Name",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "last_name": {
+            "title": "Last Name",
+            "type": "string"
+          },
+          "legal_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Legal Name"
+          },
+          "linkedin": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Linkedin"
+          },
+          "location": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Location"
+          },
+          "nip": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nip"
+          },
+          "notice_period": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notice Period"
+          },
+          "notice_period_unit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notice Period Unit"
+          },
+          "phone": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Phone"
+          },
+          "rate_from_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rate From At"
+          },
+          "rate_from_hourly": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rate From Hourly"
+          },
+          "rate_latest_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rate Latest At"
+          },
+          "rate_latest_hourly": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rate Latest Hourly"
+          },
+          "region": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Region"
+          },
+          "regon": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Regon"
+          },
+          "skills": {
+            "items": {
+              "$ref": "#/components/schemas/SkillOut"
+            },
+            "title": "Skills",
+            "type": "array"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "work_preferences": {
+            "$ref": "#/components/schemas/WorkPreferencesOut"
+          },
+          "years_it_experience": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Years It Experience"
+          }
+        },
+        "required": [
+          "id",
+          "first_name",
+          "last_name",
+          "status",
+          "city",
+          "country",
+          "region",
+          "location",
+          "competence_category",
+          "skills",
+          "years_it_experience",
+          "availability_status",
+          "availability_date",
+          "notice_period",
+          "notice_period_unit",
+          "work_preferences",
+          "added_to_base_at",
+          "added_to_base_exact",
+          "employment_marker",
+          "active_recruitments",
+          "contact_redacted",
+          "email",
+          "phone",
+          "linkedin",
+          "nip",
+          "regon",
+          "legal_name",
+          "costs_redacted",
+          "rate_from_hourly",
+          "rate_from_at",
+          "rate_latest_hourly",
+          "rate_latest_at",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "CandidateOut",
+        "type": "object"
+      },
+      "CandidateRecruitmentOut": {
+        "properties": {
+          "client_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Id"
+          },
+          "client_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Name"
+          },
+          "in_progress": {
+            "title": "In Progress",
+            "type": "boolean"
+          },
+          "job_id": {
+            "title": "Job Id",
+            "type": "integer"
+          },
+          "job_title": {
+            "title": "Job Title",
+            "type": "string"
+          },
+          "moved_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Moved At"
+          },
+          "stage": {
+            "title": "Stage",
+            "type": "string"
+          }
+        },
+        "required": [
+          "job_id",
+          "job_title",
+          "client_id",
+          "client_name",
+          "stage",
+          "in_progress",
+          "moved_at"
+        ],
+        "title": "CandidateRecruitmentOut",
+        "type": "object"
+      },
+      "CandidateScreeningOut": {
+        "properties": {
+          "candidate_id": {
+            "title": "Candidate Id",
+            "type": "integer"
+          },
+          "candidate_rate": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PairRateOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "costs_redacted": {
+            "title": "Costs Redacted",
+            "type": "boolean"
+          },
+          "job_id": {
+            "title": "Job Id",
+            "type": "integer"
+          },
+          "recommendation_card": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RecommendationCardOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "screening": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ScreeningSheetOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "stage": {
+            "title": "Stage",
+            "type": "string"
+          },
+          "stage_id": {
+            "title": "Stage Id",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "job_id",
+          "candidate_id",
+          "stage_id",
+          "stage",
+          "screening",
+          "recommendation_card",
+          "costs_redacted",
+          "candidate_rate"
+        ],
+        "title": "CandidateScreeningOut",
+        "type": "object"
+      },
+      "CardCompletenessOut": {
+        "properties": {
+          "filled": {
+            "title": "Filled",
+            "type": "integer"
+          },
+          "missing": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Missing",
+            "type": "array"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "status",
+          "filled",
+          "total",
+          "missing"
+        ],
+        "title": "CardCompletenessOut",
+        "type": "object"
+      },
+      "CardFieldOut": {
+        "properties": {
+          "at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "At"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "label",
+          "text",
+          "source",
+          "at"
+        ],
+        "title": "CardFieldOut",
+        "type": "object"
+      },
+      "CardMoveIn": {
+        "additionalProperties": false,
+        "properties": {
+          "acknowledge_eligibility": {
+            "default": false,
+            "description": "Przenieś mimo ostrzeżenia (globalna czarna lista, weto hiring managera) — zostaje ślad w historii.",
+            "title": "Acknowledge Eligibility",
+            "type": "boolean"
+          },
+          "candidate_id": {
+            "maximum": 2147483647.0,
+            "minimum": 1.0,
+            "title": "Candidate Id",
+            "type": "integer"
+          },
+          "expected_state_version": {
+            "anyOf": [
+              {
+                "maximum": 2147483647.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Wersja procesu, którą widział automat (``process_state_version`` karty). Inna niż bieżąca = 409 PIPELINE_VERSION_CONFLICT.",
+            "title": "Expected State Version"
+          },
+          "rejection_reason": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Opis powodu odrzucenia, gdy nie ma go w słowniku.",
+            "title": "Rejection Reason"
+          },
+          "rejection_reason_id": {
+            "anyOf": [
+              {
+                "maximum": 2147483647.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Powód zamknięcia ze słownika szablonu (rezygnacja go wymaga).",
+            "title": "Rejection Reason Id"
+          },
+          "to_stage_def_id": {
+            "description": "Etap docelowy z szablonu tej rekrutacji (``stage_def_id``).",
+            "maximum": 2147483647.0,
+            "minimum": 1.0,
+            "title": "To Stage Def Id",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "candidate_id",
+          "to_stage_def_id"
+        ],
+        "title": "CardMoveIn",
+        "type": "object"
+      },
+      "CardMoveOut": {
+        "properties": {
+          "candidate_id": {
+            "title": "Candidate Id",
+            "type": "integer"
+          },
+          "card_id": {
+            "title": "Card Id",
+            "type": "integer"
+          },
+          "column": {
+            "description": "new | screening | verified | cv_qc | cv_sent | client_interview | contract | closed",
+            "title": "Column",
+            "type": "string"
+          },
+          "eligibility_acknowledged": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Kod ostrzeżenia przyjętego flagą ``acknowledge_eligibility``.",
+            "title": "Eligibility Acknowledged"
+          },
+          "ended_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "candidate | recruiter | client",
+            "title": "Ended By"
+          },
+          "job_id": {
+            "title": "Job Id",
+            "type": "integer"
+          },
+          "moved_at": {
+            "format": "date-time",
+            "title": "Moved At",
+            "type": "string"
+          },
+          "process_state_version": {
+            "title": "Process State Version",
+            "type": "integer"
+          },
+          "rejection_reason_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rejection Reason Id"
+          },
+          "stage": {
+            "description": "Kod etapu (``new``, ``verified``, ``rejected``…).",
+            "title": "Stage",
+            "type": "string"
+          },
+          "stage_def_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stage Def Id"
+          },
+          "stage_name": {
+            "title": "Stage Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "card_id",
+          "candidate_id",
+          "job_id",
+          "stage",
+          "stage_def_id",
+          "stage_name",
+          "column",
+          "moved_at",
+          "process_state_version",
+          "rejection_reason_id",
+          "ended_by",
+          "eligibility_acknowledged"
+        ],
+        "title": "CardMoveOut",
         "type": "object"
       },
       "CheckIn": {
@@ -631,6 +2407,43 @@
         "title": "ContractStatusIn",
         "type": "object"
       },
+      "CriticalOut": {
+        "properties": {
+          "decided": {
+            "description": "Delivery Lead zdecydował (lista albo brak).",
+            "title": "Decided",
+            "type": "boolean"
+          },
+          "effective": {
+            "description": "Krytyczne, na których działa bramka.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Effective",
+            "type": "array"
+          },
+          "source": {
+            "description": "dl | suggested | none",
+            "title": "Source",
+            "type": "string"
+          },
+          "suggested": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Suggested",
+            "type": "array"
+          }
+        },
+        "required": [
+          "effective",
+          "source",
+          "decided",
+          "suggested"
+        ],
+        "title": "CriticalOut",
+        "type": "object"
+      },
       "DeliveryLeadOut": {
         "properties": {
           "email": {
@@ -731,6 +2544,162 @@
           "avg_dso_days"
         ],
         "title": "DsoRow",
+        "type": "object"
+      },
+      "EmploymentClientOut": {
+        "properties": {
+          "client_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Id"
+          },
+          "client_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Name"
+          },
+          "contract_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Contract Id"
+          },
+          "delivery_lead_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Delivery Lead Name"
+          },
+          "order_end_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Order End Date"
+          },
+          "phase": {
+            "title": "Phase",
+            "type": "string"
+          },
+          "starts_on": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Starts On"
+          }
+        },
+        "required": [
+          "client_id",
+          "client_name",
+          "contract_id",
+          "phase",
+          "order_end_date",
+          "starts_on",
+          "delivery_lead_name"
+        ],
+        "title": "EmploymentClientOut",
+        "type": "object"
+      },
+      "EmploymentMarkerOut": {
+        "description": "Znacznik „Pracuje u nas” (``services/employment_marker``).",
+        "properties": {
+          "clients": {
+            "items": {
+              "$ref": "#/components/schemas/EmploymentClientOut"
+            },
+            "title": "Clients",
+            "type": "array"
+          },
+          "phase": {
+            "title": "Phase",
+            "type": "string"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          }
+        },
+        "required": [
+          "phase",
+          "source",
+          "clients"
+        ],
+        "title": "EmploymentMarkerOut",
+        "type": "object"
+      },
+      "ExperienceCheckOut": {
+        "properties": {
+          "kind": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Kind"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "note": {
+            "title": "Note",
+            "type": "string"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status"
+          }
+        },
+        "required": [
+          "kind",
+          "name",
+          "status",
+          "note"
+        ],
+        "title": "ExperienceCheckOut",
         "type": "object"
       },
       "ExtendLineIn": {
@@ -2389,6 +4358,176 @@
         ],
         "title": "MeOut",
         "type": "object"
+      },
+      "MoveOut": {
+        "properties": {
+          "candidate": {
+            "$ref": "#/components/schemas/RefOut"
+          },
+          "ended_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "candidate | recruiter | delivery_lead | client",
+            "title": "Ended By"
+          },
+          "from_stage": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "From Stage"
+          },
+          "from_stage_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "From Stage Name"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "moved_at": {
+            "format": "date-time",
+            "title": "Moved At",
+            "type": "string"
+          },
+          "moved_by": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RefOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "rejection_reason": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RefOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "source": {
+            "description": "nexus | traffit",
+            "title": "Source",
+            "type": "string"
+          },
+          "to_stage": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "To Stage"
+          },
+          "to_stage_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "To Stage Name"
+          }
+        },
+        "required": [
+          "id",
+          "candidate",
+          "from_stage",
+          "from_stage_name",
+          "to_stage",
+          "to_stage_name",
+          "moved_by",
+          "moved_at",
+          "source",
+          "rejection_reason",
+          "ended_by"
+        ],
+        "title": "MoveOut",
+        "type": "object"
+      },
+      "NoteCreateIn": {
+        "additionalProperties": false,
+        "properties": {
+          "content": {
+            "maxLength": 100000,
+            "minLength": 1,
+            "title": "Content",
+            "type": "string"
+          },
+          "job_id": {
+            "anyOf": [
+              {
+                "maximum": 2147483647.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Rekrutacja, której dotyczy notatka.",
+            "title": "Job Id"
+          },
+          "note_type": {
+            "$ref": "#/components/schemas/NoteType",
+            "default": "general"
+          }
+        },
+        "required": [
+          "content"
+        ],
+        "title": "NoteCreateIn",
+        "type": "object"
+      },
+      "NoteCreatedOut": {
+        "properties": {
+          "note_id": {
+            "title": "Note Id",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "note_id"
+        ],
+        "title": "NoteCreatedOut",
+        "type": "object"
+      },
+      "NoteType": {
+        "enum": [
+          "call",
+          "meeting",
+          "email",
+          "general",
+          "interview"
+        ],
+        "title": "NoteType",
+        "type": "string"
       },
       "OrderChangeItem": {
         "properties": {
@@ -4615,6 +6754,78 @@
         "title": "OrderPersonOut",
         "type": "object"
       },
+      "Page_CandidateListItemOut_": {
+        "properties": {
+          "has_more": {
+            "title": "Has More",
+            "type": "boolean"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/CandidateListItemOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "page": {
+            "title": "Page",
+            "type": "integer"
+          },
+          "page_size": {
+            "title": "Page Size",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "page",
+          "page_size",
+          "total",
+          "has_more"
+        ],
+        "title": "Page[CandidateListItemOut]",
+        "type": "object"
+      },
+      "Page_CandidateNoteOut_": {
+        "properties": {
+          "has_more": {
+            "title": "Has More",
+            "type": "boolean"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/CandidateNoteOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "page": {
+            "title": "Page",
+            "type": "integer"
+          },
+          "page_size": {
+            "title": "Page Size",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "page",
+          "page_size",
+          "total",
+          "has_more"
+        ],
+        "title": "Page[CandidateNoteOut]",
+        "type": "object"
+      },
       "Page_ClientOut_": {
         "properties": {
           "has_more": {
@@ -4759,6 +6970,42 @@
         "title": "Page[InvoiceOut]",
         "type": "object"
       },
+      "Page_MoveOut_": {
+        "properties": {
+          "has_more": {
+            "title": "Has More",
+            "type": "boolean"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/MoveOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "page": {
+            "title": "Page",
+            "type": "integer"
+          },
+          "page_size": {
+            "title": "Page Size",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "page",
+          "page_size",
+          "total",
+          "has_more"
+        ],
+        "title": "Page[MoveOut]",
+        "type": "object"
+      },
       "Page_OrderGroupOut_": {
         "properties": {
           "has_more": {
@@ -4829,6 +7076,137 @@
           "has_more"
         ],
         "title": "Page[OrderOut]",
+        "type": "object"
+      },
+      "Page_RecruitmentOut_": {
+        "properties": {
+          "has_more": {
+            "title": "Has More",
+            "type": "boolean"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/RecruitmentOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "page": {
+            "title": "Page",
+            "type": "integer"
+          },
+          "page_size": {
+            "title": "Page Size",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "page",
+          "page_size",
+          "total",
+          "has_more"
+        ],
+        "title": "Page[RecruitmentOut]",
+        "type": "object"
+      },
+      "PairRateOut": {
+        "description": "Stawka kandydata w tej rekrutacji, PLN netto za godzinę (B2B).",
+        "properties": {
+          "amount_hourly": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Amount Hourly"
+          },
+          "at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "At"
+          },
+          "raw": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Raw"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source"
+          }
+        },
+        "required": [
+          "amount_hourly",
+          "raw",
+          "at",
+          "source"
+        ],
+        "title": "PairRateOut",
+        "type": "object"
+      },
+      "PreviousRecruiterOut": {
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "parked_at": {
+            "format": "date-time",
+            "title": "Parked At",
+            "type": "string"
+          },
+          "reason": {
+            "description": "closed | priority",
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "reason",
+          "parked_at"
+        ],
+        "title": "PreviousRecruiterOut",
         "type": "object"
       },
       "RateHistoryOut": {
@@ -4951,6 +7329,1327 @@
         "title": "RateStepOut",
         "type": "object"
       },
+      "RecommendationCardOut": {
+        "properties": {
+          "completeness": {
+            "$ref": "#/components/schemas/CardCompletenessOut"
+          },
+          "fields": {
+            "items": {
+              "$ref": "#/components/schemas/CardFieldOut"
+            },
+            "title": "Fields",
+            "type": "array"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          }
+        },
+        "required": [
+          "fields",
+          "completeness",
+          "updated_at"
+        ],
+        "title": "RecommendationCardOut",
+        "type": "object"
+      },
+      "RecruiterOut": {
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "proposed": {
+            "description": "Propozycja automatu czekająca na akceptację — jeszcze nie praca.",
+            "title": "Proposed",
+            "type": "boolean"
+          },
+          "via": {
+            "description": "owner | assignment | collaborator",
+            "title": "Via",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "via",
+          "proposed"
+        ],
+        "title": "RecruiterOut",
+        "type": "object"
+      },
+      "RecruitmentAddIn": {
+        "additionalProperties": false,
+        "properties": {
+          "candidate_ids": {
+            "description": "Osoby do dodania (powtórzenia liczą się raz).",
+            "items": {
+              "maximum": 2147483647.0,
+              "minimum": 1.0,
+              "type": "integer"
+            },
+            "maxItems": 50,
+            "minItems": 1,
+            "title": "Candidate Ids",
+            "type": "array"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Notatka systemowa przy osobach dodanych na Tablicę.",
+            "title": "Note"
+          },
+          "stage_def_id": {
+            "anyOf": [
+              {
+                "maximum": 2147483647.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Kolumna wejścia: etap „Nowi” albo „Screening” z szablonu tej rekrutacji (``/recruitments/{id}/stages``). Domyślnie pierwsza kolumna szablonu.",
+            "title": "Stage Def Id"
+          }
+        },
+        "required": [
+          "candidate_ids"
+        ],
+        "title": "RecruitmentAddIn",
+        "type": "object"
+      },
+      "RecruitmentAddItemOut": {
+        "properties": {
+          "candidate_id": {
+            "title": "Candidate Id",
+            "type": "integer"
+          },
+          "card_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Karta na Tablicy (``added``).",
+            "title": "Card Id"
+          },
+          "process_state_version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Przy ``closed_in_job``: ``expected_state_version`` dla ruchu, który przywraca kartę.",
+            "title": "Process State Version"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Przy ``blocked``: blacklisted | rejected_by_hiring_manager | candidate_not_found.",
+            "title": "Reason"
+          },
+          "reason_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason Label"
+          },
+          "stage_def_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Kolumna, do której trafiła osoba (``added``).",
+            "title": "Stage Def Id"
+          },
+          "status": {
+            "enum": [
+              "added",
+              "proposed",
+              "already_in_job",
+              "closed_in_job",
+              "blocked"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "warnings": {
+            "items": {
+              "$ref": "#/components/schemas/RecruitmentAddWarningOut"
+            },
+            "title": "Warnings",
+            "type": "array"
+          }
+        },
+        "required": [
+          "candidate_id",
+          "status",
+          "reason",
+          "reason_label",
+          "card_id",
+          "stage_def_id",
+          "process_state_version",
+          "warnings"
+        ],
+        "title": "RecruitmentAddItemOut",
+        "type": "object"
+      },
+      "RecruitmentAddOut": {
+        "properties": {
+          "added": {
+            "title": "Added",
+            "type": "integer"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/RecruitmentAddItemOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "job_id": {
+            "title": "Job Id",
+            "type": "integer"
+          },
+          "proposed": {
+            "title": "Proposed",
+            "type": "integer"
+          },
+          "skipped": {
+            "title": "Skipped",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "job_id",
+          "items",
+          "added",
+          "proposed",
+          "skipped"
+        ],
+        "title": "RecruitmentAddOut",
+        "type": "object"
+      },
+      "RecruitmentAddWarningOut": {
+        "properties": {
+          "reason": {
+            "description": "client_blacklist | client_nda | client_competitor | current_employment | excluded_by_candidate",
+            "title": "Reason",
+            "type": "string"
+          },
+          "reason_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason Label"
+          }
+        },
+        "required": [
+          "reason",
+          "reason_label"
+        ],
+        "title": "RecruitmentAddWarningOut",
+        "type": "object"
+      },
+      "RecruitmentBoardOut": {
+        "properties": {
+          "columns": {
+            "items": {
+              "$ref": "#/components/schemas/BoardColumnOut"
+            },
+            "title": "Columns",
+            "type": "array"
+          },
+          "job_id": {
+            "title": "Job Id",
+            "type": "integer"
+          },
+          "off_template": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BoardOffTemplateOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Karty na etapach spoza szablonu rekrutacji (brak = żadnych)."
+          }
+        },
+        "required": [
+          "job_id",
+          "columns",
+          "off_template"
+        ],
+        "title": "RecruitmentBoardOut",
+        "type": "object"
+      },
+      "RecruitmentDetailOut": {
+        "properties": {
+          "amounts_redacted": {
+            "title": "Amounts Redacted",
+            "type": "boolean"
+          },
+          "candidate_count": {
+            "description": "Osoby w rekrutacji (każdy etap).",
+            "title": "Candidate Count",
+            "type": "integer"
+          },
+          "client": {
+            "$ref": "#/components/schemas/RefOut"
+          },
+          "client_reference": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Numer zapytania klienta (ZOB, SAP…).",
+            "title": "Client Reference"
+          },
+          "close_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Close Reason"
+          },
+          "closed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Closed At"
+          },
+          "competence_category_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Competence Category Id"
+          },
+          "costs_redacted": {
+            "title": "Costs Redacted",
+            "type": "boolean"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "critical_skills": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Critical Skills",
+            "type": "array"
+          },
+          "deadline": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deadline"
+          },
+          "deadline_time": {
+            "anyOf": [
+              {
+                "format": "time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deadline Time"
+          },
+          "delivery_lead": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RefOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "effective_budget_hourly": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Budżet używany przez wyszukiwanie (pole albo Champion), PLN/h.",
+            "title": "Effective Budget Hourly"
+          },
+          "effective_budget_hourly_min": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Effective Budget Hourly Min"
+          },
+          "headcount": {
+            "title": "Headcount",
+            "type": "integer"
+          },
+          "hiring_manager": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RefOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "industry": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Industry"
+          },
+          "is_open": {
+            "description": "Rekrutacja przekazana do searchu.",
+            "title": "Is Open",
+            "type": "boolean"
+          },
+          "location": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Location"
+          },
+          "must_skills": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Must Skills",
+            "type": "array"
+          },
+          "nice_skills": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Nice Skills",
+            "type": "array"
+          },
+          "off_template_count": {
+            "title": "Off Template Count",
+            "type": "integer"
+          },
+          "onsite_days_per_month": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Onsite Days Per Month"
+          },
+          "onsite_days_per_week": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Onsite Days Per Week"
+          },
+          "opened_at": {
+            "description": "Data otwarcia: z importu, a bez niej data założenia.",
+            "format": "date-time",
+            "title": "Opened At",
+            "type": "string"
+          },
+          "pipeline_template_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pipeline Template Id"
+          },
+          "previous_recruiters": {
+            "items": {
+              "$ref": "#/components/schemas/PreviousRecruiterOut"
+            },
+            "title": "Previous Recruiters",
+            "type": "array"
+          },
+          "priority": {
+            "description": "p1 | p2 | accepting",
+            "title": "Priority",
+            "type": "string"
+          },
+          "rate_budget_hourly": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Budżet dla kandydata, PLN/h.",
+            "title": "Rate Budget Hourly"
+          },
+          "rate_budget_hourly_min": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "„Od” przedziału, PLN/h.",
+            "title": "Rate Budget Hourly Min"
+          },
+          "recruiters": {
+            "items": {
+              "$ref": "#/components/schemas/RecruiterOut"
+            },
+            "title": "Recruiters",
+            "type": "array"
+          },
+          "reference_number": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reference Number"
+          },
+          "remote_policy": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "onsite | hybrid | remote",
+            "title": "Remote Policy"
+          },
+          "requirements": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Requirements"
+          },
+          "salary_max": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Salary Max"
+          },
+          "salary_min": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Historyczne widełki, PLN/mies.",
+            "title": "Salary Min"
+          },
+          "seniority": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Seniority"
+          },
+          "stage_counts": {
+            "description": "Osoby w kolumnach Tablicy (bieżący etap pary).",
+            "items": {
+              "$ref": "#/components/schemas/StageCountOut"
+            },
+            "title": "Stage Counts",
+            "type": "array"
+          },
+          "status": {
+            "description": "draft | published | closed",
+            "title": "Status",
+            "type": "string"
+          },
+          "title": {
+            "description": "Nazwa od klienta (idzie do klienta).",
+            "title": "Title",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "work_mode": {
+            "description": "fulltime | parttime | contract",
+            "title": "Work Mode",
+            "type": "string"
+          },
+          "work_state": {
+            "description": "to_review | searching | champion | client_silent | finished",
+            "title": "Work State",
+            "type": "string"
+          },
+          "working_title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Tytuł dla rekrutera (ekrany wewnętrzne, nigdy do klienta).",
+            "title": "Working Title"
+          }
+        },
+        "required": [
+          "id",
+          "reference_number",
+          "title",
+          "working_title",
+          "client_reference",
+          "client",
+          "status",
+          "is_open",
+          "priority",
+          "work_state",
+          "recruiters",
+          "previous_recruiters",
+          "delivery_lead",
+          "headcount",
+          "deadline",
+          "opened_at",
+          "closed_at",
+          "close_reason",
+          "candidate_count",
+          "stage_counts",
+          "off_template_count",
+          "created_at",
+          "updated_at",
+          "description",
+          "requirements",
+          "must_skills",
+          "nice_skills",
+          "critical_skills",
+          "seniority",
+          "work_mode",
+          "remote_policy",
+          "onsite_days_per_week",
+          "onsite_days_per_month",
+          "location",
+          "deadline_time",
+          "industry",
+          "competence_category_id",
+          "hiring_manager",
+          "pipeline_template_id",
+          "amounts_redacted",
+          "costs_redacted",
+          "rate_budget_hourly",
+          "rate_budget_hourly_min",
+          "effective_budget_hourly",
+          "effective_budget_hourly_min",
+          "salary_min",
+          "salary_max"
+        ],
+        "title": "RecruitmentDetailOut",
+        "type": "object"
+      },
+      "RecruitmentOut": {
+        "properties": {
+          "candidate_count": {
+            "description": "Osoby w rekrutacji (każdy etap).",
+            "title": "Candidate Count",
+            "type": "integer"
+          },
+          "client": {
+            "$ref": "#/components/schemas/RefOut"
+          },
+          "client_reference": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Numer zapytania klienta (ZOB, SAP…).",
+            "title": "Client Reference"
+          },
+          "close_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Close Reason"
+          },
+          "closed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Closed At"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "deadline": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deadline"
+          },
+          "delivery_lead": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RefOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "headcount": {
+            "title": "Headcount",
+            "type": "integer"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "is_open": {
+            "description": "Rekrutacja przekazana do searchu.",
+            "title": "Is Open",
+            "type": "boolean"
+          },
+          "off_template_count": {
+            "title": "Off Template Count",
+            "type": "integer"
+          },
+          "opened_at": {
+            "description": "Data otwarcia: z importu, a bez niej data założenia.",
+            "format": "date-time",
+            "title": "Opened At",
+            "type": "string"
+          },
+          "previous_recruiters": {
+            "items": {
+              "$ref": "#/components/schemas/PreviousRecruiterOut"
+            },
+            "title": "Previous Recruiters",
+            "type": "array"
+          },
+          "priority": {
+            "description": "p1 | p2 | accepting",
+            "title": "Priority",
+            "type": "string"
+          },
+          "recruiters": {
+            "items": {
+              "$ref": "#/components/schemas/RecruiterOut"
+            },
+            "title": "Recruiters",
+            "type": "array"
+          },
+          "reference_number": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reference Number"
+          },
+          "stage_counts": {
+            "description": "Osoby w kolumnach Tablicy (bieżący etap pary).",
+            "items": {
+              "$ref": "#/components/schemas/StageCountOut"
+            },
+            "title": "Stage Counts",
+            "type": "array"
+          },
+          "status": {
+            "description": "draft | published | closed",
+            "title": "Status",
+            "type": "string"
+          },
+          "title": {
+            "description": "Nazwa od klienta (idzie do klienta).",
+            "title": "Title",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "work_state": {
+            "description": "to_review | searching | champion | client_silent | finished",
+            "title": "Work State",
+            "type": "string"
+          },
+          "working_title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Tytuł dla rekrutera (ekrany wewnętrzne, nigdy do klienta).",
+            "title": "Working Title"
+          }
+        },
+        "required": [
+          "id",
+          "reference_number",
+          "title",
+          "working_title",
+          "client_reference",
+          "client",
+          "status",
+          "is_open",
+          "priority",
+          "work_state",
+          "recruiters",
+          "previous_recruiters",
+          "delivery_lead",
+          "headcount",
+          "deadline",
+          "opened_at",
+          "closed_at",
+          "close_reason",
+          "candidate_count",
+          "stage_counts",
+          "off_template_count",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "RecruitmentOut",
+        "type": "object"
+      },
+      "RecruitmentRequirementsOut": {
+        "properties": {
+          "amounts_redacted": {
+            "title": "Amounts Redacted",
+            "type": "boolean"
+          },
+          "candidate_location_pref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Candidate Location Pref"
+          },
+          "champion_rate_hourly": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Stawka dla kandydata z Profilu Championa, PLN/h (koszt).",
+            "title": "Champion Rate Hourly"
+          },
+          "champion_rate_raw": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Stawka Championa tak, jak ją wpisano (koszt).",
+            "title": "Champion Rate Raw"
+          },
+          "contract_length": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Contract Length"
+          },
+          "costs_redacted": {
+            "title": "Costs Redacted",
+            "type": "boolean"
+          },
+          "critical": {
+            "$ref": "#/components/schemas/CriticalOut"
+          },
+          "disqualifiers": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Disqualifiers",
+            "type": "array"
+          },
+          "has_champion_profile": {
+            "title": "Has Champion Profile",
+            "type": "boolean"
+          },
+          "job_id": {
+            "title": "Job Id",
+            "type": "integer"
+          },
+          "language": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Language"
+          },
+          "must_skills": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Must Skills",
+            "type": "array"
+          },
+          "nice_skills": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Nice Skills",
+            "type": "array"
+          },
+          "onsite_days_per_week": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Onsite Days Per Week"
+          },
+          "project_about": {
+            "title": "Project About",
+            "type": "string"
+          },
+          "project_responsibilities": {
+            "title": "Project Responsibilities",
+            "type": "string"
+          },
+          "requirement_groups": {
+            "items": {
+              "$ref": "#/components/schemas/RequirementGroupOut"
+            },
+            "title": "Requirement Groups",
+            "type": "array"
+          },
+          "requirements_reviewed": {
+            "title": "Requirements Reviewed",
+            "type": "boolean"
+          },
+          "requirements_text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Requirements Text"
+          },
+          "role_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Role Name"
+          },
+          "screening_questions": {
+            "items": {
+              "$ref": "#/components/schemas/ScreeningQuestionOut"
+            },
+            "title": "Screening Questions",
+            "type": "array"
+          },
+          "search_rows": {
+            "description": "„Szukamy po tych słowach” — wiersze wymagań Championa.",
+            "items": {
+              "$ref": "#/components/schemas/RequirementRowOut"
+            },
+            "title": "Search Rows",
+            "type": "array"
+          },
+          "seniority_min_years": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Seniority Min Years"
+          },
+          "stack_notes": {
+            "title": "Stack Notes",
+            "type": "string"
+          },
+          "start_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Start Date"
+          },
+          "talk_checks": {
+            "$ref": "#/components/schemas/TalkChecksOut",
+            "description": "„Rekruter sprawdza w rozmowie” — nie filtruje kandydatów."
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "work_mode": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Work Mode"
+          }
+        },
+        "required": [
+          "job_id",
+          "title",
+          "has_champion_profile",
+          "role_name",
+          "seniority_min_years",
+          "language",
+          "work_mode",
+          "onsite_days_per_week",
+          "candidate_location_pref",
+          "start_date",
+          "contract_length",
+          "must_skills",
+          "nice_skills",
+          "critical",
+          "search_rows",
+          "requirements_reviewed",
+          "requirement_groups",
+          "talk_checks",
+          "stack_notes",
+          "disqualifiers",
+          "requirements_text",
+          "project_about",
+          "project_responsibilities",
+          "screening_questions",
+          "amounts_redacted",
+          "costs_redacted",
+          "champion_rate_hourly",
+          "champion_rate_raw"
+        ],
+        "title": "RecruitmentRequirementsOut",
+        "type": "object"
+      },
+      "RecruitmentStagesOut": {
+        "properties": {
+          "job_id": {
+            "title": "Job Id",
+            "type": "integer"
+          },
+          "stages": {
+            "items": {
+              "$ref": "#/components/schemas/StageOut"
+            },
+            "title": "Stages",
+            "type": "array"
+          },
+          "template_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Template Id"
+          },
+          "template_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Template Name"
+          }
+        },
+        "required": [
+          "job_id",
+          "template_id",
+          "template_name",
+          "stages"
+        ],
+        "title": "RecruitmentStagesOut",
+        "type": "object"
+      },
+      "RefOut": {
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          }
+        },
+        "required": [
+          "id",
+          "name"
+        ],
+        "title": "RefOut",
+        "type": "object"
+      },
+      "RequirementGroupOut": {
+        "properties": {
+          "any_of": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Any Of",
+            "type": "array"
+          },
+          "level": {
+            "description": "must | nice | excluded | uncertain",
+            "title": "Level",
+            "type": "string"
+          }
+        },
+        "required": [
+          "any_of",
+          "level"
+        ],
+        "title": "RequirementGroupOut",
+        "type": "object"
+      },
+      "RequirementRowOut": {
+        "properties": {
+          "level": {
+            "description": "critical | must | nice",
+            "title": "Level",
+            "type": "string"
+          },
+          "words": {
+            "description": "Warianty słowa — wystarczy jedno.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Words",
+            "type": "array"
+          }
+        },
+        "required": [
+          "words",
+          "level"
+        ],
+        "title": "RequirementRowOut",
+        "type": "object"
+      },
       "ScopeOut": {
         "properties": {
           "label": {
@@ -4967,6 +8666,352 @@
           "label"
         ],
         "title": "ScopeOut",
+        "type": "object"
+      },
+      "ScreeningAnswerOut": {
+        "properties": {
+          "deal_breaker_hit": {
+            "title": "Deal Breaker Hit",
+            "type": "boolean"
+          },
+          "origin": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Origin"
+          },
+          "question_id": {
+            "title": "Question Id",
+            "type": "string"
+          },
+          "question_text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Question Text"
+          },
+          "response": {
+            "title": "Response",
+            "type": "string"
+          },
+          "skipped": {
+            "title": "Skipped",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "question_id",
+          "question_text",
+          "response",
+          "deal_breaker_hit",
+          "skipped",
+          "origin"
+        ],
+        "title": "ScreeningAnswerOut",
+        "type": "object"
+      },
+      "ScreeningQuestionOut": {
+        "properties": {
+          "deal_breaker": {
+            "title": "Deal Breaker",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "ideal_answer": {
+            "title": "Ideal Answer",
+            "type": "string"
+          },
+          "question": {
+            "title": "Question",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "question",
+          "ideal_answer",
+          "deal_breaker"
+        ],
+        "title": "ScreeningQuestionOut",
+        "type": "object"
+      },
+      "ScreeningSheetOut": {
+        "properties": {
+          "answered_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Answered At"
+          },
+          "answered_by_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Answered By Name"
+          },
+          "answers": {
+            "items": {
+              "$ref": "#/components/schemas/ScreeningAnswerOut"
+            },
+            "title": "Answers",
+            "type": "array"
+          },
+          "experience_checks": {
+            "items": {
+              "$ref": "#/components/schemas/ExperienceCheckOut"
+            },
+            "title": "Experience Checks",
+            "type": "array"
+          },
+          "internal_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Internal Note"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          },
+          "overall_fit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Overall Fit"
+          }
+        },
+        "required": [
+          "answers",
+          "experience_checks",
+          "overall_fit",
+          "notes",
+          "internal_note",
+          "answered_at",
+          "answered_by_name"
+        ],
+        "title": "ScreeningSheetOut",
+        "type": "object"
+      },
+      "SkillOut": {
+        "properties": {
+          "level": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Level"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "years": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Years"
+          }
+        },
+        "required": [
+          "name",
+          "level",
+          "years"
+        ],
+        "title": "SkillOut",
+        "type": "object"
+      },
+      "StageCountOut": {
+        "properties": {
+          "category": {
+            "title": "Category",
+            "type": "string"
+          },
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "order": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Order"
+          },
+          "stage": {
+            "title": "Stage",
+            "type": "string"
+          },
+          "stage_def_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stage Def Id"
+          },
+          "terminal_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Terminal Type"
+          }
+        },
+        "required": [
+          "stage_def_id",
+          "stage",
+          "name",
+          "order",
+          "category",
+          "terminal_type",
+          "count"
+        ],
+        "title": "StageCountOut",
+        "type": "object"
+      },
+      "StageOut": {
+        "properties": {
+          "category": {
+            "description": "internal | external | terminal",
+            "title": "Category",
+            "type": "string"
+          },
+          "is_terminal": {
+            "title": "Is Terminal",
+            "type": "boolean"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "order": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Order"
+          },
+          "stage": {
+            "title": "Stage",
+            "type": "string"
+          },
+          "stage_def_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stage Def Id"
+          },
+          "terminal_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "hired | rejected | withdrawn",
+            "title": "Terminal Type"
+          }
+        },
+        "required": [
+          "stage_def_id",
+          "stage",
+          "name",
+          "order",
+          "category",
+          "is_terminal",
+          "terminal_type"
+        ],
+        "title": "StageOut",
         "type": "object"
       },
       "SupersededCheck": {
@@ -5026,6 +9071,88 @@
         "title": "SupersededCheck",
         "type": "object"
       },
+      "TalkChecksOut": {
+        "properties": {
+          "certifications": {
+            "items": {
+              "$ref": "#/components/schemas/TalkItemOut"
+            },
+            "title": "Certifications",
+            "type": "array"
+          },
+          "domains": {
+            "items": {
+              "$ref": "#/components/schemas/TalkItemOut"
+            },
+            "title": "Domains",
+            "type": "array"
+          },
+          "notes": {
+            "title": "Notes",
+            "type": "string"
+          },
+          "regulations": {
+            "items": {
+              "$ref": "#/components/schemas/TalkItemOut"
+            },
+            "title": "Regulations",
+            "type": "array"
+          },
+          "skills": {
+            "description": "„Doświadczenie i umiejętności” — zdania do sprawdzenia w rozmowie.",
+            "items": {
+              "$ref": "#/components/schemas/TalkItemOut"
+            },
+            "title": "Skills",
+            "type": "array"
+          }
+        },
+        "required": [
+          "skills",
+          "domains",
+          "certifications",
+          "regulations",
+          "notes"
+        ],
+        "title": "TalkChecksOut",
+        "type": "object"
+      },
+      "TalkItemOut": {
+        "properties": {
+          "level": {
+            "description": "must | nice",
+            "title": "Level",
+            "type": "string"
+          },
+          "min_years": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Min Years"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "note": {
+            "title": "Note",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "level",
+          "min_years",
+          "note"
+        ],
+        "title": "TalkItemOut",
+        "type": "object"
+      },
       "ValidationError": {
         "properties": {
           "ctx": {
@@ -5064,6 +9191,172 @@
           "type"
         ],
         "title": "ValidationError",
+        "type": "object"
+      },
+      "WorkPreferencesOut": {
+        "properties": {
+          "b2b_willingness": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "B2B Willingness"
+          },
+          "contract_types": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Contract Types",
+            "type": "array"
+          },
+          "max_onsite_days_per_week": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Onsite Days Per Week"
+          },
+          "work_modes": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Work Modes",
+            "type": "array"
+          },
+          "work_time_preference": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Work Time Preference"
+          }
+        },
+        "required": [
+          "work_modes",
+          "contract_types",
+          "max_onsite_days_per_week",
+          "b2b_willingness",
+          "work_time_preference"
+        ],
+        "title": "WorkPreferencesOut",
+        "type": "object"
+      },
+      "app__api__integrations_v1__candidates__CandidateDocumentOut": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "file_name": {
+            "title": "File Name",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "is_outdated": {
+            "title": "Is Outdated",
+            "type": "boolean"
+          },
+          "is_primary": {
+            "title": "Is Primary",
+            "type": "boolean"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "mime_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mime Type"
+          },
+          "size_bytes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Size Bytes"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source"
+          },
+          "uploaded_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Uploaded At"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "file_name",
+          "mime_type",
+          "size_bytes",
+          "is_primary",
+          "is_outdated",
+          "uploaded_at",
+          "source",
+          "created_at"
+        ],
+        "title": "CandidateDocumentOut",
+        "type": "object"
+      },
+      "app__api__integrations_v1__candidates__CompetenceCategoryOut": {
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name"
+        ],
+        "title": "CompetenceCategoryOut",
         "type": "object"
       },
       "app__api__integrations_v1__contracts__PersonOut": {
@@ -5127,6 +9420,609 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/integrations/v1/candidates": {
+      "get": {
+        "description": "Kandydaci sortowani po id, bez danych kontaktowych i kwot.",
+        "operationId": "list_candidates_api_integrations_v1_candidates_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "maximum": 100000,
+              "minimum": 1,
+              "title": "Page",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page_size",
+            "required": false,
+            "schema": {
+              "default": 200,
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Page Size",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Imię i/lub nazwisko (każde słowo w imieniu albo nazwisku, bez polskich znaków). Fraza z „@” = dokładny e-mail — tylko z ``candidates:contact``.",
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Imię i/lub nazwisko (każde słowo w imieniu albo nazwisku, bez polskich znaków). Fraza z „@” = dokładny e-mail — tylko z ``candidates:contact``.",
+              "title": "Q"
+            }
+          },
+          {
+            "in": "query",
+            "name": "updated_since",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Updated Since"
+            }
+          },
+          {
+            "description": "Id po przecinku, najwyżej 200.",
+            "in": "query",
+            "name": "ids",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 2400,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Id po przecinku, najwyżej 200.",
+              "title": "Ids"
+            }
+          },
+          {
+            "in": "query",
+            "name": "competence_category_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maximum": 2147483647,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Competence Category Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "availability",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "items": {
+                    "$ref": "#/components/schemas/AvailabilityStatus"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Availability"
+            }
+          },
+          {
+            "in": "query",
+            "name": "city",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 120,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "City"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_CandidateListItemOut_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Lista kandydatów",
+        "tags": [
+          "integrations-v1"
+        ]
+      },
+      "post": {
+        "description": "Jak „Dodaj kandydata” na ekranie: profil, wpis w historii, dzwonek dla\nadminów i Head of Recruitment, indeks wyszukiwania. Autor = konto\nserwisowe. Kandydat z tym samym e-mailem (bez rozróżniania wielkości\nliter) już jest → 409 ``duplicate_candidate`` z ``candidate_id``. Adres\nosoby usuniętej na jej żądanie (RODO) → 409 ``candidate_erased``.\nDopisek w imieniu („[ACTIVE]”, „(czarna lista)”) → 422 przy polu.",
+        "operationId": "create_candidate_api_integrations_v1_candidates_post",
+        "parameters": [
+          {
+            "description": "Tylko walidacja i sprawdzenie duplikatu, bez zapisu.",
+            "in": "query",
+            "name": "dry_run",
+            "required": false,
+            "schema": {
+              "default": false,
+              "description": "Tylko walidacja i sprawdzenie duplikatu, bez zapisu.",
+              "title": "Dry Run",
+              "type": "boolean"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CandidateCreateIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CandidateCreatedOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Dodaj kandydata",
+        "tags": [
+          "integrations-v1"
+        ]
+      }
+    },
+    "/api/integrations/v1/candidates/{candidate_id}": {
+      "get": {
+        "description": "Profil kandydata. Kontakt tylko z ``candidates:contact`` (inaczej\n``null`` i ``contact_redacted``), stawki kandydata tylko z\n``amounts:read`` (inaczej ``null`` i ``costs_redacted``).",
+        "operationId": "get_candidate_api_integrations_v1_candidates__candidate_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "candidate_id",
+            "required": true,
+            "schema": {
+              "maximum": 2147483647,
+              "minimum": 1,
+              "title": "Candidate Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CandidateOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Profil kandydata",
+        "tags": [
+          "integrations-v1"
+        ]
+      }
+    },
+    "/api/integrations/v1/candidates/{candidate_id}/cv": {
+      "post": {
+        "description": "Jak wgranie CV na ekranie: plik w teczce kandydata (ten sam plik drugi\nraz nie tworzy kopii), główne CV odczytuje AI w tle i odświeża profil po\nbramce tożsamości — CV innej osoby nie nadpisze profilu. Tylko PDF, DOC,\nDOCX (415); pusty plik 400, za duży 413.",
+        "operationId": "upload_candidate_cv_api_integrations_v1_candidates__candidate_id__cv_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "candidate_id",
+            "required": true,
+            "schema": {
+              "maximum": 2147483647,
+              "minimum": 1,
+              "title": "Candidate Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_upload_candidate_cv_api_integrations_v1_candidates__candidate_id__cv_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CandidateCvOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Wgraj CV kandydata",
+        "tags": [
+          "integrations-v1"
+        ]
+      }
+    },
+    "/api/integrations/v1/candidates/{candidate_id}/cv-text": {
+      "get": {
+        "description": "Tekst bieżącego CV i jego odczyt (bez kluczy spoza CV). Gdy źródło\ntekstu jest w kwarantannie tożsamości — ``quarantined`` i pola ``null``.",
+        "operationId": "get_candidate_cv_text_api_integrations_v1_candidates__candidate_id__cv_text_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "candidate_id",
+            "required": true,
+            "schema": {
+              "maximum": 2147483647,
+              "minimum": 1,
+              "title": "Candidate Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CandidateCvTextOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Tekst i odczyt CV kandydata",
+        "tags": [
+          "integrations-v1"
+        ]
+      }
+    },
+    "/api/integrations/v1/candidates/{candidate_id}/documents": {
+      "get": {
+        "description": "Pliki osoby: główne CV pierwsze, potem najnowsze. Bez plików usuniętych\nz profilu i bez plików uznanych za CV innej osoby.",
+        "operationId": "list_candidate_documents_api_integrations_v1_candidates__candidate_id__documents_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "candidate_id",
+            "required": true,
+            "schema": {
+              "maximum": 2147483647,
+              "minimum": 1,
+              "title": "Candidate Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CandidateDocumentListOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Pliki kandydata",
+        "tags": [
+          "integrations-v1"
+        ]
+      }
+    },
+    "/api/integrations/v1/candidates/{candidate_id}/documents/{document_id}/file": {
+      "get": {
+        "description": "Bajty pliku (zawsze ``attachment``). Każde pobranie zostawia ślad\n``document_downloaded`` w dzienniku kandydata — jak pobranie na ekranie.",
+        "operationId": "download_candidate_document_api_integrations_v1_candidates__candidate_id__documents__document_id__file_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "candidate_id",
+            "required": true,
+            "schema": {
+              "maximum": 2147483647,
+              "minimum": 1,
+              "title": "Candidate Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "path",
+            "name": "document_id",
+            "required": true,
+            "schema": {
+              "maximum": 2147483647,
+              "minimum": 1,
+              "title": "Document Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/octet-stream": {}
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Pobranie pliku kandydata",
+        "tags": [
+          "integrations-v1"
+        ]
+      }
+    },
+    "/api/integrations/v1/candidates/{candidate_id}/notes": {
+      "get": {
+        "description": "Notatki i odpowiedzi chronologicznie (``reply_to`` = notatka główna).\n\nNotatka ze stawką do klienta (wpis Delivery Leada, notatka z wysyłki CV)\nbez ``sales_amounts:read`` ma ``content = null`` i ``content_hidden`` —\nta sama reguła co na ekranie dla roli bez tej stawki.",
+        "operationId": "list_candidate_notes_api_integrations_v1_candidates__candidate_id__notes_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "candidate_id",
+            "required": true,
+            "schema": {
+              "maximum": 2147483647,
+              "minimum": 1,
+              "title": "Candidate Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "maximum": 100000,
+              "minimum": 1,
+              "title": "Page",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page_size",
+            "required": false,
+            "schema": {
+              "default": 200,
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Page Size",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "job_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maximum": 2147483647,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Job Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_CandidateNoteOut_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Notatki kandydata",
+        "tags": [
+          "integrations-v1"
+        ]
+      },
+      "post": {
+        "description": "Notatka systemowa (wpis automatu): w Historii kandydata za „Pokaż\nsystemowe”, bez autora-osoby, nie czyta jej AI ani bramka wymagań.\n``@`` w treści nikogo nie oznacza — klucz API nie wysyła ludziom dzwonków\nani maili. ``job_id`` przypina notatkę do rekrutacji (404, gdy jej nie\nma).",
+        "operationId": "create_candidate_note_api_integrations_v1_candidates__candidate_id__notes_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "candidate_id",
+            "required": true,
+            "schema": {
+              "maximum": 2147483647,
+              "minimum": 1,
+              "title": "Candidate Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NoteCreateIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NoteCreatedOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Dodaj notatkę o kandydacie",
+        "tags": [
+          "integrations-v1"
+        ]
+      }
+    },
     "/api/integrations/v1/clients": {
       "get": {
         "description": "Klienci widoczni w NEXUSIE, sortowani po id (stabilne stronicowanie).",
@@ -7736,6 +12632,666 @@
           }
         },
         "summary": "Zużycie MD linii za miesiąc (wpis albo nadpisanie)",
+        "tags": [
+          "integrations-v1"
+        ]
+      }
+    },
+    "/api/integrations/v1/recruitments": {
+      "get": {
+        "description": "Rekrutacje sortowane po id, z zespołem i liczbą osób w kolumnach Tablicy.",
+        "operationId": "list_recruitments_api_integrations_v1_recruitments_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "maximum": 100000,
+              "minimum": 1,
+              "title": "Page",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page_size",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Page Size",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "open (wszystko poza zamkniętymi) · closed · draft · published · all. Powtarzalny, łączony przez LUB; brak = wszystkie.",
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "items": {
+                    "enum": [
+                      "open",
+                      "closed",
+                      "all",
+                      "draft",
+                      "published"
+                    ],
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "open (wszystko poza zamkniętymi) · closed · draft · published · all. Powtarzalny, łączony przez LUB; brak = wszystkie.",
+              "title": "Status"
+            }
+          },
+          {
+            "description": "p1 („P1 Pilne”) · p2 („Bez priorytetu”) · accepting. Powtarzalny.",
+            "in": "query",
+            "name": "priority",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "items": {
+                    "enum": [
+                      "p1",
+                      "p2",
+                      "accepting"
+                    ],
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "p1 („P1 Pilne”) · p2 („Bez priorytetu”) · accepting. Powtarzalny.",
+              "title": "Priority"
+            }
+          },
+          {
+            "in": "query",
+            "name": "client_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "items": {
+                    "maximum": 2147483647,
+                    "minimum": 1,
+                    "type": "integer"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Client Id"
+            }
+          },
+          {
+            "description": "Osoby, które pracują nad rekrutacją (prowadzący, aktywne przypisanie, ręcznie dopisany współpracownik); propozycja automatu się nie liczy. Gdy filtr statusu dopuszcza zamknięte — także „Poprzedni rekruter”.",
+            "in": "query",
+            "name": "recruiter_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "items": {
+                    "maximum": 2147483647,
+                    "minimum": 1,
+                    "type": "integer"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Osoby, które pracują nad rekrutacją (prowadzący, aktywne przypisanie, ręcznie dopisany współpracownik); propozycja automatu się nie liczy. Gdy filtr statusu dopuszcza zamknięte — także „Poprzedni rekruter”.",
+              "title": "Recruiter Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "delivery_lead_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "items": {
+                    "maximum": 2147483647,
+                    "minimum": 1,
+                    "type": "integer"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Delivery Lead Id"
+            }
+          },
+          {
+            "description": "Tytuł, numer, tytuł dla rekrutera, numer klienta, klient, technologia.",
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Tytuł, numer, tytuł dla rekrutera, numer klienta, klient, technologia.",
+              "title": "Q"
+            }
+          },
+          {
+            "description": "Zmiana wiersza rekrutacji (nie ruch karty — patrz /moves).",
+            "in": "query",
+            "name": "updated_since",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Zmiana wiersza rekrutacji (nie ruch karty — patrz /moves).",
+              "title": "Updated Since"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_RecruitmentOut_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Lista rekrutacji",
+        "tags": [
+          "integrations-v1"
+        ]
+      }
+    },
+    "/api/integrations/v1/recruitments/{job_id}": {
+      "get": {
+        "description": "Pola listy, opis i wymagania, tryb pracy oraz budżet dla kandydata.\n\nBudżet to koszt: bez ``amounts:read`` pola kwot są ``null``,\na ``costs_redacted = true``.",
+        "operationId": "get_recruitment_api_integrations_v1_recruitments__job_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "maximum": 2147483647,
+              "minimum": 1,
+              "title": "Job Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecruitmentDetailOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Rekrutacja",
+        "tags": [
+          "integrations-v1"
+        ]
+      }
+    },
+    "/api/integrations/v1/recruitments/{job_id}/board": {
+      "get": {
+        "description": "Kolumny szablonu z kartami osób — ta sama Tablica co na ekranie.\n\nKarta niesie imię i nazwisko kandydata, bez danych kontaktowych. Stawka\ndo klienta (sprzedaż) z ``sales_amounts:read``; stawka kandydata\nz ruchu i budżet przy ruchu (koszt) tylko z ``amounts:read``.",
+        "operationId": "get_recruitment_board_api_integrations_v1_recruitments__job_id__board_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "maximum": 2147483647,
+              "minimum": 1,
+              "title": "Job Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecruitmentBoardOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Tablica rekrutacji",
+        "tags": [
+          "integrations-v1"
+        ]
+      }
+    },
+    "/api/integrations/v1/recruitments/{job_id}/candidates": {
+      "post": {
+        "description": "Osoba, która zgłosiła się do tej rekrutacji, trafia na Tablicę\n(``added``); pozostałe — do „Do przejrzenia” jako propozycja\n(``proposed``), jak przy każdej integracji. Osoba już w rekrutacji:\n``already_in_job``, z kartą w „Zamkniętych”: ``closed_in_job`` (przywraca\nsię ją ruchem karty). Globalna czarna lista i weto hiring managera:\n``blocked`` z powodem; konflikty z klientem nie blokują (``warnings``).",
+        "operationId": "add_recruitment_candidates_api_integrations_v1_recruitments__job_id__candidates_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "maximum": 2147483647,
+              "minimum": 1,
+              "title": "Job Id",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Tylko werdykty (Tablica / propozycja / odmowa).",
+            "in": "query",
+            "name": "dry_run",
+            "required": false,
+            "schema": {
+              "default": false,
+              "description": "Tylko werdykty (Tablica / propozycja / odmowa).",
+              "title": "Dry Run",
+              "type": "boolean"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecruitmentAddIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecruitmentAddOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Dodaj osoby do rekrutacji",
+        "tags": [
+          "integrations-v1"
+        ]
+      }
+    },
+    "/api/integrations/v1/recruitments/{job_id}/candidates/{candidate_id}/screening": {
+      "get": {
+        "description": "Odpowiedzi screeningu pary (jak ``GET /pipeline/stages/{id}/screening``)\ni karta rekomendacji bieżącej próby procesu. Narodowość z karty nie\nwychodzi nigdy; stawka kandydata (pole „Stawka” karty i ``candidate_rate``\n— stawka podana w tej rekrutacji) — tylko z ``amounts:read``.",
+        "operationId": "get_candidate_screening_api_integrations_v1_recruitments__job_id__candidates__candidate_id__screening_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "maximum": 2147483647,
+              "minimum": 1,
+              "title": "Job Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "path",
+            "name": "candidate_id",
+            "required": true,
+            "schema": {
+              "maximum": 2147483647,
+              "minimum": 1,
+              "title": "Candidate Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CandidateScreeningOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Screening i karta rekomendacji osoby w rekrutacji",
+        "tags": [
+          "integrations-v1"
+        ]
+      }
+    },
+    "/api/integrations/v1/recruitments/{job_id}/moves": {
+      "get": {
+        "description": "Ruchy etapów od najnowszych, z poprzednim etapem osoby i powodem odrzucenia.",
+        "operationId": "list_recruitment_moves_api_integrations_v1_recruitments__job_id__moves_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "maximum": 2147483647,
+              "minimum": 1,
+              "title": "Job Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "maximum": 100000,
+              "minimum": 1,
+              "title": "Page",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page_size",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Page Size",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Ruchy jednej osoby w tej rekrutacji.",
+            "in": "query",
+            "name": "candidate_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maximum": 2147483647,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Ruchy jednej osoby w tej rekrutacji.",
+              "title": "Candidate Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_MoveOut_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Historia ruchów kart rekrutacji",
+        "tags": [
+          "integrations-v1"
+        ]
+      },
+      "post": {
+        "description": "Ten sam ruch co na Tablicy, z jej bramkami. Klucz nie zatrudnia, nie\nwysyła kandydata do klienta i nie prowadzi kolejki Cpro (403\n``requires_screen_decision``); zamyka kartę z powodem, bez maila do\nkandydata. Osoba spoza rekrutacji: 409 ``not_in_recruitment``.",
+        "operationId": "move_recruitment_card_api_integrations_v1_recruitments__job_id__moves_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "maximum": 2147483647,
+              "minimum": 1,
+              "title": "Job Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CardMoveIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CardMoveOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Przesuń kartę osoby w rekrutacji",
+        "tags": [
+          "integrations-v1"
+        ]
+      }
+    },
+    "/api/integrations/v1/recruitments/{job_id}/requirements": {
+      "get": {
+        "description": "Dwie listy wymagań: słowa do szukania i to, co rekruter sprawdza w rozmowie.\n\nDo tego krytyczne, pytania screeningowe i opis projektu z Profilu Championa.\nOdczyt niczego nie zmienia (powiadomienia o zmianie Championa zostają\nnieprzeczytane). Stawka Championa to koszt — tylko z ``amounts:read``.",
+        "operationId": "get_recruitment_requirements_api_integrations_v1_recruitments__job_id__requirements_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "maximum": 2147483647,
+              "minimum": 1,
+              "title": "Job Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecruitmentRequirementsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Wymagania rekrutacji (Profil Championa)",
+        "tags": [
+          "integrations-v1"
+        ]
+      }
+    },
+    "/api/integrations/v1/recruitments/{job_id}/stages": {
+      "get": {
+        "description": "Definicje kolumn szablonu rekrutacji (bez szablonu — kolumny domyślne).",
+        "operationId": "list_recruitment_stages_api_integrations_v1_recruitments__job_id__stages_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "maximum": 2147483647,
+              "minimum": 1,
+              "title": "Job Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecruitmentStagesOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Kolumny Tablicy rekrutacji",
         "tags": [
           "integrations-v1"
         ]

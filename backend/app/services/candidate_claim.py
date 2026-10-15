@@ -82,14 +82,19 @@ class ClaimState:
 
 def is_integration_request(request: object) -> bool:
     """Czy żądanie przyszło od integracji (token klienta OAuth, np. scraper
-    pracuj.pl / JJIT), a nie od człowieka.
+    pracuj.pl / JJIT, albo klucz API integracyjnego v1), a nie od człowieka.
 
     Integracja dodaje kandydatów sama — to wejście z automatu, bez 12 h
     blokady na koncie integracji (decyzja 23.09.2026: blokada należy się
-    wyłącznie człowiekowi, który dodał osobę ręcznie).
+    wyłącznie człowiekowi, który dodał osobę ręcznie). Klucz API
+    (``request.state.service_principal``, 15.10.2026) podlega tym samym
+    regułom: osoba, która się nie zgłosiła, trafia do propozycji.
     """
     state = getattr(request, "state", None)
-    return bool(getattr(state, "oauth_client_id", None))
+    return bool(
+        getattr(state, "oauth_client_id", None)
+        or getattr(state, "service_principal", None)
+    )
 
 
 def utcnow() -> datetime:

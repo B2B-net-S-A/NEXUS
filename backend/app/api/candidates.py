@@ -255,6 +255,7 @@ from app.services.recruitment_process_commands import (
     void_process,
 )
 from app.services.notification_access import filter_notification_recipients
+from app.services.write_author import WriteAuthor
 from app.api import ws as ws_manager
 
 logger = logging.getLogger(__name__)
@@ -3845,13 +3846,20 @@ def _reject_name_markers(fields: dict[str, Any]) -> None:
         raise HTTPException(status_code=422, detail=detail)
 
 
-@router.post("", response_model=CandidateResponse, status_code=status.HTTP_201_CREATED)
-async def create_candidate(
-    data: CandidateCreate,
-    current_user: RecruiterPlus,
-    db: AsyncSession = Depends(get_db),
-):
-    _reject_name_markers({"name": data.name, "lastname": data.lastname})
+async def apply_candidate_create(
+    db: AsyncSession, data: CandidateCreate, *, author: WriteAuthor
+) -> Candidate:
+    """Ciało `POST /api/candidates` BEZ commita — ekran i API v1 (15.10.2026).
+
+    Ten sam zapis dla osoby z ekranu i dla klucza API
+    (``POST /api/integrations/v1/candidates``): duplikat e-maila → 409, wpis
+    ``Activity``, dzwonek adminów i Head of Recruitment (WebSocket po
+    commicie), karta Teams i kolejka indeksu. Konto serwisowe
+    (``author.user_id is None``) nie dostaje wpisu ``UserActivity`` — to
+    ranking ludzi, a kolumna ``user_id`` jest NOT NULL. Odmowę dopisków
+    w imieniu robi wołający, bo nazwy pól w błędzie są różne na ekranie
+    i w API v1. Commit — wołający (ekran: ``get_db``, v1: paragon).
+    """
     candidate = Candidate(**data.model_dump())
     apply_candidate_location_from_source(
         candidate,
@@ -3859,7 +3867,7 @@ async def create_candidate(
         country=candidate.country,
         overwrite_existing=True,
     )
-    candidate.created_by = current_user.id
+    candidate.created_by = author.user_id
     # `candidates.email` ma unikalny indeks. Bez tej obsługi duplikat kończył się
     # IntegrityError przy flush → 500 („nieoczekiwany błąd serwera"), a scenariusz
     # E2E „duplikat e-maila" przechodził tylko dlatego, że akceptował każdy status
@@ -3886,21 +3894,22 @@ async def create_candidate(
         entity_type="candidate",
         entity_id=candidate.id,
         action="created",
-        user_id=current_user.id,
+        user_id=author.user_id,
         details={"name": f"{candidate.name} {candidate.lastname}"},
     )
     db.add(activity)
-    user_activity = UserActivity(
-        user_id=current_user.id,
-        action_type=UserActionType.candidate_added,
-        entity_type="candidate",
-        entity_id=candidate.id,
-        details={
-            "name": f"{candidate.name} {candidate.lastname}",
-            "source": candidate.source,
-        },
-    )
-    db.add(user_activity)
+    if author.user_id is not None:
+        user_activity = UserActivity(
+            user_id=author.user_id,
+            action_type=UserActionType.candidate_added,
+            entity_type="candidate",
+            entity_id=candidate.id,
+            details={
+                "name": f"{candidate.name} {candidate.lastname}",
+                "source": candidate.source,
+            },
+        )
+        db.add(user_activity)
     await db.flush()
 
     # Notify all managers/admins about new candidate (real-time).
@@ -3922,7 +3931,7 @@ async def create_candidate(
     )
     notif_ids = []
     for mgr in managers:
-        if mgr.id != current_user.id:
+        if mgr.id != author.user_id:
             notif = Notification(
                 user_id=mgr.id,
                 title="Nowy kandydat dodany",
@@ -3966,7 +3975,7 @@ async def create_candidate(
 
         teams_db_payload = candidate_payload(
             candidate=candidate,
-            recruiter_name=current_user.name or current_user.email,
+            recruiter_name=author.label,
         )
         spawn(
             notify_teams("candidate_added", teams_db_payload),
@@ -3988,6 +3997,19 @@ async def create_candidate(
         await schedule_or_embed_candidate(candidate.id, db)
     except Exception as exc:  # noqa: BLE001 — indexing is best-effort
         logger.warning("Indexing new candidate %s failed: %s", candidate.id, exc)
+    return candidate
+
+
+@router.post("", response_model=CandidateResponse, status_code=status.HTTP_201_CREATED)
+async def create_candidate(
+    data: CandidateCreate,
+    current_user: RecruiterPlus,
+    db: AsyncSession = Depends(get_db),
+):
+    _reject_name_markers({"name": data.name, "lastname": data.lastname})
+    candidate = await apply_candidate_create(
+        db, data, author=WriteAuthor.person(current_user)
+    )
 
     # Reload with eager-loaded contracts/conflicts so _derive_employment has data.
     reloaded = await db.execute(
@@ -8250,7 +8272,7 @@ async def _ingest_candidate_cv_file(
     content: bytes,
     safe_filename: str,
     content_type: Optional[str],
-    user_id: int,
+    user_id: Optional[int],
     external_source: str = "manual",
 ) -> CandidateDocument:
     """Persist an uploaded CV: disk copy, document row and audit trail.
@@ -8260,6 +8282,10 @@ async def _ingest_candidate_cv_file(
     box. Text extraction and every derived projection run after an identity
     decision in ``_enrich_candidate_from_document_task``. Does NOT commit —
     the caller owns the transaction and post-commit task.
+
+    ``user_id=None`` — klucz API v1 (``POST /api/integrations/v1/candidates/
+    {id}/cv``, 15.10.2026): ``Activity`` bez osoby (stempel ``details.via``),
+    bez ``UserActivity`` (ranking ludzi, ``user_id`` NOT NULL).
     """
     candidate_id = candidate.id
     os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
@@ -8293,13 +8319,53 @@ async def _ingest_candidate_cv_file(
             details={"filename": safe_filename},
         )
     )
+    if user_id is not None:
+        db.add(
+            UserActivity(
+                user_id=user_id,
+                action_type=UserActionType.cv_uploaded,
+                entity_type="candidate",
+                entity_id=candidate_id,
+                details={"filename": safe_filename},
+            )
+        )
+    return document
+
+
+async def _attach_candidate_document(
+    db: AsyncSession,
+    *,
+    candidate_id: int,
+    safe_filename: str,
+    content: bytes,
+    content_type: Optional[str],
+    kind: CandidateDocumentKind,
+    user_id: Optional[int],
+) -> CandidateDocument:
+    """Plik w teczce kandydata bez ścieżki głównego CV — BEZ commita.
+
+    Zapis z deduplikacją po SHA i wpis ``Activity``. Wspólne dla
+    `POST /{id}/documents` i API v1 (CV wgrane z ``make_primary=false``, gdy
+    osoba ma już główne CV); ``user_id=None`` = klucz API.
+    """
+    document = await _store_candidate_document(
+        db,
+        candidate_id=candidate_id,
+        filename=safe_filename,
+        content=content,
+        content_type=content_type,
+        external_source="manual",
+        document_kind=kind,
+        is_primary=False,
+        uploaded_by=user_id,
+    )
     db.add(
-        UserActivity(
-            user_id=user_id,
-            action_type=UserActionType.cv_uploaded,
+        Activity(
             entity_type="candidate",
             entity_id=candidate_id,
-            details={"filename": safe_filename},
+            action="document_uploaded",
+            user_id=user_id,
+            details={"filename": safe_filename, "document_kind": kind.value},
         )
     )
     return document
@@ -8495,25 +8561,14 @@ async def upload_candidate_document(
             )
             return (await _documents_with_people(db, [document]))[0]
 
-    document = await _store_candidate_document(
+    document = await _attach_candidate_document(
         db,
         candidate_id=candidate_id,
-        filename=safe_filename,
+        safe_filename=safe_filename,
         content=content,
         content_type=resolved_content_type,
-        external_source="manual",
-        document_kind=kind,
-        is_primary=False,
-        uploaded_by=current_user.id,
-    )
-    db.add(
-        Activity(
-            entity_type="candidate",
-            entity_id=candidate_id,
-            action="document_uploaded",
-            user_id=current_user.id,
-            details={"filename": safe_filename, "document_kind": kind.value},
-        )
+        kind=kind,
+        user_id=current_user.id,
     )
     await db.commit()
     await db.refresh(document)
