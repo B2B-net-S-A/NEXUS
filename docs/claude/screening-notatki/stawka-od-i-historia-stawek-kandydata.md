@@ -75,3 +75,32 @@ Artura 04.10.2026 (makiety: https://claude.ai/artifact/SxV3wMXBL8FhA2Q743HwEd).
   140 zł/h”, przegląd DL i dok osoby: „W tej rekrutacji” obok „Stawki od”.
   Okno „Zweryfikowany” podpowiada: karta tej rekrutacji → „Stawka od” → profil.
 - **Bez plakietki „na podobne stanowisko”** — Artur ją odrzucił 04.10.2026.
+
+## Żywa umowa (15.10.2026, D4/D5)
+
+- **Dopóki osoba ma żywą umowę (`active`/`ending`) po starcie, w PLN, „Stawka
+  od” = stawka konsultanta z tej umowy** (`contract_hourly`, ostatni krok
+  harmonogramu do dziś). Obserwacja `contract:{id}`, źródło `contract`;
+  `compute` ma dla niej gałąź przed regułą minimum: niezależnie od okna
+  18 mies., `stale = false`, `latest_*` = umowa, pozostałe obserwacje z powodem
+  `contract` („pracuje u nas — liczy się umowa”). Kilka żywych umów — ta
+  z najpóźniej obowiązującą stawką (remis: wyższa).
+- **Dlaczego nadpisanie, a nie „jawne minimum”:** stawka profilu
+  (`profile-current`) ma datę importu, późniejszą niż start umowy, więc jako
+  „nowsza” dalej wygrywała — u większości z 99 osób nic by się nie zmieniło.
+- **Po końcu umowy** wracamy do reguły wyżej: zakończone umowy są tylko
+  w historii („to cena, nie oczekiwanie”).
+- **Kolejka:** wyzwalacze `trg_rate_from_contracts` (status, osoba, start,
+  pola stawki kosztowej — warunki w ciele funkcji, bez `UPDATE OF`, bo
+  entrypoint poszerza kolumny stawek) i `trg_rate_from_contract_rates`
+  (`contract_candidate_rates`); migracja 0448 + lustro w `entrypoint.sh`
+  (`services/contract_rate_from_schema.py`, po `_RATE_FROM_DDL`). Kalendarz
+  (start umowy, krok harmonogramu) przelicza pętla raz dziennie:
+  `requeue_live_contracts` kolejkuje wszystkie osoby z żywą umową;
+  `requeue_expiring` je pomija.
+- **`with_contracts=False`** w `collect` dla `this_job_rates` /
+  `candidate_job_rates` — obserwacja z umowy nie ma rekrutacji (`job_id`
+  pusty, więc „W tej rekrutacji” i podpowiedź umowy B2B jej nie biorą).
+- „Nie licz jako minimum” nie działa dla klucza `contract:` (`_KEY_PATTERN`
+  go odrzuca, przycisk ukryty). Kto widzi kwotę — `kandydaci-wyszukiwanie/znacznik-pracuje-u-nas.md`,
+  sekcja „Dostępność i stawka z umowy”.

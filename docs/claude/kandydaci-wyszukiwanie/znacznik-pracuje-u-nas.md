@@ -164,3 +164,81 @@ końca”. Teraz obowiązuje:
   sprawę regule umów (`hire_closed_by_contract`), nie wiekowi etapu. Lustro SQL
   w `hire_closed_by_contract_clause(today)`; testy
   `test_stale_hire_without_contract*.py`.
+
+## Dostępność i stawka z umowy (15.10.2026)
+
+Zgłoszenie pracownika: profil mówił „Pracuje u nas do 30.11.2026” i jednocześnie
+„Dostępność od 1.09.2026” — data i „Stawka od” pochodziły z notatek ze
+screeningu sprzed zatrudnienia. Pomiar produkcji 15.10.2026: 483 osoby
+z żywą umową, 308 z minioną datą „Dostępny od” (Tablica pisała „od razu”), 135
+ze statusem „Szuka aktywnie”, 99 ze „Stawką od” niższą o ponad 5 zł/h niż
+stawka z umowy. Makiety i decyzje D1–D6 (Artur zatwierdził wszystkie, D4 = B):
+https://claude.ai/artifact/1oJ9qiLdPFKTsEXTwdLpSN.
+
+### Termin dostępności (D1, D2)
+
+- **Reguła:** dopóki osoba ma żywą umowę (`active`/`ending`), termin =
+  późniejsza z dat: dzień po końcu pracy u nas i `availability_date` z profilu.
+  Wcześniejsza data z profilu to dawny screening; późniejsza znaczy, że
+  kandydat sam podał dalszy termin. Odejście przed końcem zamówienia ustala
+  Delivery — notatka rekrutera go nie przyspiesza.
+- **Jedno źródło: znacznik.** `EmploymentMarker.free_from` i `free_from_basis`
+  liczy `employment_marker.contract_free_from` z WSZYSTKICH umów osoby, przed
+  wyborem jednej umowy na klienta (ten woli trwającą i gubi kolejną umowę
+  u tego samego klienta). Podstawy: `work_end` (dzień po najpóźniejszym końcu
+  pracy, także minionym), `no_end_date` (umowa bez końca pracy albo kolejna
+  umowa po bieżącej), `starting` (żadna umowa jeszcze się nie zaczęła).
+  Koniec pracy = ta sama data co w ramce „Pracuje u nas” (`order_end_date`).
+- **Bez umowy w NEXUSIE** (sam konflikt albo etap „Zatrudniony”) i po końcu
+  umowy — bez zmian: data z profilu.
+- **Front:** `lib/contract-availability.ts` (`contractAvailability`, tekst,
+  dymek, `hidesAvailabilityStatus`). Każde miejsce, które składa tekst
+  dostępności z `availability_date`, najpierw pyta ten moduł: karta „Do
+  propozycji”, panel osoby, tabela Tablicy (`person-rows`), lista
+  (`candidate-row-format`), propozycje i filtr „dostępny teraz”
+  (`proposals-merge`), podgląd, przegląd DL, ekran przed rozmową, porównanie.
+  Nowy ekran z osobą = ten moduł, nie własne liczenie.
+- **Serwer bez znacznika:** `services/contract_availability.py` —
+  `load_contract_free` (jedno zapytanie na stronę, lustro daty znacznika przez
+  `employment_marker.work_end_sql`; zgodność z `load_employment_markers`
+  pilnuje `test_contract_availability_db.py`), `contract_free_by_clause` dla
+  filtra `availability_date_before` (`structured_candidate_search`) i
+  `attach_contract_free` przed oceną dopasowania.
+- **Ocena dopasowania:** `_score_availability` i kara za kolizję ze startem
+  Championa czytają `candidate._contract_free`; bez daty końca i przed startem
+  umowy = 0 pkt. Ścieżki wsadowe dołączają raz na pulę (`rank_candidates_for_job`,
+  `canonical_fit`, worker wyszukiwania, `match_score_cache`, marketplace,
+  rekomendacje), `score_candidate_job` ma zapas na pojedynczą parę. Klucz
+  `availability_contract` w `scoring_algorithm_version`. Ocena nie unieważnia
+  się przy samym przedłużeniu zamówienia (5/100 pkt może chwilę odstawać).
+- **Też z umowy:** pole „Start” w przeglądzie DL, kolejka Cpro, podpowiedź
+  daty startu w Generatorze umów B2B, fakty dla promptu uzasadnienia
+  dopasowania (dołączane przed hashem promptu — bez tego hash zależałby od
+  kolejności wywołań). Bramka ruchu (`move_requirements`, „dostępność znana”)
+  zostaje przy profilu: pyta, czy rekruter ustalił termin z kandydatem.
+
+### Pigułka i okno edycji (D3, D6)
+
+- **„Szuka aktywnie / Otwarty na oferty” znika przy żywej umowie** (pasek
+  osoby, lista) — zostaje „Pracuje / Kończy / Zaczyna u nas”. Status w bazie
+  bez zmian, wraca po końcu umowy. Strażnik
+  `CandidateDetailRecruiterUx.test.ts` liczy dokładny zapis
+  `<AvailabilityPill status={candidate.availability_status}` i wystąpienia
+  `availability_status` w katalogu profilu — warunek nie może go powtarzać.
+- **Okno „Dostępność kandydata”** ma ramkę: do kiedy osoba pracuje, kto
+  ustala wcześniejsze odejście (Delivery Lead ze znacznika), że późniejsza
+  data zastąpi termin z kontraktu. Ołówek zostaje.
+
+### Stawka (D4, D5)
+
+- **„Stawka od” = stawka konsultanta z bieżącej umowy**, dopóki umowa trwa
+  — szczegóły w `screening-notatki/stawka-od-i-historia-stawek-kandydata.md`
+  (sekcja „Żywa umowa”). Profil pisze wtedy „Stawka u nas” z zieloną kropką
+  (`rate_from_source = contract` w odpowiedziach).
+- **Kto widzi kwotę (D4 = B):** każdy, kto widzi stawkę kandydata — także
+  rekruter, Delivery Lead innego klienta i rola „Automatyzacje” w aplikacji.
+  Tylko stawka konsultanta z ŻYWEJ umowy: historia stawek (`_paid_rates`)
+  i „ostatni kontrakt” w przeglądzie DL pokazują ją każdemu; zakończone umowy,
+  stawka do klienta, marża i kwoty zamówień zostają przy dostępie do finansów.
+  API kluczy dalej za zakresem kosztów (`profile_rates(show_costs=…)`).
+- Znacznik dalej NIE niesie kwot — stawka idzie przez „Stawkę od”.
