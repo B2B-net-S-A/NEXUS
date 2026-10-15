@@ -53,6 +53,9 @@ async def candidate_rate_from_loop() -> None:
             if expiry_day != today:
                 async with AsyncSessionLocal() as db:
                     requeued = await rate_from.requeue_expiring(db, today=today)
+                    # Stawka z żywej umowy zależy od kalendarza (start umowy,
+                    # krok harmonogramu) — 15.10.2026.
+                    requeued += await rate_from.requeue_live_contracts(db)
                     await db.commit()
                 expiry_day = today
                 if requeued:

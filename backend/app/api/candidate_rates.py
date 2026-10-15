@@ -45,6 +45,7 @@ from app.services.access_scope import resolve_delivery_lead_finance_client_ids
 from app.services.candidate_rate_observations import RateObservation, collect
 from app.services.client_consultant_rates import contract_hourly
 from app.services.contract_rates import RATE_SCHEDULE_LOADS
+from app.services.current_employment import LIVE_CONTRACT_STATUSES
 from app.services.job_working_title import job_display_title_expr
 
 router = APIRouter(dependencies=SOURCING_SECTION_DEPENDENCIES)
@@ -207,7 +208,10 @@ async def _paid_rates(
     out: list[PaidRateOut] = []
     for contract in contracts:
         on = min(contract.end_date, today) if contract.end_date else today
-        shown = visible(contract.client_id)
+        # Stawkę konsultanta z ŻYWEJ umowy widzi każdy, kto widzi stawkę
+        # kandydata (D4, 15.10.2026) — jest wtedy jego „Stawką od”. Zakończone
+        # umowy i stawki do klienta zostają przy dostępie do finansów.
+        shown = contract.status in LIVE_CONTRACT_STATUSES or visible(contract.client_id)
         out.append(
             PaidRateOut(
                 kind="contract",
@@ -252,9 +256,9 @@ async def get_rate_overview(
     if exists is None:
         raise HTTPException(status_code=404, detail="Nie znaleziono kandydata.")
     today = business_today()
-    observations: list[RateObservation] = (await collect(db, [candidate_id]))[
-        candidate_id
-    ]
+    observations: list[RateObservation] = (
+        await collect(db, [candidate_id], today=today)
+    )[candidate_id]
     decisions = (await rate_from.load_decisions(db, [candidate_id]))[candidate_id]
     excluded = rate_from.active_exclusions(observations, decisions)
     result = rate_from.compute(observations, set(excluded), today)

@@ -24,6 +24,7 @@ from app.models.candidate import Candidate
 from app.models.job import Job
 from app.models.recruitment_process import RecruitmentProcess
 from app.services import candidate_rate_from, recruitment_rates
+from app.services.contract_availability import load_contract_free
 from app.services.recommendation_card_rules import split_fields
 from app.services.recommendation_cards import (
     attempt_started,
@@ -183,12 +184,19 @@ async def build_prefill(
             "job_title": pair.job_title,
         }
 
+    # Osoba, która już u nas pracuje, zaczyna nową umowę po końcu bieżącej
+    # pracy, nie w dniu ze screeningu sprzed zatrudnienia (15.10.2026).
+    start_date = candidate.availability_date
+    contract = (await load_contract_free(db, [candidate.id])).get(candidate.id)
+    if contract is not None:
+        start_date = contract.available_from(candidate.availability_date)
+
     existing = await existing_agreement(db, candidate_id=candidate.id, job_id=job.id)
     return {
         "candidate_id": candidate.id,
         "job_id": job.id,
         "rate": rate,
-        "start_date": candidate.availability_date,
+        "start_date": start_date,
         "availability_text": availability_text,
         "client_rate": client_rate,
         "client_rate_redacted": not show_client_rate,

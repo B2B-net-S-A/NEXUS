@@ -43,6 +43,7 @@ from app.models.candidate import Candidate
 from app.models.job import Job
 from app.models.match_score import CandidateJobMatchScore
 from app.models.match_score_invalidation import MatchScoreInvalidation
+from app.services.contract_availability import attach_contract_free
 from app.services.scoring_service import (
     DEFAULT_PROFILE,
     build_job_scoring_context,
@@ -392,6 +393,11 @@ async def bulk_get_or_compute(
     # extra work.
     misses = [c.id for c in candidates if c.id not in cached_by_cid]
     context = await build_job_scoring_context(db, job, misses) if misses else None
+    if misses:
+        # Dostępność z żywej umowy raz na pulę (15.10.2026).
+        await attach_contract_free(
+            db, [c for c in candidates if c.id not in cached_by_cid]
+        )
     for c in candidates:
         row = cached_by_cid.get(c.id)
         if row is not None:

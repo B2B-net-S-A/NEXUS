@@ -112,6 +112,10 @@ async def score_candidates(db, context: RequestMatchingContext, candidates):
         from app.services.prior_screening import attach_prior_screening
 
         await attach_prior_screening(db, job, candidates)
+    # Dostępność z żywej umowy raz na pulę (15.10.2026).
+    from app.services.contract_availability import attach_contract_free
+
+    await attach_contract_free(db, candidates)
     with stage("query_embedding") as outcome:
         try:
             vector = adapt_job_query(await request_vector(context.query_text))

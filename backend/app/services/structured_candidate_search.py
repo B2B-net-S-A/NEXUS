@@ -34,6 +34,7 @@ from app.schemas.candidate_search import (
     LanguageRequirement,
 )
 from app.services import candidate_search_predicates as predicates
+from app.services.contract_availability import contract_free_by_clause
 
 # CEFR ordering — wspólna definicja w `candidate_search_predicates`.
 _LEVEL_ORDER = list(predicates.LANGUAGE_LEVELS)
@@ -341,9 +342,14 @@ def build_filter_groups(req: CandidateSearchRequest) -> list[FilterGroup]:
     if availability_clause is not None:
         availability.append(availability_clause)
     if req.availability_date_before is not None:
+        # Osoba z żywą umową jest wolna dopiero po końcu pracy u nas
+        # (15.10.2026) — data z profilu bywa screeningiem sprzed zatrudnienia.
         availability.append(
-            Candidate.availability_date.is_(None)
-            | (Candidate.availability_date <= req.availability_date_before)
+            (
+                Candidate.availability_date.is_(None)
+                | (Candidate.availability_date <= req.availability_date_before)
+            )
+            & contract_free_by_clause(Candidate.id, req.availability_date_before)
         )
     if req.notice_period_max is not None:
         # Normalize value+unit to days for comparison. NULL unit = legacy days.

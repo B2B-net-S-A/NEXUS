@@ -20,7 +20,14 @@ Czyta (hurtowo, bez zawężania widoczności — to wejście liczenia „Stawki 
   historia stawek. Wpis powtarzający kwotę etapu albo karty tej samej
   rekrutacji nie dubluje historii.
 
-Stawki z umów (co płaciliśmy) są tylko do wyświetlenia — czyta je
+* stawkę konsultanta z BIEŻĄCEJ umowy (15.10.2026, decyzje D4/D5 Artura),
+  klucz ``contract:{contract_id}``, źródło ``contract``: żywa umowa (active,
+  ending) po starcie, w PLN, przeliczona na PLN/h jak w historii stawek
+  (``contract_hourly``). Dopóki trwa, „Stawka od” = ta kwota
+  (``candidate_rate_from.compute``) — osoba, która u nas pracuje, nie ma
+  „Stawki od” ze screeningu sprzed zatrudnienia.
+
+Zakończone umowy (co płaciliśmy kiedyś) są tylko do wyświetlenia — czyta je
 ``candidate_rate_overview``, nie ta funkcja.
 """
 
@@ -29,18 +36,22 @@ from __future__ import annotations
 from collections import defaultdict
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 from typing import Any, Optional
 
-from sqlalchemy import text
+from sqlalchemy import or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
+from zoneinfo import ZoneInfo
 
+from app.core.scheduling import DEFAULT_TZ, business_today
 from app.core.work_time import HOURS_PER_MD_DEC, HOURS_PER_MONTH_DEC
 from app.services.candidate_audit import PROFILE_RATE_CHANGED
 
 #: Źródła zapisu profilu, które znaczą „to jest minimum kandydata”.
 MINIMUM_SOURCES = frozenset({"trainee_call", "manual_minimum", "stage_minimum"})
+#: Stawka konsultanta z bieżącej umowy (15.10.2026).
+CONTRACT_SOURCE = "contract"
 
 _CENT = Decimal("0.01")
 
@@ -244,9 +255,17 @@ _SUBMISSIONS_SQL = text(
 
 
 async def collect(
-    db: AsyncSession, candidate_ids: Iterable[int]
+    db: AsyncSession,
+    candidate_ids: Iterable[int],
+    *,
+    today: Optional[date] = None,
+    with_contracts: bool = True,
 ) -> dict[int, list[RateObservation]]:
-    """Obserwacje każdego kandydata (pusta lista, gdy nic nie powiedział)."""
+    """Obserwacje każdego kandydata (pusta lista, gdy nic nie powiedział).
+
+    ``with_contracts=False`` — wołający czyta tylko stawki podane w rekrutacjach
+    (obserwacja z umowy nie ma rekrutacji), więc nie płaci za umowy.
+    """
     ids = sorted({int(cid) for cid in candidate_ids})
     out: dict[int, list[RateObservation]] = {cid: [] for cid in ids}
     if not ids:
@@ -336,7 +355,83 @@ async def collect(
         )
 
     await _add_note_pair_observations(db, out, ids)
+    if with_contracts:
+        await _add_contract_observations(db, out, ids, today or business_today())
     return out
+
+
+def _contract_rate_since(contract: Any, today: date) -> Optional[date]:
+    """Od kiedy obowiązuje bieżąca stawka: ostatni krok harmonogramu do dziś
+    (jak ``Contract._resolve_scheduled_rate``), inaczej start umowy."""
+    steps = [
+        (step.effective_from, step.id or 0)
+        for step in (getattr(contract, "candidate_rate_schedule", None) or [])
+        if step.effective_from is not None and step.effective_from <= today
+    ]
+    if steps:
+        return max(steps)[0]
+    return contract.start_date
+
+
+def _midnight(day: date) -> datetime:
+    return datetime.combine(day, time(), tzinfo=ZoneInfo(DEFAULT_TZ))
+
+
+async def _add_contract_observations(
+    db: AsyncSession, out: dict[int, list[RateObservation]], ids: list[int], today: date
+) -> None:
+    """Stawka konsultanta z bieżącej umowy — jedna na osobę.
+
+    Kilka żywych umów: ta z najpóźniej obowiązującą stawką (remis: wyższa
+    kwota). Umowa przed startem, nie w PLN albo bez stawki — bez obserwacji.
+    """
+    # Import leniwy: modele umów i harmonogramów ciągną dużo zależności,
+    # a ten moduł importują filtry i wyzwalacze.
+    from app.models.contract import Contract  # noqa: PLC0415
+    from app.services.client_consultant_rates import contract_hourly  # noqa: PLC0415
+    from app.services.contract_rates import RATE_SCHEDULE_LOADS  # noqa: PLC0415
+    from app.services.current_employment import (  # noqa: PLC0415
+        LIVE_CONTRACT_STATUSES,
+    )
+
+    contracts = (
+        (
+            await db.execute(
+                select(Contract)
+                .options(*RATE_SCHEDULE_LOADS)
+                .where(
+                    Contract.candidate_id.in_(ids),
+                    Contract.status.in_(LIVE_CONTRACT_STATUSES),
+                    or_(Contract.start_date.is_(None), Contract.start_date <= today),
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    best: dict[int, tuple[tuple[date, Decimal, int], Any, Decimal, Optional[date]]] = {}
+    for contract in contracts:
+        amount = contract_hourly(contract, today)
+        if amount is None or amount <= 0:
+            continue
+        since = _contract_rate_since(contract, today)
+        rank = (since or date.min, amount, contract.id)
+        current = best.get(contract.candidate_id)
+        if current is None or rank > current[0]:
+            best[contract.candidate_id] = (rank, contract, amount, since)
+    for candidate_id, (_, contract, amount, since) in best.items():
+        created = getattr(contract, "created_at", None)
+        at = _midnight(since) if since is not None else created
+        out[candidate_id].append(
+            RateObservation(
+                key=f"contract:{contract.id}",
+                candidate_id=candidate_id,
+                amount_hourly=amount,
+                raw=f"{amount.normalize():f} PLN/h · umowa",
+                at=at,
+                source=CONTRACT_SOURCE,
+            )
+        )
 
 
 async def _add_note_pair_observations(

@@ -16,6 +16,7 @@ from app.services import candidate_search_store as store
 from app.services.full_candidate_scan import CandidateEvaluation, load_snapshot_batch
 from app.services.full_search_measurement import measure_candidates, request_vector
 from app.services.query_adapter import adapt_job_query
+from app.services.contract_availability import attach_contract_free
 from app.services.notification_access import notification_recipient_has_access
 from app.services.request_matching_context import RequestMatchingContext
 from app.services.search_telemetry import SearchTelemetry, stage
@@ -169,6 +170,9 @@ async def evaluate_batch(db, request: RequestMatchingContext, batch, vector):
     if with_prior:
         with stage("sql_load"):
             await prior_screening.attach_prior_screening(db, target, kept)
+    # Dostępność z żywej umowy raz na pulę (15.10.2026).
+    with stage("sql_load"):
+        await attach_contract_free(db, kept)
     with stage("retrieval") as outcome:
         measurements = await measure_candidates(vector, kept)
         outcome["failed"] = any(

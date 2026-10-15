@@ -298,6 +298,8 @@ def scoring_algorithm_version() -> str:
     payload["rate_contract"] = (
         "2026-10-04-rate-from-18m" if _rate_from_enabled() else "profile"
     )
+    # Dostępność i „Stawka od” osoby z żywą umową liczą się z umowy (15.10.2026).
+    payload["availability_contract"] = "2026-10-15-contract-free-from"
     from app.services.critical_skills import gate_mode
 
     payload["salary_contract"] = (
@@ -1685,6 +1687,14 @@ def _notes_explicit_available_date(
     return _parse_champion_date(availability.get("available_from"), today=today)
 
 
+def _contract_free(candidate: Candidate) -> Any:
+    """``ContractFree`` dołączony przed oceną; ``None`` = bez żywej umowy
+    albo nie dołączono (wtedy liczy się data z profilu, jak przed 15.10.2026)."""
+    from app.services.contract_availability import ATTRIBUTE
+
+    return getattr(candidate, ATTRIBUTE, None)
+
+
 def _champion_availability_conflict_factor(
     candidate: Candidate, job: Job, *, today: Optional[date] = None
 ) -> tuple[float, Optional[str]]:
@@ -1701,7 +1711,20 @@ def _champion_availability_conflict_factor(
     start = _parse_champion_date(_champion_dict(job).get("start_date"), today=today)
     if start is None:
         return 1.0, None
-    available = getattr(candidate, "availability_date", None)
+    contract = _contract_free(candidate)
+    if contract is not None:
+        # Żywa umowa (15.10.2026): bez daty końca albo przed startem osoba nie
+        # jest wolna na start Championa — to też jawna kolizja.
+        available = contract.available_from(
+            getattr(candidate, "availability_date", None)
+        )
+        if available is None:
+            return 1.0 - _AVAILABILITY_CONFLICT_PENALTY, (
+                f"dostępność: {contract.describe(None)} vs start {start.isoformat()} "
+                f"(kara {_AVAILABILITY_CONFLICT_PENALTY:.0%})"
+            )
+    else:
+        available = getattr(candidate, "availability_date", None)
     if available is None:
         available = _notes_explicit_available_date(candidate, today=today)
     if available is None:
@@ -1752,11 +1775,26 @@ def _score_availability(
     *,
     today: Optional[date] = None,
 ) -> LayerResult:
-    """Availability fit. Full points before deadline, decay 30 days post."""
+    """Availability fit. Full points before deadline, decay 30 days post.
+
+    Osoba z żywą umową (15.10.2026): termin z umowy — dzień po końcu pracy
+    u nas albo późniejsza data z profilu; bez daty końca i przed startem
+    umowy = 0 pkt (wiemy, że nie jest wolna). Bez dołączonej informacji
+    (``contract_availability.attach_contract_free``) — data z profilu.
+    """
     max_pts = profile.availability
     availability_date = candidate.availability_date
     reference_deadline = job.deadline
     source_note = ""
+    contract = _contract_free(candidate)
+    if contract is not None:
+        available = contract.available_from(availability_date)
+        if available is None:
+            return LayerResult(
+                points=0.0, max_points=max_pts, reason=contract.describe(None)
+            )
+        availability_date = available
+        source_note = " (z umowy)"
     if _availability_fallback_enabled():
         # v1.1: 99% importowanych kandydatów nie ma availability_date, ale
         # 13,9k ma fakty notatkowe ("2 tygodnie wypowiedzenia", "od zaraz"),
@@ -2155,7 +2193,14 @@ async def score_candidate_job(
     """
     import time as _time
 
+    from app.services.contract_availability import ATTRIBUTE, attach_contract_free
+
     t0 = _time.perf_counter()
+    if db is not None and not hasattr(candidate, ATTRIBUTE):
+        # Ścieżki wsadowe dołączają to raz na pulę; tu zapas dla pojedynczej
+        # pary (jedno zapytanie), żeby żadna ścieżka nie liczyła dostępności
+        # osoby z żywą umową ze screeningu sprzed zatrudnienia.
+        await attach_contract_free(db, [candidate])
     semantic = score_semantic(
         semantic_similarity, profile, unavailable=semantic_unavailable
     )
@@ -2294,6 +2339,9 @@ async def rank_candidates_for_job(
     sims = similarity_map or {}
     # One context for the whole pool instead of two SELECTs per candidate.
     context = await build_job_scoring_context(db, job, [c.id for c in candidates])
+    from app.services.contract_availability import attach_contract_free
+
+    await attach_contract_free(db, candidates)
     results: List[ScoreBreakdown] = []
     for i, c in enumerate(candidates):
         # Runda 9 (R9-N5-1): z gotowym kontekstem `score_candidate_job` nie
