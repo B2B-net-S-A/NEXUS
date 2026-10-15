@@ -28,6 +28,15 @@ from app.services import competitions
 from app.services import dashboard_v2 as dashboard_v2_service
 from app.services.insights_scoring_config import SCORING_DEFAULTS
 
+@pytest.fixture(autouse=True)
+def _periods_are_open(monkeypatch):
+    """Od 15.10.2026 okres zamknięty `/current` i `/monthly-races` pokazują
+    z zamrożenia (`frozen_result`, zapytanie do bazy). Te testy sprawdzają
+    ranking na żywo — na atrapie sesji albo przed zamrożeniem — więc każdy
+    okres jest tu otwarty."""
+    monkeypatch.setattr(competitions, "frozen_result", AsyncMock(return_value=None))
+
+
 needs_db = pytest.mark.skipif(
     not os.environ.get("RUN_DB_TESTS", "1") == "1"
     or not os.environ.get("DATABASE_URL")

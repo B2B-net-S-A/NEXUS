@@ -73,8 +73,8 @@ async def test_champions_points_score_client_interview_not_qc_stage() -> None:
     db = SimpleNamespace(execute=AsyncMock(return_value=_Result(rows)))
     ranked = await competitions._rank_recruiters_by_points(
         db,
-        start=datetime(2026, 7, 1, tzinfo=timezone.utc),
-        end=datetime(2026, 10, 1, tzinfo=timezone.utc),
+        start=datetime(2027, 1, 1, tzinfo=timezone.utc),
+        end=datetime(2027, 4, 1, tzinfo=timezone.utc),
         weights={"placement": 150, "interview": 15, "recommendation": 5},
         min_placements=3,
     )
@@ -111,8 +111,8 @@ async def test_qc_stage_alone_gives_no_league_points() -> None:
     db = SimpleNamespace(execute=AsyncMock(return_value=_Result(rows)))
     ranked = await competitions._rank_recruiters_by_points(
         db,
-        start=datetime(2026, 7, 1, tzinfo=timezone.utc),
-        end=datetime(2026, 10, 1, tzinfo=timezone.utc),
+        start=datetime(2027, 1, 1, tzinfo=timezone.utc),
+        end=datetime(2027, 4, 1, tzinfo=timezone.utc),
         weights={"placement": 150, "interview": 15, "recommendation": 5},
     )
     assert ranked[0].metric_value == 150
@@ -142,8 +142,8 @@ async def test_champions_weights_change_the_ranking() -> None:
         db = SimpleNamespace(execute=AsyncMock(return_value=_Result(rows)))
         return await competitions._rank_recruiters_by_points(
             db,
-            start=datetime(2026, 7, 1, tzinfo=timezone.utc),
-            end=datetime(2026, 10, 1, tzinfo=timezone.utc),
+            start=datetime(2027, 1, 1, tzinfo=timezone.utc),
+            end=datetime(2027, 4, 1, tzinfo=timezone.utc),
             weights=weights,
             min_placements=0,
         )
@@ -231,8 +231,8 @@ async def test_hall_of_fame_excludes_admin_accounts_but_keeps_delivery() -> None
     await competitions._rank_recruiters_by_stage(
         db,
         stage=competitions.PipelineStage.hired,
-        start=datetime(2026, 8, 1, tzinfo=timezone.utc),
-        end=datetime(2026, 9, 1, tzinfo=timezone.utc),
+        start=datetime(2027, 2, 1, tzinfo=timezone.utc),
+        end=datetime(2027, 3, 1, tzinfo=timezone.utc),
     )
     race_sql = str(db.execute.await_args.args[0])
     assert "credited" in race_sql, "wyścig zgubił atrybucję konkursową"
@@ -311,7 +311,7 @@ async def test_monthly_recommendation_qualification_is_four_per_day_and_75_perce
         "business_days_elapsed_in_month",
         lambda _year, _month: 10,
     )
-    ranked = await competitions.monthly_most_recommendations(db, "2026-07")
+    ranked = await competitions.monthly_most_recommendations(db, "2027-02")
     # Ranking pokazuje wszystkich; nagrodę zawęża dopiero qualified_for_award.
     assert [item.user_id for item in ranked] == [1, 2, 3]
     assert [item.user_id for item in competitions.qualified_for_award(ranked)] == [1]
@@ -331,10 +331,6 @@ async def test_monthly_recommendation_qualification_is_four_per_day_and_75_perce
     assert "u.role::text = 'recruiter'" in sql
     assert "u.roles ? 'recruiter'" in sql
     assert "sourcer" not in sql and "'tac'" not in sql
-    assert ":required_verifications" in sql
-    assert ":min_precision_pct" in sql
-    assert params["required_verifications"] == 40
-    assert params["min_precision_pct"] == 75.0
 
 
 async def test_monthly_recommendation_ranking_keeps_unqualified_entrants(
@@ -365,7 +361,7 @@ async def test_monthly_recommendation_ranking_keeps_unqualified_entrants(
         lambda _year, _month: 10,
     )
 
-    ranked = await competitions.monthly_most_recommendations(db, "2026-07")
+    ranked = await competitions.monthly_most_recommendations(db, "2027-02")
 
     assert [item.user_id for item in ranked] == [5, 6]
     assert all(item.extras["qualified"] is False for item in ranked)
@@ -375,42 +371,49 @@ async def test_monthly_recommendation_ranking_keeps_unqualified_entrants(
 async def test_monthly_recommendation_qualification_is_not_applied_in_having(
     monkeypatch,
 ) -> None:
-    """Progi nagrody = kolumna `qualified`; HAVING zostaje tylko na >= 1 rekomendacji.
+    """Progi nagrody = flaga `qualified`, nie filtr; w rankingu ≥ 1 rekomendacja.
 
-    Dodatkowo LIMIT jest oknem WYŚWIETLANIA, więc zakwalifikowany spoza TOP 10
-    musi mieć własną furtkę (`rank_in_group`), żeby nie stracić nagrody.
+    Lista ma okno WYŚWIETLANIA (TOP 10), więc zakwalifikowany spoza TOP 10
+    musi mieć własną furtkę, żeby nie stracić nagrody. Od 15.10.2026 warunki
+    i okno liczy Python (po dołożeniu dni z DynaReportera) — test pilnuje
+    wyniku, nie tekstu SQL.
     """
-    db = SimpleNamespace(execute=AsyncMock(return_value=_Result([])))
+    loud = [
+        _race_row(
+            user_id=100 + i,
+            name=f"Głośny {i}",
+            verifications=10,
+            recommendations=60 - i,
+            qualified=False,
+        )
+        for i in range(11)
+    ]
+    quiet_qualified = _race_row(
+        user_id=500, name="Cichy", verifications=40, recommendations=30, qualified=True
+    )
+    no_recommendation = _race_row(
+        user_id=600, name="Zero", verifications=50, recommendations=0, qualified=False
+    )
+    db = SimpleNamespace(
+        execute=AsyncMock(
+            return_value=_Result([*loud, quiet_qualified, no_recommendation])
+        )
+    )
+    _pin_race_thresholds(monkeypatch)
     monkeypatch.setattr(
         competitions,
         "business_days_elapsed_in_month",
         lambda _year, _month: 10,
     )
 
-    await competitions.monthly_most_recommendations(db, "2026-07")
+    ranked = await competitions.monthly_most_recommendations(db, "2027-02")
 
-    statement, params = db.execute.await_args.args
-    sql = " ".join(str(statement).lower().split())
-    having_at = sql.rindex(" having ")
-    having_clause = sql[having_at : sql.index(" ), race_ranked")]
-    assert ":required_verifications" not in having_clause
-    assert ":min_precision_pct" not in having_clause
-    assert "count(*) filter (where c.stage = 'cv_sent') >= 1" in having_clause
-    # Kwalifikacja jako kolumna, nie jako filtr.
-    assert (
-        "count(*) filter (where c.stage = 'verified') >= :required_verifications"
-    ) in sql
-    assert (
-        "100.0 * count(*) filter (where c.stage = 'cv_sent') "
-        ">= cast(:min_precision_pct as numeric) "
-        "* count(*) filter (where c.stage = 'verified')"
-    ) in sql
-    assert ") as qualified" in sql
-    assert (
-        "where display_rank <= :ranking_size "
-        "or (qualified and rank_in_group <= :ranking_size)"
-    ) in sql
-    assert params["ranking_size"] == competitions.MONTHLY_RACE_RANKING_SIZE
+    ids = [r.user_id for r in ranked]
+    assert ids[: competitions.MONTHLY_RACE_RANKING_SIZE] == [100 + i for i in range(10)]
+    assert 110 not in ids  # 11. niezakwalifikowany poza oknem
+    assert 500 in ids  # zakwalifikowany spoza TOP 10 ma furtkę
+    assert 600 not in ids  # bez rekomendacji nie ma w wyścigu
+    assert [r.user_id for r in competitions.qualified_for_award(ranked)] == [500]
 
 
 def test_business_day_counter_handles_weekends_and_future_months() -> None:

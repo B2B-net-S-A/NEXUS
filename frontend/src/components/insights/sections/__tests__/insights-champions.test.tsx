@@ -26,6 +26,7 @@ vi.mock("@/lib/api", () => ({
 }));
 
 import { ChampionsSection } from "@/components/insights/sections/ChampionsSection";
+import { currentQuarterKey } from "@/lib/insights-races-api";
 
 const RECRUITER =
   "/api/competitions/current?type=quarterly_champions_recruiter";
@@ -380,5 +381,174 @@ describe("ChampionsSection — podium", () => {
     expect(
       await screen.findByText(/nie ma dostępu do sekcji/),
     ).toBeInTheDocument();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Okresy z przeszłości (decyzja Artura 15.10.2026): Q1–Q3 2026 rozliczone
+// z DynaReportera, Q4 2026 mieszany. Pola zamknięcia są opcjonalne — starszy
+// backend ich nie zna.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const Q2_RECRUITER =
+  "/api/competitions/current?type=quarterly_champions_recruiter&period=Q2%202026";
+const Q2_DL =
+  "/api/competitions/current?type=quarterly_champions_dl&period=Q2%202026";
+
+function renderSectionFor(period: string | null) {
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  });
+  return render(
+    <QueryClientProvider client={client}>
+      <ChampionsSection period={period} />
+    </QueryClientProvider>,
+  );
+}
+
+const DR_NOTE =
+  "Wynik z DynaReportera — rozliczony przy przejściu na NEXUS (12.10.2026).";
+
+const FROZEN_Q2 = {
+  ...RECRUITER_LEAGUE,
+  period: "Q2 2026",
+  is_frozen: true,
+  days_remaining: null,
+  closure_status: "frozen",
+  source: "dynareporter",
+  source_note: DR_NOTE,
+};
+
+describe("ChampionsSection — wybrany kwartał", () => {
+  it("bez okresu pyta dokładnie jak dotąd, z okresem dokleja `period` z zakodowaną spacją", async () => {
+    respond({
+      [Q2_RECRUITER]: FROZEN_Q2,
+      [Q2_DL]: { ...EMPTY_LEAGUE, period: "Q2 2026" },
+    });
+    renderSectionFor("Q2 2026");
+
+    expect(await screen.findByText("Anna Kowalska")).toBeInTheDocument();
+    const urls = mocks.get.mock.calls.map((call) => call[0]);
+    expect(urls).toContain(Q2_RECRUITER);
+    expect(urls).toContain(Q2_DL);
+    expect(urls).not.toContain(RECRUITER);
+  });
+
+  it("zamrożony kwartał: „Zamknięte” zamiast odliczania i zdanie o źródle z serwera", async () => {
+    respond({
+      [Q2_RECRUITER]: FROZEN_Q2,
+      [Q2_DL]: {
+        ...EMPTY_LEAGUE,
+        period: "Q2 2026",
+        is_frozen: true,
+        days_remaining: null,
+        source: "dynareporter",
+        source_note: DR_NOTE,
+      },
+    });
+    renderSectionFor("Q2 2026");
+
+    await waitFor(() => expect(screen.getAllByText("Zamknięte")).toHaveLength(2));
+    expect(screen.queryByText(/Zostało/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/0 dni/)).not.toBeInTheDocument();
+    expect(screen.getAllByText(DR_NOTE)).toHaveLength(2);
+  });
+
+  it("miniony kwartał ze starszego backendu (bez `is_frozen`) nie odlicza dni dzisiejszego kwartału", async () => {
+    // Starszy backend liczy `days_remaining` z dzisiaj — dla Q2 opisywałby Q4.
+    const { is_frozen: _ignored, ...withoutFrozen } = RECRUITER_LEAGUE;
+    respond({
+      [Q2_RECRUITER]: { ...withoutFrozen, period: "Q2 2026", days_remaining: 77 },
+      [Q2_DL]: { ...EMPTY_LEAGUE, period: "Q2 2026", days_remaining: 77 },
+    });
+    renderSectionFor("Q2 2026");
+
+    await waitFor(() => expect(screen.getAllByText("Zakończony")).toHaveLength(2));
+    expect(screen.queryByText(/Zostało/)).not.toBeInTheDocument();
+    expect(screen.queryByTestId("competition-source-note")).not.toBeInTheDocument();
+  });
+
+  it("okres mieszany pokazuje zdanie o źródle i dalej odlicza dni", async () => {
+    const note = "1–11.10 z DynaReportera, od 12.10 z NEXUS-a.";
+    respond({
+      // Trwający kwartał — okres liczony z zegara, żeby test nie zestarzał się
+      // razem z kalendarzem.
+      [RECRUITER]: {
+        ...RECRUITER_LEAGUE,
+        period: currentQuarterKey(),
+        source: "mixed",
+        source_note: note,
+      },
+      [DL]: { ...EMPTY_LEAGUE, period: currentQuarterKey() },
+    });
+    renderSection();
+
+    expect(await screen.findByText(note)).toBeInTheDocument();
+    expect(screen.getByTestId("competition-source-note").className).toContain(
+      "bg-primary/10",
+    );
+    await waitFor(() =>
+      expect(screen.getAllByText("Zostało 12 dni")).toHaveLength(2),
+    );
+  });
+
+  it("remis do decyzji admina jest widoczny nad podium", async () => {
+    respond({
+      [Q2_RECRUITER]: { ...FROZEN_Q2, closure_status: "tie_pending" },
+      [Q2_DL]: { ...EMPTY_LEAGUE, period: "Q2 2026" },
+    });
+    renderSectionFor("Q2 2026");
+
+    expect(
+      await screen.findByText("Remis — o miejscu zdecyduje admin"),
+    ).toBeInTheDocument();
+  });
+
+  it("zamknięty kwartał bez zwycięzcy mówi to wprost — z rankingiem i bez", async () => {
+    respond({
+      // Ranking jest, ale nikt nie spełnił warunku.
+      [Q2_RECRUITER]: {
+        ...FROZEN_Q2,
+        closure_status: "no_winner",
+        top3: [],
+        full_ranking: [
+          entry({
+            rank: null,
+            prize_pln: null,
+            qualified: false,
+            disqualification_reasons: ["MIN_PLACEMENTS_NOT_MET"],
+          }),
+        ],
+      },
+      // Pusty ranking: tytuł pustego stanu mówi o braku zwycięzcy.
+      [Q2_DL]: {
+        ...EMPTY_LEAGUE,
+        period: "Q2 2026",
+        is_frozen: true,
+        days_remaining: null,
+        closure_status: "no_winner",
+      },
+    });
+    renderSectionFor("Q2 2026");
+
+    await waitFor(() =>
+      expect(screen.getAllByText("Brak zwycięzcy w tym okresie")).toHaveLength(2),
+    );
+    expect(screen.getByTestId("competition-no-winner")).toBeInTheDocument();
+    expect(screen.getByText(/Anna Kowalska/)).toBeInTheDocument();
+    expect(screen.queryByText("Brak wyników w tym kwartale")).not.toBeInTheDocument();
+  });
+
+  it("awaria minionego kwartału to nadal błąd z ponowieniem, nie „brak zwycięzcy”", async () => {
+    respond({
+      [Q2_RECRUITER]: httpError(500),
+      [Q2_DL]: { ...EMPTY_LEAGUE, period: "Q2 2026" },
+    });
+    renderSectionFor("Q2 2026");
+
+    expect(await screen.findByRole("alert")).toBeInTheDocument();
+    expect(
+      screen.queryByText("Brak zwycięzcy w tym okresie"),
+    ).not.toBeInTheDocument();
   });
 });
