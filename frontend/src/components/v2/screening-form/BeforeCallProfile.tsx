@@ -194,9 +194,10 @@ export function BeforeCallProfile({ item, jobId, readOnly, onOpenHistory }: Befo
   const staleMonths = monthsSince(earlier.newestAt, Date.now());
 
   const rateValue = latestRate ?? (rateFrom ? `od ${rateFrom}` : null);
+  // Znacznik niesie karta Tablicy; profil (`detail`) to zapas.
   const contractAvail = contractAvailability(
-    detail?.employment_marker,
-    detail?.availability_date,
+    item.employment_marker ?? detail?.employment_marker,
+    detail?.availability_date ?? item.availability_date,
   );
   const availabilityValue = contractAvail
     ? `${contractAvailabilityText(contractAvail)} · z kontraktu`

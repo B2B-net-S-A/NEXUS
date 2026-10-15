@@ -232,6 +232,11 @@ function PREVIEW_EMPLOYED(phase: "working" | "ending", orderEnd: string | null) 
         delivery_lead_name: "Olga Wzorcowa",
       },
     ],
+    // Termin z umowy (15.10.2026) — jak liczy serwer: dzień po końcu pracy.
+    free_from: orderEnd
+      ? new Date(Date.parse(`${orderEnd}T00:00:00Z`) + 86_400_000).toISOString().slice(0, 10)
+      : null,
+    free_from_basis: orderEnd ? "work_end" : "no_end_date",
   };
 }
 
