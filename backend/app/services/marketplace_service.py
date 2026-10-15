@@ -44,6 +44,7 @@ from app.models.notification import NotificationType
 from app.models.talent_pool import TalentPool, TalentPoolMembership
 from app.models.user import User
 from app.core.scheduling import business_today
+from app.services.contract_availability import attach_contract_free
 from app.services.job_previous_recruiters import working_owner_id
 
 logger = logging.getLogger(__name__)
@@ -577,6 +578,8 @@ async def scan_job_for_marketplace_matches(
     new_alerts = 0
     scored = 0
     notify: dict[int, list[int]] = {}
+    # Dostępność z żywej umowy raz na pulę (15.10.2026).
+    await attach_contract_free(db, candidates)
     for cand in candidates:
         # Pre-check: para już w logu → skip całkowicie (no scoring wasted).
         if await _was_already_alerted(db, candidate_id=cand.id, job_id=job.id):

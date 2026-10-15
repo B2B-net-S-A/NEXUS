@@ -49,6 +49,7 @@ from app.models.user import User, UserRole
 from app.services import agreement_tasks, rate_change_tasks
 from app.services import board_tasks as svc
 from app.services.stage_client_rate import latest_client_rates
+from app.services.contract_availability import load_contract_free
 from app.services.action_permissions import ProductAction, has_permission
 from app.services.effective_access import resolve_effective_access
 from app.services import (
@@ -1263,12 +1264,21 @@ async def get_cpro_queue(
 
 
 async def _availability(db: AsyncSession, candidate_ids: set[int]) -> dict[int, date]:
+    """Termin dostępności; osoba z żywą umową — z umowy (15.10.2026), bez
+    daty końca albo przed startem umowy — bez terminu."""
     if not candidate_ids:
         return {}
     rows = await db.execute(
         select(Candidate.id, Candidate.availability_date).where(
             Candidate.id.in_(sorted(candidate_ids)),
-            Candidate.availability_date.is_not(None),
         )
     )
-    return dict(rows.all())
+    profile: dict[int, Optional[date]] = dict(rows.all())
+    contract = await load_contract_free(db, candidate_ids)
+    out: dict[int, date] = {}
+    for candidate_id, profile_date in profile.items():
+        free = contract.get(candidate_id)
+        day = free.available_from(profile_date) if free is not None else profile_date
+        if day is not None:
+            out[candidate_id] = day
+    return out

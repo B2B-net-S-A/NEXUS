@@ -47,6 +47,24 @@ describe("candidate-row-format", () => {
     ).toBeNull();
   });
 
+  it("dostępność osoby z żywą umową: termin z umowy i „z kontraktu” w drugiej linii (15.10.2026)", () => {
+    const row = {
+      availability_date: "2026-09-01",
+      employment_marker: {
+        phase: "working" as const,
+        source: "contract" as const,
+        clients: [{ client_name: "Bank Przykładowy", phase: "working" as const }],
+        free_from: "2026-12-01",
+        free_from_basis: "work_end" as const,
+      },
+    };
+    expect(availabilityCellText(row)).toBe("od 01.12");
+    expect(availabilityCellSecondLine(row)).toEqual({
+      text: "z kontraktu · Bank Przykładowy",
+      title: expect.stringContaining("W profilu: od 01.09.2026"),
+    });
+  });
+
   it("w procesie: liczba rekrutacji w toku, zamknięte się nie liczą", () => {
     expect(
       processCell([

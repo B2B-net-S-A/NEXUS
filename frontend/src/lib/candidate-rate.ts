@@ -60,6 +60,8 @@ export interface RateFromFields {
   rate_latest_hourly?: string | number | null;
   rate_latest_at?: string | null;
   rate_observation_count?: number | null;
+  /** Skąd „Stawka od”; `contract` = stawka z żywej umowy (15.10.2026). */
+  rate_from_source?: string | null;
 }
 
 /** „od 80 zł/h”; stara stawka spoza 18 miesięcy z dopiskiem roku. */
@@ -133,6 +135,9 @@ const SOURCE_LABEL: Record<string, string> = {
   // 07.10.2026: oczekiwanie kandydata z wpisu Delivery Leada „X/Y” w notatce
   // (niższa liczba; stawka do klienta nie trafia do historii).
   note: "Notatka Delivery Leada",
+  // 15.10.2026: stawka konsultanta z bieżącej umowy (D4/D5) — dopóki umowa
+  // trwa, to ona jest „Stawką od”.
+  contract: "Umowa u nas (bieżąca)",
 };
 
 export function rateSourceLabel(source: string | null | undefined): string {
@@ -157,6 +162,8 @@ export function rateReasonLabel(
       return "starsza niż 18 miesięcy";
     case "superseded":
       return "niższa niż późniejsze minimum";
+    case "contract":
+      return "pracuje u nas — liczy się umowa";
     default:
       return "inna waluta lub jednostka";
   }

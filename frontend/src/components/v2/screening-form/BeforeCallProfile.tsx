@@ -49,6 +49,8 @@ import { autoMatchBadgeLabel, autoMatchBadgeTitle } from "@/lib/candidate-notes-
 import { hourlyText, monthYear } from "@/lib/candidate-rate";
 import { notesAvailabilityOrigin } from "@/lib/notes-facts";
 import { availabilityText, onsiteText } from "@/lib/person-facts";
+import { contractAvailability, contractAvailabilityText } from "@/lib/contract-availability";
+import type { EmploymentMarker } from "@/lib/employment-marker";
 import { contactAttemptsLabel } from "@/lib/recommendation-card";
 import { entrySourceLabel, recruitmentOutcome } from "@/lib/recruitment-stage-label";
 import { cn, formatDate } from "@/lib/utils";
@@ -78,6 +80,8 @@ interface CandidateConditions extends CandidateInBase {
   notice_period_unit?: string | null;
   max_onsite_days_per_week?: number | null;
   cv_extracted_data?: unknown;
+  /** Żywa umowa (15.10.2026): termin z umowy, nie ze screeningu. */
+  employment_marker?: EmploymentMarker | null;
 }
 
 /** Po tylu miesiącach od ostatniej notatki warunki trzeba potwierdzić w rozmowie. */
@@ -190,7 +194,14 @@ export function BeforeCallProfile({ item, jobId, readOnly, onOpenHistory }: Befo
   const staleMonths = monthsSince(earlier.newestAt, Date.now());
 
   const rateValue = latestRate ?? (rateFrom ? `od ${rateFrom}` : null);
-  const availabilityValue = availabilityText(
+  // Znacznik niesie karta Tablicy; profil (`detail`) to zapas.
+  const contractAvail = contractAvailability(
+    item.employment_marker ?? detail?.employment_marker,
+    detail?.availability_date ?? item.availability_date,
+  );
+  const availabilityValue = contractAvail
+    ? `${contractAvailabilityText(contractAvail)} · z kontraktu`
+    : availabilityText(
     detail
       ? {
           date: detail.availability_date,

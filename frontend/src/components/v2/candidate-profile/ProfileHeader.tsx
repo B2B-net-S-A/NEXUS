@@ -66,6 +66,7 @@ import { ActiveViewers } from "@/components/v2/presence/ActiveViewers";
 import { phase5Api } from "@/lib/api";
 import { conflictKeys } from "@/lib/conflicts";
 import type { EmploymentMarker } from "@/lib/employment-marker";
+import { hidesAvailabilityStatus } from "@/lib/contract-availability";
 import type { PresenceViewer } from "@/hooks/usePresence";
 import type { CandidateRiskProfile } from "@/types/candidate-risk";
 import { getCandidateInitials } from "@/components/v2/pages/candidate-list-helpers";
@@ -206,7 +207,11 @@ export function ProfilePersonBar({
           </div>
 
           <div className="flex flex-wrap items-center gap-1.5">
-            <AvailabilityPill status={candidate.availability_status} />
+            {/* Żywa umowa (D3, 15.10.2026): „Pracuje u nas” zamiast „Szuka
+                aktywnie” ze screeningu sprzed zatrudnienia. */}
+            {hidesAvailabilityStatus(employmentMarker) ? null : (
+              <AvailabilityPill status={candidate.availability_status} />
+            )}
             {employmentMarker ? <EmploymentPill marker={employmentMarker} /> : null}
             <CompetenceCategoryBadge
               categoryId={candidate.competence_category_id}

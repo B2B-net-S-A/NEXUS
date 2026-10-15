@@ -34,6 +34,11 @@ import {
 import { isInterviewStage, type FlowColumn } from "@/lib/job-flow-stages";
 import { isOverHourlyBudget } from "@/lib/rate-to-hourly";
 import { formatDate } from "@/lib/utils";
+import {
+  contractAvailability,
+  contractAvailabilityText,
+  localIsoDay,
+} from "@/lib/contract-availability";
 
 import type {
   PersonRow,
@@ -119,11 +124,20 @@ function offTemplateColumn(bucket: OffTemplateBucket): KanbanColumn {
 /**
  * Etykieta dostępności: data wygrywa ze statusem (jest konkretniejsza),
  * data miniona znaczy „od razu". `unknown` i brak pól = `null` („—").
+ * Osoba z żywą umową (15.10.2026): termin z umowy — data ze screeningu sprzed
+ * zatrudnienia dawała tu „od razu” u konsultanta, który pracuje u klienta.
  */
 export function availabilityLabelFor(
-  item: Pick<KanbanItem, "availability_status" | "availability_date">,
+  item: Pick<KanbanItem, "availability_status" | "availability_date"> &
+    Partial<Pick<KanbanItem, "employment_marker">>,
   today: Date = new Date(),
 ): string | null {
+  const contract = contractAvailability(
+    item.employment_marker,
+    item.availability_date,
+    localIsoDay(today),
+  );
+  if (contract) return contractAvailabilityText(contract);
   if (item.availability_date) {
     const date = new Date(item.availability_date);
     if (!Number.isNaN(date.getTime())) {

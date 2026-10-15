@@ -48,6 +48,7 @@ from app.models.job import Job
 from app.services import champion_view
 from app.models.match_justification import CandidateMatchJustification
 from app.services.ai_quota import ai_feature
+from app.services.contract_availability import ATTRIBUTE as CONTRACT_FREE_ATTRIBUTE
 from app.services.llm_prompts import MATCH_JUSTIFICATION
 from app.services.match_score_cache import get_cached_or_compute
 from app.services.ai_models import model_for
@@ -283,7 +284,12 @@ def _candidate_work_facts(candidate: Candidate) -> str:
     if cities:
         bits.append(f"miasta biur: {', '.join(cities[:5])}")
     available = getattr(candidate, "availability_date", None)
-    if available:
+    contract = getattr(candidate, CONTRACT_FREE_ATTRIBUTE, None)
+    if contract is not None:
+        # Żywa umowa (15.10.2026): data z profilu bywa screeningiem sprzed
+        # zatrudnienia — model dostaje termin z umowy.
+        bits.append(f"dostępność: {contract.describe(available)}")
+    elif available:
         bits.append(f"dostępny od: {available}")
     notice = getattr(candidate, "notice_period", None)
     if notice is not None:
@@ -292,7 +298,7 @@ def _candidate_work_facts(candidate: Candidate) -> str:
         )
         bits.append(f"okres wypowiedzenia: {notice} {unit}")
     status = _enum_value(getattr(candidate, "availability_status", None))
-    if status and status != "unknown":
+    if status and status != "unknown" and contract is None:
         bits.append(f"status dostępności: {status}")
     return "; ".join(bits)
 
@@ -516,6 +522,14 @@ async def _compute_breakdown(
     candidate: Candidate, job: Job, db: AsyncSession
 ) -> ScoreBreakdown:
     """Same calibrated score the kanban ring uses (cache-first + Qdrant cosine)."""
+    # Zawsze przed hashem promptu (15.10.2026): `_candidate_work_facts` czyta
+    # dostępność z żywej umowy — bez jawnego dołączenia hash zależałby od
+    # tego, czy ocena liczyła się przed chwilą, czy przyszła z pamięci.
+    from app.services.contract_availability import (  # noqa: PLC0415
+        attach_contract_free,
+    )
+
+    await attach_contract_free(db, [candidate])
     similarity: Optional[float] = None
     # A raised lookup = genuine Qdrant/Voyage outage → the composite below is
     # computed with a neutral semantic layer and must NOT be persisted as fresh

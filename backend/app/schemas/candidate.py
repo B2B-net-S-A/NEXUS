@@ -66,6 +66,10 @@ class EmploymentInfo(BaseModel):
 
 
 EmploymentPhase = Literal["working", "ending", "starting"]
+# Skąd termin „wolny od” osoby z żywą umową (15.10.2026): `work_end` = dzień
+# po końcu pracy u nas, `no_end_date` = zamówienie bez daty końca albo kolejna
+# umowa po bieżącej, `starting` = wszystkie żywe umowy startują w przyszłości.
+EmploymentFreeFromBasis = Literal["work_end", "no_end_date", "starting"]
 
 
 class EmploymentMarkerClient(BaseModel):
@@ -98,6 +102,11 @@ class EmploymentMarker(BaseModel):
     # znacznika jest spoza rodziny klienta tej rekrutacji.
     elsewhere: Optional[bool] = None
     clients: list[EmploymentMarkerClient] = []
+    # Tylko `source == "contract"` (15.10.2026): pierwszy dzień po pracy
+    # u nas. Dostępność osoby = późniejsza z tej daty i daty z profilu —
+    # notatki ze screeningu sprzed zatrudnienia jej nie przesuwają.
+    free_from: Optional[date] = None
+    free_from_basis: Optional[EmploymentFreeFromBasis] = None
 
 
 _VALID_SKILL_LEVELS = {"expert", "senior", "mid", "junior", None}
@@ -615,6 +624,8 @@ class CandidateResponse(BaseModel):
     rate_latest_hourly: Optional[Decimal] = None
     rate_latest_at: Optional[datetime] = None
     rate_observation_count: Optional[int] = None
+    # Skąd „Stawka od”; `contract` = stawka z żywej umowy (15.10.2026).
+    rate_from_source: Optional[str] = None
     rate_from_computed_at: Optional[datetime] = Field(default=None, exclude=True)
     availability_date: Optional[date]
     # Data wpisana z notatek — lista pokazuje „z notatki · stan na” (bez
@@ -907,6 +918,7 @@ class CandidateQuickViewCandidate(BaseModel):
     rate_latest_hourly: Optional[Decimal] = None
     rate_latest_at: Optional[datetime] = None
     rate_observation_count: Optional[int] = None
+    rate_from_source: Optional[str] = None
 
 
 class CandidateQuickViewResponse(BaseModel):

@@ -946,6 +946,21 @@ except Exception as _notes_facts_err:  # noqa: BLE001
     _NOTES_FACTS_DDL = []
     _NOTES_FACTS_BACKFILL = []
 
+# Stawka z bieżącej umowy w „Stawce od” (migracja 0449, 15.10.2026):
+# wyzwalacze kolejki na umowach i harmonogramie stawek oraz jednorazowe
+# zakolejkowanie osób z żywymi umowami — JEDNO źródło z migracją
+# (`app/services/contract_rate_from_schema.py`). Po `_RATE_FROM_DDL`
+# (funkcja `candidate_rate_from_enqueue`).
+try:
+    from app.services import contract_rate_from_schema as _contract_rate_from
+
+    _CONTRACT_RATE_FROM_DDL = list(_contract_rate_from.TRIGGER_DDL)
+    _CONTRACT_RATE_FROM_BACKFILL = list(_contract_rate_from.BACKFILL_DDL)
+except Exception as _contract_rate_from_err:  # noqa: BLE001
+    print(f"contract rate_from DDL unavailable: {_contract_rate_from_err!r}")
+    _CONTRACT_RATE_FROM_DDL = []
+    _CONTRACT_RATE_FROM_BACKFILL = []
+
 # Stawki linii MD z trzema miejscami i podział zejść wspólnej puli MD
 # (migracja 0419) — JEDNO źródło z migracją
 # (`app/services/md_order_precision_schema.py`).
@@ -1005,6 +1020,7 @@ _COLUMN_STATEMENTS = [
     *_SCREENING_FORM_DDL,
     *_FC_TEXT_DDL,
     *_NOTES_FACTS_DDL,
+    *_CONTRACT_RATE_FROM_DDL,
     *_MD_PRECISION_DDL,
     *_B2B_DOCUMENTS_DDL,
     *_B2B_REGISTER_DDL,
@@ -6483,6 +6499,7 @@ _DATA_STATEMENTS = [
     *_B2B_DOCUMENTS_BACKFILL,
     *_RATE_FROM_BACKFILL,
     *_NOTES_FACTS_BACKFILL,
+    *_CONTRACT_RATE_FROM_BACKFILL,
     # 0424: linki karty Championa dla klienta odwołane (D2) — idempotentne.
     *_SCREENING_FORM_DATA,
     # 0412: „Reply” z Traffita to odpowiedź na notatkę, nie mail — jednorazowa

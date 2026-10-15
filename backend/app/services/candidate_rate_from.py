@@ -13,6 +13,11 @@ mniej. Reguła (czysta funkcja :func:`compute`):
    nie wykluczamy automatycznie.
 5. Wynik = minimum z tego, co zostało; bez obserwacji w oknie — ostatnia
    znana stawka z oznaczeniem ``stale``.
+6. Wyjątek (15.10.2026, D4/D5): dopóki osoba ma żywą umowę, „Stawka od” =
+   stawka konsultanta z tej umowy (obserwacja ``contract``), niezależnie od
+   okna i notatek; notatki zostają w historii z powodem ``contract``.
+   Jawne minimum z datą startu umowy nie wystarczało — stawka profilu ma
+   datę importu, późniejszą niż start umowy, i dalej wygrywała.
 
 Czytelnicy NIE sięgają po ``expected_rate_hourly`` ani ``rate_from_hourly``
 wprost — tylko przez :func:`effective_rate` / :func:`effective_rate_sql`
@@ -36,7 +41,11 @@ from app.core.config import settings
 from zoneinfo import ZoneInfo
 
 from app.core.scheduling import DEFAULT_TZ, business_today
-from app.services.candidate_rate_observations import RateObservation, collect
+from app.services.candidate_rate_observations import (
+    CONTRACT_SOURCE,
+    RateObservation,
+    collect,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +58,8 @@ REASON_EXCLUDED = "excluded"
 REASON_OUTSIDE_WINDOW = "outside_window"
 REASON_SUPERSEDED = "superseded"
 REASON_NOT_COMPARABLE = "not_comparable"
+#: Osoba pracuje u nas — liczy się stawka z umowy, nie ta obserwacja.
+REASON_CONTRACT = "contract"
 
 
 def enabled() -> bool:
@@ -114,6 +125,25 @@ def compute(
             reasons[obs.key] = REASON_EXCLUDED
         else:
             usable.append(obs)
+
+    contract = [o for o in usable if o.source == CONTRACT_SOURCE]
+    if contract:
+        current = max(contract, key=_sort_key)
+        for obs in usable:
+            reasons[obs.key] = REASON_CONTRACT
+        reasons[current.key] = REASON_MINIMUM
+        return RateFrom(
+            amount=current.amount_hourly,
+            at=current.at,
+            source=current.source,
+            job_id=None,
+            key=current.key,
+            stale=False,
+            reasons=reasons,
+            latest_amount=current.amount_hourly,
+            latest_at=current.at,
+            count=len(usable),
+        )
 
     in_window = [o for o in usable if (_day(o.at) or date.min) >= start]
     for obs in usable:
@@ -268,6 +298,11 @@ def rate_summary(candidate: Any) -> dict[str, Any]:
         "rate_observation_count": getattr(candidate, "rate_observation_count", None)
         if computed
         else None,
+        # „contract” = stawka z żywej umowy (15.10.2026) — profil pisze wtedy
+        # „Stawka u nas”, nie „Stawka od”.
+        "rate_from_source": getattr(candidate, "rate_from_source", None)
+        if computed
+        else None,
     }
 
 
@@ -280,7 +315,7 @@ async def this_job_rates(
     obok „Stawki od” (decyzja Artura 04.10.2026). Brak = kandydata o tę rolę
     nie pytano.
     """
-    observations = await collect(db, candidate_ids)
+    observations = await collect(db, candidate_ids, with_contracts=False)
     out: dict[int, dict[str, Any]] = {}
     for cid, items in observations.items():
         newest = _newest_by_job(items).get(job_id)
@@ -314,7 +349,9 @@ async def candidate_job_rates(
     Ta sama reguła co :func:`this_job_rates`, w drugą stronę: zakładka
     „Rekrutacje” profilu pyta o wszystkie rekrutacje osoby naraz.
     """
-    return _newest_by_job((await collect(db, [candidate_id]))[candidate_id])
+    return _newest_by_job(
+        (await collect(db, [candidate_id], with_contracts=False))[candidate_id]
+    )
 
 
 # ── Przeliczenie ────────────────────────────────────────────────────────────
@@ -446,7 +483,7 @@ async def recompute(
             {"ids": ids},
         )
     ).all()
-    observations = await collect(db, ids)
+    observations = await collect(db, ids, today=today)
     decisions = await load_decisions(db, ids)
     changed: list[int] = []
     params = []
@@ -519,9 +556,33 @@ async def requeue_expiring(db: AsyncSession, *, today: Optional[date] = None) ->
             "SELECT id, clock_timestamp() FROM candidates "
             "WHERE rate_from_computed_at IS NOT NULL AND NOT rate_from_stale "
             "AND rate_from_at < :start "
+            # Stawka z żywej umowy nie wypada z okna — przelicza ją
+            # `requeue_live_contracts` i wyzwalacze umów.
+            "AND rate_from_source IS DISTINCT FROM 'contract' "
             "ON CONFLICT (candidate_id) DO NOTHING"
         ),
         {"start": datetime.combine(start, datetime.min.time(), tzinfo=timezone.utc)},
+    )
+    return result.rowcount or 0
+
+
+async def requeue_live_contracts(db: AsyncSession) -> int:
+    """Osoby z żywą umową — do przeliczenia raz dziennie (15.10.2026).
+
+    Wyzwalacze łapią zmiany umów i harmonogramów stawek, ale nie kalendarz:
+    umowa, której start właśnie nadszedł, i krok harmonogramu, który właśnie
+    zaczął obowiązywać, zmieniają stawkę bez żadnego zapisu. Kolejkujemy
+    wszystkich (~500 osób) zamiast „dziś się zaczęło” — pętla trzyma dzień
+    w pamięci, więc pominięty dzień zgubiłby taką zmianę na zawsze.
+    """
+    result = await db.execute(
+        text(
+            "INSERT INTO candidate_rate_from_queue (candidate_id, queued_at) "
+            "SELECT DISTINCT candidate_id, clock_timestamp() FROM contracts "
+            "WHERE candidate_id IS NOT NULL "
+            "AND CAST(status AS text) IN ('active', 'ending') "
+            "ON CONFLICT (candidate_id) DO NOTHING"
+        )
     )
     return result.rowcount or 0
 

@@ -74,6 +74,7 @@ from app.schemas.similar_job_candidates import (
     SimilarJobOut,
 )
 from app.services.canonical_text import build_job_query_variants
+from app.services.contract_availability import attach_contract_free
 from app.services.retrieval_pool import retrieve_candidate_pool
 from app.services.section_permissions import SectionAccess
 from app.core.scheduling import business_today
@@ -1896,6 +1897,8 @@ async def seeking_contractors(
     scoring_contexts = await build_jobs_scoring_contexts(
         db, all_open_jobs, page_candidate_ids
     )
+    # Dostępność z żywej umowy raz na stronę, nie raz na parę (15.10.2026).
+    await attach_contract_free(db, candidates)
 
     semantic_slots = asyncio.Semaphore(_SEEKING_SEMANTIC_CONCURRENCY)
 

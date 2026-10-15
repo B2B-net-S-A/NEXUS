@@ -724,12 +724,17 @@ class _Batch:
     sends: list[Any]
     family: set[int]
     rounds: dict[tuple[int, int], int]
+    # Osoby z żywą umową: termin z umowy, nie ze screeningu (15.10.2026).
+    contract_free: dict[int, Any] = field(default_factory=dict)
 
 
 async def _load_batch(
     db: AsyncSession, job: Job, candidate_ids: Sequence[int], *, now: datetime
 ) -> _Batch:
     from app.services import screening_fix_requests  # noqa: PLC0415
+    from app.services.contract_availability import (  # noqa: PLC0415
+        load_contract_free,
+    )
     from app.services.current_employment import (  # noqa: PLC0415
         current_employment_client_ids,
     )
@@ -773,7 +778,18 @@ async def _load_batch(
     rounds = await screening_fix_requests.rounds_for_pairs(
         db, [(cid, job.id) for cid in ids]
     )
-    return _Batch(facts, items, notes, eligibility, employed, sends, family, rounds)
+    contract_free = await load_contract_free(db, ids, today=business_today())
+    return _Batch(
+        facts,
+        items,
+        notes,
+        eligibility,
+        employed,
+        sends,
+        family,
+        rounds,
+        contract_free,
+    )
 
 
 def _assessment(facts: PairFacts) -> dict[str, Any]:
@@ -852,7 +868,11 @@ def _person(
         qc_dismissed=qc_dismissed,
     )
     availability = assessment["fields"].get("availability")
-    if not availability and facts.candidate.availability_date:
+    contract = batch.contract_free.get(candidate_id)
+    if not availability and contract is not None:
+        available = contract.available_from(facts.candidate.availability_date)
+        availability = available.isoformat() if available else contract.describe(None)
+    elif not availability and facts.candidate.availability_date:
         availability = facts.candidate.availability_date.isoformat()
     return {
         "candidate_id": candidate_id,
@@ -895,7 +915,12 @@ async def _last_contract(
         if contract.client_id
         else None
     )
-    shown = access.amounts_for(contract.client_id)
+    # Koszt żywej umowy to „Stawka od” osoby, którą widzi każdy (D4,
+    # 15.10.2026); zakończonej — dalej przy dostępie do kwot klienta.
+    shown = contract.status in (
+        ContractStatus.active,
+        ContractStatus.ending,
+    ) or access.amounts_for(contract.client_id)
     on = min(contract.end_date, today) if contract.end_date else today
     cost = contract_hourly(contract, on) if shown else None
     return {

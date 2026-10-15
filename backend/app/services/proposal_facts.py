@@ -210,6 +210,7 @@ def candidate_facts(
         "expected_rate_redacted": False,
         "rate_from_at": _iso(summary["rate_from_at"]),
         "rate_from_stale": summary["rate_from_stale"],
+        "rate_from_source": summary["rate_from_source"],
         "rate_latest_hourly": (
             float(summary["rate_latest_hourly"])
             if summary["rate_latest_hourly"] is not None

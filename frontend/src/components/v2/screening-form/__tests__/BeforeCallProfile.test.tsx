@@ -354,3 +354,23 @@ describe("BeforeCallProfile — co już wiemy przed telefonem", () => {
     expect(within(earlier).queryByText(/Odrzucony|zamknięta/)).toBeNull();
   });
 });
+
+describe("BeforeCallProfile — osoba pracująca u nas (15.10.2026)", () => {
+  it("termin z umowy na karcie Tablicy zamiast statusu ze screeningu", async () => {
+    respond({ detail: { ...DETAIL, availability_date: "2026-09-01" } });
+    const item = {
+      ...ITEM,
+      employment_marker: {
+        phase: "working",
+        source: "contract",
+        clients: [{ client_name: "Bank Przykładowy", phase: "working", order_end_date: "2026-11-30" }],
+        free_from: "2026-12-01",
+        free_from_basis: "work_end",
+      },
+    } as unknown as KanbanItem;
+    wrap(<BeforeCallProfile item={item} jobId={JOB} readOnly={false} onOpenHistory={vi.fn()} />);
+
+    expect(await screen.findAllByText(/od 01\.12\.2026 · z kontraktu/)).not.toHaveLength(0);
+    expect(screen.queryByText(/Otwarty na oferty/)).toBeNull();
+  });
+});

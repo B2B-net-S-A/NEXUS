@@ -72,6 +72,7 @@ from app.models.recruitment_pipeline import CandidateStage, PipelineStage
 from app.models.team_structure import DeliveryLeadClientAssignment
 from app.models.user import User, UserRole
 from app.schemas.candidate import (
+    EmploymentFreeFromBasis,
     EmploymentMarker,
     EmploymentMarkerClient,
     EmploymentPhase,
@@ -321,10 +322,44 @@ def _one_per_client(
     return sorted(best.values(), key=_client_sort_key)
 
 
+def contract_free_from(
+    clients: Iterable[EmploymentMarkerClient],
+) -> tuple[Optional[date], Optional[EmploymentFreeFromBasis]]:
+    """Od kiedy osoba z żywą umową jest wolna (15.10.2026).
+
+    Czyta WSZYSTKIE umowy osoby, przed :func:`_one_per_client` — wybór jednej
+    umowy na klienta woli tę, która trwa, i gubi kolejną umowę u tego samego
+    klienta, a z nią to, że osoba zostaje u nas.
+
+    * ``starting`` — żadna umowa jeszcze się nie zaczęła;
+    * ``no_end_date`` — któraś trwająca umowa nie ma końca pracy albo po
+      bieżącej czeka kolejna umowa;
+    * ``work_end`` — dzień po najpóźniejszym końcu pracy (także miniony:
+      zamówienia się skończyły, a umowy nikt nie zamknął).
+
+    Lustro SQL: ``contract_availability.contract_free_by_clause``.
+    """
+    clients = list(clients)
+    if not clients:
+        return None, None
+    started = [client for client in clients if client.phase != "starting"]
+    if not started:
+        return None, "starting"
+    if len(started) != len(clients) or any(
+        client.order_end_date is None for client in started
+    ):
+        return None, "no_end_date"
+    last = max(client.order_end_date for client in started if client.order_end_date)
+    return last + timedelta(days=1), "work_end"
+
+
 def _marker(
     source: Literal["contract", "conflict", "pipeline"],
     clients: list[EmploymentMarkerClient],
     job_client_ids: Optional[Collection[int]],
+    *,
+    free_from: Optional[date] = None,
+    free_from_basis: Optional[EmploymentFreeFromBasis] = None,
 ) -> EmploymentMarker:
     phases = {client.phase for client in clients}
     phase: EmploymentPhase = (
@@ -341,7 +376,12 @@ def _marker(
             for client in clients
         )
     return EmploymentMarker(
-        phase=phase, source=source, elsewhere=elsewhere, clients=clients
+        phase=phase,
+        source=source,
+        elsewhere=elsewhere,
+        clients=clients,
+        free_from=free_from,
+        free_from_basis=free_from_basis,
     )
 
 
@@ -368,10 +408,16 @@ def build_markers(
         by_candidate[row.candidate_id].append(
             _contract_client(row, today=today, order_ends=order_ends, leads=leads)
         )
-    out: dict[int, EmploymentMarker] = {
-        candidate_id: _marker("contract", _one_per_client(clients), job_client_ids)
-        for candidate_id, clients in by_candidate.items()
-    }
+    out: dict[int, EmploymentMarker] = {}
+    for candidate_id, clients in by_candidate.items():
+        free_from, basis = contract_free_from(clients)
+        out[candidate_id] = _marker(
+            "contract",
+            _one_per_client(clients),
+            job_client_ids,
+            free_from=free_from,
+            free_from_basis=basis,
+        )
 
     signals = list(signals)
     for source in ("conflict", "pipeline"):
@@ -818,7 +864,7 @@ async def job_client_family(
 # ── Filtr listy kandydatów ──────────────────────────────────────────────────
 
 
-def _work_end_sql(*, today: date) -> Any:
+def work_end_sql(*, today: date) -> Any:
     """Koniec pracy na umowie ``Contract`` z zewnętrznego zapytania — lustro
     SQL daty znacznika (:func:`order_end_by_contract` + :func:`_contract_client`):
     wcześniejsza z dat końca umowy i końca łańcucha zamówień; ``NULL`` = bez
@@ -889,7 +935,7 @@ def ending_soon_exists(
         .select_from(Contract)
         .where(
             started_live,
-            func.coalesce(_work_end_sql(today=today), date.max) > stop,
+            func.coalesce(work_end_sql(today=today), date.max) > stop,
         )
         .exists()
     )
@@ -904,6 +950,7 @@ __all__ = [
     "SignalRow",
     "build_markers",
     "client_delivery_leads",
+    "contract_free_from",
     "current_hired_signal_exists",
     "ending_soon_exists",
     "hire_closed_by_contract",
@@ -915,4 +962,5 @@ __all__ = [
     "markers_from_rows",
     "order_end_by_contract",
     "rows_from_candidate",
+    "work_end_sql",
 ]

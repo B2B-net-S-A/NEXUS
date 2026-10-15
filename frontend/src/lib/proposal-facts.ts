@@ -55,7 +55,12 @@ export function proposalFactsLine(facts: ProposalFacts | null | undefined, now: 
     yearsLabel(facts.years_experience),
     facts.city?.trim() || null,
     workModeLabel(facts),
-    availabilityLabel(facts.availability_status, facts.availability_date, now),
+    availabilityLabel(
+      facts.availability_status,
+      facts.availability_date,
+      now,
+      facts.employment_marker,
+    ),
     factsRateLabel(facts),
   ].filter((p): p is string => Boolean(p));
   return parts.length > 0 ? parts.join(" · ") : null;
