@@ -20,6 +20,15 @@ from app.models.user import User, UserRole
 from app.services import competitions
 from app.services.insights_scoring_config import SCORING_DEFAULTS
 
+@pytest.fixture(autouse=True)
+def _periods_are_open(monkeypatch):
+    """Od 15.10.2026 okres zamknięty `/current` i `/monthly-races` pokazują
+    z zamrożenia (`frozen_result`, zapytanie do bazy). Te testy sprawdzają
+    ranking na żywo — na atrapie sesji albo przed zamrożeniem — więc każdy
+    okres jest tu otwarty."""
+    monkeypatch.setattr(competitions, "frozen_result", AsyncMock(return_value=None))
+
+
 TODAY = date(2026, 10, 13)
 PERIOD = "Q4 2026"
 

@@ -7,6 +7,9 @@
 // z podglądu. Zmiana okresu w podglądzie prowadzi na `/insights` — nie klikaj.
 //
 // `?as=recruiter|hor|admin` wybiera rolę, `?view=` widok, `?report=` raport.
+// Na „Rywalizacji” zasiane są dwa okresy: trwający (źródło mieszane) i Q3 2026
+// / wrzesień 2026 jako rozliczone z DynaReportera — inne okresy z listy wyboru
+// pokażą błąd pobierania, bo sieć jest odcięta.
 
 import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
@@ -32,6 +35,7 @@ import {
   insightsTeamQueryKeys,
   insightsTeamSignalsQueryKeys,
 } from "@/lib/insights-team-api";
+import { currentMonthKey, currentQuarterKey } from "@/lib/insights-races-api";
 import { previousComparablePeriod } from "@/lib/insights-views";
 import { useAuthStore } from "@/store/auth";
 
@@ -91,14 +95,28 @@ function seeded(): QueryClient {
     leagueEntry(15, "Piotr S.", 41, 5), leagueEntry(1, "Anna L.", 38, 4), leagueEntry(16, "Ewa D.", 31, 3),
     leagueEntry(18, "Bartek N.", 27, 3), leagueEntry(17, "Tomek R.", 19, 2), leagueEntry(19, "Iga Z.", 12, 1),
   ];
-  qc.setQueryData(["insights", "champions", "quarterly_champions_recruiter"], {
-    type: "quarterly_champions_recruiter", period: "2026-Q3", is_frozen: false, days_remaining: 6,
+  // Trwający kwartał: część liczb z DynaReportera, reszta z NEXUS-a (zdanie fikcyjne).
+  const mixed = {
+    is_frozen: false, closure_status: null, source: "mixed",
+    source_note: "Część okresu z poprzedniego systemu, reszta z NEXUS-a.",
+  };
+  const settled = {
+    is_frozen: true, days_remaining: null, source: "dynareporter",
+    source_note: "Wynik z poprzedniego systemu — rozliczony przy przejściu na NEXUS.",
+  };
+  const recruiterCurrent = {
+    type: "quarterly_champions_recruiter", period: currentQuarterKey(), days_remaining: 6, ...mixed,
     top3: recruiterLeague.slice(0, 3).map((e, i) => ({ ...e, rank: i + 1, prize_pln: i === 0 ? 10000 : 0 })),
     // Numer miejsca niesie serwer (`award_ranked_rows`), jak w `/current`.
     full_ranking: recruiterLeague.map((e, i) => ({ ...e, rank: i + 1 })),
     requirement: "Minimum 2 placementy w kwartale.",
     points_formula: { placement: 5, interview: 2, recommendation: 1 },
     quarterly_prizes_pln: { "1": 10000, "2": 0, "3": 0 }, prize_pool_pln: null,
+  };
+  qc.setQueryData(["insights", "champions", "quarterly_champions_recruiter", "current"], recruiterCurrent);
+  // Q3 2026 rozliczony z DynaReportera — podium zamrożone.
+  qc.setQueryData(["insights", "champions", "quarterly_champions_recruiter", "Q3 2026"], {
+    ...recruiterCurrent, period: "Q3 2026", ...settled, closure_status: "frozen",
   });
   const dlLeague = [
     { user_id: 31, name: "Paweł G.", metric_value: 12, role: "delivery_lead", requests: 35 },
@@ -106,11 +124,20 @@ function seeded(): QueryClient {
     { user_id: 33, name: "Michał T.", metric_value: 7, role: "delivery_lead", requests: 32 },
     { user_id: 34, name: "Iza P.", metric_value: 4, role: "delivery_lead", requests: 12 },
   ];
-  qc.setQueryData(["insights", "champions", "quarterly_champions_dl"], {
-    type: "quarterly_champions_dl", period: "2026-Q3", is_frozen: false, days_remaining: 6,
+  // Liga DL liczy tylko NEXUS — DynaReporter jej nie prowadził, więc bez paska źródła.
+  const nexusOnly = { is_frozen: false, closure_status: null, source: "nexus", source_note: null };
+  const dlCurrent = {
+    type: "quarterly_champions_dl", period: currentQuarterKey(), days_remaining: 6, ...nexusOnly,
     top3: dlLeague.slice(0, 3).map((e, i) => ({ ...e, rank: i + 1 })),
     full_ranking: dlLeague.map((e, i) => ({ ...e, rank: i + 1 })),
     requirement: null, points_formula: null, quarterly_prizes_pln: null, prize_pool_pln: null,
+  };
+  qc.setQueryData(["insights", "champions", "quarterly_champions_dl", "current"], dlCurrent);
+  // Q3 2026 w lidze DL: nikt nie spełnił warunku — okres bez zwycięzcy.
+  qc.setQueryData(["insights", "champions", "quarterly_champions_dl", "Q3 2026"], {
+    ...dlCurrent, period: "Q3 2026", is_frozen: true, days_remaining: null,
+    closure_status: "no_winner", top3: [],
+    full_ranking: dlLeague.map((e) => ({ ...e, rank: null, qualified: false, disqualification_reasons: ["MIN_PLACEMENTS_NOT_MET"] })),
   });
 
   const placementsRanking = [
@@ -126,13 +153,26 @@ function seeded(): QueryClient {
     workdays_source: "calendar",
   }));
   const race = (ranking: unknown[]) => ({
-    period: "2026-09", days_remaining: 6, prize: { amount_pln: 1500, name: "Nagroda 1 500 zł" },
+    period: currentMonthKey(), days_remaining: 6, prize: { amount_pln: 1500, name: "Nagroda 1 500 zł" },
     requirements: ["Lider kwartalny wykluczony z nagrody miesięcznej"], ranking,
-    excluded_user_ids: [14], qualified_leader: ranking[0] ?? null, leader_tie_user_ids: [],
+    excluded_user_ids: [14], qualified_leader: ranking[0] ?? null, leader_tie_user_ids: [], ...mixed,
   });
   qc.setQueryData(["insights", "monthly-races", "current"], {
     recommendations: race(recRanking),
     placements: race(placementsRanking),
+  });
+  // Wrzesień 2026 rozliczony z DynaReportera: mianownik „/dzień” to dni
+  // przepracowane stamtąd, a w Wyścigu Placementów remis czeka na admina.
+  qc.setQueryData(["insights", "monthly-races", "2026-09"], {
+    recommendations: {
+      ...race(recRanking.map((e) => ({ ...e, workdays_source: "dynareporter" }))),
+      period: "2026-09", ...settled, closure_status: "frozen",
+    },
+    placements: {
+      ...race(placementsRanking.map((e) => (e.user_id === 12 ? { ...e, metric_value: 4 } : e))),
+      period: "2026-09", ...settled,
+      closure_status: "tie_pending", qualified_leader: null, leader_tie_user_ids: [11, 12],
+    },
   });
 
   qc.setQueryData(["insights", "hall-of-fame", "all-time"], {

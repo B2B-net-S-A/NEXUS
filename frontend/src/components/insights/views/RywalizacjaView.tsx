@@ -1,14 +1,21 @@
 "use client";
 
+import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { InsightsCampaignAdmin } from "@/components/insights/sections/InsightsCampaignAdmin";
 import { InsightsCampaignBanner } from "@/components/insights/sections/InsightsCampaignBanner";
 import { ChampionsSection } from "@/components/insights/sections/ChampionsSection";
+import { CompetitionPeriodSelect } from "@/components/insights/sections/CompetitionPeriod";
 import { CompetitionTiesAdmin } from "@/components/insights/sections/CompetitionTiesAdmin";
 import { InsightsRaces } from "@/components/insights/sections/InsightsRaces";
 import { insightsApi } from "@/lib/insights-api";
-import { racesApi } from "@/lib/insights-races-api";
+import {
+  monthPeriodOptions,
+  quarterPeriodOptions,
+  racesApi,
+  type CompetitionPeriodOption,
+} from "@/lib/insights-races-api";
 import { reportHref } from "@/lib/insights-reports";
 import { ViewHeader } from "./ViewKit";
 
@@ -16,29 +23,56 @@ import { ViewHeader } from "./ViewKit";
  * Rywalizacja — pierwsza zakładka dla każdego (decyzja Artura 24.09.2026:
  * „Liga Mistrzów i wyścigi miesięczne — bardzo ważne, żeby to było").
  *
- * Bez paska okresu: konkursy rozstrzygają się w kwartale i miesiącu według
- * regulaminu. Hall of Fame i ścieżka rozwoju stoją tu jako dwa krótkie paski;
- * pełne tabele są w Raportach.
+ * Bez wspólnego paska okresu: konkursy rozstrzygają się w kwartale i miesiącu
+ * według regulaminu, więc Liga ma własny wybór kwartału, a wyścigi — miesiąca
+ * (decyzja Artura 15.10.2026: rozliczona historia od stycznia 2026, okresy do
+ * 11.10.2026 z DynaReportera). Wybór żyje w stanie ekranu, nie w adresie;
+ * `null` = trwający okres, czyli zapytanie dokładnie takie jak przed wyborem.
+ * Hall of Fame i ścieżka rozwoju stoją tu jako dwa krótkie paski; pełne
+ * tabele są w Raportach.
  */
 export function RywalizacjaView() {
+  const [quarter, setQuarter] = useState<string | null>(null);
+  const [month, setMonth] = useState<string | null>(null);
+  const quarterOptions = useMemo(() => quarterPeriodOptions(), []);
+  const monthOptions = useMemo(() => monthPeriodOptions(), []);
+
   return (
     <div className="space-y-6">
       <ViewHeader
         question="Kto wygrywa i o co gramy?"
-        lede="Liga Mistrzów liczy cały kwartał, wyścigi — bieżący miesiąc. Twój wiersz jest podświetlony."
+        lede="Liga Mistrzów liczy cały kwartał, wyścigi — miesiąc. Wybierz okres, żeby zobaczyć rozliczone wyniki. Twój wiersz jest podświetlony."
       />
       {/* Bez aktywnej kampanii baner nie renderuje nic — to normalny stan. */}
       <InsightsCampaignBanner />
       <InsightsCampaignAdmin />
       <CompetitionTiesAdmin />
 
-      <ChampionsSection />
+      <ChampionsSection
+        period={quarter}
+        action={
+          <CompetitionPeriodSelect
+            label="Kwartał"
+            value={selectedValue(quarterOptions, quarter)}
+            options={quarterOptions}
+            onChange={(value) => setQuarter(asPeriod(quarterOptions, value))}
+          />
+        }
+      />
 
       <section className="space-y-3">
-        <h2 className="text-base font-semibold text-foreground">
-          Wyścigi miesiąca
-        </h2>
-        <InsightsRaces />
+        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+          <h2 className="text-base font-semibold text-foreground">
+            Wyścigi miesiąca
+          </h2>
+          <CompetitionPeriodSelect
+            label="Miesiąc"
+            value={selectedValue(monthOptions, month)}
+            options={monthOptions}
+            onChange={(value) => setMonth(asPeriod(monthOptions, value))}
+          />
+        </div>
+        <InsightsRaces month={month} />
       </section>
 
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
@@ -47,6 +81,24 @@ export function RywalizacjaView() {
       </div>
     </div>
   );
+}
+
+/** Wartość listy: wybrany okres albo trwający, gdy nic nie wybrano. */
+function selectedValue(
+  options: readonly CompetitionPeriodOption[],
+  period: string | null,
+): string {
+  return period ?? options.find((option) => option.current)?.value ?? "";
+}
+
+/** Trwający okres wraca jako `null` — zapytanie bez `period`, jak dotąd. */
+function asPeriod(
+  options: readonly CompetitionPeriodOption[],
+  value: string,
+): string | null {
+  return options.find((option) => option.value === value)?.current
+    ? null
+    : value;
 }
 
 function Strip({

@@ -318,3 +318,39 @@ Decyzje D1–D7 i pełna specyfikacja: `docs/insights-dynareporter-migration-pla
   dla przebiegu i NIE jest czyszczona, więc rok zajęty przez sąsiedni plik wraca
   jako „regresja" w kodzie, którym nikt nie ruszał. Zanim wybierzesz rok:
   `grep -rhoE 'datetime\((1[89][0-9]{2}|20[0-9]{2})|date\((1[89][0-9]{2}|20[0-9]{2})|"(1[89][0-9]{2}|20[0-9]{2})-' backend/tests/ | grep -oE '(1[89][0-9]{2}|20[0-9]{2})' | sort -u`
+
+## Wyniki 2026 sprzed NEXUS-a — DynaReporter do 11.10.2026 (decyzja Artura 15.10.2026)
+
+Zespół liczy wyniki w NEXUS-ie od **12.10.2026**. Do 11.10 wynik rekrutera to
+jego tygodniowy wpis w DynaReporterze (baza `infrareporter-db` na Renderze,
+projekt JARVIS) — z tych liczb ogłaszano Ligę i wyścigi. NEXUS liczył te same
+okresy z historii Traffita (punkt dostaje ten, kto przesunął kartę, często DL),
+stąd inne podia. Kod: `app/services/competition_history.py`.
+
+- **Jedno źródło na dzień, nigdy suma.** Okres w całości przed 12.10 —
+  rozliczony regułami DynaReportera i zamrożony; okres przecinający 12.10
+  (Q4 2026, październik 2026) — dni do 11.10 z `dr_kpi_body_leasing`, od 12.10
+  na żywo (`live_window` / `dr_window`); po 12.10 — tylko NEXUS. Liga DL
+  i Hall of Fame zawsze z NEXUS-a (DynaReporter ich nie prowadził).
+- **Reguły DynaReportera** (odtworzone 12/12 na jego oficjalnych wynikach I–VI):
+  liga 150/15/5, próg 3 placementy; wyścig rekomendacji: ≥ 4 weryfikacje na
+  dzień **przepracowany** (`days_worked` z wpisu), precyzja ≥ 75% od 2026-04;
+  wyścig placementów bez progu; lider kwartału wykluczony tylko w **ostatnim**
+  miesiącu kwartału. Wyścig placementów liczył się z tygodniowych wpisów,
+  nie z listy `placement_details` (czerwiec zgadza się tylko z wpisami).
+- **Okres zamknięty pokazuje zamrożenie** (`frozen_result`): `/current`
+  i `/monthly-races` z `period` zamkniętym oddają podium z `competition_winners`
+  i listę z migawki zamknięcia (`rows`, `ranking`), plus `is_frozen`,
+  `closure_status`, `source` (`nexus` | `dynareporter` | `mixed`) i `source_note`.
+  `freeze_competition` od 15.10 zapisuje `rows`, `ranking` i źródło.
+- **Rozliczenie jednorazowe:** `scripts/settle_competitions_from_dynareporter.py`
+  (wejście na stdin: mapa kont DR → NEXUS i wpisy, same ID; domyślnie na sucho,
+  `--apply` w jednej transakcji, paragon `dynareporter_settlement_2026` ze stanem
+  sprzed podmiany). Konta z `dynareporter_legacy_id` to nieaktywne duplikaty —
+  wynik idzie na konto, na którym osoba pracuje (albo konto z Traffita, gdy
+  odeszła). Remis bez rozstrzygnięcia → `tie_pending`, decyduje admin w panelu
+  remisów; marża/h z NEXUS-a nie liczy placementów z DynaReportera.
+- **Ekran Rywalizacja:** wybór kwartału i miesiąca od Q1 2026 / stycznia 2026
+  (stan ekranu, nie adres), pasek źródła i „Zamknięte” zamiast odliczania.
+- **Poza zakresem:** licznik celów w górnym pasku liczy październik tylko
+  z NEXUS-a (dni 1–11.10 z DynaReportera go nie zasilają).

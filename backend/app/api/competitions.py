@@ -132,27 +132,49 @@ async def _compute_current(
             period = comp_service.current_month_period()
 
     hof_scope = None
-    if ctype == CompetitionType.hall_of_fame:
-        # Lista i podpis pod nią z JEDNEGO zapytania — dwa osobne biegłyby
-        # na dwóch snapshotach (READ COMMITTED), więc zapis między nimi
-        # rozjeżdżałby ranking z liczbą, która go opisuje.
-        ranked, scope = await comp_service.hall_of_fame_with_scope(db, limit=5)
-        hof_scope = scope.to_dict()
+    # Okres zamknięty pokazuje to, co zamrożono i wypłacono — także okresy
+    # sprzed 12.10.2026 rozliczone z DynaReportera — a nie przeliczenie.
+    frozen = (
+        None
+        if ctype == CompetitionType.hall_of_fame
+        else await comp_service.frozen_result(db, ctype, period)
+    )
+    if frozen is not None:
+        rows = frozen.rows
+        top3_with_prizes = frozen.top3
+        ties = [
+            {"positions": tie.get("positions", []), "user_ids": tie.get("user_ids", [])}
+            for tie in frozen.ties
+        ]
+        excluded_user_ids = frozen.excluded_user_ids
+        source, source_note = frozen.source, frozen.source_note
     else:
-        ranked = await comp_service.compute_live(db, ctype, period)
+        if ctype == CompetitionType.hall_of_fame:
+            # Lista i podpis pod nią z JEDNEGO zapytania — dwa osobne biegłyby
+            # na dwóch snapshotach (READ COMMITTED), więc zapis między nimi
+            # rozjeżdżałby ranking z liczbą, która go opisuje.
+            ranked, scope = await comp_service.hall_of_fame_with_scope(db, limit=5)
+            hof_scope = scope.to_dict()
+        else:
+            ranked = await comp_service.compute_live(db, ctype, period)
 
-    # Podium liczy TA SAMA funkcja co zamrożenie (`award_order`): kwalifikacja,
-    # wykluczenie lidera kwartału z wyścigu miesięcznego i remisy. Do 25.09.2026
-    # ekran brał `ranked[:3]` (poza wyścigiem rekomendacji) — podium i kwoty
-    # różniły się od tego, co potem wypłacało zamrożenie. Miejsce objęte
-    # remisem, którego regulamin nie rozstrzyga, nie ma kwoty (`tied`).
-    order = await comp_service.award_order(db, ctype, period, ranked)
-    # Lista pod podium i podium z JEDNEJ numeracji (`award_ranked_rows`):
-    # osoba bez miejsca w klasyfikacji ma `rank: null`, nie „#1".
-    rows = comp_service.award_ranked_rows(ctype, ranked, order)
-    top3_with_prizes = [
-        row for row in rows if row["rank"] is not None and row["rank"] <= 3
-    ]
+        # Podium liczy TA SAMA funkcja co zamrożenie (`award_order`): kwalifikacja,
+        # wykluczenie lidera kwartału z wyścigu miesięcznego i remisy. Do 25.09.2026
+        # ekran brał `ranked[:3]` (poza wyścigiem rekomendacji) — podium i kwoty
+        # różniły się od tego, co potem wypłacało zamrożenie. Miejsce objęte
+        # remisem, którego regulamin nie rozstrzyga, nie ma kwoty (`tied`).
+        order = await comp_service.award_order(db, ctype, period, ranked)
+        # Lista pod podium i podium z JEDNEJ numeracji (`award_ranked_rows`):
+        # osoba bez miejsca w klasyfikacji ma `rank: null`, nie „#1".
+        rows = comp_service.award_ranked_rows(ctype, ranked, order)
+        top3_with_prizes = [
+            row for row in rows if row["rank"] is not None and row["rank"] <= 3
+        ]
+        ties = [
+            {"positions": tie.positions, "user_ids": tie.user_ids} for tie in order.ties
+        ]
+        excluded_user_ids = order.excluded_user_ids
+        source, source_note = comp_service.live_source(ctype, period)
 
     # Meta fields (gamifikacja jak w InfraReporterze).
     # Kalendarz warszawski, nie UTC — ten sam, którym liczone są okresy.
@@ -166,7 +188,9 @@ async def _compute_current(
         CompetitionType.quarterly_champions_dl,
         CompetitionType.quarterly_champions_recruiter,
     ):
-        days_remaining = comp_service.days_left_in_quarter(today)
+        days_remaining = (
+            None if frozen is not None else comp_service.days_left_in_quarter(today)
+        )
         prize_pool = sum(comp_service.QUARTERLY_PRIZES_PLN.values())
         if ctype == CompetitionType.quarterly_champions_dl:
             requirement = (
@@ -198,7 +222,9 @@ async def _compute_current(
         CompetitionType.monthly_recommendations,
         CompetitionType.monthly_placements,
     ):
-        days_remaining = comp_service.days_left_in_month(today)
+        days_remaining = (
+            None if frozen is not None else comp_service.days_left_in_month(today)
+        )
         prize_pool = comp_service.MONTHLY_RACE_PRIZE_PLN
 
     return {
@@ -208,11 +234,14 @@ async def _compute_current(
         "full_ranking": rows,
         # Remisy na płatnych miejscach, o których zdecyduje admin przy
         # zamknięciu okresu — same pozycje i osoby, bez marży.
-        "ties": [
-            {"positions": tie.positions, "user_ids": tie.user_ids} for tie in order.ties
-        ],
-        "excluded_user_ids": order.excluded_user_ids,
-        "is_frozen": False,
+        "ties": ties,
+        "excluded_user_ids": excluded_user_ids,
+        "is_frozen": frozen is not None,
+        "closure_status": frozen.status if frozen is not None else None,
+        # Skąd liczby: NEXUS, DynaReporter (sprzed 12.10.2026) albo oba
+        # (okres przecinający tę datę) — i zdanie do wyświetlenia.
+        "source": source,
+        "source_note": source_note,
         "target_pct": (
             comp_service.HIT_RATIO_TARGET
             if ctype == CompetitionType.quarterly_champions_dl

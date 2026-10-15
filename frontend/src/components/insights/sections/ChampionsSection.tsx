@@ -1,13 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   AlertTriangle,
   Award,
   ChevronDown,
   ChevronUp,
-  Clock,
   Crown,
   Loader2,
   Medal,
@@ -18,7 +17,12 @@ import { api } from "@/lib/api";
 import { useAuthStore } from "@/store/auth";
 import { cn } from "@/lib/utils";
 import { DL_HIT_RATIO_LEAGUE_NOTE } from "@/lib/insights-views";
+import {
+  isClosedQuarter,
+  type CompetitionClosure,
+} from "@/lib/insights-races-api";
 import { isBlockingViewState, resolveViewState } from "@/lib/view-state";
+import { ClosureNote, PeriodCountdown, SourceNote } from "./CompetitionPeriod";
 import { count, money, pct } from "./InsightsFormat";
 import { SectionError } from "./_shared";
 
@@ -79,12 +83,16 @@ interface PointsFormula {
   recommendation: number;
 }
 
-interface CompetitionPayload {
+/**
+ * `is_frozen`, `closure_status`, `source`, `source_note` — z `CompetitionClosure`
+ * (okresy rozliczone z DynaReportera i mieszane Q4 2026).
+ */
+interface CompetitionPayload extends CompetitionClosure {
   type: string;
+  /** Kwartał w zapisie backendu: „Q3 2026". */
   period: string;
   top3: LeagueEntry[];
   full_ranking: LeagueEntry[];
-  is_frozen: boolean;
   target_pct?: number | null;
   days_remaining?: number | null;
   prize_pool_pln?: number | null;
@@ -200,11 +208,6 @@ function breakdownLabel(entry: LeagueEntry, variant: LeagueVariant): string {
     )}R`;
   }
   return `hit ratio ${pct(entry.hit_ratio)} · ${count(entry.requests)} zapytań`;
-}
-
-/** Polska odmiana — „1 dzień / 2 dni / 5 dni". */
-function daysPl(n: number): string {
-  return `${n} ${Math.abs(n) === 1 ? "dzień" : "dni"}`;
 }
 
 function PodiumColumn({
@@ -340,12 +343,15 @@ function PodiumColumn({
 
 function LeagueCard({
   competitionType,
+  period,
   title,
   subtitle,
   variant,
   metricLabel,
 }: {
   competitionType: string;
+  /** Kwartał („Q3 2026") albo `null` = bieżący. */
+  period: string | null;
   title: string;
   subtitle: string;
   variant: LeagueVariant;
@@ -358,10 +364,16 @@ function LeagueCard({
     useQuery<CompetitionPayload>({
       // Prefiks `insights` — żeby „Odśwież" z paska narzędzi (invalidacja po
       // prefiksie) obejmowało także Ligę.
-      queryKey: ["insights", "champions", competitionType],
+      queryKey: ["insights", "champions", competitionType, period ?? "current"],
+      // Bieżący kwartał BEZ `period` — to samo zapytanie co przed wyborem
+      // okresu, więc i ten sam wpis w cache serwera (`current:<typ>:`).
       queryFn: () =>
         api
-          .get(`/api/competitions/current?type=${competitionType}`)
+          .get(
+            period
+              ? `/api/competitions/current?type=${competitionType}&period=${encodeURIComponent(period)}`
+              : `/api/competitions/current?type=${competitionType}`,
+          )
           .then((r) => r.data),
       staleTime: 5 * 60 * 1000,
     });
@@ -398,6 +410,13 @@ function LeagueCard({
   const hiddenCount = rest.length - visibleRest.length;
 
   const prizes = data?.quarterly_prizes_pln ?? null;
+  const shownPeriod = data?.period ?? period;
+  const noWinner = data?.closure_status === "no_winner";
+  // Starszy backend nie zna `is_frozen` dla minionego kwartału i liczy
+  // `days_remaining` z dzisiaj — miniony kwartał rozpoznajemy więc także po
+  // samym okresie.
+  const periodClosed = shownPeriod ? isClosedQuarter(shownPeriod) : false;
+  const periodOver = data?.is_frozen === true || periodClosed;
 
   return (
     <article className="flex flex-col overflow-hidden rounded-xl border border-border bg-card shadow-xs">
@@ -411,19 +430,20 @@ function LeagueCard({
         </div>
         <div className="shrink-0 text-right">
           <p className="text-xs font-semibold uppercase tracking-wider text-primary">
-            {data?.period ?? "—"}
+            {shownPeriod ?? "—"}
           </p>
-          <p className="mt-0.5 flex items-center justify-end gap-1 text-xs text-muted-foreground">
-            <Clock className="h-3.5 w-3.5" aria-hidden="true" />
-            {/* `null` to „nie wiemy, ile zostało", nie „zero dni". */}
-            {data?.days_remaining === null || data?.days_remaining === undefined
-              ? "—"
-              : `Zostało ${daysPl(data.days_remaining)}`}
-          </p>
+          <div className="mt-0.5 flex justify-end">
+            <PeriodCountdown
+              frozen={data?.is_frozen === true}
+              closed={periodClosed}
+              daysRemaining={data?.days_remaining}
+            />
+          </div>
         </div>
       </header>
 
       <div className="flex flex-1 flex-col gap-4 p-4">
+        <SourceNote closure={data} />
         {viewState === "loading" ? (
           <div className="flex items-center justify-center py-10">
             <Loader2
@@ -444,11 +464,17 @@ function LeagueCard({
               aria-hidden="true"
             />
             <p className="text-sm font-medium text-foreground">
-              Brak wyników w tym kwartale
+              {/* Zamknięty okres bez zwycięzcy mówi to wprost — „brak wyników"
+                  przy rozliczonym kwartale czytałby się jak niedoczytane dane. */}
+              {noWinner
+                ? "Brak zwycięzcy w tym okresie"
+                : "Brak wyników w tym kwartale"}
             </p>
             <p className="max-w-sm text-xs text-muted-foreground">
-              Nikt nie odnotował jeszcze punktowanych zdarzeń. To pusty ranking,
-              nie błąd pobierania.
+              {periodOver
+                ? "Nikt nie odnotował punktowanych zdarzeń w tym kwartale."
+                : "Nikt nie odnotował jeszcze punktowanych zdarzeń."}{" "}
+              To pusty ranking, nie błąd pobierania.
             </p>
             {data?.requirement ? (
               <p className="max-w-sm text-xs text-muted-foreground">
@@ -458,6 +484,9 @@ function LeagueCard({
           </div>
         ) : (
           <>
+            {/* Remis do decyzji admina i okres bez zwycięzcy stoją NAD podium:
+                bez tego zdania zamrożone podium czyta się jak rozstrzygnięte. */}
+            <ClosureNote closure={data} />
             <ol className="flex list-none items-end justify-center gap-2 sm:gap-3">
               {([1, 2, 3] as PodiumRank[]).map((rank) => (
                 <PodiumColumn
@@ -618,16 +647,28 @@ function LeagueCard({
 
 // ── Sekcja ──────────────────────────────────────────────────────────────
 
-export function ChampionsSection() {
+export function ChampionsSection({
+  period = null,
+  action,
+}: {
+  /** Kwartał („Q3 2026") albo `null` = bieżący. Obie ligi idą za nim razem. */
+  period?: string | null;
+  /** Wybór kwartału obok nagłówka — renderuje go widok, który trzyma stan. */
+  action?: ReactNode;
+} = {}) {
   return (
     <section className="space-y-4">
-      <h2 className="flex items-center gap-2 text-base font-semibold text-foreground">
-        <Award className="h-5 w-5 text-warning" aria-hidden="true" />
-        Liga Mistrzów — kwartalni championi
-      </h2>
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+        <h2 className="flex items-center gap-2 text-base font-semibold text-foreground">
+          <Award className="h-5 w-5 text-warning" aria-hidden="true" />
+          Liga Mistrzów — kwartalni championi
+        </h2>
+        {action}
+      </div>
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <LeagueCard
           competitionType="quarterly_champions_recruiter"
+          period={period}
           title="Liga Mistrzów Rekrutacja"
           subtitle="Kwartalny ranking punktowy zespołu rekrutacji"
           variant="points"
@@ -638,6 +679,7 @@ export function ChampionsSection() {
         />
         <LeagueCard
           competitionType="quarterly_champions_dl"
+          period={period}
           title="Liga Mistrzów DL"
           subtitle="Kwartalne podium Delivery Leadów"
           variant="placements"

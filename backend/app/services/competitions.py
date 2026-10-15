@@ -37,6 +37,7 @@ from app.core.scheduling import (
     local_quarter_bounds,
 )
 from app.models.competition_winner import CompetitionType, CompetitionWinner
+from app.services import competition_history
 from app.services.competition_rules import (
     PODIUM_ROWS,
     TieGroup,
@@ -307,6 +308,18 @@ class RankedUser:
         }
 
 
+@dataclass(frozen=True)
+class SimpleRaceRow:
+    """Surowy wiersz Wyścigu Rekomendacji przed zamianą na `RankedUser`."""
+
+    id: int
+    name: str
+    role: str
+    verifications: int
+    recommendations: int
+    qualified: bool
+
+
 # ── Period helpers ───────────────────────────────────────────────────────
 
 
@@ -472,54 +485,86 @@ async def _rank_recruiters_by_stage(
 
     Surowe ``CandidateStage.moved_by`` było niespójne z panelem KPI i pozwalało
     osobie klikającej końcowy etap przejąć credit pierwszego verifiera.
+
+    Okres przecinający 12.10.2026 dokłada dni sprzed tej daty z DynaReportera
+    (`competition_history`) — dlatego próg i kolejność liczymy po scaleniu,
+    w Pythonie, a nie w `HAVING`/`LIMIT`.
     """
     from app.services.kpi_panel import VERIFIER_ANCHORED_CTE
 
-    limit_sql = "LIMIT :limit" if limit else ""
-    rows = (
-        await db.execute(
-            text(
-                VERIFIER_ANCHORED_CTE
-                + f"""
-                SELECT u.id, u.name, u.role::text AS role, count(*) AS cnt
-                FROM credited c
-                JOIN users u ON u.id = c.credit_user
-                WHERE c.stage = :stage
-                  AND c.reached_at >= :start
-                  AND c.reached_at < :end
-                  AND (
-                      u.role::text = 'recruiter'
-                      OR u.roles ? 'recruiter'
-                  )
-                  AND u.is_active IS TRUE
-                GROUP BY u.id, u.name, u.role
-                HAVING count(*) >= :min_value
-                -- Remis rozstrzyga `u.id`, NIE `u.name`: pod musl porównanie
-                -- tekstu jest porządkiem bajtowym, więc „Łukasz" przegrywał
-                -- z „Zbigniewem" ZAWSZE — a pierwszy wiersz tego rankingu to
-                -- nazwisko przypisane do nagrody, potem zamrażane niezmiennie.
-                ORDER BY count(*) DESC, u.id ASC
-                {limit_sql}
-                """
-            ),
-            {
-                "stage": stage.value,
-                "start": start,
-                "end": end,
-                "min_value": min_value,
-                **({"limit": limit} if limit else {}),
-            },
+    per_user: dict[int, dict] = {}
+    live = competition_history.live_window(start, end)
+    if live is not None:
+        rows = (
+            await db.execute(
+                text(
+                    VERIFIER_ANCHORED_CTE
+                    + """
+                    SELECT u.id, u.name, u.role::text AS role, count(*) AS cnt
+                    FROM credited c
+                    JOIN users u ON u.id = c.credit_user
+                    WHERE c.stage = :stage
+                      AND c.reached_at >= :start
+                      AND c.reached_at < :end
+                      AND (
+                          u.role::text = 'recruiter'
+                          OR u.roles ? 'recruiter'
+                      )
+                      AND u.is_active IS TRUE
+                    GROUP BY u.id, u.name, u.role
+                    """
+                ),
+                {"stage": stage.value, "start": live[0], "end": live[1]},
+            )
+        ).all()
+        for r in rows:
+            per_user[r.id] = {"name": r.name, "role": str(r.role), "cnt": int(r.cnt)}
+    for user_id, person in (
+        await competition_history.dr_counts_by_user(db, start, end)
+    ).items():
+        cnt = _dr_stage_count(person.counts, stage)
+        if cnt <= 0:
+            continue
+        bucket = per_user.setdefault(
+            user_id, {"name": person.name, "role": person.role, "cnt": 0}
         )
-    ).all()
+        bucket["cnt"] += cnt
+
+    # Remis rozstrzyga `user_id`, NIE `name`: pod musl porównanie tekstu jest
+    # porządkiem bajtowym, więc „Łukasz" przegrywał z „Zbigniewem" ZAWSZE —
+    # a pierwszy wiersz tego rankingu to nazwisko przypisane do nagrody, potem
+    # zamrażane niezmiennie.
+    ranked = sorted(
+        (
+            (user_id, data)
+            for user_id, data in per_user.items()
+            if data["cnt"] >= max(min_value, 1)
+        ),
+        key=lambda item: (-item[1]["cnt"], item[0]),
+    )
+    if limit:
+        ranked = ranked[:limit]
     return [
         RankedUser(
-            user_id=r.id,
-            name=r.name,
-            metric_value=int(r.cnt),
-            extras={"role": str(r.role)},
+            user_id=user_id,
+            name=data["name"],
+            metric_value=data["cnt"],
+            extras={"role": data["role"]},
         )
-        for r in rows
+        for user_id, data in ranked
     ]
+
+
+def _dr_stage_count(
+    counts: "competition_history.DrCounts", stage: PipelineStage
+) -> int:
+    """Licznik DynaReportera odpowiadający etapowi NEXUS-a."""
+    return {
+        PipelineStage.verified.value: counts.verifications,
+        PipelineStage.cv_sent.value: counts.recommendations,
+        "client_interview": counts.interviews,
+        PipelineStage.hired.value: counts.placements,
+    }.get(stage.value, 0)
 
 
 async def _rank_recruiters_by_points(
@@ -551,28 +596,31 @@ async def _rank_recruiters_by_points(
     disqualification_reasons}."""
     from app.services.kpi_panel import VERIFIER_ANCHORED_CTE
 
-    rows = (
-        await db.execute(
-            text(
-                VERIFIER_ANCHORED_CTE
-                + """
-                SELECT u.id, u.name, u.role::text AS role, c.stage,
-                       count(*) AS cnt
-                FROM credited c
-                JOIN users u ON u.id = c.credit_user
-                WHERE c.reached_at >= :start
-                  AND c.reached_at < :end
-              AND (
-                  u.role::text = 'recruiter'
-                  OR u.roles ? 'recruiter'
-              )
-                  AND u.is_active IS TRUE
-                GROUP BY u.id, u.name, u.role, c.stage
-                """
-            ),
-            {"start": start, "end": end},
-        )
-    ).all()
+    rows = []
+    live = competition_history.live_window(start, end)
+    if live is not None:
+        rows = (
+            await db.execute(
+                text(
+                    VERIFIER_ANCHORED_CTE
+                    + """
+                    SELECT u.id, u.name, u.role::text AS role, c.stage,
+                           count(*) AS cnt
+                    FROM credited c
+                    JOIN users u ON u.id = c.credit_user
+                    WHERE c.reached_at >= :start
+                      AND c.reached_at < :end
+                  AND (
+                      u.role::text = 'recruiter'
+                      OR u.roles ? 'recruiter'
+                  )
+                      AND u.is_active IS TRUE
+                    GROUP BY u.id, u.name, u.role, c.stage
+                    """
+                ),
+                {"start": live[0], "end": live[1]},
+            )
+        ).all()
 
     per_user: dict[int, dict] = {}
     for r in rows:
@@ -605,6 +653,26 @@ async def _rank_recruiters_by_points(
             bucket["recommendations"] += cnt
         elif r.stage == "verified":
             bucket["verifications"] += cnt
+
+    # Dni sprzed 12.10.2026 — z DynaReportera (okres przecinający cutover).
+    for user_id, person in (
+        await competition_history.dr_counts_by_user(db, start, end)
+    ).items():
+        bucket = per_user.setdefault(
+            user_id,
+            {
+                "name": person.name,
+                "role": person.role,
+                "placements": 0,
+                "interviews": 0,
+                "recommendations": 0,
+                "verifications": 0,
+            },
+        )
+        bucket["placements"] += person.counts.placements
+        bucket["interviews"] += person.counts.interviews
+        bucket["recommendations"] += person.counts.recommendations
+        bucket["verifications"] += person.counts.verifications
 
     ranked: list[RankedUser] = []
     for user_id, data in per_user.items():
@@ -876,34 +944,27 @@ async def monthly_most_recommendations(
     )
     from app.services.kpi_panel import VERIFIER_ANCHORED_CTE
 
-    # Warunki nagrody liczymy jako kolumnę `qualified`, NIE w HAVING: HAVING
+    # Surowe liczniki per osoba; warunki nagrody, wybór listy i kolejność
+    # liczymy niżej, PO dołożeniu dni sprzed 12.10.2026 z DynaReportera
+    # (październik 2026). Warunek jest flagą `qualified`, nie filtrem: filtr
     # wycinałby niezakwalifikowanych z samego RANKINGU, więc widget „Wyścig
-    # Rekomendacji" świecił pustką póki nikt nie dobił progu. Nagrodę i tak
+    # Rekomendacji" świecił pustką, póki nikt nie dobił progu. Nagrodę i tak
     # filtruje `qualified_for_award`.
-    # Podwójny ROW_NUMBER, bo LIMIT dotyczy teraz listy wyświetlanej: bierzemy
-    # TOP N do pokazania **oraz** TOP N zakwalifikowanych, żeby ktoś z nagrodą
-    # nie wypadł z wyniku wypchnięty przez głośniejszą, niekwalifikującą się
-    # osobę. Werdykt nagrodowy zostaje taki sam jak przed zmianą.
-    rows = (
-        await db.execute(
-            text(
-                VERIFIER_ANCHORED_CTE
-                + """
-                , race_totals AS (
+    totals: dict[int, dict] = {}
+    live = competition_history.live_window(start, end)
+    if live is not None:
+        live_rows = (
+            await db.execute(
+                text(
+                    VERIFIER_ANCHORED_CTE
+                    + """
                     SELECT u.id, u.name, u.role::text AS role,
                            count(*) FILTER (
                                WHERE c.stage = 'verified'
                            ) AS verifications,
                            count(*) FILTER (
                                WHERE c.stage = 'cv_sent'
-                           ) AS recommendations,
-                           (
-                               count(*) FILTER (WHERE c.stage = 'verified')
-                                   >= :required_verifications
-                               AND 100.0 * count(*) FILTER (WHERE c.stage = 'cv_sent')
-                                   >= CAST(:min_precision_pct AS NUMERIC)
-                                      * count(*) FILTER (WHERE c.stage = 'verified')
-                           ) AS qualified
+                           ) AS recommendations
                     FROM credited c
                     JOIN users u ON u.id = c.credit_user
                     WHERE c.reached_at >= :start
@@ -915,40 +976,65 @@ async def monthly_most_recommendations(
                       )
                       AND u.is_active IS TRUE
                     GROUP BY u.id, u.name, u.role
-                    HAVING count(*) FILTER (WHERE c.stage = 'cv_sent') >= 1
+                    """
                 ),
-                race_ranked AS (
-                    -- Remis rozstrzyga `id`, NIE `name` (patrz komentarz przy
-                    -- `_rank_recruiters_by_stage`): tie-break po tekście pod
-                    -- musl systematycznie wypycha nazwy z polskimi
-                    -- diakrytykami na koniec, a tu decyduje o nagrodzie
-                    -- i o cięciu TOP-10.
-                    SELECT t.*,
-                           ROW_NUMBER() OVER (
-                               ORDER BY t.recommendations DESC, t.id ASC
-                           ) AS display_rank,
-                           ROW_NUMBER() OVER (
-                               PARTITION BY t.qualified
-                               ORDER BY t.recommendations DESC, t.id ASC
-                           ) AS rank_in_group
-                    FROM race_totals t
-                )
-                SELECT id, name, role, verifications, recommendations, qualified
-                FROM race_ranked
-                WHERE display_rank <= :ranking_size
-                   OR (qualified AND rank_in_group <= :ranking_size)
-                ORDER BY recommendations DESC, id ASC
-                """
-            ),
+                {"start": live[0], "end": live[1]},
+            )
+        ).all()
+        for r in live_rows:
+            totals[r.id] = {
+                "name": r.name,
+                "role": str(r.role),
+                "verifications": int(r.verifications),
+                "recommendations": int(r.recommendations),
+            }
+    for user_id, person in (
+        await competition_history.dr_counts_by_user(db, start, end)
+    ).items():
+        bucket = totals.setdefault(
+            user_id,
             {
-                "start": start,
-                "end": end,
-                "required_verifications": required_verifications,
-                "min_precision_pct": min_precision_pct,
-                "ranking_size": MONTHLY_RACE_RANKING_SIZE,
+                "name": person.name,
+                "role": person.role,
+                "verifications": 0,
+                "recommendations": 0,
             },
         )
-    ).all()
+        bucket["verifications"] += person.counts.verifications
+        bucket["recommendations"] += person.counts.recommendations
+
+    # Podwójna numeracja, bo limit dotyczy listy wyświetlanej: bierzemy TOP N
+    # do pokazania **oraz** TOP N zakwalifikowanych, żeby ktoś z nagrodą nie
+    # wypadł z wyniku wypchnięty przez głośniejszą, niekwalifikującą się osobę.
+    # Remis rozstrzyga `id`, NIE `name` (patrz `_rank_recruiters_by_stage`).
+    race = sorted(
+        (
+            SimpleRaceRow(
+                id=user_id,
+                name=data["name"],
+                role=data["role"],
+                verifications=data["verifications"],
+                recommendations=data["recommendations"],
+                qualified=(
+                    data["verifications"] >= required_verifications
+                    and 100 * data["recommendations"]
+                    >= min_precision_pct * data["verifications"]
+                ),
+            )
+            for user_id, data in totals.items()
+            if data["recommendations"] >= 1
+        ),
+        key=lambda row: (-row.recommendations, row.id),
+    )
+    qualified_seen = 0
+    rows = []
+    for display_rank, row in enumerate(race, start=1):
+        if row.qualified:
+            qualified_seen += 1
+        if display_rank <= MONTHLY_RACE_RANKING_SIZE or (
+            row.qualified and qualified_seen <= MONTHLY_RACE_RANKING_SIZE
+        ):
+            rows.append(row)
 
     ranked: list[RankedUser] = []
     for row in rows:
@@ -1565,6 +1651,30 @@ async def compose_monthly_races(
     """
     month_period = month_period or current_month_period()
 
+    # Miesiąc zamknięty: oba wyścigi z zamrożenia (to, co wypłacono). Wyścig
+    # zamknięty bez drugiego — oba z zamrożenia albo oba na żywo, żeby karta
+    # nie mieszała stanów.
+    frozen_rec = await frozen_result(
+        db, CompetitionType.monthly_recommendations, month_period
+    )
+    frozen_pl = await frozen_result(
+        db, CompetitionType.monthly_placements, month_period
+    )
+    if frozen_rec is not None and frozen_pl is not None:
+        thresholds = await monthly_race_thresholds(db, month_period)
+        return {
+            "recommendations": _frozen_race(
+                month_period,
+                frozen_rec,
+                _recommendation_requirements(thresholds, frozen_rec.source),
+            ),
+            "placements": _frozen_race(
+                month_period,
+                frozen_pl,
+                _placement_requirements(thresholds, frozen_pl.source),
+            ),
+        }
+
     rec_ranked = await monthly_most_recommendations(db, month_period)
     pl_ranked = await monthly_most_placements(db, month_period)
     thresholds = await monthly_race_thresholds(db, month_period)
@@ -1596,6 +1706,9 @@ async def compose_monthly_races(
     )
 
     days_left = days_left_in_month(business_today())
+    source, source_note = live_source(
+        CompetitionType.monthly_recommendations, month_period
+    )
 
     def _format(
         ranked: list[RankedUser], order: "AwardOrder", extra_reqs: list[str]
@@ -1638,31 +1751,25 @@ async def compose_monthly_races(
             # Remis na 1. miejscu, którego regulamin nie rozstrzyga — o nagrodzie
             # zdecyduje admin przy zamknięciu okresu.
             "leader_tie_user_ids": leader_tie.user_ids if leader_tie else [],
+            "is_frozen": False,
+            "closure_status": None,
+            "source": source,
+            "source_note": source_note,
         }
 
     races = {
         "recommendations": _format(
             rec_ranked,
             rec_order,
-            [
-                (
-                    f"Wymóg: min. {thresholds.verifications_per_day} "
-                    f"{_verifications_word(thresholds.verifications_per_day)}"
-                    "/dzień roboczy w tym miesiącu"
-                ),
-                (
-                    f"Wymóg: min. {int(thresholds.precision_pct)}% "
-                    "precision rate (rekomendacje / weryfikacje)"
-                ),
+            # Na żywo liczą reguły NEXUS-a, także na wpisach DynaReportera.
+            _recommendation_requirements(thresholds, competition_history.SOURCE_NEXUS)[
+                :-1
             ],
         ),
         "placements": _format(
             pl_ranked,
             pl_order,
-            [
-                f"Minimum {thresholds.min_placements} "
-                f"{_placements_word(thresholds.min_placements)} do kwalifikacji"
-            ],
+            _placement_requirements(thresholds, competition_history.SOURCE_NEXUS)[:-1],
         ),
     }
     # „X/dzień" dopisujemy DOPIERO tutaj, a nie do `extras`: `extras` trafia do
@@ -1671,6 +1778,94 @@ async def compose_monthly_races(
     # próg kwalifikacji zostaje wspólny i kalendarzowy.
     await _attach_per_day(db, races["recommendations"]["ranking"], month_period)
     return races
+
+
+_LEADER_EXCLUDED_REQUIREMENT = "Lider kwartalny wykluczony z nagrody miesięcznej"
+
+
+def _recommendation_requirements(
+    thresholds: MonthlyRaceThresholds, source: str
+) -> list[str]:
+    """Warunki Wyścigu Rekomendacji opisane tak, jak liczono ten miesiąc."""
+    if source == competition_history.SOURCE_DYNAREPORTER:
+        return [
+            "Wymóg (DynaReporter): min. "
+            f"{competition_history.DR_VERIFICATIONS_PER_WORKED_DAY} weryfikacje "
+            "na dzień przepracowany",
+            "Wymóg (DynaReporter): min. "
+            f"{competition_history.DR_PRECISION_PCT}% precision rate "
+            "— od kwietnia 2026",
+            "Lider kwartalny wykluczony z nagrody w ostatnim miesiącu kwartału",
+        ]
+    return [
+        (
+            f"Wymóg: min. {thresholds.verifications_per_day} "
+            f"{_verifications_word(thresholds.verifications_per_day)}"
+            "/dzień roboczy w tym miesiącu"
+        ),
+        (
+            f"Wymóg: min. {int(thresholds.precision_pct)}% "
+            "precision rate (rekomendacje / weryfikacje)"
+        ),
+        _LEADER_EXCLUDED_REQUIREMENT,
+    ]
+
+
+def _placement_requirements(
+    thresholds: MonthlyRaceThresholds, source: str
+) -> list[str]:
+    if source == competition_history.SOURCE_DYNAREPORTER:
+        return [
+            "Najwięcej placementów w miesiącu (DynaReporter, bez progu)",
+            "Lider kwartalny wykluczony z nagrody w ostatnim miesiącu kwartału",
+        ]
+    return [
+        f"Minimum {thresholds.min_placements} "
+        f"{_placements_word(thresholds.min_placements)} do kwalifikacji",
+        _LEADER_EXCLUDED_REQUIREMENT,
+    ]
+
+
+def _frozen_race(period: str, frozen: "FrozenResult", requirements: list[str]) -> dict:
+    """Wyścig zamkniętego miesiąca w kształcie `compose_monthly_races`."""
+    excluded = set(frozen.excluded_user_ids)
+    ranking = [
+        {
+            **{k: v for k, v in entry.items() if k not in _MARGIN_EXTRAS},
+            "rank": idx,
+            "excluded": int(entry["user_id"]) in excluded,
+        }
+        for idx, entry in enumerate(frozen.ranking, start=1)
+    ]
+    winner = next((w for w in frozen.top3 if w["rank"] == 1), None)
+    qualified = None
+    if winner is not None:
+        qualified = next(
+            (e for e in ranking if int(e["user_id"]) == winner["user_id"]),
+            {**winner, "excluded": False},
+        )
+    leader_tie = next((t for t in frozen.ties if 1 in t.get("positions", [])), None)
+    return {
+        "period": period,
+        "days_remaining": None,
+        "prize": {
+            "amount_pln": MONTHLY_RACE_PRIZE_PLN,
+            "name": MONTHLY_RACE_PRIZE_NAME,
+        },
+        "requirements": requirements,
+        "ranking": ranking,
+        "excluded_user_ids": sorted(excluded),
+        "exclusion_source": frozen.exclusion_source,
+        "exclusion_quarter": frozen.exclusion_quarter,
+        "qualified_leader": qualified,
+        "leader_tie_user_ids": list(leader_tie.get("user_ids", []))
+        if leader_tie
+        else [],
+        "is_frozen": True,
+        "closure_status": frozen.status,
+        "source": frozen.source,
+        "source_note": frozen.source_note,
+    }
 
 
 async def _attach_per_day(db: AsyncSession, ranking: list[dict], period: str) -> None:
@@ -1912,6 +2107,7 @@ async def freeze_competition(
         db.add(winner)
         created.append(winner)
 
+    source, source_note = live_source(type_, period)
     db.add(
         CompetitionPeriodClosure(
             competition_type=type_.value,
@@ -1920,6 +2116,23 @@ async def freeze_competition(
             details={
                 **meta,
                 "top": full_snapshot,
+                # Lista tak, jak ją widział ekran w chwili zamrożenia (numeracja
+                # nagrodowa i lista wyścigu z wykluczeniem) — `frozen_result`
+                # pokazuje ją potem zamiast przeliczenia. Bez marży/h.
+                "rows": award_ranked_rows(type_, ranked, order),
+                "ranking": [
+                    {
+                        **{
+                            key: value
+                            for key, value in r.to_dict().items()
+                            if key not in _MARGIN_EXTRAS
+                        },
+                        "excluded": r.user_id in set(order.excluded_user_ids),
+                    }
+                    for r in ranked
+                ],
+                "source": source,
+                "source_note": source_note,
                 "frozen_at": datetime.now(tz=_WARSAW).isoformat(),
             },
         )
@@ -1934,6 +2147,167 @@ async def freeze_competition(
             sorted(held),
         )
     return FrozenPodium(created, already_frozen=False, closure_status=status)
+
+
+@dataclass
+class FrozenResult:
+    """Zamrożony wynik okresu do wyświetlenia — to, co wypłacono, nie przeliczenie."""
+
+    status: str
+    top3: list[dict]
+    rows: list[dict]
+    ranking: list[dict]
+    ties: list[dict]
+    excluded_user_ids: list[int]
+    exclusion_source: Optional[str]
+    exclusion_quarter: Optional[str]
+    source: str
+    source_note: Optional[str]
+
+
+async def frozen_result(
+    db: AsyncSession, type_: CompetitionType, period: str
+) -> Optional[FrozenResult]:
+    """Wynik okresu zamkniętego (`None` = okres otwarty, liczony na żywo).
+
+    Okres zamknięty pokazujemy z zamrożenia: przeliczenie na żywo po fakcie
+    dawałoby inne liczby niż wypłacone (dane dochodzą, okresy sprzed 12.10.2026
+    rozliczono regułami DynaReportera). Podium bierzemy z `competition_winners`
+    (tam trafia też rozstrzygnięty później remis), listę — z migawki zamknięcia.
+    """
+    from app.models.competition_period_closure import (
+        CLOSURE_FROZEN,
+        CLOSURE_TIE_PENDING,
+    )
+
+    closure = await _period_closure(db, type_, period)
+    winners = (
+        (
+            await db.execute(
+                select(CompetitionWinner)
+                .where(
+                    CompetitionWinner.competition_type == type_.value,
+                    CompetitionWinner.period == period,
+                )
+                .order_by(CompetitionWinner.rank)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    if closure is None and not winners:
+        return None
+    details = dict(
+        (closure.details if closure is not None else None)
+        or (winners[0].frozen_snapshot if winners else None)
+        or {}
+    )
+    status = closure.status if closure is not None else CLOSURE_FROZEN
+    all_ties = details.get("ties") or []
+    ties = all_ties if status == CLOSURE_TIE_PENDING else []
+    held = {pos for tie in ties for pos in tie.get("positions", [])}
+    # Po decyzji admina remisujący spoza `competition_winners` przegrał remis:
+    # bez miejsca i bez kwoty, a nie drugi „#3” z nagrodą z migawki.
+    tie_losers = (
+        set()
+        if status == CLOSURE_TIE_PENDING
+        else {int(uid) for tie in all_ties for uid in tie.get("user_ids", [])}
+    )
+    rows = [dict(row) for row in details.get("rows") or []]
+    if not rows:
+        # Zamrożenia sprzed 15.10.2026 trzymają tylko `top` — kolejność
+        # nagrodową zakwalifikowanych.
+        rows = [
+            {
+                **{k: v for k, v in entry.items() if k not in _MARGIN_EXTRAS},
+                "rank": idx,
+                "tied": idx in held,
+                "excluded": False,
+                "prize_pln": 0 if idx in held else _prize_for(type_, idx),
+            }
+            for idx, entry in enumerate(details.get("top") or [], start=1)
+        ]
+
+    user_ids = {w.user_id for w in winners} | {
+        int(row["user_id"]) for row in rows if row.get("user_id") is not None
+    }
+    names: dict[int, str] = {}
+    if user_ids:
+        names = {
+            r.id: r.name
+            for r in (
+                await db.execute(
+                    select(User.id, User.name).where(User.id.in_(user_ids))
+                )
+            ).all()
+        }
+    by_winner = {w.user_id: w for w in winners}
+    for row in rows:
+        uid = int(row["user_id"])
+        row["name"] = names.get(uid, row.get("name"))
+        winner = by_winner.get(uid)
+        if winner is not None:
+            # Remis rozstrzygnięty przez admina po zamrożeniu: miejsce i kwota
+            # z wiersza podium.
+            row.update(rank=winner.rank, tied=False, prize_pln=winner.prize_pln)
+        elif uid in tie_losers:
+            row.update(rank=None, tied=False, prize_pln=None)
+    rows.sort(key=lambda row: (row.get("rank") is None, row.get("rank") or 0))
+    by_row = {int(row["user_id"]): row for row in rows}
+    top3 = [
+        {
+            **by_row.get(w.user_id, {}),
+            "user_id": w.user_id,
+            "name": names.get(w.user_id, f"#{w.user_id}"),
+            "rank": w.rank,
+            "metric_value": w.metric_value,
+            "prize_pln": w.prize_pln,
+            "tied": False,
+        }
+        for w in winners
+    ]
+    ranking = []
+    for entry in details.get("ranking") or details.get("top") or []:
+        uid = int(entry["user_id"])
+        ranking.append(
+            {
+                **{k: v for k, v in entry.items() if k not in _MARGIN_EXTRAS},
+                "name": names.get(uid, entry.get("name")),
+            }
+        )
+    return FrozenResult(
+        status=status,
+        top3=top3,
+        rows=rows,
+        ranking=ranking,
+        ties=ties,
+        excluded_user_ids=list(details.get("excluded_user_ids") or []),
+        exclusion_source=details.get("exclusion_source"),
+        exclusion_quarter=details.get("exclusion_quarter"),
+        source=details.get("source") or competition_history.SOURCE_NEXUS,
+        source_note=details.get("source_note"),
+    )
+
+
+def live_source(type_: CompetitionType, period: str) -> tuple[str, Optional[str]]:
+    """Skąd pochodzą liczby rankingu na żywo i zdanie dla ekranu.
+
+    Liga DL i Hall of Fame liczą tylko NEXUS — DynaReporter ich nie prowadził.
+    """
+    if type_ == CompetitionType.quarterly_champions_recruiter:
+        start, end = quarter_bounds(*parse_quarter(period))
+    elif type_ in _MONTHLY_TYPES:
+        start, end = month_bounds(*parse_month(period))
+    else:
+        return competition_history.SOURCE_NEXUS, None
+    source = competition_history.window_source(start, end)
+    if source == competition_history.SOURCE_MIXED:
+        return source, competition_history.MIXED_SOURCE_NOTE
+    if source == competition_history.SOURCE_DYNAREPORTER:
+        return source, (
+            "Liczone z wpisów DynaReportera — okres czeka na rozliczenie jego regułami."
+        )
+    return source, None
 
 
 class TieResolutionError(Exception):
