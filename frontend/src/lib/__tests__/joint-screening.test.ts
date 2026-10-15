@@ -209,11 +209,75 @@ describe("noteFillPatches — notatka tylko w puste miejsca", () => {
       ],
       answers: [{ question_id: "q2", sentence: "Strumienie w formularzach", keywords: "rxjs" }],
     } as never;
-    const patches = Object.fromEntries(noteFillPatches(values, B, groups, proposal));
+    const list = noteFillPatches(values, B, groups, proposal);
+    const patches = Object.fromEntries(list.map((p) => [p.path, p.value]));
     expect(patches["shared.card.availability"]).toBe("od 1.11");
     expect(patches).not.toHaveProperty("shared.card.work_mode");
     expect(patches[`answers.${groups[0].key}`]).toBe("Strumienie w formularzach");
     expect(patches["shared.rate_amount"] ?? patches[`jobs.${jobKey(2)}.rate_amount`]).toBe("110");
     expect(patches[`jobs.${jobKey(2)}.card.recommendation`]).toBe("Mocny w RxJS");
+    // Pochodzenie jedzie z wartością: pole z notatki, odpowiedź ułożona w zdanie.
+    const origin = (path: string) => list.find((p) => p.path === path)?.origin;
+    expect(origin("shared.card.availability")).toMatchObject({ value: "od 1.11" });
+    expect(origin(`answers.${groups[0].key}`)).toEqual({
+      value: "Strumienie w formularzach",
+      origin: "phrased",
+      keywords: "rxjs",
+    });
+    expect(origin("shared.rate_amount") ?? origin(`jobs.${jobKey(2)}.rate_amount`)).toBeUndefined();
   });
 });
+
+describe("joint screening — pochodzenie i „Pomiń brakujące”", () => {
+  const groups = completeGroups([A, B], SERVER);
+  const g0 = groups[0].key;
+
+  it("a value from the note keeps its origin in every recruitment until someone edits it", () => {
+    const values = jointDefaults([A, B], groups);
+    values.shared.card.availability = "od 1.11";
+    values.answers[g0] = "Strumienie w formularzach";
+    const origins = {
+      "shared.card.availability": { value: "od 1.11", origin: "note_ai" as const },
+      [`answers.${g0}`]: { value: "Strumienie w formularzach", origin: "phrased" as const, keywords: "rxjs formularze" },
+    };
+    const dirty = { shared: { card: { availability: true } }, answers: { [g0]: true } };
+    const b = buildSavePayload(B.state, projectPair(values, B, groups, dirty, origins)).payload;
+    expect(b.card?.origins?.availability).toEqual({ origin: "note_ai" });
+    expect(b.sheet?.answers.find((x) => x.question_id === "q2")).toMatchObject({
+      origin: "phrased",
+      keywords: "rxjs formularze",
+    });
+    const a = buildSavePayload(A.state, projectPair(values, A, groups, dirty, origins)).payload;
+    expect(a.card?.origins?.availability).toEqual({ origin: "note_ai" });
+    values.shared.card.availability = "od 15.11";
+    const edited = buildSavePayload(B.state, projectPair(values, B, groups, dirty, origins)).payload;
+    expect(edited.card?.origins ?? {}).not.toHaveProperty("availability");
+  });
+
+  it("an earlier answer used in a shared question is marked as Luna's suggestion, until edited", () => {
+    const values = jointDefaults([A, B], groups);
+    values.answers[g0] = "Strumienie od 2021";
+    const origins = { [`answers.${g0}`]: { value: "Strumienie od 2021", origin: "reassign_suggested" as const } };
+    const dirty = { answers: { [g0]: true } };
+    expect(projectPair(values, A, groups, dirty, origins).answers.q1.origin).toBe("reassign_suggested");
+    expect(projectPair(values, B, groups, dirty, origins).answers.q2.origin).toBe("reassign_suggested");
+    values.answers[g0] = "Strumienie od 2021, teraz Signals";
+    expect(projectPair(values, B, groups, dirty, origins).answers.q2.origin).toBe("manual");
+  });
+
+  it("„Pomiń brakujące” in one recruitment skips only its own empty questions", () => {
+    const values = jointDefaults([A, B], groups);
+    values.answers[g0] = "tak";
+    values.jobs[jobKey(2)].skip_missing = true;
+    values.jobs[jobKey(2)].skip_reason = "earlier_screening";
+    const dirty = { answers: { [g0]: true }, jobs: { [jobKey(2)]: { skip_missing: true, skip_reason: true } } };
+    const b = projectPair(values, B, groups, dirty);
+    expect(forwardBlockers(B, b)).toEqual([]);
+    expect(forwardBlockers(A, projectPair(values, A, groups, dirty))).toEqual(["1 pytanie bez odpowiedzi"]);
+    const sheet = buildSavePayload(B.state, b).payload.sheet!;
+    expect(sheet.answers.find((x) => x.question_id === "q1")?.skipped).toBe(true);
+    expect(sheet.answers.find((x) => x.question_id === "q2")?.skipped).toBeUndefined();
+    expect(sheet.internal_note).toBeTruthy();
+  });
+});
+

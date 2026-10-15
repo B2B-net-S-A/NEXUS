@@ -251,6 +251,11 @@ function avatarColorClass(id: number): string {
   return AVATAR_COLOR_CLASSES[Math.abs(id) % AVATAR_COLOR_CLASSES.length];
 }
 
+/** Imię i nazwisko jak w wierszu listy. */
+function candidateFullName(candidate: Pick<Candidate, "name" | "lastname">): string {
+  return `${candidate.name ?? ""} ${candidate.lastname ?? ""}`.trim() || "Kandydat";
+}
+
 function parseEnumCsv<T extends string>(
   raw: string | null | undefined,
   allowed: ReadonlyArray<T>,
@@ -554,10 +559,24 @@ export interface CandidatesListEmbed {
   jobTitle: string;
   initialFilters: CandidateFilters;
   readOnly?: boolean;
-  /** Po udanym dodaniu (np. odświeżenie tablicy rekrutacji). */
-  onAdded?: () => void;
+  /**
+   * Po udanym dodaniu: kogo naprawdę dodano (odświeżenie tablicy rekrutacji,
+   * „Dodani teraz” z „Cofnij” w oknie). Imię z wczytanych wierszy listy.
+   */
+  onAdded?: (added: CandidatesListAddedPerson[]) => void;
   /** Zdanie nad słowami kluczowymi, gdy wiersze przyszły z rekrutacji. */
   keywordsNote?: string;
+  /**
+   * Osoby, którym „Cofnij” w „Dodani teraz” zdjęło dodanie — wiersz znów
+   * dostaje „Dodaj” zamiast „Dodano” (15.10.2026).
+   */
+  undone?: ReadonlySet<number>;
+}
+
+/** Osoba dodana z listy osadzonej w rekrutacji. */
+export interface CandidatesListAddedPerson {
+  candidateId: number;
+  fullName: string;
 }
 
 export interface CandidatesListV2Props {
@@ -1296,6 +1315,14 @@ export function CandidatesListV2({ onRequestSearch, embed }: CandidatesListV2Pro
  return next;
  });
  }, [pageItems]);
+ // Z tego samego powodu imiona: dodanie z okna rekrutacji podaje osoby
+ // z imieniem także wtedy, gdy zaznaczono je na innej stronie.
+ const namesSeen = useRef(new Map<number, string>());
+ useEffect(() => {
+ for (const c of (pageItems ?? []) as Candidate[]) {
+ namesSeen.current.set(c.id, candidateFullName(c));
+ }
+ }, [pageItems]);
  const listViewState = getCandidateListViewState({
  isLoading,
  isError,
@@ -1411,6 +1438,14 @@ export function CandidatesListV2({ onRequestSearch, embed }: CandidatesListV2Pro
  // ją zdejmie — do tego czasu wiersz mówi „Dodano” zamiast drugiego „Dodaj”.
  const [addedIds, setAddedIds] = useState<ReadonlySet<number>>(() => new Set());
  const embedOnAdded = embed?.onAdded;
+ const embedUndone = embed?.undone;
+ useEffect(() => {
+ if (!embedUndone?.size) return;
+ setAddedIds((prev) => {
+ if (![...embedUndone].some((id) => prev.has(id))) return prev;
+ return new Set([...prev].filter((id) => !embedUndone.has(id)));
+ });
+ }, [embedUndone]);
  const addToEmbedJob = useCallback(
  async (candidateIds: number[]) => {
  if (embedJobId == null || candidateIds.length === 0) return;
@@ -1447,7 +1482,15 @@ export function CandidatesListV2({ onRequestSearch, embed }: CandidatesListV2Pro
  void queryClient.invalidateQueries({ queryKey: ["kanban", String(embedJobId)] });
  void queryClient.invalidateQueries({ queryKey: ["kanban", embedJobId] });
  void queryClient.invalidateQueries({ queryKey: ["pipeline-scores"] });
- if (result.total_added > 0) embedOnAdded?.();
+ if (result.total_added > 0) {
+ // Nowej osoby z „dodaj nowego kandydata” na liście nie ma — imienia nie znamy.
+ embedOnAdded?.(
+ result.added.map((candidateId) => ({
+ candidateId,
+ fullName: namesSeen.current.get(candidateId) ?? `Kandydat #${candidateId}`,
+ })),
+ );
+ }
  } catch (err) {
  showError(apiErrorMessage(err, "Nie udało się dodać kandydatów do rekrutacji."));
  } finally {
@@ -2394,8 +2437,7 @@ export function CandidatesListV2({ onRequestSearch, embed }: CandidatesListV2Pro
                 >
                   {virtualizer.getVirtualItems().map((virtualRow) => {
                     const candidate = items[virtualRow.index];
-                    const fullName =
-                      `${candidate.name ?? ""} ${candidate.lastname ?? ""}`.trim() || "Kandydat";
+                    const fullName = candidateFullName(candidate);
                     const initials = getCandidateInitials(candidate) || "?";
                     const isSelected = selectedIds.has(candidate.id);
                     // Wiersz nowy od ostatniego otwarcia zapisanego wyszukiwania —
@@ -2870,7 +2912,10 @@ export function CandidatesListV2({ onRequestSearch, embed }: CandidatesListV2Pro
           // trafia też do tej rekrutacji („Nowi”), nie tylko do bazy.
           onCreated={
             embedJobId != null && !embed?.readOnly
-              ? (candidateId) => void addToEmbedJob([candidateId])
+              ? (candidateId, fullName) => {
+                  if (fullName) namesSeen.current.set(candidateId, fullName);
+                  void addToEmbedJob([candidateId]);
+                }
               : undefined
           }
         />

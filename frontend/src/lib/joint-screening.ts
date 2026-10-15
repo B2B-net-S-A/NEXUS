@@ -20,7 +20,7 @@
  * (tak samo pojedynczy formularz: `keepDirtyValues` + różnice od `baseState`).
  */
 
-import type { RateUnit, ScreeningQuestion } from "@/lib/api";
+import type { RateUnit, ScreeningQuestion, ScreeningSkipReason } from "@/lib/api";
 import type { NoteProposal } from "@/lib/api/recommendationCards";
 import type { FormRate, ScreeningFormState } from "@/lib/api/screeningForm";
 import {
@@ -81,6 +81,37 @@ export interface JointJobValues {
   rate_amount: string;
   rate_unit: RateUnit;
   rate_currency: string;
+  /** „Pomiń brakujące” — tylko pytania TEJ rekrutacji bez odpowiedzi. */
+  skip_missing: boolean;
+  skip_reason: ScreeningSkipReason | null;
+  /** Dlaczego pomijasz — notatka wewnętrzna arkusza tej rekrutacji. */
+  internal_note: string;
+}
+
+/**
+ * Skąd jest wartość wpisana w tej rozmowie (notatka, zdanie z haseł,
+ * wcześniejsza rozmowa) — klucz = ścieżka pola formularza wspólnego.
+ * Pochodzenie trzyma się wartości: poprawka ręczna je zdejmuje (zdanie
+ * z haseł — dopiero wyczyszczenie), jak w pojedynczym formularzu.
+ */
+export interface JointOrigin {
+  value: string;
+  origin: "note_ai" | "note_rule" | "phrased" | "note_import" | "reassign_suggested";
+  keywords?: string | null;
+}
+export type JointOrigins = Readonly<Record<string, JointOrigin>>;
+
+export function originHolds(origin: JointOrigin | undefined, value: string): origin is JointOrigin {
+  if (!origin) return false;
+  if (origin.origin === "phrased") return value.trim() !== "";
+  return value.trim() === origin.value.trim();
+}
+
+/** Pochodzenie pola karty do zapisu (`card_origins`) albo `null`. */
+function cardOrigin(origin: JointOrigin | undefined, value: string): ScreeningFullFormValues["card_origins"][string] {
+  if (!originHolds(origin, value)) return null;
+  if (origin.origin !== "note_ai" && origin.origin !== "note_rule" && origin.origin !== "phrased") return null;
+  return origin.keywords ? { origin: origin.origin, keywords: origin.keywords } : { origin: origin.origin };
 }
 
 export interface JointValues {
@@ -188,7 +219,14 @@ export function jointDefaults(pairs: readonly JointPair[], groups: readonly Join
         .filter((key) => !SHARED_KEYS.has(key) && key !== CLIENT_KEY)
         .map((key) => [key, d.card?.[key] ?? ""]),
     );
-    jobs[jobKey(pair.jobId)] = { overall_fit: d.overall_fit, card: own, ...rateFields(rates[i]) };
+    jobs[jobKey(pair.jobId)] = {
+      overall_fit: d.overall_fit,
+      card: own,
+      ...rateFields(rates[i]),
+      skip_missing: Boolean(d.skip_missing),
+      skip_reason: null,
+      internal_note: d.internal_note ?? "",
+    };
   }
   const known = rates.filter((r): r is FormRate => r != null);
   const sameRateEverywhere = known.every((r) => sameRate(r, known[0]));
@@ -213,15 +251,29 @@ export interface JointDirty {
   clients?: Record<string, boolean | undefined>;
   answers?: Record<string, boolean | undefined>;
   hits?: Record<string, boolean | undefined>;
-  jobs?: Record<string, ({ overall_fit?: boolean; card?: Record<string, boolean | undefined> } & RateDirty) | undefined>;
+  jobs?: Record<
+    string,
+    | ({
+        overall_fit?: boolean;
+        card?: Record<string, boolean | undefined>;
+        skip_missing?: boolean;
+        skip_reason?: boolean;
+        internal_note?: boolean;
+      } & RateDirty)
+    | undefined
+  >;
 }
 
 const rateTouched = (dirty: RateDirty | undefined) =>
   Boolean(dirty?.rate_amount || dirty?.rate_unit || dirty?.rate_currency);
 
 function overlay(base: string, value: string, touched: boolean): string {
-  if (touched) return value;
-  return base.trim() ? base : value;
+  return fromJoint(base, touched) ? value : base;
+}
+
+/** Wartość pary pochodzi z formularza wspólnego (ruszona albo pusta w parze). */
+function fromJoint(base: string, touched: boolean): boolean {
+  return touched || !base.trim();
 }
 
 /**
@@ -233,24 +285,33 @@ export function projectPair(
   pair: JointPair,
   groups: readonly JointGroup[],
   dirty: JointDirty = {},
+  origins: JointOrigins = {},
 ): ScreeningFullFormValues {
   const d = formDefaultsFromState(pair.state);
   const editable = new Set(editableCardKeys(pair.state));
   const card = { ...d.card };
+  const cardOrigins = { ...d.card_origins };
+  // Wartość z formularza wspólnego niesie swoje pochodzenie (notatka, zdanie z haseł).
+  const take = (key: string, path: string, value: string) => {
+    card[key] = value;
+    cardOrigins[key] = cardOrigin(origins[path], value);
+  };
   for (const key of SHARED_KEYS) {
     if (!editable.has(key) || values.shared.card[key] === undefined) continue;
-    card[key] = overlay(d.card[key] ?? "", values.shared.card[key] ?? "", Boolean(dirty.shared?.card?.[key]));
+    if (fromJoint(d.card[key] ?? "", Boolean(dirty.shared?.card?.[key]))) {
+      take(key, `shared.card.${key}`, values.shared.card[key] ?? "");
+    }
   }
   if (editable.has(CLIENT_KEY)) {
     const key = clientKey(pair.clientId);
-    if (values.clients[key] !== undefined) {
-      card[CLIENT_KEY] = overlay(d.card[CLIENT_KEY] ?? "", values.clients[key] ?? "", Boolean(dirty.clients?.[key]));
+    if (values.clients[key] !== undefined && fromJoint(d.card[CLIENT_KEY] ?? "", Boolean(dirty.clients?.[key]))) {
+      take(CLIENT_KEY, `clients.${key}`, values.clients[key] ?? "");
     }
   }
   const own = values.jobs[jobKey(pair.jobId)];
   const ownDirty = dirty.jobs?.[jobKey(pair.jobId)];
   for (const [key, value] of Object.entries(own?.card ?? {})) {
-    if (editable.has(key) && ownDirty?.card?.[key]) card[key] = value;
+    if (editable.has(key) && ownDirty?.card?.[key]) take(key, `jobs.${jobKey(pair.jobId)}.card.${key}`, value);
   }
 
   const answers = { ...d.answers };
@@ -260,13 +321,21 @@ export function projectPair(
       const before = answers[member.questionId];
       const response = overlay(before.response, values.answers[group.key] ?? "", Boolean(dirty.answers?.[group.key]));
       const hit = hitKey(pair.jobId, member.questionId);
+      const unchanged = response.trim() === before.response.trim();
+      const origin = origins[`answers.${group.key}`];
+      // Pola karty z notatki („note_ai”/„note_rule”) to nie odpowiedzi.
+      const held =
+        !unchanged && originHolds(origin, response) && origin.origin !== "note_ai" && origin.origin !== "note_rule"
+          ? { origin: origin.origin, keywords: origin.keywords }
+          : null;
       answers[member.questionId] = {
         ...before,
         response,
         deal_breaker_hit: dirty.hits?.[hit] ? Boolean(values.hits[hit]) : before.deal_breaker_hit,
-        // Odpowiedź z tej rozmowy jest odpowiedzią człowieka.
-        origin: response.trim() === before.response.trim() ? before.origin : "manual",
-        keywords: response.trim() === before.response.trim() ? before.keywords : null,
+        // Odpowiedź z tej rozmowy jest odpowiedzią człowieka — chyba że przyszła
+        // z notatki, zdania z haseł albo wcześniejszej rozmowy i nikt jej nie poprawił.
+        origin: unchanged ? before.origin : (held?.origin ?? "manual"),
+        keywords: unchanged ? before.keywords : (held?.keywords ?? null),
       };
     }
   }
@@ -283,11 +352,17 @@ export function projectPair(
       ? own
       : start;
 
+  const skip = own && ownDirty?.skip_missing ? own.skip_missing : d.skip_missing;
+
   return {
     ...d,
     answers,
     overall_fit: own && ownDirty?.overall_fit ? own.overall_fit : d.overall_fit,
+    skip_missing: skip,
+    skip_reason: skip ? (own?.skip_reason ?? d.skip_reason) : null,
+    internal_note: own && ownDirty?.internal_note ? own.internal_note : d.internal_note,
     card,
+    card_origins: cardOrigins,
     rate_amount: rate.rate_amount,
     rate_unit: rate.rate_unit,
     rate_currency: rate.rate_currency,
@@ -331,13 +406,21 @@ export function budgetVerdict(
  * rekruter już wpisał, nie znika. Odpowiedź trafia do grupy pytania tej
  * rekrutacji (wspólne pytanie wypełni się raz).
  */
+export interface JointPatch {
+  path: string;
+  value: string;
+  origin?: JointOrigin;
+}
+
 export function noteFillPatches(
   values: JointValues,
   pair: JointPair,
   groups: readonly JointGroup[],
   proposal: Pick<NoteProposal, "fields" | "answers">,
-): Array<[string, string]> {
-  const patches: Array<[string, string]> = [];
+): JointPatch[] {
+  const patches: JointPatch[] = [];
+  const add = (path: string, value: string, origin?: Omit<JointOrigin, "value">) =>
+    patches.push(origin ? { path, value, origin: { value, ...origin } } : { path, value });
   const empty = (value: string | undefined) => !(value ?? "").trim();
   const own = values.jobs[jobKey(pair.jobId)];
   const editable = new Set(editableCardKeys(pair.state));
@@ -350,26 +433,31 @@ export function noteFillPatches(
       const prefix = values.shared.same_rate ? "shared" : `jobs.${jobKey(pair.jobId)}`;
       const current = values.shared.same_rate ? values.shared.rate_amount : own?.rate_amount;
       if (!empty(current)) continue;
-      patches.push([`${prefix}.rate_amount`, String(rate.amount)]);
-      patches.push([`${prefix}.rate_unit`, rate.unit]);
-      patches.push([`${prefix}.rate_currency`, rate.currency || "PLN"]);
+      add(`${prefix}.rate_amount`, String(rate.amount));
+      add(`${prefix}.rate_unit`, rate.unit);
+      add(`${prefix}.rate_currency`, rate.currency || "PLN");
       continue;
     }
     if (!editable.has(field.key)) continue;
+    const origin = { origin: field.origin };
     if (SHARED_KEYS.has(field.key)) {
-      if (empty(values.shared.card[field.key])) patches.push([`shared.card.${field.key}`, proposed]);
+      if (empty(values.shared.card[field.key])) add(`shared.card.${field.key}`, proposed, origin);
     } else if (field.key === CLIENT_KEY) {
       const key = clientKey(pair.clientId);
-      if (empty(values.clients[key])) patches.push([`clients.${key}`, proposed]);
+      if (empty(values.clients[key])) add(`clients.${key}`, proposed, origin);
     } else if (own && field.key in own.card && empty(own.card[field.key])) {
-      patches.push([`jobs.${jobKey(pair.jobId)}.card.${field.key}`, proposed]);
+      add(`jobs.${jobKey(pair.jobId)}.card.${field.key}`, proposed, origin);
     }
   }
   for (const answer of proposal.answers ?? []) {
-    const response = (answer.sentence?.trim() || String(answer.keywords ?? "").trim());
+    const sentence = answer.sentence?.trim() || null;
+    const keywords = String(answer.keywords ?? "").trim();
+    const response = sentence ?? keywords;
     if (!response) continue;
     const group = groups.find((g) => g.members.some((m) => m.jobId === pair.jobId && m.questionId === answer.question_id));
-    if (group && empty(values.answers[group.key])) patches.push([`answers.${group.key}`, response]);
+    if (group && empty(values.answers[group.key])) {
+      add(`answers.${group.key}`, response, { origin: sentence ? "phrased" : "note_import", keywords: keywords || null });
+    }
   }
   return patches;
 }

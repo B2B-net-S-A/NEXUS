@@ -1940,6 +1940,30 @@
    "v3_home": "panel osoby → „Screening dla” z zaznaczoną drugą rekrutacją"
   },
   {
+   "id": "screening-form.joint-earlier-answers",
+   "area": "formularz screeningu",
+   "opis": "Formularz wspólny: wcześniejsze odpowiedzi kandydata (Luna per rekrutacja) pod wspólnym pytaniem, „Użyj tej odpowiedzi” / „Użyj wszystkich odpowiedzi (N)” z pochodzeniem „z podpowiedzi Luny” w każdej rekrutacji (15.10.2026)",
+   "file": "components/v2/screening-form/joint-screening-tools.tsx",
+   "marker": "Użyj tej odpowiedzi",
+   "v3_home": "panel osoby → „Screening dla” → pod pytaniem"
+  },
+  {
+   "id": "screening-form.joint-skip-missing",
+   "area": "formularz screeningu",
+   "opis": "Formularz wspólny: „Pomiń brakujące” osobno w każdej rekrutacji, której serwer na to pozwala (przepięcie, wcześniejszy screening, zatrudniony przez nas), z notatką wewnętrzną tej rekrutacji (15.10.2026)",
+   "file": "components/v2/screening-form/JointScreeningForm.tsx",
+   "marker": "Notatka wewnętrzna ·",
+   "v3_home": "panel osoby → „Screening dla” → pod pytaniami"
+  },
+  {
+   "id": "screening-form.joint-phrase",
+   "area": "formularz screeningu",
+   "opis": "Formularz wspólny: „Ułóż w zdanie” przy odpowiedziach i polach oceny (język CV klienta danej rekrutacji), zdanie zapisane z pochodzeniem „zdanie z haseł” w każdej rekrutacji (15.10.2026)",
+   "file": "components/v2/screening-form/JointScreeningForm.tsx",
+   "marker": "Możesz wpisać hasła i ułożyć z nich zdanie.",
+   "v3_home": "panel osoby → „Screening dla” → pod odpowiedzią"
+  },
+  {
    "id": "screening-form.note-fill",
    "area": "formularz screeningu",
    "opis": "„Uzupełnij z notatki”: wklej tekst albo wgraj plik, puste pola wypełniają się z plakietką, przy wpisanych propozycja „Użyj”, „Cofnij wypełnienie”; notatka idzie do historii przy zapisie",
@@ -2622,6 +2646,14 @@
    "file": "components/v2/recruitment/also-fits-block.tsx",
    "marker": "Pasuje też do ",
    "v3_home": "okno „Kandydaci do dodania” → wiersz po dodaniu"
+  },
+  {
+   "id": "board.manual-added-strip",
+   "area": "pozyskiwanie",
+   "opis": "„Szukaj ręcznie”: pasek „Dodani teraz (N)” nad wynikami — dodana osoba z „Cofnij” (15 min) i „Pasuje też do”, 3 najnowsze, reszta po „Pokaż wszystkich” (15.10.2026)",
+   "file": "components/v2/recruitment/ManualAddedStrip.tsx",
+   "marker": "Dodano do „Nowych” · rezerwacja 12 h",
+   "v3_home": "okno „Kandydaci do dodania” → „Szukaj ręcznie” → nad wynikami"
   },
   {
    "id": "board.card-other-jobs",

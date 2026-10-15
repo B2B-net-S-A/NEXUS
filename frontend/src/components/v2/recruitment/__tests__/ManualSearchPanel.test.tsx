@@ -1,5 +1,5 @@
 import { focusManager, QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { useEffect } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -9,6 +9,8 @@ const mocks = vi.hoisted(() => ({
   mounts: 0,
   getChampion: vi.fn(),
   classify: vi.fn(),
+  remove: vi.fn(),
+  alsoFits: vi.fn(),
 }));
 
 vi.mock("@/lib/keyword-suggest", () => ({
@@ -17,7 +19,13 @@ vi.mock("@/lib/keyword-suggest", () => ({
 
 vi.mock("@/lib/api", () => ({
   championApi: { get: (...a: unknown[]) => mocks.getChampion(...a) },
+  candidatesApi: { removeFromRecruitment: (...a: unknown[]) => mocks.remove(...a) },
 }));
+vi.mock("@/lib/also-fits-api", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/also-fits-api")>();
+  return { ...actual, alsoFitsApi: { get: (...a: unknown[]) => mocks.alsoFits(...a) } };
+});
+vi.mock("@/lib/candidate-search-api", () => ({ proposalsBulkApi: { add: vi.fn() } }));
 
 vi.mock("@/lib/matching-requirements", () => ({
   matchingRequirementsApi: { get: (...a: unknown[]) => mocks.getReqs(...a) },
@@ -64,6 +72,7 @@ describe("ManualSearchPanel — lista Kandydatów osadzona w rekrutacji", () => 
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.getChampion.mockResolvedValue({ data: { champion_profile: {} } });
+    mocks.alsoFits.mockResolvedValue({ candidate_id: 0, from_job_id: 7, status: "ok", jobs: [] });
     // Technologie ze słownika: „Java”, „Kafka RabbitMQ”, „Python”.
     mocks.classify.mockImplementation(async (text: string) => ({
       skills: [],
@@ -85,8 +94,10 @@ describe("ManualSearchPanel — lista Kandydatów osadzona w rekrutacji", () => 
       jobId: 7,
       jobTitle: JOB.title,
       readOnly: true,
-      onAdded: onBulkAdded,
     });
+    // Dodanie z listy nadal odświeża Tablicę strony rekrutacji.
+    act(() => embed.onAdded?.([{ candidateId: 1, fullName: "Ewa Marczak" }]));
+    expect(onBulkAdded).toHaveBeenCalledTimes(1);
     // Must-have z kontraktu rekrutacji podnoszą w kolejności (jak dotąd),
     // miasto i kategoria z rekrutacji. Tytuł NIE idzie jako tekst po znaczeniu
     // (limit 200 osób) — bez wymagań w Championie lista pokazuje całą bazę
@@ -294,5 +305,56 @@ describe("ManualSearchPanel — lista Kandydatów osadzona w rekrutacji", () => 
     const filters = jobListFilters({ ...JOB, remote_policy: "remote" }, null);
     expect(filters.location).toBe("");
     expect(filters.locationPreferred).toEqual([]);
+  });
+});
+
+describe("ManualSearchPanel — „Dodani teraz” nad listą", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.getReqs.mockResolvedValue({ must: [] });
+    mocks.getChampion.mockResolvedValue({ data: { champion_profile: {} } });
+    mocks.alsoFits.mockResolvedValue({ candidate_id: 0, from_job_id: 7, status: "ok", jobs: [] });
+  });
+
+  it("bez dodanych nie ma paska; po dodaniu pasek stoi NAD listą z „Cofnij”", async () => {
+    const onBulkAdded = vi.fn();
+    renderPanel({ onBulkAdded });
+    const list = await screen.findByTestId("candidates-list");
+    expect(screen.queryByText(/Dodani teraz/)).not.toBeInTheDocument();
+
+    act(() =>
+      lastEmbed().onAdded?.([
+        { candidateId: 1, fullName: "Ewa Marczak" },
+        { candidateId: 2, fullName: "Piotr Lis" },
+      ]),
+    );
+    const strip = screen.getByRole("region", { name: "Dodani teraz" });
+    expect(within(strip).getByText("Dodani teraz (2)")).toBeInTheDocument();
+    expect(strip.compareDocumentPosition(list) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(within(strip).getByRole("button", { name: "Cofnij dodanie: Ewa Marczak" })).toBeEnabled();
+    expect(onBulkAdded).toHaveBeenCalledTimes(1);
+
+    // Kolejne dodanie dopisuje osoby, nie gubi wcześniejszych.
+    act(() => lastEmbed().onAdded?.([{ candidateId: 3, fullName: "Olga Nowak" }]));
+    expect(within(strip).getByText("Dodani teraz (3)")).toBeInTheDocument();
+  });
+
+  it("udane „Cofnij” zdejmuje wiersz, a ostatni — cały pasek", async () => {
+    mocks.remove.mockResolvedValue({});
+    renderPanel();
+    await screen.findByTestId("candidates-list");
+    act(() =>
+      lastEmbed().onAdded?.([
+        { candidateId: 1, fullName: "Ewa Marczak" },
+        { candidateId: 2, fullName: "Piotr Lis" },
+      ]),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Cofnij dodanie: Ewa Marczak" }));
+    await waitFor(() => expect(screen.queryByText("Ewa Marczak")).not.toBeInTheDocument());
+    expect(mocks.remove).toHaveBeenCalledWith(1, 7, { quickUndo: true });
+    expect(screen.getByText("Dodani teraz (1)")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Cofnij dodanie: Piotr Lis" }));
+    await waitFor(() => expect(screen.queryByText(/Dodani teraz/)).not.toBeInTheDocument());
   });
 });

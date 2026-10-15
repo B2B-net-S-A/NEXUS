@@ -11,11 +11,18 @@
  * tekst tytułu liczy się po znaczeniu (jak dotąd w trybie hybrydowym), osoby
  * już w rekrutacji ukrywa zapytanie (`recruitment_match=not_assigned`), a
  * „Dodaj" wpisuje do „Nowych" (`proposals/bulk`, źródło `manual_search`).
+ *
+ * Dodana osoba znika z wyników, więc nad listą stoi „Dodani teraz” z „Cofnij”
+ * (15 min) i „Pasuje też do” — jak w pozostałych zakładkach okna (15.10.2026).
  */
 
+import { useCallback, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 
-import { CandidatesListV2 } from "@/components/v2/pages/CandidatesListV2";
+import {
+  CandidatesListV2,
+  type CandidatesListAddedPerson,
+} from "@/components/v2/pages/CandidatesListV2";
 import {
   championSearchRequirements,
   jobListFilters,
@@ -28,6 +35,9 @@ import {
   requirementLabels,
 } from "@/lib/matching-requirements";
 import { championApi } from "@/lib/api";
+
+import { ManualAddedStrip } from "./ManualAddedStrip";
+import { useUndoWindow } from "./useUndoWindow";
 
 export interface ManualSearchPanelProps {
   jobId: number;
@@ -42,6 +52,29 @@ export function ManualSearchPanel({
   onBulkAdded,
   readOnly = false,
 }: ManualSearchPanelProps) {
+  // Dodani w tym oknie (przeżywa przemontowanie listy po zmianie wymagań).
+  const [added, setAdded] = useState<readonly CandidatesListAddedPerson[]>([]);
+  // Cofnięci — lista z powrotem pokazuje przy nich „Dodaj”.
+  const [undone, setUndone] = useState<ReadonlySet<number>>(() => new Set());
+  const undoWindow = useUndoWindow();
+  const { start: startUndoWindow } = undoWindow;
+  const onAdded = useCallback(
+    (people: CandidatesListAddedPerson[]) => {
+      const ids = new Set(people.map((p) => p.candidateId));
+      // Ponowne dodanie po „Cofnij” = osoba znów na końcu (najnowsza).
+      setAdded((prev) => [...prev.filter((p) => !ids.has(p.candidateId)), ...people]);
+      setUndone((prev) =>
+        [...ids].some((id) => prev.has(id)) ? new Set([...prev].filter((id) => !ids.has(id))) : prev,
+      );
+      startUndoWindow([...ids]);
+      onBulkAdded?.();
+    },
+    [onBulkAdded, startUndoWindow],
+  );
+  const onUndone = useCallback((candidateId: number) => {
+    setAdded((prev) => prev.filter((p) => p.candidateId !== candidateId));
+    setUndone((prev) => new Set(prev).add(candidateId));
+  }, []);
   // Wymagania obowiązkowe z zapisanego kontraktu rekrutacji — ten sam, którego
   // używa przegląd całej bazy. Lista czyta filtry startowe tylko przy
   // montowaniu, więc montujemy ją dopiero PO odpowiedzi, a `key`
@@ -81,23 +114,33 @@ export function ManualSearchPanel({
   const { split, hasRows } = jobSearchPlan(source, critical);
 
   return (
-    <CandidatesListV2
-      // Klucz z TREŚCI wymagań, nie z `dataUpdatedAt`: odświeżenie przy powrocie
-      // do karty z identycznymi danymi nie może kasować wpisanych filtrów.
-      // …i z wymagań do wyszukiwania oraz krytycznych: DL zmienił wiersze =
-      // nowe filtry startowe.
-      key={`${mustLabels ? `must:${mustLabels.join("|")}` : "must:fallback"}#${JSON.stringify(search)}#${JSON.stringify(split)}`}
-      embed={{
-        jobId,
-        jobTitle: job.title,
-        initialFilters: jobListFilters(source, mustLabels, critical),
-        readOnly,
-        onAdded: onBulkAdded,
-        keywordsNote: hasRows
-          ? `Wymagania z rekrutacji. ${mandatorySourceNote(split)} Zmiany tutaj nie zmieniają rekrutacji.`
-          : undefined,
-      }}
-    />
+    <div className="space-y-3">
+      <ManualAddedStrip
+        jobId={jobId}
+        people={added}
+        undoExpired={undoWindow.expired}
+        readOnly={readOnly}
+        onUndone={onUndone}
+      />
+      <CandidatesListV2
+        // Klucz z TREŚCI wymagań, nie z `dataUpdatedAt`: odświeżenie przy powrocie
+        // do karty z identycznymi danymi nie może kasować wpisanych filtrów.
+        // …i z wymagań do wyszukiwania oraz krytycznych: DL zmienił wiersze =
+        // nowe filtry startowe.
+        key={`${mustLabels ? `must:${mustLabels.join("|")}` : "must:fallback"}#${JSON.stringify(search)}#${JSON.stringify(split)}`}
+        embed={{
+          jobId,
+          jobTitle: job.title,
+          initialFilters: jobListFilters(source, mustLabels, critical),
+          readOnly,
+          onAdded,
+          undone,
+          keywordsNote: hasRows
+            ? `Wymagania z rekrutacji. ${mandatorySourceNote(split)} Zmiany tutaj nie zmieniają rekrutacji.`
+            : undefined,
+        }}
+      />
+    </div>
   );
 }
 

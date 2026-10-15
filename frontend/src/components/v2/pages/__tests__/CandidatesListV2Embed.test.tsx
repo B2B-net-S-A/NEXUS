@@ -93,8 +93,8 @@ vi.mock("@/hooks/useCandidateContactFeature", () => ({
   useCandidateContactFeature: () => ({ enabled: false }),
 }));
 vi.mock("@/components/AppShell", () => ({
-  AddCandidateModal: ({ onCreated }: { onCreated?: (id: number) => void }) => (
-    <button type="button" onClick={() => onCreated?.(99)}>
+  AddCandidateModal: ({ onCreated }: { onCreated?: (id: number, fullName?: string) => void }) => (
+    <button type="button" onClick={() => onCreated?.(99, "Nowa Testowa")}>
       Zapisz nowego kandydata
     </button>
   ),
@@ -268,7 +268,11 @@ describe("CandidatesListV2 — „Szukaj ręcznie” z rekrutacji (embed)", () =
         source: "manual_search",
       }),
     );
-    await waitFor(() => expect(onAdded).toHaveBeenCalled());
+    // Okno rekrutacji dostaje dodanych z imieniem jak w wierszu listy
+    // („Dodani teraz” z „Cofnij” i „Pasuje też do”).
+    await waitFor(() =>
+      expect(onAdded).toHaveBeenCalledWith([{ candidateId: 1, fullName: "Ewa Marczak" }]),
+    );
     expect(showSuccess).toHaveBeenCalledWith("Dodano do Nowych: 1.");
     // U4 (audyt 06.10.2026): do odświeżenia listy wiersz mówi „Dodano”
     // i drugie kliknięcie nie jest możliwe.
@@ -297,6 +301,10 @@ describe("CandidatesListV2 — „Szukaj ręcznie” z rekrutacji (embed)", () =
         source: "manual_search",
       }),
     );
+    // Nowej osoby nie ma na liście — imienia nie znamy.
+    await waitFor(() =>
+      expect(onAdded).toHaveBeenCalledWith([{ candidateId: 99, fullName: "Nowa Testowa" }]),
+    );
   });
 
   it("zbiorczo: „Dodaj N do Nowych” z zaznaczonych", async () => {
@@ -316,6 +324,8 @@ describe("CandidatesListV2 — „Szukaj ręcznie” z rekrutacji (embed)", () =
     );
     await waitFor(() => expect(showSuccess).toHaveBeenCalled());
     expect(showSuccess.mock.calls[0][0]).toContain("Pominięto:");
+    // Do okna idą tylko naprawdę dodani — „już w rekrutacji” nie.
+    expect(onAdded).toHaveBeenCalledWith([{ candidateId: 1, fullName: "Ewa Marczak" }]);
     // „Już w rekrutacji” też schodzi z zaznaczenia (U4).
     expect(screen.queryByRole("button", { name: /Dodaj \d+ do Nowych/ })).toBeNull();
   });
@@ -431,4 +441,45 @@ describe("„Szukaj ręcznie” — przycisk Szukaj i pamięć rekrutacji (25.09
       screen.queryByText("Przywrócono Twoje ostatnie wyszukiwanie w tej rekrutacji"),
     ).not.toBeInTheDocument();
   });
+
+  it("po „Cofnij” w „Dodani teraz” osoba wraca do wyników z „Dodaj”, nie z „Dodano”", async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const embed = (undone: ReadonlySet<number>) => ({
+      jobId: 7,
+      jobTitle: "Analityk Systemowy",
+      initialFilters: { ...DEFAULT_FILTERS, status: ["active", "passive"] } as CandidateFilters,
+      onAdded,
+      undone,
+    });
+    const view = render(
+      <QueryClientProvider client={client}>
+        <CandidatesListV2 embed={embed(new Set())} />
+      </QueryClientProvider>,
+    );
+    // Po dodaniu serwer ukrywa Ewę (`recruitment_match=not_assigned`).
+    bulkAdd.mockImplementation(async () => {
+      listItems = [{ id: 2, name: "Piotr", lastname: "Lis", status: "active" }];
+      listTotal = 1;
+      return { added: [1], skipped: [], warnings: [], total_added: 1, total_skipped: 0 };
+    });
+    fireEvent.click(await screen.findByRole("button", { name: "Dodaj Ewa Marczak do Nowych" }));
+    await waitFor(() => expect(onAdded).toHaveBeenCalled());
+    await waitFor(() => expect(screen.queryByText("Ewa Marczak")).not.toBeInTheDocument());
+    // „Cofnij” w pasku: Ewa znów poza rekrutacją, lista ją pokazuje.
+    listItems = [
+      { id: 1, name: "Ewa", lastname: "Marczak", status: "active" },
+      { id: 2, name: "Piotr", lastname: "Lis", status: "active" },
+    ];
+    listTotal = 2;
+    view.rerender(
+      <QueryClientProvider client={client}>
+        <CandidatesListV2 embed={embed(new Set([1]))} />
+      </QueryClientProvider>,
+    );
+    await act(async () => {
+      await client.invalidateQueries({ queryKey: ["candidates-v2"] });
+    });
+    expect(await screen.findByRole("button", { name: "Dodaj Ewa Marczak do Nowych" })).toBeEnabled();
+  });
 });
+
