@@ -1632,6 +1632,38 @@ async def render_branded_cv_for_print(
 
 _render_editor_docx = render_stage_editor_docx
 
+DOCX_MEDIA_TYPE = (
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+)
+
+
+def draft_docx_filename(csv: CandidateStageCV) -> str:
+    """Nazwa pliku Word szkicu CV etapu: „SZKIC_” + nazwa z reguły klienta."""
+    return "SZKIC_" + (csv.branded_docx_filename or f"CV_v{csv.branded_version}.docx")
+
+
+async def draft_docx_for_download(
+    db: AsyncSession, csv: CandidateStageCV, content_html: str
+) -> bytes:
+    """Plik Word SZKICU CV etapu z podanej treści edytora. Bez commitu i bez
+    wpisu pobrania — robi je wołający, dopiero gdy plik wychodzi.
+
+    Wspólne dla „Pobierz” na ekranie (``preview-docx``) i pobrania kluczem
+    API v1 (``integrations_v1/cv.py``), żeby oba dawały ten sam plik i tę
+    samą odmowę: etap bez CV i CV zatwierdzone — 409, brak zrzutu zgody
+    RODO — 409 ``consent_required``. Wołający sprawdził dostęp do etapu.
+    """
+    if csv.branded_status == "none":
+        raise HTTPException(409, NO_GENERATED_CV_MESSAGE)
+    if csv.branded_status != "draft":
+        raise HTTPException(
+            409, "Podgląd dotyczy szkicu. Pobierz zatwierdzoną wersję CV."
+        )
+    # DOCX renderuje się z obrazu zgody KOPII etapu (R7-X4-4).
+    consent_gate.ensure_copy_downloadable(await _generated_for_stage_cv(db, csv), csv)
+    docx, _ = await _render_editor_docx(csv, content_html)
+    return docx
+
 
 @router.post("/candidates/stages/{stage_id}/cv/branded/preview-docx")
 async def preview_branded_docx(
@@ -1645,15 +1677,7 @@ async def preview_branded_docx(
     """Render the current editor contents and frozen assets without approval."""
     csv = await _load_csv_for_stage(db, stage_id, current_user, lock=True)
     check_revision(csv, payload.expected_revision)
-    if csv.branded_status == "none":
-        raise HTTPException(409, NO_GENERATED_CV_MESSAGE)
-    if csv.branded_status != "draft":
-        raise HTTPException(
-            409, "Podgląd dotyczy szkicu. Pobierz zatwierdzoną wersję CV."
-        )
-    # DOCX renderuje się z obrazu zgody KOPII etapu (R7-X4-4).
-    consent_gate.ensure_copy_downloadable(await _generated_for_stage_cv(db, csv), csv)
-    docx, _ = await _render_editor_docx(csv, payload.content_html)
+    docx = await draft_docx_for_download(db, csv, payload.content_html)
     await log_cv_download(
         db,
         intent=intent,
@@ -1667,11 +1691,10 @@ async def preview_branded_docx(
     )
     return Response(
         content=docx,
-        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        media_type=DOCX_MEDIA_TYPE,
         headers={
             "Content-Disposition": content_disposition_attachment(
-                "SZKIC_"
-                + (csv.branded_docx_filename or f"CV_v{csv.branded_version}.docx")
+                draft_docx_filename(csv)
             ),
             "Cache-Control": "private, no-store",
         },
@@ -1814,16 +1837,17 @@ async def get_branded_cv_version(
     return CVVersionContent(**content)
 
 
-@router.get("/candidates/stages/{stage_id}/cv/branded/versions/{version_number}/docx")
-async def download_approved_docx(
-    stage_id: int,
-    version_number: int,
-    current_user: CandidateDocumentAccess,
-    db: AsyncSession = Depends(get_db),
-    intent: Optional[str] = None,
-    surface: Optional[str] = None,
-) -> Response:
-    csv = await _load_csv_for_stage(db, stage_id, current_user, read_access=True)
+async def approved_version_for_download(
+    db: AsyncSession, csv: CandidateStageCV, version_number: int
+) -> CvDocumentVersion:
+    """Zatwierdzona wersja CV etapu, której plik Word wolno wydać. Bez commitu
+    i bez wpisu pobrania — robi je wołający, dopiero gdy plik wychodzi.
+
+    Wspólne dla „Pobierz” na ekranie (``…/versions/{n}/docx``) i pobrania
+    kluczem API v1 (``integrations_v1/cv.py``): brak wersji — 404, brak
+    zrzutu zgody RODO w TEJ wersji — 409 ``consent_required``, wersja bez
+    zamrożonego pliku Word — 409. Wołający sprawdził dostęp do etapu.
+    """
     version = await db.scalar(
         select(CvDocumentVersion).where(
             CvDocumentVersion.candidate_stage_cv_id == csv.id,
@@ -1844,6 +1868,33 @@ async def download_approved_docx(
             409,
             "Ta historyczna wersja nie ma zatwierdzonego DOCX. Utwórz i zatwierdź nową wersję.",
         )
+    return version
+
+
+def approved_docx_headers(version: CvDocumentVersion) -> dict[str, str]:
+    """Nagłówki pliku Word zatwierdzonej wersji (nazwa z reguły klienta)."""
+    return {
+        "Content-Disposition": content_disposition_attachment(
+            version.docx_filename or "CV.docx"
+        ),
+        "ETag": f'"{version.docx_sha256}"',
+        "X-CV-Version": str(version.version),
+        "X-CV-Content-SHA256": version.content_sha256,
+        "Cache-Control": "private, no-store",
+    }
+
+
+@router.get("/candidates/stages/{stage_id}/cv/branded/versions/{version_number}/docx")
+async def download_approved_docx(
+    stage_id: int,
+    version_number: int,
+    current_user: CandidateDocumentAccess,
+    db: AsyncSession = Depends(get_db),
+    intent: Optional[str] = None,
+    surface: Optional[str] = None,
+) -> Response:
+    csv = await _load_csv_for_stage(db, stage_id, current_user, read_access=True)
+    version = await approved_version_for_download(db, csv, version_number)
     await log_cv_download(
         db,
         intent=intent,
@@ -1857,16 +1908,8 @@ async def download_approved_docx(
     )
     return Response(
         content=version.docx_content,
-        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        headers={
-            "Content-Disposition": content_disposition_attachment(
-                version.docx_filename or "CV.docx"
-            ),
-            "ETag": f'"{version.docx_sha256}"',
-            "X-CV-Version": str(version.version),
-            "X-CV-Content-SHA256": version.content_sha256,
-            "Cache-Control": "private, no-store",
-        },
+        media_type=DOCX_MEDIA_TYPE,
+        headers=approved_docx_headers(version),
     )
 
 

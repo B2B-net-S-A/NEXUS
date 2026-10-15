@@ -6813,6 +6813,25 @@ export interface ServiceAccountWriteDto {
   completed_at: string | null;
 }
 
+/** Webhook konta (API v1 `/webhooks`) — bez sekretu; adres bez parametrów zapytania. */
+export interface ServiceAccountWebhookDto {
+  id: number;
+  url: string;
+  /** Pusta lista = wszystkie zdarzenia, które konto widzi. */
+  event_types: string[];
+  is_active: boolean;
+  last_event_id: number;
+  failure_count: number;
+  next_attempt_at: string | null;
+  disabled_reason: string | null;
+  disabled_at: string | null;
+  last_delivery_at: string | null;
+  last_status: number | null;
+  last_error: string | null;
+  test_pending: boolean;
+  created_at: string;
+}
+
 const SERVICE_ACCOUNTS_URL = "/api/settings/service-accounts";
 
 export const serviceAccountsApi = {
@@ -6839,6 +6858,8 @@ export const serviceAccountsApi = {
     api.get<ServiceAccountWriteDto[]>(`${SERVICE_ACCOUNTS_URL}/${id}/writes`, {
       params: { limit },
     }),
+  webhooks: (id: number) =>
+    api.get<ServiceAccountWebhookDto[]>(`${SERVICE_ACCOUNTS_URL}/${id}/webhooks`),
 };
 
 // ── Multi-source attribution (Traffit gap #4) ────────────────────────────────

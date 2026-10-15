@@ -13,6 +13,8 @@ import {
   shortScopeLabel,
   slugError,
   sortKeys,
+  webhookEventsLabel,
+  webhookState,
   writeStateLabel,
 } from "./api-keys-model";
 
@@ -89,6 +91,29 @@ describe("groupScopes — grupy uprawnień na ekranie", () => {
       "recruitments:read",
       "candidates:contact",
       "candidates:cv",
+    ]);
+  });
+
+  it("zakładanie rekrutacji, CV, kalendarz, zgłoszenia i raporty mają swoje miejsca w grupach", () => {
+    const groups = groupScopes(
+      [
+        "webhooks:manage",
+        "applications:write",
+        "calendar:read",
+        "insights:read",
+        "cv:generate",
+        "recruitments:create",
+        "events:read",
+      ],
+      [],
+    );
+    expect(groups.map((g) => [g.title, g.scopes.map((s) => s.value)])).toEqual([
+      ["Rekrutacja i kandydaci — odczyt", ["calendar:read"]],
+      [
+        "Rekrutacja i kandydaci — zapis",
+        ["recruitments:create", "cv:generate", "applications:write"],
+      ],
+      ["Raporty i zdarzenia", ["insights:read", "events:read", "webhooks:manage"]],
     ]);
   });
 
@@ -189,5 +214,42 @@ describe("walidacja formularzy", () => {
     expect(writeStateLabel("done")).toBe("Zapisano");
     expect(writeStateLabel("pending")).toBe("W toku");
     expect(writeStateLabel("other")).toBe("other");
+  });
+});
+
+describe("webhookState — stan webhooka na ekranie", () => {
+  const hook = {
+    id: 1,
+    url: "https://example.com/hook",
+    event_types: [],
+    is_active: true,
+    last_event_id: 0,
+    failure_count: 0,
+    next_attempt_at: null,
+    disabled_reason: null,
+    disabled_at: null,
+    last_delivery_at: null,
+    last_status: null,
+    last_error: null,
+    test_pending: false,
+    created_at: at(-1),
+  };
+
+  it("działający, z błędami i terminem kolejnej próby, wyłączony z powodem z serwera", () => {
+    expect(webhookState(hook)).toEqual({ label: "Działa", tone: "success" });
+    const failing = webhookState({ ...hook, failure_count: 3, next_attempt_at: "2026-10-14T10:05:00Z" });
+    expect(failing.tone).toBe("warning");
+    expect(failing.label).toMatch(/^Nieudane próby z rzędu: 3, kolejna próba /);
+    expect(webhookState({ ...hook, is_active: false, disabled_reason: "Powód" })).toEqual({
+      label: "Wyłączony: Powód",
+      tone: "danger",
+    });
+    // Wyłączenie wygrywa z licznikiem błędów; bez powodu — samo „Wyłączony”.
+    expect(webhookState({ ...hook, is_active: false, failure_count: 20 }).label).toBe("Wyłączony");
+  });
+
+  it("pusta lista typów to wszystkie zdarzenia konta", () => {
+    expect(webhookEventsLabel([])).toBe("Wszystkie dostępne");
+    expect(webhookEventsLabel(["card.moved", "note.created"])).toBe("card.moved, note.created");
   });
 });

@@ -23,9 +23,10 @@ i cała konstrukcja najmniejszych uprawnień byłaby dekoracją.
 
 import logging
 from datetime import datetime, timezone
-from typing import List
+from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -35,6 +36,7 @@ from app.api.deps import AdminUser
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.rate_limit import limiter
+from app.models.integration_event import IntegrationWebhook
 from app.models.integration_write_receipt import IntegrationWriteReceipt
 from app.models.service_account import (
     SCOPE_LABELS,
@@ -54,6 +56,7 @@ from app.schemas.service_account import (
     ServiceAccountWriteOut,
 )
 from app.services.compass_service_account_bootstrap import retire_key_ids
+from app.services.integration_webhooks import display_url
 from app.services.service_account_auth import default_expires_at, generate_api_key
 
 logger = logging.getLogger(__name__)
@@ -308,6 +311,63 @@ async def list_writes(
         .limit(max(1, min(limit, 200)))
     )
     return list(result.scalars().all())
+
+
+class ServiceAccountWebhookOut(BaseModel):
+    """Webhook konta na ekranie „Klucze API” (0448) — bez sekretu i parametrów adresu."""
+
+    id: int
+    url: str
+    event_types: List[str]
+    is_active: bool
+    last_event_id: int
+    failure_count: int
+    next_attempt_at: Optional[datetime]
+    disabled_reason: Optional[str]
+    disabled_at: Optional[datetime]
+    last_delivery_at: Optional[datetime]
+    last_status: Optional[int]
+    last_error: Optional[str]
+    test_pending: bool
+    created_at: datetime
+
+
+@router.get("/{account_id}/webhooks", response_model=List[ServiceAccountWebhookOut])
+async def list_webhooks(
+    account_id: int,
+    _: AdminUser,
+    db: AsyncSession = Depends(get_db),
+) -> List[ServiceAccountWebhookOut]:
+    """Webhooki konta (API v1, ``/webhooks``) ze stanem dostarczeń — odczyt.
+
+    Adres bez parametrów zapytania: odbiorcy (np. narzędzia no-code) trzymają
+    w nich własne tokeny, a ekran ma pokazać tylko, DOKĄD idą zdarzenia.
+    """
+    await _get_account(db, account_id)
+    rows = await db.scalars(
+        select(IntegrationWebhook)
+        .where(IntegrationWebhook.service_account_id == account_id)
+        .order_by(IntegrationWebhook.id)
+    )
+    return [
+        ServiceAccountWebhookOut(
+            id=hook.id,
+            url=display_url(hook.url),
+            event_types=[t for t in (hook.event_types or []) if isinstance(t, str)],
+            is_active=bool(hook.is_active),
+            last_event_id=int(hook.last_event_id or 0),
+            failure_count=int(hook.failure_count or 0),
+            next_attempt_at=hook.next_attempt_at,
+            disabled_reason=hook.disabled_reason,
+            disabled_at=hook.disabled_at,
+            last_delivery_at=hook.last_delivery_at,
+            last_status=hook.last_status,
+            last_error=hook.last_error,
+            test_pending=hook.test_requested_at is not None,
+            created_at=hook.created_at,
+        )
+        for hook in rows
+    ]
 
 
 @router.get("/config", response_model=dict)

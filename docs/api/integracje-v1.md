@@ -1,8 +1,10 @@
 # NEXUS — API integracyjne v1
 
 API dla automatyzacji procesów firmy: **rozliczanie klientów** (klienci,
-kontrakty, zamówienia, zużycie MD, Finanse, faktury) oraz **rekrutacja
-i kandydaci** (rekrutacje, Tablica, kandydaci, CV, notatki — od 15.10.2026).
+kontrakty, zamówienia, zużycie MD, Finanse, faktury), **rekrutacja
+i kandydaci** (rekrutacje, Tablica, kandydaci, CV, notatki) oraz zakładanie
+rekrutacji z requestu, CV dla klienta, rozmowy u klienta, zgłoszenia z linku,
+Insights, Akademia i zdarzenia z webhookami.
 
 - Adres bazowy: `https://api.nexus.dynaminds.pl/api/integrations/v1`
 - Specyfikacja OpenAPI (do importu w Postmanie, n8n, Power Automate):
@@ -57,7 +59,7 @@ odejście czy awans pracownika nie zmienia uprawnień automatyzacji.
 | `orders:write` | Zamówienia: zakończenie, przedłużenie i anulowanie zamówienia MD/kosztowego, zakończenie zamówienia okresowego, data końca i notatka, PDF zamówienia |
 | `contracts:write` | Kontrakty: data końca w przyszłości |
 | `contracts:status` | Kontrakty: zmiana statusu i data końca, która kończy albo przywraca współpracę |
-| `amounts:write` | Zmiana stawek i kwot przy zapisie zamówień (stawki zamówienia, osoby i budżety w przedłużeniu) — obejmuje `amounts:read` |
+| `amounts:write` | Zmiana stawek i kwot przy zapisie zamówień (stawki zamówienia, osoby i budżety w przedłużeniu) oraz budżet zakładanej rekrutacji — obejmuje `amounts:read` |
 | `recruitments:read` | Rekrutacje: lista, szczegóły, wymagania (Champion), Tablica z kartami, historia ruchów, kolumny |
 | `recruitments:write` | Dodanie osób do rekrutacji, przesunięcie karty — obejmuje `recruitments:read` |
 | `candidates:read` | Kandydaci: lista i profil **bez danych kontaktowych** (umiejętności, miasto, dostępność, kategoria, „W bazie od”, „Pracuje u nas”, rekrutacje) |
@@ -66,6 +68,15 @@ odejście czy awans pracownika nie zmienia uprawnień automatyzacji.
 | `candidates:write` | Nowy kandydat, wgranie CV — obejmuje `candidates:read` |
 | `notes:read` | Notatki kandydata, odpowiedzi screeningu, karta rekomendacji |
 | `notes:write` | Nowa notatka (notatka systemowa) — obejmuje `notes:read` |
+| `recruitments:create` | Odczyt requestu klienta przez AI i założenie rekrutacji |
+| `cv:generate` | CV dla klienta z generatora: generowanie i status; pobranie pliku także z `candidates:cv` |
+| `calendar:read` | Rozmowy u klienta, prepy i flagi debriefu (bez treści prywatnych wydarzeń) |
+| `applications:read` | Zgłoszenia z linku rekrutacji: lista, szczegóły, ocena AI |
+| `applications:write` | Rozpatrzenie zgłoszenia (dołącz, scal, utwórz, odrzuć) — obejmuje `applications:read` |
+| `insights:read` | Raporty: lejek rekrutacji, placementy, aktywność zespołu i Ligi, cele |
+| `academy:read` | Akademia: programy, nabór, uczestnicy (kontakt z `candidates:contact`) |
+| `events:read` | Kanał zdarzeń: co się zmieniło (same identyfikatory) |
+| `webhooks:manage` | Webhooki konta: NEXUS sam wysyła zdarzenia na Twój adres |
 
 - `X:write` obejmuje `X:read`, a `amounts:read` obejmuje `sales_amounts:read`.
 - **Zapis kwot** wymaga `amounts:write` niezależnie od `orders:write` — zapis bez
@@ -404,6 +415,227 @@ odejście czy awans pracownika nie zmienia uprawnień automatyzacji.
     bez automatycznego CV po „Zweryfikowanym”; w historii karty autorem jest
     konto serwisowe.
   - Bez `dry_run` (ruch zatwierdza się w trakcie).
+
+### Rekrutacje — zakładanie z requestu klienta
+
+| Metoda | Ścieżka | Scope |
+|---|---|---|
+| POST | `/recruitments/read-request` | `recruitments:create` |
+| POST | `/recruitments` (`?dry_run=`) | `recruitments:create` (+ `amounts:write` dla budżetu) |
+
+Dwa kroki, jak na ekranie `/jobs/new`: najpierw odczyt treści requestu, potem
+założenie z polami, które zatwierdziła automatyzacja albo człowiek.
+
+- **Odczyt** — `{"client_id": …, "text": "<treść requestu, 30–20 000 znaków>"}`.
+  NEXUS czyta treść tym samym modelem co ekran i nic nie zapisuje. Odpowiedź:
+  `proposal` (pola w kształcie ciała `POST /recruitments`, z podpowiedzianą
+  kategorią), `missing` (braki wobec bramki przekazania: `role`, `must`,
+  `budget`, `work_mode`, `office_days`, `office_city`, `context`, `questions`,
+  `search`, `critical`, `deal_breaker`), `notes`, `hints` (robocza nazwa,
+  hiring manager z treści, kategoria). Gdy model nie odpowie: `200` z pustą
+  propozycją i `ai_failed: true` — założenie i tak jest możliwe. Limit jak dla
+  zapisów (każdy odczyt to wywołanie AI).
+- **Założenie** — wymagane `client_id` (klient z „Aktywnych” albo „Relacyjnych”,
+  inaczej `422 client_not_selectable`), `title` (nazwa stanowiska u klienta)
+  i `delivery_lead_id`. Dalej pola formularza: `role_name`, `working_title`,
+  `client_reference`, `recruiter_id` (bez niego przydziela automat), `priority`
+  (`p1`, `p2`, `accepting`), `competence_category_id` (tylko aktywna, inaczej
+  `422 category_not_active`), `requirements`
+  (`[{"words": [...], "level": "critical"|"must"|"nice"}]`), `no_critical`,
+  `seniority_min_years`, `language`, `contract_length`, `start_date`,
+  `rate_budget_hourly_min` / `rate_budget_hourly` (budżet „od–do”, PLN/h —
+  wymaga `amounts:write`, bez niego `403 insufficient_scope`), `remote_policy`
+  (`onsite`, `hybrid`, `remote`) z `onsite_days_per_week` albo
+  `onsite_days_per_month`, `location`, `deadline` / `deadline_not_provided`,
+  `headcount`, `hiring_manager_contact_id` (istniejący kontakt klienta) albo
+  `hiring_manager_not_provided`, `description`, `project_about`,
+  `responsibilities`, `selling_points`, `screening_questions`
+  (`[{"question", "ideal_answer", "deal_breaker"}]`). Nieznane pole → `422`.
+  - Rekrutacja powstaje od razu przekazana do searchu i opublikowana — bez
+    szkiców, jak przycisk „Utwórz i opublikuj”. Braki wobec bramki →
+    `422 job_not_ready` z listą w `details.blockers`, nic nie powstaje.
+  - Odpowiedź `201 {"job_id", "reference_number", "notices"}`;
+    `dry_run=true` sprawdza wszystko bez zapisu.
+  - Autorem jest konto serwisowe. Delivery Lead dostaje dzwonek „Nowa rekrutacja
+    z integracji”, rekruter — zwykłe „Nowy request do pracy”.
+  - Węziej niż ekran: bez kopiowania z szablonu, podobnych rekrutacji, plików,
+    wykluczeń z wyszukiwania i zakładania nowych kontaktów klienta.
+
+### CV dla klienta
+
+| Metoda | Ścieżka | Scope |
+|---|---|---|
+| POST | `/recruitments/{job_id}/candidates/{candidate_id}/cv` | `cv:generate` |
+| GET | `/recruitments/{job_id}/candidates/{candidate_id}/cv` | `cv:generate` |
+| GET | `/recruitments/{job_id}/candidates/{candidate_id}/cv/file?format=docx\|pdf` | `cv:generate` + `candidates:cv` |
+
+- **Generowanie** działa jak przycisk na karcie osoby w rekrutacji: ten sam
+  generator, reguły CV klienta i klauzula RODO. Ustawienia (główne CV, język,
+  tryb, stanowisko = nazwa rekrutacji, numer projektu u klienta) NEXUS dobiera
+  sam, jak karta. Opcjonalnie `{"note_for_generator": "…"}` (do 300 znaków) —
+  uwaga dla generatora jak „Napisz od nowa”. Odpowiedź `202` z `generation_id`
+  i `status: "processing"`; generacja trwa w tle — postęp w statusie.
+  - `409 cv_locked_after_send` — karta jest na „CV wysłane” albo dalej;
+    `409 cv_generation_in_progress` — generacja dla tej pary już trwa;
+    klient wymaga zrzutu zgody RODO, a osoba go nie ma — `422` przed generacją
+    albo `409 consent_required` przy pobraniu (zrzut wgrywa człowiek na ekranie).
+  - Gdy para ma już szkic CV, nowa generacja **nie podmienia go sama** (na
+    ekranie robi to „Użyj nowej wersji”) — w statusie widać ją jako
+    `generations[].attached: false`.
+- **Status** — `status` (`none`, `processing`, `ready`, `failed`), `finalized`
+  (CV zatwierdzone), `version`, `versions[]`, ostatnie generacje z kodem błędu,
+  podsumowanie QC (liczby, bez treści), `consent_required` / `consent_missing`.
+- **Plik** — ten sam co „Pobierz” w panelu osoby: zatwierdzone CV albo szkic
+  z bieżącej treści edytora (nazwa `SZKIC_…`, nagłówek `X-CV-State`). PDF powstaje
+  z tego samego pliku Word. Bez CV pary → `404 cv_not_ready`; brak zrzutu zgody →
+  `409 consent_required`. Pobranie zostawia wpis w historii kandydata z nazwą
+  konta serwisowego. Limit jak dla zapisów (30/min).
+- Autorem generacji jest konto serwisowe; nikt nie dostaje powiadomienia
+  „CV gotowe”.
+
+### Kalendarz: rozmowy u klienta
+
+| Metoda | Ścieżka | Scope |
+|---|---|---|
+| GET | `/interviews?job_id=&candidate_id=&from=&to=&status=` | `calendar:read` |
+| GET | `/interviews/{event_id}` | `calendar:read` |
+
+- Tylko rozmowy u klienta (prywatne wydarzenia kalendarzy nie wychodzą). Wiersz:
+  para (kandydat, rekrutacja, klient), `start`, `end`, `status`, faza rozmowy
+  (`scheduled`, `call_due`, `debrief_overdue`, `debriefed`, `cancelled`),
+  `debrief_done`, runda i stan cyklu pary jak znacznik na Tablicy (w tym prośba
+  o terminy). Bez tytułu, opisu, miejsca, uczestników i linków do spotkania.
+- `from` / `to` filtrują po starcie rozmowy; `status` można powtórzyć.
+- Szczegóły dodają prepy tej rozmowy (termin, status, transkrypcja, ocena)
+  i debrief: same flagi zawsze, komentarz i pytania klienta z `notes:read`,
+  warunek przyjęcia oferty z `notes:read` + `amounts:read`.
+
+### Zgłoszenia z linku rekrutacji
+
+| Metoda | Ścieżka | Scope |
+|---|---|---|
+| GET | `/applications?job_id=&status=&updated_since=` | `applications:read` |
+| GET | `/applications/{id}` | `applications:read` |
+| GET | `/applications/{id}/cv` | `applications:read` + `candidates:cv` |
+| POST | `/applications/{id}/resolve` (`?dry_run=`) | `applications:write` |
+
+- Zgłoszenie powstaje, gdy przez link rekrutacji aplikuje osoba, której e-mail
+  NEXUS już zna. **Nowa osoba** od razu staje się kandydatem na Tablicy
+  (kolumna „Nowi”) — takie zgłoszenia śledź przez [zdarzenia](#zdarzenia-i-webhooki)
+  (`application.received`) albo `/recruitments/{job_id}/board`.
+- `status`: `pending_review`, `linked`, `merged`, `created`, `rejected` (można
+  powtórzyć). Wiersz: rekrutacja, daty, dopasowany kandydat, `has_cv`, ocena AI
+  (werdykt, znalezione wymagania, powody — cytaty z CV tylko z `candidates:cv`).
+  Imię, e-mail, telefon i LinkedIn tylko z `candidates:contact`.
+- Szczegóły dodają odpowiedzi z formularza (wiadomość kandydata tylko
+  z `candidates:contact`, oczekiwana stawka tylko z `amounts:read`) i dane
+  pliku CV.
+- **Rozpatrzenie** — `{"action": "link"|"merge"|"create"|"reject",
+  "candidate_id": …, "reason": …}`, te same reguły co na ekranie:
+  - `link` dołącza CV do profilu, `merge` dodatkowo uzupełnia puste pola kontaktu;
+    oba tylko do kandydata z **tym samym e-mailem** (inny → `409 not_same_person`);
+  - `create` zakłada kandydata; istniejący e-mail → `409 duplicate_candidate`,
+    e-mail osoby usuniętej na jej żądanie → `409 candidate_erased`;
+  - `reject` wymaga `reason` (trafia do historii);
+  - drugie rozpatrzenie → `409 already_resolved`.
+  - `dry_run=true` sprawdza reguły bez zapisu.
+
+### Insights
+
+| Metoda | Ścieżka | Scope |
+|---|---|---|
+| GET | `/insights/recruitment?from=&to=&job_id=` | `insights:read` |
+| GET | `/insights/placements?from=&to=` | `insights:read` |
+| GET | `/insights/team?from=&to=` | `insights:read` |
+| GET | `/insights/goals` | `insights:read` |
+
+- `from` / `to` — dni kalendarza firmy (włącznie), razem, najwyżej 366 dni.
+  Bez nich: poprzedni pełny miesiąc. Zły zakres → `422 invalid_period`.
+  Każda odpowiedź ma `period` i `generated_at`.
+- `/recruitment` — lejek: ile par kandydat–rekrutacja pierwszy raz doszło do
+  każdego etapu (dodani, screening, zweryfikowani, QC CV, CV wysłane, rozmowa,
+  akceptacja, zatrudnieni), zamknięcia z głównymi powodami, stan „teraz”;
+  razem i per miesiąc. Same liczby.
+- `/placements` — placementy, wejścia i zejścia konsultantów, rezygnacje,
+  aktywne kontrakty per miesiąc i per klient. Kwoty: przychód z
+  `sales_amounts:read`, koszt i marża z `amounts:read`.
+- `/team` — to, co ekran pokazuje wszystkim: ranking „Aktywność zespołu” i Ligi
+  (rekruterów i Delivery Leadów) za kwartał, w którym leży `to`. Nagrody
+  w konkursach tylko z `amounts:read`. Tabele „Ludzie” i indywidualnych celów
+  zostają na ekranie.
+- `/goals` — katalog celów KPI z celem roli i postęp zespołu rekrutacji.
+- Pierwsze zapytanie o długi okres może trwać kilka sekund.
+
+### Akademia
+
+| Metoda | Ścieżka | Scope |
+|---|---|---|
+| GET | `/academy/programs?is_active=` | `academy:read` |
+| GET | `/academy/programs/{id}` | `academy:read` |
+| GET | `/academy/programs/{id}/participants?status=` | `academy:read` (+ `candidates:contact` dla kontaktu) |
+
+- Programy: kryteria, terminy, liczby zgłoszeń per etap, najbliższa edycja;
+  szczegóły dodają źródła naboru, sesje w biurze i edycje.
+- Uczestnicy (stronicowane): imię i nazwisko, etap (`new`, `to_call`,
+  `scheduled`, `task_given`, `task_passed`, `contract_sent`, `signed`,
+  `rejected`, `withdrew`), daty. E-mail i telefon tylko z `candidates:contact`;
+  notatki z naboru i powody odrzucenia nie wychodzą.
+
+### Zdarzenia i webhooki
+
+| Metoda | Ścieżka | Scope |
+|---|---|---|
+| GET | `/events?after=&types=&limit=` | `events:read` |
+| GET | `/webhooks` | `webhooks:manage` |
+| POST | `/webhooks` | `webhooks:manage` + `events:read` |
+| DELETE | `/webhooks/{id}` | `webhooks:manage` |
+| POST | `/webhooks/{id}/test` | `webhooks:manage` |
+
+Zdarzenie mówi **co się zmieniło**, nie niesie danych: `id` (kursor), `type`,
+`occurred_at` i `refs` z samymi identyfikatorami. Dane pobierasz zwykłymi
+trasami z ich scope'ami. Klucz widzi tylko zdarzenia z obszarów, do których ma
+scope; zdarzeń rekrutacji klientów ukrytych i usuniętych nie ma (jak w
+`/recruitments`).
+
+| Typ | Kiedy | `refs` | Widoczne ze scope'em |
+|---|---|---|---|
+| `candidate.created` | nowy kandydat | `candidate_id` | `candidates:read` |
+| `card.moved` | karta weszła do kolumny (także dodanie do rekrutacji) | `candidate_id`, `job_id`, `stage`, `stage_entry_id` | `recruitments:read` |
+| `note.created` | nowa notatka | `note_id`, `candidate_id`, `job_id`, `contract_id` | `notes:read` |
+| `recruitment.created` / `.closed` / `.reopened` | rekrutacja założona, zamknięta, wznowiona | `job_id` | `recruitments:read` |
+| `application.received` | zgłoszenie z linku rekrutacji (także nowa osoba wprost na Tablicę) | `application_id` albo `null`, `candidate_id`, `job_id`, `stage_id` | `applications:read` |
+| `order.changed` | zmiana w zamówieniu (jak w Finanse → Zmiany) | `order_change_id`, `order_id`, `order_group_id`, `contract_id`, `client_id` | `orders:read` |
+| `contract.status_changed` | zmiana statusu kontraktu | `contract_id`, `status`, `previous_status` | `contracts:read` |
+| `md_import.created` | nowy import raportu MD | `md_import_id`, `period_month` | `md:read` |
+| `invoice.created` / `.updated` | faktura wystawiona / zmieniona | `invoice_id`, `contract_id` | `invoices:read` |
+
+- **Kanał** — `GET /events?after=<ostatni next_after>`: zdarzenia rosnąco po `id`,
+  `limit` do 500, `types` po przecinku. Zapamiętaj `next_after` i odpytuj dalej;
+  `has_more: true` = pobierz od razu kolejną stronę. Zdarzenie trafia do kanału
+  do ~10 s po zmianie i jest w nim **30 dni**.
+- **Webhook** — `POST /webhooks {"url": "https://…", "event_types": [...]}`
+  (pusta lista = wszystkie typy, które konto widzi). Odpowiedź ma **sekret
+  podpisu `whsec_…` — pokazany raz** (powtórka z tym samym `Idempotency-Key` ma
+  `secret: null`). Do 5 webhooków na konto; nowy dostaje zdarzenia od chwili
+  założenia (starsze są w kanale).
+  - Adres: tylko `https`, port 443, publiczny (adresy prywatne i lokalne
+    odrzucane przy zapisie i przed każdą wysyłką), bez przekierowań.
+  - Wysyłka: `POST` z `{"webhook_id", "sent_at", "events": [...]}` (do 100
+    zdarzeń), nagłówki `X-Nexus-Signature: sha256=<HMAC-SHA256 surowej treści
+    sekretem>`, `X-Nexus-Event-Id` (ostatnie zdarzenie w paczce),
+    `X-Nexus-Webhook-Id`. **Sprawdzaj podpis** przed użyciem treści i odpowiadaj
+    `2xx` w 10 s.
+  - Dostarczenie „co najmniej raz” — ta sama paczka może przyjść drugi raz;
+    odrzucaj zdarzenia o znanym `id`.
+  - Błąd albo brak odpowiedzi → ponowienie z rosnącym odstępem (30 s … 1 h);
+    po 20 porażkach z rzędu webhook się wyłącza z powodem (widać go w
+    `GET /webhooks` i na ekranie „Klucze API”). `POST /webhooks/{id}/test`
+    wysyła zdarzenie `webhook.test`; udany test włącza webhook z powrotem i wysyła
+    zaległości od miejsca, w którym stanął.
+  - Zmiana sekretu: usuń webhook i załóż nowy.
+- Zdarzeń nie dają zmiany robione hurtowo poza aplikacją (np. nocne
+  oznaczanie kontraktów „kończące się”) ani założenie kontraktu — takie dane
+  odświeżaj przez `updated_since` na listach.
 
 
 ---

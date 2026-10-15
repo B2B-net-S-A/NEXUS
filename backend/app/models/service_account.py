@@ -87,8 +87,8 @@ class ServiceScope(str, enum.Enum):
     # Automatyzacje procesów firmy, zaczynając od rozliczania klientów. Scope'y
     # otwierają WYŁĄCZNIE trasy v1 (osobny pakiet ``api/integrations_v1``) —
     # trasy ekranów dalej wiszą na ``get_current_user`` i dla klucza są 401.
-    # Danych kandydatów, rekrutacji i notatek v1 nie wystawia w ogóle (RODO),
-    # więc ``candidate:*`` nadal nie istnieje. ``X:write`` obejmuje ``X:read``
+    # Dane kandydatów są od 15.10.2026 w osobnych scope'ach ``candidates:*``
+    # (niżej); ogólne ``candidate:read`` nadal nie istnieje. ``X:write`` obejmuje ``X:read``
     # (``implied_scopes``). Kwoty w zamówieniach i kontraktach są osobnym
     # scope'em, jak „Stawki i kwoty: podgląd” w dziewięciu uprawnieniach ludzi.
     clients_read = "clients:read"
@@ -134,6 +134,21 @@ class ServiceScope(str, enum.Enum):
     candidates_write = "candidates:write"
     notes_read = "notes:read"
     notes_write = "notes:write"
+    # ── Reszta procesów (decyzja Artura 15.10.2026: „rób wszystko”) ──
+    # Zakładanie rekrutacji to osobna, szersza moc niż ruch karty.
+    recruitments_create = "recruitments:create"
+    # CV dla klienta z generatora (treść = dane osobowe; pobranie gotowego CV
+    # wymaga też ``candidates:cv``).
+    cv_generate = "cv:generate"
+    calendar_read = "calendar:read"
+    applications_read = "applications:read"
+    applications_write = "applications:write"
+    insights_read = "insights:read"
+    academy_read = "academy:read"
+    # Zdarzenia: kanał zdarzeń (same identyfikatory, bez danych osobowych)
+    # i zarządzanie własnymi webhookami konta.
+    events_read = "events:read"
+    webhooks_manage = "webhooks:manage"
 
 
 SCOPE_LABELS: dict[ServiceScope, str] = {
@@ -160,7 +175,9 @@ SCOPE_LABELS: dict[ServiceScope, str] = {
     ),
     ServiceScope.contracts_write: "Kontrakty: zapis (data końca w przyszłości)",
     ServiceScope.contracts_status: "Kontrakty: zmiana statusu i zakończenie współpracy",
-    ServiceScope.amounts_write: "Stawki i kwoty: zmiana w zamówieniach",
+    ServiceScope.amounts_write: (
+        "Stawki i kwoty: zmiana w zamówieniach i budżet zakładanej rekrutacji"
+    ),
     ServiceScope.recruitments_read: (
         "Rekrutacje: odczyt (lista, wymagania, Tablica, historia ruchów)"
     ),
@@ -178,6 +195,19 @@ SCOPE_LABELS: dict[ServiceScope, str] = {
     ServiceScope.candidates_write: "Kandydaci: zapis (nowy kandydat, wgranie CV)",
     ServiceScope.notes_read: "Notatki i screening: odczyt",
     ServiceScope.notes_write: "Notatki: zapis",
+    ServiceScope.recruitments_create: (
+        "Rekrutacje: zakładanie z requestu klienta (z odczytem treści przez AI)"
+    ),
+    ServiceScope.cv_generate: "CV dla klienta: generowanie z generatora CV",
+    ServiceScope.calendar_read: "Kalendarz: rozmowy u klienta i prepy (odczyt)",
+    ServiceScope.applications_read: "Zgłoszenia z linku rekrutacji: odczyt",
+    ServiceScope.applications_write: (
+        "Zgłoszenia z linku rekrutacji: rozpatrzenie (dołącz, utwórz, odrzuć)"
+    ),
+    ServiceScope.insights_read: "Insights: raporty i wskaźniki (odczyt)",
+    ServiceScope.academy_read: "Akademia: programy i nabór (odczyt)",
+    ServiceScope.events_read: "Zdarzenia: kanał zdarzeń (same identyfikatory)",
+    ServiceScope.webhooks_manage: "Webhooki: zarządzanie powiadomieniami konta",
 }
 
 

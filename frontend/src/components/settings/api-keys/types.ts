@@ -6,6 +6,7 @@ import type {
   ServiceAccountKeyCreatePayload,
   ServiceAccountKeyCreateResponse,
   ServiceAccountUpdatePayload,
+  ServiceAccountWebhookDto,
   ServiceAccountWriteDto,
 } from "@/lib/api";
 
@@ -25,6 +26,11 @@ export type AccountWritesState =
   | { status: "loading" }
   | { status: "error"; message: string; onRetry?: () => void }
   | { status: "success"; writes: ServiceAccountWriteDto[] };
+
+export type AccountWebhooksState =
+  | { status: "loading" }
+  | { status: "error"; message: string; onRetry?: () => void }
+  | { status: "success"; webhooks: ServiceAccountWebhookDto[] };
 
 /** Zapisy na serwerze. Odrzucona obietnica = błąd pokazany przy akcji
  *  (tekst przez `apiErrorMessage`). */

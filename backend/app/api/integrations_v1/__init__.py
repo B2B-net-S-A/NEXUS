@@ -7,17 +7,24 @@ scope'ami) — opis i zasady: ``docs/api/integracje-v1.md``.
 """
 
 from app.api.integrations_v1 import (
+    academy,
+    applications,
+    calendar,
     candidate_writes,
     candidates,
     clients,
     contract_writes,
     contracts,
+    cv,
+    events,
     finance,
+    insights,
     invoices,
     md,
     meta,
     order_writes,
     orders,
+    recruitment_create,
     recruitment_writes,
     recruitments,
 )
@@ -37,6 +44,13 @@ ROUTERS = (
     recruitment_writes.router,
     candidates.router,
     candidate_writes.router,
+    recruitment_create.router,
+    cv.router,
+    calendar.router,
+    applications.router,
+    insights.router,
+    academy.router,
+    events.router,
 )
 
 __all__ = ["PREFIX", "ROUTERS"]
