@@ -162,3 +162,25 @@ Obowiązuje:
 - **Lata**: połowa roku w górę (54 miesiące = 5 lat; `round()` dawał 4),
   a ułamek modelu zgodny z datami po zaokrągleniu zostaje („4,5 roku
   doświadczenia”, „4,5 roku w Acme”).
+
+## Polska uczelnia w polskim CV po polsku (15.10.2026)
+
+Zgłoszenie: w CV po polsku kierunek był przetłumaczony („Filologia angielska,
+licencjat”), a nazwa uczelni została po angielsku („University of
+Białystok”), bo model przepisywał ją ze źródła jak nazwę własną. Pomiar
+produkcji (60 dni): w polskich CV 338 z 1437 wpisów wykształcenia miało
+angielską nazwę uczelni (część to uczelnie zagraniczne, które tak zostają).
+
+- **Prompt PL (`legacy_v7`, wersja 9, reguła 11):** polską uczelnię model
+  podaje w oficjalnym polskim brzmieniu, zagraniczną zostawia w oryginale,
+  a gdy nie zna pewnie polskiej nazwy — przepisuje ją ze źródła zamiast
+  wymyślać tłumaczenie.
+- **Tabela w kodzie (`cv_generator_b2b/university_names.py`):** po
+  odpowiedzi modelu `localize_education` podmienia angielskie nazwy
+  48 najczęstszych polskich uczelni, więc wynik nie zależy od tego, czy
+  model posłuchał. Tylko cała nazwa (z miastem albo skrótem w nawiasie lub
+  bez); nazwa z wydziałem, uczelnia spoza tabeli i uczelnie zagraniczne
+  zostają bez zmian. Nowy wpis tylko z oficjalną angielską nazwą uczelni.
+- **CV po angielsku bez zmian** — kod nie podmienia tam nazw, a prompt EN nie
+  ma reguły o uczelniach.
+- Ścieżka `v10` (`editorial_prompt`: „Preserve … institutions”) bez zmian.
