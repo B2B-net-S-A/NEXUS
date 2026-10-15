@@ -96,13 +96,15 @@ def defaults(monkeypatch):
     return seen
 
 
-def _run(mode="polished", champion=None, rule=None, prepared=None, cv=b"cv"):
+def _run(
+    mode="polished", champion=None, rule=None, prepared=None, cv=b"cv", language="pl"
+):
     return svc._run_generation_pipeline(
         cv_bytes=cv,
         cv_filename="cv.pdf",
         champion_dto=champion,
         screening_notes_text="Kandydat potwierdził znajomość Pythona.",
-        language="pl",
+        language=language,
         blind_cv=False,
         request_id="legacy-test",
         fallback_name="Jan Kowalski",
@@ -1006,3 +1008,94 @@ def test_rewrite_instruction_cannot_close_its_own_fence():
     )
     assert fenced.count("</recruiter_instruction>") == 1
     assert fenced.count("<recruiter_instruction>") == 1
+
+
+# ── Polskie uczelnie w polskim CV (15.10.2026) ─────────────────────────────
+
+
+def _education(*institutions):
+    return [
+        {"dates": "2010 – 2015", "institution": name, "degree": "Informatyka"}
+        for name in institutions
+    ]
+
+
+def test_polish_cv_names_polish_universities_in_polish(defaults):
+    # Zgłoszenie 15.10.2026: kierunek był po polsku, uczelnia po angielsku.
+    defaults["response"] = _ai_json(
+        education=_education(
+            "Białystok University of Technology",
+            "University of Białystok",
+            "University of Oxford",
+        )
+    )
+    result = _run()
+    assert [e["institution"] for e in result.render_payload["education"]] == [
+        "Politechnika Białostocka",
+        "Uniwersytet w Białymstoku",
+        "University of Oxford",
+    ]
+
+
+def test_english_cv_keeps_university_names_as_the_model_wrote_them(defaults):
+    defaults["response"] = _ai_json(
+        education=_education("Białystok University of Technology")
+    )
+    result = _run(language="en")
+    assert result.render_payload["education"][0]["institution"] == (
+        "Białystok University of Technology"
+    )
+
+
+@pytest.mark.parametrize(
+    "written,expected",
+    [
+        ("Bialystok University of Technology", "Politechnika Białostocka"),
+        ("the Warsaw University of Technology (WUT)", "Politechnika Warszawska"),
+        ("Jagiellonian University in Cracow", "Uniwersytet Jagielloński"),
+        (
+            "AGH University of Science and Technology, Kraków",
+            "Akademia Górniczo-Hutnicza w Krakowie",
+        ),
+        ("Łódź University of Technology", "Politechnika Łódzka"),
+        ("UNIVERSITY OF WARSAW", "Uniwersytet Warszawski"),
+    ],
+)
+def test_known_polish_university_gets_its_polish_name(written, expected):
+    from app.services.cv_generator_b2b.university_names import polish_university_name
+
+    assert polish_university_name(written) == expected
+
+
+@pytest.mark.parametrize(
+    "written",
+    [
+        # Nazwa z wydziałem — połowiczne tłumaczenie byłoby gorsze niż żadne.
+        "Białystok University of Technology, Faculty of Computer Science",
+        "Politechnika Białostocka",
+        "Technical University of Munich",
+        "University of Technology Sydney",
+        "",
+    ],
+)
+def test_other_names_stay_as_written(written):
+    from app.services.cv_generator_b2b.university_names import polish_university_name
+
+    assert polish_university_name(written) == written
+
+
+def test_every_english_name_points_to_exactly_one_polish_university():
+    from app.services.cv_generator_b2b import university_names as names
+
+    seen: dict[str, str] = {}
+    for polish, city, english_names in names._UNIVERSITIES:
+        assert names.polish_university_name(polish) == polish
+        for english in english_names:
+            for key in names._variant_keys(english, city):
+                assert seen.setdefault(key, polish) == polish, key
+
+
+@pytest.mark.parametrize("mode", ["basic", "polished", "tailored"])
+def test_polish_prompt_asks_for_polish_university_names(mode):
+    assert "„Politechnika Białostocka”" in legacy_prompt("pl", False, mode)
+    assert "Politechnika Białostocka" not in legacy_prompt("en", False, mode)

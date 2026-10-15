@@ -68,6 +68,7 @@ from app.services.cv_generator_b2b.legacy_v7.text_extractor import (
     CVTextExtractionError,
     extract_text_from_file,
 )
+from app.services.cv_generator_b2b.university_names import localize_education
 from app.services.cv_generator_b2b.provider import (
     CVGeneratorAIError,
     CVGeneratorOverloadedError,
@@ -96,7 +97,8 @@ logger = logging.getLogger(__name__)
 PIPELINE_ID = "legacy_v7"
 # 8 (13.10.2026): bez punktu „Posiada kluczowe technologie…”, pytania ≠ fakty,
 # branża tylko ze źródła, nagłówek bez tłumaczenia.
-PROMPT_VERSION = 8
+# 9 (15.10.2026): polska uczelnia w polskim CV ma polską nazwę.
+PROMPT_VERSION = 9
 
 
 def build_generation_date_block(language: Language, today: date) -> str:
@@ -310,6 +312,9 @@ def run_legacy_generation(
         ) from err
 
     candidate_data = _normalize_candidate_data(raw_data, fallback_name)
+    # Polska uczelnia w polskim CV po polsku także wtedy, gdy model przepisał
+    # angielską nazwę ze źródła (15.10.2026).
+    localize_education(candidate_data, language)
     rule_snapshot = asdict(client_rule) if client_rule else None
     candidate_data["client_rule_snapshot"] = rule_snapshot
     candidate_data["editorial_provenance"] = {

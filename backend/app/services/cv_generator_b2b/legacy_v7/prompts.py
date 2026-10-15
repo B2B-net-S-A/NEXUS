@@ -79,6 +79,7 @@ KRYTYCZNE ZASADY:
 8. Używaj polskich znaków (ą, ć, ę, ł, ń, ó, ś, ź, ż)
 9. Edukacja bez dat: pole "dates" zostaw PUSTE ("") — NIE wpisuj tekstów typu "Brak informacji o datach"
 10. NIE komentuj luk w zatrudnieniu ani nakładających się okresów — zostaw daty dokładnie tak, jak w CV
+11. Nazwa uczelni: polską uczelnię podaj w jej oficjalnym polskim brzmieniu, także gdy źródło podaje ją po angielsku (np. „Białystok University of Technology” → „Politechnika Białostocka”, „University of Białystok” → „Uniwersytet w Białymstoku”, „Warsaw University of Technology” → „Politechnika Warszawska”). Uczelnię zagraniczną zostaw w oryginalnej nazwie. Gdy nie znasz na pewno oficjalnej polskiej nazwy, przepisz nazwę ze źródła — nie twórz własnego tłumaczenia
 
 ZASADY DLA WHY_POINTS:
 - NIGDY nie używaj edukacji/studiów jako argumentu w why_points
