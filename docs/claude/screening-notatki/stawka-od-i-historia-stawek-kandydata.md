@@ -93,7 +93,7 @@ Artura 04.10.2026 (makiety: https://claude.ai/artifact/SxV3wMXBL8FhA2Q743HwEd).
 - **Kolejka:** wyzwalacze `trg_rate_from_contracts` (status, osoba, start,
   pola stawki kosztowej — warunki w ciele funkcji, bez `UPDATE OF`, bo
   entrypoint poszerza kolumny stawek) i `trg_rate_from_contract_rates`
-  (`contract_candidate_rates`); migracja 0448 + lustro w `entrypoint.sh`
+  (`contract_candidate_rates`); migracja 0449 + lustro w `entrypoint.sh`
   (`services/contract_rate_from_schema.py`, po `_RATE_FROM_DDL`). Kalendarz
   (start umowy, krok harmonogramu) przelicza pętla raz dziennie:
   `requeue_live_contracts` kolejkuje wszystkie osoby z żywą umową;

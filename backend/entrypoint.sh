@@ -946,7 +946,7 @@ except Exception as _notes_facts_err:  # noqa: BLE001
     _NOTES_FACTS_DDL = []
     _NOTES_FACTS_BACKFILL = []
 
-# Stawka z bieżącej umowy w „Stawce od” (migracja 0448, 15.10.2026):
+# Stawka z bieżącej umowy w „Stawce od” (migracja 0449, 15.10.2026):
 # wyzwalacze kolejki na umowach i harmonogramie stawek oraz jednorazowe
 # zakolejkowanie osób z żywymi umowami — JEDNO źródło z migracją
 # (`app/services/contract_rate_from_schema.py`). Po `_RATE_FROM_DDL`

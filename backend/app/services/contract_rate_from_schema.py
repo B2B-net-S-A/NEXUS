@@ -1,7 +1,7 @@
-"""Stawka z bieżącej umowy w „Stawce od” (15.10.2026) — SQL migracji 0448
+"""Stawka z bieżącej umowy w „Stawce od” (15.10.2026) — SQL migracji 0449
 i lustra w ``entrypoint.sh``.
 
-JEDNO źródło instrukcji dla ``alembic/versions/0448_rate_from_contracts.py``
+JEDNO źródło instrukcji dla ``alembic/versions/0449_rate_from_contracts.py``
 i ``entrypoint.sh`` (alembic na prodzie bywa osierocony; ciała wyzwalaczy są
 w ``$$``, więc entrypoint importuje ten moduł zamiast przepisywać SQL).
 
@@ -27,7 +27,7 @@ Wymaga funkcji ``candidate_rate_from_enqueue`` z ``candidate_rate_from_schema``
 
 from __future__ import annotations
 
-BACKFILL_MARKER = "0448_rate_from_contracts_queued"
+BACKFILL_MARKER = "0449_rate_from_contracts_queued"
 
 _CONTRACT_FIELDS = (
     "status",

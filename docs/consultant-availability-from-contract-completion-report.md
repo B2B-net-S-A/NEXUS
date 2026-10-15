@@ -29,7 +29,7 @@ sekcja „Dostępność i stawka z umowy”, oraz „Żywa umowa” w
 | D2 | Ekrany: karta „Do propozycji”, panel osoby, „Co już wiemy”, Tablica, lista, propozycje i filtr „dostępny teraz”, podgląd, przegląd DL, porównanie. Serwer: filtr „Dostępny do daty”, ocena dopasowania (+ kara za kolizję ze startem Championa), „Start” w przeglądzie DL, kolejka Cpro, data startu w Generatorze B2B, prompt uzasadnienia dopasowania | `contract_availability.py`, `structured_candidate_search.py`, `scoring_service.py` i ścieżki wsadowe, `dl_review.py`, `board_tasks.py`, `b2b_agreement_prefill.py`, `match_justification_service.py`, 10 plików frontu |
 | D3 | „Szuka aktywnie / Otwarty na oferty” ukryte przy żywej umowie (pasek osoby, lista); status w bazie bez zmian | `ProfileHeader.tsx`, `CandidatesListV2.tsx` |
 | D4 | Stawkę konsultanta z żywej umowy widzi każdy, kto widzi stawkę kandydata: „Stawka od”, historia stawek, „ostatni kontrakt” w przeglądzie DL. Stawka do klienta, marża, zakończone umowy — bez zmian | `candidate_rates.py`, `dl_review.py` |
-| D5 | Żywa umowa nadpisuje „Stawkę od” (obserwacja `contract:`), wyzwalacze na umowach i harmonogramie stawek (migracja 0448 + entrypoint), przeliczenie raz dziennie; „Stawka u nas” z zieloną kropką w profilu | `candidate_rate_observations.py`, `candidate_rate_from.py`, `contract_rate_from_schema.py`, `0448_rate_from_contracts.py`, `entrypoint.sh`, `tasks/candidate_rate_from.py`, `CandidateProfileFactsBar.tsx`, `RateHistoryDialog.tsx` |
+| D5 | Żywa umowa nadpisuje „Stawkę od” (obserwacja `contract:`), wyzwalacze na umowach i harmonogramie stawek (migracja 0449 + entrypoint), przeliczenie raz dziennie; „Stawka u nas” z zieloną kropką w profilu | `candidate_rate_observations.py`, `candidate_rate_from.py`, `contract_rate_from_schema.py`, `0449_rate_from_contracts.py`, `entrypoint.sh`, `tasks/candidate_rate_from.py`, `CandidateProfileFactsBar.tsx`, `RateHistoryDialog.tsx` |
 | D6 | Okno „Dostępność kandydata” z ramką: do kiedy osoba pracuje, kto ustala wcześniejsze odejście, że późniejsza data zastąpi termin z umowy | `CandidateProfileFactsBar.tsx` |
 
 **Korekta D5 po przeglądzie kodu:** „jawne minimum z datą startu umowy” nie
@@ -73,5 +73,5 @@ przestemplowane `candidate.profile`, `candidates.list`, `jobs.person`; harnessy
   zakończonych umów).
 - Bramka ruchu „dostępność znana” (`move_requirements`), `CandidateHighlights`
   („bezterminowo” z daty umowy) i filtr statusu „Szuka aktywnie” na liście — bez zmian.
-- Po wdrożeniu: backfill 0448 kolejkuje ~480 osób; pętla „Stawki od” przelicza
+- Po wdrożeniu: backfill 0449 kolejkuje ~480 osób; pętla „Stawki od” przelicza
   je paczkami po 500 co 30 s.

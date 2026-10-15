@@ -1,7 +1,7 @@
 """Stawka z bieżącej umowy w „Stawce od”: wyzwalacze kolejki przeliczeń.
 
-Revision ID: 0448_rate_from_contracts
-Revises: 0447_job_previous_recruiters
+Revision ID: 0449_rate_from_contracts
+Revises: 0448_integration_events
 
 Dopóki osoba ma żywą umowę, „Stawka od” = stawka konsultanta z tej umowy
 (decyzje D4/D5 Artura, 15.10.2026). Zmiana umowy albo harmonogramu jej stawek
@@ -16,8 +16,8 @@ from alembic import op
 
 from app.services import contract_rate_from_schema as schema
 
-revision = "0448_rate_from_contracts"
-down_revision = "0447_job_previous_recruiters"
+revision = "0449_rate_from_contracts"
+down_revision = "0448_integration_events"
 branch_labels = None
 depends_on = None
 
