@@ -15,6 +15,7 @@
  */
 
 import type { MoveRequirementItem } from "@/lib/api/moveRequirements";
+import { isClientCvFilename } from "@/lib/candidate-files";
 import { stageCvStatus, type StageBrandedSummary, type StageGeneratedCvRow } from "@/lib/cv-to-client";
 import { formatDate } from "@/lib/utils";
 
@@ -24,7 +25,9 @@ export interface DockSnapshotInput {
   original_cv_filename?: string | null;
   /**
    * `manual_upload` = wgrane z rekrutacji, `manual_refresh` = podmienione z profilu,
-   * `quarantine_restore` = wróciło CV osoby, bo wgrane było CV kogoś innego.
+   * `quarantine_restore` = wróciło CV osoby, bo wgrane było CV kogoś innego,
+   * `client_cv_repair` = jednorazowa naprawa 15.10.2026: kopia trzymała CV do
+   * klienta („B2B_…”), wróciła do CV kandydata z profilu.
    */
   original_snapshot_source?: string | null;
 }
@@ -97,6 +100,10 @@ export function originalCvSentence(state: DockOriginalCv): string {
       }
       if (state.source === "manual_refresh") {
         return `Oryginał CV: z profilu${state.filename ? ` · ${state.filename}` : ""} · podmienione${state.date ? ` ${formatDate(state.date)}` : ""}`;
+      }
+      if (state.source === "client_cv_repair") {
+        // Naprawa 15.10.2026: kopia trzymała CV do klienta, wróciła do CV kandydata.
+        return `Oryginał CV: z profilu${state.filename ? ` · ${state.filename}` : ""}${when}`;
       }
       if (state.source === "quarantine_restore") {
         // Bramka tożsamości: wgrane CV nie pasowało do osoby, kopia wróciła do jej CV.
@@ -209,6 +216,11 @@ export function withoutQuarantinedCv<T extends { id: number; is_primary: boolean
  * plik, który „Użyj w tej rekrutacji” naprawdę skopiuje (`stageCopySource`).
  * Po wgraniu z tej rekrutacji kopia powstaje po dokumencie, więc ramka się
  * nie pokazuje. `null` = nie ma nowszego albo nie da się porównać.
+ *
+ * CV do klienta („B2B_…”) nie jest nowszym CV kandydata (15.10.2026): wgrane
+ * z kafelka zostaje w profilu obok głównego CV, a u osoby bez wskazanego
+ * głównego CV (stare importy) byłoby najnowszym plikiem — ramka namawiałaby
+ * wtedy do zrobienia z niego oryginału.
  */
 export function newerProfileCv<T extends DockProfileCvDoc>(
   original: DockOriginalCv,
@@ -216,7 +228,7 @@ export function newerProfileCv<T extends DockProfileCvDoc>(
 ): T | null {
   if (original.kind !== "snapshot" || !original.date || !docs) return null;
   const primary = stageCopySource(docs);
-  if (!primary) return null;
+  if (!primary || isClientCvFilename(primary.filename)) return null;
   const primaryAt = Date.parse(primary.uploaded_at ?? primary.created_at);
   const snapshotAt = Date.parse(original.date);
   if (!Number.isFinite(primaryAt) || !Number.isFinite(snapshotAt)) return null;
@@ -246,7 +258,8 @@ export function companyDraftSince(
  * powstał z poprzedniego pliku. Tylko szkic: zatwierdzonego CV i wysłanych
  * linków nowe CV nie zmienia. Tylko kopia podmieniona ręcznie (upload albo
  * „Użyj w tej rekrutacji”): kopia z chwili zgłoszenia jest z definicji źródłem
- * szkicu.
+ * szkicu. Naprawa `client_cv_repair` też nie — nikt nie wgrał nowego CV,
+ * kopia tylko przestała być plikiem „B2B_…”.
  */
 export function companyCvStale(input: {
   brandedStatus: string | null | undefined;

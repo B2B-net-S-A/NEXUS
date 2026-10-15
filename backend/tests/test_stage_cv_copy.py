@@ -65,13 +65,19 @@ def _png() -> bytes:
     return out.getvalue()
 
 
-async def _source_cv(world: dict, *, job_id: int | None = None, **columns) -> dict:
+async def _source_cv(
+    world: dict,
+    *,
+    job_id: int | None = None,
+    stage: PipelineStage = PipelineStage.cv_sent,
+    **columns,
+) -> dict:
     """CV etapu tej samej osoby w innej rekrutacji (domyślnie zatwierdzone)."""
     async with AsyncSessionLocal() as db:
         stage = CandidateStage(
             candidate_id=world["candidate_id"],
             job_id=job_id or world["other_job_id"],
-            stage=PipelineStage.cv_sent,
+            stage=stage,
         )
         db.add(stage)
         await db.flush()
@@ -315,7 +321,9 @@ async def test_copy_is_refused_for_foreign_same_or_legacy_sources(
         branded_from_generator=False,
         branded_render_metadata={},
     )
-    await _source_cv(world, job_id=world["job_id"])
+    # CV tej samej rekrutacji przed wysyłką — po „CV wysłane” trasa odmawia
+    # wcześniej (409, `test_stage_cv_upload.py`), a tu sprawdzamy odmowę 422.
+    await _source_cv(world, job_id=world["job_id"], stage=PipelineStage.verified)
 
     # W tamtej rekrutacji CV ma tylko INNA osoba.
     foreign = await _copy(app_client, app_auth_headers, world, stranger["other_job_id"])

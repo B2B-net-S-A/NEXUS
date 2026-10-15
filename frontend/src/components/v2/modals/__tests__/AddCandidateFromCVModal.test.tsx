@@ -19,6 +19,8 @@ vi.mock("@/lib/api", () => ({
     },
   },
   phase3Api: { candidatePipelines: (...a: unknown[]) => candidatePipelines(...a) },
+  // Zapas komunikatu błędu (`assignErrorMessage`) — zdanie serwera i tak wygrywa.
+  extractErrorMsg: () => undefined,
 }));
 const bulkAdd = vi.fn();
 vi.mock("@/lib/candidate-search-api", () => ({
@@ -172,6 +174,88 @@ describe("AddCandidateFromCVModal — osoba już jest w bazie", () => {
     expect(callsTo("/api/candidates/41/documents")).toHaveLength(0);
     expect(bulkAdd).not.toHaveBeenCalled();
     expect(await screen.findByText("Anna Nowak jest już w tej rekrutacji · Screening")).toBeInTheDocument();
+  });
+
+  // 15.10.2026: plik nazwany jak CV do klienta serwer zapisuje jako CV do klienta.
+  it("osoba w toku, plik „B2B_…”: okno mówi, że plik jest CV do klienta, a CV kandydata bez zmian", async () => {
+    fromCvConflict("email_exact");
+    candidatePipelines.mockReturnValue(
+      pipelines([
+        { candidate_stage_id: 900, job_id: 7, stage_name: "Screening", is_terminal: false, board_column: "screening" },
+      ]),
+    );
+    stageUpload.mockResolvedValue({
+      data: {
+        has_snapshot: true,
+        outcome: "client_cv",
+        client_cv_stage_id: 900,
+        replaced: "none",
+        undo_available: true,
+        uploaded_filename: "B2B_Tester_Jan_Testowy.docx",
+      },
+    });
+    const user = userEvent.setup();
+    await uploadCv(user, "B2B_Tester_Jan_Testowy.docx");
+
+    await user.click(await screen.findByRole("button", { name: /Podmień CV w tej rekrutacji/ }));
+
+    await waitFor(() => expect(stageUpload).toHaveBeenCalledWith(900, expect.any(File)));
+    expect(await screen.findByText("Anna Nowak jest już w tej rekrutacji · Screening")).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Plik B2B_Tester_Jan_Testowy.docx jest teraz CV do klienta w tej rekrutacji. CV kandydata w profilu bez zmian.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/AI odświeży profil/)).toBeNull();
+  });
+
+  it("osoba w toku, klient ma już jej CV: plik tylko w profilu, CV do klienta bez zmian", async () => {
+    fromCvConflict("email_exact");
+    candidatePipelines.mockReturnValue(
+      pipelines([
+        { candidate_stage_id: 900, job_id: 7, stage_name: "CV wysłane", is_terminal: false, board_column: "sent" },
+      ]),
+    );
+    stageUpload.mockResolvedValue({
+      data: { has_snapshot: true, outcome: "client_cv_kept", stored_in_profile: true, uploaded_filename: "B2B_Tester_Jan_Testowy.docx" },
+    });
+    const user = userEvent.setup();
+    await uploadCv(user, "B2B_Tester_Jan_Testowy.docx");
+
+    await user.click(await screen.findByRole("button", { name: /Podmień CV w tej rekrutacji/ }));
+
+    expect(
+      await screen.findByText(
+        "Klient ma już CV tej osoby, więc CV do klienta zostało bez zmian. Plik B2B_Tester_Jan_Testowy.docx jest w profilu w „CV dla klientów”.",
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("CV z nagłówkiem innej osoby: zdanie serwera w oknie, bez widoku sukcesu", async () => {
+    fromCvConflict("email_exact");
+    candidatePipelines.mockReturnValue(
+      pipelines([
+        { candidate_stage_id: 900, job_id: 7, stage_name: "Screening", is_terminal: false, board_column: "screening" },
+      ]),
+    );
+    stageUpload.mockRejectedValue({
+      response: {
+        status: 422,
+        data: {
+          detail: {
+            code: "client_cv_other_person",
+            message: "Ten plik to CV innej osoby (Piotr Przykładowy) — nie wgrałem go.",
+          },
+        },
+      },
+    });
+    const user = userEvent.setup();
+    await uploadCv(user, "B2B_Tester_Piotr_Przykladowy.docx");
+
+    await user.click(await screen.findByRole("button", { name: /Podmień CV w tej rekrutacji/ }));
+
+    expect(await screen.findByText("Ten plik to CV innej osoby (Piotr Przykładowy) — nie wgrałem go.")).toBeInTheDocument();
+    expect(screen.queryByText(/jest teraz CV do klienta/)).toBeNull();
   });
 
   it("serwer mówi „już w rekrutacji”, choć odczyt karty tego nie znał: CV tylko w profilu, bez zgadywania", async () => {

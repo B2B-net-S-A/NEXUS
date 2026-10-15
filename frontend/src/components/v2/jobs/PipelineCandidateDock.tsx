@@ -2408,6 +2408,8 @@ export function PipelineCandidateDock({
           requestId={jobId}
         />
       )}
+      {/* „Zastąpić CV do klienta?” po wgraniu pliku „B2B_…” (15.10.2026). */}
+      {cvUpload.confirmDialog}
     </CvFileDropTarget>
   );
 }

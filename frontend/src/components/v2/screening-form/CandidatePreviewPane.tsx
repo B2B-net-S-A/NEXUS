@@ -233,15 +233,16 @@ function CvTab({
   const queryClient = useQueryClient();
   const { askConfirm, confirmDialog } = useConfirmV2();
   // „Wgraj CV”: plik staje się głównym CV i kopią CV tej rekrutacji; po
-  // wgraniu podgląd pokazuje „CV oryginalne”, czyli właśnie ten plik.
+  // wgraniu podgląd pokazuje „CV oryginalne”, czyli właśnie ten plik. Plik
+  // „B2B_…” staje się CV do klienta (15.10.2026) — wtedy „CV firmowe”.
   const canUpload = cvUpload != null && stageId != null;
   const upload = useStageCvUpload({
     candidateId,
     stageId: stageId ?? 0,
     jobId,
-    onUploaded: () => {
+    onUploaded: (kind) => {
       history?.onOpenChange(false);
-      onSourceChange("original");
+      onSourceChange(kind === "client_cv" ? "company" : "original");
     },
   });
   const uploadInputRef = useRef<HTMLInputElement>(null);
@@ -791,6 +792,7 @@ function CvTab({
         </div>
       ) : null}
       {confirmDialog}
+      {upload.confirmDialog}
       {canAct && editorOpen && cvStageId != null ? (
         <CVBrandedEditModal
           open
