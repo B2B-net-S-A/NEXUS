@@ -21,7 +21,13 @@ Word „B2B”; PDF-y poza zakresem. Raport: `docs/screening-cv-pick-completion-
   (`generated_document_id = NULL`, `branded_render_metadata.source` =
   `document` | `generated_other_job`): nazwa pliku i wymóg zgody RODO liczą się
   z klienta tej rekrutacji (`candidate_stage_cv_service.detached_copy_settings`),
-  zrzut zgody i reguły klienta źródłowego nie jadą z kopią. Kopia CV z innej
+  zrzut zgody i reguły klienta źródłowego nie jadą z kopią. Nazwa pliku
+  i nagłówek kopii biorą nazwę roli TEJ rekrutacji jak generator
+  (`job_working_title.cv_role_title_for_job`, D2), nigdy surowy `jobs.title`:
+  wzór PKO `ZOB-{PROJEKT}_{STANOWISKO}_…` dokładał wtedy numer drugi raz
+  (zgłoszenie DL 15.10.2026; nazwy już zapisane poprawił jednorazowo krok
+  startu `stage-cv-copy-filenames`, `services/stage_cv_copy_filename_repair.py`).
+  Kopia CV z innej
   rekrutacji dostaje w nagłówku tytuł TEJ rekrutacji i traci linię „Rozważany
   na stanowisko” (tytuł źródłowy bywa numerem zapytania innego klienta); CV
   blind ma w nazwie pliku „Kandydat”, nie nazwisko. Klient z wymogiem
