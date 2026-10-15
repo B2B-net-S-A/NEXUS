@@ -431,7 +431,9 @@ async def test_available_count_skips_people_with_a_live_contract() -> None:
         assert "1 oznaczonych jako dostępni" in message, message
     finally:
         async with AsyncSessionLocal() as db:
-            await db.execute(delete(Contract).where(Contract.candidate_id.in_(cand_ids)))
+            await db.execute(
+                delete(Contract).where(Contract.candidate_id.in_(cand_ids))
+            )
             await db.execute(delete(Candidate).where(Candidate.id.in_(cand_ids)))
             await db.execute(delete(Job).where(Job.id == job_id))
             await db.execute(delete(Client).where(Client.id.in_(client_ids)))

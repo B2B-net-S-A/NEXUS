@@ -419,9 +419,7 @@ def test_server_rule_matches_the_pill_on_the_profile():
 
 
 def test_status_clause_is_not_exists_on_live_contracts_with_any_start():
-    sql = str(
-        without_live_contract_clause(1).compile(dialect=postgresql.dialect())
-    )
+    sql = str(without_live_contract_clause(1).compile(dialect=postgresql.dialect()))
 
     assert "NOT (EXISTS" in sql
     assert "contracts.status IN" in sql

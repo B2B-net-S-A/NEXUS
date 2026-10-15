@@ -232,7 +232,9 @@ async def test_status_rule_is_the_same_in_python_sql_and_the_marker(
 
     python_hidden = {cid for cid in ids if availability_status_hidden(loaded.get(cid))}
     sql_hidden = set(ids) - counted
-    pill_hidden = {cid for cid, m in markers.items() if m.source == "contract"}
+    pill_hidden = {
+        cid for cid, m in markers.items() if m is not None and m.source == "contract"
+    }
     expected = {world[k] for k in ("ends", "open", "starting", "follow")}
     assert python_hidden == sql_hidden == pill_hidden == expected
     # Sam konflikt ma znacznik, ale nie chowa statusu — jak pigułka na froncie.

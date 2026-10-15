@@ -282,11 +282,19 @@ async def test_auto_sync_skips_and_drops_people_with_a_live_contract(clean_db):
     from app.models.contract import Contract, ContractStatus
 
     looking = AvailabilityStatus.actively_looking
-    working = await _seed_candidate(clean_db, availability=looking, email_suffix="working")
-    starting = await _seed_candidate(clean_db, availability=looking, email_suffix="starting")
-    manual = await _seed_candidate(clean_db, availability=looking, email_suffix="manual")
+    working = await _seed_candidate(
+        clean_db, availability=looking, email_suffix="working"
+    )
+    starting = await _seed_candidate(
+        clean_db, availability=looking, email_suffix="starting"
+    )
+    manual = await _seed_candidate(
+        clean_db, availability=looking, email_suffix="manual"
+    )
     free = await _seed_candidate(clean_db, availability=looking, email_suffix="free")
     await auto_sync_marketplace_membership(clean_db)
+    # Sesja bez autoflush — wrzut musi widzieć zapisany wpis automatyczny.
+    await clean_db.commit()
     await add_candidate_to_marketplace(
         clean_db, candidate_id=manual.id, added_by=None, marketplace_until=None
     )
