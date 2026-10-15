@@ -62,6 +62,29 @@ def test_v1_spec_matches_the_snapshot() -> None:
     )
 
 
+# Nazwy schematów z prefiksem modułu (``app__api__…__Nazwa``) FastAPI nadaje,
+# gdy dwa modele w CAŁEJ aplikacji mają tę samą nazwę klasy. Nowa kolizja
+# zmienia nazwę istniejącego schematu v1 — klient wygenerowany ze specyfikacji
+# przestaje się kompilować. Te trzy weszły przed strażnikiem i zostają (zmiana
+# nazwy = v2); nowy model v1 dostaje nazwę unikalną w aplikacji.
+_KNOWN_PREFIXED_SCHEMAS = {
+    "app__api__integrations_v1__candidates__CandidateDocumentOut",
+    "app__api__integrations_v1__candidates__CompetenceCategoryOut",
+    "app__api__integrations_v1__contracts__PersonOut",
+}
+
+
+def test_no_new_module_prefixed_schema_names() -> None:
+    schemas = integrations_openapi(app.openapi())["components"]["schemas"]
+    prefixed = {
+        name for name in schemas if "__" in name and not name.startswith("Body_")
+    }
+    assert prefixed <= _KNOWN_PREFIXED_SCHEMAS, (
+        "Model v1 ma nazwę klasy zajętą w aplikacji — nadaj mu unikalną: "
+        f"{sorted(prefixed - _KNOWN_PREFIXED_SCHEMAS)}"
+    )
+
+
 def test_every_v1_route_uses_the_v1_envelope_and_a_key_gate() -> None:
     routes = _v1_routes()
     assert len(routes) >= 30, "test przestał widzieć trasy v1"

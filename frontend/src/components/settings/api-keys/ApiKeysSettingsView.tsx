@@ -16,7 +16,13 @@ import { Button } from "@/components/ui/button";
 
 import { ServiceAccountCard } from "./ServiceAccountCard";
 import { ServiceAccountForm } from "./ServiceAccountForm";
-import type { AccountWritesState, ApiKeysActions, ApiKeysLoad, RevealedApiKey } from "./types";
+import type {
+  AccountWebhooksState,
+  AccountWritesState,
+  ApiKeysActions,
+  ApiKeysLoad,
+  RevealedApiKey,
+} from "./types";
 
 export interface ApiKeysSettingsViewProps {
   load: ApiKeysLoad;
@@ -24,6 +30,9 @@ export interface ApiKeysSettingsViewProps {
   /** „Ostatnie zapisy” per konto — klucz to `account.id`. */
   writes: Readonly<Record<number, AccountWritesState | undefined>>;
   onWritesOpenChange: (accountId: number, open: boolean) => void;
+  /** Webhooki per konto — klucz to `account.id`. */
+  webhooks: Readonly<Record<number, AccountWebhooksState | undefined>>;
+  onWebhooksOpenChange: (accountId: number, open: boolean) => void;
   /** Tylko dla harnessu: klucz pokazany od wejścia. */
   initialRevealedKey?: RevealedApiKey | null;
   /** Tylko dla harnessu: formularz nowego konta otwarty od wejścia. */
@@ -39,6 +48,8 @@ export function ApiKeysSettingsView({
   actions,
   writes,
   onWritesOpenChange,
+  webhooks,
+  onWebhooksOpenChange,
   initialRevealedKey = null,
   initialCreating = false,
   now: nowProp,
@@ -143,6 +154,8 @@ export function ApiKeysSettingsView({
                   onDismissRevealed={() => setRevealed(null)}
                   writes={writes[account.id]}
                   onWritesOpenChange={(open) => onWritesOpenChange(account.id, open)}
+                  webhooks={webhooks[account.id]}
+                  onWebhooksOpenChange={(open) => onWebhooksOpenChange(account.id, open)}
                 />
               ))}
             </div>

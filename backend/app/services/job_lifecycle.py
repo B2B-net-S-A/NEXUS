@@ -22,6 +22,15 @@ powiadomień Championa) zostają w ``api/jobs.py`` i są czytane leniwie przez
 :func:`_api` — moduł tras importuje ten moduł na starcie, więc import w drugą
 stronę na poziomie modułu byłby cykliczny. Czytanie przez atrybut modułu
 zostawia też w mocy ``monkeypatch`` testów na ``app.api.jobs``.
+
+Zakładanie (:func:`apply_job_create`) robi ten sam łańcuch dla osoby z ekranu
+(``User``, ``POST /api/jobs``) i dla konta serwisowego API v1
+(``IntegrationActor``, ``POST /api/integrations/v1/recruitments``, 15.10.2026).
+Konto serwisowe daje rdzeniom wyłącznie ``.id`` (``None`` — kolumny autora
+puste, ``details.via`` dopisuje stempel sesji klucza), ``.name`` i ``.email``.
+Bramek ról ekranu (zakres Delivery Leada, redaktor Championa) nie przechodzi —
+o tym, co wolno kluczowi, decydują scope'y na trasie (:func:`is_service_account`).
+Każda inna bramka roli kończy się dla niego błędem atrybutu, nie przepustką.
 """
 
 from __future__ import annotations
@@ -57,6 +66,13 @@ def _api():
     from app.api import jobs  # noqa: PLC0415 — cykl: api.jobs importuje ten moduł
 
     return jobs
+
+
+def is_service_account(actor: Any) -> bool:
+    """Autor to konto serwisowe API v1 (``IntegrationActor``), nie osoba."""
+    from app.services.integration_actor import IntegrationActor
+
+    return isinstance(actor, IntegrationActor)
 
 
 # ── Efekty po commicie ────────────────────────────────────────────────────────
@@ -221,7 +237,13 @@ async def create_job_core(
     # Runda 7 (R7-X5-4): rekrutacja u usuniętego albo scalonego klienta nie
     # trafiłaby do żadnego rejestru.
     await assert_client_assignable(db, data.client_id)
-    delivery_lead_pairs = await delivery_lead_job_pairs(current_user, db)
+    # Konto serwisowe nie ma portfela Delivery Leada — zakres rozstrzyga
+    # scope klucza na trasie API v1, nie rola.
+    delivery_lead_pairs = (
+        None
+        if is_service_account(current_user)
+        else await delivery_lead_job_pairs(current_user, db)
+    )
 
     payload = data.model_dump(exclude=_CREATE_EXCLUDED_FIELDS)
     secondary_cc_ids = data.secondary_cc_ids or []
@@ -744,13 +766,19 @@ async def save_champion_core(
     from app.services.requirement_contract import apply_requirement_source_update
 
     api = _api()
-    await api._ensure_delivery_lead_job_visible(job, current_user, db)
-    # Champion redaguje DL/admin oraz osoba prowadząca rekrutację i jej
-    # współpracownicy (decyzja 22.09.2026); TAC tylko we własnych ofertach.
-    edit_level = await ensure_champion_job_editor(job, current_user, db)
-    # Termin rekrutacji jest polem cyklu życia: „Deadline na kandydatów”
-    # trafia do niego tylko z zapisu osoby z pełną redakcją (08.10.2026).
-    may_set_deadline = edit_level is JobEditLevel.full
+    if is_service_account(current_user):
+        # Klucz API v1 (``recruitments:create``) zakłada rekrutację jak osoba
+        # z uprawnieniem „Rekrutacje: zakładanie” — pełna redakcja. O prawie
+        # decyduje scope na trasie, nie rola (konto serwisowe ról nie ma).
+        may_set_deadline = True
+    else:
+        await api._ensure_delivery_lead_job_visible(job, current_user, db)
+        # Champion redaguje DL/admin oraz osoba prowadząca rekrutację i jej
+        # współpracownicy (decyzja 22.09.2026); TAC tylko we własnych ofertach.
+        edit_level = await ensure_champion_job_editor(job, current_user, db)
+        # Termin rekrutacji jest polem cyklu życia: „Deadline na kandydatów”
+        # trafia do niego tylko z zapisu osoby z pełną redakcją (08.10.2026).
+        may_set_deadline = edit_level is JobEditLevel.full
 
     if expected_fingerprint is not None and fingerprint(job) != expected_fingerprint:
         logger.info("champion_import_conflict job_id=%s", job.id)
@@ -1504,3 +1532,48 @@ async def delete_intake_form(
         text("DELETE FROM job_intake_forms WHERE id = :id AND user_id = :uid"),
         {"id": form_id, "uid": user_id},
     )
+
+
+# ── Zakładanie: cały łańcuch ──────────────────────────────────────────────────
+
+
+async def apply_job_create(
+    db: AsyncSession, data: Any, current_user: Any, effects: PostCommit
+) -> Job:
+    """Ciało ``POST /api/jobs`` BEZ commita — ekran i API v1 (15.10.2026).
+
+    Utworzenie = przekazanie do searchu = publikacja, w JEDNEJ transakcji:
+    ``allocation_lock`` → wiersz rekrutacji → decyzja o hiring managerze →
+    Profil Championa → bramka przekazania (422 ``job_not_ready``) →
+    przekazanie (rekruter albo automat) → podobne rekrutacje → publikacja →
+    zmieniona podpowiedź kategorii → pliki formularza. Wołający commituje
+    (ekran: trasa, API v1: paragon idempotencji) i dopiero wtedy woła
+    :func:`run_post_commit`.
+
+    ``current_user``: osoba z ekranu (``User``) albo konto serwisowe API v1
+    (``IntegrationActor`` — bez ról; wyjątki z bramek ról w docstringu modułu).
+    """
+    from app.services import job_files as job_files_service
+    from app.services.recruitment_allocation import allocation_lock
+
+    # Kolejność blokad jak w `/owner` i automacie przydziału.
+    await allocation_lock(db)
+    job = await create_job_core(db, data, current_user, effects)
+    await apply_hiring_manager_decision(db, job, data.hiring_manager, current_user)
+    await save_champion_core(
+        db, job, data.champion_profile, current_user, effects, notify=False
+    )
+    clear_decision_flags(job)
+    await db.flush()
+    ensure_handoff_ready(job)
+    await handoff_core(db, job, data.handoff, current_user, effects)
+    await link_similar_on_create(db, job, data.similar_job_ids, current_user)
+    await publish_core(db, job, current_user, effects, sync_status_payload=False)
+    record_cc_override(db, job, data.cc_override, current_user)
+    # 0428: pliki dodane na `/jobs/new` przechodzą na rekrutację — PRZED
+    # usunięciem formularza (klucz obcy zrobiłby z nich sieroty).
+    await job_files_service.attach_intake_files(
+        db, job_id=job.id, form_id=data.intake_form_id, user_id=current_user.id
+    )
+    await delete_intake_form(db, data.intake_form_id, current_user.id)
+    return job

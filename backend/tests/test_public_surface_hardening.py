@@ -45,6 +45,13 @@ _V1_MODULES = tuple(
         "recruitment_writes",
         "candidates",
         "candidate_writes",
+        "recruitment_create",
+        "cv",
+        "calendar",
+        "applications",
+        "insights",
+        "academy",
+        "events",
     )
 )
 

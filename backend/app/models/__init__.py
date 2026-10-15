@@ -815,3 +815,10 @@ from app.models.requirement_cleanup import (  # noqa: F401
 from app.models.integration_write_receipt import (  # noqa: F401
     IntegrationWriteReceipt,
 )
+
+# 0448: kanał zdarzeń i webhooki API integracyjnego v1.
+from app.models.integration_event import (  # noqa: F401
+    IntegrationEvent,
+    IntegrationEventOutbox,
+    IntegrationWebhook,
+)

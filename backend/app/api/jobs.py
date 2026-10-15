@@ -2202,34 +2202,12 @@ async def create_job(
     ``[{code, message}]`` — ``get_db`` cofa wtedy wszystko, więc szkic nie
     powstaje nigdy. Efekty po commicie (wektor, migawka dopasowań, Targ,
     powiadomienia) — dopiero po zapisie.
+
+    Ciało (bez commita) jest wspólne z API v1 (``POST
+    /api/integrations/v1/recruitments``): ``job_lifecycle.apply_job_create``.
     """
     effects = job_lifecycle.PostCommit(background_tasks)
-    # Kolejność blokad jak w `/owner` i automacie przydziału.
-    await allocation_lock(db)
-    job = await job_lifecycle.create_job_core(db, data, current_user, effects)
-    await job_lifecycle.apply_hiring_manager_decision(
-        db, job, data.hiring_manager, current_user
-    )
-    await job_lifecycle.save_champion_core(
-        db, job, data.champion_profile, current_user, effects, notify=False
-    )
-    job_lifecycle.clear_decision_flags(job)
-    await db.flush()
-    job_lifecycle.ensure_handoff_ready(job)
-    await job_lifecycle.handoff_core(db, job, data.handoff, current_user, effects)
-    await job_lifecycle.link_similar_on_create(
-        db, job, data.similar_job_ids, current_user
-    )
-    await job_lifecycle.publish_core(
-        db, job, current_user, effects, sync_status_payload=False
-    )
-    job_lifecycle.record_cc_override(db, job, data.cc_override, current_user)
-    # 0428: pliki dodane na `/jobs/new` przechodzą na rekrutację — PRZED
-    # usunięciem formularza (klucz obcy zrobiłby z nich sieroty).
-    await job_files_service.attach_intake_files(
-        db, job_id=job.id, form_id=data.intake_form_id, user_id=current_user.id
-    )
-    await job_lifecycle.delete_intake_form(db, data.intake_form_id, current_user.id)
+    job = await job_lifecycle.apply_job_create(db, data, current_user, effects)
     await db.commit()
     await job_lifecycle.run_post_commit(effects)
     # Efekty (klasyfikator kategorii, wektor) mogą commitować — świeży odczyt
