@@ -60,6 +60,7 @@ import {
 import { isClientTimeout, SLOW_ENDPOINT_TIMEOUT_MS } from "@/lib/http-timeouts";
 import { ExistingCandidateNotice } from "@/components/v2/candidates/ExistingCandidateNotice";
 import { invalidateCandidateMutation } from "@/components/v2/pages/candidate-cache";
+import { availabilityContractNote } from "@/lib/contract-availability";
 import { candidateQueryKeys } from "@/components/v2/pages/candidate-query-keys";
 import { defaultMeetingWindow } from "@/lib/meeting-defaults";
 import { newClientRequestId } from "@/lib/client-request-id";
@@ -659,6 +660,7 @@ function CandidateFormFields({
   emailError = null,
   nameErrors = null,
   afterContact = null,
+  availabilityNote = null,
 }: {
   form: CandidateFormData;
   onChange: (k: keyof CandidateFormData, v: string) => void;
@@ -679,6 +681,11 @@ function CandidateFormFields({
   nameErrors?: NameFieldErrors | null;
   /** „Dodaj kandydata”: ramka pod wierszem e-mail/telefon (ten adres już jest w bazie). */
   afterContact?: React.ReactNode;
+  /**
+   * Edycja osoby z żywą umową (S4, 15.10.2026): ramka przy „Dyspozycyjności”
+   * — status jest ukryty do końca współpracy (`availabilityContractNote`).
+   */
+  availabilityNote?: string | null;
 }) {
   const emailInputId = useId();
   useEffect(() => {
@@ -768,6 +775,14 @@ function CandidateFormFields({
           </Select>
         </FieldGroup>
       </div>
+      {availabilityNote ? (
+        <p
+          data-testid="edit-availability-contract-note"
+          className="rounded-lg bg-success-muted px-3 py-2 text-xs leading-5 text-success-muted-foreground"
+        >
+          {availabilityNote}
+        </p>
+      ) : null}
       <div className="grid grid-cols-2 gap-3">
         <FieldGroup label="Dyspozycyjność">
           <Select
@@ -1542,6 +1557,7 @@ export function EditCandidateModal({ candidate, onClose, onSuccess }: { candidat
           importedTagLabels={structuredTagLabels(candidate.tags)}
           emailError={emailError}
           nameErrors={nameErrors}
+          availabilityNote={availabilityContractNote(candidate.employment_marker)}
         />
         <div className="flex justify-end gap-3 pt-1">
           <button type="button" onClick={onClose} className="h-10 px-4 text-sm text-muted-foreground dark:text-muted-foreground hover:text-foreground dark:hover:text-muted-foreground focus:outline-hidden focus-visible:ring-2 focus-visible:ring-gray-400 rounded-lg transition-colors">Anuluj</button>

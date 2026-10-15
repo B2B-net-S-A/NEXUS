@@ -342,3 +342,100 @@ async def test_notification_is_silent_when_everyone_is_blocked() -> None:
             await db.execute(delete(Client).where(Client.id == client_id))
             await db.execute(delete(User).where(User.id == user_id))
             await db.commit()
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_available_count_skips_people_with_a_live_contract() -> None:
+    """S3 (15.10.2026): „N oznaczonych jako dostępni” nie liczy konsultanta
+    w trakcie zamówienia u innego klienta — status z profilu przy żywej
+    umowie się nie liczy, tak jak pigułka na profilu."""
+    import uuid as _uuid
+    from datetime import timedelta
+    from unittest.mock import AsyncMock, patch
+
+    from sqlalchemy import delete
+
+    from app.core.database import AsyncSessionLocal
+    from app.core.scheduling import business_today
+    from app.core.security import hash_password
+    from app.models.candidate import AvailabilityStatus, Candidate
+    from app.models.client import Client
+    from app.models.contract import Contract, ContractStatus
+    from app.models.job import Job, JobStatus
+    from app.models.user import User, UserRole
+    from app.services import similar_job_notify as notify
+
+    unique = _uuid.uuid4().hex[:8]
+    async with AsyncSessionLocal() as db:
+        cli = Client(name=f"NotifyAvail-{unique}")
+        other = Client(name=f"NotifyAvailOther-{unique}")
+        user = User(
+            email=f"notify-avail-{unique}@example.com",
+            password_hash=hash_password(f"N0tify_{unique}!PassX"),
+            name="Notify Avail",
+            role=UserRole.recruiter,
+            is_active=True,
+        )
+        db.add_all([cli, other, user])
+        await db.flush()
+        job = Job(
+            title=f"pytest-notify-avail-{unique}",
+            description="pytest sentinel",
+            status=JobStatus.draft,
+            client_id=cli.id,
+            created_by=user.id,
+            hiring_manager_contact_id=None,
+        )
+        cands = [
+            Candidate(
+                name=f"NotifyAvail{i}",
+                lastname=f"Kandydat{unique}",
+                email=f"notify-avail-{i}-{unique}@example.com",
+                availability_status=AvailabilityStatus.actively_looking,
+            )
+            for i in range(2)
+        ]
+        db.add_all([job, *cands])
+        await db.flush()
+        db.add(
+            Contract(
+                candidate_id=cands[0].id,
+                client_id=other.id,
+                start_date=business_today() - timedelta(days=40),
+                status=ContractStatus.active,
+            )
+        )
+        await db.commit()
+        job_id, user_id = job.id, user.id
+        client_ids = [cli.id, other.id]
+        cand_ids = [c.id for c in cands]
+
+    ranked = [_candidate(candidate_id=i, stage=PipelineStage.cv_sent) for i in cand_ids]
+    emit_mock = AsyncMock(return_value=object())
+    try:
+        async with AsyncSessionLocal() as db:
+            with (
+                patch.object(
+                    notify,
+                    "fetch_historical_candidates",
+                    new=AsyncMock(return_value=(ranked, _refs_tier_a(), "primary")),
+                ),
+                patch.object(notify, "emit", new=emit_mock),
+            ):
+                emitted = await notify.notify_similar_job_candidates(db, job_id)
+
+        assert emitted == 1
+        message = emit_mock.await_args.kwargs["message"]
+        assert "2 kandydat" in message, message
+        assert "1 oznaczonych jako dostępni" in message, message
+    finally:
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                delete(Contract).where(Contract.candidate_id.in_(cand_ids))
+            )
+            await db.execute(delete(Candidate).where(Candidate.id.in_(cand_ids)))
+            await db.execute(delete(Job).where(Job.id == job_id))
+            await db.execute(delete(Client).where(Client.id.in_(client_ids)))
+            await db.execute(delete(User).where(User.id == user_id))
+            await db.commit()

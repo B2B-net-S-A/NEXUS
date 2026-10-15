@@ -19,6 +19,12 @@ Reguły (decyzje Artura 07.10.2026):
   Bez takiej notatki „od zaraz” i okres wypowiedzenia nie dają daty; pełna
   data i miesiąc tak — ich „stan na” to wtedy dzień najnowszej notatki.
   Znacznik ``{"date", "as_of", "basis"}`` — profil pokazuje „stan na DD.MM.RRRR”.
+* **Status „Czy szuka pracy” nie z notatki sprzed umowy** (S2, decyzja
+  Artura 15.10.2026). „Od zaraz” zamienia „Nie wiemy” na „Szuka aktywnie”
+  tylko u osoby bez żywej umowy i tylko z notatki nowszej niż start jej
+  ostatniej umowy (``ContractHistory.allows_status_from_note``). Pomiar
+  15.10.2026: 115 ze 132 pracujących u nas z „Szuka aktywnie” dostało go od
+  tego automatu ze screeningu sprzed zatrudnienia.
 * Do 07.10.2026 data dostępności powstawała WYŁĄCZNIE z pełnej daty ISO
   w ``available_from`` (pomiar: 6 327 z 9 607 osób z dostępnością
   w notatkach miało pustą datę). Okres wypowiedzenia trafiał tylko do
@@ -32,7 +38,7 @@ import calendar
 import re
 from dataclasses import dataclass
 from datetime import date, timedelta
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 from app.core.scheduling import business_today
 from app.services.candidate_notes_facts import (
@@ -42,6 +48,9 @@ from app.services.candidate_notes_facts import (
     work_mode_from_insights,
     _set_preference,
 )
+
+if TYPE_CHECKING:
+    from app.services.contract_availability import ContractHistory
 
 AVAILABILITY_MARKER = "_availability_from_notes"
 REMOTE_MODES_MARKER = "_remote_modes_from_notes"
@@ -263,6 +272,7 @@ def plan_profile_fill(
     latest_note_day: Optional[date] = None,
     include_status: bool = True,
     release_stale_availability: bool = False,
+    contracts: Optional["ContractHistory"] = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     """(zmiany pól, znaczniki do ``_notes_insights``). Czysta — nic nie zapisuje.
 
@@ -273,6 +283,10 @@ def plan_profile_fill(
     datę, którą wpisały notatki, a której nowe fakty już nie dają, zdejmujemy
     (``availability_date: None``, bez znacznika). Domknięcie historii tylko
     wypełnia puste pola, więc jej nie zdejmuje.
+
+    ``contracts`` — umowy osoby (``contract_availability.load_contract_history``);
+    status „Szuka aktywnie” z „od zaraz” tylko, gdy pozwala na to dzień
+    notatki o dostępności (``as_of``). ``None`` = osoba bez umów.
 
     ``candidate`` to obiekt z atrybutami profilu (ORM albo wiersz odczytu).
     Znaczniki zwracane są zawsze, gdy dalej obowiązują (także bez zmiany).
@@ -321,7 +335,9 @@ def plan_profile_fill(
     elif owned is not None:
         markers[AVAILABILITY_MARKER] = owned
 
-    if include_status:
+    if include_status and (
+        contracts is None or contracts.allows_status_from_note(as_of)
+    ):
         status = getattr(
             getattr(candidate, "availability_status", None),
             "value",

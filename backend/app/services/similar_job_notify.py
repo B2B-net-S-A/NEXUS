@@ -33,6 +33,7 @@ from app.core.database import AsyncSessionLocal
 from app.models.candidate import AvailabilityStatus, Candidate
 from app.models.job import Job
 from app.models.notification import NotificationType
+from app.services.contract_availability import without_live_contract_clause
 from app.services.job_previous_recruiters import working_owner_id
 from app.services.notification_triggers import (
     _delivery_lead_targets,
@@ -180,9 +181,12 @@ async def notify_similar_job_candidates(db: AsyncSession, job_id: int) -> int:
     if alert is None:
         return 0
 
+    # Osoba z żywą umową nie jest „oznaczona jako dostępna” przez status
+    # z profilu (15.10.2026, S3) — ten sam warunek co pigułka na profilu.
     avail_rows = await db.execute(
         select(Candidate.availability_status).where(
-            Candidate.id.in_(alert.candidate_ids)
+            Candidate.id.in_(alert.candidate_ids),
+            without_live_contract_clause(Candidate.id),
         )
     )
     available_count = sum(

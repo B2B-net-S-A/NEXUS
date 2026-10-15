@@ -1038,6 +1038,8 @@ describe("osoba pracująca u nas — dostępność i stawka z umowy (15.10.2026)
     const note = await screen.findByTestId("availability-contract-note");
     expect(note).toHaveTextContent("Pracuje u nas do 30.11.2026 (Bank Przykładowy)");
     expect(note).toHaveTextContent("Delivery Lead (Anna Nowak)");
+    // S4 (15.10.2026): ręczny wpis statusu nie znika bez słowa.
+    expect(note).toHaveTextContent("status „Czy szuka pracy” jest ukryty");
   });
 
   it("bez daty końca zamówienia wiersz to mówi, a nie pokazuje starej daty", () => {

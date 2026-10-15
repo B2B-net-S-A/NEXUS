@@ -210,6 +210,64 @@ describe("AppShell <Modal> — a11y", () => {
   });
 });
 
+describe("EditCandidateModal — status przy żywej umowie (S4, 15.10.2026)", () => {
+  function renderEdit(candidate: Record<string, unknown>) {
+    vi.mocked(api.get).mockResolvedValue({ data: [] });
+    vi.mocked(phase5Api.clientsLookup).mockResolvedValue({ data: [] } as never);
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <EditCandidateModal
+          candidate={{ id: 7, name: "Jan", lastname: "Kowalski", ...candidate }}
+          onClose={() => {}}
+          onSuccess={() => {}}
+        />
+      </QueryClientProvider>,
+    );
+  }
+
+  it("przy „Dyspozycyjności” mówi, że status jest ukryty do końca współpracy", () => {
+    renderEdit({
+      availability_status: "actively_looking",
+      employment_marker: {
+        phase: "working",
+        source: "contract",
+        clients: [
+          {
+            client_id: 7,
+            client_name: "Bank Przykładowy",
+            phase: "working",
+            order_end_date: "2027-01-31",
+            delivery_lead_name: "Anna Nowak",
+          },
+        ],
+        free_from: "2027-02-01",
+        free_from_basis: "work_end",
+      },
+    });
+
+    const note = screen.getByTestId("edit-availability-contract-note");
+    expect(note).toHaveTextContent("Pracuje u nas do 31.01.2027 (Bank Przykładowy)");
+    expect(note).toHaveTextContent("status „Czy szuka pracy” jest ukryty");
+    expect(note).toHaveTextContent("Delivery Lead (Anna Nowak)");
+    // Pole zostaje edytowalne — ramka niczego nie blokuje.
+    expect(screen.getByDisplayValue("Aktywnie szuka pracy")).toBeEnabled();
+  });
+
+  it("bez żywej umowy ramki nie ma", () => {
+    renderEdit({
+      availability_status: "actively_looking",
+      employment_marker: {
+        phase: "working",
+        source: "conflict",
+        clients: [{ client_id: 7, client_name: "Bank Przykładowy", phase: "working" }],
+      },
+    });
+
+    expect(screen.queryByTestId("edit-availability-contract-note")).toBeNull();
+  });
+});
+
 describe("EditCandidateModal — profile rate boundary", () => {
   it("does not expose or submit the OCC-managed profile rate", async () => {
     vi.mocked(api.get).mockResolvedValue({ data: [] });
