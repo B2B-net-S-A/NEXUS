@@ -293,6 +293,13 @@ FOLLOW: tuple[Follow, ...] = (
         "screening_form_versions",
         _unless_target_has("screening_form_versions"),
     ),
+    # 0450: champion idzie za osobą; flaga „nie szukamy” rekrutacji docelowej
+    # przelicza się przy najbliższym zapisie listy albo ruchu championa.
+    Follow(
+        "champions",
+        "job_champions",
+        _unless_target_has("job_champions"),
+    ),
     Follow(
         "rate_from",
         "candidates",

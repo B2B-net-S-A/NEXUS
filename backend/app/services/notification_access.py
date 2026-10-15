@@ -121,6 +121,9 @@ NOTIFICATION_SECTION_BY_TYPE: dict[NotificationType, ProductSection] = {
     # 0447: link prowadzi do rekrutacji (panel „Zespół”).
     NotificationType.recruiter_parked: ProductSection.pipeline,
     NotificationType.recruiter_restored: ProductSection.pipeline,
+    # 0450: link prowadzi do Tablicy rekrutacji (plakietka „Championi”).
+    NotificationType.champions_changed: ProductSection.pipeline,
+    NotificationType.champion_search_resumed: ProductSection.pipeline,
     NotificationType.request_review_needed: ProductSection.pipeline,
     NotificationType.request_allocation_proposals: ProductSection.pipeline,
     NotificationType.candidate_claim_taken: ProductSection.pipeline,

@@ -534,16 +534,49 @@ describe("strona rekrutacji — nagłówek i „Kandydaci do dodania” (02.10.2
     await waitFor(() => expect(seen.add?.fullReviewRequest).toBeNull());
   });
 
-  it("„Mamy championa” jest w menu „⋯” i zapisuje stan", async () => {
-    apiMock.post.mockResolvedValue({ data: {} });
+  it("„Championi…” w menu „⋯” otwiera okienko statusu i pyta o listę (D2)", async () => {
+    apiMock.get.mockImplementation((url: string) => {
+      if (url === "/api/jobs/42") {
+        return Promise.resolve({ data: { ...JOB, request_status: "searching", champions: [] } });
+      }
+      if (url === "/api/pipeline/kanban/42") return Promise.resolve({ data: KANBAN });
+      if (url === "/api/jobs/42/champions") {
+        return Promise.resolve({
+          data: {
+            job_id: 42,
+            can_edit: true,
+            seats: 1,
+            hired_count: 0,
+            search_stopped: false,
+            legacy_flag: false,
+            work_state: "searching",
+            champions: [],
+            eligible: [
+              {
+                candidate_id: 7,
+                name: "Karol Wzorcowy",
+                column: "client_interview",
+                stage_label: "Rozmowa u klienta",
+                is_champion: false,
+              },
+            ],
+          },
+        });
+      }
+      return Promise.resolve({ data: [] });
+    });
     renderPage();
     await screen.findByTestId("kanban");
-    expect(screen.queryByRole("button", { name: /mamy championa/i })).not.toBeInTheDocument();
+    // Plakietka statusu jest przyciskiem okienka; listy nie pobieramy przed otwarciem.
+    expect(await screen.findByTestId("job-champions-status")).toHaveTextContent("Szukamy");
+    expect(apiMock.get).not.toHaveBeenCalledWith("/api/jobs/42/champions");
     await userEvent.click(screen.getByRole("button", { name: "Więcej akcji rekrutacji" }));
     await userEvent.click(await screen.findByTestId("toggle-champion"));
-    await waitFor(() =>
-      expect(apiMock.post).toHaveBeenCalledWith("/api/jobs/42/champion-found", { found: true }),
-    );
+    const popover = await screen.findByTestId("job-champions-popover");
+    expect(await within(popover).findByText("Karol Wzorcowy")).toBeInTheDocument();
+    expect(apiMock.get).toHaveBeenCalledWith("/api/jobs/42/champions");
+    // Stary przełącznik „Mamy championa” nie jest już wysyłany.
+    expect(apiMock.post).not.toHaveBeenCalledWith("/api/jobs/42/champion-found", expect.anything());
   });
 
   it("Tablica nie dostaje już skoku do kolumny ani panelu dodawania w „Nowych”", async () => {

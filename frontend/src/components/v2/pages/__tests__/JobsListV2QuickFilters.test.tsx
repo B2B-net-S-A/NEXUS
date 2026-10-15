@@ -526,6 +526,31 @@ describe("JobsListV2 — status requestu i podobne rekrutacje (lista v4)", () =>
     expect(screen.queryByTestId("job-needs-action")).not.toBeInTheDocument();
   });
 
+  it("championi (D3, 15.10.2026): złoty status z imionami w dymku i wstrzymany P1", async () => {
+    mockJobsResponse([
+      jobRow({
+        id: 1,
+        title: "Z championami",
+        request_status: "champion",
+        request_stage: "champion",
+        priority_level: "p1",
+        priority_paused: true,
+        champions: [
+          { candidate_id: 1, name: "Karol Wzorcowy" },
+          { candidate_id: 2, name: "Bartek Testowy" },
+        ],
+      }),
+    ]);
+    renderJobs();
+    await screen.findByText("Z championami");
+    const table = screen.getByRole("table");
+    const status = within(table).getByText("Mamy championa").closest("span");
+    expect(status).toHaveAttribute("title", "Championi: Karol Wzorcowy, Bartek Testowy");
+    expect(status?.className).toContain("bg-medal-gold");
+    const priority = table.querySelector('[data-priority="p1"]');
+    expect(priority).toHaveAttribute("data-paused", "true");
+  });
+
   it("pusty wynik poprzednich filtrów nie mówi „nic nie pasuje”, dopóki nie przyjdzie odpowiedź na nowe (14.10.2026)", async () => {
     const user = userEvent.setup();
     mockJobsResponse([]);

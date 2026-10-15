@@ -249,12 +249,13 @@ async def test_db_removing_the_champion_brings_manual_people_back(
         headers=app_auth_headers,
     )
     assert added.status_code == 200, added.text
-    found = await app_client.post(
-        f"/api/jobs/{job_id}/champion-found",
-        json={"found": True},
-        headers=app_auth_headers,
-    )
-    assert found.status_code == 200, found.text
+    # 0450: champion to osoba; tu flaga jak sprzed zmiany (bez osób) —
+    # jej zdjęcie idzie tą samą ścieżką co zapis pustej listy championów.
+    async with AsyncSessionLocal() as db:
+        flagged = await db.get(Job, job_id)
+        flagged.champion_found_at = datetime.now(timezone.utc)
+        flagged.work_state_changed_at = datetime.now(timezone.utc)
+        await db.commit()
     # Przebieg automatu zwalnia wszystkich przy championie — tu wprost.
     async with AsyncSessionLocal() as db:
         row = await db.scalar(

@@ -320,6 +320,9 @@ _VIEWER_REDACTED_JOB_FIELDS: tuple[str, ...] = (
     # Kiedy DL oznaczył „Mamy championa" — informacja wewnętrzna; status
     # requestu (`request_status`) viewer widzi i bez tego znacznika (22.09.2026).
     "champion_found_at",
+    # 0450: imiona championów to dane kandydatów — viewer widzi sam status.
+    "champions",
+    "champion_seats",
 )
 
 

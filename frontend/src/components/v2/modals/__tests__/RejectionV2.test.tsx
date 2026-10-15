@@ -338,6 +338,22 @@ describe("RejectionV2 — kogo zamykasz i kto dalej", () => {
     renderWith({});
     expect(screen.queryByText(/^Dalej:/)).toBeNull();
     expect(screen.queryByText(/To ostatnia osoba/)).toBeNull();
+    expect(screen.queryByTestId("rejection-champion-notice")).toBeNull();
+  });
+
+  it("odrzucany champion: złota linia zaraz pod osobą mówi, co stanie się z rekrutacją (D7)", () => {
+    const notice =
+      "Karol jest ostatnim championem. Po odrzuceniu rekrutacja wróci do „Szukamy”, a P1 zacznie działać.";
+    renderWith({
+      subject: { name: "Karol Wzorcowy", stageLabel: "Rozmowa u klienta" },
+      championNotice: notice,
+    });
+    const line = screen.getByTestId("rejection-champion-notice");
+    expect(line).toHaveTextContent(notice);
+    expect(line.className).toContain("bg-medal-gold");
+    // Kolejność: osoba, potem linia championa.
+    const subject = screen.getByText("Karol Wzorcowy · Rozmowa u klienta");
+    expect(subject.compareDocumentPosition(line) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 });
 

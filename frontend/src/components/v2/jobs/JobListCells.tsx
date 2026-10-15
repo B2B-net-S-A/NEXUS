@@ -10,7 +10,7 @@
  * własną logikę tonu i odmiany — testowalną bez montowania całej listy.
  */
 import { countPl } from "@/lib/plural-pl";
-import { ArrowLeftRight, History } from "lucide-react";
+import { ArrowLeftRight, History, Trophy } from "lucide-react";
 import Link from "next/link";
 import type { MouseEvent } from "react";
 
@@ -41,6 +41,7 @@ import {
 } from "@/lib/request-status";
 import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/store/auth";
+import { championsTitle } from "@/lib/job-champions";
 import {
   REQUEST_STAGE_META,
   requestStageOf,
@@ -319,27 +320,43 @@ export function JobProposalsLink({
 
 // ── Lista v4 (0341): status requestu i podobne rekrutacje ────────────────────
 
-const REQUEST_TONE_CLASS: Record<RequestStatusTone, string> = {
+export const REQUEST_TONE_CLASS: Record<RequestStatusTone, string> = {
   search: "bg-primary/10 text-primary",
   client: "bg-success-muted text-success-muted-foreground",
   need: "bg-warning-muted text-warning-muted-foreground",
   done: "bg-muted text-muted-foreground",
 };
 
+/**
+ * Championi (D3, 15.10.2026): złota plakietka z pucharem — w nagłówku, na
+ * liście i na karcie Tablicy ten sam kolor.
+ */
+export const CHAMPION_TONE_CLASS = "bg-medal-gold text-medal-gold-foreground";
+
+/** Kropka statusu albo puchar przy championie. */
+export function RequestStatusMark({ champion }: { champion: boolean }) {
+  return champion ? (
+    <Trophy className="h-3 w-3 shrink-0" aria-hidden="true" />
+  ) : (
+    <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-current" aria-hidden="true" />
+  );
+}
+
 /** Status requestu liczony przez serwer; nieznana wartość = kreska, nie zgadywanie. */
 export function RequestStatusBadge({ status }: { status: unknown }) {
   const value = requestStatusOf(status);
   if (!value) return <span className="text-xs text-muted-foreground">—</span>;
   const meta = REQUEST_STATUS_META[value];
+  const champion = value === "champion";
   return (
     <span
       title={meta.hint}
       className={cn(
         "inline-flex h-6 items-center gap-1.5 whitespace-nowrap rounded-md px-2 text-xs font-semibold",
-        REQUEST_TONE_CLASS[meta.tone],
+        champion ? CHAMPION_TONE_CLASS : REQUEST_TONE_CLASS[meta.tone],
       )}
     >
-      <span className="h-1.5 w-1.5 rounded-full bg-current" aria-hidden="true" />
+      <RequestStatusMark champion={champion} />
       {meta.label}
     </span>
   );
@@ -353,26 +370,32 @@ const STAGE_TONE_CLASS: Record<(typeof REQUEST_STAGE_META)[RequestStage]["tone"]
 /**
  * Stan requestu w wierszu listy (25.09.2026) — ta sama wartość co pigułka nad
  * listą (`request_stage`). Brak pola (starszy backend) = status requestu.
+ * Przy championach (D3, 15.10.2026) złota plakietka, a imiona w dymku —
+ * szerokość kolumny bez zmian.
  */
 export function RequestStageBadge({
   stage,
   fallbackStatus,
+  champions,
 }: {
   stage: unknown;
   fallbackStatus?: unknown;
+  champions?: readonly { name: string }[] | null;
 }) {
   const value = requestStageOf(stage);
   if (!value) return <RequestStatusBadge status={fallbackStatus} />;
   const meta = REQUEST_STAGE_META[value];
+  const champion = value === "champion";
+  const named = champion && champions && champions.length > 0 ? championsTitle(champions) : null;
   return (
     <span
-      title={meta.hint}
+      title={named ?? meta.hint}
       className={cn(
         "inline-flex h-6 items-center gap-1.5 whitespace-nowrap rounded-md px-2 text-xs font-semibold",
-        STAGE_TONE_CLASS[meta.tone],
+        champion ? CHAMPION_TONE_CLASS : STAGE_TONE_CLASS[meta.tone],
       )}
     >
-      <span className="h-1.5 w-1.5 rounded-full bg-current" aria-hidden="true" />
+      <RequestStatusMark champion={champion} />
       {meta.label}
     </span>
   );

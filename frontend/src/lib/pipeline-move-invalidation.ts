@@ -16,6 +16,7 @@ import type { QueryClient } from "@tanstack/react-query";
 
 import { BOARD_TASKS_QUERY_KEY } from "@/lib/api/boardTasks";
 import { MOVE_REQUIREMENTS_PREFIX } from "@/lib/api/moveRequirements";
+import { invalidateAfterChampionsChange } from "@/lib/job-champions-api";
 import { candidateStageHistoryKey } from "@/lib/pipeline-version-conflict";
 
 /** Prefiks follow-upu osoby (`candidateFollowupKeys.detail`). */
@@ -39,5 +40,12 @@ export function invalidateAfterPipelineMove(
     void queryClient.invalidateQueries({
       queryKey: candidateStageHistoryKey(candidateId, jobId),
     });
+  }
+  // Championi (D5, D7, 15.10.2026): serwer po ruchu przelicza listę i flagę
+  // „nie szukamy” (odrzucenie championa, zatrudnienie przy kilku miejscach),
+  // więc nagłówek, P1 i lista liczą się od nowa — z każdego ekranu ruchu.
+  const job = queryClient.getQueryData<{ champions?: unknown }>(["job", String(jobId)]);
+  if (Array.isArray(job?.champions) && job.champions.length > 0) {
+    invalidateAfterChampionsChange(queryClient, jobId);
   }
 }

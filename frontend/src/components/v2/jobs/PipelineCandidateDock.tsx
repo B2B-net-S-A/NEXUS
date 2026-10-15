@@ -52,6 +52,7 @@ import {
   PhoneOff,
   Send,
   Sparkles,
+  Trophy,
   UserPlus,
   UserX,
   X,
@@ -1570,6 +1571,18 @@ export function PipelineCandidateDock({
               <span className="truncate text-sm font-semibold text-foreground">
                 {fullName}
               </span>
+              {/* Champion (D3, 15.10.2026): sam znak — oznacza Delivery Lead
+                  w nagłówku rekrutacji, panel nie ma przycisków oznaczania. */}
+              {item.is_champion ? (
+                <span
+                  className="inline-flex shrink-0 items-center gap-0.5 rounded px-1 text-[10px] font-semibold bg-medal-gold text-medal-gold-foreground"
+                  title="Champion tej rekrutacji — oznaczył Delivery Lead."
+                  data-testid="dock-champion-badge"
+                >
+                  <Trophy className="h-2.5 w-2.5" aria-hidden="true" />
+                  Champion
+                </span>
+              ) : null}
               <Link
                 href={profileHref}
                 target="_blank"

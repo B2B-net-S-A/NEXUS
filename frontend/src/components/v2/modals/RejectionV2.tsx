@@ -2,7 +2,7 @@
 
 import * as React from"react";
 import { useState, useEffect } from"react";
-import { AlertTriangle } from"lucide-react";
+import { AlertTriangle, Trophy } from"lucide-react";
 import {
  Dialog,
  DialogBody,
@@ -118,6 +118,10 @@ interface Props {
   *  `null` — to ostatnia osoba, panel się zamknie. Bez propu (kilka osób,
   *  karta, przeciągnięcie) okno niczego nie zapowiada. */
  nextPerson?: { name: string; stageLabel: string } | null;
+ /** Odrzucana osoba jest championem (D7, 15.10.2026): co stanie się
+  *  z rekrutacją — zostają inni championi albo wraca „Szukamy”. Liczy
+  *  `championRemovalOutcome` z detalu rekrutacji; `null` = bez linii. */
+ championNotice?: string | null;
  /** Rekrutacja i odrzucane osoby — podgląd maila odrzucenia przed wysyłką
   *  (13.10.2026). Bez propu okno pokazuje sam checkbox. */
  emailPreview?: RejectionEmailPeople | null;
@@ -157,6 +161,7 @@ export function RejectionV2({
  agreement = null,
  subject = null,
  nextPerson,
+ championNotice = null,
  emailPreview = null,
  pending = false,
  workModeJob = null,
@@ -296,6 +301,15 @@ export function RejectionV2({
  {subject ? (
  <p className="rounded-md border border-border bg-muted/40 px-2.5 py-1.5 text-sm font-medium text-foreground">
  {subject.stageLabel ? `${subject.name} · ${subject.stageLabel}` : subject.name}
+ </p>
+ ) : null}
+ {championNotice ? (
+ <p
+ className="flex items-start gap-1.5 rounded-md bg-medal-gold px-2.5 py-1.5 text-sm text-medal-gold-foreground"
+ data-testid="rejection-champion-notice"
+ >
+ <Trophy className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+ {championNotice}
  </p>
  ) : null}
  </DialogHeader>

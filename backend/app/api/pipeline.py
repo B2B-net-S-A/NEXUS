@@ -2275,6 +2275,28 @@ async def run_move_effects(
             _auto_add_to_pool,
         )
 
+    # 0450 (D5, D7): karta championa zamknięta → champion schodzi sam;
+    # zatrudnienie przelicza miejsca. PO commicie, we własnej transakcji —
+    # blokady przydział → rekrutacja (wewnątrz ruchu trzymamy już kandydata
+    # i blokadę klucza rekrutacji, więc tam groziłoby zakleszczenie).
+    if outcome.target_column in ("closed", "hired"):
+
+        async def _reconcile_champions() -> None:
+            from app.services import job_champions
+
+            await job_champions.reconcile(
+                db,
+                job_id=outcome.job_id,
+                candidate_ids=[outcome.candidate_id],
+                actor_id=actor_id,
+            )
+
+        await _post_commit_effect(
+            db,
+            f"champions after move job={outcome.job_id}",
+            _reconcile_champions,
+        )
+
     # Phase 17 (migracja 0068): event-driven recompute risk profile.
     # Best-effort — błąd NIE może wywołać 500 po zapisanym transition.
     async def _recompute_risk() -> None:
@@ -2960,6 +2982,10 @@ async def build_kanban_view(
         if with_employment
         else {}
     )
+    # 0450 (D3): złota plakietka „Champion” na karcie — jedno zapytanie.
+    from app.services.job_champions import live_candidate_ids  # noqa: PLC0415
+
+    champion_ids = await live_candidate_ids(db, job_id)
     # „+1 rekrutacja” (14.10.2026): ta sama osoba czeka też w „Nowych”/
     # „Screeningu” innej rekrutacji — sygnał „zrób screening razem”.
     other_open_jobs: dict[int, list[dict]] = {}
@@ -3192,6 +3218,7 @@ async def build_kanban_view(
         payload["agreement"] = agreements.get(e.candidate_id)
         payload["employment_marker"] = employment_markers.get(e.candidate_id)
         payload["other_open_jobs"] = other_open_jobs.get(e.candidate_id) or []
+        payload["is_champion"] = e.candidate_id in champion_ids
         v4 = v4_processes.get(e.candidate_id)
         if v4 is not None:
             payload["entry_source"] = v4.entry_source

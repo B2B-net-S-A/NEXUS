@@ -5903,6 +5903,13 @@ async def remove_candidate_from_recruitment(
     actor_id = current_user.id
     removed_stage_count = len(stage_rows)
     await db.commit()
+    # 0450 (D7): osoba usunięta z rekrutacji przestaje być jej championem.
+    # Po commicie, we własnej transakcji (blokady przydział → rekrutacja).
+    from app.services import job_champions  # noqa: PLC0415
+
+    await job_champions.reconcile_after_commit(
+        db, job_id=job_id, candidate_ids=[candidate_id], actor_id=actor_id
+    )
     # Live kanban: the rest of the team re-reads the board (best-effort).
     await broadcast_pipeline_changed(db, job_id, actor_id)
 
@@ -6997,6 +7004,11 @@ async def delete_candidate(
             Note.candidate_id == candidate_id, Note.parent_note_id.is_not(None)
         )
     )
+    # 0450 (D7): kaskada zabierze wiersze championów — rekrutacje, w których
+    # osoba była championem, przeliczamy po commicie usunięcia.
+    from app.services import job_champions  # noqa: PLC0415
+
+    champion_job_ids = await job_champions.live_job_ids_for_candidate(db, candidate_id)
     await db.delete(candidate)
     # Flush PRZED commitem: kaskady w bazie wykonują się tutaj, więc ewentualny
     # FK bez `ON DELETE` wywali się czytelnie, a rejestr kasowań wycofa się
@@ -7004,6 +7016,17 @@ async def delete_candidate(
     await db.flush()
 
     await db.commit()
+
+    # 0450 (D7): rekrutacje, w których usunięta osoba była championem — bez
+    # niej mogą wrócić do szukania. Po commicie, we własnych transakcjach.
+    for champion_job_id in champion_job_ids:
+        await job_champions.reconcile_after_commit(
+            db,
+            job_id=champion_job_id,
+            candidate_ids=[candidate_id],
+            actor_id=current_user.id,
+            had_champions=True,
+        )
 
     if teams_to_cancel:
         await cancel_erased_meetings(teams_to_cancel)

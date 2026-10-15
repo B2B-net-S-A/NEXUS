@@ -29,7 +29,7 @@ from __future__ import annotations
 
 from typing import Iterable, Literal, Optional
 
-from sqlalchemy import case
+from sqlalchemy import and_, case, not_, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.activity import Activity
@@ -118,3 +118,68 @@ def priority_rank_expr(column: Optional[object] = None):
     """To samo co ``priority_rank`` w SQL (sortowanie „Wymaga uwagi”)."""
     target = Job.priority if column is None else column
     return case((target.in_(_VALUES_BY_LEVEL["p1"]), 0), else_=1)
+
+
+# ── P1 wstrzymany przez championa (D6, 15.10.2026) ───────────────────────────
+#
+# Rekrutacja z championem przy „Szukamy” nie jest pilna: sortowanie „Wymaga
+# uwagi” i filtr poziomu priorytetu na liście traktują jej P1 jak „Bez
+# priorytetu”. Kolumna ``jobs.priority`` się nie zmienia — P1 wraca sam, gdy
+# odpadnie ostatni champion (zapis „Bez priorytetu” przeniósłby zespół do
+# „Poprzedni rekruter”). Automat, „Nowe rekrutacje P1” i API v1 liczą swoje
+# pule osobno (``champion_found_at IS NULL``) i tego nie czytają.
+
+
+def champion_pauses_clause():
+    """Champion widoczny na ekranach: tylko przy „Szukamy” (reguła z 28.09)."""
+    return and_(Job.work_state == "searching", Job.champion_found_at.is_not(None))
+
+
+def priority_paused(job: object) -> bool:
+    """To samo co ``champion_pauses_clause`` dla wczytanego wiersza P1."""
+    return (
+        level_of(getattr(job, "priority", None)) == "p1"
+        and getattr(job, "work_state", None) == "searching"
+        and getattr(job, "champion_found_at", None) is not None
+    )
+
+
+def attention_priority_rank_expr():
+    """Ranga do „Wymaga uwagi”: 0 = P1 bez championa, 1 = reszta."""
+    return case(
+        (
+            and_(
+                Job.priority.in_(_VALUES_BY_LEVEL["p1"]),
+                not_(champion_pauses_clause()),
+            ),
+            0,
+        ),
+        else_=1,
+    )
+
+
+def priority_level_clause(levels: Iterable[str]):
+    """Filtr listy po poziomach: P1 bez wstrzymanych, „Bez priorytetu” razem
+    z wstrzymanymi P1, „Przyjmujemy” bez zmian."""
+    wanted = list(dict.fromkeys(levels))
+    parts = []
+    if "p1" in wanted:
+        parts.append(
+            and_(
+                Job.priority.in_(_VALUES_BY_LEVEL["p1"]),
+                not_(champion_pauses_clause()),
+            )
+        )
+    if "p2" in wanted:
+        parts.append(
+            or_(
+                Job.priority.in_(_VALUES_BY_LEVEL["p2"]),
+                and_(
+                    Job.priority.in_(_VALUES_BY_LEVEL["p1"]),
+                    champion_pauses_clause(),
+                ),
+            )
+        )
+    if "accepting" in wanted:
+        parts.append(Job.priority.in_(_VALUES_BY_LEVEL["accepting"]))
+    return or_(*parts)

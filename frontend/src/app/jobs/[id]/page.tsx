@@ -19,10 +19,8 @@ import { KanbanBoardV2 } from "@/components/v2/pages/KanbanBoardV2";
 import { PipelineBoardGate } from "@/components/v2/jobs/PipelineBoardGate";
 import { EditJobModal } from "@/components/AppShell";
 import { JobAdWindow } from "@/components/v2/job-ad/JobAdWindow";
-import { RequestStatusBadge } from "@/components/v2/jobs/JobListCells";
+import { JobChampionsStatus } from "@/components/v2/jobs/JobChampionsStatus";
 import { CHAMPION_ROLES, requestStatusOf } from "@/lib/request-status";
-import { similarJobsApi } from "@/lib/similar-jobs-api";
-import { toggleChampionFound } from "@/lib/champion-found-toggle";
 import { useToast } from "@/components/Toast";
 import { countHired } from "@/lib/pipeline-flow";
 import { jobBudgetHourly } from "@/lib/job-budget";
@@ -191,10 +189,11 @@ export default function JobDetailPage() {
   // Pełna redakcja rekrutacji (PATCH /api/jobs/{id}). Przez rejestr, żeby nie
   // hodować drugiej reguły obok niego (F-19).
   const canUpdateJob = useCapability("job.update");
-  // 0341: „Mamy championa" oznacza Delivery Lead (lustro `_CHAMPION_ROLES`).
+  // Championów wskazuje Delivery Lead (lustro `_CHAMPION_ROLES`, D2 15.10.2026).
   const canMarkChampion =
     canWritePipeline && CHAMPION_ROLES.some((role) => hasRole(authUser, role));
-  const [championPending, setChampionPending] = useState(false);
+  // Okienko „Championi tej rekrutacji” — otwiera je plakietka statusu i menu „⋯”.
+  const [championsOpen, setChampionsOpen] = useState(false);
   // POST /api/invite-links → RecruiterPlus. Ta sama capability bramkuje akcję
   // na liście ofert — bez niej read-only `user` widział tu przycisk wiodący
   // prosto w 403 (audyt F-19).
@@ -752,6 +751,13 @@ export default function JobDetailPage() {
   // Ponowne otwarcie i dokończenie to publikacja z przekazaniem — ta sama
   // bramka co zamknięcie (`POST /publish` = `POST /handoff` + cykl życia).
   const publishAction = canCloseJob ? jobPublishAction(job) : null;
+  // Wskazanie championów (D2): serwer odmawia przy zamkniętej i „Zakończonej”
+  // rekrutacji (409), więc tam plakietka tylko pokazuje listę.
+  const canEditChampions =
+    canMarkChampion && job.status !== "closed" && job.work_state !== "finished";
+  // Plakietka statusu stoi przy znanym statusie requestu (starszy cache —
+  // „Aktywna/Szkic”); okienko championów kotwiczy się na niej.
+  const championsStatusShown = requestStatusOf(job.request_status) != null;
   const canEditChampion = canEditJobContent(job, {
     canWritePipeline,
     // Odpowiedź bez pola `can_edit` (starszy cache): pełną redakcję rekrutacji
@@ -821,9 +827,18 @@ export default function JobDetailPage() {
         badges={
           <>
             {/* Status requestu (0341) zastępuje techniczny „Aktywna/Szkic" —
-                ta sama reguła co kolumna „Status" na liście. */}
-            {requestStatusOf(job.request_status) ? (
-              <RequestStatusBadge status={job.request_status} />
+                ta sama reguła co kolumna „Status" na liście. Od 15.10.2026 (D2)
+                to też jedyne miejsce wskazywania championów. */}
+            {championsStatusShown ? (
+              <JobChampionsStatus
+                jobId={jobId}
+                job={job}
+                canEdit={canEditChampions}
+                open={championsOpen}
+                onOpenChange={setChampionsOpen}
+                cproEnabled={job.cpro_enabled === true}
+                onOpenPerson={openPersonPanel}
+              />
             ) : (
               <Badge
                 variant={
@@ -861,6 +876,8 @@ export default function JobDetailPage() {
             jobId={jobId}
             level={priorityLevelOf(job)}
             canSet={canSetPriority}
+            // P1 wstrzymany, bo mamy championa (D6, 15.10.2026).
+            paused={job.priority_paused === true}
             // Zejście z P1 przenosi zespół do „Poprzedni rekruter” — menu pyta.
             team={{
               workingNames: workingRecruiters(recruitersOf(job)).map((p) => p.name),
@@ -912,29 +929,8 @@ export default function JobDetailPage() {
         teamSummary={teamSummary}
         onOpenTeam={() => openChampion({ panelTab: "team" })}
         onEditFullChampion={canEditChampion ? () => openChampion({ edit: true }) : undefined}
-        championFound={job.champion_found_at != null}
-        championPending={championPending}
-        onToggleChampion={
-          canMarkChampion
-            ? async () => {
-                setChampionPending(true);
-                try {
-                  // REC-05: odmowa serwera → toast, nie cisza.
-                  await toggleChampionFound({
-                    jobId,
-                    found: job.champion_found_at == null,
-                    save: similarJobsApi.setChampionFound,
-                    refresh: async () => {
-                      await queryClient.invalidateQueries({ queryKey: ["job", id] });
-                      void queryClient.invalidateQueries({ queryKey: ["jobs-v2"] });
-                    },
-                    onError: showError,
-                  });
-                } finally {
-                  setChampionPending(false);
-                }
-              }
-            : undefined
+        onOpenChampions={
+          canEditChampions && championsStatusShown ? () => setChampionsOpen(true) : undefined
         }
         onAddByName={canWritePipeline ? () => setShowAddCandidates(true) : undefined}
         onAddFromCv={canWritePipeline ? () => setShowAddFromCv(true) : undefined}

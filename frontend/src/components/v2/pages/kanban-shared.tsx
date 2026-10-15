@@ -58,6 +58,9 @@ export interface KanbanItem {
  candidate_added_at?: string | null;
  candidate_added_exact?: boolean;
  candidate_added_by_name?: string | null;
+ /** Żywy champion tej rekrutacji (D3, 15.10.2026) — oznacza Delivery Lead
+  *  w nagłówku rekrutacji; karta i panel osoby tylko to pokazują. */
+ is_champion?: boolean;
  // Stawka z ruchu na „Zweryfikowany" (0056). `verification_status` nadal
  // przychodzi z serwera, ale od 17.09.2026 NIC nie reaguje na "pending"
  // (bramka zdjęta, migracja 0323 odblokowała stare karty).
