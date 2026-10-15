@@ -37,7 +37,7 @@ def _cand(**kw):
     return SimpleNamespace(**defaults)
 
 
-def _apply(cand, parsed, fp="fp-1", as_of=None, latest_note_day=None):
+def _apply(cand, parsed, fp="fp-1", as_of=None, latest_note_day=None, contracts=None):
     # flag_modified wymaga instrumentacji ORM — SimpleNamespace jej nie ma,
     # więc podmieniamy na no-op przez monkeypatching modułu w teście wywołań.
     import app.services.candidate_notes_facts as facts_mod
@@ -54,6 +54,7 @@ def _apply(cand, parsed, fp="fp-1", as_of=None, latest_note_day=None):
             fingerprint=fp,
             as_of=as_of,
             latest_note_day=latest_note_day,
+            contracts=contracts,
         )
     finally:
         mod.flag_modified = original
@@ -150,6 +151,95 @@ def test_asap_sets_status_and_iso_fills_date():
     assert cand.availability_date == date(2026, 9, 1)
     status = getattr(cand.availability_status, "value", cand.availability_status)
     assert status == "actively_looking"
+
+
+# S2 (15.10.2026): zgłoszona osoba — umowa od 07.09.2026, a „ASAP” ze
+# screeningu z 15.07.2026 dawało jej „Szuka aktywnie” 10.10.2026.
+_CONTRACT_START = date(2026, 9, 7)
+_ASAP_NOTE = {"availability": {"raw": "dostępny ASAP"}}
+
+
+def _status(cand):
+    return getattr(cand.availability_status, "value", cand.availability_status)
+
+
+def test_asap_before_the_contract_does_not_set_status_while_it_lasts():
+    from app.services.contract_availability import ContractHistory
+
+    cand = _cand()
+    stats = _apply(
+        cand,
+        _ASAP_NOTE,
+        as_of=date(2026, 7, 15),
+        contracts=ContractHistory(live=True, latest_start=_CONTRACT_START),
+    )
+
+    assert _status(cand) == "unknown"
+    assert stats["status_set"] == 0
+
+
+def test_asap_before_the_contract_does_not_set_status_after_it_ends():
+    from app.services.contract_availability import ContractHistory
+
+    cand = _cand()
+    _apply(
+        cand,
+        _ASAP_NOTE,
+        as_of=date(2026, 7, 15),
+        contracts=ContractHistory(live=False, latest_start=_CONTRACT_START),
+    )
+
+    assert _status(cand) == "unknown"
+
+
+def test_asap_written_during_the_contract_counts_only_after_it_ends():
+    from app.services.contract_availability import ContractHistory
+
+    during = _cand()
+    _apply(
+        during,
+        _ASAP_NOTE,
+        as_of=date(2026, 10, 1),
+        contracts=ContractHistory(live=True, latest_start=_CONTRACT_START),
+    )
+    after = _cand()
+    _apply(
+        after,
+        _ASAP_NOTE,
+        as_of=date(2026, 10, 1),
+        contracts=ContractHistory(live=False, latest_start=_CONTRACT_START),
+    )
+
+    assert _status(during) == "unknown"
+    assert _status(after) == "actively_looking"
+
+
+def test_asap_without_contracts_sets_status_as_before():
+    from app.services.contract_availability import NO_CONTRACTS
+
+    cand = _cand()
+    stats = _apply(cand, _ASAP_NOTE, as_of=date(2026, 7, 15), contracts=NO_CONTRACTS)
+
+    assert _status(cand) == "actively_looking"
+    assert stats["status_set"] == 1
+
+
+def test_contract_gate_leaves_the_rest_of_the_note_facts_alone():
+    """Bramka dotyczy tylko statusu — data z notatki i okres wypowiedzenia
+    idą jak dotąd (termin z umowy na ekranach liczy #2251)."""
+    from app.services.contract_availability import ContractHistory
+
+    cand = _cand()
+    _apply(
+        cand,
+        {"availability": {"raw": "od zaraz", "notice_period": "1 miesiąc"}},
+        as_of=date(2026, 7, 15),
+        contracts=ContractHistory(live=True, latest_start=_CONTRACT_START),
+    )
+
+    assert _status(cand) == "unknown"
+    assert cand.notice_period == 1
+    assert cand.availability_date is not None
 
 
 def test_onsite_days_fill_empty_from_explicit_value():

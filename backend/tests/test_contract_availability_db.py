@@ -6,7 +6,10 @@ Regułę bez bazy sprawdza ``test_contract_availability_rule.py``. Tu:
 * filtr „Dostępny do daty” nie przepuszcza osoby trzymanej przez umowę,
 * wyzwalacze umów i harmonogramu stawek kolejkują przeliczenie „Stawki od”,
   a żywa umowa nadpisuje stawkę ze screeningu i znika po końcu umowy,
-* rekruter widzi w historii stawek kwotę żywej umowy (D4), a zakończonej nie.
+* rekruter widzi w historii stawek kwotę żywej umowy (D4), a zakończonej nie,
+* status „Czy szuka pracy” chowa ten sam warunek w Pythonie, w SQL i na
+  froncie (znacznik ze źródłem ``contract``), a historia umów dla automatu
+  notatek zna żywą umowę i start ostatniej (S2, S3).
 """
 
 from __future__ import annotations
@@ -28,11 +31,17 @@ from app.models.client_order import ClientOrder, ClientOrderStatus
 from app.models.contract import Contract, ContractStatus, RateUnit
 from app.models.user import UserRole
 from app.services import candidate_rate_from as rf
+from app.models.candidate_conflict import CandidateConflict, ConflictType
 from app.services.contract_availability import (
+    NO_CONTRACTS,
     ContractFree,
+    ContractHistory,
+    availability_status_hidden,
     contract_free_by_clause,
     from_marker,
     load_contract_free,
+    load_contract_history,
+    without_live_contract_clause,
 )
 from app.services.employment_marker import load_employment_markers
 from tests.test_interview_cycle import _user
@@ -149,6 +158,108 @@ async def test_available_by_date_filter_waits_for_the_end_of_work(
         world["idle"],
         world["ends"],
     }
+
+
+async def _seed_past_and_conflict(world: dict) -> dict:
+    """Dwie osoby spoza żywych umów: ``past`` — umowa zakończona (i szkic
+    nowszej, który się nie liczy), ``conflict`` — sam ręczny konflikt
+    „Obecne zatrudnienie” bez umowy w NEXUSIE."""
+    tag = uuid.uuid4().hex[:8]
+    today = world["today"]
+    async with AsyncSessionLocal() as db:
+        client = Client(name=f"StatusRule-{tag}")
+        past = Candidate(
+            name="Past", lastname=f"StatusRule-{tag}", email=f"past-{tag}@example.com"
+        )
+        conflict = Candidate(
+            name="Conflict",
+            lastname=f"StatusRule-{tag}",
+            email=f"conflict-{tag}@example.com",
+        )
+        db.add_all([client, past, conflict])
+        await db.flush()
+        db.add_all(
+            [
+                Contract(
+                    candidate_id=past.id,
+                    client_id=client.id,
+                    start_date=today - timedelta(days=300),
+                    end_date=today - timedelta(days=30),
+                    status=ContractStatus.ended,
+                ),
+                Contract(
+                    candidate_id=past.id,
+                    client_id=client.id,
+                    start_date=today + timedelta(days=30),
+                    status=ContractStatus.draft,
+                ),
+                CandidateConflict(
+                    candidate_id=conflict.id,
+                    client_id=client.id,
+                    type=ConflictType.current_employment,
+                    reason="pytest — obecne zatrudnienie",
+                    active=True,
+                ),
+            ]
+        )
+        await db.commit()
+        return {"past": past.id, "conflict": conflict.id}
+
+
+@pytest.mark.asyncio
+async def test_status_rule_is_the_same_in_python_sql_and_the_marker(
+    app_client: AsyncClient,
+):
+    world = await _seed_people()
+    world.update(await _seed_past_and_conflict(world))
+    keys = ("ends", "open", "starting", "follow", "idle", "past", "conflict")
+    ids = [world[k] for k in keys]
+    async with AsyncSessionLocal() as db:
+        loaded = await load_contract_free(db, ids, today=world["today"])
+        markers = await load_employment_markers(db, ids, today=world["today"])
+        counted = set(
+            (
+                await db.execute(
+                    select(Candidate.id).where(
+                        Candidate.id.in_(ids),
+                        without_live_contract_clause(Candidate.id),
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+
+    python_hidden = {cid for cid in ids if availability_status_hidden(loaded.get(cid))}
+    sql_hidden = set(ids) - counted
+    pill_hidden = {cid for cid, m in markers.items() if m.source == "contract"}
+    expected = {world[k] for k in ("ends", "open", "starting", "follow")}
+    assert python_hidden == sql_hidden == pill_hidden == expected
+    # Sam konflikt ma znacznik, ale nie chowa statusu — jak pigułka na froncie.
+    assert markers[world["conflict"]].source == "conflict"
+
+
+@pytest.mark.asyncio
+async def test_contract_history_for_the_notes_automation(app_client: AsyncClient):
+    world = await _seed_people()
+    world.update(await _seed_past_and_conflict(world))
+    today = world["today"]
+    async with AsyncSessionLocal() as db:
+        history = {
+            key: await load_contract_history(db, world[key])
+            for key in ("ends", "starting", "follow", "idle", "past", "conflict")
+        }
+
+    assert history["ends"] == ContractHistory(True, today - timedelta(days=100))
+    assert history["starting"] == ContractHistory(True, today + timedelta(days=14))
+    # Kolejna umowa po bieżącej — start ostatniej, nie bieżącej.
+    assert history["follow"] == ContractHistory(
+        True, world["ends_on"] + timedelta(days=1)
+    )
+    assert history["idle"] == NO_CONTRACTS
+    # Szkic nowszej umowy się nie liczy.
+    assert history["past"] == ContractHistory(False, today - timedelta(days=300))
+    assert history["conflict"] == NO_CONTRACTS
 
 
 async def _queued(candidate_id: int) -> bool:

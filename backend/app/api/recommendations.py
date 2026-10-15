@@ -74,7 +74,12 @@ from app.schemas.similar_job_candidates import (
     SimilarJobOut,
 )
 from app.services.canonical_text import build_job_query_variants
-from app.services.contract_availability import attach_contract_free
+from app.services.contract_availability import (
+    attach_contract_free,
+    availability_status_hidden,
+    contract_free_by_clause,
+    load_contract_free,
+)
 from app.services.retrieval_pool import retrieve_candidate_pool
 from app.services.section_permissions import SectionAccess
 from app.core.scheduling import business_today
@@ -624,8 +629,14 @@ async def pipeline_match_scores(
 # ── Historical candidates from similar jobs (Phase 14) ───────────────────────
 
 
-def _derive_availability(candidate: Candidate) -> str:
-    """Map candidate availability state into a tri-value badge label."""
+def _derive_availability(candidate: Candidate, *, status_hidden: bool = False) -> str:
+    """Map candidate availability state into a tri-value badge label.
+
+    ``status_hidden`` — osoba ma żywą umowę (15.10.2026, S3): status z profilu
+    się nie liczy, plakietka mówi „nie wiadomo”, a termin niesie znacznik.
+    """
+    if status_hidden:
+        return "unknown"
     status = getattr(candidate, "availability_status", None)
     if status == AvailabilityStatus.actively_looking:
         return "available"
@@ -750,6 +761,8 @@ async def candidates_from_similar_jobs(
     )
     hidden_ineligible = before_gate - len(cand_rows)
     cand_by_id = {c.id: c for c in cand_rows}
+    # Żywa umowa = status z profilu się nie liczy (15.10.2026, S3).
+    contract_free = await load_contract_free(db, cand_by_id)
 
     def _availability_sort_key(c: HistoricalCandidateOut) -> tuple[int, float]:
         # 0 = available (show first), 1 = unknown, 2 = busy — within each
@@ -789,7 +802,10 @@ async def candidates_from_similar_jobs(
                     )
                     for s in hc.sources
                 ],
-                current_availability=_derive_availability(c),  # type: ignore[arg-type]
+                current_availability=_derive_availability(  # type: ignore[arg-type]
+                    c,
+                    status_hidden=availability_status_hidden(contract_free.get(c.id)),
+                ),
                 current_status=c.status.value if c.status else None,
                 same_client=hc.same_client,
                 rejected_by_same_client=hc.rejected_by_same_client,
@@ -1742,7 +1758,11 @@ async def seeking_contractors(
                 "current_client_id": client_id,
             }
 
-    # Source B: candidates with availability_status in the "looking" set
+    # Source B: candidates with availability_status in the "looking" set.
+    # Osoba z żywą umową nie „szuka projektu” przez status z profilu
+    # (15.10.2026, S3), chyba że wg znacznika kończy pracę u nas w horyzoncie.
+    # Źródło A widzi tylko `contracts.end_date`, którego umowa B2B nie ma przed
+    # ręcznym zakończeniem — kończący zamówienie wchodzili dotąd tylko tędy.
     looking_ids: set[int] = set()
     if delivery_lead_client_ids is None:
         looking_rows = await db.execute(
@@ -1757,6 +1777,7 @@ async def seeking_contractors(
                 # R10-N7-5: „tylko umowa o pracę" nie jest kandydatem do
                 # żadnej rekrutacji (pracujemy na B2B) — lustro dealbreakera.
                 Candidate.b2b_willingness.is_distinct_from("employment_only"),
+                contract_free_by_clause(Candidate.id, horizon + timedelta(days=1)),
             )
         )
         looking_ids = {row[0] for row in looking_rows.all()}

@@ -1,5 +1,8 @@
 """Dostępność i stawka osoby, która pracuje u nas — reguła bez bazy (15.10.2026).
 
+Dalej (S1–S5, ten sam dzień): status „Czy szuka pracy” nie liczy się przy
+żywej umowie, a automat notatek nie wpisuje go z notatki sprzed umowy.
+
 Zgłoszenie: profil mówił „Pracuje u nas do 30.11.2026” i „Dostępność od
 1.09.2026” (screening sprzed zatrudnienia). Decyzje Artura D1–D6: termin
 z umowy (późniejsza z dat: dzień po końcu pracy u nas i data z profilu),
@@ -27,9 +30,13 @@ from app.services.candidate_rate_observations import (
 )
 from app.services.contract_availability import (
     ATTRIBUTE,
+    NO_CONTRACTS,
     ContractFree,
+    ContractHistory,
+    availability_status_hidden,
     contract_free_by_clause,
     from_marker,
+    without_live_contract_clause,
 )
 from app.services.employment_marker import ContractRow, SignalRow, build_markers
 
@@ -374,3 +381,80 @@ async def test_window_requeue_skips_contract_rates():
 
     assert "rate_from_source IS DISTINCT FROM 'contract'" in seen[0]
     assert "FROM contracts" in seen[1]
+
+
+# ── status „Czy szuka pracy” przy żywej umowie (S1–S5) ──────────────────────
+
+
+@pytest.mark.parametrize(
+    "contract",
+    [
+        ContractFree(date(2026, 12, 1), "work_end"),
+        ContractFree(None, "no_end_date"),
+        ContractFree(None, "starting"),
+    ],
+)
+def test_status_is_hidden_in_every_phase_of_a_live_contract(contract):
+    assert availability_status_hidden(contract)
+
+
+def test_status_counts_without_a_live_contract():
+    assert not availability_status_hidden(None)
+
+
+def test_server_rule_matches_the_pill_on_the_profile():
+    """Front chowa pigułkę przy znaczniku ze źródłem ``contract``; serwer
+    liczy to samo z wyniku znacznika — sam konflikt albo etap „Zatrudniony”
+    statusu nie chowa."""
+    working = _marker([_contract()], {10: date(2026, 11, 30)})
+    starting = _marker([_contract(start_date=date(2026, 11, 3))])
+    conflict = build_markers(
+        [], [SignalRow(1, "conflict", 100, "Klient 100")], today=TODAY
+    )[1]
+
+    assert availability_status_hidden(from_marker(working))
+    assert availability_status_hidden(from_marker(starting))
+    assert conflict.source == "conflict"
+    assert not availability_status_hidden(from_marker(conflict))
+
+
+def test_status_clause_is_not_exists_on_live_contracts_with_any_start():
+    sql = str(
+        without_live_contract_clause(1).compile(dialect=postgresql.dialect())
+    )
+
+    assert "NOT (EXISTS" in sql
+    assert "contracts.status IN" in sql
+    # Umowa przed startem też chowa status („Zaczyna u nas”).
+    assert "start_date" not in sql
+
+
+# Zgłoszenie 15.10.2026: umowa od 07.09.2026, screening z „ASAP” 15.07.2026.
+_START = date(2026, 9, 7)
+_SCREENING = date(2026, 7, 15)
+
+
+@pytest.mark.parametrize(
+    ("history", "note_day", "allowed"),
+    [
+        # Żywa umowa: ani notatka sprzed umowy, ani z jej trwania.
+        (ContractHistory(live=True, latest_start=_START), _SCREENING, False),
+        (ContractHistory(live=True, latest_start=_START), date(2026, 10, 1), False),
+        # Umowa skończona: notatka sprzed startu dalej nie.
+        (ContractHistory(live=False, latest_start=_START), _SCREENING, False),
+        (ContractHistory(live=False, latest_start=_START), _START, False),
+        # Notatka napisana po starcie — dopiero po końcu umowy.
+        (ContractHistory(live=False, latest_start=_START), date(2026, 10, 1), True),
+        # Bez dnia notatki nie da się pokazać, że jest nowsza.
+        (ContractHistory(live=False, latest_start=_START), None, False),
+        # Osoba bez umów — jak dotąd.
+        (NO_CONTRACTS, _SCREENING, True),
+        (NO_CONTRACTS, None, True),
+        # Zakończona umowa bez daty startu nie ogranicza.
+        (ContractHistory(live=False, latest_start=None), _SCREENING, True),
+    ],
+)
+def test_notes_status_waits_for_a_note_newer_than_the_last_contract(
+    history, note_day, allowed
+):
+    assert history.allows_status_from_note(note_day) is allowed

@@ -44,7 +44,10 @@ from app.models.notification import NotificationType
 from app.models.talent_pool import TalentPool, TalentPoolMembership
 from app.models.user import User
 from app.core.scheduling import business_today
-from app.services.contract_availability import attach_contract_free
+from app.services.contract_availability import (
+    attach_contract_free,
+    without_live_contract_clause,
+)
 from app.services.job_previous_recruiters import working_owner_id
 
 logger = logging.getLogger(__name__)
@@ -163,6 +166,11 @@ async def auto_sync_marketplace_membership(db: AsyncSession) -> SyncCounters:
       - auto-entries, gdzie candidate.availability_status wyszedł z eligible → DELETE
       - manual-entries z marketplace_until < dziś → DELETE
 
+    Osoba z żywą umową (15.10.2026, S3) liczy się tak, jakby statusu nie
+    miała: nie wchodzi automatem, a jej wpis automatyczny schodzi w tym
+    samym biegu. Ręczne dodanie zostaje — to czyjaś decyzja. Po końcu umowy
+    status z profilu znowu wkłada ją do puli.
+
     Nie commituje — caller robi commit (patrz marketplace_sweeper_loop).
     """
     pool = await ensure_marketplace_pool(db)
@@ -174,7 +182,8 @@ async def auto_sync_marketplace_membership(db: AsyncSession) -> SyncCounters:
     existing_ids = {row[0] for row in (await db.execute(existing_q)).all()}
 
     eligible_q = select(Candidate.id).where(
-        Candidate.availability_status.in_(_AUTO_ELIGIBLE_STATUSES)
+        Candidate.availability_status.in_(_AUTO_ELIGIBLE_STATUSES),
+        without_live_contract_clause(Candidate.id),
     )
     eligible_ids = {row[0] for row in (await db.execute(eligible_q)).all()}
 
@@ -194,6 +203,7 @@ async def auto_sync_marketplace_membership(db: AsyncSession) -> SyncCounters:
         added += 1
 
     # ── Phase 2a: remove auto-entries gdy status wyszedł z eligible ───────
+    # albo osoba ma żywą umowę (status wtedy się nie liczy).
     removed_status = 0
     res = await db.execute(
         select(TalentPoolMembership.id)
@@ -201,7 +211,10 @@ async def auto_sync_marketplace_membership(db: AsyncSession) -> SyncCounters:
         .where(
             TalentPoolMembership.talent_pool_id == pool.id,
             TalentPoolMembership.source_event == "auto_availability",
-            Candidate.availability_status.notin_(_AUTO_ELIGIBLE_STATUSES),
+            or_(
+                Candidate.availability_status.notin_(_AUTO_ELIGIBLE_STATUSES),
+                ~without_live_contract_clause(Candidate.id),
+            ),
         )
     )
     stale_ids = [r[0] for r in res.all()]
