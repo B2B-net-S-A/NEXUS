@@ -138,7 +138,11 @@ na 145 px; próg w `e2e/responsive-preview.spec.ts` — 0,4.
   nigdy (`FACT_SHRINK`). Niżej linie zawijają się bez poziomego przewijania.
 - **Nazwa od klienta i numery** (K-D3): w dymku tytułu (`title` h1: tytuł,
   nowa linia, „U klienta: … · nr u klienta … · nasz nr …”) i jako `sr-only`
-  `header-client-line` dla czytnika ekranu.
+  `header-client-line` dla czytnika ekranu (nazwa od klienta i nasz numer).
+  **Numer u klienta od 15.10.2026 widać w linii 1** — znacznik
+  `ClientReferenceChip` między priorytetem a tytułem, także po „Zwiń”, klik
+  kopiuje (decyzja Artura, prośba DL Nordei; reguła numeru w
+  `rekrutacja-tworzenie/trzy-nazwy-rekrutacji.md`). Nie dostaje własnej linii.
 - **Priorytet** (`JobPriorityMenu`): ta sama krótka plakietka co na liście
   („P1”, „Bez priorytetu”, „Przyjmujemy”) — w nagłówku stoi też „Bez
   priorytetu”. Prawo zmiany = `useJobTeamPermissions` (ta sama reguła co

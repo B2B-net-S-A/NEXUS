@@ -9,6 +9,12 @@ export interface Tab {
   entityId: number;
   title: string;
   url: string;
+  /**
+   * Numer u klienta (rekrutacje, 15.10.2026) — szyna „Otwarte karty” stawia
+   * go w miejscu ikony, bo tytuły dla rekrutera brzmią podobnie. Pole
+   * opcjonalne: karty zapisane wcześniej dostają je przy następnym otwarciu.
+   */
+  reference?: string | null;
 }
 
 // High ceiling so the rail accumulates like Traffit's "Otwarte karty" instead
@@ -20,7 +26,12 @@ interface TabsState {
   tabs: Tab[];
   activeTabId: string | null;
 
-  openTab: (type: TabType, entityId: number, title: string) => void;
+  openTab: (
+    type: TabType,
+    entityId: number,
+    title: string,
+    reference?: string | null,
+  ) => void;
   closeTab: (id: string) => void;
   /** Close every tab of a given type (used by the rail's "close all"). */
   closeTabsByType: (type: TabType) => void;
@@ -46,20 +57,21 @@ export const useTabsStore = create<TabsState>()(
       tabs: [],
       activeTabId: null,
 
-      openTab: (type, entityId, title) => {
+      openTab: (type, entityId, title, reference = null) => {
         const id = buildTabId(type, entityId);
         const { tabs, activeTabId } = get();
 
-        // Already open — activate it and refresh the title if the entity was
-        // renamed. No reordering, so the rail stays positionally stable.
+        // Already open — activate it and refresh the title (and the client's
+        // number) if the entity changed. No reordering, so the rail stays
+        // positionally stable.
         const existing = tabs.find((t) => t.id === id);
         if (existing) {
           set({
             activeTabId: id,
             tabs:
-              existing.title === title
+              existing.title === title && (existing.reference ?? null) === reference
                 ? tabs
-                : tabs.map((t) => (t.id === id ? { ...t, title } : t)),
+                : tabs.map((t) => (t.id === id ? { ...t, title, reference } : t)),
           });
           return;
         }
@@ -70,6 +82,7 @@ export const useTabsStore = create<TabsState>()(
           entityId,
           title,
           url: buildUrl(type, entityId),
+          reference,
         };
 
         let next = [...tabs, newTab];

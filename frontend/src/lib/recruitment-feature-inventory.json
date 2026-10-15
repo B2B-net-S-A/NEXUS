@@ -1321,7 +1321,7 @@
   {
    "id": "header.client-line",
    "area": "naglowek",
-   "opis": "Nazwa stanowiska od klienta, numer zapytania klienta i nasz numer (do 14.10.2026 linia pod tytułem)",
+   "opis": "Nazwa stanowiska od klienta i nasz numer (do 14.10.2026 linia pod tytułem); numer zapytania klienta od 15.10.2026 stoi przed tytułem (header.client-reference)",
    "file": "components/v2/jobs/JobDetailCompactHeader.tsx",
    "marker": "header-client-line",
    "v3_home": "dymek tytułu rekrutacji (i tekst dla czytnika ekranu)"
@@ -2758,6 +2758,30 @@
    "file": "components/v2/recruitment/DlReviewPanel.tsx",
    "marker": "dl-review-recruiter-remark",
    "v3_home": "przegląd DL → kolumna decyzji"
+  },
+  {
+   "id": "list.client-reference",
+   "area": "lista",
+   "opis": "Numer u klienta przed nazwą w wierszu listy (prośba DL Nordei, 15.10.2026): pierwszy numer i „+N”, klik kopiuje, nazwa od klienta w dymku",
+   "file": "components/v2/pages/JobsListV2.tsx",
+   "marker": "job-row-client-reference",
+   "v3_home": "lista → wiersz rekrutacji"
+  },
+  {
+   "id": "header.client-reference",
+   "area": "naglowek",
+   "opis": "Numer u klienta przed tytułem rekrutacji, także po „Zwiń” (15.10.2026); klik kopiuje",
+   "file": "components/v2/jobs/JobDetailCompactHeader.tsx",
+   "marker": "header-client-reference",
+   "v3_home": "nagłówek rekrutacji, linia 1"
+  },
+  {
+   "id": "header.tabs-rail-reference",
+   "area": "naglowek",
+   "opis": "Numer u klienta w miejscu ikony na szynie „Otwarte karty” (15.10.2026)",
+   "file": "components/v2/shell/OpenTabsRail.tsx",
+   "marker": "open-tab-reference",
+   "v3_home": "szyna „Otwarte karty”"
   }
  ]
 }

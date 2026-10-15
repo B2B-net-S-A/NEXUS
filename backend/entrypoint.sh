@@ -10193,6 +10193,34 @@ async def recompute():
 asyncio.run(recompute())
 PY
 
+# Numer u klienta z nazwy od klienta (15.10.2026, prośba DL Nordei) —
+# jednorazowo: backfill 0380 znał tylko ZOB, więc „(42946)”, „RITM…”,
+# „PKN…/EITE…” zostały wyłącznie w nazwie. Pola nie nadpisuje (poza kodem
+# PEP/TP z odczytu maila i nawiasem wokół numeru), `updated_at` nie podbija,
+# potem przelicza automatyczne tytuły dla rekrutera, których to dotyczy.
+# Reguła: `app/services/job_working_title.py`. Marker w `app_settings`
+# + advisory lock → drugi start kończy się od razu. Log: same liczby.
+startup_phase "client-reference-from-title"
+echo "Client references: one-shot fill from client job titles..."
+python - <<'PY' || echo "client reference from title skipped; continuing"
+import asyncio
+import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
+from app.core.database import AsyncSessionLocal
+from app.services.job_working_title import fill_client_references_from_titles
+
+async def fill():
+    async with AsyncSessionLocal() as db:
+        try:
+            receipt = await fill_client_references_from_titles(db)
+            await db.commit()
+        except Exception:
+            await db.rollback()
+            raise
+    print(f"client reference from title: {receipt or 'nothing to do'}")
+
+asyncio.run(fill())
+PY
+
 # Cztery kategorie kompetencji + stany startowe requestów (0371, 24.09.2026).
 # Decyzja Artura: zespół pracuje w czterech grupach z InfraReportera, a
 # „Dane i AI” oraz security należą do grupy Infra. SQL ma jedno źródło:

@@ -6,7 +6,7 @@
  */
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -249,15 +249,41 @@ describe("JobsListV2 — prosty wiersz listy", () => {
       "Hybrydowo · Warszawa +2",
     );
 
-    // Z wiersza zeszły: wymagania, nazwa od klienta, numery i tekst przepięcia.
+    // Numer u klienta stoi przed nazwą (15.10.2026), nazwa od klienta w dymku.
+    const reference = cell.getByTestId("job-row-client-reference");
+    expect(reference).toHaveTextContent("ZOB-2947");
+    expect(reference).toHaveAccessibleName("Numer u klienta ZOB-2947 — kopiuj");
+    expect(reference.getAttribute("title")).toContain(
+      "Nazwa u klienta: Programista Python (ZOB-2947)",
+    );
+
+    // Z wiersza zeszły: wymagania, nasz numer i tekst przepięcia.
     const row = within(title.closest("tr") as HTMLElement);
-    for (const gone of [/Microservices/, /ZOB-2947/, /PB\/004\/2026/, /Przepnij/, /Gdynia/]) {
+    for (const gone of [/Microservices/, /PB\/004\/2026/, /Przepnij/, /Gdynia/]) {
       expect(row.queryByText(gone)).not.toBeInTheDocument();
     }
     expect(row.queryByTestId("job-similar-badge")).not.toBeInTheDocument();
     expect(row.getByTestId("job-similar-icon")).toHaveAccessibleName(
       "Podobne rekrutacje: 5 podobnych · 24 u klienta — przepnij",
     );
+  });
+
+  it("klik w numer u klienta kopiuje cały numer i nie otwiera rekrutacji", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      value: { writeText },
+      configurable: true,
+    });
+    pushMock.mockReset();
+    mockJobsResponse([jobRow({ ...FULL_ROW, client_reference: "41228, 41227" })]);
+    renderJobs();
+
+    const chip = await screen.findByTestId("job-row-client-reference");
+    // Dwa zapytania klienta w jednej rekrutacji: pierwszy numer i „+1”.
+    expect(chip).toHaveTextContent("41228+1");
+    fireEvent.click(chip);
+    expect(writeText).toHaveBeenCalledWith("41228, 41227");
+    expect(pushMock).not.toHaveBeenCalled();
   });
 
   it("bez trybu pracy i bez klienta wiersz nie rysuje pustych znaczników", async () => {
@@ -268,6 +294,7 @@ describe("JobsListV2 — prosty wiersz listy", () => {
     expect(cell.queryByTestId("job-row-work-mode")).not.toBeInTheDocument();
     expect(cell.queryByTestId("job-row-client")).not.toBeInTheDocument();
     expect(cell.queryByTestId("job-category-short")).not.toBeInTheDocument();
+    expect(cell.queryByTestId("job-row-client-reference")).not.toBeInTheDocument();
     expect(screen.queryByTestId("job-similar-icon")).not.toBeInTheDocument();
   });
 

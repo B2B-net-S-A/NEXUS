@@ -117,4 +117,18 @@ describe("BreadcrumbV2 — polskie nazwy segmentów (UAT M01-B09, M03-B09, M11-B
     renderAt("/settings/team-structure");
     expect(screen.getByText("Ustawienia").closest("div")).toHaveClass("shrink-0");
   });
+
+  it("rekrutacja: numer u klienta przed tytułem dla rekrutera (15.10.2026)", async () => {
+    mocks.get.mockResolvedValueOnce({
+      data: { working_title: "Analityk IT · SQL", title: "x", client_reference: "41228, 41227" },
+    });
+    renderAt("/jobs/42");
+    expect(await screen.findByText("41228 · Analityk IT · SQL")).toBeInTheDocument();
+  });
+
+  it("rekrutacja bez numeru u klienta: sam tytuł", async () => {
+    mocks.get.mockResolvedValueOnce({ data: { working_title: null, title: "Tester" } });
+    renderAt("/jobs/43");
+    expect(await screen.findByText("Tester")).toBeInTheDocument();
+  });
 });

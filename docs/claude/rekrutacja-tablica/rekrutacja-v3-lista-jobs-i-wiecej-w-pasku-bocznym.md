@@ -144,17 +144,25 @@ miejsce, nie zbiór funkcji.
     obsadzony wiersz znika razem z okienkiem.
 - **Wiersz = nazwa stanowiska + jedna linia (decyzja Artura 02.10.2026,
   makieta https://claude.ai/artifact/6o8S6SDErWyrBYqafTFCkY).** Linia 1:
-  plakietka priorytetu (`RequestPriorityChip`; P2 bez plakietki) i sama rola —
+  plakietka priorytetu (`RequestPriorityChip`; P2 bez plakietki), numer
+  u klienta (`ClientReferenceChip`, od 15.10.2026 — niżej) i sama rola —
   `jobRowTitle` z `lib/job-row-summary.ts` (pierwszy człon tytułu roboczego
   z automatu; tytuł wpisany ręcznie w całości). Linia 2: krótka plakietka
   kategorii (`competenceShortLabel`), klient, tryb pracy z pierwszym miastem
   (`jobWorkModeParts`; gdy ciasno, najpierw znika miasto). Wymagania, nazwa od
-  klienta, numer u klienta, nasz numer, wszystkie miasta, data otwarcia
+  klienta, nasz numer, wszystkie miasta, data otwarcia
   i plakietka „Podobne rekrutacje” stoją w Podglądzie (ikona oka →
   `JobPreviewDetails` na górze zakładki „Gotowość” doku, prop `listDetails`),
   a przepinanie ma w wierszu ikonę (`SimilarJobsIconButton`). Nie dokładaj tych
   rzeczy z powrotem do wiersza ani drugiej linii pod tytułem. `title` z pełnym
   tytułem stoi na opakowaniu linku, nie na samym `<a>` (nazwa dostępna).
+  **Wyjątek: numer u klienta wrócił do wiersza (decyzja Artura 15.10.2026,
+  prośba DL Nordei, makieta https://claude.ai/artifact/NWv2twJNrZkp9c5x8ruAwz)** —
+  tytuły dla rekrutera są uogólnione („IT Analyst”, trzy razy „Senior IT
+  Analyst”) i bez numeru nie wiadomo, który request to który. Znacznik stoi
+  przed nazwą, poza linkiem (nazwa linku = tytuł), klik kopiuje cały numer,
+  kilka numerów = pierwszy i „+N”, nazwa od klienta w dymku. Reguła numeru:
+  `rekrutacja-tworzenie/trzy-nazwy-rekrutacji.md`.
 - **Szyna „Otwarte karty” stoi też na liście `/jobs` i u kandydatów
   (02.10.2026, `components/v2/shell/OpenTabsRail.tsx`).** Od 1536 px w układzie
   strony (na listach rozwinięta bez zapisanego wyboru od 1920 px rekrutacje /

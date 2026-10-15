@@ -57,10 +57,42 @@ describe("JobDetailCompactHeader", () => {
     expect(screen.getByTestId("header-client-title")).toHaveTextContent(
       "U klienta: „Analityk Biznesowo-Systemowy KYC/AML”",
     );
-    expect(screen.getByTestId("header-client-reference")).toHaveTextContent(
-      "nr u klienta CABP/001/2026",
+    // Numer u klienta przed tytułem (15.10.2026), nie w linii dla czytnika.
+    expect(screen.getByTestId("header-client-reference")).toHaveAccessibleName(
+      "Numer u klienta CABP/001/2026 — kopiuj",
     );
     expect(screen.getByTestId("header-client-line")).toHaveTextContent("nasz nr REF-505734");
+    expect(screen.getByTestId("header-client-line")).not.toHaveTextContent("CABP/001/2026");
+  });
+
+  it("numer u klienta przed tytułem, także po „Zwiń”; klik kopiuje cały numer (15.10.2026)", async () => {
+    const onCopyClientReference = vi.fn();
+    const props = {
+      priority: <span data-testid="slot-priority">P1</span>,
+      clientReference: "41228, 41227",
+      onCopyClientReference,
+    };
+    for (const collapsed of [false, true]) {
+      const { unmount } = renderHeader({ ...props, collapsed, onToggleCollapsed: vi.fn() });
+      const title = screen.getByTestId("job-header-title");
+      const chip = screen.getByTestId("header-client-reference");
+      expect(chip).toHaveTextContent("41228+1");
+      expect(title.parentElement).toContainElement(chip);
+      expect(
+        screen.getByTestId("slot-priority").compareDocumentPosition(chip) &
+          Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy();
+      expect(chip.compareDocumentPosition(title) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      await userEvent.click(chip);
+      unmount();
+    }
+    expect(onCopyClientReference).toHaveBeenCalledTimes(2);
+    expect(onCopyClientReference).toHaveBeenCalledWith("41228, 41227");
+  });
+
+  it("bez numeru u klienta nie ma znacznika", () => {
+    renderHeader();
+    expect(screen.queryByTestId("header-client-reference")).toBeNull();
   });
 
   it("laptop 1280 px: tytuł w jednej linii, status obok; nazwa od klienta w dymku tytułu (K-D3)", () => {

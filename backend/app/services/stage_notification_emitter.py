@@ -136,7 +136,12 @@ def _cpro_job_label(job: Job) -> str:
     """Rekrutacja tak, jak zna ją Nordea: nazwa od klienta i numer (0380)."""
 
     reference = (getattr(job, "client_reference", None) or "").strip()
-    return f"{job.title} ({reference})" if reference else job.title
+    title = job.title or ""
+    # Nazwa Nordei zwykle kończy się już numerem („… (42946)”) — bez dubla.
+    parts = [part.strip() for part in reference.split(",") if part.strip()]
+    if not reference or all(part.lower() in title.lower() for part in parts):
+        return job.title
+    return f"{job.title} ({reference})"
 
 
 def _inapp_base(
