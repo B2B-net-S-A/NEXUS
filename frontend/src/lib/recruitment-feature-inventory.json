@@ -2185,9 +2185,9 @@
   {
    "id": "cv.card-rewrite",
    "area": "cv",
-   "opis": "„Napisz od nowa” w karcie: pole „Co poprawić?” — uwaga trafia do notatek rekrutacji (fakty z tego zdania), generacja rusza sama, a gotowa wersja zastępuje szkic z zachowaniem części poprawionych ręcznie",
-   "file": "components/v2/recruitment/CvToClientCard.tsx",
-   "marker": "Twoje ręczne poprawki zostaną, a fakty z tego zdania",
+   "opis": "„Napisz od nowa” w karcie: pole „Co poprawić?” — lista poprawek do 2000 znaków (linia = poprawka, Ctrl+Enter wysyła, szkic zostaje), uwaga trafia do notatek rekrutacji (fakty z listy), generacja rusza sama, a gotowa wersja zastępuje szkic z zachowaniem części poprawionych ręcznie",
+   "file": "components/v2/recruitment/CvRewriteForm.tsx",
+   "marker": "Twoje ręczne poprawki zostaną, a fakty z listy",
    "v3_home": "karta „CV do klienta” → pole „Co poprawić?” → „Napisz od nowa”"
   },
   {

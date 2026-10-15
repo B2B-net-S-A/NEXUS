@@ -236,6 +236,21 @@ function say(assistant: HTMLElement, text: string): void {
 
 const SLOW = { timeout: 3000 };
 
+it("asystent: za długa lista poprawek nie ucina się — licznik mówi, o ile skrócić, a Enter nic nie wysyła", async () => {
+  const dialog = await openEditor();
+  const editor = liveEditor(dialog);
+  const before = editor.getHTML();
+  const assistant = await openAssistant(dialog);
+  const field = within(assistant).getByRole("textbox", { name: "Napisz, co zmienić" });
+  expect(within(assistant).getByText("Enter wyślij · Shift+Enter nowa linia")).toBeInTheDocument();
+  say(assistant, "x".repeat(2050));
+  expect(field).toHaveValue("x".repeat(2050));
+  expect(within(assistant).getByTestId("text-limit-counter")).toHaveTextContent("2050 / 2000 znaków — skróć o 50");
+  expect(within(assistant).getByRole("button", { name: "Wyślij" })).toBeDisabled();
+  expect(within(assistant).queryByText(/Asystent pracuje/)).toBeNull();
+  expect(editor.getHTML()).toBe(before);
+});
+
 it("asystent: „Skróć do 2 stron” zmienia CV od razu, na zielono, jednym „Cofnij” — bez sieci", async () => {
   const dialog = await openEditor();
   const editor = liveEditor(dialog);

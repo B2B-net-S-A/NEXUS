@@ -184,6 +184,30 @@ describe("useCvAssistant — odpowiedź na pytanie po innych zmianach", () => {
   });
 });
 
+describe("useCvAssistant — długa lista poprawek (15.10.2026)", () => {
+  it("plan ucięty przez serwer: odpowiedź mówi, że zrobiona jest tylko część listy", async () => {
+    const editor = open();
+    const plan: CvCommandResponse = {
+      status: "ok",
+      operations: [{ id: 0, type: "remove", lines: [6], text: null, why: "", loses: [], new_words: [] }],
+      dropped: [],
+      message: null,
+      truncated: true,
+    };
+    const commandApi = { plan: vi.fn(async () => plan), confirmFact: vi.fn(async () => undefined) };
+    const hook = renderHook(() =>
+      useCvAssistant({ editor, stageId: 7, disabled: false, ensureDraft: async () => true, api: commandApi }),
+    );
+    const list = "1. usuń planowanie sprintów\n2. skróć rolę w banku";
+    act(() => hook.result.current.send({ command: list }));
+    await waitFor(() => expect(hook.result.current.messages.at(-1)?.text).toMatch(/^Zrobione/));
+    expect(commandApi.plan).toHaveBeenCalledWith(7, expect.objectContaining({ command: list }));
+    expect(hook.result.current.messages.at(-1)?.text).toContain(
+      "Lista miała więcej zmian, niż asystent robi naraz (40) — sprawdź, czego brakuje, i dopisz to w kolejnej wiadomości.",
+    );
+  });
+});
+
 describe("useCvAssistant — „Napisz od nowa” (PR 5)", () => {
   it("zdanie „napisz od nowa: …” idzie do karty, nie do planu zmian", () => {
     const editor = open();
