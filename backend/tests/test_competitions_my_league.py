@@ -202,6 +202,32 @@ async def test_head_of_recruitment_with_dl_role_sees_the_dl_league(league) -> No
     assert data["dl"]["placements"] == 5
 
 
+async def test_both_roles_without_a_dl_portfolio_play_in_the_recruiter_league(
+    league,
+) -> None:
+    # Produkcja 15.10.2026: osoba z rolami DL i rekrutera była 2. w Lidze
+    # rekruterów (470 pkt, miejsce za 3000 zł), a w portfelu DL nie miała ani
+    # zamkniętej rekrutacji, ani placementu — pasek pokazywał jej
+    # „Liga DL · poza ligą, brakuje 3 placementów”.
+    data = await competitions_api.my_league(
+        _user(13, UserRole.delivery_lead, UserRole.recruiter), None
+    )
+    assert data["kind"] == "recruiter"
+    assert data["type"] == CompetitionType.quarterly_champions_recruiter.value
+    assert data["standing"]["rank"] == 3
+    assert data["standing"]["value"] == 470
+    assert "dl" not in data
+
+
+async def test_both_roles_with_a_dl_portfolio_stay_in_the_dl_league(league) -> None:
+    data = await competitions_api.my_league(
+        _user(22, UserRole.delivery_lead, UserRole.recruiter), None
+    )
+    assert data["kind"] == "delivery_lead"
+    assert data["standing"]["rank"] == 2
+    assert data["dl"]["placements"] == 4
+
+
 async def test_topbar_reads_the_dl_counts_once_for_the_whole_company(league) -> None:
     await competitions_api.my_league(_user(21, UserRole.delivery_lead), None)
     await competitions_api.my_league(_user(23, UserRole.delivery_lead), None)

@@ -31,7 +31,8 @@ def league_kind(user: User) -> LeagueKind:
     Liga DL bierze każdego z rolą Delivery Leada (główną albo dodatkową),
     liga rekruterów — każdego z rolą rekrutera. Zakres pulpitu się nie nadaje:
     stawia HoR/TCM przed DL, więc HoR z rolą DL wychodziłby „widzem”, choć gra
-    w lidze DL. Osoba z obiema rolami widzi ligę DL (jedna liga na osobę).
+    w lidze DL. Osoba z obiema rolami dostaje tu ligę DL; `my_league` przełącza
+    ją na ligę rekruterów, gdy w kwartale nie ma portfela DL.
     """
     if user.has_role(UserRole.delivery_lead):
         return "delivery_lead"

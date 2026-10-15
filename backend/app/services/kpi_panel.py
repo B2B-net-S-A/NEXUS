@@ -103,6 +103,9 @@ _PANEL_KPI_IDS = (
 # `hired` par z `placement_exclusions` nie są kredytowane w ŻADNEJ gałęzi —
 # `classified_stage_ranked` filtruje je wprost, a `legacy_mf` czyta widok,
 # który pomija je w definicji. Tylko `hired`; pozostałe etapy bez zmian.
+# Drugie „Zatrudniony" tej samej pary w kolejnej próbie procesu też nie jest
+# placementem (15.10.2026) — próba otwarta po zatrudnieniu nie zatrudnia drugi
+# raz. Weryfikacje i pozostałe etapy kolejnej próby liczą się jak dotąd.
 # Konsument dokleja własny SELECT … FROM credited.
 VERIFIER_ANCHORED_CTE = """
     WITH process_windows AS (
@@ -171,6 +174,21 @@ VERIFIER_ANCHORED_CTE = """
                   SELECT 1 FROM placement_exclusions pe
                   WHERE pe.candidate_id = cs.candidate_id
                     AND pe.job_id = cs.job_id
+              )
+          )
+          -- Placement to PIERWSZE „Zatrudniony" pary (D2), także między
+          -- próbami procesu. Bez tego warunku para zatrudniona ręcznie
+          -- w NEXUSIE, a potem jeszcze raz z importu Traffita (nowa próba
+          -- otwarta chwilą importu), miała dwa placementy: na produkcji
+          -- 15.10.2026 cztery pary, październik 19 zamiast 16.
+          AND (
+              cs.stage::text <> 'hired'
+              OR NOT EXISTS (
+                  SELECT 1 FROM candidate_stages earlier
+                  WHERE earlier.candidate_id = cs.candidate_id
+                    AND earlier.job_id = cs.job_id
+                    AND earlier.stage::text = 'hired'
+                    AND earlier.moved_at < cp.opened_at
               )
           )
     ),

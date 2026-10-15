@@ -16,6 +16,7 @@ import {
 import {
   buildSteps,
   currentMonthCaption,
+  type Delta,
   gapSentence,
   myMonthSentence,
   placementsPl,
@@ -43,6 +44,23 @@ export function teamAverageCv(
   if (!average || average.recommendations === null) return null;
   return Math.round(average.recommendations);
 }
+/**
+ * „cel: N” obok liczby albo `null`, gdy celu nie ma. Delivery Lead nie ma
+ * celów rekrutera (jego cel to hit ratio w kwartale), a panel oddaje wtedy 0 —
+ * „cel: 0” czytało się jak cel, który już jest zrobiony.
+ */
+export function goalReference(target: number, unit = ""): string | null {
+  return target > 0 ? `cel: ${target}${unit}` : null;
+}
+
+/** Ocena placementów względem celu; bez celu sam wynik, nie „Cel osiągnięty”. */
+export function placementsGoalDelta(placements: number, target: number): Delta | null {
+  if (target <= 0) return null;
+  return placements >= target
+    ? { text: "Cel osiągnięty", tone: "good" }
+    : { text: `Brakuje ${target - placements}`, tone: "bad" };
+}
+
 const STEP_LABELS = ["Zweryfikowani", "CV wysłane", "Rozmowy u klienta", "Zatrudnieni"];
 
 /**
@@ -181,20 +199,16 @@ export function MojMiesiacView() {
         <Tile
           label="Placementy w miesiącu"
           value={String(panel.placementy_month)}
-          reference={`cel: ${panel.target_placements_monthly}`}
-          delta={
-            panel.placementy_month >= panel.target_placements_monthly
-              ? { text: "Cel osiągnięty", tone: "good" }
-              : {
-                  text: `Brakuje ${panel.target_placements_monthly - panel.placementy_month}`,
-                  tone: "bad",
-                }
-          }
+          reference={goalReference(panel.target_placements_monthly)}
+          delta={placementsGoalDelta(
+            panel.placementy_month,
+            panel.target_placements_monthly,
+          )}
         />
         <Tile
           label="Weryfikacje dziś"
           value={String(panel.weryfikacje.day)}
-          reference={`cel: ${panel.target_verifications_daily}`}
+          reference={goalReference(panel.target_verifications_daily)}
           progress={
             panel.target_verifications_daily
               ? (100 * panel.weryfikacje.day) / panel.target_verifications_daily
@@ -217,7 +231,7 @@ export function MojMiesiacView() {
         <Tile
           label={`Precyzja rekomendacji (${panel.precision.window_days} dni)`}
           value={precision === null ? "—" : `${Math.round(precision)}%`}
-          reference={`cel: ${panel.precision.target_pct}%`}
+          reference={goalReference(panel.precision.target_pct, "%")}
           progress={
             precision === null || !panel.precision.target_pct
               ? null

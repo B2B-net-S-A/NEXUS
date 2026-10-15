@@ -23,7 +23,11 @@ i rekomendacje D1–D6. Raport: `docs/league-topbar-completion-report.md`.
   bez tych ról, admin, Finanse, rola podglądu) widzi prowadzącego ligę
   rekruterów. Zakres pulpitu stawia HoR/TCM przed DL, więc HoR z rolą DL
   wychodziłby „widzem”, choć gra w lidze DL. Osoba z rolą rekrutera i DL
-  widzi ligę DL — jedna liga na osobę.
+  widzi ligę DL — jedna liga na osobę — ale tylko wtedy, gdy ma w kwartale
+  portfel DL (zamkniętą rekrutację albo placement w `dl_portfolio_counts`).
+  Bez niego `my_league` pokazuje jej Ligę rekruterów (15.10.2026: trzy osoby
+  z obiema rolami grały wyłącznie w lidze rekruterów, jedna była na 2. miejscu,
+  a pasek mówił im „Liga DL · poza ligą”).
 - **Liczby z jednego źródła:** `GET /api/competitions/my-league` czyta ten sam
   ranking co podium na „Rywalizacji” (`_cached_current` → `award_order` →
   `award_ranked_rows`), więc pasek, Insights i zamrożenie kwartału mają jedną
