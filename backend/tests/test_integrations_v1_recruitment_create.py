@@ -751,6 +751,53 @@ class TestCreateRecruitment:
         assert resp.json()["error"]["code"] == code
         assert await _jobs_titled(body["title"]) == 0
 
+    async def test_owners_contact_and_category_are_checked_like_the_screen(
+        self, app_client: AsyncClient, app_auth_headers: dict, offline_matching
+    ):
+        """Klucz nie przypisze dowolnej osoby ani cudzego kontaktu: Delivery Lead
+        z rolą DL, rekruter z rolą rekrutera, hiring manager z kontaktów TEGO
+        klienta, kategoria tylko aktywna. Odmowy z rdzeni ekranu — tu przypięte."""
+        from app.core.database import AsyncSessionLocal
+        from app.models.competence_category import CompetenceCategory
+        from app.models.contact import Contact
+        from tests._job_factory import new_recruiter
+
+        api_key = await _key(app_client, app_auth_headers, _CREATE_SCOPES)
+        client_id = await _client()
+        other_client_id = await _client()
+        async with AsyncSessionLocal() as db:
+            foreign = Contact(client_id=other_client_id, name="Jan Testowy")
+            retired = CompetenceCategory(
+                slug=f"v1c-off-{uuid.uuid4().hex[:8]}",
+                name_pl="Kategoria wyłączona",
+                name_en="Retired category",
+                description="CI fixture",
+                is_active=False,
+            )
+            db.add_all([foreign, retired])
+            await db.commit()
+            foreign_id, retired_id = foreign.id, retired.id
+        dl_id = await _delivery_lead()
+
+        cases = {
+            "rekruter jako Delivery Lead": {"delivery_lead_id": await new_recruiter()},
+            "Delivery Lead jako rekruter": {"recruiter_id": dl_id},
+            "kontakt innego klienta": {
+                "hiring_manager_contact_id": foreign_id,
+                "hiring_manager_not_provided": False,
+            },
+            "kategoria nieaktywna": {"competence_category_id": retired_id},
+        }
+        for label, over in cases.items():
+            body = {**await _create_body(client_id), **over}
+            resp = await app_client.post(
+                f"{V1}/recruitments?dry_run=true", headers=_h(api_key), json=body
+            )
+            assert 400 <= resp.status_code < 500, (label, resp.text)
+            assert await _jobs_titled(body["title"]) == 0, label
+            if label == "kategoria nieaktywna":
+                assert resp.json()["error"]["code"] == "category_not_active"
+
     async def test_budget_without_amounts_write_is_403(
         self, app_client: AsyncClient, app_auth_headers: dict
     ):

@@ -86,6 +86,7 @@ from app.core.database import get_db
 from app.core.rate_limit import limiter
 from app.models.client import Client
 from app.models.client_directory import ClientPortfolioScope, PortfolioCategory
+from app.models.competence_category import CompetenceCategory
 from app.models.job import Job
 from app.models.service_account import ServiceScope
 from app.schemas.champion import CRITICAL_MAX
@@ -706,6 +707,24 @@ async def _assert_selectable_client(db: AsyncSession, client_id: int) -> None:
         )
 
 
+async def _assert_active_category(db: AsyncSession, category_id: Optional[int]) -> None:
+    """Kategoria tylko z aktywnych — jak lista na ``/jobs/new``. Nieaktywna
+    dopisałaby swoich członków jako współpracowników (``sync_cc_participants``)."""
+    if category_id is None:
+        return
+    active = await db.scalar(
+        select(CompetenceCategory.is_active).where(CompetenceCategory.id == category_id)
+    )
+    if not active:
+        raise HTTPException(
+            422,
+            detail={
+                "error": "category_not_active",
+                "message": "Kategoria kompetencji nie istnieje albo jest nieaktywna.",
+            },
+        )
+
+
 async def _read_with_ai(db: AsyncSession, client_id: int, text: str) -> Optional[dict]:
     """Odczyt ekranu (``job_request_intake._read``) albo ``None`` przy awarii.
 
@@ -881,6 +900,7 @@ async def create_recruitment(
     async def run():
         await _assert_visible_client(db, body.client_id)
         await _assert_selectable_client(db, body.client_id)
+        await _assert_active_category(db, body.competence_category_id)
         job = await job_lifecycle.apply_job_create(db, data, actor, effects)
         notices = list(effects.results.get("notices") or [])
         if dry_run:

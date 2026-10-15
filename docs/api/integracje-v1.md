@@ -439,7 +439,8 @@ założenie z polami, które zatwierdziła automatyzacja albo człowiek.
   inaczej `422 client_not_selectable`), `title` (nazwa stanowiska u klienta)
   i `delivery_lead_id`. Dalej pola formularza: `role_name`, `working_title`,
   `client_reference`, `recruiter_id` (bez niego przydziela automat), `priority`
-  (`p1`, `p2`, `accepting`), `competence_category_id`, `requirements`
+  (`p1`, `p2`, `accepting`), `competence_category_id` (tylko aktywna, inaczej
+  `422 category_not_active`), `requirements`
   (`[{"words": [...], "level": "critical"|"must"|"nice"}]`), `no_critical`,
   `seniority_min_years`, `language`, `contract_length`, `start_date`,
   `rate_budget_hourly_min` / `rate_budget_hourly` (budżet „od–do”, PLN/h —
