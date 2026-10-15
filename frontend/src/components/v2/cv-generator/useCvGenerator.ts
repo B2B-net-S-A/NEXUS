@@ -356,10 +356,12 @@ export function useCvGenerator({
       }
       // Uwaga raz na treść — ponowienie po błędzie generacji nie dopisuje
       // kolejnej notatki (każda byłaby źródłem dla modelu).
-      if (instruction.trim() && notedInstruction.current !== instruction.trim()) {
-        notedInstruction.current = instruction.trim();
+      const noted = instruction.trim();
+      if (noted && notedInstruction.current !== noted) {
+        notedInstruction.current = noted;
         await api.post("/api/notes", {
-          content: `Uwaga do CV: ${instruction.trim()}`,
+          // Lista poprawek (linia = punkt) zaczyna się od nowej linii.
+          content: `Uwaga do CV:${noted.includes("\n") ? "\n" : " "}${noted}`,
           note_type: "general",
           candidate_id: candidate.id,
           job_id: recruitment.job_id,

@@ -113,6 +113,8 @@ import {
   latestAutoCvSkip,
 } from "@/lib/job-background-events";
 import { cn, formatDate } from "@/lib/utils";
+import { readCvRewriteDraft, writeCvRewriteDraft } from "@/lib/cv-rewrite-drafts";
+import { useAuthStore } from "@/store/auth";
 import { useCvToClientRows } from "@/hooks/useCvToClientRows";
 import { useStageBrandedCv } from "@/hooks/useStageBrandedCv";
 import { useToast } from "@/components/Toast";
@@ -127,6 +129,7 @@ import {
 import { ConsentAttachButton } from "@/components/v2/cv-generator/ConsentAttachButton";
 import { CVOriginalPreviewModal } from "@/components/v2/modals/CVOriginalPreviewModal";
 import { CvGeneratePanel } from "@/components/v2/recruitment/CvGeneratePanel";
+import { CvRewriteForm, REWRITE_MAX } from "@/components/v2/recruitment/CvRewriteForm";
 import { CvFilePreviewDialog } from "@/components/v2/cv/CvFilePreviewDialog";
 import { CvFirstPageThumb } from "@/components/v2/cv/CvFirstPageThumb";
 import { fetchStageCvFile, fetchStageCvPdf } from "@/lib/stage-cv-file";
@@ -352,9 +355,6 @@ const noPagesWithoutConsent = () => Promise.reject(new Error("consent_required")
 /** Radix oddaje fokus PO `onSelect` — okno otwarte w tym samym ticku zamknęłoby się. */
 const afterMenuCloses = (action: () => void) => () => window.setTimeout(action, 0);
 
-/** Długość uwagi „Napisz od nowa” — jak limit serwera (`GenerateRequest.instruction`). */
-const REWRITE_MAX = 300;
-
 function quoteList(items: readonly string[]): string {
   const quoted = items.map((item) => `„${item}”`);
   if (quoted.length <= 1) return quoted[0] ?? "";
@@ -420,9 +420,10 @@ export function CvToClientCard({
     keepEdits: boolean;
   } | null>(null);
   // „Napisz od nowa” (Edytor CV 3, PR 5): uwaga dla panelu generacji
-  // (`undefined` = zwykły panel), pole w karcie i wynik podmiany.
+  // (`undefined` = zwykły panel) i wynik podmiany. Pole z listą poprawek
+  // i jej szkicem to `CvRewriteForm`.
   const [rewrite, setRewrite] = useState<string | undefined>(undefined);
-  const [rewriteText, setRewriteText] = useState("");
+  const userId = useAuthStore((s) => s.user?.id);
   const [rewriteResult, setRewriteResult] = useState<
     (CVBrandedRewrite & { stageId: number; revision: number }) | null
   >(null);
@@ -713,8 +714,8 @@ export function CvToClientCard({
   /** „Napisz od nowa” z karty albo z asystenta w edytorze (edytor zamknął się sam). */
   const startRewrite = (instruction: string) => {
     if (!rewriteAvailable) return;
-    setRewrite(instruction.trim());
-    setRewriteText("");
+    // Polecenie z asystenta („Napisz od nowa: …”) też nie przekroczy limitu serwera.
+    setRewrite(instruction.trim().slice(0, REWRITE_MAX));
     setRewriteResult(null);
     setEditorOpen(false);
     setGenerateOpen(true);
@@ -982,34 +983,7 @@ export function CvToClientCard({
             </button>
           </div>
         ) : null}
-        {rewriteAvailable ? (
-          <form
-            aria-label="Napisz od nowa"
-            className="space-y-1 border-t border-border pt-2"
-            onSubmit={(event) => {
-              event.preventDefault();
-              startRewrite(rewriteText);
-            }}
-          >
-            <div className="flex items-center gap-1.5">
-              <input
-                aria-label="Co poprawić?"
-                placeholder="Co poprawić?"
-                value={rewriteText}
-                maxLength={REWRITE_MAX}
-                onChange={(event) => setRewriteText(event.target.value)}
-                className="h-8 w-0 min-w-0 flex-1 rounded-md border border-input bg-background px-2.5 text-sm placeholder:text-muted-foreground"
-              />
-              <Button type="submit" size="sm" variant="outline">
-                <Sparkles className="h-3.5 w-3.5" aria-hidden /> Napisz od nowa
-              </Button>
-            </div>
-            <p className="text-[11px] text-muted-foreground">
-              Np. „krócej, więcej o Kafce”. Twoje ręczne poprawki zostaną, a fakty z tego zdania zapiszą się w
-              notatkach.
-            </p>
-          </form>
-        ) : null}
+        {rewriteAvailable ? <CvRewriteForm stageId={cvStageId} onRewrite={startRewrite} /> : null}
         {state.generating ? (
           <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
             <Loader2 className="size-3 animate-spin" aria-hidden /> Generuje się nowa wersja…
@@ -1201,6 +1175,10 @@ export function CvToClientCard({
           replaces={replacesDraft}
           onEnqueued={onEnqueued}
           onCancel={() => {
+            // Anulowana lista poprawek wraca do pola, chyba że ktoś zaczął już nową.
+            if (rewrite?.trim() && !readCvRewriteDraft(userId, cvStageId)) {
+              writeCvRewriteDraft(userId, cvStageId, rewrite);
+            }
             setGenerateOpen(false);
             setRewrite(undefined);
           }}

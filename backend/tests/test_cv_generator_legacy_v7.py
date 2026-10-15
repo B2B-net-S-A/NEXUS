@@ -436,11 +436,53 @@ def test_no_instruction_no_tag(defaults):
     assert "recruiter_instruction" not in defaults["calls"][0]["user"]
 
 
-def test_rewrite_instruction_drops_rates_and_is_one_short_line():
-    text = svc.recruiter_instruction("krócej,\nstawka 150 zł/h, więcej o Kafce")
-    assert "150" not in text and "\n" not in text
-    assert "krócej" in text and "Kafce" in text
-    assert len(svc.recruiter_instruction("x" * 1000)) == svc.INSTRUCTION_MAX
+def test_rewrite_instruction_keeps_the_list_and_drops_rates():
+    """Lista poprawek zostaje listą (15.10.2026): linia = jedna poprawka."""
+    text = svc.recruiter_instruction(
+        "  1. Podsumowanie   krócej.  \n\n"
+        "2. Stawka 150 zł/h, więcej o Kafce\n"
+        "   \n"
+        "3. Usuń „Zainteresowania”\n"
+    )
+    assert text == (
+        "1. Podsumowanie krócej.\n2. więcej o Kafce\n3. Usuń „Zainteresowania”"
+    )
+    assert "150" not in text
+    assert svc.INSTRUCTION_MAX == 2000
+    assert len(svc.recruiter_instruction("x" * 2500)) == svc.INSTRUCTION_MAX
+
+
+def test_rewrite_instruction_list_is_fenced_line_by_line(defaults):
+    svc._run_generation_pipeline(
+        cv_bytes=b"cv",
+        cv_filename="cv.pdf",
+        champion_dto=None,
+        screening_notes_text="",
+        language="pl",
+        blind_cv=False,
+        request_id="legacy-test",
+        fallback_name="Jan Kowalski",
+        started_at=time.time(),
+        job_id=1,
+        job_title="Backend Developer",
+        instruction=svc.recruiter_instruction("1. krócej\n2. więcej o Kafce"),
+    )
+    assert (
+        "<recruiter_instruction>\n1. krócej\n2. więcej o Kafce\n</recruiter_instruction>"
+        in defaults["calls"][0]["user"]
+    )
+
+
+def test_generate_request_takes_a_list_of_corrections_up_to_the_limit():
+    from pydantic import ValidationError
+
+    from app.api.cv_generator_b2b import GenerateRequest
+
+    body = {"cv_document_id": 1, "candidate_id": 1}
+    longest = "1. krócej\n" + "x" * (svc.INSTRUCTION_MAX - 10)
+    assert GenerateRequest(**body, instruction=longest).instruction == longest
+    with pytest.raises(ValidationError):
+        GenerateRequest(**body, instruction="x" * (svc.INSTRUCTION_MAX + 1))
 
 
 def test_generation_date_block_speaks_the_document_language():

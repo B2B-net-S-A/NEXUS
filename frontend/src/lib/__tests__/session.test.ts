@@ -68,6 +68,16 @@ describe("clearSessionArtifacts", () => {
     expect(sessionStorage.getItem("unrelated_session_key")).toBe("keep");
   });
 
+  it("usuwa szkice list poprawek CV z karty „CV do klienta” (sessionStorage)", () => {
+    sessionStorage.setItem("nexus:cv-rewrite-draft:v1:7:21", "1. krócej\n2. więcej o Kafce");
+    sessionStorage.setItem("unrelated_session_key", "keep");
+
+    clearSessionArtifacts();
+
+    expect(sessionStorage.getItem("nexus:cv-rewrite-draft:v1:7:21")).toBeNull();
+    expect(sessionStorage.getItem("unrelated_session_key")).toBe("keep");
+  });
+
   it("kasuje cookie nexus_access", () => {
     document.cookie = "nexus_access=abc; path=/";
     clearSessionArtifacts();

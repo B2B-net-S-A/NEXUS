@@ -42,6 +42,7 @@ import {
 } from "@/lib/cv-ai-sources";
 import { CV_CONTENT_MODES } from "@/lib/cv-generator";
 import { canMutateSection } from "@/lib/section-access";
+import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/store/auth";
 
 export interface CvGeneratePanelProps {
@@ -320,11 +321,7 @@ function CvGeneratePanelForm({
           {g.lastError}
         </p>
       ) : null}
-      {rewrite !== undefined ? (
-        <p className="text-xs text-foreground [overflow-wrap:anywhere]" data-testid="cv-rewrite-instruction">
-          {rewrite.trim() ? <>Napisz od nowa: „{rewrite.trim()}”</> : "Napisz od nowa"}
-        </p>
-      ) : null}
+      {rewrite !== undefined ? <RewriteInstruction text={rewrite} /> : null}
       <p className="text-[11px] text-muted-foreground">
         {rewrite !== undefined
           ? "Ok. 40 s. Ręcznie poprawione części zostaną, a poprzednią wersję przywrócisz jednym kliknięciem."
@@ -341,5 +338,32 @@ function CvGeneratePanelForm({
         </Button>
       </div>
     </section>
+  );
+}
+
+/**
+ * Lista poprawek „Napisz od nowa” z podziałem na linie; długa zwinięta do
+ * 3 linii, żeby panel nie wypychał przycisków z widoku (15.10.2026).
+ */
+function RewriteInstruction({ text }: { text: string }) {
+  const [all, setAll] = useState(false);
+  const value = text.trim();
+  const long = value.split("\n").length > 3 || value.length > 240;
+  return (
+    <div className="text-xs text-foreground" data-testid="cv-rewrite-instruction">
+      <p className={cn("whitespace-pre-line [overflow-wrap:anywhere]", long && !all && "line-clamp-3")}>
+        {value ? <>Napisz od nowa: „{value}”</> : "Napisz od nowa"}
+      </p>
+      {long ? (
+        <button
+          type="button"
+          aria-expanded={all}
+          className="font-medium text-primary hover:underline"
+          onClick={() => setAll((shown) => !shown)}
+        >
+          {all ? "Zwiń" : "Pokaż całość"}
+        </button>
+      ) : null}
+    </div>
   );
 }

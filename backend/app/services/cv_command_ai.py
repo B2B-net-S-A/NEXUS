@@ -104,7 +104,8 @@ TEXT_OPERATIONS = frozenset({"replace", "merge", "add"})
 # Granice wejścia (schemat trasy trzyma te same liczby).
 LINES_MAX = 400
 LINE_TEXT_MAX = 1200
-COMMAND_MAX = 300
+# Lista poprawek rekrutera, ok. 15–20 punktów (15.10.2026; wcześniej 300 znaków).
+COMMAND_MAX = 2000
 OPERATIONS_MAX = 40
 WHY_MAX = 200
 # Asystent (PR 4): rozmowa, zaznaczenie i nowe operacje.
@@ -647,7 +648,8 @@ def verify_plan(
     plan = _Plan(lines, tuple(requirements), sources)
     operations: list[dict] = []
     dropped: list[dict] = []
-    for item in (proposed if isinstance(proposed, list) else [])[:OPERATIONS_MAX]:
+    proposed = proposed if isinstance(proposed, list) else []
+    for item in proposed[:OPERATIONS_MAX]:
         try:
             accepted = plan.accept(item)
         except _Dropped as refusal:
@@ -661,7 +663,13 @@ def verify_plan(
             )
             continue
         operations.append({"id": len(operations), **accepted})
-    return {"operations": operations, "dropped": dropped}
+    # Nadmiar ponad OPERATIONS_MAX nie przepada po cichu: asystent mówi,
+    # że zrobił tylko część listy (15.10.2026).
+    return {
+        "operations": operations,
+        "dropped": dropped,
+        "truncated": len(proposed) > OPERATIONS_MAX,
+    }
 
 
 # ── Wywołanie modelu ─────────────────────────────────────────────────────────

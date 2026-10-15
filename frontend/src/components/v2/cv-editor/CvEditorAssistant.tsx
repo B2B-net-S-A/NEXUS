@@ -17,9 +17,11 @@ import { Check, Loader2, SendHorizontal, Undo2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { CV_PANEL_ATTR, Marked } from "@/components/v2/cv-editor/Marked";
+import { TextLimitCounter } from "@/components/v2/forms/TextLimitCounter";
 import type { AssistantMessage, CvAssistantController } from "@/components/v2/cv-editor/useCvAssistant";
 import { CV_COMMAND_PRESETS } from "@/lib/api/cvEditorCommand";
 import { CV_COMMAND_MAX } from "@/lib/cv-editor-command";
+import { useTextareaAutogrow } from "@/lib/use-textarea-autogrow";
 import { cn } from "@/lib/utils";
 
 export interface CvEditorAssistantProps {
@@ -35,6 +37,13 @@ export function CvEditorAssistant({ controller, editor }: CvEditorAssistantProps
   const [text, setText] = useState("");
   const log = useRef<HTMLDivElement>(null);
   const input = useRef<HTMLTextAreaElement>(null);
+  // Lista poprawek do 2000 znaków: pole rośnie do 4 linii — przy 1280×650
+  // sekcja stoi blisko minimum 18rem i wyższe pole zjadłoby rozmowę
+  // (5 linii zostawiało jej 21 px). Po wysłaniu pole wraca do 2 linii.
+  const [field, setField] = useState<HTMLDivElement | null>(null);
+  useTextareaAutogrow(input, field, text, 4);
+  const length = text.trim().length;
+  const tooLong = length > CV_COMMAND_MAX;
   const view = useEditorState({
     editor,
     selector: ({ editor: current }) => {
@@ -59,7 +68,7 @@ export function CvEditorAssistant({ controller, editor }: CvEditorAssistantProps
 
   const submit = (event?: FormEvent) => {
     event?.preventDefault();
-    if (disabled || text.trim().length < 3) return;
+    if (disabled || text.trim().length < 3 || tooLong) return;
     controller.send({ command: text });
     setText("");
   };
@@ -131,22 +140,33 @@ export function CvEditorAssistant({ controller, editor }: CvEditorAssistantProps
           </p>
         ) : null}
         <form className="flex items-end gap-1.5" onSubmit={submit}>
-          <textarea
-            ref={input}
-            aria-label="Napisz, co zmienić"
-            placeholder="Napisz, co zmienić…"
-            rows={2}
-            maxLength={CV_COMMAND_MAX}
-            value={text}
-            disabled={!controller.enabled}
-            onChange={(event) => setText(event.target.value)}
-            onKeyDown={onKeyDown}
-            className="min-h-[3rem] w-0 flex-1 resize-none rounded-md border border-input bg-background px-2.5 py-1.5 text-sm placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-60"
-          />
-          <Button type="submit" size="icon-sm" aria-label="Wyślij" disabled={disabled || text.trim().length < 3}>
+          <div ref={setField} className="w-0 flex-1">
+            <textarea
+              ref={input}
+              aria-label="Napisz, co zmienić"
+              placeholder="Napisz, co zmienić…"
+              rows={2}
+              value={text}
+              aria-invalid={tooLong || undefined}
+              disabled={!controller.enabled}
+              onChange={(event) => setText(event.target.value)}
+              onKeyDown={onKeyDown}
+              className="block min-h-[3rem] w-full resize-none rounded-md border border-input bg-background px-2.5 py-1.5 text-sm placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-60 aria-[invalid=true]:border-destructive"
+            />
+          </div>
+          <Button
+            type="submit"
+            size="icon-sm"
+            aria-label="Wyślij"
+            disabled={disabled || text.trim().length < 3 || tooLong}
+          >
             {controller.locked ? <Loader2 aria-hidden className="h-4 w-4 animate-spin" /> : <SendHorizontal aria-hidden className="h-4 w-4" />}
           </Button>
         </form>
+        <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
+          <span className="mr-auto">Enter wyślij · Shift+Enter nowa linia</span>
+          <TextLimitCounter length={length} max={CV_COMMAND_MAX} />
+        </div>
       </div>
     </section>
   );

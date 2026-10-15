@@ -2502,14 +2502,19 @@ def champion_present(job: Job | None) -> bool:
 # ── Main entrypoint ────────────────────────────────────────────────────────
 
 
-INSTRUCTION_MAX = 300
+# Lista poprawek rekrutera, ok. 15–20 punktów (15.10.2026; wcześniej 300 znaków).
+INSTRUCTION_MAX = 2000
 
 
 def recruiter_instruction(text: str | None) -> str:
-    """Uwaga „Napisz od nowa” dla modelu: jedna linia, bez stawek i dostępności."""
+    """Uwaga „Napisz od nowa” dla modelu: linia = poprawka, bez stawek i dostępności."""
     from app.services.money_text import strip_rates_and_availability
 
-    return " ".join(strip_rates_and_availability(text or "").split())[:INSTRUCTION_MAX]
+    lines = (
+        " ".join(line.split())
+        for line in strip_rates_and_availability(text or "").split("\n")
+    )
+    return "\n".join(line for line in lines if line)[:INSTRUCTION_MAX]
 
 
 @dataclass(frozen=True)

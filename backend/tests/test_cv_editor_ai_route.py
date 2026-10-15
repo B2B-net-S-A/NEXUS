@@ -269,6 +269,10 @@ def test_command_request_carries_the_conversation_and_selection() -> None:
     assert (
         CommandRequest(preset="proofread", lines=COMMAND["lines"]).preset == "proofread"
     )
+    # Lista poprawek do 2000 znaków (15.10.2026), z podziałem na linie.
+    longest = "1. krócej\n" + "x" * (command_ai.COMMAND_MAX - 10)
+    assert command_ai.COMMAND_MAX == 2000
+    assert CommandRequest(**{**COMMAND, "command": longest}).command == longest
 
 
 @pytest.mark.parametrize(

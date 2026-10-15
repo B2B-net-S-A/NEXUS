@@ -114,6 +114,7 @@ from app.services.cv_generator_b2b.standalone_service import (
     CandidateGenerationSource,
     ContentMode,
     DEFAULT_CONTENT_MODE,
+    INSTRUCTION_MAX,
     StandaloneGenerationError,
     UploadGenerationInput,
     apply_content_mode_cap,
@@ -257,8 +258,9 @@ class GenerateRequest(BaseModel):
     sources: Optional[AiSourcesIn] = None
     # „Napisz od nowa: krócej, więcej o Kafce” (Edytor CV 3, PR 5): forma
     # i akcenty dla modelu, nie fakty — fakty z tego zdania karta zapisuje
-    # w notatkach rekrutacji przed generacją. Stawki wycinane.
-    instruction: str = Field(default="", max_length=300)
+    # w notatkach rekrutacji przed generacją. Stawki wycinane. Lista poprawek
+    # (linia = punkt) do `INSTRUCTION_MAX` znaków.
+    instruction: str = Field(default="", max_length=INSTRUCTION_MAX)
 
     @field_validator("champion_profile")
     @classmethod

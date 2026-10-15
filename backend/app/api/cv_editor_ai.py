@@ -260,6 +260,8 @@ class CommandResponse(BaseModel):
     # Operacje modelu, które nie przeszły kontroli — do zdania „N zmian odrzuconych”.
     dropped: list[CommandDropped] = []
     message: Optional[str] = None
+    # Model zaproponował więcej niż `OPERATIONS_MAX` zmian — reszta nie weszła.
+    truncated: bool = False
 
 
 @router.post("/stages/{stage_id}/cv-ai/command", response_model=CommandResponse)
