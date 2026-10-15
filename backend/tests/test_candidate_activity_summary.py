@@ -317,6 +317,25 @@ def test_profile_section_never_reads_structured_candidate_financials():
     assert "Nordea" in section.text
 
 
+def test_profile_section_gives_the_contract_term_instead_of_the_old_status():
+    """S3 (15.10.2026): przy żywej umowie model nie dostaje statusu ani daty
+    ze screeningu sprzed zatrudnienia — tylko termin z umowy."""
+    from app.services.contract_availability import ContractFree
+
+    section = cas._profile_section(
+        make_candidate(
+            availability_status=SimpleNamespace(value="actively_looking"),
+            availability_date=date(2026, 7, 15),
+        ),
+        ContractFree(date(2027, 2, 1), "work_end"),
+    )
+
+    assert "Status dostępności" not in section.text
+    assert "actively_looking" not in section.text
+    assert "2026-07-15" not in section.text
+    assert "Dostępność: pracuje u nas, dostępny od 2027-02-01" in section.text
+
+
 def test_profile_section_redacts_financial_free_text_and_reports_manifest():
     section = cas._profile_section(
         make_candidate(

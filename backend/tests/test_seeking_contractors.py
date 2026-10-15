@@ -393,3 +393,79 @@ async def test_seeking_contractors_hides_employment_only(
         assert cid not in {it["candidate"]["id"] for it in resp.json()["items"]}
     finally:
         await _cleanup(candidate_ids=[cid], job_ids=[], client_ids=[client_id])
+
+
+@pytest.mark.asyncio
+async def test_seeking_contractors_status_does_not_pull_in_a_live_contract(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """S3 (15.10.2026): „Szuka aktywnie” przy żywej umowie nie wkłada
+    konsultanta w trakcie zamówienia do puli „szukających projektu”. Zostaje
+    ten, kto wg znacznika kończy u nas pracę w horyzoncie — umowa B2B nie ma
+    `end_date`, więc źródło A go nie widzi. Liczone przez ``total`` (cała pula,
+    nie strona): z trzech nowych osób przybywają dwie."""
+    from decimal import Decimal
+
+    from app.models.client_order import ClientOrder, ClientOrderStatus
+
+    _patch_pipeline(monkeypatch, hits_for_query=[])
+    url = "/api/recommendations/seeking-contractors?horizon_days=30&page_size=1"
+
+    async def total() -> int:
+        resp = await app_client.get(url, headers=app_auth_headers)
+        assert resp.status_code == 200, resp.text
+        return resp.json()["total"]
+
+    before = await total()
+    looking = AvailabilityStatus.actively_looking
+    working = await _seed_candidate_with_availability(
+        availability=looking, name="WorkingLooker"
+    )
+    ending = await _seed_candidate_with_availability(
+        availability=looking, name="EndingLooker"
+    )
+    today = business_today()
+    async with AsyncSessionLocal() as db:
+        client = Client(name=f"LiveContractCo_{working}")
+        db.add(client)
+        await db.flush()
+        contracts = {
+            person: Contract(
+                candidate_id=person,
+                client_id=client.id,
+                start_date=today - timedelta(days=40),
+                status=ContractStatus.active,
+                contract_type=ContractType.b2b,
+            )
+            for person in (working, ending)
+        }
+        db.add_all(contracts.values())
+        await db.flush()
+        db.add(
+            ClientOrder(
+                client_id=client.id,
+                contract_id=contracts[ending].id,
+                title=f"Ending-{ending}",
+                status=ClientOrderStatus.active,
+                start_date=today - timedelta(days=40),
+                end_date=today + timedelta(days=10),
+                rate_client=Decimal("150"),
+                rate_unit=RateUnit.hourly,
+            )
+        )
+        await db.commit()
+        client_id = client.id
+    looker = await _seed_candidate_with_availability(
+        availability=looking, name="FreeLooker"
+    )
+    try:
+        assert await total() == before + 2
+    finally:
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                delete(ClientOrder).where(ClientOrder.client_id == client_id)
+            )
+            await db.commit()
+        await _cleanup(
+            candidate_ids=[working, ending, looker], job_ids=[], client_ids=[client_id]
+        )

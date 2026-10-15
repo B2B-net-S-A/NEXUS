@@ -398,6 +398,30 @@ services:
       start_period: 60s
     logging: *default-logging
 
+  # Budzik okna wdrożeń (15.10.2026): o 19:05, 21:05 i 23:05 czasu
+  # warszawskiego uruchamia workflow Deploy przez API GitHuba, bo cron GitHuba
+  # przychodzi z kilkugodzinnym opóźnieniem albo wcale — deploy-window/loop.sh.
+  # Token (fine-grained PAT, „Actions: read and write”, tylko to repo) leży
+  # w pliku hosta `/etc/nexus-deploy-window/token` (uid 10001, 0400), a katalog
+  # jest zamontowany TYLKO tutaj i tylko do odczytu. Świadomie bez `environment`
+  # i bez skarbca Coolify: skarbiec ląduje w `.env`, a backend i frontend mają
+  # `env_file: .env`, więc zmienna trafiłaby i do nich. Brak pliku = budzik
+  # pomija sloty.
+  deploy-window:
+    build:
+      context: ./deploy-window
+      dockerfile: Dockerfile
+    image: nexus-deploy-window:latest
+    restart: unless-stopped
+    mem_limit: 32m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    volumes:
+      - /etc/nexus-deploy-window:/run/deploy-window:ro
+    logging: *default-logging
+
 volumes:
   postgres_data:
   qdrant_data:

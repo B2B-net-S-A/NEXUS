@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  availabilityContractNote,
   contractAvailability,
   contractAvailabilityCountdown,
   contractAvailabilityOrigin,
@@ -106,5 +107,48 @@ describe("contractAvailability", () => {
     expect(hidesAvailabilityStatus(marker({ source: "conflict" }))).toBe(false);
     expect(hidesAvailabilityStatus(marker())).toBe(true);
     expect(hidesAvailabilityStatus(null)).toBe(false);
+  });
+});
+
+describe("availabilityContractNote (D6, S4)", () => {
+  const hidden = "status „Czy szuka pracy” jest ukryty";
+
+  it("says the status is hidden until the end of the engagement", () => {
+    const note = availabilityContractNote(marker());
+
+    expect(note).toContain("Pracuje u nas do 30.11.2026 (Bank Przykładowy)");
+    expect(note).toContain(hidden);
+    expect(note).toContain("Delivery Lead (Anna Nowak)");
+  });
+
+  it("says it in every phase of a live contract", () => {
+    const noEnd = availabilityContractNote(
+      marker({ free_from: null, free_from_basis: "no_end_date" }),
+    );
+    const starting = availabilityContractNote(
+      marker({
+        phase: "starting",
+        free_from: null,
+        free_from_basis: "starting",
+        clients: [
+          {
+            client_id: 7,
+            client_name: "Bank Przykładowy",
+            phase: "starting",
+            starts_on: "2026-11-03",
+            delivery_lead_name: "Anna Nowak",
+          },
+        ],
+      }),
+    );
+
+    expect(noEnd).toContain(hidden);
+    expect(starting).toContain("Zaczyna u nas 03.11.2026");
+    expect(starting).toContain(hidden);
+  });
+
+  it("is absent without a contract — a conflict alone does not hide the status", () => {
+    expect(availabilityContractNote(null)).toBeNull();
+    expect(availabilityContractNote(marker({ source: "conflict" }))).toBeNull();
   });
 });

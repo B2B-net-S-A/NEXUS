@@ -211,7 +211,9 @@ def test_deploy_version_summary_runs_always() -> None:
     checkout = _step(steps, "Checkout (tylko .github/scripts)")
     assert checkout["with"]["sparse-checkout"] == ".github/scripts"
     precheck = _step(steps, "Skip if release already live (burst coalescing)")
-    assert precheck["if"] == "${{ github.event_name != 'workflow_dispatch' }}"
+    assert precheck["if"] == (
+        "${{ github.event_name != 'workflow_dispatch' || env.WINDOW_SLOT == 'true' }}"
+    )
     assert '[ "$version" = "$RELEASE_SHA" ]' in precheck["run"]
     assert precheck["run"].count('echo "skip=true" >> "$GITHUB_OUTPUT"') == 1
 
@@ -668,9 +670,9 @@ def test_deploy_waits_for_the_evening_window() -> None:
     assert quiet["env"]["FREEZE_WINDOW"] == freeze
     assert '--freeze-window "$FREEZE_WINDOW"' in step["run"]
     assert "$SCHEDULED" in step["run"]
-    assert (
-        step["env"]["SCHEDULED"]
-        == "${{ github.event_name == 'schedule' && '--scheduled' || '' }}"
+    assert step["env"]["SCHEDULED"] == (
+        "${{ (github.event_name == 'schedule' || env.WINDOW_SLOT == 'true') "
+        "&& '--scheduled' || '' }}"
     )
 
     inputs = _triggers(deploy)["workflow_dispatch"]["inputs"]
@@ -686,6 +688,32 @@ def test_deploy_waits_for_the_evening_window() -> None:
     assert step["env"]["DEPLOY_REASON"] == "${{ inputs.reason }}"
     assert '--reason "$DEPLOY_REASON"' in step["run"]
     assert "inputs.reason" not in step["run"]
+
+
+def test_window_slot_dispatch_behaves_like_the_evening_schedule() -> None:
+    """Budzik `deploy-window` (15.10.2026) uruchamia Deploy przez API, bo cron
+    GitHuba przychodzi z kilkugodzinnym opóźnieniem albo wcale. Jego dispatch
+    ma się zachować jak `schedule`: odroczenie w dzień bez czerwieni, pominięcie
+    rebuildu, gdy produkcja ma już HEAD, i alarmy, bo nikt go nie ogląda."""
+    deploy = _load("deploy.yml")
+    slot = _triggers(deploy)["workflow_dispatch"]["inputs"]["window_slot"]
+    assert slot["type"] == "boolean" and slot["default"] is False
+    assert deploy["env"]["WINDOW_SLOT"] == (
+        "${{ github.event_name == 'workflow_dispatch' && "
+        "(inputs.window_slot == true || inputs.window_slot == 'true') }}"
+    )
+    alarm_if = (
+        "${{ failure() && (github.event_name != 'workflow_dispatch' "
+        "|| env.WINDOW_SLOT == 'true') }}"
+    )
+    select_steps = deploy["jobs"]["select"]["steps"]
+    assert _step(select_steps, "Alarm — wybór wydania padł")["if"] == alarm_if
+    deploy_steps = deploy["jobs"]["deploy"]["steps"]
+    assert _step(deploy_steps, "Alarm — czerwony deploy")["if"] == alarm_if
+    trigger = _step(deploy_steps, "Trigger deployment")
+    assert "window_slot" not in trigger["env"]["FORCE_REBUILD"], (
+        "Slot okna nigdy nie przebudowuje bez cache."
+    )
 
 
 def test_uptime_probe_alerts_on_a_night_without_deploy() -> None:

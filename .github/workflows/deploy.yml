@@ -117,11 +117,24 @@ on:
         description: "Powód awaryjnego wdrożenia (wymagany przy emergency)"
         type: string
         default: ""
+      # Budzik okna wdrożeń (kontener `deploy-window`, 15.10.2026) uruchamia
+      # Deploy przez API z `window_slot=true`. Taki bieg zachowuje się jak
+      # `schedule`: w dzień cicho odracza, pomija rebuild, gdy produkcja ma już
+      # HEAD maina, a porażka zakłada issue (nikt go nie ogląda).
+      window_slot:
+        description: "Slot okna wdrożeń z budzika deploy-window (zachowuje się jak wieczorny cron)"
+        type: boolean
+        default: false
   # Okno wdrożeń (decyzja Artura 14.10.2026): produkcja przebudowuje się tylko
   # 19:00–07:00 czasu warszawskiego — w dzień wszyscy pracują w systemie,
   # a deploy to ~2 min przerwy. Merge'e z dnia odracza `select`
-  # (`night_freeze`), a wdrażają je te przebiegi. Kilka slotów, bo cron GitHuba
-  # potrafi przyjść z kilkugodzinnym opóźnieniem albo wcale (26.09.2026):
+  # (`night_freeze`), a wdrażają je przebiegi w oknie.
+  #
+  # Głównym wyzwalaczem jest budzik `deploy-window` (19:05, 21:05, 23:05
+  # Warszawa, `window_slot` wyżej). Cron GitHuba zostaje jako zapas, bo w tym
+  # repo przychodzi z 3–9 h opóźnieniem albo wcale: 15.10.2026 sloty 17:23Z
+  # i 18:23Z nie przyszły do 19:30Z, slot 04:23Z przyszedł o 09:15Z (w dzień,
+  # więc odroczony), a godzinny `uptime-probe` odpala się ok. 4 razy na dobę.
   # 17:23Z = 19:23 latem (zimą 18:23 — jeszcze okno, wdraża slot 18:23Z),
   # kolejne godziny to zapas, 04:23Z (06:23 latem, 05:23 zimą) to ostatnia
   # szansa przed 07:00, już po nocnym przeglądzie bazy i kopii 02:30Z.
@@ -155,6 +168,9 @@ env:
   # markery otwierają i zamykają alarm — `.github/scripts/alert_issue.sh`.
   HOLD_ALERT_MARKER: "Deploy NEXUS wstrzymany"
   RED_ALERT_MARKER: "Deploy NEXUS jest czerwony"
+  # Bieg z budzika okna wdrożeń (`window_slot`) — w krokach traktowany jak
+  # `schedule`. Porównanie z oboma typami, jak przy `force_rebuild`.
+  WINDOW_SLOT: ${{ github.event_name == 'workflow_dispatch' && (inputs.window_slot == true || inputs.window_slot == 'true') }}
 
 jobs:
   # DEP-01: osobny job, żeby odroczony deploy nie wchodził w żaden krok
@@ -232,7 +248,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TARGET_UNVERIFIED: ${{ github.event_name == 'workflow_dispatch' && '--target-unverified' || '' }}
-          SCHEDULED: ${{ github.event_name == 'schedule' && '--scheduled' || '' }}
+          SCHEDULED: ${{ (github.event_name == 'schedule' || env.WINDOW_SLOT == 'true') && '--scheduled' || '' }}
           # Okno wdrożeń 19:00–07:00 (14.10.2026): `7-19` = cisza 07:00–18:59
           # czasu warszawskiego, dla KAŻDEGO zdarzenia, także ręcznego biegu.
           # Zmienna repo nadpisuje wartość (`off` = brak okna).
@@ -285,7 +301,7 @@ jobs:
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: bash .github/scripts/alert_issue.sh resolve "$HOLD_ALERT_MARKER" "HEAD maina ma zieloną bramkę CI Gate — deploy znów rusza."
       - name: Alarm — wybór wydania padł
-        if: ${{ failure() && github.event_name != 'workflow_dispatch' }}
+        if: ${{ failure() && (github.event_name != 'workflow_dispatch' || env.WINDOW_SLOT == 'true') }}
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
@@ -370,7 +386,8 @@ jobs:
         id: precheck
         # Ręczny workflow_dispatch NIGDY nie skipuje — to ścieżka świadomego
         # redeployu (np. po zmianie env varów), gdzie rebuild jest celem.
-        if: ${{ github.event_name != 'workflow_dispatch' }}
+        # Wyjątek: bieg z budzika okna wdrożeń, który jest planowy jak `schedule`.
+        if: ${{ github.event_name != 'workflow_dispatch' || env.WINDOW_SLOT == 'true' }}
         env:
           APP_URL: ${{ vars.APP_URL }}
         run: |
@@ -917,7 +934,7 @@ jobs:
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: bash .github/scripts/alert_issue.sh resolve "$RED_ALERT_MARKER" "Deploy przeszedł smoke, deep health i kontrolę migracji."
       - name: Alarm — czerwony deploy
-        if: ${{ failure() && github.event_name != 'workflow_dispatch' }}
+        if: ${{ failure() && (github.event_name != 'workflow_dispatch' || env.WINDOW_SLOT == 'true') }}
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}

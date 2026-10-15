@@ -466,6 +466,17 @@ class DetachedCopySettings:
     requires_consent: bool = False
 
 
+def copy_filename(rule, title: Optional[str], name: str, project: Optional[str]) -> str:
+    """Nazwa pliku kopii: wzór klienta, a bez niego nazwa ogólna generatora."""
+    from app.services.cv_generator_b2b.client_rules import build_filename
+    from app.services.cv_generator_b2b.standalone_service import (
+        _build_download_filename,
+    )
+
+    named = build_filename(rule, position=title, candidate_name=name, project=project)
+    return named.filename if named else _build_download_filename(title, name)
+
+
 async def detached_copy_settings(
     db: AsyncSession, csv: CandidateStageCV, *, masked_name: Optional[str] = None
 ) -> DetachedCopySettings:
@@ -487,14 +498,11 @@ async def detached_copy_settings(
     from app.models.job import Job
     from app.services.cv_generator_b2b import central_policies
     from app.services.cv_generator_b2b.client_rules import (
-        build_filename,
         resolve_client_rule,
         snapshot_rule,
     )
-    from app.services.cv_generator_b2b.standalone_service import (
-        _build_download_filename,
-    )
     from app.services.cv_packages import pko_job_reference
+    from app.services.job_working_title import cv_role_title_for_job
 
     job = await db.get(Job, csv.job_id)
     candidate = await db.get(Candidate, csv.candidate_id)
@@ -510,17 +518,16 @@ async def detached_copy_settings(
             central_policies.enabled()
             and central_policies.policy_for(client_id)["requires_rodo_consent_block"]
         )
-    title = job.title if job is not None else None
+    # Nazwa roli jak w generatorze (D2): surowy tytuł niesie numer zapytania,
+    # który wzór PKO dokłada drugi raz, i trafiał do nagłówka kopii.
+    title = await cv_role_title_for_job(db, job) if job is not None else None
     name = masked_name or (
         " ".join(part for part in (candidate.name, candidate.lastname) if part)
         if candidate is not None
         else ""
     )
-    named = build_filename(
-        rule, position=title, candidate_name=name, project=pko_job_reference(job)
-    )
     return DetachedCopySettings(
-        filename=named.filename if named else _build_download_filename(title, name),
+        filename=copy_filename(rule, title, name, pko_job_reference(job)),
         client_id=client_id,
         job_title=(title or "").strip() or None,
         # Sam wymóg, bez wyłącznika blokady: ten czyta się przy pobraniu.

@@ -71,7 +71,12 @@ function clientNames(marker: EmploymentMarker): string | null {
   return names.length ? names.join(", ") : null;
 }
 
-/** Pigułka „Szuka aktywnie / Otwarty na oferty” znika przy żywej umowie (D3). */
+/**
+ * Pigułka „Szuka aktywnie / Otwarty na oferty” znika przy żywej umowie (D3).
+ * Ten sam warunek liczy serwer dla puli Targu, „Dostępnych kontraktorów”,
+ * dzwonków i AI (`services/contract_availability.availability_status_hidden`,
+ * S3, 15.10.2026).
+ */
 export function hidesAvailabilityStatus(marker: EmploymentMarker | null | undefined): boolean {
   return marker?.source === "contract";
 }
@@ -201,4 +206,45 @@ export function contractAvailabilityOrigin(a: ContractAvailability): {
       `Z kontraktu: dzień po końcu zamówienia${where} (${fmt(a.workEnd)}).` +
       profileLine("wcześniej niż koniec pracy u nas, nie liczy się"),
   };
+}
+
+/** S4 (15.10.2026): ręczny wpis statusu przy żywej umowie nie znika bez słowa. */
+const HIDDEN_STATUS_SENTENCE =
+  "Do końca współpracy profil pokazuje znacznik pracy, a status „Czy szuka pracy” jest ukryty.";
+
+/**
+ * Ramka w oknach edycji dostępności przy żywej umowie — „Dostępność kandydata”
+ * na profilu (D6) i „Edytuj dane” przy polu „Dyspozycyjność” (S4,
+ * 15.10.2026): do kiedy osoba pracuje u nas, że status jest ukryty, co zrobi
+ * wpisana data i kto ustala wcześniejsze odejście. Termin z umowy liczy się
+ * bez daty z profilu — stąd `null` jako data profilu.
+ */
+export function availabilityContractNote(
+  marker: EmploymentMarker | null | undefined,
+): string | null {
+  const contract = contractAvailability(marker, null);
+  if (!contract) return null;
+  const client = contract.clientName ? ` (${contract.clientName})` : "";
+  const lead = contract.deliveryLead
+    ? `Delivery Lead (${contract.deliveryLead})`
+    : "Delivery Lead";
+  if (contract.kind === "starting") {
+    return (
+      `${contractAvailabilityText(contract)}${client}. ${HIDDEN_STATUS_SENTENCE} ` +
+      `Termin dostępności ustala ${lead}.`
+    );
+  }
+  if (contract.kind === "no_end_date") {
+    return (
+      `Pracuje u nas bez daty końca zamówienia${client}. ${HIDDEN_STATUS_SENTENCE} ` +
+      `Termin ustala ${lead}; data wpisana tutaj liczy się dopiero, gdy koniec pracy ` +
+      "będzie znany."
+    );
+  }
+  return (
+    `Pracuje u nas do ${formatIsoDatePl(contract.workEnd)}${client}. ${HIDDEN_STATUS_SENTENCE} ` +
+    `Karta pokazuje „${contractAvailabilityText(contract)}”. Data wcześniejsza nic nie ` +
+    `zmieni — odejście przed końcem zamówienia ustala ${lead}. Data późniejsza, np. po ` +
+    "urlopie, zastąpi termin z kontraktu."
+  );
 }

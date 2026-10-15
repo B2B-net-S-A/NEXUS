@@ -15,6 +15,15 @@ Ten moduł niesie regułę tam, gdzie nie ma znacznika: ocena dopasowania,
 filtr „Dostępny do daty”, kolejki Delivery Leada i Cpro, podpowiedzi umów
 i prompty AI. Liczy tę samą datę końca pracy co znacznik (:func:`work_end_sql`)
 — jedno zapytanie na stronę, bez Delivery Leadów.
+
+Status „Czy szuka pracy” przy żywej umowie (S1–S5, decyzja Artura 15.10.2026):
+dopóki osoba ma żywą umowę (także przed startem), status z profilu nie jest
+pokazywany ani używany do wybierania ludzi — o tym, czy i od kiedy jest wolna,
+mówi znacznik. Status w bazie zostaje i wraca po końcu umowy. Warunek jest ten
+sam co ``hidesAvailabilityStatus`` na froncie (znacznik ze źródłem
+``contract``): :func:`availability_status_hidden` (Python)
+i :func:`without_live_contract_clause` (SQL). Automat notatek nie wpisuje
+statusu z notatki sprzed startu ostatniej umowy (:class:`ContractHistory`).
 """
 
 from __future__ import annotations
@@ -28,7 +37,7 @@ from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.scheduling import business_today
-from app.models.contract import Contract
+from app.models.contract import Contract, ContractStatus
 from app.schemas.candidate import (
     EmploymentFreeFromBasis,
     EmploymentMarker,
@@ -176,11 +185,95 @@ def contract_free_by_clause(
     return ~holds
 
 
+# ── Status „Czy szuka pracy” przy żywej umowie (15.10.2026, S1–S5) ──────────
+
+
+def availability_status_hidden(contract: Optional[ContractFree]) -> bool:
+    """Status z profilu nie liczy się przy żywej umowie — lustro frontu
+    ``hidesAvailabilityStatus``. ``contract`` z :func:`load_contract_free`
+    albo :data:`ATTRIBUTE`: wpis istnieje dokładnie dla osób z żywą umową,
+    także przed jej startem."""
+    return contract is not None
+
+
+def without_live_contract_clause(candidate_id: Any) -> Any:
+    """Lustro SQL :func:`availability_status_hidden`: osoba nie ma żywej
+    umowy (``active`` / ``ending``, z dowolną datą startu), więc jej status
+    z profilu się liczy."""
+    live = (
+        select(1)
+        .select_from(Contract)
+        .where(
+            Contract.candidate_id == candidate_id,
+            Contract.status.in_(LIVE_CONTRACT_STATUSES),
+        )
+        .exists()
+    )
+    return ~live
+
+
+#: Umowy, których start dzieli notatki na „sprzed umowy” i późniejsze: żywe
+#: (także przed startem) i zakończone. Szkic, umowa do podpisu i unieważniona
+#: nie są współpracą.
+_SIGNED_CONTRACT_STATUSES: tuple[ContractStatus, ...] = (
+    *LIVE_CONTRACT_STATUSES,
+    ContractStatus.ended,
+)
+
+
+@dataclass(frozen=True)
+class ContractHistory:
+    """Umowy osoby dla automatu notatek (S2): czy któraś trwa i kiedy
+    zaczęła się ostatnia."""
+
+    live: bool
+    latest_start: Optional[date]
+
+    def allows_status_from_note(self, note_day: Optional[date]) -> bool:
+        """Czy notatka z dnia ``note_day`` może wpisać „Czy szuka pracy”.
+
+        Przy żywej umowie nie: status i tak jest ukryty, a po końcu umowy
+        wróciłby jako fakt sprzed współpracy. Po umowie tylko notatka nowsza
+        niż start ostatniej umowy; bez dnia notatki tego nie wiadomo, więc też
+        nie. Umowa bez daty startu nie ogranicza.
+        """
+        if self.live:
+            return False
+        if self.latest_start is None:
+            return True
+        return note_day is not None and note_day > self.latest_start
+
+
+#: Osoba bez umów — automat notatek działa jak przed 15.10.2026.
+NO_CONTRACTS = ContractHistory(live=False, latest_start=None)
+
+
+async def load_contract_history(db: AsyncSession, candidate_id: int) -> ContractHistory:
+    """Jedno zapytanie: żywa umowa i najpóźniejszy start umowy osoby."""
+    row = (
+        await db.execute(
+            select(
+                func.bool_or(Contract.status.in_(LIVE_CONTRACT_STATUSES)),
+                func.max(Contract.start_date),
+            ).where(
+                Contract.candidate_id == candidate_id,
+                Contract.status.in_(_SIGNED_CONTRACT_STATUSES),
+            )
+        )
+    ).one()
+    return ContractHistory(live=bool(row[0]), latest_start=row[1])
+
+
 __all__ = [
     "ATTRIBUTE",
+    "NO_CONTRACTS",
     "ContractFree",
+    "ContractHistory",
     "attach_contract_free",
+    "availability_status_hidden",
     "contract_free_by_clause",
     "from_marker",
     "load_contract_free",
+    "load_contract_history",
+    "without_live_contract_clause",
 ]

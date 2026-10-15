@@ -2782,14 +2782,9 @@ async def load_candidate_generation_source(
     # nazwy, numerów zapytania, kodów i lokalizacji — bez tłumaczenia.
     header_title = ""
     if job is not None and job_title:
-        from app.services.job_public_profile import _client_names
-        from app.services.job_working_title import cv_role_title
+        from app.services.job_working_title import cv_role_title_for_job
 
-        header_title = cv_role_title(
-            job_title,
-            getattr(job, "client_reference", None),
-            await _client_names(db, job.client_id),
-        )
+        header_title = await cv_role_title_for_job(db, job)
     return CandidateGenerationSource(
         cv_bytes=bytes(cv_bytes),
         cv_filename=cv_doc.filename or "cv.pdf",

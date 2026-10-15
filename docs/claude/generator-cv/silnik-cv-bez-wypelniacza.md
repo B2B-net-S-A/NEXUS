@@ -62,7 +62,12 @@ Dotyczy ścieżki produkcyjnej `legacy_v7` (domyślnej). Kod v10 bez zmian.
   Gdy rekruter zostawi w polu „Stanowisko” tytuł rekrutacji, nagłówek bierze
   `cv_role_title`, nie surowy tytuł.
   Wołają ją `standalone_service.load_candidate_generation_source` (z nazwami
-  klienta) i `legacy_v7.pipeline` (wzorce bez bazy, dla uploadu). Przy
+  klienta) i `legacy_v7.pipeline` (wzorce bez bazy, dla uploadu). Rekrutacja
+  z bazy idzie zawsze przez `cv_role_title_for_job(db, job)` — to samo
+  wejście ma kopia CV etapu (`detached_copy_settings`: nazwa pliku i nagłówek
+  kopii z innej rekrutacji). Do 15.10.2026 kopia brała surowy `jobs.title`
+  i u PKO nazwa pliku miała numer dwa razy („ZOB-2949_… (ZOB-2949)_….docx”).
+  Przy
   polityce centralnej nagłówek i nazwa pliku to: stanowisko wpisane przez
   rekrutera → `cv_role_title(job)` → dopiero potem wynik modelu.
   `presentation_title.instructions` każe modelowi przepisać rolę bez zmian.

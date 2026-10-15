@@ -34,6 +34,7 @@ from app.models.ai_feature import AIFeatureKey
 from app.models.candidate import Candidate
 from app.services.ai_quota import AIQuotaExceeded, ai_feature
 from app.services.candidate_notes_facts import NOTES_CHANGED_AT_KEY, clear_notes_facts
+from app.services.contract_availability import load_contract_history
 from app.services.notes_insights_extractor import (
     MIN_BLOB_CHARS,
     PROMPT_VERSION,
@@ -376,6 +377,9 @@ async def run_notes_insights_sync() -> dict[str, Any]:
                     fingerprint=fingerprint,
                     as_of=days.availability,
                     latest_note_day=days.latest,
+                    # „Od zaraz” ze screeningu sprzed umowy nie daje
+                    # „Szuka aktywnie” (S2, 15.10.2026).
+                    contracts=await load_contract_history(db, cid),
                 )
                 # Języki z notatek tylko dopisują brakujące (07.10.2026) —
                 # w savepoincie: błąd zapisu języków nie cofa faktów kandydata

@@ -307,6 +307,23 @@ def cv_role_title(
     return text or base
 
 
+async def cv_role_title_for_job(db: AsyncSession, job: Any) -> str:
+    """:func:`cv_role_title` rekrutacji z bazy — z nazwami i aliasami klienta.
+
+    Jedno wejście dla generatora i kopii CV etapu (plik Word, CV z profilu,
+    CV z innej rekrutacji). Do 15.10.2026 kopia brała surowy ``jobs.title``
+    i u PKO nazwa pliku miała numer zapytania dwa razy
+    („ZOB-2949_… (ZOB-2949)_….docx”), a nagłówek kopii — numer zapytania.
+    """
+    from app.services.job_public_profile import _client_names
+
+    return cv_role_title(
+        job.title,
+        getattr(job, "client_reference", None),
+        await _client_names(db, job.client_id),
+    )
+
+
 def _is_role(text: str) -> bool:
     words = text.split()
     return len(words) >= 2 or (len(words) == 1 and len(words[0]) >= 4)

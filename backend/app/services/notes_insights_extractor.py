@@ -26,7 +26,7 @@ import logging
 import re
 from datetime import date, datetime, timezone
 from decimal import Decimal
-from typing import Any, Optional, Sequence
+from typing import TYPE_CHECKING, Any, Optional, Sequence
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -40,6 +40,9 @@ from app.models.ai_feature import AIFeatureKey
 from app.services import note_kinds
 from app.services.recommendation_card_parser import AI_HIDDEN_FIELDS, redact_card_text
 from app.services.ai_models import fallbacks_for, model_for
+
+if TYPE_CHECKING:
+    from app.services.contract_availability import ContractHistory
 
 logger = logging.getLogger(__name__)
 
@@ -442,6 +445,7 @@ def apply_insights(
     now_iso: Optional[str] = None,
     as_of: Optional[date] = None,
     latest_note_day: Optional[date] = None,
+    contracts: Optional["ContractHistory"] = None,
 ) -> dict[str, Any]:
     """Zastosuj wynik ekstrakcji do kandydata (mutuje obiekt ORM, bez commitu).
 
@@ -449,7 +453,9 @@ def apply_insights(
     (``notes_days(rows).availability``): od niego liczymy „od zaraz” i okres
     wypowiedzenia, nie od dziś. ``latest_note_day`` — dzień najnowszej
     notatki wejścia (``notes_days(rows).latest``), odniesienie dla pełnej daty
-    i miesiąca, gdy notatki o dostępności nie ma.
+    i miesiąca, gdy notatki o dostępności nie ma. ``contracts`` — umowy
+    osoby (``load_contract_history``): status z „od zaraz” nie powstaje
+    przy żywej umowie ani z notatki sprzed startu ostatniej umowy (S2).
 
     Zwraca statystyki zmian; ``changed`` > 0 oznacza, że wołający powinien
     zbudować reindeks + unieważnić cache score'ów tego kandydata.
@@ -573,6 +579,7 @@ def apply_insights(
         prior=prior,
         as_of=as_of,
         latest_note_day=latest_note_day,
+        contracts=contracts,
         # Notatka o dostępności zniknęła albo zmieniła treść — data, którą
         # sami wpisaliśmy, nie może zostać jako fakt bez źródła (07.10.2026).
         release_stale_availability=True,

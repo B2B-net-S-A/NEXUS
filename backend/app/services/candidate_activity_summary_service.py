@@ -49,6 +49,11 @@ from app.models.user import User
 from app.services.ai_quota import ai_feature
 from app.services.candidate_identity_quarantine import source_is_eligible_clause
 from app.services.client_identity import client_display_name_expression
+from app.services.contract_availability import (
+    ATTRIBUTE as CONTRACT_FREE_ATTRIBUTE,
+    ContractFree,
+    attach_contract_free,
+)
 from app.services.llm_prompts import CANDIDATE_ACTIVITY_SUMMARY
 from app.services.ai_models import fallbacks_for, model_for
 
@@ -592,7 +597,10 @@ async def _visible_candidate_job_ids(
     return tuple(sorted(int(job_id) for job_id in rows.scalars() if job_id is not None))
 
 
-def _profile_section(candidate: Candidate) -> SourceSection:
+def _profile_section(
+    candidate: Candidate, contract: Optional[ContractFree] = None
+) -> SourceSection:
+    """``contract`` — termin z żywej umowy (``contract_availability``)."""
     lines: list[str] = []
     stats = _RedactionStats()
 
@@ -612,10 +620,18 @@ def _profile_section(candidate: Candidate) -> SourceSection:
         lines.append(f"Umiejętności: {skills}")
 
     availability = _enum_val(candidate.availability_status)
-    if availability and availability != "unknown":
-        lines.append(f"Status dostępności: {availability}")
-    if candidate.availability_date:
-        lines.append(f"Dostępny od: {_fmt_date(candidate.availability_date)}")
+    if contract is not None:
+        # Żywa umowa (15.10.2026, S3): status i data z profilu bywają
+        # screeningiem sprzed zatrudnienia — model dostaje termin z umowy,
+        # jak w uzasadnieniu dopasowania.
+        described = contract.describe(candidate.availability_date)
+        if described:
+            lines.append(f"Dostępność: {described}")
+    else:
+        if availability and availability != "unknown":
+            lines.append(f"Status dostępności: {availability}")
+        if candidate.availability_date:
+            lines.append(f"Dostępny od: {_fmt_date(candidate.availability_date)}")
     if candidate.notice_period:
         unit = _enum_val(candidate.notice_period_unit) or "dni"
         lines.append(f"Okres wypowiedzenia: {candidate.notice_period} {unit}")
@@ -975,8 +991,9 @@ async def build_context(
     db: AsyncSession, candidate: Candidate, user: User
 ) -> SummaryContext:
     visible_job_ids = await _visible_candidate_job_ids(db, candidate.id, user)
+    await attach_contract_free(db, [candidate])
     source_sections = [
-        _profile_section(candidate),
+        _profile_section(candidate, getattr(candidate, CONTRACT_FREE_ATTRIBUTE, None)),
         await _submissions_section(db, candidate.id, visible_job_ids),
         await _feedback_section(db, candidate.id, visible_job_ids),
         await _screening_section(db, candidate.id, visible_job_ids),

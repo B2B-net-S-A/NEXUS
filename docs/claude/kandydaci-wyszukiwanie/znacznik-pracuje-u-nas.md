@@ -229,6 +229,53 @@ https://claude.ai/artifact/1oJ9qiLdPFKTsEXTwdLpSN.
   ustala wcześniejsze odejście (Delivery Lead ze znacznika), że późniejsza
   data zastąpi termin z kontraktu. Ołówek zostaje.
 
+### Status „Czy szuka pracy” przy żywej umowie (S1–S5, 15.10.2026)
+
+Zgłoszenie rekrutera: konsultant z umową z Nordeą i zamówieniem do 31.01.2027
+miał przy nazwisku „Szuka aktywnie” obok „Pracuje u nas”. Status wpisał
+10.10.2026 automat notatek z „ASAP” w screeningu z 15.07.2026, sprzed umowy.
+Pomiar 15.10: 132 z 483 osób z żywą umową miało „Szuka aktywnie”, 115 z nich
+z automatu notatek, wszystkie 132 siedziały w puli Targu. Makiety i decyzje:
+https://claude.ai/artifact/LZLL3SdRAyaK3j7GbF2DMb (Artur: „wdróż”, S5 = A).
+
+- **Reguła:** dopóki osoba ma żywą umowę (`active`/`ending`, także przed
+  startem — „Zaczyna u nas”), status z profilu nie jest pokazywany ani
+  używany do wybierania ludzi. O tym, czy i od kiedy jest wolna, mówi
+  znacznik. Sam konflikt „Obecne zatrudnienie” i etap „Zatrudniony” statusu
+  nie chowają — ten sam warunek co pigułka (`hidesAvailabilityStatus`,
+  znacznik ze źródłem `contract`).
+- **Jedna funkcja i lustro:** `contract_availability.availability_status_hidden`
+  (Python, wynik `load_contract_free` / `ATTRIBUTE`) i
+  `without_live_contract_clause` (SQL). Zgodność z pigułką pilnuje
+  `test_contract_availability_db.py`. Nowe miejsce, które wybiera ludzi po
+  statusie, bierze jedną z nich, nie własne `availability_status IN (...)`.
+- **Gdzie działa:** pula Targu (`auto_sync_marketplace_membership` nie dodaje,
+  a wpis automatyczny osoby z żywą umową schodzi w tym samym biegu; ręczny
+  wrzut zostaje), źródło B „Dostępnych kontraktorów” (`seeking_contractors`:
+  osoba z żywą umową wchodzi przez status tylko, gdy wg znacznika kończy
+  pracę w horyzoncie — `contract_free_by_clause`; źródło A widzi wyłącznie
+  `contracts.end_date`, którego umowa B2B przed ręcznym zakończeniem nie ma,
+  więc bez tego wyjątku kończący zamówienie wypadliby z ekranu), licznik „N oznaczonych jako dostępni”
+  w dzwonku podobnych requestów, plakietka „dostępny” w „Kandydatach
+  z podobnych projektów” (przy żywej umowie „nie wiadomo”), wejście modelu
+  podsumowania aktywności (termin z umowy zamiast statusu i daty, jak
+  uzasadnienie dopasowania). Filtr listy „Czy można go teraz zaproponować?”
+  pomijał pracujących już wcześniej. API v1 oddaje surowy status (to dane).
+- **Automat notatek (S2):** „od zaraz” zamienia „Nie wiemy” na „Szuka
+  aktywnie” tylko u osoby bez żywej umowy i z notatki o dostępności nowszej
+  niż start jej ostatniej umowy (żywej, przyszłej albo zakończonej; szkic,
+  umowa do podpisu i unieważniona się nie liczą). Bez dnia notatki — nie.
+  `ContractHistory.allows_status_from_note`, historia z `load_contract_history`
+  (jedno zapytanie na osobę w pętli `notes_insights_sync`). Data dostępności
+  i okres wypowiedzenia z notatek idą jak dotąd — ekrany liczą termin z umowy.
+- **Statusów w bazie nie przepisujemy (S5 = A).** Wrócą po końcu umowy;
+  jednorazowa korekta „Szuka aktywnie” z notatki sprzed umowy (ok. 115 osób)
+  to osobna decyzja, gdyby stary status po końcu umów przeszkadzał.
+- **Okna edycji (S4):** ramka `availabilityContractNote`
+  (`lib/contract-availability.ts`) mówi, że status jest ukryty do końca
+  współpracy — w „Dostępności kandydata” na profilu i przy „Dyspozycyjności”
+  w „Edytuj dane” (`EditCandidateModal`). Pole zostaje edytowalne.
+
 ### Stawka (D4, D5)
 
 - **„Stawka od” = stawka konsultanta z bieżącej umowy**, dopóki umowa trwa
