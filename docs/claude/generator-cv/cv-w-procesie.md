@@ -117,6 +117,7 @@ https://claude.ai/artifact/J6p2cjG5opYDpkh2P6iMaE, raport
 `docs/company-cv-download-completion-report.md`.
 
 - **Jedno CV firmowe pary, jeden plik.** „Pobierz” w sekcji „CV” panelu osoby,
+  nad dużym podglądem po „Rozwiń” (15.10.2026, `nowe-cv-w-rekrutacji.md`),
   w karcie „CV do klienta” i w profilu daje ten sam plik: CV etapu z
   poprawkami z edytora i po QC (`fetchStageCvFile` / `fetchStageCvPdf` z
   `lib/stage-cv-file.ts` — szkic z bieżącej treści albo zatwierdzona wersja).

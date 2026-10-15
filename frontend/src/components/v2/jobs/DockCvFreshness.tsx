@@ -51,6 +51,7 @@ export function DockCvFreshness({
   candidate,
   uploadedAt,
   onShowProfileCv,
+  canRefresh = true,
 }: {
   stageId: number;
   original: DockOriginalCv;
@@ -58,6 +59,12 @@ export function DockCvFreshness({
   candidate: DockCvCandidate | null;
   uploadedAt: number | null;
   onShowProfileCv: (documentId: number) => void;
+  /**
+   * „Użyj w tej rekrutacji” podmienia kopię etapu — tylko z prawem wgrania CV.
+   * Podgląd CV po „Rozwiń” pokazuje ramkę każdemu (15.10.2026, D4): osoba bez
+   * tego prawa widzi, że pobiera starsze CV, i może otworzyć nowsze.
+   */
+  canRefresh?: boolean;
 }) {
   const queryClient = useQueryClient();
   const { showSuccess, showError } = useToast();
@@ -90,9 +97,11 @@ export function DockCvFreshness({
             {formatDate(newer.uploaded_at ?? newer.created_at)}
           </p>
           <div className="flex flex-wrap gap-1.5">
-            <Button size="sm" variant="outline" loading={refresh.isPending} onClick={() => refresh.mutate()}>
-              <RefreshCcw className="h-3.5 w-3.5" aria-hidden /> Użyj w tej rekrutacji
-            </Button>
+            {canRefresh ? (
+              <Button size="sm" variant="outline" loading={refresh.isPending} onClick={() => refresh.mutate()}>
+                <RefreshCcw className="h-3.5 w-3.5" aria-hidden /> Użyj w tej rekrutacji
+              </Button>
+            ) : null}
             <Button size="sm" variant="ghost" onClick={() => onShowProfileCv(newer.id)}>
               Pokaż
             </Button>

@@ -9,6 +9,7 @@ import {
   originalCvSentence,
   pairCompanyCv,
   primaryProfileCv,
+  withoutQuarantinedCv,
 } from "@/lib/dock-cv-summary";
 import { summarizeRequirements, type MoveRequirementItem } from "@/lib/api/moveRequirements";
 import { nextStageHeading } from "@/components/v2/jobs/DockNextStage";
@@ -261,5 +262,24 @@ describe("nowe CV w rekrutacji (13.10.2026)", () => {
       }),
     ).toBe(false);
     expect(companyCvStale({ brandedStatus: "draft", original: uploaded, draftSince: null })).toBe(false);
+  });
+});
+
+describe("withoutQuarantinedCv", () => {
+  const marker = (id: number) => ({ _identity_quarantine_source: { kind: "document", id } });
+
+  it("zdejmuje plik z kwarantanny tożsamości (CV innej osoby)", () => {
+    expect(withoutQuarantinedCv([doc(1), doc(9)], marker(9))?.map((d) => d.id)).toEqual([1]);
+  });
+
+  it("plik ponownie ustawiony jako główny zostaje", () => {
+    expect(withoutQuarantinedCv([doc(9, { is_primary: true })], marker(9))?.map((d) => d.id)).toEqual([9]);
+  });
+
+  it("bez znacznika albo z innym rodzajem źródła lista bez zmian", () => {
+    const docs = [doc(1), doc(9)];
+    expect(withoutQuarantinedCv(docs, null)).toBe(docs);
+    expect(withoutQuarantinedCv(docs, { _identity_quarantine_source: { kind: "legacy_cv", id: 9 } })).toBe(docs);
+    expect(withoutQuarantinedCv(undefined, marker(9))).toBeUndefined();
   });
 });

@@ -183,6 +183,27 @@ export function stageCopySource<T extends DockProfileCvDoc>(docs: readonly T[]):
 }
 
 /**
+ * Pliki CV z profilu bez pliku z kwarantanny tożsamości (CV innej osoby —
+ * znacznik `_identity_quarantine_source` w `cv_extracted_data`). Audyt
+ * 13.10.2026, pkt 8: kopia etapu jest po kwarantannie pusta, a dok sięgał
+ * wtedy po najnowszy plik z profilu, czyli właśnie cudze CV. Plik, który ktoś
+ * po zwolnieniu znów ustawił jako główne, zostaje. Znacznik wskazuje ostatni
+ * plik z kwarantanny. Dok i podgląd CV po „Rozwiń” stosują tę samą regułę.
+ */
+export function withoutQuarantinedCv<T extends { id: number; is_primary: boolean }>(
+  docs: readonly T[] | undefined,
+  extracted: unknown,
+): readonly T[] | undefined {
+  const marker =
+    extracted && typeof extracted === "object"
+      ? (extracted as { _identity_quarantine_source?: { kind?: unknown; id?: unknown } })
+          ._identity_quarantine_source
+      : undefined;
+  if (!docs || marker?.kind !== "document" || typeof marker.id !== "number") return docs;
+  return docs.filter((doc) => doc.id !== marker.id || doc.is_primary);
+}
+
+/**
  * CV z profilu nowsze niż kopia CV tej rekrutacji (D4, 13.10.2026): CV wpadło
  * mailem albo ktoś wgrał je w profilu lub w innej rekrutacji osoby. Liczy się
  * plik, który „Użyj w tej rekrutacji” naprawdę skopiuje (`stageCopySource`).

@@ -4,7 +4,7 @@
  * w technologię szuka jej w CV (CV firmowe → oryginał, bo tam jest szukanie).
  */
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useEffect, useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -19,15 +19,25 @@ const mocks = vi.hoisted(() => ({
   sources: vi.fn(),
   previewMounted: vi.fn(),
   upload: vi.fn(),
+  refresh: vi.fn(),
+  candidateGet: vi.fn(),
+  downloadOriginal: vi.fn(),
+  downloadDocument: vi.fn(),
+  downloadBlob: vi.fn(),
+  stageCvFile: vi.fn(),
+  stageCvPdf: vi.fn(),
+  showError: vi.fn(),
 }));
 
 vi.mock("@/lib/api", () => ({
   __esModule: true,
   default: { get: (...a: unknown[]) => mocks.get(...a) },
+  candidatesApi: { get: (...a: unknown[]) => mocks.candidateGet(...a) },
   candidateStageCvApi: {
     original: {
       get: (...a: unknown[]) => mocks.original(...a),
       upload: (...a: unknown[]) => mocks.upload(...a),
+      refresh: (...a: unknown[]) => mocks.refresh(...a),
     },
     branded: {
       get: (...a: unknown[]) => mocks.branded(...a),
@@ -40,7 +50,18 @@ vi.mock("@/lib/api", () => ({
 }));
 
 vi.mock("@/components/Toast", () => ({
-  useToast: () => ({ showError: vi.fn(), showSuccess: vi.fn() }),
+  useToast: () => ({ showError: mocks.showError, showSuccess: vi.fn() }),
+}));
+
+vi.mock("@/lib/authenticated-files", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/authenticated-files")>()),
+  downloadAuthenticatedFile: (...a: unknown[]) => mocks.downloadOriginal(...a),
+  downloadBlob: (...a: unknown[]) => mocks.downloadBlob(...a),
+}));
+
+vi.mock("@/lib/stage-cv-file", () => ({
+  fetchStageCvFile: (...a: unknown[]) => mocks.stageCvFile(...a),
+  fetchStageCvPdf: (...a: unknown[]) => mocks.stageCvPdf(...a),
 }));
 
 vi.mock("@/components/v2/modals/CVBrandedEditModal", () => ({
@@ -70,13 +91,21 @@ vi.mock("@/components/v2/files/FilePreviewModal", () => ({
       </div>
     );
   },
-  downloadDocumentBlob: vi.fn(),
+  downloadDocumentBlob: (...a: unknown[]) => mocks.downloadDocument(...a),
   fetchDocumentBlob: vi.fn(),
 }));
 
 vi.mock("@/components/v2/person/StageCvPreview", () => ({
-  StageCvPreview: ({ cvStageId, revision }: { cvStageId: number; revision?: number }) => (
-    <div data-testid="stage-cv-preview" data-revision={revision}>
+  StageCvPreview: ({
+    cvStageId,
+    revision,
+    hideDownload,
+  }: {
+    cvStageId: number;
+    revision?: number;
+    hideDownload?: boolean;
+  }) => (
+    <div data-testid="stage-cv-preview" data-revision={revision} data-hide-download={String(hideDownload === true)}>
       CV firmowe etapu {cvStageId}
     </div>
   ),
@@ -132,9 +161,10 @@ import {
   PersonPanelSideSection,
   PersonPanelSideZone,
 } from "@/components/v2/person/PersonPanelSide";
+import { candidateQueryKeys } from "@/components/v2/pages/candidate-query-keys";
 import { useAuthStore } from "@/store/auth";
 
-import { CandidatePreviewPane, type PreviewTab } from "../CandidatePreviewPane";
+import { CandidatePreviewPane, type CandidatePreviewPaneProps, type PreviewTab } from "../CandidatePreviewPane";
 
 const PROFILE_DOCS = [
   {
@@ -1056,5 +1086,235 @@ describe("CandidatePreviewPane — Wgraj CV", () => {
     expect(await screen.findByText("Kandydat nie ma CV ani w zgłoszeniu, ani w profilu.")).toBeInTheDocument();
     expect(screen.getByLabelText(/^Wgraj CV/)).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: /Dodaj CV w profilu kandydata/ })).toBeNull();
+  });
+});
+
+/**
+ * „Pobierz CV” w pasku źródeł (15.10.2026, D1–D5): pobiera to, co widać —
+ * oryginał, zaznaczony plik albo CV firmowe (Word / PDF, ten sam plik co dok).
+ */
+describe("CandidatePreviewPane — Pobierz CV (D1–D5)", () => {
+  const UPLOAD = { candidateName: "Tomasz Wzorcowy", jobTitle: "Senior Java Developer" };
+
+  function mountPane(props: Partial<CandidatePreviewPaneProps> = {}, seed?: (client: QueryClient) => void) {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    seed?.(queryClient);
+    render(
+      <QueryClientProvider client={queryClient}>
+        <CandidatePreviewPane candidateId={101} jobId={201} stageId={901} {...props} />
+      </QueryClientProvider>,
+    );
+  }
+
+  beforeEach(() => {
+    for (const fn of [
+      mocks.downloadOriginal,
+      mocks.downloadDocument,
+      mocks.downloadBlob,
+      mocks.stageCvFile,
+      mocks.stageCvPdf,
+      mocks.showError,
+      mocks.refresh,
+      mocks.candidateGet,
+    ]) {
+      fn.mockReset();
+    }
+    mocks.downloadOriginal.mockResolvedValue(undefined);
+    mocks.downloadDocument.mockResolvedValue(undefined);
+    mocks.stageCvFile.mockResolvedValue({ blob: new Blob(["docx"]), filename: "CV_firmowe.docx" });
+    mocks.stageCvPdf.mockResolvedValue({ blob: new Blob(["pdf"]), filename: "CV_firmowe.pdf" });
+  });
+
+  it("kopia ze zgłoszenia: pobiera plik etapu, bez wpisu pobrania (D2, D5)", async () => {
+    const user = userEvent.setup();
+    mountPane();
+    await screen.findByTestId("file-preview");
+    await user.click(screen.getByRole("button", { name: "Pobierz CV" }));
+    expect(mocks.downloadOriginal).toHaveBeenCalledWith(
+      "/api/candidates/stages/901/cv/original/download",
+      "CV_ze_zgloszenia.pdf",
+    );
+    expect(mocks.downloadDocument).not.toHaveBeenCalled();
+  });
+
+  it("bez kopii ze zgłoszenia pobiera główne CV z profilu", async () => {
+    mocks.original.mockResolvedValue({ data: { has_snapshot: false } });
+    const user = userEvent.setup();
+    mountPane();
+    expect(await screen.findByTestId("file-preview")).toHaveTextContent("Tomasz_Wzorcowy_CV.pdf");
+    await user.click(screen.getByRole("button", { name: "Pobierz CV" }));
+    expect(mocks.downloadDocument).toHaveBeenCalledWith(101, expect.objectContaining({ id: 1 }));
+  });
+
+  it("„Inne pliki”: pobiera zaznaczony plik", async () => {
+    const user = userEvent.setup();
+    mountPane();
+    await screen.findByTestId("file-preview");
+    await user.click(screen.getByRole("button", { name: "Inne pliki (2)" }));
+    const list = screen.getByRole("list", { name: "Pliki CV kandydata" });
+    await user.click(within(list).getByRole("button", { name: /Tomasz_CV_EN\.docx/ }));
+    await user.click(screen.getByRole("button", { name: "Pobierz CV" }));
+    expect(mocks.downloadDocument).toHaveBeenCalledWith(101, expect.objectContaining({ id: 2 }));
+  });
+
+  it("stoi przed „Wgraj CV”, a bez prawa wgrania też jest (D1)", async () => {
+    mountPane({ cvUpload: UPLOAD });
+    await screen.findByTestId("file-preview");
+    const download = screen.getByRole("button", { name: "Pobierz CV" });
+    const upload = screen.getByRole("button", { name: /Wgraj CV/ });
+    expect(download.compareDocumentPosition(upload) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    cleanup();
+
+    mountPane();
+    await screen.findByTestId("file-preview");
+    expect(screen.getByRole("button", { name: "Pobierz CV" })).toBeEnabled();
+    expect(screen.queryByRole("button", { name: /Wgraj CV/ })).toBeNull();
+  });
+
+  it("dymek mówi, jaki to plik i skąd jest (D2)", async () => {
+    mountPane();
+    await screen.findByTestId("file-preview");
+    act(() => screen.getByRole("button", { name: "Pobierz CV" }).focus());
+    const tip = await screen.findByRole("tooltip");
+    expect(tip).toHaveTextContent("CV_ze_zgloszenia.pdf");
+    expect(tip).toHaveTextContent("dołączony do zgłoszenia");
+  });
+
+  it("CV firmowe: Word i PDF z CV etapu, bez drugiego „Pobierz” w treści (D3)", async () => {
+    const user = userEvent.setup();
+    mountPane();
+    await user.click(await screen.findByRole("button", { name: "CV firmowe" }));
+    expect(await screen.findByTestId("stage-cv-preview")).toHaveAttribute("data-hide-download", "true");
+    expect(screen.queryByRole("button", { name: "Pobierz CV" })).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: "Pobierz Word" }));
+    expect(mocks.stageCvFile).toHaveBeenCalledWith(901, { download: "preview" });
+    await waitFor(() => expect(mocks.downloadBlob).toHaveBeenCalledWith(expect.any(Blob), "CV_firmowe.docx"));
+
+    await user.click(screen.getByRole("button", { name: "Pobierz PDF" }));
+    expect(mocks.stageCvPdf).toHaveBeenCalledWith(901, { download: "preview" });
+    await waitFor(() => expect(mocks.downloadBlob).toHaveBeenCalledWith(expect.any(Blob), "CV_firmowe.pdf"));
+  });
+
+  it("CV firmowe pary z poprzedniego wiersza etapu pobiera się z wiersza, na którym leży", async () => {
+    mocks.branded.mockImplementation((stageId: number) =>
+      Promise.resolve({
+        data:
+          stageId === 901
+            ? { status: "none", edit_revision: 0, pair_source_stage_id: 880, pair_source_status: "draft" }
+            : { status: "draft", from_generator: true, edit_revision: 4 },
+      }),
+    );
+    const user = userEvent.setup();
+    mountPane();
+    await user.click(await screen.findByRole("button", { name: "CV firmowe" }));
+    await screen.findByTestId("stage-cv-preview");
+    await user.click(screen.getByRole("button", { name: "Pobierz Word" }));
+    expect(mocks.stageCvFile).toHaveBeenCalledWith(880, { download: "preview" });
+  });
+
+  it("CV firmowe bez zgody RODO: oba przyciski wyłączone", async () => {
+    mocks.branded.mockResolvedValue({ data: { status: "draft", from_generator: true, consent_missing: true } });
+    const user = userEvent.setup();
+    mountPane();
+    await user.click(await screen.findByRole("button", { name: "CV firmowe" }));
+    await screen.findByTestId("stage-cv-preview");
+    expect(screen.getByRole("button", { name: "Pobierz Word" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Pobierz PDF" })).toBeDisabled();
+  });
+
+  it("bez CV firmowego nie ma czego pobrać", async () => {
+    mocks.branded.mockResolvedValue({ data: { status: "none" } });
+    const user = userEvent.setup();
+    mountPane();
+    await user.click(await screen.findByRole("button", { name: "CV firmowe" }));
+    await screen.findByText(/CV firmowe jeszcze nie powstało/);
+    expect(screen.queryByTestId("preview-cv-download")).toBeNull();
+  });
+
+  it("bez CV w zgłoszeniu i w profilu przycisku nie ma", async () => {
+    mocks.original.mockResolvedValue({ data: { has_snapshot: false } });
+    mocks.get.mockResolvedValue({ data: [] });
+    mountPane();
+    await screen.findByText("Kandydat nie ma CV ani w zgłoszeniu, ani w profilu.");
+    expect(screen.queryByTestId("preview-cv-download")).toBeNull();
+  });
+
+  it("przy otwartej „Historii osoby” przycisku nie ma (D5)", async () => {
+    mocks.get.mockImplementation((url: string) =>
+      Promise.resolve({
+        data: String(url).startsWith("/api/notes")
+          ? { items: [{ id: 1, job_id: 201, content: "Umówiony telefon.", created_at: "2026-10-12T08:00:00Z", group: "talks" }] }
+          : PROFILE_DOCS,
+      }),
+    );
+    const user = userEvent.setup();
+    mountPane();
+    await screen.findByTestId("file-preview");
+    await user.click(await screen.findByRole("button", { name: /Historia osoby/ }));
+    expect(screen.queryByTestId("preview-cv-download")).toBeNull();
+    await user.click(screen.getByRole("button", { name: "CV oryginalne" }));
+    expect(screen.getByRole("button", { name: "Pobierz CV" })).toBeInTheDocument();
+  });
+
+  it("awaria pobrania mówi to wprost", async () => {
+    mocks.downloadOriginal.mockRejectedValue(new Error("500"));
+    const user = userEvent.setup();
+    mountPane();
+    await screen.findByTestId("file-preview");
+    await user.click(screen.getByRole("button", { name: "Pobierz CV" }));
+    await waitFor(() => expect(mocks.showError).toHaveBeenCalledWith("Nie udało się pobrać pliku."));
+  });
+
+  describe("nowsze CV w profilu (D4)", () => {
+    const NEWER = {
+      ...PROFILE_DOCS[0],
+      id: 5,
+      filename: "Tomasz_CV_2026.pdf",
+      uploaded_at: "2026-10-14T10:00:00Z",
+      created_at: "2026-10-14T10:00:00Z",
+    };
+    beforeEach(() => {
+      mocks.get.mockResolvedValue({ data: [NEWER, { ...PROFILE_DOCS[0], is_primary: false }, PROFILE_DOCS[1]] });
+    });
+
+    it("ramka nad oryginałem, „Pokaż” otwiera plik w „Innych plikach”; bez prawa wgrania bez podmiany", async () => {
+      const user = userEvent.setup();
+      mountPane();
+      await screen.findByTestId("file-preview");
+      expect(await screen.findByText("W profilu jest nowsze CV")).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /Użyj w tej rekrutacji/ })).toBeNull();
+
+      await user.click(screen.getByRole("button", { name: "Pokaż" }));
+      expect(screen.getByRole("button", { name: "Inne pliki (3)" })).toHaveAttribute("aria-pressed", "true");
+      expect(screen.getByTestId("file-preview")).toHaveTextContent("Tomasz_CV_2026.pdf");
+      expect(screen.queryByText("W profilu jest nowsze CV")).toBeNull();
+    });
+
+    it("z prawem wgrania „Użyj w tej rekrutacji” podmienia kopię etapu", async () => {
+      mocks.refresh.mockResolvedValue({
+        data: { has_snapshot: true, original_cv_filename: "Tomasz_CV_2026.pdf", original_snapshot_at: "2026-10-15T08:00:00Z" },
+      });
+      const user = userEvent.setup();
+      mountPane({ cvUpload: UPLOAD });
+      await user.click(await screen.findByRole("button", { name: /Użyj w tej rekrutacji/ }));
+      expect(mocks.refresh).toHaveBeenCalledWith(901);
+      await waitFor(() => expect(screen.getByTestId("file-preview")).toHaveTextContent("Tomasz_CV_2026.pdf"));
+      expect(screen.queryByText("W profilu jest nowsze CV")).toBeNull();
+    });
+  });
+
+  it("plik z kwarantanny tożsamości (CV innej osoby) nie jest oryginałem do pobrania — znacznik z pamięci zapytań", async () => {
+    mocks.original.mockResolvedValue({ data: { has_snapshot: false } });
+    mocks.get.mockResolvedValue({ data: [{ ...PROFILE_DOCS[0], id: 9, is_primary: false, filename: "Cudze_CV.pdf" }] });
+    mountPane({}, (client) =>
+      client.setQueryData(candidateQueryKeys.detail(101), {
+        id: 101,
+        cv_extracted_data: { _identity_quarantine_source: { kind: "document", id: 9 } },
+      }),
+    );
+    expect(await screen.findByText("Kandydat nie ma CV ani w zgłoszeniu, ani w profilu.")).toBeInTheDocument();
+    expect(screen.queryByTestId("preview-cv-download")).toBeNull();
+    expect(mocks.candidateGet).not.toHaveBeenCalled();
   });
 });
