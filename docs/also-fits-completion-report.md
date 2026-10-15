@@ -46,7 +46,8 @@ panelu) idzie osobno, po scaleniu tego.
 
 ## Świadomie poza zakresem
 
-- Zakładka „Szukaj ręcznie” — bez bloku (nie ma tam też „Cofnij”).
+- Zakładka „Szukaj ręcznie” — bez bloku (nie ma tam też „Cofnij”). Dopisane 15.10.2026: pasek „Dodani teraz”
+  z „Cofnij” i „Pasuje też do” (`ManualAddedStrip.tsx`).
 - „Screening razem” w okienku chipa — PR 2.
 - Quick-view bez `job_read_scope_clause` i limit 3 w „W innych rekrutacjach” — PR 2 poprawia limit.
 

@@ -101,10 +101,22 @@ Decyzje Artura D3–D4 z 14.10.2026 (makiety https://claude.ai/artifact/RTUD8nEm
   rekrutacji (`recommendationCardsApi.readNote` per rekrutacja); wyniki trafiają tylko w puste miejsca
   (`noteFillPatches`); „Cofnij wypełnienie” zdejmuje tylko to, co wpisała notatka (pole poprawione po wypełnieniu
   zostaje). Notatkę zakłada zapis pierwszej pary, kolejne wskazują ją `note_id` — serwer przyjmuje notatkę
-  z innej rekrutacji tej osoby z tej samej rozmowy (`_joint_note_from_other_pair`, ≤ 60 min). Pochodzenie pól „z
-  notatki” w trybie wspólnym nie jest zapisywane (pola idą jak wpisane ręcznie).
-- **Świadomie poza trybem wspólnym** (zostają w pojedynczym formularzu): „Użyj tej odpowiedzi” z wcześniejszych
-  rozmów, „Pomiń brakujące”, „Ułóż w zdanie”.
+  z innej rekrutacji tej osoby z tej samej rozmowy (`_joint_note_from_other_pair`, ≤ 60 min).
+- **Pochodzenie wartości (15.10.2026):** pole albo odpowiedź wpisana z notatki, zdaniem z haseł albo z podpowiedzi
+  Luny niesie pochodzenie (`JointOrigin`, klucz = ścieżka pola wspólnego) do zapisu KAŻDEJ pary (`card.origins`,
+  `origin`/`keywords` odpowiedzi) — jak w pojedynczym formularzu. Pochodzenie trzyma się wartości: poprawka ręczna
+  je zdejmuje (zdanie z haseł — dopiero wyczyszczenie). Pod polem „z notatki (AI) — zapisz formularz”, przy pytaniu
+  plakietka („z notatki”, „zdanie z haseł”, „z podpowiedzi Luny”).
+- **Narzędzia pojedynczego formularza w trybie wspólnym (15.10.2026, `joint-screening-tools.tsx`):**
+  - wcześniejsze odpowiedzi: `reassign-context` i Luna (`reassign-suggestions`) osobno dla każdej pary (płatne
+    wywołanie tylko przy wcześniejszych rozmowach i pytaniu bez zapisanej odpowiedzi); pod wspólnym pytaniem
+    podpowiedź z pierwszej rekrutacji, która ją ma; „Użyj tej odpowiedzi” / „Użyj wszystkich odpowiedzi (N)” /
+    „Pomiń”;
+  - „Pomiń brakujące” osobno w każdej rekrutacji, której serwer na to pozwala (`skip_reason`), z notatką
+    wewnętrzną TEJ rekrutacji — pomija tylko jej pytania bez odpowiedzi;
+  - „Ułóż w zdanie” przy odpowiedziach (kontekst pierwszej rekrutacji pytania) i polach opisowych oceny
+    (`CARD_PHRASABLE_FIELDS`, kontekst ich rekrutacji); język zdań: przełącznik albo język CV klienta rekrutacji;
+    błąd Luny stoi w formularzu (bez dymka), formularz działa ręcznie.
 - **Liczenie (D4):** każda para to osobny screening i osobna weryfikacja w KPI i lidze — bez zmian.
 - **„W innych rekrutacjach”** w „Co już wiemy” pyta quick-view z `exclude_job_id` i pokazuje sumę
   (`current_recruitments_total`) — do 14.10.2026 bieżąca rekrutacja zajmowała jedno z 3 miejsc i „…i N więcej” nigdy

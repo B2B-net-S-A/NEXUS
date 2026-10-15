@@ -15,12 +15,13 @@
  * Notatka z rozmowy: odczyt dla każdej rekrutacji osobno, tylko puste pola;
  * notatkę zakłada zapis kotwicy, kolejne pary wskazują ją `note_id`.
  *
- * Świadomie poza trybem wspólnym (zostają w pojedynczym formularzu):
- * „Użyj tej odpowiedzi” z wcześniejszych rozmów, „Pomiń brakujące”,
- * „Ułóż w zdanie”.
+ * Od 15.10.2026 także narzędzia pojedynczego formularza: wcześniejsze
+ * odpowiedzi z „Użyj tej odpowiedzi”, „Pomiń brakujące” per rekrutacja,
+ * „Ułóż w zdanie” (`joint-screening-tools.tsx`) i pochodzenie wartości
+ * (z notatki, zdanie z haseł, z podpowiedzi Luny) zapisywane w każdej parze.
  */
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useQueries, useQueryClient } from "@tanstack/react-query";
 import { FormProvider, useForm, type UseFormReturn } from "react-hook-form";
@@ -32,6 +33,18 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { FIT_OPTIONS } from "@/components/v2/screening/ScreeningForm";
 import { NoteFillBar, type NoteFillSummary } from "@/components/v2/screening-form/NoteFillBar";
+import {
+  EarlierAnswerHint,
+  EarlierAnswersBar,
+  SKIP_MISSING_LABEL,
+  useJointEarlierAnswers,
+  useJointPhrase,
+  type EarlierSuggestion,
+  type JointEarlierAnswers,
+  type JointPhrase,
+} from "@/components/v2/screening-form/joint-screening-tools";
+import { PhraseButton, PhraseLanguageToggle, PhraseProposal } from "@/components/v2/screening/PhraseSuggestion";
+import { answerOriginBadge, CARD_PHRASABLE_FIELDS } from "@/lib/recommendation-card";
 import { usePipelineMoveCore } from "@/hooks/usePipelineMoveCore";
 import { apiErrorMessage } from "@/lib/api-error";
 import { recommendationCardsApi, type NoteProposal } from "@/lib/api/recommendationCards";
@@ -56,9 +69,11 @@ import {
   jobKey,
   jointDefaults,
   noteFillPatches,
+  originHolds,
   projectPair,
   questionOf,
   type JointDirty,
+  type JointOrigin,
   type JointGroup,
   type JointPair,
   type JointValues,
@@ -70,6 +85,7 @@ import {
   editableCardKeys,
   formDefaultsFromState,
   formFieldLabel,
+  formQuestions,
   rateFromValues,
   type NoteImport,
 } from "@/lib/screening-form";
@@ -124,6 +140,37 @@ function pluralQuestions(n: number): string {
   const last = n % 10;
   const teen = n % 100 >= 12 && n % 100 <= 14;
   return `${n} ${last >= 2 && last <= 4 && !teen ? "pytania" : "pytań"}`;
+}
+
+/** Pochodzenie pola karty — ten sam podpis co pojedynczy formularz. */
+const ORIGIN_CAPTION: Record<string, string> = {
+  note_ai: "z notatki (AI)",
+  note_rule: "z notatki",
+  phrased: "zdanie z haseł",
+};
+
+interface JointTools {
+  origins: Readonly<Record<string, JointOrigin>>;
+  markOrigin: (path: string, origin: JointOrigin | null) => void;
+  earlier: JointEarlierAnswers;
+  handledHints: ReadonlySet<string>;
+  applyHint: (group: JointGroup, hint: EarlierSuggestion) => void;
+  skipHint: (group: JointGroup) => void;
+  /** `null` = „Ułóż w zdanie” wyłączone (funkcja karty z notatki). */
+  phrase: JointPhrase | null;
+}
+
+const JointToolsContext = createContext<JointTools | null>(null);
+
+function useJointTools(): JointTools {
+  const tools = useContext(JointToolsContext);
+  if (!tools) throw new Error("JointToolsContext — brak dostawcy");
+  return tools;
+}
+
+/** Podpis pochodzenia pola karty, gdy wartość dalej jest tą wpisaną z notatki / zdaniem. */
+function originCaption(origin: JointOrigin | undefined, value: string): string | null {
+  return originHolds(origin, value) ? `${ORIGIN_CAPTION[origin.origin] ?? "z notatki"} — zapisz formularz` : null;
 }
 
 export function JointScreeningForm(props: JointScreeningFormProps) {
@@ -205,6 +252,20 @@ function JointFormBody({
   const [noteSummary, setNoteSummary] = useState<NoteFillSummary | null>(null);
   // Co wpisała notatka — „Cofnij wypełnienie” zdejmuje tylko to.
   const noteFills = useRef<Array<{ path: string; before: unknown; filled: string }>>([]);
+  // Pochodzenie wartości z tej rozmowy — idzie do zapisu każdej pary.
+  const [origins, setOrigins] = useState<Record<string, JointOrigin>>({});
+  const markOrigin = useCallback((path: string, origin: JointOrigin | null) => {
+    setOrigins((prev) => {
+      if (!origin && !(path in prev)) return prev;
+      const next = { ...prev };
+      if (origin) next[path] = origin;
+      else delete next[path];
+      return next;
+    });
+  }, []);
+  const earlier = useJointEarlierAnswers(pairs, true);
+  const [handledHints, setHandledHints] = useState<ReadonlySet<string>>(() => new Set());
+  const phrase = useJointPhrase(candidateId, pairs);
 
   // Notatka z rozmowy: odczyt kotwicy przyszedł z paska, pozostałe rekrutacje
   // czytamy tym samym tekstem (każda ma własne pytania i wzór pól).
@@ -217,9 +278,10 @@ function JointFormBody({
     );
     let filled = 0;
     const apply = (pair: JointPair, read: NoteProposal) => {
-      for (const [path, value] of noteFillPatches(methods.getValues(), pair, groups, read)) {
+      for (const { path, value, origin } of noteFillPatches(methods.getValues(), pair, groups, read)) {
         noteFills.current.push({ path, before: methods.getValues(path as "answers"), filled: value });
         methods.setValue(path as "answers", value as never, { shouldDirty: true });
+        if (origin) markOrigin(path, origin);
         filled += 1;
       }
     };
@@ -233,11 +295,35 @@ function JointFormBody({
     for (const fill of [...noteFills.current].reverse()) {
       if (methods.getValues(fill.path as "answers") === (fill.filled as never)) {
         methods.setValue(fill.path as "answers", fill.before as never, { shouldDirty: true });
+        markOrigin(fill.path, null);
       }
     }
     noteFills.current = [];
     setNote(null);
     setNoteSummary(null);
+  };
+
+  // Wcześniejsza odpowiedź → wspólne pole pytania (wszystkie rekrutacje grupy).
+  const applyHint = (group: JointGroup, hint: EarlierSuggestion) => {
+    const path = `answers.${group.key}`;
+    methods.setValue(path as "answers", hint.suggestion.text as never, { shouldDirty: true });
+    markOrigin(path, { value: hint.suggestion.text, origin: "reassign_suggested" });
+    setHandledHints((prev) => new Set(prev).add(group.key));
+  };
+  const skipHint = (group: JointGroup) => setHandledHints((prev) => new Set(prev).add(group.key));
+  const openHints = groups.flatMap((group) => {
+    const hint = earlier.suggestionFor(group);
+    const empty = !(methods.getValues(`answers.${group.key}`) ?? "").trim();
+    return hint && empty && !handledHints.has(group.key) ? [{ group, hint }] : [];
+  });
+  const tools: JointTools = {
+    origins,
+    markOrigin,
+    earlier,
+    handledHints,
+    applyHint,
+    skipHint,
+    phrase: anchor.state.assist_enabled ? phrase : null,
   };
 
   const shared = groups.filter((g) => g.members.length > 1);
@@ -283,7 +369,7 @@ function JointFormBody({
       .sort((a, b) => Number(b.anchor) - Number(a.anchor))
       .map((pair) => {
         const fresh = { ...pair, state: latest(pair) };
-        return { pair: fresh, projected: projectPair(values, fresh, groups, dirty) };
+        return { pair: fresh, projected: projectPair(values, fresh, groups, dirty, origins) };
       });
     if (forward) {
       const missing = plans
@@ -347,6 +433,8 @@ function JointFormBody({
       setNote(null);
       setNoteSummary(null);
       noteFills.current = [];
+      // Pochodzenie jest już w zapisanym stanie par.
+      setOrigins({});
     }
     setResults(out);
   };
@@ -372,6 +460,7 @@ function JointFormBody({
 
   return (
     <FormProvider {...methods}>
+      <JointToolsContext.Provider value={tools}>
       <form
         data-testid="joint-screening-form"
         data-help="jobs.person.screening-form"
@@ -396,6 +485,8 @@ function JointFormBody({
           ownByJob={ownByJob}
           asked={groups.length}
           total={totalQuestions}
+          openHints={openHints.length}
+          onUseAllHints={() => openHints.forEach(({ group, hint }) => applyHint(group, hint))}
         />
         <AssessmentSection methods={methods} pairs={pairs} tab={tab} onTab={setTab} />
 
@@ -433,6 +524,7 @@ function JointFormBody({
         </div>
         {moveCore.dialogs}
       </form>
+      </JointToolsContext.Provider>
     </FormProvider>
   );
 }
@@ -551,8 +643,10 @@ function SharedField({
   pairs: JointPair[];
   cardKey: string;
 }) {
+  const { origins } = useJointTools();
   const id = `joint-${name.replace(/\./g, "-")}`;
   const value = (methods.watch(name) as string | undefined) ?? "";
+  const caption = originCaption(origins[name], value);
   // Pary z inną zapisaną wartością — rekruter widzi, co zostanie, gdy pola nie ruszy.
   const differing = pairs
     .map((pair) => ({ pair, saved: formDefaultsFromState(pair.state).card?.[cardKey] ?? "" }))
@@ -563,6 +657,7 @@ function SharedField({
         {label}
       </label>
       <Input id={id} {...methods.register(name)} />
+      {caption ? <p className="mt-0.5 text-[11px] text-muted-foreground">{caption}</p> : null}
       {differing.map(({ pair, saved }) => (
         <p key={pair.jobId} className="mt-0.5 text-[11px] text-muted-foreground">
           W {pair.title}: {saved}
@@ -581,6 +676,8 @@ function QuestionsSection({
   ownByJob,
   asked,
   total,
+  openHints,
+  onUseAllHints,
 }: {
   methods: UseFormReturn<JointValues>;
   pairs: JointPair[];
@@ -588,13 +685,27 @@ function QuestionsSection({
   ownByJob: Array<{ pair: JointPair; groups: JointGroup[] }>;
   asked: number;
   total: number;
+  openHints: number;
+  onUseAllHints: () => void;
 }) {
+  const { earlier, phrase } = useJointTools();
   return (
     <section aria-labelledby="joint-questions" className="space-y-3">
-      <h3 id="joint-questions" className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-        Pytania · {pluralQuestions(asked)}
-        {asked < total ? ` zamiast ${total}` : ""}
-      </h3>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h3 id="joint-questions" className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+          Pytania · {pluralQuestions(asked)}
+          {asked < total ? ` zamiast ${total}` : ""}
+        </h3>
+        {phrase && asked > 0 ? (
+          <PhraseLanguageToggle value={phrase.language} onChange={phrase.setLanguage} idPrefix="joint-phrase-language" />
+        ) : null}
+      </div>
+      {asked > 0 ? <EarlierAnswersBar earlier={earlier} open={openHints} onUseAll={onUseAllHints} /> : null}
+      {phrase?.error ? (
+        <p role="alert" className="text-xs text-destructive-muted-foreground">
+          {phrase.error}
+        </p>
+      ) : null}
       {shared.length > 0 ? (
         <div className="space-y-2">
           <p className="text-xs font-semibold text-foreground">Wspólne · zadajesz raz</p>
@@ -618,11 +729,76 @@ function QuestionsSection({
           Te rekrutacje nie mają pytań screeningowych — wystarczy „Dlaczego ten kandydat” w ocenie każdej z nich.
         </p>
       ) : null}
+      <SkipMissingSection methods={methods} pairs={pairs.filter((p) => formQuestions(p.state).length > 0)} />
     </section>
   );
 }
 
+/**
+ * „Pomiń brakujące” per rekrutacja (12.10.2026 w pojedynczym formularzu):
+ * serwer mówi, czy wolno — przepięcie, wcześniejszy screening, osoba
+ * zatrudniona przez nas. Pominięte odpowiedzi i notatka nie trafiają do klienta.
+ */
+function SkipMissingSection({ methods, pairs }: { methods: UseFormReturn<JointValues>; pairs: JointPair[] }) {
+  const { earlier } = useJointTools();
+  const allowed = pairs.flatMap((pair) => {
+    const reason = earlier.skipReasons.get(pair.jobId);
+    return reason ? [{ pair, reason }] : [];
+  });
+  if (allowed.length === 0) return null;
+  return (
+    <div className="space-y-2 rounded-lg border border-border bg-muted/20 p-3">
+      {allowed.map(({ pair, reason }) => {
+        const key = jobKey(pair.jobId);
+        const checked = Boolean(methods.watch(`jobs.${key}.skip_missing`));
+        const label = `${SKIP_MISSING_LABEL[reason]}${pairs.length > 1 ? ` · ${pair.title}` : ""}`;
+        const noteId = `joint-skip-note-${key}`;
+        return (
+          <div key={pair.jobId} className="space-y-1.5">
+            <label className="inline-flex cursor-pointer items-center gap-2 text-xs font-medium text-foreground">
+              <input
+                type="checkbox"
+                className="h-4 w-4 accent-[hsl(var(--primary))]"
+                checked={checked}
+                aria-label={label}
+                onChange={(event) => {
+                  methods.setValue(`jobs.${key}.skip_missing`, event.target.checked, { shouldDirty: true });
+                  // Powód wybiera domyślną notatkę wewnętrzną — DL ma zobaczyć prawdziwy.
+                  methods.setValue(`jobs.${key}.skip_reason`, event.target.checked ? reason : null, { shouldDirty: true });
+                }}
+              />
+              {label}
+            </label>
+            {checked ? (
+              <div className="pl-6">
+                <p className="text-[11px] text-muted-foreground">
+                  Pytania tej rekrutacji bez odpowiedzi zapiszą się jako pominięte. Pominięte odpowiedzi i ta notatka nie
+                  trafiają do klienta.
+                </p>
+                <label htmlFor={noteId} className="mt-1 block text-xs font-medium text-foreground">
+                  Notatka wewnętrzna · {pair.title}
+                </label>
+                <Textarea
+                  id={noteId}
+                  rows={2}
+                  placeholder={
+                    reason === "employed"
+                      ? "Np. pracuje u nas od dwóch lat u tego klienta, znamy odpowiedzi"
+                      : "Np. te same pytania co w poprzedniej rekrutacji, klient zna kandydata"
+                  }
+                  {...methods.register(`jobs.${key}.internal_note`)}
+                />
+              </div>
+            ) : null}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function QuestionCard({ methods, pairs, group }: { methods: UseFormReturn<JointValues>; pairs: JointPair[]; group: JointGroup }) {
+  const tools = useJointTools();
   const members = group.members
     .map((m) => {
       const pair = pairs.find((p) => p.jobId === m.jobId);
@@ -645,11 +821,29 @@ function QuestionCard({ methods, pairs, group }: { methods: UseFormReturn<JointV
           }))
           .filter(({ saved }) => saved.trim() && saved.trim() !== value.trim())
       : [];
+  const path = `answers.${group.key}`;
+  const origin = tools.origins[path];
+  const badge = originHolds(origin, value) ? answerOriginBadge(origin.origin) : null;
+  const hint = !value.trim() && !tools.handledHints.has(group.key) ? tools.earlier.suggestionFor(group) : null;
+  const phrase = tools.phrase;
+  const suggestion = phrase?.results[path];
+  const applySentence = (sentence: string, keywords: string) => {
+    methods.setValue(path as "answers", sentence as never, { shouldDirty: true });
+    tools.markOrigin(path, { value: sentence, origin: "phrased", keywords });
+    phrase?.dismiss(path);
+  };
   return (
     <div className={cn("space-y-2 rounded-lg border bg-background/40 p-3", anyHit ? "border-destructive/40" : "border-border")}>
-      <label htmlFor={id} className="block text-sm font-semibold text-foreground">
-        {first.question.question}
-      </label>
+      <div className="flex items-start gap-2">
+        <label htmlFor={id} className="block min-w-0 flex-1 text-sm font-semibold text-foreground">
+          {first.question.question}
+        </label>
+        {badge ? (
+          <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-[10.5px] font-medium text-muted-foreground">
+            {badge}
+          </span>
+        ) : null}
+      </div>
       {rest
         .filter(({ question }) => question.question.trim() !== first.question.question.trim())
         .map(({ pair, question }) => (
@@ -664,7 +858,42 @@ function QuestionCard({ methods, pairs, group }: { methods: UseFormReturn<JointV
           ))}
         </dl>
       ) : null}
-      <Textarea id={id} rows={2} placeholder="Jak odpowiedział kandydat?" {...methods.register(`answers.${group.key}`)} />
+      {hint ? (
+        <EarlierAnswerHint
+          hint={hint}
+          question={first.question.question}
+          onUse={() => tools.applyHint(group, hint)}
+          onSkip={() => tools.skipHint(group)}
+        />
+      ) : null}
+      <Textarea
+        id={id}
+        rows={2}
+        placeholder={
+          phrase ? "Jak odpowiedział kandydat? Możesz wpisać hasła i ułożyć z nich zdanie." : "Jak odpowiedział kandydat?"
+        }
+        {...methods.register(`answers.${group.key}`)}
+      />
+      {phrase && !suggestion ? (
+        <PhraseButton
+          disabled={!value.trim()}
+          pending={phrase.isPending(path)}
+          onClick={() =>
+            void phrase.request(first.pair.jobId, [{ key: path, keywords: value, question: first.question.question }])
+          }
+        />
+      ) : null}
+      {phrase && suggestion ? (
+        <PhraseProposal
+          suggestion={suggestion}
+          onUse={(sentence) => applySentence(sentence, suggestion.keywords)}
+          onEdit={(sentence) => {
+            applySentence(sentence, suggestion.keywords);
+            methods.setFocus(path as "answers");
+          }}
+          onKeep={() => phrase.dismiss(path)}
+        />
+      ) : null}
       {differing.map(({ pair, saved }) => (
         <p key={pair.jobId} className="text-[11px] text-muted-foreground">
           W {pair.title}: {saved}
@@ -764,18 +993,9 @@ function AssessmentSection({
             ))}
           </div>
         </fieldset>
-        {ownKeys.map((cardKey) => {
-          const id = `joint-${key}-${cardKey}`;
-          return (
-            <div key={cardKey}>
-              <label htmlFor={id} className="mb-1 block text-xs font-medium text-foreground">
-                {formFieldLabel(active.state, cardKey)}
-                <span className="font-normal text-muted-foreground"> · dla {active.title}</span>
-              </label>
-              <Textarea id={id} rows={2} {...methods.register(`jobs.${key}.card.${cardKey}`)} />
-            </div>
-          );
-        })}
+        {ownKeys.map((cardKey) => (
+          <OwnCardField key={cardKey} methods={methods} pair={active} cardKey={cardKey} />
+        ))}
       </div>
       {sharedAssessment.map((cardKey) => (
         <div key={cardKey}>
@@ -783,9 +1003,60 @@ function AssessmentSection({
             {formFieldLabel(active.state, cardKey)} <span className="font-normal text-muted-foreground">· wspólne, tylko dla zespołu</span>
           </label>
           <Textarea id={`joint-shared-${cardKey}`} rows={2} {...methods.register(`shared.card.${cardKey}`)} />
+          <OriginLine path={`shared.card.${cardKey}`} methods={methods} />
         </div>
       ))}
     </section>
+  );
+}
+
+function OriginLine({ path, methods }: { path: string; methods: UseFormReturn<JointValues> }) {
+  const { origins } = useJointTools();
+  const caption = originCaption(origins[path], (methods.watch(path as "answers") as unknown as string) ?? "");
+  return caption ? <p className="mt-0.5 text-[11px] text-muted-foreground">{caption}</p> : null;
+}
+
+/** Pole oceny jednej rekrutacji — z „Ułóż w zdanie” w polach opisowych. */
+function OwnCardField({ methods, pair, cardKey }: { methods: UseFormReturn<JointValues>; pair: JointPair; cardKey: string }) {
+  const tools = useJointTools();
+  const key = jobKey(pair.jobId);
+  const path = `jobs.${key}.card.${cardKey}`;
+  const id = `joint-${key}-${cardKey}`;
+  const value = (methods.watch(path as "answers") as unknown as string) ?? "";
+  const phrase = tools.phrase && pair.state.assist_enabled && CARD_PHRASABLE_FIELDS.has(cardKey) ? tools.phrase : null;
+  const suggestion = phrase?.results[path];
+  const applySentence = (sentence: string, keywords: string) => {
+    methods.setValue(path as "answers", sentence as never, { shouldDirty: true });
+    tools.markOrigin(path, { value: sentence, origin: "phrased", keywords });
+    phrase?.dismiss(path);
+  };
+  return (
+    <div className="space-y-1">
+      <label htmlFor={id} className="block text-xs font-medium text-foreground">
+        {formFieldLabel(pair.state, cardKey)}
+        <span className="font-normal text-muted-foreground"> · dla {pair.title}</span>
+      </label>
+      <Textarea id={id} rows={2} {...methods.register(path as "answers")} />
+      <OriginLine path={path} methods={methods} />
+      {phrase && !suggestion ? (
+        <PhraseButton
+          disabled={!value.trim()}
+          pending={phrase.isPending(path)}
+          onClick={() => void phrase.request(pair.jobId, [{ key: path, keywords: value, question: null }])}
+        />
+      ) : null}
+      {phrase && suggestion ? (
+        <PhraseProposal
+          suggestion={suggestion}
+          onUse={(sentence) => applySentence(sentence, suggestion.keywords)}
+          onEdit={(sentence) => {
+            applySentence(sentence, suggestion.keywords);
+            methods.setFocus(path as "answers");
+          }}
+          onKeep={() => phrase.dismiss(path)}
+        />
+      ) : null}
+    </div>
   );
 }
 

@@ -1398,7 +1398,25 @@ function JobDetailHarness() {
         });
         return config;
       }
+      // „Szukaj ręcznie” → „Dodani teraz” (15.10.2026): dodanie do tej rekrutacji
+      // i „Cofnij” w pamięci strony, żeby pasek z „Pasuje też do” dało się przeklikać.
+      const manualAdd = config.data as { source?: string; candidate_ids?: number[] } | undefined;
+      if (otherJobAdd && Number(otherJobAdd[1]) === JOB_ID && manualAdd?.source === "manual_search") {
+        const ids = manualAdd.candidate_ids ?? [];
+        config.adapter = async () => ({
+          data: { added: ids, skipped: [], warnings: [], total_added: ids.length, total_skipped: 0 },
+          status: 200,
+          statusText: "OK",
+          headers: {},
+          config,
+        });
+        return config;
+      }
       const otherJobUndo = config.url?.match(/^\/api\/candidates\/\d+\/recruitments\/(\d+)$/);
+      if (otherJobUndo && config.method === "delete" && Number(otherJobUndo[1]) === JOB_ID && config.params?.quick_undo) {
+        config.adapter = async () => ({ data: {}, status: 200, statusText: "OK", headers: {}, config });
+        return config;
+      }
       if (otherJobUndo && config.method === "delete" && Number(otherJobUndo[1]) !== JOB_ID) {
         config.adapter = async () => ({ data: {}, status: 200, statusText: "OK", headers: {}, config });
         return config;

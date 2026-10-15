@@ -939,6 +939,41 @@ function seededClient(state: HarnessState): QueryClient {
     qc.setQueryData(alsoFitsKeys.one(JOB_ID, CANDIDATE_ID), JOINT_ALSO_FITS, SEED_FRESH);
     qc.setQueryData(screeningFormQueryKey(JOINT_JOB_ID, CANDIDATE_ID), JOINT_STATE, SEED_FRESH);
     qc.setQueryData(questionGroupsQueryKey([JOB_ID, JOINT_JOB_ID]), JOINT_GROUPS, SEED_FRESH);
+    // Druga rekrutacja: wcześniejsza rozmowa z odpowiedzią na „Od kiedy…”
+    // i „Pomiń brakujące — osoba po wcześniejszym screeningu” (15.10.2026).
+    qc.setQueryData(
+      reassignContextQueryKey(JOINT_STATE.stage_id!),
+      {
+        stage_id: JOINT_STATE.stage_id,
+        candidate_id: CANDIDATE_ID,
+        available: true,
+        kind: "history",
+        source: null,
+        previous_answers_count: 1,
+        earlier_conversations: 1,
+        skip_reason: "earlier_screening",
+      },
+      SEED_FRESH,
+    );
+    qc.setQueryData(
+      screeningSuggestionsQueryKey(JOINT_STATE.stage_id!),
+      {
+        ...EARLIER_SUGGESTIONS,
+        stage_id: JOINT_STATE.stage_id,
+        suggestions: [
+          {
+            question_id: "q1",
+            text: "Od 1 listopada — miesiąc wypowiedzenia.",
+            source_kind: "answer",
+            source_quote: "od 1 listopada",
+            confidence: "high",
+            source: EARLIER_SOURCE,
+            source_question: null,
+          },
+        ],
+      },
+      SEED_FRESH,
+    );
     // Okienko „+1 rekrutacja” na karcie zaznacza od razu drugą rekrutację.
     useJointScreeningIntent.getState().setIntent(CANDIDATE_ID, [JOINT_JOB_ID]);
   }

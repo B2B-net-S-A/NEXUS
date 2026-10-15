@@ -294,7 +294,7 @@ describe("AddCandidateModal — start od CV", () => {
     // Główne CV = AI od razu czyta je w tle i odświeża profil.
     expect(body.get("is_primary")).toBe("true");
     // W rekrutacji osoba trafia też do „Nowych” — jak nowy kandydat.
-    await waitFor(() => expect(onCreated).toHaveBeenCalledWith(41));
+    await waitFor(() => expect(onCreated).toHaveBeenCalledWith(41, "Anna Nowak"));
     expect(onSuccess).toHaveBeenCalledWith(expect.stringMatching(/^CV dodane do profilu/));
     expect(onClose).toHaveBeenCalled();
     expect(callsTo("/api/candidates/from-cv")).toHaveLength(0);
@@ -320,7 +320,7 @@ describe("AddCandidateModal — start od CV", () => {
     await user.click(screen.getByRole("button", { name: "Dodaj to CV do profilu" }));
 
     await waitFor(() => expect(callsTo("/api/candidates/41/documents")).toHaveLength(1));
-    await waitFor(() => expect(onCreated).toHaveBeenCalledWith(41));
+    await waitFor(() => expect(onCreated).toHaveBeenCalledWith(41, "Anna Nowak"));
   });
 
   it("odmowa po e-mailu dopiero przy zapisie pokazuje tę samą ramkę", async () => {

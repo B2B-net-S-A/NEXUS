@@ -184,7 +184,11 @@ w profilu („Pasujące rekrutacje”, starszy wzór, bez bramki i progu). Rapor
   `also-fits-block.tsx`, pole `PickRow.alsoFits`; `PickList` sam nic nie pobiera). Pusty wynik =
   nic. Okno pyta samo tylko o 3 ostatnio dodane osoby (`ALSO_FITS_AUTO_CHECK`) — stopka dodaje do
   100 naraz, a każde zapytanie to kilka pełnych ocen na serwerze; przy reszcie jest „Sprawdź, gdzie
-  jeszcze pasuje”. „Szukaj ręcznie” bloku nie ma (tam nie ma też „Cofnij”).
+  jeszcze pasuje”. „Szukaj ręcznie” (od 15.10.2026): dodana osoba znika z wyników (lista ukrywa osoby
+  w rekrutacji), więc nad listą stoi pasek „Dodani teraz (N)” (`ManualAddedStrip.tsx`): „Dodano do
+  „Nowych” · rezerwacja 12 h · Cofnij” (15 min, `quick_undo`, po cofnięciu osoba wraca do wyników)
+  i ten sam blok „Pasuje też do”; widać 3 najnowsze osoby, resztę po „Pokaż wszystkich (N)”. Lista
+  osadzona oddaje dodanych przez `embed.onAdded([{ candidateId, fullName }])`.
 - **„+ Dodaj” do B (D2)** = zwykłe `POST /api/jobs/{B}/proposals/bulk` ze źródłem `also_fits`
   i `origin_job_id`: „Nowi”, `entry_source="added_manual"`, rezerwacja 12 h dla dodającego, „Cofnij”
   przez 15 min (`DELETE …?quick_undo=true`). Odmowy (zamknięta karta, weto) mówią słowami serwera pod

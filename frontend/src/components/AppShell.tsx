@@ -992,7 +992,8 @@ export function AddCandidateModal({
    * Id kandydata — np. okno rekrutacji dodaje go od razu do „Nowych”. Także
    * po „Dodaj to CV do profilu”: wtedy to id osoby, która już była w bazie.
    */
-  onCreated?: (candidateId: number) => void;
+  /** Imię i nazwisko — „Dodani teraz” w „Szukaj ręcznie” (15.10.2026). */
+  onCreated?: (candidateId: number, fullName?: string) => void;
 }) {
   const queryClient = useQueryClient();
   const [form, setForm] = useState<CandidateFormData>(EMPTY_CANDIDATE);
@@ -1210,7 +1211,7 @@ export function AddCandidateModal({
       const noteSaved = Number.isFinite(createdId)
         ? await saveCandidateFormNote(createdId, form.notes)
         : !form.notes.trim();
-      if (Number.isFinite(createdId)) onCreated?.(createdId);
+      if (Number.isFinite(createdId)) onCreated?.(createdId, `${form.name} ${form.lastname}`.trim());
       onSuccess(
         noteSaved
           ? "Kandydat dodany pomyślnie"
@@ -1259,7 +1260,7 @@ export function AddCandidateModal({
       invalidateCandidateMutation(queryClient, match.candidate_id, "document");
       void queryClient.invalidateQueries({ queryKey: candidateQueryKeys.quickView(match.candidate_id) });
       // W oknie rekrutacji ta osoba trafia też do „Nowych” — jak nowy kandydat.
-      onCreated?.(match.candidate_id);
+      onCreated?.(match.candidate_id, `${match.name} ${match.lastname}`.trim());
       onSuccess("CV dodane do profilu. AI czyta je w tle — profil odświeży się za około minutę.");
       onClose();
     } catch (err) {

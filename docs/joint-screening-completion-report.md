@@ -67,9 +67,14 @@ Para z trafionym deal-breakerem albo odmową kwalifikowalności zostaje zapisana
 
 ## Świadomie poza zakresem
 
-- „Użyj tej odpowiedzi”, „Pomiń brakujące”, „Ułóż w zdanie” w trybie wspólnym (zostają w pojedynczym formularzu).
-- Pochodzenie pól „z notatki” w trybie wspólnym (pola idą jak wpisane ręcznie).
-- Quick-view bez `job_read_scope_clause` (tytuły rekrutacji spoza zakresu DL) — sprzed tej zmiany.
+- Quick-view bez `job_read_scope_clause` — sprzed tej zmiany i zgodnie z regułą „rekrutacje widzą wszyscy”
+  (`uprawnienia/rekrutacje-i-kandydatow-widza-wszyscy-stawki-do.md`), więc bez zmiany.
+
+## Dopisane 15.10.2026 (PR „Znalezione”)
+
+- „Użyj tej odpowiedzi”, „Pomiń brakujące” i „Ułóż w zdanie” w trybie wspólnym (`joint-screening-tools.tsx`).
+- Pochodzenie wartości z notatki, zdania z haseł i podpowiedzi Luny zapisywane w każdej parze.
+- „Pasuje też do” i „Cofnij” w zakładce „Szukaj ręcznie” (pasek „Dodani teraz”).
 
 ## Po scaleniu
 

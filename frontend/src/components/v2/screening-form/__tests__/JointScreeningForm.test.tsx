@@ -16,18 +16,37 @@ import {
 } from "@/lib/api/screeningForm";
 import { formSaveResult, formState } from "@/components/v2/screening-form/__tests__/screening-form-fixtures";
 
-const mocks = vi.hoisted(() => ({ get: vi.fn(), put: vi.fn(), send: vi.fn(), readNote: vi.fn() }));
+const mocks = vi.hoisted(() => ({
+  get: vi.fn(),
+  put: vi.fn(),
+  send: vi.fn(),
+  readNote: vi.fn(),
+  phrase: vi.fn(),
+  reassignContext: vi.fn(),
+  reassignSuggestions: vi.fn(),
+}));
 
 vi.mock("@/lib/api", () => {
   const client = {
     get: (...a: unknown[]) => mocks.get(...a),
     put: (...a: unknown[]) => mocks.put(...a),
   };
-  return { __esModule: true, default: client, api: client };
+  return {
+    __esModule: true,
+    default: client,
+    api: client,
+    screeningApi: {
+      reassignContext: (...a: unknown[]) => mocks.reassignContext(...a),
+      reassignSuggestions: (...a: unknown[]) => mocks.reassignSuggestions(...a),
+    },
+  };
 });
 vi.mock("@/lib/api/recommendationCards", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/api/recommendationCards")>()),
-  recommendationCardsApi: { readNote: (...a: unknown[]) => mocks.readNote(...a) },
+  recommendationCardsApi: {
+    readNote: (...a: unknown[]) => mocks.readNote(...a),
+    phrase: (...a: unknown[]) => mocks.phrase(...a),
+  },
 }));
 // Pasek notatki ma własne testy — tu tylko oddaje odczyt kotwicy.
 vi.mock("@/components/v2/screening-form/NoteFillBar", () => ({
@@ -37,7 +56,12 @@ vi.mock("@/components/v2/screening-form/NoteFillBar", () => ({
         type="button"
         onClick={() =>
           props.onProposal(
-            { fields: [{ key: "availability", proposed: "od 1.11" }], answers: [], text: "Rozmowa: od 1.11", available: true },
+            {
+              fields: [{ key: "availability", proposed: "od 1.11", origin: "note_ai" }],
+              answers: [],
+              text: "Rozmowa: od 1.11",
+              available: true,
+            },
             { text: "Rozmowa: od 1.11" },
           )
         }
@@ -112,8 +136,11 @@ function putFor(jobId: number): ScreeningFormSave | undefined {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  states[201] = formState({ job_id: 201, process_state_version: 3, champion_profile: { screening_questions: QA } });
-  states[202] = formState({ job_id: 202, process_state_version: 4, champion_profile: { screening_questions: QB } });
+  states[201] = formState({ job_id: 201, stage_id: 9201, process_state_version: 3, champion_profile: { screening_questions: QA } });
+  states[202] = formState({ job_id: 202, stage_id: 9202, process_state_version: 4, champion_profile: { screening_questions: QB } });
+  mocks.reassignContext.mockImplementation((stageId: number) =>
+    Promise.resolve({ data: { stage_id: stageId, available: false, source: null, previous_answers_count: 0, skip_reason: null } }),
+  );
   mocks.get.mockImplementation((url: string, config?: { params?: { job_id?: number } }) => {
     if (url === "/api/screening-form") return Promise.resolve({ data: states[config!.params!.job_id!] });
     if (url.startsWith("/api/screening-form/question-groups")) {
@@ -294,5 +321,112 @@ describe("JointScreeningForm", () => {
     expect(alert).toHaveTextContent("Programista Frontend: 1 pytanie bez odpowiedzi");
     expect(alert).toHaveTextContent("Angular Developer: 1 pytanie bez odpowiedzi");
     expect(mocks.put).not.toHaveBeenCalled();
+  });
+
+  it("a field filled from the note is saved with its origin in every recruitment", async () => {
+    const user = userEvent.setup();
+    states[201] = { ...states[201], assist_enabled: true };
+    mocks.readNote.mockResolvedValue({ fields: [], answers: [], text: "Rozmowa: od 1.11", available: true });
+    mount();
+    await user.click(await screen.findByRole("button", { name: "wklej notatkę" }));
+    expect(await screen.findByText("z notatki (AI) — zapisz formularz")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Zapisz w 2" }));
+    await waitFor(() => expect(mocks.put).toHaveBeenCalledTimes(2));
+    expect(putFor(201)?.card?.origins?.availability).toEqual({ origin: "note_ai" });
+    expect(putFor(202)?.card?.origins?.availability).toEqual({ origin: "note_ai" });
+  });
+
+  it("an earlier answer under a shared question fills it for both recruitments as Luna's suggestion", async () => {
+    const user = userEvent.setup();
+    mocks.reassignContext.mockImplementation((stageId: number) =>
+      Promise.resolve({
+        data: { stage_id: stageId, available: true, earlier_conversations: 2, source: null, previous_answers_count: 3, skip_reason: null },
+      }),
+    );
+    mocks.reassignSuggestions.mockImplementation((stageId: number) =>
+      Promise.resolve({
+        data: {
+          stage_id: stageId,
+          available: true,
+          message: null,
+          source: null,
+          suggestions:
+            stageId === 9201
+              ? [
+                  {
+                    question_id: "q1",
+                    text: "Strumienie w formularzach od 2021",
+                    source_kind: "answer",
+                    source_quote: "",
+                    confidence: "high",
+                    source: { job_id: 150, job_title: "Frontend Lead", client_name: "Bank Demo", date: null },
+                  },
+                ]
+              : [],
+        },
+      }),
+    );
+    mount();
+    expect(await screen.findByText(/Ta osoba ma 2 wcześniejsze rozmowy screeningowe/)).toBeInTheDocument();
+    await user.click(await screen.findByRole("button", { name: "Użyj tej odpowiedzi" }));
+    expect(screen.getByLabelText("Jak używałeś RxJS w produkcji?")).toHaveValue("Strumienie w formularzach od 2021");
+    expect(screen.getByText("z podpowiedzi Luny")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Zapisz w 2" }));
+    await waitFor(() => expect(mocks.put).toHaveBeenCalledTimes(2));
+    expect(putFor(201)?.sheet?.answers.find((x) => x.question_id === "q1")?.origin).toBe("reassign_suggested");
+    expect(putFor(202)?.sheet?.answers.find((x) => x.question_id === "q2")?.origin).toBe("reassign_suggested");
+  });
+
+  it("„Pomiń brakujące” in one recruitment lets it go forward with that recruitment's questions skipped", async () => {
+    const user = userEvent.setup();
+    mocks.reassignContext.mockImplementation((stageId: number) =>
+      Promise.resolve({
+        data: {
+          stage_id: stageId,
+          available: false,
+          source: null,
+          previous_answers_count: 0,
+          skip_reason: stageId === 9202 ? "employed" : null,
+        },
+      }),
+    );
+    mount();
+    await user.type(await screen.findByLabelText("Jak używałeś RxJS w produkcji?"), "Strumienie");
+    await user.type(screen.getByLabelText("Czy 2 dni w biurze są OK?"), "Tak");
+    await user.click(await screen.findByRole("checkbox", { name: /Pomiń brakujące — osoba zatrudniona przez nas · Angular Developer/ }));
+    await user.type(screen.getByLabelText(/Notatka wewnętrzna · Angular Developer/), "Pracuje u nas u tego klienta");
+    await user.click(screen.getByRole("button", { name: /Zapisz i przekaż dalej w 2/ }));
+    await waitFor(() => expect(mocks.send).toHaveBeenCalledTimes(2));
+    const b = putFor(202)!;
+    expect(b.sheet?.answers.find((x) => x.question_id === "q1")?.skipped).toBe(true);
+    expect(b.sheet?.internal_note).toBe("Pracuje u nas u tego klienta");
+    expect(putFor(201)?.sheet?.answers.some((x) => x.skipped)).toBe(false);
+  });
+
+  it("„Ułóż w zdanie” turns the keywords of a shared answer into a sentence saved as phrased", async () => {
+    const user = userEvent.setup();
+    states[201] = { ...states[201], assist_enabled: true };
+    mocks.phrase.mockImplementation((_c: number, _j: number, items: Array<{ key: string; keywords: string }>) =>
+      Promise.resolve({
+        available: true,
+        message: null,
+        language: "pl",
+        items: items.map((item) => ({ key: item.key, sentence: "Kandydat budował formularze na strumieniach RxJS.", problem: null })),
+      }),
+    );
+    mount();
+    const answer = await screen.findByLabelText("Jak używałeś RxJS w produkcji?");
+    await user.type(answer, "rxjs formularze");
+    const card = answer.closest("div.rounded-lg") as HTMLElement;
+    await user.click(within(card).getByRole("button", { name: /Ułóż w zdanie/ }));
+    await user.click(await within(card).findByRole("button", { name: "Użyj zdania" }));
+    expect(answer).toHaveValue("Kandydat budował formularze na strumieniach RxJS.");
+    expect(mocks.phrase.mock.calls[0][1]).toBe(201);
+    await user.click(screen.getByRole("button", { name: "Zapisz w 2" }));
+    await waitFor(() => expect(mocks.put).toHaveBeenCalledTimes(2));
+    expect(putFor(202)?.sheet?.answers.find((x) => x.question_id === "q2")).toMatchObject({
+      origin: "phrased",
+      keywords: "rxjs formularze",
+    });
   });
 });

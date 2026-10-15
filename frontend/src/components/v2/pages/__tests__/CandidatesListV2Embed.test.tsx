@@ -93,8 +93,8 @@ vi.mock("@/hooks/useCandidateContactFeature", () => ({
   useCandidateContactFeature: () => ({ enabled: false }),
 }));
 vi.mock("@/components/AppShell", () => ({
-  AddCandidateModal: ({ onCreated }: { onCreated?: (id: number) => void }) => (
-    <button type="button" onClick={() => onCreated?.(99)}>
+  AddCandidateModal: ({ onCreated }: { onCreated?: (id: number, fullName?: string) => void }) => (
+    <button type="button" onClick={() => onCreated?.(99, "Nowa Testowa")}>
       Zapisz nowego kandydata
     </button>
   ),
@@ -268,7 +268,11 @@ describe("CandidatesListV2 — „Szukaj ręcznie” z rekrutacji (embed)", () =
         source: "manual_search",
       }),
     );
-    await waitFor(() => expect(onAdded).toHaveBeenCalled());
+    // Okno rekrutacji dostaje dodanych z imieniem jak w wierszu listy
+    // („Dodani teraz” z „Cofnij” i „Pasuje też do”).
+    await waitFor(() =>
+      expect(onAdded).toHaveBeenCalledWith([{ candidateId: 1, fullName: "Ewa Marczak" }]),
+    );
     expect(showSuccess).toHaveBeenCalledWith("Dodano do Nowych: 1.");
     // U4 (audyt 06.10.2026): do odświeżenia listy wiersz mówi „Dodano”
     // i drugie kliknięcie nie jest możliwe.
@@ -297,6 +301,10 @@ describe("CandidatesListV2 — „Szukaj ręcznie” z rekrutacji (embed)", () =
         source: "manual_search",
       }),
     );
+    // Nowej osoby nie ma na liście — imienia nie znamy.
+    await waitFor(() =>
+      expect(onAdded).toHaveBeenCalledWith([{ candidateId: 99, fullName: "Nowa Testowa" }]),
+    );
   });
 
   it("zbiorczo: „Dodaj N do Nowych” z zaznaczonych", async () => {
@@ -316,6 +324,8 @@ describe("CandidatesListV2 — „Szukaj ręcznie” z rekrutacji (embed)", () =
     );
     await waitFor(() => expect(showSuccess).toHaveBeenCalled());
     expect(showSuccess.mock.calls[0][0]).toContain("Pominięto:");
+    // Do okna idą tylko naprawdę dodani — „już w rekrutacji” nie.
+    expect(onAdded).toHaveBeenCalledWith([{ candidateId: 1, fullName: "Ewa Marczak" }]);
     // „Już w rekrutacji” też schodzi z zaznaczenia (U4).
     expect(screen.queryByRole("button", { name: /Dodaj \d+ do Nowych/ })).toBeNull();
   });
