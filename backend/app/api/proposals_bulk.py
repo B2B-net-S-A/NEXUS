@@ -1037,6 +1037,29 @@ async def propose_candidates_for_job(
     )
 
 
+async def split_by_application(
+    db: AsyncSession, *, job_id: int, candidate_ids: list[int]
+) -> tuple[list[int], list[int]]:
+    """Integracja bez wyniku auto-matcha: ``(na Tablicę, do propozycji)``.
+
+    Na Tablicę trafia tylko osoba, która zgłosiła się do TEJ rekrutacji
+    (``integration_intake``, 06.10.2026); reszta czeka w „Do przejrzenia”.
+    Kolejność z żądania zostaje. Ta sama decyzja dla tokenu OAuth na tej
+    trasie i dla klucza API v1 (``POST /recruitments/{id}/candidates``).
+    """
+    from app.services.integration_intake import (  # noqa: PLC0415
+        candidates_with_application_evidence,
+    )
+
+    applied = await candidates_with_application_evidence(
+        db, job_id=job_id, candidate_ids=candidate_ids
+    )
+    return (
+        [c for c in candidate_ids if c in applied],
+        [c for c in candidate_ids if c not in applied],
+    )
+
+
 @router.post(
     "/jobs/{job_id}/proposals/bulk",
     response_model=BulkProposalsResponse,
@@ -1071,15 +1094,9 @@ async def bulk_add_proposals(
             propose_ids, add_ids = list(body.candidate_ids), []
             propose_meta = body.auto_match.as_entry_meta()
         else:
-            from app.services.integration_intake import (  # noqa: PLC0415
-                candidates_with_application_evidence,
-            )
-
-            applied = await candidates_with_application_evidence(
+            add_ids, propose_ids = await split_by_application(
                 db, job_id=job.id, candidate_ids=body.candidate_ids
             )
-            propose_ids = [c for c in body.candidate_ids if c not in applied]
-            add_ids = [c for c in body.candidate_ids if c in applied]
 
     proposal: Optional[ProposeResult] = None
     if propose_ids:

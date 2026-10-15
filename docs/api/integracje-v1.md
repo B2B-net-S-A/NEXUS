@@ -1,7 +1,8 @@
 # NEXUS — API integracyjne v1
 
-API dla automatyzacji procesów firmy. Na start: **rozliczanie klientów**
-(klienci, kontrakty, zamówienia, zużycie MD, Finanse, faktury).
+API dla automatyzacji procesów firmy: **rozliczanie klientów** (klienci,
+kontrakty, zamówienia, zużycie MD, Finanse, faktury) oraz **rekrutacja
+i kandydaci** (rekrutacje, Tablica, kandydaci, CV, notatki — od 15.10.2026).
 
 - Adres bazowy: `https://api.nexus.dynaminds.pl/api/integrations/v1`
 - Specyfikacja OpenAPI (do importu w Postmanie, n8n, Power Automate):
@@ -57,6 +58,14 @@ odejście czy awans pracownika nie zmienia uprawnień automatyzacji.
 | `contracts:write` | Kontrakty: data końca w przyszłości |
 | `contracts:status` | Kontrakty: zmiana statusu i data końca, która kończy albo przywraca współpracę |
 | `amounts:write` | Zmiana stawek i kwot przy zapisie zamówień (stawki zamówienia, osoby i budżety w przedłużeniu) — obejmuje `amounts:read` |
+| `recruitments:read` | Rekrutacje: lista, szczegóły, wymagania (Champion), Tablica z kartami, historia ruchów, kolumny |
+| `recruitments:write` | Dodanie osób do rekrutacji, przesunięcie karty — obejmuje `recruitments:read` |
+| `candidates:read` | Kandydaci: lista i profil **bez danych kontaktowych** (umiejętności, miasto, dostępność, kategoria, „W bazie od”, „Pracuje u nas”, rekrutacje) |
+| `candidates:contact` | Pola kontaktowe w profilu: e-mail, telefon, LinkedIn, NIP/REGON/nazwa firmy; szukanie po e-mailu |
+| `candidates:cv` | Pliki kandydata (lista i pobranie) oraz tekst CV |
+| `candidates:write` | Nowy kandydat, wgranie CV — obejmuje `candidates:read` |
+| `notes:read` | Notatki kandydata, odpowiedzi screeningu, karta rekomendacji |
+| `notes:write` | Nowa notatka (notatka systemowa) — obejmuje `notes:read` |
 
 - `X:write` obejmuje `X:read`, a `amounts:read` obejmuje `sales_amounts:read`.
 - **Zapis kwot** wymaga `amounts:write` niezależnie od `orders:write` — zapis bez
@@ -88,9 +97,18 @@ odejście czy awans pracownika nie zmienia uprawnień automatyzacji.
   Wiersze importu MD bez kwot sprzedaży nie mają kwot faktur ani „Uwag”.
 - **Dane osobowe:** kontrakty i zamówienia podają konsultanta — imię i nazwisko,
   identyfikator osoby, a kontrakty także e-mail kontaktowy (potrzebne do rozliczeń
-  i łączenia z innymi systemami). API **nie udostępnia** kandydatów spoza
-  kontraktów, rekrutacji ani notatek (RODO). Dane trzymaj tylko tak długo, jak
-  wymaga tego automatyzacja.
+  i łączenia z innymi systemami). Dane kandydatów są podzielone na profil
+  (`candidates:read`), kontakt (`candidates:contact`), CV (`candidates:cv`)
+  i notatki (`notes:read`) — daj automatyzacji tylko to, czego potrzebuje.
+  Uwaga: plik i tekst CV zawierają zwykle dane kontaktowe, więc `candidates:cv`
+  w praktyce je odsłania. Każde pobranie pliku kandydata zostawia wpis w historii
+  kandydata z nazwą konta serwisowego. Dane trzymaj tylko tak długo, jak wymaga
+  tego automatyzacja; nie przenoś ich do narzędzi, które nie mają umowy
+  powierzenia.
+- **Kwoty w rekrutacji:** oczekiwania stawkowe kandydata, budżet rekrutacji dla
+  kandydata, stawka Championa, `expected_rate_*` i `budget_max_at_move` na kartach
+  to **koszt** (`amounts:read`); stawka do klienta na karcie (`client_rate_*`) to
+  **sprzedaż** (`sales_amounts:read`).
 
 ---
 
@@ -280,6 +298,107 @@ odejście czy awans pracownika nie zmienia uprawnień automatyzacji.
 - Każdy zapis zostawia wpis w Historii zdarzeń NEXUSA, z kontem serwisowym
   jako autorem.
 
+### Rekrutacje
+
+| Metoda | Ścieżka | Scope |
+|---|---|---|
+| GET | `/recruitments?status=&priority=&client_id=&recruiter_id=&delivery_lead_id=&q=&updated_since=` | `recruitments:read` |
+| GET | `/recruitments/{job_id}` | `recruitments:read` |
+| GET | `/recruitments/{job_id}/requirements` | `recruitments:read` |
+| GET | `/recruitments/{job_id}/board` | `recruitments:read` |
+| GET | `/recruitments/{job_id}/moves?candidate_id=` | `recruitments:read` |
+| GET | `/recruitments/{job_id}/stages` | `recruitments:read` |
+| GET | `/recruitments/{job_id}/candidates/{candidate_id}/screening` | `notes:read` |
+
+- `status`: `open`, `closed`, `all`, `draft`, `published` (można powtórzyć);
+  `priority`: `p1`, `p2`, `accepting`. `recruiter_id` liczy osoby, które pracują
+  przy rekrutacji, jak filtr „Rekruter” na liście.
+- Lista podaje liczby kart per kolumna (`stage_counts`); `updated_since` liczy się
+  od zmiany samej rekrutacji — zmiany na Tablicy śledź przez `/moves`.
+- `/requirements` to wymagania jak w Profilu Championa: słowa do szukania,
+  MUST/NICE, umiejętności krytyczne, „sprawdź w rozmowie”, pytania screeningowe.
+  Odczyt niczego nie oznacza jako przeczytane.
+- `/board` to Tablica: kolumny z kartami (kandydat, etap, `process_state_version`
+  potrzebny do przesunięcia, znaczniki). Bez danych kontaktowych.
+- `/moves` — historia ruchów kart od najnowszych.
+- `/screening` — odpowiedzi ze screeningu i karta rekomendacji osoby w tej
+  rekrutacji (bez narodowości; stawki kandydata tylko z `amounts:read`).
+
+### Kandydaci
+
+| Metoda | Ścieżka | Scope |
+|---|---|---|
+| GET | `/candidates?q=&updated_since=&ids=&competence_category_id=&availability=&city=` | `candidates:read` |
+| GET | `/candidates/{candidate_id}` | `candidates:read` (+ `candidates:contact` dla kontaktu) |
+| GET | `/candidates/{candidate_id}/documents` | `candidates:cv` |
+| GET | `/candidates/{candidate_id}/documents/{document_id}/file` | `candidates:cv` |
+| GET | `/candidates/{candidate_id}/cv-text` | `candidates:cv` |
+| GET | `/candidates/{candidate_id}/notes?job_id=` | `notes:read` |
+| POST | `/candidates` (`?dry_run=`) | `candidates:write` |
+| POST | `/candidates/{candidate_id}/cv` (multipart: `file`, `make_primary`) | `candidates:write` |
+| POST | `/candidates/{candidate_id}/notes` | `notes:write` |
+
+- `q` szuka po imieniu i nazwisku; `q` z „@” to dokładny adres e-mail i wymaga
+  `candidates:contact`. `ids` — do 200 identyfikatorów po przecinku.
+- Profil bez `candidates:contact` ma pola kontaktowe `null` i
+  `contact_redacted: true`.
+- Pliki i CV w kwarantannie tożsamości (CV innej osoby wgrane do profilu) nie
+  wychodzą; tekst CV takiego źródła ma `quarantined: true`.
+- Notatki ze stawką do klienta mają `content: null` i `content_hidden: true`
+  bez `sales_amounts:read`. Notatka zapisana kluczem ma autora
+  „Integracja: <nazwa konta>”.
+- **Nowy kandydat** — `first_name`, `last_name`, `email` (wymagany), `phone`,
+  `linkedin_url` (`linkedin.com/in/…`), `city`, `country`, `skills`, `source`.
+  - Ta sama osoba = ten sam e-mail: istniejący adres daje
+    `409 duplicate_candidate` z `details.candidate_id` (bez danych profilu).
+  - Adres osoby, której dane usunięto na jej żądanie (RODO), daje
+    `409 candidate_erased` — taką osobę dodaje tylko człowiek na ekranie.
+  - Dopisek w imieniu („[ACTIVE]”, „(czarna lista)”) → `422` przy polu.
+  - `dry_run=true` sprawdza to wszystko bez zapisu.
+- **CV** — PDF, DOC albo DOCX (inny plik `415`), limit jak na ekranie. NEXUS czyta
+  CV w tle po zapisie (uzupełnia profil, sprawdza, czy to ta sama osoba). Bez
+  `dry_run`.
+- **Notatka** — `content`, opcjonalnie `job_id` i `note_type`. Zawsze notatka
+  systemowa (w historii za „Pokaż systemowe”); `@` w treści nikogo nie oznacza
+  i nie wysyła powiadomień.
+
+### Rekrutacje — zapis
+
+| Metoda | Ścieżka | Scope |
+|---|---|---|
+| POST | `/recruitments/{job_id}/candidates` (`?dry_run=`) | `recruitments:write` |
+| POST | `/recruitments/{job_id}/moves` | `recruitments:write` |
+
+- **Dodanie osób** — `{"candidate_ids": [..., do 50], "stage_def_id": …, "note": …}`.
+  Reguła integracji jak przy scraperach: osoba, która **zgłosiła się** do tej
+  rekrutacji, trafia na Tablicę (`added`), każda inna — do **propozycji**
+  (`proposed`) do akceptacji przez ludzi. Wynik per osoba: `added`, `proposed`,
+  `already_in_job`, `closed_in_job` (zamkniętą kartę przywraca się ruchem karty)
+  albo `blocked` z powodem (czarna lista, weto hiring managera); konflikty z klientem
+  są ostrzeżeniem. `stage_def_id` — tylko kolumna wejściowa. `dry_run=true` zwraca
+  same werdykty. Notatka zapisuje się tylko przy osobach dodanych na Tablicę.
+- **Przesunięcie karty** — `{"candidate_id", "to_stage_def_id",
+  "expected_state_version", "rejection_reason_id" | "rejection_reason",
+  "acknowledge_eligibility"}`. Te same reguły co na Tablicy: QC CV, wymagania
+  „Zweryfikowany”, rozmowa przed kontraktem, wersja karty
+  (`expected_state_version` z `/board`, inna = `409`), ostrzeżenie o konflikcie
+  (`409`, ponów z `acknowledge_eligibility: true`), powód przy zamknięciu.
+  - **Klucz może:** przesuwać kartę między kolumnami w toku (Nowi, Screening,
+    Zweryfikowany, QC CV, a po wysłaniu do klienta: CV wysłane, Rozmowa u klienta,
+    Kontrakt), zamknąć kartę z powodem (odrzucenie, rezygnacja) i przywrócić
+    zamkniętą.
+  - **Tylko człowiek na ekranie** (`403 requires_screen_decision`, powód
+    w `details.reason`): zatrudnienie i każdy ruch karty zatrudnionej (`hire`),
+    wysłanie CV do klienta (`client_send`), kolejka Cpro (`cpro_queue`), zmiana
+    stawki do klienta albo stawki kandydata (`client_rate`, `candidate_rate`),
+    decyzje Delivery Leada (`delivery_lead_decision`).
+  - Osoba spoza rekrutacji → `409 not_in_recruitment` (najpierw dodanie).
+  - Ruch z klucza: bez 12-godzinnej blokady, bez maila odrzucenia do kandydata,
+    bez automatycznego CV po „Zweryfikowanym”; w historii karty autorem jest
+    konto serwisowe.
+  - Bez `dry_run` (ruch zatwierdza się w trakcie).
+
+
 ---
 
 ## Zapisy: Idempotency-Key i dry_run
@@ -326,8 +445,9 @@ Każdy błąd ma ten sam kształt:
 | 400 | `idempotency_key_required` | Zapis bez `Idempotency-Key` |
 | 401 | `unauthenticated` | Brak, zły, wygasły albo odwołany klucz |
 | 403 | `insufficient_scope` | Konto nie ma scope'u (`details.missing`) |
+| 403 | `requires_screen_decision` | Ruch karty, który podejmuje człowiek na ekranie (`details.reason`) |
 | 404 | `not_found` | Rekord nie istnieje |
-| 409 | `conflict`, `duplicate_import`, `duplicate_invoice`, `idempotency_key_reused`, `idempotency_in_progress`, `idempotency_outcome_unknown`, `item_not_in_month`, `requires_screen_approval`, `conflict_retry`, `order_belongs_to_group`, `order_is_draft`, `order_already_closed`, `order_group_has_settlements`, `offboarding_decision_required` | Konflikt — szczegóły w `message` i `details` |
+| 409 | `conflict`, `duplicate_import`, `duplicate_invoice`, `idempotency_key_reused`, `idempotency_in_progress`, `idempotency_outcome_unknown`, `item_not_in_month`, `requires_screen_approval`, `conflict_retry`, `order_belongs_to_group`, `order_is_draft`, `order_already_closed`, `order_group_has_settlements`, `offboarding_decision_required`, `duplicate_candidate`, `candidate_erased`, `not_in_recruitment` | Konflikt — szczegóły w `message` i `details` |
 | 413 | `payload_too_large` | Plik za duży (MD: 10 MB, wyniki: 15 MB, PDF zamówienia: 25 MB) |
 | 415 | — | Zły typ pliku (importy: XLSX, zamówienie: PDF) |
 | 422 | `validation_error` | Złe dane (`details.errors`) |

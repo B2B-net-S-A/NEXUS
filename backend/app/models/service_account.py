@@ -120,6 +120,20 @@ class ServiceScope(str, enum.Enum):
     # „Status kontraktu” w dziewięciu uprawnieniach.
     contracts_status = "contracts:status"
     amounts_write = "amounts:write"
+    # ── Rekrutacja i kandydaci (decyzja Artura 15.10.2026) ──
+    # Automatyzacje mają objąć wszystkie procesy, nie tylko rozliczenia. Dane
+    # osobowe są podzielone tak, żeby admin dawał każdej automatyzacji tylko to,
+    # czego potrzebuje: profil bez kontaktu, kontakt, pliki CV i notatki to
+    # osobne scope'y. Oczekiwania stawkowe kandydata i budżet rekrutacji to
+    # koszt (``amounts:read``); stawka do klienta na karcie — sprzedaż.
+    recruitments_read = "recruitments:read"
+    recruitments_write = "recruitments:write"
+    candidates_read = "candidates:read"
+    candidates_contact = "candidates:contact"
+    candidates_cv = "candidates:cv"
+    candidates_write = "candidates:write"
+    notes_read = "notes:read"
+    notes_write = "notes:write"
 
 
 SCOPE_LABELS: dict[ServiceScope, str] = {
@@ -147,6 +161,23 @@ SCOPE_LABELS: dict[ServiceScope, str] = {
     ServiceScope.contracts_write: "Kontrakty: zapis (data końca w przyszłości)",
     ServiceScope.contracts_status: "Kontrakty: zmiana statusu i zakończenie współpracy",
     ServiceScope.amounts_write: "Stawki i kwoty: zmiana w zamówieniach",
+    ServiceScope.recruitments_read: (
+        "Rekrutacje: odczyt (lista, wymagania, Tablica, historia ruchów)"
+    ),
+    ServiceScope.recruitments_write: (
+        "Rekrutacje: zapis (dodanie osoby, przesunięcie karty)"
+    ),
+    ServiceScope.candidates_read: (
+        "Kandydaci: odczyt profilu bez danych kontaktowych (umiejętności, "
+        "miasto, dostępność)"
+    ),
+    ServiceScope.candidates_contact: (
+        "Kandydaci: dane kontaktowe (e-mail, telefon, LinkedIn, dane firmy)"
+    ),
+    ServiceScope.candidates_cv: "Kandydaci: pliki CV i tekst CV",
+    ServiceScope.candidates_write: "Kandydaci: zapis (nowy kandydat, wgranie CV)",
+    ServiceScope.notes_read: "Notatki i screening: odczyt",
+    ServiceScope.notes_write: "Notatki: zapis",
 }
 
 

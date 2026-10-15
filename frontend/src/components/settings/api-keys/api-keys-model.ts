@@ -44,6 +44,25 @@ export const SCOPE_GROUPS: readonly ScopeGroupDefinition[] = [
       "invoices:write",
     ],
   },
+  // Rekrutacja i kandydaci (15.10.2026). Dane osobowe w osobnych pozycjach:
+  // profil bez kontaktu, kontakt, CV i notatki — admin zaznacza tylko to,
+  // czego automatyzacja potrzebuje.
+  {
+    id: "recruitment-read",
+    title: "Rekrutacja i kandydaci — odczyt",
+    scopes: [
+      "recruitments:read",
+      "candidates:read",
+      "candidates:contact",
+      "candidates:cv",
+      "notes:read",
+    ],
+  },
+  {
+    id: "recruitment-write",
+    title: "Rekrutacja i kandydaci — zapis",
+    scopes: ["recruitments:write", "candidates:write", "notes:write"],
+  },
   // Węższy przed szerszym: kwoty sprzedaży, potem wszystkie (z kosztami i marżą).
   {
     id: "amounts",

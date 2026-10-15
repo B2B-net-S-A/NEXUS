@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -60,6 +61,7 @@ from app.services.mention_dispatch import (
     trim_snippet,
 )
 from app.services.mention_parser import parse_mentions, parse_mentions_global
+from app.services.write_author import WriteAuthor
 
 router = APIRouter(dependencies=SOURCING_SECTION_DEPENDENCIES)
 
@@ -340,13 +342,36 @@ async def _refresh_rate_from_after_dl_pair(
     await candidate_rate_from.recompute_safely(db, [candidate_id])
 
 
-@router.post("", response_model=NoteResponse, status_code=status.HTTP_201_CREATED)
-async def create_note(
-    data: NoteCreate,
-    current_user: CandidateWriteAccess,
-    request: Request,
-    db: AsyncSession = Depends(get_db),
-):
+@dataclass
+class NoteCreated:
+    """Wynik ``apply_note_create``: notatka i to, co wychodzi PO commicie."""
+
+    note: Note
+    author: WriteAuthor
+    snippet: str
+    deep_link: str
+    context_label: str
+    notification_title: str
+    pairs: list
+    reply_pairs: list
+    reply_title: str
+    reply_link: str
+
+
+async def apply_note_create(
+    db: AsyncSession, data: NoteCreate, *, author: WriteAuthor
+) -> NoteCreated:
+    """Ciało `POST /api/notes` BEZ commita — ekran i API v1 (15.10.2026).
+
+    Ten sam zapis dla osoby z ekranu i dla klucza API
+    (``POST /api/integrations/v1/candidates/{id}/notes``). Integracja
+    (``author.is_integration``: token klienta OAuth albo klucz API) pisze
+    notatkę systemową (0412). Konto serwisowe (``author.user is None``)
+    nikogo nie oznacza — ``@`` w treści zostaje tekstem, bez wzmianki,
+    dzwonka i maila do osoby — i nie dostaje wpisu ``UserActivity``
+    (ranking ludzi, ``user_id`` NOT NULL). Wołający commituje i potem woła
+    ``send_note_create_side_effects``.
+    """
     # Runda 10 (R10-N6-8): nieistniejący kandydat albo rekrutacja kończyły się
     # IntegrityError (FK) przy flush, czyli 500.
     if (
@@ -381,19 +406,23 @@ async def create_note(
         values["contract_id"] = None
         # Odpowiedź nie ma własnego rodzaju podanego wprost.
         values["kind"] = None
-    if candidate_claim.is_integration_request(request):
+    if author.is_integration:
         # 0412: notatka zapisana tokenem integracji (scraper ogłoszeń) jest
         # wpisem automatu — do 03.10.2026 scraper dopisywał ~250 takich
-        # dziennie jako zwykłe notatki.
+        # dziennie jako zwykłe notatki. Od 15.10.2026 także klucz API v1.
         values["external_source"] = SYSTEM_NOTE_SOURCE
         values["kind"] = None
-    note = Note(**values, author_id=current_user.id)
+    note = Note(**values, author_id=author.user_id)
     db.add(note)
     await db.flush()  # need note.id
 
     # @mentions — wybiera scope, filtruje self, insert NoteMention rows.
-    mentioned_ids = await _resolve_mentions(db, note.content, note)
-    mentioned_ids = [uid for uid in mentioned_ids if uid != current_user.id]
+    # Klucz API (bez osoby) nikogo nie oznacza: wzmianka to dzwonek i mail
+    # „X oznaczył(a) Cię”, a z automatu nie ma kogo podpisać (15.10.2026).
+    mentioned_ids: list[int] = []
+    if author.user is not None:
+        mentioned_ids = await _resolve_mentions(db, note.content, note)
+        mentioned_ids = [uid for uid in mentioned_ids if uid != author.user_id]
     for uid in mentioned_ids:
         db.add(NoteMention(note_id=note.id, user_id=uid))
 
@@ -401,19 +430,19 @@ async def create_note(
     snippet = await _mention_snippet(db, note)
     deep_link = build_note_deep_link(note)
     context_label = await build_note_context_label(db, note)
-    notification_title = (
-        f"{current_user.name or current_user.email} oznaczył(a) Cię w notatce"
-    )
-    pairs = await enqueue_mention_notifications(
-        db,
-        mentioned_user_ids=mentioned_ids,
-        author=current_user,
-        deep_link_path=deep_link,
-        snippet=snippet,
-        notification_title=notification_title,
-        related_entity_type="note",
-        related_entity_id=note.id,
-    )
+    notification_title = f"{author.label} oznaczył(a) Cię w notatce"
+    pairs: list = []
+    if author.user is not None:
+        pairs = await enqueue_mention_notifications(
+            db,
+            mentioned_user_ids=mentioned_ids,
+            author=author.user,
+            deep_link_path=deep_link,
+            snippet=snippet,
+            notification_title=notification_title,
+            related_entity_type="note",
+            related_entity_id=note.id,
+        )
 
     # 0399: autor notatki głównej dowiaduje się o odpowiedzi (chyba że to on
     # sam odpowiada albo już dostał wzmiankę w tej odpowiedzi).
@@ -422,19 +451,17 @@ async def create_note(
     reply_link = ""
     if (
         parent is not None
+        and author.user is not None
         and parent.author_id is not None
-        and parent.author_id != current_user.id
+        and parent.author_id != author.user_id
         and parent.author_id not in mentioned_ids
     ):
-        reply_title = (
-            f"{current_user.name or current_user.email} odpowiedział(a) "
-            "na Twoją notatkę"
-        )
+        reply_title = f"{author.label} odpowiedział(a) na Twoją notatkę"
         reply_link = build_note_deep_link(parent)
         reply_pairs = await enqueue_mention_notifications(
             db,
             mentioned_user_ids=[parent.author_id],
-            author=current_user,
+            author=author.user,
             deep_link_path=reply_link,
             snippet=snippet,
             notification_title=reply_title,
@@ -452,25 +479,26 @@ async def create_note(
         if candidate:
             candidate.notes_count = (candidate.notes_count or 0) + 1
 
-    # Track activity for leaderboard
-    entity_id = note.candidate_id or note.job_id or note.id
-    entity_type = (
-        "candidate" if note.candidate_id else ("job" if note.job_id else "note")
-    )
-    db.add(
-        UserActivity(
-            user_id=current_user.id,
-            action_type=UserActionType.note_added,
-            entity_type=entity_type,
-            entity_id=entity_id,
-            details={
-                "note_id": note.id,
-                "note_type": data.note_type.value if data.note_type else None,
-                "mentioned_count": len(mentioned_ids),
-                "reply_to": parent.id if parent is not None else None,
-            },
+    # Track activity for leaderboard — tylko osoba (ranking ludzi).
+    if author.user_id is not None:
+        entity_id = note.candidate_id or note.job_id or note.id
+        entity_type = (
+            "candidate" if note.candidate_id else ("job" if note.job_id else "note")
         )
-    )
+        db.add(
+            UserActivity(
+                user_id=author.user_id,
+                action_type=UserActionType.note_added,
+                entity_type=entity_type,
+                entity_id=entity_id,
+                details={
+                    "note_id": note.id,
+                    "note_type": data.note_type.value if data.note_type else None,
+                    "mentioned_count": len(mentioned_ids),
+                    "reply_to": parent.id if parent is not None else None,
+                },
+            )
+        )
 
     # 0413: notatka-karta zapisana w NEXUSIE wypełnia kartę rekomendacji od
     # razu (import w tle łapie resztę). Nigdy nie cofa notatki. Etap 1b:
@@ -489,32 +517,68 @@ async def create_note(
             note.candidate_id,
             client_rate_notes.note_has_dl_pair(note.kind, note.content),
         )
+    return NoteCreated(
+        note=note,
+        author=author,
+        snippet=snippet,
+        deep_link=deep_link,
+        context_label=context_label,
+        notification_title=notification_title,
+        pairs=pairs,
+        reply_pairs=reply_pairs,
+        reply_title=reply_title,
+        reply_link=reply_link,
+    )
+
+
+async def send_note_create_side_effects(created: NoteCreated) -> None:
+    """Po commicie ``apply_note_create``: WebSocket i maile wzmianek, dzwonek
+    odpowiedzi. Best-effort — nie blokują odpowiedzi, gdy SMTP padnie."""
+    if created.pairs:
+        await send_mention_side_effects(
+            created.pairs,
+            author_name=created.author.label,
+            snippet=created.snippet,
+            deep_link_path=created.deep_link,
+            context_label=created.context_label,
+            notification_title=created.notification_title,
+        )
+    if created.reply_pairs:
+        await send_mention_side_effects(
+            created.reply_pairs,
+            author_name=created.author.label,
+            snippet=created.snippet,
+            deep_link_path=created.reply_link,
+            context_label=created.context_label,
+            notification_title=created.reply_title,
+            notification_type=NotificationType.note_reply,
+            send_email=False,
+        )
+
+
+@router.post("", response_model=NoteResponse, status_code=status.HTTP_201_CREATED)
+async def create_note(
+    data: NoteCreate,
+    current_user: CandidateWriteAccess,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    created = await apply_note_create(
+        db,
+        data,
+        author=WriteAuthor.person(
+            current_user,
+            is_integration=candidate_claim.is_integration_request(request),
+        ),
+    )
 
     # Explicit commit — Notification rows muszą być trwałe ZANIM odpalimy email/WS.
     await db.commit()
 
     # Best-effort side-effects po commicie. Nie blokują response gdy SMTP fail.
-    if pairs:
-        await send_mention_side_effects(
-            pairs,
-            author_name=current_user.name or current_user.email,
-            snippet=snippet,
-            deep_link_path=deep_link,
-            context_label=context_label,
-            notification_title=notification_title,
-        )
-    if reply_pairs:
-        await send_mention_side_effects(
-            reply_pairs,
-            author_name=current_user.name or current_user.email,
-            snippet=snippet,
-            deep_link_path=reply_link,
-            context_label=context_label,
-            notification_title=reply_title,
-            notification_type=NotificationType.note_reply,
-            send_email=False,
-        )
+    await send_note_create_side_effects(created)
 
+    note = created.note
     await db.refresh(note)
     return note
 

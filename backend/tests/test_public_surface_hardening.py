@@ -41,6 +41,10 @@ _V1_MODULES = tuple(
         "md",
         "finance",
         "invoices",
+        "recruitments",
+        "recruitment_writes",
+        "candidates",
+        "candidate_writes",
     )
 )
 

@@ -51,7 +51,8 @@ _INDEXING_CALLS = {
 
 # (plik, funkcja) — każda ścieżka, która tworzy kandydata.
 _WRITE_PATHS = [
-    ("app/api/candidates.py", "create_candidate"),
+    # Ciało `POST /api/candidates` (ekran i API v1 od 15.10.2026).
+    ("app/api/candidates.py", "apply_candidate_create"),
     ("app/api/candidates.py", "create_candidate_from_linkedin"),
     ("app/api/import_export.py", "import_candidates"),
     ("app/api/candidates.py", "bulk_import_candidates"),
@@ -161,7 +162,7 @@ def _discover_candidate_write_paths() -> dict[str, set[str]]:
 def test_discovery_sees_the_known_good_paths() -> None:
     """Zabezpieczenie przed testem, który przechodzi, bo nic nie znalazł."""
     discovered = _discover_candidate_write_paths()
-    assert discovered.get("app/api/candidates.py::create_candidate"), (
+    assert discovered.get("app/api/candidates.py::apply_candidate_create"), (
         "detektor przestał widzieć ścieżkę, o której WIEMY, że tworzy i "
         "indeksuje kandydata — reszta tego pliku jest wtedy pusta"
     )

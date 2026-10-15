@@ -138,6 +138,9 @@ def test_only_listed_modules_read_recommendation_cards():
         "app/api/notes.py",
         # Profil kandydata: ustalenia i odpowiedzi z kart (czysty odczyt dla ludzi).
         "app/api/candidate_profile_facts.py",
+        # API v1 (15.10.2026): karta w odczycie screeningu, ZAWSZE bez
+        # narodowości (``integration_candidate_reads._CARD_NEVER``).
+        "app/services/integration_candidate_reads.py",
         # Tablica i „Przesuń dalej” czytają tylko stan karty (ile pól brakuje).
         "app/api/pipeline.py",
         "app/main.py",

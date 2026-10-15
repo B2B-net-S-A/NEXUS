@@ -7,6 +7,8 @@ scope'ami) — opis i zasady: ``docs/api/integracje-v1.md``.
 """
 
 from app.api.integrations_v1 import (
+    candidate_writes,
+    candidates,
     clients,
     contract_writes,
     contracts,
@@ -16,6 +18,8 @@ from app.api.integrations_v1 import (
     meta,
     order_writes,
     orders,
+    recruitment_writes,
+    recruitments,
 )
 from app.api.integrations_v1.common import PREFIX
 
@@ -29,6 +33,10 @@ ROUTERS = (
     md.router,
     finance.router,
     invoices.router,
+    recruitments.router,
+    recruitment_writes.router,
+    candidates.router,
+    candidate_writes.router,
 )
 
 __all__ = ["PREFIX", "ROUTERS"]
