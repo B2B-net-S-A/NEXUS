@@ -790,6 +790,24 @@ async def _seed_events(rows: list[tuple[str, dict]]) -> list[int]:
         return [obj.id for obj in objects]
 
 
+async def _listed_job_id() -> int:
+    """Rekrutacja widocznego klienta — zdarzenie z nieistniejącym ``job_id``
+    kanał pomija (``listed_jobs_clause``), jak trasy v1 rekrutacji."""
+    from app.core.database import AsyncSessionLocal
+    from app.models.client import Client
+
+    async with AsyncSessionLocal() as db:
+        client = Client(name=f"V1 Zdarzenia {uuid.uuid4().hex[:8]}")
+        db.add(client)
+        await db.flush()
+        job = Job(
+            title="Zdarzenia — kanał", client_id=client.id, status=JobStatus.published
+        )
+        db.add(job)
+        await db.commit()
+        return job.id
+
+
 async def _create_webhook(
     app_client, api_key: str, url: str = "https://hooks.example/in", **extra
 ) -> tuple[Any, str]:
@@ -863,9 +881,9 @@ class TestFeed:
         )
         from app.core.database import AsyncSessionLocal
 
+        marker = await _listed_job_id()
         async with AsyncSessionLocal() as db:
             start = await ie.current_cursor(db)
-        marker = int(uuid.uuid4().int % 1_000_000_000)
         ids = await _seed_events(
             [
                 ("recruitment.created", {"job_id": marker}),
