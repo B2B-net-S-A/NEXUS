@@ -106,6 +106,7 @@ import { RateHistoryDialog } from "@/components/v2/candidate-profile/RateHistory
 import api from "@/lib/api";
 import { notesAvailabilityOrigin } from "@/lib/notes-facts";
 import {
+  availabilityContractNote,
   contractAvailability,
   contractAvailabilityCountdown,
   contractAvailabilityOrigin,
@@ -113,7 +114,6 @@ import {
   type ContractAvailability,
 } from "@/lib/contract-availability";
 import type { EmploymentMarker } from "@/lib/employment-marker";
-import { formatIsoDatePl } from "@/lib/date-pl";
 import {
   AVAILABILITY_STATUS_OPTIONS,
   NOTICE_PERIOD_UNITS,
@@ -1074,37 +1074,6 @@ function LocationEditor({
         </DialogFooter>
       </DialogContent>
     </Dialog>
-  );
-}
-
-/**
- * Ramka w oknie dostępności przy żywej umowie (D6, 15.10.2026): do kiedy
- * osoba pracuje u nas i co zrobi wpisana data. Termin z umowy liczy się bez
- * daty z profilu — stąd `null` jako data profilu.
- */
-function availabilityContractNote(
-  marker: EmploymentMarker | null | undefined,
-): string | null {
-  const contract = contractAvailability(marker, null);
-  if (!contract) return null;
-  const client = contract.clientName ? ` (${contract.clientName})` : "";
-  const lead = contract.deliveryLead
-    ? `Delivery Lead (${contract.deliveryLead})`
-    : "Delivery Lead";
-  if (contract.kind === "starting") {
-    return `${contractAvailabilityText(contract)}${client}. Termin dostępności ustala ${lead}.`;
-  }
-  if (contract.kind === "no_end_date") {
-    return (
-      `Pracuje u nas bez daty końca zamówienia${client}. Termin ustala ${lead}; ` +
-      "data wpisana tutaj liczy się dopiero, gdy koniec pracy będzie znany."
-    );
-  }
-  return (
-    `Pracuje u nas do ${formatIsoDatePl(contract.workEnd)}${client}. Karta pokazuje ` +
-    `„${contractAvailabilityText(contract)}”. Data wcześniejsza nic nie zmieni — odejście ` +
-    `przed końcem zamówienia ustala ${lead}. Data późniejsza, np. po urlopie, zastąpi ` +
-    "termin z kontraktu."
   );
 }
 
