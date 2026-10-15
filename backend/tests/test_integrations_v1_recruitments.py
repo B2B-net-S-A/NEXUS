@@ -565,6 +565,42 @@ class TestRecruitmentList:
         )
         assert resp.status_code == 404
 
+    async def test_hidden_client_job_is_404_for_writes_screening_and_notes(
+        self, app_client: AsyncClient, app_auth_headers: dict
+    ):
+        """Przegląd bezpieczeństwa 15.10.2026: zapis, screening i notatka też
+        nie widzą rekrutacji ukrytego klienta (jak odczyt)."""
+        world = await _world(hidden_client=True)
+        job_id, anna = world["job_id"], world["anna"]
+        api_key = await _key(
+            app_client,
+            app_auth_headers,
+            ["recruitments:write", "notes:write", "candidates:read"],
+        )
+        add = await app_client.post(
+            f"{V1}/recruitments/{job_id}/candidates",
+            headers={**_h(api_key), "Idempotency-Key": str(uuid.uuid4())},
+            params={"dry_run": "true"},
+            json={"candidate_ids": [anna]},
+        )
+        assert add.status_code == 404, add.text
+        screening = await app_client.get(
+            f"{V1}/recruitments/{job_id}/candidates/{anna}/screening",
+            headers=_h(api_key),
+        )
+        assert screening.status_code == 404, screening.text
+        note = await app_client.post(
+            f"{V1}/candidates/{anna}/notes",
+            headers={**_h(api_key), "Idempotency-Key": str(uuid.uuid4())},
+            json={"content": "Wpis z automatu", "job_id": job_id},
+        )
+        assert note.status_code == 404, note.text
+        profile = await app_client.get(f"{V1}/candidates/{anna}", headers=_h(api_key))
+        assert profile.status_code == 200, profile.text
+        assert job_id not in [
+            item["job_id"] for item in profile.json()["active_recruitments"]
+        ]
+
 
 class TestRecruitmentDetail:
     @pytest.mark.parametrize(
@@ -803,3 +839,43 @@ class TestAccess:
         )
         assert resp.status_code == 404, resp.text
         assert resp.json()["error"]["code"] == "not_found"
+
+
+def test_interview_badge_keeps_only_the_stage_description() -> None:
+    """Debrief (warunek przyjęcia oferty, komentarz kandydata), notatka wniosku
+    i prepy nie wychodzą na karcie Tablicy (przegląd bezpieczeństwa 15.10.2026)."""
+    from app.services.integration_recruitment_reads import public_interview_badge
+
+    badge = {
+        "kind": "debrief_done",
+        "label": "Debrief ✓",
+        "tone": "ok",
+        "at": "2026-10-15T10:00:00+00:00",
+        "steps": [{"key": "interview", "state": "done", "at": None, "who": 7}],
+        "interview_event_id": 5,
+        "tentative_interview_at": None,
+        "debrief": {"acceptance_condition": "160 zł/h", "candidate_comment": "x"},
+        "slot_request": {"note": "proszę o wtorek"},
+        "preps": [{"id": 1}],
+        "recruiter_id": 7,
+    }
+    out = public_interview_badge(badge)
+    assert set(out) == {
+        "kind",
+        "label",
+        "tone",
+        "at",
+        "steps",
+        "interview_event_id",
+        "tentative_interview_at",
+    }
+    assert out["steps"] == [{"key": "interview", "state": "done", "at": None}]
+    assert public_interview_badge(None) is None
+
+
+def test_budget_warning_needs_all_amounts() -> None:
+    from app.services.integration_recruitment_reads import visible_card_warnings
+
+    warnings = ["budget_exceeded", "stale"]
+    assert visible_card_warnings(warnings, show_costs=False) == ["stale"]
+    assert visible_card_warnings(warnings, show_costs=True) == warnings

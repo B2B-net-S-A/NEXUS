@@ -81,6 +81,7 @@ from app.api.integrations_v1.common import (
     principal_rate_key,
     write_rate_limit,
 )
+from app.api.jobs import jobs_register_base_clause
 from app.core.database import get_db
 from app.core.rate_limit import limiter
 from app.models.candidate import Candidate
@@ -248,7 +249,11 @@ class CardMoveOut(BaseModel):
 
 
 async def _job_or_404(db: AsyncSession, job_id: int) -> Job:
-    job = await db.scalar(select(Job).where(Job.id == job_id))
+    # Jak odczyt (``recruitments._job_or_404``): rekrutacja ukrytego albo
+    # usuniętego klienta nie istnieje dla klucza — także przy zapisie.
+    job = await db.scalar(
+        select(Job).where(Job.id == job_id, jobs_register_base_clause())
+    )
     if job is None:
         raise HTTPException(404, detail="Rekrutacja nie istnieje.")
     return job

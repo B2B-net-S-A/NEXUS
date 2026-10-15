@@ -62,9 +62,11 @@ from app.services.integration_recruitment_reads import (
     job_budget,
     job_moves_page,
     latest_client_rates,
+    public_interview_badge,
     requirements_view,
     stage_counts_for_jobs,
     stage_definitions,
+    visible_card_warnings,
 )
 from app.services.job_previous_recruiters import previous_recruiters_for_jobs
 from app.services.job_priority import level_of, priorities_for_levels
@@ -571,7 +573,10 @@ class BoardCardOut(BaseModel):
     auto_cv_ready: bool
     qc_status: Optional[str]
     recommendation_card_status: Optional[str]
-    interview_badge: Optional[dict]
+    interview_badge: Optional[dict] = Field(
+        description="Etap rozmowy u klienta: kind, label, tone, at, steps, "
+        "interview_event_id, tentative_interview_at — bez treści debriefu."
+    )
     availability_status: Optional[str]
     rejection_reason_id: Optional[int]
     ended_by: Optional[str]
@@ -650,11 +655,11 @@ def _card_out(card, *, process, client_rate, visibility: MoneyVisibility) -> dic
         "auto_cv_ready": card.auto_cv_ready,
         "qc_status": qc.get("status"),
         "recommendation_card_status": recommendation.get("status"),
-        "interview_badge": card.interview_badge,
+        "interview_badge": public_interview_badge(card.interview_badge),
         "availability_status": card.availability_status,
         "rejection_reason_id": card.rejection_reason_id,
         "ended_by": card.ended_by,
-        "warnings": list(card.warnings),
+        "warnings": visible_card_warnings(card.warnings, show_costs=visibility.costs),
         **card_money(costs, client_rate=client_rate, visibility=visibility),
     }
 

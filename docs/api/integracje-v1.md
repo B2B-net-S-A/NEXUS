@@ -100,8 +100,11 @@ odejście czy awans pracownika nie zmienia uprawnień automatyzacji.
   i łączenia z innymi systemami). Dane kandydatów są podzielone na profil
   (`candidates:read`), kontakt (`candidates:contact`), CV (`candidates:cv`)
   i notatki (`notes:read`) — daj automatyzacji tylko to, czego potrzebuje.
-  Uwaga: plik i tekst CV zawierają zwykle dane kontaktowe, więc `candidates:cv`
-  w praktyce je odsłania. Każde pobranie pliku kandydata zostawia wpis w historii
+  Uwaga: **wolny tekst** niesie to, co ludzie wpisali — plik i tekst CV zawierają
+  zwykle dane kontaktowe, a notatki, odpowiedzi screeningu i karta rekomendacji
+  (`notes:read`) mogą zawierać telefon albo oczekiwaną stawkę. Ukrywane są pola,
+  nie treść: `candidates:cv` i `notes:read` traktuj jak dostęp do kontaktu
+  i oczekiwań kandydata. Każde pobranie pliku kandydata zostawia wpis w historii
   kandydata z nazwą konta serwisowego. Dane trzymaj tylko tak długo, jak wymaga
   tego automatyzacja; nie przenoś ich do narzędzi, które nie mają umowy
   powierzenia.
@@ -319,7 +322,10 @@ odejście czy awans pracownika nie zmienia uprawnień automatyzacji.
   MUST/NICE, umiejętności krytyczne, „sprawdź w rozmowie”, pytania screeningowe.
   Odczyt niczego nie oznacza jako przeczytane.
 - `/board` to Tablica: kolumny z kartami (kandydat, etap, `process_state_version`
-  potrzebny do przesunięcia, znaczniki). Bez danych kontaktowych.
+  potrzebny do przesunięcia, znaczniki). Bez danych kontaktowych. Znacznik rozmowy
+  u klienta (`interview_badge`) opisuje tylko etap — treść debriefu, warunek
+  przyjęcia oferty i notatki wniosku zostają na ekranie; ostrzeżenie
+  `budget_exceeded` tylko z `amounts:read`.
 - `/moves` — historia ruchów kart od najnowszych.
 - `/screening` — odpowiedzi ze screeningu i karta rekomendacji osoby w tej
   rekrutacji (bez narodowości; stawki kandydata tylko z `amounts:read`).
@@ -359,8 +365,9 @@ odejście czy awans pracownika nie zmienia uprawnień automatyzacji.
   CV w tle po zapisie (uzupełnia profil, sprawdza, czy to ta sama osoba). Bez
   `dry_run`.
 - **Notatka** — `content`, opcjonalnie `job_id` i `note_type`. Zawsze notatka
-  systemowa (w historii za „Pokaż systemowe”); `@` w treści nikogo nie oznacza
-  i nie wysyła powiadomień.
+  systemowa, rodzaju „wpis automatu” niezależnie od treści (w historii za „Pokaż
+  systemowe”; nie czyta jej AI ani bramka wymagań i nie jest dowodem zgłoszenia
+  do rekrutacji); `@` w treści nikogo nie oznacza i nie wysyła powiadomień.
 
 ### Rekrutacje — zapis
 

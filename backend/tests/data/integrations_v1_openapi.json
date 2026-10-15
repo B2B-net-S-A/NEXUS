@@ -255,6 +255,7 @@
                 "type": "null"
               }
             ],
+            "description": "Etap rozmowy u klienta: kind, label, tone, at, steps, interview_event_id, tentative_interview_at — bez treści debriefu.",
             "title": "Interview Badge"
           },
           "next_action_owner": {

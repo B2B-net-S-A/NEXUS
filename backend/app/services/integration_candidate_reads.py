@@ -50,7 +50,10 @@ from app.services.candidate_identity_quarantine import (
     source_is_quarantined_clause,
 )
 from app.services.candidate_rate_from import rate_summary, this_job_rates
-from app.services.client_identity import client_display_name_expression
+from app.services.client_identity import (
+    client_display_name_expression,
+    job_client_listed_clause,
+)
 from app.services.cv_enrichment import NON_CV_EXTRACTED_KEYS
 from app.services.employment_marker import load_employment_markers
 from app.services.integration_actor import VIA_PREFIX
@@ -358,7 +361,12 @@ async def active_recruitments(
             .select_from(latest)
             .join(Job, Job.id == latest.c.job_id)
             .outerjoin(Client, Client.id == Job.client_id)
-            .where(Job.status != JobStatus.closed)
+            .where(
+                Job.status != JobStatus.closed,
+                # Rekrutacje ukrytych i usuniętych klientów nie wychodzą
+                # (jak rejestr: ``jobs_register_base_clause``).
+                job_client_listed_clause(Job.client_id),
+            )
             .order_by(latest.c.moved_at.desc(), latest.c.job_id)
         )
     ).all()

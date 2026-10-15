@@ -41,6 +41,46 @@ from app.services import champion_view
 # ── Kwoty ────────────────────────────────────────────────────────────────────
 
 
+# Znacznik rozmowy u klienta na karcie: tylko pola opisu etapu. Pełny znacznik
+# ekranu niesie debrief (warunek przyjęcia oferty — zwykle stawka, komentarz
+# kandydata), notatkę wniosku o termin, prepy i id osób (przegląd
+# bezpieczeństwa 15.10.2026).
+INTERVIEW_BADGE_FIELDS: tuple[str, ...] = (
+    "kind",
+    "label",
+    "tone",
+    "at",
+    "interview_event_id",
+    "tentative_interview_at",
+)
+
+
+def public_interview_badge(badge: Any) -> Optional[dict]:
+    """Znacznik rozmowy bez treści debriefu, wniosku i prepów."""
+    if not isinstance(badge, dict):
+        return None
+    out = {key: badge.get(key) for key in INTERVIEW_BADGE_FIELDS}
+    steps = badge.get("steps")
+    if isinstance(steps, list):
+        out["steps"] = [
+            {"key": step.get("key"), "state": step.get("state"), "at": step.get("at")}
+            for step in steps
+            if isinstance(step, dict)
+        ]
+    return out
+
+
+#: Ostrzeżenia karty, które zdradzają koszt (stawka kandydata ponad budżet).
+COST_WARNINGS: frozenset[str] = frozenset({"budget_exceeded"})
+
+
+def visible_card_warnings(warnings: Any, *, show_costs: bool) -> list[str]:
+    items = [str(item) for item in (warnings or [])]
+    if show_costs:
+        return items
+    return [item for item in items if item not in COST_WARNINGS]
+
+
 @dataclass(frozen=True)
 class MoneyVisibility:
     """Które kwoty widzi klucz: ``sales`` — sprzedaż, ``costs`` — koszt."""

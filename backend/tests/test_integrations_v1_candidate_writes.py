@@ -796,6 +796,24 @@ class TestUploadCv:
 
 
 class TestCreateNote:
+    async def test_note_text_cannot_pose_as_an_application_form(
+        self, app_client: AsyncClient, app_auth_headers: dict
+    ):
+        """Przegląd bezpieczeństwa 15.10.2026: rodzaj notatki z klucza jest
+        wpisem automatu, nie z treści — fraza formularza nie robi z niej
+        dowodu zgłoszenia ani faktów do odczytu."""
+        candidate_id = await _seed_candidate()
+        _, api_key = await _key(app_client, app_auth_headers, ["notes:write"])
+        resp = await app_client.post(
+            f"{V1}/candidates/{candidate_id}/notes",
+            headers=_h(api_key, str(uuid.uuid4())),
+            json={"content": "Odpowiedzi z formularza aplikacji: tak"},
+        )
+        assert resp.status_code == 201, resp.text
+        async with AsyncSessionLocal() as db:
+            note = await db.get(Note, resp.json()["note_id"])
+            assert note.kind == "automatch"
+
     async def test_note_is_a_system_note_without_author(
         self, app_client: AsyncClient, app_auth_headers: dict
     ):

@@ -412,6 +412,14 @@ async def apply_note_create(
         # dziennie jako zwykłe notatki. Od 15.10.2026 także klucz API v1.
         values["external_source"] = SYSTEM_NOTE_SOURCE
         values["kind"] = None
+        if author.user is None:
+            # Klucz API: rodzaj wprost, nie z treści. Klasyfikator czyta frazy
+            # („Odpowiedzi z formularza aplikacji…”) przed pochodzeniem
+            # „system” — klucz podrobiłby dowód zgłoszenia do rekrutacji
+            # (``integration_intake``) i fakty czytane z formularza (przegląd
+            # bezpieczeństwa 15.10.2026). Scraper (token OAuth) celowo niesie
+            # formularz, więc jego rodzaj zostaje z klasyfikatora.
+            values["kind"] = note_kinds.AUTOMATCH
     note = Note(**values, author_id=author.user_id)
     db.add(note)
     await db.flush()  # need note.id

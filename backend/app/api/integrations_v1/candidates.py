@@ -43,6 +43,7 @@ from app.api.integrations_v1.common import (
     read_rate_limit,
     sees_candidate_contact,
 )
+from app.api.jobs import jobs_register_base_clause
 from app.api.notes import _enriched_select
 from app.core.database import get_db
 from app.core.http_headers import content_disposition
@@ -645,7 +646,11 @@ async def get_candidate_screening(
     i karta rekomendacji bieżącej próby procesu. Narodowość z karty nie
     wychodzi nigdy; stawka kandydata (pole „Stawka” karty i ``candidate_rate``
     — stawka podana w tej rekrutacji) — tylko z ``amounts:read``."""
-    job = await db.get(Job, job_id)
+    # Rekrutacja ukrytego albo usuniętego klienta nie istnieje dla klucza
+    # (jak ``GET /recruitments/{id}``).
+    job = await db.scalar(
+        select(Job).where(Job.id == job_id, jobs_register_base_clause())
+    )
     if job is None:
         raise HTTPException(404, detail="Rekrutacja nie istnieje.")
     if not await reads.candidate_exists(db, candidate_id):

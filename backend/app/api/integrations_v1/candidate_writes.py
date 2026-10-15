@@ -68,26 +68,28 @@ from app.api.integrations_v1.common import (
     principal_rate_key,
     write_rate_limit,
 )
+from app.api.jobs import jobs_register_base_clause
 from app.core.database import get_db
 from app.core.rate_limit import limiter
 from app.models.candidate import Candidate
 from app.models.candidate_document import CandidateDocumentKind
+from app.models.job import Job
 from app.models.note import NoteType
 from app.models.purged_candidate import PurgedCandidate
 from app.schemas.candidate import CandidateCreate
 from app.schemas.note import NoteCreate
+from app.services.candidate_audit import (
+    EMAIL_TOMBSTONE_SOURCE,
+    candidate_email_tombstone,
+)
 from app.services.candidate_name_rules import (
     NAME_MARKER_ERROR_TYPE,
     find_name_markers,
     name_marker_message,
 )
-from app.services.candidate_audit import (
-    EMAIL_TOMBSTONE_SOURCE,
-    candidate_email_tombstone,
-)
 from app.services.dedup_service import find_candidate_by_email
-from app.services.proxycurl.client import normalize_linkedin_url
 from app.services.integration_actor import VIA_PREFIX
+from app.services.proxycurl.client import normalize_linkedin_url
 from app.services.write_author import WriteAuthor
 
 router = APIRouter(route_class=IntegrationRoute)
@@ -476,6 +478,14 @@ async def create_candidate_note(
     created_box: list = []
 
     async def run():
+        if body.job_id is not None and (
+            await db.scalar(
+                select(Job.id).where(Job.id == body.job_id, jobs_register_base_clause())
+            )
+            is None
+        ):
+            # Rekrutacja ukrytego albo usuniętego klienta nie istnieje dla klucza.
+            raise HTTPException(404, detail="Rekrutacja nie istnieje.")
         created = await note_routes.apply_note_create(
             db,
             NoteCreate(
