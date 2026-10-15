@@ -78,7 +78,11 @@ async def _assert_client(db: AsyncSession, client_id: int) -> None:
     await assert_client_assignable(db, client_id)
 
 
-async def _read(db: AsyncSession, user_id: int, client_id: int, text: str) -> dict:
+async def _read(
+    db: AsyncSession, user_id: Optional[int], client_id: int, text: str
+) -> dict:
+    # `user_id=None` — konto serwisowe API v1 (`recruitments/read-request`):
+    # zużycie AI liczy się jako „system”, odczyt jest ten sam.
     try:
         async with ai_feature(db, AIFeatureKey.champion_draft, user_id=user_id):
             await db.commit()

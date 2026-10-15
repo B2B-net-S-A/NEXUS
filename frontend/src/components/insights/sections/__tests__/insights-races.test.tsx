@@ -444,6 +444,117 @@ describe("InsightsRaces", () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Miesiące z przeszłości (decyzja Artura 15.10.2026): do września 2026
+// rozliczone z DynaReportera, październik mieszany.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const DR_NOTE =
+  "Wynik z DynaReportera — rozliczony przy przejściu na NEXUS (12.10.2026).";
+
+/** Te same pola zamknięcia w obu kopertach wyścigów. */
+function withClosure(
+  payload: ReturnType<typeof racesPayload>,
+  closure: Record<string, unknown>,
+  placementsClosure: Record<string, unknown> = closure,
+) {
+  return {
+    recommendations: { ...payload.recommendations, ...closure },
+    placements: { ...payload.placements, ...placementsClosure },
+  };
+}
+
+describe("InsightsRaces — wybrany miesiąc", () => {
+  it("wybrany miesiąc idzie do serwera jako `period`", async () => {
+    respond({ [RACES]: racesPayload({ period: "2026-07" }) });
+    renderWithClient(<InsightsRaces month="2026-07" />);
+
+    expect(await screen.findByText("Wyścig Rekomendacji")).toBeInTheDocument();
+    expect(mocks.get).toHaveBeenCalledWith(RACES, {
+      params: { period: "2026-07" },
+    });
+  });
+
+  it("zamrożony miesiąc: „Zamknięte” zamiast odliczania i zdanie o źródle", async () => {
+    respond({
+      [RACES]: withClosure(racesPayload({ period: "2026-07", daysRemaining: null }), {
+        is_frozen: true,
+        days_remaining: null,
+        closure_status: "frozen",
+        source: "dynareporter",
+        source_note: DR_NOTE,
+      }),
+    });
+    renderWithClient(<InsightsRaces month="2026-07" />);
+
+    expect(await screen.findAllByText("Zamknięte")).toHaveLength(2);
+    expect(screen.queryByText("Zakończony")).not.toBeInTheDocument();
+    expect(screen.queryByText(/Zostało/)).not.toBeInTheDocument();
+    expect(screen.getAllByText(DR_NOTE)).toHaveLength(2);
+  });
+
+  it("remis do decyzji admina jest widoczny nad listą", async () => {
+    respond({
+      [RACES]: withClosure(
+        racesPayload({ period: "2026-07" }),
+        { is_frozen: true, closure_status: "frozen" },
+        {
+          is_frozen: true,
+          closure_status: "tie_pending",
+          leader_tie_user_ids: [9, 10],
+        },
+      ),
+    });
+    renderWithClient(<InsightsRaces month="2026-07" />);
+
+    expect(
+      await screen.findByText("Remis — o miejscu zdecyduje admin"),
+    ).toBeInTheDocument();
+    expect(screen.getAllByTestId("competition-tie-pending")).toHaveLength(1);
+  });
+
+  it("miesiąc bez zwycięzcy mówi to wprost zamiast „brak wyników”", async () => {
+    respond({
+      [RACES]: withClosure(
+        racesPayload({ period: "2026-07", placements: [] }),
+        { is_frozen: true, closure_status: "frozen" },
+        { is_frozen: true, closure_status: "no_winner" },
+      ),
+    });
+    renderWithClient(<InsightsRaces month="2026-07" />);
+
+    expect(
+      await screen.findByText("Brak zwycięzcy w tym okresie"),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText("Brak wyników w tym miesiącu"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("mianownik z DynaReportera podpisuje plakietkę dniami przepracowanymi", async () => {
+    respond({
+      [RACES]: racesPayload({
+        period: "2026-07",
+        recommendations: [
+          recEntry({
+            verifications: 84,
+            workdays: 21,
+            per_day: 4,
+            workdays_source: "dynareporter",
+          }),
+        ],
+      }),
+    });
+    renderWithClient(<InsightsRaces month="2026-07" />);
+
+    expect(
+      await screen.findByText("· dni przepracowane (DynaReporter)"),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/4\.0\/dzień/)).toBeInTheDocument();
+    expect(screen.queryByText(/bez urlopów/)).not.toBeInTheDocument();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Hall of Fame
 // ─────────────────────────────────────────────────────────────────────────────
 

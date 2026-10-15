@@ -19,6 +19,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import { ApiKeysSettingsView } from "@/components/settings/api-keys/ApiKeysSettingsView";
 import type {
+  AccountWebhooksState,
   AccountWritesState,
   ApiKeysActions,
   ApiKeysLoad,
@@ -29,6 +30,7 @@ import type {
   ServiceAccountConfigDto,
   ServiceAccountDto,
   ServiceAccountKeyDto,
+  ServiceAccountWebhookDto,
   ServiceAccountWriteDto,
 } from "@/lib/api";
 
@@ -58,6 +60,32 @@ const SCOPES: ScopeInfoDto[] = [
     label: "Kwoty sprzedaży: stawki do klienta, wartości i budżety zamówień, przychód, faktury do klientów",
   },
   { value: "amounts:read", label: "Wszystkie kwoty: także stawki konsultantów, koszty i marża" },
+  { value: "recruitments:read", label: "Rekrutacje: odczyt (lista, wymagania, Tablica, historia ruchów)" },
+  { value: "recruitments:write", label: "Rekrutacje: zapis (dodanie osoby, przesunięcie karty)" },
+  {
+    value: "candidates:read",
+    label: "Kandydaci: odczyt profilu bez danych kontaktowych (umiejętności, miasto, dostępność)",
+  },
+  { value: "candidates:contact", label: "Kandydaci: dane kontaktowe (e-mail, telefon, LinkedIn, dane firmy)" },
+  { value: "candidates:cv", label: "Kandydaci: pliki CV i tekst CV" },
+  { value: "candidates:write", label: "Kandydaci: zapis (nowy kandydat, wgranie CV)" },
+  { value: "notes:read", label: "Notatki i screening: odczyt" },
+  { value: "notes:write", label: "Notatki: zapis" },
+  {
+    value: "recruitments:create",
+    label: "Rekrutacje: zakładanie z requestu klienta (z odczytem treści przez AI)",
+  },
+  { value: "cv:generate", label: "CV dla klienta: generowanie z generatora CV" },
+  { value: "calendar:read", label: "Kalendarz: rozmowy u klienta i prepy (odczyt)" },
+  { value: "applications:read", label: "Zgłoszenia z linku rekrutacji: odczyt" },
+  {
+    value: "applications:write",
+    label: "Zgłoszenia z linku rekrutacji: rozpatrzenie (dołącz, utwórz, odrzuć)",
+  },
+  { value: "insights:read", label: "Insights: raporty i wskaźniki (odczyt)" },
+  { value: "academy:read", label: "Akademia: programy i nabór (odczyt)" },
+  { value: "events:read", label: "Zdarzenia: kanał zdarzeń (same identyfikatory)" },
+  { value: "webhooks:manage", label: "Webhooki: zarządzanie powiadomieniami konta" },
 ];
 
 const CONFIG: ServiceAccountConfigDto = {
@@ -201,6 +229,57 @@ function seedWrites(now: Date): ServiceAccountWriteDto[] {
   ];
 }
 
+function seedWebhooks(now: Date): ServiceAccountWebhookDto[] {
+  const at = (minutes: number) => new Date(now.getTime() - minutes * 60 * 1000).toISOString();
+  const base = {
+    last_event_id: 0,
+    failure_count: 0,
+    next_attempt_at: null,
+    disabled_reason: null,
+    disabled_at: null,
+    last_error: null,
+    test_pending: false,
+    created_at: at(60 * 24 * 7),
+  };
+  return [
+    {
+      ...base,
+      id: 11,
+      url: "https://automatyzacje.example.com/webhook/nexus-rekrutacja",
+      event_types: ["card.moved", "application.received"],
+      is_active: true,
+      last_event_id: 48211,
+      last_delivery_at: at(2),
+      last_status: 200,
+    },
+    {
+      ...base,
+      id: 12,
+      url: "https://hooks.example.com/catch/rozliczenia",
+      event_types: [],
+      is_active: true,
+      last_event_id: 48190,
+      failure_count: 3,
+      next_attempt_at: new Date(now.getTime() + 4 * 60 * 1000).toISOString(),
+      last_delivery_at: at(6),
+      last_status: 502,
+      last_error: "http_502",
+    },
+    {
+      ...base,
+      id: 13,
+      url: "https://stary-serwer.example.com/nexus",
+      event_types: ["invoice.created"],
+      is_active: false,
+      failure_count: 20,
+      disabled_reason: "20 nieudanych prób z rzędu (ostatnio: timeout)",
+      disabled_at: at(60 * 30),
+      last_delivery_at: at(60 * 30),
+      last_status: null,
+    },
+  ];
+}
+
 const pause = () => new Promise((resolve) => setTimeout(resolve, 300));
 
 function readState(): State {
@@ -213,6 +292,7 @@ export default function ApiKeysHarness() {
   const now = useMemo(() => new Date(), []);
   const [accounts, setAccounts] = useState<ServiceAccountDto[]>([]);
   const [writes, setWrites] = useState<Record<number, AccountWritesState>>({});
+  const [webhooks, setWebhooks] = useState<Record<number, AccountWebhooksState>>({});
 
   useEffect(() => {
     const next = readState();
@@ -333,6 +413,18 @@ export default function ApiKeysHarness() {
                       onRetry: () => undefined,
                     }
                   : { status: "success", writes: [] },
+          }));
+        }}
+        webhooks={webhooks}
+        onWebhooksOpenChange={(accountId, open) => {
+          if (!open) return;
+          // Pierwsze konto ma trzy stany webhooków, pozostałe — pusto.
+          setWebhooks((prev) => ({
+            ...prev,
+            [accountId]:
+              accountId === 1
+                ? { status: "success", webhooks: seedWebhooks(now) }
+                : { status: "success", webhooks: [] },
           }));
         }}
         initialRevealedKey={revealed}

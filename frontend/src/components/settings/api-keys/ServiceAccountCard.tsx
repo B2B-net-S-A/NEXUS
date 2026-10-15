@@ -19,8 +19,14 @@ import {
 } from "./api-keys-model";
 import { ServiceAccountForm } from "./ServiceAccountForm";
 import { ServiceAccountKeys } from "./ServiceAccountKeys";
+import { ServiceAccountWebhooks } from "./ServiceAccountWebhooks";
 import { ServiceAccountWrites } from "./ServiceAccountWrites";
-import type { AccountWritesState, ApiKeysActions, RevealedApiKey } from "./types";
+import type {
+  AccountWebhooksState,
+  AccountWritesState,
+  ApiKeysActions,
+  RevealedApiKey,
+} from "./types";
 
 export interface ServiceAccountCardProps {
   account: ServiceAccountDto;
@@ -33,6 +39,8 @@ export interface ServiceAccountCardProps {
   onDismissRevealed: () => void;
   writes: AccountWritesState | undefined;
   onWritesOpenChange: (open: boolean) => void;
+  webhooks: AccountWebhooksState | undefined;
+  onWebhooksOpenChange: (open: boolean) => void;
 }
 
 export function ServiceAccountCard({
@@ -46,12 +54,15 @@ export function ServiceAccountCard({
   onDismissRevealed,
   writes,
   onWritesOpenChange,
+  webhooks,
+  onWebhooksOpenChange,
 }: ServiceAccountCardProps) {
   const headingId = useId();
   const [editing, setEditing] = useState(false);
   const [busy, setBusy] = useState<"toggle" | "delete" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [writesOpen, setWritesOpen] = useState(false);
+  const [webhooksOpen, setWebhooksOpen] = useState(false);
   const { askConfirm, confirmDialog } = useConfirmV2();
 
   const scopeGroups = groupScopes(account.scopes, scopeCatalog);
@@ -238,6 +249,16 @@ export function ServiceAccountCard({
           onWritesOpenChange(open);
         }}
         state={writes}
+      />
+
+      <ServiceAccountWebhooks
+        accountName={account.name}
+        open={webhooksOpen}
+        onOpenChange={(open) => {
+          setWebhooksOpen(open);
+          onWebhooksOpenChange(open);
+        }}
+        state={webhooks}
       />
     </article>
   );

@@ -91,17 +91,20 @@ function success(accounts: ServiceAccountDto[], config = CONFIG): ApiKeysLoad {
 function renderView(props: Partial<ApiKeysSettingsViewProps> = {}) {
   const actions = actionsMock();
   const onWritesOpenChange = vi.fn();
+  const onWebhooksOpenChange = vi.fn();
   render(
     <ApiKeysSettingsView
       load={success([account()])}
       actions={actions}
       writes={{}}
       onWritesOpenChange={onWritesOpenChange}
+      webhooks={{}}
+      onWebhooksOpenChange={onWebhooksOpenChange}
       now={NOW}
       {...props}
     />,
   );
-  return { actions, onWritesOpenChange, user: userEvent.setup() };
+  return { actions, onWritesOpenChange, onWebhooksOpenChange, user: userEvent.setup() };
 }
 
 describe("ApiKeysSettingsView — stany ładowania", () => {
@@ -308,6 +311,65 @@ describe("ApiKeysSettingsView — konto i klucze", () => {
     await user.click(screen.getByRole("button", { name: "Ostatnie zapisy przez API" }));
     expect(screen.getByText("Nie udało się pobrać ostatnich zapisów.")).toBeInTheDocument();
     expect(screen.queryByText("To konto nie zapisało jeszcze nic przez API.")).toBeNull();
+  });
+});
+
+describe("ApiKeysSettingsView — webhooki konta", () => {
+  const hook = {
+    id: 11,
+    url: "https://automatyzacje.example.com/webhook",
+    event_types: [] as string[],
+    is_active: true,
+    last_event_id: 10,
+    failure_count: 0,
+    next_attempt_at: null,
+    disabled_reason: null,
+    disabled_at: null,
+    last_delivery_at: at(-1),
+    last_status: 200,
+    last_error: null,
+    test_pending: false,
+    created_at: at(-7),
+  };
+
+  it("pytają o dane dopiero po rozwinięciu i pokazują stan każdego webhooka", async () => {
+    const { onWebhooksOpenChange, user } = renderView({
+      webhooks: {
+        1: {
+          status: "success",
+          webhooks: [
+            hook,
+            {
+              ...hook,
+              id: 12,
+              url: "https://stary.example.com/nexus",
+              event_types: ["invoice.created"],
+              is_active: false,
+              disabled_reason: "20 nieudanych prób z rzędu (ostatnio: timeout)",
+            },
+          ],
+        },
+      },
+    });
+    expect(screen.queryByRole("table", { name: /Webhooki konta/ })).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Webhooki" }));
+    expect(onWebhooksOpenChange).toHaveBeenCalledWith(1, true);
+    const table = screen.getByRole("table", { name: /Webhooki konta/ });
+    expect(within(table).getByText("https://automatyzacje.example.com/webhook")).toBeInTheDocument();
+    expect(within(table).getByText("Wszystkie dostępne")).toBeInTheDocument();
+    expect(within(table).getByText("Działa")).toBeInTheDocument();
+    expect(
+      within(table).getByText("Wyłączony: 20 nieudanych prób z rzędu (ostatnio: timeout)"),
+    ).toBeInTheDocument();
+  });
+
+  it("awaria to komunikat, nie „brak webhooków”", async () => {
+    const { user } = renderView({
+      webhooks: { 1: { status: "error", message: "Nie udało się pobrać webhooków." } },
+    });
+    await user.click(screen.getByRole("button", { name: "Webhooki" }));
+    expect(screen.getByText("Nie udało się pobrać webhooków.")).toBeInTheDocument();
+    expect(screen.queryByText(/To konto nie ma webhooków/)).toBeNull();
   });
 });
 

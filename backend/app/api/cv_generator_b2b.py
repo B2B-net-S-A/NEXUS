@@ -114,6 +114,7 @@ from app.services.cv_generator_b2b.standalone_service import (
     CandidateGenerationSource,
     ContentMode,
     DEFAULT_CONTENT_MODE,
+    INSTRUCTION_MAX,
     StandaloneGenerationError,
     UploadGenerationInput,
     apply_content_mode_cap,
@@ -257,8 +258,9 @@ class GenerateRequest(BaseModel):
     sources: Optional[AiSourcesIn] = None
     # „Napisz od nowa: krócej, więcej o Kafce” (Edytor CV 3, PR 5): forma
     # i akcenty dla modelu, nie fakty — fakty z tego zdania karta zapisuje
-    # w notatkach rekrutacji przed generacją. Stawki wycinane.
-    instruction: str = Field(default="", max_length=300)
+    # w notatkach rekrutacji przed generacją. Stawki wycinane. Lista poprawek
+    # (linia = punkt) do `INSTRUCTION_MAX` znaków.
+    instruction: str = Field(default="", max_length=INSTRUCTION_MAX)
 
     @field_validator("champion_profile")
     @classmethod
@@ -4195,6 +4197,18 @@ class PackageConfirmation(BaseModel):
     expected_fingerprint: str = Field(pattern=r"^[a-f0-9]{64}$")
 
 
+def policy_project_ref(rule, job) -> Optional[str]:
+    """Numer u klienta, który formularz generatora wpisuje sam (polityka
+    centralna). 0380: podpowiadamy go każdej regule, która go wymaga (PKO BP,
+    Energa, Orlen), nie tylko przy zgodzie RODO. Wspólne dla ``GET /policy``
+    i generacji kluczem API v1 (``integrations_v1/cv.py``)."""
+    from app.services.cv_packages import pko_job_reference
+
+    if rule.requires_rodo_consent_block or _rule_requires_project_ref(rule):
+        return pko_job_reference(job)
+    return None
+
+
 @router.get("/policy")
 async def effective_central_policy(
     current_user: CandidateDocumentAccess,
@@ -4220,7 +4234,6 @@ async def effective_central_policy(
     if client_id and client is None:
         raise HTTPException(404, "Klient nie istnieje.")
     rule = await resolve_client_rule(db, client_id)
-    from app.services.cv_packages import pko_job_reference
 
     content_mode, content_mode_notice = central_policies.automatic_mode_decision(
         job,
@@ -4230,11 +4243,7 @@ async def effective_central_policy(
     )
 
     return {
-        # 0380: numer u klienta podpowiadamy każdej regule, która go wymaga
-        # (PKO BP, Energa, Orlen), nie tylko przy zgodzie RODO.
-        "project_ref": pko_job_reference(job)
-        if rule.requires_rodo_consent_block or _rule_requires_project_ref(rule)
-        else None,
+        "project_ref": policy_project_ref(rule, job),
         "managed": True,
         "effective_policy": rule.managed_policy,
         "publication_version": rule.version,

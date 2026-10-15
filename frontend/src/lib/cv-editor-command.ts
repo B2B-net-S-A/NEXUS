@@ -32,7 +32,10 @@ import { termRanges } from "@/lib/cv-editor-issues";
 import { parseBoldMarkup } from "@/lib/cv-qc";
 
 /** Granice jak w schemacie trasy (`backend/app/api/cv_editor_ai.py`). */
-export const CV_COMMAND_MAX = 300;
+/** Lista poprawek, ok. 15–20 punktów (15.10.2026; wcześniej 300 znaków). */
+export const CV_COMMAND_MAX = 2000;
+/** Tyle zmian asystent robi naraz; nadmiar serwer zgłasza (`truncated`). */
+export const CV_COMMAND_OPERATIONS_MAX = 40;
 export const CV_COMMAND_LINES_MAX = 400;
 export const CV_COMMAND_LINE_TEXT_MAX = 1200;
 export const CV_COMMAND_TEXT_TOTAL_MAX = 60_000;

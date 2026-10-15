@@ -37,6 +37,7 @@ import {
 } from "@/lib/api/cvEditorCommand";
 import {
   CV_COMMAND_MAX,
+  CV_COMMAND_OPERATIONS_MAX,
   applyChanges,
   canApply,
   commandBlocker,
@@ -102,6 +103,8 @@ interface Options {
 const MSG_FAILED = "Nie udało się przygotować zmian. Spróbuj jeszcze raz.";
 const MSG_CHANGED = "CV zmieniło się w międzyczasie — napisz jeszcze raz, co zmienić.";
 const MSG_NOTHING = "Nie znalazłem zmian, które da się zrobić w tym CV.";
+/** Lista dłuższa niż jedna paczka zmian — reszta nie może przepaść po cichu (15.10.2026). */
+const MSG_TRUNCATED = ` Lista miała więcej zmian, niż asystent robi naraz (${CV_COMMAND_OPERATIONS_MAX}) — sprawdź, czego brakuje, i dopisz to w kolejnej wiadomości.`;
 const MSG_LATE = "Odpowiedź przyszła, gdy CV się zapisywało — nic nie zmieniłem. Napisz jeszcze raz.";
 const MSG_REWRITE =
   "Piszę CV od nowa — zapisuję i zamykam edytor. Nowa wersja pojawi się w karcie za ok. 40 s; Twoje ręczne poprawki zostaną.";
@@ -328,7 +331,8 @@ export function useCvAssistant({
             role: "assistant",
             text:
               `Zrobione — ${changesLabel(now.length)}, na kartce na zielono.` +
-              (skipped > 0 ? ` ${skipped} ${proposalsLabel(skipped)} odrzuciła kontrola (ruszały układ szablonu albo kwoty).` : ""),
+              (skipped > 0 ? ` ${skipped} ${proposalsLabel(skipped)} odrzuciła kontrola (ruszały układ szablonu albo kwoty).` : "") +
+              (result.truncated ? MSG_TRUNCATED : ""),
             items: now.map(describe),
             ...(words.length > 0 ? { words } : {}),
             undo: { after, state: "ready" },

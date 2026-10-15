@@ -791,6 +791,84 @@ describe("CvToClientCard — „Napisz od nowa” (Edytor CV 3, PR 5)", () => {
     expect(mocks.editorProps?.onRewrite).toBeUndefined();
   }, 20000);
 
+  // Prośba rekrutera 15.10.2026: poprawek bywa więcej niż 300 znaków.
+  it("lista poprawek: Enter robi nową linię, Ctrl+Enter wysyła listę z liniami do notatki i generatora", async () => {
+    mocks.brandedGet.mockResolvedValue({ data: DRAFT });
+    rows = [{ id: 5, status: "ready", package_id: 5 }];
+    const posts: Array<[string, unknown]> = [];
+    mocks.apiPost.mockImplementation(async (url: string, body: unknown) => {
+      posts.push([url, body]);
+      if (url === "/api/notes") return { data: { id: 1 } };
+      return { data: { id: 77, status: "processing", candidate_name: "Jan Kowalski" } };
+    });
+    renderCard();
+    const form = await screen.findByRole("form", { name: "Napisz od nowa" });
+    const field = within(form).getByRole("textbox", { name: "Co poprawić?" });
+    await userEvent.type(field, "1. krócej{Enter}2. więcej o Kafce");
+    expect(field).toHaveValue("1. krócej\n2. więcej o Kafce");
+    expect(screen.queryByTestId("cv-generate-panel")).toBeNull();
+
+    await userEvent.type(field, "{Control>}{Enter}{/Control}");
+    await waitFor(() => expect(posts.map(([url]) => url)).toEqual(["/api/notes", "/api/cv-generator/generate"]));
+    expect(posts[0][1]).toMatchObject({ content: "Uwaga do CV:\n1. krócej\n2. więcej o Kafce" });
+    expect(posts[1][1]).toMatchObject({ instruction: "1. krócej\n2. więcej o Kafce" });
+  }, 20000);
+
+  it("za długa lista: nic się nie ucina, licznik mówi, o ile skrócić, a przycisk czeka", async () => {
+    mocks.brandedGet.mockResolvedValue({ data: DRAFT });
+    rows = [{ id: 5, status: "ready", package_id: 5 }];
+    renderCard();
+    const form = await screen.findByRole("form", { name: "Napisz od nowa" });
+    const field = within(form).getByRole("textbox", { name: "Co poprawić?" });
+    await userEvent.click(field);
+    await userEvent.paste("x".repeat(1599));
+    expect(within(form).queryByTestId("text-limit-counter")).toBeNull();
+    await userEvent.paste("x");
+    expect(within(form).getByTestId("text-limit-counter")).toHaveTextContent("1600 / 2000 znaków");
+
+    await userEvent.paste("x".repeat(500));
+    expect(field).toHaveValue("x".repeat(2100));
+    expect(within(form).getByTestId("text-limit-counter")).toHaveTextContent("2100 / 2000 znaków — skróć o 100");
+    expect(within(form).getByRole("button", { name: /Napisz od nowa/ })).toBeDisabled();
+    await userEvent.type(field, "{Control>}{Enter}{/Control}");
+    expect(screen.queryByTestId("cv-generate-panel")).toBeNull();
+    expect(mocks.apiPost).not.toHaveBeenCalled();
+  }, 20000);
+
+  it("niewysłana lista zostaje po zamknięciu karty, długa zwija się w panelu, a „Anuluj” ją oddaje", async () => {
+    mocks.brandedGet.mockResolvedValue({ data: DRAFT });
+    rows = [{ id: 5, status: "ready", package_id: 5 }];
+    // Zgoda RODO u klienta: panel czeka na rekrutera, więc da się go anulować.
+    slowGet((url) => url.endsWith("/rule-for-generation"), { is_active: true, requires_rodo_consent_block: true });
+    const list = "1. krócej\n2. więcej o Kafce\n3. bez hobby\n4. certyfikaty wyżej";
+    const first = renderCard();
+    const field = within(await screen.findByRole("form", { name: "Napisz od nowa" })).getByRole("textbox", {
+      name: "Co poprawić?",
+    });
+    await userEvent.click(field);
+    await userEvent.paste(list);
+    first.unmount();
+
+    renderCard();
+    const form = await screen.findByRole("form", { name: "Napisz od nowa" });
+    expect(within(form).getByRole("textbox", { name: "Co poprawić?" })).toHaveValue(list);
+    await userEvent.click(within(form).getByRole("button", { name: /Napisz od nowa/ }));
+
+    const panel = await screen.findByTestId("cv-generate-panel");
+    const instruction = within(panel).getByTestId("cv-rewrite-instruction");
+    await userEvent.click(within(instruction).getByRole("button", { name: "Pokaż całość" }));
+    expect(within(instruction).getByRole("button", { name: "Zwiń" })).toHaveAttribute("aria-expanded", "true");
+    // Wysłana lista nie czeka już w szkicu…
+    expect(Object.keys(sessionStorage).filter((key) => key.startsWith("nexus:cv-rewrite-draft"))).toEqual([]);
+
+    // …ale „Anuluj” oddaje ją do pola.
+    await userEvent.click(within(panel).getByRole("button", { name: "Anuluj" }));
+    expect(
+      within(await screen.findByRole("form", { name: "Napisz od nowa" })).getByRole("textbox", { name: "Co poprawić?" }),
+    ).toHaveValue(list);
+    expect(mocks.apiPost).not.toHaveBeenCalled();
+  }, 20000);
+
   it("tylko do odczytu: bez pola i bez przekazania z edytora", async () => {
     mocks.brandedGet.mockResolvedValue({ data: DRAFT });
     rows = [{ id: 5, status: "ready", package_id: 5 }];

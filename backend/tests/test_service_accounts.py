@@ -138,17 +138,34 @@ class TestScopeVocabulary:
             value
             for value in values
             if value.split(":", 1)[0]
-            in {"candidate", "candidates", "jobs", "job", "notes", "recruitments"}
+            in {
+                "candidate",
+                "candidates",
+                "jobs",
+                "job",
+                "notes",
+                "recruitments",
+                "cv",
+                "calendar",
+                "applications",
+                "academy",
+            }
         }
         assert personal == {
             "recruitments:read",
             "recruitments:write",
+            "recruitments:create",
             "candidates:read",
             "candidates:contact",
             "candidates:cv",
             "candidates:write",
             "notes:read",
             "notes:write",
+            "cv:generate",
+            "calendar:read",
+            "applications:read",
+            "applications:write",
+            "academy:read",
         }
 
     def test_write_scope_implies_read_scope(self):

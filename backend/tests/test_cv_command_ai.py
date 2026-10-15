@@ -668,6 +668,8 @@ def test_plan_is_capped() -> None:
     result = plan(*many)
     assert len(result["operations"]) == 1
     assert len(result["dropped"]) <= cmd.OPERATIONS_MAX
+    # Nadmiar nie przepada po cichu — asystent mówi, że zrobił tylko część.
+    assert result["truncated"] is True
 
 
 def test_checking_the_largest_plan_is_cheap() -> None:
@@ -703,6 +705,7 @@ def test_checking_the_largest_plan_is_cheap() -> None:
     result = cmd.verify_plan(raw, lines, requirements)
     assert time.process_time() - started < 5.0
     assert len(result["operations"]) == cmd.OPERATIONS_MAX
+    assert result["truncated"] is False
 
 
 # ── propose_plan(): model poza transakcją, awaria = „niedostępne”, nigdy wyjątek ──

@@ -15,6 +15,7 @@
 import { clearTalentRadarSession } from "./talent-radar-session";
 import { clearSearchMemory } from "./search-memory";
 import { clearNoteDrafts } from "./note-drafts";
+import { clearCvRewriteDrafts } from "./cv-rewrite-drafts";
 
 /**
  * Klucz JWT — wydzielony ze zbioru poniżej, bo czyta go nie tylko teardown,
@@ -129,6 +130,8 @@ export function clearSessionArtifacts(): void {
   // Szkice notatek z panelu osoby (sessionStorage) — treść o kandydacie nie
   // może doczekać kolejnej osoby przy tym komputerze.
   clearNoteDrafts();
+  // Szkice listy poprawek CV („Co poprawić?”) — ten sam powód.
+  clearCvRewriteDrafts();
   if (typeof window !== "undefined") {
     try {
       for (let i = window.localStorage.length - 1; i >= 0; i -= 1) {

@@ -30,6 +30,11 @@ from app.core.sentry_privacy import scrub_event
 # target class.
 import app.models  # noqa: F401
 
+# 0448: listener ORM zdarzeń API integracyjnego v1 (rejestracja przy imporcie,
+# raz na proces) — kandydat, ruch karty, notatka itd. dopisują zdarzenie
+# w transakcji zmiany.
+import app.services.integration_events  # noqa: F401
+
 from app.api import (
     auth,
     candidates,
@@ -720,6 +725,7 @@ async def lifespan(app: FastAPI):
     from app.tasks.integration_stale_alerts import (
         integration_stale_alerts_loop,
     )
+    from app.tasks.integration_webhooks import integration_webhooks_loop
     from app.tasks.insights_seniority_journal import (
         insights_seniority_journal_loop,
     )
@@ -880,6 +886,9 @@ async def lifespan(app: FastAPI):
         "integration_stale_alerts": asyncio.create_task(
             integration_stale_alerts_loop()
         ),
+        # 0448: API v1 — publikacja zdarzeń do kanału (kursor), retencja
+        # 30 dni i wysyłka webhooków kont serwisowych.
+        "integration_webhooks": asyncio.create_task(integration_webhooks_loop()),
         # Import JJIT/RocketJobs (etap 2): codziennie 13:00 Europe/Warsaw,
         # kill-switch JJIT_ENABLED przed pętlą; ręczny start przez admina.
         "jjit_import": asyncio.create_task(jjit_import_loop()),
@@ -2933,6 +2942,11 @@ async def api_health_deep_check():
     from app.models.job_file import JobFile
     from app.models.job_ad import JobAd
     from app.models.job_ad_publication import JobAdPublication
+    from app.models.integration_event import (
+        IntegrationEvent,
+        IntegrationEventOutbox,
+        IntegrationWebhook,
+    )
 
     core_checks = [
         ("workforce_availability_state", WorkforceAvailabilityState),
@@ -3184,6 +3198,11 @@ async def api_health_deep_check():
         # 0438: „Wymagania do poprawy” — zatwierdzenie i odrzucenie propozycji
         # zapisują decyzję; brak tabeli = 500 przy obu.
         ("requirement_cleanup_decisions", RequirementCleanupDecision),
+        # 0448: zdarzenia API v1. Brak poczekalni nie wywraca zapisów (listener
+        # pisze w SAVEPOINT-cie), ale zdarzenia giną po cichu — sonda to pokazuje.
+        ("integration_event_outbox", IntegrationEventOutbox),
+        ("integration_events", IntegrationEvent),
+        ("integration_webhooks", IntegrationWebhook),
     ]
 
     checks: dict[str, str] = {}

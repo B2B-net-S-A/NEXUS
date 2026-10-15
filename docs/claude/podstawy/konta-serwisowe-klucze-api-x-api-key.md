@@ -114,7 +114,7 @@ integratora: `docs/api/integracje-v1.md` (bez nazwisk — repo jest publiczne).
   (`critical_events.record_executed`, `order_change_checks.set_check`, handlery ekranu
   czytające wyłącznie `user.id`), idzie `IntegrationActor` — bez ról, więc każda bramka
   uprawnień na nim pada, zamiast przepuścić. **Nigdy syntetyczny `User`.**
-- **Czego v1 świadomie nie robi:** dane kandydatów/rekrutacji/notatek, twarde usuwanie
+- **Czego v1 świadomie nie robi:** twarde usuwanie
   (faktura → `cancel`), zatwierdzanie przekroczeń salda MD i wspólnych pul
   (`409 requires_screen_approval`), status „Pobrane” PDF-ów ludzi, historia grupy zamówień.
 - **Zapis zamówień i kontraktów (PR 2B, 14.10.2026) = jedno ciało, dwie polityki.**
@@ -158,3 +158,20 @@ integratora: `docs/api/integracje-v1.md` (bez nazwisk — repo jest publiczne).
   (`NO_RIGHTS_VIEWER`). Nowy kandydat z klucza: duplikat e-mail 409
   `duplicate_candidate`, nagrobek RODO 409 `candidate_erased`. Opis dla
   integratora: `docs/api/integracje-v1.md`.
+- **Reszta procesów w v1 (15.10.2026, „rób wszystko”):** zakładanie rekrutacji
+  (`recruitments:create`, `job_lifecycle.apply_job_create` wspólne z `POST /api/jobs`;
+  konto serwisowe omija w rdzeniach tylko zakres DL i redaktora Championa przez
+  `is_service_account`, budżet wymaga `amounts:write`), CV dla klienta (`cv:generate`,
+  plik także z `candidates:cv`), rozmowy u klienta (`calendar:read`), zgłoszenia
+  z linku (`applications:read|write`, `resolve_application_submission` bez commita),
+  Insights (`insights:read` — tylko to, co ekran pokazuje wszystkim), Akademia
+  (`academy:read`), zdarzenia i webhooki (`events:read`, `webhooks:manage`, 0448).
+- **Zdarzenia v1 powstają same:** listener `after_flush` w
+  `services/integration_events.py` dopisuje do poczekalni (SAVEPOINT — błąd nie psuje
+  zapisu biznesowego), pętla `integration_webhooks` publikuje do kanału w kolejności
+  commitów i wysyła webhooki. Nowy rodzaj zmiany, który automatyzacje mają widzieć =
+  wpis w `EVENT_TYPES` (typ → scope) i budowa `refs` z SAMYCH identyfikatorów. Zmiany
+  hurtowe przez Core `UPDATE` zdarzeń nie dają.
+- **Nazwa modelu v1 musi być unikalna w całej aplikacji** — kolizja klas Pydantic
+  zmienia nazwę istniejącego schematu w specyfikacji
+  (`test_no_new_module_prefixed_schema_names`).

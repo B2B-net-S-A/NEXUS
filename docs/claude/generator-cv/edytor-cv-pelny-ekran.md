@@ -501,6 +501,9 @@ dopiero to, co rekruter zostawi zaznaczone i zatwierdzi „Zastosuj zaznaczone�
   stoją w dwóch listach, edytor nie umie nałożyć (`canApply`) — taka operacja
   nie trafia do planu i liczy się do odrzuconych. Escape w trakcie liczenia
   planu nie zamyka edytora (pole jest wtedy wyłączone, klawisz trafia w `body`).
+  Plan ma najwyżej 40 operacji (`OPERATIONS_MAX`); gdy model zaproponował
+  więcej, odpowiedź trasy niesie `truncated: true`, a asystent dopisuje
+  „Lista miała więcej zmian, niż asystent robi naraz (40) — …” (15.10.2026).
 - **„Zastosuj zaznaczone” = jedna transakcja** (`applyPlan`: poprawki od końca
   dokumentu, lista bez punktów znika cała), jeden krok „Cofnij”. Szkic na
   zatwierdzonej wersji powstaje dopiero wtedy — zamówienie i odrzucenie planu
@@ -511,7 +514,9 @@ dopiero to, co rekruter zostawi zaznaczone i zatwierdzi „Zastosuj zaznaczone�
   (przy jednym panelu naraz także źródeł); na wąskim ekranie to osobna kolumna.
 - **Trasa** `POST /api/pipeline/stages/{id}/cv-ai/command` (`api/cv_editor_ai.py`):
   bezstanowa, te same bramki co `cv-ai/selection`, 6/min, limit 400 wierszy
-  i 60 tys. znaków, zawsze 200 ze statusem (`ok`, `empty`, `unavailable`).
+  i 60 tys. znaków, polecenie do 2000 znaków (`COMMAND_MAX`, lista poprawek
+  od 15.10.2026; wcześniej 300), zawsze 200 ze statusem (`ok`, `empty`,
+  `unavailable`).
   Model ma do 60 s (`timeout=45`, `total_timeout=60`), przeglądarka czeka
   `SLOW_ENDPOINT_TIMEOUT_MS` (120 s).
   Klucz AI `cv_editor_command` (F31, migracja 0434 + lustro w `entrypoint.sh`),
@@ -899,7 +904,10 @@ planu. Rekruter pisze jak do czatu („rolę w Logistyce skróć do 3 punktów�
   i popraw”; zwinięte panel dalej liczy znaczniki i liczbę w pasku. Asystent
   ma co najmniej 18rem (nagłówek, dwa rzędy podpowiedzi, pole i kilka linii
   rozmowy), rozwinięta lista 2 : 3 z asystentem; rozmowa przewija się do
-  najnowszej odpowiedzi. Edytor wyniku generatora (bez etapu) asystenta nie
+  najnowszej odpowiedzi. Pole asystenta rośnie od 2 do **4** linii
+  (`useTextareaAutogrow`), nie wyżej — przy 1280 × 650 pole na 5 linii
+  zostawiało rozmowie 21 px. Po wysłaniu pole wraca do 2 linii. Pod polem
+  „Enter wyślij · Shift+Enter nowa linia” i licznik. Edytor wyniku generatora (bez etapu) asystenta nie
   ma — kolumna jak w PR 3.
 - **Kwoty** (przegląd PR 4): jeden detektor `cv_command_ai.has_amount` —
   wspólny `money_text` (`MONEY_RE`, `is_rate_text`) plus kod waluty przed
@@ -947,17 +955,33 @@ poprawione części zostają, „Wróć do poprzedniej” jednym kliknięciem.
   (język, numer projektu). Uwaga zapisuje się w notatkach raz na treść
   (ponowienie po błędzie nie dopisuje drugiej). W trakcie generacji karta nie
   daje „Napisz od nowa” ani w polu, ani edytorowi.
-- **Uwaga rekrutera**: najpierw notatka pary „Uwaga do CV: …” (fakty z tego
-  zdania stają się źródłem, generator czyta notatki pary), potem
-  `GenerateRequest.instruction` (≤ 300 znaków; `recruiter_*` jest na liście
+- **Uwaga rekrutera**: najpierw notatka pary „Uwaga do CV: …” (fakty z tej
+  uwagi stają się źródłem, generator czyta notatki pary; lista wieloliniowa
+  idzie jako „Uwaga do CV:” + nowa linia), potem
+  `GenerateRequest.instruction` (≤ `INSTRUCTION_MAX` = 2000 znaków; `recruiter_*` jest na liście
   znaczników neutralizowanych przez `prompt_fencing`, więc uwaga nie zamknie
   swojego ogrodzenia). Serwer wycina stawki
-  (`recruiter_instruction` → `strip_rates_and_availability`), zamraża ją
+  (`recruiter_instruction` → `strip_rates_and_availability`, linia po linii;
+  podział na linie zostaje — linia = jedna poprawka), zamraża ją
   w źródle zadania (`CandidateGenerationSource.instruction`, domyślna `""`,
   stare zadania dekodują się bez niej) i w promptach legacy_v7 wkłada jako
   ogrodzone `<recruiter_instruction>` z regułą „forma i akcenty, nigdy źródło
   faktów” — w treści użytkownika, prompt systemowy zostaje bajt w bajt (cache).
   Pipeline v10 uwagi nie czyta.
+- **Lista poprawek do 2000 znaków** (prośba rekrutera, decyzja Artura
+  15.10.2026, makiety https://claude.ai/artifact/TTR2H3eYv186tZ9rycvgiD,
+  wariant A). Do tej daty pole miało jedną linię i 300 znaków, wklejka ucinała
+  się po cichu, a Enter od razu pisał CV od nowa. Teraz `CvRewriteForm`:
+  pole rośnie od 1 do 8 linii, **Enter = nowa linia, Ctrl/⌘+Enter = „Napisz
+  od nowa”** (lista nie wysyła się w połowie), licznik od 1600 znaków
+  (`TextLimitCounter`). **Bez `maxLength`**: za długa lista zostaje cała,
+  licznik mówi „skróć o N”, a przycisk czeka — nie wracaj do cichego
+  ucinania. Niewysłana lista to szkic w `sessionStorage`
+  (`lib/cv-rewrite-drafts.ts`, klucz `nexus:cv-rewrite-draft:v1:<osoba>:<etap>`,
+  kasowany przy wylogowaniu w `clearSessionArtifacts`); „Anuluj” w panelu
+  generacji oddaje listę do pola. Panel pokazuje długą uwagę zwiniętą do
+  3 linii z „Pokaż całość”. Ścieżka z asystenta jest przycinana do tego
+  samego limitu w `startRewrite`.
 - **Ręczne poprawki zostają** (`services/cv_rewrite_merge.py`,
   `select-generated` z `keep_edits`): szkic porównany z generacją, z której
   powstał (`csv.generated_document_id`, HTML z `render_interactive_html`).

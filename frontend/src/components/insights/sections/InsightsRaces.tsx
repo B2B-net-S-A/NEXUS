@@ -5,7 +5,6 @@ import { useQuery } from "@tanstack/react-query";
 import {
   ChevronDown,
   ChevronUp,
-  Clock,
   Gift,
   Loader2,
   Mail,
@@ -25,6 +24,7 @@ import {
   type MonthlyRaceEntry,
   type MonthlyRacesResponse,
 } from "@/lib/insights-races-api";
+import { ClosureNote, PeriodCountdown, SourceNote } from "./CompetitionPeriod";
 import { count, pct } from "./InsightsFormat";
 import { SectionError } from "./_shared";
 
@@ -51,7 +51,7 @@ import { SectionError } from "./_shared";
  * 4. **Odliczanie tylko dla trwającego miesiąca.** `days_remaining` backend
  *    liczy z „dzisiaj", nie z `period`, więc dla sierpnia oglądanego we
  *    wrześniu opisywałoby wrzesień. Zamknięty miesiąc dostaje chip
- *    „Zakończony" zamiast liczby.
+ *    „Zakończony" zamiast liczby, a zamrożony (`is_frozen`) — „Zamknięte".
  */
 
 const ROLE_LABEL: Record<string, string> = {
@@ -137,11 +137,6 @@ const RACE_THRESHOLD_TOOLTIP =
 /** Ile miejsc wyścigu widać bez klikania. */
 const DEFAULT_VISIBLE_ROWS = 5;
 
-/** Polska odmiana — „1 dzień / 2 dni / 5 dni". */
-function daysPl(n: number): string {
-  return `${n} ${Math.abs(n) === 1 ? "dzień" : "dni"}`;
-}
-
 function describeDisqualification(entry: MonthlyRaceEntry): string | null {
   if (entry.qualified !== false) return null;
   const codes = (entry.disqualification_reasons ?? []).filter(Boolean);
@@ -173,17 +168,24 @@ function PerDayBadge({ entry }: { entry: MonthlyRaceEntry }) {
     );
   }
   const withoutLeave = entry.workdays_source === "calendar";
+  // Miesiąc rozliczony w DynaReporterze: mianownik to dni przepracowane
+  // zgłoszone tam, zapisane przy rozliczeniu — nie dni z COMPASSA.
+  const fromDynaReporter = entry.workdays_source === "dynareporter";
   return (
     <span
       className="inline-flex items-center gap-1 rounded bg-info-muted px-1.5 py-0.5 text-[11px] font-semibold text-info-muted-foreground"
       title={
-        withoutLeave
-          ? "Weryfikacje na dzień roboczy liczone z dni kalendarzowych, które upłynęły w tym miesiącu (Pon–Pt bez świąt), bez urlopów — COMPASS nie potwierdził nieobecności w tym okresie."
-          : "Weryfikacje na dzień roboczy: dni robocze, które upłynęły w tym miesiącu, minus urlop z COMPASSA."
+        fromDynaReporter
+          ? "Weryfikacje na dzień przepracowany: liczba dni przepracowanych zgłoszona w DynaReporterze, zapisana przy rozliczeniu miesiąca."
+          : withoutLeave
+            ? "Weryfikacje na dzień roboczy liczone z dni kalendarzowych, które upłynęły w tym miesiącu (Pon–Pt bez świąt), bez urlopów — COMPASS nie potwierdził nieobecności w tym okresie."
+            : "Weryfikacje na dzień roboczy: dni robocze, które upłynęły w tym miesiącu, minus urlop z COMPASSA."
       }
     >
       {perDay.value.toFixed(1)}/dzień
-      {withoutLeave ? (
+      {fromDynaReporter ? (
+        <span className="font-normal">· dni przepracowane (DynaReporter)</span>
+      ) : withoutLeave ? (
         <span className="font-normal">· bez urlopów</span>
       ) : null}
     </span>
@@ -352,23 +354,16 @@ function RaceCard({
           </p>
         </div>
         <div className="shrink-0 text-right">
-          {closed ? (
-            <span className="inline-flex items-center rounded-full bg-muted px-2 py-0.5 text-[11px] font-semibold text-muted-foreground">
-              Zakończony
-            </span>
-          ) : (
-            <p className="flex items-center justify-end gap-1 text-xs text-muted-foreground">
-              <Clock className="h-3.5 w-3.5" aria-hidden="true" />
-              {/* `null` to „nie wiemy, ile zostało", nie „zero dni". */}
-              {race.days_remaining === null || race.days_remaining === undefined
-                ? "—"
-                : `Zostało ${daysPl(race.days_remaining)}`}
-            </p>
-          )}
+          <PeriodCountdown
+            frozen={race.is_frozen === true}
+            closed={closed}
+            daysRemaining={race.days_remaining}
+          />
         </div>
       </header>
 
       <div className="flex flex-1 flex-col gap-3 p-4">
+        <SourceNote closure={race} />
         <p className="flex items-start gap-2 rounded-lg border border-warning/25 bg-warning-muted px-3 py-2 text-xs font-semibold text-warning-muted-foreground">
           <Gift className="mt-px h-4 w-4 shrink-0" aria-hidden="true" />
           <span>{race.prize.name}</span>
@@ -392,7 +387,9 @@ function RaceCard({
               aria-hidden="true"
             />
             <p className="text-sm font-medium text-foreground">
-              Brak wyników w tym miesiącu
+              {race.closure_status === "no_winner"
+                ? "Brak zwycięzcy w tym okresie"
+                : "Brak wyników w tym miesiącu"}
             </p>
             <p className="max-w-sm text-xs text-muted-foreground">
               {copy.emptyText}
@@ -400,6 +397,9 @@ function RaceCard({
           </div>
         ) : (
           <>
+            {/* Remis do decyzji admina i miesiąc bez zwycięzcy stoją NAD
+                listą: bez tego zdania pierwsze miejsce czyta się jak wygrana. */}
+            <ClosureNote closure={race} />
             <ol className="space-y-2">
               {visible.map((entry) => (
                 <RaceRow

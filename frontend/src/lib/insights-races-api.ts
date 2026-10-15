@@ -54,9 +54,17 @@ export interface MonthlyRaceEntry {
   //     albo urlop w trwającym miesiącu, którego część dopiero nadejdzie);
   //     plakietka podpisuje to „bez urlopów".
   // Brak pól (starszy backend) = `perDayVerifications` zwraca `null`.
+  //   - `dynareporter` — miesiąc rozliczony w DynaReporterze (do 11.10.2026):
+  //     mianownik to dni przepracowane zgłoszone tam, a `per_day`/`workdays`
+  //     są zapisane przy rozliczeniu, nie liczone na nowo.
   workdays?: number | null;
   per_day?: number | null;
-  workdays_source?: "compass" | "calendar" | "unavailable" | null;
+  workdays_source?:
+    | "compass"
+    | "calendar"
+    | "dynareporter"
+    | "unavailable"
+    | null;
 }
 
 export interface MonthlyRacePrize {
@@ -64,7 +72,34 @@ export interface MonthlyRacePrize {
   name: string;
 }
 
-export interface MonthlyRace {
+// ─────────────────────────────────────────────────────────────────────────────
+// Zamknięcie okresu i źródło liczb — wspólne dla Ligi (`/current`) i wyścigów
+// (`/monthly-races`). NEXUS przejął wyniki 12.10.2026; okresy od 1.01.2026 do
+// 11.10.2026 pochodzą z DynaReportera i są zapisane jako zamknięte, a Q4 2026
+// i październik 2026 łączą oba źródła. Pola są opcjonalne: starszy backend ich
+// nie zna, a brak pola nie może zepsuć ekranu.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Jak zamknięto okres: podium zamrożone, bez zwycięzcy albo z remisem. */
+export type CompetitionClosureStatus =
+  | "frozen"
+  | "no_winner"
+  | "tie_pending"
+  | "tie_resolved";
+
+/** Skąd są liczby okresu. */
+export type CompetitionSource = "nexus" | "dynareporter" | "mixed";
+
+export interface CompetitionClosure {
+  /** Okres zamknięty — podium zamrożone, `days_remaining` jest wtedy `null`. */
+  is_frozen?: boolean;
+  closure_status?: CompetitionClosureStatus | null;
+  source?: CompetitionSource | null;
+  /** Gotowe zdanie po polsku do paska nad wynikiem — renderowane dosłownie. */
+  source_note?: string | null;
+}
+
+export interface MonthlyRace extends CompetitionClosure {
   /** Miesiąc wyścigu w formacie `YYYY-MM`. */
   period: string;
   /**
@@ -283,6 +318,89 @@ export function currentMonthKey(now: Date = new Date()): string {
 export function isClosedMonth(period: string, now: Date = new Date()): boolean {
   if (!/^\d{4}-\d{2}$/.test(period)) return false;
   return period < currentMonthKey(now);
+}
+
+/** Bieżący kwartał w zapisie backendu (`Q4 2026`), w kalendarzu warszawskim. */
+export function currentQuarterKey(now: Date = new Date()): string {
+  const [year, month] = currentMonthKey(now).split("-").map(Number);
+  return `Q${Math.floor((month - 1) / 3) + 1} ${year}`;
+}
+
+/** `Q3 2026` → `[2026, 3]`; nierozpoznany napis → `null`. */
+function parseQuarterKey(period: string): [number, number] | null {
+  const match = /^Q([1-4]) (\d{4})$/.exec(period);
+  return match ? [Number(match[2]), Number(match[1])] : null;
+}
+
+/** Czy kwartał Ligi już się domknął. Nierozpoznany okres = nie wiemy → `false`. */
+export function isClosedQuarter(
+  period: string,
+  now: Date = new Date(),
+): boolean {
+  const parsed = parseQuarterKey(period);
+  const current = parseQuarterKey(currentQuarterKey(now));
+  if (!parsed || !current) return false;
+  return parsed[0] * 4 + parsed[1] < current[0] * 4 + current[1];
+}
+
+/**
+ * Pierwszy okres z wynikami w NEXUS-ie — styczeń 2026. Wcześniejszych wyników
+ * z DynaReportera nie przenosiliśmy, więc lista wyboru zaczyna się tutaj.
+ */
+const FIRST_RESULTS_YEAR = 2026;
+
+export interface CompetitionPeriodOption {
+  /** Okres w zapisie backendu: `2026-07` albo `Q3 2026`. */
+  value: string;
+  label: string;
+  /** Trwający okres — wybór go wysyła zapytanie BEZ `period`. */
+  current: boolean;
+}
+
+/** Miesiące od stycznia 2026 do bieżącego, najnowszy pierwszy. */
+export function monthPeriodOptions(
+  now: Date = new Date(),
+): CompetitionPeriodOption[] {
+  let [year, month] = currentMonthKey(now).split("-").map(Number);
+  const options: CompetitionPeriodOption[] = [];
+  // Bieżący okres jest na liście zawsze, nawet przy zegarze sprzed 2026.
+  do {
+    const value = `${year}-${String(month).padStart(2, "0")}`;
+    const current = options.length === 0;
+    options.push({
+      value,
+      label: current ? `${formatMonthPl(value)} · trwa` : formatMonthPl(value),
+      current,
+    });
+    month -= 1;
+    if (month === 0) {
+      month = 12;
+      year -= 1;
+    }
+  } while (year >= FIRST_RESULTS_YEAR);
+  return options;
+}
+
+/** Kwartały od Q1 2026 do bieżącego, najnowszy pierwszy. */
+export function quarterPeriodOptions(
+  now: Date = new Date(),
+): CompetitionPeriodOption[] {
+  let [year, quarter] = parseQuarterKey(currentQuarterKey(now)) ?? [
+    FIRST_RESULTS_YEAR,
+    1,
+  ];
+  const options: CompetitionPeriodOption[] = [];
+  do {
+    const value = `Q${quarter} ${year}`;
+    const current = options.length === 0;
+    options.push({ value, label: current ? `${value} · trwa` : value, current });
+    quarter -= 1;
+    if (quarter === 0) {
+      quarter = 4;
+      year -= 1;
+    }
+  } while (year >= FIRST_RESULTS_YEAR);
+  return options;
 }
 
 /**

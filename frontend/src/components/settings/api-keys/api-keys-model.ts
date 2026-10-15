@@ -6,8 +6,9 @@
 import type {
   ScopeInfoDto,
   ServiceAccountKeyDto,
+  ServiceAccountWebhookDto,
 } from "@/lib/api";
-import { formatIsoDatePl } from "@/lib/date-pl";
+import { formatDateTimePl, formatIsoDatePl } from "@/lib/date-pl";
 
 // ── Uprawnienia ──────────────────────────────────────────────────────────────
 
@@ -56,18 +57,34 @@ export const SCOPE_GROUPS: readonly ScopeGroupDefinition[] = [
       "candidates:contact",
       "candidates:cv",
       "notes:read",
+      "calendar:read",
+      "applications:read",
     ],
   },
   {
     id: "recruitment-write",
     title: "Rekrutacja i kandydaci — zapis",
-    scopes: ["recruitments:write", "candidates:write", "notes:write"],
+    scopes: [
+      "recruitments:write",
+      "recruitments:create",
+      "candidates:write",
+      "notes:write",
+      "cv:generate",
+      "applications:write",
+    ],
   },
   // Węższy przed szerszym: kwoty sprzedaży, potem wszystkie (z kosztami i marżą).
   {
     id: "amounts",
     title: "Kwoty",
     scopes: ["sales_amounts:read", "amounts:read", "amounts:write"],
+  },
+  // Raporty i kanał zmian (15.10.2026): bez danych osobowych i kwot poza tym,
+  // co wynika z innych zaznaczonych pozycji.
+  {
+    id: "reports-events",
+    title: "Raporty i zdarzenia",
+    scopes: ["insights:read", "academy:read", "events:read", "webhooks:manage"],
   },
   {
     id: "ops",
@@ -285,4 +302,36 @@ const WRITE_STATE_LABEL: Record<string, string> = {
 
 export function writeStateLabel(state: string): string {
   return WRITE_STATE_LABEL[state] ?? state;
+}
+
+// ── Webhooki ─────────────────────────────────────────────────────────────────
+
+export type WebhookTone = "success" | "warning" | "danger";
+
+export interface WebhookStateView {
+  label: string;
+  tone: WebhookTone;
+}
+
+/** Stan webhooka na ekranie: wyłączony (z powodem z serwera), z błędami
+ *  i terminem kolejnej próby albo działający. */
+export function webhookState(hook: ServiceAccountWebhookDto): WebhookStateView {
+  if (!hook.is_active) {
+    return {
+      label: hook.disabled_reason ? `Wyłączony: ${hook.disabled_reason}` : "Wyłączony",
+      tone: "danger",
+    };
+  }
+  if (hook.failure_count > 0) {
+    const retry = hook.next_attempt_at
+      ? `, kolejna próba ${formatDateTimePl(hook.next_attempt_at)}`
+      : "";
+    return { label: `Nieudane próby z rzędu: ${hook.failure_count}${retry}`, tone: "warning" };
+  }
+  return { label: "Działa", tone: "success" };
+}
+
+/** Pusta lista typów = wszystkie zdarzenia, które konto widzi. */
+export function webhookEventsLabel(eventTypes: readonly string[]): string {
+  return eventTypes.length === 0 ? "Wszystkie dostępne" : eventTypes.join(", ");
 }

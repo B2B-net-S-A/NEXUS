@@ -111,6 +111,8 @@ export interface CvCommandResponse {
   /** Propozycje asystenta, które odrzuciła kontrola serwera. */
   dropped: CvPlanDropped[];
   message: string | null;
+  /** Model zaproponował więcej zmian, niż asystent robi naraz — reszta nie weszła. */
+  truncated?: boolean;
 }
 
 export interface CvEditorCommandApi {

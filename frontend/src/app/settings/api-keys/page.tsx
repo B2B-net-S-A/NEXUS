@@ -10,6 +10,7 @@ import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { ApiKeysSettingsView } from "@/components/settings/api-keys/ApiKeysSettingsView";
 import type {
+  AccountWebhooksState,
   AccountWritesState,
   ApiKeysActions,
   ApiKeysLoad,
@@ -22,10 +23,18 @@ const ACCOUNTS_KEY = ["service-accounts"] as const;
 const SCOPES_KEY = ["service-accounts", "scopes"] as const;
 const CONFIG_KEY = ["service-accounts", "config"] as const;
 const writesKey = (accountId: number) => ["service-accounts", "writes", accountId] as const;
+const webhooksKey = (accountId: number) => ["service-accounts", "webhooks", accountId] as const;
+
+/** Dodaj albo zdejmij konto z listy otwartych paneli. */
+function toggleOpen(prev: readonly number[], accountId: number, open: boolean): readonly number[] {
+  if (!open) return prev.filter((id) => id !== accountId);
+  return prev.includes(accountId) ? prev : [...prev, accountId];
+}
 
 export default function ApiKeysSettingsPage() {
   const queryClient = useQueryClient();
   const [openWrites, setOpenWrites] = useState<readonly number[]>([]);
+  const [openWebhooks, setOpenWebhooks] = useState<readonly number[]>([]);
 
   const accountsQuery = useQuery({
     queryKey: ACCOUNTS_KEY,
@@ -45,6 +54,12 @@ export default function ApiKeysSettingsPage() {
     queries: openWrites.map((accountId) => ({
       queryKey: writesKey(accountId),
       queryFn: () => serviceAccountsApi.writes(accountId).then((r) => r.data),
+    })),
+  });
+  const webhooksQueries = useQueries({
+    queries: openWebhooks.map((accountId) => ({
+      queryKey: webhooksKey(accountId),
+      queryFn: () => serviceAccountsApi.webhooks(accountId).then((r) => r.data),
     })),
   });
 
@@ -94,6 +109,20 @@ export default function ApiKeysSettingsPage() {
     } else writes[accountId] = { status: "loading" };
   });
 
+  const webhooks: Record<number, AccountWebhooksState> = {};
+  openWebhooks.forEach((accountId, index) => {
+    const q = webhooksQueries[index];
+    if (!q) return;
+    if (q.data) webhooks[accountId] = { status: "success", webhooks: q.data };
+    else if (q.isError) {
+      webhooks[accountId] = {
+        status: "error",
+        message: apiErrorMessage(q.error, "Nie udało się pobrać webhooków."),
+        onRetry: () => void q.refetch(),
+      };
+    } else webhooks[accountId] = { status: "loading" };
+  });
+
   const actions = useMemo<ApiKeysActions>(() => {
     // `invalidateQueries` nie rzuca przy nieudanym odświeżeniu, więc zapis,
     // który przeszedł, nie zamienia się w komunikat o błędzie.
@@ -110,7 +139,9 @@ export default function ApiKeysSettingsPage() {
       deleteAccount: async (id) => {
         await serviceAccountsApi.remove(id);
         setOpenWrites((prev) => prev.filter((accountId) => accountId !== id));
+        setOpenWebhooks((prev) => prev.filter((accountId) => accountId !== id));
         queryClient.removeQueries({ queryKey: writesKey(id) });
+        queryClient.removeQueries({ queryKey: webhooksKey(id) });
         await refresh();
       },
       issueKey: async (id, payload) => {
@@ -131,13 +162,11 @@ export default function ApiKeysSettingsPage() {
       actions={actions}
       writes={writes}
       onWritesOpenChange={(accountId, open) =>
-        setOpenWrites((prev) =>
-          open
-            ? prev.includes(accountId)
-              ? prev
-              : [...prev, accountId]
-            : prev.filter((id) => id !== accountId),
-        )
+        setOpenWrites((prev) => toggleOpen(prev, accountId, open))
+      }
+      webhooks={webhooks}
+      onWebhooksOpenChange={(accountId, open) =>
+        setOpenWebhooks((prev) => toggleOpen(prev, accountId, open))
       }
     />
   );

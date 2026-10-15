@@ -1,6 +1,1269 @@
 {
   "components": {
     "schemas": {
+      "AcademyCountsOut": {
+        "description": "Liczba zgłoszeń na etapie przepływu (jak liczniki ekranu).",
+        "properties": {
+          "by_status": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "description": "new · to_call · scheduled · task_given · task_passed · contract_sent · signed · rejected · withdrew",
+            "title": "By Status",
+            "type": "object"
+          },
+          "in_progress": {
+            "description": "Osoby w toku (od „new” do „contract_sent”).",
+            "title": "In Progress",
+            "type": "integer"
+          },
+          "luna_skipped": {
+            "description": "„new” odłożone przez sortowanie — czekają na decyzję człowieka.",
+            "title": "Luna Skipped",
+            "type": "integer"
+          },
+          "reapplied_excluded": {
+            "description": "Wykluczeni, którzy zgłosili się ponownie (nie wracają do naboru).",
+            "title": "Reapplied Excluded",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          },
+          "unscreened": {
+            "description": "„new” jeszcze nieposortowane.",
+            "title": "Unscreened",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "by_status",
+          "total",
+          "in_progress",
+          "luna_skipped",
+          "unscreened",
+          "reapplied_excluded"
+        ],
+        "title": "AcademyCountsOut",
+        "type": "object"
+      },
+      "AcademyParticipantOut": {
+        "properties": {
+          "application_id": {
+            "title": "Application Id",
+            "type": "integer"
+          },
+          "applied_at": {
+            "format": "date-time",
+            "title": "Applied At",
+            "type": "string"
+          },
+          "attended": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Attended"
+          },
+          "call_attempts": {
+            "title": "Call Attempts",
+            "type": "integer"
+          },
+          "candidate_id": {
+            "title": "Candidate Id",
+            "type": "integer"
+          },
+          "closed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Closed At"
+          },
+          "closed_stage": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Closed Stage"
+          },
+          "cohort_month": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cohort Month"
+          },
+          "contact_redacted": {
+            "title": "Contact Redacted",
+            "type": "boolean"
+          },
+          "contract_sent_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Contract Sent At"
+          },
+          "email": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Tylko z candidates:contact.",
+            "title": "Email"
+          },
+          "first_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Name"
+          },
+          "last_call_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Call At"
+          },
+          "last_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Name"
+          },
+          "phone": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Tylko z candidates:contact.",
+            "title": "Phone"
+          },
+          "reapplied_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reapplied At"
+          },
+          "screening_verdict": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "call | review | skip",
+            "title": "Screening Verdict"
+          },
+          "session_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Session Id"
+          },
+          "session_starts_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Session Starts At"
+          },
+          "signed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Signed At"
+          },
+          "source_job_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Job Id"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "task_due": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Task Due"
+          },
+          "task_result": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "passed | failed",
+            "title": "Task Result"
+          }
+        },
+        "required": [
+          "application_id",
+          "candidate_id",
+          "first_name",
+          "last_name",
+          "status",
+          "screening_verdict",
+          "source_job_id",
+          "applied_at",
+          "reapplied_at",
+          "call_attempts",
+          "last_call_at",
+          "session_id",
+          "session_starts_at",
+          "attended",
+          "task_due",
+          "task_result",
+          "contract_sent_at",
+          "signed_at",
+          "cohort_month",
+          "closed_stage",
+          "closed_at",
+          "contact_redacted",
+          "email",
+          "phone"
+        ],
+        "title": "AcademyParticipantOut",
+        "type": "object"
+      },
+      "AcademyProgramDetailOut": {
+        "properties": {
+          "call_questions": {
+            "description": "Pytania na telefon.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Call Questions",
+            "type": "array"
+          },
+          "cohorts": {
+            "description": "Edycje z przypisanymi osobami (umowa wysłana lub podpisana).",
+            "items": {
+              "$ref": "#/components/schemas/CohortCountOut"
+            },
+            "title": "Cohorts",
+            "type": "array"
+          },
+          "counts": {
+            "$ref": "#/components/schemas/AcademyCountsOut"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "is_active": {
+            "title": "Is Active",
+            "type": "boolean"
+          },
+          "luna_enabled": {
+            "title": "Luna Enabled",
+            "type": "boolean"
+          },
+          "max_experience_years": {
+            "description": "Limit lat doświadczenia liczonego od końca studiów.",
+            "title": "Max Experience Years",
+            "type": "integer"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "next_cohort": {
+            "$ref": "#/components/schemas/CohortOut"
+          },
+          "require_polish": {
+            "title": "Require Polish",
+            "type": "boolean"
+          },
+          "session_capacity": {
+            "title": "Session Capacity",
+            "type": "integer"
+          },
+          "sessions": {
+            "description": "Terminy w biurze od 14 dni wstecz (jak ekran).",
+            "items": {
+              "$ref": "#/components/schemas/AcademySessionOut"
+            },
+            "title": "Sessions",
+            "type": "array"
+          },
+          "sources": {
+            "items": {
+              "$ref": "#/components/schemas/AcademySourceOut"
+            },
+            "title": "Sources",
+            "type": "array"
+          },
+          "sources_count": {
+            "description": "Ogłoszenia-źródła widoczne dla klucza.",
+            "title": "Sources Count",
+            "type": "integer"
+          },
+          "task_due_days": {
+            "title": "Task Due Days",
+            "type": "integer"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "is_active",
+          "max_experience_years",
+          "require_polish",
+          "luna_enabled",
+          "call_questions",
+          "session_capacity",
+          "task_due_days",
+          "sources_count",
+          "counts",
+          "next_cohort",
+          "created_at",
+          "updated_at",
+          "sources",
+          "sessions",
+          "cohorts"
+        ],
+        "title": "AcademyProgramDetailOut",
+        "type": "object"
+      },
+      "AcademyProgramOut": {
+        "properties": {
+          "call_questions": {
+            "description": "Pytania na telefon.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Call Questions",
+            "type": "array"
+          },
+          "counts": {
+            "$ref": "#/components/schemas/AcademyCountsOut"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "is_active": {
+            "title": "Is Active",
+            "type": "boolean"
+          },
+          "luna_enabled": {
+            "title": "Luna Enabled",
+            "type": "boolean"
+          },
+          "max_experience_years": {
+            "description": "Limit lat doświadczenia liczonego od końca studiów.",
+            "title": "Max Experience Years",
+            "type": "integer"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "next_cohort": {
+            "$ref": "#/components/schemas/CohortOut"
+          },
+          "require_polish": {
+            "title": "Require Polish",
+            "type": "boolean"
+          },
+          "session_capacity": {
+            "title": "Session Capacity",
+            "type": "integer"
+          },
+          "sources_count": {
+            "description": "Ogłoszenia-źródła widoczne dla klucza.",
+            "title": "Sources Count",
+            "type": "integer"
+          },
+          "task_due_days": {
+            "title": "Task Due Days",
+            "type": "integer"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "is_active",
+          "max_experience_years",
+          "require_polish",
+          "luna_enabled",
+          "call_questions",
+          "session_capacity",
+          "task_due_days",
+          "sources_count",
+          "counts",
+          "next_cohort",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "AcademyProgramOut",
+        "type": "object"
+      },
+      "AcademySessionOut": {
+        "properties": {
+          "cancelled": {
+            "title": "Cancelled",
+            "type": "boolean"
+          },
+          "capacity": {
+            "title": "Capacity",
+            "type": "integer"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "location": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Location"
+          },
+          "people": {
+            "title": "People",
+            "type": "integer"
+          },
+          "starts_at": {
+            "format": "date-time",
+            "title": "Starts At",
+            "type": "string"
+          },
+          "taken": {
+            "description": "Zajęte miejsca (zapisani na spotkanie).",
+            "title": "Taken",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "starts_at",
+          "location",
+          "capacity",
+          "taken",
+          "people",
+          "cancelled"
+        ],
+        "title": "AcademySessionOut",
+        "type": "object"
+      },
+      "AcademySourceOut": {
+        "properties": {
+          "applicants": {
+            "description": "Osoby z wierszem etapu w ogłoszeniu.",
+            "title": "Applicants",
+            "type": "integer"
+          },
+          "job_id": {
+            "title": "Job Id",
+            "type": "integer"
+          },
+          "since": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Zgłoszenia starsze nie wpadają.",
+            "title": "Since"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "job_id",
+          "title",
+          "status",
+          "since",
+          "applicants"
+        ],
+        "title": "AcademySourceOut",
+        "type": "object"
+      },
+      "ActivityEntryOut": {
+        "properties": {
+          "calls": {
+            "title": "Calls",
+            "type": "integer"
+          },
+          "candidates_added": {
+            "title": "Candidates Added",
+            "type": "integer"
+          },
+          "interviews": {
+            "description": "Rozmowy u klienta (pierwsze wejście pary).",
+            "title": "Interviews",
+            "type": "integer"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "placements": {
+            "title": "Placements",
+            "type": "integer"
+          },
+          "rank": {
+            "title": "Rank",
+            "type": "integer"
+          },
+          "screenings": {
+            "title": "Screenings",
+            "type": "integer"
+          },
+          "total_actions": {
+            "title": "Total Actions",
+            "type": "integer"
+          },
+          "user_id": {
+            "title": "User Id",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "rank",
+          "user_id",
+          "name",
+          "candidates_added",
+          "screenings",
+          "interviews",
+          "placements",
+          "calls",
+          "total_actions"
+        ],
+        "title": "ActivityEntryOut",
+        "type": "object"
+      },
+      "ActivityOutsideOut": {
+        "description": "Konta bez roli rekrutacyjnej (admin, Finanse…) — jeden wiersz, nie osoby.",
+        "properties": {
+          "actions": {
+            "title": "Actions",
+            "type": "integer"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "placements": {
+            "title": "Placements",
+            "type": "integer"
+          },
+          "users": {
+            "title": "Users",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "label",
+          "users",
+          "actions",
+          "placements"
+        ],
+        "title": "ActivityOutsideOut",
+        "type": "object"
+      },
+      "AiScreeningOut": {
+        "description": "Ocena zgłoszenia przez AI przed „Nowi” (podpowiedź, nie decyzja).",
+        "properties": {
+          "decided_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decided At"
+          },
+          "must_found": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Must Found"
+          },
+          "must_total": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Must Total"
+          },
+          "outcome": {
+            "description": "pending · added · screened_out · blocked · job_closed · already_in_job · failed",
+            "title": "Outcome",
+            "type": "string"
+          },
+          "overridden_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Overridden At"
+          },
+          "reasons": {
+            "items": {
+              "$ref": "#/components/schemas/ScreeningReasonOut"
+            },
+            "title": "Reasons",
+            "type": "array"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "verdict": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "fits · unclear · not_fit",
+            "title": "Verdict"
+          }
+        },
+        "required": [
+          "status",
+          "verdict",
+          "outcome",
+          "must_found",
+          "must_total",
+          "reasons",
+          "decided_at",
+          "overridden_at"
+        ],
+        "title": "AiScreeningOut",
+        "type": "object"
+      },
+      "ApplicationAnswersOut": {
+        "properties": {
+          "availability_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Availability Date"
+          },
+          "city": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "City"
+          },
+          "costs_redacted": {
+            "title": "Costs Redacted",
+            "type": "boolean"
+          },
+          "expected_rate_hourly": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Oczekiwana stawka PLN/h z formularza — tylko z ``amounts:read``.",
+            "title": "Expected Rate Hourly"
+          },
+          "link_kind": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "job · recruiter",
+            "title": "Link Kind"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Wiadomość z formularza — tylko z ``candidates:contact``.",
+            "title": "Message"
+          },
+          "message_redacted": {
+            "title": "Message Redacted",
+            "type": "boolean"
+          },
+          "utm_source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Utm Source"
+          },
+          "via": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "career (strona kariery) · invite_link",
+            "title": "Via"
+          },
+          "work_mode": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Work Mode"
+          }
+        },
+        "required": [
+          "message",
+          "message_redacted",
+          "city",
+          "availability_date",
+          "work_mode",
+          "costs_redacted",
+          "expected_rate_hourly",
+          "link_kind",
+          "via",
+          "utm_source"
+        ],
+        "title": "ApplicationAnswersOut",
+        "type": "object"
+      },
+      "ApplicationDetailOut": {
+        "properties": {
+          "ai_screening": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AiScreeningOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "answers": {
+            "$ref": "#/components/schemas/ApplicationAnswersOut"
+          },
+          "contact_redacted": {
+            "title": "Contact Redacted",
+            "type": "boolean"
+          },
+          "cv_file_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Nazwa pliku CV — tylko z ``candidates:cv``.",
+            "title": "Cv File Name"
+          },
+          "cv_mime_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cv Mime Type"
+          },
+          "cv_size_bytes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cv Size Bytes"
+          },
+          "email": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Email"
+          },
+          "first_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Name"
+          },
+          "has_cv": {
+            "title": "Has Cv",
+            "type": "boolean"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "job_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "null = stały link rekrutera.",
+            "title": "Job Id"
+          },
+          "job_title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Job Title"
+          },
+          "last_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Name"
+          },
+          "linkedin": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Linkedin"
+          },
+          "matched_candidate_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Kandydat z tym samym e-mailem w chwili zgłoszenia.",
+            "title": "Matched Candidate Id"
+          },
+          "phone": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Phone"
+          },
+          "reviewed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reviewed At"
+          },
+          "status": {
+            "description": "pending_review · linked · merged · created · rejected",
+            "title": "Status",
+            "type": "string"
+          },
+          "submitted_at": {
+            "format": "date-time",
+            "title": "Submitted At",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "status",
+          "job_id",
+          "job_title",
+          "submitted_at",
+          "reviewed_at",
+          "matched_candidate_id",
+          "contact_redacted",
+          "first_name",
+          "last_name",
+          "email",
+          "phone",
+          "linkedin",
+          "has_cv",
+          "ai_screening",
+          "updated_at",
+          "answers",
+          "cv_file_name",
+          "cv_mime_type",
+          "cv_size_bytes"
+        ],
+        "title": "ApplicationDetailOut",
+        "type": "object"
+      },
+      "ApplicationOut": {
+        "properties": {
+          "ai_screening": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AiScreeningOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "contact_redacted": {
+            "title": "Contact Redacted",
+            "type": "boolean"
+          },
+          "email": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Email"
+          },
+          "first_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Name"
+          },
+          "has_cv": {
+            "title": "Has Cv",
+            "type": "boolean"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "job_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "null = stały link rekrutera.",
+            "title": "Job Id"
+          },
+          "job_title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Job Title"
+          },
+          "last_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Name"
+          },
+          "linkedin": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Linkedin"
+          },
+          "matched_candidate_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Kandydat z tym samym e-mailem w chwili zgłoszenia.",
+            "title": "Matched Candidate Id"
+          },
+          "phone": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Phone"
+          },
+          "reviewed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reviewed At"
+          },
+          "status": {
+            "description": "pending_review · linked · merged · created · rejected",
+            "title": "Status",
+            "type": "string"
+          },
+          "submitted_at": {
+            "format": "date-time",
+            "title": "Submitted At",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "status",
+          "job_id",
+          "job_title",
+          "submitted_at",
+          "reviewed_at",
+          "matched_candidate_id",
+          "contact_redacted",
+          "first_name",
+          "last_name",
+          "email",
+          "phone",
+          "linkedin",
+          "has_cv",
+          "ai_screening",
+          "updated_at"
+        ],
+        "title": "ApplicationOut",
+        "type": "object"
+      },
       "AssignIn": {
         "description": "Linia z listy dopasowań wiersza. Bez ``confirm_overflow`` z ekranu —\nprzekroczenie salda zatwierdza człowiek.",
         "properties": {
@@ -2045,6 +3308,162 @@
         "title": "ClientOut",
         "type": "object"
       },
+      "ClosedOut": {
+        "properties": {
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "key": {
+            "description": "candidate | recruiter | delivery_lead | client",
+            "title": "Key",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "reasons": {
+            "items": {
+              "$ref": "#/components/schemas/ClosedReasonOut"
+            },
+            "title": "Reasons",
+            "type": "array"
+          }
+        },
+        "required": [
+          "key",
+          "label",
+          "count",
+          "reasons"
+        ],
+        "title": "ClosedOut",
+        "type": "object"
+      },
+      "ClosedReasonOut": {
+        "properties": {
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "kind": {
+            "description": "reason | other | none",
+            "title": "Kind",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          }
+        },
+        "required": [
+          "label",
+          "count",
+          "kind"
+        ],
+        "title": "ClosedReasonOut",
+        "type": "object"
+      },
+      "CohortCountOut": {
+        "properties": {
+          "contract_sent": {
+            "title": "Contract Sent",
+            "type": "integer"
+          },
+          "month": {
+            "description": "Pierwszy dzień miesiąca edycji.",
+            "format": "date",
+            "title": "Month",
+            "type": "string"
+          },
+          "program_end": {
+            "description": "10. dzień roboczy od startu.",
+            "format": "date",
+            "title": "Program End",
+            "type": "string"
+          },
+          "program_start": {
+            "format": "date",
+            "title": "Program Start",
+            "type": "string"
+          },
+          "signed": {
+            "title": "Signed",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "month",
+          "program_start",
+          "program_end",
+          "contract_sent",
+          "signed"
+        ],
+        "title": "CohortCountOut",
+        "type": "object"
+      },
+      "CohortOut": {
+        "properties": {
+          "month": {
+            "description": "Pierwszy dzień miesiąca edycji.",
+            "format": "date",
+            "title": "Month",
+            "type": "string"
+          },
+          "program_end": {
+            "description": "10. dzień roboczy od startu.",
+            "format": "date",
+            "title": "Program End",
+            "type": "string"
+          },
+          "program_start": {
+            "format": "date",
+            "title": "Program Start",
+            "type": "string"
+          }
+        },
+        "required": [
+          "month",
+          "program_start",
+          "program_end"
+        ],
+        "title": "CohortOut",
+        "type": "object"
+      },
+      "CompanyGoalsOut": {
+        "properties": {
+          "goals": {
+            "items": {
+              "$ref": "#/components/schemas/GoalProgressOut"
+            },
+            "title": "Goals",
+            "type": "array"
+          },
+          "people": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Aktywni rekruterzy w zespole.",
+            "title": "People"
+          },
+          "scope_label": {
+            "title": "Scope Label",
+            "type": "string"
+          }
+        },
+        "required": [
+          "scope_label",
+          "people",
+          "goals"
+        ],
+        "title": "CompanyGoalsOut",
+        "type": "object"
+      },
       "ContractOut": {
         "properties": {
           "amounts_redacted": {
@@ -2444,6 +3863,347 @@
         "title": "CriticalOut",
         "type": "object"
       },
+      "CvGenerateIn": {
+        "additionalProperties": false,
+        "properties": {
+          "note_for_generator": {
+            "default": "",
+            "description": "Uwaga dla generatora („Napisz od nowa”): forma i akcenty, np. „krócej, więcej o Kafce”. Nie jest źródłem faktów; stawki i dostępność serwer wycina.",
+            "maxLength": 300,
+            "title": "Note For Generator",
+            "type": "string"
+          }
+        },
+        "title": "CvGenerateIn",
+        "type": "object"
+      },
+      "CvGenerateOut": {
+        "properties": {
+          "candidate_id": {
+            "title": "Candidate Id",
+            "type": "integer"
+          },
+          "generation_id": {
+            "title": "Generation Id",
+            "type": "integer"
+          },
+          "job_id": {
+            "title": "Job Id",
+            "type": "integer"
+          },
+          "stage_id": {
+            "description": "Wiersz bieżącej karty, dla której powstaje CV.",
+            "title": "Stage Id",
+            "type": "integer"
+          },
+          "status": {
+            "const": "processing",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "job_id",
+          "candidate_id",
+          "stage_id",
+          "generation_id",
+          "status"
+        ],
+        "title": "CvGenerateOut",
+        "type": "object"
+      },
+      "CvGenerationOut": {
+        "properties": {
+          "attached": {
+            "description": "Wynik jest CV pary (szkic albo zatwierdzone). ``false`` przy gotowej generacji = czeka w karcie na „Użyj nowej wersji”.",
+            "title": "Attached",
+            "type": "boolean"
+          },
+          "content_mode": {
+            "title": "Content Mode",
+            "type": "string"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "language": {
+            "title": "Language",
+            "type": "string"
+          },
+          "origin": {
+            "description": "manual | auto (automat po „Zweryfikowany”).",
+            "title": "Origin",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "processing",
+              "ready",
+              "failed"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "status",
+          "language",
+          "content_mode",
+          "origin",
+          "created_at",
+          "attached",
+          "error_code"
+        ],
+        "title": "CvGenerationOut",
+        "type": "object"
+      },
+      "CvQcOut": {
+        "properties": {
+          "blocking_failed": {
+            "title": "Blocking Failed",
+            "type": "integer"
+          },
+          "ok_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ok At"
+          },
+          "status": {
+            "enum": [
+              "unchecked",
+              "passed",
+              "failed",
+              "overridden"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "warnings_count": {
+            "title": "Warnings Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "status",
+          "blocking_failed",
+          "warnings_count",
+          "ok_at"
+        ],
+        "title": "CvQcOut",
+        "type": "object"
+      },
+      "CvStatusOut": {
+        "properties": {
+          "candidate_id": {
+            "title": "Candidate Id",
+            "type": "integer"
+          },
+          "consent_missing": {
+            "description": "Klient wymaga zrzutu zgody RODO, a CV go nie ma — pobranie da 409 ``consent_required``.",
+            "title": "Consent Missing",
+            "type": "boolean"
+          },
+          "consent_required": {
+            "title": "Consent Required",
+            "type": "boolean"
+          },
+          "cv_stage_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Wiersz etapu, na którym leży CV.",
+            "title": "Cv Stage Id"
+          },
+          "cv_state": {
+            "enum": [
+              "none",
+              "draft",
+              "finalized"
+            ],
+            "title": "Cv State",
+            "type": "string"
+          },
+          "finalized": {
+            "title": "Finalized",
+            "type": "boolean"
+          },
+          "finalized_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finalized At"
+          },
+          "generations": {
+            "items": {
+              "$ref": "#/components/schemas/CvGenerationOut"
+            },
+            "title": "Generations",
+            "type": "array"
+          },
+          "job_id": {
+            "title": "Job Id",
+            "type": "integer"
+          },
+          "qc": {
+            "$ref": "#/components/schemas/CvQcOut"
+          },
+          "stage_id": {
+            "description": "Wiersz bieżącej karty pary.",
+            "title": "Stage Id",
+            "type": "integer"
+          },
+          "status": {
+            "enum": [
+              "none",
+              "processing",
+              "ready",
+              "failed"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          },
+          "version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Version"
+          },
+          "versions": {
+            "items": {
+              "$ref": "#/components/schemas/CvVersionOut"
+            },
+            "title": "Versions",
+            "type": "array"
+          }
+        },
+        "required": [
+          "job_id",
+          "candidate_id",
+          "stage_id",
+          "status",
+          "cv_stage_id",
+          "cv_state",
+          "finalized",
+          "version",
+          "updated_at",
+          "finalized_at",
+          "consent_required",
+          "consent_missing",
+          "versions",
+          "generations",
+          "qc"
+        ],
+        "title": "CvStatusOut",
+        "type": "object"
+      },
+      "CvVersionOut": {
+        "properties": {
+          "approved_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approved At"
+          },
+          "docx_available": {
+            "title": "Docx Available",
+            "type": "boolean"
+          },
+          "is_current": {
+            "title": "Is Current",
+            "type": "boolean"
+          },
+          "language": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Language"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "approved_at",
+          "language",
+          "docx_available",
+          "is_current"
+        ],
+        "title": "CvVersionOut",
+        "type": "object"
+      },
       "DeliveryLeadOut": {
         "properties": {
           "email": {
@@ -2659,6 +4419,74 @@
         ],
         "title": "EmploymentMarkerOut",
         "type": "object"
+      },
+      "EventFeed": {
+        "properties": {
+          "has_more": {
+            "title": "Has More",
+            "type": "boolean"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/EventOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_after": {
+            "description": "Wartość `after` dla następnego odpytania.",
+            "title": "Next After",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "next_after",
+          "has_more"
+        ],
+        "title": "EventFeed",
+        "type": "object"
+      },
+      "EventOut": {
+        "properties": {
+          "id": {
+            "description": "Kursor zdarzenia (rośnie w kolejności publikacji).",
+            "title": "Id",
+            "type": "integer"
+          },
+          "occurred_at": {
+            "format": "date-time",
+            "title": "Occurred At",
+            "type": "string"
+          },
+          "refs": {
+            "additionalProperties": true,
+            "description": "Identyfikatory obiektów, których dotyczy zdarzenie.",
+            "title": "Refs",
+            "type": "object"
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "type",
+          "occurred_at",
+          "refs"
+        ],
+        "title": "EventOut",
+        "type": "object"
+      },
+      "EventStatus": {
+        "enum": [
+          "scheduled",
+          "completed",
+          "cancelled"
+        ],
+        "title": "EventStatus",
+        "type": "string"
       },
       "ExperienceCheckOut": {
         "properties": {
@@ -3186,6 +5014,272 @@
         "title": "FinanceTotalsOut",
         "type": "object"
       },
+      "FunnelOut": {
+        "properties": {
+          "closed": {
+            "items": {
+              "$ref": "#/components/schemas/ClosedOut"
+            },
+            "title": "Closed",
+            "type": "array"
+          },
+          "stages": {
+            "items": {
+              "$ref": "#/components/schemas/FunnelStageOut"
+            },
+            "title": "Stages",
+            "type": "array"
+          }
+        },
+        "required": [
+          "stages",
+          "closed"
+        ],
+        "title": "FunnelOut",
+        "type": "object"
+      },
+      "FunnelStageOut": {
+        "properties": {
+          "column": {
+            "description": "Kolumna Tablicy, do której należy etap.",
+            "title": "Column",
+            "type": "string"
+          },
+          "column_label": {
+            "title": "Column Label",
+            "type": "string"
+          },
+          "is_main": {
+            "description": "Wiersz główny kolumny (reszta to odznaki).",
+            "title": "Is Main",
+            "type": "boolean"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "reached": {
+            "description": "Pary (kandydat, rekrutacja), które PIERWSZY raz weszły na etap w okresie.",
+            "title": "Reached",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "key",
+          "label",
+          "column",
+          "column_label",
+          "is_main",
+          "reached"
+        ],
+        "title": "FunnelStageOut",
+        "type": "object"
+      },
+      "GoalDefinitionOut": {
+        "properties": {
+          "applies_to_roles": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Applies To Roles",
+            "type": "array"
+          },
+          "available": {
+            "description": "False = brak źródła danych (np. telefonii).",
+            "title": "Available",
+            "type": "boolean"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "goal_id": {
+            "title": "Goal Id",
+            "type": "string"
+          },
+          "period": {
+            "description": "day | week | month | quarter",
+            "title": "Period",
+            "type": "string"
+          },
+          "short_title": {
+            "title": "Short Title",
+            "type": "string"
+          },
+          "target": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Cel roli (domyślny albo z Ustawień); cele osobiste mogą się różnić i nie są wystawiane.",
+            "title": "Target"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "unit": {
+            "description": "count | pct",
+            "title": "Unit",
+            "type": "string"
+          }
+        },
+        "required": [
+          "goal_id",
+          "title",
+          "short_title",
+          "description",
+          "period",
+          "unit",
+          "target",
+          "applies_to_roles",
+          "available"
+        ],
+        "title": "GoalDefinitionOut",
+        "type": "object"
+      },
+      "GoalProgressOut": {
+        "properties": {
+          "current": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "null = niepoliczony, nie zero.",
+            "title": "Current"
+          },
+          "expected": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Ile powinno być „na teraz”.",
+            "title": "Expected"
+          },
+          "goal_id": {
+            "title": "Goal Id",
+            "type": "string"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "period": {
+            "title": "Period",
+            "type": "string"
+          },
+          "progress_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Progress Pct"
+          },
+          "short_title": {
+            "title": "Short Title",
+            "type": "string"
+          },
+          "state": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "on_track | ahead | behind | hit | missed",
+            "title": "State"
+          },
+          "target": {
+            "title": "Target",
+            "type": "number"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "unit": {
+            "title": "Unit",
+            "type": "string"
+          }
+        },
+        "required": [
+          "goal_id",
+          "title",
+          "short_title",
+          "period",
+          "unit",
+          "target",
+          "current",
+          "progress_pct",
+          "state",
+          "expected",
+          "note"
+        ],
+        "title": "GoalProgressOut",
+        "type": "object"
+      },
+      "GoalsInsightsOut": {
+        "properties": {
+          "as_of": {
+            "description": "Chwila, względem której liczony jest postęp.",
+            "format": "date-time",
+            "title": "As Of",
+            "type": "string"
+          },
+          "company_progress": {
+            "$ref": "#/components/schemas/CompanyGoalsOut"
+          },
+          "definitions": {
+            "items": {
+              "$ref": "#/components/schemas/GoalDefinitionOut"
+            },
+            "title": "Definitions",
+            "type": "array"
+          },
+          "generated_at": {
+            "format": "date-time",
+            "title": "Generated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "generated_at",
+          "as_of",
+          "definitions",
+          "company_progress"
+        ],
+        "title": "GoalsInsightsOut",
+        "type": "object"
+      },
       "GroupCancelIn": {
         "additionalProperties": false,
         "properties": {
@@ -3691,6 +5785,562 @@
         "title": "ImportSummary",
         "type": "object"
       },
+      "InterviewCycleOut": {
+        "description": "Cykl pary (kandydat, rekrutacja) — ten sam, co plakietka na Tablicy.",
+        "properties": {
+          "current_step": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pierwszy krok wymagający ruchu: slots · choice · prep · prep2 · interview · call · debrief.",
+            "title": "Current Step"
+          },
+          "interview_event_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Rozmowa, którą cykl prowadzi teraz (telefon i debrief).",
+            "title": "Interview Event Id"
+          },
+          "phase": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "awaiting_recruiter_pick · awaiting_dl_confirm · scheduled · debrief_due · debriefed; null = w cyklu nic się nie dzieje.",
+            "title": "Phase"
+          },
+          "slot_request_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Wniosek o terminy od klienta: awaiting_recruiter · awaiting_dl · confirmed (otwarty wygrywa z potwierdzonym); null = brak wniosku.",
+            "title": "Slot Request Status"
+          }
+        },
+        "required": [
+          "phase",
+          "current_step",
+          "slot_request_status",
+          "interview_event_id"
+        ],
+        "title": "InterviewCycleOut",
+        "type": "object"
+      },
+      "InterviewDebriefOut": {
+        "properties": {
+          "acceptance_condition": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Warunek kandydata (zwykle stawka albo warunki umowy) — ``notes:read`` i ``amounts:read``.",
+            "title": "Acceptance Condition"
+          },
+          "candidate_comment": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Candidate Comment"
+          },
+          "client_questions": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Questions"
+          },
+          "client_questions_count": {
+            "title": "Client Questions Count",
+            "type": "integer"
+          },
+          "costs_redacted": {
+            "description": "true = bez ``amounts:read``: warunek kandydata jest null.",
+            "title": "Costs Redacted",
+            "type": "boolean"
+          },
+          "done": {
+            "title": "Done",
+            "type": "boolean"
+          },
+          "has_acceptance_condition": {
+            "title": "Has Acceptance Condition",
+            "type": "boolean"
+          },
+          "no_client_questions": {
+            "title": "No Client Questions",
+            "type": "boolean"
+          },
+          "notes_redacted": {
+            "description": "true = bez ``notes:read``: komentarz i pytania klienta są null.",
+            "title": "Notes Redacted",
+            "type": "boolean"
+          },
+          "offer_acceptance": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "yes · likely · no · unknown",
+            "title": "Offer Acceptance"
+          },
+          "outcome": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "good · medium · bad",
+            "title": "Outcome"
+          },
+          "saved_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Saved At"
+          }
+        },
+        "required": [
+          "done",
+          "saved_at",
+          "outcome",
+          "offer_acceptance",
+          "client_questions_count",
+          "no_client_questions",
+          "has_acceptance_condition",
+          "notes_redacted",
+          "candidate_comment",
+          "client_questions",
+          "costs_redacted",
+          "acceptance_condition"
+        ],
+        "title": "InterviewDebriefOut",
+        "type": "object"
+      },
+      "InterviewDetailOut": {
+        "properties": {
+          "candidate_first_name": {
+            "title": "Candidate First Name",
+            "type": "string"
+          },
+          "candidate_id": {
+            "title": "Candidate Id",
+            "type": "integer"
+          },
+          "candidate_last_name": {
+            "title": "Candidate Last Name",
+            "type": "string"
+          },
+          "client_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Id"
+          },
+          "client_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Name"
+          },
+          "current_round": {
+            "description": "Rozmowa jest rundą, którą cykl pary prowadzi teraz (do debriefu albo do prepów).",
+            "title": "Current Round",
+            "type": "boolean"
+          },
+          "cycle": {
+            "$ref": "#/components/schemas/InterviewCycleOut"
+          },
+          "debrief": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/InterviewDebriefOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Debrief strony kandydata pod tą rozmową; null = nie zapisano."
+          },
+          "debrief_done": {
+            "description": "Debrief zapisany po rozpoczęciu rozmowy, z pytaniami klienta albo „klient nie pytał” — zamyka rundę jak bramka ruchu karty.",
+            "title": "Debrief Done",
+            "type": "boolean"
+          },
+          "end": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End"
+          },
+          "event_id": {
+            "title": "Event Id",
+            "type": "integer"
+          },
+          "job_id": {
+            "title": "Job Id",
+            "type": "integer"
+          },
+          "job_title": {
+            "description": "Nazwa rekrutacji od klienta.",
+            "title": "Job Title",
+            "type": "string"
+          },
+          "phase": {
+            "description": "Faza tej rozmowy: scheduled (przed końcem) · call_due (okno telefonu po rozmowie) · debrief_overdue (po oknie, bez debriefu) · debriefed · cancelled.",
+            "title": "Phase",
+            "type": "string"
+          },
+          "preps": {
+            "items": {
+              "$ref": "#/components/schemas/InterviewPrepOut"
+            },
+            "title": "Preps",
+            "type": "array"
+          },
+          "start": {
+            "format": "date-time",
+            "title": "Start",
+            "type": "string"
+          },
+          "started": {
+            "title": "Started",
+            "type": "boolean"
+          },
+          "status": {
+            "description": "scheduled · completed · cancelled",
+            "title": "Status",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "event_id",
+          "status",
+          "start",
+          "end",
+          "started",
+          "phase",
+          "debrief_done",
+          "current_round",
+          "candidate_id",
+          "candidate_first_name",
+          "candidate_last_name",
+          "job_id",
+          "job_title",
+          "client_id",
+          "client_name",
+          "cycle",
+          "updated_at",
+          "preps",
+          "debrief"
+        ],
+        "title": "InterviewDetailOut",
+        "type": "object"
+      },
+      "InterviewOut": {
+        "properties": {
+          "candidate_first_name": {
+            "title": "Candidate First Name",
+            "type": "string"
+          },
+          "candidate_id": {
+            "title": "Candidate Id",
+            "type": "integer"
+          },
+          "candidate_last_name": {
+            "title": "Candidate Last Name",
+            "type": "string"
+          },
+          "client_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Id"
+          },
+          "client_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Name"
+          },
+          "current_round": {
+            "description": "Rozmowa jest rundą, którą cykl pary prowadzi teraz (do debriefu albo do prepów).",
+            "title": "Current Round",
+            "type": "boolean"
+          },
+          "cycle": {
+            "$ref": "#/components/schemas/InterviewCycleOut"
+          },
+          "debrief_done": {
+            "description": "Debrief zapisany po rozpoczęciu rozmowy, z pytaniami klienta albo „klient nie pytał” — zamyka rundę jak bramka ruchu karty.",
+            "title": "Debrief Done",
+            "type": "boolean"
+          },
+          "end": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End"
+          },
+          "event_id": {
+            "title": "Event Id",
+            "type": "integer"
+          },
+          "job_id": {
+            "title": "Job Id",
+            "type": "integer"
+          },
+          "job_title": {
+            "description": "Nazwa rekrutacji od klienta.",
+            "title": "Job Title",
+            "type": "string"
+          },
+          "phase": {
+            "description": "Faza tej rozmowy: scheduled (przed końcem) · call_due (okno telefonu po rozmowie) · debrief_overdue (po oknie, bez debriefu) · debriefed · cancelled.",
+            "title": "Phase",
+            "type": "string"
+          },
+          "start": {
+            "format": "date-time",
+            "title": "Start",
+            "type": "string"
+          },
+          "started": {
+            "title": "Started",
+            "type": "boolean"
+          },
+          "status": {
+            "description": "scheduled · completed · cancelled",
+            "title": "Status",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "event_id",
+          "status",
+          "start",
+          "end",
+          "started",
+          "phase",
+          "debrief_done",
+          "current_round",
+          "candidate_id",
+          "candidate_first_name",
+          "candidate_last_name",
+          "job_id",
+          "job_title",
+          "client_id",
+          "client_name",
+          "cycle",
+          "updated_at"
+        ],
+        "title": "InterviewOut",
+        "type": "object"
+      },
+      "InterviewPrepOut": {
+        "properties": {
+          "end": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End"
+          },
+          "event_id": {
+            "title": "Event Id",
+            "type": "integer"
+          },
+          "from_nexus": {
+            "description": "Prep założony w NEXUSIE (Teams) — ma stan transkryptu i ocenę.",
+            "title": "From Nexus",
+            "type": "boolean"
+          },
+          "late": {
+            "description": "Prep wypada po rozmowie, do której miał przygotować — do przełożenia.",
+            "title": "Late",
+            "type": "boolean"
+          },
+          "prep_no": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "1 albo 2 (Prep 1 — DL, Prep 2 — rekruter).",
+            "title": "Prep No"
+          },
+          "review_level": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "weak · ok · good",
+            "title": "Review Level"
+          },
+          "review_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "ok · unavailable",
+            "title": "Review Status"
+          },
+          "start": {
+            "format": "date-time",
+            "title": "Start",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "transcript_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "waiting · fetched · missing (bez nagrania) · cancelled · forbidden · error",
+            "title": "Transcript Status"
+          },
+          "transcription_setup": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "pending · enabled · failed · disabled",
+            "title": "Transcription Setup"
+          }
+        },
+        "required": [
+          "event_id",
+          "prep_no",
+          "start",
+          "end",
+          "status",
+          "from_nexus",
+          "transcription_setup",
+          "transcript_status",
+          "review_status",
+          "review_level",
+          "late"
+        ],
+        "title": "InterviewPrepOut",
+        "type": "object"
+      },
       "InvoiceCreateIn": {
         "description": "Model ekranu (walidacja kwoty i numeru) z granicami pól — wartość spoza\nint4 albo za długa waluta dawała 500 z bazy zamiast 422 (przegląd PR 2A),\na integrator ponawia 5xx.",
         "properties": {
@@ -4179,6 +6829,231 @@
         "title": "InvoiceUpdateIn",
         "type": "object"
       },
+      "LeagueEntryOut": {
+        "properties": {
+          "closed_requests": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Liga DL: rekrutacje zamknięte w kwartale (mianownik hit ratio).",
+            "title": "Closed Requests"
+          },
+          "excluded": {
+            "title": "Excluded",
+            "type": "boolean"
+          },
+          "hit_ratio": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Liga DL, %.",
+            "title": "Hit Ratio"
+          },
+          "interviews": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Interviews"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "placements": {
+            "title": "Placements",
+            "type": "integer"
+          },
+          "points": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Liga rekruterów; null w lidze DL.",
+            "title": "Points"
+          },
+          "prize_pln": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Nagroda — tylko z amounts:read.",
+            "title": "Prize Pln"
+          },
+          "qualified": {
+            "title": "Qualified",
+            "type": "boolean"
+          },
+          "rank": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Miejsce w klasyfikacji; null = bez miejsca (próg niespełniony albo wykluczony).",
+            "title": "Rank"
+          },
+          "recommendations": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recommendations"
+          },
+          "tied": {
+            "description": "Remis o płatne miejsce — rozstrzyga admin.",
+            "title": "Tied",
+            "type": "boolean"
+          },
+          "user_id": {
+            "title": "User Id",
+            "type": "integer"
+          },
+          "verifications": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Verifications"
+          }
+        },
+        "required": [
+          "rank",
+          "user_id",
+          "name",
+          "points",
+          "placements",
+          "interviews",
+          "recommendations",
+          "verifications",
+          "hit_ratio",
+          "closed_requests",
+          "qualified",
+          "tied",
+          "excluded",
+          "prize_pln"
+        ],
+        "title": "LeagueEntryOut",
+        "type": "object"
+      },
+      "LeagueOut": {
+        "properties": {
+          "entries": {
+            "items": {
+              "$ref": "#/components/schemas/LeagueEntryOut"
+            },
+            "title": "Entries",
+            "type": "array"
+          },
+          "period": {
+            "description": "Kwartał, np. „Q3 2026”.",
+            "title": "Period",
+            "type": "string"
+          },
+          "points_formula": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Points Formula"
+          },
+          "requirement": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Requirement"
+          },
+          "ties": {
+            "items": {
+              "$ref": "#/components/schemas/LeagueTieOut"
+            },
+            "title": "Ties",
+            "type": "array"
+          },
+          "type": {
+            "description": "quarterly_champions_recruiter | quarterly_champions_dl",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "period",
+          "requirement",
+          "points_formula",
+          "entries",
+          "ties"
+        ],
+        "title": "LeagueOut",
+        "type": "object"
+      },
+      "LeagueTieOut": {
+        "properties": {
+          "positions": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Positions",
+            "type": "array"
+          },
+          "user_ids": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "User Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "positions",
+          "user_ids"
+        ],
+        "title": "LeagueTieOut",
+        "type": "object"
+      },
       "LineConsumptionUpsert": {
         "description": "Ręczny wpis zejścia MD za miesiąc (``PUT …/consumptions/{RRRR-MM}``).\n\nMiesiąc jest w ścieżce, nie w ciele: to klucz idempotencji\n(``UNIQUE (order_id, period_month)``), więc powtórny PUT nadpisuje, nie\ndokłada. Oba statusy liczą się do zużycia — status opisuje etap\nrozliczenia miesiąca, nie to, czy MD zeszły z budżetu.",
         "properties": {
@@ -4357,6 +7232,93 @@
           "key_expires_soon"
         ],
         "title": "MeOut",
+        "type": "object"
+      },
+      "MoneyOut": {
+        "description": "Miesięczne kwoty kontraktów wykonywanych w dniu wyceny (PLN).\n\nPrzychód od ``sales_amounts:read``; koszt konsultantów, marża i marża %\ntylko z ``amounts:read``. Bez scope'u pole jest ``null``.",
+        "properties": {
+          "complete": {
+            "description": "False = brak kursu NBP dla części walut; kwoty niepełne.",
+            "title": "Complete",
+            "type": "boolean"
+          },
+          "consultant_cost_monthly_pln": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Consultant Cost Monthly Pln"
+          },
+          "contracts_without_cost_leg": {
+            "title": "Contracts Without Cost Leg",
+            "type": "integer"
+          },
+          "contracts_without_revenue_leg": {
+            "title": "Contracts Without Revenue Leg",
+            "type": "integer"
+          },
+          "margin_monthly_pln": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Margin Monthly Pln"
+          },
+          "margin_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Margin Pct"
+          },
+          "missing_currencies": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Missing Currencies",
+            "type": "array"
+          },
+          "revenue_monthly_pln": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revenue Monthly Pln"
+          },
+          "valuation_day": {
+            "format": "date",
+            "title": "Valuation Day",
+            "type": "string"
+          }
+        },
+        "required": [
+          "valuation_day",
+          "revenue_monthly_pln",
+          "consultant_cost_monthly_pln",
+          "margin_monthly_pln",
+          "margin_pct",
+          "contracts_without_cost_leg",
+          "contracts_without_revenue_leg",
+          "complete",
+          "missing_currencies"
+        ],
+        "title": "MoneyOut",
         "type": "object"
       },
       "MoveOut": {
@@ -6754,6 +9716,114 @@
         "title": "OrderPersonOut",
         "type": "object"
       },
+      "Page_AcademyParticipantOut_": {
+        "properties": {
+          "has_more": {
+            "title": "Has More",
+            "type": "boolean"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/AcademyParticipantOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "page": {
+            "title": "Page",
+            "type": "integer"
+          },
+          "page_size": {
+            "title": "Page Size",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "page",
+          "page_size",
+          "total",
+          "has_more"
+        ],
+        "title": "Page[AcademyParticipantOut]",
+        "type": "object"
+      },
+      "Page_AcademyProgramOut_": {
+        "properties": {
+          "has_more": {
+            "title": "Has More",
+            "type": "boolean"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/AcademyProgramOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "page": {
+            "title": "Page",
+            "type": "integer"
+          },
+          "page_size": {
+            "title": "Page Size",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "page",
+          "page_size",
+          "total",
+          "has_more"
+        ],
+        "title": "Page[AcademyProgramOut]",
+        "type": "object"
+      },
+      "Page_ApplicationOut_": {
+        "properties": {
+          "has_more": {
+            "title": "Has More",
+            "type": "boolean"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ApplicationOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "page": {
+            "title": "Page",
+            "type": "integer"
+          },
+          "page_size": {
+            "title": "Page Size",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "page",
+          "page_size",
+          "total",
+          "has_more"
+        ],
+        "title": "Page[ApplicationOut]",
+        "type": "object"
+      },
       "Page_CandidateListItemOut_": {
         "properties": {
           "has_more": {
@@ -6932,6 +10002,42 @@
           "has_more"
         ],
         "title": "Page[ImportSummary]",
+        "type": "object"
+      },
+      "Page_InterviewOut_": {
+        "properties": {
+          "has_more": {
+            "title": "Has More",
+            "type": "boolean"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/InterviewOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "page": {
+            "title": "Page",
+            "type": "integer"
+          },
+          "page_size": {
+            "title": "Page Size",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "page",
+          "page_size",
+          "total",
+          "has_more"
+        ],
+        "title": "Page[InterviewOut]",
         "type": "object"
       },
       "Page_InvoiceOut_": {
@@ -7172,6 +10278,354 @@
         "title": "PairRateOut",
         "type": "object"
       },
+      "PeriodOut": {
+        "description": "Okno raportu: dni ``from``–``to`` włącznie = przedział ``[start, end)``.",
+        "properties": {
+          "end": {
+            "description": "Północ pierwszego dnia PO oknie.",
+            "format": "date-time",
+            "title": "End",
+            "type": "string"
+          },
+          "from": {
+            "description": "Pierwszy dzień okna (włącznie).",
+            "format": "date",
+            "title": "From",
+            "type": "string"
+          },
+          "start": {
+            "format": "date-time",
+            "title": "Start",
+            "type": "string"
+          },
+          "timezone": {
+            "title": "Timezone",
+            "type": "string"
+          },
+          "to": {
+            "description": "Ostatni dzień okna (włącznie).",
+            "format": "date",
+            "title": "To",
+            "type": "string"
+          }
+        },
+        "required": [
+          "from",
+          "to",
+          "start",
+          "end",
+          "timezone"
+        ],
+        "title": "PeriodOut",
+        "type": "object"
+      },
+      "PlacementClientOut": {
+        "properties": {
+          "active_contracts": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Active Contracts"
+          },
+          "client_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "null = placementy bez klienta oraz klienci ukryci lub usunięci.",
+            "title": "Client Id"
+          },
+          "consultants": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "W dniu wyceny okna.",
+            "title": "Consultants"
+          },
+          "ends": {
+            "title": "Ends",
+            "type": "integer"
+          },
+          "money": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MoneyOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "placements": {
+            "title": "Placements",
+            "type": "integer"
+          },
+          "resignations": {
+            "title": "Resignations",
+            "type": "integer"
+          },
+          "starts": {
+            "title": "Starts",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "client_id",
+          "name",
+          "placements",
+          "starts",
+          "ends",
+          "resignations",
+          "consultants",
+          "active_contracts",
+          "money"
+        ],
+        "title": "PlacementClientOut",
+        "type": "object"
+      },
+      "PlacementMonthOut": {
+        "properties": {
+          "active_contracts": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Active Contracts"
+          },
+          "complete": {
+            "title": "Complete",
+            "type": "boolean"
+          },
+          "consultants": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Konsultanci pracujący w dniu wyceny (null = odcinek w przyszłości).",
+            "title": "Consultants"
+          },
+          "ends": {
+            "description": "Zejścia: kontrakty zakończone w odcinku.",
+            "title": "Ends",
+            "type": "integer"
+          },
+          "from": {
+            "format": "date",
+            "title": "From",
+            "type": "string"
+          },
+          "money": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MoneyOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "month": {
+            "description": "YYYY-MM",
+            "title": "Month",
+            "type": "string"
+          },
+          "placements": {
+            "description": "Pierwsze zatrudnienie pary (D2).",
+            "title": "Placements",
+            "type": "integer"
+          },
+          "priced_contracts": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Kontrakty z wycenioną stawką do klienta — podstawa kwot.",
+            "title": "Priced Contracts"
+          },
+          "resignations": {
+            "description": "Zejścia z powodu po stronie konsultanta.",
+            "title": "Resignations",
+            "type": "integer"
+          },
+          "starts": {
+            "description": "Kontrakty z datą startu w odcinku.",
+            "title": "Starts",
+            "type": "integer"
+          },
+          "to": {
+            "format": "date",
+            "title": "To",
+            "type": "string"
+          }
+        },
+        "required": [
+          "month",
+          "from",
+          "to",
+          "complete",
+          "placements",
+          "starts",
+          "ends",
+          "resignations",
+          "consultants",
+          "active_contracts",
+          "priced_contracts",
+          "money"
+        ],
+        "title": "PlacementMonthOut",
+        "type": "object"
+      },
+      "PlacementTotalsOut": {
+        "properties": {
+          "clients_with_placements": {
+            "title": "Clients With Placements",
+            "type": "integer"
+          },
+          "ends": {
+            "title": "Ends",
+            "type": "integer"
+          },
+          "placements": {
+            "title": "Placements",
+            "type": "integer"
+          },
+          "resignations": {
+            "title": "Resignations",
+            "type": "integer"
+          },
+          "starts": {
+            "title": "Starts",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "placements",
+          "starts",
+          "ends",
+          "resignations",
+          "clients_with_placements"
+        ],
+        "title": "PlacementTotalsOut",
+        "type": "object"
+      },
+      "PlacementsInsightsOut": {
+        "properties": {
+          "amount_level": {
+            "description": "none | sales | all",
+            "title": "Amount Level",
+            "type": "string"
+          },
+          "clients": {
+            "items": {
+              "$ref": "#/components/schemas/PlacementClientOut"
+            },
+            "title": "Clients",
+            "type": "array"
+          },
+          "costs_redacted": {
+            "title": "Costs Redacted",
+            "type": "boolean"
+          },
+          "coverage_note": {
+            "title": "Coverage Note",
+            "type": "string"
+          },
+          "definitions": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Definitions",
+            "type": "object"
+          },
+          "generated_at": {
+            "format": "date-time",
+            "title": "Generated At",
+            "type": "string"
+          },
+          "months": {
+            "items": {
+              "$ref": "#/components/schemas/PlacementMonthOut"
+            },
+            "title": "Months",
+            "type": "array"
+          },
+          "period": {
+            "$ref": "#/components/schemas/PeriodOut"
+          },
+          "sales_redacted": {
+            "title": "Sales Redacted",
+            "type": "boolean"
+          },
+          "totals": {
+            "$ref": "#/components/schemas/PlacementTotalsOut"
+          },
+          "window_valuation_day": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Dzień wyceny konsultantów i kwot klientów (ostatni dzień okna albo dziś).",
+            "title": "Window Valuation Day"
+          }
+        },
+        "required": [
+          "amount_level",
+          "sales_redacted",
+          "costs_redacted",
+          "period",
+          "generated_at",
+          "definitions",
+          "coverage_note",
+          "window_valuation_day",
+          "totals",
+          "months",
+          "clients"
+        ],
+        "title": "PlacementsInsightsOut",
+        "type": "object"
+      },
       "PreviousRecruiterOut": {
         "properties": {
           "id": {
@@ -7207,6 +10661,349 @@
           "parked_at"
         ],
         "title": "PreviousRecruiterOut",
+        "type": "object"
+      },
+      "ProposalOut": {
+        "description": "Propozycja pól w kształcie ciała ``POST /recruitments``.",
+        "properties": {
+          "client_id": {
+            "title": "Client Id",
+            "type": "integer"
+          },
+          "client_reference": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Reference"
+          },
+          "competence_category_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Competence Category Id"
+          },
+          "contract_length": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Contract Length"
+          },
+          "deadline": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deadline"
+          },
+          "deadline_time": {
+            "anyOf": [
+              {
+                "format": "time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deadline Time"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "descriptive_requirements": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Descriptive Requirements",
+            "type": "array"
+          },
+          "headcount": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Headcount"
+          },
+          "hiring_manager_contact_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hiring Manager Contact Id"
+          },
+          "language": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Language"
+          },
+          "location": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Location"
+          },
+          "onsite_days_per_month": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Onsite Days Per Month"
+          },
+          "onsite_days_per_week": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Onsite Days Per Week"
+          },
+          "project_about": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project About"
+          },
+          "rate_budget_hourly": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rate Budget Hourly"
+          },
+          "rate_budget_hourly_min": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rate Budget Hourly Min"
+          },
+          "remote_policy": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Remote Policy"
+          },
+          "requirements": {
+            "items": {
+              "$ref": "#/components/schemas/ProposalRequirementRowOut"
+            },
+            "title": "Requirements",
+            "type": "array"
+          },
+          "responsibilities": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Responsibilities"
+          },
+          "role_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Role Name"
+          },
+          "screening_questions": {
+            "items": {
+              "$ref": "#/components/schemas/ProposalScreeningQuestionOut"
+            },
+            "title": "Screening Questions",
+            "type": "array"
+          },
+          "selling_points": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Selling Points"
+          },
+          "seniority_min_years": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Seniority Min Years"
+          },
+          "start_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Start Date"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Nazwa od klienta — dosłownie z treści.",
+            "title": "Title"
+          }
+        },
+        "required": [
+          "client_id",
+          "title",
+          "role_name",
+          "client_reference",
+          "requirements",
+          "descriptive_requirements",
+          "seniority_min_years",
+          "language",
+          "contract_length",
+          "start_date",
+          "rate_budget_hourly",
+          "rate_budget_hourly_min",
+          "remote_policy",
+          "onsite_days_per_week",
+          "onsite_days_per_month",
+          "location",
+          "deadline",
+          "deadline_time",
+          "headcount",
+          "hiring_manager_contact_id",
+          "competence_category_id",
+          "description",
+          "project_about",
+          "responsibilities",
+          "selling_points",
+          "screening_questions"
+        ],
+        "title": "ProposalOut",
+        "type": "object"
+      },
+      "ProposalRequirementRowOut": {
+        "properties": {
+          "level": {
+            "description": "must | nice (krytyczne wybiera człowiek)",
+            "title": "Level",
+            "type": "string"
+          },
+          "words": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Words",
+            "type": "array"
+          }
+        },
+        "required": [
+          "words",
+          "level"
+        ],
+        "title": "ProposalRequirementRowOut",
+        "type": "object"
+      },
+      "ProposalScreeningQuestionOut": {
+        "properties": {
+          "deal_breaker": {
+            "title": "Deal Breaker",
+            "type": "string"
+          },
+          "ideal_answer": {
+            "title": "Ideal Answer",
+            "type": "string"
+          },
+          "question": {
+            "title": "Question",
+            "type": "string"
+          }
+        },
+        "required": [
+          "question",
+          "ideal_answer",
+          "deal_breaker"
+        ],
+        "title": "ProposalScreeningQuestionOut",
         "type": "object"
       },
       "RateHistoryOut": {
@@ -7327,6 +11124,135 @@
           "effective_from"
         ],
         "title": "RateStepOut",
+        "type": "object"
+      },
+      "ReadHintsOut": {
+        "properties": {
+          "competence_category_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Competence Category Name"
+          },
+          "dropped_requirements": {
+            "description": "Wiersze, które nie zmieściły się w limitach.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Dropped Requirements",
+            "type": "array"
+          },
+          "hiring_manager_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Osoba z treści (albo pisownia dopasowanego kontaktu).",
+            "title": "Hiring Manager Name"
+          },
+          "hiring_manager_position": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hiring Manager Position"
+          },
+          "working_title_suggestion": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Working Title Suggestion"
+          }
+        },
+        "required": [
+          "working_title_suggestion",
+          "hiring_manager_name",
+          "hiring_manager_position",
+          "competence_category_name",
+          "dropped_requirements"
+        ],
+        "title": "ReadHintsOut",
+        "type": "object"
+      },
+      "ReadRequestIn": {
+        "additionalProperties": false,
+        "properties": {
+          "client_id": {
+            "maximum": 2147483647.0,
+            "minimum": 1.0,
+            "title": "Client Id",
+            "type": "integer"
+          },
+          "text": {
+            "description": "Treść requestu od klienta (mail, opis stanowiska).",
+            "maxLength": 20000,
+            "minLength": 30,
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "client_id",
+          "text"
+        ],
+        "title": "ReadRequestIn",
+        "type": "object"
+      },
+      "ReadRequestOut": {
+        "properties": {
+          "ai_failed": {
+            "description": "Model nie odpowiedział — propozycja jest pusta, a zapis i tak jest możliwy.",
+            "title": "Ai Failed",
+            "type": "boolean"
+          },
+          "hints": {
+            "$ref": "#/components/schemas/ReadHintsOut"
+          },
+          "missing": {
+            "description": "Braki wobec bramki przekazania: role, must, budget, work_mode, office_days, office_city, context, questions, search, critical, deal_breaker.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Missing",
+            "type": "array"
+          },
+          "notes": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Notes",
+            "type": "array"
+          },
+          "proposal": {
+            "$ref": "#/components/schemas/ProposalOut"
+          }
+        },
+        "required": [
+          "proposal",
+          "missing",
+          "notes",
+          "hints",
+          "ai_failed"
+        ],
+        "title": "ReadRequestOut",
         "type": "object"
       },
       "RecommendationCardOut": {
@@ -7639,6 +11565,426 @@
           "off_template"
         ],
         "title": "RecruitmentBoardOut",
+        "type": "object"
+      },
+      "RecruitmentCreateIn": {
+        "additionalProperties": false,
+        "description": "Pola, które osoba wysyła z ``/jobs/new`` przyciskiem „Utwórz i opublikuj”.\n\nBramka przekazania (rola, wymagania, budżet, tryb pracy, opis projektu,\n2 pytania z odpowiedzią dyskwalifikującą, decyzja o krytycznych, hiring\nmanager, termin, kategoria, liczba osób) sprawdza komplet — brak = 422\n``job_not_ready`` i nic nie powstaje.",
+        "properties": {
+          "client_id": {
+            "maximum": 2147483647.0,
+            "minimum": 1.0,
+            "title": "Client Id",
+            "type": "integer"
+          },
+          "client_reference": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Numer zapytania klienta (ZOB, SAP…). Brak = serwer czyta numer z tytułu; pusty napis = bez numeru.",
+            "title": "Client Reference"
+          },
+          "competence_category_id": {
+            "anyOf": [
+              {
+                "maximum": 2147483647.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Kategoria kompetencji (podpowiedź: odczyt requestu).",
+            "title": "Competence Category Id"
+          },
+          "contract_length": {
+            "anyOf": [
+              {
+                "maxLength": 255,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Contract Length"
+          },
+          "deadline": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deadline"
+          },
+          "deadline_not_provided": {
+            "default": false,
+            "description": "„Klient nie podał terminu”.",
+            "title": "Deadline Not Provided",
+            "type": "boolean"
+          },
+          "deadline_time": {
+            "anyOf": [
+              {
+                "format": "time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deadline Time"
+          },
+          "delivery_lead_id": {
+            "description": "Delivery Lead, który prowadzi request.",
+            "maximum": 2147483647.0,
+            "minimum": 1.0,
+            "title": "Delivery Lead Id",
+            "type": "integer"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "maxLength": 20000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Treść requestu od klienta.",
+            "title": "Description"
+          },
+          "descriptive_requirements": {
+            "description": "Zdania klienta, które nie są słowami kluczowymi.",
+            "items": {
+              "maxLength": 1000,
+              "type": "string"
+            },
+            "maxItems": 20,
+            "title": "Descriptive Requirements",
+            "type": "array"
+          },
+          "headcount": {
+            "anyOf": [
+              {
+                "maximum": 1000.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Headcount"
+          },
+          "hiring_manager_contact_id": {
+            "anyOf": [
+              {
+                "maximum": 2147483647.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Kontakt klienta tej rekrutacji.",
+            "title": "Hiring Manager Contact Id"
+          },
+          "hiring_manager_not_provided": {
+            "default": false,
+            "description": "„Klient nie podał hiring managera”.",
+            "title": "Hiring Manager Not Provided",
+            "type": "boolean"
+          },
+          "language": {
+            "anyOf": [
+              {
+                "maxLength": 100,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Language"
+          },
+          "location": {
+            "anyOf": [
+              {
+                "maxLength": 255,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Miasta biura po przecinku.",
+            "title": "Location"
+          },
+          "no_critical": {
+            "default": false,
+            "description": "Świadome „Brak krytycznych” — gdy żaden wiersz nie jest critical.",
+            "title": "No Critical",
+            "type": "boolean"
+          },
+          "onsite_days_per_month": {
+            "anyOf": [
+              {
+                "maximum": 22.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Tylko przy pracy hybrydowej.",
+            "title": "Onsite Days Per Month"
+          },
+          "onsite_days_per_week": {
+            "anyOf": [
+              {
+                "maximum": 7.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Onsite Days Per Week"
+          },
+          "priority": {
+            "default": "p1",
+            "enum": [
+              "p1",
+              "p2",
+              "accepting"
+            ],
+            "title": "Priority",
+            "type": "string"
+          },
+          "project_about": {
+            "anyOf": [
+              {
+                "maxLength": 5000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project About"
+          },
+          "rate_budget_hourly": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "maximum": 2000.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Budżet dla kandydata „do”, PLN/h.",
+            "title": "Rate Budget Hourly"
+          },
+          "rate_budget_hourly_min": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "maximum": 2000.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "„Od” przedziału budżetu, PLN/h.",
+            "title": "Rate Budget Hourly Min"
+          },
+          "recruiter_id": {
+            "anyOf": [
+              {
+                "maximum": 2147483647.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Rekruter (rola rekrutera). Brak = automat przydziału.",
+            "title": "Recruiter Id"
+          },
+          "remote_policy": {
+            "anyOf": [
+              {
+                "enum": [
+                  "onsite",
+                  "hybrid",
+                  "remote"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Remote Policy"
+          },
+          "requirements": {
+            "items": {
+              "$ref": "#/components/schemas/RequirementRowIn"
+            },
+            "maxItems": 30,
+            "title": "Requirements",
+            "type": "array"
+          },
+          "responsibilities": {
+            "anyOf": [
+              {
+                "maxLength": 5000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Responsibilities"
+          },
+          "role_name": {
+            "anyOf": [
+              {
+                "maxLength": 255,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Rola (Profil Championa); brak = title.",
+            "title": "Role Name"
+          },
+          "screening_questions": {
+            "items": {
+              "$ref": "#/components/schemas/ScreeningQuestionIn"
+            },
+            "maxItems": 10,
+            "title": "Screening Questions",
+            "type": "array"
+          },
+          "selling_points": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Selling Points"
+          },
+          "seniority_min_years": {
+            "anyOf": [
+              {
+                "maximum": 60.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Seniority Min Years"
+          },
+          "start_date": {
+            "anyOf": [
+              {
+                "maxLength": 100,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Start Date"
+          },
+          "title": {
+            "description": "Nazwa stanowiska od klienta — idzie do klienta (CV, nazwa pliku).",
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Title",
+            "type": "string"
+          },
+          "working_title": {
+            "anyOf": [
+              {
+                "maxLength": 255,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Tytuł dla rekrutera; brak = składa go serwer i przelicza.",
+            "title": "Working Title"
+          }
+        },
+        "required": [
+          "client_id",
+          "title",
+          "delivery_lead_id"
+        ],
+        "title": "RecruitmentCreateIn",
+        "type": "object"
+      },
+      "RecruitmentCreatedOut": {
+        "properties": {
+          "job_id": {
+            "title": "Job Id",
+            "type": "integer"
+          },
+          "notices": {
+            "description": "Uwagi zapisu wymagań (np. zdanie przeniesione do „Rekruter sprawdza w rozmowie”).",
+            "items": {
+              "type": "string"
+            },
+            "title": "Notices",
+            "type": "array"
+          },
+          "reference_number": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reference Number"
+          }
+        },
+        "required": [
+          "job_id",
+          "reference_number"
+        ],
+        "title": "RecruitmentCreatedOut",
         "type": "object"
       },
       "RecruitmentDetailOut": {
@@ -8094,6 +12440,113 @@
           "salary_max"
         ],
         "title": "RecruitmentDetailOut",
+        "type": "object"
+      },
+      "RecruitmentInsightsOut": {
+        "properties": {
+          "current": {
+            "description": "Stan na dziś — nie zależy od okna.",
+            "items": {
+              "$ref": "#/components/schemas/StageNowOut"
+            },
+            "title": "Current",
+            "type": "array"
+          },
+          "definitions": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Definitions",
+            "type": "object"
+          },
+          "generated_at": {
+            "format": "date-time",
+            "title": "Generated At",
+            "type": "string"
+          },
+          "job_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Job Id"
+          },
+          "months": {
+            "items": {
+              "$ref": "#/components/schemas/RecruitmentMonthOut"
+            },
+            "title": "Months",
+            "type": "array"
+          },
+          "period": {
+            "$ref": "#/components/schemas/PeriodOut"
+          },
+          "totals": {
+            "$ref": "#/components/schemas/FunnelOut"
+          }
+        },
+        "required": [
+          "period",
+          "generated_at",
+          "job_id",
+          "definitions",
+          "totals",
+          "current",
+          "months"
+        ],
+        "title": "RecruitmentInsightsOut",
+        "type": "object"
+      },
+      "RecruitmentMonthOut": {
+        "properties": {
+          "closed": {
+            "items": {
+              "$ref": "#/components/schemas/ClosedOut"
+            },
+            "title": "Closed",
+            "type": "array"
+          },
+          "complete": {
+            "description": "Cały miesiąc w oknie i już zakończony (liczby się nie zmienią).",
+            "title": "Complete",
+            "type": "boolean"
+          },
+          "from": {
+            "format": "date",
+            "title": "From",
+            "type": "string"
+          },
+          "month": {
+            "description": "YYYY-MM",
+            "title": "Month",
+            "type": "string"
+          },
+          "stages": {
+            "items": {
+              "$ref": "#/components/schemas/FunnelStageOut"
+            },
+            "title": "Stages",
+            "type": "array"
+          },
+          "to": {
+            "format": "date",
+            "title": "To",
+            "type": "string"
+          }
+        },
+        "required": [
+          "stages",
+          "closed",
+          "month",
+          "from",
+          "to",
+          "complete"
+        ],
+        "title": "RecruitmentMonthOut",
         "type": "object"
       },
       "RecruitmentOut": {
@@ -8627,6 +13080,39 @@
         "title": "RequirementGroupOut",
         "type": "object"
       },
+      "RequirementRowIn": {
+        "additionalProperties": false,
+        "description": "Wiersz wymagań: słowa = warianty (wystarczy jedno z nich), poziom.",
+        "properties": {
+          "level": {
+            "default": "must",
+            "description": "critical (najwyżej 3 — ukrywają kandydatów bez nich) | must | nice.",
+            "enum": [
+              "critical",
+              "must",
+              "nice"
+            ],
+            "title": "Level",
+            "type": "string"
+          },
+          "words": {
+            "items": {
+              "maxLength": 100,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 20,
+            "minItems": 1,
+            "title": "Words",
+            "type": "array"
+          }
+        },
+        "required": [
+          "words"
+        ],
+        "title": "RequirementRowIn",
+        "type": "object"
+      },
       "RequirementRowOut": {
         "properties": {
           "level": {
@@ -8648,6 +13134,91 @@
           "level"
         ],
         "title": "RequirementRowOut",
+        "type": "object"
+      },
+      "ResolveIn": {
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "description": "link — CV do profilu kandydata bez zmiany pól; merge — CV i puste pola kontaktu + wiadomość; create — nowy kandydat; reject — odrzucenie bez zmian w kandydatach.",
+            "enum": [
+              "link",
+              "merge",
+              "create",
+              "reject"
+            ],
+            "title": "Action",
+            "type": "string"
+          },
+          "candidate_id": {
+            "anyOf": [
+              {
+                "maximum": 2147483647.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Dla link/merge: kandydat z tym samym e-mailem co zgłoszenie (domyślnie dopasowany przy zgłoszeniu).",
+            "title": "Candidate Id"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Wymagany przy reject — trafia do historii.",
+            "title": "Reason"
+          }
+        },
+        "required": [
+          "action"
+        ],
+        "title": "ResolveIn",
+        "type": "object"
+      },
+      "ResolveOut": {
+        "properties": {
+          "added_to_recruitment": {
+            "description": "Osoba weszła do „Nowi” rekrutacji zgłoszenia.",
+            "title": "Added To Recruitment",
+            "type": "boolean"
+          },
+          "candidate_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Kandydat, którego dotyczy rozpatrzenie (null przy reject; w próbie także przy create).",
+            "title": "Candidate Id"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "status",
+          "candidate_id",
+          "added_to_recruitment"
+        ],
+        "title": "ResolveOut",
         "type": "object"
       },
       "ScopeOut": {
@@ -8720,6 +13291,35 @@
         "title": "ScreeningAnswerOut",
         "type": "object"
       },
+      "ScreeningQuestionIn": {
+        "additionalProperties": false,
+        "properties": {
+          "deal_breaker": {
+            "default": "",
+            "description": "Odpowiedź, która dyskwalifikuje — bramka przekazania wymaga jej przy każdym pytaniu.",
+            "maxLength": 500,
+            "title": "Deal Breaker",
+            "type": "string"
+          },
+          "ideal_answer": {
+            "default": "",
+            "maxLength": 500,
+            "title": "Ideal Answer",
+            "type": "string"
+          },
+          "question": {
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Question",
+            "type": "string"
+          }
+        },
+        "required": [
+          "question"
+        ],
+        "title": "ScreeningQuestionIn",
+        "type": "object"
+      },
       "ScreeningQuestionOut": {
         "properties": {
           "deal_breaker": {
@@ -8746,6 +13346,32 @@
           "deal_breaker"
         ],
         "title": "ScreeningQuestionOut",
+        "type": "object"
+      },
+      "ScreeningReasonOut": {
+        "properties": {
+          "quote": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Cytat z CV — tylko z ``candidates:cv``, inaczej null.",
+            "title": "Quote"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "text",
+          "quote"
+        ],
+        "title": "ScreeningReasonOut",
         "type": "object"
       },
       "ScreeningSheetOut": {
@@ -8939,6 +13565,30 @@
           "count"
         ],
         "title": "StageCountOut",
+        "type": "object"
+      },
+      "StageNowOut": {
+        "properties": {
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "now": {
+            "description": "Osoby stojące dziś na etapie (rekrutacje opublikowane).",
+            "title": "Now",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "key",
+          "label",
+          "now"
+        ],
+        "title": "StageNowOut",
         "type": "object"
       },
       "StageOut": {
@@ -9153,6 +13803,78 @@
         "title": "TalkItemOut",
         "type": "object"
       },
+      "TeamActivityOut": {
+        "properties": {
+          "entries": {
+            "items": {
+              "$ref": "#/components/schemas/ActivityEntryOut"
+            },
+            "title": "Entries",
+            "type": "array"
+          },
+          "note": {
+            "title": "Note",
+            "type": "string"
+          },
+          "outside_scope": {
+            "$ref": "#/components/schemas/ActivityOutsideOut"
+          }
+        },
+        "required": [
+          "entries",
+          "outside_scope",
+          "note"
+        ],
+        "title": "TeamActivityOut",
+        "type": "object"
+      },
+      "TeamInsightsOut": {
+        "properties": {
+          "activity": {
+            "$ref": "#/components/schemas/TeamActivityOut"
+          },
+          "amount_level": {
+            "description": "none | sales | all",
+            "title": "Amount Level",
+            "type": "string"
+          },
+          "costs_redacted": {
+            "title": "Costs Redacted",
+            "type": "boolean"
+          },
+          "generated_at": {
+            "format": "date-time",
+            "title": "Generated At",
+            "type": "string"
+          },
+          "leagues": {
+            "description": "Kwartał, w którym leży ostatni dzień okna.",
+            "items": {
+              "$ref": "#/components/schemas/LeagueOut"
+            },
+            "title": "Leagues",
+            "type": "array"
+          },
+          "period": {
+            "$ref": "#/components/schemas/PeriodOut"
+          },
+          "sales_redacted": {
+            "title": "Sales Redacted",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "amount_level",
+          "sales_redacted",
+          "costs_redacted",
+          "period",
+          "generated_at",
+          "activity",
+          "leagues"
+        ],
+        "title": "TeamInsightsOut",
+        "type": "object"
+      },
       "ValidationError": {
         "properties": {
           "ctx": {
@@ -9191,6 +13913,210 @@
           "type"
         ],
         "title": "ValidationError",
+        "type": "object"
+      },
+      "WebhookCreateIn": {
+        "properties": {
+          "event_types": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 12,
+            "title": "Event Types",
+            "type": "array"
+          },
+          "url": {
+            "maxLength": 2048,
+            "minLength": 1,
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "url"
+        ],
+        "title": "WebhookCreateIn",
+        "type": "object"
+      },
+      "WebhookCreated": {
+        "properties": {
+          "secret": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Sekret podpisu (`whsec_…`) — tylko w pierwszej odpowiedzi; w powtórce z tym samym Idempotency-Key jest `null`.",
+            "title": "Secret"
+          },
+          "secret_redacted": {
+            "title": "Secret Redacted",
+            "type": "boolean"
+          },
+          "webhook": {
+            "$ref": "#/components/schemas/WebhookOut"
+          }
+        },
+        "required": [
+          "webhook",
+          "secret",
+          "secret_redacted"
+        ],
+        "title": "WebhookCreated",
+        "type": "object"
+      },
+      "WebhookDeleted": {
+        "properties": {
+          "deleted": {
+            "title": "Deleted",
+            "type": "boolean"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "deleted"
+        ],
+        "title": "WebhookDeleted",
+        "type": "object"
+      },
+      "WebhookOut": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "disabled_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Disabled Reason"
+          },
+          "event_types": {
+            "description": "Pusta lista = wszystkie widoczne typy.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Event Types",
+            "type": "array"
+          },
+          "failure_count": {
+            "title": "Failure Count",
+            "type": "integer"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "is_active": {
+            "title": "Is Active",
+            "type": "boolean"
+          },
+          "last_delivery_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Delivery At"
+          },
+          "last_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Error"
+          },
+          "last_event_id": {
+            "title": "Last Event Id",
+            "type": "integer"
+          },
+          "last_status": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Status"
+          },
+          "next_attempt_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Attempt At"
+          },
+          "test_pending": {
+            "title": "Test Pending",
+            "type": "boolean"
+          },
+          "url": {
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "url",
+          "event_types",
+          "is_active",
+          "last_event_id",
+          "failure_count",
+          "next_attempt_at",
+          "disabled_reason",
+          "last_delivery_at",
+          "last_status",
+          "last_error",
+          "test_pending",
+          "created_at"
+        ],
+        "title": "WebhookOut",
+        "type": "object"
+      },
+      "WebhookTestQueued": {
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "queued": {
+            "title": "Queued",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "queued"
+        ],
+        "title": "WebhookTestQueued",
         "type": "object"
       },
       "WorkPreferencesOut": {
@@ -9420,6 +14346,502 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/integrations/v1/academy/programs": {
+      "get": {
+        "description": "Programy (najpierw aktywne, potem po nazwie): kryteria naboru, liczba\nzgłoszeń na każdym etapie i daty najbliższej edycji. Bez danych osobowych.",
+        "operationId": "list_programs_api_integrations_v1_academy_programs_get",
+        "parameters": [
+          {
+            "description": "Tylko aktywne / nieaktywne.",
+            "in": "query",
+            "name": "is_active",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Tylko aktywne / nieaktywne.",
+              "title": "Is Active"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "maximum": 100000,
+              "minimum": 1,
+              "title": "Page",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page_size",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Page Size",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_AcademyProgramOut_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Programy akademii z licznikami naboru",
+        "tags": [
+          "integrations-v1"
+        ]
+      }
+    },
+    "/api/integrations/v1/academy/programs/{program_id}": {
+      "get": {
+        "description": "Program z ogłoszeniami-źródłami (liczba osób w każdym), terminami\nspotkań w biurze (zajęte miejsca) i edycjami, do których przypisano osoby\n(umowa wysłana / podpisana). Uczestnicy: ``/participants``.",
+        "operationId": "get_program_api_integrations_v1_academy_programs__program_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "program_id",
+            "required": true,
+            "schema": {
+              "maximum": 2147483647,
+              "minimum": 1,
+              "title": "Program Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AcademyProgramDetailOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Program akademii: źródła, terminy w biurze, edycje",
+        "tags": [
+          "integrations-v1"
+        ]
+      }
+    },
+    "/api/integrations/v1/academy/programs/{program_id}/participants": {
+      "get": {
+        "description": "Zgłoszenia programu w kolejności ekranu: najpierw osoby w toku, potem\nzamknięte; w obu grupach najnowsze pierwsze. Imię i nazwisko, etap\ni daty przepływu; e-mail i telefon tylko z ``candidates:contact``.",
+        "operationId": "list_participants_api_integrations_v1_academy_programs__program_id__participants_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "program_id",
+            "required": true,
+            "schema": {
+              "maximum": 2147483647,
+              "minimum": 1,
+              "title": "Program Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "items": {
+                    "enum": [
+                      "new",
+                      "to_call",
+                      "scheduled",
+                      "task_given",
+                      "task_passed",
+                      "contract_sent",
+                      "signed",
+                      "rejected",
+                      "withdrew"
+                    ],
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "maximum": 100000,
+              "minimum": 1,
+              "title": "Page",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page_size",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Page Size",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_AcademyParticipantOut_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Uczestnicy naboru (zgłoszenia) — kontakt tylko z candidates:contact",
+        "tags": [
+          "integrations-v1"
+        ]
+      }
+    },
+    "/api/integrations/v1/applications": {
+      "get": {
+        "description": "Zgłoszenia całej firmy rosnąco po id, z oceną AI. Imię i kontakt\nz formularza tylko z ``candidates:contact``; pliku CV na liście nie ma.",
+        "operationId": "list_applications_api_integrations_v1_applications_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "maximum": 100000,
+              "minimum": 1,
+              "title": "Page",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page_size",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Page Size",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "job_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maximum": 2147483647,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Job Id"
+            }
+          },
+          {
+            "description": "Powtarzalny; brak = wszystkie.",
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "items": {
+                    "enum": [
+                      "pending_review",
+                      "linked",
+                      "merged",
+                      "created",
+                      "rejected"
+                    ],
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Powtarzalny; brak = wszystkie.",
+              "title": "Status"
+            }
+          },
+          {
+            "description": "Zgłoszenie, rozpatrzenie albo ocena AI od tej chwili; bez strefy = UTC.",
+            "in": "query",
+            "name": "updated_since",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Zgłoszenie, rozpatrzenie albo ocena AI od tej chwili; bez strefy = UTC.",
+              "title": "Updated Since"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_ApplicationOut_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Zgłoszenia z linku rekrutacji",
+        "tags": [
+          "integrations-v1"
+        ]
+      }
+    },
+    "/api/integrations/v1/applications/{application_id}": {
+      "get": {
+        "description": "Pola listy, odpowiedzi z formularza i opis pliku CV. Oczekiwana stawka\ntylko z ``amounts:read``, nazwa pliku z ``candidates:cv``.",
+        "operationId": "get_application_api_integrations_v1_applications__application_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "application_id",
+            "required": true,
+            "schema": {
+              "maximum": 2147483647,
+              "minimum": 1,
+              "title": "Application Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApplicationDetailOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Zgłoszenie",
+        "tags": [
+          "integrations-v1"
+        ]
+      }
+    },
+    "/api/integrations/v1/applications/{application_id}/cv": {
+      "get": {
+        "description": "Bajty CV ze zgłoszenia (zawsze ``attachment``); wymaga\n``applications:read`` i ``candidates:cv``. Każde pobranie zostawia ślad\n``document_downloaded`` w dzienniku kandydata, jak pobranie pliku na\nekranie.",
+        "operationId": "download_application_cv_api_integrations_v1_applications__application_id__cv_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "application_id",
+            "required": true,
+            "schema": {
+              "maximum": 2147483647,
+              "minimum": 1,
+              "title": "Application Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/octet-stream": {}
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Plik CV zgłoszenia",
+        "tags": [
+          "integrations-v1"
+        ]
+      }
+    },
+    "/api/integrations/v1/applications/{application_id}/resolve": {
+      "post": {
+        "description": "Jak „Zgłoszenia” na ekranie: link (CV do profilu), merge (CV i puste\npola kontaktu), create (nowy kandydat), reject (z powodem). Rekrutacja\nzgłoszenia dostaje osobę w „Nowi”, chyba że już tam jest; czarna lista\ni weto hiring managera → 409 ``blocked``. Zgłoszenie rozpatrzone wcześniej\n→ 409 ``already_resolved``; inny e-mail niż w zgłoszeniu → 409\n``not_same_person``; create przy istniejącym e-mailu → 409\n``duplicate_candidate``; adres osoby usuniętej (RODO) → 409\n``candidate_erased``.",
+        "operationId": "resolve_application_api_integrations_v1_applications__application_id__resolve_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "application_id",
+            "required": true,
+            "schema": {
+              "maximum": 2147483647,
+              "minimum": 1,
+              "title": "Application Id",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Tylko sprawdzenie reguł i wynik, bez zapisu.",
+            "in": "query",
+            "name": "dry_run",
+            "required": false,
+            "schema": {
+              "default": false,
+              "description": "Tylko sprawdzenie reguł i wynik, bez zapisu.",
+              "title": "Dry Run",
+              "type": "boolean"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResolveIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResolveOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Rozpatrz zgłoszenie",
+        "tags": [
+          "integrations-v1"
+        ]
+      }
+    },
     "/api/integrations/v1/candidates": {
       "get": {
         "description": "Kandydaci sortowani po id, bez danych kontaktowych i kwot.",
@@ -10510,6 +15932,85 @@
         ]
       }
     },
+    "/api/integrations/v1/events": {
+      "get": {
+        "description": "Zdarzenia z ``id > after`` rosnąco — tylko typy, których scope ma klucz.\n\nPełna strona = ``has_more: true``; odpytuj dalej z ``after = next_after``.\nZdarzenia są przechowywane 30 dni. Opóźnienie od zmiany do kanału: kilka sekund.",
+        "operationId": "list_events_api_integrations_v1_events_get",
+        "parameters": [
+          {
+            "description": "Kursor (`next_after`).",
+            "in": "query",
+            "name": "after",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "description": "Kursor (`next_after`).",
+              "maximum": 9223372036854775807,
+              "minimum": 0,
+              "title": "After",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Typy po przecinku, np. `card.moved`.",
+            "in": "query",
+            "name": "types",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 2000,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Typy po przecinku, np. `card.moved`.",
+              "title": "Types"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EventFeed"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Kanał zdarzeń",
+        "tags": [
+          "integrations-v1"
+        ]
+      }
+    },
     "/api/integrations/v1/finance/imports": {
       "post": {
         "description": "Jak „Wgraj arkusz” w Finansach: istniejący miesiąc bez ``replace`` = 409.",
@@ -11152,6 +16653,462 @@
           }
         },
         "summary": "Wyniki miesiąca (koszt, przychód, marża)",
+        "tags": [
+          "integrations-v1"
+        ]
+      }
+    },
+    "/api/integrations/v1/insights/goals": {
+      "get": {
+        "description": "Katalog celów (rekruter: dzień/tydzień/miesiąc, Delivery Lead: kwartał)\nz celami ról i postęp ZESPOŁU rekrutacji — sumy celów i pracy aktywnych\nrekruterów, jak cele zespołu u Head of Recruitment. Cele i wyniki\nposzczególnych osób nie są wystawiane.",
+        "operationId": "goals_insights_api_integrations_v1_insights_goals_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GoalsInsightsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Cele KPI: definicje i postęp zespołu rekrutacji",
+        "tags": [
+          "integrations-v1"
+        ]
+      }
+    },
+    "/api/integrations/v1/insights/placements": {
+      "get": {
+        "description": "Placementy (D2) i ruch konsultantów w okresie, z kwotami MRR.\n\nPer miesiąc: placementy, wejścia (start kontraktu), zejścia i rezygnacje,\nkonsultanci i kwoty na dzień wyceny (ostatni dzień miesiąca albo dziś).\nPer klient: te same przepływy za całe okno i stan na dzień wyceny okna.\nKwoty: przychód od ``sales_amounts:read``, koszt i marża tylko\nz ``amounts:read``. Liczby z kontraktów sprzed startu ewidencji są\nzaniżone — patrz ``coverage_note`` i ``priced_contracts``.",
+        "operationId": "placements_insights_api_integrations_v1_insights_placements_get",
+        "parameters": [
+          {
+            "description": "Pierwszy dzień okna (Europe/Warsaw, włącznie). Razem z `to`.",
+            "in": "query",
+            "name": "from",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Pierwszy dzień okna (Europe/Warsaw, włącznie). Razem z `to`.",
+              "title": "From"
+            }
+          },
+          {
+            "description": "Ostatni dzień okna (włącznie, najwyżej 366 dni od `from`).",
+            "in": "query",
+            "name": "to",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Ostatni dzień okna (włącznie, najwyżej 366 dni od `from`).",
+              "title": "To"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlacementsInsightsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Placementy, wejścia i zejścia konsultantów per miesiąc i per klient",
+        "tags": [
+          "integrations-v1"
+        ]
+      }
+    },
+    "/api/integrations/v1/insights/recruitment": {
+      "get": {
+        "description": "Raport „Lejek po etapach” dla okna i każdego miesiąca w nim.\n\n``stages[].reached`` — pary (kandydat, rekrutacja), które pierwszy raz\ndoszły do etapu w okresie (dodani, screening, zweryfikowani, QC CV,\nwysłani do klienta, rozmowy u klienta, akceptacja, zatrudnieni…);\nzatrudnieni to placementy D2. ``closed`` — procesy zakończone w okresie:\nkto zakończył (kandydat, my, DL, klient) i najczęstsze powody. Miesiące\nsumują się do okna (poza listą powodów, której „Inne” grupuje się\nw każdym odcinku osobno). Bez danych osobowych — same liczniki.",
+        "operationId": "recruitment_insights_api_integrations_v1_insights_recruitment_get",
+        "parameters": [
+          {
+            "description": "Pierwszy dzień okna (Europe/Warsaw, włącznie). Razem z `to`.",
+            "in": "query",
+            "name": "from",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Pierwszy dzień okna (Europe/Warsaw, włącznie). Razem z `to`.",
+              "title": "From"
+            }
+          },
+          {
+            "description": "Ostatni dzień okna (włącznie, najwyżej 366 dni od `from`).",
+            "in": "query",
+            "name": "to",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Ostatni dzień okna (włącznie, najwyżej 366 dni od `from`).",
+              "title": "To"
+            }
+          },
+          {
+            "description": "Tylko ta rekrutacja.",
+            "in": "query",
+            "name": "job_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maximum": 2147483647,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Tylko ta rekrutacja.",
+              "title": "Job Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecruitmentInsightsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Lejek rekrutacji w okresie: etapy, zakończenia i powody, per miesiąc",
+        "tags": [
+          "integrations-v1"
+        ]
+      }
+    },
+    "/api/integrations/v1/insights/team": {
+      "get": {
+        "description": "Ranking aktywności zespołu w oknie (top 50) i Liga Mistrzów kwartału.\n\nWystawiamy wyłącznie to, co ekran pokazuje KAŻDEJ roli (decyzja D7):\nraport „Aktywność zespołu” i Ligi Mistrzów z „Rywalizacji” / górnego\npaska. Imienne KPI zespołu (precyzja, cele osób, „Do uwagi”, panel KPI\nzespołu) ekran daje tylko z ``view_team_kpi`` — tu ich nie ma.\nLiga liczy kwartał, w którym leży ostatni dzień okna.",
+        "operationId": "team_insights_api_integrations_v1_insights_team_get",
+        "parameters": [
+          {
+            "description": "Pierwszy dzień okna (Europe/Warsaw, włącznie). Razem z `to`.",
+            "in": "query",
+            "name": "from",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Pierwszy dzień okna (Europe/Warsaw, włącznie). Razem z `to`.",
+              "title": "From"
+            }
+          },
+          {
+            "description": "Ostatni dzień okna (włącznie, najwyżej 366 dni od `from`).",
+            "in": "query",
+            "name": "to",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Ostatni dzień okna (włącznie, najwyżej 366 dni od `from`).",
+              "title": "To"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TeamInsightsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Aktywność zespołu i Liga Mistrzów (imienne rankingi widoczne każdej roli)",
+        "tags": [
+          "integrations-v1"
+        ]
+      }
+    },
+    "/api/integrations/v1/interviews": {
+      "get": {
+        "description": "Rozmowy u klienta rosnąco po starcie: para, termin, faza rozmowy,\ndebrief zrobiony i cykl pary. Bez treści wydarzenia i bez e-maili\nuczestników.",
+        "operationId": "list_interviews_api_integrations_v1_interviews_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "maximum": 100000,
+              "minimum": 1,
+              "title": "Page",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page_size",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Page Size",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "job_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maximum": 2147483647,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Job Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "candidate_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maximum": 2147483647,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Candidate Id"
+            }
+          },
+          {
+            "description": "Start rozmowy od (włącznie); bez strefy = UTC.",
+            "in": "query",
+            "name": "from",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Start rozmowy od (włącznie); bez strefy = UTC.",
+              "title": "From"
+            }
+          },
+          {
+            "description": "Start rozmowy przed (wyłącznie); bez strefy = UTC.",
+            "in": "query",
+            "name": "to",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Start rozmowy przed (wyłącznie); bez strefy = UTC.",
+              "title": "To"
+            }
+          },
+          {
+            "description": "scheduled · completed · cancelled; powtarzalny.",
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "items": {
+                    "$ref": "#/components/schemas/EventStatus"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "scheduled · completed · cancelled; powtarzalny.",
+              "title": "Status"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_InterviewOut_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Rozmowy kandydatów u klienta",
+        "tags": [
+          "integrations-v1"
+        ]
+      }
+    },
+    "/api/integrations/v1/interviews/{event_id}": {
+      "get": {
+        "description": "Pola listy, prepy tej rozmowy (stan transkryptu i ocena, bez treści)\ni debrief: flagi zawsze, komentarz i pytania klienta z ``notes:read``,\nwarunek kandydata dodatkowo z ``amounts:read``.",
+        "operationId": "get_interview_api_integrations_v1_interviews__event_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "event_id",
+            "required": true,
+            "schema": {
+              "maximum": 2147483647,
+              "minimum": 1,
+              "title": "Event Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InterviewDetailOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Rozmowa u klienta",
         "tags": [
           "integrations-v1"
         ]
@@ -12850,6 +18807,102 @@
         "tags": [
           "integrations-v1"
         ]
+      },
+      "post": {
+        "description": "Jak „Utwórz i opublikuj” na ekranie nowej rekrutacji: rekrutacja\npowstaje od razu przekazana do searchu i opublikowana — albo wcale (422\n``job_not_ready`` z ``details.blockers``). Autor = konto serwisowe.\nBudżet wymaga ``amounts:write`` (403 ``insufficient_scope``). Klient\nukryty albo usunięty → 404, spoza „Aktywnych” i „Relacyjnych” → 422\n``client_not_selectable``; hiring manager spoza kontaktów klienta,\nDelivery Lead bez roli albo rekruter bez roli rekrutera → odmowa jak na\nekranie. Bez ``recruiter_id`` przydziela automat (409, gdy wyłączony).\n``dry_run=true`` → 200 ``{\"valid\": true, \"notices\": […]}``.",
+        "operationId": "create_recruitment_api_integrations_v1_recruitments_post",
+        "parameters": [
+          {
+            "description": "Cały zapis z bramką przekazania i wycofanie — bez efektów.",
+            "in": "query",
+            "name": "dry_run",
+            "required": false,
+            "schema": {
+              "default": false,
+              "description": "Cały zapis z bramką przekazania i wycofanie — bez efektów.",
+              "title": "Dry Run",
+              "type": "boolean"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecruitmentCreateIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecruitmentCreatedOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Załóż rekrutację",
+        "tags": [
+          "integrations-v1"
+        ]
+      }
+    },
+    "/api/integrations/v1/recruitments/read-request": {
+      "post": {
+        "description": "Ten sam odczyt AI co „Wklej treść” na ekranie nowej rekrutacji. Niczego\nnie zapisuje: oddaje propozycję pól w kształcie ``POST /recruitments``\n(budżet tylko z cytatu z treści, hiring manager dopasowany do kontaktów\nklienta, podpowiedź kategorii), braki wobec bramki przekazania i uwagi.\nKrytycznych nie wybiera — to decyzja człowieka. Awaria modelu = 200\nz pustą propozycją i ``ai_failed: true``. Klient ukryty albo usunięty → 404.",
+        "operationId": "read_recruitment_request_api_integrations_v1_recruitments_read_request_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReadRequestIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReadRequestOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Odczytaj request klienta (AI)",
+        "tags": [
+          "integrations-v1"
+        ]
       }
     },
     "/api/integrations/v1/recruitments/{job_id}": {
@@ -13004,6 +19057,202 @@
           }
         },
         "summary": "Dodaj osoby do rekrutacji",
+        "tags": [
+          "integrations-v1"
+        ]
+      }
+    },
+    "/api/integrations/v1/recruitments/{job_id}/candidates/{candidate_id}/cv": {
+      "get": {
+        "description": "Stan CV pary bez treści: ``status`` (``processing`` / ``ready`` /\n``failed`` / ``none``), CV pary (szkic albo zatwierdzone), zatwierdzone\nwersje, ostatnie generacje i QC jako liczby.",
+        "operationId": "client_cv_status_api_integrations_v1_recruitments__job_id__candidates__candidate_id__cv_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "maximum": 2147483647,
+              "minimum": 1,
+              "title": "Job Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "path",
+            "name": "candidate_id",
+            "required": true,
+            "schema": {
+              "maximum": 2147483647,
+              "minimum": 1,
+              "title": "Candidate Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CvStatusOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Stan CV dla klienta",
+        "tags": [
+          "integrations-v1"
+        ]
+      },
+      "post": {
+        "description": "Zleca CV dla klienta dla bieżącej karty pary — jak „Generuj CV” w karcie\n„CV do klienta”. 202 ``processing``; stan: ``GET …/cv``. Odmowy reguły\nklienta (zgoda RODO, numer projektu, notatki, język) — 422 z komunikatem\nekranu, zanim cokolwiek zostanie naliczone.",
+        "operationId": "generate_client_cv_api_integrations_v1_recruitments__job_id__candidates__candidate_id__cv_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "maximum": 2147483647,
+              "minimum": 1,
+              "title": "Job Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "path",
+            "name": "candidate_id",
+            "required": true,
+            "schema": {
+              "maximum": 2147483647,
+              "minimum": 1,
+              "title": "Candidate Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/CvGenerateIn"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CvGenerateOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Wygeneruj CV dla klienta",
+        "tags": [
+          "integrations-v1"
+        ]
+      }
+    },
+    "/api/integrations/v1/recruitments/{job_id}/candidates/{candidate_id}/cv/file": {
+      "get": {
+        "description": "Plik CV dla klienta — ten sam co „Pobierz” w panelu osoby: zatwierdzone\nCV albo szkic z bieżącej treści (nazwa ``SZKIC_…``, nagłówek\n``X-CV-State``). Para bez CV — 404 ``cv_not_ready``; brak zrzutu zgody\nRODO — 409 ``consent_required``; PDF chwilowo niedostępny — 503.",
+        "operationId": "download_client_cv_api_integrations_v1_recruitments__job_id__candidates__candidate_id__cv_file_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "maximum": 2147483647,
+              "minimum": 1,
+              "title": "Job Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "path",
+            "name": "candidate_id",
+            "required": true,
+            "schema": {
+              "maximum": 2147483647,
+              "minimum": 1,
+              "title": "Candidate Id",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "docx (domyślnie) albo pdf.",
+            "in": "query",
+            "name": "format",
+            "required": false,
+            "schema": {
+              "default": "docx",
+              "description": "docx (domyślnie) albo pdf.",
+              "enum": [
+                "docx",
+                "pdf"
+              ],
+              "title": "Format",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/pdf": {},
+              "application/vnd.openxmlformats-officedocument.wordprocessingml.document": {}
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Pobranie CV dla klienta",
         "tags": [
           "integrations-v1"
         ]
@@ -13292,6 +19541,162 @@
           }
         },
         "summary": "Kolumny Tablicy rekrutacji",
+        "tags": [
+          "integrations-v1"
+        ]
+      }
+    },
+    "/api/integrations/v1/webhooks": {
+      "get": {
+        "description": "Webhooki konta klucza ze stanem dostarczeń (bez sekretów).",
+        "operationId": "list_webhooks_api_integrations_v1_webhooks_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/WebhookOut"
+                  },
+                  "title": "Response List Webhooks Api Integrations V1 Webhooks Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Webhooki konta",
+        "tags": [
+          "integrations-v1"
+        ]
+      },
+      "post": {
+        "description": "Webhook na adres ``https://`` (port 443, wyłącznie adresy publiczne).\n\nZdarzenia przychodzą jako ``POST`` z treścią ``{\"webhook_id\", \"sent_at\",\n\"events\": [...]}`` (zdarzenia jak w ``GET /events``) i nagłówkiem\n``X-Nexus-Signature: sha256=<HMAC-SHA256 treści sekretem>``. Sekret jest\nw odpowiedzi tylko raz. Wymaga też ``events:read``; typy spoza scope'ów\nklucza = 422. Najwyżej 5 webhooków na konto.",
+        "operationId": "create_webhook_api_integrations_v1_webhooks_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WebhookCreateIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WebhookCreated"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Dodaj webhook",
+        "tags": [
+          "integrations-v1"
+        ]
+      }
+    },
+    "/api/integrations/v1/webhooks/{webhook_id}": {
+      "delete": {
+        "description": "Usuwa webhook konta; zdarzenia zostają w kanale.",
+        "operationId": "delete_webhook_api_integrations_v1_webhooks__webhook_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "webhook_id",
+            "required": true,
+            "schema": {
+              "maximum": 2147483647,
+              "minimum": 1,
+              "title": "Webhook Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WebhookDeleted"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Usuń webhook",
+        "tags": [
+          "integrations-v1"
+        ]
+      }
+    },
+    "/api/integrations/v1/webhooks/{webhook_id}/test": {
+      "post": {
+        "description": "Zamawia zdarzenie ``webhook.test`` (``id = 0``) — wychodzi w ciągu kilku sekund.\n\nWynik widać w ``GET /webhooks`` (``last_status``, ``last_error``). Udana\npróba włącza webhook wyłączony po serii porażek; dostarczanie wraca od\nzapamiętanego kursora.",
+        "operationId": "test_webhook_api_integrations_v1_webhooks__webhook_id__test_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "webhook_id",
+            "required": true,
+            "schema": {
+              "maximum": 2147483647,
+              "minimum": 1,
+              "title": "Webhook Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WebhookTestQueued"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Wyślij zdarzenie próbne",
         "tags": [
           "integrations-v1"
         ]
