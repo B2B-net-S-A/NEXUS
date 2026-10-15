@@ -38,6 +38,7 @@ import {
 } from"@/components/ui/dialog";
 import { Button } from"@/components/ui/button";
 import { invalidateCandidateMutation } from"@/components/v2/pages/candidate-cache";
+import { MOVE_REQUIREMENTS_PREFIX } from "@/lib/api/moveRequirements";
 import { attachCvFormData, isSameFileMatch } from"@/lib/add-candidate-cv";
 
 /**
@@ -96,13 +97,19 @@ type JobAdd =
  | { kind: "closed"; row: ClosedRow }
  | { kind: "skipped"; text: string };
 
-/** Osoba z bazy po akcji w oknie — widok końcowy. */
+/**
+ * Osoba z bazy po akcji w oknie — widok końcowy. `client_cv`: plik „B2B_…”
+ * został CV do klienta tej rekrutacji, `client_cv_kept`: klient ma już CV
+ * tej osoby, plik poszedł tylko do profilu (15.10.2026).
+ */
 type ExistingOutcome =
  | {
- kind: "added" | "restored" | "replaced" | "hired" | "profile_only";
+ kind: "added" | "restored" | "replaced" | "hired" | "profile_only" | "client_cv" | "client_cv_kept";
  candidateId: number;
  name: string;
  stageName?: string | null;
+ /** Nazwa pliku z odpowiedzi serwera (wgranie na zgłoszenie). */
+ uploadedFilename?: string | null;
  }
  | { kind: "closed"; candidateId: number; name: string; row: ClosedRow };
 
@@ -290,8 +297,17 @@ export function AddCandidateFromCVModal({ open, onOpenChange, job, onChanged, on
  const state = cardState(card);
  if (state === "in_progress" && card && canBeStageCv(file)) {
  // Osoba w toku (D5): nowe CV jest głównym CV i kopią przy jej zgłoszeniu.
- await candidateStageCvApi.original.upload(card.candidate_stage_id, file);
- return { kind: "replaced", candidateId, name, stageName: card.stage_name };
+ // Plik nazwany jak CV do klienta serwer zapisuje jako CV do klienta (15.10.2026).
+ const response = await candidateStageCvApi.original.upload(card.candidate_stage_id, file);
+ const data = response?.data;
+ const uploaded = data?.outcome ?? "original";
+ return {
+ kind: uploaded === "original" ? "replaced" : uploaded,
+ candidateId,
+ name,
+ stageName: card.stage_name,
+ uploadedFilename: data?.uploaded_filename ?? null,
+ };
  }
  await api.post(`/api/candidates/${candidateId}/documents`, attachCvFormData(file), {
  headers: {"Content-Type":"multipart/form-data" },
@@ -310,6 +326,12 @@ export function AddCandidateFromCVModal({ open, onOpenChange, job, onChanged, on
  onSuccess: (done) => {
  invalidateCandidateMutation(queryClient, done.candidateId, "document");
  queryClient.invalidateQueries({ queryKey: ["cv-original"] });
+ if (done.kind === "client_cv") {
+ // CV do klienta pary: karta „CV do klienta”, dok, QC i ramka „Następny etap”.
+ for (const queryKey of [["cv-branded"], ["cv-generated"], ["cv-qc"], ["cv-editor-issues"], MOVE_REQUIREMENTS_PREFIX]) {
+ void queryClient.invalidateQueries({ queryKey });
+ }
+ }
  setOutcome(done);
  setConflict(null);
  setError(null);
@@ -502,7 +524,10 @@ export function AddCandidateFromCVModal({ open, onOpenChange, job, onChanged, on
  const fileName = file?.name ?? "CV";
  const stageSuffix = outcome.stageName ? ` · ${outcome.stageName}` : "";
  const title =
- outcome.kind === "replaced" || outcome.kind === "profile_only"
+ outcome.kind === "replaced" ||
+ outcome.kind === "profile_only" ||
+ outcome.kind === "client_cv" ||
+ outcome.kind === "client_cv_kept"
  ? `${outcome.name} jest już w tej rekrutacji${stageSuffix}`
  : outcome.kind === "hired"
  ? `CV dodane do profilu · ${outcome.name}${stageSuffix}`
@@ -510,7 +535,11 @@ export function AddCandidateFromCVModal({ open, onOpenChange, job, onChanged, on
  ? `${outcome.name} jest znowu w „Nowych”`
  : `${outcome.name} jest w „Nowych”`;
  const description =
- outcome.kind === "replaced"
+ outcome.kind === "client_cv"
+ ? `Plik ${outcome.uploadedFilename ?? fileName} jest teraz CV do klienta w tej rekrutacji. CV kandydata w profilu bez zmian.`
+ : outcome.kind === "client_cv_kept"
+ ? `Klient ma już CV tej osoby, więc CV do klienta zostało bez zmian. Plik ${outcome.uploadedFilename ?? fileName} jest w profilu w „CV dla klientów”.`
+ : outcome.kind === "replaced"
  ? "Nowe CV jest głównym CV w profilu i zastąpiło CV przy zgłoszeniu w tej rekrutacji. AI odświeży profil za około minutę."
  : outcome.kind === "hired"
  ? "Nowe CV jest głównym CV w profilu. Ta osoba ma w tej rekrutacji kartę zatrudnienia, więc CV przy zgłoszeniu zostaje bez zmian."

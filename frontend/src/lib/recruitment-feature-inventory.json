@@ -2530,7 +2530,7 @@
   {
    "id": "dock.cv-upload",
    "area": "panel",
-   "opis": "„Wgraj nowe CV” w sekcji CV panelu osoby i upuszczenie pliku na panel: plik staje się głównym CV profilu i CV tej rekrutacji (13.10.2026)",
+   "opis": "„Wgraj nowe CV” w sekcji CV panelu osoby i upuszczenie pliku na panel: plik staje się głównym CV profilu i CV tej rekrutacji (13.10.2026); plik Word nazwany jak CV do klienta („B2B…” albo wzór nazwy klienta) staje się od razu „CV do klienta” tej rekrutacji, CV kandydata bez zmian (15.10.2026)",
    "file": "components/v2/jobs/PipelineCandidateDock.tsx",
    "marker": "Wgraj nowe CV",
    "v3_home": "Tablica → panel osoby → sekcja CV"

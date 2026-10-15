@@ -6262,6 +6262,25 @@ export interface CVBrandedState {
   pair_source_status?: CVBrandedStatus | null;
 }
 
+/**
+ * Wynik „Wgraj nowe CV” w rekrutacji (`…/cv/original/upload`, 15.10.2026).
+ * `outcome` mówi, czym plik się stał: CV kandydata (`original`, także brak
+ * pola w starszych odpowiedziach), CV do klienta pary (`client_cv`, wiersz
+ * `client_cv_stage_id`) albo tylko plikiem w profilu, bo klient ma już CV
+ * tej osoby (`client_cv_kept`).
+ */
+export interface StageCvUploadResult extends CVOriginalSnapshot {
+  outcome?: "original" | "client_cv" | "client_cv_kept";
+  client_cv?: CVBrandedState | null;
+  client_cv_stage_id?: number | null;
+  /** Co zastąpiło: nic, nieprzejrzane auto-CV albo CV po potwierdzeniu. */
+  replaced?: "none" | "auto_cv" | "confirmed" | null;
+  /** „Cofnij” w komunikacie — tylko gdy nie zastąpiliśmy niczyjej pracy. */
+  undo_available?: boolean;
+  stored_in_profile?: boolean;
+  uploaded_filename?: string | null;
+}
+
 export interface CVBrandedFinalizeResponseT {
   edit_revision: number;
   version: number;
@@ -6335,11 +6354,18 @@ export const candidateStageCvApi = {
       api.post<CVOriginalSnapshot>(
         `/api/candidates/stages/${stageId}/cv/original/refresh`,
       ),
-    /** Nowe CV z rekrutacji: główne CV profilu i kopia CV etapu naraz. */
-    upload: (stageId: number, file: File) => {
+    /**
+     * Nowe CV z rekrutacji: główne CV profilu i kopia CV etapu naraz. Plik
+     * nazwany jak CV do klienta („B2B_…docx”) serwer zapisuje jako CV do
+     * klienta (15.10.2026). `mode: "original"` wymusza CV kandydata („Cofnij”),
+     * `replaceClientCv` — podmianę CV do klienta, które ktoś już poprawiał.
+     */
+    upload: (stageId: number, file: File, options?: { mode?: "original"; replaceClientCv?: boolean }) => {
       const form = new FormData();
       form.append("file", file);
-      return api.post<CVOriginalSnapshot>(
+      if (options?.mode) form.append("mode", options.mode);
+      if (options?.replaceClientCv) form.append("replace_client_cv", "true");
+      return api.post<StageCvUploadResult>(
         `/api/candidates/stages/${stageId}/cv/original/upload`,
         form,
         { headers: { "Content-Type": "multipart/form-data" }, timeout: SLOW_ENDPOINT_TIMEOUT_MS },

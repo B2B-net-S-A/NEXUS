@@ -5,7 +5,8 @@ Faza 2 (PR1) — `original` snapshot:
   GET    /api/candidates/stages/{stage_id}/cv/original/download
   POST   /api/candidates/stages/{stage_id}/cv/original/refresh
   POST   /api/candidates/stages/{stage_id}/cv/original/upload
-         (nowe CV z rekrutacji: główne CV profilu + kopia etapu, 13.10.2026)
+         (nowe CV z rekrutacji: główne CV profilu + kopia etapu, 13.10.2026;
+         plik nazwany jak CV do klienta → CV do klienta etapu, 15.10.2026)
 
 Faza 3 (PR2) — `branded` draft + finalize (mirror Contract Draft). Od
 generatora v3 (23.09.2026) szkic pochodzi wyłącznie z generatora; stary
@@ -55,7 +56,7 @@ import mimetypes
 import secrets
 from datetime import datetime, timedelta, timezone
 from io import BytesIO
-from typing import Optional
+from typing import Literal, Optional
 
 from fastapi import (
     APIRouter,
@@ -134,6 +135,7 @@ from app.schemas.candidate_stage_cv import (
     CVBrandedSelectGenerated,
     CVBrandedSelectStageCv,
     CVOriginalSnapshotResponse,
+    StageCvUploadResponse,
     CVShareTokenJobListItem,
     CVShareTokensForRecruitment,
     CVShareTokenListItem,
@@ -431,17 +433,28 @@ _STAGE_UPLOAD_CV_EXT = frozenset({".pdf", ".doc", ".docx"})
 
 @router.post(
     "/candidates/stages/{stage_id}/cv/original/upload",
-    response_model=CVOriginalSnapshotResponse,
+    response_model=StageCvUploadResponse,
     dependencies=SOURCING_SECTION_DEPENDENCIES,
 )
 async def upload_original_cv(
     stage_id: int,
     current_user: CandidateWriteAccess,
     background_tasks: BackgroundTasks,
-    file: UploadFile = File(..., description="Nowe CV kandydata (PDF, DOC, DOCX)"),
+    file: UploadFile = File(
+        ...,
+        description="Nowe CV kandydata (PDF, DOC, DOCX) albo gotowe CV do klienta (DOCX)",
+    ),
+    mode: Literal["auto", "original"] = Form("auto"),
+    replace_client_cv: bool = Form(False),
     db: AsyncSession = Depends(get_db),
-) -> CVOriginalSnapshotResponse:
+) -> StageCvUploadResponse:
     """Nowe CV z rekrutacji: główne CV profilu i kopia CV etapu naraz (13.10.2026).
+
+    15.10.2026 (zgłoszenie rekrutera, D1–D3): plik Word nazwany jak CV do
+    klienta („…B2B…” albo wzór nazwy klienta rekrutacji) staje się od razu
+    CV do klienta tej rekrutacji (`_upload_client_cv`) — bez głównego CV,
+    bez odczytu AI i bez kopii oryginału. ``mode="original"`` wymusza
+    dzisiejszą ścieżkę; tak działa „Cofnij” po wgraniu CV do klienta.
 
     Kafelek „Wgraj nowe CV” w panelu osoby i okno „Dodaj z CV”. Plik idzie tą
     samą ścieżką co `POST /api/candidates/{id}/documents` z `is_primary`
@@ -485,6 +498,29 @@ async def upload_original_cv(
             detail="W rekrutacji wgraj CV jako PDF, DOC albo DOCX. Inne formaty dodaj w profilu kandydata.",
         )
 
+    if mode == "auto":
+        from app.models.job import Job
+        from app.services.client_cv_upload import (
+            client_filename_pattern,
+            looks_like_client_cv,
+        )
+
+        job = await db.get(Job, csv_row.job_id)
+        pattern = await client_filename_pattern(db, job.client_id if job else None)
+        if looks_like_client_cv(safe_filename, pattern):
+            return await _upload_client_cv(
+                db,
+                background_tasks,
+                csv_row=csv_row,
+                candidate=candidate,
+                content=content,
+                filename=safe_filename,
+                user_id=current_user.id,
+                replace=replace_client_cv,
+            )
+    else:
+        await _undo_client_cv_upload(db, csv_row, content, user_id=current_user.id)
+
     replaced_primary = await _primary_cv_before_change(db, candidate.id)
     document = await _ingest_candidate_cv_file(
         db,
@@ -520,7 +556,365 @@ async def upload_original_cv(
         actor_user_id=current_user.id,
         replaced_primary=replaced_primary,
     )
-    return _build_original_response(csv)
+    return StageCvUploadResponse(
+        **_build_original_response(csv).model_dump(),
+        outcome="original",
+        uploaded_filename=document.filename,
+        stored_in_profile=True,
+    )
+
+
+CLIENT_CV_LOCKED_MESSAGE = (
+    "Klient ma już CV tej osoby, więc nie podmieniam go innym. Poprawki zrobisz "
+    "w edytorze — zapisze je w historii wersji."
+)
+
+
+async def _ensure_client_cv_replaceable(
+    db: AsyncSession, csv: CandidateStageCV
+) -> None:
+    """Od „CV wysłane” CV do klienta się nie podmienia (409, 15.10.2026).
+
+    Karta chowa wtedy „Użyj innego CV” (`lockedAfterSend`), ale trasy
+    przyjmowały podmianę z każdego klienta HTTP. Stan karty czytamy z jej
+    bieżącego wiersza, tak jak Tablica.
+    """
+    from app.services import integration_cv
+    from app.services.candidate_claim import stage_column
+
+    stage = await integration_cv.current_stage(
+        db, candidate_id=csv.candidate_id, job_id=csv.job_id
+    )
+    if stage is not None and integration_cv.locked_after_send(
+        await stage_column(db, stage)
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "client_cv_locked_after_send",
+                "message": CLIENT_CV_LOCKED_MESSAGE,
+            },
+        )
+
+
+def _local_label(value: Optional[datetime]) -> str:
+    """„15.10.2026, 14:20” w czasie firmy; pusty napis bez daty."""
+    from zoneinfo import ZoneInfo
+
+    from app.core.scheduling import DEFAULT_TZ
+
+    if value is None:
+        return ""
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return value.astimezone(ZoneInfo(DEFAULT_TZ)).strftime("%d.%m.%Y, %H:%M")
+
+
+def _replace_question(csv: CandidateStageCV) -> str:
+    """Treść pytania „Zastąpić CV do klienta?” — co dokładnie zastąpi plik."""
+    if csv.branded_status == "finalized":
+        when = _local_label(csv.branded_finalized_at)
+        return (
+            f"Ta rekrutacja ma już zatwierdzone CV do klienta{f' ({when})' if when else ''}. "
+            "Wgrany plik zastąpi je nowym szkicem. Zatwierdzone wersje i wysłane "
+            "linki zostają w historii."
+        )
+    when = _local_label(csv.branded_updated_at)
+    return (
+        f"Ta rekrutacja ma już CV do klienta{f' (szkic, zmieniony {when})' if when else ''}. "
+        "Wgrany plik je zastąpi, a obecny szkic zostanie w historii."
+    )
+
+
+async def _upload_client_cv(
+    db: AsyncSession,
+    background_tasks: BackgroundTasks,
+    *,
+    csv_row: CandidateStageCV,
+    candidate: Candidate,
+    content: bytes,
+    filename: str,
+    user_id: int,
+    replace: bool,
+) -> StageCvUploadResponse:
+    """Gotowe CV do klienta z kafelka „Wgraj nowe CV” (15.10.2026, D1–D3).
+
+    Plik staje się szkicem CV do klienta pary (ten sam import Worda co „Użyj
+    tego CV”), a nie głównym CV i oryginałem kandydata. Wszystkie odmowy
+    padają przed zapisem pliku w magazynie:
+
+    * plik z nagłówkiem innej osoby → 422 (bramka tożsamości oryginału go nie
+      zobaczy);
+    * karta na „CV wysłane” i dalej → CV do klienta zostaje, plik idzie tylko
+      do profilu (``client_cv_kept``);
+    * CV, które ktoś poprawiał, wybrał albo zatwierdził → 409 z pytaniem;
+      nieprzejrzane auto-CV podmieniamy bez pytania (D2).
+
+    W profilu plik zostaje jako „CV dla klientów” (niegłówny, bez odczytu AI)
+    tylko wtedy, gdy osoba ma główne CV. Bez niego najnowszy plik CV staje
+    się „bieżącym CV” (`cv_source.current_cv_ordering`) — źródłem generatora
+    i kopii oryginału — tak jak plik z dysku w karcie (12.10.2026).
+    """
+    import os
+
+    from app.api.candidates import _DOCUMENT_CONTENT_TYPES, _attach_candidate_document
+    from app.models.candidate_document import CandidateDocument, CandidateDocumentKind
+    from app.services.client_cv_upload import (
+        UPLOAD_ACTION,
+        cv_header,
+        is_untouched_auto_cv,
+        other_person_name,
+    )
+    from app.services import integration_cv
+    from app.services.candidate_claim import stage_column
+
+    imported = await word_to_editor_html(content)
+    observed = other_person_name(
+        header=cv_header(imported.html),
+        filename=filename,
+        first_name=candidate.name,
+        last_name=candidate.lastname,
+    )
+    if observed:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "client_cv_other_person",
+                "message": (
+                    f"To CV innej osoby: w pliku jest „{observed[:80]}”. Nie podpiąłem go "
+                    "jako CV do klienta. Jeśli to ta sama osoba (np. po zmianie "
+                    "nazwiska), wgraj plik w karcie „CV do klienta” → „Plik z dysku”."
+                ),
+            },
+        )
+
+    # Główne CV, które `get_current_cv` widzi (PDF/DOC/DOCX). Główne w ODT czy
+    # TXT nie wygrywa, więc zapisany plik do klienta zostałby „bieżącym CV”.
+    primary_name = await db.scalar(
+        select(CandidateDocument.filename).where(
+            CandidateDocument.candidate_id == candidate.id,
+            CandidateDocument.document_kind == CandidateDocumentKind.cv,
+            CandidateDocument.is_primary.is_(True),
+            CandidateDocument.source_deleted_at.is_(None),
+        )
+    )
+    has_primary = os.path.splitext((primary_name or "").lower())[1] in (
+        _STAGE_UPLOAD_CV_EXT
+    )
+
+    async def store_in_profile():
+        return await _attach_candidate_document(
+            db,
+            candidate_id=candidate.id,
+            safe_filename=filename,
+            content=content,
+            content_type=_DOCUMENT_CONTENT_TYPES[".docx"],
+            kind=CandidateDocumentKind.cv,
+            user_id=user_id,
+        )
+
+    # Wiersz z CV do klienta pary — tak jak karta (`cvStageId`): bieżący, a gdy
+    # pusty, wiersz sprzed ruchu karty z szkicem albo zatwierdzonym CV.
+    target_stage_id = csv_row.candidate_stage_id
+    if (csv_row.branded_status or "none") == "none":
+        pair = await _branded_cv_summary_for_pair(
+            db, csv_row.candidate_id, csv_row.job_id
+        )
+        if pair.stage_id is not None:
+            target_stage_id = pair.stage_id
+    target = await db.scalar(
+        select(CandidateStageCV)
+        .where(CandidateStageCV.candidate_stage_id == target_stage_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+
+    # Stan karty czytany PO blokadzie wiersza CV — jak najbliżej zapisu.
+    stage = await integration_cv.current_stage(
+        db, candidate_id=csv_row.candidate_id, job_id=csv_row.job_id
+    )
+    if stage is not None and integration_cv.locked_after_send(
+        await stage_column(db, stage)
+    ):
+        if not has_primary:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "client_cv_locked_after_send",
+                    "message": (
+                        "Klient ma już CV tej osoby, więc go nie podmieniam. Plik nie "
+                        "został zapisany: osoba nie ma głównego CV w profilu, a ten "
+                        "plik zająłby jego miejsce."
+                    ),
+                },
+            )
+        document = await store_in_profile()
+        await db.commit()
+        await db.refresh(csv_row)
+        return StageCvUploadResponse(
+            **_build_original_response(csv_row).model_dump(),
+            outcome="client_cv_kept",
+            uploaded_filename=document.filename,
+            stored_in_profile=True,
+        )
+
+    prior_status = target.branded_status or "none"
+    prior_generated_id = target.generated_document_id
+    if prior_status == "none":
+        replaced = "none"
+    elif await is_untouched_auto_cv(db, target):
+        replaced = "auto_cv"
+    elif not replace:
+        changed = (
+            target.branded_finalized_at
+            if prior_status == "finalized"
+            else target.branded_updated_at
+        )
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "client_cv_replace_confirm",
+                "message": _replace_question(target),
+                "status": prior_status,
+                "updated_at": changed.isoformat() if changed else None,
+            },
+        )
+    else:
+        replaced = "confirmed"
+    if prior_status == "draft":
+        snapshot_draft(db, target, user_id=user_id, reason="replaced")
+
+    document = await store_in_profile() if has_primary else None
+    sha256 = hashlib.sha256(content).hexdigest()
+    target = await _write_imported_draft(
+        db,
+        target,
+        imported,
+        expected_revision=target.edit_revision or 0,
+        user_id=user_id,
+        origin=copy_origin("upload", label=filename),
+        activity_action=UPLOAD_ACTION,
+        activity_details={"upload_filename": filename, "upload_sha256": sha256},
+        activity_only={
+            "source_document_id": document.id if document is not None else None,
+            "replaced": replaced,
+            "prior": {
+                "status": prior_status,
+                "generated_document_id": prior_generated_id,
+            },
+        },
+    )
+    await db.commit()
+    await db.refresh(target)
+    await db.refresh(csv_row)
+    _schedule_qc_after_attach(background_tasks, target.candidate_stage_id, user_id)
+    return StageCvUploadResponse(
+        **_build_original_response(csv_row).model_dump(),
+        outcome="client_cv",
+        uploaded_filename=filename,
+        client_cv=_build_branded_response(target),
+        client_cv_stage_id=target.candidate_stage_id,
+        replaced=replaced,
+        undo_available=replaced in ("none", "auto_cv"),
+        stored_in_profile=document is not None,
+    )
+
+
+def _clear_stage_draft(
+    db: AsyncSession, csv: CandidateStageCV, *, user_id: int, action: str
+) -> None:
+    """CV do klienta wraca do „brak” (cofnięcie wgrania z kafelka). Bez commitu."""
+    csv.generated_document_id = None
+    csv.branded_from_generator = False
+    csv.branded_template_content = None
+    csv.branded_consent_content = None
+    csv.branded_docx_filename = None
+    csv.branded_render_metadata = None
+    csv.branded_draft_html = None
+    csv.branded_template = None
+    csv.branded_language = None
+    csv.branded_status = "none"
+    csv.edit_revision = (csv.edit_revision or 0) + 1
+    csv.branded_updated_at = datetime.now(timezone.utc)
+    csv.branded_updated_by = user_id
+    csv.branded_finalized_at = None
+    csv.branded_finalized_by = None
+    csv.branded_snapshot_path = None
+    csv.branded_snapshot_filename = None
+    csv.branded_snapshot_size_bytes = None
+    db.add(
+        Activity(
+            entity_type="candidate_stage_cv",
+            entity_id=csv.id,
+            action=action,
+            user_id=user_id,
+            details={
+                "candidate_stage_id": csv.candidate_stage_id,
+                "edit_revision": csv.edit_revision,
+            },
+        )
+    )
+
+
+async def _undo_client_cv_upload(
+    db: AsyncSession, csv_row: CandidateStageCV, content: bytes, *, user_id: int
+) -> None:
+    """„Cofnij” po wgraniu CV do klienta: poprzednie CV do klienta wraca. Bez commitu.
+
+    Działa tylko, gdy CV do klienta pary to wciąż ten plik w nietkniętej
+    wersji i wgranie niczego czyjegoś nie zastąpiło (brak CV albo nieprzejrzane
+    auto-CV) — inaczej cofnięcie skasowałoby czyjąś pracę. Auto-CV wraca
+    z dokumentu generatora (szablon i zgoda jak przy podpięciu), a brak CV —
+    jako pusty stan. Sam plik idzie dalej zwykłą ścieżką CV kandydata.
+    """
+    from app.services import integration_cv
+    from app.services.candidate_claim import stage_column
+    from app.services.client_cv_upload import UNDO_ACTION, last_upload_if_current
+
+    # Po „CV wysłane” klient ma już to CV — cofnięcie robi z pliku tylko CV
+    # kandydata, CV do klienta zostaje.
+    stage = await integration_cv.current_stage(
+        db, candidate_id=csv_row.candidate_id, job_id=csv_row.job_id
+    )
+    if stage is not None and integration_cv.locked_after_send(
+        await stage_column(db, stage)
+    ):
+        return
+    sha256 = hashlib.sha256(content).hexdigest()
+    rows = (
+        await db.scalars(
+            select(CandidateStageCV)
+            .where(
+                CandidateStageCV.candidate_id == csv_row.candidate_id,
+                CandidateStageCV.job_id == csv_row.job_id,
+            )
+            .order_by(CandidateStageCV.id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+    ).all()
+    for row in rows:
+        details = await last_upload_if_current(db, row, sha256)
+        if details is None or details.get("replaced") not in ("none", "auto_cv"):
+            continue
+        prior = details.get("prior") or {}
+        generated = None
+        if prior.get("status") == "draft" and prior.get("generated_document_id"):
+            generated = await db.get(
+                CvGeneratedDocument, prior["generated_document_id"]
+            )
+        if generated is not None and generated.status == "ready":
+            try:
+                async with db.begin_nested():
+                    await apply_generated_to_stage_cv(
+                        db, row, generated, user_id=user_id, activity_action=UNDO_ACTION
+                    )
+                return
+            except HTTPException:
+                # Szablonu auto-CV już nie da się odtworzyć — zostaje pusty stan.
+                await db.refresh(row)
+        _clear_stage_draft(db, row, user_id=user_id, action=UNDO_ACTION)
+        return
 
 
 # ── Branded CV — draft + finalize (Faza 3) ─────────────────────────────────
@@ -1256,11 +1650,45 @@ async def _import_docx_as_draft(
     Blokadę wiersza bierzemy dopiero PO konwersji — konwersja bywa wolna,
     a zablokowany wiersz zatrzymałby edytor i automat.
     """
+    imported = await word_to_editor_html(content)
+    csv = await _write_imported_draft(
+        db,
+        csv,
+        imported,
+        expected_revision=expected_revision,
+        user_id=user_id,
+        origin=origin,
+        activity_action=activity_action,
+        activity_details=activity_details,
+    )
+    await db.commit()
+    await db.refresh(csv)
+    return _build_branded_response(csv)
+
+
+async def _write_imported_draft(
+    db: AsyncSession,
+    csv: CandidateStageCV,
+    imported,
+    *,
+    expected_revision: int,
+    user_id: int,
+    origin: dict,
+    activity_action: str,
+    activity_details: dict,
+    activity_only: Optional[dict] = None,
+) -> CandidateStageCV:
+    """Wczytany plik Word (`word_to_editor_html`) → szkic etapu. Bez commitu.
+
+    Wgranie CV do klienta z kafelka (15.10.2026) zapisuje w tej samej
+    transakcji także plik w profilu, więc konwersja i commit są po stronie
+    wołającego. ``activity_details`` trafiają też do metadanych szkicu,
+    ``activity_only`` (stan sprzed podmiany dla „Cofnij”) — tylko do śladu.
+    """
     from app.services.candidate_stage_cv_service import detached_copy_settings
     from app.services.cv_document_assets import default_template
 
     settings = await detached_copy_settings(db, csv)
-    imported = await word_to_editor_html(content)
     csv = await db.scalar(
         select(CandidateStageCV)
         .where(CandidateStageCV.id == csv.id)
@@ -1290,11 +1718,9 @@ async def _import_docx_as_draft(
         from_generator=False,
         user_id=user_id,
         activity_action=activity_action,
-        activity_details=activity_details,
+        activity_details={**activity_details, **(activity_only or {})},
     )
-    await db.commit()
-    await db.refresh(csv)
-    return _build_branded_response(csv)
+    return csv
 
 
 @router.post(
@@ -1322,6 +1748,7 @@ async def select_document_cv(
     from app.services.cv_docx_import import MAX_BYTES
 
     csv = await _load_csv_for_stage(db, stage_id, current_user, create_missing=True)
+    await _ensure_client_cv_replaceable(db, csv)
     check_revision(csv, payload.expected_revision)
     document = await db.get(CandidateDocument, payload.document_id)
     if (
@@ -1394,6 +1821,7 @@ async def upload_stage_cv(
     `select-stage-cv`. QC w tle jak po `select-generated` (14.10.2026).
     """
     csv = await _load_csv_for_stage(db, stage_id, current_user, create_missing=True)
+    await _ensure_client_cv_replaceable(db, csv)
     check_revision(csv, expected_revision)
     content, filename = await read_word_upload(file)
     response = await _import_docx_as_draft(
@@ -1468,6 +1896,7 @@ async def select_stage_cv(
     csv = await _load_csv_for_stage(
         db, stage_id, current_user, lock=True, create_missing=True
     )
+    await _ensure_client_cv_replaceable(db, csv)
     check_revision(csv, payload.expected_revision)
     if payload.source_job_id == csv.job_id:
         raise HTTPException(422, "Wybierz CV z innej rekrutacji tej osoby.")

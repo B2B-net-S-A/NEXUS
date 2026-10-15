@@ -332,6 +332,8 @@ async def restore_stage_copies_after_quarantine(
     *,
     candidate: Candidate,
     quarantined_sha256: Optional[str],
+    source: str = "quarantine_restore",
+    action: str = "snapshot_quarantine_restored",
 ) -> int:
     """Kopie CV etapu z pliku, który bramka tożsamości uznała za CV innej osoby.
 
@@ -340,6 +342,11 @@ async def restore_stage_copies_after_quarantine(
     to wciąż ten sam plik — zostaje bez pliku (panel pokazuje wtedy CV
     z profilu). Plik w profilu i w magazynie zostaje („nie kasujemy CV”).
     Zwraca liczbę poprawionych kopii.
+
+    ``source`` i ``action`` (15.10.2026): naprawa profili, w których gotowe CV
+    do klienta zostało głównym CV (`app.cli.client_cv_primary_repair`), używa
+    tej samej podmiany z własną etykietą — panel nie może pisać, że plik „nie
+    pasował do tej osoby”.
     """
     if not quarantined_sha256:
         return 0
@@ -385,12 +392,12 @@ async def restore_stage_copies_after_quarantine(
         csv_row.original_cv_storage_key = storage_key
         csv_row.original_cv_sha256 = digest
         csv_row.original_snapshot_at = datetime.now(tz=timezone.utc)
-        csv_row.original_snapshot_source = "quarantine_restore"
+        csv_row.original_snapshot_source = source
         db.add(
             Activity(
                 entity_type="candidate_stage_cv",
                 entity_id=csv_row.id,
-                action="snapshot_quarantine_restored",
+                action=action,
                 details={
                     "candidate_stage_id": csv_row.candidate_stage_id,
                     "old_filename": old_filename,

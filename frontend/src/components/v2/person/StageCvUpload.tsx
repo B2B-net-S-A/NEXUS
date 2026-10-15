@@ -9,23 +9,49 @@
  * razu kopią CV etapu („Oryginał CV”) — `POST …/cv/original/upload` robi oba
  * zapisy w jednej transakcji. Tylko PDF, DOC i DOCX: kopia etapu bierze się
  * z głównego CV, a `get_current_cv` innych formatów nie widzi.
+ *
+ * 15.10.2026: gotowe CV do klienta z kafelka. Plik Word nazwany jak CV do
+ * klienta („B2B_…”, wzór nazwy klienta) serwer zapisuje od razu jako CV do
+ * klienta pary — bez głównego CV profilu, oryginału i odczytu AI. CV, które
+ * ktoś poprawiał albo zatwierdził, podmienia dopiero po pytaniu (409
+ * `client_cv_replace_confirm`), a nieprzejrzane wgranie da się cofnąć —
+ * „Cofnij” wysyła ten sam plik jako CV kandydata (`mode: "original"`).
  */
 
 import { useId, useRef, useState, type DragEvent, type ReactNode } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient, type QueryKey } from "@tanstack/react-query";
+import type { AxiosResponse } from "axios";
 import { Upload } from "lucide-react";
 
 import { useToast } from "@/components/Toast";
 import { FileDropZone } from "@/components/ds/FileDropZone";
+import { useConfirmV2 } from "@/components/v2/modals/ConfirmV2";
 import { invalidateCandidateMutation } from "@/components/v2/pages/candidate-cache";
 import { candidateQueryKeys } from "@/components/v2/pages/candidate-query-keys";
-import { candidateStageCvApi } from "@/lib/api";
+import { candidateStageCvApi, type StageCvUploadResult } from "@/lib/api";
+import { MOVE_REQUIREMENTS_PREFIX } from "@/lib/api/moveRequirements";
 import { apiErrorMessage } from "@/lib/api-error";
+import { cvAiSourcesQueryKey } from "@/lib/cv-ai-sources";
+import { apiErrorCode } from "@/lib/cv-qc";
+import {
+  cvToClientIssuesQueryKey,
+  cvToClientQcQueryKey,
+  cvToClientRowsQueryKey,
+  stageBrandedQueryKey,
+} from "@/lib/cv-to-client";
 import { cn } from "@/lib/utils";
 
 export const STAGE_CV_ACCEPT = ".pdf,.doc,.docx";
 export const STAGE_CV_MAX_BYTES = 10 * 1024 * 1024;
 const ALLOWED = STAGE_CV_ACCEPT.split(",");
+/** Nakładka: dokąd trafi plik (15.10.2026 — CV do klienta po nazwie pliku). */
+const STAGE_CV_HINT = "CV kandydata → oryginał · plik „B2B_…” → CV do klienta";
+/**
+ * Kafelek ma podpis w jednej linii (`FileDropZone` go ucina): w doku na
+ * laptopie 1280 px mieści się ok. 35 znaków, a dłuższe zdanie gubiło „CV do
+ * klienta” — jedyną nową informację.
+ */
+const STAGE_CV_TILE_HINT = "Plik „B2B_…” = od razu CV do klienta";
 
 /** Ta sama walidacja co `FileDropZone` — dla pliku upuszczonego na panel. */
 export function cvFileProblem(file: File): string | null {
@@ -51,12 +77,32 @@ export interface PreviewCvUpload {
 
 export interface StageCvUpload {
   upload: (file: File) => void;
+  /** Wgrywanie albo otwarte pytanie „Zastąpić CV do klienta?” — drugi plik czeka. */
   isPending: boolean;
   /** Plik w drodze — kafelek pokazuje jego nazwę. */
   pendingFile: File | null;
   /** Chwila ostatniego udanego wgrania (ms) — linia „AI czyta nowe CV”. */
   uploadedAt: number | null;
+  /** Pytanie „Zastąpić CV do klienta?” — wyrenderuj raz obok kafelka. */
+  confirmDialog: ReactNode;
 }
+
+/** Czym stał się wgrany plik: CV kandydata albo CV do klienta tej rekrutacji. */
+export type StageCvUploadKind = "original" | "client_cv";
+
+interface UploadVariables {
+  file: File;
+  mode?: "original";
+  replaceClientCv?: boolean;
+  /**
+   * „Cofnij” po CV do klienta: serwer dostaje tylko `mode: "original"` i sam
+   * przywraca poprzednie CV do klienta — tu komunikat i wiersz do odświeżenia.
+   */
+  undo?: { clientCvStageId: number };
+}
+
+const REPLACE_CONFIRM_CODE = "client_cv_replace_confirm";
+const UPLOAD_FAILED = "Nie udało się wgrać CV. Spróbuj ponownie.";
 
 export function useStageCvUpload({
   candidateId,
@@ -67,36 +113,135 @@ export function useStageCvUpload({
   candidateId: number;
   stageId: number;
   jobId: number;
-  onUploaded?: () => void;
+  onUploaded?: (kind: StageCvUploadKind) => void;
 }): StageCvUpload {
   const queryClient = useQueryClient();
-  const { showSuccess, showError } = useToast();
+  const { showSuccess, showError, showInfo, showActionToast } = useToast();
+  const { askConfirm, confirmDialog } = useConfirmV2();
   const [uploadedAt, setUploadedAt] = useState<number | null>(null);
-  const mutation = useMutation({
-    mutationFn: (file: File) => candidateStageCvApi.original.upload(stageId, file),
-    onSuccess: () => {
+  // Plik czekający na odpowiedź „Zastąpić CV do klienta?”.
+  const [confirming, setConfirming] = useState<File | null>(null);
+
+  const invalidate = (keys: readonly QueryKey[]) => {
+    for (const queryKey of keys) void queryClient.invalidateQueries({ queryKey });
+  };
+
+  // CV do klienta pary na wierszu `targetId` (po ruchu karty bywa wcześniejszy):
+  // karta „CV do klienta”, przegląd DL, okno QC i edytor liczą od nowa.
+  const clientCvKeys = (targetId: number): QueryKey[] => [
+    ...(targetId !== stageId ? [stageBrandedQueryKey(stageId)] : []),
+    cvToClientRowsQueryKey(candidateId, jobId),
+    ["cv-generated", "dl-review", candidateId, jobId],
+    cvToClientQcQueryKey(targetId).slice(0, 2),
+    cvToClientIssuesQueryKey(targetId).slice(0, 2),
+    cvAiSourcesQueryKey(targetId),
+  ];
+
+  // Plik stał się CV do klienta pary: oryginał i profil bez zmian, bez odczytu AI.
+  const clientCvUploaded = (data: StageCvUploadResult, variables: UploadVariables) => {
+    const targetId = data.client_cv_stage_id ?? stageId;
+    if (data.client_cv) queryClient.setQueryData(stageBrandedQueryKey(targetId), data.client_cv);
+    invalidateCandidateMutation(queryClient, candidateId, "document");
+    invalidate([
+      ...clientCvKeys(targetId),
+      MOVE_REQUIREMENTS_PREFIX,
+      ["kanban", String(jobId)],
+      ["kanban", jobId],
+    ]);
+    const name = data.uploaded_filename ?? variables.file.name;
+    const message =
+      `CV do klienta z pliku ${name}.` +
+      (data.replaced === "auto_cv" ? " Zastąpiło CV od automatu." : "") +
+      (data.replaced === "confirmed" ? " Poprzednia wersja jest w historii." : "");
+    if (data.undo_available) {
+      showActionToast(message, {
+        actionLabel: "Cofnij",
+        // Błąd pokazuje `onError`; toast tylko czeka na koniec.
+        onAction: () =>
+          mutation.mutateAsync({ file: variables.file, mode: "original", undo: { clientCvStageId: targetId } }).then(
+            () => undefined,
+            () => undefined,
+          ),
+      });
+    } else {
+      showSuccess(message);
+    }
+    onUploaded?.("client_cv");
+  };
+
+  const mutation = useMutation<AxiosResponse<StageCvUploadResult> | undefined, unknown, UploadVariables>({
+    mutationFn: ({ file, mode, replaceClientCv }) =>
+      mode || replaceClientCv
+        ? candidateStageCvApi.original.upload(stageId, file, {
+            ...(mode ? { mode } : {}),
+            ...(replaceClientCv ? { replaceClientCv: true } : {}),
+          })
+        : candidateStageCvApi.original.upload(stageId, file),
+    onSuccess: (response, variables) => {
+      const data = response?.data;
+      // Starsze odpowiedzi nie mają `outcome` — to zawsze CV kandydata.
+      const outcome = data?.outcome ?? "original";
+      if (outcome === "client_cv" && data) {
+        clientCvUploaded(data, variables);
+        return;
+      }
+      if (outcome === "client_cv_kept") {
+        invalidateCandidateMutation(queryClient, candidateId, "document");
+        showInfo("Klient ma już CV tej osoby, więc go nie podmieniam. Plik zapisany w profilu w „CV dla klientów”.");
+        return;
+      }
       invalidateCandidateMutation(queryClient, candidateId, "document");
-      for (const queryKey of [
+      invalidate([
         candidateQueryKeys.quickView(candidateId),
         ["cv-original", stageId],
         ["cv-qc", stageId],
-        ["move-requirements"],
+        MOVE_REQUIREMENTS_PREFIX,
         ["kanban", String(jobId)],
         ["kanban", jobId],
-      ]) {
-        void queryClient.invalidateQueries({ queryKey });
+      ]);
+      // Cofnięcie przywróciło poprzednie CV do klienta — karta i dok pokazują je od nowa.
+      if (variables.undo) {
+        const targetId = variables.undo.clientCvStageId;
+        invalidate([stageBrandedQueryKey(targetId), ...clientCvKeys(targetId)]);
       }
       setUploadedAt(Date.now());
-      showSuccess("Nowe CV wgrane. Jest główne w profilu i w tej rekrutacji.");
-      onUploaded?.();
+      showSuccess(
+        variables.undo
+          ? "Cofnięte. Plik jest CV kandydata: główne w profilu i oryginał w tej rekrutacji."
+          : "Nowe CV kandydata wgrane. Jest główne w profilu i oryginałem w tej rekrutacji.",
+      );
+      onUploaded?.("original");
     },
-    onError: (error) => showError(apiErrorMessage(error, "Nie udało się wgrać CV. Spróbuj ponownie.")),
+    onError: (error, variables) => {
+      // CV do klienta, które ktoś poprawiał, wybrał albo zatwierdził (D2):
+      // pytamy i wysyłamy ten sam plik jeszcze raz. „Nie podmieniaj” = nic.
+      if (apiErrorCode(error) === REPLACE_CONFIRM_CODE && !variables.replaceClientCv) {
+        setConfirming(variables.file);
+        void askConfirm({
+          title: "Zastąpić CV do klienta?",
+          description: apiErrorMessage(error, "Ta osoba ma już CV do klienta w tej rekrutacji."),
+          confirmLabel: "Zastąp",
+          cancelLabel: "Nie podmieniaj",
+        }).then((yes) => {
+          setConfirming(null);
+          if (yes) mutation.mutate({ file: variables.file, replaceClientCv: true });
+        });
+        return;
+      }
+      showError(apiErrorMessage(error, UPLOAD_FAILED));
+    },
   });
+
+  const isPending = mutation.isPending || confirming != null;
   return {
-    upload: (file) => mutation.mutate(file),
-    isPending: mutation.isPending,
-    pendingFile: mutation.isPending ? (mutation.variables ?? null) : null,
+    upload: (file) => {
+      if (isPending) return;
+      mutation.mutate({ file });
+    },
+    isPending,
+    pendingFile: mutation.isPending ? (mutation.variables?.file ?? null) : confirming,
     uploadedAt,
+    confirmDialog,
   };
 }
 
@@ -123,7 +268,7 @@ export function StageCvUploadTile({
       accept={STAGE_CV_ACCEPT}
       maxBytes={STAGE_CV_MAX_BYTES}
       label={upload.isPending ? "Wgrywanie…" : label}
-      hint="Trafi na górę profilu i do tej rekrutacji"
+      hint={STAGE_CV_TILE_HINT}
       error={error}
       onError={setError}
       disabled={upload.isPending}
@@ -237,7 +382,7 @@ export function CvFileDropTarget({
             <Upload className="mx-auto h-8 w-8 text-primary" aria-hidden />
             <p className="text-sm font-semibold text-foreground">Upuść, aby wgrać nowe CV</p>
             <p className="text-xs text-foreground">{title}</p>
-            <p className="text-xs text-muted-foreground">Trafi na górę profilu i do tej rekrutacji</p>
+            <p className="text-xs text-muted-foreground">{STAGE_CV_HINT}</p>
           </div>
         </div>
       ) : null}

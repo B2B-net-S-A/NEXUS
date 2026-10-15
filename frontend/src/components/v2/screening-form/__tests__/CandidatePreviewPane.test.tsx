@@ -27,6 +27,7 @@ const mocks = vi.hoisted(() => ({
   stageCvFile: vi.fn(),
   stageCvPdf: vi.fn(),
   showError: vi.fn(),
+  showActionToast: vi.fn(),
 }));
 
 vi.mock("@/lib/api", () => ({
@@ -50,7 +51,12 @@ vi.mock("@/lib/api", () => ({
 }));
 
 vi.mock("@/components/Toast", () => ({
-  useToast: () => ({ showError: mocks.showError, showSuccess: vi.fn() }),
+  useToast: () => ({
+    showError: mocks.showError,
+    showSuccess: vi.fn(),
+    showInfo: vi.fn(),
+    showActionToast: mocks.showActionToast,
+  }),
 }));
 
 vi.mock("@/lib/authenticated-files", async (importOriginal) => ({
@@ -1063,6 +1069,40 @@ describe("CandidatePreviewPane — Wgraj CV", () => {
     await waitFor(() => expect(mocks.upload).toHaveBeenCalledWith(901, file));
     await waitFor(() =>
       expect(screen.getByRole("button", { name: "CV oryginalne" })).toHaveAttribute("aria-pressed", "true"),
+    );
+  });
+
+  it("plik „B2B_…” zostaje CV do klienta: podgląd przechodzi na „CV firmowe”", async () => {
+    mocks.showActionToast.mockReset();
+    mocks.upload.mockResolvedValue({
+      data: {
+        has_snapshot: true,
+        outcome: "client_cv",
+        client_cv: { status: "draft", source: "document", edit_revision: 1, candidate_stage_id: 901 },
+        client_cv_stage_id: 901,
+        replaced: "none",
+        undo_available: true,
+        uploaded_filename: "B2B_Tester_Jan_Testowy.docx",
+      },
+    });
+    const user = userEvent.setup();
+    mountWithUpload();
+    await screen.findByRole("group", { name: "Które CV pokazać" });
+    await user.click(screen.getByRole("button", { name: "CV oryginalne" }));
+    expect(screen.getByRole("button", { name: "CV oryginalne" })).toHaveAttribute("aria-pressed", "true");
+
+    const file = new File(["PK"], "B2B_Tester_Jan_Testowy.docx");
+    await act(async () => {
+      fireEvent.change(screen.getByTestId("preview-cv-upload-input"), { target: { files: [file] } });
+    });
+
+    await waitFor(() => expect(mocks.upload).toHaveBeenCalledWith(901, file));
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "CV firmowe" })).toHaveAttribute("aria-pressed", "true"),
+    );
+    expect(mocks.showActionToast).toHaveBeenCalledWith(
+      "CV do klienta z pliku B2B_Tester_Jan_Testowy.docx.",
+      expect.objectContaining({ actionLabel: "Cofnij" }),
     );
   });
 
