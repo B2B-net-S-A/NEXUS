@@ -23,6 +23,17 @@ export interface GeneratedCvPreviewModalProps {
   loadDocx?: (item: GeneratedCvItem) => Promise<Blob>;
 }
 
+/** Osoba, rola z CV, rekrutacja albo klient i język — bez powtórzeń. */
+function previewSubtitle(item: GeneratedCvItem): string {
+  const parts = [
+    item.candidate_name,
+    item.position,
+    item.job_title ?? item.client_name,
+    item.language.toUpperCase(),
+  ].filter((part): part is string => !!part);
+  return Array.from(new Set(parts)).join(" · ");
+}
+
 /**
  * Podgląd wygenerowanego CV w aplikacji. Zwykle renderuje DOCX (docx-preview,
  * leniwie) — ten sam plik, który daje „Pobierz” (zatwierdzona wersja, gdy
@@ -84,11 +95,16 @@ export function GeneratedCvPreviewModal({ item, onClose, onDownload, loadDocx }:
     <Dialog open={!!item} onOpenChange={(open) => !open && onClose()}>
       <DialogContent size="full" className="h-[92dvh] gap-0 p-0">
         <DialogHeader className="flex-row items-center justify-between gap-3 border-b border-border px-4 py-3 pr-16">
-          <DialogTitle className="min-w-0 truncate text-base font-semibold">
-            {item?.candidate_name}
-            {item?.position ? ` — ${item.position}` : ""}
-            {item ? ` · ${item.language.toUpperCase()}` : ""}
-          </DialogTitle>
+          {/* Tytuł = nazwa pliku jak w wierszu listy (15.10.2026): dwa CV tej
+              samej osoby dla jednego klienta miały ten sam tytuł „Imię · EN”. */}
+          <div className="min-w-0">
+            <DialogTitle className="truncate text-base font-semibold">
+              {item?.filename ?? "Podgląd CV"}
+            </DialogTitle>
+            {item ? (
+              <p className="mt-0.5 truncate text-xs text-muted-foreground">{previewSubtitle(item)}</p>
+            ) : null}
+          </div>
           {item && !item.consent_missing ? (
             <Button size="sm" variant="outline" onClick={() => onDownload(item)}>
               <Download aria-hidden className="mr-2 h-4 w-4" />

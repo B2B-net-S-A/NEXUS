@@ -1061,7 +1061,8 @@ const GENERATED_CVS = [
   },
   {
     id: 802,
-    filename: "Marta_Kowalczyk_CV_PL.docx",
+    // Nazwa jak z generatora B2B — tytuł podglądu to nazwa pliku (15.10.2026).
+    filename: "B2B_PL-Java Developer_Marta Kowalczyk.docx",
     status: "ready",
     candidate_id: CANDIDATE_ID,
     candidate_name: "Marta Kowalczyk",

@@ -670,6 +670,29 @@ describe("CandidateFilesTab — grupy plików (E5, 13.10.2026)", () => {
     ).toBe(false);
   });
 
+  it("tytuł podglądu to nazwa pliku — dwa CV dla jednego klienta da się odróżnić (15.10.2026)", async () => {
+    const forClient = { job_title: null, client_name: "Bank Przykładowy", language: "en" };
+    mockApi(
+      [file(1, "cv.pdf", { is_primary: true })],
+      [
+        generatedCv({ id: 71, filename: "B2B_Linux developer_Jan Kowalski.docx", ...forClient }),
+        generatedCv({ id: 72, filename: "B2B_Developer C++_Jan Kowalski.docx", ...forClient }),
+      ],
+    );
+    const user = userEvent.setup();
+    renderTab();
+
+    const client = await screen.findByRole("region", { name: /CV dla klientów/ });
+    await user.click(
+      within(client).getByRole("button", { name: "B2B_Developer C++_Jan Kowalski.docx" }),
+    );
+
+    const dialog = await screen.findByRole("dialog", {
+      name: "B2B_Developer C++_Jan Kowalski.docx",
+    });
+    expect(within(dialog).getByText("Jan Kowalski · Bank Przykładowy · EN")).toBeInTheDocument();
+  });
+
   it("CV z generatora bez zatwierdzonej wersji — podgląd bieżącego pliku", async () => {
     mockApi([file(1, "cv.pdf", { is_primary: true })], [generatedCv()]);
     const user = userEvent.setup();
