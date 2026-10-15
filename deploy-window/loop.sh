@@ -34,15 +34,22 @@ log() {
     echo "[deploy-window] $(date '+%F %T %Z') $*"
 }
 
+# Zwykły, niepusty i czytelny plik — `-s` sam przepuściłby katalog.
+token_ready() {
+    [ -f "$TOKEN_FILE" ] && [ -s "$TOKEN_FILE" ] && [ -r "$TOKEN_FILE" ]
+}
+
 # 204 = Deploy uruchomiony. 4xx = zły, wygasły albo za słaby token — ponowienie
 # nic nie da. Błąd sieci i 5xx ponawiamy dwa razy co minutę.
 dispatch() {
-    if [ ! -s "$TOKEN_FILE" ] || [ ! -r "$TOKEN_FILE" ]; then
+    if ! token_ready; then
         log "slot $1: brak czytelnego tokenu w $TOKEN_FILE — pomijam"
         return 1
     fi
     attempt=1
     while :; do
+        # Bez starej odpowiedzi: po błędzie sieci log pokazałby treść z poprzedniego slotu.
+        rm -f "${TMPDIR:-/tmp}/dispatch-response"
         # Nagłówek z tokenem przez `--config -` (stdin), nie w argumentach —
         # argumenty curla widać w `ps` i `docker top`.
         code="$(printf 'header = "Authorization: Bearer %s"\n' "$(tr -d ' \r\n' < "$TOKEN_FILE")" \
@@ -81,7 +88,7 @@ tick() {
     done
 }
 
-if [ -s "$TOKEN_FILE" ] && [ -r "$TOKEN_FILE" ]; then
+if token_ready; then
     log "budzik włączony, sloty: $SLOTS"
 else
     log "budzik czeka na token w $TOKEN_FILE (sloty: $SLOTS)"

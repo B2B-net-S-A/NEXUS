@@ -102,6 +102,7 @@ def _dispatch_script(tmp_path: Path, token: str | None = "tok-test\n") -> str:
             _line("REPO"),
             f'TOKEN_FILE="{token_file}"',
             'log() { echo "$*"; }',
+            _function("token_ready"),
             _function("dispatch"),
             'dispatch 19:05; echo "rc=$?"',
         ]
@@ -175,6 +176,26 @@ def test_missing_token_skips_the_slot_without_calling_api(tmp_path: Path) -> Non
     assert "rc=1" in out.stdout
     assert "brak czytelnego tokenu" in out.stdout
     assert not calls.exists()
+
+
+def test_token_path_that_is_a_directory_is_no_token(tmp_path: Path) -> None:
+    """Docker tworzy brakującą ścieżkę montowania jako katalog; pusty `Bearer`
+    nie może polecieć do API."""
+    calls, _ = _fake_curl(tmp_path, "204")
+    (tmp_path / "token").mkdir()
+    (tmp_path / "token" / "x").write_text("x", encoding="utf-8")
+    out = _run_sh(tmp_path, _dispatch_script(tmp_path, token=None))
+    assert "rc=1" in out.stdout
+    assert not calls.exists()
+
+
+def test_network_error_does_not_log_the_previous_response(tmp_path: Path) -> None:
+    _fake_bin(tmp_path, "curl", 'cat > /dev/null; printf "000"; exit 6\n')
+    _fake_bin(tmp_path, "sleep", "")
+    (tmp_path / "dispatch-response").write_text("STARA-ODPOWIEDZ", encoding="utf-8")
+    out = _run_sh(tmp_path, _dispatch_script(tmp_path))
+    assert "HTTP 000" in out.stdout
+    assert "STARA-ODPOWIEDZ" not in out.stdout
 
 
 def test_dispatch_does_not_retry_a_rejected_token(tmp_path: Path) -> None:
