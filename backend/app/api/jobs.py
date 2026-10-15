@@ -800,7 +800,8 @@ def jobs_register_base_clause():
 def jobs_search_clause(q: str):
     """Pole „Szukaj" rejestru: tytuł, numer referencyjny, klient, technologie.
 
-    Placeholder w UI obiecuje „Tytuł, klient, technologia…", a do 09.2026
+    Placeholder w UI obiecuje „Numer, tytuł, klient, technologia…" (numer
+    u klienta od 15.10.2026), a do 09.2026
     backend filtrował wyłącznie po tytule — i to bez escapowania, więc `%`
     zwracało pełną listę. Klient przez EXISTS (nie JOIN): jeden wiersz na
     rekrutację, więc `total` liczone z tego samego zapytania się zgadza.

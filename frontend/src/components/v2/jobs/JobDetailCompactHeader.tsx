@@ -33,6 +33,7 @@ import {
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { ClientReferenceChip } from "@/components/v2/jobs/ClientReferenceChip";
 import type { JobDetailView } from "@/lib/job-detail-routing";
 import type { JobHeaderFact, JobHeaderFactKey } from "@/lib/job-header-facts";
 import {
@@ -78,6 +79,8 @@ interface JobDetailCompactHeaderProps {
    */
   clientTitle?: string | null;
   clientReference?: string | null;
+  /** Klik w numer u klienta przed tytułem (15.10.2026) — kopiuje go. */
+  onCopyClientReference?: (reference: string) => void;
   /** Nasz numer rekrutacji. */
   referenceNumber?: string | null;
   /** Status requestu („Szukamy”), „Tylko odczyt”, plakietki Traffita. */
@@ -227,6 +230,7 @@ export function JobDetailCompactHeader({
   title,
   clientTitle,
   clientReference,
+  onCopyClientReference,
   referenceNumber,
   badges,
   facts,
@@ -298,6 +302,15 @@ export function JobDetailCompactHeader({
             pełny tytuł i nazwa od klienta w dymku. Tytuł ma nie mniej niż 6rem. */}
         <div className="flex min-w-0 flex-[1_1_22rem] items-center gap-2">
           {priority}
+          {/* Numer u klienta przed tytułem, także po „Zwiń” (prośba DL
+              Nordei, 15.10.2026): tytuły dla rekrutera są uogólnione. */}
+          <ClientReferenceChip
+            reference={clientReference}
+            clientTitle={clientTitle}
+            size="header"
+            onCopy={(reference) => onCopyClientReference?.(reference)}
+            testId="header-client-reference"
+          />
           <h1
             className="min-w-[6rem] flex-[0_1_auto] truncate text-lg font-semibold leading-tight text-foreground"
             title={[title, ...(clientLine.length > 0 ? [clientLine.join(" · ")] : [])].join("\n")}
@@ -629,21 +642,17 @@ export function JobDetailCompactHeader({
         </div>
       </div>
 
-      {/* Nazwa od klienta i numery (0380) — w dymku tytułu (K-D3, 14.10.2026);
-          tu zostają dla czytników ekranu. */}
-      {clientLine.length > 0 ? (
+      {/* Nazwa od klienta i nasz numer (0380) — w dymku tytułu (K-D3,
+          14.10.2026); tu zostają dla czytników ekranu. Numer u klienta stoi
+          od 15.10.2026 przed tytułem (`ClientReferenceChip`). */}
+      {clientTitle || referenceNumber ? (
         <p className="sr-only" data-testid="header-client-line">
           {clientTitle ? (
             <span data-testid="header-client-title">U klienta: „{clientTitle}”</span>
           ) : null}
-          {clientReference ? (
-            <span data-testid="header-client-reference">
-              {clientTitle ? " · " : ""}nr u klienta {clientReference}
-            </span>
-          ) : null}
           {referenceNumber ? (
             <span>
-              {clientTitle || clientReference ? " · " : ""}nasz nr {referenceNumber}
+              {clientTitle ? " · " : ""}nasz nr {referenceNumber}
             </span>
           ) : null}
         </p>

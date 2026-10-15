@@ -113,6 +113,7 @@ import { JobAIActions } from "@/components/v2/recruitment/JobAIActions";
 import { EmailTemplateModal } from "@/components/v2/recruitment/EmailTemplateModal";
 import { OrderSlideOver } from "@/components/v2/recruitment/slideovers/OrderSlideOver";
 import { jobClientTitle, jobDisplayTitle } from "@/lib/job-names";
+import { copyClientReference } from "@/components/v2/jobs/ClientReferenceChip";
 import { QuestionBankSlideOver } from "@/components/v2/recruitment/slideovers/QuestionBankSlideOver";
 import { JobFilesSlideOver } from "@/components/v2/recruitment/slideovers/JobFilesSlideOver";
 import { fetchJobFiles, jobFilesKey } from "@/lib/api/jobFiles";
@@ -704,7 +705,7 @@ export default function JobDetailPage() {
   // Auto-open tab when job data loads
   useEffect(() => {
     if (job) {
-      openTab("job", Number(id), jobDisplayTitle(job));
+      openTab("job", Number(id), jobDisplayTitle(job), job.client_reference);
     }
   }, [job, id, openTab]);
 
@@ -814,6 +815,9 @@ export default function JobDetailPage() {
         referenceNumber={job.reference_number}
         clientTitle={jobClientTitle(job)}
         clientReference={job.client_reference}
+        onCopyClientReference={(reference) =>
+          void copyClientReference(reference, { showSuccess, showError })
+        }
         badges={
           <>
             {/* Status requestu (0341) zastępuje techniczny „Aktywna/Szkic" —

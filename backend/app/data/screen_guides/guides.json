@@ -39,7 +39,7 @@
     ],
     "anchors": [
       {"id": "jobs.list.scope", "label": "Moje / Moja kategoria / Otwarte / Wszystkie", "describe": "Przełącznik zakresu listy rekrutacji z licznikami."},
-      {"id": "jobs.list.search", "label": "Wyszukiwanie", "describe": "Pole wyszukiwania po tytule, kliencie i technologii."},
+      {"id": "jobs.list.search", "label": "Wyszukiwanie", "describe": "Pole wyszukiwania po numerze u klienta, tytule, kliencie i technologii."},
       {"id": "jobs.list.status", "label": "Stan requestu", "describe": "Jeden rząd stanów: Do uzupełnienia, Do przejrzenia, Szukamy, Mamy championa, Umowa, Klient milczy."},
       {"id": "jobs.list.filters", "label": "Filtry", "describe": "Pasek filtrów nad listą: Delivery Lead, klient, Rekruter, kategoria, priorytet, termin, data otwarcia i szybkie przełączniki."},
       {"id": "jobs.list.sort", "label": "Sortowanie", "describe": "Kolejność listy, m.in. „Wymaga uwagi”."},
@@ -62,7 +62,7 @@
     "tasks": [
       {
         "q": "Od czego zacząć w tej rekrutacji?",
-        "a": "Na górze: priorytet, tytuł (nazwa od klienta w dymku), klient, budżet, tryb pracy i „Rekruter” — klik pokazuje zespół. „Kto dodał” → „Ty” zawęża tablicę do Twoich osób, „˄” zwija nagłówek. Klik w nazwisko otwiera kartę z boku; w „Nowych” i „Screeningu” na całe okno, z CV i wymaganiami po lewej (Ctrl/⌘ — pełny profil)."
+        "a": "Na górze: priorytet, numer u klienta, tytuł (nazwa od klienta w dymku), klient, budżet, tryb pracy i „Rekruter” — klik pokazuje zespół. „Kto dodał” → „Ty” zawęża tablicę do Twoich osób, „˄” zwija nagłówek. Klik w nazwisko otwiera kartę z boku; w „Nowych” i „Screeningu” na całe okno, z CV i wymaganiami po lewej (Ctrl/⌘ — pełny profil)."
       },
       {
         "q": "Jak przesunąć kandydata dalej?",
@@ -234,7 +234,7 @@
       "Wymagania z „Czego szukamy” są tym, po czym system dopasowuje kandydatów — sama proza w opisie projektu wystarcza gorzej.",
       "Kandydata z list AI ukrywa tylko brak wymagania krytycznego: najwyżej trzy słowa do szukania (zdanie nie może być krytyczne). Gdy razem zostawiają mniej niż 20 osób, zapis pyta. Bez decyzji działa podpowiedź z historii; „Brak krytycznych” = nikt nie jest ukrywany.",
       "Budżet podany zakresem (np. 60–80) widać jako przedział, a plakietki liczą się od górnej granicy.",
-      "Tytuł w nagłówku to tytuł dla rekrutera: składa się sam z profilu (rola, must-have, lata, dziedzina), dopóki nikt go nie zmieni w „Edytuj rekrutację”. Do klienta idą nazwa i numer od klienta — są w dymku tytułu."
+      "Tytuł w nagłówku to tytuł dla rekrutera: składa się sam z profilu (rola, must-have, lata, dziedzina), dopóki nikt go nie zmieni w „Edytuj rekrutację”. Do klienta idą nazwa i numer od klienta — numer stoi przed tytułem, nazwa jest w dymku tytułu."
     ],
     "anchors": [
       {"id": "job.champion.intake", "label": "Wygeneruj z opisu klienta", "describe": "Wypełnienie profilu z opisu klienta przez AI."},

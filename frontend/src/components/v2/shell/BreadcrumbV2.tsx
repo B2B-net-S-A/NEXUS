@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 import { ChevronRight } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import api from "@/lib/api";
+import { clientReferenceParts } from "@/lib/job-names";
 import { cn } from "@/lib/utils";
 
 export const SEGMENT_LABELS: Record<string, string> = {
@@ -99,7 +100,10 @@ const ENTITY_NAME_FETCHERS: Record<string, (id: string) => Promise<string>> = {
   },
   jobs: async (id) => {
     const r = await api.get(`/api/jobs/${id}`);
-    return r.data.working_title || r.data.title || id;
+    const name = r.data.working_title || r.data.title || id;
+    // Numer u klienta przed nazwą, jak na liście i w nagłówku (15.10.2026).
+    const [reference] = clientReferenceParts(r.data.client_reference);
+    return reference ? `${reference} · ${name}` : name;
   },
   clients: async (id) => {
     const r = await api.get(`/api/clients/${id}`);

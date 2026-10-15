@@ -51,6 +51,7 @@ from app.schemas.champion import STACK_ITEM_MAX_CHARS
 from app.services.skill_inflection import dictionary_base_name, inflected_in_text
 from app.services import champion_intake, keyword_suggest, office_days
 from app.services.champion_document import folded
+from app.services.job_working_title import reference_from_title
 from app.services.llm_prompts import JOB_REQUEST_INTAKE
 
 logger = logging.getLogger(__name__)
@@ -1027,6 +1028,13 @@ def normalize_model_output(raw: Any, request_text: str) -> RequestIntake:
     client_reference = _text(data.get("client_reference"), 120)
     if client_reference and not _in_text(client_reference, folded_text):
         client_reference = None
+    # D5 (15.10.2026): numer w znanym formacie z cytowanej nazwy wygrywa
+    # z kodem, który model wziął za numer („PEP4989” przy „… (42970)”). Kilka
+    # numerów nie jest cytatem — wtedy pole zostaje puste, a serwer przy
+    # zakładaniu rekrutacji czyta je z nazwy (`reference_from_title`).
+    from_title = reference_from_title(client_title)
+    if from_title and not (client_reference and reference_from_title(client_reference)):
+        client_reference = from_title if _in_text(from_title, folded_text) else None
     # Hiring manager: ta sama reguła dosłownego cytatu. Bez imienia i nazwiska
     # stanowisko i e-mail nie mają kogo opisać, więc odpadają razem z nim.
     hm_name = _text(data.get("hiring_manager_name"), 255)

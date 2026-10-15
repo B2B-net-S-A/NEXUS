@@ -65,6 +65,28 @@ from app.services.job_working_title import cv_role_title
         ("LowCode Developer (ITVM-5894)", None, [], "LowCode Developer"),
         ("Polska - Java Developer", None, [], "Java Developer"),
         ("Poland - Remote - Data Engineer", None, [], "Data Engineer"),
+        # 15.10.2026: numer z nazwy trafia do `client_reference` — nagłówek
+        # nie może zostać z „_” po zdjętym kodzie.
+        (
+            "RFX-wsparcie w utrzymaniu i rozwoju Power BI_PKN500023226",
+            "PKN500023226",
+            [],
+            "Wsparcie w utrzymaniu i rozwoju Power BI",
+        ),
+        ("Tester_PKN/5/000177/26", "PKN/5/000177/26", [], "Tester"),
+        ("Kierownik projektu_EITE500011826", "EITE500011826", [], "Kierownik projektu"),
+        (
+            "Senior Software Developer_RITM0864052",
+            "RITM0864052",
+            [],
+            "Senior Software Developer",
+        ),
+        (
+            "Bank Północny: Data Platform Developer (51234)(51235)",
+            "51234, 51235",
+            ["Bank Północny"],
+            "Data Platform Developer",
+        ),
     ],
 )
 def test_client_codes_and_process_notes_leave_the_header(

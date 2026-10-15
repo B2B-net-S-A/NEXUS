@@ -105,9 +105,10 @@ async def _seed_two_attempts(db, *, tag: str):
     """Jedna para (kandydat, oferta) z DWIEMA sklasyfikowanymi próbami.
 
     Każda próba ma własny proces (`attempt_no` 1 i 2), własną kotwicę
-    `verified` i własne `hired` wewnątrz okna procesu, więc `credited`
-    (UNION ALL po `process_id`) niesie dla tej pary DWA wiersze `hired`.
-    Widok `analytics_first_milestones` ma dla niej dokładnie JEDEN wiersz.
+    `verified` i własne `hired` wewnątrz okna procesu. Do 15.10.2026
+    `credited` (UNION ALL po `process_id`) niósł dla tej pary DWA wiersze
+    `hired`; dziś drugi odpada, bo para miała już placement. Widok
+    `analytics_first_milestones` ma dla niej dokładnie JEDEN wiersz.
     To jest kształt, który do 09.2026 mnożył wiersze raportu.
     """
     u = f"{tag}-{uuid.uuid4().hex[:8]}"
@@ -348,12 +349,13 @@ async def test_rejects_a_broken_period_instead_of_guessing(
 async def test_repeated_attempt_is_one_row_with_attempt_count(
     app_client, app_auth_headers
 ):
-    """Para z dwiema próbami = JEDEN wiersz raportu, nie dwa.
+    """Para z dwiema próbami = JEDEN wiersz raportu i JEDEN placement.
 
-    `credited` niesie po wierszu `hired` na każdy proces pary, a widok ma
-    jeden. Do 09.2026 złączenie mnożyło wiersz widoku przez każdą próbę,
-    więc nagłówek `first_hired` twierdził, że pierwszych zatrudnień było
-    tyle, ile prób. Liczba prób nie ginie — jedzie w `attempts`.
+    Do 09.2026 złączenie mnożyło wiersz widoku przez każdą próbę, więc
+    nagłówek `first_hired` twierdził, że pierwszych zatrudnień było tyle, ile
+    prób. Od 15.10.2026 `credited` nie niesie już drugiego `hired` pary
+    z kolejnej próby (placement to pierwsze „Zatrudniony” pary, audyt
+    statystyk), więc i surowe wiersze `credited` mają jeden placement.
     """
     window = {"date_from": "2036-07-01", "date_to": "2036-07-31"}
     # Totale liczą CAŁE okno, a baza testowa nie jest czyszczona między
@@ -373,7 +375,7 @@ async def test_repeated_attempt_is_one_row_with_attempt_count(
     row = rows[0]
     assert row["in_first_hired"] is True
     assert row["in_verifier_anchored"] is True
-    assert row["verifier_anchored"]["attempts"] == 2
+    assert row["verifier_anchored"]["attempts"] == 1
     # Wiersz niesie NAJWCZEŚNIEJSZĄ próbę — tę samą datę, którą ma widok.
     assert row["verifier_anchored"]["reached_at"] == row["first_hired"]["reached_at"]
 
@@ -384,8 +386,9 @@ async def test_repeated_attempt_is_one_row_with_attempt_count(
     assert delta["in_both"] == 1, delta
     assert delta["only_first_hired"] == 0, delta
     assert delta["only_verifier_anchored"] == 0, delta
-    # Surowe wiersze `credited` — liczba, którą sumują kafle — zostają widoczne.
-    assert delta["verifier_anchored_attempts"] == 2, delta
+    # Surowe wiersze `credited` — liczba, którą sumują kafle: druga próba nie
+    # dokłada drugiego placementu.
+    assert delta["verifier_anchored_attempts"] == 1, delta
 
 
 @pytest.mark.asyncio

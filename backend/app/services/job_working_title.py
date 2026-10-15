@@ -49,11 +49,22 @@ MUST_MAX_CHARS = 40
 PROSE_MARKS = (",", ";", ":", "–", "—")
 BACKFILL_MARKER = "job_names_backfill_0380"
 PROSE_FIX_MARKER = "job_working_title_prose_fix_2026_10"
+CLIENT_REFERENCE_MARKER = "client_reference_from_title_2026_10"
 _RECOMPUTE_CHUNK = 500
 
 _WHITESPACE = re.compile(r"\s+")
 _ZOB = re.compile(r"\bZOB[\s_-]*(\d+)\b", re.IGNORECASE)
 _EMPTY_BRACKETS = re.compile(r"[\(\[]\s*[\)\]]")
+# Numery zapytań w nazwach od klienta (15.10.2026, zmierzone na produkcji):
+# „IT Analyst – RITM0869306”, „Tester_PKN/5/000177/26”, „…_PKN500023226”,
+# „…_EITE500011826”, „IT Analyst Replacement (42946)”, „UX Researcher (6762)”.
+_RITM = re.compile(r"(?<![A-Za-z0-9])RITM\d{6,}(?!\d)", re.IGNORECASE)
+_TENDER = re.compile(r"(?<![A-Za-z0-9])(?:PKN|EITE)(?:/5/\d{6}/\d{2}|5\d{8,})(?!\d)")
+_PAREN_NUMBER = re.compile(r"\(\s*(\d{4,6})\s*\)")
+_TRAILING_DIGITS = re.compile(r"(\d+)\s*$")
+# D4: kody Nordei, które odczyt maila brał za numer zapytania („PEP4989”, „TP#45854”).
+_INTERNAL_CODE = re.compile(r"^\s*(?:PEP|TP)(?![A-Za-z])", re.IGNORECASE)
+_PAREN_ONLY = re.compile(r"^\s*\(\s*(\d{4,6})\s*\)\s*$")
 
 
 def _clean(value: Any) -> str:
@@ -144,16 +155,58 @@ def normalize_client_reference(value: Any) -> Optional[str]:
     return clean or None
 
 
-def reference_from_title(*values: Optional[str]) -> Optional[str]:
-    """Jednoznaczny numer ZOB z tytułu albo numeru wewnętrznego (archiwum)."""
-    found = {match for value in values for match in _ZOB.findall(value or "")}
-    return f"ZOB {next(iter(found))}" if len(found) == 1 else None
+def client_reference_parts(reference: Optional[str]) -> list[str]:
+    """„42928, 42927” → dwa numery: jedna rekrutacja na kilka zapytań klienta."""
+    return [part.strip() for part in (reference or "").split(",") if part.strip()]
+
+
+def _year_or_ours(number: str, ours: Optional[re.Match[str]]) -> bool:
+    if len(number) == 4 and 1900 <= int(number) <= 2099:
+        return True
+    return bool(ours) and number == ours.group(1)
+
+
+def reference_from_title(
+    title: Optional[str], reference_number: Optional[str] = None
+) -> Optional[str]:
+    """Numer zapytania z nazwy od klienta — tylko znane formaty, bez zgadywania.
+
+    Kolejność formatów: ZOB (PKO; także w naszym numerze z archiwum), RITM
+    (BNP), PKN/EITE (Orlen, Energa), 4–6 cyfr w nawiasie (Nordea, Alior).
+    Wygrywa pierwszy format, który coś znajdzie. ZOB tylko jednoznaczny (jak
+    od 0380); w pozostałych kilka różnych numerów to jedna rekrutacja na kilka
+    zapytań → „42928, 42927”. Cztery cyfry 1900–2099 w nawiasie to rok,
+    a liczba równa końcówce naszego numeru („…/IT/4918”) — nasz numer.
+    """
+    zob = {m for value in (title, reference_number) for m in _ZOB.findall(value or "")}
+    if zob:
+        return f"ZOB {next(iter(zob))}" if len(zob) == 1 else None
+    text = title or ""
+    for pattern in (_RITM, _TENDER):
+        found = list(dict.fromkeys(m.group(0) for m in pattern.finditer(text)))
+        if found:
+            return ", ".join(found)[:CLIENT_REFERENCE_MAX]
+    ours = _TRAILING_DIGITS.search(reference_number or "")
+    found = list(
+        dict.fromkeys(
+            n for n in _PAREN_NUMBER.findall(text) if not _year_or_ours(n, ours)
+        )
+    )
+    return ", ".join(found)[:CLIENT_REFERENCE_MAX] if found else None
 
 
 def _strip_reference(title: str, reference: Optional[str]) -> str:
     out = _ZOB.sub("", title)
-    if reference:
-        out = re.sub(re.escape(reference), "", out, flags=re.IGNORECASE)
+    for part in client_reference_parts(reference):
+        # Granica bez liter i cyfr: numer „4521” nie wycina kawałka „145210”.
+        # Łącznik przed kodem schodzi razem z nim — „Power BI_PKN500023226”
+        # zostawiałoby „Power BI_” w nagłówku CV.
+        out = re.sub(
+            rf"[_\s]*(?<![A-Za-z0-9]){re.escape(part)}(?![A-Za-z0-9])",
+            "",
+            out,
+            flags=re.IGNORECASE,
+        )
     # „Programista Java (ZOB 48213)” → bez numeru zostawałyby puste nawiasy.
     return _EMPTY_BRACKETS.sub("", out)
 
@@ -261,12 +314,26 @@ def _is_role(text: str) -> bool:
 
 def working_title_for_job(job: Any, client_names: Iterable[str] = ()) -> Optional[str]:
     """Tytuł dla rekrutera z Championa, a bez niego z kolumn rekrutacji."""
-    from app.services.job_public_profile import default_public_title
+    from app.services.job_public_profile import (
+        _strip_client_prefix,
+        default_public_title,
+    )
 
+    names = list(client_names)
+    reference = getattr(job, "client_reference", None)
     role = champion_view.basics(job).get("role_name")
-    if not _clean(role):
-        raw = _strip_reference(job.title or "", getattr(job, "client_reference", None))
-        role = default_public_title(raw, list(client_names)) if _clean(raw) else None
+    if _clean(role):
+        # D6 (15.10.2026): rola w Championie bywa przepisaną nazwą od klienta
+        # („Nordea: Expert IT Analyst … (42758)”). Klient i numer stoją obok
+        # tytułu, więc z roli schodzi tylko prefiks klienta i numer — nie
+        # każdy nawias z cyfrą, jak na stronie kariery („(K8s)” zostaje).
+        stripped = _strip_client_prefix(
+            _clean(_strip_reference(role, reference)), names
+        )
+        role = stripped if _clean(stripped) else role
+    else:
+        raw = _strip_reference(job.title or "", reference).rstrip(" _")
+        role = default_public_title(raw, names) if _clean(raw) else None
     must = champion_view.stack(job).get("must") or list(job.must_skills or [])
     domain = next(
         (
@@ -466,4 +533,113 @@ async def recompute_auto_working_titles(
     receipt = {"jobs_seen": len(ids), "titles_changed": changed}
     if only_job_ids is None:
         db.add(AppSetting(key=PROSE_FIX_MARKER, value=receipt))
+    return receipt
+
+
+def _reference_after_fill(
+    current: Optional[str], found: Optional[str]
+) -> tuple[Optional[str], str]:
+    """Numer po uzupełnieniu i rodzaj zmiany (``""`` = bez zmiany).
+
+    Puste pole dostaje numer z nazwy. Wypełnione zostaje, z dwoma wyjątkami:
+    „(42855)” traci nawiasy, a kod Nordei z odczytu maila (PEP…, TP#…)
+    ustępuje numerowi z nawiasu w nazwie (D4, 15.10.2026).
+    """
+    if not _clean(current):
+        return (found, "filled") if found else (current, "")
+    paren = _PAREN_ONLY.match(current or "")
+    if paren:
+        return paren.group(1), "normalized"
+    if _INTERNAL_CODE.match(current or "") and found and found[0].isdigit():
+        return found, "replaced"
+    return current, ""
+
+
+async def fill_client_references_from_titles(
+    db: AsyncSession, *, only_job_ids: Optional[set[int]] = None
+) -> Optional[dict[str, int]]:
+    """Jednorazowo: numer u klienta z nazwy od klienta (15.10.2026).
+
+    Backfill 0380 znał tylko ZOB, więc numer Nordei „(42946)”, BNP „RITM…”,
+    Orlenu i Energi „PKN…/EITE…” został wyłącznie w nazwie. Pola nie nadpisuje
+    (wyjątki: :func:`_reference_after_fill`), ``updated_at`` nie podbija.
+    Potem przelicza automatyczne tytuły dla rekrutera, które dostały numer
+    albo zaczynają się nazwą klienta lub zawierają swój numer (D6). Marker
+    w ``app_settings`` + advisory lock → drugi start kończy się od razu.
+    Wołający commituje. Paragon: same liczby (repo i logi są publiczne).
+    ``only_job_ids`` zawęża przebieg — wyłącznie dla testów (bez markera).
+    """
+    from app.services.job_public_profile import _client_names, _strip_client_prefix
+
+    await db.execute(
+        text("SELECT pg_advisory_xact_lock(hashtext(:key))"),
+        {"key": CLIENT_REFERENCE_MARKER},
+    )
+    if only_job_ids is None and await db.get(AppSetting, CLIENT_REFERENCE_MARKER):
+        return None
+    query = select(
+        Job.id,
+        Job.title,
+        Job.reference_number,
+        Job.client_reference,
+        Job.working_title,
+        Job.working_title_auto,
+        Job.client_id,
+    ).order_by(Job.id)
+    if only_job_ids is not None:
+        query = query.where(Job.id.in_(only_job_ids))
+    rows = (await db.execute(query)).all()
+    counts = {"filled": 0, "multi": 0, "normalized": 0, "replaced": 0}
+    updates: list[dict[str, Any]] = []
+    refresh: list[int] = []
+    names_cache: dict[Optional[int], list[str]] = {}
+    for row in rows:
+        found = reference_from_title(row.title, row.reference_number)
+        reference, change = _reference_after_fill(row.client_reference, found)
+        if change:
+            counts[change] += 1
+            counts["multi"] += len(client_reference_parts(reference)) > 1
+            updates.append(
+                {"jid": row.id, "old": row.client_reference, "cref": reference}
+            )
+        working = _clean(row.working_title)
+        if not row.working_title_auto or not (change or working):
+            continue
+        if row.client_id not in names_cache:
+            names_cache[row.client_id] = await _client_names(db, row.client_id)
+        if (
+            change
+            or _strip_client_prefix(working, names_cache[row.client_id]) != working
+            or any(part in working for part in client_reference_parts(reference))
+        ):
+            refresh.append(row.id)
+    if updates:
+        table = Job.__table__
+        await db.execute(
+            table.update()
+            .where(
+                table.c.id == bindparam("jid"),
+                # Ktoś zmienił numer w trakcie — jego wartość wygrywa.
+                table.c.client_reference.is_not_distinct_from(
+                    bindparam("old", type_=table.c.client_reference.type)
+                ),
+            )
+            .values(client_reference=bindparam("cref"), updated_at=table.c.updated_at),
+            updates,
+        )
+    titles = 0
+    for start in range(0, len(refresh), _RECOMPUTE_CHUNK):
+        titles += await refresh_working_titles_for_ids(
+            db, refresh[start : start + _RECOMPUTE_CHUNK]
+        )
+    receipt = {
+        "jobs_seen": len(rows),
+        "client_references": counts["filled"],
+        "multi": counts["multi"],
+        "normalized": counts["normalized"],
+        "replaced_internal_codes": counts["replaced"],
+        "working_titles": titles,
+    }
+    if only_job_ids is None:
+        db.add(AppSetting(key=CLIENT_REFERENCE_MARKER, value=receipt))
     return receipt

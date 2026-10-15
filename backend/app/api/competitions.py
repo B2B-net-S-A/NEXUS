@@ -19,7 +19,7 @@ from app.core.database import get_db
 from app.core.scheduling import business_today
 from app.services.insights_scoring_config import league_points_formula
 from app.models.competition_winner import CompetitionType, CompetitionWinner
-from app.models.user import User
+from app.models.user import User, UserRole
 from app.services import competitions as comp_service
 from app.services.league_standing import league_kind, league_leaders, league_standing
 
@@ -480,13 +480,21 @@ async def my_league(
     z tej samej ścieżki co `/current` (podium na „Rywalizacji”).
     """
     kind = league_kind(current_user)
+    today = business_today()
+    quarter = comp_service.current_quarter_period(today)
+    # Obie role: liga DL tylko wtedy, gdy osoba ma w kwartale portfel DL
+    # (zamkniętą rekrutację albo placement). Bez niego gra w lidze rekruterów —
+    # 15.10.2026 pasek pokazywał „Liga DL · poza ligą” osobie z 2. miejsca
+    # Ligi rekruterów.
+    if kind == "delivery_lead" and current_user.has_role(UserRole.recruiter):
+        dl_numbers = await _dl_league_numbers(db, current_user.id, quarter)
+        if not dl_numbers["placements"] and not dl_numbers["closed_requests"]:
+            kind = "recruiter"
     ctype = (
         CompetitionType.quarterly_champions_dl
         if kind == "delivery_lead"
         else CompetitionType.quarterly_champions_recruiter
     )
-    today = business_today()
-    quarter = comp_service.current_quarter_period(today)
 
     async def ranking() -> dict:
         # Wpis `/current` bez okresu żyje 60 s, więc tuż po starcie kwartału

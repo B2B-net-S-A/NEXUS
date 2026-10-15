@@ -88,6 +88,17 @@ export interface JobNames {
   client_name?: string | null;
 }
 
+/**
+ * „42928, 42927” → dwa numery: jedna rekrutacja na kilka zapytań klienta
+ * (lustro `client_reference_parts` w `job_working_title.py`).
+ */
+export function clientReferenceParts(reference: string | null | undefined): string[] {
+  return (reference ?? "")
+    .split(",")
+    .map((part) => clean(part))
+    .filter(Boolean);
+}
+
 /** Tytuł na ekranach wewnętrznych: tytuł dla rekrutera, a bez niego nazwa od klienta. */
 export function jobDisplayTitle(job: JobNames): string {
   return (

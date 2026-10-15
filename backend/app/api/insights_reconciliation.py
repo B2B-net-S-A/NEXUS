@@ -84,8 +84,10 @@ _MAX_ROWS = 5000
 # pochodzi z CTE, więc niesie już własne filtry eligibility.
 #
 # `credited` NIE jest listą par: CTE składa się z UNION ALL po procesach
-# (`process_id`), więc para z N próbami rekrutacyjnymi ma tam N wierszy
-# `hired`. Do 09.2026 `va` szło do złączenia surowe, a `fh` (1 wiersz na
+# (`process_id`). Do 15.10.2026 para z N próbami rekrutacyjnymi miała tam
+# N wierszy `hired`; dziś kolejna próba pary z placementem go nie powtarza,
+# ale `DISTINCT ON` zostaje jako zabezpieczenie kształtu złączenia.
+# Do 09.2026 `va` szło do złączenia surowe, a `fh` (1 wiersz na
 # parę) mnożyło się przez każdą próbę — raport pokazywał N „pierwszych
 # zatrudnień" tam, gdzie widok ma jedno. `va` jest więc sprowadzane do
 # najwcześniejszej próby (`DISTINCT ON … ORDER BY reached_at`), a liczba prób
