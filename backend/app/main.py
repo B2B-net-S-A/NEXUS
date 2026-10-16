@@ -946,6 +946,9 @@ async def lifespan(app: FastAPI):
         # „Ludzie w NEXUSIE” — pętle modułów kadrowych (`app/tasks/hr_loops.py`);
         # kończą się na `HR_LOOPS_ENABLED=false`, moduły pilnują przełączników.
         "hr_workdays": asyncio.create_task(hr_loops.hr_workdays_loop()),
+        "admin_cases_mail_ingest": asyncio.create_task(
+            hr_loops.admin_cases_mail_ingest_loop()
+        ),
     }
 
     # Śmierć pętli musi być ZDARZENIEM, nie zmianą ułamka „running/expected".

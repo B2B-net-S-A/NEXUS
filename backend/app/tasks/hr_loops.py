@@ -88,3 +88,29 @@ async def hr_workdays_loop() -> None:
         "hr_workdays", max_silence_seconds=WORKDAYS_INTERVAL_SECONDS + 1800
     )
     await run_periodic("hr_workdays", beat, WORKDAYS_INTERVAL_SECONDS, workdays_job)
+
+
+# ── Sprawy administracja@: czytnik skrzynki (E6) ───────────────────────────
+ADMIN_CASES_MAIL_INTERVAL_SECONDS = 5 * 60
+
+
+async def admin_cases_mail_job(db: AsyncSession) -> dict[str, Any] | None:
+    from app.services.admin_cases.mail_ingest import run_once
+
+    result = await run_once(db)
+    return None if result.get("status") == "disabled" else result
+
+
+async def admin_cases_mail_ingest_loop() -> None:
+    if not loops_enabled("admin_cases_mail_ingest"):
+        return
+    beat = loop_heartbeat.register(
+        "admin_cases_mail_ingest",
+        max_silence_seconds=ADMIN_CASES_MAIL_INTERVAL_SECONDS + 1800,
+    )
+    await run_periodic(
+        "admin_cases_mail_ingest",
+        beat,
+        ADMIN_CASES_MAIL_INTERVAL_SECONDS,
+        admin_cases_mail_job,
+    )

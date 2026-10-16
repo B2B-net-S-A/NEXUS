@@ -1,0 +1,261 @@
+// „Ludzie w NEXUSIE” (16.10.2026) — Sprawy administracja@.
+//
+// Lustro `backend/app/api/admin_cases.py`. Zakres liczy serwer: obsługa
+// skrzynki (uprawnienie „Sprawy”) widzi wszystkie sprawy, osoba przypisana bez
+// uprawnienia — tylko swoje i może je komentować (`can_manage` / `can_comment`).
+
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+
+import { api } from "@/lib/api";
+
+export type CaseArea =
+  | "onboarding"
+  | "offboarding"
+  | "negotiation"
+  | "administration"
+  | "marketing"
+  | "other";
+export type CasePriority = "P1" | "P2" | "P3";
+export type CaseStatus = "new" | "in_progress" | "waiting" | "done" | "closed";
+export type CaseSource = "manual" | "mail" | "contract" | "lifecycle" | "compass_import";
+
+export interface CasePersonRef {
+  id: number;
+  name: string | null;
+}
+
+export interface CaseContractRef {
+  id: number;
+  candidate_name: string | null;
+  client_name: string | null;
+  start_date: string | null;
+  end_date: string | null;
+}
+
+export interface CaseChecklistItem {
+  text: string;
+  done: boolean;
+}
+
+export interface CaseCard {
+  id: number;
+  title: string;
+  area: CaseArea;
+  priority: CasePriority;
+  status: CaseStatus;
+  due_on: string | null;
+  follow_up_on: string | null;
+  overdue: boolean;
+  assignee: CasePersonRef | null;
+  subject_user: CasePersonRef | null;
+  contract: CaseContractRef | null;
+  source: CaseSource;
+  checklist_done: number;
+  checklist_total: number;
+  created_at: string;
+  updated_at: string;
+  closed_at: string | null;
+}
+
+export interface CaseMessage {
+  id: number;
+  sender_email: string | null;
+  sender_name: string | null;
+  subject: string | null;
+  received_at: string | null;
+  body_text: string;
+  attachments: {
+    name: string;
+    content_type: string | null;
+    size: number | null;
+    inline: boolean;
+  }[];
+}
+
+export interface CaseComment {
+  id: number;
+  author: CasePersonRef | null;
+  body: string;
+  created_at: string;
+}
+
+export interface CaseDetail extends CaseCard {
+  description: string | null;
+  checklist: CaseChecklistItem[];
+  lifecycle_case_id: number | null;
+  created_by: CasePersonRef | null;
+  messages: CaseMessage[];
+  comments: CaseComment[];
+  can_manage: boolean;
+  can_comment: boolean;
+}
+
+export interface CaseList {
+  items: CaseCard[];
+  total: number;
+  truncated: boolean;
+  done_this_month: number;
+  can_manage: boolean;
+}
+
+export interface CaseListFilters {
+  mine?: boolean;
+  area?: CaseArea | null;
+  status?: CaseStatus | null;
+  priority?: CasePriority | null;
+  q?: string;
+  include_closed?: boolean;
+}
+
+export interface CaseCreateInput {
+  title: string;
+  area: CaseArea;
+  priority: CasePriority;
+  due_on?: string | null;
+  follow_up_on?: string | null;
+  assignee_user_id?: number | null;
+  description?: string | null;
+  checklist?: CaseChecklistItem[];
+  contract_id?: number | null;
+  subject_user_id?: number | null;
+}
+
+export type CaseUpdateInput = Partial<CaseCreateInput> & {
+  status?: CaseStatus;
+  /** Wersja widziana przez edytującego; inna w bazie = 409. */
+  expected_updated_at?: string;
+};
+
+export interface AssigneeOption {
+  id: number;
+  name: string;
+  /** Ma uprawnienie „Sprawy” — obsługuje skrzynkę. */
+  handler: boolean;
+}
+
+export const CASE_AREA_LABELS: Record<CaseArea, string> = {
+  onboarding: "Onboarding",
+  offboarding: "Offboarding",
+  negotiation: "Negocjacje",
+  administration: "Administracja",
+  marketing: "Marketing",
+  other: "Inne",
+};
+
+export const CASE_STATUS_LABELS: Record<CaseStatus, string> = {
+  new: "Nowa",
+  in_progress: "W toku",
+  waiting: "Czeka na kogoś",
+  done: "Zrobione",
+  closed: "Zamknięta",
+};
+
+export const CASE_SOURCE_LABELS: Record<CaseSource, string> = {
+  manual: "ręcznie",
+  mail: "z maila",
+  contract: "z kontraktu",
+  lifecycle: "z odejścia",
+  compass_import: "z Compassa",
+};
+
+export const CASE_AREAS = Object.keys(CASE_AREA_LABELS) as CaseArea[];
+export const CASE_STATUSES = Object.keys(CASE_STATUS_LABELS) as CaseStatus[];
+
+const keys = {
+  all: ["admin-cases"] as const,
+  list: (filters: CaseListFilters) => ["admin-cases", "list", filters] as const,
+  detail: (id: number) => ["admin-cases", "detail", id] as const,
+  assignees: ["admin-cases", "assignees"] as const,
+  contracts: (q: string) => ["admin-cases", "contracts", q] as const,
+};
+
+function listParams(filters: CaseListFilters): Record<string, string> {
+  const params: Record<string, string> = {};
+  if (filters.mine) params.mine = "true";
+  if (filters.area) params.area = filters.area;
+  if (filters.status) params.status = filters.status;
+  if (filters.priority) params.priority = filters.priority;
+  if (filters.q?.trim()) params.q = filters.q.trim();
+  if (filters.include_closed) params.include_closed = "true";
+  return params;
+}
+
+export function useCases(filters: CaseListFilters) {
+  return useQuery({
+    queryKey: keys.list(filters),
+    queryFn: async () =>
+      (await api.get<CaseList>("/api/cases", { params: listParams(filters) })).data,
+  });
+}
+
+export function useCase(id: number) {
+  return useQuery({
+    queryKey: keys.detail(id),
+    queryFn: async () => (await api.get<CaseDetail>(`/api/cases/${id}`)).data,
+    enabled: Number.isFinite(id) && id > 0,
+  });
+}
+
+export function useCaseAssignees(enabled: boolean) {
+  return useQuery({
+    queryKey: keys.assignees,
+    queryFn: async () =>
+      (await api.get<{ items: AssigneeOption[] }>("/api/cases/assignees")).data.items,
+    enabled,
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
+export function useCaseContractOptions(q: string, enabled: boolean) {
+  const term = q.trim();
+  return useQuery({
+    queryKey: keys.contracts(term),
+    queryFn: async () =>
+      (
+        await api.get<{ items: CaseContractRef[] }>("/api/cases/contract-options", {
+          params: { q: term },
+        })
+      ).data.items,
+    enabled: enabled && term.length >= 2,
+  });
+}
+
+function useInvalidateCases() {
+  const queryClient = useQueryClient();
+  return () => queryClient.invalidateQueries({ queryKey: keys.all });
+}
+
+export function useCreateCase() {
+  const invalidate = useInvalidateCases();
+  return useMutation({
+    mutationFn: async (payload: CaseCreateInput) =>
+      (await api.post<CaseDetail>("/api/cases", payload)).data,
+    onSuccess: invalidate,
+  });
+}
+
+export function useUpdateCase(id: number) {
+  const invalidate = useInvalidateCases();
+  return useMutation({
+    mutationFn: async (payload: CaseUpdateInput) =>
+      (await api.patch<CaseDetail>(`/api/cases/${id}`, payload)).data,
+    onSuccess: invalidate,
+  });
+}
+
+export function useCloseCase(id: number) {
+  const invalidate = useInvalidateCases();
+  return useMutation({
+    mutationFn: async () => (await api.post<CaseDetail>(`/api/cases/${id}/close`)).data,
+    onSuccess: invalidate,
+  });
+}
+
+export function useAddCaseComment(id: number) {
+  const invalidate = useInvalidateCases();
+  return useMutation({
+    mutationFn: async (body: string) =>
+      (await api.post<CaseComment>(`/api/cases/${id}/comments`, { body })).data,
+    onSuccess: invalidate,
+  });
+}

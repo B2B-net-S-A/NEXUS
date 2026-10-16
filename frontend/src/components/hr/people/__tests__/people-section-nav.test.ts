@@ -4,7 +4,7 @@ import type { HrConfig, HrModuleKey } from "@/lib/api/hr";
 
 import { peopleSections } from "../PeopleSectionNav";
 
-const ALL_ON = {
+const ALL_ON: Record<HrModuleKey, boolean> = {
   people: true,
   leave: true,
   time: true,
@@ -13,7 +13,7 @@ const ALL_ON = {
   care: true,
   cases: true,
   equipment: true,
-} satisfies Record<HrModuleKey, boolean>;
+};
 
 function config(me: Partial<HrConfig["me"]>, open = ALL_ON): HrConfig {
   return {
