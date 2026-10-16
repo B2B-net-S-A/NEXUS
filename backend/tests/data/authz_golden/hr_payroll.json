@@ -1,0 +1,43 @@
+{
+ "personas": [
+  "admin",
+  "finance",
+  "head_of_recruitment",
+  "delivery_lead",
+  "talent_community_manager",
+  "recruiter",
+  "user",
+  "trainee",
+  "delivery_lead+talent_community_manager",
+  "head_of_recruitment+delivery_lead",
+  "delivery_lead+recruiter",
+  "head_of_recruitment+recruiter",
+  "talent_community_manager+recruiter",
+  "talent_community_manager+contracts_orders_edit",
+  "recruiter+clients_edit",
+  "recruiter+delivery_view",
+  "recruiter+recruitment_manage",
+  "recruiter+finance_module",
+  "recruiter+amounts_edit",
+  "automation"
+ ],
+ "routes": {
+  "DELETE /api/hr/payroll/rates/{rate_id}": "BBBBBBBDBBBBBBBBBBBB",
+  "GET /api/hr/payroll/bonuses": "BBBBBBBDBBBBBBBBBBBB",
+  "GET /api/hr/payroll/me": "BBBBBBBDBBBBBBBBBBBB",
+  "GET /api/hr/payroll/months": "BBBBBBBDBBBBBBBBBBBB",
+  "GET /api/hr/payroll/months/{year}/{month}": "BBBBBBBDBBBBBBBBBBBB",
+  "GET /api/hr/payroll/months/{year}/{month}/export.xlsx": "BBBBBBBDBBBBBBBBBBBB",
+  "GET /api/hr/payroll/people/{user_id}": "BBBBBBBDBBBBBBBBBBBB",
+  "GET /api/hr/payroll/rules": "BBBBBBBDBBBBBBBBBBBB",
+  "PATCH /api/hr/payroll/bonuses/{bonus_id}": "BBBBBBBDBBBBBBBBBBBB",
+  "POST /api/hr/payroll/bonuses": "BBBBBBBDBBBBBBBBBBBB",
+  "POST /api/hr/payroll/bonuses/{bonus_id}/approve": "BBBBBBBDBBBBBBBBBBBB",
+  "POST /api/hr/payroll/bonuses/{bonus_id}/cancel": "BBBBBBBDBBBBBBBBBBBB",
+  "POST /api/hr/payroll/months/{year}/{month}/close": "BBBBBBBDBBBBBBBBBBBB",
+  "POST /api/hr/payroll/months/{year}/{month}/reopen": "BBBBBBBDBBBBBBBBBBBB",
+  "POST /api/hr/payroll/people/{user_id}/rates": "BBBBBBBDBBBBBBBBBBBB",
+  "POST /api/hr/payroll/proposals/refresh": "BBBBBBBDBBBBBBBBBBBB",
+  "PUT /api/hr/payroll/rules": "BBBBBBBDBBBBBBBBBBBB"
+ }
+}

@@ -22,6 +22,7 @@
   "automation"
  ],
  "routes": {
-  "GET /api/integrations/compass/contractors": "UUUUUUUUUUUUUUUUUUUU"
+  "GET /api/integrations/compass/contractors": "UUUUUUUUUUUUUUUUUUUU",
+  "GET /api/integrations/compass/roster": "UUUUUUUUUUUUUUUUUUUU"
  }
 }
