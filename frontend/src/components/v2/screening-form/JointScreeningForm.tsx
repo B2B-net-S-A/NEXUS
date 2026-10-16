@@ -19,6 +19,12 @@
  * odpowiedzi z „Użyj tej odpowiedzi”, „Pomiń brakujące” per rekrutacja,
  * „Ułóż w zdanie” (`joint-screening-tools.tsx`) i pochodzenie wartości
  * (z notatki, zdanie z haseł, z podpowiedzi Luny) zapisywane w każdej parze.
+ *
+ * Od 16.10.2026 pamięć rozmowy (`lib/screening-memory.ts`, decyzje Artura
+ * D1 A, D2 A, D3 B): każda zmiana idzie do pamięci osoby, a formularz przy
+ * starcie bierze z niej wpisy swoich rekrutacji. Zmiana zaznaczenia
+ * „Screening dla” (nowy zestaw = nowy formularz) nie kasuje już niezapisanych
+ * odpowiedzi; zapis czyści pamięć, para z nieudanym zapisem zachowuje wpisy.
  */
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
@@ -33,6 +39,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { FIT_OPTIONS } from "@/components/v2/screening/ScreeningForm";
 import { NoteFillBar, type NoteFillSummary } from "@/components/v2/screening-form/NoteFillBar";
+import { MemoryPendingNote } from "@/components/v2/screening-form/ScreeningMemoryNotes";
 import {
   EarlierAnswerHint,
   EarlierAnswersBar,
@@ -79,6 +86,13 @@ import {
   type JointValues,
 } from "@/lib/joint-screening";
 import { invalidateAfterPipelineMove } from "@/lib/pipeline-move-invalidation";
+import {
+  jointRestore,
+  memoryAfterSave,
+  memoryFromJoint,
+  type PendingMemoryItem,
+  type ScreeningMemoryLink,
+} from "@/lib/screening-memory";
 import { VERIFIED_STAGE } from "@/lib/pipeline-flow";
 import {
   buildSavePayload,
@@ -112,6 +126,11 @@ export interface JointScreeningFormProps {
    * lista rekrutacji nie mogą schować karty wyniku pozostałych par.
    */
   onSessionChange?: (active: boolean) => void;
+  /** Pamięć rozmowy osoby (panel osoby w Nowych/Screeningu). */
+  memory?: ScreeningMemoryLink;
+  /** Odznaczone rekrutacje z wpisami w pamięci — zapis ich nie obejmie (D2 A). */
+  pendingMemory?: readonly PendingMemoryItem[];
+  onReselect?: (jobId: number) => void;
 }
 
 type ResultKind = "saved" | "unchanged" | "moved" | "save_failed" | "move_refused" | "deal_breaker" | "no_stage";
@@ -224,6 +243,9 @@ function JointFormBody({
   onMoved,
   onForwarded,
   onSessionChange,
+  memory,
+  pendingMemory = [],
+  onReselect,
 }: JointScreeningFormProps & { pairs: JointPair[]; groups: JointGroup[] }) {
   const queryClient = useQueryClient();
   const anchor = pairs.find((p) => p.anchor) ?? pairs[0];
@@ -278,6 +300,63 @@ function JointFormBody({
   const earlier = useJointEarlierAnswers(pairs, true);
   const [handledHints, setHandledHints] = useState<ReadonlySet<string>>(() => new Set());
   const phrase = useJointPhrase(candidateId, pairs);
+
+  // Pamięć rozmowy (16.10.2026): wpisy przeżywają zmianę zaznaczenia „Screening
+  // dla”, przejście na formularz pojedynczy i zamknięcie panelu osoby.
+  const restoring = useRef(true);
+  const noteRef = useRef<{ source: NoteImport; filled: number } | null>(null);
+  noteRef.current = note ? { source: note, filled: noteSummary?.filled ?? 0 } : null;
+  const persist = useCallback(() => {
+    if (!memory || restoring.current) return;
+    // Różnice liczą się od stanu, z którym pójdzie zapis — po zapisie wpis znika.
+    const fresh = pairsRef.current.map((pair) => ({
+      ...pair,
+      state: queryClient.getQueryData<ScreeningFormState>(screeningFormQueryKey(pair.jobId, candidateId)) ?? pair.state,
+    }));
+    memory.write((prev) =>
+      memoryFromJoint(prev, {
+        anchorJobId: anchor.jobId,
+        pairs: fresh,
+        groups,
+        values: methods.getValues(),
+        // Bieżący stan, nie migawka z renderu (`formState`): zapis do pamięci
+        // idzie zaraz po `setValue`, zanim formularz się przerysuje.
+        dirty: methods.control._formState.dirtyFields as JointDirty,
+        origins: originsRef.current,
+        note: noteRef.current,
+        now: Date.now(),
+      }),
+    );
+  }, [memory, queryClient, candidateId, anchor.jobId, groups, methods]);
+  useEffect(() => {
+    restoring.current = true;
+    if (memory) {
+      const restore = jointRestore(memory.read(), pairsRef.current, groups, methods.getValues());
+      for (const { path, value } of restore.patches) {
+        methods.setValue(path as "answers", value as never, { shouldDirty: true });
+      }
+      if (Object.keys(restore.origins).length > 0) {
+        originsRef.current = { ...originsRef.current, ...restore.origins };
+        setOrigins((prev) => ({ ...prev, ...restore.origins }));
+      }
+      if (restore.note) {
+        noteRef.current = restore.note;
+        setNote(restore.note.source);
+        setNoteSummary({ filled: restore.note.filled, offers: 0, sourceName: restore.note.source.source_name ?? null });
+      }
+    }
+    restoring.current = false;
+    persist();
+    // Raz na formularz: nowy zestaw rekrutacji to nowy formularz.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  useEffect(() => {
+    const subscription = methods.watch(() => persist());
+    return () => subscription.unsubscribe();
+  }, [methods, persist]);
+  useEffect(() => {
+    persist();
+  }, [origins, note, noteSummary, persist]);
 
   // Notatka z rozmowy: odczyt kotwicy przyszedł z paska, pozostałe rekrutacje
   // czytamy tym samym tekstem (każda ma własne pytania i wzór pól).
@@ -441,6 +520,15 @@ function JointFormBody({
       setBusy(null);
       onMoved?.();
     }
+    // D2 A: zapis czyści pamięć rozmowy, także wpisy odznaczonych rekrutacji;
+    // para z nieudanym zapisem zachowuje swoje.
+    memory?.write((prev) =>
+      memoryAfterSave(
+        prev,
+        out.filter((r) => r.kind === "save_failed").map((r) => r.jobId),
+        Date.now(),
+      ),
+    );
     if (out.every((r) => r.kind !== "save_failed")) {
       setNote(null);
       setNoteSummary(null);
@@ -520,6 +608,7 @@ function JointFormBody({
         ) : null}
 
         <div className="sticky bottom-0 -mx-1 space-y-2 border-t border-border bg-background px-1 pt-3 pb-1">
+          <MemoryPendingNote scope={`${pairs.length} zaznaczone rekrutacje`} items={pendingMemory} onReselect={onReselect} />
           <div className="flex items-center justify-end gap-2">
             <span className="mr-auto text-xs text-muted-foreground">
               {pairs.length} rekrutacje · {pluralQuestions(groups.length)} w rozmowie
