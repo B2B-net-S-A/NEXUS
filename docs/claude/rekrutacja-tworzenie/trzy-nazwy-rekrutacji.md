@@ -78,4 +78,3 @@ wszystkich klientów.
   prefiks klienta i swój numer („Nordea: Expert IT Analyst … (42758)” →
   „Expert IT Analyst …”), ale nie każdy nawias z cyfrą („(K8s)” zostaje).
 - Dzwonek Cpro (`_cpro_job_label`) nie dokleja numeru, który już stoi w nazwie.
-
