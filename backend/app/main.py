@@ -2494,8 +2494,10 @@ async def api_health_check():
         except Exception:
             checks["priority_work"] = "degraded"
 
+    from app.services.hr.availability_local import availability_enabled
+
     for flag, key, model_name in (
-        (settings.COMPASS_AVAILABILITY_ENABLED, "workforce_availability", "source"),
+        (availability_enabled(), "workforce_availability", "source"),
         (
             settings.RECRUITMENT_ALLOCATION_ENABLED,
             "recruitment_allocation",

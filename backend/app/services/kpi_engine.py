@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import calendar
 from dataclasses import dataclass
-from datetime import datetime, time, timedelta
+from datetime import date, datetime, time, timedelta
 from typing import Literal, Optional
 from zoneinfo import ZoneInfo
 
@@ -132,15 +132,23 @@ def period_bucket_label(period: KpiPeriod, now: datetime) -> str:
     raise ValueError(f"Unknown period: {period}")  # pragma: no cover
 
 
-def expected_progress_ratio(period: KpiPeriod, now: datetime) -> float:
+def expected_progress_ratio(
+    period: KpiPeriod, now: datetime, days_off: frozenset[date] = frozenset()
+) -> float:
     """Jakie % target powinno być zrobione w tym momencie.
 
     - day: 0% przed 9:00, 100% po 17:30, liniowo w środku.
     - week: (zakończone_dni_robocze * 1.0 + bieżący_ratio_dnia) / 5; cap 1.0
       dla weekendu.
     - month: (zakończone_dni_robocze + ratio_dnia) / dni_robocze_miesiąca.
+
+    ``days_off`` — pełne dni urlopu osoby („Ludzie w NEXUSIE”, krok 6): nie są
+    dniami pracy, więc tydzień urlopu nie daje „poniżej tempa”.
     """
     now_w = _as_warsaw(now)
+
+    def _workday(moment: datetime) -> bool:
+        return is_business_day(moment) and moment.date() not in days_off
 
     def _intraday_ratio(n: datetime) -> float:
         """Ratio dnia roboczego w chwili `n`."""
@@ -159,8 +167,8 @@ def expected_progress_ratio(period: KpiPeriod, now: datetime) -> float:
     # pięciu dni pracy w tygodniu z czterema. Dzień roboczy = `is_business_day`
     # (Pon–Pt bez polskich świąt ustawowych).
     if period == KpiPeriod.day:
-        if not is_business_day(now_w):
-            return 0.0  # dzień wolny — nic nie jest oczekiwane
+        if not _workday(now_w):
+            return 0.0  # dzień wolny albo urlop — nic nie jest oczekiwane
         return _intraday_ratio(now_w)
 
     if period == KpiPeriod.week:
@@ -171,12 +179,12 @@ def expected_progress_ratio(period: KpiPeriod, now: datetime) -> float:
         workdays = [
             day
             for day in (monday + timedelta(days=i) for i in range(_WORKDAYS_PER_WEEK))
-            if is_business_day(day)
+            if _workday(day)
         ]
         if not workdays:
             return 0.0
         completed_days = sum(1 for day in workdays if day.date() < now_w.date())
-        today_ratio = _intraday_ratio(now_w) if is_business_day(now_w) else 0.0
+        today_ratio = _intraday_ratio(now_w) if _workday(now_w) else 0.0
         return min(1.0, (completed_days + today_ratio) / len(workdays))
 
     if period == KpiPeriod.month:
@@ -188,12 +196,12 @@ def expected_progress_ratio(period: KpiPeriod, now: datetime) -> float:
         workdays = [
             day
             for day in (first + timedelta(days=i) for i in range(days_in_month))
-            if is_business_day(day)
+            if _workday(day)
         ]
         if not workdays:
             return 0.0
         completed_days = sum(1 for day in workdays if day.date() < now_w.date())
-        today_ratio = _intraday_ratio(now_w) if is_business_day(now_w) else 0.0
+        today_ratio = _intraday_ratio(now_w) if _workday(now_w) else 0.0
         return min(1.0, (completed_days + today_ratio) / len(workdays))
 
     raise ValueError(f"Unknown period: {period}")  # pragma: no cover
@@ -439,6 +447,29 @@ def _hours_until_period_end(period: KpiPeriod, now: datetime) -> float:
 # ── Główne API ──────────────────────────────────────────────────────────
 
 
+async def personal_days_off(
+    db: AsyncSession, user_id: int, now: datetime
+) -> frozenset[date]:
+    """Pełne dni urlopu osoby w bieżącym tygodniu i miesiącu.
+
+    Tylko gdy dostępność liczy się z urlopów NEXUSA; inaczej pusty zbiór —
+    tempo liczy się jak dotąd z samego kalendarza firmy.
+    """
+    from app.services.hr.availability_local import days_off_for, local_source_active
+
+    if not local_source_active():
+        return frozenset()
+    now_w = _as_warsaw(now)
+    month_start = now_w.date().replace(day=1)
+    month_end = month_start.replace(
+        day=calendar.monthrange(month_start.year, month_start.month)[1]
+    )
+    week_start = now_w.date() - timedelta(days=now_w.weekday())
+    start = min(month_start, week_start)
+    end = max(month_end, week_start + timedelta(days=6))
+    return await days_off_for(db, user_id, start, end)
+
+
 async def evaluate_user_kpis(
     db: AsyncSession, *, user: User, now: Optional[datetime] = None
 ) -> list[KpiResult]:
@@ -457,6 +488,7 @@ async def evaluate_user_kpis(
     # Precyzja (`in_coach=False`) to wskaźnik jakości z okna kroczącego, nie
     # licznik narastający w okresie — widget i nudge'e jej nie pokazują.
     coach_kpis = [k for k in KPI_CATALOG if k.in_coach and kpi_available(k)]
+    days_off = await personal_days_off(db, user.id, now)
     targets = (
         await resolve_kpi_targets_bulk(db, [user], [k.kpi_id for k in coach_kpis])
     )[user.id]
@@ -486,7 +518,7 @@ async def evaluate_user_kpis(
                 since=start,
                 until=end,
             )
-        ratio = expected_progress_ratio(kpi_def.period, now)
+        ratio = expected_progress_ratio(kpi_def.period, now, days_off)
         state = derive_state(current=current, target=target, expected_ratio=ratio)
         progress = (current / target * 100.0) if target > 0 else 0.0
         hours_left = _hours_until_period_end(kpi_def.period, now)

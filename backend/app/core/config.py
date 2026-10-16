@@ -1525,6 +1525,21 @@ class Settings(BaseSettings):
     COMPASS_AVAILABILITY_SECRET: str = ""
     RECRUITMENT_ALLOCATION_ENABLED: bool = False
 
+    # ── „Ludzie w NEXUSIE” (16.10.2026) ─────────────────────────────────
+    # Moduły włącza admin w `app_settings['hr_modules']` (bez wdrożenia);
+    # env niesie tylko wyłączniki pętli i sekrety. `HR_LOOPS_ENABLED=false`
+    # zatrzymuje wszystkie pętle modułu (testy, awaria).
+    HR_LOOPS_ENABLED: bool = True
+    # Microsoft 365 dla urlopów: off = nic nie wychodzi; simulate = dokładne
+    # żądania lądują w `hr_m365_operations.simulated_request`; live = Graph.
+    HR_M365_MODE: str = "off"
+    # Lista UPN (po przecinku), którym wolno zapisać skrzynkę w trybie live —
+    # pusta = wszystkim. Pierwsze przełączenie idzie na jedną skrzynkę testową.
+    HR_M365_MAILBOX_ALLOWLIST: str = ""
+    # Czytnik skrzynki administracja@ (Sprawy): UPN skrzynki i wyłącznik.
+    ADMIN_CASES_MAILBOX: str = ""
+    ADMIN_CASES_MAIL_INGEST_ENABLED: bool = False
+
     COMPASS_WORKDAYS_ENABLED: bool = False
     COMPASS_WORKDAYS_URL: str = ""
     COMPASS_WORKDAYS_SECRET: str = ""

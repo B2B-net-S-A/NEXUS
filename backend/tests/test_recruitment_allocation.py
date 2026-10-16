@@ -461,6 +461,6 @@ async def test_auto_mode_waits_for_compass_only_when_compass_is_enabled(
     with pytest.raises(HTTPException) as refused:
         await call
     assert refused.value.status_code == 409
-    assert refused.value.detail == "Najpierw przywróć aktualne dane z COMPASS"
+    assert refused.value.detail == "Najpierw przywróć aktualne dane o urlopach"
     assert state.mode == "shadow"
     db.commit.assert_not_awaited()

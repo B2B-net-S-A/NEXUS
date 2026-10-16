@@ -47,6 +47,7 @@ from app.services.kpi_engine import (
     WARSAW,
     evaluate_user_kpis,
     expected_progress_ratio,
+    personal_days_off,
     period_bucket_label,
 )
 from app.services.kpi_messages import render, select_reminder_variant
@@ -170,7 +171,11 @@ async def run_scheduled_sweep(
                     counters["skipped_dedup"] += 1
 
             elif kpi_result.state == "behind":
-                ratio = expected_progress_ratio(kpi_result.period, now_w)
+                ratio = expected_progress_ratio(
+                    kpi_result.period,
+                    now_w,
+                    await personal_days_off(db, user.id, now_w),
+                )
                 if ratio < _REMIND_MIN_RATIO:
                     continue
                 # Reminder: eskalacja po liczbie istniejących reminderów
