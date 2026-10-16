@@ -94,10 +94,8 @@ _REVIEW_READER = require_permission_or_roles(
 _CURATOR_ROLES = require_roles(
     UserRole.admin, UserRole.head_of_recruitment, UserRole.talent_community_manager
 )
-_ATLAS_SCOPE = require_service_scope(
-    ServiceScope.clients_read, ServiceScope.contracts_read
-)
-_ADMIN = require_roles(UserRole.admin)
+_ATLAS_SCOPE = require_service_scope(ServiceScope.sales_signals_read)
+_ATLAS_WRITE_SCOPE = require_service_scope(ServiceScope.sales_signals_write)
 
 
 async def _ensure_module(db: AsyncSession, user: User) -> None:
@@ -165,7 +163,7 @@ def require_hr_care_skill_curator():
 
 
 def require_hr_care_atlas_reader():
-    """ATLAS: klucz z ``clients:read`` + ``contracts:read`` albo admin z JWT."""
+    """ATLAS: klucz z ``sales_signals:read`` albo admin z JWT."""
 
     async def _check(
         caller: Caller = Depends(_ATLAS_SCOPE),
@@ -182,10 +180,10 @@ def require_hr_care_atlas_reader():
 
 
 def require_hr_care_atlas_admin():
-    """Zwrot statusów sygnałów — do czasu zakresu klucza dla ATLASA tylko admin."""
+    """Zwrot statusów sygnałów: klucz z ``sales_signals:write`` albo admin z JWT."""
 
-    async def _check(admin: User = Depends(_ADMIN)) -> User:
-        return admin
+    async def _check(caller: Caller = Depends(_ATLAS_WRITE_SCOPE)) -> Caller:
+        return caller
 
     return _check
 
@@ -1255,7 +1253,7 @@ class SignalStatusBody(BaseModel):
 @router.post("/atlas/sales-signals/status")
 async def atlas_sales_signal_status(
     body: SignalStatusBody,
-    current_user: User = Depends(AtlasAdmin),
+    _caller: Caller = Depends(AtlasAdmin),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     for item in body.updates:

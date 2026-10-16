@@ -227,3 +227,22 @@ async def care_reminders_loop() -> None:
     await run_periodic(
         "care_reminders", beat, CARE_REMINDERS_INTERVAL_SECONDS, care_reminders_job
     )
+
+
+# ── Wejście i odejście: przekazanie pracy, wyłączenie kont, przypomnienia (E4) ─
+LIFECYCLE_INTERVAL_SECONDS = 15 * 60
+
+
+async def lifecycle_job(db: AsyncSession) -> dict[str, Any] | None:
+    from app.services.hr.lifecycle_jobs import run_once
+
+    return await run_once(db)
+
+
+async def hr_lifecycle_loop() -> None:
+    if not loops_enabled("hr_lifecycle"):
+        return
+    beat = loop_heartbeat.register(
+        "hr_lifecycle", max_silence_seconds=LIFECYCLE_INTERVAL_SECONDS + 1800
+    )
+    await run_periodic("hr_lifecycle", beat, LIFECYCLE_INTERVAL_SECONDS, lifecycle_job)

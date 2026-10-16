@@ -726,7 +726,7 @@ async def test_tech_map_combines_four_sources(app_client, care_on) -> None:
 ATLAS = "/api/care/atlas/sales-signals"
 
 
-async def test_atlas_signals_need_a_key_with_both_scopes(
+async def test_atlas_signals_need_the_sales_signals_scope(
     app_client: AsyncClient, app_auth_headers: dict, care_on
 ) -> None:
     from tests.test_service_accounts import _account_with_key
@@ -758,14 +758,15 @@ async def test_atlas_signals_need_a_key_with_both_scopes(
     as_tcm = await app_client.get(ATLAS, headers=headers(tcm))
     assert as_tcm.status_code == 403
 
+    # Dawny zestaw Compassa (klienci + kontrakty) nie otwiera sygnałów.
     _, narrow_key, _ = await _account_with_key(
-        app_client, app_auth_headers, ["clients:read"]
+        app_client, app_auth_headers, ["clients:read", "contracts:read"]
     )
     narrow = await app_client.get(ATLAS, headers={"X-API-Key": narrow_key})
     assert narrow.status_code == 403
 
     _, key, _ = await _account_with_key(
-        app_client, app_auth_headers, ["clients:read", "contracts:read"]
+        app_client, app_auth_headers, ["sales_signals:read"]
     )
     ok = await app_client.get(ATLAS, headers={"X-API-Key": key})
     assert ok.status_code == 200, ok.text
@@ -819,6 +820,24 @@ async def test_atlas_status_updates_card_and_ignores_stale_ones(
     }
     denied = await app_client.post(url, headers=headers(tcm), json=payload)
     assert denied.status_code == 403
+    from tests.test_service_accounts import _account_with_key
+
+    _, read_key, _ = await _account_with_key(
+        app_client, app_auth_headers, ["sales_signals:read"]
+    )
+    read_only = await app_client.post(
+        url, headers={"X-API-Key": read_key}, json=payload
+    )
+    assert read_only.status_code == 403
+    _, write_key, _ = await _account_with_key(
+        app_client, app_auth_headers, ["sales_signals:write"]
+    )
+    by_key = await app_client.post(
+        url,
+        headers={"X-API-Key": write_key},
+        json={"updates": []},
+    )
+    assert by_key.status_code == 200, by_key.text
     accepted = await app_client.post(url, headers=app_auth_headers, json=payload)
     assert accepted.status_code == 200, accepted.text
     assert accepted.json() == {

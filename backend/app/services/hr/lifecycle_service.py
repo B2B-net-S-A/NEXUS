@@ -1095,6 +1095,19 @@ async def notify_assignees(
 LifecycleHook = Callable[[AsyncSession, LifecycleCase, str], Awaitable[None]]
 
 
+async def _cases_hook(db: AsyncSession, case: LifecycleCase, event: str) -> None:
+    """Sprawy administracja@: odejście zakłada sprawę (idempotentnie po kluczu)."""
+    if event != "offboarding_started":
+        return
+    from app.services.admin_cases.hooks import open_case_for_offboarding
+
+    await open_case_for_offboarding(db, case.user_id, case.id)
+
+
+def _integration_hooks() -> list[LifecycleHook]:
+    return [_cases_hook]
+
+
 async def lifecycle_integrations(
     db: AsyncSession, case: LifecycleCase, event: LifecycleEvent
 ) -> None:
@@ -1121,8 +1134,7 @@ async def lifecycle_integrations(
       gdy commit pierwszego przebiegu nie doszedł.
     """
 
-    hooks: list[LifecycleHook] = []  # koordynator: haki Spraw i Sprzętu
-    for hook in hooks:
+    for hook in _integration_hooks():
         try:
             async with db.begin_nested():
                 await hook(db, case, event)

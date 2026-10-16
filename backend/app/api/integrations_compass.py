@@ -45,11 +45,11 @@ i ``/api/users``. Eksport musi więc stać obok nich, nie pod nimi.
 import logging
 from datetime import date
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 
-from app.api.deps import ContractorsReadCaller
+from app.api.deps import ContractorsReadCaller, PeopleRosterReadCaller
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.rate_limit import limiter
@@ -199,3 +199,28 @@ async def export_contractors(
         "total": total,
         "has_more": (page * page_size) < total,
     }
+
+
+@router.get("/roster")
+@limiter.limit(_service_rate_limit)
+async def export_roster(
+    request: Request,
+    _caller: PeopleRosterReadCaller,
+    db: AsyncSession = Depends(get_db),
+):
+    """Lista osób z kartotek NEXUSA dla COMPASSA („Ludzie w NEXUSIE”, E4).
+
+    Wydawana dopiero po włączeniu modułu wejścia/odejścia — do tego czasu
+    źródłem listy jest Compass. Pusta lista to awaria (Compass nie może z niej
+    wnioskować, że wszyscy odeszli), więc 503 zamiast pustej odpowiedzi.
+    """
+    from app.services.hr import modules as hr_modules
+    from app.services.hr.roster_export import RosterEmptyError, roster_payload
+
+    if not (await hr_modules.load_modules(db)).get("lifecycle"):
+        raise HTTPException(404, "Lista osób jeszcze nie jest wydawana.")
+    try:
+        return await roster_payload(db)
+    except RosterEmptyError:
+        logger.error("compass roster export refused: empty roster")
+        raise HTTPException(503, "Lista osób jest pusta — eksport wstrzymany.")
