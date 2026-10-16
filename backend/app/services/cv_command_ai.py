@@ -714,7 +714,7 @@ def _role_dates(text: str) -> str:
     (wpisana ręcznie, z Worda) idzie cała — `cv_role_order` bierze dwie ostatnie daty.
     """
     rest = re.sub(r"\*\*.*?\*\*", " ", text)
-    return rest if cv_role_order.period(rest) else cv_selection_ai.plain(text)
+    return cv_role_order.dates_text(rest, cv_selection_ai.plain(text))
 
 
 def verify_plan(

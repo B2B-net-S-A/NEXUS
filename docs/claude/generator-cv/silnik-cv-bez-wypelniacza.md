@@ -200,10 +200,19 @@ wymaganiom potrafiła wylądować na górze. Kod nie sprawdzał kolejności wcal
 
 - **`services/cv_role_order.sort_experience`** ustawia `experience` od
   najnowszego zaraz po odczycie odpowiedzi modelu (`legacy_v7.pipeline`
-  i ścieżka `v10` w `standalone_service`): trwające („obecnie”, „present”)
-  najpierw, potem później zakończone, przy tym samym końcu — później
-  rozpoczęte, remis zostaje w kolejności modelu. Rola bez czytelnych dat
-  zostaje na swoim miejscu, reszta układa się na wolnych miejscach.
+  i ścieżka `v10` w `standalone_service`). Przestawia tylko PEWNE błędy:
+  rolę zakończoną, zanim zaczęła się rola stojąca niżej, i rolę zakończoną
+  nad trwającą („obecnie”, „present”). Nakładające się, zakończone role
+  zostają w kolejności modelu (sortowanie topologiczne, stabilne). Rola bez
+  czytelnych dat zostaje na swoim miejscu, reszta układa się na wolnych
+  miejscach. Pomiar produkcji 16.10.2026 (810 CV z 30 dni, tylko odczyt):
+  107 z 777 CV z datami miało kolejność inną niż „koniec malejąco”, ale 52
+  z nich to nakładające się role ułożone po dacie rozpoczęcia — prawdziwych
+  błędów było 55 (14 starsza nad całkiem nowszą, 41 zakończona nad trwającą).
+  Pierwsza wersja (#2267) poprawiała wszystkie 107 i zmieniałaby wygląd CV
+  bez potrzeby.
+- Ponad `ROLES_MAX` (100) stanowisk kolejność się nie liczy (koszt
+  kwadratowy, a treść z edytora może nieść ich tysiące).
 - **Przed regułą klienta „maks. N stanowisk”** (`apply_presentation_policy`
   bierze pierwsze N z listy). Bez tego przy złej kolejności modelu klient
   z limitem dostawał najstarsze role zamiast obecnej.

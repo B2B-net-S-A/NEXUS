@@ -255,6 +255,16 @@ function AskCandidateButtons({ item, ctx }: { item: QcItem; ctx: ActionContext }
 function ItemAction({ item, ctx }: { item: QcItem; ctx: ActionContext }) {
   const term = (item.term ?? item.requirement ?? "").trim();
   switch (item.fix) {
+    case "role_order":
+      return (
+        <Button
+          size="sm"
+          disabled={!ctx.editable || ctx.busy}
+          onClick={() => ctx.apply({ action: "role_order" }, "Ułożono stanowiska od najnowszego.")}
+        >
+          Ułóż od najnowszego
+        </Button>
+      );
     case "remove_term":
       return term ? <RemoveTermButton term={term} ctx={ctx} /> : null;
     case "ask_candidate":
@@ -591,7 +601,12 @@ function QcDismissForm({
 /** Czy `ItemAction` coś rysuje dla tej pozycji (poprawki całego sprawdzenia stoją niżej). */
 function itemHasAction(item: QcItem): boolean {
   if (item.fix === "remove_term") return Boolean((item.term ?? item.requirement ?? "").trim());
-  return item.fix === "ask_candidate" || item.fix === "upload_consent" || item.fix === "generate_cv";
+  return (
+    item.fix === "ask_candidate" ||
+    item.fix === "upload_consent" ||
+    item.fix === "generate_cv" ||
+    item.fix === "role_order"
+  );
 }
 
 /**
@@ -826,7 +841,20 @@ export function CheckRow({ check, ctx, sourceLabel }: { check: QcCheck; ctx: Act
                     {itemHasAction(item) ? <ItemAction item={item} ctx={ctx} /> : null}
                     <LocateButton target={where} ctx={ctx} />
                     {canDismiss && !formOpen ? (
-                      <DismissButton onClick={() => setDismissKey(item.key ?? null)} disabled={ctx.dismissing} />
+                      item.fix === "role_order" ? (
+                        // Kolejność stanowisk to wybór rekrutera, nie „nieprawda” —
+                        // jedno kliknięcie, bez formularza powodu (D6, 16.10.2026).
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          disabled={ctx.dismissing}
+                          onClick={() => ctx.dismiss({ check_key: check.key, key: item.key ?? "", reason: "kept_order" })}
+                        >
+                          Zostaw tę kolejność
+                        </Button>
+                      ) : (
+                        <DismissButton onClick={() => setDismissKey(item.key ?? null)} disabled={ctx.dismissing} />
+                      )
                     ) : null}
                   </div>
                 ) : (
@@ -961,7 +989,8 @@ export function DismissedSection({ entries, restoring }: { entries: DismissedEnt
         <Ban className="mt-0.5 size-4 shrink-0" aria-hidden />
         <span className="min-w-0 flex-1">
           <span className="font-semibold text-foreground">Pominięte ({entries.length})</span>
-          <span> — oznaczone jako nieprawda, nie liczą się do uwag</span>
+          {/* Bez „nieprawda”: „Zostaw tę kolejność” to wybór rekrutera; powód stoi przy wierszu. */}
+          <span> — nie liczą się do uwag</span>
         </span>
         <ChevronDown className={cn("mt-0.5 size-4 shrink-0 transition-transform", open && "rotate-180")} aria-hidden />
       </button>

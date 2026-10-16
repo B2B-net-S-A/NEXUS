@@ -98,7 +98,7 @@ import {
   type IssueRange,
 } from "@/lib/cv-editor-issues";
 import { classifyCvWarnings, type ClassifiedCvWarning } from "@/lib/cv-generator";
-import { candidateQuestion, countForm, type IssueTarget } from "@/lib/cv-qc";
+import { candidateQuestion, countForm, qcDismissedMessage, type IssueTarget } from "@/lib/cv-qc";
 import { isForbiddenError } from "@/lib/view-state";
 import { cn } from "@/lib/utils";
 
@@ -664,7 +664,7 @@ export function CvEditorIssues({
           dismiss: (body, onSaved) =>
             dismissQc.mutate(body, {
               onSuccess: () => {
-                showSuccess("Oznaczono jako nieprawdę — QC przeliczone.");
+                showSuccess(qcDismissedMessage(body.reason));
                 onSaved?.();
               },
               onError: dismissFailed,

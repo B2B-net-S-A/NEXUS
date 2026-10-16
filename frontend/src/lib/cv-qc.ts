@@ -560,6 +560,11 @@ export const QC_DISMISS_REASONS: ReadonlyArray<{ code: QcDismissReason; label: s
 /** Brak CV i reguły klienta (stawka, kontakt, zgoda RODO) — tych uwag nie da się pominąć. */
 export const QC_NOT_DISMISSABLE: ReadonlySet<string> = new Set(["cv_present", "client_rules"]);
 
+/** Komunikat po pominięciu — „Zostaw tę kolejność” to wybór rekrutera, nie „nieprawda”. */
+export function qcDismissedMessage(reason: QcDismissReason): string {
+  return reason === "kept_order" ? "Kolejność zostaje — QC przeliczone." : "Oznaczono jako nieprawdę — QC przeliczone.";
+}
+
 export const QC_DISMISS_NOTE_MAX = 500;
 export const QC_DISMISS_QUOTE_MAX = 300;
 
