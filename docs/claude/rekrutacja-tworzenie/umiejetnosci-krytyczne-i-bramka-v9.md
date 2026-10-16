@@ -187,3 +187,26 @@ wysłał do klienta, budżet — 32%, dni w biurze — 8%. Decyzje Artura 30.09.
     (rodzina SQL ⇒ SQL, PlantUML ⇒ UML — jednokierunkowe, NIE alias); „rest
     of”, „the rest”, „at rest” to nie REST API (`_patterns`,
     `is_technology_mention`).
+- **16.10.2026 (decyzja Artura 2a + 2b) — Tablica liczy wynik każdej osobie, brak
+  krytycznej to plakietka.** Zgłoszenie „niektórym nie liczy scoringu”; pomiar na
+  produkcji (rekrutacja 789135): 4 z 7 osób bez pierścienia — wszystkie wycięte
+  bramką (`missing_must`) na „płatności”, pomiar wektorowy w porządku. Panel osoby
+  („Dopasowanie”, `score_candidates`) liczył im wynik bez bramki — dwa ekrany mówiły
+  co innego o tej samej parze.
+  - `GET /api/jobs/{id}/pipeline-scores` woła `evaluate_batch(…, score_excluded=True)`:
+    osoba, którą deal-breaker ukryłby w wyszukiwaniu, jest mierzona i oceniana jak
+    reszta, zostaje `eligible=False` z powodem, a `scores` niesie jej wynik. Domyślnie
+    `score_excluded=False` — Radar, „Szukaj w bazie” i propozycje ukrywają jak dotąd.
+    Globalna czarna lista (`eligibility_hidden`) dalej bez wyniku i bez wpisu.
+  - `exclusions` w odpowiedzi: `{candidate_id: {reason, missing_critical}}` —
+    krytyczne (przy `MUST_GATE_MODE=all` wszystkie must) bez śladu w profilu, CV
+    i notatkach, z tej samej `missing_must_skills` co bramka; puste dla innych powodów.
+  - Karta: `criticalGapBadge` (`lib/board-card-badges.ts`, `card-critical-gap`)
+    „brak: …” obok pierścienia, ton „ponad budżet”, pełna treść w dymku i w opisie
+    karty. Informacja, nie blokada. Nie wracaj do chowania pierścienia osobie
+    z brakiem — rekruter nie wiedział, czy wynik się liczy, czy coś się zepsuło.
+  - Odczyt requestu (`JOB_REQUEST_INTAKE` v12) uczy rdzenia wspólnego dla wszystkich
+    form: „płatn*”, nie „płatnoś*” (nie łapał „płatniczy” z CV i notatek osoby, która
+    płatności robiła), i angielskiego rdzenia zamiast liczby mnogiej: „payment*”, nie
+    „payments”. Walidacja słów przepuszcza oba bez zmian w kodzie; wiersze sprzed v12
+    poprawia DL w Profilu Championa.

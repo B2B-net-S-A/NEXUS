@@ -61,6 +61,61 @@ async def test_shared_batch_preserves_missing_measurement_and_uses_review_policy
 
 
 @pytest.mark.asyncio
+async def test_pipeline_scores_gate_excluded_member_and_names_missing_critical(
+    monkeypatch,
+):
+    # 16.10.2026: rekrutacja 789135 — osoba bez krytycznej „płatności” traciła
+    # pierścień na Tablicy, choć już była w procesie. Wyszukiwanie dalej ją ukrywa.
+    from app.core.config import settings as _settings
+
+    monkeypatch.setattr(_settings, "MUST_GATE_MODE", "all")
+    from app.api import matching
+    from app.services.scoring_service import canonical_skill_names
+
+    missing = make_candidate(id=1, skills=["Python"])
+    blacklisted = make_candidate(id=2, skills=["Python", "Django"])
+    measured = []
+
+    async def load(_db, _batch):
+        return {1: missing, 2: blacklisted}
+
+    async def gate(_db, **kwargs):
+        kwargs["exclusion_reasons"].update({1: "missing_must", 2: "eligibility_hidden"})
+        return [], {}, {}, 1, kwargs["inputs"]
+
+    async def measurements(_vector, candidates):
+        measured.append([c.id for c in candidates])
+        return {c.id: VectorMeasurement(0.8, "measured") for c in candidates}
+
+    monkeypatch.setattr(worker, "load_snapshot_batch", load)
+    monkeypatch.setattr(matching, "_gate_and_dealbreakers", gate)
+    monkeypatch.setattr(worker, "measure_candidates", measurements)
+    context = build_request_context(
+        make_job(must_skills=["Python", "Django"]), DEFAULT_PROFILE
+    )
+    batch = [CandidateSnapshot(1, "v1"), CandidateSnapshot(2, "v1")]
+
+    search = await worker.evaluate_batch(None, context, batch, [1, 0])
+    assert [r.fit_score for r in search] == [None, None]
+    assert measured[-1] == []
+
+    board = {
+        r.candidate_id: r
+        for r in await worker.evaluate_batch(
+            None, context, batch, [1, 0], score_excluded=True
+        )
+    }
+    assert measured[-1] == [1]
+    assert not board[1].eligible and board[1].measurement == "measured"
+    assert board[1].fit_score is not None
+    assert board[1].exclusion_reasons == ("missing_must",)
+    assert board[1].evidence["missing_critical"] == list(
+        canonical_skill_names(["Django"])
+    )
+    assert board[2].fit_score is None and board[2].measurement == "unavailable"
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("batch_failure", [False, True])
 async def test_query_failure_is_checkpointed_and_population_still_accounted(
     monkeypatch,

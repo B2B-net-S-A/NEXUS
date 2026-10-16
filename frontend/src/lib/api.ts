@@ -1290,12 +1290,15 @@ export const matchingApi = {
       },
     }),
   // Shared base fit (0-100); pipeline membership also includes unknown scores.
+  // `exclusions` (16.10.2026): kogo wyszukiwanie by ukryło — wynik i tak jest
+  // w `scores`, a `missing_critical` to krytyczne bez śladu w profilu/CV/notatkach.
   pipelineScores: (jobId: number) =>
     api.get<{
       job_id: number;
       profile_id: number;
       scores: Record<string, number>;
       pipeline_candidate_ids: number[];
+      exclusions?: Record<string, { reason: string; missing_critical: string[] }>;
     }>(`/api/jobs/${jobId}/pipeline-scores`),
 };
 

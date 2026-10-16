@@ -132,9 +132,32 @@ def _is_transient(exc: BaseException) -> bool:
     )
 
 
-async def evaluate_batch(db, request: RequestMatchingContext, batch, vector):
+def _missing_critical(candidate, reason: str, inputs) -> list[str]:
+    """Wymagania bramki, których osoba nie ma w profilu, CV ani notatkach."""
+    if reason not in ("missing_must", "no_data"):
+        return []
+    from app.services.dealbreaker_filters import missing_must_skills
+
+    return missing_must_skills(
+        candidate,
+        inputs.must_skills,
+        include_unknown=inputs.exclude_unknown_skill_evidence,
+        verification_job_id=inputs.verification_job_id,
+        verification_fingerprint=inputs.verification_fingerprint,
+        options=inputs.gate_options,
+    )
+
+
+async def evaluate_batch(
+    db, request: RequestMatchingContext, batch, vector, *, score_excluded=False
+):
     # Reuse the established visibility policy, including visible assignment
     # blocks and the invariant that global blacklist remains hidden.
+    #
+    # ``score_excluded`` (Tablica, 16.10.2026): osoba już w rekrutacji dostaje
+    # wynik także wtedy, gdy deal-breaker ukryłby ją w wyszukiwaniu — wiersz
+    # zostaje ``eligible=False`` z powodem, a brakujące krytyczne idą w dowodzie.
+    # Globalna czarna lista (``eligibility_hidden``) nadal bez wyniku.
     from app.api.matching import _gate_and_dealbreakers
     from app.services.dealbreaker_filters import (
         office_fit_status,
@@ -166,15 +189,25 @@ async def evaluate_batch(db, request: RequestMatchingContext, batch, vector):
             exclusion_reasons=exclusion_reasons,
         )
     visible = {candidate.id for candidate in kept}
+    rescored = (
+        {
+            cid
+            for cid, reason in exclusion_reasons.items()
+            if reason != "eligibility_hidden" and cid not in visible
+        }
+        if score_excluded
+        else set()
+    )
+    scored = [c for c in candidates.values() if c.id in visible or c.id in rescored]
     with_prior = uses_prior_screening(request)
     if with_prior:
         with stage("sql_load"):
-            await prior_screening.attach_prior_screening(db, target, kept)
+            await prior_screening.attach_prior_screening(db, target, scored)
     # Dostępność z żywej umowy raz na pulę (15.10.2026).
     with stage("sql_load"):
-        await attach_contract_free(db, kept)
+        await attach_contract_free(db, scored)
     with stage("retrieval") as outcome:
-        measurements = await measure_candidates(vector, kept)
+        measurements = await measure_candidates(vector, scored)
         outcome["failed"] = any(
             m.status == "unavailable" for m in measurements.values()
         )
@@ -184,6 +217,26 @@ async def evaluate_batch(db, request: RequestMatchingContext, batch, vector):
         if index and index % YIELD_EVERY == 0:
             await asyncio.sleep(0)
         if cid not in visible:
+            reason = exclusion_reasons.get(cid, "eligibility_or_filter")
+            if cid in rescored:
+                measurement = measurements[cid]
+                fit = await score_pair(db, request, candidate, measurement)
+                results.append(
+                    CandidateEvaluation(
+                        cid,
+                        versions[cid],
+                        False,
+                        fit.fit_score,
+                        measurement.status,
+                        evidence={
+                            "missing_critical": _missing_critical(
+                                candidate, reason, inputs
+                            )
+                        },
+                        exclusion_reasons=(reason,),
+                    )
+                )
+                continue
             results.append(
                 CandidateEvaluation(
                     cid,
@@ -191,9 +244,7 @@ async def evaluate_batch(db, request: RequestMatchingContext, batch, vector):
                     False,
                     None,
                     "unavailable",
-                    exclusion_reasons=(
-                        exclusion_reasons.get(cid, "eligibility_or_filter"),
-                    ),
+                    exclusion_reasons=(reason,),
                 )
             )
             continue

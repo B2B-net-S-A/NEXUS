@@ -207,6 +207,31 @@ def test_search_requirements_accept_a_stem_of_a_word_from_the_request(
         assert alone.search_requirements == [], bad
 
 
+def test_prompt_teaches_a_stem_shared_by_all_forms_and_an_english_stem() -> None:
+    """16.10.2026, rekrutacja 789135: wzór „płatnoś*” z promptu nie łapał
+    „płatniczych” w CV, a „payments” — „payment”; osoba z doświadczeniem
+    w systemach płatniczych wypadała na krytycznej „płatności”."""
+    from app.services.llm_prompts import JOB_REQUEST_INTAKE
+
+    rendered = JOB_REQUEST_INTAKE.render(
+        client_name="Klient", client_context="brak", request_text="mail"
+    )
+    system = JOB_REQUEST_INTAKE.system_prompt or ""
+    prompt = rendered + system
+    assert '["płatności", "płatn*", "payment*"]' in prompt
+    assert '["płatności", "płatnoś*"]' not in prompt
+
+
+def test_shared_stem_and_english_stem_survive_grounding(monkeypatch) -> None:
+    _technologies(monkeypatch, "Java")
+    text = "Doświadczenie w płatnościach kartowych. Java."
+    raw = {"search": {"requirements": [["płatności", "płatn*", "payment*"]]}}
+    result = normalize_model_output(raw, text)
+    # „płatności” nie stoi w mailu całym słowem („płatnościach”) — odpada;
+    # rdzeń z maila i angielski rdzeń obok niego zostają.
+    assert result.search_requirements == [["płatn*", "payment*"]]
+
+
 def test_search_rows_take_one_english_equivalent_next_to_a_word_from_the_request(
     monkeypatch,
 ) -> None:
@@ -651,7 +676,7 @@ def test_prompt_asks_for_keywords_and_a_deal_breaker() -> None:
     rendered = JOB_REQUEST_INTAKE.render(
         client_name="Klient", client_context="brak", request_text="mail"
     )
-    assert JOB_REQUEST_INTAKE.version == 11
+    assert JOB_REQUEST_INTAKE.version == 12
     assert '"requirements"' in rendered and '"deal_breaker"' in rendered
     assert '"keywords"' not in rendered
     assert '"must": [str]' not in rendered

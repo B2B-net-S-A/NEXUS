@@ -622,6 +622,27 @@ export function compactCardBadge(badge: CardBadge): CompactCardBadge | null {
   return { short: null, full };
 }
 
+/**
+ * Krytyczne bez śladu w profilu, CV i notatkach (16.10.2026). Do tego dnia
+ * taka osoba traciła na Tablicy pierścień dopasowania bez słowa wyjaśnienia,
+ * bo wynik liczył się z bramką wyszukiwania. Teraz wynik jest, a karta mówi,
+ * czego brakuje. Informacja, nie blokada — ruchu karty nie dotyka.
+ */
+export function criticalGapBadge(
+  gaps: readonly string[] | null | undefined,
+): { label: string; title: string } | null {
+  const names = (gaps ?? []).map((g) => g.trim()).filter(Boolean);
+  if (names.length === 0) return null;
+  const list = names.join(", ");
+  return {
+    label: `brak: ${list}`,
+    title:
+      `${names.length === 1 ? "Wymaganie krytyczne" : "Wymagania krytyczne"} bez śladu ` +
+      `w profilu, CV i notatkach: ${list}. Wyszukiwanie nie pokazuje tej osoby; ` +
+      "tu wynik dopasowania zostaje. Sprawdź w rozmowie albo dopisz w profilu.",
+  };
+}
+
 /** Przycisk na karcie w „Nowych"/„Screeningu": „Biorę" (wolna) / „Przejmij" (cudza, DL). */
 export function claimAction(
   item: KanbanItem,

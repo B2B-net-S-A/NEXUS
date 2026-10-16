@@ -929,7 +929,7 @@ CV_REQUIREMENT_MAP = PromptTemplate(
 
 JOB_REQUEST_INTAKE = PromptTemplate(
     name="job_request_intake",
-    version=11,
+    version=12,
     expected_format="json",
     system_prompt=(
         "Jesteś senior rekruterem IT w polskiej agencji body leasingu. "
@@ -1029,13 +1029,19 @@ JOB_REQUEST_INTAKE = PromptTemplate(
         '{{"words": ["Kafka", "RabbitMQ"], "level": "must"}}.\n'
         "- Wyszukiwarka szuka CAŁYCH słów, a polskie słowa się odmieniają: "
         "„bankowości” nie znajdzie „bankowość” ani „bankowy”. Po nazwie dopisz "
-        "rdzeń z gwiazdką — początek słowa z maila, co najmniej 4 litery, np. "
-        '["bankowości", "bankow*"], ["płatności", "płatnoś*"].\n'
+        "rdzeń z gwiazdką — początek słowa z maila, co najmniej 4 litery, "
+        "WSPÓLNY dla wszystkich form i słów pokrewnych. Utnij przed literą, "
+        "która w odmianie się zmienia: „płatności”, „płatniczy”, „płatnicze” "
+        "→ „płatn*” (nie „płatnoś*” — nie złapie „płatniczy”); „bankowości”, "
+        '„bankowy” → „bankow*”. Np. ["bankowości", "bankow*"], '
+        '["płatności", "płatn*"].\n'
         "- Większość CV jest po angielsku: gdy słowo z maila jest po polsku "
         "(dziedzina, obszar biznesu), dodaj w tym samym wierszu JEDEN angielski "
         'odpowiednik, np. ["bankowości", "bankow*", "banking"] — to jedyne '
-        "słowo, którego może nie być w mailu. Technologii nie tłumacz i nie "
-        "dopisuj innych.\n"
+        "słowo, którego może nie być w mailu. Odpowiednik z liczbą mnogą albo "
+        "inną końcówką zapisz rdzeniem z gwiazdką: „payment*” (payment, "
+        'payments), nie „payments”, np. ["płatności", "płatn*", "payment*"]. '
+        "Technologii nie tłumacz i nie dopisuj innych.\n"
         "- Nazwy technologii w całości, bez gwiazdki („Java”, bo „Java*” łapie "
         "też JavaScript) i bez numeru wersji („Java”, nie „Java 17+”).\n"
         "- Nie wpisuj miasta, stażu (junior/senior), języka ani nazwy roli — "

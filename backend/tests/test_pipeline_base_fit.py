@@ -17,7 +17,8 @@ async def test_all_pipeline_members_are_visited_even_without_scores(monkeypatch)
     query = AsyncMock(return_value=[1, 0])
     monkeypatch.setattr(pipeline, "request_vector", query)
 
-    async def evaluate(_db, context, batch, vector):
+    async def evaluate(_db, context, batch, vector, *, score_excluded):
+        assert score_excluded is True
         seen.extend(item.candidate_id for item in batch)
         assert len(batch) <= 256
         return [
@@ -39,6 +40,45 @@ async def test_all_pipeline_members_are_visited_even_without_scores(monkeypatch)
     assert result["counts"]["needs_verification"] == 1
     query.assert_awaited_once()
     assert "LIMIT" not in str(db.execute.call_args.args[0])
+
+
+@pytest.mark.asyncio
+async def test_gate_excluded_member_keeps_score_and_names_missing_critical(
+    monkeypatch,
+):
+    db = AsyncMock()
+    db.execute.return_value = [(1, "v1"), (2, "v1"), (3, "v1")]
+    monkeypatch.setattr(pipeline, "request_vector", AsyncMock(return_value=[1, 0]))
+
+    async def evaluate(_db, _context, batch, _vector, **_kw):
+        return [
+            CandidateEvaluation(1, "v1", True, 80.0, "measured"),
+            CandidateEvaluation(
+                2,
+                "v1",
+                False,
+                64.2,
+                "measured",
+                evidence={"missing_critical": ["płatności"]},
+                exclusion_reasons=("missing_must",),
+            ),
+            CandidateEvaluation(
+                3,
+                "v1",
+                False,
+                None,
+                "unavailable",
+                exclusion_reasons=("eligibility_hidden",),
+            ),
+        ]
+
+    monkeypatch.setattr(pipeline, "evaluate_batch", evaluate)
+    result = await pipeline.pipeline_base_fit(db, make_job(), DEFAULT_PROFILE)
+    assert result["scores"] == {"1": 80.0, "2": 64.2}
+    assert result["exclusions"] == {
+        "2": {"reason": "missing_must", "missing_critical": ["płatności"]}
+    }
+    assert result["counts"]["excluded"] == 2
 
 
 @pytest.mark.asyncio
@@ -85,7 +125,7 @@ async def test_failed_batch_does_not_drop_membership_or_fabricate_zero(monkeypat
     db.execute.return_value = [(i, "v1") for i in range(1, 258)]
     monkeypatch.setattr(pipeline, "request_vector", AsyncMock(return_value=None))
 
-    async def evaluate(_db, _context, batch, _vector):
+    async def evaluate(_db, _context, batch, _vector, **_kw):
         if batch[0].candidate_id == 1:
             raise RuntimeError("private text")
         return [CandidateEvaluation(257, "v1", True, None, "unavailable")]

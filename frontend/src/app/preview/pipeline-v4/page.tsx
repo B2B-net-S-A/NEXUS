@@ -555,6 +555,19 @@ function PipelineV4Harness() {
   }, [asDl, viewerId]);
   const noQuestions = params.get("questions") === "none";
   const cols = useMemo(() => columns(viewerId, noQuestions, asDl), [viewerId, noQuestions, asDl]);
+  // Pierścienie dopasowania i „brak: …” (16.10.2026) — fikcyjne liczby, bez zapytań.
+  const scoreMap = useMemo(
+    () => new Map(cols.flatMap((c) => c.items).map((it, i) => [it.candidate_id, 58 + ((i * 7) % 35)])),
+    [cols],
+  );
+  const criticalGapMap = useMemo(() => {
+    const gaps = new Map<number, string[]>();
+    for (const it of cols.flatMap((c) => c.items)) {
+      if (it.lastname === "Wiśniewska") gaps.set(it.candidate_id, ["płatności"]);
+      if (it.lastname === "Zieliński") gaps.set(it.candidate_id, ["płatności", "mikroserwisy"]);
+    }
+    return gaps;
+  }, [cols]);
   // 0404: „Odrzuceni przez AI” — pusta lista, bez zapytania.
   useMemo(() => {
     client.setQueryData(screenedOutQueryKey(JOB_ID), { job_id: JOB_ID, total: 0, items: [] });
@@ -623,6 +636,8 @@ function PipelineV4Harness() {
               jobId={JOB_ID}
               jobTitle="Senior Java Developer"
               viewerOwnsDlReview={asDl}
+              scoreMap={scoreMap}
+              criticalGapMap={criticalGapMap}
             />
           </main>
         </TooltipProvider>

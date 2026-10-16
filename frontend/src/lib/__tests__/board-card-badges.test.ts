@@ -15,6 +15,7 @@ import {
   type CardBadgeContext,
   compactCardBadge,
   cardShortName,
+  criticalGapBadge,
   cvStateBadge,
   dlWaitingStatus,
   shortStepLabel,
@@ -684,5 +685,25 @@ describe("„Czeka u Delivery Leada” w oknie i ramce ruchu (14.10.2026)", () =
     });
     expect(dlWaitingStatus(item({}), NOW).text).toMatch(/^QC jeszcze nie sprawdzone/);
     expect(dlWaitingStatus(null, NOW).ready).toBe(false);
+  });
+});
+
+describe("„brak: …” — krytyczne bez śladu u osoby (16.10.2026)", () => {
+  it("bez braków nie ma plakietki", () => {
+    expect(criticalGapBadge(undefined)).toBeNull();
+    expect(criticalGapBadge([])).toBeNull();
+    expect(criticalGapBadge(["  "])).toBeNull();
+  });
+
+  it("jedna krytyczna — nazwa w etykiecie, liczba pojedyncza w opisie", () => {
+    const badge = criticalGapBadge(["płatności"]);
+    expect(badge?.label).toBe("brak: płatności");
+    expect(badge?.title).toMatch(/^Wymaganie krytyczne bez śladu w profilu, CV i notatkach: płatności\./);
+  });
+
+  it("kilka krytycznych — po przecinku, liczba mnoga", () => {
+    const badge = criticalGapBadge(["płatności", "java"]);
+    expect(badge?.label).toBe("brak: płatności, java");
+    expect(badge?.title).toMatch(/^Wymagania krytyczne bez śladu/);
   });
 });
