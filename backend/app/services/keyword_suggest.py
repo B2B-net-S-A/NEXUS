@@ -625,9 +625,17 @@ def requirement_find_words(label: str) -> tuple[str, ...]:
 
     Te same opcje i warianty co ``requirement_search_words``, ale lupa
     podświetla, a nie wycina: opcja jednoliterowa tylko odpada („C lub C++”
-    → „C++”), zamiast zerować całą listę.
+    → „C++”), zamiast zerować całą listę. Gwiazdka odpowiednika („bankow*”)
+    odpada — lupa szuka fragmentu słowa, a gwiazdkę czytałaby dosłownie.
     """
-    return _words_with_variants(requirement_options(label))
+    words: list[str] = []
+    seen: set[str] = set()
+    for word in _words_with_variants(requirement_options(label)):
+        bare = word.strip("*").strip()
+        if len(bare) >= 2 and fold(bare) not in seen:
+            seen.add(fold(bare))
+            words.append(bare)
+    return tuple(words)
 
 
 def _words_with_variants(options: tuple[str, ...]) -> tuple[str, ...]:
