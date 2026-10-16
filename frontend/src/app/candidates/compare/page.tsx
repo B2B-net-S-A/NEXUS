@@ -45,6 +45,7 @@ import { unmeasuredReason } from "@/lib/match-breakdown";
 import { isForbiddenError } from "@/lib/view-state";
 import { Button } from "@/components/ui/button";
 import { JobPicker, type JobPickerJob } from "@/components/v2/recruitment/JobPicker";
+import { jobDisplayTitle } from "@/lib/job-names";
 import { contractAvailability, contractAvailabilityText } from "@/lib/contract-availability";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -478,7 +479,16 @@ function CompareCandidatesInner() {
   const jobInfo = useQuery({
     queryKey: ["compare-job", jobId],
     queryFn: () =>
-      api.get(`/api/jobs/${jobId}`).then((r) => r.data as { id: number; title?: string | null; client_name?: string | null }),
+      api.get(`/api/jobs/${jobId}`).then(
+        (r) =>
+          r.data as {
+            id: number;
+            title?: string | null;
+            working_title?: string | null;
+            client_reference?: string | null;
+            client_name?: string | null;
+          },
+      ),
     enabled: jobId !== null && pickedTitle?.id !== jobId,
     retry: false,
   });
@@ -500,7 +510,13 @@ function CompareCandidatesInner() {
     pickedTitle?.id === jobId
       ? pickedTitle
       : jobInfo.data
-        ? { id: jobInfo.data.id, title: jobInfo.data.title ?? `Rekrutacja #${jobId}`, client_name: jobInfo.data.client_name }
+        ? {
+            id: jobInfo.data.id,
+            title: jobInfo.data.title ?? `Rekrutacja #${jobId}`,
+            working_title: jobInfo.data.working_title,
+            client_reference: jobInfo.data.client_reference,
+            client_name: jobInfo.data.client_name,
+          }
         : jobId !== null
           ? { id: jobId, title: `Rekrutacja #${jobId}` }
           : null;
@@ -545,7 +561,7 @@ function CompareCandidatesInner() {
             <>
               <span className="text-muted-foreground">Dopasowanie do:</span>
               <strong data-testid="compare-job">
-                {jobLabel.title}
+                {jobDisplayTitle(jobLabel)}
                 {jobLabel.client_name ? ` · ${jobLabel.client_name}` : ""}
               </strong>
               <Button type="button" size="sm" variant="ghost" onClick={() => setPickerOpen((o) => !o)}>

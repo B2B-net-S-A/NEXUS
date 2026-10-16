@@ -78,3 +78,30 @@ wszystkich klientów.
   prefiks klienta i swój numer („Nordea: Expert IT Analyst … (42758)” →
   „Expert IT Analyst …”), ale nie każdy nawias z cyfrą („(K8s)” zostaje).
 - Dzwonek Cpro (`_cpro_job_label`) nie dokleja numeru, który już stoi w nazwie.
+
+## Okna wyboru rekrutacji nazywają ją jak nagłówek (16.10.2026)
+
+Zgłoszenie Artura: w „Przypisz do rekrutacji” rekrutacja nazywała się
+„AI Engineer (ZOB-…)” (nazwa od klienta), a jej nagłówek mówi „Senior AI
+Engineer · Java, LLM · 5+ lat”. W tym samym oknie „Ostatnio otwierane”
+pokazywało już tytuł dla rekrutera (z karty), a reszta — `jobs.title`.
+
+- **Wiersz wyboru** = `JobPickName` (`components/v2/jobs/JobPickName.tsx`):
+  numer u klienta jako etykieta (nie przycisk kopiowania — wiersz bywa sam
+  przyciskiem) + `jobDisplayTitle`. Nazwa od klienta i wszystkie numery są
+  w dymku. Druga linia: klient · miasto (· seniority).
+- **Gdzie**: „Przypisz do rekrutacji” (`QuickAssignV2`, wszystkie trzy
+  sekcje i „AI sugestie”), `JobPicker` (lista kandydatów, wyszukiwarka,
+  porównanie, „Szukaj z requestu”), „Pasuje też do” (`ClientReferenceTag`),
+  wybór rekrutacji w Talent Radarze.
+- **Komunikaty** („Dodano … do „…””, „Nie przypisano do …”, „Dodaj do „…””,
+  „Przywrócono …”) biorą `jobDisplayTitle`.
+- **API**: AI sugestie (`_shape_recommended_job`) oddają `working_title`,
+  `client_reference` i `client_name` (klient przez `selectinload(Job.client)`);
+  „Pasuje też do” oddaje `client_reference`. Pole `title` zostaje nazwą od
+  klienta.
+- `JobPickerJob.title` to nadal nazwa od klienta (z karty: tytuł dla
+  rekrutera) — ekran, który pokazuje wybraną rekrutację, bierze
+  `jobDisplayTitle(job)`, nie `job.title`.
+- Listy, w których osoba już jest (profil → Rekrutacje, „ostatnio: …”
+  w oknie dodawania, „Moi ludzie”), robi osobny PR.

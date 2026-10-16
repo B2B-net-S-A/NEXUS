@@ -19,6 +19,7 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.analytics.capabilities import AnalyticsCapability, user_has_capability
 from app.api.candidate_access import (
@@ -74,6 +75,7 @@ from app.schemas.similar_job_candidates import (
     SimilarJobOut,
 )
 from app.services.canonical_text import build_job_query_variants
+from app.services.client_identity import client_display_name
 from app.services.contract_availability import (
     attach_contract_free,
     availability_status_hidden,
@@ -120,11 +122,20 @@ def _score_breakdown_payload(
 
 
 def _shape_recommended_job(job: Job, *, include_finance: bool = False) -> dict:
-    """Candidate→job response projection with capability-aware budget fields."""
+    """Candidate→job response projection with capability-aware budget fields.
 
+    ``working_title``, ``client_reference`` i ``client_name``: okno „Przypisz
+    do rekrutacji” nazywa rekrutację jak jej nagłówek (16.10.2026). Klient
+    musi być wczytany razem z rekrutacją (``selectinload(Job.client)``).
+    """
+
+    client = job.client
     return {
         "id": job.id,
         "title": job.title,
+        "working_title": job.working_title,
+        "client_reference": job.client_reference,
+        "client_name": client_display_name(client) if client is not None else None,
         "client_id": job.client_id,
         "location": job.location,
         "salary_min": job.salary_min if include_finance else None,
@@ -976,7 +987,7 @@ async def recommend_jobs_for_candidate(
             },
         }
 
-    job_query = select(Job).where(Job.id.in_(job_ids))
+    job_query = select(Job).options(selectinload(Job.client)).where(Job.id.in_(job_ids))
     job_query = apply_delivery_lead_client_scope(
         job_query,
         Job.client_id,

@@ -80,6 +80,30 @@ describe("JobPicker", () => {
     expect(mocks.list).not.toHaveBeenCalledWith(expect.objectContaining({ q: "java", mine: true }));
   });
 
+  it("nazywa rekrutację jak jej nagłówek: numer u klienta i tytuł dla rekrutera (16.10.2026)", async () => {
+    const job = {
+      id: 3,
+      title: "AI Engineer (ZOB-2984)",
+      working_title: "Senior AI Engineer · Java, LLM · 5+ lat",
+      client_reference: "ZOB-2984",
+      client_name: "Bank",
+    };
+    mocks.list.mockResolvedValue({ data: { items: [job] } });
+    useTabsStore.setState({
+      tabs: [{ id: "job-9", type: "job", entityId: 9, title: "Expert IT Analyst", reference: "42946", url: "/jobs/9" }],
+      activeTabId: null,
+    });
+    const onChange = renderPicker();
+    const row = await screen.findByRole("button", { name: /Senior AI Engineer · Java, LLM · 5\+ lat/ });
+    expect(within(row).getByText("ZOB-2984")).toBeInTheDocument();
+    expect(within(row).getByText("Bank")).toBeInTheDocument();
+    expect(within(row).queryByText("AI Engineer (ZOB-2984)")).not.toBeInTheDocument();
+    const recent = screen.getByRole("button", { name: /Expert IT Analyst/ });
+    expect(within(recent).getByText("42946")).toBeInTheDocument();
+    fireEvent.click(row);
+    expect(onChange).toHaveBeenCalledWith(job);
+  });
+
   it("błąd wczytania to komunikat, nie pusta lista", async () => {
     mocks.list.mockRejectedValue(Object.assign(new Error("boom"), { response: { status: 500, data: { detail: "Serwer niedostępny" } } }));
     renderPicker();

@@ -2993,6 +2993,10 @@ export interface JobMatch {
   job: {
     id: number;
     title: string;
+    // Nazwy jak w nagłówku rekrutacji (16.10.2026).
+    working_title?: string | null;
+    client_reference?: string | null;
+    client_name?: string | null;
     client_id: number | null;
     location: string | null;
     salary_min: number | null;

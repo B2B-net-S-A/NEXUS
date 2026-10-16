@@ -11,6 +11,7 @@ import type { ReactNode } from "react";
 import { ArrowLeftRight, Check } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { ClientReferenceTag } from "@/components/v2/jobs/JobPickName";
 import { cn } from "@/lib/utils";
 
 import type { AlsoFits, AlsoFitsRowModel } from "./useAlsoFitsJobs";
@@ -109,7 +110,12 @@ export function AlsoFitsBlock({
           return (
             <li key={job.job_id} className="py-1.5" data-job-id={job.job_id}>
               <div className="flex items-center gap-2">
-                <p className="min-w-0 flex-1 truncate text-xs">
+                {/* Numer zabiera miejsce tytułowi — pełna nazwa w dymku. */}
+                <p
+                  className="min-w-0 flex-1 truncate text-xs"
+                  title={[job.client_reference, job.title, job.client_name].filter(Boolean).join(" · ")}
+                >
+                  <ClientReferenceTag reference={job.client_reference} className="mr-1 align-middle" />
                   <span className="font-semibold text-foreground">{job.title}</span>
                   {job.client_name ? (
                     <span className="text-muted-foreground"> · {job.client_name}</span>
