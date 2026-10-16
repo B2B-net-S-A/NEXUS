@@ -744,6 +744,8 @@ _ENUM_STATEMENTS = [
     # 0450: championi rekrutacji — zapis listy / powrót do szukania.
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'champions_changed'",
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'champion_search_resumed'",
+    # 0451: „Klient zaakceptował” (do rekrutera, prowadzącego, DL i HoR).
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'client_accepted'",
     # callstatus: zapisywane przez POST /api/cloudtalk/initiate-call. Uśpione,
     # bo CLOUDTALK_ENABLED=false — ale leży dokładnie na ścieżce aktywacji.
     "ALTER TYPE callstatus ADD VALUE IF NOT EXISTS 'initiated'",
@@ -5866,6 +5868,11 @@ END $$""",
     "ON job_champions (candidate_id)",
     "CREATE UNIQUE INDEX IF NOT EXISTS ux_job_champions_live "
     "ON job_champions (job_id, candidate_id) WHERE cleared_at IS NULL",
+    # 0451: „Klient zaakceptował” (16.10.2026) — data akceptacji i planowany
+    # start na wierszu etapu. Lustro 1:1 z migracją — pilnuje
+    # `test_client_acceptance_migration.py`.
+    "ALTER TABLE candidate_stages ADD COLUMN IF NOT EXISTS client_accepted_on DATE NULL",
+    "ALTER TABLE candidate_stages ADD COLUMN IF NOT EXISTS planned_start_on DATE NULL",
     # 0370: prepy w Teams — spotkanie, transkrypt i ocena. Lustro 1:1 z
     # migracją — pilnuje `test_prep_meetings_schema.py`.
     """CREATE TABLE IF NOT EXISTS prep_meetings (
@@ -10149,6 +10156,33 @@ async def repair():
             await db.rollback()
             raise
     print(f"notification backlog repair: {summary or 'already done'}")
+
+asyncio.run(repair())
+PY
+
+# Pasek bez dzwonka (16.10.2026, decyzja D5) — jednorazowo: nieprzeczytane
+# powiadomienia KAŻDEGO typu starsze niż 7 dni oznaczone jako przeczytane.
+# Okienko „Rekrutacje” pokazuje tylko tydzień, „CV” liczy się ze stanu; stary
+# zapas wisiałby w liczniku na zawsze. Nic nie jest kasowane. Logika
+# w `app/services/notification_backlog_repair.py` (`run_topics_backlog_repair`);
+# marker w `app_settings` + advisory lock. Log: same liczby per typ.
+startup_phase "repair-notification-topics-backlog"
+echo "Notifications: one-shot mark-as-read of week-old backlog (topbar icons)..."
+python - <<'PY' || echo "notification topics backlog repair skipped; continuing"
+import asyncio
+import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
+from app.core.database import AsyncSessionLocal
+from app.services.notification_backlog_repair import run_topics_backlog_repair
+
+async def repair():
+    async with AsyncSessionLocal() as db:
+        try:
+            summary = await run_topics_backlog_repair(db)
+            await db.commit()
+        except Exception:
+            await db.rollback()
+            raise
+    print(f"notification topics backlog repair: {summary or 'already done'}")
 
 asyncio.run(repair())
 PY

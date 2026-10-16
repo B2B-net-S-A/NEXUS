@@ -16,6 +16,7 @@ Email: SMTP via ``services/email.py:send_email`` — sync, no-op gdy
 from __future__ import annotations
 
 import logging
+from datetime import date
 from typing import Optional, Sequence
 
 from fastapi.concurrency import run_in_threadpool
@@ -43,6 +44,7 @@ from app.services.consultant_elsewhere_notifications import (
 )
 from app.services import screening_fix_requests, stage_remarks
 from app.services.stage_handoff_recipients import (
+    REASON_CLIENT_ACCEPTED,
     REASON_CPRO_QUEUE,
     REASON_CPRO_RETURNED,
     REASON_CV_SENT,
@@ -50,6 +52,7 @@ from app.services.stage_handoff_recipients import (
     REASON_QC_RETURNED,
     REASON_STAGE_REACHED,
     TASK_REASONS,
+    TITLE_CLIENT_ACCEPTED,
     TITLE_CPRO_QUEUE,
     TITLE_CPRO_RETURNED,
     TITLE_DL_REVIEW,
@@ -93,6 +96,9 @@ def _inapp_content(
     mover: Optional[User],
     remark: Optional[str] = None,
     fix_labels: Sequence[str] = (),
+    client_name: Optional[str] = None,
+    accepted_on: Optional[date] = None,
+    planned_start_on: Optional[date] = None,
 ) -> tuple[str, str, str]:
     """``(tytuł, treść, link)`` dzwonka.
 
@@ -110,6 +116,9 @@ def _inapp_content(
         stage_display_name=stage_display_name,
         job=job,
         mover=mover,
+        client_name=client_name,
+        accepted_on=accepted_on,
+        planned_start_on=planned_start_on,
     )
     note = stage_remarks.short(remark)
     if note:
@@ -152,6 +161,9 @@ def _inapp_base(
     stage_display_name: str,
     job: Job,
     mover: Optional[User],
+    client_name: Optional[str] = None,
+    accepted_on: Optional[date] = None,
+    planned_start_on: Optional[date] = None,
 ) -> tuple[str, str, str]:
     job_title = getattr(job, "working_title", None) or job.title
     who = mover.name if mover and mover.name else "Ktoś z zespołu"
@@ -204,6 +216,21 @@ def _inapp_base(
             f"„{job_title}” (etap „{stage_display_name}”).",
             board_link,
         )
+    if reason == REASON_CLIENT_ACCEPTED:
+        client = f"Klient {client_name}" if client_name else "Klient"
+        when = f", {accepted_on:%d.%m}" if accepted_on else ""
+        start = (
+            f" Planowany start: {planned_start_on:%d.%m.%Y}."
+            if planned_start_on
+            else ""
+        )
+        return (
+            _fit_title(f"{TITLE_CLIENT_ACCEPTED} {candidate_full_name}"),
+            f"{client} zaakceptował osobę {candidate_full_name} w rekrutacji "
+            f"„{job_title}”. Zaznaczył(a) {who}{when}.{start} Dalej: reakcja "
+            "kandydata na ofertę i umowa.",
+            board_link,
+        )
     if reason == REASON_STAGE_REACHED:
         return (
             f"{stage_display_name}: {candidate_full_name}",
@@ -217,7 +244,9 @@ def _inapp_base(
         f"Kandydat {candidate_full_name} → {stage_display_name}",
         f"Kandydat {candidate_full_name} przeszedł na etap "
         f"„{stage_display_name}” w ofercie '{job.title}' (#{job.id}){mover_part}.",
-        f"/candidates/{candidate.id}",
+        # Tablica z otwartą osobą, nie sam profil: wiersz trafia do okienka
+        # „Rekrutacje” przy tej rekrutacji (16.10.2026, bez dzwonka).
+        f"/jobs/{job.id}?candidate={candidate.id}",
     )
 
 
@@ -234,6 +263,7 @@ async def _send_inapp(
     reason: Optional[str] = None,
     remark: Optional[str] = None,
     fix_labels: Sequence[str] = (),
+    client_name: Optional[str] = None,
 ) -> bool:
     title, message, link = _inapp_content(
         reason=reason,
@@ -244,17 +274,23 @@ async def _send_inapp(
         mover=mover,
         remark=remark,
         fix_labels=fix_labels,
+        client_name=client_name,
+        accepted_on=getattr(new_stage, "client_accepted_on", None),
+        planned_start_on=getattr(new_stage, "planned_start_on", None),
     )
     notif = await emit(
         db,
         user_id=user_id,
         title=title,
         message=message,
-        # Zadanie czekające na odbiorcę ma typ, którego nie da się wyciszyć;
-        # informacja o ruchu zostaje przy `stage_rule`.
+        # Zadanie czekające na odbiorcę i akceptacja klienta mają typy,
+        # których nie da się wyciszyć; informacja o ruchu zostaje przy
+        # `stage_rule`.
         ntype=(
             NotificationType.board_task_waiting
             if reason in TASK_REASONS
+            else NotificationType.client_accepted
+            if reason == REASON_CLIENT_ACCEPTED
             else NotificationType.stage_rule
         ),
         related_entity_type="candidate_stage",
@@ -404,6 +440,7 @@ async def notify_stage_change(
                     reason=getattr(rec, "reason", None),
                     remark=remark,
                     fix_labels=fix_labels,
+                    client_name=client_name,
                 ):
                     emitted_inapp += 1
             except Exception as exc:  # noqa: BLE001

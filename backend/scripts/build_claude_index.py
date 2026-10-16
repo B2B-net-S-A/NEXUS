@@ -111,7 +111,7 @@ GROUPS: tuple[tuple[str, str, str], ...] = (
     (
         "powiadomienia",
         "Powiadomienia i maile",
-        "Dzwonek, kategorie i wyciszenia, powiadomienia dla ról, okienko „Czaty”, maile do zespołu.",
+        "Ikony paska, kategorie i wyciszenia, powiadomienia dla ról, maile do zespołu.",
     ),
     (
         "integracje",

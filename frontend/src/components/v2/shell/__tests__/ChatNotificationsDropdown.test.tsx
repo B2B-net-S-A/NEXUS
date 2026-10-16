@@ -29,9 +29,23 @@ vi.mock("@/lib/active-chat", () => ({
 
 import { ChatNotificationsDropdown } from "../ChatNotificationsDropdown";
 
+const NOTE_LINK = "/candidates/3?tab=activity&activity=notes&note=11";
+
 const THREADS: ChatThreadList = {
-  unread_threads: 2,
+  unread_threads: 3,
   items: [
+    {
+      kind: "note",
+      entity_id: 11,
+      title: "Ewa Lis",
+      subtitle: "Kasia W. oznaczył(a) Cię w notatce",
+      unread_count: 1,
+      has_mention: true,
+      last_author_name: null,
+      last_message: "@Piotr sprawdź stawkę przed wysyłką",
+      last_at: new Date().toISOString(),
+      link: NOTE_LINK,
+    },
     {
       kind: "job",
       entity_id: 7,
@@ -84,7 +98,7 @@ function renderDropdown() {
 
 // Pierwszy render (Radix, zapytanie) bywa wolniejszy niż domyślna sekunda
 // `findBy*` na obciążonym runnerze — stąd własny budżet oczekiwania.
-function findTrigger(name: string | RegExp = /^Czaty/) {
+function findTrigger(name: string | RegExp = /^Wiadomości/) {
   return screen.findByRole("button", { name }, { timeout: 5_000 });
 }
 
@@ -118,9 +132,12 @@ beforeEach(() => {
 describe("ChatNotificationsDropdown", () => {
   it("licznik na ikonie to liczba rozmów z nowymi wiadomościami", async () => {
     renderDropdown();
-    const button = await findTrigger("Czaty — rozmowy z nowymi wiadomościami: 2");
-    expect(button).toHaveTextContent("2");
-    expect(apiMock.get).toHaveBeenCalledWith("/api/notifications/chats");
+    const button = await findTrigger("Wiadomości — rozmowy z nowymi wiadomościami: 3");
+    expect(button).toHaveTextContent("3");
+    // Okienko „Wiadomości” prosi też o wątki notatek (16.10.2026).
+    expect(apiMock.get).toHaveBeenCalledWith("/api/notifications/chats", {
+      params: { include_notes: true },
+    });
   });
 
   it("pokazuje jedną pozycję na rozmowę: nazwa, klient, autor i fragment", async () => {
@@ -160,6 +177,25 @@ describe("ChatNotificationsDropdown", () => {
     );
   });
 
+  it("wzmianka w notatce to osobny wątek, który klik gasi po linku", async () => {
+    renderDropdown();
+    fireEvent.click(await findTrigger());
+    const note = await screen.findByRole("button", {
+      name: "Notatka: Ewa Lis — nowe wiadomości: 1, oznaczono Cię",
+    });
+    expect(note).toHaveTextContent("Kasia W. oznaczył(a) Cię w notatce");
+    expect(note).toHaveTextContent("@Piotr sprawdź stawkę przed wysyłką");
+
+    fireEvent.click(note);
+    expect(push).toHaveBeenCalledWith(NOTE_LINK);
+    await waitFor(() =>
+      expect(apiMock.put).toHaveBeenCalledWith("/api/notifications/chats/read", {
+        kind: "note",
+        link: NOTE_LINK,
+      }),
+    );
+  });
+
   it("„Oznacz wszystkie” gasi wszystkie rozmowy naraz", async () => {
     renderDropdown();
     fireEvent.click(await findTrigger());
@@ -172,6 +208,7 @@ describe("ChatNotificationsDropdown", () => {
       expect(apiMock.put).toHaveBeenCalledWith(
         "/api/notifications/chats/read",
         undefined,
+        { params: { include_notes: true } },
       ),
     );
   });
@@ -179,7 +216,7 @@ describe("ChatNotificationsDropdown", () => {
   it("awaria nie wygląda jak brak rozmów", async () => {
     apiMock.get.mockRejectedValue(new Error("503"));
     renderDropdown();
-    fireEvent.click(screen.getByRole("button", { name: "Czaty" }));
+    fireEvent.click(screen.getByRole("button", { name: "Wiadomości" }));
 
     expect(
       await screen.findByText("Nie udało się wczytać rozmów."),
@@ -189,7 +226,7 @@ describe("ChatNotificationsDropdown", () => {
     apiMock.get.mockResolvedValue({ data: { items: [], unread_threads: 0 } });
     fireEvent.click(screen.getByRole("button", { name: "Ponów" }));
     expect(
-      await screen.findByText("Nie masz wiadomości w czatach z ostatnich 30 dni."),
+      await screen.findByText("Nie masz wiadomości z ostatnich 30 dni."),
     ).toBeInTheDocument();
   });
 
@@ -207,6 +244,25 @@ describe("ChatNotificationsDropdown", () => {
       options.onAction();
     });
     expect(push).toHaveBeenCalledWith("/jobs/7?tab=chat&msg=32");
+  });
+
+  it("wzmianka w notatce daje dymek zawsze, nawet przy otwartym czacie", async () => {
+    chatOnScreen.value = true;
+    renderDropdown();
+    await findTrigger();
+    notify({
+      kind: "note",
+      entity_id: 0,
+      notification_type: "note_mention",
+      link: NOTE_LINK,
+      thread_title: "Kasia W. oznaczył(a) Cię w notatce",
+      author_name: "",
+      preview: "@Piotr sprawdź stawkę",
+    });
+    expect(showActionToast).toHaveBeenCalledTimes(1);
+    expect(showActionToast.mock.calls[0][0]).toBe(
+      "Kasia W. oznaczył(a) Cię w notatce: @Piotr sprawdź stawkę",
+    );
   });
 
   it("nie pokazuje dymka, gdy ten czat jest właśnie na ekranie", async () => {
@@ -253,5 +309,17 @@ describe("dymek czatu — treść i wyciszanie serii", () => {
       shouldShowChatToast({ ...base, notification_type: "job_chat_mention" }, shown, 3_000),
     ).toBe(true);
     expect(shouldShowChatToast(base, shown, 3_000 + CHAT_TOAST_QUIET_MS)).toBe(true);
+  });
+
+  it("notatka nie podlega oknu ciszy", () => {
+    const shown = new Map<string, number>();
+    const note: ChatNotifyEvent = {
+      ...base,
+      kind: "note",
+      entity_id: 0,
+      notification_type: "note_reply",
+    };
+    expect(shouldShowChatToast(note, shown, 1_000)).toBe(true);
+    expect(shouldShowChatToast(note, shown, 1_001)).toBe(true);
   });
 });

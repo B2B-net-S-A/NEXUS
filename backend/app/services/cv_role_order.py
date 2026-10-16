@@ -7,12 +7,17 @@ prosi o „doświadczenie od najnowszego”, ale ten sam prompt pozwala modelowi
 reguła działa w generatorze (`legacy_v7.pipeline`, `standalone_service`) i w
 asystencie edytora (`cv_command_ai`, operacja ``reorder_roles``):
 
-* stanowisko trwające („obecnie”, „present”) jest najnowsze,
-* potem to, które skończyło się później, a przy tym samym końcu — to, które
-  zaczęło się później,
-* remis zostawia kolejność wejściową,
+* przestawiamy tylko pewne błędy: rolę, która skończyła się, zanim zaczęła się
+  rola stojąca niżej, i rolę zakończoną nad trwającą („obecnie”, „present”),
+* poza tym kolejność zostaje taka, jaką dał model albo rekruter — nakładające
+  się, zakończone stanowiska ułożone po dacie rozpoczęcia to też chronologia
+  (pomiar produkcji 16.10.2026: 52 ze 107 CV „nie po kolei” z 30 dni to był ten
+  przypadek, a tylko 55 to prawdziwe błędy),
 * stanowisko bez czytelnych dat zostaje na swoim miejscu, a pozostałe układają
   się na wolnych miejscach — kod nie zgaduje, gdzie stoi rola bez dat.
+
+Ta sama reguła liczy uwagę QC „Stanowiska od najnowszego” i jej poprawkę
+(`cv_qc`, akcja ``role_order``).
 
 Daty czytamy w formatach, które pisze generator i reguły klienta
 (``MM.YYYY``, ``MM/YYYY``, ``MM-YYYY``, ``YYYY-MM``, ``YYYY``). Przy kilku
@@ -41,6 +46,9 @@ _DATE = re.compile(
     rf")(?!\d)"
 )
 _FOREVER = 10_000 * 12
+# Więcej stanowisk nie ma żadne prawdziwe CV; kolejność liczy się w czasie
+# kwadratowym, a treść z edytora (do 500 KB) mogłaby nieść ich tysiące.
+ROLES_MAX = 100
 
 
 def _events(text: str) -> list[tuple[int, Optional[tuple[int, Optional[int]]]]]:
@@ -80,21 +88,65 @@ def period(text: str) -> Optional[tuple[int, int]]:
     end_year, end_month = last
     end = end_year * 12 + (end_month or 12) - 1
     start_year, start_month = before if before is not None else last
-    return end, start_year * 12 + (start_month or 1) - 1
+    # Odwrócony okres („2020 – 2018”) czytamy jako zakończony w dacie końca —
+    # inaczej dwa takie stanowiska byłyby „nowsze” jedno od drugiego.
+    return end, min(start_year * 12 + (start_month or 1) - 1, end)
+
+
+def dates_text(rest: str, whole: str) -> str:
+    """Tekst, z którego czytamy daty linii stanowiska.
+
+    ``rest`` to linia bez pogrubionej nazwy roli („**Senior Developer**
+    03.2020 – obecnie” → „ 03.2020 – obecnie”): rok w nazwie roli („Windows
+    Server 2019”) nie jest datą stanowiska. Gdy tam dat nie ma (pogrubiona cała
+    linia, linia wpisana ręcznie), cała linia.
+    """
+    return rest if period(rest) else whole
+
+
+def _newer(a: tuple[int, int], b: tuple[int, int]) -> bool:
+    """Stanowisko ``a`` jest na pewno nowsze od ``b``.
+
+    Trwa, a ``b`` się skończyło — albo zaczęło się po końcu ``b``. Dwa
+    zakończone, nakładające się stanowiska nie są „na pewno” w żadnej kolejności.
+    """
+    (end_a, start_a), (end_b, _) = a, b
+    return (end_a == _FOREVER and end_b != _FOREVER) or start_a > end_b
 
 
 def newest_first(texts: Sequence[str], *, newest: bool = True) -> Optional[list[int]]:
     """Nowa kolejność stanowisk: ``wynik[k]`` = numer stanowiska na miejscu ``k``.
 
     ``newest=False`` — od najstarszego. ``None``, gdy żadne stanowisko nie ma
-    czytelnych dat (nie ma czego ustawiać).
+    czytelnych dat (nie ma czego ustawiać) albo stanowisk jest więcej niż
+    ``ROLES_MAX``.
+
+    Sortowanie topologiczne po relacji „na pewno nowsze”, stabilne: z ról,
+    nad którymi nie musi stać żadna inna, bierzemy pierwszą w kolejności
+    wejścia. Relacja jest przechodnia i bez cykli (początek ≤ koniec), więc
+    taka rola zawsze jest.
     """
+    if len(texts) > ROLES_MAX:
+        return None
     periods = [period(text) for text in texts]
     dated = [index for index, value in enumerate(periods) if value is not None]
     if not dated:
         return None
-    # `sorted` jest stabilny także z `reverse=True`: remis zostaje po kolei.
-    ranked = sorted(dated, key=lambda index: periods[index], reverse=newest)
+
+    def above(a: int, b: int) -> bool:
+        first, second = (a, b) if newest else (b, a)
+        return _newer(periods[first], periods[second])  # type: ignore[arg-type]
+
+    waiting = {i: sum(1 for j in dated if j != i and above(j, i)) for i in dated}
+    left = list(dated)
+    ranked: list[int] = []
+    while left:
+        pick = next((i for i in left if waiting[i] == 0), left[0])
+        left.remove(pick)
+        ranked.append(pick)
+        for i in left:
+            if above(pick, i):
+                waiting[i] -= 1
     order = list(range(len(texts)))
     for slot, index in zip(dated, ranked):
         order[slot] = index

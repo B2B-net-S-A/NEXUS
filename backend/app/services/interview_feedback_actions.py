@@ -23,6 +23,7 @@ from __future__ import annotations
 import logging
 from typing import Optional
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.candidate import Candidate
@@ -33,6 +34,7 @@ from app.models.interview_feedback import (
 )
 from app.models.job import Job
 from app.models.notification import NotificationType
+from app.models.recruitment_pipeline import CandidateStage, PipelineStage
 from app.services.job_previous_recruiters import working_owner_id
 from app.services.notification_triggers import (
     _delivery_lead_targets,
@@ -55,6 +57,36 @@ async def _emit_to(db: AsyncSession, recipients: list[int], **kwargs) -> int:
         if await emit(db, user_id=user_id, **kwargs) is not None:
             sent += 1
     return sent
+
+
+# Etapy po akceptacji klienta — „Klient zaakceptował” (0451) już powiedział
+# zespołowi, że klient idzie dalej.
+_PAST_ACCEPTANCE = (
+    PipelineStage.acceptance,
+    PipelineStage.negotiation,
+    PipelineStage.onboarding,
+    PipelineStage.hired,
+)
+
+
+async def _past_acceptance(
+    db: AsyncSession, *, candidate_id: int, job_id: Optional[int]
+) -> bool:
+    """Para stoi na akceptacji albo dalej — werdykt „Akceptuje” zapisany
+    z okna „Klient zaakceptował” nie dubluje dzwonka (16.10.2026, D6)."""
+
+    if job_id is None:
+        return False
+    current = await db.scalar(
+        select(CandidateStage.stage)
+        .where(
+            CandidateStage.candidate_id == candidate_id,
+            CandidateStage.job_id == job_id,
+        )
+        .order_by(CandidateStage.moved_at.desc(), CandidateStage.id.desc())
+        .limit(1)
+    )
+    return current in _PAST_ACCEPTANCE
 
 
 async def apply_post_feedback_actions(
@@ -102,7 +134,9 @@ async def apply_post_feedback_actions(
     who = full_name or "kandydat"
     in_job = f" w rekrutacji „{job.title}”" if job is not None and job.title else ""
 
-    if feedback.decision == InterviewDecision.advance:
+    if feedback.decision == InterviewDecision.advance and not await _past_acceptance(
+        db, candidate_id=feedback.candidate_id, job_id=feedback.job_id
+    ):
         emitted += await _emit_to(
             db,
             recipients,

@@ -71,7 +71,7 @@ function formatTime(value: string | null): string {
 }
 
 function channelLabel(channel: string): string {
-  return ({ email: "E-mail", inapp: "Dzwonek NEXUS", in_app: "Dzwonek NEXUS", client_panel: "Panel klientów" } as Record<string, string>)[channel] ?? channel;
+  return ({ email: "E-mail", inapp: "NEXUS (ikony paska)", in_app: "NEXUS (ikony paska)", client_panel: "Panel klientów" } as Record<string, string>)[channel] ?? channel;
 }
 
 function providerLabel(kind: string): string {
@@ -279,7 +279,7 @@ export default function NotificationDeliverySettings({ onGoToMine }: Notificatio
             <Toggle checked={data.enabled} disabled={busy} label="Automatyczna wysyłka e-mail" onChange={toggleGlobal} />
           </div>
         </div>
-        <p className="mt-4 text-sm">Po włączeniu wysyłane są tylko nowe zdarzenia. Starsze wiadomości są wykluczone z wysyłki; historia w dzwonku NEXUS pozostaje.</p>
+        <p className="mt-4 text-sm">Po włączeniu wysyłane są tylko nowe zdarzenia. Starsze wiadomości są wykluczone z wysyłki; powiadomienia w NEXUSIE pozostają.</p>
         {data.send_not_before && <p className="mt-2 text-xs text-muted-foreground">Bieżąca wysyłka obejmuje zdarzenia od: {formatTime(data.send_not_before)}.</p>}
         {lastChange && (
           <p className="mt-2 text-xs text-muted-foreground">

@@ -24,6 +24,7 @@ const toastError = vi.fn();
 const toastSuccess = vi.fn();
 const toastInfo = vi.fn();
 const toastAction = vi.fn();
+const hmRecord = vi.fn();
 
 vi.mock("@/lib/api", () => ({
   __esModule: true,
@@ -34,6 +35,10 @@ vi.mock("@/lib/api", () => ({
   candidatesApi: {
     removeFromRecruitment: vi.fn(),
     setRecruitmentClientRate: vi.fn(),
+  },
+  hiringManagerFeedbackApi: {
+    record: (...a: unknown[]) => hmRecord(...a),
+    list: () => Promise.resolve({ can_record: true, items: [] }),
   },
   pipelineApi: {
     kanban: (...a: unknown[]) => kanban(...a),
@@ -1803,6 +1808,98 @@ describe("KanbanBoardV2 — fala 3: grupy etapów i karta z następną akcją", 
     expect(within(dock).getByRole("button", { name: "Następna karta" })).toBeDisabled();
   });
 
+  it("akceptacja klienta (D1–D6): przycisk po rozmowie, zielony wiersz i liczniki w „Akceptacja i umowa”", async () => {
+    const columns = defaultB2BColumns() as unknown as Array<Record<string, unknown>>;
+    const withItem = (index: number, item: Record<string, unknown>) => {
+      columns[index] = { ...columns[index], count: 1, items: [{ stage: columns[index].stage, days_in_stage: 1, ...item }] };
+    };
+    withItem(7, { id: 7701, candidate_id: 8701, name: "Karol", lastname: "Wzorcowy" });
+    withItem(8, {
+      id: 7801,
+      candidate_id: 8801,
+      name: "Iza",
+      lastname: "Umowna",
+      client_acceptance: {
+        stage_id: 7801,
+        accepted_on: "2026-10-16",
+        planned_start_on: null,
+        marked_at: "2026-10-16T09:00:00Z",
+        marked_by_name: "Olga Wzorcowa",
+      },
+    });
+    withItem(9, { id: 7901, candidate_id: 8901, name: "Jan", lastname: "Próbny" });
+    get.mockImplementation((url: string) => {
+      if (url === "/api/pipeline/client-acceptance/recipients") {
+        return Promise.resolve({
+          data: { recipients: [{ user_id: 5, name: "Marta Nowak", role: "recruiter", role_label: "rekruter kandydata" }] },
+        });
+      }
+      if (url === "/api/pipeline/move-requirements") {
+        return Promise.resolve({
+          data: { from_column: "client_interview", to_column: "contract", skipped_columns: [], items: [], primary: { kind: "move", label: "Przesuń" } },
+        });
+      }
+      return Promise.resolve({ data: {} });
+    });
+    hmRecord.mockResolvedValue({});
+    const { container } = renderBoard(columns as never);
+    await screen.findByTestId("pipeline-board");
+
+    // Kolumna „Akceptacja i umowa”: podpis i liczniki kroków.
+    const contract = container.querySelector('[data-colid="def:308"]') as HTMLElement;
+    expect(within(contract).getByText("Akceptacja i umowa")).toBeInTheDocument();
+    expect(within(contract).getByText("Klient zaakceptował → umowa → podpis")).toBeInTheDocument();
+    expect(within(contract).getByTestId("contract-step-accepted")).toHaveTextContent("Zaakceptowani 1");
+    expect(within(contract).getByTestId("contract-step-sent")).toHaveTextContent("Umowa wysłana 1");
+    expect(within(contract).getByTestId("contract-step-signed")).toHaveTextContent("Podpisana 0");
+    // Karta po akceptacji: zielony wiersz zamiast małej plakietki „Akceptacja”.
+    const iza = contract.querySelector('[data-candidate-id="8801"]') as HTMLElement;
+    expect(within(iza).getByTestId("card-client-acceptance")).toHaveTextContent(
+      "✓ Klient zaakceptował · 16.10 · Olga W.",
+    );
+    expect(within(iza).queryByText("Akceptacja")).toBeNull();
+    // Karta bez zapisanej akceptacji w tej kolumnie (stary ruch) — bez zielonego wiersza.
+    const jan = contract.querySelector('[data-candidate-id="8901"]') as HTMLElement;
+    expect(within(jan).queryByTestId("card-client-acceptance")).toBeNull();
+
+    // Karta po rozmowie: „Klient zaakceptował” otwiera okno, zapis = ruch z datą
+    // akceptacji, potem werdykt „Akceptuje” i dymek z odbiorcami dzwonka.
+    // Strzałka „→” z rozmowy na „Akceptację i umowę” to też akceptacja — to samo okno,
+    // bez ruchu „na ślepo”.
+    fireEvent.click(screen.getByRole("button", { name: "Przesuń Karol Wzorcowy na następny etap" }));
+    const viaArrow = await screen.findByRole("dialog", { name: /Klient zaakceptował: Karol Wzorcowy/ });
+    expect(post).not.toHaveBeenCalledWith("/api/pipeline/move", expect.anything());
+    fireEvent.click(within(viaArrow).getByRole("button", { name: "Anuluj" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: /Klient zaakceptował/ })).toBeNull());
+
+    fireEvent.click(screen.getByRole("button", { name: "Klient zaakceptował: Karol Wzorcowy" }));
+    const dialog = await screen.findByRole("dialog", { name: /Klient zaakceptował: Karol Wzorcowy/ });
+    expect(await within(dialog).findByText("Marta Nowak")).toBeInTheDocument();
+    const save = within(dialog).getByRole("button", { name: "Zapisz akceptację" });
+    await waitFor(() => expect(save).not.toBeDisabled());
+    fireEvent.click(save);
+
+    await waitFor(() =>
+      expect(post).toHaveBeenCalledWith(
+        "/api/pipeline/move",
+        expect.objectContaining({
+          candidate_id: 8701,
+          stage_def_id: 308,
+          client_accepted_on: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
+        }),
+      ),
+    );
+    await waitFor(() =>
+      expect(hmRecord).toHaveBeenCalledWith(10, {
+        candidate_id: 8701,
+        decision: "advance",
+        rejection_reason_id: null,
+        note: null,
+      }),
+    );
+    expect(toastSuccess).toHaveBeenCalledWith("Karol Wzorcowy — klient zaakceptował. Powiadomienie: Marta N.");
+  });
+
   it("Tablica: 8 kolumn z numerem kroku, „QC CV” gospodarzem etapu DZ, zamknięci w wąskiej kolumnie obok", async () => {
     const columns = defaultB2BColumns() as unknown as Array<Record<string, unknown>>;
     // Osoba na etapie „Przepuszczony przez DZ" (index 3) — gospodarz kolumny „QC CV".
@@ -1824,7 +1921,7 @@ describe("KanbanBoardV2 — fala 3: grupy etapów i karta z następną akcją", 
       "QC CV",
       "CV wysłane",
       "Rozmowa u klienta",
-      "Umowa",
+      "Akceptacja i umowa",
       "Zatrudniony",
     ]);
     const steps = Array.from(container.querySelectorAll('[data-testid="column-step"]')).map(

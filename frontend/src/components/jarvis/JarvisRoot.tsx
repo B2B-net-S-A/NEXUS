@@ -19,6 +19,7 @@ import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "rea
 import { usePathname, useSearchParams } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, triggerSessionExpiredRedirect } from "@/lib/api";
+import { countPl } from "@/lib/plural-pl";
 import { apiErrorMessage } from "@/lib/api-error";
 import {
   cancelJarvisTurn,
@@ -433,8 +434,19 @@ export function JarvisRoot() {
     const timer = window.setTimeout(async () => {
       const parts: string[] = [];
       try {
-        const { data } = await api.get<{ count: number }>("/api/notifications/count");
-        if (data.count > 0) parts.push(`${data.count} ${data.count === 1 ? "nowe powiadomienie" : "nowe powiadomienia"}`);
+        // Bez dzwonka (16.10.2026): skrót mówi o ikonie „Rekrutacje”, nie
+        // o sumie wszystkich nieprzeczytanych.
+        const { data } = await api.get<{ unread_jobs: number }>("/api/notifications/jobs");
+        if (data.unread_jobs > 0) {
+          parts.push(
+            countPl(
+              data.unread_jobs,
+              "rekrutacja z nowościami",
+              "rekrutacje z nowościami",
+              "rekrutacji z nowościami",
+            ),
+          );
+        }
       } catch {
         /* skrót jest dodatkiem */
       }

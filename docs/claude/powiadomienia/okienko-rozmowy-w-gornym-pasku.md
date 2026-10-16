@@ -1,5 +1,5 @@
 # Okienko „Rozmowy” w górnym pasku (13.10.2026)
-<!-- indeks: rozmowy u klienta i prepy poza dzwonkiem, zadania z cyklu z flagą `mine`, czas liczony z agendy, zwijanie i chowanie sygnałów, gaszenie osobną trasą, dymki, pigułka telefonu -->
+<!-- indeks: zadania z cyklu (`mine`), czas z agendy, gaszenie osobną trasą, pigułka telefonu -->
 
 Powiadomienia o rozmowach u klienta i prepach (kategoria „Rozmowy”, 9 typów)
 stały w dzwonku razem ze wszystkim innym: jeden wiersz na zdarzenie, bez akcji,
@@ -9,6 +9,10 @@ osobna ikona i okienko między „Czatami” a dzwonkiem, dzwonek tej kategorii 
 pokazuje, pigułka pilna tylko dla telefonu po rozmowie, dymki z akcją. Makiety:
 https://claude.ai/artifact/Nt9BUPasXNjSYpZGmEpf37, raport
 `docs/interview-notifications-window-completion-report.md`.
+
+> Od 16.10.2026 dzwonka nie ma (ikona ma podpowiedź „Kalendarz — rozmowy
+> u klienta i prepy”); `exclude_interviews` i warianty dzwonka niżej to stan
+> sprzed tej daty — `pasek-tematy-bez-dzwonka.md`.
 
 - **Dwa źródła, jedna czysta funkcja.** Zadania („Teraz”, „Czeka na Ciebie”)
   pochodzą z `GET /api/interview-cycle` — tego samego zapytania co ekran

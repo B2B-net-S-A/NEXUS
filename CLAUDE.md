@@ -347,12 +347,13 @@ Finanse → Zmiany w zamówieniach, Zamówienia PDF, Insights (Rywalizacja, Zesp
 
 ### Powiadomienia i maile — `docs/claude/powiadomienia/`
 
-Dzwonek, kategorie i wyciszenia, powiadomienia dla ról, okienko „Czaty”, maile do zespołu.
+Ikony paska, kategorie i wyciszenia, powiadomienia dla ról, maile do zespołu.
 
 - `maile-do-zespolu-poranny-skrot-kilka-maili-od-razu.md` — Maile do zespołu: poranny skrót + kilka maili od razu (07.10.2026)
 - `moje-powiadomienia-kategorie-i-wyciszenia-per-osoba.md` — Moje powiadomienia — kategorie i wyciszenia per osoba (0349, 22.09.2026)
 - `okienko-czaty-w-gornym-pasku.md` — Okienko „Czaty” w górnym pasku (09.10.2026)
-- `okienko-rozmowy-w-gornym-pasku.md` — Okienko „Rozmowy” w górnym pasku (13.10.2026) · rozmowy u klienta i prepy poza dzwonkiem, zadania z cyklu z flagą `mine`, czas liczony z agendy, zwijanie i chowanie sygnałów, gaszenie osobną trasą, dymki, pigułka telefonu
+- `okienko-rozmowy-w-gornym-pasku.md` — Okienko „Rozmowy” w górnym pasku (13.10.2026) · zadania z cyklu (`mine`), czas z agendy, gaszenie osobną trasą, pigułka telefonu
+- `pasek-tematy-bez-dzwonka.md` — Pasek bez dzwonka: ikony z jednym tematem (16.10.2026)
 - `powiadomienia-dla-rol-i-jeden-ekran-powiadomienia.md` — Powiadomienia dla ról i jeden ekran „Powiadomienia” (0425, 09.10.2026)
 
 ### Integracje — `docs/claude/integracje/`

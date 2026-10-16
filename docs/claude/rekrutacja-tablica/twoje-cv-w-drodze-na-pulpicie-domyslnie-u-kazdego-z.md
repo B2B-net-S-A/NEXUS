@@ -34,3 +34,16 @@ kolejkę tylko osobie od Cpro). Makieta: https://claude.ai/artifact/LaqZviMeU41V
   działa jak wcześniej (`load_safely`, savepoint). Do porannego dzwonka
   zbiorczego lista nie wchodzi; licznik przy nagłówku to tylko „wróciło”.
 - Harness: `/preview/custom-dashboard` (stany „CV w drodze: pasek / pusto”).
+- **Ikona „CV” w górnym pasku (16.10.2026, bez dzwonka)** czyta tę listę
+  bezpośrednio (`load_for_user`, nie `load_safely` — usunięcie panelu
+  z pulpitu nie chowa ikony): `GET /api/board-tasks/cv`
+  (`services/cv_topic.py`). Rekruter: „do sprawdzenia” (auto-CV z
+  `cv_auto_review.needs_review_clause`, zrobione po ruchu tej osoby, karta
+  wciąż na etapie, który je zamówił, 14 dni), „do poprawy” (wróciło z „QC CV”
+  albo z kolejki Cpro + „QC CV” z niezdanym QC), „u Delivery Leada” (QC
+  zdane, przepuszczone albo liczone; kolejka Cpro), „wysłane”. Odrzucenie
+  przez DL nie jest CV do poprawy. Delivery Lead: ta sama kolejka co
+  `/dl-send` (`_dl_send_payload` — jedna funkcja dla pigułki i ikony),
+  „u rekruterów” (sama liczba) i CV wysłane dziś (północ firmy) w jego
+  rekrutacjach. Liczba na ikonie = do sprawdzenia + do poprawy + do wysłania.
+  Zapytanie listy kosztuje ~50 ms (prod 16.10.2026, 3 481 par z 30 dni).

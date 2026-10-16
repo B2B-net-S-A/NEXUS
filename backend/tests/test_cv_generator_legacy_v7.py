@@ -1217,3 +1217,36 @@ def test_client_date_format_does_not_change_the_order(defaults):
     result = _run(rule=_rule(date_format="YYYY-MM"))
     assert _companies(result) == ["Obecna", "Najstarsza"]
     assert result.render_payload["experience"][0]["dates"].startswith("2021-03")
+
+
+# Pomiar produkcji 16.10.2026 (810 CV z 30 dni): z 107 CV „nie po kolei” 52 to
+# nakładające się, zakończone stanowiska ułożone przez model po dacie
+# rozpoczęcia — to też chronologia. Kod poprawia tylko pewne błędy: starszą
+# rolę nad całkiem nowszą i zakończoną nad trwającą.
+def test_overlapping_finished_roles_keep_the_model_order(defaults):
+    defaults["response"] = _ai_json(
+        experience=[
+            _role("06.2022 – 03.2023", "Kontrakt"),
+            _role("01.2018 – 12.2023", "Etat"),
+        ]
+    )
+    assert _companies(_run()) == ["Kontrakt", "Etat"]
+
+
+def test_only_certain_mistakes_move_and_the_rest_keeps_its_place():
+    from app.services.cv_role_order import newest_first
+
+    # Model: nakładające się (0, 1) po dacie rozpoczęcia, potem stara rola nad nową.
+    texts = ["06.2022 – 03.2023", "01.2018 – 12.2023", "2010 – 2012", "2015 – 2016"]
+    assert newest_first(texts) == [0, 1, 3, 2]
+    # Zakończona nad trwającą, z którą się nakłada — trwająca idzie na górę.
+    assert newest_first(["2015 – 2022", "2019 – obecnie"]) == [1, 0]
+    # Odwrócony okres („2020 – 2018”) nie zapętla kolejności.
+    assert newest_first(["2020 – 2018", "2019 – 2019", "2021 – obecnie"])[0] == 2
+
+
+def test_role_order_has_a_ceiling_for_huge_inputs():
+    from app.services.cv_role_order import ROLES_MAX, newest_first
+
+    texts = [f"{2000 + n % 20} – {2001 + n % 20}" for n in range(ROLES_MAX + 1)]
+    assert newest_first(texts) is None

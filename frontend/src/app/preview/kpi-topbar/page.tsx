@@ -16,7 +16,7 @@
  * zastąpiło jedno menu „Wygląd” — jak w `TopbarV2`.
  */
 
-import { Bell, Plus, Search, Users } from "lucide-react";
+import { Plus, Search, Users } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Kbd } from "@/components/ui/kbd";
@@ -46,7 +46,8 @@ import {
   type LeagueTopbarModel,
 } from "@/components/v2/league/league-topbar-model";
 import { ChatTopbarButton } from "@/components/v2/shell/ChatNotificationsDropdown";
-import { DlSendPill } from "@/components/v2/shell/DlSendTopbarButton";
+import { CvTopbarButton } from "@/components/v2/shell/CvNotificationsDropdown";
+import { JobsTopbarButton } from "@/components/v2/shell/JobsNotificationsDropdown";
 import { InterviewsTopbarButton } from "@/components/v2/shell/InterviewNotificationsDropdown";
 import { AppearanceMenu } from "@/components/v2/shell/AppearanceMenu";
 import {
@@ -372,9 +373,11 @@ function ShellStrip({
             <Button variant="ghost" size="icon" aria-label="Moi ludzie (atrapa)">
               <Users className="h-4 w-4" aria-hidden />
             </Button>
-            {/* Licznik „Do wysłania” Delivery Leada — w replice zawsze, żeby pomiar
-                paska brał najszerszy układ (pigułka nie kurczy się, oddaje licznik celów). */}
-            <DlSendPill total={12} urgency="late" />
+            {/* Ikona „CV” (16.10.2026, dawna pigułka „Do wysłania”) — w replice zawsze
+                jako pigułka, żeby pomiar paska brał najszerszy układ (pigułka nie
+                kurczy się, oddaje licznik celów). */}
+            <CvTopbarButton badge={12} urgency="late" />
+            <JobsTopbarButton unreadJobs={4} open={false} />
             <ChatTopbarButton unreadThreads={0} hasMention={false} open={false} />
             <InterviewsTopbarButton
               count={callPill ? 2 : 0}
@@ -382,9 +385,6 @@ function ShellStrip({
               open={false}
               pill={callPill ? { name: "A. Przykładowa", minutesLeft: 18 } : null}
             />
-            <span className="rounded-lg p-2 text-muted-foreground">
-              <Bell className="h-5 w-5" aria-hidden />
-            </span>
             <Button size="sm" variant="primary">
               <Plus className="h-4 w-4" aria-hidden />
               <span className="hidden sm:inline">Dodaj</span>

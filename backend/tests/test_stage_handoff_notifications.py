@@ -80,7 +80,9 @@ def _def(name: str, enum: str | None, category: str = "internal"):
             True,
             handoff.REASON_STAGE_REACHED,
         ),
-        (_def("Akceptacja", "acceptance", "external"), False, None),
+        # 16.10.2026 (D4): akceptacja klienta dzwoni do rekrutera, prowadzącego,
+        # Delivery Leada i Head of Recruitment (`test_client_acceptance.py`).
+        (_def("Akceptacja", "acceptance", "external"), False, handoff.REASON_CLIENT_ACCEPTED),
         (_def("Odrzucony po prepie", "rejected", "terminal"), False, None),
     ],
 )
@@ -276,7 +278,9 @@ def test_plain_stage_rule_keeps_its_wording() -> None:
     title, message, link = _content(None)
     assert title == "Kandydat Jan Testowy → CV Wysłane"
     assert "przez Sandra S." in message
-    assert link == "/candidates/9"
+    # 16.10.2026: ruch prowadzi na Tablicę rekrutacji z otwartą osobą — wiersz
+    # trafia wtedy do okienka „Rekrutacje” przy właściwej rekrutacji.
+    assert link == "/jobs/3?candidate=9"
 
 
 # ── Integracyjne: prawdziwy ruch przez /api/pipeline/move ────────────────────

@@ -97,7 +97,7 @@ describe("okienko: grupy i wyszukiwanie", () => {
     ]);
     expect(groups.map((g) => g.label)).toEqual([
       "Zatrudniony",
-      "Umowa",
+      "Akceptacja i umowa",
       "Rozmowa u klienta",
       "CV wysłane",
       "Inny etap",

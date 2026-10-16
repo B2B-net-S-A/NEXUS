@@ -73,3 +73,20 @@ znało tylko `jobs.recruiter_id` (osobę z automatu przydziału albo nikogo).
   w dni robocze. Nie rób z tego dzwonka na każdy zaimportowany wiersz — przy
   imporcie nocnym 93 ze 122 kart były już wysłane. Wyłącznik
   `TRAFFIT_CPRO_REMINDER_ENABLED`.
+- **„Klient zaakceptował” (0451, D4–D5, 16.10.2026).** Wejście na etap
+  akceptacji (kod `acceptance`, także „Zaakceptowany” z Traffita) to
+  przekazanie `REASON_CLIENT_ACCEPTED`: rekruter kandydata, prowadzący,
+  Delivery Lead rekrutacji i KAŻDY aktywny Head of Recruitment
+  (`client_acceptance_recipients` — ta sama lista w podglądzie okna), bez
+  osoby, która zaznacza. Własny typ `client_accepted` w kategorii „Akceptacje
+  klienta” (obowiązkowa, nie da się wyciszyć), bez maila; treść mówi, kto
+  i kiedy zaznaczył, planowany start, link na Tablicę z otwartą osobą.
+  Powrót karty przed „Akceptację i umowę” („Cofnij akceptację klienta”) gasi
+  nieprzeczytane dzwonki tego wiersza (`close_client_acceptance_bells`); ruch
+  dalej albo zamknięcie po akceptacji — nie.
+- **Kierunek ruchu między szablonami (16.10.2026).** `is_backward_move`
+  porównuje `order` tylko w jednym szablonie; karta z etapu Traffita (np. „Po
+  Interview”, order 11) przesunięta na etap szablonu domyślnego („Akceptacja”,
+  order 9) liczy się po kolumnach Tablicy (zamknięci za „Zatrudnionym”).
+  Wcześniej taki ruch był „cofnięciem” i nie dzwonił nikt — produkcja
+  12–16.10.2026: 4 akceptacje, 0 dzwonków.

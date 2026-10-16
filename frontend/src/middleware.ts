@@ -464,8 +464,10 @@ const PUBLIC_PATHS = [
   "/preview/custom-dashboard",
   // Ustawienia → „Powiadomienia”: Moje · Kto co dostaje · Maile · Reguły etapów.
   "/preview/notification-settings",
-  // Okienko „Czaty” z górnego paska: ikona i lista rozmów na danych fikcyjnych.
+  // Okienko „Wiadomości” (dawniej „Czaty”) z górnego paska: ikona i lista rozmów.
   "/preview/chat-notifications",
+  // Ikony „CV” i „Rekrutacje” z górnego paska (bez dzwonka), dane fikcyjne.
+  "/preview/topbar-topics",
   // Okienko „Rozmowy” z górnego paska: rozmowy u klienta i prepy, dane fikcyjne.
   "/preview/interview-notifications",
   // Licznik celów w górnym pasku: segmenty, panel po kliknięciu, replika paska.

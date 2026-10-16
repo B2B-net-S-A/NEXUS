@@ -50,6 +50,7 @@ import {
   MoreHorizontal,
   Pencil,
   PhoneOff,
+  Undo2,
   Send,
   Sparkles,
   Trophy,
@@ -125,6 +126,12 @@ import { useCvQc, type QcResult } from "@/lib/api/cvQc";
 import { formatClientRate } from "@/lib/board-card-badges";
 import { CONTRACT_PANEL_STAGES, DockContractSteps } from "@/components/v2/jobs/DockContractSteps";
 import { countForm } from "@/lib/cv-qc";
+import {
+  acceptanceLine,
+  acceptanceTitle,
+  longDay,
+  type ClientAcceptanceBadge,
+} from "@/lib/client-acceptance";
 import type { CandidateDocument } from "@/components/v2/files/FilePreviewModal";
 import { DockFollowupBlock } from "@/components/v2/followups/DockFollowupBlock";
 import { DockInterviewCycle } from "@/components/v2/jobs/DockInterviewCycle";
@@ -476,6 +483,16 @@ export interface PipelineCandidateDockProps {
     disabledReason: string | null;
     onToggle: () => void;
   }>;
+  /**
+   * D1 (16.10.2026): „Klient zaakceptował” — okno akceptacji dla osoby
+   * w „Rozmowie u klienta”. Brak = przycisku nie ma (inna kolumna, szablon
+   * bez etapu „Akceptacja”, tylko odczyt).
+   */
+  onClientAccept?: () => void;
+  /** Akceptacja klienta tej osoby — tylko w kolumnie „Akceptacja i umowa”. */
+  clientAcceptance?: ClientAcceptanceBadge | null;
+  /** „Cofnij akceptację klienta” w menu „⋯” — osoba stoi na etapie akceptacji. */
+  onUndoClientAcceptance?: () => void;
 }
 
 type WorkbenchSection = "cv" | "screening" | "interviews" | "contract" | "notes";
@@ -522,10 +539,12 @@ function PersonMoreMenu({
   onOpenCv,
   onSendEmail,
   profileHref,
+  onUndoClientAcceptance,
 }: {
   onOpenCv: () => void;
   onSendEmail: () => void;
   profileHref: string;
+  onUndoClientAcceptance?: () => void;
 }) {
   return (
     <DropdownMenu modal={false}>
@@ -534,7 +553,7 @@ function PersonMoreMenu({
           <MoreHorizontal className="h-4 w-4" />
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-52">
+      <DropdownMenuContent align="end" className="w-60">
         <DropdownMenuItem onSelect={() => deferMenuAction(onOpenCv)}>
           <FileText className="h-3.5 w-3.5" /> Otwórz CV
         </DropdownMenuItem>
@@ -546,6 +565,14 @@ function PersonMoreMenu({
             <ExternalLink className="h-3.5 w-3.5" /> Pełny profil
           </Link>
         </DropdownMenuItem>
+        {onUndoClientAcceptance && (
+          <DropdownMenuItem
+            onSelect={() => deferMenuAction(onUndoClientAcceptance)}
+            className="text-warning focus:text-warning"
+          >
+            <Undo2 className="h-3.5 w-3.5" /> Cofnij akceptację klienta
+          </DropdownMenuItem>
+        )}
       </DropdownMenuContent>
     </DropdownMenu>
   );
@@ -781,6 +808,9 @@ export function PipelineCandidateDock({
   workbench = null,
   hidePrimaryMove = false,
   split = false,
+  onClientAccept,
+  clientAcceptance = null,
+  onUndoClientAcceptance,
 }: PipelineCandidateDockProps) {
   const { showSuccess, showError } = useToast();
   const queryClient = useQueryClient();
@@ -1701,6 +1731,17 @@ export function PipelineCandidateDock({
           <div className="space-y-1.5" data-help="jobs.person.actions">
             {tabsOpen ? null : contactRow}
             {tabsOpen ? null : nextStageBlock}
+            {onClientAccept && (
+              <Button
+                size="sm"
+                variant="outline"
+                data-testid="dock-client-accept"
+                onClick={onClientAccept}
+                className="w-full border-success/40 bg-success-muted text-success-muted-foreground hover:bg-success/15 hover:text-success-muted-foreground"
+              >
+                <CircleCheck className="h-3.5 w-3.5" aria-hidden="true" /> Klient zaakceptował
+              </Button>
+            )}
             <div className="flex flex-wrap items-center gap-1.5">
               {moveTargets.length > 0 && (
                 <DropdownMenu modal={false}>
@@ -1769,8 +1810,21 @@ export function PipelineCandidateDock({
                 onOpenCv={() => setOpenOriginal(true)}
                 onSendEmail={() => setOpenEmail(true)}
                 profileHref={profileHref}
+                onUndoClientAcceptance={onUndoClientAcceptance}
               />
             </div>
+          </div>
+        )}
+        {clientAcceptance && (
+          <div
+            data-testid="dock-client-acceptance"
+            className="mt-2 rounded-lg bg-success-muted px-3 py-2 text-success-muted-foreground"
+            title={acceptanceTitle(clientAcceptance) ?? undefined}
+          >
+            <p className="text-[13px] font-semibold">{acceptanceLine(clientAcceptance)}</p>
+            {longDay(clientAcceptance.planned_start_on) && (
+              <p className="text-xs">Planowany start: {longDay(clientAcceptance.planned_start_on)}</p>
+            )}
           </div>
         )}
         {badgeToggles.length > 0 && (

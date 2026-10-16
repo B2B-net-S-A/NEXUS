@@ -163,7 +163,7 @@ class NotificationType(str, enum.Enum):
     interview_debrief_saved = "interview_debrief_saved"
     # 0348: kolejka „Czeka na Ciebie" (Tablica). Rano JEDEN zbiorczy wpis na
     # osobę („4 osoby czekają na DZ, 1 do wysłania do Cpro") — dedup dobowy po
-    # related_entity=(user, id). Emitowane przez `check_board_tasks_digest`.
+    # related_entity=(user, id). Od 16.10.2026 nie powstaje (bez dzwonka).
     board_tasks_digest = "board_tasks_digest"
     # 0348: ktoś wytypował Cię do wysłania osoby do Cpro (Nordea) —
     # related_entity=(candidate_stage, id).
@@ -248,6 +248,12 @@ class NotificationType(str, enum.Enum):
     # related_entity=(job, id). Bez maila.
     champions_changed = "champions_changed"
     champion_search_resumed = "champion_search_resumed"
+    # 0451: karta weszła na etap „Akceptacja” — klient zaakceptował osobę
+    # (D1–D6, 16.10.2026). Do rekrutera kandydata, prowadzącego, Delivery
+    # Leada rekrutacji i każdego Head of Recruitment poza osobą, która
+    # zaznaczyła; related_entity=(candidate_stage, id). Bez maila,
+    # kategoria „Akceptacje klienta” nie do wyciszenia.
+    client_accepted = "client_accepted"
     # 0453: „Ludzie w NEXUSIE” — moduły kadrowe. Osobiste (odbiorcę wybiera
     # reguła modułu, nie sekcja): urlopy, timesheety, premie i stawki,
     # wejście/odejście, sprawy administracja@, sprzęt. Opieka nad konsultantem

@@ -298,6 +298,39 @@ describe("JobInterviewsTab", () => {
     });
   });
 
+  it("„Akceptuje” na rozmowie u klienta otwiera okno „Klient zaakceptował” (D6, 16.10.2026)", async () => {
+    const onClientAccept = vi.fn();
+    renderTab({ onClientAccept });
+    await editableForm();
+    expect(screen.getByText(/otwiera okno „Klient zaakceptował”/)).toBeInTheDocument();
+    await userEvent.click(await screen.findByRole("button", { name: "Akceptuje" }));
+    expect(onClientAccept).toHaveBeenCalledWith(42, null);
+    // Werdykt zapisze okno razem z ruchem — tu nic nie idzie na serwer.
+    expect(recordFeedback).not.toHaveBeenCalled();
+  });
+
+  it("domyślnie wciśnięte „Akceptuje” + „Zapisz feedback” też otwiera okno — z wpisaną notatką", async () => {
+    const onClientAccept = vi.fn();
+    renderTab({ onClientAccept });
+    await editableForm();
+    expect(screen.getByRole("button", { name: "Akceptuje" })).toHaveAttribute("aria-pressed", "true");
+    await userEvent.type(screen.getByLabelText("Notatka z feedbacku"), "Start od listopada.");
+    await userEvent.click(screen.getByRole("button", { name: /Zapisz feedback/ }));
+    expect(onClientAccept).toHaveBeenCalledWith(42, "Start od listopada.");
+    expect(recordFeedback).not.toHaveBeenCalled();
+  });
+
+  it("bez okna akceptacji „Akceptuje” to zwykły werdykt do zapisu", async () => {
+    renderTab();
+    await editableForm();
+    expect(screen.queryByText(/otwiera okno „Klient zaakceptował”/)).toBeNull();
+    await userEvent.click(await screen.findByRole("button", { name: "Odrzuca" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Akceptuje" }));
+    await userEvent.click(screen.getByRole("button", { name: /Zapisz feedback/ }));
+    await waitFor(() => expect(recordFeedback).toHaveBeenCalledTimes(1));
+    expect(recordFeedback).toHaveBeenCalledWith(10, expect.objectContaining({ decision: "advance" }));
+  });
+
   it("readOnly wyłącza formularz i chowa zapis, ale zostawia odczyt", async () => {
     renderTab({ readOnly: true });
     expect(await screen.findByLabelText("Powód (gdy odrzuca)")).toBeDisabled();

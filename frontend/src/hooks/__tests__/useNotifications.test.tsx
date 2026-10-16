@@ -17,6 +17,7 @@ import {
 import { NOTIFICATIONS_FALLBACK_POLL_MS } from "@/lib/polling";
 import { INTERVIEW_NOTIFY_EVENT } from "@/lib/interview-notifications";
 import { CHAT_NOTIFY_EVENT } from "@/types/job-chat";
+import { MY_PEOPLE_MATCH_EVENT } from "@/lib/my-people-summary";
 
 /**
  * Reaudyt 14.09.2026: R02 (powrót gniazda nie odświeżał dzwonka, który przy
@@ -465,5 +466,82 @@ describe("reconnectDelayMs", () => {
     expect(reconnectDelayMs(3, () => 0.5)).toBe(6_000);
     expect(reconnectDelayMs(10, () => 1)).toBe(30_000);
     expect(reconnectDelayMs(10, () => 0)).toBe(15_000);
+  });
+});
+
+describe("useNotifications — ikony paska zamiast dzwonka (16.10.2026)", () => {
+  beforeEach(() => {
+    FakeWebSocket.instances = [];
+    vi.stubGlobal("WebSocket", FakeWebSocket);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  function frame(payload: unknown) {
+    const ws = FakeWebSocket.instances[0];
+    act(() => ws.onopen?.());
+    act(() => ws.onmessage?.({ data: JSON.stringify(payload) }));
+  }
+
+  it("wzmianka w notatce idzie do „Wiadomości”, bez licznika i dymka dzwonka", () => {
+    const onNotification = vi.fn();
+    const seen: unknown[] = [];
+    const listener = (e: Event) => seen.push((e as CustomEvent).detail);
+    window.addEventListener(CHAT_NOTIFY_EVENT, listener);
+    const { hook, keys } = setup({ onNotification });
+    frame({
+      type: "notification",
+      data: {
+        id: 9,
+        title: "Kasia W. oznaczył(a) Cię w notatce",
+        message: "@Piotr sprawdź stawkę",
+        link: "/candidates/3?tab=activity&activity=notes&note=11",
+        notification_type: "note_mention",
+        created_at: "2026-10-16T08:00:00Z",
+        topic: "messages",
+        toast: true,
+      },
+    });
+    window.removeEventListener(CHAT_NOTIFY_EVENT, listener);
+
+    expect(keys()).toEqual([JSON.stringify(["notifications"])]);
+    expect(onNotification).not.toHaveBeenCalled();
+    expect(hook.result.current.unreadCount).toBe(0);
+    expect(seen).toEqual([
+      {
+        kind: "note",
+        entity_id: 0,
+        notification_type: "note_mention",
+        link: "/candidates/3?tab=activity&activity=notes&note=11",
+        thread_title: "Kasia W. oznaczył(a) Cię w notatce",
+        author_name: "",
+        preview: "@Piotr sprawdź stawkę",
+      },
+    ]);
+    hook.unmount();
+  });
+
+  it("zdarzenie „Moich ludzi” bez wiersza odświeża listę i budzi Jarvisa", () => {
+    const seen: unknown[] = [];
+    const listener = (e: Event) => seen.push((e as CustomEvent).detail);
+    window.addEventListener(MY_PEOPLE_MATCH_EVENT, listener);
+    const onNotification = vi.fn();
+    const { hook, keys } = setup({ onNotification });
+    frame({
+      type: "my_people:match",
+      data: { title: "Nowa rekrutacja: Analityk — 3 z Twoich ludzi pasuje", link: "/jobs/4?people=1" },
+    });
+    window.removeEventListener(MY_PEOPLE_MATCH_EVENT, listener);
+
+    expect(keys()).toEqual([JSON.stringify(["my-people"])]);
+    expect(seen).toEqual([
+      { title: "Nowa rekrutacja: Analityk — 3 z Twoich ludzi pasuje", link: "/jobs/4?people=1" },
+    ]);
+    // Bez wiersza nie ma czego liczyć ani pokazywać jako powiadomienia.
+    expect(onNotification).not.toHaveBeenCalled();
+    hook.unmount();
   });
 });

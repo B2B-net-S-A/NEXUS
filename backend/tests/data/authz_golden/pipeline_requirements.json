@@ -22,6 +22,7 @@
   "automation"
  ],
  "routes": {
+  "GET /api/pipeline/client-acceptance/recipients": "PPPPPPDDPPPPPPPPPPPP",
   "GET /api/pipeline/move-requirements": "PPPPPPDDPPPPPPPPPPPP"
  }
 }

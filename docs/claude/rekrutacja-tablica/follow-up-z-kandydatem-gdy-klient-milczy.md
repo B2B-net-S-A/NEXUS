@@ -47,5 +47,5 @@ lista w „Czeka na Ciebie” (`followups` w `GET /api/board-tasks`), pole
   savepoint, log, pusta lista). „Moje następne kroki” (do 25 tablic) liczy
   tablice bez follow-upów (`with_followups=False`).
 - Lista liczy się przy odczycie. Tabela `candidate_followups` trzyma tylko
-  wyniki (kandydat CASCADE, RODO). Poranny skrót (`board_tasks_digest`)
-  liczy follow-upy każdej roli. Wyłącznik `CANDIDATE_FOLLOWUP_ENABLED`.
+  wyniki (kandydat CASCADE, RODO). Poranny mail liczy follow-upy każdej
+  roli (wpis `board_tasks_digest` w dzwonku wyłączony 16.10.2026). Wyłącznik `CANDIDATE_FOLLOWUP_ENABLED`.

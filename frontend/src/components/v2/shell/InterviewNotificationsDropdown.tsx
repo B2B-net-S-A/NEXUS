@@ -49,6 +49,7 @@ import {
   type WindowIcon,
   type WindowTone,
 } from "@/lib/interview-window";
+import { MY_NOTIFICATIONS_SETTINGS_HREF } from "@/lib/notification-topics";
 import { formatNotificationText, notificationTimeAgo } from "@/lib/notification-format";
 import { WS_BACKED_SAFETY_POLL_MS } from "@/lib/polling";
 import { hasSectionAccess } from "@/lib/section-access";
@@ -61,7 +62,6 @@ const InterviewActionDialogs = dynamic(() => import("./InterviewActionDialogs"),
   ssr: false,
 });
 
-const SETTINGS_HREF = "/settings?item=my-notifications";
 const CALENDAR_HREF = "/calendar";
 const TOAST_MS = 8_000;
 /** Odliczania („zostało 18 min”) odświeżają się co pół minuty. */
@@ -381,6 +381,7 @@ export function InterviewsTopbarButton({
       ref={ref}
       type="button"
       aria-label={label}
+      title="Kalendarz — rozmowy u klienta i prepy"
       className={cn(
         "relative transition-colors",
         pill
@@ -620,7 +621,7 @@ function InterviewNotificationsWindow() {
             }}
             onOpenSettings={() => {
               setOpen(false);
-              router.push(SETTINGS_HREF);
+              router.push(MY_NOTIFICATIONS_SETTINGS_HREF);
             }}
             onOpenCalendar={() => {
               setOpen(false);

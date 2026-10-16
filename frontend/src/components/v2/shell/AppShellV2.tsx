@@ -11,6 +11,7 @@ import { useOnboardingGuard } from "@/hooks/useOnboardingGuard";
 import { SidebarV2 } from "./SidebarV2";
 import { TopbarV2 } from "./TopbarV2";
 import { ImpersonationBanner } from "./ImpersonationBanner";
+import { NotificationsRealtime } from "./NotificationsRealtime";
 import { CommandPaletteV2 } from "./CommandPaletteV2";
 import { JarvisRoot } from "@/components/jarvis/JarvisRoot";
 import { KidsBackdrop } from "./KidsBackdrop";
@@ -239,6 +240,9 @@ export function AppShellV2({ children }: { children: React.ReactNode }) {
 
       {/* „Moi ludzie" — panel rekrutera, postać w rogu, `?people=1` z dzwonka */}
       <MyPeopleRoot />
+
+      {/* Jedyne gniazdo powiadomień — niezależne od ikon paska (16.10.2026). */}
+      <NotificationsRealtime />
 
       {/* Game-mode decorations — only in Kids mode (inert otherwise) */}
       <KidsBackdrop />

@@ -20,6 +20,11 @@ import {
   INTERVIEW_NOTIFY_EVENT,
   isInterviewNotificationType,
 } from "@/lib/interview-notifications";
+import {
+  MY_PEOPLE_MATCH_FRAME,
+  isNoteNotificationType,
+  type NotificationTopic,
+} from "@/lib/notification-topics";
 
 const WS_BASE =
   (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000")
@@ -34,6 +39,10 @@ export interface WsNotification {
   /** Typ z serwera (`notification_triggers.emit`) — steruje unieważnianiem cache. */
   notification_type?: string;
   created_at: string;
+  /** Temat ikony paska (16.10.2026) — dokłada go serwer; starszy go nie wysyła. */
+  topic?: NotificationTopic;
+  /** Czy pokazać dymek — decyzja serwera (`notification_topics.TOAST_TYPES`). */
+  toast?: boolean;
 }
 
 export interface ChampionProfileChangedEventDetail {
@@ -264,6 +273,20 @@ export function useNotifications({
       }
     };
 
+    // Nowa rekrutacja pasuje do „Moich ludzi" — licznik od razu, a Jarvis
+    // dostaje sygnał do dymka „kogo przepiąć" (JarvisRoot nasłuchuje). Przychodzi
+    // jako wiersz powiadomienia albo (od PR5, 16.10.2026) samo zdarzenie.
+    const announceMyPeopleMatch = (title: string, link: string | null) => {
+      queryClient.invalidateQueries({ queryKey: ["my-people"] });
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(
+          new CustomEvent<MyPeopleMatchEventDetail>(MY_PEOPLE_MATCH_EVENT, {
+            detail: { title, link },
+          }),
+        );
+      }
+    };
+
     ws.onmessage = (event) => {
       if (!mountedRef.current) return;
       try {
@@ -273,16 +296,7 @@ export function useNotifications({
           // Update react-query cache
           queryClient.invalidateQueries({ queryKey: ["notifications"] });
           if (notif.notification_type === "my_people_match") {
-            // Nowa rekrutacja pasuje do „Moich ludzi" — licznik od razu, a Jarvis
-            // dostaje sygnał do dymka „kogo przepiąć" (JarvisRoot nasłuchuje).
-            queryClient.invalidateQueries({ queryKey: ["my-people"] });
-            if (typeof window !== "undefined") {
-              window.dispatchEvent(
-                new CustomEvent<MyPeopleMatchEventDetail>(MY_PEOPLE_MATCH_EVENT, {
-                  detail: { title: notif.title, link: notif.link ?? null },
-                }),
-              );
-            }
+            announceMyPeopleMatch(notif.title, notif.link ?? null);
           }
           if (notif.notification_type === "request_allocation_proposals") {
             // Automat zaproponował osobę do requestu: Head of Recruitment ma
@@ -326,9 +340,31 @@ export function useNotifications({
             }
             return;
           }
+          if (isNoteNotificationType(notif.notification_type)) {
+            // Wzmianka i odpowiedź w notatce idą do okienka „Wiadomości”
+            // (16.10.2026): lista odświeżyła się wyżej, dymek pokazuje okienko.
+            if (typeof window !== "undefined") {
+              window.dispatchEvent(
+                new CustomEvent<ChatNotifyEvent>(CHAT_NOTIFY_EVENT, {
+                  detail: {
+                    kind: "note",
+                    entity_id: 0,
+                    notification_type: notif.notification_type,
+                    link: notif.link ?? "",
+                    thread_title: notif.title,
+                    author_name: "",
+                    preview: notif.message,
+                  },
+                }),
+              );
+            }
+            return;
+          }
           setUnreadCount((c) => c + 1);
           // Call external handler (for toast)
           onNotification?.(notif);
+        } else if (msg.type === MY_PEOPLE_MATCH_FRAME && msg.data) {
+          announceMyPeopleMatch(String(msg.data.title ?? ""), msg.data.link ?? null);
         } else if (msg.type === "pipeline_changed" && msg.data) {
           const jobId = Number(msg.data.job_id);
           if (Number.isSafeInteger(jobId) && jobId > 0) {

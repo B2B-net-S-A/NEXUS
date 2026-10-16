@@ -58,7 +58,7 @@
     "title": "Tablica rekrutacji",
     "section": "pipeline",
     "roles": ["recruiter", "delivery_lead", "head_of_recruitment", "admin"],
-    "what": "Tu prowadzisz kandydatów tej rekrutacji przez 8 kolumn: Nowi, Screening, Zweryfikowany, QC CV, CV wysłane, Rozmowa u klienta, Umowa i Zatrudniony; u góry kolumny ten, kto ostatni wszedł na etap. Źródła „Kandydaci do dodania” są w nagłówku.",
+    "what": "Tu prowadzisz kandydatów tej rekrutacji przez 8 kolumn: Nowi, Screening, Zweryfikowany, QC CV, CV wysłane, Rozmowa u klienta, Akceptacja i umowa oraz Zatrudniony; u góry kolumny ten, kto ostatni wszedł na etap. Źródła są w nagłówku.",
     "tasks": [
       {
         "q": "Od czego zacząć w tej rekrutacji?",
@@ -66,7 +66,7 @@
       },
       {
         "q": "Jak przesunąć kandydata dalej?",
-        "a": "Kliknij strzałkę „→” na karcie. Gdy niczego nie brakuje, karta przechodzi od razu, a przez 10 s możesz kliknąć „Cofnij”. Gdy czegoś brakuje, otworzy się „Przesuń dalej” z brakami i przyciskami, które je uzupełniają. Przeciągnięcie na sąsiednią kolumnę bez braków też przesuwa od razu. W „QC CV” karta mówi, od kiedy czeka u Delivery Leada.",
+        "a": "Kliknij strzałkę „→” na karcie: bez braków karta przechodzi od razu (10 s na „Cofnij”), z brakami otworzy się „Przesuń dalej” z przyciskami do uzupełnienia. Klient zaakceptował osobę po rozmowie? Kliknij na karcie „Klient zaakceptował” — trafi do „Akceptacja i umowa”, a rekruter, prowadzący, DL i Head of Recruitment zobaczą to w „Rekrutacjach”.",
         "anchor": "jobs.board.columns"
       },
       {
@@ -172,11 +172,11 @@
       },
       {
         "q": "Jak przygotować CV do klienta?",
-        "a": "Po „Zweryfikowany” automat robi CV firmowe i daje znać dzwonkiem. Gotowe CV w Wordzie („B2B_…”) wgraj „Wgraj nowe CV” — od razu jest CV do klienta; inne gotowe CV: „Użyj innego CV”. „Sprawdź i popraw” otwiera edytor ze stopką „Gotowe, przekaż do DL”. Plik: „Pobierz Word” albo „PDF”, oryginał — „Pobierz CV”. U PKO BP pobranie czeka na zgodę RODO."
+        "a": "Po „Zweryfikowany” automat robi CV firmowe i daje znać w ikonie „CV”. Gotowe CV w Wordzie („B2B_…”) wgraj „Wgraj nowe CV” — od razu jest CV do klienta; inne gotowe CV: „Użyj innego CV”. „Sprawdź i popraw” otwiera edytor ze stopką „Gotowe, przekaż do DL”. Plik: „Pobierz Word” lub „PDF”, oryginał — „Pobierz CV”. U PKO BP pobranie czeka na zgodę RODO."
       },
       {
         "q": "Gdzie są rozmowa u klienta i umowa?",
-        "a": "Na „Rozmowie u klienta” sekcja „W procesie” ma kroki rozmowy: termin od klienta, prepy z oceną i debrief. Sekcja „Umowa” pokazuje umowę, podpis i zamówienie: „Wygeneruj umowę” rozwija panel z formularzem Generatora, a podpis potwierdzasz tam albo prosisz o to Delivery Leada. „Rozwiń” otwiera pełne narzędzia z CV po lewej, „Zwiń” albo Esc wraca.",
+        "a": "Na „Rozmowie u klienta” sekcja „W procesie” ma termin od klienta, prepy i debrief, a „Klient zaakceptował” zapisuje akceptację (data, start, powiadomienie dla zespołu); pomyłkę cofa „⋯” → „Cofnij akceptację klienta”. Sekcja „Umowa” pokazuje umowę, podpis i zamówienie: „Wygeneruj umowę” rozwija Generator. „Rozwiń” otwiera pełne narzędzia.",
         "anchor": "jobs.person.expand"
       }
     ],

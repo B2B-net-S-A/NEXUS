@@ -46,6 +46,7 @@ import {
 } from "@/lib/candidate-notes-view";
 import { pageNotes } from "@/lib/candidate-notes-paging";
 import { unwrapNoteContent } from "./profile-shared";
+import { candidateJobNames, jobNameText } from "@/lib/job-name-text";
 
 /* eslint-disable @typescript-eslint/no-explicit-any -- notatki i rekrutacje przychodzą z luźno typowanych endpointów profilu */
 
@@ -83,7 +84,8 @@ function useRecruitmentOptions(recruitments: any[] | undefined) {
   const jobTitleById = useMemo(() => {
     const m = new Map<number, string>();
     for (const r of recList) {
-      m.set(Number(r.job_id), r.job_title ?? `Rekrutacja #${r.job_id}`);
+      // Nazwa jak w nagłówku rekrutacji: numer u klienta i tytuł dla rekrutera.
+      m.set(Number(r.job_id), jobNameText(candidateJobNames(r)));
     }
     return m;
   }, [recList]);
@@ -645,7 +647,9 @@ export function NotesList({
     const isEditing = editingId != null && editingId === n.id;
     const jobTitle = hideRecruitment
       ? null
-      : n.job_title ?? jobTitleById.get(Number(n.job_id));
+      : n.job_title
+        ? jobNameText(candidateJobNames(n))
+        : jobTitleById.get(Number(n.job_id));
     const replies: any[] = Array.isArray(n.replies) ? n.replies : [];
     const pinned = n.pinned_at != null;
     return (

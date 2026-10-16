@@ -46,7 +46,7 @@ describe("JobStageCounts — gotowi do wysłania u Delivery Leada", () => {
     expect(screen.getByTestId("job-stage-counts")).toHaveAccessibleName(
       "Etapy: Nowi 3, Screening 0, Zweryfikowany 0, " +
         "QC CV 5 (2 gotowe do wysłania — czeka na Ciebie), CV wysłane 0, " +
-        "Rozmowa u klienta 0, Umowa 0, Zatrudniony 0",
+        "Rozmowa u klienta 0, Akceptacja i umowa 0, Zatrudniony 0",
     );
     // Wyróżniona jest tylko ta jedna komórka.
     expect(document.querySelectorAll("[data-dl-ready]")).toHaveLength(1);
@@ -67,7 +67,7 @@ describe("JobStageCounts — gotowi do wysłania u Delivery Leada", () => {
     expect(cell.getAttribute("title")).toBe("QC CV: QC CV 5");
     expect(screen.getByTestId("job-stage-counts")).toHaveAccessibleName(
       "Etapy: Nowi 3, Screening 0, Zweryfikowany 0, QC CV 5, CV wysłane 0, " +
-        "Rozmowa u klienta 0, Umowa 0, Zatrudniony 0",
+        "Rozmowa u klienta 0, Akceptacja i umowa 0, Zatrudniony 0",
     );
   });
 });

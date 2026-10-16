@@ -27,6 +27,7 @@ from app.core.security import (
 )
 from app.models.user import User
 from app.services.notification_access import user_can_receive_realtime_event
+from app.services.notification_topics import enrich_realtime_event
 from app.services.section_permissions import resolve_effective_section_access
 
 logger = logging.getLogger(__name__)
@@ -140,6 +141,9 @@ class ConnectionManager:
         connections = list(self._connections.get(user_id, []))
         if not connections:
             return
+        # Temat ikony paska i decyzja o dymku — w jednym miejscu dla wszystkich
+        # producentów ramek „notification” (16.10.2026, bez dzwonka).
+        payload = enrich_realtime_event(event)
         dead: List[WebSocket] = []
         for ws in connections:
             token = self._auth_tokens.get(ws)
@@ -164,7 +168,7 @@ class ConnectionManager:
                 if not user_can_receive_realtime_event(current_user, event):
                     continue
             try:
-                await ws.send_json(event)
+                await ws.send_json(payload)
             except Exception:
                 # Nieudany zapis = gniazdo martwe albo zepsute: zamykamy je,
                 # żeby klient połączył się ponownie, zamiast zostać osierocony.

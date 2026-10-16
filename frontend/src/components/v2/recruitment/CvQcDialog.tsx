@@ -82,6 +82,7 @@ import {
   apiErrorCode,
   candidateQuestion,
   highlightTerms,
+  qcDismissedMessage,
   roleGaps,
   segmentCv,
   splitChecks,
@@ -456,7 +457,7 @@ export function CvQcBody({
     dismiss: (body, onSaved) =>
       dismiss.mutate(body, {
         onSuccess: () => {
-          showSuccess("Oznaczono jako nieprawdę — QC przeliczone.");
+          showSuccess(qcDismissedMessage(body.reason));
           onSaved?.();
         },
         onError: (error) =>

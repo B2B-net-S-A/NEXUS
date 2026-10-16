@@ -60,6 +60,7 @@ import {
   searchKindLine,
   type SamePhoneRef,
 } from "@/components/v2/modals/add-candidates-identity";
+import { jobNameText } from "@/lib/job-name-text";
 
 interface Props {
   open: boolean;
@@ -147,9 +148,11 @@ function historyText(c: CandidateSearchItem): string | null {
     const added = monthLabel(c.created_at);
     return added ? `jeszcze w żadnej rekrutacji, dodany ${added}` : "jeszcze w żadnej rekrutacji";
   }
-  const { job_title, stage_label, moved_on } = c.last_recruitment;
+  const { job_id, job_title, job_client_reference, stage_label, moved_on } = c.last_recruitment;
   const month = monthLabel(moved_on);
-  return `ostatnio${month ? ` ${month}` : ""}: ${stage_label} · ${job_title}`;
+  // Nazwa jak w nagłówku rekrutacji: numer u klienta i tytuł dla rekrutera.
+  const name = jobNameText({ id: job_id, title: job_title, client_reference: job_client_reference });
+  return `ostatnio${month ? ` ${month}` : ""}: ${stage_label} · ${name}`;
 }
 
 export function AddCandidatesQuickModal({ open, onClose, jobId, jobTitle }: Props) {

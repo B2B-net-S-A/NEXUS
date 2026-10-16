@@ -70,6 +70,7 @@ import {
 import { celebrate } from "@/lib/celebrate";
 import { generatorPrefillHref } from "@/lib/b2b-generator-register";
 import { pendingAgreement } from "@/lib/b2b-agreement";
+import type { ClientAcceptancePayload } from "@/lib/client-acceptance";
 import { apiErrorMessage } from "@/lib/api-error";
 import { championRemovalOutcome, type JobChampionsFields } from "@/lib/job-champions";
 import { EmploymentNotice } from "@/components/v2/employment/EmploymentNotice";
@@ -286,6 +287,8 @@ interface SendMoveOptions {
   // 13.10.2026: ruch potwierdzony przez serwer — także ponowiony po
   // „Przenieś mimo to” i po debriefie (oba niosą te same `opts`).
   onMoved?: () => void;
+  // 0451 (16.10.2026): okno „Klient zaakceptował” — data akceptacji i start.
+  clientAcceptance?: ClientAcceptancePayload;
 }
 
 type RatePayload = {
@@ -308,13 +311,22 @@ export const CLIENT_SEND_DENIED_MESSAGE = `Do klienta wysyła osoba z uprawnieni
 // Tablicy i ekranów z własnym ruchem. Eksport zostaje dla dotychczasowych importów.
 export { cvQcFailureOf, type CvQcFailure } from "@/lib/pipeline-move-core";
 
+/** Dodatki pojedynczego ruchu (karta, dok, okno „Klient zaakceptował”). */
+export interface RequestMoveOptions {
+  taskAssigneeId?: number;
+  /** 0451: data akceptacji i planowany start — ruch na etap akceptacji. */
+  clientAcceptance?: ClientAcceptancePayload;
+  /** Serwer przyjął ruch (także po „Przenieś mimo to” i debriefie). */
+  onMoved?: () => void;
+}
+
 export interface PipelineMoveControls {
   /** Ta sama decyzja co przeciągnięcie karty na tablicy. */
   requestMove: (
     item: KanbanItem,
     fromColumn: KanbanColumn | string,
     toColumn: KanbanColumn,
-    options?: { taskAssigneeId?: number }
+    options?: RequestMoveOptions
   ) => void;
   /** Ruch zbiorczy: pętla pojedynczych ruchów / kolejki okien. `onHandled`
    *  woła się w chwili, gdy wołający powinien wyczyścić zaznaczenie. */
@@ -638,6 +650,8 @@ export function usePipelineMove({
           hired_signed_via: opts?.hiredSignedVia?.via ?? undefined,
           hired_signed_note: opts?.hiredSignedVia?.note.trim() || undefined,
           hired_current_engagement: opts?.hiredCurrentEngagement ?? undefined,
+          client_accepted_on: opts?.clientAcceptance?.acceptedOn ?? undefined,
+          planned_start_on: opts?.clientAcceptance?.plannedStartOn ?? undefined,
         });
 
         // M4 PR-03 (audyt P1.3): backend tworzy NOWY CandidateStage — karta
@@ -862,7 +876,7 @@ export function usePipelineMove({
       rawItem: KanbanItem,
       fromColumn: KanbanColumn | string,
       dst: KanbanColumn,
-      options?: { taskAssigneeId?: number }
+      options?: RequestMoveOptions
     ) => {
       const srcColId = typeof fromColumn === "string" ? fromColumn : colId(fromColumn);
       if (readOnly) return;
@@ -956,12 +970,11 @@ export function usePipelineMove({
       }
 
       applyOptimistic(item, srcColId, dst);
-      sendMove(
-        item,
-        dst,
-        undefined,
-        options?.taskAssigneeId != null ? { taskAssigneeId: options.taskAssigneeId } : undefined
-      );
+      sendMove(item, dst, undefined, {
+        taskAssigneeId: options?.taskAssigneeId,
+        clientAcceptance: options?.clientAcceptance,
+        onMoved: options?.onMoved,
+      });
     },
     [
       readOnly,

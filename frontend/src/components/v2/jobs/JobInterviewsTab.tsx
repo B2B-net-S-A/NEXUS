@@ -96,9 +96,12 @@ import {
 } from "@/components/v2/jobs/workbench-chrome";
 import { isOverHourlyBudget } from "@/lib/rate-to-hourly";
 import { championRemovalOutcome, type JobChampionsFields } from "@/lib/job-champions";
+import { placeStage } from "@/lib/board-stages";
 
+// D6 (16.10.2026): „Dalej” → „Akceptuje” — na „Rozmowie u klienta” otwiera
+// okno „Klient zaakceptował” (ruch, werdykt i dzwonki razem).
 const DECISION_OPTIONS: { value: HiringManagerDecision; label: string }[] = [
-  { value: "advance", label: "Dalej" },
+  { value: "advance", label: "Akceptuje" },
   { value: "on_hold", label: "Druga rozmowa" },
   { value: "reject", label: "Odrzuca" },
 ];
@@ -125,6 +128,9 @@ export interface JobInterviewsTabProps extends WorkbenchPanelProps {
   onColumnsRetry?: () => void;
   /** Budżet PLN/h rekrutacji — ta sama kwota co nagłówek (`jobBudgetHourly`). */
   budgetHourly?: number | null;
+  /** D6: „Akceptuje” na „Rozmowie u klienta” otwiera okno akceptacji Tablicy
+   *  (z notatką wpisaną w formularzu werdyktu). */
+  onClientAccept?: (candidateId: number, note?: string | null) => void;
 }
 
 interface SelectedEntry {
@@ -144,6 +150,7 @@ export function JobInterviewsTab({
   budgetHourly = null,
   layout = "full",
   focusCandidateId = null,
+  onClientAccept,
 }: JobInterviewsTabProps) {
   const isPanel = layout === "panel";
   const { showSuccess, showError } = useToast();
@@ -393,6 +400,7 @@ export function JobInterviewsTab({
               isSuccess: feedbackQuery.isSuccess,
             })}
             onFeedbackRetry={() => void feedbackQuery.refetch()}
+            onClientAccept={onClientAccept}
             onOpenScreening={(candidateId, name) =>
               setScreeningFor({ candidateId, name })
             }
@@ -778,6 +786,7 @@ interface InterviewCardProps {
   budgetHourly: number | null;
   /** `"panel"` — bez nagłówka kroku; pigułki i akcja w zwartym pasku. */
   layout?: "full" | "panel";
+  onClientAccept?: (candidateId: number, note?: string | null) => void;
 }
 
 function InterviewCard({
@@ -794,8 +803,12 @@ function InterviewCard({
   onOpenScreening,
   budgetHourly,
   layout = "full",
+  onClientAccept,
 }: InterviewCardProps) {
   const { item, col } = entry;
+  // D6: na „Rozmowie u klienta” „Akceptuje” to akceptacja klienta — okno
+  // „Klient zaakceptował” przesuwa kartę i zapisuje ten werdykt.
+  const acceptOpensWindow = Boolean(onClientAccept) && placeStage(col).column === "client_interview";
   const { showSuccess, showError } = useToast();
   const queryClient = useQueryClient();
   const fullName =
@@ -1007,7 +1020,13 @@ function InterviewCard({
                     <button
                       key={opt.value}
                       type="button"
-                      onClick={() => setDecision(opt.value)}
+                      onClick={() => {
+                        if (opt.value === "advance" && acceptOpensWindow) {
+                          onClientAccept?.(item.candidate_id, note.trim() || null);
+                          return;
+                        }
+                        setDecision(opt.value);
+                      }}
                       aria-pressed={decision === opt.value}
                       className={cn(
                         "rounded-full border px-3 py-1 text-xs transition-colors disabled:cursor-not-allowed disabled:opacity-60",
@@ -1020,6 +1039,12 @@ function InterviewCard({
                     </button>
                   ))}
                 </div>
+                {acceptOpensWindow && (
+                  <p className="text-[11px] leading-snug text-muted-foreground">
+                    „Akceptuje” otwiera okno „Klient zaakceptował” — karta idzie dalej, werdykt się zapisuje,
+                    zespół dostaje powiadomienie w „Rekrutacjach”.
+                  </p>
+                )}
               </div>
 
               <div className="space-y-1">
@@ -1096,7 +1121,16 @@ function InterviewCard({
               <div className="flex justify-end">
                 <Button
                   size="sm"
-                  onClick={() => saveMutation.mutate()}
+                  onClick={() => {
+                    // „Akceptuje” jest wciśnięte domyślnie — zapis takiego
+                    // werdyktu na rozmowie u klienta to akceptacja klienta:
+                    // to samo okno (ruch, dzwonki), nie sam wpis werdyktu.
+                    if (decision === "advance" && acceptOpensWindow) {
+                      onClientAccept?.(item.candidate_id, note.trim() || null);
+                      return;
+                    }
+                    saveMutation.mutate();
+                  }}
                   loading={saveMutation.isPending}
                 >
                   <Save className="h-3.5 w-3.5" /> Zapisz feedback

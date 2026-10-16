@@ -6,6 +6,11 @@ Powiadomienie czatu (rekrutacji i kandydata) to wiersz ``notifications`` typu
 ten sam klucz wątku co ``chat_email_fallback._newer_in_same_thread``.
 Do 09.10.2026 te wiersze stały w dzwonku razem ze wszystkim innym, po jednym
 na wiadomość i bez nazwy rekrutacji albo kandydata.
+
+Od 16.10.2026 okienko nazywa się „Wiadomości” i — na życzenie
+(``include_notes``) — pokazuje też wzmianki i odpowiedzi w notatkach. Wątek
+notatki to jej link (odpowiedź niesie link notatki nadrzędnej, więc trafia do
+tego samego wątku); rodzaj ``note``.
 """
 
 from __future__ import annotations
@@ -29,10 +34,11 @@ from app.models.user import User
 from app.services.job_working_title import job_display_title_expr
 from app.services.mention_dispatch import CHAT_NOTIFICATION_TYPES
 from app.services.notification_access import notification_visibility_predicate
+from app.services.notification_topics import NOTE_NOTIFICATION_TYPES
 
 logger = logging.getLogger(__name__)
 
-ChatKind = Literal["job", "candidate"]
+ChatKind = Literal["job", "candidate", "note"]
 
 # Okienko pokazuje rozmowy z ostatnich 30 dni — starsze nieprzeczytane wiersze
 # (przed 09.10.2026 nikt ich nie gasił) nie zapełniają listy ani licznika.
@@ -50,6 +56,9 @@ _ENTITY_TYPE_BY_KIND: dict[str, str] = {
     "job": "job_chat_message",
     "candidate": "candidate_chat_message",
 }
+# Link notatki (`mention_dispatch.build_note_deep_link`): kandydat, rekrutacja
+# albo kontrakt; notatka bez kontekstu prowadzi na `/?orphan_note=`.
+_NOTE_CONTEXT_RE = re.compile(r"^/(candidates|jobs|contracts)/(\d{1,9})(?:[/?#]|$)")
 
 
 @dataclass(frozen=True)
@@ -94,9 +103,10 @@ def _own_chat_rows(user: User) -> list:
     ]
 
 
-async def _job_names(
+async def job_names(
     db: AsyncSession, ids: Iterable[int]
 ) -> dict[int, tuple[str, Optional[str]]]:
+    """Tytuł do wyświetlenia i klient rekrutacji (też dla okienka „Rekrutacje”)."""
     wanted = sorted(set(ids))
     if not wanted:
         return {}
@@ -135,9 +145,31 @@ async def _author_names(
 
 
 async def list_threads(
+    db: AsyncSession, user: User, *, limit: int, include_notes: bool = False
+) -> tuple[list[ChatThread], int]:
+    """Rozmowy użytkownika (nieprzeczytane najpierw) i liczba tych z nowymi.
+
+    ``include_notes``: okienko „Wiadomości” (16.10.2026) — także wątki
+    wzmianek i odpowiedzi w notatkach, wymieszane z czatami po świeżości.
+    """
+    threads, unread = await _list_chat_threads(db, user, limit=limit)
+    if not include_notes:
+        return threads, unread
+    notes, unread_notes = await _list_note_threads(db, user, limit=limit)
+    merged = sorted(
+        (*threads, *notes),
+        key=lambda t: (
+            t.unread_count > 0,
+            t.last_at or datetime.min.replace(tzinfo=timezone.utc),
+        ),
+        reverse=True,
+    )
+    return merged[:limit], unread + unread_notes
+
+
+async def _list_chat_threads(
     db: AsyncSession, user: User, *, limit: int
 ) -> tuple[list[ChatThread], int]:
-    """Rozmowy użytkownika (nieprzeczytane najpierw) i liczba tych z nowymi."""
     base = _own_chat_rows(user)
     # Stałe jako literały SQL, nie parametry: ``split_part(link, $1, 1)`` w SELECT
     # i ``split_part(link, $2, 1)`` w GROUP BY to dla Postgresa dwa różne wyrażenia.
@@ -195,7 +227,7 @@ async def list_threads(
     parsed = [(row, _parse_thread(row.thread)) for row in rows]
     job_ids = [key[1] for _, key in parsed if key and key[0] == "job"]
     candidate_ids = [key[1] for _, key in parsed if key and key[0] == "candidate"]
-    job_names = await _job_names(db, job_ids)
+    titles_by_job = await job_names(db, job_ids)
     candidate_names = await _candidate_names(db, candidate_ids)
 
     last_message_ids: dict[ChatKind, list[int]] = {"job": [], "candidate": []}
@@ -218,7 +250,7 @@ async def list_threads(
             continue
         kind, entity_id = key
         if kind == "job":
-            title, subtitle = job_names.get(entity_id, ("", None))
+            title, subtitle = titles_by_job.get(entity_id, ("", None))
             title = title or f"Rekrutacja #{entity_id}"
         else:
             title = candidate_names.get(entity_id) or f"Kandydat #{entity_id}"
@@ -250,25 +282,141 @@ async def list_threads(
     return threads, int(unread_threads)
 
 
+def _note_context(link: str) -> Optional[tuple[str, int]]:
+    match = _NOTE_CONTEXT_RE.match(link or "")
+    return (match.group(1), int(match.group(2))) if match else None
+
+
+async def _list_note_threads(
+    db: AsyncSession, user: User, *, limit: int
+) -> tuple[list[ChatThread], int]:
+    """Wzmianki i odpowiedzi w notatkach — jeden wątek na link notatki."""
+    since = datetime.now(timezone.utc) - timedelta(days=CHAT_WINDOW_DAYS)
+    base = [
+        Notification.user_id == user.id,
+        Notification.notification_type.in_(NOTE_NOTIFICATION_TYPES),
+        Notification.link.is_not(None),
+        Notification.created_at >= since,
+        notification_visibility_predicate(user),
+    ]
+    unread = Notification.is_read.is_(False)
+    unread_rows = func.count().filter(unread)
+    latest_id = func.max(Notification.id)
+    rows = (
+        await db.execute(
+            select(
+                Notification.link.label("thread"),
+                unread_rows.label("unread_count"),
+                func.count()
+                .filter(
+                    unread,
+                    Notification.notification_type == NotificationType.note_mention,
+                )
+                .label("unread_mentions"),
+                latest_id.label("latest_id"),
+            )
+            .where(*base)
+            .group_by(Notification.link)
+            .order_by((unread_rows > 0).desc(), latest_id.desc())
+            .limit(limit)
+        )
+    ).all()
+    unread_threads = (
+        await db.scalar(
+            select(func.count(distinct(Notification.link))).where(*base, unread)
+        )
+        or 0
+    )
+    if not rows:
+        return [], int(unread_threads)
+
+    latest_rows = {
+        row.id: row
+        for row in (
+            await db.execute(
+                select(
+                    Notification.id,
+                    Notification.title,
+                    Notification.message,
+                    Notification.created_at,
+                    Notification.related_entity_id,
+                ).where(Notification.id.in_(sorted(row.latest_id for row in rows)))
+            )
+        ).all()
+    }
+    contexts = {row.thread: _note_context(row.thread) for row in rows}
+    titles_by_job = await job_names(
+        db, [c[1] for c in contexts.values() if c and c[0] == "jobs"]
+    )
+    candidate_names = await _candidate_names(
+        db, [c[1] for c in contexts.values() if c and c[0] == "candidates"]
+    )
+
+    threads: list[ChatThread] = []
+    for row in rows:
+        latest = latest_rows.get(row.latest_id)
+        if latest is None:
+            continue
+        context = contexts[row.thread]
+        if context and context[0] == "candidates":
+            title = candidate_names.get(context[1]) or f"Kandydat #{context[1]}"
+        elif context and context[0] == "jobs":
+            title = titles_by_job.get(context[1], ("", None))[0] or (
+                f"Rekrutacja #{context[1]}"
+            )
+        elif context:
+            title = f"Kontrakt #{context[1]}"
+        else:
+            title = "Notatka"
+        threads.append(
+            ChatThread(
+                kind="note",
+                entity_id=int(latest.related_entity_id or 0),
+                title=title,
+                # „Anna D. oznaczył(a) Cię w notatce” / „… odpowiedział(a) na
+                # Twoją notatkę” — tytuł wiersza mówi, kto i co.
+                subtitle=latest.title,
+                unread_count=int(row.unread_count or 0),
+                has_mention=bool(row.unread_mentions),
+                last_author_name=None,
+                last_message=latest.message or "",
+                last_at=latest.created_at,
+                link=row.thread,
+            )
+        )
+    return threads, int(unread_threads)
+
+
 async def mark_read(
     db: AsyncSession,
     user_id: int,
     *,
     kind: Optional[str] = None,
     entity_id: Optional[int] = None,
+    link: Optional[str] = None,
+    include_notes: bool = False,
     extra: Optional[Any] = None,
 ) -> int:
     """Oznacz własne powiadomienia czatów jako przeczytane; bez commitu.
 
-    Z ``kind`` i ``entity_id`` — jednej rozmowy, bez nich — wszystkich.
-    Zwraca liczbę zmienionych wierszy.
+    Z ``kind`` i ``entity_id`` — jednej rozmowy, z ``kind="note"`` i ``link``
+    — jednego wątku notatki, bez nich — wszystkich czatów (z
+    ``include_notes`` także notatek). Zwraca liczbę zmienionych wierszy.
     """
+    if kind == "note":
+        types: tuple = NOTE_NOTIFICATION_TYPES
+    elif kind is None and include_notes:
+        types = (*CHAT_NOTIFICATION_TYPES, *NOTE_NOTIFICATION_TYPES)
+    else:
+        types = CHAT_NOTIFICATION_TYPES
     clauses = [
         Notification.user_id == user_id,
         Notification.is_read.is_(False),
-        Notification.notification_type.in_(CHAT_NOTIFICATION_TYPES),
+        Notification.notification_type.in_(types),
     ]
-    if kind is not None and entity_id is not None:
+    if kind == "note":
+        clauses.append(Notification.link == link)
+    elif kind is not None and entity_id is not None:
         clauses.append(
             Notification.link.startswith(
                 thread_prefix(kind, entity_id), autoescape=True
@@ -288,7 +436,7 @@ async def mark_read(
 async def thread_title(db: AsyncSession, kind: str, entity_id: int) -> str:
     """Nazwa rozmowy do dymka: tytuł rekrutacji albo imię i nazwisko."""
     if kind == "job":
-        names = await _job_names(db, [entity_id])
+        names = await job_names(db, [entity_id])
         return names.get(entity_id, ("", None))[0] or f"Rekrutacja #{entity_id}"
     names_by_id = await _candidate_names(db, [entity_id])
     return names_by_id.get(entity_id) or f"Kandydat #{entity_id}"

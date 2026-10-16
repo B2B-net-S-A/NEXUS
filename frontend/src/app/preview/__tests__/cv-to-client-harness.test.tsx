@@ -80,7 +80,7 @@ it("pokazuje panel „Z czego powstało” i jedną liczbę rzeczy do sprawdzeni
   expect(progress).toHaveTextContent("Screening zapisany");
   expect(progress).toHaveTextContent("CV generuje się (ok. 40 s)");
   expect(progress).toHaveTextContent("QC — po CV");
-  expect(progress).toHaveTextContent("Dam znać dzwonkiem, gdy CV będzie gotowe.");
+  expect(progress).toHaveTextContent("Dam znać w ikonie „CV”, gdy CV będzie gotowe.");
   fireEvent.click(within(progress).getByRole("button", { name: /Następna w Screeningu: Kamil Przykładowy/ }));
   expect(screen.getByTestId("harness-opened")).toHaveTextContent("Kamil Przykładowy");
 

@@ -142,6 +142,8 @@ NOTIFICATION_SECTION_BY_TYPE: dict[NotificationType, ProductSection] = {
     NotificationType.cv_ready: ProductSection.pipeline,
     # 0444: link prowadzi do panelu osoby na Tablicy rekrutacji, do której dodano.
     NotificationType.also_fits_added: ProductSection.pipeline,
+    # 0451: link prowadzi do panelu osoby na Tablicy rekrutacji.
+    NotificationType.client_accepted: ProductSection.pipeline,
     # 0453: opieka nad konsultantem — link do zakładki „Opieka” kontraktu.
     NotificationType.care_contact_due: ProductSection.delivery,
 }
@@ -491,6 +493,18 @@ def user_can_receive_realtime_event(user: User, event: dict[str, Any]) -> bool:
             user,
             notification_type,
             related_entity_type=data.get("related_entity_type"),
+            link=data.get("link"),
+        )
+    # „Moi ludzie” (16.10.2026): dopasowanie bez wiersza w bazie — ta sama
+    # bramka co dawny wiersz ``my_people_match`` (sekcja i wyciszenie).
+    if event_type == "my_people:match":
+        data = event.get("data")
+        if not isinstance(data, dict):
+            return False
+        return user_can_receive_notification(
+            user,
+            NotificationType.my_people_match,
+            related_entity_type="job",
             link=data.get("link"),
         )
     if event_type == "kpi_nudge":

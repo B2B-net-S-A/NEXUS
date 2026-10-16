@@ -20,11 +20,14 @@ import {
   recruitmentStageLabel,
   type RecruitmentOutcomeTone,
 } from "@/lib/recruitment-stage-label";
+import { candidateJobNames, jobNameText } from "@/lib/job-name-text";
 
 export interface PersonNoteLike {
   id: number;
   job_id?: number | null;
   job_title?: string | null;
+  job_working_title?: string | null;
+  job_client_reference?: string | null;
   created_at?: string | null;
   is_system?: boolean | null;
   group?: string | null;
@@ -138,7 +141,12 @@ function buildGroup<T extends PersonNoteLike>(
     title:
       jobId == null
         ? "Bez rekrutacji"
-        : (row?.job_title ?? titled?.job_title?.trim() ?? `Rekrutacja #${jobId}`),
+        : // Jak nagłówek rekrutacji: numer u klienta i tytuł dla rekrutera.
+          row?.job_title
+          ? jobNameText(candidateJobNames(row))
+          : titled
+            ? jobNameText(candidateJobNames(titled))
+            : `Rekrutacja #${jobId}`,
     clientName: row?.client_name ?? null,
     notes,
     humanCount: humanNoteCount(notes),

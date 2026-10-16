@@ -64,11 +64,17 @@ export interface ChatUnreadCount {
 /**
  * Zapowiedź powiadomienia czatu (`chat:notify` / `candidate-chat:notify`):
  * dostaje ją każdy odbiorca powiadomienia, także oznaczona osoba spoza zespołu.
+ * Od 16.10.2026 także wzmianka i odpowiedź w notatce (`kind: "note"`,
+ * składana z ramki `notification` w `useNotifications`) — okienko „Wiadomości”.
  */
 export interface ChatNotifyEvent {
-  kind: "job" | "candidate";
+  kind: "job" | "candidate" | "note";
   entity_id: number;
-  notification_type: "job_chat_message" | "job_chat_mention";
+  notification_type:
+    | "job_chat_message"
+    | "job_chat_mention"
+    | "note_mention"
+    | "note_reply";
   link: string;
   thread_title: string;
   author_name: string;

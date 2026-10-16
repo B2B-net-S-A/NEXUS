@@ -19,7 +19,9 @@ export type QcFixKind =
   | "ask_candidate"
   | "remove_term"
   | "ai"
-  | "spelling";
+  | "spelling"
+  /** „Ułóż od najnowszego” — kolejność stanowisk (16.10.2026). */
+  | "role_order";
 
 /** Na czym w odczycie oryginału stoi „oryginał ma tę umiejętność w tej roli”. */
 export type QcEvidenceKind = "description" | "technologies" | "title";
@@ -51,8 +53,12 @@ export interface QcItem {
   dismissal?: QcDismissal | null;
 }
 
-/** Powód „To nieprawda” — lustro `cv_finding_dismissals.REASONS` (13.10.2026, D5). */
-export type QcDismissReason = "in_cv" | "other_name" | "wrong_place" | "not_needed" | "other";
+/**
+ * Powód „To nieprawda” — lustro `cv_finding_dismissals.REASONS` (13.10.2026, D5).
+ * `kept_order` to „Zostaw tę kolejność” przy uwadze „Stanowiska od najnowszego”
+ * (16.10.2026) — nie ma go w formularzu „To nieprawda”.
+ */
+export type QcDismissReason = "in_cv" | "other_name" | "wrong_place" | "not_needed" | "other" | "kept_order";
 
 /** Pominięcie uwagi („To nieprawda”) — pary kandydat × rekrutacja, nie pliku. */
 export interface QcDismissal {
@@ -191,7 +197,8 @@ export type QcFixAction =
   | { action: "ai_fix"; fix_id: string; text?: string }
   | { action: "bold_all"; scope: "must" | "nice" }
   | { action: "remove_term"; term: string }
-  | { action: "spelling" };
+  | { action: "spelling" }
+  | { action: "role_order" };
 
 export type QcApplyBody = QcFixAction & { expected_revision?: number };
 

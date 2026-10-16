@@ -70,6 +70,9 @@ class EnrichedNoteResponse(NoteResponse):
     author_email: Optional[str] = None
     content_rendered: Optional[str] = None
     job_title: Optional[str] = None
+    # Nazwa rekrutacji jak w jej nagłówku (0380) — `job_title` zostaje nazwą od klienta.
+    job_working_title: Optional[str] = None
+    job_client_reference: Optional[str] = None
     # 0399: `external_source` = pochodzenie (traffit, system, trainee_call…);
     # `is_system` = wpis automatu, domyślnie schowany za „Pokaż systemowe”.
     external_source: Optional[str] = None

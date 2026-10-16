@@ -175,9 +175,9 @@ Serwis `services/job_similarity.py`, trasy `api/job_similar.py`.
   osobę dla rekrutacji (zgodność wstecz; inny etap niż Cpro = 422). Osoba
   spoza zespołu zostaje dopisana jako collaborator (tylko przez role DZ).
   „✓ DZ” z pulpitu to zwykły `/move` z wersją procesu — kolejka nie ma
-  własnej ścieżki zapisu etapu. Rano (8–17, pierwszy tick) JEDEN dzwonek
-  `board_tasks_digest` na osobę; ustawienie osoby = dzwonek
-  `cpro_send_assigned` (encja: rekrutacja).
+  własnej ścieżki zapisu etapu. Ustawienie osoby = powiadomienie
+  `cpro_send_assigned` (encja: rekrutacja; ikona „CV”). Poranny wpis
+  `board_tasks_digest` nie powstaje od 16.10.2026.
 - **Przegląd przed DZ (0353)** — „Sprawdź” przy osobie z kolejki DZ otwiera
   `DzReviewDialog`: CV dla klienta (CV firmowe pary, sfinalizowane > szkic,
   bez niego najnowsze gotowe CV z generatora), oryginał (snapshot etapu,

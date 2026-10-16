@@ -7,13 +7,13 @@ import { Kbd } from "@/components/ui/kbd";
 import { BreadcrumbV2 } from "./BreadcrumbV2";
 import { QuickActionsV2, type QuickActionModal } from "./QuickActionsV2";
 import { CommandPaletteV2 } from "./CommandPaletteV2";
-import { NotificationsDropdown } from "@/components/NotificationsDropdown";
 import { MyKpiWidget } from "@/components/v2/kpi/MyKpiWidget";
 import { MyLeagueWidget } from "@/components/v2/league/MyLeagueWidget";
 import { AppearanceMenu } from "./AppearanceMenu";
 import { MyPeopleTopbarButton } from "@/components/v2/my-people/MyPeopleLauncher";
 import { ChatNotificationsDropdown } from "./ChatNotificationsDropdown";
-import { DlSendTopbarButton } from "./DlSendTopbarButton";
+import { CvNotificationsDropdown } from "./CvNotificationsDropdown";
+import { JobsNotificationsDropdown } from "./JobsNotificationsDropdown";
 import { AbsentTodayButton } from "@/components/hr/leave/AbsentTodayButton";
 import { InterviewNotificationsDropdown } from "./InterviewNotificationsDropdown";
 import { hasSectionAccess } from "@/lib/section-access";
@@ -89,14 +89,16 @@ export function TopbarV2({
         <div className="hidden sm:flex items-center">
           <AppearanceMenu />
         </div>
+        {/* Bez dzwonka (16.10.2026): każda ikona ma jeden temat —
+            `docs/claude/powiadomienia/pasek-tematy-bez-dzwonka.md`. */}
         <MyPeopleTopbarButton />
-        {/* Stan kolejki Delivery Leada, nie zdarzenia — nie ma go przy zerze. */}
-        <DlSendTopbarButton />
-        {/* „Ludzie w NEXUSIE”: nieobecni dziś (moduł urlopów); przy zerze go nie ma. */}
-        <AbsentTodayButton />
+        {/* Stan, nie zdarzenia: moje CV; u DL pigułka kolejki „Do wysłania”. */}
+        <CvNotificationsDropdown />
+        <JobsNotificationsDropdown />
         <ChatNotificationsDropdown />
         <InterviewNotificationsDropdown />
-        <NotificationsDropdown />
+        {/* „Ludzie w NEXUSIE”: nieobecni dziś (moduł urlopów); przy zerze go nie ma. */}
+        <AbsentTodayButton />
         <QuickActionsV2
           externalModal={pendingModal}
           onExternalModalClear={onClearPendingModal}

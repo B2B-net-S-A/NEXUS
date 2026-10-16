@@ -124,7 +124,7 @@ const ROLE_VIEW: NotificationRolesView = {
     category("reminders", "Zaległości i przypomnienia", "Kandydat stoi na etapie albo coś czeka na ruch.", [
       group("stage_stale_6h", "Kandydat stoi na etapie 6 h", [910, 880, 190, 0, 0, 0], ["admin"]),
       group("stage_stuck_7d", "Kandydat stoi na etapie 7 dni", [0, 0, 150, 96, 0, 0]),
-      group("board_tasks_digest", "Skrót „Czeka na Ciebie” w dzwonku", [21, 6, 25, 0, 0, 0]),
+      group("board_tasks_digest", "Skrót „Czeka na Ciebie” (wycofany 16.10.2026)", [21, 6, 25, 0, 0, 0]),
       group("next_step_hint", "Podpowiedź następnego kroku", [18, 0, 7, 22, 5, 0]),
       group("request_review", "Request do przejrzenia", [0, 0, 4, 0, 0, 0]),
     ]),
@@ -248,7 +248,7 @@ function myEmails(persona: Persona): MyEmailNotifications {
       self_enabled: true,
       receiving: false,
       state: "bell_muted",
-      note: "Kategoria „Terminy rekrutacji” jest wyłączona przez Ciebie w dzwonku, więc ten mail też nie przychodzi.",
+      note: "Kategoria „Terminy rekrutacji” jest wyłączona przez Ciebie w „Moich powiadomieniach”, więc ten mail też nie przychodzi.",
     },
   ];
   const admin: MyEmailNotifications["items"] = [

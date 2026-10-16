@@ -1,6 +1,7 @@
 import logging
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
+from zoneinfo import ZoneInfo
 from decimal import Decimal
 from types import SimpleNamespace
 from pydantic import BaseModel, Field
@@ -132,7 +133,7 @@ from app.services.recruitment_move_policy import (
 )
 from app.services.delivery_alert_recipients import load_delivery_alert_recipient_scope
 from app.services.pipeline_realtime import broadcast_pipeline_changed
-from app.core.scheduling import business_today
+from app.core.scheduling import DEFAULT_TZ, business_today
 from app.services.consultant_elsewhere_notifications import (
     employed_elsewhere_client_ids,
 )
@@ -1452,6 +1453,13 @@ async def apply_move(
     pipeline_move_rules.assert_hired_signed_via(
         legacy_enum, data.hired_signed_via, data.hired_signed_note
     )
+    # 16.10.2026 (D1): okno „Klient zaakceptował” — data akceptacji i start.
+    pipeline_move_rules.assert_client_acceptance_dates(
+        legacy_enum,
+        data.client_accepted_on,
+        data.planned_start_on,
+        today=business_today(),
+    )
 
     # Pipeline v4 (23.09.2026): wejście do „Umowy"/„Zatrudnionego" wymaga
     # debriefu po rozmowie u klienta (pytania klienta albo „klient nie zadawał
@@ -1781,6 +1789,16 @@ async def apply_move(
         # wejścia i blokada 12 h jak w bulk-add (integracja bez blokady).
         **(_fresh_pair_entry_kwargs(policy.viewer, request) if fresh_pair else {}),
     )
+    if legacy_enum == PipelineStage.acceptance and (
+        data.client_accepted_on is not None
+        or await _enters_acceptance_from_before_contract(db, previous_stage_row)
+    ):
+        # Karta i dzwonek mówią, KIEDY klient zaakceptował — przeciągnięcie
+        # bez okna to akceptacja z dnia ruchu. Powrót na „Akceptację” z kroku
+        # umowy (odznaczone „Umowa wysłana”) nie jest nową akceptacją: wiersz
+        # zostaje bez daty, a karta czyta ostatnią akceptację z datą.
+        stage.client_accepted_on = data.client_accepted_on or business_today()
+        stage.planned_start_on = data.planned_start_on
     if client_rate_value is not None:
         candidate_audit.record_candidate_audit(
             db,
@@ -1826,6 +1844,9 @@ async def apply_move(
         db,
         previous=previous_stage_row,
         target_name=stage_def.name if stage_def else None,
+    )
+    await stage_handoff_recipients.close_client_acceptance_bells(
+        db, previous=previous_stage_row, target_column=target_column
     )
     if cpro_assignee is not None:
         stage.task_assignee_id = cpro_assignee.id
@@ -2759,6 +2780,59 @@ async def _job_stages_generating_auto_cv(db: AsyncSession, job_id: int) -> set[i
     return {int(stage_id) for stage_id in rows.all()}
 
 
+async def _enters_acceptance_from_before_contract(
+    db: AsyncSession, previous: Optional[CandidateStage]
+) -> bool:
+    """Czy ruch na „Akceptację” przychodzi spoza kolumny „Akceptacja i umowa”
+    (rozmowa u klienta, wcześniej, nowa para) — to jest akceptacja klienta."""
+
+    if previous is None:
+        return True
+    previous_def = (
+        await db.get(PipelineStageDef, previous.stage_def_id)
+        if previous.stage_def_id is not None
+        else None
+    )
+    column = board_column_for(
+        previous_def.name if previous_def else None,
+        getattr(previous.stage, "value", previous.stage),
+        category=(
+            previous_def.category.value
+            if previous_def and previous_def.category
+            else None
+        ),
+        terminal_type=(
+            previous_def.terminal_type.value
+            if previous_def and previous_def.terminal_type
+            else None
+        ),
+    )
+    return column not in ("contract", "hired")
+
+
+def _client_acceptance_badge(
+    row: Optional[CandidateStage], names: dict[int, Optional[str]]
+) -> Optional[dict]:
+    """Ostatnia akceptacja klienta pary (0451). Front rysuje ją wyłącznie
+    w kolumnie „Akceptacja i umowa” — karta cofnięta do „Rozmowy u klienta”
+    niesie dawną akceptację, ale jej nie pokazuje."""
+
+    if row is None:
+        return None
+    accepted_on = row.client_accepted_on or (
+        row.moved_at.astimezone(ZoneInfo(DEFAULT_TZ)).date() if row.moved_at else None
+    )
+    return {
+        "stage_id": row.id,
+        "accepted_on": accepted_on.isoformat() if accepted_on else None,
+        "planned_start_on": (
+            row.planned_start_on.isoformat() if row.planned_start_on else None
+        ),
+        "marked_at": row.moved_at.isoformat() if row.moved_at else None,
+        "marked_by_name": names.get(row.moved_by) if row.moved_by else None,
+    }
+
+
 async def build_kanban_view(
     db: AsyncSession,
     job: Job,
@@ -2805,6 +2879,12 @@ async def build_kanban_view(
     screened_pairs: set[int] = set()
     carried_expected_rate: dict[int, CandidateStage] = {}
     carried_client_rate: dict[int, CandidateStage] = {}
+    # 0451: najnowsza akceptacja klienta pary — zielony wiersz „Klient
+    # zaakceptował · data · kto” na karcie w kolumnie „Akceptacja i umowa”.
+    # Wiersz z datą to prawdziwa akceptacja; powrót z kroku umowy daty nie ma
+    # (wiersze sprzed 0451 też nie — wtedy najnowszy wiersz akceptacji).
+    latest_acceptance: dict[int, CandidateStage] = {}
+    latest_any_acceptance: dict[int, CandidateStage] = {}
     for s in all_stages:
         if s.candidate_id not in seen:
             seen[s.candidate_id] = s
@@ -2817,6 +2897,12 @@ async def build_kanban_view(
             carried_expected_rate.setdefault(s.candidate_id, s)
         if s.client_rate_value is not None:
             carried_client_rate.setdefault(s.candidate_id, s)
+        if s.stage == PipelineStage.acceptance:
+            latest_any_acceptance.setdefault(s.candidate_id, s)
+            if s.client_accepted_on is not None:
+                latest_acceptance.setdefault(s.candidate_id, s)
+    for cid, row in latest_any_acceptance.items():
+        latest_acceptance.setdefault(cid, row)
     show_client_rate = user_can_view_client_rate(viewer)
     # „Czeka na Ciebie” w kolumnie „QC CV”: raz na tablicę, dla obu gałęzi niżej.
     viewer_owns_dl_review = await _viewer_owns_dl_review(
@@ -3024,6 +3110,10 @@ async def build_kanban_view(
     owner_ids |= {
         s.task_assignee_id for s in seen.values() if s.task_assignee_id is not None
     }
+    # 0451: kto zaznaczył akceptację klienta.
+    owner_ids |= {
+        s.moved_by for s in latest_acceptance.values() if s.moved_by is not None
+    }
     missing_owner_names = owner_ids - set(user_name_by_id)
     if missing_owner_names:
         orows = await db.execute(
@@ -3226,6 +3316,9 @@ async def build_kanban_view(
         if e.stage in HIRED_STAGES:
             payload["order_status"] = order_statuses.get((e.candidate_id, job_id))
         payload["agreement"] = agreements.get(e.candidate_id)
+        payload["client_acceptance"] = _client_acceptance_badge(
+            latest_acceptance.get(e.candidate_id), user_name_by_id
+        )
         payload["employment_marker"] = employment_markers.get(e.candidate_id)
         payload["other_open_jobs"] = other_open_jobs.get(e.candidate_id) or []
         payload["is_champion"] = e.candidate_id in champion_ids

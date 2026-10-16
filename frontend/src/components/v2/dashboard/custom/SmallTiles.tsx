@@ -136,7 +136,7 @@ export function MyPeopleBody() {
         </>
       ) : (
         <p className="text-muted-foreground">
-          Brak nowych dopasowań — dzwonek da znać, gdy pojawi się rekrutacja dla Twoich ludzi.
+          Brak nowych dopasowań — ikona „Moi ludzie” da znać, gdy pojawi się rekrutacja dla Twoich ludzi.
         </p>
       )}
       <Button variant="outline" size="sm" className="mt-auto self-start" onClick={openPanel}>

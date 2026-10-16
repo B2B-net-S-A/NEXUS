@@ -46,7 +46,7 @@ COLUMN_LABEL: dict[str, str] = {
     "cv_qc": "QC CV",
     "cv_sent": "CV wysłane",
     "client_interview": "Rozmowa u klienta",
-    "contract": "Umowa",
+    "contract": "Akceptacja i umowa",
     "hired": "Zatrudniony",
     "closed": "Zamknięci",
 }

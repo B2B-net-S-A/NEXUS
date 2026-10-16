@@ -463,7 +463,7 @@ describe("JobsListV2 — liczby per grupa etapów w wierszu", () => {
     const cell = await screen.findByTestId("job-stage-counts");
     expect(cell).toHaveAccessibleName(
       "Etapy: Nowi 3, Screening 2, Zweryfikowany 0, QC CV 0, CV wysłane 0, " +
-        "Rozmowa u klienta 0, Umowa 0, Zatrudniony 1",
+        "Rozmowa u klienta 0, Akceptacja i umowa 0, Zatrudniony 1",
     );
     // `rejected` jest poza ośmioma kolumnami — nigdzie nie ma „5".
     expect(within(cell).queryByText("5")).not.toBeInTheDocument();

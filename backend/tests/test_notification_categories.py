@@ -49,6 +49,8 @@ def test_mandatory_categories_are_the_agreed_ones():
     assert mandatory == {
         NotificationCategory.mentions,
         NotificationCategory.interviews,
+        # D5 (16.10.2026): „Klient zaakceptował” musi dojść do zespołu.
+        NotificationCategory.acceptances,
         NotificationCategory.system,
     }
 
