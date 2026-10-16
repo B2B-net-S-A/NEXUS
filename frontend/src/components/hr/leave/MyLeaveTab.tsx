@@ -179,7 +179,7 @@ export function MyLeaveTab() {
           Nie masz jeszcze wniosków. „Złóż wniosek” policzy dni robocze i pulę.
         </div>
       ) : (
-        <div className="overflow-x-auto rounded-lg border border-border bg-card">
+        <div className="relative overflow-x-auto rounded-lg border border-border bg-card">
           <Table density="compact" className="min-w-[760px]">
             <TableHeader>
               <TableRow>

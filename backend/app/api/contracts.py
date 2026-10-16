@@ -6324,6 +6324,40 @@ async def delete_onboarding_item(
 
 # ── Equipment (Kontrakty expansion: ewidencja sprzętu) ──────────────────────
 
+#: Pola pozycji wydanej z magazynu, które opisuje rejestr „Sprzęt” (0460).
+_REGISTER_OWNED_FIELDS = frozenset(
+    {"return_status", "returned_date", "item_type", "owner", "serial_number"}
+)
+REGISTER_BYPASS_DETAIL = (
+    "Ta pozycja jest wydana z magazynu — zwrot przyjmuje recepcja w module "
+    "„Sprzęt” (powstaje protokół zwrotu)."
+)
+
+
+async def _refuse_register_bypass(
+    db: AsyncSession, item: ContractEquipment, updates: Optional[dict]
+) -> None:
+    """Pozycja z aktywnym wydaniem z rejestru nie zmienia stanu obok rejestru.
+
+    Inaczej zakładka mówiłaby „zwrócony”, a rejestr dalej „wydany” u tej osoby.
+    Termin zwrotu, opis i kaucję można zmieniać jak dotąd; ``updates=None`` =
+    usunięcie pozycji.
+    """
+    if item.assignment_id is None:
+        return
+    if updates is not None and not (_REGISTER_OWNED_FIELDS & set(updates)):
+        return
+    from app.models.equipment import EquipmentAssignment
+
+    active = await db.scalar(
+        select(EquipmentAssignment.id).where(
+            EquipmentAssignment.id == item.assignment_id,
+            EquipmentAssignment.returned_at.is_(None),
+        )
+    )
+    if active is not None:
+        raise HTTPException(status_code=409, detail=REGISTER_BYPASS_DETAIL)
+
 
 @router.get(
     "/{contract_id}/equipment",
@@ -6411,6 +6445,7 @@ async def update_contract_equipment(
     if not item:
         raise HTTPException(status_code=404, detail="Equipment item not found")
     updates = data.model_dump(exclude_unset=True)
+    await _refuse_register_bypass(db, item, updates)
     for k, v in updates.items():
         setattr(item, k, v)
     # Guard: returned_date requires return_status=returned (mark as returned).
@@ -6455,6 +6490,7 @@ async def delete_contract_equipment(
     )
     if not item:
         raise HTTPException(status_code=404, detail="Equipment item not found")
+    await _refuse_register_bypass(db, item, None)
     db.add(
         Activity(
             entity_type="contract",

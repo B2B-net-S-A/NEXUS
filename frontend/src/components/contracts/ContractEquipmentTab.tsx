@@ -15,7 +15,11 @@ import { warsawToday } from "@/lib/warsaw-date";
 import { useToast } from "@/components/Toast";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import { resolveViewState } from "@/lib/view-state";
-import { Laptop, Plus, Trash2, Check, AlertTriangle, X } from "lucide-react";
+import { useHrConfig } from "@/lib/api/hr";
+import { useHolderEquipment } from "@/lib/api/equipment";
+import { IssueWizard } from "@/components/equipment/IssueWizard";
+import { ReturnWizard } from "@/components/equipment/ReturnWizard";
+import { Laptop, Plus, Trash2, Check, AlertTriangle, X, PackagePlus, PackageMinus } from "lucide-react";
 
 interface Props {
   contractId: number;
@@ -54,6 +58,20 @@ const STATUS_LABELS: Record<EquipmentReturnStatus, string> = {
   written_off: "Spisany",
 };
 
+/** Pozycja wydana z magazynu (rejestr „Sprzęt”, 0460) — zwrot przyjmuje recepcja. */
+type RegisterLinkedItem = ContractEquipmentItem & {
+  item_id?: number | null;
+  assignment_id?: number | null;
+};
+
+function fromRegister(item: ContractEquipmentItem): boolean {
+  return (item as RegisterLinkedItem).item_id != null;
+}
+
+function issuedFromRegister(item: ContractEquipmentItem): boolean {
+  return (item as RegisterLinkedItem).assignment_id != null && item.return_status === "pending";
+}
+
 function isOverdue(item: ContractEquipmentItem): boolean {
   if (item.return_status !== "pending" || !item.return_due_date) return false;
   // Porównujemy DNI KALENDARZOWE, nie chwile. `new Date("2026-08-20")`
@@ -76,6 +94,20 @@ export function ContractEquipmentTab({ contractId, readOnly = false }: Props) {
   const { showToast } = useToast();
   const onMutationError = (fallback: string) => (err: unknown) =>
     showToast(apiErrorMessage(err, fallback), "error");
+
+  // Rejestr „Sprzęt” (moduł „Ludzi w NEXUSIE”): wydanie z magazynu z protokołem
+  // i zwrot przez recepcję. Bez modułu albo bez uprawnienia zakładka działa
+  // jak dotąd — wpisy ręczne.
+  const hrConfig = useHrConfig();
+  const canUseRegister = Boolean(
+    hrConfig.data?.open_modules.equipment &&
+      (hrConfig.data.me.equipment || hrConfig.data.me.is_admin),
+  );
+  const register = useHolderEquipment(
+    canUseRegister ? "contract" : null,
+    canUseRegister ? contractId : null,
+  );
+  const [wizard, setWizard] = useState<"issue" | "return" | null>(null);
 
   const equipmentQuery = useQuery({
     queryKey: ["contract-equipment", contractId],
@@ -128,16 +160,40 @@ export function ContractEquipmentTab({ contractId, readOnly = false }: Props) {
         <h3 className="text-sm font-semibold text-foreground dark:text-foreground">
           Sprzęt kontraktora ({items.length})
         </h3>
-        {!readOnly && (
-          <button
-            type="button"
-            onClick={() => setAdding(true)}
-            className="inline-flex items-center gap-1.5 rounded-md bg-primary hover:bg-primary/90 text-white text-xs px-3 py-1.5"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            Dodaj sprzęt
-          </button>
-        )}
+        <div className="flex items-center gap-2">
+          {canUseRegister && register.data ? (
+            <>
+              {register.data.active.length > 0 ? (
+                <button
+                  type="button"
+                  onClick={() => setWizard("return")}
+                  className="inline-flex items-center gap-1.5 rounded-md border border-border hover:bg-muted text-xs px-3 py-1.5"
+                >
+                  <PackageMinus className="w-3.5 h-3.5" aria-hidden />
+                  Przyjmij zwrot
+                </button>
+              ) : null}
+              <button
+                type="button"
+                onClick={() => setWizard("issue")}
+                className="inline-flex items-center gap-1.5 rounded-md border border-border hover:bg-muted text-xs px-3 py-1.5"
+              >
+                <PackagePlus className="w-3.5 h-3.5" aria-hidden />
+                Wydaj z magazynu
+              </button>
+            </>
+          ) : null}
+          {!readOnly && (
+            <button
+              type="button"
+              onClick={() => setAdding(true)}
+              className="inline-flex items-center gap-1.5 rounded-md bg-primary hover:bg-primary/90 text-white text-xs px-3 py-1.5"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              Dodaj sprzęt
+            </button>
+          )}
+        </div>
       </div>
 
       {!readOnly && adding && (
@@ -196,6 +252,7 @@ export function ContractEquipmentTab({ contractId, readOnly = false }: Props) {
                     <div className="font-medium">{item.brand_model || "—"}</div>
                     <div className="text-xs text-muted-foreground">
                       {item.serial_number || "—"}
+                      {fromRegister(item) ? " · z magazynu" : ""}
                     </div>
                   </td>
                   <td className="px-3 py-2">{OWNER_LABELS[item.owner]}</td>
@@ -220,6 +277,22 @@ export function ContractEquipmentTab({ contractId, readOnly = false }: Props) {
                   </td>
                   {!readOnly && (
                     <td className="px-3 py-2 text-right">
+                      {issuedFromRegister(item) ? (
+                        canUseRegister ? (
+                          <button
+                            type="button"
+                            onClick={() => setWizard("return")}
+                            className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
+                          >
+                            <PackageMinus className="w-3.5 h-3.5" aria-hidden />
+                            Przyjmij zwrot
+                          </button>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">
+                            zwrot przyjmuje recepcja
+                          </span>
+                        )
+                      ) : (
                       <div className="inline-flex gap-1">
                         {item.return_status === "pending" && (
                           <button
@@ -275,6 +348,7 @@ export function ContractEquipmentTab({ contractId, readOnly = false }: Props) {
                           </button>
                         )}
                       </div>
+                      )}
                     </td>
                   )}
                 </tr>
@@ -283,6 +357,12 @@ export function ContractEquipmentTab({ contractId, readOnly = false }: Props) {
           </table>
         </div>
       )}
+      {wizard === "issue" && register.data ? (
+        <IssueWizard presetHolder={register.data.holder} onClose={() => setWizard(null)} />
+      ) : null}
+      {wizard === "return" && register.data ? (
+        <ReturnWizard presetHolder={register.data.holder} onClose={() => setWizard(null)} />
+      ) : null}
     </div>
   );
 }

@@ -123,7 +123,7 @@ function PendingLeaveList({ viewerIsHr }: { viewerIsHr: boolean }) {
     );
 
   return (
-    <div className="overflow-x-auto rounded-lg border border-border bg-card">
+    <div className="relative overflow-x-auto rounded-lg border border-border bg-card">
       <Table density="compact" className="min-w-[820px]">
         <TableHeader>
           <TableRow>
@@ -264,7 +264,7 @@ function LeaveHistory() {
           Brak wniosków dla tych filtrów.
         </p>
       ) : (
-        <div className="overflow-x-auto rounded-lg border border-border bg-card">
+        <div className="relative overflow-x-auto rounded-lg border border-border bg-card">
           <Table density="compact" className="min-w-[860px]">
             <TableHeader>
               <TableRow>
