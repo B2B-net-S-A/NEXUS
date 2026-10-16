@@ -29,6 +29,20 @@ z protokołami. Compass zostaje z Akademią i czyta listę osób z NEXUSA.
 - Ślad wrażliwych zapisów: `app/services/hr/audit.record(...)` z `sensitivity`
   `health` (L4) albo `payroll` (kwoty). Kwot nie ma w `critical_events` ani logach.
 
+## API v1 i Jarvis
+
+- Zakresy kluczy `absences:read` (kto i kiedy, bez rodzaju) i `equipment:read`
+  (wydania i zwroty, bez wartości i numerów S/N/IMEI). Trasy `/api/v1/absences`
+  (zakres dat ≤ 93 dni) i `/api/v1/equipment/assignments/{id}`; wyłączony moduł = 404.
+- Zdarzenia `leave.approved` / `leave.cancelled` powstają ze śladu `hr_audit_events`
+  (decyzje o wniosku idą warunkowym `UPDATE`, którego listener ORM nie widzi) —
+  zmiana kształtu `leave_service._audit` wywraca zdarzenia. `equipment.issued` /
+  `equipment.returned` tylko dla wydań z protokołem (import arkusza = stan początkowy).
+- Narzędzia Jarvisa dla HR są tylko do odczytu, mają `hr_module` (i ewentualnie
+  `any_permission`); `tools_for_user(sekcje, permissions=, hr_modules=)` dostaje moduły
+  otwarte dla osoby. Do modelu nie trafia rodzaj nieobecności (także przy własnym
+  wniosku — L4 to dane o zdrowiu), notatki, kwoty płac, wartości sprzętu ani S/N.
+
 ## Moduły ciemne
 
 - `app_settings['hr_modules']` = `people, leave, time, payroll, lifecycle, care,
