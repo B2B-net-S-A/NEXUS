@@ -133,6 +133,7 @@ import {
  type QcChipTone,
  compactCardBadge,
  cardShortName,
+ criticalGapBadge,
  cvStateBadge,
  dlSendQueue,
  isReadyForDlSend,
@@ -223,6 +224,9 @@ interface KanbanBoardV2Props {
  // Kept as a candidate-keyed map (not embedded in items) so it survives the
  // optimistic-move / "verified" item rebuilds below.
  scoreMap?: Map<number, number>;
+ /** Krytyczne bez śladu u osoby (`/pipeline-scores` → `exclusions`) —
+  *  plakietka „brak: …” na karcie (16.10.2026). */
+ criticalGapMap?: Map<number, string[]>;
  // True while the scores query is first resolving → cards show a placeholder
  // ring instead of nothing (cold pipelines don't look broken).
  scoresLoading?: boolean;
@@ -687,6 +691,8 @@ interface CardProps {
  onOpenScorecard: (item: KanbanItem) => void;
  /** Stawka z karty ponad budżet PLN/h rekrutacji — odznaka, nie blokada. */
  overBudget: boolean;
+ /** Krytyczne bez śladu w profilu, CV i notatkach — odznaka, nie blokada. */
+ criticalGaps?: string[];
  matchScore?: number;
  scoresLoading?: boolean;
  onRemoveFromRecruitment: (item: KanbanItem) => void;
@@ -885,6 +891,7 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  scorecardDue,
  onOpenScorecard,
  overBudget,
+ criticalGaps,
  matchScore,
  scoresLoading,
  onRemoveFromRecruitment,
@@ -941,8 +948,10 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  // Konflikty z klientem i czarna lista: serwer niesie je w `warnings`,
  // a karta do 12.10.2026 rysowała tylko weto HM i „ponad budżet”.
  const warningBadges = eligibilityWarningBadges(item.warnings, item.employment_marker);
+ const criticalGap = criticalGapBadge(criticalGaps);
  const accessibleDetails = [
  overBudget ? "Stawka ponad budżet rekrutacji." : null,
+ criticalGap ? criticalGap.title : null,
  screeningDue ? "Screening do uzupełnienia." : null,
  scorecardDue ? "Scorecard do uzupełnienia." : null,
  normalizedMatchScore != null
@@ -1200,6 +1209,19 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  ponad budżet
  </span>
  )}
+ {criticalGap && (
+ <span
+ data-testid="card-critical-gap"
+ className={cn(
+ "inline-flex min-w-0 max-w-full items-center gap-0.5 rounded px-1 text-[10px] font-semibold uppercase tracking-wide bg-warning/15 text-warning",
+ desktopOverview && "xl:pointer-fine:hidden"
+ )}
+ title={criticalGap.title}
+ >
+ <AlertTriangle className="h-2.5 w-2.5 shrink-0" aria-hidden="true" />
+ <span className="truncate" aria-hidden="true">{criticalGap.label}</span>
+ </span>
+ )}
  {warningBadges.map((w) => (
  <span
  key={w.code}
@@ -1449,6 +1471,7 @@ interface ColProps {
  onToggleSelect: (id: number) => void;
  onOpenScreening: (stageId: number, name: string) => void;
  scoreMap?: Map<number, number>;
+ criticalGapMap?: Map<number, string[]>;
  scoresLoading?: boolean;
  /** Definicje etapów ze scorecardem — odznaka „Scorecard" (17.09.2026). */
  stagesWithScorecard: Set<number>;
@@ -1499,6 +1522,7 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  onToggleSelect,
  onOpenScreening,
  scoreMap,
+ criticalGapMap,
  scoresLoading,
  stagesWithScorecard,
  onOpenScorecard,
@@ -1706,6 +1730,7 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  }
  onOpenScorecard={(it) => onOpenScorecard(it, col)}
  overBudget={isOverHourlyBudget(item, jobBudgetHourly)}
+ criticalGaps={criticalGapMap?.get(item.candidate_id)}
  matchScore={scoreMap?.get(item.candidate_id)}
  scoresLoading={scoresLoading}
  onRemoveFromRecruitment={onRemoveFromRecruitment}
@@ -1776,7 +1801,7 @@ const MIN_COLUMN_HEIGHT = 280;
 // `p-4` obszaru treści powłoki (góra + dół) — patrz pomiar planszy na telefonie.
 const MOBILE_MAIN_PADDING_Y = 32;
 
-export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoading, headerCollapsed, offTemplate, readOnly = false, clientId = null, initialDockCandidateId = null, onInitialDockHandled, initialDockOpensReview = false, onDockCandidateChange, workbenchContext, kanbanQueryState, initialWorkbench = null, onInitialWorkbenchHandled, cproEnabled = false, viewerOwnsDlReview = false, renderAbove, addedBy = ADDED_BY_ALL, onAddedByChange }: KanbanBoardV2Props) {
+export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapMap, scoresLoading, headerCollapsed, offTemplate, readOnly = false, clientId = null, initialDockCandidateId = null, onInitialDockHandled, initialDockOpensReview = false, onDockCandidateChange, workbenchContext, kanbanQueryState, initialWorkbench = null, onInitialWorkbenchHandled, cproEnabled = false, viewerOwnsDlReview = false, renderAbove, addedBy = ADDED_BY_ALL, onAddedByChange }: KanbanBoardV2Props) {
  // Krok 04 Pipeline (flow C2, PR 3/7): globalny przełącznik —
  // świadomie nie per-job.
  const hideEmptyColumns = useUiStore((s) => s.hideEmptyKanbanColumns);
@@ -3905,6 +3930,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  onToggleSelect={toggleSelect}
  onOpenScreening={handleOpenScreening}
  scoreMap={scoreMap}
+ criticalGapMap={criticalGapMap}
  scoresLoading={scoresLoading}
  stagesWithScorecard={stagesWithScorecard}
  onOpenScorecard={handleOpenScorecard}

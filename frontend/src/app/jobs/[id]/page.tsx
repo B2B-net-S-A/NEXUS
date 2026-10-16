@@ -642,6 +642,14 @@ export default function JobDetailPage() {
     }
     return m;
   }, [pipelineScores]);
+  // Krytyczne bez śladu u osoby — plakietka „brak: …” obok pierścienia.
+  const criticalGapMap = useMemo(() => {
+    const m = new Map<number, string[]>();
+    for (const [cid, exclusion] of Object.entries(pipelineScores?.exclusions ?? {})) {
+      if (exclusion.missing_critical.length) m.set(Number(cid), exclusion.missing_critical);
+    }
+    return m;
+  }, [pipelineScores]);
 
   // Liczniki zakładek ekranu „Do przejrzenia".
   const openProposalsQuery = useQuery({
@@ -1245,6 +1253,7 @@ export default function JobDetailPage() {
               jobId={jobId}
               jobTitle={job?.title}
               scoreMap={scoreMap}
+              criticalGapMap={criticalGapMap}
               scoresLoading={scoresLoading}
               // „Zwiń” nagłówka (K-D5) przesuwa Tablicę — zmiana to sygnał do
               // ponownego pomiaru wysokości kolumn (także po wczytaniu

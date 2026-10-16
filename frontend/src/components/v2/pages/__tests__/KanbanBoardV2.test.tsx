@@ -416,6 +416,7 @@ function renderBoard(
   readOnly = false,
   cproEnabled = false,
   viewerOwnsDlReview = false,
+  criticalGapMap?: Map<number, string[]>,
 ) {
   const qc = new QueryClient({
     defaultOptions: { queries: { retry: false } },
@@ -427,6 +428,7 @@ function renderBoard(
           columns={columns}
           jobId={10}
           scoreMap={scoreMap}
+          criticalGapMap={criticalGapMap}
           readOnly={readOnly}
           cproEnabled={cproEnabled}
           viewerOwnsDlReview={viewerOwnsDlReview}
@@ -474,6 +476,42 @@ describe("KanbanBoardV2 — karta: odznaki zamiast bramek (17.09.2026)", () => {
       .getByRole("link", { name: "Beata Tania" })
       .closest("[data-kanban-card]") as HTMLElement;
     expect(within(cheap).queryByText("ponad budżet")).toBeNull();
+  });
+
+  it("brak krytycznej to plakietka obok pierścienia, nie zniknięcie wyniku (16.10.2026)", async () => {
+    useAuthStore.setState({
+      user: { role: "recruiter", roles: ["recruiter"] } as never,
+    });
+    get.mockResolvedValue({ data: { pipeline_template_id: null } });
+
+    renderBoard(
+      rateColumns([
+        { id: 781, candidate_id: 11, name: "Adam", lastname: "Bezpłatności", rate: 80 },
+        { id: 782, candidate_id: 12, name: "Beata", lastname: "Pełna", rate: 80 },
+      ]),
+      new Map([
+        [11, 64.2],
+        [12, 76.5],
+      ]),
+      false,
+      false,
+      false,
+      new Map([[11, ["płatności"]]]),
+    );
+
+    const gap = (
+      await screen.findByRole("link", { name: "Adam Bezpłatności" })
+    ).closest("[data-kanban-card]") as HTMLElement;
+    expect(within(gap).getByLabelText("Dopasowanie AI: 64 na 100")).toBeInTheDocument();
+    const chip = within(gap).getByTestId("card-critical-gap");
+    expect(chip).toHaveTextContent("brak: płatności");
+    expect(chip.getAttribute("title")).toContain("bez śladu w profilu, CV i notatkach: płatności");
+
+    const full = screen
+      .getByRole("link", { name: "Beata Pełna" })
+      .closest("[data-kanban-card]") as HTMLElement;
+    expect(within(full).getByLabelText("Dopasowanie AI: 77 na 100")).toBeInTheDocument();
+    expect(within(full).queryByTestId("card-critical-gap")).toBeNull();
   });
 
   it("karta mówi, że osoba u nas pracuje, i rysuje ostrzeżenia pary z serwera", async () => {
