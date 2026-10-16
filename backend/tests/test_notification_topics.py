@@ -125,6 +125,13 @@ def test_toast_policy():
         assert t not in TOAST_TYPES, t
 
 
+def test_client_accepted_is_a_recruitment_event_with_toast():
+    # 0451 (16.10.2026): akceptacja klienta to wydarzenie rekrutacji — trafia
+    # do ikony „Rekrutacje” (dzwonka już nie ma) i daje dymek całemu zespołowi.
+    assert topic_for(_T.client_accepted) is NotificationTopic.jobs
+    assert _T.client_accepted in TOAST_TYPES
+
+
 def test_enrich_adds_topic_and_toast_without_mutating():
     frame = {
         "type": "notification",

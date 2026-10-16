@@ -161,7 +161,7 @@ function NudgeButton({ row }: { row: CvTransitRow }) {
     mutationFn: () => nudgeDlSend(row.stage_id),
     onSuccess: (result) => {
       if (result.sent) showSuccess("Przypomnienie wysłane do Delivery Leada.");
-      else showInfo("Dziś już przypomniano — Delivery Lead ma to w dzwonku.");
+      else showInfo("Dziś już przypomniano — Delivery Lead ma to w ikonie „CV”.");
     },
     onError: (error) => showError(apiErrorMessage(error, "Nie udało się wysłać przypomnienia.")),
   });

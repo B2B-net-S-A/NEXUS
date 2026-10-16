@@ -121,7 +121,7 @@ export function acceptedToast(
   if (names.length === 0) return `${candidateName} — klient zaakceptował.`;
   // Skrót „Olaf P.” kończy się kropką — bez drugiej na końcu zdania.
   const list = names.join(", ");
-  return `${candidateName} — klient zaakceptował. Dzwonek: ${list}${list.endsWith(".") ? "" : "."}`;
+  return `${candidateName} — klient zaakceptował. Powiadomienie: ${list}${list.endsWith(".") ? "" : "."}`;
 }
 
 export interface AcceptanceFormErrors {

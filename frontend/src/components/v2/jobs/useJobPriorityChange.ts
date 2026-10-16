@@ -42,10 +42,10 @@ export function leavingP1Confirm(names: readonly string[], next: PriorityLevel) 
     description: many
       ? `${who} przejdą do „Poprzedni rekruter”: rekrutacja zniknie z ich ` +
         "„Moich rekrutacji” i z obłożenia. Wrócą automatycznie, gdy rekrutacja " +
-        "wróci na P1. Dzwonki o własnych kandydatach dalej przychodzą."
+        "wróci na P1. Powiadomienia o własnych kandydatach dalej przychodzą."
       : `${who} przejdzie do „Poprzedni rekruter”: rekrutacja zniknie z „Moich ` +
         "rekrutacji” tej osoby i z obłożenia. Wróci automatycznie, gdy rekrutacja " +
-        "wróci na P1. Dzwonki o własnych kandydatach dalej przychodzą.",
+        "wróci na P1. Powiadomienia o własnych kandydatach dalej przychodzą.",
     confirmLabel: `Zmień na „${PRIORITY_LEVEL_LABEL[next]}”`,
   };
 }

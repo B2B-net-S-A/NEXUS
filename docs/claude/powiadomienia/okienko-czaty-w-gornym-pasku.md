@@ -6,6 +6,10 @@ czatu ich nie gasiło. Decyzje Artura 09.10.2026: czaty mają własne okienko,
 jedna pozycja na rozmowę, wejście do czatu gasi jego powiadomienia, nowa
 wiadomość daje dymek. Raport: `docs/chat-notifications-window-completion-report.md`.
 
+> Od 16.10.2026 dzwonka nie ma, a okienko nazywa się „Wiadomości” (czaty +
+> wzmianki i odpowiedzi w notatkach) — `pasek-tematy-bez-dzwonka.md`. Zdania
+> o dzwonku niżej opisują stan sprzed tej daty.
+
 - **Dzwonek nie pokazuje ani nie liczy czatów:** `GET /api/notifications`
   i `read-all` z `exclude_chat=true` (`notificationsApi.listForBell`,
   `markAllReadForBell`). Bez parametru trasy działają jak dotąd — „Moje

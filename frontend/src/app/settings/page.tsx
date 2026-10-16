@@ -546,7 +546,7 @@ function CoachingSettings() {
             Włącz coaching
           </p>
           <p className="text-xs text-muted-foreground dark:text-muted-foreground mt-0.5">
-            Toast + powiadomienie w dzwonku. Bez spamu — dedup per KPI / okres,
+            Dymek na ekranie. Bez spamu — dedup per KPI / okres,
             max 3 przypomnienia dziennie per wskaźnik.
           </p>
         </div>

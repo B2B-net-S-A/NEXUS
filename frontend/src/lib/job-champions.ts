@@ -218,7 +218,7 @@ export interface ChampionEffectsInput {
 }
 
 export const CHAMPION_EFFECT_STOP =
-  "Po zapisie rekrutacja nie szuka: P1 wstrzymany, automat zwalnia przydział, zespół dostaje dzwonek.";
+  "Po zapisie rekrutacja nie szuka: P1 wstrzymany, automat zwalnia przydział, zespół dostaje powiadomienie w „Rekrutacjach”.";
 export const CHAMPION_EFFECT_RESUME = "Po zapisie rekrutacja wróci do „Szukamy”.";
 /** D9: zapis przestawia stan pracy na „Szukamy” — champion jest widoczny tylko tam. */
 export function championWorkStateLine(workState: "to_review" | "client_silent"): string {

@@ -1897,7 +1897,7 @@ describe("KanbanBoardV2 — fala 3: grupy etapów i karta z następną akcją", 
         note: null,
       }),
     );
-    expect(toastSuccess).toHaveBeenCalledWith("Karol Wzorcowy — klient zaakceptował. Dzwonek: Marta N.");
+    expect(toastSuccess).toHaveBeenCalledWith("Karol Wzorcowy — klient zaakceptował. Powiadomienie: Marta N.");
   });
 
   it("Tablica: 8 kolumn z numerem kroku, „QC CV” gospodarzem etapu DZ, zamknięci w wąskiej kolumnie obok", async () => {

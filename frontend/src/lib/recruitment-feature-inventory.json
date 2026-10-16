@@ -1774,10 +1774,10 @@
   {
    "id": "dl-send.topbar",
    "area": "powłoka",
-   "opis": "Licznik „Do wysłania · N” w górnym pasku i przy „Rekrutacjach” w menu — stan kolejki Delivery Leada (nie zdarzenia): okienko z osobami gotowymi do wysłania, wiersz prowadzi do przeglądu na Tablicy, stopka do „po kolei” na pulpicie i do listy rekrutacji; przy zerze i bez roli DL licznika nie ma",
-   "file": "components/v2/shell/DlSendTopbarButton.tsx",
-   "marker": "DlSendTopbarButton",
-   "v3_home": "Górny pasek → Do wysłania / Menu → Rekrutacje (licznik)"
+   "opis": "Kolejka „Do wysłania do klienta” Delivery Leada — od 16.10.2026 w ikonie „CV” górnego paska (pigułka z liczbą i kolorem pilności, gdy ktoś czeka) i przy „Rekrutacjach” w menu — stan kolejki (nie zdarzenia): sekcja z osobami gotowymi do wysłania, wiersz prowadzi do przeglądu na Tablicy, stopka do „po kolei” i pulpitu",
+   "file": "components/v2/shell/CvNotificationsDropdown.tsx",
+   "marker": "CvNotificationsDropdown",
+   "v3_home": "Górny pasek → ikona „CV” (sekcja „Do wysłania do klienta”, pigułka z kolorem pilności) / Menu → Rekrutacje (licznik)"
   },
   {
    "id": "dl-send.cpro-row",
