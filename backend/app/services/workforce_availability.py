@@ -274,7 +274,10 @@ async def workforce_context(
 
     # Źródło lokalne (urlopy NEXUSA) przełącza admin w `app_settings`
     # (`hr_availability_source`); odczyt najwyżej raz na minutę na proces.
-    await refresh_source(db)
+    # Przy włączonym Compassie kontekst czyta ten sam zapisany snapshot,
+    # więc przełącznika nie trzeba sprawdzać.
+    if not settings.COMPASS_AVAILABILITY_ENABLED:
+        await refresh_source(db)
     if not availability_enabled():
         return WorkforceContext()
     key = "workforce_context"
