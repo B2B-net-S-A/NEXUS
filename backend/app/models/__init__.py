@@ -839,3 +839,13 @@ from app.models.hr_ops import (  # noqa: F401
     HrImportIdMap,
     HrJobRun,
 )
+
+# 0453–0460: moduły „Ludzi w NEXUSIE” — import modułu rejestruje modele
+# (nazwy klas importuj z modułu, np. ``from app.models.hr_leave import …``).
+from app.models import hr_leave as _hr_leave_models  # noqa: F401,E402
+from app.models import hr_time as _hr_time_models  # noqa: F401,E402
+from app.models import hr_payroll as _hr_payroll_models  # noqa: F401,E402
+from app.models import hr_lifecycle as _hr_lifecycle_models  # noqa: F401,E402
+from app.models import contract_care as _contract_care_models  # noqa: F401,E402
+from app.models import admin_case as _admin_case_models  # noqa: F401,E402
+from app.models import equipment as _equipment_models  # noqa: F401,E402

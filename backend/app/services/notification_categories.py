@@ -37,6 +37,7 @@ class NotificationCategory(StrEnum):
     rejections = "rejections"
     contracts = "contracts"
     kpi = "kpi"
+    people = "people"
     system = "system"
 
 
@@ -90,6 +91,10 @@ CATEGORY_INFO: dict[NotificationCategory, CategoryInfo] = {
     NotificationCategory.kpi: CategoryInfo(
         "KPI i coaching",
         "Power Calling i podpowiedzi coacha KPI.",
+    ),
+    NotificationCategory.people: CategoryInfo(
+        "Czas i ludzie",
+        "Urlopy i zastępstwa, timesheety, premie, wejścia i odejścia, sprawy administracja@ i sprzęt.",
     ),
     NotificationCategory.system: CategoryInfo(
         "Konto i system",
@@ -210,6 +215,23 @@ CATEGORY_BY_TYPE: dict[NotificationType, NotificationCategory] = {
     # KPI
     _T.powercalling_kpi: _C.kpi,
     _T.kpi_coach: _C.kpi,
+    # Czas i ludzie (0453)
+    _T.hr_leave_requested: _C.people,
+    _T.hr_leave_decided: _C.people,
+    _T.hr_leave_cancelled: _C.people,
+    _T.hr_leave_substitute: _C.people,
+    _T.hr_absence_reported: _C.people,
+    _T.hr_timesheet_submitted: _C.people,
+    _T.hr_timesheet_decided: _C.people,
+    _T.hr_timesheet_reminder: _C.people,
+    _T.hr_bonus_assigned: _C.people,
+    _T.hr_rate_changed: _C.people,
+    _T.hr_lifecycle_task: _C.people,
+    _T.hr_work_handover: _C.people,
+    _T.admin_case_assigned: _C.people,
+    _T.equipment_task: _C.people,
+    _T.equipment_protocol_signed: _C.people,
+    _T.care_contact_due: _C.contracts,
     # Konto i system
     _T.password_reset_requested: _C.system,
     _T.password_changed_by_admin: _C.system,

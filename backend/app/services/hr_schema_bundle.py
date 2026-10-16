@@ -14,21 +14,39 @@ w ``_ENUM_STATEMENTS`` — ta lista jest zdefiniowana przed importami.
 
 from __future__ import annotations
 
+from app.services import admin_cases_schema as admin_cases
+from app.services import contract_care_schema as contract_care
+from app.services import equipment_schema as equipment
 from app.services import hr_access_schema as access
 from app.services import hr_foundation_schema as foundation
+from app.services import hr_leave_schema as leave
+from app.services import hr_lifecycle_schema as lifecycle
+from app.services import hr_notification_schema as notifications
+from app.services import hr_payroll_schema as payroll
+from app.services import hr_time_schema as time_
+
+#: Moduły po fundamencie, w kolejności migracji 0454–0460 (kontrakt każdego:
+#: ``TABLE_DDL, COLUMN_DDL, INDEX_DDL, CONSTRAINT_DDL, DATA_DDL``).
+MODULES = (leave, time_, payroll, lifecycle, contract_care, admin_cases, equipment)
 
 COLUMN_DDL: tuple[str, ...] = (
     *foundation.TABLE_DDL,
     *foundation.INDEX_DDL,
     *access.ROLE_CHECK_DDL,
+    *(stmt for module in MODULES for stmt in module.TABLE_DDL),
+    *(stmt for module in MODULES for stmt in module.COLUMN_DDL),
+    *(stmt for module in MODULES for stmt in module.INDEX_DDL),
 )
 
 DATA_DDL: tuple[str, ...] = (
     *foundation.DATA_DDL,
     *access.SEED_DDL,
+    *(stmt for module in MODULES for stmt in module.DATA_DDL),
 )
 
-CONSTRAINT_DDL: tuple[str, ...] = ()
+CONSTRAINT_DDL: tuple[str, ...] = tuple(
+    stmt for module in MODULES for stmt in module.CONSTRAINT_DDL
+)
 
 #: Wartości enumów, które musi znać ``_ENUM_STATEMENTS`` (test lustra).
-ENUM_DDL: tuple[str, ...] = (access.ENUM_DDL,)
+ENUM_DDL: tuple[str, ...] = (access.ENUM_DDL, *notifications.ENUM_DDL)

@@ -248,6 +248,27 @@ class NotificationType(str, enum.Enum):
     # related_entity=(job, id). Bez maila.
     champions_changed = "champions_changed"
     champion_search_resumed = "champion_search_resumed"
+    # 0453: „Ludzie w NEXUSIE” — moduły kadrowe. Osobiste (odbiorcę wybiera
+    # reguła modułu, nie sekcja): urlopy, timesheety, premie i stawki,
+    # wejście/odejście, sprawy administracja@, sprzęt. Opieka nad konsultantem
+    # (``care_contact_due``) prowadzi do kontraktu — sekcja Delivery. Lista
+    # wartości: ``app/services/hr_notification_schema.py``.
+    hr_leave_requested = "hr_leave_requested"
+    hr_leave_decided = "hr_leave_decided"
+    hr_leave_cancelled = "hr_leave_cancelled"
+    hr_leave_substitute = "hr_leave_substitute"
+    hr_absence_reported = "hr_absence_reported"
+    hr_timesheet_submitted = "hr_timesheet_submitted"
+    hr_timesheet_decided = "hr_timesheet_decided"
+    hr_timesheet_reminder = "hr_timesheet_reminder"
+    hr_bonus_assigned = "hr_bonus_assigned"
+    hr_rate_changed = "hr_rate_changed"
+    hr_lifecycle_task = "hr_lifecycle_task"
+    hr_work_handover = "hr_work_handover"
+    admin_case_assigned = "admin_case_assigned"
+    equipment_task = "equipment_task"
+    equipment_protocol_signed = "equipment_protocol_signed"
+    care_contact_due = "care_contact_due"
 
 
 class Notification(Base, TimestampMixin):

@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.notification import Notification, NotificationType
 from app.models.user import User, UserRole
+from app.services import hr_notification_schema
 from app.services.notification_categories import user_muted_types
 from app.services.section_permissions import (
     ProductSection,
@@ -31,10 +32,18 @@ from app.services.section_permissions import (
 logger = logging.getLogger(__name__)
 
 
+# 0453: typy osobiste modułów kadrowych — odbiorcę wybiera reguła modułu
+# (przełożony, zastępca, Kadry, posiadacz „Sprzętu”), nie sekcja produktu.
+# „Pracownik” nie ma sekcji, a musi dostać decyzję o swoim urlopie.
+HR_PERSONAL_NOTIFICATION_TYPES: frozenset[NotificationType] = frozenset(
+    NotificationType(value) for value in hr_notification_schema.PERSONAL_TYPES
+)
+
 ALWAYS_VISIBLE_NOTIFICATION_TYPES: frozenset[NotificationType] = frozenset(
     {
         NotificationType.password_reset_requested,
         NotificationType.password_changed_by_admin,
+        *HR_PERSONAL_NOTIFICATION_TYPES,
     }
 )
 
@@ -133,6 +142,8 @@ NOTIFICATION_SECTION_BY_TYPE: dict[NotificationType, ProductSection] = {
     NotificationType.cv_ready: ProductSection.pipeline,
     # 0444: link prowadzi do panelu osoby na Tablicy rekrutacji, do której dodano.
     NotificationType.also_fits_added: ProductSection.pipeline,
+    # 0453: opieka nad konsultantem — link do zakładki „Opieka” kontraktu.
+    NotificationType.care_contact_due: ProductSection.delivery,
 }
 
 CONTEXTUAL_NOTIFICATION_TYPES: frozenset[NotificationType] = frozenset(

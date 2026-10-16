@@ -163,6 +163,24 @@ _ENUM_STATEMENTS = [
     # „Ludzie w NEXUSIE” (0452): rola „Pracownik” — lustro
     # `app/services/hr_access_schema.ENUM_DDL`.
     "ALTER TYPE userrole ADD VALUE IF NOT EXISTS 'employee'",
+    # „Ludzie w NEXUSIE” (0453): typy powiadomień modułów kadrowych — lustro
+    # `app/services/hr_notification_schema.ENUM_DDL`.
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'hr_leave_requested'",
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'hr_leave_decided'",
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'hr_leave_cancelled'",
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'hr_leave_substitute'",
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'hr_absence_reported'",
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'hr_timesheet_submitted'",
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'hr_timesheet_decided'",
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'hr_timesheet_reminder'",
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'hr_bonus_assigned'",
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'hr_rate_changed'",
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'hr_lifecycle_task'",
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'hr_work_handover'",
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'admin_case_assigned'",
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'equipment_task'",
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'equipment_protocol_signed'",
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'care_contact_due'",
     # notificationtype: 5 trigger types + champion_profile_updated
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'dl_stage_stale_6h'",
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'client_feedback_eobd'",

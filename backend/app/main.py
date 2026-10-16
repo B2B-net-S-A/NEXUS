@@ -191,9 +191,18 @@ from app.api import candidate_conflicts as candidate_conflicts_api
 from app.api import admin_import
 from app.api import kpis as kpis_api
 from app.api import kpi_targets_admin as kpi_targets_admin_api
+
 # „Ludzie w NEXUSIE” (16.10.2026): kartoteka, katalog ludzi, Kadry.
 from app.api import hr_admin as hr_admin_api
 from app.api import hr_people as hr_people_api
+from app.api import hr_leave as hr_leave_api
+from app.api import hr_time as hr_time_api
+from app.api import hr_payroll as hr_payroll_api
+from app.api import hr_lifecycle as hr_lifecycle_api
+from app.api import contract_care as contract_care_api
+from app.api import admin_cases as admin_cases_api
+from app.api import equipment as equipment_api
+from app.api import equipment_public as equipment_public_api
 from app.api import onboarding as onboarding_api
 from app.api import procedures as procedures_api
 from app.api import help_screens as help_screens_api
@@ -1686,6 +1695,18 @@ app.include_router(
 # „Ludzie w NEXUSIE” — moduł kadrowy (bramki w `app/api/hr_gates.py`).
 app.include_router(hr_admin_api.router, prefix="/api/hr/admin", tags=["hr"])
 app.include_router(hr_people_api.router, prefix="/api/hr", tags=["hr"])
+app.include_router(hr_leave_api.router, prefix="/api/hr/leave", tags=["hr"])
+app.include_router(hr_time_api.router, prefix="/api/hr/time", tags=["hr"])
+app.include_router(hr_payroll_api.router, prefix="/api/hr/payroll", tags=["hr"])
+app.include_router(hr_lifecycle_api.router, prefix="/api/hr/lifecycle", tags=["hr"])
+app.include_router(contract_care_api.router, prefix="/api/care", tags=["hr"])
+app.include_router(admin_cases_api.router, prefix="/api/cases", tags=["hr"])
+app.include_router(equipment_api.router, prefix="/api/equipment", tags=["hr"])
+app.include_router(
+    equipment_public_api.router,
+    prefix="/api/public/equipment-protocols",
+    tags=["hr"],
+)
 # Analytics v1 (plan 2026-07-16, PR 3) — wersjonowany kontrakt statystyk.
 # Endpointy 503 przy ANALYTICS_V1_MODE=off; RBAC/capabilities niezależnie.
 app.include_router(
