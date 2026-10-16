@@ -36,9 +36,17 @@ w `entrypoint.sh`, sondy w `/api/health/deep`). Raport:
   ale przy `AUTO_MATCH_ENABLED=false` stoi (nie ma zdarzeń). Wyłącznik
   `MY_PEOPLE_MATCH_ENABLED`; próg `MY_PEOPLE_MATCH_MIN_SCORE` (70), sufit
   `MY_PEOPLE_MATCH_MAX_PER_USER` (10), pula `MY_PEOPLE_MATCH_POOL` (200).
-  Jeden dzwonek na (odbiorca, rekrutacja), link `/jobs/{id}?people=1`, i tylko
+  Jeden sygnał na (odbiorca, rekrutacja), link `/jobs/{id}?people=1`, i tylko
   przy NOWYCH wierszach `my_people_job_matches` (UNIQUE na trójce) — istotna
   zmiana rekrutacji nie budzi drugi raz tymi samymi nazwiskami.
+  **Od 16.10.2026 (pasek bez dzwonka) bez wiersza `Notification`:** po
+  commicie idzie samo zdarzenie gniazda `my_people:match`
+  (`{job_id, title, message, link}`, `notification_ws_after_commit.queue_ws_event`,
+  kolejkowane dopiero po zapisie wszystkich dopasowań). Bramka
+  `notification_access.user_can_receive_realtime_event` przepuszcza je jak
+  dawny wiersz `my_people_match` (sekcja + wyciszenie) — bez wpisu domyślne
+  `True` puściłoby nazwiska do każdego gniazda. Licznik ikony liczy się
+  z `my_people_job_matches`, nie z powiadomień.
 - **Liczba to kanoniczny fit** (`canonical_fit.score_candidates`), ta sama co
   na ekranach C2 — NIE `rank_candidates_for_job`. Niezmierzony = `None`, nigdy
   0 i nigdy w dzwonku. `hidden` (blacklista, duplikat) odpada, ostrzeżenia
@@ -58,8 +66,8 @@ w `entrypoint.sh`, sondy w `/api/health/deep`). Raport:
   `proposals/bulk` ze źródłem **`my_people`** (lustra: `BulkAddSource`
   w `proposals_bulk.py` i `candidate-search-api.ts`, `PIPELINE_ADD_SOURCES`
   w telemetrii). WS `pipeline_changed` unieważnia listę i zakładkę rekrutacji,
-  ale NIE podsumowanie (liczy całą listę); WS `notification` typu
-  `my_people_match` unieważnia wszystko.
+  ale NIE podsumowanie (liczy całą listę); WS `my_people:match` (i dawna
+  ramka `notification` typu `my_people_match`) unieważnia wszystko.
 - **Postać w rogu** mówi wyłącznie zdaniami z szablonów
   (`lib/my-people-summary.summarySentences`, zero AI), raz na sesję dla tej
   samej treści (`sessionStorage`), pulsuje tylko licznik. **Ustępuje maskotce
@@ -73,7 +81,7 @@ w `entrypoint.sh`, sondy w `/api/health/deep`). Raport:
   `my_people` i `my_people_for_job` (tylko osoby do przepięcia; brak wyniku =
   `"niepoliczony"`, weto HM = `nie_mozna_dodac`), sekcja „PRZEPINANIE" w
   prompcie, poranny skrót dnia dostaje `briefFragments` (nowe dopasowania,
-  czekający > 30 dni), a dzwonek `my_people_match` → zdarzenie okna
+  czekający > 30 dni), a zdarzenie `my_people:match` → zdarzenie okna
   `nexus:my-people-match` (z `useNotifications`) → dymek Jarvisa, którego
   kliknięcie wysyła `reassignPrompt(jobId)` i kończy się kartą
   `add_candidates_to_job` do potwierdzenia. Świadomie tylko DWA momenty

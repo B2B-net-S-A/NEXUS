@@ -484,6 +484,18 @@ def user_can_receive_realtime_event(user: User, event: dict[str, Any]) -> bool:
             related_entity_type=data.get("related_entity_type"),
             link=data.get("link"),
         )
+    # „Moi ludzie” (16.10.2026): dopasowanie bez wiersza w bazie — ta sama
+    # bramka co dawny wiersz ``my_people_match`` (sekcja i wyciszenie).
+    if event_type == "my_people:match":
+        data = event.get("data")
+        if not isinstance(data, dict):
+            return False
+        return user_can_receive_notification(
+            user,
+            NotificationType.my_people_match,
+            related_entity_type="job",
+            link=data.get("link"),
+        )
     if event_type == "kpi_nudge":
         return _has_section_read(user, ProductSection.insights)
     if event_type in {

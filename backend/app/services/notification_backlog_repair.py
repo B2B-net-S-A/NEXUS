@@ -12,6 +12,13 @@ typów starsze niż ``AGE_DAYS`` dni. Nic nie jest kasowane; świeże wpisy
 
 Marker w ``app_settings`` + advisory lock: drugi start kończy się od razu.
 Paragon niesie wyłącznie liczby per typ.
+
+16.10.2026 (ikony paska zamiast dzwonka, decyzja D5): drugie, szersze
+sprzątanie — :func:`run_topics_backlog_repair`, każdy typ nieprzeczytany
+dłużej niż ``TOPICS_AGE_DAYS`` dni. Okienko „Rekrutacje” i tak pokazuje
+tylko tydzień, a licznik „CV” liczy się ze stanu; stary zapas zostałby
+w ``/notifications/count`` i w nieprzeczytanych czatach na zawsze.
+Maili nie dotyka: zapas maila czatu patrzy na minuty, kolejka na 24 h.
 """
 
 from __future__ import annotations
@@ -34,27 +41,54 @@ TYPES: tuple[NotificationType, ...] = (
     NotificationType.powercalling_kpi,
 )
 
+TOPICS_REPAIR_MARKER = "notification_topics_backlog_read_2026_10"
+TOPICS_AGE_DAYS = 7
+
 
 async def run_notification_backlog_repair(
     db: AsyncSession, *, now: Optional[datetime] = None
 ) -> Optional[dict[str, Any]]:
-    """Oznacza stare wpisy jako przeczytane. ``None`` = już wykonane.
-
-    Wołający commituje.
+    """Oznacza stare wpisy czterech typów jako przeczytane. ``None`` = już
+    wykonane. Wołający commituje.
     """
+    return await _mark_stale_read(
+        db, marker=REPAIR_MARKER, age_days=AGE_DAYS, types=TYPES, now=now
+    )
+
+
+async def run_topics_backlog_repair(
+    db: AsyncSession, *, now: Optional[datetime] = None
+) -> Optional[dict[str, Any]]:
+    """Każdy typ nieprzeczytany dłużej niż tydzień → przeczytany (16.10.2026).
+    ``None`` = już wykonane. Wołający commituje.
+    """
+    return await _mark_stale_read(
+        db, marker=TOPICS_REPAIR_MARKER, age_days=TOPICS_AGE_DAYS, types=None, now=now
+    )
+
+
+async def _mark_stale_read(
+    db: AsyncSession,
+    *,
+    marker: str,
+    age_days: int,
+    types: Optional[tuple[NotificationType, ...]],
+    now: Optional[datetime],
+) -> Optional[dict[str, Any]]:
     now = now or datetime.now(timezone.utc)
     await db.execute(
-        text("SELECT pg_advisory_xact_lock(hashtext(:key))"), {"key": REPAIR_MARKER}
+        text("SELECT pg_advisory_xact_lock(hashtext(:key))"), {"key": marker}
     )
-    if await db.get(AppSetting, REPAIR_MARKER) is not None:
+    if await db.get(AppSetting, marker) is not None:
         return None
 
-    cutoff = now - timedelta(days=AGE_DAYS)
-    stale = (
+    cutoff = now - timedelta(days=age_days)
+    stale = [
         Notification.is_read.is_(False),
-        Notification.notification_type.in_(TYPES),
         Notification.created_at < cutoff,
-    )
+    ]
+    if types is not None:
+        stale.append(Notification.notification_type.in_(types))
     counts = {
         str(getattr(kind, "value", kind)): int(n)
         for kind, n in (
@@ -77,9 +111,17 @@ async def run_notification_backlog_repair(
         "marked_read": counts,
         "total": sum(counts.values()),
     }
-    db.add(AppSetting(key=REPAIR_MARKER, value=summary))
+    db.add(AppSetting(key=marker, value=summary))
     await db.flush()
     return summary
 
 
-__all__ = ["AGE_DAYS", "REPAIR_MARKER", "TYPES", "run_notification_backlog_repair"]
+__all__ = [
+    "AGE_DAYS",
+    "REPAIR_MARKER",
+    "TOPICS_AGE_DAYS",
+    "TOPICS_REPAIR_MARKER",
+    "TYPES",
+    "run_notification_backlog_repair",
+    "run_topics_backlog_repair",
+]

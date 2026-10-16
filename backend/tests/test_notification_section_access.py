@@ -195,6 +195,25 @@ def test_chat_announcement_follows_the_notification_gate_not_just_the_section() 
     assert user_can_receive_realtime_event(pipeline, job_mention)
 
 
+def test_my_people_match_event_follows_the_notification_gate() -> None:
+    """Zdarzenie „Moi ludzie” (16.10.2026) nie ma wiersza, ale ma bramkę typu
+    ``my_people_match``: sekcja i wyciszona kategoria. Domyślne ``True`` bramki
+    puściłoby nazwiska do każdego otwartego gniazda."""
+    revoked = _user()
+    pipeline = _user(pipeline="read")
+    event = {
+        "type": "my_people:match",
+        "data": {"job_id": 7, "title": "Nowa rekrutacja", "link": "/jobs/7?people=1"},
+    }
+
+    assert user_can_receive_realtime_event(pipeline, event)
+    assert not user_can_receive_realtime_event(revoked, event)
+    assert not user_can_receive_realtime_event(pipeline, {"type": "my_people:match"})
+
+    pipeline.muted_notification_categories = {"candidates": "2026-10-16T08:00:00+00:00"}
+    assert not user_can_receive_realtime_event(pipeline, event)
+
+
 @pytest.mark.asyncio
 async def test_connection_manager_drops_denied_notification_before_ws_send(
     monkeypatch: pytest.MonkeyPatch,

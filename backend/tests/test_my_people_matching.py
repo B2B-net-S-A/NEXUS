@@ -1,8 +1,10 @@
-"""„Moi ludzie" × nowa rekrutacja — dzwonek i zakładka „Do tej rekrutacji".
+"""„Moi ludzie" × nowa rekrutacja — zdarzenie na żywo i zakładka „Do tej rekrutacji".
 
 Kontrakty:
 
-- jeden dzwonek na (odbiorca, rekrutacja), z nazwiskami osób ponad progiem;
+- jedno zdarzenie ``my_people:match`` na (odbiorca, rekrutacja) po commicie,
+  z nazwiskami osób ponad progiem; od 16.10.2026 bez wiersza powiadomienia
+  (licznik ikony „Moi ludzie” liczy się z ``my_people_job_matches``);
 - osoba już w tej rekrutacji nie jest polecana;
 - wynik niezmierzony (``None``) nie trafia do powiadomienia i nie jest zerem;
 - ``hidden`` (globalna blacklista, duplikat) odpada, ostrzeżenie zostaje;
@@ -13,6 +15,7 @@ Kontrakty:
 
 from __future__ import annotations
 
+import asyncio
 import os
 from datetime import timedelta
 
@@ -63,15 +66,28 @@ async def _owned(db, owner, job_from):
     return cand
 
 
+async def _drain() -> None:
+    for _ in range(5):
+        await asyncio.sleep(0)
+
+
 @needs_db
 @pytest.mark.asyncio
-async def test_one_bell_per_recipient_with_the_people_above_threshold(monkeypatch):
+async def test_one_event_per_recipient_with_the_people_above_threshold(monkeypatch):
     from sqlalchemy import select
 
+    from app.api import ws
     from app.core.database import AsyncSessionLocal
     from app.models.my_people import MyPeopleJobMatch
     from app.models.notification import Notification, NotificationType
     from app.services import my_people_matching as mpm
+
+    pushed: list[tuple[int, dict]] = []
+
+    async def fake_notify(user_id, payload):
+        pushed.append((user_id, payload))
+
+    monkeypatch.setattr(ws, "notify_user", fake_notify)
 
     async with AsyncSessionLocal() as db:
         me = await _user(db)
@@ -100,7 +116,10 @@ async def test_one_bell_per_recipient_with_the_people_above_threshold(monkeypatc
             ),
         )
         result = await mpm.run_for_job(db, new_job)
+        await _drain()
+        assert pushed == []  # nic przed commitem
         await db.commit()
+        await _drain()
 
         matches = (
             await db.scalars(
@@ -111,7 +130,17 @@ async def test_one_bell_per_recipient_with_the_people_above_threshold(monkeypatc
             )
         ).all()
         assert {m.candidate_id for m in matches} == {strong.id}
-        bells = (
+        mine = [payload for uid, payload in pushed if uid == me.id]
+        assert len(mine) == 1
+        event = mine[0]
+        assert event["type"] == "my_people:match"
+        assert event["data"]["job_id"] == new_job.id
+        assert event["data"]["link"] == f"/jobs/{new_job.id}?people=1"
+        assert strong.lastname in event["data"]["message"]
+        assert weak.lastname not in event["data"]["message"]
+        assert result["notified"] >= 1
+        # Kopia w dzwonku już nie powstaje.
+        rows = (
             await db.scalars(
                 select(Notification).where(
                     Notification.user_id == me.id,
@@ -119,25 +148,15 @@ async def test_one_bell_per_recipient_with_the_people_above_threshold(monkeypatc
                 )
             )
         ).all()
-        assert len(bells) == 1
-        assert bells[0].link == f"/jobs/{new_job.id}?people=1"
-        assert strong.lastname in bells[0].message
-        assert weak.lastname not in bells[0].message
-        assert result["notified"] >= 1
+        assert rows == []
 
-        # To samo zdarzenie drugi raz (istotna zmiana rekrutacji) — bez dzwonka.
+        # To samo zdarzenie drugi raz (istotna zmiana rekrutacji) — cisza.
+        pushed.clear()
         again = await mpm.run_for_job(db, new_job)
         await db.commit()
+        await _drain()
         assert again.get("stored", 0) == 0
-        bells_after = (
-            await db.scalars(
-                select(Notification).where(
-                    Notification.user_id == me.id,
-                    Notification.notification_type == NotificationType.my_people_match,
-                )
-            )
-        ).all()
-        assert len(bells_after) == 1
+        assert [p for uid, p in pushed if uid == me.id] == []
 
 
 @needs_db

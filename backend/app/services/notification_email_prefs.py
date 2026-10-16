@@ -250,7 +250,7 @@ def _bell_block(user: User, kind: str) -> tuple[str, str] | None:
     who = (
         "wyłączona dla Twojej roli przez administratora"
         if by_role
-        else "wyłączona przez Ciebie w dzwonku"
+        else "wyłączona przez Ciebie w „Moich powiadomieniach”"
     )
     rest = (
         "mailem przyjdą tylko wzmianki z czatu"

@@ -231,7 +231,7 @@ def test_muted_bell_category_stops_the_email_that_follows_it():
     user.muted_notification_categories = {"deadlines": _AT}
     muted = prefs._item(user, _spec("job_deadline"), company_enabled=True)
     assert muted["state"] == "bell_muted" and muted["receiving"] is False
-    assert "wyłączona przez Ciebie w dzwonku" in muted["note"]
+    assert "wyłączona przez Ciebie w „Moich powiadomieniach”" in muted["note"]
 
     by_role = _user(UserRole.recruiter)
     by_role.role_muted_notification_types = frozenset(
