@@ -57,6 +57,7 @@ from app.services import (
     candidate_followups,
     cpro_sender,
     cv_in_transit,
+    cv_topic,
     dl_send_queue,
     move_requirements,
     new_job_leads,
@@ -922,6 +923,13 @@ async def get_dl_send_queue(
             ready=[], ready_total=0, not_ready_total=0, imported_total=0
         )
     portfolio = await svc.dl_portfolio_client_ids(db, current_user.id)
+    return await _dl_send_payload(db, current_user, portfolio)
+
+
+async def _dl_send_payload(
+    db: AsyncSession, current_user: User, portfolio: frozenset[int]
+) -> DlSendQueueResponse:
+    """Kolejka „Do wysłania” Delivery Leada — pigułka i ikona „CV” liczą to samo."""
     rows = await dl_send_queue.load_for_viewer(db, current_user, portfolio=portfolio)
     ready = sorted(
         (t for t in rows if dl_send_queue.counts_for_reviewer(t)),
@@ -951,6 +959,102 @@ async def get_dl_send_queue(
         not_ready_total=sum(1 for t in rows if not t.ready and not t.imported),
         imported_total=sum(1 for t in rows if t.imported),
         worst_urgency=dl_send_queue.worst_urgency(ready),
+    )
+
+
+class CvCheckRow(BaseModel):
+    """Auto-CV gotowe do sprawdzenia (`cv_topic.load_to_check`)."""
+
+    document_id: int
+    stage_id: int
+    candidate_id: int
+    candidate_name: str
+    job_id: int
+    job_title: str
+    job_working_title: Optional[str] = None
+    client_name: Optional[str] = None
+    since: datetime
+
+
+class CvTopicRecruiter(BaseModel):
+    to_check: list[CvCheckRow]
+    to_fix: list[CvTransitRow]
+    with_dl: list[CvTransitRow]
+    sent: list[CvTransitRow]
+
+
+class CvTopicDl(BaseModel):
+    to_send: list[DlSendRow]
+    to_send_total: int
+    worst_urgency: Optional[Literal["fresh", "due", "late"]] = None
+    # W „QC CV”, ale ruch ma rekruter (QC do poprawy albo niesprawdzone).
+    with_recruiters_total: int
+    sent_today: list[CvTransitRow]
+
+
+class CvTopicResponse(BaseModel):
+    """Ikona „CV” w górnym pasku (16.10.2026, zamiast pigułki „Do wysłania”)."""
+
+    # CV, na które czekamy na tę osobę: do sprawdzenia + do poprawy
+    # (rekruter) i gotowe do wysłania (Delivery Lead).
+    badge: int
+    recruiter: Optional[CvTopicRecruiter] = None
+    dl: Optional[CvTopicDl] = None
+
+
+_CV_RECRUITER_ROLES = (UserRole.recruiter, UserRole.delivery_lead)
+
+
+@router.get("/cv", response_model=CvTopicResponse)
+async def get_cv_topic(
+    current_user: OperationalUser,
+    db: AsyncSession = Depends(get_db),
+) -> CvTopicResponse:
+    """Ikona „CV”: moje CV w rekrutacjach ze STANU, nie ze zdarzeń.
+
+    Rekruter (i Delivery Lead, który sam przesuwa karty): do sprawdzenia,
+    do poprawy, u Delivery Leada, wysłane. Delivery Lead: do wysłania do
+    klienta (ta sama lista co `/dl-send`), u rekruterów, wysłane dziś. Konto
+    bez tych ról dostaje pustą odpowiedź bez zapytań — ikona się nie pokazuje.
+    """
+    as_recruiter = any(current_user.has_role(r) for r in _CV_RECRUITER_ROLES)
+    as_dl = current_user.has_role(UserRole.delivery_lead)
+    if not (as_recruiter or as_dl):
+        return CvTopicResponse(badge=0)
+    portfolio = (
+        await svc.dl_portfolio_client_ids(db, current_user.id) if as_dl else frozenset()
+    )
+    recruiter: Optional[cv_topic.RecruiterCv] = None
+    if as_recruiter:
+        recruiter = await cv_topic.load_recruiter(db, current_user, portfolio=portfolio)
+    dl: Optional[CvTopicDl] = None
+    if as_dl:
+        queue = await _dl_send_payload(db, current_user, portfolio)
+        sent_today = await cv_topic.load_sent_today(
+            db, current_user, portfolio=portfolio
+        )
+        dl = CvTopicDl(
+            to_send=queue.ready,
+            to_send_total=queue.ready_total,
+            worst_urgency=queue.worst_urgency,
+            with_recruiters_total=queue.not_ready_total,
+            sent_today=[CvTransitRow(**asdict(r)) for r in sent_today],
+        )
+    return CvTopicResponse(
+        badge=cv_topic.badge_for(
+            recruiter=recruiter, dl_to_send=dl.to_send_total if dl else 0
+        ),
+        recruiter=(
+            CvTopicRecruiter(
+                to_check=[CvCheckRow(**asdict(r)) for r in recruiter.to_check],
+                to_fix=[CvTransitRow(**asdict(r)) for r in recruiter.to_fix],
+                with_dl=[CvTransitRow(**asdict(r)) for r in recruiter.with_dl],
+                sent=[CvTransitRow(**asdict(r)) for r in recruiter.sent],
+            )
+            if recruiter
+            else None
+        ),
+        dl=dl,
     )
 
 
