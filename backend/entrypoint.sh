@@ -6680,7 +6680,13 @@ _DATA_STATEMENTS = [
            ('automation', 'delivery', 'read'),
            ('automation', 'insights', 'read'),
            ('automation', 'finance', 'none'),
-           ('automation', 'system_admin', 'none')
+           ('automation', 'system_admin', 'none'),
+           ('employee', 'sourcing', 'none'),
+           ('employee', 'pipeline', 'none'),
+           ('employee', 'delivery', 'none'),
+           ('employee', 'insights', 'none'),
+           ('employee', 'finance', 'none'),
+           ('employee', 'system_admin', 'none')
        ) AS defaults(role, section, access)
        WHERE NOT EXISTS (
            SELECT 1 FROM rbac_role_section_permissions
@@ -6737,7 +6743,8 @@ _DATA_STATEMENTS = [
            ('recruiter', 'b2b_contract_generator', 'manage'),
            ('user', 'b2b_contract_generator', 'view'),
            ('trainee', 'b2b_contract_generator', 'none'),
-           ('automation', 'b2b_contract_generator', 'none')
+           ('automation', 'b2b_contract_generator', 'none'),
+           ('employee', 'b2b_contract_generator', 'none')
        ) AS defaults(role, action, access)
        WHERE NOT EXISTS (
            SELECT 1 FROM rbac_role_action_permissions
@@ -6767,6 +6774,10 @@ _DATA_STATEMENTS = [
               CASE WHEN action = 'delivery_view' THEN 'manage' ELSE 'none' END
        FROM rbac_role_action_permissions
        ON CONFLICT (role, action) DO NOTHING""",
+    # 0453: „Pracownik” (`employee`) stoi wyżej w zasiewie pustej macierzy
+    # (CHECK roli poszerza `_HR_COLUMN_DDL` w fazie kolumn). Wiersze `none` do
+    # istniejącej macierzy dopisuje `hr_access_schema.SEED_DDL` w `_HR_DATA_DDL`,
+    # a cztery uprawnienia „Ludzi” — siatka `named_permissions_bootstrap`.
     # 0256: seed domyślnej punktacji Insights. `ON CONFLICT DO NOTHING`, więc
     # wartości ustawione wcześniej przez admina zostają nietknięte — ten blok
     # biegnie przy KAŻDYM starcie kontenera, a nadpisanie cofałoby strojenie

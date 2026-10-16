@@ -20,6 +20,13 @@ MIGRATION_PATH = BACKEND_ROOT / "alembic/versions/0269_configurable_section_rbac
 ROLES_ADDED_AFTER_0269: dict[str, str] = {
     UserRole.trainee.value: "0374_trainee_call_lists.py",
     UserRole.automation.value: "0446_automation_role.py",
+    UserRole.employee.value: "0453_hr_access.py",
+}
+
+# Migracje, których SQL stoi w module schematu (to samo źródło czyta
+# entrypoint przez `hr_schema_bundle`) — test czyta migrację razem z nim.
+MIGRATION_SQL_MODULES: dict[str, str] = {
+    "0453_hr_access.py": "app/services/hr_access_schema.py",
 }
 
 # Role wycofane w 0411 (sourcer, TAC → rekruter). Zamrożona migracja 0269 nadal
@@ -85,6 +92,10 @@ def test_entrypoint_recovery_seed_is_complete_and_never_overwrites_admin_edits()
 def test_roles_added_after_0269_are_seeded_by_their_own_migration() -> None:
     for role, migration_file in ROLES_ADDED_AFTER_0269.items():
         source = (BACKEND_ROOT / "alembic/versions" / migration_file).read_text()
+        module = MIGRATION_SQL_MODULES.get(migration_file)
+        if module is not None:
+            assert f"import {Path(module).stem}" in source
+            source += (BACKEND_ROOT / module).read_text()
         assert "INSERT INTO rbac_role_section_permissions" in source
         policy = DEFAULT_ROLE_SECTION_ACCESS[UserRole(role)]
         if all(access.name == "none" for access in policy.values()):

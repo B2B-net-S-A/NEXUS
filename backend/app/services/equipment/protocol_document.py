@@ -25,6 +25,7 @@ from docx.text.paragraph import Paragraph
 from docxtpl import DocxTemplate
 from jinja2 import Environment, StrictUndefined
 
+from app.core.docx_cells import grid_rows
 from app.services import cv_pdf_preview
 from app.services.b2b_contract_generator.number_words import pln_words_with_fraction
 from app.services.equipment import identifiers
@@ -163,7 +164,9 @@ def document_blocks(document_bytes: bytes) -> list[dict]:
             blocks.append(
                 {
                     "type": "table",
-                    "rows": [[cell.text for cell in row.cells] for row in table.rows],
+                    "rows": [
+                        [cell.text for cell in cells] for cells in grid_rows(table)
+                    ],
                 }
             )
     return blocks

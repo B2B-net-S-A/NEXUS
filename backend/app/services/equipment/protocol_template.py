@@ -29,6 +29,8 @@ from docx.enum.table import WD_TABLE_ALIGNMENT
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.shared import Emu, Pt, Twips
 
+from app.core.docx_cells import row_cells
+
 TEMPLATE_DIR = Path(__file__).resolve().parents[2] / "templates" / "equipment"
 ISSUE_TEMPLATE = "protokol_wydania.docx"
 RETURN_TEMPLATE = "protokol_zwrotu.docx"
@@ -182,31 +184,34 @@ def _table(
     table = document.add_table(rows=rows, cols=len(columns))
     table.style = "Table Grid"
     table.alignment = WD_TABLE_ALIGNMENT.CENTER
-    for row in table.rows:
-        for index, cell in enumerate(row.cells):
+    # Komórki przez docx_cells (strażnik `test_docx_table_cells.py`); tabela
+    # jest świeża, bez scaleń, więc to te same komórki co w `row.cells`.
+    cells = [row_cells(row) for row in table.rows]
+    for row in cells:
+        for index, cell in enumerate(row):
             cell.width = Twips(_COLUMN_WIDTHS[index])
     for index, title in enumerate(columns):
-        _cell(table.rows[0].cells[index], Run(title, bold=True), center=True)
+        _cell(cells[0][index], Run(title, bold=True), center=True)
     # docxtpl zamienia CAŁY wiersz z „{%tr …%}” na znacznik pętli.
-    _cell(table.rows[1].cells[0], Run("{%tr for line in lines %}"))
+    _cell(cells[1][0], Run("{%tr for line in lines %}"))
     for index, field in enumerate(data):
         size, font = (9.0, _BODY) if index in (0, 3) else (11.0, _DATA)
         _cell(
-            table.rows[2].cells[index],
+            cells[2][index],
             Run("{{ line.%s }}" % field, size=size, font=font),
             center=index >= 2,
         )
-    _cell(table.rows[3].cells[0], Run("{%tr endfor %}"))
+    _cell(cells[3][0], Run("{%tr endfor %}"))
     if total:
         label, value = total
         if label:
             _cell(
-                table.rows[4].cells[4],
+                cells[4][4],
                 label,
                 Run("{{ total }} zł", size=11.0, font=_DATA),
             )
         if value:
-            _cell(table.rows[4].cells[5], value)
+            _cell(cells[4][5], value)
 
 
 def _signatures(document: docx.document.Document) -> None:

@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
 
-from sqlalchemy import bindparam, text
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 #: Rodzaje z puli wypoczynkowej — tylko one dają kontraktorowi płatne godziny.
@@ -64,11 +64,11 @@ _LEAVE_DAYS_SQL = text(
       JOIN leave_requests r ON r.id = d.leave_request_id
      WHERE d.active
        AND r.status IN ('pending', 'approved')
-       AND d.user_id IN :user_ids
+       AND d.user_id = ANY(:user_ids)
        AND d.day BETWEEN :start AND :end
      ORDER BY d.user_id, d.day
     """
-).bindparams(bindparam("user_ids", expanding=True))
+)
 
 
 async def leave_days(

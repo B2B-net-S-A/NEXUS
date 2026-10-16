@@ -93,7 +93,7 @@ ROLE_CHECK_DDL: tuple[str, ...] = (
 
 # Sekcje: pracownik nie ma żadnej. ON CONFLICT — decyzja admina z panelu wygrywa.
 SEED_SECTIONS = """INSERT INTO rbac_role_section_permissions (role, section, access)
-       SELECT 'employee', s.section, 'none'
+       SELECT 'employee', section, 'none'
        FROM (VALUES ('sourcing'), ('pipeline'), ('delivery'), ('insights'),
                     ('finance'), ('system_admin')) AS s(section)
        ON CONFLICT (role, section) DO NOTHING"""

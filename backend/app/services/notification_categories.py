@@ -342,6 +342,13 @@ _SPLIT_GROUPS: dict[
         _C.contracts,
         (_T.consultant_in_other_recruitment,),
     ),
+    # „Ludzie w NEXUSIE” (0459): przypomnienie opiekuna kontraktu — osobna
+    # grupa, żeby rola mogła je wyłączyć bez końca umów i podpisów.
+    "contracts_care": (
+        "Opieka: kontakt z konsultantem",
+        _C.contracts,
+        (_T.care_contact_due,),
+    ),
     "contracts_signatures": (
         "Podpisy i zwrot sprzętu",
         _C.contracts,

@@ -70,17 +70,20 @@ def _cohort_ahead(months: int = 3) -> date:
     return date(today.year + month // 12, month % 12 + 1, 1)
 
 
-COHORT = _cohort_ahead()
+# Edycja testów = ``_cohort_ahead()`` liczone przy wywołaniu, nie stała modułu:
+# data z importu po północy w trakcie biegu CI wskazywałaby wczoraj
+# (``test_no_import_time_dates.py``).
 
 
 async def _signed(**kwargs) -> dict:
-    """Uczestnik edycji ``COHORT`` (podpisana umowa), chyba że podano inaczej."""
+    """Uczestnik edycji za trzy miesiące (podpisana umowa), chyba że podano inaczej."""
     kwargs.setdefault("status", "signed")
-    kwargs.setdefault("cohort_month", COHORT)
+    kwargs.setdefault("cohort_month", _cohort_ahead())
     return await make_academy_participant(**kwargs)
 
 
-def _url(person: dict, cohort: date = COHORT) -> str:
+def _url(person: dict, cohort: date | None = None) -> str:
+    cohort = cohort or _cohort_ahead()
     return f"{ACADEMY}/programs/{person['program_id']}/editions/{cohort:%Y-%m}"
 
 
@@ -134,8 +137,11 @@ async def test_reception_or_academy_access_reads_only_reception_issues(
     person = await _signed()
     reception = await _edition(app_client, people, _url(person))
     assert reception["can_issue"] is True
-    assert reception["edition"]["key"] == f"{COHORT:%Y-%m}"
-    assert reception["edition"]["starts_on"] == program_dates(COHORT)[0].isoformat()
+    assert reception["edition"]["key"] == f"{_cohort_ahead():%Y-%m}"
+    assert (
+        reception["edition"]["starts_on"]
+        == program_dates(_cohort_ahead())[0].isoformat()
+    )
     recruiter = await _edition(app_client, people, _url(person), "recruiter")
     assert recruiter["can_issue"] is False
     async with AsyncSessionLocal() as db:
@@ -167,10 +173,10 @@ async def test_reception_or_academy_access_reads_only_reception_issues(
         headers=_headers(people["reception"]),
     )
     assert listing.status_code == 200
-    assert [e["key"] for e in listing.json()["items"]] == [f"{COHORT:%Y-%m}"]
+    assert [e["key"] for e in listing.json()["items"]] == [f"{_cohort_ahead():%Y-%m}"]
     assert listing.json()["items"][0]["participants"] == 1
     missing = await app_client.get(
-        f"{ACADEMY}/programs/987654321/editions/{COHORT:%Y-%m}",
+        f"{ACADEMY}/programs/987654321/editions/{_cohort_ahead():%Y-%m}",
         headers=_headers(people["reception"]),
     )
     assert missing.status_code == 404
@@ -234,14 +240,18 @@ async def test_checklist_is_created_once_and_keeps_ticks(
         await db.execute(
             delete(AcademyEditionChecklistItem).where(
                 AcademyEditionChecklistItem.program_id == person["program_id"],
-                AcademyEditionChecklistItem.cohort_month == COHORT,
+                AcademyEditionChecklistItem.cohort_month == _cohort_ahead(),
                 AcademyEditionChecklistItem.item_key == "after_close",
             )
         )
         await db.commit()
         program_id = person["program_id"]
-        assert await academy_edition.ensure_checklist(db, program_id, COHORT) == 1
-        assert await academy_edition.ensure_checklist(db, program_id, COHORT) == 0
+        assert (
+            await academy_edition.ensure_checklist(db, program_id, _cohort_ahead()) == 1
+        )
+        assert (
+            await academy_edition.ensure_checklist(db, program_id, _cohort_ahead()) == 0
+        )
         await db.commit()
     again = await _edition(app_client, people, url)
     assert again["checklist_total"] == 70
@@ -325,7 +335,7 @@ async def test_signed_creates_kit_task_before_program_start(
         app_client,
         people,
         person["application_id"],
-        {"action": "signed", "cohort_month": COHORT.isoformat()},
+        {"action": "signed", "cohort_month": _cohort_ahead().isoformat()},
     )
     task = await _task(f"academy:{person['application_id']}:kit")
     assert task is not None
@@ -335,7 +345,7 @@ async def test_signed_creates_kit_task_before_program_start(
     async with AsyncSessionLocal() as db:
         expected = max(
             await equipment_tasks.workdays_before(
-                db, program_dates(COHORT)[0], academy_edition.KIT_LEAD_WORKDAYS
+                db, program_dates(_cohort_ahead())[0], academy_edition.KIT_LEAD_WORKDAYS
             ),
             business_today(),
         )
@@ -405,7 +415,7 @@ async def test_leaving_cancels_travel_and_kit_task_and_asks_for_return(
         app_client,
         people,
         first["application_id"],
-        {"action": "signed", "cohort_month": COHORT.isoformat()},
+        {"action": "signed", "cohort_month": _cohort_ahead().isoformat()},
     )
     assert (await _task(f"academy:{first['application_id']}:kit")).status == "otwarte"
     await app_client.patch(
