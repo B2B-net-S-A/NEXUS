@@ -232,3 +232,31 @@ def merge_rewrite(previous: str, draft: str, new: str) -> MergeResult:
         and (part.key not in in_new or in_new[part.key].text != part.text)
     )
     return MergeResult(_html(merged, rodo), kept, recognized=True)
+
+
+def roles_newest_first(markup: str) -> tuple[str, int]:
+    """Stanowiska w doświadczeniu od najnowszego — poprawka QC „Ułóż od najnowszego”.
+
+    Te same części co „Napisz od nowa”: stanowisko to blok ze znacznikiem
+    ``role`` w sekcji doświadczenia i wszystko do następnego stanowiska albo
+    nagłówka; przenosimy je w całości. Reguła kolejności i jej granica to
+    `cv_role_order` (16.10.2026). Zwraca ``(treść, ile stanowisk zmieniło
+    miejsce)``; przy zerze treść jest ta sama co na wejściu.
+    """
+    from app.services import cv_role_order
+
+    parts, rodo = _parts(markup)
+    slots = [n for n, part in enumerate(parts) if part.key.startswith("role:")]
+    if len(slots) < 2:
+        return markup, 0
+    texts = []
+    for n in slots:
+        role = parts[n].blocks[0]
+        texts.append(cv_role_order.dates_text(_dates(role), _plain(role)))
+    order = cv_role_order.newest_first(texts)
+    if order is None or order == list(range(len(slots))):
+        return markup, 0
+    moved = [parts[slots[n]] for n in order]
+    for slot, part in zip(slots, moved):
+        parts[slot] = part
+    return _html(parts, rodo), sum(1 for k, n in enumerate(order) if k != n)

@@ -52,6 +52,8 @@ from app.models.candidate_stage_cv import CandidateStageCV
 from app.models.cv_generated_document import CvGeneratedDocument
 from app.models.cv_qc_run import CvQcRun
 from app.models.recruitment_pipeline import CandidateStage
+from app.services import cv_role_order
+from app.services.cv_rewrite_merge import roles_newest_first
 from app.services import dz_review as dz
 from app.services.recommendation_card_parser import (
     AI_HIDDEN_FIELDS,
@@ -118,6 +120,7 @@ WARNING_KEYS = (
     "spelling",
     "title_matches_role",
     "bold_unsupported",
+    "role_order",
 )
 
 LABELS = {
@@ -134,6 +137,7 @@ LABELS = {
     "spelling": "Pisownia technologii",
     "title_matches_role": "Tytuł CV zgodny ze stanowiskiem",
     "bold_unsupported": "Pogrubienia mają pokrycie w oryginale",
+    "role_order": "Stanowiska od najnowszego",
 }
 
 # Powody obejścia QC do wyboru (02.10.2026). Minimum 10 znaków wolnego tekstu
@@ -1276,6 +1280,37 @@ def _assign_keys(check_key: str, entries: list[dict]) -> None:
         entry["key"] = base if count == 0 else f"{base}#{count}"
 
 
+def _role_head(block: Block) -> str:
+    return " ".join(block.text.split())
+
+
+def _role_order_check(blocks: list[Block], roles: list[CvRole]) -> dict:
+    """„Stanowiska od najnowszego”: pierwsze stanowisko, które stoi za wysoko."""
+    heads = [blocks[r.blocks[0]] for r in roles if r.blocks]
+    if len(heads) < 2 or any(head.section != "role" for head in heads):
+        return _check("role_order", "skip", "Nie rozpoznano stanowisk w CV")
+    texts = [
+        cv_role_order.dates_text(
+            " ".join(run["t"] for run in head.runs if not run.get("b")), head.text
+        )
+        for head in heads
+    ]
+    order = cv_role_order.newest_first(texts)
+    if order is None:
+        return _check("role_order", "skip", "Stanowiska bez dat")
+    misplaced = next((k for k, n in enumerate(order) if k != n), None)
+    if misplaced is None:
+        return _check("role_order", "pass", "OK")
+    above, newer = heads[misplaced], heads[order[misplaced]]
+    item = _item(
+        role=roles[misplaced].role.label,
+        detail=f"„{_role_head(above)}” stoi nad nowszym „{_role_head(newer)}”.",
+        fix="role_order",
+        role_index=misplaced,
+    )
+    return _check("role_order", "fail", "Do ułożenia", [item])
+
+
 def compute_checks(data: QcInput) -> list[dict]:
     """Wszystkie sprawdzenia QC w kolejności kontraktu. Czysta funkcja."""
 
@@ -1698,6 +1733,12 @@ def compute_checks(data: QcInput) -> list[dict]:
                 no_dates,
             )
         )
+
+    # 7b. Kolejność stanowisk (16.10.2026, decyzje Artura D1–D7): uwaga
+    # z jednym przyciskiem, tylko pewne błędy (`cv_role_order`). Bez znaczników
+    # stanowisk (CV wklejone) role są zgadywane po nazwach firm — tam nie
+    # zgłaszamy nic (D5), a rola bez dat zostaje na miejscu (D4).
+    checks.append(_role_order_check(blocks, roles))
 
     # 8. Reguły klienta.
     rule_items: list[dict] = []
@@ -2700,7 +2741,7 @@ async def dismiss_finding(
     from app.models.activity import Activity
     from app.services import cv_finding_dismissals as dismissals
 
-    reason, note = dismissals.validate_reason(reason, note)
+    reason, note = dismissals.validate_reason(reason, note, check_key=check_key)
     if check_key in dismissals.NOT_DISMISSABLE:
         raise dismissals.DismissError(
             "Tej uwagi nie da się pominąć — chroni przed wysłaniem stawki, "
@@ -4312,7 +4353,9 @@ def draft_after_fix(previous_html: str, fixed_html: str) -> str:
 # i poprawka AI w brzmieniu, którego cytat serwer sprawdził przy jej pobraniu.
 # Usunięcie terminu i własny tekst rekrutera zatwierdza się pojedynczo.
 BULK_ACTIONS = frozenset({"bold_all", "spelling", "ai_fix"})
-_ACTIONS = BULK_ACTIONS | {"remove_term"}
+# Kolejność stanowisk zmienia układ całego doświadczenia — rekruter ma ją
+# zobaczyć i kliknąć osobno (D3, 16.10.2026).
+_ACTIONS = BULK_ACTIONS | {"remove_term", "role_order"}
 # Każda poprawka czyta całą treść od nowa (do 500 KB od klienta). Pierwsza idzie
 # zawsze, kolejne dopóki wątek nie zużył tyle sekund procesora: zwykłe CV
 # (kilkadziesiąt KB) mieści w tym wszystkie 20 poprawek z dużym zapasem.
@@ -4413,6 +4456,10 @@ def transform_html(
                     f"„{term}” nie stoi na liście technologii — usuń je w edytorze CV."
                 )
                 done = {"action": action, "term": term[:120]}
+            elif action == "role_order":
+                changed, count = roles_newest_first(current)
+                nothing = "Stanowiska już są ułożone od najnowszego."
+                done = {"action": action}
             else:
                 changed, count = fix_spelling_html(current)
                 nothing = "Nie ma pisowni do poprawienia."
@@ -4637,7 +4684,7 @@ async def apply_action(
         fix = await load_fix(db, stage.id, str(payload.get("fix_id") or ""))
         if fix is None:
             raise ApplyError("Nie ma takiej propozycji — odśwież propozycje poprawek.")
-    elif action not in ("bold_all", "remove_term", "spelling"):
+    elif action not in ("bold_all", "remove_term", "spelling", "role_order"):
         raise ApplyError("Nieznana poprawka.")
 
     csv = await _editable_csv(
@@ -4688,6 +4735,11 @@ async def apply_action(
                 f"„{term}” nie stoi na liście technologii — usuń je w edytorze CV."
             )
         details.update({"term": term[:120], "count": count})
+    elif action == "role_order":
+        new_html, count = roles_newest_first(html)
+        if not count:
+            raise ApplyError("Stanowiska już są ułożone od najnowszego.")
+        details.update({"count": count})
     else:
         new_html, count = fix_spelling_html(html)
         if not count:

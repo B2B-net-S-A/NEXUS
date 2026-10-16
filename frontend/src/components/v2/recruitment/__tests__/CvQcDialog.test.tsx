@@ -1448,4 +1448,64 @@ describe("CvQcDialog — QC CV", () => {
       expect(within(muted).getByLabelText("Informacja")).toBeTruthy();
     });
   });
+
+  // 16.10.2026, decyzje Artura D1–D7: uwaga z jednym przyciskiem, a zamiast
+  // „To nieprawda” jedno kliknięcie „Zostaw tę kolejność”.
+  describe("„Stanowiska od najnowszego”", () => {
+    const ORDER_ITEM = {
+      key: "role_order|„developer 01.2017 – 02.2021” stoi nad nowszym „senior developer 03.2021 – obecnie”.|developer · globex",
+      role: "Developer 01.2017 – 02.2021 · Globex",
+      detail: "„Developer 01.2017 – 02.2021” stoi nad nowszym „Senior Developer 03.2021 – obecnie”.",
+      fix: "role_order" as const,
+      role_index: 0,
+    };
+    const ordered = (): QcResult => {
+      const base = result();
+      const check: QcCheck = {
+        key: "role_order",
+        label: "Stanowiska od najnowszego",
+        severity: "warning",
+        status: "fail",
+        summary: "Do ułożenia",
+        items: [ORDER_ITEM],
+      };
+      return { ...base, checks: [...base.checks, check] };
+    };
+
+    async function openOrder() {
+      const dialog = await screen.findByRole("dialog");
+      const notes = await within(dialog).findByRole("region", { name: "Warto poprawić — nie blokuje" });
+      await userEvent.click(within(notes).getByRole("button", { name: /Stanowiska od najnowszego/ }));
+      return notes;
+    }
+
+    it("„Ułóż od najnowszego” to jedna poprawka QC", async () => {
+      serve(ordered());
+      post.mockResolvedValue({ data: passed() });
+      renderDialog();
+      const notes = await openOrder();
+      expect(within(notes).getByText(ORDER_ITEM.detail)).toBeTruthy();
+      await userEvent.click(within(notes).getByRole("button", { name: "Ułóż od najnowszego" }));
+      await waitFor(() => expect(post).toHaveBeenCalledWith(`${QC_URL}/apply`, { action: "role_order" }));
+      await waitFor(() => expect(showSuccess).toHaveBeenCalledWith("Ułożono stanowiska od najnowszego."));
+    });
+
+    it("„Zostaw tę kolejność” pomija uwagę jednym kliknięciem — bez formularza „To nieprawda”", async () => {
+      serve(ordered());
+      post.mockResolvedValue({ data: passed() });
+      renderDialog();
+      const notes = await openOrder();
+      expect(within(notes).queryByRole("button", { name: "To nieprawda" })).toBeNull();
+      await userEvent.click(within(notes).getByRole("button", { name: "Zostaw tę kolejność" }));
+      await waitFor(() =>
+        expect(post).toHaveBeenCalledWith(`${QC_URL}/dismiss`, {
+          check_key: "role_order",
+          key: ORDER_ITEM.key,
+          reason: "kept_order",
+        }),
+      );
+      expect(within(notes).queryByRole("form")).toBeNull();
+      await waitFor(() => expect(showSuccess).toHaveBeenCalledWith("Kolejność zostaje — QC przeliczone."));
+    });
+  });
 });

@@ -192,7 +192,7 @@ class QcFixesResponse(BaseModel):
 
 
 class QcApplyRequest(BaseModel):
-    action: Literal["ai_fix", "bold_all", "remove_term", "spelling"]
+    action: Literal["ai_fix", "bold_all", "remove_term", "spelling", "role_order"]
     fix_id: Optional[str] = Field(default=None, max_length=40)
     text: Optional[str] = Field(default=None, max_length=1000)
     scope: Optional[Literal["must", "nice"]] = None
@@ -203,7 +203,7 @@ class QcApplyRequest(BaseModel):
 
 
 class QcTransformAction(BaseModel):
-    action: Literal["ai_fix", "bold_all", "remove_term", "spelling"]
+    action: Literal["ai_fix", "bold_all", "remove_term", "spelling", "role_order"]
     fix_id: Optional[str] = Field(default=None, max_length=40)
     text: Optional[str] = Field(default=None, max_length=1000)
     scope: Optional[Literal["must", "nice"]] = None
@@ -253,7 +253,9 @@ class QcDismissRequest(BaseModel):
 
     check_key: str = Field(min_length=1, max_length=40)
     key: str = Field(min_length=1, max_length=400)
-    reason: Literal["in_cv", "other_name", "wrong_place", "not_needed", "other"]
+    reason: Literal[
+        "in_cv", "other_name", "wrong_place", "not_needed", "other", "kept_order"
+    ]
     note: Optional[str] = Field(default=None, max_length=500)
     quote: Optional[str] = Field(default=None, max_length=300)
 

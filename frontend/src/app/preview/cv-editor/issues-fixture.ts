@@ -52,6 +52,62 @@ function check(key: string, label: string, severity: QcCheck["severity"], items:
   return { key, label, severity, status: items.length ? "fail" : "pass", summary: items.length ? null : "OK", items };
 }
 
+// ── Kolejność stanowisk (16.10.2026) — uproszczenie `cv_role_order`: rok
+// końca z linii stanowiska, „obecnie” = najnowsze. Serwer liczy też początek.
+
+const ROLE_START = /<p[^>]*data-cv-section="role"[^>]*>/g;
+const ROLE_END = /<h[12][\s>]|<p[^>]*data-cv-section="rodo"/;
+
+/** Stanowiska jako kawałki HTML od linii stanowiska do następnej albo do nagłówka. */
+function roleChunks(html: string): { before: string; roles: string[]; after: string } | null {
+  const starts = [...html.matchAll(ROLE_START)].map((match) => match.index ?? 0);
+  if (starts.length < 2) return null;
+  const roles: string[] = [];
+  let after = "";
+  starts.forEach((start, n) => {
+    const next = n + 1 < starts.length ? starts[n + 1] : html.length;
+    const chunk = html.slice(start, next);
+    const stop = n + 1 < starts.length ? -1 : chunk.slice(1).search(ROLE_END);
+    roles.push(stop < 0 ? chunk : chunk.slice(0, stop + 1));
+    if (stop >= 0) after = chunk.slice(stop + 1);
+  });
+  return { before: html.slice(0, starts[0]), roles, after };
+}
+
+function roleEnd(chunk: string): number {
+  const head = plain(chunk.slice(0, chunk.indexOf("</p>") + 4));
+  if (/obecnie|present/i.test(head)) return 9999;
+  return Math.max(0, ...(head.match(/\b(?:19|20)\d{2}\b/g) ?? []).map(Number));
+}
+
+function newestFirst(roles: string[]): string[] {
+  return [...roles].sort((a, b) => roleEnd(b) - roleEnd(a));
+}
+
+function roleOrderItems(html: string): QcCheck["items"] {
+  const parts = roleChunks(html);
+  if (!parts) return [];
+  const sorted = newestFirst(parts.roles);
+  const at = parts.roles.findIndex((role, n) => role !== sorted[n]);
+  if (at < 0) return [];
+  const head = (chunk: string) => plain(chunk.slice(0, chunk.indexOf("</p>") + 4)).replace("Stanowisko:", "").trim();
+  const above = head(parts.roles[at]);
+  return [
+    {
+      key: `role_order|${above.toLowerCase()}|cv`,
+      role: above,
+      detail: `„${above}” stoi nad nowszym „${head(sorted[at])}”.`,
+      fix: "role_order",
+      role_index: at,
+    },
+  ];
+}
+
+function rolesNewestFirst(html: string): string {
+  const parts = roleChunks(html);
+  return parts ? parts.before + newestFirst(parts.roles).join("") + parts.after : html;
+}
+
 function checksFor(html: string, confirmed: ReadonlySet<string>, boldExpected: boolean): QcCheck[] {
   const text = plain(html);
   const unboldedItems: QcCheck["items"] =
@@ -110,6 +166,7 @@ function checksFor(html: string, confirmed: ReadonlySet<string>, boldExpected: b
         : [],
     ),
     check("dates", "Daty w rolach", "warning", []),
+    check("role_order", "Stanowiska od najnowszego", "warning", roleOrderItems(html)),
     check("client_rules", "Reguły klienta", "blocking", []),
   ];
 }
@@ -163,7 +220,10 @@ function memoryDismissal(id: number, reason: QcDismissReason, note: string | und
   return {
     id,
     reason,
-    reason_label: QC_DISMISS_REASONS.find((option) => option.code === reason)?.label ?? reason,
+    reason_label:
+      reason === "kept_order"
+        ? "Kolejność stanowisk celowo inna"
+        : (QC_DISMISS_REASONS.find((option) => option.code === reason)?.label ?? reason),
     note: note ?? null,
     by_name: "Marta Testowa",
     at: new Date().toISOString(),
@@ -292,6 +352,7 @@ export function memoryIssuesApi(savedHtml: () => string, variant: IssuesVariant)
       for (const action of body.actions) {
         let next = html;
         if (action.action === "spelling") next = html.replaceAll(MISSPELLED, "GitHub");
+        else if (action.action === "role_order") next = rolesNewestFirst(html);
         else if (action.action === "bold_all") {
           next = html.replace(new RegExp(`(?<!<strong>)${UNBOLDED}(?!</strong>)`, "g"), `<strong>${UNBOLDED}</strong>`);
         } else if (action.action === "remove_term" || (action.action === "ai_fix" && action.text)) {

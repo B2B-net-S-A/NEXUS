@@ -34,7 +34,12 @@ REASONS: dict[str, tuple[str, bool]] = {
     "wrong_place": ("Dotyczy innej roli albo sekcji", True),
     "not_needed": ("Nie dotyczy tej rekrutacji", False),
     "other": ("Inny powód", False),
+    # „Zostaw tę kolejność” przy uwadze „Stanowiska od najnowszego” (D6,
+    # 16.10.2026): wybór rekrutera, nie błąd QC — i tylko przy tej uwadze.
+    "kept_order": ("Kolejność stanowisk celowo inna", False),
 }
+# Powody przypisane do jednego sprawdzenia QC.
+REASON_CHECKS = {"kept_order": "role_order"}
 QC_WRONG_REASONS = frozenset(code for code, (_, wrong) in REASONS.items() if wrong)
 NOT_DISMISSABLE = frozenset({"cv_present", "client_rules"})
 SOURCES = ("qc", "generator", "review")
@@ -170,9 +175,13 @@ def _whole_cv_gaps(
     return out
 
 
-def validate_reason(reason: str, note: Optional[str]) -> tuple[str, Optional[str]]:
+def validate_reason(
+    reason: str, note: Optional[str], *, check_key: Optional[str] = None
+) -> tuple[str, Optional[str]]:
     if reason not in REASONS:
         raise DismissError("Wybierz powód pominięcia.")
+    if REASON_CHECKS.get(reason, check_key) != check_key:
+        raise DismissError("Ten powód nie pasuje do tej uwagi — wybierz inny.")
     clean = " ".join((note or "").split())[:NOTE_MAX] or None
     if reason == "other" and not clean:
         raise DismissError("Opisz, dlaczego uwaga jest nieprawdziwa.")

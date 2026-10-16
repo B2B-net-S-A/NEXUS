@@ -165,7 +165,9 @@ class CVEditorDismissRequest(BaseModel):
     source: Literal["generator", "review"]
     text: str = Field(min_length=1, max_length=1000)
     status: str | None = Field(default=None, max_length=40)
-    reason: Literal["in_cv", "other_name", "wrong_place", "not_needed", "other"]
+    reason: Literal[
+        "in_cv", "other_name", "wrong_place", "not_needed", "other", "kept_order"
+    ]
     note: str | None = Field(default=None, max_length=500)
 
 

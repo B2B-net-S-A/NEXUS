@@ -4116,3 +4116,161 @@ async def test_qc_quality_panel_is_for_admins_and_mutes_a_warning(
                 delete(AppSetting).where(AppSetting.key == qc_quality.SETTING_KEY)
             )
             await db.commit()
+
+
+# ── Kolejność stanowisk (16.10.2026, decyzje Artura D1–D7) ──────────────────
+#
+# Uwaga (nie blokada) z jednym przyciskiem „Ułóż od najnowszego”; poza
+# „Popraw wszystko”; rola bez dat zostaje na miejscu; CV bez znaczników
+# stanowisk — sprawdzenie nie dotyczy; „Zostaw tę kolejność” = pominięcie.
+
+ROLE_ORDER_HTML = (
+    '<h2 data-cv-section="experience">Doświadczenie</h2>'
+    '<p data-cv-section="role"><b>Developer</b> 01.2017 – 02.2021</p>'
+    '<p data-cv-section="employer">Globex</p>'
+    "<ul><li><p>Usługi REST w Java.</p></li></ul>"
+    '<p data-cv-section="role"><b>Senior Developer</b> 03.2021 – obecnie</p>'
+    '<p data-cv-section="employer">Acme Bank</p>'
+    "<ul><li><p>Mikroserwisy płatności w Java.</p></li></ul>"
+)
+
+
+def _role_order(html: str) -> dict:
+    return _by_key(qc.compute_checks(_qc_input(html, must=_reqs("Java"))))["role_order"]
+
+
+def test_older_role_above_a_newer_one_is_a_warning_with_one_fix() -> None:
+    check = _role_order(ROLE_ORDER_HTML)
+    assert (check["status"], check["severity"]) == ("fail", "warning")
+    assert check["key"] in qc.WARNING_KEYS
+    (item,) = check["items"]
+    assert (item["fix"], item["role_index"]) == ("role_order", 0)
+    assert "Developer 01.2017 – 02.2021" in item["detail"]
+    assert "Senior Developer 03.2021 – obecnie" in item["detail"]
+    assert item["key"].startswith("role_order|")
+
+
+def test_roles_in_order_and_overlapping_finished_roles_pass() -> None:
+    first, second = ROLE_ORDER_HTML.split('<p data-cv-section="role">')[1:]
+    head = '<h2 data-cv-section="experience">Doświadczenie</h2>'
+    swapped = (
+        head
+        + '<p data-cv-section="role">'
+        + second
+        + '<p data-cv-section="role">'
+        + first
+    )
+    assert _role_order(swapped)["status"] == "pass"
+    overlapping = (
+        head + '<p data-cv-section="role"><b>Kontrakt</b> 06.2022 – 03.2023</p>'
+        "<ul><li><p>Java.</p></li></ul>"
+        '<p data-cv-section="role"><b>Etat</b> 01.2018 – 12.2023</p>'
+        "<ul><li><p>Java.</p></li></ul>"
+    )
+    assert _role_order(overlapping)["status"] == "pass"
+    ended_above_current = (
+        head + '<p data-cv-section="role"><b>Etat</b> 2015 – 2022</p>'
+        '<p data-cv-section="role"><b>Kontrakt</b> 2019 – obecnie</p>'
+    )
+    assert _role_order(ended_above_current)["status"] == "fail"
+
+
+def test_role_order_needs_role_markers_and_dates() -> None:
+    plain = (
+        '<h2 data-cv-section="experience">Doświadczenie</h2>'
+        "<p>Developer 01.2017 – 02.2021, Globex</p>"
+        "<p>Senior Developer 03.2021 – obecnie, Acme Bank</p>"
+    )
+    assert _role_order(plain)["status"] == "skip"
+    undated = ROLE_ORDER_HTML.replace(" 01.2017 – 02.2021", "").replace(
+        " 03.2021 – obecnie", ""
+    )
+    assert _role_order(undated)["status"] == "skip"
+
+
+def test_role_without_dates_keeps_its_place_in_the_check() -> None:
+    html = ROLE_ORDER_HTML.replace(
+        '<p data-cv-section="role"><b>Senior',
+        '<p data-cv-section="role"><b>Praktyki</b></p><ul><li><p>Java.</p></li></ul>'
+        '<p data-cv-section="role"><b>Senior',
+    )
+    (item,) = _role_order(html)["items"]
+    assert item["role_index"] == 0
+
+
+def test_role_order_fix_moves_whole_roles_and_is_never_bulk() -> None:
+    out, applied, skipped = _transform(
+        [{"action": "role_order"}], bulk=False, html=ROLE_ORDER_HTML
+    )
+    assert (applied, skipped) == ([{"action": "role_order", "count": 2}], [])
+    assert out.index("Senior Developer") < out.index("<b>Developer</b>")
+    assert out.index("Acme Bank") < out.index("Globex")
+    assert out.index("Mikroserwisy") < out.index("Usługi REST")
+    assert _role_order(out)["status"] == "pass"
+    again, applied, skipped = _transform(
+        [{"action": "role_order"}], bulk=False, html=out
+    )
+    assert (again, applied) == (out, [])
+    assert [s["code"] for s in skipped] == ["nothing_to_do"]
+    _, applied, skipped = _transform(
+        [{"action": "role_order"}], bulk=True, html=ROLE_ORDER_HTML
+    )
+    assert applied == [] and [s["code"] for s in skipped] == ["not_in_bulk"]
+    assert "role_order" not in qc.BULK_ACTIONS
+
+
+def test_role_order_fix_handles_generator_wrappers_and_keeps_the_consent() -> None:
+    from app.services.cv_generator_b2b.docx_renderer import TRANSLATIONS
+
+    # Kształt `html_export.render_interactive_html(document_only=True)`:
+    # stanowiska w `div.job`, klauzula w środku `article`.
+    clause_text = TRANSLATIONS["pl"]["rodo"]
+    wrapped = (
+        '<article class="cv"><h2 data-cv-section="experience">Doświadczenie</h2>'
+        '<div class="job"><p class="job-head" data-cv-section="role"><b>Developer</b> '
+        '<span class="job-dates">01.2017 – 02.2021</span></p>'
+        '<p data-cv-section="employer">Globex</p><ul><li>Usługi REST.</li></ul></div>'
+        '<div class="job"><p class="job-head" data-cv-section="role"><b>Senior Developer</b> '
+        '<span class="job-dates">03.2021 – obecnie</span></p>'
+        '<p data-cv-section="employer">Acme Bank</p><ul><li>Mikroserwisy.</li></ul></div>'
+        f'<p class="rodo">{clause_text}</p></article>'
+    )
+    out, applied, _ = _transform([{"action": "role_order"}], bulk=False, html=wrapped)
+    assert applied == [{"action": "role_order", "count": 2}]
+    assert out.index("Acme Bank") < out.index("Globex")
+    assert out.count(clause_text) == 1
+    assert out.index(clause_text) > out.index("Usługi REST")
+
+
+def test_role_order_stays_cheap_on_huge_content() -> None:
+    role = (
+        '<p data-cv-section="role"><b>Dev</b> 2010 – 2011</p>'
+        '<p data-cv-section="role"><b>Dev</b> 2012 – 2013</p>'
+    )
+    html = '<h2 data-cv-section="experience">Doświadczenie</h2>' + role * 6000
+    result: list = []
+    spent = _cpu(
+        lambda: result.append(
+            (
+                _role_order(html),
+                _transform([{"action": "role_order"}], bulk=False, html=html),
+            )
+        )
+    )
+    assert spent < TRANSFORM_CPU_LIMIT, f"{spent:.1f} s"
+    check, (_, applied, skipped) = result[0]
+    assert check["status"] == "skip" and applied == []
+    assert [s["code"] for s in skipped] == ["nothing_to_do"]
+
+
+def test_kept_order_is_a_reason_only_for_the_role_order_check() -> None:
+    from app.services import cv_finding_dismissals as dismissals
+
+    assert dismissals.validate_reason("kept_order", None, check_key="role_order") == (
+        "kept_order",
+        None,
+    )
+    assert "kept_order" not in dismissals.QC_WRONG_REASONS
+    for other in (None, "must_bolded"):
+        with pytest.raises(dismissals.DismissError):
+            dismissals.validate_reason("kept_order", None, check_key=other)
