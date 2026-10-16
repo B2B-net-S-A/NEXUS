@@ -9,6 +9,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { api } from "@/lib/api";
 import type { EmploymentType } from "@/lib/api/hr";
+import { WS_BACKED_SAFETY_POLL_MS } from "@/lib/polling";
 
 export type LeaveType =
   | "vacation"
@@ -433,8 +434,8 @@ export function useAbsentToday(enabled: boolean) {
         )
       ).data,
     enabled,
-    staleTime: 5 * 60 * 1000,
-    refetchInterval: 5 * 60 * 1000,
+    staleTime: WS_BACKED_SAFETY_POLL_MS,
+    refetchInterval: WS_BACKED_SAFETY_POLL_MS,
   });
 }
 

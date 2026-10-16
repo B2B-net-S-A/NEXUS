@@ -276,8 +276,8 @@ export function ContractTerminationDialog({
         {returnTaskError ? (
           <p role="alert" className="text-sm text-destructive">
             Zakończenie współpracy jest zapisane, ale recepcja nie dostała
-            zadania odbioru sprzętu: {returnTaskError} Daj jej znać albo załóż
-            zadanie ponownie w zakładce „Sprzęt”.
+            zadania odbioru sprzętu: {returnTaskError} Daj znać recepcji, że
+            sprzęt jest do odebrania.
           </p>
         ) : null}
       </AppModal>

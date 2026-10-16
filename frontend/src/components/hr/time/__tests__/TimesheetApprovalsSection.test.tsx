@@ -120,6 +120,32 @@ describe("TimesheetApprovalsSection", () => {
     mocks.get.mockResolvedValue({ data: { year: 2031, month: 3, items } });
   });
 
+  it("link z powiadomienia na otwartym ekranie zmienia miesiąc i otwiera podgląd osoby", async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const me = config({ is_manager: true, direct_reports: 3 });
+    const view = render(
+      <QueryClientProvider client={client}>
+        <TimesheetApprovalsSection config={me} initialMonth={{ year: 2031, month: 3 }} />
+      </QueryClientProvider>,
+    );
+    await screen.findByTestId("queue-21");
+    // Miękka nawigacja App Routera: ten sam komponent, nowe parametry adresu.
+    view.rerender(
+      <QueryClientProvider client={client}>
+        <TimesheetApprovalsSection
+          config={me}
+          initialMonth={{ year: 2031, month: 4 }}
+          focusUserId={21}
+        />
+      </QueryClientProvider>,
+    );
+    await waitFor(() => {
+      const urls = mocks.get.mock.calls.map(([url]) => url);
+      expect(urls).toContain("/api/hr/time/team/2031/4");
+      expect(urls).toContain("/api/hr/time/team/21/2031/4");
+    });
+  });
+
   it("osoba bez zespołu i bez Płac nie widzi sekcji", () => {
     const { container } = renderSection({});
     expect(container).toBeEmptyDOMElement();

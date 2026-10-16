@@ -140,7 +140,7 @@ async def _notify(db: AsyncSession, rate: EmployeeRate) -> None:
                 ntype=NotificationType.hr_rate_changed,
                 related_entity_type="employee_rate",
                 related_entity_id=rate.id,
-                link="/my-time",
+                link="/my-time?tab=bonuses",
             )
     except Exception:  # noqa: BLE001 — dzwonek nie cofa zapisu stawki
         logger.exception("[payroll] dzwonek o stawce nie wyszedł rate=%s", rate.id)

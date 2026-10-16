@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ChevronLeft, ChevronRight, Download } from "lucide-react";
 
 import { AppModal } from "@/components/ds/AppModal";
@@ -26,6 +26,7 @@ import { cn, formatDate } from "@/lib/utils";
 import { resolveViewState } from "@/lib/view-state";
 
 import { TimesheetPreviewDialog } from "./TimesheetPreviewDialog";
+import { useUrlMonth } from "./use-url-month";
 import {
   STATUS_TONE,
   defaultQueueMonth,
@@ -51,8 +52,12 @@ export function TimesheetApprovalsSection({
 }: TimesheetApprovalsSectionProps) {
   const { showToast } = useToast();
   const { askConfirm, confirmDialog } = useConfirmV2();
-  const [period, setPeriod] = useState<YearMonth>(initialMonth ?? defaultQueueMonth());
+  const [period, setPeriod] = useUrlMonth(initialMonth, defaultQueueMonth);
   const [previewId, setPreviewId] = useState<number | null>(focusUserId ?? null);
+  // Osoba z linku powiadomienia przy otwartym ekranie (miękka nawigacja).
+  useEffect(() => {
+    if (focusUserId != null) setPreviewId(focusUserId);
+  }, [focusUserId]);
   const [returning, setReturning] = useState<TeamQueueItem | null>(null);
   const [note, setNote] = useState("");
   const [noteError, setNoteError] = useState<string | null>(null);

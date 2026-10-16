@@ -182,7 +182,7 @@ async def _notify(
                 ntype=NotificationType.hr_bonus_assigned,
                 related_entity_type="hr_bonus",
                 related_entity_id=bonus.id,
-                link="/my-time",
+                link="/my-time?tab=bonuses",
             )
     except Exception:  # noqa: BLE001 — dzwonek nie cofa decyzji o premii
         logger.exception("[payroll] dzwonek o premii nie wyszedł bonus=%s", bonus.id)

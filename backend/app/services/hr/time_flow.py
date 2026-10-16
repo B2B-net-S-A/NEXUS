@@ -72,7 +72,8 @@ def approvals_link(year: int, month: int, user_id: int) -> str:
 
 
 def payroll_link(year: int, month: int) -> str:
-    return f"/people/payroll?year={year}&month={month}"
+    # Trasa miesiąca płac to `/people/payroll/RRRR-MM` (lista miesięcy parametrów nie czyta).
+    return f"/people/payroll/{year}-{month:02d}"
 
 
 async def _notify(

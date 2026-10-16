@@ -29,6 +29,7 @@ import {
 import { resolveViewState } from "@/lib/view-state";
 
 import { EntryDialog } from "./EntryDialog";
+import { useUrlMonth } from "./use-url-month";
 import { MonthGrid } from "./MonthGrid";
 import {
   STATUS_TONE,
@@ -59,7 +60,7 @@ interface EditorState {
 export function MyMonthTab({ config, initialMonth, onMonthChange }: MyMonthTabProps) {
   const { showToast } = useToast();
   const { askConfirm, confirmDialog } = useConfirmV2();
-  const [period, setPeriod] = useState<YearMonth>(initialMonth ?? currentYearMonth());
+  const [period, setPeriod] = useUrlMonth(initialMonth, currentYearMonth);
   const [editor, setEditor] = useState<EditorState | null>(null);
   const [pendingDay, setPendingDay] = useState<string | null>(null);
   const moduleOpen = config.open_modules.time;

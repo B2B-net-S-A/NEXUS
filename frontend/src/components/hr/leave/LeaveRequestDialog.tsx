@@ -117,8 +117,9 @@ export function LeaveRequestDialog({
   const half: HalfDay | null = singleDay && halfDay !== FULL_DAY ? (halfDay as HalfDay) : null;
   const rangeOk = validRange(start, end);
   const range = useDebounced(rangeOk ? { start, end } : null, 300);
+  // Okno jest zamontowane na stałe w „Urlopach” — zamknięte nie pyta serwera.
   const substitutes = useSubstitutes(
-    onBehalf && !subjectId ? null : range,
+    !open || (onBehalf && !subjectId) ? null : range,
     subjectId,
   );
   const substituteId = substitute === NONE ? null : Number(substitute);
@@ -134,7 +135,7 @@ export function LeaveRequestDialog({
         }
       : null;
   const debouncedInput = useDebounced(input, 350);
-  const preview = useLeavePreview(debouncedInput, subjectId);
+  const preview = useLeavePreview(open ? debouncedInput : null, subjectId);
   const shown = preview.data;
   const stale = JSON.stringify(input) !== JSON.stringify(debouncedInput);
 

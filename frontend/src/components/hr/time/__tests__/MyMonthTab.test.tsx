@@ -171,6 +171,28 @@ describe("MyMonthTab", () => {
     vi.clearAllMocks();
   });
 
+  it("link z powiadomienia na otwartym ekranie przechodzi na miesiąc z adresu", async () => {
+    routeGet(month());
+    mocks.get.mockImplementation(async (url: string) => {
+      if (url.startsWith("/api/hr/time/me/2031/")) return { data: month() };
+      if (url === "/api/hr/time/me/templates") return { data: { items: [], role_default: null } };
+      throw new Error(`nieoczekiwane ${url}`);
+    });
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const view = render(
+      <QueryClientProvider client={client}>
+        <MyMonthTab config={config} initialMonth={{ year: 2031, month: 3 }} />
+      </QueryClientProvider>,
+    );
+    await waitFor(() => expect(mocks.get).toHaveBeenCalledWith("/api/hr/time/me/2031/3"));
+    view.rerender(
+      <QueryClientProvider client={client}>
+        <MyMonthTab config={config} initialMonth={{ year: 2031, month: 4 }} />
+      </QueryClientProvider>,
+    );
+    await waitFor(() => expect(mocks.get).toHaveBeenCalledWith("/api/hr/time/me/2031/4"));
+  });
+
   it("pokazuje dzień z wpisem, urlop tylko do odczytu i akcje szkicu", async () => {
     routeGet(month());
     renderTab();

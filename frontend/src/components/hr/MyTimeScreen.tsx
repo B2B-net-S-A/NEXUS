@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { type ReactNode } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 
@@ -10,6 +10,7 @@ import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import { TabbedNav } from "@/components/ds/TabbedNav";
 import { Card } from "@/components/ui/card";
 import { useMyHrProfile, type HrConfig, type HrModuleKey, type PersonFull } from "@/lib/api/hr";
+import { useUrlSyncedState } from "@/lib/url-selection";
 import { resolveViewState } from "@/lib/view-state";
 
 import { MyLeaveTab } from "./leave/MyLeaveTab";
@@ -131,9 +132,10 @@ export function MyTimeScreen({ config }: { config: HrConfig }) {
   const me = useMyHrProfile();
   const tabs = myTimeTabs(config);
   const params = useSearchParams();
-  const [active, setActive] = useState<string>(params.get("tab") ?? tabs[0].value);
+  // Zakładka z adresu (link z powiadomienia także przy otwartym ekranie), przełączalna ręcznie.
+  const [active, setActive] = useUrlSyncedState<string>(params.get("tab"), tabs[0].value);
   const initialMonth = yearMonthFromParams(params);
-  const current = tabs.some((tab) => tab.value === active) ? active : tabs[0].value;
+  const current = active && tabs.some((tab) => tab.value === active) ? active : tabs[0].value;
   const state = resolveViewState({
     isLoading: me.isLoading,
     isError: me.isError,
