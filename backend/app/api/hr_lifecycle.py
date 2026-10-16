@@ -24,25 +24,20 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import require_onboarded_user
 from app.api.hr_gates import MODULE_DISABLED_DETAIL
 from app.core.database import get_db
-from app.core.scheduling import business_today, local_now
+from app.core.scheduling import business_today
 from app.models.hr_lifecycle import LifecycleCase, LifecycleTask, LifecycleTemplate
 from app.models.hr_profile import EmployeeProfile
 from app.models.user import User
 from app.services.hr import modules as hr_modules
 from app.services.hr import people
 from app.services.hr import lifecycle_service as service
-from app.services.hr.handover import (
-    WORK_KIND_BY_KEY,
-    eligible_receivers,
-    execute_handover,
-)
+from app.services.hr.handover import WORK_KIND_BY_KEY, eligible_receivers
 from app.services.hr.lifecycle_access import (
     can_toggle,
     case_scope,
     is_lifecycle_admin,
     owns_task,
 )
-from app.services.hr.lifecycle_dates import handover_due
 from app.services.hr_lifecycle_schema import (
     LIVE_CASE_STATUSES,
     MAX_OFFSET_AFTER,
@@ -118,6 +113,9 @@ LifecycleMember = Annotated[User, Depends(require_hr_lifecycle_member())]
 
 
 class TemplateItemIn(BaseModel):
+    #: Id pozycji przy edycji szablonu — pozycja zmienia się w miejscu, więc
+    #: zadania spraw z niej założone zostają przy niej.
+    id: Optional[int] = None
     title: str = Field(min_length=1, max_length=200)
     category: Category = "other"
     assignee_kind: AssigneeKind = "people_admin"
@@ -274,7 +272,11 @@ async def _save_template(
             department=payload.department,
             items=[
                 service.ItemInput(
-                    item.title, item.category, item.assignee_kind, item.due_offset_days
+                    item.title,
+                    item.category,
+                    item.assignee_kind,
+                    item.due_offset_days,
+                    item.id,
                 )
                 for item in payload.items
             ],
@@ -532,31 +534,29 @@ async def complete_case(
 
 @router.post("/cases/{case_id}/deactivate-now")
 async def deactivate_now(
-    case_id: int, current_user: LifecycleAdmin, db: AsyncSession = Depends(get_db)
+    case_id: int,
+    current_user: LifecycleAdmin,
+    despite_handover: bool = Query(
+        False,
+        description="Wyłącz konto, choć część pracy nie została przekazana.",
+    ),
+    db: AsyncSession = Depends(get_db),
 ) -> dict:
     """„Wyłącz konto teraz” — jedno konto, decyzja człowieka, w dniu wyłączenia.
 
-    Droga dla przebiegu zatrzymanego bezpiecznikiem masowego odejścia; przed
-    ``deactivate_on`` odmawia (konto osoby, która jeszcze pracuje).
+    Droga dla przebiegu zatrzymanego bezpiecznikiem masowego odejścia albo
+    czekającego na przekazanie pracy; przed ``deactivate_on`` odmawia (konto
+    osoby, która jeszcze pracuje). Nieprzekazana praca = 409, chyba że Kadry
+    wyłączają „mimo to” (``despite_handover``).
     """
 
-    from app.services.hr.deactivation import close_account  # noqa: PLC0415
-
     case = await _case_or_404(db, case_id, lock=True)
-    if case.kind != "offboarding" or case.status != "active":
-        raise HTTPException(status.HTTP_409_CONFLICT, "To nie jest odejście w toku.")
-    if case.account_closed_at is not None:
-        raise HTTPException(status.HTTP_409_CONFLICT, "Konto jest już zamknięte.")
-    if case.deactivate_on is None or business_today() < case.deactivate_on:
-        raise HTTPException(
-            status.HTTP_409_CONFLICT,
-            "Konto wyłącza się najwcześniej dzień po ostatnim dniu pracy.",
+    try:
+        await service.deactivate_now(
+            db, case, actor=current_user, despite_handover=despite_handover
         )
-    now = local_now()
-    if case.handover_executed_at is None and handover_due(case.last_working_day, now):
-        await execute_handover(db, case, now=now)
-    await close_account(db, case, now=now, actor_id=current_user.id)
-    await service.lifecycle_integrations(db, case, "exit_executed")
+    except service.LifecycleConflict as exc:
+        raise _conflict(exc) from exc
     await db.commit()
     return await _detail(db, case, current_user)
 
@@ -596,7 +596,12 @@ async def list_receivers(
     return {
         "kind": kind,
         "label": WORK_KIND_BY_KEY[kind].label,
-        "items": await eligible_receivers(db, kind, leaver_id=case.user_id),
+        "items": await eligible_receivers(
+            db,
+            kind,
+            leaver_id=case.user_id,
+            handover_day=case.last_working_day,
+        ),
     }
 
 

@@ -6,9 +6,14 @@ Jeden przebieg:
    ostatniego dnia pracy (czas Warszawy), a praca jeszcze nie przeszła
    w całości (``handover.execute_handover``).
 2. **Wyłączenie konta** — sprawy, w których nadszedł ``deactivate_on``
-   (dzień po ostatnim dniu, kalendarz firmy), a konto nie jest zamknięte
-   (``deactivation.close_account``). Przebieg, który miałby wyłączyć więcej
-   niż ``MAX_DEACTIVATIONS_PER_RUN`` kont, nie wyłącza żadnego.
+   (dzień po ostatnim dniu, kalendarz firmy), praca przeszła w całości
+   (``handover_executed_at``), a konto nie jest zamknięte
+   (``deactivation.close_account``). Sprawa z nieprzekazaną pracą czeka
+   (``deactivation_waiting_handover``) — Kadry wskazują przejmującego albo
+   wyłączają konto ręcznie „mimo to”. Przebieg, który miałby wyłączyć więcej
+   niż ``MAX_DEACTIVATIONS_PER_RUN`` kont, nie wyłącza żadnego: przebieg
+   kończy się jako ``failed`` (sonda ``hr_jobs``), a Kadry i admini dostają
+   dzwonek raz dziennie (rezerwacja ``hr_lifecycle_mass_exit``).
 3. **Przypomnienia** — w poniedziałek (Warszawa), raz w tygodniu: zaległe
    zadania spraw w toku (najwyżej ``REMINDER_GRACE_DAYS`` po terminie) →
    dzwonek ``hr_lifecycle_task`` do wykonawcy; zadanie bez wykonawcy →
@@ -17,7 +22,7 @@ Jeden przebieg:
    rezerwuje ``hr_job_runs``.
 
 Rezerwacje: ``hr_job_runs`` (``hr_lifecycle`` per kwadrans, ``hr_lifecycle_reminders``
-per tydzień ISO) i blokada wiersza sprawy (``FOR UPDATE SKIP LOCKED``) —
+per tydzień ISO, ``hr_lifecycle_mass_exit`` per dzień) i blokada wiersza sprawy (``FOR UPDATE SKIP LOCKED``) —
 dwa kontenery przy nocnym wdrożeniu nie przekażą pracy dwa razy. Każda
 sprawa w osobnym commicie: błąd jednej nie cofa pozostałych.
 """
@@ -34,13 +39,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.scheduling import local_now
 from app.models.hr_lifecycle import LifecycleCase, LifecycleTask
 from app.models.hr_ops import HrJobRun
+from app.models.notification import NotificationType
 from app.services.hr import modules as hr_modules
 from app.services.hr.deactivation import (
     MASS_EXIT_ERROR,
+    MAX_DEACTIVATIONS_PER_RUN,
     close_account,
     mass_exit_suspected,
 )
 from app.services.hr.handover import execute_handover
+from app.services.hr.lifecycle_access import pool_member_ids
 from app.services.hr.lifecycle_dates import HANDOVER_HOUR, handover_due
 from app.services.hr.lifecycle_service import lifecycle_integrations, notify_assignees
 
@@ -48,6 +56,7 @@ logger = logging.getLogger(__name__)
 
 JOB_KIND = "hr_lifecycle"
 REMINDERS_KIND = "hr_lifecycle_reminders"
+MASS_EXIT_ALERT_KIND = "hr_lifecycle_mass_exit"
 INTERVAL_SECONDS = 15 * 60
 #: Zadanie przeterminowane dłużej nie wraca w dzwonku (zostaje na liście).
 REMINDER_GRACE_DAYS = 30
@@ -153,27 +162,90 @@ async def run_handovers(db: AsyncSession, now: datetime) -> dict[str, int]:
     return counts
 
 
-async def due_deactivation_ids(db: AsyncSession, today: date) -> list[int]:
+async def _deactivation_candidates(
+    db: AsyncSession, today: date
+) -> list[tuple[int, Optional[datetime]]]:
     return list(
-        await db.scalars(
-            select(LifecycleCase.id)
-            .where(
-                LifecycleCase.kind == "offboarding",
-                LifecycleCase.status == "active",
-                LifecycleCase.account_closed_at.is_(None),
-                LifecycleCase.deactivate_on <= today,
+        (
+            await db.execute(
+                select(LifecycleCase.id, LifecycleCase.handover_executed_at)
+                .where(
+                    LifecycleCase.kind == "offboarding",
+                    LifecycleCase.status == "active",
+                    LifecycleCase.account_closed_at.is_(None),
+                    LifecycleCase.deactivate_on <= today,
+                )
+                .order_by(LifecycleCase.id)
             )
-            .order_by(LifecycleCase.id)
-        )
+        ).all()
     )
+
+
+async def due_deactivation_ids(db: AsyncSession, today: date) -> list[int]:
+    """Sprawy gotowe do wyłączenia konta: termin nadszedł, praca przeszła."""
+
+    return [
+        case_id
+        for case_id, handed_over in await _deactivation_candidates(db, today)
+        if handed_over is not None
+    ]
+
+
+async def _alert_mass_exit(db: AsyncSession, now: datetime, planned: int) -> int:
+    """Dzwonek do Kadr i adminów: bezpiecznik wstrzymał wyłączenie kont.
+
+    Raz dziennie (rezerwacja ``hr_lifecycle_mass_exit``), a nie co kwadrans —
+    pętla trafia na ten sam stan przy każdym przebiegu, dopóki Kadry nie
+    wyłączą kont po jednym.
+    """
+
+    from app.services.notification_triggers import emit  # noqa: PLC0415
+
+    alert_id = await _claim(db, MASS_EXIT_ALERT_KIND, now.date().isoformat(), now)
+    if alert_id is None:
+        return 0
+    recipients = set(await pool_member_ids(db, "people_admin")) | set(
+        await pool_member_ids(db, "it")
+    )
+    sent = 0
+    for user_id in sorted(recipients):
+        try:
+            async with db.begin_nested():
+                created = await emit(
+                    db,
+                    user_id=user_id,
+                    title=f"Wyłączenie kont wstrzymane: {planned} odejść naraz",
+                    message=(
+                        f"Automat nie wyłącza więcej niż {MAX_DEACTIVATIONS_PER_RUN} "
+                        "kont w jednym przebiegu. Sprawdź odejścia i wyłącz konta "
+                        "po jednym („Wyłącz konto teraz”)."
+                    ),
+                    ntype=NotificationType.hr_lifecycle_task,
+                    related_entity_type="hr_job_run",
+                    related_entity_id=alert_id,
+                    link="/people",
+                )
+            sent += int(created is not None)
+        except Exception:  # noqa: BLE001 — jeden odbiorca nie blokuje reszty
+            logger.exception("hr_lifecycle mass exit alert failed user=%s", user_id)
+    await _finish(
+        db, alert_id, status="done", counts={"planned": planned, "notified": sent}
+    )
+    return sent
 
 
 async def run_deactivations(db: AsyncSession, now: datetime) -> dict[str, Any]:
     """Wyłączenie kont w dniu po ostatnim dniu pracy (z bezpiecznikami)."""
 
     today = now.date()
-    due = await due_deactivation_ids(db, today)
+    candidates = await _deactivation_candidates(db, today)
+    due = [case_id for case_id, handed_over in candidates if handed_over is not None]
     counts: dict[str, Any] = {"deactivation_due": len(due)}
+    waiting = len(candidates) - len(due)
+    if waiting:
+        # Konto bez przekazanej pracy zostaje włączone — inaczej rekrutacje
+        # zostałyby przy wyłączonym koncie (Kadry dostały dzwonek o porażce).
+        counts["deactivation_waiting_handover"] = waiting
     if mass_exit_suspected(len(due)):
         # Zero zmian: Kadry wyłączają konta po jednym („Wyłącz konto teraz”).
         logger.warning(
@@ -181,6 +253,7 @@ async def run_deactivations(db: AsyncSession, now: datetime) -> dict[str, Any]:
             len(due),
         )
         counts["deactivation_error"] = MASS_EXIT_ERROR
+        counts["mass_exit_notified"] = await _alert_mass_exit(db, now, len(due))
         return counts
     results: dict[str, int] = {}
     for case_id in due:
@@ -278,12 +351,15 @@ async def run_once(
             db, run_id, status="failed", counts=counts, error=type(exc).__name__
         )
         return {**counts, "error": type(exc).__name__}
+    # Odmowa przy masowym odejściu to porażka przebiegu (sonda `hr_jobs`),
+    # a nie cichy sukces — konta osób, które odeszły, zostały włączone.
+    refused = counts.get("deactivation_error")
     await _finish(
         db,
         run_id,
-        status="done",
+        status="failed" if refused else "done",
         counts=counts,
-        error=counts.get("deactivation_error"),
+        error=refused,
     )
     return counts
 

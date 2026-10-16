@@ -6,6 +6,11 @@ wejście i odejście pracownika, niepodpisany protokół. ``source_key`` jest
 unikalny — wołanie tej samej funkcji drugi raz niczego nie dubluje, a zadanie
 otwarte dostaje tylko nowy termin, gdy data startu albo końca się przesunęła.
 
+Gdy powód zadania znika („Cofnij odejście”, anulowane wejście, unieważniony
+kontrakt), automat je anuluje (``cancel_*``, znacznik ``auto_cancelled``
+w ``details``); to samo zdarzenie powtórzone później (nowe odejście tej osoby)
+otwiera je z powrotem. Zadania anulowanego przez recepcję automat nie otwiera.
+
 Funkcje ``tasks_for_*`` wpina koordynator w pętle kontraktów i cyklu życia;
 ``run_once`` to jeden przebieg dziennych przypomnień (rezerwacja w
 ``hr_job_runs``, więc restart po nocnym wdrożeniu nie wysyła drugi raz).
@@ -64,6 +69,8 @@ REMINDER_JOB = "equipment_reminders"
 REMIND_FROM_HOUR = 7
 
 _CLOSED_CONTRACT = (ContractStatus.void, ContractStatus.ended)
+#: Znacznik w ``details``: zadanie anulował automat (powód zniknął).
+AUTO_CANCELLED = "auto_cancelled"
 
 
 async def _company_days_off(db: AsyncSession, start: date, end: date) -> set[date]:
@@ -104,7 +111,11 @@ async def upsert_task(
     protocol_id: Optional[int] = None,
     details: Optional[dict[str, Any]] = None,
 ) -> EquipmentTask:
-    """Zadanie po ``source_key``: nowe raz, otwarte dostaje nowy termin i tytuł."""
+    """Zadanie po ``source_key``: nowe raz, otwarte dostaje nowy termin i tytuł.
+
+    Zadanie anulowane przez automat (powód zniknął, a teraz wrócił) otwiera
+    się z powrotem; zrobione i anulowane przez człowieka zostają.
+    """
     statement = (
         insert(EquipmentTask)
         .values(
@@ -127,7 +138,26 @@ async def upsert_task(
         select(EquipmentTask).where(EquipmentTask.source_key == source_key)
     )
     assert task is not None
-    if created is None and task.status == "otwarte":
+    if (
+        created is None
+        and task.status == "anulowane"
+        and (task.details or {}).get(AUTO_CANCELLED)
+    ):
+        task.status = "otwarte"
+        task.done_at = None
+        task.done_by = None
+        task.due_on = due_on
+        task.title = title[:300]
+        task.details = {
+            **{
+                key: value
+                for key, value in (task.details or {}).items()
+                if key not in (AUTO_CANCELLED, "cancel_reason")
+            },
+            **(details or {}),
+        }
+        await db.flush()
+    elif created is None and task.status == "otwarte":
         if task.due_on != due_on or task.title != title[:300]:
             task.due_on = due_on
             task.title = title[:300]
@@ -279,6 +309,56 @@ async def tasks_for_person_start(
     )
 
 
+async def cancel_open_task(
+    db: AsyncSession, source_key: str, *, reason: str
+) -> Optional[EquipmentTask]:
+    """Anuluje OTWARTE zadanie automatu po ``source_key`` (zrobione zostaje)."""
+    task = await db.scalar(
+        select(EquipmentTask)
+        .where(EquipmentTask.source_key == source_key)
+        .with_for_update()
+    )
+    if task is None or task.status != "otwarte":
+        return None
+    task.status = "anulowane"
+    task.done_at = datetime.now(timezone.utc)
+    task.done_by = None
+    task.details = {
+        **(task.details or {}),
+        AUTO_CANCELLED: True,
+        "cancel_reason": reason,
+    }
+    await db.flush()
+    return task
+
+
+async def cancel_person_exit_task(
+    db: AsyncSession, user_id: int
+) -> Optional[EquipmentTask]:
+    """„Cofnij odejście” — odbiór sprzętu nie jest potrzebny."""
+    return await cancel_open_task(
+        db, f"user:{user_id}:exit", reason="odejscie_cofniete"
+    )
+
+
+async def cancel_person_start_task(
+    db: AsyncSession, user_id: int
+) -> Optional[EquipmentTask]:
+    """Anulowane wejście — zestaw biura nie jest potrzebny."""
+    return await cancel_open_task(
+        db, f"user:{user_id}:start", reason="wejscie_anulowane"
+    )
+
+
+async def cancel_contract_start_task(
+    db: AsyncSession, contract_id: int
+) -> Optional[EquipmentTask]:
+    """Unieważniony kontrakt — zestawu kontraktora nikt nie odbierze."""
+    return await cancel_open_task(
+        db, f"contract:{contract_id}:start", reason="kontrakt_uniewazniony"
+    )
+
+
 async def ensure_signature_task(
     db: AsyncSession, protocol: EquipmentProtocol
 ) -> EquipmentTask:
@@ -380,6 +460,13 @@ async def set_task_status(
     task = await db.get(EquipmentTask, task_id)
     if task is None:
         raise EquipmentNotFound("Nie ma takiego zadania.")
+    if (task.details or {}).get(AUTO_CANCELLED):
+        # Od decyzji recepcji zadanie jest jej — automat go już nie otworzy.
+        task.details = {
+            key: value
+            for key, value in task.details.items()
+            if key not in (AUTO_CANCELLED, "cancel_reason")
+        }
     task.status = status
     if status == "otwarte":
         task.done_at = None
@@ -491,6 +578,9 @@ async def run_once(
 
 
 __all__ = [
+    "cancel_contract_start_task",
+    "cancel_person_exit_task",
+    "cancel_person_start_task",
     "run_once",
     "tasks_for_contract_end",
     "tasks_for_contract_start",

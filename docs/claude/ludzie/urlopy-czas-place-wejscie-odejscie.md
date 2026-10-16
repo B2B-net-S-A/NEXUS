@@ -92,9 +92,17 @@
   swoje zadania. Terminy zadań w dniach roboczych firmy.
 - Odejście: przekazanie pracy po 18:00 ostatniego dnia (cztery rodzaje pracy
   przechodzą istniejącymi ścieżkami zapisu — rekrutacje, DL rekrutacji, klienci
-  DL, „Moi ludzie”), wyłączenie konta dzień później. Konto wyłącza wyłącznie
-  sprawa odejścia (nie brak osoby na liście), raz na sprawę; admina nie wyłącza
-  automat; przebieg z więcej niż limitem deaktywacji nie wyłącza nikogo.
+  DL, „Moi ludzie”), wyłączenie konta dzień później — ale dopiero po przekazaniu
+  całej pracy (inaczej „Wyłącz konto teraz” z jawnym „mimo to”, zapisanym w śladzie).
+  Sprawy z nieprzekazaną pracą nie da się zamknąć; przejmujący nie może sam odchodzić
+  do dnia przekazania. Konto wyłącza wyłącznie sprawa odejścia (nie brak osoby na
+  liście), raz na sprawę; admina nie wyłącza automat; przebieg z więcej niż limitem
+  deaktywacji nie wyłącza nikogo — kończy się `failed` (`mass_exit_suspected`, sonda
+  `hr_jobs` degraded) i dzwonkiem do Kadr i adminów raz dziennie.
+- „Cofnij odejście” zamyka sprawę administracja@ i anuluje zadanie zwrotu sprzętu;
+  unieważnienie szkicu kontraktu zamyka sprawę „Wejście konsultanta” i zadanie
+  „Przygotuj zestaw”. Zapis szablonu listy zadań zmienia pozycje w miejscu (id) —
+  przeliczenie terminów nie dubluje zadań i nie otwiera zrobionych.
 - Powód odejścia tylko ze słownika. Obok jest krótka notatka organizacyjna
   (`exit_note`, do 500 znaków) widoczna Kadrom i przełożonemu, z podpowiedzią
   „Bez informacji o zdrowiu” — wolnego tekstu powodu z Compassa

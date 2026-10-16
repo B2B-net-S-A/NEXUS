@@ -10,9 +10,11 @@ człowieka i odhacza jej zadania; wykonawca odhacza swoje zadania
   zakłada albo uzupełnia kartotekę (status ``onboarding``), wysyła zadania.
 * **Odejście** — ostatni dzień, kto zrezygnował i powód (słownik, bez danych
   o zdrowiu), przełożony; przekazanie pracy (``handover``) po 18:00
-  ostatniego dnia, wyłączenie konta (``deactivation``) dzień później — oba
-  robi pętla (``lifecycle_jobs``). „Cofnij odejście” działa, dopóki praca nie
-  zaczęła przechodzić i konto nie jest zamknięte.
+  ostatniego dnia, wyłączenie konta (``deactivation``) dzień później, ale
+  dopiero po przekazaniu całej pracy — oba robi pętla (``lifecycle_jobs``);
+  „Wyłącz konto teraz” z nieprzekazaną pracą wymaga jawnego „mimo to”.
+  Sprawy z nieprzekazaną pracą nie da się zamknąć. „Cofnij odejście” działa,
+  dopóki praca nie zaczęła przechodzić i konto nie jest zamknięte.
 * Terminy zadań w dniach roboczych firmy od startu albo ostatniego dnia
   (``lifecycle_dates``).
 
@@ -27,7 +29,7 @@ from dataclasses import dataclass
 from datetime import date
 from typing import Any, Awaitable, Callable, Literal, Optional
 
-from sqlalchemy import delete, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.scheduling import business_today, local_now
@@ -64,6 +66,7 @@ logger = logging.getLogger(__name__)
 
 LifecycleEvent = Literal[
     "onboarding_started",
+    "onboarding_cancelled",
     "offboarding_started",
     "offboarding_cancelled",
     "exit_executed",
@@ -151,6 +154,9 @@ class ItemInput:
     category: str
     assignee_kind: str
     due_offset_days: int
+    #: Id istniejącej pozycji szablonu (edycja w miejscu); ``None`` = nowa
+    #: albo z frontu, który id nie odsyła (wtedy dopasowanie po tytule).
+    id: Optional[int] = None
 
 
 def _validate_item(item: ItemInput) -> ItemInput:
@@ -167,8 +173,55 @@ def _validate_item(item: ItemInput) -> ItemInput:
             f"do {MAX_OFFSET_AFTER} po dacie sprawy."
         )
     return ItemInput(
-        title[:200], item.category, item.assignee_kind, item.due_offset_days
+        title[:200], item.category, item.assignee_kind, item.due_offset_days, item.id
     )
+
+
+def _title_key(title: str) -> str:
+    return " ".join(title.split()).casefold()
+
+
+def _match_items(
+    existing: list[LifecycleTemplateItem], items: list[ItemInput]
+) -> list[Optional[LifecycleTemplateItem]]:
+    """Pozycja z formularza → istniejący wiersz szablonu (``None`` = nowa).
+
+    Najpierw po id (pozycja z innego szablonu albo podana dwa razy = 422),
+    potem — dla pozycji bez id — po tytule wśród jeszcze niedopasowanych.
+    """
+
+    by_id = {row.id: row for row in existing}
+    taken: set[int] = set()
+    matched: list[Optional[LifecycleTemplateItem]] = []
+    for item in items:
+        if item.id is None:
+            matched.append(None)
+            continue
+        row = by_id.get(item.id)
+        if row is None:
+            raise LifecycleError(
+                "Pozycja listy nie należy do tego szablonu — odśwież widok."
+            )
+        if row.id in taken:
+            raise LifecycleError("Ta sama pozycja listy występuje dwa razy.")
+        taken.add(row.id)
+        matched.append(row)
+    for index, item in enumerate(items):
+        if matched[index] is not None:
+            continue
+        key = _title_key(item.title)
+        row = next(
+            (
+                row
+                for row in existing
+                if row.id not in taken and _title_key(row.title) == key
+            ),
+            None,
+        )
+        if row is not None:
+            taken.add(row.id)
+            matched[index] = row
+    return matched
 
 
 async def save_template(
@@ -186,6 +239,11 @@ async def save_template(
     """Zakłada albo zmienia szablon razem z listą pozycji (lista zastępuje starą).
 
     Zadania już założonych spraw zostają — szablon to przepis na nowe sprawy.
+    Pozycje zmieniają się W MIEJSCU (to samo id), bo zadania spraw wskazują
+    pozycję, z której powstały: przeliczenie terminów rozpoznaje po niej, co
+    już jest (bez dublowania i bez otwierania zrobionych). Pozycja usunięta
+    z listy znika z szablonu, a jej zadania w sprawach zostają jako zwykłe
+    zadania sprawy (``template_item_id`` → NULL) — z historią i bez kopii.
     """
 
     clean_name = name.strip()
@@ -207,22 +265,21 @@ async def save_template(
     template.department = (department or "").strip()[:200] or None
     template.updated_by = actor.id
     await db.flush()
-    await db.execute(
-        delete(LifecycleTemplateItem).where(
-            LifecycleTemplateItem.template_id == template.id
-        )
-    )
-    for position, item in enumerate(clean_items):
-        db.add(
-            LifecycleTemplateItem(
-                template_id=template.id,
-                position=position,
-                title=item.title,
-                category=item.category,
-                assignee_kind=item.assignee_kind,
-                due_offset_days=item.due_offset_days,
-            )
-        )
+    existing = await template_items(db, template.id) if template_id else []
+    matched = _match_items(existing, clean_items)
+    kept = {row.id for row in matched if row is not None}
+    for row in existing:
+        if row.id not in kept:
+            await db.delete(row)
+    for position, (item, row) in enumerate(zip(clean_items, matched)):
+        if row is None:
+            row = LifecycleTemplateItem(template_id=template.id)
+            db.add(row)
+        row.position = position
+        row.title = item.title
+        row.category = item.category
+        row.assignee_kind = item.assignee_kind
+        row.due_offset_days = item.due_offset_days
     audit.record(
         db,
         actor_user_id=actor.id,
@@ -284,43 +341,59 @@ async def plan_tasks(
 
 
 async def _replan_template_tasks(db: AsyncSession, case: LifecycleCase) -> None:
-    """Otwarte zadania z szablonu od nowa (zamknięte i ręczne zostają)."""
+    """Zadania z szablonu zgodne z bieżącym szablonem i datą sprawy — w miejscu.
 
-    await db.execute(
-        delete(LifecycleTask).where(
-            LifecycleTask.case_id == case.id,
-            LifecycleTask.status == "open",
-            LifecycleTask.template_item_id.is_not(None),
-        )
-    )
-    if case.template_id is None:
-        return
-    closed_items = set(
+    * pozycja ze zrobionym albo pominiętym zadaniem — nic (zrobione nie wraca),
+    * pozycja z otwartym zadaniem — nowy termin, tytuł i wykonawca w tym samym
+      wierszu (notatka zostaje); nadmiarowe kopie tej samej pozycji znikają,
+    * pozycja bez zadania — nowe zadanie,
+    * otwarte zadanie z pozycji spoza bieżącego szablonu (zmiana szablonu) —
+      znika. Zadania ręczne i odpięte (``template_item_id`` NULL) zostają.
+    """
+
+    tasks = list(
         await db.scalars(
-            select(LifecycleTask.template_item_id).where(
+            select(LifecycleTask)
+            .where(
                 LifecycleTask.case_id == case.id,
                 LifecycleTask.template_item_id.is_not(None),
             )
+            .order_by(LifecycleTask.id)
         )
     )
-    items = [
-        item
-        for item in await template_items(db, case.template_id)
-        if item.id not in closed_items
-    ]
+    items = (
+        await template_items(db, case.template_id)
+        if case.template_id is not None
+        else []
+    )
+    wanted = {item.id for item in items}
+    by_item: dict[int, list[LifecycleTask]] = {}
+    for task in tasks:
+        if task.template_item_id not in wanted:
+            if task.status == "open":
+                await db.delete(task)
+            continue
+        by_item.setdefault(task.template_item_id, []).append(task)
     for planned in await plan_tasks(db, items, anchor_of(case)):
-        db.add(
-            LifecycleTask(
-                case_id=case.id,
-                template_item_id=planned.item_id,
-                position=planned.position,
-                title=planned.title,
-                category=planned.category,
-                assignee_kind=planned.assignee_kind,
-                assignee_user_id=assignee_for(case, planned.assignee_kind),
-                due_date=planned.due_date,
-            )
-        )
+        existing = by_item.get(planned.item_id, [])
+        if any(task.status != "open" for task in existing):
+            for task in existing:
+                if task.status == "open":
+                    await db.delete(task)
+            continue
+        if existing:
+            task, *copies = existing
+            for copy in copies:
+                await db.delete(copy)
+        else:
+            task = LifecycleTask(case_id=case.id, template_item_id=planned.item_id)
+            db.add(task)
+        task.position = planned.position
+        task.title = planned.title
+        task.category = planned.category
+        task.assignee_kind = planned.assignee_kind
+        task.assignee_user_id = assignee_for(case, planned.assignee_kind)
+        task.due_date = planned.due_date
     await db.flush()
 
 
@@ -614,6 +687,7 @@ async def update_case(
     await _ensure_editable(db, case)
     changed: list[str] = []
     replan = False
+    previous_manager_id = case.manager_user_id
     if (
         "manager_user_id" in values
         and values["manager_user_id"] != case.manager_user_id
@@ -689,9 +763,18 @@ async def update_case(
     if replan:
         await _replan_template_tasks(db, case)
     if case.kind == "offboarding":
-        from app.services.hr.handover import plan_handovers  # noqa: PLC0415
+        from app.services.hr.handover import (  # noqa: PLC0415
+            plan_handovers,
+            retarget_default_receivers,
+        )
 
         await plan_handovers(db, case)
+        if "manager_user_id" in changed:
+            # Przekazanie jeszcze nie ruszyło (`_ensure_editable`): domyślny
+            # przejmujący to przełożony, więc idzie za zmianą przełożonego.
+            await retarget_default_receivers(
+                db, case, previous_manager_id=previous_manager_id
+            )
     if changed:
         audit.record(
             db,
@@ -832,8 +915,15 @@ async def cancel_case(
         action=f"{case.kind}_cancelled",
     )
     await db.flush()
-    if case.kind == "offboarding" and was_active:
-        await lifecycle_integrations(db, case, "offboarding_cancelled")
+    if was_active:
+        # Sprawy i Sprzęt zamykają to, co założyły przy starcie.
+        await lifecycle_integrations(
+            db,
+            case,
+            "offboarding_cancelled"
+            if case.kind == "offboarding"
+            else "onboarding_cancelled",
+        )
     return case
 
 
@@ -846,6 +936,17 @@ async def complete_case(
         raise LifecycleConflict(
             "Odejście zamyka się po wyłączeniu konta (dzień po ostatnim dniu pracy)."
         )
+    if case.kind == "offboarding":
+        from app.services.hr.handover import kinds_label, unfinished_kinds  # noqa: PLC0415
+
+        pending = unfinished_kinds(await case_handovers(db, case.id))
+        if pending:
+            # Zamknięta sprawa wypada z pętli przekazania — praca zostałaby
+            # przy osobie, która odeszła.
+            raise LifecycleConflict(
+                f"Praca nie została przekazana ({kinds_label(pending)}). "
+                "Wskaż przejmującego — pętla dokończy przekazanie, potem zamknij sprawę."
+            )
     case.status = "done"
     case.completed_at = local_now()
     if case.kind == "onboarding" and case.user_id is not None:
@@ -872,7 +973,7 @@ async def set_receivers(
     actor: User,
     receivers: dict[str, Optional[int]],
 ) -> list[WorkHandover]:
-    from app.services.hr.handover import plan_handovers, receiver_problem  # noqa: PLC0415
+    from app.services.hr.handover import plan_handovers, receiver_issue  # noqa: PLC0415
 
     if case.kind != "offboarding":
         raise LifecycleConflict("Przekazanie pracy dotyczy odejścia.")
@@ -891,7 +992,7 @@ async def set_receivers(
             continue
         if receiver_id is not None:
             receiver = await db.get(User, receiver_id)
-            problem = receiver_problem(receiver, work_kind, case.user_id)
+            problem = await receiver_issue(db, receiver, work_kind, case)
             if problem is not None:
                 from app.services.hr.handover import RECEIVER_ERRORS  # noqa: PLC0415
 
@@ -914,6 +1015,67 @@ async def set_receivers(
         )
     await db.flush()
     return list(rows.values())
+
+
+async def deactivate_now(
+    db: AsyncSession,
+    case: LifecycleCase,
+    *,
+    actor: User,
+    despite_handover: bool,
+) -> LifecycleCase:
+    """„Wyłącz konto teraz” — jedno konto, decyzja Kadr, w dniu wyłączenia.
+
+    Najpierw przekazanie pracy (gdy jeszcze nie przeszła). Konto z nieprzekazaną
+    pracą wyłącza się tylko jawnym „mimo to” (``despite_handover``) — wtedy
+    zostaje to w śladzie, a pętla dalej próbuje przekazać pracę, gdy Kadry
+    wskażą przejmującego (przekazanie widzi pracę wyłączonego konta).
+    """
+
+    from app.services.hr.deactivation import close_account  # noqa: PLC0415
+    from app.services.hr.handover import (  # noqa: PLC0415
+        execute_handover,
+        kinds_label,
+        unfinished_kinds,
+    )
+    from app.services.hr.lifecycle_dates import handover_due  # noqa: PLC0415
+
+    if case.kind != "offboarding" or case.status != "active":
+        raise LifecycleConflict("To nie jest odejście w toku.")
+    if case.account_closed_at is not None:
+        raise LifecycleConflict("Konto jest już zamknięte.")
+    if case.deactivate_on is None or business_today() < case.deactivate_on:
+        raise LifecycleConflict(
+            "Konto wyłącza się najwcześniej dzień po ostatnim dniu pracy."
+        )
+    now = local_now()
+    if case.handover_executed_at is None and handover_due(case.last_working_day, now):
+        await execute_handover(db, case, now=now)
+    pending = (
+        unfinished_kinds(await case_handovers(db, case.id))
+        if case.handover_executed_at is None
+        else []
+    )
+    if pending and not despite_handover:
+        raise LifecycleConflict(
+            f"Praca nie została przekazana ({kinds_label(pending)}). Wskaż "
+            "przejmującego albo wyłącz konto mimo to — praca zostanie przy osobie, "
+            "dopóki ktoś jej nie przejmie."
+        )
+    await close_account(db, case, now=now, actor_id=actor.id)
+    if pending:
+        audit.record(
+            db,
+            actor_user_id=actor.id,
+            subject_user_id=case.user_id,
+            entity_type="lifecycle_case",
+            entity_id=case.id,
+            action="account_closed_despite_handover",
+            details={"kinds": pending},
+        )
+    await lifecycle_integrations(db, case, "exit_executed")
+    await db.flush()
+    return case
 
 
 # ── Zadania ──────────────────────────────────────────────────────────────────
@@ -1096,16 +1258,19 @@ LifecycleHook = Callable[[AsyncSession, LifecycleCase, str], Awaitable[None]]
 
 
 async def _cases_hook(db: AsyncSession, case: LifecycleCase, event: str) -> None:
-    """Sprawy administracja@: odejście zakłada sprawę (idempotentnie po kluczu)."""
-    if event != "offboarding_started":
-        return
-    from app.services.admin_cases.hooks import open_case_for_offboarding
+    """Sprawy administracja@: odejście zakłada sprawę, cofnięcie ją zamyka
+    (idempotentnie po kluczu)."""
+    from app.services.admin_cases import hooks as case_hooks
 
-    await open_case_for_offboarding(db, case.user_id, case.id)
+    if event == "offboarding_started":
+        await case_hooks.open_case_for_offboarding(db, case.user_id, case.id)
+    elif event == "offboarding_cancelled":
+        await case_hooks.close_case_for_cancelled_offboarding(db, case.user_id, case.id)
 
 
 async def _equipment_hook(db: AsyncSession, case: LifecycleCase, event: str) -> None:
-    """Sprzęt: zestaw na wejście, odbiór rzeczy przy odejściu (idempotentnie)."""
+    """Sprzęt: zestaw na wejście, odbiór rzeczy przy odejściu; cofnięcie
+    sprawy anuluje zadanie, które założył jej start (idempotentnie)."""
     from app.services.hr.modules import load_modules
 
     if not (await load_modules(db)).get("equipment"):
@@ -1118,6 +1283,10 @@ async def _equipment_hook(db: AsyncSession, case: LifecycleCase, event: str) -> 
         await equipment_tasks.tasks_for_person_exit(
             db, case.user_id, case.last_working_day
         )
+    elif event == "onboarding_cancelled" and case.user_id is not None:
+        await equipment_tasks.cancel_person_start_task(db, case.user_id)
+    elif event == "offboarding_cancelled" and case.user_id is not None:
+        await equipment_tasks.cancel_person_exit_task(db, case.user_id)
 
 
 def _integration_hooks() -> list[LifecycleHook]:
@@ -1138,8 +1307,10 @@ async def lifecycle_integrations(
       - ``offboarding_started`` — odejście ruszyło (``case.last_working_day``,
         ``case.deactivate_on``); Sprawy: sprawa „Odejście: <osoba>” powiązana
         przez ``lifecycle_case_id``; Sprzęt: zadanie zwrotu rzeczy osoby,
-      - ``offboarding_cancelled`` — „Cofnij odejście”; Sprawy/Sprzęt zamykają
-        lub anulują to, co założyły przy starcie,
+      - ``offboarding_cancelled`` — „Cofnij odejście”; Sprawy zamykają sprawę
+        „Odejście: <osoba>”, Sprzęt anuluje otwarte zadanie zwrotu rzeczy,
+      - ``onboarding_cancelled`` — anulowane wejście w toku; Sprzęt anuluje
+        otwarte zadanie „Przygotuj zestaw biura”,
       - ``exit_executed`` — konto zamknięte (``case.account_close_result``);
         Sprzęt: niezwrócone rzeczy → dzwonek do recepcji i przełożonego.
     * Hak dostaje sesję W TRAKCIE transakcji sprawy: dopisuje swoje wiersze,
@@ -1365,6 +1536,7 @@ __all__ = [
     "complete_case",
     "create_offboarding",
     "create_onboarding",
+    "deactivate_now",
     "lifecycle_integrations",
     "notify_assignees",
     "save_template",

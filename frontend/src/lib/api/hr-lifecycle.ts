@@ -255,6 +255,8 @@ export const HANDOVER_ERROR_LABELS: Record<string, string> = {
   receiver_inactive: "Przejmujący nie ma aktywnego konta.",
   receiver_not_eligible: "Przejmujący nie ma roli, której wymaga ta praca.",
   receiver_is_leaver: "Osoba odchodząca nie przejmie własnej pracy.",
+  receiver_leaving:
+    "Przejmujący sam odchodzi — jego ostatni dzień pracy wypada najpóźniej w dniu przekazania.",
   error: "Przekazanie nie wyszło — Kadry dostały dzwonek.",
 };
 
@@ -423,6 +425,23 @@ export function useCaseAction(caseId: number) {
   return useMutation({
     mutationFn: async (action: CaseAction) =>
       (await api.post<LifecycleCase>(`${BASE}/cases/${caseId}/${action}`)).data,
+    onSuccess: invalidate,
+  });
+}
+
+/**
+ * „Wyłącz konto teraz”. Serwer odmawia (409), dopóki praca nie jest przekazana;
+ * `despiteHandover` = jawna decyzja Kadr „wyłącz mimo to” (zapisana w śladzie).
+ */
+export function useDeactivateNow(caseId: number) {
+  const invalidate = useInvalidateLifecycle();
+  return useMutation({
+    mutationFn: async (despiteHandover: boolean) =>
+      (
+        await api.post<LifecycleCase>(`${BASE}/cases/${caseId}/deactivate-now`, null, {
+          params: despiteHandover ? { despite_handover: true } : undefined,
+        })
+      ).data,
     onSuccess: invalidate,
   });
 }

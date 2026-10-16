@@ -27,6 +27,13 @@ ich nie rusza.
 Przekazanie wykonuje pętla po 18:00 ostatniego dnia pracy; każdy rodzaj
 w osobnym savepoincie i idempotentnie (ponowny przebieg nie ma już czego
 przenieść). Wynik to same liczby.
+
+Konto osoby wyłącza się dopiero po przekazaniu całej pracy (``lifecycle_jobs``),
+ale bywa wyłączone wcześniej (admin w Ustawieniach → Użytkownicy, „Wyłącz konto
+teraz” mimo przekazania) — dlatego rekrutacje osoby liczy się tu także przy
+wyłączonym koncie (``active_only=False``), a wiersz po niepowodzeniu przechodzi
+w „przekazano” tylko wykonaniem, nie samym ponownym policzeniem.
+Przejmujący nie może sam odchodzić do dnia przekazania (``receiver_leaving``).
 """
 
 from __future__ import annotations
@@ -143,6 +150,10 @@ RECEIVER_ERRORS: dict[str, str] = {
     "receiver_inactive": "Przejmujący nie ma aktywnego konta.",
     "receiver_not_eligible": "Przejmujący nie ma roli, której wymaga ta praca.",
     "receiver_is_leaver": "Osoba odchodząca nie może przejąć własnej pracy.",
+    "receiver_leaving": (
+        "Przejmujący sam odchodzi — jego ostatni dzień pracy wypada najpóźniej "
+        "w dniu przekazania."
+    ),
     "error": "Przekazanie nie wyszło — szczegóły w logu serwera.",
 }
 
@@ -161,6 +172,39 @@ def receiver_problem(
     if not receiver.has_any_role(*RECEIVER_ROLES[work_kind]):
         return "receiver_not_eligible"
     return None
+
+
+def _leaving_ids_statement(handover_day: date):
+    """Osoby w toku odejścia z ostatnim dniem najpóźniej w dniu przekazania."""
+
+    return select(LifecycleCase.user_id).where(
+        LifecycleCase.kind == "offboarding",
+        LifecycleCase.status == "active",
+        LifecycleCase.last_working_day <= handover_day,
+    )
+
+
+async def receiver_issue(
+    db: AsyncSession,
+    receiver: Optional[User],
+    work_kind: str,
+    case: LifecycleCase,
+) -> Optional[str]:
+    """``receiver_problem`` + przejmujący, który sam odchodzi (``None`` = może)."""
+
+    problem = receiver_problem(receiver, work_kind, case.user_id)
+    if problem is not None or case.last_working_day is None:
+        return problem
+    assert receiver is not None
+    leaving = await db.scalar(
+        _leaving_ids_statement(case.last_working_day)
+        .where(
+            LifecycleCase.user_id == receiver.id,
+            LifecycleCase.id != case.id,
+        )
+        .limit(1)
+    )
+    return "receiver_leaving" if leaving is not None else None
 
 
 # ── Podsumowanie: co osoba ma w NEXUSIE ─────────────────────────────────────
@@ -190,8 +234,11 @@ async def my_people_ids(db: AsyncSession, user_id: int) -> set[int]:
 def _open_jobs_worked_by(user_id: int):
     from app.services.job_team import jobs_worked_by_clause  # noqa: PLC0415
 
+    # Także przy wyłączonym koncie: zespół rekrutacji go nie liczy, ale
+    # rekrutacja dalej wisi na tej osobie, dopóki ktoś jej nie przejmie.
     return select(Job.id).where(
-        Job.status != JobStatus.closed, jobs_worked_by_clause([user_id])
+        Job.status != JobStatus.closed,
+        jobs_worked_by_clause([user_id], active_only=False),
     )
 
 
@@ -264,11 +311,22 @@ async def work_summary(
 
 
 async def eligible_receivers(
-    db: AsyncSession, work_kind: str, *, leaver_id: Optional[int]
+    db: AsyncSession,
+    work_kind: str,
+    *,
+    leaver_id: Optional[int],
+    handover_day: Optional[date] = None,
 ) -> list[dict[str, Any]]:
-    users = await db.scalars(
-        select(User).where(User.is_active.is_(True)).order_by(User.name, User.id)
-    )
+    statement = select(User).where(User.is_active.is_(True))
+    if handover_day is not None:
+        statement = statement.where(
+            User.id.not_in(
+                _leaving_ids_statement(handover_day).where(
+                    LifecycleCase.user_id.is_not(None)
+                )
+            )
+        )
+    users = await db.scalars(statement.order_by(User.name, User.id))
     return [
         {"user_id": user.id, "name": user.name}
         for user in users
@@ -300,7 +358,7 @@ async def plan_handovers(db: AsyncSession, case: LifecycleCase) -> list[WorkHand
         if row is None:
             default = (
                 manager.id
-                if receiver_problem(manager, work_kind, case.user_id) is None
+                if await receiver_issue(db, manager, work_kind, case) is None
                 else None
             )
             row = WorkHandover(
@@ -315,6 +373,51 @@ async def plan_handovers(db: AsyncSession, case: LifecycleCase) -> list[WorkHand
         rows.append(row)
     await db.flush()
     return rows
+
+
+async def retarget_default_receivers(
+    db: AsyncSession, case: LifecycleCase, *, previous_manager_id: Optional[int]
+) -> list[str]:
+    """Zmiana przełożonego przed przekazaniem: domyślny przejmujący idzie za nim.
+
+    Rodzaj, który szedł do poprzedniego przełożonego (albo nie miał nikogo),
+    dostaje nowego przełożonego, gdy ten może go przejąć; przejmującego
+    wybranego przez Kadry spośród innych osób nie ruszamy. Wołający pilnuje,
+    że przekazanie jeszcze nie ruszyło.
+    """
+
+    manager = await db.get(User, case.manager_user_id) if case.manager_user_id else None
+    changed: list[str] = []
+    for row in await plan_handovers(db, case):
+        if row.status == "done":
+            continue
+        if row.receiver_user_id not in (None, previous_manager_id):
+            continue
+        target = (
+            manager.id
+            if await receiver_issue(db, manager, row.work_kind, case) is None
+            else None
+        )
+        if row.receiver_user_id == target:
+            continue
+        row.receiver_user_id = target
+        if row.status == "failed":
+            row.status = "planned"
+            row.error = None
+        changed.append(row.work_kind)
+    await db.flush()
+    return changed
+
+
+def unfinished_kinds(rows: list[WorkHandover]) -> list[str]:
+    """Rodzaje pracy, które jeszcze nie przeszły (kolejność ``TRANSFER_KINDS``)."""
+
+    pending = {row.work_kind for row in rows if row.status != "done"}
+    return [kind for kind in TRANSFER_KINDS if kind in pending]
+
+
+def kinds_label(kinds: list[str]) -> str:
+    return ", ".join(_RESULT_LABELS[kind] for kind in kinds)
 
 
 # ── Wykonanie ────────────────────────────────────────────────────────────────
@@ -524,9 +627,11 @@ async def execute_handover(
     """Przekazuje pracę wszystkich rodzajów, które jeszcze nie przeszły.
 
     Wołający trzyma blokadę wiersza sprawy i commituje. Rodzaj bez pozycji
-    przechodzi bez przejmującego (nic do przekazania). Rodzaj z błędem zostaje
-    ``failed`` i wraca w następnym przebiegu — Kadry dostają dzwonek raz,
-    przy pierwszym niepowodzeniu.
+    przechodzi bez przejmującego (nic do przekazania) — tylko przy pierwszej
+    próbie: wiersz ``failed`` przechodzi wyłącznie wykonaniem u przejmującego
+    (przeliczenie nie zamienia porażki w „przekazano 0”). Rodzaj z błędem
+    zostaje ``failed`` i wraca w następnym przebiegu — Kadry dostają dzwonek
+    raz, przy pierwszym niepowodzeniu.
     """
 
     assert case.user_id is not None
@@ -541,8 +646,8 @@ async def execute_handover(
         receiver = (
             await db.get(User, row.receiver_user_id) if row.receiver_user_id else None
         )
-        problem = receiver_problem(receiver, row.work_kind, case.user_id)
-        if problem is not None and row.item_count == 0:
+        problem = await receiver_issue(db, receiver, row.work_kind, case)
+        if problem is not None and row.item_count == 0 and row.status == "planned":
             row.status = "done"
             row.executed_at = now
             row.result = {"moved": 0}
@@ -643,7 +748,10 @@ async def _notify_failure(
                 db,
                 user_id=recipient,
                 title=f"Przekazanie pracy nie wyszło: {name}",
-                message=f"Do poprawienia: {labels}. Wskaż przejmującego w sprawie odejścia.",
+                message=(
+                    f"Do poprawienia: {labels}. Wskaż przejmującego w sprawie "
+                    "odejścia — konto wyłączy się dopiero po przekazaniu pracy."
+                ),
                 ntype=NotificationType.hr_lifecycle_task,
                 related_entity_type="lifecycle_case",
                 related_entity_id=case.id,

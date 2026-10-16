@@ -29,6 +29,7 @@ import {
   EXIT_REASON_LABELS,
   HANDOVER_ERROR_LABELS,
   useCaseAction,
+  useDeactivateNow,
   useCreateOffboarding,
   useLifecycleCase,
   useLifecycleTemplates,
@@ -476,6 +477,7 @@ function OffboardingCase({ caseId }: { caseId: number }) {
   const { askConfirm, confirmDialog } = useConfirmV2();
   const query = useLifecycleCase(caseId);
   const action = useCaseAction(caseId);
+  const deactivateNow = useDeactivateNow(caseId);
   const [changingDay, setChangingDay] = useState(false);
 
   const state = resolveViewState({
@@ -497,7 +499,7 @@ function OffboardingCase({ caseId }: { caseId: number }) {
   }
   const data = query.data;
   const live = isLiveStatus(data.status);
-  const run = (kind: "start" | "cancel" | "complete" | "deactivate-now", done: string) =>
+  const run = (kind: "start" | "cancel" | "complete", done: string) =>
     action.mutate(kind, {
       onSuccess: () => showToast(done, "success"),
       onError: (err) => showToast(apiErrorMessage(err, "Nie udało się."), "error"),
@@ -527,7 +529,30 @@ function OffboardingCase({ caseId }: { caseId: number }) {
       confirmLabel: "Wyłącz konto",
       variant: "destructive",
     });
-    if (ok) run("deactivate-now", "Konto wyłączone");
+    if (!ok) return;
+    deactivateNow.mutate(false, {
+      onSuccess: () => showToast("Konto wyłączone", "success"),
+      onError: async (err) => {
+        const status = (err as { response?: { status?: number } }).response?.status;
+        if (status !== 409) {
+          showToast(apiErrorMessage(err, "Nie udało się wyłączyć konta."), "error");
+          return;
+        }
+        // Praca nie jest przekazana — wyłączenie mimo to jest jawną decyzją Kadr.
+        const despite = await askConfirm({
+          title: "Praca nie jest przekazana",
+          description: `${apiErrorMessage(err, "Część pracy nie ma przejmującego.")} Wyłączyć konto mimo to? Nieprzekazana praca zostanie przy wyłączonym koncie.`,
+          confirmLabel: "Wyłącz mimo to",
+          variant: "destructive",
+        });
+        if (!despite) return;
+        deactivateNow.mutate(true, {
+          onSuccess: () => showToast("Konto wyłączone mimo nieprzekazanej pracy", "success"),
+          onError: (again) =>
+            showToast(apiErrorMessage(again, "Nie udało się wyłączyć konta."), "error"),
+        });
+      },
+    });
   };
 
   return (

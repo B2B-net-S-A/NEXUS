@@ -175,6 +175,8 @@ function TemplateEditor({ draft, onClose }: { draft: Draft; onClose: () => void 
         employment_type: value.employment_type,
         department: value.department.trim() || null,
         items: items.map((item) => ({
+          // Id pozycji: zapis zmienia ją w miejscu, zadania w sprawach zostają przypięte.
+          id: item.id,
           title: item.title.trim(),
           category: item.category,
           assignee_kind: item.assignee_kind,
