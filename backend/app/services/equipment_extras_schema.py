@@ -44,10 +44,17 @@ CK_CHECKLIST_COHORT = "EXTRACT(DAY FROM cohort_month) = 1"
 CK_LOGISTICS_HOTEL = f"hotel IN ({quoted(LOGISTICS_STATUSES)})"
 CK_LOGISTICS_TICKET = f"ticket IN ({quoted(LOGISTICS_STATUSES)})"
 
-#: Wydanie, protokół i zadanie recepcji mają dokładnie jednego posiadacza
-#: z czterech: konto, kontrakt, osoba zewnętrzna, uczestnik Akademii.
+#: Posiadacz wydania to jedno z czterech: konto, kontrakt, osoba zewnętrzna,
+#: uczestnik Akademii. Aktywne wydanie ma dokładnie jednego, zwrócone — najwyżej
+#: jednego: usunięcie zgłoszenia Akademii (RODO, scalenie kandydata) zeruje
+#: posiadacza zwróconego wydania (FK ``SET NULL``), a historia zostaje
+#: w protokole z migawką imienia. Aktywnego wydania baza nie wyzeruje — CHECK
+#: odrzuci usunięcie, zanim dojdzie do niego ścieżka z czytelnym 409.
+_HOLDER_COUNT = (
+    "num_nonnulls(user_id, contract_id, external_person_id, academy_application_id)"
+)
 CK_ASSIGNMENT_ONE_HOLDER = (
-    "num_nonnulls(user_id, contract_id, external_person_id, academy_application_id) = 1"
+    f"{_HOLDER_COUNT} = 1 OR (returned_at IS NOT NULL AND {_HOLDER_COUNT} = 0)"
 )
 
 TABLE_DDL: tuple[str, ...] = (
@@ -121,7 +128,7 @@ TABLE_DDL: tuple[str, ...] = (
 COLUMN_DDL: tuple[str, ...] = (
     "ALTER TABLE equipment_assignments ADD COLUMN IF NOT EXISTS "
     "academy_application_id BIGINT NULL "
-    "REFERENCES academy_applications(id) ON DELETE RESTRICT",
+    "REFERENCES academy_applications(id) ON DELETE SET NULL",
     "ALTER TABLE equipment_protocols ADD COLUMN IF NOT EXISTS "
     "academy_application_id BIGINT NULL "
     "REFERENCES academy_applications(id) ON DELETE SET NULL",
@@ -145,14 +152,46 @@ INDEX_DDL: tuple[str, ...] = (
     "ON equipment_tasks (academy_application_id)",
 )
 
-#: Czterech posiadaczy zamiast trzech. Blok podmienia CHECK tylko wtedy, gdy stoi
-#: jeszcze stara wersja (entrypoint wykonuje go przy każdym starcie).
+#: Czterech posiadaczy zamiast trzech, zwrócone wydanie może stracić posiadacza.
+#: Bloki podmieniają CHECK i klucz obcy tylko wtedy, gdy stoi jeszcze stara wersja
+#: (0461: trzech posiadaczy; pierwsza wersja 0462: ``RESTRICT`` i CHECK bez
+#: ``returned_at``) — entrypoint wykonuje je przy każdym starcie.
 CONSTRAINT_DDL: tuple[str, ...] = (
+    """DO $$
+    DECLARE stale record;
+    BEGIN
+        FOR stale IN
+            SELECT con.conname FROM pg_constraint con
+            JOIN pg_attribute att
+              ON att.attrelid = con.conrelid AND att.attnum = con.conkey[1]
+            WHERE con.contype = 'f'
+              AND con.conrelid = 'equipment_assignments'::regclass
+              AND att.attname = 'academy_application_id'
+              AND con.confdeltype <> 'n'
+        LOOP
+            EXECUTE 'ALTER TABLE equipment_assignments DROP CONSTRAINT '
+                || quote_ident(stale.conname);
+        END LOOP;
+        IF NOT EXISTS (
+            SELECT 1 FROM pg_constraint con
+            JOIN pg_attribute att
+              ON att.attrelid = con.conrelid AND att.attnum = con.conkey[1]
+            WHERE con.contype = 'f'
+              AND con.conrelid = 'equipment_assignments'::regclass
+              AND att.attname = 'academy_application_id'
+        ) THEN
+            ALTER TABLE equipment_assignments
+                ADD CONSTRAINT equipment_assignments_academy_application_id_fkey
+                FOREIGN KEY (academy_application_id)
+                REFERENCES academy_applications(id) ON DELETE SET NULL;
+        END IF;
+    END $$""",
     f"""DO $$ BEGIN
         IF NOT EXISTS (
             SELECT 1 FROM pg_constraint
             WHERE conname = 'ck_equipment_assignments_one_holder'
               AND pg_get_constraintdef(oid) LIKE '%academy_application_id%'
+              AND pg_get_constraintdef(oid) LIKE '%returned_at%'
         ) THEN
             ALTER TABLE equipment_assignments
                 DROP CONSTRAINT IF EXISTS ck_equipment_assignments_one_holder;

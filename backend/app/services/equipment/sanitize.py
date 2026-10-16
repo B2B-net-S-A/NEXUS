@@ -19,6 +19,13 @@ _BITLOCKER = re.compile(r"(?<!\d)(?:\d{6}[\s-]?){7}\d{6}(?!\d)")
 _DIGIT_RUN = re.compile(r"(?<![\d-])\d{8,11}(?![\d-])")
 _EMAIL = re.compile(r"[\w.+-]+@([\w-]+(?:\.[\w-]+)+)", re.UNICODE)
 _PESEL_WEIGHTS = (1, 3, 7, 9, 1, 3, 7, 9, 1, 3)
+#: Krótki PIN (4–8 cyfr) tylko z etykietą „PIN” tuż przed liczbą: „PIN 1234”,
+#: „kod PIN: 0000”, „PIN do karty 4321”, „PIN-u 1234”. Sama liczba to zwykle
+#: numer (pokoju, karty, zamówienia) — bez etykiety jej nie ruszamy.
+_PIN_LABELLED = re.compile(
+    r"\bpin(?:-?u|em)?\b[\s:=#–-]*(?:do\s+\w+[\s:=–-]*)?\d{4,8}(?!\d)",
+    re.IGNORECASE,
+)
 
 #: Domeny skrzynek prywatnych — e-mail z nich nie trafia do NEXUSA.
 PRIVATE_EMAIL_DOMAINS = frozenset(
@@ -105,6 +112,10 @@ def is_pesel(value: str) -> bool:
     return (10 - total % 10) % 10 == int(value[10])
 
 
+def has_labelled_pin(value: str) -> bool:
+    return bool(_PIN_LABELLED.search(value))
+
+
 def looks_like_puk(value: str) -> bool:
     """Kod PUK: dokładnie 8 cyfr."""
     return bool(re.fullmatch(r"\d{8}", value))
@@ -129,8 +140,8 @@ class Cleaned:
 def clean_text(value: str, *, identifier: bool = False) -> Cleaned:
     """Wycina z wartości sekrety; ``identifier`` = kolumna numeru (bez wzorca PUK).
 
-    Numery egzemplarzy bywają ośmiocyfrowe (karta dostępu), więc wzorzec PUK
-    i PESEL-u stosujemy tylko do tekstu swobodnego (uwagi, posiadacz, stan).
+    Numery egzemplarzy bywają ośmiocyfrowe (karta dostępu), więc wzorce PIN-u,
+    PUK i PESEL-u stosujemy tylko do tekstu swobodnego (uwagi, posiadacz, stan).
     Klucz BitLocker i e-mail prywatny są odrzucane w każdej kolumnie.
     """
     reasons: list[str] = []
@@ -143,6 +154,9 @@ def clean_text(value: str, *, identifier: bool = False) -> Cleaned:
             text = text.replace(match.group(0), " ")
             reasons.append("prywatny e-mail")
     if not identifier:
+        if has_labelled_pin(text):
+            text = _PIN_LABELLED.sub(" ", text)
+            reasons.append("kod PIN")
         for token in _DIGIT_RUN.findall(text):
             if is_pesel(token):
                 text = text.replace(token, " ")

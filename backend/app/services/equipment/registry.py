@@ -13,9 +13,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from decimal import Decimal
-from typing import Any, Literal, Optional
+from typing import Any, Literal, Optional, Sequence
 
-from sqlalchemy import and_, exists, func, or_, select, text
+from sqlalchemy import and_, case, exists, func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
@@ -52,6 +52,19 @@ ISSUABLE_ACADEMY_STATUSES = ("task_passed", "contract_sent", "signed")
 #: Kandydat zgłoszenia Akademii — osobny alias, bo ``Candidate`` bywa już
 #: dołączony przez kontrakt w tym samym zapytaniu.
 AcademyCandidate = aliased(Candidate, name="academy_candidate")
+
+
+#: Posiadacz, którego dane usunięto (kandydat kontraktu na żądanie RODO,
+#: zgłoszenie Akademii przy usunięciu albo scaleniu osoby).
+DELETED_PERSON = "Osoba usunięta"
+
+#: Odmowa usunięcia albo scalenia kandydata, gdy jako uczestnik Akademii ma
+#: niezwrócony sprzęt — wydanie straciłoby posiadacza, a egzemplarz zostałby
+#: „wydany” nikomu.
+ACADEMY_EQUIPMENT_HELD = (
+    "Ta osoba ma niezwrócony sprzęt jako uczestnik Akademii. Najpierw zwrot "
+    "sprzętu w module „Sprzęt”, potem usunięcie albo scalenie profilu."
+)
 
 
 class EquipmentError(Exception):
@@ -109,10 +122,12 @@ async def resolve_holder(db: AsyncSession, kind: str, holder_id: int) -> Holder:
             "user", user.id, user.name or user.email, user.email, "Konto NEXUSA"
         )
     if kind == "contract":
+        # Kandydata usuniętego na żądanie (RODO) kontrakt przeżywa z pustym
+        # ``candidate_id`` — sprzęt na nim trzeba dalej móc zwrócić.
         row = (
             await db.execute(
                 select(Contract, Candidate, Client)
-                .join(Candidate, Candidate.id == Contract.candidate_id)
+                .outerjoin(Candidate, Candidate.id == Contract.candidate_id)
                 .outerjoin(Client, Client.id == Contract.client_id)
                 .where(Contract.id == holder_id)
             )
@@ -125,6 +140,8 @@ async def resolve_holder(db: AsyncSession, kind: str, holder_id: int) -> Holder:
             detail += f" · {client.name}"
         if contract.start_date:
             detail += f" · start {contract.start_date:%d.%m.%Y}"
+        if candidate is None:
+            return Holder("contract", contract.id, DELETED_PERSON, None, detail)
         email = contract.candidate_email or candidate.email
         return Holder("contract", contract.id, candidate_name(candidate), email, detail)
     if kind == "external":
@@ -198,6 +215,39 @@ def holder_of(row: Any) -> tuple[HolderKind, int] | None:
     if getattr(row, "academy_application_id", None) is not None:
         return "academy", row.academy_application_id
     return None
+
+
+async def active_academy_assignments(
+    db: AsyncSession,
+    *,
+    candidate_id: int | None = None,
+    application_ids: Sequence[int] = (),
+) -> list[int]:
+    """Id niezwróconych wydań uczestnika Akademii — zgłoszeń osoby albo wskazanych.
+
+    Usunięcie i scalenie kandydata pytają o to przed skasowaniem zgłoszeń
+    (odmowa 409 ``ACADEMY_EQUIPMENT_HELD``); zwrócone wydania nie blokują.
+    """
+    if candidate_id is None and not application_ids:
+        return []
+    owner = (
+        AcademyApplication.candidate_id == candidate_id
+        if candidate_id is not None
+        else AcademyApplication.id.in_([int(value) for value in application_ids])
+    )
+    return list(
+        (
+            await db.scalars(
+                select(EquipmentAssignment.id)
+                .join(
+                    AcademyApplication,
+                    AcademyApplication.id == EquipmentAssignment.academy_application_id,
+                )
+                .where(owner, EquipmentAssignment.returned_at.is_(None))
+                .order_by(EquipmentAssignment.id)
+            )
+        ).all()
+    )
 
 
 async def search_academy_holders(
@@ -486,14 +536,14 @@ async def identifier_conflicts(
     return problems
 
 
-def clean_notes(value: Optional[str]) -> Optional[str]:
-    """Wolny tekst bez kluczy BitLocker, PUK, PESEL i prywatnych e-maili (D10) — inaczej błąd."""
+def clean_notes(value: Optional[str], *, label: str = "Notatka") -> Optional[str]:
+    """Wolny tekst bez kluczy BitLocker, PUK, PIN, PESEL i prywatnych e-maili (D10) — inaczej błąd."""
     if value is None:
         return None
     cleaned = sanitize.clean_text(value)
     if cleaned.reasons:
         raise EquipmentError(
-            "Notatka zawiera dane, których NEXUS nie przechowuje ("
+            f"{label} zawiera dane, których NEXUS nie przechowuje ("
             + ", ".join(cleaned.reasons)
             + ")."
         )
@@ -519,7 +569,8 @@ def _normalized(values: dict[str, Any]) -> dict[str, Any]:
     if "notes" in out:
         out["notes"] = clean_notes(out["notes"])
     if "location" in out and out["location"] is not None:
-        out["location"] = " ".join(str(out["location"]).split()) or None
+        # D10: lokalizacja to też wolny tekst (widać ją w rejestrze i eksporcie).
+        out["location"] = clean_notes(str(out["location"]), label="Lokalizacja")
     return out
 
 
@@ -638,7 +689,24 @@ async def delete_item(db: AsyncSession, item_id: int, *, actor: User) -> None:
 
 
 def _holder_name_expr():
-    """Nazwa posiadacza wydania (konto, konsultant, osoba spoza, uczestnik Akademii)."""
+    """Nazwa posiadacza wydania (konto, konsultant, osoba spoza, uczestnik Akademii).
+
+    Kontrakt bez kandydata (usunięty na żądanie) i zwrócone wydanie bez
+    posiadacza (usunięte zgłoszenie Akademii) to „Osoba usunięta”, nie „—”.
+    """
+    gone = or_(
+        and_(Contract.id.is_not(None), Candidate.id.is_(None)),
+        and_(
+            EquipmentAssignment.id.is_not(None),
+            func.num_nonnulls(
+                EquipmentAssignment.user_id,
+                EquipmentAssignment.contract_id,
+                EquipmentAssignment.external_person_id,
+                EquipmentAssignment.academy_application_id,
+            )
+            == 0,
+        ),
+    )
     return func.coalesce(
         User.name,
         func.nullif(func.concat_ws(" ", Candidate.name, Candidate.lastname), ""),
@@ -646,6 +714,7 @@ def _holder_name_expr():
         func.nullif(
             func.concat_ws(" ", AcademyCandidate.name, AcademyCandidate.lastname), ""
         ),
+        case((gone, DELETED_PERSON)),
     )
 
 

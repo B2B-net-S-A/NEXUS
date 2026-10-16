@@ -7,7 +7,8 @@ zapisany na trzy sposoby. W bazie trzymamy postać kanoniczną:
 * IMEI — same cyfry (14–16), ICCID — same cyfry (18–22),
 * numer telefonu SIM — 9 cyfr (prefiks +48 zdejmowany).
 
-Zła postać = ``IdentifierError`` z polskim zdaniem dla recepcji (422).
+Zła postać albo numer dłuższy niż kolumna = ``IdentifierError`` z polskim
+zdaniem dla recepcji (422 w formularzu, „do wyjaśnienia” w imporcie).
 """
 
 from __future__ import annotations
@@ -106,6 +107,34 @@ def phone_display(digits: Optional[str]) -> Optional[str]:
     return f"+48 {digits[:3]} {digits[3:6]} {digits[6:]}"
 
 
+#: Długość kolumn ``equipment_items`` (``equipment_schema``; test pilnuje zgodności).
+#: Wielkie litery potrafią wydłużyć tekst („ß” → „SS”), więc sprawdzamy po
+#: normalizacji, nie tylko na wejściu formularza.
+MAX_LENGTHS: dict[str, int] = {
+    "inventory_number": 40,
+    "serial_number": 120,
+    "imei": 20,
+    "iccid": 24,
+    "phone_number": 20,
+    "access_card_number": 40,
+}
+
+
+class IdentifierTooLong(IdentifierError):
+    """Numer dłuższy niż kolumna rejestru."""
+
+
+def check_length(field: str, value: Optional[str]) -> Optional[str]:
+    limit = MAX_LENGTHS.get(field)
+    if value is not None and limit is not None and len(value) > limit:
+        label = FIELD_LABELS[field]
+        raise IdentifierTooLong(
+            f"{label[0].upper()}{label[1:]} ma najwyżej {limit} znaków "
+            f"(podano {len(value)})."
+        )
+    return value
+
+
 NORMALIZERS = {
     "inventory_number": code,
     "serial_number": code,
@@ -116,10 +145,12 @@ NORMALIZERS = {
 }
 
 
+def normalize(field: str, raw: Optional[str]) -> Optional[str]:
+    """Postać kanoniczna jednego numeru, w granicach długości kolumny."""
+    normalizer = NORMALIZERS.get(field)
+    return check_length(field, normalizer(raw) if normalizer else raw)
+
+
 def normalize_identifiers(values: dict[str, Optional[str]]) -> dict[str, Optional[str]]:
     """Postać kanoniczna wszystkich numerów z ``values`` (tylko podane klucze)."""
-    out: dict[str, Optional[str]] = {}
-    for field, raw in values.items():
-        normalizer = NORMALIZERS.get(field)
-        out[field] = normalizer(raw) if normalizer else raw
-    return out
+    return {field: normalize(field, raw) for field, raw in values.items()}

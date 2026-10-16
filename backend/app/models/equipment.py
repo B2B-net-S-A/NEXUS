@@ -258,9 +258,11 @@ class EquipmentAssignment(Base, TimestampMixin):
         ForeignKey("equipment_external_people.id", ondelete="RESTRICT"),
         nullable=True,
     )
+    # Usunięcie zgłoszenia zeruje posiadacza zwróconego wydania; aktywnego nie
+    # wyzeruje CHECK jednego posiadacza (``extras_schema.CK_ASSIGNMENT_ONE_HOLDER``).
     academy_application_id: Mapped[Optional[int]] = mapped_column(
         BigInteger,
-        ForeignKey("academy_applications.id", ondelete="RESTRICT"),
+        ForeignKey("academy_applications.id", ondelete="SET NULL"),
         nullable=True,
     )
     issued_at: Mapped[datetime] = mapped_column(

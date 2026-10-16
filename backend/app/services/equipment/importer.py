@@ -183,6 +183,9 @@ class ParsedRow:
     row_number: int
     data: dict[str, Any]
     reasons: list[str] = field(default_factory=list)
+    #: Powody, przez które wiersz idzie „do wyjaśnienia” zamiast do rejestru
+    #: (np. numer dłuższy niż kolumna — wiersz opisuje prawdziwy egzemplarz).
+    needs_review: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -324,7 +327,12 @@ def _clean_identifier(
         if value is None:
             return None
     try:
-        return identifiers.NORMALIZERS[field_name](value)
+        return identifiers.normalize(field_name, value)
+    except identifiers.IdentifierTooLong as exc:
+        row.needs_review.append(
+            f"{str(exc).rstrip('.')} — numer pominięty, popraw go w pliku"
+        )
+        return None
     except identifiers.IdentifierError:
         row.reasons.append(
             f"{identifiers.FIELD_LABELS[field_name]} w złym formacie — pominięty"
@@ -582,8 +590,10 @@ async def create_batch(
         status, holder_text = holder_state(data)
         reasons = list(row.reasons)
         if not numbers:
-            decision = "pomin"
-            reasons.insert(0, "brak numeru egzemplarza")
+            # Jedyny numer był za długi: egzemplarz istnieje, ktoś musi go poprawić.
+            decision = "do_wyjasnienia" if row.needs_review else "pomin"
+            if not row.needs_review:
+                reasons.insert(0, "brak numeru egzemplarza")
         elif hit := next((key for key in numbers if key in existing), None):
             decision = "konflikt"
             reasons.insert(
@@ -620,6 +630,10 @@ async def create_batch(
                 reasons.insert(0, "laptop bez posiadacza i bez stanu")
             else:
                 decision = "przyjmij"
+        if row.needs_review:
+            if decision == "przyjmij":
+                decision = "do_wyjasnienia"
+            reasons[0:0] = row.needs_review
         if holder_user or holder_contract:
             data["item_status"] = "wydany"
         elif status in ("serwis", "wycofany", "zgubiony"):
@@ -807,11 +821,21 @@ async def apply_batch(
             .order_by(EquipmentImportRow.id)
         )
     ).all()
-    created = conflicts = 0
+    created = conflicts = to_review = 0
     now = datetime.now(timezone.utc)
     for row in rows:
         data = row.data or {}
         numbers = {f: data.get(f) for f in IDENTIFIER_FIELDS}
+        try:
+            # Partia sprzed sprawdzania długości przy wgraniu: za długi numer
+            # wywracał całe zatwierdzenie (500) bez wskazania wiersza.
+            for name, value in numbers.items():
+                identifiers.check_length(name, value)
+        except identifiers.IdentifierTooLong as exc:
+            row.decision = "do_wyjasnienia"
+            row.reason = str(exc)
+            to_review += 1
+            continue
         problems = await registry.identifier_conflicts(db, numbers)
         if problems:
             row.decision = "konflikt"
@@ -875,8 +899,9 @@ async def apply_batch(
         entity_type="equipment_import",
         entity_id=batch.id,
         action="import_applied",
-        details={"created": created, "conflicts": conflicts},
+        details={"created": created, "conflicts": conflicts, "to_review": to_review},
     )
+    # Wiersze cofnięte „do wyjaśnienia” widać w partii; kształt odpowiedzi bez zmian.
     return {"created": created, "conflicts": conflicts}
 
 

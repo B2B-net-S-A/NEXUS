@@ -171,6 +171,11 @@ async def _check_holder(db: AsyncSession, holder: Holder) -> Optional[Contract]:
             raise EquipmentNotFound("Nie ma takiego kontraktu.")
         if contract.status not in ISSUABLE_CONTRACT_STATUSES:
             raise EquipmentError("Kontrakt jest zakończony — sprzętu nie wydamy.")
+        if contract.candidate_id is None:
+            # Osoba usunięta (RODO): zwrot tak, nowe wydanie nie.
+            raise EquipmentError(
+                "Osoba z tego kontraktu została usunięta — sprzętu nie wydamy."
+            )
         return contract
     if holder.kind == "academy":
         application = await db.get(AcademyApplication, holder.id)
