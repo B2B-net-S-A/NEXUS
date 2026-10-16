@@ -40,8 +40,10 @@ Makiety: https://claude.ai/artifact/Sg4nsek8fGLcqNxMH47pFc.
   (`stage_notification_emitter._inapp_base`) to `/jobs/{id}?candidate={id}`,
   nie profil kandydata — inaczej wiersz nie trafiłby do swojej rekrutacji.
 - **Gaszenie tematu ma własną trasę:** `PUT /api/notifications/topics/read`
-  `{topic, job_id? | link? | ids?}` — jedno wskazanie naraz, z nim także
-  przypomnienia w zastępstwie; bez niego wszystkie WŁASNE wiersze tematu.
+  `{topic, job_id? | link? | ids?, include_covered}` — jedno wskazanie naraz;
+  klik w pozycję gasi też przypomnienia nieobecnego kolegi (jak klik
+  w dzwonku), samo wejście na ekran rekrutacji wysyła `include_covered:
+  false` (tylko własne); bez wskazania — wszystkie WŁASNE wiersze tematu.
   Nie rób z tego parametru `read-all` (stary backend zignorowałby nieznany
   parametr i zgasił wszystko — lekcja z okienka „Rozmowy”).
 - **„Wiadomości”:** `GET /api/notifications/chats?include_notes=true` dokłada

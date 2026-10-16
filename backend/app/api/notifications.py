@@ -4,7 +4,7 @@ User notification system with unread badge support.
 """
 
 from datetime import datetime, timedelta, timezone
-from typing import List, Literal, Optional
+from typing import Annotated, List, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field, model_validator
@@ -205,13 +205,20 @@ class JobThreadListResponse(BaseModel):
     unread_jobs: int
 
 
+_INT4_MAX = 2_147_483_647
+
+
 class TopicReadRequest(BaseModel):
     topic: NotificationTopic
-    job_id: Optional[int] = None
+    job_id: Optional[int] = Field(default=None, ge=1, le=_INT4_MAX)
     link: Optional[str] = Field(default=None, max_length=1000)
-    ids: Optional[List[int]] = Field(
+    ids: Optional[List[Annotated[int, Field(ge=1, le=_INT4_MAX)]]] = Field(
         default=None, min_length=1, max_length=_TOPIC_READ_MAX_IDS
     )
+    # Klik w pozycję okienka gasi też przypomnienia nieobecnego kolegi
+    # (świadomie, jak klik w dzwonku). Samo wejście na ekran rekrutacji wysyła
+    # `false` — wtedy tylko własne wiersze.
+    include_covered: bool = True
 
     @model_validator(mode="after")
     def _one_target(self) -> "TopicReadRequest":
@@ -711,15 +718,17 @@ async def mark_topic_read(
     ``read-all``: backend sprzed zmiany zignorowałby nieznany parametr
     i zgasił wszystko.
     """
+    whose = (
+        _notification_owner(current_user)
+        if body.include_covered
+        else Notification.user_id == current_user.id
+    )
     if body.job_id is not None:
-        owner = and_(
-            _notification_owner(current_user),
-            job_key_expression(Notification) == body.job_id,
-        )
+        owner = and_(whose, job_key_expression(Notification) == body.job_id)
     elif body.link is not None:
-        owner = and_(_notification_owner(current_user), Notification.link == body.link)
+        owner = and_(whose, Notification.link == body.link)
     elif body.ids is not None:
-        owner = and_(_notification_owner(current_user), Notification.id.in_(body.ids))
+        owner = and_(whose, Notification.id.in_(body.ids))
     else:
         owner = Notification.user_id == current_user.id
     result = await db.execute(

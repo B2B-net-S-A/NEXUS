@@ -181,3 +181,18 @@ async def test_connection_manager_sends_frame_with_topic(monkeypatch):
     assert sent["data"]["topic"] == "jobs"
     assert sent["data"]["toast"] is False
     assert "topic" not in frame["data"]
+
+
+def test_topic_read_request_bounds_and_default_scope():
+    import pytest
+    from pydantic import ValidationError
+
+    from app.api.notifications import TopicReadRequest
+
+    # Kolumny to int4 — większa liczba to 422, nie 500 z bazy.
+    with pytest.raises(ValidationError):
+        TopicReadRequest(topic="jobs", job_id=10**12)
+    with pytest.raises(ValidationError):
+        TopicReadRequest(topic="jobs", ids=[10**12])
+    # Domyślnie klik gasi też przypomnienia w zastępstwie (jak klik w dzwonku).
+    assert TopicReadRequest(topic="jobs").include_covered is True

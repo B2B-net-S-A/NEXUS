@@ -19,10 +19,14 @@ import pytest_asyncio
 from httpx import AsyncClient
 from sqlalchemy import select
 
+from app.api import notifications as notifications_api
 from app.core.database import AsyncSessionLocal
+from app.core.scheduling import business_today
 from app.core.security import hash_password
 from app.models.notification import Notification, NotificationType
 from app.models.user import User, UserRole
+from app.services.section_permissions import ProductSection
+from app.services.workforce_availability import Delegation, WorkforceContext
 
 pytestmark = pytest.mark.asyncio
 
@@ -182,6 +186,58 @@ async def test_reading_whole_topic_touches_only_own_rows_of_it(app_client, ctx):
     assert resp.status_code == 200, resp.text
     unread = await _unread(ctx["ids"])
     assert unread == {"cv", "mention", "reply", "chat", "foreign"}
+
+
+async def test_topic_read_rejects_out_of_range_job_id(app_client, ctx):
+    resp = await app_client.put(
+        "/api/notifications/topics/read",
+        json={"topic": "jobs", "job_id": 10**12},
+        headers=ctx["me"],
+    )
+    assert resp.status_code == 422
+
+
+async def test_substitute_closes_colleagues_reminder_only_on_purpose() -> None:
+    # Klik w pozycję okienka = świadome zamknięcie (jak klik w dzwonku);
+    # samo wejście na ekran rekrutacji (`include_covered=false`) gasi tylko
+    # własne wiersze — nieobecny zobaczy swoje przypomnienie po powrocie.
+    async with AsyncSessionLocal() as db:
+        owner, _ = await _new_user(db)
+        cover, _ = await _new_user(db)
+        reminder = _row(owner.id, _T.stage_stuck_7d, "/jobs/5?candidate=4")
+        db.add(reminder)
+        await db.commit()
+        owner_id, cover_id, reminder_id = owner.id, cover.id, reminder.id
+
+    today = business_today()
+    async with AsyncSessionLocal() as db:
+        db.info["workforce_context"] = WorkforceContext(
+            fresh=True,
+            available_ids={cover_id},
+            delegations={
+                owner_id: Delegation(owner_id, cover_id, today, today, ("ci-leave",))
+            },
+        )
+        acting = await db.get(User, cover_id)
+        acting.effective_section_access = {s.value: "write" for s in ProductSection}
+
+        listed = await notifications_api.list_job_threads(acting, db)
+        assert [(i.job_id, i.unread_count) for i in listed.items] == [(5, 1)]
+
+        visit = await notifications_api.mark_topic_read(
+            notifications_api.TopicReadRequest(
+                topic="jobs", job_id=5, include_covered=False
+            ),
+            acting,
+            db,
+        )
+        assert visit.updated == 0
+        clicked = await notifications_api.mark_topic_read(
+            notifications_api.TopicReadRequest(topic="jobs", job_id=5), acting, db
+        )
+        assert clicked.updated == 1
+
+    assert await _unread({"reminder": reminder_id}) == set()
 
 
 async def test_topic_read_rejects_two_targets(app_client, ctx):
