@@ -22,10 +22,10 @@ import {
 } from "@/lib/api/chatNotifications";
 import { chatNotifyMessage, shouldShowChatToast } from "@/lib/chat-notify";
 import { formatNotificationText, notificationTimeAgo } from "@/lib/notification-format";
+import { MY_NOTIFICATIONS_SETTINGS_HREF } from "@/lib/notification-topics";
 import { cn } from "@/lib/utils";
 import { CHAT_NOTIFY_EVENT, type ChatNotifyEvent } from "@/types/job-chat";
 
-const SETTINGS_HREF = "/settings?item=my-notifications";
 const CHAT_TOAST_MS = 8_000;
 
 function countLabel(n: number): string {
@@ -33,7 +33,13 @@ function countLabel(n: number): string {
 }
 
 function threadKindLabel(kind: ChatThread["kind"]): string {
+  if (kind === "note") return "Notatka";
   return kind === "candidate" ? "Czat kandydata" : "Czat rekrutacji";
+}
+
+function threadKey(thread: ChatThread): string {
+  // Wątek notatki rozpoznaje link (numer notatki bywa ten sam w dwóch linkach).
+  return thread.kind === "note" ? `note:${thread.link}` : `${thread.kind}:${thread.entity_id}`;
 }
 
 export type ChatThreadsPanelState = "loading" | "error" | "ready";
@@ -49,7 +55,7 @@ export interface ChatThreadsPanelProps {
   onOpenSettings: () => void;
 }
 
-/** Treść okienka „Czaty” — bez zapytań, dane w propsach (także w harnessie). */
+/** Treść okienka „Wiadomości” — bez zapytań, dane w propsach (także w harnessie). */
 export function ChatThreadsPanel({
   state,
   threads,
@@ -63,7 +69,7 @@ export function ChatThreadsPanel({
   return (
     <div className="@container flex max-h-[min(520px,calc(100dvh-6rem))] flex-col">
       <div className="flex items-center justify-between gap-2 border-b border-border px-4 py-3">
-        <h2 className="text-sm font-semibold text-foreground">Czaty</h2>
+        <h2 className="text-sm font-semibold text-foreground">Wiadomości</h2>
         <div className="flex items-center gap-1">
           {unreadThreads > 0 ? (
             <Button
@@ -109,12 +115,12 @@ export function ChatThreadsPanel({
         </div>
       ) : threads.length === 0 ? (
         <p className="px-4 py-10 text-center text-sm text-muted-foreground">
-          Nie masz wiadomości w czatach z ostatnich 30 dni.
+          Nie masz wiadomości z ostatnich 30 dni.
         </p>
       ) : (
         <ul className="min-h-0 flex-1 divide-y divide-border overflow-y-auto">
           {threads.map((thread) => (
-            <li key={`${thread.kind}:${thread.entity_id}`}>
+            <li key={threadKey(thread)}>
               <ChatThreadRow thread={thread} onOpen={onOpenThread} />
             </li>
           ))}
@@ -123,8 +129,8 @@ export function ChatThreadsPanel({
 
       {state === "ready" && threads.length > 0 ? (
         <p className="border-t border-border px-4 py-2 text-xs text-muted-foreground">
-          Rozmowy z ostatnich 30 dni. Kliknięcie otwiera pierwszą nieprzeczytaną
-          wiadomość.
+          Czaty i notatki z ostatnich 30 dni. Kliknięcie otwiera pierwszą
+          nieprzeczytaną wiadomość.
         </p>
       ) : null}
     </div>
@@ -139,7 +145,8 @@ function ChatThreadRow({
   onOpen: (thread: ChatThread) => void;
 }) {
   const unread = thread.unread_count > 0;
-  const KindIcon = thread.kind === "candidate" ? User : Briefcase;
+  const KindIcon =
+    thread.kind === "note" ? AtSign : thread.kind === "candidate" ? User : Briefcase;
   const message = formatNotificationText(thread.last_message);
   return (
     <button
@@ -176,9 +183,11 @@ function ChatThreadRow({
           </span>
         </span>
         <span className="block truncate text-xs text-muted-foreground">
-          {thread.subtitle
-            ? `${threadKindLabel(thread.kind)} · ${thread.subtitle}`
-            : threadKindLabel(thread.kind)}
+          {thread.kind === "note"
+            ? (thread.subtitle ?? threadKindLabel(thread.kind))
+            : thread.subtitle
+              ? `${threadKindLabel(thread.kind)} · ${thread.subtitle}`
+              : threadKindLabel(thread.kind)}
         </span>
         <span className="mt-1 line-clamp-2 text-xs text-muted-foreground">
           {thread.last_author_name ? (
@@ -213,7 +222,7 @@ export interface ChatTopbarButtonProps
   open: boolean;
 }
 
-/** Ikona „Czaty” w górnym pasku — wygląd jak dzwonek obok. */
+/** Ikona „Wiadomości” w górnym pasku (dawniej „Czaty”). */
 export function ChatTopbarButton({
   unreadThreads,
   hasMention,
@@ -228,8 +237,8 @@ export function ChatTopbarButton({
       type="button"
       aria-label={
         unreadThreads > 0
-          ? `Czaty — rozmowy z nowymi wiadomościami: ${unreadThreads}`
-          : "Czaty"
+          ? `Wiadomości — rozmowy z nowymi wiadomościami: ${unreadThreads}`
+          : "Wiadomości"
       }
       className={cn(
         "relative rounded-lg p-2 transition-colors",
@@ -258,8 +267,9 @@ export function ChatTopbarButton({
 }
 
 /**
- * Okienko „Czaty” w górnym pasku (09.10.2026): powiadomienia czatów rekrutacji
- * i kandydatów, jedna pozycja na rozmowę. Dzwonek ich już nie pokazuje.
+ * Okienko „Wiadomości” w górnym pasku (09.10.2026 jako „Czaty”): powiadomienia
+ * czatów rekrutacji i kandydatów, jedna pozycja na rozmowę, a od 16.10.2026
+ * także wzmianki i odpowiedzi w notatkach (jedna pozycja na notatkę).
  * Nowa wiadomość daje dymek z „Otwórz”, chyba że ten czat jest na ekranie.
  */
 export function ChatNotificationsDropdown() {
@@ -274,8 +284,8 @@ export function ChatNotificationsDropdown() {
   const hasMention = threads.some((t) => t.unread_count > 0 && t.has_mention);
 
   const openThread = (thread: Pick<ChatThread, "kind" | "entity_id" | "link">) => {
-    // Czat tylko do odczytu nie gasi powiadomień sam — gasimy je tutaj.
-    markRead.mutate({ kind: thread.kind, entity_id: thread.entity_id });
+    // Czat tylko do odczytu i notatka nie gaszą powiadomień same — gasimy tutaj.
+    markRead.mutate({ kind: thread.kind, entity_id: thread.entity_id, link: thread.link });
     setOpen(false);
     router.push(thread.link);
   };
@@ -287,7 +297,7 @@ export function ChatNotificationsDropdown() {
     const handler = (e: Event) => {
       const detail = (e as CustomEvent<ChatNotifyEvent>).detail;
       if (!detail || !detail.link) return;
-      if (isChatOnScreen(detail.kind, detail.entity_id)) return;
+      if (detail.kind !== "note" && isChatOnScreen(detail.kind, detail.entity_id)) return;
       if (!shouldShowChatToast(detail, lastToastRef.current, Date.now())) return;
       showActionToast(chatNotifyMessage(detail), {
         actionLabel: "Otwórz",
@@ -325,7 +335,7 @@ export function ChatNotificationsDropdown() {
           onRetry={() => void threadsQuery.refetch()}
           onOpenSettings={() => {
             setOpen(false);
-            router.push(SETTINGS_HREF);
+            router.push(MY_NOTIFICATIONS_SETTINGS_HREF);
           }}
         />
       </PopoverContent>

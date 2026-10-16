@@ -9,6 +9,11 @@ export function chatThreadKey(kind: string, entityId: number): string {
 
 /** Zdanie w dymku o nowej wiadomości czatu. */
 export function chatNotifyMessage(event: ChatNotifyEvent): string {
+  if (event.kind === "note") {
+    // Tytuł powiadomienia mówi już kto i co („Anna D. oznaczył(a) Cię w notatce”).
+    const preview = event.preview.trim();
+    return preview ? `${event.thread_title}: ${preview}` : event.thread_title;
+  }
   const where =
     event.kind === "candidate"
       ? `w czacie kandydata „${event.thread_title}”`
@@ -31,6 +36,8 @@ export function shouldShowChatToast(
   lastShown: Map<string, number>,
   now: number,
 ): boolean {
+  // Notatka to zawsze wiadomość do Ciebie (wzmianka albo odpowiedź) — jak wzmianka.
+  if (event.kind === "note") return true;
   const key = chatThreadKey(event.kind, event.entity_id);
   const previous = lastShown.get(key);
   const quiet =

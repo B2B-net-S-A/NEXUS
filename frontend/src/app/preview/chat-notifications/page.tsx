@@ -1,7 +1,9 @@
 "use client";
 
 /**
- * Harness wizualny okienka „Czaty” z górnego paska — publiczny, ZERO zapytań.
+ * Harness wizualny okienka „Wiadomości” (dawniej „Czaty”) z górnego paska —
+ * publiczny, ZERO zapytań. Od 16.10.2026 z wątkami notatek (wzmianka,
+ * odpowiedź na Twoją notatkę).
  *
  * Renderuje prezentacyjne części (`ChatTopbarButton`, `ChatThreadsPanel`) na
  * danych fikcyjnych. Stany obok siebie, żeby awaria nie dała się pomylić
@@ -33,6 +35,30 @@ const THREADS: ChatThread[] = [
     last_message: "Klient prosi o drugą osobę na czwartek — zerkniesz, kogo mamy?",
     last_at: ago(3),
     link: "/jobs/11?tab=chat&msg=101",
+  },
+  {
+    kind: "note",
+    entity_id: 51,
+    title: "Ewa Lis",
+    subtitle: "Kasia Wzorcowa oznaczył(a) Cię w notatce",
+    unread_count: 1,
+    has_mention: true,
+    last_author_name: null,
+    last_message: "@Piotr sprawdź proszę stawkę przed wysyłką do klienta",
+    last_at: ago(8),
+    link: "/candidates/51?tab=activity&activity=notes&note=901",
+  },
+  {
+    kind: "note",
+    entity_id: 52,
+    title: "Tomasz Przykładowy",
+    subtitle: "Anna Przykładowa odpowiedział(a) na Twoją notatkę",
+    unread_count: 0,
+    has_mention: false,
+    last_author_name: null,
+    last_message: "Potwierdzone z kandydatem — 3 tygodnie wypowiedzenia.",
+    last_at: ago(60 * 2),
+    link: "/candidates/52?tab=activity&activity=notes&note=902",
   },
   {
     kind: "candidate",
@@ -102,7 +128,7 @@ export default function ChatNotificationsPreviewPage() {
   return (
     <main className="min-h-dvh bg-muted/30 p-4 sm:p-6">
       <h1 className="mb-1 text-lg font-semibold text-foreground">
-        Okienko „Czaty” — harness
+        Okienko „Wiadomości” — harness
       </h1>
       <p className="mb-4 max-w-3xl text-sm text-muted-foreground">
         Powiadomienia czatów rekrutacji i kandydatów, jedna pozycja na rozmowę.
