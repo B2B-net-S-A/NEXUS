@@ -1,29 +1,19 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { NotificationsDropdown } from "@/components/NotificationsDropdown";
 import { notificationsApi } from "@/lib/api";
+import { NOTIFICATION_FRAME_EVENT } from "@/lib/notification-topics";
 
 vi.mock("@/lib/api", () => ({
   notificationsApi: { listForBell: vi.fn(), markRead: vi.fn(), markAllReadForBell: vi.fn() },
 }));
+// Gniazdo żyje w `NotificationsRealtime` (16.10.2026) — dzwonek dostaje ramki
+// zdarzeniem okna, a stan połączenia z magazynu `useRealtimeStatus`.
 const hookState = vi.hoisted(() => ({
-  unreadCount: 0,
-  clearUnread: vi.fn(),
-  options: null as { interviewsInWindow?: boolean } | null,
   hasInterviewsWindow: false,
-}));
-vi.mock("@/hooks/useNotifications", () => ({
-  useNotifications: (options: { interviewsInWindow?: boolean }) => {
-    hookState.options = options;
-    return {
-      unreadCount: hookState.unreadCount,
-      clearUnread: hookState.clearUnread,
-      wsConnected: true,
-    };
-  },
 }));
 vi.mock("@/hooks/useHasInterviewsWindow", () => ({
   useHasInterviewsWindow: () => hookState.hasInterviewsWindow,
@@ -194,7 +184,6 @@ describe("NotificationsDropdown — kategoria „Rozmowy” w osobnym okienku", 
 
     await waitFor(() => expect(screen.getAllByRole("listitem")).toHaveLength(2));
     expect(listNotifications).toHaveBeenCalledWith(20, { excludeInterviews: true });
-    expect(hookState.options?.interviewsInWindow).toBe(true);
 
     await user.click(screen.getByText("Oznacz wszystko jako przeczytane"));
     expect(notificationsApi.markAllReadForBell).toHaveBeenCalledWith({ excludeInterviews: true });
@@ -209,7 +198,6 @@ describe("NotificationsDropdown — kategoria „Rozmowy” w osobnym okienku", 
 
     await waitFor(() => expect(screen.getAllByRole("listitem")).toHaveLength(1));
     expect(listNotifications).toHaveBeenCalledWith(20);
-    expect(hookState.options?.interviewsInWindow).toBe(false);
     expect(screen.queryByText(/mają teraz własne okienko/)).toBeNull();
   });
 
@@ -242,8 +230,6 @@ describe("NotificationsDropdown — dostępność, licznik i ładowanie", () => 
     vi.mocked(notificationsApi.markRead).mockResolvedValue(
       {} as Awaited<ReturnType<typeof notificationsApi.markRead>>,
     );
-    hookState.unreadCount = 0;
-    hookState.clearUnread.mockReset();
   });
 
   it("pozycję da się otworzyć klawiaturą (Enter) — oznacza ją jako przeczytaną", async () => {
@@ -313,11 +299,22 @@ describe("NotificationsDropdown — dostępność, licznik i ładowanie", () => 
     expect(await iconOf("CV gotowe do sprawdzenia: Anna Nowak")).toContain("lucide-file-check");
   });
 
-  it("po odświeżeniu listy zeruje deltę z gniazda (bez widmowego licznika)", async () => {
+  it("ramka z gniazda (zdarzenie okna) daje dymek dzwonka", async () => {
     mockAvailable(1);
-    hookState.unreadCount = 7;
     renderDropdown();
-    await waitFor(() => expect(hookState.clearUnread).toHaveBeenCalled());
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent(NOTIFICATION_FRAME_EVENT, {
+          detail: {
+            id: 77,
+            title: "Umowa aktywowana",
+            message: "Kontrakt Ewy Lis jest aktywny",
+            created_at: "2026-10-16T09:00:00Z",
+          },
+        }),
+      );
+    });
+    expect(await screen.findByText("Umowa aktywowana")).toBeInTheDocument();
   });
 
   it("„Pokaż więcej” nie znika w trakcie doładowania", async () => {

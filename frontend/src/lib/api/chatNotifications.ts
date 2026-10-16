@@ -3,11 +3,15 @@ import { api } from "@/lib/api";
 import { WS_BACKED_SAFETY_POLL_MS } from "@/lib/polling";
 import { useAuthStore } from "@/store/auth";
 
-/** Jedna rozmowa w okienku „Czaty”: czat rekrutacji albo czat kandydata. */
+/**
+ * Jedna pozycja okienka „Wiadomości”: czat rekrutacji, czat kandydata albo
+ * (od 16.10.2026) wątek notatki — wzmianka lub odpowiedź na Twoją notatkę.
+ */
 export interface ChatThread {
-  kind: "job" | "candidate";
+  kind: "job" | "candidate" | "note";
   entity_id: number;
   title: string;
+  /** Czat: klient rekrutacji. Notatka: kto i co („Anna D. oznaczył(a) Cię…”). */
   subtitle: string | null;
   unread_count: number;
   has_mention: boolean;
@@ -24,18 +28,35 @@ export interface ChatThreadList {
   unread_threads: number;
 }
 
-export type ChatThreadRef = Pick<ChatThread, "kind" | "entity_id">;
+/** Wątek do zgaszenia: czat po rodzaju i numerze, notatka po linku. */
+export type ChatThreadRef = Pick<ChatThread, "kind" | "entity_id" | "link">;
+
+function readBody(thread: ChatThreadRef) {
+  return thread.kind === "note"
+    ? { kind: "note" as const, link: thread.link }
+    : { kind: thread.kind, entity_id: thread.entity_id };
+}
 
 export const chatNotificationsApi = {
-  list: () => api.get<ChatThreadList>("/api/notifications/chats"),
-  /** Bez rozmowy — wszystkie powiadomienia czatów. */
-  markRead: (thread?: ChatThreadRef) =>
-    api.put("/api/notifications/chats/read", thread ?? undefined),
+  list: () =>
+    api.get<ChatThreadList>("/api/notifications/chats", {
+      params: { include_notes: true },
+    }),
+  /** Bez wątku — wszystkie czaty i notatki („Oznacz wszystkie”). */
+  markRead: async (thread?: ChatThreadRef): Promise<void> => {
+    if (thread) {
+      await api.put("/api/notifications/chats/read", readBody(thread));
+      return;
+    }
+    await api.put("/api/notifications/chats/read", undefined, {
+      params: { include_notes: true },
+    });
+  },
 };
 
 /**
  * Klucz pod wspólnym prefiksem `["notifications"]`: gniazdo odświeża go razem
- * z dzwonkiem po każdej wiadomości czatu (`scheduleChatRefresh`).
+ * z innymi okienkami po każdej wiadomości czatu (`scheduleChatRefresh`).
  */
 export function chatThreadsQueryKey(scopeCacheKey: string): readonly unknown[] {
   return ["notifications", scopeCacheKey, "chats"];

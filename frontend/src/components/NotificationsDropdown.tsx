@@ -75,14 +75,19 @@ import {
   nextNotificationsLimit,
   shownNotificationsLimit,
 } from "@/lib/notifications-paging";
-import { useNotifications, WsNotification } from "@/hooks/useNotifications";
+import type { WsNotification } from "@/hooks/useNotifications";
+import {
+  MY_NOTIFICATIONS_SETTINGS_HREF,
+  NOTIFICATION_FRAME_EVENT,
+} from "@/lib/notification-topics";
+import { useRealtimeStatus } from "@/store/realtime";
 import { InterviewFeedbackModal } from "@/components/feedback/InterviewFeedbackModal";
 import { useAuthStore } from "@/store/auth";
 import { useSetNotificationCategoryMuted } from "@/lib/api/notificationPreferences";
 import { apiErrorMessage } from "@/lib/api-error";
 
 /** Ustawienia „Moje powiadomienia" (Ustawienia → Moje konto). */
-export const MY_NOTIFICATIONS_SETTINGS_HREF = "/settings?item=my-notifications";
+export { MY_NOTIFICATIONS_SETTINGS_HREF };
 
 type Notification = {
   id: number;
@@ -647,16 +652,19 @@ export function NotificationsDropdown() {
     [],
   );
 
-  const {
-    unreadCount: wsUnreadDelta,
-    clearUnread,
-    wsConnected,
-  } = useNotifications({
-    onNotification: handleWsNotification,
-    interviewsInWindow: hasInterviewsWindow,
-  });
+  // Gniazdo żyje w `NotificationsRealtime` (16.10.2026) — dzwonek tylko słucha
+  // ramek, które nie poszły do okienek „Kalendarz” i „Wiadomości”.
+  const wsConnected = useRealtimeStatus((s) => s.connected);
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent<WsNotification>).detail;
+      if (detail) handleWsNotification(detail);
+    };
+    window.addEventListener(NOTIFICATION_FRAME_EVENT, handler);
+    return () => window.removeEventListener(NOTIFICATION_FRAME_EVENT, handler);
+  }, [handleWsNotification]);
 
-  const { data, isFetching, isPlaceholderData, dataUpdatedAt } = useQuery({
+  const { data, isFetching, isPlaceholderData } = useQuery({
     // Człon „bell”: „Moje zadania” na pulpicie pytają o tę samą stronę RAZEM
     // z czatami — wspólny klucz podmieniał dzwonkowi listę i licznik.
     queryKey: ["notifications", scopeCacheKey, limit, "bell"],
@@ -677,24 +685,14 @@ export function NotificationsDropdown() {
   });
 
   const notifications: Notification[] = data?.items || [];
-  const serverUnread: number = data?.unread_count || 0;
-  // Show max of server count and live WS delta (resolves after query refresh)
-  const unreadCount = Math.max(serverUnread, wsUnreadDelta);
-  // Delta z gniazda jest potrzebna tylko do najbliższego odświeżenia listy —
-  // potem licznik serwera już ją zawiera. Bez zerowania zostawał widmowy
-  // licznik po przeczytaniu powiadomień w innej karcie.
-  const clearUnreadRef = useRef(clearUnread);
-  clearUnreadRef.current = clearUnread;
-  useEffect(() => {
-    if (dataUpdatedAt) clearUnreadRef.current();
-  }, [dataUpdatedAt]);
+  // Gniazdo unieważnia listę przy każdej ramce, więc licznik serwera nadąża sam.
+  const unreadCount: number = data?.unread_count || 0;
   const shownLimit = shownNotificationsLimit(limit, isPlaceholderData);
 
   const markReadMutation = useMutation({
     mutationFn: (id: number) => notificationsApi.markRead(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["notifications"] });
-      clearUnread();
     },
   });
 
@@ -731,7 +729,6 @@ export function NotificationsDropdown() {
         : notificationsApi.markAllReadForBell(),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["notifications"] });
-      clearUnread();
     },
   });
 
@@ -757,7 +754,6 @@ export function NotificationsDropdown() {
 
   const handleOpen = () => {
     setOpen((v) => !v);
-    if (!open) clearUnread();
   };
 
   return (
