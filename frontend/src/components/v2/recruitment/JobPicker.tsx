@@ -12,6 +12,11 @@
  * i przepina kandydatów także tam, gdzie nie jest w zespole (decyzja Artura
  * 07.10.2026; serwer nie wymaga członkostwa od 23.09.2026). „Moje otwarte”
  * to tylko skrót na górze.
+ *
+ * Wiersz nazywa rekrutację jak jej nagłówek: numer u klienta i tytuł dla
+ * rekrutera (`JobPickName`, 16.10.2026). Wybrana rekrutacja wraca z polem
+ * `title` = nazwa od klienta — wołający, który ją pokazuje, bierze
+ * `jobDisplayTitle`.
  */
 
 import { useMemo, useState } from "react";
@@ -23,11 +28,14 @@ import { apiErrorMessage } from "@/lib/api-error";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
 import { useTabsStore } from "@/store/tabs";
 import { Input } from "@/components/ui/input";
+import { JobPickName } from "@/components/v2/jobs/JobPickName";
 import { cn } from "@/lib/utils";
 
 export interface JobPickerJob {
   id: number;
   title: string;
+  working_title?: string | null;
+  client_reference?: string | null;
   client_name?: string | null;
 }
 
@@ -67,7 +75,7 @@ function JobRow({
         )}
       >
         <span className="min-w-0">
-          <span className="block truncate font-medium text-foreground">{job.title}</span>
+          <JobPickName job={job} />
           {job.client_name ? (
             <span className="block truncate text-xs text-muted-foreground">{job.client_name}</span>
           ) : null}
@@ -112,7 +120,8 @@ export function JobPicker({ value, onChange, label = "Szukaj rekrutacji", classN
     () =>
       tabs
         .filter((t) => t.type === "job")
-        .map((t) => ({ id: t.entityId, title: t.title }))
+        // Karta trzyma tytuł dla rekrutera i numer u klienta (jak nagłówek).
+        .map((t) => ({ id: t.entityId, title: t.title, client_reference: t.reference }))
         .slice(0, 5),
     [tabs],
   );
@@ -126,7 +135,7 @@ export function JobPicker({ value, onChange, label = "Szukaj rekrutacji", classN
         <Input
           id="job-picker-search"
           aria-label={label}
-          placeholder="Tytuł albo klient…"
+          placeholder="Tytuł, klient albo numer…"
           value={text}
           onChange={(e) => setText(e.target.value)}
           className="pl-9"

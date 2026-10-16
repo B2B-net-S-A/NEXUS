@@ -193,6 +193,16 @@ describe("AddToRecruitmentDialog", () => {
     });
   });
 
+  it("podsumowanie nazywa rekrutację tytułem dla rekrutera, nie nazwą od klienta (16.10.2026)", () => {
+    const job = { id: 42, title: "AI Engineer (ZOB-2984)", working_title: "Senior AI Engineer · Java, LLM · 5+ lat" };
+    expect(
+      addToRecruitmentSummary({ job, response: { added: [1], skipped: [], total_added: 1, total_skipped: 0 } }),
+    ).toBe("Dodano 1 osobę do „Senior AI Engineer · Java, LLM · 5+ lat”.");
+    expect(
+      addToRecruitmentSummary({ job, response: { added: [1], skipped: [], total_added: 1, total_skipped: 0 }, restored: 1 }),
+    ).toBe("Przywrócono 1 osobę do „Senior AI Engineer · Java, LLM · 5+ lat”.");
+  });
+
   it("podsumowanie mówi o ostrzeżeniach przy dodanych osobach", () => {
     const job = { id: 42, title: "Java Developer" };
     expect(

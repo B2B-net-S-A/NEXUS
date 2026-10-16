@@ -11,6 +11,8 @@ export interface AlsoFitsJob {
   job_id: number;
   title: string;
   client_name: string | null;
+  /** Numer u klienta przed nazwą, jak w nagłówku rekrutacji (16.10.2026). */
+  client_reference?: string | null;
   /** Ta sama liczba, którą rekrutacja pokazuje w „Szukaj w bazie”. */
   score: number;
   matching_must: string[];

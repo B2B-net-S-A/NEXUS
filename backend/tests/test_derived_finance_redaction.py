@@ -38,8 +38,10 @@ def _job() -> SimpleNamespace:
     return SimpleNamespace(
         id=101,
         title="Senior Python Engineer",
+        working_title="Python Developer · Django · 5+ lat",
+        client_reference="ZOB-2984",
         client_id=77,
-        client=SimpleNamespace(name="Scoped Client"),
+        client=SimpleNamespace(name="Scoped Client", display_name=None),
         location="Warszawa",
         salary_min=18_000,
         salary_max=24_000,
@@ -84,6 +86,22 @@ def test_recommendation_job_shapes_keep_contract_but_redact_salary() -> None:
     finance_shape = _shape_recommended_job(job, include_finance=True)
     assert finance_shape["salary_min"] == 18_000
     assert finance_shape["salary_max"] == 24_000
+
+
+def test_recommended_job_carries_names_shown_in_job_header() -> None:
+    """„Przypisz do rekrutacji” → AI sugestie nazywa rekrutację jak jej nagłówek.
+
+    Tytuł dla rekrutera, numer u klienta i klient (16.10.2026); ``title``
+    zostaje nazwą od klienta.
+    """
+    shape = _shape_recommended_job(_job())
+
+    assert shape["title"] == "Senior Python Engineer"
+    assert shape["working_title"] == "Python Developer · Django · 5+ lat"
+    assert shape["client_reference"] == "ZOB-2984"
+    assert shape["client_name"] == "Scoped Client"
+    no_client = SimpleNamespace(**{**vars(_job()), "client": None})
+    assert _shape_recommended_job(no_client)["client_name"] is None
 
 
 def test_score_breakdown_salary_layer_is_not_a_budget_oracle() -> None:
