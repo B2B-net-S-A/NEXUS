@@ -4,8 +4,10 @@ Dwa konsumenty jednej oceny:
 
 - zakładka „Do tej rekrutacji" panelu (``GET /api/my-people/for-job/{id}``),
   liczona na żądanie dla osoby, która patrzy;
-- dzwonek po publikacji rekrutacji (:func:`run_for_job`, wołane z workera
-  auto-matcha) — jeden wpis na (odbiorca, rekrutacja).
+- zdarzenie na żywo po publikacji rekrutacji (:func:`run_for_job`, wołane
+  z workera auto-matcha) — jedno na (odbiorca, rekrutacja). Od 16.10.2026 bez
+  wiersza powiadomienia: licznik ikony „Moi ludzie” liczy się z
+  ``my_people_job_matches``, a zdarzenie tylko go odświeża i budzi Jarvisa.
 
 Liczba to KANONICZNY FIT (``canonical_fit.score_candidates``), czyli ta sama,
 którą rekruter widzi na ekranach C2 i w kolumnie „Dopasowanie" wyszukiwarki.
@@ -261,16 +263,16 @@ def dealbreaker_exclusions(job, candidates: list, decisions: dict) -> dict[int, 
 
 
 async def run_for_job(db: AsyncSession, job: Job) -> dict:
-    """Publikacja rekrutacji → dzwonek do rekruterów, których ludzie pasują.
+    """Publikacja rekrutacji → zdarzenie do rekruterów, których ludzie pasują.
 
-    Idempotentne: dopasowanie jest zapisywane raz (UNIQUE na trójce), a dzwonek
-    idzie tylko przy NOWYCH dopasowaniach — istotna zmiana rekrutacji, która
-    odpala zdarzenie drugi raz, nie budzi rekrutera tymi samymi nazwiskami.
+    Idempotentne: dopasowanie jest zapisywane raz (UNIQUE na trójce), a
+    zdarzenie idzie tylko przy NOWYCH dopasowaniach — istotna zmiana
+    rekrutacji, która odpala zdarzenie drugi raz, nie budzi rekrutera tymi
+    samymi nazwiskami. Zdarzenie wychodzi po commicie wołającego.
     """
-    from app.models.notification import NotificationType
     from app.models.user import User
     from app.services.my_people import owners_by_candidate
-    from app.services.notification_triggers import emit
+    from app.services.notification_ws_after_commit import queue_ws_event
 
     if not settings.MY_PEOPLE_MATCH_ENABLED:
         return {"skipped": "disabled"}
@@ -353,7 +355,7 @@ async def run_for_job(db: AsyncSession, job: Job) -> dict:
         for uid in owners.get(cid, ()):
             per_user.setdefault(uid, []).append(person)
 
-    notified = 0
+    events: list[tuple[int, dict]] = []
     stored = 0
     for uid, people in per_user.items():
         people.sort(key=lambda p: p.score or 0, reverse=True)
@@ -390,28 +392,41 @@ async def run_for_job(db: AsyncSession, job: Job) -> dict:
             f"{names.get(p.candidate_id) or 'kandydat'} ({p.score})" for p in fresh[:3]
         )
         more = f" i {len(fresh) - 3} więcej" if len(fresh) > 3 else ""
-        try:
-            created = await emit(
-                db,
-                user_id=uid,
-                title=f"Nowa rekrutacja: {display_title(job)} — {_people_phrase(len(fresh))} pasuje",
-                message=f"Z Twojej listy „Moi ludzie”: {top}{more}.",
-                ntype=NotificationType.my_people_match,
-                related_entity_type="job",
-                related_entity_id=job.id,
-                link=f"/jobs/{job.id}?people=1",
+        events.append(
+            (
+                uid,
+                {
+                    "type": "my_people:match",
+                    "data": {
+                        "job_id": job.id,
+                        "title": f"Nowa rekrutacja: {display_title(job)} — {_people_phrase(len(fresh))} pasuje",
+                        "message": f"Z Twojej listy „Moi ludzie”: {top}{more}.",
+                        "link": f"/jobs/{job.id}?people=1",
+                    },
+                },
             )
-            notified += int(created is not None)
-        except Exception as exc:  # noqa: BLE001 — jeden odbiorca nie psuje reszty
-            logger.warning(
-                "[my_people] notify failed user=%s job=%s: %s", uid, job.id, exc
-            )
+        )
+    # Po pętli: wycofany savepoint wołającego nie odwoła zakolejkowanego
+    # zdarzenia, więc kolejkujemy dopiero po zapisie wszystkich dopasowań.
+    for uid, event in events:
+        if not queue_ws_event(db, user_id=uid, event_payload=event):
+            await _push_now(uid, event)
     return {
         "pool": len(ids),
         "matched": len(good),
         "stored": stored,
-        "notified": notified,
+        "notified": len(events),
     }
+
+
+async def _push_now(user_id: int, event: dict) -> None:
+    """Atrapa sesji (test) — bez commitu, więc od razu; best-effort."""
+    from app.api import ws as ws_manager
+
+    try:
+        await ws_manager.notify_user(user_id, event)
+    except Exception as exc:  # noqa: BLE001 — licznik i tak się odświeży
+        logger.warning("[my_people] WS push failed user=%s: %s", user_id, exc)
 
 
 def _people_phrase(n: int) -> str:

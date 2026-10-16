@@ -12,6 +12,11 @@ Teraz zdarzenie trafia do ``session.info`` razem z wierszem ``Notification``
 i wychodzi po ``after_commit`` — jak w ``mention_dispatch`` i kalendarzu.
 Wiersz, którego zapis został wycofany (savepoint albo cała transakcja),
 przestaje być ``persistent`` i jego zdarzenie przepada.
+
+Zdarzenie bez wiersza (16.10.2026, „Moi ludzie”: dopasowanie zamiast wpisu
+w dzwonku) idzie przez :func:`queue_ws_event` — po commicie zewnętrznej
+transakcji, przepada przy jej wycofaniu. Wycofanego SAVEPOINT-u nie widzi,
+więc wołający kolejkuje je dopiero po zrobionej pracy.
 """
 
 from __future__ import annotations
@@ -43,6 +48,20 @@ def queue_ws_notification(db: Any, *, user_id: int, event_payload: dict, row: An
     return True
 
 
+def queue_ws_event(db: Any, *, user_id: int, event_payload: dict) -> bool:
+    """Zdarzenie bez wiersza ``Notification`` — wychodzi po commicie ``db``.
+
+    ``False`` przy atrapie sesji (test) — wołający wysyła wtedy od razu.
+    """
+    sync_session = getattr(db, "sync_session", None)
+    if not isinstance(sync_session, Session):
+        return False
+    sync_session.info.setdefault(_PENDING_KEY, []).append(
+        (int(user_id), event_payload, None)
+    )
+    return True
+
+
 def _row_committed(row: Any) -> bool:
     try:
         return bool(inspect(row).persistent)
@@ -67,7 +86,11 @@ def _dispatch_after_commit(session: Session) -> None:
     pending = session.info.pop(_PENDING_KEY, None)
     if not pending:
         return
-    items = [(uid, payload) for uid, payload, row in pending if _row_committed(row)]
+    items = [
+        (uid, payload)
+        for uid, payload, row in pending
+        if row is None or _row_committed(row)
+    ]
     if not items:
         return
     try:
@@ -88,4 +111,4 @@ def _drop_on_outer_rollback(session: Session, previous_transaction: Any) -> None
         session.info.pop(_PENDING_KEY, None)
 
 
-__all__ = ["queue_ws_notification"]
+__all__ = ["queue_ws_event", "queue_ws_notification"]

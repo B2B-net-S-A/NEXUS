@@ -56,3 +56,12 @@ Makiety: https://claude.ai/artifact/Sg4nsek8fGLcqNxMH47pFc.
 - **Poranny wpis `board_tasks_digest` nie powstaje** (odpięty
   z `run_all_triggers`); ta sama kolejka jest na pulpicie i w porannym
   mailu. Typ zostaje w enumie i mapach (testy wyczerpujące).
+- **Kopie „Moich ludzi” nie powstają (PR5):** `my_people_matching.run_for_job`
+  wysyła po commicie samo zdarzenie `my_people:match` (bez wiersza), z bramką
+  typu `my_people_match` w `user_can_receive_realtime_event` — szczegóły
+  w `kandydaci-wyszukiwanie/moi-ludzie-lista-rekrutera-dzwonek-przy-nowej.md`.
+- **Jednorazowe sprzątanie (D5, PR5):** faza startu
+  `repair-notification-topics-backlog` → `run_topics_backlog_repair`:
+  nieprzeczytane powiadomienia KAŻDEGO typu starsze niż 7 dni → przeczytane,
+  marker `notification_topics_backlog_read_2026_10` w `app_settings`, paragon
+  z samymi liczbami per typ. Nic nie jest kasowane; maili nie dotyka.

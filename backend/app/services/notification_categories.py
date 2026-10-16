@@ -263,7 +263,7 @@ _SPLIT_GROUPS: dict[
         (_T.stage_stuck_7d,),
     ),
     "reminders_board_digest": (
-        "Skrót „Czeka na Ciebie” w dzwonku",
+        "Skrót „Czeka na Ciebie” (wycofany 16.10.2026)",
         _C.reminders,
         (_T.board_tasks_digest,),
     ),

@@ -10117,6 +10117,33 @@ async def repair():
 asyncio.run(repair())
 PY
 
+# Pasek bez dzwonka (16.10.2026, decyzja D5) — jednorazowo: nieprzeczytane
+# powiadomienia KAŻDEGO typu starsze niż 7 dni oznaczone jako przeczytane.
+# Okienko „Rekrutacje” pokazuje tylko tydzień, „CV” liczy się ze stanu; stary
+# zapas wisiałby w liczniku na zawsze. Nic nie jest kasowane. Logika
+# w `app/services/notification_backlog_repair.py` (`run_topics_backlog_repair`);
+# marker w `app_settings` + advisory lock. Log: same liczby per typ.
+startup_phase "repair-notification-topics-backlog"
+echo "Notifications: one-shot mark-as-read of week-old backlog (topbar icons)..."
+python - <<'PY' || echo "notification topics backlog repair skipped; continuing"
+import asyncio
+import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
+from app.core.database import AsyncSessionLocal
+from app.services.notification_backlog_repair import run_topics_backlog_repair
+
+async def repair():
+    async with AsyncSessionLocal() as db:
+        try:
+            summary = await run_topics_backlog_repair(db)
+            await db.commit()
+        except Exception:
+            await db.rollback()
+            raise
+    print(f"notification topics backlog repair: {summary or 'already done'}")
+
+asyncio.run(repair())
+PY
+
 # Delivery Lead rekrutacji (08.10.2026) — jednorazowo: otwarte rekrutacje
 # założone przez Delivery Leada, którym automat wpisał głównego DL-a klienta,
 # wracają do twórcy (od tej daty `create_job_core` robi to sam). Warunek SQL,
