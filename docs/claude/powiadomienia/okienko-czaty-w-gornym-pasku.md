@@ -10,7 +10,8 @@ wiadomość daje dymek. Raport: `docs/chat-notifications-window-completion-repor
   i `read-all` z `exclude_chat=true` (`notificationsApi.listForBell`,
   `markAllReadForBell`). Bez parametru trasy działają jak dotąd — „Moje
   zadania” na pulpicie i narzędzia Jarvisa nadal widzą czaty. Wzmianki
-  z notatek i odpowiedzi na notatki zostają w dzwonku (to nie czat).
+  z notatek i odpowiedzi na notatki: od 16.10.2026 w tym okienku
+  (`include_notes`, wątek `kind: "note"`) — `pasek-tematy-bez-dzwonka.md`.
   Zapytanie dzwonka ma własny klucz (`[…, limit, "bell"]`): „Moje zadania”
   pytają o tę samą stronę razem z czatami i pod wspólnym kluczem podmieniały
   dzwonkowi listę i licznik (produkcja 10.10.2026).

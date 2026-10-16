@@ -27,7 +27,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Iterable, Optional
 from zoneinfo import ZoneInfo
 
@@ -508,71 +508,9 @@ async def check_candidate_feedback_1h(db: AsyncSession, now: datetime) -> int:
     return emitted
 
 
-# ── Trigger: poranny skrót kolejki „Czeka na Ciebie" (0348) ──────────────────
-
-# Pierwszy dzień (lokalny), dla którego skrót już policzono w tym procesie.
-# Migawka kolejki to jeden przebieg po etapach opublikowanych rekrutacji —
-# liczymy ją RAZ dziennie, a nie co 5 minut; restart procesu powtórzy bieg,
-# a duplikat zatrzyma indeks `ix_notif_dedup_daily`.
-_BOARD_TASKS_DIGEST_DONE_FOR: Optional[date] = None
-BOARD_TASKS_DIGEST_FROM_HOUR = 8
-BOARD_TASKS_DIGEST_UNTIL_HOUR = 17
-
-
-async def check_board_tasks_digest(db: AsyncSession, now: datetime) -> int:
-    """Rano JEDEN wpis na osobę: przegląd DL, kolejka Cpro, follow-upy z kandydatami
-    i rekrutacje do dokończenia (04.10.2026)."""
-
-    global _BOARD_TASKS_DIGEST_DONE_FOR
-    local = now.astimezone(ZoneInfo(settings.BUSINESS_TZ))
-    if not (BOARD_TASKS_DIGEST_FROM_HOUR <= local.hour < BOARD_TASKS_DIGEST_UNTIL_HOUR):
-        return 0
-    if _BOARD_TASKS_DIGEST_DONE_FOR == local.date():
-        return 0
-
-    from app.services import (  # noqa: PLC0415
-        board_tasks,
-        candidate_followups,
-        pending_job_completion,
-    )
-
-    # Skrót dzieli transakcję z pozostałymi triggerami ticku — jego awaria
-    # (savepoint + log) nie może zatrzymać przypomnień o rozmowach i KPI.
-    try:
-        async with db.begin_nested():
-            snapshot = await board_tasks.load_snapshot(db, now=now)
-            followups = await candidate_followups.load_followups(db, now=now)
-            counts = await board_tasks.digest_counts(
-                db,
-                snapshot,
-                followups=candidate_followups.digest_counts(
-                    followups,
-                    today=local.date(),
-                    oversight_ids=await candidate_followups.oversight_user_ids(db),
-                ),
-                pending_jobs=await pending_job_completion.digest_counts(db),
-                today=local.date(),
-            )
-    except Exception:  # noqa: BLE001
-        logger.exception("board_tasks_digest: nie udało się policzyć kolejki")
-        return 0
-    emitted = 0
-    for user_id, line in counts.items():
-        if line.total == 0:
-            continue
-        created = await emit(
-            db,
-            user_id=user_id,
-            title="Czeka na Ciebie na Tablicach",
-            message=board_tasks.digest_message(line),
-            ntype=NotificationType.board_tasks_digest,
-            related_entity_type="user",
-            related_entity_id=user_id,
-            link="/dashboard#czeka-na-ciebie",
-        )
-        emitted += int(created is not None)
-    _BOARD_TASKS_DIGEST_DONE_FOR = local.date()
-    return emitted
+# Poranny skrót kolejki „Czeka na Ciebie” w dzwonku (0348) wyłączony 16.10.2026:
+# dzwonka nie ma, a ta sama kolejka jest na pulpicie i w porannym mailu
+# (`daily_digest_email`). Typ `board_tasks_digest` zostaje w enumie i mapach.
 
 
 # ── Trigger: prep wymaga uwagi (0370) ────────────────────────────────────────
@@ -1156,7 +1094,6 @@ async def run_all_triggers(db: AsyncSession, now: datetime) -> dict[str, int]:
         "post_interview_t2h_escalation": await check_post_interview_t2h_escalation(
             db, now, latest
         ),
-        "board_tasks_digest": await check_board_tasks_digest(db, now),
         "proposals_morning": await _proposals_morning(db, now),
         "prep_attention": await check_prep_attention(db, now),
         "rate_change_reminders": await _rate_change_reminders(db, now),
@@ -1178,7 +1115,6 @@ async def _rate_change_reminders(db: AsyncSession, now: datetime) -> int:
 
 __all__ = [
     "LatestStage",
-    "check_board_tasks_digest",
     "LatestStageMap",
     "check_candidate_feedback_1h",
     "check_client_feedback_eobd",

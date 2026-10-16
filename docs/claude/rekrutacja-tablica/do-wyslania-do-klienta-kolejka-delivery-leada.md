@@ -14,7 +14,7 @@ stare przypomnienie o etapie „CV wysłane” — 4 695 wpisów do 8 osób.
   `rekrutacja-tablica/nordea-akceptacja-dl-przed-cpro.md`),
   BEZ okna czasu (do tej daty 30 dni — karta znikała z pulpitu, choć stała na
   Tablicy). Czytają go pulpit (`board_tasks.load_snapshot`), górny pasek i menu
-  (`GET /api/board-tasks/dl-send`), poranny dzwonek i mail, lista rekrutacji,
+  (`GET /api/board-tasks/dl-send`), poranny mail, lista rekrutacji,
   przypomnienie rekrutera i sygnał dla Head of Recruitment. Nie dokładaj
   drugiej definicji w SQL — warunek obejścia QC (`cv_qc._override_applies`)
   ma mieć jednego czytelnika.
@@ -78,10 +78,9 @@ stare przypomnienie o etapie „CV wysłane” — 4 695 wpisów do 8 osób.
   na jego wysyłkę (`dl_send_ready_count` pod `include_stage_counts`), a filtr
   „Do wysłania do klienta” stoi w „Więcej filtrów” (`dl_send=mine|stale`,
   w adresie `tosend=`). Czwarty przełącznik w pasku się nie mieści.
-- **Przypomnienia:** poranny dzwonek wymienia dwie najdłużej czekające osoby
-  („Do wysłania do klienta: Marta Z. (6 dni), … i 3 inne osoby”) i liczy
-  tylko gotowe; poranny mail ma sekcję „Do wysłania do klienta” z „czeka
-  N dni”. Rekruter w „Twoje CV w drodze” widzi stan QC i od 2 dni roboczych
+- **Przypomnienia:** poranny mail ma sekcję „Do wysłania do klienta” z „czeka
+  N dni” (poranny wpis w dzwonku zniknął z dzwonkiem 16.10.2026 —
+  `powiadomienia/pasek-tematy-bez-dzwonka.md`). Rekruter w „Twoje CV w drodze” widzi stan QC i od 2 dni roboczych
   „Przypomnij” (`POST /api/board-tasks/dl-send/{stage_id}/nudge`: właściciel
   wiersza, karta gotowa i nie z importu, dzwonek `board_task_waiting` z tytułem
   `TITLE_DL_NUDGE`, raz dziennie przez indeks dedup, ślad w `Activity`; bez

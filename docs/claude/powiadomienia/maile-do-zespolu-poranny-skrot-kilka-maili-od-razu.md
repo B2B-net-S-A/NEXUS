@@ -15,8 +15,8 @@ Decyzja Artura 07.10.2026: mail ma nieść tylko to, co wymaga ruchu odbiorcy.
   KPI (`kpi_email_reports._send_report`, `kpi_email_report_runs`). Nowa
   sekcja panelu „Czeka na Ciebie” = rozważ jej miejsce w `build_sections`.
   Od 13.10.2026 pierwsza sekcja to „Do wysłania do klienta”: tylko osoby
-  gotowe (QC zdane albo przepuszczone), z „czeka N dni”; poranny dzwonek
-  wymienia dwie najdłużej czekające — `rekrutacja-tablica/do-wyslania-do-klienta-kolejka-delivery-leada.md`.
+  gotowe (QC zdane albo przepuszczone), z „czeka N dni” —
+  `rekrutacja-tablica/do-wyslania-do-klienta-kolejka-delivery-leada.md`.
 - **Maile od razu** (`tasks/notification_email_outbox.py`, co 60 s): wiersze
   dzwonka typów z `notification_delivery.notification_kind` →
   `immediate_email_kind`: `dl_review` (CV w QC CV albo kolejce Cpro),

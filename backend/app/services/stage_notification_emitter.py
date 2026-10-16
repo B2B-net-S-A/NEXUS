@@ -217,7 +217,9 @@ def _inapp_base(
         f"Kandydat {candidate_full_name} → {stage_display_name}",
         f"Kandydat {candidate_full_name} przeszedł na etap "
         f"„{stage_display_name}” w ofercie '{job.title}' (#{job.id}){mover_part}.",
-        f"/candidates/{candidate.id}",
+        # Tablica z otwartą osobą, nie sam profil: wiersz trafia do okienka
+        # „Rekrutacje” przy tej rekrutacji (16.10.2026, bez dzwonka).
+        f"/jobs/{job.id}?candidate={candidate.id}",
     )
 
 

@@ -1,5 +1,5 @@
 # Okienko „Rozmowy” w górnym pasku (13.10.2026)
-<!-- indeks: rozmowy u klienta i prepy poza dzwonkiem, zadania z cyklu z flagą `mine`, czas liczony z agendy, zwijanie i chowanie sygnałów, gaszenie osobną trasą, dymki, pigułka telefonu -->
+<!-- indeks: zadania z cyklu (`mine`), czas z agendy, gaszenie osobną trasą, pigułka telefonu -->
 
 Powiadomienia o rozmowach u klienta i prepach (kategoria „Rozmowy”, 9 typów)
 stały w dzwonku razem ze wszystkim innym: jeden wiersz na zdarzenie, bez akcji,
