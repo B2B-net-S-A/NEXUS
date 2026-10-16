@@ -371,3 +371,130 @@ def test_foreign_stage_is_placed_by_name_before_code():
     assert [e.candidate_id for e in columns_map[823]] == [1]
     assert [e.candidate_id for e in columns_map[824]] == [2]
     assert [e.candidate_id for e in columns_map[752]] == [3]
+
+
+# ── Kolejność kart w kolumnie: najświeższe wejście na etap na górze ─────────
+# Ticket rekrutera (15.10.2026): dodana osoba lądowała „w środku” kolumny, bo
+# serwer układał karty wg `candidate_id` — osoba ze starej bazy (niski numer)
+# stawała między innymi. Reguła: `moved_at` malejąco, remis → później zapisany
+# wiersz wyżej (`id` malejąco).
+
+
+async def _seed_order_board() -> dict:
+    """Pięć osób w „new”; numer kandydata celowo nie idzie z czasem dodania.
+
+    Kandydaci powstają w kolejności X, Y, Z, Q, P (rosnące `candidate_id`),
+    wiersze etapu Q i P mają ten sam `moved_at`, a wiersz P jest zapisany
+    później — więc wyżej.
+    """
+    from app.core.database import AsyncSessionLocal
+    from app.models.candidate import Candidate, CandidateStatus
+    from app.models.client import Client
+    from app.models.job import Job, JobStatus
+    from app.models.pipeline_template import (
+        PipelineStageDef,
+        PipelineTemplate,
+        StageCategoryEnum,
+    )
+    from app.models.recruitment_pipeline import CandidateStage, PipelineStage
+
+    tag = uuid.uuid4().hex[:8]
+    async with AsyncSessionLocal() as db:
+        client = Client(name=f"OrderClient-{tag}")
+        template = PipelineTemplate(name=f"OrderTpl-{tag}")
+        db.add_all([client, template])
+        await db.commit()
+        await db.refresh(client)
+        await db.refresh(template)
+
+        job = Job(
+            title=f"OrderJob-{tag}",
+            status=JobStatus.published,
+            client_id=client.id,
+            pipeline_template_id=template.id,
+        )
+        db.add_all(
+            [
+                job,
+                *(
+                    PipelineStageDef(
+                        template_id=template.id,
+                        name=name,
+                        order=order,
+                        category=StageCategoryEnum.internal,
+                        legacy_enum_value=name,
+                        is_terminal=False,
+                    )
+                    for order, name in enumerate(("new", "screening"))
+                ),
+            ]
+        )
+        await db.commit()
+        await db.refresh(job)
+
+        ids: dict[str, int] = {}
+        for key in ("x", "y", "z", "q", "p"):
+            cand = Candidate(
+                name="Jan",
+                lastname=f"Order-{key}-{tag}",
+                email=f"order-{key}-{tag}@example.com",
+                status=CandidateStatus.active,
+            )
+            db.add(cand)
+            await db.commit()
+            await db.refresh(cand)
+            ids[key] = cand.id
+
+        moved = {
+            "x": NOW - timedelta(days=3),
+            "y": NOW,
+            "z": NOW - timedelta(days=2),
+            "q": NOW - timedelta(days=1),
+            "p": NOW - timedelta(days=1),
+        }
+        # Osobne commity: kolejność zapisu wierszy = kolejność ich `id`.
+        for key in ("x", "y", "z", "q", "p"):
+            db.add(
+                CandidateStage(
+                    candidate_id=ids[key],
+                    job_id=job.id,
+                    stage=PipelineStage.new,
+                    moved_at=moved[key],
+                )
+            )
+            await db.commit()
+
+        return {"job_id": job.id, **ids}
+
+
+async def test_newest_entry_to_the_stage_is_on_top_of_the_column(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    world = await _seed_order_board()
+    board = await _board(app_client, app_auth_headers, world["job_id"])
+
+    ours = {world[k] for k in ("x", "y", "z", "q", "p")}
+    order = [cid for cid in _column_candidate_ids(board) if cid in ours]
+    assert order == [world["y"], world["p"], world["q"], world["z"], world["x"]], (
+        "Karty w kolumnie mają stać od najświeższego wejścia na etap; przy tym "
+        "samym czasie wyżej później zapisany wiersz — nie wg numeru kandydata."
+    )
+
+
+def test_newest_first_orders_by_moved_at_then_row_id():
+    """Bez DB — ta sama reguła, której używa `build_kanban_view`."""
+    from types import SimpleNamespace
+
+    from app.api.pipeline import _newest_first
+
+    old = SimpleNamespace(id=1, moved_at=NOW - timedelta(days=2))
+    tie_first = SimpleNamespace(id=2, moved_at=NOW - timedelta(hours=1))
+    tie_later = SimpleNamespace(id=3, moved_at=NOW - timedelta(hours=1))
+    fresh = SimpleNamespace(id=4, moved_at=NOW)
+
+    assert _newest_first([old, tie_first, fresh, tie_later]) == [
+        fresh,
+        tie_later,
+        tie_first,
+        old,
+    ]
