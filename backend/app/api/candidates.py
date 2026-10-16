@@ -2861,6 +2861,8 @@ async def list_candidates(
                 latest_per_pair.c.job_id,
                 latest_per_pair.c.stage,
                 Job.title,
+                Job.working_title,
+                Job.client_reference,
                 client_display_name_expression().label("client_name"),
                 latest_per_pair.c.moved_at,
                 mover.name.label("moved_by_name"),
@@ -2878,6 +2880,8 @@ async def list_candidates(
             job_id,
             stage,
             job_title,
+            job_working_title,
+            job_client_reference,
             client_name,
             moved_at,
             moved_by_name,
@@ -2886,6 +2890,8 @@ async def list_candidates(
                 ActiveRecruitmentBrief(
                     job_id=job_id,
                     job_title=job_title or "—",
+                    job_working_title=job_working_title,
+                    job_client_reference=job_client_reference,
                     client_name=client_name,
                     stage=stage,
                     moved_at=moved_at,
@@ -4656,6 +4662,8 @@ async def get_candidate_quick_view(
             select(
                 latest_per_job,
                 Job.title.label("job_title"),
+                Job.working_title.label("job_working_title"),
+                Job.client_reference.label("job_client_reference"),
                 client_display_name_expression().label("client_name"),
                 mover.name.label("moved_by_name"),
                 PipelineStageDef.name.label("stage_def_name"),
@@ -4701,6 +4709,8 @@ async def get_candidate_quick_view(
         CandidateQuickViewRecruitment(
             job_id=row.job_id,
             job_title=row.job_title or f"Rekrutacja #{row.job_id}",
+            job_working_title=row.job_working_title,
+            job_client_reference=row.job_client_reference,
             client_name=row.client_name,
             stage_id=row.stage_id,
             stage_name=row.stage_def_name
@@ -4877,6 +4887,8 @@ async def get_candidate_timeline(
             User.name.label("author_name"),
             User.email.label("author_email"),
             Job.title.label("job_title"),
+            Job.working_title.label("job_working_title"),
+            Job.client_reference.label("job_client_reference"),
         )
         .outerjoin(User, Note.author_id == User.id)
         .outerjoin(Job, Note.job_id == Job.id)
@@ -4932,7 +4944,14 @@ async def get_candidate_timeline(
                 "author_name": reply_author,
             }
         )
-    for note, author_name, author_email, job_title in notes_rows:
+    for (
+        note,
+        author_name,
+        author_email,
+        job_title,
+        job_working_title,
+        job_client_reference,
+    ) in notes_rows:
         send_note = note.id in send_ids
         content = visible_note_content(current_user, note, send_note=send_note)
         timeline.append(
@@ -4955,6 +4974,8 @@ async def get_candidate_timeline(
                 "author_email": author_email,
                 "job_id": note.job_id,
                 "job_title": job_title,
+                "job_working_title": job_working_title,
+                "job_client_reference": job_client_reference,
                 "is_system": note.external_source == SYSTEM_NOTE_SOURCE,
                 "pinned": note.pinned_at is not None,
                 "replies": replies_by_note.get(note.id, []),
@@ -4966,14 +4987,26 @@ async def get_candidate_timeline(
     # ruchów z importu Traffit, stąd outerjoin + Optional name.
     mover = aliased(User)
     stages_result = await db.execute(
-        select(CandidateStage, Job.title, mover.name.label("moved_by_name"))
+        select(
+            CandidateStage,
+            Job.title,
+            Job.working_title,
+            Job.client_reference,
+            mover.name.label("moved_by_name"),
+        )
         .join(Job, CandidateStage.job_id == Job.id)
         .outerjoin(mover, mover.id == CandidateStage.moved_by)
         .where(CandidateStage.candidate_id == candidate_id)
         .order_by(CandidateStage.moved_at.desc(), CandidateStage.id.desc())
         .limit(limit)
     )
-    for stage, job_title, moved_by_name in stages_result.all():
+    for (
+        stage,
+        job_title,
+        job_working_title,
+        job_client_reference,
+        moved_by_name,
+    ) in stages_result.all():
         timeline.append(
             {
                 "type": "stage_change",
@@ -4982,6 +5015,8 @@ async def get_candidate_timeline(
                 "stage": stage.stage.value,
                 "job_id": stage.job_id,
                 "job_title": job_title,
+                "job_working_title": job_working_title,
+                "job_client_reference": job_client_reference,
                 "moved_by": stage.moved_by,
                 "moved_by_name": moved_by_name,
                 "rating": stage.rating,
@@ -5193,6 +5228,8 @@ async def get_candidate_history(
         select(
             CandidateStage,
             Job.title,
+            Job.working_title,
+            Job.client_reference,
             Job.status.label("job_status"),
             RejectionReason.name.label("rejection_reason_name"),
             client_display_name_expression().label("client_name"),
@@ -5247,6 +5284,8 @@ async def get_candidate_history(
     for (
         stage,
         job_title,
+        job_working_title,
+        job_client_reference,
         job_status,
         rejection_reason_name,
         client_name,
@@ -5260,7 +5299,11 @@ async def get_candidate_history(
         if job_id not in jobs_map:
             jobs_map[job_id] = {
                 "job_id": job_id,
+                # `job_title` = nazwa od klienta: z niej profil rozpoznaje kody
+                # CV dla klientów. Ekran pokazuje nazwę jak nagłówek rekrutacji.
                 "job_title": job_title,
+                "job_working_title": job_working_title,
+                "job_client_reference": job_client_reference,
                 "job_status": job_status,
                 # Klient rekrutacji — karta na profilu mówi, u kogo jest proces.
                 "client_name": client_name,

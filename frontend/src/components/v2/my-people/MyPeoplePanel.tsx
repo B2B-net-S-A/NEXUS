@@ -10,7 +10,6 @@
  * i link z dzwonka (`?people=1`).
  */
 
-import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -39,6 +38,7 @@ import { AddToRecruitmentDialog, addToRecruitmentSummary } from "@/components/v2
 import type { EmploymentMarker } from "@/lib/employment-marker";
 import { TabbedNav } from "@/components/ds/TabbedNav";
 import { MatchScoreBadge } from "@/components/ds/MatchScoreBadge";
+import { JobNameLabel } from "@/components/v2/jobs/JobNameLabel";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/components/Toast";
@@ -103,12 +103,13 @@ function WhereToMove({ candidateId }: { candidateId: number }) {
       {matches.map((m) => (
         <li key={m.job.id} className="flex items-center gap-2 rounded-lg px-2 py-2 hover:bg-muted/60">
           <MatchScoreBadge score={m.total_score} emptyLabel="Ocena niepełna" className="shrink-0" />
-          <Link
+          {/* Numer u klienta i tytuł jak w nagłówku rekrutacji (16.10.2026). */}
+          <JobNameLabel
+            job={m.job}
             href={`/jobs/${m.job.id}`}
-            className="min-w-0 flex-1 truncate text-sm font-medium text-foreground hover:underline"
-          >
-            {m.job.title}
-          </Link>
+            className="flex-1"
+            titleClassName="text-sm font-medium text-foreground"
+          />
         </li>
       ))}
     </ul>

@@ -340,6 +340,28 @@ describe("AddCandidatesQuickModal — imiennicy (13.10.2026)", () => {
     expect(second).toHaveTextContent("jeszcze w żadnej rekrutacji, dodany 09.2026");
   });
 
+  it("ostatnia rekrutacja ma numer u klienta przed tytułem, jak nagłówek rekrutacji", async () => {
+    mocks.search.mockResolvedValue({
+      items: [
+        person(1, {
+          last_recruitment: {
+            job_id: 5,
+            job_title: "Administrator Azure · AKS",
+            job_client_reference: "ZOB-9001",
+            stage_label: "Odrzucony",
+            column: "closed",
+            moved_on: "2026-03-15",
+          },
+        }),
+      ],
+      total: 1,
+    });
+    renderModal();
+
+    const row = await screen.findByTestId("add-candidate-row-1");
+    expect(row).toHaveTextContent("ostatnio 03.2026: Odrzucony · ZOB-9001 Administrator Azure · AKS");
+  });
+
   it("pasek imienników liczy też osoby już w rekrutacji", async () => {
     mocks.search.mockResolvedValue({
       items: [person(1), person(2)],

@@ -130,6 +130,31 @@ describe("splitPersonNotes", () => {
     expect(groupFactsLine(groups.get(9)!)).toBe("1 notatka");
   });
 
+  it("nagłówek grupy nazywa rekrutację jak jej nagłówek: numer u klienta i tytuł dla rekrutera", () => {
+    const notes = [
+      note(1, { job_id: 7, job_title: "AI Engineer (ZOB-9001)" }),
+      note(2, {
+        job_id: 9,
+        job_title: "Tester (ZOB-9002)",
+        job_working_title: "Tester automatyzujący · Playwright",
+        job_client_reference: "ZOB-9002",
+      }),
+    ];
+    const outcomes = [
+      row(7, {
+        job_title: "AI Engineer (ZOB-9001)",
+        job_working_title: "Senior AI Engineer · Java, LLM",
+        job_client_reference: "ZOB-9001",
+      }),
+    ];
+
+    const groups = new Map(splitPersonNotes(notes, JOB, outcomes).groups.map((g) => [g.jobId, g]));
+
+    expect(groups.get(7)?.title).toBe("ZOB-9001 Senior AI Engineer · Java, LLM");
+    // Bez wiersza historii — nazwy z notatki (`GET /api/notes`).
+    expect(groups.get(9)?.title).toBe("ZOB-9002 Tester automatyzujący · Playwright");
+  });
+
   it("rekrutacja zamknięta bez zatrudnienia ani odrzucenia też jest zakończona", () => {
     const [group] = splitPersonNotes(
       [note(1, { job_id: 7 })],

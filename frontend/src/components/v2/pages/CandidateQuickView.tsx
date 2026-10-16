@@ -63,6 +63,8 @@ import { canMutateSection } from "@/lib/section-access";
 import { contactAttemptsLabel } from "@/lib/recommendation-card";
 import { rateCellText } from "@/components/v2/candidates/candidate-row-format";
 import { availabilityFromNotesLine, type AvailabilityFromNotes } from "@/lib/notes-facts";
+import { JobNameLabel } from "@/components/v2/jobs/JobNameLabel";
+import { candidateJobNames } from "@/lib/job-name-text";
 import {
   contractAvailability,
   contractAvailabilityOrigin,
@@ -121,6 +123,8 @@ interface CandidateQuickViewData {
   current_recruitments: Array<{
     job_id: number;
     job_title: string;
+    job_working_title?: string | null;
+    job_client_reference?: string | null;
     client_name: string | null;
     stage_id: number;
     stage_name: string;
@@ -702,9 +706,11 @@ export function CandidateQuickView({
                   {quickView.current_recruitments.slice(0, 3).map((item) => (
                     <li key={item.job_id} className="flex items-center justify-between gap-3 px-3 py-2">
                       <span className="min-w-0">
-                        <span className="block truncate text-sm font-medium text-foreground">
-                          {item.job_title}
-                        </span>
+                        {/* Numer u klienta i tytuł jak w nagłówku rekrutacji (16.10.2026). */}
+                        <JobNameLabel
+                          job={candidateJobNames(item)}
+                          titleClassName="text-sm font-medium text-foreground"
+                        />
                         <span className="block truncate text-xs text-muted-foreground">
                           {item.client_name ?? "—"}
                         </span>

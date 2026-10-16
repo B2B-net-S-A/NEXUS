@@ -391,6 +391,7 @@ async def _last_recruitments(
         candidate_id: LastRecruitment(
             job_id=card.job_id,
             job_title=card.job_title or f"Rekrutacja #{card.job_id}",
+            job_client_reference=card.job_client_reference,
             stage_label=card.stage_label
             or ("Zamknięty" if card.column == "closed" else "W toku"),
             column=card.column,

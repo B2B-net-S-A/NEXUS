@@ -1619,7 +1619,11 @@ def _shape_seek_candidate(c: Candidate) -> dict:
 def _shape_seek_job(j: Job, *, include_finance: bool = False) -> dict:
     return {
         "id": j.id,
+        # `title` = nazwa od klienta (mail z listą rekrutacji do kandydata);
+        # karta pokazuje nazwę jak nagłówek rekrutacji (0380).
         "title": j.title,
+        "working_title": j.working_title,
+        "client_reference": j.client_reference,
         "client_id": j.client_id,
         "location": j.location,
         "salary_min": j.salary_min if include_finance else None,

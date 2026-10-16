@@ -1,7 +1,6 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import Link from "next/link";
 import { Briefcase, Loader2, RefreshCcw, Sparkles } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
@@ -19,6 +18,7 @@ import { useToast } from "@/components/Toast";
 import { candidateQueryKeys } from "@/components/v2/pages/candidate-query-keys";
 import { invalidateCandidateMutation } from "@/components/v2/pages/candidate-cache";
 import { ScoreBreakdownTooltip } from "./ScoreBreakdownTooltip";
+import { JobNameLabel } from "@/components/v2/jobs/JobNameLabel";
 
 interface Props {
   candidateId: number;
@@ -250,12 +250,12 @@ export function SuggestedJobsWidget({
                     </div>
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2">
-                        <Link
+                        {/* Numer u klienta i tytuł jak w nagłówku rekrutacji (16.10.2026). */}
+                        <JobNameLabel
+                          job={job}
                           href={`/jobs/${job.id}`}
-                          className="truncate text-sm font-semibold text-foreground hover:text-primary hover:underline"
-                        >
-                          {job.title}
-                        </Link>
+                          titleClassName="text-sm font-semibold text-foreground hover:text-primary"
+                        />
                         {job.status === "draft" ? (
                           <Badge size="sm" variant="warning">
                             Szkic

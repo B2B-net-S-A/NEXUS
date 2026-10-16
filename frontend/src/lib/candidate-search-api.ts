@@ -162,7 +162,9 @@ export interface CandidateSearchItem {
 /** Lustro `LastRecruitment` — ostatni ruch karty w innej rekrutacji. */
 export interface LastRecruitment {
   job_id: number;
+  /** Już tytuł dla rekrutera (a bez niego nazwa od klienta) — `latest_cards`. */
   job_title: string;
+  job_client_reference?: string | null;
   stage_label: string;
   column: string;
   /** Dzień ruchu w kalendarzu firmy, `YYYY-MM-DD`. */

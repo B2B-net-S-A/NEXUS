@@ -131,7 +131,8 @@ def _timeline_db(note, reply):
     candidate = SimpleNamespace(name="Jan", lastname="Testowy")
     return _Db(
         [candidate],  # kandydat
-        [(note, "Delivery Lead", "dl@example.com", None)],  # notatki główne
+        # notatki główne: autor, e-mail, nazwa od klienta, tytuł dla rekrutera, numer
+        [(note, "Delivery Lead", "dl@example.com", None, None, None)],
         [(reply, "Delivery Lead")],  # odpowiedzi
         [],  # ruchy etapów
         [],  # aktywności

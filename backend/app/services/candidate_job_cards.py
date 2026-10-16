@@ -53,6 +53,7 @@ class LatestCard:
     column: str
     moved_at: datetime
     moved_by_name: Optional[str]
+    job_client_reference: Optional[str] = None
 
 
 async def latest_cards(
@@ -99,6 +100,7 @@ async def latest_cards(
                 User.name,
                 # Ekran wewnętrzny: tytuł dla rekrutera, a bez niego nazwa od klienta.
                 job_display_title_expr(),
+                Job.client_reference,
             )
             .outerjoin(
                 PipelineStageDef, PipelineStageDef.id == CandidateStage.stage_def_id
@@ -119,6 +121,7 @@ async def latest_cards(
         terminal_type,
         by,
         job_title,
+        job_client_reference,
     ) in rows:
         code = getattr(stage, "value", stage)
         cards[candidate_id] = LatestCard(
@@ -134,5 +137,6 @@ async def latest_cards(
             ),
             moved_at=moved_at,
             moved_by_name=by,
+            job_client_reference=job_client_reference,
         )
     return cards

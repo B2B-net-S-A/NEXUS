@@ -317,6 +317,8 @@ interface Candidate {
   active_recruitments?: Array<{
     job_id: number;
     job_title: string;
+    job_working_title?: string | null;
+    job_client_reference?: string | null;
     client_name?: string | null;
     stage: string;
     moved_at?: string | null;
