@@ -370,7 +370,9 @@ export const withPendingMoves = (
  return { ...c, items, count: items.length };
  }
  if (colId(c) !== target) return c;
- const items = [...c.items, { ...moved, stage: c.stage, days_in_stage: 0 }];
+ // Świeże wejście na etap = góra kolumny, jak po odświeżeniu (`compareNewestFirst`).
+ const entered = { ...moved, stage: c.stage, days_in_stage: 0, moved_at: new Date().toISOString() };
+ const items = [entered, ...c.items];
  return { ...c, items, count: items.length };
  });
  }
@@ -2324,7 +2326,8 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapM
  return { ...c, items, count: items.length };
  }
  if (colId(c) === colId(dst)) {
- const items = [...c.items, { ...item, stage: c.stage, days_in_stage: 0 }];
+ const entered = { ...item, stage: c.stage, days_in_stage: 0, moved_at: new Date().toISOString() };
+ const items = [entered, ...c.items];
  return { ...c, items, count: items.length };
  }
  return c;
@@ -2400,7 +2403,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapM
  items: c.items.map((i) => (i.id === item.id ? { ...i, ...patch } : i)),
  };
  }
- const items = [...c.items, { ...item, ...patch }];
+ const items = [{ ...item, moved_at: new Date().toISOString(), ...patch }, ...c.items];
  return { ...c, items, count: items.length };
  })
  );
