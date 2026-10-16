@@ -3005,6 +3005,11 @@ async def api_health_deep_check():
         EquipmentProtocol,
         EquipmentTask,
     )
+    from app.models.academy_logistics import (
+        AcademyParticipantLogistics,
+        AcademySessionChecklistItem,
+    )
+    from app.models.equipment_intune import EquipmentIntuneDevice
     from app.models.hr_leave import HrM365Operation, LeaveRequest
     from app.models.hr_lifecycle import LifecycleCase, WorkHandover
     from app.models.hr_ops import HrAuditEvent, HrImportBatch, HrJobRun
@@ -3279,7 +3284,7 @@ async def api_health_deep_check():
         ("hr_audit_events", HrAuditEvent),
         ("hr_job_runs", HrJobRun),
         ("hr_import_batches", HrImportBatch),
-        # 0453–0460: moduły „Ludzi w NEXUSIE” — po jednej-dwie tabele, bez
+        # 0453–0461: moduły „Ludzi w NEXUSIE” — po jednej-dwie tabele, bez
         # których główny ekran modułu daje 500 (pozostałe pilnuje dryf schematu).
         ("leave_requests", LeaveRequest),
         ("hr_m365_operations", HrM365Operation),
@@ -3297,6 +3302,10 @@ async def api_health_deep_check():
         ("equipment_assignments", EquipmentAssignment),
         ("equipment_protocols", EquipmentProtocol),
         ("equipment_tasks", EquipmentTask),
+        # 0461: Intune (rozjazdy z ewidencją) i edycja Akademii od strony recepcji.
+        ("equipment_intune_devices", EquipmentIntuneDevice),
+        ("academy_session_checklist", AcademySessionChecklistItem),
+        ("academy_participant_logistics", AcademyParticipantLogistics),
     ]
 
     checks: dict[str, str] = {}
