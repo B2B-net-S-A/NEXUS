@@ -294,6 +294,7 @@ export function OnboardingWizard({ config }: { config: HrConfig }) {
               onChange={setForm}
               managers={managers}
               idPrefix="hr-onboarding"
+              hide={["employment_status", "last_working_day"]}
             />
           </div>
         ) : null}

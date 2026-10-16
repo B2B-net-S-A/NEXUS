@@ -33,7 +33,11 @@ export function FilterSelect<T extends string>({
       value={value === "" ? ALL : value}
       onValueChange={(next) => onChange(next === ALL ? "" : (next as T))}
     >
-      <SelectTrigger aria-label={label} className={className ?? "h-9 w-44"}>
+      {/* Szerokość z treści (bez łamania „Wszystkie kategorie” na dwie linie). */}
+      <SelectTrigger
+        aria-label={label}
+        className={className ?? "h-9 w-auto min-w-44 max-w-64 gap-2 whitespace-nowrap"}
+      >
         <SelectValue />
       </SelectTrigger>
       <SelectContent>

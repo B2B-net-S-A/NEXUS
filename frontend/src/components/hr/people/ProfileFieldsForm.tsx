@@ -73,6 +73,8 @@ interface ProfileFieldsFormProps {
   onChange: (next: ProfileFormState) => void;
   managers: { user_id: number; name: string }[];
   idPrefix: string;
+  /** Pola ukryte w danym miejscu (np. kreator wejścia: status ustawia sprawa). */
+  hide?: readonly ("employment_status" | "last_working_day")[];
 }
 
 /** Pola kartoteki — wspólne dla „Dodaj osobę” i „Edytuj kartotekę”. */
@@ -81,6 +83,7 @@ export function ProfileFieldsForm({
   onChange,
   managers,
   idPrefix,
+  hide = [],
 }: ProfileFieldsFormProps) {
   const set = <K extends keyof ProfileFormState>(key: K, value: ProfileFormState[K]) =>
     onChange({ ...form, [key]: value });
@@ -141,27 +144,29 @@ export function ProfileFieldsForm({
           </SelectContent>
         </Select>
       </FormField>
-      <FormField label="Status" htmlFor={id("status")}>
-        <Select
-          value={form.employment_status}
-          onValueChange={(value) =>
-            set("employment_status", value as EmploymentStatus)
-          }
-        >
-          <SelectTrigger id={id("status")}>
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {(Object.keys(EMPLOYMENT_STATUS_LABELS) as EmploymentStatus[]).map(
-              (key) => (
-                <SelectItem key={key} value={key}>
-                  {EMPLOYMENT_STATUS_LABELS[key]}
-                </SelectItem>
-              ),
-            )}
-          </SelectContent>
-        </Select>
-      </FormField>
+      {hide.includes("employment_status") ? null : (
+        <FormField label="Status" htmlFor={id("status")}>
+          <Select
+            value={form.employment_status}
+            onValueChange={(value) =>
+              set("employment_status", value as EmploymentStatus)
+            }
+          >
+            <SelectTrigger id={id("status")}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {(Object.keys(EMPLOYMENT_STATUS_LABELS) as EmploymentStatus[]).map(
+                (key) => (
+                  <SelectItem key={key} value={key}>
+                    {EMPLOYMENT_STATUS_LABELS[key]}
+                  </SelectItem>
+                ),
+              )}
+            </SelectContent>
+          </Select>
+        </FormField>
+      )}
       <FormField label="Domyślnie pracuje" htmlFor={id("location")}>
         <Select
           value={form.default_location}
@@ -187,18 +192,20 @@ export function ProfileFieldsForm({
           onChange={(event) => set("work_start_date", event.target.value)}
         />
       </FormField>
-      <FormField
-        label="Ostatni dzień pracy"
-        htmlFor={id("last")}
-        description="Puste, dopóki osoba nie odchodzi."
-      >
-        <Input
-          id={id("last")}
-          type="date"
-          value={form.last_working_day}
-          onChange={(event) => set("last_working_day", event.target.value)}
-        />
-      </FormField>
+      {hide.includes("last_working_day") ? null : (
+        <FormField
+          label="Ostatni dzień pracy"
+          htmlFor={id("last")}
+          description="Puste, dopóki osoba nie odchodzi."
+        >
+          <Input
+            id={id("last")}
+            type="date"
+            value={form.last_working_day}
+            onChange={(event) => set("last_working_day", event.target.value)}
+          />
+        </FormField>
+      )}
       <FormField label="Telefon służbowy" htmlFor={id("phone")}>
         <Input
           id={id("phone")}

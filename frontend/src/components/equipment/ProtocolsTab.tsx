@@ -72,7 +72,7 @@ export function ProtocolsTab({ onOpenProtocol }: { onOpenProtocol: (id: number) 
           allLabel="Wszystkie"
           options={STATUS_OPTIONS}
           onChange={setStatus}
-          className="h-9 w-64"
+          className="h-9 w-auto min-w-64 gap-2 whitespace-nowrap"
         />
         <FilterSelect
           label="Rodzaj"
