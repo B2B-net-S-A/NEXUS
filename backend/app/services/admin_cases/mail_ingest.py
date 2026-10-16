@@ -514,11 +514,11 @@ async def _ingest_all(
     for msg in ordered[:MAX_MESSAGES_PER_RUN]:
         received = _parse_dt(msg.get("receivedDateTime"))
         graph_id = _nul_free(msg.get("id"), 512)
-        key = mail_source_key(graph_id) if graph_id else None
-        tried = attempts.get(key, 0) if key else 0
-        if key is not None and tried >= MAX_MESSAGE_ATTEMPTS:
+        digest = mail_source_key(graph_id) if graph_id else None
+        tried = attempts.get(digest, 0) if digest else 0
+        if digest is not None and tried >= MAX_MESSAGE_ATTEMPTS:
             # Porzucona we wcześniejszym przebiegu i wciąż w oknie odczytu.
-            still_failing[key] = tried
+            still_failing[digest] = tried
             counts["skipped"] += 1
         else:
             try:
@@ -528,8 +528,8 @@ async def _ingest_all(
                 logger.exception("[admin_cases] wiadomość nie zapisana")
                 counts["failed"] += 1
                 tried += 1
-                if key is not None:
-                    still_failing[key] = tried
+                if digest is not None:
+                    still_failing[digest] = tried
                 if tried < MAX_MESSAGE_ATTEMPTS:
                     if received is not None and (
                         earliest_failed is None or received < earliest_failed
@@ -540,7 +540,7 @@ async def _ingest_all(
                 counts["abandoned"] += 1
                 logger.warning(
                     "[admin_cases] wiadomość %s pominięta po %d nieudanych próbach",
-                    key,
+                    digest,
                     tried,
                 )
             else:
