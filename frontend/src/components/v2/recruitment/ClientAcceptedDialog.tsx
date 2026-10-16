@@ -135,6 +135,8 @@ export function ClientAcceptedDialog({
     [requirements.data],
   );
   const debriefMissing = debrief != null && debrief.status === "missing";
+  // api-detail-ok: `detail` wymagania ruchu jest z kontraktu napisem (`MoveRequirementItem`), nie błędem FastAPI.
+  const debriefHint = debrief?.detail ?? "zapisz pytania klienta po rozmowie";
   const debriefAction = debriefMissing ? (debrief?.action ?? null) : null;
 
   const errors = validateAcceptance(acceptedOn, plannedStartOn);
@@ -231,7 +233,7 @@ export function ClientAcceptedDialog({
                 <span className="min-w-0 flex-1">
                   <span className="font-semibold">Debrief po rozmowie u klienta</span>
                   <span className="block text-xs text-muted-foreground">
-                    {debrief?.detail ?? "zapisz pytania klienta po rozmowie"} — bez niego akceptacja się nie zapisze.
+                    {debriefHint} — bez niego akceptacja się nie zapisze.
                   </span>
                 </span>
                 {debriefAction?.kind === "open_debrief" && debriefAction.event_id != null && (
