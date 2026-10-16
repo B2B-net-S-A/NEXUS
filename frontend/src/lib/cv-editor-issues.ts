@@ -470,7 +470,9 @@ export function bulkPlan(checks: readonly QcCheck[], fixes: readonly QcFix[]): B
  * polityce must + nice — mile widziane), i poprawki, które je pogrubiają.
  * Ta sama droga co „Pogrub wszystkie” w panelu: `qc/transform` na treści
  * z edytora, jeden cofalny krok. `count: null` = QC nie ma wyniku (liczy się,
- * nie odpowiada) — przycisk bez liczby i wyłączony.
+ * nie odpowiada) — przycisk bez liczby i wyłączony. W CV, które z założenia nie
+ * pogrubia (Redakcja), QC mówi „nie dotyczy” i podaje te wymagania jako
+ * informacje — przycisk liczy i pogrubia także je (16.10.2026).
  */
 export function boldRequirements(checks: readonly QcCheck[] | null): {
   count: number | null;
@@ -480,8 +482,8 @@ export function boldRequirements(checks: readonly QcCheck[] | null): {
   const actions: QcFixAction[] = [];
   let count = 0;
   for (const check of checks) {
-    if (check.status !== "fail") continue;
-    const terms = check.items.filter((item) => item.fix === "bold_all").length;
+    const items = [...(check.status === "fail" ? check.items : []), ...(check.info ?? [])];
+    const terms = items.filter((item) => item.fix === "bold_all").length;
     if (terms === 0) continue;
     count += terms;
     const scope = check.key === "nice_bolded" ? "nice" : "must";

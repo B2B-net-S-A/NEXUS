@@ -277,7 +277,11 @@ it("„Pogrub wymagania” bez liczby, gdy QC jeszcze liczy; przy zerze wyłącz
 it("przy zerze „Pogrub wymagania (0)” jest wyłączony i mówi dlaczego", () => {
   mount(undefined, CV, { boldRequirements: { count: 0, disabled: false, onRun: vi.fn() } });
   expect(button("Pogrub wymagania (0)")).toBeDisabled();
-  expect(button("Pogrub wymagania (0)")).toHaveAttribute("title", "Wymagania klienta są już pogrubione.");
+  // Zero to też CV bez technologii z wymagań — nie tylko „już pogrubione”.
+  expect(button("Pogrub wymagania (0)")).toHaveAttribute(
+    "title",
+    "Nie ma czego pogrubić: technologie z wymagań klienta są w CV pogrubione albo w CV ich nie ma.",
+  );
 });
 
 it("edytor bez QC nie ma „Pogrub wymagania”", () => {

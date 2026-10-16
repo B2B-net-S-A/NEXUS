@@ -23,7 +23,11 @@ import {
 } from "react";
 
 import { loadPdfJs } from "@/lib/pdfjs-loader";
-import { isSearchableQuery } from "@/lib/document-text-search";
+import {
+  isSearchableQuery,
+  searchableTerms,
+  type DocumentQuery,
+} from "@/lib/document-text-search";
 import type {
   DocumentFindResult,
   DocumentTextAvailability,
@@ -37,8 +41,11 @@ export interface PdfViewState {
 }
 
 export interface PdfViewerHandle {
-  /** Nowe zapytanie (puste / za krótkie = zdjęcie podświetleń). */
-  search(query: string): void;
+  /**
+   * Nowe zapytanie: fraza albo lista słów wymagania (puste / za krótkie =
+   * zdjęcie podświetleń).
+   */
+  search(query: DocumentQuery): void;
   /** Następne / poprzednie trafienie bieżącego zapytania. */
   step(previous: boolean): void;
   zoomIn(): void;
@@ -100,7 +107,7 @@ export function PdfDocumentViewer({
   const containerRef = useRef<HTMLDivElement | null>(null);
   const viewerRef = useRef<HTMLDivElement | null>(null);
   const internalsRef = useRef<ViewerInternals | null>(null);
-  const queryRef = useRef("");
+  const queryRef = useRef<DocumentQuery>("");
   // „Dopasuj do szerokości” obowiązuje, dopóki użytkownik sam nie zmieni
   // powiększenia — wtedy zmiana rozmiaru okna nie może mu go nadpisać.
   const fitWidthRef = useRef(true);
@@ -125,7 +132,7 @@ export function PdfDocumentViewer({
   useImperativeHandle(
     handleRef,
     () => ({
-      search(query: string) {
+      search(query: DocumentQuery) {
         queryRef.current = query;
         const internals = internalsRef.current;
         if (!internals) return;
@@ -340,13 +347,14 @@ export function PdfDocumentViewer({
 
 function dispatchFind(
   internals: ViewerInternals,
-  query: string,
+  query: DocumentQuery,
   { again, previous }: { again: boolean; previous: boolean },
 ): void {
   internals.eventBus.dispatch("find", {
     source: null,
     type: again ? "again" : "",
-    query: query.trim(),
+    // Lista = którekolwiek ze słów (pdf.js składa je w jedną alternatywę).
+    query: typeof query === "string" ? query.trim() : searchableTerms(query),
     caseSensitive: false,
     entireWord: false,
     highlightAll: true,

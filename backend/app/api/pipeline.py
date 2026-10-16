@@ -2422,6 +2422,16 @@ async def move_candidate(
     return CandidateStageResponse(**resp)
 
 
+def _newest_first(entries: Iterable[CandidateStage]) -> list[CandidateStage]:
+    """Kolejność kart w kolumnie Tablicy: najświeższe wejście na etap na górze.
+
+    Remis czasu → wyżej później zapisany wiersz (`id`). Wcześniej karty stały
+    wg `candidate_id`, więc osoba dodana ze starej bazy lądowała w środku
+    kolumny (ticket rekrutera 15.10.2026, decyzja Artura 16.10.2026).
+    """
+    return sorted(entries, key=lambda s: (s.moved_at, s.id), reverse=True)
+
+
 def _bucket_by_stage_def(
     entries: Iterable[CandidateStage],
     stage_defs: Sequence[PipelineStageDef],
@@ -3403,7 +3413,7 @@ async def build_kanban_view(
             else {}
         )
         columns_map, off_template_entries = _bucket_by_stage_def(
-            seen.values(), stage_defs, foreign_defs
+            _newest_first(seen.values()), stage_defs, foreign_defs
         )
 
         columns = []
@@ -3450,7 +3460,7 @@ async def build_kanban_view(
     columns_map_legacy[PipelineStage.rejected] = []
     columns_map_legacy[PipelineStage.withdrawn] = []
     off_template_entries = []
-    for stage_entry in seen.values():
+    for stage_entry in _newest_first(seen.values()):
         if stage_entry.stage in columns_map_legacy:
             columns_map_legacy[stage_entry.stage].append(stage_entry)
             continue

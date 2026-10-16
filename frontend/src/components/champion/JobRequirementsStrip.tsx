@@ -20,7 +20,11 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 
-import { useJobRequirements, type JobRequirementConditions } from "./use-job-requirements";
+import {
+  requirementFindWords,
+  useJobRequirements,
+  type JobRequirementConditions,
+} from "./use-job-requirements";
 
 /** Ile wymagań mieści pasek; reszta to „+N”. */
 export const STRIP_MAX_REQUIREMENTS = 4;
@@ -48,7 +52,8 @@ export interface JobRequirementsStripProps {
   jobId: number;
   /** Budżet PLN/h z Tablicy — gdy rekrutacji nie ma w cache strony. */
   budgetHourly?: number | null;
-  onPickRequirement: (name: string) => void;
+  /** „Szukaj w CV”: nazwa wymagania i słowa lupy z serwera (pusta lista = sama nazwa). */
+  onPickRequirement: (name: string, words: readonly string[]) => void;
   /** Pełna lista: rozwija kolumnę albo przełącza na zakładkę „Wymagania”. */
   onShowAll: () => void;
   className?: string;
@@ -100,7 +105,7 @@ export function JobRequirementsStrip({
                   type="button"
                   aria-label={`Szukaj „${name}” w CV`}
                   title={`Szukaj „${name}” w CV`}
-                  onClick={() => onPickRequirement(name)}
+                  onClick={() => onPickRequirement(name, requirementFindWords(requirements.findWords, name))}
                   className="inline-flex max-w-[14rem] items-center gap-1 rounded-full border border-primary/40 bg-primary/10 px-2 py-0.5 font-semibold text-foreground transition-colors hover:bg-primary/20 pointer-coarse:py-1.5"
                 >
                   {critical ? <Star className="h-3 w-3 shrink-0 fill-primary text-primary" aria-hidden /> : null}

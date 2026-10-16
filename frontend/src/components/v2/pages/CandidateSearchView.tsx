@@ -99,6 +99,7 @@ import {
   searchRequestValidationError,
 } from "@/lib/candidate-search-request";
 import { matchingRequirementsApi, requirementLabels } from "@/lib/matching-requirements";
+import { jobDisplayTitle } from "@/lib/job-names";
 import type { ChipFieldSuggest } from "@/components/v2/filters/AdvancedSearchPopover";
 import {
   MATCH_SCORES_MAX_CANDIDATES,
@@ -256,9 +257,9 @@ export function CandidateSearchView({
   });
   const [jobPickerOpen, setJobPickerOpen] = useState(false);
   const jobContext = useMemo(
-    () => addToJob ?? (pickedJob ? { id: pickedJob.id, title: pickedJob.title } : undefined),
+    () => addToJob ?? (pickedJob ? { id: pickedJob.id, title: jobDisplayTitle(pickedJob) } : undefined),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [addToJob?.id, addToJob?.title, pickedJob?.id, pickedJob?.title],
+    [addToJob?.id, addToJob?.title, pickedJob?.id, pickedJob?.title, pickedJob?.working_title],
   );
   const canAddToRecruitment = useCanAddToRecruitment();
   // Zapisy w kontekście rekrutacji: na stronie rekrutacji decyduje rodzic
@@ -432,11 +433,23 @@ export function CandidateSearchView({
     jobsApi
       .get(id)
       .then((r) => {
-        const job = r.data as { id: number; title?: string | null; client_name?: string | null };
+        const job = r.data as {
+          id: number;
+          title?: string | null;
+          working_title?: string | null;
+          client_reference?: string | null;
+          client_name?: string | null;
+        };
         if (cancelled) return;
         setPickedJob((current) =>
           current?.id === id
-            ? { id, title: job.title || current.title, client_name: job.client_name ?? null }
+            ? {
+                id,
+                title: job.title || current.title,
+                working_title: job.working_title ?? null,
+                client_reference: job.client_reference ?? null,
+                client_name: job.client_name ?? null,
+              }
             : current,
         );
       })
@@ -965,7 +978,7 @@ export function CandidateSearchView({
               <>
                 <span className="text-muted-foreground">Szukasz do rekrutacji:</span>
                 <strong data-testid="search-picked-job">
-                  {pickedJob.title}
+                  {jobDisplayTitle(pickedJob)}
                   {pickedJob.client_name ? ` · ${pickedJob.client_name}` : ""}
                 </strong>
                 <Button

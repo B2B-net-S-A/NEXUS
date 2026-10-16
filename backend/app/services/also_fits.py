@@ -52,6 +52,8 @@ class AlsoFitsJob:
     score: int
     matching_must: tuple[str, ...] = ()
     gap_must: tuple[str, ...] = ()
+    # Numer u klienta przed nazwą, jak w nagłówku rekrutacji (16.10.2026).
+    client_reference: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -211,6 +213,7 @@ async def also_fits_for_candidate(
                 gap_must=tuple(
                     (getattr(breakdown, "gap_must", None) or [])[:GAP_CHIPS]
                 ),
+                client_reference=job.client_reference,
             )
         )
     return AlsoFitsResult(status="ok", jobs=tuple(out))

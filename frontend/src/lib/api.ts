@@ -2993,6 +2993,10 @@ export interface JobMatch {
   job: {
     id: number;
     title: string;
+    // Nazwy jak w nagłówku rekrutacji (16.10.2026).
+    working_title?: string | null;
+    client_reference?: string | null;
+    client_name?: string | null;
     client_id: number | null;
     location: string | null;
     salary_min: number | null;
@@ -5042,6 +5046,11 @@ export interface ChampionProfileResponse {
   champion_profile: ChampionProfile | Record<string, never>;
   /** Krytyczne: decyzja DL, podpowiedź i to, na czym działa bramka (30.09.2026). */
   critical_resolution?: import("@/lib/critical-skills").CriticalResolution;
+  /**
+   * Słowa lupy „Szukaj w CV” dla każdego wymagania (16.10.2026): etykieta →
+   * opcje i warianty nazw tak, jak czyta je bramka. Brak klucza = starszy serwer.
+   */
+  requirement_find_words?: Record<string, string[]>;
   /**
    * Audyt 06.10.2026 (N2): odcisk SAMEGO profilu. Edytor odsyła go w zapisie
    * jako `expected_profile_hash`; profil zmieniony od wczytania = 409.

@@ -213,8 +213,29 @@ export function placeStage(col: StageLike): StagePlacement {
 }
 
 export interface FoldableColumn extends StageLike {
-  items: ReadonlyArray<{ id: number }>;
+  items: ReadonlyArray<{ id: number; moved_at?: string | null }>;
   count: number;
+}
+
+function movedAtMs(item: { moved_at?: string | null }): number {
+  const ms = item.moved_at ? Date.parse(item.moved_at) : NaN;
+  return Number.isNaN(ms) ? -Infinity : ms;
+}
+
+/**
+ * Kolejność kart w kolumnie Tablicy — ten sam klucz co serwer
+ * (`_newest_first` w `api/pipeline.py`): najświeższe wejście na etap na
+ * górze, remis czasu → wyższy numer karty. Karta bez czasu stoi pod kartami
+ * z czasem, w kolejności z serwera (ticket rekrutera 15.10.2026).
+ */
+export function compareNewestFirst(
+  a: { id: number; moved_at?: string | null },
+  b: { id: number; moved_at?: string | null },
+): number {
+  const ta = movedAtMs(a);
+  const tb = movedAtMs(b);
+  if (ta === tb) return ta === -Infinity ? 0 : b.id - a.id;
+  return tb > ta ? 1 : -1;
 }
 
 export interface BoardColumnFold<C extends FoldableColumn> {
@@ -226,7 +247,7 @@ export interface BoardColumnFold<C extends FoldableColumn> {
   host: C;
   /** Wszystkie kolumny szablonu wpadające do tej kolumny Tablicy. */
   members: C[];
-  /** Karty w kolejności kolumn szablonu (host pierwszy). */
+  /** Karty wszystkich etapów kolumny od najświeższego wejścia na etap (`compareNewestFirst`). */
   items: C["items"][number][];
   count: number;
 }
@@ -340,7 +361,7 @@ export function foldBoardColumns<C extends FoldableColumn>(
     fold.members.sort((a, b) => columns.indexOf(a) - columns.indexOf(b));
     // Gospodarz na początek: to on jest celem upuszczenia.
     fold.members = [fold.host, ...fold.members.filter((m) => m !== fold.host)];
-    fold.items = fold.members.flatMap((c) => [...c.items]);
+    fold.items = fold.members.flatMap((c) => [...c.items]).sort(compareNewestFirst);
     fold.count = fold.members.reduce((sum, c) => sum + c.count, 0);
   }
   return { columns: folds, closed, badgeByItemId };

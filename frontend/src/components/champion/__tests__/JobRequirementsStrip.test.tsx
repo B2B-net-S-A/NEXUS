@@ -40,7 +40,9 @@ function response(must: string[], critical: string[], basics: Record<string, unk
   };
 }
 
-function renderStrip(props: { onPick?: (name: string) => void; onShowAll?: () => void } = {}) {
+function renderStrip(
+  props: { onPick?: (name: string, words: readonly string[]) => void; onShowAll?: () => void } = {},
+) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={client}>
@@ -88,12 +90,16 @@ describe("JobRequirementsStrip", () => {
     expect(onShowAll).toHaveBeenCalledTimes(1);
   });
 
-  it("chip szuka wymagania w CV", async () => {
+  it("chip szuka wymagania w CV słowami z serwera", async () => {
+    const base = response(["Java 17"], ["Java 17"]);
+    getMock.mockResolvedValue({
+      data: { ...base.data, requirement_find_words: { "Java 17": ["Java"] } },
+    });
     const onPick = vi.fn();
     const user = userEvent.setup();
     renderStrip({ onPick });
     await user.click(await screen.findByRole("button", { name: "Szukaj „Java 17” w CV" }));
-    expect(onPick).toHaveBeenCalledWith("Java 17");
+    expect(onPick).toHaveBeenCalledWith("Java 17", ["Java"]);
   });
 
   it("warunki bez wartości nie trafiają do linii", async () => {

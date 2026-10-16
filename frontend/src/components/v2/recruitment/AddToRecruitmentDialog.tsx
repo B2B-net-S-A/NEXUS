@@ -46,6 +46,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { jobDisplayTitle } from "@/lib/job-names";
 import { JobPicker, type JobPickerJob } from "./JobPicker";
 
 export interface AddToRecruitmentResult {
@@ -87,15 +88,16 @@ function peopleAccusative(n: number): string {
   return mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14) ? "osoby" : "osób";
 }
 
+// Rekrutacja nazwana jak w jej nagłówku — tytułem dla rekrutera (16.10.2026).
 function addedSentence(job: JobPickerJob, added: number): string {
   return added === 0
-    ? `Nikogo nie dodano do „${job.title}”.`
-    : `Dodano ${added} ${peopleAccusative(added)} do „${job.title}”.`;
+    ? `Nikogo nie dodano do „${jobDisplayTitle(job)}”.`
+    : `Dodano ${added} ${peopleAccusative(added)} do „${jobDisplayTitle(job)}”.`;
 }
 
 export function addToRecruitmentSummary(result: AddToRecruitmentResult): string {
   const { job, response, restored } = result;
-  if (restored) return `Przywrócono ${restored} ${peopleAccusative(restored)} do „${job.title}”.`;
+  if (restored) return `Przywrócono ${restored} ${peopleAccusative(restored)} do „${jobDisplayTitle(job)}”.`;
   const summary = summarizeBulkResult(response);
   // Osoba z ostrzeżeniem JEST dodana (konflikt z klientem, praca u tego
   // klienta) — do 12.10.2026 okno gubiło tę część odpowiedzi.
@@ -328,7 +330,7 @@ export function AddToRecruitmentDialog({
   // Po zapisie ekran-rodzic czyści zaznaczenie, więc opis wyniku nie może
   // liczyć osób z propsa („dla 0 osób”).
   const description = result
-    ? `Rekrutacja „${result.job.title}”.`
+    ? `Rekrutacja „${jobDisplayTitle(result.job)}”.`
     : (subject ?? (count === 1 ? "Wybierz rekrutację dla tej osoby." : `Wybierz rekrutację dla ${count} osób.`));
   const otherText = otherSkippedText(otherRows);
 
@@ -399,7 +401,7 @@ export function AddToRecruitmentDialog({
                 Anuluj
               </Button>
               <Button onClick={() => void submit()} disabled={!job || count === 0} loading={pending}>
-                {job ? `Dodaj do „${job.title}”` : "Dodaj"}
+                {job ? `Dodaj do „${jobDisplayTitle(job)}”` : "Dodaj"}
               </Button>
             </>
           )}

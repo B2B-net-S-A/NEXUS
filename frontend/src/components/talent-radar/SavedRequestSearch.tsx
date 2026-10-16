@@ -4,6 +4,7 @@ import { ChampionValidationPanel, championErrorValidation } from "@/components/C
 import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { jobsApi, extractErrorMsg } from "@/lib/api";
+import { jobDisplayTitle, type JobNames } from "@/lib/job-names";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/ds";
@@ -52,9 +53,10 @@ export function SavedRequestSearch({ initialJob, hidePicker = false }: SavedRequ
     if (!actorId || initialJob) return;
     try { const saved = JSON.parse(sessionStorage.getItem(`nexus-radar-request:${actorId}`) ?? "null"); if (saved && Number.isInteger(saved.id) && typeof saved.title === "string") setSelected(saved); } catch {}
   }, [actorId, initialJob]);
-  const jobs = useQuery({ queryKey: ["radar-request-picker", queryText, page], enabled: !hidePicker, queryFn: () => jobsApi.list({ q: queryText || undefined, page, page_size: 20 }).then(r => r.data as { items: JobRef[]; total: number }) });
-  const choose = (job: JobRef) => {
-    const ref = { id: job.id, title: job.title, client_name: job.client_name };
+  const jobs = useQuery({ queryKey: ["radar-request-picker", queryText, page], enabled: !hidePicker, queryFn: () => jobsApi.list({ q: queryText || undefined, page, page_size: 20 }).then(r => r.data as { items: (JobRef & JobNames)[]; total: number }) });
+  // Tytuł jak w nagłówku rekrutacji (16.10.2026); `title` służy tu tylko do pokazania.
+  const choose = (job: JobRef & JobNames) => {
+    const ref = { id: job.id, title: jobDisplayTitle(job), client_name: job.client_name };
     setSelected(ref);
     if (actorId) { try { sessionStorage.setItem(`nexus-radar-request:${actorId}`, JSON.stringify(ref)); } catch {} }
   };
@@ -68,7 +70,7 @@ export function SavedRequestSearch({ initialJob, hidePicker = false }: SavedRequ
       <Button type="submit">Znajdź rekrutację</Button>
     </form>
     {jobs.error ? <p role="alert">{extractErrorMsg(jobs.error)}</p> : jobs.isPending ? <p role="status">Wczytuję rekrutacje…</p> : <>
-      <ul className="grid gap-2 md:grid-cols-2">{jobs.data?.items.map(job => <li key={job.id}><button className="w-full rounded-md border p-3 text-left hover:bg-accent" onClick={() => choose(job)} aria-pressed={selected?.id === job.id}>{job.title}{job.client_name ? ` · ${job.client_name}` : ""}</button></li>)}</ul>
+      <ul className="grid gap-2 md:grid-cols-2">{jobs.data?.items.map(job => <li key={job.id}><button className="w-full rounded-md border p-3 text-left hover:bg-accent" onClick={() => choose(job)} aria-pressed={selected?.id === job.id}>{jobDisplayTitle(job)}{job.client_name ? ` · ${job.client_name}` : ""}</button></li>)}</ul>
       <div className="flex gap-3"><Button variant="outline" disabled={page === 1} onClick={() => setPage(page - 1)}>Poprzednie rekrutacje</Button><Button variant="outline" disabled={page * 20 >= (jobs.data?.total ?? 0)} onClick={() => setPage(page + 1)}>Następne rekrutacje</Button></div>
     </>}
     {selected && <RequestResults key={selected.id} job={selected} />}

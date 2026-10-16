@@ -58,7 +58,7 @@
     "title": "Tablica rekrutacji",
     "section": "pipeline",
     "roles": ["recruiter", "delivery_lead", "head_of_recruitment", "admin"],
-    "what": "Tu prowadzisz kandydatów tej rekrutacji przez 8 kolumn: Nowi, Screening, Zweryfikowany, QC CV, CV wysłane, Rozmowa u klienta, Akceptacja i umowa oraz Zatrudniony. Źródła „Kandydaci do dodania” są w nagłówku.",
+    "what": "Tu prowadzisz kandydatów tej rekrutacji przez 8 kolumn: Nowi, Screening, Zweryfikowany, QC CV, CV wysłane, Rozmowa u klienta, Akceptacja i umowa oraz Zatrudniony; u góry kolumny ten, kto ostatni wszedł na etap. Źródła są w nagłówku.",
     "tasks": [
       {
         "q": "Od czego zacząć w tej rekrutacji?",
@@ -71,7 +71,7 @@
       },
       {
         "q": "Jak dodać kandydatów?",
-        "a": "Kliknij źródło w nagłówku: „Podobne rekrutacje”, „Nowi z ogłoszeń”, „Propozycje z bazy” albo „Szukaj w bazie”. „+ Dodaj” dodaje osobę do Nowych na 12 h („Cofnij” obok), a „Pasuje też do” pod nią — do innych rekrutacji. „+1 rekrutacja” na karcie: czeka też gdzie indziej — „Screening razem” to jedna rozmowa pod obie.",
+        "a": "Kliknij źródło w nagłówku: „Podobne rekrutacje”, „Nowi z ogłoszeń”, „Propozycje z bazy” albo „Szukaj w bazie”. „+ Dodaj” dodaje osobę na górę Nowych na 12 h („Cofnij” obok), a „Pasuje też do” pod nią — do innych rekrutacji. „+1 rekrutacja” na karcie: czeka też gdzie indziej — „Screening razem” to jedna rozmowa pod obie.",
         "anchor": "jobs.board.sources"
       },
       {

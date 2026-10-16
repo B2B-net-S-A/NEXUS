@@ -190,6 +190,37 @@ describe("foldBoardColumns", () => {
   });
 });
 
+describe("kolejność kart w kolumnie Tablicy (16.10.2026)", () => {
+  const card = (id: number, moved_at: string | null) => ({ id, moved_at });
+  const column = (label: string, stage: string, items: Array<{ id: number; moved_at: string | null }>) => ({
+    label,
+    stage,
+    category: "internal",
+    items,
+    count: items.length,
+  });
+
+  it("kolumna złożona z kilku etapów: najświeższe wejście na etap na górze, remis → wyższy numer karty", () => {
+    // Ten sam klucz co serwer (`_newest_first`): bez tego karty z etapu-odznaki
+    // (Cpro) stały zawsze pod kartami gospodarza, choćby weszły dziś.
+    const folded = foldBoardColumns([
+      column("QC CV", "interview", [card(3, "2026-10-13T09:00:00Z"), card(4, "2026-10-16T08:00:00+00:00")]),
+      column("Wysłać do Cpro", "new", [card(5, "2026-10-15T09:00:00Z"), card(2, "2026-10-16T08:00:00Z")]),
+    ]);
+    const qc = folded.columns.find((c) => c.key === "cv_qc")!;
+    expect(qc.items.map((i) => i.id)).toEqual([4, 2, 5, 3]);
+  });
+
+  it("karta bez czasu wejścia stoi pod kartami z czasem, w kolejności z serwera", () => {
+    const folded = foldBoardColumns([
+      column("QC CV", "interview", [card(7, null), card(3, null)]),
+      column("Wysłać do Cpro", "new", [card(5, "2026-10-15T09:00:00Z")]),
+    ]);
+    const qc = folded.columns.find((c) => c.key === "cv_qc")!;
+    expect(qc.items.map((i) => i.id)).toEqual([5, 7, 3]);
+  });
+});
+
 describe("znaczniki ustawiane z panelu", () => {
   it("DZ i Cpro zniknęły z przełączników — Cpro ustawia strzałka", () => {
     expect(SETTABLE_BADGES).toEqual(["contract_sent", "contract_signed"]);

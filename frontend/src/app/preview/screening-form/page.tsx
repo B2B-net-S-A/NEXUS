@@ -287,6 +287,13 @@ const PROFILE: ChampionProfileResponse = {
     source: "dl",
     suggested: ["Java 17"],
   } as never,
+  // Jak liczy serwer: wersja odpada, warianty nazw ze słownika dochodzą.
+  requirement_find_words: {
+    "Java 17": ["Java"],
+    "Spring Boot": ["Spring Boot"],
+    Kafka: ["Kafka"],
+    Kubernetes: ["Kubernetes", "k8s"],
+  },
 };
 
 /** Hasło słowniczka „po ludzku” — zdanie pod wymaganiem w zakładce „Wymagania”. */

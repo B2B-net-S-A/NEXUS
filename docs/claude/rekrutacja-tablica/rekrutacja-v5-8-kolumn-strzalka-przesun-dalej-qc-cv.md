@@ -184,3 +184,49 @@ osobę od Cpro per rekrutacja (0353) i kolejkę „Czeka na DZ” (0348).
     podpisana” i „Cofnij akceptację klienta” w menu „⋯” (powrót na „Rozmowę
     u klienta”, z potwierdzeniem);
   - dzwonek — `rekrutacja-tablica/dzwonek-przy-przekazaniu-karty-qc-dl-cv-wyslane.md`.
+
+## Kolejność kart w kolumnie: najświeższe wejście na etap na górze (16.10.2026)
+
+Ticket rekrutera z 15.10.2026: dodani do rekrutacji lądowali „w środku
+pipeline'u”. Przyczyna: `build_kanban_view` czytał wiersze `ORDER BY
+candidate_id` i tak zostawiał karty, więc w kolumnie stały według numeru
+kandydata w bazie (osoba ze starej bazy w środku, nowa w bazie na dole).
+Pomiar z produkcji 15.10: w 370 kolumnach z co najmniej 3 kartami najświeższa
+karta stała na górze tylko w 63. Decyzja Artura 16.10.2026: rekomendacja bez
+zmian (D1–D4).
+
+- **Reguła.** W każdej kolumnie, także „QC CV”, kolejce Cpro, kubełku „Poza
+  szablonem” i paskach Zamkniętych, karty stoją od najświeższego wejścia na
+  obecny etap (`CandidateStage.moved_at` malejąco). Remis czasu → wyżej
+  później zapisany wiersz (`id` malejąco); w 30 dniach było 379 grup tego
+  samego `moved_at` w jednej rekrutacji (dodanie kilku osób naraz).
+- **Czas wejścia na etap, nie data dodania do rekrutacji (D2).** Osoba
+  przeniesiona dziś na „CV wysłane” ma stać na górze tamtej kolumny. Zmiana
+  znacznika w kolumnie złożonej (Prep, Cpro, Umowa wysłana/podpisana,
+  Onboarding) też jest ruchem na etap, więc też podnosi kartę.
+- **Serwer.** `_newest_first` w `api/pipeline.py`, użyte w obu gałęziach
+  `build_kanban_view` przed rozdzieleniem na kolumny. Z tego samego widoku
+  korzystają `GET /api/pipeline/kanban/{job_id}`, „Moje następne kroki” na
+  pulpicie i API integracyjne v1 (`integrations_v1/recruitments.py`).
+- **Front.** `foldBoardColumns` skleja etapy jednej kolumny Tablicy i układa
+  ich karty tym samym kluczem (`compareNewestFirst` w `lib/board-stages.ts`);
+  bez tego karty z etapu-odznaki stały zawsze pod kartami gospodarza. Karta
+  bez `moved_at` stoi pod kartami z czasem, w kolejności z serwera.
+- **Ruch od razu na górę.** Ruch optymistyczny (`applyOptimistic`), ruch
+  czekający 10 s na wysłanie (`withPendingMoves`) i potwierdzenie ruchu bez
+  optymizmu (`confirmMoved`, „Zweryfikowany”) wkładają kartę na początek
+  kolumny z `moved_at` = teraz. Przedtem doklejały ją na koniec, a po
+  odświeżeniu karta przeskakiwała w środek.
+- **Bez ręcznego układania (D1) i bez przełącznika (D4).** Tablica jest
+  wspólna, więc ręczne przestawienie zmieniałoby kolejność wszystkim, a nowa
+  osoba i tak musi gdzieś trafić. Upuszczenie karty w tej samej kolumnie dalej
+  nic nie robi. Przełącznik „najdłużej czekający” dołożymy, gdy poprosi DL.
+- **Co idzie za tym samo.** Strzałki „‹ ›” w panelu osoby, następna osoba po
+  odrzuceniu, „Dalej: …” i filtr „Kto dodał” czytają kolejność z renderu.
+  Kolejka „Do wysłania do klienta” na pulpicie ma własną kolejność i się nie
+  zmienia. Stara karta dalej pokazuje „W etapie: N dni”.
+- **Testy.** `test_newest_entry_to_the_stage_is_on_top_of_the_column`
+  i `test_newest_first_orders_by_moved_at_then_row_id`
+  (`tests/test_kanban_off_template_bucket.py`), „kolejność kart w kolumnie
+  Tablicy” w `lib/__tests__/board-stages.test.ts` i „przesunięta karta staje
+  na górze kolumny docelowej” w `KanbanBoardV2.test.tsx`.

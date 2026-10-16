@@ -23,6 +23,7 @@ import {
   type ClientRef,
 } from "@/components/talent-radar/TalentRadarClientPicker";
 import { JobPicker, type JobPickerJob } from "@/components/v2/recruitment/JobPicker";
+import { jobDisplayTitle } from "@/lib/job-names";
 import {
   radarBudgetError,
   radarOfficeDaysError,
@@ -118,7 +119,8 @@ export function RequestSearchDialog({
       source,
       text: source === "text" ? text.trim() : undefined,
       file: source === "file" ? file : null,
-      job: source === "job" && job ? { id: job.id, title: job.title, client_name: job.client_name ?? null } : null,
+      // Talent Radar tylko pokazuje tytuł — ten z nagłówka rekrutacji (16.10.2026).
+      job: source === "job" && job ? { id: job.id, title: jobDisplayTitle(job), client_name: job.client_name ?? null } : null,
       client: needsClient ? client : null,
       budget: needsClient ? budget.trim() : undefined,
       officeDays: needsClient ? officeDays.trim() : undefined,

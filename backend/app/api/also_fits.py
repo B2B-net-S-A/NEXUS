@@ -28,6 +28,7 @@ class AlsoFitsJobOut(BaseModel):
     job_id: int
     title: str
     client_name: Optional[str] = None
+    client_reference: Optional[str] = None
     score: int
     matching_must: list[str] = []
     gap_must: list[str] = []
@@ -76,6 +77,7 @@ async def candidate_also_fits(
                 job_id=j.job_id,
                 title=j.title,
                 client_name=j.client_name,
+                client_reference=j.client_reference,
                 score=j.score,
                 matching_must=list(j.matching_must),
                 gap_must=list(j.gap_must),

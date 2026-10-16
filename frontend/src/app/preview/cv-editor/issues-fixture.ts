@@ -19,7 +19,8 @@ import type {
 } from "@/lib/api/cvQc";
 import { QC_DISMISS_REASONS } from "@/lib/cv-qc";
 
-export type IssuesVariant = "issues" | "clean" | "down";
+/** `redakcja` — CV, które z założenia nie pogrubia: QC „nie dotyczy” + informacja (16.10.2026). */
+export type IssuesVariant = "issues" | "clean" | "down" | "redakcja";
 
 const UNSUPPORTED = "Jenkins";
 const UNBOLDED = "PostgreSQL";
@@ -51,8 +52,12 @@ function check(key: string, label: string, severity: QcCheck["severity"], items:
   return { key, label, severity, status: items.length ? "fail" : "pass", summary: items.length ? null : "OK", items };
 }
 
-function checksFor(html: string, confirmed: ReadonlySet<string>): QcCheck[] {
+function checksFor(html: string, confirmed: ReadonlySet<string>, boldExpected: boolean): QcCheck[] {
   const text = plain(html);
+  const unboldedItems: QcCheck["items"] =
+    unbolded(html, UNBOLDED) > 0
+      ? [{ key: "must_bolded|postgresql|cv", requirement: UNBOLDED, term: UNBOLDED, fix: "bold_all" }]
+      : [];
   return [
     check(
       "critical_skills",
@@ -88,14 +93,14 @@ function checksFor(html: string, confirmed: ReadonlySet<string>): QcCheck[] {
           ]
         : [],
     ),
-    check(
-      "must_bolded",
-      "Must-have pogrubione",
-      "warning",
-      unbolded(html, UNBOLDED) > 0
-        ? [{ key: "must_bolded|postgresql|cv", requirement: UNBOLDED, term: UNBOLDED, fix: "bold_all" }]
-        : [],
-    ),
+    boldExpected
+      ? check("must_bolded", "Must-have pogrubione", "warning", unboldedItems)
+      : {
+          ...check("must_bolded", "Must-have pogrubione", "warning", []),
+          status: "skip",
+          summary: "Nie dotyczy — to CV nie pogrubia wymagań klienta",
+          info: unboldedItems,
+        },
     check(
       "spelling",
       "Pisownia technologii",
@@ -204,7 +209,7 @@ export function memoryIssuesApi(savedHtml: () => string, variant: IssuesVariant)
   };
 
   const result = (): QcResult => {
-    const checks = withDismissals(checksFor(savedHtml(), confirmed), dismissedQc);
+    const checks = withDismissals(checksFor(savedHtml(), confirmed, variant !== "redakcja"), dismissedQc);
     const blocking = checks.filter((item) => item.status === "fail" && item.severity === "blocking").length;
     return {
       stage_id: 901,

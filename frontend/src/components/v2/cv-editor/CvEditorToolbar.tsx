@@ -272,7 +272,7 @@ export function CvEditorToolbar({
           disabled={disabled || boldRequirements.disabled || !boldRequirements.count}
           title={
             boldRequirements.count === 0
-              ? "Wymagania klienta są już pogrubione."
+              ? "Nie ma czego pogrubić: technologie z wymagań klienta są w CV pogrubione albo w CV ich nie ma."
               : boldRequirements.count === null
                 ? "QC jeszcze sprawdza CV — liczba pojawi się za chwilę."
                 : "Pogrubia w całym CV wymagania klienta, których QC nie widzi pogrubionych. Cofniesz to przyciskiem „Cofnij”."

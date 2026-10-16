@@ -2504,6 +2504,14 @@
    "v3_home": "Tablica → panel osoby → Rozwiń → podgląd po lewej → CV"
   },
   {
+   "id": "preview.requirement-cv-search-words",
+   "area": "panel",
+   "opis": "„Szukaj w CV” przy wymaganiu szuka słów z serwera („.NET lub C#” → „.NET”, „C#” i warianty nazw), a pod paskiem lupy stoi „Szukam: …” albo „Szukałem: … — tej nazwy nie ma w CV”",
+   "file": "components/v2/files/DocumentSearchBar.tsx",
+   "marker": "document-search-terms",
+   "v3_home": "Tablica → panel osoby → Rozwiń → podgląd po lewej → Wymagania albo pasek nad CV → „Szukaj w CV”"
+  },
+  {
    "id": "preview.layout-memory",
    "area": "panel",
    "opis": "Układ podglądu (zwinięte CV / wymagania) pamiętany per osoba w przeglądarce — ten sam przy następnym kandydacie i w każdej zakładce panelu",
