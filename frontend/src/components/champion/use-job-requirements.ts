@@ -48,6 +48,34 @@ export interface JobRequirements {
   experience: ChampionProfile["experience"] | undefined;
   notes: string;
   conditions: JobRequirementConditions;
+  /** Słowa lupy „Szukaj w CV” z serwera (`requirement_find_words`). */
+  findWords: Readonly<Record<string, readonly string[]>>;
+}
+
+/**
+ * Słowa, których „Szukaj w CV” szuka dla wymagania (16.10.2026): „.NET lub
+ * C#” → „.NET”, „C#” i warianty nazw. Pusta lista = lupa szuka samej nazwy.
+ */
+export function requirementFindWords(
+  findWords: JobRequirements["findWords"],
+  name: string,
+): readonly string[] {
+  const exact = findWords[name];
+  if (exact) return exact;
+  const key = name.trim().toLocaleLowerCase("pl");
+  const match = Object.entries(findWords).find(
+    ([label]) => label.trim().toLocaleLowerCase("pl") === key,
+  );
+  return match ? match[1] : [];
+}
+
+function findWordsFromResponse(raw: unknown): Record<string, string[]> {
+  if (!raw || typeof raw !== "object") return {};
+  return Object.fromEntries(
+    Object.entries(raw as Record<string, unknown>)
+      .filter((entry): entry is [string, unknown[]] => Array.isArray(entry[1]))
+      .map(([label, words]) => [label, words.filter((w): w is string => typeof w === "string")]),
+  );
 }
 
 export interface JobRequirementsQuery {
@@ -124,6 +152,7 @@ export function useJobRequirements(jobId: number, budgetHourly: number | null = 
         seniority: basics.seniority_min_years != null ? `${basics.seniority_min_years}+ lat` : null,
         language: text(basics.language),
       },
+      findWords: findWordsFromResponse(query.data?.requirement_find_words),
     },
   };
 }

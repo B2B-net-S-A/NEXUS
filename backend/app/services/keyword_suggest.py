@@ -617,6 +617,20 @@ def requirement_search_words(label: str) -> tuple[str, ...]:
     options = requirement_options(label)
     if any(not keyword_long_enough(option) for option in options):
         return ()
+    return _words_with_variants(options)
+
+
+def requirement_find_words(label: str) -> tuple[str, ...]:
+    """Słowa lupy „Szukaj w CV” dla wymagania (16.10.2026).
+
+    Te same opcje i warianty co ``requirement_search_words``, ale lupa
+    podświetla, a nie wycina: opcja jednoliterowa tylko odpada („C lub C++”
+    → „C++”), zamiast zerować całą listę.
+    """
+    return _words_with_variants(requirement_options(label))
+
+
+def _words_with_variants(options: tuple[str, ...]) -> tuple[str, ...]:
     words: list[str] = []
     seen: set[str] = set()
 

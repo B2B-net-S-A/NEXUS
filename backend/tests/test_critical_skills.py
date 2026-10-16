@@ -126,6 +126,35 @@ def test_resolution_payload_carries_search_rows_with_variants():
     ]
 
 
+def test_find_words_cover_every_requirement_of_the_job():
+    """„Szukaj w CV” (16.10.2026): słowa lupy dla każdego wymagania — krytyczne,
+    „Musi mieć” i „Mile widziane” — tą samą regułą co bramka. Do tej daty lupa
+    szukała całej etykiety „.NET lub C#” jako jednej frazy i nie znajdowała
+    niczego, choć C# był w CV."""
+    from app.services import keyword_suggest
+    from app.services.champion_intake import requirement_find_words_payload
+
+    must = [".NET lub C#", "Kafka", "PostgreSQL (bardzo dobra znajomość)"]
+    job = _job(must, critical=["Kafka"])
+    job.nice_skills = ["Kubernetes"]
+    job.champion_profile["stack"]["nice"] = [{"name": "Kubernetes"}]
+    job.champion_profile["stack"]["rows"] = [
+        {"words": ["Kafka", "kolejk*"], "level": "critical"}
+    ]
+    saved = keyword_suggest._catalog
+    keyword_suggest.load_catalog([(1, "Kubernetes", "devops")], [(1, "k8s")])
+    try:
+        payload = requirement_find_words_payload(job)
+    finally:
+        keyword_suggest._catalog = saved
+    assert payload[".NET lub C#"] == [".NET", "C#"]
+    # Komentarz w nawiasie to nie słowo do szukania.
+    assert payload["PostgreSQL (bardzo dobra znajomość)"] == ["PostgreSQL"]
+    assert [w.lower() for w in payload["Kubernetes"]] == ["kubernetes", "k8s"]
+    # Słowa wiersza krytycznej od DL; rdzeń bez gwiazdki — lupa szuka fragmentu.
+    assert payload["Kafka"] == ["Kafka", "kolejk"]
+
+
 def test_single_letter_critical_is_skipped_from_search_rows_with_a_note(monkeypatch):
     """Krytyczna „R” nie staje się słowem kluczowym (prawie cała baza) —
     payload mówi, że pominięta; bramka AI dalej czyta ją z profilu."""

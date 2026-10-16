@@ -20,3 +20,28 @@ iframe kod strony nie ma dostępu, więc Ctrl+F przeszukiwał stronę POD oknem.
   w polu z tekstem czyści pole — okna podpinają `keepDialogOpenOnDocumentSearchEscape`
   (Radix łapie Esc w capture, `stopPropagation` w polu nie wystarcza).
 - Harness: `/preview/cv-search` (pliki fikcyjne w `public/preview/cv-search/`).
+
+## „Szukaj w CV” przy wymaganiu szuka słów, nie etykiety (16.10.2026)
+
+Do tej daty przycisk wklejał do lupy całą etykietę („.NET lub C#”, „Java 17”,
+„SQL (bardzo dobra znajomość)”) i lupa szukała jej jako jednej frazy — w CV
+takiego zdania nie ma, więc „Brak wyników”, choć C# stał w CV.
+
+- Słowa liczy serwer: `requirement_find_words` w odpowiedzi
+  `GET /api/jobs/{id}/champion-profile` (`champion_intake.requirement_find_words_payload`)
+  — etykieta → słowa dla KAŻDEGO wymagania („Musi mieć” i „Mile widziane”,
+  z profilu i z kolumn rekrutacji). Reguła ta sama co bramka i „Szukaj ręcznie”
+  (`keyword_suggest.requirement_find_words`: opcje jak `gate_requirement`, warianty
+  nazw ze Słownika umiejętności), a krytyczna z wyboru DL dostaje też słowa
+  swojego wiersza (rdzeń `kolejk*` bez gwiazdki — w lupie to fragment słowa).
+  Jedyna różnica wobec wiersza słów kluczowych: opcja jednoliterowa tylko odpada
+  („C lub C++” → „C++”), bo lupa podświetla, a nie wycina.
+- Nie liczyć słów w przeglądarce: kliencki `labelOptions` jest uproszczony
+  („OWASP Top 10” → „OWASP Top”, nawias zostaje w całości).
+- Pole pokazuje nazwę wymagania, lupa szuka listy (pdf.js przyjmuje `query`
+  jako tablicę, DOCX — `findMatchOffsets` z listą, dłuższe słowo wygrywa).
+  Pod paskiem linia „Szukam: …”, bez trafień „Szukałem: … — tej nazwy nie ma
+  w CV” (`DocumentSearchTerms`). Ręczna zmiana pola = zwykła fraza, linia znika.
+  Cytat z edytora CV („Pokaż w oryginale”) zostaje frazą — zlecenie bez `terms`.
+- Brak słowa w słowniku („Unit Tests” vs „unit testing”, „OWASP Top 10” vs
+  „OWASP”) naprawia alias w Ustawienia → Słownik umiejętności, nie kod.
