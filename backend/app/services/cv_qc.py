@@ -1192,19 +1192,19 @@ def _bold_check(
     """„Wymagania są pogrubione” — dokładnie to, co pogrubiłby generator
     (`docx_renderer.compile_keyword_patterns`). Do 13.10.2026 QC żądało
     pogrubienia każdego wymagania w CV, także domen i pojęć, których
-    generator celowo nie pogrubia, i w CV, które nie pogrubiają wcale."""
+    generator celowo nie pogrubia, i w CV, które nie pogrubiają wcale.
+
+    CV, które z założenia nie pogrubia (Redakcja), dostaje „nie dotyczy”, a to,
+    co jest w nim bez pogrubienia, idzie do ``info`` — bez uwagi do poprawy;
+    na tym liczy się „Pogrub wymagania (N)” w pasku edytora (16.10.2026)."""
     label = "must-have" if key == "must_bolded" else "nice-to-have"
-    if data.bold_expected is False:
-        return _check(key, "skip", "Nie dotyczy — to CV nie pogrubia wymagań klienta")
-    if not data.bold_known:
+    if data.bold_expected is not False and not data.bold_known:
         return _check(key, "manual", "Pogrubień nie da się odczytać z PDF-a")
     expected = [
         (req, pats)
         for req in present
         if (pats := _bold_patterns(req)) and any(p.search(gen_text) for p in pats)
     ]
-    if not expected:
-        return _check(key, "skip", f"Brak technologii z {label} w CV")
     not_bold = [
         _item(
             requirement=req.label,
@@ -1215,6 +1215,15 @@ def _bold_check(
         for req, pats in expected
         if not any(p.search(bold_joined) for p in pats)
     ]
+    if data.bold_expected is False:
+        return _check(
+            key,
+            "skip",
+            "Nie dotyczy — to CV nie pogrubia wymagań klienta",
+            info=not_bold if data.bold_known else [],
+        )
+    if not expected:
+        return _check(key, "skip", f"Brak technologii z {label} w CV")
     return _check(
         key,
         _status(not_bold),

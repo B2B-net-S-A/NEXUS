@@ -56,7 +56,11 @@ w żadnym źródle.
   migawka ma `highlight_keywords` albo politykę must/must_nice/explicit;
   `False` dla pliku z dysku i CV bez wyróżnień (sprawdzenie „nie dotyczy”);
   `None` (nie wiadomo) — sprawdzamy jak dotąd. Nie według `content_mode`:
-  historyczne wiersze mają wpisane `tailored`.
+  historyczne wiersze mają wpisane `tailored`. Przy „nie dotyczy” technologie
+  z wymagań, które stoją w CV bez pogrubienia, idą do `check["info"]`
+  (`fix: "bold_all"`) — bez uwagi do poprawy, ale „Pogrub wymagania (N)”
+  w pasku edytora liczy je i pogrubia (16.10.2026: w CV z Redakcji przycisk
+  stał na 0 z dymkiem „już pogrubione”).
 - **Pogrubienia bez pokrycia** (`bold_unsupported`): tylko technologie ze
   słownika (`_is_tech_term`; bez wczytanego słownika — każda krótka fraza,
   jak przed zmianą), bez edukacji, ostrym dopasowaniem.

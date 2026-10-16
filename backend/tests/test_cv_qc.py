@@ -855,6 +855,22 @@ def test_bold_checks_do_not_apply_when_the_generator_did_not_bold() -> None:
     assert by["nice_bolded"]["status"] == "skip"
 
 
+def test_bold_checks_that_do_not_apply_list_unbolded_requirements_as_info() -> None:
+    # 16.10.2026: w CV z Redakcji „Pogrub wymagania” w pasku edytora stało na 0,
+    # bo liczy z QC, a QC przy „nie dotyczy” nie mówiło, co jest bez pogrubienia.
+    # Nadal bez uwagi do poprawy — tylko informacja, na której stoi przycisk.
+    html = "<p>Programista <b>Java</b>, Kubernetes, integracje na Kafka.</p>"
+    data = _qc_input(html, nice=_reqs("Kafka"), bold_expected=False)
+    with hydrated_taxonomy():
+        by = _by_key(qc.compute_checks(data))
+    must, nice = by["must_bolded"], by["nice_bolded"]
+    assert must["status"] == nice["status"] == "skip"
+    assert must["items"] == nice["items"] == []
+    assert [i["requirement"] for i in must["info"]] == ["Kubernetes"]
+    assert [i["requirement"] for i in nice["info"]] == ["Kafka"]
+    assert {i["fix"] for i in [*must["info"], *nice["info"]]} == {"bold_all"}
+
+
 def test_bold_check_expects_only_what_the_generator_bolds() -> None:
     # Generator pogrubia technologie, nie domeny ani pojęcia
     # (`docx_renderer.compile_keyword_patterns`) — QC żąda tego samego.

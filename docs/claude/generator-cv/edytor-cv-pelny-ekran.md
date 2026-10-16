@@ -822,7 +822,10 @@ Obowiązuje:
   (`CvEditorIssuesHandle.boldRequirements`) — ta sama droga co „Pogrub
   wszystkie”: `qc/transform` na treści z edytora, jeden cofalny krok,
   autozapis. Bez wyniku QC przycisk bez liczby i wyłączony; edytor wyniku
-  generatora (bez etapu) go nie ma.
+  generatora (bez etapu) go nie ma. W CV, które z założenia nie pogrubia
+  (Redakcja, `bold_expected = False`), N to informacje QC z `fix: "bold_all"`
+  — przycisk działa, choć QC nie zgłasza uwagi (16.10.2026). Zero mówi
+  „Nie ma czego pogrubić…”, bo to też CV bez technologii z wymagań.
 - **Jedna kolumna obok kartki**: „Do poprawy” (domyślnie, także bez uwag
   i przy awarii QC) albo oryginał po „Oryginał” (440 px); historia i plan
   zmian zajmują ją na czas decyzji, „Oryginał” zamyka historię. Edytor wyniku
