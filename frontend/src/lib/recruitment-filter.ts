@@ -1,7 +1,7 @@
 import type { CandidateFilters } from "@/lib/url-filters";
 
 /**
- * Blok „Rekrutacje” w filtrze „Historia z nami” (12.10.2026).
+ * Blok „Rekrutacje” w filtrze „Rekrutacje i historia” (12.10.2026; do 16.10 „Historia z nami”).
  *
  * Ekran pokazuje JEDEN wybór („Dowolnie · Brał udział · Nie brał udziału · Bez
  * procesu w toku”), a filtry trzymają go w czterech polach: zakresie

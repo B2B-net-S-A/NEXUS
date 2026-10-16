@@ -334,10 +334,12 @@ describe("CandidatesListV2 — „Szukaj ręcznie” z rekrutacji (embed)", () =
     renderEmbedded();
     await screen.findByText("Ewa Marczak");
     const bar = screen.getByRole("region", { name: "Filtry kandydatów" });
-    fireEvent.click(within(bar).getByRole("button", { name: /Historia z nami/ }));
+    fireEvent.click(within(bar).getByRole("button", { name: /Rekrutacje i historia/ }));
     expect(await screen.findByTestId("recruitment-filter-locked")).toHaveTextContent(
       "osoby, które już w niej są, są ukryte",
     );
+    // Podpowiedź z listy Kandydatów („wybierz rekrutację”) tu by myliła.
+    expect(screen.queryByText(/Żeby ukryć osoby/)).toBeNull();
   });
 });
 
@@ -346,7 +348,7 @@ describe("„Szukaj ręcznie” — blok „Rekrutacje” (12.10.2026)", () => {
     renderEmbedded();
     await screen.findByText("Ewa Marczak");
     const bar = screen.getByRole("region", { name: "Filtry kandydatów" });
-    fireEvent.click(within(bar).getByRole("button", { name: /Historia z nami/ }));
+    fireEvent.click(within(bar).getByRole("button", { name: /Rekrutacje i historia/ }));
     const history = await screen.findByRole("dialog");
     fireEvent.click(within(history).getByRole("radio", { name: "Nie brał udziału" }));
     expect(within(history).queryByRole("button", { name: /Wszystkie rekrutacje/ })).toBeNull();
