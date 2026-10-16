@@ -157,6 +157,12 @@ class ServiceScope(str, enum.Enum):
     # `/api/internal/sales-signals` Compassa) i zwrot ich statusu.
     sales_signals_read = "sales_signals:read"
     sales_signals_write = "sales_signals:write"
+    # Nieobecności w API v1: kto i kiedy (zatwierdzone wnioski), NIGDY rodzaj
+    # — decyzja D6: rodzaj widzą tylko osoba, jej przełożony i Kadry.
+    absences_read = "absences:read"
+    # Sprzęt w API v1: wydania i zwroty (egzemplarz bez wartości z cennika
+    # i bez numerów seryjnych, IMEI, ICCID).
+    equipment_read = "equipment:read"
 
 
 SCOPE_LABELS: dict[ServiceScope, str] = {
@@ -219,6 +225,8 @@ SCOPE_LABELS: dict[ServiceScope, str] = {
     ServiceScope.academy_read: "Akademia: programy i nabór (odczyt)",
     ServiceScope.events_read: "Zdarzenia: kanał zdarzeń (same identyfikatory)",
     ServiceScope.webhooks_manage: "Webhooki: zarządzanie powiadomieniami konta",
+    ServiceScope.absences_read: "Nieobecności — kto i kiedy, bez rodzaju",
+    ServiceScope.equipment_read: "Sprzęt — wydania i zwroty",
 }
 
 

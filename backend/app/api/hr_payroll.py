@@ -170,7 +170,7 @@ class BonusPatch(BaseModel):
     description: Optional[str] = Field(default=None, max_length=1000)
 
 
-class CancelIn(BaseModel):
+class PayrollCancelIn(BaseModel):
     note: Optional[str] = Field(default=None, max_length=1000)
 
 
@@ -680,7 +680,7 @@ async def _reconcile_before_approval(db: AsyncSession, bonus_id: int) -> None:
 @router.post("/bonuses/{bonus_id}/cancel")
 async def cancel_bonus(
     bonus_id: int,
-    payload: CancelIn,
+    payload: PayrollCancelIn,
     current_user: PayrollMember,
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:

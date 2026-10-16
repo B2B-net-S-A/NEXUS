@@ -43,6 +43,8 @@ from app.models.jarvis import (
     JarvisUiEvent,
 )
 from app.services.action_permissions import named_permissions_of
+from app.services.hr import modules as hr_modules
+from app.services.hr_foundation_schema import HR_MODULE_KEYS
 from app.services.ai_models import model_for
 from app.services.jarvis import actions as jarvis_actions
 from app.services.jarvis import agent, store
@@ -325,6 +327,15 @@ async def jarvis_chat(
                 ),
             )
     prefs = effective_prefs(current_user.jarvis_prefs)
+    # Narzędzia „Ludzi w NEXUSIE” idą do modelu tylko przy module otwartym dla
+    # tej osoby i z jej uprawnieniami (jedno zapytanie o ``app_settings`` na turę).
+    permissions = named_permissions_of(current_user)
+    loaded_modules = await hr_modules.load_modules(db)
+    open_hr_modules = {
+        key
+        for key in HR_MODULE_KEYS
+        if hr_modules.module_open_for(current_user, loaded_modules, key)
+    }
     turn = agent.TurnInput(
         user_id=current_user.id,
         user_name=current_user.name,
@@ -336,13 +347,17 @@ async def jarvis_chat(
         if payload.web
         else (payload.screen.model_dump() if payload.screen else None),
         assistant_name=prefs.name,
-        allowed_tools=tools_for_user(_section_map(current_user)),
+        allowed_tools=tools_for_user(
+            _section_map(current_user),
+            permissions=permissions,
+            hr_modules=open_hr_modules,
+        ),
         identity=_identity(request),
         today=business_today(),
         now=local_now(),
         notes=[] if payload.web else list(prefs.notes),
         sections={s.value: v for s, v in _section_map(current_user).items()},
-        permissions=sorted(named_permissions_of(current_user)),
+        permissions=sorted(permissions),
         web=payload.web,
     )
     # Runda 8 (R8-N1-1): sesja requestu (auth, snapshot uprawnień) zamyka się

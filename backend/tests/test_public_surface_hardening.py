@@ -51,6 +51,8 @@ _V1_MODULES = tuple(
         "applications",
         "insights",
         "academy",
+        "absences",
+        "equipment",
         "events",
     )
 )

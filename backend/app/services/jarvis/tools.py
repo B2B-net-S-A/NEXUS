@@ -27,12 +27,13 @@ import json
 import re
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
-from typing import Any, Callable, Literal, Optional
+from typing import Any, Callable, Collection, Literal, Optional
 from urllib.parse import quote
 from zoneinfo import ZoneInfo
 
 from app.core.scheduling import DEFAULT_TZ
 from app.data.screen_guides import SCREEN_KEYS
+from app.services.equipment_schema import CATEGORIES as EQUIPMENT_CATEGORIES
 from app.services.recommendation_card_parser import AI_HIDDEN_FIELDS, redact_card_text
 from app.services.section_permissions import ProductSection
 
@@ -83,6 +84,11 @@ class JarvisTool:
     detail: Optional[Callable[[dict[str, Any]], str]] = field(default=None, repr=False)
     # Komunikat po udanym wykonaniu akcji (tylko ``write``).
     done: str = "Gotowe."
+    # „Ludzie w NEXUSIE”: moduł HR (``app_settings['hr_modules']``), bez którego
+    # trasa odpowiada 404 — narzędzie wyłączonego modułu nie trafia do modelu.
+    hr_module: Optional[str] = None
+    # Uprawnienia z ekranu (``ProductAction``) — wystarczy jedno z nich.
+    any_permission: tuple[str, ...] = ()
 
     def to_anthropic(self) -> dict[str, Any]:
         return {
@@ -1875,6 +1881,505 @@ READ_TOOLS: tuple[JarvisTool, ...] = (
 )
 
 
+# ── „Ludzie w NEXUSIE”: nieobecności, „Mój miesiąc”, sprzęt, opieka ─────────
+#
+# Rodzaju nieobecności, notatek do wniosków, kwot płac ani stawek model nie
+# dostaje z żadnego narzędzia — także wtedy, gdy trasa pokazałaby je
+# pytającemu (krąg D6, własne wnioski): L4 to dane o zdrowiu, a odpowiedź
+# „nieobecny od–do” wystarcza. Sprzęt bez wartości z cennika i bez numerów
+# seryjnych, IMEI, telefonu i karty dostępu — szczegóły są na ekranie.
+
+_MONTH_ARG = {"type": "integer", "minimum": 1, "maximum": 12}
+_YEAR_ARG = {"type": "integer", "minimum": 2020, "maximum": 2100}
+_DATE_ARG = {**STR, "format": "date"}
+
+
+def _date_arg(args: dict[str, Any], key: str) -> Optional[date]:
+    value = args.get(key)
+    if value in (None, ""):
+        return None
+    try:
+        return date.fromisoformat(str(value).strip()[:10])
+    except ValueError as exc:
+        raise ValueError(f"{key}: podaj datę RRRR-MM-DD") from exc
+
+
+def _absence_window(args: dict[str, Any]) -> tuple[date, date, bool]:
+    """``(od, do, przycięte)`` — zakres w obrębie miesiąca daty ``od``.
+
+    Kalendarz zespołu czyta jeden miesiąc; dalsze dni model dopytuje osobno.
+    """
+    from app.core.scheduling import business_today
+
+    first = _date_arg(args, "date_from") or business_today()
+    last = _date_arg(args, "date_to") or first
+    if last < first:
+        raise ValueError("date_to jest przed date_from")
+    following = (first.replace(day=28) + timedelta(days=4)).replace(day=1)
+    month_end = following - timedelta(days=1)
+    return first, min(last, month_end), last > month_end
+
+
+def _shape_absences(data: Any, args: dict[str, Any]) -> Any:
+    if not isinstance(data, dict):
+        return trim(data)
+    first, last, clipped = _absence_window(args)
+    absent = []
+    for person in data.get("people") or []:
+        if not isinstance(person, dict):
+            continue
+        spans = []
+        for span in person.get("absences") or []:
+            if not isinstance(span, dict):
+                continue
+            try:
+                start = date.fromisoformat(str(span.get("start_date")))
+                end = date.fromisoformat(str(span.get("end_date")))
+            except ValueError:
+                continue
+            if end < first or start > last:
+                continue
+            spans.append(
+                pick(
+                    span,
+                    ("start_date", "end_date", "half_day", "status", "substitute_name"),
+                )
+            )
+        if spans:
+            absent.append(
+                {
+                    **pick(person, ("user_id", "name", "department")),
+                    "absences": spans,
+                }
+            )
+    out: dict[str, Any] = {
+        "from": first.isoformat(),
+        "to": last.isoformat(),
+        "total": len(absent),
+        "absent": absent,
+    }
+    if clipped:
+        out["note"] = (
+            "Zakres przycięty do końca miesiąca — o kolejne dni zapytaj osobno."
+        )
+    return trim(out)
+
+
+def _shape_leave_balance(data: Any, _args: dict[str, Any]) -> Any:
+    return trim(
+        pick(
+            data,
+            (
+                "year",
+                "has_pool",
+                "entitlement_days",
+                "carried_over_days",
+                "used_initial_days",
+                "approved_days",
+                "pending_days",
+                "remaining_days",
+                "on_demand_used",
+                "on_demand_limit",
+            ),
+        )
+    )
+
+
+_MY_LEAVE_KEYS = (
+    "id",
+    "status",
+    "start_date",
+    "end_date",
+    "half_day",
+    "days_total",
+    "substitute_name",
+    "decided_by_name",
+    "decided_at",
+    "can_cancel",
+)
+
+
+def _month_args(args: dict[str, Any]) -> tuple[int, int]:
+    from app.core.scheduling import business_today
+
+    today = business_today()
+    year = args.get("year") or today.year
+    month = args.get("month") or today.month
+    if isinstance(year, bool) or isinstance(month, bool):
+        raise ValueError("Rok i miesiąc to liczby.")
+    return int(year), int(month)
+
+
+def _shape_my_month(data: Any, _args: dict[str, Any]) -> Any:
+    if not isinstance(data, dict):
+        return trim(data)
+    from app.core.scheduling import business_today
+
+    today = business_today().isoformat()
+    missing = []
+    for day in data.get("days") or []:
+        if not isinstance(day, dict) or not day.get("working_day"):
+            continue
+        leave = day.get("leave") if isinstance(day.get("leave"), dict) else None
+        if day.get("entries") or (leave and leave.get("full")):
+            continue
+        if str(day.get("date")) <= today:
+            missing.append(day.get("date"))
+    timesheet = data.get("timesheet")
+    return trim(
+        {
+            **pick(data, ("year", "month", "deadline", "approver_name")),
+            "timesheet": pick(
+                timesheet,
+                (
+                    "status",
+                    "submitted_at",
+                    "returned_at",
+                    "return_note",
+                    "approved_at",
+                    "approved_by_name",
+                    "payroll_locked",
+                ),
+            )
+            if isinstance(timesheet, dict)
+            else {"status": "nierozpoczęty"},
+            "totals": pick(
+                data.get("totals"),
+                (
+                    "work_hours",
+                    "overtime_hours",
+                    "leave_days",
+                    "working_days",
+                    "norm_hours",
+                    "days_missing",
+                ),
+            ),
+            "missing_days_until_today": missing,
+        }
+    )
+
+
+_EQUIPMENT_ROW_KEYS = (
+    "assignment_id",
+    "item_id",
+    "category",
+    "model_name",
+    "inventory_number",
+    "ownership",
+    "issued_at",
+    "returned_at",
+    "return_condition",
+    "issue_protocol",
+    "return_protocol",
+)
+
+
+def _shape_holder_equipment(data: Any, _args: dict[str, Any]) -> Any:
+    if not isinstance(data, dict):
+        return trim(data)
+    returned = data.get("history") or []
+    return trim(
+        {
+            "active": [
+                pick(row, _EQUIPMENT_ROW_KEYS) for row in data.get("active") or []
+            ],
+            "returned_count": len(returned),
+            "returned": [pick(row, _EQUIPMENT_ROW_KEYS) for row in returned[:10]],
+            "protocols": [
+                pick(row, ("number", "kind", "status", "protocol_date"))
+                for row in data.get("protocols") or []
+            ],
+        }
+    )
+
+
+def _shape_free_equipment(data: Any, _args: dict[str, Any]) -> Any:
+    if not isinstance(data, dict):
+        return trim(data)
+    items = []
+    for item in data.get("items") or []:
+        if not isinstance(item, dict):
+            continue
+        model = item.get("model") if isinstance(item.get("model"), dict) else {}
+        items.append(
+            {
+                **pick(
+                    item,
+                    ("id", "category", "inventory_number", "ownership", "location"),
+                ),
+                **pick(model, ("name", "manufacturer")),
+            }
+        )
+    return trim({"total": data.get("total"), "items": items})
+
+
+def _shape_reception_tasks(data: Any, _args: dict[str, Any]) -> Any:
+    if not isinstance(data, dict):
+        return trim(data)
+    rows = []
+    for task in data.get("items") or []:
+        if not isinstance(task, dict):
+            continue
+        holder = task.get("holder") if isinstance(task.get("holder"), dict) else {}
+        protocol = (
+            task.get("protocol") if isinstance(task.get("protocol"), dict) else {}
+        )
+        rows.append(
+            {
+                **pick(
+                    task, ("id", "kind", "status", "title", "due_on", "overdue_days")
+                ),
+                **({"holder": pick(holder, ("kind", "id", "name"))} if holder else {}),
+                **(
+                    {"protocol_number": protocol.get("number")}
+                    if protocol.get("number")
+                    else {}
+                ),
+            }
+        )
+    return trim({"total": len(rows), "items": rows})
+
+
+_CARE_ROW_KEYS = (
+    "contract_id",
+    "candidate_id",
+    "candidate_name",
+    "client_id",
+    "client_name",
+    "job_title",
+    "end_date",
+    "owner",
+    "next_contact",
+    "overdue_count",
+    "last_conversation_on",
+    "last_satisfaction",
+    "redeploy_reasons",
+)
+
+
+HR_TOOLS: tuple[JarvisTool, ...] = (
+    JarvisTool(
+        name="who_is_absent",
+        label="Sprawdzam nieobecności",
+        description=(
+            "Kto jest nieobecny w dniu albo w zakresie dat (kalendarz zespołu "
+            "z ekranu „Ludzie”). Bez dat = dziś. Zakres w obrębie jednego "
+            "miesiąca — o kolejny miesiąc zapytaj osobno. Zwraca osoby z okresami "
+            "nieobecności i zastępcą; rodzaju nieobecności nie podaje nigdy, "
+            "mów „nieobecny”. `team: true` — tylko Twój zespół."
+        ),
+        input_schema=_schema(
+            {
+                "date_from": {
+                    **_DATE_ARG,
+                    "description": "RRRR-MM-DD; domyślnie dziś.",
+                },
+                "date_to": {
+                    **_DATE_ARG,
+                    "description": "RRRR-MM-DD; domyślnie równa date_from.",
+                },
+                "team": BOOL,
+                "department": {**STR, "maxLength": 200},
+            }
+        ),
+        tier="read",
+        method="GET",
+        path="/api/hr/leave/calendar",
+        section=None,
+        hr_module="leave",
+        build=lambda a: _get(
+            "/api/hr/leave/calendar",
+            {
+                "month": _absence_window(a)[0].strftime("%Y-%m"),
+                "team": True if a.get("team") else None,
+                "department": a.get("department"),
+            },
+        ),
+        shape=_shape_absences,
+    ),
+    JarvisTool(
+        name="my_leave_balance",
+        label="Sprawdzam Twoje saldo urlopu",
+        description=(
+            "Saldo urlopu pytającego w roku (domyślnie bieżący): pula, przeniesione, "
+            "zatwierdzone, oczekujące i pozostałe dni; dla umowy o pracę także "
+            "urlop na żądanie. Wymaga kartoteki pracownika."
+        ),
+        input_schema=_schema({"year": _YEAR_ARG}),
+        tier="read",
+        method="GET",
+        path="/api/hr/leave/balance",
+        section=None,
+        hr_module="leave",
+        build=lambda a: _get("/api/hr/leave/balance", {"year": a.get("year")}),
+        shape=_shape_leave_balance,
+    ),
+    JarvisTool(
+        name="my_leave_requests",
+        label="Sprawdzam Twoje wnioski urlopowe",
+        description=(
+            "Wnioski o nieobecność pytającego (najnowsze najpierw): okres, liczba "
+            "dni, status (pending, approved, rejected, cancelled), kto zdecydował, "
+            "zastępca i czy można jeszcze anulować. Bez rodzaju i notatek — "
+            "szczegóły na ekranie „Mój czas”."
+        ),
+        input_schema=_schema({}),
+        tier="read",
+        method="GET",
+        path="/api/hr/leave/my-requests",
+        section=None,
+        hr_module="leave",
+        build=lambda a: _get("/api/hr/leave/my-requests"),
+        shape=pick_list(_MY_LEAVE_KEYS),
+    ),
+    JarvisTool(
+        name="my_month",
+        label="Sprawdzam Twój miesiąc",
+        description=(
+            "„Mój miesiąc” pytającego (domyślnie bieżący): status timesheetu "
+            "(draft, submitted, approved; zwrócony do poprawy = draft z "
+            "`returned_at` i powodem w `return_note`), termin wysłania, "
+            "akceptujący, suma godzin i nadgodzin, dni robocze bez wpisu do dziś."
+        ),
+        input_schema=_schema({"year": _YEAR_ARG, "month": _MONTH_ARG}),
+        tier="read",
+        method="GET",
+        path="/api/hr/time/me/{year}/{month}",
+        section=None,
+        hr_module="time",
+        build=lambda a: _get("/api/hr/time/me/{}/{}".format(*_month_args(a))),
+        shape=_shape_my_month,
+    ),
+    JarvisTool(
+        name="my_equipment",
+        label="Sprawdzam Twój sprzęt",
+        description=(
+            "Sprzęt wydany pytającemu: co ma teraz (kategoria, model, numer "
+            "ewidencyjny, data wydania), zwrócone rzeczy i protokoły."
+        ),
+        input_schema=_schema({}),
+        tier="read",
+        method="GET",
+        path="/api/equipment/me",
+        section=None,
+        hr_module="equipment",
+        build=lambda a: _get("/api/equipment/me"),
+        shape=_shape_holder_equipment,
+    ),
+    JarvisTool(
+        name="person_equipment",
+        label="Sprawdzam sprzęt osoby",
+        description=(
+            "„Co ma X” — sprzęt osoby z kontem NEXUSA po user_id (najpierw ustal "
+            "id, np. who_is_absent albo global_search): co ma teraz, zwroty, "
+            "protokoły. Dla konsultanta u klienta użyj contract_equipment."
+        ),
+        input_schema=_schema({"user_id": INT}, ("user_id",)),
+        tier="read",
+        method="GET",
+        path="/api/equipment/people/{user_id}",
+        section=None,
+        hr_module="equipment",
+        any_permission=("equipment", "people_admin"),
+        build=lambda a: _get(f"/api/equipment/people/{_int(a, 'user_id')}"),
+        shape=_shape_holder_equipment,
+    ),
+    JarvisTool(
+        name="contract_equipment",
+        label="Sprawdzam sprzęt kontraktu",
+        description=(
+            "Sprzęt konsultanta na kontrakcie (po contract_id, np. z list_contracts): "
+            "co ma teraz, zwroty, protokoły."
+        ),
+        input_schema=_schema({"contract_id": INT}, ("contract_id",)),
+        tier="read",
+        method="GET",
+        path="/api/equipment/contracts/{contract_id}",
+        section=None,
+        hr_module="equipment",
+        any_permission=("equipment", "delivery_view"),
+        build=lambda a: _get(f"/api/equipment/contracts/{_int(a, 'contract_id')}"),
+        shape=_shape_holder_equipment,
+    ),
+    JarvisTool(
+        name="free_equipment",
+        label="Szukam wolnego sprzętu",
+        description=(
+            "Wolne egzemplarze na stanie (nikomu niewydane), z filtrem kategorii "
+            "i frazy po modelu lub numerze ewidencyjnym — np. kategoria laptop, "
+            "fraza '32 GB'. Zwraca model, numer ewidencyjny, lokalizację i łączną "
+            "liczbę pasujących."
+        ),
+        input_schema=_schema(
+            {
+                "category": {"type": "string", "enum": list(EQUIPMENT_CATEGORIES)},
+                "query": {**STR, "maxLength": 120},
+                "limit": LIMIT,
+            }
+        ),
+        tier="read",
+        method="GET",
+        path="/api/equipment/items",
+        section=None,
+        hr_module="equipment",
+        any_permission=("equipment",),
+        build=lambda a: _get(
+            "/api/equipment/items",
+            {
+                "free": True,
+                "category": a.get("category"),
+                "q": a.get("query"),
+                "limit": _limit(a),
+            },
+        ),
+        shape=_shape_free_equipment,
+    ),
+    JarvisTool(
+        name="reception_tasks",
+        label="Sprawdzam zadania recepcji",
+        description=(
+            "„Do zrobienia” recepcji: wydania, zwroty, podpisy protokołów i zakupy "
+            "z terminem i opóźnieniem w dniach (domyślnie otwarte)."
+        ),
+        input_schema=_schema(
+            {"status": {"type": "string", "enum": ["otwarte", "zrobione", "all"]}}
+        ),
+        tier="read",
+        method="GET",
+        path="/api/equipment/tasks",
+        section=None,
+        hr_module="equipment",
+        any_permission=("equipment",),
+        build=lambda a: _get(
+            "/api/equipment/tasks", {"status": a.get("status") or "otwarte"}
+        ),
+        shape=_shape_reception_tasks,
+    ),
+    JarvisTool(
+        name="my_care_consultants",
+        label="Sprawdzam opiekę nad konsultantami",
+        description=(
+            "„Moi konsultanci” z ekranu Opieka: kontrakty, których pytający jest "
+            "opiekunem — następny kontakt (termin, czy zaległy), liczba zaległych "
+            "punktów planu, ostatnia rozmowa i zadowolenie, powody do przepięcia. "
+            "`scope: all` — wszyscy widoczni konsultanci."
+        ),
+        input_schema=_schema({"scope": {"type": "string", "enum": ["mine", "all"]}}),
+        tier="read",
+        method="GET",
+        path="/api/care/my-consultants",
+        section=ProductSection.delivery,
+        entity_type="candidate",
+        hr_module="care",
+        any_permission=("delivery_view",),
+        build=lambda a: _get(
+            "/api/care/my-consultants", {"scope": a.get("scope") or "mine"}
+        ),
+        shape=pick_list(_CARE_ROW_KEYS),
+    ),
+)
+
+
 def _fold(text: str) -> str:
     """Małe litery bez polskich znaków — wyszukiwanie „pdf” trafia „PDF-a”."""
     import unicodedata
@@ -2773,6 +3278,11 @@ SCREENS: dict[str, tuple[str, str]] = {
     "insights": ("/insights", "Insights"),
     "settings": ("/settings", "Ustawienia"),
     "help": ("/help", "Pomoc"),
+    "my_time": ("/my-time", "Mój czas (urlopy, „Mój miesiąc”)"),
+    "people": ("/people", "Ludzie"),
+    "people_approvals": ("/people/approvals", "Ludzie — akceptacje"),
+    "equipment": ("/equipment", "Sprzęt"),
+    "care": ("/care", "Opieka nad konsultantami"),
 }
 
 # Ekrany bez ID rekordu.
@@ -2866,6 +3376,7 @@ SHOW_ON_SCREEN = JarvisTool(
 
 ALL_TOOLS: tuple[JarvisTool, ...] = (
     *READ_TOOLS,
+    *HR_TOOLS,
     *WRITE_TOOLS,
     OPEN_SCREEN,
     SHOW_ON_SCREEN,
@@ -2873,14 +3384,31 @@ ALL_TOOLS: tuple[JarvisTool, ...] = (
 TOOLS_BY_NAME: dict[str, JarvisTool] = {tool.name: tool for tool in ALL_TOOLS}
 
 
-def tools_for_user(section_access: dict[ProductSection, int]) -> list[JarvisTool]:
+def tools_for_user(
+    section_access: dict[ProductSection, int],
+    *,
+    permissions: Optional[Collection[str]] = None,
+    hr_modules: Optional[Collection[str]] = None,
+) -> list[JarvisTool]:
     """Narzędzia, których sekcje użytkownik w ogóle widzi.
 
     To tylko oszczędność tokenów i mniej odmów: API i tak egzekwuje każdą
     bramkę. Zapis wymaga sekcji na poziomie ``write`` (2).
+
+    ``permissions`` — uprawnienia z ekranu (``named_permissions_of``);
+    ``hr_modules`` — moduły „Ludzi” otwarte dla tej osoby
+    (``hr.modules.module_open_for``: włączone, admin — wszystkie). Brak
+    którejś listy = narzędzia od niej zależne nie trafiają do modelu (bez
+    stanu modułów nie wiadomo, czy trasa nie odpowie 404).
     """
+    granted = frozenset(permissions or ())
+    open_modules = frozenset(hr_modules or ())
     visible: list[JarvisTool] = []
     for tool in ALL_TOOLS:
+        if tool.hr_module is not None and tool.hr_module not in open_modules:
+            continue
+        if tool.any_permission and not granted.intersection(tool.any_permission):
+            continue
         if tool.section is None:
             visible.append(tool)
             continue

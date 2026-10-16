@@ -4,7 +4,7 @@ API dla automatyzacji procesów firmy: **rozliczanie klientów** (klienci,
 kontrakty, zamówienia, zużycie MD, Finanse, faktury), **rekrutacja
 i kandydaci** (rekrutacje, Tablica, kandydaci, CV, notatki) oraz zakładanie
 rekrutacji z requestu, CV dla klienta, rozmowy u klienta, zgłoszenia z linku,
-Insights, Akademia i zdarzenia z webhookami.
+Insights, Akademia, nieobecności, wydania sprzętu i zdarzenia z webhookami.
 
 - Adres bazowy: `https://api.nexus.dynaminds.pl/api/integrations/v1`
 - Specyfikacja OpenAPI (do importu w Postmanie, n8n, Power Automate):
@@ -75,6 +75,8 @@ odejście czy awans pracownika nie zmienia uprawnień automatyzacji.
 | `applications:write` | Rozpatrzenie zgłoszenia (dołącz, scal, utwórz, odrzuć) — obejmuje `applications:read` |
 | `insights:read` | Raporty: lejek rekrutacji, placementy, aktywność zespołu i Ligi, cele |
 | `academy:read` | Akademia: programy, nabór, uczestnicy (kontakt z `candidates:contact`) |
+| `absences:read` | Nieobecności: kto i kiedy (zatwierdzone wnioski, dni robocze) — **bez rodzaju nieobecności** |
+| `equipment:read` | Sprzęt: wydanie i zwrot egzemplarza (kategoria, model, numer ewidencyjny, posiadacz, daty) |
 | `events:read` | Kanał zdarzeń: co się zmieniło (same identyfikatory) |
 | `webhooks:manage` | Webhooki konta: NEXUS sam wysyła zdarzenia na Twój adres |
 
@@ -581,6 +583,42 @@ założenie z polami, które zatwierdziła automatyzacja albo człowiek.
   `rejected`, `withdrew`), daty. E-mail i telefon tylko z `candidates:contact`;
   notatki z naboru i powody odrzucenia nie wychodzą.
 
+### Nieobecności
+
+| Metoda | Ścieżka | Scope |
+|---|---|---|
+| GET | `/absences?from=&to=` | `absences:read` |
+| GET | `/absences/{request_id}` | `absences:read` |
+
+- Nieobecność = **zatwierdzony** wniosek urlopowy. Lista (stronicowana, po
+  imieniu i nazwisku): osoby nieobecne w zakresie `from`–`to` (oba dni
+  włącznie, **najwyżej 93 dni**; dłuższy albo odwrócony zakres = `422
+  invalid_period`) z dniami roboczymi (`fraction` 1.0 albo 0.5 — pół dnia)
+  i identyfikatorem wniosku przy każdym dniu.
+- `GET /absences/{request_id}` (UUID ze zdarzenia `leave.*`): osoba, okres,
+  dni robocze i `status` — `approved` albo `cancelled` (zatwierdzona
+  nieobecność, którą anulowano). Wniosek oczekujący, odrzucony albo anulowany
+  przed decyzją nie był nieobecnością — `404`.
+- **Rodzaju nieobecności (urlop, L4, okolicznościowy…), notatki, zastępcy ani
+  treści autoodpowiedzi nie ma w żadnym polu** — rodzaj widzą wyłącznie osoba,
+  jej przełożony i Kadry.
+- Moduł „Urlopy” wyłączony w NEXUSIE = `404 module_disabled`.
+
+### Sprzęt
+
+| Metoda | Ścieżka | Scope |
+|---|---|---|
+| GET | `/equipment/assignments/{id}` | `equipment:read` |
+
+- Wydanie egzemplarza (id ze zdarzenia `equipment.*`): kategoria, model,
+  producent, numer ewidencyjny, własność (`nasz` / `klienta`), posiadacz
+  (`user` — konto NEXUSA, `contract` — kontrakt konsultanta, `external` —
+  osoba spoza NEXUSA, `academy_application` — uczestnik Akademii; z imieniem
+  i nazwiskiem), daty wydania i zwrotu oraz stan przy zwrocie.
+- Nie wychodzą: wartość sprzętu (cennik, protokół), numer seryjny, IMEI,
+  ICCID, numer telefonu i karty dostępu, notatki i uwagi przy zwrocie.
+- Moduł „Sprzęt” wyłączony w NEXUSIE = `404 module_disabled`.
+
 ### Zdarzenia i webhooki
 
 | Metoda | Ścieżka | Scope |
@@ -608,6 +646,10 @@ scope; zdarzeń rekrutacji klientów ukrytych i usuniętych nie ma (jak w
 | `contract.status_changed` | zmiana statusu kontraktu | `contract_id`, `status`, `previous_status` | `contracts:read` |
 | `md_import.created` | nowy import raportu MD | `md_import_id`, `period_month` | `md:read` |
 | `invoice.created` / `.updated` | faktura wystawiona / zmieniona | `invoice_id`, `contract_id` | `invoices:read` |
+| `leave.approved` | nieobecność zatwierdzona (akceptacja, L4 zgłoszone od razu, wpis za pracownika) | `leave_request_id`, `user_id`, `start_date`, `end_date` — **bez rodzaju** | `absences:read` |
+| `leave.cancelled` | anulowana nieobecność, która była zatwierdzona | jak wyżej | `absences:read` |
+| `equipment.issued` | wydanie sprzętu z protokołem | `assignment_id`, `item_id`, `holder_kind`, `holder_id` | `equipment:read` |
+| `equipment.returned` | zwrot wydanego sprzętu | jak wyżej | `equipment:read` |
 
 - **Kanał** — `GET /events?after=<ostatni next_after>`: zdarzenia rosnąco po `id`,
   `limit` do 500, `types` po przecinku. Zapamiętaj `next_after` i odpytuj dalej;
@@ -635,7 +677,9 @@ scope; zdarzeń rekrutacji klientów ukrytych i usuniętych nie ma (jak w
   - Zmiana sekretu: usuń webhook i załóż nowy.
 - Zdarzeń nie dają zmiany robione hurtowo poza aplikacją (np. nocne
   oznaczanie kontraktów „kończące się”) ani założenie kontraktu — takie dane
-  odświeżaj przez `updated_since` na listach.
+  odświeżaj przez `updated_since` na listach. Nie dają ich też importy stanu
+  początkowego: wnioski urlopowe przeniesione z poprzedniego systemu i sprzęt
+  z arkusza recepcji (wydanie bez protokołu).
 
 
 ---

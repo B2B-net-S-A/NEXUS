@@ -143,7 +143,9 @@ async def test_api_denial_reaches_the_model_as_an_error_not_data(
     enable_jarvis(monkeypatch, model)
     # Symulujemy błąd filtra: podajemy modelowi wszystkie narzędzia.
     monkeypatch.setattr(
-        jarvis_api, "tools_for_user", lambda _sections: list(jarvis_tools.ALL_TOOLS)
+        jarvis_api,
+        "tools_for_user",
+        lambda _sections, **_hr: list(jarvis_tools.ALL_TOOLS),
     )
     _, headers = await make_user(UserRole.recruiter)
 

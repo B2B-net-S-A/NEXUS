@@ -60,12 +60,12 @@ def _http(exc: EquipmentError) -> HTTPException:
     return HTTPException(exc.status, exc.message)
 
 
-class ResolveIn(BaseModel):
+class IntuneResolveIn(BaseModel):
     resolution: Literal["wyjasnione", "pominiete"]
     note: Optional[str] = Field(default=None, max_length=intune.NOTE_MAX)
 
 
-class LinkIn(BaseModel):
+class IntuneLinkIn(BaseModel):
     item_id: int = Field(ge=1)
 
 
@@ -86,7 +86,7 @@ async def intune_discrepancies(
 @router.post("/devices/{device_id}/resolve")
 async def resolve_device(
     device_id: int,
-    payload: ResolveIn,
+    payload: IntuneResolveIn,
     current_user: User = Depends(_manager),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
@@ -101,7 +101,7 @@ async def resolve_device(
 @router.post("/devices/{device_id}/link")
 async def link_device(
     device_id: int,
-    payload: LinkIn,
+    payload: IntuneLinkIn,
     current_user: User = Depends(_manager),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
