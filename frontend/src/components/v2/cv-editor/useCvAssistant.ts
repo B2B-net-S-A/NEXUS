@@ -152,25 +152,40 @@ function sameLines(a: readonly CvLine[], b: readonly CvLine[]): boolean {
   return a.length === b.length && a.every((line, index) => line.kind === b[index].kind && line.text === b[index].text);
 }
 
-function twins(line: CvLine, other: CvLine): boolean {
-  return line.kind === other.kind && line.text === other.text && line.section === other.section;
+/** Wiersz z linią stanowiska, w którym stoi (`null` poza stanowiskiem). */
+interface Placed {
+  line: CvLine;
+  head: string | null;
+}
+
+function placed(lines: readonly CvLine[]): Placed[] {
+  const heads = new Map<number, string>();
+  for (const line of lines) if (line.kind === "role" && line.role != null) heads.set(line.role, line.text);
+  return lines.map((line) => ({ line, head: line.role != null ? (heads.get(line.role) ?? null) : null }));
+}
+
+function twins(a: Placed, b: Placed): boolean {
+  return a.line.kind === b.line.kind && a.line.text === b.line.text && a.line.section === b.line.section && a.head === b.head;
 }
 
 /**
  * Wiersze operacji w bieżącym CV — po treści, bo numery mogły się przesunąć.
  * Ten sam tekst w kilku miejscach (np. „Code review.” w dwóch stanowiskach):
- * wiersz po kolejności wystąpienia; gdy liczba wystąpień się zmieniła — `null`,
- * bez zgadywania.
+ * najpierw stanowisko po jego linii (przestawienie stanowisk z tej samej
+ * wiadomości zamienia je miejscami), w nim wiersz po kolejności wystąpienia;
+ * gdy liczba wystąpień się zmieniła — `null`, bez zgadywania.
  */
 function remap(operation: CvPlanOperation, before: readonly CvLine[], current: readonly CvLine[]): CvPlanOperation | null {
   const used = new Set<number>();
   const lines: number[] = [];
+  const earlier = placed(before);
+  const later = placed(current);
   for (const id of operation.lines) {
-    const old = before[id];
+    const old = earlier[id];
     if (!old) return null;
-    const was = before.filter((line) => twins(line, old));
-    const now = current.filter((line) => twins(line, old));
-    const match = now.length === was.length ? now[was.indexOf(old)] : undefined;
+    const was = earlier.filter((item) => twins(item, old));
+    const now = later.filter((item) => twins(item, old));
+    const match = now.length === was.length ? now[was.indexOf(old)]?.line : undefined;
     if (!match || used.has(match.id)) return null;
     used.add(match.id);
     lines.push(match.id);

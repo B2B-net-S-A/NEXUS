@@ -943,8 +943,11 @@ planu. Rekruter pisze jak do czatu („rolę w Logistyce skróć do 3 punktów�
   dat”, „nie rozpoznaję stanowisk” — z drogą ręczną „Więcej” → wyżej / niżej.
   Ogólne „dopisywały fakty albo ruszały układ szablonu” zostaje dla reszty.
 - **Odpowiedź na pytanie po innych zmianach** szuka wiersza po treści; ten sam
-  tekst w kilku miejscach = po kolejności wystąpienia, a gdy liczba wystąpień
-  się zmieniła — „CV zmieniło się…”, bez zgadywania.
+  tekst w kilku miejscach = najpierw stanowisko po jego linii, w nim po
+  kolejności wystąpienia (od 16.10.2026: `reorder_roles` z tej samej wiadomości
+  zamienia stanowiska miejscami, a sama kolejność wystąpienia w całym CV
+  wskazywała punkt w innym stanowisku — fakt lądował u innego pracodawcy),
+  a gdy liczba wystąpień się zmieniła — „CV zmieniło się…”, bez zgadywania.
 - **Zapis czeka na asystenta**: „Gotowe” i „Gotowe, przekaż do DL” są
   wyłączone, dopóki asystent liczy albo nakłada odpowiedź na pytanie.
   Odpowiedź, która przyjdzie po zablokowaniu edytora, nie wchodzi
