@@ -23,7 +23,7 @@ Makiety: https://claude.ai/artifact/Sg4nsek8fGLcqNxMH47pFc.
   (kopia, nie mutacja). Nie dokładaj tematu u producentów. Dymek
   (`TOAST_TYPES`): cały temat `cv`; w `jobs` tylko sprawy imienne
   (przydział, „Poprzedni rekruter”, zadanie stawki, przejęcie osoby, decyzje
-  o requestach); `note_*`; `other` poza coachem KPI i Power Calling (mają
+  o requestach) i akceptacja klienta (`client_accepted`, 0451); `note_*`; `other` poza coachem KPI i Power Calling (mają
   własny toaster). Ruchy etapów, automat i terminy zmieniają tylko licznik.
   Typ nieznany tej wersji backendu = `other` z dymkiem.
 - **`GET /api/notifications/jobs`** — okienko „Rekrutacje”: wiersze tematu
@@ -56,3 +56,30 @@ Makiety: https://claude.ai/artifact/Sg4nsek8fGLcqNxMH47pFc.
 - **Poranny wpis `board_tasks_digest` nie powstaje** (odpięty
   z `run_all_triggers`); ta sama kolejka jest na pulpicie i w porannym
   mailu. Typ zostaje w enumie i mapach (testy wyczerpujące).
+
+## Front (PR4, 16.10.2026)
+
+- **Jedno gniazdo poza ikonami:** `NotificationsRealtime` (montowane raz
+  w `AppShellV2`) woła `useNotifications`; stan połączenia i otwarte okienko
+  trzyma `store/realtime` (`connected`, `openTopic`). Nowa ikona NIE otwiera
+  własnego gniazda — słucha zdarzeń okna albo unieważnień kluczy.
+- **Dymki** wychodzą z `NotificationsRealtime` według `toast` z ramki
+  (`shouldToastFrame`); bez dymka, gdy okienko tego tematu jest otwarte
+  (`openTopic`). Ramka bez tematu (backend sprzed zmiany) — dymek jak dawniej.
+  Ramka tematu `cv` unieważnia `["board-tasks","cv"]`.
+- **„CV”** — `CvNotificationsDropdown` (`useCvTopic`, `GET /api/board-tasks/cv`,
+  tylko role rekruter i DL). U Delivery Leada z kolejką ikona ma formę pigułki
+  z kolorem pilności (dawne `DlSendTopbarButton`; inwentarz `dl-send.topbar`
+  wskazuje nowy plik). Wiersze rekrutera biorą teksty z `lib/cv-in-transit.ts`.
+- **„Rekrutacje”** — `JobsNotificationsDropdown` (`useJobThreads`, klucz
+  `["notifications", scope, "jobs"]`); klik = `topics/read` z `job_id` albo
+  `link`; wejście na `/jobs/{id}` woła `useClearJobTopic` (`include_covered:
+  false`, tylko gdy okienko pokazuje nowości tej rekrutacji).
+- **„Wiadomości”** — `ChatNotificationsDropdown` z `include_notes`; ramka
+  notatki idzie do okienka zdarzeniem `CHAT_NOTIFY_EVENT` (`kind: "note"`).
+- Dzwonek (`NotificationsDropdown`), `listForBell`, `markAllReadForBell`
+  i `lib/notifications-paging.ts` usunięte; wyciszenie kategorii „w miejscu”
+  zostaje tylko w Ustawieniach. Poranny brief Jarvisa liczy „rekrutacje
+  z nowościami” (`unread_jobs`), nie sumę nieprzeczytanych.
+- Harness `/preview/topbar-topics`; replika paska w `/preview/kpi-topbar`
+  (pigułka „CV”, teczka „Rekrutacje”) mierzona w `e2e/responsive-preview.spec.ts`.

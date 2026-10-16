@@ -1042,7 +1042,7 @@ function InterviewCard({
                 {acceptOpensWindow && (
                   <p className="text-[11px] leading-snug text-muted-foreground">
                     „Akceptuje” otwiera okno „Klient zaakceptował” — karta idzie dalej, werdykt się zapisuje,
-                    zespół dostaje dzwonek.
+                    zespół dostaje powiadomienie w „Rekrutacjach”.
                   </p>
                 )}
               </div>

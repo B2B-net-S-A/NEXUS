@@ -1125,7 +1125,7 @@ describe("CvToClientCard — po „Zapisz i przekaż dalej” (14.10.2026)", () 
         "CV generuje się (ok. 40 s)",
         "QC — po CV",
       ]);
-      expect(progress()).toHaveTextContent("Dam znać dzwonkiem, gdy CV będzie gotowe.");
+      expect(progress()).toHaveTextContent("Dam znać w ikonie „CV”, gdy CV będzie gotowe.");
       const before = generatedCalls();
       rows = [{ id: 77, status: "processing", origin: "auto" }];
       await act(async () => {
@@ -1143,7 +1143,7 @@ describe("CvToClientCard — po „Zapisz i przekaż dalej” (14.10.2026)", () 
       });
       await waitFor(() => expect(progress()).toHaveTextContent("CV gotowe"));
       await waitFor(() => expect(progress()).toHaveTextContent("QC: 1 do poprawy"));
-      expect(progress()).not.toHaveTextContent("Dam znać dzwonkiem");
+      expect(progress()).not.toHaveTextContent("Dam znać w ikonie „CV”");
       // Gotowe CV kończy odpytywanie.
       const settled = generatedCalls();
       await act(async () => {
@@ -1171,7 +1171,7 @@ describe("CvToClientCard — po „Zapisz i przekaż dalej” (14.10.2026)", () 
         "CV nie powstało automatycznie: reguła klienta wymaga zrzutu zgody RODO",
       ),
     );
-    expect(progress()).not.toHaveTextContent("Dam znać dzwonkiem");
+    expect(progress()).not.toHaveTextContent("Dam znać w ikonie „CV”");
   });
 
   it("po pominięciu ręczna generacja: „generuje się” bez obietnicy dzwonka (dzwoni tylko automat)", async () => {
@@ -1187,7 +1187,7 @@ describe("CvToClientCard — po „Zapisz i przekaż dalej” (14.10.2026)", () 
     rows = [{ id: 78, status: "processing", origin: "manual" }];
     renderCard({ forwarded: true });
     await waitFor(() => expect(progress()).toHaveTextContent("CV generuje się (ok. 40 s)"));
-    expect(progress()).not.toHaveTextContent("Dam znać dzwonkiem");
+    expect(progress()).not.toHaveTextContent("Dam znać w ikonie „CV”");
   });
 
   it("stare pominięcie (sprzed przekazania) nie jest odpowiedzią — dalej czekamy na automat", async () => {

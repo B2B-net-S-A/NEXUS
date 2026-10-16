@@ -2622,7 +2622,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapM
  const ok = await askUndoAcceptance({
  title: "Cofnąć akceptację klienta?",
  description:
- "Karta wróci do „Rozmowy u klienta”. Dzwonki „Klient zaakceptował”, których nikt jeszcze nie otworzył, zgasną.",
+ "Karta wróci do „Rozmowy u klienta”. Powiadomienia „Klient zaakceptował”, których nikt jeszcze nie otworzył, zgasną.",
  confirmLabel: "Cofnij akceptację",
  });
  if (ok) requestMove(item, colId(src), clientInterviewHost);

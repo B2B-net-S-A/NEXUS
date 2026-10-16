@@ -40,6 +40,7 @@ import {
   type JobOrderSection,
 } from "@/lib/job-detail-routing";
 import { jobProposalsApi, jobProposalsKeys } from "@/lib/job-proposals-api";
+import { useClearJobTopic } from "@/lib/api/jobTopic";
 import { shortlistApi } from "@/lib/candidate-search-api";
 import type { KanbanColumn } from "@/components/v2/pages/kanban-shared";
 import { ChampionProfileEditor } from "@/components/ChampionProfileEditor";
@@ -165,6 +166,9 @@ type ChampionMode = "view" | "edit";
 export default function JobDetailPage() {
   const { id } = useParams();
   const jobId = Number(id);
+  // Okienko „Rekrutacje” w górnym pasku: wejście na ekran gasi nowości tej
+  // rekrutacji (tylko własne) — jak wejście do czatu gasi rozmowę.
+  useClearJobTopic(jobId);
   const searchParams = useSearchParams();
   const router = useRouter();
   const pathname = usePathname();

@@ -66,7 +66,7 @@
       },
       {
         "q": "Jak przesunąć kandydata dalej?",
-        "a": "Kliknij strzałkę „→” na karcie: bez braków karta przechodzi od razu (10 s na „Cofnij”), z brakami otworzy się „Przesuń dalej” z przyciskami do uzupełnienia. Klient zaakceptował osobę po rozmowie? Kliknij na karcie „Klient zaakceptował” — trafi do „Akceptacja i umowa”, a rekruter, prowadzący, Delivery Lead i Head of Recruitment dostaną dzwonek.",
+        "a": "Kliknij strzałkę „→” na karcie: bez braków karta przechodzi od razu (10 s na „Cofnij”), z brakami otworzy się „Przesuń dalej” z przyciskami do uzupełnienia. Klient zaakceptował osobę po rozmowie? Kliknij na karcie „Klient zaakceptował” — trafi do „Akceptacja i umowa”, a rekruter, prowadzący, Delivery Lead i Head of Recruitment dostaną powiadomienie w ikonie „Rekrutacje”.",
         "anchor": "jobs.board.columns"
       },
       {
@@ -172,11 +172,11 @@
       },
       {
         "q": "Jak przygotować CV do klienta?",
-        "a": "Po „Zweryfikowany” automat robi CV firmowe i daje znać dzwonkiem. Gotowe CV w Wordzie („B2B_…”) wgraj „Wgraj nowe CV” — od razu jest CV do klienta; inne gotowe CV: „Użyj innego CV”. „Sprawdź i popraw” otwiera edytor ze stopką „Gotowe, przekaż do DL”. Plik: „Pobierz Word” albo „PDF”, oryginał — „Pobierz CV”. U PKO BP pobranie czeka na zgodę RODO."
+        "a": "Po „Zweryfikowany” automat robi CV firmowe i daje znać w ikonie „CV” w górnym pasku. Gotowe CV w Wordzie („B2B_…”) wgraj „Wgraj nowe CV” — od razu jest CV do klienta; inne gotowe CV: „Użyj innego CV”. „Sprawdź i popraw” otwiera edytor ze stopką „Gotowe, przekaż do DL”. Plik: „Pobierz Word” albo „PDF”, oryginał — „Pobierz CV”. U PKO BP pobranie czeka na zgodę RODO."
       },
       {
         "q": "Gdzie są rozmowa u klienta i umowa?",
-        "a": "Na „Rozmowie u klienta” sekcja „W procesie” ma termin od klienta, prepy i debrief, a „Klient zaakceptował” zapisuje akceptację (data, start, dzwonek dla zespołu); pomyłkę cofa „⋯” → „Cofnij akceptację klienta”. Sekcja „Umowa” pokazuje umowę, podpis i zamówienie: „Wygeneruj umowę” rozwija Generator. „Rozwiń” otwiera pełne narzędzia.",
+        "a": "Na „Rozmowie u klienta” sekcja „W procesie” ma termin od klienta, prepy i debrief, a „Klient zaakceptował” zapisuje akceptację (data, start, powiadomienie dla zespołu); pomyłkę cofa „⋯” → „Cofnij akceptację klienta”. Sekcja „Umowa” pokazuje umowę, podpis i zamówienie: „Wygeneruj umowę” rozwija Generator. „Rozwiń” otwiera pełne narzędzia.",
         "anchor": "jobs.person.expand"
       }
     ],

@@ -52,6 +52,7 @@ _JOBS = (
     # Ruchy kandydatów i przypomnienia o parze
     _T.stage_rule,
     _T.stage_changed,
+    _T.client_accepted,
     _T.stage_stuck_7d,
     _T.dl_stage_stale_6h,
     _T.client_feedback_eobd,
@@ -121,6 +122,8 @@ def types_in_topic(topic: NotificationTopic) -> frozenset[NotificationType]:
 # czat ma własny dymek z `chat:notify`, „Kalendarz” — z `INTERVIEW_NOTIFY_EVENT`,
 # coach KPI — z `KpiNudgeToaster`.
 _JOBS_TOAST = (
+    # Akceptacja klienta (0451) — dobra wiadomość dla całego zespołu pary.
+    _T.client_accepted,
     _T.request_assignment_changed,
     _T.recruiter_parked,
     _T.recruiter_restored,

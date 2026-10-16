@@ -65,7 +65,7 @@ export function MyEmailNotificationsCard() {
       </h2>
       <p className="text-sm text-muted-foreground">
         Maile, które NEXUS wysyła na Twój adres. Każdy możesz wyłączyć tylko
-        sobie — powiadomienie w dzwonku i zadanie w „Czeka na Ciebie” zostają.
+        sobie — powiadomienie w ikonach paska i zadanie w „Czeka na Ciebie” zostają.
       </p>
 
       {query.isError && (

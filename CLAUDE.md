@@ -347,7 +347,7 @@ Finanse → Zmiany w zamówieniach, Zamówienia PDF, Insights (Rywalizacja, Zesp
 
 ### Powiadomienia i maile — `docs/claude/powiadomienia/`
 
-Dzwonek, kategorie i wyciszenia, powiadomienia dla ról, okienko „Czaty”, maile do zespołu.
+Ikony paska, kategorie i wyciszenia, powiadomienia dla ról, maile do zespołu.
 
 - `maile-do-zespolu-poranny-skrot-kilka-maili-od-razu.md` — Maile do zespołu: poranny skrót + kilka maili od razu (07.10.2026)
 - `moje-powiadomienia-kategorie-i-wyciszenia-per-osoba.md` — Moje powiadomienia — kategorie i wyciszenia per osoba (0349, 22.09.2026)

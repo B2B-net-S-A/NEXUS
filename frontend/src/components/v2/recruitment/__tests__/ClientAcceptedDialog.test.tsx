@@ -121,7 +121,7 @@ describe("ClientAcceptedDialog", () => {
     expect(within(box).getByLabelText(/Co powiedział klient/)).toHaveValue("Klient chce startu od listopada.");
   });
 
-  it("pokazuje, kto dostanie dzwonek, i oddaje datę, start i słowa klienta", async () => {
+  it("pokazuje, kto dostanie powiadomienie, i oddaje datę, start i słowa klienta", async () => {
     serve();
     const { onConfirm } = renderDialog();
     const box = await dialog();

@@ -267,8 +267,8 @@ export function ClientAcceptedDialog({
               <p className="text-xs text-muted-foreground">Zapisze się w werdykcie klienta („Akceptuje”).</p>
             </div>
 
-            <section aria-label="Kto dostanie dzwonek" className="space-y-2 rounded-md border border-border p-3">
-              <h3 className="text-sm font-semibold">Dostaną dzwonek „Klient zaakceptował”</h3>
+            <section aria-label="Kto dostanie powiadomienie" className="space-y-2 rounded-md border border-border p-3">
+              <h3 className="text-sm font-semibold">Dostaną powiadomienie „Klient zaakceptował”</h3>
               {recipients.isPending ? (
                 <p role="status" className="flex items-center gap-2 text-xs text-muted-foreground">
                   <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
@@ -276,12 +276,12 @@ export function ClientAcceptedDialog({
                 </p>
               ) : recipients.isError ? (
                 <p role="alert" className="text-xs text-warning">
-                  Nie udało się pobrać listy ({apiErrorMessage(recipients.error, "brak odpowiedzi serwera")}). Dzwonek i tak
+                  Nie udało się pobrać listy ({apiErrorMessage(recipients.error, "brak odpowiedzi serwera")}). Powiadomienie i tak
                   wyślemy po zapisie.
                 </p>
               ) : recipients.data.length === 0 ? (
                 <p className="text-xs text-muted-foreground">
-                  Nikt poza Tobą — nie ma komu wysłać dzwonka.
+                  Nikt poza Tobą — nie ma komu wysłać powiadomienia.
                 </p>
               ) : (
                 <ul className="space-y-1.5">
@@ -301,7 +301,7 @@ export function ClientAcceptedDialog({
                   ))}
                 </ul>
               )}
-              <p className="text-xs text-muted-foreground">Ty zaznaczasz akceptację, więc dzwonka nie dostajesz.</p>
+              <p className="text-xs text-muted-foreground">Ty zaznaczasz akceptację, więc powiadomienia nie dostajesz.</p>
             </section>
 
             <p className="rounded-md bg-primary/5 px-3 py-2 text-xs text-muted-foreground">

@@ -10,6 +10,10 @@ pokazuje, pigułka pilna tylko dla telefonu po rozmowie, dymki z akcją. Makiety
 https://claude.ai/artifact/Nt9BUPasXNjSYpZGmEpf37, raport
 `docs/interview-notifications-window-completion-report.md`.
 
+> Od 16.10.2026 dzwonka nie ma (ikona ma podpowiedź „Kalendarz — rozmowy
+> u klienta i prepy”); `exclude_interviews` i warianty dzwonka niżej to stan
+> sprzed tej daty — `pasek-tematy-bez-dzwonka.md`.
+
 - **Dwa źródła, jedna czysta funkcja.** Zadania („Teraz”, „Czeka na Ciebie”)
   pochodzą z `GET /api/interview-cycle` — tego samego zapytania co ekran
   „Rozmowy u klienta” i kafel „Dziś”, więc liczby się zgadzają i zadanie znika

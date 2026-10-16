@@ -48,7 +48,7 @@ describe("akceptacja klienta — treści na karcie i w panelu (D1–D6, 16.10.20
   it("dymek po zapisie wymienia, kto dostał dzwonek", () => {
     expect(
       acceptedToast("Karol Wzorcowy", [{ name: "Marta Nowak" }, { name: "Olaf Przykładowy" }]),
-    ).toBe("Karol Wzorcowy — klient zaakceptował. Dzwonek: Marta N., Olaf P.");
+    ).toBe("Karol Wzorcowy — klient zaakceptował. Powiadomienie: Marta N., Olaf P.");
     expect(acceptedToast("Karol Wzorcowy", [])).toBe("Karol Wzorcowy — klient zaakceptował.");
   });
 });

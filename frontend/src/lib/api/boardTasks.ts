@@ -163,6 +163,57 @@ export function useDlSendQueue(enabled: boolean) {
   });
 }
 
+/** Auto-CV gotowe do sprawdzenia (ikona „CV”, `services/cv_topic.py`). */
+export interface CvCheckRow {
+  document_id: number;
+  stage_id: number;
+  candidate_id: number;
+  candidate_name: string;
+  job_id: number;
+  job_title: string;
+  job_working_title: string | null;
+  client_name: string | null;
+  since: string;
+}
+
+export interface CvTopicRecruiter {
+  to_check: CvCheckRow[];
+  to_fix: CvTransitRow[];
+  with_dl: CvTransitRow[];
+  sent: CvTransitRow[];
+}
+
+export interface CvTopicDl {
+  to_send: DlSendRow[];
+  to_send_total: number;
+  worst_urgency: DlSendUrgency | null;
+  /** W „QC CV”, ale ruch ma rekruter (QC do poprawy albo niesprawdzone). */
+  with_recruiters_total: number;
+  sent_today: CvTransitRow[];
+}
+
+/** Ikona „CV” w górnym pasku (16.10.2026) — stan, nie zdarzenia. */
+export interface CvTopicResponse {
+  /** Do sprawdzenia + do poprawy (rekruter) + do wysłania (Delivery Lead). */
+  badge: number;
+  recruiter: CvTopicRecruiter | null;
+  dl: CvTopicDl | null;
+}
+
+/** Pod prefiksem `["board-tasks"]` — ruchy kart odświeżają ikonę jak kolejkę. */
+export const CV_TOPIC_QUERY_KEY = ["board-tasks", "cv"] as const;
+
+/** `enabled` = konto z rolą rekrutera albo Delivery Leada (lustro serwera). */
+export function useCvTopic(enabled: boolean) {
+  return useQuery<CvTopicResponse>({
+    queryKey: CV_TOPIC_QUERY_KEY,
+    queryFn: () => api.get<CvTopicResponse>("/api/board-tasks/cv").then((r) => r.data),
+    enabled,
+    refetchInterval: enabled ? WS_BACKED_SAFETY_POLL_MS : false,
+    staleTime: 30_000,
+  });
+}
+
 /** 0370: prep przed rozmową u klienta, który wymaga uwagi. Widzi go
  *  organizator prepu, admin i Head of Recruitment. */
 export type PrepAttentionReason = "missing" | "late" | "weak" | "unrecorded";
