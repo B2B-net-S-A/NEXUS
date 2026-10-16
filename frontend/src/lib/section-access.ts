@@ -73,6 +73,7 @@ export const ALL_USER_ROLES: readonly UserRole[] = [
   "user",
   "trainee",
   "automation",
+  "employee",
 ];
 
 /**
@@ -162,6 +163,16 @@ export const ROLE_SECTION_ACCESS: Record<
     pipeline: "read",
     delivery: "read",
     insights: "read",
+    finance: "none",
+    system_admin: "none",
+  },
+  // „Pracownik” (0452): żadnej sekcji — „Mój czas” i „Ludzie” stoją za
+  // kartoteką i uprawnieniami z grupy „Ludzie”.
+  employee: {
+    sourcing: "none",
+    pipeline: "none",
+    delivery: "none",
+    insights: "none",
     finance: "none",
     system_admin: "none",
   },

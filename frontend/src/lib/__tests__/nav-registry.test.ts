@@ -100,9 +100,11 @@ describe("rejestr nawigacji — spójność wpisów", () => {
     expect(
       NAV_PRIMARY_GROUPS.map((group) => [group.title, [...group.ids]]),
     ).toEqual([
-      ["Praca", ["dashboard", "jobs", "candidates", "calendar"]],
+      // „Ludzie w NEXUSIE” (16.10.2026): „Mój czas”, „Ludzie”, „Sprzęt” —
+      // widoczne tylko przy włączonym module (flaga z `/api/hr/config`).
+      ["Praca", ["dashboard", "jobs", "candidates", "calendar", "my-time"]],
       ["Klienci i umowy", ["clients", "contracts", "finance"]],
-      ["Firma", ["insights"]],
+      ["Firma", ["insights", "people", "equipment"]],
     ]);
   });
 });

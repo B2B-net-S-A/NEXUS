@@ -11,6 +11,7 @@ import {
   Briefcase,
   Building2,
   Calendar,
+  CalendarClock,
   FileSignature,
   FileText,
   GraduationCap,
@@ -21,6 +22,7 @@ import {
   HelpCircle,
   Inbox,
   LayoutDashboard,
+  Laptop,
   Lightbulb,
   PhoneCall,
   Radar,
@@ -28,6 +30,7 @@ import {
   Settings,
   Star,
   Store,
+  UserRound,
   Users,
   Wallet,
 } from "lucide-react";
@@ -60,7 +63,14 @@ export type NavBadgeKey =
   | "orderMail"
   | "dlSend";
 
-export type NavFeatureFlag = "contactQueue";
+export type NavFeatureFlag =
+  | "contactQueue"
+  // „Ludzie w NEXUSIE” (16.10.2026): pozycje modułu kadrowego. O widoczności
+  // decyduje `/api/hr/config` (przełącznik modułu + kartoteka albo uprawnienie
+  // z grupy „Ludzie”) — patrz `hrNavState` w `lib/api/hr.ts`.
+  | "hrMyTime"
+  | "hrPeople"
+  | "hrEquipment";
 
 export type NavSectionKey =
   | "sourcing"
@@ -79,7 +89,11 @@ export type NavUser =
   | null
   | undefined;
 
-export type NavVisibilityOptions = { contactQueueEnabled: boolean };
+export type NavVisibilityOptions = {
+  contactQueueEnabled: boolean;
+  /** Stan modułu kadrowego; brak = pozycje „Ludzi w NEXUSIE” ukryte. */
+  hr?: { myTime: boolean; people: boolean; equipment: boolean };
+};
 
 /** Użytkownik, dla którego liczy się adres docelowy pozycji (`resolveHref`). */
 export type NavHrefUser = Parameters<typeof dashboardHref>[0];
@@ -532,6 +546,38 @@ export const NAV_REGISTRY: readonly NavEntry[] = [
     placement: "primary",
     inPalette: true,
   },
+  // „Ludzie w NEXUSIE” (16.10.2026). Sekcja „system” = bez sekcji produktu;
+  // widoczność rozstrzyga flaga z `/api/hr/config`, a każdą trasę serwer.
+  {
+    id: "my-time",
+    href: "/my-time",
+    label: "Mój czas",
+    icon: CalendarClock,
+    section: "system",
+    featureFlag: "hrMyTime",
+    placement: "primary",
+    inPalette: true,
+  },
+  {
+    id: "people",
+    href: "/people",
+    label: "Ludzie",
+    icon: UserRound,
+    section: "system",
+    featureFlag: "hrPeople",
+    placement: "primary",
+    inPalette: true,
+  },
+  {
+    id: "equipment",
+    href: "/equipment",
+    label: "Sprzęt",
+    icon: Laptop,
+    section: "system",
+    featureFlag: "hrEquipment",
+    placement: "primary",
+    inPalette: true,
+  },
   {
     id: "help",
     moreHint: "Procedury, instrukcje, karty klientów",
@@ -573,9 +619,13 @@ export const NAV_PRIMARY_GROUPS: readonly {
   title: string;
   ids: readonly string[];
 }[] = [
-  { key: "work", title: "Praca", ids: ["dashboard", "jobs", "candidates", "calendar"] },
+  {
+    key: "work",
+    title: "Praca",
+    ids: ["dashboard", "jobs", "candidates", "calendar", "my-time"],
+  },
   { key: "clients", title: "Klienci i umowy", ids: ["clients", "contracts", "finance"] },
-  { key: "company", title: "Firma", ids: ["insights"] },
+  { key: "company", title: "Firma", ids: ["insights", "people", "equipment"] },
 ];
 
 /** Kolejność pozycji na szynie (id wpisów) — spłaszczone `NAV_PRIMARY_GROUPS`. */
@@ -596,6 +646,12 @@ function featureFlagOn(
   switch (flag) {
     case "contactQueue":
       return opts.contactQueueEnabled;
+    case "hrMyTime":
+      return opts.hr?.myTime ?? false;
+    case "hrPeople":
+      return opts.hr?.people ?? false;
+    case "hrEquipment":
+      return opts.hr?.equipment ?? false;
   }
 }
 

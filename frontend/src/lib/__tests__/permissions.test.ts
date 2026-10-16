@@ -29,6 +29,8 @@ const EXPECTED_DEFAULTS: Record<UserRole, Permission[]> = {
     "amounts_view",
     "amounts_edit",
     "finance_module",
+    // „Ludzie w NEXUSIE” (D2): Płace domyślnie u Finansów.
+    "payroll",
   ],
   head_of_recruitment: [],
   delivery_lead: [
@@ -44,18 +46,22 @@ const EXPECTED_DEFAULTS: Record<UserRole, Permission[]> = {
     "delivery_view",
     "contract_status",
     "b2b_signature_confirmation",
+    // „Ludzie w NEXUSIE”: skrzynka administracja@.
+    "cases",
   ],
   recruiter: [],
   user: [],
   trainee: [],
   // 0446: „Automatyzacje” — sam podgląd Delivery, bez kwot.
   automation: ["delivery_view"],
+  // 0452: „Pracownik” — nic domyślnie (nadania z „Osoby i role”).
+  employee: [],
 };
 
 const sorted = (values: Iterable<string>) => [...values].sort();
 
 describe("katalog uprawnień", () => {
-  it("ma dziewięć pozycji w trzech grupach, w kolejności ekranu", () => {
+  it("ma trzynaście pozycji w czterech grupach, w kolejności ekranu", () => {
     expect(PERMISSIONS.map((permission) => permission.label)).toEqual([
       "Klienci, kontrakty i zamówienia: podgląd",
       "Klienci: dodawanie i edycja",
@@ -66,6 +72,10 @@ describe("katalog uprawnień", () => {
       "Stawki i kwoty: podgląd",
       "Stawki i kwoty: zmiana",
       "Moduł Finanse",
+      "Kadry: kartoteka, urlopy za innych, wejście i odejście",
+      "Płace: stawki pracowników, premie, rozliczenie miesiąca",
+      "Sprzęt: ewidencja, wydania, zwroty i protokoły",
+      "Sprawy: skrzynka administracja@",
     ]);
     expect(
       PERMISSION_GROUPS.map((group) => [group.label, group.permissions.length]),
@@ -73,6 +83,7 @@ describe("katalog uprawnień", () => {
       ["Klienci i kontrakty", 5],
       ["Rekrutacje", 1],
       ["Pieniądze", 3],
+      ["Ludzie", 4],
     ]);
     expect(permissionLabel("finance_module")).toBe("Moduł Finanse");
   });

@@ -15,6 +15,8 @@ import { MyPeopleTopbarButton } from "@/components/v2/my-people/MyPeopleLauncher
 import { ChatNotificationsDropdown } from "./ChatNotificationsDropdown";
 import { DlSendTopbarButton } from "./DlSendTopbarButton";
 import { InterviewNotificationsDropdown } from "./InterviewNotificationsDropdown";
+import { hasSectionAccess } from "@/lib/section-access";
+import { useAuthStore } from "@/store/auth";
 import {
   TOPBAR_ACTIONS_CLASS,
   TOPBAR_BREADCRUMB_CLASS,
@@ -36,6 +38,12 @@ export function TopbarV2({
   onOpenCommandPalette,
 }: Props) {
   const [isMac, setIsMac] = useState(false);
+  // „Pracownik” (0452) i inne konta bez sekcji pracy nie przeszukują kandydatów,
+  // rekrutacji ani klientów — paleta służy im tylko do przejścia na ekran.
+  const user = useAuthStore((state) => state.user);
+  const searchesWork = (["sourcing", "pipeline", "delivery"] as const).some((section) =>
+    hasSectionAccess(user, section),
+  );
 
   useEffect(() => {
     if (typeof navigator !== "undefined") {
@@ -63,7 +71,9 @@ export function TopbarV2({
         className={TOPBAR_SEARCH_CLASS}
       >
         <Search className="h-4 w-4 shrink-0" />
-        <span className="truncate">Szukaj kandydatów, rekrutacji, klientów…</span>
+        <span className="truncate">
+          {searchesWork ? "Szukaj kandydatów, rekrutacji, klientów…" : "Przejdź do ekranu…"}
+        </span>
         <div className="ml-auto hidden sm:flex items-center gap-1 shrink-0">
           <Kbd>{isMac ? "⌘" : "Ctrl"}</Kbd>
           <Kbd>K</Kbd>

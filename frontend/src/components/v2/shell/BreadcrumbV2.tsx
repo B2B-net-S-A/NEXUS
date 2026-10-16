@@ -21,6 +21,11 @@ export const SEGMENT_LABELS: Record<string, string> = {
   analytics: "Analityka",
   reports: "Raporty",
   calendar: "Kalendarz",
+  // „Ludzie w NEXUSIE” (16.10.2026).
+  "my-time": "Mój czas",
+  people: "Ludzie",
+  equipment: "Sprzęt",
+  hr: "Kadry",
   settings: "Ustawienia",
   templates: "Szablony email",
   admin: "Admin",

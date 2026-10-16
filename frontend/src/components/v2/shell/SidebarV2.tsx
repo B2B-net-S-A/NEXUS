@@ -31,6 +31,7 @@ import { useSidebarPinned } from "./useSidebarPinned";
 import { PaletteSwitcher } from "./PaletteSwitcher";
 import { KidsModeToggleButton, ThemeToggleButton } from "./ThemeControls";
 import { hasSectionAccess } from "@/lib/section-access";
+import { useHrNavState } from "@/lib/api/hr";
 import { hasCapability } from "@/lib/capabilities";
 import { useOrderMailPendingCount } from "@/components/order-mail/useOrderMailPendingCount";
 import { useDlSendQueue } from "@/lib/api/boardTasks";
@@ -91,7 +92,8 @@ export function SidebarV2({
   });
   // Szyna = rdzeń pracy w grupach z nagłówkami, reszta pod „Więcej". Bramka
   // widoczności jest w rejestrze jedna — obie listy to ten sam zbiór, podzielony.
-  const navOptions = { contactQueueEnabled: contactFeature.enabled };
+  const hrNav = useHrNavState(user);
+  const navOptions = { contactQueueEnabled: contactFeature.enabled, hr: hrNav };
   const primaryGroups = visiblePrimaryGroups(user, navOptions);
   const moreGroups = visibleMoreGroups(user, navOptions);
 
