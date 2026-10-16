@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from . import profiles
+from . import care, cases, leave, lifecycle, payroll, profiles, time
 from .bundle import Bundle, BundleError, parse_bundle
 from .core import Applier, ImportFlowError, ModulePlan, Planner, apply, dry_run
 
@@ -26,6 +26,24 @@ class Importer:
 IMPORTERS: dict[str, Importer] = {
     profiles.MODULE: Importer(
         profiles.MODULE, "Kartoteki i pule urlopowe", profiles.plan, profiles.apply
+    ),
+    leave.MODULE: Importer(
+        leave.MODULE, "Wnioski urlopowe i dni nieobecności", leave.plan, leave.apply
+    ),
+    time.MODULE: Importer(
+        time.MODULE, "Timesheety, obecność i opisy", time.plan, time.apply
+    ),
+    payroll.MODULE: Importer(
+        payroll.MODULE, "Stawki i premie", payroll.plan, payroll.apply
+    ),
+    lifecycle.MODULE: Importer(
+        lifecycle.MODULE, "Sprawy wejścia i odejścia", lifecycle.plan, lifecycle.apply
+    ),
+    cases.MODULE: Importer(
+        cases.MODULE, "Sprawy skrzynki administracja@", cases.plan, cases.apply
+    ),
+    care.MODULE: Importer(
+        care.MODULE, "Mapa technologiczna i rozmowy opiekunów", care.plan, care.apply
     ),
 }
 
