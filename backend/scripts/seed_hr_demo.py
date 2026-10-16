@@ -32,7 +32,7 @@ BACKEND_ROOT = Path(__file__).resolve().parent.parent
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
-from datetime import timedelta  # noqa: E402
+from datetime import date, datetime, timedelta, timezone  # noqa: E402
 
 from sqlalchemy import func, select, text  # noqa: E402
 from sqlalchemy.dialects.postgresql import insert  # noqa: E402
@@ -41,6 +41,7 @@ from sqlalchemy.ext.asyncio import AsyncSession  # noqa: E402
 from app.core.database import AsyncSessionLocal  # noqa: E402
 from app.core.scheduling import business_today  # noqa: E402
 from app.core.security import hash_password  # noqa: E402
+from app.models.academy import AcademyApplication, AcademyProgram  # noqa: E402
 from app.models.app_setting import AppSetting  # noqa: E402
 from app.models.candidate import Candidate  # noqa: E402
 from app.models.client import Client  # noqa: E402
@@ -237,6 +238,7 @@ async def seed(db: AsyncSession, password: str) -> dict[str, int]:
             )
 
     contracts = await _seed_client_and_contracts(db, users["borys"])
+    await _seed_academy(db)
 
     modules = {key: True for key in HR_MODULE_KEYS}
     statement = insert(AppSetting).values(key=HR_MODULES_SETTING, value=modules)
@@ -328,6 +330,56 @@ async def _seed_client_and_contracts(db: AsyncSession, delivery_lead: User) -> i
             created += 1
     await db.flush()
     return created
+
+
+DEMO_ACADEMY = "Akademia Demo (fikcja)"
+
+
+async def _seed_academy(db: AsyncSession) -> None:
+    """Fikcyjny program Akademii z dwiema osobami w najbliższej edycji.
+
+    Jedna ma podpisaną umowę i miesiąc edycji (zadanie zestawu dla recepcji),
+    druga zaliczyła zadanie i czeka na umowę (liczona do najbliższej edycji).
+    """
+    program = await db.scalar(
+        select(AcademyProgram).where(AcademyProgram.name == DEMO_ACADEMY)
+    )
+    if program is None:
+        program = AcademyProgram(name=DEMO_ACADEMY)
+        db.add(program)
+        await db.flush()
+    today = business_today()
+    next_month = date(today.year + (today.month == 12), today.month % 12 + 1, 1)
+    now = datetime.now(timezone.utc)
+    for key, first, last, status in (
+        ("akademia1", "Iga", "Uczestniczka", "signed"),
+        ("akademia2", "Kuba", "Kandydat", "task_passed"),
+    ):
+        email = f"{key}{DEMO_DOMAIN}"
+        candidate = await db.scalar(select(Candidate).where(Candidate.email == email))
+        if candidate is None:
+            candidate = Candidate(name=first, lastname=last, email=email)
+            db.add(candidate)
+            await db.flush()
+        exists = await db.scalar(
+            select(AcademyApplication.id).where(
+                AcademyApplication.program_id == program.id,
+                AcademyApplication.candidate_id == candidate.id,
+            )
+        )
+        if exists is None:
+            db.add(
+                AcademyApplication(
+                    program_id=program.id,
+                    candidate_id=candidate.id,
+                    applied_at=now - timedelta(days=20),
+                    status=status,
+                    task_result="passed",
+                    signed_at=now if status == "signed" else None,
+                    cohort_month=next_month if status == "signed" else None,
+                )
+            )
+    await db.flush()
 
 
 async def _main() -> int:

@@ -67,7 +67,11 @@ export function EditionKitDialog({ edition, participants, onClose }: EditionKitD
   const models = useMemo(() => freeModels(items), [items]);
   const people = participants.map((p) => p.application_id);
   const { ready, incomplete } = splitComplete(plan, modelIds);
-  const names = new Map(participants.map((p) => [p.application_id, p.full_name]));
+  // Imiona z chwili otwarcia: po wydaniu edycja się odświeża i osoba z zestawem
+  // wypada z listy do wydania, a raport nadal ma ją nazwać.
+  const [names] = useState(
+    () => new Map(participants.map((p) => [p.application_id, p.full_name])),
+  );
   const state = resolveViewState({
     isLoading: free.isLoading,
     error: free.error,
@@ -273,7 +277,7 @@ export function EditionKitDialog({ edition, participants, onClose }: EditionKitD
                           >
                             <SelectTrigger
                               aria-label={`${person.full_name}: egzemplarz`}
-                              className="h-8 w-32 text-xs"
+                              className="h-8 w-52 whitespace-nowrap text-xs"
                             >
                               <SelectValue />
                             </SelectTrigger>

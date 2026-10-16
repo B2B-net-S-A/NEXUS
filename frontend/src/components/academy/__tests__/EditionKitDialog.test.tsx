@@ -107,6 +107,44 @@ describe("EditionKitDialog", () => {
     expect(screen.getByRole("alert")).toHaveTextContent("Nie wydano: Pozycji nie da się wydać.");
   });
 
+  it("keeps the person's name in the report after the edition refetch drops them from the list", async () => {
+    const user = userEvent.setup();
+    mocks.post.mockResolvedValue({
+      data: {
+        issued: 1,
+        failed: 0,
+        results: [
+          {
+            application_id: 1,
+            ok: true,
+            link_url: null,
+            protocol: { number: "PZO/2026/10/011", holder: { email: null } },
+          },
+        ],
+      },
+    });
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    const one = [PEOPLE[0]];
+    const view = render(
+      <QueryClientProvider client={client}>
+        <EditionKitDialog edition={EDITION} participants={one} onClose={vi.fn()} />
+      </QueryClientProvider>,
+    );
+    await user.click(await screen.findByRole("checkbox", { name: /Vostro Testowy/ }));
+    await user.click(screen.getByRole("button", { name: "Dalej: przydział" }));
+    await user.click(screen.getByRole("button", { name: "Wydaj, podpis na papierze" }));
+    expect(await screen.findByText("Wydano zestawy: 1 z 1")).toBeInTheDocument();
+    // Po wydaniu edycja się odświeża i osoba z zestawem wypada z listy do wydania.
+    view.rerender(
+      <QueryClientProvider client={client}>
+        <EditionKitDialog edition={EDITION} participants={[]} onClose={vi.fn()} />
+      </QueryClientProvider>,
+    );
+    expect(screen.getByText("Marta Przykładowa")).toBeInTheDocument();
+  });
+
   it("a failed stock request is an error, not 'no free equipment'", async () => {
     mocks.get.mockRejectedValue({ response: { status: 500, data: {} } });
     wrap(<EditionKitDialog edition={EDITION} participants={PEOPLE} onClose={vi.fn()} />);
