@@ -3,9 +3,10 @@
 import { PageHeader } from "@/components/ds/PageHeader";
 import { HrConfigGate } from "@/components/hr/HrConfigGate";
 import { PeopleDirectory } from "@/components/hr/people/PeopleDirectory";
+import { PeopleSectionNav } from "@/components/hr/people/PeopleSectionNav";
 
-// „Ludzie w NEXUSIE” (16.10.2026): katalog ludzi. Kolejne zakładki
-// (kalendarz, akceptacje, płace, sprawy) dochodzą z modułami.
+// „Ludzie w NEXUSIE” (16.10.2026): katalog ludzi. Zakładki obszaru (kalendarz,
+// akceptacje, sprawy, płace) — `PeopleSectionNav`.
 export default function PeoplePage() {
   return (
     <HrConfigGate>
@@ -16,6 +17,7 @@ export default function PeoplePage() {
             description="Kto u nas pracuje, komu podlega i gdzie domyślnie pracuje."
             density="compact"
           />
+          <PeopleSectionNav config={config} active="directory" />
           <PeopleDirectory config={config} />
         </div>
       )}
