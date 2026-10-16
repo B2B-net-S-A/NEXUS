@@ -2584,6 +2584,20 @@ async def api_health_check():
         except Exception:  # noqa: BLE001 — sonda informacyjna
             checks["equipment_intune"] = "degraded"
 
+    # „Ludzie w NEXUSIE”: kolejka M365 urlopów, czytnik administracja@, przebiegi
+    # pętli HR (``app/services/hr/health.py``). Informacyjne — przy przełączeniu
+    # z Compassa pokazują, że coś utknęło, zanim zauważą to ludzie.
+    from app.services.hr import health as _hr_health
+
+    for _probe_key, _probe in _hr_health.PROBES:
+        try:
+            async with AsyncSessionLocal() as session:
+                checks[_probe_key] = await asyncio.wait_for(
+                    _probe(session), timeout=1.0
+                )
+        except Exception:  # noqa: BLE001 — sonda informacyjna
+            checks[_probe_key] = "degraded"
+
     # Anthropic key — config-only probe. Bez klucza generator CV (i każdy
     # feature na Claude API) wstaje, ale pierwsza generacja kończy się 502
     # (Sentry NEXUS-BE-F) — lepiej widzieć to w healthchecku po deployu.
