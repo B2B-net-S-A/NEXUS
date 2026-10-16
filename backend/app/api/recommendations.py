@@ -124,11 +124,7 @@ def _shape_recommended_job(job: Job, *, include_finance: bool = False) -> dict:
 
     return {
         "id": job.id,
-        # `title` = nazwa od klienta; ekran pokazuje nazwę jak nagłówek
-        # rekrutacji — numer u klienta i tytuł dla rekrutera (0380).
         "title": job.title,
-        "working_title": job.working_title,
-        "client_reference": job.client_reference,
         "client_id": job.client_id,
         "location": job.location,
         "salary_min": job.salary_min if include_finance else None,

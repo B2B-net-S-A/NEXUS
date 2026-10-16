@@ -18,7 +18,7 @@ from httpx import AsyncClient
 from sqlalchemy.dialects import postgresql
 
 from app.api.notes import _enriched_select
-from app.api.recommendations import _shape_recommended_job, _shape_seek_job
+from app.api.recommendations import _shape_seek_job
 from app.schemas.candidate import ActiveRecruitmentBrief, CandidateQuickViewRecruitment
 from app.schemas.candidate_search import LastRecruitment
 from app.schemas.note import EnrichedNoteResponse
@@ -59,16 +59,6 @@ def test_seeking_contractors_job_without_names_sends_nulls() -> None:
     assert shaped["title"] == CLIENT_TITLE
     assert shaped["working_title"] is None
     assert shaped["client_reference"] is None
-
-
-def test_recommended_job_keeps_client_title_and_adds_names() -> None:
-    """„Proponowane rekrutacje” na profilu i w „Moi ludzie”."""
-    shaped = _shape_recommended_job(
-        _job(status=None, priority=None, industry=None), include_finance=False
-    )
-    assert shaped["title"] == CLIENT_TITLE
-    assert shaped["working_title"] == WORKING_TITLE
-    assert shaped["client_reference"] == REFERENCE
 
 
 def test_new_fields_are_optional_for_older_payloads() -> None:

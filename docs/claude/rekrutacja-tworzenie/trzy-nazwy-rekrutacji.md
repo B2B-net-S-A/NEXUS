@@ -22,6 +22,28 @@ Decyzja Artura: rekruter ma widzieć, czego szukamy, a klient dostaje swoje nazw
 - Kolumny są w `NEXUS_OWNED` (Traffit ich nie pisze). Istniejące rekrutacje
   uzupełnił jednorazowy krok `job-names-backfill` w `entrypoint.sh`.
 
+## Rekrutacje osoby na ekranach kandydata (16.10.2026)
+
+Zgłoszenie Artura: w nagłówku rekrutacja to „numer + tytuł dla rekrutera”, a profil
+i listy kandydata pokazywały samą nazwę od klienta, więc nie dało się ich połączyć.
+
+- **Odpowiedzi kandydata** niosą `job_working_title` i `job_client_reference` obok
+  `job_title`: lista (`active_recruitments`), szybki podgląd, `/history`, oś czasu,
+  `GET /api/notes`. `job_title` dalej = nazwa od klienta (profil rozpoznaje z niej kody
+  CV dla klientów). Wyjątek: `LastRecruitment.job_title` (okno dodawania) od początku
+  jest tytułem dla rekrutera, obok idzie tylko `job_client_reference`.
+- **Kształty rekomendacji**: `_shape_seek_job` („Szukają projektu”) ma `working_title`
+  i `client_reference`; `title` zostaje dla maila z listą rekrutacji. Te same pola
+  w `_shape_recommended_job` („Moi ludzie”, propozycje na profilu) dokłada PR okien
+  wyboru rekrutacji.
+- **Front:** wiersz = `JobNameLabel` (`components/v2/jobs/JobNameLabel.tsx`: numer
+  kopiuje, `copyable={false}` wewnątrz innego przycisku, `stretched` dla wiersza-linku,
+  `wrap` gdy tytuł ma się łamać), tekst = `jobNameText` (`lib/job-name-text.ts`),
+  pola kandydata → `candidateJobNames`. Okna, które mówią do klienta (generator CV,
+  podgląd CV, maile), dostają dalej `job_title`.
+- `_enriched_select()` w `api/notes.py` ma stałą kolejność kolumn — API integracyjne
+  rozpakowuje ją po pozycjach; nazwy dokłada lista notatek przez `add_columns`.
+
 ## Numer u klienta na ekranach i z nazwy od klienta (15.10.2026)
 
 Prośba DL Nordei: tytuły dla rekrutera są uogólnione, więc bez numeru requestu
@@ -57,22 +79,3 @@ wszystkich klientów.
   „Expert IT Analyst …”), ale nie każdy nawias z cyfrą („(K8s)” zostaje).
 - Dzwonek Cpro (`_cpro_job_label`) nie dokleja numeru, który już stoi w nazwie.
 
-## Rekrutacje osoby na ekranach kandydata (16.10.2026)
-
-Zgłoszenie Artura: w nagłówku rekrutacja to „numer + tytuł dla rekrutera”, a profil
-i listy kandydata pokazywały samą nazwę od klienta, więc nie dało się ich połączyć.
-
-- **Odpowiedzi kandydata** niosą `job_working_title` i `job_client_reference` obok
-  `job_title`: lista (`active_recruitments`), szybki podgląd, `/history`, oś czasu,
-  `GET /api/notes`. `job_title` dalej = nazwa od klienta (profil rozpoznaje z niej kody
-  CV dla klientów). Wyjątek: `LastRecruitment.job_title` (okno dodawania) od początku
-  jest tytułem dla rekrutera, obok idzie tylko `job_client_reference`.
-- **Kształty rekomendacji** (`_shape_recommended_job`, `_shape_seek_job`) mają
-  `working_title` i `client_reference`; `title` zostaje dla maila z listą rekrutacji.
-- **Front:** wiersz = `JobNameLabel` (`components/v2/jobs/JobNameLabel.tsx`: numer
-  kopiuje, `copyable={false}` wewnątrz innego przycisku, `stretched` dla wiersza-linku,
-  `wrap` gdy tytuł ma się łamać), tekst = `jobNameText` (`lib/job-name-text.ts`),
-  pola kandydata → `candidateJobNames`. Okna, które mówią do klienta (generator CV,
-  podgląd CV, maile), dostają dalej `job_title`.
-- `_enriched_select()` w `api/notes.py` ma stałą kolejność kolumn — API integracyjne
-  rozpakowuje ją po pozycjach; nazwy dokłada lista notatek przez `add_columns`.
