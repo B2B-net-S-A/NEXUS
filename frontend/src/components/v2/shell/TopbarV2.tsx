@@ -14,6 +14,7 @@ import { AppearanceMenu } from "./AppearanceMenu";
 import { MyPeopleTopbarButton } from "@/components/v2/my-people/MyPeopleLauncher";
 import { ChatNotificationsDropdown } from "./ChatNotificationsDropdown";
 import { DlSendTopbarButton } from "./DlSendTopbarButton";
+import { AbsentTodayButton } from "@/components/hr/leave/AbsentTodayButton";
 import { InterviewNotificationsDropdown } from "./InterviewNotificationsDropdown";
 import { hasSectionAccess } from "@/lib/section-access";
 import { useAuthStore } from "@/store/auth";
@@ -91,6 +92,8 @@ export function TopbarV2({
         <MyPeopleTopbarButton />
         {/* Stan kolejki Delivery Leada, nie zdarzenia — nie ma go przy zerze. */}
         <DlSendTopbarButton />
+        {/* „Ludzie w NEXUSIE”: nieobecni dziś (moduł urlopów); przy zerze go nie ma. */}
+        <AbsentTodayButton />
         <ChatNotificationsDropdown />
         <InterviewNotificationsDropdown />
         <NotificationsDropdown />
