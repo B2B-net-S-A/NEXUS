@@ -139,8 +139,8 @@ describe("NotificationDeliverySettings", () => {
     renderSettings();
     const row = await screen.findByRole("row", { name: /Alert Delivery/ });
     expect(within(row).getByText("Panel klientów, E-mail")).toBeInTheDocument();
-    expect(within(row).queryByText(/Dzwonek NEXUS/)).not.toBeInTheDocument();
-    expect(within(screen.getByRole("row", { name: /Nieprzeczytana wiadomość/ })).getByText("Dzwonek NEXUS, E-mail")).toBeInTheDocument();
+    expect(within(row).queryByText(/NEXUS \(ikony paska\)/)).not.toBeInTheDocument();
+    expect(within(screen.getByRole("row", { name: /Nieprzeczytana wiadomość/ })).getByText("NEXUS (ikony paska), E-mail")).toBeInTheDocument();
   });
 
   it("zapisuje globalne włączenie bez zmiany typów ani wiadomości bezpieczeństwa i odświeża dane", async () => {

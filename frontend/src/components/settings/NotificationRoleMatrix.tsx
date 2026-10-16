@@ -356,7 +356,7 @@ function RoleMatrixEditor({
           </h2>
           <p className="mt-1 text-sm text-muted-foreground">
             Wyłącz kategorię dla całej roli. Osoba z tej roli przestaje ją
-            dostawać w dzwonku; resztę każdy doprecyzuje sobie w zakładce
+            dostawać w ikonach paska i dymkach; resztę każdy doprecyzuje sobie w zakładce
             „Moje”. Kategorii z kłódką nie da się wyłączyć, bo ktoś czeka w nich
             na konkretną osobę.
           </p>

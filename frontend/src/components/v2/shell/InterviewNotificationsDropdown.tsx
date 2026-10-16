@@ -381,6 +381,7 @@ export function InterviewsTopbarButton({
       ref={ref}
       type="button"
       aria-label={label}
+      title="Kalendarz — rozmowy u klienta i prepy"
       className={cn(
         "relative transition-colors",
         pill

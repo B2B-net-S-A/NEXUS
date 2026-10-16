@@ -175,7 +175,7 @@ describe("CvInTransitSection — „W przeglądzie” po stronie rekrutera", () 
     renderOpen([reviewRow()]);
     fireEvent.click(screen.getByRole("button", { name: "Przypomnij Delivery Leadowi: Adam Wrona" }));
     await waitFor(() =>
-      expect(toast.showInfo).toHaveBeenCalledWith("Dziś już przypomniano — Delivery Lead ma to w dzwonku."),
+      expect(toast.showInfo).toHaveBeenCalledWith("Dziś już przypomniano — Delivery Lead ma to w ikonie „CV”."),
     );
     expect(toast.showSuccess).not.toHaveBeenCalled();
     expect(toast.showError).not.toHaveBeenCalled();

@@ -580,7 +580,7 @@ export function JobReopenDialog({
                   data-testid="job-reopen-recruiter-note"
                 >
                   Wracają poprzedni rekruterzy: {joinNames(returning.map((p) => p.name))}.
-                  Każda z tych osób dostanie dzwonek. Zmienisz ich w zakładce „Zespół
+                  Każda z tych osób dostanie powiadomienie w „Rekrutacjach”. Zmienisz ich w zakładce „Zespół
                   i ogłoszenie”.
                 </p>
               ) : (

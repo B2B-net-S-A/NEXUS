@@ -236,7 +236,7 @@ function ForwardProgressBlock({
       </ol>
       {waiting ? (
         <p className="text-[11px] text-muted-foreground">
-          Dam znać dzwonkiem, gdy CV będzie gotowe. Możesz w tym czasie zająć się kolejną osobą.
+          Dam znać w ikonie „CV”, gdy CV będzie gotowe. Możesz w tym czasie zająć się kolejną osobą.
         </p>
       ) : null}
       {next && onOpenPerson ? (

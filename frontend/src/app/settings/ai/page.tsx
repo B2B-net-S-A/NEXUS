@@ -240,7 +240,7 @@ export default function AISettingsPage() {
         {testAlert.isSuccess && (
           <p className="mt-2 text-muted-foreground">
             {testAlert.data.data.delivered
-              ? "Alert dostarczony. Sprawdź powiadomienia pod ikoną dzwonka."
+              ? "Alert dostarczony — pojawia się jako dymek na ekranie (i mail, gdy włączony)."
               : "Alert oczekuje na dostawę."}
           </p>
         )}

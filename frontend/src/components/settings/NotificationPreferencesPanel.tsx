@@ -85,11 +85,10 @@ export function NotificationPreferencesPanel() {
   return (
     <div className="space-y-4">
       <p className="text-sm text-muted-foreground">
-        Wybierz, które powiadomienia mają trafiać do dzwonka. Wyłączona
-        kategoria znika z dzwonka i nie pokazuje się jako dymek na ekranie.
-        Kategorię możesz też wyłączyć prosto z dzwonka ikoną dzwonka
-        z kreską przy powiadomieniu. Czaty oraz rozmowy u klienta i prepy
-        mają własne okienka obok dzwonka.
+        Wybierz, które powiadomienia mają do Ciebie trafiać. Wyłączona
+        kategoria znika z ikon górnego paska („CV”, „Rekrutacje”,
+        „Wiadomości”, „Kalendarz”) i nie pokazuje się jako dymek na ekranie.
+        Każda ikona ma jeden temat; reszta przychodzi jako dymek i mail.
       </p>
 
       {query.isError && (
