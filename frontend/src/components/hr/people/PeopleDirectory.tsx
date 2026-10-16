@@ -26,6 +26,9 @@ import {
 import { CALM_EMPTY, CALM_HEAD, CALM_ROW, CALM_SUBLINE } from "@/lib/calm-table";
 import { resolveViewState } from "@/lib/view-state";
 
+import { AbsenceBadge } from "@/components/hr/AbsenceBadge";
+import { useAbsences } from "@/lib/api/hr-leave";
+
 import { AddPersonDialog } from "./AddPersonDialog";
 import { STATUS_TONE, personInitials } from "./hr-format";
 
@@ -38,6 +41,10 @@ export function PeopleDirectory({ config }: { config: HrConfig }) {
   const [query, setQuery] = useState("");
   const [adding, setAdding] = useState(false);
   const canAdd = config.me.people_admin;
+  const absences = useAbsences(
+    (people.data?.items ?? []).map((row) => row.user_id),
+    { enabled: config.open_modules.leave },
+  );
 
   const rows = useMemo(() => people.data?.items ?? [], [people.data]);
   const filtered = useMemo(() => {
@@ -153,6 +160,10 @@ export function PeopleDirectory({ config }: { config: HrConfig }) {
                           {row.name}
                         </span>
                         <span className={`${CALM_SUBLINE} truncate`}>{row.email}</span>
+                        <AbsenceBadge
+                          absence={absences.byUser.get(row.user_id)}
+                          className="mt-0.5"
+                        />
                       </span>
                     </Link>
                   </TableCell>
