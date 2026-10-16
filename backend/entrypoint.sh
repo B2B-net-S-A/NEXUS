@@ -723,6 +723,8 @@ _ENUM_STATEMENTS = [
     # 0450: championi rekrutacji — zapis listy / powrót do szukania.
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'champions_changed'",
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'champion_search_resumed'",
+    # 0451: „Klient zaakceptował” (do rekrutera, prowadzącego, DL i HoR).
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'client_accepted'",
     # callstatus: zapisywane przez POST /api/cloudtalk/initiate-call. Uśpione,
     # bo CLOUDTALK_ENABLED=false — ale leży dokładnie na ścieżce aktywacji.
     "ALTER TYPE callstatus ADD VALUE IF NOT EXISTS 'initiated'",
@@ -5830,6 +5832,11 @@ END $$""",
     "ON job_champions (candidate_id)",
     "CREATE UNIQUE INDEX IF NOT EXISTS ux_job_champions_live "
     "ON job_champions (job_id, candidate_id) WHERE cleared_at IS NULL",
+    # 0451: „Klient zaakceptował” (16.10.2026) — data akceptacji i planowany
+    # start na wierszu etapu. Lustro 1:1 z migracją — pilnuje
+    # `test_client_acceptance_migration.py`.
+    "ALTER TABLE candidate_stages ADD COLUMN IF NOT EXISTS client_accepted_on DATE NULL",
+    "ALTER TABLE candidate_stages ADD COLUMN IF NOT EXISTS planned_start_on DATE NULL",
     # 0370: prepy w Teams — spotkanie, transkrypt i ocena. Lustro 1:1 z
     # migracją — pilnuje `test_prep_meetings_schema.py`.
     """CREATE TABLE IF NOT EXISTS prep_meetings (

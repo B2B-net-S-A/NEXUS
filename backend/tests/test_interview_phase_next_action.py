@@ -68,7 +68,7 @@ def _client_interview_col() -> StageColumn:
 
 def test_no_phase_keeps_the_old_step() -> None:
     action = next_action_for(_client_interview_col(), days_in_stage=1, group="client")
-    assert (action.label, action.owner) == ("Zbierz feedback HM", "client")
+    assert (action.label, action.owner) == ("Decyzja po rozmowie", "client")
 
 
 def test_offer_stage_ignores_a_stale_phase() -> None:

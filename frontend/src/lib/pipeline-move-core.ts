@@ -65,6 +65,9 @@ export interface PipelineMovePayload {
   hired_signed_via?: HiredSignedVia;
   hired_signed_note?: string;
   hired_current_engagement?: HiredCurrentEngagement;
+  /** 0451: okno „Klient zaakceptował” — tylko przy ruchu na etap akceptacji. */
+  client_accepted_on?: string;
+  planned_start_on?: string;
 }
 
 /** Odpowiedź `POST /api/pipeline/move` — pola, które czytają ekrany. */

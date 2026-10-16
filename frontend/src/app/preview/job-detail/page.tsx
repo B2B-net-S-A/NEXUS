@@ -56,6 +56,7 @@ import { JobPriorityMenu } from "@/components/v2/jobs/JobPriorityMenu";
 import { JobRecruiterFact } from "@/components/v2/jobs/JobRecruiterFact";
 import type { JobRecruiter } from "@/lib/job-team";
 import { isPriorityLevel } from "@/lib/request-priority";
+import { warsawToday } from "@/lib/warsaw-date";
 import { reassignContextQueryKey } from "@/components/v2/jobs/ScreeningReassignSuggestions";
 import { JobChampionsStatus } from "@/components/v2/jobs/JobChampionsStatus";
 import {
@@ -361,13 +362,30 @@ function columns(): KanbanColumn[] {
       } as never),
     ]),
     // Iza ma trwającą umowę u innego klienta — ruch na „Zatrudniony” pyta
-    // „Co z obecną współpracą?”.
-    col("negotiation", "Umowa", 27, [
-      card("Iza", "Umowna", {
-        claim_until: null,
-        employment_marker: PREVIEW_EMPLOYED("working", null),
-      } as never),
-    ]),
+    // „Co z obecną współpracą?”. 16.10.2026 (D1–D6): etapy jak w szablonie
+    // produkcyjnym — „Akceptacja”, „Umowa wysłana” i „Umowa podpisana” składają
+    // się w kolumnę „Akceptacja i umowa”; Iza ma zapisaną akceptację klienta.
+    col(
+      "acceptance",
+      "Akceptacja",
+      27,
+      [
+        card("Iza", "Umowna", {
+          claim_until: null,
+          employment_marker: PREVIEW_EMPLOYED("working", null),
+          client_acceptance: {
+            stage_id: 9900,
+            accepted_on: previewDay(-1),
+            planned_start_on: previewDay(14),
+            marked_at: new Date(Date.now() - DAY).toISOString(),
+            marked_by_name: "Olga Wzorcowa",
+          },
+        } as never),
+      ],
+      "external",
+    ),
+    col("new", "Umowa wysłana", 31, [], "external"),
+    col("new", "Umowa podpisana", 32, [], "external"),
     col("hired", "Zatrudniony", 28, []),
     col("rejected", "Odrzucony", 29, [card("Zofia", "Szkicowa", { claim_until: null } as never)], "terminal", "rejected"),
     col("withdrawn", "Wycofany", 30, [], "terminal", "withdrawn"),
@@ -796,6 +814,19 @@ const PANEL_BRIEF: PlainBrief = {
  * na to jedno zapytanie lokalnie, bez sieci.
  */
 const MOVE_REQUIREMENTS_URL = "/api/pipeline/move-requirements";
+/** Okno „Klient zaakceptował” (16.10.2026): kto dostanie dzwonek — fikcyjne osoby. */
+const CLIENT_ACCEPTANCE_RECIPIENTS_URL = "/api/pipeline/client-acceptance/recipients";
+const CLIENT_ACCEPTANCE_RECIPIENTS = {
+  recipients: [
+    { user_id: 7, name: "Marta Nowak", role: "recruiter", role_label: "rekruter kandydata" },
+    { user_id: 12, name: "Ewa Testowa", role: "owner", role_label: "prowadzi rekrutację" },
+    { user_id: 8, name: "Olaf Przykładowy", role: "head_of_recruitment", role_label: "Head of Recruitment" },
+  ],
+};
+/** Dzień kalendarza firmy przesunięty o `offset` dni (RRRR-MM-DD). */
+function previewDay(offset: number): string {
+  return warsawToday(new Date(Date.now() + offset * DAY));
+}
 const MOVE_REQUIREMENTS: MoveRequirementsResponse = {
   from_column: null,
   to_column: null,
@@ -1489,6 +1520,25 @@ function JobDetailHarness() {
           headers: {},
           config,
         });
+        return config;
+      }
+      if (config.url === CLIENT_ACCEPTANCE_RECIPIENTS_URL) {
+        config.adapter = async () => ({
+          data: CLIENT_ACCEPTANCE_RECIPIENTS,
+          status: 200,
+          statusText: "OK",
+          headers: {},
+          config,
+        });
+        return config;
+      }
+      // „Zapisz akceptację” — ruch na etap „Akceptacja” i werdykt „Akceptuje”
+      // odpowiadają lokalnie (tylko ruch z datą akceptacji; reszta ruchów bez zmian).
+      const acceptanceMove =
+        config.url === "/api/pipeline/move" &&
+        Boolean((config.data as { client_accepted_on?: string } | undefined)?.client_accepted_on);
+      if (acceptanceMove || config.url === `/api/jobs/${JOB_ID}/hiring-manager-feedback`) {
+        config.adapter = async () => ({ data: {}, status: 200, statusText: "OK", headers: {}, config });
         return config;
       }
       if (config.url === MOVE_REQUIREMENTS_URL) {

@@ -51,8 +51,10 @@ from app.models.notification import NotificationType
 from app.services.notification_access import filter_notification_recipients
 from app.services.stage_handoff_recipients import (
     BACKWARD_REASONS,
+    REASON_CLIENT_ACCEPTED,
     TASK_REASONS,
     handoff_recipients,
+    is_backward_move,
     pair_recruiter_id,
 )
 
@@ -310,8 +312,12 @@ async def resolve_recipients(
     if previous_stage is not None and previous_stage.stage_def_id is not None:
         prev_def = stage_defs_by_id.get(previous_stage.stage_def_id)
     # Ruch wstecz nie uruchamia reguł etapów; z przekazań zostają tylko zwroty
-    # do poprawy — z kolejki Cpro i z „QC CV” (rozstrzygane niżej).
-    backward = prev_def is not None and prev_def.order >= new_stage_def.order
+    # do poprawy — z kolejki Cpro i z „QC CV” (rozstrzygane niżej). Kierunek
+    # między szablonami (karta z etapu Traffita) liczy kolumna Tablicy.
+    stage_code = getattr(new_stage.stage, "value", new_stage.stage)
+    backward = is_backward_move(
+        prev_def, new_stage_def, stage_code=str(stage_code) if stage_code else None
+    )
 
     # Override priority — jeśli klient ma override dla tego stage'a, baseline
     # zostaje pominięty.
@@ -344,7 +350,6 @@ async def resolve_recipients(
     # Cpro, zwrot z Cpro → kto przekazał, „CV wysłane” → rekruter kandydata
     # i osoba przekazująca) działają także bez reguł — etap „QC CV” nie ma
     # żadnej. Zawsze dzwonek, nigdy mail.
-    stage_code = getattr(new_stage.stage, "value", new_stage.stage)
     reason, handoff_ids = await handoff_recipients(
         db,
         stage_def=new_stage_def,
@@ -380,10 +385,14 @@ async def resolve_recipients(
     # w kategorii, której nie da się wyciszyć — sprawdzamy dostęp tym typem,
     # inaczej wyciszone „Ruchy w rekrutacjach” odsiałyby odbiorcę już tutaj.
     task_ids = {uid for uid, why in reason_by_user.items() if why in TASK_REASONS}
+    accepted_ids = {
+        uid for uid, why in reason_by_user.items() if why == REASON_CLIENT_ACCEPTED
+    }
     allowed_ids: set[int] = set()
     for ntype, ids in (
         (NotificationType.board_task_waiting, active_ids & task_ids),
-        (NotificationType.stage_rule, active_ids - task_ids),
+        (NotificationType.client_accepted, active_ids & accepted_ids),
+        (NotificationType.stage_rule, active_ids - task_ids - accepted_ids),
     ):
         allowed_users = await filter_notification_recipients(
             db,

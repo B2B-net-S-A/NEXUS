@@ -94,7 +94,7 @@ describe("podpisy i etykiety", () => {
   });
 
   it("kolumna pary w rejestrze", () => {
-    expect(pairColumnLabel("contract")).toBe("Umowa");
+    expect(pairColumnLabel("contract")).toBe("Akceptacja i umowa");
     expect(pairColumnLabel("closed")).toBe("Zamknięci");
     expect(pairColumnLabel("unknown")).toBeNull();
     expect(pairColumnLabel(null)).toBeNull();

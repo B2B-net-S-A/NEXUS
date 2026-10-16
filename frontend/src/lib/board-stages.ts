@@ -16,8 +16,8 @@
  *   QC CV                    → „QC CV" (gospodarz kolumny, bez znacznika)
  *   Wysłać do Cpro           → „QC CV" + „W kolejce Cpro" (Nordea)
  *   Preparation Meeting      → „Rozmowa u klienta" + „Prep"
- *   Akceptacja               → „Umowa" + „Akceptacja"
- *   Umowa wysłana/podpisana  → „Umowa" + „wysłana"/„podpisana"
+ *   Akceptacja               → „Akceptacja i umowa" + „Akceptacja"
+ *   Umowa wysłana/podpisana  → „Akceptacja i umowa" + „wysłana"/„podpisana"
  *   Onboarding               → „Zatrudniony" + „Onboarding"
  *   Odrzucony, Wycofany      → pasek pod tablicą
  *
@@ -66,7 +66,9 @@ export const BOARD_COLUMN_LABEL: Record<BoardColumnKey, string> = {
   cv_qc: "QC CV",
   cv_sent: "CV wysłane",
   client_interview: "Rozmowa u klienta",
-  contract: "Umowa",
+  // 16.10.2026 (D2): do tej kolumny trafia osoba zaakceptowana przez klienta
+  // („Klient zaakceptował”) — sama „Umowa” nie mówiła, że tu jest akceptacja.
+  contract: "Akceptacja i umowa",
   hired: "Zatrudniony",
   closed: "Zamknięci",
 };
@@ -346,11 +348,11 @@ export function foldBoardColumns<C extends FoldableColumn>(
 
 /**
  * Znaczniki, które da się ustawić z panelu osoby: etap-znacznik z tej samej
- * kolumny Tablicy (ruch na ten etap). Od Rekrutacji v5 zostaje tylko
- * „Umowa podpisana" — Cpro ustawia się strzałką „Przesuń dalej" →
- * „Przekaż do Cpro", a DZ stał się kolumną „QC CV".
+ * kolumny Tablicy (ruch na ten etap). Od Rekrutacji v5 zostają kroki umowy
+ * („Umowa wysłana” od 16.10.2026, „Umowa podpisana”) — Cpro ustawia się
+ * strzałką „Przesuń dalej" → „Przekaż do Cpro", a DZ stał się kolumną „QC CV".
  */
-export const SETTABLE_BADGES: readonly StageBadgeKey[] = ["contract_signed"];
+export const SETTABLE_BADGES: readonly StageBadgeKey[] = ["contract_sent", "contract_signed"];
 
 /** Znaczniki widoczne na karcie dla etapu-znacznika. */
 export function impliedBadges(badge: StageBadgeKey | null | undefined): StageBadgeKey[] {

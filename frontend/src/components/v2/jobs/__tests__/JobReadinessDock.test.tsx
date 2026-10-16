@@ -804,7 +804,7 @@ describe("JobReadinessDock — variant \"list\" (krok 01), zakładki fali 3", ()
       "QC CV",
       "CV wysłane",
       "Rozmowa u klienta",
-      "Umowa",
+      "Akceptacja i umowa",
       "Zatrudniony",
       "Odrzuceni / wycofani",
     ]) {

@@ -5,7 +5,8 @@ kontrakt API `docs/recruitment-v5-contract.md`. Zastępuje przegląd DZ (0353),
 osobę od Cpro per rekrutacja (0353) i kolejkę „Czeka na DZ” (0348).
 
 - **8 kolumn:** Nowi · Screening · Zweryfikowany · QC CV · CV wysłane · Rozmowa
-  u klienta · Umowa · Zatrudniony. Screening (kody `screening`/`prep_call`) to
+  u klienta · Akceptacja i umowa · Zatrudniony (siódma do 16.10.2026 nazywała
+  się „Umowa” — sekcja „Akceptacja klienta” niżej). Screening (kody `screening`/`prep_call`) to
   kolumna, nie odznaka. Etap „Przepuszczony przez DZ” / „QC CV” jest GOSPODARZEM
   kolumny `cv_qc` (mimo kodu `interview`), „Wysłać do Cpro” wpada do niej ze
   znacznikiem „W kolejce Cpro”. Migracja 0361 zmienia nazwę etapu w szablonach
@@ -153,3 +154,33 @@ osobę od Cpro per rekrutacja (0353) i kolejkę „Czeka na DZ” (0348).
   Nowi, zakładki wyszukiwanie AI z Championa · propozycje · Moi ludzie · ręcznie.
   *(Od 02.10.2026 okno „Kandydaci do dodania” z czterema źródłami, otwierane
   z kafli nad Tablicą — sekcja „Prostszy ekran rekrutacji”.)*
+- **Akceptacja klienta (D1–D6, 16.10.2026, makiety
+  https://claude.ai/artifact/DNz7EMuABGztLH81xGtzTc).** Zgłoszenie DL: dostał
+  akceptację od klienta i nie wiedział, gdzie ją zaznaczyć — kolumna nazywała
+  się „Umowa”, a akceptacja była małą plakietką. Teraz:
+  - kolumna „Akceptacja i umowa”, podpis „Klient zaakceptował → umowa →
+    podpis”, w nagłówku liczniki „Zaakceptowani · Umowa wysłana · Podpisana”
+    (`lib/client-acceptance.ts`, `ContractStepChips`); lustro nazwy
+    w `move_requirements.COLUMN_LABEL`. Zadanie karty po rozmowie: „Decyzja po
+    rozmowie” (lustro `pipeline_next_action`);
+  - przycisk „Klient zaakceptował” na karcie w „Rozmowie u klienta”, w panelu
+    osoby i werdykt hiring managera „Akceptuje” (dawniej „Dalej”) otwierają
+    JEDNO okno (`ClientAcceptedDialog`): data akceptacji (domyślnie dziś, nie
+    z przyszłości), planowany start (opcjonalnie, nie przed akceptacją), co
+    powiedział klient, lista osób, które dostaną dzwonek
+    (`GET /api/pipeline/client-acceptance/recipients`). Zapis = ruch na etap
+    „Akceptacja” przez `usePipelineMove` (pola `client_accepted_on`,
+    `planned_start_on` w `StageMove`, 0451; przy innym etapie 422), potem
+    werdykt `advance` z notatką. Werdykt po akceptacji nie dubluje dzwonka
+    „Klient idzie dalej” (`interview_feedback_actions._past_acceptance`);
+  - debrief po rozmowie zostaje bramką serwera (D3), ale okno pokazuje go
+    w sobie: „Uzupełnij debrief” otwiera okno debriefu na wierzchu, zapis
+    akceptacji czeka. Debriefu nie zapisujemy z okna akceptacji sami — to
+    rozmowa z kandydatem (ocena, reakcja na ofertę), nie słowa klienta;
+  - karta i panel w „Akceptacji i umowie” mają zielony wiersz „✓ Klient
+    zaakceptował · data · kto” (`client_acceptance` karty Tablicy = ostatni
+    wiersz etapu `acceptance` pary; front rysuje go tylko w tej kolumnie).
+    Panel: planowany start, przełączniki „+ Umowa wysłana” / „+ Umowa
+    podpisana” i „Cofnij akceptację klienta” w menu „⋯” (powrót na „Rozmowę
+    u klienta”, z potwierdzeniem);
+  - dzwonek — `rekrutacja-tablica/dzwonek-przy-przekazaniu-karty-qc-dl-cv-wyslane.md`.
