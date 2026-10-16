@@ -544,14 +544,23 @@ async def _existing_numbers(db: AsyncSession) -> dict[tuple[str, str], int]:
     return out
 
 
+def _is_current_sheet(name: str) -> bool:
+    """Arkusz z aktualną listą (np. „Aktualne”) — w plikach recepcji obok stoją jej kopie."""
+    return "aktualn" in sanitize.fold(name)
+
+
 async def create_batch(
     db: AsyncSession, *, filename: str, content: bytes, actor: User
 ) -> EquipmentImportBatch:
     parsed = parse_workbook(content)
     users, contracts = await _people_index(db)
     existing = await _existing_numbers(db)
-    seen: dict[tuple[str, str], str] = {}
+    # Numer → (gdzie pierwszy raz, czy z aktualnej listy). Wiersze aktualnej listy
+    # idą pierwsze: kopia stojąca w pliku PRZED „Aktualne” nie może jej wygrać
+    # (próba na pliku kart 16.10: 66 aktualnych kart dostawało „konflikt”).
+    seen: dict[tuple[str, str], tuple[str, bool]] = {}
     counts: dict[str, int] = {d: 0 for d in schema.IMPORT_DECISIONS}
+    ordered = sorted(parsed.rows, key=lambda r: not _is_current_sheet(r.sheet))
     batch = EquipmentImportBatch(
         file_name=(filename or "plik.xlsx")[:255],
         file_sha256=hashlib.sha256(content).hexdigest(),
@@ -559,7 +568,7 @@ async def create_batch(
     )
     db.add(batch)
     await db.flush()
-    for row in parsed.rows:
+    for row in ordered:
         data = row.data
         numbers = [(f, data[f]) for f in IDENTIFIER_FIELDS if data.get(f)]
         holder_user = holder_contract = None
@@ -575,13 +584,21 @@ async def create_batch(
                 f"{identifiers.FIELD_LABELS[hit[0]]} jest już w rejestrze (pozycja #{existing[hit]})",
             )
         elif dup := next((key for key in numbers if key in seen), None):
-            decision = "konflikt"
-            reasons.insert(
-                0, f"ten sam {identifiers.FIELD_LABELS[dup[0]]} co {seen[dup]}"
-            )
+            where, from_current = seen[dup]
+            if from_current and not _is_current_sheet(row.sheet):
+                decision = "pomin"
+                reasons.insert(0, f"kopia — liczy się aktualna lista ({where})")
+            else:
+                decision = "konflikt"
+                reasons.insert(
+                    0, f"ten sam {identifiers.FIELD_LABELS[dup[0]]} co {where}"
+                )
         else:
             for key in numbers:
-                seen[key] = f"arkusz „{row.sheet}”, wiersz {row.row_number}"
+                seen[key] = (
+                    f"arkusz „{row.sheet}”, wiersz {row.row_number}",
+                    _is_current_sheet(row.sheet),
+                )
             if status == "wydany" and holder_text:
                 holder_user = _unique(users, holder_text)
                 if holder_user is None:

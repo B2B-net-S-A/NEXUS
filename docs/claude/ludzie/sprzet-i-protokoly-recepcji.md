@@ -65,6 +65,11 @@ osobie z kartoteki i uczestniku Akademii.
   → arkusz kontrolny XLSX dla recepcji → poprawki → zatwierdzenie. Nic nie trafia
   do rejestru przed zatwierdzeniem. Laptopów bez stanu nie zgadujemy — idą do
   „Do wyjaśnienia”.
+- Arkusz z „aktualn” w nazwie (np. „Aktualne” w pliku kart) wygrywa z kopiami listy
+  w innych arkuszach: kopia dostaje „pomiń” z powodem, nie „konflikt”. Duplikat między
+  arkuszami bez aktualnej listy zostaje konfliktem. Arkusze ukryte i bez rozpoznanego
+  wiersza nagłówków są pomijane i nazwane w raporcie partii (w plikach recepcji:
+  „Akcesoria” liczone w sztukach, „Utylizacja…”, notatki o zwrotach, „InTune”).
 
 ## Intune (etap 4, D9) i edycje Akademii (etap 5)
 

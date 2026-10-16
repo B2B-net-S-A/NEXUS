@@ -200,3 +200,63 @@ async def test_import_waits_for_approval_then_creates_items(
         headers=headers,
     )
     assert locked.status_code == 409
+
+
+def _cards_workbook(tag: str) -> bytes:
+    """Plik kart jak u recepcji: stara kopia listy PRZED arkuszem „Aktualne”."""
+    workbook = openpyxl.Workbook()
+    old = workbook.active
+    old.title = "Arkusz1"
+    old.append(["NR. KARTY", "Karta przypisana", "Poziom dostępu"])
+    old.append([f"K1{tag}", None, "ogólny"])
+    old.append([f"K2{tag}", None, "ogólny"])
+    old.append([f"K9{tag}", None, "ogólny"])
+    current = workbook.create_sheet("Aktualne")
+    current.append(["NR. KARTY", "Karta przypisana", "Poziom dostępu"])
+    current.append([f"K1{tag}", None, "ogólny + biuro"])
+    current.append([f"K2{tag}", None, "ogólny + biuro"])
+    current.append([f"K3{tag}", None, "ogólny"])
+    sales = workbook.create_sheet("Dział sprzedaży")
+    sales.append(["NR. KARTY", "Karta przypisana", "Poziom dostępu"])
+    sales.append([f"K9{tag}", None, "ogólny"])
+    buffer = io.BytesIO()
+    workbook.save(buffer)
+    return buffer.getvalue()
+
+
+async def test_current_sheet_wins_over_its_older_copy(
+    app_client, modules_on, people
+) -> None:
+    """Arkusz „Aktualne” wygrywa z kopią listy stojącą przed nim w pliku.
+
+    Na prawdziwym pliku kart (16.10, próba lokalna) stara kopia „Arkusz1” stała
+    przed „Aktualne”, więc 66 aktualnych kart dostało „konflikt”. Kopia z innego
+    arkusza ma być pominięta z powodem, a duplikat między dwoma arkuszami bez
+    aktualnej listy zostaje konfliktem do decyzji człowieka.
+    """
+    headers = _headers(people["reception"])
+    tag = _tag()
+    uploaded = await app_client.post(
+        "/api/equipment/imports",
+        files={"file": ("karty.xlsx", _cards_workbook(tag), XLSX)},
+        headers=headers,
+    )
+    assert uploaded.status_code == 201, uploaded.text
+    detail = (
+        await app_client.get(
+            f"/api/equipment/imports/{uploaded.json()['id']}", headers=headers
+        )
+    ).json()
+    rows = {
+        (row["sheet"], row["data"].get("access_card_number")): row
+        for row in detail["rows"]
+    }
+    for number in (f"K1{tag}", f"K2{tag}", f"K3{tag}"):
+        assert rows[("Aktualne", number)]["decision"] == "przyjmij"
+    for number in (f"K1{tag}", f"K2{tag}"):
+        old = rows[("Arkusz1", number)]
+        assert old["decision"] == "pomin"
+        assert "Aktualne" in old["reason"]
+    # K9 jest w dwóch arkuszach, żaden nie jest aktualną listą — decyduje człowiek.
+    assert rows[("Arkusz1", f"K9{tag}")]["decision"] == "przyjmij"
+    assert rows[("Dział sprzedaży", f"K9{tag}")]["decision"] == "konflikt"
