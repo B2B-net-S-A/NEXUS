@@ -12,6 +12,7 @@ const JOBS: AlsoFitsJob[] = [
     job_id: 21,
     title: "Angular Developer",
     client_name: "Ubezpieczenia Demo",
+    client_reference: "ZOB-3101",
     score: 84,
     matching_must: ["Angular", "RxJS"],
     gap_must: [],
@@ -49,6 +50,8 @@ describe("AlsoFitsBlock — „Pasuje też do” (A1)", () => {
     const block = screen.getByTestId("also-fits-block");
     expect(within(block).getByText("Pasuje też do 2 innych rekrutacji")).toBeInTheDocument();
     expect(within(block).getByText("Angular Developer")).toBeInTheDocument();
+    // Numer u klienta przed nazwą, jak w nagłówku rekrutacji (16.10.2026).
+    expect(within(block).getByText("ZOB-3101")).toBeInTheDocument();
     expect(within(block).getByText("· Ubezpieczenia Demo")).toBeInTheDocument();
     expect(within(block).getByText("84%")).toBeInTheDocument();
     expect(within(block).getByText("✕ Prowadzenie zespołu")).toBeInTheDocument();

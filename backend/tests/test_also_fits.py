@@ -140,7 +140,10 @@ def wiring(monkeypatch):
 
 
 def _jobs(*ids):
-    return [SimpleNamespace(id=i, title=f"Rekrutacja {i}") for i in ids]
+    return [
+        SimpleNamespace(id=i, title=f"Rekrutacja {i}", client_reference=f"ZOB-{i}")
+        for i in ids
+    ]
 
 
 @pytest.mark.asyncio
@@ -161,6 +164,8 @@ async def test_returns_top_fits_with_chips_and_client(wiring) -> None:
     assert [j.job_id for j in result.jobs] == [12, 14, 11]
     first = result.jobs[0]
     assert first.title == "Rekrutacja 12" and first.client_name == "Klient 12"
+    # Numer u klienta przed nazwą, jak w nagłówku rekrutacji (16.10.2026).
+    assert first.client_reference == "ZOB-12"
     assert first.score == 91
     assert first.matching_must == ("Angular", "RxJS", "TypeScript")
     assert first.gap_must == ("Kafka", "Java")

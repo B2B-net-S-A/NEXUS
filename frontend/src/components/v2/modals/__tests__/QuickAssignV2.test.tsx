@@ -160,6 +160,64 @@ describe("QuickAssignV2 (C5)", () => {
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
+  it("nazywa rekrutację jak jej nagłówek: numer u klienta i tytuł dla rekrutera, klient w drugiej linii", async () => {
+    // Zgłoszenie 16.10.2026: okno pokazywało „AI Engineer (ZOB-2984)” (nazwa od
+    // klienta), a rekrutacja nazywa się „Senior AI Engineer · Java, LLM · 5+ lat”.
+    const names = {
+      title: "AI Engineer (ZOB-2984)",
+      working_title: "Senior AI Engineer · Java, LLM · 5+ lat",
+      client_reference: "ZOB-2984",
+      client_name: "Bank Przykładowy",
+      location: "Warszawa",
+    };
+    mocks.jobsList.mockResolvedValue({ data: { items: [{ id: 1, ...names }] } });
+    mocks.forCandidate.mockResolvedValue({
+      data: { matches: [{ job: { id: 4, ...names }, total_score: 81 }], meta: { mode: "semantic", degraded: false, reason: null } },
+    });
+    useTabsStore.setState({
+      tabs: [{ id: "job-9", type: "job", entityId: 9, title: "Ostatnia rekrutacja", reference: "42946", url: "/jobs/9" }],
+      activeTabId: null,
+    });
+    mocks.assignToJob.mockRejectedValue(
+      Object.assign(new Error("HTTP 409"), {
+        response: {
+          status: 409,
+          data: {
+            detail: {
+              code: "closed_in_job",
+              message: "Zamknięta karta w tej rekrutacji: Odrzucony 08.10.2026 (Jan Testowy)",
+              closed: { candidate_name: "Anna Nowak", state_version: 2, restore_stage: "new", restore_stage_def_id: null },
+            },
+          },
+        },
+      }),
+    );
+    renderSheet();
+
+    const mine = await screen.findByRole("region", { name: "Moje otwarte" });
+    expect(await within(mine).findByText("Senior AI Engineer · Java, LLM · 5+ lat")).toBeInTheDocument();
+    expect(within(mine).getByText("ZOB-2984")).toBeInTheDocument();
+    expect(within(mine).getByText("Bank Przykładowy · Warszawa")).toBeInTheDocument();
+    expect(within(mine).queryByText("AI Engineer (ZOB-2984)")).not.toBeInTheDocument();
+    // Nazwa od klienta zostaje w dymku.
+    expect(within(mine).getByTestId("job-pick-name")).toHaveAttribute(
+      "title",
+      expect.stringContaining("Nazwa u klienta: AI Engineer (ZOB-2984)"),
+    );
+    const recent = screen.getByRole("region", { name: "Ostatnio otwierane" });
+    expect(within(recent).getByText("42946")).toBeInTheDocument();
+
+    fireEvent.click(within(mine).getByRole("button", { name: "Przypisz" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Nie przypisano do „Senior AI Engineer · Java, LLM · 5+ lat”.",
+    );
+
+    fireEvent.mouseDown(screen.getByRole("tab", { name: /AI sugestie/ }));
+    const panel = await screen.findByRole("tabpanel");
+    expect(await within(panel).findByText("Senior AI Engineer · Java, LLM · 5+ lat")).toBeInTheDocument();
+    expect(within(panel).getByText("ZOB-2984")).toBeInTheDocument();
+  });
+
   it("bez znacznika okno nie rysuje ramki", async () => {
     renderSheet();
     await screen.findByRole("region", { name: "Moje otwarte" });
@@ -169,7 +227,7 @@ describe("QuickAssignV2 (C5)", () => {
   it("po wpisaniu frazy skróty znikają", async () => {
     renderSheet();
     await screen.findByRole("region", { name: "Moje otwarte" });
-    fireEvent.change(screen.getByPlaceholderText("Szukaj po tytule rekrutacji…"), { target: { value: "java" } });
+    fireEvent.change(screen.getByPlaceholderText("Tytuł, klient albo numer…"), { target: { value: "java" } });
     expect(screen.queryByRole("region", { name: "Moje otwarte" })).not.toBeInTheDocument();
     expect(screen.queryByRole("region", { name: "Ostatnio otwierane" })).not.toBeInTheDocument();
   });

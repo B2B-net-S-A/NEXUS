@@ -32,14 +32,15 @@ import type { CandidateRiskProfile } from"@/types/candidate-risk";
 import { useTabsStore } from "@/store/tabs";
 import { ADD_ANYWAY_HINT, EmploymentNotice } from "@/components/v2/employment/EmploymentNotice";
 import { sameClientNote, type EmploymentMarker } from "@/lib/employment-marker";
+import { jobDisplayTitle, type JobNames } from "@/lib/job-names";
+import { JobPickName } from "@/components/v2/jobs/JobPickName";
 
-interface JobLite {
+interface JobLite extends JobNames {
  id: number;
- title: string;
  client_id?: number | null;
  location?: string | null;
  seniority?: string | null;
- status?: string;
+ status?: string | null;
 }
 
 function scoreVariant(
@@ -194,7 +195,8 @@ export function QuickAssignV2({
  openTabs
  .filter((t) => t.type ==="job")
  .slice(0, 5)
- .map((t) => ({ id: t.entityId, title: t.title })),
+ // Karta trzyma tytuł dla rekrutera i numer u klienta (jak nagłówek).
+ .map((t) => ({ id: t.entityId, title: t.title, client_reference: t.reference })),
  [openTabs],
  );
  const showShortcuts = !searchQuery.trim();
@@ -229,14 +231,12 @@ export function QuickAssignV2({
  }
  };
 
- const renderJobRow = (job: {
- id: number;
- title?: string | null;
- client_id?: number | null;
- location?: string | null;
- seniority?: string | null;
- }, score?: number | null) => {
+ const renderJobRow = (job: JobLite, score?: number | null) => {
  const jobId = job.id;
+ const title = jobDisplayTitle(job);
+ // Druga linia: klient i miejsce (16.10.2026) — przy uogólnionych tytułach
+ // dla rekrutera to klient odróżnia rekrutacje.
+ const meta = [job.client_name, job.location, job.seniority].filter(Boolean).join(" · ");
  const sameClient = sameClientNote(employment, job.client_id);
  const assigned = assignedIds.has(jobId);
  const isAssigning = assigning === jobId;
@@ -246,10 +246,8 @@ export function QuickAssignV2({
  className="flex items-start gap-3 p-3 rounded-lg border border-border hover:border-primary/40 transition-colors"
  >
  <div className="flex-1 min-w-0">
- <div className="flex items-center gap-2 flex-wrap">
- <span className="font-medium text-sm text-foreground truncate">
- {job.title ?? `Rekrutacja #${jobId}`}
- </span>
+ <div className="flex items-center gap-2">
+ <JobPickName job={job} className="text-sm" />
  {typeof score === "number" && (
  <Badge variant={scoreVariant(score)} size="sm">
  {Math.round(score)}%
@@ -261,11 +259,8 @@ export function QuickAssignV2({
  </Badge>
  )}
  </div>
- {job.location && (
- <div className="text-xs text-muted-foreground mt-0.5">
- {job.location}
- {job.seniority ? ` · ${job.seniority}` :""}
- </div>
+ {meta && (
+ <div className="text-xs text-muted-foreground mt-0.5 truncate">{meta}</div>
  )}
  {sameClient && (
  <Badge variant="warning" size="md" className="mt-1">
@@ -283,7 +278,7 @@ export function QuickAssignV2({
  <Button
  size="sm"
  variant="outline"
- onClick={() => handleAssign(jobId, job.title ?? `Rekrutacja #${jobId}`)}
+ onClick={() => handleAssign(jobId, title)}
  loading={isAssigning}
  >
  Przypisz
@@ -392,7 +387,7 @@ export function QuickAssignV2({
  <div className="space-y-3">
  <Input
  leadingIcon={<Search className="h-4 w-4" />}
- placeholder="Szukaj po tytule rekrutacji…"
+ placeholder="Tytuł, klient albo numer…"
  value={searchQuery}
  onChange={(e) => setSearchQuery(e.target.value)}
  autoFocus
