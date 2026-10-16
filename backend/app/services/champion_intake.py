@@ -1183,6 +1183,7 @@ def response_context(job):
             "onsite_days_per_month": getattr(job, "onsite_days_per_month", None),
         },
         "critical_resolution": critical_resolution_payload(job),
+        "requirement_find_words": requirement_find_words_payload(job),
     }
 
 
@@ -1228,6 +1229,51 @@ def critical_resolution_payload(job) -> dict:
         # znajduje prawie całą bazę); bramka AI czyta je z profilu.
         "search_rows_skipped": skipped,
     }
+
+
+def requirement_find_words_payload(job) -> dict[str, list[str]]:
+    """Słowa lupy „Szukaj w CV” dla każdego wymagania (16.10.2026).
+
+    Etykieta „Musi mieć” albo „Mile widziane” (z profilu i z kolumn rekrutacji
+    — ekran pokazuje jedne albo drugie) → słowa, których lupa szuka w podglądzie
+    CV: opcje i warianty nazw tak jak bramka, a przy krytycznej z wyboru DL
+    także słowa jej wiersza. Do tej daty lupa szukała całej etykiety („.NET lub
+    C#”) jako jednej frazy i nie znajdowała niczego.
+    """
+    from app.services.critical_skills import critical_gate_options, match_must_labels
+    from app.services.keyword_suggest import requirement_find_words
+
+    profile = getattr(job, "champion_profile", None)
+    stack = profile.get("stack") if isinstance(profile, dict) else None
+    labels: list[str] = []
+    for key in STACK_COLUMNS:
+        labels.extend(effective_skill_names(job, key))
+        items = stack.get(key) if isinstance(stack, dict) else None
+        for item in items if isinstance(items, list) else ():
+            if isinstance(item, dict) and isinstance(item.get("name"), str):
+                labels.append(item["name"])
+    row_words = critical_gate_options(job)
+    out: dict[str, list[str]] = {}
+    for raw in labels:
+        label = raw.strip()
+        if not label or label in out:
+            continue
+        words = list(requirement_find_words(label))
+        seen = {word.casefold() for word in words}
+        # Krytyczne mają etykiety kanoniczne („kafka”), ekran — pisownię DL-a.
+        extra = next(
+            (w for name, w in row_words.items() if match_must_labels([name], [label])),
+            (),
+        )
+        for word in extra:
+            # Rdzeń „kolejk*” szuka początku słowa — w lupie to po prostu fragment.
+            word = word.strip().rstrip("*")
+            if len(word) >= 2 and word.casefold() not in seen:
+                seen.add(word.casefold())
+                words.append(word)
+        if words:
+            out[label] = words
+    return out
 
 
 async def preview_document(data, filename, *, db=None, model=None, max_text=None):

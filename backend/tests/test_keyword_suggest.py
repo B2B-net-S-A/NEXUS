@@ -164,6 +164,33 @@ def test_single_letter_requirement_gives_no_keyword_row():
     assert keyword_suggest.requirement_search_words("C lub C++") == ()
 
 
+def test_find_words_drop_only_the_single_letter_option():
+    """Lupa „Szukaj w CV” (16.10.2026) podświetla, nie wycina: z „C lub C++”
+    zostaje „C++”, a nie pusty wiersz. Resztę etykiety czyta jak wiersz słów
+    kluczowych — „.NET lub C#” to dwie opcje, nie jedna fraza."""
+    assert keyword_suggest.requirement_find_words("C lub C++") == ("C++",)
+    assert keyword_suggest.requirement_find_words("R") == ()
+    assert keyword_suggest.requirement_find_words(".NET lub C#") == (".NET", "C#")
+    assert keyword_suggest.requirement_find_words("Docker/Kubernetes") == (
+        "Docker",
+        "Kubernetes",
+    )
+
+
+def test_find_words_strip_the_wildcard_of_equivalents():
+    """Odpowiednik „bankow*” (``keyword_equivalents.json``) w lupie to fragment
+    słowa: lupa szuka gwiazdki dosłownie, więc „bankow*” nie trafiłby nigdy
+    i lupa mówiłaby „nie ma w CV” przy „sektor bankowy”."""
+    saved = keyword_suggest._catalog
+    keyword_suggest.load_catalog([(1, "Bankowość", "domain")], [])
+    try:
+        words = keyword_suggest.requirement_find_words("Bankowość")
+    finally:
+        keyword_suggest._catalog = saved
+    assert "bankow" in words
+    assert not any("*" in word for word in words)
+
+
 def test_every_equivalent_parses_as_a_keyword():
     """Kontrakt słownika odpowiedników: każde słowo da się wyszukać, gwiazdka
     ma co najmniej 3 litery rdzenia, a grupa ma co najmniej dwa słowa."""

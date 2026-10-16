@@ -46,7 +46,7 @@ function term(name: string, summary: string, status = "ready") {
   };
 }
 
-function renderSummary(onPickRequirement?: (name: string) => void) {
+function renderSummary(onPickRequirement?: (name: string, words: readonly string[]) => void) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={client}>
@@ -108,12 +108,22 @@ describe("JobRequirementsSummary", () => {
     expect(within(nice).getByText("Kubernetes")).toBeInTheDocument();
   });
 
-  it("„Szukaj w CV” przekazuje nazwę wymagania", async () => {
+  it("„Szukaj w CV” przekazuje nazwę wymagania i słowa lupy z serwera", async () => {
+    getMock.mockResolvedValue({
+      data: {
+        job_id: 5,
+        champion_profile: PROFILE,
+        requirement_find_words: { Kafka: ["Kafka", "Apache Kafka"] },
+      },
+    });
     const onPick = vi.fn();
     const user = userEvent.setup();
     renderSummary(onPick);
     await user.click(await screen.findByRole("button", { name: "Szukaj „Kafka” w CV" }));
-    expect(onPick).toHaveBeenCalledWith("Kafka");
+    expect(onPick).toHaveBeenCalledWith("Kafka", ["Kafka", "Apache Kafka"]);
+    // Wymaganie bez słów (starszy serwer) — lupa szuka samej nazwy.
+    await user.click(screen.getByRole("button", { name: "Szukaj „Kubernetes” w CV" }));
+    expect(onPick).toHaveBeenLastCalledWith("Kubernetes", []);
   });
 
   it("bez obsługi kliknięcia nie ma przycisków, warunki rekrutacji zostają", async () => {

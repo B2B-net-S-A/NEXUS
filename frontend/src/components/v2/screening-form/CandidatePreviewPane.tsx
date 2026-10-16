@@ -69,6 +69,7 @@ import {
   downloadDocumentBlob,
   fetchDocumentBlob,
   type CandidateDocument,
+  type DocumentSearchRequest,
 } from "@/components/v2/files/FilePreviewModal";
 import { DockCallCheatsheet } from "@/components/v2/jobs/DockCallCheatsheet";
 import { DockCvFreshness } from "@/components/v2/jobs/DockCvFreshness";
@@ -183,7 +184,7 @@ interface CvTabProps {
   stageId: number | null;
   source: PreviewCvSource;
   onSourceChange: (source: PreviewCvSource) => void;
-  searchRequest: { text: string; nonce: number } | null;
+  searchRequest: DocumentSearchRequest | null;
   loadDocumentBlob: typeof fetchDocumentBlob;
   loadOriginalBlob: OriginalBlobLoader;
   /** Które źródła pokazać w przełączniku (przegląd DL ma CV firmowe osobno). */
@@ -890,7 +891,7 @@ export interface CandidatePreviewPaneProps {
    * „Szukaj w CV” zlecone z zewnątrz (edytor CV: „Pokaż w oryginale” przy
    * cytacie źródła). Nowy `nonce` = nowe wyszukanie, także tego samego tekstu.
    */
-  searchRequest?: { text: string; nonce: number } | null;
+  searchRequest?: DocumentSearchRequest | null;
   /**
    * Zwijanie CV i wymagań — podglądy w lewej strefie panelu osoby. Edytor CV
    * i przegląd DL go nie mają, także gdy otwierają się z wnętrza panelu.
@@ -998,7 +999,7 @@ export function CandidatePreviewPane({
         }
       : undefined;
 
-  const [searchRequest, setSearchRequest] = useState<{ text: string; nonce: number } | null>(null);
+  const [searchRequest, setSearchRequest] = useState<DocumentSearchRequest | null>(null);
 
   const [root, setRoot] = useState<HTMLElement | null>(null);
   const dual = useElementWidth(root) >= DUAL_MIN_WIDTH;
@@ -1040,14 +1041,15 @@ export function CandidatePreviewPane({
 
   // „Szukaj w CV” przy wymaganiu. CV firmowe nie ma paska wyszukiwania, więc
   // przełączamy na oryginał; otwarta historia osoby ustępuje CV, a zwinięte
-  // CV się rozwija.
+  // CV się rozwija. Lupa szuka słów wymagania z serwera („.NET lub C#” →
+  // „.NET”, „C#”), a pole pokazuje jego nazwę (16.10.2026).
   const pickRequirement = useCallback(
-    (name: string) => {
+    (name: string, words: readonly string[] = []) => {
       setPickedSource((current) => {
         const effective = current ?? (companyReady ? "company" : "original");
         return effective === "company" ? "original" : current;
       });
-      setSearchRequest({ text: name, nonce: Date.now() });
+      setSearchRequest({ text: name, nonce: Date.now(), terms: words });
       changeHistoryOpen(false);
       expandCv();
     },

@@ -5047,6 +5047,11 @@ export interface ChampionProfileResponse {
   /** Krytyczne: decyzja DL, podpowiedź i to, na czym działa bramka (30.09.2026). */
   critical_resolution?: import("@/lib/critical-skills").CriticalResolution;
   /**
+   * Słowa lupy „Szukaj w CV” dla każdego wymagania (16.10.2026): etykieta →
+   * opcje i warianty nazw tak, jak czyta je bramka. Brak klucza = starszy serwer.
+   */
+  requirement_find_words?: Record<string, string[]>;
+  /**
    * Audyt 06.10.2026 (N2): odcisk SAMEGO profilu. Edytor odsyła go w zapisie
    * jako `expected_profile_hash`; profil zmieniony od wczytania = 409.
    */
