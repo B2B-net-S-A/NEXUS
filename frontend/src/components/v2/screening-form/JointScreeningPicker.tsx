@@ -6,17 +6,46 @@
  * zaznaczenia), dalsze etapy i cudza rezerwacja (wyszarzone, z powodem) oraz
  * podpowiedzi „Pasuje też do” z „+ Dodaj i dołącz”. Zaznaczenie co najmniej
  * jednej innej rekrutacji przełącza panel na formularz wspólny.
+ *
+ * Od 16.10.2026 (D1 A) odznaczenie nie kasuje wpisów: odznaczona rekrutacja
+ * z wpisami ma „N odpowiedzi w pamięci”, pod listą stoi „Odznaczono … · Cofnij”,
+ * a ponowne zaznaczenie mówi, że wpisy wróciły.
  */
 
 import { Check, Layers } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import {
+  answersCameBack,
+  answersStay,
+  memoryChipLabel,
+} from "@/components/v2/screening-form/ScreeningMemoryNotes";
 import type { AlsoFitsJob } from "@/lib/also-fits-api";
 import type { JointContextPair } from "@/lib/api/screeningForm";
 import { JOINT_MAX_OTHERS } from "@/lib/joint-screening";
 import { cn } from "@/lib/utils";
 
 const COLUMN_LABEL: Record<string, string> = { new: "Nowi", screening: "Screening" };
+
+/** Ostatnia zmiana zaznaczenia — „Odznaczono … · Cofnij” albo „Wróciły …”. */
+export interface JointPickerNotice {
+  kind: "unchecked" | "restored";
+  jobId: number;
+  title: string;
+  /** Ile odpowiedzi tej rekrutacji czeka w pamięci / wróciło. */
+  answers: number;
+}
+
+function noticeText(notice: JointPickerNotice): string {
+  if (notice.kind === "restored") {
+    return notice.answers > 0
+      ? `${answersCameBack(notice.answers)} z pamięci — ${notice.title}.`
+      : `Wróciły wpisy z pamięci — ${notice.title}.`;
+  }
+  return notice.answers > 0
+    ? `Odznaczono „${notice.title}” — ${answersStay(notice.answers)} w pamięci do zapisu.`
+    : `Odznaczono „${notice.title}”.`;
+}
 
 export interface JointScreeningPickerProps {
   anchorTitle: string;
@@ -30,6 +59,11 @@ export interface JointScreeningPickerProps {
   error?: string | null;
   /** Ile pytań padnie w rozmowie (po złożeniu wspólnych) — `null` = jeszcze nie wiadomo. */
   questionSummary?: { asked: number; total: number } | null;
+  /** Pamięć rozmowy: `job_id` → ile odpowiedzi i czy cokolwiek czeka (16.10.2026). */
+  memory?: ReadonlyMap<number, { answers: number; any: boolean }>;
+  notice?: JointPickerNotice | null;
+  /** „Cofnij” po odznaczeniu — zaznacza rekrutację z powrotem. */
+  onUndo?: () => void;
 }
 
 function claimLine(pair: JointContextPair): string | null {
@@ -48,6 +82,9 @@ export function JointScreeningPicker({
   addingJobId,
   error,
   questionSummary,
+  memory,
+  notice,
+  onUndo,
 }: JointScreeningPickerProps) {
   if (pairs.length === 0 && suggestions.length === 0) return null;
   const count = selected.size + 1;
@@ -82,6 +119,7 @@ export function JointScreeningPicker({
           const id = `joint-pair-${pair.job_id}`;
           const claim = claimLine(pair);
           const blockedByLimit = pair.selectable && full && !selected.has(pair.job_id);
+          const remembered = selected.has(pair.job_id) ? null : memory?.get(pair.job_id);
           return (
             <li
               key={pair.job_id}
@@ -108,6 +146,12 @@ export function JointScreeningPicker({
                     ? [COLUMN_LABEL[pair.board_column ?? ""] ?? pair.board_column, claim].filter(Boolean).join(" · ")
                     : (pair.reason_message ?? "Nie do wyboru")}
                 </span>
+                {remembered?.any ? (
+                  <span className="mt-1 flex w-fit rounded-full bg-info-muted px-2 py-0.5 text-[11px] font-semibold text-info-muted-foreground">
+                    {memoryChipLabel(remembered.answers)}
+                    {pair.selectable && !blockedByLimit ? " · zaznacz, żeby wróciły" : ""}
+                  </span>
+                ) : null}
               </label>
             </li>
           );
@@ -137,6 +181,25 @@ export function JointScreeningPicker({
           </li>
         ))}
       </ul>
+      {notice ? (
+        <p
+          role="status"
+          data-testid="joint-picker-notice"
+          className={cn(
+            "mt-2 flex items-center gap-2 rounded-md px-2.5 py-1.5 text-xs",
+            notice.kind === "unchecked"
+              ? "bg-info-muted text-info-muted-foreground"
+              : "bg-success-muted text-success-muted-foreground",
+          )}
+        >
+          <span className="min-w-0 flex-1">{noticeText(notice)}</span>
+          {notice.kind === "unchecked" && onUndo ? (
+            <Button type="button" size="sm" variant="outline" className="h-7 shrink-0 px-2 text-xs" onClick={onUndo}>
+              Cofnij
+            </Button>
+          ) : null}
+        </p>
+      ) : null}
       {full && (pairs.some((p) => p.selectable && !selected.has(p.job_id)) || suggestions.length > 0) ? (
         <p className="mt-2 text-xs text-muted-foreground">
           Najwyżej {JOINT_MAX_OTHERS + 1} rekrutacje w jednej rozmowie — odznacz jedną, żeby dodać inną.

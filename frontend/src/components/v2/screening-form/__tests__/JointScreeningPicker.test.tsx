@@ -87,3 +87,69 @@ describe("JointScreeningPicker — „Screening dla” (B1)", () => {
     expect(container).toBeEmptyDOMElement();
   });
 });
+
+describe("JointScreeningPicker — pamięć rozmowy (16.10.2026, D1 A)", () => {
+  const base = {
+    anchorTitle: "Programista Frontend",
+    suggestions: [],
+    onToggle: vi.fn(),
+    onAddAndJoin: vi.fn(),
+    addingJobId: null,
+  };
+
+  it("an unchecked recruitment with entries says how many answers wait in memory", () => {
+    render(
+      <JointScreeningPicker
+        {...base}
+        pairs={[
+          pair({ job_id: 2, title: "Angular Developer" }),
+          pair({ job_id: 3, title: "Java Developer" }),
+          pair({ job_id: 5, title: "Kafka Engineer" }),
+        ]}
+        selected={new Set([2])}
+        memory={
+          new Map([
+            [2, { answers: 3, any: true }],
+            [3, { answers: 2, any: true }],
+            [5, { answers: 0, any: true }],
+          ])
+        }
+      />,
+    );
+    // Zaznaczona rekrutacja ma wpisy w formularzu, nie „w pamięci”.
+    expect(screen.getByRole("checkbox", { name: /Angular Developer/ })).not.toHaveAccessibleName(/w pamięci/);
+    expect(screen.getByRole("checkbox", { name: /Java Developer/ })).toHaveAccessibleName(
+      /2 odpowiedzi w pamięci · zaznacz, żeby wróciły/,
+    );
+    expect(screen.getByRole("checkbox", { name: /Kafka Engineer/ })).toHaveAccessibleName(/wpisy w pamięci/);
+  });
+
+  it("after unchecking: how many answers stay and „Cofnij”; after checking again: they came back", () => {
+    const onUndo = vi.fn();
+    const { rerender } = render(
+      <JointScreeningPicker
+        {...base}
+        pairs={[pair({ job_id: 3, title: "Java Developer" })]}
+        selected={new Set()}
+        notice={{ kind: "unchecked", jobId: 3, title: "Java Developer", answers: 2 }}
+        onUndo={onUndo}
+      />,
+    );
+    expect(screen.getByTestId("joint-picker-notice")).toHaveTextContent(
+      "Odznaczono „Java Developer” — 2 odpowiedzi zostają w pamięci do zapisu.",
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Cofnij" }));
+    expect(onUndo).toHaveBeenCalled();
+    rerender(
+      <JointScreeningPicker
+        {...base}
+        pairs={[pair({ job_id: 3, title: "Java Developer" })]}
+        selected={new Set([3])}
+        notice={{ kind: "restored", jobId: 3, title: "Java Developer", answers: 1 }}
+        onUndo={onUndo}
+      />,
+    );
+    expect(screen.getByTestId("joint-picker-notice")).toHaveTextContent("Wróciła 1 odpowiedź z pamięci — Java Developer.");
+    expect(screen.queryByRole("button", { name: "Cofnij" })).toBeNull();
+  });
+});
