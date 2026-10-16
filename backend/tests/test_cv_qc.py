@@ -855,6 +855,50 @@ def test_bold_checks_do_not_apply_when_the_generator_did_not_bold() -> None:
     assert by["nice_bolded"]["status"] == "skip"
 
 
+def test_bold_checks_that_do_not_apply_list_unbolded_requirements_as_info() -> None:
+    # 16.10.2026: w CV z Redakcji „Pogrub wymagania” w pasku edytora stało na 0,
+    # bo liczy z QC, a QC przy „nie dotyczy” nie mówiło, co jest bez pogrubienia.
+    # Nadal bez uwagi do poprawy — tylko informacja, na której stoi przycisk.
+    html = "<p>Programista <b>Java</b>, Kubernetes, integracje na Kafka.</p>"
+    data = _qc_input(html, nice=_reqs("Kafka"), bold_expected=False)
+    with hydrated_taxonomy():
+        by = _by_key(qc.compute_checks(data))
+    must, nice = by["must_bolded"], by["nice_bolded"]
+    assert must["status"] == nice["status"] == "skip"
+    assert must["items"] == nice["items"] == []
+    assert [i["requirement"] for i in must["info"]] == ["Kubernetes"]
+    assert [i["requirement"] for i in nice["info"]] == ["Kafka"]
+    assert {i["fix"] for i in [*must["info"], *nice["info"]]} == {"bold_all"}
+
+
+def test_bold_check_lists_requirements_bolded_only_in_some_places_as_info() -> None:
+    # 16.10.2026, CV .NET z produkcji: każde wymaganie miało choć jedno
+    # pogrubienie, więc QC dawało 8/8, a punkty bez pogrubienia zostawały —
+    # „Pogrub wymagania” stał na 0, choć poprawka miała co pogrubić.
+    html = (
+        "<p>Programista <b>Java</b> i <b>Kubernetes</b>.</p>"
+        "<ul><li>Usługi w Java 17 na Kubernetes.</li><li>Migracja do Java 21.</li></ul>"
+    )
+    with hydrated_taxonomy():
+        must = _by_key(qc.compute_checks(_qc_input(html, bold_expected=True)))[
+            "must_bolded"
+        ]
+        # Licznik mówi to, co zrobi poprawka: po niej informacji już nie ma.
+        fixed, count = qc.bold_all(html, _reqs("Java", "Kubernetes"))
+        again = _by_key(qc.compute_checks(_qc_input(fixed, bold_expected=True)))[
+            "must_bolded"
+        ]
+    assert must["status"] == "pass"
+    assert must["items"] == []
+    assert [(i["requirement"], i["fix"]) for i in must["info"]] == [
+        ("Java", "bold_all"),
+        ("Kubernetes", "bold_all"),
+    ]
+    assert count == 3
+    assert again["status"] == "pass"
+    assert again["info"] == []
+
+
 def test_bold_check_expects_only_what_the_generator_bolds() -> None:
     # Generator pogrubia technologie, nie domeny ani pojęcia
     # (`docx_renderer.compile_keyword_patterns`) — QC żąda tego samego.

@@ -1182,6 +1182,20 @@ def _bold_patterns(req: Requirement) -> list[re.Pattern[str]]:
     return compile_keyword_patterns(list(req.alternatives or (req.label,)))
 
 
+def _has_unbolded(blocks: list[Block], req: Requirement) -> bool:
+    """Czy wymaganie stoi gdzieś bez pogrubienia tam, gdzie pogrubiłaby je
+    poprawka `bold_all` — treść bez nagłówków i szablonu, te same wzorce."""
+    patterns = [p for name in req.terms or req.alternatives for p in dz._patterns(name)]
+    return any(
+        p.search(run["t"])
+        for block in blocks
+        if block.kind != "h" and block.section not in _NON_CONTENT_SECTIONS
+        for run in block.runs
+        if not run["b"]
+        for p in patterns
+    )
+
+
 def _bold_check(
     key: str,
     present: list[Requirement],
@@ -1192,34 +1206,55 @@ def _bold_check(
     """„Wymagania są pogrubione” — dokładnie to, co pogrubiłby generator
     (`docx_renderer.compile_keyword_patterns`). Do 13.10.2026 QC żądało
     pogrubienia każdego wymagania w CV, także domen i pojęć, których
-    generator celowo nie pogrubia, i w CV, które nie pogrubiają wcale."""
+    generator celowo nie pogrubia, i w CV, które nie pogrubiają wcale.
+
+    Uwaga to wymaganie bez ani jednego pogrubienia. Wymaganie pogrubione tylko
+    w części miejsc i — w CV, które z założenia nie pogrubia (Redakcja) —
+    każde niepogrubione idą do ``info``: bez uwagi do poprawy, ale na nich
+    liczy się „Pogrub wymagania (N)” w pasku edytora (16.10.2026)."""
     label = "must-have" if key == "must_bolded" else "nice-to-have"
-    if data.bold_expected is False:
-        return _check(key, "skip", "Nie dotyczy — to CV nie pogrubia wymagań klienta")
-    if not data.bold_known:
+    if data.bold_expected is not False and not data.bold_known:
         return _check(key, "manual", "Pogrubień nie da się odczytać z PDF-a")
     expected = [
         (req, pats)
         for req in present
         if (pats := _bold_patterns(req)) and any(p.search(gen_text) for p in pats)
     ]
+    not_bold: list[dict] = []
+    partly: list[dict] = []
+    for req, pats in expected:
+        if not any(p.search(bold_joined) for p in pats):
+            detail, out = "Jest w CV, ale nie jest pogrubione.", not_bold
+        elif _has_unbolded(data.blocks, req):
+            detail, out = (
+                "Pogrubione nie wszędzie — w CV jest też bez pogrubienia.",
+                partly,
+            )
+        else:
+            continue
+        out.append(
+            _item(
+                requirement=req.label,
+                detail=detail,
+                fix="bold_all",
+                term=match_in(gen_text, req),
+            )
+        )
+    if data.bold_expected is False:
+        return _check(
+            key,
+            "skip",
+            "Nie dotyczy — to CV nie pogrubia wymagań klienta",
+            info=[*not_bold, *partly] if data.bold_known else [],
+        )
     if not expected:
         return _check(key, "skip", f"Brak technologii z {label} w CV")
-    not_bold = [
-        _item(
-            requirement=req.label,
-            detail="Jest w CV, ale nie jest pogrubione.",
-            fix="bold_all",
-            term=match_in(gen_text, req),
-        )
-        for req, pats in expected
-        if not any(p.search(bold_joined) for p in pats)
-    ]
     return _check(
         key,
         _status(not_bold),
         f"{len(expected) - len(not_bold)}/{len(expected)}",
         not_bold,
+        info=partly,
     )
 
 
