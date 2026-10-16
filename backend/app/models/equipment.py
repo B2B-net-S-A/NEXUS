@@ -17,6 +17,7 @@ from decimal import Decimal
 from typing import Any, Optional
 
 from sqlalchemy import (
+    BigInteger,
     Boolean,
     CheckConstraint,
     Date,
@@ -37,6 +38,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
 from app.models.base import TimestampMixin
+from app.services import equipment_extras_schema as extras_schema
 from app.services import equipment_schema as schema
 
 
@@ -174,6 +176,12 @@ class EquipmentProtocol(Base, TimestampMixin):
         ForeignKey("equipment_external_people.id", ondelete="SET NULL"),
         nullable=True,
     )
+    # 0461: uczestnik edycji Akademii jako posiadacz.
+    academy_application_id: Mapped[Optional[int]] = mapped_column(
+        BigInteger,
+        ForeignKey("academy_applications.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     holder_name: Mapped[str] = mapped_column(String(200), nullable=False)
     holder_email: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     issuer_user_id: Mapped[Optional[int]] = mapped_column(
@@ -210,7 +218,7 @@ class EquipmentAssignment(Base, TimestampMixin):
     __tablename__ = "equipment_assignments"
     __table_args__ = (
         CheckConstraint(
-            schema.CK_ASSIGNMENT_ONE_HOLDER,
+            extras_schema.CK_ASSIGNMENT_ONE_HOLDER,
             name="ck_equipment_assignments_one_holder",
         ),
         CheckConstraint(
@@ -233,6 +241,7 @@ class EquipmentAssignment(Base, TimestampMixin):
         Index("ix_equipment_assignments_user", "user_id"),
         Index("ix_equipment_assignments_contract", "contract_id"),
         Index("ix_equipment_assignments_external", "external_person_id"),
+        Index("ix_equipment_assignments_academy", "academy_application_id"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -247,6 +256,11 @@ class EquipmentAssignment(Base, TimestampMixin):
     )
     external_person_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("equipment_external_people.id", ondelete="RESTRICT"),
+        nullable=True,
+    )
+    academy_application_id: Mapped[Optional[int]] = mapped_column(
+        BigInteger,
+        ForeignKey("academy_applications.id", ondelete="RESTRICT"),
         nullable=True,
     )
     issued_at: Mapped[datetime] = mapped_column(
@@ -353,6 +367,7 @@ class EquipmentTask(Base, TimestampMixin):
         CheckConstraint(schema.CK_TASK_KIND, name="ck_equipment_tasks_kind"),
         CheckConstraint(schema.CK_TASK_STATUS, name="ck_equipment_tasks_status"),
         Index("ix_equipment_tasks_status_due", "status", "due_on"),
+        Index("ix_equipment_tasks_academy", "academy_application_id"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -370,6 +385,11 @@ class EquipmentTask(Base, TimestampMixin):
     )
     external_person_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("equipment_external_people.id", ondelete="CASCADE"),
+        nullable=True,
+    )
+    academy_application_id: Mapped[Optional[int]] = mapped_column(
+        BigInteger,
+        ForeignKey("academy_applications.id", ondelete="CASCADE"),
         nullable=True,
     )
     protocol_id: Mapped[Optional[int]] = mapped_column(

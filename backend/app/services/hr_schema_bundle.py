@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from app.services import admin_cases_schema as admin_cases
 from app.services import contract_care_schema as contract_care
+from app.services import equipment_extras_schema as equipment_extras
 from app.services import equipment_schema as equipment
 from app.services import hr_access_schema as access
 from app.services import hr_foundation_schema as foundation
@@ -25,9 +26,18 @@ from app.services import hr_notification_schema as notifications
 from app.services import hr_payroll_schema as payroll
 from app.services import hr_time_schema as time_
 
-#: Moduły po fundamencie, w kolejności migracji 0454–0460 (kontrakt każdego:
+#: Moduły po fundamencie, w kolejności migracji 0454–0461 (kontrakt każdego:
 #: ``TABLE_DDL, COLUMN_DDL, INDEX_DDL, CONSTRAINT_DDL, DATA_DDL``).
-MODULES = (leave, time_, payroll, lifecycle, contract_care, admin_cases, equipment)
+MODULES = (
+    leave,
+    time_,
+    payroll,
+    lifecycle,
+    contract_care,
+    admin_cases,
+    equipment,
+    equipment_extras,
+)
 
 COLUMN_DDL: tuple[str, ...] = (
     *foundation.TABLE_DDL,

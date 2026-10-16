@@ -1,6 +1,6 @@
 """„Ludzie w NEXUSIE” — kontrakt łańcucha migracji modułów i lustra entrypointu.
 
-Moduły kadrowe mają po jednej migracji (0453–0460), a SQL każdej żyje
+Moduły kadrowe mają po jednej migracji (0453–0461), a SQL każdej żyje
 w ``app/services/<moduł>_schema.py``. Entrypoint bierze go przez agregator
 ``hr_schema_bundle`` — test pilnuje, że żaden moduł nie wypadł z agregatora
 i że wartości enumów stoją literalnie w ``_ENUM_STATEMENTS``.
@@ -37,6 +37,7 @@ CHAIN = (
     ("0458_contract_care", "0457_hr_lifecycle", "contract_care_schema"),
     ("0459_admin_cases", "0458_contract_care", "admin_cases_schema"),
     ("0460_equipment", "0459_admin_cases", "equipment_schema"),
+    ("0461_equipment_extras", "0460_equipment", "equipment_extras_schema"),
 )
 
 
