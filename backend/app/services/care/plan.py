@@ -30,7 +30,8 @@ QUARTER_MONTHS = 3
 PRE_END_DAYS = 30
 LOOKAHEAD_DAYS = 120
 LOOKBACK_DAYS = 30
-#: Rozmowa zamyka punkt planu, którego termin wypada najpóźniej tyle dni po niej.
+#: Rozmowa bez zaległości zamyka najbliższy punkt planu, którego termin wypada
+#: najpóźniej tyle dni po niej.
 CONVERSATION_COVERS_DAYS = 14
 
 KIND_LABELS: dict[str, str] = {
@@ -167,28 +168,62 @@ async def close_with_conversation(
     now: datetime,
     plan_item_id: Optional[int] = None,
 ) -> Optional[CarePlanItem]:
-    """Rozmowa zamyka punkt planu: wskazany albo najwcześniejszy otwarty,
-    którego termin wypada najpóźniej ``CONVERSATION_COVERS_DAYS`` po rozmowie."""
+    """Rozmowa zamyka punkty planu i zwraca pierwszy z nich (do śladu).
 
-    query = select(CarePlanItem).where(
+    Zamyka WSZYSTKIE otwarte punkty z terminem w dniu rozmowy lub wcześniej
+    (zaległe dzwoniłyby dalej mimo rozmowy) oraz punkt wskazany. Bez
+    wskazania i bez zaległości — najbliższy punkt z terminem najpóźniej
+    ``CONVERSATION_COVERS_DAYS`` po rozmowie, ale nie „przed końcem”: ten
+    zostaje, dopóki jego termin jest w przyszłości. Wskazany punkt, którego
+    nie ma albo jest zamknięty → ``None`` i nic się nie zmienia.
+    """
+
+    open_items = select(CarePlanItem).where(
         CarePlanItem.contract_id == conversation.contract_id,
         CarePlanItem.status == "open",
     )
+    chosen: Optional[CarePlanItem] = None
     if plan_item_id is not None:
-        query = query.where(CarePlanItem.id == plan_item_id)
-    else:
-        query = query.where(
-            CarePlanItem.due_on
-            <= conversation.occurred_on + timedelta(days=CONVERSATION_COVERS_DAYS)
-        ).order_by(CarePlanItem.due_on, CarePlanItem.id)
-    item = (await db.execute(query.limit(1).with_for_update())).scalar_one_or_none()
-    if item is None:
-        return None
-    item.status = "done"
-    item.done_conversation_id = conversation.id
-    item.resolved_by = actor_id
-    item.resolved_at = now
-    return item
+        chosen = (
+            await db.execute(
+                open_items.where(CarePlanItem.id == plan_item_id).with_for_update()
+            )
+        ).scalar_one_or_none()
+        if chosen is None:
+            return None
+    items = list(
+        (
+            await db.scalars(
+                open_items.where(CarePlanItem.due_on <= conversation.occurred_on)
+                .order_by(CarePlanItem.due_on, CarePlanItem.id)
+                .with_for_update()
+            )
+        ).all()
+    )
+    if chosen is None and not items:
+        chosen = (
+            await db.execute(
+                open_items.where(
+                    CarePlanItem.kind != "pre_end",
+                    CarePlanItem.due_on
+                    <= conversation.occurred_on
+                    + timedelta(days=CONVERSATION_COVERS_DAYS),
+                )
+                .order_by(CarePlanItem.due_on, CarePlanItem.id)
+                .limit(1)
+                .with_for_update()
+            )
+        ).scalar_one_or_none()
+    if chosen is not None and all(item.id != chosen.id for item in items):
+        items.append(chosen)
+    for item in items:
+        item.status = "done"
+        item.done_conversation_id = conversation.id
+        item.resolved_by = actor_id
+        item.resolved_at = now
+    if chosen is not None:
+        return chosen
+    return items[0] if items else None
 
 
 def next_open(items: Iterable[CarePlanItem]) -> Optional[CarePlanItem]:

@@ -14,6 +14,10 @@ Błędy Compassa, których nie przenosimy: „dziś” w UTC (follow-up liczył
 termin od północy UTC), HTTP 200 z ``ok: false`` przy awarii (tu przebieg
 kończy się statusem ``failed`` w ``hr_job_runs`` i można go ponowić) oraz
 stempel przed wysyłką.
+
+Follow-up dzwoni najwyżej ``plan.LOOKBACK_DAYS`` po terminie — jak punkty
+planu: rozmowy z importu niosą terminy sprzed lat i bez tej granicy każda
+dzwoniłaby co 7 dni bez końca.
 """
 
 from __future__ import annotations
@@ -126,7 +130,8 @@ async def _due_items(
 async def _due_follow_ups(
     db: AsyncSession, contract_ids: list[int], today: date
 ) -> dict[int, date]:
-    """Follow-up z OSTATNIEJ rozmowy, którego termin minął (nowsza rozmowa go zamyka)."""
+    """Follow-up z OSTATNIEJ rozmowy, którego termin minął (nowsza rozmowa go
+    zamyka), nie dawniej niż ``plan.LOOKBACK_DAYS`` temu."""
 
     if not contract_ids:
         return {}
@@ -153,6 +158,8 @@ async def _due_follow_ups(
                 latest.c.rank == 1,
                 latest.c.follow_up_on.is_not(None),
                 latest.c.follow_up_on <= today,
+                latest.c.follow_up_on
+                >= today - timedelta(days=care_plan.LOOKBACK_DAYS),
             )
         )
     ).all()

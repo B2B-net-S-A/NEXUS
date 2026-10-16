@@ -21,6 +21,11 @@ Każda operacja sprawdza wniosek (``leave_requests``, tylko odczyt) przed
 zapisem w skrzynce: anulowany urlop nie dostanie autoodpowiedzi z operacji,
 która czekała na ponowienie, a przekierowanie bez zgody osoby się nie
 otworzy, nawet jeśli kolejność operacji w kolejce się rozjechała.
+
+Graph trzyma JEDEN harmonogram autoodpowiedzi, a wcześniejszy urlop nadpisuje
+późniejszy. Zdjęcie naszej autoodpowiedzi (anulowanie) dokłada więc
+``set_oof`` najbliższego innego zatwierdzonego urlopu osoby — inaczej
+późniejszy urlop zostałby bez autoodpowiedzi (przegląd 16.10.2026, D17).
 """
 
 from __future__ import annotations
@@ -30,18 +35,26 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
 from collections.abc import Awaitable, Callable, Collection
+from decimal import Decimal
 from typing import Any, Optional
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.scheduling import DEFAULT_TZ, local_day_start_utc
-from app.models.hr_leave import HrM365MailboxState, HrM365Operation, LeaveRequest
+from app.models.hr_leave import (
+    HrM365MailboxState,
+    HrM365Operation,
+    LeaveRequest,
+    LeaveRequestDay,
+)
 from app.models.hr_profile import EmployeeProfile
 from app.models.user import User
 from app.services.hr import audit
+from app.services.hr.calendar import load_calendar
+from app.services.hr.leave_m365 import LeaveSnapshot, plan_operations
 from app.services.hr.m365 import (
     calendar_event,
     forward_rules,
@@ -69,6 +82,8 @@ NOT_ALLOWLISTED_DELAY = timedelta(hours=1)
 
 #: Powody odroczenia, które nie są błędem (karta pokazuje je jako „czeka”).
 DEFERRAL_REASONS = ("not_allowlisted", "waiting_for_window", "other_leave_oof")
+#: Ile kolejnych urlopów osoby przeglądamy, szukając następcy autoodpowiedzi.
+NEXT_LEAVES_SCAN = 10
 
 _WARSAW = ZoneInfo(DEFAULT_TZ)
 
@@ -244,6 +259,91 @@ async def _other_leave_with_window(ctx: Context, start: date, end: date) -> bool
     return (await ctx.db.scalar(query.limit(1))) is not None
 
 
+async def leave_day_totals(
+    db: AsyncSession, leave_ids: list[uuid.UUID]
+) -> dict[uuid.UUID, Decimal]:
+    """Suma dni (ułamków) wniosków — pół dnia nie dostaje autoodpowiedzi."""
+
+    if not leave_ids:
+        return {}
+    rows = await db.execute(
+        select(LeaveRequestDay.leave_request_id, func.sum(LeaveRequestDay.fraction))
+        .where(LeaveRequestDay.leave_request_id.in_(leave_ids))
+        .group_by(LeaveRequestDay.leave_request_id)
+    )
+    return {leave_id: Decimal(total or 0) for leave_id, total in rows.all()}
+
+
+async def set_oof_payload(
+    db: AsyncSession, leave: LeaveRequest, total: Decimal
+) -> Optional[dict]:
+    """Ładunek ``set_oof`` jak przy akceptacji; ``None`` = urlop bez pełnego dnia."""
+
+    calendar = await load_calendar(db, leave.start_date, leave.end_date)
+    snapshot = LeaveSnapshot(
+        id=str(leave.id),
+        user_id=leave.user_id,
+        start=leave.start_date,
+        end=leave.end_date,
+        half_day=leave.half_day,
+        total_days=total,
+        substitute_user_id=leave.substitute_user_id,
+        forward_mail_consent=leave.forward_mail_consent,
+        oof_internal_message=leave.oof_internal_message,
+        oof_external_message=leave.oof_external_message,
+        return_on=calendar.next_working_day_after(leave.end_date),
+    )
+    for planned in plan_operations("approved", snapshot, today=leave.start_date):
+        if planned.kind == "set_oof":
+            return planned.payload
+    return None
+
+
+async def _hand_over_oof(ctx: Context) -> None:
+    """Po zdjęciu naszej autoodpowiedzi: ``set_oof`` najbliższego innego urlopu.
+
+    Wcześniejszy urlop nadpisał harmonogram późniejszego (Graph trzyma jeden),
+    więc bez tego anulowanie wcześniejszego zostawia późniejszy bez
+    autoodpowiedzi, a uzgadnianie nie miałoby czego naprawić przed jego
+    początkiem. Urlop bez pełnego dnia nie dostaje autoodpowiedzi — szukamy
+    dalej.
+    """
+
+    query = select(LeaveRequest).where(
+        LeaveRequest.user_id == ctx.op.user_id,
+        LeaveRequest.status == "approved",
+        LeaveRequest.end_date >= ctx.today,
+    )
+    if ctx.op.leave_request_id is not None:
+        query = query.where(LeaveRequest.id != ctx.op.leave_request_id)
+    leaves = list(
+        (
+            await ctx.db.scalars(
+                query.order_by(LeaveRequest.start_date, LeaveRequest.id).limit(
+                    NEXT_LEAVES_SCAN
+                )
+            )
+        ).all()
+    )
+    totals = await leave_day_totals(ctx.db, [leave.id for leave in leaves])
+    for leave in leaves:
+        payload = await set_oof_payload(
+            ctx.db, leave, totals.get(leave.id, Decimal("0"))
+        )
+        if payload is None:
+            continue
+        await enqueue_at(
+            ctx.db,
+            user_id=ctx.op.user_id,
+            kind="set_oof",
+            dedupe_key=f"leave:{leave.id}:set_oof:after_clear:{ctx.op.id}",
+            payload=payload,
+            leave_request_id=leave.id,
+            not_before=ctx.now,
+        )
+        return
+
+
 async def _clear_oof(ctx: Context) -> Outcome:
     payload = ctx.op.payload or {}
     start, end = _date(payload.get("start")), _date(payload.get("end"))
@@ -251,7 +351,9 @@ async def _clear_oof(ctx: Context) -> Outcome:
         return _bad_payload()
     current = await ctx.ops.get_auto_replies(ctx.upn)
     if oof_state.is_disabled(current):
-        return Outcome("done")
+        # Nic nie zapisujemy — uzgadnianie nie może wziąć tego za nasze
+        # wyłączenie autoodpowiedzi innego urlopu (wyłączyła ją osoba).
+        return Outcome("skipped", "already_disabled")
     if not oof_state.matches_leave(current, start, end):
         # Cudza autoodpowiedź albo innego urlopu — nie ruszamy.
         return Outcome("skipped", "not_owned")
@@ -259,6 +361,7 @@ async def _clear_oof(ctx: Context) -> Outcome:
         # Nowy zatwierdzony urlop w tych samych dniach przejął autoodpowiedź.
         return Outcome("skipped", "other_leave_same_window")
     await ctx.ops.set_auto_replies(ctx.upn, {"status": "disabled"})
+    await _hand_over_oof(ctx)
     return Outcome("done")
 
 

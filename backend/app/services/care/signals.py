@@ -27,6 +27,7 @@ from app.models.contract_care import ClientArea, TechCard
 from app.models.skill import Skill
 from app.models.user import User
 from app.services.care import records
+from app.services.care.access import full_name
 from app.services.care.skills import display_name
 
 
@@ -41,7 +42,14 @@ async def export(
     db: AsyncSession, *, since: Optional[datetime]
 ) -> list[dict[str, Any]]:
     query = (
-        select(TechCard, Client.name, ClientArea.name, User.email, Candidate.name)
+        select(
+            TechCard,
+            Client.name,
+            ClientArea.name,
+            User.email,
+            Candidate.name,
+            Candidate.lastname,
+        )
         .join(Client, Client.id == TechCard.client_id)
         .outerjoin(ClientArea, ClientArea.id == TechCard.client_area_id)
         .outerjoin(User, User.id == TechCard.author_user_id)
@@ -71,7 +79,7 @@ async def export(
         else {}
     )
     out = []
-    for card, client_name, area_name, author_email, consultant_name in rows:
+    for card, client_name, area_name, author_email, first, last in rows:
         technologies = sorted(
             display_name(skill_names[sid])
             for sid in card_skills.get(card.id, [])
@@ -97,7 +105,7 @@ async def export(
                 "technologies": technologies,
                 "context": " · ".join(context_parts) or None,
                 "reported_by_email": author_email,
-                "consultant_name": consultant_name,
+                "consultant_name": full_name(first, last),
                 "interview_on": card.interview_on,
                 "created_at": card.finalized_at or card.created_at,
                 "source_updated_at": card.updated_at,

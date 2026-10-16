@@ -21,10 +21,18 @@ Reguły:
 * **idempotentnie** po ``graph_message_id`` — drugi przebieg niczego nie
   dubluje; jedna zepsuta wiadomość (osobny punkt zapisu) nie zatrzymuje reszty,
   a znacznik staje sekundę przed nią, więc następny przebieg spróbuje znowu,
+* **trwale zepsuta wiadomość nie blokuje skrzynki**: liczba nieudanych prób
+  per wiadomość leży w ``stats['message_attempts']`` (klucz = skrót id
+  z ``mail_source_key``, nie id ani temat). Po ``MAX_MESSAGE_ATTEMPTS``
+  porażkach czytnik ją pomija — znacznik idzie dalej, przebieg kończy się
+  statusem ``partial`` z liczbą pominiętych, log niesie tylko skrót. Bez tego
+  zepsuta wiadomość i ponad ``MAX_MESSAGES_PER_RUN`` nowszych zatrzymałyby
+  odbiór nowszych na zawsze (każdy przebieg czytałby te same 200),
 * załączniki tylko jako metadane (nazwa, typ, rozmiar) — bez treści plików.
 
 Klient Graph jest wstrzykiwany (``AdminMailbox``); testy podają fałszywą
-skrzynkę. Logi niosą wyłącznie identyfikatory i liczby — bez adresów,
+skrzynkę. Prawdziwa skrzynka idzie przez rejestrację HR (``acquire_hr_token``)
+— rejestracja zamówień ma politykę dostępu tylko na skrzynkę zamówień. Logi niosą wyłącznie identyfikatory i liczby — bez adresów,
 tematów i treści.
 """
 
@@ -65,6 +73,10 @@ LEASE = timedelta(minutes=15)
 OVERLAP = timedelta(hours=2)
 INITIAL_LOOKBACK = timedelta(days=3)
 MAX_MESSAGES_PER_RUN = 200
+#: Tyle nieudanych prób zapisu jednej wiadomości, potem czytnik ją pomija.
+MAX_MESSAGE_ATTEMPTS = 5
+#: Klucz w ``admin_mail_ingest_state.stats``: skrót id wiadomości → porażki.
+ATTEMPTS_KEY = "message_attempts"
 
 _MESSAGE_SELECT = (
     "id,internetMessageId,conversationId,subject,from,sender,receivedDateTime,"
@@ -88,11 +100,10 @@ class AdminMailbox(Protocol):
 class GraphAdminMailbox:
     """Prawdziwa skrzynka: ``AppGraphClient`` (retry, throttling, timeout).
 
-    ``token_provider`` wybiera rejestrację aplikacji. Domyślna to rejestracja
-    czytnika zamówień; jej polityka dostępu (Application Access Policy)
-    dopuszcza tylko skrzynkę zamówień, więc administracja@ wymaga własnej
-    rejestracji albo dopisania skrzynki do zakresu — bez tego Graph odpowie
-    403 i przebieg zapisze błąd.
+    ``token_provider`` wybiera rejestrację aplikacji; ``run_once`` podaje
+    rejestrację HR (``app/services/hr/m365/auth.py``). Rejestracja czytnika
+    zamówień (domyślna w ``AppGraphClient``) ma politykę dostępu (Application
+    Access Policy) tylko na skrzynkę zamówień — z nią Graph odpowie 403.
     """
 
     def __init__(self, token_provider: Optional[Callable[..., Optional[str]]] = None):
@@ -368,6 +379,17 @@ async def _state(db: AsyncSession, upn: str) -> AdminMailIngestState:
     return state
 
 
+def _stored_attempts(state: AdminMailIngestState) -> dict[str, int]:
+    raw = (state.stats or {}).get(ATTEMPTS_KEY)
+    if not isinstance(raw, dict):
+        return {}
+    return {
+        str(key): value
+        for key, value in raw.items()
+        if isinstance(value, int) and value > 0
+    }
+
+
 def _since(state: AdminMailIngestState, now: datetime) -> datetime:
     if state.last_received_at is not None:
         return state.last_received_at - OVERLAP
@@ -408,20 +430,33 @@ async def run_once(
     counts: Counter[str] = Counter()
     status = "ok"
     error: Optional[str] = None
+    attempts: dict[str, int] = {}
     try:
         state = await _state(db, upn)
         state.last_run_started_at = started
         since = _since(state, started)
+        attempts = _stored_attempts(state)
         if graph is None:
-            async with GraphAdminMailbox() as real:
+            from app.services.hr.m365.auth import acquire_hr_token
+
+            async with GraphAdminMailbox(token_provider=acquire_hr_token) as real:
                 messages = await real.list_messages(upn, since)
-                await _ingest_all(db, real, upn, messages, state, counts)
+                attempts = await _ingest_all(
+                    db, real, upn, messages, state, counts, attempts
+                )
         else:
             messages = await graph.list_messages(upn, since)
-            await _ingest_all(db, graph, upn, messages, state, counts)
+            attempts = await _ingest_all(
+                db, graph, upn, messages, state, counts, attempts
+            )
         if counts["failed"]:
             status = "partial"
             error = f"{counts['failed']} wiadomości nie udało się zapisać"
+            if counts["abandoned"]:
+                error += (
+                    f"; {counts['abandoned']} pominięto po "
+                    f"{MAX_MESSAGE_ATTEMPTS} nieudanych próbach"
+                )
     except Exception as exc:  # noqa: BLE001 — przebieg nie wywraca pętli
         logger.exception("[admin_cases] przebieg czytnika skrzynki padł")
         await db.rollback()
@@ -432,10 +467,11 @@ async def run_once(
     try:
         if status == "error":
             state = await _state(db, upn)
+            attempts = _stored_attempts(state)
         state.last_run_finished_at = datetime.now(timezone.utc)
         state.last_status = status
         state.last_error = error
-        state.stats = dict(counts)
+        state.stats = {**counts, ATTEMPTS_KEY: attempts} if attempts else dict(counts)
         await _release_lease(
             db,
             status="done" if status != "error" else "failed",
@@ -457,7 +493,14 @@ async def _ingest_all(
     messages: list[dict[str, Any]],
     state: AdminMailIngestState,
     counts: Counter[str],
-) -> None:
+    attempts: dict[str, int],
+) -> dict[str, int]:
+    """Zapisuje wiadomości; zwraca liczniki porażek wiadomości z tego odczytu.
+
+    Licznik wiadomości, której odczyt już nie zwraca (znacznik poszedł dalej),
+    wypada — mapa nie rośnie bez końca.
+    """
+
     ordered = sorted(
         messages,
         key=lambda m: (
@@ -467,20 +510,41 @@ async def _ingest_all(
     )
     newest: Optional[datetime] = state.last_received_at
     earliest_failed: Optional[datetime] = None
+    still_failing: dict[str, int] = {}
     for msg in ordered[:MAX_MESSAGES_PER_RUN]:
         received = _parse_dt(msg.get("receivedDateTime"))
-        try:
-            async with db.begin_nested():
-                outcome = await _ingest_message(db, mailbox, upn, msg)
-        except Exception:  # noqa: BLE001 — jedna wiadomość nie zatrzymuje reszty
-            logger.exception("[admin_cases] wiadomość nie zapisana")
-            counts["failed"] += 1
-            if received is not None and (
-                earliest_failed is None or received < earliest_failed
-            ):
-                earliest_failed = received
-            continue
-        counts[outcome] += 1
+        graph_id = _nul_free(msg.get("id"), 512)
+        key = mail_source_key(graph_id) if graph_id else None
+        tried = attempts.get(key, 0) if key else 0
+        if key is not None and tried >= MAX_MESSAGE_ATTEMPTS:
+            # Porzucona we wcześniejszym przebiegu i wciąż w oknie odczytu.
+            still_failing[key] = tried
+            counts["skipped"] += 1
+        else:
+            try:
+                async with db.begin_nested():
+                    outcome = await _ingest_message(db, mailbox, upn, msg)
+            except Exception:  # noqa: BLE001 — jedna wiadomość nie zatrzymuje reszty
+                logger.exception("[admin_cases] wiadomość nie zapisana")
+                counts["failed"] += 1
+                tried += 1
+                if key is not None:
+                    still_failing[key] = tried
+                if tried < MAX_MESSAGE_ATTEMPTS:
+                    if received is not None and (
+                        earliest_failed is None or received < earliest_failed
+                    ):
+                        earliest_failed = received
+                    continue
+                # Ostatnia próba — znacznik idzie dalej, w logu tylko skrót id.
+                counts["abandoned"] += 1
+                logger.warning(
+                    "[admin_cases] wiadomość %s pominięta po %d nieudanych próbach",
+                    key,
+                    tried,
+                )
+            else:
+                counts[outcome] += 1
         if received is not None and (newest is None or received > newest):
             newest = received
     if earliest_failed is not None:
@@ -488,3 +552,4 @@ async def _ingest_all(
         before_failed = earliest_failed - timedelta(seconds=1)
         newest = before_failed if newest is None else min(newest, before_failed)
     state.last_received_at = newest
+    return still_failing

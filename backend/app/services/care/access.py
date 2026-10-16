@@ -6,7 +6,8 @@
 * **Opiekun kontraktu** (decyzja z makiety „Opieka”, 16.10.2026): pole
   kontraktu, a gdy puste — domyślny opiekun klienta, a gdy i tego brak —
   Delivery Lead kontraktu (prowadzący rekrutację, z której przyszedł
-  konsultant, albo główny DL klienta).
+  konsultant, albo główny DL klienta). Ogniwo z kontem nieaktywnym przepuszcza
+  do następnego — dzwonek do wyłączonego konta nikomu by się nie pokazał.
 """
 
 from __future__ import annotations
@@ -56,6 +57,13 @@ def is_care_worker(user: User) -> bool:
     return user.has_any_role(*CARE_ROLES)
 
 
+def full_name(first: Optional[str], last: Optional[str]) -> Optional[str]:
+    """Imię i nazwisko kandydata (``Candidate.name`` to samo imię)."""
+
+    joined = " ".join(part.strip() for part in (first, last) if part and part.strip())
+    return joined or None
+
+
 @dataclass(frozen=True)
 class CareContract:
     id: int
@@ -95,6 +103,7 @@ def _contract_query():
             Client.name,
             Contract.candidate_id,
             Candidate.name,
+            Candidate.lastname,
             Contract.job_id,
             Job.title,
             Job.delivery_lead_id,
@@ -115,22 +124,22 @@ def _contract_query():
 
 
 def _row_to_contract(row) -> CareContract:
-    status_value = row[8].value if hasattr(row[8], "value") else str(row[8])
+    status_value = row[9].value if hasattr(row[9], "value") else str(row[9])
     return CareContract(
         id=row[0],
         client_id=row[1],
         client_name=row[2],
         candidate_id=row[3],
-        candidate_name=row[4],
-        job_id=row[5],
-        job_title=row[6],
-        job_delivery_lead_id=row[7],
+        candidate_name=full_name(row[4], row[5]),
+        job_id=row[6],
+        job_title=row[7],
+        job_delivery_lead_id=row[8],
         status=status_value,
-        start_date=row[9],
-        contract_end_date=row[10],
-        order_end_date=row[11],
-        explicit_owner_id=row[12],
-        client_default_owner_id=row[13],
+        start_date=row[10],
+        contract_end_date=row[11],
+        order_end_date=row[12],
+        explicit_owner_id=row[13],
+        client_default_owner_id=row[14],
     )
 
 
@@ -233,29 +242,54 @@ class OwnerChoice:
     source: Optional[str]  # contract | client | delivery_lead
 
 
+async def _active_user_ids(db: AsyncSession, user_ids: Iterable[int]) -> set[int]:
+    ids = sorted(set(user_ids))
+    if not ids:
+        return set()
+    rows = await db.scalars(
+        select(User.id).where(User.id.in_(ids), User.is_active.is_(True))
+    )
+    return set(rows.all())
+
+
+def _named_owner(contract: CareContract, active: set[int]) -> Optional[OwnerChoice]:
+    """Pierwsze aktywne ogniwo: kontrakt → domyślny opiekun klienta → DL rekrutacji."""
+
+    for user_id, source in (
+        (contract.explicit_owner_id, "contract"),
+        (contract.client_default_owner_id, "client"),
+        (contract.job_delivery_lead_id, "delivery_lead"),
+    ):
+        if user_id is not None and user_id in active:
+            return OwnerChoice(user_id, source)
+    return None
+
+
 async def effective_owners(
     db: AsyncSession, contracts: Sequence[CareContract]
 ) -> dict[int, OwnerChoice]:
-    heads = await _client_head_leads(
+    active = await _active_user_ids(
         db,
         (
-            c.client_id
+            user_id
             for c in contracts
-            if c.explicit_owner_id is None
-            and c.client_default_owner_id is None
-            and c.job_delivery_lead_id is None
+            for user_id in (
+                c.explicit_owner_id,
+                c.client_default_owner_id,
+                c.job_delivery_lead_id,
+            )
+            if user_id is not None
         ),
+    )
+    named = {contract.id: _named_owner(contract, active) for contract in contracts}
+    heads = await _client_head_leads(
+        db, (c.client_id for c in contracts if named[c.id] is None)
     )
     out: dict[int, OwnerChoice] = {}
     for contract in contracts:
-        if contract.explicit_owner_id is not None:
-            out[contract.id] = OwnerChoice(contract.explicit_owner_id, "contract")
-        elif contract.client_default_owner_id is not None:
-            out[contract.id] = OwnerChoice(contract.client_default_owner_id, "client")
-        elif contract.job_delivery_lead_id is not None:
-            out[contract.id] = OwnerChoice(
-                contract.job_delivery_lead_id, "delivery_lead"
-            )
+        choice = named[contract.id]
+        if choice is not None:
+            out[contract.id] = choice
         elif contract.client_id in heads:
             out[contract.id] = OwnerChoice(heads[contract.client_id], "delivery_lead")
         else:

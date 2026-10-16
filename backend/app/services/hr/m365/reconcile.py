@@ -8,12 +8,24 @@ tryby, listę skrzynek i ponowienia wykonawcy). Dla każdej skrzynki zespołu:
    trwa albo zaczyna się jutro, a w skrzynce nie ma jego autoodpowiedzi →
    ``set_oof`` z nowym kluczem (dzień uzgadniania). Nie dokładamy, gdy:
    czeka operacja tego urlopu, osoba ma własną autoodpowiedź, albo nasza już
-   raz weszła, a osoba ją wyłączyła (np. wróciła wcześniej);
+   raz weszła, a osoba ją wyłączyła (np. wróciła wcześniej). „Osoba
+   wyłączyła” tylko wtedy, gdy ``set_oof`` tego urlopu był naszym ostatnim
+   zapisem autoodpowiedzi w tej skrzynce — jeśli po nim weszła autoodpowiedź
+   innego urlopu albo nasze zdjęcie (anulowanie wcześniejszego urlopu), stan
+   skrzynki wynika z naszej operacji i autoodpowiedź wraca;
 2. **przekierowania** — reguła NEXUSA albo Compassa bez urlopu, który właśnie
    trwa (urlop się skończył, został anulowany, zgoda cofnięta, albo urlopu
    w ogóle nie ma — sierota) → ``forward_rule_close``; urlop ze zgodą, który
    trwa i nie ma reguły → ``forward_rule_open``; reguła Compassa trwającego
-   urlopu → przejęcie (``forward_rule_open`` przepisuje ją na NEXUSA).
+   urlopu → przejęcie (``forward_rule_open`` przepisuje ją na NEXUSA);
+3. **wydarzenia po symulacji** (tylko ``live``) — zatwierdzony urlop, który
+   się nie skończył, a jego ostatnia operacja kalendarza to symulowane
+   ``calendar_event_upsert`` → ``calendar_event_upsert`` na nowo.
+
+Po przejściu ``simulate`` → ``live`` operacje ``simulated`` są dla
+uzgadniania niewykonane (do ponowienia): w skrzynce nic się nie zmieniło.
+W trybie ``simulate`` liczą się jak ``done`` — inaczej symulacja dokładałaby
+operacje codziennie.
 
 Rezerwacja w ``hr_job_runs`` (``kind = hr_m365_reconcile``, klucz = dzień):
 drugi przebieg tego samego dnia nic nie robi. Odczyt skrzynki nieudany =
@@ -33,20 +45,20 @@ from typing import Any, Optional
 from sqlalchemy import func, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.hr_leave import HrM365Operation, LeaveRequest, LeaveRequestDay
+from app.models.hr_leave import HrM365Operation, LeaveRequest
 from app.models.hr_ops import HrJobRun
 from app.models.hr_profile import EmployeeProfile
 from app.models.user import User
-from app.services.hr.calendar import load_calendar
-from app.services.hr.leave_m365 import LeaveSnapshot, plan_operations
 from app.services.hr.m365 import forward_rules, oof_state
 from app.services.hr.m365.executor import (
     allowlist,
     current_mode,
     enqueue_at,
     forward_should_be_active,
+    leave_day_totals,
     mailbox_address,
     save_mailbox_state,
+    set_oof_payload,
     utc_now,
     warsaw_hour,
     warsaw_today,
@@ -64,6 +76,16 @@ STALE_CLAIM = timedelta(hours=1)
 MAX_MAILBOXES = 300
 
 _LIVE_STATUSES = ("pending", "running")
+
+
+def executed_statuses(mode: str) -> tuple[str, ...]:
+    """Statusy „operacja weszła do skrzynki” w danym trybie.
+
+    W ``live`` symulowana operacja niczego w skrzynce nie zmieniła — jest do
+    ponowienia (przegląd 16.10.2026, D19).
+    """
+
+    return ("done",) if mode == "live" else ("done", "simulated")
 
 
 async def _claim(db: AsyncSession, period_key: str, now: datetime) -> Optional[int]:
@@ -115,19 +137,6 @@ async def _candidate_leaves(db: AsyncSession, today: date) -> list[LeaveRequest]
     return list(rows.all())
 
 
-async def _day_totals(
-    db: AsyncSession, leave_ids: list[uuid.UUID]
-) -> dict[uuid.UUID, Decimal]:
-    if not leave_ids:
-        return {}
-    rows = await db.execute(
-        select(LeaveRequestDay.leave_request_id, func.sum(LeaveRequestDay.fraction))
-        .where(LeaveRequestDay.leave_request_id.in_(leave_ids))
-        .group_by(LeaveRequestDay.leave_request_id)
-    )
-    return {leave_id: Decimal(total or 0) for leave_id, total in rows.all()}
-
-
 async def _latest_ops(
     db: AsyncSession, leave_ids: list[uuid.UUID]
 ) -> tuple[dict[uuid.UUID, HrM365Operation], dict[uuid.UUID, HrM365Operation]]:
@@ -153,6 +162,78 @@ async def _latest_ops(
     return oof, forward
 
 
+async def _last_oof_writes(
+    db: AsyncSession, user_ids: Collection[int], executed: tuple[str, ...]
+) -> dict[int, int]:
+    """Id ostatniej naszej operacji, która zapisała autoodpowiedź, per osoba.
+
+    ``set_oof`` wykonane zawsze pisze; ``clear_oof`` wykonane — tylko gdy
+    zdjęło naszą autoodpowiedź (zastaną wyłączoną kończy jako ``skipped``).
+    Kolejność według wykonania (``done_at``), nie kolejki: odroczona operacja
+    wcześniejszego wiersza mogła wejść później.
+    """
+
+    if not user_ids:
+        return {}
+    rows = await db.execute(
+        select(HrM365Operation.user_id, HrM365Operation.id)
+        .where(
+            HrM365Operation.user_id.in_(list(user_ids)),
+            HrM365Operation.kind.in_(("set_oof", "clear_oof")),
+            HrM365Operation.status.in_(executed),
+        )
+        .distinct(HrM365Operation.user_id)
+        .order_by(
+            HrM365Operation.user_id,
+            HrM365Operation.done_at.desc().nulls_last(),
+            HrM365Operation.id.desc(),
+        )
+    )
+    return {user_id: op_id for user_id, op_id in rows.all()}
+
+
+async def _simulated_calendar(
+    db: AsyncSession, today: date
+) -> dict[int, list[HrM365Operation]]:
+    """Urlopy, których wydarzenie powstało tylko w symulacji (ostatnia operacja
+    kalendarza to symulowane ``calendar_event_upsert``), per osoba."""
+
+    ranked = (
+        select(
+            HrM365Operation.id,
+            func.row_number()
+            .over(
+                partition_by=HrM365Operation.leave_request_id,
+                order_by=HrM365Operation.id.desc(),
+            )
+            .label("rank"),
+        )
+        .join(LeaveRequest, LeaveRequest.id == HrM365Operation.leave_request_id)
+        .where(
+            HrM365Operation.kind.in_(
+                ("calendar_event_upsert", "calendar_event_delete")
+            ),
+            LeaveRequest.status == "approved",
+            LeaveRequest.end_date >= today,
+        )
+        .subquery()
+    )
+    rows = await db.scalars(
+        select(HrM365Operation)
+        .join(ranked, ranked.c.id == HrM365Operation.id)
+        .where(
+            ranked.c.rank == 1,
+            HrM365Operation.kind == "calendar_event_upsert",
+            HrM365Operation.status == "simulated",
+        )
+        .order_by(HrM365Operation.id)
+    )
+    out: dict[int, list[HrM365Operation]] = defaultdict(list)
+    for op in rows.all():
+        out[op.user_id].append(op)
+    return out
+
+
 async def _mailbox_users(
     db: AsyncSession, owner_ids: set[int], only: Optional[Collection[int]]
 ) -> list[User]:
@@ -171,34 +252,14 @@ async def _mailbox_users(
     return list(rows.all())
 
 
-async def _set_oof_payload(
-    db: AsyncSession, leave: LeaveRequest, total: Decimal
-) -> Optional[dict]:
-    calendar = await load_calendar(db, leave.start_date, leave.end_date)
-    snapshot = LeaveSnapshot(
-        id=str(leave.id),
-        user_id=leave.user_id,
-        start=leave.start_date,
-        end=leave.end_date,
-        half_day=leave.half_day,
-        total_days=total,
-        substitute_user_id=leave.substitute_user_id,
-        forward_mail_consent=leave.forward_mail_consent,
-        oof_internal_message=leave.oof_internal_message,
-        oof_external_message=leave.oof_external_message,
-        return_on=calendar.next_working_day_after(leave.end_date),
-    )
-    for planned in plan_operations("approved", snapshot, today=leave.start_date):
-        if planned.kind == "set_oof":
-            return planned.payload
-    return None
-
-
 def _needs_oof(
     current: dict[str, Any],
     leave: LeaveRequest,
     latest: Optional[HrM365Operation],
     now: datetime,
+    *,
+    executed: tuple[str, ...],
+    last_write_id: Optional[int],
 ) -> bool:
     if oof_state.matches_leave(current, leave.start_date, leave.end_date):
         return False
@@ -208,21 +269,26 @@ def _needs_oof(
         return False
     if (
         latest is not None
-        and latest.status in ("done", "simulated")
+        and latest.status in executed
         and oof_state.is_disabled(current)
+        and (last_write_id is None or last_write_id == latest.id)
     ):
-        # Nasza autoodpowiedź weszła, a osoba ją wyłączyła — nie włączamy na nowo.
+        # Nasza autoodpowiedź weszła jako ostatni nasz zapis, a osoba ją
+        # wyłączyła — nie włączamy na nowo. Późniejszy nasz zapis (inny urlop
+        # albo zdjęcie przy anulowaniu) znaczy, że wyłączyliśmy ją my.
         return False
     return True
 
 
-def _forward_open_pending(latest: Optional[HrM365Operation]) -> bool:
+def _forward_open_pending(
+    latest: Optional[HrM365Operation], executed: tuple[str, ...]
+) -> bool:
     """Ostatnia operacja przekierowania to otwarcie, które czeka albo weszło."""
 
     return (
         latest is not None
         and latest.kind == "forward_rule_open"
-        and latest.status in ("pending", "running", "done", "simulated")
+        and latest.status in (*_LIVE_STATUSES, *executed)
     )
 
 
@@ -235,17 +301,20 @@ async def _reconcile(
     only: Optional[Collection[int]] = None,
 ) -> dict[str, Any]:
     counts: dict[str, Any] = defaultdict(int)
+    executed = executed_statuses(mode)
     leaves = await _candidate_leaves(db, today)
     leave_ids = [leave.id for leave in leaves]
-    totals = await _day_totals(db, leave_ids)
+    totals = await leave_day_totals(db, leave_ids)
     latest_oof, latest_forward = await _latest_ops(db, leave_ids)
     by_user: dict[int, list[LeaveRequest]] = defaultdict(list)
     for leave in leaves:
         by_user[leave.user_id].append(leave)
+    last_writes = await _last_oof_writes(db, set(by_user), executed)
+    calendar_redo = await _simulated_calendar(db, today) if mode == "live" else {}
 
     allowed = allowlist() if mode == "live" else frozenset()
     day_key = today.isoformat()
-    for user in await _mailbox_users(db, set(by_user), only):
+    for user in await _mailbox_users(db, set(by_user) | set(calendar_redo), only):
         upn = mailbox_address(user)
         if upn is None:
             continue
@@ -271,9 +340,16 @@ async def _reconcile(
                 total = totals.get(leave.id, Decimal("0"))
                 if total < Decimal("1"):
                     continue  # pół dnia nie dostaje autoodpowiedzi
-                if not _needs_oof(current, leave, latest_oof.get(leave.id), now):
+                if not _needs_oof(
+                    current,
+                    leave,
+                    latest_oof.get(leave.id),
+                    now,
+                    executed=executed,
+                    last_write_id=last_writes.get(user.id),
+                ):
                     continue
-                payload = await _set_oof_payload(db, leave, total)
+                payload = await set_oof_payload(db, leave, total)
                 if payload is None:
                     continue
                 if await enqueue_at(
@@ -339,7 +415,7 @@ async def _reconcile(
                     counts["forward_close_enqueued"] += 1
             for leave_id, leave in active.items():
                 if leave_id in seen or _forward_open_pending(
-                    latest_forward.get(leave.id)
+                    latest_forward.get(leave.id), executed
                 ):
                     continue
                 if await enqueue_at(
@@ -351,6 +427,18 @@ async def _reconcile(
                     leave_request_id=leave.id,
                 ):
                     counts["forward_open_enqueued"] += 1
+
+        # 3. Wydarzenia, które powstały tylko w symulacji.
+        for op in calendar_redo.get(user.id, []):
+            if await enqueue_at(
+                db,
+                user_id=user.id,
+                kind="calendar_event_upsert",
+                dedupe_key=f"leave:{op.leave_request_id}:calendar_event_upsert:reconcile:{day_key}",
+                payload=dict(op.payload or {}),
+                leave_request_id=op.leave_request_id,
+            ):
+                counts["calendar_enqueued"] += 1
 
         if mode == "live":
             await save_mailbox_state(
