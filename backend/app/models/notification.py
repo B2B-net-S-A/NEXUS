@@ -248,6 +248,12 @@ class NotificationType(str, enum.Enum):
     # related_entity=(job, id). Bez maila.
     champions_changed = "champions_changed"
     champion_search_resumed = "champion_search_resumed"
+    # 0451: karta weszła na etap „Akceptacja” — klient zaakceptował osobę
+    # (D1–D6, 16.10.2026). Do rekrutera kandydata, prowadzącego, Delivery
+    # Leada rekrutacji i każdego Head of Recruitment poza osobą, która
+    # zaznaczyła; related_entity=(candidate_stage, id). Bez maila,
+    # kategoria „Akceptacje klienta” nie do wyciszenia.
+    client_accepted = "client_accepted"
 
 
 class Notification(Base, TimestampMixin):

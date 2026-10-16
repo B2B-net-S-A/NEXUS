@@ -33,6 +33,7 @@ class NotificationCategory(StrEnum):
     reminders = "reminders"
     deadlines = "deadlines"
     interviews = "interviews"
+    acceptances = "acceptances"
     candidates = "candidates"
     rejections = "rejections"
     contracts = "contracts"
@@ -57,6 +58,13 @@ CATEGORY_INFO: dict[NotificationCategory, CategoryInfo] = {
     NotificationCategory.interviews: CategoryInfo(
         "Rozmowy",
         "Umówione rozmowy, terminy od klienta, telefon do kandydata po rozmowie, debrief.",
+        mandatory=True,
+    ),
+    # 0451 (D5, 16.10.2026): „Klient zaakceptował” — rekruter, prowadzący,
+    # Delivery Lead i Head of Recruitment muszą to wiedzieć; nie do wyciszenia.
+    NotificationCategory.acceptances: CategoryInfo(
+        "Akceptacje klienta",
+        "Klient zaakceptował kandydata — dalej oferta i umowa.",
         mandatory=True,
     ),
     NotificationCategory.chat: CategoryInfo(
@@ -166,6 +174,8 @@ CATEGORY_BY_TYPE: dict[NotificationType, NotificationCategory] = {
     _T.interview_slot_confirmed: _C.interviews,
     _T.interview_debrief_saved: _C.interviews,
     _T.prep_attention: _C.interviews,
+    # Akceptacje klienta (0451)
+    _T.client_accepted: _C.acceptances,
     # 0374: koniec programu praktykanta — decyzja Head of Recruitment.
     _T.trainee_program_decision: _C.kpi,
     # Nowi i pasujący kandydaci

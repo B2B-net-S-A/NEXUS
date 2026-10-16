@@ -81,7 +81,7 @@ describe("foldBoardColumns", () => {
       "QC CV",
       "CV wysłane",
       "Rozmowa u klienta",
-      "Umowa",
+      "Akceptacja i umowa",
       "Zatrudniony",
     ]);
     expect(folded.columns.map((c) => c.key)).toEqual(BOARD_COLUMN_ORDER);
@@ -173,7 +173,7 @@ describe("foldBoardColumns", () => {
       "QC CV",
       "CV wysłane",
       "Rozmowa u klienta",
-      "Umowa",
+      "Akceptacja i umowa",
       "Zatrudniony",
     ]);
     const accept = traffit.columns.find((c) => c.key === "contract")!;
@@ -223,7 +223,7 @@ describe("kolejność kart w kolumnie Tablicy (16.10.2026)", () => {
 
 describe("znaczniki ustawiane z panelu", () => {
   it("DZ i Cpro zniknęły z przełączników — Cpro ustawia strzałka", () => {
-    expect(SETTABLE_BADGES).toEqual(["contract_signed"]);
+    expect(SETTABLE_BADGES).toEqual(["contract_sent", "contract_signed"]);
     expect(impliedBadges("cpro")).toEqual(["cpro"]);
     expect(impliedBadges(null)).toEqual([]);
   });

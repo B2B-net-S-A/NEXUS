@@ -9,8 +9,9 @@ describe("boardColumnPurpose — „co tu robisz” pod nazwą kolumny (v5)", ()
     expect(boardColumnPurpose("verified")).toBe("Stawka ✓ → przygotuj CV do QC");
     expect(boardColumnPurpose("cv_qc")).toBe("Popraw CV, potem wyślij");
     expect(boardColumnPurpose("cv_sent")).toBe("Czekamy na klienta");
-    expect(boardColumnPurpose("client_interview")).toBe("Prep → rozmowa → telefon");
-    expect(boardColumnPurpose("contract")).toBe("Podpis umowy");
+    expect(boardColumnPurpose("client_interview")).toBe("Prep → rozmowa → decyzja klienta");
+    // 16.10.2026 (D2): w kolumnie „Akceptacja i umowa” zaczyna się od akceptacji.
+    expect(boardColumnPurpose("contract")).toBe("Klient zaakceptował → umowa → podpis");
     expect(boardColumnPurpose("hired", { hired: 1, headcount: 3 })).toBe("Obsada 1 / 3");
   });
 

@@ -528,7 +528,7 @@
    },
    "sla_days": null,
    "expected": {
-    "label": "Zbierz feedback HM",
+    "label": "Decyzja po rozmowie",
     "tone": "normal",
     "kind": "client",
     "owner": "client"

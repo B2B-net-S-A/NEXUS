@@ -24,6 +24,7 @@ dotyczy.
 
 from __future__ import annotations
 
+from datetime import date
 from decimal import Decimal
 from typing import Any, Optional
 
@@ -212,6 +213,42 @@ async def assert_verified_requirements(
 
 
 HIRED_SIGNED_VIA = ("b2b_offline", "uop", "zlecenie", "other")
+
+
+def assert_client_acceptance_dates(
+    target: PipelineStage,
+    accepted_on: Optional[date],
+    planned_start_on: Optional[date],
+    *,
+    today: date,
+) -> None:
+    """Data akceptacji klienta i planowany start (16.10.2026, D1).
+
+    Pola niesie wyłącznie okno „Klient zaakceptował” — przy każdym innym
+    ruchu to pomyłka wołającego, nie informacja do pominięcia. Akceptacja
+    nie bywa z przyszłości, a start nie wypada przed akceptacją.
+    """
+
+    if target != PipelineStage.acceptance:
+        if accepted_on is not None or planned_start_on is not None:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    "Datę akceptacji i planowany start podaje się tylko przy "
+                    "oznaczeniu „Klient zaakceptował”."
+                ),
+            )
+        return
+    if accepted_on is not None and accepted_on > today:
+        raise HTTPException(
+            status_code=422,
+            detail="Data akceptacji klienta nie może być z przyszłości.",
+        )
+    if planned_start_on is not None and planned_start_on < (accepted_on or today):
+        raise HTTPException(
+            status_code=422,
+            detail="Planowany start nie może wypaść przed akceptacją klienta.",
+        )
 
 
 def assert_hired_signed_via(

@@ -18,6 +18,7 @@ import {
  ClipboardList,
  ChevronLeft,
  ChevronRight,
+ CircleCheck,
  Clock,
  FileArchive,
  FileSignature,
@@ -41,6 +42,7 @@ import {
 import {
  api,
  candidatesApi,
+ hiringManagerFeedbackApi,
  pipelineApi,
 } from"@/lib/api";
 import { candidatePipelinesQueryKey } from"@/components/CandidatePipelinesWidget";
@@ -84,6 +86,16 @@ import { DlReviewQueueDialog } from "@/components/v2/recruitment/dl-review/DlRev
 import { PersonPanelShell, type PersonPanelSize } from "@/components/v2/person/PersonPanelShell";
 import { CvQcDialog } from "@/components/v2/recruitment/CvQcDialog";
 import { MoveNextDialog } from "@/components/v2/recruitment/MoveNextDialog";
+import { useConfirmV2 } from "@/components/v2/modals/ConfirmV2";
+import { ClientAcceptedDialog, type ClientAcceptanceValues } from "@/components/v2/recruitment/ClientAcceptedDialog";
+import {
+ acceptanceLine,
+ acceptanceTitle,
+ acceptedToast,
+ contractStepCounts,
+ type ClientAcceptanceRecipient,
+ type ContractStepCounts,
+} from "@/lib/client-acceptance";
 import {
  dockNavigationOrder,
  nextColumnWithPeople,
@@ -714,6 +726,12 @@ interface CardProps {
  stageBadge?: StageBadgeKey | null;
 }
 
+/** Kroki umowy w doku („+ Umowa wysłana”), gdzie skrót „wysłana” nie wystarcza. */
+const SETTABLE_BADGE_TOGGLE_LABEL: Partial<Record<StageBadgeKey, string>> = {
+ contract_sent: "Umowa wysłana",
+ contract_signed: "Umowa podpisana",
+};
+
 const STAGE_BADGE_TONE: Record<StageBadgeKey, string> = {
  posting: "bg-muted text-muted-foreground",
  acceptance: "bg-info/15 text-info",
@@ -783,6 +801,9 @@ interface BoardV4Ctx {
  onReviewSend: (item: KanbanItem) => void;
  /** Otwórz panel osoby jak klik w kartę („Screening razem” z okienka karty). */
  onOpenPerson: (item: KanbanItem) => void;
+ /** D1 (16.10.2026): „Klient zaakceptował” — okno akceptacji; `null` = szablon
+  *  bez etapu „Akceptacja” albo tylko odczyt (przycisku nie ma). */
+ onClientAccept: ((item: KanbanItem) => void) | null;
 }
 const BoardV4Context = React.createContext<BoardV4Ctx | null>(null);
 
@@ -1129,6 +1150,22 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  )}
  </div>
 
+ {/* D2 (16.10.2026): akceptacja klienta — kiedy i kto zaznaczył. Tylko
+ w kolumnie „Akceptacja i umowa”; karta cofnięta do rozmowy jej nie ma. */}
+ {boardKey === "contract" && item.client_acceptance && (
+ <p
+ data-testid="card-client-acceptance"
+ title={acceptanceTitle(item.client_acceptance) ?? undefined}
+ className={cn(
+ // Dwie linie zamiast ucinania: przy 1280 px „· Olga W.” spadało za brzeg.
+ "mt-1 line-clamp-2 break-words rounded px-1.5 py-0.5 text-[10.5px] font-semibold leading-snug bg-success-muted text-success-muted-foreground",
+ desktopOverview && "xl:pointer-fine:hidden"
+ )}
+ >
+ {acceptanceLine(item.client_acceptance)}
+ </p>
+ )}
+
  {/* Wiersz 2 makiety: właściciel karty po lewej, wiek na etapie po prawej. */}
  <div
  className={cn(
@@ -1239,7 +1276,9 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  <span aria-hidden="true">{w.label}</span>
  </span>
  ))}
- {impliedBadges(cardStageBadge(item, stageBadge)).map((badge) => (
+ {impliedBadges(cardStageBadge(item, stageBadge))
+ .filter((badge) => !(badge === "acceptance" && boardKey === "contract" && item.client_acceptance))
+ .map((badge) => (
  <span
  key={badge}
  className={cn(
@@ -1382,6 +1421,28 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  }
  />
 
+ {/* D1 (16.10.2026): „Klient zaakceptował” na karcie po rozmowie u klienta —
+ okno akceptacji (data, debrief, kto dostanie dzwonek), potem ruch. */}
+ {boardKey === "client_interview" && v5?.onClientAccept && !readOnly && (
+ <button
+ type="button"
+ data-testid="card-client-accept"
+ onClick={(e) => {
+ e.stopPropagation();
+ e.preventDefault();
+ v5.onClientAccept?.(item);
+ }}
+ aria-label={`Klient zaakceptował: ${fullName}`}
+ className={cn(
+ "mt-1.5 flex h-7 w-full items-center justify-center gap-1 rounded-md border border-success/40 bg-success-muted text-[11px] font-semibold text-success-muted-foreground transition-colors hover:bg-success/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring pointer-coarse:min-h-9",
+ desktopOverview && "xl:pointer-fine:hidden"
+ )}
+ >
+ <CircleCheck className="h-3.5 w-3.5" aria-hidden="true" />
+ Klient zaakceptował
+ </button>
+ )}
+
  {/* „Przejrzyj i wyślij” — własny wiersz pod „kto ma ruch” (jak pigułka
  Screeningu niżej, nigdy `absolute`). Wypełniony u Delivery Leada tej
  rekrutacji, obrysowany u pozostałych z prawem wysyłki. */}
@@ -1515,6 +1576,30 @@ interface ColProps {
   *  w „QC CV” u Delivery Leada tej rekrutacji) — ta sama linia, bez dodatkowej
   *  wysokości. */
  purposeAction?: React.ReactNode;
+ /** Trzecia linia nagłówka: liczniki kroków w „Akceptacja i umowa” (D2). */
+ headerExtra?: React.ReactNode;
+}
+
+/** Liczniki kroków w nagłówku kolumny „Akceptacja i umowa” (D2, 16.10.2026). */
+function ContractStepChips({ counts }: { counts: ContractStepCounts }) {
+ const chips: Array<{ key: string; label: string; n: number; tone: string }> = [
+ { key: "accepted", label: "Zaakceptowani", n: counts.accepted, tone: "border-success/40 bg-success-muted text-success-muted-foreground" },
+ { key: "sent", label: "Umowa wysłana", n: counts.sent, tone: "border-border bg-card text-muted-foreground" },
+ { key: "signed", label: "Podpisana", n: counts.signed, tone: "border-border bg-card text-muted-foreground" },
+ ];
+ return (
+ <>
+ {chips.map((c) => (
+ <span
+ key={c.key}
+ data-testid={`contract-step-${c.key}`}
+ className={cn("inline-flex items-center gap-1 rounded-full border px-1.5 text-[10px] font-medium leading-4", c.tone)}
+ >
+ {c.label} <span className="font-semibold tabular-nums">{c.n}</span>
+ </span>
+ ))}
+ </>
+ );
 }
 
 const KanbanColumnV2 = memo(function KanbanColumnV2({
@@ -1544,6 +1629,7 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  purpose = null,
  headerAction = null,
  purposeAction = null,
+ headerExtra = null,
  totalCount,
  filterEmpty = null,
 }: ColProps) {
@@ -1680,6 +1766,14 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  </span>
  )}
  </div>
+ {headerExtra && (
+ <div
+ data-testid="column-header-extra"
+ className={cn("flex flex-wrap gap-1 border-b border-border px-3 py-1", desktopOverview && "xl:pointer-fine:hidden")}
+ >
+ {headerExtra}
+ </div>
+ )}
 
  <Droppable droppableId={dropId} isDropDisabled={noDrop}>
  {(provided, snapshot) => (
@@ -1849,6 +1943,16 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapM
  for (const f of boardFold.columns) m.set(colId(f.host), f.label);
  return m;
  }, [boardFold]);
+ // D2 (16.10.2026): liczniki kroków w nagłówku „Akceptacja i umowa” — ile
+ // osób po akceptacji, z wysłaną i z podpisaną umową (bez filtra „Kto dodał”).
+ const contractCountsByColId = useMemo(() => {
+ const m = new Map<string, ContractStepCounts>();
+ for (const f of boardFold.columns) {
+ if (f.key !== "contract" || f.items.length === 0) continue;
+ m.set(colId(f.host), contractStepCounts(f.items.map((it) => boardFold.badgeByItemId.get(it.id))));
+ }
+ return m;
+ }, [boardFold]);
  // Prawdziwy etap → gospodarz jego kolumny Tablicy (tam trafia ruch).
  const hostByColId = useMemo(() => {
  const m = new Map<string, KanbanColumn>();
@@ -1910,6 +2014,40 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapM
  (item: KanbanItem) => nextFoldByItemId.get(item.id)?.label ?? null,
  [nextFoldByItemId]
  );
+ // D1 (16.10.2026): etap „Akceptacja” szablonu — cel „Klient zaakceptował”;
+ // gospodarz „Rozmowy u klienta” — cel „Cofnij akceptację klienta”.
+ const acceptanceStageCol = useMemo(
+ () =>
+ boardFold.columns
+ .find((f) => f.key === "contract")
+ ?.members.find((c) => placeStage(c).badge === "acceptance") ?? null,
+ [boardFold]
+ );
+ const clientInterviewHost = useMemo(
+ () => boardFold.columns.find((f) => f.key === "client_interview")?.host ?? null,
+ [boardFold]
+ );
+ // Okno „Klient zaakceptował”: osoba i notatka wpisana już w werdykcie
+ // („Akceptuje” z zakładki „Rozmowy”).
+ const [acceptFor, setAcceptFor] = useState<{ item: KanbanItem; note: string | null } | null>(null);
+ const openClientAccept = useCallback(
+ (item: KanbanItem, note?: string | null) => setAcceptFor({ item, note: note ?? null }),
+ []
+ );
+ const onClientAccept = acceptanceStageCol && !readOnly ? openClientAccept : null;
+ // Każdy ruch z „Rozmowy u klienta” na „Akceptację i umowę” (strzałka,
+ // przeciągnięcie, „Następny etap”, „Inny etap…”) idzie przez to samo okno —
+ // jedna droga akceptacji zamiast dwóch przycisków obok siebie.
+ const acceptInsteadOfMove = useCallback(
+ (item: KanbanItem, dst: KanbanColumn): boolean => {
+ if (!onClientAccept || columnByItemId.get(item.id) !== "client_interview") return false;
+ const fold = boardFold.columns.find((f) => f.host === dst || f.members.includes(dst));
+ if (fold?.key !== "contract") return false;
+ onClientAccept(item);
+ return true;
+ },
+ [onClientAccept, columnByItemId, boardFold]
+ );
  // Okno „Przesuń dalej" i okno QC CV (F2: `CvQcDialog`).
  const [moveNext, setMoveNext] = useState<{
  item: KanbanItem;
@@ -1927,6 +2065,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapM
  const [debriefFor, setDebriefFor] = useState<{ eventId: number; name: string } | null>(null);
  const openMoveNext = useCallback(
  (item: KanbanItem, srcColId: string, target: KanbanColumn) => {
+ if (acceptInsteadOfMove(item, target)) return;
  const fold = boardFold.columns.find((f) => f.host === target || f.members.includes(target));
  const host = fold?.host ?? target;
  setMoveNext({
@@ -1940,7 +2079,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapM
  moveNextSuspended.current = false;
  setMoveNextOpen(true);
  },
- [boardFold, columnByItemId]
+ [boardFold, columnByItemId, acceptInsteadOfMove]
  );
  const onAdvance = useCallback(
  (item: KanbanItem) => {
@@ -2048,8 +2187,9 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapM
  viewerOwnsDlReview,
  onReviewSend,
  onOpenPerson: openPersonViaRef,
+ onClientAccept,
  }),
- [columnByItemId, cproEnabled, authUser?.id, readOnly, takingIds, takeCandidate, nextColumnLabel, onArrowAdvance, onOpenQc, canReviewAsDl, viewerOwnsDlReview, onReviewSend, openPersonViaRef]
+ [columnByItemId, cproEnabled, authUser?.id, readOnly, takingIds, takeCandidate, nextColumnLabel, onArrowAdvance, onOpenQc, canReviewAsDl, viewerOwnsDlReview, onReviewSend, openPersonViaRef, onClientAccept]
  );
  const [focusedColId, setFocusedColId] = useState<string | null>(() =>
  defaultFocusColumnId(columns)
@@ -2438,6 +2578,57 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapM
  },
  });
  const { requestMove, requestReject, canMoveWithoutDialog, deferMove, commitPendingMove } = move;
+ // D1/D6 (16.10.2026): akceptacja = ruch na etap „Akceptacja” wspólną ścieżką
+ // (data i start w tym samym żądaniu, dzwonki wysyła serwer), a po ruchu
+ // werdykt klienta „Akceptuje” z tym, co powiedział klient.
+ const confirmClientAccept = useCallback(
+ (values: ClientAcceptanceValues, recipients: ClientAcceptanceRecipient[]) => {
+ const item = acceptFor?.item;
+ setAcceptFor(null);
+ if (!item || !acceptanceStageCol) return;
+ const src = cols.find((c) => c.items.some((i) => i.candidate_id === item.candidate_id));
+ if (!src) return;
+ const name = `${item.name ?? ""} ${item.lastname ?? ""}`.trim() || "Kandydat";
+ requestMove(item, colId(src), acceptanceStageCol, {
+ clientAcceptance: { acceptedOn: values.acceptedOn, plannedStartOn: values.plannedStartOn },
+ onMoved: () => {
+ showSuccess(acceptedToast(name, recipients));
+ hiringManagerFeedbackApi
+ .record(jobId, {
+ candidate_id: item.candidate_id,
+ decision: "advance",
+ rejection_reason_id: null,
+ note: values.clientNote,
+ })
+ .then(() => queryClient.invalidateQueries({ queryKey: ["hiring-manager-feedback", jobId] }))
+ .catch((e) =>
+ showError(
+ `Akceptacja zapisana, ale werdykt klienta nie: ${apiErrorMessage(e, "zapisz go w zakładce „Rozmowy”.")}`
+ )
+ );
+ },
+ });
+ },
+ [acceptFor, acceptanceStageCol, cols, requestMove, showSuccess, showError, jobId, queryClient]
+ );
+ // „Cofnij akceptację klienta” (menu „⋯” w panelu osoby): karta wraca na
+ // „Rozmowę u klienta”, serwer gasi nieprzeczytane dzwonki akceptacji.
+ const { askConfirm: askUndoAcceptance, confirmDialog: undoAcceptanceDialog } = useConfirmV2();
+ const undoClientAccept = useCallback(
+ async (item: KanbanItem) => {
+ if (!clientInterviewHost) return;
+ const src = cols.find((c) => c.items.some((i) => i.candidate_id === item.candidate_id));
+ if (!src) return;
+ const ok = await askUndoAcceptance({
+ title: "Cofnąć akceptację klienta?",
+ description:
+ "Karta wróci do „Rozmowy u klienta”. Dzwonki „Klient zaakceptował”, których nikt jeszcze nie otworzył, zgasną.",
+ confirmLabel: "Cofnij akceptację",
+ });
+ if (ok) requestMove(item, colId(src), clientInterviewHost);
+ },
+ [askUndoAcceptance, clientInterviewHost, cols, requestMove]
+ );
  pendingMovesRef.current = move.pendingMoves;
  // Osoba z odłożonym ruchem strzałką otwarta w panelu: ruch idzie od razu —
  // formularz screeningu i wymagania czytają stan z serwera, który jeszcze go
@@ -2471,6 +2662,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapM
  );
  const routeMove = useCallback(
  (item: KanbanItem, srcColId: string, dst: KanbanColumn) => {
+ if (acceptInsteadOfMove(item, dst)) return;
  const fromIndex = foldIndexByColId.get(srcColId);
  const toIndex = foldIndexByColId.get(colId(dst));
  if (fromIndex == null || toIndex == null || toIndex <= fromIndex) {
@@ -2484,7 +2676,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapM
  }
  requestMove(item, srcColId, dst);
  },
- [foldIndexByColId, forwardNeedsMoveNext, openMoveNext, requestMove]
+ [foldIndexByColId, forwardNeedsMoveNext, openMoveNext, requestMove, acceptInsteadOfMove]
  );
  // Strzałka „→” na karcie (D7, decyzja Artura 14.10.2026): ta sama reguła co
  // przeciągnięcie na sąsiednią kolumnę, ale ruch, który nie potrzebuje
@@ -2496,6 +2688,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapM
  const next = nextFoldByItemId.get(item.id);
  const src = cols.find((c) => c.items.some((i) => i.id === item.id));
  if (!next || !src) return;
+ if (acceptInsteadOfMove(item, next.host)) return;
  const fromIndex = foldIndexByColId.get(colId(src));
  const toIndex = foldIndexByColId.get(colId(next.host));
  if (
@@ -2850,7 +3043,8 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapM
  const active = impliedBadges(currentBadge).includes(badge);
  toggles.push({
  key: badge,
- label: STAGE_BADGE_LABEL[badge],
+ // Przełącznik w doku mówi pełnym krokiem („Umowa wysłana”), karta — skrótem.
+ label: SETTABLE_BADGE_TOGGLE_LABEL[badge] ?? STAGE_BADGE_LABEL[badge],
  active,
  disabledReason: readOnly ? "Tylko odczyt." : null,
  onToggle: () => requestMove(dockItem, dockItemColId, active ? dockHost : member),
@@ -3039,12 +3233,13 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapM
  const handleDockMove = useCallback(
  (dst: KanbanColumn) => {
  if (!dockItem || !dockItemColId) return;
+ if (acceptInsteadOfMove(dockItem, dst)) return;
  if (openDlReviewIfSending(dockItem, dst)) return;
  // Wybór etapu z doku jest jawny — ruch od razu (serwer i tak pilnuje
  // bramki QC; 409 CV_QC_FAILED otwiera okno QC CV).
  requestMove(dockItem, dockItemColId, dst);
  },
- [dockItem, dockItemColId, requestMove, openDlReviewIfSending]
+ [dockItem, dockItemColId, requestMove, openDlReviewIfSending, acceptInsteadOfMove]
  );
  // Ramka „Następny etap": przekazanie na etap wskazany przez serwer
  // (`primary.target_stage_def_id` — „QC CV" dla DL, „Wysłać do Cpro").
@@ -3988,6 +4183,9 @@ headerAction={
  </button>
  ) : null
  }
+ headerExtra={contractCountsByColId.has(entry.key) ? (
+ <ContractStepChips counts={contractCountsByColId.get(entry.key)!} />
+ ) : null}
  purpose={boardColumnPurpose(boardKeyByColId.get(entry.key), {
  cproEnabled,
  hired: totalCountByColId.get(entry.key) ?? entry.col.count,
@@ -4082,6 +4280,15 @@ headerAction={
  : undefined
  }
  badgeToggles={dockBadgeToggles}
+ onClientAccept={
+ onClientAccept && dockHostKey === "client_interview" ? () => onClientAccept(dockItem) : undefined
+ }
+ clientAcceptance={dockHostKey === "contract" ? (dockItem.client_acceptance ?? null) : null}
+ onUndoClientAcceptance={
+ !readOnly && clientInterviewHost && boardFold.badgeByItemId.get(dockItem.id) === "acceptance"
+ ? () => void undoClientAccept(dockItem)
+ : undefined
+ }
  onOpenWorkbench={
  workbenchContext
  ? (section) => openWorkbench(dockItem.candidate_id, section)
@@ -4126,6 +4333,12 @@ headerAction={
  nextInColumn,
  openPerson: openPersonInPanel,
  noteFill,
+ onClientAccept: onClientAccept
+ ? (candidateId, note) => {
+ const it = cols.flatMap((c) => c.items).find((i) => i.candidate_id === candidateId);
+ if (it) openClientAccept(it, note);
+ }
+ : undefined,
  }}
  />
  ) : null
@@ -4177,6 +4390,20 @@ headerAction={
  resumeMoveNext();
  }}
  />
+ <ClientAcceptedDialog
+ open={acceptFor !== null}
+ onOpenChange={(open) => {
+ if (!open) setAcceptFor(null);
+ }}
+ jobId={jobId}
+ candidateId={acceptFor?.item.candidate_id ?? 0}
+ candidateName={`${acceptFor?.item.name ?? ""} ${acceptFor?.item.lastname ?? ""}`.trim() || "Kandydat"}
+ initialNote={acceptFor?.note ?? null}
+ context={jobTitle ?? null}
+ acceptanceStageDefId={acceptanceStageCol?.stage_def_id ?? null}
+ onConfirm={confirmClientAccept}
+ />
+ {undoAcceptanceDialog}
  <MoveNextDialog
  open={moveNextOpen && moveNext !== null}
  onOpenChange={(open) => {

@@ -132,7 +132,7 @@ describe("JobChampionsStatus", () => {
 
     const groups = await within(popover).findAllByRole("group");
     expect(groups.map((g) => g.getAttribute("aria-label"))).toEqual([
-      "Umowa",
+      "Akceptacja i umowa",
       "Rozmowa u klienta",
     ]);
     // Etap z serwera jako drugi tekst, gdy mówi więcej niż nazwa kolumny.

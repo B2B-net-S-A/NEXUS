@@ -98,6 +98,12 @@ class StageMove(BaseModel):
     # `declined` przed wycofaniem → post_accept dropout (10pt w risk score).
     candidate_offer_response: Optional[CandidateOfferResponse] = None
 
+    # ── „Klient zaakceptował” (0451, 16.10.2026) ──────────────────────────
+    # Wyłącznie przy ruchu na etap `acceptance` (inaczej 422). Brak daty =
+    # akceptacja z dnia ruchu; start opcjonalny, nie przed akceptacją.
+    client_accepted_on: Optional[date] = None
+    planned_start_on: Optional[date] = None
+
     # ── Optymistyczna współbieżność (audyt procesów F05) ──────────────────
     # `RecruitmentProcess.state_version` widziana przez klienta w chwili
     # decyzji. Podana i różna od bieżącej → 409 PIPELINE_VERSION_CONFLICT:
@@ -362,6 +368,10 @@ class CandidateStageResponse(BaseModel):
     # {id, number, contract_status, signature_status, created_at, signed_at,
     # signature_requested_at, contract_id}; brak = para bez umowy.
     agreement: Optional[dict] = None
+    # 0451: ostatnia akceptacja klienta pary — {stage_id, accepted_on,
+    # planned_start_on, marked_at, marked_by_name}; front rysuje ją tylko
+    # w kolumnie „Akceptacja i umowa”.
+    client_acceptance: Optional[dict] = None
     # Znacznik „Pracuje u nas” (`services/employment_marker.py`); `elsewhere`
     # liczone względem klienta tej rekrutacji. Pulpit „Moje następne kroki”
     # go nie niesie (do 25 tablic w jednej odpowiedzi).

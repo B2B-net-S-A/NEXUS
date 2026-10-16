@@ -80,7 +80,9 @@ def _def(name: str, enum: str | None, category: str = "internal"):
             True,
             handoff.REASON_STAGE_REACHED,
         ),
-        (_def("Akceptacja", "acceptance", "external"), False, None),
+        # 16.10.2026 (D4): akceptacja klienta dzwoni do rekrutera, prowadzącego,
+        # Delivery Leada i Head of Recruitment (`test_client_acceptance.py`).
+        (_def("Akceptacja", "acceptance", "external"), False, handoff.REASON_CLIENT_ACCEPTED),
         (_def("Odrzucony po prepie", "rejected", "terminal"), False, None),
     ],
 )

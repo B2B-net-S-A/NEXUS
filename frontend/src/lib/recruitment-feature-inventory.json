@@ -2830,6 +2830,54 @@
    "file": "components/v2/shell/OpenTabsRail.tsx",
    "marker": "open-tab-reference",
    "v3_home": "szyna „Otwarte karty”"
+  },
+  {
+   "id": "board.client-accept",
+   "area": "tablica",
+   "opis": "Akceptacja klienta (D1, 16.10.2026): przycisk „Klient zaakceptował” na karcie w „Rozmowie u klienta” otwiera okno akceptacji (data, planowany start, słowa klienta, debrief, kto dostanie dzwonek); zapis = ruch na etap „Akceptacja” i werdykt „Akceptuje”",
+   "file": "components/v2/pages/KanbanBoardV2.tsx",
+   "marker": "card-client-accept",
+   "v3_home": "Tablica → karta w „Rozmowie u klienta”"
+  },
+  {
+   "id": "board.client-acceptance-line",
+   "area": "tablica",
+   "opis": "Zielony wiersz „✓ Klient zaakceptował · data · kto” na karcie w kolumnie „Akceptacja i umowa” (D2) zamiast samej plakietki „Akceptacja”",
+   "file": "components/v2/pages/KanbanBoardV2.tsx",
+   "marker": "card-client-acceptance",
+   "v3_home": "Tablica → kolumna „Akceptacja i umowa”"
+  },
+  {
+   "id": "board.contract-step-chips",
+   "area": "tablica",
+   "opis": "Liczniki „Zaakceptowani · Umowa wysłana · Podpisana” w nagłówku kolumny „Akceptacja i umowa” (D2)",
+   "file": "components/v2/pages/KanbanBoardV2.tsx",
+   "marker": "ContractStepChips",
+   "v3_home": "Tablica → nagłówek kolumny „Akceptacja i umowa”"
+  },
+  {
+   "id": "dialog.client-accepted",
+   "area": "ruch",
+   "opis": "Okno „Klient zaakceptował”: debrief po rozmowie w tym samym oknie (D3), lista osób, które dostaną dzwonek (D4), zapis akceptacji",
+   "file": "components/v2/recruitment/ClientAcceptedDialog.tsx",
+   "marker": "client-accepted-save",
+   "v3_home": "Tablica / panel osoby / werdykt „Akceptuje”"
+  },
+  {
+   "id": "panel.client-accept",
+   "area": "panel",
+   "opis": "Panel osoby: „Klient zaakceptował” na „Rozmowie u klienta”, zielony pasek akceptacji z planowanym startem na „Akceptacji i umowie” i „Cofnij akceptację klienta” w menu „⋯”",
+   "file": "components/v2/jobs/PipelineCandidateDock.tsx",
+   "marker": "Cofnij akceptację klienta",
+   "v3_home": "Panel osoby → głowa panelu / menu „⋯”"
+  },
+  {
+   "id": "interviews.verdict-accepts",
+   "area": "panel",
+   "opis": "Werdykt hiring managera „Akceptuje” (dawniej „Dalej”, D6) na „Rozmowie u klienta” otwiera okno „Klient zaakceptował”",
+   "file": "components/v2/jobs/JobInterviewsTab.tsx",
+   "marker": "acceptOpensWindow",
+   "v3_home": "Panel osoby → zakładka „Rozmowy”"
   }
  ]
 }

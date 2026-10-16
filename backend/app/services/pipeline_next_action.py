@@ -292,7 +292,7 @@ def _base_action(
         if col.stage == CV_SENT_STAGE:
             return ("Umów interview / feedback klienta", "normal", "client")
         if col.stage == "client_interview":
-            return ("Zbierz feedback HM", "normal", "client")
+            return ("Decyzja po rozmowie", "normal", "client")
         if col.stage in ("acceptance", "negotiation"):
             return ("Reakcja kandydata na ofertę", "normal", "offer")
         return ("Feedback klienta", "normal", "client")

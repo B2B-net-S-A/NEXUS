@@ -25,8 +25,9 @@ const PURPOSE: Partial<Record<BoardColumnKey, string>> = {
   verified: "Stawka ✓ → przygotuj CV do QC",
   cv_qc: "Popraw CV, potem wyślij",
   cv_sent: "Czekamy na klienta",
-  client_interview: "Prep → rozmowa → telefon",
-  contract: "Podpis umowy",
+  client_interview: "Prep → rozmowa → decyzja klienta",
+  // 16.10.2026 (D2): kolumna zaczyna się od akceptacji klienta.
+  contract: "Klient zaakceptował → umowa → podpis",
 };
 
 /**

@@ -324,7 +324,7 @@ function baseActionFor(
         };
       }
       if (column.stage === "client_interview") {
-        return { label: "Zbierz feedback HM", tone: "normal", kind: "client" };
+        return { label: "Decyzja po rozmowie", tone: "normal", kind: "client" };
       }
       if (column.stage === "acceptance" || column.stage === "negotiation") {
         return {

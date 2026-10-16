@@ -298,6 +298,13 @@ const TYPE_CONFIG: Record<
     color: "text-warning",
     bgColor: "bg-warning/15",
   },
+  // 0451 (16.10.2026): „Klient zaakceptował” — rekruter kandydata, prowadzący,
+  // Delivery Lead i Head of Recruitment (nie do wyciszenia).
+  client_accepted: {
+    icon: <UserCheck className="w-3.5 h-3.5" />,
+    color: "text-success-muted-foreground",
+    bgColor: "bg-success-muted",
+  },
   stage_rule: {
     icon: <Workflow className="w-3.5 h-3.5" />,
     color: "text-primary",

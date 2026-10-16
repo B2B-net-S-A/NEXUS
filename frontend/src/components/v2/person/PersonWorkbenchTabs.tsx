@@ -103,6 +103,8 @@ export interface WorkbenchContext {
   openPerson?: (candidateId: number) => void;
   /** D3: pole notatki w doku przekazuje zapisaną notatkę do formularza. */
   noteFill?: NoteFillChannel;
+  /** D6 (16.10.2026): werdykt „Akceptuje” otwiera okno „Klient zaakceptował”. */
+  onClientAccept?: (candidateId: number, note?: string | null) => void;
 }
 
 /** Następna osoba w kolumnie Tablicy. */
@@ -487,6 +489,7 @@ export function PersonWorkbenchTabs({
               onColumnsRetry={kanban.refetch}
               readOnly={readOnly}
               budgetHourly={ctx.budgetHourly}
+              onClientAccept={ctx.onClientAccept}
             />
           </>
         );
