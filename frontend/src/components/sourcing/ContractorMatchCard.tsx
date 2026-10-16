@@ -24,6 +24,7 @@ import { EmailDraftDialog } from "./EmailDraftDialog";
 import { useToast } from "@/components/Toast";
 import { assignErrorMessage } from "@/lib/assign-error";
 import { formatCandidateLocation } from "@/components/v2/pages/candidate-list-helpers";
+import { JobNameLabel } from "@/components/v2/jobs/JobNameLabel";
 
 interface Props {
   row: SeekingContractorRow;
@@ -248,12 +249,13 @@ export function ContractorMatchCard({ row }: Props) {
                 {/* Na telefonie pigułka ostrzeżenia i przycisk schodzą do drugiej
                     linii zamiast ściskać tytuł rekrutacji do kilku znaków. */}
                 <div className="min-w-0 flex-[1_1_12rem]">
-                  <Link
+                  {/* Numer u klienta i tytuł jak w nagłówku rekrutacji (16.10.2026);
+                      mail do kandydata dalej niesie nazwę od klienta. */}
+                  <JobNameLabel
+                    job={j}
                     href={`/jobs/${j.id}`}
-                    className="font-medium text-sm text-foreground dark:text-foreground hover:underline truncate block"
-                  >
-                    {j.title}
-                  </Link>
+                    titleClassName="font-medium text-sm text-foreground"
+                  />
                   <div className="text-[11px] text-muted-foreground flex flex-wrap items-center gap-x-2 mt-0.5">
                     {j.location && <span>📍 {j.location}</span>}
                     {j.salary_min && j.salary_max && (

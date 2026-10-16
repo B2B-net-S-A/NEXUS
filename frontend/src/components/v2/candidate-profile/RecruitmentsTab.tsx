@@ -99,6 +99,8 @@ import {
   type CandidateRecruitmentView,
 } from "@/components/v2/pages/candidate-profile-navigation";
 import { cn, formatDate } from "@/lib/utils";
+import { JobNameLabel } from "@/components/v2/jobs/JobNameLabel";
+import { candidateJobNames, jobNameText } from "@/lib/job-name-text";
 import { splitRecruitments } from "./profile-helpers";
 import { SectionError, SectionLoading, formatRate } from "./profile-shared";
 
@@ -252,10 +254,7 @@ export function RecruitmentsTab({
       new Map<number, string>(
         history
           .filter((job: any) => typeof job?.job_id === "number")
-          .map((job: any) => [
-            job.job_id as number,
-            String(job.job_title ?? `Rekrutacja #${job.job_id}`),
-          ]),
+          .map((job: any) => [job.job_id as number, jobNameText(candidateJobNames(job))]),
       ),
     [history],
   );
@@ -602,7 +601,10 @@ function ActiveRecruitmentRow({
   jobTitles: ReadonlyMap<number, string>;
 }) {
   const [confirmRemove, setConfirmRemove] = useState(false);
-  const title: string = job.job_title ?? `Rekrutacja #${jobId}`;
+  // Nazwa jak w nagłówku rekrutacji (16.10.2026); `job_title` (od klienta)
+  // zostaje dla okien, które mówią do klienta (CV).
+  const names = candidateJobNames({ ...job, job_id: jobId });
+  const title = jobNameText(names);
   const detailsId = `candidate-active-recruitment-${jobId}-details`;
   const days = daysSince(job.last_seen);
   const owner = nextActionOwnerLabel(job.next_action_owner);
@@ -632,9 +634,12 @@ function ActiveRecruitmentRow({
               <ChevronDown aria-hidden="true" className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
             )}
             <span className="min-w-0">
-              <span className="block break-words font-medium text-foreground group-hover:text-primary">
-                {title}
-              </span>
+              <JobNameLabel
+                job={names}
+                copyable={false}
+                wrap
+                className="font-medium text-foreground group-hover:text-primary"
+              />
               {job.client_name ? (
                 <span className="block text-xs text-muted-foreground">{job.client_name}</span>
               ) : null}
@@ -1015,7 +1020,7 @@ function ClosedRecruitmentRow({
             ) : (
               <ChevronDown aria-hidden="true" className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
             )}
-            <span className="min-w-0 break-words">{job.job_title ?? `Rekrutacja #${jobId}`}</span>
+            <JobNameLabel job={candidateJobNames({ ...job, job_id: jobId })} copyable={false} wrap />
           </button>
         </td>
         <td className="px-3 py-2 text-muted-foreground">{job.client_name ?? "—"}</td>
@@ -1426,13 +1431,13 @@ function RecruitmentCard({
       <div className="min-w-0">
         {showTitle ? (
           <>
-            <Link
-              id={recruitmentTitleId}
+            <JobNameLabel
+              job={candidateJobNames({ ...job, job_id: jobId })}
               href={`/jobs/${jobId}`}
-              className="min-w-0 break-words font-medium text-foreground hover:underline"
-            >
-              {job.job_title ?? `Rekrutacja #${jobId}`}
-            </Link>
+              titleId={recruitmentTitleId}
+              wrap
+              titleClassName="font-medium text-foreground"
+            />
             <div className="text-xs text-muted-foreground">
               {job.client_name ? `${job.client_name} · ` : ""}
               {recruitmentStageLabel(
@@ -1557,7 +1562,7 @@ function RecruitmentCard({
                 size="sm"
                 variant="ghost"
                 className="ml-auto min-h-9 min-w-9"
-                aria-label={`Więcej akcji: ${job.job_title ?? `rekrutacja #${jobId}`}`}
+                aria-label={`Więcej akcji: ${jobNameText(candidateJobNames({ ...job, job_id: jobId }))}`}
               >
                 <MoreHorizontal className="h-4 w-4" />
               </Button>

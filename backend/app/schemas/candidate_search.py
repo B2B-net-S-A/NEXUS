@@ -218,7 +218,10 @@ class LastRecruitment(BaseModel):
     """
 
     job_id: int
+    # Już nazwa jak w nagłówku rekrutacji: tytuł dla rekrutera, a bez niego
+    # nazwa od klienta (``latest_cards``). Obok numer u klienta (0380).
     job_title: str
+    job_client_reference: Optional[str] = None
     stage_label: str
     column: str
     moved_on: date

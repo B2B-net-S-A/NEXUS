@@ -53,6 +53,8 @@ import { contractAvailability, contractAvailabilityText } from "@/lib/contract-a
 import type { EmploymentMarker } from "@/lib/employment-marker";
 import { contactAttemptsLabel } from "@/lib/recommendation-card";
 import { entrySourceLabel, recruitmentOutcome } from "@/lib/recruitment-stage-label";
+import { candidateJobNames, jobNameText } from "@/lib/job-name-text";
+import { JobNameLabel } from "@/components/v2/jobs/JobNameLabel";
 import { cn, formatDate } from "@/lib/utils";
 
 /** Wycinek odpowiedzi `/api/candidates/{id}/quick-view`, którego używa profil. */
@@ -62,6 +64,8 @@ export interface BeforeCallQuickView {
   current_recruitments?: Array<{
     job_id: number;
     job_title: string;
+    job_working_title?: string | null;
+    job_client_reference?: string | null;
     client_name: string | null;
     stage_name: string;
     moved_at: string;
@@ -229,7 +233,7 @@ export function BeforeCallProfile({ item, jobId, readOnly, onOpenHistory }: Befo
   const historyLine = [
     inBase ? (inBase.exact ? `W bazie od ${inBase.dateLabel}` : `W bazie ${inBase.dateLabel}`) : null,
     lastEnded && lastEndedOutcome
-      ? `Wcześniej u nas: ${[lastEnded.job_title ?? `Rekrutacja #${lastEnded.job_id}`, lastEnded.client_name]
+      ? `Wcześniej u nas: ${[jobNameText(candidateJobNames(lastEnded)), lastEnded.client_name]
           .filter(Boolean)
           .join(", ")} — ${[lastEndedOutcome.label, monthYear(lastEnded.last_seen)].filter(Boolean).join(" · ")}`
       : null,
@@ -405,7 +409,7 @@ export function BeforeCallProfile({ item, jobId, readOnly, onOpenHistory }: Befo
             {lastEnded && lastEndedOutcome ? (
               <div className="rounded-md border border-border bg-muted/20 px-2.5 py-1.5 text-xs">
                 <span className="font-medium text-foreground">
-                  {lastEnded.job_title ?? `Rekrutacja #${lastEnded.job_id}`}
+                  {jobNameText(candidateJobNames(lastEnded))}
                 </span>
                 {lastEnded.client_name ? (
                   <span className="text-muted-foreground"> · {lastEnded.client_name}</span>
@@ -446,7 +450,12 @@ export function BeforeCallProfile({ item, jobId, readOnly, onOpenHistory }: Befo
             <ul className="space-y-1">
               {others.slice(0, 4).map((r) => (
                 <li key={r.job_id} className="rounded-md border border-border bg-muted/20 px-2.5 py-1.5 text-xs">
-                  <span className="font-medium text-foreground">{r.job_title}</span>
+                  <JobNameLabel
+                    job={candidateJobNames(r)}
+                    wrap
+                    className="inline"
+                    titleClassName="font-medium text-foreground"
+                  />
                   {r.client_name ? <span className="text-muted-foreground"> · {r.client_name}</span> : null}
                   <span className="block text-muted-foreground">
                     {r.stage_name} · od {formatDate(r.moved_at)}

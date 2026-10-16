@@ -11,6 +11,9 @@ import { candidateQueryKeys, candidateViewerScopeKey } from "./candidate-query-k
 export interface RecruitmentOutcomeRow {
   job_id: number;
   job_title: string | null;
+  /** Nazwa jak w nagłówku rekrutacji (0380) — do `jobNameText`. */
+  job_working_title?: string | null;
+  job_client_reference?: string | null;
   job_status: string | null;
   client_name: string | null;
   latest_stage: string | null;
@@ -37,6 +40,8 @@ export function recruitmentOutcomeRows(payload: unknown): RecruitmentOutcomeRow[
     rows.push({
       job_id: jobId,
       job_title: text(job.job_title),
+      job_working_title: text(job.job_working_title),
+      job_client_reference: text(job.job_client_reference),
       job_status: text(job.job_status),
       client_name: text(job.client_name),
       latest_stage: text(job.latest_stage),

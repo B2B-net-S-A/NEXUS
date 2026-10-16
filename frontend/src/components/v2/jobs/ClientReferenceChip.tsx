@@ -48,7 +48,12 @@ export interface ClientReferenceChipProps {
   /** Nazwa od klienta do dymku — tylko gdy różni się od widocznego tytułu. */
   clientTitle?: string | null;
   size?: "row" | "header";
-  onCopy: (reference: string) => void;
+  /**
+   * Bez `onCopy` znacznik jest samym tekstem — dla nazwy wewnątrz przycisku
+   * (np. rozwijany wiersz rekrutacji na profilu), gdzie drugi przycisk byłby
+   * niepoprawny.
+   */
+  onCopy?: (reference: string) => void;
   className?: string;
   testId?: string;
 }
@@ -65,6 +70,32 @@ export function ClientReferenceChip({
   if (parts.length === 0) return null;
   const full = parts.join(", ");
   const extra = parts.length - 1;
+  const content = (
+    <>
+      <span className="min-w-0 truncate">{parts[0]}</span>
+      {extra > 0 ? (
+        <span className="shrink-0 font-medium text-muted-foreground">+{extra}</span>
+      ) : null}
+    </>
+  );
+  const sizeClass = size === "header" ? "h-7 px-2 text-sm" : "h-5 px-1.5 text-xs";
+  if (!onCopy) {
+    return (
+      <span
+        title={[`Numer u klienta: ${full}`, clientTitle ? `Nazwa u klienta: ${clientTitle}` : null]
+          .filter(Boolean)
+          .join("\n")}
+        data-testid={testId}
+        className={cn(
+          "inline-flex max-w-[11rem] shrink-0 items-center gap-1 rounded-md border border-border bg-muted font-semibold tabular-nums text-foreground",
+          sizeClass,
+          className,
+        )}
+      >
+        {content}
+      </span>
+    );
+  }
   return (
     <button
       type="button"
@@ -78,14 +109,11 @@ export function ClientReferenceChip({
       data-testid={testId}
       className={cn(
         "inline-flex max-w-[11rem] shrink-0 cursor-copy items-center gap-1 rounded-md border border-border bg-muted font-semibold tabular-nums text-foreground transition-colors hover:border-primary/40 hover:text-primary focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring",
-        size === "header" ? "h-7 px-2 text-sm" : "h-5 px-1.5 text-xs",
+        sizeClass,
         className,
       )}
     >
-      <span className="min-w-0 truncate">{parts[0]}</span>
-      {extra > 0 ? (
-        <span className="shrink-0 font-medium text-muted-foreground">+{extra}</span>
-      ) : null}
+      {content}
     </button>
   );
 }

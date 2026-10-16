@@ -124,7 +124,11 @@ def _shape_recommended_job(job: Job, *, include_finance: bool = False) -> dict:
 
     return {
         "id": job.id,
+        # `title` = nazwa od klienta; ekran pokazuje nazwę jak nagłówek
+        # rekrutacji — numer u klienta i tytuł dla rekrutera (0380).
         "title": job.title,
+        "working_title": job.working_title,
+        "client_reference": job.client_reference,
         "client_id": job.client_id,
         "location": job.location,
         "salary_min": job.salary_min if include_finance else None,
@@ -1608,7 +1612,11 @@ def _shape_seek_candidate(c: Candidate) -> dict:
 def _shape_seek_job(j: Job, *, include_finance: bool = False) -> dict:
     return {
         "id": j.id,
+        # `title` = nazwa od klienta (mail z listą rekrutacji do kandydata);
+        # karta pokazuje nazwę jak nagłówek rekrutacji (0380).
         "title": j.title,
+        "working_title": j.working_title,
+        "client_reference": j.client_reference,
         "client_id": j.client_id,
         "location": j.location,
         "salary_min": j.salary_min if include_finance else None,

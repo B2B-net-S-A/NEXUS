@@ -236,6 +236,36 @@ describe("CandidateQuickView", () => {
     );
   });
 
+  it("„W procesie” names the recruitment like its header: client number and recruiter title", async () => {
+    apiGet.mockImplementation((url: string) => {
+      if (url === "/api/candidates/7/quick-view") {
+        const data = quickViewData();
+        return Promise.resolve({
+          data: {
+            ...data,
+            current_recruitments: [
+              {
+                ...data.current_recruitments[0],
+                job_title: "AI Engineer (ZOB-9001)",
+                job_working_title: "Senior AI Engineer · Java, LLM · 5+ lat",
+                job_client_reference: "ZOB-9001",
+              },
+            ],
+          },
+        } as never);
+      }
+      if (url === "/api/candidates/7/risk") {
+        return Promise.resolve({ data: { level: "low" } } as never);
+      }
+      return Promise.reject(new Error(`Unexpected GET ${url}`));
+    });
+    render(<CandidateQuickView candidateId={7} onClose={vi.fn()} />, { wrapper });
+    const section = (await screen.findByRole("heading", { name: "W procesie" })).closest("section")!;
+    expect(within(section).getByText("Senior AI Engineer · Java, LLM · 5+ lat")).toBeInTheDocument();
+    expect(within(section).getByRole("button", { name: "Numer u klienta ZOB-9001 — kopiuj" })).toBeInTheDocument();
+    expect(within(section).queryByText("AI Engineer (ZOB-9001)")).toBeNull();
+  });
+
   it("a date written from notes says which note day it was counted from", async () => {
     apiGet.mockImplementation((url: string) => {
       if (url === "/api/candidates/7/quick-view") {

@@ -2992,7 +2992,10 @@ export interface MatchEligibility {
 export interface JobMatch {
   job: {
     id: number;
+    /** Nazwa od klienta (0380) — do klienta i do maili. Ekran: `jobDisplayTitle`. */
     title: string;
+    working_title?: string | null;
+    client_reference?: string | null;
     client_id: number | null;
     location: string | null;
     salary_min: number | null;

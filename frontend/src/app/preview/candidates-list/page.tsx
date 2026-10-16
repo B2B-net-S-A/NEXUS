@@ -73,9 +73,13 @@ const inDays = (days: number) => {
   return d.toISOString().slice(0, 10);
 };
 
+// Nazwy jak w nagłówku rekrutacji (16.10.2026): numer u klienta i tytuł dla
+// rekrutera; `job_title` to nazwa od klienta.
 const recruitment = (job_id: number, stage: string, movedDaysAgo: number) => ({
   job_id,
   job_title: `Rekrutacja #${job_id}`,
+  job_working_title: `Java Developer · Spring, Kafka · ${job_id - 6}+ lat`,
+  job_client_reference: `ZOB-29${job_id}`,
   client_name: "Klient Demo",
   stage,
   moved_at: daysAgo(movedDaysAgo),
@@ -236,7 +240,9 @@ const QUICK_VIEW = {
   current_recruitments: [
     {
       job_id: 12,
-      job_title: "Java Developer",
+      job_title: "Java Developer (ZOB-2912)",
+      job_working_title: "Java Developer · Spring, Kafka · 5+ lat",
+      job_client_reference: "ZOB-2912",
       client_name: "Klient Demo",
       stage_id: 1,
       stage_name: "CV wysłane",

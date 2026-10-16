@@ -56,3 +56,23 @@ wszystkich klientów.
   prefiks klienta i swój numer („Nordea: Expert IT Analyst … (42758)” →
   „Expert IT Analyst …”), ale nie każdy nawias z cyfrą („(K8s)” zostaje).
 - Dzwonek Cpro (`_cpro_job_label`) nie dokleja numeru, który już stoi w nazwie.
+
+## Rekrutacje osoby na ekranach kandydata (16.10.2026)
+
+Zgłoszenie Artura: w nagłówku rekrutacja to „numer + tytuł dla rekrutera”, a profil
+i listy kandydata pokazywały samą nazwę od klienta, więc nie dało się ich połączyć.
+
+- **Odpowiedzi kandydata** niosą `job_working_title` i `job_client_reference` obok
+  `job_title`: lista (`active_recruitments`), szybki podgląd, `/history`, oś czasu,
+  `GET /api/notes`. `job_title` dalej = nazwa od klienta (profil rozpoznaje z niej kody
+  CV dla klientów). Wyjątek: `LastRecruitment.job_title` (okno dodawania) od początku
+  jest tytułem dla rekrutera, obok idzie tylko `job_client_reference`.
+- **Kształty rekomendacji** (`_shape_recommended_job`, `_shape_seek_job`) mają
+  `working_title` i `client_reference`; `title` zostaje dla maila z listą rekrutacji.
+- **Front:** wiersz = `JobNameLabel` (`components/v2/jobs/JobNameLabel.tsx`: numer
+  kopiuje, `copyable={false}` wewnątrz innego przycisku, `stretched` dla wiersza-linku,
+  `wrap` gdy tytuł ma się łamać), tekst = `jobNameText` (`lib/job-name-text.ts`),
+  pola kandydata → `candidateJobNames`. Okna, które mówią do klienta (generator CV,
+  podgląd CV, maile), dostają dalej `job_title`.
+- `_enriched_select()` w `api/notes.py` ma stałą kolejność kolumn — API integracyjne
+  rozpakowuje ją po pozycjach; nazwy dokłada lista notatek przez `add_columns`.

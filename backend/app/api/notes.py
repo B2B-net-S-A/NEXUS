@@ -154,6 +154,8 @@ def _enriched(
     pinned_by_name: Optional[str],
     mention_label_map: dict,
     send_note: bool = False,
+    job_working_title: Optional[str] = None,
+    job_client_reference: Optional[str] = None,
 ) -> EnrichedNoteResponse:
     hidden = note_content_hidden(
         viewer, kind=note.kind, author_id=note.author_id, send_note=send_note
@@ -176,6 +178,8 @@ def _enriched(
         author_email=None,  # P0.6 — do not leak author email to note readers
         content_rendered=render_traffit_mentions(content, mention_label_map),
         job_title=job_title,
+        job_working_title=job_working_title,
+        job_client_reference=job_client_reference,
         external_source=note.external_source,
         is_system=note.external_source == SYSTEM_NOTE_SOURCE,
         group=note_kinds.group_of(note.kind, note.external_source),
@@ -196,6 +200,14 @@ def _enriched_select():
         .outerjoin(Job, Note.job_id == Job.id)
         .outerjoin(pinner, Note.pinned_by == pinner.id)
     )
+
+
+# Nazwa rekrutacji jak w jej nagłówku (0380) — dokładane na końcu wiersza, bo
+# API integracyjne rozpakowuje `_enriched_select()` po pozycjach.
+_JOB_NAME_COLUMNS = (
+    Job.working_title.label("job_working_title"),
+    Job.client_reference.label("job_client_reference"),
+)
 
 
 @router.get("", response_model=EnrichedNoteList)
@@ -255,6 +267,7 @@ async def list_notes(
         filters.extend([Note.job_id.is_(None), Note.candidate_id.is_(None)])
     query = (
         _enriched_select()
+        .add_columns(*_JOB_NAME_COLUMNS)
         .where(*filters)
         .order_by(
             Note.pinned_at.is_(None),
@@ -283,6 +296,7 @@ async def list_notes(
         reply_rows = (
             await db.execute(
                 _enriched_select()
+                .add_columns(*_JOB_NAME_COLUMNS)
                 .where(Note.parent_note_id.in_(parent_ids))
                 .order_by(Note.created_at.asc(), Note.id.asc())
             )
@@ -299,7 +313,14 @@ async def list_notes(
         db, current_user, [note.id for note, *_ in [*rows, *reply_rows]]
     )
     replies_by_parent: dict[int, list[EnrichedNoteResponse]] = {}
-    for note, author_name, job_title, pinned_by_name in reply_rows:
+    for (
+        note,
+        author_name,
+        job_title,
+        pinned_by_name,
+        job_working_title,
+        job_client_reference,
+    ) in reply_rows:
         replies_by_parent.setdefault(note.parent_note_id, []).append(
             _enriched(
                 note,
@@ -309,10 +330,19 @@ async def list_notes(
                 pinned_by_name=pinned_by_name,
                 mention_label_map=mention_label_map,
                 send_note=note.id in send_ids,
+                job_working_title=job_working_title,
+                job_client_reference=job_client_reference,
             )
         )
     items = []
-    for note, author_name, job_title, pinned_by_name in rows:
+    for (
+        note,
+        author_name,
+        job_title,
+        pinned_by_name,
+        job_working_title,
+        job_client_reference,
+    ) in rows:
         item = _enriched(
             note,
             viewer=current_user,
@@ -321,6 +351,8 @@ async def list_notes(
             pinned_by_name=pinned_by_name,
             mention_label_map=mention_label_map,
             send_note=note.id in send_ids,
+            job_working_title=job_working_title,
+            job_client_reference=job_client_reference,
         )
         item.replies = replies_by_parent.get(note.id, [])
         items.append(item)

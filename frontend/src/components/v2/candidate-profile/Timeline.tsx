@@ -32,6 +32,8 @@ import {
   noteTypeLabel,
   userActivityLabel,
 } from "@/components/v2/pages/candidate-timeline-labels";
+import { JobNameLabel } from "@/components/v2/jobs/JobNameLabel";
+import { candidateJobNames, jobNameText } from "@/lib/job-name-text";
 import { unwrapNoteContent } from "./profile-shared";
 
 /* eslint-disable @typescript-eslint/no-explicit-any -- payload osi czasu jest luźno typowany (import Traffit + kilka źródeł) */
@@ -69,11 +71,16 @@ function traffitFileName(details: unknown): string | null {
  }
 }
 
+// Rekrutacja wpisu jak w jej nagłówku: numer u klienta i tytuł dla rekrutera.
+function jobSuffix(item: any): string {
+ return item.job_title ? ` (${jobNameText(candidateJobNames(item))})` :"";
+}
+
 export function timelineItemLabel(item: any): string {
  if (item.type === "note")
- return `Notatka${noteTypeLabel(item.note_type) ? ` — ${noteTypeLabel(item.note_type)}` :""}${item.job_title ? ` (${item.job_title})` :""}`;
+ return `Notatka${noteTypeLabel(item.note_type) ? ` — ${noteTypeLabel(item.note_type)}` :""}${jobSuffix(item)}`;
  if (item.type === "stage_change")
- return `Etap: ${candidateStageLabel(item.stage)}${item.job_title ? ` (${item.job_title})` :""}`;
+ return `Etap: ${candidateStageLabel(item.stage)}${jobSuffix(item)}`;
  if (item.type === "activity") {
  if (item.action === "applied_via_invite") {
  const owner = item.user_name ??"rekruter";
@@ -331,9 +338,10 @@ function TimelineCard({ item, fromStage }: { item: any; fromStage?: string }) {
         )}
 
         {item.job_title && (
-          <p className="mt-1 truncate text-xs text-muted-foreground">
-            {item.job_title}
-          </p>
+          <JobNameLabel
+            job={candidateJobNames(item)}
+            className="mt-1 text-xs text-muted-foreground"
+          />
         )}
 
         {content && (

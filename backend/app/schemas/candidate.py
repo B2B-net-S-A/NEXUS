@@ -492,6 +492,11 @@ class ActiveRecruitmentBrief(BaseModel):
 
     job_id: int
     job_title: str
+    # Trzy nazwy rekrutacji (0380): `job_title` = nazwa od klienta (bez zmiany
+    # znaczenia), te dwa pola = to, co ekran wewnętrzny pokazuje jak nagłówek
+    # rekrutacji — numer u klienta i tytuł dla rekrutera.
+    job_working_title: Optional[str] = None
+    job_client_reference: Optional[str] = None
     client_name: Optional[str] = None
     stage: PipelineStage
     moved_at: Optional[datetime] = None
@@ -845,6 +850,8 @@ class CandidateQuickViewSource(BaseModel):
 class CandidateQuickViewRecruitment(BaseModel):
     job_id: int
     job_title: str
+    job_working_title: Optional[str] = None
+    job_client_reference: Optional[str] = None
     client_name: Optional[str] = None
     stage_id: int
     stage_name: str

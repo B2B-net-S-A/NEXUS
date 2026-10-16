@@ -22,7 +22,10 @@ import type { EmploymentMarker } from "@/lib/employment-marker";
 
 export interface CandidateRowRecruitment {
   job_id: number;
+  /** Nazwa od klienta (0380). Na ekranie: `JobNameLabel` z polami niżej. */
   job_title: string;
+  job_working_title?: string | null;
+  job_client_reference?: string | null;
   client_name?: string | null;
   stage: string;
   moved_at?: string | null;
