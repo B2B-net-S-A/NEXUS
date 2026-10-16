@@ -954,6 +954,9 @@ async def lifespan(app: FastAPI):
         ),
         "care_reminders": asyncio.create_task(hr_loops.care_reminders_loop()),
         "hr_lifecycle": asyncio.create_task(hr_loops.hr_lifecycle_loop()),
+        "hr_contract_hooks": asyncio.create_task(hr_loops.hr_contract_hooks_loop()),
+        "hr_bonus_proposals": asyncio.create_task(hr_loops.hr_bonus_proposals_loop()),
+        "equipment_reminders": asyncio.create_task(hr_loops.equipment_reminders_loop()),
         "admin_cases_mail_ingest": asyncio.create_task(
             hr_loops.admin_cases_mail_ingest_loop()
         ),

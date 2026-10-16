@@ -1003,6 +1003,10 @@ async def _apply_termination_to_contract(
     # Data zakończenia projektu z przeszłości = „Zakończony” od razu, więc
     # Generator przestawia umowę teraz; przyszła data — w nocy, dzień po niej.
     await sync_generator_after_contract_ended(db, contract, actor_id=actor_id)
+    # „Ludzie w NEXUSIE”: premie przed terminem anulowane, odbiór sprzętu.
+    from app.services.hr import contract_hooks
+
+    await contract_hooks.contract_ended(db, contract)
 
 
 def _normalize_contract_currency(value: object, field: str) -> str:
@@ -6663,6 +6667,9 @@ async def reverse_termination(
             },
         ) from exc
     result = plan.as_json()
+    from app.services.hr import contract_hooks
+
+    await contract_hooks.contract_end_undone(db, contract)
     await commit_order_write(db, actor_id=current_user.id)
     return ContractTerminationReversalPlanRead(**result, executed=True)
 

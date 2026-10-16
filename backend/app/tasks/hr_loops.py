@@ -246,3 +246,79 @@ async def hr_lifecycle_loop() -> None:
         "hr_lifecycle", max_silence_seconds=LIFECYCLE_INTERVAL_SECONDS + 1800
     )
     await run_periodic("hr_lifecycle", beat, LIFECYCLE_INTERVAL_SECONDS, lifecycle_job)
+
+
+# ── Kontrakty → Płace, Sprzęt, Sprawy (przegląd startów i końców) ─────────
+CONTRACT_HOOKS_INTERVAL_SECONDS = 3600
+
+
+async def contract_hooks_job(db: AsyncSession) -> dict[str, Any] | None:
+    from app.services.hr.contract_hooks import reconcile_upcoming
+
+    result = await reconcile_upcoming(db)
+    await db.commit()
+    return result if any(result.values()) else None
+
+
+async def hr_contract_hooks_loop() -> None:
+    if not loops_enabled("hr_contract_hooks"):
+        return
+    beat = loop_heartbeat.register(
+        "hr_contract_hooks", max_silence_seconds=CONTRACT_HOOKS_INTERVAL_SECONDS + 1800
+    )
+    await run_periodic(
+        "hr_contract_hooks", beat, CONTRACT_HOOKS_INTERVAL_SECONDS, contract_hooks_job
+    )
+
+
+# ── Płace: propozycje premii z kontraktów i Ligi (E3) ──────────────────────
+HR_BONUS_PROPOSALS_INTERVAL_SECONDS = 6 * 3600
+
+
+async def hr_bonus_proposals_job(db: AsyncSession) -> dict[str, Any] | None:
+    from app.services.hr.payroll_jobs import run_once
+
+    result = await run_once(db)
+    return None if result.get("skipped") == "module_off" else result
+
+
+async def hr_bonus_proposals_loop() -> None:
+    if not loops_enabled("hr_bonus_proposals"):
+        return
+    beat = loop_heartbeat.register(
+        "hr_bonus_proposals",
+        max_silence_seconds=HR_BONUS_PROPOSALS_INTERVAL_SECONDS + 1800,
+    )
+    await run_periodic(
+        "hr_bonus_proposals",
+        beat,
+        HR_BONUS_PROPOSALS_INTERVAL_SECONDS,
+        hr_bonus_proposals_job,
+    )
+
+
+# ── Sprzęt: przypomnienia „Do zrobienia” (S1–S3) ───────────────────────────
+EQUIPMENT_REMINDERS_INTERVAL_SECONDS = 30 * 60
+
+
+async def equipment_reminders_job(db: AsyncSession) -> dict[str, Any] | None:
+    """Wyłączony moduł / przed 7:00 / już dziś = brak efektu."""
+    from app.services.equipment.tasks import run_once
+
+    result = await run_once(db)
+    return None if result.get("skipped") or result.get("status") else result
+
+
+async def equipment_reminders_loop() -> None:
+    if not loops_enabled("equipment_reminders"):
+        return
+    beat = loop_heartbeat.register(
+        "equipment_reminders",
+        max_silence_seconds=EQUIPMENT_REMINDERS_INTERVAL_SECONDS + 1800,
+    )
+    await run_periodic(
+        "equipment_reminders",
+        beat,
+        EQUIPMENT_REMINDERS_INTERVAL_SECONDS,
+        equipment_reminders_job,
+    )

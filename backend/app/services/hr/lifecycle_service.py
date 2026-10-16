@@ -1104,8 +1104,24 @@ async def _cases_hook(db: AsyncSession, case: LifecycleCase, event: str) -> None
     await open_case_for_offboarding(db, case.user_id, case.id)
 
 
+async def _equipment_hook(db: AsyncSession, case: LifecycleCase, event: str) -> None:
+    """Sprzęt: zestaw na wejście, odbiór rzeczy przy odejściu (idempotentnie)."""
+    from app.services.hr.modules import load_modules
+
+    if not (await load_modules(db)).get("equipment"):
+        return
+    from app.services.equipment import tasks as equipment_tasks
+
+    if event == "onboarding_started" and case.start_date is not None:
+        await equipment_tasks.tasks_for_person_start(db, case.user_id, case.start_date)
+    elif event == "offboarding_started" and case.last_working_day is not None:
+        await equipment_tasks.tasks_for_person_exit(
+            db, case.user_id, case.last_working_day
+        )
+
+
 def _integration_hooks() -> list[LifecycleHook]:
-    return [_cases_hook]
+    return [_cases_hook, _equipment_hook]
 
 
 async def lifecycle_integrations(
