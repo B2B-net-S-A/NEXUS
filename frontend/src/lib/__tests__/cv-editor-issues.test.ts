@@ -266,6 +266,11 @@ describe("„Pogrub wymagania (N)” (Edytor CV 3, PR 3)", () => {
     ]);
   });
 
+  it("zaliczone sprawdzenie z wymaganiem pogrubionym nie wszędzie też się liczy (16.10.2026)", () => {
+    const partly = check({ key: "must_bolded", status: "pass", info: [{ term: "Java", fix: "bold_all" }] });
+    expect(boldRequirements([partly])).toEqual({ count: 1, actions: [{ action: "bold_all", scope: "must" }] });
+  });
+
   it("wszystko pogrubione = zero i brak poprawki; brak wyniku QC = bez liczby", () => {
     const passed = check({ key: "must_bolded", status: "pass", items: [{ term: "Java", fix: "bold_all" }] });
     expect(boldRequirements([passed])).toEqual({ count: 0, actions: [] });

@@ -56,11 +56,13 @@ w żadnym źródle.
   migawka ma `highlight_keywords` albo politykę must/must_nice/explicit;
   `False` dla pliku z dysku i CV bez wyróżnień (sprawdzenie „nie dotyczy”);
   `None` (nie wiadomo) — sprawdzamy jak dotąd. Nie według `content_mode`:
-  historyczne wiersze mają wpisane `tailored`. Przy „nie dotyczy” technologie
-  z wymagań, które stoją w CV bez pogrubienia, idą do `check["info"]`
-  (`fix: "bold_all"`) — bez uwagi do poprawy, ale „Pogrub wymagania (N)”
-  w pasku edytora liczy je i pogrubia (16.10.2026: w CV z Redakcji przycisk
-  stał na 0 z dymkiem „już pogrubione”).
+  historyczne wiersze mają wpisane `tailored`. Uwaga to wymaganie bez ani
+  jednego pogrubienia. Do `check["info"]` (`fix: "bold_all"`, bez uwagi do
+  poprawy) idą: wymaganie pogrubione tylko w części miejsc (`_has_unbolded`,
+  te same wzorce i miejsca co poprawka `bold_all`) oraz — przy „nie dotyczy” —
+  każde niepogrubione. „Pogrub wymagania (N)” w pasku edytora liczy też je
+  (16.10.2026: CV .NET z produkcji miało „8/8”, a 12 wystąpień dwóch wymagań
+  w punktach bez pogrubienia; przycisk stał na 0 z dymkiem „już pogrubione”).
 - **Pogrubienia bez pokrycia** (`bold_unsupported`): tylko technologie ze
   słownika (`_is_tech_term`; bez wczytanego słownika — każda krótka fraza,
   jak przed zmianą), bez edukacji, ostrym dopasowaniem.
