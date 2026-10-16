@@ -39,7 +39,7 @@ from app.models.equipment import (
 )
 from app.models.user import User
 from app.services import equipment_schema as schema
-from app.services.equipment import identifiers, protocols, tasks
+from app.services.equipment import identifiers, protocols, registry, tasks
 from app.services.equipment.registry import (
     ISSUABLE_ACADEMY_STATUSES,
     ISSUABLE_CONTRACT_STATUSES,
@@ -196,6 +196,9 @@ async def issue(
 ) -> IssueResult:
     if not lines:
         raise EquipmentError("Dodaj co najmniej jedną pozycję.")
+    # D10: tekst akcesoriów trafia do protokołu i na publiczną stronę podpisu.
+    for line in lines:
+        registry.clean_notes(line.accessories)
     ids = [line.item_id for line in lines]
     if len(set(ids)) != len(ids):
         raise EquipmentError("Ta sama pozycja jest na liście dwa razy.")
@@ -333,6 +336,8 @@ async def return_items(
 ) -> EquipmentProtocol:
     if not lines:
         raise EquipmentError("Wybierz co najmniej jedną pozycję do zwrotu.")
+    for line in lines:
+        registry.clean_notes(line.notes)
     ids = [line.assignment_id for line in lines]
     if len(set(ids)) != len(ids):
         raise EquipmentError("Ta sama pozycja jest na liście dwa razy.")

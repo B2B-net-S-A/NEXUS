@@ -486,7 +486,8 @@ async def identifier_conflicts(
     return problems
 
 
-def _clean_notes(value: Optional[str]) -> Optional[str]:
+def clean_notes(value: Optional[str]) -> Optional[str]:
+    """Wolny tekst bez kluczy BitLocker, PUK, PESEL i prywatnych e-maili (D10) — inaczej błąd."""
     if value is None:
         return None
     cleaned = sanitize.clean_text(value)
@@ -516,7 +517,7 @@ def _normalized(values: dict[str, Any]) -> dict[str, Any]:
                 "Ten numer wygląda na klucz BitLocker — nie wpisuj go tutaj."
             )
     if "notes" in out:
-        out["notes"] = _clean_notes(out["notes"])
+        out["notes"] = clean_notes(out["notes"])
     if "location" in out and out["location"] is not None:
         out["location"] = " ".join(str(out["location"]).split()) or None
     return out

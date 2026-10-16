@@ -20,6 +20,7 @@ laptop bez posiadacza i bez stanu).
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import io
 import re
@@ -42,6 +43,8 @@ from app.models.equipment import (
     EquipmentItem,
 )
 from app.models.user import User
+from app.core.export_safety import safe_row
+from app.core.zip_guard import assert_safe_ooxml
 from app.services import equipment_schema as schema
 from app.services.equipment import identifiers, registry, sanitize
 from app.services.equipment.registry import (
@@ -355,6 +358,9 @@ def parse_workbook(content: bytes) -> ParseResult:
     if not content.startswith(b"PK"):
         raise EquipmentError("Wgraj plik Excel (.xlsx).")
     try:
+        # Strażnik „bomby ZIP” przed openpyxl (sharedStrings ładuje się w całości
+        # nawet w read_only) — jak w pozostałych parserach OOXML (R9-N7-13).
+        assert_safe_ooxml(content)
         workbook = openpyxl.load_workbook(
             io.BytesIO(content), read_only=True, data_only=True
         )
@@ -552,7 +558,8 @@ def _is_current_sheet(name: str) -> bool:
 async def create_batch(
     db: AsyncSession, *, filename: str, content: bytes, actor: User
 ) -> EquipmentImportBatch:
-    parsed = parse_workbook(content)
+    # Parsowanie poza pętlą zdarzeń: duży arkusz nie zatrzymuje innych żądań.
+    parsed = await asyncio.to_thread(parse_workbook, content)
     users, contracts = await _people_index(db)
     existing = await _existing_numbers(db)
     # Numer → (gdzie pierwszy raz, czy z aktualnej listy). Wiersze aktualnej listy
@@ -911,30 +918,32 @@ async def control_sheet(db: AsyncSession, batch_id: int) -> bytes:
     workbook = openpyxl.Workbook()
     summary = workbook.active
     summary.title = "Podsumowanie"
-    summary.append(["Plik", batch.file_name])
-    summary.append(["Partia", batch.id])
-    summary.append([])
+    summary.append(safe_row(["Plik", batch.file_name]))
+    summary.append(safe_row(["Partia", batch.id]))
+    summary.append(safe_row([]))
     counts = (batch.summary or {}).get("counts", {})
     for decision, title in _SHEET_TITLES:
-        summary.append([title, counts.get(decision, 0)])
-    summary.append([])
-    summary.append(["Kolumny usunięte (dane, których NEXUS nie przechowuje)"])
+        summary.append(safe_row([title, counts.get(decision, 0)]))
+    summary.append(safe_row([]))
+    summary.append(safe_row(["Kolumny usunięte (dane, których NEXUS nie przechowuje)"]))
     for entry in (batch.summary or {}).get("removed_columns", []):
-        summary.append([entry["sheet"], entry["column"], entry["reason"]])
-    summary.append([])
-    summary.append(["Wartości usunięte z wierszy"])
+        summary.append(safe_row([entry["sheet"], entry["column"], entry["reason"]]))
+    summary.append(safe_row([]))
+    summary.append(safe_row(["Wartości usunięte z wierszy"]))
     for reason, count in (batch.summary or {}).get("removed_values", {}).items():
-        summary.append([reason, count])
-    summary.append([])
-    summary.append(["Arkusze"])
+        summary.append(safe_row([reason, count]))
+    summary.append(safe_row([]))
+    summary.append(safe_row(["Arkusze"]))
     for sheet in (batch.summary or {}).get("sheets", []):
-        summary.append([sheet["name"], sheet["rows"], sheet.get("skipped") or ""])
+        summary.append(
+            safe_row([sheet["name"], sheet["rows"], sheet.get("skipped") or ""])
+        )
     for decision, title in _SHEET_TITLES:
         sheet = workbook.create_sheet(title)
-        sheet.append([name for name, _ in _COLUMNS])
+        sheet.append(safe_row([name for name, _ in _COLUMNS]))
         for row in rows:
             if row["decision"] == decision:
-                sheet.append([getter(row) for _, getter in _COLUMNS])
+                sheet.append(safe_row([getter(row) for _, getter in _COLUMNS]))
         sheet.freeze_panes = "A2"
     buffer = io.BytesIO()
     workbook.save(buffer)

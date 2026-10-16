@@ -80,7 +80,8 @@ export interface LeaveRequestRow {
 export interface WorkSummary {
   total: number;
   by_kind: { kind: string; label: string; count: number }[];
-  items: { kind: string; label: string; starts_at: string; title: string }[];
+  /** `title` tylko we własnym podglądzie — za kogoś serwer go nie oddaje (nazwiska kandydatów). */
+  items: { kind: string; label: string; starts_at: string; title: string | null }[];
 }
 
 export interface ColleagueAbsence {

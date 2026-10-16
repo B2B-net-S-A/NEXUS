@@ -487,8 +487,8 @@ export function PreviewPanel({
           </ul>
           <ul className="mt-1 space-y-0.5 text-[12px] text-muted-foreground">
             {preview.work.items.slice(0, 4).map((item) => (
-              <li key={`${item.starts_at}-${item.title}`} className="truncate">
-                {eventLabel(item.starts_at)} · {item.title}
+              <li key={`${item.starts_at}-${item.kind}`} className="truncate">
+                {eventLabel(item.starts_at)} · {item.title ?? item.label}
               </li>
             ))}
           </ul>

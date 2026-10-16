@@ -82,8 +82,10 @@
   DL, „Moi ludzie”), wyłączenie konta dzień później. Konto wyłącza wyłącznie
   sprawa odejścia (nie brak osoby na liście), raz na sprawę; admina nie wyłącza
   automat; przebieg z więcej niż limitem deaktywacji nie wyłącza nikogo.
-- Powód odejścia tylko ze słownika — bez wolnego tekstu (mógłby nieść dane
-  o zdrowiu).
+- Powód odejścia tylko ze słownika. Obok jest krótka notatka organizacyjna
+  (`exit_note`, do 500 znaków) widoczna Kadrom i przełożonemu, z podpowiedzią
+  „Bez informacji o zdrowiu” — wolnego tekstu powodu z Compassa
+  (`exit_reason_detail`, ankieta) nie importujemy.
 - Lista osób dla Compassa: `GET /api/integrations/compass/roster` (zakres
   `people_roster:read`) — bez stawek, premii, nieobecności, powodu odejścia
   i telefonu. Osoby, które odeszły, zostają ze statusem `exited`; pusta lista to

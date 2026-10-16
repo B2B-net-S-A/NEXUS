@@ -260,3 +260,47 @@ async def test_current_sheet_wins_over_its_older_copy(
     # K9 jest w dwóch arkuszach, żaden nie jest aktualną listą — decyduje człowiek.
     assert rows[("Arkusz1", f"K9{tag}")]["decision"] == "przyjmij"
     assert rows[("Dział sprzedaży", f"K9{tag}")]["decision"] == "konflikt"
+
+
+async def test_control_sheet_neutralises_formulas(
+    app_client, modules_on, people
+) -> None:
+    """Tekst z pliku zaczynający się od „=” nie staje się formułą w arkuszu kontrolnym."""
+    headers = _headers(people["reception"])
+    tag = _tag()
+    workbook = openpyxl.Workbook()
+    laptops = workbook.active
+    laptops.title = "LAPTOPY"
+    laptops.append(
+        ["Nr\nLaptopa", "Model", "Numer seryjny / Service tag", "Użytkownik"]
+    )
+    laptops.append(
+        [
+            f"F{tag}",
+            "Dell Vostro 3530",
+            f"FX1{tag}",
+            '=HYPERLINK("https://evil.example/","x")',
+        ]
+    )
+    buffer = io.BytesIO()
+    workbook.save(buffer)
+    uploaded = await app_client.post(
+        "/api/equipment/imports",
+        files={"file": ("=formula.xlsx", buffer.getvalue(), XLSX)},
+        headers=headers,
+    )
+    assert uploaded.status_code == 201, uploaded.text
+    sheet = await app_client.get(
+        f"/api/equipment/imports/{uploaded.json()['id']}/control-sheet.xlsx",
+        headers=headers,
+    )
+    assert sheet.status_code == 200
+    book = openpyxl.load_workbook(io.BytesIO(sheet.content))
+    formulas = [
+        cell.coordinate
+        for ws in book.worksheets
+        for row in ws.iter_rows()
+        for cell in row
+        if cell.data_type == "f"
+    ]
+    assert formulas == []

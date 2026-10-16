@@ -415,7 +415,11 @@ async def preview(
         end=data.end_date,
     )
     result["work"] = await work_in_period(
-        db, user_id=subject.id, start=data.start_date, end=data.end_date
+        db,
+        user_id=subject.id,
+        start=data.start_date,
+        end=data.end_date,
+        with_titles=for_self,
     )
     if data.substitute_user_id is not None:
         busy = await busy_user_ids(db, data.start_date, data.end_date)

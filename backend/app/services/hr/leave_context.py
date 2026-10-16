@@ -103,9 +103,19 @@ async def department_absences(
 
 
 async def work_in_period(
-    db: AsyncSession, *, user_id: int, start: date, end: date
+    db: AsyncSession,
+    *,
+    user_id: int,
+    start: date,
+    end: date,
+    with_titles: bool = False,
 ) -> dict[str, Any]:
-    """Zaplanowane rozmowy i prepy osoby w okresie (z kalendarza NEXUSA)."""
+    """Zaplanowane rozmowy i prepy osoby w okresie (z kalendarza NEXUSA).
+
+    Tytuły (``with_titles``) tylko dla samej osoby: niosą nazwiska kandydatów
+    („Rozmowa u klienta: …”), a Kadry i przełożony nie muszą mieć dostępu do
+    rekrutacji — im wystarczą liczby i rodzaje.
+    """
 
     owner = func.coalesce(CalendarEvent.operational_owner_id, CalendarEvent.created_by)
     window = (
@@ -153,7 +163,7 @@ async def work_in_period(
                 "kind": event_type.value,
                 "label": WORK_EVENT_LABELS.get(event_type.value, event_type.value),
                 "starts_at": start_time.isoformat(),
-                "title": title,
+                "title": title if with_titles else None,
             }
             for event_type, start_time, title in rows
         ],

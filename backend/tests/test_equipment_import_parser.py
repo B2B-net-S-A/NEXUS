@@ -265,3 +265,36 @@ def test_not_an_excel_file_is_refused() -> None:
         importer.parse_workbook(b"to nie jest plik excel")
     with pytest.raises(EquipmentError):
         importer.parse_workbook(b"PK\x03\x04uszkodzony")
+
+
+def test_zip_bomb_workbook_is_refused_before_parsing(monkeypatch) -> None:
+    """Mały plik, który rozwija się ponad limit części XML, nie trafia do openpyxl.
+
+    Przegląd bezpieczeństwa 16.10: 7,9 MB rozwijające się do 68 MB sharedStrings
+    parsowało się 62 s w pętli zdarzeń. Strażnik ma odmówić ZANIM openpyxl
+    zacznie czytać — dlatego atrapa ``load_workbook`` wywraca test, gdy zostanie
+    wywołana.
+    """
+    import io as _io
+    import zipfile as _zipfile
+
+    import pytest as _pytest
+
+    from app.services.equipment import importer as _importer
+    from app.services.equipment.registry import EquipmentError as _EquipmentError
+
+    def _must_not_parse(*_args, **_kwargs):
+        raise AssertionError("openpyxl czytał plik, który strażnik miał odrzucić")
+
+    monkeypatch.setattr(_importer.openpyxl, "load_workbook", _must_not_parse)
+    buffer = _io.BytesIO()
+    with _zipfile.ZipFile(buffer, "w", _zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("[Content_Types].xml", "<Types/>")
+        archive.writestr("xl/workbook.xml", "<workbook/>")
+        archive.writestr(
+            "xl/sharedStrings.xml", "<sst>" + "<si><t>a</t></si>" * 900_000 + "</sst>"
+        )
+    content = buffer.getvalue()
+    assert len(content) < _importer.MAX_FILE_BYTES
+    with _pytest.raises(_EquipmentError):
+        _importer.parse_workbook(content)

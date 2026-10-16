@@ -663,3 +663,52 @@ async def test_history_filters_and_scope(app_client, modules_on) -> None:
         BASE + "/approvals/history", params={"status": "maybe"}, headers=_headers(boss)
     )
     assert wrong.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_on_behalf_preview_hides_event_titles(app_client, modules_on) -> None:
+    """Podgląd „za pracownika” nie oddaje tytułów wydarzeń z kalendarza osoby.
+
+    Tytuły rozmów i prepów niosą nazwiska kandydatów („Rozmowa u klienta: …”),
+    a Kadry (także rola „Pracownik” z nadaniem) nie mają dostępu do rekrutacji.
+    Sama osoba widzi swoje tytuły w swoim oknie.
+    """
+    from datetime import datetime, timezone
+
+    from app.models.calendar_event import CalendarEvent, EventStatus, EventType
+
+    async with AsyncSessionLocal() as db:
+        hr = await _user(db, "employee", profile=True)
+        await _grant(db, hr, "people_admin")
+        worker = await _user(db, "recruiter", profile=True, employment_type="uop")
+        await _pool(db, worker, MON.year, "20")
+        db.add(
+            CalendarEvent(
+                title="Rozmowa u klienta: Kandydatka Przykładowa — Rekrutacja testowa",
+                event_type=EventType.client_interview,
+                start_time=datetime(
+                    MON.year, MON.month, MON.day, 10, tzinfo=timezone.utc
+                ),
+                status=EventStatus.scheduled,
+                created_by=worker.id,
+                operational_owner_id=worker.id,
+            )
+        )
+        await db.commit()
+
+    on_behalf = await app_client.post(
+        BASE + "/approvals/preview",
+        json={**_body(), "user_id": worker.id},
+        headers=_headers(hr),
+    )
+    assert on_behalf.status_code == 200, on_behalf.text
+    work = on_behalf.json()["work"]
+    assert work["total"] == 1
+    assert "Kandydatka" not in str(on_behalf.json())
+    assert all(item.get("title") is None for item in work["items"])
+
+    own = await app_client.post(
+        BASE + "/preview", json=_body(), headers=_headers(worker)
+    )
+    assert own.status_code == 200, own.text
+    assert own.json()["work"]["items"][0]["title"].startswith("Rozmowa u klienta")

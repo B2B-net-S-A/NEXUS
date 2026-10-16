@@ -1205,3 +1205,64 @@ async def test_academy_holder_must_be_a_participant(
                 },
             )
         await db.rollback()
+
+
+async def test_protocol_texts_refuse_secrets(app_client, modules_on, people) -> None:
+    """D10 także w tekstach protokołu: akcesoria przy wydaniu i notatka przy zwrocie.
+
+    Te teksty trafiają do pozycji protokołu, DOCX/PDF i na publiczną stronę
+    podpisu — klucz BitLocker wklejony „przy okazji” nie może tam dojść.
+    """
+    headers = _headers(people["reception"])
+    worker = people["worker"]
+    bitlocker = "-".join(["123456"] * 8)
+    model = await _model(app_client, headers, "laptop", "2000.00")
+    laptop = await _item(
+        app_client, headers, model["id"], inventory_number=f"S-{_tag()}"
+    )
+
+    refused = await app_client.post(
+        "/api/equipment/issue",
+        json={
+            "holder_kind": "user",
+            "holder_id": worker.id,
+            "lines": [
+                {"item_id": laptop["id"], "accessories": f"zasilacz, klucz {bitlocker}"}
+            ],
+        },
+        headers=headers,
+    )
+    assert refused.status_code == 422, refused.text
+    assert bitlocker not in refused.text
+
+    issued = await app_client.post(
+        "/api/equipment/issue",
+        json={
+            "holder_kind": "user",
+            "holder_id": worker.id,
+            "lines": [{"item_id": laptop["id"], "accessories": "zasilacz"}],
+        },
+        headers=headers,
+    )
+    assert issued.status_code == 201, issued.text
+    async with AsyncSessionLocal() as db:
+        assignment_id = await db.scalar(
+            select(EquipmentAssignment.id).where(
+                EquipmentAssignment.item_id == laptop["id"],
+                EquipmentAssignment.returned_at.is_(None),
+            )
+        )
+    returned = await app_client.post(
+        "/api/equipment/return",
+        json={
+            "lines": [
+                {
+                    "assignment_id": assignment_id,
+                    "condition": "sprawny",
+                    "notes": f"klucz odzyskiwania {bitlocker}",
+                }
+            ]
+        },
+        headers=headers,
+    )
+    assert returned.status_code == 422, returned.text
