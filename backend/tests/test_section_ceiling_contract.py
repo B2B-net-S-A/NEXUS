@@ -13,7 +13,11 @@ Ten test przechodzi po WSZYSTKICH trasach i wymaga jednej z bramek:
 * guard kandydatów (``require_candidate_roles`` — liczy max(sourcing, pipeline)),
 * capability analityczne (``capabilities_for`` przycina je sekcjami),
 * wyłącznie admin (admin ma zapis w każdej sekcji),
-* scope konta serwisowego.
+* scope konta serwisowego,
+* bramka modułów „Ludzi w NEXUSIE” (``require_hr_*``, ``app/api/hr_gates.py``
+  i moduły HR): dostęp liczy kartoteka pracownika, uprawnienia z grupy
+  „Ludzie” (Kadry, Płace, Sprzęt, Sprawy) i przełącznik modułu — to osobna oś
+  od sekcji produktu (rola „Pracownik” nie ma żadnej sekcji, a składa wnioski).
 
 Trasa bez żadnej z nich trafia do ``_SECTIONLESS_ALLOWLIST`` z POWODEM:
 dane wspólne dla każdej sekcji (powiadomienia, słowniki) albo kontrola sekcji
@@ -148,6 +152,8 @@ def _classify(route: Any) -> str:
         if "require_capability" in name:
             return "section"
         if "require_service_scope" in name:
+            return "section"
+        if "require_hr_" in name:
             return "section"
     for call, name in zip(calls, names):
         if "require_roles" in name:

@@ -17,16 +17,13 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import AdminUser, require_permission
-from app.api.hr_gates import HrPeopleAdmin
+from app.api.deps import AdminUser
+from app.api.hr_gates import HrPeopleAdmin, require_hr_people_admin
 from app.core.database import get_db
-from app.services.action_permissions import ProductAction
 from app.services.hr import modules as hr_modules
 from app.services.hr import people
 
-router = APIRouter(
-    dependencies=[Depends(require_permission(ProductAction.people_admin))]
-)
+router = APIRouter(dependencies=[Depends(require_hr_people_admin())])
 
 EmploymentType = Literal["uop", "b2b", "zlecenie"]
 EmploymentStatus = Literal["pending", "onboarding", "active", "offboarding", "exited"]

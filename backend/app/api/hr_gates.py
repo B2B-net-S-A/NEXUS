@@ -93,4 +93,17 @@ def require_hr_self_service(module: str):
 
 HrConfigReader = Annotated[User, Depends(require_hr_config_reader())]
 HrPeopleReader = Annotated[User, Depends(require_hr_people_reader())]
-HrPeopleAdmin = Annotated[User, Depends(require_permission(ProductAction.people_admin))]
+
+
+def require_hr_people_admin():
+    """Kadry (uprawnienie „Kadry”; admin ma je zawsze) — nazwana bramka modułu."""
+
+    gate = require_permission(ProductAction.people_admin)
+
+    async def _check(user: User = Depends(gate)) -> User:
+        return user
+
+    return _check
+
+
+HrPeopleAdmin = Annotated[User, Depends(require_hr_people_admin())]

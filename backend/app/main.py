@@ -2997,7 +2997,19 @@ async def api_health_deep_check():
         IntegrationEventOutbox,
         IntegrationWebhook,
     )
+    from app.models.admin_case import AdminCase
+    from app.models.contract_care import CareConversation, TechCard
+    from app.models.equipment import (
+        EquipmentAssignment,
+        EquipmentItem,
+        EquipmentProtocol,
+        EquipmentTask,
+    )
+    from app.models.hr_leave import HrM365Operation, LeaveRequest
+    from app.models.hr_lifecycle import LifecycleCase, WorkHandover
     from app.models.hr_ops import HrAuditEvent, HrImportBatch, HrJobRun
+    from app.models.hr_payroll import EmployeeRate, HrBonus, PayrollPeriod
+    from app.models.hr_time import Timesheet, TimesheetEntry
     from app.models.hr_profile import (
         CompanyDayOff,
         EmployeeProfile,
@@ -3267,6 +3279,24 @@ async def api_health_deep_check():
         ("hr_audit_events", HrAuditEvent),
         ("hr_job_runs", HrJobRun),
         ("hr_import_batches", HrImportBatch),
+        # 0453–0460: moduły „Ludzi w NEXUSIE” — po jednej-dwie tabele, bez
+        # których główny ekran modułu daje 500 (pozostałe pilnuje dryf schematu).
+        ("leave_requests", LeaveRequest),
+        ("hr_m365_operations", HrM365Operation),
+        ("timesheets", Timesheet),
+        ("timesheet_entries", TimesheetEntry),
+        ("employee_rates", EmployeeRate),
+        ("hr_bonuses", HrBonus),
+        ("payroll_periods", PayrollPeriod),
+        ("lifecycle_cases", LifecycleCase),
+        ("work_handovers", WorkHandover),
+        ("tech_cards", TechCard),
+        ("care_conversations", CareConversation),
+        ("admin_cases", AdminCase),
+        ("equipment_items", EquipmentItem),
+        ("equipment_assignments", EquipmentAssignment),
+        ("equipment_protocols", EquipmentProtocol),
+        ("equipment_tasks", EquipmentTask),
     ]
 
     checks: dict[str, str] = {}

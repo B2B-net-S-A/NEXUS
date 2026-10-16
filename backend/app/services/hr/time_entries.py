@@ -101,9 +101,14 @@ async def ensure_timesheet(
     """Timesheet osoby za miesiąc; brak = nowy szkic (wyścig rozstrzyga UNIQUE)."""
 
     validate_period(year, month)
+    # Miesiąc już zamknięty w płacach: nowy timesheet od razu zablokowany —
+    # inaczej godziny wpisane po zamknięciu ominęłyby zamrożone linie płac.
+    from app.services.hr import payroll_periods
+
+    locked = await payroll_periods.is_closed(db, year, month)
     await db.execute(
         insert(Timesheet)
-        .values(user_id=user_id, year=year, month=month)
+        .values(user_id=user_id, year=year, month=month, payroll_locked=locked)
         .on_conflict_do_nothing(constraint="uq_timesheets_user_period")
     )
     timesheet = await find_timesheet(db, user_id, year, month)
