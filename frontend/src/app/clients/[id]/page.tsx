@@ -68,6 +68,7 @@ import { DeleteButton } from "@/components/ConfirmDialog";
 import { EditClientModal } from "@/components/AppShell";
 import { RateCardsTab } from "@/components/RateCardsTab";
 import { MaterialsTab } from "./MaterialsTab";
+import { ClientEquipmentProviderField } from "@/components/equipment/ClientEquipmentProviderField";
 import { OwnersTab } from "./OwnersTab";
 import { ProfileTab } from "./ProfileTab";
 import { ProjectsTab } from "./ProjectsTab";
@@ -991,8 +992,11 @@ export default function ClientDetailPage() {
     searchParams.get("tab"),
     writeTabToUrl,
   );
-  // „Technologie” tylko przy włączonym module opieki (admin widzi zawsze).
-  const careOpen = useHrConfig().data?.open_modules.care === true;
+  // „Technologie” tylko przy włączonym module opieki (admin widzi zawsze);
+  // „Sprzęt od nas / od klienta” — przy włączonym module sprzętu.
+  const hrConfig = useHrConfig().data;
+  const careOpen = hrConfig?.open_modules.care === true;
+  const equipmentOpen = hrConfig?.open_modules.equipment === true;
   const orderMailDocParam = Number(searchParams.get("orderMailDoc"));
   const orderMailDocId =
     Number.isInteger(orderMailDocParam) && orderMailDocParam > 0
@@ -1330,6 +1334,12 @@ export default function ClientDetailPage() {
               <ProfileTab clientId={Number(id)} />
 
               <aside className="@container grid min-w-0 grid-cols-[minmax(0,1fr)] gap-3" aria-label="Informacje o kliencie">
+                {equipmentOpen ? (
+                  <ClientEquipmentProviderField
+                    clientId={Number(id)}
+                    canEdit={canEditDelivery || hrConfig?.me.equipment === true}
+                  />
+                ) : null}
                 <LazyDetails
                   defaultOpen
                   icon={<Building2 className="w-4 h-4 text-muted-foreground" />}

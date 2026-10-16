@@ -287,6 +287,32 @@ export function useSetHrModules() {
   });
 }
 
+export type AvailabilitySource = "compass" | "local";
+
+/** Skąd zastępstwa i dni robocze biorą urlopy (admin; krok runbooka). */
+export function useAvailabilitySource(enabled: boolean) {
+  return useQuery({
+    queryKey: ["hr", "admin", "availability-source"] as const,
+    queryFn: async () =>
+      (await api.get<{ source: AvailabilitySource }>("/api/hr/admin/availability-source"))
+        .data.source,
+    enabled,
+  });
+}
+
+export function useSetAvailabilitySource() {
+  const invalidate = useInvalidatePeople();
+  return useMutation({
+    mutationFn: async (source: AvailabilitySource) =>
+      (
+        await api.put<{ source: AvailabilitySource }>("/api/hr/admin/availability-source", {
+          source,
+        })
+      ).data.source,
+    onSuccess: invalidate,
+  });
+}
+
 /** Stan pozycji menu modułu (czysta funkcja — test bez zapytań). */
 export interface HrNavState {
   myTime: boolean;

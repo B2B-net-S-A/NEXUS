@@ -20,6 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import AdminUser
 from app.api.hr_gates import HrPeopleAdmin, require_hr_people_admin
 from app.core.database import get_db
+from app.services.hr import availability_local
 from app.services.hr import modules as hr_modules
 from app.services.hr import people
 
@@ -64,6 +65,10 @@ class DayOffIn(BaseModel):
 
 class ModulesIn(BaseModel):
     modules: dict[str, bool]
+
+
+class AvailabilitySourceIn(BaseModel):
+    source: Literal["compass", "local"]
 
 
 def _unprocessable(exc: Exception) -> HTTPException:
@@ -210,3 +215,24 @@ async def put_modules(
         ) from exc
     await db.commit()
     return {"modules": updated}
+
+
+@router.get("/availability-source")
+async def get_availability_source(
+    current_user: AdminUser, db: AsyncSession = Depends(get_db)
+) -> dict:
+    """Skąd zastępstwa i dni robocze biorą urlopy: Compass albo NEXUS."""
+    return {"source": await availability_local.current_source(db)}
+
+
+@router.put("/availability-source")
+async def put_availability_source(
+    payload: AvailabilitySourceIn,
+    current_user: AdminUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    source = await availability_local.set_source(
+        db, payload.source, actor_user_id=current_user.id
+    )
+    await db.commit()
+    return {"source": source}

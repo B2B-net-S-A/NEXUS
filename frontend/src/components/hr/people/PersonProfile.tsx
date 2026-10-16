@@ -21,6 +21,9 @@ import {
 import { formatDate } from "@/lib/utils";
 import { resolveViewState } from "@/lib/view-state";
 import { ROLE_LABELS } from "@/store/auth";
+import { PersonEquipmentPanel } from "@/components/equipment/PersonEquipmentPanel";
+import { LifecycleProfileSection } from "@/components/hr/lifecycle/LifecycleProfileSection";
+import { PayrollProfileSection } from "@/components/hr/payroll/PayrollProfileSection";
 
 import { EditProfileDialog } from "./EditProfileDialog";
 import { EntitlementDialog } from "./EntitlementDialog";
@@ -237,6 +240,17 @@ export function PersonProfile({ userId, config }: { userId: number; config: HrCo
           </Card>
         )}
       </div>
+
+      {/* Moduły „Ludzi w NEXUSIE” — każda sekcja sama chowa się przy braku
+          dostępu (403/404) albo wyłączonym module. */}
+      <LifecycleProfileSection userId={userId} config={config} />
+      {config.open_modules.payroll ? (
+        <PayrollProfileSection userId={userId} name={data.name} />
+      ) : null}
+      {config.open_modules.equipment &&
+      (config.me.equipment || config.me.people_admin || config.me.is_admin) ? (
+        <PersonEquipmentPanel userId={userId} />
+      ) : null}
 
       {canEdit && full && editing ? (
         <EditProfileDialog

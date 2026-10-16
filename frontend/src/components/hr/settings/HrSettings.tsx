@@ -16,13 +16,18 @@ import {
   HR_MODULE_LABELS,
   useAddDayOff,
   useCompanyDaysOff,
+  useAvailabilitySource,
   useRemoveDayOff,
+  useSetAvailabilitySource,
   useSetHrModules,
   type HrConfig,
   type HrModuleKey,
 } from "@/lib/api/hr";
 import { formatDate } from "@/lib/utils";
 import { resolveViewState } from "@/lib/view-state";
+
+import { LifecycleTemplatesCard } from "@/components/hr/lifecycle/LifecycleTemplatesCard";
+import { BonusRulesCard } from "@/components/hr/payroll/BonusRulesCard";
 
 import { M365Card } from "./M365Card";
 
@@ -174,6 +179,26 @@ function ModulesCard({ config }: { config: HrConfig }) {
   const { askConfirm, confirmDialog } = useConfirmV2();
   const keys = useMemo(() => Object.keys(HR_MODULE_LABELS) as HrModuleKey[], []);
 
+  const source = useAvailabilitySource(config.me.is_admin);
+  const setSource = useSetAvailabilitySource();
+
+  const toggleSource = async (local: boolean) => {
+    const ok = await askConfirm({
+      title: local ? "Zastępstwa z urlopów NEXUSA?" : "Wrócić do urlopów z Compassa?",
+      description: local
+        ? "Zastępcy przejmą pracę osób na urlopie według wniosków z NEXUSA, a cele i dni pracy policzą się z tych urlopów. Przełącz dopiero po imporcie kartotek i urlopów z Compassa."
+        : "Zastępstwa i dni pracy znów będą liczone z danych Compassa.",
+      confirmLabel: local ? "Przełącz na NEXUS" : "Wróć do Compassa",
+      variant: "default",
+    });
+    if (!ok) return;
+    setSource.mutate(local ? "local" : "compass", {
+      onSuccess: () => showToast("Źródło urlopów zmienione", "success"),
+      onError: (err) =>
+        showToast(apiErrorMessage(err, "Nie udało się zmienić źródła urlopów."), "error"),
+    });
+  };
+
   const toggle = async (key: HrModuleKey, next: boolean) => {
     const ok = await askConfirm({
       title: next ? "Włączyć moduł dla wszystkich?" : "Wyłączyć moduł?",
@@ -215,18 +240,47 @@ function ModulesCard({ config }: { config: HrConfig }) {
             />
           </li>
         ))}
+        {source.isSuccess ? (
+          <li className="flex items-center justify-between gap-3 py-2 text-sm">
+            <span>
+              Zastępstwa i dni pracy z urlopów NEXUSA
+              <span className="block text-xs text-muted-foreground">
+                {source.data === "local" ? "Teraz: NEXUS" : "Teraz: Compass"}
+              </span>
+            </span>
+            <Switch
+              checked={source.data === "local"}
+              disabled={setSource.isPending}
+              aria-label="Zastępstwa i dni pracy z urlopów NEXUSA"
+              onCheckedChange={(next) => toggleSource(next)}
+            />
+          </li>
+        ) : null}
       </ul>
       {confirmDialog}
     </Card>
   );
 }
 
-/** Ustawienia → Kadry: dni wolne firmy (Kadry) i przełączniki modułów (admin). */
+/**
+ * Ustawienia → Kadry: dni wolne firmy i szablony wejścia/odejścia (Kadry),
+ * reguły premii (Płace), przełączniki modułów i źródło urlopów (admin), M365.
+ */
 export function HrSettings({ config }: { config: HrConfig }) {
   return (
     <div className="grid gap-4 lg:grid-cols-2">
       {config.me.people_admin ? <DaysOffCard /> : null}
       {config.me.is_admin ? <ModulesCard config={config} /> : null}
+      {config.open_modules.lifecycle && (config.me.people_admin || config.me.is_admin) ? (
+        <div className="lg:col-span-2">
+          <LifecycleTemplatesCard config={config} />
+        </div>
+      ) : null}
+      {config.open_modules.payroll && (config.me.payroll || config.me.is_admin) ? (
+        <div className="lg:col-span-2">
+          <BonusRulesCard />
+        </div>
+      ) : null}
       {config.me.people_admin ? (
         <div className="lg:col-span-2">
           <M365Card />

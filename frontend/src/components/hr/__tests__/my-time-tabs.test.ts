@@ -31,8 +31,10 @@ describe("zakładki „Mój czas”", () => {
     expect(myTimeTabs(open({ leave: true, time: true, payroll: true })).map((t) => t.value)).toEqual([
       "leave",
       "month",
+      "bonuses",
       "profile",
     ]);
+    expect(myTimeTabs(open({ leave: true })).map((t) => t.value)).toEqual(["leave", "profile"]);
     const extra: MyTimeModuleTab[] = [
       { value: "leave", label: "Urlopy", module: "leave", render: () => null },
       { value: "month", label: "Mój miesiąc", module: "time", render: () => null },

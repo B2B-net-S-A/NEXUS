@@ -261,3 +261,53 @@ def test_buckets_follow_compass_boundaries() -> None:
     assert local._buckets(date(2026, 10, 21), date(2026, 10, 21), "week") == [
         (date(2026, 10, 19), date(2026, 10, 25))
     ]
+
+
+@pytest.mark.asyncio
+async def test_only_admin_switches_the_source(app_client) -> None:
+    from app.core.security import create_access_token
+
+    async with AsyncSessionLocal() as db:
+        hr = User(
+            email=f"avail-hr-{uuid.uuid4().hex[:8]}@example.com",
+            name="Osoba Kadry",
+            role=UserRole.recruiter,
+            roles=["recruiter"],
+            is_active=True,
+        )
+        admin = User(
+            email=f"avail-admin-{uuid.uuid4().hex[:8]}@example.com",
+            name="Osoba Admin",
+            role=UserRole.admin,
+            roles=["admin"],
+            is_active=True,
+        )
+        db.add_all([hr, admin])
+        await db.commit()
+
+    def headers(user: User) -> dict[str, str]:
+        return {
+            "Authorization": f"Bearer {create_access_token(subject=user.id, role=user.role.value)}"
+        }
+
+    url = "/api/hr/admin/availability-source"
+    try:
+        denied = await app_client.put(
+            url, json={"source": "local"}, headers=headers(hr)
+        )
+        assert denied.status_code == 403
+        bad = await app_client.put(url, json={"source": "inne"}, headers=headers(admin))
+        assert bad.status_code == 422
+        switched = await app_client.put(
+            url, json={"source": "local"}, headers=headers(admin)
+        )
+        assert switched.json() == {"source": "local"}
+        assert local.availability_enabled() is True
+        read = await app_client.get(url, headers=headers(admin))
+        assert read.json() == {"source": "local"}
+    finally:
+        back = await app_client.put(
+            url, json={"source": "compass"}, headers=headers(admin)
+        )
+        assert back.json() == {"source": "compass"}
+        local.reset_source_cache()

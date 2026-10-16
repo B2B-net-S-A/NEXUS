@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 
 import { PageHeader } from "@/components/ds/PageHeader";
+import { PersonEquipmentPanel } from "@/components/equipment/PersonEquipmentPanel";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import { TabbedNav } from "@/components/ds/TabbedNav";
 import { Card } from "@/components/ui/card";
@@ -13,6 +14,7 @@ import { resolveViewState } from "@/lib/view-state";
 
 import { MyLeaveTab } from "./leave/MyLeaveTab";
 import { formatDays } from "./people/hr-format";
+import { MyBonusesTab } from "./payroll/MyBonusesTab";
 import { MyMonthTab } from "./time/MyMonthTab";
 import type { YearMonth } from "./time/time-format";
 
@@ -46,6 +48,7 @@ export const MY_TIME_MODULE_TABS: MyTimeModuleTab[] = [
     module: "time",
     render: (config, initialMonth) => <MyMonthTab config={config} initialMonth={initialMonth} />,
   },
+  { value: "bonuses", label: "Premie", module: "payroll", render: () => <MyBonusesTab /> },
 ];
 
 /** Miesiąc z adresu (`?year=2026&month=10`); zły albo brak = brak. */
@@ -173,7 +176,11 @@ export function MyTimeScreen({ config }: { config: HrConfig }) {
           {moduleTab ? (
             moduleTab.render(config, initialMonth)
           ) : (
-            <ProfileCard person={me.data} leaveOpen={config.open_modules.leave} />
+            <div className="space-y-4">
+              <ProfileCard person={me.data} leaveOpen={config.open_modules.leave} />
+              {/* Mój sprzęt (moduł „Sprzęt”) — pusty stan = brak wydanych rzeczy. */}
+              {config.open_modules.equipment ? <PersonEquipmentPanel userId="mine" /> : null}
+            </div>
           )}
         </>
       )}

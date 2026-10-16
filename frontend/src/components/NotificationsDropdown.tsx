@@ -99,6 +99,14 @@ type Notification = {
   category_mutable?: boolean;
 };
 
+/** Ta sama ikona dla grupy typów modułu kadrowego. */
+function hrTypeConfig(
+  types: readonly string[],
+  config: { icon: React.ReactNode; color: string; bgColor: string },
+): Record<string, { icon: React.ReactNode; color: string; bgColor: string }> {
+  return Object.fromEntries(types.map((type) => [type, config]));
+}
+
 const TYPE_CONFIG: Record<
   string,
   { icon: React.ReactNode; color: string; bgColor: string }
@@ -542,6 +550,46 @@ const TYPE_CONFIG: Record<
     icon: <Users className="w-3.5 h-3.5" />,
     color: "text-warning",
     bgColor: "bg-warning/15",
+  },
+  // „Ludzie w NEXUSIE” (0453): urlopy, czas pracy, płace, wejście/odejście,
+  // sprawy administracja@, sprzęt i opieka nad konsultantem.
+  ...hrTypeConfig(
+    ["hr_leave_requested", "hr_leave_decided", "hr_leave_cancelled", "hr_leave_substitute"],
+    { icon: <CalendarClock className="w-3.5 h-3.5" />, color: "text-primary", bgColor: "bg-primary/10" },
+  ),
+  hr_absence_reported: {
+    icon: <CalendarClock className="w-3.5 h-3.5" />,
+    color: "text-warning",
+    bgColor: "bg-warning/15",
+  },
+  ...hrTypeConfig(
+    ["hr_timesheet_submitted", "hr_timesheet_decided", "hr_timesheet_reminder"],
+    { icon: <ClipboardList className="w-3.5 h-3.5" />, color: "text-primary", bgColor: "bg-primary/10" },
+  ),
+  ...hrTypeConfig(["hr_bonus_assigned", "hr_rate_changed"], {
+    icon: <Wallet className="w-3.5 h-3.5" />,
+    color: "text-success",
+    bgColor: "bg-success/15",
+  }),
+  ...hrTypeConfig(["hr_lifecycle_task", "hr_work_handover"], {
+    icon: <ListChecks className="w-3.5 h-3.5" />,
+    color: "text-primary",
+    bgColor: "bg-primary/10",
+  }),
+  admin_case_assigned: {
+    icon: <Inbox className="w-3.5 h-3.5" />,
+    color: "text-primary",
+    bgColor: "bg-primary/10",
+  },
+  ...hrTypeConfig(["equipment_task", "equipment_protocol_signed"], {
+    icon: <Package className="w-3.5 h-3.5" />,
+    color: "text-primary",
+    bgColor: "bg-primary/10",
+  }),
+  care_contact_due: {
+    icon: <PhoneCall className="w-3.5 h-3.5" />,
+    color: "text-primary",
+    bgColor: "bg-primary/10",
   },
 };
 

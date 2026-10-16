@@ -415,6 +415,8 @@ const PUBLIC_PATHS = [
   "/sign/",
   "/cv/",
   "/engagement/",
+  // Publiczny podpis protokołu sprzętu: token w adresie, bez logowania.
+  "/protocol/",
   "/preview/candidates",
   "/preview/candidate-profile",
   "/preview/contact-queue",

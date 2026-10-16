@@ -280,3 +280,41 @@ async def days_off_for(
         {"user_id": user_id, "start": start, "end": end},
     )
     return frozenset(row[0] for row in rows)
+
+
+SOURCES = ("compass", "local")
+
+
+async def current_source(db: AsyncSession) -> str:
+    value = await db.scalar(
+        select(AppSetting.value).where(AppSetting.key == SOURCE_SETTING)
+    )
+    return "local" if value == "local" else "compass"
+
+
+async def set_source(db: AsyncSession, value: str, *, actor_user_id: int) -> str:
+    """Przełączenie źródła urlopów dla zastępstw (runbook: po imporcie kartotek)."""
+    if value not in SOURCES:
+        raise ValueError(value)
+    from sqlalchemy.dialects.postgresql import insert
+
+    from app.services.hr import audit
+
+    previous = await current_source(db)
+    statement = insert(AppSetting).values(key=SOURCE_SETTING, value=value)
+    await db.execute(
+        statement.on_conflict_do_update(
+            index_elements=[AppSetting.key], set_={"value": value}
+        )
+    )
+    audit.record(
+        db,
+        actor_user_id=actor_user_id,
+        subject_user_id=None,
+        entity_type="hr_settings",
+        entity_id=SOURCE_SETTING,
+        action="availability_source_changed",
+        details={"from": previous, "to": value},
+    )
+    reset_source_cache(local=value == "local")
+    return value

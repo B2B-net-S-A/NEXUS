@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { Search, UserPlus } from "lucide-react";
+import { Search, UserPlus, UserRoundPlus } from "lucide-react";
 
 import { InlineStats } from "@/components/ds/InlineStats";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
@@ -116,10 +116,21 @@ export function PeopleDirectory({ config }: { config: HrConfig }) {
           ]}
         />
         {canAdd ? (
-          <Button className="ml-auto" onClick={() => setAdding(true)}>
-            <UserPlus className="h-4 w-4" aria-hidden />
-            Dodaj osobę
-          </Button>
+          <div className="ml-auto flex flex-wrap gap-2">
+            {/* Wejście nowej osoby = kreator z zadaniami (moduł wejścia/odejścia). */}
+            {config.open_modules.lifecycle ? (
+              <Button variant="outline" asChild>
+                <Link href="/people/new">
+                  <UserRoundPlus className="h-4 w-4" aria-hidden />
+                  Wejście nowej osoby
+                </Link>
+              </Button>
+            ) : null}
+            <Button onClick={() => setAdding(true)}>
+              <UserPlus className="h-4 w-4" aria-hidden />
+              Dodaj osobę
+            </Button>
+          </div>
         ) : null}
       </div>
 
