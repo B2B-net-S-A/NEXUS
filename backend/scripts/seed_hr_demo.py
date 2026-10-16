@@ -32,7 +32,9 @@ BACKEND_ROOT = Path(__file__).resolve().parent.parent
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
-from sqlalchemy import func, select  # noqa: E402
+from datetime import timedelta  # noqa: E402
+
+from sqlalchemy import func, select, text  # noqa: E402
 from sqlalchemy.dialects.postgresql import insert  # noqa: E402
 from sqlalchemy.ext.asyncio import AsyncSession  # noqa: E402
 
@@ -40,6 +42,10 @@ from app.core.database import AsyncSessionLocal  # noqa: E402
 from app.core.scheduling import business_today  # noqa: E402
 from app.core.security import hash_password  # noqa: E402
 from app.models.app_setting import AppSetting  # noqa: E402
+from app.models.candidate import Candidate  # noqa: E402
+from app.models.client import Client  # noqa: E402
+from app.models.contract import Contract, ContractStatus, ContractType  # noqa: E402
+from app.models.team_structure import DeliveryLeadClientAssignment  # noqa: E402
 from app.models.hr_profile import EmployeeProfile, LeaveEntitlement  # noqa: E402
 from app.models.section_permission import UserActionOverride  # noqa: E402
 from app.models.user import User, UserRole  # noqa: E402
@@ -230,6 +236,8 @@ async def seed(db: AsyncSession, password: str) -> dict[str, int]:
                 .on_conflict_do_nothing()
             )
 
+    contracts = await _seed_client_and_contracts(db, users["borys"])
+
     modules = {key: True for key in HR_MODULE_KEYS}
     statement = insert(AppSetting).values(key=HR_MODULES_SETTING, value=modules)
     await db.execute(
@@ -238,7 +246,88 @@ async def seed(db: AsyncSession, password: str) -> dict[str, int]:
         )
     )
     await db.commit()
-    return {"created": created, "people": len(PEOPLE)}
+    return {"created": created, "people": len(PEOPLE), "contracts": contracts}
+
+
+DEMO_CLIENT = "Klient Demo Bank (fikcja)"
+
+
+async def _seed_client_and_contracts(db: AsyncSession, delivery_lead: User) -> int:
+    """Fikcyjny klient z DL, sprzętem „od nas” i dwoma kontraktami konsultantów.
+
+    Jeden trwa (opieka, mapa technologii, premie), drugi startuje za 10 dni
+    (zadanie „przygotuj zestaw” i sprawa wejścia z przeglądu kontraktów).
+    """
+    client = await db.scalar(select(Client).where(Client.name == DEMO_CLIENT))
+    if client is None:
+        client = Client(name=DEMO_CLIENT)
+        db.add(client)
+        await db.flush()
+    await db.execute(
+        text("UPDATE clients SET equipment_provider = 'nasz' WHERE id = :id"),
+        {"id": client.id},
+    )
+    assigned = await db.scalar(
+        select(DeliveryLeadClientAssignment).where(
+            DeliveryLeadClientAssignment.client_id == client.id,
+            DeliveryLeadClientAssignment.delivery_lead_user_id == delivery_lead.id,
+        )
+    )
+    if assigned is None:
+        db.add(
+            DeliveryLeadClientAssignment(
+                client_id=client.id,
+                delivery_lead_user_id=delivery_lead.id,
+                is_head=True,
+            )
+        )
+    today = business_today()
+    created = 0
+    for key, first, last, start, status in (
+        (
+            "konsultant1",
+            "Jan",
+            "Konsultant",
+            today - timedelta(days=75),
+            ContractStatus.active,
+        ),
+        (
+            "konsultant2",
+            "Ola",
+            "Wejściowa",
+            today + timedelta(days=10),
+            ContractStatus.draft,
+        ),
+    ):
+        email = f"{key}{DEMO_DOMAIN}"
+        candidate = await db.scalar(select(Candidate).where(Candidate.email == email))
+        if candidate is None:
+            candidate = Candidate(name=first, lastname=last, email=email)
+            db.add(candidate)
+            await db.flush()
+        contract = await db.scalar(
+            select(Contract).where(
+                Contract.candidate_id == candidate.id, Contract.client_id == client.id
+            )
+        )
+        if contract is None:
+            db.add(
+                Contract(
+                    candidate_id=candidate.id,
+                    client_id=client.id,
+                    status=status,
+                    contract_type=ContractType("b2b"),
+                    start_date=start,
+                    end_date=None,
+                    rate_client=165,
+                    rate_candidate=120,
+                    margin=45,
+                    currency="PLN",
+                )
+            )
+            created += 1
+    await db.flush()
+    return created
 
 
 async def _main() -> int:
