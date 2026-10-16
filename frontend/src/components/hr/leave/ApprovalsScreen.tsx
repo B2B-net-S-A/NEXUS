@@ -74,6 +74,8 @@ export function pendingDetails(row: PendingLeaveRow, viewerIsHr: boolean): strin
 interface ApprovalSection {
   key: string;
   title: string;
+  /** Sekcja rysuje własny nagłówek (np. timesheety z wyborem miesiąca). */
+  ownHeader?: boolean;
   render: () => ReactNode;
 }
 
@@ -350,6 +352,8 @@ export function ApprovalsScreen({ config }: { config: HrConfig }) {
     const timesheets: ApprovalSection = {
       key: "timesheets",
       title: "Timesheety",
+      // Sekcja ma własny nagłówek z wyborem miesiąca.
+      ownHeader: true,
       render: () => (
         <TimesheetApprovalsSection
           config={config}
@@ -371,7 +375,8 @@ export function ApprovalsScreen({ config }: { config: HrConfig }) {
           stats={[
             {
               id: "waiting",
-              label: "czeka na decyzję",
+              // Licznik wniosków urlopowych; timesheety mają własny stan w swojej sekcji.
+              label: "urlopy do decyzji",
               value: waiting === null ? "—" : waiting,
             },
             {
@@ -398,7 +403,9 @@ export function ApprovalsScreen({ config }: { config: HrConfig }) {
       ) : (
         sections.map((section) => (
           <section key={section.key} className="space-y-2" aria-label={section.title}>
-            <h2 className="text-sm font-semibold text-foreground">{section.title}</h2>
+            {section.ownHeader ? null : (
+              <h2 className="text-sm font-semibold text-foreground">{section.title}</h2>
+            )}
             {section.render()}
           </section>
         ))
