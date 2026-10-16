@@ -204,10 +204,30 @@ export interface CvTopicResponse {
 export const CV_TOPIC_QUERY_KEY = ["board-tasks", "cv"] as const;
 
 /** `enabled` = konto z rolą rekrutera albo Delivery Leada (lustro serwera). */
+/** Granica z serwerem: zły kształt to awaria zapytania (ikona się chowa),
+ *  nie wyjątek w renderze paska. */
+function parseCvTopic(data: unknown): CvTopicResponse {
+  const topic = data as Partial<CvTopicResponse> | null;
+  const recruiterOk =
+    topic?.recruiter === null ||
+    (Array.isArray(topic?.recruiter?.to_check) &&
+      Array.isArray(topic?.recruiter?.to_fix) &&
+      Array.isArray(topic?.recruiter?.with_dl) &&
+      Array.isArray(topic?.recruiter?.sent));
+  const dlOk =
+    topic?.dl === null ||
+    (Array.isArray(topic?.dl?.to_send) && Array.isArray(topic?.dl?.sent_today));
+  if (!topic || typeof topic.badge !== "number" || !recruiterOk || !dlOk) {
+    throw new Error("Nieoczekiwana odpowiedź /api/board-tasks/cv");
+  }
+  return topic as CvTopicResponse;
+}
+
 export function useCvTopic(enabled: boolean) {
   return useQuery<CvTopicResponse>({
     queryKey: CV_TOPIC_QUERY_KEY,
-    queryFn: () => api.get<CvTopicResponse>("/api/board-tasks/cv").then((r) => r.data),
+    queryFn: () =>
+      api.get<CvTopicResponse>("/api/board-tasks/cv").then((r) => parseCvTopic(r.data)),
     enabled,
     refetchInterval: enabled ? WS_BACKED_SAFETY_POLL_MS : false,
     staleTime: 30_000,

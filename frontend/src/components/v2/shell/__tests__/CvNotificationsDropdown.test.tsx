@@ -86,7 +86,7 @@ const DELIVERY_LEAD: CvTopicResponse = {
         waiting_workdays: 3,
         urgency: "late",
         handed_over_by_name: "Kasia W.",
-        cpro: false,
+        cpro: true,
       },
     ],
     to_send_total: 2,
@@ -155,8 +155,20 @@ describe("CvNotificationsDropdown — ikona „CV” (16.10.2026)", () => {
       "href",
       "/jobs/12?candidate=31&review=1",
     );
+    // Nordea: plakietka przy nazwisku jak w dawnym okienku „Do wysłania” (#2206).
+    expect(send).toHaveTextContent("do Cpro");
+    // Serwer tnie listę do 30 — przycięcie widać, nie wygląda jak cała kolejka.
+    expect(screen.getByText("Pokazano 1 z 2 — najdłużej czekające.")).toBeInTheDocument();
     expect(screen.getByText(/1 osoba w „QC CV” jeszcze/)).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /Przejrzyj po kolei \(2\)/ })).toBeInTheDocument();
+  });
+
+  it("odpowiedź w złym kształcie to awaria, nie wywrotka paska", async () => {
+    apiMock.get.mockResolvedValue({ data: [] });
+    renderDropdown();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(apiMock.get).toHaveBeenCalledWith("/api/board-tasks/cv");
+    expect(screen.queryByRole("button", { name: /^CV/ })).not.toBeInTheDocument();
   });
 
   it("konto bez roli rekrutera i DL nie pyta i nie ma ikony", async () => {

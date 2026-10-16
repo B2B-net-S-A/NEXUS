@@ -12,8 +12,11 @@ import { useState, type ButtonHTMLAttributes } from "react";
 import Link from "next/link";
 import { ArrowRight, FileUser } from "lucide-react";
 
+import { Badge } from "@/components/ui/badge";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
+  CPRO_ROW_BADGE,
+  CPRO_ROW_HINT,
   useCvTopic,
   waitingFor,
   type CvCheckRow,
@@ -157,6 +160,7 @@ function Row({
   href,
   onNavigate,
   name,
+  badge,
   lines,
   meta,
   metaClassName,
@@ -164,6 +168,9 @@ function Row({
   href: string;
   onNavigate: () => void;
   name: string;
+  /** Plakietka przy nazwisku (Nordea „do Cpro”) — dopisek na końcu linii
+   *  rekrutacji ucinał się w okienku 384 px (14.10.2026). */
+  badge?: React.ReactNode;
   lines: (string | null)[];
   meta: string;
   metaClassName?: string;
@@ -176,8 +183,11 @@ function Row({
         className="flex items-start gap-3 px-4 py-2 transition-colors hover:bg-accent focus-visible:bg-accent focus-visible:outline-none"
       >
         <span className="min-w-0 flex-1">
-          <span className="block truncate text-sm font-medium text-foreground" title={name}>
-            {name}
+          <span className="flex min-w-0 items-center gap-1.5">
+            <span className="truncate text-sm font-medium text-foreground" title={name}>
+              {name}
+            </span>
+            {badge}
           </span>
           {lines
             .filter((line): line is string => Boolean(line))
@@ -251,6 +261,13 @@ export function CvPanel({ data, onNavigate }: CvPanelProps) {
                 href={dlSendReviewHref(row)}
                 onNavigate={onNavigate}
                 name={row.candidate_name}
+                badge={
+                  row.cpro ? (
+                    <Badge size="sm" variant="info" title={CPRO_ROW_HINT} className="shrink-0">
+                      {CPRO_ROW_BADGE}
+                    </Badge>
+                  ) : null
+                }
                 lines={[
                   jobLabel(row),
                   row.handed_over_by_name ? `przekazał(a) ${row.handed_over_by_name}` : null,
@@ -260,6 +277,11 @@ export function CvPanel({ data, onNavigate }: CvPanelProps) {
               />
             ))}
           </Section>
+        ) : null}
+        {dl && dl.to_send_total > dl.to_send.length ? (
+          <p className="px-4 pt-1 text-xs text-muted-foreground">
+            Pokazano {dl.to_send.length} z {dl.to_send_total} — najdłużej czekające.
+          </p>
         ) : null}
         {dl && dl.with_recruiters_total > 0 ? (
           <p className="px-4 pt-2 text-xs text-muted-foreground">

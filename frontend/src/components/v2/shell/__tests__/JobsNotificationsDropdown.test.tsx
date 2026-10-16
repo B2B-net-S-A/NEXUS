@@ -142,6 +142,13 @@ describe("JobsNotificationsDropdown — ikona „Rekrutacje” (16.10.2026)", ()
     );
   });
 
+  it("odpowiedź w złym kształcie to awaria, nie „nic nowego”", async () => {
+    apiMock.get.mockResolvedValue({ data: [] });
+    renderDropdown();
+    fireEvent.click(screen.getByRole("button", { name: "Rekrutacje" }));
+    expect(await screen.findByText("Nie udało się wczytać rekrutacji.")).toBeInTheDocument();
+  });
+
   it("awaria nie wygląda jak „nic nowego”", async () => {
     apiMock.get.mockRejectedValue(new Error("503"));
     renderDropdown();
@@ -162,6 +169,45 @@ describe("useClearJobTopic — wejście na ekran rekrutacji", () => {
         include_covered: false,
       }),
     );
+  });
+
+  it("odpowiedź w złym kształcie nie wywraca ekranu rekrutacji", async () => {
+    // Domyślna atrapa testów strony zwraca `{ data: [] }` dla każdej trasy.
+    apiMock.get.mockResolvedValue({ data: [] });
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    function JobScreen() {
+      useClearJobTopic(13);
+      return <p>Ekran rekrutacji</p>;
+    }
+    render(<JobScreen />, { wrapper: wrapper(client) });
+    await waitFor(() => expect(apiMock.get).toHaveBeenCalled());
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    // Błąd w renderze bez granicy błędu zdjąłby cały ekran.
+    expect(screen.getByText("Ekran rekrutacji")).toBeInTheDocument();
+    expect(apiMock.put).not.toHaveBeenCalled();
+  });
+
+  it("karta w tle nie gasi nowości — dopiero powrót do niej", async () => {
+    const visibility = vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
+    try {
+      const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+      renderHook(() => useClearJobTopic(13), { wrapper: wrapper(client) });
+      await waitFor(() => expect(apiMock.get).toHaveBeenCalled());
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(apiMock.put).not.toHaveBeenCalled();
+
+      visibility.mockReturnValue("visible");
+      document.dispatchEvent(new Event("visibilitychange"));
+      await waitFor(() =>
+        expect(apiMock.put).toHaveBeenCalledWith("/api/notifications/topics/read", {
+          topic: "jobs",
+          job_id: 13,
+          include_covered: false,
+        }),
+      );
+    } finally {
+      visibility.mockRestore();
+    }
   });
 
   it("rekrutacja bez nowości nie wysyła nic", async () => {

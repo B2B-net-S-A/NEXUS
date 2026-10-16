@@ -74,7 +74,13 @@ Makiety: https://claude.ai/artifact/Sg4nsek8fGLcqNxMH47pFc.
 - **„Rekrutacje”** — `JobsNotificationsDropdown` (`useJobThreads`, klucz
   `["notifications", scope, "jobs"]`); klik = `topics/read` z `job_id` albo
   `link`; wejście na `/jobs/{id}` woła `useClearJobTopic` (`include_covered:
-  false`, tylko gdy okienko pokazuje nowości tej rekrutacji).
+  false`, tylko gdy okienko pokazuje nowości tej rekrutacji i karta jest
+  widoczna — nowość, która przyszła do karty w tle, czeka na powrót).
+  Odpowiedź tras `jobs` i `board-tasks/cv` w złym kształcie to błąd zapytania
+  (stan błędu, ikona schowana), nigdy wyjątek w renderze — hook stoi w ciele
+  strony rekrutacji, bez granicy błędu.
+- Panel „CV” u DL ma plakietkę „do Cpro” przy nazwisku (Nordea) i dopisek
+  „Pokazano N z M”, gdy serwer przyciął listę (30) — jak dawne okienko.
 - **„Wiadomości”** — `ChatNotificationsDropdown` z `include_notes`; ramka
   notatki idzie do okienka zdarzeniem `CHAT_NOTIFY_EVENT` (`kind: "note"`).
 - Dzwonek (`NotificationsDropdown`), `listForBell`, `markAllReadForBell`
