@@ -119,6 +119,11 @@ GROUPS: tuple[tuple[str, str, str], ...] = (
         "Traffit, COMPASS, CloudTalk, kalendarz i rozmowy u klienta, prepy w Teams, archiwum pytań.",
     ),
     (
+        "ludzie",
+        "Ludzie w NEXUSIE",
+        "Moduły przeniesione z Compassa (bez Akademii) i sprzęt recepcji.",
+    ),
+    (
         "programy",
         "Programy",
         "Akademia i program praktykanta („Telefony na dziś”).",
