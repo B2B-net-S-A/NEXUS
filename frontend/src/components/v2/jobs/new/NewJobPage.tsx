@@ -564,6 +564,30 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
     };
   }, [fromParam, applyFill]);
 
+  // „Nowa rekrutacja z tej mapy” (zakładka „Technologie” klienta): `?client=<id>`
+  // ustawia klienta, o ile nikt go jeszcze nie wybrał; `?from=` ma pierwszeństwo.
+  const clientParam = searchParams?.get("client") ?? null;
+  useEffect(() => {
+    const clientId = clientParam ? Number(clientParam) : NaN;
+    if (fromParam || !Number.isInteger(clientId) || clientId <= 0) return;
+    let cancelled = false;
+    api
+      .get(`/api/clients/${clientId}`)
+      .then((r) => {
+        if (cancelled) return;
+        const name = (r.data as { name?: string } | null)?.name ?? "";
+        setClient((current) => current ?? ({ id: clientId, name } as ClientRef));
+      })
+      .catch((e) => {
+        if (!cancelled) {
+          showError(apiErrorMessage(e, "Nie udało się wczytać klienta — wybierz go z listy."));
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [clientParam, fromParam, showError]);
+
   // Formularz stoi na stronie od wejścia, więc listy do sekcji 6 (rekruterzy,
   // automat przydziału, portale) wczytują się razem z nią. To same odczyty.
   const recruitersQuery = useQuery({

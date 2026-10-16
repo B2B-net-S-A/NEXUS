@@ -309,7 +309,11 @@ export function TechCardDialog({
           <div className="grid gap-2 rounded-md border border-border/60 p-3">
             <label className="flex items-center justify-between gap-2 text-sm font-medium">
               Klient zatrudnia
-              <Switch checked={form.hiring} onCheckedChange={(v) => set("hiring", v)} />
+              <Switch
+                checked={form.hiring}
+                onCheckedChange={(v) => set("hiring", v)}
+                aria-label="Klient zatrudnia"
+              />
             </label>
             {form.hiring ? (
               <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_140px]">

@@ -203,7 +203,7 @@ export function ClientTechnologiesTab({ clientId }: { clientId: number }) {
             </Button>
           ) : null}
           <Button size="sm" asChild>
-            <Link href="/jobs/new">Nowa rekrutacja z tej mapy</Link>
+            <Link href={`/jobs/new?client=${clientId}`}>Nowa rekrutacja z tej mapy</Link>
           </Button>
         </div>
       </div>

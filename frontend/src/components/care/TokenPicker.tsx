@@ -35,11 +35,14 @@ export function TokenPicker({
   const [query, setQuery] = useState("");
   const [options, setOptions] = useState<{ id: number; name: string }[]>([]);
   const [searchError, setSearchError] = useState(false);
+  /** Zapytanie, dla którego `options` są aktualne — „Dodaj …” dopiero po odpowiedzi słownika. */
+  const [searchedFor, setSearchedFor] = useState("");
 
   useEffect(() => {
     const q = query.trim();
     if (q.length < 2) {
       setOptions([]);
+      setSearchedFor("");
       return;
     }
     let cancelled = false;
@@ -48,11 +51,15 @@ export function TokenPicker({
         .then((items) => {
           if (!cancelled) {
             setOptions(items);
+            setSearchedFor(q);
             setSearchError(false);
           }
         })
         .catch(() => {
-          if (!cancelled) setSearchError(true);
+          if (!cancelled) {
+            setSearchedFor(q);
+            setSearchError(true);
+          }
         });
     }, 200);
     return () => {
@@ -65,6 +72,10 @@ export function TokenPicker({
     value.some((item) =>
       token.id != null ? item.id === token.id : item.name.toLowerCase() === token.name.toLowerCase(),
     );
+
+  const typed = query.trim();
+  const exactMatch = options.some((option) => option.name.toLowerCase() === typed.toLowerCase());
+  const offerFreeText = typed.length >= 2 && searchedFor === typed && !exactMatch;
 
   const add = (token: PickedToken) => {
     if (!token.name.trim() || has(token)) return;
@@ -117,7 +128,7 @@ export function TokenPicker({
           }
         }}
       />
-      {options.length ? (
+      {options.length || offerFreeText ? (
         <ul id={listId} className="max-h-40 overflow-y-auto rounded-md border border-border bg-card text-sm">
           {options.map((option) => (
             <li key={option.id}>
@@ -130,6 +141,17 @@ export function TokenPicker({
               </button>
             </li>
           ))}
+          {offerFreeText ? (
+            <li>
+              <button
+                type="button"
+                className="w-full px-3 py-1.5 text-left text-muted-foreground hover:bg-muted"
+                onClick={() => add({ id: null, name: typed })}
+              >
+                Dodaj „{typed}” · {freeTextHint}
+              </button>
+            </li>
+          ) : null}
         </ul>
       ) : null}
       {searchError ? (
