@@ -189,3 +189,28 @@ angielską nazwę uczelni (część to uczelnie zagraniczne, które tak zostają
 - **CV po angielsku bez zmian** — kod nie podmienia tam nazw, a prompt EN nie
   ma reguły o uczelniach.
 - Ścieżka `v10` (`editorial_prompt`: „Preserve … institutions”) bez zmian.
+
+## Stanowiska od najnowszego liczy kod (16.10.2026)
+
+Zgłoszenie rekruterki: CV z generatora miało doświadczenie nie po kolei.
+Prompt `legacy_v7` mówi „uporządkuj doświadczenie od najnowszego”, ale ten
+sam prompt pozwala modelowi „zmieniać kolejność” pod wymagania Championa
+i reguły klienta („kolejność sekcji i pozycji”), więc rola najbliższa
+wymaganiom potrafiła wylądować na górze. Kod nie sprawdzał kolejności wcale.
+
+- **`services/cv_role_order.sort_experience`** ustawia `experience` od
+  najnowszego zaraz po odczycie odpowiedzi modelu (`legacy_v7.pipeline`
+  i ścieżka `v10` w `standalone_service`): trwające („obecnie”, „present”)
+  najpierw, potem później zakończone, przy tym samym końcu — później
+  rozpoczęte, remis zostaje w kolejności modelu. Rola bez czytelnych dat
+  zostaje na swoim miejscu, reszta układa się na wolnych miejscach.
+- **Przed regułą klienta „maks. N stanowisk”** (`apply_presentation_policy`
+  bierze pierwsze N z listy). Bez tego przy złej kolejności modelu klient
+  z limitem dostawał najstarsze role zamiast obecnej.
+- **Przed formatem dat klienta** (`apply_date_format`); parser czyta
+  `MM.YYYY`, `MM/YYYY`, `MM-YYYY`, `YYYY-MM` i `YYYY`, a przy kilku datach
+  w tekście bierze dwie ostatnie (rok w nazwie roli stoi przed okresem).
+- Ta sama funkcja liczy „ułóż chronologicznie” w asystencie edytora
+  (`reorder_roles`, `edytor-cv-pelny-ekran.md`). Kolejność, którą rekruter
+  ustawi ręcznie w edytorze, zostaje — sortuje tylko generator.
+- CV wygenerowane wcześniej nie są przestawiane z mocy wstecznej.

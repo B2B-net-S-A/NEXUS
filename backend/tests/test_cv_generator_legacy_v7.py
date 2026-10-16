@@ -1141,3 +1141,79 @@ def test_every_english_name_points_to_exactly_one_polish_university():
 def test_polish_prompt_asks_for_polish_university_names(mode):
     assert "„Politechnika Białostocka”" in legacy_prompt("pl", False, mode)
     assert "Politechnika Białostocka" not in legacy_prompt("en", False, mode)
+
+
+# ── Kolejność stanowisk liczy kod (16.10.2026, zgłoszenie rekruterki) ─────
+#
+# Prompt mówi „uporządkuj doświadczenie od najnowszego”, ale w tym samym
+# prompcie model może „zmieniać kolejność pod wymagania klienta” — CV wychodziło
+# z rolą najbardziej pasującą na górze zamiast obecnej. Kolejność ustawia kod
+# po datach, zanim reguła klienta utnie listę do N stanowisk.
+
+
+def _role(dates, company):
+    return {
+        "dates": dates,
+        "company": company,
+        "position": "Backend Developer",
+        "responsibilities": ["Utrzymanie API w Pythonie"],
+        "technologies": ["Python"],
+    }
+
+
+def _companies(result):
+    return [role["company"] for role in result.render_payload["experience"]]
+
+
+def test_experience_comes_out_newest_first_whatever_the_model_did(defaults):
+    defaults["response"] = _ai_json(
+        experience=[
+            _role("01.2015 – 07.2016", "Najstarsza"),
+            _role("03.2021 – obecnie", "Obecna"),
+            _role("08.2016 – 02.2021", "Środkowa"),
+        ]
+    )
+    assert _companies(_run()) == ["Obecna", "Środkowa", "Najstarsza"]
+
+
+def test_current_role_goes_first_even_when_a_parallel_one_started_later(defaults):
+    defaults["response"] = _ai_json(
+        experience=[
+            _role("06.2022 – 03.2023", "Kontrakt równoległy"),
+            _role("01.2018 – obecnie", "Etat"),
+        ]
+    )
+    assert _companies(_run()) == ["Etat", "Kontrakt równoległy"]
+
+
+def test_role_without_dates_keeps_its_place(defaults):
+    defaults["response"] = _ai_json(
+        experience=[
+            _role("2015 – 2016", "Stara"),
+            _role("", "Bez dat"),
+            _role("03.2021 – obecnie", "Obecna"),
+        ]
+    )
+    assert _companies(_run()) == ["Obecna", "Bez dat", "Stara"]
+
+
+def test_role_limit_keeps_the_newest_roles_not_the_first_from_the_model(defaults):
+    defaults["response"] = _ai_json(
+        experience=[
+            _role("01.2015 – 07.2016", "Najstarsza"),
+            _role("03.2021 – obecnie", "Obecna"),
+        ]
+    )
+    assert _companies(_run(rule=_rule(max_roles=1))) == ["Obecna"]
+
+
+def test_client_date_format_does_not_change_the_order(defaults):
+    defaults["response"] = _ai_json(
+        experience=[
+            _role("01.2015 – 07.2016", "Najstarsza"),
+            _role("03.2021 – obecnie", "Obecna"),
+        ]
+    )
+    result = _run(rule=_rule(date_format="YYYY-MM"))
+    assert _companies(result) == ["Obecna", "Najstarsza"]
+    assert result.render_payload["experience"][0]["dates"].startswith("2021-03")

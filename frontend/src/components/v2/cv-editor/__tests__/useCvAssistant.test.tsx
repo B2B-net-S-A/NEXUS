@@ -153,6 +153,42 @@ describe("useCvAssistant — odpowiedź na pytanie po innych zmianach", () => {
     expect(html.indexOf("Terraform")).toBeGreaterThan(html.indexOf("Junior Developer"));
   });
 
+  // Przegląd 16.10.2026: `reorder_roles` z tej samej wiadomości zamienia
+  // stanowiska miejscami, więc „to samo wystąpienie po kolei” wskazywało punkt
+  // w innym stanowisku — fakt potwierdzony dla Juniora lądował w Banku.
+  it("pytanie po przestawieniu stanowisk: zmiana trafia w stanowisko, o które pytaliśmy", async () => {
+    const OLDEST_FIRST =
+      "<h1>Dev – Anna Przykładowa</h1>" + // 0
+      '<h2 data-cv-section="experience">DOŚWIADCZENIE</h2>' + // 1
+      '<p data-cv-section="role"><strong>Junior Developer</strong> 2018 – 2021</p>' + // 2
+      '<p data-cv-section="employer">Software House Przykład · IT</p>' + // 3
+      "<ul><li><p>Code review.</p></li></ul>" + // 4
+      '<p data-cv-section="role"><strong>Developer</strong> 2021 – 2024</p>' + // 5
+      '<p data-cv-section="employer">Bank Przykładowy · Bankowość</p>' + // 6
+      "<ul><li><p>Code review.</p></li><li><p>Udział w planowaniu sprintów.</p></li></ul>" + // 7, 8
+      `<p data-cv-section="rodo">${CLAUSE}</p>`;
+    const reorderPlan: CvCommandResponse = {
+      status: "ok",
+      operations: [
+        { id: 0, type: "reorder_roles", lines: [5, 2], text: null, why: "", loses: [], new_words: [] },
+        { ...twinPlan.operations[0], id: 1, lines: [4] },
+      ],
+      dropped: [],
+      message: null,
+    };
+    const editor = open(OLDEST_FIRST);
+    const commandApi = { plan: vi.fn(async () => reorderPlan), confirmFact: vi.fn(async () => undefined) };
+    const { hook, id } = await askTerraform(editor, commandApi);
+    // Kolejność weszła od razu, fakt czeka na „Tak”.
+    expect(editor.getHTML().indexOf("Developer</strong> 2021")).toBeLessThan(editor.getHTML().indexOf("Junior Developer"));
+
+    await act(() => hook.result.current.answer(id, true));
+    const html = editor.getHTML();
+    expect(html.indexOf("Terraform")).toBeGreaterThan(html.indexOf("Junior Developer"));
+    // Punkt w Banku zostaje bez zmian.
+    expect(html.indexOf("Code review.")).toBeLessThan(html.indexOf("Junior Developer"));
+  });
+
   it("odpowiedź serwera po zablokowaniu edytora (zapis, przekazanie) nie zmienia CV", async () => {
     const editor = open();
     const before = editor.getHTML();
