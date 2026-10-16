@@ -28,7 +28,8 @@ export type EquipmentItemStatus =
   | "wycofany"
   | "zgubiony";
 export type EquipmentOwnership = "nasz" | "klienta";
-export type EquipmentHolderKind = "user" | "contract" | "external";
+/** Posiadacz: konto, kontrakt, osoba spoza NEXUSA albo uczestnik Akademii (id zgłoszenia). */
+export type EquipmentHolderKind = "user" | "contract" | "external" | "academy";
 export type ReturnCondition = "sprawny" | "uszkodzony" | "niekompletny" | "zgubiony";
 export type ProtocolKind = "wydanie" | "zwrot";
 export type ProtocolStatus = "oczekuje" | "podpisany" | "potwierdzony" | "anulowany";
@@ -517,20 +518,6 @@ export function useCreateExternalPerson() {
           payload,
         )
       ).data,
-  });
-}
-
-export function useIssueEquipment() {
-  const invalidate = useInvalidateEquipment();
-  return useMutation({
-    mutationFn: async (payload: IssueInput) =>
-      (
-        await api.post<{ protocol: EquipmentProtocol; link_url: string | null }>(
-          `${BASE}/issue`,
-          payload,
-        )
-      ).data,
-    onSuccess: invalidate,
   });
 }
 

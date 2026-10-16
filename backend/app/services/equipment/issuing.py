@@ -1,6 +1,8 @@
 """Wydanie i zwrot sprzętu z protokołem — jedna transakcja na operację.
 
-Wydanie: posiadacz → pozycje → protokół. Egzemplarze są blokowane
+Wydanie: posiadacz → pozycje → protokół. Posiadacz to konto, kontrakt, osoba
+spoza NEXUSA albo uczestnik Akademii po zaliczonym zadaniu (rezygnacja
+i wykluczenie zamykają wydawanie). Egzemplarze są blokowane
 (``FOR UPDATE``), każdy musi być „na stanie” i bez aktywnego wydania;
 statusy, wydania, protokół i — dla konsultanta — pozycje zakładki „Sprzęt”
 kontraktu powstają razem albo wcale. Wartość pozycji pochodzi z cennika
@@ -21,6 +23,7 @@ from typing import Any, Optional, Sequence
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.academy import AcademyApplication
 from app.models.contract import Contract
 from app.models.contract_equipment import (
     ContractEquipment,
@@ -38,6 +41,7 @@ from app.models.user import User
 from app.services import equipment_schema as schema
 from app.services.equipment import identifiers, protocols, tasks
 from app.services.equipment.registry import (
+    ISSUABLE_ACADEMY_STATUSES,
     ISSUABLE_CONTRACT_STATUSES,
     EquipmentConflict,
     EquipmentError,
@@ -168,6 +172,15 @@ async def _check_holder(db: AsyncSession, holder: Holder) -> Optional[Contract]:
         if contract.status not in ISSUABLE_CONTRACT_STATUSES:
             raise EquipmentError("Kontrakt jest zakończony — sprzętu nie wydamy.")
         return contract
+    if holder.kind == "academy":
+        application = await db.get(AcademyApplication, holder.id)
+        if application is None:
+            raise EquipmentNotFound("Nie ma takiego zgłoszenia Akademii.")
+        if application.status not in ISSUABLE_ACADEMY_STATUSES:
+            raise EquipmentConflict(
+                "Ta osoba nie jest uczestnikiem edycji (rezygnacja, wykluczenie "
+                "albo przed zaliczonym zadaniem) — sprzętu nie wydamy."
+            )
     return None
 
 

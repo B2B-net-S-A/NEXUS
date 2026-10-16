@@ -8,9 +8,9 @@ import { Button } from "@/components/ui/button";
 import { FormField } from "@/components/ui/form-field";
 import { Input } from "@/components/ui/input";
 import { apiErrorMessage } from "@/lib/api-error";
+import { useIssueToHolder } from "@/lib/api/academy-edition";
 import {
   useEquipmentItems,
-  useIssueEquipment,
   type EquipmentHolder,
   type EquipmentItem,
   type EquipmentProtocol,
@@ -44,7 +44,10 @@ const STEPS: { step: Step; label: string }[] = [
   { step: 3, label: "Protokół" },
 ];
 
-/** „Wydaj sprzęt”: osoba → pozycje → protokół (wzór recepcji, link albo papier). */
+/**
+ * „Wydaj sprzęt”: osoba → pozycje → protokół (wzór recepcji, link albo papier).
+ * Osobą bywa też uczestnik Akademii (przełącznik w kroku 1).
+ */
 export function IssueWizard({ onClose, presetHolder = null }: IssueWizardProps) {
   const [step, setStep] = useState<Step>(presetHolder ? 2 : 1);
   const [holder, setHolder] = useState<EquipmentHolder | null>(presetHolder);
@@ -53,7 +56,7 @@ export function IssueWizard({ onClose, presetHolder = null }: IssueWizardProps) 
   const [query, setQuery] = useState("");
   const deferred = useDeferredValue(query);
   const free = useEquipmentItems({ q: deferred, free: true }, step === 2);
-  const issue = useIssueEquipment();
+  const issue = useIssueToHolder();
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<{
     protocol: EquipmentProtocol;
@@ -179,7 +182,7 @@ export function IssueWizard({ onClose, presetHolder = null }: IssueWizardProps) 
       </ol>
 
       {step === 1 ? (
-        <HolderPicker value={holder} onChange={setHolder} />
+        <HolderPicker academy value={holder} onChange={setHolder} />
       ) : step === 2 ? (
         <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
           <section aria-label="Wolne pozycje" className="space-y-2">

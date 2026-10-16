@@ -7,7 +7,8 @@ przełącznik modułu w ``app_settings['hr_modules']``.
 Kto co widzi (D13 — „Sprzęt” osobno od „Kadr”):
 
 * uprawnienie „Sprzęt” (recepcja, admin) — cały rejestr, wydania, zwroty,
-  protokoły, zadania, cennik i import,
+  protokoły, zadania, cennik i import; posiadaczem bywa też uczestnik
+  Akademii (``holder_kind="academy"``, id zgłoszenia),
 * Kadry — sprzęt osoby tylko do odczytu (``GET /people/{user_id}``),
 * każdy — własny sprzęt (``GET /me``),
 * podgląd Delivery — sprzęt kontraktu (zakładka „Sprzęt” kontraktu) w zakresie
@@ -71,7 +72,7 @@ Category = Literal[
 ]
 ItemStatus = Literal["na_stanie", "wydany", "serwis", "wycofany", "zgubiony"]
 Ownership = Literal["nasz", "klienta"]
-HolderKindIn = Literal["user", "contract", "external"]
+HolderKindIn = Literal["user", "contract", "external", "academy"]
 Condition = Literal["sprawny", "uszkodzony", "niekompletny", "zgubiony"]
 
 
@@ -313,7 +314,7 @@ async def update_model(
 async def list_items(
     category: Optional[Category] = None,
     item_status: Optional[ItemStatus] = Query(default=None, alias="status"),
-    holder: Optional[Literal["none", "user", "contract", "external"]] = None,
+    holder: Optional[Literal["none", "user", "contract", "external", "academy"]] = None,
     q: Optional[str] = Query(default=None, max_length=120),
     free: bool = False,
     limit: int = Query(default=200, ge=1, le=500),
@@ -390,10 +391,12 @@ async def delete_item(
 @router.get("/holders")
 async def search_holders(
     q: str = Query(default="", max_length=120),
+    kind: Optional[Literal["academy"]] = None,
     _: User = Depends(_manager),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    return {"items": await registry.search_holders(db, q)}
+    """Konta, kontrakty i osoby spoza; ``kind=academy`` — uczestnicy Akademii."""
+    return {"items": await registry.search_holders(db, q, kind=kind)}
 
 
 @router.get("/holders/{kind}/{holder_id}")

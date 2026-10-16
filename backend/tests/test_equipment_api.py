@@ -992,3 +992,216 @@ async def test_summary_counts_free_items(app_client, modules_on, people) -> None
         after["free_by_category"]["monitor"]
         == before["free_by_category"]["monitor"] + 1
     )
+
+
+# ── Czwarty posiadacz: uczestnik Akademii (0461) ──────────────────────────────
+
+
+async def make_academy_participant(
+    *,
+    status: str = "signed",
+    program_id: int | None = None,
+    session_id: int | None = None,
+    cohort_month: date | None = None,
+    closed_stage: str | None = None,
+    session_days_ahead: int = -7,
+) -> dict:
+    """Program, termin (edycja) i zgłoszenie fikcyjnej osoby z Akademii."""
+    from datetime import datetime, timezone
+
+    from app.models.academy import (
+        AcademyApplication,
+        AcademyProgram,
+        AcademySession,
+    )
+
+    token = _tag()
+    now = datetime.now(timezone.utc)
+    async with AsyncSessionLocal() as db:
+        if program_id is None:
+            program = AcademyProgram(name=f"Akademia Testowa {token}")
+            db.add(program)
+            await db.flush()
+            program_id = program.id
+        if session_id is None:
+            session = AcademySession(
+                program_id=program_id,
+                starts_at=now + timedelta(days=session_days_ahead),
+                location="sala testowa",
+                capacity=8,
+            )
+            db.add(session)
+            await db.flush()
+            session_id = session.id
+        candidate = Candidate(
+            name="Ola",
+            lastname=f"Przykładowa-{token}",
+            email=f"akademia-{token.lower()}@example.com",
+            city="Lublin",
+        )
+        db.add(candidate)
+        await db.flush()
+        application = AcademyApplication(
+            program_id=program_id,
+            candidate_id=candidate.id,
+            applied_at=now - timedelta(days=30),
+            status=status,
+            session_id=session_id,
+            attended=True,
+            cohort_month=cohort_month,
+            signed_at=now if status == "signed" else None,
+            closed_stage=closed_stage,
+            closed_reason="Test" if status in ("rejected", "withdrew") else None,
+        )
+        db.add(application)
+        await db.commit()
+        return {
+            "program_id": program_id,
+            "session_id": session_id,
+            "application_id": application.id,
+            "candidate_id": candidate.id,
+            "name": f"Ola Przykładowa-{token}",
+            "email": candidate.email,
+        }
+
+
+async def test_academy_participant_is_the_fourth_holder(
+    app_client, modules_on, people
+) -> None:
+    headers = _headers(people["reception"])
+    person = await make_academy_participant(status="signed")
+    model = await _model(app_client, headers, "laptop", "1800.00")
+    item = await _item(app_client, headers, model["id"], inventory_number=f"A-{_tag()}")
+
+    found = await app_client.get(
+        "/api/equipment/holders",
+        params={"q": person["name"], "kind": "academy"},
+        headers=headers,
+    )
+    assert found.status_code == 200
+    hits = [h for h in found.json()["items"] if h["id"] == person["application_id"]]
+    assert hits and hits[0]["kind"] == "academy"
+    assert hits[0]["detail"].startswith("Uczestnik Akademii")
+    general = await app_client.get(
+        "/api/equipment/holders", params={"q": person["name"]}, headers=headers
+    )
+    assert all(h["kind"] != "academy" for h in general.json()["items"])
+
+    issued = await app_client.post(
+        "/api/equipment/issue",
+        json={
+            "holder_kind": "academy",
+            "holder_id": person["application_id"],
+            "lines": [{"item_id": item["id"]}],
+        },
+        headers=headers,
+    )
+    assert issued.status_code == 201, issued.text
+    protocol = issued.json()["protocol"]
+    # Nazwa i e-mail z kandydata zgłoszenia; PESEL-u ani adresu nie ma w ogóle.
+    assert protocol["holder"] == {
+        "kind": "academy",
+        "id": person["application_id"],
+        "name": person["name"],
+        "email": person["email"],
+    }
+    assert "pesel" not in issued.text.lower()
+
+    items = await app_client.get(
+        "/api/equipment/items", params={"holder": "academy"}, headers=headers
+    )
+    row = next(i for i in items.json()["items"] if i["id"] == item["id"])
+    assert row["holder"]["kind"] == "academy"
+    assert row["holder"]["name"] == person["name"]
+    own = await app_client.get(
+        f"/api/equipment/holders/academy/{person['application_id']}", headers=headers
+    )
+    assert own.status_code == 200
+    assert [r["item_id"] for r in own.json()["active"]] == [item["id"]]
+    assert own.json()["holder"]["name"] == person["name"]
+
+    tasks = await app_client.get(
+        "/api/equipment/tasks", params={"status": "otwarte"}, headers=headers
+    )
+    signature = next(
+        t
+        for t in tasks.json()["items"]
+        if (t["protocol"] or {}).get("id") == protocol["id"]
+    )
+    assert signature["holder"]["kind"] == "academy"
+    assert signature["holder"]["name"] == person["name"]
+
+    returned = await app_client.post(
+        "/api/equipment/return",
+        json={
+            "lines": [
+                {
+                    "assignment_id": own.json()["active"][0]["assignment_id"],
+                    "condition": "sprawny",
+                }
+            ]
+        },
+        headers=headers,
+    )
+    assert returned.status_code == 201, returned.text
+    assert returned.json()["protocol"]["holder"]["kind"] == "academy"
+
+
+async def test_academy_holder_must_be_a_participant(
+    app_client, modules_on, people
+) -> None:
+    headers = _headers(people["reception"])
+    model = await _model(app_client, headers, "monitor", "400.00")
+    for status_value, expected in (("withdrew", 409), ("to_call", 409)):
+        person = await make_academy_participant(
+            status=status_value,
+            closed_stage="signed" if status_value == "withdrew" else None,
+        )
+        item = await _item(app_client, headers, model["id"])
+        refused = await app_client.post(
+            "/api/equipment/issue",
+            json={
+                "holder_kind": "academy",
+                "holder_id": person["application_id"],
+                "lines": [{"item_id": item["id"]}],
+            },
+            headers=headers,
+        )
+        assert refused.status_code == expected, (status_value, refused.text)
+        detail = await app_client.get(
+            f"/api/equipment/items/{item['id']}", headers=headers
+        )
+        assert detail.json()["status"] == "na_stanie"
+    missing = await app_client.post(
+        "/api/equipment/issue",
+        json={
+            "holder_kind": "academy",
+            "holder_id": 987654321,
+            "lines": [{"item_id": 1}],
+        },
+        headers=headers,
+    )
+    assert missing.status_code == 404
+    # Baza: dokładnie jeden z czterech posiadaczy.
+    person = await make_academy_participant()
+    async with AsyncSessionLocal() as db:
+        model_row = EquipmentModel(category="monitor", name=f"Monitor {_tag()}")
+        db.add(model_row)
+        await db.flush()
+        item_row = EquipmentItem(model_id=model_row.id, serial_number=f"TEST{_tag()}")
+        db.add(item_row)
+        await db.flush()
+        with pytest.raises(IntegrityError):
+            await db.execute(
+                text(
+                    "INSERT INTO equipment_assignments "
+                    "(item_id, user_id, academy_application_id) "
+                    "VALUES (:item, :user, :app)"
+                ),
+                {
+                    "item": item_row.id,
+                    "user": people["worker"].id,
+                    "app": person["application_id"],
+                },
+            )
+        await db.rollback()

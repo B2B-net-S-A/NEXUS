@@ -43,9 +43,12 @@ from app.models.notification import NotificationType
 from app.models.user import User, UserRole
 from app.services.action_permissions import ProductAction, has_permission
 from app.services.equipment.registry import (
+    AcademyCandidate,
     EquipmentNotFound,
     candidate_name,
     client_provider,
+    holder_of,
+    join_academy_holder,
 )
 
 logger = logging.getLogger(__name__)
@@ -97,6 +100,7 @@ async def upsert_task(
     contract_id: Optional[int] = None,
     user_id: Optional[int] = None,
     external_person_id: Optional[int] = None,
+    academy_application_id: Optional[int] = None,
     protocol_id: Optional[int] = None,
     details: Optional[dict[str, Any]] = None,
 ) -> EquipmentTask:
@@ -111,6 +115,7 @@ async def upsert_task(
             contract_id=contract_id,
             user_id=user_id,
             external_person_id=external_person_id,
+            academy_application_id=academy_application_id,
             protocol_id=protocol_id,
             details=details or {},
         )
@@ -286,6 +291,7 @@ async def ensure_signature_task(
         contract_id=protocol.contract_id,
         user_id=protocol.user_id,
         external_person_id=protocol.external_person_id,
+        academy_application_id=protocol.academy_application_id,
         protocol_id=protocol.id,
     )
 
@@ -318,15 +324,21 @@ async def list_tasks(db: AsyncSession, *, status: str = "otwarte") -> list[dict]
         User.name,
         func.nullif(func.concat_ws(" ", Candidate.name, Candidate.lastname), ""),
         EquipmentExternalPerson.full_name,
+        func.nullif(
+            func.concat_ws(" ", AcademyCandidate.name, AcademyCandidate.lastname), ""
+        ),
     )
     query = (
-        select(EquipmentTask, holder_name, EquipmentProtocol.number)
-        .outerjoin(User, User.id == EquipmentTask.user_id)
-        .outerjoin(Contract, Contract.id == EquipmentTask.contract_id)
-        .outerjoin(Candidate, Candidate.id == Contract.candidate_id)
-        .outerjoin(
-            EquipmentExternalPerson,
-            EquipmentExternalPerson.id == EquipmentTask.external_person_id,
+        join_academy_holder(
+            select(EquipmentTask, holder_name, EquipmentProtocol.number)
+            .outerjoin(User, User.id == EquipmentTask.user_id)
+            .outerjoin(Contract, Contract.id == EquipmentTask.contract_id)
+            .outerjoin(Candidate, Candidate.id == Contract.candidate_id)
+            .outerjoin(
+                EquipmentExternalPerson,
+                EquipmentExternalPerson.id == EquipmentTask.external_person_id,
+            ),
+            EquipmentTask.academy_application_id,
         )
         .outerjoin(EquipmentProtocol, EquipmentProtocol.id == EquipmentTask.protocol_id)
         .order_by(EquipmentTask.due_on.asc().nulls_last(), EquipmentTask.id)
@@ -335,6 +347,7 @@ async def list_tasks(db: AsyncSession, *, status: str = "otwarte") -> list[dict]
         query = query.where(EquipmentTask.status == status)
     rows = (await db.execute(query.limit(300))).all()
     today = business_today()
+    holders = {task.id: holder_of(task) or (None, None) for task, _n, _p in rows}
     return [
         {
             "id": task.id,
@@ -348,16 +361,8 @@ async def list_tasks(db: AsyncSession, *, status: str = "otwarte") -> list[dict]
                 else 0
             ),
             "holder": {
-                "kind": (
-                    "user"
-                    if task.user_id
-                    else "contract"
-                    if task.contract_id
-                    else "external"
-                    if task.external_person_id
-                    else None
-                ),
-                "id": task.user_id or task.contract_id or task.external_person_id,
+                "kind": holders[task.id][0],
+                "id": holders[task.id][1],
                 "name": name,
             },
             "protocol": (

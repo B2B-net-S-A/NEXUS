@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { FormField } from "@/components/ui/form-field";
 import { Input } from "@/components/ui/input";
 import { apiErrorMessage } from "@/lib/api-error";
+import { useAcademyHolderSearch } from "@/lib/api/academy-edition";
 import {
   useCreateExternalPerson,
   useHolderSearch,
@@ -18,19 +19,37 @@ import { HOLDER_KIND_LABELS } from "./equipment-format";
 interface HolderPickerProps {
   value: EquipmentHolder | null;
   onChange: (holder: EquipmentHolder | null) => void;
+  /**
+   * Kreator wydania: przełącznik „Uczestnik Akademii” (zgłoszenie po zaliczonym
+   * zadaniu). Bez niego (import plików, zwrot z rejestru) uczestnika nie wybierzesz.
+   */
+  academy?: boolean;
 }
 
-/** Wybór posiadacza: konto NEXUSA, kontrakt konsultanta albo osoba spoza (np. Akademia). */
-export function HolderPicker({ value, onChange }: HolderPickerProps) {
+type SearchMode = "registry" | "academy";
+
+/** Wybór posiadacza: konto NEXUSA, kontrakt konsultanta, osoba spoza albo uczestnik Akademii. */
+export function HolderPicker({ value, onChange, academy: withAcademy = false }: HolderPickerProps) {
+  const [mode, setMode] = useState<SearchMode>("registry");
   const [query, setQuery] = useState("");
   const deferred = useDeferredValue(query);
-  const results = useHolderSearch(deferred);
+  const academyMode = withAcademy && mode === "academy";
+  const registry = useHolderSearch(academyMode ? "" : deferred);
+  const academy = useAcademyHolderSearch(deferred, academyMode);
+  const results = academyMode ? academy : registry;
+  const hits: EquipmentHolder[] = (academyMode ? academy.data : registry.data) ?? [];
   const [adding, setAdding] = useState(false);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [note, setNote] = useState("");
   const [error, setError] = useState<string | null>(null);
   const create = useCreateExternalPerson();
+
+  const choose = (holder: EquipmentHolder | null) => {
+    // Import plików i zwrot z rejestru nie przyjmują uczestnika Akademii.
+    if (holder?.kind === "academy" && !withAcademy) return;
+    onChange(holder);
+  };
 
   if (value) {
     return (
@@ -52,7 +71,7 @@ export function HolderPicker({ value, onChange }: HolderPickerProps) {
             {value.email ? ` · ${value.email}` : ""}
           </span>
         </span>
-        <Button variant="ghost" size="sm" className="ml-auto" onClick={() => onChange(null)}>
+        <Button variant="ghost" size="sm" className="ml-auto" onClick={() => choose(null)}>
           Zmień
         </Button>
       </div>
@@ -65,7 +84,7 @@ export function HolderPicker({ value, onChange }: HolderPickerProps) {
       { full_name: name.trim(), work_email: email.trim() || null, note: note.trim() || null },
       {
         onSuccess: (person) =>
-          onChange({
+          choose({
             kind: "external",
             id: person.id,
             name: person.full_name,
@@ -79,6 +98,29 @@ export function HolderPicker({ value, onChange }: HolderPickerProps) {
 
   return (
     <div className="space-y-2">
+      {withAcademy ? (
+        <div role="group" aria-label="Kogo szukasz" className="flex gap-1">
+          {(
+            [
+              ["registry", "Pracownik, konsultant, osoba spoza"],
+              ["academy", "Uczestnik Akademii"],
+            ] as const
+          ).map(([key, label]) => (
+            <Button
+              key={key}
+              size="sm"
+              variant={mode === key ? "secondary" : "ghost"}
+              aria-pressed={mode === key}
+              onClick={() => {
+                setMode(key);
+                setAdding(false);
+              }}
+            >
+              {label}
+            </Button>
+          ))}
+        </div>
+      ) : null}
       <div className="relative">
         <Search
           aria-hidden
@@ -86,8 +128,12 @@ export function HolderPicker({ value, onChange }: HolderPickerProps) {
         />
         <Input
           autoFocus
-          aria-label="Szukaj osoby albo kontraktu"
-          placeholder="Imię i nazwisko pracownika albo konsultanta…"
+          aria-label={academyMode ? "Szukaj uczestnika Akademii" : "Szukaj osoby albo kontraktu"}
+          placeholder={
+            academyMode
+              ? "Imię i nazwisko uczestnika Akademii…"
+              : "Imię i nazwisko pracownika albo konsultanta…"
+          }
           value={query}
           onChange={(event) => setQuery(event.target.value)}
           className="pl-8"
@@ -98,16 +144,16 @@ export function HolderPicker({ value, onChange }: HolderPickerProps) {
           <p role="alert" className="text-sm text-destructive">
             {apiErrorMessage(results.error, "Nie udało się wyszukać osób.")}
           </p>
-        ) : results.isSuccess && results.data.length === 0 ? (
+        ) : results.isSuccess && hits.length === 0 ? (
           <p className="text-sm text-muted-foreground">Nikt nie pasuje do „{deferred}”.</p>
         ) : (
           <ul className="max-h-64 divide-y divide-border overflow-y-auto rounded-md border border-border">
-            {(results.data ?? []).map((holder) => (
+            {hits.map((holder) => (
               <li key={`${holder.kind}-${holder.id}`}>
                 <button
                   type="button"
                   className="flex w-full items-baseline gap-2 px-3 py-2 text-left text-sm hover:bg-muted"
-                  onClick={() => onChange(holder)}
+                  onClick={() => choose(holder)}
                 >
                   <span className="font-medium">{holder.name}</span>
                   <span className="text-xs text-muted-foreground">{holder.detail}</span>
@@ -119,7 +165,12 @@ export function HolderPicker({ value, onChange }: HolderPickerProps) {
       ) : (
         <p className="text-xs text-muted-foreground">Wpisz co najmniej dwie litery.</p>
       )}
-      {adding ? (
+      {academyMode ? (
+        <p className="text-xs text-muted-foreground">
+          Uczestnik po zaliczonym zadaniu w Akademii; imię, nazwisko i e-mail do protokołu
+          pochodzą ze zgłoszenia.
+        </p>
+      ) : adding ? (
         <div className="grid gap-2 rounded-md border border-border p-3 sm:grid-cols-3">
           <FormField label="Imię i nazwisko" htmlFor="eq-ext-name" required>
             <Input id="eq-ext-name" value={name} onChange={(e) => setName(e.target.value)} />

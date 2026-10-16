@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { PackageMinus, PackagePlus, Plus } from "lucide-react";
 
+import { EditionLogistics } from "@/components/academy/EditionLogistics";
 import { InlineStats } from "@/components/ds/InlineStats";
 import { PageHeader } from "@/components/ds/PageHeader";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
@@ -25,8 +26,23 @@ import { ProtocolsTab } from "./ProtocolsTab";
 import { ReturnWizard } from "./ReturnWizard";
 import { TasksTab } from "./TasksTab";
 
-export type EquipmentTab = "items" | "tasks" | "protocols" | "prices" | "import" | "intune";
-const TABS: EquipmentTab[] = ["items", "tasks", "protocols", "prices", "import", "intune"];
+export type EquipmentTab =
+  | "items"
+  | "tasks"
+  | "protocols"
+  | "prices"
+  | "import"
+  | "intune"
+  | "academy";
+const TABS: EquipmentTab[] = [
+  "items",
+  "tasks",
+  "protocols",
+  "prices",
+  "import",
+  "intune",
+  "academy",
+];
 
 function tabFrom(value: string | null): EquipmentTab | null {
   return TABS.includes(value as EquipmentTab) ? (value as EquipmentTab) : null;
@@ -126,6 +142,7 @@ export function EquipmentScreen({ config }: { config: HrConfig }) {
           { value: "prices", label: "Cennik" },
           { value: "import", label: "Import" },
           { value: "intune", label: "Intune" },
+          { value: "academy", label: "Akademia" },
         ]}
       />
       {tab === "tasks" ? (
@@ -142,6 +159,9 @@ export function EquipmentScreen({ config }: { config: HrConfig }) {
         <ImportTab />
       ) : tab === "intune" ? (
         <IntuneTab isAdmin={config.me.is_admin} onOpenItem={setItemId} />
+      ) : tab === "academy" ? (
+        // Recepcja bez dostępu do /academy: edycje wszystkich programów.
+        <EditionLogistics />
       ) : (
         <ItemsTab onOpenItem={setItemId} />
       )}

@@ -24,6 +24,9 @@ from app.services.equipment.protocols import token_hash
 from tests.test_equipment_api import (
     _headers,
     _issued_protocol,
+    _item,
+    _model,
+    make_academy_participant,
     make_people,
     modules_state,
 )
@@ -227,3 +230,34 @@ async def test_sign_endpoint_is_rate_limited_per_token_and_per_address(
         limiter.enabled = was_enabled
     assert same == [404] * 5 + [429]
     assert rotating == [404] * 10 + [429]
+
+
+async def test_academy_participant_signs_by_link_like_anyone_else(
+    app_client, modules_on, people
+) -> None:
+    headers = _headers(people["reception"])
+    person = await make_academy_participant(status="signed")
+    model = await _model(app_client, headers, "telefon", "900.00")
+    item = await _item(app_client, headers, model["id"])
+    issued = await app_client.post(
+        "/api/equipment/issue",
+        json={
+            "holder_kind": "academy",
+            "holder_id": person["application_id"],
+            "lines": [{"item_id": item["id"]}],
+            "send_link": True,
+        },
+        headers=headers,
+    )
+    assert issued.status_code == 201, issued.text
+    token = _token(issued.json()["link_url"])
+    page = await app_client.get(f"{PUBLIC}/{token}")
+    assert page.status_code == 200, page.text
+    assert page.json()["holder_name"] == person["name"]
+    assert "pesel" not in page.text.lower()
+    signed = await app_client.post(
+        f"{PUBLIC}/{token}/sign",
+        json={"signer_name": person["name"], "accepted": True},
+    )
+    assert signed.status_code == 200, signed.text
+    assert signed.json()["status"] == "podpisany"

@@ -4,6 +4,8 @@
  * Akademia — widok edycji (wariant C z makiet 24.09.2026): kafle lejka,
  * odłożeni przez Lunę do zatwierdzenia, sześć kolumn etapów i terminy
  * w biurze w tym tygodniu. Klik w kartę otwiera panel osoby z akcjami.
+ * Na dole „Recepcja edycji” (makieta I, moduł „Sprzęt”): check lista,
+ * hotel, bilet, zestawy i protokoły uczestników.
  */
 
 import * as React from "react";
@@ -38,6 +40,7 @@ import type {
   ActionBody,
 } from "@/lib/api/academy";
 
+import { EditionLogistics } from "./EditionLogistics";
 import {
   ExperienceChip,
   PersonActions,
@@ -180,6 +183,8 @@ export function AcademyEditionView({
           </div>
         )}
       </section>
+
+      <EditionLogistics programId={program.id} />
 
       <Sheet open={open !== null} onOpenChange={(o) => !o && setOpenId(null)}>
         <SheetContent side="right" size="md">

@@ -11,8 +11,9 @@ Zakres (propozycja recepcji z 15.10, etapy 4 i 5, D9):
   pominęła urządzenie. Bez kluczy odzyskiwania i bez danych spoza urządzenia,
   UPN to firmowy login użytkownika urządzenia,
 * ``equipment_intune_sync_state`` — jeden wiersz: ostatni przebieg pętli (sonda health),
-* ``academy_session_checklist`` — lista edycji Akademii (sekcje i punkty check listy
-  recepcji) per edycja (``academy_sessions``),
+* ``academy_edition_checklist`` — lista edycji Akademii (sekcje i punkty check listy
+  recepcji) per edycja = program i miesiąc startu (``academy_applications.cohort_month``;
+  ``academy_sessions`` to terminy spotkań w biurze, nie edycje),
 * ``academy_participant_logistics`` — hotel i bilet uczestnika edycji
   (zestaw i protokół wynikają z wydań sprzętu),
 * czwarty posiadacz sprzętu: uczestnik Akademii (``academy_application_id``) w wydaniach,
@@ -38,6 +39,8 @@ CK_INTUNE_RESOLUTION = (
 CK_INTUNE_RESOLVED = "(resolution IS NULL) = (resolved_at IS NULL)"
 CK_INTUNE_STATE_SINGLETON = "id = 1"
 CK_CHECKLIST_LABEL = "btrim(label) <> ''"
+#: Edycja startuje w miesiącu — klucz to zawsze jego pierwszy dzień.
+CK_CHECKLIST_COHORT = "EXTRACT(DAY FROM cohort_month) = 1"
 CK_LOGISTICS_HOTEL = f"hotel IN ({quoted(LOGISTICS_STATUSES)})"
 CK_LOGISTICS_TICKET = f"ticket IN ({quoted(LOGISTICS_STATUSES)})"
 
@@ -83,9 +86,10 @@ TABLE_DDL: tuple[str, ...] = (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     CONSTRAINT ck_equipment_intune_sync_state_singleton CHECK ({CK_INTUNE_STATE_SINGLETON})
 )""",
-    f"""CREATE TABLE IF NOT EXISTS academy_session_checklist (
+    f"""CREATE TABLE IF NOT EXISTS academy_edition_checklist (
     id SERIAL PRIMARY KEY,
-    session_id INTEGER NOT NULL REFERENCES academy_sessions(id) ON DELETE CASCADE,
+    program_id INTEGER NOT NULL REFERENCES academy_programs(id) ON DELETE CASCADE,
+    cohort_month DATE NOT NULL,
     section_key VARCHAR(40) NOT NULL,
     item_key VARCHAR(60) NOT NULL,
     position SMALLINT NOT NULL,
@@ -95,8 +99,10 @@ TABLE_DDL: tuple[str, ...] = (
     note TEXT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    CONSTRAINT uq_academy_session_checklist_item UNIQUE (session_id, item_key),
-    CONSTRAINT ck_academy_session_checklist_label CHECK ({CK_CHECKLIST_LABEL})
+    CONSTRAINT uq_academy_edition_checklist_item
+        UNIQUE (program_id, cohort_month, item_key),
+    CONSTRAINT ck_academy_edition_checklist_label CHECK ({CK_CHECKLIST_LABEL}),
+    CONSTRAINT ck_academy_edition_checklist_cohort CHECK ({CK_CHECKLIST_COHORT})
 )""",
     f"""CREATE TABLE IF NOT EXISTS academy_participant_logistics (
     application_id BIGINT PRIMARY KEY
@@ -131,8 +137,8 @@ INDEX_DDL: tuple[str, ...] = (
     "ON equipment_intune_devices (item_id)",
     "CREATE INDEX IF NOT EXISTS ix_equipment_intune_devices_user "
     "ON equipment_intune_devices (user_id)",
-    "CREATE INDEX IF NOT EXISTS ix_academy_session_checklist_session "
-    "ON academy_session_checklist (session_id, position)",
+    "CREATE INDEX IF NOT EXISTS ix_academy_edition_checklist_edition "
+    "ON academy_edition_checklist (program_id, cohort_month, position)",
     "CREATE INDEX IF NOT EXISTS ix_equipment_assignments_academy "
     "ON equipment_assignments (academy_application_id)",
     "CREATE INDEX IF NOT EXISTS ix_equipment_tasks_academy "
@@ -164,7 +170,7 @@ DATA_DDL: tuple[str, ...] = (
 TABLES: tuple[str, ...] = (
     "equipment_intune_devices",
     "equipment_intune_sync_state",
-    "academy_session_checklist",
+    "academy_edition_checklist",
     "academy_participant_logistics",
 )
 

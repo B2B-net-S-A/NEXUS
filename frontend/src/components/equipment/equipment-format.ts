@@ -97,6 +97,7 @@ export const HOLDER_KIND_LABELS: Record<EquipmentHolderKind, string> = {
   user: "Pracownik",
   contract: "Kontraktor",
   external: "Spoza NEXUSA",
+  academy: "Uczestnik Akademii",
 };
 
 export const PROVIDER_LABELS: Record<EquipmentProvider, string> = {

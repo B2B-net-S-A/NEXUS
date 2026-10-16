@@ -47,6 +47,7 @@ const HOLDER_OPTIONS: { value: "none" | EquipmentHolderKind; label: string }[] =
   { value: "user", label: HOLDER_KIND_LABELS.user },
   { value: "contract", label: HOLDER_KIND_LABELS.contract },
   { value: "external", label: HOLDER_KIND_LABELS.external },
+  { value: "academy", label: HOLDER_KIND_LABELS.academy },
 ];
 
 /** Rejestr egzemplarzy: filtry, tabela, klik = szczegół z historią. */

@@ -2,9 +2,11 @@
 
 Jedna pozycja to jeden egzemplarz. „Wolny” znaczy: stan ``na_stanie`` i brak
 aktywnego wydania (indeks częściowy w bazie pilnuje, że wydanie jest najwyżej
-jedno). Posiadacz to dokładnie jedno z trzech: konto NEXUSA (pracownik
-biura), kontrakt (konsultant u klienta) albo osoba zewnętrzna bez konta
-(np. uczestnik Akademii).
+jedno). Posiadacz to dokładnie jedno z czterech: konto NEXUSA (pracownik
+biura), kontrakt (konsultant u klienta), osoba zewnętrzna bez konta albo
+uczestnik Akademii (zgłoszenie ``academy_applications``, 0461). Imię, nazwisko
+i e-mail uczestnika pochodzą z kandydata zgłoszenia — PESEL-u i adresu
+z dokumentów Akademii ewidencja nie widzi.
 """
 
 from __future__ import annotations
@@ -13,9 +15,11 @@ from dataclasses import dataclass
 from decimal import Decimal
 from typing import Any, Literal, Optional
 
-from sqlalchemy import and_, func, or_, select, text
+from sqlalchemy import and_, exists, func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
+from app.models.academy import AcademyApplication, AcademyProgram
 from app.models.candidate import Candidate
 from app.models.client import Client
 from app.models.contract import Contract, ContractStatus
@@ -32,7 +36,7 @@ from app.services import equipment_schema as schema
 from app.services.equipment import identifiers, sanitize
 from app.services.hr import audit
 
-HolderKind = Literal["user", "contract", "external"]
+HolderKind = Literal["user", "contract", "external", "academy"]
 
 #: Kontrakty, którym można wydać sprzęt (konsultant przed startem albo w trakcie).
 ISSUABLE_CONTRACT_STATUSES = (
@@ -41,6 +45,13 @@ ISSUABLE_CONTRACT_STATUSES = (
     ContractStatus.active,
     ContractStatus.ending,
 )
+
+#: Zgłoszenia Akademii, którym można wydać sprzęt (po zaliczonym zadaniu).
+ISSUABLE_ACADEMY_STATUSES = ("task_passed", "contract_sent", "signed")
+
+#: Kandydat zgłoszenia Akademii — osobny alias, bo ``Candidate`` bywa już
+#: dołączony przez kontrakt w tym samym zapytaniu.
+AcademyCandidate = aliased(Candidate, name="academy_candidate")
 
 
 class EquipmentError(Exception):
@@ -127,7 +138,44 @@ async def resolve_holder(db: AsyncSession, kind: str, holder_id: int) -> Holder:
             person.work_email,
             person.note or "Osoba spoza NEXUSA",
         )
+    if kind == "academy":
+        row = (
+            await db.execute(
+                select(AcademyApplication, Candidate, AcademyProgram)
+                .join(Candidate, Candidate.id == AcademyApplication.candidate_id)
+                .join(
+                    AcademyProgram, AcademyProgram.id == AcademyApplication.program_id
+                )
+                .where(AcademyApplication.id == holder_id)
+            )
+        ).first()
+        if row is None:
+            raise EquipmentNotFound("Nie ma takiego zgłoszenia Akademii.")
+        application, candidate, program = row
+        return Holder(
+            "academy",
+            application.id,
+            academy_participant_name(candidate),
+            candidate.email,
+            academy_detail(program.name, application.cohort_month),
+        )
     raise EquipmentError("Nieznany rodzaj posiadacza.")
+
+
+def academy_participant_name(candidate: Candidate | None) -> str:
+    if candidate is None:
+        return "Uczestnik Akademii"
+    return (
+        " ".join(p for p in (candidate.name, candidate.lastname) if p)
+        or "Uczestnik Akademii"
+    )
+
+
+def academy_detail(program_name: str, cohort_month: Any) -> str:
+    detail = f"Uczestnik Akademii · {program_name}"
+    if cohort_month is not None:
+        detail += f" · edycja {cohort_month:%m.%Y}"
+    return detail
 
 
 def holder_columns(kind: HolderKind, holder_id: int) -> dict[str, Optional[int]]:
@@ -135,22 +183,81 @@ def holder_columns(kind: HolderKind, holder_id: int) -> dict[str, Optional[int]]
         "user_id": holder_id if kind == "user" else None,
         "contract_id": holder_id if kind == "contract" else None,
         "external_person_id": holder_id if kind == "external" else None,
+        "academy_application_id": holder_id if kind == "academy" else None,
     }
 
 
 def holder_of(row: Any) -> tuple[HolderKind, int] | None:
-    """(rodzaj, id) posiadacza z wiersza wydania albo protokołu."""
+    """(rodzaj, id) posiadacza z wiersza wydania, protokołu albo zadania."""
     if row.user_id is not None:
         return "user", row.user_id
     if row.contract_id is not None:
         return "contract", row.contract_id
     if row.external_person_id is not None:
         return "external", row.external_person_id
+    if getattr(row, "academy_application_id", None) is not None:
+        return "academy", row.academy_application_id
     return None
 
 
-async def search_holders(db: AsyncSession, q: str, *, limit: int = 15) -> list[dict]:
-    """Podpowiedzi posiadacza w kreatorze wydania: konta, kontrakty, osoby spoza."""
+async def search_academy_holders(
+    db: AsyncSession, q: str, *, limit: int = 15
+) -> list[dict]:
+    """Uczestnicy Akademii po imieniu i nazwisku: po zaliczonym zadaniu albo z rzeczami.
+
+    Osoba, która zrezygnowała, a nie oddała sprzętu, nadal jest do znalezienia
+    (zwrot), ale wydać jej nic się nie da (``issuing``).
+    """
+    needle = f"%{q.strip()}%"
+    if len(q.strip()) < 2:
+        return []
+    full = func.concat_ws(" ", Candidate.name, Candidate.lastname)
+    holds = exists().where(
+        EquipmentAssignment.academy_application_id == AcademyApplication.id,
+        EquipmentAssignment.returned_at.is_(None),
+    )
+    rows = (
+        await db.execute(
+            select(AcademyApplication, Candidate, AcademyProgram)
+            .join(Candidate, Candidate.id == AcademyApplication.candidate_id)
+            .join(AcademyProgram, AcademyProgram.id == AcademyApplication.program_id)
+            .where(
+                or_(
+                    AcademyApplication.status.in_(ISSUABLE_ACADEMY_STATUSES),
+                    holds,
+                ),
+                full.ilike(needle),
+            )
+            # Najpierw osoby przed podpisem (najbliższa edycja), potem nowsze edycje.
+            .order_by(
+                AcademyApplication.cohort_month.desc().nulls_first(),
+                AcademyApplication.id.desc(),
+            )
+            .limit(limit)
+        )
+    ).all()
+    return [
+        Holder(
+            "academy",
+            application.id,
+            academy_participant_name(candidate),
+            candidate.email,
+            academy_detail(program.name, application.cohort_month),
+        ).as_dict()
+        for application, candidate, program in rows
+    ]
+
+
+async def search_holders(
+    db: AsyncSession, q: str, *, limit: int = 15, kind: Optional[str] = None
+) -> list[dict]:
+    """Podpowiedzi posiadacza w kreatorze wydania: konta, kontrakty, osoby spoza.
+
+    ``kind="academy"`` szuka wyłącznie uczestników Akademii (osobny tryb
+    wyboru w kreatorze — import plików recepcji ich nie potrzebuje).
+    """
+    if kind == "academy":
+        return await search_academy_holders(db, q, limit=limit)
     needle = f"%{q.strip()}%"
     if len(q.strip()) < 2:
         return []
@@ -530,17 +637,29 @@ async def delete_item(db: AsyncSession, item_id: int, *, actor: User) -> None:
 
 
 def _holder_name_expr():
-    """Nazwa posiadacza aktywnego wydania (konto, konsultant albo osoba spoza)."""
+    """Nazwa posiadacza wydania (konto, konsultant, osoba spoza, uczestnik Akademii)."""
     return func.coalesce(
         User.name,
         func.nullif(func.concat_ws(" ", Candidate.name, Candidate.lastname), ""),
         EquipmentExternalPerson.full_name,
+        func.nullif(
+            func.concat_ws(" ", AcademyCandidate.name, AcademyCandidate.lastname), ""
+        ),
+    )
+
+
+def join_academy_holder(query, academy_application_id):
+    """Dołącz kandydata zgłoszenia Akademii (alias ``AcademyCandidate``)."""
+    return query.outerjoin(
+        AcademyApplication, AcademyApplication.id == academy_application_id
+    ).outerjoin(
+        AcademyCandidate, AcademyCandidate.id == AcademyApplication.candidate_id
     )
 
 
 def _active_join(query):
     active = EquipmentAssignment
-    return (
+    return join_academy_holder(
         query.outerjoin(
             active,
             and_(active.item_id == EquipmentItem.id, active.returned_at.is_(None)),
@@ -552,7 +671,8 @@ def _active_join(query):
         .outerjoin(
             EquipmentExternalPerson,
             EquipmentExternalPerson.id == active.external_person_id,
-        )
+        ),
+        active.academy_application_id,
     )
 
 
@@ -637,11 +757,12 @@ async def list_items(
         )
     if holder == "none":
         query = query.where(EquipmentAssignment.id.is_(None))
-    elif holder in ("user", "contract", "external"):
+    elif holder in ("user", "contract", "external", "academy"):
         column = {
             "user": EquipmentAssignment.user_id,
             "contract": EquipmentAssignment.contract_id,
             "external": EquipmentAssignment.external_person_id,
+            "academy": EquipmentAssignment.academy_application_id,
         }[holder]
         query = query.where(column.is_not(None))
     if q and q.strip():
@@ -691,28 +812,31 @@ async def assignment_history(db: AsyncSession, *, where: Any) -> list[dict[str, 
     holder_name = _holder_name_expr()
     issue = EquipmentProtocol.__table__.alias("issue_protocol")
     back = EquipmentProtocol.__table__.alias("return_protocol")
+    query = join_academy_holder(
+        select(
+            EquipmentAssignment,
+            EquipmentItem,
+            EquipmentModel,
+            holder_name.label("holder_name"),
+            Client.name.label("client_name"),
+            issue.c.number,
+            back.c.number,
+        )
+        .join(EquipmentItem, EquipmentItem.id == EquipmentAssignment.item_id)
+        .join(EquipmentModel, EquipmentModel.id == EquipmentItem.model_id)
+        .outerjoin(User, User.id == EquipmentAssignment.user_id)
+        .outerjoin(Contract, Contract.id == EquipmentAssignment.contract_id)
+        .outerjoin(Candidate, Candidate.id == Contract.candidate_id)
+        .outerjoin(Client, Client.id == Contract.client_id)
+        .outerjoin(
+            EquipmentExternalPerson,
+            EquipmentExternalPerson.id == EquipmentAssignment.external_person_id,
+        ),
+        EquipmentAssignment.academy_application_id,
+    )
     rows = (
         await db.execute(
-            select(
-                EquipmentAssignment,
-                EquipmentItem,
-                EquipmentModel,
-                holder_name.label("holder_name"),
-                Client.name.label("client_name"),
-                issue.c.number,
-                back.c.number,
-            )
-            .join(EquipmentItem, EquipmentItem.id == EquipmentAssignment.item_id)
-            .join(EquipmentModel, EquipmentModel.id == EquipmentItem.model_id)
-            .outerjoin(User, User.id == EquipmentAssignment.user_id)
-            .outerjoin(Contract, Contract.id == EquipmentAssignment.contract_id)
-            .outerjoin(Candidate, Candidate.id == Contract.candidate_id)
-            .outerjoin(Client, Client.id == Contract.client_id)
-            .outerjoin(
-                EquipmentExternalPerson,
-                EquipmentExternalPerson.id == EquipmentAssignment.external_person_id,
-            )
-            .outerjoin(issue, issue.c.id == EquipmentAssignment.issue_protocol_id)
+            query.outerjoin(issue, issue.c.id == EquipmentAssignment.issue_protocol_id)
             .outerjoin(back, back.c.id == EquipmentAssignment.return_protocol_id)
             .where(where)
             .order_by(
@@ -791,12 +915,13 @@ async def item_detail(db: AsyncSession, item_id: int) -> dict[str, Any]:
 async def holder_equipment(
     db: AsyncSession, kind: HolderKind, holder_id: int
 ) -> dict[str, Any]:
-    """Sprzęt osoby albo kontraktu: aktywne wydania i historia."""
+    """Sprzęt osoby, kontraktu albo uczestnika Akademii: aktywne wydania i historia."""
     column = holder_columns(kind, holder_id)
     where = {
         "user": EquipmentAssignment.user_id == holder_id,
         "contract": EquipmentAssignment.contract_id == holder_id,
         "external": EquipmentAssignment.external_person_id == holder_id,
+        "academy": EquipmentAssignment.academy_application_id == holder_id,
     }[kind]
     history = await assignment_history(db, where=where)
     active = [row for row in history if row["returned_at"] is None]

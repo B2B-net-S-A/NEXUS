@@ -122,6 +122,7 @@ from app.api import my_relationships as my_relationships_api
 from app.api import my_people as my_people_api
 from app.api import also_fits as also_fits_api
 from app.api import academy as academy_api
+from app.api import academy_edition as academy_edition_api
 from app.api import trainee as trainee_api
 from app.api import board_tasks as board_tasks_api
 from app.api import candidate_followups as candidate_followups_api
@@ -1290,6 +1291,12 @@ app.include_router(
 app.include_router(also_fits_api.router, prefix="/api", tags=["also-fits"])
 app.include_router(
     academy_api.router,
+    prefix="/api/academy",
+    tags=["academy"],
+)
+# Edycja Akademii od strony recepcji (0461): /editions, /programs/{id}/editions/{yyyy-mm}.
+app.include_router(
+    academy_edition_api.router,
     prefix="/api/academy",
     tags=["academy"],
 )
@@ -3044,8 +3051,8 @@ async def api_health_deep_check():
         EquipmentTask,
     )
     from app.models.academy_logistics import (
+        AcademyEditionChecklistItem,
         AcademyParticipantLogistics,
-        AcademySessionChecklistItem,
     )
     from app.models.equipment_intune import EquipmentIntuneDevice
     from app.models.hr_leave import HrM365Operation, LeaveRequest
@@ -3342,7 +3349,7 @@ async def api_health_deep_check():
         ("equipment_tasks", EquipmentTask),
         # 0461: Intune (rozjazdy z ewidencją) i edycja Akademii od strony recepcji.
         ("equipment_intune_devices", EquipmentIntuneDevice),
-        ("academy_session_checklist", AcademySessionChecklistItem),
+        ("academy_edition_checklist", AcademyEditionChecklistItem),
         ("academy_participant_logistics", AcademyParticipantLogistics),
     ]
 

@@ -42,6 +42,7 @@ from app.services.equipment.registry import (
     EquipmentNotFound,
     Holder,
     holder_columns,
+    holder_of,
 )
 from app.services.hr import audit
 
@@ -205,24 +206,15 @@ def protocol_payload(
     *,
     link: EquipmentProtocolLink | None = None,
 ) -> dict[str, Any]:
+    kind, holder_id = holder_of(protocol) or (None, None)
     payload: dict[str, Any] = {
         "id": protocol.id,
         "kind": protocol.kind,
         "number": protocol.number,
         "protocol_date": protocol.protocol_date.isoformat(),
         "holder": {
-            "kind": (
-                "user"
-                if protocol.user_id
-                else "contract"
-                if protocol.contract_id
-                else "external"
-                if protocol.external_person_id
-                else None
-            ),
-            "id": protocol.user_id
-            or protocol.contract_id
-            or protocol.external_person_id,
+            "kind": kind,
+            "id": holder_id,
             "name": protocol.holder_name,
             "email": protocol.holder_email,
         },

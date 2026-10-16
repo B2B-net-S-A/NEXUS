@@ -72,7 +72,9 @@ osobie z kartoteki i uczestniku Akademii.
   administratora przy przełączeniu), migawka w `equipment_intune_devices`,
   rozjazdy z ewidencją liczone przy odczycie, recepcja je wyjaśnia albo pomija.
   Bez kluczy odzyskiwania i danych spoza urządzenia.
-- Edycja Akademii: check lista recepcji per edycja (`academy_session_checklist`),
+- Edycja Akademii = program i miesiąc startu (`cohort_month`), NIE termin spotkania
+  (`academy_sessions` to terminy w biurze): check lista recepcji per edycja
+  (`academy_edition_checklist`), uczestnicy przed podpisem liczeni do najbliższej edycji,
   hotel i bilet uczestnika (`academy_participant_logistics`), zestaw i protokół
   z wydań sprzętu. Rezygnacja zamienia „zrobione” hotel i bilet na
   „do anulowania” i zakłada zwrot, jeśli uczestnik ma rzeczy.
