@@ -341,6 +341,17 @@ async def test_queue_has_no_time_window_and_counts_from_readiness(
             "worst_urgency": None,
         }
 
+        # Ikona „CV” (16.10.2026, zamiast pigułki): część Delivery Leada to ta
+        # sama kolejka; rekruter dostaje swoją część, bez części DL.
+        cv_dl = (await api_client.get("/api/board-tasks/cv", headers=dl)).json()
+        assert cv_dl["dl"]["to_send_total"] == mine["ready_total"]
+        assert any(r["candidate_id"] == cid for r in cv_dl["dl"]["to_send"])
+        assert cv_dl["dl"]["worst_urgency"] == queue.URGENCY_LATE
+        assert cv_dl["badge"] >= cv_dl["dl"]["to_send_total"]
+        cv_rec = (await api_client.get("/api/board-tasks/cv", headers=rec)).json()
+        assert cv_rec["dl"] is None
+        assert set(cv_rec["recruiter"]) == {"to_check", "to_fix", "with_dl", "sent"}
+
         # Pulpit dostaje ten sam wiersz z polami kolejki — także po 45 dniach.
         board = (await api_client.get("/api/board-tasks", headers=dl)).json()
         dashboard = [r for r in board["dl_review"] if r["candidate_id"] == cid]
