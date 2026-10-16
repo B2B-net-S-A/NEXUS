@@ -779,6 +779,7 @@ async def lifespan(app: FastAPI):
         allocation_loop,
         allocation_matching_loop,
     )
+    from app.tasks import hr_loops
     from app.services.recruitment_allocation_events import register_allocation_events
 
     register_allocation_events()
@@ -942,6 +943,9 @@ async def lifespan(app: FastAPI):
         "workforce_availability": asyncio.create_task(availability_loop()),
         "recruitment_allocation": asyncio.create_task(allocation_loop()),
         "allocation_matching": asyncio.create_task(allocation_matching_loop()),
+        # „Ludzie w NEXUSIE” — pętle modułów kadrowych (`app/tasks/hr_loops.py`);
+        # kończą się na `HR_LOOPS_ENABLED=false`, moduły pilnują przełączników.
+        "hr_workdays": asyncio.create_task(hr_loops.hr_workdays_loop()),
     }
 
     # Śmierć pętli musi być ZDARZENIEM, nie zmianą ułamka „running/expected".
