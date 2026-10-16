@@ -1,18 +1,18 @@
-"""„Ludzie w NEXUSIE” — Płace i premie.
+"""„Ludzie w NEXUSIE” — Sprawy administracja@.
 
-Revision ID: 0456_hr_payroll
-Revises: 0455_hr_time
+Revision ID: 0460_admin_cases
+Revises: 0459_contract_care
 
-Zakres: historia stawek, premie, okresy płacowe i zamrożone linie. SQL ma jedno źródło (``app/services/hr_payroll_schema.py``) — ten sam
+Zakres: sprawy, wiadomości, komentarze, stan czytnika skrzynki. SQL ma jedno źródło (``app/services/admin_cases_schema.py``) — ten sam
 moduł czyta ``entrypoint.sh`` przez ``hr_schema_bundle``.
 """
 
 from alembic import op
 
-from app.services import hr_payroll_schema as schema
+from app.services import admin_cases_schema as schema
 
-revision = "0456_hr_payroll"
-down_revision = "0455_hr_time"
+revision = "0460_admin_cases"
+down_revision = "0459_contract_care"
 branch_labels = None
 depends_on = None
 

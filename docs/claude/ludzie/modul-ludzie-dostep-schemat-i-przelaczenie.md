@@ -68,9 +68,9 @@ z protokołami. Compass zostaje z Akademią i czyta listę osób z NEXUSA.
 - Każdy moduł ma `app/services/<moduł>_schema.py` (`TABLE_DDL, COLUMN_DDL,
   INDEX_DDL, CONSTRAINT_DDL, DATA_DDL, TABLES, DOWNGRADE_DDL, ALL_DDL`), który czyta
   jego migracja i — przez `app/services/hr_schema_bundle.py` — `entrypoint.sh`.
-  Łańcuch: `0451_hr_foundation → 0452_hr_access → 0453_hr_notifications →
-  0454_hr_leave → 0455_hr_time → 0456_hr_payroll → 0457_hr_lifecycle →
-  0458_contract_care → 0459_admin_cases → 0460_equipment → 0461_equipment_extras`.
+  Łańcuch: `0452_hr_foundation → 0453_hr_access → 0454_hr_notifications →
+  0455_hr_leave → 0456_hr_time → 0457_hr_payroll → 0458_hr_lifecycle →
+  0459_contract_care → 0460_admin_cases → 0461_equipment → 0462_equipment_extras`.
   Nowy moduł = nowy plik schematu + wpis w `MODULES` agregatora + wiersz w
   `tests/test_hr_module_chain.py`. Testy szukają migracji po sufiksie, nie po
   numerze (po synchronizacji z mainem numery się przesuwają — `rechain_migration.py`).

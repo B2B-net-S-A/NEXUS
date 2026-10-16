@@ -49,7 +49,7 @@ class ContractEquipmentUpdate(BaseModel):
 class ContractEquipmentResponse(ContractEquipmentBase):
     id: int
     contract_id: int
-    # Egzemplarz z rejestru „Sprzęt” (0460); puste przy wpisie ręcznym.
+    # Egzemplarz z rejestru „Sprzęt” (0461); puste przy wpisie ręcznym.
     item_id: Optional[int] = None
     assignment_id: Optional[int] = None
     created_at: datetime

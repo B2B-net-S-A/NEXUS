@@ -160,10 +160,10 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE userrole ADD VALUE IF NOT EXISTS 'trainee'",
     # 0446: „Automatyzacje” — podgląd bez kwot i bez zapisu.
     "ALTER TYPE userrole ADD VALUE IF NOT EXISTS 'automation'",
-    # „Ludzie w NEXUSIE” (0452): rola „Pracownik” — lustro
+    # „Ludzie w NEXUSIE” (0453): rola „Pracownik” — lustro
     # `app/services/hr_access_schema.ENUM_DDL`.
     "ALTER TYPE userrole ADD VALUE IF NOT EXISTS 'employee'",
-    # „Ludzie w NEXUSIE” (0453): typy powiadomień modułów kadrowych — lustro
+    # „Ludzie w NEXUSIE” (0454): typy powiadomień modułów kadrowych — lustro
     # `app/services/hr_notification_schema.ENUM_DDL`.
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'hr_leave_requested'",
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'hr_leave_decided'",
@@ -1035,7 +1035,7 @@ except Exception as _proposal_feedback_err:  # noqa: BLE001
     _JOB_PROPOSAL_FEEDBACK_CONSTRAINTS = []
     _JOB_PROPOSAL_STATUS_CONSTRAINTS = []
 
-# „Ludzie w NEXUSIE” (migracje 0451+): moduł kadrowy, czas pracy, płace,
+# „Ludzie w NEXUSIE” (migracje 0452+): moduł kadrowy, czas pracy, płace,
 # sprzęt, opieka nad konsultantami, sprawy — JEDNO źródło z migracjami przez
 # agregator `app/services/hr_schema_bundle.py`. Wpięte na KOŃCACH faz.
 try:

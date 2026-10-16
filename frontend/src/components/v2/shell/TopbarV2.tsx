@@ -39,7 +39,7 @@ export function TopbarV2({
   onOpenCommandPalette,
 }: Props) {
   const [isMac, setIsMac] = useState(false);
-  // „Pracownik” (0452) i inne konta bez sekcji pracy nie przeszukują kandydatów,
+  // „Pracownik” (0453) i inne konta bez sekcji pracy nie przeszukują kandydatów,
   // rekrutacji ani klientów — paleta służy im tylko do przejścia na ekran.
   const user = useAuthStore((state) => state.user);
   const searchesWork = (["sourcing", "pipeline", "delivery"] as const).some((section) =>

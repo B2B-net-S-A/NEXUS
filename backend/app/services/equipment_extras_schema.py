@@ -1,6 +1,6 @@
-"""„Ludzie w NEXUSIE” — Sprzęt, etapy 4–5: SQL migracji ``0461_equipment_extras`` i lustra entrypointu.
+"""„Ludzie w NEXUSIE” — Sprzęt, etapy 4–5: SQL migracji ``0462_equipment_extras`` i lustra entrypointu.
 
-JEDNO źródło instrukcji dla ``alembic/versions/0461_equipment_extras.py`` i ``entrypoint.sh``
+JEDNO źródło instrukcji dla ``alembic/versions/0462_equipment_extras.py`` i ``entrypoint.sh``
 (przez ``app/services/hr_schema_bundle.py``). Kontrakt modułu jak w ``equipment_schema``.
 
 Zakres (propozycja recepcji z 15.10, etapy 4 i 5, D9):

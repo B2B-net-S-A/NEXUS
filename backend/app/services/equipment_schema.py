@@ -1,6 +1,6 @@
-"""„Ludzie w NEXUSIE” — Sprzęt i protokoły: SQL migracji ``0460_equipment`` i lustra entrypointu.
+"""„Ludzie w NEXUSIE” — Sprzęt i protokoły: SQL migracji ``0461_equipment`` i lustra entrypointu.
 
-JEDNO źródło instrukcji dla ``alembic/versions/0460_equipment.py`` i ``entrypoint.sh``
+JEDNO źródło instrukcji dla ``alembic/versions/0461_equipment.py`` i ``entrypoint.sh``
 (przez ``app/services/hr_schema_bundle.py``). Zakres: modele i egzemplarze, osoby zewnętrzne, wydania, protokoły z linkiem do podpisu, zadania, import plików recepcji.
 
 Kontrakt modułu (czyta go agregator i test łańcucha):

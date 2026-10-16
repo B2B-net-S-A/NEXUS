@@ -1,6 +1,6 @@
 """„Ludzie w NEXUSIE” — fundament modułu kadrowego: SQL migracji i lustra.
 
-JEDNO źródło instrukcji dla ``alembic/versions/0451_hr_foundation.py``
+JEDNO źródło instrukcji dla ``alembic/versions/0452_hr_foundation.py``
 i ``entrypoint.sh`` (przez ``hr_schema_bundle``; alembic na produkcji bywa
 osierocony, więc entrypoint jest wdrożeniem schematu).
 

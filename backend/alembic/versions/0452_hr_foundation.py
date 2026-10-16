@@ -1,8 +1,8 @@
 """„Ludzie w NEXUSIE”: kartoteka pracownika, pule urlopowe, dni wolne firmy,
 ślad HR, rezerwacje zadań i import z Compassa.
 
-Revision ID: 0451_hr_foundation
-Revises: 0450_job_champions
+Revision ID: 0452_hr_foundation
+Revises: 0451_client_acceptance
 
 Decyzja Artura 16.10.2026: wszystko z Compassa poza Akademią przechodzi do
 NEXUSA. Ta migracja zakłada fundament; moduły wchodzą „ciemne”
@@ -16,8 +16,8 @@ from alembic import op
 
 from app.services import hr_foundation_schema as schema
 
-revision = "0451_hr_foundation"
-down_revision = "0450_job_champions"
+revision = "0452_hr_foundation"
+down_revision = "0451_client_acceptance"
 branch_labels = None
 depends_on = None
 

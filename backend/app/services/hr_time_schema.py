@@ -1,6 +1,6 @@
-"""„Ludzie w NEXUSIE” — Mój miesiąc: SQL migracji ``0455_hr_time`` i lustra entrypointu.
+"""„Ludzie w NEXUSIE” — Mój miesiąc: SQL migracji ``0456_hr_time`` i lustra entrypointu.
 
-JEDNO źródło instrukcji dla ``alembic/versions/0455_hr_time.py`` i ``entrypoint.sh``
+JEDNO źródło instrukcji dla ``alembic/versions/0456_hr_time.py`` i ``entrypoint.sh``
 (przez ``app/services/hr_schema_bundle.py``). Zakres: obecność (tylko wyjątki), timesheety i wpisy, szablony opisów.
 
 Kontrakt modułu (czyta go agregator i test łańcucha):

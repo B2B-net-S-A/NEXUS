@@ -32,7 +32,7 @@ from app.services.section_permissions import (
 logger = logging.getLogger(__name__)
 
 
-# 0453: typy osobiste modułów kadrowych — odbiorcę wybiera reguła modułu
+# 0454: typy osobiste modułów kadrowych — odbiorcę wybiera reguła modułu
 # (przełożony, zastępca, Kadry, posiadacz „Sprzętu”), nie sekcja produktu.
 # „Pracownik” nie ma sekcji, a musi dostać decyzję o swoim urlopie.
 HR_PERSONAL_NOTIFICATION_TYPES: frozenset[NotificationType] = frozenset(
@@ -144,7 +144,7 @@ NOTIFICATION_SECTION_BY_TYPE: dict[NotificationType, ProductSection] = {
     NotificationType.also_fits_added: ProductSection.pipeline,
     # 0451: link prowadzi do panelu osoby na Tablicy rekrutacji.
     NotificationType.client_accepted: ProductSection.pipeline,
-    # 0453: opieka nad konsultantem — link do zakładki „Opieka” kontraktu.
+    # 0454: opieka nad konsultantem — link do zakładki „Opieka” kontraktu.
     NotificationType.care_contact_due: ProductSection.delivery,
 }
 

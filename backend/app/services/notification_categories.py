@@ -225,7 +225,7 @@ CATEGORY_BY_TYPE: dict[NotificationType, NotificationCategory] = {
     # KPI
     _T.powercalling_kpi: _C.kpi,
     _T.kpi_coach: _C.kpi,
-    # Czas i ludzie (0453)
+    # Czas i ludzie (0454)
     _T.hr_leave_requested: _C.people,
     _T.hr_leave_decided: _C.people,
     _T.hr_leave_cancelled: _C.people,

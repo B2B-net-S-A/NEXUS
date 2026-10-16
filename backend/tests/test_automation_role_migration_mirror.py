@@ -74,8 +74,8 @@ def test_models_know_the_role() -> None:
     ):
         assert "'automation'" in _check_sql(model, name)
     exclusive = _check_sql(User, "ck_users_exclusive_finance_viewer_roles")
-    # Od 0452 („Ludzie w NEXUSIE”) wyrażenie zna też rolę „Pracownik” — model
-    # równa się wersji z ``hr_access_schema`` (test lustra 0452); tu pilnujemy,
+    # Od 0453 („Ludzie w NEXUSIE”) wyrażenie zna też rolę „Pracownik” — model
+    # równa się wersji z ``hr_access_schema`` (test lustra 0453); tu pilnujemy,
     # że „Automatyzacje” dalej są w obu połówkach wyłączności.
     assert "role::text IN ('finance', 'user', 'trainee', 'automation'" in exclusive
     assert "ARRAY['finance', 'user', 'trainee', 'automation'" in exclusive
@@ -126,7 +126,7 @@ def test_named_permissions_migration_seeds_only_roles_known_at_0410() -> None:
     spec.loader.exec_module(migration)
 
     assert "automation" not in migration.ROLES_AT_0410
-    # „Ludzie w NEXUSIE” (0451) dokłada rolę „Pracownik” — też po 0410.
+    # „Ludzie w NEXUSIE” (0452) dokłada rolę „Pracownik” — też po 0410.
     assert set(migration.ROLES_AT_0410) | {"automation", "employee"} == set(
         catalog.ROLES
     )

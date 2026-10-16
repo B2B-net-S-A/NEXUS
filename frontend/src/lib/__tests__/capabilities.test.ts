@@ -568,7 +568,7 @@ describe("hasCapability — przypadki brzegowe", () => {
     }
   });
 
-  it("„Pracownik” (0452) nie ma ŻADNEJ capability — także bez Talent Radaru", () => {
+  it("„Pracownik” (0453) nie ma ŻADNEJ capability — także bez Talent Radaru", () => {
     // Osoba bez pracy w rekrutacji: „Mój czas”, „Ludzie” i Pomoc stoją za
     // kartoteką, nie za capability. Radar pokazuje kandydatów (RODO).
     for (const capability of ALL_CAPABILITIES) {
@@ -1454,7 +1454,7 @@ describe("kontrakt backend ↔ rejestr capability", () => {
  * Role z sidebarem. Praktykant (0374) ma własną powłokę bez menu, więc nie
  * widzi ŻADNEJ pozycji — liczony tu robiłby z każdej pozycji „bramkowaną”.
  */
-// Praktykant i „Pracownik” (0452) mają własną, wąską powłokę — ich pozycje
+// Praktykant i „Pracownik” (0453) mają własną, wąską powłokę — ich pozycje
 // menu nie wynikają z capability ani sekcji produktu.
 const SIDEBAR_ROLES = ALL_ROLES.filter(
   (role) => role !== "trainee" && role !== "employee",

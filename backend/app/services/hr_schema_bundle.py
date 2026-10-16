@@ -26,7 +26,7 @@ from app.services import hr_notification_schema as notifications
 from app.services import hr_payroll_schema as payroll
 from app.services import hr_time_schema as time_
 
-#: Moduły po fundamencie, w kolejności migracji 0454–0461 (kontrakt każdego:
+#: Moduły po fundamencie, w kolejności migracji 0455–0462 (kontrakt każdego:
 #: ``TABLE_DDL, COLUMN_DDL, INDEX_DDL, CONSTRAINT_DDL, DATA_DDL``).
 MODULES = (
     leave,

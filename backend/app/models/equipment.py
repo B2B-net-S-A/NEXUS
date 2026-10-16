@@ -1,4 +1,4 @@
-"""„Ludzie w NEXUSIE” — modele: Sprzęt i protokoły (0460).
+"""„Ludzie w NEXUSIE” — modele: Sprzęt i protokoły (0461).
 
 CHECK-i i indeksy muszą być identyczne z ``app/services/*_schema.py`` modułu
 (strażnik dryfu schematu porównuje model z bazą po migracji).
@@ -176,7 +176,7 @@ class EquipmentProtocol(Base, TimestampMixin):
         ForeignKey("equipment_external_people.id", ondelete="SET NULL"),
         nullable=True,
     )
-    # 0461: uczestnik edycji Akademii jako posiadacz.
+    # 0462: uczestnik edycji Akademii jako posiadacz.
     academy_application_id: Mapped[Optional[int]] = mapped_column(
         BigInteger,
         ForeignKey("academy_applications.id", ondelete="SET NULL"),

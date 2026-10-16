@@ -1,6 +1,6 @@
-"""„Ludzie w NEXUSIE” — Wejście i odejście: SQL migracji ``0457_hr_lifecycle`` i lustra entrypointu.
+"""„Ludzie w NEXUSIE” — Wejście i odejście: SQL migracji ``0458_hr_lifecycle`` i lustra entrypointu.
 
-JEDNO źródło instrukcji dla ``alembic/versions/0457_hr_lifecycle.py`` i ``entrypoint.sh``
+JEDNO źródło instrukcji dla ``alembic/versions/0458_hr_lifecycle.py`` i ``entrypoint.sh``
 (przez ``app/services/hr_schema_bundle.py``). Zakres: szablony i sprawy cyklu życia, zadania, przekazania pracy.
 
 Kontrakt modułu (czyta go agregator i test łańcucha):

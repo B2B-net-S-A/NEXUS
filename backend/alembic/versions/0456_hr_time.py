@@ -1,18 +1,18 @@
-"""„Ludzie w NEXUSIE” — Wejście i odejście.
+"""„Ludzie w NEXUSIE” — Mój miesiąc.
 
-Revision ID: 0457_hr_lifecycle
-Revises: 0456_hr_payroll
+Revision ID: 0456_hr_time
+Revises: 0455_hr_leave
 
-Zakres: szablony i sprawy cyklu życia, zadania, przekazania pracy. SQL ma jedno źródło (``app/services/hr_lifecycle_schema.py``) — ten sam
+Zakres: obecność (tylko wyjątki), timesheety i wpisy, szablony opisów. SQL ma jedno źródło (``app/services/hr_time_schema.py``) — ten sam
 moduł czyta ``entrypoint.sh`` przez ``hr_schema_bundle``.
 """
 
 from alembic import op
 
-from app.services import hr_lifecycle_schema as schema
+from app.services import hr_time_schema as schema
 
-revision = "0457_hr_lifecycle"
-down_revision = "0456_hr_payroll"
+revision = "0456_hr_time"
+down_revision = "0455_hr_leave"
 branch_labels = None
 depends_on = None
 

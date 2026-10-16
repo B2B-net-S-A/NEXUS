@@ -1,18 +1,18 @@
-"""„Ludzie w NEXUSIE” — Mój miesiąc.
+"""„Ludzie w NEXUSIE” — Płace i premie.
 
-Revision ID: 0455_hr_time
-Revises: 0454_hr_leave
+Revision ID: 0457_hr_payroll
+Revises: 0456_hr_time
 
-Zakres: obecność (tylko wyjątki), timesheety i wpisy, szablony opisów. SQL ma jedno źródło (``app/services/hr_time_schema.py``) — ten sam
+Zakres: historia stawek, premie, okresy płacowe i zamrożone linie. SQL ma jedno źródło (``app/services/hr_payroll_schema.py``) — ten sam
 moduł czyta ``entrypoint.sh`` przez ``hr_schema_bundle``.
 """
 
 from alembic import op
 
-from app.services import hr_time_schema as schema
+from app.services import hr_payroll_schema as schema
 
-revision = "0455_hr_time"
-down_revision = "0454_hr_leave"
+revision = "0457_hr_payroll"
+down_revision = "0456_hr_time"
 branch_labels = None
 depends_on = None
 

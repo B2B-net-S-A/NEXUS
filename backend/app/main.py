@@ -1294,7 +1294,7 @@ app.include_router(
     prefix="/api/academy",
     tags=["academy"],
 )
-# Edycja Akademii od strony recepcji (0461): /editions, /programs/{id}/editions/{yyyy-mm}.
+# Edycja Akademii od strony recepcji (0462): /editions, /programs/{id}/editions/{yyyy-mm}.
 app.include_router(
     academy_edition_api.router,
     prefix="/api/academy",
@@ -3321,7 +3321,7 @@ async def api_health_deep_check():
         ("integration_event_outbox", IntegrationEventOutbox),
         ("integration_events", IntegrationEvent),
         ("integration_webhooks", IntegrationWebhook),
-        # 0451: „Ludzie w NEXUSIE” — kartoteka i rezerwacje zadań HR. Brak
+        # 0452: „Ludzie w NEXUSIE” — kartoteka i rezerwacje zadań HR. Brak
         # tabeli = 500 na „Mój czas” / „Ludzie” i dublowane przebiegi zadań.
         ("employee_profiles", EmployeeProfile),
         ("leave_entitlements", LeaveEntitlement),
@@ -3329,7 +3329,7 @@ async def api_health_deep_check():
         ("hr_audit_events", HrAuditEvent),
         ("hr_job_runs", HrJobRun),
         ("hr_import_batches", HrImportBatch),
-        # 0453–0461: moduły „Ludzi w NEXUSIE” — po jednej-dwie tabele, bez
+        # 0454–0462: moduły „Ludzi w NEXUSIE” — po jednej-dwie tabele, bez
         # których główny ekran modułu daje 500 (pozostałe pilnuje dryf schematu).
         ("leave_requests", LeaveRequest),
         ("hr_m365_operations", HrM365Operation),
@@ -3347,7 +3347,7 @@ async def api_health_deep_check():
         ("equipment_assignments", EquipmentAssignment),
         ("equipment_protocols", EquipmentProtocol),
         ("equipment_tasks", EquipmentTask),
-        # 0461: Intune (rozjazdy z ewidencją) i edycja Akademii od strony recepcji.
+        # 0462: Intune (rozjazdy z ewidencją) i edycja Akademii od strony recepcji.
         ("equipment_intune_devices", EquipmentIntuneDevice),
         ("academy_edition_checklist", AcademyEditionChecklistItem),
         ("academy_participant_logistics", AcademyParticipantLogistics),

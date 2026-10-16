@@ -1,6 +1,6 @@
-"""„Ludzie w NEXUSIE” — Opieka nad konsultantami i technologie: SQL migracji ``0458_contract_care`` i lustra entrypointu.
+"""„Ludzie w NEXUSIE” — Opieka nad konsultantami i technologie: SQL migracji ``0459_contract_care`` i lustra entrypointu.
 
-JEDNO źródło instrukcji dla ``alembic/versions/0458_contract_care.py`` i ``entrypoint.sh``
+JEDNO źródło instrukcji dla ``alembic/versions/0459_contract_care.py`` i ``entrypoint.sh``
 (przez ``app/services/hr_schema_bundle.py``). Zakres: opiekun kontraktu, plan kontaktów, rozmowy, karty technologiczne, kolejka „Do przepięcia”.
 
 Kontrakt modułu (czyta go agregator i test łańcucha):

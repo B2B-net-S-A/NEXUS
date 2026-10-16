@@ -166,7 +166,7 @@ export const ROLE_SECTION_ACCESS: Record<
     finance: "none",
     system_admin: "none",
   },
-  // „Pracownik” (0452): żadnej sekcji — „Mój czas” i „Ludzie” stoją za
+  // „Pracownik” (0453): żadnej sekcji — „Mój czas” i „Ludzie” stoją za
   // kartoteką i uprawnieniami z grupy „Ludzie”.
   employee: {
     sourcing: "none",

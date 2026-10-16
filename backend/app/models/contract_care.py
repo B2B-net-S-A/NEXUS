@@ -1,4 +1,4 @@
-"""„Ludzie w NEXUSIE” — modele: Opieka nad konsultantami i technologie (0458).
+"""„Ludzie w NEXUSIE” — modele: Opieka nad konsultantami i technologie (0459).
 
 CHECK-i i indeksy muszą być identyczne z ``app/services/*_schema.py`` modułu
 (strażnik dryfu schematu porównuje model z bazą po migracji).
@@ -39,7 +39,7 @@ from app.core.database import Base
 from app.models.base import TimestampMixin
 from app.services import contract_care_schema as schema
 
-#: Kolumny opieki w istniejących tabelach (``COLUMN_DDL`` migracji 0458).
+#: Kolumny opieki w istniejących tabelach (``COLUMN_DDL`` migracji 0459).
 CONTRACTS_CARE = table("contracts", column("id"), column("care_owner_user_id"))
 CLIENTS_CARE = table("clients", column("id"), column("default_care_owner_user_id"))
 

@@ -254,7 +254,7 @@ class NotificationType(str, enum.Enum):
     # zaznaczyła; related_entity=(candidate_stage, id). Bez maila,
     # kategoria „Akceptacje klienta” nie do wyciszenia.
     client_accepted = "client_accepted"
-    # 0453: „Ludzie w NEXUSIE” — moduły kadrowe. Osobiste (odbiorcę wybiera
+    # 0454: „Ludzie w NEXUSIE” — moduły kadrowe. Osobiste (odbiorcę wybiera
     # reguła modułu, nie sekcja): urlopy, timesheety, premie i stawki,
     # wejście/odejście, sprawy administracja@, sprzęt. Opieka nad konsultantem
     # (``care_contact_due``) prowadzi do kontraktu — sekcja Delivery. Lista

@@ -4,7 +4,7 @@ Jedna pozycja to jeden egzemplarz. „Wolny” znaczy: stan ``na_stanie`` i brak
 aktywnego wydania (indeks częściowy w bazie pilnuje, że wydanie jest najwyżej
 jedno). Posiadacz to dokładnie jedno z czterech: konto NEXUSA (pracownik
 biura), kontrakt (konsultant u klienta), osoba zewnętrzna bez konta albo
-uczestnik Akademii (zgłoszenie ``academy_applications``, 0461). Imię, nazwisko
+uczestnik Akademii (zgłoszenie ``academy_applications``, 0462). Imię, nazwisko
 i e-mail uczestnika pochodzą z kandydata zgłoszenia — PESEL-u i adresu
 z dokumentów Akademii ewidencja nie widzi.
 """
