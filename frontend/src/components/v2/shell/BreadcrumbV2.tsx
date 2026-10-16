@@ -30,6 +30,8 @@ export const SEGMENT_LABELS: Record<string, string> = {
   cases: "Sprawy",
   payroll: "Płace",
   offboarding: "Odejście",
+  care: "Opieka",
+  protocol: "Protokół",
   settings: "Ustawienia",
   templates: "Szablony email",
   admin: "Admin",
