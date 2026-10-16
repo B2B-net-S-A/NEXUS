@@ -4353,6 +4353,11 @@ def draft_after_fix(previous_html: str, fixed_html: str) -> str:
 # i poprawka AI w brzmieniu, którego cytat serwer sprawdził przy jej pobraniu.
 # Usunięcie terminu i własny tekst rekrutera zatwierdza się pojedynczo.
 BULK_ACTIONS = frozenset({"bold_all", "spelling", "ai_fix"})
+ROLE_ORDER_NOTHING = "Stanowiska już są ułożone od najnowszego."
+ROLE_ORDER_UNKNOWN = (
+    "Nie umiem bezpiecznie przestawić stanowisk w tym CV — przestaw je ręcznie: "
+    "kursor w stanowisku, „Więcej” → wyżej / niżej."
+)
 # Kolejność stanowisk zmienia układ całego doświadczenia — rekruter ma ją
 # zobaczyć i kliknąć osobno (D3, 16.10.2026).
 _ACTIONS = BULK_ACTIONS | {"remove_term", "role_order"}
@@ -4457,8 +4462,9 @@ def transform_html(
                 )
                 done = {"action": action, "term": term[:120]}
             elif action == "role_order":
-                changed, count = roles_newest_first(current)
-                nothing = "Stanowiska już są ułożone od najnowszego."
+                ordered = roles_newest_first(current)
+                changed, count = ordered or (current, 0)
+                nothing = ROLE_ORDER_NOTHING if ordered else ROLE_ORDER_UNKNOWN
                 done = {"action": action}
             else:
                 changed, count = fix_spelling_html(current)
@@ -4736,9 +4742,10 @@ async def apply_action(
             )
         details.update({"term": term[:120], "count": count})
     elif action == "role_order":
-        new_html, count = roles_newest_first(html)
+        ordered = roles_newest_first(html)
+        new_html, count = ordered or (html, 0)
         if not count:
-            raise ApplyError("Stanowiska już są ułożone od najnowszego.")
+            raise ApplyError(ROLE_ORDER_NOTHING if ordered else ROLE_ORDER_UNKNOWN)
         details.update({"count": count})
     else:
         new_html, count = fix_spelling_html(html)

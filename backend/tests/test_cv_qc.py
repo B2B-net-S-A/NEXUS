@@ -4274,3 +4274,76 @@ def test_kept_order_is_a_reason_only_for_the_role_order_check() -> None:
     for other in (None, "must_bolded"):
         with pytest.raises(dismissals.DismissError):
             dismissals.validate_reason("kept_order", None, check_key=other)
+
+
+def _role_html(title: str, dates: str, company: str, body: str) -> str:
+    return (
+        f'<p data-cv-section="role"><strong>{title}</strong> {dates}</p>'
+        f'<p data-cv-section="employer">{company}</p>{body}'
+    )
+
+
+def test_role_order_fix_keeps_a_project_subtitle_with_its_role() -> None:
+    """Przegląd 16.10.2026: śródtytuł projektu (h3, tak zapisuje import Worda)
+    należy do stanowiska — poprawka dzieliła role na nim i przenosiła projekt
+    pod cudze stanowisko, a QC dalej zgłaszało uwagę."""
+    exp = '<h2 data-cv-section="experience">Doświadczenie</h2>'
+    html = (
+        exp
+        + _role_html(
+            "Dev A", "2015 – 2016", "Alfa", "<ul><li><p>alfa-duty</p></li></ul>"
+        )
+        + _role_html(
+            "Dev B",
+            "2018 – 2019",
+            "Beta",
+            "<h3>Projekt Beta-Bank</h3><ul><li><p>beta-project-duty</p></li></ul>",
+        )
+        + _role_html(
+            "Dev C", "2021 – obecnie", "Gamma", "<ul><li><p>gamma-duty</p></li></ul>"
+        )
+    )
+    assert _role_order(html)["status"] == "fail"
+    out, applied, _ = _transform([{"action": "role_order"}], bulk=False, html=html)
+    assert applied == [{"action": "role_order", "count": 2}]
+    assert out.index("Dev C") < out.index("Dev B") < out.index("Dev A")
+    # Projekt jedzie ze swoim stanowiskiem.
+    assert (
+        out.index("Dev B")
+        < out.index("Projekt Beta-Bank")
+        < out.index("beta-project-duty")
+    )
+    assert out.index("beta-project-duty") < out.index("Dev A")
+    assert _role_order(out)["status"] == "pass"
+    # Śródtytuł w pierwszym stanowisku: QC zgłasza, poprawka też coś robi.
+    first = (
+        exp
+        + _role_html(
+            "Dev A",
+            "2015 – 2016",
+            "Alfa",
+            "<h3>Projekt X</h3><ul><li><p>x</p></li></ul>",
+        )
+        + _role_html("Dev C", "2021 – obecnie", "Gamma", "<ul><li><p>c</p></li></ul>")
+    )
+    assert _role_order(first)["status"] == "fail"
+    out, applied, _ = _transform([{"action": "role_order"}], bulk=False, html=first)
+    assert applied and out.index("Dev C") < out.index("Dev A") < out.index("Projekt X")
+
+
+def test_role_order_fix_refuses_roles_split_across_sections() -> None:
+    """Dwie sekcje doświadczenia: przestawienie przeniosłoby treść między nimi."""
+    exp = '<h2 data-cv-section="experience">Doświadczenie</h2>'
+    html = (
+        exp
+        + _role_html("Dev A", "2015 – 2016", "Alfa", "<ul><li><p>a</p></li></ul>")
+        + '<h2 data-cv-section="projects">Projekty</h2><p>Projekt własny.</p>'
+        + exp
+        + _role_html("Dev C", "2021 – obecnie", "Gamma", "<ul><li><p>c</p></li></ul>")
+    )
+    out, applied, skipped = _transform(
+        [{"action": "role_order"}], bulk=False, html=html
+    )
+    assert (out, applied) == (html, [])
+    assert [s["code"] for s in skipped] == ["nothing_to_do"]
+    assert skipped[0]["message"] == qc.ROLE_ORDER_UNKNOWN

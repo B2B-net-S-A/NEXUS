@@ -23,6 +23,7 @@ import copy
 import re
 import unicodedata
 from dataclasses import dataclass, field
+from typing import Optional
 
 from lxml import html as lxml_html
 from lxml.html import HtmlElement
@@ -234,29 +235,67 @@ def merge_rewrite(previous: str, draft: str, new: str) -> MergeResult:
     return MergeResult(_html(merged, rodo), kept, recognized=True)
 
 
-def roles_newest_first(markup: str) -> tuple[str, int]:
+def _role_spans(blocks: list[HtmlElement]) -> Optional[list[tuple[int, int]]]:
+    """Stanowiska jako zakresy bloków ``[od, do)`` — lustro `cv_qc.cv_roles`.
+
+    Stanowisko zaczyna blok ze znacznikiem ``role`` w sekcji doświadczenia
+    (nagłówek h1/h2 ze znacznikiem ``experience``) i kończy następne
+    stanowisko, nagłówek h1/h2 albo klauzula zgody. Śródtytuł projektu (h3,
+    tak zapisuje import Worda) należy do stanowiska — `_parts` dzieli na nim
+    i przegląd 16.10.2026 pokazał projekt przeniesiony pod cudze stanowisko.
+    ``None``, gdy stanowiska nie stoją jedno za drugim (np. dwie sekcje
+    doświadczenia) — przestawienie przeniosłoby treść między sekcjami.
+    """
+    spans: list[tuple[int, int]] = []
+    start: Optional[int] = None
+    in_experience = False
+    for index, block in enumerate(blocks):
+        marker = block.get("data-cv-section") or ""
+        if block.tag in ("h1", "h2") or _is_rodo(block):
+            if start is not None:
+                spans.append((start, index))
+                start = None
+            in_experience = block.tag in ("h1", "h2") and marker == "experience"
+            continue
+        if in_experience and marker == "role":
+            if start is not None:
+                spans.append((start, index))
+            start = index
+    if start is not None:
+        spans.append((start, len(blocks)))
+    if any(prev[1] != nxt[0] for prev, nxt in zip(spans, spans[1:])):
+        return None
+    return spans
+
+
+def roles_newest_first(markup: str) -> Optional[tuple[str, int]]:
     """Stanowiska w doświadczeniu od najnowszego — poprawka QC „Ułóż od najnowszego”.
 
-    Te same części co „Napisz od nowa”: stanowisko to blok ze znacznikiem
-    ``role`` w sekcji doświadczenia i wszystko do następnego stanowiska albo
-    nagłówka; przenosimy je w całości. Reguła kolejności i jej granica to
-    `cv_role_order` (16.10.2026). Zwraca ``(treść, ile stanowisk zmieniło
-    miejsce)``; przy zerze treść jest ta sama co na wejściu.
+    Stanowiska przenosimy w całości (`_role_spans`), reszta treści zostaje
+    na miejscu. Reguła kolejności i jej granica to `cv_role_order`
+    (16.10.2026). Zwraca ``(treść, ile stanowisk zmieniło miejsce)`` — przy
+    zerze treść wejściową — albo ``None``, gdy stanowisk nie da się tu
+    bezpiecznie rozpoznać.
     """
     from app.services import cv_role_order
 
-    parts, rodo = _parts(markup)
-    slots = [n for n, part in enumerate(parts) if part.key.startswith("role:")]
-    if len(slots) < 2:
+    blocks = _blocks(markup)
+    spans = _role_spans(blocks)
+    if spans is None:
+        return None
+    if len(spans) < 2:
         return markup, 0
-    texts = []
-    for n in slots:
-        role = parts[n].blocks[0]
-        texts.append(cv_role_order.dates_text(_dates(role), _plain(role)))
+    texts = [
+        cv_role_order.dates_text(_dates(blocks[first]), _plain(blocks[first]))
+        for first, _ in spans
+    ]
     order = cv_role_order.newest_first(texts)
-    if order is None or order == list(range(len(slots))):
+    if order is None or order == list(range(len(spans))):
         return markup, 0
-    moved = [parts[slots[n]] for n in order]
-    for slot, part in zip(slots, moved):
-        parts[slot] = part
-    return _html(parts, rodo), sum(1 for k, n in enumerate(order) if k != n)
+    head, tail = spans[0][0], spans[-1][1]
+    moved = [block for n in order for block in blocks[spans[n][0] : spans[n][1]]]
+    out = blocks[:head] + moved + blocks[tail:]
+    html = "".join(
+        lxml_html.tostring(block, encoding="unicode", with_tail=False) for block in out
+    )
+    return html, sum(1 for k, n in enumerate(order) if k != n)

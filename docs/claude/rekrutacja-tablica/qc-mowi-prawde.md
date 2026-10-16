@@ -134,10 +134,16 @@ miało pewny błąd kolejności.
   Rola bez dat zostaje na swoim miejscu (D4).
 - **„Ułóż od najnowszego”** (D1): akcja `role_order` w `transform_html`
   (edytor, `qc/transform`) i w `apply_action` (okno QC, `qc/apply`).
-  Przestawia całe stanowiska na częściach `cv_rewrite_merge.roles_newest_first`
-  (te same części co „Napisz od nowa”: od linii stanowiska do następnej albo
-  do nagłówka; opakowania `article`/`div.job` generatora znikają, klauzula
-  zostaje na końcu przez `draft_after_fix`). Już ułożone = `nothing_to_do`.
+  Przestawia całe stanowiska (`cv_rewrite_merge.roles_newest_first` →
+  `_role_spans`, lustro `cv_qc.cv_roles`): stanowisko kończy następne
+  stanowisko, nagłówek h1/h2 albo klauzula zgody — śródtytuł projektu (h3,
+  tak zapisuje import Worda) należy do stanowiska. NIE `_parts` z „Napisz od
+  nowa”, który dzieli na h3: przegląd 16.10.2026 pokazał projekt przeniesiony
+  pod cudze stanowisko. Opakowania `article`/`div.job` generatora znikają,
+  reszta treści zostaje na miejscu. Już ułożone = `nothing_to_do`
+  („już są ułożone”); stanowiska nie obok siebie (dwie sekcje
+  doświadczenia) = `nothing_to_do` z „Nie umiem bezpiecznie przestawić…
+  przestaw ręcznie” — nic nie przenosimy między sekcjami.
   **Nie wchodzi do „Popraw wszystko”** (D3): `_ACTIONS`, nie `BULK_ACTIONS`.
 - **„Zostaw tę kolejność”** (D6) zamiast „To nieprawda” przy tej pozycji: jedno
   kliknięcie, pominięcie z powodem `kept_order` („Kolejność stanowisk celowo
