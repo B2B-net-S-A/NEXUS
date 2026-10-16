@@ -219,3 +219,13 @@ export function validRange(start: string, end: string): boolean {
   const pattern = /^\d{4}-\d{2}-\d{2}$/;
   return pattern.test(start) && pattern.test(end) && end >= start;
 }
+
+/** Komunikat po zmianie urlopu: przy zamkniętym miesiącu płac doklejone ostrzeżenie, typ „info”. */
+export function leaveToast(
+  message: string,
+  row?: { payroll_warning?: string | null } | null,
+): [string, "success" | "info"] {
+  const warning = row?.payroll_warning?.trim();
+  return warning ? [`${message}. ${warning}`, "info"] : [message, "success"];
+}
+

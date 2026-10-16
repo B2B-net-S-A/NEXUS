@@ -15,7 +15,11 @@ Reguły:
   (w Compassie admin zatwierdzał sam siebie),
 * zgoda na przekierowanie poczty przechodzi tylko z wniosku złożonego przez
   samą osobę i tylko z zastępcą (Compass pozwalał ją włączyć przełożonemu),
-* import nie wysyła powiadomień ani operacji Microsoft 365.
+* import nie wysyła powiadomień ani operacji Microsoft 365,
+* wniosek zmieniony w NEXUSIE po imporcie (decyzja, anulowanie, przeliczenie
+  dni) zostaje w wersji NEXUSA: „bez zmian”, gdy paczka mówi to samo,
+  inaczej „conflict” do decyzji — nigdy „update” (anulowany urlop nie wraca
+  jako zatwierdzony bez autoodpowiedzi i bez śladu).
 """
 
 from __future__ import annotations
@@ -54,7 +58,7 @@ from .common import (
     source_id,
     text,
 )
-from .core import ModulePlan, RowPlan, remember
+from .core import ModulePlan, RowPlan, changed_in_nexus, remember
 
 MODULE = "leave"
 TABLE = "leave_requests"
@@ -62,6 +66,7 @@ TABLE = "leave_requests"
 OVERLAP = "nakłada się na inny aktywny wniosek tej osoby"
 SELF_DECISION = "decyzja o własnym wniosku — decydujący pominięty"
 FORWARD_ON_BEHALF = "zgoda na przekierowanie z wpisu za pracownika — pominięta"
+CHANGED_IN_NEXUS = "wniosek zmieniony w NEXUSIE po imporcie — zostaje wersja NEXUSA"
 _ACTIVE_UNIQUE = "uq_leave_request_days_user_day_active"
 
 #: Pola wniosku porównywane przy ponownym imporcie.
@@ -167,6 +172,13 @@ async def _current_days(db: AsyncSession, request_id: uuid.UUID) -> list[tuple]:
         .order_by(LeaveRequestDay.day)
     )
     return [tuple(row) for row in rows.all()]
+
+
+async def _matches(
+    db: AsyncSession, existing: LeaveRequest, fields: dict[str, Any], days: list
+) -> bool:
+    same_fields = all(getattr(existing, key) == value for key, value in fields.items())
+    return same_fields and await _current_days(db, existing.id) == days
 
 
 async def plan(db: AsyncSession, bundle: Bundle) -> ModulePlan:
@@ -294,6 +306,14 @@ async def plan(db: AsyncSession, bundle: Bundle) -> ModulePlan:
                 RowPlan(sid, "conflict", "wniosek o tym id jest już w NEXUSIE", payload)
             )
             continue
+        if existing is not None and await changed_in_nexus(
+            db, mapping.get(sid), existing.updated_at
+        ):
+            if await _matches(db, existing, fields, payload["days"]):
+                result.rows.append(RowPlan(sid, "unchanged", "", payload))
+            else:
+                result.rows.append(RowPlan(sid, "conflict", CHANGED_IN_NEXUS, payload))
+            continue
         if active:
             day_list = [day for day, _, _ in days]
             in_bundle = any((user_id, day) in claimed for day in day_list)
@@ -309,11 +329,8 @@ async def plan(db: AsyncSession, bundle: Bundle) -> ModulePlan:
         if existing is None:
             result.rows.append(RowPlan(sid, "create", reason, payload))
             continue
-        same_fields = all(
-            getattr(existing, key) == value for key, value in fields.items()
-        )
-        same_days = await _current_days(db, request_id) == payload["days"]
-        action = "unchanged" if same_fields and same_days else "update"
+        same = await _matches(db, existing, fields, payload["days"])
+        action = "unchanged" if same else "update"
         result.rows.append(RowPlan(sid, action, reason, payload))
     return result
 

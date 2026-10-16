@@ -6,17 +6,22 @@
 * Zapis przelicza plan na świeżych danych (między „na sucho” a „zapisz” ktoś
   mógł coś zmienić) i wymaga tej samej paczki (``bundle_sha256`` partii).
 * Mapa id (``hr_import_id_map``) czyni import idempotentnym: drugi zapis tej
-  samej paczki kończy się samymi „bez zmian”.
+  samej paczki kończy się samymi „bez zmian”. Wiersz mapy wskazuje partię,
+  która ostatnio zapisała cel; ``applied_at`` partii to czas transakcji zapisu
+  (``now()`` bazy, ten sam co ``updated_at`` zapisanych wierszy).
+* Ponowny import nie nadpisuje zmian zrobionych w NEXUSIE: wiersz celu
+  zmieniony po zapisie partii (``changed_in_nexus``) dostaje „bez zmian”
+  albo „conflict”, nigdy „update”.
 """
 
 from __future__ import annotations
 
 from collections import Counter
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Any, Awaitable, Callable, Literal, Optional
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.hr_ops import HrImportBatch, HrImportIdMap
@@ -97,6 +102,7 @@ async def remember(
     if existing is not None:
         existing.target_table = target_table
         existing.target_id = str(target_id)
+        existing.batch_id = batch.id
         return
     db.add(
         HrImportIdMap(
@@ -108,6 +114,32 @@ async def remember(
             batch_id=batch.id,
         )
     )
+
+
+async def last_written_at(
+    db: AsyncSession, mapped: Optional[HrImportIdMap]
+) -> Optional[datetime]:
+    """Kiedy import ostatnio zapisał cel wiersza mapy (czas transakcji zapisu)."""
+
+    if mapped is None:
+        return None
+    if mapped.batch_id is not None:
+        applied = await db.scalar(
+            select(HrImportBatch.applied_at).where(HrImportBatch.id == mapped.batch_id)
+        )
+        if applied is not None:
+            return applied
+    return mapped.created_at
+
+
+async def changed_in_nexus(
+    db: AsyncSession, mapped: Optional[HrImportIdMap], updated_at: Optional[datetime]
+) -> bool:
+    """Cel zmieniony w NEXUSIE po ostatnim zapisie importu (decyzja, anulowanie,
+    akceptacja, blokada płac) — import go nie nadpisuje."""
+
+    written = await last_written_at(db, mapped)
+    return written is not None and updated_at is not None and updated_at > written
 
 
 async def dry_run(
@@ -149,7 +181,9 @@ async def apply(
     counts = await applier(db, plan, batch, actor_user_id)
     batch.status = "applied"
     batch.applied_by = actor_user_id
-    batch.applied_at = datetime.now(timezone.utc)
+    # Czas transakcji (jak ``updated_at`` zapisanych wierszy): późniejsza zmiana
+    # w NEXUSIE ma ``updated_at`` większy niż ten znacznik.
+    batch.applied_at = await db.scalar(select(func.now()))
     batch.report = {
         **(batch.report or {}),
         "applied": {**plan.report(), "written": counts},

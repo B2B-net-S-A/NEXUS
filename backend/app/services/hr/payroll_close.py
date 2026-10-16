@@ -4,7 +4,10 @@ Zamknięcie (Płace):
 
 1. blokada wiersza okresu (``FOR UPDATE``) — drugie żądanie czeka i dostaje
    „już zamknięty” (idempotentnie; restart przy nocnym wdrożeniu nie robi
-   niczego dwa razy, bo całość to jedna transakcja),
+   niczego dwa razy, bo całość to jedna transakcja) — i wszystkich
+   timesheetów miesiąca, ZANIM policzymy raport: akceptacja timesheetu czy
+   premii w toku albo kończy się przed liczeniem, albo czeka na koniec
+   zamknięcia i dostaje „zamknięty” (``payroll_periods.assert_open``),
 2. propozycje premii z tym okresem muszą mieć decyzję (409 ``pending_bonuses``),
 3. ostrzeżenia (timesheety niezatwierdzone, godziny bez stawki) wymagają
    potwierdzenia (409 ``close_warnings``, potem ``acknowledge_warnings``),
@@ -136,6 +139,7 @@ async def close_month(
             ),
         }
 
+    await payroll_time_bridge.lock_month_timesheets(db, year, month)
     pending = await pending_bonus_count(db, year, month)
     if pending:
         raise PayrollConflict(

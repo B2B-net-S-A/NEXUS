@@ -409,6 +409,7 @@ async def add_day_off(
         action="day_off_added",
         details={"day": day.isoformat()},
     )
+    await _recount_leave(db, day=day, actor=actor, added=True)
     return row
 
 
@@ -416,6 +417,7 @@ async def remove_day_off(db: AsyncSession, *, day_off_id: int, actor: User) -> N
     row = await db.get(CompanyDayOff, day_off_id)
     if row is None:
         raise LookupError(day_off_id)
+    day = row.day
     audit.record(
         db,
         actor_user_id=actor.id,
@@ -423,6 +425,21 @@ async def remove_day_off(db: AsyncSession, *, day_off_id: int, actor: User) -> N
         entity_type="company_day_off",
         entity_id=row.id,
         action="day_off_removed",
-        details={"day": row.day.isoformat()},
+        details={"day": day.isoformat()},
     )
     await db.delete(row)
+    await db.flush()
+    await _recount_leave(db, day=day, actor=actor, added=False)
+
+
+async def _recount_leave(
+    db: AsyncSession, *, day: date, actor: User, added: bool
+) -> None:
+    """Złożone wnioski obejmujące ``day`` dostają dni wg nowego kalendarza —
+    inaczej dzień wolny dodany po złożeniu wniosku dalej zjadałby pulę."""
+
+    from app.services.hr import leave_service
+
+    await leave_service.recount_for_company_day_off(
+        db, day=day, actor=actor, added=added
+    )

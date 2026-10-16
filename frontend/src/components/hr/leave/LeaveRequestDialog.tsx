@@ -35,6 +35,7 @@ import {
   daysLabel,
   eventLabel,
   formatRange,
+  leaveToast,
   validRange,
   warsawToday,
 } from "./leave-format";
@@ -173,8 +174,8 @@ export function LeaveRequestDialog({
       submitFor.mutate(
         { ...base, user_id: subjectId },
         {
-          onSuccess: () => {
-            showToast("Nieobecność wpisana", "success");
+          onSuccess: (saved) => {
+            showToast(...leaveToast("Nieobecność wpisana", saved));
             close(false);
           },
           onError,
@@ -192,8 +193,10 @@ export function LeaveRequestDialog({
       {
         onSuccess: (row) => {
           showToast(
-            row.status === "approved" ? "Nieobecność zgłoszona" : "Wniosek wysłany do akceptacji",
-            "success",
+            ...leaveToast(
+              row.status === "approved" ? "Nieobecność zgłoszona" : "Wniosek wysłany do akceptacji",
+              row,
+            ),
           );
           close(false);
         },

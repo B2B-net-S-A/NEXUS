@@ -174,11 +174,25 @@ _HANDLED = (
 )
 
 
-async def _one(db: AsyncSession, request, viewer: User) -> dict:
+async def _one(
+    db: AsyncSession, request, viewer: User, locked_months: tuple[str, ...] = ()
+) -> dict:
+    """Wiersz wniosku + ostrzeżenie o zamkniętym miesiącu płac (godziny
+    w nim zostały bez zmian; Płace dostały dzwonek)."""
+
     await db.refresh(request)
-    return (
+    item = (
         await service.serialize(db, [request], viewer=viewer, today=business_today())
     )[0]
+    item["payroll_locked_months"] = list(locked_months)
+    item["payroll_warning"] = service.payroll_locked_warning(locked_months)
+    return item
+
+
+async def _outcome(
+    db: AsyncSession, outcome: service.LeaveOutcome, viewer: User
+) -> dict:
+    return await _one(db, outcome.request, viewer, outcome.payroll_locked_months)
 
 
 async def _own_profile(db: AsyncSession, user: User):
@@ -230,7 +244,7 @@ async def submit_request(
 ) -> dict:
     profile = await _own_profile(db, current_user)
     try:
-        request = await service.submit(
+        outcome = await service.submit(
             db,
             actor=current_user,
             subject=current_user,
@@ -243,7 +257,7 @@ async def submit_request(
         await db.rollback()
         raise _translate(exc) from exc
     await db.commit()
-    return await _one(db, request, current_user)
+    return await _outcome(db, outcome, current_user)
 
 
 @router.post("/requests/{request_id}/cancel")
@@ -251,14 +265,14 @@ async def cancel_my_request(
     request_id: uuid.UUID, current_user: LeaveSelf, db: AsyncSession = Depends(get_db)
 ) -> dict:
     try:
-        request = await service.cancel_own(
+        outcome = await service.cancel_own(
             db, actor=current_user, request_id=request_id, today=business_today()
         )
     except _HANDLED as exc:
         await db.rollback()
         raise _translate(exc) from exc
     await db.commit()
-    return await _one(db, request, current_user)
+    return await _outcome(db, outcome, current_user)
 
 
 @router.put("/requests/{request_id}/forward-consent")
@@ -407,7 +421,7 @@ async def enter_on_behalf(
         subject, profile = await service.subject_for_on_behalf(
             db, actor=current_user, user_id=payload.user_id
         )
-        request = await service.submit(
+        outcome = await service.submit(
             db,
             actor=current_user,
             subject=subject,
@@ -420,7 +434,7 @@ async def enter_on_behalf(
         await db.rollback()
         raise _translate(exc) from exc
     await db.commit()
-    return await _one(db, request, current_user)
+    return await _outcome(db, outcome, current_user)
 
 
 @router.post("/approvals/{request_id}/approve")
@@ -431,7 +445,7 @@ async def approve_request(
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     try:
-        request = await service.approve(
+        outcome = await service.approve(
             db,
             actor=current_user,
             request_id=request_id,
@@ -442,7 +456,7 @@ async def approve_request(
         await db.rollback()
         raise _translate(exc) from exc
     await db.commit()
-    return await _one(db, request, current_user)
+    return await _outcome(db, outcome, current_user)
 
 
 @router.post("/approvals/{request_id}/reject")
@@ -470,14 +484,14 @@ async def cancel_team_request(
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     try:
-        request = await service.cancel_as_approver(
+        outcome = await service.cancel_as_approver(
             db, actor=current_user, request_id=request_id, today=business_today()
         )
     except _HANDLED as exc:
         await db.rollback()
         raise _translate(exc) from exc
     await db.commit()
-    return await _one(db, request, current_user)
+    return await _outcome(db, outcome, current_user)
 
 
 # ── Kalendarz zespołu i nieobecni ─────────────────────────────────────────────

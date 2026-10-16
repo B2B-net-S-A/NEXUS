@@ -18,16 +18,17 @@ from __future__ import annotations
 
 from collections import defaultdict
 from dataclasses import dataclass, field
+from datetime import date
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any, Optional
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.hr_payroll import HrBonus, PayrollLine, PayrollPeriod
+from app.models.hr_payroll import EmployeeRate, HrBonus, PayrollLine, PayrollPeriod
 from app.models.hr_profile import EmployeeProfile
 from app.models.user import User
-from app.services.hr import payroll_leave_bridge, payroll_rates, payroll_time_bridge
+from app.services.hr import payroll_leave_bridge, payroll_time_bridge
 from app.services.hr.payroll_periods import get_period, month_end, month_start
 
 ZERO = Decimal("0")
@@ -109,6 +110,32 @@ async def _bonus_sums(
     return out
 
 
+async def rates_on(db: AsyncSession, day: date) -> dict[int, EmployeeRate]:
+    """Stawka obowiązująca w dniu ``day`` per osoba — deterministycznie.
+
+    Dwie stawki obejmujące ten sam dzień (np. zaimportowane z wyłącznym końcem
+    Compassa przed poprawką) rozstrzyga najnowsza: ta, która zaczyna się
+    później — jak ``payroll_rates.rate_on`` na historii od najnowszej.
+    """
+
+    rows = await db.scalars(
+        select(EmployeeRate)
+        .where(
+            EmployeeRate.effective_from <= day,
+            (EmployeeRate.effective_to.is_(None)) | (EmployeeRate.effective_to >= day),
+        )
+        .order_by(
+            EmployeeRate.user_id,
+            EmployeeRate.effective_from.desc(),
+            EmployeeRate.id.desc(),
+        )
+    )
+    found: dict[int, EmployeeRate] = {}
+    for rate in rows:
+        found.setdefault(rate.user_id, rate)
+    return found
+
+
 async def compute_live(db: AsyncSession, year: int, month: int) -> list[PersonPayroll]:
     first, last = month_start(year, month), month_end(year, month)
     profiles = {
@@ -124,7 +151,7 @@ async def compute_live(db: AsyncSession, year: int, month: int) -> list[PersonPa
     hours = await payroll_time_bridge.approved_hours(db, year, month)
     statuses = await payroll_time_bridge.timesheet_statuses(db, year, month)
     bonuses = await _bonus_sums(db, year, month)
-    rates = await payroll_rates.rates_on(db, first)
+    rates = await rates_on(db, first)
     leave = await payroll_leave_bridge.leave_days(db, first, last)
 
     user_ids = {
@@ -333,4 +360,5 @@ __all__ = [
     "line_rows",
     "money",
     "month_report",
+    "rates_on",
 ]

@@ -51,6 +51,7 @@ import {
   LEAVE_STATUS_TONE,
   daysLabel,
   formatRange,
+  leaveToast,
   shortDate,
 } from "./leave-format";
 
@@ -119,7 +120,7 @@ function PendingLeaveList({ viewerIsHr }: { viewerIsHr: boolean }) {
     decide.mutate(
       { id: row.id, decision: "approve" },
       {
-        onSuccess: () => showToast("Wniosek zaakceptowany", "success"),
+        onSuccess: (saved) => showToast(...leaveToast("Wniosek zaakceptowany", saved)),
         onError: (err) => showToast(apiErrorMessage(err, "Nie udało się zaakceptować."), "error"),
       },
     );
@@ -220,7 +221,7 @@ function LeaveHistory() {
     });
     if (!ok) return;
     cancel.mutate(row.id, {
-      onSuccess: () => showToast("Nieobecność anulowana", "success"),
+      onSuccess: (saved) => showToast(...leaveToast("Nieobecność anulowana", saved)),
       onError: (err) => showToast(apiErrorMessage(err, "Nie udało się anulować."), "error"),
     });
   };

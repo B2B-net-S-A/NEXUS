@@ -3,6 +3,12 @@
 Zamknięty miesiąc nie przyjmuje zmian stawek obowiązujących w tym miesiącu
 ani premii z tym okresem (409) — linie są zamrożone, a timesheety mają
 ``payroll_locked``. Otwiera go ponownie tylko administrator, ze śladem.
+
+Zamknięcie trzyma wiersz okresu pod ``FOR UPDATE`` od początku do commita;
+zmiany wchodzące do płac (premia, akceptacja timesheetu) sprawdzają okres pod
+``FOR SHARE`` (``assert_open`` / ``lock_period_shared``). Zmiana albo kończy
+się przed zamknięciem (i trafia do zamrożonych linii), albo czeka na jego
+koniec i widzi „zamknięty” — nie ma okna, w którym mija się z raportem.
 """
 
 from __future__ import annotations
@@ -105,6 +111,29 @@ async def lock_period(db: AsyncSession, year: int, month: int) -> PayrollPeriod:
     return period
 
 
+async def lock_period_shared(db: AsyncSession, year: int, month: int) -> PayrollPeriod:
+    """Wiersz okresu pod ``FOR SHARE`` (zakłada go, gdy go nie ma).
+
+    Wiersz musi istnieć, zanim go zablokujemy: zamknięcie, które dopiero go
+    wstawiło, jest jeszcze niewidoczne, a ``ON CONFLICT DO NOTHING`` czeka na
+    jego koniec — bez wstawienia akceptacja przeszłaby obok zamknięcia.
+    """
+
+    await db.execute(
+        insert(PayrollPeriod)
+        .values(year=year, month=month, status="open")
+        .on_conflict_do_nothing(index_elements=["year", "month"])
+    )
+    period = await db.scalar(
+        select(PayrollPeriod)
+        .where(PayrollPeriod.year == year, PayrollPeriod.month == month)
+        .with_for_update(read=True)
+        .execution_options(populate_existing=True)
+    )
+    assert period is not None
+    return period
+
+
 async def closed_months(
     db: AsyncSession, months: Optional[list[YearMonth]] = None
 ) -> set[YearMonth]:
@@ -130,7 +159,10 @@ def closed_detail(year: int, month: int) -> str:
 
 
 async def assert_open(db: AsyncSession, year: int, month: int) -> None:
-    if await is_closed(db, year, month):
+    """Miesiąc otwarty — sprawdzone pod blokadą współdzieloną do końca transakcji."""
+
+    period = await lock_period_shared(db, year, month)
+    if period.status == "closed":
         raise PayrollConflict(
             closed_detail(year, month),
             code="payroll_month_closed",
@@ -180,6 +212,7 @@ __all__ = [
     "is_closed",
     "label",
     "lock_period",
+    "lock_period_shared",
     "month_end",
     "month_start",
     "months_between",

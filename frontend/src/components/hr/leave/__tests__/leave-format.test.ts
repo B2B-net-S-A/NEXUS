@@ -117,3 +117,26 @@ describe("komórki kalendarza", () => {
     expect(cells.size).toBe(2);
   });
 });
+
+describe("leaveToast — zmiana urlopu w zamkniętym miesiącu płac", () => {
+  it("bez ostrzeżenia zwykły sukces", async () => {
+    const { leaveToast } = await import("../leave-format");
+    expect(leaveToast("Wniosek zaakceptowany", { payroll_warning: null })).toEqual([
+      "Wniosek zaakceptowany",
+      "success",
+    ]);
+    expect(leaveToast("Wniosek anulowany")).toEqual(["Wniosek anulowany", "success"]);
+  });
+
+  it("z ostrzeżeniem doklejone zdanie i typ „info”", async () => {
+    const { leaveToast } = await import("../leave-format");
+    expect(
+      leaveToast("Wniosek zaakceptowany", {
+        payroll_warning: "Miesiąc 2031-03 jest zamknięty w Płacach — dostały informację.",
+      }),
+    ).toEqual([
+      "Wniosek zaakceptowany. Miesiąc 2031-03 jest zamknięty w Płacach — dostały informację.",
+      "info",
+    ]);
+  });
+});

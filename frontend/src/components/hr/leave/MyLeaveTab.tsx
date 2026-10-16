@@ -36,6 +36,7 @@ import {
   LEAVE_STATUS_TONE,
   daysLabel,
   formatRange,
+  leaveToast,
   warsawToday,
 } from "./leave-format";
 
@@ -122,7 +123,7 @@ export function MyLeaveTab() {
     });
     if (!ok) return;
     cancel.mutate(row.id, {
-      onSuccess: () => showToast("Wniosek anulowany", "success"),
+      onSuccess: (saved) => showToast(...leaveToast("Wniosek anulowany", saved)),
       onError: (err) => showToast(apiErrorMessage(err, "Nie udało się anulować."), "error"),
     });
   };

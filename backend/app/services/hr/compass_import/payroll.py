@@ -3,10 +3,13 @@
 Reguły:
 
 * ``user_rates`` → ``employee_rates`` (historia z ``effective_to``,
-  ``compass_id``). Dwie otwarte stawki jednej osoby (Compass domykał
-  poprzednią wyzwalaczem, którego nie widać w kodzie) — starsza zostaje
-  domknięta dniem przed kolejną. Osoba, której historię stawek prowadzi już
-  NEXUS (stawka bez ``compass_id``), dostaje „conflict” zamiast mieszania.
+  ``compass_id``). Koniec stawki w Compassie jest wyłączny (``effective_to``
+  = 1. dzień kolejnej stawki, wyzwalacz ``close previous active rate``),
+  w NEXUSIE to ostatni dzień stawki — import odejmuje dzień, inaczej
+  w miesiącu podwyżki obowiązywałyby dwie stawki. Dwie otwarte stawki jednej
+  osoby — starsza zostaje domknięta dniem przed kolejną. Osoba, której
+  historię stawek prowadzi już NEXUS (stawka bez ``compass_id``), dostaje
+  „conflict” zamiast mieszania.
 * ``bonuses`` → ``hr_bonuses`` (``source = 'compass_import'``, ``compass_id``,
   ``source_key = 'compass:<uuid>'``). Status ``assigned``/``cancelled`` bez
   zmian (dawne ``pending`` → ``proposed``, ``paid`` → ``assigned``),
@@ -154,7 +157,9 @@ async def _plan_rates(
             )
             continue
         notes: list[str] = []
-        effective_to = parse_date(row.get("effective_to"))
+        compass_to = parse_date(row.get("effective_to"))
+        # Compass: pierwszy dzień BEZ tej stawki; NEXUS: ostatni dzień z nią.
+        effective_to = compass_to - timedelta(days=1) if compass_to else None
         if effective_to is None and str(row.get("id")) in closing:
             effective_to = closing[str(row.get("id"))]
             notes.append("druga otwarta stawka — domknięta przed kolejną")

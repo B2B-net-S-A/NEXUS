@@ -52,6 +52,10 @@ export interface LeaveBalance {
 
 export interface LeaveRequestRow {
   id: string;
+  /** Miesiące płac już zamknięte, których dotyczy zmiana (godziny zostają w zamrożonych liniach). */
+  payroll_locked_months?: string[];
+  /** Zdanie dla osoby przy zmianie w zamkniętym miesiącu płac (Płace dostały dzwonek). */
+  payroll_warning?: string | null;
   user_id: number;
   user_name: string | null;
   leave_type: LeaveType;

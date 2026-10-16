@@ -9,6 +9,12 @@ w tej samej transakcji co status.
 
 Powiadomienia nie zdradzają rodzaju nieobecności ani notatki (D6) — dzwonek
 osoby może zobaczyć jej zastępca, a zastępca nie należy do kręgu D6.
+
+Zatwierdzenie albo anulowanie urlopu w miesiącu zamkniętym w płacach nie
+rusza godzin tego miesiąca (``time_hooks``) — wynik niesie listę takich
+miesięcy (ostrzeżenie w odpowiedzi API), Płace dostają dzwonek, a ślad idzie
+z ``sensitivity='payroll'``. Dzień wolny firmy dodany albo usunięty po
+złożeniu wniosku przelicza dni aktywnych wniosków (``recount_for_company_day_off``).
 """
 
 from __future__ import annotations
@@ -41,10 +47,12 @@ from app.services.hr.leave_context import (
 from app.services.hr.leave_m365 import LeaveSnapshot, plan_operations
 from app.services.hr.leave_policy import (
     AUTO_APPROVED_TYPES,
+    CONTRACTOR_TYPES,
     HEALTH_TYPES,
     LEAVE_TYPE_LABELS,
     Actor,
     LeavePolicyError,
+    POOL_TYPES,
     can_decide,
     own_cancel_refusal,
     plan_days,
@@ -86,6 +94,41 @@ class LeaveInput:
     forward_mail_consent: bool = False
     oof_internal_message: Optional[str] = None
     oof_external_message: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class LeaveOutcome:
+    """Zapisany wniosek i to, czego nie widać w samym wierszu."""
+
+    request: LeaveRequest
+    #: Miesiące płac (``RRRR-MM``) zamknięte — ich godzin nie ruszono.
+    payroll_locked_months: tuple[str, ...] = ()
+
+    @property
+    def payroll_warning(self) -> Optional[str]:
+        return payroll_locked_warning(self.payroll_locked_months)
+
+
+def _month_label(key: str) -> str:
+    from app.services.hr.payroll_periods import label
+
+    return label(int(key[:4]), int(key[5:7]))
+
+
+def payroll_locked_warning(months: tuple[str, ...] | list[str]) -> Optional[str]:
+    """Tekst ostrzeżenia dla osoby, która zatwierdziła albo anulowała urlop."""
+
+    if not months:
+        return None
+    labels = ", ".join(_month_label(key) for key in months)
+    if len(months) == 1:
+        head = f"Miesiąc płac {labels} jest już zamknięty"
+    else:
+        head = f"Miesiące płac {labels} są już zamknięte"
+    return (
+        f"{head} — godziny w nim zostały bez zmian. "
+        "Korektę zrobią Płace, dostały powiadomienie."
+    )
 
 
 def actor_of(user: User) -> Actor:
@@ -141,17 +184,33 @@ async def people_admin_ids(db: AsyncSession) -> list[int]:
     return [user.id for user in users if user.has_role(UserRole.admin)]
 
 
+async def admin_ids(db: AsyncSession) -> list[int]:
+    """Aktywni admini (rola główna albo dodatkowa)."""
+
+    users = await db.scalars(
+        select(User).where(User.is_active.is_(True)).order_by(User.id)
+    )
+    return [user.id for user in users if user.has_role(UserRole.admin)]
+
+
 async def approver_ids(
     db: AsyncSession, profile: Optional[EmployeeProfile]
 ) -> list[int]:
-    """Kto decyduje: przełożony z kartoteki, a bez niego Kadry (albo admini)."""
+    """Kto decyduje: przełożony z kartoteki, a bez niego Kadry (albo admini).
+
+    Wniosek jedynej osoby z Kadr bez przełożonego idzie do adminów — sama
+    o nim nie zdecyduje, a pusta lista znaczyła wniosek, o którym nikt nie wie.
+    """
 
     if profile is not None and profile.manager_user_id is not None:
         manager = await db.get(User, profile.manager_user_id)
         if manager is not None and manager.is_active:
             return [manager.id]
     subject_id = profile.user_id if profile is not None else None
-    return [uid for uid in await people_admin_ids(db) if uid != subject_id]
+    hr = [uid for uid in await people_admin_ids(db) if uid != subject_id]
+    if hr:
+        return hr
+    return [uid for uid in await admin_ids(db) if uid != subject_id]
 
 
 async def approver_label(db: AsyncSession, profile: Optional[EmployeeProfile]) -> str:
@@ -322,6 +381,57 @@ async def _set_days_active(
     )
 
 
+async def _payroll_locked(
+    db: AsyncSession,
+    *,
+    request: LeaveRequest,
+    subject: User,
+    actor_id: Optional[int],
+    months: list[str],
+    event: str,
+) -> tuple[str, ...]:
+    """Urlop w zamkniętym miesiącu płac: ślad i dzwonek dla Płac (bez rodzaju)."""
+
+    if not months:
+        return ()
+    found = tuple(sorted(set(months)))
+    audit.record(
+        db,
+        actor_user_id=actor_id,
+        subject_user_id=request.user_id,
+        entity_type="leave_request",
+        entity_id=request.id,
+        action="leave_in_closed_payroll_month",
+        details={
+            "months": list(found),
+            "event": event,
+            "start_date": request.start_date.isoformat(),
+            "end_date": request.end_date.isoformat(),
+        },
+        sensitivity="payroll",
+    )
+    from app.services.hr.time_access import users_with_permission
+    from app.services.hr.time_flow import payroll_link
+
+    payroll = [
+        user.id for user in await users_with_permission(db, ProductAction.payroll)
+    ]
+    first = found[0]
+    await _notify(
+        db,
+        payroll,
+        exclude={actor_id} if actor_id is not None else set(),
+        title="Nieobecność w zamkniętym miesiącu płac",
+        message=(
+            f"{subject.name}: {', '.join(_month_label(key) for key in found)}. "
+            "Godziny w zamkniętym miesiącu czekają na korektę."
+        ),
+        ntype=NotificationType.hr_timesheet_decided,
+        link=payroll_link(int(first[:4]), int(first[5:7])),
+    )
+    return found
+
+
 # ── Podgląd i złożenie ────────────────────────────────────────────────────────
 
 
@@ -446,7 +556,7 @@ async def submit(
     data: LeaveInput,
     on_behalf: bool,
     today: date,
-) -> LeaveRequest:
+) -> LeaveOutcome:
     """Zapisuje wniosek. Wpis za pracownika i L4 są zatwierdzone od razu.
 
     Zgodę na przekierowanie poczty daje wyłącznie sama osoba: wpis za
@@ -561,7 +671,7 @@ async def submit(
             ntype=NotificationType.hr_leave_requested,
             link=LINK_APPROVALS,
         )
-        return request
+        return LeaveOutcome(request)
 
     if on_behalf:
         await _notify(
@@ -587,13 +697,15 @@ async def submit(
             ntype=NotificationType.hr_absence_reported,
             link=LINK_APPROVALS,
         )
-    await _after_approval(db, request, subject=subject, actor=actor, today=today)
-    return request
+    locked = await _after_approval(
+        db, request, subject=subject, actor=actor, today=today
+    )
+    return LeaveOutcome(request, locked)
 
 
 async def _after_approval(
     db: AsyncSession, request: LeaveRequest, *, subject: User, actor: User, today: date
-) -> None:
+) -> tuple[str, ...]:
     if request.substitute_user_id is not None and request.end_date >= today:
         await _notify(
             db,
@@ -613,8 +725,16 @@ async def _after_approval(
     # przelicza. Zamknięte w płacach miesiące są tylko raportowane.
     from app.services.hr import time_hooks
 
-    await time_hooks.on_leave_approved(
+    hooked = await time_hooks.on_leave_approved(
         db, request.user_id, await _request_days(db, request.id)
+    )
+    return await _payroll_locked(
+        db,
+        request=request,
+        subject=subject,
+        actor_id=actor.id,
+        months=hooked["locked_conflicts"],
+        event="approved",
     )
 
 
@@ -680,7 +800,7 @@ async def approve(
     request_id: uuid.UUID,
     note: Optional[str],
     today: date,
-) -> LeaveRequest:
+) -> LeaveOutcome:
     request, subject, _ = await _decidable(db, actor, request_id)
     changed = await _conditional_status(
         db,
@@ -706,8 +826,10 @@ async def approve(
         ntype=NotificationType.hr_leave_decided,
         link=LINK_SELF,
     )
-    await _after_approval(db, request, subject=subject, actor=actor, today=today)
-    return request
+    locked = await _after_approval(
+        db, request, subject=subject, actor=actor, today=today
+    )
+    return LeaveOutcome(request, locked)
 
 
 async def reject(
@@ -759,7 +881,7 @@ async def _after_cancel(
     subject: User,
     profile: Optional[EmployeeProfile],
     today: date,
-) -> None:
+) -> tuple[str, ...]:
     await _set_days_active(db, request.id, False)
     await db.refresh(request)
     _audit(
@@ -784,18 +906,27 @@ async def _after_cancel(
         ntype=NotificationType.hr_leave_cancelled,
         link=LINK_CALENDAR,
     )
-    if previous_status == "approved":
-        await _enqueue_m365(db, request, "cancelled", today=today)
-        from app.services.hr import time_hooks
+    if previous_status != "approved":
+        return ()
+    await _enqueue_m365(db, request, "cancelled", today=today)
+    from app.services.hr import time_hooks
 
-        await time_hooks.on_leave_cancelled(
-            db, request.user_id, await _request_days(db, request.id)
-        )
+    hooked = await time_hooks.on_leave_cancelled(
+        db, request.user_id, await _request_days(db, request.id)
+    )
+    return await _payroll_locked(
+        db,
+        request=request,
+        subject=subject,
+        actor_id=actor.id,
+        months=hooked["locked_conflicts"],
+        event="cancelled",
+    )
 
 
 async def cancel_own(
     db: AsyncSession, *, actor: User, request_id: uuid.UUID, today: date
-) -> LeaveRequest:
+) -> LeaveOutcome:
     request = await db.get(LeaveRequest, request_id)
     if request is None or request.user_id != actor.id:
         raise LeaveNotFound(request_id)
@@ -818,7 +949,7 @@ async def cancel_own(
     if not changed:
         raise LeaveConflict("Ten wniosek zmienił się w międzyczasie — odśwież listę.")
     profile = await people.profile_of(db, actor.id)
-    await _after_cancel(
+    locked = await _after_cancel(
         db,
         request,
         previous_status=previous,
@@ -827,12 +958,12 @@ async def cancel_own(
         profile=profile,
         today=today,
     )
-    return request
+    return LeaveOutcome(request, locked)
 
 
 async def cancel_as_approver(
     db: AsyncSession, *, actor: User, request_id: uuid.UUID, today: date
-) -> LeaveRequest:
+) -> LeaveOutcome:
     request, subject, profile = await _decidable(db, actor, request_id)
     refusal = team_cancel_refusal(status=request.status)
     if refusal is not None:
@@ -846,7 +977,7 @@ async def cancel_as_approver(
     )
     if not changed:
         raise LeaveConflict("Ten wniosek zmienił się w międzyczasie — odśwież listę.")
-    await _after_cancel(
+    locked = await _after_cancel(
         db,
         request,
         previous_status=previous,
@@ -855,7 +986,7 @@ async def cancel_as_approver(
         profile=profile,
         today=today,
     )
-    return request
+    return LeaveOutcome(request, locked)
 
 
 async def set_forward_consent(
@@ -901,6 +1032,241 @@ async def set_forward_consent(
                 leave_request_id=request.id,
             )
     return request
+
+
+# ── Dzień wolny firmy ─────────────────────────────────────────────────────────
+
+DayRow = tuple[date, Decimal, bool]
+
+
+def _split(
+    days: list[DayRow], *, leave_type: str, employment_type: str
+) -> tuple[Decimal, Decimal]:
+    """``paid_days`` / ``unpaid_days`` z dni wniosku (jak ``plan_days``)."""
+
+    paid = sum((fraction for _, fraction, is_paid in days if is_paid), Decimal("0"))
+    if leave_type in POOL_TYPES and employment_type in CONTRACTOR_TYPES:
+        total = sum((fraction for _, fraction, _ in days), Decimal("0"))
+        return paid, total - paid
+    return paid, Decimal("0")
+
+
+async def _replanned_days(
+    db: AsyncSession,
+    request: LeaveRequest,
+    *,
+    wanted: list[tuple[date, Decimal]],
+    current: dict[date, LeaveRequestDay],
+    employment_type: str,
+) -> list[DayRow]:
+    """Dni wniosku po zmianie kalendarza, z płatnością z puli bez tego wniosku.
+
+    Pula wraca: dzień, który przestał być roboczy, zwalnia miejsce (kontraktor
+    może dostać płatny dzień w zamian). Gdy plan się nie składa (brak dni
+    roboczych, limit przekroczony przez sam dzień wolny), dni idą za
+    kalendarzem, a płatność zostaje taka, jaka była.
+    """
+
+    try:
+        pools = await pools_for(
+            db,
+            request.user_id,
+            years_between(request.start_date, request.end_date),
+            exclude_request_id=request.id,
+        )
+        plan = plan_days(
+            leave_type=request.leave_type,
+            employment_type=employment_type,
+            days=wanted,
+            pools=pools,
+        )
+        return [(item.day, item.fraction, item.paid) for item in plan.days]
+    except LeavePolicyError:
+        default_paid = (
+            request.leave_type in POOL_TYPES and employment_type not in CONTRACTOR_TYPES
+        )
+        return [
+            (day, fraction, current[day].paid if day in current else default_paid)
+            for day, fraction in wanted
+        ]
+
+
+async def _recount_request(
+    db: AsyncSession, request: LeaveRequest
+) -> Optional[dict[str, Any]]:
+    """Przelicza dni jednego wniosku z kalendarzem firmy (``None`` = bez zmian)."""
+
+    profile = await people.profile_of(db, request.user_id)
+    employment_type = (profile.employment_type if profile else None) or "uop"
+    calendar = await load_calendar(db, request.start_date, request.end_date)
+    wanted = requested_days(
+        calendar, request.start_date, request.end_date, request.half_day
+    )
+    current = {
+        row.day: row
+        for row in await db.scalars(
+            select(LeaveRequestDay).where(
+                LeaveRequestDay.leave_request_id == request.id
+            )
+        )
+    }
+    if {day for day, _ in wanted} == set(current):
+        return None
+    before = sum((row.fraction for row in current.values()), Decimal("0"))
+    planned = await _replanned_days(
+        db, request, wanted=wanted, current=current, employment_type=employment_type
+    )
+    target = {day: (fraction, paid) for day, fraction, paid in planned}
+    removed = sorted(day for day in current if day not in target)
+    for day in removed:
+        await db.delete(current[day])
+    await db.flush()
+    added: list[date] = []
+    conflicts = 0
+    for day, (fraction, paid) in sorted(target.items()):
+        row = current.get(day)
+        if row is not None:
+            row.fraction, row.paid = fraction, paid
+            continue
+        try:
+            async with db.begin_nested():
+                db.add(
+                    LeaveRequestDay(
+                        leave_request_id=request.id,
+                        user_id=request.user_id,
+                        day=day,
+                        fraction=fraction,
+                        paid=paid,
+                        active=True,
+                    )
+                )
+                await db.flush()
+        except IntegrityError as exc:
+            # Dzień zajęty w międzyczasie innym wnioskiem — zostaje przy tamtym.
+            if _ACTIVE_UNIQUE not in str(exc.orig):
+                raise
+            conflicts += 1
+            continue
+        added.append(day)
+    kept = [
+        (day, fraction, paid)
+        for day, (fraction, paid) in target.items()
+        if day in current or day in added
+    ]
+    paid_days, unpaid_days = _split(
+        kept, leave_type=request.leave_type, employment_type=employment_type
+    )
+    await db.execute(
+        update(LeaveRequest)
+        .where(LeaveRequest.id == request.id)
+        .values(paid_days=paid_days, unpaid_days=unpaid_days, updated_at=func.now())
+    )
+    await db.refresh(request)
+    after = sum((fraction for _, fraction, _ in kept), Decimal("0"))
+    return {
+        "before": before,
+        "after": after,
+        "removed": removed,
+        "added": added,
+        "conflicts": conflicts,
+    }
+
+
+async def recount_for_company_day_off(
+    db: AsyncSession, *, day: date, actor: User, added: bool
+) -> dict[str, Any]:
+    """Dzień wolny firmy dodany (``added``) albo usunięty: przelicza dni
+    aktywnych wniosków (oczekujących i zatwierdzonych) obejmujących ``day``.
+
+    Dzień wolny nie jest dniem roboczym — znika z wniosku i wraca do puli;
+    odwołany dzień wolny wraca do wniosku. Ślad per wniosek, dzwonek osobie,
+    godziny zatwierdzonego urlopu przez ``time_hooks``. Microsoft 365 bez
+    zmian: okno urlopu (daty od–do) się nie zmienia.
+    """
+
+    from app.services.hr import time_hooks
+
+    requests = list(
+        await db.scalars(
+            select(LeaveRequest)
+            .where(
+                LeaveRequest.status.in_(("pending", "approved")),
+                LeaveRequest.start_date <= day,
+                LeaveRequest.end_date >= day,
+            )
+            .order_by(LeaveRequest.user_id, LeaveRequest.start_date)
+            .with_for_update()
+        )
+    )
+    counts: dict[str, Any] = {"requests": 0, "conflicts": 0, "payroll_locked": 0}
+    reason = "company_day_off_added" if added else "company_day_off_removed"
+    for request in requests:
+        change = await _recount_request(db, request)
+        if change is None:
+            continue
+        counts["requests"] += 1
+        counts["conflicts"] += change["conflicts"]
+        _audit(
+            db,
+            actor_id=actor.id,
+            request=request,
+            action="leave_days_recounted",
+            extra={
+                "day": day.isoformat(),
+                "reason": reason,
+                "days_before": f"{change['before']:.1f}",
+                "days_after": f"{change['after']:.1f}",
+                "conflicts": change["conflicts"],
+            },
+        )
+        subject = await db.get(User, request.user_id)
+        if request.status == "approved" and subject is not None:
+            locked: list[str] = []
+            if change["removed"]:
+                hooked = await time_hooks.on_leave_cancelled(
+                    db, request.user_id, change["removed"]
+                )
+                locked.extend(hooked["locked_conflicts"])
+            if change["added"]:
+                hooked = await time_hooks.on_leave_approved(
+                    db, request.user_id, change["added"]
+                )
+                locked.extend(hooked["locked_conflicts"])
+            found = await _payroll_locked(
+                db,
+                request=request,
+                subject=subject,
+                actor_id=actor.id,
+                months=locked,
+                event=reason,
+            )
+            counts["payroll_locked"] += len(found)
+        delta = change["after"] - change["before"]
+        if delta == 0:
+            continue
+        span = format_range(request.start_date, request.end_date)
+        is_leave = request.leave_type in POOL_TYPES
+        what = (
+            f"Twój urlop {span} jest" if is_leave else f"Twoja nieobecność {span} jest"
+        )
+        if delta < 0:
+            change_text = ("krótszy" if is_leave else "krótsza") + (
+                f" o {days_label(-delta)} — {day:%d.%m.%Y} to dzień wolny firmy."
+            )
+        else:
+            change_text = ("dłuższy" if is_leave else "dłuższa") + (
+                f" o {days_label(delta)} — {day:%d.%m.%Y} znów jest dniem roboczym."
+            )
+        await _notify(
+            db,
+            [request.user_id],
+            exclude={actor.id},
+            title="Dni nieobecności przeliczone",
+            message=f"{what} {change_text}",
+            ntype=NotificationType.hr_leave_decided,
+            link=LINK_SELF,
+        )
+    return counts
 
 
 # ── Odczyty ───────────────────────────────────────────────────────────────────

@@ -18,6 +18,11 @@ Tabele i reguły:
 * ``timesheet_role_defaults`` → ``timesheet_role_defaults`` (rola Compassa →
   rola NEXUSA; rola bez odpowiednika = opis wyłączony do decyzji Kadr),
 * ``timesheet_user_templates`` → ``timesheet_templates``.
+
+Ponowny import nie nadpisuje NEXUSA: timesheet w zamkniętym miesiącu płac
+(``payroll_locked``) albo zmieniony w NEXUSIE po imporcie (akceptacja,
+zwrot, cofnięcie) i dzień obecności poprawiony w NEXUSIE dostają „bez zmian”
+(gdy paczka mówi to samo) albo „conflict” — nigdy „update”.
 """
 
 from __future__ import annotations
@@ -62,7 +67,7 @@ from .common import (
     source_id,
     text,
 )
-from .core import ModulePlan, RowPlan, remember
+from .core import ModulePlan, RowPlan, changed_in_nexus, remember
 
 MODULE = "time"
 TIMESHEETS = "timesheets"
@@ -73,6 +78,11 @@ TEMPLATES = "timesheet_user_templates"
 
 SELF_APPROVAL = "akceptacja własnego timesheetu — akceptujący pominięty"
 HASH_MISMATCH = "suma kontrolna PDF różna od wpisów"
+CHANGED_IN_NEXUS = "timesheet zmieniony w NEXUSIE po imporcie — bez nadpisania"
+LOCKED_IN_PAYROLL = "timesheet w zamkniętym miesiącu płac — bez nadpisania"
+ATTENDANCE_CHANGED_IN_NEXUS = (
+    "dzień obecności zmieniony w NEXUSIE po imporcie — bez nadpisania"
+)
 NO_DESCRIPTION = "(bez opisu)"
 OVERTIME_FALLBACK = "Nadgodziny zatwierdzone w Compassie"
 _HASH = re.compile(r"^[0-9a-f]{64}$")
@@ -152,7 +162,11 @@ def _hash_of(entries: list[Mapping[str, Any]]) -> str:
 
 
 async def _plan_timesheets(
-    db: AsyncSession, bundle: Bundle, people: People, result: ImportPlan
+    db: AsyncSession,
+    bundle: Bundle,
+    people: People,
+    mapping: dict,
+    result: ImportPlan,
 ) -> None:
     entries_by_sheet: dict[str, list[Mapping[str, Any]]] = defaultdict(list)
     for entry in bundle.rows(ENTRIES):
@@ -274,19 +288,24 @@ async def _plan_timesheets(
             for e in current
         )
         same_entries = current_keys == sorted(_entry_key(e) for e in entries)
+        same = same_entries and not changed_fields(existing, header)
         if not same_entries and any(e.source not in IMPORT_SOURCES for e in current):
-            result.rows.append(
-                RowPlan(
-                    sid,
-                    "conflict",
-                    "timesheet zmieniony w NEXUSIE po imporcie — bez nadpisania",
-                    payload,
-                )
-            )
+            result.rows.append(RowPlan(sid, "conflict", CHANGED_IN_NEXUS, payload))
+            continue
+        if existing.payroll_locked:
+            if same:
+                result.rows.append(RowPlan(sid, "unchanged", reason, payload))
+            else:
+                result.rows.append(RowPlan(sid, "conflict", LOCKED_IN_PAYROLL, payload))
+            continue
+        if await changed_in_nexus(db, mapping.get(sid), existing.updated_at):
+            if same:
+                result.rows.append(RowPlan(sid, "unchanged", reason, payload))
+            else:
+                result.rows.append(RowPlan(sid, "conflict", CHANGED_IN_NEXUS, payload))
             continue
         payload["replace_entries"] = not same_entries
-        changed = changed_fields(existing, header)
-        action = "unchanged" if not changed and same_entries else "update"
+        action = "unchanged" if same else "update"
         result.rows.append(RowPlan(sid, action, reason, payload))
 
 
@@ -344,6 +363,12 @@ async def _plan_attendance(
         changed = changed_fields(existing, values)
         if not changed:
             result.rows.append(RowPlan(sid, "unchanged", "", payload))
+        elif sid in mapping and await changed_in_nexus(
+            db, mapping[sid], existing.updated_at
+        ):
+            result.rows.append(
+                RowPlan(sid, "conflict", ATTENDANCE_CHANGED_IN_NEXUS, payload)
+            )
         elif sid in mapping:
             result.rows.append(RowPlan(sid, "update", "", payload))
         else:
@@ -462,7 +487,7 @@ async def plan(db: AsyncSession, bundle: Bundle) -> ModulePlan:
     result = ImportPlan(module=MODULE)
     people = await load_people(db, bundle)
     mapping = await module_map(db, MODULE)
-    await _plan_timesheets(db, bundle, people, result)
+    await _plan_timesheets(db, bundle, people, mapping, result)
     await _plan_attendance(db, bundle, people, mapping, result)
     await _plan_role_defaults(db, bundle, people, mapping, result)
     await _plan_templates(db, bundle, people, mapping, result)

@@ -96,18 +96,6 @@ async def history(db: AsyncSession, user_id: int) -> list[EmployeeRate]:
     return list(rows)
 
 
-async def rates_on(db: AsyncSession, day: date) -> dict[int, EmployeeRate]:
-    """Stawka obowiązująca w dniu ``day`` dla każdej osoby, która ją ma."""
-
-    rows = await db.scalars(
-        select(EmployeeRate).where(
-            EmployeeRate.effective_from <= day,
-            (EmployeeRate.effective_to.is_(None)) | (EmployeeRate.effective_to >= day),
-        )
-    )
-    return {rate.user_id: rate for rate in rows}
-
-
 async def _locked_history(db: AsyncSession, user_id: int) -> list[EmployeeRate]:
     profile = await db.scalar(
         select(EmployeeProfile.id)
@@ -264,7 +252,6 @@ __all__ = [
     "history",
     "rate_on",
     "rate_payload",
-    "rates_on",
     "set_rate",
     "validate_effective_from",
     "validate_rate",

@@ -71,7 +71,20 @@
   przywraca (`app/services/hr/contract_hooks.py`).
 - Zamknięcie miesiąca: propozycje premii muszą mieć decyzję, ostrzeżenia wymagają
   potwierdzenia, linie zamrożone w `payroll_lines`, timesheety zablokowane.
-  Ponowne otwarcie tylko admin, z powodem.
+  Ponowne otwarcie tylko admin, z powodem. Zamknięcie blokuje okres i timesheety
+  PRZED liczeniem raportu; akceptacje timesheetów i premii sprawdzają okres pod
+  blokadą współdzieloną (kolejność: okres, potem timesheet).
+- Urlop zatwierdzony albo anulowany w zamkniętym miesiącu płac: odpowiedź API niesie
+  `payroll_locked_months` i `payroll_warning` (front pokazuje je w komunikacie), Płace
+  dostają dzwonek bez rodzaju nieobecności, ślad z `sensitivity="payroll"`.
+- Dzień wolny firmy dodany albo usunięty przelicza dni aktywnych wniosków obejmujących
+  tę datę (pula wraca), dzwonek osobie; okno M365 bez zmian.
+- Cofnięcie zakończenia kontraktu przywraca premię z zamkniętego miesiąca jako
+  propozycję w pierwszym otwartym miesiącu (`restored_from_closed_period`).
+- Import z Compassa: koniec stawki minus jeden dzień (Compass trzyma pierwszy dzień
+  następnej stawki); ponowny import nie nadpisuje zmian zrobionych w NEXUSIE po
+  poprzednim zapisie (`unchanged` albo `conflict`, nigdy `update`), timesheet
+  zablokowany płacami jest nietykalny.
 
 ## Wejście i odejście (`app/services/hr/lifecycle_*.py`, `handover.py`, `deactivation.py`)
 

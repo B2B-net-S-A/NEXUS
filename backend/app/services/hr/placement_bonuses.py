@@ -17,7 +17,10 @@ Dla kontraktu z datą startu (status aktywny, kończący się albo zakończony):
   rekruter (próg marży); ``source_key`` = ``contract:{id}:dl|dl_extra|recruiter``.
 
 Kontrakt zakończony przed terminem (albo anulowany) → propozycje anulowane
-przez automat; cofnięcie zakończenia → przywrócone. Premii zatwierdzonej
+przez automat; cofnięcie zakończenia → przywrócone. Gdy miesiąc premii
+zamknięto w międzyczasie, przywrócona propozycja idzie na pierwszy otwarty
+miesiąc (``restored_from_closed_period`` w migawce) — o wypłacie i tak
+decydują Płace, bo to znów propozycja. Premii zatwierdzonej
 albo anulowanej ręcznie automat nie rusza; kwoty poprawionej przez Płace
 też nie. „Powrót po przerwie” (``returned_from_contract_id``) to nie nowy
 placement.
@@ -336,7 +339,8 @@ async def reconcile_contract(
         )
         if not restorable and bonus.status != "proposed":
             continue
-        if (bonus.period_year, bonus.period_month) in closed:
+        closed_period = (bonus.period_year, bonus.period_month) in closed
+        if closed_period and not restorable:
             continue
         if restorable:
             bonus.status = "proposed"
@@ -344,6 +348,17 @@ async def reconcile_contract(
             bonus.cancelled_at = None
             bonus.cancelled_by = None
             counts["restored"] += 1
+        if closed_period:
+            # Anulowana przez automat w miesiącu, który potem zamknięto:
+            # wraca jako propozycja w pierwszym otwartym miesiącu.
+            moved_from = f"{bonus.period_year}-{bonus.period_month:02d}"
+            snapshot["restored_from_closed_period"] = moved_from
+            bonus.period_year, bonus.period_month = target_period
+            if _edited(bonus):
+                bonus.rule_snapshot = {
+                    **(bonus.rule_snapshot or {}),
+                    "restored_from_closed_period": moved_from,
+                }
         if _edited(bonus):
             bonus.eligible_on = eligible_on
             continue

@@ -18,11 +18,12 @@ from typing import Optional
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.hr_payroll import PayrollPeriod
 from app.models.hr_time import Timesheet, TimesheetEntry
 from app.models.notification import NotificationType
 from app.models.user import User
 from app.services.action_permissions import ProductAction
-from app.services.hr import audit, people
+from app.services.hr import audit, payroll_periods, people
 from app.services.hr.time_access import (
     Actor,
     approval_recipients,
@@ -186,8 +187,31 @@ async def submit(db: AsyncSession, *, timesheet_id: int, actor: Actor) -> Timesh
     return await lock_timesheet(db, timesheet.id)
 
 
+async def _payroll_period_shared(
+    db: AsyncSession, timesheet_id: int
+) -> Optional[PayrollPeriod]:
+    """Okres płac timesheetu pod blokadą współdzieloną — PRZED blokadą
+    timesheetu (ta sama kolejność co zamknięcie: okres, potem timesheety).
+
+    Bez tego akceptacja w trakcie zamykania mija raport, a timesheet osoby
+    spoza listy płac (bez ``payroll_locked``) przechodzi po zamknięciu.
+    """
+
+    row = (
+        await db.execute(
+            select(Timesheet.year, Timesheet.month).where(Timesheet.id == timesheet_id)
+        )
+    ).first()
+    if row is None:
+        return None  # brak timesheetu zgłosi ``lock_timesheet``
+    return await payroll_periods.lock_period_shared(db, row.year, row.month)
+
+
 async def approve(db: AsyncSession, *, timesheet_id: int, actor: Actor) -> Timesheet:
+    period = await _payroll_period_shared(db, timesheet_id)
     timesheet = await _locked_subject(db, timesheet_id, actor, deciding=True)
+    if period is not None and period.status == "closed":
+        raise TimeConflict(payroll_periods.closed_detail(period.year, period.month))
     if timesheet.status != "submitted":
         raise TimeConflict(
             "Timesheet został już rozpatrzony albo nie czeka na akceptację. "
