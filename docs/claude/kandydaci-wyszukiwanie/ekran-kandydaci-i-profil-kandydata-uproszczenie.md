@@ -18,7 +18,7 @@ trzy tryby z 21.09 (Baza / Wyszukiwanie / Z treści requestu).
   „Słowa kluczowe (N)”). Rząd 2: przyciski z okienkami
   (Radix Popover) — Stawka · Lokalizacja (miasto z podpowiedziami, promień w km,
   województwa; tekst wpisany tuż przed zamknięciem okienka zapisuje cleanup
-  `LocationFields`) · Tryb pracy | Historia z nami (blok „Rekrutacje”: brał /
+  `LocationFields`) · Tryb pracy | Rekrutacje i historia (do 16.10.2026 „Historia z nami”; blok „Rekrutacje”: brał /
   nie brał udziału, bez procesu w toku — osobna reguła „Blok „Rekrutacje”…”;
   etap, wysłany do klienta, pracował u klienta, KONTAKT z kandydatem w okresie
   i przez kogo) · Umiejętności · Dostępność (jedno pytanie „Czy można go teraz

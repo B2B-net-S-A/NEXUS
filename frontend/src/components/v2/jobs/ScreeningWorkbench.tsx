@@ -26,6 +26,12 @@
  * „full” z kolejką zniknęły — kolejką jest kolumna „Nowi” na Tablicy, stawka
  * i karta są polami formularza, a notatki zostają w panelu osoby.
  *
+ * Pamięć rozmowy (16.10.2026, decyzje Artura D1 A, D2 A, D3 B): odpowiedzi
+ * wpisane w rozmowie żyją w pamięci osoby (`store/screening-memory.ts`), nie
+ * w samym formularzu — odznaczenie rekrutacji w „Screening dla” ją chowa,
+ * a nie kasuje („N odpowiedzi w pamięci”, „Cofnij”), zapis czyści pamięć,
+ * a powrót do osoby po zamknięciu panelu przywraca niezapisany screening.
+ *
  * Podgląd (`CandidatePreviewPane`, pdf.js i `docx-preview`) ładuje się za
  * `next/dynamic` — pilnuje tego `heavy-bundle-boundaries.test.ts`.
  */
@@ -49,11 +55,15 @@ import { BeforeCallProfile } from "@/components/v2/screening-form/BeforeCallProf
 import { ScreeningFormHistory } from "@/components/v2/screening-form/ScreeningFormHistory";
 import { ScreeningFullForm } from "@/components/v2/screening-form/ScreeningFullForm";
 import { JointScreeningForm } from "@/components/v2/screening-form/JointScreeningForm";
-import { JointScreeningPicker } from "@/components/v2/screening-form/JointScreeningPicker";
+import { JointScreeningPicker, type JointPickerNotice } from "@/components/v2/screening-form/JointScreeningPicker";
+import { MemoryRestoredNotice } from "@/components/v2/screening-form/ScreeningMemoryNotes";
+import { useConfirmV2 } from "@/components/v2/modals/ConfirmV2";
 import { alsoFitsApi, alsoFitsKeys } from "@/lib/also-fits-api";
 import { apiErrorMessage } from "@/lib/api-error";
 import { proposalsBulkApi } from "@/lib/candidate-search-api";
+import { useAuthStore } from "@/store/auth";
 import { useJointScreeningIntent } from "@/store/joint-screening";
+import { readScreeningMemory, useScreeningMemorySummary, writeScreeningMemory } from "@/store/screening-memory";
 import { ScreeningLegacyText, ScreeningSummaryView } from "@/components/v2/screening-form/ScreeningSummaryView";
 import { interviewQuestionsApi } from "@/lib/api";
 import {
@@ -64,6 +74,12 @@ import {
   type JointContextPair,
 } from "@/lib/api/screeningForm";
 import { JOINT_MAX_OTHERS } from "@/lib/joint-screening";
+import {
+  memoryHasEntries,
+  memoryWithSelection,
+  type PendingMemoryItem,
+  type ScreeningMemoryLink,
+} from "@/lib/screening-memory";
 import { placeStage } from "@/lib/board-stages";
 import { terminalOf } from "@/lib/kanban-terminal";
 import { VERIFIED_STAGE, findStageColumn, isNewColumn, itemFullName } from "@/lib/pipeline-flow";
@@ -184,20 +200,54 @@ export function ScreeningWorkbench({
   // Trwający zapis wspólny: ten sam wybór do zamknięcia karty wyniku, choć
   // kotwica przeszła dalej, a lista rekrutacji się odświeżyła.
   const [jointSession, setJointSession] = useState<JointSelection | null>(null);
-  // Inna osoba = nowa rozmowa; „Screening razem” z karty zaznacza od razu —
+  // Pamięć rozmowy osoby (16.10.2026): wpisy z rozmowy niezależne od tego,
+  // które rekrutacje są zaznaczone, w karcie przeglądarki do zapisu (max 12 h).
+  const userId = useAuthStore((s) => s.user?.id);
+  const memorySummary = useScreeningMemorySummary(userId, candidateId);
+  const anchorClientId = jointContext.data?.anchor?.client_id;
+  const memoryLink = useMemo<ScreeningMemoryLink | undefined>(
+    () =>
+      candidateId > 0
+        ? {
+            read: () => readScreeningMemory(userId, candidateId),
+            write: (update) => {
+              writeScreeningMemory(userId, candidateId, update);
+            },
+            clientId: anchorClientId,
+          }
+        : undefined,
+    [userId, candidateId, anchorClientId],
+  );
+  const rememberSelection = (ids: ReadonlySet<number>) =>
+    writeScreeningMemory(userId, candidateId, (prev) => memoryWithSelection(prev, jobId, [...ids], Date.now()));
+  // Niezapisany screening z wcześniejszego otwarcia panelu (D3 B) — kiedy.
+  const [restoredAt, setRestoredAt] = useState<number | null>(null);
+  const [pickerNotice, setPickerNotice] = useState<JointPickerNotice | null>(null);
+  // „Odrzuć szkic” zaczyna formularze od nowa, od ostatniego zapisu.
+  const [memoryEpoch, setMemoryEpoch] = useState(0);
+  const { askConfirm, confirmDialog } = useConfirmV2();
+  // Inna osoba = nowa rozmowa, chyba że ta osoba ma niezapisany screening —
+  // wtedy wraca jego zaznaczenie. „Screening razem” z karty zaznacza od razu —
   // także dla osoby, której panel jest już otwarty. Pusty odbiór (podwójny
   // efekt StrictMode) niczego nie czyści.
   const jointFor = useRef<number | null>(null);
   useEffect(() => {
     if (jointFor.current !== candidateId) {
       jointFor.current = candidateId;
-      setJointIds(new Set());
+      const saved = candidateId > 0 ? readScreeningMemory(userId, candidateId) : null;
+      setJointIds(new Set(saved && saved.anchorJobId === jobId ? saved.selected.slice(0, JOINT_MAX_OTHERS) : []));
+      setRestoredAt(memoryHasEntries(saved) ? saved.updatedAt : null);
+      setPickerNotice(null);
       setJointSession(null);
     }
     if (candidateId <= 0 || intent?.candidateId !== candidateId) return;
     const ids = consumeIntent(candidateId);
-    if (ids.length > 0) setJointIds(new Set(ids.slice(0, JOINT_MAX_OTHERS)));
-  }, [candidateId, intent, consumeIntent]);
+    if (ids.length > 0) {
+      const next = new Set(ids.slice(0, JOINT_MAX_OTHERS));
+      setJointIds(next);
+      writeScreeningMemory(userId, candidateId, (prev) => memoryWithSelection(prev, jobId, [...next], Date.now()));
+    }
+  }, [candidateId, intent, consumeIntent, userId, jobId]);
   // „Wgraj CV” w podglądzie — ta sama bramka co kafelek w doku osoby.
   const canManageDocuments = useCapability("candidate.document.manage");
 
@@ -288,13 +338,58 @@ export function ScreeningWorkbench({
     [...jointIds].filter((id) => jointPairs.some((p) => p.job_id === id && p.selectable)).slice(0, JOINT_MAX_OTHERS),
   );
   const selectedPairs = jointPairs.filter((p) => selectedJoint.has(p.job_id));
-  const toggleJoint = (id: number) =>
-    setJointIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else if (next.size < JOINT_MAX_OTHERS) next.add(id);
-      return next;
+  // Odznaczenie chowa rekrutację, wpisy zostają w pamięci (D1 A) — z „Cofnij”.
+  const toggleJoint = (id: number) => {
+    const title = jointPairs.find((p) => p.job_id === id)?.title ?? "";
+    const memory = memorySummary.byJob.get(id);
+    // Od tego, co widać — zaznaczenie przywrócone z pamięci może mieć rekrutację,
+    // która przestała być do wyboru (np. jest już po screeningu).
+    const next = new Set(selectedJoint);
+    if (next.has(id)) {
+      next.delete(id);
+      setPickerNotice({ kind: "unchecked", jobId: id, title, answers: memory?.answers ?? 0 });
+    } else if (next.size < JOINT_MAX_OTHERS) {
+      next.add(id);
+      setPickerNotice(memory?.any ? { kind: "restored", jobId: id, title, answers: memory.answers } : null);
+    } else {
+      return;
+    }
+    setJointIds(next);
+    rememberSelection(next);
+  };
+  // Zapis zamyka rozmowę (D2 A) — komunikaty o pamięci przestają dotyczyć.
+  const onFormSaved = () => {
+    setPickerNotice(null);
+    setRestoredAt(null);
+  };
+  const discardMemory = async () => {
+    const ok = await askConfirm({
+      title: "Odrzucić niezapisany screening?",
+      description:
+        "Wpisy z tej rozmowy znikną we wszystkich rekrutacjach, a formularz wróci do ostatniego zapisu.",
+      confirmLabel: "Odrzuć szkic",
+      variant: "destructive",
     });
+    if (!ok) return;
+    writeScreeningMemory(userId, item.candidate_id, () => null);
+    setJointIds(new Set());
+    setPickerNotice(null);
+    setRestoredAt(null);
+    setMemoryEpoch((epoch) => epoch + 1);
+  };
+  // Odznaczone rekrutacje z wpisami — zapis ich nie obejmie i po nim znikną (D2 A).
+  const pendingMemory: PendingMemoryItem[] = jointPairs.flatMap((pair) => {
+    const memory = memorySummary.byJob.get(pair.job_id);
+    if (selectedJoint.has(pair.job_id) || !memory?.any) return [];
+    return [
+      {
+        jobId: pair.job_id,
+        title: pair.title,
+        answers: memory.answers,
+        canReselect: pair.selectable && selectedJoint.size < JOINT_MAX_OTHERS,
+      },
+    ];
+  });
   // „+ Dodaj i dołącz”: dodanie jak w oknie „Kandydaci do dodania” (źródło
   // `also_fits`), potem rekrutacja wchodzi do rozmowy.
   const addAndJoin = (otherJobId: number) => {
@@ -316,7 +411,11 @@ export function ScreeningWorkbench({
         void queryClient.invalidateQueries({ queryKey: alsoFitsKeys.one(jobId, item.candidate_id) });
         void queryClient.invalidateQueries({ queryKey: ["kanban", String(otherJobId)] });
         void queryClient.invalidateQueries({ queryKey: ["kanban", String(jobId)] });
-        setJointIds((prev) => (prev.size < JOINT_MAX_OTHERS ? new Set([...prev, otherJobId]) : prev));
+        if (jointIds.size < JOINT_MAX_OTHERS) {
+          const next = new Set([...jointIds, otherJobId]);
+          setJointIds(next);
+          rememberSelection(next);
+        }
       })
       .catch((error: unknown) => setJointError(apiErrorMessage(error, "Nie udało się dodać do tej rekrutacji.")))
       .finally(() => setAddingJobId(null));
@@ -386,6 +485,9 @@ export function ScreeningWorkbench({
             onOpenHistory={openHistory}
           />
         ) : null}
+        {jointEnabled && !jointSaving && restoredAt != null && memorySummary.hasEntries ? (
+          <MemoryRestoredNotice savedAt={restoredAt} onDiscard={() => void discardMemory()} />
+        ) : null}
         {jointEnabled && !jointSaving ? (
           <JointScreeningPicker
             anchorTitle={jointAnchor?.title ?? "Ta rekrutacja"}
@@ -396,11 +498,16 @@ export function ScreeningWorkbench({
             onAddAndJoin={addAndJoin}
             addingJobId={addingJobId}
             error={jointError}
+            memory={memorySummary.byJob}
+            notice={pickerNotice}
+            onUndo={() => {
+              if (pickerNotice?.kind === "unchecked") toggleJoint(pickerNotice.jobId);
+            }}
           />
         ) : null}
         {activeJoint ? (
           <JointScreeningForm
-            key={`${item.candidate_id}:${activeJoint.others.map((p) => p.job_id).join(",")}`}
+            key={`${memoryEpoch}:${item.candidate_id}:${activeJoint.others.map((p) => p.job_id).join(",")}`}
             candidateId={item.candidate_id}
             candidateName={name}
             anchor={{
@@ -414,10 +521,17 @@ export function ScreeningWorkbench({
             others={activeJoint.others}
             onMoved={onMoved}
             onForwarded={onForwarded ? () => onForwarded(item.candidate_id) : undefined}
-            onSessionChange={(active) => setJointSession(active ? activeJoint : null)}
+            onSessionChange={(active) => {
+              setJointSession(active ? activeJoint : null);
+              if (active) onFormSaved();
+            }}
+            memory={memoryLink}
+            pendingMemory={pendingMemory}
+            onReselect={toggleJoint}
           />
         ) : (
         <ScreeningFullForm
+          key={memoryEpoch}
           candidateId={item.candidate_id}
           jobId={jobId}
           candidateName={name}
@@ -430,6 +544,10 @@ export function ScreeningWorkbench({
           onForwarded={onForwarded ? () => onForwarded(item.candidate_id) : undefined}
           noteFill={noteFill}
           onOpenChampion={() => onTabChange("champion")}
+          memory={jointEnabled ? memoryLink : undefined}
+          pendingMemory={jointEnabled ? pendingMemory : undefined}
+          onReselect={toggleJoint}
+          onSaved={onFormSaved}
           banner={
             afterCvSent ? (
               <p
@@ -512,6 +630,7 @@ export function ScreeningWorkbench({
       </PersonPanelSide>
 
       <div className="min-w-0">{left}</div>
+      {confirmDialog}
     </div>
   );
 }

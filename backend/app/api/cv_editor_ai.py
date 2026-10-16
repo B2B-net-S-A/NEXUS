@@ -227,8 +227,10 @@ class CommandOperation(BaseModel):
         "bold",
         "unbold",
         "considered_for",
+        "reorder_roles",
     ]
-    # Wiersze, których dotyczy operacja (dla `reorder` — w nowej kolejności).
+    # Wiersze, których dotyczy operacja (dla `reorder` — w nowej kolejności,
+    # dla `reorder_roles` — linie stanowisk w nowej kolejności).
     lines: list[int]
     # Nowa treść (`replace`, `merge`); `**tekst**` = pogrubienie.
     text: Optional[str] = None

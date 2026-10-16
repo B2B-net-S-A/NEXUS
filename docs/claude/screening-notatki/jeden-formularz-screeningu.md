@@ -118,6 +118,42 @@ Decyzje Artura D3–D4 z 14.10.2026 (makiety https://claude.ai/artifact/RTUD8nEm
     (`CARD_PHRASABLE_FIELDS`, kontekst ich rekrutacji); język zdań: przełącznik albo język CV klienta rekrutacji;
     błąd Luny stoi w formularzu (bez dymka), formularz działa ręcznie.
 - **Liczenie (D4):** każda para to osobny screening i osobna weryfikacja w KPI i lidze — bez zmian.
+- **Pamięć rozmowy (16.10.2026, decyzje Artura D1 A, D2 A, D3 B; makiety
+  https://claude.ai/artifact/8n9ReijRxXmYDHJqzPW1gW).** Do tej daty formularz wspólny był kluczowany zestawem
+  zaznaczonych rekrutacji, więc odznaczenie, dołożenie, „+ Dodaj i dołącz”, przejście pojedynczy ↔ wspólny
+  i odświeżenie listy w tle kasowały wszystkie niezapisane wpisy — także w rekrutacjach, które zostały
+  (zgłoszenie rekrutera). Teraz:
+  - wpisy rekrutera żyją w pamięci osoby (`lib/screening-memory.ts`, `store/screening-memory.ts`) pod adresem
+    niezależnym od zaznaczenia: odpowiedź = rekrutacja + pytanie, pola o osobie raz, „Czy pracował u Klienta”
+    per klient, ocena/stawka/„Pomiń brakujące” per rekrutacja, pochodzenia pod stałymi kluczami, notatka
+    z rozmowy. Formularz (pojedynczy i wspólny, dowolny zestaw) przy starcie bierze z niej wpisy swoich
+    rekrutacji jako zmiany rekrutera; nowy zestaw może więc dalej montować nowy formularz;
+  - w pamięci jest tylko to, co rekruter ruszył i co różni się od stanu serwera pary (porównanie bez skrajnych
+    odstępów) — stawka na start i odpowiedź innej rekrutacji na wspólne pytanie się nie liczą. Wpis
+    przywrócony z pamięci, który jest równy wartości startowej formularza (np. „Tak” w kotwicy, gdy inna
+    rekrutacja ma zapisane „Tak”), nie jest dla RHF „ruszony” — zostaje, bo był w pamięci wcześniej;
+  - stawka z formularza pojedynczego jest stawką tej rekrutacji; w formularzu wspólnym wraca do pola
+    wspólnego tylko w trybie „Ta sama stawka we wszystkich”, inaczej do pola tej rekrutacji. Zapamiętana
+    stawka niesie tryb, w którym ją wpisano (`shared.same_rate`) — tryb na start zależy od stawek par.
+    „Czy pracował u Klienta” z formularza wspólnego ma kopię przy kotwicy (formularz pojedynczy nie zna
+    klienta przed wczytaniem listy „Screening dla”);
+  - zapis do pamięci czyta ruszone pola z `control._formState`, nie z `formState` (w RHF 7.88 to migawka
+    z ostatniego renderu — zapis zaraz po przywróceniu gubił przywrócone wpisy);
+  - wspólne pytanie po ponownym zaznaczeniu bierze odpowiedź z rekrutacji, która była w rozmowie najpóźniej
+    (`touchedAt`, remis — kotwica);
+  - odznaczona rekrutacja z wpisami ma „N odpowiedzi w pamięci · zaznacz, żeby wróciły”, pod listą
+    „Odznaczono … · Cofnij”, ponowne zaznaczenie mówi „Wróciły N odpowiedzi z pamięci”;
+  - **zapis czyści pamięć całej rozmowy (D2 A)**, także wpisy odznaczonych rekrutacji — nad przyciskami stoi
+    wcześniej „Zapis obejmie … Wpisy odznaczonych rekrutacji są w pamięci — po zapisie znikną” z „zaznacz”;
+    para z nieudanym zapisem (cudza rezerwacja, 409) zachowuje swoje wpisy. Zapis odznaczonych z rozmową
+    odrzucony (D2 C) — rezerwacja 12 h i screening w KPI tam, gdzie kandydat odpadł;
+  - **pamięć w `sessionStorage` per osoba pisząca i kandydat, najdłużej 12 h bez zmian (D3 B)** — przeżywa
+    zamknięcie panelu, kliknięcie innej osoby i odświeżenie; po powrocie „Przywrócono niezapisany screening
+    z HH:MM” i zaznaczenie z tej samej Tablicy, „Odrzuć szkic” (z potwierdzeniem) kasuje. Wylogowanie czyści
+    (`clearSessionArtifacts`). Wpis z karty to dane z zewnątrz — zepsuty kształt = brak pamięci;
+  - tylko w panelu osoby w Nowych/Screeningu z prawem zapisu (tam, gdzie „Screening dla”); poza nim
+    formularz pojedynczy działa jak dotąd. Sekcja 4 Championa (`experience_checks`) i „Cofnij wypełnienie”
+    po zmianie zestawu nie są pamiętane (cofnięcie zdejmuje wtedy tylko powiązanie z notatką).
 - **„W innych rekrutacjach”** w „Co już wiemy” pyta quick-view z `exclude_job_id` i pokazuje sumę
   (`current_recruitments_total`) — do 14.10.2026 bieżąca rekrutacja zajmowała jedno z 3 miejsc i „…i N więcej” nigdy
   się nie pokazywało.

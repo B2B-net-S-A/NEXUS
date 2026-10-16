@@ -34,6 +34,12 @@ wiadomość). Dlatego:
   fakt o kandydacie, więc bez kontroli faktów),
 * model dostaje kilka ostatnich wiadomości rozmowy (ogrodzone) i wiersze
   zaznaczone w edytorze.
+
+16.10.2026 (zgłoszenie rekruterki: „ułóż miejsca pracy chronologicznie” →
+„żadna zmiana nie przeszła kontroli”): ``reorder_roles`` przestawia całe
+stanowiska. Kolejność od najnowszego / od najstarszego liczy kod z dat w linii
+stanowiska (`cv_role_order`), nie model; własną kolejność model podaje jako
+permutację numerów wszystkich stanowisk.
 """
 
 from __future__ import annotations
@@ -55,7 +61,7 @@ from app.models.ai_feature import AIFeatureKey
 from app.models.candidate_stage_cv import CandidateStageCV
 from app.models.job import Job
 from app.models.recruitment_pipeline import CandidateStage
-from app.services import cv_qc, cv_selection_ai
+from app.services import cv_qc, cv_role_order, cv_selection_ai
 from app.services import dz_review as dz
 from app.services.ai_models import model_chain_for
 from app.services.ai_quota import ai_feature
@@ -97,6 +103,7 @@ OPERATION_TYPES = (
     "bold",
     "unbold",
     "considered_for",
+    "reorder_roles",
 )
 # Operacje, które dopisują albo zmieniają treść — sprawdzane pod kątem faktów.
 TEXT_OPERATIONS = frozenset({"replace", "merge", "add"})
@@ -196,6 +203,31 @@ MSG_ALL_DROPPED = (
     "Asystent zaproponował zmiany, ale żadna nie przeszła kontroli (dopisywały "
     "fakty albo ruszały układ szablonu). Spróbuj opisać polecenie inaczej."
 )
+# Odmowy kolejności stanowisk mówią, o co poszło — ogólne zdanie wyżej
+# („dopisywały fakty”) było przy nich nieprawdą.
+MSG_ROLES_IN_ORDER = "Stanowiska już są ułożone w tej kolejności — nic nie zmieniłem."
+MSG_NO_DATES = (
+    "Nie widzę dat przy stanowiskach (np. 03.2020 – obecnie), więc nie ułożę ich "
+    "po kolei. Przestaw je ręcznie: kursor w stanowisku, „Więcej” → wyżej / niżej."
+)
+MSG_NO_ROLES = (
+    "Nie rozpoznaję stanowisk w tym CV, więc nie mogę ich przestawić. Przestaw "
+    "je ręcznie: kursor w stanowisku, „Więcej” → wyżej / niżej."
+)
+_DROPPED_MESSAGES = {
+    "roles_in_order": MSG_ROLES_IN_ORDER,
+    "no_dates": MSG_NO_DATES,
+    "no_roles": MSG_NO_ROLES,
+}
+
+
+def dropped_message(dropped: list[dict]) -> str:
+    """Zdanie dla planu, z którego nic nie przeszło — konkretne, gdy się da."""
+    for item in dropped:
+        message = _DROPPED_MESSAGES.get(item.get("reason") or "")
+        if message:
+            return message
+    return MSG_ALL_DROPPED
 
 
 @dataclass(frozen=True)
@@ -551,6 +583,42 @@ class _Plan:
             raise _Dropped("unchanged")
         return _Change([target.id], f"{label} {value}")
 
+    def reorder_roles(self, op: dict) -> _Change:
+        """Całe stanowiska w nowej kolejności; wiersze operacji = linie stanowisk po kolei.
+
+        ``by`` (``newest_first`` / ``oldest_first``) — kolejność liczy kod z dat
+        w linii stanowiska (bez pogrubionej nazwy roli); ``roles`` — kolejność
+        podana wprost, każde stanowisko dokładnie raz.
+        """
+        heads = {
+            role: next((i for i in ids if self.lines[i].kind == "role"), None)
+            for role, ids in self.role_lines.items()
+        }
+        roles = sorted(role for role, head in heads.items() if head is not None)
+        if len(roles) < 2 or len(roles) != len(heads):
+            raise _Dropped("no_roles")
+        if len({self.lines[heads[role]].section for role in roles}) != 1:
+            raise _Dropped("mixed_places")
+        by = op.get("by")
+        if by in ("newest_first", "oldest_first"):
+            texts = [_role_dates(self.lines[heads[role]].text) for role in roles]
+            order = cv_role_order.newest_first(texts, newest=by == "newest_first")
+            if order is None:
+                raise _Dropped("no_dates")
+            wanted = [roles[index] for index in order]
+        else:
+            raw = op.get("roles")
+            if (
+                not isinstance(raw, list)
+                or any(isinstance(r, bool) or not isinstance(r, int) for r in raw)
+                or sorted(raw) != roles
+            ):
+                raise _Dropped("bad_order")
+            wanted = list(raw)
+        if wanted == roles:
+            raise _Dropped("roles_in_order")
+        return _Change([heads[role] for role in wanted])
+
     # ── plan ──
 
     def _loses(self, kind: str, ids: list[int], text: Optional[str]) -> list[str]:
@@ -562,7 +630,14 @@ class _Plan:
         a obie przychodziłyby zaznaczone. Odznaczenie wcześniejszej operacji
         zostawia ostrzeżenie przy późniejszej — na wyrost, czyli bezpiecznie.
         """
-        if kind in ("reorder", "add", "bold", "unbold", "considered_for"):
+        if kind in (
+            "reorder",
+            "reorder_roles",
+            "add",
+            "bold",
+            "unbold",
+            "considered_for",
+        ):
             return []
         touched = set(ids)
         new = cv_selection_ai.plain(text or "")
@@ -629,6 +704,17 @@ class _Plan:
             "problem": change.problem,
             "terms": list(change.terms),
         }
+
+
+def _role_dates(text: str) -> str:
+    """Linia stanowiska bez pogrubionej nazwy roli — tam stoją daty.
+
+    Linia z edytora to „**Senior Java Developer** 03.2020 – obecnie”. Rok w nazwie
+    roli („Windows Server 2019”) nie jest datą stanowiska. Linia bez pogrubienia
+    (wpisana ręcznie, z Worda) idzie cała — `cv_role_order` bierze dwie ostatnie daty.
+    """
+    rest = re.sub(r"\*\*.*?\*\*", " ", text)
+    return rest if cv_role_order.period(rest) else cv_selection_ai.plain(text)
 
 
 def verify_plan(
@@ -877,7 +963,9 @@ async def propose_plan(
     if checked["operations"]:
         result = {"status": "ok", "message": None, **checked}
     else:
-        message = MSG_ALL_DROPPED if checked["dropped"] else MSG_EMPTY
+        message = (
+            dropped_message(checked["dropped"]) if checked["dropped"] else MSG_EMPTY
+        )
         result = {"status": "empty", "message": message, **checked}
     await _log(db, stage, user_id, payload, result)
     return result

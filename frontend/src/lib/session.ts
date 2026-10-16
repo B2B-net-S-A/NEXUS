@@ -16,6 +16,7 @@ import { clearTalentRadarSession } from "./talent-radar-session";
 import { clearSearchMemory } from "./search-memory";
 import { clearNoteDrafts } from "./note-drafts";
 import { clearCvRewriteDrafts } from "./cv-rewrite-drafts";
+import { clearScreeningMemories } from "./screening-memory-storage";
 
 /**
  * Klucz JWT — wydzielony ze zbioru poniżej, bo czyta go nie tylko teardown,
@@ -132,6 +133,8 @@ export function clearSessionArtifacts(): void {
   clearNoteDrafts();
   // Szkice listy poprawek CV („Co poprawić?”) — ten sam powód.
   clearCvRewriteDrafts();
+  // Niezapisane odpowiedzi ze screeningu (pamięć rozmowy) — ten sam powód.
+  clearScreeningMemories();
   if (typeof window !== "undefined") {
     try {
       for (let i = window.localStorage.length - 1; i >= 0; i -= 1) {

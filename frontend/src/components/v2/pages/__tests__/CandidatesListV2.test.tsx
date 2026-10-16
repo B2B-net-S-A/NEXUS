@@ -186,7 +186,7 @@ function bar() {
   return screen.getByRole("region", { name: "Filtry kandydatów" });
 }
 
-/** Otwiera okienko przycisku filtra na pasku („Lokalizacja”, „Historia z nami”…). */
+/** Otwiera okienko przycisku filtra na pasku („Lokalizacja”, „Rekrutacje i historia”…). */
 async function openFilter(name: RegExp) {
   fireEvent.click(within(bar()).getByRole("button", { name }));
   return screen.findByRole("dialog");
@@ -309,7 +309,7 @@ describe("CandidatesListV2", () => {
         /^Stawka/,
         /^Lokalizacja/,
         /^Tryb pracy/,
-        /^Historia z nami/,
+        /^Rekrutacje i historia/,
         /^Umiejętności/,
         /^Dostępność/,
         /^Więcej filtrów/,
@@ -323,7 +323,7 @@ describe("CandidatesListV2", () => {
       expect(within(location).getByLabelText("Promień")).toBeTruthy();
       fireEvent.keyDown(location, { key: "Escape" });
       await waitFor(() => expect(screen.queryByLabelText("Promień")).toBeNull());
-      const history = await openFilter(/^Historia z nami/);
+      const history = await openFilter(/^Rekrutacje i historia/);
       expect(within(history).getByRole("radiogroup", { name: "Rekrutacje" })).toBeTruthy();
       fireEvent.keyDown(history, { key: "Escape" });
       await waitFor(() =>
@@ -337,7 +337,7 @@ describe("CandidatesListV2", () => {
         "aria-expanded",
         "false",
       );
-      expect(within(more).queryByRole("button", { name: /Historia z nami/ })).toBeNull();
+      expect(within(more).queryByRole("button", { name: /Rekrutacje i historia/ })).toBeNull();
       // Bez konfiguracji kolumn, gęstości i widoku kafelków.
       expect(screen.queryByLabelText("Konfiguracja kolumn")).toBeNull();
       expect(screen.queryByLabelText("Widok kafelków")).toBeNull();
@@ -559,9 +559,9 @@ describe("CandidatesListV2", () => {
       expect(within(bar()).getByRole("button", { name: /^Stawka$/ })).toBeTruthy();
     });
 
-    it("kontakt z kandydatem w „Historii z nami”", async () => {
+    it("kontakt z kandydatem w „Rekrutacjach i historii”", async () => {
       renderList();
-      const history = await openFilter(/^Historia z nami/);
+      const history = await openFilter(/^Rekrutacje i historia/);
       const group = within(history).getByRole("radiogroup", { name: "Kontakt z kandydatem" });
       fireEvent.click(within(group).getByRole("radio", { name: "Nie było kontaktu" }));
       fireEvent.change(within(history).getByLabelText("Kontakt — od"), {
@@ -734,7 +734,7 @@ describe("CandidatesListV2", () => {
       await waitFor(async () => expect((await candidateCalls()).length).toBeGreaterThan(0));
       const before = (await candidateCalls()).length;
 
-      const history = await openFilter(/^Historia z nami/);
+      const history = await openFilter(/^Rekrutacje i historia/);
       fireEvent.click(within(history).getByRole("radio", { name: "Nie brał udziału" }));
       // Bez wskazania rekrutacji pytanie dotyczy wszystkich.
       expect(within(history).getByRole("button", { name: /Wszystkie rekrutacje/ })).toBeTruthy();
@@ -753,7 +753,7 @@ describe("CandidatesListV2", () => {
       // Tryb bez zakresu ma chip nad tabelą i liczy się w „Wyczyść”.
       expect(screen.getByText("Nie brał udziału w żadnej rekrutacji")).toBeTruthy();
 
-      const again = await openFilter(/^Historia z nami/);
+      const again = await openFilter(/^Rekrutacje i historia/);
       fireEvent.click(within(again).getByRole("radio", { name: "Bez procesu w toku" }));
       expect(within(again).queryByRole("button", { name: /Wszystkie rekrutacje/ })).toBeNull();
       expect(within(again).getByLabelText("Data wysłania do klienta — od")).not.toBeDisabled();
@@ -764,6 +764,21 @@ describe("CandidatesListV2", () => {
           recruitment_presence: "not_in_process",
         });
       });
+    });
+
+    it("„Rekrutacje i historia”: podpowiedź, jak ukryć osoby z danej rekrutacji (16.10.2026)", async () => {
+      renderList();
+      // Rekruter szukał tego filtra i nie znalazł — okienko mówi, jak go ustawić.
+      const tip = /Żeby ukryć osoby, które są albo były w danej rekrutacji/;
+      const history = await openFilter(/^Rekrutacje i historia/);
+      expect(within(history).getByText(tip)).toBeTruthy();
+      // Po wyborze trybu zdanie pod opcjami mówi już, co filtr robi.
+      fireEvent.click(within(history).getByRole("radio", { name: "Nie brał udziału" }));
+      expect(within(history).queryByText(tip)).toBeNull();
+      expect(within(history).getByRole("button", { name: /Wszystkie rekrutacje/ })).toBeTruthy();
+      fireEvent.click(within(history).getByRole("radio", { name: "Dowolnie" }));
+      expect(within(history).getByText(tip)).toBeTruthy();
+      expect(within(bar()).queryByRole("button", { name: /^Historia z nami/ })).toBeNull();
     });
 
     it("goły adres przywraca ostatnie wyszukiwanie z tej karty", async () => {

@@ -12,6 +12,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { ScreeningFormSave, ScreeningFormState } from "@/lib/api/screeningForm";
 import { createNoteFillChannel } from "@/lib/note-fill-channel";
+import { emptyMemory } from "@/lib/screening-memory";
+import { readScreeningMemory, useScreeningMemoryStore, writeScreeningMemory } from "@/store/screening-memory";
 import {
   FORM_CANDIDATE_ID,
   FORM_JOB_ID,
@@ -1134,5 +1136,88 @@ describe("ScreeningFullForm — odrzucenie w toku", () => {
     await waitFor(() => expect(confirm).toBeDisabled());
     await user.click(confirm);
     expect(mocks.send).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("ScreeningFullForm — pamięć rozmowy (16.10.2026, D1 A / D2 A / D3 B)", () => {
+  const USER = 5;
+  const link = {
+    read: () => readScreeningMemory(USER, FORM_CANDIDATE_ID),
+    write: (update: Parameters<typeof writeScreeningMemory>[2]) => void writeScreeningMemory(USER, FORM_CANDIDATE_ID, update),
+  };
+
+  beforeEach(() => {
+    window.sessionStorage.clear();
+    useScreeningMemoryStore.setState({ entries: {} });
+    mocks.put.mockImplementation((_url: string, body: ScreeningFormSave) =>
+      Promise.resolve({
+        data: formSaveResult({
+          ...serverState,
+          sheet: { ...(body.sheet ?? {}), notes: "" } as never,
+          card: {
+            ...serverState.card,
+            fields: Object.fromEntries(
+              Object.entries(body.card?.fields ?? {}).map(([key, raw]) => [key, { raw, source: "manual" }]),
+            ) as never,
+          },
+        }),
+      }),
+    );
+  });
+
+  it("takes the answers typed in the joint conversation and saves them, then memory is empty", async () => {
+    const now = Date.now();
+    writeScreeningMemory(USER, FORM_CANDIDATE_ID, () => ({
+      ...emptyMemory(FORM_JOB_ID, now),
+      pairs: { [FORM_JOB_ID]: { touchedAt: now, answers: { q1: "8 lat" } } },
+      shared: { card: { availability: "od 1.12" } },
+    }));
+    const user = userEvent.setup();
+    mount({ memory: link });
+    const [first] = await screen.findAllByLabelText("Odpowiedź");
+    await waitFor(() => expect(first).toHaveValue("8 lat"));
+    expect(screen.getByDisplayValue("od 1.12")).toBeInTheDocument();
+    expect(screen.getByText("Niezapisane zmiany")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /^Zapisz$/ }));
+    await waitFor(() => expect(mocks.put).toHaveBeenCalledTimes(1));
+    const body = lastPut();
+    expect(body.sheet?.answers.find((a) => a.question_id === "q1")?.response).toBe("8 lat");
+    expect(body.card?.fields?.availability).toBe("od 1.12");
+    await waitFor(() => expect(readScreeningMemory(USER, FORM_CANDIDATE_ID)).toBeNull());
+  });
+
+  it("restored entries stay in memory for the next form (joint → single → joint)", async () => {
+    const now = Date.now();
+    writeScreeningMemory(USER, FORM_CANDIDATE_ID, () => ({
+      ...emptyMemory(FORM_JOB_ID, now),
+      pairs: { [FORM_JOB_ID]: { touchedAt: now, answers: { q1: "8 lat" } } },
+      shared: { card: { availability: "od 1.12" } },
+    }));
+    mount({ memory: link });
+    const [first] = await screen.findAllByLabelText("Odpowiedź");
+    await waitFor(() => expect(first).toHaveValue("8 lat"));
+    const memory = readScreeningMemory(USER, FORM_CANDIDATE_ID);
+    expect(memory?.pairs[String(FORM_JOB_ID)]?.answers).toEqual({ q1: "8 lat" });
+    expect(memory?.shared.card).toEqual({ availability: "od 1.12" });
+  });
+
+  it("what the recruiter types goes to memory; an untouched form leaves none", async () => {
+    const user = userEvent.setup();
+    mount({ memory: link });
+    const [first] = await screen.findAllByLabelText("Odpowiedź");
+    expect(readScreeningMemory(USER, FORM_CANDIDATE_ID)).toBeNull();
+    await user.type(first, "6 lat");
+    expect(readScreeningMemory(USER, FORM_CANDIDATE_ID)?.pairs[String(FORM_JOB_ID)]?.answers).toEqual({ q1: "6 lat" });
+  });
+
+  it("says before saving that entries of unchecked recruitments will be gone", async () => {
+    mount({
+      memory: link,
+      pendingMemory: [{ jobId: 303, title: "Java Developer", answers: 2, canReselect: true }],
+    });
+    const warning = await screen.findByTestId("screening-memory-pending");
+    expect(warning).toHaveTextContent("Zapis obejmie tylko tę rekrutację");
+    expect(warning).toHaveTextContent("Java Developer — 2 odpowiedzi");
   });
 });

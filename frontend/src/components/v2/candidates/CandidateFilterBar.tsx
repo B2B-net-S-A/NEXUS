@@ -437,8 +437,11 @@ export function CandidateFilterBar({
 
         <span aria-hidden className="mx-0.5 h-5 w-px shrink-0 bg-border" />
 
+        {/* „Rekrutacje i historia” (16.10.2026): pod nazwą „Historia z nami”
+            rekruter nie znalazł filtra „bez osób z rekrutacji X” — w Traffit
+            szukał go pod „Rekrutacje”. */}
         <FilterPill
-          label="Historia z nami"
+          label="Rekrutacje i historia"
           icon={<History />}
           count={counts.history}
           onClear={() => {
@@ -754,6 +757,14 @@ function RecruitmentFields({
         />
       )}
       {hint && <p className="text-[11px] leading-4 text-muted-foreground">{hint}</p>}
+      {/* Bez wybranego trybu: jak ukryć osoby z danej rekrutacji (16.10.2026,
+          pytanie rekrutera). W „Szukaj ręcznie” zrobione z góry — tam zdanie blokady. */}
+      {!locked && mode === "any" && (
+        <p className="rounded-md bg-primary/5 px-2.5 py-2 text-xs leading-4 text-foreground">
+          Żeby ukryć osoby, które są albo były w danej rekrutacji: wybierz
+          „Nie&nbsp;brał&nbsp;udziału” i zaznacz ją na liście.
+        </p>
+      )}
       {locked && (
         <p className="text-xs text-muted-foreground" data-testid="recruitment-filter-locked">
           Tu szukasz do tej rekrutacji — osoby, które już w niej są, są ukryte.
