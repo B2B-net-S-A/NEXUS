@@ -27,7 +27,7 @@ import { usePlainBrief, type GlossaryTerm } from "@/lib/api/plainKnowledge";
 import { buildGlossaryLookup, glossaryKey } from "@/lib/plain-glossary-lookup";
 
 import { ExperienceChips } from "./ChampionBriefForRecruiters";
-import { useJobRequirements } from "./use-job-requirements";
+import { requirementFindWords, useJobRequirements } from "./use-job-requirements";
 
 function Eyebrow({ children }: { children: string }) {
   return <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{children}</p>;
@@ -129,14 +129,17 @@ export interface JobRequirementsSummaryProps {
   jobId: number;
   /** Budżet PLN/h z Tablicy — gdy rekrutacji nie ma w cache strony. */
   budgetHourly?: number | null;
-  /** Klik w chip technologii (np. „szukaj w CV”). */
-  onPickRequirement?: (name: string) => void;
+  /** „Szukaj w CV”: nazwa wymagania i słowa lupy z serwera (pusta lista = sama nazwa). */
+  onPickRequirement?: (name: string, words: readonly string[]) => void;
 }
 
 export function JobRequirementsSummary({ jobId, budgetHourly = null, onPickRequirement }: JobRequirementsSummaryProps) {
   const { state, refetch, requirements } = useJobRequirements(jobId, budgetHourly);
   const plainQuery = usePlainBrief(jobId);
   const glossary = buildGlossaryLookup(plainQuery.data?.glossary);
+  const pick = onPickRequirement
+    ? (name: string) => onPickRequirement(name, requirementFindWords(requirements.findWords, name))
+    : undefined;
 
   if (state === "loading") {
     return (
@@ -165,7 +168,7 @@ export function JobRequirementsSummary({ jobId, budgetHourly = null, onPickRequi
               items={mustCritical}
               critical
               glossary={glossary}
-              onPick={onPickRequirement}
+              onPick={pick}
             />
           ) : null}
           {/* Gdy wszystkie „musi mieć” są krytyczne, pusta grupa „— brak”
@@ -177,7 +180,7 @@ export function JobRequirementsSummary({ jobId, budgetHourly = null, onPickRequi
               items={mustOther}
               critical={false}
               glossary={glossary}
-              onPick={onPickRequirement}
+              onPick={pick}
             />
           ) : null}
           <RequirementGroup
@@ -185,7 +188,7 @@ export function JobRequirementsSummary({ jobId, budgetHourly = null, onPickRequi
             items={nice}
             critical={false}
             glossary={glossary}
-            onPick={onPickRequirement}
+            onPick={pick}
           />
           <ExperienceChips experience={experience} />
           {notes ? <p className="text-sm text-muted-foreground">Niuanse: {notes}</p> : null}

@@ -36,30 +36,53 @@ export function normalizeDocumentQuery(query: string): string {
   return foldForSearch(query.trim().replace(/\s+/g, " "));
 }
 
-export function isSearchableQuery(query: string): boolean {
-  return query.trim().length >= MIN_DOCUMENT_QUERY_LENGTH;
+/**
+ * Zapytanie lupy: fraza wpisana w pole albo lista słów wymagania („Szukaj
+ * w CV” przy „.NET lub C#” szuka „.NET” i „C#” osobno, 16.10.2026).
+ */
+export type DocumentQuery = string | readonly string[];
+
+/** Słowa listy, których da się szukać — puste i jednoliterowe odpadają. */
+export function searchableTerms(terms: readonly string[]): string[] {
+  return terms
+    .map((term) => term.trim())
+    .filter((term) => term.length >= MIN_DOCUMENT_QUERY_LENGTH);
+}
+
+export function isSearchableQuery(query: DocumentQuery): boolean {
+  return typeof query === "string"
+    ? query.trim().length >= MIN_DOCUMENT_QUERY_LENGTH
+    : searchableTerms(query).length > 0;
+}
+
+/** Wyrażenie na jedną frazę: znaki dosłownie, spacja = dowolny odstęp. */
+function needleSource(query: string): string | null {
+  const needle = normalizeDocumentQuery(query);
+  if (needle.length < MIN_DOCUMENT_QUERY_LENGTH) return null;
+  // Wielokrotne białe znaki w dokumencie zwijamy w zapytaniu, więc w tekście
+  // też muszą pasować do pojedynczej spacji.
+  return needle
+    .split(" ")
+    .map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+    .join("\\s+");
 }
 
 /** Wszystkie pozycje (w jednostkach kodowych UTF-16) trafień bez nakładania. */
 export function findMatchOffsets(
   text: string,
-  query: string,
+  query: DocumentQuery,
 ): Array<[number, number]> {
-  const needle = normalizeDocumentQuery(query);
-  if (needle.length < MIN_DOCUMENT_QUERY_LENGTH) return [];
+  const sources = (typeof query === "string" ? [query] : query)
+    .map(needleSource)
+    .filter((source): source is string => source !== null)
+    // Dłuższe najpierw: „ASP.NET Core” wygrywa z „.NET” w tym samym miejscu.
+    .sort((a, b) => b.length - a.length);
+  if (sources.length === 0) return [];
   // Składamy znak po znaku po jednostkach kodowych, żeby indeksy zgadzały się
   // z `Text.data` (surogaty zostają nietknięte — `foldChar` ich nie zmienia).
   let haystack = "";
   for (let i = 0; i < text.length; i++) haystack += foldChar(text[i]);
-  // Wielokrotne białe znaki w dokumencie zwijamy w zapytaniu, więc w tekście
-  // też muszą pasować do pojedynczej spacji.
-  const pattern = new RegExp(
-    needle
-      .split(" ")
-      .map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
-      .join("\\s+"),
-    "g",
-  );
+  const pattern = new RegExp(sources.join("|"), "g");
   const offsets: Array<[number, number]> = [];
   let match: RegExpExecArray | null;
   while ((match = pattern.exec(haystack)) !== null) {
@@ -147,7 +170,7 @@ export function clearDocumentHighlights(root: Element): void {
  * Zwraca liczbę trafień. Każde trafienie to jeden lub kilka `<mark>` z tym
  * samym `data-doc-search-hit="<numer>"`.
  */
-export function highlightDocumentMatches(root: Element, query: string): number {
+export function highlightDocumentMatches(root: Element, query: DocumentQuery): number {
   clearDocumentHighlights(root);
   if (!isSearchableQuery(query)) return 0;
 

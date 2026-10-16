@@ -47,12 +47,24 @@ import { observeDocxFit } from "@/lib/docx-fit";
 import { renderDocxSafely } from "@/lib/docx-preview-safe";
 import {
   DocumentSearchBar,
+  DocumentSearchTerms,
   EMPTY_FIND_RESULT,
   keepDialogOpenOnDocumentSearchEscape,
   type DocumentFindResult,
   type DocumentTextAvailability,
 } from "./DocumentSearchBar";
 import { SearchablePdfPreview, useDebouncedValue } from "./SearchablePdfPreview";
+
+/**
+ * „Szukaj w CV” zlecone z zewnątrz. `text` trafia do pola; `terms` (słowa
+ * wymagania z serwera, 16.10.2026) są tym, czego lupa szuka, dopóki pole
+ * pokazuje `text`. Bez `terms` lupa szuka frazy `text` (cytat z edytora CV).
+ */
+export interface DocumentSearchRequest {
+  text: string;
+  nonce: number;
+  terms?: readonly string[];
+}
 
 export interface CandidateDocument {
   id: number;
@@ -207,7 +219,7 @@ export function FilePreviewContent({
   // Szukanie zlecone z zewnątrz (0424: chip wymagania obok formularza
   // screeningu wpisuje technologię w „Szukaj w CV”). `nonce` pozwala
   // powtórzyć to samo słowo po ręcznej zmianie pola.
-  searchRequest?: { text: string; nonce: number } | null;
+  searchRequest?: DocumentSearchRequest | null;
   // Duża strefa podglądu w panelu osoby podaje `"auto"`: strona PDF rośnie
   // najwyżej do 125%, zamiast wypełniać 1400 px szerokości.
   pdfFit?: "page-width" | "auto";
@@ -229,9 +241,25 @@ export function FilePreviewContent({
     useState<DocumentFindResult>(EMPTY_FIND_RESULT);
   const [docxActiveIndex, setDocxActiveIndex] = useState(0);
 
+  const [requestTerms, setRequestTerms] = useState<{
+    text: string;
+    terms: readonly string[];
+  } | null>(null);
+
   useEffect(() => {
-    if (searchRequest) setQuery(searchRequest.text);
+    if (!searchRequest) return;
+    setQuery(searchRequest.text);
+    setRequestTerms(
+      searchRequest.terms?.length
+        ? { text: searchRequest.text, terms: searchRequest.terms }
+        : null,
+    );
   }, [searchRequest]);
+
+  // Słowa wymagania obowiązują, dopóki pole pokazuje jego nazwę — ręczna
+  // zmiana pola wraca do zwykłej frazy.
+  const terms =
+    requestTerms && query === requestTerms.text ? requestTerms.terms : null;
 
   const kind = doc ? previewKind(doc) : "unsupported";
   // PDF ma własny pasek w `SearchablePdfPreview`; tu pasek dla DOCX i obrazu
@@ -359,11 +387,11 @@ export function FilePreviewContent({
     if (kind !== "docx" || status !== "ready") return;
     const host = docxHostRef.current;
     if (!host) return;
-    const total = highlightDocumentMatches(host, debouncedQuery);
+    const total = highlightDocumentMatches(host, terms ?? debouncedQuery);
     setDocxActiveIndex(0);
     if (total > 0) activateDocumentMatch(host, 0);
     setFindResult({ current: total > 0 ? 1 : 0, total, pending: false });
-  }, [kind, status, debouncedQuery, docxBlob]);
+  }, [kind, status, debouncedQuery, docxBlob, terms]);
 
   const stepMatch = (previous: boolean) => {
     const host = docxHostRef.current;
@@ -377,29 +405,35 @@ export function FilePreviewContent({
 
   if (!doc) return null;
 
+  const shownFindResult =
+    query === debouncedQuery ? findResult : { ...findResult, pending: true };
+
   return (
     <div
       ref={rootRef}
       className={cn("relative flex flex-col overflow-hidden bg-muted/40", className)}
     >
       {hasDomSearchBar && status !== "error" ? (
-        <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-border bg-card px-3 py-1.5">
-          <DocumentSearchBar
-            query={query}
-            onQueryChange={setQuery}
+        <>
+          <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-border bg-card px-3 py-1.5">
+            <DocumentSearchBar
+              query={query}
+              onQueryChange={setQuery}
+              availability={availability}
+              result={shownFindResult}
+              onNext={() => stepMatch(false)}
+              onPrevious={() => stepMatch(true)}
+              inputRef={searchInputRef}
+              placeholder={searchPlaceholder}
+              className="min-w-0 flex-1"
+            />
+          </div>
+          <DocumentSearchTerms
+            terms={terms}
             availability={availability}
-            result={
-              query === debouncedQuery
-                ? findResult
-                : { ...findResult, pending: true }
-            }
-            onNext={() => stepMatch(false)}
-            onPrevious={() => stepMatch(true)}
-            inputRef={searchInputRef}
-            placeholder={searchPlaceholder}
-            className="min-w-0 flex-1"
+            result={shownFindResult}
           />
-        </div>
+        </>
       ) : null}
 
       <div className="relative min-h-0 flex-1 overflow-auto">
@@ -438,6 +472,7 @@ export function FilePreviewContent({
             placeholder={searchPlaceholder}
             query={query}
             onQueryChange={setQuery}
+            terms={terms}
             fit={pdfFit}
           />
         )}
