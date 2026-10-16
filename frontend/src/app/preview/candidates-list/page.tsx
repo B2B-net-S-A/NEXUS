@@ -20,7 +20,7 @@
  * z sekcji 2 Championa (start od wierszy DL-a).
  * Spis miast (`/api/candidates/places/suggest`) też odpowiada lokalnie —
  * słowo-miasto w wierszu pokazuje podpowiedź „Ustaw lokalizację”.
- * Lista rekrutacji bloku „Rekrutacje” („Historia z nami”) odpowiada z lokalnej,
+ * Lista rekrutacji bloku „Rekrutacje” („Rekrutacje i historia”) odpowiada z lokalnej,
  * fikcyjnej listy: szukanie po nazwie, kliencie i numerze, status, „cały klient”.
  * Okno „Dodaj kandydata” też odpowiada lokalnie (12.10.2026), żeby dało się
  * przeklikać regułę „ta sama osoba = ten sam e-mail”:
@@ -622,7 +622,7 @@ export default function CandidatesListPreview() {
         });
         return config;
       }
-      // Lista rekrutacji w bloku „Rekrutacje” filtra „Historia z nami”.
+      // Lista rekrutacji w bloku „Rekrutacje” filtra „Rekrutacje i historia”.
       if (config.url === RECRUITMENT_LOOKUP_ENDPOINT) {
         const params = (config.params as Record<string, unknown> | undefined) ?? {};
         config.adapter = async () => ({
