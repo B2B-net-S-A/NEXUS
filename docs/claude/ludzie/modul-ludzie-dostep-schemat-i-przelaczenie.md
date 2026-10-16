@@ -32,8 +32,8 @@ z protokołami. Compass zostaje z Akademią i czyta listę osób z NEXUSA.
 ## API v1 i Jarvis
 
 - Zakresy kluczy `absences:read` (kto i kiedy, bez rodzaju) i `equipment:read`
-  (wydania i zwroty, bez wartości i numerów S/N/IMEI). Trasy `/api/v1/absences`
-  (zakres dat ≤ 93 dni) i `/api/v1/equipment/assignments/{id}`; wyłączony moduł = 404.
+  (wydania i zwroty, bez wartości i numerów S/N/IMEI). Trasy `/api/integrations/v1/absences`
+  (zakres dat ≤ 93 dni) i `/api/integrations/v1/equipment/assignments/{id}`; wyłączony moduł = 404.
 - Zdarzenia `leave.approved` / `leave.cancelled` powstają ze śladu `hr_audit_events`
   (decyzje o wniosku idą warunkowym `UPDATE`, którego listener ORM nie widzi) —
   zmiana kształtu `leave_service._audit` wywraca zdarzenia. `equipment.issued` /
