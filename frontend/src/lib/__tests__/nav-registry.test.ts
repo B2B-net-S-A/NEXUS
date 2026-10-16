@@ -103,7 +103,8 @@ describe("rejestr nawigacji — spójność wpisów", () => {
       // „Ludzie w NEXUSIE” (16.10.2026): „Mój czas”, „Ludzie”, „Sprzęt” —
       // widoczne tylko przy włączonym module (flaga z `/api/hr/config`).
       ["Praca", ["dashboard", "jobs", "candidates", "calendar", "my-time"]],
-      ["Klienci i umowy", ["clients", "contracts", "finance"]],
+      // Opieka nad konsultantami (moduł `care`) obok Kontraktów.
+      ["Klienci i umowy", ["clients", "contracts", "care", "finance"]],
       ["Firma", ["insights", "people", "equipment"]],
     ]);
   });

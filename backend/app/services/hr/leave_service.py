@@ -604,6 +604,24 @@ async def _after_approval(
             link=LINK_CALENDAR,
         )
     await _enqueue_m365(db, request, "approved", today=today)
+    # „Mój miesiąc” (E2): godziny wpisane na pełne dni urlopu znikają, płatny
+    # urlop B2B/zlecenia dostaje auto-wpisy, hash zaakceptowanego PDF-u się
+    # przelicza. Zamknięte w płacach miesiące są tylko raportowane.
+    from app.services.hr import time_hooks
+
+    await time_hooks.on_leave_approved(
+        db, request.user_id, await _request_days(db, request.id)
+    )
+
+
+async def _request_days(db: AsyncSession, request_id: uuid.UUID) -> list[date]:
+    return list(
+        await db.scalars(
+            select(LeaveRequestDay.day).where(
+                LeaveRequestDay.leave_request_id == request_id
+            )
+        )
+    )
 
 
 # ── Decyzje ───────────────────────────────────────────────────────────────────
@@ -764,6 +782,11 @@ async def _after_cancel(
     )
     if previous_status == "approved":
         await _enqueue_m365(db, request, "cancelled", today=today)
+        from app.services.hr import time_hooks
+
+        await time_hooks.on_leave_cancelled(
+            db, request.user_id, await _request_days(db, request.id)
+        )
 
 
 async def cancel_own(

@@ -33,6 +33,7 @@ import {
   UserRound,
   Users,
   Wallet,
+  HeartHandshake,
 } from "lucide-react";
 import type { ComponentType } from "react";
 
@@ -70,7 +71,8 @@ export type NavFeatureFlag =
   // z grupy „Ludzie”) — patrz `hrNavState` w `lib/api/hr.ts`.
   | "hrMyTime"
   | "hrPeople"
-  | "hrEquipment";
+  | "hrEquipment"
+  | "hrCare";
 
 export type NavSectionKey =
   | "sourcing"
@@ -92,7 +94,7 @@ export type NavUser =
 export type NavVisibilityOptions = {
   contactQueueEnabled: boolean;
   /** Stan modułu kadrowego; brak = pozycje „Ludzi w NEXUSIE” ukryte. */
-  hr?: { myTime: boolean; people: boolean; equipment: boolean };
+  hr?: { myTime: boolean; people: boolean; equipment: boolean; care: boolean };
 };
 
 /** Użytkownik, dla którego liczy się adres docelowy pozycji (`resolveHref`). */
@@ -578,6 +580,21 @@ export const NAV_REGISTRY: readonly NavEntry[] = [
     placement: "primary",
     inPalette: true,
   },
+  // Opieka nad konsultantami (moduł `care`): opiekunowie kontraktów (DL, TCM),
+  // Head of Recruitment (kolejka technologii) i admin. Sekcja „system”, bo
+  // HoR nie ma Delivery — trasy `/api/care` i tak bronią zakresu DL.
+  {
+    id: "care",
+    href: "/care",
+    label: "Opieka nad konsultantami",
+    icon: HeartHandshake,
+    section: "system",
+    roles: ["admin", "delivery_lead", "talent_community_manager", "head_of_recruitment"],
+    featureFlag: "hrCare",
+    placement: "primary",
+    paletteKeywords: ["opieka", "konsultanci", "przepięcia", "technologie"],
+    inPalette: true,
+  },
   {
     id: "help",
     moreHint: "Procedury, instrukcje, karty klientów",
@@ -624,7 +641,7 @@ export const NAV_PRIMARY_GROUPS: readonly {
     title: "Praca",
     ids: ["dashboard", "jobs", "candidates", "calendar", "my-time"],
   },
-  { key: "clients", title: "Klienci i umowy", ids: ["clients", "contracts", "finance"] },
+  { key: "clients", title: "Klienci i umowy", ids: ["clients", "contracts", "care", "finance"] },
   { key: "company", title: "Firma", ids: ["insights", "people", "equipment"] },
 ];
 
@@ -652,6 +669,8 @@ function featureFlagOn(
       return opts.hr?.people ?? false;
     case "hrEquipment":
       return opts.hr?.equipment ?? false;
+    case "hrCare":
+      return opts.hr?.care ?? false;
   }
 }
 

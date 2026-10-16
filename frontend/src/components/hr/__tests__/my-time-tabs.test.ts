@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { HrModuleKey } from "@/lib/api/hr";
 
-import { myTimeTabs, type MyTimeModuleTab } from "../MyTimeScreen";
+import { myTimeTabs, yearMonthFromParams, type MyTimeModuleTab } from "../MyTimeScreen";
 
 const open = (on: Partial<Record<HrModuleKey, boolean>>) => ({
   open_modules: {
@@ -30,6 +30,7 @@ describe("zakładki „Mój czas”", () => {
   it("zakładka modułu bez komponentu się nie pojawia, z komponentem — po włączeniu", () => {
     expect(myTimeTabs(open({ leave: true, time: true, payroll: true })).map((t) => t.value)).toEqual([
       "leave",
+      "month",
       "profile",
     ]);
     const extra: MyTimeModuleTab[] = [
@@ -42,5 +43,22 @@ describe("zakładki „Mój czas”", () => {
       "month",
       "profile",
     ]);
+  });
+});
+
+describe("miesiąc z adresu", () => {
+  const params = (query: string) => new URLSearchParams(query);
+
+  it("czyta rok i miesiąc z linku powiadomienia", () => {
+    expect(yearMonthFromParams(params("tab=month&year=2026&month=11"))).toEqual({
+      year: 2026,
+      month: 11,
+    });
+  });
+
+  it("zły albo brakujący miesiąc = bieżący (undefined)", () => {
+    expect(yearMonthFromParams(params(""))).toBeUndefined();
+    expect(yearMonthFromParams(params("year=2026&month=13"))).toBeUndefined();
+    expect(yearMonthFromParams(params("year=abc&month=5"))).toBeUndefined();
   });
 });

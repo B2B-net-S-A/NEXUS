@@ -292,6 +292,7 @@ export interface HrNavState {
   myTime: boolean;
   people: boolean;
   equipment: boolean;
+  care: boolean;
 }
 
 /**
@@ -310,12 +311,14 @@ export function useHrNavState(
 }
 
 export function hrNavState(config: HrConfig | undefined): HrNavState {
-  if (!config) return { myTime: false, people: false, equipment: false };
+  if (!config) return { myTime: false, people: false, equipment: false, care: false };
   const { me, open_modules: open } = config;
   const anyHrRight = me.people_admin || me.payroll || me.equipment || me.cases;
   return {
     myTime: me.has_profile && (open.leave || open.time || open.people),
     people: open.people && (me.has_profile || anyHrRight || me.is_admin),
     equipment: open.equipment && (me.equipment || me.is_admin),
+    // Kto z ról widzi pozycję, rozstrzyga `roles` w `nav-registry`.
+    care: open.care,
   };
 }

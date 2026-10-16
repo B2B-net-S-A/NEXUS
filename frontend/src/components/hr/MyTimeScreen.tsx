@@ -2,6 +2,7 @@
 
 import { useState, type ReactNode } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 
 import { PageHeader } from "@/components/ds/PageHeader";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
@@ -12,6 +13,8 @@ import { resolveViewState } from "@/lib/view-state";
 
 import { MyLeaveTab } from "./leave/MyLeaveTab";
 import { formatDays } from "./people/hr-format";
+import { MyMonthTab } from "./time/MyMonthTab";
+import type { YearMonth } from "./time/time-format";
 
 function warsawYear(): number {
   return Number(
@@ -26,7 +29,8 @@ export interface MyTimeModuleTab {
   value: string;
   label: string;
   module: HrModuleKey;
-  render: () => ReactNode;
+  /** `initialMonth` — miesiąc z adresu (link z powiadomienia o timesheecie). */
+  render: (config: HrConfig, initialMonth?: YearMonth) => ReactNode;
 }
 
 /**
@@ -36,7 +40,22 @@ export interface MyTimeModuleTab {
  */
 export const MY_TIME_MODULE_TABS: MyTimeModuleTab[] = [
   { value: "leave", label: "Urlopy", module: "leave", render: () => <MyLeaveTab /> },
+  {
+    value: "month",
+    label: "Mój miesiąc",
+    module: "time",
+    render: (config, initialMonth) => <MyMonthTab config={config} initialMonth={initialMonth} />,
+  },
 ];
+
+/** Miesiąc z adresu (`?year=2026&month=10`); zły albo brak = brak. */
+export function yearMonthFromParams(params: Pick<URLSearchParams, "get">): YearMonth | undefined {
+  const year = Number(params.get("year"));
+  const month = Number(params.get("month"));
+  if (!Number.isInteger(year) || year < 2020 || year > 2100) return undefined;
+  if (!Number.isInteger(month) || month < 1 || month > 12) return undefined;
+  return { year, month };
+}
 
 const PROFILE_TAB = { value: "profile", label: "Kartoteka" } as const;
 
@@ -108,7 +127,9 @@ function ProfileCard({ person, leaveOpen }: { person: PersonFull; leaveOpen: boo
 export function MyTimeScreen({ config }: { config: HrConfig }) {
   const me = useMyHrProfile();
   const tabs = myTimeTabs(config);
-  const [active, setActive] = useState<string>(tabs[0].value);
+  const params = useSearchParams();
+  const [active, setActive] = useState<string>(params.get("tab") ?? tabs[0].value);
+  const initialMonth = yearMonthFromParams(params);
   const current = tabs.some((tab) => tab.value === active) ? active : tabs[0].value;
   const state = resolveViewState({
     isLoading: me.isLoading,
@@ -150,7 +171,7 @@ export function MyTimeScreen({ config }: { config: HrConfig }) {
             />
           ) : null}
           {moduleTab ? (
-            moduleTab.render()
+            moduleTab.render(config, initialMonth)
           ) : (
             <ProfileCard person={me.data} leaveOpen={config.open_modules.leave} />
           )}

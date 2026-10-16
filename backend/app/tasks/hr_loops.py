@@ -174,3 +174,56 @@ async def hr_m365_reconcile_loop() -> None:
         HR_M365_RECONCILE_INTERVAL_SECONDS,
         hr_m365_reconcile_job,
     )
+
+
+# ── „Mój miesiąc”: przypomnienie o timesheecie 1.–5. dnia (E2) ─────────────
+TIMESHEET_REMINDER_INTERVAL_SECONDS = 3 * 3600
+
+
+async def timesheet_reminder_job(db: AsyncSession) -> dict[str, Any] | None:
+    """Sam pilnuje modułu `time`, okna 1.–5. i wysyłki od 8:00 Warszawy."""
+    from app.services.hr import time_reminders
+
+    result = await time_reminders.run_once(db)
+    return result if result.get("sent") else None
+
+
+async def hr_timesheet_reminder_loop() -> None:
+    if not loops_enabled("hr_timesheet_reminder"):
+        return
+    beat = loop_heartbeat.register(
+        "hr_timesheet_reminder",
+        max_silence_seconds=TIMESHEET_REMINDER_INTERVAL_SECONDS + 1800,
+    )
+    await run_periodic(
+        "hr_timesheet_reminder",
+        beat,
+        TIMESHEET_REMINDER_INTERVAL_SECONDS,
+        timesheet_reminder_job,
+    )
+
+
+# ── Opieka nad konsultantami: przypomnienia o kontaktach (E5) ──────────────
+CARE_REMINDERS_INTERVAL_SECONDS = 3600
+
+
+async def care_reminders_job(db: AsyncSession) -> dict[str, Any] | None:
+    """Raz dziennie (rezerwacja w `hr_job_runs`), dzwonki dopiero od 7:00."""
+    from app.core.scheduling import local_now
+    from app.services.care.reminders import run_once
+
+    if local_now().hour < 7:
+        return None
+    result = await run_once(db)
+    return None if result.get("status") in {"disabled", "skipped"} else result
+
+
+async def care_reminders_loop() -> None:
+    if not loops_enabled("care_reminders"):
+        return
+    beat = loop_heartbeat.register(
+        "care_reminders", max_silence_seconds=CARE_REMINDERS_INTERVAL_SECONDS + 1800
+    )
+    await run_periodic(
+        "care_reminders", beat, CARE_REMINDERS_INTERVAL_SECONDS, care_reminders_job
+    )

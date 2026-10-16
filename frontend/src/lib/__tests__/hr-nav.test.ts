@@ -40,6 +40,7 @@ describe("menu modułu „Ludzie w NEXUSIE”", () => {
       myTime: false,
       people: false,
       equipment: false,
+      care: false,
     });
   });
 
@@ -48,6 +49,7 @@ describe("menu modułu „Ludzie w NEXUSIE”", () => {
       myTime: true,
       people: true,
       equipment: false,
+      care: false,
     });
   });
 
@@ -56,7 +58,13 @@ describe("menu modułu „Ludzie w NEXUSIE”", () => {
       myTime: false,
       people: true,
       equipment: true,
+      care: false,
     });
+  });
+
+  it("„Opieka” idzie za modułem care (role rozstrzyga rejestr menu)", () => {
+    expect(hrNavState(config({}, { ...MODULES, care: true })).care).toBe(true);
+    expect(hrNavState(config({})).care).toBe(false);
   });
 
   it("wyłączony moduł chowa pozycję mimo kartoteki", () => {
@@ -65,6 +73,7 @@ describe("menu modułu „Ludzie w NEXUSIE”", () => {
       myTime: false,
       people: false,
       equipment: false,
+      care: false,
     });
   });
 

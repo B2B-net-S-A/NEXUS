@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
+import { useSearchParams } from "next/navigation";
 import { CalendarPlus } from "lucide-react";
 
 import { InlineStats } from "@/components/ds/InlineStats";
@@ -23,6 +24,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { yearMonthFromParams } from "@/components/hr/MyTimeScreen";
+import { TimesheetApprovalsSection } from "@/components/hr/time/TimesheetApprovalsSection";
 import { useConfirmV2 } from "@/components/v2/modals/ConfirmV2";
 import { apiErrorMessage } from "@/lib/api-error";
 import type { HrConfig } from "@/lib/api/hr";
@@ -327,6 +330,7 @@ function LeaveHistory() {
  * to lista — timesheety (moduł `time`, etap E2) dopiszą tu własną sekcję.
  */
 export function ApprovalsScreen({ config }: { config: HrConfig }) {
+  const params = useSearchParams();
   const pending = usePendingLeave(config.open_modules.leave);
   const [entering, setEntering] = useState(false);
   const viewerIsHr = config.me.people_admin || config.me.is_admin;
@@ -338,6 +342,25 @@ export function ApprovalsScreen({ config }: { config: HrConfig }) {
       title: "Urlopy i nieobecności",
       render: () => <PendingLeaveList viewerIsHr={viewerIsHr} />,
     });
+  }
+  const timesheetViewer =
+    config.me.is_manager || config.me.people_admin || config.me.payroll || config.me.is_admin;
+  if (config.open_modules.time && timesheetViewer) {
+    const focusUser = Number(params.get("user"));
+    const timesheets: ApprovalSection = {
+      key: "timesheets",
+      title: "Timesheety",
+      render: () => (
+        <TimesheetApprovalsSection
+          config={config}
+          initialMonth={yearMonthFromParams(params)}
+          focusUserId={Number.isInteger(focusUser) && focusUser > 0 ? focusUser : null}
+        />
+      ),
+    };
+    // Link z powiadomienia o timesheecie otwiera kolejkę od timesheetów.
+    if (params.get("kind") === "timesheet") sections.unshift(timesheets);
+    else sections.push(timesheets);
   }
 
   const waiting = pending.data?.length ?? null;
