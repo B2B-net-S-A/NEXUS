@@ -22,6 +22,8 @@ import {
   type EurPlnRate,
 } from "@/components/contracts/FinancialRatesCard";
 import { ContractNotesTab } from "@/components/contracts/ContractNotesTab";
+import { ContractCareTab } from "@/components/care/ContractCareTab";
+import { useHrConfig } from "@/lib/api/hr";
 import {
   contractActivityDetailRows,
   contractActivityLabel,
@@ -355,6 +357,7 @@ const TABS: Tab[] = [
   { key: "onboarding", label: "Onboarding" },
   { key: "equipment", label: "Sprzęt" },
   { key: "notes", label: "Notatki / Rozmowy" },
+  { key: "care", label: "Opieka" },
   { key: "invoices", label: "Faktury" },
   { key: "rateHistory", label: "Historia stawek" },
   { key: "timeline", label: "Timeline" },
@@ -512,6 +515,8 @@ export default function ContractDetailPage() {
         contractDetailTabHref(window.location.pathname, window.location.search, tab),
       ),
   );
+  // „Opieka” tylko przy włączonym module opieki (admin widzi zawsze).
+  const careOpen = useHrConfig().data?.open_modules.care === true;
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState<EditForm | null>(null);
   const [error, setError] = useState("");
@@ -864,6 +869,7 @@ export default function ContractDetailPage() {
 
   const visibleTabs = TABS.filter(
     (tab) =>
+      (careOpen || tab.key !== "care") &&
       (canViewContractDocuments || tab.key !== "documents") &&
       (canViewFinance || tab.key !== "rateHistory") &&
       (canViewInvoices || tab.key !== "invoices"),
@@ -2366,6 +2372,9 @@ export default function ContractDetailPage() {
           <ContractNotesTab contractId={id} canAddNote={canEditContract} />
         </div>
       )}
+
+      {/* Tab: Opieka (moduł „care” z „Ludzi w NEXUSIE”) */}
+      {careOpen && activeTab === "care" && <ContractCareTab contractId={id} />}
 
       {/* Tab: Faktury */}
       {canViewInvoices && activeTab === "invoices" && (

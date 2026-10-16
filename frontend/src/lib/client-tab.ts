@@ -21,6 +21,8 @@ export type ClientTab =
   // cel odsyłacza „Otwórz import →" z historii zamówienia.
   | "importy-md"
   | "analityka"
+  // Mapa technologii klienta („Ludzie w NEXUSIE”, 16.10.2026).
+  | "technologie"
   | "zespol";
 
 export const CLIENT_TAB_KEYS: readonly ClientTab[] = [
@@ -32,6 +34,7 @@ export const CLIENT_TAB_KEYS: readonly ClientTab[] = [
   "zamowienia",
   "importy-md",
   "analityka",
+  "technologie",
   "zespol",
 ] as const;
 

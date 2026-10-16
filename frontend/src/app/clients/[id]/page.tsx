@@ -15,6 +15,8 @@ import api from "@/lib/api";
 import { isBlockingViewState, resolveViewState } from "@/lib/view-state";
 import { useCapability } from "@/hooks/useCapability";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
+import { ClientTechnologiesTab } from "@/components/care/ClientTechnologiesTab";
+import { useHrConfig } from "@/lib/api/hr";
 import {
   ArrowLeft,
   Building2,
@@ -989,6 +991,8 @@ export default function ClientDetailPage() {
     searchParams.get("tab"),
     writeTabToUrl,
   );
+  // „Technologie” tylko przy włączonym module opieki (admin widzi zawsze).
+  const careOpen = useHrConfig().data?.open_modules.care === true;
   const orderMailDocParam = Number(searchParams.get("orderMailDoc"));
   const orderMailDocId =
     Number.isInteger(orderMailDocParam) && orderMailDocParam > 0
@@ -1160,9 +1164,12 @@ export default function ClientDetailPage() {
     { key: "kontakty", label: "Kontakty klienta" },
     { key: "umowy-ramowe", label: "Umowy" },
     { key: "analityka", label: "Analityka" },
+    { key: "technologie", label: "Technologie" },
   ];
   const TABS = allTabs.filter(
-    (tab) => canViewDeliveryLegal || tab.key !== "umowy-ramowe",
+    (tab) =>
+      (canViewDeliveryLegal || tab.key !== "umowy-ramowe") &&
+      (careOpen || tab.key !== "technologie"),
   );
 
   return (
@@ -1416,6 +1423,9 @@ export default function ClientDetailPage() {
             />
           )}
           {activeTab === "analityka" && <AnalyticsTab clientId={Number(id)} />}
+          {careOpen && activeTab === "technologie" && (
+            <ClientTechnologiesTab clientId={Number(id)} />
+          )}
 
           {activeTab === "zespol" && (
             <div className="space-y-4">
