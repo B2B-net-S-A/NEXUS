@@ -297,11 +297,15 @@ function DiscrepancyRow({ row, onOpenItem, onResolve, onLink }: DiscrepancyRowPr
         {device?.user ? (
           <>
             {device.user.name}
-            <span className={`${CALM_SUBLINE} break-all`}>{device.user_principal_name}</span>
+            <span className={`${CALM_SUBLINE} truncate`} title={device.user_principal_name ?? undefined}>
+              {device.user_principal_name}
+            </span>
           </>
         ) : device?.user_principal_name ? (
           <>
-            <span className="break-all">{device.user_principal_name}</span>
+            <span className="block truncate" title={device.user_principal_name}>
+              {device.user_principal_name}
+            </span>
             <span className={CALM_SUBLINE}>bez konta w NEXUSIE</span>
           </>
         ) : (
