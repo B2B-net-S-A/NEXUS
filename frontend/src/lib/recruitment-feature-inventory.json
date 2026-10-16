@@ -1988,6 +1988,14 @@
    "v3_home": "panel osoby → „Screening dla” → pod odpowiedzią"
   },
   {
+   "id": "screening-form.joint-memory",
+   "area": "formularz screeningu",
+   "opis": "Pamięć rozmowy: odznaczenie rekrutacji w „Screening dla” nie kasuje wpisów („N odpowiedzi w pamięci”, „Cofnij”), zapis czyści pamięć i wcześniej mówi, co z odznaczonych przepadnie, powrót do osoby przywraca niezapisany screening (do 12 h, „Odrzuć szkic”) (16.10.2026)",
+   "file": "components/v2/screening-form/ScreeningMemoryNotes.tsx",
+   "marker": "Przywrócono niezapisany screening",
+   "v3_home": "panel osoby → Nowi/Screening → „Screening dla”"
+  },
+  {
    "id": "screening-form.note-fill",
    "area": "formularz screeningu",
    "opis": "„Uzupełnij z notatki”: wklej tekst albo wgraj plik, puste pola wypełniają się z plakietką, przy wpisanych propozycja „Użyj”, „Cofnij wypełnienie”; notatka idzie do historii przy zapisie",

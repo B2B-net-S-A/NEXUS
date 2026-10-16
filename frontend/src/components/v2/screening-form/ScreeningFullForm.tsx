@@ -22,6 +22,11 @@
  * drugiej kopii (D3, `noteFill`), a udane „Zapisz i przekaż dalej” woła
  * `onForwarded` (P3).
  *
+ * Od 16.10.2026 w panelu osoby (Nowi/Screening) formularz pisze każdą zmianę
+ * do pamięci rozmowy (`lib/screening-memory.ts`) i przy starcie bierze z niej
+ * wpisy tej pary — także te z formularza wspólnego „Screening dla”. Zapis
+ * czyści pamięć całej rozmowy (D2 A).
+ *
  * Konflikt wersji (ktoś zapisał w międzyczasie) nie kasuje pracy: formularz
  * wczytuje nowszy stan i zostawia niezapisane zmiany (`keepDirtyValues`).
  * Odświeżenie w tle robi to samo: pola, których rekruter nie ruszył, pokazują
@@ -118,12 +123,20 @@ import {
 } from "@/lib/screening-form";
 import { onsiteText } from "@/lib/person-facts";
 import { rateSuggestionFill, type ScreeningSuggestions } from "@/lib/screening-suggestions";
+import {
+  memoryFromSingle,
+  singleRestore,
+  type PendingMemoryItem,
+  type ScreeningMemoryLink,
+  type SingleDirty,
+} from "@/lib/screening-memory";
 import { cn } from "@/lib/utils";
 import { evaluateRateGate } from "@/lib/verified-rate-gate";
 import { fixFieldState } from "@/lib/screening-fix-request";
 
 import { FixMark, FixRequestBanner } from "./FixRequestBanner";
 import { NoteFillBar } from "./NoteFillBar";
+import { MemoryPendingNote } from "./ScreeningMemoryNotes";
 import { ScreeningFormHistory } from "./ScreeningFormHistory";
 import { ScreeningLegacyText, ScreeningSummaryView } from "./ScreeningSummaryView";
 
@@ -203,7 +216,11 @@ export interface ScreeningFormModel {
   baseState: () => ScreeningFormState | null;
 }
 
-export function useScreeningFormModel(state: ScreeningFormState | undefined): ScreeningFormModel {
+export function useScreeningFormModel(
+  state: ScreeningFormState | undefined,
+  /** Pamięć rozmowy osoby (panel osoby w Nowych/Screeningu, 16.10.2026). */
+  memory?: ScreeningMemoryLink,
+): ScreeningFormModel {
   const methods = useForm<ScreeningFullFormValues>({
     defaultValues: state ? formDefaultsFromState(state) : EMPTY_VALUES,
   });
@@ -264,6 +281,43 @@ export function useScreeningFormModel(state: ScreeningFormState | undefined): Sc
   }, []);
 
   const hydrated = useRef<{ key: string; version: number; state: ScreeningFormState } | null>(null);
+
+  // Pamięć rozmowy: zmiany idą do niej dopiero, gdy formularz pary wziął już
+  // z niej swoje wpisy (`memoryReady` = klucz pary).
+  const memoryRef = useRef(memory);
+  memoryRef.current = memory;
+  const memoryReady = useRef<string | null>(null);
+  const noteRef = useRef<NoteState | null>(note);
+  noteRef.current = note;
+  const persist = useCallback(() => {
+    const link = memoryRef.current;
+    const base = hydrated.current?.state;
+    if (!link || !base) return;
+    const key = `${base.candidate_id}:${base.job_id}`;
+    if (memoryReady.current !== key) return;
+    const values = methods.getValues();
+    // Bieżący stan, nie migawka z renderu (`formState`): zapis do pamięci idzie
+    // zaraz po `setValue` (przywrócenie, wpis), zanim formularz się przerysuje.
+    const dirtyFields = methods.control._formState.dirtyFields;
+    // Stawka wpisana na start (D2) to podpowiedź, nie wpis rekrutera.
+    const prefilled = ratePrefilledRef.current;
+    const rateDirty = Boolean(dirtyFields.rate_amount || dirtyFields.rate_unit || dirtyFields.rate_currency);
+    const rateByRecruiter =
+      rateTouched.current === key || (rateDirty && !(prefilled && sameRate(rateFromValues(values), prefilled.rate)));
+    const current = noteRef.current;
+    link.write((prev) =>
+      memoryFromSingle(prev, {
+        anchorJobId: base.job_id,
+        state: base,
+        values,
+        dirty: dirtyFields as SingleDirty,
+        rateTouched: rateByRecruiter,
+        note: current ? { source: current.source, filled: current.filled } : null,
+        now: Date.now(),
+      }),
+    );
+  }, [methods]);
+
   useEffect(() => {
     if (!state) return;
     const key = `${state.candidate_id}:${state.job_id}`;
@@ -291,14 +345,44 @@ export function useScreeningFormModel(state: ScreeningFormState | undefined): Sc
       }
       return;
     }
+    const fresh = !prev || prev.key !== key;
+    if (fresh) memoryReady.current = null;
     methods.reset(formDefaultsFromState(state));
-    if (!prev || prev.key !== key) {
+    if (fresh) {
       clearNote();
       setNotice(null);
       rateTouched.current = null;
     }
     prefillRate(state);
-  }, [state, methods, clearNote, prefillRate]);
+    if (!fresh) return;
+    // Wpisy tej pary z rozmowy (także z formularza wspólnego) — jako zmiany rekrutera.
+    const link = memoryRef.current;
+    if (link) {
+      const restore = singleRestore(link.read(), state, link.clientId);
+      for (const [path, value] of restore.patches) {
+        methods.setValue(path as Path<ScreeningFullFormValues>, value as never, SET);
+      }
+      if (restore.rateTouched) {
+        rateTouched.current = key;
+        setRatePrefilled(null);
+      }
+      if (restore.note) {
+        const restored: NoteState = { source: restore.note.source, filled: restore.note.filled, undo: [] };
+        noteRef.current = restored;
+        setNote(restored);
+      }
+    }
+    memoryReady.current = key;
+    persist();
+  }, [state, methods, clearNote, prefillRate, setRatePrefilled, persist]);
+
+  useEffect(() => {
+    const subscription = methods.watch(() => persist());
+    return () => subscription.unsubscribe();
+  }, [methods, persist]);
+  useEffect(() => {
+    persist();
+  }, [note, persist]);
 
   const markSaved = useCallback(
     (result: ScreeningFormState) => {
@@ -971,6 +1055,11 @@ export interface ScreeningFullFormProps {
   closeOnSave?: boolean;
   /** Historia zmian pod formularzem (panel osoby). */
   showHistory?: boolean;
+  /** Pamięć rozmowy osoby (panel osoby w Nowych/Screeningu, 16.10.2026). */
+  memory?: ScreeningMemoryLink;
+  /** Odznaczone rekrutacje „Screening dla” z wpisami — zapis ich nie obejmie (D2 A). */
+  pendingMemory?: readonly PendingMemoryItem[];
+  onReselect?: (jobId: number) => void;
 }
 
 export function ScreeningFullForm({
@@ -991,12 +1080,15 @@ export function ScreeningFullForm({
   onCancel,
   closeOnSave = false,
   showHistory = true,
+  memory,
+  pendingMemory = [],
+  onReselect,
 }: ScreeningFullFormProps) {
   const { showSuccess, showError, showInfo, showActionToast } = useToast();
   const queryClient = useQueryClient();
   const query = useScreeningFormState(candidateId, jobId);
   const state = query.data;
-  const model = useScreeningFormModel(state);
+  const model = useScreeningFormModel(state, memory);
   const { methods } = model;
   const editable = Boolean(state?.editable) && !readOnly;
   const [error, setError] = useState<string | null>(null);
@@ -1137,10 +1229,15 @@ export function ScreeningFullForm({
     if (!base) return null;
     setError(null);
     const plan = buildSavePayload(base, methods.getValues(), { noteImport: model.note?.source ?? null });
-    if (!plan.hasChanges) return "unchanged";
+    if (!plan.hasChanges) {
+      // D2 A: zapis zamyka rozmowę — wpisy odznaczonych rekrutacji znikają.
+      memory?.write(() => null);
+      return "unchanged";
+    }
     const usedNote = plan.payload.note_import != null;
     try {
       const result = await save.mutateAsync(plan.payload);
+      memory?.write(() => null);
       onSaved?.(result);
       if (usedNote && result.undo_to_version != null) {
         const undoTo = result.undo_to_version;
@@ -1406,6 +1503,11 @@ export function ScreeningFullForm({
       className="sticky bottom-0 z-10 -mx-1 flex flex-wrap items-center justify-end gap-2 border-t border-border bg-background/95 px-1 py-2.5 backdrop-blur supports-[backdrop-filter]:bg-background/80"
       data-testid="screening-form-footer"
     >
+      {pendingMemory.length > 0 ? (
+        <div className="basis-full">
+          <MemoryPendingNote scope="tylko tę rekrutację" items={pendingMemory} onReselect={onReselect} />
+        </div>
+      ) : null}
       <p className="mr-auto flex items-center gap-1 text-[11px] text-muted-foreground" role="status">
         {dirty ? (
           <>

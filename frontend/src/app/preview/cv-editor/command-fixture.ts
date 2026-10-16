@@ -77,6 +77,26 @@ function plan(body: CvCommandRequest): Draft[] {
     return operations;
   }
 
+  // „ułóż stanowiska chronologicznie” — od najnowszego po roku końca
+  // („obecnie” = najnowsze). Na serwerze liczy to `cv_role_order`.
+  if (text.includes("chronolog") || text.includes("od najnowsz")) {
+    const heads = lines.filter((line) => line.kind === "role");
+    const end = (line: CvCommandLine) =>
+      /obecnie|present/i.test(line.text) ? 9999 : Math.max(0, ...(line.text.match(/\b(?:19|20)\d{2}\b/g) ?? []).map(Number));
+    const ordered = [...heads].sort((a, b) => end(b) - end(a));
+    if (heads.length > 1 && ordered.some((line, index) => line.id !== heads[index].id)) {
+      operations.push({
+        type: "reorder_roles",
+        lines: ordered.map((line) => line.id),
+        text: null,
+        why: "Stanowiska od najnowszego.",
+        loses: [],
+        new_words: [],
+      });
+    }
+    return operations;
+  }
+
   if (body.preset === "order_by_requirements" || text.includes("kolejno")) {
     for (const role of roles) {
       const bullets = bulletsOfRole(lines, role);

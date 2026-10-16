@@ -37,8 +37,14 @@ vi.mock("@/components/v2/screening-form/ScreeningFullForm", () => ({
     banner?: React.ReactNode;
     onForwarded?: () => void;
     noteFill?: unknown;
+    memory?: unknown;
+    pendingMemory?: Array<{ jobId: number; answers: number }>;
   }) => (
     <div data-testid="full-form">
+      <span>{props.memory ? "z pamięcią rozmowy" : "bez pamięci rozmowy"}</span>
+      {props.pendingMemory?.length ? (
+        <span>w pamięci: {props.pendingMemory.map((p) => `${p.jobId}×${p.answers}`).join(",")}</span>
+      ) : null}
       <span>formularz kandydata {props.candidateId}</span>
       <span>{props.forward ? `dalej: ${props.forward.label} (${props.forward.stageDefId})` : "bez ruchu dalej"}</span>
       <span>{props.reject ? `odrzuć: ${props.reject.stage} z ${props.reject.previousStage}` : "bez odrzucenia"}</span>
@@ -92,14 +98,45 @@ vi.mock("@/components/v2/screening-form/ScreeningFormHistory", () => ({
 }));
 
 vi.mock("@/components/v2/screening-form/JointScreeningPicker", () => ({
-  JointScreeningPicker: (props: { pairs: unknown[]; selected: ReadonlySet<number> }) =>
-    props.pairs.length ? <div data-testid="joint-picker">wybrane: {[...props.selected].join(",")}</div> : null,
+  JointScreeningPicker: (props: {
+    pairs: Array<{ job_id: number }>;
+    selected: ReadonlySet<number>;
+    onToggle: (id: number) => void;
+    memory?: ReadonlyMap<number, { answers: number }>;
+    notice?: { kind: string; jobId: number; answers: number } | null;
+    onUndo?: () => void;
+  }) =>
+    props.pairs.length ? (
+      <div data-testid="joint-picker">
+        wybrane: {[...props.selected].join(",")}
+        {props.pairs.slice(0, 2).map((p) => (
+          <button key={p.job_id} type="button" onClick={() => props.onToggle(p.job_id)}>
+            przełącz {p.job_id}
+          </button>
+        ))}
+        {props.notice ? (
+          <span data-testid="picker-notice">
+            {props.notice.kind} {props.notice.jobId} ({props.notice.answers})
+          </span>
+        ) : null}
+        {props.onUndo ? (
+          <button type="button" onClick={props.onUndo}>
+            cofnij odznaczenie
+          </button>
+        ) : null}
+      </div>
+    ) : null,
 }));
 
 vi.mock("@/components/v2/screening-form/JointScreeningForm", () => ({
-  JointScreeningForm: (props: { others: Array<{ job_id: number }>; onSessionChange?: (active: boolean) => void }) => (
+  JointScreeningForm: (props: {
+    others: Array<{ job_id: number }>;
+    onSessionChange?: (active: boolean) => void;
+    memory?: { write: (update: (prev: unknown) => unknown) => void };
+  }) => (
     <div data-testid="joint-form">
       wspólny z: {props.others.map((p) => p.job_id).join(",")}
+      {props.memory ? " · z pamięcią rozmowy" : ""}
       <button type="button" onClick={() => props.onSessionChange?.(true)}>
         zapis ruszył
       </button>
@@ -112,6 +149,8 @@ vi.mock("@/components/v2/screening-form/JointScreeningForm", () => ({
 
 import { ScreeningWorkbench } from "@/components/v2/jobs/ScreeningWorkbench";
 import { useJointScreeningIntent } from "@/store/joint-screening";
+import { emptyMemory } from "@/lib/screening-memory";
+import { readScreeningMemory, useScreeningMemoryStore, writeScreeningMemory } from "@/store/screening-memory";
 import { createNoteFillChannel } from "@/lib/note-fill-channel";
 import { PersonPanelSideProvider, PersonPanelSideZone } from "@/components/v2/person/PersonPanelSide";
 import type { KanbanColumn, KanbanItem } from "@/components/v2/pages/kanban-shared";
@@ -472,6 +511,7 @@ describe("ScreeningWorkbench — „Screening dla” (14.10.2026)", () => {
 
   beforeEach(() => {
     useJointScreeningIntent.setState({ intent: null });
+    useScreeningMemoryStore.setState({ entries: {} });
     mocks.get.mockImplementation((url: string, config: { params: { candidate_id: number } }) => {
       if (url === "/api/screening-form/joint-context") {
         return Promise.resolve({
@@ -542,5 +582,63 @@ describe("ScreeningWorkbench — „Screening dla” (14.10.2026)", () => {
     await user.click(screen.getByRole("button", { name: "zamknij wynik" }));
     await waitFor(() => expect(screen.queryByTestId("joint-form")).toBeNull());
   });
-});
 
+  /** Rozmowa sprzed zamknięcia panelu: 201 zaznaczona, 202 odznaczona z 2 odpowiedziami. */
+  function rememberConversation() {
+    const now = Date.now();
+    writeScreeningMemory(undefined, 111, () => ({
+      ...emptyMemory(7, now),
+      selected: [201],
+      pairs: {
+        "7": { touchedAt: now, answers: { q1: "8 lat" } },
+        "202": { touchedAt: now, answers: { q1: "Tak", q2: "Nie" } },
+      },
+    }));
+  }
+
+  it("unchecking keeps the entries in memory and offers „Cofnij” (D1 A)", async () => {
+    const user = userEvent.setup();
+    useJointScreeningIntent.getState().setIntent(111, [201, 202]);
+    renderJoint();
+    expect(await screen.findByTestId("joint-form")).toHaveTextContent("wspólny z: 201,202 · z pamięcią rozmowy");
+    await user.click(screen.getByRole("button", { name: "przełącz 202" }));
+    expect(screen.getByTestId("joint-form")).toHaveTextContent("wspólny z: 201");
+    expect(screen.getByTestId("picker-notice")).toHaveTextContent("unchecked 202");
+    await user.click(screen.getByRole("button", { name: "cofnij odznaczenie" }));
+    expect(screen.getByTestId("joint-form")).toHaveTextContent("wspólny z: 201,202");
+  });
+
+  it("coming back to the person restores the selection and says the screening was restored (D3 B)", async () => {
+    rememberConversation();
+    renderJoint();
+    expect(await screen.findByTestId("joint-form")).toHaveTextContent("wspólny z: 201");
+    expect(screen.getByTestId("screening-memory-restored")).toHaveTextContent("Przywrócono niezapisany screening z");
+  });
+
+  it("an unchecked recruitment with entries is listed for the save warning (D2 A)", async () => {
+    const now = Date.now();
+    writeScreeningMemory(undefined, 111, () => ({
+      ...emptyMemory(7, now),
+      pairs: { "202": { touchedAt: now, answers: { q1: "Tak", q2: "Nie" } } },
+    }));
+    renderJoint();
+    await screen.findByTestId("joint-picker");
+    expect(screen.getByTestId("full-form")).toHaveTextContent("z pamięcią rozmowy");
+    expect(screen.getByTestId("full-form")).toHaveTextContent("w pamięci: 202×2");
+  });
+
+  it("„Odrzuć szkic” asks first, then clears the memory and the selection", async () => {
+    const user = userEvent.setup();
+    rememberConversation();
+    renderJoint();
+    await screen.findByTestId("screening-memory-restored");
+    await user.click(screen.getByRole("button", { name: "Odrzuć szkic" }));
+    const dialog = await screen.findByRole("dialog");
+    expect(dialog).toHaveTextContent("Odrzucić niezapisany screening?");
+    expect(readScreeningMemory(undefined, 111)).not.toBeNull();
+    await user.click(within(dialog).getByRole("button", { name: "Odrzuć szkic" }));
+    await waitFor(() => expect(readScreeningMemory(undefined, 111)).toBeNull());
+    await waitFor(() => expect(screen.queryByTestId("joint-form")).toBeNull());
+    expect(screen.queryByTestId("screening-memory-restored")).toBeNull();
+  });
+});

@@ -15,6 +15,7 @@ import {
   type ScreeningFormState,
 } from "@/lib/api/screeningForm";
 import { formSaveResult, formState } from "@/components/v2/screening-form/__tests__/screening-form-fixtures";
+import { readScreeningMemory, useScreeningMemoryStore, writeScreeningMemory } from "@/store/screening-memory";
 
 const mocks = vi.hoisted(() => ({
   get: vi.fn(),
@@ -458,3 +459,146 @@ describe("JointScreeningForm", () => {
   });
 });
 
+
+describe("JointScreeningForm — pamięć rozmowy (16.10.2026, D1 A / D2 A)", () => {
+  // Zgłoszenie rekrutera: 4 rekrutacje, odpowiedzi wpisane, odznaczenie 2 kasowało wszystko.
+  const USER = 5;
+  const THIRD: JointContextPair = {
+    ...OTHER,
+    job_id: 203,
+    title: "Java Developer",
+    client_id: 3,
+    client_name: "Leasing Demo",
+    verified_stage_def_id: 55,
+  };
+  const ANCHOR = {
+    jobId: 201,
+    title: "Programista Frontend",
+    clientId: 1,
+    clientName: "Bank Przykładowy",
+    budgetHourly: 95,
+    verifiedStageDefId: 33,
+  };
+  const link = {
+    read: () => readScreeningMemory(USER, CANDIDATE),
+    write: (update: Parameters<typeof writeScreeningMemory>[2]) => void writeScreeningMemory(USER, CANDIDATE, update),
+  };
+
+  // Serwer oddaje stan z zapisanymi odpowiedziami — po zapisie nic nie jest „niezapisane”.
+  const echoSaved = (body: ScreeningFormSave) =>
+    Promise.resolve({
+      data: formSaveResult({ ...states[body.job_id], sheet: { ...(body.sheet ?? {}), notes: "" } as never }),
+    });
+
+  beforeEach(() => {
+    window.sessionStorage.clear();
+    useScreeningMemoryStore.setState({ entries: {} });
+    mocks.put.mockImplementation((_url: string, body: ScreeningFormSave) => echoSaved(body));
+    states[203] = formState({
+      job_id: 203,
+      stage_id: 9203,
+      process_state_version: 5,
+      champion_profile: { screening_questions: [{ id: "q1", question: "Ile lat pracujesz z Javą?", ideal_answer: "", deal_breaker: "" }] },
+    });
+  });
+
+  function mountWithMemory(others: JointContextPair[], extra: Partial<React.ComponentProps<typeof JointScreeningForm>> = {}) {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const view = (next: JointContextPair[], props = extra) => (
+      <QueryClientProvider client={client}>
+        <JointScreeningForm candidateId={CANDIDATE} candidateName="Oskar Wzorcowy" anchor={ANCHOR} others={next} memory={link} {...props} />
+      </QueryClientProvider>
+    );
+    const rendered = render(view(others));
+    return { rerender: (next: JointContextPair[], props = extra) => rendered.rerender(view(next, props)) };
+  }
+
+  it("unchecking a recruitment keeps the answers of the ones that stay", async () => {
+    const user = userEvent.setup();
+    const { rerender } = mountWithMemory([OTHER, THIRD]);
+    await user.type(await screen.findByLabelText("Czy 2 dni w biurze są OK?"), "Tak, 2 dni OK");
+    await user.type(screen.getByLabelText("Od kiedy możesz zacząć?"), "Od 1.11");
+    await user.type(screen.getByLabelText("Jak używałeś RxJS w produkcji?"), "Formularze na strumieniach");
+    await user.type(screen.getByLabelText("Ile lat pracujesz z Javą?"), "8 lat");
+
+    rerender([OTHER]);
+    expect(await screen.findByDisplayValue("Tak, 2 dni OK")).toBeInTheDocument();
+    expect(screen.getByLabelText("Od kiedy możesz zacząć?")).toHaveValue("Od 1.11");
+    expect(screen.getByLabelText("Jak używałeś RxJS w produkcji?")).toHaveValue("Formularze na strumieniach");
+    expect(screen.queryByLabelText("Ile lat pracujesz z Javą?")).toBeNull();
+  });
+
+  it("checking an unchecked recruitment again brings its answers back", async () => {
+    const user = userEvent.setup();
+    const { rerender } = mountWithMemory([OTHER, THIRD]);
+    await user.type(await screen.findByLabelText("Ile lat pracujesz z Javą?"), "8 lat");
+    rerender([OTHER]);
+    await screen.findByText("Tylko Angular Developer · 1");
+    rerender([OTHER, THIRD]);
+    expect(await screen.findByLabelText("Ile lat pracujesz z Javą?")).toHaveValue("8 lat");
+  });
+
+  it("entries survive several selection changes in a row (memory written right after restore)", async () => {
+    const user = userEvent.setup();
+    const { rerender } = mountWithMemory([OTHER, THIRD]);
+    await user.type(await screen.findByLabelText("Czy 2 dni w biurze są OK?"), "Tak, 2 dni OK");
+    rerender([OTHER]);
+    expect(await screen.findByDisplayValue("Tak, 2 dni OK")).toBeInTheDocument();
+    rerender([OTHER, THIRD]);
+    expect(await screen.findByLabelText("Ile lat pracujesz z Javą?")).toBeInTheDocument();
+    expect(screen.getByLabelText("Czy 2 dni w biurze są OK?")).toHaveValue("Tak, 2 dni OK");
+    expect(readScreeningMemory(USER, CANDIDATE)?.pairs["201"]?.answers).toEqual({ q2: "Tak, 2 dni OK" });
+  });
+
+  it("adding a recruitment mid-conversation does not reset what was typed", async () => {
+    const user = userEvent.setup();
+    const { rerender } = mountWithMemory([OTHER]);
+    await user.type(await screen.findByLabelText("Czy 2 dni w biurze są OK?"), "Tak, 2 dni OK");
+    rerender([OTHER, THIRD]);
+    expect(await screen.findByLabelText("Ile lat pracujesz z Javą?")).toBeInTheDocument();
+    expect(screen.getByLabelText("Czy 2 dni w biurze są OK?")).toHaveValue("Tak, 2 dni OK");
+  });
+
+  it("an untouched form leaves nothing in memory", async () => {
+    mountWithMemory([OTHER]);
+    await screen.findByText("Wspólne · zadajesz raz");
+    expect(readScreeningMemory(USER, CANDIDATE)).toBeNull();
+  });
+
+  it("saving clears the memory, also of unchecked recruitments, and says so before saving", async () => {
+    const user = userEvent.setup();
+    const { rerender } = mountWithMemory([OTHER, THIRD]);
+    await user.type(await screen.findByLabelText("Ile lat pracujesz z Javą?"), "8 lat");
+    await user.type(screen.getByLabelText("Od kiedy możesz zacząć?"), "Od 1.11");
+    rerender([OTHER], {
+      pendingMemory: [{ jobId: 203, title: "Java Developer", answers: 1, canReselect: true }],
+    });
+    const warning = await screen.findByTestId("screening-memory-pending");
+    expect(warning).toHaveTextContent("Zapis obejmie 2 zaznaczone rekrutacje");
+    expect(warning).toHaveTextContent("Java Developer — 1 odpowiedź");
+    expect(readScreeningMemory(USER, CANDIDATE)?.pairs["203"]?.answers).toEqual({ q1: "8 lat" });
+
+    await user.click(screen.getByRole("button", { name: "Zapisz w 2" }));
+    await screen.findByTestId("joint-result-202");
+    // Kotwica bez zmian nie wysyła zapisu; odznaczona rekrutacja nie jest zapisywana wcale.
+    expect(mocks.put.mock.calls.map((c) => (c[1] as ScreeningFormSave).job_id)).toEqual([202]);
+    expect(readScreeningMemory(USER, CANDIDATE)).toBeNull();
+  });
+
+  it("a pair whose save failed keeps its entries in memory", async () => {
+    const user = userEvent.setup();
+    mocks.put.mockImplementation((_url: string, body: ScreeningFormSave) =>
+      body.job_id === 202
+        ? Promise.reject({ response: { status: 423, data: { detail: { code: "CANDIDATE_CLAIMED", message: "Prowadzi ją ktoś inny." } } } })
+        : echoSaved(body),
+    );
+    mountWithMemory([OTHER]);
+    await user.type(await screen.findByLabelText("Od kiedy możesz zacząć?"), "Od 1.11");
+    await user.type(screen.getByLabelText("Czy 2 dni w biurze są OK?"), "Tak");
+    await user.click(screen.getByRole("button", { name: "Zapisz w 2" }));
+    await screen.findByTestId("joint-result-202");
+    const memory = readScreeningMemory(USER, CANDIDATE);
+    expect(memory?.pairs["202"]?.answers).toEqual({ q1: "Od 1.11" });
+    expect(memory?.pairs["201"]).toBeUndefined();
+  });
+});

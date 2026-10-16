@@ -1,4 +1,4 @@
-# Blok „Rekrutacje” w filtrze „Historia z nami”: brał / nie brał udziału, bez procesu w toku (12.10.2026)
+# Blok „Rekrutacje” w filtrze „Rekrutacje i historia”: brał / nie brał udziału, bez procesu w toku (12.10.2026)
 <!-- indeks: odpowiednik „Nieprzypisany” z Traffita, zakres klienta, lista rekrutacji z szukaniem po stronie serwera, cztery pola stanu i tryb wyliczany -->
 
 Decyzja Artura 12.10.2026 (makiety: https://claude.ai/artifact/G1EfD1VqGL7oaBET2LDg9a).
@@ -31,6 +31,23 @@ Przy dwóch środkowych lista rekrutacji, domyślnie „Wszystkie rekrutacje”:
   Traffita. **Worek zgłoszeń liczy się jak rekrutacja** (decyzja Artura: bez
   wyjątku; rekrutacja nie ma znacznika „worek”). Propozycje automatu, shortlisty
   i pule przypisaniem nie są.
+
+## Nazwa „Rekrutacje i historia” i podpowiedź (16.10.2026)
+
+Rekruter zapytał, czy jest filtr „bez osób, które były już w danej rekrutacji” —
+szukał i nie znalazł: pigułka nazywała się „Historia z nami” (w Traffit to filtr
+„Rekrutacje”), a widoczne „Wyklucz” dotyczy tylko słów. Decyzja Artura 16.10.2026
+(makiety: https://claude.ai/artifact/W9NsAZwWioGwG8zAdna9bB, wariant B):
+
+- Pigułka nazywa się **„Rekrutacje i historia”**; zawartość okienka bez zmian.
+- Przy „Dowolnie” blok pokazuje zdanie „Żeby ukryć osoby, które są albo były
+  w danej rekrutacji: wybierz „Nie brał udziału” i zaznacz ją na liście.” Po
+  wyborze trybu znika — jego rolę przejmuje zdanie pod opcjami.
+- W oknie „Szukaj ręcznie” zdania nie ma: tam osoby z rekrutacji są ukryte
+  z góry i stoi zdanie blokady.
+- Odrzucone: osobna pigułka „Rekrutacje” (A) i skrót „i osoby z [rekrutacja]”
+  pod „Wyklucz” (C — dwa miejsca jednego filtra).
+- Nazwy nie ma w adresie ani w zapisanych wyszukiwaniach — zmiana ich nie rusza.
 
 ## Parametry listy (`GET /api/candidates`, eksport bierze je sam)
 
@@ -103,9 +120,9 @@ firmy (bez zawężenia Delivery Leada — jak pozostałe listy wyboru rekrutacji
   (przegląd kodu 12.10.2026: Enter na „Gotowe” dokładał rekrutację do filtra).
   Każdy nowy przycisk w tej liście: poza `<Command>` albo z tą samą osłoną; oba
   przypadki pilnują testy.
-- Lista jest osobnym okienkiem, nie częścią okienka „Historia z nami”
+- Lista jest osobnym okienkiem, nie częścią okienka „Rekrutacje i historia”
   (odstępstwo od makiety — inaczej okienko nie mieści się na laptopie
   1280 × 720). Od 1024 px szerokości otwiera się OBOK okienka filtra: pod
   przyciskiem zostawało przy 1280 × 720 miejsce na dwa i pół wiersza (150 px),
-  obok jest 360 px. Węziej zostaje pod przyciskiem. Okienko „Historia z nami”
+  obok jest 360 px. Węziej zostaje pod przyciskiem. Okienko „Rekrutacje i historia”
   ma 460 px, żeby cztery opcje stały w jednym rzędzie.

@@ -187,6 +187,7 @@ export function canApply(operation: CvPlanOperation, lines: readonly CvLine[]): 
   if (operation.type === "bold" || operation.type === "unbold") return (operation.terms ?? []).length > 0;
   const rows = operation.lines.map((id) => lines[id]);
   if (rows.length === 0 || rows.some((row) => row == null)) return false;
+  if (operation.type === "reorder_roles") return rows.length >= 2 && rows.every((row) => row.kind === "role" && row.role != null);
   if (operation.type !== "reorder") return true;
   return rows.every((row) => row.kind === "bullet" && row.blockFrom === rows[0].blockFrom);
 }
@@ -217,6 +218,50 @@ function newBlock(state: EditorState, after: CvLine, markup: string): PMNode | n
   const block = paragraph.create(null, content);
   if (after.kind === "bullet") return listItem ? listItem.create(null, block) : null;
   return block;
+}
+
+/**
+ * Całe stanowiska w nowej kolejności (`reorder_roles`) — jeden krok na
+ * zakresie od pierwszego do ostatniego stanowiska. `order[k]` = numer
+ * stanowiska na miejscu `k`. Zwraca przesunięcie pozycji sprzed kroku (treść
+ * stanowisk przenosi się bez zmian, więc pozycja w stanowisku jedzie z nim)
+ * i linie stanowisk, które zmieniły miejsce; `null`, gdy stanowiska nie stoją
+ * jedno za drugim albo kolejność nie obejmuje każdego z nich raz.
+ */
+function moveRoles(
+  transaction: Transaction,
+  order: readonly (number | null)[],
+): { shift: (range: ChangedRange) => ChangedRange; heads: ChangedRange[] } | null {
+  const { roles } = cvOutline(transaction.doc);
+  const valid = order.every((role) => role != null && roles[role] != null);
+  if (!valid || order.length !== roles.length || new Set(order).size !== roles.length) return null;
+  if (roles.some((role, index) => index > 0 && roles[index - 1].toIndex !== role.fromIndex)) return null;
+  const start = roles[0].from;
+  const end = roles[roles.length - 1].to;
+  const doc = transaction.doc;
+  const placed = new Map<number, number>();
+  let content = Fragment.empty;
+  let at = start;
+  for (const role of order as number[]) {
+    placed.set(role, at);
+    content = content.append(doc.slice(roles[role].from, roles[role].to).content);
+    at += roles[role].to - roles[role].from;
+  }
+  const heads: ChangedRange[] = [];
+  (order as number[]).forEach((role, index) => {
+    const head = doc.nodeAt(roles[role].from);
+    if (role === index || !head) return;
+    const from = placed.get(role)! + 1;
+    heads.push({ from, to: from + head.content.size });
+  });
+  transaction.replaceWith(start, end, content);
+  const shift = (range: ChangedRange): ChangedRange => {
+    const index = roles.findIndex((role) => range.from >= role.from && range.from < role.to);
+    if (index < 0) return range;
+    const from = placed.get(index)! + (range.from - roles[index].from);
+    return { from, to: from + (range.to - range.from) };
+  };
+  return { shift, heads };
 }
 
 /** Wystąpienia terminu poza tytułem i nagłówkami sekcji (tam pogrubienie nie służy). */
@@ -251,7 +296,8 @@ export function applyChanges(
   const removals: CvLine[] = [];
   for (const operation of operations) {
     const rows = operation.lines.map((id) => byId.get(id)!);
-    if (operation.type === "bold" || operation.type === "unbold") continue;
+    // Formatowanie i kolejność stanowisk idą po zmianach treści, na dokumencie po nich.
+    if (operation.type === "bold" || operation.type === "unbold" || operation.type === "reorder_roles") continue;
     if (rows.length === 0) continue;
     if (operation.type === "remove") {
       removals.push(...rows);
@@ -300,7 +346,8 @@ export function applyChanges(
     else for (const row of rows) edits.push({ from: row.from, to: row.to, content: Fragment.empty });
   }
   const formatting = operations.filter((operation) => operation.type === "bold" || operation.type === "unbold");
-  if (edits.length === 0 && formatting.length === 0) return null;
+  const roleOrder = operations.find((operation) => operation.type === "reorder_roles");
+  if (edits.length === 0 && formatting.length === 0 && !roleOrder) return null;
 
   // Od końca dokumentu: wcześniejsze pozycje zostają ważne. W tym samym
   // miejscu najpierw dłuższa zmiana (usunięcie następnego wiersza przed
@@ -318,10 +365,23 @@ export function applyChanges(
     }
   }
   // Nowa treść w dokumencie po wszystkich krokach (wcześniejsze edycje przesuwają ją).
-  const changed: ChangedRange[] = inserted.map(({ range, afterStep }) => {
+  let changed: ChangedRange[] = inserted.map(({ range, afterStep }) => {
     const later = transaction.mapping.slice(afterStep);
     return { from: later.map(range.from, 1), to: later.map(range.to, -1) };
   });
+  let first =
+    edits.length > 0 ? Math.min(transaction.mapping.map(edits[edits.length - 1].from), transaction.doc.content.size) : null;
+  // Kolejność stanowisk na dokumencie po zmianach treści: numery stanowisk się
+  // nie zmieniły (usunięcia stanowiska z tą operacją serwer nie przepuszcza).
+  if (roleOrder) {
+    const moved = moveRoles(
+      transaction,
+      roleOrder.lines.map((id) => byId.get(id)!.role),
+    );
+    if (!moved) return null;
+    changed = [...changed.map(moved.shift), ...moved.heads];
+    first = first != null ? moved.shift({ from: first, to: first }).from : (moved.heads[0]?.from ?? null);
+  }
   // Pogrubienie na treści po zmianach — także na właśnie dopisanych wierszach.
   const bold = state.schema.marks.bold;
   if (bold) {
@@ -336,9 +396,8 @@ export function applyChanges(
     }
   }
   if (!transaction.docChanged) return null;
-  if (edits.length > 0) {
-    const first = Math.min(transaction.mapping.map(edits[edits.length - 1].from), transaction.doc.content.size);
-    transaction.setSelection(TextSelection.near(transaction.doc.resolve(first)));
+  if (first != null) {
+    transaction.setSelection(TextSelection.near(transaction.doc.resolve(Math.min(first, transaction.doc.content.size))));
   }
   return { transaction: closeHistory(transaction), changed: changed.filter((range) => range.to > range.from) };
 }

@@ -114,7 +114,7 @@ describe("filterGroupCounts", () => {
     });
   });
 
-  it("blok „Rekrutacje”: tryb i klienci liczą się w „Historia z nami”", () => {
+  it("blok „Rekrutacje”: tryb i klienci liczą się w „Rekrutacje i historia”", () => {
     const idle = filterGroupCounts(
       withFilters({ recruitmentPresence: "not_in_process" }),
       NO_STAGE,
