@@ -83,6 +83,11 @@ async def _push_all(items: list[tuple[int, dict]]) -> None:
 
 @event.listens_for(Session, "after_commit")
 def _dispatch_after_commit(session: Session) -> None:
+    # SQLAlchemy odpala ``after_commit`` także przy zwolnieniu SAVEPOINT-u
+    # (``begin_nested()`` w workerze „Moich ludzi”, dedup w ``emit``) — kolejka
+    # czeka na commit zewnętrznej transakcji.
+    if session.in_nested_transaction():
+        return
     pending = session.info.pop(_PENDING_KEY, None)
     if not pending:
         return

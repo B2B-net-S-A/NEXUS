@@ -306,3 +306,43 @@ def test_rowless_event_on_fake_session_falls_back_to_immediate_push() -> None:
         after_commit.queue_ws_event(MagicMock(spec=[]), user_id=1, event_payload={})
         is False
     )
+
+
+async def test_savepoint_release_does_not_send_before_the_outer_commit(
+    monkeypatch,
+) -> None:
+    """Worker woła ``run_for_job`` w ``begin_nested()``. SQLAlchemy odpala
+    ``after_commit`` także przy zwolnieniu SAVEPOINT-u — zdarzenie ma czekać na
+    commit zewnętrzny i przepaść, gdy ten się wycofa."""
+    pushed: list[tuple[int, dict]] = []
+
+    async def fake_notify(user_id, payload):
+        pushed.append((user_id, payload))
+
+    monkeypatch.setattr(ws, "notify_user", fake_notify)
+    engine = create_engine("sqlite://")
+    _Base.metadata.create_all(engine)
+    with Session(engine) as session:
+        session.add(_Row(id=6))
+        session.flush()
+        with session.begin_nested():
+            after_commit.queue_ws_event(
+                _AsyncLike(session), user_id=6, event_payload={"n": "rolled"}
+            )
+        await _drain()
+        assert pushed == []  # SAVEPOINT zwolniony, transakcja wciąż otwarta
+        session.rollback()
+        await _drain()
+        assert pushed == []
+
+        session.add(_Row(id=7))
+        session.flush()
+        with session.begin_nested():
+            after_commit.queue_ws_event(
+                _AsyncLike(session), user_id=7, event_payload={"n": "kept"}
+            )
+        await _drain()
+        assert pushed == []
+        session.commit()
+        await _drain()
+    assert pushed == [(7, {"n": "kept"})]
