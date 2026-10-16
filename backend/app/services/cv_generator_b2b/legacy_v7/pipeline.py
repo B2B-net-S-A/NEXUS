@@ -69,6 +69,7 @@ from app.services.cv_generator_b2b.legacy_v7.text_extractor import (
     extract_text_from_file,
 )
 from app.services.cv_generator_b2b.university_names import localize_education
+from app.services.cv_role_order import sort_experience
 from app.services.cv_generator_b2b.provider import (
     CVGeneratorAIError,
     CVGeneratorOverloadedError,
@@ -315,6 +316,11 @@ def run_legacy_generation(
     # Polska uczelnia w polskim CV po polsku także wtedy, gdy model przepisał
     # angielską nazwę ze źródła (15.10.2026).
     localize_education(candidate_data, language)
+    # Stanowiska od najnowszego ustawia kod, nie model (16.10.2026): prompt
+    # pozwala „zmieniać kolejność” pod wymagania klienta, a reguła klienta
+    # „maks. N stanowisk” niżej bierze pierwsze N z tej listy.
+    if sort_experience(candidate_data):
+        logger.info("[cv_b2b][%s] experience reordered newest first", request_id)
     rule_snapshot = asdict(client_rule) if client_rule else None
     candidate_data["client_rule_snapshot"] = rule_snapshot
     candidate_data["editorial_provenance"] = {

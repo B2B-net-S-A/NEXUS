@@ -1091,3 +1091,140 @@ async def test_conversation_and_selection_are_fenced_data(wired) -> None:
     assert "[9, 10]" in prompt or "[9,10]" in prompt
     details = db.added[-1].details
     assert (details["history"], details["focus"]) == (2, True)
+
+
+# ── kolejność stanowisk (16.10.2026, zgłoszenie rekruterki) ─────────────────
+#
+# „chcę, żeby miejsca pracy w doświadczeniu były ułożone chronologicznie” —
+# asystent odpowiadał „żadna zmiana nie przeszła kontroli”, bo umiał przestawiać
+# tylko punkty w obrębie jednego stanowiska. Całe stanowiska przestawia
+# `reorder_roles`; kolejność „od najnowszego” liczy kod z dat w linii stanowiska.
+
+
+def _roles_cv(*roles: tuple[str, str]) -> list[cmd.Line]:
+    """CV z nagłówkiem doświadczenia i stanowiskami (linia stanowiska, punkt)."""
+    rows = [
+        line(0, "title", "Anna Przykładowa"),
+        line(1, "heading", "Doświadczenie", section=EXP),
+    ]
+    for number, (head, bullet) in enumerate(roles):
+        rows.append(line(len(rows), "role", head, section=EXP, role=number))
+        rows.append(
+            line(len(rows), "employer", f"Firma {number}", section=EXP, role=number)
+        )
+        rows.append(line(len(rows), "bullet", bullet, section=EXP, role=number))
+    return rows
+
+
+OUT_OF_ORDER = _roles_cv(
+    ("**Junior Java Developer** 07.2015 – 12.2016", "Rozwój sklepu internetowego."),
+    ("**Senior Java Developer** 03.2021 – obecnie", "Usługi REST w Spring Boot."),
+    ("**Java Developer** 01.2017 – 02.2021", "Integracje przez Kafkę."),
+)
+# Wiersz linii stanowiska po numerze stanowiska.
+HEADS = {item.role: item.id for item in OUT_OF_ORDER if item.kind == "role"}
+
+
+def test_newest_first_moves_whole_roles_by_their_dates() -> None:
+    op = only(
+        _plan_on(
+            OUT_OF_ORDER,
+            {"type": "reorder_roles", "by": "newest_first", "why": "Od najnowszego."},
+        )
+    )
+    assert op["type"] == "reorder_roles"
+    # Linie stanowisk w nowej kolejności: obecne, 2017–2021, 2015–2016.
+    assert op["lines"] == [HEADS[1], HEADS[2], HEADS[0]]
+    assert (op["text"], op["loses"], op["ask"]) == (None, [], None)
+
+
+def test_oldest_first_is_the_same_order_reversed() -> None:
+    op = only(_plan_on(OUT_OF_ORDER, {"type": "reorder_roles", "by": "oldest_first"}))
+    assert op["lines"] == [HEADS[0], HEADS[2], HEADS[1]]
+
+
+def test_explicit_role_order_must_name_every_role_once() -> None:
+    op = only(_plan_on(OUT_OF_ORDER, {"type": "reorder_roles", "roles": [2, 0, 1]}))
+    assert op["lines"] == [HEADS[2], HEADS[0], HEADS[1]]
+    for roles in ([2, 0], [2, 0, 0], [2, 0, 1, 3], [True, 0, 2], "2,0,1"):
+        assert dropped(
+            _plan_on(OUT_OF_ORDER, {"type": "reorder_roles", "roles": roles})
+        ) == ["bad_order"]
+
+
+def test_roles_already_in_order_say_so() -> None:
+    ordered = _roles_cv(
+        ("**Senior** 03.2021 – obecnie", "Usługi REST."),
+        ("**Mid** 01.2017 – 02.2021", "Integracje."),
+    )
+    result = _plan_on(ordered, {"type": "reorder_roles", "by": "newest_first"})
+    assert dropped(result) == ["roles_in_order"]
+    assert cmd.dropped_message(result["dropped"]) == cmd.MSG_ROLES_IN_ORDER
+
+
+def test_role_without_dates_keeps_its_place_and_no_dates_at_all_is_refused() -> None:
+    mixed = _roles_cv(
+        ("**Junior** 2015 – 2016", "Sklep."),
+        ("**Praktyki**", "Wsparcie zespołu."),
+        ("**Senior** 03/2021 – present", "REST."),
+    )
+    heads = [item.id for item in mixed if item.kind == "role"]
+    op = only(_plan_on(mixed, {"type": "reorder_roles", "by": "newest_first"}))
+    assert op["lines"] == [heads[2], heads[1], heads[0]]
+    undated = _roles_cv(("**Junior**", "Sklep."), ("**Senior**", "REST."))
+    result = _plan_on(undated, {"type": "reorder_roles", "by": "newest_first"})
+    assert dropped(result) == ["no_dates"]
+    assert cmd.dropped_message(result["dropped"]) == cmd.MSG_NO_DATES
+
+
+def test_role_order_goes_with_bullet_edits_but_not_with_removing_a_role() -> None:
+    bullet = next(
+        item.id for item in OUT_OF_ORDER if item.role == 0 and item.kind == "bullet"
+    )
+    result = _plan_on(
+        OUT_OF_ORDER,
+        {"type": "reorder_roles", "by": "newest_first"},
+        {
+            "type": "replace",
+            "line": bullet,
+            "text": "Rozwój sklepu internetowego w zespole.",
+        },
+    )
+    assert [op["type"] for op in result["operations"]] == ["reorder_roles", "replace"]
+    # Usunięte stanowisko nie może jednocześnie dostać miejsca w nowej kolejności.
+    for first, second in (
+        (
+            {"type": "remove_role", "role": 0},
+            {"type": "reorder_roles", "by": "newest_first"},
+        ),
+        (
+            {"type": "reorder_roles", "by": "newest_first"},
+            {"type": "remove_role", "role": 0},
+        ),
+    ):
+        result = _plan_on(OUT_OF_ORDER, first, second)
+        assert [op["type"] for op in result["operations"]] == [first["type"]]
+        assert [item["reason"] for item in result["dropped"]] == ["overlap"]
+
+
+def test_cv_without_role_markers_cannot_reorder_roles() -> None:
+    assert dropped(
+        _plan_on(LINES[:5], {"type": "reorder_roles", "by": "newest_first"})
+    ) == ["no_roles"]
+
+
+def test_reorder_roles_reads_the_dates_not_the_title() -> None:
+    """Rok w nazwie stanowiska (bez pogrubienia) nie jest datą stanowiska."""
+    rows = _roles_cv(
+        ("Administrator Windows Server 2019, 01.2016 – 12.2018", "Domena AD."),
+        ("Administrator Microsoft 365 01.2019 – obecnie", "Intune."),
+    )
+    heads = [item.id for item in rows if item.kind == "role"]
+    op = only(_plan_on(rows, {"type": "reorder_roles", "by": "newest_first"}))
+    assert op["lines"] == [heads[1], heads[0]]
+
+
+def test_prompt_tells_the_model_that_code_counts_the_chronology() -> None:
+    system = cmd.CV_EDITOR_COMMAND.system_prompt or ""
+    assert "reorder_roles" in system and "newest_first" in system
+    assert "reorder_roles" in cmd.OPERATION_TYPES

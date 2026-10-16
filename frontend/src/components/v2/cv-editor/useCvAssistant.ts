@@ -122,6 +122,7 @@ const DEFAULT_WHY: Record<CvPlanOperation["type"], string> = {
   bold: "Pogrubione",
   unbold: "Bez pogrubienia",
   considered_for: "Nowe stanowisko w „Rozważany na stanowisko”",
+  reorder_roles: "Nowa kolejność stanowisk",
 };
 
 /** Odmiana po liczbie: 1 → `one`, 2–4 (poza 12–14) → `few`, reszta → `many`. */

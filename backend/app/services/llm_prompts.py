@@ -1424,7 +1424,9 @@ CV_EDITOR_COMMAND = PromptTemplate(
     name="cv_editor_command",
     # v2 (Edytor CV 3, PR 4): asystent w rozmowie — zmiany idą do CV od razu,
     # nowe operacje add / bold / unbold / considered_for, rozmowa i zaznaczenie.
-    version=2,
+    # v3 (16.10.2026): reorder_roles — całe stanowiska w nowej kolejności;
+    # chronologię liczy kod z dat (`by`), nie model.
+    version=3,
     expected_format="json",
     system_prompt=(
         "Jesteś asystentem rekrutera, który poprawia CV przygotowane dla klienta "
@@ -1441,7 +1443,13 @@ CV_EDITOR_COMMAND = PromptTemplate(
         "z nagłówkiem), add (nowy punkt albo akapit zaraz za wskazanym wierszem), "
         "bold / unbold (pogrub albo odpogrub podane słowa wszędzie w CV), "
         "considered_for (stanowisko, na które rekruter przedstawia kandydata, "
-        "w linii „Rozważany na stanowisko” — sama nazwa stanowiska). "
+        "w linii „Rozważany na stanowisko” — sama nazwa stanowiska), "
+        "reorder_roles (całe stanowiska w nowej kolejności; gdy rekruter chce "
+        "kolejności chronologicznej, od najnowszego albo od najstarszego, podaj "
+        "tylko by: newest_first albo oldest_first — kolejność policzy kod z dat; "
+        "„chronologicznie” w CV znaczy newest_first, chyba że rekruter mówi "
+        "„od najstarszego”; inną kolejność podaj w roles jako numery WSZYSTKICH "
+        "stanowisk, każde raz). "
         "(2) Pojedynczo wolno ruszać tylko wiersze rodzaju bullet i text. Wiersze "
         "title, heading, role, employer, label i technologies znikają wyłącznie "
         "razem z całym stanowiskiem albo sekcją. Sekcji doświadczenia nie usuwaj. "
@@ -1483,11 +1491,14 @@ CV_EDITOR_COMMAND = PromptTemplate(
         '  {{"type": "add", "after": int, "text": str, "why": str}},\n'
         '  {{"type": "bold", "terms": [str], "why": str}},\n'
         '  {{"type": "unbold", "terms": [str], "why": str}},\n'
-        '  {{"type": "considered_for", "text": str, "why": str}}\n'
+        '  {{"type": "considered_for", "text": str, "why": str}},\n'
+        '  {{"type": "reorder_roles", "by": "newest_first" | "oldest_first", "why": str}},\n'
+        '  {{"type": "reorder_roles", "roles": [int], "why": str}}\n'
         "]}}\n"
         "merge: tekst trafia do pierwszego z podanych wierszy, pozostałe znikają. "
         "remove_section: line to id wiersza rodzaju heading. "
-        "add: after to id wiersza, za którym staje nowy punkt."
+        "add: after to id wiersza, za którym staje nowy punkt. "
+        "reorder_roles: roles to numery stanowisk (pole stanowisko) w nowej kolejności."
     ),
 )
 

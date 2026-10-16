@@ -48,6 +48,7 @@ from app.services import champion_view
 from app.services import note_kinds
 from app.services import recommendation_cards
 from app.services.money_text import strip_rates_and_availability
+from app.services.cv_role_order import sort_experience
 from app.services.recommendation_card_parser import CV_HIDDEN_FIELDS, redact_card_text
 from app.services.cv_generator_b2b.provider import (
     CVGeneratorAIError,
@@ -1752,6 +1753,9 @@ def _run_generation_pipeline(
         ) from err
 
     candidate_data = _normalize_candidate_data(raw_data, fallback_name)
+    # Stanowiska od najnowszego ustawia kod, nie model — jak w legacy_v7 (16.10.2026).
+    if sort_experience(candidate_data):
+        logger.info("[cv_b2b][%s] experience reordered newest first", request_id)
     candidate_data["source_facts"] = source_facts
     candidate_data["client_rule_snapshot"] = (
         asdict(client_rule) if client_rule else None

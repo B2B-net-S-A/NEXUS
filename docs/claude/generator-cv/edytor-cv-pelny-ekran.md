@@ -927,6 +927,21 @@ planu. Rekruter pisze jak do czatu („rolę w Logistyce skróć do 3 punktów�
   `remove_section`) ani dostać nowej kolejności swojej listy (`reorder`) —
   `overlap`. Edytor nakłada zmiany od końca dokumentu, w tym samym miejscu
   najpierw dłuższą, a wstawienia w kolejności planu.
+- **Kolejność stanowisk (`reorder_roles`, 16.10.2026).** Zgłoszenie
+  rekruterki: „ułóż miejsca pracy chronologicznie” kończyło się „żadna zmiana
+  nie przeszła kontroli”, bo `reorder` przestawia tylko punkty jednego
+  stanowiska. `reorder_roles` przestawia całe stanowiska; wiersze operacji to
+  linie stanowisk w nowej kolejności. Model podaje `by: newest_first` /
+  `oldest_first` — kolejność liczy kod z dat w linii stanowiska bez
+  pogrubionej nazwy roli (`cv_role_order`, ta sama reguła co w generatorze;
+  rola bez dat zostaje na miejscu) — albo `roles`: numery WSZYSTKICH
+  stanowisk, każde raz. Nie łączy się z `remove_role` w jednym planie
+  (`overlap`); ze zmianami punktów tak — edytor nakłada najpierw treść, potem
+  kolejność (`moveRoles`: jeden krok na zakresie stanowisk, podświetlenie
+  jedzie ze stanowiskiem, linie przestawionych stanowisk na zielono).
+  Odmowa mówi, o co poszło (`dropped_message`): „już są ułożone”, „nie widzę
+  dat”, „nie rozpoznaję stanowisk” — z drogą ręczną „Więcej” → wyżej / niżej.
+  Ogólne „dopisywały fakty albo ruszały układ szablonu” zostaje dla reszty.
 - **Odpowiedź na pytanie po innych zmianach** szuka wiersza po treści; ten sam
   tekst w kilku miejscach = po kolejności wystąpienia, a gdy liczba wystąpień
   się zmieniła — „CV zmieniło się…”, bez zgadywania.

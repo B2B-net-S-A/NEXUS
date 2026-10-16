@@ -70,12 +70,16 @@ export type CvPlanOperationType =
   | "add"
   | "bold"
   | "unbold"
-  | "considered_for";
+  | "considered_for"
+  | "reorder_roles";
 
 export interface CvPlanOperation {
   id: number;
   type: CvPlanOperationType;
-  /** Wiersze operacji; dla `reorder` w nowej kolejności, dla `merge` pierwszy dostaje tekst. */
+  /**
+   * Wiersze operacji; dla `reorder` w nowej kolejności, dla `merge` pierwszy
+   * dostaje tekst, dla `reorder_roles` — linie stanowisk w nowej kolejności.
+   */
   lines: number[];
   /** Nowa treść (`replace`, `merge`); `**x**` = pogrubienie — nigdy HTML. */
   text: string | null;

@@ -346,3 +346,41 @@ describe("asystent: nowe operacje i podświetlenie (Edytor CV 3, PR 4)", () => {
     expect(assistantHighlightCount(editor.state)).toBe(0);
   });
 });
+
+// 16.10.2026, zgłoszenie rekruterki: „ułóż miejsca pracy chronologicznie” —
+// asystent przestawia całe stanowiska (`reorder_roles`, linie stanowisk w nowej
+// kolejności; kolejność po datach liczy serwer).
+describe("kolejność stanowisk", () => {
+  it("przestawia całe stanowiska; zmiana punktu jedzie ze swoim stanowiskiem; całość cofa jedno „Cofnij”", () => {
+    const editor = open();
+    const lines = cvLines(editor.state.doc);
+    const before = editor.getHTML();
+    const result = applyChanges(editor.state, lines, [op(0, "reorder_roles", [12, 5]), op(1, "replace", [9], "Planowanie sprintów.")]);
+    expect(result).not.toBeNull();
+    editor.view.dispatch(result!.transaction);
+    const html = editor.getHTML();
+    expect(html).toContain(
+      '<h2 data-cv-section="experience">DOŚWIADCZENIE</h2><p data-cv-section="role"><strong>Developer</strong> 2017 – 2021</p>' +
+        '<p data-cv-section="employer">Software House Przykład · IT</p><ul><li><p>Usługi REST w Java 11.</p></li></ul>' +
+        '<p data-cv-section="role"><strong>Senior Developer</strong> 2021 – 2024</p>',
+    );
+    expect(html).toContain("<li><p>Planowanie sprintów.</p></li>");
+    expect(html).toContain('<p data-cv-section="technologies">Technologie: Java, Kafka</p><h2>ZAINTERESOWANIA</h2>');
+    expect(html).toContain(CLAUSE);
+    // Podświetlenie: przeredagowany punkt w nowym miejscu i linie przestawionych stanowisk.
+    const changed = result!.changed.map((range) => editor.state.doc.textBetween(range.from, range.to));
+    expect(changed).toEqual(expect.arrayContaining(["Planowanie sprintów.", "Developer 2017 – 2021", "Senior Developer 2021 – 2024"]));
+    editor.commands.undo();
+    expect(editor.getHTML()).toBe(before);
+  });
+
+  it("dotyczy tylko linii stanowisk i nie nakłada się, gdy stanowisk jest inna liczba", () => {
+    const editor = open();
+    const lines = cvLines(editor.state.doc);
+    expect(canApply(op(0, "reorder_roles", [12, 5]), lines)).toBe(true);
+    expect(canApply(op(0, "reorder_roles", [12, 6]), lines)).toBe(false);
+    expect(canApply(op(0, "reorder_roles", [12]), lines)).toBe(false);
+    // Stanowisko usunięte w tym samym planie — kolejność nie zgadza się z CV.
+    expect(applyChanges(editor.state, lines, [op(0, "reorder_roles", [12, 5]), op(1, "remove_role", [12, 13, 14])])).toBeNull();
+  });
+});
