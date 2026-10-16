@@ -2949,6 +2949,12 @@ async def api_health_deep_check():
         IntegrationEventOutbox,
         IntegrationWebhook,
     )
+    from app.models.hr_ops import HrAuditEvent, HrImportBatch, HrJobRun
+    from app.models.hr_profile import (
+        CompanyDayOff,
+        EmployeeProfile,
+        LeaveEntitlement,
+    )
 
     core_checks = [
         ("workforce_availability_state", WorkforceAvailabilityState),
@@ -3205,6 +3211,14 @@ async def api_health_deep_check():
         ("integration_event_outbox", IntegrationEventOutbox),
         ("integration_events", IntegrationEvent),
         ("integration_webhooks", IntegrationWebhook),
+        # 0451: „Ludzie w NEXUSIE” — kartoteka i rezerwacje zadań HR. Brak
+        # tabeli = 500 na „Mój czas” / „Ludzie” i dublowane przebiegi zadań.
+        ("employee_profiles", EmployeeProfile),
+        ("leave_entitlements", LeaveEntitlement),
+        ("company_days_off", CompanyDayOff),
+        ("hr_audit_events", HrAuditEvent),
+        ("hr_job_runs", HrJobRun),
+        ("hr_import_batches", HrImportBatch),
     ]
 
     checks: dict[str, str] = {}

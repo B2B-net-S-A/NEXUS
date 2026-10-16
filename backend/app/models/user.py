@@ -53,6 +53,9 @@ class UserRole(str, enum.Enum):
     user = "user"
     trainee = "trainee"
     automation = "automation"
+    # „Ludzie w NEXUSIE” (decyzja Artura 16.10.2026, D1): pracownik bez pracy
+    # w rekrutacji — widzi tylko swój czas, ludzi i pomoc. Rola wyłączna.
+    employee = "employee"
 
     # Wycofane role (0411) — ALIASY rekrutera, nie osobne role. Etykiety
     # `sourcer` i `tac` zostają w typie `userrole` w Postgresie, więc wiersz
@@ -117,10 +120,10 @@ class User(Base, TimestampMixin):
         CheckConstraint(
             """
             CASE
-                WHEN role::text IN ('finance', 'user', 'trainee', 'automation')
+                WHEN role::text IN ('finance', 'user', 'trainee', 'automation', 'employee')
                     THEN roles = jsonb_build_array(role::text)
                 ELSE NOT (
-                    roles ?| ARRAY['finance', 'user', 'trainee', 'automation']::text[]
+                    roles ?| ARRAY['finance', 'user', 'trainee', 'automation', 'employee']::text[]
                 )
             END
             """,
@@ -386,6 +389,7 @@ class User(Base, TimestampMixin):
             UserRole.user.value,
             UserRole.trainee.value,
             UserRole.automation.value,
+            UserRole.employee.value,
         }.intersection(role_values)
         if exclusive and len(role_values) != 1:
             role_name = sorted(exclusive)[0]

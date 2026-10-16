@@ -1,4 +1,4 @@
-"""Katalog dziewięciu uprawnień z ekranu Ustawienia → Osoby i role.
+"""Katalog uprawnień z ekranu Ustawienia → Osoby i role (dziewięć + cztery „Ludzie”).
 
 Jedyne miejsce, w którym stoi: jak uprawnienie się nazywa, do której grupy
 należy, co za sobą pociąga i która rola ma je domyślnie. Moduł jest czysty —
@@ -30,6 +30,13 @@ RECRUITMENT_MANAGE = "recruitment_manage"
 AMOUNTS_VIEW = "amounts_view"
 AMOUNTS_EDIT = "amounts_edit"
 FINANCE_MODULE = "finance_module"
+# „Ludzie w NEXUSIE” (16.10.2026): kartoteka i czas pracy, płace pracowników,
+# ewidencja sprzętu, skrzynka administracja@. Na KOŃCU katalogu — siatka przy
+# starcie (``READY_SQL``) sprawdza ostatni zasiewany klucz.
+PEOPLE_ADMIN = "people_admin"
+PAYROLL = "payroll"
+EQUIPMENT = "equipment"
+CASES = "cases"
 
 #: Poziomowa akcja sprzed katalogu — nie jest jednym z dziewięciu uprawnień.
 GENERATOR = "b2b_contract_generator"
@@ -49,6 +56,7 @@ ROLES: tuple[str, ...] = (
     "user",
     "trainee",
     "automation",
+    "employee",
 )
 
 _LEVELS = {"none": 0, "read": 1, "write": 2}
@@ -171,6 +179,31 @@ PERMISSIONS: tuple[Permission, ...] = (
         requires=(AMOUNTS_VIEW,),
         holders=(Holder("finance", _needs(finance="write")),),
     ),
+    Permission(
+        PEOPLE_ADMIN,
+        "Kadry: kartoteka, urlopy za innych, wejście i odejście",
+        "people",
+    ),
+    Permission(
+        PAYROLL,
+        "Płace: stawki pracowników, premie, rozliczenie miesiąca",
+        "people",
+        # Decyzja Artura 16.10.2026 (D2): parytet z Compassem — Finanse
+        # prowadzą stawki i rozliczenie; przełożony widzi godziny i premie
+        # zespołu, ale nie stawki.
+        holders=(Holder("finance"),),
+    ),
+    Permission(
+        EQUIPMENT,
+        "Sprzęt: ewidencja, wydania, zwroty i protokoły",
+        "people",
+    ),
+    Permission(
+        CASES,
+        "Sprawy: skrzynka administracja@",
+        "people",
+        holders=(Holder("talent_community_manager"),),
+    ),
 )
 
 GROUPS: tuple[Group, ...] = tuple(
@@ -183,6 +216,7 @@ GROUPS: tuple[Group, ...] = tuple(
         ("clients_contracts", "Klienci i kontrakty"),
         ("recruitment", "Rekrutacje"),
         ("money", "Pieniądze"),
+        ("people", "Ludzie"),
     )
 )
 

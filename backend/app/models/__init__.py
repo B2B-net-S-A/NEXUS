@@ -825,3 +825,17 @@ from app.models.integration_event import (  # noqa: F401
     IntegrationEventOutbox,
     IntegrationWebhook,
 )
+
+# 0451: „Ludzie w NEXUSIE” — kartoteka pracownika, pule urlopowe, dni wolne
+# firmy, ślad HR, rezerwacje zadań i import z Compassa.
+from app.models.hr_profile import (  # noqa: F401
+    CompanyDayOff,
+    EmployeeProfile,
+    LeaveEntitlement,
+)
+from app.models.hr_ops import (  # noqa: F401
+    HrAuditEvent,
+    HrImportBatch,
+    HrImportIdMap,
+    HrJobRun,
+)

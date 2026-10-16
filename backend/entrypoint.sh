@@ -160,6 +160,9 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE userrole ADD VALUE IF NOT EXISTS 'trainee'",
     # 0446: „Automatyzacje” — podgląd bez kwot i bez zapisu.
     "ALTER TYPE userrole ADD VALUE IF NOT EXISTS 'automation'",
+    # „Ludzie w NEXUSIE” (0452): rola „Pracownik” — lustro
+    # `app/services/hr_access_schema.ENUM_DDL`.
+    "ALTER TYPE userrole ADD VALUE IF NOT EXISTS 'employee'",
     # notificationtype: 5 trigger types + champion_profile_updated
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'dl_stage_stale_6h'",
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'client_feedback_eobd'",
@@ -1012,6 +1015,21 @@ except Exception as _proposal_feedback_err:  # noqa: BLE001
     _JOB_PROPOSAL_FEEDBACK_CONSTRAINTS = []
     _JOB_PROPOSAL_STATUS_CONSTRAINTS = []
 
+# „Ludzie w NEXUSIE” (migracje 0451+): moduł kadrowy, czas pracy, płace,
+# sprzęt, opieka nad konsultantami, sprawy — JEDNO źródło z migracjami przez
+# agregator `app/services/hr_schema_bundle.py`. Wpięte na KOŃCACH faz.
+try:
+    from app.services import hr_schema_bundle as _hr_bundle
+
+    _HR_COLUMN_DDL = list(_hr_bundle.COLUMN_DDL)
+    _HR_DATA_DDL = list(_hr_bundle.DATA_DDL)
+    _HR_CONSTRAINT_DDL = list(_hr_bundle.CONSTRAINT_DDL)
+except Exception as _hr_bundle_err:  # noqa: BLE001
+    print(f"hr schema bundle unavailable: {_hr_bundle_err!r}")
+    _HR_COLUMN_DDL = []
+    _HR_DATA_DDL = []
+    _HR_CONSTRAINT_DDL = []
+
 _COLUMN_STATEMENTS = [
     *_KEYWORD_CORPUS_DDL,
     *_JOB_PROPOSAL_FEEDBACK_COLUMNS,
@@ -1085,7 +1103,7 @@ _COLUMN_STATEMENTS = [
                role IN ('admin','head_of_recruitment','delivery_lead','talent_community_manager','finance','tac','recruiter','sourcer','user','trainee','automation')
            ),
            CONSTRAINT ck_rbac_role_action_permissions_action CHECK (
-               action IN ('b2b_contract_generator', 'delivery_view', 'clients_edit', 'contracts_orders_edit', 'contract_status', 'b2b_signature_confirmation', 'recruitment_manage', 'amounts_view', 'amounts_edit', 'finance_module')
+               action IN ('b2b_contract_generator', 'delivery_view', 'clients_edit', 'contracts_orders_edit', 'contract_status', 'b2b_signature_confirmation', 'recruitment_manage', 'amounts_view', 'amounts_edit', 'finance_module', 'people_admin', 'payroll', 'equipment', 'cases')
            ),
            CONSTRAINT ck_rbac_role_action_permissions_access CHECK (
                access IN ('none','view','generate','manage')
@@ -1099,7 +1117,7 @@ _COLUMN_STATEMENTS = [
            updated_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
            PRIMARY KEY (user_id, action),
            CONSTRAINT ck_rbac_user_action_overrides_action CHECK (
-               action IN ('b2b_contract_generator', 'delivery_view', 'clients_edit', 'contracts_orders_edit', 'contract_status', 'b2b_signature_confirmation', 'recruitment_manage', 'amounts_view', 'amounts_edit', 'finance_module')
+               action IN ('b2b_contract_generator', 'delivery_view', 'clients_edit', 'contracts_orders_edit', 'contract_status', 'b2b_signature_confirmation', 'recruitment_manage', 'amounts_view', 'amounts_edit', 'finance_module', 'people_admin', 'payroll', 'equipment', 'cases')
            ),
            CONSTRAINT ck_rbac_user_action_overrides_access CHECK (
                access IN ('none','view','generate','manage')
@@ -6232,6 +6250,9 @@ EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
     "REFERENCES service_accounts(id) ON DELETE SET NULL",
     "CREATE INDEX IF NOT EXISTS ix_md_consumption_imports_file_sha256 "
     "ON md_consumption_imports (period_month, file_sha256)",
+    # „Ludzie w NEXUSIE” — tabele, indeksy i CHECK-i ról (przed zasiewem
+    # macierzy w `_DATA_STATEMENTS`).
+    *_HR_COLUMN_DDL,
 ]
 
 _ROLE_DASHBOARD_CUTOVER_SQL = r"""
@@ -8334,6 +8355,8 @@ SELECT 'job', id, 'archived',
     "CROSS JOIN (VALUES ('rejected'), ('withdrawn')) AS c(cat) "
     "WHERE EXISTS (SELECT 1 FROM marker) "
     "ON CONFLICT (template_id, name, category) DO NOTHING",
+    # „Ludzie w NEXUSIE” — przełączniki modułów i zasiew roli „Pracownik”.
+    *_HR_DATA_DDL,
 ]
 
 
@@ -9122,6 +9145,8 @@ _CONSTRAINT_STATEMENTS = [
             CHECK (status IS NULL OR status IN ('accepted', 'protocol'));
     EXCEPTION WHEN duplicate_object THEN NULL;
     END $$""",
+    # „Ludzie w NEXUSIE” — ograniczenia dokładane do istniejących tabel.
+    *_HR_CONSTRAINT_DDL,
 ]
 
 # ── Indeksy zadeklarowane w ORM (index=True), których nie tworzy żadna migracja ──

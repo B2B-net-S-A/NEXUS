@@ -74,11 +74,12 @@ def test_models_know_the_role() -> None:
     ):
         assert "'automation'" in _check_sql(model, name)
     exclusive = _check_sql(User, "ck_users_exclusive_finance_viewer_roles")
-    # Model łamie wyrażenie na linie, migracja trzyma je w jednej — porównujemy
-    # bez białych znaków.
-    assert re.sub(r"\s+", "", exclusive) == re.sub(
-        r"\s+", "", ns["EXCLUSIVE_ROLES_CHECK"]
-    )
+    # Od 0452 („Ludzie w NEXUSIE”) wyrażenie zna też rolę „Pracownik” — model
+    # równa się wersji z ``hr_access_schema`` (test lustra 0452); tu pilnujemy,
+    # że „Automatyzacje” dalej są w obu połówkach wyłączności.
+    assert "role::text IN ('finance', 'user', 'trainee', 'automation'" in exclusive
+    assert "ARRAY['finance', 'user', 'trainee', 'automation'" in exclusive
+    assert ns["EXCLUSIVE_ROLES_CHECK"].startswith("CASE WHEN role::text IN")
     assert UserRole.automation.value == "automation"
 
 
@@ -125,7 +126,10 @@ def test_named_permissions_migration_seeds_only_roles_known_at_0410() -> None:
     spec.loader.exec_module(migration)
 
     assert "automation" not in migration.ROLES_AT_0410
-    assert set(migration.ROLES_AT_0410) | {"automation"} == set(catalog.ROLES)
+    # „Ludzie w NEXUSIE” (0451) dokłada rolę „Pracownik” — też po 0410.
+    assert set(migration.ROLES_AT_0410) | {"automation", "employee"} == set(
+        catalog.ROLES
+    )
     frozen = schema.seed_sql(migration.ROLES_AT_0410)
     assert "('automation')" not in frozen
     assert "('automation')" in schema.SEED_SQL
