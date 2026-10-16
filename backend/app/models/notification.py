@@ -163,7 +163,7 @@ class NotificationType(str, enum.Enum):
     interview_debrief_saved = "interview_debrief_saved"
     # 0348: kolejka „Czeka na Ciebie" (Tablica). Rano JEDEN zbiorczy wpis na
     # osobę („4 osoby czekają na DZ, 1 do wysłania do Cpro") — dedup dobowy po
-    # related_entity=(user, id). Emitowane przez `check_board_tasks_digest`.
+    # related_entity=(user, id). Od 16.10.2026 nie powstaje (bez dzwonka).
     board_tasks_digest = "board_tasks_digest"
     # 0348: ktoś wytypował Cię do wysłania osoby do Cpro (Nordea) —
     # related_entity=(candidate_stage, id).

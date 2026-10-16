@@ -26,6 +26,7 @@
   "GET /api/notifications/chats": "PPPPPPPDPPPPPPPPPPPP",
   "GET /api/notifications/count": "PPPPPPPDPPPPPPPPPPPP",
   "GET /api/notifications/interviews": "PPPPPPPDPPPPPPPPPPPP",
+  "GET /api/notifications/jobs": "PPPPPPPDPPPPPPPPPPPP",
   "GET /api/notifications/preferences": "PPPPPPPDPPPPPPPPPPPP",
   "PATCH /api/notifications/read-all": "PPPPPPPDPPPPPPPPPPPP",
   "PATCH /api/notifications/{notification_id}/read": "PPPPPPPDPPPPPPPPPPPP",
@@ -33,6 +34,7 @@
   "PUT /api/notifications/interviews/read": "PPPPPPPDPPPPPPPPPPPP",
   "PUT /api/notifications/preferences/{category}": "PPPPPPPDPPPPPPPPPPPP",
   "PUT /api/notifications/read-all": "PPPPPPPDPPPPPPPPPPPP",
+  "PUT /api/notifications/topics/read": "PPPPPPPDPPPPPPPPPPPP",
   "PUT /api/notifications/{notification_id}/read": "PPPPPPPDPPPPPPPPPPPP"
  }
 }
