@@ -212,6 +212,8 @@ export function useKidsChatter({ enabled, sound, autoTalk, firstName }: Options)
   useEffect(() => {
     if (!enabled) return;
     const onKey = (e: KeyboardEvent) => {
+      // Synthetic keydown events (e.g. browser autofill) may lack `key`.
+      if (typeof e.key !== "string" || !e.key) return;
       const key = e.key.length === 1 ? e.key.toLowerCase() : e.key;
       konamiRef.current = key === KONAMI[konamiRef.current] ? konamiRef.current + 1 : key === KONAMI[0] ? 1 : 0;
       if (konamiRef.current === KONAMI.length) {
