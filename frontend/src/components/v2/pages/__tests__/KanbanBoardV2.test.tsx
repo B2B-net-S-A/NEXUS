@@ -3393,6 +3393,19 @@ describe("KanbanBoardV2 — strzałka „→”: ruch od razu z „Cofnij” (14
     expect(moveCalls()[0][1]).toMatchObject({ candidate_id: 2000, stage: "screening", stage_def_id: 301 });
   });
 
+  it("przesunięta karta staje na górze kolumny docelowej, nie na dole (16.10.2026)", async () => {
+    const { container } = renderBoard(defaultB2BColumns());
+    await clickArrow("Kandydat Nowi /0");
+    const inScreening = Array.from(
+      new Set(
+        Array.from(container.querySelectorAll('[data-colid="def:301"] [data-candidate-id]')).map((el) =>
+          Number(el.getAttribute("data-candidate-id")),
+        ),
+      ),
+    );
+    expect(inScreening).toEqual([2000, 2100]);
+  });
+
   it("„Cofnij” wraca kartę na miejsce bez żadnego żądania", async () => {
     const { container } = renderBoard(defaultB2BColumns());
     await clickArrow("Kandydat Nowi /0");

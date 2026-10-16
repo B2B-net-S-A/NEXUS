@@ -252,6 +252,25 @@ describe("„Pogrub wymagania (N)” (Edytor CV 3, PR 3)", () => {
     ]);
   });
 
+  it("CV, które z założenia nie pogrubia: liczy informacje QC z poprawką „Pogrub” (16.10.2026)", () => {
+    // QC mówi „nie dotyczy” (Redakcja) i nie ma uwag — przycisk i tak pogrubia.
+    const result = boldRequirements([
+      check({ key: "must_bolded", status: "skip", info: [{ term: "Kubernetes", fix: "bold_all" }] }),
+      check({ key: "nice_bolded", status: "skip", info: [{ term: "Kafka", fix: "bold_all" }] }),
+      check({ key: "must_in_roles", status: "fail", info: [{ term: "Java", fix: null }] }),
+    ]);
+    expect(result.count).toBe(2);
+    expect(result.actions).toEqual([
+      { action: "bold_all", scope: "must" },
+      { action: "bold_all", scope: "nice" },
+    ]);
+  });
+
+  it("zaliczone sprawdzenie z wymaganiem pogrubionym nie wszędzie też się liczy (16.10.2026)", () => {
+    const partly = check({ key: "must_bolded", status: "pass", info: [{ term: "Java", fix: "bold_all" }] });
+    expect(boldRequirements([partly])).toEqual({ count: 1, actions: [{ action: "bold_all", scope: "must" }] });
+  });
+
   it("wszystko pogrubione = zero i brak poprawki; brak wyniku QC = bez liczby", () => {
     const passed = check({ key: "must_bolded", status: "pass", items: [{ term: "Java", fix: "bold_all" }] });
     expect(boldRequirements([passed])).toEqual({ count: 0, actions: [] });

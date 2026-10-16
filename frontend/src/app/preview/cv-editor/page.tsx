@@ -11,7 +11,8 @@
 // (wynik generatora bez rekrutacji — panel źródeł mówi, czemu jest pusty,
 // a „Do poprawy” ma same uwagi generatora), `clean` (CV bez uwag), `qcdown`
 // (QC nie odpowiada — panel nie udaje, że uwag nie ma), `aidown` (asystent
-// niedostępny — edytor działa dalej).
+// niedostępny — edytor działa dalej), `redakcja` (CV bez pogrubień z założenia:
+// QC „nie dotyczy”, a „Pogrub wymagania (1)” i tak pogrubia — 16.10.2026).
 //
 // Asystent (Edytor CV 3, PR 4) dostaje odpowiedzi z `command-fixture.ts`:
 // „dopisz terraform” pyta o źródło, „pogrub …” pogrubia, „stanowisko: X”
@@ -75,6 +76,7 @@ type HarnessState =
   | "clean"
   | "qcdown"
   | "aidown"
+  | "redakcja"
   | "handoff"
   | "handoff-blocking";
 const STATES: Record<HarnessState, string> = {
@@ -85,6 +87,7 @@ const STATES: Record<HarnessState, string> = {
   clean: "Bez uwag",
   qcdown: "QC niedostępne",
   aidown: "AI niedostępne",
+  redakcja: "CV z Redakcji (bez pogrubień)",
   handoff: "Przekazanie do DL",
   "handoff-blocking": "Przekazanie mimo uwag",
 };
@@ -361,7 +364,8 @@ export default function CvEditorPreviewPage() {
   const backend = useMemo(() => {
     const initial = brandedState(state);
     const editor = memoryApi(initial);
-    const variant = state === "qcdown" ? "down" : state === "clean" ? "clean" : "issues";
+    const variant =
+      state === "qcdown" ? "down" : state === "clean" ? "clean" : state === "redakcja" ? "redakcja" : "issues";
     return {
       editorApi: editor.api,
       issuesApi: memoryIssuesApi(editor.savedHtml, variant),

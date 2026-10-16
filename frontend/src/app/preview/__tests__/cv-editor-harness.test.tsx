@@ -184,6 +184,20 @@ it("panel „Do poprawy” bierze QC, uwagi i poprawki z pamięci — pełny obi
   noNetwork();
 });
 
+it("CV z Redakcji: QC „nie dotyczy”, a „Pogrub wymagania (1)” i tak pogrubia (16.10.2026)", async () => {
+  const dialog = await openEditor("redakcja");
+  // Pogrubienie nie jest uwagą: w „Do poprawy” o jedną mniej niż w szkicu.
+  expect(await within(dialog).findByRole("button", { name: "Do poprawy (5)" })).toBeInTheDocument();
+  const bold = await within(dialog).findByRole("button", { name: "Pogrub wymagania (1)" });
+  expect(bold).toBeEnabled();
+  fireEvent.click(bold);
+  const paper = dialog.querySelector(".cv-paper .ProseMirror") as HTMLElement;
+  await waitFor(() =>
+    expect(paper.querySelectorAll("strong")).toContainEqual(expect.objectContaining({ textContent: "PostgreSQL" })),
+  );
+  noNetwork();
+});
+
 it("QC nie odpowiada: panel mówi o awarii, a nie że CV jest bez uwag", async () => {
   const dialog = await openEditor("qcdown");
   fireEvent.click(await within(dialog).findByRole("button", { name: /^Do poprawy \(/ }));
