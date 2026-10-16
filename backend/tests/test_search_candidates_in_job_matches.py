@@ -172,6 +172,8 @@ async def test_last_recruitment_skips_the_current_job(
     assert last == {
         "job_id": world["other_id"],
         "job_title": f"Wcześniejsza {token}",
+        # Numer u klienta obok tytułu, jak w nagłówku rekrutacji (16.10.2026).
+        "job_client_reference": None,
         "stage_label": "Odrzucony",
         "column": "closed",
         "moved_on": "2026-03-15",

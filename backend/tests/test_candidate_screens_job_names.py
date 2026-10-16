@@ -193,7 +193,7 @@ async def test_candidate_screens_carry_names_like_the_job_header(
     assert timeline.status_code == 200, timeline.text
     kinds = {
         item["type"]: item
-        for item in timeline.json()
+        for item in timeline.json()["timeline"]
         if item.get("job_id") == job_id and item["type"] in {"note", "stage_change"}
     }
     assert set(kinds) == {"note", "stage_change"}
