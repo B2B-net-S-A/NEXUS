@@ -1541,6 +1541,10 @@ class Settings(BaseSettings):
     # Tenant = M365_MAIL_TENANT_ID (jak prepy w Teams).
     HR_M365_CLIENT_ID: str = ""
     HR_M365_CLIENT_SECRET: str = ""
+    # Sprzęt ↔ Intune (etap 4, D9): off = nic nie czytamy (do zgody administratora na
+    # APPLICATION DeviceManagementManagedDevices.Read.All w rejestracji „NEXUS Kadry”);
+    # simulate = fikcyjna lista urządzeń; live = Graph, raz na dobę od 05:30.
+    EQUIPMENT_INTUNE_MODE: str = "off"
     # Czytnik skrzynki administracja@ (Sprawy): UPN skrzynki i wyłącznik.
     ADMIN_CASES_MAILBOX: str = ""
     ADMIN_CASES_MAIL_INGEST_ENABLED: bool = False

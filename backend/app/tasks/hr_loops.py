@@ -322,3 +322,39 @@ async def equipment_reminders_loop() -> None:
         EQUIPMENT_REMINDERS_INTERVAL_SECONDS,
         equipment_reminders_job,
     )
+
+
+# ── Sprzęt ↔ Intune: nocny odczyt urządzeń (etap 4, D9) ────────────────────
+EQUIPMENT_INTUNE_INTERVAL_SECONDS = 30 * 60
+
+
+async def equipment_intune_sync_job(db: AsyncSession) -> dict[str, Any] | None:
+    """Sam pilnuje modułu, 05:30 Warszawy i jednego przebiegu dziennie."""
+    from app.services.equipment.intune import run_once
+
+    result = await run_once(db)
+    return (
+        None if result.get("status") in {"disabled", "too_early", "skipped"} else result
+    )
+
+
+async def equipment_intune_sync_loop() -> None:
+    from app.services.equipment.intune_graph import current_mode
+
+    if not loops_enabled("equipment_intune_sync"):
+        return
+    if current_mode() == "off":
+        logger.info(
+            "equipment_intune_sync disabled (EQUIPMENT_INTUNE_MODE=off) — pętla nie startuje"
+        )
+        return
+    beat = loop_heartbeat.register(
+        "equipment_intune_sync",
+        max_silence_seconds=EQUIPMENT_INTUNE_INTERVAL_SECONDS + 1800,
+    )
+    await run_periodic(
+        "equipment_intune_sync",
+        beat,
+        EQUIPMENT_INTUNE_INTERVAL_SECONDS,
+        equipment_intune_sync_job,
+    )

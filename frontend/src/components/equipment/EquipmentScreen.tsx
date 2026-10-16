@@ -14,6 +14,7 @@ import { useEquipmentSummary, type EquipmentHolder } from "@/lib/api/equipment";
 import { useUrlSyncedState, useUrlWriter } from "@/lib/url-selection";
 
 import { ImportTab } from "./ImportTab";
+import { IntuneTab } from "./IntuneTab";
 import { IssueWizard } from "./IssueWizard";
 import { ItemDetailDialog } from "./ItemDetailDialog";
 import { ItemFormDialog } from "./ItemFormDialog";
@@ -24,8 +25,8 @@ import { ProtocolsTab } from "./ProtocolsTab";
 import { ReturnWizard } from "./ReturnWizard";
 import { TasksTab } from "./TasksTab";
 
-export type EquipmentTab = "items" | "tasks" | "protocols" | "prices" | "import";
-const TABS: EquipmentTab[] = ["items", "tasks", "protocols", "prices", "import"];
+export type EquipmentTab = "items" | "tasks" | "protocols" | "prices" | "import" | "intune";
+const TABS: EquipmentTab[] = ["items", "tasks", "protocols", "prices", "import", "intune"];
 
 function tabFrom(value: string | null): EquipmentTab | null {
   return TABS.includes(value as EquipmentTab) ? (value as EquipmentTab) : null;
@@ -36,7 +37,7 @@ const MODULE_OFF =
 const NO_PERMISSION =
   "Sprzęt prowadzi recepcja: ekran widzą osoby z uprawnieniem „Sprzęt” (Ustawienia → Osoby i role).";
 
-/** „Sprzęt” — rejestr, Do zrobienia, Protokoły, Cennik, Import (recepcja). */
+/** „Sprzęt” — rejestr, Do zrobienia, Protokoły, Cennik, Import, Intune (recepcja). */
 export function EquipmentScreen({ config }: { config: HrConfig }) {
   const searchParams = useSearchParams();
   const { replaceUrl } = useUrlWriter();
@@ -124,6 +125,7 @@ export function EquipmentScreen({ config }: { config: HrConfig }) {
           { value: "protocols", label: "Protokoły", count: s?.protocols_waiting || undefined },
           { value: "prices", label: "Cennik" },
           { value: "import", label: "Import" },
+          { value: "intune", label: "Intune" },
         ]}
       />
       {tab === "tasks" ? (
@@ -138,6 +140,8 @@ export function EquipmentScreen({ config }: { config: HrConfig }) {
         <PriceListTab />
       ) : tab === "import" ? (
         <ImportTab />
+      ) : tab === "intune" ? (
+        <IntuneTab isAdmin={config.me.is_admin} onOpenItem={setItemId} />
       ) : (
         <ItemsTab onOpenItem={setItemId} />
       )}

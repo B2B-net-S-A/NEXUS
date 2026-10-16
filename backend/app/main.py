@@ -203,6 +203,7 @@ from app.api import hr_lifecycle as hr_lifecycle_api
 from app.api import contract_care as contract_care_api
 from app.api import admin_cases as admin_cases_api
 from app.api import equipment as equipment_api
+from app.api import equipment_intune as equipment_intune_api
 from app.api import equipment_public as equipment_public_api
 from app.api import onboarding as onboarding_api
 from app.api import procedures as procedures_api
@@ -957,6 +958,9 @@ async def lifespan(app: FastAPI):
         "hr_contract_hooks": asyncio.create_task(hr_loops.hr_contract_hooks_loop()),
         "hr_bonus_proposals": asyncio.create_task(hr_loops.hr_bonus_proposals_loop()),
         "equipment_reminders": asyncio.create_task(hr_loops.equipment_reminders_loop()),
+        "equipment_intune_sync": asyncio.create_task(
+            hr_loops.equipment_intune_sync_loop()
+        ),
         "admin_cases_mail_ingest": asyncio.create_task(
             hr_loops.admin_cases_mail_ingest_loop()
         ),
@@ -1721,6 +1725,9 @@ app.include_router(hr_lifecycle_api.router, prefix="/api/hr/lifecycle", tags=["h
 app.include_router(contract_care_api.router, prefix="/api/care", tags=["hr"])
 app.include_router(admin_cases_api.router, prefix="/api/cases", tags=["hr"])
 app.include_router(equipment_api.router, prefix="/api/equipment", tags=["hr"])
+app.include_router(
+    equipment_intune_api.router, prefix="/api/equipment/intune", tags=["hr"]
+)
 app.include_router(
     equipment_public_api.router,
     prefix="/api/public/equipment-protocols",
@@ -2559,6 +2566,23 @@ async def api_health_check():
                     )
             except Exception:
                 checks[key] = "degraded"
+
+    # Sprzęt ↔ Intune (etap 4, D9): disabled przy EQUIPMENT_INTUNE_MODE=off; healthy =
+    # udany odczyt < 26 h i bez błędu; inaczej degraded. Informacyjna.
+    from app.services.equipment import intune_graph as _intune_graph
+
+    if _intune_graph.current_mode() == "off":
+        checks["equipment_intune"] = "disabled"
+    else:
+        try:
+            from app.services.equipment import intune as _equipment_intune
+
+            async with AsyncSessionLocal() as session:
+                checks["equipment_intune"] = await asyncio.wait_for(
+                    _equipment_intune.health_state(session), timeout=1.0
+                )
+        except Exception:  # noqa: BLE001 — sonda informacyjna
+            checks["equipment_intune"] = "degraded"
 
     # Anthropic key — config-only probe. Bez klucza generator CV (i każdy
     # feature na Claude API) wstaje, ale pierwsza generacja kończy się 502
