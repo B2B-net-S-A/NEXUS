@@ -114,3 +114,63 @@ async def admin_cases_mail_ingest_loop() -> None:
         ADMIN_CASES_MAIL_INTERVAL_SECONDS,
         admin_cases_mail_job,
     )
+
+
+# ── Microsoft 365 dla urlopów (krok 7) ─────────────────────────────────────
+HR_M365_OUTBOX_INTERVAL_SECONDS = 60
+HR_M365_RECONCILE_INTERVAL_SECONDS = 15 * 60
+
+
+async def hr_m365_outbox_job(db: AsyncSession) -> dict[str, Any] | None:
+    from app.services.hr.m365 import executor
+
+    result = await executor.run_once(db)
+    return result if result.get("claimed") else None
+
+
+async def hr_m365_outbox_loop() -> None:
+    from app.services.hr.m365.executor import current_mode
+
+    if not loops_enabled("hr_m365_outbox"):
+        return
+    if current_mode() == "off":
+        logger.info("hr_m365_outbox disabled (HR_M365_MODE=off) — pętla nie startuje")
+        return
+    beat = loop_heartbeat.register(
+        "hr_m365_outbox", max_silence_seconds=HR_M365_OUTBOX_INTERVAL_SECONDS + 600
+    )
+    await run_periodic(
+        "hr_m365_outbox", beat, HR_M365_OUTBOX_INTERVAL_SECONDS, hr_m365_outbox_job
+    )
+
+
+async def hr_m365_reconcile_job(db: AsyncSession) -> dict[str, Any] | None:
+    """Sam pilnuje 07:00 Warszawy i jednego przebiegu dziennie."""
+    from app.services.hr.m365 import reconcile
+
+    result = await reconcile.run_once(db)
+    if result.get("skipped") or result == {"mode": "off"}:
+        return None
+    return result
+
+
+async def hr_m365_reconcile_loop() -> None:
+    from app.services.hr.m365.executor import current_mode
+
+    if not loops_enabled("hr_m365_reconcile"):
+        return
+    if current_mode() == "off":
+        logger.info(
+            "hr_m365_reconcile disabled (HR_M365_MODE=off) — pętla nie startuje"
+        )
+        return
+    beat = loop_heartbeat.register(
+        "hr_m365_reconcile",
+        max_silence_seconds=HR_M365_RECONCILE_INTERVAL_SECONDS + 1800,
+    )
+    await run_periodic(
+        "hr_m365_reconcile",
+        beat,
+        HR_M365_RECONCILE_INTERVAL_SECONDS,
+        hr_m365_reconcile_job,
+    )

@@ -24,6 +24,8 @@ import {
 import { formatDate } from "@/lib/utils";
 import { resolveViewState } from "@/lib/view-state";
 
+import { M365Card } from "./M365Card";
+
 function warsawYear(): number {
   return Number(
     new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Warsaw", year: "numeric" }).format(
@@ -225,6 +227,11 @@ export function HrSettings({ config }: { config: HrConfig }) {
     <div className="grid gap-4 lg:grid-cols-2">
       {config.me.people_admin ? <DaysOffCard /> : null}
       {config.me.is_admin ? <ModulesCard config={config} /> : null}
+      {config.me.people_admin ? (
+        <div className="lg:col-span-2">
+          <M365Card />
+        </div>
+      ) : null}
     </div>
   );
 }

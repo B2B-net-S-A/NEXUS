@@ -1536,6 +1536,11 @@ class Settings(BaseSettings):
     # Lista UPN (po przecinku), którym wolno zapisać skrzynkę w trybie live —
     # pusta = wszystkim. Pierwsze przełączenie idzie na jedną skrzynkę testową.
     HR_M365_MAILBOX_ALLOWLIST: str = ""
+    # Rejestracja „NEXUS Kadry” (D3): APPLICATION MailboxSettings.ReadWrite
+    # i Calendars.ReadWrite, zawężone rolami Exchange do skrzynek zespołu.
+    # Tenant = M365_MAIL_TENANT_ID (jak prepy w Teams).
+    HR_M365_CLIENT_ID: str = ""
+    HR_M365_CLIENT_SECRET: str = ""
     # Czytnik skrzynki administracja@ (Sprawy): UPN skrzynki i wyłącznik.
     ADMIN_CASES_MAILBOX: str = ""
     ADMIN_CASES_MAIL_INGEST_ENABLED: bool = False

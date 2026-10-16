@@ -195,6 +195,7 @@ from app.api import kpi_targets_admin as kpi_targets_admin_api
 # „Ludzie w NEXUSIE” (16.10.2026): kartoteka, katalog ludzi, Kadry.
 from app.api import hr_admin as hr_admin_api
 from app.api import hr_people as hr_people_api
+from app.api import hr_m365 as hr_m365_api
 from app.api import hr_leave as hr_leave_api
 from app.api import hr_time as hr_time_api
 from app.api import hr_payroll as hr_payroll_api
@@ -946,6 +947,8 @@ async def lifespan(app: FastAPI):
         # „Ludzie w NEXUSIE” — pętle modułów kadrowych (`app/tasks/hr_loops.py`);
         # kończą się na `HR_LOOPS_ENABLED=false`, moduły pilnują przełączników.
         "hr_workdays": asyncio.create_task(hr_loops.hr_workdays_loop()),
+        "hr_m365_outbox": asyncio.create_task(hr_loops.hr_m365_outbox_loop()),
+        "hr_m365_reconcile": asyncio.create_task(hr_loops.hr_m365_reconcile_loop()),
         "admin_cases_mail_ingest": asyncio.create_task(
             hr_loops.admin_cases_mail_ingest_loop()
         ),
@@ -1702,6 +1705,7 @@ app.include_router(
 # „Ludzie w NEXUSIE” — moduł kadrowy (bramki w `app/api/hr_gates.py`).
 app.include_router(hr_admin_api.router, prefix="/api/hr/admin", tags=["hr"])
 app.include_router(hr_people_api.router, prefix="/api/hr", tags=["hr"])
+app.include_router(hr_m365_api.router, prefix="/api/hr/admin/m365", tags=["hr"])
 app.include_router(hr_leave_api.router, prefix="/api/hr/leave", tags=["hr"])
 app.include_router(hr_time_api.router, prefix="/api/hr/time", tags=["hr"])
 app.include_router(hr_payroll_api.router, prefix="/api/hr/payroll", tags=["hr"])
