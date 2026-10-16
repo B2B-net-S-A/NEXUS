@@ -37,6 +37,8 @@ export interface HrConfig {
     payroll: boolean;
     equipment: boolean;
     cases: boolean;
+    /** Przypisany do sprawy administracja@ (bez uprawnienia widzi tylko swoje). */
+    has_assigned_cases?: boolean;
   };
 }
 

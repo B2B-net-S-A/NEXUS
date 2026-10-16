@@ -25,7 +25,7 @@ interface PeopleSectionLink {
  * * Katalog — moduł „Ludzie”,
  * * Kalendarz zespołu — moduł urlopów i kartoteka (albo Kadry),
  * * Akceptacje — przełożony (ma podwładnych) albo Kadry, gdy działa urlop lub czas,
- * * Sprawy — uprawnienie „Sprawy”,
+ * * Sprawy — uprawnienie „Sprawy” albo przypisana sprawa,
  * * Płace — uprawnienie „Płace”.
  */
 export function peopleSections(config: HrConfig): PeopleSectionLink[] {
@@ -40,7 +40,7 @@ export function peopleSections(config: HrConfig): PeopleSectionLink[] {
   if ((open.leave || open.time) && approver) {
     links.push({ value: "approvals", label: "Akceptacje", href: "/people/approvals" });
   }
-  if (open.cases && (me.cases || me.is_admin)) {
+  if (open.cases && (me.cases || me.is_admin || me.has_assigned_cases)) {
     links.push({ value: "cases", label: "Sprawy", href: "/people/cases" });
   }
   if (open.payroll && (me.payroll || me.is_admin)) {

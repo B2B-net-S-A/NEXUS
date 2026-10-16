@@ -18,6 +18,7 @@ from app.core.database import get_db
 from app.models.user import UserRole
 from app.services.action_permissions import ProductAction, has_permission
 from app.services.hr import modules as hr_modules
+from app.services.admin_cases import service as admin_cases_service
 from app.services.hr import people
 
 router = APIRouter()
@@ -47,6 +48,11 @@ async def hr_config(
             "payroll": has_permission(current_user, ProductAction.payroll),
             "equipment": has_permission(current_user, ProductAction.equipment),
             "cases": has_permission(current_user, ProductAction.cases),
+            # Przypisany do sprawy bez uprawnienia widzi zakładkę „Sprawy”
+            # (tylko swoje sprawy — pilnuje tego `/api/cases`).
+            "has_assigned_cases": await admin_cases_service.has_assigned_cases(
+                db, current_user.id
+            ),
         },
     }
 

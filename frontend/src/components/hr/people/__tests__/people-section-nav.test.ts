@@ -51,6 +51,10 @@ describe("zakładki obszaru „Ludzie”", () => {
     expect(values(config({ payroll: true }))).toContain("payroll");
   });
 
+  it("przypisany do sprawy bez uprawnienia widzi Sprawy", () => {
+    expect(values(config({ has_assigned_cases: true }))).toContain("cases");
+  });
+
   it("wyłączony moduł chowa zakładkę mimo uprawnienia", () => {
     const off = { ...ALL_ON, cases: false, leave: false, time: false };
     const got = values(config({ cases: true, is_manager: true }, off));
