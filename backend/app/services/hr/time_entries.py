@@ -19,6 +19,7 @@ Reguły (Compass, faza 27a/45 + audyt 22.09) i naprawy:
 from __future__ import annotations
 
 from collections import defaultdict
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal, InvalidOperation
@@ -114,6 +115,30 @@ async def ensure_timesheet(
     )
     timesheet = await find_timesheet(db, user_id, year, month)
     assert timesheet is not None
+    return timesheet
+
+
+async def open_draft(
+    db: AsyncSession,
+    user_id: int,
+    year: int,
+    month: int,
+    *,
+    employment_type: Optional[str],
+) -> Timesheet:
+    """Timesheet pod blokadą na czas zapisu; brak = nowy szkic z auto-wpisami.
+
+    Wiersz timesheetu powstaje przy pierwszym ZAPISIE miesiąca (wpis,
+    „Wypełnij miesiąc”, kopia, wysyłka) albo w hakach urlopu — nie przy
+    odczycie (``time_month.month_view`` pokazuje szkic bez zapisu). Szkic
+    poza zamkniętym miesiącem płac dostaje przy tym auto-wpisy płatnej puli
+    kontraktora (``sync_leave_paid``), tak jak dotąd przy otwarciu miesiąca.
+    """
+
+    found = await ensure_timesheet(db, user_id, year, month)
+    timesheet = await lock_timesheet(db, found.id)
+    if timesheet.status == "draft" and not timesheet.payroll_locked:
+        await sync_leave_paid(db, timesheet=timesheet, employment_type=employment_type)
     return timesheet
 
 
@@ -554,6 +579,31 @@ async def entry_with_timesheet(
 # ── Płatny urlop kontraktora (auto-wpisy) ─────────────────────────────────────
 
 
+def planned_leave_paid(
+    leaves: dict[date, DayLeave], entries: Iterable[TimesheetEntry]
+) -> dict[date, Decimal]:
+    """Auto-wpisy ``leave_paid``, które ma mieć szkic: dzień → godziny.
+
+    Jedna reguła dla zapisu (``sync_leave_paid``) i odczytu szkicu
+    (``time_month.month_view``): pełny dzień płatnej puli = 8 h, połowa = 4 h,
+    a połowy nie dokładamy, gdy ręczne godziny dnia przekraczają już 4 h.
+    """
+
+    manual_hours: dict[date, Decimal] = defaultdict(lambda: Decimal("0"))
+    for entry in entries:
+        if entry.source != "leave_paid":
+            manual_hours[entry.work_date] += Decimal(entry.hours)
+    desired: dict[date, Decimal] = {}
+    for day, day_leave in leaves.items():
+        if not day_leave.paid_work:
+            continue
+        hours = day_leave.paid_hours
+        if not day_leave.leave.is_full and manual_hours[day] > STANDARD - hours:
+            continue
+        desired[day] = hours
+    return desired
+
+
 async def sync_leave_paid(
     db: AsyncSession, *, timesheet: Timesheet, employment_type: Optional[str]
 ) -> int:
@@ -574,21 +624,10 @@ async def sync_leave_paid(
     )
     entries = await entries_of(db, timesheet.id)
     auto: dict[date, list[TimesheetEntry]] = defaultdict(list)
-    manual_hours: dict[date, Decimal] = defaultdict(lambda: Decimal("0"))
     for entry in entries:
         if entry.source == "leave_paid":
             auto[entry.work_date].append(entry)
-        else:
-            manual_hours[entry.work_date] += Decimal(entry.hours)
-
-    desired: dict[date, Decimal] = {}
-    for day, day_leave in leaves.items():
-        if not day_leave.paid_work:
-            continue
-        hours = day_leave.paid_hours
-        if not day_leave.leave.is_full and manual_hours[day] > STANDARD - hours:
-            continue
-        desired[day] = hours
+    desired = planned_leave_paid(leaves, entries)
 
     changes = 0
     for day, rows in auto.items():

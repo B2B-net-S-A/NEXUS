@@ -4,7 +4,9 @@
   (``people_admin``) i admin dla wszystkich; nikt siebie (także admin —
   w Compassie admin zatwierdzał własny timesheet); zastępca przełożonego,
   który jest dziś na urlopie, dla podwładnych tego przełożonego
-  (``leave_substitute``) — bez rodzaju nieobecności w dniach (D6),
+  (``leave_substitute``) — bez rodzaju nieobecności w dniach (D6); head pionu
+  dla osób swojego pionu bez żywego przełożonego (``recipients``, ta sama
+  reguła co przy urlopach),
 * **nadgodziny** — osoba z ``can_log_overtime`` w kartotece albo Kadry/admin,
 * **czyta PDF** — sama osoba, akceptujący w zakresie, Płace, Kadry, admin.
 
@@ -16,7 +18,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.scheduling import business_today
@@ -24,6 +25,11 @@ from app.models.hr_profile import EmployeeProfile
 from app.models.user import User, UserRole
 from app.services.action_permissions import ProductAction, has_permission
 from app.services.hr import leave_substitute, people
+from app.services.hr.recipients import (
+    division_charges,
+    supervisor_of,
+    users_with_permission,
+)
 
 
 @dataclass(frozen=True)
@@ -36,6 +42,8 @@ class Actor:
     report_ids: frozenset[int] = field(default_factory=frozenset)
     #: Podwładni przełożonych, których osoba zastępuje dziś → za kogo.
     covered: dict[int, leave_substitute.Cover] = field(default_factory=dict)
+    #: Osoby pionu bez żywego przełożonego, gdy osoba jest headem pionu.
+    charges: frozenset[int] = field(default_factory=frozenset)
 
     @property
     def user_id(self) -> int:
@@ -53,7 +61,12 @@ class Actor:
 
     @property
     def is_approver(self) -> bool:
-        return self.approves_everyone or bool(self.report_ids) or bool(self.covered)
+        return (
+            self.approves_everyone
+            or bool(self.report_ids)
+            or bool(self.covered)
+            or bool(self.charges)
+        )
 
     @property
     def covered_ids(self) -> frozenset[int]:
@@ -91,34 +104,39 @@ class Actor:
         if self.approves_everyone:
             return True
         return (
-            subject.manager_user_id == self.user_id or subject.user_id in self.covered
+            subject.manager_user_id == self.user_id
+            or subject.user_id in self.covered
+            or subject.user_id in self.charges
         )
 
     def can_read(self, subject: EmployeeProfile) -> bool:
         return (
-            subject.user_id == self.user_id
-            or self.payroll
-            or self.approves_everyone
-            or subject.manager_user_id == self.user_id
-            or subject.user_id in self.covered
+            subject.user_id == self.user_id or self.payroll or self.can_approve(subject)
         )
 
 
 async def load_actor(db: AsyncSession, user: User) -> Actor:
+    is_admin = user.has_role(UserRole.admin)
+    people_admin = has_permission(user, ProductAction.people_admin)
     return Actor(
         user=user,
         profile=await people.profile_of(db, user.id),
-        is_admin=user.has_role(UserRole.admin),
-        people_admin=has_permission(user, ProductAction.people_admin),
+        is_admin=is_admin,
+        people_admin=people_admin,
         payroll=has_permission(user, ProductAction.payroll),
         report_ids=frozenset(await people.direct_report_ids(db, user.id)),
         covered=await leave_substitute.covered_reports(db, user.id, business_today()),
+        # Kadry i admin akceptują wszystkich — zakres heada nic im nie dokłada.
+        charges=frozenset()
+        if is_admin or people_admin
+        else frozenset(await division_charges(db, user.id)),
     )
 
 
 async def is_time_approver(db: AsyncSession, user: User) -> bool:
-    """Bramka kolejki timesheetów: Kadry, admin, przełożony albo zastępca
-    przełożonego, który jest dziś na urlopie."""
+    """Bramka kolejki timesheetów: Kadry, admin, przełożony, zastępca
+    przełożonego, który jest dziś na urlopie, albo head pionu z osobami bez
+    żywego przełożonego."""
 
     if user.has_role(UserRole.admin) or has_permission(
         user, ProductAction.people_admin
@@ -126,45 +144,28 @@ async def is_time_approver(db: AsyncSession, user: User) -> bool:
         return True
     if await people.direct_report_ids(db, user.id):
         return True
-    return bool(await leave_substitute.covered_reports(db, user.id, business_today()))
-
-
-async def users_with_permission(db: AsyncSession, action: ProductAction) -> list[User]:
-    """Aktywne konta z uprawnieniem (admin ma wszystkie)."""
-
-    from app.services.effective_access import resolve_effective_access
-
-    users = list(
-        await db.scalars(select(User).where(User.is_active.is_(True)).order_by(User.id))
-    )
-    await resolve_effective_access(db, users)
-    return [user for user in users if has_permission(user, action)]
+    if await leave_substitute.covered_reports(db, user.id, business_today()):
+        return True
+    return bool(await division_charges(db, user.id))
 
 
 async def approval_recipients(db: AsyncSession, subject_user_id: int) -> list[int]:
-    """Kto dostaje „timesheet do akceptacji”: przełożony, a bez niego Kadry.
-
-    Przełożony liczy się tylko z aktywnym kontem i bez statusu „exited”
-    (w Compassie zastępczo szło do wszystkich adminów, także tych, którzy
-    odeszli). Sama osoba nie dostaje własnego timesheetu do akceptacji.
-    Przełożony dziś na urlopie z zastępcą — dostaje też zastępca.
-    """
+    """Kto dostaje „timesheet do akceptacji”: przełożony według jednej reguły
+    (``recipients.supervisor_of``: przełożony, head pionu, Kadry), a przy
+    przełożonym dziś na urlopie — także jego zastępca. Nigdy sama osoba."""
 
     profile = await people.profile_of(db, subject_user_id)
-    manager_id = profile.manager_user_id if profile else None
-    if manager_id is not None and manager_id != subject_user_id:
-        manager = await db.get(User, manager_id)
-        manager_profile = await people.profile_of(db, manager_id)
-        exited = (
-            manager_profile is not None
-            and manager_profile.employment_status == "exited"
-        )
-        if manager is not None and manager.is_active and not exited:
-            stand_in = await leave_substitute.stand_in_for(
-                db, manager_id, business_today()
-            )
-            if stand_in is not None and stand_in.user_id != subject_user_id:
-                return [manager_id, stand_in.user_id]
-            return [manager_id]
-    holders = await users_with_permission(db, ProductAction.people_admin)
-    return [user.id for user in holders if user.id != subject_user_id]
+    supervisor = await supervisor_of(db, profile, business_today())
+    ids = list(supervisor.user_ids)
+    if supervisor.stand_in is not None:
+        ids.append(supervisor.stand_in.user_id)
+    return [uid for uid in ids if uid != subject_user_id]
+
+
+__all__ = [
+    "Actor",
+    "approval_recipients",
+    "is_time_approver",
+    "load_actor",
+    "users_with_permission",
+]

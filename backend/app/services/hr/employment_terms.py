@@ -23,7 +23,9 @@ from __future__ import annotations
 
 from typing import Optional
 
-#: Formy, na których nieobecność jest zgłoszeniem, a nie wnioskiem (D5).
+#: Formy, na których nieobecność jest zgłoszeniem, a nie wnioskiem (D5) — to
+#: samo co „kontraktor” w urlopach i godzinach: tylko urlop z puli, a dzień puli
+#: rozlicza się jak dzień pracy. Jedyne źródło tej listy w module.
 REPORT_FORMS: frozenset[str] = frozenset({"b2b", "zlecenie"})
 
 DEFAULT_FORM = "uop"
@@ -147,6 +149,16 @@ BACKEND_TERMS: dict[str, dict[str, str]] = {
 assert set(EMPLOYMENT_TERMS) == set(BACKEND_TERMS)
 assert len({frozenset(words) for words in EMPLOYMENT_TERMS.values()}) == 1
 assert len({frozenset(words) for words in BACKEND_TERMS.values()}) == 1
+assert REPORT_FORMS < set(EMPLOYMENT_TERMS)
+
+#: Nazwa formy (PDF raportu godzin) i jej skrót (eksport płac). Brak klucza =
+#: forma nieznana — wołający decyduje, co wtedy pisze („—” w PDF, pusto w XLSX).
+FORM_LABELS: dict[str, str] = {
+    form: words["form"] for form, words in EMPLOYMENT_TERMS.items()
+}
+FORM_SHORT_LABELS: dict[str, str] = {
+    form: words["form_short"] for form, words in EMPLOYMENT_TERMS.items()
+}
 
 
 def form_of(employment_type: Optional[str]) -> str:
@@ -179,6 +191,8 @@ def returned_titles() -> frozenset[str]:
 __all__ = [
     "BACKEND_TERMS",
     "EMPLOYMENT_TERMS",
+    "FORM_LABELS",
+    "FORM_SHORT_LABELS",
     "REPORT_FORMS",
     "form_of",
     "reports_absence",

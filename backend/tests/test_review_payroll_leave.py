@@ -44,6 +44,7 @@ from app.services.hr import (
     payroll_report,
     payroll_time_bridge,
     placement_bonuses,
+    recipients,
     time_flow,
 )
 from app.services.hr.compass_import import leave as leave_import
@@ -725,7 +726,6 @@ async def test_half_day_leave_counts_four_hours_toward_overtime_everywhere() -> 
                 year=day.year,
                 month=day.month,
                 show_leave_type=True,
-                sync=False,
             )
             on_day = next(d for d in view["days"] if d["date"] == day.isoformat())
             assert on_day["overtime_hours"] == 2.0
@@ -902,12 +902,12 @@ async def test_only_people_admin_without_manager_goes_to_admins(
     async def only_hr(_db) -> list[int]:
         return [hr.id]
 
-    monkeypatch.setattr(leave_service, "people_admin_ids", only_hr)
+    monkeypatch.setattr(recipients, "people_admin_ids", only_hr)
     async with AsyncSessionLocal() as db:
         profile = await db.scalar(
             select(EmployeeProfile).where(EmployeeProfile.user_id == hr.id)
         )
-        approvers = await leave_service.approver_ids(db, profile)
+        approvers = (await recipients.supervisor_of(db, profile)).user_ids
     assert hr.id not in approvers
     assert admin.id in approvers
 

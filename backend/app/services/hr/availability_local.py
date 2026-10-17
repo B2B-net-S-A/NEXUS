@@ -22,15 +22,16 @@ from __future__ import annotations
 import hashlib
 import json
 import time
-from datetime import date, datetime, time as dtime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
-from app.core.scheduling import is_business_day
+from app.core.scheduling import business_date
 from app.models.app_setting import AppSetting
+from app.services.hr.calendar import load_calendar
 
 SOURCE_SETTING = "hr_availability_source"
 WINDOW_DAYS = 30
@@ -67,18 +68,6 @@ async def refresh_source(db: AsyncSession, *, force: bool = False) -> bool:
     return bool(_SOURCE["local"])
 
 
-async def company_days_off(db: AsyncSession, start: date, end: date) -> set[date]:
-    rows = await db.execute(
-        text("SELECT day FROM company_days_off WHERE day BETWEEN :start AND :end"),
-        {"start": start, "end": end},
-    )
-    return {row[0] for row in rows}
-
-
-def is_working_day(day: date, days_off: set[date]) -> bool:
-    return day not in days_off and is_business_day(datetime.combine(day, dtime(12)))
-
-
 def _version(payload: Any) -> str:
     return hashlib.sha256(
         json.dumps(payload, sort_keys=True, default=str).encode()
@@ -91,12 +80,9 @@ async def build_local_snapshot(db: AsyncSession, now: datetime) -> dict[str, Any
     Pusta kartoteka daje pustą listę osób — walidacja snapshotu ją odrzuci
     i ostatni dobry snapshot zostaje (tak samo jak przy awarii Compassa).
     """
-    from app.services.workforce_availability import WARSAW
-
-    today = now.astimezone(WARSAW).date()
+    today = business_date(now)
     window_end = today + timedelta(days=WINDOW_DAYS)
-    days_off = await company_days_off(db, today, today)
-    working_day = is_working_day(today, days_off)
+    working_day = (await load_calendar(db, today, today)).is_working_day(today)
 
     people_rows = (
         await db.execute(
@@ -209,7 +195,7 @@ async def local_workdays_payload(
     if not periods:
         return {"basis": EXPECTED_WORKDAYS_BASIS, "people": []}
     first, last = periods[0][0], periods[-1][1]
-    days_off = await company_days_off(db, first, last)
+    calendar = await load_calendar(db, first, last)
     people_rows = (
         await db.execute(
             text(
@@ -237,14 +223,13 @@ async def local_workdays_payload(
     ).all()
     absent: dict[tuple[int, date], float] = {}
     for row in leave_rows:
-        if is_working_day(row.day, days_off):
+        if calendar.is_working_day(row.day):
             key = (row.user_id, row.day)
             absent[key] = min(1.0, absent.get(key, 0.0) + float(row.fraction))
 
     people = []
     for start, end in periods:
-        span = [start + timedelta(days=i) for i in range((end - start).days + 1)]
-        business = [day for day in span if is_working_day(day, days_off)]
+        business = calendar.working_days(start, end)
         for person in people_rows:
             absence = sum(absent.get((person.user_id, day), 0.0) for day in business)
             people.append(

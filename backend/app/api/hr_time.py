@@ -28,8 +28,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import require_onboarded_user
 from app.api.hr_gates import (
-    MODULE_DISABLED_DETAIL,
     NO_PROFILE_DETAIL,
+    ensure_module,
     require_hr_self_service,
 )
 from app.core.database import get_db
@@ -38,7 +38,6 @@ from app.models.hr_time import Timesheet, TimesheetEntry
 from app.models.user import User, UserRole
 from app.services.action_permissions import ProductAction, has_permission
 from app.services.hr import audit, people
-from app.services.hr import modules as hr_modules
 from app.services.hr import (
     time_entries,
     time_fill,
@@ -47,6 +46,7 @@ from app.services.hr import (
     time_pdf,
     time_suggest,
 )
+from app.services.hr.modules import HrModule
 from app.services.hr.time_access import Actor, is_time_approver, load_actor
 from app.services.hr.time_entries import (
     EntryInput,
@@ -61,29 +61,21 @@ from app.services.hr.time_entries import (
     entries_of,
     entry_payload,
     entry_with_timesheet,
-    ensure_timesheet,
     find_timesheet,
     hash_of,
-    lock_timesheet,
-    sync_leave_paid,
+    open_draft,
     validate_period,
 )
 
 router = APIRouter()
 
-MODULE = "time"
+MODULE = HrModule.time
 NOT_APPROVER_DETAIL = "Timesheety akceptuje przełożony, Kadry albo administrator."
 NOT_PAYROLL_DETAIL = "Paczka PDF-ów miesiąca jest dla Płac i Kadr."
 NOT_ADMIN_DETAIL = "Domyślne opisy ustawiają Kadry."
 
 
 # ── Bramki ────────────────────────────────────────────────────────────────────
-
-
-async def _module_open(db: AsyncSession, user: User) -> None:
-    loaded = await hr_modules.load_modules(db)
-    if not hr_modules.module_open_for(user, loaded, MODULE):
-        raise HTTPException(status.HTTP_404_NOT_FOUND, MODULE_DISABLED_DETAIL)
 
 
 def require_hr_time_approver():
@@ -93,7 +85,7 @@ def require_hr_time_approver():
         current_user: User = Depends(require_onboarded_user),
         db: AsyncSession = Depends(get_db),
     ) -> User:
-        await _module_open(db, current_user)
+        await ensure_module(db, current_user, MODULE)
         if await is_time_approver(db, current_user):
             return current_user
         raise HTTPException(status.HTTP_403_FORBIDDEN, NOT_APPROVER_DETAIL)
@@ -108,7 +100,7 @@ def require_hr_time_reader():
         current_user: User = Depends(require_onboarded_user),
         db: AsyncSession = Depends(get_db),
     ) -> User:
-        await _module_open(db, current_user)
+        await ensure_module(db, current_user, MODULE)
         if current_user.has_role(UserRole.admin) or any(
             has_permission(current_user, p)
             for p in (ProductAction.people_admin, ProductAction.payroll)
@@ -126,7 +118,7 @@ def require_hr_time_payroll():
         current_user: User = Depends(require_onboarded_user),
         db: AsyncSession = Depends(get_db),
     ) -> User:
-        await _module_open(db, current_user)
+        await ensure_module(db, current_user, MODULE)
         if current_user.has_role(UserRole.admin) or any(
             has_permission(current_user, p)
             for p in (ProductAction.people_admin, ProductAction.payroll)
@@ -142,7 +134,7 @@ def require_hr_time_admin():
         current_user: User = Depends(require_onboarded_user),
         db: AsyncSession = Depends(get_db),
     ) -> User:
-        await _module_open(db, current_user)
+        await ensure_module(db, current_user, MODULE)
         if current_user.has_role(UserRole.admin) or has_permission(
             current_user, ProductAction.people_admin
         ):
@@ -376,7 +368,6 @@ async def my_month(
             year=year,
             month=month,
             show_leave_type=True,
-            sync=True,
         )
 
 
@@ -384,12 +375,10 @@ async def _own_draft(
     db: AsyncSession, user: User, year: int, month: int
 ) -> tuple[Timesheet, EmployeeProfile]:
     profile = await _own_profile(db, user)
-    found = await ensure_timesheet(db, user.id, year, month)
-    timesheet = await lock_timesheet(db, found.id)
-    assert_editable(timesheet, as_approver=False)
-    await sync_leave_paid(
-        db, timesheet=timesheet, employment_type=profile.employment_type
+    timesheet = await open_draft(
+        db, user.id, year, month, employment_type=profile.employment_type
     )
+    assert_editable(timesheet, as_approver=False)
     return timesheet, profile
 
 
@@ -500,7 +489,16 @@ async def submit_my_month(
         validate_period(year, month)
         found = await find_timesheet(db, current_user.id, year, month)
         if found is None:
-            raise TimeError("Timesheet musi mieć co najmniej jeden wpis.")
+            # Pierwszy zapis miesiąca: szkic z auto-wpisami płatnej puli (miesiąc
+            # samego płatnego urlopu kontraktora wysyła się bez ręcznych wpisów).
+            profile = await _own_profile(db, current_user)
+            found = await open_draft(
+                db,
+                current_user.id,
+                year,
+                month,
+                employment_type=profile.employment_type,
+            )
         actor = await load_actor(db, current_user)
         timesheet = await time_flow.submit(db, timesheet_id=found.id, actor=actor)
     return time_month.timesheet_payload(timesheet)
@@ -716,7 +714,6 @@ async def team_member_month(
             year=year,
             month=month,
             show_leave_type=actor.sees_leave_type(profile),
-            sync=False,
         )
 
 
@@ -735,8 +732,9 @@ async def add_team_entry(
         data = _entry_input(payload)
         actor = await _approver(db, current_user)
         _, profile = await _decidable_subject(db, actor, user_id)
-        found = await ensure_timesheet(db, user_id, year, month)
-        timesheet = await lock_timesheet(db, found.id)
+        timesheet = await open_draft(
+            db, user_id, year, month, employment_type=profile.employment_type
+        )
         assert_editable(timesheet, as_approver=True)
         entry = await time_entries.add_entry(
             db, timesheet=timesheet, subject=profile, actor=actor, data=data

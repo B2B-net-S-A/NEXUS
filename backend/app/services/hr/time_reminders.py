@@ -19,8 +19,7 @@ import logging
 from datetime import date
 from typing import Any, Optional
 
-from sqlalchemy import select
-from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.scheduling import local_now
@@ -29,7 +28,10 @@ from app.models.hr_profile import EmployeeProfile
 from app.models.hr_time import Timesheet
 from app.models.notification import NotificationType
 from app.models.user import User
+from app.services.hr import job_runs
 from app.services.hr.employment_terms import terms
+from app.services.hr.modules import HrModule
+from app.services.hr.notify import notify_each
 from app.services.hr.time_calendar import (
     DEADLINE_DAY,
     month_range,
@@ -37,12 +39,11 @@ from app.services.hr.time_calendar import (
     submission_deadline,
 )
 from app.services.hr.time_flow import month_label, my_month_link
+from app.services.hr.time_month import TIMESHEET_EMPLOYMENT_STATUSES
 
 logger = logging.getLogger(__name__)
 
 JOB_KIND = "hr_timesheet_reminder"
-#: Statusy kartoteki, które prowadzą timesheet.
-REMINDED_STATUSES = ("onboarding", "active", "offboarding")
 #: Dzwonek w godzinach pracy, nie o północy pierwszego dnia miesiąca.
 SEND_FROM_HOUR = 8
 
@@ -69,7 +70,7 @@ async def eligible_user_ids(db: AsyncSession, year: int, month: int) -> list[int
         .where(
             User.is_active.is_(True),
             EmployeeProfile.timesheet_required.is_(True),
-            EmployeeProfile.employment_status.in_(REMINDED_STATUSES),
+            EmployeeProfile.employment_status.in_(TIMESHEET_EMPLOYMENT_STATUSES),
             (EmployeeProfile.work_start_date.is_(None))
             | (EmployeeProfile.work_start_date <= end),
             (EmployeeProfile.last_working_day.is_(None))
@@ -85,10 +86,9 @@ async def run_once(db: AsyncSession, *, today: Optional[date] = None) -> dict[st
     """Jeden przebieg (pętla dzienna HR); idempotentny, commituje sam."""
 
     from app.services.hr import modules as hr_modules
-    from app.services.notification_triggers import emit
 
-    if not (await hr_modules.load_modules(db)).get("time"):
-        return {"status": "module_off", "sent": 0}
+    if not (await hr_modules.load_modules(db)).get(HrModule.time):
+        return {"status": "disabled"}
     if today is None:
         now = local_now()
         if now.hour < SEND_FROM_HOUR:
@@ -112,43 +112,33 @@ async def run_once(db: AsyncSession, *, today: Optional[date] = None) -> dict[st
     )
     for user_id in ids:
         counts["eligible"] += 1
-        claimed = await db.scalar(
-            insert(HrJobRun)
-            .values(
-                kind=JOB_KIND,
-                period_key=period_key(year, month, user_id),
-                status="claimed",
-            )
-            .on_conflict_do_nothing(constraint="uq_hr_job_runs_kind_period")
-            .returning(HrJobRun.id)
-        )
-        if claimed is None:
+        key = period_key(year, month, user_id)
+        if not await job_runs.mark_once(db, JOB_KIND, key, status="claimed"):
             counts["already"] += 1
             continue
-        created = None
         # Słowa formy (D4): ewidencja czasu pracy, raport godzin, potwierdzenie godzin.
         words = terms(forms.get(user_id))
-        try:
-            async with db.begin_nested():
-                created = await emit(
-                    db,
-                    user_id=user_id,
-                    title=f"Wyślij {words['timesheet_accusative']}",
-                    message=f"{words['timesheet']} za {label} czeka na wysłanie — "
-                    f"termin {deadline.day}.{deadline.month:02d}.",
-                    ntype=NotificationType.hr_timesheet_reminder,
-                    related_entity_type="timesheet",
-                    related_entity_id=None,
-                    link=my_month_link(year, month),
-                )
-        except Exception:  # noqa: BLE001 — jedna osoba nie zatrzymuje przebiegu
-            logger.exception("[hr_time] przypomnienie nie wyszło user=%s", user_id)
-        run = await db.get(HrJobRun, claimed)
-        if run is not None:
-            run.status = "done" if created is not None else "skipped"
-            run.counts = {"notified": int(created is not None)}
-            run.finished_at = local_now()
-        counts["sent" if created is not None else "skipped"] += 1
+        notified = await notify_each(
+            db,
+            [user_id],
+            title=f"Wyślij {words['timesheet_accusative']}",
+            message=f"{words['timesheet']} za {label} czeka na wysłanie — "
+            f"termin {deadline.day}.{deadline.month:02d}.",
+            ntype=NotificationType.hr_timesheet_reminder,
+            link=my_month_link(year, month),
+            related_entity_type="timesheet",
+            log_tag="hr_time",
+        )
+        await db.execute(
+            update(HrJobRun)
+            .where(HrJobRun.kind == JOB_KIND, HrJobRun.period_key == key)
+            .values(
+                status="done" if notified else "skipped",
+                counts={"notified": notified},
+                finished_at=local_now(),
+            )
+        )
+        counts["sent" if notified else "skipped"] += 1
     await db.commit()
     logger.info("[hr_time] przypomnienia %s-%02d: %s", year, month, counts)
     return {"status": "ok", "period": f"{year}-{month:02d}", **counts}

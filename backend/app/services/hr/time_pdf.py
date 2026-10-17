@@ -23,24 +23,10 @@ from typing import Optional, Sequence
 from zoneinfo import ZoneInfo
 
 from app.core.scheduling import DEFAULT_TZ
-from app.services.hr.employment_terms import terms
+from app.services.hr.employment_terms import FORM_LABELS, terms
+from app.services.hr.payroll_periods import MONTHS_PL
 
 WEEKDAYS = ("pon", "wt", "śr", "czw", "pt", "sob", "nd")
-MONTHS = (
-    "styczeń",
-    "luty",
-    "marzec",
-    "kwiecień",
-    "maj",
-    "czerwiec",
-    "lipiec",
-    "sierpień",
-    "wrzesień",
-    "październik",
-    "listopad",
-    "grudzień",
-)
-EMPLOYMENT_LABELS = {"uop": "Umowa o pracę", "b2b": "B2B", "zlecenie": "Umowa zlecenie"}
 
 
 @dataclass(frozen=True)
@@ -106,8 +92,9 @@ def render_html(sheet: PdfTimesheet) -> str:
             f"<td class='num'>{_hours(entry.hours)}</td>"
             "</tr>"
         )
-    period = f"{MONTHS[sheet.month - 1]} {sheet.year}"
-    employment = EMPLOYMENT_LABELS.get(sheet.employment_type or "", "—")
+    period = f"{MONTHS_PL[sheet.month - 1]} {sheet.year}"
+    # Bez formy w kartotece PDF pisze „—” (słowa i tak są jak dla umowy o pracę).
+    employment = FORM_LABELS.get(sheet.employment_type or "", "—")
     generated = _local(datetime.now(ZoneInfo(DEFAULT_TZ)))
     # Nazwa dokumentu i role z formy współpracy (D4): ewidencja czasu pracy,
     # raport godzin do faktury albo potwierdzenie liczby godzin (art. 8b).

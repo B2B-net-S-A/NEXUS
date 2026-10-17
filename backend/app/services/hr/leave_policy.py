@@ -26,18 +26,22 @@ from datetime import date
 from decimal import Decimal
 from typing import Optional
 
+from app.models.user import User, UserRole
+from app.services.action_permissions import ProductAction, has_permission
 from app.services.hr.calendar import WorkCalendar
 from app.services.hr.employment_terms import reports_absence, terms
 from app.services.hr_leave_schema import HALF_DAYS, LEAVE_TYPES
 
 #: Rodzaje, które zużywają pulę urlopu wypoczynkowego.
 POOL_TYPES: frozenset[str] = frozenset({"vacation", "on_demand"})
-#: Formy zatrudnienia, które mogą wziąć wyłącznie urlop wypoczynkowy.
-CONTRACTOR_TYPES: frozenset[str] = frozenset({"b2b", "zlecenie"})
 #: Rodzaje zatwierdzane od razu (zwolnienie lekarskie nie czeka na decyzję).
 AUTO_APPROVED_TYPES: frozenset[str] = frozenset({"sick_leave"})
 #: Rodzaje, których rodzaj i notatka są danymi o zdrowiu (``sensitivity=health``).
 HEALTH_TYPES: frozenset[str] = frozenset({"sick_leave"})
+
+#: Indeks, który pilnuje, że aktywne wnioski osoby się nie nakładają (jeden
+#: aktywny wiersz dnia na osobę) — po nim rozpoznajemy wyścig dwóch zapisów.
+ACTIVE_DAY_UNIQUE = "uq_leave_request_days_user_day_active"
 
 ON_DEMAND_YEARLY_LIMIT = Decimal("4")
 CHILDCARE_YEARLY_LIMIT = Decimal("2")
@@ -110,7 +114,7 @@ class LeavePolicyError(ValueError):
 def allowed_types(employment_type: str) -> tuple[str, ...]:
     """Rodzaje, o które osoba może wnioskować (B2B i zlecenie: tylko urlop)."""
 
-    if employment_type in CONTRACTOR_TYPES:
+    if reports_absence(employment_type):
         return ("vacation",)
     return LEAVE_TYPES
 
@@ -207,23 +211,60 @@ class YearSplit:
 
 
 @dataclass(frozen=True)
+class PaidSplit:
+    total: Decimal
+    paid: Decimal
+    unpaid: Decimal
+
+
+def split_days(days: Iterable[tuple[Decimal, bool]], *, leave_type: str) -> PaidSplit:
+    """Dni wniosku: razem, płatne z puli i bezpłatne — JEDNA reguła.
+
+    Liczy ją złożenie wniosku (``plan_days``), przeliczenie po dniu wolnym
+    firmy, import z Compassa i odczyt wniosku; kolumny ``paid_days`` /
+    ``unpaid_days`` w ``leave_requests`` to zapisany wynik tej funkcji z dni
+    wniosku (``leave_request_days``). Bezpłatny jest dzień rodzaju z puli bez
+    pokrycia w puli (kontraktor ponad pulę albo bez puli) — tak samo liczy
+    saldo roku (``leave_balance``). Inne rodzaje (L4, opieka, urlop
+    bezpłatny) nie zużywają puli: płatne i bezpłatne to 0.
+    """
+
+    total = paid = unpaid = Decimal("0")
+    pool = leave_type in POOL_TYPES
+    for fraction, is_paid in days:
+        total += fraction
+        if is_paid:
+            paid += fraction
+        elif pool:
+            unpaid += fraction
+    return PaidSplit(total=total, paid=paid, unpaid=unpaid)
+
+
+@dataclass(frozen=True)
 class LeavePlan:
     days: tuple[DayPlan, ...]
     years: tuple[YearSplit, ...] = field(default_factory=tuple)
+    leave_type: str = ""
+
+    @property
+    def split(self) -> PaidSplit:
+        return split_days(
+            ((d.fraction, d.paid) for d in self.days), leave_type=self.leave_type
+        )
 
     @property
     def total(self) -> Decimal:
-        return sum((d.fraction for d in self.days), Decimal("0"))
+        return self.split.total
 
     @property
     def paid(self) -> Decimal:
-        return sum((d.fraction for d in self.days if d.paid), Decimal("0"))
+        return self.split.paid
 
     @property
     def unpaid(self) -> Decimal:
         """Dni bezpłatne rodzaju z puli (B2B ponad pulę albo bez puli)."""
 
-        return sum(y.unpaid for y in self.years)
+        return self.split.unpaid
 
 
 def _fmt(value: Decimal) -> str:
@@ -251,7 +292,7 @@ def plan_days(
     for day, fraction in days:
         by_year.setdefault(day.year, []).append((day, fraction))
 
-    contractor = employment_type in CONTRACTOR_TYPES
+    contractor = reports_absence(employment_type)
     planned: list[DayPlan] = []
     years: list[YearSplit] = []
     for year in sorted(by_year):
@@ -328,7 +369,7 @@ def plan_days(
                 remaining_after=None if remaining is None else remaining - paid,
             )
         )
-    return LeavePlan(days=tuple(planned), years=tuple(years))
+    return LeavePlan(days=tuple(planned), years=tuple(years), leave_type=leave_type)
 
 
 # ── Kto co może ───────────────────────────────────────────────────────────────
@@ -345,6 +386,14 @@ class Actor:
     @property
     def sees_everyone(self) -> bool:
         return self.is_admin or self.is_people_admin
+
+
+def actor_of(user: User) -> Actor:
+    return Actor(
+        user_id=user.id,
+        is_admin=user.has_role(UserRole.admin),
+        is_people_admin=has_permission(user, ProductAction.people_admin),
+    )
 
 
 def can_decide(

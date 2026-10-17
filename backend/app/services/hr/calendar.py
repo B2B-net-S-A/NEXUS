@@ -7,15 +7,19 @@ Dzień roboczy = poniedziałek–piątek, nie święto ustawowe (biblioteka
 Tu święta liczy biblioteka dla każdego roku.
 
 ``WorkCalendar`` jest czysty (bez bazy); ``load_calendar`` dociąga dni wolne
-firmy z zakresu.
+firmy z zakresu. To JEDYNY kalendarz modułów „Ludzi”: urlopy, „Mój miesiąc”
+(``time_calendar`` składa z niego siatkę miesiąca), dostępność dla zastępstw
+(``availability_local``), premie i odejścia liczą dni robocze tutaj.
 """
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+import calendar as _stdlib_calendar
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 from functools import lru_cache
+from types import MappingProxyType
 from typing import Literal
 
 import holidays
@@ -32,8 +36,10 @@ _MAX_GAP_DAYS = 31
 
 
 @lru_cache(maxsize=32)
-def _holiday_names(year: int) -> dict[date, str]:
-    return dict(holidays.Poland(years=year, language="pl").items())
+def _holiday_names(year: int) -> Mapping[date, str]:
+    # Niemutowalna kopia: współdzielony obiekt ``holidays`` dopopulowuje lata
+    # leniwie i nie jest bezpieczny między wątkami (patrz ``scheduling.py``).
+    return MappingProxyType(dict(holidays.Poland(years=year, language="pl").items()))
 
 
 def holiday_name(day: date) -> str | None:
@@ -66,11 +72,7 @@ class WorkCalendar:
         return holiday_name(day)
 
     def working_days(self, start: date, end: date) -> list[date]:
-        if end < start:
-            return []
-        span = (end - start).days + 1
-        days = (start + timedelta(days=offset) for offset in range(span))
-        return [day for day in days if self.is_working_day(day)]
+        return [day for day in iter_days(start, end) if self.is_working_day(day)]
 
     def next_working_day_after(self, day: date) -> date:
         """Pierwszy dzień roboczy po ``day`` (data powrotu w autoodpowiedzi)."""
@@ -83,10 +85,23 @@ class WorkCalendar:
         return candidate
 
 
+def iter_days(start: date, end: date) -> list[date]:
+    """Kolejne dni od ``start`` do ``end`` włącznie (pusto, gdy koniec przed startem)."""
+
+    return [start + timedelta(days=offset) for offset in range((end - start).days + 1)]
+
+
 def month_days(year: int, month: int) -> list[date]:
-    first = date(year, month, 1)
-    nxt = date(year + 1, 1, 1) if month == 12 else date(year, month + 1, 1)
-    return [first + timedelta(days=offset) for offset in range((nxt - first).days)]
+    last = _stdlib_calendar.monthrange(year, month)[1]
+    return [date(year, month, number) for number in range(1, last + 1)]
+
+
+def month_range(year: int, month: int) -> tuple[date, date]:
+    """Pierwszy i ostatni dzień miesiąca."""
+
+    return date(year, month, 1), date(
+        year, month, _stdlib_calendar.monthrange(year, month)[1]
+    )
 
 
 def years_between(start: date, end: date) -> list[int]:

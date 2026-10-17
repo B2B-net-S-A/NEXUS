@@ -41,7 +41,12 @@ from app.models.hr_leave import LeaveRequest, LeaveRequestDay
 from app.models.hr_ops import HrImportBatch
 from app.services.hr.calendar import WorkCalendar, load_calendar
 from app.services.hr.employment_terms import reports_absence
-from app.services.hr.leave_policy import CONTRACTOR_TYPES, POOL_TYPES, requested_days
+from app.services.hr.leave_policy import (
+    ACTIVE_DAY_UNIQUE,
+    POOL_TYPES,
+    requested_days,
+    split_days,
+)
 from app.services.hr_leave_schema import (
     ACTIVE_STATUSES,
     HALF_DAYS,
@@ -75,7 +80,6 @@ CHANGED_IN_NEXUS = "wniosek zmieniony w NEXUSIE po imporcie — zostaje wersja N
 REPORTED_FROM_PENDING = (
     "oczekujący wniosek z B2B/zlecenia — przyjęty jako zgłoszenie (bez akceptacji)"
 )
-_ACTIVE_UNIQUE = "uq_leave_request_days_user_day_active"
 
 #: Pola wniosku porównywane przy ponownym imporcie.
 REQUEST_FIELDS = (
@@ -117,7 +121,7 @@ def plan_request_days(
     days = requested_days(calendar, start, end, half_day)
     if leave_type not in POOL_TYPES:
         return [(day, fraction, False) for day, fraction in days]
-    if (employment_type or "uop") not in CONTRACTOR_TYPES:
+    if not reports_absence(employment_type):
         return [(day, fraction, True) for day, fraction in days]
     budget = compass_paid_days or Decimal("0")
     planned: list[DayRow] = []
@@ -127,18 +131,6 @@ def plan_request_days(
             budget -= fraction
         planned.append((day, fraction, paid))
     return planned
-
-
-def split_totals(
-    days: list[DayRow], *, leave_type: str, employment_type: Optional[str]
-) -> tuple[Decimal, Decimal]:
-    """``paid_days`` / ``unpaid_days`` wniosku tak, jak liczy je NEXUS."""
-
-    paid = sum((fraction for _, fraction, is_paid in days if is_paid), Decimal("0"))
-    if leave_type in POOL_TYPES and (employment_type or "uop") in CONTRACTOR_TYPES:
-        total = sum((fraction for _, fraction, _ in days), Decimal("0"))
-        return paid, total - paid
-    return paid, Decimal("0")
 
 
 async def _calendar_for(db: AsyncSession, rows: tuple[Mapping[str, Any], ...]):
@@ -273,10 +265,11 @@ async def plan(db: AsyncSession, bundle: Bundle) -> ModulePlan:
             employment_type=employment_type,
             compass_paid_days=compass_paid,
         )
-        paid_days, unpaid_days = split_totals(
-            days, leave_type=leave_type, employment_type=employment_type
+        # ``paid_days`` / ``unpaid_days`` tak, jak liczy je NEXUS (jedna reguła).
+        split = split_days(
+            ((fraction, paid) for _, fraction, paid in days), leave_type=leave_type
         )
-        total = sum((fraction for _, fraction, _ in days), Decimal("0"))
+        paid_days, unpaid_days, total = split.paid, split.unpaid, split.total
         compass_total = (compass_paid or Decimal("0")) + (
             compass_unpaid or Decimal("0")
         )
@@ -405,7 +398,7 @@ async def apply(
         except IntegrityError as exc:
             # Wyścig z wnioskiem złożonym między planem a zapisem: nakładka
             # to pozycja do decyzji, nie przerwany import.
-            if _ACTIVE_UNIQUE in str(exc.orig):
+            if ACTIVE_DAY_UNIQUE in str(exc.orig):
                 written["conflicts_at_write"] += 1
                 continue
             raise

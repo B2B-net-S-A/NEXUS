@@ -1,76 +1,79 @@
-"""Wnioski urlopowe — złożenie, akceptacja, odrzucenie, anulowanie, wpis za
-pracownika („Ludzie w NEXUSIE”, E1).
+"""Wnioski urlopowe — złożenie, akceptacja, odrzucenie, anulowanie, kolizja,
+wpis za pracownika („Ludzie w NEXUSIE”, E1).
 
 Reguły liczą czyste funkcje (``leave_policy``); tu jest kolejność zapisu,
-powiadomienia, ślad i kolejka Microsoft 365. Każda decyzja to warunkowy
+ślad i kolejka Microsoft 365. Każda decyzja to warunkowy
 ``UPDATE … WHERE status = …`` — drugi akceptujący dostaje konflikt (409),
 a nie drugą decyzję. Dni wniosku (``leave_request_days.active``) zmieniają się
 w tej samej transakcji co status.
 
-Powiadomienia nie zdradzają rodzaju nieobecności ani notatki (D6) — dzwonek
-osoby może zobaczyć jej zastępca, a zastępca nie należy do kręgu D6.
-
 Na B2B i zleceniu (etap 2, D5, 17.10.2026) nieobecność jest ZGŁOSZENIEM, nie
 wnioskiem: termin wchodzi od razu (``approved`` bez decydującego, Microsoft 365
-i godziny od razu), koordynator (przełożony z kartoteki, a bez niego head
-pionu, a bez niego Kadry) dostaje informację i może zgłosić kolizję
+i godziny od razu), koordynator dostaje informację i może zgłosić kolizję
 (``report_conflict``) — nie akceptuje, nie odrzuca i nie anuluje (to robią
 sama osoba albo Kadry). Od 08.07.2026 PIP sam stwierdza stosunek pracy,
 a akceptacja urlopu przez przełożonego to sygnał podporządkowania. Słowa
 (przerwa, nieobecność, koordynator) daje ``employment_terms``. Umowa o pracę
 bez zmian: wniosek i akceptacja przełożonego.
 
+Kto jest przełożonym (decyduje albo przyjmuje zgłoszenie do wiadomości), liczy
+jedna reguła ``recipients.supervisor_of``: przełożony z kartoteki, gdy ma
+aktywne konto i nie odszedł → head pionu → Kadry. Head pionu decyduje o osobach
+swojego pionu bez żywego przełożonego (``recipients.division_charges``).
+
+Moduł jest rdzeniem; obok leżą:
+
+* ``leave_recipients`` — kto i jakimi słowami dowiaduje się o wniosku (bez
+  rodzaju nieobecności i notatki, D6), ślad wniosku, zgłoszenie Płacom,
+* ``leave_recount`` — przeliczenie dni po dniu wolnym firmy dodanym albo
+  usuniętym po złożeniu wniosku,
+* ``leave_queries`` — wiersz wniosku, moje wnioski, kolejki i historia.
+
+Nazwy z tych modułów są tu re-eksportowane, żeby dotychczasowe importy
+(``leave_service.serialize`` itd.) działały bez zmian.
+
 Zatwierdzenie albo anulowanie urlopu w miesiącu zamkniętym w płacach nie
 rusza godzin tego miesiąca (``time_hooks``) — wynik niesie listę takich
 miesięcy (ostrzeżenie w odpowiedzi API), Płace dostają dzwonek, a ślad idzie
-z ``sensitivity='payroll'``. Dzień wolny firmy dodany albo usunięty po
-złożeniu wniosku przelicza dni aktywnych wniosków (``recount_for_company_day_off``).
+z ``sensitivity='payroll'``.
 """
 
 from __future__ import annotations
 
-import logging
 import uuid
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from decimal import Decimal
 from typing import Any, Optional
 
-from sqlalchemy import Select, func, select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.scheduling import business_today
 from app.models.hr_leave import HrM365Operation, LeaveRequest, LeaveRequestDay
-from app.models.hr_ops import HrAuditEvent
 from app.models.hr_profile import EmployeeProfile
 from app.models.notification import NotificationType
-from app.models.user import User, UserRole
-from app.services.action_permissions import ProductAction, has_permission
+from app.models.user import User
 from app.services.hr import audit, leave_substitute, people
 from app.services.hr.calendar import load_calendar, years_between
-from app.services.hr.employment_terms import REPORT_FORMS, reports_absence, terms
+from app.services.hr.employment_terms import reports_absence, terms
 from app.services.hr.leave_balance import pools_for
 from app.services.hr.leave_context import (
-    RequestWindow,
     busy_user_ids,
     department_absences,
-    department_absences_many,
     overlapping_request,
     work_in_period,
-    work_summaries,
 )
 from app.services.hr.leave_m365 import LeaveSnapshot, plan_operations
 from app.services.hr.leave_policy import (
+    ACTIVE_DAY_UNIQUE,
     AUTO_APPROVED_TYPES,
-    CONTRACTOR_TYPES,
     FORWARD_OUTSIDE_COMPANY,
-    HEALTH_TYPES,
     SUBSTITUTE_ACK_ONLY,
-    Actor,
     LeavePolicyError,
-    POOL_TYPES,
+    actor_of,
     can_decide,
     covering_manager,
     forward_target_allowed,
@@ -79,22 +82,45 @@ from app.services.hr.leave_policy import (
     requested_days,
     substitute_sees_type,
     team_cancel_refusal,
-    type_label,
     validate_shape,
 )
+from app.services.hr.leave_queries import (
+    CONFLICT_ACTION,
+    history,
+    my_requests,
+    names_of,
+    on_behalf_people,
+    pending_count,
+    pending_queue,
+    reported_queue,
+    request_splits,
+    scope_user_ids,
+    serialize,
+)
+from app.services.hr.leave_recipients import (
+    LINK_APPROVALS,
+    LINK_CALENDAR,
+    LINK_SELF,
+    LINK_SELF_LEAVE,
+    audit_request,
+    days_label,
+    format_range,
+    notify,
+    notify_auto_approved,
+    notify_cancelled,
+    notify_reported,
+    notify_requested,
+    payroll_locked_warning,
+    report_payroll_locked,
+)
+from app.services.hr.leave_recount import recount_for_company_day_off
 from app.services.hr.m365 import outbox
-from app.services.notification_triggers import emit
+from app.services.hr.recipients import (
+    division_charges,
+    people_admin_ids,
+    supervisor_of,
+)
 
-logger = logging.getLogger(__name__)
-
-LINK_SELF = "/my-time"
-LINK_SELF_LEAVE = "/my-time?tab=leave"
-LINK_APPROVALS = "/people/approvals"
-LINK_CALENDAR = "/people/calendar"
-_ACTIVE_UNIQUE = "uq_leave_request_days_user_day_active"
-
-#: Kolizja zgłoszona przez koordynatora (D5) — notatka dla osoby.
-CONFLICT_ACTION = "leave_conflict_reported"
 CONFLICT_NOTE_MAX = 1000
 REPORT_NOT_DECIDED = (
     "Na B2B i zleceniu nieobecność jest zgłoszeniem — nikt jej nie zatwierdza ani "
@@ -144,218 +170,11 @@ class LeaveOutcome:
         return payroll_locked_warning(self.payroll_locked_months)
 
 
-def _month_label(key: str) -> str:
-    from app.services.hr.payroll_periods import label
-
-    return label(int(key[:4]), int(key[5:7]))
-
-
-def payroll_locked_warning(months: tuple[str, ...] | list[str]) -> Optional[str]:
-    """Tekst ostrzeżenia dla osoby, która zatwierdziła albo anulowała urlop."""
-
-    if not months:
-        return None
-    labels = ", ".join(_month_label(key) for key in months)
-    if len(months) == 1:
-        head = f"Miesiąc płac {labels} jest już zamknięty"
-    else:
-        head = f"Miesiące płac {labels} są już zamknięte"
-    return (
-        f"{head} — godziny w nim zostały bez zmian. "
-        "Korektę zrobią Płace, dostały powiadomienie."
-    )
-
-
-def actor_of(user: User) -> Actor:
-    return Actor(
-        user_id=user.id,
-        is_admin=user.has_role(UserRole.admin),
-        is_people_admin=has_permission(user, ProductAction.people_admin),
-    )
-
-
 def _clean(text: Optional[str]) -> Optional[str]:
     if text is None:
         return None
     stripped = text.strip()
     return stripped or None
-
-
-def format_range(start: date, end: date) -> str:
-    if start == end:
-        return start.strftime("%d.%m.%Y")
-    if start.year == end.year:
-        return f"{start.strftime('%d.%m')}–{end.strftime('%d.%m.%Y')}"
-    return f"{start.strftime('%d.%m.%Y')}–{end.strftime('%d.%m.%Y')}"
-
-
-def days_label(value: Decimal) -> str:
-    """„1 dzień”, „5 dni”, „0,5 dnia” — dni robocze w treści powiadomień."""
-
-    if value == 1:
-        return "1 dzień"
-    text = f"{value.normalize():f}".replace(".", ",")
-    return f"{text} dnia" if value != value.to_integral_value() else f"{text} dni"
-
-
-# ── Odbiorcy ─────────────────────────────────────────────────────────────────
-
-
-async def people_admin_ids(db: AsyncSession) -> list[int]:
-    """Kadry (uprawnienie „Kadry” bez adminów); brak Kadr → admini."""
-
-    from app.services.effective_access import resolve_effective_access
-
-    users = list(await db.scalars(select(User).where(User.is_active.is_(True))))
-    await resolve_effective_access(db, users)
-    hr = [
-        user.id
-        for user in users
-        if not user.has_role(UserRole.admin)
-        and has_permission(user, ProductAction.people_admin)
-    ]
-    if hr:
-        return hr
-    return [user.id for user in users if user.has_role(UserRole.admin)]
-
-
-async def admin_ids(db: AsyncSession) -> list[int]:
-    """Aktywni admini (rola główna albo dodatkowa)."""
-
-    users = await db.scalars(
-        select(User).where(User.is_active.is_(True)).order_by(User.id)
-    )
-    return [user.id for user in users if user.has_role(UserRole.admin)]
-
-
-async def approver_ids(
-    db: AsyncSession, profile: Optional[EmployeeProfile]
-) -> list[int]:
-    """Kto decyduje: przełożony z kartoteki, a bez niego Kadry (albo admini).
-
-    Wniosek jedynej osoby z Kadr bez przełożonego idzie do adminów — sama
-    o nim nie zdecyduje, a pusta lista znaczyła wniosek, o którym nikt nie wie.
-    """
-
-    if profile is not None and profile.manager_user_id is not None:
-        manager = await db.get(User, profile.manager_user_id)
-        if manager is not None and manager.is_active:
-            return [manager.id]
-    subject_id = profile.user_id if profile is not None else None
-    hr = [uid for uid in await people_admin_ids(db) if uid != subject_id]
-    if hr:
-        return hr
-    return [uid for uid in await admin_ids(db) if uid != subject_id]
-
-
-async def approver_label(db: AsyncSession, profile: Optional[EmployeeProfile]) -> str:
-    if profile is not None and profile.manager_user_id is not None:
-        manager = await db.get(User, profile.manager_user_id)
-        if manager is not None and manager.is_active:
-            return manager.name
-    return "Kadry"
-
-
-async def _division_head(
-    db: AsyncSession, profile: Optional[EmployeeProfile]
-) -> Optional[User]:
-    """Head pionu osoby (``app_settings['hr_divisions']``), aktywny, nie ona sama."""
-
-    if profile is None or not profile.division:
-        return None
-    from app.services.hr.structure import load_division_heads
-
-    head_id = (await load_division_heads(db)).get(profile.division)
-    if head_id is None or head_id == profile.user_id:
-        return None
-    head = await db.get(User, head_id)
-    return head if head is not None and head.is_active else None
-
-
-async def coordinator_ids(
-    db: AsyncSession, profile: Optional[EmployeeProfile]
-) -> list[int]:
-    """Kto dostaje zgłoszenie z B2B i zlecenia (D5): przełożony z kartoteki,
-    bez niego head pionu, bez niego Kadry (albo admini) — nigdy sama osoba."""
-
-    if profile is not None and profile.manager_user_id is not None:
-        manager = await db.get(User, profile.manager_user_id)
-        if manager is not None and manager.is_active:
-            return [manager.id]
-    head = await _division_head(db, profile)
-    if head is not None:
-        return [head.id]
-    subject_id = profile.user_id if profile is not None else None
-    hr = [uid for uid in await people_admin_ids(db) if uid != subject_id]
-    if hr:
-        return hr
-    return [uid for uid in await admin_ids(db) if uid != subject_id]
-
-
-async def coordinator_label(
-    db: AsyncSession, profile: Optional[EmployeeProfile]
-) -> str:
-    if profile is not None and profile.manager_user_id is not None:
-        manager = await db.get(User, profile.manager_user_id)
-        if manager is not None and manager.is_active:
-            return manager.name
-    head = await _division_head(db, profile)
-    return head.name if head is not None else "Kadry"
-
-
-async def coordinated_ids(db: AsyncSession, actor_id: int) -> set[int]:
-    """Osoby, których koordynatorem jest head pionu z braku przełożonego (D5)."""
-
-    from app.services.hr.structure import load_division_heads
-
-    divisions = [
-        key for key, head in (await load_division_heads(db)).items() if head == actor_id
-    ]
-    if not divisions:
-        return set()
-    rows = await db.scalars(
-        select(EmployeeProfile.user_id).where(
-            EmployeeProfile.division.in_(divisions),
-            EmployeeProfile.manager_user_id.is_(None),
-            EmployeeProfile.employment_status != "exited",
-            EmployeeProfile.user_id != actor_id,
-        )
-    )
-    return set(rows)
-
-
-async def _notify(
-    db: AsyncSession,
-    recipients: list[int],
-    *,
-    exclude: set[int],
-    title: str,
-    message: str,
-    ntype: NotificationType,
-    link: str,
-) -> int:
-    sent = 0
-    for user_id in dict.fromkeys(recipients):
-        if user_id in exclude:
-            continue
-        try:
-            async with db.begin_nested():
-                created = await emit(
-                    db,
-                    user_id=user_id,
-                    title=title,
-                    message=message,
-                    ntype=ntype,
-                    related_entity_type="leave_request",
-                    related_entity_id=None,
-                    link=link,
-                )
-            sent += int(created is not None)
-        except Exception:  # noqa: BLE001 — jeden odbiorca nie blokuje decyzji
-            logger.exception(
-                "[hr_leave] dzwonek nie wyszedł type=%s user=%s", ntype.value, user_id
-            )
-    return sent
 
 
 # ── Pomocnicze ────────────────────────────────────────────────────────────────
@@ -395,15 +214,6 @@ def _assert_forward_target(substitute: Optional[User]) -> None:
         raise LeavePolicyError(FORWARD_OUTSIDE_COMPANY)
 
 
-async def _days_total(db: AsyncSession, request_id: uuid.UUID) -> Decimal:
-    total = await db.scalar(
-        select(func.sum(LeaveRequestDay.fraction)).where(
-            LeaveRequestDay.leave_request_id == request_id
-        )
-    )
-    return Decimal(total or 0)
-
-
 async def _snapshot(db: AsyncSession, request: LeaveRequest) -> LeaveSnapshot:
     calendar = await load_calendar(db, request.start_date, request.end_date)
     return LeaveSnapshot(
@@ -412,7 +222,7 @@ async def _snapshot(db: AsyncSession, request: LeaveRequest) -> LeaveSnapshot:
         start=request.start_date,
         end=request.end_date,
         half_day=request.half_day,
-        total_days=await _days_total(db, request.id),
+        total_days=(await request_splits(db, [request]))[request.id].total,
         substitute_user_id=request.substitute_user_id,
         forward_mail_consent=request.forward_mail_consent,
         oof_internal_message=request.oof_internal_message,
@@ -451,38 +261,6 @@ async def _enqueue_m365(
     return created
 
 
-def _sensitivity(leave_type: str, note: Optional[str]) -> str:
-    return "health" if leave_type in HEALTH_TYPES or note else "general"
-
-
-def _audit(
-    db: AsyncSession,
-    *,
-    actor_id: Optional[int],
-    request: LeaveRequest,
-    action: str,
-    extra: Optional[dict[str, Any]] = None,
-) -> None:
-    audit.record(
-        db,
-        actor_user_id=actor_id,
-        subject_user_id=request.user_id,
-        entity_type="leave_request",
-        entity_id=request.id,
-        action=action,
-        details={
-            "leave_type": request.leave_type,
-            "status": request.status,
-            "start_date": request.start_date.isoformat(),
-            "end_date": request.end_date.isoformat(),
-            "source": request.source,
-            "has_note": bool(request.note),
-            **(extra or {}),
-        },
-        sensitivity=_sensitivity(request.leave_type, request.note),  # type: ignore[arg-type]
-    )
-
-
 async def _set_days_active(
     db: AsyncSession, request_id: uuid.UUID, active: bool
 ) -> None:
@@ -491,57 +269,6 @@ async def _set_days_active(
         .where(LeaveRequestDay.leave_request_id == request_id)
         .values(active=active)
     )
-
-
-async def _payroll_locked(
-    db: AsyncSession,
-    *,
-    request: LeaveRequest,
-    subject: User,
-    actor_id: Optional[int],
-    months: list[str],
-    event: str,
-) -> tuple[str, ...]:
-    """Urlop w zamkniętym miesiącu płac: ślad i dzwonek dla Płac (bez rodzaju)."""
-
-    if not months:
-        return ()
-    found = tuple(sorted(set(months)))
-    audit.record(
-        db,
-        actor_user_id=actor_id,
-        subject_user_id=request.user_id,
-        entity_type="leave_request",
-        entity_id=request.id,
-        action="leave_in_closed_payroll_month",
-        details={
-            "months": list(found),
-            "event": event,
-            "start_date": request.start_date.isoformat(),
-            "end_date": request.end_date.isoformat(),
-        },
-        sensitivity="payroll",
-    )
-    from app.services.hr.time_access import users_with_permission
-    from app.services.hr.time_flow import payroll_link
-
-    payroll = [
-        user.id for user in await users_with_permission(db, ProductAction.payroll)
-    ]
-    first = found[0]
-    await _notify(
-        db,
-        payroll,
-        exclude={actor_id} if actor_id is not None else set(),
-        title="Nieobecność w zamkniętym miesiącu płac",
-        message=(
-            f"{subject.name}: {', '.join(_month_label(key) for key in found)}. "
-            "Godziny w zamkniętym miesiącu czekają na korektę."
-        ),
-        ntype=NotificationType.hr_timesheet_decided,
-        link=payroll_link(int(first[:4]), int(first[5:7])),
-    )
-    return found
 
 
 # ── Podgląd i złożenie ────────────────────────────────────────────────────────
@@ -575,9 +302,7 @@ async def preview(
         or reported,
         "employment_type": profile.employment_type,
         "flow": "report" if reports_absence(profile.employment_type) else "request",
-        "approver": await coordinator_label(db, profile)
-        if reports_absence(profile.employment_type)
-        else await approver_label(db, profile),
+        "approver": (await supervisor_of(db, profile)).label,
         "department_absent": [],
         "work": {"total": 0, "by_kind": [], "items": []},
         "substitute_absent": False,
@@ -765,7 +490,7 @@ async def submit(
             )
             await db.flush()
     except IntegrityError as exc:
-        if _ACTIVE_UNIQUE in str(exc.orig):
+        if ACTIVE_DAY_UNIQUE in str(exc.orig):
             raise LeaveConflict(
                 "Ten okres nakłada się na inny wniosek — odśwież listę i sprawdź daty."
             ) from exc
@@ -779,7 +504,7 @@ async def submit(
         action = "absence_reported"
     else:
         action = "leave_requested"
-    _audit(
+    audit_request(
         db,
         actor_id=actor.id,
         request=request,
@@ -791,42 +516,15 @@ async def submit(
     )
 
     if not approved:
-        recipients = await approver_ids(db, profile)
-        stand_in = await leave_substitute.stand_in_for(
-            db, profile.manager_user_id, today
-        )
-        decides = substitute_sees_type(data.leave_type)
-        if stand_in is not None and not decides:
-            # Zastępca L4 i pokrewnych tylko przyjmuje do wiadomości — wniosek
-            # nie może czekać do powrotu przełożonego, więc decydują też Kadry.
-            recipients = [*recipients, *await people_admin_ids(db)]
-        await _notify(
+        await notify_requested(
             db,
-            recipients,
-            exclude={subject.id},
-            title="Wniosek o nieobecność do akceptacji",
-            message=f"{subject.name}: {span} ({days_text}).",
-            ntype=NotificationType.hr_leave_requested,
-            link=LINK_APPROVALS,
+            subject=subject,
+            profile=profile,
+            leave_type=data.leave_type,
+            span=span,
+            days_text=days_text,
+            today=today,
         )
-        if stand_in is not None:
-            await _notify(
-                db,
-                [stand_in.user_id],
-                exclude={subject.id, *recipients},
-                title=(
-                    "Wniosek o nieobecność do akceptacji"
-                    if decides
-                    else "Wniosek o nieobecność do wiadomości"
-                ),
-                message=(
-                    f"{subject.name}: {span} ({days_text}) — w zastępstwie za "
-                    f"{stand_in.manager_name}."
-                    + ("" if decides else " Decydują Kadry.")
-                ),
-                ntype=NotificationType.hr_leave_requested,
-                link=LINK_APPROVALS,
-            )
         return LeaveOutcome(request)
 
     if on_behalf:
@@ -835,7 +533,7 @@ async def submit(
             if reports_absence(profile.employment_type)
             else "nieobecność"
         )
-        await _notify(
+        await notify(
             db,
             [subject.id],
             exclude={actor.id},
@@ -845,7 +543,7 @@ async def submit(
             link=LINK_SELF,
         )
     if reported:
-        await _notify_reported(
+        await notify_reported(
             db,
             subject=subject,
             profile=profile,
@@ -854,92 +552,20 @@ async def submit(
             today=today,
         )
     elif data.leave_type in AUTO_APPROVED_TYPES:
-        recipients = []
-        if profile.manager_user_id is not None:
-            recipients.append(profile.manager_user_id)
-        recipients.extend(await people_admin_ids(db))
-        await _notify(
-            db,
-            recipients,
-            exclude={actor.id, subject.id},
-            title="Zgłoszona nieobecność",
-            message=f"{subject.name}: nieobecność {span}, zatwierdzona od razu.",
-            ntype=NotificationType.hr_absence_reported,
-            link=LINK_APPROVALS,
+        await notify_auto_approved(
+            db, actor=actor, subject=subject, profile=profile, span=span, today=today
         )
-        # Zastępca nieobecnego przełożonego przyjmuje do wiadomości (bez rodzaju).
-        stand_in = await leave_substitute.stand_in_for(
-            db, profile.manager_user_id, today
-        )
-        if stand_in is not None:
-            await _notify(
-                db,
-                [stand_in.user_id],
-                exclude={actor.id, subject.id, *recipients},
-                title="Zgłoszona nieobecność",
-                message=(
-                    f"{subject.name}: nieobecność {span}, zatwierdzona od razu — "
-                    f"do wiadomości, w zastępstwie za {stand_in.manager_name}."
-                ),
-                ntype=NotificationType.hr_absence_reported,
-                link=LINK_CALENDAR,
-            )
     locked = await _after_approval(
         db, request, subject=subject, actor=actor, today=today
     )
     return LeaveOutcome(request, locked)
 
 
-async def _notify_reported(
-    db: AsyncSession,
-    *,
-    subject: User,
-    profile: EmployeeProfile,
-    span: str,
-    days_text: str,
-    today: date,
-) -> None:
-    """Zgłoszenie z B2B albo zlecenia (D5) — informacja dla koordynatora.
-
-    Bez rodzaju i notatki (D6); zastępca nieobecnego przełożonego dostaje to
-    samo do wiadomości. Kadry nie dostają kopii — zgłoszenie to nie L4.
-    """
-
-    words = terms(profile.employment_type)
-    recipients = await coordinator_ids(db, profile)
-    await _notify(
-        db,
-        recipients,
-        exclude={subject.id},
-        title=words["reported_title"],
-        message=(
-            f"{subject.name}: {span} ({days_text}). Termin jest już w kalendarzu — "
-            "jeśli koliduje z pracą, zgłoś kolizję w „Akceptacjach”."
-        ),
-        ntype=NotificationType.hr_absence_reported,
-        link=LINK_APPROVALS,
-    )
-    stand_in = await leave_substitute.stand_in_for(db, profile.manager_user_id, today)
-    if stand_in is not None:
-        await _notify(
-            db,
-            [stand_in.user_id],
-            exclude={subject.id, *recipients},
-            title=words["reported_title"],
-            message=(
-                f"{subject.name}: {span} ({days_text}) — do wiadomości, "
-                f"w zastępstwie za {stand_in.manager_name}."
-            ),
-            ntype=NotificationType.hr_absence_reported,
-            link=LINK_APPROVALS,
-        )
-
-
 async def _after_approval(
     db: AsyncSession, request: LeaveRequest, *, subject: User, actor: User, today: date
 ) -> tuple[str, ...]:
     if request.substitute_user_id is not None and request.end_date >= today:
-        await _notify(
+        await notify(
             db,
             [request.substitute_user_id],
             exclude={actor.id},
@@ -960,7 +586,7 @@ async def _after_approval(
     hooked = await time_hooks.on_leave_approved(
         db, request.user_id, await _request_days(db, request.id)
     )
-    return await _payroll_locked(
+    return await report_payroll_locked(
         db,
         request=request,
         subject=subject,
@@ -1003,7 +629,10 @@ async def _decision_scope(
 ]:
     """Wniosek, o którym osoba decyduje, i ewentualne zastępstwo.
 
-    ``cover_on`` (dziś) wpuszcza też zastępcę przełożonego, który jest tego
+    Decyduje przełożony, Kadry, admin i head pionu o osobach swojego pionu bez
+    żywego przełożonego (``recipients.division_charges`` — ta sama reguła,
+    która kieruje do niego wniosek). ``cover_on`` (dziś) wpuszcza też zastępcę
+    przełożonego, który jest tego
     dnia na urlopie — tylko akceptacja i odrzucenie, nie anulowanie ani wpis
     za pracownika. Rodzaj spoza planowych (L4 i pokrewne) zastępca tylko
     przyjmuje do wiadomości (403).
@@ -1019,7 +648,7 @@ async def _decision_scope(
     cover: Optional[leave_substitute.Cover] = None
     if not can_decide(
         actor_of(actor), subject_user_id=request.user_id, subject_manager_id=manager_id
-    ):
+    ) and request.user_id not in await division_charges(db, actor.id):
         covers = (
             await leave_substitute.covers_of(db, actor.id, cover_on)
             if cover_on is not None
@@ -1121,14 +750,14 @@ async def approve(
     if not changed:
         raise LeaveConflict("Ten wniosek ma już decyzję — odśwież listę.")
     await db.refresh(request)
-    _audit(
+    audit_request(
         db,
         actor_id=actor.id,
         request=request,
         action="leave_approved",
         extra=_cover_extra(cover),
     )
-    await _notify(
+    await notify(
         db,
         [subject.id],
         exclude={actor.id},
@@ -1178,14 +807,14 @@ async def reject(
         raise LeaveConflict("Ten wniosek ma już decyzję — odśwież listę.")
     await _set_days_active(db, request_id, False)
     await db.refresh(request)
-    _audit(
+    audit_request(
         db,
         actor_id=actor.id,
         request=request,
         action="leave_rejected",
         extra=_cover_extra(cover),
     )
-    await _notify(
+    await notify(
         db,
         [subject.id],
         exclude={actor.id},
@@ -1212,33 +841,20 @@ async def _after_cancel(
 ) -> tuple[str, ...]:
     await _set_days_active(db, request.id, False)
     await db.refresh(request)
-    _audit(
+    audit_request(
         db,
         actor_id=actor.id,
         request=request,
         action="leave_cancelled",
         extra={"previous_status": previous_status},
     )
-    form = profile.employment_type if profile else None
-    coordinators = (
-        await coordinator_ids(db, profile)
-        if reports_absence(form)
-        else await approver_ids(db, profile)
-    )
-    recipients = [subject.id, *coordinators]
-    if previous_status == "approved" and request.substitute_user_id is not None:
-        recipients.append(request.substitute_user_id)
-    await _notify(
+    await notify_cancelled(
         db,
-        recipients,
-        exclude={actor.id},
-        title=terms(form)["cancelled_title"],
-        message=(
-            f"{subject.name}: {format_range(request.start_date, request.end_date)} "
-            f"— anulowanie: {actor.name}."
-        ),
-        ntype=NotificationType.hr_leave_cancelled,
-        link=LINK_CALENDAR,
+        request=request,
+        previous_status=previous_status,
+        actor=actor,
+        subject=subject,
+        profile=profile,
     )
     if previous_status != "approved":
         return ()
@@ -1248,7 +864,7 @@ async def _after_cancel(
     hooked = await time_hooks.on_leave_cancelled(
         db, request.user_id, await _request_days(db, request.id)
     )
-    return await _payroll_locked(
+    return await report_payroll_locked(
         db,
         request=request,
         subject=subject,
@@ -1333,27 +949,6 @@ async def cancel_as_approver(
     return LeaveOutcome(request, locked)
 
 
-async def _conflict_scope(
-    db: AsyncSession, actor: User, request_id: uuid.UUID, today: date
-) -> tuple[
-    LeaveRequest, User, Optional[EmployeeProfile], Optional[leave_substitute.Cover]
-]:
-    """Kto zgłasza kolizję: jak przy decyzjach (przełożony, jego zastępca,
-    Kadry, admin) plus head pionu osoby bez przełożonego (domyślny koordynator)."""
-
-    try:
-        return await _decision_scope(db, actor, request_id, cover_on=today)
-    except LeaveNotFound:
-        request = await db.get(LeaveRequest, request_id)
-        if request is None or request.user_id not in await coordinated_ids(
-            db, actor.id
-        ):
-            raise
-        subject = await db.get(User, request.user_id)
-        assert subject is not None
-        return request, subject, await people.profile_of(db, request.user_id), None
-
-
 async def report_conflict(
     db: AsyncSession,
     *,
@@ -1378,8 +973,10 @@ async def report_conflict(
         raise LeavePolicyError(
             f"Notatka może mieć najwyżej {CONFLICT_NOTE_MAX} znaków."
         )
-    request, subject, profile, cover = await _conflict_scope(
-        db, actor, request_id, today
+    # Kto zgłasza kolizję: jak przy decyzjach (przełożony, head pionu osoby bez
+    # przełożonego, zastępca nieobecnego przełożonego, Kadry, admin).
+    request, subject, profile, cover = await _decision_scope(
+        db, actor, request_id, cover_on=today
     )
     form = profile.employment_type if profile else None
     if not reports_absence(form):
@@ -1406,7 +1003,7 @@ async def report_conflict(
             **_cover_extra(cover),
         },
     )
-    await _notify(
+    await notify(
         db,
         [subject.id],
         exclude={actor.id},
@@ -1443,7 +1040,7 @@ async def set_forward_consent(
         return request
     request.forward_mail_consent = consent
     await db.flush()
-    _audit(
+    audit_request(
         db,
         actor_id=actor.id,
         request=request,
@@ -1465,642 +1062,6 @@ async def set_forward_consent(
     return request
 
 
-# ── Dzień wolny firmy ─────────────────────────────────────────────────────────
-
-DayRow = tuple[date, Decimal, bool]
-
-
-def _split(
-    days: list[DayRow], *, leave_type: str, employment_type: str
-) -> tuple[Decimal, Decimal]:
-    """``paid_days`` / ``unpaid_days`` z dni wniosku (jak ``plan_days``)."""
-
-    paid = sum((fraction for _, fraction, is_paid in days if is_paid), Decimal("0"))
-    if leave_type in POOL_TYPES and employment_type in CONTRACTOR_TYPES:
-        total = sum((fraction for _, fraction, _ in days), Decimal("0"))
-        return paid, total - paid
-    return paid, Decimal("0")
-
-
-async def _replanned_days(
-    db: AsyncSession,
-    request: LeaveRequest,
-    *,
-    wanted: list[tuple[date, Decimal]],
-    current: dict[date, LeaveRequestDay],
-    employment_type: str,
-) -> list[DayRow]:
-    """Dni wniosku po zmianie kalendarza, z płatnością z puli bez tego wniosku.
-
-    Pula wraca: dzień, który przestał być roboczy, zwalnia miejsce (kontraktor
-    może dostać płatny dzień w zamian). Gdy plan się nie składa (brak dni
-    roboczych, limit przekroczony przez sam dzień wolny), dni idą za
-    kalendarzem, a płatność zostaje taka, jaka była.
-    """
-
-    try:
-        pools = await pools_for(
-            db,
-            request.user_id,
-            years_between(request.start_date, request.end_date),
-            exclude_request_id=request.id,
-        )
-        plan = plan_days(
-            leave_type=request.leave_type,
-            employment_type=employment_type,
-            days=wanted,
-            pools=pools,
-        )
-        return [(item.day, item.fraction, item.paid) for item in plan.days]
-    except LeavePolicyError:
-        default_paid = (
-            request.leave_type in POOL_TYPES and employment_type not in CONTRACTOR_TYPES
-        )
-        return [
-            (day, fraction, current[day].paid if day in current else default_paid)
-            for day, fraction in wanted
-        ]
-
-
-async def _recount_request(
-    db: AsyncSession, request: LeaveRequest
-) -> Optional[dict[str, Any]]:
-    """Przelicza dni jednego wniosku z kalendarzem firmy (``None`` = bez zmian)."""
-
-    profile = await people.profile_of(db, request.user_id)
-    employment_type = (profile.employment_type if profile else None) or "uop"
-    calendar = await load_calendar(db, request.start_date, request.end_date)
-    wanted = requested_days(
-        calendar, request.start_date, request.end_date, request.half_day
-    )
-    current = {
-        row.day: row
-        for row in await db.scalars(
-            select(LeaveRequestDay).where(
-                LeaveRequestDay.leave_request_id == request.id
-            )
-        )
-    }
-    if {day for day, _ in wanted} == set(current):
-        return None
-    before = sum((row.fraction for row in current.values()), Decimal("0"))
-    planned = await _replanned_days(
-        db, request, wanted=wanted, current=current, employment_type=employment_type
-    )
-    target = {day: (fraction, paid) for day, fraction, paid in planned}
-    removed = sorted(day for day in current if day not in target)
-    for day in removed:
-        await db.delete(current[day])
-    await db.flush()
-    added: list[date] = []
-    conflicts = 0
-    for day, (fraction, paid) in sorted(target.items()):
-        row = current.get(day)
-        if row is not None:
-            row.fraction, row.paid = fraction, paid
-            continue
-        try:
-            async with db.begin_nested():
-                db.add(
-                    LeaveRequestDay(
-                        leave_request_id=request.id,
-                        user_id=request.user_id,
-                        day=day,
-                        fraction=fraction,
-                        paid=paid,
-                        active=True,
-                    )
-                )
-                await db.flush()
-        except IntegrityError as exc:
-            # Dzień zajęty w międzyczasie innym wnioskiem — zostaje przy tamtym.
-            if _ACTIVE_UNIQUE not in str(exc.orig):
-                raise
-            conflicts += 1
-            continue
-        added.append(day)
-    kept = [
-        (day, fraction, paid)
-        for day, (fraction, paid) in target.items()
-        if day in current or day in added
-    ]
-    paid_days, unpaid_days = _split(
-        kept, leave_type=request.leave_type, employment_type=employment_type
-    )
-    await db.execute(
-        update(LeaveRequest)
-        .where(LeaveRequest.id == request.id)
-        .values(paid_days=paid_days, unpaid_days=unpaid_days, updated_at=func.now())
-    )
-    await db.refresh(request)
-    after = sum((fraction for _, fraction, _ in kept), Decimal("0"))
-    return {
-        "before": before,
-        "after": after,
-        "removed": removed,
-        "added": added,
-        "conflicts": conflicts,
-    }
-
-
-async def recount_for_company_day_off(
-    db: AsyncSession, *, day: date, actor: User, added: bool
-) -> dict[str, Any]:
-    """Dzień wolny firmy dodany (``added``) albo usunięty: przelicza dni
-    aktywnych wniosków (oczekujących i zatwierdzonych) obejmujących ``day``.
-
-    Dzień wolny nie jest dniem roboczym — znika z wniosku i wraca do puli;
-    odwołany dzień wolny wraca do wniosku. Ślad per wniosek, dzwonek osobie,
-    godziny zatwierdzonego urlopu przez ``time_hooks``. Microsoft 365 bez
-    zmian: okno urlopu (daty od–do) się nie zmienia.
-    """
-
-    from app.services.hr import time_hooks
-
-    requests = list(
-        await db.scalars(
-            select(LeaveRequest)
-            .where(
-                LeaveRequest.status.in_(("pending", "approved")),
-                LeaveRequest.start_date <= day,
-                LeaveRequest.end_date >= day,
-            )
-            .order_by(LeaveRequest.user_id, LeaveRequest.start_date)
-            .with_for_update()
-        )
-    )
-    counts: dict[str, Any] = {"requests": 0, "conflicts": 0, "payroll_locked": 0}
-    reason = "company_day_off_added" if added else "company_day_off_removed"
-    for request in requests:
-        change = await _recount_request(db, request)
-        if change is None:
-            continue
-        counts["requests"] += 1
-        counts["conflicts"] += change["conflicts"]
-        _audit(
-            db,
-            actor_id=actor.id,
-            request=request,
-            action="leave_days_recounted",
-            extra={
-                "day": day.isoformat(),
-                "reason": reason,
-                "days_before": f"{change['before']:.1f}",
-                "days_after": f"{change['after']:.1f}",
-                "conflicts": change["conflicts"],
-            },
-        )
-        subject = await db.get(User, request.user_id)
-        if request.status == "approved" and subject is not None:
-            locked: list[str] = []
-            if change["removed"]:
-                hooked = await time_hooks.on_leave_cancelled(
-                    db, request.user_id, change["removed"]
-                )
-                locked.extend(hooked["locked_conflicts"])
-            if change["added"]:
-                hooked = await time_hooks.on_leave_approved(
-                    db, request.user_id, change["added"]
-                )
-                locked.extend(hooked["locked_conflicts"])
-            found = await _payroll_locked(
-                db,
-                request=request,
-                subject=subject,
-                actor_id=actor.id,
-                months=locked,
-                event=reason,
-            )
-            counts["payroll_locked"] += len(found)
-        delta = change["after"] - change["before"]
-        if delta == 0:
-            continue
-        span = format_range(request.start_date, request.end_date)
-        owner = await people.profile_of(db, request.user_id)
-        form = owner.employment_type if owner else None
-        # Słowa formy (D4): „Twoja przerwa” na B2B, „Twój urlop” na umowie o pracę.
-        is_leave = request.leave_type in POOL_TYPES and not reports_absence(form)
-        noun = terms(form)["absence_short"] if reports_absence(form) else "nieobecność"
-        what = f"Twój urlop {span} jest" if is_leave else f"Twoja {noun} {span} jest"
-        if delta < 0:
-            change_text = ("krótszy" if is_leave else "krótsza") + (
-                f" o {days_label(-delta)} — {day:%d.%m.%Y} to dzień wolny firmy."
-            )
-        else:
-            change_text = ("dłuższy" if is_leave else "dłuższa") + (
-                f" o {days_label(delta)} — {day:%d.%m.%Y} znów jest dniem roboczym."
-            )
-        await _notify(
-            db,
-            [request.user_id],
-            exclude={actor.id},
-            title="Dni nieobecności przeliczone",
-            message=f"{what} {change_text}",
-            ntype=NotificationType.hr_leave_decided,
-            link=LINK_SELF,
-        )
-    return counts
-
-
-# ── Odczyty ───────────────────────────────────────────────────────────────────
-
-
-async def names_of(db: AsyncSession, ids: set[int]) -> dict[int, str]:
-    ids = {uid for uid in ids if uid}
-    if not ids:
-        return {}
-    return dict(
-        (await db.execute(select(User.id, User.name).where(User.id.in_(ids)))).all()
-    )
-
-
-async def _totals(
-    db: AsyncSession, request_ids: list[uuid.UUID]
-) -> dict[uuid.UUID, Decimal]:
-    if not request_ids:
-        return {}
-    rows = await db.execute(
-        select(LeaveRequestDay.leave_request_id, func.sum(LeaveRequestDay.fraction))
-        .where(LeaveRequestDay.leave_request_id.in_(request_ids))
-        .group_by(LeaveRequestDay.leave_request_id)
-    )
-    return {rid: Decimal(total or 0) for rid, total in rows.all()}
-
-
-async def serialize(
-    db: AsyncSession,
-    requests: list[LeaveRequest],
-    *,
-    viewer: User,
-    today: date,
-) -> list[dict[str, Any]]:
-    """Pełny wiersz wniosku — tylko dla kręgu D6 (osoba, przełożony, Kadry)."""
-
-    conflicts = await _latest_conflicts(db, [r.id for r in requests])
-    names = await names_of(
-        db,
-        {r.user_id for r in requests}
-        | {r.substitute_user_id for r in requests if r.substitute_user_id}
-        | {r.decided_by for r in requests if r.decided_by}
-        | {c.actor_user_id for c in conflicts.values() if c.actor_user_id},
-    )
-    totals = await _totals(db, [r.id for r in requests])
-    forms = await _forms_of(db, {r.user_id for r in requests})
-    items = []
-    for r in requests:
-        own = r.user_id == viewer.id
-        conflict = conflicts.get(str(r.id))
-        items.append(
-            {
-                "id": str(r.id),
-                "user_id": r.user_id,
-                "user_name": names.get(r.user_id),
-                "leave_type": r.leave_type,
-                "leave_type_label": type_label(r.leave_type, forms.get(r.user_id)),
-                "status": r.status,
-                "start_date": r.start_date.isoformat(),
-                "end_date": r.end_date.isoformat(),
-                "half_day": r.half_day,
-                "days_total": f"{totals.get(r.id, Decimal('0')):.1f}",
-                "paid_days": f"{r.paid_days:.1f}",
-                "unpaid_days": f"{r.unpaid_days:.1f}",
-                "note": r.note,
-                "substitute_user_id": r.substitute_user_id,
-                "substitute_name": names.get(r.substitute_user_id)
-                if r.substitute_user_id
-                else None,
-                "forward_mail_consent": r.forward_mail_consent,
-                "oof_internal_message": r.oof_internal_message if own else None,
-                "oof_external_message": r.oof_external_message if own else None,
-                "decided_by_name": names.get(r.decided_by) if r.decided_by else None,
-                "decided_at": r.decided_at.isoformat() if r.decided_at else None,
-                "decision_note": r.decision_note,
-                "source": r.source,
-                "created_at": r.created_at.isoformat() if r.created_at else None,
-                "can_cancel": own
-                and own_cancel_refusal(
-                    status=r.status,
-                    start=r.start_date,
-                    today=today,
-                    reported=reports_absence(forms.get(r.user_id)),
-                )
-                is None,
-                # D5: zgłoszenie z B2B albo zlecenia (bez akceptacji, z kolizją).
-                "is_report": reports_absence(forms.get(r.user_id)),
-                "employment_type": forms.get(r.user_id),
-                "conflict": None
-                if conflict is None
-                else {
-                    "at": conflict.created_at.isoformat()
-                    if conflict.created_at
-                    else None,
-                    "by_name": names.get(conflict.actor_user_id)
-                    if conflict.actor_user_id
-                    else None,
-                    "note": (conflict.details or {}).get("note"),
-                },
-            }
-        )
-    return items
-
-
-async def _forms_of(db: AsyncSession, user_ids: set[int]) -> dict[int, str]:
-    if not user_ids:
-        return {}
-    return dict(
-        (
-            await db.execute(
-                select(EmployeeProfile.user_id, EmployeeProfile.employment_type).where(
-                    EmployeeProfile.user_id.in_(user_ids)
-                )
-            )
-        ).all()
-    )
-
-
-async def _latest_conflicts(
-    db: AsyncSession, request_ids: list[uuid.UUID]
-) -> dict[str, HrAuditEvent]:
-    """Ostatnia kolizja zgłoszona przez koordynatora per wniosek (ślad HR)."""
-
-    if not request_ids:
-        return {}
-    rows = await db.scalars(
-        select(HrAuditEvent)
-        .where(
-            HrAuditEvent.entity_type == "leave_request",
-            HrAuditEvent.action == CONFLICT_ACTION,
-            HrAuditEvent.entity_id.in_([str(rid) for rid in request_ids]),
-        )
-        .order_by(HrAuditEvent.created_at, HrAuditEvent.id)
-    )
-    return {row.entity_id: row for row in rows if row.entity_id}
-
-
-async def my_requests(
-    db: AsyncSession, *, user: User, today: date, limit: int = 200
-) -> list[dict[str, Any]]:
-    rows = list(
-        await db.scalars(
-            select(LeaveRequest)
-            .where(LeaveRequest.user_id == user.id)
-            .order_by(LeaveRequest.start_date.desc(), LeaveRequest.created_at.desc())
-            .limit(limit)
-        )
-    )
-    return await serialize(db, rows, viewer=user, today=today)
-
-
-async def scope_user_ids(db: AsyncSession, actor: User) -> Optional[set[int]]:
-    """Kogo dotyczą akceptacje osoby: ``None`` = wszyscy (Kadry, admin)."""
-
-    if actor_of(actor).sees_everyone:
-        return None
-    return await people.direct_report_ids(db, actor.id)
-
-
-def _mark_cover(
-    item: dict[str, Any],
-    row: LeaveRequest,
-    cover: Optional[leave_substitute.Cover],
-) -> None:
-    """Wiersz kolejki: czy decyduje patrzący i czy widzi rodzaj (D6).
-
-    Zastępca nie należy do kręgu D6: notatki nie widzi nigdy (bywa o zdrowiu),
-    rodzaj — tylko planowy; L4 i pokrewne przyjmuje do wiadomości.
-    """
-
-    item["as_substitute_for"] = cover.manager_name if cover else None
-    item["as_substitute_until"] = cover.until.isoformat() if cover else None
-    if cover is None:
-        item["type_visible"] = True
-        item["can_decide"] = True
-        return
-    visible = substitute_sees_type(row.leave_type)
-    item["type_visible"] = visible
-    item["can_decide"] = visible
-    item["note"] = None
-    if not visible:
-        item["leave_type"] = None
-        item["leave_type_label"] = "Nieobecność"
-
-
-async def _pending_scope(
-    db: AsyncSession, actor: User, today: date
-) -> tuple[Optional[set[int]], dict[int, leave_substitute.Cover]]:
-    """Czyje wnioski widzi akceptujący: ``None`` = wszyscy (Kadry, admin).
-
-    Zastępca przełożonego, który jest dziś na urlopie, widzi też wnioski jego
-    podwładnych (własny zespół wygrywa — tam jest pełnym przełożonym).
-    """
-
-    scope = await scope_user_ids(db, actor)
-    covered: dict[int, leave_substitute.Cover] = {}
-    if scope is not None:
-        covered = {
-            user_id: cover
-            for user_id, cover in (
-                await leave_substitute.covered_reports(db, actor.id, today)
-            ).items()
-            if user_id not in scope
-        }
-        scope = scope | set(covered)
-    return scope, covered
-
-
-def _pending_statement(actor_id: int, scope: Optional[set[int]]) -> Optional[Select]:
-    """Wnioski czekające na decyzję patrzącego — jedno źródło listy i licznika.
-
-    Zgłoszenia z B2B i zlecenia (D5) są od razu ``approved``, więc tu nie trafiają.
-    """
-
-    if scope is not None and not scope:
-        return None
-    statement = select(LeaveRequest).where(
-        LeaveRequest.status == "pending", LeaveRequest.user_id != actor_id
-    )
-    if scope is not None:
-        statement = statement.where(LeaveRequest.user_id.in_(scope))
-    return statement
-
-
-async def pending_count(db: AsyncSession, *, actor: User, today: date) -> int:
-    """Liczba z ``pending_queue`` jednym ``count()`` (licznik „Akceptacji”)."""
-
-    scope, _ = await _pending_scope(db, actor, today)
-    statement = _pending_statement(actor.id, scope)
-    if statement is None:
-        return 0
-    total = await db.scalar(select(func.count()).select_from(statement.subquery()))
-    return int(total or 0)
-
-
-async def pending_queue(
-    db: AsyncSession, *, actor: User, today: date
-) -> list[dict[str, Any]]:
-    scope, covered = await _pending_scope(db, actor, today)
-    statement = _pending_statement(actor.id, scope)
-    if statement is None:
-        return []
-    rows = list(
-        await db.scalars(statement.order_by(LeaveRequest.start_date).limit(300))
-    )
-    items = await serialize(db, rows, viewer=actor, today=today)
-    for item, row in zip(items, rows, strict=True):
-        _mark_cover(item, row, covered.get(row.user_id))
-    await _with_context(db, items, rows)
-    return items
-
-
-async def _with_context(
-    db: AsyncSession, items: list[dict[str, Any]], rows: list[LeaveRequest]
-) -> None:
-    """Dział, przełożony, praca w NEXUSIE i nieobecni z działu przy wierszu.
-
-    Zbiorczo (audyt wydajności 17.10.2026): kontekst wszystkich wierszy
-    kilkoma zapytaniami, nie pięcioma na wiersz — Kadry widzą całą firmę.
-    """
-
-    profiles = {
-        p.user_id: p
-        for p in await db.scalars(
-            select(EmployeeProfile).where(
-                EmployeeProfile.user_id.in_({r.user_id for r in rows} or {-1})
-            )
-        )
-    }
-    managers = await names_of(
-        db, {p.manager_user_id for p in profiles.values() if p.manager_user_id}
-    )
-    windows = [
-        RequestWindow(
-            user_id=row.user_id,
-            department=profiles[row.user_id].department
-            if row.user_id in profiles
-            else None,
-            start=row.start_date,
-            end=row.end_date,
-        )
-        for row in rows
-    ]
-    work = await work_summaries(db, windows)
-    absent = await department_absences_many(db, windows)
-    for index, (item, row) in enumerate(zip(items, rows, strict=True)):
-        profile = profiles.get(row.user_id)
-        item["department"] = profile.department if profile else None
-        item["manager_name"] = (
-            managers.get(profile.manager_user_id)
-            if profile and profile.manager_user_id
-            else None
-        )
-        item["work_total"] = work[index]["total"]
-        item["work_by_kind"] = work[index]["by_kind"]
-        item["department_absent"] = absent[index]
-
-
-async def reported_queue(
-    db: AsyncSession, *, actor: User, today: date
-) -> list[dict[str, Any]]:
-    """Zgłoszenia z B2B i zlecenia „do wiadomości” (D5): trwające i przyszłe.
-
-    Zakres jak w kolejce wniosków (zespół, zastępstwo za nieobecnego
-    przełożonego, Kadry i admin wszystkich) plus osoby bez przełożonego
-    w pionie, którego patrzący jest headem. Nie liczą się do „Akceptacji”.
-    """
-
-    scope, covered = await _pending_scope(db, actor, today)
-    if scope is not None:
-        scope = scope | await coordinated_ids(db, actor.id)
-        if not scope:
-            return []
-    statement = (
-        select(LeaveRequest)
-        .join(EmployeeProfile, EmployeeProfile.user_id == LeaveRequest.user_id)
-        .where(
-            LeaveRequest.status == "approved",
-            LeaveRequest.end_date >= today,
-            LeaveRequest.user_id != actor.id,
-            EmployeeProfile.employment_type.in_(sorted(REPORT_FORMS)),
-        )
-    )
-    if scope is not None:
-        statement = statement.where(LeaveRequest.user_id.in_(scope))
-    rows = list(
-        await db.scalars(statement.order_by(LeaveRequest.start_date).limit(300))
-    )
-    items = await serialize(db, rows, viewer=actor, today=today)
-    for item, row in zip(items, rows, strict=True):
-        _mark_cover(item, row, covered.get(row.user_id))
-        item["can_report_conflict"] = True
-    await _with_context(db, items, rows)
-    return items
-
-
-async def history(
-    db: AsyncSession,
-    *,
-    actor: User,
-    today: date,
-    status: Optional[str] = None,
-    user_id: Optional[int] = None,
-    date_from: Optional[date] = None,
-    date_to: Optional[date] = None,
-    limit: int = 200,
-) -> list[dict[str, Any]]:
-    scope = await scope_user_ids(db, actor)
-    statement = select(LeaveRequest)
-    if scope is not None:
-        if not scope:
-            return []
-        statement = statement.where(LeaveRequest.user_id.in_(scope))
-    if status:
-        statement = statement.where(LeaveRequest.status == status)
-    if user_id is not None:
-        statement = statement.where(LeaveRequest.user_id == user_id)
-    if date_from is not None:
-        statement = statement.where(LeaveRequest.end_date >= date_from)
-    if date_to is not None:
-        statement = statement.where(LeaveRequest.start_date <= date_to)
-    rows = list(
-        await db.scalars(
-            statement.order_by(
-                LeaveRequest.start_date.desc(), LeaveRequest.created_at.desc()
-            ).limit(limit)
-        )
-    )
-    return await serialize(db, rows, viewer=actor, today=today)
-
-
-async def on_behalf_people(db: AsyncSession, *, actor: User) -> list[dict[str, Any]]:
-    """Osoby, którym przełożony (zespół) albo Kadry (wszyscy) wpisują nieobecność."""
-
-    scope = await scope_user_ids(db, actor)
-    statement = (
-        select(User, EmployeeProfile)
-        .join(EmployeeProfile, EmployeeProfile.user_id == User.id)
-        .where(
-            User.is_active.is_(True),
-            User.id != actor.id,
-            EmployeeProfile.employment_status != "exited",
-        )
-        .order_by(User.name, User.id)
-    )
-    if scope is not None:
-        if not scope:
-            return []
-        statement = statement.where(User.id.in_(scope))
-    rows = (await db.execute(statement)).all()
-    return [
-        {
-            "user_id": user.id,
-            "name": user.name,
-            "employment_type": profile.employment_type,
-            "department": profile.department,
-        }
-        for user, profile in rows
-    ]
-
-
 async def subject_for_on_behalf(
     db: AsyncSession, *, actor: User, user_id: int
 ) -> tuple[User, EmployeeProfile]:
@@ -2117,6 +1078,44 @@ async def subject_for_on_behalf(
         actor_of(actor),
         subject_user_id=subject.id,
         subject_manager_id=profile.manager_user_id,
-    ):
+    ) and subject.id not in await division_charges(db, actor.id):
         raise LeaveForbidden("Nieobecność wpisujesz tylko osobom ze swojego zespołu.")
     return subject, profile
+
+
+__all__ = [
+    "CONFLICT_ACTION",
+    "LINK_APPROVALS",
+    "LINK_CALENDAR",
+    "LINK_SELF",
+    "LINK_SELF_LEAVE",
+    "LeaveConflict",
+    "LeaveForbidden",
+    "LeaveInput",
+    "LeaveNotFound",
+    "LeaveOutcome",
+    "actor_of",
+    "approve",
+    "cancel_as_approver",
+    "cancel_own",
+    "days_label",
+    "format_range",
+    "history",
+    "my_requests",
+    "names_of",
+    "on_behalf_people",
+    "payroll_locked_warning",
+    "pending_count",
+    "pending_queue",
+    "people_admin_ids",
+    "preview",
+    "recount_for_company_day_off",
+    "reject",
+    "report_conflict",
+    "reported_queue",
+    "scope_user_ids",
+    "serialize",
+    "set_forward_consent",
+    "subject_for_on_behalf",
+    "submit",
+]

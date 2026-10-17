@@ -177,6 +177,9 @@ async def test_paid_leave_entry_cannot_be_moved_or_deleted_by_hand(app_client) -
         await add_leave(db, worker.id, [date(Y, M, 9)])
         await db.commit()
     h = headers(worker)
+    # Auto-wpis jest wierszem od pierwszego zapisu miesiąca (odczyt nie zapisuje).
+    first = await app_client.post(f"{BASE}/entries", json=_entry(14, 8), headers=h)
+    assert first.status_code == 201, first.text
     month = (await app_client.get(BASE, headers=h)).json()
     auto = next(d for d in month["days"] if d["date"] == f"{Y}-07-09")["entries"][0]
     assert auto["source"] == "leave_paid"

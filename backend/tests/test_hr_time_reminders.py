@@ -100,4 +100,4 @@ async def test_switched_off_module_sends_nothing() -> None:
         await db.commit()
     async with AsyncSessionLocal() as db:
         result = await time_reminders.run_once(db, today=date(2034, 3, 2))
-    assert result == {"status": "module_off", "sent": 0}
+    assert result == {"status": "disabled"}

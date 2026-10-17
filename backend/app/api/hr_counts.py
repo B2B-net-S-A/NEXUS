@@ -35,6 +35,7 @@ from app.services.admin_cases import service as cases_service
 from app.services.admin_cases_schema import TERMINAL_STATUSES
 from app.services.hr import leave_service, time_access
 from app.services.hr import modules as hr_modules
+from app.services.hr.modules import HrModule
 
 router = APIRouter()
 
@@ -82,14 +83,16 @@ async def hr_counts(
         return hr_modules.module_open_for(current_user, loaded, key)
 
     approvals: Optional[int] = None
-    if is_open("leave"):
+    if is_open(HrModule.leave):
         # Sam `count()` na tym samym zapytaniu co lista (bez kontekstu wierszy).
         approvals = await leave_service.pending_count(
             db, actor=current_user, today=business_today()
         )
-    if is_open("time"):
+    if is_open(HrModule.time):
         approvals = (approvals or 0) + await _timesheets_waiting(db, current_user)
     return {
         "approvals": approvals,
-        "cases": await _open_cases(db, current_user) if is_open("cases") else None,
+        "cases": await _open_cases(db, current_user)
+        if is_open(HrModule.cases)
+        else None,
     }

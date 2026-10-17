@@ -21,9 +21,13 @@ from decimal import Decimal
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.services.hr.employment_terms import REPORT_FORMS, reports_absence
+from app.services.hr.leave_policy import POOL_TYPES
+
 #: Rodzaje z puli wypoczynkowej — tylko one dają kontraktorowi płatne godziny.
-POOL_LEAVE_TYPES: frozenset[str] = frozenset({"vacation", "on_demand"})
-CONTRACTOR_TYPES: frozenset[str] = frozenset({"b2b", "zlecenie"})
+#: Te same zbiory co w urlopach i słowach formy (nazwy zostają dla Płac).
+POOL_LEAVE_TYPES: frozenset[str] = POOL_TYPES
+CONTRACTOR_TYPES: frozenset[str] = REPORT_FORMS
 
 
 @dataclass(frozen=True)
@@ -52,7 +56,7 @@ class LeaveDay:
             self.status == "approved"
             and self.paid
             and self.leave_type in POOL_LEAVE_TYPES
-            and (employment_type or "") in CONTRACTOR_TYPES
+            and reports_absence(employment_type)
         )
 
 

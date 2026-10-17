@@ -18,10 +18,10 @@ from decimal import Decimal
 from typing import Any
 
 from app.core.export_safety import safe_row
+from app.services.hr.employment_terms import FORM_SHORT_LABELS as EMPLOYMENT_LABELS
 from app.services.hr.payroll_periods import label
 from app.services.hr.payroll_report import MonthReport
 
-EMPLOYMENT_LABELS: dict[str, str] = {"uop": "UoP", "b2b": "B2B", "zlecenie": "Zlecenie"}
 TIMESHEET_LABELS: dict[str, str] = {
     "draft": "szkic",
     "submitted": "czeka na akceptację",

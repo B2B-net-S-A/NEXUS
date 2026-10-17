@@ -21,9 +21,8 @@ from app.models.hr_time import AttendanceDay, Timesheet, TimesheetEntry
 from app.models.user import User
 from app.services.hr import audit
 from app.services.hr import time_leave_bridge as bridge
-from app.services.hr.employment_terms import reports_absence
 from app.services.hr.leave_policy import type_label
-from app.services.hr.time_leave_bridge import POOL_LEAVE_TYPES
+from app.services.hr.recipients import supervisor_of
 from app.services.hr.time_access import Actor
 from app.services.hr.time_calendar import (
     month_calendar,
@@ -34,39 +33,24 @@ from app.services.hr.time_entries import (
     STANDARD,
     DayLeave,
     TimeError,
-    ensure_timesheet,
     entries_of,
     entry_payload,
     find_timesheet,
     leave_map,
-    lock_timesheet,
-    sync_leave_paid,
+    planned_leave_paid,
 )
+from app.services.hr_foundation_schema import EMPLOYMENT_STATUSES
 from app.services.hr_time_schema import ATTENDANCE_STATUSES, LOCATIONS
 
-LEAVE_TYPE_LABELS: dict[str, str] = {
-    "vacation": "Urlop wypoczynkowy",
-    "on_demand": "Urlop na żądanie",
-    "occasional": "Urlop okolicznościowy",
-    "childcare": "Opieka nad dzieckiem",
-    "care_leave": "Urlop opiekuńczy",
-    "force_majeure": "Zwolnienie z powodu siły wyższej",
-    "sick_leave": "Zwolnienie lekarskie",
-    "maternity": "Urlop macierzyński",
-    "paternity": "Urlop ojcowski",
-    "parental_leave": "Urlop rodzicielski",
-    "childrearing": "Urlop wychowawczy",
-    "unpaid_leave": "Urlop bezpłatny",
-    "blood_donation": "Krwiodawstwo",
-    "training": "Szkolenie",
-    "holiday_in_lieu": "Odbiór dnia za święto",
-    "other": "Inna nieobecność",
-}
 NEUTRAL_ABSENCE = "Nieobecność"
 MAX_NOTE = 500
 
-#: Statusy kartoteki, które prowadzą timesheet (przed startem i po odejściu — nie).
-TIMESHEET_STATUSES = ("onboarding", "active", "offboarding")
+#: Statusy zatrudnienia (``employee_profiles.employment_status``), w których
+#: osoba prowadzi timesheet — przed startem (``pending``) i po odejściu nie.
+# TODO(koordynator): po dodaniu ``EmploymentStatus`` (F1a, hr_foundation_schema)
+# zamienić na krotkę członków enuma.
+TIMESHEET_EMPLOYMENT_STATUSES: tuple[str, ...] = ("onboarding", "active", "offboarding")
+assert set(TIMESHEET_EMPLOYMENT_STATUSES) < set(EMPLOYMENT_STATUSES)
 
 
 def _leave_payload(
@@ -74,11 +58,7 @@ def _leave_payload(
 ) -> dict[str, Any]:
     leave = day_leave.leave
     # Słowa formy (D4): na B2B dzień z puli to „Przerwa w świadczeniu usług”.
-    label = (
-        type_label(leave.leave_type, employment_type)
-        if reports_absence(employment_type) and leave.leave_type in POOL_LEAVE_TYPES
-        else LEAVE_TYPE_LABELS.get(leave.leave_type, NEUTRAL_ABSENCE)
-    )
+    label = type_label(leave.leave_type, employment_type)
     return {
         "status": leave.status,
         "fraction": float(leave.fraction),
@@ -121,8 +101,17 @@ async def month_view(
     year: int,
     month: int,
     show_leave_type: bool,
-    sync: bool,
 ) -> dict[str, Any]:
+    """Widok miesiąca — sam odczyt, bez zapisu.
+
+    Szkic (także „wirtualny”, gdy wiersza timesheetu jeszcze nie ma) pokazuje
+    auto-wpisy płatnej puli kontraktora tak, jak zapisze je pierwszy zapis
+    miesiąca (``time_entries.open_draft``): ta sama reguła
+    ``planned_leave_paid``. Wysłany, zaakceptowany albo zamknięty w płacach
+    timesheet pokazuje zapisane wpisy. Do 17.10.2026 sam odczyt zakładał
+    timesheet i auto-wpisy (kształt z Compassa).
+    """
+
     timesheet = await find_timesheet(db, subject_user.id, year, month)
     start, end = month_range(year, month)
     leaves = await leave_map(
@@ -132,21 +121,6 @@ async def month_view(
         start=start,
         end=end,
     )
-    if sync and timesheet is None and any(d.paid_work for d in leaves.values()):
-        # Płatny urlop kontraktora to wpis „Praca standardowa” — miesiąc z nim
-        # dostaje szkic od razu, żeby auto-wpis był prawdziwym wierszem.
-        timesheet = await ensure_timesheet(db, subject_user.id, year, month)
-    if (
-        sync
-        and timesheet is not None
-        and timesheet.status == "draft"
-        and not timesheet.payroll_locked
-    ):
-        # Pod blokadą wiersza: dwa równoległe odczyty nie wstawią auto-wpisu dwa razy.
-        timesheet = await lock_timesheet(db, timesheet.id)
-        await sync_leave_paid(
-            db, timesheet=timesheet, employment_type=subject.employment_type
-        )
     calendar = await month_calendar(db, year, month)
     exceptions = {
         row.day: row
@@ -162,6 +136,10 @@ async def month_view(
     by_day: dict[date, list] = defaultdict(list)
     for entry in entries:
         by_day[entry.work_date].append(entry)
+    draft = timesheet is None or (
+        timesheet.status == "draft" and not timesheet.payroll_locked
+    )
+    planned = planned_leave_paid(leaves, entries) if draft else None
 
     days: list[dict[str, Any]] = []
     totals = {
@@ -175,16 +153,28 @@ async def month_view(
     for item in calendar:
         day_leave = leaves.get(item.day)
         day_entries = by_day.get(item.day, [])
-        manual = sum(
-            (Decimal(e.hours) for e in day_entries if e.source != "leave_paid"),
-            Decimal("0"),
-        )
-        auto = sum(
-            (Decimal(e.hours) for e in day_entries if e.source == "leave_paid"),
-            Decimal("0"),
-        )
-        if timesheet is None and day_leave is not None and day_leave.paid_work:
-            auto = day_leave.paid_hours  # podgląd przed pierwszym zapisem
+        manual_entries = [e for e in day_entries if e.source != "leave_paid"]
+        manual = sum((Decimal(e.hours) for e in manual_entries), Decimal("0"))
+        if planned is None:
+            auto = sum(
+                (Decimal(e.hours) for e in day_entries if e.source == "leave_paid"),
+                Decimal("0"),
+            )
+        else:
+            # Szkic: auto-wpis, jaki zapisze pierwszy zapis (zapisany zostaje
+            # na liście, gdy się zgadza — jak w ``sync_leave_paid``).
+            auto = planned.get(item.day, Decimal("0"))
+            kept = next(
+                (
+                    e
+                    for e in day_entries
+                    if e.source == "leave_paid" and Decimal(e.hours) == auto
+                ),
+                None,
+            )
+            day_entries = [
+                e for e in day_entries if e.source != "leave_paid" or e is kept
+            ]
         occupied = day_leave.occupied_hours if day_leave else Decimal("0")
         excess = max(Decimal("0"), manual + auto + occupied - STANDARD)
         exception = exceptions.get(item.day)
@@ -199,13 +189,7 @@ async def month_view(
             totals["working_days"] += 1
             if day_leave is not None:
                 totals["leave_days"] += day_leave.leave.fraction
-            if (
-                not day_entries
-                and not full_leave
-                and not (
-                    timesheet is None and day_leave is not None and day_leave.paid_work
-                )
-            ):
+            if not day_entries and not auto and not full_leave:
                 totals["days_missing"] += 1
         totals["work_hours"] += manual
         totals["leave_paid_hours"] += auto
@@ -238,7 +222,9 @@ async def month_view(
             }
         )
     approver_name = await _name_of(db, timesheet.approved_by if timesheet else None)
-    manager_name = await _name_of(db, subject.manager_user_id)
+    # Kto akceptuje — ta sama reguła, która kieruje do niego timesheet
+    # (``recipients.supervisor_of``); ``None`` = Kadry (front pisze „Kadry”).
+    supervisor = await supervisor_of(db, subject)
     deadline = submission_deadline(year, month)
     return {
         "user_id": subject_user.id,
@@ -249,7 +235,9 @@ async def month_view(
         "employment_type": subject.employment_type,
         "default_location": subject.default_location,
         "can_log_overtime": subject.can_log_overtime,
-        "approver_name": manager_name,
+        "approver_name": None
+        if supervisor.kind == "people_admin"
+        else supervisor.label,
         "timesheet": timesheet_payload(timesheet, approver_name=approver_name),
         "days": days,
         "totals": {
@@ -348,7 +336,9 @@ async def team_queue(
         scope = scope.where(
             or_(
                 EmployeeProfile.manager_user_id == actor.user_id,
-                EmployeeProfile.user_id.in_(sorted(actor.covered_ids) or [-1]),
+                EmployeeProfile.user_id.in_(
+                    sorted(actor.covered_ids | actor.charges) or [-1]
+                ),
             )
         )
     scope = scope.where(EmployeeProfile.user_id != actor.user_id)
@@ -371,7 +361,7 @@ async def team_queue(
         if profile.user_id in timesheets
         or (
             profile.timesheet_required
-            and profile.employment_status in TIMESHEET_STATUSES
+            and profile.employment_status in TIMESHEET_EMPLOYMENT_STATUSES
             and user.is_active
             and _employed_in(profile, start, end)
         )

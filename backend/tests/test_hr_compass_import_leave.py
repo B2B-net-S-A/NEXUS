@@ -31,6 +31,7 @@ from app.models.notification import Notification
 from app.models.user import User, UserRole
 from app.services.hr import compass_import
 from app.services.hr.compass_import import leave as leave_import
+from app.services.hr.leave_policy import split_days
 
 # ── Pomocniki wspólne dla testów importu ─────────────────────────────────────
 
@@ -459,10 +460,8 @@ def test_contractor_paid_days_follow_compass_split_in_day_order() -> None:
     )
     # Pół dnia puli nie dzieli dnia: trzeci dzień idzie jako bezpłatny.
     assert [paid for _, _, paid in days] == [True, True, False, False, False]
-    paid, unpaid = leave_import.split_totals(
-        days, leave_type="vacation", employment_type="zlecenie"
-    )
-    assert (paid, unpaid) == (Decimal("2.0"), Decimal("3.0"))
+    split = split_days(((f, paid) for _, f, paid in days), leave_type="vacation")
+    assert (split.paid, split.unpaid) == (Decimal("2.0"), Decimal("3.0"))
     # Rodzaj spoza puli nigdy nie jest „płatny z puli”.
     other = leave_import.plan_request_days(
         WorkCalendar(),

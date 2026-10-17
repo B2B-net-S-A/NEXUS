@@ -246,8 +246,8 @@ def test_muted_people_category_says_the_mail_stops_too():
 # ── Kolejka maili (z bazą) ──────────────────────────────────────────────────
 
 
-def _policy_on() -> delivery.DeliveryPolicy:
-    cutoff = datetime.now(timezone.utc) - timedelta(seconds=5)
+def _policy_on(cutoff: datetime | None = None) -> delivery.DeliveryPolicy:
+    cutoff = cutoff or datetime.now(timezone.utc) - timedelta(seconds=5)
     return delivery.DeliveryPolicy.from_value(
         {
             "enabled": True,
@@ -308,10 +308,14 @@ def _row(user: User, ntype: str, title: str, message: str, link: str):
 
 @pytest.mark.asyncio
 async def test_outbox_mails_hr_events_without_absence_kind_or_amounts(monkeypatch):
-    sent = _wire(monkeypatch, _policy_on())
     async with AsyncSessionLocal() as db:
         boss = await _account(db)
         off = await _account(db, email_opt_outs={"hr_people": _AT})
+        # Kolejka bierze najstarsze wiersze paczkami po 50: powiadomienia HR,
+        # które inne testy zostawiły przed chwilą (Kadry dostają je od każdego
+        # wniosku), zabierały miejsce tym czterem. Wysyłka od teraz — liczą się
+        # tylko wiersze tego testu, w każdej kolejności biegu.
+        sent = _wire(monkeypatch, _policy_on(datetime.now(timezone.utc)))
         rows = [
             # Treść dla kręgu D6 z rodzajem — mail i tak go nie niesie.
             _row(
@@ -379,6 +383,49 @@ async def test_outbox_mails_hr_events_without_absence_kind_or_amounts(monkeypatc
                 await db.delete(row)
             await db.delete(boss)
             await db.delete(off)
+            await db.commit()
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason=(
+        "Błąd kolejki maili (raport F1b, 17.10.2026): wiersz, którego odbiorca "
+        "nie dostaje (wyciszona kategoria), zostaje w kolejce bez rezerwacji do "
+        "24 h, a `_due` bierze co przebieg te same najstarsze 50 — 50 takich "
+        "wierszy zatrzymuje maile wszystkich. Poprawka w "
+        "app/tasks/notification_email_outbox.py; po niej zdjąć xfail."
+    ),
+)
+@pytest.mark.asyncio
+async def test_rows_nobody_receives_do_not_block_the_mail_queue(monkeypatch):
+    async with AsyncSessionLocal() as db:
+        muted = await _account(db, muted_notification_categories={"people": _AT})
+        boss = await _account(db)
+        sent = _wire(monkeypatch, _policy_on(datetime.now(timezone.utc)))
+        rows = [
+            _row(muted, "hr_leave_decided", "Wniosek zaakceptowany", "Termin.", "/")
+            for _ in range(outbox.BATCH)
+        ]
+        rows.append(
+            _row(
+                boss,
+                "hr_leave_substitute",
+                "Zastępstwo",
+                "Zastępujesz: Jan Przykładowy.",
+                "/people/calendar",
+            )
+        )
+        db.add_all(rows)
+        await db.commit()
+        try:
+            await outbox.dispatch(db)
+            await outbox.dispatch(db)
+            assert [to for to, *_ in sent if to == boss.email] == [boss.email]
+        finally:
+            for row in rows:
+                await db.delete(row)
+            await db.delete(muted)
+            await db.delete(boss)
             await db.commit()
 
 

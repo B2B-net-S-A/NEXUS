@@ -43,7 +43,7 @@ from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
-from app.core.scheduling import DEFAULT_TZ, local_day_start_utc
+from app.core.scheduling import DEFAULT_TZ, business_date, local_day_start_utc
 from app.models.hr_leave import (
     HrM365MailboxState,
     HrM365Operation,
@@ -120,7 +120,7 @@ def utc_now() -> datetime:
 
 
 def warsaw_today(now: datetime) -> date:
-    return now.astimezone(_WARSAW).date()
+    return business_date(now)
 
 
 def warsaw_hour(now: datetime) -> int:

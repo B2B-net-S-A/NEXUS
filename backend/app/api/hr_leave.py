@@ -30,7 +30,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import require_onboarded_user
 from app.api.hr_gates import (
-    MODULE_DISABLED_DETAIL,
+    ensure_module,
     require_hr_people_reader,
     require_hr_self_service,
 )
@@ -40,28 +40,23 @@ from app.models.user import User, UserRole
 from app.services.hr import absence as absence_service
 from app.services.hr import leave_service as service
 from app.services.hr import leave_substitute
-from app.services.hr import modules as hr_modules
 from app.services.hr import people
 from app.services.hr.leave_balance import balance_payload
 from app.services.hr.leave_calendar import team_calendar
 from app.services.hr.leave_context import candidate_payload, substitute_candidates
 from app.services.hr.leave_policy import LeavePolicyError
+from app.services.hr.modules import HrModule
+from app.services.hr.recipients import division_charges
 from app.services.hr_leave_schema import LEAVE_STATUSES
 
 router = APIRouter()
 
-MODULE = "leave"
+MODULE = HrModule.leave
 APPROVER_DETAIL = "Akceptacje widzą przełożeni i Kadry."
 INTERNAL_DETAIL = "Nieobecności widzą pracownicy firmy."
 #: Konta, które nie są ludźmi zatrudnionymi w firmie (jak w „Dodaj osobę”).
 _NOT_STAFF = {UserRole.automation, UserRole.user}
 _MAX_BADGE_USERS = 300
-
-
-async def _module_open(db: AsyncSession, user: User) -> None:
-    loaded = await hr_modules.load_modules(db)
-    if not hr_modules.module_open_for(user, loaded, MODULE):
-        raise HTTPException(status.HTTP_404_NOT_FOUND, MODULE_DISABLED_DETAIL)
 
 
 def require_hr_leave_approver():
@@ -72,7 +67,7 @@ def require_hr_leave_approver():
         current_user: User = Depends(require_onboarded_user),
         db: AsyncSession = Depends(get_db),
     ) -> User:
-        await _module_open(db, current_user)
+        await ensure_module(db, current_user, MODULE)
         if service.actor_of(current_user).sees_everyone:
             return current_user
         if await people.direct_report_ids(db, current_user.id):
@@ -81,8 +76,8 @@ def require_hr_leave_approver():
             db, current_user.id, business_today()
         ):
             return current_user
-        # Head pionu koordynuje osoby bez przełożonego (zgłoszenia z B2B/zlecenia).
-        if await service.coordinated_ids(db, current_user.id):
+        # Head pionu prowadzi osoby swojego pionu bez żywego przełożonego.
+        if await division_charges(db, current_user.id):
             return current_user
         raise HTTPException(status.HTTP_403_FORBIDDEN, APPROVER_DETAIL)
 
@@ -96,7 +91,7 @@ def require_hr_absence_reader():
         current_user: User = Depends(require_onboarded_user),
         db: AsyncSession = Depends(get_db),
     ) -> User:
-        await _module_open(db, current_user)
+        await ensure_module(db, current_user, MODULE)
         if current_user.has_role(UserRole.admin):
             return current_user
         if not set(current_user.get_all_roles()) - _NOT_STAFF:

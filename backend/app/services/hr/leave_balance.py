@@ -33,9 +33,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.hr_leave import LeaveRequest, LeaveRequestDay
 from app.models.hr_profile import LeaveEntitlement
+from app.services.hr.employment_terms import reports_absence
 from app.services.hr.leave_policy import (
     CHILDCARE_YEARLY_LIMIT,
-    CONTRACTOR_TYPES,
     ON_DEMAND_YEARLY_LIMIT,
     POOL_TYPES,
     PoolYear,
@@ -104,7 +104,7 @@ async def year_usage(
         if paid:
             key = "approved_paid" if status == "approved" else "pending_paid"
             bucket[key] += amount
-        elif leave_type in ("vacation", "on_demand"):
+        elif leave_type in POOL_TYPES:
             bucket["unpaid"] += amount
         if leave_type == "on_demand":
             bucket["on_demand"] += amount
@@ -282,7 +282,7 @@ async def balances_for(
             if paid:
                 key = "approved_paid" if status == "approved" else "pending_paid"
                 usage[key] += amount
-            elif leave_type in ("vacation", "on_demand"):
+            elif leave_type in POOL_TYPES:
                 usage["unpaid"] += amount
             if leave_type == "on_demand":
                 usage["on_demand"] += amount
@@ -330,7 +330,7 @@ def _compose(
         - usage.approved_paid
         - usage.pending_paid
     )
-    uop = employment_type not in CONTRACTOR_TYPES
+    uop = not reports_absence(employment_type)
     return {
         "year": year,
         "employment_type": employment_type,

@@ -78,7 +78,9 @@ async def on_leave_approved(
     for (year, month), month_days in sorted(_by_month(days).items()):
         found = await find_timesheet(db, user_id, year, month)
         if found is None:
-            continue  # auto-wpisy powstaną przy pierwszym otwarciu miesiąca
+            # Bez timesheetu nie ma czego uzgadniać: auto-wpisy zapisze pierwszy
+            # zapis miesiąca (``open_draft``), a odczyt pokazuje je bez zapisu.
+            continue
         timesheet = await lock_timesheet(db, found.id)
         if timesheet.payroll_locked or _retained(timesheet, employment_type):
             result["locked_conflicts"].append(f"{year}-{month:02d}")

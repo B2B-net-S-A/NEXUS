@@ -26,24 +26,10 @@ from datetime import date
 from typing import Optional
 
 from app.core.scheduling import business_today
+from app.services.hr.payroll_periods import label
 
 RETENTION_YEARS = 3
 MANDATE_FORM = "zlecenie"
-
-_MONTH_NAMES = (
-    "styczeń",
-    "luty",
-    "marzec",
-    "kwiecień",
-    "maj",
-    "czerwiec",
-    "lipiec",
-    "sierpień",
-    "wrzesień",
-    "październik",
-    "listopad",
-    "grudzień",
-)
 
 
 def payment_due(year: int, month: int) -> date:
@@ -78,10 +64,6 @@ def frozen(
     return payment_due(year, month) < day <= retention_until(year, month)
 
 
-def _label(year: int, month: int) -> str:
-    return f"{_MONTH_NAMES[month - 1]} {year}"
-
-
 def revoke_refusal(
     *,
     employment_type: Optional[str],
@@ -101,7 +83,7 @@ def revoke_refusal(
     ):
         return None
     return (
-        f"Potwierdzenie godzin za {_label(year, month)} jest już podstawą wypłaty "
+        f"Potwierdzenie godzin za {label(year, month)} jest już podstawą wypłaty "
         f"(termin {payment_due(year, month):%d.%m.%Y}) — NEXUS przechowuje je "
         f"bez zmian do {retention_until(year, month):%d.%m.%Y} (art. 8c ustawy "
         "o minimalnym wynagrodzeniu). Korektę zrobią Płace."
@@ -127,7 +109,7 @@ def delete_refusal(
     ):
         return None
     return (
-        f"Wpisy potwierdzenia godzin za {_label(year, month)} zostają bez zmian "
+        f"Wpisy potwierdzenia godzin za {label(year, month)} zostają bez zmian "
         f"do {retention_until(year, month):%d.%m.%Y} (art. 8c ustawy o minimalnym "
         "wynagrodzeniu)."
     )

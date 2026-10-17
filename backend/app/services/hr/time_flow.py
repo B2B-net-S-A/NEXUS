@@ -12,7 +12,6 @@ Nikt nie akceptuje własnego timesheetu (pilnuje też CHECK w bazie).
 
 from __future__ import annotations
 
-import logging
 from typing import Optional
 
 from sqlalchemy import func, select, update
@@ -25,6 +24,7 @@ from app.models.user import User
 from app.services.action_permissions import ProductAction
 from app.services.hr import audit, payroll_periods, people, time_retention
 from app.services.hr.employment_terms import terms
+from app.services.hr.notify import notify_each
 from app.services.hr.time_access import (
     Actor,
     approval_recipients,
@@ -42,27 +42,11 @@ from app.services.hr.time_entries import (
     sync_leave_paid,
 )
 
-logger = logging.getLogger(__name__)
-
-MONTH_NAMES = (
-    "styczeń",
-    "luty",
-    "marzec",
-    "kwiecień",
-    "maj",
-    "czerwiec",
-    "lipiec",
-    "sierpień",
-    "wrzesień",
-    "październik",
-    "listopad",
-    "grudzień",
-)
 MAX_RETURN_NOTE = 2000
 
 
-def month_label(year: int, month: int) -> str:
-    return f"{MONTH_NAMES[month - 1]} {year}"
+#: „październik 2026” — nazwy miesięcy z Płac (jedno źródło w module).
+month_label = payroll_periods.label
 
 
 def my_month_link(year: int, month: int) -> str:
@@ -87,28 +71,18 @@ async def _notify(
     ntype: NotificationType,
     link: str,
 ) -> int:
-    from app.services.notification_triggers import emit
-
-    sent = 0
-    for user_id in dict.fromkeys(user_ids):
-        try:
-            async with db.begin_nested():
-                created = await emit(
-                    db,
-                    user_id=user_id,
-                    title=title,
-                    message=message,
-                    ntype=ntype,
-                    related_entity_type="timesheet",
-                    # Bez id encji: dedup dobowy połknąłby drugą decyzję tego dnia
-                    # (zwrot rano, akceptacja po poprawce).
-                    related_entity_id=None,
-                    link=link,
-                )
-            sent += int(created is not None)
-        except Exception:  # noqa: BLE001 — jeden odbiorca nie blokuje reszty
-            logger.exception("[hr_time] powiadomienie nie wyszło user=%s", user_id)
-    return sent
+    # Bez id encji: dedup dobowy połknąłby drugą decyzję tego dnia
+    # (zwrot rano, akceptacja po poprawce).
+    return await notify_each(
+        db,
+        user_ids,
+        title=title,
+        message=message,
+        ntype=ntype,
+        link=link,
+        related_entity_type="timesheet",
+        log_tag="hr_time",
+    )
 
 
 async def _cover_details(db: AsyncSession, actor: Actor, user_id: int) -> dict:
