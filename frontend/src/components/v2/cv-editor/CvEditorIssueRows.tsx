@@ -743,6 +743,7 @@ function ItemRow({ row, ctx }: { row: Extract<IssueRow, { kind: "item" }>; ctx: 
     ) : null;
   } else if (item.fix === "remove_term" && name) {
     title = `„${name}”`;
+    // api-detail-ok: `QcItem.detail` to zdanie uwagi QC (tekst z kontraktu), nie `detail` błędu API.
     sub = item.detail ?? check.label;
     action = (
       <Button
