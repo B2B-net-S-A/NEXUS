@@ -11,9 +11,13 @@ autora zmiany. Wszystko w ikonie „Kalendarz” (kategoria „Rozmowy”). Dyme
 (front, ``QUIET_INTERVIEW_TYPES``) tylko tam, gdzie ktoś ma ruch: kandydat
 odmówił albo proponuje inny termin, ktoś zmienił prep w Twoim kalendarzu.
 
-Encja powiadomienia: (``prep_<rodzaj>``, id wydarzenia). Dzienny dedup ``emit``
-(ten sam adresat, typ i encja w jednym dniu) zjada drugą taką samą zmianę
-tego samego prepu w ciągu dnia — to świadome: stan i tak widać w panelu osoby.
+Encja powiadomienia: (``prep_<rodzaj>``, id wydarzenia). Dzienny dedup
+``emit`` (``ix_notif_dedup_daily``: adresat, typ, ID encji, dzień — BEZ rodzaju
+encji) zjadałby „przełożony” tego samego dnia co „zaplanowany”, bo oba to
+``prep_changed`` tego samego wydarzenia. Dlatego zmiany prepu (``prep_changed``,
+``prep_changed_yours``) idą bez ID encji — każda zmiana i tak wysyła je raz
+(akcja w NEXUSIE albo wykryta różnica w Outlooku), a para jest w linku.
+Odpowiedzi kandydata zostają przy dedupie: ten sam stan nie dzwoni dwa razy.
 """
 
 from __future__ import annotations
@@ -93,6 +97,13 @@ async def _emit(
 ) -> int:
     from app.services.notification_triggers import emit  # noqa: PLC0415 — cykl
 
+    # Zmiany prepu bez ID encji — patrz docstring modułu (dedup dzienny).
+    entity_id = (
+        None
+        if ntype in (NotificationType.prep_changed, NotificationType.prep_changed_yours)
+        else event_id
+    )
+
     sent = 0
     for uid in sorted(set(user_ids)):
         created = await emit(
@@ -102,7 +113,7 @@ async def _emit(
             message=message,
             ntype=ntype,
             related_entity_type=entity_type,
-            related_entity_id=event_id,
+            related_entity_id=entity_id,
             link=_link(prep),
         )
         sent += int(created is not None)

@@ -198,7 +198,8 @@ class NotificationType(str, enum.Enum):
     # dymek), zmiana prepu przez kogoś z pary (`prep_changed_yours` do
     # prowadzącego, w którego kalendarzu stoi spotkanie — dymek; reszta pary
     # `prep_changed` — licznik) i brak odpowiedzi na dobę przed prepem.
-    # related_entity=(<rodzaj zdarzenia>, calendar_event.id).
+    # related_entity=(<rodzaj zdarzenia>, calendar_event.id); zmiany prepu
+    # (`prep_changed*`) bez id — dzienny dedup zjadałby drugą zmianę w dniu.
     prep_candidate_response = "prep_candidate_response"
     prep_candidate_declined = "prep_candidate_declined"
     prep_changed = "prep_changed"

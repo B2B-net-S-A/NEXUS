@@ -314,6 +314,30 @@ async def test_dl_move_rings_in_the_recruiter_calendar_and_resets_the_answer(
     assert len(yours) == 1 and yours[0].title.startswith("Twój Prep 2 przełożony")
 
 
+async def test_planned_then_moved_the_same_day_both_reach_the_dl(
+    app_client: AsyncClient, rgraph: ResponseGraph
+):
+    """``ix_notif_dedup_daily`` nie zna rodzaju encji: oba wpisy to
+    ``prep_changed`` tego samego wydarzenia w tym samym dniu — drugi był
+    odrzucany, zanim zmiany prepu poszły bez ID encji."""
+    ctx = await _prep2_by_recruiter(app_client)
+    dl_id, _ = ctx["dl"]
+    _rec_id, rec_h = ctx["rec"]
+    resp = await app_client.patch(
+        f"/api/interview-cycle/preps/{ctx['event_id']}",
+        headers=rec_h,
+        json={"start": _at(70), "end": _at(70.75)},
+    )
+    assert resp.status_code == 200, resp.text
+    titles = [
+        n.title
+        for n in await _notes(dl_id)
+        if n.notification_type == NotificationType.prep_changed
+    ]
+    assert any(t.startswith("Prep 2 zaplanowany") for t in titles)
+    assert any(t.startswith("Prep 2 przełożony na") for t in titles)
+
+
 async def test_prep_attention_also_reaches_the_dl(
     app_client: AsyncClient, rgraph: ResponseGraph, monkeypatch
 ):

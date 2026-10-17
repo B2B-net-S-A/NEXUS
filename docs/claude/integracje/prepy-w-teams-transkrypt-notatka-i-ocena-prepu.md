@@ -101,8 +101,10 @@ zwykłym telefonem z ręcznym debriefem). Konfiguracja M365: `docs/teams-prep-se
   < 2 h temu). Dymek steruje front: `QUIET_INTERVIEW_TYPES`
   w `lib/interview-notifications.ts`. `prep_attention` idzie też do DL-a
   rekrutacji (D7). Plakietka Tablicy `prep_refused` („Prep N: kandydat
-  proponuje …” / „odrzucił”) stoi przed „Prep 2 …”. Dedup `emit` jest dzienny
-  — druga taka sama zmiana tego samego prepu w ciągu dnia nie dzwoni.
+  proponuje …” / „odrzucił”) stoi przed „Prep 2 …”. **`ix_notif_dedup_daily`
+  nie zna rodzaju encji** (adresat, typ, ID, dzień): „przełożony” tego samego
+  dnia co „zaplanowany” był odrzucany, więc `prep_changed*` idą bez
+  `related_entity_id`; odpowiedzi kandydata zostają przy dedupie.
 - **Pętla `teams_prep_transcripts`** (`TEAMS_PREP_TRANSCRIPTS_ENABLED`, OFF
   kończy ją przed pętlą; heartbeat). Stan kolejki w bazie, odświeża termin
   z Outlooka przed pobraniem, backoff, po `TEAMS_PREP_FETCH_GIVE_UP_HOURS` →
