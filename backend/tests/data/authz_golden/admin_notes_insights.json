@@ -19,11 +19,16 @@
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
   "recruiter+amounts_edit",
-  "automation"
+  "automation",
+  "employee",
+  "recruiter+people_admin",
+  "recruiter+payroll",
+  "recruiter+equipment",
+  "recruiter+cases"
  ],
  "routes": {
-  "POST /api/admin/notes-insights/client-rates": "PDDDDDDDDDDDDDDDDDDD",
-  "POST /api/admin/notes-insights/profile-fill": "PDDDDDDDDDDDDDDDDDDD",
-  "POST /api/admin/notes-insights/sync": "PDDDDDDDDDDDDDDDDDDD"
+  "POST /api/admin/notes-insights/client-rates": "PDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/admin/notes-insights/profile-fill": "PDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/admin/notes-insights/sync": "PDDDDDDDDDDDDDDDDDDDDDDDD"
  }
 }

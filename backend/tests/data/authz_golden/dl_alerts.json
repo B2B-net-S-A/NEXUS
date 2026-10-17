@@ -19,12 +19,17 @@
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
   "recruiter+amounts_edit",
-  "automation"
+  "automation",
+  "employee",
+  "recruiter+people_admin",
+  "recruiter+payroll",
+  "recruiter+equipment",
+  "recruiter+cases"
  ],
  "routes": {
-  "GET /api/dl-alerts": "PPDPDDDDPPPDDDDDDDDD",
-  "GET /api/dl-alerts/cards": "PPDPDDDDPPPDDDDDDDDD",
-  "GET /api/dl-alerts/export": "PPDPDDDDPPPDDDDDDDDD",
-  "POST /api/dl-alerts/{alert_id}/handled": "PPDPDDDDPPPDDDDDDDDD"
+  "GET /api/dl-alerts": "PPDPDDDDPPPDDDDDDDDDDDDDD",
+  "GET /api/dl-alerts/cards": "PPDPDDDDPPPDDDDDDDDDDDDDD",
+  "GET /api/dl-alerts/export": "PPDPDDDDPPPDDDDDDDDDDDDDD",
+  "POST /api/dl-alerts/{alert_id}/handled": "PPDPDDDDPPPDDDDDDDDDDDDDD"
  }
 }

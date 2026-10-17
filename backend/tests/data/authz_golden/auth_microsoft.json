@@ -19,11 +19,16 @@
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
   "recruiter+amounts_edit",
-  "automation"
+  "automation",
+  "employee",
+  "recruiter+people_admin",
+  "recruiter+payroll",
+  "recruiter+equipment",
+  "recruiter+cases"
  ],
  "routes": {
-  "GET /api/auth/microsoft/authorize": "PPPPPPPPPPPPPPPPPPPP",
-  "GET /api/auth/microsoft/callback": "PPPPPPPPPPPPPPPPPPPP",
-  "POST /api/auth/microsoft/exchange": "PPPPPPPPPPPPPPPPPPPP"
+  "GET /api/auth/microsoft/authorize": "PPPPPPPPPPPPPPPPPPPPPPPPP",
+  "GET /api/auth/microsoft/callback": "PPPPPPPPPPPPPPPPPPPPPPPPP",
+  "POST /api/auth/microsoft/exchange": "PPPPPPPPPPPPPPPPPPPPPPPPP"
  }
 }

@@ -19,11 +19,16 @@
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
   "recruiter+amounts_edit",
-  "automation"
+  "automation",
+  "employee",
+  "recruiter+people_admin",
+  "recruiter+payroll",
+  "recruiter+equipment",
+  "recruiter+cases"
  ],
  "routes": {
-  "GET /api/clients/directory/inactive-cleanup": "PDDDDDDDDDDDDDDDDDDD",
-  "GET /api/clients/directory/inactive-cleanup/preview": "PDDDDDDDDDDDDDDDDDDD",
-  "POST /api/clients/directory/inactive-cleanup/execute": "PDDDDDDDDDDDDDDDDDDD"
+  "GET /api/clients/directory/inactive-cleanup": "PDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/clients/directory/inactive-cleanup/preview": "PDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/clients/directory/inactive-cleanup/execute": "PDDDDDDDDDDDDDDDDDDDDDDDD"
  }
 }

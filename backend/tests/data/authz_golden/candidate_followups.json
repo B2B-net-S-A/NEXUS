@@ -19,13 +19,18 @@
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
   "recruiter+amounts_edit",
-  "automation"
+  "automation",
+  "employee",
+  "recruiter+people_admin",
+  "recruiter+payroll",
+  "recruiter+equipment",
+  "recruiter+cases"
  ],
  "routes": {
-  "GET /api/candidate-followups/candidates/{candidate_id}": "PPPPPPDDPPPPPPPPPPPP",
-  "GET /api/candidate-followups/candidates/{candidate_id}/teams-meetings/{meeting_id}/transcript": "PPPPPPDDPPPPPPPPPPPP",
-  "POST /api/candidate-followups/candidates/{candidate_id}/claim": "PPPPPPDDPPPPPPPPPPPD",
-  "POST /api/candidate-followups/candidates/{candidate_id}/outcome": "PPPPPPDDPPPPPPPPPPPD",
-  "POST /api/candidate-followups/candidates/{candidate_id}/teams-meetings": "PPPPPPDDPPPPPPPPPPPD"
+  "GET /api/candidate-followups/candidates/{candidate_id}": "PPPPPPDDPPPPPPPPPPPPDPPPP",
+  "GET /api/candidate-followups/candidates/{candidate_id}/teams-meetings/{meeting_id}/transcript": "PPPPPPDDPPPPPPPPPPPPDPPPP",
+  "POST /api/candidate-followups/candidates/{candidate_id}/claim": "PPPPPPDDPPPPPPPPPPPDDPPPP",
+  "POST /api/candidate-followups/candidates/{candidate_id}/outcome": "PPPPPPDDPPPPPPPPPPPDDPPPP",
+  "POST /api/candidate-followups/candidates/{candidate_id}/teams-meetings": "PPPPPPDDPPPPPPPPPPPDDPPPP"
  }
 }

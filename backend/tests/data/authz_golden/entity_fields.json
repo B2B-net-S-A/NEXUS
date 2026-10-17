@@ -19,12 +19,17 @@
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
   "recruiter+amounts_edit",
-  "automation"
+  "automation",
+  "employee",
+  "recruiter+people_admin",
+  "recruiter+payroll",
+  "recruiter+equipment",
+  "recruiter+cases"
  ],
  "routes": {
-  "GET /api/entity-schema/{entity_type}": "PPPPPPPDPPPPPPPPPPPP",
-  "GET /api/settings/entity-fields/types": "PDDDDDDDDDDDDDDDDDDD",
-  "PATCH /api/settings/entity-fields/{field_id}": "PDDDDDDDDDDDDDDDDDDD",
-  "POST /api/settings/entity-fields": "PDDDDDDDDDDDDDDDDDDD"
+  "GET /api/entity-schema/{entity_type}": "PPPPPPPDPPPPPPPPPPPPPPPPP",
+  "GET /api/settings/entity-fields/types": "PDDDDDDDDDDDDDDDDDDDDDDDD",
+  "PATCH /api/settings/entity-fields/{field_id}": "PDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/settings/entity-fields": "PDDDDDDDDDDDDDDDDDDDDDDDD"
  }
 }

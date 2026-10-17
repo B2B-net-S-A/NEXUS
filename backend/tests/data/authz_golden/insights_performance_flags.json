@@ -19,12 +19,17 @@
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
   "recruiter+amounts_edit",
-  "automation"
+  "automation",
+  "employee",
+  "recruiter+people_admin",
+  "recruiter+payroll",
+  "recruiter+equipment",
+  "recruiter+cases"
  ],
  "routes": {
-  "GET /api/insights/performance-flags": "PPPPPPPDPPPPPPPPPPPP",
-  "GET /api/insights/performance-flags/history/{user_id}": "PDDDDDDDDDDDDDDDDDDD",
-  "PATCH /api/insights/performance-flags/{flag_id}": "PDDDDDDDDDDDDDDDDDDD",
-  "POST /api/insights/performance-flags": "PDDDDDDDDDDDDDDDDDDD"
+  "GET /api/insights/performance-flags": "PPPPPPPDPPPPPPPPPPPPDPPPP",
+  "GET /api/insights/performance-flags/history/{user_id}": "PDDDDDDDDDDDDDDDDDDDDDDDD",
+  "PATCH /api/insights/performance-flags/{flag_id}": "PDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/insights/performance-flags": "PDDDDDDDDDDDDDDDDDDDDDDDD"
  }
 }

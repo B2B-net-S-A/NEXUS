@@ -19,11 +19,16 @@
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
   "recruiter+amounts_edit",
-  "automation"
+  "automation",
+  "employee",
+  "recruiter+people_admin",
+  "recruiter+payroll",
+  "recruiter+equipment",
+  "recruiter+cases"
  ],
  "routes": {
-  "GET /api/public/equipment-protocols/{token}": "PPPPPPPPPPPPPPPPPPPP",
-  "GET /api/public/equipment-protocols/{token}/document.pdf": "PPPPPPPPPPPPPPPPPPPP",
-  "POST /api/public/equipment-protocols/{token}/sign": "PPPPPPPPPPPPPPPPPPPP"
+  "GET /api/public/equipment-protocols/{token}": "PPPPPPPPPPPPPPPPPPPPPPPPP",
+  "GET /api/public/equipment-protocols/{token}/document.pdf": "PPPPPPPPPPPPPPPPPPPPPPPPP",
+  "POST /api/public/equipment-protocols/{token}/sign": "PPPPPPPPPPPPPPPPPPPPPPPPP"
  }
 }

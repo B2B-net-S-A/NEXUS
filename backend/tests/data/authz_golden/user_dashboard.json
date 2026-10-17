@@ -19,11 +19,16 @@
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
   "recruiter+amounts_edit",
-  "automation"
+  "automation",
+  "employee",
+  "recruiter+people_admin",
+  "recruiter+payroll",
+  "recruiter+equipment",
+  "recruiter+cases"
  ],
  "routes": {
-  "GET /api/users/me/dashboard": "PPPPPPPDPPPPPPPPPPPP",
-  "PUT /api/users/me/dashboard": "PPPPPPPDPPPPPPPPPPPP",
-  "PUT /api/users/me/dashboard/panels/{panel}": "PPPPPPPDPPPPPPPPPPPP"
+  "GET /api/users/me/dashboard": "PPPPPPPDPPPPPPPPPPPPPPPPP",
+  "PUT /api/users/me/dashboard": "PPPPPPPDPPPPPPPPPPPPPPPPP",
+  "PUT /api/users/me/dashboard/panels/{panel}": "PPPPPPPDPPPPPPPPPPPPPPPPP"
  }
 }

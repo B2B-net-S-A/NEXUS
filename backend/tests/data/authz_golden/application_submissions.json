@@ -19,10 +19,15 @@
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
   "recruiter+amounts_edit",
-  "automation"
+  "automation",
+  "employee",
+  "recruiter+people_admin",
+  "recruiter+payroll",
+  "recruiter+equipment",
+  "recruiter+cases"
  ],
  "routes": {
-  "GET /api/application-submissions": "PPPPPPDDPPPPPPPPPPPD",
-  "POST /api/application-submissions/{submission_id}/resolve": "PPPPPPDDPPPPPPPPPPPD"
+  "GET /api/application-submissions": "PPPPPPDDPPPPPPPPPPPDDPPPP",
+  "POST /api/application-submissions/{submission_id}/resolve": "PPPPPPDDPPPPPPPPPPPDDPPPP"
  }
 }

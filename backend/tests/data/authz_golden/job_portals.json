@@ -19,15 +19,20 @@
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
   "recruiter+amounts_edit",
-  "automation"
+  "automation",
+  "employee",
+  "recruiter+people_admin",
+  "recruiter+payroll",
+  "recruiter+equipment",
+  "recruiter+cases"
  ],
  "routes": {
-  "GET /api/job-boards/{board}/dictionaries": "PPPPPPDDPPPPPPPPPPPP",
-  "GET /api/job-portals/config": "PPPPPPDDPPPPPPPPPPPP",
-  "GET /api/jobs/{job_id}/portal-listing-defaults": "PPPPPPDDPPPPPPPPPPPP",
-  "GET /api/jobs/{job_id}/portals": "PPPPPPDDPPPPPPPPPPPP",
-  "PATCH /api/jobs/{job_id}/portals/{portal}/options": "PPPPPPDDPPPPPPPPPPPD",
-  "POST /api/jobs/{job_id}/portals/{portal}/publish": "PPPPPPDDPPPPPPPPPPPD",
-  "POST /api/jobs/{job_id}/portals/{portal}/unpublish": "PPPPPPDDPPPPPPPPPPPD"
+  "GET /api/job-boards/{board}/dictionaries": "PPPPPPDDPPPPPPPPPPPPDPPPP",
+  "GET /api/job-portals/config": "PPPPPPDDPPPPPPPPPPPPDPPPP",
+  "GET /api/jobs/{job_id}/portal-listing-defaults": "PPPPPPDDPPPPPPPPPPPPDPPPP",
+  "GET /api/jobs/{job_id}/portals": "PPPPPPDDPPPPPPPPPPPPDPPPP",
+  "PATCH /api/jobs/{job_id}/portals/{portal}/options": "PPPPPPDDPPPPPPPPPPPDDPPPP",
+  "POST /api/jobs/{job_id}/portals/{portal}/publish": "PPPPPPDDPPPPPPPPPPPDDPPPP",
+  "POST /api/jobs/{job_id}/portals/{portal}/unpublish": "PPPPPPDDPPPPPPPPPPPDDPPPP"
  }
 }

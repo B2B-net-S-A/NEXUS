@@ -19,15 +19,20 @@
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
   "recruiter+amounts_edit",
-  "automation"
+  "automation",
+  "employee",
+  "recruiter+people_admin",
+  "recruiter+payroll",
+  "recruiter+equipment",
+  "recruiter+cases"
  ],
  "routes": {
-  "GET /api/insights/recruitment/available-periods": "PPPPPPPDPPPPPPPPPPPP",
-  "GET /api/insights/recruitment/competence-matrix": "PPPPPPPDPPPPPPPPPPPP",
-  "GET /api/insights/recruitment/funnel": "PPPPPPPDPPPPPPPPPPPP",
-  "GET /api/insights/recruitment/invite-links": "PPPPPPPDPPPPPPPPPPPP",
-  "GET /api/insights/recruitment/seniority": "PPPPPPPDPPPPPPPPPPPP",
-  "GET /api/insights/recruitment/team-activity": "PPPPPPPDPPPPPPPPPPPP",
-  "GET /api/insights/recruitment/time-to-hire": "PPPPPPPDPPPPPPPPPPPP"
+  "GET /api/insights/recruitment/available-periods": "PPPPPPPDPPPPPPPPPPPPDPPPP",
+  "GET /api/insights/recruitment/competence-matrix": "PPPPPPPDPPPPPPPPPPPPDPPPP",
+  "GET /api/insights/recruitment/funnel": "PPPPPPPDPPPPPPPPPPPPDPPPP",
+  "GET /api/insights/recruitment/invite-links": "PPPPPPPDPPPPPPPPPPPPDPPPP",
+  "GET /api/insights/recruitment/seniority": "PPPPPPPDPPPPPPPPPPPPDPPPP",
+  "GET /api/insights/recruitment/team-activity": "PPPPPPPDPPPPPPPPPPPPDPPPP",
+  "GET /api/insights/recruitment/time-to-hire": "PPPPPPPDPPPPPPPPPPPPDPPPP"
  }
 }

@@ -19,14 +19,19 @@
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
   "recruiter+amounts_edit",
-  "automation"
+  "automation",
+  "employee",
+  "recruiter+people_admin",
+  "recruiter+payroll",
+  "recruiter+equipment",
+  "recruiter+cases"
  ],
  "routes": {
-  "DELETE /api/rate-cards/{card_id}": "PPDDDDDDDDDDDDDDDPDD",
-  "GET /api/rate-cards": "PPDDDDDDDDDDDDDDDPDD",
-  "GET /api/rate-cards/suggest": "PPDDDDDDDDDDDDDDDPDD",
-  "GET /api/rate-cards/{card_id}": "PPDDDDDDDDDDDDDDDPDD",
-  "PATCH /api/rate-cards/{card_id}": "PPDDDDDDDDDDDDDDDPDD",
-  "POST /api/rate-cards": "PPDDDDDDDDDDDDDDDPDD"
+  "DELETE /api/rate-cards/{card_id}": "PPDDDDDDDDDDDDDDDPDDDDDDD",
+  "GET /api/rate-cards": "PPDDDDDDDDDDDDDDDPDDDDDDD",
+  "GET /api/rate-cards/suggest": "PPDDDDDDDDDDDDDDDPDDDDDDD",
+  "GET /api/rate-cards/{card_id}": "PPDDDDDDDDDDDDDDDPDDDDDDD",
+  "PATCH /api/rate-cards/{card_id}": "PPDDDDDDDDDDDDDDDPDDDDDDD",
+  "POST /api/rate-cards": "PPDDDDDDDDDDDDDDDPDDDDDDD"
  }
 }

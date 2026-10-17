@@ -19,10 +19,15 @@
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
   "recruiter+amounts_edit",
-  "automation"
+  "automation",
+  "employee",
+  "recruiter+people_admin",
+  "recruiter+payroll",
+  "recruiter+equipment",
+  "recruiter+cases"
  ],
  "routes": {
-  "GET /api/competence-categories": "PPPPPPPDPPPPPPPPPPPP",
-  "GET /api/competence-categories/{cc_id}/recruiters": "PPPPPPDDPPPPPPPPPPPP"
+  "GET /api/competence-categories": "PPPPPPPDPPPPPPPPPPPPPPPPP",
+  "GET /api/competence-categories/{cc_id}/recruiters": "PPPPPPDDPPPPPPPPPPPPDPPPP"
  }
 }

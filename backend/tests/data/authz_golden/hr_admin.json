@@ -19,18 +19,23 @@
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
   "recruiter+amounts_edit",
-  "automation"
+  "automation",
+  "employee",
+  "recruiter+people_admin",
+  "recruiter+payroll",
+  "recruiter+equipment",
+  "recruiter+cases"
  ],
  "routes": {
-  "DELETE /api/hr/admin/days-off/{day_off_id}": "PDDDDDDDDDDDDDDDDDDD",
-  "GET /api/hr/admin/availability-source": "PDDDDDDDDDDDDDDDDDDD",
-  "GET /api/hr/admin/days-off": "PDDDDDDDDDDDDDDDDDDD",
-  "GET /api/hr/admin/users-without-profile": "PDDDDDDDDDDDDDDDDDDD",
-  "PATCH /api/hr/admin/profiles/{user_id}": "PDDDDDDDDDDDDDDDDDDD",
-  "POST /api/hr/admin/days-off": "PDDDDDDDDDDDDDDDDDDD",
-  "POST /api/hr/admin/profiles": "PDDDDDDDDDDDDDDDDDDD",
-  "PUT /api/hr/admin/availability-source": "PDDDDDDDDDDDDDDDDDDD",
-  "PUT /api/hr/admin/modules": "PDDDDDDDDDDDDDDDDDDD",
-  "PUT /api/hr/admin/profiles/{user_id}/entitlements/{year}": "PDDDDDDDDDDDDDDDDDDD"
+  "DELETE /api/hr/admin/days-off/{day_off_id}": "PDDDDDDDDDDDDDDDDDDDDPDDD",
+  "GET /api/hr/admin/availability-source": "PDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/hr/admin/days-off": "PDDDDDDDDDDDDDDDDDDDDPDDD",
+  "GET /api/hr/admin/users-without-profile": "PDDDDDDDDDDDDDDDDDDDDPDDD",
+  "PATCH /api/hr/admin/profiles/{user_id}": "PDDDDDDDDDDDDDDDDDDDDPDDD",
+  "POST /api/hr/admin/days-off": "PDDDDDDDDDDDDDDDDDDDDPDDD",
+  "POST /api/hr/admin/profiles": "PDDDDDDDDDDDDDDDDDDDDPDDD",
+  "PUT /api/hr/admin/availability-source": "PDDDDDDDDDDDDDDDDDDDDDDDD",
+  "PUT /api/hr/admin/modules": "PDDDDDDDDDDDDDDDDDDDDDDDD",
+  "PUT /api/hr/admin/profiles/{user_id}/entitlements/{year}": "PDDDDDDDDDDDDDDDDDDDDPDDD"
  }
 }

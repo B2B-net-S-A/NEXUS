@@ -19,14 +19,19 @@
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
   "recruiter+amounts_edit",
-  "automation"
+  "automation",
+  "employee",
+  "recruiter+people_admin",
+  "recruiter+payroll",
+  "recruiter+equipment",
+  "recruiter+cases"
  ],
  "routes": {
-  "DELETE /api/contract-templates/{template_id}": "PDDDDDDDDDDDDDDDDDDD",
-  "GET /api/contract-templates": "PPDBDDDDBBBDDDDDDPPD",
-  "GET /api/contract-templates/{template_id}": "PPDBDDDDBBBDDDDDDPPD",
-  "GET /api/contract-templates/{template_id}/render": "PPDBDDDDBBBDDDDDDPPD",
-  "PATCH /api/contract-templates/{template_id}": "PDDDDDDDDDDDDDDDDDDD",
-  "POST /api/contract-templates": "PDDDDDDDDDDDDDDDDDDD"
+  "DELETE /api/contract-templates/{template_id}": "PDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/contract-templates": "PPDBDDDDBBBDDDDDDPPDDDDDD",
+  "GET /api/contract-templates/{template_id}": "PPDBDDDDBBBDDDDDDPPDDDDDD",
+  "GET /api/contract-templates/{template_id}/render": "PPDBDDDDBBBDDDDDDPPDDDDDD",
+  "PATCH /api/contract-templates/{template_id}": "PDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/contract-templates": "PDDDDDDDDDDDDDDDDDDDDDDDD"
  }
 }

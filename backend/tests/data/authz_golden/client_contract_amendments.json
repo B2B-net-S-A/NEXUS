@@ -19,13 +19,18 @@
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
   "recruiter+amounts_edit",
-  "automation"
+  "automation",
+  "employee",
+  "recruiter+people_admin",
+  "recruiter+payroll",
+  "recruiter+equipment",
+  "recruiter+cases"
  ],
  "routes": {
-  "DELETE /api/clients/{client_id}/framework-contracts/{fc_id}/amendments/{amendment_id}": "PPDBDDDDBBBDDDDDDDDD",
-  "GET /api/clients/{client_id}/framework-contracts/{fc_id}/amendments": "BBDBDDDDBBBDDDDDDBBD",
-  "GET /api/clients/{client_id}/framework-contracts/{fc_id}/amendments/{amendment_id}/file": "BBDBDDDDBBBDDDDDDBBD",
-  "POST /api/clients/{client_id}/framework-contracts/{fc_id}/amendments": "PPDBDDDDBBBDDDDDDDDD",
-  "POST /api/clients/{client_id}/framework-contracts/{fc_id}/amendments/{amendment_id}/send-autenti": "PPDBDDDDBBBDDDDDDDDD"
+  "DELETE /api/clients/{client_id}/framework-contracts/{fc_id}/amendments/{amendment_id}": "PPDBDDDDBBBDDDDDDDDDDDDDD",
+  "GET /api/clients/{client_id}/framework-contracts/{fc_id}/amendments": "BBDBDDDDBBBDDDDDDBBDDDDDD",
+  "GET /api/clients/{client_id}/framework-contracts/{fc_id}/amendments/{amendment_id}/file": "BBDBDDDDBBBDDDDDDBBDDDDDD",
+  "POST /api/clients/{client_id}/framework-contracts/{fc_id}/amendments": "PPDBDDDDBBBDDDDDDDDDDDDDD",
+  "POST /api/clients/{client_id}/framework-contracts/{fc_id}/amendments/{amendment_id}/send-autenti": "PPDBDDDDBBBDDDDDDDDDDDDDD"
  }
 }

@@ -19,16 +19,21 @@
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
   "recruiter+amounts_edit",
-  "automation"
+  "automation",
+  "employee",
+  "recruiter+people_admin",
+  "recruiter+payroll",
+  "recruiter+equipment",
+  "recruiter+cases"
  ],
  "routes": {
-  "GET /api/jobs/{job_id}/background-events": "PPPPPPPDPPPPPPPPPPPP",
-  "GET /api/jobs/{job_id}/proposal-counts": "PPPPPPPDPPPPPPPPPPPP",
-  "GET /api/jobs/{job_id}/proposal-facts": "PPPPPPPDPPPPPPPPPPPP",
-  "GET /api/jobs/{job_id}/proposal-inbox": "PPPPPPPDPPPPPPPPPPPP",
-  "POST /api/jobs/{job_id}/proposal-inbox/dismiss-bulk": "PPPPPPDDPPPPPPPPPPPD",
-  "POST /api/jobs/{job_id}/proposal-inbox/opened": "PPPPPPDDPPPPPPPPPPPD",
-  "POST /api/jobs/{job_id}/proposal-inbox/{candidate_id}/dismiss": "PPPPPPDDPPPPPPPPPPPD",
-  "POST /api/jobs/{job_id}/proposal-inbox/{candidate_id}/restore": "PPPPPPDDPPPPPPPPPPPD"
+  "GET /api/jobs/{job_id}/background-events": "PPPPPPPDPPPPPPPPPPPPDPPPP",
+  "GET /api/jobs/{job_id}/proposal-counts": "PPPPPPPDPPPPPPPPPPPPDPPPP",
+  "GET /api/jobs/{job_id}/proposal-facts": "PPPPPPPDPPPPPPPPPPPPDPPPP",
+  "GET /api/jobs/{job_id}/proposal-inbox": "PPPPPPPDPPPPPPPPPPPPDPPPP",
+  "POST /api/jobs/{job_id}/proposal-inbox/dismiss-bulk": "PPPPPPDDPPPPPPPPPPPDDPPPP",
+  "POST /api/jobs/{job_id}/proposal-inbox/opened": "PPPPPPDDPPPPPPPPPPPDDPPPP",
+  "POST /api/jobs/{job_id}/proposal-inbox/{candidate_id}/dismiss": "PPPPPPDDPPPPPPPPPPPDDPPPP",
+  "POST /api/jobs/{job_id}/proposal-inbox/{candidate_id}/restore": "PPPPPPDDPPPPPPPPPPPDDPPPP"
  }
 }

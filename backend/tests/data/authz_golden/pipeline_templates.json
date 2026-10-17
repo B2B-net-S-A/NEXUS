@@ -19,22 +19,27 @@
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
   "recruiter+amounts_edit",
-  "automation"
+  "automation",
+  "employee",
+  "recruiter+people_admin",
+  "recruiter+payroll",
+  "recruiter+equipment",
+  "recruiter+cases"
  ],
  "routes": {
-  "DELETE /api/pipeline-templates/{template_id}": "PDDPDDDDPPPDDDDDDDDD",
-  "DELETE /api/pipeline-templates/{template_id}/rejection-reasons/{reason_id}": "PDDPDDDDPPPDDDDDDDDD",
-  "DELETE /api/pipeline-templates/{template_id}/stages/{stage_id}": "PDDPDDDDPPPDDDDDDDDD",
-  "GET /api/pipeline-templates": "PPPPPPPDPPPPPPPPPPPP",
-  "GET /api/pipeline-templates/{template_id}": "PPPPPPPDPPPPPPPPPPPP",
-  "PATCH /api/pipeline-templates/{template_id}": "PDDPDDDDPPPDDDDDDDDD",
-  "PATCH /api/pipeline-templates/{template_id}/rejection-reasons/{reason_id}": "PDDPDDDDPPPDDDDDDDDD",
-  "PATCH /api/pipeline-templates/{template_id}/stages/reorder": "PDDPDDDDPPPDDDDDDDDD",
-  "PATCH /api/pipeline-templates/{template_id}/stages/{stage_id}": "PDDPDDDDPPPDDDDDDDDD",
-  "POST /api/pipeline-templates": "PDDPDDDDPPPDDDDDDDDD",
-  "POST /api/pipeline-templates/assign-to-job/{job_id}": "PDDPDDDDPPPDDDDDDDDD",
-  "POST /api/pipeline-templates/{template_id}/clone": "PDDPDDDDPPPDDDDDDDDD",
-  "POST /api/pipeline-templates/{template_id}/rejection-reasons": "PDDPDDDDPPPDDDDDDDDD",
-  "POST /api/pipeline-templates/{template_id}/stages": "PDDPDDDDPPPDDDDDDDDD"
+  "DELETE /api/pipeline-templates/{template_id}": "PDDPDDDDPPPDDDDDDDDDDDDDD",
+  "DELETE /api/pipeline-templates/{template_id}/rejection-reasons/{reason_id}": "PDDPDDDDPPPDDDDDDDDDDDDDD",
+  "DELETE /api/pipeline-templates/{template_id}/stages/{stage_id}": "PDDPDDDDPPPDDDDDDDDDDDDDD",
+  "GET /api/pipeline-templates": "PPPPPPPDPPPPPPPPPPPPDPPPP",
+  "GET /api/pipeline-templates/{template_id}": "PPPPPPPDPPPPPPPPPPPPDPPPP",
+  "PATCH /api/pipeline-templates/{template_id}": "PDDPDDDDPPPDDDDDDDDDDDDDD",
+  "PATCH /api/pipeline-templates/{template_id}/rejection-reasons/{reason_id}": "PDDPDDDDPPPDDDDDDDDDDDDDD",
+  "PATCH /api/pipeline-templates/{template_id}/stages/reorder": "PDDPDDDDPPPDDDDDDDDDDDDDD",
+  "PATCH /api/pipeline-templates/{template_id}/stages/{stage_id}": "PDDPDDDDPPPDDDDDDDDDDDDDD",
+  "POST /api/pipeline-templates": "PDDPDDDDPPPDDDDDDDDDDDDDD",
+  "POST /api/pipeline-templates/assign-to-job/{job_id}": "PDDPDDDDPPPDDDDDDDDDDDDDD",
+  "POST /api/pipeline-templates/{template_id}/clone": "PDDPDDDDPPPDDDDDDDDDDDDDD",
+  "POST /api/pipeline-templates/{template_id}/rejection-reasons": "PDDPDDDDPPPDDDDDDDDDDDDDD",
+  "POST /api/pipeline-templates/{template_id}/stages": "PDDPDDDDPPPDDDDDDDDDDDDDD"
  }
 }

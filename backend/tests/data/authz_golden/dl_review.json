@@ -19,10 +19,15 @@
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
   "recruiter+amounts_edit",
-  "automation"
+  "automation",
+  "employee",
+  "recruiter+people_admin",
+  "recruiter+payroll",
+  "recruiter+equipment",
+  "recruiter+cases"
  ],
  "routes": {
-  "GET /api/dl-review/context": "PPPPPPDDPPPPPPPPPPPP",
-  "GET /api/dl-review/jobs/{job_id}/queue": "PPPPPPDDPPPPPPPPPPPP"
+  "GET /api/dl-review/context": "PPPPPPDDPPPPPPPPPPPPDPPPP",
+  "GET /api/dl-review/jobs/{job_id}/queue": "PPPPPPDDPPPPPPPPPPPPDPPPP"
  }
 }

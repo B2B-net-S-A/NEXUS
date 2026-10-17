@@ -7,6 +7,7 @@ odpowiada 404 wszystkim poza adminem. Dane fikcyjne (repo jest publiczne).
 
 from __future__ import annotations
 
+import json
 import uuid
 from datetime import date
 
@@ -17,10 +18,19 @@ from sqlalchemy import select
 from app.core.database import AsyncSessionLocal
 from app.core.security import create_access_token
 from app.models.app_setting import AppSetting
+from app.models.candidate import Candidate
 from app.models.hr_profile import EmployeeProfile
 from app.models.section_permission import UserActionOverride
 from app.models.user import User, UserRole
 from app.services.hr_foundation_schema import HR_MODULE_KEYS, HR_MODULES_SETTING
+
+
+def _results(response) -> str:
+    """Wyniki wyszukiwania bez echa zapytania (`query`)."""
+
+    body = response.json()
+    body.pop("query", None)
+    return json.dumps(body, ensure_ascii=False)
 
 
 def _headers(user: User) -> dict[str, str]:
@@ -360,11 +370,26 @@ async def test_modules_are_switched_only_by_admin(app_client, modules_on) -> Non
 
 @pytest.mark.asyncio
 async def test_employee_role_sees_no_candidates(app_client, modules_on) -> None:
+    marker = f"Teodor{uuid.uuid4().hex[:8]}"
     async with AsyncSessionLocal() as db:
         worker = await _user(db, "employee", profile=True)
+        recruiter = await _user(db, "recruiter")
+        db.add(Candidate(name=marker, lastname="Testowy"))
         await db.commit()
 
     response = await app_client.get("/api/candidates", headers=_headers(worker))
     assert response.status_code == 403
     own = await app_client.get("/api/hr/people", headers=_headers(worker))
     assert own.status_code == 200
+    # Wyszukiwarka w pasku przechodzi bramkę każdego konta, ale kategorie
+    # filtruje sekcjami — „Pracownik” nie ma żadnej, więc nie dostaje nic.
+    for path in ("/api/search/global", "/api/search/"):
+        seen = await app_client.get(
+            path, params={"q": marker}, headers=_headers(recruiter)
+        )
+        assert marker in _results(seen), path  # kontrola: rekruter tę osobę znajduje
+        found = await app_client.get(
+            path, params={"q": marker}, headers=_headers(worker)
+        )
+        assert found.status_code == 200
+        assert marker not in _results(found), path

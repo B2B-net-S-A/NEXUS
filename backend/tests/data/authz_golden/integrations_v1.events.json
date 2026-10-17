@@ -19,13 +19,18 @@
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
   "recruiter+amounts_edit",
-  "automation"
+  "automation",
+  "employee",
+  "recruiter+people_admin",
+  "recruiter+payroll",
+  "recruiter+equipment",
+  "recruiter+cases"
  ],
  "routes": {
-  "DELETE /api/integrations/v1/webhooks/{webhook_id}": "UUUUUUUUUUUUUUUUUUUU",
-  "GET /api/integrations/v1/events": "UUUUUUUUUUUUUUUUUUUU",
-  "GET /api/integrations/v1/webhooks": "UUUUUUUUUUUUUUUUUUUU",
-  "POST /api/integrations/v1/webhooks": "UUUUUUUUUUUUUUUUUUUU",
-  "POST /api/integrations/v1/webhooks/{webhook_id}/test": "UUUUUUUUUUUUUUUUUUUU"
+  "DELETE /api/integrations/v1/webhooks/{webhook_id}": "UUUUUUUUUUUUUUUUUUUUUUUUU",
+  "GET /api/integrations/v1/events": "UUUUUUUUUUUUUUUUUUUUUUUUU",
+  "GET /api/integrations/v1/webhooks": "UUUUUUUUUUUUUUUUUUUUUUUUU",
+  "POST /api/integrations/v1/webhooks": "UUUUUUUUUUUUUUUUUUUUUUUUU",
+  "POST /api/integrations/v1/webhooks/{webhook_id}/test": "UUUUUUUUUUUUUUUUUUUUUUUUU"
  }
 }

@@ -19,14 +19,19 @@
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
   "recruiter+amounts_edit",
-  "automation"
+  "automation",
+  "employee",
+  "recruiter+people_admin",
+  "recruiter+payroll",
+  "recruiter+equipment",
+  "recruiter+cases"
  ],
  "routes": {
-  "GET /api/insights/integrations/runs": "PPPPPPPDPPPPPPPPPPPP",
-  "GET /api/insights/integrations/runs/{run_id}/events": "PPPPPPPDPPPPPPPPPPPP",
-  "GET /api/insights/integrations/summary": "PPPPPPPDPPPPPPPPPPPP",
-  "PATCH /api/integrations/runs/{run_id}": "PPPPPPDDPPPPPPPPPPPD",
-  "POST /api/integrations/runs": "PPPPPPDDPPPPPPPPPPPD",
-  "POST /api/integrations/runs/{run_id}/events": "PPPPPPDDPPPPPPPPPPPD"
+  "GET /api/insights/integrations/runs": "PPPPPPPDPPPPPPPPPPPPDPPPP",
+  "GET /api/insights/integrations/runs/{run_id}/events": "PPPPPPPDPPPPPPPPPPPPDPPPP",
+  "GET /api/insights/integrations/summary": "PPPPPPPDPPPPPPPPPPPPDPPPP",
+  "PATCH /api/integrations/runs/{run_id}": "PPPPPPDDPPPPPPPPPPPDDPPPP",
+  "POST /api/integrations/runs": "PPPPPPDDPPPPPPPPPPPDDPPPP",
+  "POST /api/integrations/runs/{run_id}/events": "PPPPPPDDPPPPPPPPPPPDDPPPP"
  }
 }

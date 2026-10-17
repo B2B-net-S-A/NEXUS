@@ -19,21 +19,26 @@
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
   "recruiter+amounts_edit",
-  "automation"
+  "automation",
+  "employee",
+  "recruiter+people_admin",
+  "recruiter+payroll",
+  "recruiter+equipment",
+  "recruiter+cases"
  ],
  "routes": {
-  "GET /api/admin/traffit/added-dates-repair/status": "UUUUUUUUUUUUUUUUUUUU",
-  "GET /api/admin/traffit/file-dates-repair/status": "UUUUUUUUUUUUUUUUUUUU",
-  "GET /api/admin/traffit/notes-repair/status": "UUUUUUUUUUUUUUUUUUUU",
-  "GET /api/admin/traffit/sync/status": "UUUUUUUUUUUUUUUUUUUU",
-  "GET /api/admin/traffit/transfer/status": "UUUUUUUUUUUUUUUUUUUU",
-  "GET /api/admin/traffit/twins-merge/status": "UUUUUUUUUUUUUUUUUUUU",
-  "POST /api/admin/traffit/added-dates-repair": "UUUUUUUUUUUUUUUUUUUU",
-  "POST /api/admin/traffit/file-dates-repair": "UUUUUUUUUUUUUUUUUUUU",
-  "POST /api/admin/traffit/notes-repair": "UUUUUUUUUUUUUUUUUUUU",
-  "POST /api/admin/traffit/notes-repair/recruitments": "UUUUUUUUUUUUUUUUUUUU",
-  "POST /api/admin/traffit/sync": "UUUUUUUUUUUUUUUUUUUU",
-  "POST /api/admin/traffit/transfer": "UUUUUUUUUUUUUUUUUUUU",
-  "POST /api/admin/traffit/twins-merge": "UUUUUUUUUUUUUUUUUUUU"
+  "GET /api/admin/traffit/added-dates-repair/status": "UUUUUUUUUUUUUUUUUUUUUUUUU",
+  "GET /api/admin/traffit/file-dates-repair/status": "UUUUUUUUUUUUUUUUUUUUUUUUU",
+  "GET /api/admin/traffit/notes-repair/status": "UUUUUUUUUUUUUUUUUUUUUUUUU",
+  "GET /api/admin/traffit/sync/status": "UUUUUUUUUUUUUUUUUUUUUUUUU",
+  "GET /api/admin/traffit/transfer/status": "UUUUUUUUUUUUUUUUUUUUUUUUU",
+  "GET /api/admin/traffit/twins-merge/status": "UUUUUUUUUUUUUUUUUUUUUUUUU",
+  "POST /api/admin/traffit/added-dates-repair": "UUUUUUUUUUUUUUUUUUUUUUUUU",
+  "POST /api/admin/traffit/file-dates-repair": "UUUUUUUUUUUUUUUUUUUUUUUUU",
+  "POST /api/admin/traffit/notes-repair": "UUUUUUUUUUUUUUUUUUUUUUUUU",
+  "POST /api/admin/traffit/notes-repair/recruitments": "UUUUUUUUUUUUUUUUUUUUUUUUU",
+  "POST /api/admin/traffit/sync": "UUUUUUUUUUUUUUUUUUUUUUUUU",
+  "POST /api/admin/traffit/transfer": "UUUUUUUUUUUUUUUUUUUUUUUUU",
+  "POST /api/admin/traffit/twins-merge": "UUUUUUUUUUUUUUUUUUUUUUUUU"
  }
 }

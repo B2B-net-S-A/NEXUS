@@ -19,19 +19,24 @@
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
   "recruiter+amounts_edit",
-  "automation"
+  "automation",
+  "employee",
+  "recruiter+people_admin",
+  "recruiter+payroll",
+  "recruiter+equipment",
+  "recruiter+cases"
  ],
  "routes": {
-  "GET /api/integrations/v1/finance/order-changes": "UUUUUUUUUUUUUUUUUUUU",
-  "GET /api/integrations/v1/finance/order-changes/history": "UUUUUUUUUUUUUUUUUUUU",
-  "GET /api/integrations/v1/finance/order-changes/summary": "UUUUUUUUUUUUUUUUUUUU",
-  "GET /api/integrations/v1/finance/order-pdfs": "UUUUUUUUUUUUUUUUUUUU",
-  "GET /api/integrations/v1/finance/order-pdfs/months": "UUUUUUUUUUUUUUUUUUUU",
-  "GET /api/integrations/v1/finance/order-pdfs/zip": "UUUUUUUUUUUUUUUUUUUU",
-  "GET /api/integrations/v1/finance/order-pdfs/{kind}/{entry_id}/file": "UUUUUUUUUUUUUUUUUUUU",
-  "GET /api/integrations/v1/finance/periods": "UUUUUUUUUUUUUUUUUUUU",
-  "GET /api/integrations/v1/finance/results": "UUUUUUUUUUUUUUUUUUUU",
-  "POST /api/integrations/v1/finance/imports": "UUUUUUUUUUUUUUUUUUUU",
-  "POST /api/integrations/v1/finance/order-changes/checks": "UUUUUUUUUUUUUUUUUUUU"
+  "GET /api/integrations/v1/finance/order-changes": "UUUUUUUUUUUUUUUUUUUUUUUUU",
+  "GET /api/integrations/v1/finance/order-changes/history": "UUUUUUUUUUUUUUUUUUUUUUUUU",
+  "GET /api/integrations/v1/finance/order-changes/summary": "UUUUUUUUUUUUUUUUUUUUUUUUU",
+  "GET /api/integrations/v1/finance/order-pdfs": "UUUUUUUUUUUUUUUUUUUUUUUUU",
+  "GET /api/integrations/v1/finance/order-pdfs/months": "UUUUUUUUUUUUUUUUUUUUUUUUU",
+  "GET /api/integrations/v1/finance/order-pdfs/zip": "UUUUUUUUUUUUUUUUUUUUUUUUU",
+  "GET /api/integrations/v1/finance/order-pdfs/{kind}/{entry_id}/file": "UUUUUUUUUUUUUUUUUUUUUUUUU",
+  "GET /api/integrations/v1/finance/periods": "UUUUUUUUUUUUUUUUUUUUUUUUU",
+  "GET /api/integrations/v1/finance/results": "UUUUUUUUUUUUUUUUUUUUUUUUU",
+  "POST /api/integrations/v1/finance/imports": "UUUUUUUUUUUUUUUUUUUUUUUUU",
+  "POST /api/integrations/v1/finance/order-changes/checks": "UUUUUUUUUUUUUUUUUUUUUUUUU"
  }
 }

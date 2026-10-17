@@ -19,18 +19,23 @@
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
   "recruiter+amounts_edit",
-  "automation"
+  "automation",
+  "employee",
+  "recruiter+people_admin",
+  "recruiter+payroll",
+  "recruiter+equipment",
+  "recruiter+cases"
  ],
  "routes": {
-  "GET /api/admin/candidates/backfill-cc/status": "PDDDDDDDDDDDDDDDDDDD",
-  "GET /api/admin/candidates/backfill-cv-fields/status": "PDDDDDDDDDDDDDDDDDDD",
-  "GET /api/admin/candidates/backfill-experience-dates/status": "PDDDDDDDDDDDDDDDDDDD",
-  "GET /api/admin/candidates/backfill-names/status": "PDDDDDDDDDDDDDDDDDDD",
-  "GET /api/admin/candidates/suspected-name-overwrites": "PDDDDDDDDDDDDDDDDDDD",
-  "POST /api/admin/candidates/backfill-cc": "PDDDDDDDDDDDDDDDDDDD",
-  "POST /api/admin/candidates/backfill-cv-fields": "PDDDDDDDDDDDDDDDDDDD",
-  "POST /api/admin/candidates/backfill-experience-dates": "PDDDDDDDDDDDDDDDDDDD",
-  "POST /api/admin/candidates/backfill-names": "PDDDDDDDDDDDDDDDDDDD",
-  "POST /api/admin/candidates/scraper-rates/revert": "PDDDDDDDDDDDDDDDDDDD"
+  "GET /api/admin/candidates/backfill-cc/status": "PDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/admin/candidates/backfill-cv-fields/status": "PDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/admin/candidates/backfill-experience-dates/status": "PDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/admin/candidates/backfill-names/status": "PDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/admin/candidates/suspected-name-overwrites": "PDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/admin/candidates/backfill-cc": "PDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/admin/candidates/backfill-cv-fields": "PDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/admin/candidates/backfill-experience-dates": "PDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/admin/candidates/backfill-names": "PDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/admin/candidates/scraper-rates/revert": "PDDDDDDDDDDDDDDDDDDDDDDDD"
  }
 }

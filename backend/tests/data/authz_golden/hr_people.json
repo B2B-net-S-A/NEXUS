@@ -19,12 +19,17 @@
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
   "recruiter+amounts_edit",
-  "automation"
+  "automation",
+  "employee",
+  "recruiter+people_admin",
+  "recruiter+payroll",
+  "recruiter+equipment",
+  "recruiter+cases"
  ],
  "routes": {
-  "GET /api/hr/config": "PPPPPPPDPPPPPPPPPPPP",
-  "GET /api/hr/me": "PPPPPPPDPPPPPPPPPPPP",
-  "GET /api/hr/people": "BBBBBBBDBBBBBBBBBBBB",
-  "GET /api/hr/people/{user_id}": "BBBBBBBDBBBBBBBBBBBB"
+  "GET /api/hr/config": "PPPPPPPDPPPPPPPPPPPPPPPPP",
+  "GET /api/hr/me": "PPPPPPPDPPPPPPPPPPPPPPPPP",
+  "GET /api/hr/people": "BBBBBBBDBBBBBBBBBBBBBBBBB",
+  "GET /api/hr/people/{user_id}": "BBBBBBBDBBBBBBBBBBBBBBBBB"
  }
 }

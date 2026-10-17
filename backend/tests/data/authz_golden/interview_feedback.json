@@ -19,13 +19,18 @@
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
   "recruiter+amounts_edit",
-  "automation"
+  "automation",
+  "employee",
+  "recruiter+people_admin",
+  "recruiter+payroll",
+  "recruiter+equipment",
+  "recruiter+cases"
  ],
  "routes": {
-  "DELETE /api/interview-feedback/{feedback_id}": "PPPPPPDDPPPPPPPPPPPD",
-  "GET /api/interview-feedback": "PPPPPPDDPPPPPPPPPPPP",
-  "GET /api/interview-feedback/{feedback_id}": "PPPPPPDDPPPPPPPPPPPP",
-  "PATCH /api/interview-feedback/{feedback_id}": "PPPPPPDDPPPPPPPPPPPD",
-  "POST /api/interview-feedback": "PPPPPPDDPPPPPPPPPPPD"
+  "DELETE /api/interview-feedback/{feedback_id}": "PPPPPPDDPPPPPPPPPPPDDPPPP",
+  "GET /api/interview-feedback": "PPPPPPDDPPPPPPPPPPPPDPPPP",
+  "GET /api/interview-feedback/{feedback_id}": "PPPPPPDDPPPPPPPPPPPPDPPPP",
+  "PATCH /api/interview-feedback/{feedback_id}": "PPPPPPDDPPPPPPPPPPPDDPPPP",
+  "POST /api/interview-feedback": "PPPPPPDDPPPPPPPPPPPDDPPPP"
  }
 }

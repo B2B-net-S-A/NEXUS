@@ -19,10 +19,15 @@
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
   "recruiter+amounts_edit",
-  "automation"
+  "automation",
+  "employee",
+  "recruiter+people_admin",
+  "recruiter+payroll",
+  "recruiter+equipment",
+  "recruiter+cases"
  ],
  "routes": {
-  "GET /api/jobs/{job_id}/assignable-stages": "PPPPPPDDPPPPPPPPPPPP",
-  "POST /api/jobs/{job_id}/proposals/bulk": "PPPPPPDDPPPPPPPPPPPD"
+  "GET /api/jobs/{job_id}/assignable-stages": "PPPPPPDDPPPPPPPPPPPPDPPPP",
+  "POST /api/jobs/{job_id}/proposals/bulk": "PPPPPPDDPPPPPPPPPPPDDPPPP"
  }
 }

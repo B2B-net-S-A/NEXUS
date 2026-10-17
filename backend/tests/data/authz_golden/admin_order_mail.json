@@ -19,12 +19,17 @@
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
   "recruiter+amounts_edit",
-  "automation"
+  "automation",
+  "employee",
+  "recruiter+people_admin",
+  "recruiter+payroll",
+  "recruiter+equipment",
+  "recruiter+cases"
  ],
  "routes": {
-  "GET /api/admin/order-mail/cleanup-receipt": "PDDDDDDDDDDDDDDDDDDD",
-  "GET /api/admin/order-mail/documents": "PDDDDDDDDDDDDDDDDDDD",
-  "GET /api/admin/order-mail/status": "PDDDDDDDDDDDDDDDDDDD",
-  "POST /api/admin/order-mail/sync": "PDDDDDDDDDDDDDDDDDDD"
+  "GET /api/admin/order-mail/cleanup-receipt": "PDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/admin/order-mail/documents": "PDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/admin/order-mail/status": "PDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/admin/order-mail/sync": "PDDDDDDDDDDDDDDDDDDDDDDDD"
  }
 }

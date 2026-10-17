@@ -19,11 +19,16 @@
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
   "recruiter+amounts_edit",
-  "automation"
+  "automation",
+  "employee",
+  "recruiter+people_admin",
+  "recruiter+payroll",
+  "recruiter+equipment",
+  "recruiter+cases"
  ],
  "routes": {
-  "GET /api/activities/feed": "PPPPPPDDPPPPPPPPPPPP",
-  "GET /api/activities/leaderboard": "PPPPPPDDPPPPPPPPPPPP",
-  "GET /api/activities/stats": "PPPPPPPDPPPPPPPPPPPP"
+  "GET /api/activities/feed": "PPPPPPDDPPPPPPPPPPPPDPPPP",
+  "GET /api/activities/leaderboard": "PPPPPPDDPPPPPPPPPPPPDPPPP",
+  "GET /api/activities/stats": "PPPPPPPDPPPPPPPPPPPPDPPPP"
  }
 }

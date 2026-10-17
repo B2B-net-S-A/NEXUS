@@ -19,10 +19,15 @@
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
   "recruiter+amounts_edit",
-  "automation"
+  "automation",
+  "employee",
+  "recruiter+people_admin",
+  "recruiter+payroll",
+  "recruiter+equipment",
+  "recruiter+cases"
  ],
  "routes": {
-  "PATCH /api/integrations/v1/contracts/{contract_id}": "UUUUUUUUUUUUUUUUUUUU",
-  "POST /api/integrations/v1/contracts/{contract_id}/status": "UUUUUUUUUUUUUUUUUUUU"
+  "PATCH /api/integrations/v1/contracts/{contract_id}": "UUUUUUUUUUUUUUUUUUUUUUUUU",
+  "POST /api/integrations/v1/contracts/{contract_id}/status": "UUUUUUUUUUUUUUUUUUUUUUUUU"
  }
 }

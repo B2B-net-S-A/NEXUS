@@ -19,13 +19,18 @@
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
   "recruiter+amounts_edit",
-  "automation"
+  "automation",
+  "employee",
+  "recruiter+people_admin",
+  "recruiter+payroll",
+  "recruiter+equipment",
+  "recruiter+cases"
  ],
  "routes": {
-  "GET /api/academy/editions": "BBBBBBBDBBBBBBBBBBBB",
-  "GET /api/academy/programs/{program_id}/editions/{month}": "BBBBBBBDBBBBBBBBBBBB",
-  "PATCH /api/academy/programs/{program_id}/editions/{month}/checklist/{item_id}": "BBBBBBBDBBBBBBBBBBBB",
-  "PATCH /api/academy/programs/{program_id}/editions/{month}/participants/{application_id}": "BBBBBBBDBBBBBBBBBBBB",
-  "POST /api/academy/programs/{program_id}/editions/{month}/issue": "BBBBBBBDBBBBBBBBBBBB"
+  "GET /api/academy/editions": "BBBBBBBDBBBBBBBBBBBBBBBBB",
+  "GET /api/academy/programs/{program_id}/editions/{month}": "BBBBBBBDBBBBBBBBBBBBBBBBB",
+  "PATCH /api/academy/programs/{program_id}/editions/{month}/checklist/{item_id}": "BBBBBBBDBBBBBBBBBBBBBBBBB",
+  "PATCH /api/academy/programs/{program_id}/editions/{month}/participants/{application_id}": "BBBBBBBDBBBBBBBBBBBBBBBBB",
+  "POST /api/academy/programs/{program_id}/editions/{month}/issue": "BBBBBBBDBBBBBBBBBBBBBBBBB"
  }
 }
