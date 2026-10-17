@@ -36,6 +36,7 @@ import {
   useLeaveHistory,
   useOnBehalfPeople,
   usePendingLeave,
+  useReportedLeave,
   type LeaveRequestRow,
   type LeaveStatus,
   type PendingLeaveRow,
@@ -46,6 +47,7 @@ import { resolveViewState } from "@/lib/view-state";
 
 import { LeaveRequestDialog } from "./LeaveRequestDialog";
 import { RejectLeaveDialog } from "./RejectLeaveDialog";
+import { ReportConflictDialog } from "./ReportConflictDialog";
 import {
   HALF_DAY_LABELS,
   LEAVE_STATUS_LABELS,
@@ -55,6 +57,7 @@ import {
   formatRange,
   leaveToast,
   shortDate,
+  statusLabel,
 } from "./leave-format";
 
 /** Zdania pod wnioskiem w kolejce — co akceptujący powinien wiedzieć. */
@@ -192,15 +195,112 @@ function PendingLeaveList({ viewerIsHr }: { viewerIsHr: boolean }) {
   );
 }
 
+/**
+ * Zgłoszenia z B2B i zlecenia „do wiadomości” (D5): termin już jest
+ * w kalendarzu, koordynator nie akceptuje i nie odrzuca — może zgłosić kolizję.
+ * Nie liczą się do „Akceptacji”.
+ */
+function ReportedLeaveList({ viewerIsHr }: { viewerIsHr: boolean }) {
+  const reported = useReportedLeave();
+  const { showToast } = useToast();
+  const [conflicting, setConflicting] = useState<LeaveRequestRow | null>(null);
+  const rows = reported.data ?? [];
+  const state = resolveViewState({
+    isLoading: reported.isLoading,
+    isError: reported.isError,
+    error: reported.error,
+    isSuccess: reported.isSuccess,
+    isEmpty: rows.length === 0,
+  });
+
+  if (state === "loading") {
+    return <p className="py-4 text-sm text-muted-foreground">Wczytywanie zgłoszeń…</p>;
+  }
+  if (state === "forbidden" || state === "not_found" || state === "error") {
+    return <QueryStateNotice state={state} onRetry={() => reported.refetch()} />;
+  }
+  if (state === "empty") {
+    return (
+      <p className="rounded-lg border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
+        Nikt z zespołu na B2B ani na zleceniu nie ma zgłoszonej przerwy.
+      </p>
+    );
+  }
+
+  return (
+    <div className="relative overflow-x-auto rounded-lg border border-border bg-card">
+      <Table density="compact" className="min-w-[820px]">
+        <TableHeader>
+          <TableRow>
+            <TableHead className={CALM_HEAD}>Kto</TableHead>
+            <TableHead className={CALM_HEAD}>Termin</TableHead>
+            <TableHead className={CALM_HEAD}>Co wypada w tym czasie</TableHead>
+            <TableHead className={CALM_HEAD}>
+              <span className="sr-only">Kolizja</span>
+            </TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {rows.map((row) => (
+            <TableRow key={row.id} className={CALM_ROW}>
+              <TableCell className="py-2 align-top">
+                <span className="font-medium text-foreground">{row.user_name}</span>
+                {row.department ? <span className={CALM_SUBLINE}>{row.department}</span> : null}
+                {row.as_substitute_for ? (
+                  <span className={CALM_SUBLINE}>w zastępstwie za {row.as_substitute_for}</span>
+                ) : null}
+              </TableCell>
+              <TableCell className="py-2 align-top whitespace-nowrap">
+                {formatRange(row.start_date, row.end_date)} · {daysLabel(row.days_total)}
+                <span className={CALM_SUBLINE}>
+                  {row.leave_type_label}
+                  {row.half_day ? `, ${HALF_DAY_LABELS[row.half_day]}` : ""}
+                </span>
+              </TableCell>
+              <TableCell className="py-2 align-top">
+                <span className="text-sm text-foreground">
+                  {pendingDetails(row, viewerIsHr).join(" · ")}
+                </span>
+                {row.conflict ? (
+                  <span className={`${CALM_SUBLINE} text-warning-muted-foreground`}>
+                    kolizja zgłoszona{row.conflict.by_name ? ` · ${row.conflict.by_name}` : ""}:{" "}
+                    {row.conflict.note}
+                  </span>
+                ) : null}
+              </TableCell>
+              <TableCell className="py-2 align-top text-right">
+                {row.can_report_conflict ? (
+                  <Button size="sm" variant="quiet" onClick={() => setConflicting(row)}>
+                    Zgłoś kolizję
+                  </Button>
+                ) : (
+                  <span className={CALM_SUBLINE}>do wiadomości</span>
+                )}
+              </TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+      <ReportConflictDialog
+        request={conflicting}
+        onClose={(done) => {
+          setConflicting(null);
+          if (done) showToast("Kolizja zgłoszona — osoba dostała powiadomienie", "success");
+        }}
+      />
+    </div>
+  );
+}
+
 const STATUS_FILTERS: { value: LeaveStatus | "all"; label: string }[] = [
   { value: "all", label: "Wszystkie statusy" },
   { value: "pending", label: LEAVE_STATUS_LABELS.pending },
-  { value: "approved", label: LEAVE_STATUS_LABELS.approved },
+  { value: "approved", label: "Zatwierdzone i zgłoszone" },
   { value: "rejected", label: LEAVE_STATUS_LABELS.rejected },
   { value: "cancelled", label: LEAVE_STATUS_LABELS.cancelled },
 ];
 
-function LeaveHistory() {
+function LeaveHistory({ viewerIsHr }: { viewerIsHr: boolean }) {
   const [status, setStatus] = useState<LeaveStatus | "all">("all");
   const [person, setPerson] = useState("all");
   const people = useOnBehalfPeople();
@@ -309,11 +409,13 @@ function LeaveHistory() {
                         (row.decided_by_name ? `decyzja: ${row.decided_by_name}` : undefined)
                       }
                     >
-                      {LEAVE_STATUS_LABELS[row.status]}
+                      {statusLabel(row)}
                     </StatusDot>
                   </TableCell>
                   <TableCell className="text-right">
-                    {row.status === "pending" || row.status === "approved" ? (
+                    {/* Zgłoszenie z B2B/zlecenia anuluje osoba albo Kadry — nie koordynator (D5). */}
+                    {(row.status === "pending" || row.status === "approved") &&
+                    (viewerIsHr || !row.is_report) ? (
                       <Button
                         size="sm"
                         variant="quiet"
@@ -352,8 +454,13 @@ export function ApprovalsScreen({ config }: { config: HrConfig }) {
   if (config.open_modules.leave) {
     sections.push({
       key: "leave",
-      title: "Urlopy i nieobecności",
+      title: "Wnioski do decyzji (umowa o pracę)",
       render: () => <PendingLeaveList viewerIsHr={viewerIsHr} />,
+    });
+    sections.push({
+      key: "reported",
+      title: "Zgłoszone przerwy i nieobecności (B2B, zlecenie) — do wiadomości",
+      render: () => <ReportedLeaveList viewerIsHr={viewerIsHr} />,
     });
   }
   const timesheetViewer =
@@ -390,8 +497,9 @@ export function ApprovalsScreen({ config }: { config: HrConfig }) {
           stats={[
             {
               id: "waiting",
-              // Licznik wniosków urlopowych; timesheety mają własny stan w swojej sekcji.
-              label: "urlopy do decyzji",
+              // Licznik wniosków (umowa o pracę); zgłoszenia z B2B i zlecenia się
+              // nie liczą (D5), timesheety mają własny stan w swojej sekcji.
+              label: "wnioski do decyzji",
               value: waiting === null ? "—" : waiting,
             },
             {
@@ -435,7 +543,7 @@ export function ApprovalsScreen({ config }: { config: HrConfig }) {
         ))
       )}
 
-      {config.open_modules.leave ? <LeaveHistory /> : null}
+      {config.open_modules.leave ? <LeaveHistory viewerIsHr={viewerIsHr} /> : null}
 
       <LeaveRequestDialog open={entering} onOpenChange={setEntering} mode="on_behalf" />
     </div>

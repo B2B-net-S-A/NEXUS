@@ -166,7 +166,9 @@ export function MonthGrid({
                         {entry.description}
                         {entry.source === "leave_paid" ? (
                           <span className="ml-1.5 text-[11px] text-muted-foreground">
-                            wpisane z wniosku urlopowego
+                            {view.employment_type === "uop"
+                              ? "wpisane z wniosku urlopowego"
+                              : "płatny dzień przerwy z umowy"}
                           </span>
                         ) : null}
                       </>

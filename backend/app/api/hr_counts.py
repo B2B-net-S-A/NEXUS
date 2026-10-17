@@ -6,9 +6,11 @@ trwałym miejscem spraw, na które ktoś czeka, są ekrany „Ludzi”: zakładk
 „Akceptacje” pokazuje, ile wniosków i timesheetów czeka na decyzję
 czytającego, a „Sprawy” — ile otwartych spraw administracja@ ma przypisanych.
 
-Liczą te same reguły co ekrany — kolejka wniosków
-``leave_service.pending_queue`` i akceptujący timesheetu
-``time_access.Actor.can_approve`` — żeby licznik nie rozjechał się z listą.
+Liczą te same reguły co ekrany — zapytanie kolejki wniosków
+(``leave_service.pending_count`` = ``count()`` na tym samym zapytaniu co
+``pending_queue``; zgłoszenia z B2B i zlecenia się nie liczą, D5)
+i akceptujący timesheetu ``time_access.Actor.can_approve`` — żeby licznik
+nie rozjechał się z listą.
 ``null`` = liczba tej osoby nie dotyczy (moduł wyłączony, brak dostępu do
 Spraw). Awaria odczytu to błąd żądania, a nie zero — front nie pokazuje
 wtedy liczby.
@@ -81,10 +83,10 @@ async def hr_counts(
 
     approvals: Optional[int] = None
     if is_open("leave"):
-        pending = await leave_service.pending_queue(
+        # Sam `count()` na tym samym zapytaniu co lista (bez kontekstu wierszy).
+        approvals = await leave_service.pending_count(
             db, actor=current_user, today=business_today()
         )
-        approvals = len(pending)
     if is_open("time"):
         approvals = (approvals or 0) + await _timesheets_waiting(db, current_user)
     return {

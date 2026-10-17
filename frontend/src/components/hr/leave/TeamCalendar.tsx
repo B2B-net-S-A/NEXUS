@@ -153,16 +153,24 @@ export function TeamCalendar({ config }: { config: HrConfig }) {
   );
 }
 
+/**
+ * Legenda: „nieobecność” to zatwierdzony urlop (UoP) albo zgłoszona przerwa
+ * (B2B, zlecenie — D5, bez akceptacji); „czeka na akceptację” zdarza się
+ * tylko przy umowie o pracę.
+ */
 function Legend() {
   return (
-    <div className="ml-auto flex items-center gap-3 text-[11.5px] text-muted-foreground">
-      <span className="inline-flex items-center gap-1.5">
+    <div className="ml-auto flex flex-wrap items-center gap-3 text-[11.5px] text-muted-foreground">
+      <span
+        className="inline-flex items-center gap-1.5"
+        title="Zatwierdzony urlop albo zgłoszona przerwa (B2B, zlecenie)"
+      >
         <span aria-hidden className="h-3 w-4 rounded-sm bg-primary/25" />
-        nieobecność
+        nieobecność · przerwa
       </span>
       <span className="inline-flex items-center gap-1.5">
         <span aria-hidden className="h-3 w-4 rounded-sm border border-dashed border-primary/60" />
-        czeka na akceptację
+        wniosek czeka na akceptację
       </span>
       <span className="inline-flex items-center gap-1.5">
         <span aria-hidden className="h-3 w-4 rounded-sm bg-muted" />
@@ -300,7 +308,7 @@ function SelectedAbsence({ selected }: { selected: Selected }) {
       </p>
       {!person.type_visible ? (
         <p className="mt-1 text-xs text-muted-foreground">
-          Rodzaj nieobecności widzą tylko ta osoba, jej przełożony i Kadry.
+          Rodzaj nieobecności widzą tylko ta osoba, jej przełożony albo koordynator i Kadry.
         </p>
       ) : null}
     </div>

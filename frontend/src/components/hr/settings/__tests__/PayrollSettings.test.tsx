@@ -18,7 +18,12 @@ vi.mock("@/components/hr/lifecycle/LifecycleTemplatesCard", () => ({
 }));
 
 import { HrSettings } from "@/components/hr/settings/HrSettings";
-import { PayrollSettings, canEditPayrollSettings } from "@/components/hr/settings/PayrollSettings";
+import {
+  PayrollSettings,
+  canEditPayrollSettings,
+  minimumRatesPayload,
+  rowsFromRates,
+} from "@/components/hr/settings/PayrollSettings";
 import type { HrConfig, HrModuleKey } from "@/lib/api/hr";
 
 const MODULES: HrModuleKey[] = ["people", "leave", "time", "payroll", "lifecycle", "care", "cases", "equipment"];
@@ -71,6 +76,35 @@ describe("Ustawienia → Płace", () => {
     renderWith(<PayrollSettings config={config({ payroll: true }, false)} />);
     expect(screen.getByText(/Moduł płac nie jest jeszcze włączony/)).toBeInTheDocument();
     expect(screen.queryByText("karta reguł premii")).toBeNull();
+  });
+});
+
+describe("minimalna stawka na zleceniu (etap 2, D7)", () => {
+  it("wiersze → ciało zapisu; rok i kwota sprawdzane przed zapisem", () => {
+    expect(
+      minimumRatesPayload([
+        { year: "2025", rate: "30,50" },
+        { year: "2026", rate: "31.40" },
+      ]),
+    ).toEqual({ rates: { "2025": "30.50", "2026": "31.40" } });
+    expect(minimumRatesPayload([{ year: "1999", rate: "10" }])).toEqual({
+      error: "Rok minimalnej stawki: od 2020 do 2100.",
+    });
+    expect(minimumRatesPayload([{ year: "2027", rate: "0" }])).toHaveProperty("error");
+    expect(minimumRatesPayload([{ year: "2027", rate: "abc" }])).toHaveProperty("error");
+    expect(
+      minimumRatesPayload([
+        { year: "2026", rate: "31,40" },
+        { year: "2026", rate: "32" },
+      ]),
+    ).toEqual({ error: "Rok 2026 jest na liście dwa razy." });
+  });
+
+  it("stawki z serwera jako wiersze formularza", () => {
+    expect(
+      rowsFromRates({ rates: [{ year: 2026, hourly_rate: "31.40" }], currency: "PLN" }),
+    ).toEqual([{ year: "2026", rate: "31,40" }]);
+    expect(rowsFromRates(undefined)).toEqual([]);
   });
 });
 

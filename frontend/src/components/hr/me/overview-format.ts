@@ -4,7 +4,9 @@
 // Forma zatrudnienia decyduje o słowach: B2B i zlecenie nie mają urlopu
 // w rozumieniu Kodeksu pracy (17.10.2026), więc tam „Płatne dni przerwy
 // (z umowy)” albo „Nieobecności”, a karta miesiąca to „Raport godzin” albo
-// „Potwierdzenie godzin”. Liczby liczy serwer; tu tylko wybór i składanie.
+// „Potwierdzenie godzin”. Słowa formy są we wspólnym słowniku
+// `@/lib/hr-employment-terms` (lustro backendu); liczby liczy serwer, tu tylko
+// wybór i składanie.
 
 import type { EmploymentType } from "@/lib/api/hr";
 import type { LeaveBalance, LeaveRequestRow } from "@/lib/api/hr-leave";
@@ -13,6 +15,13 @@ import type { MonthView } from "@/lib/api/hr-time";
 
 import { shortDate } from "../leave/leave-format";
 import { cancelReasonLabel, formatMoney } from "../payroll/payroll-format";
+
+export {
+  MANDATE_HOURS_NOTE,
+  absenceActionLabel,
+  timesheetAccusative,
+  timesheetCardTitle,
+} from "@/lib/hr-employment-terms";
 
 // ── Nieobecności ─────────────────────────────────────────────────────────────
 
@@ -36,11 +45,6 @@ export function absenceCardTitle(kind: AbsenceCardKind, year: number): string {
   if (kind === "leave") return `Urlop ${year}`;
   if (kind === "paid_days") return "Płatne dni przerwy (z umowy)";
   return `Nieobecności ${year}`;
-}
-
-/** Przycisk zgłoszenia: „urlop” tylko przy umowie o pracę. */
-export function absenceActionLabel(form: EmploymentType): string {
-  return form === "uop" ? "Złóż wniosek urlopowy" : "Zgłoś nieobecność";
 }
 
 export interface PoolSegments {
@@ -87,23 +91,6 @@ export function nextAbsence(
 }
 
 // ── Miesiąc ──────────────────────────────────────────────────────────────────
-
-/** Nazwa karty miesiąca zależna od formy zatrudnienia. */
-export function timesheetCardTitle(form: EmploymentType): string {
-  if (form === "zlecenie") return "Potwierdzenie godzin";
-  if (form === "b2b") return "Raport godzin";
-  return "Ewidencja czasu pracy";
-}
-
-/** To samo w bierniku, do zadania „Wyślij … za październik”. */
-export function timesheetAccusative(form: EmploymentType): string {
-  if (form === "zlecenie") return "potwierdzenie godzin";
-  if (form === "b2b") return "raport godzin";
-  return "ewidencję czasu pracy";
-}
-
-export const MANDATE_HOURS_NOTE =
-  "Liczba godzin w miesiącu — potwierdzenie z umowy zlecenia (art. 8b ustawy o minimalnym wynagrodzeniu)";
 
 /** Dni robocze do dziś włącznie bez wpisu i bez pełnego dnia nieobecności. */
 export function missingDaysUntil(view: Pick<MonthView, "days">, today: string): string[] {

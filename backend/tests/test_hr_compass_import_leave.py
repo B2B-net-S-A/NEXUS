@@ -404,6 +404,47 @@ async def test_leave_dry_run_writes_nothing() -> None:
             await db.rollback()
 
 
+@pytest.mark.asyncio
+async def test_pending_contractor_requests_come_in_as_reports() -> None:
+    """D5: na B2B i zleceniu nikt nie akceptuje nieobecności — oczekujący
+    wniosek z Compassa wchodzi jako przyjęte zgłoszenie; umowa o pracę czeka."""
+
+    tag = uuid.uuid4().hex[:8]
+    async with AsyncSessionLocal() as db:
+        try:
+            _, u_id, u_row = await make_person(db, f"{tag}-uop")
+            _, b_id, b_row = await make_person(db, f"{tag}-b2b", employment_type="b2b")
+            _, z_id, z_row = await make_person(
+                db, f"{tag}-zl", employment_type="zlecenie"
+            )
+            pending = {"status": "pending", "decided_at": None}
+            uop = leave_row(u_id, "2026-06-01", "2026-06-02", **pending)
+            b2b = leave_row(b_id, "2026-06-01", "2026-06-02", **pending, unpaid_days=2)
+            mandate = leave_row(z_id, "2026-06-08", "2026-06-08", **pending)
+            bundle = make_bundle(
+                {
+                    "profiles": [u_row, b_row, z_row],
+                    "leave_requests": [uop, b2b, mandate],
+                }
+            )
+            batch, report, written = await run_import(db, "leave", bundle)
+            assert report["counts"] == {"create": 3}
+            assert report["extra"] == {"contractor_pending_reported": 2}
+            assert report["reasons"][leave_import.REPORTED_FROM_PENDING] == 2
+            assert_report_clean(batch.report)
+            assert written["requests_created"] == 3
+
+            kept = await db.get(LeaveRequest, uuid.UUID(uop["id"]))
+            assert kept.status == "pending" and kept.decided_at is None
+            for row in (b2b, mandate):
+                request = await db.get(LeaveRequest, uuid.UUID(row["id"]))
+                assert request.status == "approved"
+                assert request.decided_by is None
+                assert request.decided_at is not None  # data złożenia w Compassie
+        finally:
+            await db.rollback()
+
+
 def test_contractor_paid_days_follow_compass_split_in_day_order() -> None:
     from app.services.hr.calendar import WorkCalendar
 

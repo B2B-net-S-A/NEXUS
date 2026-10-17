@@ -57,7 +57,11 @@ describe("/preview/hr-my-time", () => {
     expect(within(todo).getByText("Podpisz protokół PZO/TEST/2026/011")).toBeInTheDocument();
     expect(within(todo).getByText("Szkolenie stanowiskowe: praca w NEXUSIE")).toBeInTheDocument();
     expect(screen.getByText("w pracy")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Zgłoś nieobecność" })).toBeInTheDocument();
+    // Słowa według formy (D4): B2B „zgłasza przerwę”, zakładki „Przerwy” i „Raport godzin”.
+    expect(screen.getByRole("button", { name: "Zgłoś przerwę" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Przerwy" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Raport godzin" })).toBeInTheDocument();
+    expect(screen.queryByRole("tab", { name: "Urlopy" })).toBeNull();
     expect(attempted()).toEqual([]);
   });
 
@@ -67,6 +71,8 @@ describe("/preview/hr-my-time", () => {
     expect(within(leave).getByText(/Na żądanie 1 z 4/)).toBeInTheDocument();
     expect(screen.getByRole("generic", { name: /^Ewidencja czasu pracy/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Złóż wniosek urlopowy" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Urlop" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Ewidencja czasu pracy" })).toBeInTheDocument();
     expect(attempted()).toEqual([]);
     cleanup();
 
@@ -75,24 +81,46 @@ describe("/preview/hr-my-time", () => {
     expect(within(absences).queryByText(/zostało/)).toBeNull();
     expect(screen.getByRole("generic", { name: /^Potwierdzenie godzin/ })).toBeInTheDocument();
     expect(screen.getByText(/art\. 8b ustawy o minimalnym wynagrodzeniu/)).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Nieobecności" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Potwierdzenie godzin" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Zgłoś nieobecność" })).toBeInTheDocument();
     expect(attempted()).toEqual([]);
   });
 
-  it("Urlopy: saldo i wnioski Oli, przełączenie zakładek bez zapytań", async () => {
+  it("Przerwy (B2B): zgłoszenia z kolizją od koordynatorki, przełączenie zakładek bez zapytań", async () => {
     const user = userEvent.setup();
     open("?tab=leave");
 
     const table = await screen.findByRole("table");
     expect(within(table).getByText("Ewa Makietowa")).toBeInTheDocument();
     expect(within(table).getByText("przekierowanie poczty")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Złóż wniosek" })).toBeInTheDocument();
+    expect(within(table).getAllByText("Zgłoszone").length).toBeGreaterThan(0);
+    expect(within(table).getByText(/kolizja · Marta Fikcyjna/)).toBeInTheDocument();
+    expect(within(table).queryByText("Urlop wypoczynkowy")).toBeNull();
+    expect(screen.getByRole("button", { name: "Zgłoś przerwę" })).toBeInTheDocument();
 
     await user.click(screen.getByRole("tab", { name: "Premie i stawka" }));
     expect(await screen.findByText("Liga Mistrzów — 2. miejsce w kwartale")).toBeInTheDocument();
     expect(screen.getByText("kontrakt zakończony przed 21. dniem roboczym")).toBeInTheDocument();
     expect(screen.getByRole("generic", { name: "Moje rozliczenie" })).toBeInTheDocument();
     await user.click(screen.getByRole("tab", { name: "Kartoteka" }));
-    expect(await screen.findByText("Przełożony: Marta Fikcyjna")).toBeInTheDocument();
+    expect(await screen.findByText("Koordynator: Marta Fikcyjna")).toBeInTheDocument();
+    expect(attempted()).toEqual([]);
+  });
+
+  it("zgłoszenie przerwy Oli (B2B, D5): bez rodzaju i akceptacji, „Co się stanie po zgłoszeniu”", async () => {
+    open("?state=report&tab=leave");
+
+    const dialog = await screen.findByRole("dialog", { name: "Zgłoś przerwę w świadczeniu usług" });
+    expect(within(dialog).queryByLabelText("Rodzaj")).toBeNull();
+    expect(within(dialog).getByText(/Zgłoszenie, nie wniosek — koordynator/)).toBeInTheDocument();
+    const outcome = within(dialog).getByTestId("report-outcome");
+    expect(outcome).toHaveTextContent("Termin od razu w kalendarzu");
+    expect(outcome).toHaveTextContent("Koordynator dostaje informację");
+    expect(outcome).toHaveTextContent("nie zatwierdza i nie odrzuca");
+    expect(within(dialog).getByLabelText("Kto przejmie bieżące sprawy")).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "Zgłoś przerwę" })).toBeInTheDocument();
+    expect(within(dialog).queryByRole("button", { name: "Wyślij do akceptacji" })).toBeNull();
     expect(attempted()).toEqual([]);
   });
 
@@ -114,7 +142,8 @@ describe("/preview/hr-my-time", () => {
     open("?tab=month");
 
     expect(await screen.findByRole("heading", { name: monthTitle(current) })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Wyślij do akceptacji" })).toBeInTheDocument();
+    // B2B: raport godzin idzie do potwierdzenia koordynatorki (D4).
+    expect(screen.getByRole("button", { name: "Wyślij do potwierdzenia" })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: `Dodaj wpis ${today}` }));
     const entry = await screen.findByRole("dialog");
     expect(within(entry).getByRole("button", { name: "Wstaw opis z pracy w NEXUSIE" })).toBeEnabled();
@@ -125,7 +154,7 @@ describe("/preview/hr-my-time", () => {
       await screen.findByRole("heading", { name: monthTitle(shiftMonth(current, -1)) }),
     ).toBeInTheDocument();
     expect(screen.getByText("zaakceptowany")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Wyślij do akceptacji" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Wyślij do potwierdzenia" })).toBeNull();
 
     // Archiwum timesheetów rozwija się z zasiewu, bez zapytania.
     await user.click(screen.getByRole("button", { name: /Archiwum timesheetów/ }));

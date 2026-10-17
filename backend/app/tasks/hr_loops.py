@@ -271,6 +271,7 @@ LIFECYCLE_INTERVAL_SECONDS = 15 * 60
 async def lifecycle_job(db: AsyncSession) -> dict[str, Any] | None:
     from app.api.hr_import import purge_expired_uploads
     from app.services.hr.lifecycle_jobs import run_once
+    from app.services.hr.student_reminders import student_contribution_reminders
 
     result = await run_once(db)
     # Paczka importu z Compassa niesie dane osobowe — po 24 h bez zapisu
@@ -278,6 +279,12 @@ async def lifecycle_job(db: AsyncSession) -> dict[str, Any] | None:
     if purged := await purge_expired_uploads(db):
         await db.commit()
         result = {**(result or {}), "import_uploads_expired": purged}
+    # Uczeń/student na zleceniu (etap 2, D8): 30 dni przed końcem zwolnienia ze
+    # składek Płace i Kadry dostają przypomnienie — raz na osobę i datę
+    # (rezerwacja w `hr_job_runs`), więc przebieg co 15 minut jest tani.
+    students = await student_contribution_reminders(db)
+    if students.get("sent"):
+        result = {**(result or {}), "student_contribution_reminders": students["sent"]}
     return result
 
 

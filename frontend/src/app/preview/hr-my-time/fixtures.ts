@@ -196,13 +196,42 @@ function request(
   };
 }
 
-/** Wnioski Oli: urlop w tym miesiącu (wpisany do „Mojego miesiąca”), zaplanowany i odrzucony. */
-export function olaRequests(current: YearMonth): LeaveRequestRow[] {
+/**
+ * Wnioski Oli: urlop w tym miesiącu (wpisany do „Mojego miesiąca”), zaplanowany
+ * i odrzucony. Na B2B i zleceniu (etap 2, D5) to zgłoszenia: wchodzą od razu,
+ * bez akceptującego; zaplanowane ma kolizję zgłoszoną przez koordynatorkę.
+ */
+export function olaRequests(current: YearMonth, form: EmploymentType = "uop"): LeaveRequestRow[] {
   const month = isoMonth(current);
   const next = shiftIsoMonth(month, 1);
   const leaveDay = harnessWorkDays(month)[3];
   const nextDays = harnessWorkDays(next);
   const previous = harnessWorkDays(shiftIsoMonth(month, -1));
+  if (form !== "uop") {
+    const label = form === "b2b" ? "Przerwa w świadczeniu usług" : "Nieobecność";
+    const report = {
+      is_report: true,
+      employment_type: form,
+      leave_type_label: label,
+      decided_by_name: null,
+    } satisfies Partial<LeaveRequestRow>;
+    return [
+      request("lv-ola-2", ola, nextDays[14], nextDays[18], "5", "approved", {
+        ...report,
+        substitute_user_id: ewa.id,
+        substitute_name: ewa.name,
+        forward_mail_consent: true,
+        can_cancel: true,
+        conflict: {
+          at: `${nextDays[0]}T09:00:00+02:00`,
+          by_name: marta.name,
+          note: `Odbiór projektu u klienta (${bank.name}) — czy da się przesunąć o tydzień?`,
+        },
+      }),
+      request("lv-ola-1", ola, leaveDay, leaveDay, "1", "approved", report),
+      request("lv-ola-0", ola, previous[10], previous[11], "2", "cancelled", report),
+    ];
+  }
   return [
     request("lv-ola-2", ola, nextDays[14], nextDays[18], "5", "approved", {
       substitute_user_id: ewa.id,
@@ -233,6 +262,28 @@ export const KAMIL_SUBSTITUTES: SubstituteCandidate[] = [
  * Podgląd wniosku Kamila dla dzisiejszego dnia (okno startuje od „dziś–dziś”).
  * Dzień wolny → serwer zwraca `blocking_reason` jak `leave_policy.py`.
  */
+/** Zastępcy dla zgłoszenia Oli (B2B) — bez niej samej. */
+export const OLA_SUBSTITUTES: SubstituteCandidate[] = [
+  { user_id: kamil.id, name: kamil.name, job_title: kamil.jobTitle, department: kamil.department, same_department: true, shared_role: true, suggested: true },
+  { user_id: julia.id, name: julia.name, job_title: julia.jobTitle, department: julia.department, same_department: false, shared_role: true, suggested: false },
+];
+
+/**
+ * Podgląd zgłoszenia przerwy Oli na B2B z umowną pulą (makieta m5, D5):
+ * zgłoszenie, nie wniosek — koordynatorka dostaje informację.
+ */
+export function olaReportPreview(today: string, substituteId: number | null): LeavePreview {
+  const base = kamilPreview(today, substituteId);
+  return {
+    ...base,
+    employment_type: "b2b",
+    flow: "report",
+    auto_approved: true,
+    years: base.years.map((split) => ({ ...split, remaining_before: "4", remaining_after: base.days_total === "1" ? "3" : "4" })),
+    substitute_absent: false,
+  };
+}
+
 export function kamilPreview(today: string, substituteId: number | null): LeavePreview {
   const weekday = (new Date(`${today}T12:00:00Z`).getUTCDay() + 6) % 7;
   const holiday = harnessMonthDays(today.slice(0, 7)).find((day) => day.date === today)?.kind === "holiday";

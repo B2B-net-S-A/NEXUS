@@ -22,9 +22,14 @@ import {
 import { API_URL, expectStatus, jsonOf } from "./api";
 
 export const HR_ACCOUNTS = {
-  /** Pracownica z kartoteką, przełożoną i pulą urlopową (B2B: tylko urlop). */
+  /**
+   * Osoba na B2B z koordynatorką i pulą płatnych dni — zgłasza przerwę bez
+   * akceptacji (etap 2, D5).
+   */
   employee: process.env.E2E_HR_EMPLOYEE_EMAIL || "anna@hr-demo.example.com",
-  /** Przełożona pracownicy — akceptuje jej wnioski. */
+  /** Pracownik na umowie o pracę — wniosek urlopowy z akceptacją przełożonej. */
+  uopEmployee: process.env.E2E_HR_UOP_EMPLOYEE_EMAIL || "dawid@hr-demo.example.com",
+  /** Przełożona (UoP) i koordynatorka (B2B) obu osób. */
   manager: process.env.E2E_HR_MANAGER_EMAIL || "marta@hr-demo.example.com",
   /** Rola „Pracownik” bez uprawnień „Kadry” i „Płace”. */
   staff: process.env.E2E_HR_STAFF_EMAIL || "celina@hr-demo.example.com",
@@ -133,6 +138,8 @@ interface LeavePreview {
   working_days: string[];
   blocking_reason: string | null;
   auto_approved: boolean;
+  /** `report` — zgłoszenie z B2B/zlecenia, wchodzi od razu (D5). */
+  flow?: "request" | "report";
 }
 
 /**
@@ -160,7 +167,7 @@ export async function pickFreeLeaveDay(api: APIRequestContext, fromOffset: numbe
     if (
       preview.working_days.length === 1 &&
       preview.blocking_reason === null &&
-      !preview.auto_approved
+      (!preview.auto_approved || preview.flow === "report")
     ) {
       return day;
     }

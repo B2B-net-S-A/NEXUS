@@ -9,7 +9,14 @@ import { PersonEquipmentPanel } from "@/components/equipment/PersonEquipmentPane
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import { TabbedNav } from "@/components/ds/TabbedNav";
 import { Card } from "@/components/ui/card";
-import { useMyHrProfile, type HrConfig, type HrModuleKey, type PersonFull } from "@/lib/api/hr";
+import {
+  useMyHrProfile,
+  type EmploymentType,
+  type HrConfig,
+  type HrModuleKey,
+  type PersonFull,
+} from "@/lib/api/hr";
+import { coordinatorLabel, employmentTerms } from "@/lib/hr-employment-terms";
 import { useUrlSyncedState } from "@/lib/url-selection";
 import { resolveViewState } from "@/lib/view-state";
 
@@ -32,6 +39,8 @@ function warsawYear(): number {
 export interface MyTimeModuleTab {
   value: string;
   label: string;
+  /** Nazwa zależna od formy współpracy (D4); bez niej — `label`. */
+  labelFor?: (form: EmploymentType | null | undefined) => string;
   module: HrModuleKey;
   /** `initialMonth` — miesiąc z adresu (link z powiadomienia o timesheecie). */
   render: (config: HrConfig, initialMonth?: YearMonth) => ReactNode;
@@ -42,10 +51,19 @@ export interface MyTimeModuleTab {
  * Zakładka modułu jest widoczna, gdy moduł jest otwarty.
  */
 export const MY_TIME_MODULE_TABS: MyTimeModuleTab[] = [
-  { value: "leave", label: "Urlopy", module: "leave", render: () => <MyLeaveTab /> },
+  {
+    value: "leave",
+    label: "Urlop",
+    // „Urlop” (UoP), „Przerwy” (B2B), „Nieobecności” (zlecenie) — etap 2, D4.
+    labelFor: (form) => employmentTerms(form).absences_title,
+    module: "leave",
+    render: () => <MyLeaveTab />,
+  },
   {
     value: "month",
     label: "Mój miesiąc",
+    // „Ewidencja czasu pracy”, „Raport godzin”, „Potwierdzenie godzin”.
+    labelFor: (form) => employmentTerms(form).timesheet,
     module: "time",
     render: (config, initialMonth) => <MyMonthTab config={config} initialMonth={initialMonth} />,
   },
@@ -71,17 +89,22 @@ const PROFILE_TAB = { value: "profile", label: "Kartoteka" } as const;
 
 /**
  * Zakładki widoczne dla osoby: „Przegląd” (zawsze pierwszy i domyślny,
- * etap 2 D1), otwarte moduły i kartoteka (zawsze na końcu).
+ * etap 2 D1), otwarte moduły i kartoteka (zawsze na końcu). Nazwy zakładek
+ * modułów mówią językiem umowy osoby (`form`; brak = jak umowa o pracę).
  */
 export function myTimeTabs(
   config: Pick<HrConfig, "open_modules">,
   tabs: readonly MyTimeModuleTab[] = MY_TIME_MODULE_TABS,
+  form?: EmploymentType | null,
 ): { value: string; label: string }[] {
   return [
     OVERVIEW_TAB,
     ...tabs
       .filter((tab) => config.open_modules[tab.module])
-      .map(({ value, label }) => ({ value, label })),
+      .map(({ value, label, labelFor }) => ({
+        value,
+        label: labelFor ? labelFor(form) : label,
+      })),
     PROFILE_TAB,
   ];
 }
@@ -103,7 +126,9 @@ function ProfileCard({ person, leaveOpen }: { person: PersonFull; leaveOpen: boo
             "Stanowisko nieuzupełnione"}
         </p>
         {person.manager_name ? (
-          <p className="text-sm text-muted-foreground">Przełożony: {person.manager_name}</p>
+          <p className="text-sm text-muted-foreground">
+            {coordinatorLabel(person.employment_type)}: {person.manager_name}
+          </p>
         ) : null}
         <Link href={`/people/${person.user_id}`} className="text-sm text-primary hover:underline">
           Otwórz kartotekę
@@ -132,7 +157,9 @@ function ProfileCard({ person, leaveOpen }: { person: PersonFull; leaveOpen: boo
         )}
         {!leaveOpen ? (
           <p className="text-xs text-muted-foreground">
-            Wnioski o nieobecność ruszą po włączeniu modułu nieobecności.
+            {person.employment_type === "uop"
+              ? "Wnioski o nieobecność ruszą po włączeniu modułu nieobecności."
+              : "Zgłoszenia nieobecności ruszą po włączeniu modułu nieobecności."}
           </p>
         ) : null}
       </Card>
@@ -146,7 +173,8 @@ function ProfileCard({ person, leaveOpen }: { person: PersonFull; leaveOpen: boo
  */
 export function MyTimeScreen({ config }: { config: HrConfig }) {
   const me = useMyHrProfile();
-  const tabs = myTimeTabs(config);
+  const form = me.data?.has_profile ? me.data.employment_type : null;
+  const tabs = myTimeTabs(config, MY_TIME_MODULE_TABS, form);
   const params = useSearchParams();
   // Zakładka z adresu (link z powiadomienia także przy otwartym ekranie), przełączalna ręcznie.
   const [active, setActive] = useUrlSyncedState<string>(params.get("tab"), tabs[0].value);
@@ -178,7 +206,7 @@ export function MyTimeScreen({ config }: { config: HrConfig }) {
       ) : !me.data.has_profile ? (
         <Card className="p-5 text-sm text-muted-foreground">
           Nie masz jeszcze kartoteki pracownika. Poproś Kadry o jej założenie —
-          bez niej nie złożysz wniosku urlopowego ani nie wyślesz timesheetu.
+          bez niej nie zgłosisz nieobecności ani nie wyślesz raportu godzin.
         </Card>
       ) : (
         <>

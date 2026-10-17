@@ -153,6 +153,12 @@ class RateIn(BaseModel):
     reason: Optional[str] = Field(default=None, max_length=500)
 
 
+class MinimumRatesIn(BaseModel):
+    """Minimalna stawka godzinowa na zleceniu per rok (``{"2026": "31.40"}``)."""
+
+    rates: dict[str, Decimal] = Field(max_length=50)
+
+
 class BonusIn(BaseModel):
     recipient_user_id: int
     amount: Decimal
@@ -617,7 +623,15 @@ async def set_rate(
             actor_id=current_user.id,
             today=business_today(),
         )
-    return payroll_rates.rate_payload(rate)
+        # Zlecenie bez minimum dla roku albo w innej walucie — zapis z ostrzeżeniem.
+        warning = await payroll_rates.mandate_minimum_check(
+            db,
+            user_id=user_id,
+            hourly_rate=rate.hourly_rate,
+            currency=rate.currency,
+            effective_from=rate.effective_from,
+        )
+    return {**payroll_rates.rate_payload(rate), "warning": warning}
 
 
 @router.delete("/rates/{rate_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -832,6 +846,51 @@ async def put_rules(
         details={"changed": sorted(changes)},
     )
     return await _rules_response(db, rules)
+
+
+# ── Minimalna stawka na zleceniu (etap 2, D7) ─────────────────────────────────
+
+
+def _minimum_rates_response(rates: dict[int, Decimal]) -> dict[str, Any]:
+    return {
+        "rates": [
+            {"year": year, "hourly_rate": f"{amount:.2f}"}
+            for year, amount in sorted(rates.items())
+        ],
+        "currency": "PLN",
+    }
+
+
+@router.get("/settings/minimum-rates")
+async def get_minimum_rates(
+    current_user: PayrollAdmin, db: AsyncSession = Depends(get_db)
+) -> dict[str, Any]:
+    return _minimum_rates_response(await payroll_rates.load_minimum_rates(db))
+
+
+@router.put("/settings/minimum-rates")
+async def put_minimum_rates(
+    payload: MinimumRatesIn,
+    current_user: PayrollAdmin,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    with _http_errors():
+        rates = await payroll_rates.save_minimum_rates(
+            db,
+            {year: str(amount) for year, amount in payload.rates.items()},
+            actor_id=current_user.id,
+        )
+    audit.record(
+        db,
+        actor_user_id=current_user.id,
+        subject_user_id=None,
+        entity_type="hr_minimum_hourly_rates",
+        entity_id=payroll_rates.MINIMUM_RATES_SETTING,
+        action="minimum_rates_changed",
+        sensitivity="payroll",
+        details={"rates": payroll_rates.minimum_rates_payload(rates)},
+    )
+    return _minimum_rates_response(rates)
 
 
 @router.post("/proposals/refresh")

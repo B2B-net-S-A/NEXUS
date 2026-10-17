@@ -11,7 +11,7 @@
 import type { QueryClient, QueryKey } from "@tanstack/react-query";
 
 import type { HolderEquipment, AssignmentRow } from "@/lib/api/equipment";
-import type { EmploymentStatus, PersonCard, PersonFull } from "@/lib/api/hr";
+import type { EmploymentStatus, EmploymentType, PersonCard, PersonFull } from "@/lib/api/hr";
 import type { CaseKind, TransferKind } from "@/lib/api/hr-lifecycle";
 import type { RateRow } from "@/lib/api/hr-payroll";
 
@@ -176,7 +176,31 @@ export function harnessLeaveYear(): number {
   );
 }
 
-export function olaFull(): PersonFull {
+/**
+ * Pełna kartoteka Oli. `form` (etap 2, D6–D9): B2B z umowną pulą (domyślnie),
+ * zlecenie ze znacznikiem studenta (bez puli, składki od dnia po końcu
+ * zwolnienia), umowa o pracę ze stażem do urlopu i zaświadczeniem ZUS.
+ */
+export function olaFull(form: EmploymentType = "b2b"): PersonFull {
+  if (form === "zlecenie") {
+    return {
+      ...olaFull("b2b"),
+      employment_type: "zlecenie",
+      student_contribution_exempt: true,
+      contribution_exempt_until: "2027-06-30",
+      contributions_from: "2027-07-01",
+      entitlements: [],
+    };
+  }
+  if (form === "uop") {
+    return {
+      ...olaFull("b2b"),
+      employment_type: "uop",
+      leave_seniority_years: 12,
+      zus_certificate_received_on: "2026-05-04",
+      suggested_entitlement_days: 26,
+    };
+  }
   return {
     ...personCard(ola),
     scope: "full",

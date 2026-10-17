@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { apiErrorMessage } from "@/lib/api-error";
+import type { EmploymentType } from "@/lib/api/hr";
 import {
   useEnterOnBehalf,
   useLeavePreview,
@@ -28,6 +29,7 @@ import {
   type LeavePreview,
   type LeaveType,
 } from "@/lib/api/hr-leave";
+import { employmentTerms, reportsAbsence } from "@/lib/hr-employment-terms";
 
 import {
   LEAVE_TYPE_LABELS,
@@ -36,6 +38,10 @@ import {
   eventLabel,
   formatRange,
   leaveToast,
+  paySplitLabel,
+  reportOutcome,
+  submitLabel,
+  submittedToast,
   validRange,
   warsawToday,
 } from "./leave-format";
@@ -72,14 +78,21 @@ export interface LeaveRequestDialogProps {
   mode: "self" | "on_behalf";
   /** Rodzaje dozwolone dla osoby (z salda); B2B i zlecenie widzą tylko urlop. */
   allowedTypes?: LeaveType[];
+  /** Forma osoby (z salda) — słowa okna, zanim przyjdzie podgląd (D4, D5). */
+  employmentType?: EmploymentType;
 }
 
-/** Okno wniosku o nieobecność z podziałem płatne/bezpłatne i ostrzeżeniami na żywo. */
+/**
+ * Okno nieobecności z podziałem płatne/bezpłatne i ostrzeżeniami na żywo.
+ * Umowa o pracę: wniosek do akceptacji przełożonego. B2B i zlecenie (D5):
+ * zgłoszenie — termin wchodzi od razu, koordynator dostaje informację.
+ */
 export function LeaveRequestDialog({
   open,
   onOpenChange,
   mode,
   allowedTypes,
+  employmentType,
 }: LeaveRequestDialogProps) {
   const onBehalf = mode === "on_behalf";
   const { showToast } = useToast();
@@ -139,6 +152,12 @@ export function LeaveRequestDialog({
   const preview = useLeavePreview(open ? debouncedInput : null, subjectId);
   const shown = preview.data;
   const stale = JSON.stringify(input) !== JSON.stringify(debouncedInput);
+  // Forma osoby: za kogoś — z listy osób; własna — z salda albo z podglądu.
+  const form: EmploymentType | undefined = onBehalf
+    ? person?.employment_type
+    : (employmentType ?? shown?.employment_type);
+  const words = employmentTerms(form);
+  const report = reportsAbsence(form);
 
   const reset = () => {
     setPersonId("");
@@ -192,12 +211,7 @@ export function LeaveRequestDialog({
       },
       {
         onSuccess: (row) => {
-          showToast(
-            ...leaveToast(
-              row.status === "approved" ? "Nieobecność zgłoszona" : "Wniosek wysłany do akceptacji",
-              row,
-            ),
-          );
+          showToast(...leaveToast(submittedToast(row), row));
           close(false);
         },
         onError,
@@ -205,24 +219,22 @@ export function LeaveRequestDialog({
     );
   };
 
-  const submitLabel = onBehalf
-    ? "Wpisz nieobecność"
-    : shown?.auto_approved
-      ? "Zgłoś nieobecność"
-      : "Wyślij do akceptacji";
+  const saveLabel = submitLabel({ onBehalf, form, autoApproved: shown?.auto_approved });
 
   return (
     <AppModal
       open={open}
       onOpenChange={close}
       size="xl"
-      title={onBehalf ? "Wpisz nieobecność za pracownika" : "Wniosek o nieobecność"}
+      title={onBehalf ? "Wpisz nieobecność za pracownika" : words.dialog_title}
       description={
         onBehalf
           ? "Wpis jest od razu zatwierdzony. Zgodę na przekierowanie poczty daje tylko sama osoba."
-          : shown && !shown.auto_approved
-            ? `Akceptuje: ${shown.approver}`
-            : undefined
+          : report
+            ? `Zgłoszenie, nie wniosek — ${words.coordinator}${shown ? ` (${shown.approver})` : ""} dostaje informację.`
+            : shown && !shown.auto_approved
+              ? `Akceptuje: ${shown.approver}`
+              : undefined
       }
       footer={
         <>
@@ -230,7 +242,7 @@ export function LeaveRequestDialog({
             Anuluj
           </Button>
           <Button onClick={submit} disabled={blocked || pending}>
-            {pending ? "Zapisywanie…" : submitLabel}
+            {pending ? "Zapisywanie…" : saveLabel}
           </Button>
         </>
       }
@@ -260,20 +272,23 @@ export function LeaveRequestDialog({
               </Select>
             </FormField>
           ) : null}
-          <FormField label="Rodzaj" htmlFor="leave-type">
-            <Select value={leaveType} onValueChange={(value) => setLeaveType(value as LeaveType)}>
-              <SelectTrigger id="leave-type">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {types.map((type) => (
-                  <SelectItem key={type} value={type}>
-                    {LEAVE_TYPE_LABELS[type]}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </FormField>
+          {/* B2B i zlecenie mają jeden rodzaj — bez wyboru i bez słowa „urlop” (D4). */}
+          {report ? null : (
+            <FormField label="Rodzaj" htmlFor="leave-type">
+              <Select value={leaveType} onValueChange={(value) => setLeaveType(value as LeaveType)}>
+                <SelectTrigger id="leave-type">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {types.map((type) => (
+                    <SelectItem key={type} value={type}>
+                      {LEAVE_TYPE_LABELS[type]}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </FormField>
+          )}
           <div className="grid gap-3 sm:grid-cols-3">
             <FormField label="Od" htmlFor="leave-start">
               <Input
@@ -309,7 +324,7 @@ export function LeaveRequestDialog({
             </FormField>
           </div>
           <FormField
-            label="Zastępca"
+            label={report ? "Kto przejmie bieżące sprawy" : "Zastępca"}
             htmlFor="leave-substitute"
             description="Najpierw osoby z Twojego działu, które są w pracy przez cały okres."
           >
@@ -377,8 +392,9 @@ export function LeaveRequestDialog({
                     className="mt-0.5"
                   />
                   <span>
-                    Przekierowuj kopię poczty do zastępcy na czas nieobecności. Reguła
-                    zniknie sama po ostatnim dniu.
+                    Przekierowuj kopię poczty do zastępcy na czas{" "}
+                    {form === "b2b" ? "przerwy" : "nieobecności"}. Reguła zniknie sama po
+                    ostatnim dniu.
                   </span>
                 </label>
               ) : null}
@@ -397,6 +413,7 @@ export function LeaveRequestDialog({
           waitingForPerson={onBehalf && !subjectId}
           onBehalf={onBehalf}
           range={rangeOk ? formatRange(start, end) : null}
+          form={form}
         />
       </div>
     </AppModal>
@@ -410,6 +427,8 @@ interface PreviewPanelProps {
   waitingForPerson: boolean;
   onBehalf: boolean;
   range: string | null;
+  /** Forma osoby — słowa puli i „Co się stanie po zgłoszeniu” (D4, D5). */
+  form?: EmploymentType;
 }
 
 /** „Co wypada w tym czasie” — dni, pula, praca w NEXUSIE, nieobecni z działu. */
@@ -420,8 +439,10 @@ export function PreviewPanel({
   waitingForPerson,
   onBehalf,
   range,
+  form,
 }: PreviewPanelProps) {
   const box = "grid content-start gap-3 rounded-lg border border-border bg-muted/40 p-4 text-sm";
+  const report = reportsAbsence(form);
   if (waitingForPerson) {
     return <div className={box}>Wybierz osobę, żeby policzyć dni i pulę.</div>;
   }
@@ -455,7 +476,7 @@ export function PreviewPanel({
         <p key={split.year} className="text-muted-foreground">
           {split.has_pool && split.remaining_before !== null ? (
             <>
-              Pula {split.year}: zostało{" "}
+              {report ? `Płatne dni z umowy ${split.year}` : `Pula ${split.year}`}: zostało{" "}
               <span className="tabular-nums text-foreground">
                 {daysLabel(split.remaining_before)}
               </span>
@@ -469,11 +490,13 @@ export function PreviewPanel({
               ) : null}
             </>
           ) : (
-            <>Rok {split.year}: bez puli</>
+            <>
+              Rok {split.year}: {report ? "bez płatnych dni — bez wynagrodzenia" : "bez puli"}
+            </>
           )}
           {Number(split.unpaid) > 0 ? (
             <span className="block text-warning-muted-foreground">
-              Bezpłatnie: {daysLabel(split.unpaid)}
+              {report ? "Bez wynagrodzenia" : "Bezpłatnie"}: {daysLabel(split.unpaid)}
             </span>
           ) : null}
         </p>
@@ -515,11 +538,30 @@ export function PreviewPanel({
           Wybrany zastępca też jest nieobecny w części tego okresu.
         </p>
       ) : null}
-      {preview.auto_approved ? (
+      {report && !onBehalf ? (
+        <div data-testid="report-outcome">
+          <b className="text-foreground">Co się stanie po zgłoszeniu</b>
+          <ul className="mt-1 space-y-1 text-muted-foreground">
+            {reportOutcome(preview, form).map((line) => (
+              <li key={line.title}>
+                <span className="text-foreground">{line.title}</span> — {line.text}
+              </li>
+            ))}
+          </ul>
+          {form === "b2b" && paySplitLabel(preview) ? (
+            <p className="mt-1 text-[12px] text-muted-foreground">{paySplitLabel(preview)}</p>
+          ) : null}
+        </div>
+      ) : preview.auto_approved ? (
         <p className="text-muted-foreground">
           {onBehalf
             ? "Wpis jest od razu zatwierdzony; osoba dostanie powiadomienie."
             : "Zwolnienie zatwierdza się od razu — przełożony i Kadry dostaną powiadomienie."}
+        </p>
+      ) : null}
+      {!report && !onBehalf && !preview.auto_approved ? (
+        <p className="text-[12px] text-muted-foreground">
+          Wniosek czeka na akceptację: {preview.approver}.
         </p>
       ) : null}
     </div>

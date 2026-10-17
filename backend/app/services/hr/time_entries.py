@@ -31,6 +31,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.hr_profile import EmployeeProfile
 from app.models.hr_time import Timesheet, TimesheetEntry
 from app.services.hr import time_leave_bridge as bridge
+from app.services.hr import time_retention
 from app.services.hr.time_access import Actor
 from app.services.hr.time_calendar import month_range
 from app.services.hr.time_hash import HashEntry, compute_timesheet_hash
@@ -505,6 +506,16 @@ async def delete_entry(
         raise TimeConflict(
             "Ten wpis powstał z płatnego urlopu — zmień albo anuluj wniosek urlopowy."
         )
+    # Przyjęte potwierdzenie godzin zlecenia po terminie wypłaty zostaje 3 lata
+    # (art. 8c) — trasy i tak edytują tylko szkic, to pilnuje każdej ścieżki.
+    refusal = time_retention.delete_refusal(
+        employment_type=subject.employment_type,
+        status=timesheet.status,
+        year=timesheet.year,
+        month=timesheet.month,
+    )
+    if refusal is not None:
+        raise TimeConflict(refusal)
     work_date = entry.work_date
     await db.delete(entry)
     # Usunięty wpis nie zostawia śladu w wierszach — nagłówek niesie zmianę

@@ -7,7 +7,7 @@ Ekran SKŁADA istniejące odczyty, nie liczy po swojemu:
   ``absence.month_absences``: przełożony należy do kręgu D6 (osoba, przełożony,
   Kadry, admin), więc rodzaj widzi; kto kogo dziś zastępuje — z tych samych
   nieobecności,
-* **urlop i nieobecności** — saldo z ``leave_balance.balance_payload`` (to samo,
+* **urlop i nieobecności** — saldo z ``leave_balance.balances_for`` (to samo,
   co osoba widzi w „Moim czasie”) tylko u osób z pulą; zaplanowane dni
   nieobecności (zatwierdzone po dziś i czekające) z ``leave_request_days`` —
   prawie wszyscy są na B2B albo zleceniu bez puli (decyzja Artura 17.10.2026),
@@ -40,8 +40,8 @@ from app.models.hr_time import Timesheet
 from app.models.user import User, UserRole
 from app.services.hr import absence, leave_service, payroll_bonuses, people
 from app.services.hr import modules as hr_modules
-from app.services.hr.leave_balance import balance_payload
-from app.services.hr.leave_policy import LEAVE_TYPE_LABELS
+from app.services.hr.leave_balance import balances_for
+from app.services.hr.leave_policy import type_label
 from app.services.hr.payroll_access import PayrollViewer, is_payroll
 from app.services.hr.payroll_periods import closed_months
 from app.services.hr.time_access import Actor
@@ -52,6 +52,10 @@ from app.services.hr.time_month import team_queue
 
 #: Premie „w drodze” — jeszcze nie wypłacone (miesiąc płac otwarty).
 BONUS_IN_FLIGHT = ("proposed", "assigned")
+
+
+def _iso(value: Optional[date]) -> Optional[str]:
+    return value.isoformat() if value else None
 
 
 def _num(value: Decimal) -> str:
@@ -90,10 +94,17 @@ async def managers(db: AsyncSession) -> list[dict[str, Any]]:
 
 
 async def _today(
-    db: AsyncSession, ids: list[int], today: date
+    db: AsyncSession,
+    ids: list[int],
+    today: date,
+    forms: Optional[dict[int, str]] = None,
 ) -> tuple[dict[int, dict[str, Any]], dict[int, list[str]]]:
-    """Nieobecni dziś (z rodzajem — krąg D6) i kogo kto dziś zastępuje."""
+    """Nieobecni dziś (z rodzajem — krąg D6) i kogo kto dziś zastępuje.
 
+    Rodzaj w słowach formy (D4): na B2B „Przerwa w świadczeniu usług”.
+    """
+
+    forms = forms or {}
     found = await absence.absences_on(db, ids, today)
     types = {
         item.user_id: item.leave_type
@@ -106,9 +117,9 @@ async def _today(
             "until": item.until.isoformat(),
             "half_day": item.half_day,
             "leave_type": types.get(user_id),
-            "leave_type_label": LEAVE_TYPE_LABELS.get(
-                types.get(user_id, ""), "Nieobecność"
-            ),
+            "leave_type_label": type_label(types.get(user_id), forms.get(user_id))
+            if types.get(user_id)
+            else "Nieobecność",
             "substitute_name": item.substitute_name,
         }
         for user_id, item in found.items()
@@ -169,15 +180,16 @@ async def _leave(
 ) -> dict[int, dict[str, Any]]:
     ids = [profile.user_id for profile, _ in pairs]
     upcoming = await _upcoming_absence_days(db, ids, today)
+    # Saldo całego zespołu dwoma zapytaniami (te same liczby co „Mój czas”).
+    balances = await balances_for(
+        db,
+        {profile.user_id: profile.employment_type for profile, _ in pairs},
+        year=today.year,
+        today=today,
+    )
     result: dict[int, dict[str, Any]] = {}
     for profile, _ in pairs:
-        balance = await balance_payload(
-            db,
-            user_id=profile.user_id,
-            year=today.year,
-            employment_type=profile.employment_type,
-            today=today,
-        )
+        balance = balances[profile.user_id]
         planned = upcoming.get(profile.user_id) or {
             "approved": Decimal("0"),
             "pending": Decimal("0"),
@@ -338,7 +350,12 @@ async def team_view(
     leave: dict[int, dict[str, Any]] = {}
     leave_items: dict[int, list[dict[str, Any]]] = {}
     if is_open("leave") and ids:
-        absent, covering = await _today(db, ids, today)
+        absent, covering = await _today(
+            db,
+            ids,
+            today,
+            {profile.user_id: profile.employment_type for profile, _ in pairs},
+        )
         leave = await _leave(db, pairs, today)
     month: Optional[dict[str, Any]] = None
     month_rows: dict[int, dict[str, Any]] = {}
@@ -364,6 +381,9 @@ async def team_view(
                 "job_title": profile.job_title,
                 "employment_type": profile.employment_type,
                 "employment_status": profile.employment_status,
+                # Uczeń/student na zleceniu (D8): plakietka „składki od …”.
+                "student": profile.student_contribution_exempt,
+                "contributions_from": _iso(people.contributions_from(profile)),
                 "last_working_day": profile.last_working_day.isoformat()
                 if profile.last_working_day
                 else None,

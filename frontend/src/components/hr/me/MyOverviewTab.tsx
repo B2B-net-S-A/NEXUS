@@ -683,6 +683,7 @@ export function MyOverviewTab({ config, person, onOpenTab }: MyOverviewTabProps)
           onOpenChange={setDialogOpen}
           mode="self"
           allowedTypes={balance.data?.allowed_types}
+          employmentType={form}
         />
       ) : null}
     </div>

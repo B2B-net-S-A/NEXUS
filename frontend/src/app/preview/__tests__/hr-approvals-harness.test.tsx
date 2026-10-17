@@ -44,7 +44,7 @@ describe("/preview/hr-approvals", () => {
     const user = userEvent.setup();
     open("");
 
-    const leave = await screen.findByRole("region", { name: "Urlopy i nieobecności" });
+    const leave = await screen.findByRole("region", { name: "Wnioski do decyzji (umowa o pracę)" });
     const kamil = within(leave).getByRole("row", { name: /Kamil Testowy/ });
     expect(kamil).toHaveTextContent("zastępca Ola Przykładowa");
     expect(kamil).toHaveTextContent("Rozmowa u klienta: 2");
@@ -84,9 +84,38 @@ describe("/preview/hr-approvals", () => {
     expect(attempted()).toEqual([]);
   });
 
+  it("B2B i zlecenie: zgłoszenia do wiadomości z „Zgłoś kolizję”, bez akceptacji (D5)", async () => {
+    const user = userEvent.setup();
+    open("");
+    const reported = await screen.findByRole("region", {
+      name: "Zgłoszone przerwy i nieobecności (B2B, zlecenie) — do wiadomości",
+    });
+    const ola = within(reported).getByRole("row", { name: /Ola Przykładowa/ });
+    expect(ola).toHaveTextContent("Przerwa w świadczeniu usług");
+    expect(within(ola).queryByRole("button", { name: "Akceptuj" })).toBeNull();
+    expect(within(ola).queryByRole("button", { name: "Odrzuć" })).toBeNull();
+    expect(within(reported).getByRole("row", { name: /Tomasz/ })).toHaveTextContent(
+      "kolizja zgłoszona",
+    );
+
+    await user.click(within(ola).getByRole("button", { name: "Zgłoś kolizję" }));
+    const dialog = await screen.findByRole("dialog", { name: "Zgłoś kolizję z terminem" });
+    expect(within(dialog).getByLabelText(/Z czym koliduje termin/)).toBeInTheDocument();
+    await user.keyboard("{Escape}");
+
+    // Historia: zgłoszenie „Zgłoszone”, bez „Anuluj” u przełożonej.
+    // „Zgłoszone” ma tylko tabela historii (lista do wiadomości nie ma kolumny statusu).
+    const reportRow = screen
+      .getAllByRole("row")
+      .find((row) => row.textContent?.includes("Zgłoszone"));
+    expect(reportRow).toBeDefined();
+    expect(within(reportRow!).queryByRole("button", { name: "Anuluj" })).toBeNull();
+    expect(attempted()).toEqual([]);
+  });
+
   it("Kadry: zakres wszyscy i przełożony przy wniosku", async () => {
     open("?state=hr");
-    const leave = await screen.findByRole("region", { name: "Urlopy i nieobecności" });
+    const leave = await screen.findByRole("region", { name: "Wnioski do decyzji (umowa o pracę)" });
     expect(within(leave).getByRole("row", { name: /Kamil Testowy/ })).toHaveTextContent(
       "przełożony: Marta Fikcyjna",
     );

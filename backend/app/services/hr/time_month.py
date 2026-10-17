@@ -21,6 +21,9 @@ from app.models.hr_time import AttendanceDay, Timesheet, TimesheetEntry
 from app.models.user import User
 from app.services.hr import audit
 from app.services.hr import time_leave_bridge as bridge
+from app.services.hr.employment_terms import reports_absence
+from app.services.hr.leave_policy import type_label
+from app.services.hr.time_leave_bridge import POOL_LEAVE_TYPES
 from app.services.hr.time_access import Actor
 from app.services.hr.time_calendar import (
     month_calendar,
@@ -66,17 +69,23 @@ MAX_NOTE = 500
 TIMESHEET_STATUSES = ("onboarding", "active", "offboarding")
 
 
-def _leave_payload(day_leave: DayLeave, *, show_type: bool) -> dict[str, Any]:
+def _leave_payload(
+    day_leave: DayLeave, *, show_type: bool, employment_type: Optional[str] = None
+) -> dict[str, Any]:
     leave = day_leave.leave
+    # Słowa formy (D4): na B2B dzień z puli to „Przerwa w świadczeniu usług”.
+    label = (
+        type_label(leave.leave_type, employment_type)
+        if reports_absence(employment_type) and leave.leave_type in POOL_LEAVE_TYPES
+        else LEAVE_TYPE_LABELS.get(leave.leave_type, NEUTRAL_ABSENCE)
+    )
     return {
         "status": leave.status,
         "fraction": float(leave.fraction),
         "full": leave.is_full,
         "paid_work": day_leave.paid_work,
         "paid_hours": float(day_leave.paid_hours),
-        "label": LEAVE_TYPE_LABELS.get(leave.leave_type, NEUTRAL_ABSENCE)
-        if show_type
-        else NEUTRAL_ABSENCE,
+        "label": label if show_type else NEUTRAL_ABSENCE,
     }
 
 
@@ -213,7 +222,11 @@ async def month_view(
                 "location_source": source,
                 "attendance_status": exception.status if exception else None,
                 "attendance_note": exception.note if exception else None,
-                "leave": _leave_payload(day_leave, show_type=show_leave_type)
+                "leave": _leave_payload(
+                    day_leave,
+                    show_type=show_leave_type,
+                    employment_type=subject.employment_type,
+                )
                 if day_leave
                 else None,
                 "entries": [entry_payload(e) for e in day_entries],

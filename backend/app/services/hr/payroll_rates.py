@@ -14,7 +14,12 @@ Reguły (Compass ``internal-rates.ts`` + naprawy):
   akceptacjach: okres, potem reszta),
 * osoba dostaje dzwonek ``hr_rate_changed`` BEZ kwoty (Compass miał typ
   ``rate_changed``, którego nikt nie wysyłał); kwota zostaje w
-  ``hr_audit_events`` z ``sensitivity='payroll'``.
+  ``hr_audit_events`` z ``sensitivity='payroll'``,
+* umowa zlecenie (etap 2, D7): stawka godzinowa nie niższa niż minimalna
+  stawka roku ``effective_from`` (ustawa o minimalnym wynagrodzeniu za pracę;
+  2025: 30,50 zł, 2026: 31,40 zł brutto). Tabela lat to ustawienie Płac
+  ``app_settings['hr_minimum_hourly_rates']`` — nowy rok dopisują Płace bez
+  wdrożenia. Brak minimum dla roku = zapis bez kontroli i ostrzeżenie.
 """
 
 from __future__ import annotations
@@ -25,10 +30,12 @@ from decimal import Decimal
 from typing import Any, Optional
 
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.scheduling import business_today
 
+from app.models.app_setting import AppSetting
 from app.models.hr_payroll import EmployeeRate
 from app.models.hr_profile import EmployeeProfile
 from app.models.notification import NotificationType
@@ -47,6 +54,145 @@ logger = logging.getLogger(__name__)
 RATE_BACKDATE_MAX_MONTHS = 12
 RATE_AHEAD_MAX_MONTHS = 24
 RATE_MAX = Decimal("9999999.99")
+
+MINIMUM_RATES_SETTING = "hr_minimum_hourly_rates"
+#: Minimalna stawka godzinowa na zleceniu (zł brutto) — rozporządzenia RM.
+DEFAULT_MINIMUM_RATES: dict[int, Decimal] = {
+    2025: Decimal("30.50"),
+    2026: Decimal("31.40"),
+}
+MINIMUM_RATE_MAX = Decimal("1000")
+MANDATE_FORM = "zlecenie"
+
+
+# ── Minimalna stawka godzinowa na zleceniu (D7) ───────────────────────────────
+
+
+def _pln(value: Decimal) -> str:
+    return f"{value:.2f}".replace(".", ",")
+
+
+def parse_minimum_rates(raw: Any) -> dict[int, Decimal]:
+    """``{"2026": "31.40", …}`` → ``{2026: Decimal("31.40")}``; błąd = ``PayrollError``."""
+
+    if not isinstance(raw, dict):
+        raise PayrollError("Minimalne stawki to lista: rok i kwota.")
+    rates: dict[int, Decimal] = {}
+    for key, value in raw.items():
+        try:
+            year = int(str(key))
+            amount = Decimal(str(value))
+        except (TypeError, ValueError, ArithmeticError) as exc:
+            raise PayrollError(f"Nieprawidłowy wpis minimalnej stawki: {key}.") from exc
+        if not 2020 <= year <= 2100:
+            raise PayrollError("Rok minimalnej stawki: od 2020 do 2100.")
+        if not amount.is_finite() or amount <= 0 or amount > MINIMUM_RATE_MAX:
+            raise PayrollError(
+                f"Minimalna stawka w {year}: kwota większa od 0 i najwyżej "
+                f"{MINIMUM_RATE_MAX} zł."
+            )
+        rates[year] = amount.quantize(Decimal("0.01"))
+    return dict(sorted(rates.items()))
+
+
+def minimum_rates_payload(rates: dict[int, Decimal]) -> dict[str, str]:
+    return {str(year): f"{amount:.2f}" for year, amount in sorted(rates.items())}
+
+
+async def load_minimum_rates(db: AsyncSession) -> dict[int, Decimal]:
+    """Tabela z Ustawień; brak albo zepsuty wpis = stawki domyślne (bez blokady)."""
+
+    raw = await db.scalar(
+        select(AppSetting.value).where(AppSetting.key == MINIMUM_RATES_SETTING)
+    )
+    if raw is None:
+        return dict(DEFAULT_MINIMUM_RATES)
+    try:
+        return parse_minimum_rates(raw)
+    except PayrollError:
+        logger.warning("[payroll] zepsute %s — stawki domyślne", MINIMUM_RATES_SETTING)
+        return dict(DEFAULT_MINIMUM_RATES)
+
+
+async def save_minimum_rates(
+    db: AsyncSession, raw: Any, *, actor_id: int
+) -> dict[int, Decimal]:
+    """Waliduje i zapisuje tabelę minimalnych stawek (bez commita)."""
+
+    rates = parse_minimum_rates(raw)
+    statement = insert(AppSetting).values(
+        key=MINIMUM_RATES_SETTING,
+        value=minimum_rates_payload(rates),
+        updated_by=actor_id,
+    )
+    await db.execute(
+        statement.on_conflict_do_update(
+            index_elements=[AppSetting.key],
+            set_={"value": statement.excluded.value, "updated_by": actor_id},
+        )
+    )
+    return rates
+
+
+def check_mandate_minimum(
+    *,
+    employment_type: Optional[str],
+    hourly_rate: Decimal,
+    currency: str,
+    effective_from: date,
+    rates: dict[int, Decimal],
+) -> Optional[str]:
+    """Stawka zlecenia poniżej minimum roku → ``PayrollError`` (422).
+
+    Zwraca ostrzeżenie (bez blokady), gdy minimum dla roku nie jest ustawione
+    albo stawka jest w innej walucie niż złoty. Inne formy — ``None``.
+    """
+
+    if employment_type != MANDATE_FORM:
+        return None
+    year = effective_from.year
+    minimum = rates.get(year)
+    if minimum is None:
+        return (
+            f"Minimalna stawka na zleceniu w {year} nie jest ustawiona "
+            "(Ustawienia → Płace) — stawka zapisana bez kontroli."
+        )
+    if currency != "PLN":
+        return (
+            f"Minimalna stawka na zleceniu jest w złotych ({_pln(minimum)} zł/h "
+            f"w {year}) — sprawdź przeliczenie stawki w {currency}."
+        )
+    if hourly_rate < minimum:
+        raise PayrollError(
+            f"Minimalna stawka na zleceniu w {year} to {_pln(minimum)} zł/h brutto."
+        )
+    return None
+
+
+async def mandate_minimum_check(
+    db: AsyncSession,
+    *,
+    user_id: int,
+    hourly_rate: Decimal,
+    currency: str,
+    effective_from: date,
+) -> Optional[str]:
+    """Kontrola minimum dla osoby z kartoteki (forma z ``employee_profiles``)."""
+
+    employment_type = await db.scalar(
+        select(EmployeeProfile.employment_type).where(
+            EmployeeProfile.user_id == user_id
+        )
+    )
+    if employment_type != MANDATE_FORM:
+        return None
+    return check_mandate_minimum(
+        employment_type=employment_type,
+        hourly_rate=hourly_rate,
+        currency=(currency or "").strip().upper(),
+        effective_from=effective_from,
+        rates=await load_minimum_rates(db),
+    )
 
 
 def validate_effective_from(effective_from: date, today: date) -> None:
@@ -158,6 +304,13 @@ async def set_rate(
 
     validate_effective_from(effective_from, today)
     amount, code = validate_rate(hourly_rate, currency)
+    await mandate_minimum_check(
+        db,
+        user_id=user_id,
+        hourly_rate=amount,
+        currency=code,
+        effective_from=effective_from,
+    )
     note = (reason or "").strip() or None
     if note and len(note) > 500:
         raise PayrollError("Powód zmiany: najwyżej 500 znaków.")
@@ -265,7 +418,15 @@ async def delete_rate(db: AsyncSession, *, rate_id: int, actor_id: int) -> int:
 
 
 __all__ = [
+    "DEFAULT_MINIMUM_RATES",
+    "MINIMUM_RATES_SETTING",
     "RATE_BACKDATE_MAX_MONTHS",
+    "check_mandate_minimum",
+    "load_minimum_rates",
+    "mandate_minimum_check",
+    "minimum_rates_payload",
+    "parse_minimum_rates",
+    "save_minimum_rates",
     "delete_rate",
     "history",
     "rate_on",

@@ -23,6 +23,7 @@ from typing import Optional, Sequence
 from zoneinfo import ZoneInfo
 
 from app.core.scheduling import DEFAULT_TZ
+from app.services.hr.employment_terms import terms
 
 WEEKDAYS = ("pon", "wt", "śr", "czw", "pt", "sob", "nd")
 MONTHS = (
@@ -108,11 +109,17 @@ def render_html(sheet: PdfTimesheet) -> str:
     period = f"{MONTHS[sheet.month - 1]} {sheet.year}"
     employment = EMPLOYMENT_LABELS.get(sheet.employment_type or "", "—")
     generated = _local(datetime.now(ZoneInfo(DEFAULT_TZ)))
+    # Nazwa dokumentu i role z formy współpracy (D4): ewidencja czasu pracy,
+    # raport godzin do faktury albo potwierdzenie liczby godzin (art. 8b).
+    words = terms(sheet.employment_type)
+    title = words["timesheet_document"]
+    note = words["timesheet_document_note"]
     body = (
-        "<h1>Karta pracy</h1>"
-        f"<p class='period'>{escape(period)}</p>"
+        f"<h1>{escape(title)}</h1>"
+        + (f"<p class='legal'>{escape(note)}</p>" if note else "")
+        + f"<p class='period'>{escape(period)}</p>"
         "<table class='meta'>"
-        f"<tr><th>Pracownik</th><td>{escape(sheet.person_name)}</td></tr>"
+        f"<tr><th>{escape(words['person'])}</th><td>{escape(sheet.person_name)}</td></tr>"
         f"<tr><th>E-mail</th><td>{escape(sheet.person_email)}</td></tr>"
         f"<tr><th>Forma współpracy</th><td>{escape(employment)}</td></tr>"
         f"<tr><th>Liczba wpisów</th><td>{len(sheet.entries)}</td></tr>"
@@ -125,21 +132,24 @@ def render_html(sheet: PdfTimesheet) -> str:
         + "".join(rows)
         + f"<tr class='total'><td colspan='4'>Razem</td><td class='num'>{_hours(total)}</td></tr>"
         "</tbody></table>"
-        "<div class='sign'><div>Podpis pracownika</div><div>Podpis akceptującego</div></div>"
+        "<div class='sign'>"
+        f"<div>Podpis: {escape(words['person'].lower())}</div>"
+        f"<div>Podpis: {escape(words['reviewer'].lower())}</div></div>"
     )
     footer = (
-        f"Zaakceptował: {escape(sheet.approved_by_name or '—')}, "
+        f"{escape(words['reviewed_by'])}: {escape(sheet.approved_by_name or '—')}, "
         f"{_local(sheet.approved_at)} · Wygenerowano: {generated} · "
         f"Suma kontrolna SHA-256: {escape(sheet.pdf_hash)}"
     )
     return (
         "<!DOCTYPE html><html lang='pl'><head><meta charset='utf-8'>"
-        f"<title>Karta pracy {escape(period)}</title><style>"
+        f"<title>{escape(title)} {escape(period)}</title><style>"
         "@page{size:A4;margin:16mm 14mm 22mm;"
         "@bottom-left{content:element(footer)}"
         "@bottom-right{content:counter(page) ' / ' counter(pages);font-size:7.5pt;color:#666}}"
         "body{font-family:'DejaVu Sans','Liberation Sans',sans-serif;font-size:9pt;color:#1f2933}"
         "h1{font-size:16pt;margin:0}.period{font-size:11pt;color:#52606d;margin:2pt 0 10pt}"
+        ".legal{font-size:8pt;color:#52606d;margin:2pt 0 0}"
         "table{border-collapse:collapse;width:100%}"
         ".meta{width:auto;margin-bottom:10pt}.meta th{text-align:left;padding:1pt 12pt 1pt 0;"
         "font-weight:600;color:#52606d}.meta td{padding:1pt 0}"

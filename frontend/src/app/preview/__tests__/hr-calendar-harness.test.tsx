@@ -45,7 +45,9 @@ describe("/preview/hr-calendar", () => {
     const bars = screen.getAllByRole("button", { name: /^Ewa Makietowa: Nieobecność/ });
     await user.click(bars[0]);
     expect(
-      screen.getByText("Rodzaj nieobecności widzą tylko ta osoba, jej przełożony i Kadry."),
+      screen.getByText(
+        "Rodzaj nieobecności widzą tylko ta osoba, jej przełożony albo koordynator i Kadry.",
+      ),
     ).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Następny miesiąc" }));

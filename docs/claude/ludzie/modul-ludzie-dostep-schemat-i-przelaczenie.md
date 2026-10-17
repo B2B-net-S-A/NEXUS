@@ -176,6 +176,22 @@ z protokołami. Compass zostaje z Akademią i czyta listę osób z NEXUSA.
   numerze (po synchronizacji z mainem numery się przesuwają — `rechain_migration.py`).
 - VARCHAR + CHECK zamiast nowych typów enum; nowe wartości tylko w `userrole`
   (`employee`) i `notificationtype`, literalnie w `_ENUM_STATEMENTS` entrypointu.
+  Nowy typ HR (np. `hr_leave_conflict`, etap 2 D5) = `hr_notification_schema`,
+  enum w `models/notification.py`, linia w entrypoincie, kategoria „Czas i
+  ludzie”, `HR_MAIL_TYPES` + zdanie w `hr_mail.FALLBACK` (wolny tekst →
+  `_FREE_TEXT_TYPES`); temat `other` przypisuje się sam.
+- Kartoteka (etap 2, forma współpracy): `employee_profiles` ma
+  `student_contribution_exempt` / `contribution_exempt_until`
+  (`ck_employee_profiles_exempt_until`) i `leave_seniority_years` /
+  `zus_certificate_received_on` (`ck_employee_profiles_seniority` 0–60) —
+  dopisane w miejscu do `hr_foundation_schema.py` (0452 nie jest wdrożona).
+- Minimalna stawka na zleceniu (D7): `app_settings['hr_minimum_hourly_rates']`
+  (`{"2025": "30.50", "2026": "31.40"}`, brak wpisu = te wartości), edycja
+  w Ustawienia → Płace (`GET/PUT /api/hr/payroll/settings/minimum-rates`,
+  bramka Płace). Stawka osoby na zleceniu poniżej minimum roku `effective_from`
+  = 422 „Minimalna stawka na zleceniu w RRRR to X zł/h brutto.”; rok bez
+  minimum albo inna waluta = zapis z `warning`. Nowy rok dopisują Płace bez
+  wdrożenia.
 - Każda instrukcja idempotentna — entrypoint wykonuje je przy każdym starcie.
   Zmiana istniejącego CHECK-a idzie blokiem `DO`, który podmienia go tylko przy
   starej definicji (wzór: posiadacz sprzętu w `equipment_extras_schema.py`).

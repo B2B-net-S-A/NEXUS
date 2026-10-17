@@ -21,6 +21,14 @@ import {
   type WorkLocation,
 } from "@/lib/api/hr";
 import { DIVISION_LABELS } from "@/lib/api/hr-structure";
+import { capitalize, employmentTerms } from "@/lib/hr-employment-terms";
+
+import {
+  contributionsReminder,
+  contributionsStart,
+  dayLabel,
+  statutoryEntitlement,
+} from "./form-rules";
 
 /** Wartości formularza kartoteki (puste pole = brak wartości). */
 export interface ProfileFormState {
@@ -40,6 +48,15 @@ export interface ProfileFormState {
    * (kreator wejścia i „Dodaj osobę” — pion ustawia się w kartotece albo w Strukturze).
    */
   division?: Division | "";
+  /**
+   * Pola zależne od formy (etap 2, D8, D9) — tylko w „Edytuj kartotekę”;
+   * brak klucza = pola nie ma w tym miejscu. Uczeń/student na zleceniu i data
+   * końca zwolnienia ze składek; staż do urlopu i zaświadczenie ZUS na UoP.
+   */
+  student?: boolean;
+  exempt_until?: string;
+  seniority?: string;
+  zus_certificate?: string;
 }
 
 export const EMPTY_PROFILE_FORM: ProfileFormState = {
@@ -74,7 +91,123 @@ export function profileFormToPayload(form: ProfileFormState): ProfileFields {
     department: text(form.department),
     phone: text(form.phone),
     ...(form.division === undefined ? {} : { division: form.division || null }),
+    // Pola formy wysyłamy tylko przy tej formie; przy zmianie formy serwer sam
+    // zdejmuje znacznik studenta, a staż z UoP zostaje na powrót.
+    ...(form.student === undefined || form.employment_type !== "zlecenie"
+      ? {}
+      : {
+          student_contribution_exempt: form.student,
+          contribution_exempt_until: form.student ? form.exempt_until || null : null,
+        }),
+    ...(form.seniority === undefined || form.employment_type !== "uop"
+      ? {}
+      : {
+          leave_seniority_years: form.seniority.trim() ? Number(form.seniority) : null,
+          zus_certificate_received_on: form.zus_certificate || null,
+        }),
   };
+}
+
+/** Sekcja „Forma decyduje o reszcie” — pola i podpowiedzi zależne od formy. */
+function FormSpecificFields({
+  form,
+  set,
+  id,
+}: {
+  form: ProfileFormState;
+  set: <K extends keyof ProfileFormState>(key: K, value: ProfileFormState[K]) => void;
+  id: (name: string) => string;
+}) {
+  if (form.employment_type === "zlecenie" && form.student !== undefined) {
+    const start = form.student ? contributionsStart(form.exempt_until) : null;
+    const reminder = form.student ? contributionsReminder(form.exempt_until) : null;
+    return (
+      <div className="grid gap-3 rounded-lg border border-border bg-muted/40 p-3 sm:col-span-2 sm:grid-cols-2">
+        <label className="flex items-center justify-between gap-3 text-sm sm:col-span-2">
+          <span>
+            Uczeń lub student do 26 lat
+            <span className="block text-xs text-muted-foreground">
+              Bez składek ZUS z tej umowy do końca statusu albo do dnia przed 26. urodzinami.
+            </span>
+          </span>
+          <Switch
+            checked={form.student}
+            onCheckedChange={(checked) => set("student", checked)}
+            aria-label="Uczeń lub student do 26 lat"
+          />
+        </label>
+        {form.student ? (
+          <FormField
+            label="Zwolnienie ze składek do"
+            htmlFor={id("exempt-until")}
+            description="Wcześniejsza z dat: koniec statusu (obrona, skreślenie) albo dzień przed 26. urodzinami. Daty urodzenia NEXUS nie przechowuje."
+          >
+            <Input
+              id={id("exempt-until")}
+              type="date"
+              value={form.exempt_until ?? ""}
+              onChange={(event) => set("exempt_until", event.target.value)}
+            />
+          </FormField>
+        ) : null}
+        <p className="text-xs text-muted-foreground sm:col-span-2">
+          {start && reminder
+            ? `${dayLabel(reminder)} Płace dostaną przypomnienie: od ${dayLabel(start)} naliczamy składki. `
+            : ""}
+          Godziny: co miesiąc „Potwierdzenie godzin” z umowy zlecenia (art. 8b). NEXUS trzyma
+          je 3 lata od dnia wypłaty.
+        </p>
+      </div>
+    );
+  }
+  if (form.employment_type === "uop" && form.seniority !== undefined) {
+    const years = form.seniority.trim() ? Number(form.seniority) : null;
+    const days = statutoryEntitlement("uop", years);
+    return (
+      <div className="grid gap-3 rounded-lg border border-border bg-muted/40 p-3 sm:col-span-2 sm:grid-cols-2">
+        <FormField
+          label="Staż do urlopu (lata)"
+          htmlFor={id("seniority")}
+          description={
+            days
+              ? `Wymiar urlopu: ${days} dni (podpowiedź przy ustawianiu puli).`
+              : "Poniżej 10 lat — 20 dni, od 10 lat — 26 dni."
+          }
+        >
+          <Input
+            id={id("seniority")}
+            type="number"
+            min={0}
+            max={60}
+            inputMode="numeric"
+            value={form.seniority}
+            onChange={(event) => set("seniority", event.target.value)}
+          />
+        </FormField>
+        <FormField
+          label="Zaświadczenie z ZUS otrzymane"
+          htmlFor={id("zus")}
+          description="Od 1 maja 2026 lata na zleceniu i działalności liczą się do stażu po przedstawieniu zaświadczenia."
+        >
+          <Input
+            id={id("zus")}
+            type="date"
+            value={form.zus_certificate ?? ""}
+            onChange={(event) => set("zus_certificate", event.target.value)}
+          />
+        </FormField>
+      </div>
+    );
+  }
+  if (form.employment_type === "b2b" && form.student !== undefined) {
+    return (
+      <p className="text-xs text-muted-foreground sm:col-span-2">
+        Przy B2B: umowna pula płatnych dni przerwy (opcjonalnie) — ustawiasz ją w kartotece,
+        jeśli jest w umowie. Godziny: „Raport godzin” do faktury.
+      </p>
+    );
+  }
+  return null;
 }
 
 interface ProfileFieldsFormProps {
@@ -97,6 +230,8 @@ export function ProfileFieldsForm({
   const set = <K extends keyof ProfileFormState>(key: K, value: ProfileFormState[K]) =>
     onChange({ ...form, [key]: value });
   const id = (name: string) => `${idPrefix}-${name}`;
+  // Słowa formy (D4): na B2B i zleceniu „koordynator”, na umowie o pracę „przełożony”.
+  const words = employmentTerms(form.employment_type);
 
   return (
     <div className="grid gap-4 sm:grid-cols-2">
@@ -116,7 +251,15 @@ export function ProfileFieldsForm({
           onChange={(event) => set("department", event.target.value)}
         />
       </FormField>
-      <FormField label="Przełożony" htmlFor={id("manager")}>
+      <FormField
+        label={capitalize(words.coordinator)}
+        htmlFor={id("manager")}
+        description={
+          form.student !== undefined
+            ? "Na B2B i zleceniu „koordynator”, na umowie o pracę „przełożony”."
+            : undefined
+        }
+      >
         <Select
           value={form.manager_user_id || NO_MANAGER}
           onValueChange={(value) =>
@@ -127,7 +270,7 @@ export function ProfileFieldsForm({
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value={NO_MANAGER}>Bez przełożonego</SelectItem>
+            <SelectItem value={NO_MANAGER}>Bez {words.coordinator_genitive}</SelectItem>
             {managers.map((manager) => (
               <SelectItem key={manager.user_id} value={String(manager.user_id)}>
                 {manager.name}
@@ -158,7 +301,7 @@ export function ProfileFieldsForm({
           </Select>
         </FormField>
       )}
-      <FormField label="Forma zatrudnienia" htmlFor={id("type")}>
+      <FormField label="Forma współpracy" htmlFor={id("type")}>
         <Select
           value={form.employment_type}
           onValueChange={(value) => set("employment_type", value as EmploymentType)}
@@ -175,6 +318,7 @@ export function ProfileFieldsForm({
           </SelectContent>
         </Select>
       </FormField>
+      <FormSpecificFields form={form} set={set} id={id} />
       {hide.includes("employment_status") ? null : (
         <FormField label="Status" htmlFor={id("status")}>
           <Select
@@ -248,7 +392,7 @@ export function ProfileFieldsForm({
       <div className="flex flex-col gap-3 sm:col-span-2">
         <label className="flex items-center justify-between gap-3 text-sm">
           <span>
-            Prowadzi timesheet
+            Prowadzi {words.timesheet_accusative}
             <span className="block text-xs text-muted-foreground">
               Dostaje przypomnienie 1.–5. dnia miesiąca.
             </span>
@@ -256,7 +400,7 @@ export function ProfileFieldsForm({
           <Switch
             checked={form.timesheet_required}
             onCheckedChange={(checked) => set("timesheet_required", checked)}
-            aria-label="Prowadzi timesheet"
+            aria-label={`Prowadzi ${words.timesheet_accusative}`}
           />
         </label>
         <label className="flex items-center justify-between gap-3 text-sm">

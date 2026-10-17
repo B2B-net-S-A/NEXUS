@@ -29,6 +29,7 @@ from __future__ import annotations
 
 from collections import Counter
 from collections.abc import Collection
+from datetime import date
 from typing import Any, Optional
 
 from sqlalchemy import func, or_, select
@@ -184,6 +185,10 @@ async def _leaving(
     return result
 
 
+def _iso(value: Optional[date]) -> Optional[str]:
+    return value.isoformat() if value else None
+
+
 async def structure(db: AsyncSession) -> dict[str, Any]:
     rows = (
         await db.execute(
@@ -290,6 +295,9 @@ async def structure(db: AsyncSession) -> dict[str, Any]:
                 "employment_type": profile.employment_type,
                 "employment_status": profile.employment_status,
                 "division": profile.division,
+                # Uczeń/student na zleceniu (D8): plakietka „składki od …”.
+                "student": profile.student_contribution_exempt,
+                "contributions_from": _iso(people.contributions_from(profile)),
                 "manager_user_id": profile.manager_user_id,
                 "manager_name": manager.name if manager else None,
                 "manager_state": manager_state(profile.manager_user_id),

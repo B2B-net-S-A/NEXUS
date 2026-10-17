@@ -8,21 +8,25 @@
 * ``on_leave_cancelled`` — anulowanie/odrzucenie zdejmuje auto-wpisy
   ``leave_paid`` z dni, których urlop już nie obejmuje.
 
-Zamknięty miesiąc płac (``payroll_locked``) zostaje nietknięty — wynik niesie
-listę konfliktów do wyjaśnienia przez Płace. Funkcje nie commitują: wołający
+Zamknięty miesiąc płac (``payroll_locked``) i przyjęte potwierdzenie godzin
+zlecenia po terminie wypłaty (``time_retention``, art. 8c) zostają nietknięte —
+wynik niesie listę konfliktów do wyjaśnienia przez Płace. Funkcje nie commitują: wołający
 zapisuje decyzję urlopu i zmianę godzin w jednej transakcji.
 """
 
 from __future__ import annotations
 
+import logging
 from collections import defaultdict
 from collections.abc import Iterable
 from datetime import date
-from typing import Any
+from typing import Any, Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.services.hr import audit, people
+from app.models.hr_time import Timesheet
+
+from app.services.hr import audit, people, time_retention
 from app.services.hr.time_calendar import month_range
 from app.services.hr.time_entries import (
     find_timesheet,
@@ -33,12 +37,32 @@ from app.services.hr.time_entries import (
     sync_leave_paid,
 )
 
+logger = logging.getLogger(__name__)
+
 
 def _by_month(days: Iterable[date]) -> dict[tuple[int, int], set[date]]:
     grouped: dict[tuple[int, int], set[date]] = defaultdict(set)
     for day in days:
         grouped[(day.year, day.month)].add(day)
     return grouped
+
+
+def _retained(timesheet: Timesheet, employment_type: Optional[str]) -> bool:
+    """Potwierdzenie godzin zlecenia po terminie wypłaty — godziny bez zmian
+    (art. 8c, ``time_retention``); osoba dostaje ostrzeżenie jak przy
+    zamkniętym miesiącu płac, Płace powiadomienie."""
+
+    if not time_retention.frozen(
+        employment_type=employment_type,
+        status=timesheet.status,
+        year=timesheet.year,
+        month=timesheet.month,
+    ):
+        return False
+    logger.info(
+        "[hr_time] potwierdzenie godzin w archiwum — bez zmian ts=%s", timesheet.id
+    )
+    return True
 
 
 async def on_leave_approved(
@@ -56,7 +80,7 @@ async def on_leave_approved(
         if found is None:
             continue  # auto-wpisy powstaną przy pierwszym otwarciu miesiąca
         timesheet = await lock_timesheet(db, found.id)
-        if timesheet.payroll_locked:
+        if timesheet.payroll_locked or _retained(timesheet, employment_type):
             result["locked_conflicts"].append(f"{year}-{month:02d}")
             continue
         start, end = month_range(year, month)
@@ -107,7 +131,7 @@ async def on_leave_cancelled(
         if found is None:
             continue
         timesheet = await lock_timesheet(db, found.id)
-        if timesheet.payroll_locked:
+        if timesheet.payroll_locked or _retained(timesheet, employment_type):
             result["locked_conflicts"].append(f"{year}-{month:02d}")
             continue
         if await sync_leave_paid(

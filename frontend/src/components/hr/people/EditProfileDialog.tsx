@@ -28,6 +28,12 @@ function formFrom(person: PersonFull): ProfileFormState {
     department: person.department ?? "",
     phone: person.phone ?? "",
     division: person.division ?? "",
+    // Pola zależne od formy (D8, D9) — tylko tutaj, w edycji kartoteki.
+    student: Boolean(person.student_contribution_exempt),
+    exempt_until: person.contribution_exempt_until ?? "",
+    seniority:
+      person.leave_seniority_years == null ? "" : String(person.leave_seniority_years),
+    zus_certificate: person.zus_certificate_received_on ?? "",
   };
 }
 

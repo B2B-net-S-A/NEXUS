@@ -27,17 +27,18 @@ import {
   type LeaveRequestRow,
 } from "@/lib/api/hr-leave";
 import { CALM_EMPTY, CALM_HEAD, CALM_ROW, CALM_SUBLINE } from "@/lib/calm-table";
+import { employmentTerms, reportsAbsence } from "@/lib/hr-employment-terms";
 import { resolveViewState } from "@/lib/view-state";
 
 import { absenceCardKind } from "../me/overview-format";
 import { LeaveRequestDialog } from "./LeaveRequestDialog";
 import {
   HALF_DAY_LABELS,
-  LEAVE_STATUS_LABELS,
   LEAVE_STATUS_TONE,
   daysLabel,
   formatRange,
   leaveToast,
+  statusLabel,
   warsawToday,
 } from "./leave-format";
 
@@ -51,12 +52,19 @@ import {
  */
 export function balanceStats(balance: LeaveBalance): InlineStat[] {
   const kind = absenceCardKind(balance.employment_type, balance);
+  // Na B2B i zleceniu nic nie czeka na akceptację (zgłoszenie, D5) — liczba
+  // „czeka” pokazuje się tylko, gdy coś zostało sprzed zmiany formy.
+  const report = reportsAbsence(balance.employment_type);
+  const pending =
+    report && !(Number(balance.pending_days) > 0)
+      ? []
+      : [{ id: "pending", label: "czeka na akceptację", value: daysLabel(balance.pending_days) }];
   const stats: InlineStat[] = [];
   if (kind === "absences") {
     stats.push(
       { id: "used", label: `wykorzystane w ${balance.year}`, value: daysLabel(balance.used_days) },
       { id: "planned", label: `zaplanowane w ${balance.year}`, value: daysLabel(balance.planned_days) },
-      { id: "pending", label: "czeka na akceptację", value: daysLabel(balance.pending_days) },
+      ...pending,
     );
     return stats;
   }
@@ -85,7 +93,7 @@ export function balanceStats(balance: LeaveBalance): InlineStat[] {
   stats.push(
     { id: "used", label: "wykorzystane", value: daysLabel(balance.used_days) },
     { id: "planned", label: "zaplanowane", value: daysLabel(balance.planned_days) },
-    { id: "pending", label: "czeka na akceptację", value: daysLabel(balance.pending_days) },
+    ...pending,
   );
   if (Number(balance.unpaid_days) > 0) {
     stats.push({
@@ -124,7 +132,11 @@ export function canToggleForward(row: LeaveRequestRow, today: string): boolean {
   );
 }
 
-/** „Mój czas → Urlopy”: saldo, „Złóż wniosek”, moje wnioski z anulowaniem. */
+/**
+ * „Mój czas → Urlop / Przerwy / Nieobecności” (nazwa według formy, D4): saldo,
+ * „Złóż wniosek” albo „Zgłoś przerwę”, moje wpisy z anulowaniem i kolizją
+ * zgłoszoną przez koordynatora (D5).
+ */
 export function MyLeaveTab() {
   const today = warsawToday();
   const year = Number(today.slice(0, 4));
@@ -135,6 +147,9 @@ export function MyLeaveTab() {
   const { showToast } = useToast();
   const { askConfirm, confirmDialog } = useConfirmV2();
   const [dialogOpen, setDialogOpen] = useState(false);
+  const form = balance.data?.employment_type;
+  const words = employmentTerms(form);
+  const report = reportsAbsence(form);
 
   const rows = requests.data ?? [];
   const state = resolveViewState({
@@ -146,16 +161,20 @@ export function MyLeaveTab() {
   });
 
   const cancelRow = async (row: LeaveRequestRow) => {
+    const reported = Boolean(row.is_report);
     const ok = await askConfirm({
-      title: "Anulować wniosek?",
-      description: `${formatRange(row.start_date, row.end_date)} · ${row.leave_type_label}. Przełożony i zastępca dostaną powiadomienie.`,
-      confirmLabel: "Anuluj wniosek",
+      title: reported ? "Anulować zgłoszenie?" : "Anulować wniosek?",
+      description: `${formatRange(row.start_date, row.end_date)} · ${row.leave_type_label}. ${
+        reported ? "Koordynator" : "Przełożony"
+      } i zastępca dostaną powiadomienie.`,
+      confirmLabel: reported ? "Anuluj zgłoszenie" : "Anuluj wniosek",
       cancelLabel: "Zostaw",
       variant: "destructive",
     });
     if (!ok) return;
     cancel.mutate(row.id, {
-      onSuccess: (saved) => showToast(...leaveToast("Wniosek anulowany", saved)),
+      onSuccess: (saved) =>
+        showToast(...leaveToast(reported ? "Zgłoszenie anulowane" : "Wniosek anulowany", saved)),
       onError: (err) => showToast(apiErrorMessage(err, "Nie udało się anulować."), "error"),
     });
   };
@@ -189,7 +208,7 @@ export function MyLeaveTab() {
         )}
         <Button className="ml-auto" onClick={() => setDialogOpen(true)}>
           <CalendarPlus className="h-4 w-4" aria-hidden />
-          Złóż wniosek
+          {report ? words.submit_action : "Złóż wniosek"}
         </Button>
       </div>
 
@@ -209,7 +228,9 @@ export function MyLeaveTab() {
         />
       ) : state === "empty" ? (
         <div className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
-          Nie masz jeszcze wniosków. „Złóż wniosek” policzy dni robocze i pulę.
+          {report
+            ? `Nie masz jeszcze zgłoszeń. „${words.submit_action}” policzy dni robocze i płatne dni z umowy.`
+            : "Nie masz jeszcze wniosków. „Złóż wniosek” policzy dni robocze i pulę."}
         </div>
       ) : (
         <div className="relative overflow-x-auto rounded-lg border border-border bg-card">
@@ -242,7 +263,8 @@ export function MyLeaveTab() {
                     {daysLabel(row.days_total)}
                     {Number(row.unpaid_days) > 0 ? (
                       <span className={CALM_SUBLINE}>
-                        bezpłatnie {daysLabel(row.unpaid_days)}
+                        {row.is_report ? "bez wynagrodzenia" : "bezpłatnie"}{" "}
+                        {daysLabel(row.unpaid_days)}
                       </span>
                     ) : null}
                   </TableCell>
@@ -259,8 +281,14 @@ export function MyLeaveTab() {
                               : undefined
                       }
                     >
-                      {LEAVE_STATUS_LABELS[row.status]}
+                      {statusLabel(row)}
                     </StatusDot>
+                    {row.conflict && row.status === "approved" ? (
+                      <span className={`${CALM_SUBLINE} text-warning-muted-foreground`}>
+                        kolizja{row.conflict.by_name ? ` · ${row.conflict.by_name}` : ""}:{" "}
+                        {row.conflict.note}
+                      </span>
+                    ) : null}
                   </TableCell>
                   <TableCell>
                     {row.substitute_name ?? <span className={CALM_EMPTY}>—</span>}
@@ -304,6 +332,7 @@ export function MyLeaveTab() {
         onOpenChange={setDialogOpen}
         mode="self"
         allowedTypes={balance.data?.allowed_types}
+        employmentType={form}
       />
       {confirmDialog}
     </div>

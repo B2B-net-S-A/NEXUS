@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { formatDayShort, peopleCount } from "@/components/hr/lifecycle/lifecycle-format";
+import { contributionsBadge } from "@/components/hr/people/form-rules";
 import { apiErrorMessage } from "@/lib/api-error";
 import type { HrConfig } from "@/lib/api/hr";
 import {
@@ -280,11 +281,18 @@ function PersonRow({
             {person.name}
           </Link>
           <span className="text-xs text-muted-foreground">
-            {[person.job_title, EMPLOYMENT_TYPE_SHORT[person.employment_type]]
+            {[
+              person.job_title,
+              EMPLOYMENT_TYPE_SHORT[person.employment_type],
+              person.student ? "student" : null,
+            ]
               .filter(Boolean)
               .join(" · ")}
             {person.reports > 0 ? ` · ${peopleCount(person.reports)} pod sobą` : ""}
           </span>
+          {contributionsBadge(person.contributions_from) ? (
+            <StatusDot tone="info">{contributionsBadge(person.contributions_from)}</StatusDot>
+          ) : null}
           {person.reports > 0 ? (
             <Link
               href={`/people/team?manager=${person.user_id}`}

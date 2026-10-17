@@ -19,7 +19,11 @@ Reguły:
 * wniosek zmieniony w NEXUSIE po imporcie (decyzja, anulowanie, przeliczenie
   dni) zostaje w wersji NEXUSA: „bez zmian”, gdy paczka mówi to samo,
   inaczej „conflict” do decyzji — nigdy „update” (anulowany urlop nie wraca
-  jako zatwierdzony bez autoodpowiedzi i bez śladu).
+  jako zatwierdzony bez autoodpowiedzi i bez śladu),
+* oczekujący wniosek osoby na B2B albo zleceniu wchodzi jako zgłoszenie
+  przyjęte (etap 2, D5): ``approved`` bez decydującego, z datą złożenia jako
+  datą przyjęcia; raport importu liczy takie wiersze
+  (``extra.contractor_pending_reported``, same liczby).
 """
 
 from __future__ import annotations
@@ -36,6 +40,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.hr_leave import LeaveRequest, LeaveRequestDay
 from app.models.hr_ops import HrImportBatch
 from app.services.hr.calendar import WorkCalendar, load_calendar
+from app.services.hr.employment_terms import reports_absence
 from app.services.hr.leave_policy import CONTRACTOR_TYPES, POOL_TYPES, requested_days
 from app.services.hr_leave_schema import (
     ACTIVE_STATUSES,
@@ -67,6 +72,9 @@ OVERLAP = "nakłada się na inny aktywny wniosek tej osoby"
 SELF_DECISION = "decyzja o własnym wniosku — decydujący pominięty"
 FORWARD_ON_BEHALF = "zgoda na przekierowanie z wpisu za pracownika — pominięta"
 CHANGED_IN_NEXUS = "wniosek zmieniony w NEXUSIE po imporcie — zostaje wersja NEXUSA"
+REPORTED_FROM_PENDING = (
+    "oczekujący wniosek z B2B/zlecenia — przyjęty jako zgłoszenie (bez akceptacji)"
+)
 _ACTIVE_UNIQUE = "uq_leave_request_days_user_day_active"
 
 #: Pola wniosku porównywane przy ponownym imporcie.
@@ -247,6 +255,13 @@ async def plan(db: AsyncSession, bundle: Bundle) -> ModulePlan:
 
         profile = people.profile(user_id)
         employment_type = profile.employment_type if profile else None
+        # D5: na B2B i zleceniu nieobecność to zgłoszenie — nikt jej nie
+        # akceptuje, więc oczekujący wniosek z Compassa wchodzi jako przyjęty.
+        reported = status == "pending" and reports_absence(employment_type)
+        if reported:
+            status = "approved"
+            decided_by = None
+            notes.append(REPORTED_FROM_PENDING)
         compass_paid = decimal(row.get("paid_days"))
         compass_unpaid = decimal(row.get("unpaid_days"))
         days = plan_request_days(
@@ -286,7 +301,9 @@ async def plan(db: AsyncSession, bundle: Bundle) -> ModulePlan:
             "paid_days": paid_days,
             "unpaid_days": unpaid_days,
             "decided_by": decided_by,
-            "decided_at": parse_datetime(row.get("decided_at"))
+            "decided_at": parse_datetime(
+                row.get("created_at") if reported else row.get("decided_at")
+            )
             if status in ("approved", "rejected")
             else None,
             "decision_note": text(row.get("decision_note")),
@@ -325,6 +342,10 @@ async def plan(db: AsyncSession, bundle: Bundle) -> ModulePlan:
                 continue
             claimed.update((user_id, day) for day in day_list)
 
+        if reported:
+            result.extra["contractor_pending_reported"] = (
+                result.extra.get("contractor_pending_reported", 0) + 1
+            )
         reason = join_notes(notes)
         if existing is None:
             result.rows.append(RowPlan(sid, "create", reason, payload))

@@ -23,11 +23,13 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from app.services.hr.employment_terms import returned_titles
 from app.services.hr.leave_policy import LEAVE_TYPE_LABELS
 
-# Tytuł zwrotu timesheetu (`time_flow.return_for_fix`); treść niesie wtedy
-# uwagi akceptującego — wolny tekst, który do maila nie idzie.
-RETURNED_TIMESHEET_TITLE = "Timesheet zwrócony do poprawy"
+# Tytuły zwrotu raportu godzin (`time_flow.return_for_fix`, słowa według formy
+# z `employment_terms`); treść niesie wtedy uwagi akceptującego — wolny tekst,
+# który do maila nie idzie.
+RETURNED_TIMESHEET_TITLES = returned_titles()
 
 # Stałe zdania typu: (tytuł, treść), gdy tekst powiadomienia nie może wyjść.
 FALLBACK: dict[str, tuple[str, str]] = {
@@ -51,13 +53,18 @@ FALLBACK: dict[str, tuple[str, str]] = {
         "Zgłoszona nieobecność",
         "Osoba z Twojego zespołu zgłosiła nieobecność.",
     ),
+    # Notatka koordynatora to wolny tekst — do maila nie idzie (D5).
+    "hr_leave_conflict": (
+        "Kolizja z Twoją nieobecnością",
+        "Koordynator zgłosił kolizję z terminem — notatkę znajdziesz w „Moim czasie”.",
+    ),
     "hr_timesheet_decided": (
-        "Zmiana w timesheecie",
+        "Zmiana w raporcie godzin",
         "Szczegóły znajdziesz w NEXUSIE.",
     ),
     "hr_timesheet_reminder": (
-        "Wyślij timesheet",
-        "Timesheet za miniony miesiąc czeka na wysłanie.",
+        "Wyślij godziny za miniony miesiąc",
+        "Godziny za miniony miesiąc czekają na wysłanie.",
     ),
     "hr_lifecycle_task": (
         "Zadania: wejście albo odejście",
@@ -83,7 +90,7 @@ FALLBACK: dict[str, tuple[str, str]] = {
 _DEFAULT = ("Czas i ludzie", "Szczegóły znajdziesz w NEXUSIE.")
 
 # Treść tych typów to zawsze wolny tekst.
-_FREE_TEXT_TYPES = frozenset({"admin_case_assigned"})
+_FREE_TEXT_TYPES = frozenset({"admin_case_assigned", "hr_leave_conflict"})
 _RETURNED_BODY = "Uwagi akceptującego znajdziesz w „Moim miesiącu”."
 
 
@@ -130,7 +137,7 @@ def mail_text(
     out_title = title if title and mail_safe(title) else fallback_title
     if value in _FREE_TEXT_TYPES:
         body = fallback_body
-    elif value == "hr_timesheet_decided" and title.startswith(RETURNED_TIMESHEET_TITLE):
+    elif value == "hr_timesheet_decided" and title in RETURNED_TIMESHEET_TITLES:
         body = _RETURNED_BODY
     else:
         body = message if message and mail_safe(message) else fallback_body

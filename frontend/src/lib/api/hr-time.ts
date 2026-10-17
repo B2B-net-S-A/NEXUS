@@ -13,7 +13,7 @@ import {
   fetchAuthenticatedDownload,
 } from "@/lib/authenticated-files";
 
-import type { WorkLocation } from "./hr";
+import { HR_COUNTS_MUTATION_KEY, type WorkLocation } from "./hr";
 
 export type TimesheetStatus = "draft" | "submitted" | "approved";
 export type EntrySource = "manual" | "leave_paid" | "template" | "compass_import";
@@ -372,6 +372,8 @@ export type TimesheetDecision = "approve" | "return" | "revoke";
 export function useDecideTimesheet() {
   const invalidate = useInvalidateTime();
   return useMutation({
+    // Licznik „Akceptacji” liczy się od nowa po decyzji o timesheecie.
+    mutationKey: [...HR_COUNTS_MUTATION_KEY, "timesheet-decision"],
     mutationFn: async ({
       id,
       decision,

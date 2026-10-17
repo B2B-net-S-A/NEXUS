@@ -4,11 +4,13 @@
 // kto widzi rodzaj nieobecności) liczy serwer; front pokazuje to, co dostał.
 // D6: „Nieobecni dziś”, plakietka przy osobie i kalendarz zespołu nie niosą
 // rodzaju nieobecności — dostaje go tylko osoba, jej przełożony i Kadry.
+// D5 (etap 2): na B2B i zleceniu nieobecność jest zgłoszeniem — wchodzi od razu
+// (`is_report`), koordynator widzi ją „do wiadomości” i może zgłosić kolizję.
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { api } from "@/lib/api";
-import { useHrConfig, type EmploymentType } from "@/lib/api/hr";
+import { HR_COUNTS_MUTATION_KEY, useHrConfig, type EmploymentType } from "@/lib/api/hr";
 import { WS_BACKED_SAFETY_POLL_MS } from "@/lib/polling";
 import { useAuthStore } from "@/store/auth";
 
@@ -92,6 +94,17 @@ export interface LeaveRequestRow {
   source: "self" | "on_behalf" | "outlook_oof" | "compass_import";
   created_at: string | null;
   can_cancel: boolean;
+  /** Zgłoszenie z B2B albo zlecenia (D5) — bez akceptacji i odrzucenia. */
+  is_report?: boolean;
+  employment_type?: EmploymentType | null;
+  /** Ostatnia kolizja zgłoszona przez koordynatora. */
+  conflict?: LeaveConflictInfo | null;
+}
+
+export interface LeaveConflictInfo {
+  at: string | null;
+  by_name: string | null;
+  note: string | null;
 }
 
 export interface WorkSummary {
@@ -123,6 +136,8 @@ export interface PendingLeaveRow extends LeaveRequestRow {
   /** `false` = zastępca widzi „Nieobecność” (L4 i pokrewne) i tylko przyjmuje do wiadomości. */
   type_visible?: boolean;
   can_decide?: boolean;
+  /** Zgłoszenie do wiadomości — koordynator może zgłosić kolizję (D5). */
+  can_report_conflict?: boolean;
 }
 
 /** Kogo patrzący zastępuje dziś (przełożony na urlopie z nim jako zastępcą). */
@@ -137,6 +152,8 @@ interface PendingLeavePayload {
   items: PendingLeaveRow[];
   total: number;
   covering?: LeaveCovering[];
+  /** Zgłoszenia z B2B i zlecenia „do wiadomości” (D5) — poza licznikiem decyzji. */
+  reported?: PendingLeaveRow[];
 }
 
 export interface LeaveYearSplit {
@@ -157,6 +174,11 @@ export interface LeavePreview {
   years: LeaveYearSplit[];
   blocking_reason: string | null;
   auto_approved: boolean;
+  /** Forma osoby — słowa okna (D4). */
+  employment_type?: EmploymentType;
+  /** `report` — zgłoszenie bez akceptacji (B2B, zlecenie, D5); `request` — wniosek. */
+  flow?: "request" | "report";
+  /** Akceptujący (wniosek) albo koordynator, który dostanie informację (zgłoszenie). */
   approver: string;
   department_absent: ColleagueAbsence[];
   work: WorkSummary;
@@ -398,6 +420,26 @@ export function useLeaveCovering(enabled = true) {
   });
 }
 
+/** Zgłoszenia z B2B i zlecenia do wiadomości — z tej samej odpowiedzi co kolejka. */
+export function useReportedLeave(enabled = true) {
+  return useQuery({
+    queryKey: leaveKeys.pending,
+    queryFn: fetchPending,
+    select: (payload: PendingLeavePayload) => payload.reported ?? [],
+    enabled,
+  });
+}
+
+/** Koordynator zgłasza kolizję terminu z pracą (D5) — powiadomienie osoby. */
+export function useReportConflict() {
+  const invalidate = useInvalidateLeave();
+  return useMutation({
+    mutationFn: async ({ id, note }: { id: string; note: string }) =>
+      (await api.post<LeaveRequestRow>(`${ROOT}/${id}/conflict`, { note })).data,
+    onSuccess: invalidate,
+  });
+}
+
 export interface LeaveHistoryFilters {
   status: LeaveStatus | null;
   user_id: number | null;
@@ -430,6 +472,8 @@ export function useOnBehalfPeople(enabled = true) {
 export function useDecideLeave() {
   const invalidate = useInvalidateLeave();
   return useMutation({
+    // Licznik „Akceptacji” liczy się od nowa po decyzji.
+    mutationKey: [...HR_COUNTS_MUTATION_KEY, "leave-decision"],
     mutationFn: async ({
       id,
       decision,
@@ -451,6 +495,7 @@ export function useDecideLeave() {
 export function useCancelTeamLeave() {
   const invalidate = useInvalidateLeave();
   return useMutation({
+    mutationKey: [...HR_COUNTS_MUTATION_KEY, "leave-cancel"],
     mutationFn: async (id: string) =>
       (await api.post<LeaveRequestRow>(`${ROOT}/approvals/${id}/cancel`)).data,
     onSuccess: invalidate,

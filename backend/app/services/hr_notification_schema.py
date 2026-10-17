@@ -20,6 +20,7 @@ PERSONAL_TYPES: tuple[str, ...] = (
     "hr_leave_cancelled",  # anulowanie → akceptujący, zastępca, osoba
     "hr_leave_substitute",  # „zastępujesz X od … do …” → zastępca
     "hr_absence_reported",  # L4 / nieobecność zgłoszona → przełożony i Kadry
+    "hr_leave_conflict",  # koordynator zgłasza kolizję z przerwą B2B/zlecenia → osoba
     "hr_timesheet_submitted",  # timesheet do akceptacji → akceptujący
     "hr_timesheet_decided",  # zaakceptowany / zwrócony / cofnięty → osoba
     "hr_timesheet_reminder",  # 1.–5. dnia: brak wysłanego timesheetu

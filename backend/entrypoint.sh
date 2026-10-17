@@ -170,6 +170,7 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'hr_leave_cancelled'",
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'hr_leave_substitute'",
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'hr_absence_reported'",
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'hr_leave_conflict'",
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'hr_timesheet_submitted'",
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'hr_timesheet_decided'",
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'hr_timesheet_reminder'",

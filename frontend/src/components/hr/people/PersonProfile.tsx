@@ -18,6 +18,7 @@ import {
   type HrConfig,
   type PersonFull,
 } from "@/lib/api/hr";
+import { employmentTerms } from "@/lib/hr-employment-terms";
 import { formatDate } from "@/lib/utils";
 import { resolveViewState } from "@/lib/view-state";
 import { ROLE_LABELS } from "@/store/auth";
@@ -27,6 +28,7 @@ import { PayrollProfileSection } from "@/components/hr/payroll/PayrollProfileSec
 
 import { EditProfileDialog } from "./EditProfileDialog";
 import { EntitlementDialog } from "./EntitlementDialog";
+import { poolAllowed } from "./form-rules";
 import { STATUS_TONE, formatDays, personInitials } from "./hr-format";
 
 function Fact({ label, children }: { label: string; children: React.ReactNode }) {
@@ -57,10 +59,22 @@ function LeavePoolCard({
 }) {
   const [editing, setEditing] = useState(false);
   const current = person.entitlements?.find((row) => row.year === year);
+  // D6: pula płatnych dni na umowie o pracę i na B2B z pulą w umowie; zlecenie bez puli.
+  const form = person.employment_type;
+  if (!poolAllowed(form)) {
+    return (
+      <Card className="p-4">
+        <CardTitle>Nieobecności {year}</CardTitle>
+        <p className="text-sm text-muted-foreground">
+          Na umowie zlecenie nie ma puli płatnych dni — nieobecność jest bez wynagrodzenia.
+        </p>
+      </Card>
+    );
+  }
   return (
     <Card className="p-4">
       <div className="flex items-center justify-between">
-        <CardTitle>Urlop {year}</CardTitle>
+        <CardTitle>{form === "uop" ? `Urlop ${year}` : `Płatne dni przerwy ${year}`}</CardTitle>
         {canEdit ? (
           <Button size="sm" variant="ghost" onClick={() => setEditing(true)}>
             Zmień pulę
@@ -89,12 +103,20 @@ function LeavePoolCard({
           Pula na {year} nie jest ustawiona.
         </p>
       )}
+      {form === "uop" && person.suggested_entitlement_days ? (
+        <p className="mt-2 text-xs text-muted-foreground">
+          Wymiar według stażu ({person.leave_seniority_years} lat):{" "}
+          {person.suggested_entitlement_days} dni.
+        </p>
+      ) : null}
       {canEdit && editing ? (
         <EntitlementDialog
           userId={person.user_id}
           name={person.name}
           year={year}
           current={current}
+          employmentType={form}
+          suggestedDays={person.suggested_entitlement_days ?? null}
           open={editing}
           onOpenChange={setEditing}
         />
@@ -146,6 +168,8 @@ export function PersonProfile({ userId, config }: { userId: number; config: HrCo
 
   const data = person.data;
   const full = isFullPerson(data) ? data : null;
+  // Słowa formy (D4); wizytówka nie zna formy umowy, więc mówi oba słowa.
+  const words = full ? employmentTerms(full.employment_type) : null;
   const managers = (directory.data?.items ?? []).map((row) => ({
     user_id: row.user_id,
     name: row.name,
@@ -179,7 +203,7 @@ export function PersonProfile({ userId, config }: { userId: number; config: HrCo
               "Stanowisko nieuzupełnione"}
             {data.manager_name ? (
               <>
-                {" · przełożony: "}
+                {` · ${words ? words.coordinator : "przełożony / koordynator"}: `}
                 <Link
                   className="hover:text-foreground hover:underline"
                   href={`/people/${data.manager_user_id}`}
@@ -216,8 +240,36 @@ export function PersonProfile({ userId, config }: { userId: number; config: HrCo
               <Fact label="Ostatni dzień pracy">
                 {full.last_working_day ? formatDate(full.last_working_day) : "—"}
               </Fact>
-              <Fact label="Timesheet">{full.timesheet_required ? "tak" : "nie"}</Fact>
+              <Fact label={words?.timesheet ?? "Timesheet"}>
+                {full.timesheet_required ? "tak" : "nie"}
+              </Fact>
               <Fact label="Nadgodziny">{full.can_log_overtime ? "tak" : "nie"}</Fact>
+              {full.employment_type === "zlecenie" ? (
+                <Fact label="Uczeń lub student">
+                  {full.student_contribution_exempt
+                    ? full.contribution_exempt_until
+                      ? `bez składek do ${formatDate(full.contribution_exempt_until)}`
+                      : "tak — brak daty końca zwolnienia"
+                    : "nie"}
+                </Fact>
+              ) : null}
+              {full.employment_type === "zlecenie" && full.contributions_from ? (
+                <Fact label="Składki od">{formatDate(full.contributions_from)}</Fact>
+              ) : null}
+              {full.employment_type === "uop" ? (
+                <>
+                  <Fact label="Staż do urlopu">
+                    {full.leave_seniority_years == null
+                      ? "—"
+                      : `${full.leave_seniority_years} lat`}
+                  </Fact>
+                  <Fact label="Zaświadczenie z ZUS">
+                    {full.zus_certificate_received_on
+                      ? formatDate(full.zus_certificate_received_on)
+                      : "—"}
+                  </Fact>
+                </>
+              ) : null}
             </Card>
             <LeavePoolCard person={full} year={year} canEdit={canEdit} />
             <Card className="p-4 lg:col-span-3">

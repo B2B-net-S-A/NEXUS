@@ -264,6 +264,7 @@ class NotificationType(str, enum.Enum):
     hr_leave_cancelled = "hr_leave_cancelled"
     hr_leave_substitute = "hr_leave_substitute"
     hr_absence_reported = "hr_absence_reported"
+    hr_leave_conflict = "hr_leave_conflict"
     hr_timesheet_submitted = "hr_timesheet_submitted"
     hr_timesheet_decided = "hr_timesheet_decided"
     hr_timesheet_reminder = "hr_timesheet_reminder"

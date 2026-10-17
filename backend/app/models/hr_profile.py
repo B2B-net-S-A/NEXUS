@@ -56,6 +56,12 @@ class EmployeeProfile(Base, TimestampMixin):
             schema.CK_NO_SELF_MANAGER, name="ck_employee_profiles_no_self_manager"
         ),
         CheckConstraint(schema.CK_DIVISION, name="ck_employee_profiles_division"),
+        CheckConstraint(
+            schema.CK_EXEMPT_UNTIL, name="ck_employee_profiles_exempt_until"
+        ),
+        CheckConstraint(
+            schema.CK_LEAVE_SENIORITY, name="ck_employee_profiles_seniority"
+        ),
         Index("ix_employee_profiles_manager", "manager_user_id"),
         Index("ix_employee_profiles_status", "employment_status"),
     )
@@ -105,6 +111,22 @@ class EmployeeProfile(Base, TimestampMixin):
     m365_manager_upn: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     #: Pion firmy: ``front_office`` / ``back_office`` (``None`` = bez pionu).
     division: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
+    #: Uczeń lub student do 26 lat na zleceniu — bez składek ZUS z tej umowy
+    #: do ``contribution_exempt_until`` (etap 2, D8; bez daty urodzenia).
+    student_contribution_exempt: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    contribution_exempt_until: Mapped[Optional[date]] = mapped_column(
+        Date, nullable=True
+    )
+    #: Staż do urlopu na umowie o pracę (lata; od 01.05.2026 z zaświadczeniem
+    #: ZUS o latach na zleceniu i działalności) — podpowiedź wymiaru 20/26 (D9).
+    leave_seniority_years: Mapped[Optional[int]] = mapped_column(
+        SmallInteger, nullable=True
+    )
+    zus_certificate_received_on: Mapped[Optional[date]] = mapped_column(
+        Date, nullable=True
+    )
     compass_profile_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         UUID(as_uuid=True), nullable=True
     )

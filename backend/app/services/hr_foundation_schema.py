@@ -73,6 +73,14 @@ CK_EMPLOYMENT_TYPE = f"employment_type IN ({quoted(EMPLOYMENT_TYPES)})"
 CK_EMPLOYMENT_STATUS = f"employment_status IN ({quoted(EMPLOYMENT_STATUSES)})"
 CK_LOCATION = f"default_location IN ({quoted(LOCATIONS)})"
 CK_DIVISION = f"division IS NULL OR division IN ({quoted(DIVISIONS)})"
+# Etap 2 (D8): data końca zwolnienia ze składek tylko przy znaczniku ucznia
+# lub studenta; że znacznik jest tylko na zleceniu, pilnuje serwis (zmiana formy
+# nie może się wywrócić na CHECK-u).
+CK_EXEMPT_UNTIL = "contribution_exempt_until IS NULL OR student_contribution_exempt"
+# Etap 2 (D9): staż do urlopu na umowie o pracę (lata, z zaświadczeniem ZUS).
+CK_LEAVE_SENIORITY = (
+    "leave_seniority_years IS NULL OR leave_seniority_years BETWEEN 0 AND 60"
+)
 CK_NO_SELF_MANAGER = "manager_user_id IS NULL OR manager_user_id <> user_id"
 CK_ENTITLEMENT_YEAR = "year BETWEEN 2020 AND 2100"
 CK_ENTITLEMENT_DAYS = (
@@ -111,6 +119,10 @@ TABLE_DDL: tuple[str, ...] = (
     m365_synced_at TIMESTAMPTZ NULL,
     m365_manager_upn VARCHAR(255) NULL,
     division VARCHAR(16) NULL,
+    student_contribution_exempt BOOLEAN NOT NULL DEFAULT false,
+    contribution_exempt_until DATE NULL,
+    leave_seniority_years SMALLINT NULL,
+    zus_certificate_received_on DATE NULL,
     compass_profile_id UUID NULL,
     updated_by INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -122,7 +134,9 @@ TABLE_DDL: tuple[str, ...] = (
     CONSTRAINT ck_employee_profiles_status CHECK ({CK_EMPLOYMENT_STATUS}),
     CONSTRAINT ck_employee_profiles_location CHECK ({CK_LOCATION}),
     CONSTRAINT ck_employee_profiles_no_self_manager CHECK ({CK_NO_SELF_MANAGER}),
-    CONSTRAINT ck_employee_profiles_division CHECK ({CK_DIVISION})
+    CONSTRAINT ck_employee_profiles_division CHECK ({CK_DIVISION}),
+    CONSTRAINT ck_employee_profiles_exempt_until CHECK ({CK_EXEMPT_UNTIL}),
+    CONSTRAINT ck_employee_profiles_seniority CHECK ({CK_LEAVE_SENIORITY})
 )""",
     # Kolumny dopisane po pierwszej wersji 0452 (etap 2, 17.10.2026) — w bazie
     # z wcześniejszą wersją tabeli; świeża baza ma je już z CREATE TABLE.
@@ -140,6 +154,38 @@ TABLE_DDL: tuple[str, ...] = (
         ) THEN
             ALTER TABLE employee_profiles ADD CONSTRAINT ck_employee_profiles_division
                 CHECK ({CK_DIVISION});
+        END IF;
+    END $$""",
+    # Etap 2, forma współpracy (D8, D9): uczeń/student na zleceniu bez składek
+    # do ``contribution_exempt_until`` (bez daty urodzenia — Kadry wpisują
+    # wcześniejszą z dat: koniec statusu albo dzień przed 26. urodzinami),
+    # staż do urlopu i data zaświadczenia ZUS na umowie o pracę.
+    "ALTER TABLE employee_profiles ADD COLUMN IF NOT EXISTS "
+    "student_contribution_exempt BOOLEAN NOT NULL DEFAULT false",
+    "ALTER TABLE employee_profiles ADD COLUMN IF NOT EXISTS "
+    "contribution_exempt_until DATE NULL",
+    "ALTER TABLE employee_profiles ADD COLUMN IF NOT EXISTS "
+    "leave_seniority_years SMALLINT NULL",
+    "ALTER TABLE employee_profiles ADD COLUMN IF NOT EXISTS "
+    "zus_certificate_received_on DATE NULL",
+    f"""DO $$ BEGIN
+        IF NOT EXISTS (
+            SELECT 1 FROM pg_constraint
+            WHERE conname = 'ck_employee_profiles_exempt_until'
+              AND conrelid = 'employee_profiles'::regclass
+        ) THEN
+            ALTER TABLE employee_profiles ADD CONSTRAINT ck_employee_profiles_exempt_until
+                CHECK ({CK_EXEMPT_UNTIL});
+        END IF;
+    END $$""",
+    f"""DO $$ BEGIN
+        IF NOT EXISTS (
+            SELECT 1 FROM pg_constraint
+            WHERE conname = 'ck_employee_profiles_seniority'
+              AND conrelid = 'employee_profiles'::regclass
+        ) THEN
+            ALTER TABLE employee_profiles ADD CONSTRAINT ck_employee_profiles_seniority
+                CHECK ({CK_LEAVE_SENIORITY});
         END IF;
     END $$""",
     f"""CREATE TABLE IF NOT EXISTS leave_entitlements (

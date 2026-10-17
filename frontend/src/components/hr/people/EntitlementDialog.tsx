@@ -8,13 +8,21 @@ import { Button } from "@/components/ui/button";
 import { FormField } from "@/components/ui/form-field";
 import { Input } from "@/components/ui/input";
 import { apiErrorMessage } from "@/lib/api-error";
-import { useSetEntitlement, type LeaveEntitlementRow } from "@/lib/api/hr";
+import {
+  useSetEntitlement,
+  type EmploymentType,
+  type LeaveEntitlementRow,
+} from "@/lib/api/hr";
 
 interface EntitlementDialogProps {
   userId: number;
   name: string;
   year: number;
   current: LeaveEntitlementRow | undefined;
+  /** Forma osoby: UoP — urlop z wymiarem; B2B — płatne dni przerwy z umowy (D6). */
+  employmentType?: EmploymentType;
+  /** Podpowiedź wymiaru 20/26 ze stażu w kartotece (D9, tylko UoP). */
+  suggestedDays?: number | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }
@@ -28,9 +36,12 @@ export function EntitlementDialog({
   name,
   year,
   current,
+  employmentType = "uop",
+  suggestedDays = null,
   open,
   onOpenChange,
 }: EntitlementDialogProps) {
+  const leave = employmentType === "uop";
   const { showToast } = useToast();
   const save = useSetEntitlement(userId);
   const [entitlement, setEntitlement] = useState(asInput(current?.entitlement_days));
@@ -53,7 +64,7 @@ export function EntitlementDialog({
       },
       {
         onSuccess: () => {
-          showToast("Pula urlopowa zapisana", "success");
+          showToast(leave ? "Pula urlopowa zapisana" : "Pula płatnych dni zapisana", "success");
           onOpenChange(false);
         },
         onError: (err) =>
@@ -66,8 +77,12 @@ export function EntitlementDialog({
     <AppModal
       open={open}
       onOpenChange={onOpenChange}
-      title={`Pula urlopowa ${year} · ${name}`}
-      description="Dni podaje się w pełnych dniach albo połówkach (np. 2,5)."
+      title={leave ? `Pula urlopowa ${year} · ${name}` : `Płatne dni przerwy ${year} · ${name}`}
+      description={
+        leave
+          ? "Dni podaje się w pełnych dniach albo połówkach (np. 2,5)."
+          : "Tylko gdy umowa B2B przewiduje płatne dni przerwy. Dni ponad pulę są bez wynagrodzenia."
+      }
       footer={
         <>
           <Button variant="ghost" onClick={() => onOpenChange(false)}>
@@ -121,6 +136,22 @@ export function EntitlementDialog({
           />
         </FormField>
       </div>
+      {leave && suggestedDays ? (
+        <p className="mt-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+          Wymiar według stażu w kartotece: {suggestedDays} dni (20 poniżej 10 lat, 26 od 10
+          lat). Przy starcie w trakcie roku albo części etatu policz proporcję.
+          {entitlement !== String(suggestedDays) ? (
+            <Button
+              type="button"
+              variant="quiet"
+              size="sm"
+              onClick={() => setEntitlement(String(suggestedDays))}
+            >
+              Wpisz {suggestedDays} dni
+            </Button>
+          ) : null}
+        </p>
+      ) : null}
       {error ? (
         <p role="alert" className="mt-4 text-sm text-destructive">
           {error}

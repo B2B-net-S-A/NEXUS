@@ -16,10 +16,15 @@
  *   w drodze (prognoza z podpisanej umowy i propozycja „14 z 21 dni”),
  *   przełożony, sprzęt, do zrobienia (zadanie wejścia, protokół do podpisu,
  *   timesheet do wysłania);
- * - `?tab=leave` — urlopy Oli: saldo, wnioski (zatwierdzony
- *   z przekierowaniem poczty, wpisany, odrzucony z powodem);
- * - `?state=request` — Kamil (Delivery Lead) z otwartym oknem „Wniosek
- *   o nieobecność”: zastępca proponowany, „Co wypada w tym czasie” (rozmowy
+ * - `?tab=leave` — przerwy Oli (B2B, etap 2 D5: zgłoszenia bez akceptacji):
+ *   saldo z umownej puli, zgłoszona przerwa z przekierowaniem poczty i kolizją
+ *   od koordynatorki, zgłoszony dzień, anulowane; `&form=uop` — wnioski
+ *   urlopowe (zatwierdzony, wpisany, odrzucony z powodem);
+ * - `?state=report` — Ola (B2B) z otwartym oknem „Zgłoś przerwę w świadczeniu
+ *   usług” (makieta m5): bez wyboru rodzaju, rozliczenie z puli i „Co się
+ *   stanie po zgłoszeniu”;
+ * - `?state=request` — Kamil (Delivery Lead, umowa o pracę) z otwartym oknem
+ *   „Wniosek o nieobecność”: zastępca proponowany, „Co wypada w tym czasie” (rozmowy
  *   u klienta, prep, screening), nieobecni z działu, saldo po wniosku. Okno
  *   startuje od dziś (tak działa ekran) — podgląd jest zasiany dla „bez
  *   zastępcy” i każdego zastępcy z listy, więc wybór nie wysyła zapytania.
@@ -56,6 +61,7 @@ import {
 import {
   KAMIL_SUBSTITUTES,
   MY_EQUIPMENT,
+  OLA_SUBSTITUTES,
   TEMPLATES,
   balance,
   dayHint,
@@ -67,11 +73,12 @@ import {
   olaHistory,
   olaMonth,
   olaPayroll,
+  olaReportPreview,
   olaRequests,
   olaSettlement,
 } from "./fixtures";
 
-const STATES = ["overview", "leave", "request", "month", "bonuses"] as const;
+const STATES = ["overview", "leave", "request", "report", "month", "bonuses"] as const;
 type State = (typeof STATES)[number];
 const FORMS = ["b2b", "uop", "zlecenie"] as const satisfies readonly EmploymentType[];
 
@@ -79,18 +86,22 @@ const LINKS = [
   { key: "overview", label: "Przegląd (B2B z pulą)", href: "?tab=overview" },
   { key: "overview-uop", label: "Przegląd (UoP)", href: "?tab=overview&form=uop" },
   { key: "overview-zlecenie", label: "Przegląd (zlecenie)", href: "?tab=overview&form=zlecenie" },
-  { key: "leave", label: "Urlopy", href: "?tab=leave" },
-  { key: "request", label: "Wniosek urlopowy (Kamil)", href: "?state=request&tab=leave" },
-  { key: "month", label: "Mój miesiąc", href: "?tab=month" },
+  { key: "leave", label: "Przerwy (B2B)", href: "?tab=leave" },
+  { key: "report", label: "Zgłoszenie przerwy (Ola, B2B)", href: "?state=report&tab=leave" },
+  { key: "request", label: "Wniosek urlopowy (Kamil, UoP)", href: "?state=request&tab=leave" },
+  { key: "month", label: "Raport godzin", href: "?tab=month" },
   { key: "bonuses", label: "Premie i stawka", href: "?tab=bonuses" },
 ] as const;
 
 function prepare(params: URLSearchParams) {
+  const asked = params.get("state");
   const state: State =
-    params.get("state") === "request"
-      ? "request"
+    asked === "request" || asked === "report"
+      ? asked
       : pickState(params.get("tab"), STATES, "overview");
-  const form: EmploymentType = state === "request" ? "b2b" : pickState(params.get("form"), FORMS, "b2b");
+  // Wniosek z akceptacją jest tylko na umowie o pracę (Kamil); zgłoszenie — B2B (Ola).
+  const form: EmploymentType =
+    state === "request" ? "uop" : state === "report" ? "b2b" : pickState(params.get("form"), FORMS, "b2b");
   const viewer = state === "request" ? HR_CAST.kamil : HR_CAST.ola;
   const today = warsawToday();
   const current = currentYearMonth();
@@ -108,7 +119,7 @@ function prepare(params: URLSearchParams) {
 
   // Urlopy
   if (state === "request") {
-    client.setQueryData(leaveKeys.balance(year), balance(year, "9.5", "18.5"));
+    client.setQueryData(leaveKeys.balance(year), { ...balance(year, "9.5", "18.5"), employment_type: "uop" });
     client.setQueryData(leaveKeys.mine, kamilRequests(current));
     client.setQueryData(leaveKeys.substitutes("self", today, today), KAMIL_SUBSTITUTES);
     for (const substitute of [null, ...KAMIL_SUBSTITUTES.map((row) => row.user_id)]) {
@@ -123,7 +134,20 @@ function prepare(params: URLSearchParams) {
     }
   } else {
     client.setQueryData(leaveKeys.balance(year), formBalance(year, today, form));
-    client.setQueryData(leaveKeys.mine, olaRequests(current));
+    client.setQueryData(leaveKeys.mine, olaRequests(current, form));
+  }
+  if (state === "report") {
+    client.setQueryData(leaveKeys.substitutes("self", today, today), OLA_SUBSTITUTES);
+    for (const substitute of [null, ...OLA_SUBSTITUTES.map((row) => row.user_id)]) {
+      const input: LeaveInput = {
+        leave_type: "vacation",
+        start_date: today,
+        end_date: today,
+        half_day: null,
+        substitute_user_id: substitute,
+      };
+      client.setQueryData(leaveKeys.preview("self", input), olaReportPreview(today, substitute));
+    }
   }
 
   // Mój miesiąc: bieżący (szkic), poprzedni (zaakceptowany), następny (pusty) i archiwum.
@@ -169,19 +193,20 @@ export default function HrMyTimePreviewPage() {
       title="Mój czas"
       note={
         state === "request"
-          ? "Kamil Testowy (Delivery Lead) składa wniosek. Dane fikcyjne, bez zapytań."
+          ? "Kamil Testowy (Delivery Lead, umowa o pracę) składa wniosek. Dane fikcyjne, bez zapytań."
           : `Ola Przykładowa (rekruterka, ${FORM_LABELS[form]}). Dane fikcyjne, bez zapytań.`
       }
       states={LINKS}
       current={current}
     >
       <MyTimeScreen config={config} />
-      {state === "request" ? (
+      {state === "request" || state === "report" ? (
         <LeaveRequestDialog
           open={dialogOpen}
           onOpenChange={setDialogOpen}
           mode="self"
           allowedTypes={["vacation"]}
+          employmentType={form}
         />
       ) : null}
     </HrHarnessShell>

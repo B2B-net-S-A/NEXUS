@@ -21,7 +21,8 @@ z rodzajów puli (dni bez wynagrodzenia). „Dziś” to kalendarz firmy.
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections import defaultdict
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
@@ -195,18 +196,130 @@ def _num(value: Optional[Decimal]) -> Optional[str]:
     return None if value is None else f"{value:.1f}"
 
 
+def _has_paid_pool(row: Optional[LeaveEntitlement]) -> bool:
+    """Pula zerowa (np. B2B bez umownych dni) liczy się jak brak puli: dni są
+    bez wynagrodzenia, więc trzy liczby muszą policzyć wszystkie dni."""
+
+    if row is None or row.entitlement_days is None:
+        return False
+    return row.entitlement_days + row.carried_over_days > 0
+
+
 async def balance_payload(
     db: AsyncSession, *, user_id: int, year: int, employment_type: str, today: date
 ) -> dict[str, Any]:
     rows = await entitlements(db, user_id, [year])
     usage = (await year_usage(db, user_id, [year]))[year]
     row = rows.get(year)
+    split = await day_split(db, user_id, year, today, paid_only=_has_paid_pool(row))
+    return _compose(
+        year=year,
+        employment_type=employment_type,
+        today=today,
+        row=row,
+        usage=usage,
+        split=split,
+    )
+
+
+async def balances_for(
+    db: AsyncSession, forms: Mapping[int, str], *, year: int, today: date
+) -> dict[int, dict[str, Any]]:
+    """``balance_payload`` dla wielu osób naraz (``user_id`` → forma) — dwa
+    zapytania zamiast trzech na osobę („Mój zespół”). Te same liczby: dni
+    z jednego GROUP BY rozkładane w Pythonie jak w ``year_usage``
+    i ``day_split``."""
+
+    ids = sorted(forms)
+    if not ids:
+        return {}
+    rows = {
+        row.user_id: row
+        for row in await db.scalars(
+            select(LeaveEntitlement).where(
+                LeaveEntitlement.user_id.in_(ids), LeaveEntitlement.year == year
+            )
+        )
+    }
+    future = LeaveRequestDay.day > today
+    grouped = await db.execute(
+        select(
+            LeaveRequestDay.user_id,
+            LeaveRequest.status,
+            LeaveRequest.leave_type,
+            LeaveRequestDay.paid,
+            future,
+            func.sum(LeaveRequestDay.fraction),
+        )
+        .join(LeaveRequest, LeaveRequest.id == LeaveRequestDay.leave_request_id)
+        .where(
+            LeaveRequestDay.user_id.in_(ids),
+            LeaveRequestDay.active.is_(True),
+            extract("year", LeaveRequestDay.day) == year,
+        )
+        .group_by(
+            LeaveRequestDay.user_id,
+            LeaveRequest.status,
+            LeaveRequest.leave_type,
+            LeaveRequestDay.paid,
+            future,
+        )
+    )
+    days: dict[int, list[tuple[str, str, bool, bool, Decimal]]] = defaultdict(list)
+    for user_id, status, leave_type, paid, after_today, amount in grouped.all():
+        days[int(user_id)].append(
+            (status, leave_type, bool(paid), bool(after_today), Decimal(amount or 0))
+        )
+    result: dict[int, dict[str, Any]] = {}
+    for user_id in ids:
+        row = rows.get(user_id)
+        paid_pool = _has_paid_pool(row)
+        usage = dict.fromkeys(
+            ("approved_paid", "pending_paid", "unpaid", "on_demand", "childcare"), _ZERO
+        )
+        used = planned = pending = _ZERO
+        for status, leave_type, paid, after_today, amount in days[user_id]:
+            if paid:
+                key = "approved_paid" if status == "approved" else "pending_paid"
+                usage[key] += amount
+            elif leave_type in ("vacation", "on_demand"):
+                usage["unpaid"] += amount
+            if leave_type == "on_demand":
+                usage["on_demand"] += amount
+            if leave_type == "childcare":
+                usage["childcare"] += amount
+            counted = paid if paid_pool else leave_type in POOL_TYPES
+            if not counted:
+                continue
+            if status == "pending":
+                pending += amount
+            elif status == "approved" and after_today:
+                planned += amount
+            elif status == "approved":
+                used += amount
+        result[user_id] = _compose(
+            year=year,
+            employment_type=forms[user_id],
+            today=today,
+            row=row,
+            usage=YearUsage(**usage),
+            split=DaySplit(used=used, planned=planned, pending=pending),
+        )
+    return result
+
+
+def _compose(
+    *,
+    year: int,
+    employment_type: str,
+    today: date,
+    row: Optional[LeaveEntitlement],
+    usage: YearUsage,
+    split: DaySplit,
+) -> dict[str, Any]:
     entitlement = row.entitlement_days if row else None
     carried = row.carried_over_days if row else _ZERO
-    # Pula zerowa (np. B2B bez umownych dni) liczy się jak brak puli: dni są
-    # bez wynagrodzenia, więc trzy liczby muszą policzyć wszystkie dni.
-    paid_pool = entitlement is not None and entitlement + carried > 0
-    split = await day_split(db, user_id, year, today, paid_only=paid_pool)
+    paid_pool = _has_paid_pool(row)
     used_initial = row.used_initial_days if row else _ZERO
     remaining = (
         None

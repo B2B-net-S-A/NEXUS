@@ -1,5 +1,6 @@
 /**
- * „Ludzie w NEXUSIE”: wniosek urlopowy przez UI i granice dostępu roli „Pracownik”.
+ * „Ludzie w NEXUSIE”: wniosek urlopowy (umowa o pracę), zgłoszenie przerwy
+ * z B2B z kolizją od koordynatorki (etap 2, D5) i granice dostępu roli „Pracownik”.
  *
  * `@stack`. Zespół z `backend/scripts/seed_hr_demo.py` (krok „Zasiej zespół HR”
  * w `e2e.yml`). Scenariusz musi być powtarzalny na tej samej bazie (lokalny
@@ -21,14 +22,15 @@ import {
 } from "./helpers/hr";
 
 const MARKER = "E2E urlop @stack";
+const REPORT_MARKER = "E2E przerwa @stack";
 
 test.describe("Ludzie w NEXUSIE — urlopy i dostęp @stack", () => {
-  test("pracownica składa wniosek w „Mój czas”, przełożona akceptuje, pracownica widzi zatwierdzenie", async ({
+  test("pracownik na UoP składa wniosek w „Mój czas”, przełożona akceptuje, pracownik widzi zatwierdzenie", async ({
     browser,
   }) => {
     // Dwie osobne sesje przeglądarki i dwa logowania — więcej niż domyślne 30 s.
     test.slow();
-    const employeeApi = await hrApi(HR_ACCOUNTS.employee);
+    const employeeApi = await hrApi(HR_ACCOUNTS.uopEmployee);
     const sessions: BrowserSession[] = [];
     try {
       await cancelLeaveWithMarker(employeeApi, MARKER);
@@ -36,8 +38,8 @@ test.describe("Ludzie w NEXUSIE — urlopy i dostęp @stack", () => {
       const term = displayDay(day);
       const note = `${MARKER} ${uniqueSuffix()}`;
 
-      // Pracownica: „Mój czas → Urlopy” → „Złóż wniosek”.
-      const employee = await loginInBrowser(browser, HR_ACCOUNTS.employee, "/my-time?tab=leave");
+      // Pracownik: „Mój czas → Urlop” → „Złóż wniosek”.
+      const employee = await loginInBrowser(browser, HR_ACCOUNTS.uopEmployee, "/my-time?tab=leave");
       sessions.push(employee);
       // Pierwszy render po logowaniu (sesja, konfiguracja modułów) — z zapasem.
       await expect(employee.page.getByRole("heading", { name: "Mój czas" })).toBeVisible({
@@ -68,7 +70,9 @@ test.describe("Ludzie w NEXUSIE — urlopy i dostęp @stack", () => {
         timeout: 30_000,
       });
       await expect(manager.page).toHaveURL(/\/people\/approvals/);
-      const queue = manager.page.getByRole("region", { name: "Urlopy i nieobecności" });
+      const queue = manager.page.getByRole("region", {
+        name: "Wnioski do decyzji (umowa o pracę)",
+      });
       const pendingRow = queue.getByRole("row").filter({ hasText: note });
       await expect(pendingRow).toHaveCount(1);
       await expect(pendingRow).toContainText(term);
@@ -76,7 +80,7 @@ test.describe("Ludzie w NEXUSIE — urlopy i dostęp @stack", () => {
       await expect(manager.page.getByText("Wniosek zaakceptowany")).toBeVisible();
       await expect(pendingRow).toHaveCount(0);
 
-      // Pracownica po odświeżeniu widzi zatwierdzony wniosek.
+      // Pracownik po odświeżeniu widzi zatwierdzony wniosek.
       await employee.page.reload();
       await expect(myRows.filter({ hasText: "Zatwierdzony" })).toHaveCount(1);
       await expect(myRows.filter({ hasText: "Czeka na akceptację" })).toHaveCount(0);
@@ -86,6 +90,69 @@ test.describe("Ludzie w NEXUSIE — urlopy i dostęp @stack", () => {
       // zaczyna od czystego kalendarza.
       await cancelLeaveWithMarker(employeeApi, MARKER);
       await employeeApi.dispose();
+    }
+  });
+
+  test("osoba na B2B zgłasza przerwę bez akceptacji, koordynatorka zgłasza kolizję", async ({
+    browser,
+  }) => {
+    test.slow();
+    const contractorApi = await hrApi(HR_ACCOUNTS.employee);
+    const sessions: BrowserSession[] = [];
+    try {
+      await cancelLeaveWithMarker(contractorApi, REPORT_MARKER);
+      const day = await pickFreeLeaveDay(contractorApi, 28);
+      const term = displayDay(day);
+      const note = `${REPORT_MARKER} ${uniqueSuffix()}`;
+
+      // Osoba na B2B: „Mój czas → Przerwy” → „Zgłoś przerwę” (zgłoszenie, nie wniosek).
+      const contractor = await loginInBrowser(browser, HR_ACCOUNTS.employee, "/my-time?tab=leave");
+      sessions.push(contractor);
+      await expect(contractor.page.getByRole("heading", { name: "Mój czas" })).toBeVisible({
+        timeout: 30_000,
+      });
+      await contractor.page.getByRole("button", { name: "Zgłoś przerwę" }).click();
+      const dialog = contractor.page.getByRole("dialog", {
+        name: "Zgłoś przerwę w świadczeniu usług",
+      });
+      await expect(dialog).toBeVisible();
+      await dialog.locator("#leave-start").fill(day);
+      await dialog.locator("#leave-end").fill(day);
+      await dialog.locator("#leave-note").fill(note);
+      await expect(dialog.getByText("Co się stanie po zgłoszeniu")).toBeVisible();
+      const send = dialog.getByRole("button", { name: "Zgłoś przerwę" });
+      await expect(send).toBeEnabled();
+      await send.click();
+      await expect(dialog).toBeHidden();
+      const myRows = contractor.page.getByRole("row").filter({ hasText: term });
+      await expect(myRows.filter({ hasText: "Zgłoszone" })).toHaveCount(1);
+
+      // Koordynatorka: „Akceptacje” → zgłoszenie do wiadomości, bez „Akceptuj”.
+      const manager = await loginInBrowser(browser, HR_ACCOUNTS.manager, "/people/approvals");
+      sessions.push(manager);
+      await expect(manager.page.getByRole("heading", { name: "Akceptacje" })).toBeVisible({
+        timeout: 30_000,
+      });
+      const reported = manager.page.getByRole("region", {
+        name: "Zgłoszone przerwy i nieobecności (B2B, zlecenie) — do wiadomości",
+      });
+      const row = reported.getByRole("row").filter({ hasText: term });
+      await expect(row.first()).toBeVisible();
+      await expect(row.first().getByRole("button", { name: "Akceptuj" })).toHaveCount(0);
+      await row.first().getByRole("button", { name: "Zgłoś kolizję" }).click();
+      const conflict = manager.page.getByRole("dialog", { name: "Zgłoś kolizję z terminem" });
+      await conflict.locator("#leave-conflict-note").fill(`Wdrożenie u klienta ${uniqueSuffix()}`);
+      await conflict.getByRole("button", { name: "Zgłoś kolizję" }).click();
+      await expect(manager.page.getByText("Kolizja zgłoszona")).toBeVisible();
+
+      // Osoba widzi kolizję przy swoim zgłoszeniu; termin dalej jest zgłoszony.
+      await contractor.page.reload();
+      await expect(myRows.filter({ hasText: "kolizja" })).toHaveCount(1);
+      await expect(myRows.filter({ hasText: "Zgłoszone" })).toHaveCount(1);
+    } finally {
+      for (const session of sessions) await session.context.close();
+      await cancelLeaveWithMarker(contractorApi, REPORT_MARKER);
+      await contractorApi.dispose();
     }
   });
 

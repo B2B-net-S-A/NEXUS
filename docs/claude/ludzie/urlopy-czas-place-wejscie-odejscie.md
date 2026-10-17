@@ -22,6 +22,62 @@
   (`services/hr/hr_mail.py`, reguła w `modul-ludzie-dostep-schemat-i-przelaczenie.md`).
   Trwałe miejsce spraw do decyzji to „Ludzie → Akceptacje” z licznikiem.
 
+### Forma współpracy: słowa i zgłoszenie zamiast wniosku (etap 2, D1, D4–D9, 17.10.2026)
+
+Prawie cała firma jest na B2B albo zleceniu, umowa o pracę pojedynczo. Od
+08.07.2026 PIP sam stwierdza stosunek pracy, a „wniosek urlopowy” akceptowany
+przez „przełożonego” to sygnał podporządkowania — dlatego forma z kartoteki
+decyduje o słowach i o przebiegu nieobecności.
+
+- **Jeden słownik** (D4): `app/services/hr/employment_terms.py`
+  (`EMPLOYMENT_TERMS` + zdania tylko backendu w `BACKEND_TERMS`) i lustro słowo
+  w słowo `frontend/src/lib/hr-employment-terms.ts` (strażnik
+  `tests/test_hr_employment_terms_mirror.py`). UoP: urlop, wniosek, przełożony,
+  ewidencja czasu pracy, lista płac; B2B: przerwa w świadczeniu usług,
+  zgłoszenie, koordynator, raport godzin, faktura; zlecenie: nieobecność,
+  zgłoszenie, koordynator, potwierdzenie godzin (art. 8b), rachunek. Brak formy
+  = jak UoP. Nie pisz „urlop”, „wniosek”, „przełożony” na sztywno w tekstach,
+  które widzi osoba na B2B albo zleceniu — bierz słowo ze słownika (ekrany,
+  powiadomienia urlopów i raportu godzin, PDF raportu, przypomnienie 1.–5.).
+  Rodzaj „vacation” osoby na B2B/zleceniu ma etykietę „Przerwa w świadczeniu
+  usług” / „Nieobecność” (`leave_policy.type_label`). Autoodpowiedź M365 i
+  wydarzenie w kalendarzu mówią „poza biurem” — słowa „urlop” tam nie ma.
+- **Zgłoszenie zamiast wniosku** (D5, Artur 17.10): na B2B i zleceniu własna
+  nieobecność jest od razu `approved` bez decydującego (`decided_by` NULL),
+  M365 i godziny od razu. Informacja (`hr_absence_reported`, bez rodzaju) idzie
+  do koordynatora: przełożony z kartoteki → head pionu
+  (`app_settings['hr_divisions']`) → Kadry; zastępca nieobecnego przełożonego
+  do wiadomości. Zgłoszenia nie trafiają do kolejki wniosków ani do licznika
+  „Akceptacji”; w „Akceptacjach” są w sekcji „do wiadomości”
+  (`reported` w `GET /approvals/pending`) z „Zgłoś kolizję”.
+- Akceptuj/odrzuć zgłoszenie = 409 (`REPORT_NOT_DECIDED`); czekający wniosek
+  osoby, której forma zmieniła się z UoP po złożeniu, dalej można rozstrzygnąć.
+  Anulowanie zgłoszenia przez koordynatora = 403 (to odrzucenie pod inną
+  nazwą) — anuluje sama osoba (przed pierwszym dniem) albo Kadry/admin.
+- **Kolizja**: `POST /api/hr/leave/{id}/conflict` (`{note}` 3–1000 znaków,
+  bramka akceptujących + head pionu osoby bez przełożonego) → typ
+  `hr_leave_conflict` do osoby (link `/my-time?tab=leave`), ślad
+  `leave_conflict_reported` z notatką; zgłoszenie zostaje zatwierdzone. Wiersz
+  wniosku niesie ostatnią kolizję (`conflict`), osoba widzi ją przy terminie.
+  Mail ma zdanie typu, bez notatki (wolny tekst). Kolizja tylko dla
+  trwających i przyszłych zgłoszeń B2B/zlecenia (UoP, minione, zamknięte = 409).
+- Import z Compassa: oczekujący wniosek osoby na B2B/zleceniu wchodzi jako
+  przyjęte zgłoszenie (`decided_at` = data złożenia), raport liczy je w
+  `extra.contractor_pending_reported`.
+- **Pula** (D6): na zleceniu nie ma puli płatnych dni — `PUT …/entitlements`
+  z dniami > 0 dla zlecenia = 422; B2B tylko gdy umowa ją ma. **Staż** (D9):
+  `leave_seniority_years` + `zus_certificate_received_on` w kartotece (tylko
+  UoP); `suggested_entitlement_days` (20 / 26 od 10 lat) w kartotece i w
+  odpowiedzi zapisu puli — tylko podpowiedź, pulę zatwierdzają Kadry.
+- **Uczeń/student na zleceniu** (D8): `student_contribution_exempt` +
+  `contribution_exempt_until` (CHECK: data tylko przy znaczniku; znacznik tylko
+  na zleceniu — serwis, zmiana formy go zdejmuje). Bez daty urodzenia: Kadry
+  wpisują wcześniejszą z dat (koniec statusu albo dzień przed 26. urodzinami).
+  `student_reminders.student_contribution_reminders` (z pętli `hr_lifecycle`,
+  od 8:00) od 30 dni przed datą do niej włącznie: `hr_lifecycle_task` do Płac
+  i Kadr, raz na osobę i datę (`hr_job_runs` `hr_student_contribution_reminder`,
+  `u<id>:<data>`). Plakietka „składki od MM.RRRR” w Strukturze i „Moim zespole”.
+
 ### Zastępca nieobecnego przełożonego (17.10.2026, `leave_substitute.py`)
 
 - Przełożony na **zatwierdzonym** urlopie obejmującym **cały** dzisiejszy dzień
@@ -134,6 +190,15 @@
   Pobranie PDF przy rozjeździe sumy = 409.
 - `payroll_locked` (zamknięty miesiąc płac) blokuje każdą zmianę timesheetu,
   także nowo zakładanego (`ensure_timesheet` czyta `payroll_periods.is_closed`).
+- **Potwierdzenie godzin na zleceniu** (D7, art. 8b/8c): przyjęty raport osoby
+  na zleceniu po terminie wypłaty (koniec miesiąca następnego) zostaje bez zmian
+  3 lata (`time_retention.py`): cofnięcie przyjęcia i usunięcie wpisu = 409,
+  zgłoszona później nieobecność nie zdejmuje godzin (miesiąc jak zamknięty
+  w płacach — ostrzeżenie osobie, powiadomienie Płacom). Przed terminem
+  wypłaty to zwykła korekta. Wiersza `timesheets` nie kasuje żadna ścieżka
+  (`user_id ON DELETE RESTRICT`, odejście i wyłączenie konta nie ruszają godzin).
+- PDF: tytuł z formy — „Ewidencja czasu pracy”, „Raport godzin”, „Potwierdzenie
+  liczby godzin” z dopiskiem o art. 8b; role „Pracownik/Wykonawca/Zleceniobiorca”.
 
 ## Płace i premie (`app/services/hr/payroll_*.py`, `bonus_rules.py`)
 

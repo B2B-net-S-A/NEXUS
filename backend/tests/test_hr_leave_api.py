@@ -569,7 +569,15 @@ async def test_started_leave_is_cancelled_by_manager_not_by_owner(
     today = business_today()
     async with AsyncSessionLocal() as db:
         boss = await _user(db, "delivery_lead", profile=True)
-        worker = await _user(db, "employee", profile=True, manager_user_id=boss.id)
+        # Umowa o pracę: przełożony anuluje trwający urlop (B2B i zlecenie —
+        # tylko Kadry, D5: test_hr_leave_reports.py).
+        worker = await _user(
+            db,
+            "employee",
+            profile=True,
+            manager_user_id=boss.id,
+            employment_type="uop",
+        )
         await db.commit()
 
     request_id = (

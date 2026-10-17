@@ -95,7 +95,8 @@ function harnessStructure(): HrStructure {
     },
     row(ewa, "front_office", marta),
     row(tomasz, "front_office", marta),
-    row(julia, "front_office", marta, "zlecenie"),
+    // Uczennica/studentka na zleceniu (D8): plakietka „składki od …”.
+    { ...row(julia, "front_office", marta, "zlecenie"), student: true, contributions_from: "2027-07-01" },
     row(adam, "front_office", kamil),
     {
       ...row(kacper, "front_office", null),

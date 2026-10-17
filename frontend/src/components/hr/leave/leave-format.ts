@@ -5,13 +5,17 @@
 // `toISOString().slice(0, 10)` (to dzień UTC — wieczorem już jutro).
 
 import type { StatusDotTone } from "@/components/ds/StatusDot";
+import type { EmploymentType } from "@/lib/api/hr";
 import type {
   CalendarAbsence,
   HalfDay,
+  LeavePreview,
+  LeaveRequestRow,
   LeaveStatus,
   LeaveType,
   PersonAbsence,
 } from "@/lib/api/hr-leave";
+import { capitalize, employmentTerms, reportsAbsence } from "@/lib/hr-employment-terms";
 
 export const LEAVE_TYPE_LABELS: Record<LeaveType, string> = {
   vacation: "Urlop wypoczynkowy",
@@ -229,3 +233,89 @@ export function leaveToast(
   return warning ? [`${message}. ${warning}`, "info"] : [message, "success"];
 }
 
+
+// ── Zgłoszenie z B2B i zlecenia (etap 2, D5) ─────────────────────────────────
+
+/** Status wiersza: zgłoszenie z B2B/zlecenia jest „zgłoszone”, nie „zatwierdzone”. */
+export function statusLabel(row: Pick<LeaveRequestRow, "status" | "is_report">): string {
+  if (row.is_report && row.status === "approved") return "Zgłoszone";
+  return LEAVE_STATUS_LABELS[row.status];
+}
+
+export interface OutcomeLine {
+  title: string;
+  text: string;
+}
+
+/**
+ * „Co się stanie po zgłoszeniu” w oknie osoby na B2B albo zleceniu (makieta m5):
+ * termin od razu w kalendarzu, koordynator tylko wie (może zgłosić kolizję),
+ * raport godzin według formy i podziału z podglądu serwera.
+ */
+export function reportOutcome(
+  preview: Pick<LeavePreview, "paid_days" | "unpaid_days" | "approver">,
+  form: EmploymentType | null | undefined,
+): OutcomeLine[] {
+  const words = employmentTerms(form);
+  const paid = Number(preview.paid_days) || 0;
+  const unpaid = Number(preview.unpaid_days) || 0;
+  const lines: OutcomeLine[] = [
+    {
+      title: "Termin od razu w kalendarzu",
+      text: "zespół widzi „nieobecny”, bez szczegółów",
+    },
+    {
+      title: `${capitalize(words.coordinator)} dostaje informację`,
+      text: `${preview.approver} może zgłosić kolizję z pracą i poprosić o inny termin; nie zatwierdza i nie odrzuca`,
+    },
+  ];
+  if (form === "b2b") {
+    lines.push({
+      title: words.timesheet,
+      text:
+        paid > 0
+          ? unpaid > 0
+            ? "dni z puli liczą się jak dni pracy do faktury, pozostałe są puste"
+            : "dni z puli liczą się jak dni pracy do faktury"
+          : "dni przerwy są puste — bez wynagrodzenia",
+    });
+  } else {
+    lines.push({
+      title: words.timesheet,
+      text: "za te dni nie ma godzin — nieobecność jest bez wynagrodzenia",
+    });
+  }
+  return lines;
+}
+
+/** „Rozliczenie: z płatnej puli 4 dni · bez wynagrodzenia 1 dzień” (B2B z pulą). */
+export function paySplitLabel(
+  preview: Pick<LeavePreview, "paid_days" | "unpaid_days">,
+): string | null {
+  const paid = Number(preview.paid_days) || 0;
+  const unpaid = Number(preview.unpaid_days) || 0;
+  if (paid <= 0 && unpaid <= 0) return null;
+  const parts: string[] = [];
+  if (paid > 0) parts.push(`z płatnej puli ${daysLabel(preview.paid_days)}`);
+  if (unpaid > 0) parts.push(`bez wynagrodzenia ${daysLabel(preview.unpaid_days)}`);
+  return `Rozliczenie: ${parts.join(" · ")}`;
+}
+
+/** Nazwa przycisku zapisu w oknie nieobecności (D4, D5). */
+export function submitLabel(options: {
+  onBehalf: boolean;
+  form: EmploymentType | null | undefined;
+  autoApproved: boolean | undefined;
+}): string {
+  if (options.onBehalf) return "Wpisz nieobecność";
+  if (reportsAbsence(options.form)) return employmentTerms(options.form).submit_action;
+  return options.autoApproved ? "Zgłoś nieobecność" : "Wyślij do akceptacji";
+}
+
+/** Komunikat po zapisie własnej nieobecności. */
+export function submittedToast(
+  row: Pick<LeaveRequestRow, "status" | "is_report" | "employment_type">,
+): string {
+  if (row.is_report) return `${capitalize(employmentTerms(row.employment_type).absence)} zgłoszona`;
+  return row.status === "approved" ? "Nieobecność zgłoszona" : "Wniosek wysłany do akceptacji";
+}

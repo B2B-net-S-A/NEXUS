@@ -61,6 +61,23 @@ describe("zakładki „Mój czas”", () => {
   });
 });
 
+describe("nazwy zakładek według formy (etap 2, D4)", () => {
+  const labels = (form: "uop" | "b2b" | "zlecenie" | null) =>
+    myTimeTabs(open({ leave: true, time: true }), undefined, form).map((tab) => tab.label);
+
+  it("UoP: urlop i ewidencja; B2B: przerwy i raport godzin; zlecenie: nieobecności i potwierdzenie", () => {
+    expect(labels("uop")).toEqual(["Przegląd", "Urlop", "Ewidencja czasu pracy", "Kartoteka"]);
+    expect(labels("b2b")).toEqual(["Przegląd", "Przerwy", "Raport godzin", "Kartoteka"]);
+    expect(labels("zlecenie")).toEqual([
+      "Przegląd",
+      "Nieobecności",
+      "Potwierdzenie godzin",
+      "Kartoteka",
+    ]);
+    expect(labels(null)).toEqual(labels("uop"));
+  });
+});
+
 describe("miesiąc z adresu", () => {
   const params = (query: string) => new URLSearchParams(query);
 

@@ -13,6 +13,7 @@ import {
 } from "@tanstack/react-query";
 
 import { api } from "@/lib/api";
+import { EMPLOYMENT_TERMS } from "@/lib/hr-employment-terms";
 
 export type HrModuleKey =
   | "people"
@@ -71,6 +72,8 @@ export interface LeaveEntitlementRow {
   entitlement_days: string | null;
   carried_over_days: string;
   used_initial_days: string;
+  /** Odpowiedź zapisu: podpowiedź wymiaru 20/26 z kartoteki (D9). */
+  suggested_entitlement_days?: number | null;
 }
 
 export interface PersonFull extends PersonCard {
@@ -81,6 +84,16 @@ export interface PersonFull extends PersonCard {
   timesheet_required: boolean;
   can_log_overtime: boolean;
   division?: Division | null;
+  /** Uczeń/student na zleceniu bez składek ZUS do `contribution_exempt_until` (D8). */
+  student_contribution_exempt?: boolean;
+  contribution_exempt_until?: string | null;
+  /** Dzień po końcu zwolnienia — od niego Płace naliczają składki. */
+  contributions_from?: string | null;
+  /** Staż do urlopu na umowie o pracę (lata, z zaświadczeniem ZUS) — D9. */
+  leave_seniority_years?: number | null;
+  zus_certificate_received_on?: string | null;
+  /** Podpowiedź wymiaru urlopu 20/26 z kartoteki (tylko UoP ze stażem). */
+  suggested_entitlement_days?: number | null;
   roles: string[];
   entitlements?: LeaveEntitlementRow[];
 }
@@ -105,6 +118,10 @@ export interface ProfileFields {
   department?: string | null;
   phone?: string | null;
   division?: Division | null;
+  student_contribution_exempt?: boolean;
+  contribution_exempt_until?: string | null;
+  leave_seniority_years?: number | null;
+  zus_certificate_received_on?: string | null;
 }
 
 export interface CompanyDayOff {
@@ -114,10 +131,11 @@ export interface CompanyDayOff {
   kind: "company" | "bridge";
 }
 
+/** Nazwa formy — ze wspólnego słownika słów (`@/lib/hr-employment-terms`). */
 export const EMPLOYMENT_TYPE_LABELS: Record<EmploymentType, string> = {
-  uop: "Umowa o pracę",
-  b2b: "B2B",
-  zlecenie: "Umowa zlecenie",
+  uop: EMPLOYMENT_TERMS.uop.form,
+  b2b: EMPLOYMENT_TERMS.b2b.form,
+  zlecenie: EMPLOYMENT_TERMS.zlecenie.form,
 };
 
 export const EMPLOYMENT_STATUS_LABELS: Record<EmploymentStatus, string> = {
@@ -374,6 +392,14 @@ export interface HrCounts {
 
 const countsKey = ["hr", "counts"] as const;
 
+/**
+ * Klucz mutacji, po których liczniki „Ludzi” liczą się od nowa (decyzja
+ * o wniosku, anulowanie, decyzja o timesheecie). Mutacje z tym prefiksem
+ * oznaczają moduły; licznik nie słucha już KAŻDEJ mutacji w aplikacji
+ * (audyt wydajności 17.10.2026).
+ */
+export const HR_COUNTS_MUTATION_KEY = ["hr", "counts-change"] as const;
+
 function countOrNull(value: unknown): number | null | undefined {
   if (value === null) return null;
   return typeof value === "number" && Number.isInteger(value) && value >= 0
@@ -393,10 +419,11 @@ export function parseHrCounts(raw: unknown): HrCounts {
 
 export function useHrCounts(enabled = true) {
   const queryClient = useQueryClient();
-  const mutating = useIsMutating();
+  const mutating = useIsMutating({ mutationKey: HR_COUNTS_MUTATION_KEY });
   const wasMutating = useRef(false);
   // Decyzja o wniosku, timesheecie albo sprawie zmienia liczby, a klucze tych
-  // ekranów mają inne korzenie — po każdym zapisie na stronie liczymy od nowa.
+  // ekranów mają inne korzenie — po zapisie oznaczonym `HR_COUNTS_MUTATION_KEY`
+  // liczymy od nowa.
   useEffect(() => {
     if (mutating > 0) {
       wasMutating.current = true;

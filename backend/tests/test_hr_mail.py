@@ -23,6 +23,7 @@ from app.services import hr_notification_schema
 from app.services import notification_delivery as delivery
 from app.services import notification_email_prefs as prefs
 from app.services.hr import hr_mail
+from app.services.hr.employment_terms import terms
 from app.tasks import notification_email_outbox as outbox
 
 _BACKEND = Path(__file__).resolve().parents[1]
@@ -180,18 +181,37 @@ def test_case_title_and_return_note_never_go_by_mail():
         "Prośba o zaświadczenie dla Anny Przykładowej",
     )
     assert body == "Szczegóły sprawy znajdziesz w NEXUSIE."
-    title, body = hr_mail.mail_text(
-        NotificationType.hr_timesheet_decided,
-        hr_mail.RETURNED_TIMESHEET_TITLE,
-        "Październik 2026: brakuje wpisu z 3.10, popraw proszę.",
-    )
-    assert title == hr_mail.RETURNED_TIMESHEET_TITLE
-    assert "3.10" not in body and "Moim miesiącu" in body
+    # Tytuł zwrotu zależy od formy (ewidencja / raport / potwierdzenie godzin).
+    assert len(hr_mail.RETURNED_TIMESHEET_TITLES) == 3
+    for returned in hr_mail.RETURNED_TIMESHEET_TITLES:
+        title, body = hr_mail.mail_text(
+            NotificationType.hr_timesheet_decided,
+            returned,
+            "Październik 2026: brakuje wpisu z 3.10, popraw proszę.",
+        )
+        assert title == returned
+        assert "3.10" not in body and "Moim miesiącu" in body
 
 
 def test_return_title_is_the_one_time_flow_writes():
     source = (_BACKEND / "app/services/hr/time_flow.py").read_text(encoding="utf-8")
-    assert f'title="{hr_mail.RETURNED_TIMESHEET_TITLE}"' in source
+    assert 'title=words["timesheet_returned_title"]' in source
+    assert hr_mail.RETURNED_TIMESHEET_TITLES == {
+        words["timesheet_returned_title"]
+        for words in (terms("uop"), terms("b2b"), terms("zlecenie"))
+    }
+
+
+def test_conflict_note_never_goes_by_mail():
+    """Kolizja od koordynatora (D5): notatka to wolny tekst — mail ma zdanie typu."""
+
+    title, body = hr_mail.mail_text(
+        NotificationType.hr_leave_conflict,
+        "Kolizja z Twoją przerwą w świadczeniu usług",
+        "23.12–31.12.2026 — Jan Przykładowy: wdrożenie u klienta 28.12",
+    )
+    assert title == "Kolizja z Twoją przerwą w świadczeniu usług"
+    assert "wdrożenie" not in body and "„Moim czasie”" in body
 
 
 def test_fallback_texts_are_themselves_mail_safe():

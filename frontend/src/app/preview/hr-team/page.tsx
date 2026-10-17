@@ -76,26 +76,14 @@ function harnessTeam(withBonuses: boolean): MyTeam {
     {
       ...base(ola),
       covering_for: [ewa.name],
-      leave: { has_pool: false, remaining_days: null, planned_days: "3.0", pending_days: "5.0" },
+      // B2B (D5): zgłoszone przerwy wchodzą od razu — nic nie czeka na decyzję.
+      leave: { has_pool: false, remaining_days: null, planned_days: "8.0", pending_days: "0.0" },
       month: { hours: Math.round(norm * 0.7), status: "draft", timesheet_id: 5101 },
       bonuses: {
         count: 2,
         proposals: 1,
         totals: [{ currency: "PLN", amount: "3000.00" }],
         items: [],
-      },
-      to_decide: {
-        leave_requests: [
-          {
-            id: "harness-leave-1",
-            start_date: shiftDay(today, 30),
-            end_date: shiftDay(today, 36),
-            half_day: null,
-            leave_type_label: "Urlop wypoczynkowy",
-            days_total: "5.0",
-          },
-        ],
-        timesheets: [],
       },
     },
     {
@@ -105,7 +93,8 @@ function harnessTeam(withBonuses: boolean): MyTeam {
         until: ewaUntil,
         half_day: null,
         leave_type: "vacation",
-        leave_type_label: "Urlop wypoczynkowy",
+        // Słowa formy (D4): na B2B „przerwa w świadczeniu usług”, nie urlop.
+        leave_type_label: "Przerwa w świadczeniu usług",
         substitute_name: ola.name,
       },
       leave: { has_pool: false, remaining_days: null, planned_days: "2.0", pending_days: "0.0" },
@@ -137,13 +126,30 @@ function harnessTeam(withBonuses: boolean): MyTeam {
     {
       ...base(julia),
       employment_type: "uop",
-      leave: { has_pool: true, remaining_days: "14.0", planned_days: "0.0", pending_days: "0.0" },
+      leave: { has_pool: true, remaining_days: "14.0", planned_days: "0.0", pending_days: "5.0" },
       month: { hours: Math.round(norm * 0.75), status: "draft", timesheet_id: 5104 },
       bonuses: { count: 0, proposals: 0, totals: [], items: [] },
+      // Umowa o pracę: wniosek urlopowy czeka na akceptację przełożonej.
+      to_decide: {
+        leave_requests: [
+          {
+            id: "harness-leave-1",
+            start_date: shiftDay(today, 30),
+            end_date: shiftDay(today, 36),
+            half_day: null,
+            leave_type_label: "Urlop wypoczynkowy",
+            days_total: "5.0",
+          },
+        ],
+        timesheets: [],
+      },
     },
     {
       ...base(adam),
       employment_type: "zlecenie",
+      // Student na zleceniu (D8): plakietka „składki od …”.
+      student: true,
+      contributions_from: "2027-07-01",
       timesheet_required: false,
       month: null,
       bonuses: { count: 0, proposals: 0, totals: [], items: [] },

@@ -52,6 +52,9 @@ describe("/preview/hr-structure", () => {
     );
     expect(screen.getByText(/Podpowiedź: koordynator = Kamil Testowy/)).toBeInTheDocument();
     expect(screen.getByText(/Microsoft 365: Kamil Testowy/)).toBeInTheDocument();
+    // Studentka na zleceniu (D8): forma i plakietka „składki od …”.
+    expect(screen.getByText(/Zlecenie · student/)).toBeInTheDocument();
+    expect(screen.getByText("składki od 07.2027")).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "Struktura" })).toHaveAttribute("aria-selected", "true");
 
     await user.click(screen.getByRole("button", { name: "Headowie pionów" }));

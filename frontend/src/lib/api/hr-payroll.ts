@@ -27,6 +27,17 @@ export interface RateRow {
   effective_to: string | null;
   reason: string | null;
   set_by: number | null;
+  /**
+   * Odpowiedź zapisu: ostrzeżenie bez blokady (zlecenie bez minimum dla roku
+   * albo stawka w innej walucie niż złoty — etap 2, D7).
+   */
+  warning?: string | null;
+}
+
+/** Minimalna stawka godzinowa na zleceniu per rok (zł brutto) — D7. */
+export interface MinimumRates {
+  rates: { year: number; hourly_rate: string }[];
+  currency: "PLN";
 }
 
 export interface BonusRow {
@@ -242,6 +253,7 @@ export const payrollKeys = {
   month: (year: number, month: number) => ["hr-payroll", "month", year, month] as const,
   person: (userId: number) => ["hr-payroll", "person", userId] as const,
   rules: ["hr-payroll", "rules"] as const,
+  minimumRates: ["hr-payroll", "minimum-rates"] as const,
 };
 
 export const payrollPaths = {
@@ -401,6 +413,25 @@ export function useSaveBonusRules() {
   return useMutation({
     mutationFn: async (rules: Partial<Omit<BonusRules, "currency">>) =>
       (await api.put<BonusRules>("/api/hr/payroll/rules", rules)).data,
+    onSuccess: invalidate,
+  });
+}
+
+/** Ustawienia → Płace: minimalne stawki na zleceniu (Płace, admin). */
+export function useMinimumRates(enabled = true) {
+  return useQuery({
+    queryKey: payrollKeys.minimumRates,
+    queryFn: async () =>
+      (await api.get<MinimumRates>("/api/hr/payroll/settings/minimum-rates")).data,
+    enabled,
+  });
+}
+
+export function useSaveMinimumRates() {
+  const invalidate = useInvalidatePayroll();
+  return useMutation({
+    mutationFn: async (rates: Record<string, string>) =>
+      (await api.put<MinimumRates>("/api/hr/payroll/settings/minimum-rates", { rates })).data,
     onSuccess: invalidate,
   });
 }

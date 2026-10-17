@@ -27,6 +27,7 @@ from decimal import Decimal
 from typing import Optional
 
 from app.services.hr.calendar import WorkCalendar
+from app.services.hr.employment_terms import reports_absence, terms
 from app.services.hr_leave_schema import HALF_DAYS, LEAVE_TYPES
 
 #: Rodzaje, które zużywają pulę urlopu wypoczynkowego.
@@ -40,6 +41,13 @@ HEALTH_TYPES: frozenset[str] = frozenset({"sick_leave"})
 
 ON_DEMAND_YEARLY_LIMIT = Decimal("4")
 CHILDCARE_YEARLY_LIMIT = Decimal("2")
+
+#: Wymiar urlopu na umowie o pracę (art. 154 KP): 20 dni przy stażu poniżej
+#: 10 lat, 26 od 10 lat. Od 01.05.2026 do stażu wliczają się lata na zleceniu
+#: i działalności z zaświadczenia ZUS (etap 2, D9) — Kadry wpisują staż.
+SENIORITY_THRESHOLD_YEARS = 10
+ENTITLEMENT_SHORT = 20
+ENTITLEMENT_LONG = 26
 
 FULL_DAY = Decimal("1.0")
 HALF_DAY = Decimal("0.5")
@@ -64,6 +72,35 @@ LEAVE_TYPE_LABELS: dict[str, str] = {
 }
 
 assert set(LEAVE_TYPE_LABELS) == set(LEAVE_TYPES)
+
+
+def type_label(leave_type: Optional[str], employment_type: Optional[str]) -> str:
+    """Nazwa rodzaju dla kręgu D6, w słowach formy (etap 2, D4).
+
+    Na B2B i zleceniu jedyny rodzaj to dni z puli wypoczynkowej — nie „urlop
+    wypoczynkowy”, tylko „Przerwa w świadczeniu usług” albo „Nieobecność”.
+    """
+
+    if leave_type in POOL_TYPES and reports_absence(employment_type):
+        words = terms(employment_type)["absence"]
+        return words[:1].upper() + words[1:]
+    return LEAVE_TYPE_LABELS.get(leave_type or "", leave_type or "Nieobecność")
+
+
+def statutory_entitlement(
+    employment_type: Optional[str], seniority_years: Optional[int]
+) -> Optional[int]:
+    """Podpowiedź wymiaru (20/26) — tylko umowa o pracę ze znanym stażem.
+
+    Tylko podpowiedź: pulę roku zatwierdzają Kadry (proporcja przy starcie
+    w trakcie roku, część etatu — to ich decyzja).
+    """
+
+    if employment_type != "uop" or seniority_years is None:
+        return None
+    if seniority_years >= SENIORITY_THRESHOLD_YEARS:
+        return ENTITLEMENT_LONG
+    return ENTITLEMENT_SHORT
 
 
 class LeavePolicyError(ValueError):
@@ -392,12 +429,16 @@ def covering_manager(
     )
 
 
-def own_cancel_refusal(*, status: str, start: date, today: date) -> Optional[str]:
+def own_cancel_refusal(
+    *, status: str, start: date, today: date, reported: bool = False
+) -> Optional[str]:
     """Powód, dla którego osoba NIE może sama anulować wniosku (None = może).
 
     Oczekujący — zawsze; zatwierdzony — tylko przed pierwszym dniem
     (``today`` = ``business_today()``: Compass liczył „dziś” w UTC i wieczorem
     pozwalał anulować urlop, który zaczął się o północy w Warszawie).
+    ``reported`` — zgłoszenie z B2B albo zlecenia (D5): trwające anulują Kadry,
+    koordynator nie (anulowanie przez niego to odrzucenie pod inną nazwą).
     """
 
     if status == "pending":
@@ -405,6 +446,8 @@ def own_cancel_refusal(*, status: str, start: date, today: date) -> Optional[str
     if status == "approved":
         if start > today:
             return None
+        if reported:
+            return "Ten termin już trwa albo minął — anulować go mogą Kadry."
         return "Ten urlop już trwa albo minął — anulować go może przełożony albo Kadry."
     return "Ten wniosek jest już zamknięty."
 

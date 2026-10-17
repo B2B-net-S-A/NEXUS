@@ -292,7 +292,8 @@ async def test_submit_approve_return_revoke_with_conditional_updates(
     assert returned.json()["status"] == "draft"
     assert returned.json()["return_note"] == "Brakuje opisu 5 marca"
     decided = await notifications_of(worker.id, "hr_timesheet_decided")
-    assert decided[-1][0] == "Timesheet zwrócony do poprawy"
+    # Słowa formy (D4): domyślna kartoteka to B2B — „Raport godzin”.
+    assert decided[-1][0] == "Raport godzin zwrócony do poprawy"
 
     assert (await app_client.post(f"{BASE}/submit", headers=h)).status_code == 200
     approved = await app_client.post(
@@ -313,7 +314,7 @@ async def test_submit_approve_return_revoke_with_conditional_updates(
     )
     assert second.status_code == 409
     decided = await notifications_of(worker.id, "hr_timesheet_decided")
-    assert decided[-1][0] == "Timesheet zaakceptowany"
+    assert decided[-1][0] == "Raport godzin potwierdzony"
 
     revoked = await app_client.post(
         f"/api/hr/time/timesheets/{ts_id}/revoke", headers=headers(boss)
@@ -322,7 +323,7 @@ async def test_submit_approve_return_revoke_with_conditional_updates(
     assert revoked.json()["status"] == "submitted"
     assert revoked.json()["pdf_hash"] is None
     payroll_bell = await notifications_of(payroll.id, "hr_timesheet_decided")
-    assert payroll_bell and "Cofnięto akceptację" in payroll_bell[-1][0]
+    assert payroll_bell and "Cofnięto potwierdzenie" in payroll_bell[-1][0]
     assert "Anna Przykładowa" in payroll_bell[-1][1]
 
 

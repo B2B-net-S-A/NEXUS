@@ -26,6 +26,7 @@ import {
   type MonthDay,
   type TimesheetEntry,
 } from "@/lib/api/hr-time";
+import { capitalize, employmentTerms } from "@/lib/hr-employment-terms";
 import { resolveViewState } from "@/lib/view-state";
 
 import { EntryDialog } from "./EntryDialog";
@@ -57,7 +58,12 @@ interface EditorState {
   entry: TimesheetEntry | null;
 }
 
-/** „Mój czas → Mój miesiąc”: obecność i godziny w jednej siatce dni. */
+/**
+ * „Mój czas → Mój miesiąc”: obecność i godziny w jednej siatce dni. Nazwa
+ * raportu i kto go przyjmuje mówią językiem umowy (D4): ewidencja czasu pracy
+ * do akceptacji przełożonego, raport godzin albo potwierdzenie godzin (art. 8b)
+ * do potwierdzenia przez koordynatora.
+ */
 export function MyMonthTab({ config, initialMonth, onMonthChange }: MyMonthTabProps) {
   const { showToast } = useToast();
   const { askConfirm, confirmDialog } = useConfirmV2();
@@ -101,6 +107,8 @@ export function MyMonthTab({ config, initialMonth, onMonthChange }: MyMonthTabPr
 
   const view = month.data;
   const editable = view ? canEditMonth(view) : false;
+  const words = employmentTerms(view?.employment_type);
+  const reviewNoun = words.review_noun;
 
   const changeLocation = (day: MonthDay, location: WorkLocation) => {
     setPendingDay(day.date);
@@ -146,18 +154,21 @@ export function MyMonthTab({ config, initialMonth, onMonthChange }: MyMonthTabPr
   const runSubmit = async () => {
     if (!view) return;
     const missing = view.totals.days_missing;
+    const after = `Po wysłaniu poprawki wprowadza ${words.coordinator} albo zwraca ${words.timesheet_accusative} do Ciebie.`;
     const ok = await askConfirm({
-      title: `Wysłać ${monthTitle(period).toLowerCase()} do akceptacji?`,
+      title: `Wysłać ${words.timesheet_accusative} za ${monthTitle(period).toLowerCase()} do ${reviewNoun}?`,
       description:
-        missing > 0
-          ? `${missing} dni roboczych nie ma wpisów. Po wysłaniu poprawki wprowadza akceptujący albo zwraca timesheet do Ciebie.`
-          : "Po wysłaniu poprawki wprowadza akceptujący albo zwraca timesheet do Ciebie.",
+        missing > 0 ? `${missing} dni roboczych nie ma wpisów. ${after}` : after,
       confirmLabel: "Wyślij",
     });
     if (!ok) return;
     submit.mutate(undefined, {
-      onSuccess: () => showToast("Timesheet wysłany do akceptacji", "success"),
-      onError: (err) => showToast(apiErrorMessage(err, "Nie udało się wysłać timesheetu."), "error"),
+      onSuccess: () => showToast(`${words.timesheet} — wysłano do ${reviewNoun}`, "success"),
+      onError: (err) =>
+        showToast(
+          apiErrorMessage(err, `Nie udało się wysłać: ${words.timesheet_accusative}.`),
+          "error",
+        ),
     });
   };
 
@@ -205,7 +216,7 @@ export function MyMonthTab({ config, initialMonth, onMonthChange }: MyMonthTabPr
                   Wypełnij miesiąc
                 </Button>
                 <Button size="sm" onClick={runSubmit} disabled={submit.isPending}>
-                  Wyślij do akceptacji
+                  Wyślij do {reviewNoun}
                 </Button>
               </>
             ) : null}
@@ -240,9 +251,9 @@ export function MyMonthTab({ config, initialMonth, onMonthChange }: MyMonthTabPr
               { id: "work", label: "praca", value: `${formatHours(view.totals.work_hours)} h` },
               {
                 id: "leave",
-                label: "urlop płatny",
+                label: view.employment_type === "uop" ? "urlop płatny" : "płatne dni z umowy",
                 value: `${formatHours(view.totals.leave_paid_hours)} h`,
-                title: "Płatny urlop B2B/zlecenia z puli liczy się jak dzień pracy.",
+                title: "Płatne dni przerwy z umownej puli liczą się jak dni pracy.",
               },
               { id: "overtime", label: "nadgodziny", value: `${formatHours(view.totals.overtime_hours)} h` },
               { id: "missing", label: "dni do uzupełnienia", value: view.totals.days_missing },
@@ -251,7 +262,12 @@ export function MyMonthTab({ config, initialMonth, onMonthChange }: MyMonthTabPr
                 label: `norma (${view.totals.working_days} dni)`,
                 value: `${view.totals.norm_hours} h`,
               },
-              { id: "approver", label: "akceptuje", value: view.approver_name ?? "Kadry" },
+              {
+                id: "approver",
+                label: words.review_verb,
+                value: view.approver_name ?? "Kadry",
+                title: capitalize(`${words.coordinator} przyjmuje ${words.timesheet_accusative}.`),
+              },
             ]}
           />
           <MonthGrid

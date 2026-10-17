@@ -123,11 +123,13 @@ CATALOG = (
         label="Czas i ludzie",
         module="Ludzie",
         trigger="Wniosek o nieobecność do decyzji i decyzja o nim, anulowana albo "
-        "zgłoszona nieobecność, zastępstwo, timesheet zaakceptowany, zwrócony "
-        "albo niewysłany w terminie, przekazana praca, zadania wejścia i odejścia, "
-        "sprawa administracja@, zadania sprzętu i podpisany protokół.",
+        "zgłoszona nieobecność (na B2B i zleceniu: zgłoszona przerwa i kolizja "
+        "zgłoszona przez koordynatora), zastępstwo, raport godzin zaakceptowany, "
+        "zwrócony albo niewysłany w terminie, przekazana praca, zadania wejścia "
+        "i odejścia, sprawa administracja@, zadania sprzętu i podpisany protokół.",
         recipient_rule="Osoba, na którą sprawa czeka: akceptujący wniosku (przełożony "
-        "albo Kadry), wnioskodawca, zastępca, przejmujący pracę, wykonawca zadania, "
+        "albo Kadry), koordynator osoby na B2B i zleceniu, wnioskodawca, zastępca, "
+        "przejmujący pracę, wykonawca zadania, "
         "przypisany do sprawy, osoby z uprawnieniem „Sprzęt”. W mailu nie ma rodzaju "
         "nieobecności ani kwot.",
     ),
@@ -248,6 +250,7 @@ HR_MAIL_TYPES: tuple[str, ...] = (
     "hr_leave_cancelled",
     "hr_leave_substitute",
     "hr_absence_reported",
+    "hr_leave_conflict",
     "hr_timesheet_decided",
     "hr_timesheet_reminder",
     "hr_lifecycle_task",

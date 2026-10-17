@@ -39,18 +39,24 @@ describe("/preview/hr-team", () => {
     render(<HrTeamPreviewPage />);
 
     const ewa = await screen.findByRole("row", { name: /^Ewa Makietowa/ });
-    expect(ewa).toHaveTextContent("Urlop wypoczynkowy do");
+    expect(ewa).toHaveTextContent("Przerwa w świadczeniu usług do");
     const ola = screen.getByRole("row", { name: /^Ola Przykładowa/ });
     expect(ola).toHaveTextContent("zastępuje: Ewa Makietowa");
-    expect(ola).toHaveTextContent("zaplanowane 3 dni");
+    expect(ola).toHaveTextContent("zaplanowane 8 dni");
     expect(ola).toHaveTextContent("1 propozycja — decydują Płace");
-    expect(within(ola).getByRole("link", { name: /^wniosek / })).toHaveAttribute(
-      "href",
-      "/people/approvals",
-    );
+    // B2B (D5): bez wniosków do decyzji.
+    expect(within(ola).queryByRole("link", { name: /^wniosek / })).toBeNull();
     const julia = screen.getByRole("row", { name: /^Julia Próbna/ });
     expect(julia).toHaveTextContent("zostało 14 dni urlopu");
     expect(julia).toHaveTextContent("UoP");
+    expect(within(julia).getByRole("link", { name: /^wniosek / })).toHaveAttribute(
+      "href",
+      "/people/approvals",
+    );
+    // Student na zleceniu (D8): plakietka „składki od 07.2027”.
+    const adam = screen.getByRole("row", { name: /^Adam Wzorcowy/ });
+    expect(adam).toHaveTextContent("Zlecenie · student");
+    expect(adam).toHaveTextContent("składki od 07.2027");
     expect(screen.getByRole("columnheader", { name: "Nieobecności" })).toBeInTheDocument();
     expect(screen.getByRole("columnheader", { name: "Premie w drodze" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "Mój zespół" })).toHaveAttribute("aria-selected", "true");

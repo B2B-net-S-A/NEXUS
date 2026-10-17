@@ -9,8 +9,11 @@
  *
  * Stany:
  * - domyślnie — Marta (przełożona 9 osób): urlop Kamila z zastępcą, rozmowami
- *   u klienta i nieobecnym w tym czasie Adamem, urlop Julii bez konfliktów;
- *   timesheety miesiąca, który ekran wybiera sam (do 10. dnia poprzedni);
+ *   u klienta i nieobecnym w tym czasie Adamem, urlop Julii bez konfliktów
+ *   (umowa o pracę — wnioski do decyzji); zgłoszona przerwa Oli (B2B) i
+ *   nieobecność Tomasza (zlecenie, z kolizją od Marty) „do wiadomości” z
+ *   „Zgłoś kolizję” (etap 2, D5); timesheety miesiąca, który ekran wybiera sam
+ *   (do 10. dnia poprzedni);
  * - `?kind=timesheet&year=…&month=…` — link z powiadomienia: timesheety
  *   poprzedniego miesiąca na górze (Ewa wysłała, Tomasz z nadgodzinami,
  *   Julia nie założyła, reszta zaakceptowana);
@@ -116,7 +119,44 @@ function leaveRow(
   };
 }
 
-function pendingFor(state: State, today: string): { items: PendingLeaveRow[]; total: number; covering?: LeaveCovering[] } {
+/** Zgłoszenia z B2B i zlecenia „do wiadomości” (D5) — bez akceptacji i odrzucenia. */
+function reportedFor(today: string): PendingLeaveRow[] {
+  const later = shiftDay(today, 60).slice(0, 7);
+  return [
+    leaveRow("lv-r-31", ola, nthWorkDay(later, 2), nthWorkDay(later, 6), "5", {
+      status: "approved",
+      is_report: true,
+      employment_type: "b2b",
+      leave_type_label: "Przerwa w świadczeniu usług",
+      paid_days: "4",
+      unpaid_days: "1",
+      substitute_user_id: kamil.id,
+      substitute_name: kamil.name,
+      work_total: 1,
+      work_by_kind: [{ kind: "client_interview", label: "Rozmowa u klienta", count: 1 }],
+      can_report_conflict: true,
+    }),
+    leaveRow("lv-r-32", tomasz, nthWorkDay(later, 10), nthWorkDay(later, 12), "3", {
+      status: "approved",
+      is_report: true,
+      employment_type: "zlecenie",
+      leave_type_label: "Nieobecność",
+      paid_days: "0",
+      unpaid_days: "3",
+      conflict: {
+        at: `${today}T10:00:00+02:00`,
+        by_name: marta.name,
+        note: `Wdrożenie u klienta (${HR_CLIENTS.bank.name}) — czy da się przesunąć o tydzień?`,
+      },
+      can_report_conflict: true,
+    }),
+  ];
+}
+
+function pendingFor(
+  state: State,
+  today: string,
+): { items: PendingLeaveRow[]; total: number; covering?: LeaveCovering[]; reported?: PendingLeaveRow[] } {
   const next = shiftDay(today, 40).slice(0, 7);
   if (state === "covering") {
     const until = shiftDay(today, 6);
@@ -146,6 +186,7 @@ function pendingFor(state: State, today: string): { items: PendingLeaveRow[]; to
       items,
       total: items.length,
       covering: [{ manager_user_id: kamil.id, manager_name: kamil.name, until, reports: KAMIL_TEAM.length }],
+      reported: [],
     };
   }
   const items = [
@@ -167,7 +208,7 @@ function pendingFor(state: State, today: string): { items: PendingLeaveRow[]; to
       substitute_name: tomasz.name,
     }),
   ];
-  return { items, total: items.length, covering: [] };
+  return { items, total: items.length, covering: [], reported: reportedFor(today) };
 }
 
 function historyRows(today: string): LeaveRequestRow[] {
@@ -190,6 +231,13 @@ function historyRows(today: string): LeaveRequestRow[] {
       decision_note: "Tego dnia dwie rozmowy u klienta — przełóż o tydzień.",
     }),
     base("lv-h-4", ola, past(45), past(44), "2", "cancelled"),
+    // Zgłoszenie z B2B (D5): „Zgłoszone”, bez „Anuluj” u przełożonej — anuluje osoba albo Kadry.
+    base("lv-h-5", ola, past(20), past(19), "2", "approved", {
+      is_report: true,
+      employment_type: "b2b",
+      leave_type_label: "Przerwa w świadczeniu usług",
+      decided_by_name: null,
+    }),
   ];
 }
 
@@ -326,7 +374,7 @@ export default function HrApprovalsPreviewPage() {
       <div className="space-y-4">
         <PageHeader
           title="Akceptacje"
-          description="Wnioski i timesheety Twojego zespołu do decyzji, historia nieobecności."
+          description="Wnioski i raporty godzin Twojego zespołu do decyzji, zgłoszone przerwy do wiadomości, historia nieobecności."
           density="compact"
         />
         <PeopleSectionNav config={config} active="approvals" />

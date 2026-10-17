@@ -23,6 +23,7 @@ from app.core.database import get_db
 from app.services.hr import availability_local
 from app.services.hr import modules as hr_modules
 from app.services.hr import people
+from app.services.hr.leave_policy import statutory_entitlement
 
 router = APIRouter(dependencies=[Depends(require_hr_people_admin())])
 
@@ -47,6 +48,12 @@ class ProfileFields(BaseModel):
     phone: Optional[str] = Field(default=None, max_length=64)
     # Pion firmy (17.10.2026): Front office / Back office; `null` = bez pionu.
     division: Optional[Division] = None
+    # Etap 2, forma współpracy: uczeń/student na zleceniu bez składek do daty
+    # (D8, bez daty urodzenia) i staż do urlopu z zaświadczeniem ZUS na UoP (D9).
+    student_contribution_exempt: Optional[bool] = None
+    contribution_exempt_until: Optional[date] = None
+    leave_seniority_years: Optional[int] = Field(default=None, ge=0, le=60)
+    zus_certificate_received_on: Optional[date] = None
 
 
 class ProfileCreate(ProfileFields):
@@ -157,11 +164,17 @@ async def put_entitlement(
             status.HTTP_404_NOT_FOUND, "Nie ma takiej kartoteki."
         ) from exc
     await db.commit()
+    profile = await people.profile_of(db, user_id)
     return {
         "year": row.year,
         "entitlement_days": row.entitlement_days,
         "carried_over_days": row.carried_over_days,
         "used_initial_days": row.used_initial_days,
+        # D9: podpowiedź wymiaru z kartoteki (20/26) — tylko podpowiedź.
+        "suggested_entitlement_days": statutory_entitlement(
+            profile.employment_type if profile else None,
+            profile.leave_seniority_years if profile else None,
+        ),
     }
 
 

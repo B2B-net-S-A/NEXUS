@@ -200,7 +200,13 @@ describe("„Mój czas”", () => {
   })
 
   it("pula, najbliższy urlop, godziny wobec normy i dwa skróty do „Mojego czasu”", async () => {
-    routes["/api/hr/leave/balance"] = { has_pool: true, remaining_days: "11.5", year: 2026 }
+    routes["/api/hr/leave/balance"] = {
+      employment_type: "uop",
+      has_pool: true,
+      has_paid_pool: true,
+      remaining_days: "11.5",
+      year: 2026,
+    }
     routes["/api/hr/leave/my-requests"] = { items: [leaveRow({})] }
     routes["/api/hr/time/me/"] = {
       totals: { work_hours: 121, norm_hours: 176, days_missing: 2 },
@@ -211,15 +217,36 @@ describe("„Mój czas”", () => {
     expect(screen.getByText("zatwierdzony")).toBeInTheDocument()
     expect(await screen.findByText("121 / 176 h")).toBeInTheDocument()
     expect(screen.getByText("2 dni do uzupełnienia")).toBeInTheDocument()
-    expect(screen.getByRole("link", { name: "Złóż wniosek" })).toHaveAttribute("href", "/my-time?tab=leave")
+    expect(screen.getByText(/^Urlop \d{4}$/)).toBeInTheDocument()
+    expect(screen.getByRole("link", { name: "Złóż wniosek urlopowy" })).toHaveAttribute(
+      "href",
+      "/my-time?tab=leave",
+    )
     expect(screen.getByRole("link", { name: "Uzupełnij dzień" })).toHaveAttribute("href", "/my-time?tab=month")
+  })
+
+  it("B2B z pulą: płatne dni przerwy, zgłoszony termin i „Zgłoś przerwę” (D4, D5)", async () => {
+    routes["/api/hr/leave/balance"] = {
+      employment_type: "b2b",
+      has_pool: true,
+      has_paid_pool: true,
+      remaining_days: "4",
+      year: 2026,
+    }
+    routes["/api/hr/leave/my-requests"] = { items: [leaveRow({ is_report: true })] }
+    routes["/api/hr/time/me/"] = { totals: { work_hours: 8, norm_hours: 176, days_missing: 0 } }
+    renderWith(<HrMyTimeTile config={hrConfig()} />)
+    expect(await screen.findByText(/^Płatne dni przerwy \d{4}$/)).toBeInTheDocument()
+    expect(screen.getByText("zgłoszony")).toBeInTheDocument()
+    expect(screen.getByRole("link", { name: "Zgłoś przerwę" })).toBeInTheDocument()
+    expect(screen.queryByText(/Urlop/)).toBeNull()
   })
 
   it("awaria salda nie udaje „0 dni” — zdanie z ponowieniem; godziny dalej widać", async () => {
     routes["/api/hr/leave/my-requests"] = { items: [] }
     routes["/api/hr/time/me/"] = { totals: { work_hours: 8, norm_hours: 176, days_missing: 0 } }
     renderWith(<HrMyTimeTile config={hrConfig()} />)
-    expect(await screen.findByText("Nie udało się wczytać urlopów.")).toBeInTheDocument()
+    expect(await screen.findByText("Nie udało się wczytać nieobecności.")).toBeInTheDocument()
     expect(screen.queryByText(/0 dni/)).toBeNull()
     expect(await screen.findByText("8 / 176 h")).toBeInTheDocument()
   })

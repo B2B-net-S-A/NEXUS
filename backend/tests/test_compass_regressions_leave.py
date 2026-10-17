@@ -375,7 +375,10 @@ async def test_second_approver_gets_conflict(app_client, modules_on) -> None:
         boss = await _user(db, "delivery_lead", profile=True)
         hr = await _user(db, "recruiter")
         await _grant(db, hr, "people_admin")
-        worker = await _user(db, "employee", profile=True, manager_user_id=boss.id)
+        # Umowa o pracę — na B2B i zleceniu nie ma decyzji (D5).
+        worker = await _user(
+            db, "employee", profile=True, employment_type="uop", manager_user_id=boss.id
+        )
         await db.commit()
 
     request_id = (

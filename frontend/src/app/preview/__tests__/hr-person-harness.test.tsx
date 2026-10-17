@@ -43,7 +43,9 @@ describe("/preview/hr-person", () => {
     render(<HrPersonPreviewPage />);
 
     expect(await heading()).toBeInTheDocument();
-    expect(screen.getByText(/przełożony:/)).toHaveTextContent("Marta Fikcyjna");
+    // B2B: „koordynator”, nie „przełożony” (etap 2, D4).
+    expect(screen.getByText(/koordynator:/)).toHaveTextContent("Marta Fikcyjna");
+    expect(screen.getByText(/^Płatne dni przerwy \d{4}$/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Edytuj kartotekę/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Zmień pulę" })).toBeInTheDocument();
     expect(screen.getByText("Aktualna stawka:")).toHaveTextContent(/120,00\szł/);
@@ -61,6 +63,42 @@ describe("/preview/hr-person", () => {
     expect(
       await screen.findByRole("dialog", { name: "Nowa stawka · Ola Przykładowa" }),
     ).toBeInTheDocument();
+    expect(attempted()).toEqual([]);
+  });
+
+  it("zlecenie: student ze składkami od dnia po zwolnieniu, bez puli płatnych dni (D6, D8)", async () => {
+    const user = userEvent.setup();
+    window.history.replaceState({}, "", "/preview/hr-person?as=hr&form=zlecenie");
+    render(<HrPersonPreviewPage />);
+
+    expect(await heading()).toBeInTheDocument();
+    expect(screen.getByText("bez składek do 30.06.2027")).toBeInTheDocument();
+    expect(screen.getByText("Składki od")).toBeInTheDocument();
+    expect(
+      screen.getByText("Na umowie zlecenie nie ma puli płatnych dni — nieobecność jest bez wynagrodzenia."),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Zmień pulę" })).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: /Edytuj kartotekę/ }));
+    const dialog = await screen.findByRole("dialog", { name: /Kartoteka · Ola Przykładowa/ });
+    expect(within(dialog).getByRole("switch", { name: "Uczeń lub student do 26 lat" })).toBeChecked();
+    expect(within(dialog).getByLabelText("Zwolnienie ze składek do")).toHaveValue("2027-06-30");
+    expect(within(dialog).getByText(/31\.05\.2027 Płace dostaną przypomnienie/)).toBeInTheDocument();
+    expect(within(dialog).getByText("Koordynator")).toBeInTheDocument();
+    expect(attempted()).toEqual([]);
+  });
+
+  it("UoP: staż do urlopu i podpowiedź wymiaru 26 dni przy puli (D9)", async () => {
+    const user = userEvent.setup();
+    window.history.replaceState({}, "", "/preview/hr-person?as=hr&form=uop");
+    render(<HrPersonPreviewPage />);
+
+    expect(await heading()).toBeInTheDocument();
+    expect(screen.getByText("12 lat")).toBeInTheDocument();
+    expect(screen.getByText(/Wymiar według stażu \(12 lat\): 26 dni/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Zmień pulę" }));
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText(/Wymiar według stażu w kartotece: 26 dni/)).toBeInTheDocument();
     expect(attempted()).toEqual([]);
   });
 

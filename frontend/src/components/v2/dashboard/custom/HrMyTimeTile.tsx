@@ -1,7 +1,9 @@
 "use client"
 
 // Kafelek „Mój czas” (17.10.2026): ile urlopu zostało, najbliższy zatwierdzony
-// urlop i godziny bieżącego miesiąca. Liczby z tych samych tras co ekran
+// urlop i godziny bieżącego miesiąca. Słowa według formy (etap 2, D4): „Urlop”
+// na umowie o pracę, „Płatne dni przerwy” na B2B z pulą, „Nieobecności” bez
+// puli; przycisk „Złóż wniosek urlopowy” albo „Zgłoś przerwę”. Liczby z tych samych tras co ekran
 // „Mój czas” (`/api/hr/leave/balance`, `/my-requests`, `/api/hr/time/me/…`)
 // i te same klucze zapytań — kafelek i ekran nie mogą się rozjechać. Każda
 // część ma własny stan: awaria salda to zdanie z ponowieniem, nigdy „0 dni”.
@@ -9,6 +11,7 @@
 import Link from "next/link"
 
 import { formatRange, daysLabel, warsawToday } from "@/components/hr/leave/leave-format"
+import { absenceCardKind } from "@/components/hr/me/overview-format"
 import { currentYearMonth, formatHours, monthTitle } from "@/components/hr/time/time-format"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -20,6 +23,7 @@ import {
   type LeaveRequestRow,
 } from "@/lib/api/hr-leave"
 import { useMyMonth, type MonthTotals } from "@/lib/api/hr-time"
+import { absenceActionLabel } from "@/lib/hr-employment-terms"
 import { countPl } from "@/lib/plural-pl"
 import { resolveViewState } from "@/lib/view-state"
 
@@ -39,6 +43,14 @@ export function nearestApprovedLeave(
 /** „11,5 dnia” albo „bez puli” (B2B bez puli, umowa zlecenie). */
 export function remainingLabel(balance: LeaveBalance): string {
   return balance.has_pool ? daysLabel(balance.remaining_days ?? "0") : "bez puli"
+}
+
+/** Nagłówek liczby w kafelku według formy: urlop, płatne dni przerwy, nieobecności. */
+export function balanceTitle(balance: LeaveBalance, year: number): string {
+  const kind = absenceCardKind(balance.employment_type, balance)
+  if (kind === "leave") return `Urlop ${year}`
+  if (kind === "paid_days") return `Płatne dni przerwy ${year}`
+  return `Nieobecności ${year}`
 }
 
 /** „121 / 176 h” — praca wpisana w miesiącu wobec normy (jak „Mój miesiąc”). */
@@ -77,7 +89,9 @@ function LeavePart({ year, today }: { year: number; today: string }) {
     return <Skeleton className="h-14 w-full" />
   }
   if (balanceState !== "ready" || !balance.data) {
-    return <TilePartError label="Nie udało się wczytać urlopów." onRetry={() => balance.refetch()} />
+    return (
+      <TilePartError label="Nie udało się wczytać nieobecności." onRetry={() => balance.refetch()} />
+    )
   }
   if (requestsState !== "ready" || !requests.data) {
     return (
@@ -88,13 +102,19 @@ function LeavePart({ year, today }: { year: number; today: string }) {
   const pending = requests.data.filter((row) => row.status === "pending" && row.end_date >= today)
   return (
     <div className="grid grid-cols-2 gap-3">
-      <Stat label={`Urlop ${year}`} value={remainingLabel(balance.data)} hint="zostało" />
+      <Stat
+        label={balanceTitle(balance.data, year)}
+        value={remainingLabel(balance.data)}
+        hint={balance.data.has_pool ? "zostało" : "bez wynagrodzenia"}
+      />
       <Stat
         label="Najbliższy"
         value={nearest ? formatRange(nearest.start_date, nearest.end_date) : "—"}
         hint={
           nearest
-            ? "zatwierdzony"
+            ? nearest.is_report
+              ? "zgłoszony"
+              : "zatwierdzony"
             : pending.length
               ? `${countPl(pending.length, "wniosek czeka", "wnioski czekają", "wniosków czeka")} na akceptację`
               : "brak zaplanowanego"
@@ -135,6 +155,8 @@ export function HrMyTimeTile({ config }: { config: HrConfig }) {
   const { year, month } = currentYearMonth()
   const leaveOpen = config.open_modules.leave
   const timeOpen = config.open_modules.time
+  // Ten sam klucz co w części „Urlop” — jedno zapytanie; forma daje nazwę przycisku.
+  const form = useLeaveBalance(year, leaveOpen).data?.employment_type
   return (
     <div className="flex h-full flex-col gap-3">
       {leaveOpen ? <LeavePart year={year} today={today} /> : null}
@@ -142,7 +164,7 @@ export function HrMyTimeTile({ config }: { config: HrConfig }) {
       <div className="mt-auto flex flex-wrap gap-2">
         {leaveOpen ? (
           <Button asChild size="sm" variant="outline">
-            <Link href="/my-time?tab=leave">Złóż wniosek</Link>
+            <Link href="/my-time?tab=leave">{form ? absenceActionLabel(form) : "Nieobecności"}</Link>
           </Button>
         ) : null}
         {timeOpen ? (

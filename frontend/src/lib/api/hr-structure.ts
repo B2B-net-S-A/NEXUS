@@ -9,6 +9,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { api } from "@/lib/api";
 import type { Division, EmploymentStatus, EmploymentType } from "@/lib/api/hr";
+import { EMPLOYMENT_TERMS } from "@/lib/hr-employment-terms";
 
 export const DIVISION_LABELS: Record<Division, string> = {
   front_office: "Front office",
@@ -17,9 +18,9 @@ export const DIVISION_LABELS: Record<Division, string> = {
 
 /** Forma przy osobie (Struktura, Mój zespół). */
 export const EMPLOYMENT_TYPE_SHORT: Record<EmploymentType, string> = {
-  uop: "UoP",
-  b2b: "B2B",
-  zlecenie: "Zlecenie",
+  uop: EMPLOYMENT_TERMS.uop.form_short,
+  b2b: EMPLOYMENT_TERMS.b2b.form_short,
+  zlecenie: EMPLOYMENT_TERMS.zlecenie.form_short,
 };
 
 export interface ManagerWords {
@@ -29,8 +30,15 @@ export interface ManagerWords {
   ofOne: string;
 }
 
-const SUPERVISOR: ManagerWords = { one: "przełożony", ofOne: "przełożonego" };
-const COORDINATOR: ManagerWords = { one: "koordynator", ofOne: "koordynatora" };
+// Słowa ze wspólnego słownika formy (`@/lib/hr-employment-terms`).
+const SUPERVISOR: ManagerWords = {
+  one: EMPLOYMENT_TERMS.uop.coordinator,
+  ofOne: EMPLOYMENT_TERMS.uop.coordinator_genitive,
+};
+const COORDINATOR: ManagerWords = {
+  one: EMPLOYMENT_TERMS.b2b.coordinator,
+  ofOne: EMPLOYMENT_TERMS.b2b.coordinator_genitive,
+};
 const MIXED: ManagerWords = {
   one: "przełożony lub koordynator",
   ofOne: "przełożonego lub koordynatora",
@@ -74,6 +82,9 @@ export interface StructurePerson {
   job_title: string | null;
   department: string | null;
   employment_type: EmploymentType;
+  /** Uczeń/student na zleceniu (D8) i dzień, od którego Płace naliczają składki. */
+  student?: boolean;
+  contributions_from?: string | null;
   employment_status: EmploymentStatus;
   division: Division | null;
   manager_user_id: number | null;

@@ -23,7 +23,8 @@ from app.models.hr_time import Timesheet, TimesheetEntry
 from app.models.notification import NotificationType
 from app.models.user import User
 from app.services.action_permissions import ProductAction
-from app.services.hr import audit, payroll_periods, people
+from app.services.hr import audit, payroll_periods, people, time_retention
+from app.services.hr.employment_terms import terms
 from app.services.hr.time_access import (
     Actor,
     approval_recipients,
@@ -118,7 +119,14 @@ async def _cover_details(db: AsyncSession, actor: Actor, user_id: int) -> dict:
 
 
 async def _name(db: AsyncSession, user_id: int) -> str:
-    return await db.scalar(select(User.name).where(User.id == user_id)) or "Pracownik"
+    return await db.scalar(select(User.name).where(User.id == user_id)) or "Osoba"
+
+
+async def _words(db: AsyncSession, user_id: int) -> dict[str, str]:
+    """Słowa formy osoby (ewidencja / raport godzin / potwierdzenie godzin)."""
+
+    profile = await people.profile_of(db, user_id)
+    return terms(profile.employment_type if profile else None)
 
 
 async def _locked_subject(
@@ -183,10 +191,11 @@ async def submit(db: AsyncSession, *, timesheet_id: int, actor: Actor) -> Timesh
     )
     recipients = await approval_recipients(db, timesheet.user_id)
     who = await _name(db, timesheet.user_id)
+    words = terms(profile.employment_type if profile else None)
     await _notify(
         db,
         user_ids=recipients,
-        title="Timesheet do akceptacji",
+        title=words["timesheet_submitted_title"],
         message=f"{who}: {month_label(timesheet.year, timesheet.month)}.",
         ntype=NotificationType.hr_timesheet_submitted,
         link=approvals_link(timesheet.year, timesheet.month, timesheet.user_id),
@@ -257,12 +266,13 @@ async def approve(db: AsyncSession, *, timesheet_id: int, actor: Actor) -> Times
             **await _cover_details(db, actor, timesheet.user_id),
         },
     )
+    words = await _words(db, timesheet.user_id)
     await _notify(
         db,
         user_ids=[timesheet.user_id],
-        title="Timesheet zaakceptowany",
-        message=f"Timesheet za {month_label(timesheet.year, timesheet.month)} "
-        "jest zaakceptowany. PDF jest do pobrania w „Moim miesiącu”.",
+        title=words["timesheet_approved_title"],
+        message=f"Za {month_label(timesheet.year, timesheet.month)}. "
+        "PDF jest do pobrania w „Moim miesiącu”.",
         ntype=NotificationType.hr_timesheet_decided,
         link=my_month_link(timesheet.year, timesheet.month),
     )
@@ -320,10 +330,11 @@ async def return_for_fix(
             **await _cover_details(db, actor, timesheet.user_id),
         },
     )
+    words = await _words(db, timesheet.user_id)
     await _notify(
         db,
         user_ids=[timesheet.user_id],
-        title="Timesheet zwrócony do poprawy",
+        title=words["timesheet_returned_title"],
         message=f"{month_label(timesheet.year, timesheet.month)}: {note[:200]}",
         ntype=NotificationType.hr_timesheet_decided,
         link=my_month_link(timesheet.year, timesheet.month),
@@ -337,6 +348,18 @@ async def revoke(db: AsyncSession, *, timesheet_id: int, actor: Actor) -> Timesh
     timesheet = await _locked_subject(db, timesheet_id, actor, deciding=True)
     if timesheet.status != "approved":
         raise TimeConflict("Cofnąć można tylko zaakceptowany timesheet. Odśwież listę.")
+    words = await _words(db, timesheet.user_id)
+    profile = await people.profile_of(db, timesheet.user_id)
+    # Potwierdzenie godzin zlecenia po terminie wypłaty to dokument z art. 8b —
+    # zostaje bez zmian przez 3 lata (korekta przez Płace, nie cofnięcie).
+    refusal = time_retention.revoke_refusal(
+        employment_type=profile.employment_type if profile else None,
+        status=timesheet.status,
+        year=timesheet.year,
+        month=timesheet.month,
+    )
+    if refusal is not None:
+        raise TimeConflict(refusal)
     done = await db.scalar(
         update(Timesheet)
         .where(
@@ -363,8 +386,8 @@ async def revoke(db: AsyncSession, *, timesheet_id: int, actor: Actor) -> Timesh
     await _notify(
         db,
         user_ids=[timesheet.user_id],
-        title="Cofnięto akceptację timesheetu",
-        message=f"Timesheet za {label} wrócił do akceptującego do poprawy.",
+        title=words["timesheet_revoked_title"],
+        message=f"Za {label}. Czeka na poprawki i ponowną decyzję.",
         ntype=NotificationType.hr_timesheet_decided,
         link=my_month_link(timesheet.year, timesheet.month),
     )
@@ -376,8 +399,8 @@ async def revoke(db: AsyncSession, *, timesheet_id: int, actor: Actor) -> Timesh
     await _notify(
         db,
         user_ids=payroll,
-        title="Cofnięto akceptację timesheetu",
-        message=f"{who}: {label}. Timesheet czeka na ponowną akceptację.",
+        title=words["timesheet_revoked_title"],
+        message=f"{who}: {label}. Czeka na ponowną decyzję.",
         ntype=NotificationType.hr_timesheet_decided,
         link=payroll_link(timesheet.year, timesheet.month),
     )

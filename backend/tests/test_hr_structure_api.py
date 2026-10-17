@@ -326,7 +326,9 @@ async def test_open_requests_and_timesheets_follow_the_new_manager(
         hr = await _kadry(db)
         old = await _user(db, "recruiter")
         new = await _user(db, "recruiter")
-        worker = await _user(db, manager_user_id=old.id)
+        # Umowa o pracę: wniosek czeka na decyzję (na B2B i zleceniu nie ma
+        # decyzji — D5).
+        worker = await _user(db, manager_user_id=old.id, employment_type="uop")
         await _user(db, manager_user_id=old.id)  # stary zostaje przełożonym
         timesheet = Timesheet(
             user_id=worker.id, year=2091, month=11, status="submitted"

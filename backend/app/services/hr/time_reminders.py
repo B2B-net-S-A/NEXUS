@@ -29,6 +29,7 @@ from app.models.hr_profile import EmployeeProfile
 from app.models.hr_time import Timesheet
 from app.models.notification import NotificationType
 from app.models.user import User
+from app.services.hr.employment_terms import terms
 from app.services.hr.time_calendar import (
     DEADLINE_DAY,
     month_range,
@@ -99,7 +100,17 @@ async def run_once(db: AsyncSession, *, today: Optional[date] = None) -> dict[st
     deadline = submission_deadline(year, month)
     label = month_label(year, month)
     counts = {"eligible": 0, "sent": 0, "already": 0, "skipped": 0}
-    for user_id in await eligible_user_ids(db, year, month):
+    ids = await eligible_user_ids(db, year, month)
+    forms = dict(
+        (
+            await db.execute(
+                select(EmployeeProfile.user_id, EmployeeProfile.employment_type).where(
+                    EmployeeProfile.user_id.in_(ids or [-1])
+                )
+            )
+        ).all()
+    )
+    for user_id in ids:
         counts["eligible"] += 1
         claimed = await db.scalar(
             insert(HrJobRun)
@@ -115,14 +126,16 @@ async def run_once(db: AsyncSession, *, today: Optional[date] = None) -> dict[st
             counts["already"] += 1
             continue
         created = None
+        # Słowa formy (D4): ewidencja czasu pracy, raport godzin, potwierdzenie godzin.
+        words = terms(forms.get(user_id))
         try:
             async with db.begin_nested():
                 created = await emit(
                     db,
                     user_id=user_id,
-                    title="Wyślij timesheet",
-                    message=f"Timesheet za {label} czeka na wysłanie — termin "
-                    f"{deadline.day}.{deadline.month:02d}.",
+                    title=f"Wyślij {words['timesheet_accusative']}",
+                    message=f"{words['timesheet']} za {label} czeka na wysłanie — "
+                    f"termin {deadline.day}.{deadline.month:02d}.",
                     ntype=NotificationType.hr_timesheet_reminder,
                     related_entity_type="timesheet",
                     related_entity_id=None,

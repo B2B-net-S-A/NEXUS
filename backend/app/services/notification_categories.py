@@ -231,6 +231,7 @@ CATEGORY_BY_TYPE: dict[NotificationType, NotificationCategory] = {
     _T.hr_leave_cancelled: _C.people,
     _T.hr_leave_substitute: _C.people,
     _T.hr_absence_reported: _C.people,
+    _T.hr_leave_conflict: _C.people,
     _T.hr_timesheet_submitted: _C.people,
     _T.hr_timesheet_decided: _C.people,
     _T.hr_timesheet_reminder: _C.people,

@@ -18,7 +18,7 @@ from app.models.hr_profile import EmployeeProfile
 from app.models.user import User
 from app.services.hr.absence import month_absences
 from app.services.hr.calendar import load_calendar, month_days
-from app.services.hr.leave_policy import LEAVE_TYPE_LABELS, Actor, can_see_type
+from app.services.hr.leave_policy import Actor, can_see_type, type_label
 from app.services.hr.people import DIRECTORY_STATUSES
 
 ABSENCE_LABEL = "Nieobecność"
@@ -67,6 +67,7 @@ async def team_calendar(
         rows = [(u, p) for u, p in rows if p.department == department]
 
     managers = {u.id: p.manager_user_id for u, p in rows}
+    forms = {u.id: p.employment_type for u, p in rows}
     in_d6 = {
         uid
         for uid, manager_id in managers.items()
@@ -93,7 +94,8 @@ async def team_calendar(
                 "end_date": absence.end.isoformat(),
                 "half_day": absence.half_day,
                 "status": absence.status,
-                "label": LEAVE_TYPE_LABELS.get(absence.leave_type, ABSENCE_LABEL)
+                # Słowa formy (D4): „Przerwa w świadczeniu usług” na B2B.
+                "label": type_label(absence.leave_type, forms.get(absence.user_id))
                 if visible
                 else ABSENCE_LABEL,
                 "leave_type": absence.leave_type if visible else None,

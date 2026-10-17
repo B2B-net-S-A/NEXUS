@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from collections.abc import Collection
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 from typing import Any, Literal, Optional
 
@@ -25,7 +25,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.hr_profile import CompanyDayOff, EmployeeProfile, LeaveEntitlement
 from app.models.user import User, UserRole
 from app.services.action_permissions import ProductAction, has_permission
+from app.core.scheduling import business_today
 from app.services.hr import audit
+from app.services.hr.leave_policy import statutory_entitlement
 from app.services.hr_foundation_schema import (
     DIVISIONS,
     EMPLOYMENT_STATUSES,
@@ -53,7 +55,19 @@ EDITABLE_FIELDS: tuple[str, ...] = (
     "department",
     "phone",
     "division",
+    # Etap 2 (D8, D9): uczeń/student na zleceniu, staż do urlopu na UoP.
+    "student_contribution_exempt",
+    "contribution_exempt_until",
+    "leave_seniority_years",
+    "zus_certificate_received_on",
 )
+
+#: Pola, które mają sens tylko przy danej formie (``_form_rules``).
+STUDENT_FIELDS: tuple[str, ...] = (
+    "student_contribution_exempt",
+    "contribution_exempt_until",
+)
+UOP_FIELDS: tuple[str, ...] = ("leave_seniority_years", "zus_certificate_received_on")
 
 _MAX_MANAGER_CHAIN = 50
 
@@ -157,6 +171,14 @@ def card_payload(row: PersonRow) -> dict[str, Any]:
     }
 
 
+def contributions_from(profile: EmployeeProfile) -> Optional[date]:
+    """Od kiedy Płace naliczają składki uczniowi/studentowi (dzień po końcu zwolnienia)."""
+
+    if not profile.student_contribution_exempt or not profile.contribution_exempt_until:
+        return None
+    return profile.contribution_exempt_until + timedelta(days=1)
+
+
 def full_payload(row: PersonRow) -> dict[str, Any]:
     profile = row.profile
     return {
@@ -168,6 +190,15 @@ def full_payload(row: PersonRow) -> dict[str, Any]:
         "timesheet_required": profile.timesheet_required,
         "can_log_overtime": profile.can_log_overtime,
         "division": profile.division,
+        "student_contribution_exempt": profile.student_contribution_exempt,
+        "contribution_exempt_until": profile.contribution_exempt_until,
+        "contributions_from": contributions_from(profile),
+        "leave_seniority_years": profile.leave_seniority_years,
+        "zus_certificate_received_on": profile.zus_certificate_received_on,
+        # Podpowiedź wymiaru urlopu 20/26 (D9) — pulę zatwierdzają Kadry.
+        "suggested_entitlement_days": statutory_entitlement(
+            profile.employment_type, profile.leave_seniority_years
+        ),
         "roles": [role.value for role in row.user.get_all_roles()],
     }
 
@@ -305,6 +336,60 @@ def _validate_values(values: dict[str, Any]) -> None:
     last = values.get("last_working_day")
     if start and last and last < start:
         raise HrPeopleError("Ostatni dzień pracy nie może być przed datą startu.")
+    seniority = values.get("leave_seniority_years")
+    if seniority is not None and not 0 <= seniority <= 60:
+        raise HrPeopleError("Staż do urlopu podaje się w latach, od 0 do 60.")
+    certificate = values.get("zus_certificate_received_on")
+    if certificate is not None and certificate > business_today():
+        raise HrPeopleError("Data zaświadczenia z ZUS nie może być z przyszłości.")
+
+
+def _form_rules(
+    clean: dict[str, Any], *, employment_type: str, current: Optional[EmployeeProfile]
+) -> dict[str, Any]:
+    """Pola zależne od formy (etap 2, D8 i D9).
+
+    Znacznik ucznia/studenta tylko na zleceniu; zmiana formy na inną zdejmuje
+    go razem z datą (inaczej Płace dostałyby przypomnienie o składkach osoby na
+    B2B). Data końca zwolnienia tylko przy znaczniku. Staż do urlopu
+    i zaświadczenie ZUS wpisuje się tylko na umowie o pracę (po zmianie formy
+    zostają — przydadzą się przy powrocie na UoP).
+    """
+
+    out = dict(clean)
+    flag = out.get(
+        "student_contribution_exempt",
+        current.student_contribution_exempt if current is not None else False,
+    )
+    if employment_type != "zlecenie":
+        if out.get("student_contribution_exempt"):
+            raise HrPeopleError(
+                "Znacznik ucznia lub studenta dotyczy tylko umowy zlecenie."
+            )
+        if out.get("contribution_exempt_until") is not None:
+            raise HrPeopleError(
+                "Datę końca zwolnienia ze składek wpisuje się tylko przy umowie zlecenie."
+            )
+        if current is not None and current.student_contribution_exempt:
+            out["student_contribution_exempt"] = False
+            out["contribution_exempt_until"] = None
+    elif not flag:
+        if out.get("contribution_exempt_until") is not None:
+            raise HrPeopleError(
+                "Datę końca zwolnienia ze składek wpisuje się przy znaczniku "
+                "ucznia lub studenta."
+            )
+        if current is not None and current.contribution_exempt_until is not None:
+            out["contribution_exempt_until"] = None
+    if employment_type != "uop":
+        for key in UOP_FIELDS:
+            if out.get(key) is not None:
+                raise HrPeopleError(
+                    "Staż do urlopu i zaświadczenie z ZUS dotyczą umowy o pracę."
+                )
+    if out.get("student_contribution_exempt") is None:
+        out.pop("student_contribution_exempt", None)
+    return out
 
 
 async def create_profile(
@@ -317,6 +402,11 @@ async def create_profile(
         raise HrPeopleError("Ta osoba ma już kartotekę.")
     clean = {key: value for key, value in values.items() if key in EDITABLE_FIELDS}
     _validate_values(clean)
+    clean = _form_rules(
+        clean,
+        employment_type=clean.get("employment_type") or "b2b",
+        current=None,
+    )
     await _validate_manager(
         db, user_id=user_id, manager_user_id=clean.get("manager_user_id")
     )
@@ -348,6 +438,11 @@ async def update_profile(
         **clean,
     }
     _validate_values({**clean, **merged})
+    clean = _form_rules(
+        clean,
+        employment_type=clean.get("employment_type") or profile.employment_type,
+        current=profile,
+    )
     if "manager_user_id" in clean:
         await _validate_manager(
             db, user_id=user_id, manager_user_id=clean["manager_user_id"]
@@ -391,8 +486,19 @@ async def set_entitlement(
     reason: Optional[str],
     actor: User,
 ) -> LeaveEntitlement:
-    if await profile_of(db, user_id) is None:
+    profile = await profile_of(db, user_id)
+    if profile is None:
         raise LookupError(user_id)
+    # D6: pula płatnych dni tylko na umowie o pracę i na B2B z pulą w umowie.
+    if profile.employment_type == "zlecenie" and any(
+        value is not None and value > 0
+        for value in (entitlement_days, carried_over_days, used_initial_days)
+    ):
+        raise HrPeopleError(
+            "Na umowie zlecenie nie ma puli płatnych dni — nieobecność jest bez "
+            "wynagrodzenia. Pulę ustawia się na umowie o pracę albo na B2B "
+            "z płatnymi dniami w umowie."
+        )
     for value in (entitlement_days, carried_over_days, used_initial_days):
         if value is not None and (value < 0 or value > 366):
             raise HrPeopleError("Liczba dni musi być między 0 a 366.")

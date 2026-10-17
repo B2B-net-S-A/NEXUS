@@ -10,6 +10,9 @@ przełącznik modułu w ``app_settings['hr_modules']``.
   siebie): kolejka, historia, akceptuj/odrzuć, wpis za pracownika, anulowanie;
   zastępca przełożonego, który jest dziś na urlopie, dostaje kolejkę i
   akceptuj/odrzuć dla jego podwładnych (``leave_substitute``),
+* zgłoszenia z B2B i zlecenia (D5, 17.10.2026): wchodzą od razu, koordynator
+  widzi je „do wiadomości” obok kolejki (``reported`` w ``/approvals/pending``)
+  i może zgłosić kolizję (``POST /{id}/conflict``) — bez akceptacji i odrzucenia,
 * kalendarz zespołu (osoby z kartoteką i uprawnienia „Ludzi”),
 * „Nieobecni dziś” i odczyt zbiorczy dla plakietki — każdy aktywny pracownik
   wewnętrzny, także rekruter bez kartoteki. Bez rodzaju nieobecności (D6).
@@ -77,6 +80,9 @@ def require_hr_leave_approver():
         if await leave_substitute.covered_reports(
             db, current_user.id, business_today()
         ):
+            return current_user
+        # Head pionu koordynuje osoby bez przełożonego (zgłoszenia z B2B/zlecenia).
+        if await service.coordinated_ids(db, current_user.id):
             return current_user
         raise HTTPException(status.HTTP_403_FORBIDDEN, APPROVER_DETAIL)
 
@@ -148,6 +154,10 @@ class RejectIn(BaseModel):
 
 class ConsentIn(BaseModel):
     consent: bool
+
+
+class ConflictIn(BaseModel):
+    note: str = Field(min_length=1, max_length=service.CONFLICT_NOTE_MAX)
 
 
 def _input(payload: LeaveFields) -> service.LeaveInput:
@@ -352,6 +362,8 @@ async def approvals_pending(
         "total": len(items),
         # Kogo patrzący zastępuje dziś („W zastępstwie za …” nad kolejką).
         "covering": await leave_substitute.covering_payload(db, current_user.id, today),
+        # Zgłoszenia z B2B i zlecenia do wiadomości (D5) — poza licznikiem decyzji.
+        "reported": await service.reported_queue(db, actor=current_user, today=today),
     }
 
 
@@ -512,6 +524,30 @@ async def cancel_team_request(
         raise _translate(exc) from exc
     await db.commit()
     return await _outcome(db, outcome, current_user)
+
+
+@router.post("/{request_id}/conflict")
+async def report_conflict(
+    request_id: uuid.UUID,
+    payload: ConflictIn,
+    current_user: LeaveApprover,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Koordynator zgłasza kolizję zgłoszonej przerwy z pracą (D5)."""
+
+    try:
+        request = await service.report_conflict(
+            db,
+            actor=current_user,
+            request_id=request_id,
+            note=payload.note,
+            today=business_today(),
+        )
+    except _HANDLED as exc:
+        await db.rollback()
+        raise _translate(exc) from exc
+    await db.commit()
+    return await _one(db, request, current_user)
 
 
 # ── Kalendarz zespołu i nieobecni ─────────────────────────────────────────────
