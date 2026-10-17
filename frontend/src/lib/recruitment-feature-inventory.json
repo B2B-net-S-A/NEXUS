@@ -2244,6 +2244,14 @@
    "v3_home": "karta „CV do klienta” → Otwórz i popraw → Do poprawy → Blokuje wysyłkę"
   },
   {
+   "id": "cv.editor-consent-upload-in-panel",
+   "area": "cv",
+   "opis": "Brak zrzutu zgody RODO w panelu „Do poprawy” (PR 4, 17.10.2026): „Wgraj zrzut maila” w wierszu blokady — do dokumentu generatora albo do CV etapu (kopia), jak na karcie „CV do klienta”; po wgraniu QC liczy się od nowa",
+   "file": "components/v2/cv-editor/CvEditorIssueRows.tsx",
+   "marker": "ConsentAttachButton",
+   "v3_home": "karta „CV do klienta” → Otwórz i popraw → Do poprawy → Blokuje wysyłkę"
+  },
+  {
    "id": "cv.editor-issues-override-in-panel",
    "area": "cv",
    "opis": "„Przekaż mimo uwag…” w nagłówku grupy „Blokuje wysyłkę” (17.10.2026) — to samo okno obejścia co w stopce, tylko gdy karta stoi na „Zweryfikowany” i jest prawo obejścia",

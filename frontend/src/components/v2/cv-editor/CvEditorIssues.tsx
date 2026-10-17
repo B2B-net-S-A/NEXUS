@@ -741,6 +741,7 @@ export function CvEditorIssues({
     retryFixes: () => void fixesQuery.refetch(),
     dismiss: issueDismiss,
     reviewVersion,
+    refreshQc: () => void refetchQc(),
   };
   const rowView = (row: IssueRow) => <IssueRowView key={row.id} row={row} ctx={rowCtx} />;
   // „Popraw wszystkie” stoi w nagłówku grupy, w której są poprawki z planu:

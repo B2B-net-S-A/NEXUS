@@ -81,3 +81,37 @@ więc „Moduł wynagrodzeń dla 250 zleceniobiorców” bywa zgłaszany jako st
 Testy: bez bazy — 4 nowe w `test_fix48_ws11_qc_override_rule.py`; z bazą
 (CI) — `test_advisory_override_follows_the_cv_until_a_new_blocker_appears`;
 front — panel (przekazanie asystentowi), modal.
+
+Przegląd (security-reviewer) znalazł blokadę: sesje mają `autoflush=False`,
+więc bramka ruchu zaraz po przeliczeniu czytałaby stary odcisk — `flush()` po
+podmianie. Do tego obejście idzie za CV tylko przy QC najnowszego wiersza etapu
+pary. Ponowny przegląd: nic nie blokuje (skutek uboczny: plakietka może do
+zapisu przebiegu przy zamknięciu edytora pokazywać obejście jako utracone —
+błąd w stronę blokady).
+
+## PR 4 · zgoda RODO w panelu, rola bez dat
+
+- „Wgraj zrzut maila” w wierszu blokady `upload_consent` — do dokumentu
+  generatora albo CV etapu (`consentTarget`, jak karta „CV do klienta”),
+  potem QC od nowa.
+- Wiersz „<rola>: brak dat” zamiast „Rola bez dat.”.
+- Zmiana planu z makiet (D3 „daty przez asystenta”): asystent nie widzi
+  oryginału, więc wpisywałby daty zgadnięte albo pytał. Bez przycisku;
+  wpisanie dat kodem z odczytu oryginału czeka na decyzję.
+
+Testy: lib (`consentTarget`), panel (zgoda: generator / kopia etapu, QC po
+wgraniu; tytuł roli bez dat), inwentarz (`cv.editor-consent-upload-in-panel`).
+
+## Poprawka po wdrożeniu PR 2 · lata kilku firm naraz (#2292)
+
+Na produkcji (17.10.2026, f2d04f103) panel pokazał „Zmień” przy „3 lata w <A>
+i <B>”, gdzie z dat roli w A wychodzi 0. Zera serwer nie wpisywał (przycisk
+kończył się „nic do zrobienia”), ale „12 lat w A i B” przy 8 latach w A
+dostałoby „8 lat w A i B”. Teraz `fix_years_html` pomija staż kilku firm naraz,
+a panel daje „Zmień” tylko z podglądem i bez kilku firm (`yearsFixable`). Wynik
+QC bez zmian — uwaga zostaje do decyzji. Czy QC w ogóle ma zgłaszać staż kilku
+firm, gdy historia zna jedną, to osobna decyzja (zmiana reguły QC).
+
+PR 3 w CI: `test_advisory_override_is_for_the_cv_it_was_made_on` kodował regułę
+sprzed D6 — przepisany na „obejście kończy nowa blokada”
+(`test_advisory_override_ends_when_the_cv_gets_a_new_blocker`).

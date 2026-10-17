@@ -26,7 +26,7 @@ import { Fragment, Slice, type Node as PMNode } from "@tiptap/pm/model";
 import { TextSelection, type EditorState, type Transaction } from "@tiptap/pm/state";
 
 import type { CvReviewFinding } from "@/lib/api/cvEditorIssues";
-import type { QcCheck, QcFix, QcFixAction, QcItem, QcTransformApplied } from "@/lib/api/cvQc";
+import type { QcCheck, QcFix, QcFixAction, QcItem, QcResult, QcTransformApplied } from "@/lib/api/cvQc";
 import { cvOutline, type CvOutline, type CvRole, type CvSectionKey } from "@/lib/cv-editor-blocks";
 import { classifyCvWarnings, type ClassifiedCvWarning } from "@/lib/cv-generator";
 import {
@@ -489,6 +489,25 @@ function yearsFixable(item: QcItem): boolean {
   if (!/z dat roli w /.test(itemSentence(item))) return true;
   const company = COMPANY_PART.exec(item.term ?? "");
   return !SEVERAL_COMPANIES.test(company ? company[1] : (item.term ?? ""));
+}
+
+/** Gdzie dołączyć zrzut zgody RODO sprawdzanego CV (PR 4, 17.10.2026). */
+export type ConsentTarget =
+  | { generatedId: number }
+  | { stageCopy: { candidateId: number; stageId: number } };
+
+/**
+ * To samo rozstrzygnięcie co karta „CV do klienta”: CV z generatora dostaje
+ * zgodę przy wygenerowanym dokumencie (serwer odświeża wtedy kopię etapu),
+ * kopia bez generatora (plik Word, CV z innej rekrutacji) — na etapie, na
+ * którym leży. Bez jednego i drugiego — `null` (zostaje odnośnik do generatora).
+ */
+export function consentTarget(data: QcResult): ConsentTarget | null {
+  const cv = data.cv;
+  if (!cv) return null;
+  if (cv.generated_document_id != null) return { generatedId: cv.generated_document_id };
+  if (cv.stage_id != null) return { stageCopy: { candidateId: data.candidate_id, stageId: cv.stage_id } };
+  return null;
 }
 
 const YEARS_NUMBER = /(?<![\d.,])(\d{1,2})(\s*\+?\s*)(lata|lat|roku|years?|yrs)\b/i;

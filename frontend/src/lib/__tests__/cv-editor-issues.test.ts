@@ -1,13 +1,14 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { Editor } from "@tiptap/core";
 
-import type { QcCheck, QcFix } from "../api/cvQc";
+import type { QcCheck, QcCv, QcFix, QcResult } from "../api/cvQc";
 import {
   appliedActions,
   appliedLabel,
   boldRequirements,
   buildIssueList,
   bulkPlan,
+  consentTarget,
   findingsInCv,
   fixAlreadyInCv,
   fixStep,
@@ -728,5 +729,28 @@ describe("poprawki jednym kliknięciem po kluczu sprawdzenia (PR 2, 17.10.2026)"
     const plan = bulkPlan([years, title, rules], []);
     expect(plan.actions).toEqual([{ action: "years" }, { action: "title" }]);
     expect(plan.parts).toEqual(["lata doświadczenia według historii", "tytuł CV z rekrutacji"]);
+  });
+});
+
+describe("consentTarget — gdzie dołączyć zrzut zgody RODO (PR 4, 17.10.2026)", () => {
+  const cv = (over: Partial<QcCv>): QcCv => ({
+    source: "branded_draft",
+    editable: true,
+    stage_id: 901,
+    generated_document_id: null,
+    document_id: null,
+    filename: null,
+    bold_known: true,
+    updated_at: null,
+    blocks: [],
+    ...over,
+  });
+  const result = (value: QcCv | null) => ({ candidate_id: 101, cv: value }) as unknown as QcResult;
+
+  it("CV z generatora → dokument generatora, kopia → etap, bez CV → nic", () => {
+    expect(consentTarget(result(cv({ generated_document_id: 77 })))).toEqual({ generatedId: 77 });
+    expect(consentTarget(result(cv({})))).toEqual({ stageCopy: { candidateId: 101, stageId: 901 } });
+    expect(consentTarget(result(cv({ stage_id: null })))).toBeNull();
+    expect(consentTarget(result(null))).toBeNull();
   });
 });
