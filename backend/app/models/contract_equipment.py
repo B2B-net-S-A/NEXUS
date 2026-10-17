@@ -78,7 +78,7 @@ class ContractEquipment(Base, TimestampMixin):
 
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
-    # „Ludzie w NEXUSIE” (0463): pozycja wydana z magazynu wskazuje egzemplarz
+    # „Ludzie w NEXUSIE” (0464): pozycja wydana z magazynu wskazuje egzemplarz
     # z rejestru i jego wydanie. Puste = wpis ręczny jak dotąd (bez rejestru).
     item_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("equipment_items.id", ondelete="SET NULL"),

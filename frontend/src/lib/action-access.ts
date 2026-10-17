@@ -63,7 +63,7 @@ export const ROLE_ACTION_ACCESS: Record<
     b2b_contract_generator: "none",
     b2b_signature_confirmation: "none",
   },
-  // „Pracownik” (0455): bez rejestru umów B2B.
+  // „Pracownik” (0456): bez rejestru umów B2B.
   employee: {
     b2b_contract_generator: "none",
     b2b_signature_confirmation: "none",

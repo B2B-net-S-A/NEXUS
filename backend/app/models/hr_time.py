@@ -1,4 +1,4 @@
-"""„Ludzie w NEXUSIE” — modele: Mój miesiąc (0458).
+"""„Ludzie w NEXUSIE” — modele: Mój miesiąc (0459).
 
 CHECK-i i indeksy muszą być identyczne z ``app/services/*_schema.py`` modułu
 (strażnik dryfu schematu porównuje model z bazą po migracji).

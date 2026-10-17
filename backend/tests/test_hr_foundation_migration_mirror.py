@@ -1,4 +1,4 @@
-"""„Ludzie w NEXUSIE” (0454): lustro migracji w entrypoint.sh i rejestracje.
+"""„Ludzie w NEXUSIE” (0455): lustro migracji w entrypoint.sh i rejestracje.
 
 Prod alembic bywa osierocony — entrypoint JEST wdrożeniem schematu. Migracja
 i entrypoint czytają ten sam moduł (``hr_foundation_schema``); test pilnuje,

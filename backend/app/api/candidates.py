@@ -6691,7 +6691,7 @@ async def delete_candidate(
 
     # Zgłoszenia Akademii znikają kaskadą. Zwrócone wydanie sprzętu traci
     # posiadacza (historia zostaje w protokole), niezwróconego nie zostawiamy
-    # „wydanego nikomu” — najpierw zwrot (0464, decyzja z przeglądu 16.10).
+    # „wydanego nikomu” — najpierw zwrot (0465, decyzja z przeglądu 16.10).
     from app.services.equipment.registry import (
         ACADEMY_EQUIPMENT_HELD,
         active_academy_assignments,

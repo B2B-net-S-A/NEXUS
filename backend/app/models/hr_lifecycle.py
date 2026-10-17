@@ -1,4 +1,4 @@
-"""„Ludzie w NEXUSIE” — modele: Wejście i odejście (0460).
+"""„Ludzie w NEXUSIE” — modele: Wejście i odejście (0461).
 
 CHECK-i i indeksy muszą być identyczne z ``app/services/*_schema.py`` modułu
 (strażnik dryfu schematu porównuje model z bazą po migracji).

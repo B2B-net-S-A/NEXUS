@@ -1,7 +1,7 @@
 """„Ludzie w NEXUSIE” — Urlopy i zastępstwa.
 
-Revision ID: 0457_hr_leave
-Revises: 0456_hr_notifications
+Revision ID: 0458_hr_leave
+Revises: 0457_hr_notifications
 
 Zakres: wnioski urlopowe (dzień per wiersz), akceptacje, zastępstwa, kolejka operacji Microsoft 365, stan skrzynek. SQL ma jedno źródło (``app/services/hr_leave_schema.py``) — ten sam
 moduł czyta ``entrypoint.sh`` przez ``hr_schema_bundle``.
@@ -11,8 +11,8 @@ from alembic import op
 
 from app.services import hr_leave_schema as schema
 
-revision = "0457_hr_leave"
-down_revision = "0456_hr_notifications"
+revision = "0458_hr_leave"
+down_revision = "0457_hr_notifications"
 branch_labels = None
 depends_on = None
 

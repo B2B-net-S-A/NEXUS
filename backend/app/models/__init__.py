@@ -826,7 +826,7 @@ from app.models.integration_event import (  # noqa: F401
     IntegrationWebhook,
 )
 
-# 0454: „Ludzie w NEXUSIE” — kartoteka pracownika, pule urlopowe, dni wolne
+# 0455: „Ludzie w NEXUSIE” — kartoteka pracownika, pule urlopowe, dni wolne
 # firmy, ślad HR, rezerwacje zadań i import z Compassa.
 from app.models.hr_profile import (  # noqa: F401
     CompanyDayOff,
@@ -840,7 +840,7 @@ from app.models.hr_ops import (  # noqa: F401
     HrJobRun,
 )
 
-# 0456–0464: moduły „Ludzi w NEXUSIE” — import modułu rejestruje modele
+# 0457–0465: moduły „Ludzi w NEXUSIE” — import modułu rejestruje modele
 # (nazwy klas importuj z modułu, np. ``from app.models.hr_leave import …``).
 from app.models import hr_leave as _hr_leave_models  # noqa: F401,E402
 from app.models import hr_time as _hr_time_models  # noqa: F401,E402

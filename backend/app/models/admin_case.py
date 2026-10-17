@@ -1,4 +1,4 @@
-"""„Ludzie w NEXUSIE” — modele: Sprawy administracja@ (0462).
+"""„Ludzie w NEXUSIE” — modele: Sprawy administracja@ (0463).
 
 CHECK-i i indeksy muszą być identyczne z ``app/services/*_schema.py`` modułu
 (strażnik dryfu schematu porównuje model z bazą po migracji).

@@ -1,18 +1,18 @@
-"""„Ludzie w NEXUSIE” — Płace i premie.
+"""„Ludzie w NEXUSIE” — Wejście i odejście.
 
-Revision ID: 0459_hr_payroll
-Revises: 0458_hr_time
+Revision ID: 0461_hr_lifecycle
+Revises: 0460_hr_payroll
 
-Zakres: historia stawek, premie, okresy płacowe i zamrożone linie. SQL ma jedno źródło (``app/services/hr_payroll_schema.py``) — ten sam
+Zakres: szablony i sprawy cyklu życia, zadania, przekazania pracy. SQL ma jedno źródło (``app/services/hr_lifecycle_schema.py``) — ten sam
 moduł czyta ``entrypoint.sh`` przez ``hr_schema_bundle``.
 """
 
 from alembic import op
 
-from app.services import hr_payroll_schema as schema
+from app.services import hr_lifecycle_schema as schema
 
-revision = "0459_hr_payroll"
-down_revision = "0458_hr_time"
+revision = "0461_hr_lifecycle"
+down_revision = "0460_hr_payroll"
 branch_labels = None
 depends_on = None
 

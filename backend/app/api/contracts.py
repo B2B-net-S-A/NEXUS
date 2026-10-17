@@ -6400,7 +6400,7 @@ async def delete_onboarding_item(
 
 # ── Equipment (Kontrakty expansion: ewidencja sprzętu) ──────────────────────
 
-#: Pola pozycji wydanej z magazynu, które opisuje rejestr „Sprzęt” (0463).
+#: Pola pozycji wydanej z magazynu, które opisuje rejestr „Sprzęt” (0464).
 _REGISTER_OWNED_FIELDS = frozenset(
     {"return_status", "returned_date", "item_type", "owner", "serial_number"}
 )
