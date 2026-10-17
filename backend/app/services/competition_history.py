@@ -87,6 +87,17 @@ def dr_window(start: datetime, end: datetime) -> Optional[tuple[datetime, dateti
     return (start, dr_end) if start < dr_end else None
 
 
+def board_start(start: datetime) -> datetime:
+    """Początek części okna, którą wolno liczyć z ruchów Tablicy.
+
+    Decyzja Artura 18.10.2026: przed 12.10.2026 statystyki nie biorą ruchów
+    Tablicy (import z Traffita) — ekrany, których DynaReporter nie zna (lejek po
+    etapach, źródła, czas do zatrudnienia, hit ratio), liczą od tego dnia,
+    a wcześniejsze dni pokazują jako brak danych.
+    """
+    return max(start, cutover_utc())
+
+
 def window_source(start: datetime, end: datetime) -> str:
     has_dr = dr_window(start, end) is not None
     has_live = live_window(start, end) is not None
@@ -380,6 +391,35 @@ def dr_placement_race(
     return entries
 
 
+def dr_dl_league(
+    monthly: DrMonthly, months: Iterable[str], *, names: Mapping[int, str]
+) -> list[DrEntry]:
+    """Liga DL z miesięcznych wpisów DL w DynaReporterze (decyzja Artura 18.10.2026).
+
+    DynaReporter Ligi DL nie prowadził; Q1–Q3 2026 liczymy z jego wpisów DL
+    (`dr_kpi_delivery_lead.placements`). Próg ligi — co najmniej
+    `DR_LEAGUE_MIN_PLACEMENTS` placementów; progu hit ratio nie ma, bo
+    rekrutacji zamkniętych DynaReporter nie prowadził.
+    """
+    totals = _sum_months(monthly, months)
+    entries = [
+        DrEntry(
+            user_id=user_id,
+            name=names.get(user_id, f"#{user_id}"),
+            metric_value=c.placements,
+            extras={
+                "placements": c.placements,
+                "qualified": c.placements >= DR_LEAGUE_MIN_PLACEMENTS,
+                "hit_ratio_basis": "dynareporter_without_hit_ratio",
+            },
+        )
+        for user_id, c in totals.items()
+        if c.placements >= 1
+    ]
+    entries.sort(key=lambda e: (-e.metric_value, e.user_id))
+    return entries
+
+
 def precision_tiebreak(entry: DrEntry) -> tuple:
     """Remis w wyścigu rekomendacji: wyższa precyzja (bez momentu ostatniej
     rekomendacji — tygodniowe wpisy go nie znają)."""
@@ -464,6 +504,19 @@ def settle_dr_period(
             reason="points_tie",
         )
         rule = "dynareporter:points→admin"
+    elif ctype == CompetitionType.quarterly_champions_dl:
+        year, quarter = parse_quarter(period)
+        ranked = dr_dl_league(monthly, quarter_months(year, quarter), names=names)
+        award = [e for e in ranked if e.extras["qualified"]]
+        ordered, ties = order_with_ties(
+            award,
+            primary=primary,
+            tiebreak=None,
+            paid_slots=paid_slots(ctype),
+            admin_on_tie=True,
+            reason="placements_tie",
+        )
+        rule = "dynareporter:dl_placements→admin"
     elif ctype in (
         CompetitionType.monthly_recommendations,
         CompetitionType.monthly_placements,

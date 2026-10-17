@@ -36,15 +36,16 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.analytics.periods import ANALYTICS_TIMEZONE, PeriodError, resolve_period
-from app.services.metric_definitions import FIRST_HIRED_PER_CANDIDATE_JOB
 from app.api.deps import CurrentUser
 from app.api.section_access import INSIGHTS_SECTION_DEPENDENCIES
 from app.core.cache import cache_get, cache_set, cache_single_flight
 from app.core.database import get_db
+from app.services.history_client_placements import client_placements
 from app.services.insights_person_scope import (
     OUTSIDE_SCOPE_LABEL,
     outside_scope_user_ids,
 )
+from app.services.metric_definitions import FIRST_HIRED_PER_CANDIDATE_JOB
 
 logger = logging.getLogger(__name__)
 
@@ -319,9 +320,8 @@ async def insights_placement_analysis(
     resolved = _resolve(period, offset, anchor, date_from, date_to)
 
     # v2 (24.09.2026): konta administracyjne jednym wycinkiem.
-    # v4 (17.10.2026): osoby i suma z widoku KPI (dni 1.01–11.10.2026
-    # z DynaReportera), klienci z par Tablicy z własną sumą.
-    cache_key = f"insights:charts:placements:v4:{resolved.cache_suffix}"
+    # v5 (18.10.2026): przed 12.10.2026 osoby, suma i klienci z DynaReportera.
+    cache_key = f"insights:charts:placements:v5:{resolved.cache_suffix}"
     async with cache_single_flight(cache_key, db=db):
         cached = await cache_get(cache_key)
         if cached is not None:
@@ -357,31 +357,23 @@ async def insights_placement_analysis(
         # nadal jest placementem. INNER wyciąłby go z donuta, ale nie z kafla
         # „Suma placementów" — donut przestałby sumować się do liczby nad sobą,
         # co czyta się jak błąd zaokrąglenia, a jest utratą wiersza.
-        client_rows = (
-            (
-                await db.execute(
-                    text(
-                        """
-                        SELECT c.id AS client_id,
-                               c.name AS client_name,
-                               (j.id IS NULL) AS job_missing,
-                               count(*) AS cnt
-                        FROM analytics_first_milestones fm
-                        LEFT JOIN jobs j ON j.id = fm.job_id
-                        LEFT JOIN clients c ON c.id = j.client_id
-                        WHERE fm.stage = 'hired'
-                          AND fm.first_reached_at >= :start
-                          AND fm.first_reached_at < :end
-                        GROUP BY 1, 2, 3
-                        ORDER BY count(*) DESC, 2 NULLS LAST
-                        """
-                    ),
-                    params,
-                )
+        # Klienci: od 12.10.2026 pary Tablicy, wcześniej placementy z klientem
+        # z DynaReportera (decyzja Artura 18.10.2026) — `history_client_placements`.
+        by_key: dict[tuple, int] = {}
+        for item in await client_placements(db, resolved.start, resolved.end):
+            key = (item.client_id, item.client_name, item.job_missing)
+            by_key[key] = by_key.get(key, 0) + item.count
+        client_rows = [
+            {
+                "client_id": client_id,
+                "client_name": client_name,
+                "job_missing": job_missing,
+                "cnt": cnt,
+            }
+            for (client_id, client_name, job_missing), cnt in sorted(
+                by_key.items(), key=lambda kv: (-kv[1], kv[0][1] or "")
             )
-            .mappings()
-            .all()
-        )
+        ]
 
         total = sum(int(r["cnt"]) for r in people_rows)
 
@@ -431,10 +423,9 @@ async def insights_placement_analysis(
         # Klient bez wiersza w `clients` i placement bez oferty lądują w tym samym
         # koszyku „(bez klienta)" — z osobnym licznikiem `placements_without_job`,
         # żeby dało się odróżnić lukę w danych od oferty bez przypisanego klienta.
-        # Klienci z par Tablicy (`analytics_first_milestones`): w dniach
-        # 1.01–11.10.2026 „Suma placementów” liczy wpisy DynaReportera, który
-        # nie zapisywał klienta — donut klientów ma więc własną sumę
-        # (`client_placements`), jak „Rok do roku” (17.10.2026).
+        # Donut klientów ma własną sumę (`client_placements`): przed 12.10.2026
+        # „Suma placementów” liczy tygodniowe wpisy rekruterów, a klientów —
+        # placementy z klientem z DynaReportera; liczby bywają różne.
         client_total = sum(int(r["cnt"]) for r in client_rows)
         by_client_acc: dict[int | None, dict] = {}
         placements_without_job = 0

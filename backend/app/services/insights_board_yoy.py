@@ -47,16 +47,20 @@ import asyncio
 import calendar
 from collections import defaultdict
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime, time
 from typing import Optional
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.core.scheduling import DEFAULT_TZ
 from app.models.contract import Contract, ContractStatus, ContractTerminationReason
+from app.services import competition_history
 from app.services.contract_rates import RATE_SCHEDULE_LOADS, REVENUE_BEARING_STATUSES
 from app.services.fx_service import rates_to_pln_by_date
+from app.services.history_client_placements import client_placements
 from app.services.insights_board_money import (
     MONTH_LABELS_PL,
     fold_money,
@@ -97,11 +101,12 @@ RESIGNATION_REASONS = frozenset(
 # z liczbą — obcięcie bez reszty zamieniłoby sumę wiersza w liczbę mniejszą
 # niż placementy tego samego miesiąca w wierszu wyżej.
 CLIENTS_PER_MONTH = 8
-# Wskaźniki klientów liczą pary Tablicy także w dniach, w których „Liczba
-# placementów” bierze wpisy DynaReportera (decyzja Artura 17.10.2026).
+# Wskaźniki klientów mają własną podstawę: przed 12.10.2026 placementy
+# z klientem z DynaReportera, od 12.10.2026 pary Tablicy (decyzje Artura
+# 17 i 18.10.2026). „Liczba placementów” przed 12.10 liczy wpisy rekruterów.
 CLIENTS_FROM_BOARD_NOTE = (
-    "Klienci z ruchów Tablicy — w dniach 1.01–11.10.2026 placementy liczy "
-    "DynaReporter, który nie zapisywał klienta."
+    "Klienci: do 11.10.2026 placementy z klientem z DynaReportera, od "
+    "12.10.2026 ruchy Tablicy — suma może różnić się od liczby placementów."
 )
 
 # Poniżej tego udziału podstawa najstarszego roku jest tak mała wobec
@@ -151,46 +156,21 @@ def _empty_series(years: list[int]) -> dict:
 
 
 async def _placements_by_month_client(db: AsyncSession, span_start, span_end) -> dict:
-    """Placementy (D2) w rozbiciu miesiąc × klient.
+    """Placementy (D2) w rozbiciu miesiąc × klient — wskaźniki klientów.
 
-    Klucz to `analytics_first_milestones` — widok zdeduplikowany w definicji
-    (`rn = 1` per kandydat × oferta × etap), więc powrót na etap nie liczy się
-    drugi raz. LEFT JOIN do ofert i klientów: placement bez powiązanego klienta
-    ma zostać policzony w sumie miesiąca, tylko bez nazwy — wycięcie go
-    rozjechałoby sumę z wierszem „Liczba placementów" wyżej.
+    Od 12.10.2026 pary Tablicy, wcześniej placementy z klientem z DynaReportera
+    (decyzja Artura 18.10.2026, `history_client_placements`). Placement bez
+    klienta liczy się w sumie miesiąca, tylko bez nazwy.
     """
-    rows = (
-        (
-            await db.execute(
-                text(
-                    """
-                    SELECT
-                      date_part('year', fm.first_reached_at
-                        AT TIME ZONE 'Europe/Warsaw')::int  AS yr,
-                      date_part('month', fm.first_reached_at
-                        AT TIME ZONE 'Europe/Warsaw')::int  AS mo,
-                      c.name                                 AS client_name,
-                      count(*)                               AS cnt
-                    FROM analytics_first_milestones fm
-                    LEFT JOIN jobs j   ON j.id = fm.job_id
-                    LEFT JOIN clients c ON c.id = j.client_id
-                    WHERE fm.stage::text = 'hired'
-                      AND fm.first_reached_at >= :start
-                      AND fm.first_reached_at < :end
-                    GROUP BY 1, 2, 3
-                    """
-                ),
-                {"start": span_start, "end": span_end},
-            )
-        )
-        .mappings()
-        .all()
+    tz = ZoneInfo(DEFAULT_TZ)
+    rows = await client_placements(
+        db,
+        datetime.combine(span_start, time(0), tzinfo=tz),
+        datetime.combine(span_end, time(0), tzinfo=tz),
     )
     out: dict = defaultdict(list)
     for row in rows:
-        out[(int(row["yr"]), int(row["mo"]))].append(
-            (row["client_name"], int(row["cnt"]))
-        )
+        out[(row.month.year, row.month.month)].append((row.client_name, row.count))
     return out
 
 
@@ -422,7 +402,16 @@ async def compute_board_yoy(db: AsyncSession, years: list[int], today: date) -> 
         db, span_start, span_end_exclusive
     )
     placement_totals = await _placements_by_month(db, span_start, span_end_exclusive)
-    jobs_map = await _jobs_closed_by_month(db, span_start, span_end_exclusive)
+    # Hit ratio: rekrutacje zamknięte od 12.10.2026 (decyzja Artura
+    # 18.10.2026) — wcześniejsze miesiące to brak danych (`None`).
+    jobs_map = await _jobs_closed_by_month(
+        db,
+        max(
+            datetime.combine(span_start, time(0), tzinfo=ZoneInfo(DEFAULT_TZ)),
+            competition_history.cutover_utc(),
+        ),
+        span_end_exclusive,
+    )
     departures, resignations, unspecified_reason = _departures_by_month(contracts)
     # Runda 7 (R7-N10-6): do 60 wycen WSZYSTKICH kontraktów przez harmonogramy
     # (~20–25 tys. rozwiązań na `Decimal`) to CPU, nie baza — liczymy je
@@ -456,9 +445,9 @@ async def compute_board_yoy(db: AsyncSession, years: list[int], today: date) -> 
             # hit ratio 2025 wychodziło wtedy 16,58% zamiast 14,5% i odwracało
             # werdykt roku z „Gorzej" na „Lepiej" (audyt 18.09.2026).
             "top_client_placements",
-            # Placementy par Tablicy z klientem — mianownik udziału top
-            # klienta. Różni się od „placements” tylko w dniach z
-            # DynaReportera (1.01–11.10.2026), który nie zapisywał klienta.
+            # Placementy z klientem — mianownik udziału top klienta. Przed
+            # 12.10.2026 z placementów z klientem DynaReportera, więc bywa
+            # inny niż „placements” (wpisy rekruterów).
             "client_placements",
             "closed_jobs_total",
             "closed_jobs_filled",
@@ -505,8 +494,8 @@ async def compute_board_yoy(db: AsyncSession, years: list[int], today: date) -> 
             placements_map.get((slot.year, slot.month), []),
             key=lambda kv: (-kv[1], (kv[0] or "")),
         )
-        # Pary Tablicy z klientem — podstawa wskaźników klientów. Wiersz
-        # „Liczba placementów” liczy widok KPI (dni z DynaReportera).
+        # Placementy z klientem — podstawa wskaźników klientów. Wiersz
+        # „Liczba placementów” liczy widok KPI (przed 12.10 wpisy DR).
         client_total = sum(cnt for _, cnt in client_rows)
         series["placements"][y][idx] = placement_totals.get((slot.year, slot.month), 0)
         series["client_placements"][y][idx] = client_total
@@ -532,9 +521,9 @@ async def compute_board_yoy(db: AsyncSession, years: list[int], today: date) -> 
         by_client[y][idx] = {
             "clients": [{"name": nm, "count": cnt} for nm, cnt in head],
             # Reszta jedzie jako LICZBA, nie znika: suma wiersza zgadza się
-            # z parami Tablicy. W dniach z DynaReportera (1.01–11.10.2026)
-            # „Liczba placementów” liczy jego wpisy, a klientów zna tylko
-            # Tablica — stąd osobny mianownik `client_placements`.
+            # z placementami z klientem (`client_placements`), a te przed
+            # 12.10.2026 pochodzą z innej tabeli DynaReportera niż „Liczba
+            # placementów” — stąd osobny mianownik.
             "other_count": rest,
             "unassigned_count": unnamed,
             "total": client_total,

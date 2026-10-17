@@ -36,7 +36,7 @@ WARSAW = ZoneInfo("Europe/Warsaw")
 TRAFFIT_SEPTEMBER = datetime(2026, 9, 8, 9, 0, tzinfo=timezone.utc)
 # Pierwszy tydzień w NEXUS-ie.
 NEXUS_OCTOBER = datetime(2026, 10, 13, 9, 0, tzinfo=timezone.utc)
-# Przed DynaReporterem — historia Tablicy zostaje.
+# Przed DynaReporterem — od 0455 (18.10.2026) też nie liczy się z Tablicy.
 BEFORE_2026 = datetime(2025, 12, 10, 9, 0, tzinfo=timezone.utc)
 
 
@@ -173,7 +173,8 @@ async def test_view_takes_dynareporter_weeks_instead_of_board_moves(seeded) -> N
     assert lead_september == {}
     # Wpis DynaReportera z 12.10 nie wchodzi — od 12.10 liczy Tablica.
     assert october == {("verified", "nexus"): 1}
-    assert december == {("verified", "nexus"): 1}
+    # 0455: ruchów Tablicy sprzed 12.10.2026 nie ma także przed 2026.
+    assert december == {}
 
 
 @pytest.mark.asyncio
@@ -247,9 +248,9 @@ def _yoy_march(payload: dict) -> tuple[int, int, list[str]]:
 
 
 @pytest.mark.asyncio
-async def test_year_over_year_counts_entries_but_keeps_clients_from_the_board() -> None:
-    """Rok do roku: „Liczba placementów” z wpisów DynaReportera, wskaźniki
-    klientów z par Tablicy (DynaReporter nie zapisywał klienta)."""
+async def test_year_over_year_takes_entries_and_clients_from_dynareporter() -> None:
+    """Rok do roku przed 12.10.2026: „Liczba placementów” z wpisów rekruterów,
+    klienci z placementów z klientem DynaReportera; ruch Tablicy się nie liczy."""
     from app.services.insights_board_yoy import compute_board_yoy
 
     unique = uuid.uuid4().hex[:8]
@@ -271,6 +272,22 @@ async def test_year_over_year_counts_entries_but_keeps_clients_from_the_board() 
         candidate = Candidate(name="Ula", lastname=f"RdR-{unique}")
         db.add_all([job, candidate])
         await db.flush()
+        dr_client_id = (
+            await db.execute(
+                text(
+                    "INSERT INTO dr_clients (name, is_active) "
+                    "VALUES (:name, true) RETURNING id"
+                ),
+                {"name": f"DR YoY Client {unique}"},
+            )
+        ).scalar_one()
+        await db.execute(
+            text(
+                "INSERT INTO dr_placement_details (user_id, client_id, placement_date) "
+                "VALUES (:uid, :cid, DATE '2026-03-05')"
+            ),
+            {"uid": recruiter.id, "cid": dr_client_id},
+        )
         db.add_all(
             [
                 _week(recruiter.id, date(2026, 3, 2), placements=2),
@@ -289,6 +306,7 @@ async def test_year_over_year_counts_entries_but_keeps_clients_from_the_board() 
 
     # Wiersz placementów: +2 z wpisu, zatrudnienie z Tablicy w marcu się nie liczy.
     assert after[0] - before[0] == 2
-    # Klienci: para Tablicy z nazwą klienta.
+    # Klienci: placement z klientem z DynaReportera, połączony z klientem NEXUS-a
+    # po nazwie; para Tablicy z marca nie wchodzi.
     assert after[1] - before[1] == 1
     assert f"DR YoY Client {unique}" in after[2] or len(after[2]) >= 8

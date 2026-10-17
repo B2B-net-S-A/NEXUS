@@ -320,3 +320,25 @@ describe("PeriodPicker — eksport CSV", () => {
     );
   });
 });
+
+describe("PeriodPicker — dni sprzed NEXUS-a (decyzja Artura 18.10.2026)", () => {
+  it("okno przed 12.10.2026 mówi, że liczby są z DynaReportera", () => {
+    renderPicker({ value: { period: "month", offset: 0 }, resolved: AUGUST });
+    expect(screen.getByTestId("insights-history-note")).toHaveTextContent(
+      "Dni do 11.10.2026 pochodzą z DynaReportera",
+    );
+  });
+
+  it("okno od 12.10.2026 nie ma zdania o DynaReporterze", () => {
+    renderPicker({
+      value: { period: "week", offset: 0 },
+      resolved: {
+        kind: "week",
+        start: "2026-10-12T00:00:00+02:00",
+        end: "2026-10-19T00:00:00+02:00",
+        timezone: TZ,
+      },
+    });
+    expect(screen.queryByTestId("insights-history-note")).not.toBeInTheDocument();
+  });
+});

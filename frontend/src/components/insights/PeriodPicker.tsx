@@ -13,6 +13,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { safeSpreadsheetCell } from "@/lib/export-safety";
+import { INSIGHTS_HISTORY_NOTE, startsBeforeNexus } from "@/lib/insights-history";
 import {
   DEFAULT_INSIGHTS_OFFSET,
   type InsightsPeriodKind,
@@ -149,6 +150,7 @@ export function PeriodPicker({
     isAllTime && customSpanDays(value) >= INSIGHTS_MAX_CUSTOM_PERIOD_DAYS;
 
   const canExport = Boolean(csv && csv.rows.length > 0);
+  const beforeNexus = startsBeforeNexus(value, resolved);
 
   return (
     // Telefon: pasek na całą szerokość, wyrównany do lewej; od `sm` jak dawniej
@@ -240,6 +242,15 @@ export function PeriodPicker({
             {caption.range} · {caption.timezone}
           </p>
         </div>
+      )}
+
+      {beforeNexus && (
+        <p
+          data-testid="insights-history-note"
+          className="max-w-[26rem] rounded-md border border-border bg-muted/50 px-2 py-1 text-[11px] leading-snug text-muted-foreground sm:text-right"
+        >
+          {INSIGHTS_HISTORY_NOTE}
+        </p>
       )}
 
       {cappedAllTime && (
