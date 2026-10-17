@@ -1320,7 +1320,16 @@ describe("KanbanBoardV2 — focus na etapie", () => {
     await userEvent.click(await screen.findByRole("button", { name: "Widok kolumnowy" }));
     const board = await screen.findByTestId("pipeline-board");
     expect(board).toHaveAttribute("data-desktop-layout", "full-pipeline");
-    expect(board).toHaveClass("overflow-auto", "xl:pointer-fine:gap-1");
+    expect(board).toHaveClass("overflow-auto");
+    const track = within(board).getByTestId("pipeline-board-track");
+    expect(track).toHaveClass("flex", "min-h-full", "xl:pointer-fine:gap-1");
+    // Pas bez własnej wysokości i scrolla: rośnie do najdłuższej kolumny,
+    // a kolumny (i ich pola upuszczenia) rozciągają się do niego (17.10.2026).
+    expect(board).not.toHaveClass("flex");
+    expect(track.className).not.toMatch(/(^|\s)(h-|overflow-)/);
+    for (const column of container.querySelectorAll("[data-colid]")) {
+      expect(column.parentElement).toBe(track);
+    }
     expect(container.querySelectorAll("[data-colid]")).toHaveLength(12);
     for (const column of container.querySelectorAll<HTMLElement>("[data-colid]")) {
       // Dawny tryb kafelkowy ściskał kolumnę do zera.
@@ -1433,7 +1442,7 @@ describe("KanbanBoardV2 — focus na etapie", () => {
 
     const board = await screen.findByTestId("pipeline-board");
     expect(board).toHaveAttribute("data-desktop-layout", "scroll");
-    expect(board).not.toHaveClass("xl:pointer-fine:gap-1");
+    expect(within(board).getByTestId("pipeline-board-track")).not.toHaveClass("xl:pointer-fine:gap-1");
     expect(container.querySelectorAll("[data-colid]")).toHaveLength(13);
     expect(container.querySelector("[data-colid]")).not.toHaveClass(
       "xl:pointer-fine:min-w-0",
