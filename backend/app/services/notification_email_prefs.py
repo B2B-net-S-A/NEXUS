@@ -24,7 +24,7 @@ pozostałe rodzaje żyją w ``users.email_opt_outs`` jako ``{rodzaj: czas}``.
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 
@@ -38,6 +38,8 @@ from app.api.candidate_access import (
 from app.models.notification import NotificationType
 from app.models.user import User, UserRole
 from app.services.action_permissions import ProductAction, has_permission
+from app.services.hr.modules import load_modules, module_open_for
+from app.services.hr_foundation_schema import HR_MODULE_KEYS
 from app.services.notification_access import (
     role_muted_types_of,
     user_may_receive_type,
@@ -50,6 +52,7 @@ from app.services.notification_categories import (
 from app.services.notification_delivery import (
     CATALOG,
     DIGEST_KIND,
+    HR_MAIL_KIND,
     RESUMED_KEY,
     SECURITY_CATALOG,
     email_opted_out,
@@ -75,6 +78,7 @@ BELL_TYPE_BY_KIND: dict[str, NotificationType] = {
     "chat_unread": NotificationType.job_chat_message,
     "pipeline_stage": NotificationType.stage_rule,
     "job_deadline": NotificationType.job_deadline_7d,
+    HR_MAIL_KIND: NotificationType.hr_leave_decided,
 }
 
 
@@ -91,6 +95,8 @@ class _Context:
     """To, czego reguła „dotyczy konta” nie wyczyta z samego konta."""
 
     cpro_sender_ids: frozenset[int] = frozenset()
+    #: Przełączniki modułów „Ludzi” (`app_settings['hr_modules']`).
+    hr_modules: Mapping[str, bool] = field(default_factory=dict)
 
 
 def _section_read(user: User, section: ProductSection) -> bool:
@@ -187,6 +193,15 @@ def _kpi_weekly(user: User, _: _Context) -> bool:
     )
 
 
+def _hr_people(user: User, ctx: _Context) -> bool:
+    # Typy kadrowe są osobiste: odbiorcę wybiera reguła modułu (przełożony,
+    # Kadry, zastępca, wykonawca zadania), nie rola — mail może trafić do
+    # każdego konta, dla którego działa któryś moduł „Ludzi” (admin zawsze).
+    return any(
+        module_open_for(user, ctx.hr_modules, key) for key in HR_MODULE_KEYS
+    ) and user_may_receive_type(user, NotificationType.hr_leave_decided)
+
+
 def _board_monthly(user: User, _: _Context) -> bool:
     return has_permission(user, ProductAction.finance_module) and _section_read(
         user, ProductSection.insights
@@ -207,6 +222,7 @@ APPLIES: dict[str, Callable[[User, _Context], bool]] = {
     "request_assigned": _request_assigned,
     "signature_request": _signature_request,
     "system_failure": _system_failure,
+    HR_MAIL_KIND: _hr_people,
     DIGEST_KIND: _digest,
     "kpi_weekly_report": _kpi_weekly,
     "board_monthly_report": _board_monthly,
@@ -218,6 +234,7 @@ async def _context(db: AsyncSession, user: User) -> _Context:
     from app.services import cpro_sender
 
     async with db.begin_nested():
+        hr_modules = await load_modules(db)
         state = await cpro_sender.effective_sender(db)
         # Bez osoby od Cpro na firmę kolejkę dostaje osoba zapasowa
         # rekrutacji (`jobs.cpro_sender_id`) — ona też musi widzieć ten mail.
@@ -227,7 +244,7 @@ async def _context(db: AsyncSession, user: User) -> _Context:
     senders = {uid for uid in (state.user_id,) if isinstance(uid, int)}
     if per_job is not None:
         senders.add(user.id)
-    return _Context(cpro_sender_ids=frozenset(senders))
+    return _Context(cpro_sender_ids=frozenset(senders), hr_modules=hr_modules)
 
 
 async def _context_safely(db: AsyncSession, user: User) -> _Context:

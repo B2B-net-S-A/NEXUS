@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 
 import { TabbedNav } from "@/components/ds/TabbedNav";
-import type { HrConfig } from "@/lib/api/hr";
+import { useHrCounts, type HrConfig, type HrCounts } from "@/lib/api/hr";
 
 export type PeopleSection =
   | "directory"
@@ -49,6 +49,20 @@ export function peopleSections(config: HrConfig): PeopleSectionLink[] {
   return links;
 }
 
+/**
+ * Liczba przy zakładce: „Akceptacje” — wnioski i timesheety czekające na
+ * decyzję osoby, „Sprawy” — jej otwarte sprawy. Tylko z udanego odczytu:
+ * awaria i „nie dotyczy” (`null`) to brak liczby, nigdy „0”.
+ */
+export function sectionCount(
+  section: PeopleSection,
+  counts: HrCounts | undefined,
+): number | undefined {
+  const value =
+    section === "approvals" ? counts?.approvals : section === "cases" ? counts?.cases : null;
+  return typeof value === "number" ? value : undefined;
+}
+
 /** Pasek zakładek obszaru „Ludzie” — wspólny dla katalogu i podstron modułów. */
 export function PeopleSectionNav({
   config,
@@ -59,12 +73,22 @@ export function PeopleSectionNav({
 }) {
   const router = useRouter();
   const links = peopleSections(config);
+  const counted =
+    links.length > 1 && links.some(({ value }) => value === "approvals" || value === "cases");
+  const counts = useHrCounts(counted);
+  // Po awarii odświeżenia `data` zostaje z poprzedniego odczytu — liczba tylko
+  // przy udanym odczycie, żeby stara wartość nie udawała aktualnej.
+  const current = counts.isSuccess ? counts.data : undefined;
   if (links.length < 2) return null;
   return (
     <TabbedNav
       ariaLabel="Ludzie"
       overflow="scroll"
-      tabs={links.map(({ value, label }) => ({ value, label }))}
+      tabs={links.map(({ value, label }) => ({
+        value,
+        label,
+        count: sectionCount(value, current),
+      }))}
       value={active}
       onValueChange={(value) => {
         const target = links.find((link) => link.value === value);

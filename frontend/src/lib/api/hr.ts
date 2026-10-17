@@ -4,7 +4,13 @@
 // Zakres widoczności liczy serwer (`scope`: wizytówka albo pełna kartoteka);
 // front pokazuje to, co dostał. Stawek i kwot tu nie ma (moduł Płace).
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useRef } from "react";
+import {
+  useIsMutating,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 
 import { api } from "@/lib/api";
 
@@ -347,4 +353,57 @@ export function hrNavState(config: HrConfig | undefined): HrNavState {
     // Kto z ról widzi pozycję, rozstrzyga `roles` w `nav-registry`.
     care: open.care,
   };
+}
+
+// ── Liczniki zakładek „Ludzi” (17.10.2026) ──────────────────────────────────
+// `GET /api/hr/counts` (`backend/app/api/hr_counts.py`): `approvals` — wnioski
+// i timesheety, o których osoba może zdecydować; `cases` — jej otwarte sprawy
+// administracja@. `null` = liczba osoby nie dotyczy. Awaria albo odpowiedź
+// w innym kształcie to błąd zapytania — zakładka nie pokazuje wtedy liczby.
+
+export interface HrCounts {
+  approvals: number | null;
+  cases: number | null;
+}
+
+const countsKey = ["hr", "counts"] as const;
+
+function countOrNull(value: unknown): number | null | undefined {
+  if (value === null) return null;
+  return typeof value === "number" && Number.isInteger(value) && value >= 0
+    ? value
+    : undefined;
+}
+
+export function parseHrCounts(raw: unknown): HrCounts {
+  const body = (raw ?? {}) as Record<string, unknown>;
+  const approvals = countOrNull(body.approvals);
+  const cases = countOrNull(body.cases);
+  if (approvals === undefined || cases === undefined) {
+    throw new Error("Nieoczekiwana odpowiedź liczników „Ludzi”.");
+  }
+  return { approvals, cases };
+}
+
+export function useHrCounts(enabled = true) {
+  const queryClient = useQueryClient();
+  const mutating = useIsMutating();
+  const wasMutating = useRef(false);
+  // Decyzja o wniosku, timesheecie albo sprawie zmienia liczby, a klucze tych
+  // ekranów mają inne korzenie — po każdym zapisie na stronie liczymy od nowa.
+  useEffect(() => {
+    if (mutating > 0) {
+      wasMutating.current = true;
+      return;
+    }
+    if (!wasMutating.current) return;
+    wasMutating.current = false;
+    void queryClient.invalidateQueries({ queryKey: countsKey });
+  }, [mutating, queryClient]);
+  return useQuery({
+    queryKey: countsKey,
+    queryFn: async () => parseHrCounts((await api.get<unknown>("/api/hr/counts")).data),
+    enabled,
+    staleTime: 30 * 1000,
+  });
 }
