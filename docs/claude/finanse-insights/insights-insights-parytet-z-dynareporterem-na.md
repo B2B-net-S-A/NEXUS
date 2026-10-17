@@ -392,9 +392,11 @@ biznesowe (`competition_history.DR_HISTORY_START`, `RESULTS_CUTOVER`), pilnuje
   Hall of Fame, kampanie.
 - **Czego DynaReporter nie zna, więc zostaje z ruchów Tablicy:** rozbicia na
   klienta i rekrutację (Analiza placementów → klienci ma osobny wycinek
-  „DynaReporter — bez klienta”, Rok do roku liczy wpisy w sumie miesiąca bez
-  nazwy klienta, kafle metryk pomijają je przy podziale na klienta
-  i kategorię), lejek po etapach Tablicy, czas do zatrudnienia, hit ratio,
+  „DynaReporter — bez klienta”; w Roku do roku „Liczba placementów” liczy
+  wpisy, a unikalni klienci, udział top klienta i rozbicie na klientów — pary
+  Tablicy z własnym mianownikiem `client_placements`; kafle metryk pomijają
+  wpisy przy podziale na klienta i kategorię, także w poprzednim okresie —
+  `board_only`), lejek po etapach Tablicy, czas do zatrudnienia, hit ratio,
   portfele DL i Liga DL, źródła kandydatów.
 - **Lista „Kto się liczy”:** `period_total` = licznik celów (z wpisami
   DynaReportera), `history_total` = ile z tego to wpisy; lista i jej

@@ -236,3 +236,59 @@ async def test_who_counts_total_includes_weeks_without_rows(seeded) -> None:
     assert listed.history_total == 6
     assert listed.total == 0
     assert listed.items == []
+
+
+def _yoy_march(payload: dict) -> tuple[int, int, list[str]]:
+    metric = next(m for m in payload["metrics"] if m["key"] == "placements")
+    placements = metric["series"]["2026"][2]
+    clients = payload["component_series"]["client_placements"]["2026"][2]
+    names = [c["name"] for c in payload["placements_by_client"]["2026"][2]["clients"]]
+    return placements, clients, names
+
+
+@pytest.mark.asyncio
+async def test_year_over_year_counts_entries_but_keeps_clients_from_the_board() -> None:
+    """Rok do roku: „Liczba placementów” z wpisów DynaReportera, wskaźniki
+    klientów z par Tablicy (DynaReporter nie zapisywał klienta)."""
+    from app.services.insights_board_yoy import compute_board_yoy
+
+    unique = uuid.uuid4().hex[:8]
+    today = date(2026, 10, 17)
+    async with AsyncSessionLocal() as db:
+        before = _yoy_march(await compute_board_yoy(db, [2025, 2026], today))
+
+        recruiter = User(
+            email=f"drkpi-yoy-{unique}@example.com",
+            password_hash=hash_password("x"),
+            name="Wpis RdR",
+            role=UserRole.recruiter,
+            is_active=True,
+        )
+        client = Client(name=f"DR YoY Client {unique}")
+        db.add_all([recruiter, client])
+        await db.flush()
+        job = Job(title=f"DR YoY Job {unique}", client_id=client.id)
+        candidate = Candidate(name="Ula", lastname=f"RdR-{unique}")
+        db.add_all([job, candidate])
+        await db.flush()
+        db.add_all(
+            [
+                _week(recruiter.id, date(2026, 3, 2), placements=2),
+                CandidateStage(
+                    candidate_id=candidate.id,
+                    job_id=job.id,
+                    stage=PipelineStage.hired,
+                    moved_at=datetime(2026, 3, 10, 9, 0, tzinfo=timezone.utc),
+                    moved_by=recruiter.id,
+                ),
+            ]
+        )
+        await db.commit()
+
+        after = _yoy_march(await compute_board_yoy(db, [2025, 2026], today))
+
+    # Wiersz placementów: +2 z wpisu, zatrudnienie z Tablicy w marcu się nie liczy.
+    assert after[0] - before[0] == 2
+    # Klienci: para Tablicy z nazwą klienta.
+    assert after[1] - before[1] == 1
+    assert f"DR YoY Client {unique}" in after[2] or len(after[2]) >= 8
