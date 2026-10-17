@@ -3,8 +3,18 @@
 Rekruterzy zgłaszają uwagi QC „bez pokrycia”. Najostrzejsza z nich to
 „Reguły klienta → Stawka w CV”: blokada, której nie da się pominąć („To
 nieprawda” → 422), więc przy fałszywej stawce zostaje tylko „Przekaż mimo
-uwag…”. Zmiana reguły zmienia wynik QC, dlatego to propozycja do decyzji
-Artura — gałąź `claude/qc-rate-in-cv-rule`, bez PR-a.
+uwag…”. Zmiana reguły QC to decyzja Artura — gałąź
+`claude/qc-rate-in-cv-rule`, bez PR-a.
+
+**Wynik pomiaru na produkcji (17.10.2026, tylko odczyt): problem dziś nie
+występuje.** Od startu QC (23.09) w 786 zapisanych przebiegach 231 par nie
+było ani jednej uwagi „Stawka w CV”; reguły klienta blokowały wyłącznie brak
+zrzutu zgody RODO (31 par) i e-mail kandydata (1 para). Przeliczenie QC
+bieżących CV wszystkich 295 par starą, ścisłą i nową regułą: zero bloków ze
+stawką w każdej, ten sam wynik QC (220 par zaliczonych, 18 z niezaliczonymi
+regułami klienta). Zmiana jest więc zapobiegawcza: na dziś nie zmienia żadnej
+pary, chroni przed fałszywymi blokadami w CV płacowych i łapie stawki bez
+waluty, których stara reguła nie widzi.
 
 ## Co jest nie tak
 
@@ -20,16 +30,19 @@ Artura — gałąź `claude/qc-rate-in-cv-rule`, bez PR-a.
    o pieniądzach: „Naliczanie wynagrodzeń 300 pracowników”, „System
    wynagrodzeń 2.0”, „Error rate 0.1 po wdrożeniu”. Proste podstawienie go
    w QC wymieniłoby jedne fałszywe blokady na inne.
-4. **Błąd na produkcji dziś (8d0d97564).** CV z punktami „Moduł wynagrodzeń
-   dla 250 zleceniobiorców.” i „Naliczanie wynagrodzeń 300 pracowników
-   w SAP HCM.”: QC zgłasza pierwszy, a „Usuń stawkę” zostawia go i kasuje
-   drugi (sprawdzone kodem z `main`). Rekruter traci prawdziwą treść CV,
-   a uwaga zostaje.
+4. **Uśpiony błąd na produkcji.** CV z punktami „Moduł wynagrodzeń dla 250
+   zleceniobiorców.” i „Naliczanie wynagrodzeń 300 pracowników w SAP HCM.”:
+   QC zgłasza pierwszy, a „Usuń stawkę” zostawia go i kasuje drugi
+   (sprawdzone kodem z `main`). Rekruter traci prawdziwą treść CV, a uwaga
+   zostaje. Przycisk pojawia się tylko przy uwadze o stawce, a takich dziś nie
+   ma (pomiar wyżej), więc błąd nikogo jeszcze nie dotknął.
 5. **Prawdziwe stawki, które dziś przechodzą QC:** „Stawka 150 B2B”,
    „Stawka: 150”, „Stawka 150 za godzinę”, „Wynagrodzenie: 18 000”, „Rate
    140” — bez waluty `_AMOUNT` ich nie widzi.
 6. **Koszt:** `_AMOUNT` wraca kwadratowo na długim ciągu cyfr — blok
-   „stawka” + 20 tys. cyfr to 7 s CPU na każde liczenie QC.
+   „stawka” + 20 tys. cyfr to 7 s CPU na każde liczenie QC. (Ten sam problem
+   w `money_text` dla notatek naprawił B2B-net-S-A/NEXUS#2295, na produkcji
+   od 17.10.2026; `_AMOUNT` w QC zostaje do decyzji.)
 
 ## Propozycja (na gałęzi)
 
@@ -50,7 +63,9 @@ Artura — gałąź `claude/qc-rate-in-cv-rule`, bez PR-a.
   niż stawka u klienta. Lista skrótów w `_SENTENCE_PIECE` dostała „approx.”,
   „godz.”, „mies.”, „dz.”, „hr.”, „tys.”, „mln.” — żeby „Usuń stawkę” radziło
   sobie ze „Stawka godz. 150 zł”.
-- `QC_VERSION` `qc-truth-1` → `qc-truth-2`; `_AMOUNT` usunięte.
+- `_AMOUNT` usunięte. `QC_VERSION` bez zmian: na 295 parach wynik jest ten
+  sam, a podbicie przeliczyłoby nieudane pary i zapisało przebiegi bez zmiany
+  (`_store_run` porównuje też wersję).
 - Testy bez bazy w `tests/test_cv_qc.py` (sekcja „Stawka w CV”): 20 zdań,
   które nie są stawką, 25 stawek (także w pogrubieniu, w środku akapitu, ze
   skrótem i walutą słowem), cytat wskazuje właściwy blok, koszt liniowy na
@@ -136,24 +151,41 @@ godzinowa: 150 B2B”) i gołego roku-kwoty („Stawka: 2000”). To pierwsze mo
 
 ## Co się zmieni po wdrożeniu
 
-- **Pary z fałszywą stawką** przy przeliczeniu (`recompute_outdated`, tylko
-  nieudane pary sprzed wysłania) tracą blokadę; jeśli nic innego nie blokuje,
-  przechodzą QC z przebiegiem z dnia wdrożenia — od tej daty kolejka Delivery
-  Leada liczy ich oczekiwanie.
-- **Obejścia „Przekaż mimo uwag…” (D6)** zostają: znikające blokady to
-  podzbiór zgody. Nowa blokada prawdziwej stawki („Stawka 150 B2B”) ma nowy
-  klucz, więc dla tej pary trzeba będzie przepuścić jeszcze raz albo usunąć
-  stawkę — zgodnie z D6.
-- **Zaliczone pary** nie są przeliczane; nowa blokada pojawi się przy
-  następnym liczeniu QC (okno, bramka ruchu liczy na żywo).
+- **Dziś nic w wynikach** — żadna z 295 par nie zmienia wyniku QC ani
+  uwag reguł klienta, więc kolejka Delivery Leada i obejścia „Przekaż mimo
+  uwag…” (D6) zostają jak są.
+- **Nowe CV:** fałszywa „stawka” z waluty w słowie („250 zleceniobiorców”)
+  i z lat stanowiska nie zablokuje wysyłki; prawdziwa stawka bez waluty
+  („Stawka 150 B2B”, „Rate 140”) zablokuje — przy już przepuszczonej parze to
+  nowy klucz blokady, więc trzeba ją usunąć albo przepuścić jeszcze raz (D6).
+- **„Usuń stawkę”** usuwa tylko zdania, które QC uznaje za stawkę, i radzi
+  sobie ze skrótem („Stawka godz. 150 zł”).
 
-## Pomiar na produkcji — czeka na zgodę Artura
+## Pomiar na produkcji (17.10.2026, za zgodą Artura)
 
-Liczb z produkcji tu nie ma: odczyt produkcji wymaga zgody w czacie.
-Wszystko tylko do odczytu, wynik to same liczby. `<prod>`, `<postgres>`
-i `<backend>` — host i kontenery z notatek operacyjnych (nie w repo).
+Tylko odczyt, same liczby; kod gałęzi przebazowanej na f76589572 (to, co
+było na produkcji) jako nakładka w procesie kontenera, ok. 4 min.
 
-1. **Jak często dziś** (zapisane przebiegi, 30 dni):
+| | stara (`_AMOUNT`) | ścisła (`is_rate_text`) | propozycja |
+|---|---|---|---|
+| pary z CV (z przebiegiem QC od 23.09) | 295 | 295 | 295 |
+| pary z „Stawką w CV” | 0 | 0 | 0 |
+| bloki ze stawką | 0 | 0 | 0 |
+| pary z niezaliczonymi regułami klienta | 18 | 18 | 18 |
+| pary zaliczone QC | 220 | 220 | 220 |
+
+Zmiany wyniku (`fail_to_pass`, `pass_to_fail`), odrzucone i nowe bloki: brak.
+Błędy: 0 (9 par bez CV pominiętych). Zapisane przebiegi (SQL): 786 przebiegów,
+231 par, 0 pozycji „Stawka w CV”; `client_rules` nie zaliczone — „Klient
+wymaga zrzutu zgody RODO” 77 pozycji / 31 par, „CV zawiera e-mail” 2 / 1.
+`qc_truth_audit.py` i `qc_eval_dismissals.py` nie były potrzebne: pomiar
+liczył pełne QC każdej pary i liczba zaliczonych jest ta sama, a
+`client_rules` nie ma pominięć „To nieprawda”.
+
+Komendy (`<prod>`, `<postgres>`, `<backend>` — host i kontenery z notatek
+operacyjnych, nie w repo):
+
+1. **Zapisane przebiegi:**
 
    ```bash
    ssh <prod> "docker exec -i <postgres> psql -U nexus -d nexus -P pager=off" <<'SQL'
@@ -173,54 +205,37 @@ i `<backend>` — host i kontenery z notatek operacyjnych (nie w repo).
    SQL
    ```
 
-2. **Stara i nowa reguła na tych samych parach** (kod gałęzi jako nakładka
-   na obraz produkcji, przez stdin):
+2. **Trzy reguły na tych samych parach** (gałąź musi stać na commicie
+   z produkcji plus zmiana; długi bieg bez wyjścia zrywa SSH, a wdrożenie
+   restartuje kontener — 17.10 pierwszy bieg zabiło wdrożenie #2295):
 
    ```bash
    cd backend
    python3 scripts/qc_overlay.py scripts/qc_rate_mentions_eval.py \
        app/services/money_text.py app/services/cv_qc.py \
-     | ssh <prod> "docker exec -i -e QC_AUDIT_DAYS=30 <backend> python -"
+     | ssh -o ServerAliveInterval=30 <prod> \
+       "docker exec -i -e QC_AUDIT_DAYS=60 <backend> python -u -"
    ```
 
-   Pokaże per reguła (`legacy`, `strict`, `cv`): pary i bloki ze stawką, pary
-   z niezaliczonymi regułami klienta i zaliczone QC, a dla `cv`:
-   `fail_to_pass` (tyle par przestanie blokować), `pass_to_fail` (nowe
-   blokady), `pairs_rate_gone` / `pairs_rate_new` i cechy bloków, które
-   przestają blokować. **Warunek merge'u:** `dropped_blocks.cv:currency_word`,
-   `cv:per_time` i `cv:rate_word_then_number` = 0 — inaczej któryś blok może
-   być prawdziwą stawką i trzeba go obejrzeć w aplikacji. `QC_RATE_WORDS=1`
-   dopisze słowa, w których stara reguła widziała walutę, i słowa po liczbie
-   w nowych blokadach (same słowa, bez zdań).
-
-3. **Reguła z `qc-to-nieprawda-i-jakosc-qc.md`** przed podbiciem
-   `QC_VERSION`: `qc_truth_audit.py` i `qc_eval_dismissals.py` bez nakładki
-   i z nakładką — tak samo jak w kroku 2, z ich nazwą zamiast
-   `qc_rate_mentions_eval.py`. Oczekiwane: `blocking_items` niższe o liczbę
-   fałszywych stawek, pozostałe sprawdzenia bez zmian (`client_rules` nie ma
-   pominięć „To nieprawda”, więc `qc_eval_dismissals` nie powinien się
-   zmienić).
+   Warunek merge'u: `dropped_blocks.cv:currency_word`, `cv:per_time`
+   i `cv:rate_word_then_number` = 0 (spełniony — `dropped_blocks` puste).
 
 ## Poza zakresem
 
-- `money_text.is_rate_text` i `strip_rates_and_availability` (notatki →
-  materiał generatora CV, AI w edytorze przez `cv_command_ai.has_amount`)
-  mają ten sam kwadratowy koszt co pierwsza wersja tej zmiany: tekst
-  „stawka” + 10 tys. spacji albo sklejone „wynagrodzenietoto…” to 3,3 s CPU
-  (5 tys. — 0,8 s). Ta propozycja tego nie zmienia; poprawka to osobny PR
-  (`_BARE_AMOUNT_RE` od słowa w ograniczonym oknie, jak `_cv_bare_rate`).
+- Koszt `money_text` w notatkach (`is_rate_text`, `strip_rates_and_availability`)
+  — naprawione w B2B-net-S-A/NEXUS#2295 (na produkcji f76589572). Zostało
+  kwadratowe: własny `_MONEY_EXTRA` w `cv_command_ai` i bezpośrednie
+  `MONEY_RE.finditer` w `cv_qc._amounts` (mogą przejść na `money_matches`).
 
 ## Decyzja
 
-Czy „Stawka w CV” w QC ma liczyć się tą samą regułą dla treści CV, co „Usuń
-stawkę” (`is_cv_rate_text`, `qc-truth-2`)? Za: znikają fałszywe blokady
-z walutą w słowie („250 zleceniobiorców”, „3 europejskich”), QC zaczyna
-blokować stawki bez waluty („Stawka 150 B2B”, „Rate 140”), „Usuń stawkę”
-przestaje kasować zdania płacowe („Naliczanie wynagrodzeń 300 pracowników”),
-a QC nie liczy już kwadratowo. Przeciw: wynik QC się zmienia — nieudane pary
-dostają przebieg z dnia wdrożenia, a pary z nową, prawdziwą blokadą tracą
-obejście D6. Rekomendacja: tak, po pomiarze z kroku 2 (warunek: zero
-odrzuconych bloków z walutą jako słowem, kwotą za czas albo liczbą zaraz po
-„stawka”). Jeśli zmiana QC ma poczekać, sam błąd z punktu 4 (kasowanie
-cudzego zdania) da się naprawić osobno, bez zmiany wyniku QC: „Usuń stawkę”
-na `is_cv_rate_text`, a QC bez zmian.
+Czy scalić „Stawkę w CV” liczoną tą samą regułą dla treści CV co „Usuń
+stawkę” (`is_cv_rate_text`, bez podbicia `QC_VERSION`)? Pomiar pokazał, że
+dziś nie zmienia to wyniku żadnej z 295 par, więc koszt wdrożenia (kolejka
+Delivery Leada, obejścia D6) jest zerowy. Zysk jest na przyszłość: znika
+fałszywa „stawka” z waluty w słowie i z lat stanowiska w CV płacowych, QC
+zaczyna blokować stawki bez waluty („Stawka 150 B2B”, „Rate 140”), „Usuń
+stawkę” przestaje kasować cudze zdania, a QC przestaje liczyć kwadratowo.
+Rekomendacja: tak, jako zwykły PR z auto-merge. Skargi rekruterów na uwagi
+„bez pokrycia” nie dotyczą tej reguły — warto zmierzyć „Jakość QC” dla
+`no_unsupported` i pozostałych sprawdzeń.

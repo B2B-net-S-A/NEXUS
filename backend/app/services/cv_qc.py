@@ -78,9 +78,10 @@ FIXES_PROMPT_VERSION = "cv-qc-fixes-v6"
 # odmiany, zapisu i tłumaczeń (`dz.found_in`), nagłówek nie jest twierdzeniem,
 # tytuł z `cv_role_title`, pogrubienia tylko gdy generator pogrubiał, zdanie
 # w roli tylko przy opisie roli w oryginale.
-# „qc-truth-2” (propozycja 17.10.2026): „Stawka w CV” regułą „Usuń stawkę”
-# (`money_text.is_cv_rate_text`) zamiast luźnego „liczba + waluta”.
-QC_VERSION = "qc-truth-2"
+# „Stawka w CV” regułą „Usuń stawkę” (`money_text.is_cv_rate_text`, 17.10.2026)
+# bez podbicia: pomiar na produkcji — 295 par, ten sam wynik QC co stara reguła,
+# więc przeliczenie zapisałoby tylko nowe przebiegi bez zmiany.
+QC_VERSION = "qc-truth-1"
 # Runda 8 (R8-N8-2): cytat źródła musi być zdaniem o wymaganiu, nie słowem.
 SOURCE_QUOTE_MIN_WORDS = 4
 NOTES_TEXT_MAX = 12_000

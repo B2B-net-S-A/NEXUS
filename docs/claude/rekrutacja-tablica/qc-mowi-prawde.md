@@ -159,7 +159,7 @@ Testy: sekcja „Kolejność stanowisk” w `tests/test_cv_qc.py` (także koszt 
 12 tys. stanowisk), `CvQcDialog.test.tsx` („Stanowiska od najnowszego”),
 reguła w `tests/test_cv_generator_legacy_v7.py`.
 
-## „Stawka w CV” = reguła „Usuń stawkę” (propozycja 17.10.2026, `qc-truth-2`)
+## „Stawka w CV” = reguła „Usuń stawkę” (propozycja 17.10.2026)
 
 Blokady `client_rules` nie da się pominąć („To nieprawda” — 422), więc
 fałszywa stawka zostawia rekruterowi tylko „Przekaż mimo uwag…”. Do
@@ -194,6 +194,10 @@ nic nie usuwało. Raport i decyzja: `docs/qc-rate-in-cv-proposal.md`.
   `_AMOUNT` z `qc-truth-1` liczyło blok „stawka” + 20 tys. cyfr 7 s
   (kwadratowo); nowa reguła 200 tys. cyfr, spacji albo sklejonego słowa —
   setne sekundy.
+- **`QC_VERSION` bez zmian.** Pomiar 17.10.2026 (295 par z przebiegiem QC,
+  tylko odczyt): ani stara, ani nowa reguła nie znajduje stawki w żadnym
+  bieżącym CV, wynik QC jest ten sam. Podbicie przeliczyłoby nieudane pary
+  i zapisało przebiegi bez zmiany (`_store_run` porównuje też wersję).
 - **Pomiar przed merge'em:** `backend/scripts/qc_rate_mentions_eval.py`
   przez nakładkę `backend/scripts/qc_overlay.py` (kod gałęzi w procesie
   z obrazu produkcji, przez stdin, bez zapisu w kontenerze).
