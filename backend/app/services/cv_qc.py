@@ -2612,6 +2612,7 @@ async def record_override(
     reason: str,
     reason_code: Optional[str] = None,
     notify_reviewers: bool = False,
+    note: Optional[str] = None,
 ) -> dict:
     """Obejście QC — wiersz przebiegu + Activity.
 
@@ -2621,6 +2622,11 @@ async def record_override(
     ``notify_reviewers`` — przepuszcza rekruter w trybie doradczym: Delivery
     Lead rekrutacji dostaje dzwonek, żeby sprawdzić, co zostało niepoprawione,
     i w razie potrzeby cofnąć kartę.
+
+    Powód „Kandydat potwierdził to w rozmowie” (D3, 17.10.2026) zapisuje
+    „Potwierdzone z kandydatem” przy każdej zablokowanej rzeczy bez źródła
+    (`confirmable_terms`, ``note`` = opis z okna) — fakt z rozmowy zostaje
+    w notatkach pary, a QC tego i kolejnych CV ma już źródło.
     """
 
     from app.models.activity import Activity
@@ -2680,6 +2686,11 @@ async def record_override(
             reason=reason,
             blocking_failed=blocking_failed,
         )
+    if reason_code == CONFIRMED_IN_CALL:
+        for literal in confirmable_terms(checks):
+            _add_confirmation(
+                db, src, stage, literal, note, user_id=user_id, via="override"
+            )
     await db.flush()
     return await run_qc(db, stage, user_id=user_id, persist=True)
 
@@ -2742,10 +2753,6 @@ async def confirm_with_candidate(
     a notatka czytana jako źródło „potwierdzałaby” je wszystkie.
     """
 
-    from app.models.activity import Activity
-    from app.models.note import Note, NoteType
-    from app.services import note_kinds
-
     src, checks, _ = await evaluate(db, stage)
     wanted = _norm(term)
     item = next(
@@ -2761,6 +2768,61 @@ async def confirm_with_candidate(
     if item is None:
         raise ApplyError("QC nie zgłasza już tej pozycji — odśwież okno.")
     literal = str(item.get("term") or item.get("requirement") or "").strip()
+    _add_confirmation(db, src, stage, literal, text, user_id=user_id)
+    await db.flush()
+    return await run_qc(db, stage, user_id=user_id, persist=True)
+
+
+# Powód obejścia, który zapisuje potwierdzenia (D3, 17.10.2026).
+CONFIRMED_IN_CALL = "confirmed_in_call"
+
+
+def confirmable_terms(checks: list[dict]) -> list[str]:
+    """Zablokowane rzeczy, które rozmowa z kandydatem może potwierdzić.
+
+    Termin w CV bez źródła (`no_unsupported`) i umiejętność krytyczna, której
+    nie ma nigdzie (`critical_skills`, `ask_candidate`, bez roli). Brak
+    zdania w roli to nie fakt do potwierdzenia — to poprawka CV.
+    """
+
+    out: list[str] = []
+    seen: set[str] = set()
+    for check in checks:
+        if check.get("status") != "fail":
+            continue
+        for item in check.get("items") or []:
+            if check["key"] == "no_unsupported":
+                literal = item.get("term") or item.get("requirement")
+            elif (
+                check["key"] == "critical_skills"
+                and item.get("fix") == "ask_candidate"
+                and not item.get("role")
+            ):
+                literal = item.get("requirement")
+            else:
+                continue
+            literal = " ".join(str(literal or "").split())
+            if literal and _norm(literal) not in seen:
+                seen.add(_norm(literal))
+                out.append(literal)
+    return out[:CONFIRMATIONS_MAX]
+
+
+def _add_confirmation(
+    db: AsyncSession,
+    src: dz.ReviewSources,
+    stage: CandidateStage,
+    literal: str,
+    text: Optional[str],
+    *,
+    user_id: int,
+    via: Optional[str] = None,
+) -> None:
+    """Notatka pary „Potwierdzone z kandydatem: X — opis” + Activity."""
+    from app.models.activity import Activity
+    from app.models.note import Note, NoteType
+    from app.services import note_kinds
+
     said = " ".join((text or "").split())[:CONFIRM_TEXT_MAX]
     db.add(
         Note(
@@ -2774,21 +2836,22 @@ async def confirm_with_candidate(
             external_source=note_kinds.QC_CONFIRM_SOURCE,
         )
     )
+    details = {
+        "candidate_id": src.candidate.id,
+        "job_id": src.job.id,
+        "term": literal[:120],
+    }
+    if via:
+        details["via"] = via
     db.add(
         Activity(
             entity_type="candidate_stage",
             entity_id=stage.id,
             action="cv_qc_confirmed",
             user_id=user_id,
-            details={
-                "candidate_id": src.candidate.id,
-                "job_id": src.job.id,
-                "term": literal[:120],
-            },
+            details=details,
         )
     )
-    await db.flush()
-    return await run_qc(db, stage, user_id=user_id, persist=True)
 
 
 class DismissForbidden(Exception):

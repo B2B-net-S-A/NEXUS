@@ -10,6 +10,9 @@
  * Tryb doradczy (`advisory`, 12.10.2026): to samo okno z tytułem „Przesuń mimo
  * uwag QC” — otwiera je także rekruter z rekrutacji, a Delivery Lead dostaje
  * powiadomienie. Powody i walidacja są te same.
+ *
+ * „Kandydat potwierdził to w rozmowie” (D3, 17.10.2026) zapisuje po stronie
+ * serwera „Potwierdzone z kandydatem” przy rzeczach bez źródła — okno to mówi.
  */
 
 import { useId, useState } from "react";
@@ -164,6 +167,14 @@ export function QcOverrideDialog({
             onChange={(event) => setNote(event.target.value)}
           />
         </div>
+        {reason === "confirmed_in_call" ? (
+          // D3 (17.10.2026): notatki pary czytają QC, generator CV i AI — rekruter ma wiedzieć, że powstaną.
+          <p className="text-xs text-muted-foreground">
+            Przy rzeczach, których nie ma w oryginale ani w notatkach, zapiszemy w notatkach kandydata „Potwierdzone z
+            kandydatem” (z opisem powyżej). Czytają je QC i generator CV — kolejne CV tej osoby nie będzie już tego
+            zgłaszać.
+          </p>
+        ) : null}
         {touched && error ? (
           <p id={errorId} role="alert" className="text-xs text-destructive">
             {error}
