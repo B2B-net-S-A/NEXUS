@@ -45,6 +45,7 @@ from app.services.hr.leave_balance import balance_payload
 from app.services.hr.leave_calendar import team_calendar
 from app.services.hr.leave_context import candidate_payload, substitute_candidates
 from app.services.hr.leave_policy import LeavePolicyError
+from app.services.hr.leave_queries import mask_for_viewer
 from app.services.hr.modules import HrModule
 from app.services.hr.recipients import division_charges
 from app.services.hr_leave_schema import LEAVE_STATUSES
@@ -194,9 +195,9 @@ async def _one(
     w nim zostały bez zmian; Płace dostały dzwonek)."""
 
     await db.refresh(request)
-    item = (
-        await service.serialize(db, [request], viewer=viewer, today=business_today())
-    )[0]
+    today = business_today()
+    item = (await service.serialize(db, [request], viewer=viewer, today=today))[0]
+    await mask_for_viewer(db, item, request, viewer, today)
     item["payroll_locked_months"] = list(locked_months)
     item["payroll_warning"] = service.payroll_locked_warning(locked_months)
     return item

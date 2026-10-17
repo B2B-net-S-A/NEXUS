@@ -72,8 +72,10 @@ async def list_people(
     items = []
     for row in rows:
         own_report = row.profile.manager_user_id == current_user.id
-        if admin or own_report or row.user.id == current_user.id:
+        if admin or row.user.id == current_user.id:
             items.append({**people.full_payload(row), "scope": "full"})
+        elif own_report:
+            items.append({**people.full_payload(row, hr_fields=False), "scope": "full"})
         else:
             items.append({**people.card_payload(row), "scope": "card"})
     return {"items": items, "total": len(items)}
@@ -91,7 +93,11 @@ async def get_person(
         # Konto z innym uprawnieniem z grupy „Ludzie” (np. Sprzęt) widzi wizytówkę.
         scope = "card"
     if scope == "full":
-        payload = people.full_payload(row)
+        payload = people.full_payload(
+            row,
+            hr_fields=user_id == current_user.id
+            or people.is_people_admin(current_user),
+        )
         payload["entitlements"] = [
             {
                 "year": e.year,

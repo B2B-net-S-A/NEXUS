@@ -20,7 +20,6 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { contributionsBadge } from "@/components/hr/people/form-rules";
 import type { HrConfig } from "@/lib/api/hr";
 import { EMPLOYMENT_TYPE_SHORT } from "@/lib/api/hr-structure";
 import { useMyTeam, useTeamManagers, type MyTeam } from "@/lib/api/hr-team";
@@ -201,9 +200,6 @@ function TeamTable({ data }: { data: MyTeam }) {
                       .filter(Boolean)
                       .join(" · ")}
                   </span>
-                  {contributionsBadge(person.contributions_from) ? (
-                    <span className={CALM_SUBLINE}>{contributionsBadge(person.contributions_from)}</span>
-                  ) : null}
                 </TableCell>
                 <TableCell>
                   <CellView cell={todayCell(person.today, person.covering_for)} />

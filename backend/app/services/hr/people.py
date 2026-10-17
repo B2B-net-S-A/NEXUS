@@ -182,7 +182,26 @@ def contributions_from(profile: EmployeeProfile) -> Optional[date]:
     return profile.contribution_exempt_until + timedelta(days=1)
 
 
-def full_payload(row: PersonRow) -> dict[str, Any]:
+#: Daty, które widzą tylko osoba, Kadry i Płace — przełożony widzi sam znacznik
+#: „student” (z końca zwolnienia da się policzyć wiek; przegląd 17.10.2026).
+HR_ONLY_FIELDS = (
+    "contribution_exempt_until",
+    "contributions_from",
+    "leave_seniority_years",
+    "zus_certificate_received_on",
+    "suggested_entitlement_days",
+)
+
+
+def full_payload(row: PersonRow, *, hr_fields: bool = True) -> dict[str, Any]:
+    payload = _full_payload(row)
+    if not hr_fields:
+        for key in HR_ONLY_FIELDS:
+            payload.pop(key)
+    return payload
+
+
+def _full_payload(row: PersonRow) -> dict[str, Any]:
     profile = row.profile
     return {
         **card_payload(row),

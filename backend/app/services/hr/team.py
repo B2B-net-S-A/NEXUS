@@ -381,9 +381,9 @@ async def team_view(
                 "job_title": profile.job_title,
                 "employment_type": profile.employment_type,
                 "employment_status": profile.employment_status,
-                # Uczeń/student na zleceniu (D8): plakietka „składki od …”.
+                # Uczeń/student na zleceniu (D8): sam znacznik — daty zwolnienia
+                # ze składek widzą osoba, Kadry i Płace (przegląd 17.10.2026).
                 "student": profile.student_contribution_exempt,
-                "contributions_from": _iso(people.contributions_from(profile)),
                 "last_working_day": profile.last_working_day.isoformat()
                 if profile.last_working_day
                 else None,

@@ -251,6 +251,23 @@ def _mark_cover(
         item["leave_type_label"] = "Nieobecność"
 
 
+async def mask_for_viewer(
+    db: AsyncSession, item: dict[str, Any], row: LeaveRequest, viewer: User, today: date
+) -> None:
+    """Jeden wiersz po decyzji albo kolizji: zastępca widzi go jak w kolejce.
+
+    Trasy zwracające pojedynczy wiersz oddawały zastępcy notatkę wniosku,
+    choć kolejka ją maskowała (D6; przegląd bezpieczeństwa 17.10.2026).
+    """
+
+    if row.user_id == viewer.id:
+        return
+    _, covered = await _pending_scope(db, viewer, today)
+    cover = covered.get(row.user_id)
+    if cover is not None:
+        _mark_cover(item, row, cover)
+
+
 async def _pending_scope(
     db: AsyncSession, actor: User, today: date
 ) -> tuple[Optional[set[int]], dict[int, leave_substitute.Cover]]:

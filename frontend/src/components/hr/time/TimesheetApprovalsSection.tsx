@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { ChevronLeft, ChevronRight, Download } from "lucide-react";
 
 import { AppModal } from "@/components/ds/AppModal";
+import { daysLabel } from "@/components/hr/leave/leave-format";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import { StatusDot } from "@/components/ds/StatusDot";
 import { useToast } from "@/components/Toast";
@@ -254,7 +255,7 @@ export function TimesheetApprovalsSection({
                   </td>
                   <td className={cn(CALM_AMOUNT, "px-2 py-2")}>
                     {item.absence_days > 0 ? (
-                      `${formatHours(item.absence_days)} dni`
+                      daysLabel(item.absence_days)
                     ) : (
                       <span className={CALM_EMPTY}>—</span>
                     )}

@@ -262,7 +262,8 @@ async def test_structure_and_team_show_when_contributions_start(app_client) -> N
     team = await app_client.get("/api/hr/team", headers=headers(boss))
     assert team.status_code == 200, team.text
     member = next(p for p in team.json()["people"] if p["user_id"] == student.id)
-    assert member["student"] is True and member["contributions_from"] == "2091-07-01"
+    # Przełożony widzi sam znacznik; datę — Kadry w Strukturze (17.10.2026).
+    assert member["student"] is True and "contributions_from" not in member
 
 
 # ── D8: przypomnienie o końcu zwolnienia ze składek ──────────────────────────

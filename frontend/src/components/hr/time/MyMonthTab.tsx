@@ -10,6 +10,7 @@ import { useToast } from "@/components/Toast";
 import { Button } from "@/components/ui/button";
 import { useConfirmV2 } from "@/components/v2/modals/ConfirmV2";
 import { apiErrorMessage } from "@/lib/api-error";
+import { countPl } from "@/lib/plural-pl";
 import { downloadHrFile, type HrConfig, type WorkLocation } from "@/lib/api/hr";
 import {
   timePaths,
@@ -126,7 +127,7 @@ export function MyMonthTab({ config, initialMonth, onMonthChange }: MyMonthTabPr
         onSuccess: (result) =>
           showToast(
             result.inserted > 0
-              ? `Wpisano ${result.inserted} dni: „${result.description}”.`
+              ? `Wpisano ${countPl(result.inserted, "dzień", "dni", "dni")}: „${result.description}”.`
               : "Wszystkie dni robocze mają już wpisy.",
             "success",
           ),
@@ -140,7 +141,7 @@ export function MyMonthTab({ config, initialMonth, onMonthChange }: MyMonthTabPr
       onSuccess: (result) =>
         showToast(
           result.source
-            ? `Skopiowano opisy z ${monthTitlePl(result.source).toLowerCase()}: ${result.inserted} dni.`
+            ? `Skopiowano opisy z ${monthTitlePl(result.source).toLowerCase()}: ${countPl(result.inserted, "dzień", "dni", "dni")}.`
             : "Nie ma jeszcze zaakceptowanego miesiąca do skopiowania.",
           result.source ? "success" : "info",
         ),
@@ -155,7 +156,7 @@ export function MyMonthTab({ config, initialMonth, onMonthChange }: MyMonthTabPr
     const ok = await askConfirm({
       title: `Wysłać ${words.timesheet_accusative} za ${monthTitlePl(period).toLowerCase()} do ${reviewNoun}?`,
       description:
-        missing > 0 ? `${missing} dni roboczych nie ma wpisów. ${after}` : after,
+        missing > 0 ? `${countPl(missing, "dzień roboczy nie ma", "dni robocze nie mają", "dni roboczych nie ma")} wpisów. ${after}` : after,
       confirmLabel: "Wyślij",
     });
     if (!ok) return;

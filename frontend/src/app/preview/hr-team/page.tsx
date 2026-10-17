@@ -146,9 +146,8 @@ function harnessTeam(withBonuses: boolean): MyTeam {
     {
       ...base(adam),
       employment_type: "zlecenie",
-      // Student na zleceniu (D8): plakietka „składki od …”.
+      // Student na zleceniu (D8): sam znacznik, bez dat zwolnienia ze składek.
       student: true,
-      contributions_from: "2027-07-01",
       timesheet_required: false,
       month: null,
       bonuses: { count: 0, proposals: 0, totals: [], items: [] },

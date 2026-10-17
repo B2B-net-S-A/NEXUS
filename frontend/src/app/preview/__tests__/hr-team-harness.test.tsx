@@ -53,10 +53,10 @@ describe("/preview/hr-team", () => {
       "href",
       "/people/approvals",
     );
-    // Student na zleceniu (D8): plakietka „składki od 07.2027”.
+    // Student na zleceniu (D8): sam znacznik — daty zwolnienia widzą Kadry i Płace.
     const adam = screen.getByRole("row", { name: /^Adam Wzorcowy/ });
     expect(adam).toHaveTextContent("Zlecenie · student");
-    expect(adam).toHaveTextContent("składki od 07.2027");
+    expect(adam).not.toHaveTextContent(/składki od/);
     expect(screen.getByRole("columnheader", { name: "Nieobecności" })).toBeInTheDocument();
     expect(screen.getByRole("columnheader", { name: "Premie w drodze" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "Mój zespół" })).toHaveAttribute("aria-selected", "true");

@@ -75,9 +75,8 @@ export interface TeamPerson {
   name: string;
   job_title: string | null;
   employment_type: EmploymentType;
-  /** Uczeń/student na zleceniu (D8) i dzień, od którego Płace naliczają składki. */
+  /** Uczeń/student na zleceniu (D8) — sam znacznik; daty widzą Kadry i Płace. */
   student?: boolean;
-  contributions_from?: string | null;
   employment_status: EmploymentStatus;
   last_working_day: string | null;
   today: TeamToday | null;
