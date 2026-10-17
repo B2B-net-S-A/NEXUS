@@ -11,7 +11,9 @@ Pod ochroną:
 4. ``unattributed`` obok rankingu, nigdy w czyimś wierszu.
 5. ``open_jobs`` = opublikowane teraz; seria miesięczna ma 6 punktów.
 
-Rok 1994 jest w testach niezajęty (baza testowa nie jest czyszczona).
+Rok 2065 jest w testach niezajęty (baza testowa nie jest czyszczona). Leży po
+12.10.2026, bo wcześniejsze ruchy Tablicy nie liczą się do statystyk (migracja
+0455); „teraz” portfela jest zamrożone za nim (`_frozen_now`).
 """
 
 from __future__ import annotations
@@ -36,11 +38,11 @@ from app.models.user import User, UserRole
 
 RANKING_URL = "/api/insights/delivery-leads"
 PORTFOLIO_URL = "/api/insights/delivery-leads/portfolio"
-PARAMS = {"period": "month", "anchor": "1994-06-15"}
+PARAMS = {"period": "month", "anchor": "2065-06-15"}
 
 
 def _utc(month: int, day: int) -> datetime:
-    return datetime(1994, month, day, 12, tzinfo=timezone.utc)
+    return datetime(2065, month, day, 12, tzinfo=timezone.utc)
 
 
 async def _seed_user(role: UserRole, label: str) -> tuple[int, str, str]:
@@ -145,6 +147,20 @@ async def _seed_hired(job_id: int, moved_at: datetime) -> None:
 async def _flush_cache() -> None:
     for prefix in ("insights:delivery-leads:", "insights:delivery-leads-portfolio:"):
         await cache_invalidate(prefix)
+
+
+@pytest.fixture(autouse=True)
+def _frozen_now(monkeypatch):
+    """„Teraz” portfela = 15.01.2066 — okna 2065 są zamknięte (pełne porównanie)."""
+    from zoneinfo import ZoneInfo
+
+    from app.services import insights_dl_portfolio
+
+    monkeypatch.setattr(
+        insights_dl_portfolio,
+        "local_now",
+        lambda: datetime(2066, 1, 15, 12, tzinfo=ZoneInfo("Europe/Warsaw")),
+    )
 
 
 @pytest_asyncio.fixture
@@ -368,12 +384,12 @@ async def test_open_jobs_monthly_series_and_top_hiring_manager(
 
     series = row_x["monthly_placements"]
     assert [p["month"] for p in series] == [
-        "1994-01",
-        "1994-02",
-        "1994-03",
-        "1994-04",
-        "1994-05",
-        "1994-06",
+        "2065-01",
+        "2065-02",
+        "2065-03",
+        "2065-04",
+        "2065-05",
+        "2065-06",
     ]
     assert [p["placements"] for p in series] == [0, 0, 0, 0, 3, 1]
     assert len(row_y["monthly_placements"]) == 6
@@ -405,13 +421,13 @@ async def test_ongoing_window_compares_with_the_same_stretch(seeded: dict):
     from app.analytics.periods import resolve_period
     from app.services.insights_dl_portfolio import compute_dl_portfolio
 
-    period = resolve_period("month", anchor=datetime(1994, 6, 15).date())
-    now = datetime(1994, 6, 10, 12, tzinfo=ZoneInfo("Europe/Warsaw"))
+    period = resolve_period("month", anchor=datetime(2065, 6, 15).date())
+    now = datetime(2065, 6, 10, 12, tzinfo=ZoneInfo("Europe/Warsaw"))
     async with AsyncSessionLocal() as db:
         body = await compute_dl_portfolio(db, period, now=now)
 
-    assert body["previous_period"]["start"].startswith("1994-05-01")
-    assert body["previous_period"]["end"].startswith("1994-05-11")
+    assert body["previous_period"]["start"].startswith("2065-05-01")
+    assert body["previous_period"]["end"].startswith("2065-05-11")
     row_x = _client(_lead(body, seeded["dl_a"]), seeded["client_x"])
     assert row_x["prev_hit_ratio"] == 0.0
     assert row_x["alert"] is None
