@@ -41,10 +41,14 @@ export function TopbarV2({
   const [isMac, setIsMac] = useState(false);
   // „Pracownik” (0453) i inne konta bez sekcji pracy nie przeszukują kandydatów,
   // rekrutacji ani klientów — paleta służy im tylko do przejścia na ekran.
+  // Przed odczytem konta (`user === null` do `hydrate()`) zostaje podpowiedź
+  // większości, inaczej pole na chwilę mówi „Przejdź do ekranu…” każdemu.
   const user = useAuthStore((state) => state.user);
-  const searchesWork = (["sourcing", "pipeline", "delivery"] as const).some((section) =>
-    hasSectionAccess(user, section),
-  );
+  const searchesWork =
+    user === null ||
+    (["sourcing", "pipeline", "delivery"] as const).some((section) =>
+      hasSectionAccess(user, section),
+    );
 
   useEffect(() => {
     if (typeof navigator !== "undefined") {
