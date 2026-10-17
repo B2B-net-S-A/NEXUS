@@ -165,6 +165,32 @@ z protokołami. Compass zostaje z Akademią i czyta listę osób z NEXUSA.
   (`PeopleSectionNav`, `sectionCount`). Zmiana zakresu akceptujących = ta sama
   funkcja liczy ekran i licznik.
 
+## Wspólne mechanizmy — nie pisz kopii (audyt 17.10.2026)
+
+Audyt jakości 17.10 znalazł te same kawałki skopiowane w 3–16 miejscach; po
+porządkach każdy ma jedno źródło. Nowy kod modułów „Ludzi” używa tych, a nie
+własnych wersji:
+- rezerwacja przebiegu w tle: `services/hr/job_runs.py` (`claim`, `finish`,
+  `mark_once` dla „raz na osobę i miesiąc”); wyłączona pętla albo moduł zwraca
+  `{"status": "disabled"}`;
+- powiadomienie kilku osób: `services/hr/notify.notify_each` (savepoint na
+  odbiorcę, awaria jednego nie cofa reszty, log tylko z identyfikatorami);
+- bramka modułu w trasie: `hr_gates.ensure_module(db, user, HrModule.x)`;
+- przełożony/koordynator: `services/hr/recipients.supervisor_of`;
+- kalendarz firmy (święta + dni wolne firmy): `services/hr/calendar.load_calendar`
+  / `WorkCalendar` — urlopy, czas pracy i termin premii liczą tym samym;
+  dzień dla podanej chwili: `scheduling.business_date(moment)`;
+- słowa według formy współpracy i nazwy rodzajów nieobecności:
+  `services/hr/employment_terms.py`, `leave_policy.LEAVE_TYPE_LABELS`
+  (lustra we froncie pilnują testy `test_hr_employment_terms_mirror.py`,
+  `test_hr_leave_labels_mirror.py`);
+- statusy zatrudnienia: `EmploymentType` / `EmploymentStatus` /
+  `WORKING_STATUSES` z `hr_foundation_schema.py`.
+
+Kolejka maili natychmiast przegląda kolejne strony kursorem, aż spróbuje 50
+wysyłek — wiersze, których odbiorca nie dostaje (wyciszenie), nie blokują już
+reszty (`tasks/notification_email_outbox.py`, 17.10.2026).
+
 ## Schemat
 
 - Każdy moduł ma `app/services/<moduł>_schema.py` (`TABLE_DDL, COLUMN_DDL,
