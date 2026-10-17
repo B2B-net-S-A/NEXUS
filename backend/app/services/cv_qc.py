@@ -2222,6 +2222,82 @@ def _override_applies(cv_fingerprint: Any = _LATEST_RUN_CV):
     )
 
 
+def blocking_keys(checks: list[dict]) -> frozenset[str]:
+    """Klucze rzeczy, które zatrzymują wysyłkę (pozycje niezaliczonych blokad;
+    blokada bez pozycji — `<sprawdzenie>|#`). Klucze pozycji są stałe
+    (`_assign_keys`), więc da się porównać chwilę obejścia z bieżącym QC."""
+
+    out: set[str] = set()
+    for check in checks or []:
+        if check.get("severity") != "blocking" or check.get("status") != "fail":
+            continue
+        items = check.get("items") or []
+        if not items:
+            out.add(f"{check.get('key')}|#")
+        for n, item in enumerate(items):
+            out.add(str(item.get("key") or f"{check.get('key')}|#{n}"))
+    return frozenset(out)
+
+
+async def follow_advisory_override(
+    db: AsyncSession,
+    candidate_id: int,
+    job_id: int,
+    stage_id: int,
+    fp: Optional[str],
+    checks: list[dict],
+) -> bool:
+    """D6 (decyzja Artura, 17.10.2026): obejście doradcze idzie za CV, dopóki
+    poprawki nie dodają nowej blokady.
+
+    Do 17.10.2026 przepuszczenie rekrutera ginęło przy KAŻDEJ zmianie treści
+    (odcisk CV — audyt 14.10.2026), więc poprawka literówki po „Przekaż mimo
+    uwag…” wymagała przepuszczenia od nowa. Teraz, gdy bieżące blokady są
+    podzbiorem blokad z chwili obejścia, wiersz obejścia dostaje odcisk
+    bieżącego CV (bez commitu) — bramka ruchu, plakietka na Tablicy i przegląd
+    DL czytają dalej tę samą regułę `_override_applies`. Nowa blokada (np.
+    dopisana treść spoza oryginału) = nowy klucz = obejście nie idzie dalej.
+    Poza trybem doradczym, bez odcisku albo bez obejścia — nic. Tylko QC
+    liczone na NAJNOWSZYM wierszu etapu pary (tym, który czyta bramka): starszy
+    wiersz ma inną migawkę oryginału i inne odpowiedzi (przegląd PR 3).
+    """
+
+    if fp is None or not advisory_mode():
+        return False
+    latest_stage = await db.scalar(
+        select(CandidateStage.id)
+        .where(
+            CandidateStage.candidate_id == candidate_id,
+            CandidateStage.job_id == job_id,
+        )
+        .order_by(CandidateStage.moved_at.desc(), CandidateStage.id.desc())
+        .limit(1)
+    )
+    if latest_stage != stage_id:
+        return False
+    row = await db.scalar(
+        select(CvQcRun)
+        .where(
+            CvQcRun.candidate_id == candidate_id,
+            CvQcRun.job_id == job_id,
+            _unspent_override(),
+            _is_advisory_override(),
+        )
+        .order_by(CvQcRun.created_at.desc(), CvQcRun.id.desc())
+        .limit(1)
+    )
+    if row is None or row.cv_fingerprint is None or row.cv_fingerprint == fp:
+        return False
+    granted = blocking_keys((row.result or {}).get("checks") or [])
+    if not blocking_keys(checks) <= granted:
+        return False
+    row.cv_fingerprint = fp
+    # Sesje mają `autoflush=False` — `_latest_override` zaraz po tym (bramka
+    # ruchu, panel `?transient=true`) czytałby stary odcisk (przegląd PR 3).
+    await db.flush()
+    return True
+
+
 async def has_live_advisory_override(
     db: AsyncSession, candidate_id: int, job_id: int
 ) -> bool:
@@ -2455,6 +2531,11 @@ async def run_qc(
     run_id: Optional[int] = None
     computed_at = datetime.now(timezone.utc)
     fp = fingerprint(src.blocks) if src.generated is not None else None
+    # D6: przepuszczenie przechodzi na to CV, gdy poprawki nie dodały blokady —
+    # przed zapisem przebiegu i przed `_latest_override` niżej (ta sama sesja).
+    await follow_advisory_override(
+        db, src.candidate.id, src.job.id, stage.id, fp, checks
+    )
     if persist:
         store = dict(
             candidate_id=src.candidate.id,

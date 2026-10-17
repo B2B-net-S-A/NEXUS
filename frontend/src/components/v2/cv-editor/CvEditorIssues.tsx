@@ -161,6 +161,12 @@ export interface CvEditorIssuesProps {
   onOverride?: () => void;
   /** Ten sam warunek co w stopce (asystent pracuje, szkic się zakłada) — przycisk czeka. */
   overrideDisabled?: boolean;
+  /**
+   * „Usuń z CV” przy terminie, który stoi w zdaniu (nie na liście technologii):
+   * serwer go nie usuwa, więc panel prosi asystenta o przeredagowanie zdania
+   * bez tego słowa (PR 3, 17.10.2026). Bez asystenta — komunikat jak dotąd.
+   */
+  onAskAssistant?: (command: string) => void;
 }
 
 /** Polecenia panelu dla nagłówka edytora (Edytor CV 3, PR 3). */
@@ -308,6 +314,7 @@ export function CvEditorIssues({
   onShowList,
   onOverride,
   overrideDisabled = false,
+  onAskAssistant,
 }: CvEditorIssuesProps) {
   const queryClient = useQueryClient();
   const { showSuccess, showError } = useToast();
@@ -470,6 +477,20 @@ export function CvEditorIssues({
       // Pusta treść nie jest poprawką — nie zastępujemy nią CV.
       const usable = result.changed && result.content_html.trim() !== "";
       if (!usable || !fixStep(editor.state, result.content_html)) {
+        const only = actions.length === 1 ? actions[0] : null;
+        if (
+          only?.action === "remove_term" &&
+          onAskAssistant &&
+          result.skipped[0]?.code === "nothing_to_do"
+        ) {
+          // Termin stoi w zdaniu — przeredagowanie robi asystent (z kontrolą
+          // „bez nowych faktów” i „Cofnij” przy odpowiedzi).
+          onAskAssistant(
+            `Usuń „${only.term}” z CV: przeredaguj zdania, w których to słowo stoi, bez niego. Nie dopisuj nowych faktów.`,
+          );
+          showSuccess(`„${only.term}” stoi w zdaniu — asystent przeredaguje je bez tego słowa.`);
+          return;
+        }
         showError(result.skipped[0]?.message ?? "Tej poprawki nie da się nałożyć na bieżącą treść CV.");
         return;
       }

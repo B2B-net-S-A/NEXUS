@@ -68,3 +68,16 @@ imieniu — teraz tylko układ generatora „Rola – Imię”. Znalezione poza 
 więc „Moduł wynagrodzeń dla 250 zleceniobiorców” bywa zgłaszany jako stawka
 (blokada `client_rules`, której nie da się pominąć) — przycisk wtedy mówi
 „W CV nie ma stawki…”; poprawka reguły QC to osobna decyzja (zmienia wynik QC).
+
+## PR 3 · przepuszczenie idzie za CV (D6) i termin w zdaniu przez asystenta
+
+- `cv_qc.follow_advisory_override` w `run_qc`: obejście doradcze dostaje
+  odcisk bieżącego CV, gdy bieżące blokady są podzbiorem blokad z chwili
+  obejścia (`blocking_keys`). `_override_applies` bez zmian — bramka ruchu,
+  plakietka i przegląd DL czytają to samo co dotąd.
+- „Usuń z CV” przy terminie w zdaniu: panel przekazuje prośbę asystentowi
+  (`onAskAssistant`), zamiast kończyć komunikatem „usuń je w edytorze”.
+
+Testy: bez bazy — 4 nowe w `test_fix48_ws11_qc_override_rule.py`; z bazą
+(CI) — `test_advisory_override_follows_the_cv_until_a_new_blocker_appears`;
+front — panel (przekazanie asystentowi), modal.

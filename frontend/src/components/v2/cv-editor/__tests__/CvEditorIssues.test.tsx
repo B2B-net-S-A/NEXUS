@@ -425,6 +425,27 @@ describe("panel „Do poprawy” w edytorze CV (wariant A, 17.10.2026)", () => {
     expect(screen.queryByRole("region", { name: "Poprawione" })).not.toBeInTheDocument();
   });
 
+  it("„Usuń z CV” przy terminie w zdaniu: serwer go nie usuwa, więc prośba idzie do asystenta (PR 3)", async () => {
+    const api = memoryApi({
+      transform: vi.fn(async (_stage: number, body: QcTransformBody) => ({
+        content_html: body.content_html,
+        changed: false,
+        applied: [],
+        skipped: [{ action: "remove_term", code: "nothing_to_do", message: "„AWS” nie stoi na liście technologii — usuń je w edytorze CV." }],
+      })),
+    });
+    const onAskAssistant = vi.fn();
+    const { editor } = setup({ api, props: { onAskAssistant } });
+    const before = editor.getHTML();
+    fireEvent.click(await screen.findByRole("button", { name: "Usuń z CV: AWS" }));
+    await waitFor(() => expect(onAskAssistant).toHaveBeenCalledTimes(1));
+    expect(onAskAssistant.mock.calls[0][0]).toContain("Usuń „AWS” z CV");
+    expect(onAskAssistant.mock.calls[0][0]).toContain("Nie dopisuj nowych faktów");
+    expect(toast.showSuccess).toHaveBeenCalledWith("„AWS” stoi w zdaniu — asystent przeredaguje je bez tego słowa.");
+    expect(toast.showError).not.toHaveBeenCalled();
+    expect(editor.getHTML()).toBe(before);
+  });
+
   it("nie udało się założyć szkicu na zatwierdzonej wersji — poprawka nie rusza treści", async () => {
     const { editor, ensureDraft } = setup();
     const before = editor.getHTML();

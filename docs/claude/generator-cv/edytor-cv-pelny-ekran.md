@@ -368,6 +368,14 @@ Komponenty: `cv-editor/CvEditorIssues.tsx` (grupy, „Poprawione”, pasek),
   do źródeł `generator` i `review` (`REASON_CHECKS` jako zbiory;
   `cv_editor_issues.dismiss` podaje `check_key=source`), nie liczy się do
   trafności QC i nie ma go w formularzu „To nieprawda” ani w trasie QC.
+- **„Usuń z CV” przy terminie w zdaniu (PR 3).** `remove_term` usuwa tylko
+  z list technologii; gdy wraca `nothing_to_do`, panel prosi asystenta
+  (`onAskAssistant` → `assistant.send`, kolumna się rozwija) o przeredagowanie
+  zdań bez tego słowa „bez nowych faktów” — zmiana przechodzi `verify_plan`
+  i ma „Cofnij” przy odpowiedzi. Bez asystenta (wynik generatora, AI wyłączone)
+  zostaje komunikat serwera.
+- **D6 · przepuszczenie idzie za CV** — reguła w
+  `rekrutacja-tablica/qc-cv-tryb-doradczy-role-z-odczytu-potwierdzenie.md`.
 - **D7 · bez „Pomiń wszystkie uwagi AI”.** Blokady to rzeczy, które zobaczy
   klient; jeden przycisk na wszystko uczyłby klikania bez czytania i odciął
   „Jakość QC” od powodów. Przepuszczenie całego CV = „Przekaż mimo uwag…”
