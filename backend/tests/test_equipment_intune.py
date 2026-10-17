@@ -330,7 +330,7 @@ async def test_nightly_run_respects_switched_off_module(modules_off) -> None:
             mode="simulate",
             now=datetime(2026, 1, 15, 6, 0, tzinfo=WARSAW),
         )
-    assert result == {"status": "disabled", "reason": "module_off"}
+    assert result == {"status": "disabled"}
     assert await _devices() == {}
 
 

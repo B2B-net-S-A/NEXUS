@@ -16,6 +16,16 @@
   (punkt planu albo follow-up z rozmowy) → `care_contact_due` (sekcja Delivery) do
   opiekuna, najwyżej raz na 7 dni na kontrakt; koniec projektu < 60 dni → wpis
   „Do przepięcia”.
+- **„Następny kontakt” liczy jedna funkcja** `care/plan.next_contact` (karta
+  kontraktu, „Wszystkie kontrakty”, dzwonek opiekuna): najwcześniejszy otwarty
+  punkt planu albo umówiony kontakt z OSTATNIEJ rozmowy, nie starszy niż
+  30 dni (`plan.live_follow_up` — tej samej reguły używa „Ten tydzień”); remis
+  wygrywa punkt planu. Od 17.10.2026 także karta i lista pomijają follow-up
+  sprzed 30 dni (rozmowy z importu niosą terminy sprzed lat). Nie licz go
+  w trasie ani w serwisie po swojemu.
+- Trasy: `api/contract_care.py` (bramki w `api/care_gates.py`, odczyt zakładki
+  i listy w `care/overview.py`), kolejka technologii `api/care_skills.py`,
+  ATLAS `api/care_atlas.py` — wszystkie pod `/api/care`.
 
 ## Opieka · „Ten tydzień”, oś konsultanta, front office (etap 2, D15, 17.10.2026)
 
@@ -55,11 +65,15 @@ serwis `care/week.py`); dawna lista „Moi konsultanci” to „Wszystkie kontra
   (`also_fits_for_candidate`, zakres odczytu rekrutacji czytającego);
   `unavailable` ≠ „nic nie pasuje”. Przekazanie: wpis „Do przepięcia”
   (istniejący albo nowy) → „W toku”, zdarzenie `care.front_office_handoff`
-  w śladzie HR (same identyfikatory) i `care_contact_due` do DL wybranych
-  rekrutacji, głównego DL klienta i Head of Recruitment (encja
-  `care_front_office`, link `/care?contract=<id>`). Typ opieki jest sekcji
-  Delivery — HoR bez tej sekcji jest adresatem, ale go nie dostaje;
-  odpowiedź i toast mówią, kto naprawdę dostał.
+  w śladzie HR (same identyfikatory) i powiadomienie
+  `care_front_office_handoff` do heada pionu front office
+  (`app_settings['hr_divisions']`), Head of Recruitment, DL wybranych
+  rekrutacji i głównego DL klienta (encja `care_front_office`, link do profilu
+  osoby `/candidates/<id>`; kontrakt bez kandydata → `/care?contract=<id>`).
+  Typ jest osobisty (bez sekcji, jak typy „Ludzi”), kategoria „Czas i ludzie”,
+  mail „Czas i ludzie”, temat „Rekrutacje” z dymkiem — front office zwykle
+  nie ma sekcji Delivery, więc typ opieki `care_contact_due` do niego nie
+  docierał (do 17.10.2026). Odpowiedź i toast mówią, kto naprawdę dostał.
 
 ## Struktura u klienta i opinie klienta (etap 2, D8–D11, 17.10.2026)
 

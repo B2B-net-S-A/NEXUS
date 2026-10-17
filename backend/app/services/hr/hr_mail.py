@@ -86,6 +86,10 @@ FALLBACK: dict[str, tuple[str, str]] = {
         "Protokół podpisany",
         "Odbierający podpisał protokół — sprawdź podpis i potwierdź protokół.",
     ),
+    "care_front_office_handoff": (
+        "Konsultant dla front office",
+        "Konsultant kończy projekt albo chce zmiany — szczegóły znajdziesz w NEXUSIE.",
+    ),
 }
 _DEFAULT = ("Czas i ludzie", "Szczegóły znajdziesz w NEXUSIE.")
 

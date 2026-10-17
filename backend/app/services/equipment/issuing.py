@@ -40,12 +40,14 @@ from app.models.equipment import (
 from app.models.user import User
 from app.services import equipment_schema as schema
 from app.services.equipment import identifiers, protocols, registry, tasks
-from app.services.equipment.registry import (
-    ISSUABLE_ACADEMY_STATUSES,
-    ISSUABLE_CONTRACT_STATUSES,
+from app.services.equipment.errors import (
     EquipmentConflict,
     EquipmentError,
     EquipmentNotFound,
+)
+from app.services.equipment.holders import (
+    ISSUABLE_ACADEMY_STATUSES,
+    ISSUABLE_CONTRACT_STATUSES,
     Holder,
     holder_columns,
     holder_of,

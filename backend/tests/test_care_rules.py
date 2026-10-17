@@ -6,12 +6,16 @@ Plan liczony od startu kontraktu: dzień 7, 30, 90, potem co kwartał oraz
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 
+from app.models.contract_care import CareConversation, CarePlanItem
 from app.services.care.plan import (
+    FOLLOW_UP_LABEL,
+    LOOKBACK_DAYS,
     PlannedSlot,
     add_months,
     end_of_cooperation,
+    next_contact,
     planned_slots,
 )
 from app.services.care.skills import SkillDictionary, display_name, name_key
@@ -94,6 +98,65 @@ def _dictionary() -> SkillDictionary:
             5: "messaging",
         },
     )
+
+
+def _plan_item(item_id: int, kind: str, due_on: date, status: str = "open"):
+    return CarePlanItem(
+        id=item_id, contract_id=1, kind=kind, seq=0, due_on=due_on, status=status
+    )
+
+
+def _talk(follow_up_on: date | None) -> CareConversation:
+    return CareConversation(
+        contract_id=1,
+        occurred_on=date(2026, 9, 1),
+        channel="phone",
+        follow_up_on=follow_up_on,
+    )
+
+
+def test_next_contact_is_the_earliest_open_item_or_follow_up() -> None:
+    today = date(2026, 10, 15)
+    items = [
+        _plan_item(3, "day_90", date(2026, 11, 20)),
+        _plan_item(2, "day_30", date(2026, 10, 10)),
+        _plan_item(1, "day_7", date(2026, 9, 1), status="done"),
+    ]
+    assert next_contact([], None, today) is None
+    first = next_contact(items, None, today)
+    assert (first.kind, first.due_on, first.plan_item_id, first.label) == (
+        "day_30",
+        date(2026, 10, 10),
+        2,
+        "Dzień 30",
+    )
+    assert first.payload(today) == {
+        "due_on": date(2026, 10, 10),
+        "label": "Dzień 30",
+        "plan_item_id": 2,
+        "overdue": True,
+    }
+    earlier = next_contact(items, _talk(date(2026, 10, 9)), today)
+    assert (earlier.kind, earlier.label, earlier.plan_item_id) == (
+        "follow_up",
+        FOLLOW_UP_LABEL,
+        None,
+    )
+    # Remis: punkt planu (rozmowa go zamknie).
+    tie = next_contact(items, _talk(date(2026, 10, 10)), today)
+    assert tie.plan_item_id == 2
+
+
+def test_next_contact_drops_follow_up_older_than_lookback() -> None:
+    today = date(2026, 10, 15)
+    edge = today - timedelta(days=LOOKBACK_DAYS)
+    assert next_contact([], _talk(edge), today).due_on == edge
+    # Rozmowy z importu niosą terminy sprzed lat — taki nie jest „następnym”.
+    stale = _talk(edge - timedelta(days=1))
+    assert next_contact([], stale, today) is None
+    later = _plan_item(5, "quarterly", today + timedelta(days=40))
+    assert next_contact([later], stale, today).plan_item_id == 5
+    assert next_contact([later], stale, today).payload(today)["overdue"] is False
 
 
 def test_note_scan_finds_dictionary_names_and_aliases() -> None:

@@ -51,7 +51,12 @@ def require_hr_config_reader():
     return _check
 
 
-async def _ensure_module(db: AsyncSession, user: User, module: str) -> None:
+async def ensure_module(db: AsyncSession, user: User, module: str) -> None:
+    """Wyłączony moduł = 404 z ``MODULE_DISABLED_DETAIL``; admin przechodzi zawsze.
+
+    Jedno sprawdzenie dla bramek wszystkich modułów „Ludzi” (``HrModule``).
+    """
+
     loaded = await hr_modules.load_modules(db)
     if not hr_modules.module_open_for(user, loaded, module):
         raise HTTPException(status.HTTP_404_NOT_FOUND, MODULE_DISABLED_DETAIL)
@@ -64,7 +69,7 @@ def require_hr_people_reader(module: str = "people"):
         current_user: User = Depends(require_onboarded_user),
         db: AsyncSession = Depends(get_db),
     ) -> User:
-        await _ensure_module(db, current_user, module)
+        await ensure_module(db, current_user, module)
         if current_user.has_role(UserRole.admin):
             return current_user
         if any(has_permission(current_user, p) for p in _DIRECTORY_PERMISSIONS):
@@ -83,7 +88,7 @@ def require_hr_self_service(module: str):
         current_user: User = Depends(require_onboarded_user),
         db: AsyncSession = Depends(get_db),
     ) -> User:
-        await _ensure_module(db, current_user, module)
+        await ensure_module(db, current_user, module)
         if not await people.has_live_profile(db, current_user.id):
             raise HTTPException(status.HTTP_403_FORBIDDEN, NO_PROFILE_DETAIL)
         return current_user

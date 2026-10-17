@@ -455,7 +455,7 @@ async def run_once(
         return {"status": "disabled"}
     if not await module_enabled(db):
         # Do przełączenia skrzynkę obsługuje Compass; nie zbieramy spraw w ciemno.
-        return {"status": "disabled", "reason": "module_off"}
+        return {"status": "disabled"}
     started = datetime.now(timezone.utc)
     if not await _claim_lease(db, started):
         return {"status": "skipped", "reason": "already_running"}

@@ -47,12 +47,12 @@ from app.core.export_safety import safe_row
 from app.core.zip_guard import assert_safe_ooxml
 from app.services import equipment_schema as schema
 from app.services.equipment import identifiers, registry, sanitize
-from app.services.equipment.registry import (
-    ISSUABLE_CONTRACT_STATUSES,
+from app.services.equipment.errors import (
     EquipmentConflict,
     EquipmentError,
     EquipmentNotFound,
 )
+from app.services.equipment.holders import ISSUABLE_CONTRACT_STATUSES
 from app.services.hr import audit
 
 MAX_FILE_BYTES = 10 * 1024 * 1024

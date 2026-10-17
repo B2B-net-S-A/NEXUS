@@ -10,13 +10,12 @@ Dostęp (decyzja planu „Ludzie w NEXUSIE”, 16.10.2026):
 Powiadomienie ``admin_case_assigned`` dostaje przypisany przy utworzeniu
 i zmianie przypisania — nie wtedy, gdy przypisuje sam siebie. W Compassie
 powiadomienie dla INNEJ osoby odrzucała polityka bazy i nikt tego nie widział
-(audyt 22.09, INT-22); tu idzie przez ``emit`` w osobnym punkcie zapisu,
-więc jego porażka nie wywraca sprawy, ale zostaje w logu.
+(audyt 22.09, INT-22); tu idzie przez ``hr.notify.notify_each`` (osobny
+punkt zapisu), więc jego porażka nie wywraca sprawy, ale zostaje w logu.
 """
 
 from __future__ import annotations
 
-import logging
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from typing import Any, Optional
@@ -34,8 +33,7 @@ from app.services.action_permissions import ProductAction, has_permission
 from app.services.admin_cases import rules
 from app.services.admin_cases_schema import AREAS, PRIORITIES, STATUSES
 from app.services.hr import audit
-
-logger = logging.getLogger(__name__)
+from app.services.hr.notify import notify_each
 
 ENTITY = "admin_case"
 COMMENT_MAX = 10_000
@@ -67,7 +65,7 @@ async def module_enabled(db: AsyncSession) -> bool:
 
     from app.services.hr import modules as hr_modules
 
-    return (await hr_modules.load_modules(db)).get("cases", False)
+    return (await hr_modules.load_modules(db)).get(hr_modules.HrModule.cases, False)
 
 
 async def has_assigned_cases(db: AsyncSession, user_id: int) -> bool:
@@ -139,29 +137,19 @@ async def notify_assignee(
 ) -> bool:
     """Dzwonek „Przypisano Ci sprawę” (nie do siebie). Porażka nie przerywa zapisu."""
 
-    if case.assignee_user_id is None or case.assignee_user_id == actor_id:
-        return False
-    from app.services.notification_triggers import emit
-
-    try:
-        created = await emit(
-            db,
-            user_id=case.assignee_user_id,
-            title="Przypisano Ci sprawę administracja@",
-            message=case.title,
-            ntype=NotificationType.admin_case_assigned,
-            related_entity_type=ENTITY,
-            related_entity_id=case.id,
-            link=f"/people/cases/{case.id}",
-        )
-    except Exception:  # noqa: BLE001 — dzwonek nie wywraca sprawy
-        logger.exception(
-            "[admin_cases] powiadomienie nie wyszło case=%s user=%s",
-            case.id,
-            case.assignee_user_id,
-        )
-        return False
-    return created is not None
+    sent = await notify_each(
+        db,
+        [case.assignee_user_id],
+        exclude=[actor_id],
+        title="Przypisano Ci sprawę administracja@",
+        message=case.title,
+        ntype=NotificationType.admin_case_assigned,
+        related_entity_type=ENTITY,
+        related_entity_id=case.id,
+        link=f"/people/cases/{case.id}",
+        log_tag="admin_cases",
+    )
+    return sent > 0
 
 
 # ── Zapis ────────────────────────────────────────────────────────────────────

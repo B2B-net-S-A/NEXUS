@@ -16,15 +16,20 @@ a nie listy opieki przy odczycie — „Ten tydzień” i „Wszystkie kontrakty
 niczego nie zapisują (audyt wydajności 17.10.2026). Wyjątek: zakładka
 „Opieka” jednego kontraktu dopisuje jego plan (dwie instrukcje), żeby
 świeży kontrakt nie czekał na nocny przebieg.
+
+„Następny kontakt” (karta kontraktu, „Moi konsultanci”, dzwonek opiekuna)
+liczy jedna funkcja ``next_contact``: najwcześniejszy otwarty punkt planu
+albo umówiony kontakt z ostatniej rozmowy, nie starszy niż ``LOOKBACK_DAYS``
+(``live_follow_up`` — tej samej reguły używa „Ten tydzień”).
 """
 
 from __future__ import annotations
 
 import calendar
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
-from typing import Optional, Protocol
+from typing import Any, Optional, Protocol
 
 from sqlalchemy import select, text
 from sqlalchemy.dialects.postgresql import insert
@@ -48,6 +53,9 @@ KIND_LABELS: dict[str, str] = {
     "quarterly": "Kontakt kwartalny",
     "pre_end": "Przed końcem zamówienia",
 }
+#: Rodzaj i etykieta umówionego kontaktu (follow-up z ostatniej rozmowy).
+FOLLOW_UP = "follow_up"
+FOLLOW_UP_LABEL = "Umówiony kontakt"
 
 
 @dataclass(frozen=True)
@@ -279,6 +287,89 @@ async def close_with_conversation(
     return items[0] if items else None
 
 
-def next_open(items: Iterable[CarePlanItem]) -> Optional[CarePlanItem]:
-    open_items = [item for item in items if item.status == "open"]
-    return min(open_items, key=lambda item: (item.due_on, item.id), default=None)
+# ── Następny kontakt ────────────────────────────────────────────────────────
+
+
+def contact_label(kind: str) -> str:
+    """Etykieta punktu planu albo umówionego kontaktu (``FOLLOW_UP``)."""
+
+    return FOLLOW_UP_LABEL if kind == FOLLOW_UP else KIND_LABELS.get(kind, kind)
+
+
+@dataclass(frozen=True)
+class NextContact:
+    kind: str  # rodzaj punktu planu albo ``FOLLOW_UP``
+    due_on: date
+    plan_item_id: Optional[int] = None
+
+    @property
+    def label(self) -> str:
+        return contact_label(self.kind)
+
+    def payload(self, today: date) -> dict[str, Any]:
+        return {
+            "due_on": self.due_on,
+            "label": self.label,
+            "plan_item_id": self.plan_item_id,
+            "overdue": self.due_on < today,
+        }
+
+
+def live_follow_up(latest: Optional[CareConversation], today: date) -> Optional[date]:
+    """Umówiony kontakt z OSTATNIEJ rozmowy, nie starszy niż ``LOOKBACK_DAYS``.
+
+    Nowsza rozmowa zamyka wcześniejszy follow-up. Rozmowy z importu niosą
+    terminy sprzed lat — bez tej granicy każda byłaby wiecznie zaległa.
+    """
+
+    if latest is None or latest.follow_up_on is None:
+        return None
+    if latest.follow_up_on < today - timedelta(days=LOOKBACK_DAYS):
+        return None
+    return latest.follow_up_on
+
+
+def next_contact(
+    items: Iterable[CarePlanItem],
+    latest: Optional[CareConversation],
+    today: date,
+) -> Optional[NextContact]:
+    """Najbliższy kontakt: najwcześniejszy otwarty punkt planu albo follow-up.
+
+    Remis wygrywa punkt planu (rozmowa go zamknie). ``items`` mogą zawierać
+    zamknięte punkty — liczą się tylko otwarte.
+    """
+
+    item = min(
+        (item for item in items if item.status == "open"),
+        key=lambda item: (item.due_on, item.id),
+        default=None,
+    )
+    follow_up = live_follow_up(latest, today)
+    if follow_up is not None and (item is None or follow_up < item.due_on):
+        return NextContact(FOLLOW_UP, follow_up)
+    if item is None:
+        return None
+    return NextContact(item.kind, item.due_on, plan_item_id=item.id)
+
+
+async def latest_conversations(
+    db: AsyncSession, contract_ids: Sequence[int]
+) -> dict[int, CareConversation]:
+    """Ostatnia rozmowa każdego kontraktu (data, potem id)."""
+
+    if not contract_ids:
+        return {}
+    rows = (
+        await db.scalars(
+            select(CareConversation)
+            .where(CareConversation.contract_id.in_(list(contract_ids)))
+            .order_by(
+                CareConversation.contract_id,
+                CareConversation.occurred_on.desc(),
+                CareConversation.id.desc(),
+            )
+            .distinct(CareConversation.contract_id)
+        )
+    ).all()
+    return {conversation.contract_id: conversation for conversation in rows}

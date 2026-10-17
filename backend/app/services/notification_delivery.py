@@ -126,12 +126,14 @@ CATALOG = (
         "zgłoszona nieobecność (na B2B i zleceniu: zgłoszona przerwa i kolizja "
         "zgłoszona przez koordynatora), zastępstwo, raport godzin zaakceptowany, "
         "zwrócony albo niewysłany w terminie, przekazana praca, zadania wejścia "
-        "i odejścia, sprawa administracja@, zadania sprzętu i podpisany protokół.",
+        "i odejścia, sprawa administracja@, zadania sprzętu, podpisany protokół "
+        "i konsultant przekazany z opieki do front office.",
         recipient_rule="Osoba, na którą sprawa czeka: akceptujący wniosku (przełożony "
         "albo Kadry), koordynator osoby na B2B i zleceniu, wnioskodawca, zastępca, "
         "przejmujący pracę, wykonawca zadania, "
-        "przypisany do sprawy, osoby z uprawnieniem „Sprzęt”. W mailu nie ma rodzaju "
-        "nieobecności ani kwot.",
+        "przypisany do sprawy, osoby z uprawnieniem „Sprzęt”, a przy przekazaniu do "
+        "front office: head pionu front office, Head of Recruitment i Delivery "
+        "Leadzi. W mailu nie ma rodzaju nieobecności ani kwot.",
     ),
     # Poranny skrót (07.10.2026) — `tasks/daily_digest_email.py`.
     dict(
@@ -258,6 +260,7 @@ HR_MAIL_TYPES: tuple[str, ...] = (
     "admin_case_assigned",
     "equipment_task",
     "equipment_protocol_signed",
+    "care_front_office_handoff",
 )
 
 

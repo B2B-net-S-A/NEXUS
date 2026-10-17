@@ -38,7 +38,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import require_onboarded_user
-from app.api.hr_gates import MODULE_DISABLED_DETAIL
+from app.api.hr_gates import ensure_module
 from app.core.database import get_db
 from app.core.http_headers import content_disposition
 from app.core.scheduling import business_today
@@ -59,12 +59,11 @@ from app.services.equipment import (
     tasks,
 )
 from app.services.equipment.registry import EquipmentError
-from app.services.hr import modules as hr_modules
+from app.services.hr.modules import HrModule
 from app.services.permission_denial import ensure_any_permission
 
 router = APIRouter()
 
-MODULE = "equipment"
 MAX_UPLOAD_BYTES = 20 * 1024 * 1024
 
 Category = Literal[
@@ -79,12 +78,6 @@ Condition = Literal["sprawny", "uszkodzony", "niekompletny", "zgubiony"]
 # ── Bramki ────────────────────────────────────────────────────────────────────
 
 
-async def _ensure_module(db: AsyncSession, user: User) -> None:
-    loaded = await hr_modules.load_modules(db)
-    if not hr_modules.module_open_for(user, loaded, MODULE):
-        raise HTTPException(status.HTTP_404_NOT_FOUND, MODULE_DISABLED_DETAIL)
-
-
 def require_hr_equipment(*permissions: ProductAction):
     """Moduł „Sprzęt” włączony i jedno z ``permissions`` (admin ma wszystkie)."""
 
@@ -92,7 +85,7 @@ def require_hr_equipment(*permissions: ProductAction):
         current_user: User = Depends(require_onboarded_user),
         db: AsyncSession = Depends(get_db),
     ) -> User:
-        await _ensure_module(db, current_user)
+        await ensure_module(db, current_user, HrModule.equipment)
         ensure_any_permission(current_user, *permissions)
         return current_user
 
@@ -108,7 +101,7 @@ def require_hr_equipment_person_reader():
         current_user: User = Depends(require_onboarded_user),
         db: AsyncSession = Depends(get_db),
     ) -> User:
-        await _ensure_module(db, current_user)
+        await ensure_module(db, current_user, HrModule.equipment)
         if current_user.id != user_id:
             ensure_any_permission(
                 current_user, ProductAction.equipment, ProductAction.people_admin
@@ -125,7 +118,7 @@ def require_hr_equipment_self():
         current_user: User = Depends(require_onboarded_user),
         db: AsyncSession = Depends(get_db),
     ) -> User:
-        await _ensure_module(db, current_user)
+        await ensure_module(db, current_user, HrModule.equipment)
         return current_user
 
     return _check

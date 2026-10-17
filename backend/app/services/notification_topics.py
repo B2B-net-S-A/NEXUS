@@ -82,6 +82,8 @@ _JOBS = (
     _T.similar_job_candidates,
     _T.also_fits_added,
     _T.match_digest,
+    # Konsultant od opieki do obsadzenia w rekrutacji („Przekaż do front office”).
+    _T.care_front_office_handoff,
 )
 
 _INTERVIEWS = tuple(types_in(NotificationCategory.interviews))
@@ -131,6 +133,7 @@ _JOBS_TOAST = (
     _T.candidate_claim_taken,
     _T.request_review_needed,
     _T.request_allocation_proposals,
+    _T.care_front_office_handoff,
 )
 _OTHER_WITHOUT_TOAST = (_T.kpi_coach, _T.powercalling_kpi)
 

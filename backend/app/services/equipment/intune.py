@@ -50,28 +50,24 @@ from app.models.equipment_intune import (
     EquipmentIntuneDevice,
     EquipmentIntuneSyncState,
 )
-from app.models.hr_ops import HrJobRun
 from app.models.user import User
 from app.services.equipment import identifiers, intune_graph, sanitize
 from app.services.equipment.intune_graph import DeviceSource, IntuneSourceError
-from app.services.equipment.registry import (
+from app.services.equipment.errors import (
     EquipmentConflict,
     EquipmentError,
     EquipmentNotFound,
-    candidate_name,
 )
+from app.services.equipment.holders import candidate_name
 from app.services.equipment_extras_schema import INTUNE_RESOLUTIONS
-from app.services.hr import audit
-from app.services.hr.modules import load_modules
+from app.services.hr import audit, job_runs
+from app.services.hr.modules import HrModule, load_modules
 
 logger = logging.getLogger(__name__)
 
 JOB_KIND = "equipment_intune_sync"
-MODULE = "equipment"
 #: Nocny przebieg od tej godziny (Warszawa) — przed pracą recepcji.
 RUN_FROM = time(5, 30)
-#: Rezerwacja starsza niż tyle bez zakończenia = przebieg przerwany.
-STALE_CLAIM = timedelta(hours=1)
 #: Sonda health: udany przebieg nie starszy niż doba z zapasem.
 FRESH_FOR = timedelta(hours=26)
 UPSERT_CHUNK = 500
@@ -130,46 +126,6 @@ def _iso(value: Optional[datetime]) -> Optional[str]:
 
 
 # ── Przebieg ─────────────────────────────────────────────────────────────────
-
-
-async def _claim(
-    db: AsyncSession, period_key: str, now: datetime, *, manual: bool
-) -> Optional[int]:
-    stale = and_(HrJobRun.status == "claimed", HrJobRun.claimed_at < now - STALE_CLAIM)
-    retake = HrJobRun.status != "claimed" if manual else HrJobRun.status == "failed"
-    statement = (
-        insert(HrJobRun)
-        .values(kind=JOB_KIND, period_key=period_key, status="claimed", claimed_at=now)
-        .on_conflict_do_update(
-            constraint="uq_hr_job_runs_kind_period",
-            set_={
-                "status": "claimed",
-                "claimed_at": now,
-                "finished_at": None,
-                "error": None,
-            },
-            where=or_(retake, stale),
-        )
-        .returning(HrJobRun.id)
-    )
-    claimed = await db.scalar(statement)
-    await db.commit()
-    return claimed
-
-
-async def _finish(
-    db: AsyncSession,
-    run_id: int,
-    *,
-    status: str,
-    counts: dict[str, Any],
-    error: Optional[str] = None,
-) -> None:
-    await db.execute(
-        update(HrJobRun)
-        .where(HrJobRun.id == run_id)
-        .values(status=status, counts=counts, error=error, finished_at=func.now())
-    )
 
 
 async def _save_state(
@@ -365,12 +321,15 @@ async def run_once(
     now = now or datetime.now(timezone.utc)
     local = now.astimezone(_WARSAW)
     if not manual:
-        if not (await load_modules(db)).get(MODULE):
-            return {"status": "disabled", "reason": "module_off"}
+        if not (await load_modules(db)).get(HrModule.equipment):
+            return {"status": "disabled"}
         if local.time() < RUN_FROM:
             return {"status": "too_early"}
 
-    run_id = await _claim(db, local.date().isoformat(), now, manual=manual)
+    # Ręczny odczyt (admin) wolno powtórzyć tego samego dnia.
+    run_id = await job_runs.claim(
+        db, JOB_KIND, local.date().isoformat(), now, retake_done=manual
+    )
     if run_id is None:
         return {"status": "skipped", "reason": "running" if manual else "already_ran"}
 
@@ -387,13 +346,11 @@ async def run_once(
             code = f"internal: {type(exc).__name__}"
             logger.exception("equipment_intune: przebieg nieudany")
         await _save_state(db, now, error=code)
-        await _finish(db, run_id, status="failed", counts={}, error=code)
-        await db.commit()
+        await job_runs.finish(db, run_id, status="failed", counts={}, error=code)
         return {"status": "error", "error": code}
 
     await _save_state(db, now, error=None, device_count=counts["devices"])
-    await _finish(db, run_id, status="done", counts=counts)
-    await db.commit()
+    await job_runs.finish(db, run_id, status="done", counts=counts)
     logger.info("equipment_intune: przebieg %s", counts)
     return {"status": "ok", **counts}
 

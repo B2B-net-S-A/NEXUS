@@ -6,8 +6,9 @@ Jedna kolejka na tydzień pracy (poniedziałek–piątek kalendarza firmy):
   przed końcem) z terminem najpóźniej w piątek, czyli zaległe i te z tego
   tygodnia, oraz umówiony kontakt (follow-up) z ostatniej rozmowy. Jedna
   pozycja na kontrakt: rozmowa zamyka wszystkie zaległe punkty naraz, więc
-  dwa wiersze tej samej osoby byłyby jednym telefonem. Follow-up starszy niż
-  ``plan.LOOKBACK_DAYS`` nie wraca — jak w dziennym przebiegu (``reminders``);
+  dwa wiersze tej samej osoby byłyby jednym telefonem. Follow-up liczy
+  ``plan.live_follow_up`` (starszy niż ``plan.LOOKBACK_DAYS`` nie wraca) — jak
+  karta kontraktu i dzienny przebieg (``reminders``);
 * **prośby o opinię** — z ``client_people.feedback_requests``: jedna na
   menedżera u klienta ze wszystkimi jego konsultantami (D9). Liczone na dziś;
   Finanse ich nie widzą (D11 — trasa przekazuje ``include_feedback``).
@@ -49,7 +50,6 @@ from app.services.care.access import CareContract
 
 WORK_DAYS = 5
 NOTE_EXCERPT = 160
-FOLLOW_UP_LABEL = "Umówiony kontakt"
 
 _contacts_org = CONTACTS_ORG.alias("contacts_org")
 
@@ -101,26 +101,6 @@ def last_conversation_payload(
         "note_excerpt": excerpt(conversation.note),
         "signals": conversation_signals(conversation),
     }
-
-
-async def latest_conversations(
-    db: AsyncSession, contract_ids: Sequence[int]
-) -> dict[int, CareConversation]:
-    if not contract_ids:
-        return {}
-    rows = (
-        await db.scalars(
-            select(CareConversation)
-            .where(CareConversation.contract_id.in_(list(contract_ids)))
-            .order_by(
-                CareConversation.contract_id,
-                CareConversation.occurred_on.desc(),
-                CareConversation.id.desc(),
-            )
-            .distinct(CareConversation.contract_id)
-        )
-    ).all()
-    return {conversation.contract_id: conversation for conversation in rows}
 
 
 async def client_managers(
@@ -187,11 +167,7 @@ class Reason:
     def payload(self, today: date) -> dict[str, Any]:
         return {
             "kind": self.kind,
-            "label": (
-                FOLLOW_UP_LABEL
-                if self.kind == "follow_up"
-                else care_plan.KIND_LABELS.get(self.kind, self.kind)
-            ),
+            "label": care_plan.contact_label(self.kind),
             "due_on": self.due_on,
             "overdue": self.due_on < today,
             "plan_item_id": self.plan_item_id,
@@ -213,17 +189,12 @@ def contact_reasons(
         for item in items
         if item.status == "open" and item.due_on <= friday
     ]
-    if (
-        latest is not None
-        and latest.follow_up_on is not None
-        and today - timedelta(days=care_plan.LOOKBACK_DAYS)
-        <= latest.follow_up_on
-        <= friday
-    ):
+    follow_up = care_plan.live_follow_up(latest, today)
+    if follow_up is not None and follow_up <= friday:
         reasons.append(
             Reason(
-                "follow_up",
-                latest.follow_up_on,
+                care_plan.FOLLOW_UP,
+                follow_up,
                 from_conversation_on=latest.occurred_on,
             )
         )
@@ -313,7 +284,7 @@ async def week_queue(
             )
         ).all():
             open_items[item.contract_id].append(item)
-    latest = await latest_conversations(db, ids)
+    latest = await care_plan.latest_conversations(db, ids)
 
     due: list[tuple[CareContract, list[Reason]]] = []
     for contract in contracts:

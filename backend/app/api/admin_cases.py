@@ -20,17 +20,16 @@ from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import require_onboarded_user
-from app.api.hr_gates import MODULE_DISABLED_DETAIL
+from app.api.hr_gates import ensure_module
 from app.core.database import get_db
 from app.models.user import User
 from app.services.action_permissions import ProductAction
 from app.services.admin_cases import queries, service
-from app.services.hr import modules as hr_modules
+from app.services.hr.modules import HrModule
 from app.services.permission_denial import permission_denied
 
 router = APIRouter()
 
-MODULE = "cases"
 NO_ACCESS_DETAIL = (
     "Sprawy administracja@ widzą osoby z uprawnieniem „Sprawy” "
     "i osoby przypisane do sprawy."
@@ -45,12 +44,6 @@ Priority = Literal["P1", "P2", "P3"]
 Status = Literal["new", "in_progress", "waiting", "done", "closed"]
 
 
-async def _ensure_module(db: AsyncSession, user: User) -> None:
-    loaded = await hr_modules.load_modules(db)
-    if not hr_modules.module_open_for(user, loaded, MODULE):
-        raise HTTPException(status.HTTP_404_NOT_FOUND, MODULE_DISABLED_DETAIL)
-
-
 def require_hr_cases_handler():
     """Obsługa skrzynki: uprawnienie „Sprawy” (admin zawsze) i włączony moduł."""
 
@@ -60,7 +53,7 @@ def require_hr_cases_handler():
     ) -> User:
         if not service.is_handler(current_user):
             raise permission_denied(ProductAction.cases)
-        await _ensure_module(db, current_user)
+        await ensure_module(db, current_user, HrModule.cases)
         return current_user
 
     _check.required_permissions = (ProductAction.cases,)
@@ -74,7 +67,7 @@ def require_hr_cases_reader():
         current_user: User = Depends(require_onboarded_user),
         db: AsyncSession = Depends(get_db),
     ) -> User:
-        await _ensure_module(db, current_user)
+        await ensure_module(db, current_user, HrModule.cases)
         if service.is_handler(current_user):
             return current_user
         if await service.has_assigned_cases(db, current_user.id):

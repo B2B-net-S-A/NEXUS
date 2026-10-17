@@ -207,6 +207,8 @@ from app.api import hr_time as hr_time_api
 from app.api import hr_payroll as hr_payroll_api
 from app.api import hr_lifecycle as hr_lifecycle_api
 from app.api import contract_care as contract_care_api
+from app.api import care_atlas as care_atlas_api
+from app.api import care_skills as care_skills_api
 from app.api import admin_cases as admin_cases_api
 from app.api import equipment as equipment_api
 from app.api import equipment_intune as equipment_intune_api
@@ -1741,6 +1743,8 @@ app.include_router(hr_time_api.router, prefix="/api/hr/time", tags=["hr"])
 app.include_router(hr_payroll_api.router, prefix="/api/hr/payroll", tags=["hr"])
 app.include_router(hr_lifecycle_api.router, prefix="/api/hr/lifecycle", tags=["hr"])
 app.include_router(contract_care_api.router, prefix="/api/care", tags=["hr"])
+app.include_router(care_skills_api.router, prefix="/api/care", tags=["hr"])
+app.include_router(care_atlas_api.router, prefix="/api/care", tags=["hr"])
 app.include_router(admin_cases_api.router, prefix="/api/cases", tags=["hr"])
 app.include_router(equipment_api.router, prefix="/api/equipment", tags=["hr"])
 app.include_router(

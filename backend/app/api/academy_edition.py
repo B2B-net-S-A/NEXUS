@@ -24,7 +24,8 @@ from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import require_onboarded_user
-from app.api.equipment import _ensure_module, require_hr_equipment
+from app.api.equipment import require_hr_equipment
+from app.api.hr_gates import ensure_module
 from app.core.database import get_db
 from app.core.scheduling import business_today
 from app.models.user import User, UserRole
@@ -32,6 +33,7 @@ from app.services import academy_edition as edition
 from app.services.action_permissions import ProductAction, has_permission
 from app.services.equipment import issuing
 from app.services.equipment.registry import EquipmentError
+from app.services.hr.modules import HrModule
 from app.services.request_semantics import is_read_only_http_request
 from app.services.section_permissions import (
     ProductSection,
@@ -84,7 +86,7 @@ def require_hr_academy_edition():
         current_user: User = Depends(require_onboarded_user),
         db: AsyncSession = Depends(get_db),
     ) -> User:
-        await _ensure_module(db, current_user)
+        await ensure_module(db, current_user, HrModule.equipment)
         if has_permission(current_user, ProductAction.equipment):
             return current_user
         if academy_access(current_user, request):

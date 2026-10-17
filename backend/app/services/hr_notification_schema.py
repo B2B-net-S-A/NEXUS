@@ -31,6 +31,8 @@ PERSONAL_TYPES: tuple[str, ...] = (
     "admin_case_assigned",  # sprawa administracja@ przypisana → osoba
     "equipment_task",  # „Do zrobienia” recepcji (wydanie, zwrot, protokół)
     "equipment_protocol_signed",  # protokół podpisany przez odbierającego
+    # „Przekaż do front office” → head pionu front office, HoR, Delivery Leadzi.
+    "care_front_office_handoff",
 )
 
 #: Opieka nad konsultantem — link do kontraktu, sekcja Delivery.

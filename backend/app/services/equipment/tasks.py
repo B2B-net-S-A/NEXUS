@@ -18,15 +18,14 @@ Funkcje ``tasks_for_*`` wpina koordynator w pętle kontraktów i cyklu życia;
 
 from __future__ import annotations
 
-import logging
-from datetime import date, datetime, time, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, Optional
 
 from sqlalchemy import func, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.scheduling import DEFAULT_TZ, business_today, is_business_day, local_now
+from app.core.scheduling import business_today, local_now
 from app.models.candidate import Candidate
 from app.models.client import Client
 from app.models.contract import Contract, ContractStatus
@@ -42,21 +41,17 @@ from app.models.equipment import (
     EquipmentProtocol,
     EquipmentTask,
 )
-from app.models.hr_ops import HrJobRun
-from app.models.hr_profile import CompanyDayOff
 from app.models.notification import NotificationType
 from app.models.user import User, UserRole
 from app.services.action_permissions import ProductAction, has_permission
-from app.services.equipment.registry import (
-    AcademyCandidate,
-    EquipmentNotFound,
-    candidate_name,
-    client_provider,
-    holder_of,
-    join_academy_holder,
-)
-
-logger = logging.getLogger(__name__)
+from app.services.equipment.errors import EquipmentNotFound
+from app.services.equipment.holders import AcademyCandidate, candidate_name, holder_of
+from app.services.equipment.queries import join_academy_holder
+from app.services.equipment.registry import client_provider
+from app.services.hr import job_runs
+from app.services.hr.calendar import load_calendar
+from app.services.hr.lifecycle_dates import shift_working_days
+from app.services.hr.notify import notify_each
 
 #: Ile dni roboczych przed startem kontraktu recepcja przygotowuje zestaw (D7).
 CONTRACT_START_LEAD_WORKDAYS = 7
@@ -73,28 +68,11 @@ _CLOSED_CONTRACT = (ContractStatus.void, ContractStatus.ended)
 AUTO_CANCELLED = "auto_cancelled"
 
 
-async def _company_days_off(db: AsyncSession, start: date, end: date) -> set[date]:
-    rows = await db.scalars(
-        select(CompanyDayOff.day).where(CompanyDayOff.day.between(start, end))
-    )
-    return set(rows.all())
-
-
-def _is_workday(day: date, days_off: set[date]) -> bool:
-    moment = datetime.combine(day, time(12))
-    return is_business_day(moment, DEFAULT_TZ) and day not in days_off
-
-
 async def workdays_before(db: AsyncSession, day: date, count: int) -> date:
-    """``count`` dni roboczych przed ``day`` (święta ustawowe i dni wolne firmy)."""
-    days_off = await _company_days_off(db, day - timedelta(days=count * 3 + 14), day)
-    current = day
-    left = count
-    while left > 0:
-        current -= timedelta(days=1)
-        if _is_workday(current, days_off):
-            left -= 1
-    return current
+    """``count`` dni roboczych przed ``day`` — kalendarz firmy jak w urlopach
+    (święta ustawowe i dni wolne firmy)."""
+    calendar = await load_calendar(db, day - timedelta(days=count * 3 + 14), day)
+    return shift_working_days(calendar, day, -count)
 
 
 async def upsert_task(
@@ -494,16 +472,6 @@ async def reminder_recipients(db: AsyncSession) -> list[int]:
     return reception or [u.id for u in holders]
 
 
-async def _claim(db: AsyncSession, period_key: str) -> Optional[int]:
-    statement = (
-        insert(HrJobRun)
-        .values(kind=REMINDER_JOB, period_key=period_key, status="claimed")
-        .on_conflict_do_nothing(constraint="uq_hr_job_runs_kind_period")
-        .returning(HrJobRun.id)
-    )
-    return (await db.execute(statement)).scalar()
-
-
 async def run_once(
     db: AsyncSession, *, remind_from_hour: int = REMIND_FROM_HOUR
 ) -> dict[str, Any]:
@@ -513,15 +481,18 @@ async def run_once(
     otwartych zadań na najbliższe dni nikt nie dostaje dzwonka. Wyłączony
     moduł i godzina przed ``remind_from_hour`` (czas warszawski) = nic.
     """
-    from app.services.hr.modules import load_modules
-    from app.services.notification_triggers import emit
+    from app.services.hr.modules import HrModule, load_modules
 
-    if not (await load_modules(db)).get("equipment"):
+    if not (await load_modules(db)).get(HrModule.equipment):
         return {"status": "disabled"}
-    if local_now().hour < remind_from_hour:
+    now = local_now()
+    if now.hour < remind_from_hour:
         return {"status": "too_early"}
     today = business_today()
-    run_id = await _claim(db, today.isoformat())
+    # Rezerwacja wchodzi razem z dzwonkami (bez osobnego commitu).
+    run_id = await job_runs.claim(
+        db, REMINDER_JOB, today.isoformat(), now, commit=False
+    )
     if run_id is None:
         return {"skipped": True}
     horizon = today + timedelta(days=REMIND_AHEAD_DAYS)
@@ -545,35 +516,23 @@ async def run_once(
             if overdue
             else f"Na dziś i najbliższe dni: {soon}."
         )
-        for user_id in await reminder_recipients(db):
-            try:
-                async with db.begin_nested():
-                    created = await emit(
-                        db,
-                        user_id=user_id,
-                        title=f"Sprzęt: {len(due)} do zrobienia",
-                        message=message,
-                        ntype=NotificationType.equipment_task,
-                        related_entity_type="equipment_tasks",
-                        related_entity_id=None,
-                        link="/equipment?tab=tasks",
-                    )
-                counts["notified"] += int(created is not None)
-            except Exception:  # noqa: BLE001 — jeden odbiorca nie blokuje reszty
-                logger.exception(
-                    "[equipment] przypomnienie nie wyszło user=%s", user_id
-                )
+        counts["notified"] = await notify_each(
+            db,
+            await reminder_recipients(db),
+            title=f"Sprzęt: {len(due)} do zrobienia",
+            message=message,
+            ntype=NotificationType.equipment_task,
+            related_entity_type="equipment_tasks",
+            related_entity_id=None,
+            link="/equipment?tab=tasks",
+            log_tag="equipment",
+        )
         await db.execute(
             update(EquipmentTask)
             .where(EquipmentTask.id.in_([task.id for task in due]))
             .values(last_reminded_on=today)
         )
-    await db.execute(
-        update(HrJobRun)
-        .where(HrJobRun.id == run_id)
-        .values(status="done", counts=counts, finished_at=datetime.now(timezone.utc))
-    )
-    await db.commit()
+    await job_runs.finish(db, run_id, status="done", counts=counts)
     return counts
 
 

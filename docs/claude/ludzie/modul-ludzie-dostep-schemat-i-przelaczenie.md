@@ -131,10 +131,11 @@ z protokołami. Compass zostaje z Akademią i czyta listę osób z NEXUSA.
   `HR_LOOPS_ENABLED=true`; każda ma heartbeat z literalną nazwą (test
   `test_loop_heartbeat`) i rezerwację przebiegu w `hr_job_runs`, więc restart
   przy nocnym wdrożeniu nie robi niczego dwa razy.
-- Powiadomienia HR (`hr_*`, `admin_case_assigned`, `equipment_*`) są osobiste:
-  widoczne bez sekcji, kategoria „Czas i ludzie”. `care_contact_due` należy do
-  sekcji Delivery. **Dzwonka nie ma** (pasek z ikonami jednego tematu,
-  `powiadomienia/pasek-tematy-bez-dzwonka.md`): typy HR mają temat `other`,
+- Powiadomienia HR (`hr_*`, `admin_case_assigned`, `equipment_*`,
+  `care_front_office_handoff`) są osobiste: widoczne bez sekcji, kategoria
+  „Czas i ludzie”. `care_contact_due` należy do sekcji Delivery. **Dzwonka nie ma** (pasek z ikonami jednego tematu,
+  `powiadomienia/pasek-tematy-bez-dzwonka.md`): typy HR mają temat `other`
+  (poza `care_front_office_handoff` — temat „Rekrutacje” z dymkiem),
   czyli dymek dla zalogowanych, mail i liczniki na ekranach — bez listy i bez
   nowej ikony w pasku.
 - **Mail „Czas i ludzie” (`hr_people`, 17.10.2026)** — kolejka maili natychmiast
@@ -142,7 +143,8 @@ z protokołami. Compass zostaje z Akademią i czyta listę osób z NEXUSA.
   wniosek do decyzji, decyzja i przeliczenie dni, anulowana i zgłoszona
   nieobecność, zastępstwo, timesheet zaakceptowany/zwrócony/cofnięty
   i przypomnienie o wysłaniu, przekazana praca, zadania wejścia i odejścia,
-  sprawa administracja@, zadania sprzętu, podpisany protokół. Bez maila: premie
+  sprawa administracja@, zadania sprzętu, podpisany protokół, konsultant
+  przekazany do front office. Bez maila: premie
   i stawki (kwoty), timesheet do akceptacji (zbiór na początku miesiąca —
   przełożony ma licznik), `care_contact_due`. Treść składa `services/hr/hr_mail.py`:
   tytuł i treść powiadomienia przechodzą tylko bez rodzaju nieobecności i kwot,

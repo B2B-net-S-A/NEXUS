@@ -259,7 +259,7 @@ async def test_reader_waits_for_the_cases_module(monkeypatch, cases_off) -> None
     monkeypatch.setenv(mail_ingest.MAILBOX_ENV, "administracja@example.com")
     monkeypatch.setenv(mail_ingest.ENABLED_ENV, "true")
 
-    assert await _run(fake) == {"status": "disabled", "reason": "module_off"}
+    assert await _run(fake) == {"status": "disabled"}
     assert fake.calls == 0
 
 

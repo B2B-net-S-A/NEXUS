@@ -2,11 +2,12 @@
 
 Zakres: pasujące rekrutacje z silnika „Pasuje też do” (podmieniony — Qdrant
 w testach nie działa) i stan „nie udało się sprawdzić”; przekazanie zostawia
-ślad (zdarzenie w śladzie HR, wpis „Do przepięcia” w toku), powiadamia
-Delivery Leadów (rekrutacji i klienta) typem opieki i trafia na oś i listę
-„Ten tydzień”; odmowy: konsultant bez końca projektu i bez „chce zmiany”
-(409), zamknięta rekrutacja (422), Finanse bez zapisu i rola bez sekcji
-Delivery (403).
+ślad (zdarzenie w śladzie HR, wpis „Do przepięcia” w toku), powiadamia front
+office własnym typem ``care_front_office_handoff`` (head pionu front office,
+Head of Recruitment, Delivery Leadzi rekrutacji i klienta — także bez sekcji
+Delivery) i trafia na oś i listę „Ten tydzień”; odmowy: konsultant bez końca
+projektu i bez „chce zmiany” (409), zamknięta rekrutacja (422), Finanse bez
+zapisu i rola bez sekcji Delivery (403).
 
 Dane fikcyjne (repo jest publiczne).
 """
@@ -19,6 +20,7 @@ from sqlalchemy import select
 
 import app.models  # noqa: F401  (rejestracja wszystkich mapperów)
 from app.core.database import AsyncSessionLocal
+from app.models.app_setting import AppSetting
 from app.models.contract_care import RedeployQueueItem
 from app.models.hr_ops import HrAuditEvent
 from app.models.job import Job, JobStatus
@@ -26,7 +28,7 @@ from app.models.notification import Notification, NotificationType
 from app.models.user import UserRole
 from app.services import also_fits
 from app.services.care.front_office import HANDOFF_ACTION
-from app.services.hr_foundation_schema import HR_MODULE_KEYS
+from app.services.hr_foundation_schema import HR_DIVISIONS_SETTING, HR_MODULE_KEYS
 from tests.test_care_api import (
     _previous_modules,
     headers,
@@ -117,12 +119,9 @@ async def test_handoff_leaves_trace_and_notifies_front_office(
     notified = {person["id"] for person in result["notified"]}
     assert {dl.id, job_dl.id, hor.id} <= recipients
     assert tcm.id not in recipients
-    # DL rekrutacji i DL klienta mają sekcję Delivery — dostają powiadomienie.
-    assert {dl.id, job_dl.id} <= notified
-    # Typ opieki należy do sekcji Delivery: domyślny Head of Recruitment jej nie
-    # ma, więc jest wśród adresatów, ale powiadomienia nie dostaje — odpowiedź
-    # mówi to wprost (ekran wymienia, kto dostał).
-    assert hor.id not in notified
+    # Własny typ przekazania nie zależy od sekcji Delivery: Head of Recruitment
+    # (domyślnie bez niej) dostaje je tak samo jak Delivery Leadzi.
+    assert {dl.id, job_dl.id, hor.id} <= notified
 
     async with AsyncSessionLocal() as db:
         rows = (
@@ -135,9 +134,11 @@ async def test_handoff_leaves_trace_and_notifies_front_office(
         ).all()
         assert {row.user_id for row in rows} == notified
         assert all(
-            row.notification_type == NotificationType.care_contact_due for row in rows
+            row.notification_type == NotificationType.care_front_office_handoff
+            for row in rows
         )
-        assert all(row.link == f"/care?contract={contract_id}" for row in rows)
+        # Front office nie ma ekranu opieki — link prowadzi do profilu osoby.
+        assert all(row.link == f"/candidates/{candidate_id}" for row in rows)
         assert "„QA Automation (przykład)”" in rows[0].message
         trace = (
             await db.scalars(
@@ -163,6 +164,72 @@ async def test_handoff_leaves_trace_and_notifies_front_office(
     again = await app_client.get(url, headers=headers(tcm))
     assert len(again.json()["handoffs"]) == 1
     assert again.json()["handoffs"][0]["job_ids"] == [job_id]
+
+
+@pytest_asyncio.fixture
+async def front_office_head():
+    """Head pionu front office w ``app_settings['hr_divisions']`` (przywracany)."""
+
+    async with AsyncSessionLocal() as db:
+        row = await db.get(AppSetting, HR_DIVISIONS_SETTING)
+        previous = dict(row.value) if row is not None else None
+    head = await make_user(UserRole.recruiter)
+
+    async def set_heads(value):
+        async with AsyncSessionLocal() as db:
+            row = await db.get(AppSetting, HR_DIVISIONS_SETTING)
+            if row is None:
+                db.add(AppSetting(key=HR_DIVISIONS_SETTING, value=value))
+            else:
+                row.value = value
+            await db.commit()
+
+    await set_heads({"front_office": head.id, "back_office": None})
+    yield head
+    await set_heads(previous or {"front_office": None, "back_office": None})
+
+
+async def test_handoff_reaches_front_office_head_without_delivery_section(
+    app_client, care_on, monkeypatch, front_office_head
+) -> None:
+    tcm = await make_user(UserRole.talent_community_manager)
+    client_id = await make_client(dl=await make_user(UserRole.delivery_lead))
+    contract_id, candidate_id = await make_contract(
+        client_id, started_days_ago=200, end_in_days=20
+    )
+    fake_matches(monkeypatch, job_ids=[])
+
+    sent = await app_client.post(
+        f"/api/care/contracts/{contract_id}/front-office",
+        headers=headers(tcm),
+        json={"job_ids": []},
+    )
+    assert sent.status_code == 201, sent.text
+    assert front_office_head.id in {p["id"] for p in sent.json()["notified"]}
+    async with AsyncSessionLocal() as db:
+        row = await db.scalar(
+            select(Notification).where(
+                Notification.user_id == front_office_head.id,
+                Notification.related_entity_type == "care_front_office",
+                Notification.related_entity_id == contract_id,
+            )
+        )
+    assert row is not None
+    assert row.notification_type == NotificationType.care_front_office_handoff
+    assert row.link == f"/candidates/{candidate_id}"
+    # Head pionu bez sekcji Delivery widzi je w swoich powiadomieniach.
+    listing = await app_client.get(
+        "/api/notifications", headers=headers(front_office_head)
+    )
+    assert listing.status_code == 200, listing.text
+    assert row.id in {item["id"] for item in listing.json()["items"]}
+    # Temat „Rekrutacje”: pozycja po linku profilu, sprawa imienna (dymek).
+    threads = await app_client.get(
+        "/api/notifications/jobs", headers=headers(front_office_head)
+    )
+    assert threads.status_code == 200, threads.text
+    thread = next(i for i in threads.json()["items"] if i["link"] == row.link)
+    assert thread["has_task"] is True
 
 
 async def test_handoff_refusals(app_client, care_on, monkeypatch) -> None:

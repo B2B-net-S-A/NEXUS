@@ -12,11 +12,13 @@ przepięcia”) albo chce zmiany projektu (aktywny wpis „chce zmiany”).
   i powstaje zdarzenie ``care.front_office_handoff`` w śladzie HR (same
   identyfikatory). Oś konsultanta i lista „Ten tydzień” czytają je z powrotem.
 * **Odbiorcy**: wpis „Do przepięcia” nie ma odbiorcy, więc powiadamiamy
-  Delivery Leadów wybranych rekrutacji, głównego Delivery Leada klienta
-  konsultanta i Head of Recruitment — typem opieki ``care_contact_due``
-  (bez nowego typu). Ten typ należy do sekcji Delivery: osoba bez tej sekcji
-  (domyślny Head of Recruitment) powiadomienia nie dostanie — odpowiedź
-  wymienia, kto naprawdę je dostał.
+  head pionu front office (``app_settings['hr_divisions']``), Head of
+  Recruitment, Delivery Leadów wybranych rekrutacji i głównego Delivery Leada
+  klienta konsultanta — własnym typem ``care_front_office_handoff``. Typ jest
+  osobisty (bez sekcji produktu, jak typy „Ludzi”), bo front office zwykle nie
+  ma sekcji Delivery; dawniej szedł typ opieki ``care_contact_due`` i Head of
+  Recruitment go nie dostawał. Link prowadzi do profilu osoby — ekranu opieki
+  front office nie otwiera. Odpowiedź wymienia, kto naprawdę je dostał.
 """
 
 from __future__ import annotations
@@ -43,9 +45,9 @@ from app.services import also_fits
 from app.services.care import access as care_access
 from app.services.care import records
 from app.services.care.access import CareContract
-from app.services.hr import audit
+from app.services.hr import audit, structure
+from app.services.hr.notify import notify_each
 from app.services.job_working_title import display_title
-from app.services.notification_triggers import emit
 from app.services.request_work_state import IN_WORK_STATES
 
 HANDOFF_ACTION = "care.front_office_handoff"
@@ -65,6 +67,14 @@ def contract_link(contract_id: int) -> str:
     """Panel konsultanta na liście „Ten tydzień”."""
 
     return f"/care?contract={contract_id}"
+
+
+def handoff_link(contract: CareContract) -> str:
+    """Profil osoby (front office); kontrakt bez kandydata (RODO) → panel opieki."""
+
+    if contract.candidate_id is None:
+        return contract_link(contract.id)
+    return f"/candidates/{contract.candidate_id}"
 
 
 async def active_redeploy(
@@ -235,6 +245,17 @@ async def _head_lead(db: AsyncSession, client_id: int) -> Optional[int]:
     return None
 
 
+async def _front_office_head(db: AsyncSession) -> Optional[int]:
+    """Aktywny head pionu front office z ``app_settings['hr_divisions']``."""
+
+    head_id = (await structure.load_division_heads(db)).get("front_office")
+    if head_id is None:
+        return None
+    return await db.scalar(
+        select(User.id).where(User.id == head_id, User.is_active.is_(True))
+    )
+
+
 async def _heads_of_recruitment(db: AsyncSession) -> list[int]:
     users = (
         await db.scalars(
@@ -329,9 +350,12 @@ async def hand_off(
     recipients: set[int] = {
         job.delivery_lead_id for job in jobs if job.delivery_lead_id
     }
-    head = await _head_lead(db, contract.client_id)
-    if head is not None:
-        recipients.add(head)
+    for head in (
+        await _head_lead(db, contract.client_id),
+        await _front_office_head(db),
+    ):
+        if head is not None:
+            recipients.add(head)
     recipients.update(await _heads_of_recruitment(db))
     recipients.discard(actor.id)
 
@@ -343,20 +367,17 @@ async def hand_off(
     )
     notified: list[int] = []
     for user_id in sorted(recipients):
-        async with db.begin_nested():
-            created = await emit(
-                db,
-                user_id=user_id,
-                title="Konsultant dla front office",
-                message=message,
-                ntype=NotificationType.care_contact_due,
-                # Osobna encja: przypomnienie opiekuna (``contract``) i
-                # przekazanie tego samego dnia nie zjadają się w deduplikacji.
-                related_entity_type="care_front_office",
-                related_entity_id=contract.id,
-                link=contract_link(contract.id),
-            )
-        if created is not None:
+        if await notify_each(
+            db,
+            [user_id],
+            title="Konsultant dla front office",
+            message=message,
+            ntype=NotificationType.care_front_office_handoff,
+            related_entity_type="care_front_office",
+            related_entity_id=contract.id,
+            link=handoff_link(contract),
+            log_tag="care",
+        ):
             notified.append(user_id)
 
     audit.record(

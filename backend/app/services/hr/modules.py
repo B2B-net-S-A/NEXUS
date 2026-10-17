@@ -9,6 +9,7 @@ Admin widzi ekrany także przy wyłączonym module (przygotowanie importu).
 from __future__ import annotations
 
 from collections.abc import Mapping
+from enum import StrEnum
 
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
@@ -17,6 +18,19 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.app_setting import AppSetting
 from app.models.user import User, UserRole
 from app.services.hr_foundation_schema import HR_MODULE_KEYS, HR_MODULES_SETTING
+
+
+class HrModule(StrEnum):
+    """Klucze przełączników (te same wartości co ``HR_MODULE_KEYS``)."""
+
+    people = "people"
+    leave = "leave"
+    time = "time"
+    payroll = "payroll"
+    lifecycle = "lifecycle"
+    care = "care"
+    cases = "cases"
+    equipment = "equipment"
 
 
 def normalize(raw: object) -> dict[str, bool]:

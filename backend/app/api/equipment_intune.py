@@ -16,13 +16,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import require_onboarded_user
 from app.api.equipment import require_hr_equipment
-from app.api.hr_gates import MODULE_DISABLED_DETAIL
+from app.api.hr_gates import ensure_module
 from app.core.database import get_db
 from app.models.user import User, UserRole
 from app.services.action_permissions import ProductAction
 from app.services.equipment import intune, intune_graph
 from app.services.equipment.registry import EquipmentError
-from app.services.hr import modules as hr_modules
+from app.services.hr.modules import HrModule
 
 router = APIRouter()
 
@@ -43,9 +43,7 @@ def require_hr_equipment_admin():
         current_user: User = Depends(require_onboarded_user),
         db: AsyncSession = Depends(get_db),
     ) -> User:
-        loaded = await hr_modules.load_modules(db)
-        if not hr_modules.module_open_for(current_user, loaded, "equipment"):
-            raise HTTPException(status.HTTP_404_NOT_FOUND, MODULE_DISABLED_DETAIL)
+        await ensure_module(db, current_user, HrModule.equipment)
         if not current_user.has_role(UserRole.admin):
             raise HTTPException(status.HTTP_403_FORBIDDEN, ADMIN_ONLY_DETAIL)
         return current_user

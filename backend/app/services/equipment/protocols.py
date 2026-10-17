@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import hashlib
 import io
-import logging
 import secrets
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Optional, Sequence
@@ -36,17 +35,14 @@ from app.models.user import User
 from app.services import storage_service
 from app.services.equipment import protocol_document
 from app.services.equipment.protocol_template import TEMPLATE_VERSION
-from app.services.equipment.registry import (
+from app.services.equipment.errors import (
     EquipmentConflict,
     EquipmentError,
     EquipmentNotFound,
-    Holder,
-    holder_columns,
-    holder_of,
 )
+from app.services.equipment.holders import Holder, holder_columns, holder_of
 from app.services.hr import audit
-
-logger = logging.getLogger(__name__)
+from app.services.hr.notify import notify_each
 
 LINK_VALID_DAYS = 14
 SIGNED_DIR = storage_service.STORAGE_ROOT / "equipment_protocols"
@@ -373,8 +369,6 @@ async def sign_by_link(
     db: AsyncSession, token: str, *, signer_name: str
 ) -> EquipmentProtocol:
     """Osoba z linku potwierdza odbiór; recepcja potwierdza potem podpis (D4)."""
-    from app.services.notification_triggers import emit
-
     name = " ".join(signer_name.split())
     if len(name) < 3:
         raise EquipmentError("Wpisz imię i nazwisko.")
@@ -394,26 +388,21 @@ async def sign_by_link(
         entity_id=protocol.id,
         action="signed_by_link",
     )
-    if protocol.issuer_user_id:
-        try:
-            async with db.begin_nested():
-                await emit(
-                    db,
-                    user_id=protocol.issuer_user_id,
-                    title=f"Protokół {protocol.number} podpisany linkiem",
-                    message=(
-                        f"{protocol.holder_name} potwierdził(a) odbiór sprzętu. "
-                        "Sprawdź podpis i potwierdź protokół."
-                    ),
-                    ntype=NotificationType.equipment_protocol_signed,
-                    related_entity_type="equipment_protocol",
-                    related_entity_id=protocol.id,
-                    link=f"/equipment?tab=protocols&protocol={protocol.id}",
-                )
-        except Exception:  # noqa: BLE001 — podpis zapisany, dzwonek to dodatek
-            logger.exception(
-                "[equipment] dzwonek podpisu nie wyszedł protocol=%s", protocol.id
-            )
+    # Podpis zapisany, dzwonek to dodatek — jego awaria idzie do logu.
+    await notify_each(
+        db,
+        [protocol.issuer_user_id],
+        title=f"Protokół {protocol.number} podpisany linkiem",
+        message=(
+            f"{protocol.holder_name} potwierdził(a) odbiór sprzętu. "
+            "Sprawdź podpis i potwierdź protokół."
+        ),
+        ntype=NotificationType.equipment_protocol_signed,
+        related_entity_type="equipment_protocol",
+        related_entity_id=protocol.id,
+        link=f"/equipment?tab=protocols&protocol={protocol.id}",
+        log_tag="equipment",
+    )
     return protocol
 
 

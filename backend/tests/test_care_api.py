@@ -31,11 +31,17 @@ from app.models.candidate import Candidate
 from app.models.candidate_skill_usage import CandidateSkillUsage
 from app.models.client import Client, ClientStatus
 from app.models.contract import Contract, ContractStatus, RateUnit
-from app.models.contract_care import RedeployQueueItem, SkillReviewItem, TechCard
+from app.models.contract_care import (
+    CareConversation,
+    RedeployQueueItem,
+    SkillReviewItem,
+    TechCard,
+)
 from app.models.job import Job, JobStatus
 from app.models.skill import Skill, SkillAlias
 from app.models.team_structure import DeliveryLeadClientAssignment
 from app.models.user import User, UserRole
+from app.services.care.plan import LOOKBACK_DAYS
 from app.services.hr_foundation_schema import HR_MODULE_KEYS, HR_MODULES_SETTING
 
 pytestmark = pytest.mark.asyncio
@@ -400,6 +406,43 @@ async def test_conversation_closes_plan_item_and_flags_redeploy_once(
         json={"occurred_on": today.isoformat(), "channel": "sms"},
     )
     assert bad_channel.status_code == 422
+
+
+async def test_next_contact_skips_follow_up_older_than_lookback(
+    app_client, care_on
+) -> None:
+    """Karta kontraktu i „Moi konsultanci” liczą następny kontakt jak „Ten
+    tydzień” i dzwonek: umówiony termin sprzed ``LOOKBACK_DAYS`` (import) odpada."""
+
+    tcm = await make_user(UserRole.talent_community_manager)
+    client_id = await make_client()
+    contract_id, _ = await make_contract(client_id, started_days_ago=400)
+    today = business_today()
+    async with AsyncSessionLocal() as db:
+        db.add(
+            CareConversation(
+                contract_id=contract_id,
+                occurred_on=today - timedelta(days=60),
+                channel="phone",
+                follow_up_on=today - timedelta(days=LOOKBACK_DAYS + 1),
+            )
+        )
+        await db.commit()
+
+    overview = await app_client.get(
+        f"/api/care/contracts/{contract_id}", headers=headers(tcm)
+    )
+    assert overview.status_code == 200, overview.text
+    upcoming = overview.json()["next_contact"]
+    assert (upcoming["label"], upcoming["overdue"]) == ("Kontakt kwartalny", False)
+    assert upcoming["plan_item_id"] is not None
+
+    listing = await app_client.get(
+        "/api/care/my-consultants?scope=all", headers=headers(tcm)
+    )
+    row = next(r for r in listing.json()["items"] if r["contract_id"] == contract_id)
+    assert row["next_contact"]["due_on"] == upcoming["due_on"]
+    assert row["next_contact"]["label"] == "Kontakt kwartalny"
 
 
 async def test_dismissed_project_end_does_not_come_back_for_the_same_date(

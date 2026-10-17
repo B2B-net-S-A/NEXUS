@@ -1,501 +1,70 @@
-"""Rejestr sprzętu: cennik, egzemplarze, posiadacze, historia (kroki S1–S2).
+"""Rejestr sprzętu: egzemplarze (zapis) i flaga klienta „sprzęt od nas” (kroki S1–S2).
 
-Jedna pozycja to jeden egzemplarz. „Wolny” znaczy: stan ``na_stanie`` i brak
-aktywnego wydania (indeks częściowy w bazie pilnuje, że wydanie jest najwyżej
-jedno). Posiadacz to dokładnie jedno z czterech: konto NEXUSA (pracownik
-biura), kontrakt (konsultant u klienta), osoba zewnętrzna bez konta albo
-uczestnik Akademii (zgłoszenie ``academy_applications``, 0462). Imię, nazwisko
-i e-mail uczestnika pochodzą z kandydata zgłoszenia — PESEL-u i adresu
-z dokumentów Akademii ewidencja nie widzi.
+Jedna pozycja to jeden egzemplarz. Reszta rejestru leży obok:
+
+* ``errors`` — odmowy (``EquipmentError`` i pochodne),
+* ``holders`` — posiadacze (konto, kontrakt, osoba spoza, uczestnik Akademii),
+* ``pricing`` — cennik modeli,
+* ``queries`` — lista, szczegół, historia wydań, podsumowanie.
+
+Ten moduł re-eksportuje ich nazwy, więc ``registry.X`` i importy z innych
+modułów (np. ``api/candidates.py``, ``candidate_merge.py``) działają jak dotąd.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from decimal import Decimal
-from typing import Any, Literal, Optional, Sequence
+from typing import Any, Optional
 
-from sqlalchemy import and_, case, exists, func, or_, select, text
+from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import aliased
 
-from app.models.academy import AcademyApplication, AcademyProgram
-from app.models.candidate import Candidate
-from app.models.client import Client
-from app.models.contract import Contract, ContractStatus
-from app.models.equipment import (
-    EquipmentAssignment,
-    EquipmentExternalPerson,
-    EquipmentImportRow,
-    EquipmentItem,
-    EquipmentModel,
-    EquipmentProtocol,
-)
+from app.models.equipment import EquipmentAssignment, EquipmentItem, EquipmentModel
 from app.models.user import User
 from app.services import equipment_schema as schema
 from app.services.equipment import identifiers, sanitize
+from app.services.equipment.errors import (
+    EquipmentConflict,
+    EquipmentError,
+    EquipmentNotFound,
+)
+from app.services.equipment.holders import (
+    ACADEMY_EQUIPMENT_HELD,
+    DELETED_PERSON,
+    ISSUABLE_ACADEMY_STATUSES,
+    ISSUABLE_CONTRACT_STATUSES,
+    AcademyCandidate,
+    Holder,
+    HolderKind,
+    academy_detail,
+    academy_participant_name,
+    active_academy_assignments,
+    candidate_name,
+    create_external_person,
+    external_payload,
+    holder_columns,
+    holder_of,
+    list_external_people,
+    resolve_holder,
+    search_academy_holders,
+    search_holders,
+)
+from app.services.equipment.pricing import (
+    create_model,
+    get_or_create_model,
+    list_models,
+    model_payload,
+    update_model,
+)
+from app.services.equipment.queries import (
+    assignment_history,
+    holder_equipment,
+    item_detail,
+    item_payload,
+    join_academy_holder,
+    list_items,
+    summary,
+)
 from app.services.hr import audit
-
-HolderKind = Literal["user", "contract", "external", "academy"]
-
-#: Kontrakty, którym można wydać sprzęt (konsultant przed startem albo w trakcie).
-ISSUABLE_CONTRACT_STATUSES = (
-    ContractStatus.draft,
-    ContractStatus.ready_for_signature,
-    ContractStatus.active,
-    ContractStatus.ending,
-)
-
-#: Zgłoszenia Akademii, którym można wydać sprzęt (po zaliczonym zadaniu).
-ISSUABLE_ACADEMY_STATUSES = ("task_passed", "contract_sent", "signed")
-
-#: Kandydat zgłoszenia Akademii — osobny alias, bo ``Candidate`` bywa już
-#: dołączony przez kontrakt w tym samym zapytaniu.
-AcademyCandidate = aliased(Candidate, name="academy_candidate")
-
-
-#: Posiadacz, którego dane usunięto (kandydat kontraktu na żądanie RODO,
-#: zgłoszenie Akademii przy usunięciu albo scaleniu osoby).
-DELETED_PERSON = "Osoba usunięta"
-
-#: Odmowa usunięcia albo scalenia kandydata, gdy jako uczestnik Akademii ma
-#: niezwrócony sprzęt — wydanie straciłoby posiadacza, a egzemplarz zostałby
-#: „wydany” nikomu.
-ACADEMY_EQUIPMENT_HELD = (
-    "Ta osoba ma niezwrócony sprzęt jako uczestnik Akademii. Najpierw zwrot "
-    "sprzętu w module „Sprzęt”, potem usunięcie albo scalenie profilu."
-)
-
-
-class EquipmentError(Exception):
-    """Odmowa z polskim zdaniem dla recepcji; ``status`` = kod HTTP trasy."""
-
-    status = 422
-
-    def __init__(self, message: str, *, status: int | None = None) -> None:
-        super().__init__(message)
-        self.message = message
-        if status is not None:
-            self.status = status
-
-
-class EquipmentNotFound(EquipmentError):
-    status = 404
-
-
-class EquipmentConflict(EquipmentError):
-    status = 409
-
-
-@dataclass(frozen=True)
-class Holder:
-    kind: HolderKind
-    id: int
-    name: str
-    email: Optional[str]
-    detail: Optional[str]
-
-    def as_dict(self) -> dict[str, Any]:
-        return {
-            "kind": self.kind,
-            "id": self.id,
-            "name": self.name,
-            "email": self.email,
-            "detail": self.detail,
-        }
-
-
-def candidate_name(candidate: Candidate | None) -> str:
-    if candidate is None:
-        return "Konsultant"
-    return (
-        " ".join(p for p in (candidate.name, candidate.lastname) if p) or "Konsultant"
-    )
-
-
-async def resolve_holder(db: AsyncSession, kind: str, holder_id: int) -> Holder:
-    if kind == "user":
-        user = await db.get(User, holder_id)
-        if user is None:
-            raise EquipmentNotFound("Nie ma takiego konta.")
-        return Holder(
-            "user", user.id, user.name or user.email, user.email, "Konto NEXUSA"
-        )
-    if kind == "contract":
-        # Kandydata usuniętego na żądanie (RODO) kontrakt przeżywa z pustym
-        # ``candidate_id`` — sprzęt na nim trzeba dalej móc zwrócić.
-        row = (
-            await db.execute(
-                select(Contract, Candidate, Client)
-                .outerjoin(Candidate, Candidate.id == Contract.candidate_id)
-                .outerjoin(Client, Client.id == Contract.client_id)
-                .where(Contract.id == holder_id)
-            )
-        ).first()
-        if row is None:
-            raise EquipmentNotFound("Nie ma takiego kontraktu.")
-        contract, candidate, client = row
-        detail = "Kontraktor"
-        if client is not None:
-            detail += f" · {client.name}"
-        if contract.start_date:
-            detail += f" · start {contract.start_date:%d.%m.%Y}"
-        if candidate is None:
-            return Holder("contract", contract.id, DELETED_PERSON, None, detail)
-        email = contract.candidate_email or candidate.email
-        return Holder("contract", contract.id, candidate_name(candidate), email, detail)
-    if kind == "external":
-        person = await db.get(EquipmentExternalPerson, holder_id)
-        if person is None:
-            raise EquipmentNotFound("Nie ma takiej osoby.")
-        return Holder(
-            "external",
-            person.id,
-            person.full_name,
-            person.work_email,
-            person.note or "Osoba spoza NEXUSA",
-        )
-    if kind == "academy":
-        row = (
-            await db.execute(
-                select(AcademyApplication, Candidate, AcademyProgram)
-                .join(Candidate, Candidate.id == AcademyApplication.candidate_id)
-                .join(
-                    AcademyProgram, AcademyProgram.id == AcademyApplication.program_id
-                )
-                .where(AcademyApplication.id == holder_id)
-            )
-        ).first()
-        if row is None:
-            raise EquipmentNotFound("Nie ma takiego zgłoszenia Akademii.")
-        application, candidate, program = row
-        return Holder(
-            "academy",
-            application.id,
-            academy_participant_name(candidate),
-            candidate.email,
-            academy_detail(program.name, application.cohort_month),
-        )
-    raise EquipmentError("Nieznany rodzaj posiadacza.")
-
-
-def academy_participant_name(candidate: Candidate | None) -> str:
-    if candidate is None:
-        return "Uczestnik Akademii"
-    return (
-        " ".join(p for p in (candidate.name, candidate.lastname) if p)
-        or "Uczestnik Akademii"
-    )
-
-
-def academy_detail(program_name: str, cohort_month: Any) -> str:
-    detail = f"Uczestnik Akademii · {program_name}"
-    if cohort_month is not None:
-        detail += f" · edycja {cohort_month:%m.%Y}"
-    return detail
-
-
-def holder_columns(kind: HolderKind, holder_id: int) -> dict[str, Optional[int]]:
-    return {
-        "user_id": holder_id if kind == "user" else None,
-        "contract_id": holder_id if kind == "contract" else None,
-        "external_person_id": holder_id if kind == "external" else None,
-        "academy_application_id": holder_id if kind == "academy" else None,
-    }
-
-
-def holder_of(row: Any) -> tuple[HolderKind, int] | None:
-    """(rodzaj, id) posiadacza z wiersza wydania, protokołu albo zadania."""
-    if row.user_id is not None:
-        return "user", row.user_id
-    if row.contract_id is not None:
-        return "contract", row.contract_id
-    if row.external_person_id is not None:
-        return "external", row.external_person_id
-    if getattr(row, "academy_application_id", None) is not None:
-        return "academy", row.academy_application_id
-    return None
-
-
-async def active_academy_assignments(
-    db: AsyncSession,
-    *,
-    candidate_id: int | None = None,
-    application_ids: Sequence[int] = (),
-) -> list[int]:
-    """Id niezwróconych wydań uczestnika Akademii — zgłoszeń osoby albo wskazanych.
-
-    Usunięcie i scalenie kandydata pytają o to przed skasowaniem zgłoszeń
-    (odmowa 409 ``ACADEMY_EQUIPMENT_HELD``); zwrócone wydania nie blokują.
-    """
-    if candidate_id is None and not application_ids:
-        return []
-    owner = (
-        AcademyApplication.candidate_id == candidate_id
-        if candidate_id is not None
-        else AcademyApplication.id.in_([int(value) for value in application_ids])
-    )
-    return list(
-        (
-            await db.scalars(
-                select(EquipmentAssignment.id)
-                .join(
-                    AcademyApplication,
-                    AcademyApplication.id == EquipmentAssignment.academy_application_id,
-                )
-                .where(owner, EquipmentAssignment.returned_at.is_(None))
-                .order_by(EquipmentAssignment.id)
-            )
-        ).all()
-    )
-
-
-async def search_academy_holders(
-    db: AsyncSession, q: str, *, limit: int = 15
-) -> list[dict]:
-    """Uczestnicy Akademii po imieniu i nazwisku: po zaliczonym zadaniu albo z rzeczami.
-
-    Osoba, która zrezygnowała, a nie oddała sprzętu, nadal jest do znalezienia
-    (zwrot), ale wydać jej nic się nie da (``issuing``).
-    """
-    needle = f"%{q.strip()}%"
-    if len(q.strip()) < 2:
-        return []
-    full = func.concat_ws(" ", Candidate.name, Candidate.lastname)
-    holds = exists().where(
-        EquipmentAssignment.academy_application_id == AcademyApplication.id,
-        EquipmentAssignment.returned_at.is_(None),
-    )
-    rows = (
-        await db.execute(
-            select(AcademyApplication, Candidate, AcademyProgram)
-            .join(Candidate, Candidate.id == AcademyApplication.candidate_id)
-            .join(AcademyProgram, AcademyProgram.id == AcademyApplication.program_id)
-            .where(
-                or_(
-                    AcademyApplication.status.in_(ISSUABLE_ACADEMY_STATUSES),
-                    holds,
-                ),
-                full.ilike(needle),
-            )
-            # Najpierw osoby przed podpisem (najbliższa edycja), potem nowsze edycje.
-            .order_by(
-                AcademyApplication.cohort_month.desc().nulls_first(),
-                AcademyApplication.id.desc(),
-            )
-            .limit(limit)
-        )
-    ).all()
-    return [
-        Holder(
-            "academy",
-            application.id,
-            academy_participant_name(candidate),
-            candidate.email,
-            academy_detail(program.name, application.cohort_month),
-        ).as_dict()
-        for application, candidate, program in rows
-    ]
-
-
-async def search_holders(
-    db: AsyncSession, q: str, *, limit: int = 15, kind: Optional[str] = None
-) -> list[dict]:
-    """Podpowiedzi posiadacza w kreatorze wydania: konta, kontrakty, osoby spoza.
-
-    ``kind="academy"`` szuka wyłącznie uczestników Akademii (osobny tryb
-    wyboru w kreatorze — import plików recepcji ich nie potrzebuje).
-    """
-    if kind == "academy":
-        return await search_academy_holders(db, q, limit=limit)
-    needle = f"%{q.strip()}%"
-    if len(q.strip()) < 2:
-        return []
-    out: list[dict] = []
-    users = (
-        await db.scalars(
-            select(User)
-            .where(User.is_active.is_(True))
-            .where(or_(User.name.ilike(needle), User.email.ilike(needle)))
-            .order_by(User.name)
-            .limit(limit)
-        )
-    ).all()
-    out += [
-        Holder("user", u.id, u.name or u.email, u.email, "Konto NEXUSA").as_dict()
-        for u in users
-    ]
-    full = func.concat_ws(" ", Candidate.name, Candidate.lastname)
-    contracts = (
-        await db.execute(
-            select(Contract, Candidate, Client)
-            .join(Candidate, Candidate.id == Contract.candidate_id)
-            .outerjoin(Client, Client.id == Contract.client_id)
-            .where(Contract.status.in_(ISSUABLE_CONTRACT_STATUSES))
-            .where(full.ilike(needle))
-            .order_by(Contract.start_date.desc().nulls_last())
-            .limit(limit)
-        )
-    ).all()
-    for contract, candidate, client in contracts:
-        detail = "Kontraktor" + (f" · {client.name}" if client else "")
-        if contract.start_date:
-            detail += f" · start {contract.start_date:%d.%m.%Y}"
-        out.append(
-            Holder(
-                "contract",
-                contract.id,
-                candidate_name(candidate),
-                contract.candidate_email or candidate.email,
-                detail,
-            ).as_dict()
-        )
-    external = (
-        await db.scalars(
-            select(EquipmentExternalPerson)
-            .where(EquipmentExternalPerson.full_name.ilike(needle))
-            .order_by(EquipmentExternalPerson.full_name)
-            .limit(limit)
-        )
-    ).all()
-    out += [
-        Holder(
-            "external", p.id, p.full_name, p.work_email, p.note or "Osoba spoza NEXUSA"
-        ).as_dict()
-        for p in external
-    ]
-    return out
-
-
-# ── Cennik ────────────────────────────────────────────────────────────────────
-
-
-def model_payload(model: EquipmentModel) -> dict[str, Any]:
-    return {
-        "id": model.id,
-        "category": model.category,
-        "name": model.name,
-        "manufacturer": model.manufacturer,
-        "price_pln": None if model.price_pln is None else str(model.price_pln),
-        "is_active": model.is_active,
-    }
-
-
-async def list_models(db: AsyncSession, *, include_inactive: bool = True) -> list[dict]:
-    query = select(EquipmentModel).order_by(
-        EquipmentModel.category, EquipmentModel.name
-    )
-    if not include_inactive:
-        query = query.where(EquipmentModel.is_active.is_(True))
-    counts = dict(
-        (
-            await db.execute(
-                select(EquipmentItem.model_id, func.count())
-                .where(EquipmentItem.status != "wycofany")
-                .group_by(EquipmentItem.model_id)
-            )
-        ).all()
-    )
-    return [
-        {**model_payload(m), "items": int(counts.get(m.id, 0))}
-        for m in (await db.scalars(query)).all()
-    ]
-
-
-async def _model_name_taken(
-    db: AsyncSession, category: str, name: str, *, exclude_id: int | None = None
-) -> bool:
-    query = select(EquipmentModel.id).where(
-        EquipmentModel.category == category, EquipmentModel.name == name
-    )
-    if exclude_id is not None:
-        query = query.where(EquipmentModel.id != exclude_id)
-    return (await db.scalar(query)) is not None
-
-
-def _check_price(category: str, price: Optional[Decimal]) -> Optional[Decimal]:
-    if price is not None and price < 0:
-        raise EquipmentError("Cena nie może być ujemna.")
-    if category in schema.NO_VALUE_CATEGORIES:
-        # D6: karta SIM i karta dostępu nie mają wartości w protokole.
-        return None
-    return price
-
-
-async def create_model(
-    db: AsyncSession, values: dict[str, Any], *, actor: User
-) -> EquipmentModel:
-    category = values["category"]
-    name = " ".join(values["name"].split())
-    if not name:
-        raise EquipmentError("Podaj nazwę modelu.")
-    if await _model_name_taken(db, category, name):
-        raise EquipmentConflict("Taki model jest już w cenniku.")
-    model = EquipmentModel(
-        category=category,
-        name=name,
-        manufacturer=(values.get("manufacturer") or None),
-        price_pln=_check_price(category, values.get("price_pln")),
-        is_active=values.get("is_active", True),
-        created_by=actor.id,
-    )
-    db.add(model)
-    await db.flush()
-    return model
-
-
-async def update_model(
-    db: AsyncSession, model_id: int, values: dict[str, Any], *, actor: User
-) -> EquipmentModel:
-    model = await db.get(EquipmentModel, model_id)
-    if model is None:
-        raise EquipmentNotFound("Nie ma takiego modelu.")
-    if "name" in values and values["name"] is not None:
-        name = " ".join(values["name"].split())
-        if not name:
-            raise EquipmentError("Podaj nazwę modelu.")
-        if await _model_name_taken(db, model.category, name, exclude_id=model.id):
-            raise EquipmentConflict("Taki model jest już w cenniku.")
-        model.name = name
-    if "manufacturer" in values:
-        model.manufacturer = values["manufacturer"] or None
-    if "price_pln" in values:
-        # Zmiana ceny nie rusza protokołów: wartości są w nich zamrożone.
-        model.price_pln = _check_price(model.category, values["price_pln"])
-    if "is_active" in values and values["is_active"] is not None:
-        model.is_active = bool(values["is_active"])
-    await db.flush()
-    return model
-
-
-async def get_or_create_model(
-    db: AsyncSession,
-    *,
-    category: str,
-    name: str,
-    manufacturer: Optional[str] = None,
-    price: Optional[Decimal] = None,
-    actor: User | None = None,
-) -> EquipmentModel:
-    clean = " ".join(name.split())[:200] or identifiers.CATEGORY_LABELS[category]
-    model = await db.scalar(
-        select(EquipmentModel).where(
-            EquipmentModel.category == category, EquipmentModel.name == clean
-        )
-    )
-    if model is not None:
-        return model
-    model = EquipmentModel(
-        category=category,
-        name=clean,
-        manufacturer=manufacturer,
-        price_pln=_check_price(category, price),
-        created_by=actor.id if actor else None,
-    )
-    db.add(model)
-    await db.flush()
-    return model
-
 
 # ── Egzemplarze ───────────────────────────────────────────────────────────────
 
@@ -688,435 +257,6 @@ async def delete_item(db: AsyncSession, item_id: int, *, actor: User) -> None:
     await db.flush()
 
 
-def _holder_name_expr():
-    """Nazwa posiadacza wydania (konto, konsultant, osoba spoza, uczestnik Akademii).
-
-    Kontrakt bez kandydata (usunięty na żądanie) i zwrócone wydanie bez
-    posiadacza (usunięte zgłoszenie Akademii) to „Osoba usunięta”, nie „—”.
-    """
-    gone = or_(
-        and_(Contract.id.is_not(None), Candidate.id.is_(None)),
-        and_(
-            EquipmentAssignment.id.is_not(None),
-            func.num_nonnulls(
-                EquipmentAssignment.user_id,
-                EquipmentAssignment.contract_id,
-                EquipmentAssignment.external_person_id,
-                EquipmentAssignment.academy_application_id,
-            )
-            == 0,
-        ),
-    )
-    return func.coalesce(
-        User.name,
-        func.nullif(func.concat_ws(" ", Candidate.name, Candidate.lastname), ""),
-        EquipmentExternalPerson.full_name,
-        func.nullif(
-            func.concat_ws(" ", AcademyCandidate.name, AcademyCandidate.lastname), ""
-        ),
-        case((gone, DELETED_PERSON)),
-    )
-
-
-def join_academy_holder(query, academy_application_id):
-    """Dołącz kandydata zgłoszenia Akademii (alias ``AcademyCandidate``)."""
-    return query.outerjoin(
-        AcademyApplication, AcademyApplication.id == academy_application_id
-    ).outerjoin(
-        AcademyCandidate, AcademyCandidate.id == AcademyApplication.candidate_id
-    )
-
-
-def _active_join(query):
-    active = EquipmentAssignment
-    return join_academy_holder(
-        query.outerjoin(
-            active,
-            and_(active.item_id == EquipmentItem.id, active.returned_at.is_(None)),
-        )
-        .outerjoin(User, User.id == active.user_id)
-        .outerjoin(Contract, Contract.id == active.contract_id)
-        .outerjoin(Candidate, Candidate.id == Contract.candidate_id)
-        .outerjoin(Client, Client.id == Contract.client_id)
-        .outerjoin(
-            EquipmentExternalPerson,
-            EquipmentExternalPerson.id == active.external_person_id,
-        ),
-        active.academy_application_id,
-    )
-
-
-def item_payload(
-    item: EquipmentItem,
-    model: EquipmentModel,
-    assignment: EquipmentAssignment | None = None,
-    holder_name: str | None = None,
-    client_name: str | None = None,
-    protocol: tuple[int, str, str] | None = None,
-) -> dict[str, Any]:
-    holder = None
-    if assignment is not None:
-        kind, holder_id = holder_of(assignment) or ("user", 0)
-        holder = {
-            "kind": kind,
-            "id": holder_id,
-            "name": holder_name or "—",
-            "client_name": client_name,
-            "assignment_id": assignment.id,
-            "issued_at": assignment.issued_at.isoformat()
-            if assignment.issued_at
-            else None,
-        }
-    return {
-        "id": item.id,
-        "model": model_payload(model),
-        "category": model.category,
-        "inventory_number": item.inventory_number,
-        "serial_number": item.serial_number,
-        "imei": item.imei,
-        "iccid": item.iccid,
-        "phone_number": item.phone_number,
-        "access_card_number": item.access_card_number,
-        "status": item.status,
-        "ownership": item.ownership,
-        "purchase_date": item.purchase_date.isoformat() if item.purchase_date else None,
-        "location": item.location,
-        "notes": item.notes,
-        "holder": holder,
-        "issue_protocol": (
-            {"id": protocol[0], "number": protocol[1], "status": protocol[2]}
-            if protocol
-            else None
-        ),
-    }
-
-
-async def list_items(
-    db: AsyncSession,
-    *,
-    category: Optional[str] = None,
-    status: Optional[str] = None,
-    holder: Optional[str] = None,
-    q: Optional[str] = None,
-    free_only: bool = False,
-    limit: int = 200,
-    offset: int = 0,
-) -> dict[str, Any]:
-    holder_name = _holder_name_expr()
-    query = _active_join(
-        select(
-            EquipmentItem,
-            EquipmentModel,
-            EquipmentAssignment,
-            holder_name.label("holder_name"),
-            Client.name.label("client_name"),
-            EquipmentProtocol.id,
-            EquipmentProtocol.number,
-            EquipmentProtocol.status,
-        ).join(EquipmentModel, EquipmentModel.id == EquipmentItem.model_id)
-    ).outerjoin(
-        EquipmentProtocol, EquipmentProtocol.id == EquipmentAssignment.issue_protocol_id
-    )
-    if category:
-        query = query.where(EquipmentModel.category == category)
-    if status:
-        query = query.where(EquipmentItem.status == status)
-    if free_only:
-        query = query.where(
-            EquipmentItem.status == "na_stanie", EquipmentAssignment.id.is_(None)
-        )
-    if holder == "none":
-        query = query.where(EquipmentAssignment.id.is_(None))
-    elif holder in ("user", "contract", "external", "academy"):
-        column = {
-            "user": EquipmentAssignment.user_id,
-            "contract": EquipmentAssignment.contract_id,
-            "external": EquipmentAssignment.external_person_id,
-            "academy": EquipmentAssignment.academy_application_id,
-        }[holder]
-        query = query.where(column.is_not(None))
-    if q and q.strip():
-        needle = f"%{q.strip()}%"
-        digits = "".join(ch for ch in q if ch.isdigit())
-        conditions = [
-            EquipmentItem.inventory_number.ilike(needle),
-            EquipmentItem.serial_number.ilike(needle),
-            EquipmentItem.access_card_number.ilike(needle),
-            EquipmentModel.name.ilike(needle),
-            holder_name.ilike(needle),
-        ]
-        if len(digits) >= 3:
-            conditions += [
-                EquipmentItem.imei.contains(digits),
-                EquipmentItem.iccid.contains(digits),
-                EquipmentItem.phone_number.contains(digits[-9:]),
-            ]
-        query = query.where(or_(*conditions))
-    total = await db.scalar(select(func.count()).select_from(query.subquery()))
-    rows = (
-        await db.execute(
-            query.order_by(
-                EquipmentModel.category,
-                EquipmentItem.inventory_number,
-                EquipmentItem.id,
-            )
-            .limit(limit)
-            .offset(offset)
-        )
-    ).all()
-    items = [
-        item_payload(
-            item,
-            model,
-            assignment,
-            name,
-            client,
-            (pid, number, pstatus) if pid else None,
-        )
-        for item, model, assignment, name, client, pid, number, pstatus in rows
-    ]
-    return {"items": items, "total": int(total or 0)}
-
-
-async def assignment_history(db: AsyncSession, *, where: Any) -> list[dict[str, Any]]:
-    holder_name = _holder_name_expr()
-    issue = EquipmentProtocol.__table__.alias("issue_protocol")
-    back = EquipmentProtocol.__table__.alias("return_protocol")
-    query = join_academy_holder(
-        select(
-            EquipmentAssignment,
-            EquipmentItem,
-            EquipmentModel,
-            holder_name.label("holder_name"),
-            Client.name.label("client_name"),
-            issue.c.number,
-            back.c.number,
-        )
-        .join(EquipmentItem, EquipmentItem.id == EquipmentAssignment.item_id)
-        .join(EquipmentModel, EquipmentModel.id == EquipmentItem.model_id)
-        .outerjoin(User, User.id == EquipmentAssignment.user_id)
-        .outerjoin(Contract, Contract.id == EquipmentAssignment.contract_id)
-        .outerjoin(Candidate, Candidate.id == Contract.candidate_id)
-        .outerjoin(Client, Client.id == Contract.client_id)
-        .outerjoin(
-            EquipmentExternalPerson,
-            EquipmentExternalPerson.id == EquipmentAssignment.external_person_id,
-        ),
-        EquipmentAssignment.academy_application_id,
-    )
-    rows = (
-        await db.execute(
-            query.outerjoin(issue, issue.c.id == EquipmentAssignment.issue_protocol_id)
-            .outerjoin(back, back.c.id == EquipmentAssignment.return_protocol_id)
-            .where(where)
-            .order_by(
-                EquipmentAssignment.issued_at.desc(), EquipmentAssignment.id.desc()
-            )
-        )
-    ).all()
-    out = []
-    for assignment, item, model, name, client, issue_no, return_no in rows:
-        kind, holder_id = holder_of(assignment) or ("user", 0)
-        out.append(
-            {
-                "assignment_id": assignment.id,
-                "item_id": item.id,
-                "category": model.category,
-                "model_name": model.name,
-                "inventory_number": item.inventory_number,
-                "serial_number": item.serial_number,
-                "imei": item.imei,
-                "phone_number": item.phone_number,
-                "access_card_number": item.access_card_number,
-                "ownership": item.ownership,
-                "item_status": item.status,
-                "holder": {
-                    "kind": kind,
-                    "id": holder_id,
-                    "name": name or "—",
-                    "client_name": client,
-                },
-                "issued_at": assignment.issued_at.isoformat(),
-                "returned_at": (
-                    assignment.returned_at.isoformat()
-                    if assignment.returned_at
-                    else None
-                ),
-                "return_condition": assignment.return_condition,
-                "return_notes": assignment.return_notes,
-                "issue_protocol": issue_no,
-                "issue_protocol_id": assignment.issue_protocol_id,
-                "return_protocol": return_no,
-                "return_protocol_id": assignment.return_protocol_id,
-                "unit_value": (
-                    None
-                    if model.price_pln is None
-                    or model.category in schema.NO_VALUE_CATEGORIES
-                    else str(model.price_pln)
-                ),
-            }
-        )
-    return out
-
-
-async def item_detail(db: AsyncSession, item_id: int) -> dict[str, Any]:
-    listing = await db.execute(
-        _active_join(
-            select(
-                EquipmentItem,
-                EquipmentModel,
-                EquipmentAssignment,
-                _holder_name_expr(),
-                Client.name,
-            ).join(EquipmentModel, EquipmentModel.id == EquipmentItem.model_id)
-        ).where(EquipmentItem.id == item_id)
-    )
-    row = listing.first()
-    if row is None:
-        raise EquipmentNotFound("Nie ma takiej pozycji.")
-    item, model, assignment, name, client = row
-    payload = item_payload(item, model, assignment, name, client)
-    payload["history"] = await assignment_history(
-        db, where=EquipmentAssignment.item_id == item_id
-    )
-    return payload
-
-
-async def holder_equipment(
-    db: AsyncSession, kind: HolderKind, holder_id: int
-) -> dict[str, Any]:
-    """Sprzęt osoby, kontraktu albo uczestnika Akademii: aktywne wydania i historia."""
-    column = holder_columns(kind, holder_id)
-    where = {
-        "user": EquipmentAssignment.user_id == holder_id,
-        "contract": EquipmentAssignment.contract_id == holder_id,
-        "external": EquipmentAssignment.external_person_id == holder_id,
-        "academy": EquipmentAssignment.academy_application_id == holder_id,
-    }[kind]
-    history = await assignment_history(db, where=where)
-    active = [row for row in history if row["returned_at"] is None]
-    protocols = (
-        await db.scalars(
-            select(EquipmentProtocol)
-            .where(
-                *(
-                    getattr(EquipmentProtocol, field) == value
-                    for field, value in column.items()
-                    if value is not None
-                )
-            )
-            .order_by(
-                EquipmentProtocol.protocol_date.desc(), EquipmentProtocol.id.desc()
-            )
-        )
-    ).all()
-    return {
-        "active": active,
-        "history": [row for row in history if row["returned_at"] is not None],
-        "protocols": [
-            {
-                "id": p.id,
-                "number": p.number,
-                "kind": p.kind,
-                "status": p.status,
-                "protocol_date": p.protocol_date.isoformat(),
-            }
-            for p in protocols
-        ],
-    }
-
-
-async def summary(db: AsyncSession) -> dict[str, Any]:
-    free = dict(
-        (
-            await db.execute(
-                select(EquipmentModel.category, func.count())
-                .select_from(EquipmentItem)
-                .join(EquipmentModel, EquipmentModel.id == EquipmentItem.model_id)
-                .outerjoin(
-                    EquipmentAssignment,
-                    and_(
-                        EquipmentAssignment.item_id == EquipmentItem.id,
-                        EquipmentAssignment.returned_at.is_(None),
-                    ),
-                )
-                .where(
-                    EquipmentItem.status == "na_stanie",
-                    EquipmentAssignment.id.is_(None),
-                )
-                .group_by(EquipmentModel.category)
-            )
-        ).all()
-    )
-    by_status = dict(
-        (
-            await db.execute(
-                select(EquipmentItem.status, func.count()).group_by(
-                    EquipmentItem.status
-                )
-            )
-        ).all()
-    )
-    waiting = await db.scalar(
-        select(func.count()).where(
-            EquipmentProtocol.status.in_(("oczekuje", "podpisany"))
-        )
-    )
-    unresolved = await db.scalar(
-        select(func.count()).where(
-            EquipmentImportRow.decision == "do_wyjasnienia",
-            EquipmentImportRow.item_id.is_(None),
-        )
-    )
-    return {
-        "free_by_category": {c: int(free.get(c, 0)) for c in schema.CATEGORIES},
-        "by_status": {s: int(by_status.get(s, 0)) for s in schema.ITEM_STATUSES},
-        "protocols_waiting": int(waiting or 0),
-        "import_unresolved": int(unresolved or 0),
-    }
-
-
-# ── Osoby spoza NEXUSA ────────────────────────────────────────────────────────
-
-
-def external_payload(person: EquipmentExternalPerson) -> dict[str, Any]:
-    return {
-        "id": person.id,
-        "full_name": person.full_name,
-        "work_email": person.work_email,
-        "note": person.note,
-    }
-
-
-async def list_external_people(db: AsyncSession, q: Optional[str]) -> list[dict]:
-    query = select(EquipmentExternalPerson).order_by(EquipmentExternalPerson.full_name)
-    if q and q.strip():
-        query = query.where(EquipmentExternalPerson.full_name.ilike(f"%{q.strip()}%"))
-    return [external_payload(p) for p in (await db.scalars(query.limit(100))).all()]
-
-
-async def create_external_person(
-    db: AsyncSession, values: dict[str, Any], *, actor: User
-) -> EquipmentExternalPerson:
-    name = " ".join((values.get("full_name") or "").split())
-    if not name:
-        raise EquipmentError("Podaj imię i nazwisko.")
-    email = (values.get("work_email") or "").strip() or None
-    if email and sanitize.is_private_email(email):
-        raise EquipmentError(
-            "Podaj e-mail służbowy — prywatnych adresów NEXUS nie przechowuje."
-        )
-    person = EquipmentExternalPerson(
-        full_name=name,
-        work_email=email,
-        note=(values.get("note") or None),
-        created_by=actor.id,
-    )
-    db.add(person)
-    await db.flush()
-    return person
-
-
 # ── Zakładka „Sprzęt” kontraktu ↔ rejestr ─────────────────────────────────────
 
 
@@ -1157,3 +297,51 @@ async def set_client_provider(
         details={"equipment_provider": provider},
     )
     return value
+
+
+__all__ = [
+    "ACADEMY_EQUIPMENT_HELD",
+    "DELETED_PERSON",
+    "ISSUABLE_ACADEMY_STATUSES",
+    "ISSUABLE_CONTRACT_STATUSES",
+    "ITEM_FIELDS",
+    "AcademyCandidate",
+    "EquipmentConflict",
+    "EquipmentError",
+    "EquipmentNotFound",
+    "Holder",
+    "HolderKind",
+    "academy_detail",
+    "academy_participant_name",
+    "active_academy_assignments",
+    "active_assignment",
+    "assignment_history",
+    "candidate_name",
+    "clean_notes",
+    "client_provider",
+    "create_external_person",
+    "create_item",
+    "create_model",
+    "delete_item",
+    "external_payload",
+    "get_or_create_model",
+    "holder_columns",
+    "holder_equipment",
+    "holder_of",
+    "identifier_conflicts",
+    "item_detail",
+    "item_payload",
+    "join_academy_holder",
+    "link_contract_equipment",
+    "list_external_people",
+    "list_items",
+    "list_models",
+    "model_payload",
+    "resolve_holder",
+    "search_academy_holders",
+    "search_holders",
+    "set_client_provider",
+    "summary",
+    "update_item",
+    "update_model",
+]
