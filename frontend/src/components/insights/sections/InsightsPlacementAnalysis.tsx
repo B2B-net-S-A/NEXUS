@@ -217,7 +217,7 @@ function PlacementAnalysisBody({ data }: { data: PlacementAnalysisResponse }) {
       </div>
       {clientTotal !== total ? (
         <p className="mt-3 text-xs text-muted-foreground" data-testid="placements-clients-source">
-          {`Dni do 11.10.2026 liczą wpisy z DynaReportera, który nie zapisywał klienta — podział na klientów pochodzi z ruchów Tablicy (${count(clientTotal)} z ${count(total)} placementów okna).`}
+          {`Suma placementów w dniach do 11.10.2026 pochodzi z wpisów DynaReportera, który nie zapisywał klienta. Podział na klientów liczy ruchy Tablicy: ${count(clientTotal)} placementów (suma okna: ${count(total)}).`}
         </p>
       ) : null}
 
