@@ -568,3 +568,43 @@ def test_detail_states_match_the_response_contract() -> None:
     # Odrzucenie przez klienta = ta sama reguła co `known_people_signal`.
     assert "latest.ended_by = 'client'" in sql
     assert "'cv_sent', 'client_interview'" in sql
+
+
+@pytest.mark.asyncio
+async def test_account_without_team_rights_gets_no_team_rows_by_default() -> None:
+    """Rola „Automatyzacje” (0446) nie ma imiennych KPI zespołu.
+
+    Bez `scope` i bez osoby lista spadała do zakresu zespołu, choć jawne
+    `scope=team` dawało tej samej roli 403 (przegląd bezpieczeństwa 17.10.2026).
+    """
+    automation = _user(UserRole.automation, 61)
+    db = AsyncMock()
+    db.execute.side_effect = [_result([automation])]
+    with pytest.raises(HTTPException) as exc:
+        await _details(db, automation)
+    assert exc.value.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_account_without_team_rights_still_opens_its_own_rows() -> None:
+    automation = _user(UserRole.automation, 61)
+    db = AsyncMock()
+    db.execute.side_effect = [_result([automation]), _summary()]
+
+    result = await _details(db, automation, subject_user_id=61)
+
+    _, params = db.execute.await_args.args
+    assert params["user_ids"] == [61]
+    assert result.scope == "person"
+
+
+def test_week_at_the_end_of_the_calendar_is_a_422_not_a_500() -> None:
+    with pytest.raises(HTTPException) as exc:
+        activity_service._detail_window(
+            "week",
+            selected_day=date(9999, 12, 31),
+            selected_month=date(9999, 12, 1),
+            date_from=None,
+            date_to=None,
+        )
+    assert exc.value.status_code == 422

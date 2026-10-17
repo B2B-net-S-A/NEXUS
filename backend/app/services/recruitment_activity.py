@@ -690,6 +690,14 @@ async def list_recruitment_activity_details(
             any_subject=True,
         )
         subject = audience.selected
+        # Bez osoby i bez `scope=team` konto spoza ról KPI (np. „Automatyzacje”,
+        # 0446) spadało do listy całego zespołu, choć jawne `scope=team` dawało
+        # mu 403 (przegląd bezpieczeństwa 17.10.2026).
+        if subject is None and not audience.can_view_team_details:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Brak dostępu do imiennych szczegółów całego zespołu.",
+            )
         # Cały zespół = ta sama pula co suma kafla (R7-N9-1).
         scope = "person" if subject is not None else "team"
 
@@ -758,6 +766,11 @@ def _detail_window(
     date_to: date | None,
 ) -> tuple[date, date]:
     """Dni listy jako półotwarte ``[start, end)`` w kalendarzu firmy."""
+    if selected_day > date.max - timedelta(days=7):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Dzień jest poza zakresem kalendarza.",
+        )
     if window == "day":
         return selected_day, selected_day + timedelta(days=1)
     if window == "week":
