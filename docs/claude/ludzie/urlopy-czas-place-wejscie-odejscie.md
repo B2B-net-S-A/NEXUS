@@ -319,6 +319,54 @@ decyduje o słowach i o przebiegu nieobecności.
   `?form=uop`, `?form=zlecenie`; zero żądań pilnuje
   `app/preview/__tests__/hr-my-time-harness.test.tsx`.
 
+## Rozliczenia zespołu — faktury z KSeF, przelewy, Symfonia (etap 4, R1–R12, 17.10.2026)
+
+Moduł `settlements` (domyślnie wyłączony). NEXUS nie liczy podatków ani składek —
+kwota oczekiwana to zamrożona linia płac; netto, PIT, ZUS i PPK liczy Symfonia.
+Schemat: `hr_settlement_schema.py` (migracja `0467_hr_settlements`, stany w docstringu).
+
+- **Rozliczenie** (`payroll_settlements`) powstaje przy zamknięciu miesiąca z każdej linii
+  z kwotą > 0 (`payroll_close` → `settlements.ensure_for_period`); miesiąc zamknięty przed
+  włączeniem modułu — `POST /api/hr/settlements/months/{r}/{m}/prepare`. Ponowne otwarcie
+  anuluje nieopłacone (opłacone zostają), faktury wracają do `unmatched` z osobą.
+- **B2B:** `awaiting_document` → `ready` przy netto faktury równym linii co do grosza
+  i rachunku z białej listy, inaczej `mismatch`. Netto = faktura pierwotna + korekty
+  (korekta FA(3) zapisana jako różnica; dopina się tylko do faktury tego samego sprzedawcy).
+  Termin = dzień nadania numeru KSeF + `payment_terms_days` osoby (domyślnie 14).
+  **Zlecenie i UoP:** od razu `ready`, termin = `app_settings['hr_payment_settings']['payout_day']`
+  (domyślnie 10.) miesiąca po okresie; PDF rozliczenia zlecenia zamiast rachunku (R3).
+- **Druga osoba:** „Uznaj różnicę” (kwota albo rachunek spoza białej listy) potwierdza ktoś
+  inny z Płac/Finansów/admin; nowy dokument albo zmiana rachunku kasują uznanie. Nikt nie
+  zatwierdza ani nie oznacza zapłaty własnego rozliczenia. R11: przy włączonym module premia
+  „wypłacona” dopiero z opłaconym rozliczeniem (`payroll_bonuses.paid_flags`).
+- **Dane do rozliczeń** (`employee_billing_details`): osoba (odczyt), Kadry, Płace, admin;
+  przełożony i zespół — 404. Rachunek szyfrowany (`TokenCipher`), na zewnątrz tylko 4 cyfry;
+  NIP unikalny między osobami (409); identyfikator osoby w Symfonii zamiast PESEL-u (PESEL
+  odrzucany). Rachunek nigdy w logach, śladzie ani komunikatach błędów.
+- **KSeF** (`services/hr/ksef/*`, `KSEF_MODE=off|test|demo|prod`, lokalnie `simulate`):
+  token KSeF spółki (`KSEF_TOKEN`, uprawnienie `InvoiceRead`) + `KSEF_CONTEXT_NIP`; brak =
+  wyłączone. Pobieranie przyrostowe od znacznika HWM (`app_settings['hr_ksef_sync']` per
+  środowisko i NIP), co godzinę (`hr_job_runs`), najwyżej 8 zapytań o metadane i 40 pobrań na
+  przebieg, „Pobierz teraz” co 5 minut. **Zapisujemy wyłącznie faktury od NIP-ów z danych do
+  rozliczeń** — reszta to licznik „pominięte”; po dopisaniu NIP-u „Pobierz ponownie okres”.
+  Samego XML-a nie trzymamy, tylko skrót. Klient obsługuje Subject1 i Subject2 (etap 5).
+- **Biała lista** (`white_list.py`, `WHITE_LIST_MODE=off|test|live`, lokalnie `simulate`):
+  `search`/`check` z pamięcią wyników na dzień i limitem 100 zapytań; brak odpowiedzi =
+  `WhiteListError` (nigdy „na liście”). Identyfikator zapytania zapisany przy rachunku.
+- **Przelewy** (`services/hr/bank/*`, `/api/hr/payments`): domyślnie ekran „Dla Finansów”
+  (zatwierdzone do zapłaty + CSV z 4 cyframi rachunku + lista NIP-ów dla reguły w eBI24) i import
+  wyciągu MT940/CAMT.053 → `settlements.mark_paid`. Z wyciągu zapisujemy tylko przelewy do
+  ludzi z zespołu; zlecenie/UoP opłacone z wyciągu tylko z miesiącem w tytule, inaczej decyzja
+  Płac; drugi przelew tej samej faktury → decyzja Płac. Paczka przelewów Elixir-O/CSV to
+  opcja wyłączona domyślnie (format nie sprawdzony w banku firmy); pozycja bez pozytywnego
+  `white_list.check` jest zablokowana do decyzji Finansów.
+- **Symfonia** (`symfonia_export.py`): ZIP z ekranu miesiąca Płac — `zdarzenia_RRRR-MM.xml`
+  (windows-1250; L4 tylko, gdy Płace nie pobierają e-ZLA), XLSX premii, XLSX rozliczeń zleceń,
+  PDF zestawienia z listą rzeczy do zrobienia ręcznie. Kwoty w paczce tylko dla Płac, plik
+  nieobecności tylko Kadry/admin. Słowniki (nazwy zdarzeń, składniki premii) w Ustawieniach → Płace.
+  Do potwierdzenia z Płacami: program i wersja, identyfikacja osoby w XML i XLSX, nazwy zdarzeń,
+  e-ZLA, szablony importu z Excela.
+
 ## Wejście i odejście (`app/services/hr/lifecycle_*.py`, `handover.py`, `deactivation.py`)
 
 - Prowadzą Kadry; przełożony widzi sprawę swojego człowieka; wykonawca odhacza

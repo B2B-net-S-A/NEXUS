@@ -337,8 +337,11 @@ async def _target_for(
 
     if invoice.invoice_kind == "correction" and invoice.corrects_invoice_id:
         original = await db.get(PayrollInvoice, invoice.corrects_invoice_id)
+        # Korekta dopina się do rozliczenia faktury pierwotnej tylko od tego
+        # samego sprzedawcy — cudzy numer w polu korekty nie przenosi kwoty.
         if (
             original is not None
+            and original.seller_nip == invoice.seller_nip
             and original.match_status == "matched"
             and original.settlement_id is not None
         ):

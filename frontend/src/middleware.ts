@@ -541,6 +541,7 @@ const PUBLIC_PATHS = [
   "/preview/hr-team",
   "/preview/hr-client-people",
   "/preview/hr-announcements",
+  "/preview/hr-settlements",
   // Strona kariery (kandydaci z LinkedIna) — publiczna z definicji. Na własnym
   // hoście (`kariera.dynaminds.pl`) obsługuje ją `careerHostResponse` niżej;
   // tu jest wejście pod `/kariera/*` na hoście aplikacji (dev, podgląd, grafiki

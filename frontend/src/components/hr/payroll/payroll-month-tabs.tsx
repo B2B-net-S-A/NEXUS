@@ -4,6 +4,8 @@ import type { ReactNode } from "react";
 
 import type { HrConfig, HrModuleKey } from "@/lib/api/hr";
 
+import { KsefInvoicesTab } from "./ksef/KsefInvoicesTab";
+import { PayrollPaymentsTab } from "./payments/PayrollPaymentsTab";
 import { SettlementsQueue } from "./SettlementsQueue";
 
 /** Zakładka ekranu miesiąca Płac (etap 4): „Miesiąc · Rozliczenia · Faktury z KSeF · Przelewy”. */
@@ -21,9 +23,7 @@ export const MONTH_VIEW = "month";
 
 /**
  * Zakładki modułów w kolejności na pasku (po „Miesiącu”). Wyłącznie dla Płac —
- * przełożony widzi sam miesiąc swojego zespołu. Kolejne zakładki etapu 4
- * (`ksef` — „Faktury z KSeF”, `payments` — „Przelewy”) dopisuje się tu jako
- * kolejne pozycje tej listy.
+ * przełożony widzi sam miesiąc swojego zespołu.
  */
 export const PAYROLL_MONTH_TABS: PayrollMonthTab[] = [
   {
@@ -31,6 +31,18 @@ export const PAYROLL_MONTH_TABS: PayrollMonthTab[] = [
     label: "Rozliczenia",
     module: "settlements",
     render: ({ year, month }) => <SettlementsQueue year={year} month={month} />,
+  },
+  {
+    value: "ksef",
+    label: "Faktury z KSeF",
+    module: "settlements",
+    render: ({ year, month }) => <KsefInvoicesTab year={year} month={month} />,
+  },
+  {
+    value: "payments",
+    label: "Przelewy",
+    module: "settlements",
+    render: ({ year, month }) => <PayrollPaymentsTab year={year} month={month} />,
   },
 ];
 

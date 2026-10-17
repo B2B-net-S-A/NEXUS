@@ -236,6 +236,32 @@ async def test_correction_joins_original_and_fixes_the_amount() -> None:
 
 @pytest.mark.usefixtures("settlements_on")
 @pytest.mark.asyncio
+async def test_correction_from_other_seller_does_not_move_the_original() -> None:
+    """Korekta z cudzym numerem faktury pierwotnej nie zmienia jej rozliczenia."""
+    team = await make_team()
+    year, month, period_id, nip = await _b2b_month(team)
+    _, original_id = await _match(
+        invoice(nip=nip, net="15320.00", year=year, month=month)
+    )
+    await _match(
+        invoice(
+            nip=fake_nip(),
+            net="-120.00",
+            year=year,
+            month=month,
+            number="KOR 9/2026",
+            kind="correction",
+            corrects=original_id,
+            period=False,
+        )
+    )
+    row = await _settlement(team.b2b.id, period_id)
+    assert row.status == "mismatch"
+    assert row.discrepancy_amount == Decimal("120.00")
+
+
+@pytest.mark.usefixtures("settlements_on")
+@pytest.mark.asyncio
 async def test_invoice_before_close_waits_and_close_attaches_it() -> None:
     team = await make_team()
     year, month = months_ago(2)

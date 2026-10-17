@@ -13,6 +13,8 @@ osoba/przełożony/Kadry ani kwot w tytule.
 
 from __future__ import annotations
 
+from app.services.hr_settlement_schema import NOTIFICATION_TYPES as SETTLEMENT_TYPES
+
 #: Osobiste: odbiorcę wybiera reguła modułu; widoczne bez sekcji produktu.
 PERSONAL_TYPES: tuple[str, ...] = (
     "hr_leave_requested",  # nowy wniosek → akceptujący
@@ -36,11 +38,8 @@ PERSONAL_TYPES: tuple[str, ...] = (
     # Komunikat do konsultantów: do zatwierdzenia → head back office / admin,
     # decyzja → autor, odbity mail → opiekun („popraw e-mail”).
     "care_announcement",
-    # Rozliczenia zespołu (etap 4): prośba o korektę faktury → osoba, rozliczenie
-    # opłacone → osoba, rozbieżność albo uznanie różnicy do drugiej osoby → Płace.
-    "hr_settlement_correction",
-    "hr_settlement_paid",
-    "hr_settlement_review",
+    # Rozliczenia zespołu (etap 4) — wartości enuma dodaje migracja 0467.
+    *SETTLEMENT_TYPES,
 )
 
 #: Opieka nad konsultantem — link do kontraktu, sekcja Delivery.

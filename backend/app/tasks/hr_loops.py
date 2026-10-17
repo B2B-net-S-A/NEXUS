@@ -277,6 +277,33 @@ async def care_announcements_job(db: AsyncSession) -> dict[str, Any] | None:
     return result if any(result.get(key) for key in keys) else None
 
 
+KSEF_FETCH_INTERVAL_SECONDS = (
+    15 * 60
+)  # przebieg i tak raz na godzinę (klucz w hr_job_runs)
+
+
+async def ksef_fetch_job(db: AsyncSession) -> dict[str, Any] | None:
+    """Faktury od osób z KSeF (etap 4); wyłączona integracja = nic."""
+    from app.services.hr.ksef import sync
+
+    result = await sync.run_once(db)
+    return None if result.get("status") in {"disabled", "skipped"} else result
+
+
+async def ksef_fetch_loop() -> None:
+    from app.services.hr.ksef.environment import load_config
+
+    if not loops_enabled("ksef_fetch"):
+        return
+    if load_config().mode == "off":
+        logger.info("ksef_fetch disabled (KSEF_MODE=off) — pętla nie startuje")
+        return
+    beat = loop_heartbeat.register(
+        "ksef_fetch", max_silence_seconds=KSEF_FETCH_INTERVAL_SECONDS + 1800
+    )
+    await run_periodic("ksef_fetch", beat, KSEF_FETCH_INTERVAL_SECONDS, ksef_fetch_job)
+
+
 async def care_announcements_send_loop() -> None:
     if not loops_enabled("care_announcements_send"):
         return

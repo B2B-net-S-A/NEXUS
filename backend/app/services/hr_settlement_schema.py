@@ -53,6 +53,20 @@ Tabele:
 
 from __future__ import annotations
 
+#: Typy powiadomień etapu 4 (prośba o korektę faktury → osoba, rozliczenie
+#: opłacone → osoba, rozbieżność albo uznanie różnicy do drugiej osoby → Płace).
+#: Wartości enuma dodaje migracja 0467 — 0457 jest już wdrożona, więc dopisek
+#: tam nie dotarłby do produkcji. Należą do ``PERSONAL_TYPES`` modułu powiadomień.
+NOTIFICATION_TYPES: tuple[str, ...] = (
+    "hr_settlement_correction",
+    "hr_settlement_paid",
+    "hr_settlement_review",
+)
+ENUM_DDL: tuple[str, ...] = tuple(
+    f"ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS '{value}'"
+    for value in NOTIFICATION_TYPES
+)
+
 EMPLOYMENT_TYPES: tuple[str, ...] = ("uop", "b2b", "zlecenie")
 CURRENCIES: tuple[str, ...] = ("PLN", "EUR", "USD")
 VAT_STATUSES: tuple[str, ...] = ("active", "exempt", "unregistered")
@@ -104,9 +118,7 @@ CK_BILLING_ACCOUNT = (
     "OR (account_encrypted IS NOT NULL AND account_last4 ~ '^[0-9]{4}$' "
     f"AND account_source IN ({quoted(ACCOUNT_SOURCES)}))"
 )
-CK_BILLING_WHITE_LIST = (
-    "account_source IS DISTINCT FROM 'white_list' OR account_check_request_id IS NOT NULL"
-)
+CK_BILLING_WHITE_LIST = "account_source IS DISTINCT FROM 'white_list' OR account_check_request_id IS NOT NULL"
 CK_BILLING_TERMS = f"payment_terms_days BETWEEN 0 AND {TERMS_MAX_DAYS}"
 CK_BILLING_SYMFONIA = "symfonia_id IS NULL OR char_length(symfonia_id) BETWEEN 1 AND 64"
 

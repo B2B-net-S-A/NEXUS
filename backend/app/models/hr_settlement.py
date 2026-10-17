@@ -250,9 +250,7 @@ class PayrollInvoice(Base, TimestampMixin):
         CheckConstraint(schema.CK_INVOICE_PERIOD, name="ck_payroll_invoices_period"),
         CheckConstraint(schema.CK_INVOICE_ITEMS, name="ck_payroll_invoices_items"),
         CheckConstraint(schema.CK_INVOICE_MATCH, name="ck_payroll_invoices_match"),
-        CheckConstraint(
-            schema.CK_INVOICE_MATCHED, name="ck_payroll_invoices_matched"
-        ),
+        CheckConstraint(schema.CK_INVOICE_MATCHED, name="ck_payroll_invoices_matched"),
         CheckConstraint(schema.CK_INVOICE_HASHES, name="ck_payroll_invoices_hashes"),
         Index(
             "uq_payroll_invoices_ksef_number",
@@ -374,16 +372,12 @@ class PayrollPayment(Base):
     title: Mapped[Optional[str]] = mapped_column(
         String(schema.TITLE_MAX_LENGTH), nullable=True
     )
-    counterparty_last4: Mapped[Optional[str]] = mapped_column(
-        String(4), nullable=True
-    )
+    counterparty_last4: Mapped[Optional[str]] = mapped_column(String(4), nullable=True)
     batch_key: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     batch_format: Mapped[Optional[str]] = mapped_column(String(8), nullable=True)
     statement_sha256: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     statement_format: Mapped[Optional[str]] = mapped_column(String(8), nullable=True)
-    statement_line_ref: Mapped[Optional[str]] = mapped_column(
-        String(64), nullable=True
-    )
+    statement_line_ref: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     reason: Mapped[Optional[str]] = mapped_column(
         String(schema.REASON_MAX_LENGTH), nullable=True
     )

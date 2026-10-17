@@ -46,7 +46,12 @@ afterEach(() => {
 describe("zakładki miesiąca Płac", () => {
   it("tylko Płace przy otwartym module; przełożony widzi sam miesiąc", () => {
     const open = { open_modules: { ...hrConfig().open_modules, settlements: true } };
-    expect(payrollMonthTabs(open, true).map((tab) => tab.value)).toEqual(["month", "settlements"]);
+    expect(payrollMonthTabs(open, true).map((tab) => tab.value)).toEqual([
+      "month",
+      "settlements",
+      "ksef",
+      "payments",
+    ]);
     expect(payrollMonthTabs(open, false)).toEqual([]);
     expect(payrollMonthTabs(hrConfig(), true)).toEqual([]);
   });

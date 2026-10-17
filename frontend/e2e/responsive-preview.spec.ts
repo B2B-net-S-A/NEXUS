@@ -213,6 +213,11 @@ const PAGES = [
   "/preview/hr-announcements?state=report&announcement=4102",
   "/preview/hr-announcements?state=new&announcement=new",
   "/preview/hr-announcements?state=off",
+  "/preview/hr-settlements",
+  "/preview/hr-settlements?state=mandate",
+  "/preview/hr-settlements?state=queue",
+  "/preview/hr-settlements?state=mismatch&settlement=5003",
+  "/preview/hr-settlements?state=billing",
 ] as const;
 
 async function pageOverflowPx(page: Page): Promise<number> {

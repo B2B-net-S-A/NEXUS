@@ -35,6 +35,7 @@ import { useUrlSyncedState, writeUrlParams } from "@/lib/url-selection";
 import { BonusDialog } from "./BonusDialog";
 import { BonusTable } from "./BonusTable";
 import { PayrollPeopleTable } from "./PayrollPeopleTable";
+import { SymfoniaExportButton } from "./payments/SymfoniaExportButton";
 import { ReopenMonthDialog } from "./ReopenMonthDialog";
 import { monthStats, splitBonuses, ymSegment } from "./payroll-format";
 import { MONTH_VIEW, PAYROLL_MONTH_TABS, payrollMonthTabs } from "./payroll-month-tabs";
@@ -230,6 +231,9 @@ export function PayrollMonthScreen({
                 <FileArchive className="h-4 w-4" aria-hidden />
                 {downloading === "zip" ? "Pobieranie…" : "PDF-y timesheetów (ZIP)"}
               </Button>
+              {config.open_modules.settlements ? (
+                <SymfoniaExportButton year={year} month={month} closed={data.status === "closed"} />
+              ) : null}
               {data.can_close ? (
                 <Button size="sm" onClick={closeMonth} disabled={close.isPending}>
                   <Lock className="h-4 w-4" aria-hidden />

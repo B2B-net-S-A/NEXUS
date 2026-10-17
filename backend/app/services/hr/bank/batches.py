@@ -135,9 +135,14 @@ def _override_fresh(
     przelew bez drugiej pary oczu (R10).
     """
 
-    if settlement.override_kind != "white_list" or settlement.override_confirmed_at is None:
+    if (
+        settlement.override_kind != "white_list"
+        or settlement.override_confirmed_at is None
+    ):
         return False
-    return details is not None and details.updated_at <= settlement.override_confirmed_at
+    return (
+        details is not None and details.updated_at <= settlement.override_confirmed_at
+    )
 
 
 def _account(details: Optional[EmployeeBillingDetails]) -> tuple[Optional[str], str]:
@@ -204,9 +209,7 @@ async def plan(
             return "override_stale" if override else default
 
         if not row.nip:
-            items.append(
-                BatchItem(row=row, included=honored, reason=refused("no_nip"))
-            )
+            items.append(BatchItem(row=row, included=honored, reason=refused("no_nip")))
             continue
         try:
             check = await white_list.check(
@@ -270,7 +273,9 @@ async def create_batch(
     ensure_enabled(settings)
     when = _execution_date(execution_date, today)
     # Dwie paczki naraz nie mogą wziąć tego samego rozliczenia.
-    await db.execute(text("SELECT pg_advisory_xact_lock(hashtext('hr-transfer-batch'))"))
+    await db.execute(
+        text("SELECT pg_advisory_xact_lock(hashtext('hr-transfer-batch'))")
+    )
     items = await plan(
         db, settlement_ids=settlement_ids, today=today, actor_id=actor_id
     )
