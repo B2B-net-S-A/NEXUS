@@ -447,26 +447,16 @@ async def _cancel_pending_rejection_emails(
     W TEJ SAMEJ transakcji co ruch (M4 PR-02, audyt P1.7). Wiersz, którego
     wysyłka już ruszyła, zostaje — rozstrzyga go pętla wysyłki (runda 9).
     """
-    from app.models.rejection_email import (
-        RejectionEmailStatus,
-        ScheduledRejectionEmail,
+    from app.models.rejection_email import RejectionEmailStatus
+    from app.services.rejection_email_scheduler import (
+        pending_rows_covering,
+        send_in_progress,
     )
-    from app.services.rejection_email_scheduler import send_in_progress
 
-    pending_mails = (
-        (
-            await db.execute(
-                select(ScheduledRejectionEmail)
-                .where(
-                    ScheduledRejectionEmail.candidate_id == candidate_id,
-                    ScheduledRejectionEmail.job_id == job_id,
-                    ScheduledRejectionEmail.status == RejectionEmailStatus.pending,
-                )
-                .with_for_update()
-            )
-        )
-        .scalars()
-        .all()
+    # Wspólny mail (D3, 17.10.2026) mówi też o tej rekrutacji — osoba, która
+    # do niej wraca, nie może dostać maila, że w niej „nie przechodzi dalej”.
+    pending_mails = await pending_rows_covering(
+        db, candidate_id=candidate_id, job_id=job_id
     )
     for mail_row in pending_mails:
         if send_in_progress(mail_row):
@@ -2165,6 +2155,7 @@ async def apply_move(
                 edited_body=data.rejection_email_body,
                 append_other_processes=data.rejection_email_other_processes
                 is not False,
+                merge=data.rejection_email_merge is not False,
             )
             if scheduled is not None:
                 scheduled_rejection_email_id = scheduled.id

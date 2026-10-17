@@ -21,7 +21,7 @@ osobie z kartoteki i uczestniku Akademii.
 - „Wolny” = stan `na_stanie` i brak aktywnego wydania. Najwyżej jedno aktywne
   wydanie na egzemplarz pilnuje indeks częściowy (także wyścig dwóch wydań).
 - Posiadacz to dokładnie jeden z czterech: konto NEXUSA, kontrakt, osoba
-  zewnętrzna bez konta, uczestnik edycji Akademii (`academy_application_id`, 0464).
+  zewnętrzna bez konta, uczestnik edycji Akademii (`academy_application_id`, 0465).
   CHECK `num_nonnulls(…) = 1` w bazie.
 - Cennik per model (D5); wartość pozycji pochodzi z cennika, zmiana przy wydaniu
   dotyczy tylko tego protokołu. Karta SIM i karta dostępu są w protokole bez

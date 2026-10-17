@@ -1,6 +1,6 @@
-"""„Ludzie w NEXUSIE” — Wejście i odejście: SQL migracji ``0460_hr_lifecycle`` i lustra entrypointu.
+"""„Ludzie w NEXUSIE” — Wejście i odejście: SQL migracji ``0461_hr_lifecycle`` i lustra entrypointu.
 
-JEDNO źródło instrukcji dla ``alembic/versions/0460_hr_lifecycle.py`` i ``entrypoint.sh``
+JEDNO źródło instrukcji dla ``alembic/versions/0461_hr_lifecycle.py`` i ``entrypoint.sh``
 (przez ``app/services/hr_schema_bundle.py``). Zakres: szablony i sprawy cyklu życia, zadania, przekazania pracy.
 
 Kontrakt modułu (czyta go agregator i test łańcucha):
@@ -347,7 +347,7 @@ TABLE_DDL: tuple[str, ...] = (
     CONSTRAINT ck_work_handovers_executed CHECK ({CK_HANDOVER_EXECUTED})
 )""",
 )
-#: Kolumny etapu 3 w tabelach założonych wcześniejszą wersją 0460 (świeża
+#: Kolumny etapu 3 w tabelach założonych wcześniejszą wersją 0461 (świeża
 #: baza dostaje je w ``TABLE_DDL``).
 COLUMN_DDL: tuple[str, ...] = (
     "ALTER TABLE lifecycle_templates ADD COLUMN IF NOT EXISTS audience "
@@ -411,7 +411,7 @@ INDEX_DDL: tuple[str, ...] = (
 def _ensure_check(table: str, name: str, expression: str, marker: str) -> str:
     """CHECK dołożony albo podmieniony, gdy jego definicja nie ma ``marker``.
 
-    Starsza wersja 0460 założyła część CHECK-ów bez wartości etapu 3 (albo
+    Starsza wersja 0461 założyła część CHECK-ów bez wartości etapu 3 (albo
     wcale) — blok podmienia je tylko przy starej definicji, więc entrypoint
     może go wykonywać przy każdym starcie.
     """
@@ -430,7 +430,7 @@ def _ensure_check(table: str, name: str, expression: str, marker: str) -> str:
 
 
 #: Rodzaje pracy (``reports``, ``care``), nowe role wykonawców i nowe pola
-#: etapu 3 w CHECK-ach tabel założonych wcześniejszą wersją 0460.
+#: etapu 3 w CHECK-ach tabel założonych wcześniejszą wersją 0461.
 CONSTRAINT_DDL: tuple[str, ...] = (
     _ensure_check("work_handovers", "ck_work_handovers_kind", CK_HANDOVER_KIND, "care"),
     _ensure_check(

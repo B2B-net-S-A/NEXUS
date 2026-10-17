@@ -1,6 +1,6 @@
 """„Ludzie w NEXUSIE” — kontrakt łańcucha migracji modułów i lustra entrypointu.
 
-Moduły kadrowe mają po jednej migracji (0456–0464), a SQL każdej żyje
+Moduły kadrowe mają po jednej migracji (0457–0465), a SQL każdej żyje
 w ``app/services/<moduł>_schema.py``. Entrypoint bierze go przez agregator
 ``hr_schema_bundle`` — test pilnuje, że żaden moduł nie wypadł z agregatora
 i że wartości enumów stoją literalnie w ``_ENUM_STATEMENTS``.
@@ -29,17 +29,17 @@ _BACKEND = Path(__file__).resolve().parent.parent
 _VERSIONS = _BACKEND / "alembic" / "versions"
 
 CHAIN = (
-    ("0456_hr_notifications", "0455_hr_access", "hr_notification_schema"),
-    ("0457_hr_leave", "0456_hr_notifications", "hr_leave_schema"),
-    ("0458_hr_time", "0457_hr_leave", "hr_time_schema"),
-    ("0459_hr_payroll", "0458_hr_time", "hr_payroll_schema"),
-    ("0460_hr_lifecycle", "0459_hr_payroll", "hr_lifecycle_schema"),
-    ("0461_contract_care", "0460_hr_lifecycle", "contract_care_schema"),
-    ("0462_admin_cases", "0461_contract_care", "admin_cases_schema"),
-    ("0463_equipment", "0462_admin_cases", "equipment_schema"),
-    ("0464_equipment_extras", "0463_equipment", "equipment_extras_schema"),
-    ("0465_care_announcements", "0464_equipment_extras", "care_announcements_schema"),
-    ("0466_hr_settlements", "0465_care_announcements", "hr_settlement_schema"),
+    ("0457_hr_notifications", "0456_hr_access", "hr_notification_schema"),
+    ("0458_hr_leave", "0457_hr_notifications", "hr_leave_schema"),
+    ("0459_hr_time", "0458_hr_leave", "hr_time_schema"),
+    ("0460_hr_payroll", "0459_hr_time", "hr_payroll_schema"),
+    ("0461_hr_lifecycle", "0460_hr_payroll", "hr_lifecycle_schema"),
+    ("0462_contract_care", "0461_hr_lifecycle", "contract_care_schema"),
+    ("0463_admin_cases", "0462_contract_care", "admin_cases_schema"),
+    ("0464_equipment", "0463_admin_cases", "equipment_schema"),
+    ("0465_equipment_extras", "0464_equipment", "equipment_extras_schema"),
+    ("0466_care_announcements", "0465_equipment_extras", "care_announcements_schema"),
+    ("0467_hr_settlements", "0466_care_announcements", "hr_settlement_schema"),
 )
 
 

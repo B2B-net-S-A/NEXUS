@@ -132,5 +132,9 @@ class RecruitmentActivityDetailResponse(RecruitmentActivityModel):
     # Liczba wierszy w każdym stanie dla całego okresu, przed filtrem `state`.
     states: dict[RecruitmentActivityState, int] = Field(default_factory=dict)
     state_filter: RecruitmentActivityState | None = None
-    # Wierszy w okresie przed filtrem `state` (`total` jest po filtrze).
+    # Liczba w okresie przed filtrem `state` (`total` jest po filtrze) — razem
+    # z `history_total`, czyli tak jak licznik celów.
     period_total: int = 0
+    # Ile z `period_total` to tygodniowe wpisy DynaReportera (1.01–11.10.2026):
+    # są w liczbie, ale nie na liście — DynaReporter nie zna kandydatów.
+    history_total: int = 0

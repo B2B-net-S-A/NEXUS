@@ -414,9 +414,10 @@ Komponenty: `cv-editor/CvEditorIssues.tsx` (grupy, „Poprawione”, pasek),
   imieniu („… – Anna K. | Warszawa”), imię po obu stronach, brak imienia albo
   separatora = nic, bo po prawej mogłoby stać miasto albo forma umowy; tytuł
   bierze serwer z `expected_titles`, nie od klienta), `strip_client_rules`
-  (zdanie ze stawką według ścisłego
-  `money_text.is_rate_text` w oknie 80 znaków wokół słowa o pieniądzach —
-  „Moduł wynagrodzeń dla 250 zleceniobiorców” zostaje; kropka między cyframi
+  (zdanie ze stawką według `money_text.is_cv_rate_text` — tej samej reguły
+  co uwaga QC „Stawka w CV”, patrz `rekrutacja-tablica/qc-mowi-prawde.md` —
+  „Moduł wynagrodzeń dla 250 zleceniobiorców” i „Naliczanie wynagrodzeń 300
+  pracowników” zostają; kropka między cyframi
   ani skrót przed cyfrą, małą literą albo walutą („ok. 150 zł/h”) nie kończą
   zdania — „do 5 min. Oczekiwana stawka…” to dwa zdania; punkt mówiący tylko o stawce
   znika cały, także z kwotą w pogrubieniu; e-mail i telefon kandydata (także

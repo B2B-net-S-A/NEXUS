@@ -54,6 +54,8 @@ const ACTIVITY_ACTION_LABELS: Record<string, string> = {
   application_screening_overridden: "Dodano do rekrutacji mimo odrzucenia przez AI",
   rejection_email_cancelled_on_restore:
     "Anulowano email odrzucenia po przywróceniu kandydata",
+  // 17.10.2026 (D3): drugi mail do tej samej osoby dołączony do czekającego.
+  rejection_email_merged: "Połączono maile odrzucenia w jeden wspólny",
   bulk_action_executed: "Wykonano akcję zbiorczą",
   sensitive_operation_blocked: "Zablokowano operację wymagającą uprawnień",
   candidate_languages_replaced: "Zaktualizowano języki",

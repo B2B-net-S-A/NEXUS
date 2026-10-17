@@ -465,7 +465,7 @@ _PLACEMENTS_SQL = """
                'month', fm.first_reached_at AT TIME ZONE 'Europe/Warsaw'
            )::date AS month,
            count(*) AS cnt
-    FROM analytics_first_milestones fm
+    FROM analytics_kpi_milestones fm
     WHERE fm.stage = 'hired'
       AND (fm.first_reached_at AT TIME ZONE 'Europe/Warsaw')::date <= :as_of
     GROUP BY 1, 2

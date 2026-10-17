@@ -1,6 +1,6 @@
-"""„Ludzie w NEXUSIE” — Urlopy i zastępstwa: SQL migracji ``0457_hr_leave`` i lustra entrypointu.
+"""„Ludzie w NEXUSIE” — Urlopy i zastępstwa: SQL migracji ``0458_hr_leave`` i lustra entrypointu.
 
-JEDNO źródło instrukcji dla ``alembic/versions/0457_hr_leave.py`` i ``entrypoint.sh``
+JEDNO źródło instrukcji dla ``alembic/versions/0458_hr_leave.py`` i ``entrypoint.sh``
 (przez ``app/services/hr_schema_bundle.py``). Zakres: wnioski urlopowe (dzień per wiersz), akceptacje, zastępstwa, kolejka operacji Microsoft 365, stan skrzynek.
 
 Kontrakt modułu (czyta go agregator i test łańcucha):

@@ -1083,6 +1083,125 @@ def test_missing_rodo_consent_asks_for_upload() -> None:
     assert by["client_rules"]["status"] == "manual"
 
 
+# ── „Stawka w CV” = ta sama reguła co „Usuń stawkę” (decyzja 17.10.2026) ───
+#
+# Blokady `client_rules` nie da się pominąć, więc fałszywa „stawka” zostawia
+# rekruterowi tylko „Przekaż mimo uwag…”. Luźne `_AMOUNT` brało walutę
+# z początku słowa („250 zleceniobiorców” = 250 zł, „3 europejskich” = 3 EUR),
+# a ścisłe `is_rate_text` z notatek — liczbę po słowie o pieniądzach w CV
+# płacowym („Naliczanie wynagrodzeń 300 pracowników”).
+
+CV_NOT_RATES = [
+    "Moduł wynagrodzeń dla 250 zleceniobiorców.",
+    "Wdrożenie systemu wynagrodzeń w 3 europejskich spółkach.",
+    "Integracja wynagrodzeń dla 5 złożonych procesów kadrowych.",
+    "Rate limiting dla 10 zleceń/s.",
+    "System zarobków dla 40 usługodawców, 2 euroobligacje.",
+    "Naliczanie wynagrodzeń 300 pracowników w SAP HCM.",
+    "System wynagrodzeń 2.0 w SAP.",
+    "Wynagrodzenia 500+ pracowników miesięcznie.",
+    "Naliczanie wynagrodzeń 300 za pomocą SAP.",
+    "Error rate 0.1 po wdrożeniu.",
+    "Wdrożyła moduł wynagrodzeń o budżecie 2 mln PLN.",
+    "Stawki VAT 23% i 8% w module fakturowania.",
+    # Przegląd 17.10.2026: lata stanowiska po słowie o pieniądzach, „per
+    # request”, „300/500 osób”.
+    "Specjalista ds. wynagrodzeń 2018 – 2022",
+    "Analityk wynagrodzeń 2021",
+    "Kierownik ds. wynagrodzeń 03.2019 - 05.2021",
+    "Raport wynagrodzeń 2024",
+    "Zarządzanie stawkami 2020–2023",
+    "Compensation &amp; Salary 2020",
+    "Rate 100 per request",
+    "Zarobki 300/500 pracowników",
+]
+
+CV_RATES = [
+    "Stawka: 150 zł/h B2B.",
+    "Oczekiwana stawka: 120 PLN netto/h",
+    "Stawka: <b>150 zł/h</b>",
+    "<b>Stawka:</b> 150 zł/h",
+    "Stawka 150 B2B",
+    "Stawka 150 za godzinę",
+    "Stawka: 150",
+    "Stawka 150 + VAT",
+    "Wynagrodzenie: 18 000",
+    "Zarobki 20k netto",
+    "Rate 140",
+    "Daily rate: 900 EUR",
+    "Expected rate: 900 EUR per day",
+    "Stawka dzienna: 1200 PLN netto.",
+    "Hourly rate 45 USD",
+    "Stawka 150 zł, budżet projektu 2 mln PLN.",
+    "Zna branżę płatności. Oczekiwana stawka 150 zł/h netto. Dostępna od zaraz.",
+    # Przegląd 17.10.2026: skrót między słowem a kwotą i waluta słowem.
+    "Daily rate approx. 600 EUR",
+    "Expected salary approx. 20 000 PLN",
+    "Wynagrodzenie mies. 18 000 PLN",
+    "Stawka godz. 150 zł",
+    "Rate hr. 50 USD",
+    "Stawka: 150 złotych za godzinę",
+    "Rate: 50 euros per hour",
+    "Stawka godzinowa 150 złotych",
+]
+
+
+@pytest.mark.parametrize("sentence", CV_NOT_RATES)
+def test_cv_content_with_money_words_is_not_a_rate(sentence: str) -> None:
+    html = f"<ul><li>{sentence}</li></ul>" + BRANDED_HTML
+    assert qc.rate_mentions(_blocks(html)) == []
+    by = _by_key(qc.compute_checks(_qc_input(html)))
+    assert by["client_rules"]["status"] == "pass"
+    # „Usuń stawkę” też nie ma tu czego usuwać.
+    assert qc.strip_client_rules_html(html, None, None) == (html, 0)
+
+
+@pytest.mark.parametrize("sentence", CV_RATES)
+def test_rate_in_cv_blocks_and_one_click_removes_it(sentence: str) -> None:
+    html = f"<ul><li>Java 17, Spring Boot</li><li>{sentence}</li></ul>"
+    assert len(qc.rate_mentions(_blocks(html))) == 1
+    by = _by_key(qc.compute_checks(_qc_input(html + BRANDED_HTML)))
+    assert by["client_rules"]["status"] == "fail"
+    assert by["client_rules"]["items"][0]["detail"].startswith("Stawka w CV")
+    # Uwaga i poprawka mówią o tym samym: po „Usuń stawkę” QC nie ma uwagi.
+    out, count = qc.strip_client_rules_html(html, None, None)
+    assert count >= 1
+    assert qc.rate_mentions(_blocks(out)) == []
+    assert "Java 17, Spring Boot" in out
+
+
+def test_rate_quote_names_the_block_not_a_neighbour() -> None:
+    html = (
+        "<ul><li>Moduł wynagrodzeń dla 250 zleceniobiorców.</li>"
+        "<li>Oczekiwana stawka: 120 PLN netto/h</li></ul>"
+    )
+    assert qc.rate_mentions(_blocks(html)) == ["Oczekiwana stawka: 120 PLN netto/h"]
+
+
+@pytest.mark.parametrize(
+    "blocks",
+    [
+        lambda: _blocks(
+            "<p>stawka "
+            + "1" * 200000
+            + " pracowników</p>"
+            + "<p>wynagrodzeń 3</p>" * 20000
+        ),
+        # Przegląd 17.10.2026: `\w*` po słowie o pieniądzach i ciąg spacji.
+        lambda: _blocks("<p>wynagrodzenie" + "to" * 200000 + "x</p>"),
+        lambda: dz.text_blocks("stawka" + " " * 200000 + "x"),
+        lambda: _blocks("<p>" + ("stawka " + "1" * 150 + " ") * 2000 + "</p>"),
+    ],
+)
+def test_rate_mentions_is_linear(blocks) -> None:
+    built = blocks()
+    spent = _cpu(lambda: qc.rate_mentions(built))
+    assert spent < TRANSFORM_CPU_LIMIT, f"{spent:.1f} s"
+    html = "".join(f"<p>{b.text}</p>" for b in built[:1])
+    spent = _cpu(lambda: qc.strip_client_rules_html(html, None, None))
+    assert spent < TRANSFORM_CPU_LIMIT, f"{spent:.1f} s"
+
+
 # ── Uwagi ───────────────────────────────────────────────────────────────────
 
 

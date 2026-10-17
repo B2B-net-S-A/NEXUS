@@ -1,7 +1,7 @@
 """„Ludzie w NEXUSIE” — Sprzęt i protokoły.
 
-Revision ID: 0463_equipment
-Revises: 0462_admin_cases
+Revision ID: 0464_equipment
+Revises: 0463_admin_cases
 
 Zakres: modele i egzemplarze, osoby zewnętrzne, wydania, protokoły z linkiem do podpisu, zadania, import plików recepcji. SQL ma jedno źródło (``app/services/equipment_schema.py``) — ten sam
 moduł czyta ``entrypoint.sh`` przez ``hr_schema_bundle``.
@@ -11,8 +11,8 @@ from alembic import op
 
 from app.services import equipment_schema as schema
 
-revision = "0463_equipment"
-down_revision = "0462_admin_cases"
+revision = "0464_equipment"
+down_revision = "0463_admin_cases"
 branch_labels = None
 depends_on = None
 

@@ -271,7 +271,7 @@ class NotificationType(str, enum.Enum):
     # (17.10.2026). Do Delivery Leadów klienta, raz na parę osoba–rekrutacja;
     # related_entity=(candidate_stage, id). `services/hire_contract_reminder.py`.
     hire_missing_contract = "hire_missing_contract"
-    # 0456: „Ludzie w NEXUSIE” — moduły kadrowe. Osobiste (odbiorcę wybiera
+    # 0457: „Ludzie w NEXUSIE” — moduły kadrowe. Osobiste (odbiorcę wybiera
     # reguła modułu, nie sekcja): urlopy, timesheety, premie i stawki,
     # wejście/odejście, sprawy administracja@, sprzęt. Opieka nad konsultantem
     # (``care_contact_due``) prowadzi do kontraktu — sekcja Delivery. Lista
@@ -296,7 +296,7 @@ class NotificationType(str, enum.Enum):
     # zmiany — head pionu front office, Head of Recruitment i Delivery Leadzi;
     # osobisty (bez sekcji), bo front office nie ma sekcji Delivery.
     care_front_office_handoff = "care_front_office_handoff"
-    # 0465: komunikat do konsultantów (O12) — do zatwierdzenia (head back
+    # 0466: komunikat do konsultantów (O12) — do zatwierdzenia (head back
     # office, admin), decyzja (autor), odbity mail (opiekun: „popraw e-mail”).
     # Osobisty, link do `/care?tab=announcements` albo do kontraktu.
     care_announcement = "care_announcement"

@@ -428,6 +428,101 @@ async def test_outbox_sends_once_with_kind_and_skips_old_and_unmapped(monkeypatc
             await db.commit()
 
 
+async def test_outbox_rows_nobody_receives_do_not_block_the_queue(monkeypatch):
+    """Pełna paczka wierszy bez odbiorcy nie zatrzymuje maili innych (17.10.2026).
+
+    Wiersz, którego odbiorca nie dostaje, zostaje w kolejce bez rezerwacji do
+    `MAX_AGE`, a przebieg brał co minutę te same `BATCH` najstarszych — 50
+    takich wierszy zatrzymywało maile wszystkich na dobę. Rodzaje natychmiast
+    są w kategoriach obowiązkowych (bez wyciszeń), więc odbiorcy brakuje tu
+    inaczej: awaria automatu trafiła do konta bez roli admina.
+    """
+    from app.core.database import AsyncSessionLocal
+    from app.models.user import User, UserRole
+
+    start = datetime.now(timezone.utc)
+    cutoff = start - timedelta(seconds=1)
+    policy = delivery.DeliveryPolicy.from_value(
+        {
+            "enabled": True,
+            "send_not_before": cutoff.isoformat(),
+            "types": {
+                kind: {"email_enabled": True, "send_not_before": cutoff.isoformat()}
+                for kind in delivery.ROUTINE_KINDS
+            },
+        }
+    )
+
+    async def enabled(_db):
+        return policy
+
+    monkeypatch.setattr(outbox, "load_policy", enabled)
+    monkeypatch.setattr(delivery, "load_policy_sync", lambda: policy)
+    monkeypatch.setattr(outbox, "email_channel_enabled", lambda: True)
+    sent: list[str] = []
+
+    def fake_send(to, subject, text_body, html_body=None):
+        sent.append(to)
+        return True
+
+    monkeypatch.setattr("app.services.email.send_email", fake_send)
+
+    async with AsyncSessionLocal() as db:
+        nobody, recruiter = (
+            User(
+                email=f"outbox-{uuid.uuid4().hex}@example.invalid",
+                password_hash="test-only",
+                name="Outbox test",
+                role=UserRole.recruiter,
+                roles=["recruiter"],
+                is_active=True,
+            )
+            for _ in range(2)
+        )
+        db.add_all([nobody, recruiter])
+        await db.commit()
+        await db.refresh(nobody)
+        await db.refresh(recruiter)
+        # Awaria automatu jest tylko dla admina — rekruter jej nie dostaje.
+        rows = [
+            Notification(
+                user_id=nobody.id,
+                notification_type=NotificationType.automation_failing,
+                title="Automat nie działa",
+                message="Info.",
+                created_at=start,
+            )
+            for _ in range(outbox.BATCH)
+        ]
+        # Młodszy niż cała paczka powyżej — stary przebieg do niego nie sięgał.
+        rows.append(
+            Notification(
+                user_id=recruiter.id,
+                notification_type=NotificationType.board_task_waiting,
+                title=f"{TITLE_QC_RETURNED} Jan Nowak",
+                message="Popraw CV.",
+                link="/jobs/1?candidate=2",
+                related_entity_type="candidate_stage",
+                related_entity_id=None,
+                created_at=start + timedelta(seconds=1),
+            )
+        )
+        db.add_all(rows)
+        await db.commit()
+        try:
+            await outbox.dispatch(db)
+            assert [to for to in sent if to == recruiter.email] == [recruiter.email]
+            await outbox.dispatch(db)  # drugi przebieg nic nie dokłada
+            mine = [to for to in sent if to in {nobody.email, recruiter.email}]
+            assert mine == [recruiter.email]
+        finally:
+            for row in rows:
+                await db.delete(row)
+            await db.delete(nobody)
+            await db.delete(recruiter)
+            await db.commit()
+
+
 async def test_one_failing_person_does_not_stop_the_digest(monkeypatch):
     class Nested:
         async def __aenter__(self):

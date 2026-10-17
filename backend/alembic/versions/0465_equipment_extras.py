@@ -1,7 +1,7 @@
 """„Ludzie w NEXUSIE” — Sprzęt, etapy 4–5: Intune i edycje Akademii.
 
-Revision ID: 0464_equipment_extras
-Revises: 0463_equipment
+Revision ID: 0465_equipment_extras
+Revises: 0464_equipment
 
 Zakres: migawka urządzeń z Intune, stan pętli, lista edycji Akademii, hotel i bilet uczestnika, uczestnik Akademii jako czwarty posiadacz sprzętu. SQL ma jedno źródło (``app/services/equipment_extras_schema.py``) — ten sam
 moduł czyta ``entrypoint.sh`` przez ``hr_schema_bundle``.
@@ -11,8 +11,8 @@ from alembic import op
 
 from app.services import equipment_extras_schema as schema
 
-revision = "0464_equipment_extras"
-down_revision = "0463_equipment"
+revision = "0465_equipment_extras"
+down_revision = "0464_equipment"
 branch_labels = None
 depends_on = None
 

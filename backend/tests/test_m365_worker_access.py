@@ -398,6 +398,10 @@ async def test_rejection_worker_treats_role_change_at_send_as_terminal_skip(
     db.get.return_value = _user(UserRole.recruiter)
     send_new = AsyncMock(side_effect=M365OwnerIneligible("role changed"))
     monkeypatch.setattr(sender, "send_new", send_new)
+    # Wspólny mail (17.10.2026, D3): ten wiersz nie ma dołączonych maili.
+    monkeypatch.setattr(
+        rejection_email_scheduler, "covered_job_ids", AsyncMock(return_value=[80])
+    )
 
     await rejection_email_scheduler.dispatch(db, row.id)
 

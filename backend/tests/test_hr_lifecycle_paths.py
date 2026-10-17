@@ -414,7 +414,7 @@ async def test_wizard_preview_applies_item_conditions_like_the_case(
             await db.commit()
 
 
-# ── Schemat: druga wersja 0460 na istniejącej bazie ──────────────────────────
+# ── Schemat: druga wersja 0461 na istniejącej bazie ──────────────────────────
 
 
 @pytest.mark.asyncio

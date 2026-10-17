@@ -177,7 +177,7 @@ async def _count_window(db: AsyncSession, window: Period) -> tuple[int, int]:
                 text(
                     """
                     SELECT count(*) AS cnt
-                    FROM analytics_first_milestones fm
+                    FROM analytics_kpi_milestones fm
                     WHERE fm.stage::text = 'hired'
                       AND fm.first_reached_at >= :start
                       AND fm.first_reached_at < :end

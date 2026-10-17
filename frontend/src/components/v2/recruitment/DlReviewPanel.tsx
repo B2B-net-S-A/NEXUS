@@ -567,6 +567,7 @@ export function DlReviewBody({
         rejection_email_other_processes: emailFlag
           ? emailState.text?.otherProcesses
           : undefined,
+        rejection_email_merge: emailFlag ? emailState.text?.merge : undefined,
         ...(workModeReason
           ? {
               work_mode_max_onsite_days: officeDays,

@@ -160,10 +160,10 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE userrole ADD VALUE IF NOT EXISTS 'trainee'",
     # 0446: „Automatyzacje” — podgląd bez kwot i bez zapisu.
     "ALTER TYPE userrole ADD VALUE IF NOT EXISTS 'automation'",
-    # „Ludzie w NEXUSIE” (0455): rola „Pracownik” — lustro
+    # „Ludzie w NEXUSIE” (0456): rola „Pracownik” — lustro
     # `app/services/hr_access_schema.ENUM_DDL`.
     "ALTER TYPE userrole ADD VALUE IF NOT EXISTS 'employee'",
-    # „Ludzie w NEXUSIE” (0456): typy powiadomień modułów kadrowych — lustro
+    # „Ludzie w NEXUSIE” (0457): typy powiadomień modułów kadrowych — lustro
     # `app/services/hr_notification_schema.ENUM_DDL`.
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'hr_leave_requested'",
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'hr_leave_decided'",
@@ -1050,7 +1050,7 @@ except Exception as _proposal_feedback_err:  # noqa: BLE001
     _JOB_PROPOSAL_FEEDBACK_CONSTRAINTS = []
     _JOB_PROPOSAL_STATUS_CONSTRAINTS = []
 
-# „Ludzie w NEXUSIE” (migracje 0454+): moduł kadrowy, czas pracy, płace,
+# „Ludzie w NEXUSIE” (migracje 0455+): moduł kadrowy, czas pracy, płace,
 # sprzęt, opieka nad konsultantami, sprawy — JEDNO źródło z migracjami przez
 # agregator `app/services/hr_schema_bundle.py`. Wpięte na KOŃCACH faz.
 try:
@@ -3190,6 +3190,46 @@ END $$""",
             )
         ) ranked
         WHERE rn = 1""",
+    # 0454: statystyki 1.01–11.10.2026 z DynaReportera (decyzja Artura
+    # 17.10.2026) — widok zależy od analytics_first_milestones, więc stoi
+    # zaraz po nim. Lustro 1:1 z migracją — pilnuje
+    # `test_kpi_milestones_dynareporter.py`.
+    """CREATE OR REPLACE VIEW analytics_kpi_milestones AS
+        SELECT
+            afm.candidate_id,
+            afm.job_id,
+            afm.stage,
+            afm.first_reached_at,
+            afm.first_moved_by,
+            afm.candidate_stage_id,
+            'nexus'::text AS source
+        FROM analytics_first_milestones afm
+        WHERE afm.first_reached_at
+                < (TIMESTAMP '2026-01-01 00:00' AT TIME ZONE 'Europe/Warsaw')
+           OR afm.first_reached_at
+                >= (TIMESTAMP '2026-10-12 00:00' AT TIME ZONE 'Europe/Warsaw')
+        UNION ALL
+        SELECT
+            NULL::integer AS candidate_id,
+            NULL::integer AS job_id,
+            counted.stage::pipelinestage AS stage,
+            (k.report_date + TIME '12:00') AT TIME ZONE 'Europe/Warsaw'
+                AS first_reached_at,
+            k.user_id AS first_moved_by,
+            NULL::integer AS candidate_stage_id,
+            'dynareporter'::text AS source
+        FROM dr_kpi_body_leasing k
+        CROSS JOIN LATERAL (
+            VALUES
+                ('verified', k.verifications),
+                ('cv_sent', k.recommendations),
+                ('client_interview', k.interviews),
+                ('hired', k.placements)
+        ) AS counted (stage, n)
+        CROSS JOIN LATERAL generate_series(1, GREATEST(COALESCE(counted.n, 0), 0))
+        WHERE k.is_draft IS FALSE
+          AND k.report_date >= DATE '2026-01-01'
+          AND k.report_date < DATE '2026-10-12'""",
     # ── Snapshoty + cutover (0177, plan analytics PR 7) ─────────────────
     """CREATE TABLE IF NOT EXISTS analytics_metric_snapshots (
         id           SERIAL PRIMARY KEY,
@@ -6804,7 +6844,7 @@ _DATA_STATEMENTS = [
               CASE WHEN action = 'delivery_view' THEN 'manage' ELSE 'none' END
        FROM rbac_role_action_permissions
        ON CONFLICT (role, action) DO NOTHING""",
-    # 0455: „Pracownik” (`employee`) stoi wyżej w zasiewie pustej macierzy
+    # 0456: „Pracownik” (`employee`) stoi wyżej w zasiewie pustej macierzy
     # (CHECK roli poszerza `_HR_COLUMN_DDL` w fazie kolumn). Wiersze `none` do
     # istniejącej macierzy dopisuje `hr_access_schema.SEED_DDL` w `_HR_DATA_DDL`,
     # a cztery uprawnienia „Ludzi” — siatka `named_permissions_bootstrap`.

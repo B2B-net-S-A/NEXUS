@@ -133,7 +133,7 @@ _FIELD_SOURCE_RE = re.compile(
 # the live PostgreSQL catalog and blocks when a future table is not in this
 # list, so a schema addition cannot turn into an unnoticed CASCADE delete.
 _KNOWN_CONTRACT_FKS = {
-    # „Ludzie w NEXUSIE” (0459–0463). Wszystkie idą za kontraktem zachowanym —
+    # „Ludzie w NEXUSIE” (0460–0464). Wszystkie idą za kontraktem zachowanym —
     # duplikat to ta sama współpraca, więc historia opieki, spraw, sprzętu
     # i premii należy do niej. Tabele z unikatem albo kluczem automatu po
     # kontrakcie (plan kontaktów, „Do przepięcia”, zadania recepcji, premie
@@ -189,14 +189,14 @@ _KNOWN_CONTRACT_FKS = {
     # przegranego, wskazuje po scaleniu na zachowanego (_reparent_fks).
     ("contracts", "returned_from_contract_id"),
     ("document_signatures", "contract_id"),
-    # Sprzęt (0463): wydania i protokoły to dowody, wiersze importu — ślad
+    # Sprzęt (0464): wydania i protokoły to dowody, wiersze importu — ślad
     # partii; zadania recepcji z kluczem ``contract:{id}:start|end``
     # rozstrzyga ``_resolve_child_duplicates``.
     ("equipment_assignments", "contract_id"),
     ("equipment_import_rows", "holder_contract_id"),
     ("equipment_protocols", "contract_id"),
     ("equipment_tasks", "contract_id"),
-    # Premie (0459): placement ma klucz ``contract:{id}:{rola}``; dwie
+    # Premie (0460): placement ma klucz ``contract:{id}:{rola}``; dwie
     # zatwierdzone premie tej samej roli blokują scalenie
     # (``placement_bonus_assigned_twice``), resztę rozstrzyga
     # ``_resolve_child_duplicates``. Premie ręczne przechodzą bez zmian.
@@ -259,7 +259,7 @@ _MERGEABLE_FIELDS = (
     "draft_template_id",
     "draft_updated_at",
     "draft_updated_by",
-    # Opiekun kontraktu (0461) — ta sama klasa co `client_pm_contact_id`:
+    # Opiekun kontraktu (0462) — ta sama klasa co `client_pm_contact_id`:
     # pusty ← wypełniony, dwa różne = decyzja pola przy scaleniu.
     "care_owner_user_id",
 )

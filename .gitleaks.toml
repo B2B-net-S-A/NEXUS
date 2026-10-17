@@ -110,6 +110,10 @@ regexes = [
   # w 7aff356fa, ale zostaje w historii gałęzi PR #2200, a skan PR-a obejmuje
   # cały zakres commitów. Zakotwiczona, dokładnie ta jedna wartość.
   '''^test_fix48_ws07_marker_db\.py$''',
+  # Fikcyjne identyfikatory wniosków urlopowych w testach „Ludzi w NEXUSIE”
+  # (PR #2304) — UUID-y bez materiału klucza, które reguła ``fireflies-api-key``
+  # bierze za klucz. Zakotwiczone, dokładnie trzy wartości.
+  '''^(00000000-0000-0000-0000-000000000001|3f1c2a9e-1b2c-4d5e-8f90-123456789abc|9b2f4c1e-0000-4000-8000-000000000001)$''',
 ]
 
 [[rules]]

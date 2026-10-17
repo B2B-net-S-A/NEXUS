@@ -1,4 +1,4 @@
-"""„Ludzie w NEXUSIE” (0455): rola „Pracownik” i uprawnienia grupy „Ludzie”.
+"""„Ludzie w NEXUSIE” (0456): rola „Pracownik” i uprawnienia grupy „Ludzie”.
 
 Lustro migracji w entrypoint.sh (przez ``hr_schema_bundle`` + literał enum),
 modele i macierze startowe. Bez poszerzonych CHECK-ów zasiew macierzy przy

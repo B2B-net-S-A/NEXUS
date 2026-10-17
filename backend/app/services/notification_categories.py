@@ -231,7 +231,7 @@ CATEGORY_BY_TYPE: dict[NotificationType, NotificationCategory] = {
     # KPI
     _T.powercalling_kpi: _C.kpi,
     _T.kpi_coach: _C.kpi,
-    # Czas i ludzie (0456)
+    # Czas i ludzie (0457)
     _T.hr_leave_requested: _C.people,
     _T.hr_leave_decided: _C.people,
     _T.hr_leave_cancelled: _C.people,
@@ -359,7 +359,7 @@ _SPLIT_GROUPS: dict[
         _C.contracts,
         (_T.hire_missing_contract,),
     ),
-    # „Ludzie w NEXUSIE” (0461): przypomnienie opiekuna kontraktu — osobna
+    # „Ludzie w NEXUSIE” (0462): przypomnienie opiekuna kontraktu — osobna
     # grupa, żeby rola mogła je wyłączyć bez końca umów i podpisów.
     "contracts_care": (
         "Opieka: kontakt z konsultantem",

@@ -277,7 +277,7 @@ Zakładka klienta „Struktura u klienta” (`components/care/ClientPeopleTab.ts
 Zakładka „Komunikaty” w `/care` (`components/care/announcements/`, trasy
 `api/care_announcements.py` pod `/api/care/announcements`, serwisy
 `care/announcements.py`, `announcement_audience.py`, `announcement_mail.py`,
-`announcement_queue.py`, migracja 0465). Konsultant nie ma konta — komunikat to
+`announcement_queue.py`, migracja 0466). Konsultant nie ma konta — komunikat to
 wysyłka do ludzi spoza firmy.
 
 - **Wysyłka jest wyłączona, dopóki admin jej nie włączy**

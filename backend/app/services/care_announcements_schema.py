@@ -1,6 +1,6 @@
-"""„Ludzie w NEXUSIE” — komunikaty do konsultantów (O12): SQL migracji ``0465_care_announcements``.
+"""„Ludzie w NEXUSIE” — komunikaty do konsultantów (O12): SQL migracji ``0466_care_announcements``.
 
-JEDNO źródło instrukcji dla ``alembic/versions/0465_care_announcements.py``
+JEDNO źródło instrukcji dla ``alembic/versions/0466_care_announcements.py``
 i ``entrypoint.sh`` (przez ``app/services/hr_schema_bundle.py``). Kontrakt
 modułu jak w ``admin_cases_schema`` (``TABLE_DDL, COLUMN_DDL, INDEX_DDL,
 CONSTRAINT_DDL, DATA_DDL, TABLES, DOWNGRADE_DDL, ALL_DDL``); każda instrukcja

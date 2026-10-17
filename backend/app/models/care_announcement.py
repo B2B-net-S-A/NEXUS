@@ -1,4 +1,4 @@
-"""„Ludzie w NEXUSIE” — modele: komunikaty do konsultantów (0465, O12).
+"""„Ludzie w NEXUSIE” — modele: komunikaty do konsultantów (0466, O12).
 
 CHECK-i i indeksy muszą być identyczne z ``app/services/care_announcements_schema.py``
 (strażnik dryfu schematu porównuje model z bazą po migracji).

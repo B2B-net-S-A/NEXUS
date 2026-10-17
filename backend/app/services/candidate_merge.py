@@ -833,7 +833,7 @@ async def _refuse_academy_equipment(db: AsyncSession, keys: list[str]) -> None:
     """Przegrane zgłoszenie Akademii z niezwróconym sprzętem — scalenie 409.
 
     Zwrócone wydanie traci posiadacza (FK ``SET NULL``, historia zostaje
-    w protokole); niezwróconego nie zostawiamy „wydanego nikomu” (0464).
+    w protokole); niezwróconego nie zostawiamy „wydanego nikomu” (0465).
     Zgłoszenie, które przechodzi na ocalałego, zabiera sprzęt ze sobą.
     """
     from app.services.equipment.registry import (

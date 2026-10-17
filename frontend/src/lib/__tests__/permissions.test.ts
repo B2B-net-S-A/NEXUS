@@ -54,7 +54,7 @@ const EXPECTED_DEFAULTS: Record<UserRole, Permission[]> = {
   trainee: [],
   // 0446: „Automatyzacje” — sam podgląd Delivery, bez kwot.
   automation: ["delivery_view"],
-  // 0455: „Pracownik” — nic domyślnie (nadania z „Osoby i role”).
+  // 0456: „Pracownik” — nic domyślnie (nadania z „Osoby i role”).
   employee: [],
 };
 

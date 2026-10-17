@@ -1,7 +1,7 @@
 """„Ludzie w NEXUSIE” — Sprawy administracja@.
 
-Revision ID: 0462_admin_cases
-Revises: 0461_contract_care
+Revision ID: 0463_admin_cases
+Revises: 0462_contract_care
 
 Zakres: sprawy, wiadomości, komentarze, stan czytnika skrzynki. SQL ma jedno źródło (``app/services/admin_cases_schema.py``) — ten sam
 moduł czyta ``entrypoint.sh`` przez ``hr_schema_bundle``.
@@ -11,8 +11,8 @@ from alembic import op
 
 from app.services import admin_cases_schema as schema
 
-revision = "0462_admin_cases"
-down_revision = "0461_contract_care"
+revision = "0463_admin_cases"
+down_revision = "0462_contract_care"
 branch_labels = None
 depends_on = None
 

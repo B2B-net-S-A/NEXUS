@@ -230,7 +230,7 @@ async def insights_yearly_stats(
                                )::date AS month,
                                fm.stage::text AS stage,
                                count(*) AS cnt
-                        FROM analytics_first_milestones fm
+                        FROM analytics_kpi_milestones fm
                         WHERE fm.first_reached_at >= :start
                           AND fm.first_reached_at < :end
                           AND fm.stage::text = ANY(:stages)
@@ -319,7 +319,9 @@ async def insights_placement_analysis(
     resolved = _resolve(period, offset, anchor, date_from, date_to)
 
     # v2 (24.09.2026): konta administracyjne jednym wycinkiem.
-    cache_key = f"insights:charts:placements:v2:{resolved.cache_suffix}"
+    # v4 (17.10.2026): osoby i suma z widoku KPI (dni 1.01–11.10.2026
+    # z DynaReportera), klienci z par Tablicy z własną sumą.
+    cache_key = f"insights:charts:placements:v4:{resolved.cache_suffix}"
     async with cache_single_flight(cache_key, db=db):
         cached = await cache_get(cache_key)
         if cached is not None:
@@ -335,7 +337,7 @@ async def insights_placement_analysis(
                         SELECT fm.first_moved_by AS user_id,
                                u.name AS user_name,
                                count(*) AS cnt
-                        FROM analytics_first_milestones fm
+                        FROM analytics_kpi_milestones fm
                         LEFT JOIN users u ON u.id = fm.first_moved_by
                         WHERE fm.stage = 'hired'
                           AND fm.first_reached_at >= :start
@@ -429,6 +431,11 @@ async def insights_placement_analysis(
         # Klient bez wiersza w `clients` i placement bez oferty lądują w tym samym
         # koszyku „(bez klienta)" — z osobnym licznikiem `placements_without_job`,
         # żeby dało się odróżnić lukę w danych od oferty bez przypisanego klienta.
+        # Klienci z par Tablicy (`analytics_first_milestones`): w dniach
+        # 1.01–11.10.2026 „Suma placementów” liczy wpisy DynaReportera, który
+        # nie zapisywał klienta — donut klientów ma więc własną sumę
+        # (`client_placements`), jak „Rok do roku” (17.10.2026).
+        client_total = sum(int(r["cnt"]) for r in client_rows)
         by_client_acc: dict[int | None, dict] = {}
         placements_without_job = 0
         for r in client_rows:
@@ -449,7 +456,7 @@ async def insights_placement_analysis(
             (
                 {
                     **entry,
-                    "share_pct": _ratio(entry["placements"], total),
+                    "share_pct": _ratio(entry["placements"], client_total),
                     "attributed": entry["client_id"] is not None,
                 }
                 for entry in by_client_acc.values()
@@ -474,6 +481,9 @@ async def insights_placement_analysis(
                 # Placementy kont administracyjnych — w donucie jednym wycinkiem.
                 "outside_scope_placements": outside_placements,
                 "placements_without_job": placements_without_job,
+                # Suma donutu klientów (pary Tablicy). Różni się od
+                # `placements` tylko w dniach z DynaReportera.
+                "client_placements": client_total,
             },
             "by_person": by_person,
             "by_client": by_client,

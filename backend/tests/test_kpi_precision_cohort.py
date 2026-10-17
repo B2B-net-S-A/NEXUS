@@ -29,7 +29,9 @@ from app.services.kpi_panel import compute_my_panel
 from app.services.kpi_team import compute_team_panel
 
 WARSAW = ZoneInfo("Europe/Warsaw")
-T_NOW = datetime(2026, 8, 20, 12, 0, tzinfo=WARSAW)
+# Poza 1.01–11.10.2026: tam statystyki liczą wpisy DynaReportera (migracja 0454),
+# a test sprawdza ruchy Tablicy.
+T_NOW = datetime(2025, 8, 20, 12, 0, tzinfo=WARSAW)
 
 
 async def _seed(*, old_sent: int, fresh_verified: int, fresh_sent: int) -> int:

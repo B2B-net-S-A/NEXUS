@@ -5643,23 +5643,14 @@ async def remove_candidate_from_recruitment(
     # wychodzi niezależnie od usunięcia — a kaskada skasowałaby jego wiersz,
     # więc wynik wysyłki nie miałby gdzie się zapisać. `/cancel` w tej samej
     # sytuacji odpowiada 409; blokada wiersza serializuje z pętlą wysyłki.
-    from app.models.rejection_email import (
-        RejectionEmailStatus,
-        ScheduledRejectionEmail,
+    from app.services.rejection_email_scheduler import (
+        pending_rows_covering,
+        send_in_progress,
     )
-    from app.services.rejection_email_scheduler import send_in_progress
 
-    pending_mails = (
-        await db.scalars(
-            select(ScheduledRejectionEmail)
-            .where(
-                ScheduledRejectionEmail.candidate_id == candidate_id,
-                ScheduledRejectionEmail.job_id == job_id,
-                ScheduledRejectionEmail.status == RejectionEmailStatus.pending,
-            )
-            .with_for_update()
-        )
-    ).all()
+    pending_mails = await pending_rows_covering(
+        db, candidate_id=candidate_id, job_id=job_id
+    )
     if any(send_in_progress(row) for row in pending_mails):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -6700,7 +6691,7 @@ async def delete_candidate(
 
     # Zgłoszenia Akademii znikają kaskadą. Zwrócone wydanie sprzętu traci
     # posiadacza (historia zostaje w protokole), niezwróconego nie zostawiamy
-    # „wydanego nikomu” — najpierw zwrot (0464, decyzja z przeglądu 16.10).
+    # „wydanego nikomu” — najpierw zwrot (0465, decyzja z przeglądu 16.10).
     from app.services.equipment.registry import (
         ACADEMY_EQUIPMENT_HELD,
         active_academy_assignments,

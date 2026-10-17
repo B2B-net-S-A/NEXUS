@@ -242,6 +242,9 @@ async def placement_margin_per_hour_by_user(
                 SELECT c.credit_user, c.candidate_id, c.job_id, c.reached_at
                 FROM credited c
                 WHERE c.stage = 'hired'
+                  -- Marża/h liczy się z par NEXUS-a; placementy z DynaReportera
+                  -- (bez pary, do 11.10.2026) jej nie mają.
+                  AND c.candidate_id IS NOT NULL
                   AND c.reached_at >= :start
                   AND c.reached_at < :end
                   AND c.credit_user = ANY(:uids)
@@ -391,6 +394,9 @@ async def last_recommendation_at_by_user(
                 SELECT c.credit_user, max(c.reached_at) AS last_at
                 FROM credited c
                 WHERE c.stage = 'cv_sent'
+                  -- Chwila rekomendacji tylko z NEXUS-a: wpis DynaReportera
+                  -- ma dzień tygodnia, nie godzinę.
+                  AND c.candidate_id IS NOT NULL
                   AND c.reached_at >= :start
                   AND c.reached_at < :end
                   AND c.credit_user = ANY(:uids)

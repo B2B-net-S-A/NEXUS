@@ -1,6 +1,6 @@
-"""„Ludzie w NEXUSIE” — Opieka nad konsultantami i technologie: SQL migracji ``0461_contract_care`` i lustra entrypointu.
+"""„Ludzie w NEXUSIE” — Opieka nad konsultantami i technologie: SQL migracji ``0462_contract_care`` i lustra entrypointu.
 
-JEDNO źródło instrukcji dla ``alembic/versions/0461_contract_care.py`` i ``entrypoint.sh``
+JEDNO źródło instrukcji dla ``alembic/versions/0462_contract_care.py`` i ``entrypoint.sh``
 (przez ``app/services/hr_schema_bundle.py``). Zakres: opiekun kontraktu, plan kontaktów, rozmowy, karty technologiczne, kolejka „Do przepięcia”.
 
 Kontrakt modułu (czyta go agregator i test łańcucha):
@@ -423,7 +423,7 @@ def _add_check(table: str, name: str, condition: str) -> str:
     END $$"""
 
 
-#: Baza sprzed etapu 3 (0461 nie jest wdrożona, ale bazy lokalne i testowe ją
+#: Baza sprzed etapu 3 (0462 nie jest wdrożona, ale bazy lokalne i testowe ją
 #: mają): rodzaj ``cadence`` w CHECK-u planu i CHECK-i powodu „Pomiń”.
 #: Bloki podmieniają/dokładają ograniczenie tylko przy starej definicji.
 CONSTRAINT_DDL: tuple[str, ...] = (

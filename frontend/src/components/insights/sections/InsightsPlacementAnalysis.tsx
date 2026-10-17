@@ -153,6 +153,9 @@ export function InsightsPlacementAnalysis({ period }: Props) {
 
 function PlacementAnalysisBody({ data }: { data: PlacementAnalysisResponse }) {
   const total = data.totals.placements;
+  // Klienci z par Tablicy — w dniach z DynaReportera ich suma różni się od
+  // „Sumy placementów” (DynaReporter nie zapisywał klienta).
+  const clientTotal = data.totals.client_placements ?? total;
 
   const people = collapseTail(
     data.by_person.map((p) => ({
@@ -172,7 +175,7 @@ function PlacementAnalysisBody({ data }: { data: PlacementAnalysisResponse }) {
       share_pct: c.share_pct,
       attributed: c.attributed,
     })),
-    total,
+    clientTotal,
   );
 
   return (
@@ -212,6 +215,11 @@ function PlacementAnalysisBody({ data }: { data: PlacementAnalysisResponse }) {
         <Donut title="Placementy wg osób" slices={people} />
         <Donut title="Placementy wg klientów" slices={clients} />
       </div>
+      {clientTotal !== total ? (
+        <p className="mt-3 text-xs text-muted-foreground" data-testid="placements-clients-source">
+          {`Dni do 11.10.2026 liczą wpisy z DynaReportera, który nie zapisywał klienta — podział na klientów pochodzi z ruchów Tablicy (${count(clientTotal)} z ${count(total)} placementów okna).`}
+        </p>
+      ) : null}
 
       <DefinitionNote>
         {definitionText(data.placements_definition) ??

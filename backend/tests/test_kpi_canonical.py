@@ -32,7 +32,9 @@ from app.services.kpi_engine import (
     resolve_target,
 )
 
-T0 = datetime(2026, 7, 6, 10, 0, tzinfo=timezone.utc)
+# Poza 1.01–11.10.2026 (tam statystyki liczą wpisy DynaReportera, migracja
+# 0454) — test sprawdza atrybucję ruchów Tablicy. Poniedziałek jak dawniej.
+T0 = datetime(2025, 7, 7, 10, 0, tzinfo=timezone.utc)
 
 
 @pytest_asyncio.fixture
@@ -293,8 +295,9 @@ async def test_sources_hire_rate_not_above_100(seeded):
 
 # ── Lista „Kto się liczy” = licznik celu (17.10.2026) ─────────────────────────
 
-# Poniedziałek 13.07.2026, 10:00 w Warszawie — tydzień celu 13–19.07.
-T_WEEK = datetime(2026, 7, 13, 8, 0, tzinfo=timezone.utc)
+# Poniedziałek 14.07.2025, 10:00 w Warszawie — tydzień celu 14–20.07 (poza
+# dniami z DynaReportera, patrz T0).
+T_WEEK = datetime(2025, 7, 14, 8, 0, tzinfo=timezone.utc)
 
 
 @pytest_asyncio.fixture
@@ -375,8 +378,8 @@ async def _who_counts(db, user, *, metric: str, subject_user_id: int, **kwargs):
         user,
         metric=metric,
         window="week",
-        selected_day=date(2026, 7, 15),
-        selected_month=date(2026, 7, 1),
+        selected_day=date(2025, 7, 16),
+        selected_month=date(2025, 7, 1),
         subject_user_id=subject_user_id,
         team_scope=False,
         page=1,
@@ -391,8 +394,8 @@ async def test_who_counts_list_equals_the_goal_counter(who_counts_seeded):
     from zoneinfo import ZoneInfo
 
     warsaw = ZoneInfo("Europe/Warsaw")
-    since = datetime(2026, 7, 13, tzinfo=warsaw)
-    until = datetime(2026, 7, 20, tzinfo=warsaw)
+    since = datetime(2025, 7, 14, tzinfo=warsaw)
+    until = datetime(2025, 7, 21, tzinfo=warsaw)
     seeded = who_counts_seeded
     async with AsyncSessionLocal() as db:
         recruiter = await db.get(User, seeded["recruiter"])
@@ -432,8 +435,8 @@ async def test_who_counts_list_equals_the_goal_counter(who_counts_seeded):
     assert sent_by_lead.credited_user.id == seeded["recruiter"]
     assert sent_by_lead.candidate_jobs == 2
     assert by_pair[(seeded["second"], seeded["job_one"])].candidate_jobs == 1
-    assert recommendations.period_start.isoformat() == "2026-07-13"
-    assert recommendations.period_end.isoformat() == "2026-07-19"
+    assert recommendations.period_start.isoformat() == "2025-07-14"
+    assert recommendations.period_end.isoformat() == "2025-07-20"
 
 
 @pytest.mark.asyncio
