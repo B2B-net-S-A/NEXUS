@@ -104,13 +104,16 @@ _SECTION_LABELS_PL = {
 }
 _AUTHOR_LABELS_PL = {"me": "moje", "team": "mój zespół", "all": "cała firma"}
 
+# Widok KPI (0454): ruchy Tablicy, a 1.01–11.10.2026 wpisy DynaReportera
+# (`source = 'dynareporter'`, bez rekrutacji) — ta sama reguła co Insights.
 _MILESTONES = table(
-    "analytics_first_milestones",
+    "analytics_kpi_milestones",
     column("candidate_id"),
     column("job_id"),
     column("stage"),
     column("first_reached_at"),
     column("first_moved_by"),
+    column("source"),
 )
 
 
@@ -128,7 +131,11 @@ _CREDITED_KEY_PREFIX = "dashboard_metric:credited:v1:"
 _CREDITED_SPAN_DAYS = 800
 
 # (credit_user, stage, job_id, client_id, competence_category_id, dzień, liczba)
-CreditedRow = tuple[Optional[int], str, int, Optional[int], Optional[int], date, int]
+# `job_id` = None: wiersz z DynaReportera (1.01–11.10.2026, patrz
+# `VERIFIER_ANCHORED_CTE`) — osoba i dzień są, rekrutacji i klienta nie ma.
+CreditedRow = tuple[
+    Optional[int], str, Optional[int], Optional[int], Optional[int], date, int
+]
 
 
 def _uses_credit(
@@ -170,7 +177,7 @@ async def _credited_snapshot(db: AsyncSession, since: date) -> list[CreditedRow]
                    (c.reached_at AT TIME ZONE '{TZ}')::date AS day,
                    count(*) AS n
             FROM credited c
-            JOIN jobs j ON j.id = c.job_id
+            LEFT JOIN jobs j ON j.id = c.job_id
             WHERE c.stage IN :stages
               AND c.reached_at >= :since
             GROUP BY 1, 2, 3, 4, 5, 6
@@ -187,7 +194,7 @@ async def _credited_snapshot(db: AsyncSession, since: date) -> list[CreditedRow]
             (
                 None if r[0] is None else int(r[0]),
                 str(r[1]),
-                int(r[2]),
+                None if r[2] is None else int(r[2]),
                 None if r[3] is None else int(r[3]),
                 None if r[4] is None else int(r[4]),
                 r[5],
@@ -230,11 +237,20 @@ def _credited_key(definition: MetricDefinition, row: CreditedRow) -> Any:
     }[g]
 
 
+# Podział na klienta i kategorię zna tylko Tablica — wpisy DynaReportera
+# (1.01–11.10.2026, bez rekrutacji) nie trafiają do żadnej grupy. Poprzedni
+# okres kafla liczy się bez podziału, więc dostaje tę samą zasadę jawnie
+# (`board_only`), inaczej porównywałby pary z parami + wpisami.
+_BOARD_ONLY_GROUPS = ("client", "competence_category")
+
+
 def _credited_counts(
     rows: list[CreditedRow],
     definition: MetricDefinition,
     window: Window,
     author_ids: Optional[frozenset[int]],
+    *,
+    board_only: bool = False,
 ) -> dict[Any, int]:
     """Ta sama selekcja co zapytanie SQL, tylko na migawce."""
     stages = {definition.stage} if definition.stage else set(MILESTONE_STAGES)
@@ -256,6 +272,8 @@ def _credited_counts(
         if categories and category not in categories:
             continue
         if jobs and job_id not in jobs:
+            continue
+        if job_id is None and (board_only or definition.group_by in _BOARD_ONLY_GROUPS):
             continue
         k = _credited_key(definition, row) if grouped else None
         out[k] = out.get(k, 0) + n
@@ -497,6 +515,8 @@ def _pipeline_query(
     definition: MetricDefinition,
     window: Window,
     author_ids: Optional[frozenset[int]],
+    *,
+    board_only: bool = False,
 ):
     # Cała firma bez podziału na ludzi = widok. Przypisanie do ludzi (kredyt
     # jak w „Moje KPI") liczy `_credited_counts` z migawki — patrz wyżej.
@@ -525,7 +545,13 @@ def _pipeline_query(
         conds.append(Job.competence_category_id.in_(f.competence_category_ids))
     if f.job_ids:
         conds.append(m.job_id.in_(f.job_ids))
-    base = source.join(Job, Job.id == m.job_id)
+    # Wiersz z DynaReportera nie ma rekrutacji: liczy się w sumach, tygodniach,
+    # miesiącach, etapach i osobach, ale nie w podziale na klienta i kategorię.
+    # Ruch Tablicy bez rekrutacji w bazie wypada jak dotąd (dawny INNER JOIN).
+    conds.append(or_(Job.id.isnot(None), m.source == "dynareporter"))
+    if board_only or definition.group_by in _BOARD_ONLY_GROUPS:
+        conds.append(Job.id.isnot(None))
+    base = source.outerjoin(Job, Job.id == m.job_id)
     return base, conds, cols, reached_at
 
 
@@ -715,15 +741,20 @@ async def _run_count(
     credited_rows: Optional[list[CreditedRow]] = None,
     *,
     user: Optional[User] = None,
+    board_only: bool = False,
 ) -> tuple[float, list[dict[str, Any]], list[str]]:
     src = definition.source
     if credited_rows is not None:
-        counts = _credited_counts(credited_rows, definition, window, author_ids)
+        counts = _credited_counts(
+            credited_rows, definition, window, author_ids, board_only=board_only
+        )
         if definition.group_by == "none":
             return float(counts.get(None, 0)), [], []
         return await _grouped_series(db, definition, window, list(counts.items()))
     if src == "pipeline_moves":
-        base, conds, cols, ts = _pipeline_query(definition, window, author_ids)
+        base, conds, cols, ts = _pipeline_query(
+            definition, window, author_ids, board_only=board_only
+        )
         measure = func.count()
     elif src == "candidates":
         base, conds, cols, ts = _candidates_query(definition, window, author_ids)
@@ -948,6 +979,7 @@ async def evaluate_metric(
                 client_boundary,
                 credited_rows,
                 user=user,
+                board_only=definition.group_by in _BOARD_ONLY_GROUPS,
             )
     return MetricResult(
         value=value,

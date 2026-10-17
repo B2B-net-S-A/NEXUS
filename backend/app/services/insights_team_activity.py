@@ -125,7 +125,7 @@ async def compute_team_activity(
                        WHERE stage::text = 'client_interview'
                    ) AS interviews,
                    count(*) FILTER (WHERE stage::text = 'hired') AS placements
-            FROM analytics_first_milestones
+            FROM analytics_kpi_milestones
             WHERE first_moved_by IS NOT NULL
               AND stage::text IN ('client_interview', 'hired')
               AND {_window("first_reached_at", bounded=bounded)}

@@ -154,7 +154,7 @@ async def insights_team_table(
                     SELECT fm.first_moved_by AS user_id,
                            fm.stage::text     AS stage,
                            count(*)           AS cnt
-                    FROM analytics_first_milestones fm
+                    FROM analytics_kpi_milestones fm
                     WHERE fm.first_reached_at >= :start
                       AND fm.first_reached_at <  :end
                       AND fm.stage::text = ANY(:stages)

@@ -115,7 +115,9 @@ _FAMILIES_CTE = """
         SELECT c.candidate_id, c.job_id,
                c.reached_at,
                c.credit_user AS actor_id
-        FROM credited c
+        -- Rekonsyliacja porównuje dwie rodziny na tych samych ruchach Tablicy,
+        -- więc bierze surowe `credited_nexus` (bez dni z DynaReportera).
+        FROM credited_nexus c
         WHERE c.stage = 'hired'
           AND c.reached_at >= :start
           AND c.reached_at <  :end
