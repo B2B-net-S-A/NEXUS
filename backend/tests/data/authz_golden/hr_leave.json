@@ -45,6 +45,7 @@
   "POST /api/hr/leave/preview": "BBBBBBBDBBBBBBBBBBBBBBBBB",
   "POST /api/hr/leave/requests": "BBBBBBBDBBBBBBBBBBBBBBBBB",
   "POST /api/hr/leave/requests/{request_id}/cancel": "BBBBBBBDBBBBBBBBBBBBBBBBB",
+  "POST /api/hr/leave/{request_id}/conflict": "BBBBBBBDBBBBBBBBBBBBBBBBB",
   "PUT /api/hr/leave/requests/{request_id}/forward-consent": "BBBBBBBDBBBBBBBBBBBBBBBBB"
  }
 }

@@ -30,11 +30,13 @@
   "DELETE /api/hr/payroll/rates/{rate_id}": "BBBBBBBDBBBBBBBBBBBBBBBBB",
   "GET /api/hr/payroll/bonuses": "BBBBBBBDBBBBBBBBBBBBBBBBB",
   "GET /api/hr/payroll/me": "BBBBBBBDBBBBBBBBBBBBBBBBB",
+  "GET /api/hr/payroll/me/settlement": "BBBBBBBDBBBBBBBBBBBBBBBBB",
   "GET /api/hr/payroll/months": "BBBBBBBDBBBBBBBBBBBBBBBBB",
   "GET /api/hr/payroll/months/{year}/{month}": "BBBBBBBDBBBBBBBBBBBBBBBBB",
   "GET /api/hr/payroll/months/{year}/{month}/export.xlsx": "BBBBBBBDBBBBBBBBBBBBBBBBB",
   "GET /api/hr/payroll/people/{user_id}": "BBBBBBBDBBBBBBBBBBBBBBBBB",
   "GET /api/hr/payroll/rules": "BBBBBBBDBBBBBBBBBBBBBBBBB",
+  "GET /api/hr/payroll/settings/minimum-rates": "BBBBBBBDBBBBBBBBBBBBBBBBB",
   "PATCH /api/hr/payroll/bonuses/{bonus_id}": "BBBBBBBDBBBBBBBBBBBBBBBBB",
   "POST /api/hr/payroll/bonuses": "BBBBBBBDBBBBBBBBBBBBBBBBB",
   "POST /api/hr/payroll/bonuses/{bonus_id}/approve": "BBBBBBBDBBBBBBBBBBBBBBBBB",
@@ -43,6 +45,7 @@
   "POST /api/hr/payroll/months/{year}/{month}/reopen": "BBBBBBBDBBBBBBBBBBBBBBBBB",
   "POST /api/hr/payroll/people/{user_id}/rates": "BBBBBBBDBBBBBBBBBBBBBBBBB",
   "POST /api/hr/payroll/proposals/refresh": "BBBBBBBDBBBBBBBBBBBBBBBBB",
-  "PUT /api/hr/payroll/rules": "BBBBBBBDBBBBBBBBBBBBBBBBB"
+  "PUT /api/hr/payroll/rules": "BBBBBBBDBBBBBBBBBBBBBBBBB",
+  "PUT /api/hr/payroll/settings/minimum-rates": "BBBBBBBDBBBBBBBBBBBBBBBBB"
  }
 }
