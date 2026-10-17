@@ -30,14 +30,19 @@ from tests.test_prep_meetings_flow import _at, _create, _pair, _user
 
 
 class ResponseGraph(EditingGraph):
+    """Stan per wydarzenie: baza testów jest wspólna w shardzie, a pętla
+    czyta WSZYSTKIE nadchodzące prepy — prepy innych testów dostają ``None``
+    (pominięte), nie stan i nie 404 tego testu."""
+
     def __init__(self) -> None:
         super().__init__()
-        self.fail_get_with: int | None = None
+        self.states: dict[str, dict] = {}
+        self.missing: set[str] = set()
 
     async def get_event(self, upn, graph_event_id):
-        if self.fail_get_with:
-            raise GraphRequestError(self.fail_get_with, {"error": "x"})
-        return self.event_state or None
+        if graph_event_id in self.missing:
+            raise GraphRequestError(404, {"error": "x"})
+        return self.states.get(graph_event_id)
 
 
 @pytest.fixture
@@ -90,10 +95,12 @@ async def _prep2_by_recruiter(app_client, *, hours: float = 48.0):
         ev = await db.get(CalendarEvent, event_id)
         cand_email = ev.attendees[0]["address"]
         start, end = ev.start_time, ev.end_time
+        gid = ev.external_id
     return {
         "rec": (rec_id, rec_h),
         "dl": (dl_id, dl_h),
         "event_id": event_id,
+        "gid": gid,
         "cand_email": cand_email,
         "start": start,
         "end": end,
@@ -141,7 +148,7 @@ async def test_accepted_answer_reaches_the_whole_pair(
     ctx = await _prep2_by_recruiter(app_client)
     dl_id, _ = ctx["dl"]
     rec_id, _ = ctx["rec"]
-    rgraph.event_state = _state(ctx, response="accepted")
+    rgraph.states[ctx["gid"]] = _state(ctx, response="accepted")
     async with AsyncSessionLocal() as db:
         stats = await prep_responses.sync_upcoming(db)
     assert stats.responses >= 1
@@ -178,7 +185,7 @@ async def test_first_read_of_an_old_prep_is_silent_about_accepting(
         )
         prep.candidate_response = None  # prep sprzed 0453
         await db.commit()
-    rgraph.event_state = _state(ctx, response="accepted")
+    rgraph.states[ctx["gid"]] = _state(ctx, response="accepted")
     async with AsyncSessionLocal() as db:
         await prep_responses.sync_upcoming(db)
     types = [n.notification_type for n in await _notes(dl_id)]
@@ -193,7 +200,7 @@ async def test_proposed_time_rings_and_shows_on_the_board(
     ctx = await _prep2_by_recruiter(app_client)
     dl_id, _ = ctx["dl"]
     proposed = (ctx["start"] + timedelta(hours=3), ctx["end"] + timedelta(hours=3))
-    rgraph.event_state = _state(ctx, response="declined", proposed=proposed)
+    rgraph.states[ctx["gid"]] = _state(ctx, response="declined", proposed=proposed)
     async with AsyncSessionLocal() as db:
         await prep_responses.sync_upcoming(db)
     notes = [
@@ -238,7 +245,7 @@ async def test_change_in_outlook_is_seen_within_one_pass(
     dl_id, _ = ctx["dl"]
     new_start = ctx["start"] + timedelta(hours=5)
     new_end = ctx["end"] + timedelta(hours=5)
-    rgraph.event_state = _state(ctx, start=new_start, end=new_end)
+    rgraph.states[ctx["gid"]] = _state(ctx, start=new_start, end=new_end)
     async with AsyncSessionLocal() as db:
         stats = await prep_responses.sync_upcoming(db)
     assert stats.moved == 1
@@ -248,7 +255,7 @@ async def test_change_in_outlook_is_seen_within_one_pass(
     titles = [n.title for n in await _notes(dl_id)]
     assert any(t.startswith("Prep 2 przełożony na") for t in titles)
 
-    rgraph.fail_get_with = 404
+    rgraph.missing.add(ctx["gid"])
     async with AsyncSessionLocal() as db:
         stats = await prep_responses.sync_upcoming(db)
     assert stats.cancelled == 1
@@ -269,7 +276,7 @@ async def test_no_answer_a_day_before_reminds_once(
         )
         prep.created_at = datetime.now(timezone.utc) - timedelta(hours=5)
         await db.commit()
-    rgraph.event_state = _state(ctx, response="none")
+    rgraph.states[ctx["gid"]] = _state(ctx, response="none")
     for _ in range(2):
         async with AsyncSessionLocal() as db:
             await prep_responses.sync_upcoming(db)
