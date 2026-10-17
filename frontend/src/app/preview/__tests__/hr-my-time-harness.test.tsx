@@ -136,7 +136,7 @@ describe("/preview/hr-my-time", () => {
     expect(attempted()).toEqual([]);
   });
 
-  it("Mój miesiąc: dziś z podpowiedzią opisu, poprzedni miesiąc zaakceptowany", async () => {
+  it("Mój miesiąc: dziś z podpowiedzią opisu, poprzedni miesiąc potwierdzony", async () => {
     const user = userEvent.setup();
     const today = warsawToday();
     const current = currentYearMonth();
@@ -154,7 +154,8 @@ describe("/preview/hr-my-time", () => {
     expect(
       await screen.findByRole("heading", { name: monthTitlePl(shiftMonth(current, -1)) }),
     ).toBeInTheDocument();
-    expect(screen.getByText("zaakceptowany")).toBeInTheDocument();
+    // Ola jest na B2B: raport się potwierdza, nie akceptuje (D4).
+    expect(screen.getByText("potwierdzony")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Wyślij do potwierdzenia" })).toBeNull();
 
     // Archiwum timesheetów rozwija się z zasiewu, bez zapytania.

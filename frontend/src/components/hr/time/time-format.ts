@@ -9,6 +9,7 @@ import type {
 } from "@/lib/api/hr-time";
 import type { StatusDotTone } from "@/components/ds/StatusDot";
 import { formatDayMonthPl, shiftMonth, type YearMonth } from "@/lib/date-pl";
+import { reportsAbsence } from "@/lib/hr-employment-terms";
 import { warsawToday } from "@/lib/warsaw-date";
 
 export function currentYearMonth(now: Date = new Date()): YearMonth {
@@ -51,8 +52,12 @@ export const STATUS_TONE: Record<QueueStatus, StatusDotTone> = {
 export function statusLine(view: MonthView): string {
   const status: TimesheetStatus = view.timesheet?.status ?? "draft";
   if (view.timesheet?.payroll_locked) return "zamknięty w płacach";
-  if (status === "approved") return "zaakceptowany";
-  if (status === "submitted") return "wysłany · czeka na akceptację";
+  // B2B i zlecenie: koordynator potwierdza raport, nie akceptuje (D4).
+  const confirms = reportsAbsence(view.employment_type);
+  if (status === "approved") return confirms ? "potwierdzony" : "zaakceptowany";
+  if (status === "submitted") {
+    return confirms ? "wysłany · czeka na potwierdzenie" : "wysłany · czeka na akceptację";
+  }
   if (view.timesheet?.return_note) return `zwrócony do poprawy · wyślij do ${formatDayMonthPl(view.deadline)}`;
   return `szkic · wyślij do ${formatDayMonthPl(view.deadline)}`;
 }

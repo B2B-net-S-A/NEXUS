@@ -120,6 +120,12 @@ describe("pasek statusu", () => {
     );
   });
 
+  it("B2B i zlecenie: raport się potwierdza, nie akceptuje (D4)", () => {
+    const b2b = (timesheet: MonthView["timesheet"]) => view({ employment_type: "b2b", timesheet });
+    expect(statusLine(b2b({ ...header, status: "submitted" }))).toBe("wysłany · czeka na potwierdzenie");
+    expect(statusLine(b2b({ ...header, status: "approved" }))).toBe("potwierdzony");
+  });
+
   it("edytować wolno tylko szkic poza zamkniętym miesiącem", () => {
     expect(canEditMonth(view())).toBe(true);
     expect(canEditMonth(view({ timesheet: header }))).toBe(true);
