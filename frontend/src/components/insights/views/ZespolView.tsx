@@ -21,6 +21,7 @@ import { reportHref, type ReportId } from "@/lib/insights-reports";
 import {
   insightsTeamSignalsApi,
   insightsTeamSignalsQueryKeys,
+  type TeamPeopleResponse,
   type TeamPeopleRow,
 } from "@/lib/insights-team-api";
 import {
@@ -395,7 +396,7 @@ function RecruiterTable({
       params.set("kto", WHO_COUNTS_METRICS[metric].slug);
       params.set("osoba", who);
     }
-    const href = `/insights?${params.toString()}`;
+    const href = `${window.location.pathname}?${params.toString()}`;
     if (mode === "push") pushUrl(href);
     else replaceUrl(href);
   };
@@ -530,8 +531,8 @@ function RecruiterTable({
       </div>
       <p className="text-xs text-muted-foreground">
         {quiet > 0 ? `Pominięto osoby bez ruchu w tym okresie: ${quiet}. ` : ""}
-        {data.totals.unattributed > 0 && data.unattributed === undefined
-          ? `${data.totals.unattributed} ruchów nie da się przypisać nikomu — są w lejku, nie ma ich w tabeli. `
+        {unattributedElsewhere(data) > 0
+          ? `${unattributedElsewhere(data)} ruchów${unattributed ? " na innych etapach" : ""} nie da się przypisać nikomu — są w lejku, nie ma ich w tabeli. `
           : ""}
         Liczba przy osobie otwiera listę osób, które się na nią składają.{" "}
         Liczone jak w wyścigach i „Mój miesiąc”: CV wysłane, rozmowy
@@ -547,6 +548,19 @@ function RecruiterTable({
 }
 
 const UNATTRIBUTED_SLUG = "bez-zaslugi";
+
+/**
+ * Kamienie bez osoby z zasługą, których nie ma w wierszu „Bez osoby z zasługą”
+ * (weryfikacje, QC, akceptacje) — zostają w przypisie pod tabelą.
+ */
+function unattributedElsewhere(data: TeamPeopleResponse): number {
+  const row = data.unattributed;
+  if (!row) return data.totals.unattributed;
+  return Math.max(
+    data.totals.unattributed - row.recommendations - row.interviews - row.placements,
+    0,
+  );
+}
 
 /** Kogo otworzyć z `osoba=` w adresie; nieznany kształt = nic. */
 function teamListSubject(

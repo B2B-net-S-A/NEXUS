@@ -93,7 +93,7 @@ describe("WhoCountsListView", () => {
     expect(screen.getByText("3 rekomendacje")).toBeInTheDocument()
     expect(screen.getByText("2 osoby")).toBeInTheDocument()
     expect(
-      screen.getByText("CV wysłane przez Ciebie: 1, przez kogoś innego: 2"),
+      screen.getByText("CV wysłane przez Ciebie: 1, pozostałe: 2"),
     ).toBeInTheDocument()
     expect(screen.getByRole("columnheader", { name: "CV wysłał(a)" })).toBeInTheDocument()
     expect(screen.getByRole("columnheader", { name: "Czwartek 15.10" })).toBeInTheDocument()

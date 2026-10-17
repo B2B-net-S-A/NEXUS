@@ -194,13 +194,13 @@ describe("wiersze i podsumowanie", () => {
     expect(summaryParts(response(), "recommendation", 11)).toEqual([
       "23 rekomendacje",
       "21 osób",
-      "CV wysłane przez Ciebie: 7, przez kogoś innego: 16",
+      "CV wysłane przez Ciebie: 7, pozostałe: 16",
     ]);
   });
 
   it("lider patrzy na cudzą listę, a weryfikacje nie mają podziału", () => {
     expect(summaryParts(response(), "recommendation", 1)[2]).toBe(
-      "CV wysłane przez tę osobę: 7, przez kogoś innego: 16",
+      "CV wysłane przez tę osobę: 7, pozostałe: 16",
     );
     expect(summaryParts(response({ people: 23 }), "verification", 11)).toEqual(["23 weryfikacje"]);
     expect(summaryParts(response({ period_total: 0, total: 0, people: 0 }), "placement", 11)).toEqual([

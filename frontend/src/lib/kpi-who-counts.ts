@@ -398,7 +398,10 @@ export function countNoun(metric: WhoCountsMetric, count: number): string {
   return `${count} ${pluralPl(count, one, few, many)}`
 }
 
-/** „23 rekomendacje · 21 osób · CV wysłane przez Ciebie: 7, przez kogoś innego: 16”. */
+/**
+ * „23 rekomendacje · 21 osób · CV wysłane przez Ciebie: 7, pozostałe: 16”.
+ * „Pozostałe”, nie „przez kogoś innego”: wiersz z importu nie ma autora ruchu.
+ */
 export function summaryParts(
   response: RecruitmentActivityDetailResponse,
   metric: WhoCountsMetric,
@@ -422,8 +425,8 @@ export function summaryParts(
     const verb = metric === "recommendation" ? "CV wysłane" : "Etap wpisany"
     parts.push(
       mine
-        ? `${verb} przez Ciebie: ${self}, przez kogoś innego: ${other}`
-        : `${verb} przez tę osobę: ${self}, przez kogoś innego: ${other}`,
+        ? `${verb} przez Ciebie: ${self}, pozostałe: ${other}`
+        : `${verb} przez tę osobę: ${self}, pozostałe: ${other}`,
     )
   }
   return parts

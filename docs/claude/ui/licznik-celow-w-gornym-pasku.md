@@ -135,10 +135,21 @@ https://claude.ai/artifact/X92X1KagSUsdb4EQ32F4Wv.
   z `_TEAM_DETAIL_ROLES` każdą. Lider może otworzyć osobę spoza listy
   aktywnych rekruterów (`any_subject`) — tabela Zespół ma wiersze osób
   nieaktywnych i spoza ról KPI.
+- **Konto bez wglądu w zespół** (np. „Automatyzacje”, 0446) bez osoby i bez
+  `scope` dostaje 403, jak przy jawnym `scope=team` — do 17.10.2026 spadało do
+  imiennej listy całego zespołu (przegląd bezpieczeństwa).
+- **Podsumowanie mówi „pozostałe”, nie „przez kogoś innego”:** wiersz
+  z importu nie ma autora ruchu (`moved_by` puste).
+- **Zapytanie listy osoby idzie od początku okresu** (`myWhoCountsQuery`), a okres
+  z dzisiejszym dniem nie ma `dzien` w adresie — jeden klucz pamięci zapytań
+  dla wejścia z panelu celów i powrotu strzałką. Adres panel pisze od bieżącej
+  ścieżki, bo ten sam widok stoi w harnessie `/preview/insights`.
 - **„Bez osoby z zasługą” (D6):** kamienie z `credit_user IS NULL` mają wiersz
   w Zespół → Ludzie (`unattributed` w `/api/insights/team/people`, z
   `TeamTotals.unattributed_by_stage`) i zakres `scope=unattributed` listy.
-  Bez niego suma osób nie zgadzała się z sumą firmy.
+  Bez niego suma osób nie zgadzała się z sumą firmy. Kamienie bez zasługi
+  z etapów spoza tabeli (weryfikacje, QC, akceptacje) zostają w przypisie
+  pod tabelą.
 - Bez eksportu do Excela (D7) i bez przycisku „Otwórz w Kandydatach” (D5 B,
   następny krok, jeśli zespół zacznie z listy wracać do ludzi).
 - Harness: `/preview/kpi-who-counts` (lista własna, lidera, zespołu, rama kafla 480 px).

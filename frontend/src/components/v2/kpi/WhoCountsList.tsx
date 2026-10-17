@@ -1,7 +1,7 @@
 "use client"
 
 import Link from "next/link"
-import { useEffect, useState, type ReactNode } from "react"
+import { useState, type ReactNode } from "react"
 import { useQuery } from "@tanstack/react-query"
 
 import { Badge } from "@/components/ui/badge"
@@ -301,6 +301,27 @@ export type WhoCountsQuery = Omit<
   "metric" | "state" | "page" | "pageSize"
 >
 
+/** Klucz zapytania listy — wspólny z harnessem, który go zasiewa. */
+export function whoCountsQueryKey(
+  cacheKey: string,
+  metric: WhoCountsMetric,
+  query: WhoCountsQuery,
+  state: RecruitmentActivityState | null,
+  page: number,
+  pageSize: number,
+) {
+  return [
+    "recruitment-activity",
+    cacheKey,
+    "who-counts",
+    metric,
+    JSON.stringify(query),
+    state,
+    page,
+    pageSize,
+  ] as const
+}
+
 /**
  * Lista „Kto się liczy” z zapytaniem: filtr stanu i strona żyją tutaj,
  * okres i osobę podaje wołający. Awaria to błąd z „Ponów”, nigdy pusta lista.
@@ -319,17 +340,20 @@ export function WhoCountsList({
   cacheKey: string
   pageSize?: number
 }) {
-  const [state, setState] = useState<RecruitmentActivityState | null>(null)
-  const [page, setPage] = useState(1)
   const scopeKey = JSON.stringify(query)
-
-  useEffect(() => {
-    setState(null)
-    setPage(1)
-  }, [metric, scopeKey])
+  // Filtr i strona należą do jednego celu i jednej osoby: po zmianie wracają
+  // do „Wszystkie”, strona 1 — od razu w tym renderze, bez zapytania ze starym filtrem.
+  const viewKey = `${metric}|${scopeKey}`
+  const [view, setView] = useState<{
+    key: string
+    state: RecruitmentActivityState | null
+    page: number
+  }>({ key: viewKey, state: null, page: 1 })
+  const state = view.key === viewKey ? view.state : null
+  const page = view.key === viewKey ? view.page : 1
 
   const details = useQuery({
-    queryKey: ["recruitment-activity", cacheKey, "who-counts", metric, scopeKey, state, page, pageSize],
+    queryKey: whoCountsQueryKey(cacheKey, metric, query, state, page, pageSize),
     queryFn: () =>
       getRecruitmentActivityDetails({ ...query, metric, state, page, pageSize }),
     staleTime: 30_000,
@@ -350,7 +374,8 @@ export function WhoCountsList({
       </div>
     )
   }
-  if (details.isError || !details.data) {
+  // Nieudane odświeżenie zostawia ostatnie dane; błąd bez danych to „Ponów”.
+  if (!details.data) {
     return (
       <div className="flex items-center justify-between gap-3 rounded-lg border border-destructive/30 bg-destructive/5 p-3">
         <p className="text-sm text-foreground">
@@ -368,11 +393,8 @@ export function WhoCountsList({
       response={details.data}
       viewerId={viewerId}
       state={state}
-      onStateChange={(next) => {
-        setState(next)
-        setPage(1)
-      }}
-      onPageChange={setPage}
+      onStateChange={(next) => setView({ key: viewKey, state: next, page: 1 })}
+      onPageChange={(next) => setView({ key: viewKey, state, page: next })}
       isFetching={details.isFetching && details.isPlaceholderData}
     />
   )

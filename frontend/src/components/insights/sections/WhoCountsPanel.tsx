@@ -5,7 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { ChevronLeft, ChevronRight, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { WhoCountsList } from "@/components/v2/kpi/WhoCountsList";
+import { WhoCountsList, type WhoCountsQuery } from "@/components/v2/kpi/WhoCountsList";
 import { Panel } from "@/components/insights/views/ViewKit";
 import {
   PERSONAL_WHO_COUNTS,
@@ -16,6 +16,7 @@ import {
   isIsoDay,
   isLatestPeriod,
   metricFromSlug,
+  periodRange,
   periodKindFromSlug,
   periodKindSlug,
   periodLabel,
@@ -126,9 +127,17 @@ export function MyWhoCountsPanel() {
     if (nextKind) params.set("okres", periodKindSlug(nextKind));
     else params.delete("okres");
     const nextAnchor = next.anchor === undefined ? anchor : next.anchor;
-    if (nextAnchor && nextAnchor !== today && nextKind) params.set("dzien", nextAnchor);
+    // Okres z dzisiejszym dniem nie ma `dzien` w adresie — jak wejście z panelu celów.
+    const current =
+      nextAnchor !== null &&
+      nextKind !== null &&
+      periodRange(nextKind, nextAnchor).start <= today &&
+      today <= periodRange(nextKind, nextAnchor).end;
+    if (nextAnchor && nextKind && !current) params.set("dzien", nextAnchor);
     else params.delete("dzien");
-    replaceUrl(`/insights?${params.toString()}`);
+    // Bieżąca ścieżka, nie `/insights` na sztywno: ten sam panel stoi
+    // w harnessie `/preview/insights`, a inna ścieżka idzie przez router.
+    replaceUrl(`${window.location.pathname}?${params.toString()}`);
   };
 
   const hint = currentPeriodHint(kind, anchor, today);
@@ -192,10 +201,7 @@ export function MyWhoCountsPanel() {
               className="h-8 w-8"
               aria-label="Następny okres"
               disabled={latest}
-              onClick={() => {
-                const next = shiftPeriod(kind, anchor, 1);
-                write({ anchor: next > today ? null : next });
-              }}
+              onClick={() => write({ anchor: shiftPeriod(kind, anchor, 1) })}
             >
               <ChevronRight className="h-4 w-4" />
             </Button>
@@ -206,17 +212,25 @@ export function MyWhoCountsPanel() {
             metric={metric}
             viewerId={viewerId}
             cacheKey={cacheKey}
-            query={{
-              window: kind,
-              day: anchor,
-              month: anchor.slice(0, 7),
-              subjectUserId: viewerId,
-            }}
+            query={myWhoCountsQuery(kind, anchor, viewerId)}
           />
         )}
       </Panel>
     </div>
   );
+}
+
+/**
+ * Zapytanie listy osoby: zawsze od początku okresu, żeby ten sam tydzień
+ * z dowolnego dnia miał jeden klucz w pamięci zapytań.
+ */
+export function myWhoCountsQuery(
+  kind: WhoCountsPeriodKind,
+  anchor: string,
+  viewerId: number,
+): WhoCountsQuery {
+  const start = periodRange(kind, anchor).start;
+  return { window: kind, day: start, month: start.slice(0, 7), subjectUserId: viewerId };
 }
 
 /** Kogo lider otworzył z tabeli Insights → Zespół → Ludzie. */

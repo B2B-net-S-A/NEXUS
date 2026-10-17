@@ -38,6 +38,13 @@ import {
 import { currentMonthKey, currentQuarterKey } from "@/lib/insights-races-api";
 import { previousComparablePeriod } from "@/lib/insights-views";
 import { useAuthStore } from "@/store/auth";
+import { whoCountsQueryKey } from "@/components/v2/kpi/WhoCountsList";
+import { myWhoCountsQuery } from "@/components/insights/sections/WhoCountsPanel";
+import { warsawToday } from "@/lib/kpi-who-counts";
+import type {
+  RecruitmentActivityDetailResponse,
+  RecruitmentActivityState,
+} from "@/lib/recruitment-activity-api";
 
 const CURRENT_MONTH: InsightsPeriodParams = { period: "month", offset: 0 };
 
@@ -70,6 +77,50 @@ function funnel(counts: Record<string, number>) {
 
 function leagueEntry(id: number, name: string, points: number, placements: number) {
   return { user_id: id, name, metric_value: points, role: "recruiter", placements, interviews: placements * 2, recommendations: placements * 4, verifications: placements * 20 };
+}
+
+function whoCountsSeed(today: string): RecruitmentActivityDetailResponse {
+  const person = (id: number, name: string, role = "recruiter") => ({ id, name, role });
+  const at = `${today}T08:30:00Z`;
+  const item = (
+    id: number,
+    name: string,
+    jobId: number,
+    title: string,
+    client: string,
+    mover: ReturnType<typeof person>,
+    state: RecruitmentActivityState,
+  ) => ({
+    candidate: { id, name, href: `/candidates/${id}` },
+    job: { id: jobId, title, working_title: title, client_reference: null, client_name: client, href: `/jobs/${jobId}?candidate=${id}` },
+    credited_user: person(1, "Anna L."),
+    reached_at: at,
+    moved_by: mover,
+    state,
+    state_stage: state === "at_client" ? "client_interview" : "cv_sent",
+    state_since: at,
+    candidate_jobs: 1,
+  });
+  const lead = person(31, "Paweł G.", "delivery_lead");
+  return {
+    generated_at: at,
+    metric: "recommendation",
+    window: "week",
+    page: 1,
+    page_size: 50,
+    total: 3,
+    period_total: 3,
+    scope: "person",
+    subject: person(1, "Anna L."),
+    people: 3,
+    moved_by_credited: 1,
+    states: { waiting: 2, at_client: 1 },
+    items: [
+      item(501, "Kamil Wzorcowy", 901, "Senior Java Developer", "Bank Przykładowy", lead, "waiting"),
+      item(502, "Ewa Fikcyjna", 902, "Analityk biznesowy", "Ubezpieczenia Wzorcowe", person(1, "Anna L."), "at_client"),
+      item(503, "Marek Próbny", 903, "DevOps Engineer", "Telekom Testowy", lead, "waiting"),
+    ],
+  };
 }
 
 function seeded(): QueryClient {
@@ -254,6 +305,13 @@ function seeded(): QueryClient {
     outside_scope: { label: "Konta administracyjne", people: 1, verifications: 0, recommendations: 4, interviews: 2, placements: 5, previous_placements: 3 },
   });
   qc.setQueryData(performanceFlagsQueryKey, { flags_by_user: {}, types: [] });
+  // „Kto się liczy do celów” w Mój miesiąc (17.10.2026): rekomendacje osoby 1
+  // w bieżącym tygodniu — ten sam klucz co `MyWhoCountsPanel` po wejściu.
+  const whoToday = warsawToday();
+  qc.setQueryData(
+    whoCountsQueryKey("1:none", "recommendation", myWhoCountsQuery("week", whoToday, 1), null, 1, 50),
+    whoCountsSeed(whoToday),
+  );
   qc.setQueryData(insightsQueryKeys.dlPortfolio(ZESPOL_DL_PERIOD), {
     period: monthFunnel.period, hit_ratio_target_pct: 30, unattributed: { requests: 0, placements: 0 },
     leads: [
