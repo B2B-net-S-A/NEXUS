@@ -86,9 +86,25 @@ vi.mock("@/components/v2/cv/CvPagesPreview", () => ({ CvPagesPreview: () => null
 vi.mock("@/components/v2/cv-editor/CvEditorIssues", async () => {
   const { useEffect } = await import("react");
   return {
-    CvEditorIssues: ({ onCount }: { onCount?: (count: typeof state.count) => void }) => {
+    CvEditorIssues: ({
+      onCount,
+      onOverride,
+      overrideDisabled,
+    }: {
+      onCount?: (count: typeof state.count) => void;
+      onOverride?: () => void;
+      overrideDisabled?: boolean;
+    }) => {
       useEffect(() => onCount?.(state.count), [onCount]);
-      return <div data-testid="issues" />;
+      return (
+        <div data-testid="issues">
+          {onOverride ? (
+            <button onClick={onOverride} disabled={overrideDisabled}>
+              Przekaż mimo uwag… (panel)
+            </button>
+          ) : null}
+        </div>
+      );
     },
   };
 });
@@ -299,6 +315,38 @@ it("blokady QC: „Przekaż mimo uwag…” → powód obejścia → zapis i ruc
   expect(state.overridePosts).toEqual([["/api/pipeline/stages/5/qc/override", { reason_code: "client_short_cv" }]]);
   expect(onSaveAndHandOff).toHaveBeenCalledWith("");
   await waitFor(() => expect(state.calls).toEqual(["override", "save", "move", "approve"]));
+});
+
+it("„Przekaż mimo uwag…” z nagłówka blokad w panelu otwiera to samo okno obejścia co stopka (17.10.2026)", async () => {
+  state.count = { total: 2, blocking: 1, state: "ready", qc: qc() };
+  const { onSaveAndHandOff } = setup();
+  fireEvent.click(await screen.findByRole("button", { name: "Przekaż mimo uwag… (panel)" }));
+  const form = await screen.findByRole("dialog", { name: "Przesuń mimo uwag QC" });
+  fireEvent.click(within(form).getByRole("radio", { name: "Klient prosił o krótsze CV" }));
+  fireEvent.click(within(form).getByRole("button", { name: "Przesuń mimo uwag" }));
+  await waitFor(() => expect(onSaveAndHandOff).toHaveBeenCalledWith(""));
+  expect(state.overridePosts).toEqual([["/api/pipeline/stages/5/qc/override", { reason_code: "client_short_cv" }]]);
+});
+
+it("asystent pracuje: „Przekaż mimo uwag…” w panelu czeka jak stopka (przegląd 17.10)", async () => {
+  state.assistantBusy = true;
+  state.count = { total: 2, blocking: 1, state: "ready", qc: qc() };
+  setup();
+  expect(await screen.findByRole("button", { name: "Przekaż mimo uwag… (panel)" })).toBeDisabled();
+});
+
+it("nic nie blokuje: panel nie ma „Przekaż mimo uwag…”", async () => {
+  state.count = { total: 1, blocking: 0, state: "ready", qc: qc({ blocking_failed: 0 }) };
+  setup();
+  await screen.findByTestId("issues");
+  expect(screen.queryByRole("button", { name: "Przekaż mimo uwag… (panel)" })).toBeNull();
+});
+
+it("bez prawa obejścia (poza trybem doradczym) panel też nie przepuszcza", async () => {
+  state.count = { total: 1, blocking: 1, state: "ready", qc: qc({ advisory: false, can_override: false }) };
+  setup();
+  await screen.findByTestId("issues");
+  expect(screen.queryByRole("button", { name: "Przekaż mimo uwag… (panel)" })).toBeNull();
 });
 
 it("blokady QC poza trybem doradczym, bez prawa obejścia: przekazanie wyłączone z powodem", async () => {

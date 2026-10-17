@@ -56,9 +56,10 @@ export interface QcItem {
 /**
  * Powód „To nieprawda” — lustro `cv_finding_dismissals.REASONS` (13.10.2026, D5).
  * `kept_order` to „Zostaw tę kolejność” przy uwadze „Stanowiska od najnowszego”
- * (16.10.2026) — nie ma go w formularzu „To nieprawda”.
+ * (16.10.2026), a `kept` — „OK” / „Zostaw” przy uwadze generatora albo kontroli
+ * AI w panelu „Do poprawy” (17.10.2026). Żadnego z nich nie ma w formularzu.
  */
-export type QcDismissReason = "in_cv" | "other_name" | "wrong_place" | "not_needed" | "other" | "kept_order";
+export type QcDismissReason = "in_cv" | "other_name" | "wrong_place" | "not_needed" | "other" | "kept_order" | "kept";
 
 /** Pominięcie uwagi („To nieprawda”) — pary kandydat × rekrutacja, nie pliku. */
 export interface QcDismissal {
@@ -217,6 +218,9 @@ export interface QcTransformBody {
 export interface QcTransformApplied {
   action: string;
   fix_id?: string | null;
+  /** Zakres pogrubienia (`bold_all`) i usunięty termin (`remove_term`, do 120 znaków). */
+  scope?: string | null;
+  term?: string | null;
   count?: number | null;
 }
 

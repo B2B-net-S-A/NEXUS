@@ -26,7 +26,7 @@ import { Fragment, Slice, type Node as PMNode } from "@tiptap/pm/model";
 import { TextSelection, type EditorState, type Transaction } from "@tiptap/pm/state";
 
 import type { CvReviewFinding } from "@/lib/api/cvEditorIssues";
-import type { QcCheck, QcFix, QcFixAction, QcItem } from "@/lib/api/cvQc";
+import type { QcCheck, QcFix, QcFixAction, QcItem, QcTransformApplied } from "@/lib/api/cvQc";
 import { cvOutline, type CvOutline, type CvRole, type CvSectionKey } from "@/lib/cv-editor-blocks";
 import { classifyCvWarnings, type ClassifiedCvWarning } from "@/lib/cv-generator";
 import {
@@ -416,6 +416,192 @@ export function buildIssueList({ doc, checks, warnings, findings }: IssueListInp
     skipped: split.skipped,
     total: placed.length + ask.length,
   };
+}
+
+// ── Wiersze panelu po wadze (wariant A, 17.10.2026) ─────────────────────────
+//
+// Rekruter: „panel mówi, co jest nie tak, a jednym guzikiem wprowadza zmianę”.
+// Lista nie idzie już po sekcjach CV, tylko po tym, co rekruter ma zrobić:
+// „Blokuje wysyłkę”, „Do poprawy” (jest przycisk, który poprawia) i „Do decyzji
+// · nie blokuje” (uwagi bez gotowej poprawki, generator, kontrola AI). Jeden
+// wiersz = problem, podgląd zmiany i jeden przycisk; zdanie AI stoi w wierszu
+// swojej uwagi, nie w osobnej sekcji pod listą.
+
+/** Poprawki jednym przyciskiem dla całego sprawdzenia. */
+export type CheckFixKind = "bold_all" | "spelling";
+
+export type IssueRow =
+  /** Rzecz zatrzymująca wysyłkę (jedno wymaganie albo pozycja bez nazwy) i propozycje AI do niej. */
+  | { kind: "task"; id: string; task: QcTask; fixes: QcFix[] }
+  /** Pogrubienie albo pisownia — jeden przycisk dla wszystkich pozycji sprawdzenia. */
+  | { kind: "check-fix"; id: string; check: QcCheck; fix: CheckFixKind; items: QcItem[] }
+  /** Jedna pozycja uwagi QC: kolejność stanowisk, usunięcie terminu, zdanie AI albo bez poprawki. */
+  | { kind: "item"; id: string; check: QcCheck; item: QcItem; fixes: QcFix[] }
+  /** Uwaga QC do obejrzenia ręcznie albo bez pozycji. */
+  | { kind: "check"; id: string; check: QcCheck }
+  /** Propozycja AI, której nie da się przypiąć do żadnej pozycji listy. */
+  | { kind: "proposal"; id: string; fix: QcFix }
+  | { kind: "warning"; id: string; warning: ClassifiedCvWarning }
+  | { kind: "finding"; id: string; finding: CvReviewFinding };
+
+export interface IssueRows {
+  blocking: IssueRow[];
+  fixable: IssueRow[];
+  decide: IssueRow[];
+}
+
+const CHECK_FIXES: readonly CheckFixKind[] = ["bold_all", "spelling"];
+
+/** Ta sama nazwa wymagania albo terminu (po normalizacji). */
+function sameName(left: string | null | undefined, right: string | null | undefined): boolean {
+  const a = normalizeQcText(left ?? "");
+  return a !== "" && a === normalizeQcText(right ?? "");
+}
+
+/** Propozycja AI dotyczy tej pozycji QC: to samo sprawdzenie, wymaganie i — gdy obie znają — rola. */
+function fixMatchesItem(fix: QcFix, checkKey: string, item: QcItem): boolean {
+  if (fix.check_key !== checkKey) return false;
+  if (!sameName(fix.requirement, item.requirement ?? item.term)) return false;
+  if (typeof fix.role_index === "number" && typeof item.role_index === "number") {
+    return fix.role_index === item.role_index;
+  }
+  if (fix.role && item.role) return sameName(fix.role, item.role);
+  return true;
+}
+
+/**
+ * Wiersze panelu w trzech grupach. `fixes` to propozycje AI widoczne na liście
+ * (bez odrzuconych i już stojących w CV); `fixesPending` = jeszcze się ładują —
+ * pozycja z poprawką AI zostaje wtedy w „Do poprawy” z „Przygotowuję zdanie…”.
+ * Propozycja bez pozycji (np. QC przeliczone po zapisie) nie ginie: dostaje
+ * własny wiersz w „Do poprawy”.
+ */
+export function issueRows(list: IssueList, fixes: readonly QcFix[], fixesPending: boolean): IssueRows {
+  const rows: IssueRows = { blocking: [], fixable: [], decide: [] };
+  const used = new Set<string>();
+  const take = (checkKey: string, items: readonly QcItem[]) => {
+    const found = fixes.filter((fix) => !used.has(fix.id) && items.some((item) => fixMatchesItem(fix, checkKey, item)));
+    found.forEach((fix) => used.add(fix.id));
+    return found;
+  };
+
+  const entries = [...list.sections.flatMap((group) => group.entries), ...list.ask];
+  for (const entry of entries) {
+    switch (entry.kind) {
+      case "task":
+        rows.blocking.push({ kind: "task", id: entry.id, task: entry.task, fixes: take(entry.task.check.key, entry.task.items) });
+        break;
+      case "warning":
+        rows.decide.push({ kind: "warning", id: entry.id, warning: entry.warning });
+        break;
+      case "finding":
+        rows.decide.push({ kind: "finding", id: entry.id, finding: entry.finding });
+        break;
+      case "check": {
+        const { check } = entry;
+        if (check.status !== "fail" || check.items.length === 0) {
+          rows.decide.push({ kind: "check", id: entry.id, check });
+          break;
+        }
+        for (const fix of CHECK_FIXES) {
+          const items = check.items.filter((item) => item.fix === fix);
+          if (items.length > 0) rows.fixable.push({ kind: "check-fix", id: `${entry.id}:${fix}`, check, fix, items });
+        }
+        check.items.forEach((item, index) => {
+          if (item.fix && (CHECK_FIXES as readonly string[]).includes(item.fix)) return;
+          const own = item.fix === "ai" ? take(check.key, [item]) : [];
+          const row: IssueRow = { kind: "item", id: `${entry.id}:${item.key ?? index}`, check, item, fixes: own };
+          const term = (item.term ?? item.requirement ?? "").trim();
+          const fixable =
+            item.fix === "role_order" ||
+            (item.fix === "remove_term" && term !== "") ||
+            (item.fix === "ai" && (own.length > 0 || fixesPending));
+          (fixable ? rows.fixable : rows.decide).push(row);
+        });
+        break;
+      }
+    }
+  }
+  for (const fix of fixes) {
+    if (!used.has(fix.id)) rows.fixable.push({ kind: "proposal", id: `fix:${fix.id}`, fix });
+  }
+  return rows;
+}
+
+/** Czy wiersz ma poprawkę, którą bierze „Popraw wszystkie” (lustro `bulkPlan`). */
+export function rowInBulk(row: IssueRow): boolean {
+  switch (row.kind) {
+    case "check-fix":
+    case "proposal":
+      return true;
+    case "task":
+    case "item":
+      return row.fixes.length > 0;
+    default:
+      return false;
+  }
+}
+
+/** Nazwy pozycji do jednej linii („Kafka, Docker i 2 inne”). */
+function namesLine(items: readonly QcItem[]): string {
+  const names: string[] = [];
+  for (const item of items) {
+    const name = (item.requirement ?? item.term ?? "").trim();
+    if (name && !names.includes(name)) names.push(name);
+  }
+  const head = names.slice(0, 3).join(", ");
+  return names.length > 3 ? `${head} i ${countForm(names.length - 3, ["inne", "inne", "innych"])}` : head;
+}
+
+/**
+ * Co zrobiła nałożona poprawka — wiersz grupy „Poprawione” (z „Cofnij”).
+ * Liczone z tego, o co panel prosił, i z wyniku QC sprzed poprawki.
+ */
+export function appliedLabel(action: QcFixAction, checks: readonly QcCheck[], fixes: readonly QcFix[]): string {
+  switch (action.action) {
+    case "bold_all": {
+      const key = action.scope === "nice" ? "nice_bolded" : "must_bolded";
+      const items = checks
+        .filter((check) => check.key === key)
+        .flatMap((check) => [...check.items, ...(check.info ?? [])])
+        .filter((item) => item.fix === "bold_all");
+      const names = namesLine(items);
+      return names ? `Pogrubiono: ${names}` : "Pogrubiono wymagania klienta";
+    }
+    case "spelling":
+      return "Poprawiono pisownię technologii";
+    case "role_order":
+      return "Ułożono stanowiska od najnowszego";
+    case "remove_term":
+      return `Usunięto „${action.term}” z CV`;
+    case "ai_fix": {
+      const fix = fixes.find((candidate) => candidate.id === action.fix_id);
+      const where = [fix?.requirement, fix?.cv_role_label || fix?.role].filter(Boolean).join(" · ");
+      return where ? `Dopisano zdanie: ${where}` : "Dopisano zdanie z oryginału";
+    }
+  }
+}
+
+/**
+ * Poprawki z żądania, które serwer naprawdę nałożył. Wynik niesie nazwę akcji
+ * i to, czym się różnią poprawki tej samej akcji: id zdania AI, zakres
+ * pogrubienia (must / nice), termin — pole, którego wynik nie podał, nie
+ * rozstrzyga (harness i starsze odpowiedzi).
+ */
+export function appliedActions(
+  requested: readonly QcFixAction[],
+  applied: readonly QcTransformApplied[],
+): QcFixAction[] {
+  const same = (wanted: string | undefined, got: string | null | undefined) => !got || got === wanted;
+  return requested.filter((action) =>
+    applied.some((done) => {
+      if (done.action !== action.action) return false;
+      if (action.action === "ai_fix") return same(action.fix_id, done.fix_id);
+      if (action.action === "bold_all") return same(action.scope, done.scope);
+      if (action.action === "remove_term") return same(action.term.slice(0, 120), done.term);
+      return true;
+    }),
+  );
 }
 
 // ── „Popraw wszystko” ────────────────────────────────────────────────────────

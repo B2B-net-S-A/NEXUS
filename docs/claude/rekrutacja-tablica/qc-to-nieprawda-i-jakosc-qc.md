@@ -28,7 +28,11 @@ Makiety i decyzje: https://claude.ai/artifact/BZZRshjBDC4CMEGGP6m4Wr. PR 3 z 4
   „Inny powód” (wymaga opisu). „Pod inną nazwą” przy treści spoza oryginału
   wymaga fragmentu, który serwer znajdzie w oryginale, notatkach albo
   odpowiedziach. „Mówił(a) w rozmowie” to dalej „Potwierdzone z kandydatem”
-  (notatka), nie pominięcie.
+  (notatka), nie pominięcie. Poza formularzem są dwa powody jednego
+  kliknięcia, przypisane do części uwag (`REASON_CHECKS`, zbiory): `kept_order`
+  („Zostaw tę kolejność”, tylko `role_order`, 16.10.2026) i `kept` („OK” /
+  „Zostaw” przy uwadze generatora albo kontroli AI w edytorze, tylko źródła
+  `generator` i `review`, 17.10.2026). Żaden nie liczy się do trafności.
 - **Nie da się pominąć** `cv_present` i `client_rules` (stawka, kontakt,
   zgoda RODO) — 422, przycisku nie ma.
 - **Uwaga blokująca = obejście.** Pomija ją ten, kto może przesunąć kartę

@@ -145,16 +145,26 @@ it("wynik generatora bez rekrutacji mówi panelowi źródeł, że nie ma czego p
   noNetwork();
 });
 
-it("panel „Do poprawy” bierze QC, uwagi i poprawki z pamięci — pełny obieg bez sieci", async () => {
+it("panel „Do poprawy” bierze QC, uwagi i poprawki z pamięci — pełny obieg bez sieci (wariant A, 17.10.2026)", async () => {
   const dialog = await openEditor();
   // jsdom nie liczy szerokości: układ wąski, panel pod przełącznikiem kolumny.
-  // Jedna lista: 4 z QC + 1 uwaga generatora + 1 linia kontroli AI. „MUST-HAVE: … Kafka …”
+  // 4 z QC + 1 uwaga generatora + 1 linia kontroli AI. „MUST-HAVE: … Kafka …”
   // generatora stoi przy pozycji QC o Kafce — nie liczy się drugi raz.
   fireEvent.click(await within(dialog).findByRole("button", { name: "Do poprawy (6)" }));
-  // Z asystentem w kolumnie blokady są w nagłówku zwijania, nie na plakietce.
-  expect(within(dialog).getByText("· blokuje wysyłkę: 2")).toBeInTheDocument();
-  expect(within(dialog).getByRole("region", { name: "Całe CV" })).toHaveTextContent("WERYFIKUJ");
-  expect(within(dialog).getByRole("region", { name: "Doświadczenie" })).toHaveTextContent("Przeglądy kodu");
+  expect(within(dialog).getByText("2 blokują wysyłkę")).toBeInTheDocument();
+  const blocking = within(dialog).getByRole("region", { name: "Blokuje wysyłkę" });
+  expect(blocking).toHaveTextContent("Jenkins — jest w CV, a nie ma tego w oryginale");
+  expect(blocking).toHaveTextContent("Kafka — brak opisu w 1 roli");
+  // D5 (14.10.2026): zdanie AI ładuje się samo; od 17.10 stoi w wierszu swojej blokady.
+  expect(await within(blocking).findByRole("button", { name: "Dopisz: Kafka" })).toBeInTheDocument();
+  expect(blocking).toHaveTextContent("przez kolejki Kafka (zdarzenia płatności).");
+  expect(within(dialog).queryByRole("region", { name: "Propozycje AI" })).not.toBeInTheDocument();
+  const fixable = within(dialog).getByRole("region", { name: "Do poprawy" });
+  expect(fixable).toHaveTextContent("Pisownia: „Github” → „GitHub”");
+  expect(fixable).toHaveTextContent("Pogrub: PostgreSQL");
+  const decide = within(dialog).getByRole("region", { name: "Do decyzji · nie blokuje" });
+  expect(decide).toHaveTextContent("WERYFIKUJ");
+  expect(decide).toHaveTextContent("Przeglądy kodu");
   expect(within(dialog).getByRole("region", { name: "Informacje" })).toHaveTextContent(
     "1 uwaga generatora o brakującym wymaganiu stoi przy pozycji QC o tym samym wymaganiu.",
   );
@@ -163,22 +173,20 @@ it("panel „Do poprawy” bierze QC, uwagi i poprawki z pamięci — pełny obi
   expect(paper.querySelector(".cv-issue-term.cv-issue--blocking")).toHaveTextContent("Jenkins");
   expect(paper.querySelector(".cv-issue-block.cv-issue--blocking")).toHaveTextContent("Java Developer 01.2017");
 
-  // D5 (14.10.2026): propozycja AI ładuje się sama — bez „Zaproponuj poprawki (AI)” —
-  // i od razu wchodzi do „Popraw wszystko” obok pogrubienia i pisowni.
-  const ai = within(dialog).getByRole("region", { name: "Propozycje AI" });
-  expect(await within(ai).findByRole("listitem", { name: "Propozycja: Kafka" })).toBeInTheDocument();
-  expect(within(dialog).queryByRole("button", { name: /Zaproponuj poprawki/ })).not.toBeInTheDocument();
-  fireEvent.click(await within(dialog).findByRole("button", { name: "Popraw wszystko (3)" }));
+  // „Popraw wszystkie”: zdanie AI, pogrubienie i pisownia jednym kliknięciem.
+  fireEvent.click(within(fixable).getByRole("button", { name: /Popraw wszystkie \(3\)/ }));
   await waitFor(() => expect(paper).toHaveTextContent("Docker, Jenkins, GitHub"));
   expect(paper.querySelectorAll("strong")).toContainEqual(expect.objectContaining({ textContent: "PostgreSQL" }));
   expect(paper).toHaveTextContent("przez kolejki Kafka (zdarzenia płatności)");
   // Usunięcie „Jenkins” (treść) nie wchodzi do hurtu.
   expect(paper).toHaveTextContent("Jenkins");
-  // Poprawka przełącza na kartkę; wynik z „Cofnij” czeka w panelu.
+  // Poprawka przełącza na kartkę; „Poprawione” z „Cofnij wszystkie” czeka w panelu.
   fireEvent.click(within(dialog).getByRole("button", { name: /^Do poprawy \(/ }));
-  const outcome = within(dialog).getByRole("region", { name: "Wynik poprawek" });
-  expect(outcome).toHaveTextContent("Nałożono: 3 poprawki.");
-  fireEvent.click(within(outcome).getByRole("button", { name: "Cofnij" }));
+  const done = within(dialog).getByRole("region", { name: "Poprawione" });
+  expect(done).toHaveTextContent("Dopisano zdanie: Kafka");
+  expect(done).toHaveTextContent("Pogrubiono: PostgreSQL");
+  expect(done).toHaveTextContent("Poprawiono pisownię technologii");
+  fireEvent.click(within(done).getByRole("button", { name: "Cofnij wszystkie" }));
   expect(paper).toHaveTextContent("Docker, Jenkins, Github");
   expect(paper).not.toHaveTextContent("przez kolejki Kafka");
   noNetwork();
@@ -238,7 +246,9 @@ function selectText(editor: Editor, text: string): void {
 
 /** jsdom nie liczy szerokości: układ wąski, asystent w kolumnie „Do poprawy”. */
 async function openAssistant(dialog: HTMLElement): Promise<HTMLElement> {
-  fireEvent.click(await within(dialog).findByRole("button", { name: /^Do poprawy \(/ }));
+  fireEvent.click(await within(dialog).findByRole("button", { name: /^Do poprawy/ }));
+  // Od 17.10.2026 asystent stoi zwinięty do jednej linii pod listą uwag.
+  fireEvent.click(within(dialog).getByRole("button", { name: "Napisz, co zmienić w CV…" }));
   return within(dialog).getByRole("region", { name: "Asystent CV" });
 }
 
@@ -572,5 +582,14 @@ it("`?state=handoff-blocking`: blokady QC → „Przekaż mimo uwag…” otwier
   fireEvent.click(within(bar).getByRole("button", { name: "Przekaż mimo uwag…" }));
   const form = await screen.findByRole("dialog", { name: "Przesuń mimo uwag QC" });
   expect(form).toHaveTextContent("CV pójdzie dalej z 2 niepoprawionymi rzeczami");
+  noNetwork();
+});
+
+it("`?state=handoff-blocking`: „Przekaż mimo uwag…” stoi też w nagłówku blokad w panelu", async () => {
+  const dialog = await openEditor("handoff-blocking");
+  fireEvent.click(await within(dialog).findByRole("button", { name: /^Do poprawy/ }));
+  const blocking = await within(dialog).findByRole("region", { name: "Blokuje wysyłkę" });
+  fireEvent.click(within(blocking).getByRole("button", { name: "Przekaż mimo uwag…" }));
+  expect(await screen.findByRole("dialog", { name: "Przesuń mimo uwag QC" })).toBeInTheDocument();
   noNetwork();
 });

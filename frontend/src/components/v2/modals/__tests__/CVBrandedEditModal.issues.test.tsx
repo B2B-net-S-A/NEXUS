@@ -85,7 +85,11 @@ vi.mock("@/components/v2/cv-editor/CvEditorSources", () => ({
 // Asystent pracuje na prawdziwym edytorze — ma własne testy (harness edytora);
 // atrapa edytora tego okna nie ma widoku ProseMirror.
 vi.mock("@/components/v2/cv-editor/CvEditorAssistant", () => ({
-  CvEditorAssistant: () => <section aria-label="Asystent CV" />,
+  CvEditorAssistant: ({ expanded, onExpand }: { expanded: boolean; onExpand: () => void }) => (
+    <section aria-label="Asystent CV" data-expanded={String(expanded)}>
+      {expanded ? null : <button onClick={onExpand}>Napisz, co zmienić w CV…</button>}
+    </section>
+  ),
 }));
 vi.mock("@/components/v2/cv-editor/useCvAssistant", () => ({
   useCvAssistant: () => ({
@@ -132,8 +136,8 @@ vi.mock("@/components/v2/cv-editor/CvEditorIssues", async () => {
       ensureDraft: () => Promise<boolean>;
       onShowCv: () => void;
       ref?: import("react").Ref<{ boldRequirements: () => void }>;
-      heading?: import("react").ReactNode;
-      collapsed?: boolean;
+      summary?: boolean;
+      onShowList?: () => void;
     }) => {
       state.issuesProps.push(props as unknown as Record<string, unknown>);
       const { onCount } = props;
@@ -141,8 +145,8 @@ vi.mock("@/components/v2/cv-editor/CvEditorIssues", async () => {
       useImperativeHandle(props.ref, () => ({ boldRequirements: () => { state.bolded += 1; } }));
       return (
         <div>
-          {props.heading}
-          <div hidden={props.collapsed}>
+          {props.summary ? <button onClick={props.onShowList}>Pokaż listę</button> : null}
+          <div hidden={props.summary}>
             <div data-testid="issues">
               <button onClick={() => void props.ensureDraft().then((ok) => state.drafted.push(ok))}>załóż szkic</button>
               <button onClick={props.onShowCv}>pokaż kartkę</button>
@@ -477,41 +481,55 @@ it("wąski ekran: kolumna „Historia” wybiera się sama, a po zamknięciu wra
   expect(screen.getByTestId("paper").closest(".cv-paper")).not.toHaveAttribute("hidden");
 });
 
-// ── Kolumna: „Do poprawy” nad asystentem (Edytor CV 3, PR 4) ─────────────────
+// ── Kolumna: lista uwag, asystent w jednej linii (wariant A, 17.10.2026) ────
 
-const issuesToggle = () => screen.getByRole("button", { name: /^Do poprawy/ });
 const issuesBody = () => screen.getByTestId("issues").parentElement as HTMLElement;
+const assistantRegion = () => within(panel()).getByRole("region", { name: "Asystent CV" });
 
-it("blokady QC: „Do poprawy” rozwinięte nad asystentem", async () => {
+it("blokady QC: lista uwag na pierwszym planie, asystent w jednej linii", async () => {
   await open();
-  await waitFor(() => expect(issuesToggle()).toHaveAttribute("aria-expanded", "true"));
-  expect(issuesBody()).not.toHaveAttribute("hidden");
-  expect(within(panel()).getByRole("region", { name: "Asystent CV" })).toBeInTheDocument();
+  await waitFor(() => expect(issuesBody()).not.toHaveAttribute("hidden"));
+  expect(assistantRegion()).toHaveAttribute("data-expanded", "false");
 });
 
-it("bez blokad „Do poprawy” jest zwinięte, ale liczy dalej; klik rozwija", async () => {
+it("bez blokad też lista na pierwszym planie (pusty asystent nie zabiera kolumny)", async () => {
   state.count = { total: 2, blocking: 0, state: "ready" };
   await open();
-  await waitFor(() => expect(issuesToggle()).toHaveAttribute("aria-expanded", "false"));
+  await waitFor(() => expect(issuesBody()).not.toHaveAttribute("hidden"));
+  expect(assistantRegion()).toHaveAttribute("data-expanded", "false");
+});
+
+it("klik w linię asystenta rozwija go, lista zwija się do paska; „Pokaż listę” wraca", async () => {
+  await open();
+  fireEvent.click(within(assistantRegion()).getByRole("button", { name: "Napisz, co zmienić w CV…" }));
+  expect(assistantRegion()).toHaveAttribute("data-expanded", "true");
   // Zwinięty panel zostaje zamontowany: liczy znaczniki na kartce i liczbę w pasku.
   expect(issuesBody()).toHaveAttribute("hidden");
   expect(screen.getByTestId("issues")).toBeInTheDocument();
-  fireEvent.click(issuesToggle());
-  expect(issuesToggle()).toHaveAttribute("aria-expanded", "true");
+  expect(state.issuesProps.at(-1)).toMatchObject({ summary: true });
+  fireEvent.click(screen.getByRole("button", { name: "Pokaż listę" }));
+  expect(assistantRegion()).toHaveAttribute("data-expanded", "false");
   expect(issuesBody()).not.toHaveAttribute("hidden");
 });
 
-it("„Sprawdź i popraw” z karty otwiera „Do poprawy” rozwinięte także bez blokad", async () => {
+it("„Sprawdź i popraw” z karty otwiera listę uwag", async () => {
   state.count = { total: 2, blocking: 0, state: "ready" };
   await open({ stageId: 5 }, { initialPanel: "issues" });
-  expect(issuesToggle()).toHaveAttribute("aria-expanded", "true");
+  expect(issuesBody()).not.toHaveAttribute("hidden");
+  expect(assistantRegion()).toHaveAttribute("data-expanded", "false");
+});
+
+it("bez przekazania (karta poza „Zweryfikowany”) panel nie dostaje „Przekaż mimo uwag…”", async () => {
+  await open();
+  await waitFor(() => expect(state.issuesProps.length).toBeGreaterThan(0));
+  expect(state.issuesProps.at(-1)?.onOverride).toBeUndefined();
 });
 
 it("wynik generatora nie ma asystenta — „Do poprawy” bez zwijania", async () => {
   await open({ generatedId: 9 }, { generatorWarnings: ["MUST-HAVE: brak."] });
   await waitFor(() => expect(state.issuesProps.length).toBeGreaterThan(0));
   expect(screen.queryByRole("region", { name: "Asystent CV" })).toBeNull();
-  expect(screen.queryByRole("button", { name: /^Do poprawy/ })).toBeNull();
+  expect(state.issuesProps.at(-1)).toMatchObject({ summary: false });
 });
 
 it("historia jest tylko dla CV etapu; pobranie starszej wersji niesie jej numer w nazwie pliku", async () => {
