@@ -18,6 +18,7 @@ import { useId, useState, type FormEvent, type ReactNode } from "react";
 import { Ban, Copy, Loader2, LocateFixed, XCircle } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { ConsentAttachButton } from "@/components/v2/cv-generator/ConsentAttachButton";
 import {
   DismissForm,
   ItemAction,
@@ -30,6 +31,7 @@ import type { QcCheck, QcFix, QcItem } from "@/lib/api/cvQc";
 import {
   ISSUE_SOURCE_LABEL,
   REVIEW_FINDING_LABEL,
+  consentTarget,
   itemQuickFix,
   itemSentence,
   yearsPreview,
@@ -76,6 +78,8 @@ export interface RowContext {
   retryFixes: () => void;
   dismiss: IssueDismiss;
   reviewVersion: number | null;
+  /** QC od nowa — po dołączeniu zrzutu zgody RODO, który nie zmienia treści CV. */
+  refreshQc: () => void;
 }
 
 const SMALL = "h-7 px-1.5 text-xs";
@@ -500,6 +504,7 @@ function TaskRow({ task, fixes, ctx }: { task: QcTask; fixes: QcFix[]; ctx: RowC
   const roleItems = items.filter((item) => item.role);
   const target = first ? itemTarget(first) : null;
   const busy = qc.busy || !qc.editable;
+  const consent = first?.fix === "upload_consent" ? consentTarget(qc.data) : null;
 
   let actions: ReactNode = null;
   let body: ReactNode = null;
@@ -571,6 +576,9 @@ function TaskRow({ task, fixes, ctx }: { task: QcTask; fixes: QcFix[]; ctx: RowC
         Usuń z CV
       </Button>
     );
+  } else if (consent) {
+    // Zrzut wgrywa się tu, bez generatora i bez ponownej generacji (PR 4, 17.10.2026).
+    actions = <ConsentAttachButton compact hasConsent={false} {...consent} onAttached={ctx.refreshQc} />;
   } else if (first?.fix === "upload_consent" || first?.fix === "generate_cv") {
     actions = <ItemAction item={first} ctx={qc} />;
   } else if (first && itemQuickFix(check, first)?.action === "strip_client_rules") {
@@ -807,6 +815,10 @@ function ItemRow({ row, ctx }: { row: Extract<IssueRow, { kind: "item" }>; ctx: 
         Zmień
       </Button>
     );
+  } else if (check.key === "dates" && item.role) {
+    // „Rola bez dat.” nie mówi, o którą rolę chodzi (PR 4, 17.10.2026).
+    title = `${item.role}: brak dat`;
+    sub = check.label;
   } else if (quick?.action === "title") {
     title = (
       <>

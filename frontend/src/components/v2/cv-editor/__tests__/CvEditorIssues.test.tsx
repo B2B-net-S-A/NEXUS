@@ -9,6 +9,20 @@ import { cvEditorExtensions, loadCvHtml } from "@/lib/cv-editor-structure";
 
 const toast = vi.hoisted(() => ({ showSuccess: vi.fn(), showError: vi.fn() }));
 vi.mock("@/components/Toast", () => ({ useToast: () => toast }));
+// Wgranie zrzutu ma własne testy (`ConsentAttachButton.test.tsx`); tu liczy się,
+// dokąd panel go kieruje i że po nim QC liczy się od nowa.
+vi.mock("@/components/v2/cv-generator/ConsentAttachButton", () => ({
+  ConsentAttachButton: (props: { generatedId?: number; stageCopy?: { candidateId: number; stageId: number }; onAttached?: () => void }) => (
+    <button
+      type="button"
+      data-generated={props.generatedId ?? ""}
+      data-stage={props.stageCopy ? `${props.stageCopy.candidateId}:${props.stageCopy.stageId}` : ""}
+      onClick={() => props.onAttached?.()}
+    >
+      Wgraj zrzut maila
+    </button>
+  ),
+}));
 
 import { CvEditorIssues, type CvIssueCount } from "../CvEditorIssues";
 
@@ -950,6 +964,56 @@ describe("lata, tytuł, stawka i zdanie z kontroli AI jednym kliknięciem (PR 2,
     await waitFor(() =>
       expect(api.transform).toHaveBeenCalledWith(STAGE, expect.objectContaining({ actions: [{ action: "remove_line", text: "Przeglądy kodu." }], bulk: false })),
     );
+  });
+});
+
+describe("zgoda RODO i rola bez dat w panelu (PR 4, 17.10.2026)", () => {
+  const CONSENT: QcCheck = check({
+    key: "client_rules",
+    label: "Reguły klienta",
+    severity: "blocking",
+    items: [{ detail: "Brak zrzutu zgody RODO (wymóg klienta).", fix: "upload_consent" }],
+  });
+
+  it("brak zgody: zrzut wgrywa się w wierszu blokady, a po nim QC liczy się od nowa", async () => {
+    const qc = vi
+      .fn()
+      .mockResolvedValueOnce(qcResult({ checks: [CONSENT] }))
+      .mockResolvedValue(qcResult({ checks: [], blocking_failed: 0, passed: true }));
+    setup({ api: memoryApi({ qc }) });
+    const blocking = await screen.findByRole("region", { name: "Blokuje wysyłkę" });
+    const upload = within(blocking).getByRole("button", { name: "Wgraj zrzut maila" });
+    // CV z generatora: zgoda idzie do dokumentu generatora (serwer odświeża kopię etapu).
+    expect(upload).toHaveAttribute("data-generated", "77");
+    expect(within(blocking).queryByText(/otwórz generator/)).not.toBeInTheDocument();
+
+    fireEvent.click(upload);
+    await waitFor(() => expect(qc).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.queryByRole("region", { name: "Blokuje wysyłkę" })).not.toBeInTheDocument());
+  });
+
+  it("kopia bez generatora: zgoda na etapie, na którym leży CV", async () => {
+    const base = qcResult();
+    const api = memoryApi({
+      qc: vi.fn(async () => qcResult({ checks: [CONSENT], cv: { ...base.cv!, generated_document_id: null } })),
+    });
+    setup({ api });
+    const upload = await screen.findByRole("button", { name: "Wgraj zrzut maila" });
+    expect(upload).toHaveAttribute("data-generated", "");
+    expect(upload).toHaveAttribute("data-stage", `101:${STAGE}`);
+  });
+
+  it("rola bez dat mówi, o którą rolę chodzi", async () => {
+    const api = memoryApi({
+      qc: vi.fn(async () =>
+        qcResult({
+          checks: [check({ key: "dates", label: "Każda rola ma daty", items: [{ role: "Analityk · Bank Przykładowy", detail: "Rola bez dat.", role_index: 1 }] })],
+        }),
+      ),
+    });
+    setup({ api });
+    expect(await screen.findByText("Analityk · Bank Przykładowy: brak dat")).toBeInTheDocument();
+    expect(screen.queryByText("Rola bez dat.")).not.toBeInTheDocument();
   });
 });
 

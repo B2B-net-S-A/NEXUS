@@ -374,6 +374,19 @@ Komponenty: `cv-editor/CvEditorIssues.tsx` (grupy, „Poprawione”, pasek),
   zdań bez tego słowa „bez nowych faktów” — zmiana przechodzi `verify_plan`
   i ma „Cofnij” przy odpowiedzi. Bez asystenta (wynik generatora, AI wyłączone)
   zostaje komunikat serwera.
+- **Zgoda RODO w wierszu blokady (PR 4).** Pozycja `upload_consent` ma
+  „Wgraj zrzut maila” (`ConsentAttachButton`) zamiast odsyłania do
+  generatora. Cel jak na karcie „CV do klienta” (`consentTarget`): CV
+  z generatora (`cv.generated_document_id`) → dokument generatora (serwer
+  odświeża szkic etapu, treść i wersja szkicu bez zmian), kopia bez generatora
+  → CV etapu `cv.stage_id` (trasa etapu odmawia 409 przy CV z generatora).
+  Po wgraniu panel liczy QC od nowa (`refreshQc`) — zrzut nie zmienia treści,
+  więc autozapis by go nie wyzwolił. Okno QC na Tablicy zostaje z odnośnikiem.
+- **Rola bez dat (PR 4).** Wiersz mówi „<rola>: brak dat” zamiast samego
+  „Rola bez dat.”. Przycisku nie ma: asystent nie dostaje oryginału
+  (`cv_command_ai._sources` służy tylko kontroli faktów), więc „wpisz daty
+  z oryginału” przez asystenta wpisałoby daty zgadnięte albo wróciło
+  z pytaniem. Wpisanie dat kodem z odczytu oryginału to osobna decyzja.
 - **D6 · przepuszczenie idzie za CV** — reguła w
   `rekrutacja-tablica/qc-cv-tryb-doradczy-role-z-odczytu-potwierdzenie.md`.
 - **D7 · bez „Pomiń wszystkie uwagi AI”.** Blokady to rzeczy, które zobaczy
