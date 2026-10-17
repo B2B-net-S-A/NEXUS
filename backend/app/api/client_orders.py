@@ -3799,6 +3799,13 @@ async def create_contract_with_order(
     # w MD zapisujemy w zł/h (÷ 8, 168 h/mc). Zamówienie niżej zostaje w MD —
     # to dokument od klienta, a koszt wróci do niego ×8 bez zmiany kwoty.
     apply_contract_hourly_policy(contract)
+    if payload.job_id is not None:
+        # D8 (17.10.2026): hiring manager rekrutacji jako menedżer u klienta.
+        from app.services.contract_client_manager import default_from_job
+
+        contract.client_pm_contact_id = await default_from_job(
+            db, job=await db.get(Job, payload.job_id), client_id=client_id
+        )
     db.add(contract)
     await db.flush()  # Get contract.id
 

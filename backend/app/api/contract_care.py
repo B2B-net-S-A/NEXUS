@@ -16,6 +16,11 @@ Dostęp (decyzja D7 i zadanie E5, 16.10.2026):
 * **ATLAS** — klucz konta serwisowego (``X-API-Key``) z ``clients:read``
   i ``contracts:read`` (najbliższe istniejące zakresy; własnego zakresu
   sygnałów nie ma), zwrot statusów — na razie tylko admin.
+* **Struktura u klienta i opinie klienta** (etap 2, D8–D11, 17.10.2026) —
+  czytają opiekun (DL, TCM, admin) i Head of Recruitment; Finanse i Kadry
+  z samego uprawnienia nie (D11). Opinię zapisują piszący opiekę, a „Podlega
+  pod” i dział kontaktu — ci, którzy edytują kontakty klienta
+  (``ClientAccess.can_edit_contacts``, ta sama reguła co ``api/contacts.py``).
 """
 
 from __future__ import annotations
@@ -35,7 +40,7 @@ from app.api.deps import (
     require_service_scope,
 )
 from app.api.hr_gates import MODULE_DISABLED_DETAIL
-from app.api.permission_access import DeliveryViewUser
+from app.api.permission_access import ClientsEditUser, DeliveryViewUser
 from app.api.section_access import (
     require_section_access,
     require_section_access_any,
@@ -49,6 +54,7 @@ from app.models.contract_care import (
     CLIENTS_CARE,
     CONTRACTS_CARE,
     CareConversation,
+    ClientFeedbackScore,
     CarePlanItem,
     ClientArea,
     RedeployQueueItem,
@@ -64,8 +70,14 @@ from app.services.care import access as care_access
 from app.services.care import plan as care_plan
 from app.services.care import records, signals
 from app.services.care import skills as care_skills
-from app.services.care import tech_map
-from app.services.contract_care_schema import NAME_MAX, NOTE_MAX, SHORT_TEXT_MAX
+from app.services.care import client_feedback, client_people, tech_map
+from app.services.client_access import resolve_client_access
+from app.services.contract_care_schema import (
+    FEEDBACK_NOTE_MAX,
+    NAME_MAX,
+    NOTE_MAX,
+    SHORT_TEXT_MAX,
+)
 from app.services.hr import audit
 from app.services.hr import modules as hr_modules
 from app.services.section_permissions import ProductSection
@@ -93,6 +105,17 @@ _REVIEW_READER = require_permission_or_roles(
 )
 _CURATOR_ROLES = require_roles(
     UserRole.admin, UserRole.head_of_recruitment, UserRole.talent_community_manager
+)
+#: D11: kto widzi strukturę u klienta i opinie klienta (Finanse i Kadry nie).
+_PEOPLE_READER_ROLES: tuple[UserRole, ...] = (
+    UserRole.admin,
+    UserRole.delivery_lead,
+    UserRole.talent_community_manager,
+    UserRole.head_of_recruitment,
+)
+PEOPLE_DENIED = (
+    "Strukturę u klienta i opinie klienta widzą opiekun kontraktu, Delivery Lead "
+    "klienta, Head of Recruitment i administrator."
 )
 _ATLAS_SCOPE = require_service_scope(ServiceScope.sales_signals_read)
 _ATLAS_WRITE_SCOPE = require_service_scope(ServiceScope.sales_signals_write)
@@ -188,12 +211,53 @@ def require_hr_care_atlas_admin():
     return _check
 
 
+def require_hr_client_people_reader():
+    """Struktura u klienta i opinie (D11): opiekun, DL klienta, HoR, admin.
+
+    Head of Recruitment nie ma sekcji Delivery, więc wejście jak w kolejce
+    technologii (Delivery albo Pozyskiwanie, podgląd Delivery albo rola HoR),
+    a potem rola z listy D11 — Finanse i Kadry z samego uprawnienia odpadają.
+    Zakres klientów Delivery Leada sprawdza trasa (``care_access``).
+    """
+
+    async def _check(
+        reader: User = Depends(_REVIEW_READER),
+        current_user: User = Depends(_REVIEW_SECTION_READ),
+        db: AsyncSession = Depends(get_db),
+    ) -> User:
+        if not current_user.has_any_role(*_PEOPLE_READER_ROLES):
+            raise HTTPException(status.HTTP_403_FORBIDDEN, PEOPLE_DENIED)
+        await _ensure_module(db, current_user)
+        return current_user
+
+    return _check
+
+
+def require_hr_client_org_editor():
+    """„Podlega pod” i dział kontaktu: edycja klientów + zapis w Delivery.
+
+    Portfel Delivery Leada (``can_edit_contacts``) sprawdza trasa.
+    """
+
+    async def _check(
+        editor: ClientsEditUser,
+        current_user: User = Depends(_DELIVERY_SECTION),
+        db: AsyncSession = Depends(get_db),
+    ) -> User:
+        await _ensure_module(db, current_user)
+        return current_user
+
+    return _check
+
+
 CareReader = require_hr_care_reader()
 CareWriter = require_hr_care_writer()
 ReviewReader = require_hr_care_review_reader()
 SkillCurator = require_hr_care_skill_curator()
 AtlasReader = require_hr_care_atlas_reader()
 AtlasAdmin = require_hr_care_atlas_admin()
+PeopleReader = require_hr_client_people_reader()
+OrgEditor = require_hr_client_org_editor()
 
 
 # ── Wspólne ─────────────────────────────────────────────────────────────────
@@ -841,6 +905,169 @@ async def add_stack_note(
     await db.flush()
     await tech_map.invalidate([client.id])
     return {"id": note.id, "content": note.content}
+
+
+# ── Klient → zakładka „Struktura u klienta” i opinie klienta ────────────────
+
+
+async def _org_payload(
+    db: AsyncSession, client_id: int, client_name: str, user: User
+) -> dict[str, Any]:
+    access = await resolve_client_access(db, user, client_id)
+    org = await client_people.client_org(
+        db,
+        client_id,
+        today=business_today(),
+        show_contact_details=access.can_view_contacts,
+    )
+    return {
+        **org,
+        "client_name": client_name,
+        "can_edit_org": access.can_edit_contacts,
+        "can_write_feedback": care_access.is_care_worker(user),
+    }
+
+
+@router.get("/clients/{client_id}/org")
+async def client_org(
+    client_id: int,
+    current_user: User = Depends(PeopleReader),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    client = await care_access.load_client(db, client_id, current_user)
+    return await _org_payload(db, client.id, client.name, current_user)
+
+
+class ContactOrgBody(BaseModel):
+    reports_to_contact_id: Optional[int] = None
+    client_area_id: Optional[int] = None
+    new_area_name: Optional[str] = Field(default=None, max_length=NAME_MAX)
+
+
+@router.patch("/clients/{client_id}/contacts/{contact_id}")
+async def update_contact_org(
+    client_id: int,
+    contact_id: int,
+    body: ContactOrgBody,
+    current_user: User = Depends(OrgEditor),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    client = await care_access.load_client(db, client_id, current_user)
+    access = await resolve_client_access(db, current_user, client.id)
+    if not access.can_edit_contacts:
+        raise access.edit_denial(
+            "edycja struktury u klienta wymaga prawa edycji kontaktów klienta"
+        )
+    await client_people.update_contact_org(
+        db,
+        client_id=client.id,
+        contact_id=contact_id,
+        changes={key: getattr(body, key) for key in body.model_fields_set},
+        actor_id=current_user.id,
+    )
+    await tech_map.invalidate([client.id])
+    return await _org_payload(db, client.id, client.name, current_user)
+
+
+@router.get("/feedback-requests")
+async def feedback_requests(
+    scope: Literal["mine", "all"] = "mine",
+    current_user: User = Depends(PeopleReader),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Prośby o opinię (D9) w zakresie czytającego.
+
+    ``mine`` — u opiekuna jego konsultantów, a u Delivery Leada wszystkie
+    z jego portfela; ``all`` — cały zakres (DL i tak tylko swoich klientów).
+    """
+
+    allowed = await care_access.allowed_client_ids(current_user, db)
+    items = await client_people.feedback_requests(
+        db, client_ids=allowed, today=business_today()
+    )
+    if scope == "mine" and not (
+        allowed is not None and current_user.has_role(UserRole.delivery_lead)
+    ):
+        items = [item for item in items if current_user.id in item["owner_ids"]]
+    return {"items": items, "total": len(items), "scope": scope}
+
+
+class FeedbackScoreBody(BaseModel):
+    contract_id: int
+    quality: Optional[int] = Field(default=None, ge=1, le=5)
+    communication: Optional[int] = Field(default=None, ge=1, le=5)
+    autonomy: Optional[int] = Field(default=None, ge=1, le=5)
+
+
+class FeedbackBody(BaseModel):
+    contact_id: int
+    held_on: date
+    channel: Literal["phone", "meeting", "email"] = "phone"
+    extension_outlook: Optional[Literal["yes", "likely", "unsure", "no"]] = None
+    note: Optional[str] = Field(default=None, max_length=FEEDBACK_NOTE_MAX)
+    scores: list[FeedbackScoreBody] = Field(default_factory=list, max_length=100)
+
+
+@router.post("/clients/{client_id}/feedback", status_code=status.HTTP_201_CREATED)
+async def add_client_feedback(
+    client_id: int,
+    body: FeedbackBody,
+    current_user: User = Depends(CareWriter),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    client = await care_access.load_client(db, client_id, current_user)
+    session = await client_feedback.save_feedback(
+        db,
+        client_id=client.id,
+        payload=client_feedback.FeedbackInput(
+            contact_id=body.contact_id,
+            held_on=body.held_on,
+            channel=body.channel,
+            extension_outlook=body.extension_outlook,
+            note=body.note,
+            scores=tuple(
+                client_feedback.ScoreInput(**score.model_dump())
+                for score in body.scores
+            ),
+        ),
+        actor_id=current_user.id,
+        today=business_today(),
+    )
+    contract_ids = sorted(
+        await db.scalars(
+            select(ClientFeedbackScore.contract_id).where(
+                ClientFeedbackScore.session_id == session.id
+            )
+        )
+    )
+    return {
+        "id": session.id,
+        "held_on": session.held_on,
+        "contact_id": session.contact_id,
+        "contract_ids": contract_ids,
+    }
+
+
+@router.get("/contracts/{contract_id}/feedback")
+async def contract_feedback(
+    contract_id: int,
+    current_user: User = Depends(PeopleReader),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    contract = await care_access.load_contract(db, contract_id, current_user)
+    items = await client_feedback.contract_history(db, contract.id)
+    names = await care_access.user_names(db, [item["created_by"] for item in items])
+    return {
+        "items": [
+            {
+                **{key: value for key, value in item.items() if key != "created_by"},
+                "author": _person(item["created_by"], names),
+            }
+            for item in items
+        ],
+        "client_id": contract.client_id,
+        "can_write": care_access.is_care_worker(current_user),
+    }
 
 
 # ── Słowniki ────────────────────────────────────────────────────────────────

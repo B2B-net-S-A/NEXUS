@@ -46,3 +46,35 @@ powtarza reguły).
 - **`render_payload` starych dokumentów zostaje nietknięty** — korekta go czyta,
   nie czyści. Kontakt w podpisanym dokumencie jest zapisem tego, co strony
   podpisały.
+
+## Menedżer u klienta (D8, „Ludzie w NEXUSIE” etap 2, 17.10.2026)
+
+Druga strona tej samej karty: osoba po stronie KLIENTA, pod którą pracuje
+konsultant. Kolumna `contracts.client_pm_contact_id` (0097) była w bazie, ale
+API i ekrany jej nie pokazywały; do 17.10 obok stały tylko teksty „PM po stronie
+klienta” i „Line Manager”. Reguły w `services/contract_client_manager.py`.
+
+- **Menedżer to kontakt klienta TEGO kontraktu.** PATCH z kontaktem innego
+  klienta = 422. Sprawdzamy tylko realną zmianę — formularz z dawnym,
+  błędnym kontaktem nie blokuje zapisu innych pól (taki kontakt blokuje za to
+  przepięcie kontraktu na innego klienta, `contract_client_reassign`).
+- **Nowa osoba** idzie w `client_pm_new_person` (nigdy razem z
+  `client_pm_contact_id` — 422) przez `job_hiring_manager.find_or_create_contact`:
+  ta sama osoba wpisana inaczej nie staje się drugim kontaktem.
+- **Teksty PM i Line Manager zostają opisem.** Gdy kontakt jest pusty, a tekst
+  to DOKŁADNIE imię i nazwisko kontaktu klienta (bez wielkości liter), odpowiedź
+  szczegółów niesie `client_pm_contact_hint` i ekran pokazuje „Przypnij: X”.
+  Skrót („Michał R.”) nie podpowiada nikogo. Nic nie przypina się samo.
+- **Domyślnie hiring manager rekrutacji** — przy ręcznym zakładaniu kontraktu
+  z `job_id` (`POST /api/contracts`, „Nowy kontraktor” z zamówieniem) i w
+  automacie „Zatrudniony” (także gdy szkic bez rekrutacji właśnie ją dostaje),
+  o ile HM jest kontaktem klienta kontraktu. Wpisanego menedżera automat nie
+  zmienia.
+- **Front**: pole „Menedżer u klienta” w sekcji „Osadzenie u klienta” edycji
+  kontraktu (ten sam `HiringManagerCombobox` z etykietami menedżera) i fakt
+  „Menedżer u klienta” nad zakładkami. Odpowiedź szczegółów niesie imię
+  i stanowisko (`client_pm_contact_name`, `client_pm_contact_position`); lista
+  kontraktów — samo id.
+- **Scalanie i powrót po przerwie** przenoszą pole jak dotąd (`contract_merge`
+  `_MERGEABLE_FIELDS`, `contract_return_after_break._COPIED_FIELDS`). Struktura
+  u klienta i opinie — `docs/claude/ludzie/opieka-mapa-technologii-i-sprawy.md`.

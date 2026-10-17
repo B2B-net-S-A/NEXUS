@@ -16,6 +16,8 @@ import { isBlockingViewState, resolveViewState } from "@/lib/view-state";
 import { useCapability } from "@/hooks/useCapability";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import { ClientTechnologiesTab } from "@/components/care/ClientTechnologiesTab";
+import { ClientPeopleTab } from "@/components/care/ClientPeopleTab";
+import { canReadClientPeople } from "@/lib/api/client-people";
 import { useHrConfig } from "@/lib/api/hr";
 import {
   ArrowLeft,
@@ -1170,11 +1172,15 @@ export default function ClientDetailPage() {
     { key: "umowy-ramowe", label: "Umowy" },
     { key: "analityka", label: "Analityka" },
     { key: "technologie", label: "Technologie" },
+    { key: "struktura", label: "Struktura u klienta" },
   ];
+  // „Struktura u klienta” — moduł opieki i krąg D11 (opiekun, DL, HoR, admin).
+  const peopleOpen = careOpen && canReadClientPeople(user);
   const TABS = allTabs.filter(
     (tab) =>
       (canViewDeliveryLegal || tab.key !== "umowy-ramowe") &&
-      (careOpen || tab.key !== "technologie"),
+      (careOpen || tab.key !== "technologie") &&
+      (peopleOpen || tab.key !== "struktura"),
   );
 
   return (
@@ -1434,6 +1440,9 @@ export default function ClientDetailPage() {
             />
           )}
           {activeTab === "analityka" && <AnalyticsTab clientId={Number(id)} />}
+          {peopleOpen && activeTab === "struktura" && (
+            <ClientPeopleTab clientId={Number(id)} />
+          )}
           {careOpen && activeTab === "technologie" && (
             <ClientTechnologiesTab clientId={Number(id)} />
           )}

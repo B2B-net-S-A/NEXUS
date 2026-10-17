@@ -22,6 +22,18 @@ Technologie karty to wiersze słownika ``skills`` (ten sam, z którego korzystaj
 wymagania rekrutacji i profile); nazwa spoza słownika czeka w
 ``skill_review_queue``. Rejestr kontraktorów, wejścia, zejścia i ławka
 Compassa nie przechodzą — NEXUS ma je w kontraktach i zamówieniach.
+
+Opinie klienta (etap 2, D8–D11, 17.10.2026): rozmowa z menedżerem u klienta
+(kontakt klienta z ``contracts.client_pm_contact_id``) zapisana po telefonie
+albo spotkaniu — ``client_feedback_sessions`` — z ocenami 1–5 per konsultant
+(kontrakt) w ``client_feedback_scores``. Formularza wysyłanego do klienta nie
+ma (D10). Konsultant opinii nie widzi (D11).
+
+Struktura u klienta (etap 2, 17.10.2026): kontakt klienta podlega pod inny
+kontakt TEGO klienta (``contacts.reports_to_contact_id``, bez cykli — pilnuje
+``care/client_people``) i należy do działu z ``client_areas`` („Działy
+i obszary”, ten sam słownik co mapa technologii). Tekst ``contacts.department``
+zostaje — ekran podpowiada dział, nic nie przypisuje się samo.
 """
 
 from __future__ import annotations
@@ -38,8 +50,13 @@ REDEPLOY_STATUSES: tuple[str, ...] = ("open", "in_progress", "done", "dismissed"
 REDEPLOY_ACTIVE_STATUSES: tuple[str, ...] = ("open", "in_progress")
 REDEPLOY_SOURCES: tuple[str, ...] = ("tech_card", "conversation", "manual")
 
+FEEDBACK_CHANNELS: tuple[str, ...] = ("phone", "meeting", "email")
+EXTENSION_OUTLOOKS: tuple[str, ...] = ("yes", "likely", "unsure", "no")
+FEEDBACK_SCORE_FIELDS: tuple[str, ...] = ("quality", "communication", "autonomy")
+
 #: Limity tekstów — te same w CHECK-ach i w walidacji API.
 NOTE_MAX = 4000
+FEEDBACK_NOTE_MAX = 2000
 SHORT_TEXT_MAX = 500
 NAME_MAX = 120
 
@@ -71,6 +88,18 @@ CK_REDEPLOY_STATUS = f"status IN ({quoted(REDEPLOY_STATUSES)})"
 CK_REDEPLOY_SOURCE = f"source IN ({quoted(REDEPLOY_SOURCES)})"
 CK_REDEPLOY_NOTE = f"note IS NULL OR char_length(note) <= {NOTE_MAX}"
 REDEPLOY_ACTIVE_WHERE = f"status IN ({quoted(REDEPLOY_ACTIVE_STATUSES)})"
+CK_FEEDBACK_CHANNEL = f"channel IN ({quoted(FEEDBACK_CHANNELS)})"
+CK_FEEDBACK_EXTENSION = (
+    f"extension_outlook IS NULL OR extension_outlook IN ({quoted(EXTENSION_OUTLOOKS)})"
+)
+CK_FEEDBACK_NOTE = f"note IS NULL OR char_length(note) <= {FEEDBACK_NOTE_MAX}"
+CK_SCORE_QUALITY = "quality IS NULL OR quality BETWEEN 1 AND 5"
+CK_SCORE_COMMUNICATION = "communication IS NULL OR communication BETWEEN 1 AND 5"
+CK_SCORE_AUTONOMY = "autonomy IS NULL OR autonomy BETWEEN 1 AND 5"
+#: Wiersz oceny bez żadnej oceny to „pomiń” — nie zapisujemy go wcale.
+CK_SCORE_ANY = (
+    "quality IS NOT NULL OR communication IS NOT NULL OR autonomy IS NOT NULL"
+)
 
 TABLE_DDL: tuple[str, ...] = (
     # Obszar u klienta (Płatności, Kredyty, Data…) — słownik per klient.
@@ -227,6 +256,39 @@ TABLE_DDL: tuple[str, ...] = (
     CONSTRAINT ck_redeploy_queue_items_source CHECK ({CK_REDEPLOY_SOURCE}),
     CONSTRAINT ck_redeploy_queue_items_note CHECK ({CK_REDEPLOY_NOTE})
 )""",
+    # Rozmowa z menedżerem u klienta o pracy konsultantów (D9–D11). Kontakt
+    # SET NULL: usunięty kontakt nie kasuje opinii, które o konsultantach już
+    # zapisano. Bez stawek i danych o zdrowiu (zdanie w oknie zapisu).
+    f"""CREATE TABLE IF NOT EXISTS client_feedback_sessions (
+    id SERIAL PRIMARY KEY,
+    client_id INTEGER NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+    contact_id INTEGER NULL REFERENCES contacts(id) ON DELETE SET NULL,
+    held_on DATE NOT NULL,
+    channel VARCHAR(16) NOT NULL DEFAULT 'phone',
+    extension_outlook VARCHAR(16) NULL,
+    note TEXT NULL,
+    created_by INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT ck_client_feedback_sessions_channel CHECK ({CK_FEEDBACK_CHANNEL}),
+    CONSTRAINT ck_client_feedback_sessions_extension CHECK ({CK_FEEDBACK_EXTENSION}),
+    CONSTRAINT ck_client_feedback_sessions_note CHECK ({CK_FEEDBACK_NOTE})
+)""",
+    # Ocena konsultanta (kontraktu) w jednej rozmowie: jakość pracy,
+    # komunikacja, samodzielność. Jeden wiersz na rozmowę i kontrakt; scalenie
+    # duplikatu kontraktu rozstrzyga kolizję w ``contract_merge``.
+    f"""CREATE TABLE IF NOT EXISTS client_feedback_scores (
+    id SERIAL PRIMARY KEY,
+    session_id INTEGER NOT NULL REFERENCES client_feedback_sessions(id) ON DELETE CASCADE,
+    contract_id INTEGER NOT NULL REFERENCES contracts(id) ON DELETE CASCADE,
+    quality SMALLINT NULL,
+    communication SMALLINT NULL,
+    autonomy SMALLINT NULL,
+    CONSTRAINT uq_client_feedback_scores_session_contract UNIQUE (session_id, contract_id),
+    CONSTRAINT ck_client_feedback_scores_quality CHECK ({CK_SCORE_QUALITY}),
+    CONSTRAINT ck_client_feedback_scores_communication CHECK ({CK_SCORE_COMMUNICATION}),
+    CONSTRAINT ck_client_feedback_scores_autonomy CHECK ({CK_SCORE_AUTONOMY}),
+    CONSTRAINT ck_client_feedback_scores_any CHECK ({CK_SCORE_ANY})
+)""",
 )
 
 COLUMN_DDL: tuple[str, ...] = (
@@ -235,6 +297,11 @@ COLUMN_DDL: tuple[str, ...] = (
     "REFERENCES users(id) ON DELETE SET NULL",
     "ALTER TABLE clients ADD COLUMN IF NOT EXISTS default_care_owner_user_id INTEGER NULL "
     "REFERENCES users(id) ON DELETE SET NULL",
+    # Struktura u klienta: przełożony (kontakt tego samego klienta) i dział.
+    "ALTER TABLE contacts ADD COLUMN IF NOT EXISTS reports_to_contact_id INTEGER NULL "
+    "REFERENCES contacts(id) ON DELETE SET NULL",
+    "ALTER TABLE contacts ADD COLUMN IF NOT EXISTS client_area_id INTEGER NULL "
+    "REFERENCES client_areas(id) ON DELETE SET NULL",
 )
 
 INDEX_DDL: tuple[str, ...] = (
@@ -254,6 +321,16 @@ INDEX_DDL: tuple[str, ...] = (
     f"ON redeploy_queue_items (contract_id, reason) WHERE {REDEPLOY_ACTIVE_WHERE}",
     "CREATE INDEX IF NOT EXISTS ix_redeploy_queue_items_status "
     "ON redeploy_queue_items (status, due_on)",
+    "CREATE INDEX IF NOT EXISTS ix_client_feedback_sessions_client "
+    "ON client_feedback_sessions (client_id, held_on)",
+    "CREATE INDEX IF NOT EXISTS ix_client_feedback_sessions_contact "
+    "ON client_feedback_sessions (contact_id, held_on)",
+    "CREATE INDEX IF NOT EXISTS ix_client_feedback_scores_contract "
+    "ON client_feedback_scores (contract_id)",
+    "CREATE INDEX IF NOT EXISTS ix_contacts_reports_to "
+    "ON contacts (reports_to_contact_id) WHERE reports_to_contact_id IS NOT NULL",
+    "CREATE INDEX IF NOT EXISTS ix_contacts_client_area "
+    "ON contacts (client_area_id) WHERE client_area_id IS NOT NULL",
 )
 
 CONSTRAINT_DDL: tuple[str, ...] = ()
@@ -269,9 +346,15 @@ TABLES: tuple[str, ...] = (
     "tech_card_vendors",
     "skill_review_queue",
     "redeploy_queue_items",
+    "client_feedback_sessions",
+    "client_feedback_scores",
 )
 
 DOWNGRADE_DDL: tuple[str, ...] = (
+    "DROP INDEX IF EXISTS ix_contacts_reports_to",
+    "DROP INDEX IF EXISTS ix_contacts_client_area",
+    "ALTER TABLE contacts DROP COLUMN IF EXISTS reports_to_contact_id",
+    "ALTER TABLE contacts DROP COLUMN IF EXISTS client_area_id",
     "DROP INDEX IF EXISTS ix_contracts_care_owner",
     "ALTER TABLE contracts DROP COLUMN IF EXISTS care_owner_user_id",
     "ALTER TABLE clients DROP COLUMN IF EXISTS default_care_owner_user_id",

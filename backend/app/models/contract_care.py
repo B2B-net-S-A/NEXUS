@@ -1,12 +1,15 @@
-"""„Ludzie w NEXUSIE” — modele: Opieka nad konsultantami i technologie (0459).
+"""„Ludzie w NEXUSIE” — modele: Opieka nad konsultantami, technologie i opinie klienta (0459).
 
 CHECK-i i indeksy muszą być identyczne z ``app/services/*_schema.py`` modułu
 (strażnik dryfu schematu porównuje model z bazą po migracji).
 
 Kolumny dołożone do istniejących tabel (``contracts.care_owner_user_id``,
-``clients.default_care_owner_user_id``) nie są polami modeli ``Contract``
-i ``Client`` — serwisy opieki czytają je przez lekkie odwzorowania
-``CONTRACTS_CARE`` i ``CLIENTS_CARE`` niżej.
+``clients.default_care_owner_user_id``, ``contacts.reports_to_contact_id``,
+``contacts.client_area_id``) nie są polami modeli ``Contract``, ``Client``
+i ``Contact`` — serwisy opieki czytają je przez lekkie odwzorowania
+``CONTRACTS_CARE``, ``CLIENTS_CARE`` i ``CONTACTS_ORG`` niżej. Gdyby DDL modułu
+nie wszedł przy starcie, padają wtedy ekrany opieki, a nie każdy odczyt
+kontraktu, klienta i kontaktu w aplikacji.
 """
 
 from __future__ import annotations
@@ -42,6 +45,14 @@ from app.services import contract_care_schema as schema
 #: Kolumny opieki w istniejących tabelach (``COLUMN_DDL`` migracji 0459).
 CONTRACTS_CARE = table("contracts", column("id"), column("care_owner_user_id"))
 CLIENTS_CARE = table("clients", column("id"), column("default_care_owner_user_id"))
+#: Struktura u klienta (przełożony i dział kontaktu).
+CONTACTS_ORG = table(
+    "contacts",
+    column("id"),
+    column("client_id"),
+    column("reports_to_contact_id"),
+    column("client_area_id"),
+)
 
 
 class ClientArea(Base):
@@ -358,3 +369,82 @@ class RedeployQueueItem(Base, TimestampMixin):
     resolved_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+
+
+class ClientFeedbackSession(Base):
+    """Rozmowa z menedżerem u klienta o pracy konsultantów (D9–D11).
+
+    Zapisuje ją opiekun albo Delivery Lead po telefonie czy spotkaniu —
+    formularza wysyłanego do klienta nie ma (D10). Konsultant opinii nie widzi.
+    """
+
+    __tablename__ = "client_feedback_sessions"
+    __table_args__ = (
+        CheckConstraint(
+            schema.CK_FEEDBACK_CHANNEL, name="ck_client_feedback_sessions_channel"
+        ),
+        CheckConstraint(
+            schema.CK_FEEDBACK_EXTENSION, name="ck_client_feedback_sessions_extension"
+        ),
+        CheckConstraint(
+            schema.CK_FEEDBACK_NOTE, name="ck_client_feedback_sessions_note"
+        ),
+        Index("ix_client_feedback_sessions_client", "client_id", "held_on"),
+        Index("ix_client_feedback_sessions_contact", "contact_id", "held_on"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    client_id: Mapped[int] = mapped_column(
+        ForeignKey("clients.id", ondelete="CASCADE"), nullable=False
+    )
+    contact_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("contacts.id", ondelete="SET NULL"), nullable=True
+    )
+    held_on: Mapped[date] = mapped_column(Date, nullable=False)
+    channel: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="phone", server_default="phone"
+    )
+    extension_outlook: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
+    note: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_by: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class ClientFeedbackScore(Base):
+    """Oceny konsultanta (kontraktu) w jednej rozmowie z menedżerem, 1–5."""
+
+    __tablename__ = "client_feedback_scores"
+    __table_args__ = (
+        UniqueConstraint(
+            "session_id",
+            "contract_id",
+            name="uq_client_feedback_scores_session_contract",
+        ),
+        CheckConstraint(
+            schema.CK_SCORE_QUALITY, name="ck_client_feedback_scores_quality"
+        ),
+        CheckConstraint(
+            schema.CK_SCORE_COMMUNICATION,
+            name="ck_client_feedback_scores_communication",
+        ),
+        CheckConstraint(
+            schema.CK_SCORE_AUTONOMY, name="ck_client_feedback_scores_autonomy"
+        ),
+        CheckConstraint(schema.CK_SCORE_ANY, name="ck_client_feedback_scores_any"),
+        Index("ix_client_feedback_scores_contract", "contract_id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    session_id: Mapped[int] = mapped_column(
+        ForeignKey("client_feedback_sessions.id", ondelete="CASCADE"), nullable=False
+    )
+    contract_id: Mapped[int] = mapped_column(
+        ForeignKey("contracts.id", ondelete="CASCADE"), nullable=False
+    )
+    quality: Mapped[Optional[int]] = mapped_column(SmallInteger, nullable=True)
+    communication: Mapped[Optional[int]] = mapped_column(SmallInteger, nullable=True)
+    autonomy: Mapped[Optional[int]] = mapped_column(SmallInteger, nullable=True)

@@ -17,6 +17,62 @@
   opiekuna, najwyżej raz na 7 dni na kontrakt; koniec projektu < 60 dni → wpis
   „Do przepięcia”.
 
+## Struktura u klienta i opinie klienta (etap 2, D8–D11, 17.10.2026)
+
+Zakładka klienta „Struktura u klienta” (`components/care/ClientPeopleTab.tsx`,
+`GET /api/care/clients/{id}/org`, serwis `care/client_people.py`).
+
+- **Drzewo**: działy klienta → osoby klienta z wcięciem po „Podlega pod” → pod
+  osobą nasi konsultanci, których jest menedżerem u klienta
+  (`contracts.client_pm_contact_id`, reguły pola w
+  `docs/claude/kontrakty/kontakt-do-konsultanta-na-umowie.md`): kandydat, rola,
+  koniec zamówienia (ta sama data co w planie opieki), ostatnia opinia. Przy
+  osobie znaczniki: menedżer naszych, HM (hiring manager w rekrutacjach
+  klienta), decydent. Kontakt bez działu → „Bez działu”, konsultant bez
+  menedżera → „Bez wskazanego menedżera” z podpowiedzią z tekstu Line Manager/PM
+  i „Wskaż menedżera” (prowadzi do kontraktu). Często menedżer to NIE hiring
+  manager — dlatego dwa osobne znaczniki.
+- **Działy to `client_areas`** („Działy i obszary”, ten sam słownik co mapa
+  technologii). Kontakt: `contacts.client_area_id` i
+  `contacts.reports_to_contact_id` — kolumny dołożone w `contract_care_schema`,
+  czytane przez `CONTACTS_ORG` (nie pola modelu `Contact`: awaria DDL modułu
+  kładzie wtedy ekrany opieki, a nie każdy odczyt kontaktu). Tekst
+  `contacts.department` zostaje; panel osoby podpowiada „Przypisz: X” albo
+  „Dodaj dział „X””, nic nie przypisuje się samo.
+- **„Podlega pod” i dział zapisuje** `PATCH /api/care/clients/{id}/contacts/{contact_id}`
+  (`reports_to_contact_id`, `client_area_id` albo `new_area_name`) — ta sama
+  reguła co edycja kontaktów (`ClientAccess.can_edit_contacts`: uprawnienie
+  „Klienci: dodawanie i edycja” w zakresie klienta). Przełożony tylko z tego
+  klienta, bez pętli (422 z nazwiskami), zapis pod blokadą doradczą klienta.
+  `POST …/areas` zostaje przy bramce opieki (TCM zakłada obszary w kartach).
+- **Opinia klienta** = rozmowa z menedżerem zapisana przez opiekuna albo DL
+  po telefonie, spotkaniu czy mailu (`POST /api/care/clients/{id}/feedback`,
+  tabele `client_feedback_sessions` + `client_feedback_scores`): oceny 1–5
+  jakości pracy, komunikacji i samodzielności per konsultant, „pomiń” = brak
+  wiersza, „Przedłużenie” (tak / raczej tak / nie wiem / nie), notatka do 2000
+  znaków. Kontakt i kontrakty muszą być TEGO klienta (422). Formularza
+  wysyłanego do klienta nie ma (D10 — to wysyłka do ludzi z zewnątrz, tylko za
+  zgodą Artura). Okno mówi „Konsultant tej opinii nie widzi. Bez danych
+  o zdrowiu i bez stawek.” — walidacji treści nie ma, jak w rozmowach opieki.
+  Historia opinii o konsultancie: zakładka „Opieka” kontraktu
+  (`GET /api/care/contracts/{id}/feedback`).
+- **Kto widzi (D11)**: opiekun (DL w swoim portfelu, TCM, admin) i Head of
+  Recruitment — bramka `require_hr_client_people_reader` (Delivery albo
+  Pozyskiwanie + rola z listy). Finanse i Kadry z samego uprawnienia: 403.
+  Konsultant nie. Zapis opinii: piszący opiekę (DL, TCM, admin), HoR tylko czyta.
+- **Prośba o opinię (D9)** liczona przy odczycie (`feedback_requests`):
+  menedżer ma prośbę, gdy któryś jego konsultant kończy współpracę w ciągu
+  30 dni, a od początku tego okna nie było rozmowy z menedżerem, albo gdy od
+  ostatniej rozmowy minął kwartał (90 dni; bez rozmowy — od startu pierwszego
+  konsultanta). Jedna pozycja na menedżera ze wszystkimi jego konsultantami,
+  z `owner_ids` (opiekunowie) dla listy „Opieka · Ten tydzień”;
+  `GET /api/care/feedback-requests?scope=mine` daje opiekunowi jego prośby,
+  a Delivery Leadowi wszystkie z portfela.
+- **Scalanie**: duplikat kontraktu — oceny idą za zachowanym, dwie oceny tej
+  samej rozmowy łączą się w jedną (`contract_merge`); duplikat kontaktu —
+  podwładni, dział i opinie przechodzą na zachowany, pętla jest przerywana na
+  jego „Podlega pod” (`contact_duplicate_merge.merge_org`).
+
 ## Karta technologiczna i słownik (D7)
 
 - Jeden słownik dla wymagań rekrutacji, profili i mapy klienta: tabela `skills`

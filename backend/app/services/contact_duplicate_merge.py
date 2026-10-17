@@ -12,6 +12,12 @@ a import pomija rekordy z aliasem.
 
 Zostaje kontakt o niższym id — ta sama reguła co wybór wśród duplikatów przy
 dopasowaniu hiring managera (`job_hiring_manager.pick_matching_contact`).
+
+Struktura u klienta (17.10.2026): podwładni duplikatu przechodzą pod kontakt,
+który zostaje, a jego puste „podlega pod” i dział biorą wartości duplikatu.
+Pętla (zachowany podlegał pod kogoś z podwładnych duplikatu) jest przerywana
+na zachowanym — to ta sama osoba, więc sprzeczne dane, nie dwie hierarchie.
+Opinie klienta zapisane od duplikatu przechodzą na kontakt, który zostaje.
 """
 
 from __future__ import annotations
@@ -183,6 +189,9 @@ async def merge_pair(db: AsyncSession, pair: MergePair) -> dict[str, Any]:
         .where(Contract.client_pm_contact_id == pair.duplicate_id)
         .values(client_pm_contact_id=pair.survivor_id)
     )
+    org = await merge_org(
+        db, survivor_id=pair.survivor_id, duplicate_id=pair.duplicate_id
+    )
     await _add_alias(db, pair.duplicate_external_id, pair.survivor_id)
     await db.delete(duplicate)
     # Ten sam dziennik co `record_client_audit`, ale bez autora — korekta
@@ -205,9 +214,74 @@ async def merge_pair(db: AsyncSession, pair: MergePair) -> dict[str, Any]:
             "filled_fields": filled,
             "jobs_repointed": jobs.rowcount or 0,
             "contracts_repointed": contracts.rowcount or 0,
+            **org,
         }
     )
     return result
+
+
+async def merge_org(
+    db: AsyncSession, *, survivor_id: int, duplicate_id: int
+) -> dict[str, int]:
+    """Struktura u klienta i opinie przy scaleniu dwóch kontaktów jednej osoby."""
+
+    from app.models.contract_care import CONTACTS_ORG, ClientFeedbackSession
+    from app.services.care.client_people import manager_chain_reaches
+
+    org = CONTACTS_ORG
+    rows = {
+        row.id: row
+        for row in (
+            await db.execute(
+                select(
+                    org.c.id, org.c.reports_to_contact_id, org.c.client_area_id
+                ).where(org.c.id.in_([survivor_id, duplicate_id]))
+            )
+        ).all()
+    }
+    survivor, duplicate = rows[survivor_id], rows[duplicate_id]
+    manager = survivor.reports_to_contact_id
+    if manager == duplicate_id:
+        manager = None
+    if manager is None and duplicate.reports_to_contact_id not in (
+        None,
+        survivor_id,
+        duplicate_id,
+    ):
+        manager = duplicate.reports_to_contact_id
+    area = survivor.client_area_id or duplicate.client_area_id
+    await db.execute(
+        update(org)
+        .where(org.c.id == survivor_id)
+        .values(reports_to_contact_id=manager, client_area_id=area)
+    )
+    subordinates = await db.execute(
+        update(org)
+        .where(org.c.reports_to_contact_id == duplicate_id, org.c.id != survivor_id)
+        .values(reports_to_contact_id=survivor_id)
+    )
+    # Jedyne nowe krawędzie prowadzą DO zachowanego, więc pętla — jeśli jest —
+    # przechodzi przez niego: przerywamy ją na jego „podlega pod”.
+    loop_broken = 0
+    if manager is not None and await manager_chain_reaches(
+        db, start_id=manager, target_id=survivor_id
+    ):
+        await db.execute(
+            update(org)
+            .where(org.c.id == survivor_id)
+            .values(reports_to_contact_id=None)
+        )
+        loop_broken = 1
+    feedback = await db.execute(
+        update(ClientFeedbackSession)
+        .where(ClientFeedbackSession.contact_id == duplicate_id)
+        .values(contact_id=survivor_id)
+    )
+    return {
+        "subordinates_repointed": subordinates.rowcount or 0,
+        "reports_to_loop_broken": loop_broken,
+        "feedback_sessions_repointed": feedback.rowcount or 0,
+    }
 
 
 async def run_contact_duplicate_merge(

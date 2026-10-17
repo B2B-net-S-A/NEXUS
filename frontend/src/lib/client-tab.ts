@@ -23,6 +23,9 @@ export type ClientTab =
   | "analityka"
   // Mapa technologii klienta („Ludzie w NEXUSIE”, 16.10.2026).
   | "technologie"
+  // Struktura u klienta: działy, osoby, menedżerowie naszych konsultantów
+  // i opinie klienta (etap 2, 17.10.2026). Link z historii opinii kontraktu.
+  | "struktura"
   | "zespol";
 
 export const CLIENT_TAB_KEYS: readonly ClientTab[] = [
@@ -35,6 +38,7 @@ export const CLIENT_TAB_KEYS: readonly ClientTab[] = [
   "importy-md",
   "analityka",
   "technologie",
+  "struktura",
   "zespol",
 ] as const;
 

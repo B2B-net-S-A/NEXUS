@@ -148,6 +148,11 @@ _KNOWN_CONTRACT_FKS = {
     ("calls", "contract_id"),
     # Rozmowy opiekuna z konsultantem — historia, przenoszona w całości.
     ("care_conversations", "contract_id"),
+    # Oceny konsultanta z opinii klienta (etap 2, D9–D11): idą za kontraktem
+    # zachowanym. UNIQUE (rozmowa, kontrakt) — ta sama rozmowa oceniła oba
+    # duplikaty — rozstrzyga ``_resolve_child_duplicates`` (oceny łączone,
+    # wiersz zachowanego wygrywa); oceny z różnych rozmów przechodzą wszystkie.
+    ("client_feedback_scores", "contract_id"),
     # Durable offboarding decisions belong to the same candidate/client
     # engagement as their ClientOrder.  During a same-client duplicate merge
     # both rows are reparented to the survivor in this transaction; keeping the
@@ -3073,7 +3078,11 @@ async def _resolve_child_duplicates(
       dalej go aktualizuje zamiast zakładać drugi),
     * ``hr_bonuses`` z placementu — zatwierdzona > proponowana > anulowana;
       przegrana propozycja jest anulowana z powodem ``contract_merged``, klucze
-      jak wyżej. Dwie zatwierdzone tej samej roli blokuje plan.
+      jak wyżej. Dwie zatwierdzone tej samej roli blokuje plan,
+    * ``client_feedback_scores`` — jedna ocena na (rozmowa, kontrakt): wiersz
+      zachowanego (a bez niego najstarszy) wygrywa i dostaje brakujące oceny
+      z przegranych, przegrane są kasowane. Oceny z innych rozmów (cała
+      historia opinii obu duplikatów) przechodzą bez zmian.
     """
     present = {(str(fk["table_name"]), str(fk["column_name"])) for fk in catalog}
     every = [survivor_id, *loser_ids]
@@ -3178,6 +3187,50 @@ async def _resolve_child_duplicates(
             "status = CASE WHEN status = 'proposed' THEN 'cancelled' ELSE status END",
         )
         out["hr_bonuses_duplicates_cancelled"] = len(losers)
+
+    if ("client_feedback_scores", "contract_id") in present:
+        rows = await _child_rows(
+            db,
+            "SELECT id, session_id, contract_id, quality, communication, autonomy "
+            "FROM client_feedback_scores WHERE contract_id = ANY(:ids) ORDER BY id",
+            every,
+        )
+        by_session: dict[int, list[dict[str, Any]]] = {}
+        for row in rows:
+            by_session.setdefault(int(row["session_id"]), []).append(row)
+        merged_away: list[int] = []
+        for session_rows in by_session.values():
+            if len(session_rows) < 2:
+                continue
+            winner = min(
+                session_rows,
+                key=lambda row: (
+                    int(row["contract_id"]) != survivor_id,
+                    int(row["id"]),
+                ),
+            )
+            others = [row for row in session_rows if row["id"] != winner["id"]]
+            filled = {
+                field: next(
+                    (row[field] for row in (winner, *others) if row[field] is not None),
+                    None,
+                )
+                for field in ("quality", "communication", "autonomy")
+            }
+            merged_away.extend(int(row["id"]) for row in others)
+            await db.execute(
+                text("DELETE FROM client_feedback_scores WHERE id = ANY(:ids)"),
+                {"ids": [int(row["id"]) for row in others]},
+            )
+            await db.execute(
+                text(
+                    "UPDATE client_feedback_scores SET quality = :quality, "
+                    "communication = :communication, autonomy = :autonomy "
+                    "WHERE id = :id"
+                ),
+                {**filled, "id": int(winner["id"])},
+            )
+        out["client_feedback_scores_duplicates_merged"] = len(merged_away)
     return out
 
 

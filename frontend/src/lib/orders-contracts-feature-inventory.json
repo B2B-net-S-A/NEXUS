@@ -667,6 +667,27 @@
    "b_home": "Profil klienta: zakładka „Technologie”"
   },
   {
+   "id": "c.org-tab",
+   "opis": "Zakładka „Struktura u klienta”: działy, osoby klienta, menedżerowie naszych konsultantów, prośby o opinię i zapis opinii (moduł „care”, D8–D11)",
+   "file": "app/clients/[id]/page.tsx",
+   "marker": "ClientPeopleTab",
+   "b_home": "Profil klienta: zakładka „Struktura u klienta”"
+  },
+  {
+   "id": "k.client-manager",
+   "opis": "„Menedżer u klienta” na kontrakcie (kontakt klienta, podpowiedź „Przypnij”) w sekcji „Osadzenie u klienta” i w faktach kontraktu",
+   "file": "app/contracts/[id]/page.tsx",
+   "marker": "Menedżer u klienta",
+   "b_home": "Strona kontraktu: fakty i edycja „Osadzenie u klienta”"
+  },
+  {
+   "id": "k.client-feedback",
+   "opis": "Historia opinii klienta o konsultancie w zakładce „Opieka” kontraktu",
+   "file": "app/contracts/[id]/page.tsx",
+   "marker": "ContractFeedbackHistory",
+   "b_home": "Strona kontraktu: zakładka „Opieka”"
+  },
+  {
    "id": "k.equipment-tab",
    "opis": "Zakładka „Sprzęt” kontraktu: wpisy ręczne (dodaj, zwrócono, usuń) i termin zwrotu z dzwonkiem 14 dni",
    "file": "components/contracts/ContractEquipmentTab.tsx",

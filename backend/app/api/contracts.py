@@ -73,6 +73,7 @@ from app.schemas.contract import (
     ContractFrameworkRateEntry,
     ContractCreate,
     AgreementTerminationPayload,
+    ClientManagerHint,
     ContractDetailResponse,
     ContractEurPlnRate,
     ContractDraftFinalizeResponse,
@@ -157,6 +158,7 @@ from app.services.contract_candidate_contact import (
     phone_too_long,
     resolve_for_contract as resolve_candidate_contact,
 )
+from app.services import contract_client_manager
 from app.services.contract_rates import effective_rate_fields
 from app.services.contractor_identity import contractor_identity_sql_expression
 from app.services.contract_service import (
@@ -1414,6 +1416,7 @@ def _to_detail(contract: Contract) -> ContractDetailResponse:
         "candidate_phone_source": contact.phone_source,
         "client_pm_name": contract.client_pm_name,
         "client_pm_email": contract.client_pm_email,
+        "client_pm_contact_id": contract.client_pm_contact_id,
         "line_manager": contract.line_manager,
         "work_mode": contract.work_mode,
         "office_location": contract.office_location,
@@ -1456,6 +1459,18 @@ def _to_detail(contract: Contract) -> ContractDetailResponse:
     # Derive current candidate + client rates / margin from the schedules.
     data.update(_effective_rate_fields(contract, business_today()))
     return ContractDetailResponse(**data)
+
+
+async def _fill_client_manager(
+    db: AsyncSession, contract: Contract, detail: ContractDetailResponse
+) -> None:
+    """„Menedżer u klienta” (D8): imię i stanowisko kontaktu albo podpowiedź."""
+
+    fields = await contract_client_manager.detail_fields(db, contract)
+    detail.client_pm_contact_name = fields["client_pm_contact_name"]
+    detail.client_pm_contact_position = fields["client_pm_contact_position"]
+    hint = fields["client_pm_contact_hint"]
+    detail.client_pm_contact_hint = ClientManagerHint(**hint) if hint else None
 
 
 def _apply_contract_list_filters(
@@ -3296,6 +3311,12 @@ async def create_contract(
     framework_schedule_input = payload.pop("framework_rate_schedule", None) or []
     _prepare_create_rate_currencies(payload, set(data.model_fields_set))
     contract = Contract(**payload)
+    if data.job_id is not None:
+        # D8: kontrakt z rekrutacji dostaje jej hiring managera jako menedżera
+        # u klienta — o ile to kontakt klienta tego kontraktu.
+        contract.client_pm_contact_id = await contract_client_manager.default_from_job(
+            db, job=job, client_id=client.id
+        )
     if schedule_input:
         # Schedule drives the candidate rate over time; persist each step.
         contract.candidate_rate_schedule = [
@@ -3393,7 +3414,9 @@ async def create_contract(
             selectinload(Contract.framework_rate_schedule),
         )
     )
-    detail = _to_detail(result.scalar_one())
+    created = result.scalar_one()
+    detail = _to_detail(created)
+    await _fill_client_manager(db, created, detail)
     detail.draft_order_id = draft_order.id if draft_order is not None else None
     # Operacyjny create bez pól finansowych nie grantuje ich odczytu. Wyjątkiem
     # pozostaje DL u przypisanego klienta; globalnej capability nadal nie ma.
@@ -3706,6 +3729,7 @@ async def get_contract(
         raise HTTPException(status_code=404, detail="Contract not found")
     await _ensure_delivery_lead_contract_visible(contract, current_user, db)
     detail = _to_detail(contract)
+    await _fill_client_manager(db, contract, detail)
     detail.related_contracts = await _related_contracts_for(db, contract, current_user)
     await _fill_termination_recovery(db, contract, detail)
     can_view_finance = can_read_client_finance(
@@ -4092,6 +4116,29 @@ async def apply_contract_update(
     )
     updates = data.model_dump(exclude_unset=True)
     _normalize_candidate_contact_updates(updates)
+    # „Menedżer u klienta” (D8): kontakt klienta TEGO kontraktu albo nowa osoba
+    # zakładana jako jego kontakt. Sprawdzamy tylko realną zmianę — formularz
+    # z dawnym kontaktem innego klienta nie może zablokować zapisu innych pól.
+    new_manager = updates.pop("client_pm_new_person", None)
+    if new_manager is not None:
+        contact = await contract_client_manager.resolve_new_person(
+            db,
+            contract,
+            name=new_manager["name"],
+            position=new_manager.get("position"),
+            email=new_manager.get("email"),
+            actor_id=policy.actor_id,
+        )
+        updates["client_pm_contact_id"] = contact.id
+    elif (
+        updates.get("client_pm_contact_id") is not None
+        and updates["client_pm_contact_id"] != contract.client_pm_contact_id
+    ):
+        await contract_client_manager.assert_contact_of_client(
+            db,
+            contact_id=updates["client_pm_contact_id"],
+            client_id=contract.client_id,
+        )
     _prepare_update_rate_currencies(contract, updates, set(data.model_fields_set))
     # The candidate-rate schedule ("stawka progresywna") is a relationship, not a
     # scalar column — pull it out of the setattr loop and replace it explicitly.
@@ -4526,6 +4573,7 @@ async def apply_contract_update(
     else:
         await db.refresh(contract)
         detail = _to_detail(contract)
+    await _fill_client_manager(db, contract, detail)
     return contract, detail
 
 
