@@ -80,6 +80,29 @@ zwykłym telefonem z ręcznym debriefem). Konfiguracja M365: `docs/teams-prep-se
   prowadzącego zakłada nowe zaproszenie bez dopisku. Osoba spoza NEXUSA na
   prepie to drugi mówca spoza zespołu — kandydat w transkrypcie jest wtedy
   rozpoznawany tylko po nazwisku (`teams_vtt`).
+- **Odpowiedź kandydata i powiadomienia pary (0453, 17.10.2026, D5–D8).**
+  Do tej daty NEXUS nie czytał odpowiedzi z zaproszenia (mail „Zaakceptowano”
+  dostawał tylko organizator), a zmianę zrobioną w Outlooku widział dopiero
+  po starej godzinie prepu. Teraz pętla `teams_prep_transcripts` (działa też
+  bez transkryptów, gdy `app_only_ready()`) co `TEAMS_PREP_POLL_MINUTES` woła
+  `prep_responses.sync_upcoming`: prepy z 14 dni, `GET` wydarzenia
+  z `attendees` (te same uprawnienia aplikacji, bez webhooków) →
+  `prep_meetings.candidate_response` (`none|accepted|tentative|declined`,
+  `NULL` = nie sprawdzano), `proposed_start/end`, przełożenie i odwołanie
+  z Outlooka. Pierwszy odczyt prepu sprzed 0453 nie dzwoni o „przyjął”
+  (inaczej wdrożenie wysłałoby zaległości naraz); odmowa i inny termin dzwonią
+  zawsze. Nowy termin z NEXUSA zeruje odpowiedź (Outlook robi to samo).
+  Powiadomienia (`services/prep_notifications.py`, ikona „Kalendarz”) do ludzi
+  pary bez autora: `prep_changed_yours` (prowadzący — zmiana w jego kalendarzu,
+  dymek), `prep_changed` (reszta pary, licznik; też zmiana z Outlooka),
+  `prep_candidate_response` (przyjął / „może”, licznik),
+  `prep_candidate_declined` (odmowa albo inny termin, dymek), `prep_no_response`
+  (raz na prep, dobę przed, prowadzący + planujący; nie przy prepie założonym
+  < 2 h temu). Dymek steruje front: `QUIET_INTERVIEW_TYPES`
+  w `lib/interview-notifications.ts`. `prep_attention` idzie też do DL-a
+  rekrutacji (D7). Plakietka Tablicy `prep_refused` („Prep N: kandydat
+  proponuje …” / „odrzucił”) stoi przed „Prep 2 …”. Dedup `emit` jest dzienny
+  — druga taka sama zmiana tego samego prepu w ciągu dnia nie dzwoni.
 - **Pętla `teams_prep_transcripts`** (`TEAMS_PREP_TRANSCRIPTS_ENABLED`, OFF
   kończy ją przed pętlą; heartbeat). Stan kolejki w bazie, odświeża termin
   z Outlooka przed pobraniem, backoff, po `TEAMS_PREP_FETCH_GIVE_UP_HOURS` →

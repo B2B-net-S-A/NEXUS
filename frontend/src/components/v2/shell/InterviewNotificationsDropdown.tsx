@@ -35,6 +35,7 @@ import {
 } from "@/lib/interview-cycle";
 import {
   INTERVIEW_NOTIFY_EVENT,
+  QUIET_INTERVIEW_TYPES,
   OPEN_INTERVIEWS_WINDOW_EVENT,
   claimCallToast,
   interviewToastText,
@@ -522,6 +523,7 @@ function InterviewNotificationsWindow() {
     const handler = (event: Event) => {
       const notif = (event as CustomEvent<WsNotification>).detail;
       if (!notif || liveRef.current.open) return;
+      if (notif.notification_type && QUIET_INTERVIEW_TYPES.has(notif.notification_type)) return;
       const { eventId } = parseInterviewLink(notif.link);
       const joinUrl =
         notif.notification_type === "interview_scheduled" && eventId != null

@@ -206,6 +206,19 @@ const DELIVERY_LEAD = buildInterviewWindow({
   notifications: [
     notif("interview_slot_chosen", CELINA, 20),
     notif("interview_debrief_saved", ANNA, 5),
+    // 0453: odpowiedź kandydata na prep i prep założony w kalendarzu DL-a.
+    notif("prep_candidate_declined", BARTEK, 3, {
+      title: "Prep 2: kandydat proponuje 20.10, 16:00",
+      message: "Bartek Testowy — DevOps Engineer: zamiast 20.10.2026, godz. 13:00.",
+    }),
+    notif("prep_changed_yours", DAWID, 40, {
+      title: "Nowy Prep 1 w Twoim kalendarzu · 21.10, 10:00",
+      message: "Dawid Wzorcowy — Tester automatyzujący: prep zaplanowany przez: Ola Rekruter.",
+    }),
+    notif("prep_candidate_response", ANNA, 70, {
+      title: "Prep 1 przyjęty · 19.10, 09:00",
+      message: "Anna Przykładowa — odpowiedź na zaproszenie z Outlooka.",
+    }),
     notif("prep_attention", null, 90, {
       title: "Prep 2 bez nagrania",
       message: "Filip Zmyślony — Scrum Master: z prepu nie ma transkryptu, więc nie da się go ocenić.",

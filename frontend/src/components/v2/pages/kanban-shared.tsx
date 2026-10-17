@@ -276,6 +276,8 @@ export type InterviewBadgeKind =
  // 0370: prepy w Teams — przypomnienie, nie bramka.
  | "prep_weak"
  | "prep_missing"
+ // 0453: kandydat odrzucił prep albo proponuje inny termin.
+ | "prep_refused"
  | "prep2"
  | "prep_done"
  | "slot"

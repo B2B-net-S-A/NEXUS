@@ -8,6 +8,7 @@ import { DebriefDialog } from "@/components/calendar/cycle/DebriefDialog";
 import { InterviewCycleProgress } from "@/components/calendar/cycle/InterviewCycleProgress";
 import { PlanPrepDialog } from "@/components/calendar/cycle/PlanPrepDialog";
 import { PrepEditButtons } from "@/components/calendar/cycle/PrepEditButtons";
+import { PrepResponseChip } from "@/components/calendar/cycle/PrepResponseChip";
 import { PrepReviewDialog } from "@/components/calendar/cycle/PrepReviewDialog";
 import { SlotDecisionDialog } from "@/components/calendar/cycle/SlotDialogs";
 import { ReschedulePrepDialog } from "@/components/calendar/cycle/ReschedulePrepDialog";
@@ -141,6 +142,7 @@ export function DockInterviewCycle({
                   {formatDayLabel(p.at)}, {formatTime(p.at)}
                 </span>
               ) : null}
+              <PrepResponseChip eventId={p.eventId} />
               <PrepEditButtons
                 className="ml-auto"
                 eventId={p.eventId}

@@ -320,6 +320,8 @@ function Harness() {
         { email: "gosc@partner.example.com", user_id: null, name: null },
       ],
       status: "scheduled", can_edit: true,
+      // 0453: kandydat odrzucił termin i proponuje inny — „Przyjmij termin”.
+      candidate_response: "declined", proposed_start: at(now, 60 * 30), proposed_end: at(now, 60 * 30 + 45),
       start: at(now, 60 * 120), end: at(now, 60 * 120 + 45),
       online_meeting_url: "https://teams.example.com/prep-late", transcription_setup: "enabled",
       transcript_status: "waiting", talk_share: null, duration_seconds: null, review: null,

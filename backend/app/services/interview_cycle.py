@@ -97,6 +97,9 @@ class EventRef:
     review_level: Optional[str] = None
     # Organizator (właściciel operacyjny) — adresat zadania „prep słaby”.
     owner_id: Optional[int] = None
+    # 0453: odpowiedź kandydata z Outlooka prowadzącego i proponowany termin.
+    candidate_response: Optional[str] = None
+    proposed_start: Optional[datetime] = None
 
 
 def assign_prep_ordinals(preps: list[EventRef]) -> list[EventRef]:
@@ -926,6 +929,8 @@ async def load_snapshots(
                         PrepMeeting.prep_no,
                         PrepMeeting.transcription_setup,
                         PrepMeeting.transcript_status,
+                        PrepMeeting.candidate_response,
+                        PrepMeeting.proposed_start,
                         PrepReview.status.label("review_status"),
                         PrepReview.level.label("review_level"),
                     )
@@ -945,6 +950,8 @@ async def load_snapshots(
                 transcript_status=info[p.id].transcript_status,
                 review_status=info[p.id].review_status,
                 review_level=info[p.id].review_level,
+                candidate_response=info[p.id].candidate_response,
+                proposed_start=info[p.id].proposed_start,
             )
 
         for snap in snaps.values():
@@ -1317,6 +1324,8 @@ BadgeKind = Literal[
     "prep2",
     "prep_missing",
     "prep_weak",
+    # 0453: kandydat odrzucił zaproszenie na prep albo proponuje inny termin.
+    "prep_refused",
     "call_due",
     "debrief_done",
 ]
@@ -1436,6 +1445,25 @@ def compute_badge(
                 "urgent",
                 iv.start,
             )
+        # Kandydat nie przyjdzie na prep (17.10.2026, D5): DL i rekruter mają
+        # ruch — przełożyć prep albo przyjąć termin kandydata.
+        refused = next(
+            (
+                p
+                for p in sorted(pair.preps, key=lambda e: e.start)
+                if p.start > now
+                and (p.candidate_response == "declined" or p.proposed_start is not None)
+            ),
+            None,
+        )
+        if refused is not None:
+            n = refused.ordinal or refused.prep_no or 1
+            label = (
+                f"Prep {n}: kandydat proponuje {_day_label(_as_utc(refused.proposed_start), now)}"
+                if refused.proposed_start is not None
+                else f"Prep {n}: kandydat odrzucił"
+            )
+            return _badge("prep_refused", label, "wait", refused.start)
         second = pair.prep_slot(2)
         if second is not None and second.start > now:
             return _badge(
@@ -1461,6 +1489,7 @@ _BADGE_PHASE = {
     "awaiting_dl": "awaiting_dl_confirm",
     "prep_weak": "scheduled",
     "prep_missing": "scheduled",
+    "prep_refused": "scheduled",
     "prep2": "scheduled",
     "prep_done": "scheduled",
     "slot": "scheduled",

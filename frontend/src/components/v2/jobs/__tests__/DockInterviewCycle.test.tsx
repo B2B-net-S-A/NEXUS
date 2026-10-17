@@ -40,6 +40,12 @@ vi.mock("@/components/calendar/cycle/PrepEditButtons", () => ({
   ),
 }));
 
+vi.mock("@/components/calendar/cycle/PrepResponseChip", () => ({
+  PrepResponseChip: ({ eventId }: { eventId: number }) => (
+    <span data-testid={`prep-response-${eventId}`}>Kandydat przyjął</span>
+  ),
+}));
+
 const slotProps = vi.hoisted(() => ({ current: null as Record<string, unknown> | null }));
 
 vi.mock("@/components/calendar/cycle/SlotDialogs", () => ({
@@ -112,6 +118,8 @@ describe("DockInterviewCycle", () => {
     );
     const rows = screen.getByTestId("dock-scheduled-preps");
     expect(rows).toHaveTextContent("Prep 1");
+    // Odpowiedź kandydata przy tym samym prepie (0453).
+    expect(screen.getByTestId("prep-response-701")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Odwołaj" }));
     expect(rescheduleProps.current).toEqual(
       expect.objectContaining({ eventId: 701, prepNo: 1, mode: "cancel", pair: PAIR }),

@@ -45,3 +45,27 @@ produkcyjnej był w sesji zablokowany.
 
 Poza zakresem PR 1: zmiana dopisku w zaproszeniu (dopisek nie jest zapisany
 osobno), powiadomienia i odpowiedź kandydata (PR 2).
+
+## PR 2 — odpowiedź kandydata i powiadomienia pary (D5–D8)
+
+- Migracja 0453 (lustro w `entrypoint.sh`): kolumny odpowiedzi kandydata na
+  `prep_meetings`, CHECK słownika, pięć typów powiadomień.
+- `prep_responses.sync_upcoming` w pętli prepów co 10 min: odpowiedź
+  kandydata, proponowany termin, przełożenie i odwołanie z Outlooka; pierwszy
+  odczyt starego prepu nie dzwoni o „przyjął”.
+- `prep_notifications`: zmiana prepu przez kogoś z pary (u prowadzącego
+  z dymkiem, u reszty licznik), odpowiedź kandydata, odmowa / inny termin,
+  brak odpowiedzi dobę przed. Trasy prepu i okno Tydzień (przełożenie,
+  odwołanie) wysyłają je przed commitem.
+- D7: `prep_attention` także do DL-a rekrutacji.
+- Plakietka Tablicy `prep_refused`; `PrepOut` niesie odpowiedź kandydata.
+- Front: stan odpowiedzi przy prepie w doku i panelu kalendarza, „Przyjmij
+  termin” przy propozycji kandydata, nowe typy w ikonie „Kalendarz” (dymek
+  tylko dla odmowy i zmian we własnym kalendarzu).
+- Testy: `test_prep_responses.py`, `test_prep_candidate_responses_migration.py`,
+  testy frontu przy komponentach.
+
+Niepotwierdzone do pierwszych prawdziwych prepów: czy propozycja nowego
+terminu z Gmaila trafia do `proposedNewTime` (Outlook i Teams tak; Google
+bywa tylko mailem) i ile odpowiedzi przychodzi bez „wysłania odpowiedzi”
+(zostaje „Czeka na odpowiedź”).

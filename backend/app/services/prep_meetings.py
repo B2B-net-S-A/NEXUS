@@ -370,6 +370,8 @@ async def create_prep(
         transcription_setup="pending",
         transcript_status="waiting",
         next_fetch_at=_fetch_after(end),
+        # Kandydat jeszcze nie odpowiedział (0453) — pierwsze „przyjął” dzwoni.
+        candidate_response="none",
     )
     db.add(prep)
     await db.flush()
@@ -561,6 +563,11 @@ async def push_prep_update(
     if start is not None and end is not None:
         event.start_time, event.end_time = start, end
         reschedule_fetch(prep, end)
+        # Outlook zeruje odpowiedzi zaproszonych przy nowym terminie (0453).
+        prep.candidate_response = "none"
+        prep.candidate_response_at = None
+        prep.proposed_start = None
+        prep.proposed_end = None
     if attendees is not None:
         event.attendees = [{"address": a} for a in attendees]
 

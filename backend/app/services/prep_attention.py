@@ -13,7 +13,8 @@ i stepper mówią to samo:
 
 Adresat: organizator prepu (dla brakującego — podpowiadany: Prep 1 → DL
 rekrutacji, Prep 2 → rekruter) oraz Head of Recruitment (decyzja Artura
-23.09.2026). Nic tu niczego nie blokuje.
+23.09.2026); dzwonek idzie też do Delivery Leada rekrutacji (17.10.2026, D7).
+Nic tu niczego nie blokuje.
 """
 
 from __future__ import annotations
