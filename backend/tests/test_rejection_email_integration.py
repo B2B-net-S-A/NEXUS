@@ -351,7 +351,11 @@ async def _set_job_title(db, job_id: int, title: str) -> None:
         text("UPDATE jobs SET title = :title WHERE id = :id"),
         {"title": title, "id": job_id},
     )
-    db.expire_all()
+    # Tylko ta rekrutacja — `expire_all()` wygaszał też nadawcę, a leniwy
+    # odczyt jego roli w podglądzie kończył się MissingGreenlet.
+    job = await db.get(Job, job_id)
+    if job is not None:
+        await db.refresh(job)
 
 
 @pytest.mark.asyncio
