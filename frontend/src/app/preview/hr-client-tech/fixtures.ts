@@ -1,10 +1,19 @@
 /**
  * Dane harnessu „Technologie klienta” (`/preview/hr-client-tech`) — wyłącznie
- * fikcyjne. Liczby źródeł T/R/K/N i obszary jak w makiecie 10; daty „ostatnio”
+ * fikcyjne. Liczby źródeł T/R/K/N i obszary jak w makiecie 10, działy z menedżerem,
+ * „Nasi / w bazie” i „Luki do dopytania” jak w makiecie 8 etapu 2; daty „ostatnio”
  * liczymy od „dziś” przeglądarki, żeby mapa nie starzała się z kalendarzem.
  */
 
-import type { ClientTechMap, MapTechnology, PersonRef, TechSource } from "@/lib/api/care";
+import type {
+  ClientTechMap,
+  DepartmentTechnology,
+  MapDepartment,
+  MapTechnology,
+  PersonRef,
+  TechGap,
+  TechSource,
+} from "@/lib/api/care";
 
 import { HR_CAST, HR_CLIENTS, shiftDay } from "../hr-fixtures";
 
@@ -37,6 +46,108 @@ function tech(
   };
 }
 
+function deptTech(
+  skillId: number,
+  name: string,
+  [cards, jobs, consultants, notes]: [number, number, number, number],
+  lastSeen: string,
+): DepartmentTechnology {
+  const counts: Record<TechSource, number> = { cards, jobs, consultants, notes };
+  return {
+    skill_id: skillId,
+    name,
+    counts,
+    source_count: Object.values(counts).filter(Boolean).length,
+    last_seen: lastSeen,
+    stale: false,
+  };
+}
+
+/** Działy klienta (D16) — te same co w „Strukturze u klienta”, z menedżerem z drzewa. */
+function departments(today: string): MapDepartment[] {
+  const lastCard = shiftDay(today, -13);
+  // Kolejność jak z serwera — po nazwie działu.
+  return [
+    {
+      area: { id: 304, name: "CI/CD i chmura" },
+      technologies: [],
+      technologies_total: 0,
+      managers: [],
+      consultants: 0,
+      last_seen: null,
+      has_fresh_source: false,
+      base: { skills: [], count: null },
+    },
+    {
+      area: { id: 303, name: "Data" },
+      technologies: [deptTech(808, "Azure Data Factory", [1, 0, 0, 0], shiftDay(today, -55))],
+      technologies_total: 1,
+      managers: [
+        { id: 8802, name: "Piotr Menedżerski", position: "Kierownik zespołu Data", consultants: 2 },
+      ],
+      consultants: 2,
+      last_seen: today,
+      has_fresh_source: true,
+      base: { skills: ["Azure Data Factory"], count: 9 },
+    },
+    {
+      area: { id: 302, name: "Kredyty" },
+      technologies: [
+        deptTech(801, "Java 17", [1, 2, 0, 0], lastCard),
+        deptTech(807, "Angular", [0, 2, 0, 0], shiftDay(today, -62)),
+        deptTech(802, "Spring Boot", [1, 1, 0, 0], lastCard),
+      ],
+      technologies_total: 3,
+      managers: [],
+      consultants: 0,
+      last_seen: lastCard,
+      has_fresh_source: true,
+      base: { skills: ["Java 17", "Angular"], count: 41 },
+    },
+    {
+      area: { id: 301, name: "Płatności" },
+      technologies: [
+        deptTech(801, "Java 17", [3, 4, 3, 0], lastCard),
+        deptTech(802, "Spring Boot", [3, 4, 3, 0], lastCard),
+        deptTech(803, "Kafka", [3, 2, 2, 0], lastCard),
+        deptTech(804, "OpenShift", [2, 0, 1, 0], lastCard),
+        deptTech(806, "PostgreSQL", [2, 1, 0, 0], lastCard),
+      ],
+      technologies_total: 5,
+      managers: [
+        { id: 8803, name: "Michał Rogalski-Przykładowy", position: "Kierownik Płatności", consultants: 3 },
+      ],
+      consultants: 3,
+      last_seen: today,
+      has_fresh_source: true,
+      base: { skills: ["Java 17", "Spring Boot"], count: 212 },
+    },
+  ];
+}
+
+/** „Luki do dopytania” — makieta 8: dział bez źródła, technologia z jednej rozmowy, „komu podlega”. */
+function gaps(today: string): TechGap[] {
+  return [
+    { kind: "area_no_source", area: { id: 304, name: "CI/CD i chmura" }, last_seen: null },
+    {
+      kind: "manager_unplaced",
+      contact: { id: 8803, name: "Michał Rogalski-Przykładowy" },
+      position: "Kierownik Płatności",
+      area: { id: 301, name: "Płatności" },
+      consultants: 3,
+    },
+    {
+      kind: "single_source",
+      skill_id: 808,
+      name: "Azure Data Factory",
+      source: "cards",
+      refs: 1,
+      last_seen: shiftDay(today, -55),
+      areas: ["Data"],
+    },
+  ];
+}
+
 /** Mapa technologii Banku Przykładowego oglądana przez Delivery Leada klienta. */
 export function clientTechMap(today: string): ClientTechMap {
   const lastCard = shiftDay(today, -13);
@@ -53,9 +164,10 @@ export function clientTechMap(today: string): ClientTechMap {
       tech(808, "Azure Data Factory", ["Data"], [1, 0, 0, 0], shiftDay(today, -55)),
     ],
     areas: [
-      { id: 301, name: "Płatności", cards: 4 },
-      { id: 302, name: "Kredyty", cards: 2 },
+      { id: 304, name: "CI/CD i chmura", cards: 0 },
       { id: 303, name: "Data", cards: 1 },
+      { id: 302, name: "Kredyty", cards: 2 },
+      { id: 301, name: "Płatności", cards: 4 },
     ],
     vendors: [
       { id: 61, name: "Dostawca A", cards: 3 },
@@ -91,6 +203,8 @@ export function clientTechMap(today: string): ClientTechMap {
     ],
     notes_count: 1,
     redeploy_active: 2,
+    departments: departments(today),
+    gaps: gaps(today),
     default_owner: ref(HR_CAST.natalia),
     can_edit: true,
   };

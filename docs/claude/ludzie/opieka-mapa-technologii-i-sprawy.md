@@ -17,6 +17,50 @@
   opiekuna, najwyżej raz na 7 dni na kontrakt; koniec projektu < 60 dni → wpis
   „Do przepięcia”.
 
+## Opieka · „Ten tydzień”, oś konsultanta, front office (etap 2, D15, 17.10.2026)
+
+Domyślna zakładka `/care` (`components/care/week/`, `GET /api/care/week`,
+serwis `care/week.py`); dawna lista „Moi konsultanci” to „Wszystkie kontrakty”
+(`?tab=contracts`, stary `?tab=mine` prowadzi tam samo).
+
+- **Tydzień** = poniedziałek–piątek kalendarza firmy; w weekend „Ten tydzień”
+  to tydzień, który się zaczyna. `?from=` przesuwa tydzień, zakres `mine|all`
+  jak lista opieki (DL — swój portfel).
+- **Odczyt list niczego nie zapisuje** (audyt wydajności 17.10): plan
+  dopisuje dzienny przebieg i zmiana domyślnego opiekuna klienta zbiorczym
+  `plan.ensure_plans` (jeden DELETE z `= ANY`, wielowierszowy INSERT).
+  Wyjątek: zakładka „Opieka” jednego kontraktu dopisuje jego plan, żeby
+  świeży kontrakt nie czekał na noc. Prośby o opinię w tygodniu biorą
+  kontrakty i opiekunów policzonych dla kolejki (`feedback_requests_for`).
+- **Rozmowa z konsultantem** — jedna pozycja na kontrakt: otwarte punkty
+  planu z terminem do piątku (zaległe i z tego tygodnia) i umówiony kontakt
+  z OSTATNIEJ rozmowy (nie starszy niż 30 dni, jak w dziennym przebiegu).
+  Przy pozycji menedżer u klienta z drzewa (kontakt tego klienta z działem),
+  ostatnia rozmowa, aktywne sygnały „Do przepięcia”. „Zapisz rozmowę” zamyka
+  wskazany punkt planu.
+- **Opinia od menedżera** — `client_people.feedback_requests` (jedna na
+  menedżera, liczona na dziś), w `mine` jak `GET /feedback-requests`.
+  Finanse widzą tydzień bez próśb i oś bez opinii (D11).
+- **Licznik zaległych** przy zakładce = zaległe rozmowy + zaległe prośby.
+- **Oś konsultanta** (`GET /api/care/contracts/{id}/timeline`, panel boczny,
+  `/care?contract=<id>`): rekrutacja z `contracts.job_id`, start, rozmowy
+  (z zamkniętym punktem planu), karty, opinie klienta, zamówienia (tytuł,
+  status, daty) i ich końce, wpisy „Do przepięcia”, przekazania, najbliższy
+  punkt planu. Bez stawek — test pilnuje, że zmyślone kwoty kontraktu
+  i zamówienia nie wychodzą.
+- **„Przekaż do front office”** (`/api/care/contracts/{id}/front-office`,
+  `care/front_office.py`) — konsultant kończy projekt w ciągu 60 dni (koniec
+  umowy/zamówienia albo aktywny „koniec projektu”) albo ma aktywne „chce
+  zmiany”; inaczej 409. Pasujące rekrutacje liczy silnik „Pasuje też do”
+  (`also_fits_for_candidate`, zakres odczytu rekrutacji czytającego);
+  `unavailable` ≠ „nic nie pasuje”. Przekazanie: wpis „Do przepięcia”
+  (istniejący albo nowy) → „W toku”, zdarzenie `care.front_office_handoff`
+  w śladzie HR (same identyfikatory) i `care_contact_due` do DL wybranych
+  rekrutacji, głównego DL klienta i Head of Recruitment (encja
+  `care_front_office`, link `/care?contract=<id>`). Typ opieki jest sekcji
+  Delivery — HoR bez tej sekcji jest adresatem, ale go nie dostaje;
+  odpowiedź i toast mówią, kto naprawdę dostał.
+
 ## Struktura u klienta i opinie klienta (etap 2, D8–D11, 17.10.2026)
 
 Zakładka klienta „Struktura u klienta” (`components/care/ClientPeopleTab.tsx`,
@@ -95,6 +139,22 @@ Zakładka klienta „Struktura u klienta” (`components/care/ClientPeopleTab.ts
   unieważniany przy zapisie karty, rozmowy i notatki.
 - „Nowa rekrutacja z tej mapy” otwiera `/jobs/new?client=<id>` — ustawia klienta,
   o ile nikt go nie wybrał; `?from=` (kopia rekrutacji) ma pierwszeństwo.
+- **Działy (D16, 17.10.2026)**: wiersze po `client_areas` (te same co
+  w „Strukturze u klienta”). Do działu trafia karta z tym obszarem,
+  rekrutacja z hiring managerem z działu i nasz konsultant, którego menedżer
+  u klienta jest z działu (wtedy też filtr działu pełnej listy). Notatki
+  nie mają działu. Menedżer działu = osoba z działu z naszymi konsultantami
+  (brak → „nie wskazano”). „Nasi / w bazie”: konsultanci działu / osoby
+  w bazie z DWIEMA najmocniejszymi technologiami działu naraz — ten sam
+  predykat co filtr umiejętności listy (`skill_match`, v2), jedno przejście
+  po tabeli z limitem 3 s, cache `care:techbase:` na godzinę; awaria = „—”.
+  Link prowadzi do `/candidates?skills_q=…`.
+- **Luki do dopytania**: dział bez źródła z 18 miesięcy (konsultant
+  w projekcie liczy się jako świeże źródło), menedżer naszych konsultantów
+  bez „podlega pod”, technologia z jednego źródła (świeża, nie z samych CV
+  naszych — CV opisuje człowieka, nie stack; najwyżej 6). Te same pytania
+  są w oknie zapisu rozmowy opieki (sekcja zwijana „Do dopytania u
+  klienta”, mapa wczytuje się po rozwinięciu, nic się nie zapisuje).
 - `clients.default_care_owner_user_id` i `clients.equipment_provider` stoją
   w bocznym panelu zakładki.
 

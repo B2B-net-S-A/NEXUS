@@ -186,6 +186,8 @@ const PAGES = [
   "/preview/hr-care?state=techcard",
   "/preview/hr-care?state=list",
   "/preview/hr-care?state=list&tab=redeploy",
+  "/preview/hr-care?state=list&contract=4504",
+  "/preview/hr-care?state=list&tab=contracts",
   "/preview/hr-client-tech",
   "/preview/hr-cases",
   "/preview/hr-cases?state=detail",

@@ -9,6 +9,13 @@ Wiersze ``contract_care_plan_items`` powstają z wyprzedzeniem
 Przy pierwszym włączeniu modułu dla starego kontraktu nie zakładamy zaległości
 sprzed ``LOOKBACK_DAYS`` — to nie były kontakty, które ktoś przegapił
 w NEXUSIE, tylko historia sprzed modułu.
+
+Plan dopisuje dzienny przebieg (``reminders.run_once``) i zapis, który zmienia
+opiekuna (``ensure_plans`` zbiorczo: jeden DELETE i wielowierszowy INSERT),
+a nie listy opieki przy odczycie — „Ten tydzień” i „Wszystkie kontrakty”
+niczego nie zapisują (audyt wydajności 17.10.2026). Wyjątek: zakładka
+„Opieka” jednego kontraktu dopisuje jego plan (dwie instrukcje), żeby
+świeży kontrakt nie czekał na nocny przebieg.
 """
 
 from __future__ import annotations
@@ -17,9 +24,9 @@ import calendar
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
-from typing import Optional
+from typing import Optional, Protocol
 
-from sqlalchemy import delete, select
+from sqlalchemy import select, text
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -104,6 +111,95 @@ def planned_slots(
     return slots
 
 
+class PlanContract(Protocol):
+    """Kontrakt dla planu: id, start i najbliższy koniec współpracy."""
+
+    @property
+    def id(self) -> int: ...
+
+    @property
+    def start_date(self) -> Optional[date]: ...
+
+    @property
+    def end_date(self) -> Optional[date]: ...
+
+
+@dataclass(frozen=True)
+class _Target:
+    id: int
+    start_date: Optional[date]
+    end_date: Optional[date]
+
+
+#: Wiersze jednego INSERT-a (5 parametrów na wiersz, limit asyncpg 32 767).
+_INSERT_CHUNK = 2000
+
+_DELETE_STALE_PRE_END = text(
+    "DELETE FROM contract_care_plan_items p "
+    "WHERE p.contract_id = ANY(CAST(:ids AS integer[])) "
+    "AND p.kind = 'pre_end' AND p.status = 'open' "
+    "AND NOT EXISTS ("
+    "SELECT 1 FROM unnest(CAST(:keep_ids AS integer[]), CAST(:keep_seqs AS integer[])) "
+    "AS k(contract_id, seq) WHERE k.contract_id = p.contract_id AND k.seq = p.seq)"
+)
+
+
+def _current_pre_end(start: Optional[date], end: Optional[date]) -> Optional[int]:
+    if end is None or start is None or end - timedelta(days=PRE_END_DAYS) < start:
+        return None
+    return end.toordinal()
+
+
+async def ensure_plans(
+    db: AsyncSession, contracts: Iterable[PlanContract], *, today: date
+) -> int:
+    """Dopisuje brakujące punkty planu wielu kontraktów naraz. Zwraca liczbę nowych.
+
+    Jeden DELETE i wielowierszowy INSERT (w paczkach) zamiast dwóch instrukcji
+    na kontrakt. Otwarty punkt „przed końcem” dla innej daty końca znika —
+    koniec się przesunął albo umowa stała się bezterminowa.
+    """
+
+    items = list(contracts)
+    if not items:
+        return 0
+    keep = [
+        (contract.id, seq)
+        for contract in items
+        if (seq := _current_pre_end(contract.start_date, contract.end_date)) is not None
+    ]
+    await db.execute(
+        _DELETE_STALE_PRE_END,
+        {
+            "ids": [contract.id for contract in items],
+            "keep_ids": [contract_id for contract_id, _ in keep],
+            "keep_seqs": [seq for _, seq in keep],
+        },
+    )
+    rows = [
+        {
+            "contract_id": contract.id,
+            "kind": slot.kind,
+            "seq": slot.seq,
+            "due_on": slot.due_on,
+            "status": "open",
+        }
+        for contract in items
+        if contract.start_date is not None
+        for slot in planned_slots(contract.start_date, contract.end_date, today)
+    ]
+    created = 0
+    for offset in range(0, len(rows), _INSERT_CHUNK):
+        statement = (
+            insert(CarePlanItem)
+            .values(rows[offset : offset + _INSERT_CHUNK])
+            .on_conflict_do_nothing(index_elements=["contract_id", "kind", "seq"])
+            .returning(CarePlanItem.id)
+        )
+        created += len((await db.execute(statement)).scalars().all())
+    return created
+
+
 async def ensure_plan(
     db: AsyncSession,
     contract_id: int,
@@ -112,52 +208,9 @@ async def ensure_plan(
     end: Optional[date],
     today: date,
 ) -> int:
-    """Dopisuje brakujące punkty planu (idempotentnie). Zwraca liczbę nowych.
+    """Plan jednego kontraktu (zakładka „Opieka” kontraktu, testy)."""
 
-    Otwarty punkt „przed końcem” dla innej daty końca znika — koniec się
-    przesunął albo umowa stała się bezterminowa.
-    """
-
-    current_pre_end = (
-        end.toordinal()
-        if end is not None
-        and start is not None
-        and end - timedelta(days=PRE_END_DAYS) >= start
-        else None
-    )
-    stale = delete(CarePlanItem).where(
-        CarePlanItem.contract_id == contract_id,
-        CarePlanItem.kind == "pre_end",
-        CarePlanItem.status == "open",
-    )
-    if current_pre_end is not None:
-        stale = stale.where(CarePlanItem.seq != current_pre_end)
-    await db.execute(stale)
-    if start is None:
-        return 0
-    slots = planned_slots(start, end, today)
-    if not slots:
-        return 0
-    statement = (
-        insert(CarePlanItem)
-        .values(
-            [
-                {
-                    "contract_id": contract_id,
-                    "kind": slot.kind,
-                    "seq": slot.seq,
-                    "due_on": slot.due_on,
-                    "status": "open",
-                }
-                for slot in slots
-            ]
-        )
-        .on_conflict_do_nothing(
-            index_elements=["contract_id", "kind", "seq"],
-        )
-        .returning(CarePlanItem.id)
-    )
-    return len((await db.execute(statement)).scalars().all())
+    return await ensure_plans(db, [_Target(contract_id, start, end)], today=today)
 
 
 async def close_with_conversation(

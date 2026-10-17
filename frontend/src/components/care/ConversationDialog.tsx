@@ -20,17 +20,25 @@ import { apiErrorMessage } from "@/lib/api-error";
 import {
   CHANNEL_LABELS,
   useAddConversation,
+  useContractCare,
   type CareChannel,
   type CarePlanItem,
 } from "@/lib/api/care";
 import { warsawToday } from "@/lib/warsaw-date";
+
+import { CareGapQuestions } from "./CareGapQuestions";
 
 interface ConversationDialogProps {
   contractId: number;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   /** Punkt planu, który ta rozmowa zamyka (z „Zapisz” przy punkcie). */
-  planItem?: CarePlanItem | null;
+  planItem?: Pick<CarePlanItem, "id" | "label"> | null;
+  /**
+   * Klient kontraktu — do pytań z mapy technologii. Bez niego okno bierze go
+   * z wczytanej już zakładki „Opieka” kontraktu (bez nowego zapytania).
+   */
+  clientId?: number | null;
 }
 
 const NO_SCORE = "none";
@@ -41,9 +49,12 @@ export function ConversationDialog({
   open,
   onOpenChange,
   planItem,
+  clientId,
 }: ConversationDialogProps) {
   const { showToast } = useToast();
   const save = useAddConversation(contractId);
+  const cached = useContractCare(contractId, false);
+  const gapsClientId = clientId ?? cached.data?.contract.client_id ?? null;
   const today = warsawToday();
   const [occurredOn, setOccurredOn] = useState(today);
   const [channel, setChannel] = useState<CareChannel>("phone");
@@ -220,6 +231,7 @@ export function ConversationDialog({
           />
         </FormField>
       </div>
+      <CareGapQuestions clientId={gapsClientId} />
       {error ? (
         <p role="alert" className="mt-3 text-sm text-destructive">
           {error}

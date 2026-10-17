@@ -18,9 +18,14 @@
  * - `techcard` — otwarte okno karty technologicznej z 31. dnia (prawdziwy
  *   `TechCardDialog`, ten sam, który otwiera „Edytuj” na osi — zakładka nie
  *   umie otworzyć go bez kliknięcia); obszary klienta są zasiane;
- * - `list` — ekran `/care` („Moi konsultanci”, „Do przepięcia”,
- *   „Technologie do przejrzenia”); zakładkę wybiera sam ekran z `?tab=`,
- *   obie kolejki i oba zakresy listy są zasiane.
+ * - `list` — ekran `/care`: domyślnie „Ten tydzień” (makieta 7 etapu 2 —
+ *   prośby o opinię od menedżerów, rozmowy z powodem, licznik zaległych),
+ *   dalej „Wszystkie kontrakty”, „Do przepięcia”, „Technologie do
+ *   przejrzenia”; zakładkę wybiera sam ekran z `?tab=`, oba zakresy list
+ *   i obie kolejki są zasiane. `&contract=4504` otwiera oś Pawła z „Przekaż
+ *   do front office” (dwie pasujące rekrutacje); osie i „front office”
+ *   pozostałych osób z tygodnia też są zasiane, a okno rozmowy ma pytania
+ *   z mapy technologii klienta.
  */
 
 import { Suspense, useState } from "react";
@@ -32,7 +37,14 @@ import { careKeys } from "@/lib/api/care";
 import { formatDate } from "@/lib/utils";
 import { warsawToday } from "@/lib/warsaw-date";
 
-import { HR_CAST, HR_CONFIG_QUERY_KEY, HR_CONSULTANTS, hrConfig } from "../hr-fixtures";
+import { clientTechMap } from "../hr-client-tech/fixtures";
+import {
+  HR_CAST,
+  HR_CLIENTS,
+  HR_CONFIG_QUERY_KEY,
+  HR_CONSULTANTS,
+  hrConfig,
+} from "../hr-fixtures";
 import {
   HrHarnessLoading,
   HrHarnessShell,
@@ -53,6 +65,15 @@ import {
   redeployQueue,
   skillReview,
 } from "./fixtures";
+import {
+  WEEK_HANDOFF_CONTRACT,
+  careWeek,
+  karolinaFrontOffice,
+  pawelFrontOffice,
+  pawelTimeline,
+  shortTimeline,
+  telecomTechMap,
+} from "./week-fixtures";
 
 const KNOWN = ["tab", "techcard", "list"] as const;
 type State = (typeof KNOWN)[number];
@@ -60,7 +81,12 @@ type State = (typeof KNOWN)[number];
 const STATES = [
   { key: "tab", label: "Zakładka „Opieka”" },
   { key: "techcard", label: "Karta technologiczna" },
-  { key: "list", label: "Moi konsultanci (/care)" },
+  { key: "list", label: "Ten tydzień (/care)" },
+  {
+    key: "panel",
+    label: "Oś konsultanta i front office",
+    href: `?state=list&contract=${WEEK_HANDOFF_CONTRACT}`,
+  },
 ] as const;
 
 function prepare(params: URLSearchParams) {
@@ -81,6 +107,19 @@ function prepare(params: URLSearchParams) {
   for (const review of ["open", "closed"] as const) {
     client.setQueryData(careKeys.skillReview(review), skillReview(today, review));
   }
+  // „Ten tydzień”: obie listy, osie każdej osoby, „front office” i mapa klienta
+  // (pytania w oknie rozmowy).
+  for (const scope of ["mine", "all"] as const) {
+    client.setQueryData(careKeys.week(scope, null), careWeek(today, scope));
+  }
+  for (const row of careWeek(today, "all").contacts) {
+    client.setQueryData(careKeys.timeline(row.contract_id), shortTimeline(today, row));
+  }
+  client.setQueryData(careKeys.timeline(WEEK_HANDOFF_CONTRACT), pawelTimeline(today));
+  client.setQueryData(careKeys.frontOffice(WEEK_HANDOFF_CONTRACT), pawelFrontOffice(today));
+  client.setQueryData(careKeys.frontOffice(4502), karolinaFrontOffice(today));
+  client.setQueryData(careKeys.clientMap(CARE_CLIENT.id), clientTechMap(today));
+  client.setQueryData(careKeys.clientMap(HR_CLIENTS.telecom.id), telecomTechMap(today));
   return { user: HR_CAST.natalia, client, value: { state, today } };
 }
 

@@ -1,7 +1,8 @@
 /**
- * `/preview/hr-client-tech` (makieta 10 „Ludzi w NEXUSIE”): prawdziwa zakładka
- * „Technologie” klienta na danych fikcyjnych, ZERO prób żądania — także po
- * filtrze obszaru i otwarciu okna „Dodaj notatkę o stacku”.
+ * `/preview/hr-client-tech` (makieta 10 „Ludzi w NEXUSIE” i makieta 8 etapu 2):
+ * prawdziwa zakładka „Technologie” klienta na danych fikcyjnych — działy
+ * z menedżerem, „Nasi / w bazie”, „Luki do dopytania” — ZERO prób żądania,
+ * także po filtrze działu i otwarciu okna „Dodaj notatkę o stacku”.
  */
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -35,7 +36,7 @@ afterEach(() => {
 });
 
 const techRows = () =>
-  within(screen.getByRole("table"))
+  within(screen.getByRole("table", { name: "Wszystkie technologie klienta" }))
     .getAllByRole("row")
     .slice(1)
     .map((row) => within(row).getAllByRole("cell")[0].textContent ?? "");
@@ -49,7 +50,9 @@ describe("/preview/hr-client-tech", () => {
     expect(await screen.findByRole("heading", { name: "Bank Przykładowy" })).toBeInTheDocument();
     expect(useAuthStore.getState().user?.role).toBe("delivery_lead");
     expect(techRows()).toHaveLength(7);
-    const java = screen.getByRole("row", { name: /Java 17/ });
+    const java = within(
+      screen.getByRole("table", { name: "Wszystkie technologie klienta" }),
+    ).getByRole("row", { name: /Java 17/ });
     expect(within(java).getByTitle("Rozmowy (karty technologiczne): 4")).toBeInTheDocument();
     expect(within(java).getByTitle("Rekrutacje klienta: 6")).toBeInTheDocument();
     expect(within(java).getByTitle("Nasi konsultanci: 5")).toBeInTheDocument();
@@ -69,6 +72,43 @@ describe("/preview/hr-client-tech", () => {
 
     await user.click(screen.getByRole("button", { name: "Dodaj notatkę o stacku" }));
     expect(await screen.findByRole("dialog", { name: "Notatka o stacku" })).toBeInTheDocument();
+    expect(attempted()).toEqual([]);
+  });
+
+  it("działy z menedżerem z drzewa, „Nasi / w bazie” z linkiem i luki do dopytania", async () => {
+    window.history.replaceState({}, "", "/preview/hr-client-tech");
+    render(<HrClientTechPreviewPage />);
+
+    const departments = await screen.findByRole("table", { name: "Technologie po działach" });
+    const rows = within(departments).getAllByRole("row").slice(1);
+    expect(rows.map((row) => within(row).getAllByRole("cell")[0].textContent)).toEqual([
+      "CI/CD i chmurabrak źródła od 18 miesięcy",
+      "Data",
+      "Kredyty",
+      "Płatności",
+    ]);
+    const payments = rows[3];
+    expect(within(payments).getByText("Michał Rogalski-Przykładowy")).toBeInTheDocument();
+    expect(
+      within(within(payments).getByRole("list", { name: "Technologie: Płatności" })).getByText(
+        "Kafka",
+      ),
+    ).toBeInTheDocument();
+    const base = within(payments).getByRole("link", { name: "212" });
+    const href = new URL(base.getAttribute("href") ?? "", "http://localhost");
+    expect(href.pathname).toBe("/candidates");
+    expect(href.searchParams.get("skills_q")).toBe('"Java 17" AND "Spring Boot"');
+    expect(within(rows[2]).getByText("nie wskazano")).toBeInTheDocument();
+    // Dział bez źródła: bez technologii i bez liczby „w bazie”.
+    expect(within(rows[0]).getAllByText("—")).toHaveLength(2);
+
+    const gaps = screen.getByRole("list", { name: "Luki do dopytania" });
+    const items = within(gaps)
+      .getAllByRole("listitem")
+      .map((item) => item.textContent);
+    expect(items[0]).toBe("CI/CD i chmura brak źródła od 18 miesięcy");
+    expect(items[1]).toBe("Płatności nie wiemy, komu podlega Michał R.");
+    expect(items[2]).toMatch(/^Azure Data Factory znane tylko z rozmowy z konsultantem z \d{2}\.\d{4}$/);
     expect(attempted()).toEqual([]);
   });
 });

@@ -26,6 +26,8 @@ import {
   useClientTechMap,
   useSetClientDefaultOwner,
   type ClientTechMap,
+  type MapDepartment,
+  type TechGap,
   type TechSource,
 } from "@/lib/api/care";
 import { CALM_AMOUNT, CALM_EMPTY, CALM_HEAD, CALM_ROW, CALM_SUBLINE } from "@/lib/calm-table";
@@ -33,6 +35,7 @@ import { cn, formatDate } from "@/lib/utils";
 import { resolveViewState } from "@/lib/view-state";
 
 import { sourceSummary, technologiesInArea } from "./care-format";
+import { candidatesHref, gapQuestion } from "./tech-gaps";
 
 const SOURCES: { key: TechSource; letter: string }[] = [
   { key: "cards", letter: "T" },
@@ -116,6 +119,133 @@ function StackNoteDialog({ clientId, onClose }: { clientId: number; onClose: () 
         </p>
       ) : null}
     </AppModal>
+  );
+}
+
+/** Litery źródeł przy technologii działu („Spark T R K”). */
+function SourceLetters({ counts }: { counts: Record<TechSource, number> }) {
+  const present = SOURCES.filter(({ key }) => counts[key]);
+  return (
+    <span className="ml-1 text-[10px] tracking-wide text-muted-foreground">
+      {present.map(({ letter }) => letter).join(" ")}
+    </span>
+  );
+}
+
+function DepartmentsTable({ departments }: { departments: MapDepartment[] }) {
+  return (
+    <div className="overflow-x-auto rounded-lg border border-border bg-card">
+      <table className="w-full text-sm" aria-label="Technologie po działach">
+        <thead>
+          <tr className={CALM_ROW}>
+            <th className={cn(CALM_HEAD, "px-3 py-2 text-left")}>Dział</th>
+            <th className={cn(CALM_HEAD, "px-3 py-2 text-left")}>Technologie i źródła</th>
+            <th className={cn(CALM_HEAD, "px-3 py-2 text-left")}>Menedżer</th>
+            <th className={cn(CALM_HEAD, "px-3 py-2 text-right")}>Nasi / w bazie</th>
+          </tr>
+        </thead>
+        <tbody>
+          {departments.map((dept) => {
+            const manager = dept.managers[0];
+            const href = candidatesHref(dept.base.skills);
+            const more = dept.technologies_total - dept.technologies.length;
+            return (
+              <tr
+                key={dept.area.id}
+                className={cn(CALM_ROW, !dept.has_fresh_source && "text-muted-foreground")}
+              >
+                <td className="px-3 py-1.5 align-top">
+                  <span className="font-medium">{dept.area.name}</span>
+                  {!dept.has_fresh_source ? (
+                    <span className={CALM_SUBLINE}>brak źródła od 18 miesięcy</span>
+                  ) : null}
+                </td>
+                <td className="px-3 py-1.5 align-top">
+                  {dept.technologies.length ? (
+                    <ul className="flex flex-wrap gap-x-3 gap-y-0.5" aria-label={`Technologie: ${dept.area.name}`}>
+                      {dept.technologies.map((tech) => (
+                        <li
+                          key={tech.skill_id}
+                          title={sourceSummary({ ...tech, must_jobs: 0, consultant_months: 0, areas: [], category: null })}
+                          className={cn(tech.stale && "text-muted-foreground")}
+                        >
+                          {tech.name}
+                          <SourceLetters counts={tech.counts} />
+                        </li>
+                      ))}
+                      {more > 0 ? <li className="text-muted-foreground">+{more}</li> : null}
+                    </ul>
+                  ) : (
+                    <span className={CALM_EMPTY}>—</span>
+                  )}
+                </td>
+                <td className="px-3 py-1.5 align-top">
+                  {manager ? (
+                    <>
+                      {manager.name}
+                      {dept.managers.length > 1 ? (
+                        <span className="text-muted-foreground"> +{dept.managers.length - 1}</span>
+                      ) : null}
+                      {manager.position ? (
+                        <span className={CALM_SUBLINE}>{manager.position}</span>
+                      ) : null}
+                    </>
+                  ) : (
+                    <span className={CALM_EMPTY}>nie wskazano</span>
+                  )}
+                </td>
+                <td className={cn(CALM_AMOUNT, "px-3 py-1.5 align-top")}>
+                  {dept.consultants}
+                  {" / "}
+                  {href && dept.base.count != null ? (
+                    <Link
+                      href={href}
+                      className="text-primary hover:underline"
+                      title={`Osoby w bazie z: ${dept.base.skills.join(" i ")}`}
+                    >
+                      {dept.base.count}
+                    </Link>
+                  ) : (
+                    <span className={CALM_EMPTY}>—</span>
+                  )}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+      <p className="border-t border-border/60 px-3 py-2 text-xs text-muted-foreground">
+        Działy są te same co w „Strukturze u klienta”. Menedżer — osoba z działu z naszymi
+        konsultantami. „W bazie” — osoby z dwiema najmocniejszymi technologiami działu naraz.
+      </p>
+    </div>
+  );
+}
+
+function GapsCard({ gaps }: { gaps: TechGap[] }) {
+  const questions = gaps.map(gapQuestion);
+  return (
+    <section className="space-y-2 rounded-lg border border-border bg-card p-4">
+      <div className="flex items-center justify-between">
+        <h3 className="text-sm font-semibold">Luki do dopytania</h3>
+        <span className="text-sm tabular-nums">{questions.length}</span>
+      </div>
+      {questions.length ? (
+        <ul className="space-y-1.5 text-sm" aria-label="Luki do dopytania">
+          {questions.map((item) => (
+            <li key={item.key} title={item.question}>
+              <span className="font-medium">{item.subject}</span>{" "}
+              <span className="text-muted-foreground">{item.detail}</span>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="text-sm text-muted-foreground">Nie ma luk do dopytania.</p>
+      )}
+      <p className="text-xs text-muted-foreground">
+        Te pytania pokazują się w oknie rozmowy z konsultantami tego klienta.
+      </p>
+    </section>
   );
 }
 
@@ -208,9 +338,18 @@ export function ClientTechnologiesTab({ clientId }: { clientId: number }) {
         </div>
       </div>
 
+      {map.departments.length ? (
+        <DepartmentsTable departments={map.departments} />
+      ) : (
+        <p className="text-sm text-muted-foreground">
+          Klient nie ma jeszcze działów — zakłada się je w „Strukturze u klienta” albo na karcie
+          technologicznej.
+        </p>
+      )}
+
       {map.areas.length ? (
-        <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Obszary u klienta">
-          {[{ id: 0, name: "Wszystkie obszary" }, ...map.areas].map((item) => {
+        <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Działy u klienta">
+          {[{ id: 0, name: "Wszystkie działy" }, ...map.areas].map((item) => {
             const value = item.id === 0 ? null : item.name;
             const active = area === value;
             return (
@@ -236,11 +375,11 @@ export function ClientTechnologiesTab({ clientId }: { clientId: number }) {
               technologiczną przy kontrakcie albo notatkę o stacku.
             </p>
           ) : (
-            <table className="w-full text-sm">
+            <table className="w-full text-sm" aria-label="Wszystkie technologie klienta">
               <thead>
                 <tr className={CALM_ROW}>
                   <th className={cn(CALM_HEAD, "px-3 py-2 text-left")}>Technologia</th>
-                  <th className={cn(CALM_HEAD, "px-3 py-2 text-left")}>Obszar</th>
+                  <th className={cn(CALM_HEAD, "px-3 py-2 text-left")}>Dział</th>
                   <th className={cn(CALM_HEAD, "px-3 py-2 text-left")}>
                     Źródła <span className="normal-case tracking-normal">(T · R · K · N)</span>
                   </th>
@@ -286,6 +425,7 @@ export function ClientTechnologiesTab({ clientId }: { clientId: number }) {
         </div>
 
         <div className="grid content-start gap-3">
+          <GapsCard gaps={map.gaps} />
           <section className="space-y-2 rounded-lg border border-border bg-card p-4">
             <h3 className="text-sm font-semibold">Klient zatrudnia</h3>
             {map.signals.length ? (

@@ -2359,7 +2359,7 @@ HR_TOOLS: tuple[JarvisTool, ...] = (
         name="my_care_consultants",
         label="Sprawdzam opiekę nad konsultantami",
         description=(
-            "„Moi konsultanci” z ekranu Opieka: kontrakty, których pytający jest "
+            "„Wszystkie kontrakty” z ekranu Opieka: kontrakty, których pytający jest "
             "opiekunem — następny kontakt (termin, czy zaległy), liczba zaległych "
             "punktów planu, ostatnia rozmowa i zadowolenie, powody do przepięcia. "
             "`scope: all` — wszyscy widoczni konsultanci."

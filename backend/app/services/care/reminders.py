@@ -4,7 +4,9 @@ Jeden przebieg na dzień kalendarza firmy (rezerwacja w ``hr_job_runs``,
 ``kind = care_reminders``), więc nocny restart przy wdrożeniu niczego nie
 powtarza. Dla każdego aktywnego kontraktu:
 
-1. dopisuje brakujące punkty planu kontaktów (``plan.ensure_plan``),
+1. dopisuje brakujące punkty planu kontaktów (``plan.ensure_plans`` —
+   zbiorczo dla wszystkich kontraktów; listy opieki przy odczycie już tego
+   nie robią),
 2. zaległy albo dzisiejszy kontakt (punkt planu albo follow-up z ostatniej
    rozmowy) → dzwonek ``care_contact_due`` do opiekuna, najwyżej raz na
    7 dni na kontrakt,
@@ -247,14 +249,8 @@ async def run_once(db: AsyncSession) -> dict[str, Any]:
     counts: dict[str, Any] = {"plan_items": 0, "project_end_active": 0}
     try:
         contracts = await care_access.live_contracts(db)
+        counts["plan_items"] = await care_plan.ensure_plans(db, contracts, today=today)
         for contract in contracts:
-            counts["plan_items"] += await care_plan.ensure_plan(
-                db,
-                contract.id,
-                start=contract.start_date,
-                end=contract.end_date,
-                today=today,
-            )
             if await records.sync_project_end(
                 db, contract.id, today=today, actor_id=None
             ):

@@ -8,6 +8,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { api } from "@/lib/api";
 
+import type { FeedbackReason, LastFeedback, OrgConsultant } from "./client-people";
+
 export type CareChannel = "phone" | "meeting" | "chat";
 export type PlanKind = "day_7" | "day_30" | "day_90" | "quarterly" | "pre_end";
 export type PlanStatus = "open" | "done" | "skipped";
@@ -197,6 +199,53 @@ export interface HiringSignal {
   sales_status: "converted" | "archived" | null;
 }
 
+/** Technologia w wierszu działu (D16) — źródła tylko z tego działu. */
+export interface DepartmentTechnology {
+  skill_id: number;
+  name: string;
+  counts: Record<TechSource, number>;
+  source_count: number;
+  last_seen: string | null;
+  stale: boolean;
+}
+
+export interface MapDepartment {
+  area: { id: number; name: string };
+  technologies: DepartmentTechnology[];
+  technologies_total: number;
+  /** Osoby z działu z naszymi konsultantami pod sobą (najwięcej pierwsza). */
+  managers: { id: number; name: string; position: string | null; consultants: number }[];
+  consultants: number;
+  last_seen: string | null;
+  has_fresh_source: boolean;
+  /** „W bazie”: osoby z tymi umiejętnościami naraz; `count` null = nie policzono. */
+  base: { skills: string[]; count: number | null };
+}
+
+/** „Luki do dopytania” (D16) — te same pytania idą do okna rozmowy opieki. */
+export type TechGap =
+  | {
+      kind: "area_no_source";
+      area: { id: number; name: string };
+      last_seen: string | null;
+    }
+  | {
+      kind: "manager_unplaced";
+      contact: PersonRef;
+      position: string | null;
+      area: { id: number; name: string } | null;
+      consultants: number;
+    }
+  | {
+      kind: "single_source";
+      skill_id: number;
+      name: string;
+      source: TechSource;
+      refs: number;
+      last_seen: string | null;
+      areas: string[];
+    };
+
 export interface ClientTechMap {
   client_id: number;
   client_name: string;
@@ -211,6 +260,8 @@ export interface ClientTechMap {
   notes: { id: number; content: string; created_on: string | null }[];
   notes_count: number;
   redeploy_active: number;
+  departments: MapDepartment[];
+  gaps: TechGap[];
   default_owner: PersonRef | null;
   can_edit: boolean;
 }
@@ -259,6 +310,161 @@ export interface CareSummary {
   can_edit: boolean;
   can_curate: boolean;
 }
+
+// ── „Ten tydzień”, oś konsultanta, „Przekaż do front office” (D15) ────────
+
+export type WeekReasonKind = PlanKind | "follow_up";
+export type FrontOfficeReason = "project_end" | "wants_change";
+
+export interface WeekReason {
+  kind: WeekReasonKind;
+  label: string;
+  due_on: string;
+  overdue: boolean;
+  plan_item_id: number | null;
+  from_conversation_on: string | null;
+}
+
+export interface ClientManagerRef {
+  id: number;
+  name: string;
+  position: string | null;
+  area: { id: number; name: string } | null;
+}
+
+export interface WeekContact {
+  contract_id: number;
+  candidate_id: number | null;
+  candidate_name: string | null;
+  client_id: number;
+  client_name: string;
+  job_title: string | null;
+  start_date: string | null;
+  end_date: string | null;
+  owner: PersonRef | null;
+  reasons: WeekReason[];
+  due_on: string;
+  overdue: boolean;
+  overdue_days: number;
+  plan_item_id: number | null;
+  manager: ClientManagerRef | null;
+  last_conversation: {
+    id: number;
+    occurred_on: string;
+    satisfaction: number | null;
+    note_excerpt: string | null;
+    signals: string[];
+  } | null;
+  signals: RedeployReason[];
+  front_office: { reasons: FrontOfficeReason[]; handed_off_on: string | null };
+}
+
+export interface WeekFeedback {
+  contact_id: number;
+  contact_name: string;
+  position: string | null;
+  client_id: number;
+  client_name: string;
+  area: { id: number; name: string } | null;
+  reasons: FeedbackReason[];
+  due_on: string;
+  overdue: boolean;
+  last_feedback: LastFeedback | null;
+  consultants: OrgConsultant[];
+}
+
+export interface CareWeek {
+  week: { from: string; to: string; today: string; is_current: boolean };
+  scope: "mine" | "all";
+  contacts: WeekContact[];
+  feedback: WeekFeedback[];
+  feedback_visible: boolean;
+  counts: { contacts: number; overdue: number; feedback: number; front_office: number };
+  can_edit: boolean;
+  can_write_feedback: boolean;
+}
+
+export type TimelineKind =
+  | "recruitment"
+  | "start"
+  | "order_start"
+  | "conversation"
+  | "tech_card"
+  | "feedback"
+  | "redeploy"
+  | "handoff"
+  | "plan"
+  | "order_end"
+  | "contract_end";
+
+export interface TimelineEvent {
+  kind: TimelineKind;
+  on: string;
+  title: string;
+  detail: string | null;
+  link: string | null;
+  future: boolean;
+}
+
+export interface ContractTimeline {
+  contract: {
+    id: number;
+    candidate_id: number | null;
+    candidate_name: string | null;
+    client_id: number;
+    client_name: string;
+    job_id: number | null;
+    job_title: string | null;
+    status: string;
+    is_live: boolean;
+    start_date: string | null;
+    end_date: string | null;
+  };
+  owner: PersonRef | null;
+  manager: ClientManagerRef | null;
+  signals: RedeployReason[];
+  front_office_reasons: FrontOfficeReason[];
+  events: TimelineEvent[];
+  feedback_visible: boolean;
+  can_edit: boolean;
+}
+
+export interface FrontOfficeJob {
+  job_id: number;
+  title: string;
+  client_name: string | null;
+  client_reference: string | null;
+  score: number;
+  matching_must: string[];
+  gap_must: string[];
+}
+
+export interface FrontOfficeOverview {
+  contract_id: number;
+  eligible: boolean;
+  reasons: FrontOfficeReason[];
+  end_date: string | null;
+  /** `unavailable` = wyszukiwanie nie zadziałało — to nie „nic nie pasuje”. */
+  status: "ok" | "unavailable";
+  jobs: FrontOfficeJob[];
+  handoffs: { on: string; by: PersonRef | null; job_ids: number[]; notified_count: number }[];
+  can_edit: boolean;
+}
+
+export interface HandoffResult {
+  contract_id: number;
+  handed_off_on: string;
+  reasons: FrontOfficeReason[];
+  job_ids: number[];
+  recipients: PersonRef[];
+  notified: PersonRef[];
+  redeploy_item_id: number | null;
+}
+
+export const FRONT_OFFICE_REASON_LABELS: Record<FrontOfficeReason, string> = {
+  project_end: "kończy projekt",
+  wants_change: "chce zmiany projektu",
+};
 
 export const CHANNEL_LABELS: Record<CareChannel, string> = {
   phone: "Telefon",
@@ -323,6 +529,11 @@ export const careKeys = {
   redeploy: (state: "active" | "closed") => ["care", "redeploy", state] as const,
   skillReview: (state: "open" | "closed") => ["care", "skill-review", state] as const,
   summary: ["care", "summary"] as const,
+  /** `from` = null — tydzień liczy serwer (w weekend następny). */
+  week: (scope: "mine" | "all", from: string | null) => ["care", "week", scope, from] as const,
+  timeline: (contractId: number) => ["care", "contract", contractId, "timeline"] as const,
+  frontOffice: (contractId: number) =>
+    ["care", "contract", contractId, "front-office"] as const,
 };
 
 export function useContractCare(contractId: number, enabled = true) {
@@ -443,6 +654,8 @@ function useContractMutation<TVars>(
       queryClient.invalidateQueries({ queryKey: ["care", "my-consultants"] });
       queryClient.invalidateQueries({ queryKey: ["care", "redeploy"] });
       queryClient.invalidateQueries({ queryKey: careKeys.summary });
+      queryClient.invalidateQueries({ queryKey: ["care", "week"] });
+      queryClient.invalidateQueries({ queryKey: careKeys.timeline(contractId) });
     },
   });
 }
@@ -560,6 +773,64 @@ export function useResolveSkillReview() {
       return (await api.post(`${base}/dismiss`)).data;
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: careKeys.all }),
+  });
+}
+
+export function useCareWeek(scope: "mine" | "all", from: string | null) {
+  return useQuery({
+    queryKey: careKeys.week(scope, from),
+    queryFn: async () =>
+      (
+        await api.get<CareWeek>("/api/care/week", {
+          params: from ? { scope, from } : { scope },
+        })
+      ).data,
+    // Ta sama lista stoi w zakładce i liczniku zaległych — bez ponownego
+    // liczenia przy każdym przełączeniu zakładki (audyt wydajności 17.10).
+    staleTime: 60_000,
+  });
+}
+
+export function useContractTimeline(contractId: number, enabled = true) {
+  return useQuery({
+    queryKey: careKeys.timeline(contractId),
+    queryFn: async () =>
+      (await api.get<ContractTimeline>(`/api/care/contracts/${contractId}/timeline`)).data,
+    enabled: enabled && Number.isFinite(contractId) && contractId > 0,
+  });
+}
+
+/** Pasujące rekrutacje liczy silnik „Pasuje też do” — drogo, więc bez odświeżania w tle. */
+export function useFrontOffice(contractId: number, enabled = true) {
+  return useQuery({
+    queryKey: careKeys.frontOffice(contractId),
+    queryFn: async () =>
+      (
+        await api.get<FrontOfficeOverview>(
+          `/api/care/contracts/${contractId}/front-office`,
+        )
+      ).data,
+    enabled: enabled && Number.isFinite(contractId) && contractId > 0,
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
+export function useHandOffToFrontOffice(contractId: number) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (jobIds: number[]) =>
+      (
+        await api.post<HandoffResult>(`/api/care/contracts/${contractId}/front-office`, {
+          job_ids: jobIds,
+        })
+      ).data,
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: careKeys.frontOffice(contractId) });
+      void queryClient.invalidateQueries({ queryKey: careKeys.timeline(contractId) });
+      void queryClient.invalidateQueries({ queryKey: ["care", "week"] });
+      void queryClient.invalidateQueries({ queryKey: ["care", "redeploy"] });
+      void queryClient.invalidateQueries({ queryKey: careKeys.summary });
+    },
   });
 }
 

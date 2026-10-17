@@ -168,10 +168,12 @@ describe("karta technologiczna", () => {
 });
 
 describe("ekran /care", () => {
-  it("czyta zakładkę z adresu, nieznana = „Moi konsultanci”", () => {
+  it("czyta zakładkę z adresu, nieznana = „Ten tydzień”, dawne „mine” = wszystkie kontrakty", () => {
     expect(careTabFrom("redeploy")).toBe("redeploy");
     expect(careTabFrom("review")).toBe("review");
-    expect(careTabFrom("cokolwiek")).toBe("mine");
-    expect(careTabFrom(null)).toBe("mine");
+    expect(careTabFrom("contracts")).toBe("contracts");
+    expect(careTabFrom("mine")).toBe("contracts");
+    expect(careTabFrom("cokolwiek")).toBe("week");
+    expect(careTabFrom(null)).toBe("week");
   });
 });

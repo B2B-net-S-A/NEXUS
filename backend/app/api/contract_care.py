@@ -21,6 +21,10 @@ Dostęp (decyzja D7 i zadanie E5, 16.10.2026):
   z samego uprawnienia nie (D11). Opinię zapisują piszący opiekę, a „Podlega
   pod” i dział kontaktu — ci, którzy edytują kontakty klienta
   (``ClientAccess.can_edit_contacts``, ta sama reguła co ``api/contacts.py``).
+* **„Ten tydzień”, oś konsultanta i „Przekaż do front office”** (D15,
+  17.10.2026) — czytają czytelnicy opieki (zakres jak lista opieki), prośby
+  o opinię i opinie na osi tylko role z D11 (Finanse widzą resztę);
+  przekazanie zapisują piszący opiekę.
 """
 
 from __future__ import annotations
@@ -41,6 +45,7 @@ from app.api.deps import (
 )
 from app.api.hr_gates import MODULE_DISABLED_DETAIL
 from app.api.permission_access import ClientsEditUser, DeliveryViewUser
+from app.api.recruitment_access import job_read_scope_clause
 from app.api.section_access import (
     require_section_access,
     require_section_access_any,
@@ -62,6 +67,7 @@ from app.models.contract_care import (
     TechCard,
     TechVendor,
 )
+from app.models.job import Job
 from app.models.service_account import ServiceScope
 from app.models.skill import Skill
 from app.models.user import User, UserRole
@@ -71,6 +77,9 @@ from app.services.care import plan as care_plan
 from app.services.care import records, signals
 from app.services.care import skills as care_skills
 from app.services.care import client_feedback, client_people, tech_map
+from app.services.care import front_office
+from app.services.care import timeline as care_timeline
+from app.services.care import week as care_week_queue
 from app.services.client_access import resolve_client_access
 from app.services.contract_care_schema import (
     FEEDBACK_NOTE_MAX,
@@ -864,6 +873,12 @@ async def set_client_default_owner(
         .where(CLIENTS_CARE.c.id == client.id)
         .values(default_care_owner_user_id=body.user_id)
     )
+    # Nowy opiekun widzi plan swoich konsultantów od razu, nie po nocnym przebiegu.
+    await care_plan.ensure_plans(
+        db,
+        await care_access.live_contracts(db, client_id=client.id),
+        today=business_today(),
+    )
     audit.record(
         db,
         actor_user_id=current_user.id,
@@ -1112,10 +1127,10 @@ async def my_consultants(
     allowed = await care_access.allowed_client_ids(current_user, db)
     contracts = await care_access.live_contracts(db, allowed=allowed)
     owners = await care_access.effective_owners(db, contracts)
+    # Odczyt niczego nie zapisuje — plan dopisuje dzienny przebieg i zmiana
+    # opiekuna (``care_plan.ensure_plans``).
     if scope == "mine":
         contracts = [c for c in contracts if owners[c.id].user_id == current_user.id]
-        for contract in contracts:
-            await care_access_plan(db, contract, today)
     ids = [c.id for c in contracts]
     open_items: dict[int, list[CarePlanItem]] = {cid: [] for cid in ids}
     if ids:
@@ -1202,14 +1217,6 @@ async def my_consultants(
     return {"items": rows, "total": len(rows), "scope": scope}
 
 
-async def care_access_plan(
-    db: AsyncSession, contract: care_access.CareContract, today: date
-) -> None:
-    await care_plan.ensure_plan(
-        db, contract.id, start=contract.start_date, end=contract.end_date, today=today
-    )
-
-
 @router.get("/redeploy")
 async def redeploy_queue(
     state: Literal["active", "closed"] = "active",
@@ -1288,6 +1295,107 @@ async def update_redeploy(
     await db.flush()
     await tech_map.invalidate([contract.client_id])
     return _redeploy_payload(item)
+
+
+# ── /care: „Ten tydzień”, oś konsultanta, „Przekaż do front office” (D15) ──
+
+
+def _reads_client_people(user: User) -> bool:
+    """D11: opinie klienta widzą opiekun, DL, Head of Recruitment i admin."""
+
+    return user.has_any_role(*_PEOPLE_READER_ROLES)
+
+
+@router.get("/week")
+async def care_week(
+    scope: Literal["mine", "all"] = "mine",
+    day: Optional[date] = Query(default=None, alias="from"),
+    current_user: User = Depends(CareReader),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Jedna kolejka na tydzień (pon–pt): rozmowy z powodem i prośby o opinię."""
+
+    today = business_today()
+    allowed = await care_access.allowed_client_ids(current_user, db)
+    result = await care_week_queue.week_queue(
+        db,
+        user=current_user,
+        allowed=allowed,
+        scope=scope,
+        day=day or care_week_queue.default_day(today),
+        today=today,
+        include_feedback=_reads_client_people(current_user),
+    )
+    return {
+        **result,
+        "can_edit": care_access.is_care_worker(current_user),
+        "can_write_feedback": care_access.is_care_worker(current_user),
+    }
+
+
+@router.get("/contracts/{contract_id}/timeline")
+async def contract_timeline(
+    contract_id: int,
+    current_user: User = Depends(CareReader),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Oś konsultanta: rekrutacja → start → rozmowy → opinie → zamówienia."""
+
+    contract = await care_access.load_contract(db, contract_id, current_user)
+    result = await care_timeline.contract_timeline(
+        db,
+        contract,
+        today=business_today(),
+        include_feedback=_reads_client_people(current_user),
+    )
+    return {**result, "can_edit": care_access.is_care_worker(current_user)}
+
+
+@router.get("/contracts/{contract_id}/front-office")
+async def contract_front_office(
+    contract_id: int,
+    current_user: User = Depends(CareReader),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Czy przekazać do front office i pasujące rekrutacje („Pasuje też do”)."""
+
+    contract = await care_access.load_contract(db, contract_id, current_user)
+    result = await front_office.overview(
+        db,
+        contract,
+        today=business_today(),
+        profile_user_id=current_user.id,
+        scope_clause=job_read_scope_clause(current_user, Job.id),
+    )
+    return {**result, "can_edit": care_access.is_care_worker(current_user)}
+
+
+class FrontOfficeBody(BaseModel):
+    job_ids: list[int] = Field(default_factory=list, max_length=20)
+
+
+@router.post(
+    "/contracts/{contract_id}/front-office", status_code=status.HTTP_201_CREATED
+)
+async def hand_off_to_front_office(
+    contract_id: int,
+    body: FrontOfficeBody,
+    current_user: User = Depends(CareWriter),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Ślad, wpis „Do przepięcia” w toku i powiadomienia front office."""
+
+    contract = await care_access.load_contract(db, contract_id, current_user)
+    result = await front_office.hand_off(
+        db,
+        contract,
+        job_ids=body.job_ids,
+        actor=current_user,
+        today=business_today(),
+        scope_clause=job_read_scope_clause(current_user, Job.id),
+    )
+    await tech_map.invalidate([contract.client_id])
+    return result
 
 
 # ── Technologie do przejrzenia ──────────────────────────────────────────────

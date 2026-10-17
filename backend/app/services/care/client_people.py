@@ -114,6 +114,12 @@ async def _live_with_managers(
     db: AsyncSession, *, allowed: Optional[frozenset[int]]
 ) -> list[ManagedContract]:
     contracts = await care_access.live_contracts(db, allowed=allowed)
+    return await _with_managers(db, contracts)
+
+
+async def _with_managers(
+    db: AsyncSession, contracts: Sequence[CareContract]
+) -> list[ManagedContract]:
     if not contracts:
         return []
     fields = {
@@ -166,6 +172,7 @@ async def _requests_from(
     *,
     today: date,
     contacts: Optional[dict[int, Contact]] = None,
+    owners: Optional[dict[int, care_access.OwnerChoice]] = None,
 ) -> list[dict[str, Any]]:
     by_manager: dict[int, list[CareContract]] = {}
     for row in rows:
@@ -185,7 +192,8 @@ async def _requests_from(
     last_contact = await client_feedback.last_by_contact(db, by_manager)
     every = [c for group in by_manager.values() for c in group]
     last_contract = await client_feedback.last_by_contract(db, [c.id for c in every])
-    owners = await care_access.effective_owners(db, every)
+    if owners is None:
+        owners = await care_access.effective_owners(db, every)
     items: list[dict[str, Any]] = []
     for manager_id, consultants in by_manager.items():
         contact = contacts.get(manager_id)
@@ -246,6 +254,20 @@ async def feedback_requests(
     allowed = None if client_ids is None else frozenset(client_ids)
     rows = await _live_with_managers(db, allowed=allowed)
     return await _requests_from(db, rows, today=today)
+
+
+async def feedback_requests_for(
+    db: AsyncSession,
+    contracts: Sequence[CareContract],
+    *,
+    owners: dict[int, care_access.OwnerChoice],
+    today: date,
+) -> list[dict[str, Any]]:
+    """Jak ``feedback_requests``, gdy wołający ma już żywe kontrakty z zakresu
+    i ich opiekunów (lista „Opieka · Ten tydzień”) — bez drugiego liczenia."""
+
+    rows = await _with_managers(db, contracts)
+    return await _requests_from(db, rows, today=today, owners=owners)
 
 
 # ── Drzewo ──────────────────────────────────────────────────────────────────
