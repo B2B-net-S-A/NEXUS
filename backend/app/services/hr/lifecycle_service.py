@@ -559,6 +559,73 @@ async def update_case(
     return case
 
 
+async def follow_profile_manager(
+    db: AsyncSession,
+    *,
+    user_id: int,
+    previous_manager_id: Optional[int],
+    manager_user_id: Optional[int],
+    actor_id: Optional[int],
+    source: str,
+) -> Optional[LifecycleCase]:
+    """Nowy przełożony w kartotece przechodzi na żywą sprawę odejścia osoby.
+
+    Woła ją każda zmiana ``manager_user_id`` kartoteki (kartoteka, „Struktura”,
+    przekazanie podwładnych). Sprawa idzie za kartoteką tylko wtedy, gdy jej
+    przełożony był dotąd przełożonym z kartoteki — przełożony wskazany w sprawie
+    ręcznie zostaje. Bez nowego przełożonego (zdjęty w „Strukturze”) zostaje
+    dotychczasowy. Domyślny przejmujący idzie za przełożonym jak przy zmianie
+    w sprawie (``retarget_default_receivers``), przejmujący wybrany przez Kadry
+    zostaje. Po ruszeniu przekazania, po wyłączeniu konta i przy sprawie
+    zablokowanej przez trwające przekazanie (``SKIP LOCKED`` — bez zakleszczenia
+    z blokadą struktury) nic się nie zmienia.
+    """
+
+    from app.services.hr.handover import (  # noqa: PLC0415
+        plan_handovers,
+        retarget_default_receivers,
+    )
+
+    if manager_user_id is None or manager_user_id == previous_manager_id:
+        return None
+    case = await db.scalar(
+        select(LifecycleCase)
+        .where(
+            LifecycleCase.kind == "offboarding",
+            LifecycleCase.user_id == user_id,
+            LifecycleCase.status.in_(LIVE_CASE_STATUSES),
+        )
+        .with_for_update(skip_locked=True)
+    )
+    if case is None or case.manager_user_id != previous_manager_id:
+        return None
+    if case.account_closed_at is not None or handover_started(
+        case, await case_handovers(db, case.id)
+    ):
+        return None
+    case.manager_user_id = manager_user_id
+    await _reassign_manager_tasks(db, case)
+    await plan_handovers(db, case)
+    kinds = await retarget_default_receivers(
+        db, case, previous_manager_id=previous_manager_id
+    )
+    audit.record(
+        db,
+        actor_user_id=actor_id,
+        subject_user_id=user_id,
+        entity_type="lifecycle_case",
+        entity_id=case.id,
+        action="case_updated",
+        details={
+            "fields": ["manager_user_id"],
+            "source": source,
+            "receivers_retargeted": sorted(kinds),
+        },
+    )
+    await db.flush()
+    return case
+
+
 async def _reassign_manager_tasks(db: AsyncSession, case: LifecycleCase) -> None:
     for task in await case_tasks(db, case.id):
         if task.assignee_kind == "manager" and task.status == "open":

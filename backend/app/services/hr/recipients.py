@@ -96,17 +96,14 @@ async def kadry_ids(db: AsyncSession, *, exclude: Optional[int]) -> list[int]:
 async def _live(
     db: AsyncSession, user_id: Optional[int], subject_id: Optional[int]
 ) -> Optional[User]:
-    """Konto, które może prowadzić sprawy osoby: aktywne, nie odeszło, nie ona."""
+    """Konto, które może prowadzić sprawy osoby: aktywne, nie odeszło, nie ona
+    (``people.can_supervise`` — ta sama reguła liczy podwładnych)."""
 
     if user_id is None or user_id == subject_id:
         return None
-    user = await db.get(User, user_id)
-    if user is None or not user.is_active:
+    if not await people.can_supervise(db, user_id):
         return None
-    profile = await people.profile_of(db, user_id)
-    if profile is not None and profile.employment_status == "exited":
-        return None
-    return user
+    return await db.get(User, user_id)
 
 
 async def _division_head(

@@ -114,6 +114,8 @@ z protokołami. Compass zostaje z Akademią i czyta listę osób z NEXUSA.
   Propozycje premii tylko do wiadomości — decydują Płace. Kadry i admin
   oglądają zespół dowolnego przełożonego (`?manager=`, link „Zespół”
   w Strukturze); kwoty premii widzi wtedy tylko osoba z Płacami.
+  `leave.has_paid_pool` (pula > 0 — to samo co w `GET /api/hr/leave/balance`)
+  decyduje we froncie o „zostało”; `has_pool` zostaje (17.10.2026).
 
 ## Moduły ciemne
 
@@ -219,7 +221,9 @@ reszty (`tasks/notification_email_outbox.py`, 17.10.2026).
   bramka Płace). Stawka osoby na zleceniu poniżej minimum roku `effective_from`
   = 422 „Minimalna stawka na zleceniu w RRRR to X zł/h brutto.”; rok bez
   minimum albo inna waluta = zapis z `warning`. Nowy rok dopisują Płace bez
-  wdrożenia.
+  wdrożenia. Stawka z poprzedniego roku (też po usunięciu kroku nowego roku)
+  poniżej minimum roku miesiąca = ostrzeżenie `below_minimum_rate` w raporcie
+  miesiąca płac do potwierdzenia przed zamknięciem, bez stawek osób (17.10.2026).
 - Każda instrukcja idempotentna — entrypoint wykonuje je przy każdym starcie.
   Zmiana istniejącego CHECK-a idzie blokiem `DO`, który podmienia go tylko przy
   starej definicji (wzór: posiadacz sprzętu w `equipment_extras_schema.py`).

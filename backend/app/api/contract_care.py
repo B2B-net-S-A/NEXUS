@@ -458,12 +458,20 @@ async def add_stack_note(
 async def _org_payload(
     db: AsyncSession, client_id: int, client_name: str, user: User
 ) -> dict[str, Any]:
+    """Drzewo dla odczytu i odpowiedzi zapisu — opinie i prośby tylko w kręgu D11.
+
+    Zapis „Podlega pod” ma inną bramkę (edycja kontaktów), więc Finanse
+    z prawem edycji klientów dostają drzewo bez opinii, tak jak odczyt by im
+    ich nie pokazał.
+    """
+
     access = await resolve_client_access(db, user, client_id)
     org = await client_people.client_org(
         db,
         client_id,
         today=business_today(),
         show_contact_details=access.can_view_contacts,
+        include_feedback=reads_client_people(user),
     )
     return {
         **org,

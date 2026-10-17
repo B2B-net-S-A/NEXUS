@@ -98,7 +98,33 @@ async def has_live_profile(db: AsyncSession, user_id: int) -> bool:
     return status is not None and status != EmploymentStatus.exited
 
 
+async def can_supervise(db: AsyncSession, user_id: Optional[int]) -> bool:
+    """Czy konto może mieć podwładnych: aktywne, a kartoteka (jeśli jest) ≠ ``exited``.
+
+    Konto bez kartoteki (np. zarząd) się liczy — ta sama reguła co żywy
+    przełożony w ``recipients.supervisor_of``. Kto odszedł albo ma wyłączone
+    konto, nie ma podwładnych w żadnym zakresie („Mój zespół”, akceptacje,
+    kolejki, pełna kartoteka), dopóki Kadry nie przepną jego ludzi.
+    """
+
+    if user_id is None:
+        return False
+    user = await db.get(User, user_id)
+    if user is None or not user.is_active:
+        return False
+    status = await db.scalar(
+        select(EmployeeProfile.employment_status).where(
+            EmployeeProfile.user_id == user_id
+        )
+    )
+    return status != EmploymentStatus.exited
+
+
 async def direct_report_ids(db: AsyncSession, manager_user_id: int) -> set[int]:
+    """Bezpośredni podwładni z kartoteką (≠ ``exited``) żywego przełożonego."""
+
+    if not await can_supervise(db, manager_user_id):
+        return set()
     rows = await db.scalars(
         select(EmployeeProfile.user_id).where(
             EmployeeProfile.manager_user_id == manager_user_id,
@@ -113,7 +139,11 @@ async def viewer_scope(
 ) -> Scope:
     if viewer.id == subject.user_id or is_people_admin(viewer):
         return "full"
-    if subject.manager_user_id is not None and subject.manager_user_id == viewer.id:
+    if (
+        subject.manager_user_id is not None
+        and subject.manager_user_id == viewer.id
+        and await can_supervise(db, viewer.id)
+    ):
         return "full"
     if await has_live_profile(db, viewer.id):
         return "card"
@@ -311,8 +341,9 @@ async def validate_managers(
 ) -> None:
     """Reguły przełożonego dla jednej osoby albo wielu naraz („Struktura”).
 
-    Nie sam sobie, przełożony z aktywnym kontem, bez pętli — także wtedy,
-    gdy przepinamy zbiór osób (A i B naraz pod osobę, która podlega A).
+    Nie sam sobie, przełożony z aktywnym kontem, który nie odszedł (kartoteka
+    ``exited`` — jak w ``can_supervise``), bez pętli — także wtedy, gdy
+    przepinamy zbiór osób (A i B naraz pod osobę, która podlega A).
     """
 
     if manager_user_id is None:
@@ -322,6 +353,10 @@ async def validate_managers(
     manager = await db.get(User, manager_user_id)
     if manager is None or not manager.is_active:
         raise HrPeopleError("Wybrany przełożony nie ma aktywnego konta.")
+    if not await can_supervise(db, manager_user_id):
+        raise HrPeopleError(
+            "Wybrany przełożony zakończył współpracę — wybierz osobę, która pracuje."
+        )
     # Cykl (A → B → A) zablokowałby akceptacje: nikt nie byłby „nad” nikim.
     if await creates_manager_loop(
         db, user_ids=user_ids, manager_user_id=manager_user_id
@@ -465,13 +500,19 @@ async def update_profile(
         employment_type=clean.get("employment_type") or profile.employment_type,
         current=profile,
     )
-    if "manager_user_id" in clean:
+    # Formularz kartoteki wysyła przełożonego zawsze; bez zmiany nie ma czego
+    # sprawdzać (przełożony, który odszedł, nie blokuje edycji telefonu).
+    if (
+        "manager_user_id" in clean
+        and clean["manager_user_id"] != profile.manager_user_id
+    ):
         await _validate_manager(
             db, user_id=user_id, manager_user_id=clean["manager_user_id"]
         )
     changed = sorted(
         key for key, value in clean.items() if getattr(profile, key) != value
     )
+    previous_manager_id = profile.manager_user_id
     for key in changed:
         setattr(profile, key, clean[key])
     if changed:
@@ -484,6 +525,21 @@ async def update_profile(
             entity_id=profile.id,
             action="profile_updated",
             details={"fields": changed},
+        )
+    if "manager_user_id" in changed:
+        # Odchodząca osoba: sprawa odejścia idzie za nowym przełożonym.
+        from app.services.hr.lifecycle_service import (  # noqa: PLC0415
+            follow_profile_manager,
+        )
+
+        await db.flush()
+        await follow_profile_manager(
+            db,
+            user_id=user_id,
+            previous_manager_id=previous_manager_id,
+            manager_user_id=profile.manager_user_id,
+            actor_id=actor.id,
+            source="profile",
         )
     return profile
 

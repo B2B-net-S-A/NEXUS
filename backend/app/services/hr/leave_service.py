@@ -36,6 +36,11 @@ Zatwierdzenie albo anulowanie urlopu w miesiącu zamkniętym w płacach nie
 rusza godzin tego miesiąca (``time_hooks``) — wynik niesie listę takich
 miesięcy (ostrzeżenie w odpowiedzi API), Płace dostają dzwonek, a ślad idzie
 z ``sensitivity='payroll'``.
+
+Zgłoszenie (B2B, zlecenie) na dzień z miesiąca, którego raport godzin jest
+wysłany albo przyjęty, dostaje 409 (podgląd: ``blocking_reason``) — wchodzi
+bez niczyjej decyzji, więc nie może przepisać dokumentu, który leży
+u koordynatora; najpierw koordynator cofa raport do szkicu (17.10.2026).
 """
 
 from __future__ import annotations
@@ -112,6 +117,7 @@ from app.services.hr.leave_recipients import (
     notify_requested,
     payroll_locked_warning,
     report_payroll_locked,
+    sent_timesheet_refusal,
 )
 from app.services.hr.leave_recount import recount_for_company_day_off
 from app.services.hr.m365 import outbox
@@ -261,6 +267,25 @@ async def _enqueue_m365(
     return created
 
 
+async def _sent_timesheet_refusal(
+    db: AsyncSession,
+    *,
+    user_id: int,
+    employment_type: Optional[str],
+    days: list[tuple[date, Decimal]],
+    lock: bool,
+) -> Optional[str]:
+    """Zgłoszenie nie przepisuje raportu godzin, który jest już wysłany albo
+    przyjęty — odmowa po polsku albo ``None``."""
+
+    from app.services.hr import time_hooks
+
+    months = await time_hooks.sent_months(
+        db, user_id, [day for day, _ in days], lock=lock
+    )
+    return sent_timesheet_refusal(employment_type, months)
+
+
 async def _set_days_active(
     db: AsyncSession, request_id: uuid.UUID, active: bool
 ) -> None:
@@ -330,6 +355,19 @@ async def preview(
     try:
         if clash is not None:
             raise LeavePolicyError(_overlap_message(clash, for_self=for_self))
+        refusal = (
+            await _sent_timesheet_refusal(
+                db,
+                user_id=subject.id,
+                employment_type=profile.employment_type,
+                days=days,
+                lock=False,
+            )
+            if reported
+            else None
+        )
+        if refusal is not None:
+            raise LeavePolicyError(refusal)
         pools = await pools_for(
             db, subject.id, years_between(data.start_date, data.end_date)
         )
@@ -433,6 +471,17 @@ async def submit(
     )
     if clash is not None:
         raise LeaveConflict(_overlap_message(clash, for_self=for_self))
+    reported = for_self and reports_absence(profile.employment_type)
+    if reported:
+        refusal = await _sent_timesheet_refusal(
+            db,
+            user_id=subject.id,
+            employment_type=profile.employment_type,
+            days=days,
+            lock=True,
+        )
+        if refusal is not None:
+            raise LeaveConflict(refusal)
     pools = await pools_for(
         db, subject.id, years_between(data.start_date, data.end_date)
     )
@@ -448,7 +497,6 @@ async def submit(
     if for_self and data.forward_mail_consent:
         _assert_forward_target(substitute)
     words = terms(profile.employment_type)
-    reported = for_self and reports_absence(profile.employment_type)
     approved = on_behalf or data.leave_type in AUTO_APPROVED_TYPES or reported
     now = datetime.now(timezone.utc)
     request = LeaveRequest(
@@ -579,7 +627,7 @@ async def _after_approval(
         )
     await _enqueue_m365(db, request, "approved", today=today)
     # „Mój miesiąc” (E2): godziny wpisane na pełne dni urlopu znikają, płatny
-    # urlop B2B/zlecenia dostaje auto-wpisy, hash zaakceptowanego PDF-u się
+    # dzień puli B2B dostaje auto-wpisy, hash zaakceptowanego PDF-u się
     # przelicza. Zamknięte w płacach miesiące są tylko raportowane.
     from app.services.hr import time_hooks
 

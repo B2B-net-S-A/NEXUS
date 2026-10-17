@@ -44,6 +44,7 @@ from app.services.hr import (
     time_flow,
     time_month,
     time_pdf,
+    time_retention,
     time_suggest,
 )
 from app.services.hr.modules import HrModule
@@ -537,7 +538,11 @@ async def _pdf_sheet(
     sheet = time_pdf.PdfTimesheet(
         person_name=user.name,
         person_email=user.email,
-        employment_type=profile.employment_type if profile else None,
+        # Forma z chwili przyjęcia: potwierdzenie godzin zlecenia zostaje nim
+        # także po zmianie formy osoby (art. 8b/8c).
+        employment_type=time_retention.document_form(
+            timesheet, profile.employment_type if profile else None
+        ),
         year=timesheet.year,
         month=timesheet.month,
         pdf_hash=timesheet.pdf_hash,

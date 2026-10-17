@@ -377,7 +377,15 @@ async def client_org(
     *,
     today: date,
     show_contact_details: bool,
+    include_feedback: bool = True,
 ) -> dict[str, Any]:
+    """Drzewo „Struktura u klienta”.
+
+    ``include_feedback=False`` (D11 — czytający spoza kręgu opinii, np. Finanse
+    z prawem edycji kontaktów w odpowiedzi zapisu) = to samo drzewo bez opinii
+    klienta i bez próśb o opinię; zapytań o opinie wtedy nie ma.
+    """
+
     people = await _org_contacts(db, client_id)
     by_id = {person.id: person for person in people}
     areas = (
@@ -398,22 +406,26 @@ async def client_org(
             consultants_of.setdefault(row.manager_id, []).append(row.contract)
         else:
             without.append(row)
-    last_contract = await client_feedback.last_by_contract(
-        db, [row.contract.id for row in rows]
-    )
-    last_contact = await client_feedback.last_by_contact(db, consultants_of)
     contact_rows = {
         contact.id: contact
         for contact in (
             await db.scalars(select(Contact).where(Contact.client_id == client_id))
         ).all()
     }
-    requests = await _requests_from(
-        db,
-        [row for row in rows if row.manager_id in by_id],
-        today=today,
-        contacts=contact_rows,
-    )
+    last_contract: dict[int, client_feedback.LastFeedback] = {}
+    last_contact: dict[int, client_feedback.LastFeedback] = {}
+    requests: list[dict[str, Any]] = []
+    if include_feedback:
+        last_contract = await client_feedback.last_by_contract(
+            db, [row.contract.id for row in rows]
+        )
+        last_contact = await client_feedback.last_by_contact(db, consultants_of)
+        requests = await _requests_from(
+            db,
+            [row for row in rows if row.manager_id in by_id],
+            today=today,
+            contacts=contact_rows,
+        )
     request_of = {item["contact_id"]: item for item in requests}
 
     hm_jobs: dict[int, list[dict[str, Any]]] = {}
@@ -545,6 +557,7 @@ async def client_org(
         "departments": departments,
         "without_manager": without_rows,
         "requests": requests,
+        "feedback_visible": include_feedback,
         "people_count": len(people),
         "consultants_count": len(rows),
     }

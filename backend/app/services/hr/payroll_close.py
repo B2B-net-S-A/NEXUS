@@ -9,7 +9,8 @@ Zamknięcie (Płace):
    premii w toku albo kończy się przed liczeniem, albo czeka na koniec
    zamknięcia i dostaje „zamknięty” (``payroll_periods.assert_open``),
 2. propozycje premii z tym okresem muszą mieć decyzję (409 ``pending_bonuses``),
-3. ostrzeżenia (timesheety niezatwierdzone, godziny bez stawki) wymagają
+3. ostrzeżenia (timesheety niezatwierdzone, godziny bez stawki, stawka na
+   zleceniu poniżej minimum roku miesiąca) wymagają
    potwierdzenia (409 ``close_warnings``, potem ``acknowledge_warnings``),
 4. linie zamrożone w ``payroll_lines``, ``payroll_locked`` na timesheetach
    osób z listy (most ``payroll_time_bridge``), wpis w ``hr_job_runs``
@@ -40,7 +41,12 @@ from app.services.hr.payroll_periods import (
     month_end,
     validate_period,
 )
-from app.services.hr.payroll_report import PersonPayroll, compute_live, line_rows
+from app.services.hr.payroll_report import (
+    PersonPayroll,
+    compute_live,
+    line_rows,
+    minimum_rate_warnings,
+)
 
 CLOSE_JOB_KIND = "payroll_close"
 WARNING_PEOPLE_LIMIT = 50
@@ -82,6 +88,7 @@ def close_warnings(people: list[PersonPayroll]) -> list[dict[str, Any]]:
                 "people": missing_rates[:WARNING_PEOPLE_LIMIT],
             }
         )
+    warnings.extend(minimum_rate_warnings(people, people_limit=WARNING_PEOPLE_LIMIT))
     return warnings
 
 

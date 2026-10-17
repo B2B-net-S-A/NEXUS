@@ -20,6 +20,10 @@ Reguły (Compass ``internal-rates.ts`` + naprawy):
   2025: 30,50 zł, 2026: 31,40 zł brutto). Tabela lat to ustawienie Płac
   ``app_settings['hr_minimum_hourly_rates']`` — nowy rok dopisują Płace bez
   wdrożenia. Brak minimum dla roku = zapis bez kontroli i ostrzeżenie.
+  Stawka z poprzedniego roku obowiązuje dalej w nowym (także po usunięciu
+  kroku nowego roku), więc raport miesiąca płac sprawdza tę samą regułą
+  (``mandate_minimum_shortfall``) stawkę obowiązującą w miesiącu i ostrzega
+  przed zamknięciem (``payroll_report.minimum_rate_warnings``).
 """
 
 from __future__ import annotations
@@ -69,7 +73,7 @@ MANDATE_FORM = EmploymentType.zlecenie
 # ── Minimalna stawka godzinowa na zleceniu (D7) ───────────────────────────────
 
 
-def _pln(value: Decimal) -> str:
+def format_pln(value: Decimal) -> str:
     return f"{value:.2f}".replace(".", ",")
 
 
@@ -135,6 +139,28 @@ async def save_minimum_rates(
     return rates
 
 
+def mandate_minimum_shortfall(
+    *,
+    employment_type: Optional[str],
+    hourly_rate: Decimal,
+    currency: str,
+    year: int,
+    rates: dict[int, Decimal],
+) -> Optional[Decimal]:
+    """Minimum roku ``year``, gdy stawka zlecenia w złotych jest od niego niższa.
+
+    Jedna reguła dla zapisu stawki (422) i raportu miesiąca płac (ostrzeżenie).
+    Inna forma, inna waluta albo rok bez minimum = ``None``.
+    """
+
+    if employment_type != MANDATE_FORM or currency != "PLN":
+        return None
+    minimum = rates.get(year)
+    if minimum is None or hourly_rate >= minimum:
+        return None
+    return minimum
+
+
 def check_mandate_minimum(
     *,
     employment_type: Optional[str],
@@ -160,12 +186,21 @@ def check_mandate_minimum(
         )
     if currency != "PLN":
         return (
-            f"Minimalna stawka na zleceniu jest w złotych ({_pln(minimum)} zł/h "
+            f"Minimalna stawka na zleceniu jest w złotych ({format_pln(minimum)} zł/h "
             f"w {year}) — sprawdź przeliczenie stawki w {currency}."
         )
-    if hourly_rate < minimum:
+    if (
+        mandate_minimum_shortfall(
+            employment_type=employment_type,
+            hourly_rate=hourly_rate,
+            currency=currency,
+            year=year,
+            rates=rates,
+        )
+        is not None
+    ):
         raise PayrollError(
-            f"Minimalna stawka na zleceniu w {year} to {_pln(minimum)} zł/h brutto."
+            f"Minimalna stawka na zleceniu w {year} to {format_pln(minimum)} zł/h brutto."
         )
     return None
 
@@ -421,7 +456,9 @@ __all__ = [
     "MINIMUM_RATES_SETTING",
     "RATE_BACKDATE_MAX_MONTHS",
     "check_mandate_minimum",
+    "format_pln",
     "load_minimum_rates",
+    "mandate_minimum_shortfall",
     "mandate_minimum_check",
     "minimum_rates_payload",
     "parse_minimum_rates",

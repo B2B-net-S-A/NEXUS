@@ -173,7 +173,7 @@ async def test_rejected_status_does_not_exist() -> None:
 @pytest.mark.asyncio
 async def test_paid_leave_entry_cannot_be_moved_or_deleted_by_hand(app_client) -> None:
     async with AsyncSessionLocal() as db:
-        worker = await make_user(db, "employee", employment_type="zlecenie")
+        worker = await make_user(db, "employee", employment_type="b2b")
         await add_leave(db, worker.id, [date(Y, M, 9)])
         await db.commit()
     h = headers(worker)

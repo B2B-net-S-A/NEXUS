@@ -208,6 +208,7 @@ async def approve(db: AsyncSession, *, timesheet_id: int, actor: Actor) -> Times
             "Odśwież listę."
         )
     pdf_hash = hash_of(await entries_of(db, timesheet.id))
+    profile = await people.profile_of(db, timesheet.user_id)
     done = await db.scalar(
         update(Timesheet)
         .where(
@@ -222,6 +223,9 @@ async def approve(db: AsyncSession, *, timesheet_id: int, actor: Actor) -> Times
             approved_at=func.now(),
             pdf_hash=pdf_hash,
             return_note=None,
+            # Forma z chwili akceptacji — archiwum art. 8c idzie za dokumentem,
+            # nie za późniejszą zmianą formy osoby (``time_retention``).
+            employment_type=profile.employment_type if profile else None,
         )
         .returning(Timesheet.id)
     )
@@ -286,6 +290,7 @@ async def return_for_fix(
             approved_by=None,
             approved_at=None,
             pdf_hash=None,
+            employment_type=None,
         )
         .returning(Timesheet.id)
     )
@@ -327,10 +332,7 @@ async def revoke(db: AsyncSession, *, timesheet_id: int, actor: Actor) -> Timesh
     # Potwierdzenie godzin zlecenia po terminie wypłaty to dokument z art. 8b —
     # zostaje bez zmian przez 3 lata (korekta przez Płace, nie cofnięcie).
     refusal = time_retention.revoke_refusal(
-        employment_type=profile.employment_type if profile else None,
-        status=timesheet.status,
-        year=timesheet.year,
-        month=timesheet.month,
+        timesheet, current_form=profile.employment_type if profile else None
     )
     if refusal is not None:
         raise TimeConflict(refusal)
@@ -341,7 +343,13 @@ async def revoke(db: AsyncSession, *, timesheet_id: int, actor: Actor) -> Timesh
             Timesheet.status == "approved",
             Timesheet.payroll_locked.is_(False),
         )
-        .values(status="submitted", approved_by=None, approved_at=None, pdf_hash=None)
+        .values(
+            status="submitted",
+            approved_by=None,
+            approved_at=None,
+            pdf_hash=None,
+            employment_type=None,
+        )
         .returning(Timesheet.id)
     )
     if done is None:

@@ -2,11 +2,14 @@
 
 * ``on_leave_approved`` — zatwierdzenie wniosku kasuje godziny pracy wpisane
   wcześniej na PEŁNE dni urlopu (także w zaakceptowanym timesheecie — wtedy
-  z nową sumą kontrolną i śladem HR), a dni płatnego urlopu B2B/zlecenia
+  z nową sumą kontrolną i śladem HR), a płatne dni B2B
   z puli dostają auto-wpis ``leave_paid``. Połówek dnia nie ruszamy: drugą
   połowę wolno przepracować (jak w Compassie).
 * ``on_leave_cancelled`` — anulowanie/odrzucenie zdejmuje auto-wpisy
   ``leave_paid`` z dni, których urlop już nie obejmuje.
+* ``sent_months`` — miesiące dni z raportem godzin wysłanym albo przyjętym:
+  zgłoszenie z B2B/zlecenia (bez niczyjej decyzji) ich nie przepisuje, tylko
+  dostaje 409 (``leave_service``) — najpierw koordynator cofa raport do szkicu.
 
 Zamknięty miesiąc płac (``payroll_locked``) i przyjęte potwierdzenie godzin
 zlecenia po terminie wypłaty (``time_retention``, art. 8c) zostają nietknięte —
@@ -22,6 +25,7 @@ from collections.abc import Iterable
 from datetime import date
 from typing import Any, Optional
 
+from sqlalchemy import select, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.hr_time import Timesheet
@@ -47,17 +51,47 @@ def _by_month(days: Iterable[date]) -> dict[tuple[int, int], set[date]]:
     return grouped
 
 
+#: Raport godzin, który leży u koordynatora albo jest przyjęty.
+SENT_STATUSES: tuple[str, ...] = ("submitted", "approved")
+
+
+async def sent_months(
+    db: AsyncSession, user_id: int, days: Iterable[date], *, lock: bool
+) -> list[tuple[str, str]]:
+    """Miesiące dni (``RRRR-MM``, status), których raport godzin jest wysłany
+    albo przyjęty.
+
+    ``lock`` blokuje timesheety tych miesięcy (także szkice) do końca
+    transakcji: wysyłka i akceptacja raportu czekają, aż zgłoszenie się zapisze
+    albo odpadnie, więc nie przejdą między sprawdzeniem a hakiem godzin.
+    """
+
+    months = sorted(_by_month(days))
+    if not months:
+        return []
+    statement = (
+        select(Timesheet)
+        .where(
+            Timesheet.user_id == user_id,
+            tuple_(Timesheet.year, Timesheet.month).in_(months),
+        )
+        .order_by(Timesheet.year, Timesheet.month)
+    )
+    if lock:
+        statement = statement.with_for_update()
+    return [
+        (f"{row.year}-{row.month:02d}", row.status)
+        for row in await db.scalars(statement)
+        if row.status in SENT_STATUSES
+    ]
+
+
 def _retained(timesheet: Timesheet, employment_type: Optional[str]) -> bool:
     """Potwierdzenie godzin zlecenia po terminie wypłaty — godziny bez zmian
     (art. 8c, ``time_retention``); osoba dostaje ostrzeżenie jak przy
     zamkniętym miesiącu płac, Płace powiadomienie."""
 
-    if not time_retention.frozen(
-        employment_type=employment_type,
-        status=timesheet.status,
-        year=timesheet.year,
-        month=timesheet.month,
-    ):
+    if not time_retention.sheet_frozen(timesheet, current_form=employment_type):
         return False
     logger.info(
         "[hr_time] potwierdzenie godzin w archiwum — bez zmian ts=%s", timesheet.id

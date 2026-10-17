@@ -17,6 +17,11 @@ zamknięty w płacach — osoba dostaje ostrzeżenie, Płace powiadomienie).
 Wiersza timesheetu nie usuwa żadna ścieżka NEXUSA (``timesheets.user_id`` ma
 ``ON DELETE RESTRICT``, odejście i wyłączenie konta nie kasują godzin), więc
 strażnik pilnuje zmian, nie kasowania całego miesiąca.
+
+O ochronie decyduje forma z miesiąca dokumentu, nie obecna forma osoby:
+akceptacja zapisuje ją w ``timesheets.employment_type`` (``document_form``),
+więc potwierdzenie z czasu zlecenia zostaje w archiwum także po zmianie formy
+na B2B. Stare wiersze bez zapisanej formy liczą się obecną formą.
 """
 
 from __future__ import annotations
@@ -26,6 +31,7 @@ from datetime import date
 from typing import Optional
 
 from app.core.scheduling import business_today
+from app.models.hr_time import Timesheet
 from app.services.hr.payroll_periods import label
 
 RETENTION_YEARS = 3
@@ -64,24 +70,40 @@ def frozen(
     return payment_due(year, month) < day <= retention_until(year, month)
 
 
-def revoke_refusal(
+def document_form(timesheet: Timesheet, current_form: Optional[str]) -> Optional[str]:
+    """Forma, w której przyjęto dokument; bez zapisanej (stare wiersze) — obecna."""
+
+    return timesheet.employment_type or current_form
+
+
+def sheet_frozen(
+    timesheet: Timesheet,
     *,
-    employment_type: Optional[str],
-    status: str,
-    year: int,
-    month: int,
+    current_form: Optional[str],
+    today: Optional[date] = None,
+) -> bool:
+    """``frozen`` dla timesheetu — forma z miesiąca dokumentu (``document_form``)."""
+
+    return frozen(
+        employment_type=document_form(timesheet, current_form),
+        status=timesheet.status,
+        year=timesheet.year,
+        month=timesheet.month,
+        today=today,
+    )
+
+
+def revoke_refusal(
+    timesheet: Timesheet,
+    *,
+    current_form: Optional[str],
     today: Optional[date] = None,
 ) -> Optional[str]:
     """Powód odmowy cofnięcia przyjęcia (``None`` = wolno cofnąć)."""
 
-    if not frozen(
-        employment_type=employment_type,
-        status=status,
-        year=year,
-        month=month,
-        today=today,
-    ):
+    if not sheet_frozen(timesheet, current_form=current_form, today=today):
         return None
+    year, month = timesheet.year, timesheet.month
     return (
         f"Potwierdzenie godzin za {label(year, month)} jest już podstawą wypłaty "
         f"(termin {payment_due(year, month):%d.%m.%Y}) — NEXUS przechowuje je "
@@ -91,23 +113,16 @@ def revoke_refusal(
 
 
 def delete_refusal(
+    timesheet: Timesheet,
     *,
-    employment_type: Optional[str],
-    status: str,
-    year: int,
-    month: int,
+    current_form: Optional[str],
     today: Optional[date] = None,
 ) -> Optional[str]:
     """Powód odmowy usunięcia wpisu z potwierdzenia (``None`` = wolno)."""
 
-    if not frozen(
-        employment_type=employment_type,
-        status=status,
-        year=year,
-        month=month,
-        today=today,
-    ):
+    if not sheet_frozen(timesheet, current_form=current_form, today=today):
         return None
+    year, month = timesheet.year, timesheet.month
     return (
         f"Wpisy potwierdzenia godzin za {label(year, month)} zostają bez zmian "
         f"do {retention_until(year, month):%d.%m.%Y} (art. 8c ustawy o minimalnym "
@@ -118,8 +133,10 @@ def delete_refusal(
 __all__ = [
     "RETENTION_YEARS",
     "delete_refusal",
+    "document_form",
     "frozen",
     "payment_due",
     "retention_until",
     "revoke_refusal",
+    "sheet_frozen",
 ]

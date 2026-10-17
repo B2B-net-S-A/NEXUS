@@ -4,7 +4,8 @@ CHECK-i i indeksy muszą być identyczne z ``app/services/*_schema.py`` modułu
 (strażnik dryfu schematu porównuje model z bazą po migracji).
 
 * ``AttendanceDay`` — wyjątek od domyślnego miejsca pracy (urlopu tu nie ma).
-* ``Timesheet`` — osoba i miesiąc: szkic → wysłany → zaakceptowany.
+* ``Timesheet`` — osoba i miesiąc: szkic → wysłany → zaakceptowany (z formą
+  współpracy z chwili akceptacji).
 * ``TimesheetEntry`` — wpis dnia (godziny, projekt, opis, źródło, nadgodziny).
 * ``TimesheetTemplate`` — osobisty fragment opisu.
 * ``TimesheetRoleDefault`` — domyślny opis Kadr dla roli i projektu.
@@ -83,6 +84,9 @@ class Timesheet(Base, TimestampMixin):
             name="ck_timesheets_no_self_approval",
         ),
         CheckConstraint(schema.CK_TIMESHEET_PDF_HASH, name="ck_timesheets_pdf_hash"),
+        CheckConstraint(
+            schema.CK_TIMESHEET_EMPLOYMENT_TYPE, name="ck_timesheets_employment_type"
+        ),
         Index("ix_timesheets_period_status", "year", "month", "status"),
     )
 
@@ -112,6 +116,8 @@ class Timesheet(Base, TimestampMixin):
     payroll_locked: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"
     )
+    #: Forma współpracy z chwili akceptacji (archiwum art. 8c, ``time_retention``).
+    employment_type: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
     compass_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         UUID(as_uuid=True), nullable=True
     )

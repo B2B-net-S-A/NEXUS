@@ -48,6 +48,10 @@ decyduje o słowach i o przebiegu nieobecności.
   akceptuje wnioski, timesheety i wpisy za osoby swojego pionu bez żywego
   przełożonego. Etykieta „akceptuje” w podglądzie wniosku i w „Moim miesiącu”
   liczy się tą samą regułą — nie dopisuj drugiej.
+- **Kto odszedł, nie ma podwładnych** (17.10.2026): kartoteka `exited` albo
+  wyłączone konto = brak zespołu w każdym zakresie („Mój zespół”, akceptacje,
+  kolejki, pełna kartoteka — `people.can_supervise` w `direct_report_ids`), a
+  jako nowy przełożony taka osoba to 422.
 - **Zgłoszenie zamiast wniosku** (D5, Artur 17.10): na B2B i zleceniu własna
   nieobecność jest od razu `approved` bez decydującego (`decided_by` NULL),
   M365 i godziny od razu. Informacja (`hr_absence_reported`, bez rodzaju) idzie
@@ -56,6 +60,9 @@ decyduje o słowach i o przebiegu nieobecności.
   do wiadomości. Zgłoszenia nie trafiają do kolejki wniosków ani do licznika
   „Akceptacji”; w „Akceptacjach” są w sekcji „do wiadomości”
   (`reported` w `GET /approvals/pending`) z „Zgłoś kolizję”.
+- Zgłoszenie na dzień z miesiąca, którego raport godzin jest wysłany albo
+  przyjęty = 409 (podgląd: `blocking_reason`), bo wchodzi bez niczyjej decyzji
+  — najpierw koordynator cofa raport do szkicu (17.10.2026; UoP bez zmian).
 - Akceptuj/odrzuć zgłoszenie = 409 (`REPORT_NOT_DECIDED`); czekający wniosek
   osoby, której forma zmieniła się z UoP po złożeniu, dalej można rozstrzygnąć.
   Anulowanie zgłoszenia przez koordynatora = 403 (to odrzucenie pod inną
@@ -71,7 +78,10 @@ decyduje o słowach i o przebiegu nieobecności.
   przyjęte zgłoszenie (`decided_at` = data złożenia), raport liczy je w
   `extra.contractor_pending_reported`.
 - **Pula** (D6): na zleceniu nie ma puli płatnych dni — `PUT …/entitlements`
-  z dniami > 0 dla zlecenia = 422; B2B tylko gdy umowa ją ma. **Staż** (D9):
+  z dniami > 0 dla zlecenia = 422; B2B tylko gdy umowa ją ma. Wiersz puli
+  z czasu innej formy (UoP → zlecenie) zostaje jako historia, ale plan dni,
+  podgląd, saldo, most do godzin i import liczą zlecenie jak bez puli
+  (`leave_policy.pool_applies`). **Staż** (D9):
   `leave_seniority_years` + `zus_certificate_received_on` w kartotece (tylko
   UoP); `suggested_entitlement_days` (20 / 26 od 10 lat) w kartotece i w
   odpowiedzi zapisu puli — tylko podpowiedź, pulę zatwierdzają Kadry.
@@ -206,8 +216,10 @@ decyduje o słowach i o przebiegu nieobecności.
   3 lata (`time_retention.py`): cofnięcie przyjęcia i usunięcie wpisu = 409,
   zgłoszona później nieobecność nie zdejmuje godzin (miesiąc jak zamknięty
   w płacach — ostrzeżenie osobie, powiadomienie Płacom). Przed terminem
-  wypłaty to zwykła korekta. Wiersza `timesheets` nie kasuje żadna ścieżka
-  (`user_id ON DELETE RESTRICT`, odejście i wyłączenie konta nie ruszają godzin).
+  wypłaty to zwykła korekta. Decyduje forma zapisana przy akceptacji
+  (`timesheets.employment_type`), nie obecna; stare wiersze bez niej — obecna.
+  Wiersza `timesheets` nie kasuje żadna ścieżka (`user_id ON DELETE RESTRICT`,
+  odejście i wyłączenie konta nie ruszają godzin).
 - PDF: tytuł z formy — „Ewidencja czasu pracy”, „Raport godzin”, „Potwierdzenie
   liczby godzin” z dopiskiem o art. 8b; role „Pracownik/Wykonawca/Zleceniobiorca”.
 
@@ -331,8 +343,13 @@ decyduje o słowach i o przebiegu nieobecności.
   przełożonego odchodzącego; ktoś niżej w drzewie = odmowa
   (`receiver_creates_loop`, byłaby pętla). Wnioski i timesheety w toku idą do
   nowego przełożonego, bo akceptującego liczy się w chwili decyzji. Sprawy
-  wejścia/odejścia samych podwładnych (`case.manager_user_id`) przekazanie nie
-  przepina.
+  wejścia samych podwładnych (`case.manager_user_id`) przekazanie nie przepina.
+- **Przejmujący = obecny przełożony** (17.10.2026): zmiana przełożonego w
+  kartotece (edycja, „Struktura”, przekazanie podwładnych) przechodzi na żywą
+  sprawę odejścia, gdy sprawa szła za kartoteką, a domyślny przejmujący idzie za
+  nim (`lifecycle_service.follow_profile_manager`); przełożony i przejmujący
+  wskazani w sprawie ręcznie zostają, zdjęcie przełożonego zostawia przełożonego
+  sprawy.
 - „Cofnij odejście” zamyka sprawę administracja@ i anuluje zadanie zwrotu sprzętu;
   unieważnienie szkicu kontraktu zamyka sprawę „Wejście konsultanta” i zadanie
   „Przygotuj zestaw”. Zapis szablonu listy zadań zmienia pozycje w miejscu (id) —

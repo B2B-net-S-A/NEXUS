@@ -25,7 +25,11 @@ rodzajów przechodzi na przejmującego (``TRANSFER_KINDS``), każdy ISTNIEJĄCĄ
   odchodzącego; gdy Kadry wskażą kogoś z jego bezpośrednich podwładnych,
   ta osoba dostaje przełożonego odchodzącego (awans w miejsce szefa).
   Wnioski i timesheety w toku idą do nowego przełożonego, bo akceptującego
-  liczy się w chwili decyzji.
+  liczy się w chwili decyzji. Przełożony odchodzącego zmieniony w kartotece
+  przed przekazaniem (kartoteka, „Struktura”, przekazanie jego szefa) przechodzi
+  na sprawę i domyślnych przejmujących
+  (``lifecycle_service.follow_profile_manager``) — do 17.10.2026 podwładni
+  trafiali do przełożonego zapisanego w sprawie przy jej założeniu.
 
 Pozostałe rodzaje (karty w procesie, rozmowy u klienta po ostatnim dniu,
 umówione kontakty z kandydatami, zastępstwa w urlopach) idą z rekrutacjami
@@ -659,6 +663,7 @@ async def _transfer_reports(
     case_id: int,
 ) -> dict[str, int]:
     from app.services.hr import audit, people  # noqa: PLC0415
+    from app.services.hr.lifecycle_service import follow_profile_manager  # noqa: PLC0415
 
     await people.lock_structure(db)
     reports = list(
@@ -716,6 +721,16 @@ async def _transfer_reports(
             },
         )
     await db.flush()
+    # Podwładny, który sam odchodzi: jego sprawa idzie za nowym przełożonym.
+    for profile in reports:
+        await follow_profile_manager(
+            db,
+            user_id=profile.user_id,
+            previous_manager_id=leaver_id,
+            manager_user_id=profile.manager_user_id,
+            actor_id=actor_id,
+            source="hr_work_handover",
+        )
     return {"people": len(reports)}
 
 

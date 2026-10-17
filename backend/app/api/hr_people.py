@@ -69,9 +69,11 @@ async def list_people(
 ) -> dict:
     rows = await people.directory(db)
     admin = people.is_people_admin(current_user)
+    # Ta sama reguła co „Mój zespół”: kto odszedł, nie ma podwładnych.
+    reports = await people.direct_report_ids(db, current_user.id)
     items = []
     for row in rows:
-        own_report = row.profile.manager_user_id == current_user.id
+        own_report = row.user.id in reports
         if admin or row.user.id == current_user.id:
             items.append({**people.full_payload(row), "scope": "full"})
         elif own_report:

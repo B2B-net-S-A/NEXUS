@@ -52,7 +52,7 @@ START, END = date(2096, 12, 27), date(2097, 1, 4)
         # Nowy Rok: każdy rok z własnej puli, 1 stycznia nie jest dniem roboczym.
         (
             "vacation",
-            "zlecenie",
+            "b2b",
             START,
             END,
             None,

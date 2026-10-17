@@ -16,6 +16,10 @@ postęp ``bonus_rules.business_days_elapsed`` (kalendarz firmy z dniami
 wolnymi). Pozycja, dla której automat już założył wiersz premii (każdy stan),
 nie trafia do prognozy — jest w premiach.
 Kwota to szacunek; bez stawek albo kursu NBP — ``amount = None`` z powodem.
+Kursy NBP na dni startu idą jednym zapytaniem na paczkę
+(``fx_service.rates_to_pln_by_date``), jak rekrutacje i nazwy
+(``placement_bonuses.load_context``) — do 17.10.2026 kurs czytano osobno dla
+każdego kontraktu w walucie.
 
 **Rozliczenie (D3).** Miesiąc zamknięty = zamrożone ``payroll_lines`` osoby
 (godziny, stawka, kwota za godziny, premie, razem), ``final = True``. Miesiąc
@@ -41,6 +45,7 @@ from app.models.hr_payroll import HrBonus, PayrollLine, PayrollPeriod
 from app.models.hr_time import Timesheet, TimesheetEntry
 from app.models.job import Job
 from app.models.team_structure import DeliveryLeadClientAssignment
+from app.services import fx_service
 from app.services.contract_rates import RATE_SCHEDULE_LOADS
 from app.services.hr import payroll_rates
 from app.services.hr import placement_bonuses as placements
@@ -127,8 +132,18 @@ async def bonus_forecast(
             )
         )
     )
-    # Hurtem przed pętlą: rekrutacje, DL klientów, nazwy i kalendarz firmy.
+    # Hurtem przed pętlą: rekrutacje, DL klientów, nazwy, kursy NBP na dni
+    # startu i kalendarz firmy.
     context = await placements.load_context(db, contracts)
+    foreign: dict[date, set[str]] = {}
+    for contract in contracts:
+        currencies = {
+            contract.resolved_rate_client_currency,
+            contract.resolved_rate_candidate_currency,
+        } - {"PLN"}
+        if currencies and contract.start_date is not None:
+            foreign.setdefault(contract.start_date, set()).update(currencies)
+    fx_by_start = await fx_service.rates_to_pln_by_date(db, foreign)
     first_start, last_start = contracts[0].start_date, contracts[-1].start_date
     assert first_start is not None and last_start is not None
     calendar = await load_bonus_calendar(db, first_start, max(last_start, today), rules)
@@ -157,7 +172,9 @@ async def bonus_forecast(
         }
         if not candidates:
             continue
-        margin = await placements.contract_margin(db, contract, start)
+        margin = await placements.contract_margin(
+            db, contract, start, fx_rates=fx_by_start.get(start, {})
+        )
         targets = placements.placement_targets(
             margin.per_hour, dl_id, recruiter_id, rules
         )

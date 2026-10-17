@@ -380,13 +380,17 @@ async def reassign(
             "stronę i wybierz ponownie."
         )
     await people.validate_managers(db, user_ids=ids, manager_user_id=manager_user_id)
+    from app.services.hr.lifecycle_service import follow_profile_manager  # noqa: PLC0415
+
     changed: list[int] = []
     unchanged: list[int] = []
+    previous_of: dict[int, Optional[int]] = {}
     for profile in profiles:
         if profile.manager_user_id == manager_user_id:
             unchanged.append(profile.user_id)
             continue
         previous = profile.manager_user_id
+        previous_of[profile.user_id] = previous
         profile.manager_user_id = manager_user_id
         profile.updated_by = actor.id
         audit.record(
@@ -405,6 +409,17 @@ async def reassign(
         )
         changed.append(profile.user_id)
     await db.flush()
+    # Odchodząca osoba: sprawa odejścia i domyślny przejmujący jej pracy idą za
+    # nowym przełożonym (inaczej podwładni trafiliby do poprzedniego).
+    for user_id, previous in previous_of.items():
+        await follow_profile_manager(
+            db,
+            user_id=user_id,
+            previous_manager_id=previous,
+            manager_user_id=manager_user_id,
+            actor_id=actor.id,
+            source="structure",
+        )
     return {"changed": changed, "unchanged": unchanged}
 
 

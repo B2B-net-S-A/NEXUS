@@ -2,7 +2,8 @@
 
 Pula roku = wymiar + przeniesiony − wykorzystany przed NEXUSEM − aktywne dni
 płatne z puli w tym roku (``leave_request_days.paid``, rok kalendarzowy dnia).
-Brak wiersza ``leave_entitlements`` albo pusty wymiar = osoba bez puli.
+Brak wiersza ``leave_entitlements`` albo pusty wymiar = osoba bez puli; na
+zleceniu wiersz się nie liczy (``leave_policy.pool_applies``, D6).
 
 Saldo dla osoby („Mój czas → Przegląd”, etap 2, D1) rozbija dni na trzy
 części. Przy puli (UoP albo kontraktor z umowną pulą płatnych dni) liczą się
@@ -40,6 +41,7 @@ from app.services.hr.leave_policy import (
     POOL_TYPES,
     PoolYear,
     allowed_types,
+    pool_applies,
 )
 
 _ZERO = Decimal("0")
@@ -196,6 +198,14 @@ def _num(value: Optional[Decimal]) -> Optional[str]:
     return None if value is None else f"{value:.1f}"
 
 
+def _pool_row(
+    row: Optional[LeaveEntitlement], employment_type: Optional[str]
+) -> Optional[LeaveEntitlement]:
+    """Wiersz puli, który liczy się przy formie osoby (zlecenie: żaden)."""
+
+    return row if pool_applies(employment_type) else None
+
+
 def _has_paid_pool(row: Optional[LeaveEntitlement]) -> bool:
     """Pula zerowa (np. B2B bez umownych dni) liczy się jak brak puli: dni są
     bez wynagrodzenia, więc trzy liczby muszą policzyć wszystkie dni."""
@@ -210,7 +220,7 @@ async def balance_payload(
 ) -> dict[str, Any]:
     rows = await entitlements(db, user_id, [year])
     usage = (await year_usage(db, user_id, [year]))[year]
-    row = rows.get(year)
+    row = _pool_row(rows.get(year), employment_type)
     split = await day_split(db, user_id, year, today, paid_only=_has_paid_pool(row))
     return _compose(
         year=year,
@@ -272,7 +282,7 @@ async def balances_for(
         )
     result: dict[int, dict[str, Any]] = {}
     for user_id in ids:
-        row = rows.get(user_id)
+        row = _pool_row(rows.get(user_id), forms[user_id])
         paid_pool = _has_paid_pool(row)
         usage = dict.fromkeys(
             ("approved_paid", "pending_paid", "unpaid", "on_demand", "childcare"), _ZERO

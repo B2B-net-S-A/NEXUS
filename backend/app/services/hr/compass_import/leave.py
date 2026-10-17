@@ -5,8 +5,10 @@ Reguły:
 * wniosek zachowuje id z Compassa (UUID), ``source = 'compass_import'``,
 * dni wniosku liczy kalendarz firmy (``requested_days`` — ta sama funkcja co
   przy składaniu wniosku w NEXUSIE); ``paid`` ma tylko urlop z puli: na umowie
-  o pracę każdy dzień, u kontraktora pierwsze dni do ``paid_days`` Compassa
-  (pół dnia niepodzielne, jak w Compassie),
+  o pracę każdy dzień, na B2B pierwsze dni do ``paid_days`` Compassa
+  (pół dnia niepodzielne, jak w Compassie), na zleceniu żaden — puli tam nie
+  ma (D6, ``leave_policy.pool_applies``); dni płatne z Compassa idą jako
+  bezpłatne z uwagą w raporcie,
 * dni są aktywne dla wniosków oczekujących i zatwierdzonych; nakładka na inny
   aktywny dzień tej osoby (w NEXUSIE albo wcześniej w tej paczce) to wiersz
   „conflict” do decyzji — Compass przepuszczał nakładki przy wpisie za
@@ -44,6 +46,7 @@ from app.services.hr.employment_terms import reports_absence
 from app.services.hr.leave_policy import (
     ACTIVE_DAY_UNIQUE,
     POOL_TYPES,
+    pool_applies,
     requested_days,
     split_days,
 )
@@ -79,6 +82,9 @@ FORWARD_ON_BEHALF = "zgoda na przekierowanie z wpisu za pracownika — pominięt
 CHANGED_IN_NEXUS = "wniosek zmieniony w NEXUSIE po imporcie — zostaje wersja NEXUSA"
 REPORTED_FROM_PENDING = (
     "oczekujący wniosek z B2B/zlecenia — przyjęty jako zgłoszenie (bez akceptacji)"
+)
+MANDATE_PAID_DROPPED = (
+    "dni płatne z Compassa na zleceniu — bez puli, wchodzą jako bezpłatne"
 )
 
 #: Pola wniosku porównywane przy ponownym imporcie.
@@ -119,7 +125,7 @@ def plan_request_days(
     """Dni robocze wniosku z flagą ``paid`` (dzień z puli płatnej)."""
 
     days = requested_days(calendar, start, end, half_day)
-    if leave_type not in POOL_TYPES:
+    if leave_type not in POOL_TYPES or not pool_applies(employment_type):
         return [(day, fraction, False) for day, fraction in days]
     if not reports_absence(employment_type):
         return [(day, fraction, True) for day, fraction in days]
@@ -256,6 +262,12 @@ async def plan(db: AsyncSession, bundle: Bundle) -> ModulePlan:
             notes.append(REPORTED_FROM_PENDING)
         compass_paid = decimal(row.get("paid_days"))
         compass_unpaid = decimal(row.get("unpaid_days"))
+        if (
+            leave_type in POOL_TYPES
+            and not pool_applies(employment_type)
+            and (compass_paid or Decimal("0")) > 0
+        ):
+            notes.append(MANDATE_PAID_DROPPED)
         days = plan_request_days(
             calendar,
             start=start,

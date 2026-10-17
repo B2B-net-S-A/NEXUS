@@ -118,6 +118,9 @@ Zakładka klienta „Struktura u klienta” (`components/care/ClientPeopleTab.ts
   Recruitment — bramka `require_hr_client_people_reader` (Delivery albo
   Pozyskiwanie + rola z listy). Finanse i Kadry z samego uprawnienia: 403.
   Konsultant nie. Zapis opinii: piszący opiekę (DL, TCM, admin), HoR tylko czyta.
+  Odpowiedź zapisu „Podlega pod” (`PATCH …/contacts/{id}`) podlega tej samej
+  regule: edytujący kontakty spoza kręgu D11 dostaje drzewo bez opinii i próśb
+  (`feedback_visible: false`, 17.10.2026).
 - **Prośba o opinię (D9)** liczona przy odczycie (`feedback_requests`):
   menedżer ma prośbę, gdy któryś jego konsultant kończy współpracę w ciągu
   30 dni, a od początku tego okna nie było rozmowy z menedżerem, albo gdy od

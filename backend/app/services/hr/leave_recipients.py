@@ -28,7 +28,7 @@ from app.models.notification import NotificationType
 from app.models.user import User
 from app.services.action_permissions import ProductAction
 from app.services.hr import audit
-from app.services.hr.employment_terms import terms
+from app.services.hr.employment_terms import form_of, terms
 from app.services.hr.leave_policy import HEALTH_TYPES, substitute_sees_type
 from app.services.hr.notify import notify_each
 from app.services.hr.recipients import (
@@ -82,6 +82,37 @@ def payroll_locked_warning(months: tuple[str, ...] | list[str]) -> Optional[str]
     return (
         f"{head} — godziny w nim zostały bez zmian. "
         "Korektę zrobią Płace, dostały powiadomienie."
+    )
+
+
+#: Stan raportu godzin w odmowie zgłoszenia — w rodzaju gramatycznym nazwy
+#: dokumentu ze słownika formy („raport godzin”, „potwierdzenie godzin”).
+_SENT_STATE: dict[str, dict[str, str]] = {
+    "uop": {"submitted": "wysłana", "approved": "zaakceptowana"},
+    "b2b": {"submitted": "wysłany", "approved": "potwierdzony"},
+    "zlecenie": {"submitted": "wysłane", "approved": "przyjęte"},
+}
+
+
+def sent_timesheet_refusal(
+    employment_type: Optional[str], months: list[tuple[str, str]]
+) -> Optional[str]:
+    """Odmowa zgłoszenia na dni z raportu godzin, który jest już wysłany albo
+    przyjęty (``months``: ``RRRR-MM`` i status) — najpierw koordynator cofa
+    raport do szkicu. ``None`` = nic nie blokuje."""
+
+    if not months:
+        return None
+    words = terms(employment_type)
+    states = _SENT_STATE[form_of(employment_type)]
+    parts = ", a ".join(
+        f"za {_month_label(key)} jest już {states[status]}" for key, status in months
+    )
+    where = "w tym miesiącu" if len(months) == 1 else "w tych miesiącach"
+    return (
+        f"{words['timesheet']} {parts}. Żeby zgłosić {words['absence_accusative']} "
+        f"{where}, {words['coordinator']} musi najpierw cofnąć "
+        f"{words['timesheet_accusative']} do szkicu."
     )
 
 
@@ -371,4 +402,5 @@ __all__ = [
     "notify_requested",
     "payroll_locked_warning",
     "report_payroll_locked",
+    "sent_timesheet_refusal",
 ]

@@ -22,7 +22,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services.hr.employment_terms import REPORT_FORMS, reports_absence
-from app.services.hr.leave_policy import POOL_TYPES
+from app.services.hr.leave_policy import POOL_TYPES, pool_applies
 
 #: Rodzaje z puli wypoczynkowej — tylko one dają kontraktorowi płatne godziny.
 #: Te same zbiory co w urlopach i słowach formy (nazwy zostają dla Płac).
@@ -45,11 +45,13 @@ class LeaveDay:
         return self.fraction >= Decimal("1")
 
     def is_paid_work_for(self, employment_type: str | None) -> bool:
-        """Dzień płatnego urlopu B2B/zlecenia z puli = auto-wpis godzin.
+        """Dzień płatnej puli B2B = auto-wpis godzin.
 
         Decyzja Compassa z 29.05.2026: kontraktor z pulą rozlicza dzień puli
         jak dzień pracy („Praca standardowa”), etat (UoP) i dni bezpłatne
-        blokują timesheet. Wniosek oczekujący blokuje zawsze.
+        blokują timesheet. Wniosek oczekujący blokuje zawsze. Na zleceniu puli
+        nie ma (D6, ``pool_applies``): dzień z flagą ``paid`` z czasu innej
+        formy blokuje dzień jak bezpłatny — bez auto-wpisu 8 h.
         """
 
         return (
@@ -57,6 +59,7 @@ class LeaveDay:
             and self.paid
             and self.leave_type in POOL_LEAVE_TYPES
             and reports_absence(employment_type)
+            and pool_applies(employment_type)
         )
 
 

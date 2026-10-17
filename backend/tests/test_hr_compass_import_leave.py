@@ -455,7 +455,7 @@ def test_contractor_paid_days_follow_compass_split_in_day_order() -> None:
         end=date(2026, 3, 13),
         half_day=None,
         leave_type="vacation",
-        employment_type="zlecenie",
+        employment_type="b2b",
         compass_paid_days=Decimal("2.5"),
     )
     # Pół dnia puli nie dzieli dnia: trzeci dzień idzie jako bezpłatny.

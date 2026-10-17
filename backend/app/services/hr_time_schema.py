@@ -28,6 +28,10 @@ Tabele:
   z ``return_note`` (bez martwego statusu ``rejected``). Nikt nie akceptuje
   własnego (``approved_by <> user_id`` — w Compassie admin zatwierdzał sam
   siebie). ``payroll_locked`` ustawia zamknięcie miesiąca płac (E3).
+  ``employment_type`` — forma współpracy z chwili akceptacji (cofnięcie
+  akceptacji ją czyści): archiwum potwierdzeń godzin zlecenia (art. 8c) idzie
+  za formą dokumentu, nie za obecną formą osoby; stare wiersze bez niej liczą
+  się obecną formą (``time_retention.document_form``).
 * ``timesheet_entries`` — wpis dnia: godziny, projekt (tekst), opis
   (wymagany), źródło; nadgodziny zawsze z uzasadnieniem ≥ 5 znaków.
 * ``timesheet_templates`` — osobiste fragmenty opisów.
@@ -36,6 +40,8 @@ Tabele:
 """
 
 from __future__ import annotations
+
+from app.services.hr_foundation_schema import EMPLOYMENT_TYPES
 
 ATTENDANCE_STATUSES: tuple[str, ...] = ("active", "business_trip")
 LOCATIONS: tuple[str, ...] = ("onsite", "remote")
@@ -65,6 +71,9 @@ CK_TIMESHEET_MONTH = "month BETWEEN 1 AND 12"
 CK_TIMESHEET_STATUS = f"status IN ({quoted(TIMESHEET_STATUSES)})"
 CK_TIMESHEET_NO_SELF_APPROVAL = "approved_by IS NULL OR approved_by <> user_id"
 CK_TIMESHEET_PDF_HASH = "pdf_hash IS NULL OR pdf_hash ~ '^[0-9a-f]{64}$'"
+CK_TIMESHEET_EMPLOYMENT_TYPE = (
+    f"employment_type IS NULL OR employment_type IN ({quoted(EMPLOYMENT_TYPES)})"
+)
 
 CK_ENTRY_HOURS = "hours >= 0 AND hours <= 24"
 CK_ENTRY_DESCRIPTION = "char_length(btrim(description)) > 0"
@@ -110,6 +119,7 @@ TABLE_DDL: tuple[str, ...] = (
     approved_at TIMESTAMPTZ NULL,
     pdf_hash VARCHAR(64) NULL,
     payroll_locked BOOLEAN NOT NULL DEFAULT false,
+    employment_type VARCHAR(16) NULL,
     compass_id UUID NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -119,7 +129,8 @@ TABLE_DDL: tuple[str, ...] = (
     CONSTRAINT ck_timesheets_month CHECK ({CK_TIMESHEET_MONTH}),
     CONSTRAINT ck_timesheets_status CHECK ({CK_TIMESHEET_STATUS}),
     CONSTRAINT ck_timesheets_no_self_approval CHECK ({CK_TIMESHEET_NO_SELF_APPROVAL}),
-    CONSTRAINT ck_timesheets_pdf_hash CHECK ({CK_TIMESHEET_PDF_HASH})
+    CONSTRAINT ck_timesheets_pdf_hash CHECK ({CK_TIMESHEET_PDF_HASH}),
+    CONSTRAINT ck_timesheets_employment_type CHECK ({CK_TIMESHEET_EMPLOYMENT_TYPE})
 )""",
     f"""CREATE TABLE IF NOT EXISTS timesheet_entries (
     id BIGSERIAL PRIMARY KEY,
@@ -169,7 +180,11 @@ TABLE_DDL: tuple[str, ...] = (
 )""",
 )
 
-COLUMN_DDL: tuple[str, ...] = ()
+# Kolumny dopisane po pierwszej wersji 0456 (17.10.2026) — w bazie z wcześniejszą
+# wersją tabeli; świeża baza ma je już z CREATE TABLE.
+COLUMN_DDL: tuple[str, ...] = (
+    "ALTER TABLE timesheets ADD COLUMN IF NOT EXISTS employment_type VARCHAR(16) NULL",
+)
 
 INDEX_DDL: tuple[str, ...] = (
     "CREATE INDEX IF NOT EXISTS ix_timesheets_period_status "
@@ -180,7 +195,18 @@ INDEX_DDL: tuple[str, ...] = (
     "ON timesheet_role_defaults (is_active, applies_to_role)",
 )
 
-CONSTRAINT_DDL: tuple[str, ...] = ()
+CONSTRAINT_DDL: tuple[str, ...] = (
+    f"""DO $$ BEGIN
+        IF NOT EXISTS (
+            SELECT 1 FROM pg_constraint
+            WHERE conname = 'ck_timesheets_employment_type'
+              AND conrelid = 'timesheets'::regclass
+        ) THEN
+            ALTER TABLE timesheets ADD CONSTRAINT ck_timesheets_employment_type
+                CHECK ({CK_TIMESHEET_EMPLOYMENT_TYPE});
+        END IF;
+    END $$""",
+)
 DATA_DDL: tuple[str, ...] = ()
 
 TABLES: tuple[str, ...] = (

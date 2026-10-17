@@ -31,8 +31,9 @@ from datetime import date
 from decimal import Decimal
 from typing import Any, Optional
 
-from sqlalchemy import extract, func, select
+from sqlalchemy import extract, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
 from app.models.hr_leave import LeaveRequest, LeaveRequestDay
 from app.models.hr_profile import EmployeeProfile
@@ -65,6 +66,11 @@ def _num(value: Decimal) -> str:
 async def reports_of(
     db: AsyncSession, manager_id: int
 ) -> list[tuple[EmployeeProfile, User]]:
+    """Podwładni jak ``people.direct_report_ids``: przełożony, który odszedł
+    albo ma wyłączone konto, nie ma zespołu (także w podglądzie Kadr)."""
+
+    if not await people.can_supervise(db, manager_id):
+        return []
     rows = await db.execute(
         select(EmployeeProfile, User)
         .join(User, User.id == EmployeeProfile.user_id)
@@ -78,12 +84,25 @@ async def reports_of(
 
 
 async def managers(db: AsyncSession) -> list[dict[str, Any]]:
-    """Przełożeni z liczbą podwładnych (wybór zespołu dla Kadr i admina)."""
+    """Przełożeni z liczbą podwładnych (wybór zespołu dla Kadr i admina).
 
+    Bez tych, którzy odeszli albo mają wyłączone konto (``people.can_supervise``)
+    — ich ludzi Kadry przepinają w „Strukturze”.
+    """
+
+    manager_profile = aliased(EmployeeProfile)
     rows = await db.execute(
         select(User.id, User.name, func.count(EmployeeProfile.id))
         .join(EmployeeProfile, EmployeeProfile.manager_user_id == User.id)
-        .where(EmployeeProfile.employment_status != "exited")
+        .outerjoin(manager_profile, manager_profile.user_id == User.id)
+        .where(
+            EmployeeProfile.employment_status != "exited",
+            User.is_active.is_(True),
+            or_(
+                manager_profile.id.is_(None),
+                manager_profile.employment_status != "exited",
+            ),
+        )
         .group_by(User.id, User.name)
         .order_by(User.name, User.id)
     )
@@ -196,6 +215,9 @@ async def _leave(
         }
         result[profile.user_id] = {
             "has_pool": bool(balance["has_pool"]),
+            # Pula > 0 — to samo znaczenie co w `GET /api/hr/leave/balance`
+            # (pula zerowa = dni bez wynagrodzenia); front decyduje po nim.
+            "has_paid_pool": bool(balance["has_paid_pool"]),
             "remaining_days": balance["remaining_days"]
             if balance["has_pool"]
             else None,

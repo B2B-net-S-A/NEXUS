@@ -11,7 +11,7 @@ Reguły (Compass, faza 27a/45 + audyt 22.09) i naprawy:
 * suma liczona pod blokadą wiersza timesheetu (``SELECT … FOR UPDATE``) —
   w Compassie dwa równoległe zapisy przechodziły kontrolę razem,
 * pełny dzień urlopu (także oczekującego) blokuje wpis, pół dnia zajmuje 4 h;
-  płatny urlop B2B/zlecenia z puli to auto-wpis ``leave_paid`` („Praca
+  płatny dzień puli B2B to auto-wpis ``leave_paid`` („Praca
   standardowa”), którego nie edytuje się ręcznie,
 * ``payroll_locked`` (zamknięty miesiąc płac) blokuje każdą zmianę — 409.
 """
@@ -534,10 +534,7 @@ async def delete_entry(
     # Przyjęte potwierdzenie godzin zlecenia po terminie wypłaty zostaje 3 lata
     # (art. 8c) — trasy i tak edytują tylko szkic, to pilnuje każdej ścieżki.
     refusal = time_retention.delete_refusal(
-        employment_type=subject.employment_type,
-        status=timesheet.status,
-        year=timesheet.year,
-        month=timesheet.month,
+        timesheet, current_form=subject.employment_type
     )
     if refusal is not None:
         raise TimeConflict(refusal)

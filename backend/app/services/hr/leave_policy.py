@@ -16,12 +16,15 @@ Przeniesione z Compassa (``lib/actions/internal-leave.ts``,
 
 Dzień jest niepodzielny: przy puli B2B mniejszej niż pełny dzień ten dzień
 idzie jako bezpłatny (pół dnia mieści się w połówce puli).
+
+Na zleceniu puli płatnych dni nie ma nigdy (D6, ``pool_applies``) — także
+wtedy, gdy w bazie został wiersz puli z czasu innej formy.
 """
 
 from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date
 from decimal import Decimal
 from typing import Optional
@@ -30,10 +33,16 @@ from app.models.user import User, UserRole
 from app.services.action_permissions import ProductAction, has_permission
 from app.services.hr.calendar import WorkCalendar
 from app.services.hr.employment_terms import reports_absence, terms
+from app.services.hr_foundation_schema import EmploymentType
 from app.services.hr_leave_schema import HALF_DAYS, LEAVE_TYPES
 
 #: Rodzaje, które zużywają pulę urlopu wypoczynkowego.
 POOL_TYPES: frozenset[str] = frozenset({"vacation", "on_demand"})
+#: Formy bez puli płatnych dni (D6): na zleceniu nieobecność jest zawsze bez
+#: wynagrodzenia. Wiersz ``leave_entitlements`` z czasu innej formy (pula
+#: umowy o pracę przed zmianą na zlecenie) zostaje w bazie jako historia, ale
+#: plan dni, podgląd, saldo i most do godzin liczą osobę jak bez puli.
+NO_POOL_FORMS: frozenset[str] = frozenset({EmploymentType.zlecenie.value})
 #: Rodzaje zatwierdzane od razu (zwolnienie lekarskie nie czeka na decyzję).
 AUTO_APPROVED_TYPES: frozenset[str] = frozenset({"sick_leave"})
 #: Rodzaje, których rodzaj i notatka są danymi o zdrowiu (``sensitivity=health``).
@@ -105,6 +114,12 @@ def statutory_entitlement(
     if seniority_years >= SENIORITY_THRESHOLD_YEARS:
         return ENTITLEMENT_LONG
     return ENTITLEMENT_SHORT
+
+
+def pool_applies(employment_type: Optional[str]) -> bool:
+    """Czy pula płatnych dni z ``leave_entitlements`` liczy się przy tej formie."""
+
+    return employment_type not in NO_POOL_FORMS
 
 
 class LeavePolicyError(ValueError):
@@ -282,7 +297,8 @@ def plan_days(
     """Podział dni na płatne i bezpłatne oraz limity — per rok kalendarzowy.
 
     ``pools`` niesie stan puli przed wnioskiem dla każdego roku z ``days``
-    (brak wpisu = rok bez puli). Rzuca ``LeavePolicyError`` przy przekroczeniu
+    (brak wpisu = rok bez puli; na zleceniu pula się nie liczy —
+    ``pool_applies``). Rzuca ``LeavePolicyError`` przy przekroczeniu
     twardego limitu umowy o pracę i limitów ustawowych.
     """
 
@@ -293,11 +309,19 @@ def plan_days(
         by_year.setdefault(day.year, []).append((day, fraction))
 
     contractor = reports_absence(employment_type)
+    with_pool = pool_applies(employment_type)
     planned: list[DayPlan] = []
     years: list[YearSplit] = []
     for year in sorted(by_year):
         chunk = by_year[year]
         pool = pools.get(year) or PoolYear(year=year, entitlement_days=None)
+        if not with_pool:
+            pool = replace(
+                pool,
+                entitlement_days=None,
+                carried_over_days=Decimal("0"),
+                used_initial_days=Decimal("0"),
+            )
         requested = sum((fraction for _, fraction in chunk), Decimal("0"))
 
         if leave_type == "on_demand" and (

@@ -38,7 +38,7 @@ wpina koordynator w ``app/api/contracts.py``; codzienny przebieg
 from __future__ import annotations
 
 import logging
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date, timedelta
 from decimal import Decimal
@@ -112,8 +112,20 @@ def _status(contract: Contract) -> ContractStatus:
     return ContractStatus(getattr(contract.status, "value", contract.status))
 
 
-async def contract_margin(db: AsyncSession, contract: Contract, on: date) -> Margin:
-    """Marża zł/h kontraktu w dniu ``on`` (wymaga ``RATE_SCHEDULE_LOADS``)."""
+async def contract_margin(
+    db: AsyncSession,
+    contract: Contract,
+    on: date,
+    *,
+    fx_rates: Optional[Mapping[str, Optional[Decimal]]] = None,
+) -> Margin:
+    """Marża zł/h kontraktu w dniu ``on`` (wymaga ``RATE_SCHEDULE_LOADS``).
+
+    ``fx_rates`` — kursy do PLN na dzień ``on`` wczytane hurtem dla paczki
+    kontraktów (``fx_service.rates_to_pln_by_date``, prognoza „w drodze”);
+    bez nich kurs czyta ``fx_service.get_rate_to_pln``. Brak kursu =
+    ``fx_missing``.
+    """
 
     unit = RateUnit(getattr(contract.rate_unit, "value", contract.rate_unit))
     hours = contract.billing_hours_per_month or HOURS_PER_MONTH
@@ -145,7 +157,11 @@ async def contract_margin(db: AsyncSession, contract: Contract, on: date) -> Mar
     )
     fx: dict[str, Decimal] = {"PLN": Decimal(1)}
     for currency in {client_currency, cost_currency} - {"PLN"}:
-        rate, found = await fx_service.get_rate_to_pln(db, currency, on)
+        if fx_rates is not None:
+            rate = fx_rates.get(currency)
+            found = rate is not None
+        else:
+            rate, found = await fx_service.get_rate_to_pln(db, currency, on)
         if not found:
             return Margin(None, snapshot, "fx_missing")
         fx[currency] = Decimal(rate)

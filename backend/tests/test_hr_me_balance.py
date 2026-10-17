@@ -185,7 +185,7 @@ async def test_new_year_leave_splits_between_two_pools() -> None:
 
 @pytest.mark.asyncio
 async def test_contractor_without_pool_has_no_remaining_but_counts_days() -> None:
-    """B2B bez umownych dni i zlecenie: bez „zostało”, ale dni nieobecności
+    """B2B bez umownych dni albo z pulą zerową: bez „zostało”, ale dni nieobecności
     (bez wynagrodzenia) liczą się w wykorzystanych, zaplanowanych i czekających."""
 
     today = date(2092, 11, 19)
@@ -200,7 +200,7 @@ async def test_contractor_without_pool_has_no_remaining_but_counts_days() -> Non
         await _leave(
             db, no_pool, date(2092, 12, 8), date(2092, 12, 8), "pending", paid=False
         )
-        zero_pool = await _worker(db, "zlecenie")
+        zero_pool = await _worker(db, "b2b")
         await _pool(db, zero_pool, 2092, "0")
         await _leave(
             db, zero_pool, date(2092, 12, 1), date(2092, 12, 2), "approved", paid=False
@@ -211,7 +211,7 @@ async def test_contractor_without_pool_has_no_remaining_but_counts_days() -> Non
     assert balance["has_pool"] is False and balance["has_paid_pool"] is False
     assert _split(balance) == ("2.0", "3.0", "1.0", None)
     assert balance["on_demand_limit"] is None and balance["childcare_limit"] is None
-    zero = await _balance(zero_pool, 2092, today, "zlecenie")
+    zero = await _balance(zero_pool, 2092, today, "b2b")
     assert zero["has_pool"] is True and zero["has_paid_pool"] is False
     assert (zero["used_days"], zero["planned_days"]) == ("0.0", "2.0")
 

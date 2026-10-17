@@ -12,6 +12,11 @@ Lista osób:
 
 Konsultanci B2B u klientów nie mają kartotek, więc na listę nie trafiają —
 Compass dokładał do zakładki „all” rolę ``consultant``.
+
+Osoba na zleceniu ze stawką obowiązującą w miesiącu niższą niż minimum roku
+tego miesiąca (``payroll_rates.mandate_minimum_shortfall`` — ta sama reguła co
+przy zapisie stawki) ma ``minimum_rate``; ``minimum_rate_warnings`` robi z tego
+ostrzeżenie przed zamknięciem (bez stawek osób).
 """
 
 from __future__ import annotations
@@ -28,7 +33,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.hr_payroll import EmployeeRate, HrBonus, PayrollLine, PayrollPeriod
 from app.models.hr_profile import EmployeeProfile
 from app.models.user import User
-from app.services.hr import payroll_leave_bridge, payroll_time_bridge
+from app.services.hr import payroll_leave_bridge, payroll_rates, payroll_time_bridge
 from app.services.hr.payroll_periods import get_period, month_end, month_start
 from app.services.hr_foundation_schema import EmploymentStatus
 
@@ -63,6 +68,9 @@ class PersonPayroll:
     other_leave_days: Decimal
     rate_missing: bool
     lines: tuple[CurrencyLine, ...]
+    #: Minimum roku miesiąca, gdy stawka osoby na zleceniu jest od niego niższa
+    #: (ostrzeżenie przed zamknięciem); ``None`` = w porządku albo nie dotyczy.
+    minimum_rate: Optional[Decimal] = None
 
 
 @dataclass(frozen=True)
@@ -153,6 +161,7 @@ async def compute_live(db: AsyncSession, year: int, month: int) -> list[PersonPa
     statuses = await payroll_time_bridge.timesheet_statuses(db, year, month)
     bonuses = await _bonus_sums(db, year, month)
     rates = await rates_on(db, first)
+    minimums = await payroll_rates.load_minimum_rates(db)
     leave = await payroll_leave_bridge.leave_days(db, first, last)
 
     user_ids = {
@@ -203,11 +212,12 @@ async def compute_live(db: AsyncSession, year: int, month: int) -> list[PersonPa
                 )
             )
         days = leave.get(user_id)
+        employment_type = profile.employment_type if profile else None
         people.append(
             PersonPayroll(
                 user_id=user_id,
                 name=name,
-                employment_type=profile.employment_type if profile else None,
+                employment_type=employment_type,
                 manager_user_id=profile.manager_user_id if profile else None,
                 timesheet_required=bool(profile.timesheet_required)
                 if profile
@@ -219,10 +229,48 @@ async def compute_live(db: AsyncSession, year: int, month: int) -> list[PersonPa
                 other_leave_days=days.other if days else ZERO,
                 rate_missing=rate is None and person_hours > 0,
                 lines=tuple(lines),
+                minimum_rate=payroll_rates.mandate_minimum_shortfall(
+                    employment_type=employment_type,
+                    hourly_rate=Decimal(rate.hourly_rate),
+                    currency=rate.currency,
+                    year=year,
+                    rates=minimums,
+                )
+                if rate is not None
+                else None,
             )
         )
     people.sort(key=lambda p: (p.name.casefold(), p.user_id))
     return people
+
+
+def minimum_rate_warnings(
+    people: list[PersonPayroll], *, people_limit: int
+) -> list[dict[str, Any]]:
+    """Ostrzeżenie „stawka poniżej minimum na zleceniu” — imiona, liczba i minimum.
+
+    Stawek osób w komunikacie nie ma (jak w pozostałych ostrzeżeniach); minimum
+    to kwota z Ustawień → Płace, jedna dla wszystkich osób miesiąca.
+    """
+
+    below = [p for p in people if p.minimum_rate is not None]
+    if not below:
+        return []
+    minimum = max(p.minimum_rate for p in below if p.minimum_rate is not None)
+    return [
+        {
+            "code": "below_minimum_rate",
+            "message": (
+                f"{len(below)} os. na zleceniu ma stawkę niższą niż minimalna "
+                f"w tym miesiącu ({payroll_rates.format_pln(minimum)} zł/h brutto) "
+                "— popraw stawkę przed zamknięciem."
+            ),
+            "count": len(below),
+            "people": [{"user_id": p.user_id, "name": p.name} for p in below][
+                :people_limit
+            ],
+        }
+    ]
 
 
 async def frozen_people(db: AsyncSession, period: PayrollPeriod) -> list[PersonPayroll]:
@@ -359,6 +407,7 @@ __all__ = [
     "employed_in_month",
     "frozen_people",
     "line_rows",
+    "minimum_rate_warnings",
     "money",
     "month_report",
     "rates_on",
