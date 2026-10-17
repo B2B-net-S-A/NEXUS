@@ -25,6 +25,7 @@
 import { useEffect, useState } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AxiosError } from "axios";
+import { rejectionEmailPreviewKey, type RejectionEmailPreview } from "@/lib/rejection-email";
 
 import { ToastProvider } from "@/components/Toast";
 import type { CandidateDocument } from "@/components/v2/files/FilePreviewModal";
@@ -545,6 +546,37 @@ function seededClient(): QueryClient {
   qc.setQueryData(
     reassignContextQueryKey(STAGE_ID),
     { stage_id: STAGE_ID, available: false, source: null, previous_answers_count: 0 },
+    fresh,
+  );
+  // Mail odrzucenia z przeglądu (17.10.2026, D6): osoba w „QC CV” — treść
+  // „przed klientem” i dopisek o drugiej rekrutacji.
+  qc.setQueryData(
+    rejectionEmailPreviewKey(JOB_ID, [CANDIDATE_ID]),
+    {
+      subject: "Informacja zwrotna — Senior Java Developer",
+      body:
+        "Cześć Tomasz,\n\ndziękujemy za rozmowę i czas poświęcony na rekrutację na " +
+        "stanowisko Senior Java Developer. Po przeanalizowaniu wymagań projektu " +
+        "zdecydowaliśmy, że w tym procesie nie przedstawimy Twojej kandydatury.",
+      closing:
+        "Życzymy powodzenia i zachęcamy do udziału w przyszłych procesach rekrutacyjnych!",
+      other_processes_text:
+        "To dotyczy tylko tej rekrutacji — nadal bierzesz udział w naszym pozostałym " +
+        "procesie:\n• Data Engineer\n\nOdezwiemy się, gdy będziemy mieć w nim nowe informacje.",
+      text_kind: "before_client",
+      title_warning: false,
+      people: [
+        {
+          candidate_id: CANDIDATE_ID,
+          to_email: "tomasz.wzorcowy@example.com",
+          skip_reason: null,
+          text_kind: "before_client",
+          other_processes: [
+            { job_id: 202, title: "Data Engineer · Spark", mail_title: "Data Engineer", column: "client_interview" },
+          ],
+        },
+      ],
+    } satisfies RejectionEmailPreview,
     fresh,
   );
   qc.setQueryData(

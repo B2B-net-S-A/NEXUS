@@ -254,6 +254,11 @@ class NotificationType(str, enum.Enum):
     # zaznaczyła; related_entity=(candidate_stage, id). Bez maila,
     # kategoria „Akceptacje klienta” nie do wyciszenia.
     client_accepted = "client_accepted"
+    # 0452: ręczne „Potwierdź zatrudnienie”, a w Kontraktach nie ma umowy osoby
+    # u klienta rekrutacji — „Pracuje u nas” liczy się wyłącznie z umowy
+    # (17.10.2026). Do Delivery Leadów klienta, raz na parę osoba–rekrutacja;
+    # related_entity=(candidate_stage, id). `services/hire_contract_reminder.py`.
+    hire_missing_contract = "hire_missing_contract"
 
 
 class Notification(Base, TimestampMixin):

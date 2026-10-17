@@ -163,8 +163,9 @@ def test_active_detection_skips_inactive_forms():
 def test_user_message_and_error_type():
     message = name_marker_message()
     assert message.startswith("Imię i nazwisko bez dopisków w nawiasie.")
-    # Nazwy pól z okien „Dodaj kandydata” / „Edytuj dane” (audyt 13.10.2026).
-    assert "Dyspozycyjność" in message and "Zablokowany" in message
+    # Nazwy pól z okien „Dodaj kandydata” / „Edytuj dane” (audyt 13.10.2026);
+    # czarna lista od 17.10.2026 w menu profilu.
+    assert "Dyspozycyjność" in message and "„Czarna lista…”" in message
     assert NAME_MARKER_ERROR_TYPE == "candidate_name_marker"
 
 

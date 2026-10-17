@@ -33,7 +33,9 @@ from typing import Any, Optional
 # zawinięte na 2–3 wiersze, „Stawka: 160/115” (pierwsza wyższa = stawka do
 # klienta / oczekiwanie kandydata) czytana jako 115. Zmiana wersji zmienia
 # odcisk notatek, więc pętla importu przelicza karty sama.
-PARSER_VERSION = 2
+# 3 (17.10.2026): dwucyfrowa stawka w wierszu etykiety („Stawka: 90”) nie jest
+# numerem pozycji listy.
+PARSER_VERSION = 3
 
 # Notatka jest kartą, gdy ma co najmniej tyle rozpoznanych etykiet pól.
 MIN_LABELS = 2
@@ -1114,6 +1116,15 @@ def parse_card(content: Optional[str]) -> ParsedCard:
         if key in ("_contact", "_other") or key in fields:
             continue
         lines = _clean_lines(segment)
+        inline = segment.split("\n", 1)[0].strip()
+        if (
+            key == "rate"
+            and _NUMBER_ONLY_RE.match(inline)
+            and "value" in parse_rate(inline)
+        ):
+            # „Stawka: 90” — liczba w wierszu etykiety to kwota, nie numer
+            # pozycji listy (do v3, 17.10.2026, stawka dwucyfrowa ginęła).
+            lines = [inline, *lines]
         if key == "red_flags" and not lines and segment.strip() in ("-", "–", "—"):
             lines = [segment.strip()]
         if not lines or _PLACEHOLDER_RE.match(lines[0]):

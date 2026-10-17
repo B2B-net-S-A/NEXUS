@@ -1009,24 +1009,31 @@ async def test_rejection_mail_preview_route(
     monkeypatch.setattr(scheduler, "sender_has_mailbox", AsyncMock(return_value=True))
     job, _ = await _seed_job()
     at_client, early = await _seed_candidate(), await _seed_candidate()
+    verified = await _seed_candidate()
     await _seed_stage(at_client, job, "client_interview")
     await _seed_stage(early, job, "screening")
+    await _seed_stage(verified, job, "verified")
 
     r = await app_client.post(
         "/api/rejection-emails/preview",
-        json={"job_id": job, "candidate_ids": [at_client, early]},
+        json={"job_id": job, "candidate_ids": [at_client, early, verified]},
         headers=app_auth_headers,
     )
     assert r.status_code == 200, r.text
     body = r.json()
-    assert [(p["candidate_id"], p["skip_reason"]) for p in body["people"]] == [
-        (at_client, None),
-        (early, "not_client_visible"),
+    assert [
+        (p["candidate_id"], p["skip_reason"], p["text_kind"]) for p in body["people"]
+    ] == [
+        (at_client, None, "after_client"),
+        (early, "not_client_visible", None),
+        # 17.10.2026 (D1): po rozmowie z nami mail też wychodzi.
+        (verified, None, "before_client"),
     ]
     assert body["people"][0]["to_email"].endswith("@example.com")
-    assert body["people"][1]["to_email"] is None  # nie był u klienta — bez adresu
+    assert body["people"][1]["to_email"] is None  # przed weryfikacją — bez adresu
     assert body["subject"].startswith("Informacja zwrotna — Int-Job-")
     assert body["body"].startswith("Cześć Int,")
+    assert [s["text_kind"] for s in body["samples"]] == ["after_client", "before_client"]
 
     missing = await app_client.post(
         "/api/rejection-emails/preview",

@@ -18,17 +18,13 @@ from app.models.recruitment_pipeline import PipelineStage
 from app.services.employment_marker import (
     ContractRow,
     OrderRow,
-    SignalRow,
     build_markers,
-    hire_closed_by_contract,
     order_end_by_contract,
     rows_from_candidate,
 )
 
 TODAY = date(2026, 10, 13)
 HIRED_AT = datetime(2022, 3, 1, 9, 0, tzinfo=timezone.utc)
-# Reguła umów bez reguły wieku etapu (`STALE_HIRE_DAYS`): „dziś” tuż po zatrudnieniu.
-SOON_AFTER_HIRE = date(2022, 4, 1)
 
 BANK = SimpleNamespace(id=5, name="Bank Przykładowy", display_name=None)
 TELEKOM = SimpleNamespace(id=7, name="Telekom Przykładowy", display_name=None)
@@ -73,104 +69,29 @@ def _hired_candidate(*contracts, client=BANK, hired_at: datetime = HIRED_AT):
     )
 
 
-# ── 13: etap „Zatrudniony” po zakończonej umowie ────────────────────────────
+# ── 13: etap „Zatrudniony” nie jest już źródłem (17.10.2026) ────────────────
 
 
-def test_hired_stage_at_a_client_whose_contract_ended_is_not_employment():
-    """Scenariusz audytu: Zatrudniony w 2022, umowa u tego klienta zakończona."""
-    candidate = _hired_candidate(
-        _contract(10, ContractStatus.ended, end_date=date(2024, 6, 30))
-    )
-
-    contracts, signals = rows_from_candidate(candidate)
-
-    assert contracts == []
-    assert signals == []
-    assert build_markers(contracts, signals, today=TODAY) == {}
-
-
-def test_voided_contract_after_the_hire_closes_it_too():
-    candidate = _hired_candidate(
-        _contract(
-            10, ContractStatus.void, voided_at=datetime(2022, 4, 1, tzinfo=timezone.utc)
-        )
-    )
-
-    assert rows_from_candidate(candidate) == ([], [])
-
-
-def test_ended_contract_without_any_date_closes_the_hire():
-    """Nie wiemy, kiedy się skończyła — ale skończyła się; osoba nie pracuje."""
-    candidate = _hired_candidate(_contract(10, ContractStatus.ended))
-
-    assert rows_from_candidate(candidate) == ([], [])
-
-
-def test_rehire_after_an_old_contract_ended_still_counts():
-    """Umowa skończyła się PRZED zatrudnieniem: to nowe zatrudnienie u tego klienta."""
-    candidate = _hired_candidate(
-        _contract(
-            10,
-            ContractStatus.ended,
-            end_date=date(2021, 12, 31),
-            start_date=date(2020, 1, 1),
-        )
-    )
-
-    _, signals = rows_from_candidate(candidate)
-
-    assert signals == [SignalRow(1, "pipeline", 5, "Bank Przykładowy")]
-
-
-def test_contract_in_preparation_keeps_the_hire():
-    """Umowa anulowana i wygenerowana na nowo: szkic u tego klienta = zatrudnienie trwa."""
-    candidate = _hired_candidate(
-        _contract(
-            10, ContractStatus.void, voided_at=datetime(2022, 4, 1, tzinfo=timezone.utc)
+def test_hired_stage_never_gives_a_marker_whatever_the_contracts():
+    """Audyt 13.10 zamykał stary „Zatrudniony” zakończoną umową; od 17.10.2026
+    (decyzja Artura) etap w ogóle nie daje znacznika — zostają żywe umowy."""
+    for contracts in (
+        (_contract(10, ContractStatus.ended, end_date=date(2024, 6, 30)),),
+        (
+            _contract(
+                10,
+                ContractStatus.void,
+                voided_at=datetime(2022, 4, 1, tzinfo=timezone.utc),
+            ),
         ),
-        _contract(11, ContractStatus.ready_for_signature),
-    )
+        (_contract(10, ContractStatus.ended, end_date=date(2021, 12, 31)),),
+        (_contract(11, ContractStatus.ready_for_signature),),
+        (),
+    ):
+        candidate = _hired_candidate(*contracts)
 
-    _, signals = rows_from_candidate(candidate)
-
-    assert [s.client_id for s in signals] == [5]
-
-
-def test_ended_contract_at_another_client_does_not_touch_the_hire():
-    candidate = _hired_candidate(
-        _contract(10, ContractStatus.ended, client=TELEKOM, end_date=date(2024, 6, 30))
-    )
-
-    # „Dziś” miesiąc po zatrudnieniu: test reguły umów, nie wieku etapu
-    # (zatrudnienie bez umowy starsze niż 12 miesięcy to historia, 14.10.2026).
-    _, signals = rows_from_candidate(candidate, today=SOON_AFTER_HIRE)
-
-    assert [s.client_id for s in signals] == [5]
-
-
-def test_hire_closed_by_contract_rule():
-    ended_2024 = _contract(10, ContractStatus.ended, end_date=date(2024, 6, 30))
-    terminated_only = _contract(
-        11, ContractStatus.ended, terminated_at=date(2023, 1, 1)
-    )
-    old = _contract(12, ContractStatus.ended, end_date=date(2021, 1, 1))
-    live = _contract(13, ContractStatus.active, end_date=None)
-
-    def closed(*contracts, client_id=5, hired_at=HIRED_AT):
-        return hire_closed_by_contract(
-            client_id=client_id,
-            hired_at=hired_at,
-            contracts=contracts,
-            today=SOON_AFTER_HIRE,
-        )
-
-    assert closed(ended_2024) is True
-    assert closed(terminated_only) is True
-    assert closed(old) is False
-    assert closed(ended_2024, live) is False
-    assert closed(ended_2024, client_id=None) is False
-    assert closed(ended_2024, client_id=7) is False
-    assert closed() is False
+        assert rows_from_candidate(candidate) == []
+        assert build_markers(rows_from_candidate(candidate), today=TODAY) == {}
 
 
 # ── 14: data końca wypowiedzianej umowy i koniec łańcucha zamówień ──────────
@@ -183,7 +104,7 @@ def test_terminated_contract_with_an_open_md_line_shows_its_end_date():
     )
     row = ContractRow(1, 10, 5, "Bank", date(2025, 1, 1), end_date=date(2026, 10, 23))
 
-    marker = build_markers([row], [], today=TODAY, order_ends=ends)[1]
+    marker = build_markers([row], today=TODAY, order_ends=ends)[1]
 
     assert marker.phase == "ending"
     assert marker.clients[0].order_end_date == date(2026, 10, 23)
@@ -192,7 +113,7 @@ def test_terminated_contract_with_an_open_md_line_shows_its_end_date():
 def test_contract_end_beyond_thirty_days_is_working_with_a_date():
     row = ContractRow(1, 10, 5, "Bank", date(2025, 1, 1), end_date=date(2027, 1, 31))
 
-    marker = build_markers([row], [], today=TODAY)[1]
+    marker = build_markers([row], today=TODAY)[1]
 
     assert marker.phase == "working"
     assert marker.clients[0].order_end_date == date(2027, 1, 31)
@@ -202,10 +123,10 @@ def test_earlier_of_order_end_and_contract_end_wins():
     row = ContractRow(1, 10, 5, "Bank", date(2025, 1, 1), end_date=date(2026, 11, 30))
 
     order_first = build_markers(
-        [row], [], today=TODAY, order_ends={10: date(2026, 10, 31)}
+        [row], today=TODAY, order_ends={10: date(2026, 10, 31)}
     )[1]
     contract_first = build_markers(
-        [row], [], today=TODAY, order_ends={10: date(2026, 12, 31)}
+        [row], today=TODAY, order_ends={10: date(2026, 12, 31)}
     )[1]
 
     assert order_first.clients[0].order_end_date == date(2026, 10, 31)
@@ -225,7 +146,6 @@ def test_order_chain_that_already_ended_gives_its_last_day():
 
     marker = build_markers(
         [ContractRow(1, 10, 5, "Bank", date(2025, 1, 1))],
-        [],
         today=TODAY,
         order_ends=ends,
     )[1]
@@ -265,7 +185,7 @@ def test_rows_from_candidate_carries_the_contract_end_date():
         pipeline_stages=[],
     )
 
-    contracts, _ = rows_from_candidate(candidate)
+    contracts = rows_from_candidate(candidate)
 
     assert contracts == [
         ContractRow(

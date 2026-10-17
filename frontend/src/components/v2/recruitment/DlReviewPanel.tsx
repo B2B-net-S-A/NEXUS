@@ -19,7 +19,9 @@
  *  - „Wróć do poprawy…” → okno z polami do poprawy (`fix_fields`) i uwagą,
  *    z powrotem na „Zweryfikowany”; rekruter dostaje dzwonek z listą pól,
  *    wpis „wróciło” na pulpicie i podświetlone pola w formularzu,
- *  - „Odrzuć…” → etap „Odrzucony” z powodem i `ended_by: "delivery_lead"`.
+ *  - „Odrzuć…” → etap „Odrzucony” z powodem i `ended_by: "delivery_lead"`;
+ *    od 17.10.2026 z opcjonalnym mailem do kandydata (`RejectionEmailField`,
+ *    ze skrzynki DL — osoba w „QC CV” jest po rozmowie z nami).
  *
  * „Uwagi dla rekrutera” (03.10.2026) jadą z każdą z trzech decyzji jako
  * `recruiter_remark`: serwer zapisuje je jako notatkę pary i dokleja do
@@ -93,6 +95,11 @@ import { usePipelineMoveCore } from "@/hooks/usePipelineMoveCore";
 import { hasPermission, permissionLabel } from "@/lib/permissions";
 import { loadJobRejectionReasons, WORK_MODE_MISMATCH_REASON } from "@/lib/rejection-reasons";
 import { RejectionWorkModeField } from "@/components/v2/modals/RejectionWorkModeField";
+import {
+  RejectionEmailField,
+  type RejectionEmailFieldState,
+} from "@/components/v2/modals/RejectionEmailField";
+import { announceRejectionEmail } from "@/lib/rejection-email";
 import {
   useRejectionProfileWorkMode,
   useRejectionWorkModeJob,
@@ -264,6 +271,8 @@ function reveal(element: HTMLElement | null) {
  * Okno przeglądu — pulpit „Czeka na Ciebie” i harness. Na Tablicy przegląd
  * otwiera się w panelu osoby (`DlReviewBody layout="panel"`), nie w oknie.
  */
+const EMAIL_STATE_IDLE: RejectionEmailFieldState = { blocked: false, invalid: false, text: null };
+
 export function DlReviewPanel({
   task,
   open,
@@ -342,7 +351,7 @@ export function DlReviewBody({
     // W panelu osoby nie ma pułapki fokusu okna — fokus idzie na tytuł.
     if (layout === "panel") titleRef.current?.focus();
   }, [layout, task.stage_id]);
-  const { showSuccess, showError } = useToast();
+  const { showSuccess, showError, showActionToast } = useToast();
   const me = useAuthStore((s) => s.user);
   const roles = getUserRoles(me as never);
   const canSend = canSendToClient ?? hasPermission(me, "recruitment_manage");
@@ -361,6 +370,10 @@ export function DlReviewBody({
   // odrzucenia — domyślnie „Tylko zdalnie” z zapisem na profilu.
   const [officeDays, setOfficeDays] = useState(0);
   const [saveWorkMode, setSaveWorkMode] = useState(true);
+  // Mail odrzucenia (17.10.2026, D6): osoba w „QC CV” jest po rozmowie
+  // z nami — DL też może ją powiadomić. Mail wychodzi z JEGO skrzynki.
+  const [sendEmail, setSendEmail] = useState(false);
+  const [emailState, setEmailState] = useState<RejectionEmailFieldState>(EMAIL_STATE_IDLE);
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState<PendingAction | null>(null);
   const [warning, setWarning] = useState<{ action: PendingAction; reason: string } | null>(null);
@@ -386,6 +399,8 @@ export function DlReviewBody({
     setRejecting(false);
     setReasonId("");
     setFreeReason("");
+    setSendEmail(false);
+    setEmailState(EMAIL_STATE_IDLE);
     setNote("");
     setWarning(null);
     setReturnOpen(false);
@@ -523,6 +538,7 @@ export function DlReviewBody({
       expected_state_version: task.process_state_version,
     };
     let sentRemark = remark;
+    const emailFlag = action === "reject" && sendEmail && !emailState.blocked;
     if (action === "send") {
       if (task.target_stage_def_id == null || clientRate == null) return;
       Object.assign(payload, {
@@ -545,6 +561,12 @@ export function DlReviewBody({
         ended_by: "delivery_lead",
         rejection_reason_id: reasonId ? Number(reasonId) : undefined,
         rejection_reason: !reasonId && freeReason.trim() ? freeReason.trim() : undefined,
+        send_rejection_email: emailFlag,
+        rejection_email_subject: emailFlag ? emailState.text?.subject : undefined,
+        rejection_email_body: emailFlag ? emailState.text?.body : undefined,
+        rejection_email_other_processes: emailFlag
+          ? emailState.text?.otherProcesses
+          : undefined,
         ...(workModeReason
           ? {
               work_mode_max_onsite_days: officeDays,
@@ -567,6 +589,13 @@ export function DlReviewBody({
       });
       if (outcome.ok) {
         showSuccess(`${task.candidate_name} — ${actionTextFor(action, cpro).done}`);
+        if (action === "reject") {
+          announceRejectionEmail(outcome.data, {
+            requested: emailFlag,
+            toast: { showActionToast, showSuccess, showError },
+            cancel: (id) => api.post(`/api/rejection-emails/${id}/cancel`),
+          });
+        }
         setReturnOpen(false);
         refresh();
         if (onDecided) onDecided(action, task);
@@ -598,7 +627,8 @@ export function DlReviewBody({
 
   const rejectReady =
     task.rejected_stage_def_id != null &&
-    (reasonId !== "" || (rejectedReasons.length === 0 && freeReason.trim() !== ""));
+    (reasonId !== "" || (rejectedReasons.length === 0 && freeReason.trim() !== "")) &&
+    !(sendEmail && emailState.invalid);
   const sendReady = canSend && clientRate != null && task.target_stage_def_id != null;
   const canReturn = (canSend || canReject) && task.return_stage_def_id != null;
 
@@ -940,6 +970,17 @@ export function DlReviewBody({
                   saveToProfile={saveWorkMode}
                   onSaveToProfileChange={setSaveWorkMode}
                   inset={false}
+                />
+              ) : null}
+              {task.rejected_stage_def_id != null ? (
+                <RejectionEmailField
+                  preview={{
+                    jobId: task.job_id,
+                    people: [{ candidateId: task.candidate_id, name: task.candidate_name }],
+                  }}
+                  checked={sendEmail}
+                  onCheckedChange={setSendEmail}
+                  onStateChange={setEmailState}
                 />
               ) : null}
               <div className="flex justify-end gap-2">

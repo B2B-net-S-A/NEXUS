@@ -22,6 +22,9 @@ describe("candidate timeline labels", () => {
     expect(activityActionLabel("candidate_hired_engagement_ask_dl")).toContain("zdecyduje Delivery Lead");
     expect(activityActionLabel("candidate_hired_engagement_switch")).toContain("obecna współpraca się kończy");
     expect(activityActionLabel("created")).toBe("Utworzono profil kandydata");
+    // 17.10.2026: okno „Czarna lista…”.
+    expect(activityActionLabel("candidate_blacklisted")).toBe("Dodano do czarnej listy");
+    expect(activityActionLabel("candidate_blacklist_removed")).toBe("Zdjęto z czarnej listy");
   });
 
   it("never returns an unknown slug verbatim", () => {

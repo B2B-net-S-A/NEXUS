@@ -10,29 +10,24 @@ Reguła:
 * **pracuje** — żywa umowa (``status ∈ {active, ending}``) ze startem nie
   później niż dziś albo bez daty startu (``current_employment.is_live_contract``);
 * **zaczyna** — żywa umowa ze startem w przyszłości. Podpis w Generatorze
-  aktywuje umowę od razu i przesuwa kartę na „Zatrudniony", więc ta sama
-  umowa wygrywa z sygnałem ``hired`` i z ręcznym konfliktem;
+  aktywuje umowę od razu i przesuwa kartę na „Zatrudniony";
 * **kończy** — do końca łańcucha zamówień bez kontynuacji zostało najwyżej
   ``ENDING_WITHOUT_CONTINUATION_DAYS`` dni. To reguła alertów Delivery
   (``order_continuation``): linie zamówień MD „kończą się" tylko u klientów
   z listy rozszerzonej, a aktywna linia MD z budżetem nie ma daty końca.
 
-Bez żywej umowy zostają dwa starsze sygnały, w tej samej kolejności co
-``candidates._derive_employment``: ręczny konflikt ``current_employment``
-i bieżący etap ``hired``. Znacznik istnieje dokładnie wtedy, gdy stare pole
-``employment.state`` to ``employed_at_client`` — pilnuje tego test.
+**Źródłem jest wyłącznie umowa** (decyzja Artura 17.10.2026): z umowy czyta
+się też stawkę i termin dostępności, więc zatrudniony to ktoś z umową
+w Kontraktach. Etap „Zatrudniony” bez umowy (do 17.10 liczony 12 miesięcy)
+i ręczny konflikt ``current_employment`` („Oznacz jako zatrudnionego”) nie
+dają znacznika. Karta „Zatrudniony” bez umowy mówi o tym sama
+(``hire_contract_reminder``). Znacznik istnieje dokładnie wtedy, gdy stare
+pole ``employment.state`` to ``employed_at_client`` — pilnuje tego test.
 
-Po audycie 13.10.2026 (14.10.2026):
-
-* etap ``hired`` nie jest sygnałem, gdy umowa u klienta tej rekrutacji
-  skończyła się albo została anulowana po zatrudnieniu, a żadna inna umowa
-  u niego nie trwa ani nie czeka na podpis (:func:`hire_closed_by_contract`) —
-  inaczej były konsultant „pracował u nas” na zawsze, a Delivery Lead
-  dawnego klienta dostawał dzwonek;
-* data w znaczniku to wcześniejsza z dat: koniec łańcucha zamówień i data
-  końca umowy (ustawiana tylko przy zakończeniu — umowa B2B jest
-  bezterminowa); łańcuch, którego wszystkie zamówienia już się skończyły,
-  kończy się w ostatnim dniu ostatniego z nich.
+Data w znaczniku to wcześniejsza z dat: koniec łańcucha zamówień i data
+końca umowy (ustawiana tylko przy zakończeniu — umowa B2B jest
+bezterminowa); łańcuch, którego wszystkie zamówienia już się skończyły,
+kończy się w ostatnim dniu ostatniego z nich (audyt 13.10.2026).
 
 Znacznik nie niesie kwot i niczego nie blokuje (decyzja o konfliktach
 z 17.09.2026: ostrzeżenie, nie blokada).
@@ -42,33 +37,17 @@ from __future__ import annotations
 
 from collections import defaultdict
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta
-from typing import Any, Collection, Iterable, Literal, Mapping, Optional, Sequence
+from datetime import date, timedelta
+from typing import Any, Collection, Iterable, Mapping, Optional, Sequence
 
-from sqlalchemy import (
-    Date,
-    Integer,
-    and_,
-    case,
-    cast,
-    func,
-    literal_column,
-    null,
-    or_,
-    select,
-)
-from sqlalchemy import union_all
+from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
-from app.core.scheduling import business_today
-from app.models.candidate_conflict import CandidateConflict, ConflictType
 from app.models.client import Client
 from app.models.client_order import ClientOrder, ClientOrderStatus
 from app.models.client_order_group import ClientOrderGroup
-from app.models.contract import Contract, ContractStatus
-from app.models.job import Job
-from app.models.recruitment_pipeline import CandidateStage, PipelineStage
+from app.models.contract import Contract
 from app.models.team_structure import DeliveryLeadClientAssignment
 from app.models.user import User, UserRole
 from app.schemas.candidate import (
@@ -88,26 +67,11 @@ from app.services.order_continuation import (
     ENDING_WITHOUT_CONTINUATION_DAYS,
     order_ending_without_continuation,
 )
-from app.services.pipeline_latest import current_hired_stage_clause
 
 #: Horyzont filtra listy „Kończy u nas w ciągu 60 dni".
 ENDING_SOON_FILTER_DAYS = 60
 
-SignalSource = Literal["conflict", "pipeline"]
-
 _PHASE_RANK: dict[str, int] = {"working": 0, "ending": 1, "starting": 2}
-
-#: Umowa, która się skończyła: zakończona albo anulowana.
-CLOSED_CONTRACT_STATUSES: tuple[ContractStatus, ...] = (
-    ContractStatus.ended,
-    ContractStatus.void,
-)
-#: Umowa, przy której zatrudnienie u klienta trwa albo czeka na podpis.
-_OPEN_CONTRACT_STATUSES: tuple[ContractStatus, ...] = (
-    ContractStatus.draft,
-    ContractStatus.ready_for_signature,
-    *LIVE_CONTRACT_STATUSES,
-)
 
 
 @dataclass(frozen=True)
@@ -122,16 +86,6 @@ class ContractRow:
     # Data końca umowy. Umowa B2B ma ją tylko po ręcznym zakończeniu
     # (wypowiedzenie, `/terminate`); zlecenie i umowa o pracę — z umowy.
     end_date: Optional[date] = None
-
-
-@dataclass(frozen=True)
-class SignalRow:
-    """Sygnał zatrudnienia spoza umów: ręczny konflikt albo etap ``hired``."""
-
-    candidate_id: int
-    source: SignalSource
-    client_id: Optional[int]
-    client_name: Optional[str]
 
 
 @dataclass(frozen=True)
@@ -190,71 +144,6 @@ def order_end_by_contract(rows: Iterable[OrderRow]) -> dict[int, date]:
 def _earliest(*days: Optional[date]) -> Optional[date]:
     known = [day for day in days if day is not None]
     return min(known) if known else None
-
-
-def _closed_on(contract: Any) -> Optional[date]:
-    """Dzień końca umowy zakończonej albo anulowanej; ``None`` = nie wiadomo."""
-    for value in (
-        getattr(contract, "end_date", None),
-        getattr(contract, "terminated_at", None),
-    ):
-        if value is not None:
-            return value
-    voided_at = getattr(contract, "voided_at", None)
-    return voided_at.date() if voided_at is not None else None
-
-
-# „Zatrudniony” bez żadnej umowy u klienta liczy się najwyżej tyle dni
-# (decyzja Artura 14.10.2026: 12 miesięcy). Umowa nowej osoby powstaje
-# w tygodniach, a starsze etapy bez umowy to głównie zatrudnienia z czasów
-# Traffita — 85 osób na produkcji 14.10.2026, 65 ponad rok temu.
-STALE_HIRE_DAYS = 365
-
-
-def hire_closed_by_contract(
-    *,
-    client_id: Optional[int],
-    hired_at: Optional[datetime],
-    contracts: Iterable[Any],
-    today: Optional[date] = None,
-) -> bool:
-    """Etap „Zatrudniony” u klienta jest już historią.
-
-    Tak jest, gdy umowa osoby u tego klienta skończyła się albo została
-    anulowana (``ended`` / ``void``) w dniu zatrudnienia lub później, a żadna
-    inna umowa u niego nie trwa ani nie czeka na podpis. Umowa bez żadnej daty
-    końca też zamyka — wiemy, że się skończyła. Umowa zakończona PRZED
-    zatrudnieniem nie zamyka: to ponowne zatrudnienie u tego samego klienta.
-
-    Bez żadnej umowy u tego klienta etap jest historią, gdy minęło ponad
-    ``STALE_HIRE_DAYS`` dni od zatrudnienia (14.10.2026) — inaczej osoba
-    zatrudniona lata temu w Traffit „pracowała u nas” na zawsze.
-
-    Lustro SQL: :func:`hire_closed_by_contract_clause`. Czyta je znacznik
-    i stare pole ``employment`` (niezmiennik znacznika).
-    """
-    if client_id is None:
-        return False
-    at_client = [
-        contract
-        for contract in contracts
-        if getattr(contract, "client_id", None) == client_id
-    ]
-    if not at_client:
-        if hired_at is None:
-            return False
-        today = today or business_today()
-        return hired_at.date() < today - timedelta(days=STALE_HIRE_DAYS)
-    if any(contract.status in _OPEN_CONTRACT_STATUSES for contract in at_client):
-        return False
-    hired_on = hired_at.date() if hired_at is not None else None
-    for contract in at_client:
-        if contract.status not in CLOSED_CONTRACT_STATUSES:
-            continue
-        closed_on = _closed_on(contract)
-        if closed_on is None or (hired_on is not None and closed_on >= hired_on):
-            return True
-    return False
 
 
 def _contract_client(
@@ -354,7 +243,6 @@ def contract_free_from(
 
 
 def _marker(
-    source: Literal["contract", "conflict", "pipeline"],
     clients: list[EmploymentMarkerClient],
     job_client_ids: Optional[Collection[int]],
     *,
@@ -377,7 +265,7 @@ def _marker(
         )
     return EmploymentMarker(
         phase=phase,
-        source=source,
+        source="contract",
         elsewhere=elsewhere,
         clients=clients,
         free_from=free_from,
@@ -387,19 +275,13 @@ def _marker(
 
 def build_markers(
     contracts: Iterable[ContractRow],
-    signals: Iterable[SignalRow],
     *,
     today: date,
     order_ends: Optional[Mapping[int, date]] = None,
     leads: Optional[Mapping[int, str]] = None,
     job_client_ids: Optional[Collection[int]] = None,
 ) -> dict[int, EmploymentMarker]:
-    """Znaczniki osób, które mają jakikolwiek sygnał zatrudnienia u nas.
-
-    Osoba bez sygnału nie ma wpisu. Kolejność źródeł jest ta sama co
-    w ``candidates._derive_employment``: umowa → ręczny konflikt → etap
-    ``hired``; niższe źródło nie dokleja klientów do wyższego.
-    """
+    """Znaczniki osób z żywą umową u nas; osoba bez umowy nie ma wpisu."""
     order_ends = order_ends or {}
     leads = leads or {}
 
@@ -412,60 +294,29 @@ def build_markers(
     for candidate_id, clients in by_candidate.items():
         free_from, basis = contract_free_from(clients)
         out[candidate_id] = _marker(
-            "contract",
             _one_per_client(clients),
             job_client_ids,
             free_from=free_from,
             free_from_basis=basis,
         )
-
-    signals = list(signals)
-    for source in ("conflict", "pipeline"):
-        grouped: dict[int, list[EmploymentMarkerClient]] = defaultdict(list)
-        for signal in signals:
-            if signal.source != source or signal.candidate_id in out:
-                continue
-            grouped[signal.candidate_id].append(
-                EmploymentMarkerClient(
-                    client_id=signal.client_id,
-                    client_name=signal.client_name,
-                    phase="working",
-                    delivery_lead_name=(
-                        leads.get(signal.client_id)
-                        if signal.client_id is not None
-                        else None
-                    ),
-                )
-            )
-        for candidate_id, clients in grouped.items():
-            out[candidate_id] = _marker(
-                source, _one_per_client(clients), job_client_ids
-            )
     return out
 
 
-def marker_client_ids(
-    contracts: Iterable[ContractRow], signals: Iterable[SignalRow]
-) -> set[int]:
+def marker_client_ids(contracts: Iterable[ContractRow]) -> set[int]:
     """Klienci, których Delivery Leada trzeba doczytać dla tych wierszy."""
-    return {
-        row.client_id for row in (*contracts, *signals) if row.client_id is not None
-    }
+    return {row.client_id for row in contracts if row.client_id is not None}
 
 
 # ── Wiersze z relacji już wczytanych (lista kandydatów) ─────────────────────
 
 
-def rows_from_candidate(
-    candidate: Any, today: Optional[date] = None
-) -> tuple[list[ContractRow], list[SignalRow]]:
-    """Wiersze reguły z relacji wczytanych przez ``_candidate_list_options``.
+def rows_from_candidate(candidate: Any) -> list[ContractRow]:
+    """Wiersze reguły z umów wczytanych przez ``_candidate_list_options``.
 
-    Lista kandydatów ma umowy, konflikty i etapy w pamięci — znacznik nie
-    dokłada tam zapytań o źródła. Wymaga ``contracts → client``,
-    ``conflicts → client`` i ``pipeline_stages → job → client``.
+    Lista kandydatów ma umowy w pamięci — znacznik nie dokłada tam zapytań
+    o źródła. Wymaga ``contracts → client``.
     """
-    contracts = [
+    return [
         ContractRow(
             candidate_id=candidate.id,
             contract_id=contract.id,
@@ -479,46 +330,6 @@ def rows_from_candidate(
         for contract in (candidate.contracts or [])
         if contract.status in LIVE_CONTRACT_STATUSES
     ]
-    signals = [
-        SignalRow(
-            candidate_id=candidate.id,
-            source="conflict",
-            client_id=conflict.client_id,
-            client_name=(
-                client_display_name(conflict.client) if conflict.client else None
-            ),
-        )
-        for conflict in (candidate.conflicts or [])
-        if conflict.active and conflict.type == ConflictType.current_employment
-    ]
-    latest_by_job: dict[int, Any] = {}
-    for stage in candidate.pipeline_stages or []:
-        current = latest_by_job.get(stage.job_id)
-        if current is None or (stage.moved_at, stage.id) > (
-            current.moved_at,
-            current.id,
-        ):
-            latest_by_job[stage.job_id] = stage
-    for stage in latest_by_job.values():
-        if stage.stage != PipelineStage.hired:
-            continue
-        client = stage.job.client if stage.job else None
-        if hire_closed_by_contract(
-            client_id=client.id if client else None,
-            hired_at=stage.moved_at,
-            contracts=candidate.contracts or [],
-            today=today,
-        ):
-            continue
-        signals.append(
-            SignalRow(
-                candidate_id=candidate.id,
-                source="pipeline",
-                client_id=client.id if client else None,
-                client_name=client_display_name(client) if client else None,
-            )
-        )
-    return contracts, signals
 
 
 # ── Ładowanie ───────────────────────────────────────────────────────────────
@@ -559,155 +370,37 @@ def _order_finished(order: Any = ClientOrder, *, today: date) -> Any:
     )
 
 
-def hire_closed_by_contract_clause(today: Optional[date] = None) -> Any:
-    """Lustro SQL :func:`hire_closed_by_contract` dla zapytania po
-    ``CandidateStage`` złączonym z ``Job`` (korelacja po obu)."""
-    closed = aliased(Contract)
-    still_open = aliased(Contract)
-    any_contract = aliased(Contract)
-    stale_before = (today or business_today()) - timedelta(days=STALE_HIRE_DAYS)
-    closed_on = func.coalesce(
-        closed.end_date, closed.terminated_at, cast(closed.voided_at, Date)
-    )
-    closed_after_hire = (
-        select(1)
-        .where(
-            closed.candidate_id == CandidateStage.candidate_id,
-            closed.client_id == Job.client_id,
-            closed.status.in_(CLOSED_CONTRACT_STATUSES),
-            or_(
-                closed_on.is_(None),
-                closed_on >= cast(CandidateStage.moved_at, Date),
-            ),
-        )
-        .exists()
-    )
-    open_at_client = (
-        select(1)
-        .where(
-            still_open.candidate_id == CandidateStage.candidate_id,
-            still_open.client_id == Job.client_id,
-            still_open.status.in_(_OPEN_CONTRACT_STATUSES),
-        )
-        .exists()
-    )
-    contract_at_client = (
-        select(1)
-        .where(
-            any_contract.candidate_id == CandidateStage.candidate_id,
-            any_contract.client_id == Job.client_id,
-        )
-        .exists()
-    )
-    return or_(
-        and_(closed_after_hire, ~open_at_client),
-        and_(
-            ~contract_at_client,
-            cast(CandidateStage.moved_at, Date) < stale_before,
-        ),
-    )
-
-
-def current_hired_signal_exists(candidate_id: Any, today: Optional[date] = None) -> Any:
-    """``EXISTS``: osoba stoi dziś na „Zatrudniony”, a umowa u klienta tej
-    rekrutacji tego nie zamknęła — sygnał ``pipeline`` znacznika.
-
-    Dla filtra listy (``candidates._at_client_predicate``), żeby
-    ``employment=at_client`` / ``available`` mówiły to samo co znacznik.
-    """
-    return (
-        select(1)
-        .select_from(CandidateStage)
-        .join(Job, Job.id == CandidateStage.job_id)
-        .where(
-            CandidateStage.candidate_id == candidate_id,
-            current_hired_stage_clause(),
-            ~hire_closed_by_contract_clause(today),
-        )
-        .exists()
-    )
-
-
-async def _load_source_rows(
-    db: AsyncSession, candidate_ids: Sequence[int], today: Optional[date] = None
-) -> tuple[list[ContractRow], list[SignalRow]]:
-    name = client_display_name_expression()
-    contracts_q = (
-        select(
-            literal_column("'contract'").label("kind"),
-            Contract.candidate_id.label("candidate_id"),
-            Contract.client_id.label("client_id"),
-            name.label("client_name"),
-            Contract.id.label("contract_id"),
-            Contract.start_date.label("start_date"),
-            Contract.end_date.label("end_date"),
-        )
-        .outerjoin(Client, Client.id == Contract.client_id)
-        .where(
-            Contract.candidate_id.in_(candidate_ids),
-            Contract.status.in_(LIVE_CONTRACT_STATUSES),
-        )
-    )
-    conflicts_q = (
-        select(
-            literal_column("'conflict'"),
-            CandidateConflict.candidate_id,
-            CandidateConflict.client_id,
-            name,
-            cast(null(), Integer),
-            cast(null(), Date),
-            cast(null(), Date),
-        )
-        .outerjoin(Client, Client.id == CandidateConflict.client_id)
-        .where(
-            CandidateConflict.candidate_id.in_(candidate_ids),
-            CandidateConflict.type == ConflictType.current_employment,
-            CandidateConflict.active.is_(True),
-        )
-    )
-    hired_q = (
-        select(
-            literal_column("'pipeline'"),
-            CandidateStage.candidate_id,
-            Job.client_id,
-            name,
-            cast(null(), Integer),
-            cast(null(), Date),
-            cast(null(), Date),
-        )
-        .join(Job, Job.id == CandidateStage.job_id)
-        .outerjoin(Client, Client.id == Job.client_id)
-        .where(
-            CandidateStage.candidate_id.in_(candidate_ids),
-            current_hired_stage_clause(),
-            ~hire_closed_by_contract_clause(today),
-        )
-    )
-    rows = (await db.execute(union_all(contracts_q, conflicts_q, hired_q))).all()
-    contracts: list[ContractRow] = []
-    signals: list[SignalRow] = []
-    for row in rows:
-        if row.kind == "contract":
-            contracts.append(
-                ContractRow(
-                    candidate_id=row.candidate_id,
-                    contract_id=row.contract_id,
-                    client_id=row.client_id,
-                    client_name=row.client_name,
-                    start_date=row.start_date,
-                    end_date=row.end_date,
-                )
+async def _load_contract_rows(
+    db: AsyncSession, candidate_ids: Sequence[int]
+) -> list[ContractRow]:
+    rows = (
+        await db.execute(
+            select(
+                Contract.candidate_id,
+                Contract.client_id,
+                client_display_name_expression().label("client_name"),
+                Contract.id.label("contract_id"),
+                Contract.start_date,
+                Contract.end_date,
             )
-        else:
-            signals.append(
-                SignalRow(
-                    candidate_id=row.candidate_id,
-                    source=row.kind,
-                    client_id=row.client_id,
-                    client_name=row.client_name,
-                )
+            .outerjoin(Client, Client.id == Contract.client_id)
+            .where(
+                Contract.candidate_id.in_(candidate_ids),
+                Contract.status.in_(LIVE_CONTRACT_STATUSES),
             )
-    return contracts, signals
+        )
+    ).all()
+    return [
+        ContractRow(
+            candidate_id=row.candidate_id,
+            contract_id=row.contract_id,
+            client_id=row.client_id,
+            client_name=row.client_name,
+            start_date=row.start_date,
+            end_date=row.end_date,
+        )
+        for row in rows
+    ]
 
 
 async def load_order_ends(
@@ -795,13 +488,12 @@ async def client_delivery_leads(
 async def markers_from_rows(
     db: AsyncSession,
     contracts: Sequence[ContractRow],
-    signals: Sequence[SignalRow],
     *,
     today: date,
     job_client_ids: Optional[Collection[int]] = None,
 ) -> dict[int, EmploymentMarker]:
     """Doczytuje zamówienia i Delivery Leadów tylko, gdy jest po co."""
-    if not contracts and not signals:
+    if not contracts:
         return {}
     order_ends = await load_order_ends(
         db,
@@ -812,10 +504,9 @@ async def markers_from_rows(
         ),
         today=today,
     )
-    leads = await client_delivery_leads(db, marker_client_ids(contracts, signals))
+    leads = await client_delivery_leads(db, marker_client_ids(contracts))
     return build_markers(
         contracts,
-        signals,
         today=today,
         order_ends=order_ends,
         leads=leads,
@@ -832,20 +523,18 @@ async def load_employment_markers(
 ) -> dict[int, Optional[EmploymentMarker]]:
     """``{candidate_id: znacznik | None}`` — każdy przekazany id jest w wyniku.
 
-    Jedno zapytanie o źródła; zamówienia i Delivery Leadzi dochodzą tylko
-    wtedy, gdy na stronie jest ktoś z sygnałem. ``job_client_id`` włącza
+    Jedno zapytanie o umowy; zamówienia i Delivery Leadzi dochodzą tylko
+    wtedy, gdy na stronie jest ktoś z umową. ``job_client_id`` włącza
     ``elsewhere`` (klient spoza rodziny klienta rekrutacji).
     """
     ids = sorted({int(cid) for cid in candidate_ids if cid is not None})
     out: dict[int, Optional[EmploymentMarker]] = {cid: None for cid in ids}
     if not ids:
         return out
-    contracts, signals = await _load_source_rows(db, ids, today)
+    contracts = await _load_contract_rows(db, ids)
     family = await job_client_family(db, job_client_id)
     out.update(
-        await markers_from_rows(
-            db, contracts, signals, today=today, job_client_ids=family
-        )
+        await markers_from_rows(db, contracts, today=today, job_client_ids=family)
     )
     return out
 
@@ -943,18 +632,13 @@ def ending_soon_exists(
 
 
 __all__ = [
-    "CLOSED_CONTRACT_STATUSES",
     "ENDING_SOON_FILTER_DAYS",
     "ContractRow",
     "OrderRow",
-    "SignalRow",
     "build_markers",
     "client_delivery_leads",
     "contract_free_from",
-    "current_hired_signal_exists",
     "ending_soon_exists",
-    "hire_closed_by_contract",
-    "hire_closed_by_contract_clause",
     "job_client_family",
     "load_employment_markers",
     "load_order_ends",

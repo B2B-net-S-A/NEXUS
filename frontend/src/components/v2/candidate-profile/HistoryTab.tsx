@@ -409,10 +409,10 @@ export function HistoryTab({
                 candidateId={candidateId}
                 cvFilename={candidate.cv_filename}
               >
-                <TimelineTab items={timelineItems} />
+                <TimelineTab items={timelineItems} candidateId={candidateId} />
               </CvSidePane>
             ) : (
-              <TimelineTab items={timelineItems} />
+              <TimelineTab items={timelineItems} candidateId={candidateId} />
             )}
             {timelineMayHaveMore ? (
               <Button

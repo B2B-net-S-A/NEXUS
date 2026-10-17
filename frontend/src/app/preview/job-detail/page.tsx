@@ -985,7 +985,7 @@ function seedCardPanel(qc: QueryClient, item: KanbanItem, columnName: string): v
     recent_notes: [],
     contact_attempts: 0,
     cv_highlights: { years_experience: 6 },
-    capabilities: { can_assign: true, can_mark_employed: false, can_view_documents: true, can_open_full_profile: true },
+    capabilities: { can_assign: true, can_view_documents: true, can_open_full_profile: true },
   };
   seedFresh(qc, candidateQueryKeys.quickView(candidateId), quickView);
   // „Co już wiemy” w panelu pyta o inne rekrutacje osoby — bez bieżącej (14.10.2026).

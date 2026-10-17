@@ -794,7 +794,40 @@ export const candidatesApi = {
       `/api/candidates/${candidateId}/recruitments/${jobId}`,
       options?.quickUndo ? { params: { quick_undo: true } } : undefined,
     ),
+  // Czarna lista (17.10.2026): jedno okno „Czarna lista…”. `global` blokuje
+  // (status `blacklisted`, 409 `already_blacklisted`), `client` zakłada
+  // konflikt-ostrzeżenie u klienta. Powód 5–2000 znaków, inaczej 422.
+  addToBlacklist: (candidateId: number, payload: CandidateBlacklistPayload) =>
+    api.post<CandidateBlacklistAddResponse>(`/api/candidates/${candidateId}/blacklist`, payload),
+  // Zdjęcie czarnej listy „u nas” — admin, Delivery Lead, Head of Recruitment
+  // (reszta 403), 409 `not_blacklisted`.
+  removeFromBlacklist: (candidateId: number, payload: { reason: string }) =>
+    api.post<{ status: string; blacklist: null }>(
+      `/api/candidates/${candidateId}/blacklist/remove`,
+      payload,
+    ),
 };
+
+/** Wpis czarnej listy „u nas” (`blacklist` w `GET /api/candidates/{id}`).
+ *  Wpisy sprzed 17.10.2026 mają wszystkie pola `null`. */
+export interface CandidateBlacklistInfo {
+  since: string | null;
+  by_user_id: number | null;
+  by_name: string | null;
+  reason: string | null;
+}
+
+export type CandidateBlacklistScope = "global" | "client";
+
+export interface CandidateBlacklistPayload {
+  scope: CandidateBlacklistScope;
+  client_id: number | null;
+  reason: string;
+}
+
+export type CandidateBlacklistAddResponse =
+  | { scope: "global"; status: "blacklisted"; blacklist: CandidateBlacklistInfo }
+  | { scope: "client"; conflict: ConflictRow };
 
 export type CandidateLanguageCefrLevel =
   | "A1"

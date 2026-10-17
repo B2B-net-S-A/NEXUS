@@ -2,10 +2,12 @@
 
 /**
  * Pasek osoby — góra profilu na całą szerokość (od 13.10.2026, decyzja E1):
- * tożsamość, pigułki („Szuka aktywnie”, „Pracuje u nas”, kategoria, czarna
- * lista / ryzyko, konflikt z klientem), kontakt jako ikony z kopiowaniem
- * i akcje w jednym rzędzie: „Przypisz do rekrutacji”, „Dodaj notatkę”,
- * „Nie odebrał”, menu „⋯” (Kontakt · Dane · Usuń profil).
+ * tożsamość, pigułki („Szuka aktywnie”, „Pracuje u nas”, kategoria, ryzyko,
+ * konflikt z klientem), kontakt jako ikony z kopiowaniem i akcje w jednym
+ * rzędzie: „Przypisz do rekrutacji”, „Dodaj notatkę”, „Nie odebrał”, menu „⋯”
+ * (Kontakt · Dane · Status osoby · Usuń profil). Czarna lista „u nas” od
+ * 17.10.2026 nie jest pigułką, tylko banerem pod paskiem (`BlacklistNotice`
+ * w `CandidateDetailV2`) — z tym, kto, kiedy i dlaczego.
  *
  * Fakty (dostępność, stawka, tryb pracy, miasto, języki, narodowość) NIE są
  * tutaj — mają jedno miejsce: kartę „Do propozycji” w lewej kolumnie
@@ -45,7 +47,6 @@ import {
 
 import { useToast } from "@/components/Toast";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import {
@@ -144,6 +145,8 @@ export interface ProfilePersonBarActions {
   onDelete?: () => void;
   /** „Scal z…” — admin i Head of Recruitment (`canMergeCandidates`). */
   onMerge?: () => void;
+  /** „Czarna lista…” (17.10.2026) — okno `BlacklistDialog`; tylko z prawem zapisu. */
+  onBlacklist?: () => void;
 }
 
 export interface ProfilePersonBarProps {
@@ -219,12 +222,8 @@ export function ProfilePersonBar({
               size="sm"
               className="max-w-full whitespace-normal text-left"
             />
-            {warning?.kind === "blacklist" ? (
-              <Badge variant="danger" size="sm">
-                <Ban className="h-3 w-3" />
-                Czarna lista
-              </Badge>
-            ) : warning?.kind === "risk" && riskProfile ? (
+            {/* Czarna lista nie ma tu pigułki — baner pod paskiem mówi więcej. */}
+            {warning?.kind === "risk" && riskProfile ? (
               <RiskBadge profile={riskProfile} hideLow />
             ) : null}
             {conflicts.length > 0 ? (
@@ -521,6 +520,19 @@ function PersonActions({
               </MenuItem>
             ) : null}
           </DropdownMenuGroup>
+          {/* 17.10.2026: jedno okno na czarną listę „u nas” i „u klienta” —
+              zamiast statusu „Zablokowany” w „Edytuj dane”. */}
+          {canWrite && actions.onBlacklist ? (
+            <>
+              <DropdownMenuSeparator />
+              <MenuGroupLabel>Status osoby</MenuGroupLabel>
+              <DropdownMenuGroup>
+                <MenuItem icon={<Ban className="h-4 w-4" />} destructive onSelect={actions.onBlacklist}>
+                  Czarna lista…
+                </MenuItem>
+              </DropdownMenuGroup>
+            </>
+          ) : null}
           {/* Trwałe usunięcie — tylko admin. Brak pozycji zamiast `disabled`:
               wyszarzona opcja zapraszałaby do proszenia o nią. */}
           {canWrite && actions.onDelete ? (

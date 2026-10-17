@@ -270,7 +270,6 @@ const QUICK_VIEW = {
   cv_highlights: { years_experience: 8 },
   capabilities: {
     can_assign: true,
-    can_mark_employed: true,
     can_view_documents: true,
     can_open_full_profile: true,
   },

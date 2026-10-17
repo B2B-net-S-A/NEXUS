@@ -12,30 +12,28 @@ Two entry points:
   the recruiter's M365 connection and sends via `m365_sender.send_new`, with
   retry/backoff on failure and `status=skipped` when no mailbox is connected.
 
-Business rule for the trigger: we fire when the *previous* stage was
-`{cv_sent, client_interview, acceptance, negotiation, onboarding}` — i.e. the
-candidate was visible to the client. This includes `cv_sent` even though its
-`STAGE_CATEGORY` label is `internal`; semantically "CV sent to client" =
-client-visible, which is what the user feedback captures.
+Kiedy mail jest możliwy (17.10.2026, D1): *poprzedni* etap leży w kolumnie
+Tablicy od „Zweryfikowany” w górę — „Zweryfikowany”, „QC CV” (z kolejką
+Cpro), „CV wysłane”, „Rozmowa u klienta”, „Umowa”. Z tym, z kim
+rozmawialiśmy, rozmawiamy też mailem; „Nowi” i „Screening” zostają bez maila.
+Do 17.10 mail szedł dopiero od „CV wysłane” (`previous_is_client_visible`) —
+ta reguła nadal rozdziela treść „po kliencie” od „przed klientem”.
 
-Template body is a string snapshot taken at schedule time (renderer lives in
-this module; no Jinja dependency). Placeholders are double-braced:
-`{{candidate_name}}`, `{{job_title}}`, `{{recruiter_name}}`,
-`{{other_processes_count}}`, `{{other_processes_list}}`, plus a conditional
-block `{{#if other_processes}}...{{/if}}` stripped when there are none.
-
-Od 13.10.2026 (decyzje Artura D1–D6) treść domyślna żyje w kodzie
-(`_DEFAULT_SUBJECT`/`_DEFAULT_BODY`, bez pożegnania — podpis dokleja Outlook),
-okno odrzucenia pokazuje ją przed wysyłką (`preview`), a rekruter może ją
-poprawić przy jednej osobie (`maybe_schedule(edited_subject=…, edited_body=…)`).
-Szablony odrzucenia z Ustawień nie są czytane — tylko jawny `override_id`.
+Treść domyślna żyje w kodzie (`rejection_email_text`, bez pożegnania —
+podpis dokleja Outlook), okno odrzucenia pokazuje ją przed wysyłką
+(`preview`), a rekruter może ją poprawić przy jednej osobie
+(`maybe_schedule(edited_subject=…, edited_body=…)`). Dopisek o pozostałych
+rekrutacjach osoby (D2) jest w zapisanej treści znacznikiem, który `dispatch`
+wypełnia listą z chwili wysyłki. Szablony odrzucenia z Ustawień nie są
+czytane — tylko jawny `override_id` (renderer `{{…}}` z blokiem
+`{{#if other_processes}}`).
 """
 
 from __future__ import annotations
 
 import logging
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from html import escape as html_escape
 from datetime import datetime, timedelta, timezone
 from typing import Optional, Sequence
@@ -57,6 +55,7 @@ from app.models.rejection_email import (
     ScheduledRejectionEmail,
 )
 from app.models.user import User
+from app.services import rejection_email_text as rejection_text
 from app.services.m365.access import M365OwnerIneligible, eligible_m365_owner
 from app.services.section_permissions import (
     ProductSection,
@@ -68,9 +67,9 @@ from app.services.section_permissions import (
 logger = logging.getLogger(__name__)
 
 
-# Stages after which a rejection notifies the candidate. `cv_sent` is
-# intentionally included even though STAGE_CATEGORY labels it `internal` —
-# business-wise, once CV is out to the client, the candidate is visible.
+# Etapy, na których klient widział osobę — po nich mail ma treść „po
+# kliencie”. `cv_sent` is intentionally included even though STAGE_CATEGORY
+# labels it `internal` — once CV is out to the client, the candidate is visible.
 TRIGGER_PREVIOUS_STAGES: frozenset[PipelineStage] = frozenset(
     {
         PipelineStage.cv_sent,
@@ -90,8 +89,14 @@ TRIGGER_PREVIOUS_COLUMNS: frozenset[str] = frozenset(
     {"cv_sent", "client_interview", "contract"}
 )
 
+# Kolumny przed klientem, z których od 17.10.2026 (D1) też wychodzi mail —
+# osoba po rozmowie z nami. Lustro `lib/rejection-email.ts`.
+BEFORE_CLIENT_COLUMNS: frozenset[str] = frozenset({"verified", "cv_qc"})
+
 # Powody, dla których zaznaczony mail odrzucenia NIE został zaplanowany —
 # `POST /api/pipeline/move` oddaje je w `rejection_email_status`.
+# `not_client_visible` od 17.10.2026 znaczy „przed weryfikacją” (Nowi,
+# Screening) — kod zostaje, bo znają go okna i API integracyjne.
 EMAIL_STATUS_SCHEDULED = "scheduled"
 EMAIL_SKIP_NOT_CLIENT_VISIBLE = "not_client_visible"
 EMAIL_SKIP_NO_CANDIDATE_EMAIL = "no_candidate_email"
@@ -183,6 +188,48 @@ def previous_is_client_visible(
     )
 
 
+def mail_text_kind(
+    legacy: Optional[str],
+    *,
+    name: Optional[str] = None,
+    category: Optional[str] = None,
+    terminal_type: Optional[str] = None,
+) -> Optional[str]:
+    """Rodzaj treści maila po odrzuceniu z tego etapu; ``None`` = bez maila.
+
+    D1 (17.10.2026): „po kliencie” od „CV wysłane”, „przed klientem” dla
+    „Zweryfikowany” i „QC CV”; „Nowi” i „Screening” bez maila.
+    """
+    from app.services.board_stage_badges import board_column_for
+
+    kwargs = {"name": name, "category": category, "terminal_type": terminal_type}
+    if previous_is_client_visible(legacy, **kwargs):
+        return rejection_text.TEXT_AFTER_CLIENT
+    column = board_column_for(
+        name, legacy, category=category, terminal_type=terminal_type
+    )
+    if column in BEFORE_CLIENT_COLUMNS:
+        return rejection_text.TEXT_BEFORE_CLIENT
+    return None
+
+
+def _in_process_column(
+    legacy: Optional[str],
+    *,
+    name: Optional[str],
+    category: Optional[str],
+    terminal_type: Optional[str],
+) -> bool:
+    """Osoba jest w tej rekrutacji od „Zweryfikowany” do „Umowa” (bez zatrudnionych
+    i zamkniętych) — rekrutacja, o której wie, że w niej bierze udział."""
+    from app.services.board_stage_badges import board_column_for
+
+    column = board_column_for(
+        name, legacy, category=category, terminal_type=terminal_type
+    )
+    return column in BEFORE_CLIENT_COLUMNS or column in TRIGGER_PREVIOUS_COLUMNS
+
+
 async def sender_has_mailbox(db: AsyncSession, user_id: int) -> bool:
     """Aktywne połączenie Microsoft 365 osoby, z której skrzynki wyjdzie mail."""
     return bool(
@@ -207,7 +254,7 @@ async def skip_reason(
     i mówimy to wprost (dotąd mail szedł z cudzej skrzynki albo przepadał
     po cichu na `skipped` po 15 minutach).
     """
-    if not await _previous_row_client_visible(db, stage):
+    if await _previous_row_kind(db, stage) is None:
         return EMAIL_SKIP_NOT_CLIENT_VISIBLE
     candidate = await db.get(Candidate, stage.candidate_id)
     if candidate is None or not candidate.email:
@@ -226,24 +273,59 @@ async def _sender_skip_reason(db: AsyncSession, sender: User) -> Optional[str]:
 
 
 @dataclass(frozen=True)
+class OtherProcess:
+    """Inna rekrutacja osoby, w której jest od „Zweryfikowany” w górę."""
+
+    job_id: int
+    # Nazwa w NEXUSIE (tytuł dla rekrutera albo od klienta) — tylko do okna.
+    title: str
+    # Nazwa dla kandydata; ``None`` = w mailu bez nazwy („inna rekrutacja”).
+    mail_title: Optional[str]
+    column: str
+
+
+@dataclass(frozen=True)
 class PreviewPerson:
     candidate_id: int
     to_email: Optional[str]
     skip_reason: Optional[str]
+    text_kind: Optional[str] = None
+    other_processes: tuple[OtherProcess, ...] = ()
+
+
+@dataclass(frozen=True)
+class PreviewSample:
+    """Treść domyślna dla pierwszej osoby danego rodzaju (zwykły tekst)."""
+
+    text_kind: str
+    candidate_id: int
+    subject: str
+    # Część do poprawy w oknie — bez zakończenia.
+    body: str
+    closing: str
+    # Dopisek o pozostałych rekrutacjach tej osoby albo ``None``.
+    other_processes_text: Optional[str]
 
 
 @dataclass(frozen=True)
 class RejectionEmailPreview:
-    """Podgląd maila w oknie odrzucenia (13.10.2026).
+    """Podgląd maila w oknie odrzucenia (13.10.2026, rozszerzony 17.10.2026).
 
-    ``subject``/``body`` — zwykły tekst dla pierwszej osoby, do której mail
-    wyjdzie (``None``, gdy do nikogo). Przy kilku osobach okno pokazuje go
-    tylko do odczytu; każda osoba dostaje swoje imię przy wysyłce.
+    ``subject``/``body`` — pierwsza osoba, do której mail wyjdzie (``None``,
+    gdy do nikogo); ``samples`` — po jednej osobie każdego rodzaju treści
+    („przed klientem”, „po kliencie”) dla okna kilku osób. Każda osoba
+    dostaje swoje imię i swoją listę pozostałych rekrutacji przy wysyłce.
     """
 
     subject: Optional[str]
     body: Optional[str]
     people: list[PreviewPerson]
+    samples: list[PreviewSample] = field(default_factory=list)
+    closing: Optional[str] = None
+    other_processes_text: Optional[str] = None
+    text_kind: Optional[str] = None
+    # Nazwa rekrutacji w mailu nadal wygląda na kod zlecenia albo klienta.
+    title_warning: bool = False
 
 
 async def preview(
@@ -257,7 +339,8 @@ async def preview(
 
     Te same reguły i ta sama kolejność powodów co ``skip_reason`` przy ruchu,
     tylko o BIEŻĄCYM wierszu pary (osoba jeszcze nie jest odrzucona).
-    Osoba bez wiersza w tej rekrutacji albo już zamknięta = ``not_client_visible``.
+    Osoba bez wiersza w tej rekrutacji albo przed weryfikacją =
+    ``not_client_visible``.
     """
     from app.models.pipeline_template import PipelineStageDef
 
@@ -293,16 +376,16 @@ async def preview(
             .where(latest.c.rn == 1)
         )
     ).all()
-    visible = {
-        candidate_id
-        for candidate_id, stage, name, category, terminal_type in rows
-        if previous_is_client_visible(
+    kinds: dict[int, str] = {}
+    for candidate_id, stage, name, category, terminal_type in rows:
+        kind = mail_text_kind(
             getattr(stage, "value", stage),
             name=name,
             category=getattr(category, "value", category),
             terminal_type=getattr(terminal_type, "value", terminal_type),
         )
-    }
+        if kind is not None:
+            kinds[candidate_id] = kind
     candidates = {
         c.id: c
         for c in (
@@ -310,35 +393,67 @@ async def preview(
         ).all()
     }
     sender_reason = await _sender_skip_reason(db, sender)
+    # Adres i pozostałe rekrutacje tylko osób, które są w TEJ rekrutacji od
+    # „Zweryfikowany” — id spoza rekrutacji nie może posłużyć do odczytu
+    # cudzego e-maila ani cudzej drogi.
+    others = await _other_processes_for(
+        db, candidate_ids=list(kinds), exclude_job_ids={job.id}
+    )
+    job_title, title_safe = await mail_job_title(db, job)
 
     people: list[PreviewPerson] = []
-    first_ok: Optional[Candidate] = None
+    samples: dict[str, PreviewSample] = {}
     for candidate_id in ids:
         candidate = candidates.get(candidate_id)
-        # Adres tylko osoby, która w TEJ rekrutacji była u klienta — id spoza
-        # rekrutacji nie może posłużyć do odczytu cudzego e-maila.
+        kind = kinds.get(candidate_id)
         email = (
             (candidate.email or None)
-            if candidate is not None and candidate_id in visible
+            if candidate is not None and kind is not None
             else None
         )
-        if candidate_id not in visible:
+        if kind is None:
             reason: Optional[str] = EMAIL_SKIP_NOT_CLIENT_VISIBLE
         elif not email:
             reason = EMAIL_SKIP_NO_CANDIDATE_EMAIL
         else:
             reason = sender_reason
-        if reason is None and first_ok is None:
-            first_ok = candidate
+        person_others = tuple(others.get(candidate_id, ())) if kind else ()
+        if reason is None and kind is not None and kind not in samples:
+            text = rejection_text.default_text(
+                candidate_name=candidate.name or "", job_title=job_title, kind=kind
+            )
+            samples[kind] = PreviewSample(
+                text_kind=kind,
+                candidate_id=candidate_id,
+                subject=text.subject,
+                body=text.body,
+                closing=text.closing,
+                other_processes_text=rejection_text.other_processes_text(
+                    [p.mail_title for p in person_others]
+                ),
+            )
         people.append(
-            PreviewPerson(candidate_id=candidate_id, to_email=email, skip_reason=reason)
+            PreviewPerson(
+                candidate_id=candidate_id,
+                to_email=email,
+                skip_reason=reason,
+                text_kind=kind,
+                other_processes=person_others,
+            )
         )
 
-    subject: Optional[str] = None
-    body: Optional[str] = None
-    if first_ok is not None:
-        subject, body = default_text(candidate=first_ok, job=job, recruiter=sender)
-    return RejectionEmailPreview(subject=subject, body=body, people=people)
+    ordered = list(samples.values())
+    first = ordered[0] if ordered else None
+    return RejectionEmailPreview(
+        subject=first.subject if first else None,
+        body=first.body if first else None,
+        people=people,
+        samples=ordered,
+        closing=first.closing if first else None,
+        other_processes_text=first.other_processes_text if first else None,
+        text_kind=first.text_kind if first else None,
+        title_warning=first is not None and not title_safe,
+    )
 
 
 async def maybe_schedule(
@@ -350,6 +465,7 @@ async def maybe_schedule(
     template_override_id: Optional[int] = None,
     edited_subject: Optional[str] = None,
     edited_body: Optional[str] = None,
+    append_other_processes: bool = True,
 ) -> Optional[ScheduledRejectionEmail]:
     """Maybe schedule a rejection email for a freshly-created rejected stage.
 
@@ -365,13 +481,21 @@ async def maybe_schedule(
     ``edited_subject``/``edited_body`` — temat i treść poprawione w oknie
     odrzucenia (zwykły tekst, sprawdzony przez ``StageMove``). Wysyłamy je
     dokładnie tak, treść zawsze z escape (``plain_text_to_html``).
+
+    ``append_other_processes`` (D2, 17.10.2026) — gdy osoba jest w innych
+    rekrutacjach od „Zweryfikowany”, zamiast zakończenia idzie znacznik, który
+    ``dispatch`` wypełnia listą z chwili wysyłki. ``False`` (odznaczone w oknie)
+    = zwykłe zakończenie bez słowa o innych rekrutacjach.
     """
+    from app.services.email_template_variables import plain_text_to_html
+
     if stage.stage != PipelineStage.rejected:
         return None
     if recruiter_id is None:
         return None
 
-    if not await _previous_row_client_visible(db, stage):
+    kind = await _previous_row_kind(db, stage)
+    if kind is None:
         return None
 
     candidate = await db.get(Candidate, stage.candidate_id)
@@ -385,25 +509,36 @@ async def maybe_schedule(
     if not _can_send_rejection_email(recruiter):
         return None
 
-    other_processes = await _load_other_active_processes(
-        db, candidate_id=stage.candidate_id, current_job_id=stage.job_id
-    )
+    job_title, _title_safe = await mail_job_title(db, job)
+    others = (
+        await _other_processes_for(
+            db, candidate_ids=[candidate.id], exclude_job_ids={stage.job_id}
+        )
+    ).get(candidate.id, [])
+    other_processes = [{"job_id": p.job_id, "title": p.mail_title} for p in others]
+    append = append_other_processes and bool(others)
 
     edited = bool(edited_subject or edited_body)
     template = None if edited else await _resolve_template(db, template_override_id)
-    subject, body_html = _render(
-        template=template,
-        candidate=candidate,
-        job=job,
-        recruiter=recruiter,
-        other_processes=other_processes,
-    )
-    if edited_subject:
-        subject = edited_subject
-    if edited_body:
-        from app.services.email_template_variables import plain_text_to_html
-
-        body_html = plain_text_to_html(edited_body)
+    if template is not None:
+        subject, body_html = _render(
+            template=template,
+            candidate=candidate,
+            job=job,
+            recruiter=recruiter,
+            other_processes=other_processes,
+            job_title=job_title,
+        )
+        append = False
+    else:
+        text = rejection_text.default_text(
+            candidate_name=candidate.name or "", job_title=job_title, kind=kind
+        )
+        subject = edited_subject or text.subject
+        body_text = edited_body or (text.body if append else text.full())
+        body_html = plain_text_to_html(body_text)
+        if append:
+            body_html = f"{body_html}\n{rejection_text.OTHER_PROCESSES_MARKER}"
 
     scheduled = ScheduledRejectionEmail(
         candidate_stage_id=stage.id,
@@ -434,6 +569,8 @@ async def maybe_schedule(
                 "to_email": candidate.email,
                 "scheduled_at": scheduled.scheduled_at.isoformat(),
                 "other_processes_count": len(other_processes),
+                "other_processes_appended": append,
+                "text_kind": kind,
                 "edited": edited,
             },
         )
@@ -615,6 +752,19 @@ async def dispatch(db: AsyncSession, row_id: int) -> None:
             row_id,
         )
         return
+
+    # D2 (17.10.2026): dopisek o pozostałych rekrutacjach z listy NA TERAZ —
+    # osoba odrzucona w międzyczasie także w innej rekrutacji nie przeczyta,
+    # że „nadal bierze w niej udział”. Wysłana treść zostaje w wierszu.
+    if rejection_text.OTHER_PROCESSES_MARKER in (row.body_html or ""):
+        others_now = (
+            await _other_processes_for(
+                db, candidate_ids=[row.candidate_id], exclude_job_ids={row.job_id}
+            )
+        ).get(row.candidate_id, [])
+        row.body_html = rejection_text.fill_other_processes(
+            row.body_html, [p.mail_title for p in others_now]
+        )
 
     # Rezerwacja wysyłki (wiersz ``Email`` z kluczem ``scheduled-rejection:
     # {id}``) jest commitowana PRZED Graphem, jak w pozostałych ścieżkach
@@ -831,11 +981,12 @@ async def _mark_send_outcome_unknown(
     await db.commit()
 
 
-async def _previous_row_client_visible(
+async def _previous_row_kind(
     db: AsyncSession, current: CandidateStage
-) -> bool:
-    """Poprzedni wiersz pary (przed odrzuceniem) — widoczny dla klienta?
+) -> Optional[str]:
+    """Rodzaj treści maila po poprzednim wierszu pary (przed odrzuceniem).
 
+    ``None`` = osoba odpadła przed weryfikacją — bez maila (``mail_text_kind``).
     Runda 10 (R10-V2-9): „poprzedni” w kolejności ``moved_at, id`` — tej
     samej, w której Tablica, okno odrzucenia i ``/move`` wybierają bieżący
     wiersz. Import Traffita dopisuje wiersze historyczne (starszy
@@ -877,9 +1028,9 @@ async def _previous_row_client_visible(
         )
     ).first()
     if row is None:
-        return False
+        return None
     stage, name, category, terminal_type = row
-    return previous_is_client_visible(
+    return mail_text_kind(
         getattr(stage, "value", stage),
         name=name,
         category=getattr(category, "value", category),
@@ -887,89 +1038,131 @@ async def _previous_row_client_visible(
     )
 
 
-async def _load_other_active_processes(
-    db: AsyncSession, *, candidate_id: int, current_job_id: int
-) -> list[dict]:
-    """Return [{"job_id": int, "title": str}, ...] for the candidate's OTHER
-    processes that are still in front of a client.
+async def mail_job_title(
+    db: AsyncSession,
+    job: Job,
+    *,
+    names_cache: Optional[dict] = None,
+    lint_cache: Optional[dict] = None,
+) -> tuple[str, bool]:
+    """Nazwa rekrutacji dla kandydata i czy jest bezpieczna (D5, 17.10.2026).
 
-    Uses a window function (ROW_NUMBER OVER PARTITION BY job_id) to pick
-    the LATEST stage row per (candidate, job) — critical so that a
-    candidate who has been through multiple stages on a job is classified
-    by their CURRENT position, not any historical row.
+    Zatwierdzony opis na stronę kariery wygrywa (przeszedł jej kontrolę).
+    Bez niego — nazwa od klienta oczyszczona jak na stronie kariery
+    (``default_public_title``: bez prefiksu klienta i kodów zleceń);
+    ``False`` = nadal widać w niej numer albo klienta.
+    """
+    from app.models.job_public_profile import JobPublicProfile
+    from app.services.job_public_profile import (
+        STATUS_APPROVED,
+        client_lint_names,
+        resolve_status,
+    )
 
-    Runda 9 (R9-N10-2): mail idzie do kandydata, więc lista nie może zdradzać
-    więcej niż strona kariery. Wchodzą wyłącznie rekrutacje OPUBLIKOWANE,
-    w których osoba jest dziś u klienta (kolumny „CV wysłane”, „Rozmowa
-    u klienta”, „Umowa”), a tytuł pochodzi WYŁĄCZNIE z zatwierdzonego opisu
-    publicznego. Rekrutacja bez niego nie trafia na listę — `jobs.title`
-    niesie nazwę klienta i numery zapytań (do 26.09 lista brała też
-    zamknięte i archiwalne rekrutacje z Traffita).
+    profile = await db.scalar(
+        select(JobPublicProfile).where(JobPublicProfile.job_id == job.id)
+    )
+    status, default, effective = await resolve_status(
+        db, job, profile, names_cache=names_cache
+    )
+    if status == STATUS_APPROVED and effective:
+        return effective, True
+    cache = lint_cache if lint_cache is not None else {}
+    if job.client_id not in cache:
+        cache[job.client_id] = await client_lint_names(db, job.client_id)
+    return default, rejection_text.title_safe_for_mail(default, cache[job.client_id])
+
+
+async def _other_processes_for(
+    db: AsyncSession,
+    *,
+    candidate_ids: Sequence[int],
+    exclude_job_ids: set[int],
+) -> dict[int, list[OtherProcess]]:
+    """Inne rekrutacje osób, w których są od „Zweryfikowany” do „Umowa”.
+
+    D2 (17.10.2026): to rekrutacje, o których osoba wie, że w nich bierze
+    udział — rozmawialiśmy z nią. Wchodzą tylko rekrutacje OPUBLIKOWANE, a
+    najnowszy wiersz pary (``moved_at, id``) decyduje o kolumnie.
+
+    Nazwa dla kandydata — ``mail_job_title``. Do 17.10 lista brała wyłącznie
+    rekrutacje u klienta z zatwierdzonym opisem publicznym (runda 9,
+    R9-N10-2) — miało go 2 z 201 otwartych, więc lista była prawie zawsze
+    pusta. Nazwa, w której nadal widać numer albo klienta, nie idzie do
+    kandydata (``mail_title=None``).
     """
     from app.models.job import JobStatus
-    from app.models.job_public_profile import JobPublicProfile
     from app.models.pipeline_template import PipelineStageDef
-    from app.services.job_public_profile import STATUS_APPROVED, resolve_status
+    from app.services.board_stage_badges import board_column_for
 
+    ids = list(dict.fromkeys(candidate_ids))
+    if not ids:
+        return {}
     latest = (
         select(
+            CandidateStage.candidate_id.label("candidate_id"),
             CandidateStage.job_id.label("job_id"),
             CandidateStage.stage.label("stage"),
             CandidateStage.stage_def_id.label("stage_def_id"),
             func.row_number()
             .over(
-                partition_by=CandidateStage.job_id,
+                partition_by=(CandidateStage.candidate_id, CandidateStage.job_id),
                 order_by=(CandidateStage.moved_at.desc(), CandidateStage.id.desc()),
             )
             .label("rn"),
         )
-        .where(
-            CandidateStage.candidate_id == candidate_id,
-            CandidateStage.job_id != current_job_id,
-        )
+        .where(CandidateStage.candidate_id.in_(ids))
         .subquery()
     )
-    rows = (
-        await db.execute(
-            select(
-                Job,
-                latest.c.stage,
-                PipelineStageDef.name,
-                PipelineStageDef.category,
-                PipelineStageDef.terminal_type,
-            )
-            .join(latest, latest.c.job_id == Job.id)
-            .outerjoin(PipelineStageDef, PipelineStageDef.id == latest.c.stage_def_id)
-            .where(
-                latest.c.rn == 1,
-                Job.status == JobStatus.published,
-                ~latest.c.stage.in_([s.value for s in ACTIVE_OTHER_STAGES_EXCLUDE]),
-            )
-            .order_by(Job.id)
+    query = (
+        select(
+            latest.c.candidate_id,
+            Job,
+            latest.c.stage,
+            PipelineStageDef.name,
+            PipelineStageDef.category,
+            PipelineStageDef.terminal_type,
         )
-    ).all()
-    out: list[dict] = []
+        .join(Job, Job.id == latest.c.job_id)
+        .outerjoin(PipelineStageDef, PipelineStageDef.id == latest.c.stage_def_id)
+        .where(
+            latest.c.rn == 1,
+            Job.status == JobStatus.published,
+            ~latest.c.stage.in_([s.value for s in ACTIVE_OTHER_STAGES_EXCLUDE]),
+        )
+        .order_by(latest.c.candidate_id, Job.id)
+    )
+    if exclude_job_ids:
+        query = query.where(~latest.c.job_id.in_(list(exclude_job_ids)))
+    rows = (await db.execute(query)).all()
+
+    out: dict[int, list[OtherProcess]] = {}
+    titles: dict[int, tuple[str, bool]] = {}
     names_cache: dict = {}
-    for job, stage, name, category, terminal_type in rows:
-        column_ok = previous_is_client_visible(
-            getattr(stage, "value", stage),
-            name=name,
-            category=getattr(category, "value", category),
-            terminal_type=getattr(terminal_type, "value", terminal_type),
-        )
-        if not column_ok:
+    lint_cache: dict = {}
+    for candidate_id, job, stage, name, category, terminal_type in rows:
+        legacy = getattr(stage, "value", stage)
+        category_value = getattr(category, "value", category)
+        terminal_value = getattr(terminal_type, "value", terminal_type)
+        if not _in_process_column(
+            legacy, name=name, category=category_value, terminal_type=terminal_value
+        ):
             continue
-        profile = await db.scalar(
-            select(JobPublicProfile).where(JobPublicProfile.job_id == job.id)
+        if job.id not in titles:
+            titles[job.id] = await mail_job_title(
+                db, job, names_cache=names_cache, lint_cache=lint_cache
+            )
+        title, safe = titles[job.id]
+        out.setdefault(candidate_id, []).append(
+            OtherProcess(
+                job_id=job.id,
+                title=(getattr(job, "working_title", None) or job.title or "").strip(),
+                mail_title=title if safe else None,
+                column=board_column_for(
+                    name, legacy, category=category_value, terminal_type=terminal_value
+                ),
+            )
         )
-        if profile is None:
-            continue
-        status, _default, effective = await resolve_status(
-            db, job, profile, names_cache=names_cache
-        )
-        if status != STATUS_APPROVED or not effective:
-            continue
-        out.append({"job_id": job.id, "title": effective})
     return out
 
 
@@ -1021,6 +1214,7 @@ def _render(
     job: Job,
     recruiter: User,
     other_processes: list[dict],
+    job_title: Optional[str] = None,
 ) -> tuple[str, str]:
     """Render (subject, body_html) with placeholders filled.
 
@@ -1044,6 +1238,7 @@ def _render(
         job=job,
         recruiter=recruiter,
         other_processes=other_processes,
+        job_title=job_title,
     )
     # M4 PR-04 (audyt P1.14): body jest HTML-em — wartości placeholderów są
     # escapowane (nazwisko kandydata z "<script>" nie może stać się kodem).
@@ -1055,33 +1250,19 @@ def _render(
     )
 
 
-def default_text(*, candidate: Candidate, job: Job, recruiter: User) -> tuple[str, str]:
-    """Temat i treść domyślna jako ZWYKŁY tekst — do pola w oknie odrzucenia.
-
-    Bez escape: pole tekstowe pokazuje `R&D` jako `R&D`. Przy wysyłce tekst
-    (poprawiony albo nie) i tak przechodzi przez escape.
-    """
-    ctx = _context(
-        candidate=candidate, job=job, recruiter=recruiter, other_processes=[]
-    )
-    return (
-        _apply(_DEFAULT_SUBJECT, ctx, has_others=False),
-        _apply(_DEFAULT_BODY, ctx, has_others=False),
-    )
-
-
 def _context(
     *,
     candidate: Candidate,
     job: Job,
     recruiter: User,
     other_processes: list[dict],
+    job_title: Optional[str] = None,
 ) -> dict[str, str]:
     return {
         "candidate_name": (candidate.name or "").strip(),
         "candidate_lastname": (candidate.lastname or "").strip(),
         "candidate_full_name": f"{candidate.name} {candidate.lastname}".strip(),
-        "job_title": (job.title or "").strip(),
+        "job_title": (job_title if job_title is not None else job.title or "").strip(),
         "recruiter_name": (recruiter.name or recruiter.email or "").strip(),
         "other_processes_count": str(len(other_processes)),
         "other_processes_list": ", ".join(
@@ -1108,9 +1289,10 @@ def _apply(template: str, ctx: dict[str, str], *, has_others: bool) -> str:
     return rendered
 
 
-# Treść Artura z 13.10.2026 (D2: „Życzymy”). Zwykły tekst — pusta linia to
-# akapit. Bez „Pozdrawiam”: `m365/sender.py` dokleja podpis z Outlooka, więc
-# kandydat dostawał dwa pożegnania. Bez bloku „inne procesy” (D4).
+# Zapas renderera, gdy szablon nie istnieje — treść „po kliencie” z 13.10.2026
+# (D2: „Życzymy”). Okno i wysyłka biorą treści z `rejection_email_text`
+# (lustro, pilnuje `test_renderer_fallback_matches_the_window_text`). Bez
+# „Pozdrawiam”: `m365/sender.py` dokleja podpis z Outlooka.
 _DEFAULT_SUBJECT = "Informacja zwrotna — {{job_title}}"
 _DEFAULT_BODY = (
     "Cześć {{candidate_name}},\n"

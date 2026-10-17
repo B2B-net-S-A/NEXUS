@@ -423,6 +423,18 @@ describe("CandidatesListV2", () => {
       ).toBeTruthy();
     });
 
+    it("osoba na czarnej liście u nas ma pigułkę „Czarna lista” pod nazwiskiem (17.10.2026)", async () => {
+      listItems = [
+        { id: 1, name: "Marta", lastname: "Kowalczyk", status: "blacklisted" },
+        { id: 2, name: "Tomasz", lastname: "Nowicki", status: "active" },
+      ];
+      listTotal = 2;
+      renderList();
+      const row = await screen.findByTestId("candidate-row-1");
+      expect(within(row).getByTestId("blacklist-badge")).toHaveTextContent("Czarna lista");
+      expect(within(screen.getByTestId("candidate-row-2")).queryByTestId("blacklist-badge")).toBeNull();
+    });
+
     it("dostępność z notatki mówi, z którego dnia jest, a data człowieka nie", async () => {
       listItems = [
         {

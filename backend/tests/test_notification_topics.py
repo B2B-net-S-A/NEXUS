@@ -132,6 +132,13 @@ def test_client_accepted_is_a_recruitment_event_with_toast():
     assert _T.client_accepted in TOAST_TYPES
 
 
+def test_hire_without_contract_is_a_named_task_with_toast():
+    # 0452 (17.10.2026): Delivery Lead ma wpisać umowę zatrudnionej osoby —
+    # sprawa imienna w rekrutacji, więc ikona „Rekrutacje” i dymek.
+    assert topic_for(_T.hire_missing_contract) is NotificationTopic.jobs
+    assert _T.hire_missing_contract in TOAST_TYPES
+
+
 def test_enrich_adds_topic_and_toast_without_mutating():
     frame = {
         "type": "notification",

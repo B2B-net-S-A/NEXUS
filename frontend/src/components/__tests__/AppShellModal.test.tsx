@@ -254,12 +254,24 @@ describe("EditCandidateModal — status przy żywej umowie (S4, 15.10.2026)", ()
     expect(screen.getByDisplayValue("Aktywnie szuka pracy")).toBeEnabled();
   });
 
+  it("bez pola „Status” i bez starej podpowiedzi o konflikcie — jedna notka o czarnej liście (17.10.2026)", () => {
+    renderEdit({ status: "blacklisted" });
+
+    expect(screen.queryByText("Zablokowany")).toBeNull();
+    expect(screen.queryByRole("option", { name: "Pasywny" })).toBeNull();
+    expect(screen.queryByText(/Aktualnie u klienta/)).toBeNull();
+    expect(screen.queryByText(/Dodaj konflikt/)).toBeNull();
+    expect(screen.getByTestId("candidate-form-status-note")).toHaveTextContent(
+      "„Pracuje u nas” wynika z umowy w Kontraktach. Czarną listę ustawiasz w menu profilu → „Czarna lista…”.",
+    );
+  });
+
   it("bez żywej umowy ramki nie ma", () => {
     renderEdit({
       availability_status: "actively_looking",
       employment_marker: {
         phase: "working",
-        source: "conflict",
+        source: "contract",
         clients: [{ client_id: 7, client_name: "Bank Przykładowy", phase: "working" }],
       },
     });
@@ -341,6 +353,35 @@ describe("EditCandidateModal — profile rate boundary", () => {
     const payload = vi.mocked(api.patch).mock.calls[0]?.[1] as Record<string, unknown>;
     // Czarna lista ustawiona w tym czasie przez kogoś innego nie jest cofana.
     expect(payload).toEqual({ preferences: { industries: null } });
+  });
+
+  it("osoba na czarnej liście: zapis zmiany nie wysyła statusu (PATCH odrzuca go 422, 17.10.2026)", async () => {
+    vi.mocked(api.get).mockResolvedValue({ data: [] });
+    vi.mocked(phase5Api.clientsLookup).mockResolvedValue({ data: [] } as never);
+    vi.mocked(api.patch).mockResolvedValue({ data: {} });
+    const user = userEvent.setup();
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <EditCandidateModal
+          candidate={{ id: 14, name: "Jan", lastname: "Kowalski", status: "blacklisted" }}
+          onClose={() => {}}
+          onSuccess={() => {}}
+        />
+      </QueryClientProvider>,
+    );
+    await waitFor(() => expect(queryClient.isFetching()).toBe(0));
+
+    const lastname = screen.getByPlaceholderText("Kowalski");
+    await user.clear(lastname);
+    await user.type(lastname, "Nowak");
+    await user.click(screen.getByRole("button", { name: "Zapisz zmiany" }));
+
+    await waitFor(() => expect(api.patch).toHaveBeenCalledTimes(1));
+    const payload = vi.mocked(api.patch).mock.calls[0]?.[1] as Record<string, unknown>;
+    expect(payload).not.toHaveProperty("status");
+    expect(payload).toHaveProperty("lastname", "Nowak");
   });
 
   it("keeps imported object tags intact and shows only text tags in the field (UAT B60)", async () => {

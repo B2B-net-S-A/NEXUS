@@ -209,6 +209,7 @@ CATEGORY_BY_TYPE: dict[NotificationType, NotificationCategory] = {
     _T.order_missing_successor: _C.contracts,
     _T.hired_order_missing: _C.contracts,
     _T.consultant_in_other_recruitment: _C.contracts,
+    _T.hire_missing_contract: _C.contracts,
     _T.framework_contract_expiring_30d: _C.contracts,
     _T.framework_contract_expiring_14d: _C.contracts,
     _T.framework_contract_expiring_7d: _C.contracts,
@@ -319,6 +320,11 @@ _SPLIT_GROUPS: dict[
         "Twój konsultant w innej rekrutacji",
         _C.contracts,
         (_T.consultant_in_other_recruitment,),
+    ),
+    "contracts_hire_missing_contract": (
+        "Zatrudniony bez umowy w Kontraktach",
+        _C.contracts,
+        (_T.hire_missing_contract,),
     ),
     "contracts_signatures": (
         "Podpisy i zwrot sprzętu",

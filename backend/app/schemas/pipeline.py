@@ -56,6 +56,10 @@ class StageMove(BaseModel):
     # przy tytule rekrutacji do 255 znaków ma ~276 (przegląd PR #2185).
     rejection_email_subject: Optional[str] = Field(None, max_length=998)
     rejection_email_body: Optional[str] = Field(None, max_length=5000)
+    # Dopisek o pozostałych rekrutacjach osoby (17.10.2026, D2) — `None`/`True`
+    # = dopisz, gdy osoba jest w innych rekrutacjach od „Zweryfikowany”;
+    # `False` = odznaczone w oknie, zwykłe zakończenie.
+    rejection_email_other_processes: Optional[bool] = None
     # Powód „Nie akceptuje trybu pracy” (`work_mode_mismatch`, 14.10.2026):
     # ile dni w biurze kandydat akceptuje (0 = tylko zdalnie). Przy tym
     # powodzie wymagane, przy każdym innym → 422. `save_to_profile` = zapis
@@ -364,6 +368,9 @@ class CandidateStageResponse(BaseModel):
     rate_change: Optional[dict] = None
     # „Zatrudniony": czy jest uzupełnione zamówienie (complete|missing).
     order_status: Optional[str] = None
+    # 17.10.2026: „Zatrudniony” z ostatniego roku, a w Kontraktach nie ma
+    # umowy tej osoby u klienta rekrutacji (`services/hire_contract_reminder`).
+    missing_contract: bool = False
     # 04.10.2026: umowa B2B z Generatora tej pary (rejestr jest źródłem):
     # {id, number, contract_status, signature_status, created_at, signed_at,
     # signature_requested_at, contract_id}; brak = para bez umowy.

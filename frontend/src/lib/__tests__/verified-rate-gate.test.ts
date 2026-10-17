@@ -53,6 +53,20 @@ describe("evaluateRateGate", () => {
     expect(gate.message).not.toMatch(/Pending|akceptac/i);
   });
 
+  it("stawka godzinowa nie powtarza kwoty („140 PLN/h to 140 PLN/h”)", () => {
+    const over = evaluateRateGate({ rawRate: "140", unit: "hourly", jobBudgetHourly: 135 });
+    const within = evaluateRateGate({ rawRate: "120", unit: "hourly", jobBudgetHourly: 135 });
+    expect(over.message).toBe(
+      "140 PLN/h — powyżej budżetu 135 PLN/h. Ruch przejdzie, a karta dostanie odznakę „ponad budżet”.",
+    );
+    expect(within.message).toBe("120 PLN/h — mieści się w budżecie 135 PLN/h.");
+  });
+
+  it("stawka dzienna nadal pokazuje przeliczenie na godzinę", () => {
+    const gate = evaluateRateGate({ rawRate: "1200", unit: "daily", jobBudgetHourly: 135 });
+    expect(gate.message).toMatch(/^1200 PLN\/dzień to 150 PLN\/h — powyżej budżetu 135 PLN\/h/);
+  });
+
   it("stawka miesięczna jest sprowadzana do godziny (÷ 168)", () => {
     const gate = evaluateRateGate({
       rawRate: "20000",

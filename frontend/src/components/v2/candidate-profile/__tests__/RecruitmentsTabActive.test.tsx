@@ -25,6 +25,17 @@ vi.mock("@/lib/api", () => ({
     },
   },
 }));
+vi.mock("next/link", () => ({
+  default: ({
+    href,
+    children,
+    ...rest
+  }: { href: string; children: React.ReactNode } & Record<string, unknown>) => (
+    <a href={href} {...rest}>
+      {children}
+    </a>
+  ),
+}));
 vi.mock("next/dynamic", () => ({
   default: () =>
     function EditorStub() {
@@ -172,7 +183,7 @@ function renderTab({
 
 const activeTable = () => screen.getByRole("table", { name: "Rekrutacje w toku" });
 const rowButton = (title: string) =>
-  within(activeTable()).getByRole("button", { name: new RegExp(`^${title}`) });
+  within(activeTable()).getByRole("button", { name: `Szczegóły: ${title}` });
 
 beforeEach(() => {
   brandedGet.mockReset();
@@ -253,6 +264,29 @@ describe("RecruitmentsTab — „W toku” jako tabela", () => {
     await user.click(within(devopsRow).getByText("Delivery"));
     expect(rowButton("DevOps")).toHaveAttribute("aria-expanded", "true");
     expect(document.getElementById("candidate-recruitment-12")).not.toBeNull();
+  });
+
+  it("nazwa rekrutacji prowadzi na Tablicę z otwartą osobą i nie rozwija wiersza (17.10.2026)", async () => {
+    const user = userEvent.setup();
+    renderTab();
+    const link = within(activeTable()).getByRole("link", { name: "Tester QA" });
+    expect(link).toHaveAttribute("href", "/jobs/11?candidate=121");
+    // jsdom nie nawiguje — zatrzymujemy domyślną akcję, żeby nie logował błędu.
+    const stop = (event: Event) => event.preventDefault();
+    document.addEventListener("click", stop);
+    try {
+      await user.click(link);
+    } finally {
+      document.removeEventListener("click", stop);
+    }
+    expect(rowButton("Tester QA")).toHaveAttribute("aria-expanded", "false");
+    expect(document.getElementById("candidate-recruitment-11")).toBeNull();
+    // Karta rozwiniętego wiersza nazywa się nazwą rekrutacji, nie „Szczegóły”.
+    await user.click(rowButton("Tester QA"));
+    expect(screen.getByRole("group", { name: "Tester QA" })).toHaveAttribute(
+      "id",
+      "candidate-recruitment-11",
+    );
   });
 
   it("wiersz z adresu jest rozwinięty od pierwszego renderu i dostaje fokus", async () => {

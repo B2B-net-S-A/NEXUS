@@ -758,7 +758,7 @@ const QUICK_VIEW = {
   ],
   contact_attempts: 1,
   cv_highlights: { years_experience: 9 },
-  capabilities: { can_assign: true, can_mark_employed: false, can_view_documents: true, can_open_full_profile: true },
+  capabilities: { can_assign: true, can_view_documents: true, can_open_full_profile: true },
 };
 
 const SNAPSHOT: CVOriginalSnapshot = {

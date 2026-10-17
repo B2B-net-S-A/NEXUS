@@ -24,6 +24,17 @@ vi.mock("@/lib/api", () => ({
 }));
 // Edytor CV (TipTap) ładuje się dynamicznie — w teście zaślepka mówi, który
 // wiersz etapu dostał.
+vi.mock("next/link", () => ({
+  default: ({
+    href,
+    children,
+    ...rest
+  }: { href: string; children: React.ReactNode } & Record<string, unknown>) => (
+    <a href={href} {...rest}>
+      {children}
+    </a>
+  ),
+}));
 vi.mock("next/dynamic", () => ({
   default: () =>
     function EditorStub(props: { stageId?: number }) {
@@ -135,7 +146,7 @@ describe("RecruitmentsTab — zakończone rekrutacje jako tabela", () => {
     expect(screen.getByText(/W toku · 1/)).toBeInTheDocument();
     expect(
       within(screen.getByRole("table", { name: "Rekrutacje w toku" })).getByRole("button", {
-        name: /^Programista Python/,
+        name: "Szczegóły: Programista Python",
       }),
     ).toBeInTheDocument();
 
@@ -154,10 +165,31 @@ describe("RecruitmentsTab — zakończone rekrutacje jako tabela", () => {
     expect(screen.queryByRole("table", { name: "Zakończone rekrutacje" })).toBeNull();
   });
 
+  it("nazwa zakończonej rekrutacji prowadzi na Tablicę; klik w wiersz rozwija szczegóły", async () => {
+    const user = userEvent.setup();
+    renderTab();
+    const table = screen.getByRole("table", { name: "Zakończone rekrutacje" });
+    expect(within(table).getByRole("link", { name: "Java Lead" })).toHaveAttribute(
+      "href",
+      "/jobs/8?candidate=121",
+    );
+    const toggle = within(table).getByRole("button", { name: "Szczegóły: Java Lead" });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    await user.click(within(table).getByText("Telekom B"));
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    expect(document.getElementById("candidate-closed-recruitment-8-details")).not.toBeNull();
+    // Tytuł karty w rozwinięciu też prowadzi na Tablicę z otwartą osobą.
+    const card = document.getElementById("candidate-recruitment-8")!;
+    expect(within(card).getByRole("link", { name: "Java Lead" })).toHaveAttribute(
+      "href",
+      "/jobs/8?candidate=121",
+    );
+  });
+
   it("rozwinięty wiersz jest tylko do odczytu, a rekruter nie usuwa z zakończonej", async () => {
     const user = userEvent.setup();
     renderTab();
-    await user.click(screen.getByRole("button", { name: /Java Lead/ }));
+    await user.click(screen.getByRole("button", { name: "Szczegóły: Java Lead" }));
 
     const path = await screen.findByRole("list", { name: "Ścieżka etapów" });
     expect(path).toHaveTextContent(/Zweryfikowany.*Rozmowa u klienta/);
@@ -204,7 +236,7 @@ describe("RecruitmentsTab — zakończone: 5 ostatnich i ocena dopasowania", () 
   it("wiersz z adresu spoza piątki: od razu cała lista i rozwinięty wiersz", () => {
     renderTab({ history: many, focusedJobId: 100 });
     expect(document.getElementById("candidate-recruitment-100")).not.toBeNull();
-    expect(screen.getByRole("button", { name: "Zakończona 1" })).toHaveAttribute(
+    expect(screen.getByRole("button", { name: "Szczegóły: Zakończona 1" })).toHaveAttribute(
       "aria-expanded",
       "true",
     );
@@ -214,7 +246,7 @@ describe("RecruitmentsTab — zakończone: 5 ostatnich i ocena dopasowania", () 
   it("rozwinięty zakończony wiersz ma zwiniętą ocenę dopasowania tej rekrutacji", async () => {
     const user = userEvent.setup();
     renderTab();
-    await user.click(screen.getByRole("button", { name: /Java Lead/ }));
+    await user.click(screen.getByRole("button", { name: "Szczegóły: Java Lead" }));
     const details = document.getElementById("candidate-closed-recruitment-8-details")!;
     expect(within(details).queryByTestId("match-score")).toBeNull();
     await user.click(within(details).getByRole("button", { name: /Ocena dopasowania/ }));

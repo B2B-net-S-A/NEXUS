@@ -1781,7 +1781,8 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  ref={provided.innerRef}
  {...provided.droppableProps}
  className={cn(
- // Kolumna wypełnia wysokość boardu (flex-1), a sam board (przodek) jest
+ // Kolumna wypełnia wysokość pasa kolumn (flex-1) — czyli najdłuższej
+ // kolumny, nie tylko okna boardu — a sam board (przodek) jest
  // JEDYNYM scroll-kontenerem (oba kierunki). Dzięki temu @hello-pangea/dnd
  // śledzi scroll boardu i trafienia dropa zgadzają się z kursorem nawet po
  // auto-scrollu. Brak własnego overflow-y kolumny = brak zagnieżdżonego
@@ -4089,15 +4090,26 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapM
  // `lg:flex-1`, nie `flex-1`: poniżej `lg` opakowanie jest kolumną bez
  // określonej wysokości — tam `flex: 1 1 0%` zastąpiłoby wysokość z `style`
  // i tablica urosłaby do najdłuższej kolumny (bez własnego przewijania).
- "flex min-w-0 gap-3 overflow-auto pb-4 min-h-[280px] lg:flex-1",
+ "min-w-0 overflow-auto pb-4 min-h-[280px] lg:flex-1",
  // Na dotyku kolumna dociąga do krawędzi (17 rem przy 343 px ekranu =
  // jedna kolumna + skrawek). `proximity`, nie `mandatory`: mandatory
  // walczy z auto-scrollem @hello-pangea/dnd przy przeciąganiu karty.
  "pointer-coarse:snap-x pointer-coarse:snap-proximity",
- fullPipelineDesktop &&"xl:pointer-fine:gap-1",
  columnHeight == null && "h-[calc(100dvh-4rem)] md:h-[calc(100dvh-240px)]"
  )}
  style={columnHeight != null ? { height: columnHeight } : undefined}
+ >
+ {/* Pas kolumn (17.10.2026, zgłoszenie z filmikiem): rząd flex BEZ
+ własnej wysokości (`min-h-full` = co najmniej okno tablicy), więc ma
+ wysokość najdłuższej kolumny, a każda kolumna rozciąga się do niej.
+ Wcześniej rzędem był sam board o stałej wysokości: kolumny kończyły się
+ na dole okna, 29 kart „Screeningu” wystawało poza obrys, a po
+ przewinięciu w dół pod kartą nie było pola upuszczenia „Zweryfikowanego”
+ (trzeba było przewijać do góry). Pas nie przewija się sam — scroll
+ zostaje na boardzie, jedynym scroll-kontenerze dla @hello-pangea/dnd. */}
+ <div
+ data-testid="pipeline-board-track"
+ className={cn("flex min-h-full gap-3", fullPipelineDesktop && "xl:pointer-fine:gap-1")}
  >
  {boardEntries.length === 0 ? (
  <div className="flex-1 py-12 text-center text-sm text-muted-foreground">
@@ -4198,6 +4210,7 @@ headerAction={
  ))}
  </>
  )}
+ </div>
  </div>
  {closedColumn}
  </div>

@@ -178,7 +178,7 @@ def bell_content(
     )
 
 
-async def _stage_event_for(
+async def stage_event_for(
     db: AsyncSession,
     new_stage: CandidateStage,
     previous_stage: Optional[CandidateStage],
@@ -309,7 +309,7 @@ async def _notify(
 ) -> int:
     if job.client_id is None:
         return 0
-    event = await _stage_event_for(db, new_stage, previous_stage)
+    event = await stage_event_for(db, new_stage, previous_stage)
     if event is None:
         return 0
     markers = await load_employment_markers(

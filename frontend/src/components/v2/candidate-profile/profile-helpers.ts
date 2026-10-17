@@ -95,6 +95,15 @@ export function splitRecruitments<T extends RecruitmentHistoryItem>(
   return { active, ended };
 }
 
+/**
+ * Tablica rekrutacji z otwartą osobą (17.10.2026: klik w nazwę rekrutacji
+ * na profilu przenosi na pipeline). `?candidate=` otwiera dok osoby i znika
+ * z adresu — tak samo jak linki z powiadomień.
+ */
+export function candidateBoardHref(jobId: number, candidateId: number): string {
+  return `/jobs/${jobId}?candidate=${candidateId}`;
+}
+
 interface VerifiedSkillAggregate {
   skill?: string | null;
   level?: string | null;
