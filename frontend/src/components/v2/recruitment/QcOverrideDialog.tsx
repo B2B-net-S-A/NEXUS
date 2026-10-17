@@ -31,7 +31,9 @@ import {
   countForm,
   qcOverrideError,
   type QcOverrideReason,
+  type QcPendingItem,
 } from "@/lib/cv-qc";
+import { cn } from "@/lib/utils";
 
 /** Ile niepoprawionych rzeczy wymieniamy z nazwy — reszta jako „i N innych”. */
 const PENDING_SHOWN = 4;
@@ -42,6 +44,11 @@ export interface QcOverrideDialogProps {
   onOpenChange: (open: boolean) => void;
   /** Tytuły rzeczy, które zostają niepoprawione. */
   pending: string[];
+  /**
+   * Te same rzeczy z kluczami pozycji (D4, 17.10.2026): przy blokadzie wybór
+   * „Prawda” (domyślnie) / „QC się myli” — ten drugi idzie do „Jakość QC”.
+   */
+  pendingItems?: readonly QcPendingItem[];
   onChanged?: () => void;
   /** QC doradza, nie blokuje — inne nazwy tytułu, opisu i przycisku. */
   advisory?: boolean;
@@ -61,12 +68,15 @@ export function QcOverrideDialog({
   open,
   onOpenChange,
   pending,
+  pendingItems,
   onChanged,
   advisory = false,
   onDone,
 }: QcOverrideDialogProps) {
   const [reason, setReason] = useState<QcOverrideReason | null>(null);
   const [note, setNote] = useState("");
+  /** Indeksy rzeczy oznaczonych „QC się myli”. */
+  const [wrong, setWrong] = useState<ReadonlySet<number>>(new Set());
   const [touched, setTouched] = useState(false);
   const { showSuccess, showError } = useToast();
   const override = useQcOverride(stageId, onChanged);
@@ -79,6 +89,7 @@ export function QcOverrideDialog({
       setReason(null);
       setNote("");
       setTouched(false);
+      setWrong(new Set());
     }
     onOpenChange(next);
   };
@@ -86,16 +97,34 @@ export function QcOverrideDialog({
     setTouched(true);
     if (error || !reason || override.isPending) return;
     const clean = note.trim();
-    override.mutate(clean ? { reason_code: reason, reason: clean } : { reason_code: reason }, {
+    const wrongKeys = (pendingItems ?? []).flatMap((item, index) => (wrong.has(index) ? item.keys : []));
+    override.mutate(
+      {
+        reason_code: reason,
+        ...(clean ? { reason: clean } : {}),
+        ...(wrongKeys.length > 0 ? { wrong_keys: wrongKeys } : {}),
+      },
+      {
       onSuccess: (result) => {
         showSuccess("Przepuszczono mimo QC — powód zapisany w historii.");
         close(false);
         onDone?.(result);
       },
       onError: (err) => showError(apiErrorMessage(err, "Nie udało się przepuścić. Spróbuj ponownie.")),
-    });
+      },
+    );
   };
-  const rest = pending.length - PENDING_SHOWN;
+  const items: readonly QcPendingItem[] =
+    pendingItems ?? pending.map((title) => ({ title, keys: [], labelable: false }));
+  const rest = items.length - PENDING_SHOWN;
+  const labelable = items.slice(0, PENDING_SHOWN).some((item) => item.labelable);
+  const toggle = (index: number, isWrong: boolean) =>
+    setWrong((current) => {
+      const next = new Set(current);
+      if (isWrong) next.add(index);
+      else next.delete(index);
+      return next;
+    });
 
   return (
     <AppModal
@@ -128,14 +157,41 @@ export function QcOverrideDialog({
         }}
       >
         <div className="rounded-md border border-warning/40 bg-warning-muted px-3 py-2 text-sm text-warning-muted-foreground">
-          <p>{overrideSummary(pending.length)}</p>
-          {pending.length > 0 ? (
-            <ul className="mt-1 list-disc space-y-0.5 pl-5">
-              {pending.slice(0, PENDING_SHOWN).map((title, i) => (
-                <li key={i}>{title}</li>
+          <p>{overrideSummary(items.length)}</p>
+          {items.length > 0 ? (
+            <ul className="mt-1 list-disc space-y-1 pl-5">
+              {items.slice(0, PENDING_SHOWN).map((item, i) => (
+                <li key={i}>
+                  <span className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
+                    <span className="min-w-0">{item.title}</span>
+                    {item.labelable ? (
+                      <span role="group" aria-label={`Czy QC ma rację: ${item.title}`} className="flex flex-none gap-1">
+                        {[false, true].map((isWrong) => (
+                          <button
+                            key={String(isWrong)}
+                            type="button"
+                            aria-pressed={wrong.has(i) === isWrong}
+                            onClick={() => toggle(i, isWrong)}
+                            className={cn(
+                              "rounded border px-1.5 py-0.5 text-xs",
+                              wrong.has(i) === isWrong
+                                ? "border-foreground bg-foreground text-background"
+                                : "border-border bg-background text-foreground",
+                            )}
+                          >
+                            {isWrong ? "QC się myli" : "Prawda"}
+                          </button>
+                        ))}
+                      </span>
+                    ) : null}
+                  </span>
+                </li>
               ))}
               {rest > 0 ? <li>i {countForm(rest, ["inna", "inne", "innych"])}</li> : null}
             </ul>
+          ) : null}
+          {labelable ? (
+            <p className="mt-1.5 text-xs">„QC się myli” liczy się do trafności w „Jakość QC” — reszta to „prawda, ale przepuszczam”.</p>
           ) : null}
         </div>
         <RadioGroup

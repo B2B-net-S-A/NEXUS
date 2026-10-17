@@ -39,7 +39,7 @@ from bisect import bisect_left, bisect_right
 from collections.abc import Iterable
 from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timezone
-from typing import Any, Optional
+from typing import Any, Optional, Sequence
 
 from fastapi import HTTPException
 from fastapi.concurrency import run_in_threadpool
@@ -2613,6 +2613,7 @@ async def record_override(
     reason_code: Optional[str] = None,
     notify_reviewers: bool = False,
     note: Optional[str] = None,
+    wrong_keys: Sequence[str] = (),
 ) -> dict:
     """Obejście QC — wiersz przebiegu + Activity.
 
@@ -2627,12 +2628,20 @@ async def record_override(
     „Potwierdzone z kandydatem” przy każdej zablokowanej rzeczy bez źródła
     (`confirmable_terms`, ``note`` = opis z okna) — fakt z rozmowy zostaje
     w notatkach pary, a QC tego i kolejnych CV ma już źródło.
+
+    ``wrong_keys`` (D4, 17.10.2026) — blokady, które rekruter w oknie oznaczył
+    „QC się myli”: pominięcie z powodem ``qc_wrong_override`` (liczy się do
+    trafności w „Jakość QC”). Reszta blokad to „prawda, ale przepuszczam” —
+    obie listy zostają w przebiegu (`override_labels`).
     """
 
     from app.models.activity import Activity
 
+    from app.services import cv_finding_dismissals as dismissals
+
     src, checks, _ = await evaluate(db, stage)
     passed, blocking_failed, warnings_count = summarize(checks)
+    labels, wrong_items = override_labels(checks, wrong_keys)
     db.add(
         CvQcRun(
             candidate_id=src.candidate.id,
@@ -2654,6 +2663,7 @@ async def record_override(
                 # Obejście doradcze działa do zwrotu karty
                 # (`spend_advisory_overrides`).
                 "override_advisory": notify_reviewers,
+                "override_labels": labels,
             },
             override_reason=reason,
             override_by_user_id=user_id,
@@ -2674,9 +2684,47 @@ async def record_override(
                 "reason_code": reason_code,
                 "blocking_failed": blocking_failed,
                 "advisory": notify_reviewers,
+                "qc_wrong": len(labels["wrong"]),
             },
         )
     )
+    for check, item in wrong_items:
+        label = _dismissal_label(item)
+        created = await dismissals.insert_once(
+            db,
+            dismissals.new_row(
+                candidate_id=src.candidate.id,
+                job_id=src.job.id,
+                stage_id=stage.id,
+                source="qc",
+                check_key=check["key"],
+                key=item["key"],
+                label=label,
+                reason=WRONG_AT_OVERRIDE,
+                note=None,
+                quote=None,
+                blocking=True,
+                user_id=user_id,
+            ),
+        )
+        if created:
+            db.add(
+                Activity(
+                    entity_type="candidate_stage",
+                    entity_id=stage.id,
+                    action="cv_qc_dismissed",
+                    user_id=user_id,
+                    details={
+                        "candidate_id": src.candidate.id,
+                        "job_id": src.job.id,
+                        "check_key": check["key"],
+                        "label": label[:200],
+                        "reason": WRONG_AT_OVERRIDE,
+                        "blocking": True,
+                        "via": "override",
+                    },
+                )
+            )
     if notify_reviewers:
         await _notify_reviewers_of_override(
             db,
@@ -2775,6 +2823,50 @@ async def confirm_with_candidate(
 
 # Powód obejścia, który zapisuje potwierdzenia (D3, 17.10.2026).
 CONFIRMED_IN_CALL = "confirmed_in_call"
+# Powód pominięcia blokady oznaczonej „QC się myli” w oknie obejścia (D4).
+WRONG_AT_OVERRIDE = "qc_wrong_override"
+OVERRIDE_WRONG_MAX = 50
+
+
+def override_labels(
+    checks: list[dict], wrong_keys: Sequence[str]
+) -> tuple[dict[str, list[str]], list[tuple[dict, dict]]]:
+    """Etykiety blokad przy obejściu (D4): ``{"wrong": [...], "kept": [...]}``
+    i pozycje do pominięcia.
+
+    „QC się myli” tylko przy niezaliczonej blokadzie, którą wolno pominąć
+    (nie `cv_present` / `client_rules`) i o kluczu z bieżącego przebiegu —
+    klucz od klienta, którego QC nie zgłasza, nic nie znaczy.
+    """
+    from app.services.cv_finding_dismissals import NOT_DISMISSABLE
+
+    wanted = set(list(wrong_keys)[:OVERRIDE_WRONG_MAX])
+    labels: dict[str, list[str]] = {"wrong": [], "kept": []}
+    items: list[tuple[dict, dict]] = []
+    for check in checks:
+        if check.get("severity") != "blocking" or check.get("status") != "fail":
+            continue
+        for item in check.get("items") or []:
+            key = item.get("key")
+            if not key:
+                continue
+            if key in wanted and check["key"] not in NOT_DISMISSABLE:
+                labels["wrong"].append(key)
+                items.append((check, item))
+            else:
+                labels["kept"].append(key)
+    return labels, items
+
+
+def _dismissal_label(item: dict) -> str:
+    return " · ".join(
+        str(part)
+        for part in (
+            item.get("requirement") or item.get("term") or item.get("detail"),
+            item.get("role"),
+        )
+        if part
+    )
 
 
 def confirmable_terms(checks: list[dict]) -> list[str]:
@@ -2910,14 +3002,7 @@ async def dismiss_finding(
                 "Wklej fragment oryginału, notatki albo odpowiedzi, w którym to stoi "
                 "— nie znalazłem go w źródłach."
             )
-    label = " · ".join(
-        str(part)
-        for part in (
-            item.get("requirement") or item.get("term") or item.get("detail"),
-            item.get("role"),
-        )
-        if part
-    )
+    label = _dismissal_label(item)
     created = await dismissals.insert_once(
         db,
         dismissals.new_row(

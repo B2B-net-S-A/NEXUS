@@ -15,7 +15,7 @@
  */
 
 import type { QcResult } from "@/lib/api/cvQc";
-import { countForm, splitChecks, taskTitle, thingsLabel } from "@/lib/cv-qc";
+import { countForm, splitChecks, taskPendingItem, taskTitle, thingsLabel, type QcPendingItem } from "@/lib/cv-qc";
 
 /** Pole „Uwaga dla Delivery Leada” — lustro `StageMove.recruiter_remark` (max 2000). */
 export const HANDOFF_REMARK_MAX = 2000;
@@ -49,7 +49,7 @@ export type HandoffGate =
   /** QC się liczy — przekazanie czeka na wynik. */
   | { kind: "waiting" }
   /** Blokady QC: przekazanie przez obejście z powodem. */
-  | { kind: "override"; advisory: boolean; pending: string[] }
+  | { kind: "override"; advisory: boolean; pending: string[]; pendingItems: QcPendingItem[] }
   /** Blokady QC, a ta osoba nie może przepuścić (poza trybem doradczym). */
   | { kind: "blocked" };
 
@@ -74,10 +74,12 @@ export function handoffGate(count: HandoffQcState, options: HandoffGateOptions):
   if (cleared || qc.blocking_failed <= 0) return { kind: "ready" };
   const canOverride = !options.impersonating && (qc.can_override ?? options.canManage);
   if (!canOverride) return { kind: "blocked" };
+  const tasks = splitChecks(qc.checks).tasks;
   return {
     kind: "override",
     advisory: qc.advisory ?? options.advisoryFallback ?? false,
-    pending: splitChecks(qc.checks).tasks.map(taskTitle),
+    pending: tasks.map(taskTitle),
+    pendingItems: tasks.map(taskPendingItem),
   };
 }
 

@@ -41,6 +41,10 @@ REASONS: dict[str, tuple[str, bool]] = {
     # poprawy” (17.10.2026): rekruter sprawdził i zostawia treść, jednym
     # kliknięciem, bez formularza — decyzja, nie dowód, że uwaga kłamie.
     "kept": ("Sprawdzone — zostaje w CV", False),
+    # „QC się myli” przy blokadzie w oknie „Przesuń mimo uwag…” (D4,
+    # 17.10.2026): jedno kliknięcie przy obejściu — pomiar 17.10 dał 4 „To
+    # nieprawda” na 47 obejść, więc „Jakość QC” nie miała z czego liczyć.
+    "qc_wrong_override": ("QC się myli — zaznaczone przy przepuszczeniu", True),
 }
 # Powody, które pasują tylko do części uwag: sprawdzenie QC albo źródło uwagi
 # w edytorze („generator”, „review”).

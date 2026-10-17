@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -98,6 +98,29 @@ describe("QcOverrideDialog — „Przepuść mimo QC”", () => {
     await userEvent.click(screen.getByRole("button", { name: "Przepuść CV" }));
     await waitFor(() =>
       expect(post).toHaveBeenCalledWith(OVERRIDE_URL, { reason_code: "confirmed_in_call", reason: "Spring Boot w Acme" }),
+    );
+  });
+
+  it("„QC się myli” przy blokadzie jedzie jako `wrong_keys` (D4); reguł klienta nie da się oznaczyć", async () => {
+    renderDialog(["Jenkins — jest w CV, a nie ma tego w oryginale", "Brak zrzutu zgody RODO"], {
+      pendingItems: [
+        { title: "Jenkins — jest w CV, a nie ma tego w oryginale", keys: ["no_unsupported|jenkins|cv"], labelable: true },
+        { title: "Brak zrzutu zgody RODO", keys: ["client_rules|rodo|cv"], labelable: false },
+      ],
+    });
+    expect(screen.getAllByRole("group", { name: /Czy QC ma rację/ })).toHaveLength(1);
+    const group = screen.getByRole("group", { name: "Czy QC ma rację: Jenkins — jest w CV, a nie ma tego w oryginale" });
+    expect(within(group).getByRole("button", { name: "Prawda" })).toHaveAttribute("aria-pressed", "true");
+    await userEvent.click(within(group).getByRole("button", { name: "QC się myli" }));
+    expect(within(group).getByRole("button", { name: "QC się myli" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByText(/liczy się do trafności w „Jakość QC”/)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("radio", { name: "Klient prosił o krótsze CV" }));
+    await userEvent.click(screen.getByRole("button", { name: "Przepuść CV" }));
+    await waitFor(() =>
+      expect(post).toHaveBeenCalledWith(OVERRIDE_URL, {
+        reason_code: "client_short_cv",
+        wrong_keys: ["no_unsupported|jenkins|cv"],
+      }),
     );
   });
 

@@ -4159,6 +4159,118 @@ async def test_override_confirmed_in_call_saves_confirmations(
         await _cleanup_advisory(world, stage_id, [hor_id])
 
 
+def test_override_labels_mark_only_current_dismissable_blockers() -> None:
+    """D4 (17.10.2026): „QC się myli” przy blokadzie w oknie obejścia."""
+
+    def chk(key: str, severity: str, status: str, keys: list[str]) -> dict:
+        return {
+            "key": key,
+            "severity": severity,
+            "status": status,
+            "items": [{"key": k, "term": k.split("|")[1]} for k in keys],
+        }
+
+    checks = [
+        chk("no_unsupported", "blocking", "fail", ["no_unsupported|spring|cv"]),
+        chk(
+            "critical_skills",
+            "blocking",
+            "fail",
+            ["critical_skills|kafka|acme", "critical_skills|scala|cv"],
+        ),
+        # Reguł klienta nie da się pominąć — zostaje „prawda”.
+        chk("client_rules", "blocking", "fail", ["client_rules|rodo|cv"]),
+        chk("must_in_cv", "warning", "fail", ["must_in_cv|terraform|cv"]),
+    ]
+    labels, items = qc.override_labels(
+        checks,
+        [
+            "no_unsupported|spring|cv",
+            "client_rules|rodo|cv",
+            "must_in_cv|terraform|cv",  # uwaga, nie blokada
+            "nie|ma|takiej",  # klucz spoza przebiegu
+        ],
+    )
+    assert labels == {
+        "wrong": ["no_unsupported|spring|cv"],
+        "kept": [
+            "critical_skills|kafka|acme",
+            "critical_skills|scala|cv",
+            "client_rules|rodo|cv",
+        ],
+    }
+    assert [(c["key"], i["key"]) for c, i in items] == [
+        ("no_unsupported", "no_unsupported|spring|cv")
+    ]
+    assert qc.WRONG_AT_OVERRIDE == "qc_wrong_override"
+
+
+def test_override_request_cleans_wrong_keys() -> None:
+    from app.api.cv_qc import QcOverrideRequest
+
+    body = QcOverrideRequest(
+        reason_code="client_short_cv",
+        wrong_keys=[" no_unsupported|spring|cv ", "no_unsupported|spring|cv", "  "],
+    )
+    assert body.wrong_keys == ["no_unsupported|spring|cv"]
+    assert QcOverrideRequest(reason_code="client_short_cv").wrong_keys == []
+
+
+@pytest.mark.asyncio
+async def test_override_marks_qc_wrong_and_quality_counts_it(
+    api_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """D4: blokada oznaczona w oknie obejścia „QC się myli” to pominięcie
+    `qc_wrong_override` — liczy się do trafności w „Jakość QC”."""
+    from app.models.cv_finding_dismissal import CvFindingDismissal
+    from app.models.job import Job
+    from app.services import qc_quality
+
+    monkeypatch.setenv("NORDEA_ORDER_NUMBER_CLIENT_IDS", "")
+    world = await _seed_world()
+    hor_id, hor_creds = await _seed_user(UserRole.head_of_recruitment)
+    hor = await _login(api_client, hor_creds)
+    stage_id = await _seed_review(world, hor, api_client)
+    async with AsyncSessionLocal() as db:
+        job = await db.get(Job, world["job_id"])
+        job.must_skills = ["Java", "Spring"]
+        await db.commit()
+    qc_url = f"/api/pipeline/stages/{stage_id}/qc"
+    try:
+        with hydrated_taxonomy():
+            before = (await api_client.get(qc_url, headers=hor)).json()
+        check = next(c for c in before["checks"] if c["key"] == "no_unsupported")
+        (key,) = [i["key"] for i in check["items"]]
+        with hydrated_taxonomy():
+            ok = await api_client.post(
+                f"{qc_url}/override",
+                headers=hor,
+                json={"reason_code": "client_short_cv", "wrong_keys": [key]},
+            )
+        assert ok.status_code == 200, ok.text
+        async with AsyncSessionLocal() as db:
+            row = await db.scalar(
+                select(CvFindingDismissal).where(
+                    CvFindingDismissal.candidate_id == world["candidate_id"],
+                    CvFindingDismissal.finding_key == key,
+                )
+            )
+            run = await db.scalar(
+                select(CvQcRun)
+                .where(
+                    CvQcRun.candidate_id == world["candidate_id"],
+                    CvQcRun.override_reason.is_not(None),
+                )
+                .order_by(CvQcRun.id.desc())
+            )
+            report = await qc_quality.report(db)
+        assert row is not None and row.reason == "qc_wrong_override" and row.blocking
+        assert run.result["override_labels"]["wrong"] == [key]
+        assert report["no_unsupported"]["dismissed_wrong"] >= 1
+    finally:
+        await _cleanup_advisory(world, stage_id, [hor_id])
+
+
 def test_confirmable_terms_are_unsupported_terms_and_absent_critical_skills() -> None:
     def chk(key: str, status: str, items: list[dict]) -> dict:
         return {"key": key, "status": status, "severity": "blocking", "items": items}

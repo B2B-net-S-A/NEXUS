@@ -331,6 +331,8 @@ export function useQcApply(stageId: number | null, onChanged?: () => void) {
 export interface QcOverrideBody {
   reason_code: string;
   reason?: string;
+  /** Blokady oznaczone „QC się myli” (D4) — klucze pozycji z bieżącego przebiegu. */
+  wrong_keys?: string[];
 }
 
 /**

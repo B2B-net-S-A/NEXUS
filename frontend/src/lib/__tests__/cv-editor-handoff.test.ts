@@ -48,6 +48,8 @@ describe("handoffGate", () => {
       kind: "override",
       advisory: true,
       pending: ["Jenkins — jest w CV, a nie ma tego w oryginale"],
+      // Bez klucza pozycji (przebieg sprzed 13.10) nie ma czego oznaczyć „QC się myli”.
+      pendingItems: [{ title: "Jenkins — jest w CV, a nie ma tego w oryginale", keys: [], labelable: false }],
     });
   });
 
