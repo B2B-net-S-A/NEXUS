@@ -497,8 +497,7 @@ async def test_off_module_off_and_allowlist(people_module, monkeypatch) -> None:
             db, ops=directory, mode="live", now=now, user_ids=[person.id, other.id]
         )
 
-    assert off == {"mode": "off"}
-    assert module_off == {"mode": "live", "skipped": "module_off"}
+    assert off == module_off == {"status": "disabled"}
     assert result["updated"] == 1 and result["not_allowlisted"] == 1
     assert directory.calls == [person.email]
 

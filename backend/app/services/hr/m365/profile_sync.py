@@ -59,8 +59,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.hr_ops import HrAuditEvent
 from app.models.hr_profile import EmployeeProfile
 from app.models.user import User
-from app.services.hr import audit
-from app.services.hr.m365 import runs
+from app.services.hr import audit, job_runs
 from app.services.hr.m365.directory import (
     FIELDS,
     MANAGER_SELECT,
@@ -81,7 +80,7 @@ from app.services.hr.m365.executor import (
     warsaw_today,
 )
 from app.services.hr.m365.ops import MailboxError
-from app.services.hr.modules import load_modules
+from app.services.hr.modules import HrModule, load_modules
 from app.services.hr.people import DIRECTORY_STATUSES
 
 logger = logging.getLogger(__name__)
@@ -303,19 +302,19 @@ async def run_once(
 
     mode = mode or current_mode()
     if mode == "off":
-        return {"mode": "off"}
+        return {"status": "disabled"}
     now = now or utc_now()
     if warsaw_hour(now) < SYNC_HOUR:
         return {"mode": mode, "skipped": "before_06"}
-    if not (await load_modules(db)).get("people"):
-        return {"mode": mode, "skipped": "module_off"}
+    if not (await load_modules(db)).get(HrModule.people):
+        return {"status": "disabled"}
     if mode == "live" and ops is None:
         from app.services.hr.m365.auth import credentials_configured
 
         if not credentials_configured():
             return {"mode": mode, "skipped": "no_credentials"}
 
-    run_id = await runs.claim(db, JOB_KIND, warsaw_today(now).isoformat(), now)
+    run_id = await job_runs.claim(db, JOB_KIND, warsaw_today(now).isoformat(), now)
     if run_id is None:
         return {"mode": mode, "skipped": "already_ran"}
 
@@ -328,7 +327,7 @@ async def run_once(
     except Exception as exc:  # noqa: BLE001 — przebieg do ponowienia, nie cichy sukces
         logger.exception("hr_m365_profile_sync failed")
         await db.rollback()
-        await runs.finish(
+        await job_runs.finish(
             db, run_id, status="failed", counts={"mode": mode}, error=type(exc).__name__
         )
         return {"mode": mode, "failed": type(exc).__name__}
@@ -342,7 +341,7 @@ async def run_once(
         counts["manager_request"] = MANAGER_REQUEST_TEMPLATE
     if error is not None:
         logger.warning("hr_m365_profile_sync stopped: %s", error)
-        await runs.finish(db, run_id, status="failed", counts=counts, error=error)
+        await job_runs.finish(db, run_id, status="failed", counts=counts, error=error)
         return {**counts, "failed": error}
-    await runs.finish(db, run_id, status="done", counts=counts)
+    await job_runs.finish(db, run_id, status="done", counts=counts)
     return counts

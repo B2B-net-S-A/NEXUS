@@ -19,7 +19,6 @@ nie niesie kwoty; kwota zostaje w ``hr_audit_events`` z ``sensitivity='payroll'`
 
 from __future__ import annotations
 
-import logging
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
@@ -34,6 +33,7 @@ from app.models.hr_profile import EmployeeProfile
 from app.models.notification import NotificationType
 from app.models.user import User
 from app.services.hr import audit
+from app.services.hr.notify import notify_each
 from app.services.hr.payroll_access import PayrollViewer
 from app.services.hr.payroll_errors import (
     PayrollConflict,
@@ -53,9 +53,6 @@ from app.services.hr_payroll_schema import (
     CURRENCIES,
     DESCRIPTION_MAX_LENGTH,
 )
-from app.services.notification_triggers import emit
-
-logger = logging.getLogger(__name__)
 
 BONUS_PERIOD_MAX_MONTHS_BACK = 12
 BONUS_MAX = Decimal("1000000")
@@ -172,20 +169,18 @@ async def names_for(db: AsyncSession, bonuses: list[HrBonus]) -> dict[int, str]:
 async def _notify(
     db: AsyncSession, bonus: HrBonus, *, title: str, message: str
 ) -> None:
-    try:
-        async with db.begin_nested():
-            await emit(
-                db,
-                user_id=bonus.recipient_user_id,
-                title=title,
-                message=message,
-                ntype=NotificationType.hr_bonus_assigned,
-                related_entity_type="hr_bonus",
-                related_entity_id=bonus.id,
-                link="/my-time?tab=bonuses",
-            )
-    except Exception:  # noqa: BLE001 — dzwonek nie cofa decyzji o premii
-        logger.exception("[payroll] dzwonek o premii nie wyszedł bonus=%s", bonus.id)
+    # Dzwonek nie cofa decyzji o premii (``notify_each`` łapie awarię).
+    await notify_each(
+        db,
+        [bonus.recipient_user_id],
+        title=title,
+        message=message,
+        ntype=NotificationType.hr_bonus_assigned,
+        link="/my-time?tab=bonuses",
+        related_entity_type="hr_bonus",
+        related_entity_id=bonus.id,
+        log_tag="payroll",
+    )
 
 
 def _audit(

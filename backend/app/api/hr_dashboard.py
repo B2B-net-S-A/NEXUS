@@ -14,16 +14,16 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import require_onboarded_user
-from app.api.hr_gates import MODULE_DISABLED_DETAIL
+from app.api.hr_gates import ensure_module
 from app.core.database import get_db
 from app.models.user import User, UserRole
-from app.services.hr import modules as hr_modules
+from app.services.hr.modules import HrModule
 from app.services.hr.substitution_summary import substitution_summary
 
 router = APIRouter()
 
 #: Zastępstwa wynikają z urlopów — kafelek żyje razem z modułem urlopów.
-MODULE = "leave"
+MODULE = HrModule.leave
 STAFF_DETAIL = "Zastępstwa widzą pracownicy firmy."
 #: Konta, które nie są ludźmi zatrudnionymi w firmie (jak „Nieobecni dziś”).
 _NOT_STAFF = {UserRole.automation, UserRole.user}
@@ -36,9 +36,7 @@ def require_hr_substitution_reader():
         current_user: User = Depends(require_onboarded_user),
         db: AsyncSession = Depends(get_db),
     ) -> User:
-        loaded = await hr_modules.load_modules(db)
-        if not hr_modules.module_open_for(current_user, loaded, MODULE):
-            raise HTTPException(status.HTTP_404_NOT_FOUND, MODULE_DISABLED_DETAIL)
+        await ensure_module(db, current_user, MODULE)
         if current_user.has_role(UserRole.admin):
             return current_user
         if not set(current_user.get_all_roles()) - _NOT_STAFF:

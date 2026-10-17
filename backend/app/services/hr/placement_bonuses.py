@@ -7,7 +7,8 @@ przełożony zatwierdzają.
 
 Dla kontraktu z datą startu (status aktywny, kończący się albo zakończony):
 
-* termin premii = start + 21 polskich dni roboczych (``bonus_rules``),
+* termin premii = start + 21 dni roboczych firmy (``bonus_rules``, kalendarz
+  firmy z dniami wolnymi — jak urlop),
 * okres premii = miesiąc terminu (zamknięty miesiąc → pierwszy otwarty),
   wybierany pod blokadą współdzieloną okresu — miesiąc, który właśnie się
   zamyka, automat omija, zamiast dorzucić do niego propozycję,
@@ -37,12 +38,13 @@ wpina koordynator w ``app/api/contracts.py``; codzienny przebieg
 from __future__ import annotations
 
 import logging
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date, timedelta
 from decimal import Decimal
 from typing import Any, Optional
 
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.scheduling import business_today, local_now
@@ -62,11 +64,14 @@ from app.services.hr.bonus_rules import (
     dl_bonus,
     eligible_date,
     extra_dl_recipient,
+    load_bonus_calendar,
     load_rules,
     money,
     recruiter_bonus,
     recruiter_tier,
 )
+from app.services.hr.calendar import WorkCalendar
+from app.services.hr.modules import HrModule
 from app.services.hr.payroll_bonuses import AUTO_CANCEL_REASONS
 from app.services.hr.payroll_periods import (
     YearMonth,
@@ -151,57 +156,96 @@ async def contract_margin(db: AsyncSession, contract: Contract, on: date) -> Mar
     return Margin(per_hour, snapshot, None)
 
 
-async def placement_people(
-    db: AsyncSession, contract: Contract
-) -> tuple[Optional[int], Optional[int], str]:
-    """(Delivery Lead, rekruter, skąd DL): z rekrutacji kontraktu, DL zapasowo z klienta."""
+@dataclass(frozen=True)
+class PlacementContext:
+    """Rekrutacje, Delivery Leadzi klientów i nazwy dla paczki kontraktów.
 
-    dl_id: Optional[int] = None
-    recruiter_id: Optional[int] = None
-    if contract.job_id is not None:
-        row = (
-            await db.execute(
-                select(Job.delivery_lead_id, Job.recruiter_id).where(
-                    Job.id == contract.job_id
-                )
+    Wczytane hurtowo (``load_context``): prognoza „w drodze” pyta bazę tyle
+    samo razy dla jednego i dla dwudziestu kontraktów.
+    """
+
+    #: rekrutacja → (Delivery Lead, rekruter)
+    jobs: dict[int, tuple[Optional[int], Optional[int]]]
+    #: klient → [(Delivery Lead, czy „głowa”)] — tylko klienci bez DL z rekrutacji
+    client_leads: dict[int, list[tuple[int, bool]]]
+    candidates: dict[int, str]
+    clients: dict[int, str]
+
+    def people(self, contract: Contract) -> tuple[Optional[int], Optional[int], str]:
+        """(Delivery Lead, rekruter, skąd DL): z rekrutacji, DL zapasowo z klienta."""
+
+        dl_id, recruiter_id = self.jobs.get(contract.job_id, (None, None))
+        if dl_id is not None:
+            return dl_id, recruiter_id, "job"
+        rows = self.client_leads.get(contract.client_id, [])
+        heads = [uid for uid, head in rows if head]
+        if len(heads) == 1:
+            return heads[0], recruiter_id, "client_head"
+        if len(rows) == 1:
+            return rows[0][0], recruiter_id, "client_assignment"
+        return None, recruiter_id, "none"
+
+    def names(self, contract: Contract) -> tuple[str, str]:
+        """(konsultant, klient) do opisu premii — z zapasowymi słowami bez nazw."""
+
+        candidate = self.candidates.get(contract.candidate_id) or "konsultant"
+        client = self.clients.get(contract.client_id) or "klient"
+        return candidate, client
+
+
+async def load_context(
+    db: AsyncSession, contracts: Sequence[Contract]
+) -> PlacementContext:
+    """Najwyżej cztery zapytania niezależnie od liczby kontraktów."""
+
+    job_ids = sorted({c.job_id for c in contracts if c.job_id is not None})
+    jobs: dict[int, tuple[Optional[int], Optional[int]]] = {}
+    if job_ids:
+        rows = await db.execute(
+            select(Job.id, Job.delivery_lead_id, Job.recruiter_id).where(
+                Job.id.in_(job_ids)
             )
-        ).first()
-        if row is not None:
-            dl_id, recruiter_id = row[0], row[1]
-    if dl_id is not None:
-        return dl_id, recruiter_id, "job"
-    rows = (
-        await db.execute(
+        )
+        jobs = {job_id: (dl, recruiter) for job_id, dl, recruiter in rows.all()}
+    # DL klienta potrzebny tylko tam, gdzie rekrutacja go nie wskazuje.
+    fallback_clients = sorted(
+        {
+            c.client_id
+            for c in contracts
+            if c.client_id is not None and jobs.get(c.job_id, (None, None))[0] is None
+        }
+    )
+    client_leads: dict[int, list[tuple[int, bool]]] = {}
+    if fallback_clients:
+        rows = await db.execute(
             select(
+                DeliveryLeadClientAssignment.client_id,
                 DeliveryLeadClientAssignment.delivery_lead_user_id,
                 DeliveryLeadClientAssignment.is_head,
-            ).where(DeliveryLeadClientAssignment.client_id == contract.client_id)
+            ).where(DeliveryLeadClientAssignment.client_id.in_(fallback_clients))
         )
-    ).all()
-    heads = [uid for uid, head in rows if head]
-    if len(heads) == 1:
-        return heads[0], recruiter_id, "client_head"
-    if len(rows) == 1:
-        return rows[0][0], recruiter_id, "client_assignment"
-    return None, recruiter_id, "none"
-
-
-async def placement_names(db: AsyncSession, contract: Contract) -> tuple[str, str]:
-    """(konsultant, klient) do opisu premii — z zapasowymi słowami bez nazw."""
-
-    candidate = None
-    if contract.candidate_id:
-        row = (
-            await db.execute(
-                select(Candidate.name, Candidate.lastname).where(
-                    Candidate.id == contract.candidate_id
-                )
+        for client_id, lead_id, is_head in rows.all():
+            client_leads.setdefault(client_id, []).append((lead_id, is_head))
+    candidate_ids = sorted({c.candidate_id for c in contracts if c.candidate_id})
+    candidates: dict[int, str] = {}
+    if candidate_ids:
+        rows = await db.execute(
+            select(Candidate.id, Candidate.name, Candidate.lastname).where(
+                Candidate.id.in_(candidate_ids)
             )
-        ).first()
-        if row is not None:
-            candidate = " ".join(part for part in row if part) or None
-    client = await db.scalar(select(Client.name).where(Client.id == contract.client_id))
-    return candidate or "konsultant", client or "klient"
+        )
+        for candidate_id, *parts in rows.all():
+            full = " ".join(part for part in parts if part)
+            if full:
+                candidates[candidate_id] = full
+    client_ids = sorted({c.client_id for c in contracts if c.client_id is not None})
+    clients: dict[int, str] = {}
+    if client_ids:
+        rows = await db.execute(
+            select(Client.id, Client.name).where(Client.id.in_(client_ids))
+        )
+        clients = {client_id: name for client_id, name in rows.all() if name}
+    return PlacementContext(jobs, client_leads, candidates, clients)
 
 
 def automation_floor(rules: BonusRules, today: date) -> date:
@@ -285,7 +329,11 @@ def _edited(bonus: HrBonus) -> bool:
 
 
 async def _lock_periods(
-    db: AsyncSession, contract: Contract, rules: BonusRules, today: date
+    db: AsyncSession,
+    contract: Contract,
+    rules: BonusRules,
+    today: date,
+    calendar: Optional[WorkCalendar],
 ) -> Optional[YearMonth]:
     """Okresy premii kontraktu pod ``FOR SHARE``, ZANIM ruszymy premie.
 
@@ -313,7 +361,8 @@ async def _lock_periods(
         return None
     if not held and contract.start_date < automation_floor(rules, today):
         return None
-    eligible_on = eligible_date(contract.start_date, rules)
+    assert calendar is not None
+    eligible_on = eligible_date(contract.start_date, rules, calendar=calendar)
     return await first_open_month_locked(db, eligible_on.year, eligible_on.month)
 
 
@@ -323,8 +372,13 @@ async def reconcile_contract(
     *,
     today: Optional[date] = None,
     rules: Optional[BonusRules] = None,
+    calendar: Optional[WorkCalendar] = None,
 ) -> dict[str, Any]:
-    """Uzgadnia propozycje premii jednego kontraktu z jego stanem (bez commita)."""
+    """Uzgadnia propozycje premii jednego kontraktu z jego stanem (bez commita).
+
+    ``calendar`` — kalendarz firmy z dniami wolnymi (przebieg dzienny podaje
+    jeden dla wszystkich kontraktów); bez niego wczytany dla tego kontraktu.
+    """
 
     today = today or business_today()
     rules = rules or await load_rules(db)
@@ -334,7 +388,10 @@ async def reconcile_contract(
     )
     if contract is None:
         return {**counts, "skipped": "not_found"}
-    locked_target = await _lock_periods(db, contract, rules, today)
+    if calendar is None and contract.start_date is not None:
+        start = contract.start_date
+        calendar = await load_bonus_calendar(db, start, max(start, today), rules)
+    locked_target = await _lock_periods(db, contract, rules, today, calendar)
     existing = {
         bonus.source_key: bonus
         for bonus in await db.scalars(
@@ -360,10 +417,12 @@ async def reconcile_contract(
         return {**counts, "skipped": "before_automation_window"}
 
     start = contract.start_date
-    eligible_on = eligible_date(start, rules)
+    assert calendar is not None
+    eligible_on = eligible_date(start, rules, calendar=calendar)
     ended_early = ends_before_deadline(contract, eligible_on)
     margin = await contract_margin(db, contract, start)
-    dl_id, recruiter_id, people_source = await placement_people(db, contract)
+    context = await load_context(db, [contract])
+    dl_id, recruiter_id, people_source = context.people(contract)
 
     # Nieznana marża (brak stawki albo kursu) = brak propozycji automatu.
     targets: dict[str, tuple[int, Decimal, str]] = {
@@ -377,7 +436,7 @@ async def reconcile_contract(
     period = (eligible_on.year, eligible_on.month)
     target_period = locked_target or await first_open_month_locked(db, *period)
     closed = await closed_months(db)
-    candidate_name, client_name = await placement_names(db, contract)
+    candidate_name, client_name = context.names(contract)
     common: dict[str, Any] = {
         "rule": "placement",
         "contract_id": contract.id,
@@ -525,12 +584,26 @@ async def sync_placements(
         "errors": 0,
     }
     skipped: dict[str, int] = {}
-    for contract_id in await contracts_to_reconcile(db, today=today, rules=rules):
+    contract_ids = await contracts_to_reconcile(db, today=today, rules=rules)
+    calendar: Optional[WorkCalendar] = None
+    if contract_ids:
+        # Jeden kalendarz firmy na przebieg (a nie zapytanie na kontrakt).
+        first, last = (
+            await db.execute(
+                select(
+                    func.min(Contract.start_date), func.max(Contract.start_date)
+                ).where(Contract.id.in_(contract_ids))
+            )
+        ).one()
+        calendar = await load_bonus_calendar(
+            db, first or today, max(last or today, today), rules
+        )
+    for contract_id in contract_ids:
         totals["contracts"] += 1
         try:
             async with db.begin_nested():
                 counts = await reconcile_contract(
-                    db, contract_id, today=today, rules=rules
+                    db, contract_id, today=today, rules=rules, calendar=calendar
                 )
         except Exception:  # noqa: BLE001 — jeden kontrakt nie zatrzymuje reszty
             logger.exception(
@@ -554,8 +627,8 @@ async def _hook(db: AsyncSession, contract: Contract, event: str) -> dict[str, A
 
     try:
         modules = await hr_modules.load_modules(db)
-        if not modules.get("payroll"):
-            return {"skipped": "module_off"}
+        if not modules.get(HrModule.payroll):
+            return {"status": "disabled"}
         async with db.begin_nested():
             return await reconcile_contract(db, contract.id)
     except Exception as exc:  # noqa: BLE001 — patrz docstring
@@ -629,17 +702,17 @@ async def on_contract_end_undone(
 
 __all__ = [
     "ROLES",
+    "PlacementContext",
     "PlacementTarget",
     "automation_floor",
     "contract_margin",
     "ends_before_deadline",
+    "load_context",
     "on_contract_deleted",
     "on_contract_end_undone",
     "on_contract_ended",
     "on_contract_started",
     "placement_description",
-    "placement_names",
-    "placement_people",
     "placement_targets",
     "reconcile_contract",
     "source_key",

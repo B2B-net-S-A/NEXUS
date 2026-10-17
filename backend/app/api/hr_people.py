@@ -21,6 +21,7 @@ from app.services.action_permissions import ProductAction, has_permission
 from app.services.hr import modules as hr_modules
 from app.services.admin_cases import service as admin_cases_service
 from app.services.hr import leave_substitute, people
+from app.services.hr_foundation_schema import EmploymentStatus
 
 router = APIRouter()
 
@@ -40,7 +41,7 @@ async def hr_config(
         },
         "me": {
             "has_profile": profile is not None
-            and profile.employment_status != "exited",
+            and profile.employment_status != EmploymentStatus.exited,
             "employment_status": profile.employment_status if profile else None,
             "is_manager": bool(reports),
             # Kogo osoba zastępuje dziś (przełożony na urlopie) — „Akceptacje”.

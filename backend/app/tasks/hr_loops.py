@@ -149,7 +149,7 @@ async def hr_m365_reconcile_job(db: AsyncSession) -> dict[str, Any] | None:
     from app.services.hr.m365 import reconcile
 
     result = await reconcile.run_once(db)
-    if result.get("skipped") or result == {"mode": "off"}:
+    if result.get("skipped") or result.get("status") == "disabled":
         return None
     return result
 
@@ -195,7 +195,7 @@ async def hr_m365_daily_job(db: AsyncSession) -> dict[str, Any] | None:
         logger.exception("hr_m365_daily secret check failed")
         await db.rollback()
     sync = await profile_sync.run_once(db)
-    if sync != {"mode": "off"} and not sync.get("skipped"):
+    if sync.get("status") != "disabled" and not sync.get("skipped"):
         result["profiles"] = sync
     return result or None
 
@@ -328,7 +328,7 @@ async def hr_bonus_proposals_job(db: AsyncSession) -> dict[str, Any] | None:
     from app.services.hr.payroll_jobs import run_once
 
     result = await run_once(db)
-    return None if result.get("skipped") == "module_off" else result
+    return None if result.get("status") == "disabled" else result
 
 
 async def hr_bonus_proposals_loop() -> None:

@@ -32,7 +32,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import require_onboarded_user
-from app.api.hr_gates import MODULE_DISABLED_DETAIL
+from app.api.hr_gates import ensure_module
 from app.core.database import get_db
 from app.core.scheduling import business_today
 from app.models.hr_payroll import HrBonus
@@ -53,6 +53,7 @@ from app.services.hr import (
     payroll_rates,
     payroll_report,
 )
+from app.services.hr.modules import HrModule
 from app.services.hr.payroll_access import PayrollViewer, is_payroll, load_viewer
 from app.services.hr.payroll_errors import PayrollError
 from app.services.permission_denial import permission_denied
@@ -60,7 +61,7 @@ from app.services.permission_denial import permission_denied
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
-MODULE = "payroll"
+MODULE = HrModule.payroll
 NOT_MEMBER_DETAIL = (
     "Płace widzą osoby z kartoteką pracownika, ich przełożeni i dział Płac."
 )
@@ -72,12 +73,6 @@ MONTHS_LISTED = 13
 # ── Bramki ────────────────────────────────────────────────────────────────────
 
 
-async def _module_open(db: AsyncSession, user: User) -> None:
-    loaded = await hr_modules.load_modules(db)
-    if not hr_modules.module_open_for(user, loaded, MODULE):
-        raise HTTPException(status.HTTP_404_NOT_FOUND, MODULE_DISABLED_DETAIL)
-
-
 def require_hr_payroll_admin():
     """Uprawnienie „Płace” (admin zawsze)."""
 
@@ -85,7 +80,7 @@ def require_hr_payroll_admin():
         current_user: User = Depends(require_onboarded_user),
         db: AsyncSession = Depends(get_db),
     ) -> User:
-        await _module_open(db, current_user)
+        await ensure_module(db, current_user, MODULE)
         if not is_payroll(current_user):
             raise permission_denied(ProductAction.payroll)
         return current_user
@@ -101,7 +96,7 @@ def require_hr_payroll_member():
         current_user: User = Depends(require_onboarded_user),
         db: AsyncSession = Depends(get_db),
     ) -> User:
-        await _module_open(db, current_user)
+        await ensure_module(db, current_user, MODULE)
         if is_payroll(current_user):
             return current_user
         if await people.has_live_profile(db, current_user.id):
@@ -120,7 +115,7 @@ def require_hr_payroll_reopen():
         current_user: User = Depends(require_onboarded_user),
         db: AsyncSession = Depends(get_db),
     ) -> User:
-        await _module_open(db, current_user)
+        await ensure_module(db, current_user, MODULE)
         if not current_user.has_role(UserRole.admin):
             raise HTTPException(status.HTTP_403_FORBIDDEN, NOT_ADMIN_DETAIL)
         return current_user
@@ -299,11 +294,12 @@ async def _in_progress(
         query = query.where(HrBonus.recipient_user_id.in_(sorted(viewer.report_ids)))
     rows = list(await db.scalars(query))
     items = await _bonus_list(db, rows, viewer, today=today)
-    _add_progress(items, rows, await bonus_rules.load_rules(db), today=today)
+    await _add_progress(db, items, rows, await bonus_rules.load_rules(db), today=today)
     return items
 
 
-def _add_progress(
+async def _add_progress(
+    db: AsyncSession,
     items: list[dict[str, Any]],
     bonuses: list[HrBonus],
     rules: bonus_rules.BonusRules,
@@ -313,15 +309,26 @@ def _add_progress(
     """Pasek „X z 21 dni roboczych” przy propozycji z placementu przed terminem.
 
     Jedno liczenie dla widoku miesiąca płac i dla „Mojego czasu” — osoba
-    widzi tę samą liczbę co Płace.
+    widzi tę samą liczbę co Płace; dni robocze z kalendarza firmy (z dniami
+    wolnymi firmy, jak urlop).
     """
 
-    for item, bonus in zip(items, bonuses):
+    starts: dict[int, date] = {}
+    for index, bonus in enumerate(bonuses):
+        start = (bonus.rule_snapshot or {}).get("start_date")
+        if bonus.eligible_on is not None and bonus.eligible_on > today and start:
+            starts[index] = date.fromisoformat(start)
+    if not starts:
+        return
+    calendar = await bonus_rules.load_bonus_calendar(
+        db, min(starts.values()), today, rules
+    )
+    for index, (item, bonus) in enumerate(zip(items, bonuses)):
         if bonus.eligible_on is None or bonus.eligible_on <= today:
             continue
-        start = (bonus.rule_snapshot or {}).get("start_date")
+        start = starts.get(index)
         item["business_days_elapsed"] = (
-            bonus_rules.business_days_elapsed(date.fromisoformat(start), today)
+            bonus_rules.business_days_elapsed(start, today, calendar=calendar)
             if start
             else None
         )
@@ -374,7 +381,7 @@ async def my_payroll(
         }
         for b in bonuses
     ]
-    _add_progress(items, bonuses, rules, today=today)
+    await _add_progress(db, items, bonuses, rules, today=today)
     return {
         "current_rate": payroll_rates.rate_payload(current) if current else None,
         "rates": [payroll_rates.rate_payload(rate) for rate in rates],

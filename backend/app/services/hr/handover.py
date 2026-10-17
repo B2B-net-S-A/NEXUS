@@ -68,6 +68,8 @@ from app.models.notification import NotificationType
 from app.models.recruitment_process import ProcessStatus, RecruitmentProcess
 from app.models.team_structure import DeliveryLeadClientAssignment
 from app.models.user import User, UserRole
+from app.services.hr.notify import notify_each
+from app.services.hr_foundation_schema import EmploymentStatus
 from app.services.hr_lifecycle_schema import TRANSFER_KINDS
 
 logger = logging.getLogger(__name__)
@@ -664,7 +666,7 @@ async def _transfer_reports(
             select(EmployeeProfile)
             .where(
                 EmployeeProfile.manager_user_id == leaver_id,
-                EmployeeProfile.employment_status != "exited",
+                EmployeeProfile.employment_status != EmploymentStatus.exited,
             )
             .order_by(EmployeeProfile.user_id)
             .with_for_update()
@@ -837,8 +839,6 @@ async def _notify_receivers(
     case: LifecycleCase,
     per_receiver: dict[int, list[tuple[str, int]]],
 ) -> None:
-    from app.services.notification_triggers import emit  # noqa: PLC0415
-
     if not per_receiver:
         return
     name = await _person_name(db, case.user_id)
@@ -851,48 +851,39 @@ async def _notify_receivers(
             link = "/people/team"
         else:
             link = "/dashboard"
-        try:
-            async with db.begin_nested():
-                await emit(
-                    db,
-                    user_id=receiver_id,
-                    title=f"Przejmujesz pracę: {name}",
-                    message=f"Od dziś prowadzisz po tej osobie — {summary}.",
-                    ntype=NotificationType.hr_work_handover,
-                    related_entity_type="lifecycle_case",
-                    related_entity_id=case.id,
-                    link=link,
-                )
-        except Exception:  # noqa: BLE001 — dzwonek nie cofa przekazania
-            logger.exception(
-                "hr_handover notification failed case=%s user=%s", case.id, receiver_id
-            )
+        # Dzwonek nie cofa przekazania (``notify_each`` łapie awarię).
+        await notify_each(
+            db,
+            [receiver_id],
+            title=f"Przejmujesz pracę: {name}",
+            message=f"Od dziś prowadzisz po tej osobie — {summary}.",
+            ntype=NotificationType.hr_work_handover,
+            link=link,
+            related_entity_type="lifecycle_case",
+            related_entity_id=case.id,
+            log_tag="hr_handover",
+        )
 
 
 async def _notify_failure(
     db: AsyncSession, case: LifecycleCase, kinds: list[str]
 ) -> None:
-    from app.services.notification_triggers import emit  # noqa: PLC0415
-
     recipient = case.owner_user_id or case.created_by
     if recipient is None:
         return
     name = await _person_name(db, case.user_id)
     labels = ", ".join(_RESULT_LABELS[kind] for kind in kinds)
-    try:
-        async with db.begin_nested():
-            await emit(
-                db,
-                user_id=recipient,
-                title=f"Przekazanie pracy nie wyszło: {name}",
-                message=(
-                    f"Do poprawienia: {labels}. Wskaż przejmującego w sprawie "
-                    "odejścia — konto wyłączy się dopiero po przekazaniu pracy."
-                ),
-                ntype=NotificationType.hr_lifecycle_task,
-                related_entity_type="lifecycle_case",
-                related_entity_id=case.id,
-                link=f"/people/{case.user_id}/offboarding",
-            )
-    except Exception:  # noqa: BLE001
-        logger.exception("hr_handover failure notification failed case=%s", case.id)
+    await notify_each(
+        db,
+        [recipient],
+        title=f"Przekazanie pracy nie wyszło: {name}",
+        message=(
+            f"Do poprawienia: {labels}. Wskaż przejmującego w sprawie "
+            "odejścia — konto wyłączy się dopiero po przekazaniu pracy."
+        ),
+        ntype=NotificationType.hr_lifecycle_task,
+        link=f"/people/{case.user_id}/offboarding",
+        related_entity_type="lifecycle_case",
+        related_entity_id=case.id,
+        log_tag="hr_handover",
+    )

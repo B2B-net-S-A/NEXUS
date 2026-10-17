@@ -22,13 +22,12 @@ from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import require_onboarded_user
-from app.api.hr_gates import MODULE_DISABLED_DETAIL
+from app.api.hr_gates import ensure_module
 from app.core.database import get_db
 from app.core.scheduling import business_today
 from app.models.hr_lifecycle import LifecycleCase, LifecycleTask, LifecycleTemplate
 from app.models.hr_profile import EmployeeProfile
 from app.models.user import User
-from app.services.hr import modules as hr_modules
 from app.services.hr import people
 from app.services.hr import lifecycle_service as service
 from app.services.hr.handover import WORK_KIND_BY_KEY, eligible_receivers
@@ -38,6 +37,8 @@ from app.services.hr.lifecycle_access import (
     is_lifecycle_admin,
     owns_task,
 )
+from app.services.hr.modules import HrModule
+from app.services.hr_foundation_schema import EmploymentType
 from app.services.hr_lifecycle_schema import (
     LIVE_CASE_STATUSES,
     MAX_OFFSET_AFTER,
@@ -47,7 +48,7 @@ from app.services.hr_lifecycle_schema import (
 
 router = APIRouter()
 
-MODULE = "lifecycle"
+MODULE = HrModule.lifecycle
 ADMIN_DETAIL = "Wejście i odejście prowadzą Kadry."
 NO_ACCESS_DETAIL = "Ta sprawa nie dotyczy Ciebie ani Twojego zespołu."
 NOT_FOUND_DETAIL = "Nie ma takiej sprawy."
@@ -67,14 +68,7 @@ ExitReason = Literal[
     "contract_end",
     "other",
 ]
-EmploymentType = Literal["uop", "b2b", "zlecenie"]
 Location = Literal["onsite", "remote"]
-
-
-async def _module_open(db: AsyncSession, user: User) -> None:
-    loaded = await hr_modules.load_modules(db)
-    if not hr_modules.module_open_for(user, loaded, MODULE):
-        raise HTTPException(status.HTTP_404_NOT_FOUND, MODULE_DISABLED_DETAIL)
 
 
 def require_hr_lifecycle_admin():
@@ -84,7 +78,7 @@ def require_hr_lifecycle_admin():
         current_user: User = Depends(require_onboarded_user),
         db: AsyncSession = Depends(get_db),
     ) -> User:
-        await _module_open(db, current_user)
+        await ensure_module(db, current_user, MODULE)
         if not is_lifecycle_admin(current_user):
             raise HTTPException(status.HTTP_403_FORBIDDEN, ADMIN_DETAIL)
         return current_user
@@ -99,7 +93,7 @@ def require_hr_lifecycle_member():
         current_user: User = Depends(require_onboarded_user),
         db: AsyncSession = Depends(get_db),
     ) -> User:
-        await _module_open(db, current_user)
+        await ensure_module(db, current_user, MODULE)
         return current_user
 
     return _check

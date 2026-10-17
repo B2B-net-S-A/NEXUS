@@ -24,11 +24,10 @@ from app.services.hr import availability_local
 from app.services.hr import modules as hr_modules
 from app.services.hr import people
 from app.services.hr.leave_policy import statutory_entitlement
+from app.services.hr_foundation_schema import EmploymentStatus, EmploymentType
 
 router = APIRouter(dependencies=[Depends(require_hr_people_admin())])
 
-EmploymentType = Literal["uop", "b2b", "zlecenie"]
-EmploymentStatus = Literal["pending", "onboarding", "active", "offboarding", "exited"]
 Location = Literal["onsite", "remote"]
 Division = Literal["front_office", "back_office"]
 

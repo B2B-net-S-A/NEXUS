@@ -33,14 +33,19 @@ from app.models.candidate import Candidate
 from app.models.client import Client
 from app.models.contract import Contract, ContractStatus, RateUnit
 from app.models.hr_payroll import EmployeeRate, HrBonus, PayrollLine, PayrollPeriod
-from app.models.hr_profile import EmployeeProfile
+from app.models.hr_profile import CompanyDayOff, EmployeeProfile
 from app.models.job import Job, JobStatus
 from app.models.section_permission import UserActionOverride
 from app.models.team_structure import DeliveryLeadClientAssignment
 from app.models.user import User, UserRole
 from app.services.hr import placement_bonuses
 from app.services.hr.bonus_rules import SETTING_KEY as RULES_KEY
-from app.services.hr.bonus_rules import eligible_date
+from app.services.hr.bonus_rules import (
+    DEFAULT_RULES,
+    eligible_date,
+    load_bonus_calendar,
+)
+from app.services.hr.calendar import WorkCalendar
 from app.services.hr.payroll_periods import add_months
 from app.services.hr_foundation_schema import HR_MODULE_KEYS, HR_MODULES_SETTING
 
@@ -229,7 +234,11 @@ async def test_signed_contract_before_start_is_forecast_with_estimate(
     start = today + timedelta(days=10)
     assert estimate["role"] == "recruiter"
     assert estimate["amount"] == "1500.00"  # marża 46 zł/h → próg II
-    assert estimate["eligible_on"] == eligible_date(start).isoformat()
+    async with AsyncSessionLocal() as db:
+        calendar = await load_bonus_calendar(db, start, start, DEFAULT_RULES)
+    assert estimate["eligible_on"] == (
+        eligible_date(start, DEFAULT_RULES, calendar=calendar).isoformat()
+    )
     assert estimate["start_date"] == start.isoformat()
     assert estimate["started"] is False
     assert estimate["business_days_elapsed"] == 0
@@ -524,3 +533,114 @@ async def test_settlement_hidden_when_payroll_module_is_off(
     for path in (ME, SETTLEMENT):
         response = await app_client.get(path, headers=_headers(me))
         assert response.status_code == 404, path
+
+
+# ── Termin premii a dni wolne firmy (decyzja 17.10.2026) ─────────────────────
+
+
+async def _free_working_day(db, plain: WorkCalendar, after: date) -> date:
+    """Pierwszy dzień roboczy po ``after``, który nie jest jeszcze dniem wolnym."""
+
+    day = plain.next_working_day_after(after)
+    while await db.scalar(select(CompanyDayOff.id).where(CompanyDayOff.day == day)):
+        day = plain.next_working_day_after(day)
+    return day
+
+
+@pytest.mark.asyncio
+async def test_company_day_off_moves_bonus_deadline_and_progress_like_leave(
+    app_client, payroll_on
+) -> None:
+    """Termin premii z placementu (21 dni roboczych) liczy kalendarz firmy z dniami
+    wolnymi firmy, tak samo jak urlop: dzień wolny w oknie = termin dzień później,
+    a pasek postępu nie liczy tego dnia. Dotąd liczyły się tylko święta ustawowe."""
+
+    today = business_today()
+    plain = WorkCalendar()
+    started_on = today - timedelta(days=6)
+    upcoming_on = today + timedelta(days=5)
+    async with AsyncSessionLocal() as db:
+        me = await _person(db, "recruiter")
+        client = await _client(db)
+        job = await _job(db, client, recruiter=me, dl=None)
+        started = await _contract(db, client, start=started_on, job=job)
+        upcoming = await _contract(db, client, start=upcoming_on, job=job)
+        past_off = await _free_working_day(db, plain, started_on)
+        future_off = await _free_working_day(db, plain, upcoming_on)
+        days_off = {past_off: "Dzień firmy (test)", future_off: "Dzień firmy (test)"}
+        for day, name in days_off.items():
+            db.add(CompanyDayOff(day=day, name=name, kind="company"))
+        await db.commit()
+    company = WorkCalendar(company_days_off=days_off)
+    assert past_off <= today
+
+    try:
+        async with AsyncSessionLocal() as db:
+            await placement_bonuses.reconcile_contract(db, started.id)
+            await db.commit()
+        body = (await app_client.get(ME, headers=_headers(me))).json()
+
+        [proposal] = [b for b in body["bonuses"] if b["contract_id"] == started.id]
+        deadline = eligible_date(started_on, DEFAULT_RULES, calendar=company)
+        assert deadline > eligible_date(started_on, DEFAULT_RULES, calendar=plain)
+        assert proposal["eligible_on"] == deadline.isoformat()
+        assert proposal["business_days_elapsed"] == (
+            len(plain.working_days(started_on + timedelta(days=1), today)) - 1
+        )
+
+        [estimate] = _by_contract(body["forecast"])[upcoming.id]
+        plain_deadline = eligible_date(upcoming_on, DEFAULT_RULES, calendar=plain)
+        assert estimate["eligible_on"] == (
+            plain.next_working_day_after(plain_deadline).isoformat()
+        )
+    finally:
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                delete(CompanyDayOff).where(CompanyDayOff.day.in_(list(days_off)))
+            )
+            await db.commit()
+
+
+async def _forecast_statements(contracts: int) -> tuple[int, int]:
+    """(liczba pozycji, liczba zapytań SQL) prognozy osoby z ``contracts`` kontraktami."""
+
+    from sqlalchemy import event
+
+    from app.core.database import engine
+    from app.services.hr.my_settlement import bonus_forecast
+
+    today = business_today()
+    async with AsyncSessionLocal() as db:
+        me = await _person(db, "recruiter")
+        for offset in range(contracts):
+            # Każdy kontrakt z innym klientem i rekrutacją (bez DL — DL z klienta).
+            client = await _client(db)
+            job = await _job(db, client, recruiter=me, dl=None)
+            await _contract(
+                db, client, start=today + timedelta(days=3 + offset), job=job
+            )
+        await db.commit()
+
+    statements: list[str] = []
+
+    def count(_conn, _cursor, statement, *_args, **_kwargs) -> None:  # noqa: ANN001
+        statements.append(statement)
+
+    async with AsyncSessionLocal() as db:
+        event.listen(engine.sync_engine, "before_cursor_execute", count)
+        try:
+            items = await bonus_forecast(db, user_id=me.id, today=today)
+        finally:
+            event.remove(engine.sync_engine, "before_cursor_execute", count)
+    return len(items), len(statements)
+
+
+@pytest.mark.asyncio
+async def test_forecast_reads_jobs_leads_and_names_in_bulk(payroll_on) -> None:
+    """Prognoza premii nie pyta bazy osobno o rekrutację, DL klienta, konsultanta
+    i klienta każdego kontraktu — liczba zapytań nie rośnie z liczbą kontraktów."""
+
+    one_items, one = await _forecast_statements(1)
+    five_items, five = await _forecast_statements(5)
+    assert (one_items, five_items) == (1, 5)
+    assert five == one

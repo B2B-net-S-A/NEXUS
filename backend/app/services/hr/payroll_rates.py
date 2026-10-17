@@ -40,6 +40,7 @@ from app.models.hr_payroll import EmployeeRate
 from app.models.hr_profile import EmployeeProfile
 from app.models.notification import NotificationType
 from app.services.hr import audit
+from app.services.hr.notify import notify_each
 from app.services.hr.payroll_errors import PayrollError, PayrollNotFound
 from app.services.hr.payroll_periods import (
     add_months,
@@ -47,7 +48,7 @@ from app.services.hr.payroll_periods import (
     lock_months_shared,
 )
 from app.services.hr_payroll_schema import CURRENCIES
-from app.services.notification_triggers import emit
+from app.services.hr_foundation_schema import EmploymentType
 
 logger = logging.getLogger(__name__)
 
@@ -62,7 +63,7 @@ DEFAULT_MINIMUM_RATES: dict[int, Decimal] = {
     2026: Decimal("31.40"),
 }
 MINIMUM_RATE_MAX = Decimal("1000")
-MANDATE_FORM = "zlecenie"
+MANDATE_FORM = EmploymentType.zlecenie
 
 
 # ── Minimalna stawka godzinowa na zleceniu (D7) ───────────────────────────────
@@ -270,23 +271,21 @@ async def _locked_history(db: AsyncSession, user_id: int) -> list[EmployeeRate]:
 
 
 async def _notify(db: AsyncSession, rate: EmployeeRate) -> None:
-    try:
-        async with db.begin_nested():
-            await emit(
-                db,
-                user_id=rate.user_id,
-                title="Zmiana Twojej stawki",
-                message=(
-                    f"Nowa stawka obowiązuje od {rate.effective_from:%d.%m.%Y}. "
-                    "Szczegóły w „Moim czasie” → Premie."
-                ),
-                ntype=NotificationType.hr_rate_changed,
-                related_entity_type="employee_rate",
-                related_entity_id=rate.id,
-                link="/my-time?tab=bonuses",
-            )
-    except Exception:  # noqa: BLE001 — dzwonek nie cofa zapisu stawki
-        logger.exception("[payroll] dzwonek o stawce nie wyszedł rate=%s", rate.id)
+    # Dzwonek nie cofa zapisu stawki (``notify_each`` łapie awarię).
+    await notify_each(
+        db,
+        [rate.user_id],
+        title="Zmiana Twojej stawki",
+        message=(
+            f"Nowa stawka obowiązuje od {rate.effective_from:%d.%m.%Y}. "
+            "Szczegóły w „Moim czasie” → Premie."
+        ),
+        ntype=NotificationType.hr_rate_changed,
+        link="/my-time?tab=bonuses",
+        related_entity_type="employee_rate",
+        related_entity_id=rate.id,
+        log_tag="payroll",
+    )
 
 
 async def set_rate(

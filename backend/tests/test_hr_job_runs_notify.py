@@ -100,3 +100,49 @@ async def test_notify_each_dedupes_skips_and_survives_one_failing_recipient(
         )
     assert calls == [1, 2, 3, 4]
     assert sent == 2
+
+
+@pytest.mark.asyncio
+async def test_switched_off_loops_answer_the_same_disabled_status() -> None:
+    """Wyłączony moduł albo tryb ``off`` = ``{"status": "disabled"}`` w każdej
+    pętli (wcześniej trzy kształty: ``skipped``, ``status: module_off``, ``mode``)."""
+
+    from datetime import datetime, timezone
+
+    from app.models.app_setting import AppSetting
+    from app.services.hr import lifecycle_jobs, payroll_jobs, student_reminders
+    from app.services.hr.m365 import executor, profile_sync, reconcile
+    from app.services.hr_foundation_schema import HR_MODULE_KEYS, HR_MODULES_SETTING
+
+    disabled = {"status": "disabled"}
+    morning = datetime(2091, 3, 5, 9, 0, tzinfo=timezone.utc)
+    async with AsyncSessionLocal() as db:
+        row = await db.get(AppSetting, HR_MODULES_SETTING)
+        previous = None if row is None else row.value
+        if row is None:
+            db.add(AppSetting(key=HR_MODULES_SETTING, value={}))
+        await db.flush()
+        row = await db.get(AppSetting, HR_MODULES_SETTING)
+        row.value = {key: False for key in HR_MODULE_KEYS}
+        await db.commit()
+    try:
+        async with AsyncSessionLocal() as db:
+            assert await lifecycle_jobs.run_once(db) == disabled
+            assert await payroll_jobs.run_once(db) == disabled
+            assert (
+                await student_reminders.student_contribution_reminders(
+                    db, today=morning.date()
+                )
+                == disabled
+            )
+            assert (
+                await profile_sync.run_once(db, mode="simulate", now=morning)
+                == disabled
+            )
+            for loop in (executor, reconcile, profile_sync):
+                assert await loop.run_once(db, mode="off", now=morning) == disabled
+    finally:
+        async with AsyncSessionLocal() as db:
+            row = await db.get(AppSetting, HR_MODULES_SETTING)
+            row.value = previous or {key: False for key in HR_MODULE_KEYS}
+            await db.commit()

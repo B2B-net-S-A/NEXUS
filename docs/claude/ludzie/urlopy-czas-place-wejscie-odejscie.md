@@ -212,7 +212,8 @@ decyduje o słowach i o przebiegu nieobecności.
   (`cancel_reason='contract_deleted'`, automat ich nie przywraca); przyznane zostają.
 - Premie: `source` manual / contract_placement / league / compass_import,
   `source_key` unikalny (automat nie dubluje), `rule_snapshot` przy naliczeniu.
-  Termin premii z placementu = start kontraktu + 21 polskich dni roboczych;
+  Termin premii z placementu = start kontraktu + 21 dni roboczych firmy (święta
+  ustawowe i dni wolne firmy — ten sam kalendarz co urlop, decyzja 17.10.2026);
   premia DL = 10% × marża/h × 168 h; rekruter progami marży PLN/h. Progi
   i „dodatkowa premia DL” to ustawienia (`app_settings['hr_bonus_rules']`),
   w kodzie nie ma żadnej osoby.

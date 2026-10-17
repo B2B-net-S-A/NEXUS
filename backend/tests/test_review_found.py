@@ -55,7 +55,11 @@ from app.services.hr import (
     payroll_rates,
     time_entries,
 )
-from app.services.hr.bonus_rules import eligible_date
+from app.services.hr.bonus_rules import (
+    DEFAULT_RULES,
+    eligible_date,
+    load_bonus_calendar,
+)
 from app.services.hr.compass_import import time as time_import
 from app.services.hr.m365 import executor
 from app.services.hr.payroll_errors import PayrollConflict
@@ -304,7 +308,10 @@ async def test_placement_proposal_waits_for_running_close_and_moves_on(
     payroll_on,  # noqa: F811
 ) -> None:
     world = await _placement(started_days_ago=40)
-    deadline = eligible_date(business_today() - timedelta(days=40))
+    start = business_today() - timedelta(days=40)
+    async with AsyncSessionLocal() as db:
+        calendar = await load_bonus_calendar(db, start, start, DEFAULT_RULES)
+    deadline = eligible_date(start, DEFAULT_RULES, calendar=calendar)
     year, month = deadline.year, deadline.month
     closer = await _hold_closing(year, month)
     try:

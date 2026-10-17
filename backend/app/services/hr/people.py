@@ -33,12 +33,15 @@ from app.services.hr_foundation_schema import (
     EMPLOYMENT_STATUSES,
     EMPLOYMENT_TYPES,
     LOCATIONS,
+    WORKING_STATUSES,
+    EmploymentStatus,
+    EmploymentType,
 )
 
 Scope = Literal["none", "card", "full"]
 
 #: Statusy widoczne w katalogu (osoba pracuje albo kończy).
-DIRECTORY_STATUSES: tuple[str, ...] = ("onboarding", "active", "offboarding")
+DIRECTORY_STATUSES: tuple[str, ...] = WORKING_STATUSES
 
 #: Pola kartoteki, które Kadry mogą zmieniać.
 EDITABLE_FIELDS: tuple[str, ...] = (
@@ -92,14 +95,14 @@ async def has_live_profile(db: AsyncSession, user_id: int) -> bool:
             EmployeeProfile.user_id == user_id
         )
     )
-    return status is not None and status != "exited"
+    return status is not None and status != EmploymentStatus.exited
 
 
 async def direct_report_ids(db: AsyncSession, manager_user_id: int) -> set[int]:
     rows = await db.scalars(
         select(EmployeeProfile.user_id).where(
             EmployeeProfile.manager_user_id == manager_user_id,
-            EmployeeProfile.employment_status != "exited",
+            EmployeeProfile.employment_status != EmploymentStatus.exited,
         )
     )
     return set(rows)
@@ -361,7 +364,7 @@ def _form_rules(
         "student_contribution_exempt",
         current.student_contribution_exempt if current is not None else False,
     )
-    if employment_type != "zlecenie":
+    if employment_type != EmploymentType.zlecenie:
         if out.get("student_contribution_exempt"):
             raise HrPeopleError(
                 "Znacznik ucznia lub studenta dotyczy tylko umowy zlecenie."
@@ -381,7 +384,7 @@ def _form_rules(
             )
         if current is not None and current.contribution_exempt_until is not None:
             out["contribution_exempt_until"] = None
-    if employment_type != "uop":
+    if employment_type != EmploymentType.uop:
         for key in UOP_FIELDS:
             if out.get(key) is not None:
                 raise HrPeopleError(
@@ -404,7 +407,7 @@ async def create_profile(
     _validate_values(clean)
     clean = _form_rules(
         clean,
-        employment_type=clean.get("employment_type") or "b2b",
+        employment_type=clean.get("employment_type") or EmploymentType.b2b,
         current=None,
     )
     await _validate_manager(
@@ -490,7 +493,7 @@ async def set_entitlement(
     if profile is None:
         raise LookupError(user_id)
     # D6: pula płatnych dni tylko na umowie o pracę i na B2B z pulą w umowie.
-    if profile.employment_type == "zlecenie" and any(
+    if profile.employment_type == EmploymentType.zlecenie and any(
         value is not None and value > 0
         for value in (entitlement_days, carried_over_days, used_initial_days)
     ):

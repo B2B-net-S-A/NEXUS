@@ -30,6 +30,7 @@ from app.models.hr_profile import EmployeeProfile
 from app.models.user import User
 from app.services.hr import payroll_leave_bridge, payroll_time_bridge
 from app.services.hr.payroll_periods import get_period, month_end, month_start
+from app.services.hr_foundation_schema import EmploymentStatus
 
 ZERO = Decimal("0")
 CENT = Decimal("0.01")
@@ -87,9 +88,9 @@ def employed_in_month(profile: EmployeeProfile, year: int, month: int) -> bool:
         return False
     if profile.last_working_day is not None:
         return profile.last_working_day >= first
-    if start is None and profile.employment_status == "pending":
+    if start is None and profile.employment_status == EmploymentStatus.pending:
         return False
-    return profile.employment_status != "exited"
+    return profile.employment_status != EmploymentStatus.exited
 
 
 async def _bonus_sums(

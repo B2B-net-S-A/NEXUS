@@ -621,7 +621,7 @@ async def test_off_mode_leaves_the_queue_untouched() -> None:
         )
         ops = await operations(db, user.id)
 
-    assert result == {"mode": "off"}
+    assert result == {"status": "disabled"}
     assert {(op.status, op.attempts, op.simulated_request) for op in ops} == {
         ("pending", 0, None)
     }

@@ -303,7 +303,7 @@ async def test_switched_off_module_skips_the_loop() -> None:
     await _set_modules({key: False for key in HR_MODULE_KEYS})
     try:
         result = await _run(_at(business_today(), 18, 30))
-        assert result == {"skipped": "module_off"}
+        assert result == {"status": "disabled"}
     finally:
         await _set_modules(previous or {key: False for key in HR_MODULE_KEYS})
 

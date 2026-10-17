@@ -35,7 +35,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.models.user import User, UserRole
-from app.services.hr.m365 import runs
+from app.services.hr import job_runs
+from app.services.hr.notify import notify_each
 from app.services.hr.m365.executor import utc_now, warsaw_hour, warsaw_today
 
 logger = logging.getLogger(__name__)
@@ -139,28 +140,21 @@ async def _notify_admins(
     db: AsyncSession, run_id: int, expires: date, days_left: int
 ) -> int:
     from app.models.notification import NotificationType
-    from app.services.notification_triggers import emit
 
     users = await db.scalars(select(User).where(User.is_active.is_(True)))
     admins = sorted(user.id for user in users if user.has_role(UserRole.admin))
     title, message = alert_text(expires, days_left)
-    sent = 0
-    for user_id in admins:
-        try:
-            async with db.begin_nested():
-                created = await emit(
-                    db,
-                    user_id=user_id,
-                    title=title[:255],
-                    message=message,
-                    ntype=NotificationType.automation_failing,
-                    related_entity_type="hr_job_run",
-                    related_entity_id=run_id,
-                    link=SETTINGS_LINK,
-                )
-            sent += int(created is not None)
-        except Exception:  # noqa: BLE001 — jeden odbiorca nie blokuje reszty
-            logger.exception("hr_m365_secret_expiry alert failed user=%s", user_id)
+    sent = await notify_each(
+        db,
+        admins,
+        title=title[:255],
+        message=message,
+        ntype=NotificationType.automation_failing,
+        link=SETTINGS_LINK,
+        related_entity_type="hr_job_run",
+        related_entity_id=run_id,
+        log_tag="hr_m365_secret_expiry",
+    )
     await db.commit()
     return sent
 
@@ -180,7 +174,7 @@ async def run_once(
     step = alert_step(days_left)
     if step is None:
         return {"status": "ok", "days_left": days_left}
-    run_id = await runs.claim(db, JOB_KIND, f"{expires.isoformat()}:{step}", now)
+    run_id = await job_runs.claim(db, JOB_KIND, f"{expires.isoformat()}:{step}", now)
     if run_id is None:
         return {"status": "already_sent", "days_left": days_left}
     try:
@@ -188,10 +182,10 @@ async def run_once(
     except Exception as exc:  # noqa: BLE001 — alarm do ponowienia w kolejnym obrocie
         logger.exception("hr_m365_secret_expiry failed")
         await db.rollback()
-        await runs.finish(
+        await job_runs.finish(
             db, run_id, status="failed", counts={}, error=type(exc).__name__
         )
         return {"status": "failed", "days_left": days_left}
     counts = {"days_left": days_left, "step": step, "notified": sent}
-    await runs.finish(db, run_id, status="done", counts=counts)
+    await job_runs.finish(db, run_id, status="done", counts=counts)
     return {"status": "notified", **counts}

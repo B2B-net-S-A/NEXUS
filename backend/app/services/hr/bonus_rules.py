@@ -3,8 +3,8 @@
 Wartości domyślne to reguły Compassa (``lib/types/bonus.ts:242-253``,
 ``lib/types/placement.ts``, ``lib/placements/import.ts:28-58``):
 
-* **termin premii** = start kontraktu + 21 polskich dni roboczych (168 h
-  po 8 h; weekendy i święta ustawowe pominięte),
+* **termin premii** = start kontraktu + 21 dni roboczych firmy (168 h
+  po 8 h; weekendy, święta ustawowe i dni wolne firmy pominięte),
 * **premia Delivery Leada** = 10% × marża/h × 168 h,
 * **premia rekrutera** według progu marży PLN/h: do 40 włącznie → 1000,
   powyżej 40 i poniżej 50 → 1500, od 50 → 2000; marża ujemna = bez premii,
@@ -14,7 +14,8 @@ Wartości domyślne to reguły Compassa (``lib/types/bonus.ts:242-253``,
   w kodzie nie ma nikogo).
 
 Funkcje liczące są czyste (bez bazy), żeby testy granic nie potrzebowały
-Postgresa. Zapis ustawień: ``save_rules`` (Płace albo admin).
+Postgresa; kalendarz firmy z dniami wolnymi podaje wołający
+(``load_bonus_calendar``). Zapis ustawień: ``save_rules`` (Płace albo admin).
 """
 
 from __future__ import annotations
@@ -32,7 +33,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.work_time import HOURS_PER_MONTH, MD_PER_MONTH
 from app.models.app_setting import AppSetting
 from app.models.competition_winner import CompetitionType
-from app.services.hr.calendar import WorkCalendar
+from app.services.hr.calendar import WorkCalendar, load_calendar
 
 SETTING_KEY = "hr_bonus_rules"
 CENT = Decimal("0.01")
@@ -128,37 +129,46 @@ def dl_bonus(margin_per_hour: Decimal, rules: BonusRules = DEFAULT_RULES) -> Dec
     return money(monthly_margin * rules.dl_percent / Decimal(100))
 
 
-def eligible_date(
-    start: date,
-    rules: BonusRules = DEFAULT_RULES,
-    calendar: Optional[WorkCalendar] = None,
-) -> date:
-    """Start + N polskich dni roboczych (dzień startu się nie liczy — jak w Compassie).
+def eligible_date(start: date, rules: BonusRules, *, calendar: WorkCalendar) -> date:
+    """Start + N dni roboczych firmy (dzień startu się nie liczy — jak w Compassie).
 
-    Święta ustawowe liczy biblioteka ``holidays`` (``WorkCalendar``); Compass
-    do 08.2026 pomijał tylko weekendy i termin wypadał za wcześnie o każde
-    święto w oknie.
+    Kalendarz firmy jak przy urlopach (``hr.calendar``): weekendy, święta
+    ustawowe (biblioteka ``holidays``) i dni wolne firmy (decyzja 17.10.2026).
+    Compass do 08.2026 pomijał tylko weekendy i termin wypadał za wcześnie
+    o każde święto w oknie.
     """
 
-    cal = calendar or WorkCalendar()
     day = start
     added = 0
     while added < rules.eligible_business_days:
         day += timedelta(days=1)
-        if cal.is_working_day(day):
+        if calendar.is_working_day(day):
             added += 1
     return day
 
 
-def business_days_elapsed(
-    start: date, today: date, calendar: Optional[WorkCalendar] = None
-) -> int:
+def business_days_elapsed(start: date, today: date, *, calendar: WorkCalendar) -> int:
     """Ile dni roboczych po starcie minęło do ``today`` włącznie (pasek „liczy się”)."""
 
     if today <= start:
         return 0
-    cal = calendar or WorkCalendar()
-    return len(cal.working_days(start + timedelta(days=1), today))
+    return len(calendar.working_days(start + timedelta(days=1), today))
+
+
+def calendar_reach(rules: BonusRules) -> timedelta:
+    """Zapas za startem, w którym na pewno wypada termin: N dni roboczych to
+    najwyżej ok. 1,4 N dni kalendarzowych plus święta i dni wolne firmy."""
+
+    return timedelta(days=rules.eligible_business_days * 2 + 14)
+
+
+async def load_bonus_calendar(
+    db: AsyncSession, first_start: date, last_day: date, rules: BonusRules
+) -> WorkCalendar:
+    """Kalendarz firmy dla terminów i postępu premii startów od ``first_start``
+    (ten sam loader co urlopy, jedno zapytanie na przebieg albo ekran)."""
+
+    return await load_calendar(db, first_start, last_day + calendar_reach(rules))
 
 
 def extra_dl_recipient(dl_user_id: int, rules: BonusRules) -> Optional[int]:
@@ -349,9 +359,11 @@ __all__ = [
     "BonusRulesError",
     "ExtraDlRule",
     "business_days_elapsed",
+    "calendar_reach",
     "dl_bonus",
     "eligible_date",
     "extra_dl_recipient",
+    "load_bonus_calendar",
     "load_rules",
     "money",
     "parse_rules",

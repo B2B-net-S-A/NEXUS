@@ -65,6 +65,7 @@ from app.services.hr.m365 import (
 )
 from app.services.hr.m365.ops import GraphMailboxOps, MailboxError, MailboxOps
 from app.services.hr.m365.simulated import SimulatedMailboxOps
+from app.services.hr_foundation_schema import EmploymentStatus
 
 logger = logging.getLogger(__name__)
 
@@ -205,7 +206,7 @@ async def _contact(
             manager is not None
             and manager.is_active
             and manager.email
-            and manager_status != "exited"
+            and manager_status != EmploymentStatus.exited
         ):
             return oof_template.Contact("manager", manager.email, manager.name)
     office = (settings.ADMIN_CASES_MAILBOX or "").strip()
@@ -858,9 +859,9 @@ async def run_once(
     """Jeden przebieg wykonawcy (pętla co 60 s, przy trybie innym niż ``off``)."""
 
     mode = mode or current_mode()
-    counts: dict[str, Any] = {"mode": mode}
     if mode == "off":
-        return counts
+        return {"status": "disabled"}
+    counts: dict[str, Any] = {"mode": mode}
     if mode == "live" and ops is None:
         from app.services.hr.m365.auth import credentials_configured
 

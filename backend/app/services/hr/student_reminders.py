@@ -21,8 +21,7 @@ import logging
 from datetime import date, timedelta
 from typing import Any, Optional
 
-from sqlalchemy import select
-from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.scheduling import local_now
@@ -31,13 +30,16 @@ from app.models.hr_profile import EmployeeProfile
 from app.models.notification import NotificationType
 from app.models.user import User, UserRole
 from app.services.action_permissions import ProductAction
+from app.services.hr import job_runs
+from app.services.hr.modules import HrModule
+from app.services.hr.notify import notify_each
+from app.services.hr_foundation_schema import EmploymentStatus, EmploymentType
 
 logger = logging.getLogger(__name__)
 
 JOB_KIND = "hr_student_contribution_reminder"
 LEAD_DAYS = 30
 SEND_FROM_HOUR = 8
-LIVE_STATUSES = ("pending", "onboarding", "active", "offboarding")
 
 
 def period_key(user_id: int, until: date) -> str:
@@ -56,8 +58,8 @@ async def due_people(db: AsyncSession, today: date) -> list[tuple[int, str, date
         .join(User, User.id == EmployeeProfile.user_id)
         .where(
             User.is_active.is_(True),
-            EmployeeProfile.employment_type == "zlecenie",
-            EmployeeProfile.employment_status.in_(LIVE_STATUSES),
+            EmployeeProfile.employment_type == EmploymentType.zlecenie,
+            EmployeeProfile.employment_status != EmploymentStatus.exited,
             EmployeeProfile.student_contribution_exempt.is_(True),
             EmployeeProfile.contribution_exempt_until.is_not(None),
             EmployeeProfile.contribution_exempt_until >= today,
@@ -89,11 +91,10 @@ async def student_contribution_reminders(
     """Jeden przebieg (dzienna pętla HR); idempotentny, commituje sam."""
 
     from app.services.hr import modules as hr_modules
-    from app.services.notification_triggers import emit
 
     loaded = await hr_modules.load_modules(db)
-    if not (loaded.get("people") or loaded.get("payroll")):
-        return {"status": "module_off", "sent": 0}
+    if not (loaded.get(HrModule.people) or loaded.get(HrModule.payroll)):
+        return {"status": "disabled"}
     if today is None:
         now = local_now()
         if now.hour < SEND_FROM_HOUR:
@@ -105,48 +106,35 @@ async def student_contribution_reminders(
         return {"status": "ok", **counts}
     recipients = await recipient_ids(db)
     for user_id, name, until in due:
-        claimed = await db.scalar(
-            insert(HrJobRun)
-            .values(
-                kind=JOB_KIND, period_key=period_key(user_id, until), status="claimed"
-            )
-            .on_conflict_do_nothing(constraint="uq_hr_job_runs_kind_period")
-            .returning(HrJobRun.id)
-        )
-        if claimed is None:
+        key = period_key(user_id, until)
+        if not await job_runs.mark_once(db, JOB_KIND, key, status="claimed"):
             counts["already"] += 1
             continue
         start = until + timedelta(days=1)
-        notified = 0
-        for recipient in recipients:
-            if recipient == user_id:
-                continue
-            try:
-                async with db.begin_nested():
-                    created = await emit(
-                        db,
-                        user_id=recipient,
-                        title=f"Koniec zwolnienia ze składek: {name}",
-                        message=(
-                            f"Zlecenie, uczeń lub student — zwolnienie ze składek "
-                            f"ZUS do {until:%d.%m.%Y}. Od {start:%d.%m.%Y} naliczamy "
-                            "składki, chyba że Kadry przesuną datę (nowa legitymacja)."
-                        ),
-                        ntype=NotificationType.hr_lifecycle_task,
-                        related_entity_type="employee_profile",
-                        related_entity_id=None,
-                        link=f"/people/{user_id}",
-                    )
-                notified += int(created is not None)
-            except Exception:  # noqa: BLE001 — jeden odbiorca nie zatrzymuje reszty
-                logger.exception(
-                    "[hr_student] przypomnienie nie wyszło recipient=%s", recipient
-                )
-        run = await db.get(HrJobRun, claimed)
-        if run is not None:
-            run.status = "done" if notified else "skipped"
-            run.counts = {"notified": notified}
-            run.finished_at = local_now()
+        notified = await notify_each(
+            db,
+            recipients,
+            exclude=[user_id],
+            title=f"Koniec zwolnienia ze składek: {name}",
+            message=(
+                f"Zlecenie, uczeń lub student — zwolnienie ze składek "
+                f"ZUS do {until:%d.%m.%Y}. Od {start:%d.%m.%Y} naliczamy "
+                "składki, chyba że Kadry przesuną datę (nowa legitymacja)."
+            ),
+            ntype=NotificationType.hr_lifecycle_task,
+            link=f"/people/{user_id}",
+            related_entity_type="employee_profile",
+            log_tag="hr_student",
+        )
+        await db.execute(
+            update(HrJobRun)
+            .where(HrJobRun.kind == JOB_KIND, HrJobRun.period_key == key)
+            .values(
+                status="done" if notified else "skipped",
+                counts={"notified": notified},
+                finished_at=local_now(),
+            )
+        )
         counts["sent" if notified else "skipped"] += 1
     await db.commit()
     logger.info("[hr_student] przypomnienia o składkach: %s", counts)

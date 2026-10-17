@@ -38,7 +38,12 @@ from app.models.section_permission import UserActionOverride
 from app.models.user import User, UserRole
 from app.services.hr import league_bonuses, placement_bonuses
 from app.services.hr.bonus_rules import SETTING_KEY as RULES_KEY
-from app.services.hr.bonus_rules import eligible_date, parse_rules
+from app.services.hr.bonus_rules import (
+    DEFAULT_RULES,
+    eligible_date,
+    load_bonus_calendar,
+    parse_rules,
+)
 from app.services.hr_foundation_schema import HR_MODULE_KEYS, HR_MODULES_SETTING
 
 
@@ -182,7 +187,9 @@ async def test_contract_start_proposes_dl_and_recruiter_bonus_once(payroll_on) -
     assert set(found) == {"dl", "recruiter"}
     dl, recruiter = found["dl"], found["recruiter"]
     start = business_today() - timedelta(days=40)
-    deadline = eligible_date(start)
+    async with AsyncSessionLocal() as db:
+        calendar = await load_bonus_calendar(db, start, start, DEFAULT_RULES)
+    deadline = eligible_date(start, DEFAULT_RULES, calendar=calendar)
     assert dl.recipient_user_id == world["dl"]
     assert dl.amount == Decimal("772.80")  # 10% × 46 zł/h × 168 h
     assert recruiter.recipient_user_id == world["recruiter"]
@@ -307,7 +314,7 @@ async def test_hooks_do_nothing_when_module_is_off(payroll_on) -> None:
     async with AsyncSessionLocal() as db:
         contract = await db.get(Contract, world["contract"])
         result = await placement_bonuses.on_contract_started(db, contract)
-    assert result == {"skipped": "module_off"}
+    assert result == {"status": "disabled"}
     assert not await _bonuses(world["contract"])
 
 

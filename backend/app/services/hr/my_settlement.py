@@ -12,8 +12,9 @@ Prognoza bierze te same kontrakty co automat (aktywne albo kończące się, nie
 „powrót po przerwie”, start w oknie automatu, przed terminem premii i bez
 końca przed terminem) i te same reguły: odbiorcy i kwoty z
 ``placement_bonuses.placement_targets``, termin ``bonus_rules.eligible_date``,
-postęp ``bonus_rules.business_days_elapsed``. Pozycja, dla której automat już
-założył wiersz premii (każdy stan), nie trafia do prognozy — jest w premiach.
+postęp ``bonus_rules.business_days_elapsed`` (kalendarz firmy z dniami
+wolnymi). Pozycja, dla której automat już założył wiersz premii (każdy stan),
+nie trafia do prognozy — jest w premiach.
 Kwota to szacunek; bez stawek albo kursu NBP — ``amount = None`` z powodem.
 
 **Rozliczenie (D3).** Miesiąc zamknięty = zamrożone ``payroll_lines`` osoby
@@ -47,6 +48,7 @@ from app.services.hr.bonus_rules import (
     BonusRules,
     business_days_elapsed,
     eligible_date,
+    load_bonus_calendar,
     load_rules,
 )
 from app.services.hr.payroll_bonuses import CATEGORY_LABELS
@@ -125,16 +127,21 @@ async def bonus_forecast(
             )
         )
     )
+    # Hurtem przed pętlą: rekrutacje, DL klientów, nazwy i kalendarz firmy.
+    context = await placements.load_context(db, contracts)
+    first_start, last_start = contracts[0].start_date, contracts[-1].start_date
+    assert first_start is not None and last_start is not None
+    calendar = await load_bonus_calendar(db, first_start, max(last_start, today), rules)
     items: list[dict[str, Any]] = []
     for contract in contracts:
         start = contract.start_date
         assert start is not None
-        eligible_on = eligible_date(start, rules)
+        eligible_on = eligible_date(start, rules, calendar=calendar)
         if eligible_on <= today or placements.ends_before_deadline(
             contract, eligible_on
         ):
             continue
-        dl_id, recruiter_id, _source = await placements.placement_people(db, contract)
+        dl_id, recruiter_id, _source = context.people(contract)
         candidates = {
             role: target
             for role, target in placements.placement_targets(
@@ -154,7 +161,7 @@ async def bonus_forecast(
         targets = placements.placement_targets(
             margin.per_hour, dl_id, recruiter_id, rules
         )
-        candidate_name, client_name = await placements.placement_names(db, contract)
+        candidate_name, client_name = context.names(contract)
         for role in candidates:
             target = targets.get(role)
             if target is None or target.recipient_user_id != user_id:
@@ -181,7 +188,9 @@ async def bonus_forecast(
                     "start_date": start.isoformat(),
                     "started": start <= today,
                     "eligible_on": eligible_on.isoformat(),
-                    "business_days_elapsed": business_days_elapsed(start, today),
+                    "business_days_elapsed": business_days_elapsed(
+                        start, today, calendar=calendar
+                    ),
                     "business_days_required": rules.eligible_business_days,
                 }
             )

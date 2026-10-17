@@ -18,16 +18,17 @@ człowieka i odhacza jej zadania; wykonawca odhacza swoje zadania
 * Terminy zadań w dniach roboczych firmy od startu albo ostatniego dnia
   (``lifecycle_dates``).
 
-Moduły Spraw i Sprzętu dostają zdarzenia przez ``lifecycle_integrations`` —
-jedno miejsce, bez importu ich kodu tutaj.
+Moduły Spraw i Sprzętu dostają zdarzenia przez ``lifecycle_integrations``
+(``lifecycle_hooks``) — jedno miejsce, bez importu ich kodu tutaj. Szablony
+są w ``lifecycle_templates``, odczyt i kształt odpowiedzi w
+``lifecycle_payloads``; ich nazwy są dostępne także stąd (trasy i testy).
 """
 
 from __future__ import annotations
 
-import logging
 from dataclasses import dataclass
 from datetime import date
-from typing import Any, Awaitable, Callable, Literal, Optional
+from typing import Any, Optional
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -50,247 +51,42 @@ from app.services.hr.lifecycle_dates import (
     deactivate_on_for,
     shift_working_days,
 )
+from app.services.hr.lifecycle_errors import LifecycleConflict, LifecycleError
+from app.services.hr.lifecycle_hooks import LifecycleEvent, lifecycle_integrations
+from app.services.hr.lifecycle_payloads import (
+    case_handovers,
+    case_link,
+    case_payload,
+    case_tasks,
+    handover_started,
+    latest_case_for,
+    person_name,
+    task_payload,
+    template_payload,
+)
+from app.services.hr.lifecycle_templates import (
+    ItemInput,
+    pick_template,
+    save_template,
+    template_items,
+    templates,
+    validate_item,
+)
+from app.services.hr.notify import notify_each
+from app.services.hr_foundation_schema import WORKING_STATUSES, EmploymentStatus
 from app.services.hr_lifecycle_schema import (
-    ASSIGNEE_KINDS,
     EXIT_INITIATORS,
     EXIT_REASONS,
     LIVE_CASE_STATUSES,
-    MAX_OFFSET_AFTER,
-    MAX_OFFSET_BEFORE,
-    TASK_CATEGORIES,
     TRANSFER_KINDS,
 )
 from app.services.user_email import find_user_by_email, normalize_email
-
-logger = logging.getLogger(__name__)
-
-LifecycleEvent = Literal[
-    "onboarding_started",
-    "onboarding_cancelled",
-    "offboarding_started",
-    "offboarding_cancelled",
-    "exit_executed",
-]
-
-#: Statusy kartoteki, z którymi osoba „już u nas pracuje” (wejście = konflikt).
-WORKING_STATUSES: tuple[str, ...] = ("onboarding", "active", "offboarding")
 
 #: Pola kartoteki, które kreator wejścia zapisuje przy starcie.
 PROFILE_FIELDS: tuple[str, ...] = tuple(
     field for field in people.EDITABLE_FIELDS if field not in ("employment_status",)
 )
 _DATE_FIELDS = ("hired_on", "work_start_date", "last_working_day")
-
-
-class LifecycleError(ValueError):
-    """Błąd walidacji z komunikatem dla użytkownika (422)."""
-
-
-class LifecycleConflict(Exception):
-    """Stan sprawy nie pozwala na zmianę (409)."""
-
-
-# ── Szablony ─────────────────────────────────────────────────────────────────
-
-
-async def templates(
-    db: AsyncSession, *, kind: Optional[str] = None
-) -> list[LifecycleTemplate]:
-    statement = select(LifecycleTemplate).order_by(
-        LifecycleTemplate.kind,
-        LifecycleTemplate.is_active.desc(),
-        LifecycleTemplate.name,
-    )
-    if kind is not None:
-        statement = statement.where(LifecycleTemplate.kind == kind)
-    return list(await db.scalars(statement))
-
-
-async def template_items(
-    db: AsyncSession, template_id: int
-) -> list[LifecycleTemplateItem]:
-    return list(
-        await db.scalars(
-            select(LifecycleTemplateItem)
-            .where(LifecycleTemplateItem.template_id == template_id)
-            .order_by(LifecycleTemplateItem.position, LifecycleTemplateItem.id)
-        )
-    )
-
-
-async def pick_template(
-    db: AsyncSession,
-    kind: str,
-    *,
-    employment_type: Optional[str] = None,
-    department: Optional[str] = None,
-) -> Optional[LifecycleTemplate]:
-    """Najlepiej pasujący aktywny szablon: dział i forma > forma > dział > ogólny."""
-
-    candidates = [t for t in await templates(db, kind=kind) if t.is_active]
-
-    def score(template: LifecycleTemplate) -> tuple[int, int]:
-        if template.employment_type and template.employment_type != employment_type:
-            return (-1, 0)
-        if template.department and (
-            (template.department or "").strip().lower()
-            != (department or "").strip().lower()
-        ):
-            return (-1, 0)
-        return (
-            int(bool(template.department)) * 2 + int(bool(template.employment_type)),
-            -template.id,
-        )
-
-    ranked = sorted(candidates, key=score, reverse=True)
-    if not ranked or score(ranked[0])[0] < 0:
-        return None
-    return ranked[0]
-
-
-@dataclass(frozen=True)
-class ItemInput:
-    title: str
-    category: str
-    assignee_kind: str
-    due_offset_days: int
-    #: Id istniejącej pozycji szablonu (edycja w miejscu); ``None`` = nowa
-    #: albo z frontu, który id nie odsyła (wtedy dopasowanie po tytule).
-    id: Optional[int] = None
-
-
-def _validate_item(item: ItemInput) -> ItemInput:
-    title = item.title.strip()
-    if not title:
-        raise LifecycleError("Każde zadanie potrzebuje tytułu.")
-    if item.category not in TASK_CATEGORIES:
-        raise LifecycleError("Nieznana kategoria zadania.")
-    if item.assignee_kind not in ASSIGNEE_KINDS:
-        raise LifecycleError("Nieznany wykonawca zadania.")
-    if not -MAX_OFFSET_BEFORE <= item.due_offset_days <= MAX_OFFSET_AFTER:
-        raise LifecycleError(
-            f"Termin to od {MAX_OFFSET_BEFORE} dni roboczych przed "
-            f"do {MAX_OFFSET_AFTER} po dacie sprawy."
-        )
-    return ItemInput(
-        title[:200], item.category, item.assignee_kind, item.due_offset_days, item.id
-    )
-
-
-def _title_key(title: str) -> str:
-    return " ".join(title.split()).casefold()
-
-
-def _match_items(
-    existing: list[LifecycleTemplateItem], items: list[ItemInput]
-) -> list[Optional[LifecycleTemplateItem]]:
-    """Pozycja z formularza → istniejący wiersz szablonu (``None`` = nowa).
-
-    Najpierw po id (pozycja z innego szablonu albo podana dwa razy = 422),
-    potem — dla pozycji bez id — po tytule wśród jeszcze niedopasowanych.
-    """
-
-    by_id = {row.id: row for row in existing}
-    taken: set[int] = set()
-    matched: list[Optional[LifecycleTemplateItem]] = []
-    for item in items:
-        if item.id is None:
-            matched.append(None)
-            continue
-        row = by_id.get(item.id)
-        if row is None:
-            raise LifecycleError(
-                "Pozycja listy nie należy do tego szablonu — odśwież widok."
-            )
-        if row.id in taken:
-            raise LifecycleError("Ta sama pozycja listy występuje dwa razy.")
-        taken.add(row.id)
-        matched.append(row)
-    for index, item in enumerate(items):
-        if matched[index] is not None:
-            continue
-        key = _title_key(item.title)
-        row = next(
-            (
-                row
-                for row in existing
-                if row.id not in taken and _title_key(row.title) == key
-            ),
-            None,
-        )
-        if row is not None:
-            taken.add(row.id)
-            matched[index] = row
-    return matched
-
-
-async def save_template(
-    db: AsyncSession,
-    *,
-    actor: User,
-    template_id: Optional[int],
-    kind: str,
-    name: str,
-    is_active: bool,
-    employment_type: Optional[str],
-    department: Optional[str],
-    items: list[ItemInput],
-) -> LifecycleTemplate:
-    """Zakłada albo zmienia szablon razem z listą pozycji (lista zastępuje starą).
-
-    Zadania już założonych spraw zostają — szablon to przepis na nowe sprawy.
-    Pozycje zmieniają się W MIEJSCU (to samo id), bo zadania spraw wskazują
-    pozycję, z której powstały: przeliczenie terminów rozpoznaje po niej, co
-    już jest (bez dublowania i bez otwierania zrobionych). Pozycja usunięta
-    z listy znika z szablonu, a jej zadania w sprawach zostają jako zwykłe
-    zadania sprawy (``template_item_id`` → NULL) — z historią i bez kopii.
-    """
-
-    clean_name = name.strip()
-    if not clean_name:
-        raise LifecycleError("Podaj nazwę szablonu.")
-    clean_items = [_validate_item(item) for item in items]
-    if template_id is None:
-        template = LifecycleTemplate(kind=kind, created_by=actor.id)
-        db.add(template)
-    else:
-        template = await db.get(LifecycleTemplate, template_id)
-        if template is None:
-            raise LookupError(template_id)
-        if template.kind != kind:
-            raise LifecycleError("Rodzaju szablonu nie można zmienić.")
-    template.name = clean_name[:160]
-    template.is_active = is_active
-    template.employment_type = employment_type or None
-    template.department = (department or "").strip()[:200] or None
-    template.updated_by = actor.id
-    await db.flush()
-    existing = await template_items(db, template.id) if template_id else []
-    matched = _match_items(existing, clean_items)
-    kept = {row.id for row in matched if row is not None}
-    for row in existing:
-        if row.id not in kept:
-            await db.delete(row)
-    for position, (item, row) in enumerate(zip(clean_items, matched)):
-        if row is None:
-            row = LifecycleTemplateItem(template_id=template.id)
-            db.add(row)
-        row.position = position
-        row.title = item.title
-        row.category = item.category
-        row.assignee_kind = item.assignee_kind
-        row.due_offset_days = item.due_offset_days
-    audit.record(
-        db,
-        actor_user_id=actor.id,
-        subject_user_id=None,
-        entity_type="lifecycle_template",
-        entity_id=template.id,
-        action="template_saved",
-        details={"kind": kind, "items": len(clean_items), "active": is_active},
-    )
-    await db.flush()
-    return template
 
 
 # ── Zadania z terminami ──────────────────────────────────────────────────────
@@ -395,20 +191,6 @@ async def _replan_template_tasks(db: AsyncSession, case: LifecycleCase) -> None:
         task.assignee_user_id = assignee_for(case, planned.assignee_kind)
         task.due_date = planned.due_date
     await db.flush()
-
-
-async def case_tasks(db: AsyncSession, case_id: int) -> list[LifecycleTask]:
-    return list(
-        await db.scalars(
-            select(LifecycleTask)
-            .where(LifecycleTask.case_id == case_id)
-            .order_by(
-                LifecycleTask.due_date.asc().nulls_last(),
-                LifecycleTask.position,
-                LifecycleTask.id,
-            )
-        )
-    )
 
 
 # ── Zakładanie spraw ─────────────────────────────────────────────────────────
@@ -602,7 +384,7 @@ async def create_offboarding(
     profile = await people.profile_of(db, user_id)
     if profile is None:
         raise LookupError(user_id)
-    if profile.employment_status == "exited":
+    if profile.employment_status == EmploymentStatus.exited:
         raise LifecycleConflict("Ta osoba zakończyła już współpracę.")
     if last_working_day < (today or business_today()):
         raise LifecycleError(
@@ -650,18 +432,6 @@ async def create_offboarding(
         details={"last_working_day": last_working_day.isoformat()},
     )
     return case
-
-
-def handover_started(case: LifecycleCase, handovers: list[WorkHandover]) -> bool:
-    return case.handover_executed_at is not None or any(
-        row.status == "done" for row in handovers
-    )
-
-
-async def case_handovers(db: AsyncSession, case_id: int) -> list[WorkHandover]:
-    rows = await db.scalars(select(WorkHandover).where(WorkHandover.case_id == case_id))
-    order = {kind: index for index, kind in enumerate(TRANSFER_KINDS)}
-    return sorted(rows, key=lambda row: order.get(row.work_kind, 99))
 
 
 async def _ensure_editable(db: AsyncSession, case: LifecycleCase) -> None:
@@ -833,7 +603,7 @@ async def start_case(
         await _link_pending_account(db, case)
         assert case.user_id is not None
         values = _profile_values_for_db(case.profile_values or {})
-        values["employment_status"] = "onboarding"
+        values["employment_status"] = EmploymentStatus.onboarding.value
         values.setdefault("hired_on", case.start_date)
         values["manager_user_id"] = case.manager_user_id
         try:
@@ -857,7 +627,7 @@ async def start_case(
         profile = await people.profile_of(db, case.user_id)
         if profile is None:
             raise LookupError(case.user_id)
-        profile.employment_status = "offboarding"
+        profile.employment_status = EmploymentStatus.offboarding
         profile.last_working_day = case.last_working_day
         profile.updated_by = actor.id
     case.status = "active"
@@ -895,16 +665,17 @@ async def cancel_case(
         if profile is not None:
             if (
                 case.kind == "offboarding"
-                and profile.employment_status == "offboarding"
+                and profile.employment_status == EmploymentStatus.offboarding
             ):
-                profile.employment_status = "active"
+                profile.employment_status = EmploymentStatus.active
                 if profile.last_working_day == case.last_working_day:
                     profile.last_working_day = None
                 profile.updated_by = actor.id
             elif (
-                case.kind == "onboarding" and profile.employment_status == "onboarding"
+                case.kind == "onboarding"
+                and profile.employment_status == EmploymentStatus.onboarding
             ):
-                profile.employment_status = "pending"
+                profile.employment_status = EmploymentStatus.pending
                 profile.updated_by = actor.id
     audit.record(
         db,
@@ -951,8 +722,11 @@ async def complete_case(
     case.completed_at = local_now()
     if case.kind == "onboarding" and case.user_id is not None:
         profile = await people.profile_of(db, case.user_id)
-        if profile is not None and profile.employment_status == "onboarding":
-            profile.employment_status = "active"
+        if (
+            profile is not None
+            and profile.employment_status == EmploymentStatus.onboarding
+        ):
+            profile.employment_status = EmploymentStatus.active
             profile.updated_by = actor.id
     audit.record(
         db,
@@ -1094,7 +868,7 @@ async def add_task(
 ) -> LifecycleTask:
     if case.status not in LIVE_CASE_STATUSES:
         raise LifecycleConflict("Sprawa jest zamknięta.")
-    item = _validate_item(ItemInput(title, category, assignee_kind, 0))
+    item = validate_item(ItemInput(title, category, assignee_kind, 0))
     if assignee_user_id is not None:
         assignee = await db.get(User, assignee_user_id)
         if assignee is None or not assignee.is_active:
@@ -1169,20 +943,6 @@ async def update_task(
 # ── Powiadomienia ────────────────────────────────────────────────────────────
 
 
-async def person_name(db: AsyncSession, case: LifecycleCase) -> str:
-    if case.user_id is not None:
-        name = await db.scalar(select(User.name).where(User.id == case.user_id))
-        if name:
-            return name
-    return case.pending_name or "nowa osoba"
-
-
-def case_link(case: LifecycleCase) -> str:
-    if case.kind == "offboarding" and case.user_id is not None:
-        return f"/people/{case.user_id}/offboarding"
-    return f"/people/new/{case.id}"
-
-
 async def task_recipients(
     db: AsyncSession, case: LifecycleCase, tasks: list[LifecycleTask]
 ) -> dict[int, list[LifecycleTask]]:
@@ -1217,331 +977,63 @@ async def notify_assignees(
     actor_id: Optional[int],
     reminder: bool = False,
 ) -> int:
-    from app.services.notification_triggers import emit  # noqa: PLC0415
+    """Dzwonek do wykonawców (bez autora zmiany); nie cofa zapisu sprawy."""
 
     name = await person_name(db, case)
     label = "wejście" if case.kind == "onboarding" else "odejście"
+    title = (
+        f"Zaległe zadania: {label} — {name}"
+        if reminder
+        else f"Zadania: {label} — {name}"
+    )
     sent = 0
     for user_id, items in (await task_recipients(db, case, tasks)).items():
-        if user_id == actor_id:
-            continue
         titles = "; ".join(task.title for task in items[:3])
         more = f" i {len(items) - 3} więcej" if len(items) > 3 else ""
-        title = (
-            f"Zaległe zadania: {label} — {name}"
-            if reminder
-            else f"Zadania: {label} — {name}"
+        sent += await notify_each(
+            db,
+            [user_id],
+            exclude=[actor_id],
+            title=title,
+            message=f"{titles}{more}.",
+            ntype=NotificationType.hr_lifecycle_task,
+            link=case_link(case),
+            related_entity_type="lifecycle_case",
+            related_entity_id=case.id,
+            log_tag="hr_lifecycle",
         )
-        try:
-            async with db.begin_nested():
-                created = await emit(
-                    db,
-                    user_id=user_id,
-                    title=title,
-                    message=f"{titles}{more}.",
-                    ntype=NotificationType.hr_lifecycle_task,
-                    related_entity_type="lifecycle_case",
-                    related_entity_id=case.id,
-                    link=case_link(case),
-                )
-            sent += int(created is not None)
-        except Exception:  # noqa: BLE001 — dzwonek nie cofa zapisu sprawy
-            logger.exception(
-                "hr_lifecycle notification failed case=%s user=%s", case.id, user_id
-            )
     return sent
 
 
-# ── Haki dla innych modułów ──────────────────────────────────────────────────
-
-LifecycleHook = Callable[[AsyncSession, LifecycleCase, str], Awaitable[None]]
-
-
-async def _cases_hook(db: AsyncSession, case: LifecycleCase, event: str) -> None:
-    """Sprawy administracja@: odejście zakłada sprawę, cofnięcie ją zamyka
-    (idempotentnie po kluczu)."""
-    from app.services.admin_cases import hooks as case_hooks
-
-    if event == "offboarding_started":
-        await case_hooks.open_case_for_offboarding(db, case.user_id, case.id)
-    elif event == "offboarding_cancelled":
-        await case_hooks.close_case_for_cancelled_offboarding(db, case.user_id, case.id)
-
-
-async def _equipment_hook(db: AsyncSession, case: LifecycleCase, event: str) -> None:
-    """Sprzęt: zestaw na wejście, odbiór rzeczy przy odejściu; cofnięcie
-    sprawy anuluje zadanie, które założył jej start (idempotentnie)."""
-    from app.services.hr.modules import load_modules
-
-    if not (await load_modules(db)).get("equipment"):
-        return
-    from app.services.equipment import tasks as equipment_tasks
-
-    if event == "onboarding_started" and case.start_date is not None:
-        await equipment_tasks.tasks_for_person_start(db, case.user_id, case.start_date)
-    elif event == "offboarding_started" and case.last_working_day is not None:
-        await equipment_tasks.tasks_for_person_exit(
-            db, case.user_id, case.last_working_day
-        )
-    elif event == "onboarding_cancelled" and case.user_id is not None:
-        await equipment_tasks.cancel_person_start_task(db, case.user_id)
-    elif event == "offboarding_cancelled" and case.user_id is not None:
-        await equipment_tasks.cancel_person_exit_task(db, case.user_id)
-
-
-def _integration_hooks() -> list[LifecycleHook]:
-    return [_cases_hook, _equipment_hook]
-
-
-async def lifecycle_integrations(
-    db: AsyncSession, case: LifecycleCase, event: LifecycleEvent
-) -> None:
-    """Jedno miejsce, w którym moduły Spraw i Sprzętu dowiadują się o sprawie.
-
-    Kontrakt (dla koordynatora, który wpina haki):
-
-    * ``event``:
-      - ``onboarding_started`` — wejście ruszyło (``case.start_date``,
-        ``case.user_id``, ``case.manager_user_id``); Sprzęt: zadanie „Wydaj
-        zestaw” na 2 dni robocze przed startem,
-      - ``offboarding_started`` — odejście ruszyło (``case.last_working_day``,
-        ``case.deactivate_on``); Sprawy: sprawa „Odejście: <osoba>” powiązana
-        przez ``lifecycle_case_id``; Sprzęt: zadanie zwrotu rzeczy osoby,
-      - ``offboarding_cancelled`` — „Cofnij odejście”; Sprawy zamykają sprawę
-        „Odejście: <osoba>”, Sprzęt anuluje otwarte zadanie zwrotu rzeczy,
-      - ``onboarding_cancelled`` — anulowane wejście w toku; Sprzęt anuluje
-        otwarte zadanie „Przygotuj zestaw biura”,
-      - ``exit_executed`` — konto zamknięte (``case.account_close_result``);
-        Sprzęt: niezwrócone rzeczy → dzwonek do recepcji i przełożonego.
-    * Hak dostaje sesję W TRAKCIE transakcji sprawy: dopisuje swoje wiersze,
-      nie commituje. Wyjątek haka jest logowany i cofany savepointem — sprawa
-      idzie dalej (moduł poboczny nie blokuje odejścia).
-    * Hak ma być idempotentny po ``(case.id, event)`` — pętla może wołać
-      ``exit_executed`` po restarcie drugi raz dla tej samej sprawy tylko,
-      gdy commit pierwszego przebiegu nie doszedł.
-    """
-
-    for hook in _integration_hooks():
-        try:
-            async with db.begin_nested():
-                await hook(db, case, event)
-        except Exception:  # noqa: BLE001 — moduł poboczny nie blokuje sprawy
-            logger.exception(
-                "hr_lifecycle integration failed case=%s event=%s hook=%s",
-                case.id,
-                event,
-                getattr(hook, "__qualname__", hook),
-            )
-
-
-# ── Odczyt ───────────────────────────────────────────────────────────────────
-
-
-def template_payload(
-    template: LifecycleTemplate, items: list[LifecycleTemplateItem]
-) -> dict[str, Any]:
-    return {
-        "id": template.id,
-        "kind": template.kind,
-        "name": template.name,
-        "is_active": template.is_active,
-        "employment_type": template.employment_type,
-        "department": template.department,
-        "items": [
-            {
-                "id": item.id,
-                "title": item.title,
-                "category": item.category,
-                "assignee_kind": item.assignee_kind,
-                "due_offset_days": item.due_offset_days,
-            }
-            for item in items
-        ],
-    }
-
-
-async def _names(db: AsyncSession, ids: set[int]) -> dict[int, str]:
-    ids.discard(None)  # type: ignore[arg-type]
-    if not ids:
-        return {}
-    rows = await db.execute(select(User.id, User.name).where(User.id.in_(ids)))
-    return {user_id: name for user_id, name in rows.all()}
-
-
-def task_payload(
-    task: LifecycleTask, names: dict[int, str], *, can_toggle: bool, today: date
-) -> dict[str, Any]:
-    return {
-        "id": task.id,
-        "title": task.title,
-        "category": task.category,
-        "assignee_kind": task.assignee_kind,
-        "assignee_user_id": task.assignee_user_id,
-        "assignee_name": names.get(task.assignee_user_id)
-        if task.assignee_user_id
-        else None,
-        "due_date": task.due_date,
-        "status": task.status,
-        "overdue": task.status == "open"
-        and task.due_date is not None
-        and task.due_date < today,
-        "done_at": task.done_at,
-        "done_by_name": names.get(task.done_by) if task.done_by else None,
-        "note": task.note,
-        "from_template": task.template_item_id is not None,
-        "can_toggle": can_toggle,
-    }
-
-
-async def case_payload(
-    db: AsyncSession,
-    case: LifecycleCase,
-    *,
-    viewer: User,
-    scope: str,
-    with_work: bool = True,
-) -> dict[str, Any]:
-    from app.services.hr.handover import WORK_KINDS, work_summary  # noqa: PLC0415
-    from app.services.hr.lifecycle_access import can_toggle  # noqa: PLC0415
-    from app.services.hr.lifecycle_dates import handover_moment  # noqa: PLC0415
-
-    tasks = await case_tasks(db, case.id)
-    handovers = await case_handovers(db, case.id) if case.kind == "offboarding" else []
-    ids = {
-        case.manager_user_id,
-        case.owner_user_id,
-        case.user_id,
-        *(task.assignee_user_id for task in tasks),
-        *(task.done_by for task in tasks),
-        *(row.receiver_user_id for row in handovers),
-    }
-    names = await _names(db, {i for i in ids if i is not None})
-    today = business_today()
-    template_name = (
-        await db.scalar(
-            select(LifecycleTemplate.name).where(
-                LifecycleTemplate.id == case.template_id
-            )
-        )
-        if case.template_id
-        else None
-    )
-    started = handover_started(case, handovers)
-    payload: dict[str, Any] = {
-        "id": case.id,
-        "kind": case.kind,
-        "status": case.status,
-        "user_id": case.user_id,
-        "person_name": await person_name(db, case),
-        "pending_email": case.pending_email if scope == "admin" else None,
-        "template_id": case.template_id,
-        "template_name": template_name,
-        "start_date": case.start_date,
-        "last_working_day": case.last_working_day,
-        "deactivate_on": case.deactivate_on,
-        "handover_at": handover_moment(case.last_working_day)
-        if case.last_working_day
-        else None,
-        "manager_user_id": case.manager_user_id,
-        "manager_name": names.get(case.manager_user_id)
-        if case.manager_user_id
-        else None,
-        "owner_name": names.get(case.owner_user_id) if case.owner_user_id else None,
-        "started_at": case.started_at,
-        "handover_executed_at": case.handover_executed_at,
-        "account_closed_at": case.account_closed_at,
-        "account_close_result": case.account_close_result,
-        "completed_at": case.completed_at,
-        "cancelled_at": case.cancelled_at,
-        "scope": scope,
-        "can_manage": scope == "admin",
-        "can_cancel": scope == "admin"
-        and case.status in LIVE_CASE_STATUSES
-        and case.account_closed_at is None
-        and not started,
-        "tasks": [
-            task_payload(
-                task, names, can_toggle=can_toggle(scope, viewer, task), today=today
-            )
-            for task in tasks
-        ],
-        "progress": {
-            "done": sum(1 for task in tasks if task.status != "open"),
-            "total": len(tasks),
-            "overdue": sum(
-                1
-                for task in tasks
-                if task.status == "open" and task.due_date and task.due_date < today
-            ),
-        },
-    }
-    if scope in ("admin", "manager"):
-        payload["exit_initiator"] = case.exit_initiator
-        payload["exit_reason"] = case.exit_reason
-        payload["exit_note"] = case.exit_note
-        if case.kind == "onboarding":
-            payload["profile_values"] = case.profile_values or {}
-    if case.kind == "offboarding":
-        counts: dict[str, int] = {}
-        if with_work and case.user_id is not None and case.last_working_day is not None:
-            counts = await work_summary(
-                db, case.user_id, last_working_day=case.last_working_day
-            )
-        by_kind = {row.work_kind: row for row in handovers}
-        payload["work"] = [
-            {
-                "kind": kind.key,
-                "label": kind.label,
-                "note": kind.note,
-                "transferable": kind.transferable,
-                "count": counts.get(kind.key),
-                "receiver_user_id": by_kind[kind.key].receiver_user_id
-                if kind.key in by_kind
-                else None,
-                "receiver_name": names.get(by_kind[kind.key].receiver_user_id)
-                if kind.key in by_kind and by_kind[kind.key].receiver_user_id
-                else None,
-                "status": by_kind[kind.key].status if kind.key in by_kind else None,
-                "planned_count": by_kind[kind.key].item_count
-                if kind.key in by_kind
-                else None,
-                "result": by_kind[kind.key].result if kind.key in by_kind else None,
-                "error": by_kind[kind.key].error if kind.key in by_kind else None,
-            }
-            for kind in WORK_KINDS
-        ]
-    return payload
-
-
-async def latest_case_for(db: AsyncSession, user_id: int) -> Optional[LifecycleCase]:
-    """Ostatnia sprawa osoby (żywa przed zamkniętą)."""
-
-    rows = list(
-        await db.scalars(
-            select(LifecycleCase)
-            .where(LifecycleCase.user_id == user_id)
-            .order_by(LifecycleCase.created_at.desc(), LifecycleCase.id.desc())
-        )
-    )
-    live = [row for row in rows if row.status in LIVE_CASE_STATUSES]
-    return (live or rows or [None])[0]
-
-
 __all__ = [
+    "ItemInput",
     "LifecycleConflict",
     "LifecycleError",
+    "LifecycleEvent",
     "add_task",
     "cancel_case",
+    "case_handovers",
+    "case_link",
     "case_payload",
+    "case_tasks",
     "complete_case",
     "create_offboarding",
     "create_onboarding",
     "deactivate_now",
+    "handover_started",
+    "latest_case_for",
     "lifecycle_integrations",
     "notify_assignees",
+    "person_name",
+    "pick_template",
+    "plan_tasks",
     "save_template",
     "set_receivers",
     "start_case",
+    "task_payload",
+    "template_items",
+    "template_payload",
+    "templates",
     "update_case",
     "update_task",
 ]

@@ -42,13 +42,13 @@ from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import Any, Optional
 
-from sqlalchemy import func, select, text, update
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.hr_leave import HrM365Operation, LeaveRequest
-from app.models.hr_ops import HrJobRun
 from app.models.hr_profile import EmployeeProfile
 from app.models.user import User
+from app.services.hr import job_runs
 from app.services.hr.m365 import forward_rules, oof_state
 from app.services.hr.m365.executor import (
     allowlist,
@@ -65,13 +65,12 @@ from app.services.hr.m365.executor import (
 )
 from app.services.hr.m365.ops import GraphMailboxOps, MailboxError, MailboxOps
 from app.services.hr.m365.simulated import SimulatedMailboxOps
+from app.services.hr_foundation_schema import EmploymentStatus
 
 logger = logging.getLogger(__name__)
 
 JOB_KIND = "hr_m365_reconcile"
 RECONCILE_HOUR = 7
-#: Rezerwacja starsza niż tyle bez zakończenia = przebieg przerwany.
-STALE_CLAIM = timedelta(hours=1)
 #: Górna granica skrzynek na przebieg (zespół to dziś kilkadziesiąt osób).
 MAX_MAILBOXES = 300
 
@@ -86,40 +85,6 @@ def executed_statuses(mode: str) -> tuple[str, ...]:
     """
 
     return ("done",) if mode == "live" else ("done", "simulated")
-
-
-async def _claim(db: AsyncSession, period_key: str, now: datetime) -> Optional[int]:
-    row = await db.execute(
-        text(
-            "INSERT INTO hr_job_runs (kind, period_key, status) "
-            "VALUES (:kind, :period, 'claimed') "
-            "ON CONFLICT (kind, period_key) DO UPDATE "
-            "SET status = 'claimed', claimed_at = now(), error = NULL, finished_at = NULL "
-            "WHERE hr_job_runs.status = 'failed' "
-            "OR (hr_job_runs.status = 'claimed' AND hr_job_runs.claimed_at < :stale) "
-            "RETURNING id"
-        ),
-        {"kind": JOB_KIND, "period": period_key, "stale": now - STALE_CLAIM},
-    )
-    claimed = row.scalar_one_or_none()
-    await db.commit()
-    return claimed
-
-
-async def _finish(
-    db: AsyncSession,
-    run_id: int,
-    *,
-    status: str,
-    counts: dict[str, Any],
-    error: Optional[str] = None,
-) -> None:
-    await db.execute(
-        update(HrJobRun)
-        .where(HrJobRun.id == run_id)
-        .values(status=status, counts=counts, error=error, finished_at=func.now())
-    )
-    await db.commit()
 
 
 async def _candidate_leaves(db: AsyncSession, today: date) -> list[LeaveRequest]:
@@ -240,7 +205,7 @@ async def _mailbox_users(
     """Skrzynki zespołu (kartoteka nie ``exited``) i właściciele urlopów."""
 
     staff = select(EmployeeProfile.user_id).where(
-        EmployeeProfile.employment_status != "exited"
+        EmployeeProfile.employment_status != EmploymentStatus.exited
     )
     condition = User.is_active.is_(True) & User.id.in_(staff)
     if owner_ids:
@@ -498,7 +463,7 @@ async def run_once(
 
     mode = mode or current_mode()
     if mode == "off":
-        return {"mode": "off"}
+        return {"status": "disabled"}
     now = now or utc_now()
     today = warsaw_today(now)
     if warsaw_hour(now) < RECONCILE_HOUR:
@@ -509,7 +474,7 @@ async def run_once(
         if not credentials_configured():
             return {"mode": mode, "skipped": "no_credentials"}
 
-    run_id = await _claim(db, today.isoformat(), now)
+    run_id = await job_runs.claim(db, JOB_KIND, today.isoformat(), now)
     if run_id is None:
         return {"mode": mode, "skipped": "already_ran"}
 
@@ -522,10 +487,12 @@ async def run_once(
     except Exception as exc:  # noqa: BLE001 — przebieg do ponowienia, nie cichy sukces
         logger.exception("hr_m365_reconcile failed")
         await db.rollback()
-        await _finish(db, run_id, status="failed", counts={}, error=type(exc).__name__)
+        await job_runs.finish(
+            db, run_id, status="failed", counts={}, error=type(exc).__name__
+        )
         return {"mode": mode, "failed": type(exc).__name__}
     finally:
         if own_ops:
             await active_ops.aclose()
-    await _finish(db, run_id, status="done", counts=counts)
+    await job_runs.finish(db, run_id, status="done", counts=counts)
     return {"mode": mode, **counts}

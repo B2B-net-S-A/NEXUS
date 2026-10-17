@@ -23,7 +23,11 @@ from app.services.hr.bonus_rules import (
     recruiter_bonus,
     recruiter_tier,
 )
+from app.services.hr.calendar import WorkCalendar
 from app.services.hr.placement_bonuses import contract_margin
+
+#: Sam kalendarz ustawowy (bez dni wolnych firmy) — czyste granice reguły.
+PLAIN = WorkCalendar()
 
 
 @pytest.mark.parametrize(
@@ -58,22 +62,47 @@ def test_dl_bonus_is_ten_percent_of_168_hours_margin(margin, expected) -> None:
 
 def test_eligible_date_counts_21_business_days_after_start() -> None:
     # wt 1.09.2026 → 21 dni roboczych → śr 30.09.2026 (bez świąt w oknie).
-    assert eligible_date(date(2026, 9, 1)) == date(2026, 9, 30)
+    assert eligible_date(date(2026, 9, 1), DEFAULT_RULES, calendar=PLAIN) == date(
+        2026, 9, 30
+    )
 
 
 def test_eligible_date_skips_polish_holidays() -> None:
     # 11 listopada w oknie: termin przesuwa się z 30.11 na 1.12 — i zmienia
     # miesiąc premii. Compass do 08.2026 liczył tylko weekendy.
-    assert eligible_date(date(2026, 10, 30)) == date(2026, 12, 1)
+    assert eligible_date(date(2026, 10, 30), DEFAULT_RULES, calendar=PLAIN) == (
+        date(2026, 12, 1)
+    )
     # Wigilia (ustawowo wolna od 2025), Boże Narodzenie i Nowy Rok.
-    assert eligible_date(date(2026, 12, 1)) == date(2027, 1, 4)
+    assert eligible_date(date(2026, 12, 1), DEFAULT_RULES, calendar=PLAIN) == (
+        date(2027, 1, 4)
+    )
+
+
+def test_company_day_off_in_the_window_moves_the_deadline_by_a_day() -> None:
+    # Decyzja 17.10.2026: dni wolne firmy liczą się jak przy urlopie.
+    company = WorkCalendar(company_days_off={date(2026, 9, 10): "Dzień firmy"})
+    assert eligible_date(date(2026, 9, 1), DEFAULT_RULES, calendar=company) == (
+        date(2026, 10, 1)
+    )
+    assert (
+        bonus_rules.business_days_elapsed(
+            date(2026, 9, 1), date(2026, 9, 14), calendar=company
+        )
+        == 8
+    )
 
 
 def test_business_days_elapsed_drives_progress_bar() -> None:
     start = date(2026, 9, 1)
-    assert bonus_rules.business_days_elapsed(start, start) == 0
-    assert bonus_rules.business_days_elapsed(start, date(2026, 9, 14)) == 9
-    assert bonus_rules.business_days_elapsed(start, date(2026, 9, 30)) == 21
+    assert bonus_rules.business_days_elapsed(start, start, calendar=PLAIN) == 0
+    assert (
+        bonus_rules.business_days_elapsed(start, date(2026, 9, 14), calendar=PLAIN) == 9
+    )
+    assert (
+        bonus_rules.business_days_elapsed(start, date(2026, 9, 30), calendar=PLAIN)
+        == 21
+    )
 
 
 def test_rules_from_settings_change_amounts_and_deadline() -> None:
@@ -89,7 +118,7 @@ def test_rules_from_settings_change_amounts_and_deadline() -> None:
     assert recruiter_bonus(Decimal("44.99"), rules) == Decimal("1200")
     assert recruiter_bonus(Decimal("45"), rules) == Decimal("1800")
     assert dl_bonus(Decimal("40"), rules) == Decimal("840.00")
-    assert eligible_date(date(2026, 9, 1), rules) == date(2026, 9, 15)
+    assert eligible_date(date(2026, 9, 1), rules, calendar=PLAIN) == date(2026, 9, 15)
 
 
 def test_default_rules_carry_no_people() -> None:

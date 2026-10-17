@@ -33,13 +33,13 @@ import logging
 from datetime import date, datetime, timedelta
 from typing import Any, Optional
 
-from sqlalchemy import func, select, text, update
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.scheduling import local_now
 from app.models.hr_lifecycle import LifecycleCase, LifecycleTask
-from app.models.hr_ops import HrJobRun
 from app.models.notification import NotificationType
+from app.services.hr import job_runs
 from app.services.hr import modules as hr_modules
 from app.services.hr.deactivation import (
     MASS_EXIT_ERROR,
@@ -50,7 +50,10 @@ from app.services.hr.deactivation import (
 from app.services.hr.handover import execute_handover
 from app.services.hr.lifecycle_access import pool_member_ids
 from app.services.hr.lifecycle_dates import HANDOVER_HOUR, handover_due
-from app.services.hr.lifecycle_service import lifecycle_integrations, notify_assignees
+from app.services.hr.lifecycle_hooks import lifecycle_integrations
+from app.services.hr.lifecycle_service import notify_assignees
+from app.services.hr.modules import HrModule
+from app.services.hr.notify import notify_each
 
 logger = logging.getLogger(__name__)
 
@@ -60,8 +63,6 @@ MASS_EXIT_ALERT_KIND = "hr_lifecycle_mass_exit"
 INTERVAL_SECONDS = 15 * 60
 #: Zadanie przeterminowane dłużej nie wraca w dzwonku (zostaje na liście).
 REMINDER_GRACE_DAYS = 30
-#: Rezerwacja starsza niż tyle bez zakończenia = przebieg przerwany.
-STALE_CLAIM = timedelta(hours=1)
 
 
 def slot_key(now: datetime) -> str:
@@ -76,42 +77,6 @@ def slot_key(now: datetime) -> str:
 def week_key(day: date) -> str:
     year, week, _ = day.isocalendar()
     return f"{year}-W{week:02d}"
-
-
-async def _claim(
-    db: AsyncSession, kind: str, period_key: str, now: datetime
-) -> Optional[int]:
-    row = await db.execute(
-        text(
-            "INSERT INTO hr_job_runs (kind, period_key, status) "
-            "VALUES (:kind, :period, 'claimed') "
-            "ON CONFLICT (kind, period_key) DO UPDATE "
-            "SET status = 'claimed', claimed_at = now(), error = NULL, finished_at = NULL "
-            "WHERE hr_job_runs.status = 'failed' "
-            "OR (hr_job_runs.status = 'claimed' AND hr_job_runs.claimed_at < :stale) "
-            "RETURNING id"
-        ),
-        {"kind": kind, "period": period_key, "stale": now - STALE_CLAIM},
-    )
-    claimed = row.scalar_one_or_none()
-    await db.commit()
-    return claimed
-
-
-async def _finish(
-    db: AsyncSession,
-    run_id: int,
-    *,
-    status: str,
-    counts: dict[str, Any],
-    error: Optional[str] = None,
-) -> None:
-    await db.execute(
-        update(HrJobRun)
-        .where(HrJobRun.id == run_id)
-        .values(status=status, counts=counts, error=error, finished_at=func.now())
-    )
-    await db.commit()
 
 
 async def _lock_case(db: AsyncSession, case_id: int) -> Optional[LifecycleCase]:
@@ -199,36 +164,30 @@ async def _alert_mass_exit(db: AsyncSession, now: datetime, planned: int) -> int
     wyłączą kont po jednym.
     """
 
-    from app.services.notification_triggers import emit  # noqa: PLC0415
-
-    alert_id = await _claim(db, MASS_EXIT_ALERT_KIND, now.date().isoformat(), now)
+    alert_id = await job_runs.claim(
+        db, MASS_EXIT_ALERT_KIND, now.date().isoformat(), now
+    )
     if alert_id is None:
         return 0
     recipients = set(await pool_member_ids(db, "people_admin")) | set(
         await pool_member_ids(db, "it")
     )
-    sent = 0
-    for user_id in sorted(recipients):
-        try:
-            async with db.begin_nested():
-                created = await emit(
-                    db,
-                    user_id=user_id,
-                    title=f"Wyłączenie kont wstrzymane: {planned} odejść naraz",
-                    message=(
-                        f"Automat nie wyłącza więcej niż {MAX_DEACTIVATIONS_PER_RUN} "
-                        "kont w jednym przebiegu. Sprawdź odejścia i wyłącz konta "
-                        "po jednym („Wyłącz konto teraz”)."
-                    ),
-                    ntype=NotificationType.hr_lifecycle_task,
-                    related_entity_type="hr_job_run",
-                    related_entity_id=alert_id,
-                    link="/people",
-                )
-            sent += int(created is not None)
-        except Exception:  # noqa: BLE001 — jeden odbiorca nie blokuje reszty
-            logger.exception("hr_lifecycle mass exit alert failed user=%s", user_id)
-    await _finish(
+    sent = await notify_each(
+        db,
+        sorted(recipients),
+        title=f"Wyłączenie kont wstrzymane: {planned} odejść naraz",
+        message=(
+            f"Automat nie wyłącza więcej niż {MAX_DEACTIVATIONS_PER_RUN} "
+            "kont w jednym przebiegu. Sprawdź odejścia i wyłącz konta "
+            "po jednym („Wyłącz konto teraz”)."
+        ),
+        ntype=NotificationType.hr_lifecycle_task,
+        link="/people",
+        related_entity_type="hr_job_run",
+        related_entity_id=alert_id,
+        log_tag="hr_lifecycle",
+    )
+    await job_runs.finish(
         db, alert_id, status="done", counts={"planned": planned, "notified": sent}
     )
     return sent
@@ -284,7 +243,7 @@ async def run_reminders(db: AsyncSession, now: datetime) -> dict[str, Any]:
     today = now.date()
     if today.weekday() != 0:
         return {"reminders": "not_monday"}
-    run_id = await _claim(db, REMINDERS_KIND, week_key(today), now)
+    run_id = await job_runs.claim(db, REMINDERS_KIND, week_key(today), now)
     if run_id is None:
         return {"reminders": "claimed"}
     sent = 0
@@ -319,11 +278,11 @@ async def run_reminders(db: AsyncSession, now: datetime) -> dict[str, Any]:
     except Exception as exc:  # noqa: BLE001
         await db.rollback()
         logger.exception("hr_lifecycle reminders failed")
-        await _finish(
+        await job_runs.finish(
             db, run_id, status="failed", counts={"sent": sent}, error=type(exc).__name__
         )
         return {"reminders": "failed"}
-    await _finish(db, run_id, status="done", counts={"sent": sent})
+    await job_runs.finish(db, run_id, status="done", counts={"sent": sent})
     return {"reminders_sent": sent}
 
 
@@ -333,10 +292,10 @@ async def run_once(
     """Jeden przebieg pętli (idempotentny; ``now`` w czasie Warszawy)."""
 
     modules = await hr_modules.load_modules(db)
-    if not modules.get("lifecycle"):
-        return {"skipped": "module_off"}
+    if not modules.get(HrModule.lifecycle):
+        return {"status": "disabled"}
     now = now or local_now()
-    run_id = await _claim(db, JOB_KIND, slot_key(now), now)
+    run_id = await job_runs.claim(db, JOB_KIND, slot_key(now), now)
     if run_id is None:
         return {"skipped": "claimed"}
     counts: dict[str, Any] = {}
@@ -347,14 +306,14 @@ async def run_once(
     except Exception as exc:  # noqa: BLE001 — stempel błędu, pętla żyje dalej
         await db.rollback()
         logger.exception("hr_lifecycle run failed")
-        await _finish(
+        await job_runs.finish(
             db, run_id, status="failed", counts=counts, error=type(exc).__name__
         )
         return {**counts, "error": type(exc).__name__}
     # Odmowa przy masowym odejściu to porażka przebiegu (sonda `hr_jobs`),
     # a nie cichy sukces — konta osób, które odeszły, zostały włączone.
     refused = counts.get("deactivation_error")
-    await _finish(
+    await job_runs.finish(
         db,
         run_id,
         status="failed" if refused else "done",

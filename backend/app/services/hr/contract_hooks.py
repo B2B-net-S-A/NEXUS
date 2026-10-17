@@ -51,9 +51,9 @@ Step = Callable[[AsyncSession, Contract], Awaitable[Any]]
 
 
 async def _equipment_enabled(db: AsyncSession) -> bool:
-    from app.services.hr.modules import load_modules
+    from app.services.hr.modules import HrModule, load_modules
 
-    return bool((await load_modules(db)).get("equipment"))
+    return bool((await load_modules(db)).get(HrModule.equipment))
 
 
 async def _run(

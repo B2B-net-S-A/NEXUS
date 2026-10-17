@@ -30,6 +30,8 @@ wyłączone; admin włącza przy przełączeniu, bez wdrożenia).
 
 from __future__ import annotations
 
+from enum import StrEnum
+
 HR_MODULES_SETTING = "hr_modules"
 HR_MODULE_KEYS: tuple[str, ...] = (
     "people",
@@ -42,13 +44,34 @@ HR_MODULE_KEYS: tuple[str, ...] = (
     "equipment",
 )
 
-EMPLOYMENT_TYPES: tuple[str, ...] = ("uop", "b2b", "zlecenie")
-EMPLOYMENT_STATUSES: tuple[str, ...] = (
-    "pending",
-    "onboarding",
-    "active",
-    "offboarding",
-    "exited",
+
+class EmploymentType(StrEnum):
+    """Forma współpracy w kartotece (``ck_employee_profiles_type``)."""
+
+    uop = "uop"
+    b2b = "b2b"
+    zlecenie = "zlecenie"
+
+
+class EmploymentStatus(StrEnum):
+    """Status kartoteki (``ck_employee_profiles_status``)."""
+
+    pending = "pending"
+    onboarding = "onboarding"
+    active = "active"
+    offboarding = "offboarding"
+    exited = "exited"
+
+
+EMPLOYMENT_TYPES: tuple[str, ...] = tuple(member.value for member in EmploymentType)
+EMPLOYMENT_STATUSES: tuple[str, ...] = tuple(
+    member.value for member in EmploymentStatus
+)
+#: Osoba pracuje albo kończy (katalog, „już u nas pracuje” przy wejściu).
+WORKING_STATUSES: tuple[str, ...] = (
+    EmploymentStatus.onboarding.value,
+    EmploymentStatus.active.value,
+    EmploymentStatus.offboarding.value,
 )
 LOCATIONS: tuple[str, ...] = ("onsite", "remote")
 #: Pion firmy (decyzja Artura 17.10.2026): Front office — sprzedaż i rekrutacja,
