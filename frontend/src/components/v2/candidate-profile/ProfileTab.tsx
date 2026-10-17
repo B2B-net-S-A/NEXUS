@@ -47,7 +47,11 @@ import { pluralPl } from "@/lib/plural-pl";
 import { recruitmentOutcome, recruitmentStageLabel } from "@/lib/recruitment-stage-label";
 import { displaySkills, skillDictionaryIndex } from "@/lib/skill-display";
 import { cn, formatDate, formatRelativeTime } from "@/lib/utils";
-import { screeningConfirmedSkills, splitRecruitments } from "./profile-helpers";
+import {
+  candidateBoardHref,
+  screeningConfirmedSkills,
+  splitRecruitments,
+} from "./profile-helpers";
 import { SectionError, SectionHeading, unwrapNoteContent } from "./profile-shared";
 
 /* eslint-disable @typescript-eslint/no-explicit-any -- payload historii i notatek jest luźno typowany */
@@ -280,7 +284,16 @@ export function NowSection({
             <>
               {" "}
               Ostatnio: {recruitmentOutcome(lastEnded).label.toLowerCase()} ·{" "}
-              {lastEnded.job_title ?? "rekrutacja"}
+              {typeof lastEnded.job_id === "number" ? (
+                <Link
+                  href={candidateBoardHref(lastEnded.job_id, candidateId)}
+                  className="text-foreground hover:text-primary hover:underline"
+                >
+                  {lastEnded.job_title ?? "rekrutacja"}
+                </Link>
+              ) : (
+                (lastEnded.job_title ?? "rekrutacja")
+              )}
               {lastEnded.last_seen ? ` (${formatDate(lastEnded.last_seen)})` : ""}.{" "}
             </>
           ) : (
@@ -345,7 +358,12 @@ function NowRecruitmentRow({ candidateId, job }: { candidateId: number; job: any
   return (
     <li className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2.5 text-sm">
       <span className="min-w-0 flex-1">
-        <span className="font-medium text-foreground">{job.job_title ?? "Rekrutacja"}</span>
+        <Link
+          href={candidateBoardHref(job.job_id, candidateId)}
+          className="font-medium text-foreground hover:text-primary hover:underline"
+        >
+          {job.job_title ?? "Rekrutacja"}
+        </Link>
         {job.client_name ? (
           <span className="text-muted-foreground"> · {job.client_name}</span>
         ) : null}
@@ -358,7 +376,7 @@ function NowRecruitmentRow({ candidateId, job }: { candidateId: number; job: any
         </span>
       ) : null}
       <Link
-        href={`/jobs/${job.job_id}?candidate=${candidateId}`}
+        href={candidateBoardHref(job.job_id, candidateId)}
         className="inline-flex min-h-8 items-center gap-1 text-xs font-medium text-primary hover:underline"
       >
         Tablica <ArrowRight className="size-3" aria-hidden />
