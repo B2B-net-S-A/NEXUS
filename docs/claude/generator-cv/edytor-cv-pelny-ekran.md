@@ -383,7 +383,11 @@ Komponenty: `cv-editor/CvEditorIssues.tsx` (grupy, „Poprawione”, pasek),
   nic; „lat” → „lata” po nowej liczbie; liczba podmieniana W MIEJSCU cytatu QC,
   nie pierwsza równa w bloku; historia = `candidate.experience`, ta sama co
   w uwadze QC, nie odczyt z `role_entries`; najwyżej `YEARS_CLAIMS_MAX` = 10
-  twierdzeń o stażu na kliknięcie), `title` (tylko układ generatora „Rola –
+  twierdzeń o stażu na kliknięcie; zera lat nie wpisuje, a stażu kilku firm
+  naraz — „N lat w A i B”, `_names_several_companies` — nie przepisuje, bo
+  liczba z dat jednej firmy byłaby w zdaniu nieprawdą; panel daje „Zmień”
+  tylko z podglądem zmiany i bez kilku firm, inaczej uwaga stoi do decyzji —
+  produkcja 17.10.2026: „3 lata w <A> i <B>”, z dat A wychodziło 0), `title` (tylko układ generatora „Rola –
   Imię”: imię i nazwisko kandydata po prawej stronie OSTATNIEGO separatora,
   jak `stage_cv_copy._name_part`, i nie po lewej; „Imię – Rola”, dopisek po
   imieniu („… – Anna K. | Warszawa”), imię po obu stronach, brak imienia albo

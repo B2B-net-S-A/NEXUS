@@ -4394,6 +4394,26 @@ def test_years_without_full_history_are_left_alone() -> None:
     assert qc.fix_years_html(html, broken, today=TODAY_PR2) == (html, 0)
 
 
+def test_years_never_write_zero_nor_one_company_into_a_claim_about_several() -> None:
+    # Produkcja 17.10.2026: „3 lata w <firma A> i <firma B>”, rola w firmie A
+    # od 05.2026, firmy B nie ma w historii — z dat wychodzi 0. „Zmień”
+    # i „Popraw wszystkie” wpisywały „0 lat w A i B”. Uwaga QC zostaje,
+    # poprawki jednym kliknięciem nie ma.
+    recent = [
+        {"company": "Omegasoft", "start": "2026-05", "end": None},
+        {"company": "Bank Alfa", "start": "2018-01", "end": "2026-04"},
+    ]
+    zero = "<p>8 lat doświadczenia, w tym 3 lata w Omegasoft.</p>"
+    assert qc.fix_years_html(zero, recent, today=TODAY_PR2) == (zero, 0)
+    several = "<p>8 lat doświadczenia, w tym 12 lat w Bank Alfa i Delta Soft.</p>"
+    assert qc.fix_years_html(several, recent, today=TODAY_PR2) == (several, 0)
+    # Jedna firma i staż co najmniej roku — dalej poprawiane.
+    one = "<p>8 lat doświadczenia, w tym 12 lat w Bank Alfa.</p>"
+    out, count = qc.fix_years_html(one, recent, today=TODAY_PR2)
+    assert count == 1
+    assert "w tym 8 lat w Bank Alfa." in out
+
+
 def test_title_replaces_the_role_before_the_name() -> None:
     out, count = qc.set_title_html(
         "<h1>Java Developer – Anna P.</h1><p>x</p>", "Senior Java Developer", "Anna P."

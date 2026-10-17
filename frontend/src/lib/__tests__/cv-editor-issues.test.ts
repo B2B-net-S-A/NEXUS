@@ -574,7 +574,7 @@ describe("wiersze po wadze (wariant A, 17.10.2026)", () => {
         }),
         check({ key: "spelling", items: [{ key: "s", term: "Github", fix: "spelling", detail: "„Github” → „GitHub”" }] }),
         check({ key: "role_order", items: [{ key: "r", role: "Developer", fix: "role_order", role_index: 1 }] }),
-        check({ key: "years_header", items: [{ key: "y", term: "10 lat", detail: "Nagłówek mówi „10 lat”" }] }),
+        check({ key: "years_header", items: [{ key: "y", term: "10 lat", detail: "Nagłówek mówi „10 lat”, a z dat historii wychodzi 7." }] }),
         check({ key: "title_matches_role", status: "manual", items: [] }),
       ],
       warnings: ["WERYFIKUJ: usunięto „OpenTelemetry” z umiejętności"],
@@ -688,6 +688,21 @@ describe("poprawki jednym kliknięciem po kluczu sprawdzenia (PR 2, 17.10.2026)"
     expect(itemQuickFix(rules, rules.items[1])).toBeNull();
     expect(itemQuickFix({ ...years, status: "pass" }, years.items[0])).toBeNull();
     expect(itemQuickFix(check({ key: "dates", items: [{ role: "Dev", detail: "Rola bez dat." }] }), { role: "Dev" })).toBeNull();
+  });
+
+  it("lata bez przycisku, gdy serwer ich nie poprawi: zero lat albo staż kilku firm naraz (17.10.2026)", () => {
+    const company = (term: string, n: number) =>
+      itemQuickFix(years, { term, detail: `CV mówi „${term}”, a z dat roli w Bank Alfa wychodzi ${n}.` });
+    // Produkcja: „3 lata w <A> i <B>”, z dat A wychodzi 0.
+    expect(company("3 lata w Bank Alfa i Delta Soft", 0)).toBeNull();
+    expect(company("12 lat w Bank Alfa i Delta Soft", 8)).toBeNull();
+    expect(company("12 lat w Bank Alfa & Delta", 8)).toBeNull();
+    expect(company("12 lat w Bank Alfa", 8)).toEqual({ action: "years" });
+    // Nagłówek z „i” po stażu to nie kilka firm.
+    expect(
+      itemQuickFix(years, { term: "Ponad 10 lat w Javie i Kotlinie", detail: "Nagłówek mówi „…”, a z dat historii wychodzi 7." }),
+    ).toEqual({ action: "years" });
+    expect(bulkPlan([check({ key: "years_header", items: [{ term: "3 lata w Bank Alfa i Delta Soft", detail: "… z dat roli w Bank Alfa wychodzi 0." }] })], []).actions).toEqual([]);
   });
 
   it("podgląd lat odmienia „lat” → „lata” i bez liczby z historii nie zgaduje", () => {

@@ -4453,6 +4453,17 @@ def _replace_years_in(
     return 0
 
 
+# „N lat w A i B” — staż kilku firm naraz. Liczba z dat jednej z nich (drugiej
+# zwykle nie ma w historii) byłaby w zdaniu nieprawdą w drugą stronę, więc
+# takiego twierdzenia poprawka nie przepisuje; uwaga QC zostaje (17.10.2026).
+_SEVERAL_COMPANIES = re.compile(r"\s(?:i|oraz|and)\s|[&/]", re.IGNORECASE)
+
+
+def _names_several_companies(quote: str) -> bool:
+    m = _COMPANY_YEARS.search(quote)
+    return bool(_SEVERAL_COMPANIES.search(m.group("company") if m else quote))
+
+
 def fix_years_html(
     html: str, experience: Any, *, today: Optional[date] = None
 ) -> tuple[str, int]:
@@ -4471,6 +4482,8 @@ def fix_years_html(
             count += _replace_years_in(doc, quote, claimed, int(actual), nodes_of)
     claims = company_year_claims(doc.blocks, experience, today=today)
     for claimed, company_actual, _company, quote in claims[:YEARS_CLAIMS_MAX]:
+        if _names_several_companies(quote):
+            continue
         count += _replace_years_in(doc, quote, claimed, int(company_actual), nodes_of)
     return (doc.html(), count) if count else (html, 0)
 
