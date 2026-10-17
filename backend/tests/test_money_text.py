@@ -1,5 +1,7 @@
 """Stawki i dostępność nie idą z notatek do modelu generatora CV (13.10.2026)."""
 
+import time
+
 import pytest
 
 from app.services.money_text import is_rate_text, strip_rates_and_availability
@@ -63,3 +65,33 @@ def test_candidate_money_and_notice_leave_the_note(note):
 )
 def test_facts_about_systems_and_projects_stay(fact):
     assert strip_rates_and_availability(fact) == fact
+
+
+# ── Koszt (17.10.2026) ──────────────────────────────────────────────────────
+# Notatki, odpowiedzi kandydata i tekst z AI w edytorze trafiają tu bez limitu
+# długości. Do 17.10.2026 „stawka” + 4 tys. spacji albo „1  1  1…” liczyły się
+# sekundami — wzorce wracały kwadratowo.
+
+K = 20_000
+CPU_LIMIT = 2.0
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        pytest.param("wynagrodzenie" + "to" * K + "x", id="glued_word"),
+        pytest.param("stawka" + " " * K + "x", id="spaces_after_rate_word"),
+        pytest.param("1" * K + "x", id="digits"),
+        pytest.param("1 " * K + "x", id="digit_space"),
+        pytest.param("1  " * K + "x", id="digit_two_spaces"),
+        pytest.param("1." * K + "x", id="digit_dot"),
+        pytest.param("1 . " * K + "x", id="digit_space_dot"),
+        pytest.param("1 zł, " * K, id="many_amounts"),
+    ],
+)
+def test_rate_checks_are_linear(text):
+    for check in (is_rate_text, strip_rates_and_availability):
+        start = time.process_time()
+        check(text)
+        spent = time.process_time() - start
+        assert spent < CPU_LIMIT, f"{check.__name__}: {spent:.2f} s"
