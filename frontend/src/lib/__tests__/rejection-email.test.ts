@@ -11,6 +11,7 @@ import {
   rejectionEmailBlockedMessage,
   rejectionEmailBulkSkipMessage,
   rejectionEmailDefaultBody,
+  rejectionEmailPendingTime,
   rejectionEmailPreviewKey,
   rejectionEmailSkipMessage,
   rejectionEmailSkipShort,
@@ -187,5 +188,12 @@ describe("rejectionEmailDefaultBody", () => {
     expect(rejectionEmailDefaultBody("Cześć i powodzenia", undefined, false)).toBe(
       "Cześć i powodzenia",
     );
+  });
+});
+
+describe("rejectionEmailPendingTime", () => {
+  it("godzina wysyłki czekającego maila w czasie Warszawy", () => {
+    expect(rejectionEmailPendingTime("2026-10-17T09:42:00Z")).toBe("11:42");
+    expect(rejectionEmailPendingTime("2026-12-01T09:05:00Z")).toBe("10:05");
   });
 });

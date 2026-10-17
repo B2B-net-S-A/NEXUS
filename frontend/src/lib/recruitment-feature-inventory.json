@@ -511,6 +511,14 @@
    "v3_home": "RejectionV2"
   },
   {
+   "id": "move.rejection-email-merge",
+   "area": "ruch",
+   "opis": "Druga odrzucona rekrutacja tej samej osoby, zanim wyszedł pierwszy mail: okno proponuje jeden wspólny mail o obu rekrutacjach (albo osobny), tamten jest anulowany, a jego nadawca dostaje dzwonek (17.10.2026)",
+   "file": "components/v2/modals/RejectionEmailField.tsx",
+   "marker": "Jeden wspólny mail o obu rekrutacjach",
+   "v3_home": "RejectionV2"
+  },
+  {
    "id": "move.rejection-email-connect-mailbox",
    "area": "ruch",
    "opis": "Bez podłączonej skrzynki Microsoft 365 okno odrzucenia daje „Podłącz skrzynkę” (Ustawienia → Integracje w nowej karcie) i po powrocie sprawdza jeszcze raz (17.10.2026)",

@@ -13,6 +13,8 @@ https://claude.ai/artifact/HvWWRjHpxovrQeNbLJudYL):
   w chwili wysyłki (znacznik w zapisanej treści), poza polem edycji.
 - D5: nazwy rekrutacji z kodu strony kariery; nazwa, w której po czyszczeniu
   nadal widać kod zlecenia albo klienta, nie trafia do kandydata.
+- D3: osoba odrzucona w drugiej rekrutacji, zanim wyszedł pierwszy mail,
+  dostaje jeden wspólny (``merged_text``, dopisek „tych rekrutacji”).
 
 Czyste funkcje — bez bazy. Zapytania są w ``rejection_email_scheduler``.
 """
@@ -28,6 +30,8 @@ from app.services.public_profile_lint import lint_public_texts
 
 TEXT_AFTER_CLIENT = "after_client"
 TEXT_BEFORE_CLIENT = "before_client"
+# Wspólny mail o kilku rekrutacjach (D3) — bez „przed/po kliencie”.
+TEXT_MERGED = "merged"
 
 DEFAULT_SUBJECT = "Informacja zwrotna — {job_title}"
 
@@ -82,6 +86,33 @@ def default_text(*, candidate_name: str, job_title: str, kind: str) -> DefaultTe
     )
 
 
+_COUNT_WORDS = {2: "dwóch", 3: "trzech", 4: "czterech"}
+
+
+def _join_pl(items: Sequence[str]) -> str:
+    """„A”, „A i B”, „A, B i C”."""
+    if len(items) <= 1:
+        return "".join(items)
+    return ", ".join(items[:-1]) + " i " + items[-1]
+
+
+def merged_text(*, candidate_name: str, job_titles: Sequence[str]) -> DefaultText:
+    """Jeden mail o kilku rekrutacjach tej samej osoby (D3, 17.10.2026)."""
+    titles = [t.strip() for t in job_titles if t and t.strip()]
+    count = len(job_titles)
+    how_many = _COUNT_WORDS.get(count, str(count))
+    name = (candidate_name or "").strip()
+    return DefaultText(
+        subject=DEFAULT_SUBJECT.format(job_title=", ".join(titles)),
+        body=(
+            f"Cześć {name},\n\n"
+            f"dziękujemy za udział w rekrutacjach na stanowiska {_join_pl(titles)}. "
+            f"W tych {how_many} procesach nie przechodzisz dalej."
+        ),
+        closing=CLOSING,
+    )
+
+
 def title_safe_for_mail(title: Optional[str], client_names: Iterable[str]) -> bool:
     """Nazwa bez numeru zlecenia i bez nazwy klienta (reguły strony kariery).
 
@@ -113,14 +144,18 @@ def _plural(n: int, one: str, few: str, many: str) -> str:
     return many
 
 
-def other_processes_text(titles: Sequence[Optional[str]]) -> Optional[str]:
+def other_processes_text(
+    titles: Sequence[Optional[str]], *, merged: bool = False
+) -> Optional[str]:
     """Dopisek o pozostałych rekrutacjach — ``None``, gdy nie ma żadnej.
 
     ``titles`` — nazwa dla kandydata albo ``None``, gdy nazwy nie można
-    pokazać (wtedy liczba: „i jeszcze 1 inna rekrutacja”).
+    pokazać (wtedy liczba: „i jeszcze 1 inna rekrutacja”). ``merged`` — mail
+    o kilku rekrutacjach naraz: „To dotyczy tylko tych rekrutacji”.
     """
     if not titles:
         return None
+    scope = "tych rekrutacji" if merged else "tej rekrutacji"
     named = [t for t in titles if t]
     unnamed = len(titles) - len(named)
     total = len(titles)
@@ -136,15 +171,12 @@ def other_processes_text(titles: Sequence[Optional[str]]) -> Optional[str]:
             if one
             else f"w jeszcze {total} naszych rekrutacjach"
         )
-        return (
-            f"To dotyczy tylko tej rekrutacji — nadal bierzesz udział {where}.\n\n"
-            f"{later}"
-        )
+        return f"To dotyczy tylko {scope} — nadal bierzesz udział {where}.\n\n{later}"
     lead = (
-        "To dotyczy tylko tej rekrutacji — nadal bierzesz udział w naszym "
+        f"To dotyczy tylko {scope} — nadal bierzesz udział w naszym "
         "pozostałym procesie:"
         if one
-        else "To dotyczy tylko tej rekrutacji — nadal bierzesz udział w naszych "
+        else f"To dotyczy tylko {scope} — nadal bierzesz udział w naszych "
         "pozostałych procesach:"
     )
     lines = [f"• {t}" for t in named]
@@ -156,12 +188,14 @@ def other_processes_text(titles: Sequence[Optional[str]]) -> Optional[str]:
     return lead + "\n" + "\n".join(lines) + f"\n\n{later}"
 
 
-def fill_other_processes(body_html: str, titles: Sequence[Optional[str]]) -> str:
+def fill_other_processes(
+    body_html: str, titles: Sequence[Optional[str]], *, merged: bool = False
+) -> str:
     """Znacznik → dopisek z listą z chwili wysyłki albo zwykłe zakończenie.
 
     Treść bez znacznika (szablon, odrzucenie bez dopisku) wraca bez zmian.
     """
     if OTHER_PROCESSES_MARKER not in body_html:
         return body_html
-    text = other_processes_text(titles) or CLOSING
+    text = other_processes_text(titles, merged=merged) or CLOSING
     return body_html.replace(OTHER_PROCESSES_MARKER, plain_text_to_html(text))

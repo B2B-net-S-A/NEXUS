@@ -128,6 +128,16 @@ class RejectionEmailPreviewOtherProcess(BaseModel):
     column: str
 
 
+class RejectionEmailPreviewPendingMail(BaseModel):
+    """Mail odrzucenia, który do tej osoby jeszcze czeka (D3, 17.10.2026)."""
+
+    id: int
+    scheduled_at: datetime
+    sender_name: str
+    # Rekrutacje, o których już mówi — nazwy w NEXUSIE.
+    job_titles: List[str]
+
+
 class RejectionEmailPreviewPerson(BaseModel):
     candidate_id: int
     to_email: Optional[str]
@@ -136,6 +146,7 @@ class RejectionEmailPreviewPerson(BaseModel):
     # `before_client` / `after_client` — treść „przed klientem” / „po kliencie”.
     text_kind: Optional[str] = None
     other_processes: List[RejectionEmailPreviewOtherProcess] = []
+    pending_mail: Optional[RejectionEmailPreviewPendingMail] = None
 
 
 class RejectionEmailPreviewSample(BaseModel):
@@ -160,6 +171,8 @@ class RejectionEmailPreviewResponse(BaseModel):
     people: List[RejectionEmailPreviewPerson]
     # Po jednej osobie każdego rodzaju treści (okno kilku osób).
     samples: List[RejectionEmailPreviewSample] = []
+    # Wspólna treść dla pierwszej osoby z czekającym mailem (D3).
+    merged: Optional[RejectionEmailPreviewSample] = None
 
 
 # ── Endpoints ───────────────────────────────────────────────────────────────
@@ -208,6 +221,16 @@ async def preview_rejection_email(
                     )
                     for o in p.other_processes
                 ],
+                pending_mail=(
+                    RejectionEmailPreviewPendingMail(
+                        id=p.pending_mail.id,
+                        scheduled_at=p.pending_mail.scheduled_at,
+                        sender_name=p.pending_mail.sender_name,
+                        job_titles=list(p.pending_mail.job_titles),
+                    )
+                    if p.pending_mail is not None
+                    else None
+                ),
             )
             for p in result.people
         ],
@@ -222,6 +245,18 @@ async def preview_rejection_email(
             )
             for s in result.samples
         ],
+        merged=(
+            RejectionEmailPreviewSample(
+                text_kind=result.merged.text_kind,
+                candidate_id=result.merged.candidate_id,
+                subject=result.merged.subject,
+                body=result.merged.body,
+                closing=result.merged.closing,
+                other_processes_text=result.merged.other_processes_text,
+            )
+            if result.merged is not None
+            else None
+        ),
     )
 
 

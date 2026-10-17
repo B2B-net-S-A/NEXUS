@@ -108,6 +108,18 @@ osób odrzuconych od „Zweryfikowany” było dalej w innej otwartej rekrutacji
   Integracje w nowej karcie), podgląd odświeża się po powrocie do karty.
   17.10 skrzynkę miało 8 osób; z 10 rekruterów, którzy odrzucali, 2.
 - **Checkbox (D8):** dalej domyślnie odznaczony.
+- **Jeden mail przy kilku odrzuceniach (D3):** gdy do osoby czeka już mail
+  z innej rekrutacji (nie ruszył, bez szablonu, treść nie poprawiana ręcznie
+  — `mergeable_pending_mail`), okno proponuje „Jeden wspólny mail o obu
+  rekrutacjach” (domyślnie) albo osobny (`StageMove.rejection_email_merge`).
+  Wspólny: nowy wiersz z treścią `merged_text` („W tych dwóch procesach nie
+  przechodzisz dalej”, dopisek „tych rekrutacji”), stary dostaje `cancelled`
+  i `last_error = "merged_into:<id>"` — bez nowej kolumny; `covered_job_ids`
+  czyta, o których rekrutacjach mówi mail. `dispatch` sprawdza „nadal
+  odrzucona” w KAŻDEJ z nich, a powrót osoby do którejkolwiek
+  (`pending_rows_covering` w `/move`) anuluje wspólny mail. Nadawca
+  anulowanego maila dostaje dzwonek; oś czasu ma wpis `rejection_email_merged`.
+  Poprawiony ręcznie mail wychodzi osobno — i tak z dopiskiem z chwili wysyłki.
 - Podgląd (`preview`) oddaje przy osobie `text_kind` i `other_processes`
   (nazwa w NEXUSIE, nazwa w mailu, kolumna), a `samples` — po jednej treści
   każdego rodzaju dla okna kilku osób (przełącznik „Przed klientem /
