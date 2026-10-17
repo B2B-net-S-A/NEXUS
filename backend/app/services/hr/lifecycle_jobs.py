@@ -183,8 +183,9 @@ async def _alert_mass_exit(db: AsyncSession, now: datetime, planned: int) -> int
         ),
         ntype=NotificationType.hr_lifecycle_task,
         link="/people",
-        related_entity_type="hr_job_run",
-        related_entity_id=alert_id,
+        # Bez numeru encji: dzienny odsiew powiadomień (``ix_notif_dedup_daily``)
+        # nie zna jej rodzaju i połykał alarm, gdy dzwonek zadania tej osoby miał
+        # ten sam numer. Raz dziennie pilnuje rezerwacja ``hr_lifecycle_mass_exit``.
         log_tag="hr_lifecycle",
     )
     await job_runs.finish(

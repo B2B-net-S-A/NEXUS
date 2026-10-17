@@ -136,9 +136,7 @@ def alert_text(expires: date, days_left: int) -> tuple[str, str]:
     )
 
 
-async def _notify_admins(
-    db: AsyncSession, run_id: int, expires: date, days_left: int
-) -> int:
+async def _notify_admins(db: AsyncSession, expires: date, days_left: int) -> int:
     from app.models.notification import NotificationType
 
     users = await db.scalars(select(User).where(User.is_active.is_(True)))
@@ -151,8 +149,9 @@ async def _notify_admins(
         message=message,
         ntype=NotificationType.automation_failing,
         link=SETTINGS_LINK,
-        related_entity_type="hr_job_run",
-        related_entity_id=run_id,
+        # Bez numeru encji: ``automation_failing`` niosą też alarmy innych
+        # automatów, a dzienny odsiew nie zna rodzaju encji — ten sam numer
+        # połknąłby alarm. Raz na próg pilnuje rezerwacja przebiegu.
         log_tag="hr_m365_secret_expiry",
     )
     await db.commit()
@@ -178,7 +177,7 @@ async def run_once(
     if run_id is None:
         return {"status": "already_sent", "days_left": days_left}
     try:
-        sent = await _notify_admins(db, run_id, expires, days_left)
+        sent = await _notify_admins(db, expires, days_left)
     except Exception as exc:  # noqa: BLE001 — alarm do ponowienia w kolejnym obrocie
         logger.exception("hr_m365_secret_expiry failed")
         await db.rollback()
