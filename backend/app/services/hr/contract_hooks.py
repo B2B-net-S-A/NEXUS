@@ -12,7 +12,8 @@ Cztery zdarzenia:
 * ``contract_end_undone`` — cofnięcie zakończenia / ponowne otwarcie: premie
   wracają,
 * ``contract_deleted`` — trwałe usunięcie (``hard_delete_contract``): sprawa
-  „Wejście konsultanta” zamknięta, zanim FK wyzeruje jej kontrakt.
+  „Wejście konsultanta” zamknięta i propozycje premii z placementu anulowane
+  (``contract_deleted``), zanim FK wyzeruje kontrakt; przyznane premie zostają.
 
 Każdy moduł sam sprawdza swój przełącznik i jest idempotentny po kluczu
 (``source_key``), a krok biegnie w savepoincie: awaria modułu pobocznego jest
@@ -133,6 +134,12 @@ async def _cases_start(db: AsyncSession, contract: Contract) -> None:
     await open_case_for_new_contract(db, contract)
 
 
+async def _payroll_deleted(db: AsyncSession, contract: Contract) -> None:
+    from app.services.hr import placement_bonuses
+
+    await placement_bonuses.on_contract_deleted(db, contract)
+
+
 async def _cases_deleted(db: AsyncSession, contract: Contract) -> None:
     from app.services.admin_cases import hooks
 
@@ -170,10 +177,16 @@ async def contract_end_undone(db: AsyncSession, contract: Contract) -> dict[str,
 
 
 async def contract_deleted(db: AsyncSession, contract: Contract) -> dict[str, str]:
-    """Przed trwałym usunięciem: FK zeruje ``admin_cases.contract_id``, więc
-    sprawa wejścia zostałaby otwarta bez kontraktu (zadania sprzętu idą kaskadą)."""
+    """Przed trwałym usunięciem: FK zeruje ``admin_cases.contract_id``
+    i ``hr_bonuses.contract_id``, więc sprawa wejścia i propozycje premii
+    zostałyby otwarte bez kontraktu (zadania sprzętu idą kaskadą)."""
 
-    return await _run(db, contract, "deleted", [("cases", _cases_deleted)])
+    return await _run(
+        db,
+        contract,
+        "deleted",
+        [("payroll", _payroll_deleted), ("cases", _cases_deleted)],
+    )
 
 
 _LIVE = (ContractStatus.active, ContractStatus.ending)

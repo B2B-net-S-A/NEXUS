@@ -19,7 +19,9 @@ Dla kontraktu z datą startu (status aktywny, kończący się albo zakończony):
   rekruter (próg marży); ``source_key`` = ``contract:{id}:dl|dl_extra|recruiter``.
 
 Kontrakt zakończony przed terminem (albo anulowany) → propozycje anulowane
-przez automat; cofnięcie zakończenia → przywrócone. Gdy miesiąc premii
+przez automat; cofnięcie zakończenia → przywrócone. Kontrakt usunięty trwale →
+propozycje anulowane na stałe (``contract_deleted``, poza
+``AUTO_CANCEL_REASONS``: nie ma czego przywracać), przyznane zostają. Gdy miesiąc premii
 zamknięto w międzyczasie, przywrócona propozycja idzie na pierwszy otwarty
 miesiąc (``restored_from_closed_period`` w migawce) — o wypłacie i tak
 decydują Płace, bo to znów propozycja. Premii zatwierdzonej
@@ -53,6 +55,7 @@ from app.models.job import Job
 from app.models.team_structure import DeliveryLeadClientAssignment
 from app.services import fx_service
 from app.services.contract_rates import RATE_SCHEDULE_LOADS
+from app.services.hr import audit
 from app.services.hr import modules as hr_modules
 from app.services.hr.bonus_rules import (
     BonusRules,
@@ -76,6 +79,8 @@ from app.services.order_rate_snapshots import CONTRACT_RATE_SCALE, convert_order
 logger = logging.getLogger(__name__)
 
 SOURCE = "contract_placement"
+#: Powód anulowania propozycji kontraktu usuniętego trwale (bez przywracania).
+DELETED_REASON = "contract_deleted"
 ROLES: tuple[str, ...] = ("dl", "dl_extra", "recruiter")
 ROLE_LABELS: dict[str, str] = {
     "dl": "Premia DL",
@@ -511,6 +516,54 @@ async def on_contract_ended(db: AsyncSession, contract: Contract) -> dict[str, A
     return await _hook(db, contract, "ended")
 
 
+async def on_contract_deleted(db: AsyncSession, contract: Contract) -> int:
+    """Przed trwałym usunięciem kontraktu: jego propozycje automatu → anulowane.
+
+    FK zeruje ``hr_bonuses.contract_id``; propozycja bez kontraktu wisiałaby
+    jako „do decyzji” i blokowała zamknięcie miesiąca (``pending_bonuses``).
+    Premie przyznane zostają bez zmian. Bez sprawdzania modułu Płac — po
+    wyłączeniu modułu stare propozycje i tak nie mogą zostać bez kontraktu.
+    Zwraca liczbę anulowanych; nie commituje.
+    """
+
+    proposals = await db.scalars(
+        select(HrBonus)
+        .where(
+            HrBonus.source == SOURCE,
+            HrBonus.contract_id == contract.id,
+            HrBonus.status == "proposed",
+        )
+        .order_by(HrBonus.id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    cancelled = 0
+    for bonus in proposals:
+        _auto_cancel(bonus, DELETED_REASON)
+        audit.record(
+            db,
+            actor_user_id=None,
+            subject_user_id=bonus.recipient_user_id,
+            entity_type="hr_bonus",
+            entity_id=bonus.id,
+            action="bonus_cancelled",
+            sensitivity="payroll",
+            details={
+                "amount": str(bonus.amount),
+                "currency": bonus.currency,
+                "category": bonus.category,
+                "period": f"{bonus.period_year}-{bonus.period_month:02d}",
+                "source": bonus.source,
+                "status": bonus.status,
+                "reason": DELETED_REASON,
+                "contract_id": contract.id,
+            },
+        )
+        cancelled += 1
+    await db.flush()
+    return cancelled
+
+
 async def on_contract_end_undone(
     db: AsyncSession, contract: Contract
 ) -> dict[str, Any]:
@@ -520,6 +573,7 @@ async def on_contract_end_undone(
 __all__ = [
     "ROLES",
     "contract_margin",
+    "on_contract_deleted",
     "on_contract_end_undone",
     "on_contract_ended",
     "on_contract_started",

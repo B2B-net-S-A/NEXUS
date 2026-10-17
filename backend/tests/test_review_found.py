@@ -1,7 +1,8 @@
 """Poprawki znalezisk po przeglądzie programu „Ludzie w NEXUSIE” (17.10.2026).
 
 1. trwałe usunięcie kontraktu zamyka sprawę „Wejście konsultanta”, a awaria
-   spraw nie blokuje usunięcia,
+   spraw nie blokuje usunięcia; propozycje premii automatu tego kontraktu są
+   anulowane (inaczej wiszą bez kontraktu i blokują zamknięcie miesiąca),
 2. czytnik administracja@ czyta dalej, gdy w oknie nakładki leży pełna paczka,
 3. automat premii i zmiana stawki czekają na trwające zamknięcie miesiąca płac
    (okres pod blokadą współdzieloną, potem reszta),
@@ -34,7 +35,7 @@ from app.models.contract import Contract
 from app.models.contract_care import CarePlanItem
 from app.models.equipment_intune import EquipmentIntuneDevice
 from app.models.hr_ops import HrAuditEvent
-from app.models.hr_payroll import EmployeeRate, PayrollPeriod
+from app.models.hr_payroll import EmployeeRate, HrBonus, PayrollPeriod
 from app.models.hr_profile import EmployeeProfile
 from app.models.hr_time import (
     Timesheet,
@@ -48,7 +49,12 @@ from app.services.care import access as care_access
 from app.services.care import records as care_records
 from app.services.contract_lifecycle import hard_delete_contract
 from app.services.equipment import intune
-from app.services.hr import payroll_periods, payroll_rates, time_entries
+from app.services.hr import (
+    payroll_close,
+    payroll_periods,
+    payroll_rates,
+    time_entries,
+)
 from app.services.hr.bonus_rules import eligible_date
 from app.services.hr.compass_import import time as time_import
 from app.services.hr.m365 import executor
@@ -158,6 +164,73 @@ async def test_case_failure_does_not_block_the_hard_delete(
         await db.commit()
     async with AsyncSessionLocal() as db:
         assert await db.get(Contract, contract_id) is None
+
+
+async def _placement_bonuses_by_key(contract: int) -> dict[str, HrBonus]:
+    """Premie automatu po kluczu — po usunięciu kontraktu ``contract_id`` jest NULL."""
+
+    async with AsyncSessionLocal() as db:
+        rows = await db.scalars(
+            select(HrBonus).where(HrBonus.source_key.like(f"contract:{contract}:%"))
+        )
+        return {row.source_key.rsplit(":", 1)[1]: row for row in rows}
+
+
+@pytest.mark.asyncio
+async def test_hard_delete_cancels_placement_proposals_and_keeps_assigned(
+    payroll_on,  # noqa: F811
+) -> None:
+    world = await _placement(started_days_ago=40)
+    assert (await _reconcile(world["contract"]))["created"] == 2
+    found = await _bonuses(world["contract"])
+    year, month = found["dl"].period_year, found["dl"].period_month
+    # Premię DL Płace już przyznały — ta zostaje.
+    async with AsyncSessionLocal() as db:
+        dl = await db.get(HrBonus, found["dl"].id)
+        dl.status = "assigned"
+        dl.assigned_at = local_now()
+        await db.commit()
+
+    async with AsyncSessionLocal() as db:
+        contract = await db.get(Contract, world["contract"])
+        await hard_delete_contract(db, contract, actor_id=None)
+        await db.commit()
+
+    after = await _placement_bonuses_by_key(world["contract"])
+    assert after["dl"].status == "assigned"
+    assert after["dl"].contract_id is None
+    recruiter = after["recruiter"]
+    assert (recruiter.status, recruiter.cancel_reason) == (
+        "cancelled",
+        "contract_deleted",
+    )
+    assert recruiter.cancelled_by is None and recruiter.cancelled_at is not None
+
+    async with AsyncSessionLocal() as db:
+        assert await payroll_close.pending_bonus_count(db, year, month) == 0
+        # Zamknięcie miesiąca nie zatrzymuje się na propozycji bez kontraktu
+        # (wycofane — bez śladu w bazie wspólnej dla testów).
+        result = await payroll_close.close_month(
+            db,
+            year=year,
+            month=month,
+            actor_id=world["dl"],
+            acknowledge_warnings=True,
+            today=payroll_periods.month_end(year, month),
+        )
+        assert result["status"] == "closed"
+        await db.rollback()
+        trace = await db.scalar(
+            select(HrAuditEvent).where(
+                HrAuditEvent.entity_type == "hr_bonus",
+                HrAuditEvent.entity_id == str(recruiter.id),
+                HrAuditEvent.action == "bonus_cancelled",
+            )
+        )
+    assert trace is not None
+    assert trace.sensitivity == "payroll"
+    assert trace.details["reason"] == "contract_deleted"
+    assert trace.details["contract_id"] == world["contract"]
 
 
 # ── 2. Czytnik administracja@: pełna paczka w oknie nakładki ─────────────────
