@@ -46,6 +46,7 @@ from app.schemas.recruitment_operations import (
 from app.schemas.recruitment_activity import (
     RecruitmentActivityDetailResponse,
     RecruitmentActivityMetric,
+    RecruitmentActivityState,
     RecruitmentActivitySummaryResponse,
     RecruitmentActivityWindow,
 )
@@ -319,11 +320,20 @@ async def recruitment_activity_details(
     day: date | None = Query(None),
     month: BoundedMonth | None = Query(None),
     subject_user_id: int | None = Query(None, ge=1),
-    scope: Literal["auto", "team"] = Query("auto"),
+    scope: Literal["auto", "team", "unattributed"] = Query("auto"),
     page: int = Query(1, ge=1),
     page_size: int = Query(25, ge=1, le=100),
+    date_from: date | None = Query(None),
+    date_to: date | None = Query(None),
+    state: RecruitmentActivityState | None = Query(None),
 ) -> RecruitmentActivityDetailResponse:
-    """Candidate/job rows behind one visible KPI number."""
+    """Candidate/job rows behind one visible KPI number.
+
+    `window=week` = tydzień (od poniedziałku) dnia `day`; `window=range` = dni
+    `date_from`–`date_to` włącznie. `scope=unattributed` = kamienie bez osoby
+    z zasługą (tylko role z wglądem w zespół). `state` zawęża wiersze do stanu
+    pary „teraz”; liczniki stanów w odpowiedzi liczą cały okres.
+    """
 
     selected_day = day or datetime.now(WARSAW).date()
     selected_month = month or selected_day.replace(day=1)
@@ -336,8 +346,12 @@ async def recruitment_activity_details(
         selected_month=selected_month,
         subject_user_id=subject_user_id,
         team_scope=scope == "team",
+        unattributed=scope == "unattributed",
         page=page,
         page_size=page_size,
+        date_from=date_from,
+        date_to=date_to,
+        state=state,
     )
 
 
