@@ -179,8 +179,9 @@ function PackEditor({ clientId, pack }: { clientId: number; pack: ClientPack }) 
   const [error, setError] = useState<string | null>(null);
   const [previewing, setPreviewing] = useState(false);
   // Szkic liczy się od wersji, którą osoba zaczęła edytować — zapis wysyła ją
-  // jako `expected_version`, więc cudza zmiana w międzyczasie daje 409, a nie
-  // ciche nadpisanie.
+  // jako `expected_version` (także 0 dla nowego pakietu), więc cudza zmiana
+  // w międzyczasie daje 409, a nie ciche nadpisanie. Flaga sprzętu idzie tylko
+  // przy zmianie, z wartością z początku edycji (`saved.provider`).
   const [base, setBase] = useState(() => ({ version: pack.version, draft: draftFromPack(pack) }));
   const [draft, setDraft] = useState<PackDraft>(base.draft);
   const saved = base.draft;
@@ -206,7 +207,7 @@ function PackEditor({ clientId, pack }: { clientId: number; pack: ClientPack }) 
       return;
     }
     setError(null);
-    save.mutate(saveFromDraft(draft, canEdit, base.version), {
+    save.mutate(saveFromDraft(draft, canEdit, base.version, saved.provider), {
       onSuccess: (next) => {
         restart(next);
         showToast("Pakiet zapisany", "success");

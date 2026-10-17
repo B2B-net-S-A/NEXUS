@@ -153,16 +153,27 @@ function accessInput(item: ItemDraft): PackItemInput {
   };
 }
 
-/** Części, które ta osoba może zapisać (recepcja — tylko sprzęt). */
+/**
+ * Części, które ta osoba może zapisać (recepcja — tylko sprzęt).
+ *
+ * `version` idzie zawsze, także `0` dla nowego pakietu — serwer odmawia (409),
+ * gdy ktoś zdążył go założyć. Flaga „kto daje sprzęt” żyje na kliencie
+ * i zmienia się też poza pakietem, więc idzie tylko przy zmianie, razem
+ * z wartością, od której zaczęła się edycja (`savedProvider`) — inaczej zapis
+ * pakietu cofałby zmianę z profilu klienta.
+ */
 export function saveFromDraft(
   draft: PackDraft,
   canEdit: ClientPack["can_edit"],
   version: number,
+  savedProvider: EquipmentProvider,
 ): ClientPackSave {
-  const payload: ClientPackSave = { expected_version: version || undefined };
+  const payload: ClientPackSave = { expected_version: version };
   if (canEdit.equipment) {
     payload.equipment = {
-      provider: draft.provider,
+      ...(draft.provider !== savedProvider
+        ? { provider: draft.provider, expected_provider: savedProvider }
+        : {}),
       issue_template_id: draft.issueTemplateId,
       return_template_id: draft.returnTemplateId,
       ours: draft.ours.map(thingInput),
@@ -189,7 +200,12 @@ export function isDirty(
   canEdit: ClientPack["can_edit"],
 ): boolean {
   const strip = (draft: PackDraft) => {
-    const { expected_version: _version, ...rest } = saveFromDraft(draft, canEdit, 0);
+    const { expected_version: _version, ...rest } = saveFromDraft(
+      draft,
+      canEdit,
+      0,
+      saved.provider,
+    );
     return JSON.stringify(rest);
   };
   return strip(saved) !== strip(current);

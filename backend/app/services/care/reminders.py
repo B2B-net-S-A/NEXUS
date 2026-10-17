@@ -6,7 +6,8 @@ powtarza. Dla każdego aktywnego kontraktu:
 
 1. dopisuje brakujące punkty planu kontaktów (``plan.ensure_plans`` —
    zbiorczo dla wszystkich kontraktów; listy opieki przy odczycie już tego
-   nie robią),
+   nie robią) i zamyka punkty pokryte późniejszą rozmową, także z importu
+   Compassa (``plan.close_covered``),
 2. zaległy albo dzisiejszy kontakt (punkt planu albo follow-up z ostatniej
    rozmowy) → dzwonek ``care_contact_due`` do opiekuna, najwyżej raz na
    7 dni na kontrakt,

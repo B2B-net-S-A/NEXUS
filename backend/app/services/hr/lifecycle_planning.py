@@ -138,6 +138,23 @@ async def team_facts(db: AsyncSession, case: LifecycleCase) -> CaseFacts:
     )
 
 
+async def preview_facts(
+    db: AsyncSession, *, employment_type: Optional[str]
+) -> CaseFacts:
+    """Fakty podglądu w kreatorze — te, z których powstanie sprawa nowej osoby.
+
+    Ta sama droga co ``team_facts`` dla sprawy bez kartoteki (forma z kreatora,
+    bez niej UoP; sprzęt od nas; student nieznany), więc podgląd pokazuje
+    dokładnie te pozycje, które sprawa założy.
+    """
+
+    draft = LifecycleCase(
+        user_id=None,
+        profile_values={"employment_type": employment_type} if employment_type else {},
+    )
+    return await team_facts(db, draft)
+
+
 @dataclass(frozen=True)
 class PlannedTask:
     item_id: Optional[int]
@@ -314,6 +331,7 @@ __all__ = [
     "item_applies",
     "item_source",
     "plan_tasks",
+    "preview_facts",
     "replan_template_tasks",
     "team_assignees",
     "team_facts",

@@ -199,3 +199,57 @@ async def test_undeliverable_subject_from_a_person_is_a_reply_not_a_bounce() -> 
     async with AsyncSessionLocal() as db:
         recipient = await db.get(CareAnnouncementRecipient, sent["recipient_id"])
     assert recipient.status == "sent"
+
+
+@pytest.mark.usefixtures("mailbox_on")
+async def test_bounce_matches_the_whole_address_not_a_fragment() -> None:
+    """Zwrotka dla „mola-…@” nie odbija „ola-…@” (adres zawarty w innym adresie)."""
+
+    sent = await _sent_announcement()
+    short = sent["email"]
+    async with AsyncSessionLocal() as db:
+        first = await db.get(CareAnnouncementRecipient, sent["recipient_id"])
+        client_id = first.client_id
+    contract_id, candidate_id = await make_consultant(client_id)
+    longer = f"m{short}"
+    async with AsyncSessionLocal() as db:
+        other = CareAnnouncementRecipient(
+            announcement_id=sent["id"],
+            candidate_id=candidate_id,
+            contract_id=contract_id,
+            client_id=client_id,
+            owner_user_id=sent["owner_id"],
+            email=longer,
+            first_name="Ola",
+            status="sent",
+            sent_at=datetime.now(timezone.utc),
+        )
+        db.add(other)
+        await db.commit()
+        other_id = other.id
+    fake = FakeMailbox()
+    bounce = fake.add(
+        subject=f"Undeliverable: {sent['marker']}",
+        hours_ago=1,
+        sender="postmaster@example.com",
+    )
+    bounce["body"] = {
+        "contentType": "text",
+        "content": f"Delivery has failed to these recipients: <{longer}>.",
+    }
+    await _run(fake)
+    async with AsyncSessionLocal() as db:
+        kept = await db.get(CareAnnouncementRecipient, sent["recipient_id"])
+        bounced = await db.get(CareAnnouncementRecipient, other_id)
+        notified = await db.scalar(
+            select(Notification).where(
+                Notification.user_id == sent["owner_id"],
+                Notification.notification_type == NotificationType.care_announcement,
+            )
+        )
+    assert bounced.status == "bounced"
+    assert kept.status == "sent"
+    # Powiadomienie bez numeru encji — nie zderzy się z numerem komunikatu
+    # w dziennym unikacie (użytkownik, rodzaj, encja, dzień).
+    assert notified.related_entity_id is None
+    assert notified.related_entity_type == "care_announcement_bounce"

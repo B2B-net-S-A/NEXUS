@@ -100,6 +100,8 @@ export interface AnnouncementDetail extends AnnouncementRow {
   can_test: boolean;
   can_submit: boolean;
   can_cancel: boolean;
+  /** „Wyślij ponownie do nieudanych” (wysłany / w wysyłce, ktoś z błędem). */
+  can_retry_failed?: boolean;
 }
 
 export interface AnnouncementSettings {
@@ -140,15 +142,16 @@ export interface AnnouncementDraft {
   audience: Audience;
 }
 
-const BASE = "/care/announcements";
+const BASE = "/api/care/announcements";
 
 export const announcementKeys = {
   all: ["care", "announcements"] as const,
   list: ["care", "announcements", "list"] as const,
   options: ["care", "announcements", "options"] as const,
   detail: (id: number) => ["care", "announcements", "detail", id] as const,
-  preview: (kind: AnnouncementKind, audience: Audience) =>
-    ["care", "announcements", "preview", kind, audienceKey(audience)] as const,
+  /** `announcementId` — podgląd zapisanego komunikatu (zakres jego autora). */
+  preview: (kind: AnnouncementKind, audience: Audience, announcementId: number | null = null) =>
+    ["care", "announcements", "preview", kind, audienceKey(audience), announcementId] as const,
 };
 
 /** Grupa bez parametrów, których wymaga (np. klient bez wybranego klienta). */
@@ -223,15 +226,25 @@ export function useAudienceOptions(enabled = true) {
   });
 }
 
-export function useAudiencePreview(kind: AnnouncementKind, audience: Audience) {
+/**
+ * Odbiorcy grupy. Przy zapisanym komunikacie (`announcementId`) serwer liczy
+ * w zakresie jego autora — tak samo jak „Wyślij” (admin przy szkicu Delivery
+ * Leada widzi jego portfel, nie całą firmę).
+ */
+export function useAudiencePreview(
+  kind: AnnouncementKind,
+  audience: Audience,
+  announcementId: number | null = null,
+) {
   const ready = audienceComplete(audience);
   return useQuery({
-    queryKey: announcementKeys.preview(kind, audience),
+    queryKey: announcementKeys.preview(kind, audience, announcementId),
     queryFn: async () =>
       (
         await api.post<AudiencePreview>(`${BASE}/preview`, {
           kind,
           audience: normalizeAudience(audience),
+          ...(announcementId !== null ? { announcement_id: announcementId } : {}),
         })
       ).data,
     enabled: ready,
@@ -270,7 +283,7 @@ export function useUpdateAnnouncement() {
   );
 }
 
-export type AnnouncementStep = "test-send" | "submit" | "approve" | "cancel";
+export type AnnouncementStep = "test-send" | "submit" | "approve" | "cancel" | "retry-failed";
 
 export function useAnnouncementStep(step: AnnouncementStep) {
   return useAnnouncementMutation(

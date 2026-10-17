@@ -31,10 +31,14 @@ from tests.care_announcements_seed import (  # noqa: F401  (fixture'y)
     make_head,
     make_consultant,
     make_user,
+    quiet_queue,
     sending_default,
     sending_on,
     set_sending,
 )
+
+# Kolejka z innych testów nie miesza się z przebiegami tego pliku.
+quiet_queue_flow = quiet_queue
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.usefixtures("announcement_routes")]
 
@@ -362,7 +366,7 @@ async def test_above_twenty_needs_head_and_author_cannot_approve(
             select(Notification.id).where(
                 Notification.user_id == head.id,
                 Notification.notification_type == NotificationType.care_announcement,
-                Notification.related_entity_id == created["id"],
+                Notification.link.contains(f"announcement={created['id']}"),
             )
         )
         assert notified is not None
@@ -574,3 +578,253 @@ async def test_whoever_sent_it_for_approval_cannot_approve_it(
     assert own.status_code == 403, own.text
     approved = await app_client.post(f"{url}/approve", headers=headers(head))
     assert approved.status_code == 200, approved.text
+
+
+# ── Poprawki po przeglądzie (17.10) ─────────────────────────────────────────
+
+
+@pytest.mark.usefixtures("care_on", "sending_on")
+async def test_admin_preview_of_a_lead_draft_counts_like_the_send(
+    app_client, monkeypatch
+) -> None:
+    """Podgląd istniejącego szkicu liczy w zakresie autora — tak jak wysyłka.
+
+    Szkic Delivery Leada „wszyscy” (portfel 15 osób) w oczach admina: podgląd
+    mówi 15 i „bez zatwierdzenia”, a serwer po „Wyślij” robi dokładnie to.
+    """
+
+    install_mailer(monkeypatch)
+    dl = await make_user(UserRole.delivery_lead)
+    admin = await make_user(UserRole.admin)
+    await _client_with(15, dl=dl)
+    await _client_with(10)  # poza portfelem Delivery Leada
+    created = await _create(app_client, dl)
+    url = f"{BASE}/{created['id']}"
+
+    own_scope = await app_client.post(
+        f"{BASE}/preview",
+        json={"kind": "mandatory", "audience": {"group": "all"}},
+        headers=headers(admin),
+    )
+    assert own_scope.json()["will_receive"] > 20
+    previewed = await app_client.post(
+        f"{BASE}/preview",
+        json={
+            "kind": "mandatory",
+            "audience": {"group": "all"},
+            "announcement_id": created["id"],
+        },
+        headers=headers(admin),
+    )
+    assert previewed.status_code == 200, previewed.text
+    assert previewed.json()["will_receive"] == 15
+    assert previewed.json()["requires_approval"] is False
+
+    await app_client.post(f"{url}/test-send", headers=headers(admin))
+    submitted = await app_client.post(f"{url}/submit", headers=headers(admin))
+    assert submitted.status_code == 200, submitted.text
+    assert submitted.json()["recipient_count"] == 15
+    assert submitted.json()["requires_approval"] is False
+
+
+@pytest.mark.usefixtures("care_on")
+async def test_preview_of_someone_elses_announcement_is_404(app_client) -> None:
+    tcm = await make_user(UserRole.talent_community_manager)
+    other = await make_user(UserRole.talent_community_manager)
+    created = await _create(app_client, tcm)
+    refused = await app_client.post(
+        f"{BASE}/preview",
+        json={
+            "kind": "mandatory",
+            "audience": {"group": "all"},
+            "announcement_id": created["id"],
+        },
+        headers=headers(other),
+    )
+    assert refused.status_code == 404, refused.text
+
+
+async def _titles(user_id: int) -> list[str]:
+    async with AsyncSessionLocal() as db:
+        return list(
+            (
+                await db.scalars(
+                    select(Notification.title)
+                    .where(
+                        Notification.user_id == user_id,
+                        Notification.notification_type
+                        == NotificationType.care_announcement,
+                    )
+                    .order_by(Notification.id)
+                )
+            ).all()
+        )
+
+
+@pytest.mark.usefixtures("care_on", "sending_on", "divisions_restored")
+async def test_return_fix_and_resend_the_same_day_rings_again(
+    app_client, monkeypatch
+) -> None:
+    """Dzienny unikat powiadomień nie zjada drugiego zdarzenia tego dnia."""
+
+    head = await make_head()
+    install_mailer(monkeypatch)
+    tcm = await make_user(UserRole.talent_community_manager)
+    client_id, _ = await _client_with(21)
+    created = await _create(
+        app_client, tcm, audience={"group": "client", "client_ids": [client_id]}
+    )
+    url = f"{BASE}/{created['id']}"
+    for round_note in ("Dopisz termin.", "Popraw adres do faktur."):
+        await app_client.post(f"{url}/test-send", headers=headers(tcm))
+        submitted = await app_client.post(f"{url}/submit", headers=headers(tcm))
+        assert submitted.json()["status"] == "pending", submitted.text
+        returned = await app_client.post(
+            f"{url}/return", json={"note": round_note}, headers=headers(head)
+        )
+        assert returned.status_code == 200, returned.text
+        fixed = await app_client.patch(
+            url, json={"body": f"Cześć {{imię}}, {round_note}"}, headers=headers(tcm)
+        )
+        assert fixed.status_code == 200, fixed.text
+    await app_client.post(f"{url}/test-send", headers=headers(tcm))
+    await app_client.post(f"{url}/submit", headers=headers(tcm))
+    approved = await app_client.post(f"{url}/approve", headers=headers(head))
+    assert approved.status_code == 200, approved.text
+
+    assert (await _titles(head.id)).count("Komunikat do zatwierdzenia") == 3
+    author = await _titles(tcm.id)
+    assert author.count("Komunikat wrócił do poprawy") == 2
+    assert author.count("Komunikat zatwierdzony") == 1
+
+
+@pytest.mark.usefixtures("care_on", "sending_on")
+async def test_test_send_crash_answers_502_not_500(app_client, monkeypatch) -> None:
+    from app.services.care import announcement_mail
+
+    class Exploding:
+        async def send(self, *, to: str, subject: str, text: str):
+            raise RuntimeError("graph")
+
+    install_mailer(monkeypatch)
+    monkeypatch.setattr(announcement_mail, "default_mailer", lambda: Exploding())
+    tcm = await make_user(UserRole.talent_community_manager)
+    created = await _create(app_client, tcm)
+    response = await app_client.post(
+        f"{BASE}/{created['id']}/test-send", headers=headers(tcm)
+    )
+    assert response.status_code == 502, response.text
+    assert "próby" in response.json()["detail"]
+    async with AsyncSessionLocal() as db:
+        row = await db.get(CareAnnouncement, created["id"])
+    assert row.tested_version is None
+
+
+async def _sent_with(app_client, monkeypatch, author, outcomes: list[str]) -> int:
+    """Komunikat po przebiegu kolejki: osoba i ma wynik ``outcomes[i]``."""
+
+    from datetime import datetime, timedelta, timezone
+    import random
+
+    from app.services.care import announcement_queue
+    from app.services.care.announcement_mail import MailOutcome
+    from tests.care_announcements_seed import FakeMailer
+
+    install_mailer(monkeypatch)
+    client_id, _ = await _client_with(len(outcomes))
+    created = await _create(
+        app_client, author, audience={"group": "client", "client_ids": [client_id]}
+    )
+    url = f"{BASE}/{created['id']}"
+    await app_client.post(f"{url}/test-send", headers=headers(author))
+    submitted = await app_client.post(f"{url}/submit", headers=headers(author))
+    assert submitted.json()["status"] == "queued", submitted.text
+    async with AsyncSessionLocal() as db:
+        emails = list(
+            (
+                await db.scalars(
+                    select(CareAnnouncementRecipient.email)
+                    .where(CareAnnouncementRecipient.announcement_id == created["id"])
+                    .order_by(CareAnnouncementRecipient.id)
+                )
+            ).all()
+        )
+    codes = {"failed": "http_400", "uncertain": "http_504", "accepted": None}
+    fake = FakeMailer(
+        per_address={
+            email: MailOutcome(outcome, codes[outcome])  # type: ignore[arg-type]
+            for email, outcome in zip(emails, outcomes)
+        }
+    )
+    minute = datetime(2032, 1, 1, tzinfo=timezone.utc) + timedelta(
+        minutes=random.randint(0, 5_000_000)
+    )
+    async with AsyncSessionLocal() as db:
+        await announcement_queue.run_once(db, mailer=fake, now=minute)
+    return created["id"]
+
+
+@pytest.mark.usefixtures("care_on", "sending_on", "quiet_queue_flow")
+async def test_resend_to_failed_requeues_failed_only(app_client, monkeypatch) -> None:
+    """„Wyślij ponownie do nieudanych”: błąd → kolejka z wyzerowanymi próbami;
+    „niepewny” zostaje (mail mógł wyjść) i raport pokazuje go do sprawdzenia."""
+
+    tcm = await make_user(UserRole.talent_community_manager)
+    announcement_id = await _sent_with(
+        app_client, monkeypatch, tcm, ["failed", "uncertain", "accepted"]
+    )
+    url = f"{BASE}/{announcement_id}"
+    before = (await app_client.get(url, headers=headers(tcm))).json()
+    assert before["status"] == "sent"
+    assert before["can_retry_failed"] is True
+
+    retried = await app_client.post(f"{url}/retry-failed", headers=headers(tcm))
+    assert retried.status_code == 200, retried.text
+    body = retried.json()
+    assert body["status"] == "queued"
+    assert body["can_retry_failed"] is False
+    assert sorted(row["status"] for row in body["recipients"]) == [
+        "pending",
+        "sent",
+        "uncertain",
+    ]
+    async with AsyncSessionLocal() as db:
+        attempts = set(
+            (
+                await db.scalars(
+                    select(CareAnnouncementRecipient.attempts).where(
+                        CareAnnouncementRecipient.announcement_id == announcement_id,
+                        CareAnnouncementRecipient.status == "pending",
+                    )
+                )
+            ).all()
+        )
+    assert attempts == {0}
+
+    again = await app_client.post(f"{url}/retry-failed", headers=headers(tcm))
+    assert again.status_code == 409, again.text
+
+
+@pytest.mark.usefixtures(
+    "care_on", "sending_on", "divisions_restored", "quiet_queue_flow"
+)
+async def test_resend_to_failed_access(app_client, monkeypatch) -> None:
+    head = await make_head()
+    tcm = await make_user(UserRole.talent_community_manager)
+    other = await make_user(UserRole.talent_community_manager)
+    announcement_id = await _sent_with(app_client, monkeypatch, tcm, ["failed"])
+    url = f"{BASE}/{announcement_id}/retry-failed"
+    assert (await app_client.post(url, headers=headers(other))).status_code == 404
+    await set_sending(False)
+    try:
+        off = await app_client.post(url, headers=headers(head))
+        assert off.status_code == 409, off.text
+    finally:
+        await set_sending(True)
+    assert (await app_client.post(url, headers=headers(head))).status_code == 200
+
+    draft = await _create(app_client, tcm)
+    refused = await app_client.post(
+        f"{BASE}/{draft['id']}/retry-failed", headers=headers(tcm)
+    )
+    assert refused.status_code == 409, refused.text

@@ -204,6 +204,90 @@ async def test_dl_saves_full_pack_and_version_guards_concurrent_edits(
     assert "odśwież" in stale.json()["detail"]
 
 
+async def test_first_save_with_version_zero_does_not_overwrite_a_new_pack(
+    app_client, modules_on
+) -> None:
+    """Dwie osoby zaczęły od pustego pakietu (wersja 0): druga dostaje 409."""
+
+    dl = await make_user(UserRole.delivery_lead)
+    client_id = await make_client(dl=dl)
+    first = await app_client.put(
+        _url(client_id),
+        json={"expected_version": 0, "documents": [{"name": "NDA", "offset_days": 0}]},
+        headers=headers(dl),
+    )
+    assert first.status_code == 200, first.text
+    assert first.json()["version"] == 1
+    second = await app_client.put(
+        _url(client_id),
+        json={"expected_version": 0, "accesses": [{"name": "VPN", "offset_days": 0}]},
+        headers=headers(dl),
+    )
+    assert second.status_code == 409
+    assert "odśwież" in second.json()["detail"]
+    kept = await app_client.get(_url(client_id), headers=headers(dl))
+    assert [d["name"] for d in kept.json()["documents"]] == ["NDA"]
+    assert kept.json()["accesses"] == []
+
+
+async def test_pack_save_does_not_revert_equipment_flag_changed_elsewhere(
+    app_client, modules_on
+) -> None:
+    """Flaga „sprzęt od nas” żyje na kliencie — pakiet nie cofa cudzej zmiany.
+
+    Zapis bez ``provider`` zostawia flagę; zmiana flagi z oczekiwaną wartością,
+    która już nie jest aktualna, to 409 jak przy wersji.
+    """
+
+    dl = await make_user(UserRole.delivery_lead)
+    client_id = await make_client(dl=dl, provider="nieznany")
+    first = await app_client.put(
+        _url(client_id),
+        json={"expected_version": 0, "equipment": {"ours": [{"name": "Laptop"}]}},
+        headers=headers(dl),
+    )
+    assert first.status_code == 200, first.text
+    assert first.json()["equipment"]["provider"] == "nieznany"
+    # Ktoś zmienia flagę na profilu klienta (wersja pakietu bez zmian).
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            text("UPDATE clients SET equipment_provider = 'nasz' WHERE id = :id"),
+            {"id": client_id},
+        )
+        await db.commit()
+    untouched = await app_client.put(
+        _url(client_id),
+        json={"expected_version": 1, "equipment": {"ours": [{"name": "Słuchawki"}]}},
+        headers=headers(dl),
+    )
+    assert untouched.status_code == 200, untouched.text
+    assert untouched.json()["equipment"]["provider"] == "nasz"
+    stale = await app_client.put(
+        _url(client_id),
+        json={
+            "expected_version": 2,
+            "equipment": {
+                "provider": "klienta",
+                "expected_provider": "nieznany",
+                "ours": [],
+            },
+        },
+        headers=headers(dl),
+    )
+    assert stale.status_code == 409
+    assert "sprzęt" in stale.json()["detail"]
+    current = await app_client.put(
+        _url(client_id),
+        json={
+            "expected_version": 2,
+            "equipment": {"provider": "klienta", "expected_provider": "nasz"},
+        },
+        headers=headers(dl),
+    )
+    assert current.status_code == 200, current.text
+    assert current.json()["equipment"]["provider"] == "klienta"
+
+
 async def test_reception_changes_only_equipment_part(app_client, modules_on) -> None:
     reception = await make_user(UserRole.recruiter, grants=("equipment",))
     client_id = await make_client()

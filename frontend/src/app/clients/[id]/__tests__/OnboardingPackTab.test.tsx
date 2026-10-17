@@ -72,6 +72,28 @@ describe("OnboardingPackTab", () => {
     await waitFor(() => expect(mocks.toast).toHaveBeenCalledWith("Pakiet zapisany", "success"));
   });
 
+  it("zapis bez zmiany flagi sprzętu jej nie wysyła — nie cofa zmiany z profilu klienta", async () => {
+    mocks.get.mockResolvedValue({ data: packFixture() });
+    mocks.put.mockResolvedValue({ data: packFixture({ version: 4 }) });
+    renderTab();
+    fireEvent.change(await screen.findByLabelText("Co zabrać"), { target: { value: "dowód" } });
+    fireEvent.click(screen.getByRole("button", { name: "Zapisz pakiet" }));
+    await waitFor(() => expect(mocks.put).toHaveBeenCalledTimes(1));
+    const [, payload] = mocks.put.mock.calls[0];
+    expect(payload.equipment.ours).toEqual([{ name: "Laptop 14 cali", note: null }]);
+    expect(payload.equipment).not.toHaveProperty("provider");
+  });
+
+  it("pierwszy zapis nowego pakietu idzie z wersją 0", async () => {
+    mocks.get.mockResolvedValue({ data: packFixture({ exists: false, version: 0 }) });
+    mocks.put.mockResolvedValue({ data: packFixture({ version: 1 }) });
+    renderTab();
+    fireEvent.change(await screen.findByLabelText("Gdzie"), { target: { value: "Biuro klienta" } });
+    fireEvent.click(screen.getByRole("button", { name: "Zapisz pakiet" }));
+    await waitFor(() => expect(mocks.put).toHaveBeenCalledTimes(1));
+    expect(mocks.put.mock.calls[0][1].expected_version).toBe(0);
+  });
+
   it("nie wysyła pozycji bez nazwy i mówi, co poprawić", async () => {
     mocks.get.mockResolvedValue({ data: packFixture() });
     renderTab();

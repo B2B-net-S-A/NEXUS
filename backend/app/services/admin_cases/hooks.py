@@ -6,7 +6,8 @@
   tu jest spięta z kontraktem. Od etapu 3 (O1, 17.10.2026) sprawa jest częścią
   jednej listy wejścia: ``lifecycle_case_id`` wskazuje wejście konsultanta,
   a checklista to jego zadania „Administracja” (``sync_entry_checklist``
-  w obie strony z ``sync_entry_tasks_from_checklist``).
+  w obie strony z ``sync_entry_tasks_from_checklist``); scalenie duplikatów
+  kontraktu przepina sprawę na zachowane wejście (``relink_merged_entry``).
 * ``open_case_for_offboarding`` — odejście pracownika (moduł cyklu życia)
   zakłada sprawę „Odejście: …” (obszar offboarding), jak w Compassie
   ``inbox_offboarding`` przy starcie offboardingu.
@@ -194,6 +195,30 @@ async def sync_entry_checklist(
         return None
     await _link_entry(db, case, entry)
     return case
+
+
+async def relink_merged_entry(
+    db: AsyncSession, cancelled_id: int, kept: LifecycleCase
+) -> int:
+    """Scalenie duplikatu kontraktu: sprawy wskazujące anulowane wejście → zachowane.
+
+    Bez tego odhaczenie pozycji w Sprawach szło do anulowanej listy, a lista
+    zachowanego kontraktu nie wiedziała o sprawie. Checklista otwartej sprawy
+    bierze stan zadań „Administracja” zachowanej listy; zwraca liczbę spraw.
+    """
+
+    cases = list(
+        await db.scalars(
+            select(AdminCase)
+            .where(AdminCase.lifecycle_case_id == cancelled_id)
+            .with_for_update()
+        )
+    )
+    for case in cases:
+        case.lifecycle_case_id = kept.id
+        await _link_entry(db, case, kept)
+    await db.flush()
+    return len(cases)
 
 
 async def sync_entry_tasks_from_checklist(

@@ -35,6 +35,7 @@
   "POST /api/care/announcements/preview": "BBBBBBBDBBBBBBBBBBBBBBBBB",
   "POST /api/care/announcements/{announcement_id}/approve": "BBBBBBBDBBBBBBBBBBBBBBBBB",
   "POST /api/care/announcements/{announcement_id}/cancel": "BBBBBBBDBBBBBBBBBBBBBBBBB",
+  "POST /api/care/announcements/{announcement_id}/retry-failed": "BBBBBBBDBBBBBBBBBBBBBBBBB",
   "POST /api/care/announcements/{announcement_id}/return": "BBBBBBBDBBBBBBBBBBBBBBBBB",
   "POST /api/care/announcements/{announcement_id}/submit": "BBBBBBBDBBBBBBBBBBBBBBBBB",
   "POST /api/care/announcements/{announcement_id}/test-send": "BBBBBBBDBBBBBBBBBBBBBBBBB",

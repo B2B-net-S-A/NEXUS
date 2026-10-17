@@ -58,6 +58,7 @@ from jinja2 import StrictUndefined, TemplateError, TemplateSyntaxError, nodes
 from jinja2.exceptions import SecurityError
 from jinja2.sandbox import SandboxedEnvironment
 from sqlalchemy import func, or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.docx_cells import row_cells
@@ -849,6 +850,16 @@ def _clean_description(value: Any) -> Optional[str]:
     return text_value or None
 
 
+#: Unikat aktywnej nazwy w bazie (``equipment_schema``) — ostatnia linia obrony.
+_ACTIVE_NAME_INDEX = "ux_equipment_protocol_templates_active_name"
+
+
+def _duplicate_name(kind: str, name: str) -> EquipmentConflict:
+    return EquipmentConflict(
+        f"Wzór {KIND_LABELS[kind]} o nazwie „{name}” już jest — wybierz inną nazwę."
+    )
+
+
 async def _ensure_unique_name(
     db: AsyncSession, kind: str, name: str, *, exclude_id: Optional[int] = None
 ) -> None:
@@ -860,9 +871,27 @@ async def _ensure_unique_name(
     if exclude_id is not None:
         query = query.where(EquipmentProtocolTemplate.id != exclude_id)
     if await db.scalar(query.limit(1)) is not None:
-        raise EquipmentConflict(
-            f"Wzór {KIND_LABELS[kind]} o nazwie „{name}” już jest — wybierz inną nazwę."
-        )
+        raise _duplicate_name(kind, name)
+
+
+async def _flush_unique(
+    db: AsyncSession, template: EquipmentProtocolTemplate, *, add: bool = False
+) -> None:
+    """Zapis wzoru; dwa równoczesne wgrania tej samej nazwy przechodzą
+    sprawdzenie obok siebie — drugie zatrzymuje unikat bazy, a osoba dostaje
+    409 z powodem zamiast 500."""
+
+    # Przed zapisem: po wycofaniu punktu zapisu atrybuty wzoru wygasają.
+    kind, name = template.kind, template.name
+    try:
+        async with db.begin_nested():
+            if add:
+                db.add(template)
+            await db.flush()
+    except IntegrityError as exc:
+        if _ACTIVE_NAME_INDEX not in str(exc.orig):
+            raise
+        raise _duplicate_name(kind, name) from exc
 
 
 async def create_template(
@@ -896,8 +925,7 @@ async def create_template(
         created_by=actor.id,
         updated_by=actor.id,
     )
-    db.add(template)
-    await db.flush()
+    await _flush_unique(db, template, add=True)
     audit.record(
         db,
         actor_user_id=actor.id,
@@ -955,7 +983,7 @@ async def update_template(
         )
         template.is_active = True
     template.updated_by = actor.id
-    await db.flush()
+    await _flush_unique(db, template)
     audit.record(
         db,
         actor_user_id=actor.id,

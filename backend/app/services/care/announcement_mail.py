@@ -42,12 +42,17 @@ _PLACEHOLDER_RE = re.compile(r"\{[^{}\s]{1,40}\}")
 MARKER_RE = re.compile(r"\[Komunikat (\d{1,9})/([A-Z0-9]{4,8})\]")
 TEST_PREFIX = "[Próba] "
 
-Outcome = Literal["accepted", "deferred", "failed", "uncertain"]
+Outcome = Literal["accepted", "deferred", "failed", "uncertain", "unavailable"]
 
 
 @dataclass(frozen=True)
 class MailOutcome:
-    """Wynik jednej wysyłki: przyjęty, odłożony (ponów), odrzucony, niepewny."""
+    """Wynik jednej wysyłki: przyjęty, odłożony (ponów), odrzucony, niepewny.
+
+    ``unavailable`` — nie działa całe połączenie z administracja@ (brak
+    tokenu, 401 po odświeżeniu, 403, brak połączenia z Graph). Mail na pewno
+    nie wyszedł; kolejka kończy przebieg i nikomu nie liczy próby.
+    """
 
     status: Outcome
     code: Optional[str] = None
@@ -161,7 +166,10 @@ class SimulatedMailer:
 
 
 _UNCERTAIN_STATUSES = frozenset({502, 504})
-_DEFERRED_STATUSES = frozenset({401, 403, 408, 429})
+#: Odmowa dotyczy rejestracji albo skrzynki, nie adresata — tak samo dla
+#: każdego w paczce.
+_CONNECTION_STATUSES = frozenset({401, 403})
+_DEFERRED_STATUSES = frozenset({408, 429})
 
 
 class GraphMailer:
@@ -171,9 +179,19 @@ class GraphMailer:
         self._mailbox = mailbox
 
     async def _token(self, *, force_refresh: bool = False) -> Optional[str]:
+        """Token albo ``None`` — awaria MSAL nie wywraca wysyłki."""
+
         from app.services.hr.m365.auth import acquire_hr_token
 
-        return await asyncio.to_thread(acquire_hr_token, force_refresh=force_refresh)
+        try:
+            return await asyncio.to_thread(
+                acquire_hr_token, force_refresh=force_refresh
+            )
+        except Exception as exc:  # noqa: BLE001 — brak tokenu = awaria połączenia
+            logger.warning(
+                "care_announcement_mail: token niedostępny (%s)", type(exc).__name__
+            )
+            return None
 
     async def send(self, *, to: str, subject: str, text: str) -> MailOutcome:
         payload = {
@@ -187,7 +205,9 @@ class GraphMailer:
         url = f"{_GRAPH_BASE}/users/{self._mailbox}/sendMail"
         token = await self._token()
         if not token:
-            return MailOutcome("deferred", "token")
+            return MailOutcome("unavailable", "token")
+        # ``posted`` = żądanie mogło dojść do Graph; dopiero wtedy wyjątek
+        # znaczy „niepewny”. Wcześniej mail na pewno nie wyszedł.
         posted = False
         try:
             async with httpx.AsyncClient(timeout=15.0) as client:
@@ -196,22 +216,25 @@ class GraphMailer:
                     url, json=payload, headers={"Authorization": f"Bearer {token}"}
                 )
                 if response.status_code == 401:
+                    # 401 = Graph odrzucił token, mail nie wyszedł.
                     token = await self._token(force_refresh=True)
                     if not token:
-                        return MailOutcome("deferred", "token")
+                        return MailOutcome("unavailable", "token")
                     response = await client.post(
                         url, json=payload, headers={"Authorization": f"Bearer {token}"}
                     )
         except (httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout):
-            return MailOutcome("deferred", "transport_connect")
+            return MailOutcome("unavailable", "transport_connect")
         except Exception:  # noqa: BLE001 — wynik nieznany, bez ponowienia
             logger.warning("care_announcement_mail: wysyłka przerwana")
-            return MailOutcome("uncertain" if posted else "deferred", "transport")
+            return MailOutcome("uncertain" if posted else "unavailable", "transport")
         status_code = response.status_code
         if status_code == 202:
             return MailOutcome("accepted")
         if status_code in _UNCERTAIN_STATUSES:
             return MailOutcome("uncertain", f"http_{status_code}")
+        if status_code in _CONNECTION_STATUSES:
+            return MailOutcome("unavailable", f"http_{status_code}")
         if status_code in _DEFERRED_STATUSES or status_code >= 500:
             return MailOutcome("deferred", f"http_{status_code}")
         return MailOutcome("failed", f"http_{status_code}")

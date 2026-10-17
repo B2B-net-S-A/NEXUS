@@ -54,6 +54,8 @@ OWNER_REASON_LABELS: dict[str, str] = {
     "client_change": "zmiana u klienta",
     "person_request": "prośba konsultanta",
     "other": "inny powód",
+    # Ślad przekazania pracy (``hr.handover``) — powód nie do wyboru w oknie.
+    "handover": "przekazanie pracy przy odejściu opiekuna",
 }
 LOAD_THRESHOLD_SETTING = "care_load_threshold"
 THRESHOLD_MAX = 1000
@@ -117,7 +119,7 @@ def _hint(
 
 
 async def overview(db: AsyncSession, user: User, *, today: date) -> dict[str, Any]:
-    allowed = await care_access.allowed_client_ids(user, db)
+    allowed = await care_access.rhythm_scope(user, db)
     contracts = await care_access.live_contracts(db, allowed=allowed)
     owners = await care_access.effective_owners(db, contracts)
     periods = await care_plan.periods_by_contract(db, [c.id for c in contracts])
@@ -284,7 +286,7 @@ async def assign(
     """Jeden opiekun dla wielu kontraktów (bez commita)."""
 
     ids = sorted(set(contract_ids))
-    allowed = await care_access.allowed_client_ids(actor, db)
+    allowed = await care_access.rhythm_scope(actor, db)
     contracts = await care_access.live_contracts(db, allowed=allowed, contract_ids=ids)
     if len(contracts) != len(ids):
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, STALE_SELECTION)

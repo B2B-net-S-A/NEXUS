@@ -189,6 +189,7 @@ export function detail(id: number, viewer: "head" | "author"): AnnouncementDetai
     can_test: base.status === "draft" && viewer === "author",
     can_submit: base.status === "draft" && viewer === "author",
     can_cancel: ["draft", "pending", "queued"].includes(base.status),
+    can_retry_failed: false,
   };
 }
 

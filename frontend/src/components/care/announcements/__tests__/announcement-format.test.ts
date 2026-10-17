@@ -4,6 +4,8 @@ import type { AnnouncementRow } from "@/lib/api/care-announcements";
 
 import {
   PLACEHOLDERS,
+  normalizeBody,
+  normalizeSubject,
   recipientStatusLabel,
   sendBlocker,
   sendMinutes,
@@ -120,5 +122,21 @@ describe("stan osoby na liście", () => {
     expect(recipientStatusLabel("excluded_no_email")).toBe("bez adresu e-mail");
     expect(recipientStatusLabel("excluded_opted_out")).toBe("wypis z informacyjnych");
     expect(recipientStatusLabel("pending")).toBe("dostanie");
+  });
+});
+
+describe("normalizeSubject / normalizeBody (lustro zapisu serwera)", () => {
+  it("każdy ciąg białych znaków w temacie to jedna spacja", () => {
+    expect(normalizeSubject("  Ankieta\u00a0o  sprzęcie\tod\nklienta  ")).toBe(
+      "Ankieta o sprzęcie od klienta",
+    );
+    expect(normalizeSubject("Te\0mat")).toBe("Temat");
+    expect(normalizeSubject(" \u00a0 ")).toBe("");
+  });
+
+  it("treść: bez NUL, CRLF → LF, bez białych znaków na brzegach; środek zostaje", () => {
+    expect(normalizeBody("\r\nCześć {imię},\r\n\r\n  akapit  \n")).toBe(
+      "Cześć {imię},\n\n  akapit",
+    );
   });
 });

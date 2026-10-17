@@ -273,7 +273,7 @@ async def care_announcements_job(db: AsyncSession) -> dict[str, Any] | None:
     from app.services.care.announcement_queue import run_once
 
     result = await run_once(db)
-    keys = ("sent", "failed", "uncertain", "deferred", "interrupted")
+    keys = ("sent", "failed", "uncertain", "deferred", "interrupted", "returned")
     return result if any(result.get(key) for key in keys) else None
 
 

@@ -33,6 +33,8 @@ import {
   KIND_HINTS,
   KIND_LABELS,
   PLACEHOLDERS,
+  normalizeBody,
+  normalizeSubject,
   plural,
   sendBlocker,
   sendMinutes,
@@ -79,7 +81,8 @@ export function AnnouncementEditor({
   const [listOpen, setListOpen] = useState(false);
   const bodyRef = useRef<HTMLTextAreaElement>(null);
   const options = useAudienceOptions();
-  const preview = useAudiencePreview(draft.kind, draft.audience);
+  // Zapisany szkic: serwer liczy w zakresie autora — tak jak „Wyślij”.
+  const preview = useAudiencePreview(draft.kind, draft.audience, announcement?.id ?? null);
   const create = useCreateAnnouncement();
   const update = useUpdateAnnouncement();
   const testSend = useAnnouncementStep("test-send");
@@ -87,18 +90,22 @@ export function AnnouncementEditor({
   const cancel = useAnnouncementStep("cancel");
 
   const saved = announcement !== null;
+  // Porównanie po normalizacji serwera: spacja niełamliwa albo podwójna spacja
+  // w temacie nie jest zmianą treści (inaczej „Wyślij” zostaje zablokowane).
+  const cleanSubject = normalizeSubject(draft.subject);
+  const cleanBody = normalizeBody(draft.body);
   const contentDirty =
     !saved ||
     draft.kind !== announcement.kind ||
-    draft.subject.trim() !== announcement.subject ||
-    draft.body.trim() !== announcement.body;
+    cleanSubject !== announcement.subject ||
+    cleanBody !== announcement.body;
   const audienceDirty = saved && !sameAudience(draft.audience, announcement.audience);
   const unknown = useMemo(() => unknownPlaceholders(draft.body), [draft.body]);
-  const subjectTooLong = draft.subject.trim().length > SUBJECT_MAX;
+  const subjectTooLong = cleanSubject.length > SUBJECT_MAX;
   const formValid =
-    draft.subject.trim().length >= 3 &&
+    cleanSubject.length >= 3 &&
     !subjectTooLong &&
-    draft.body.trim().length > 0 &&
+    cleanBody.length > 0 &&
     unknown.length === 0 &&
     audienceComplete(draft.audience);
   const busy =
@@ -120,19 +127,17 @@ export function AnnouncementEditor({
 
   /** Zapis szkicu; zwraca id albo `null`, gdy zapis się nie udał. */
   const save = async (): Promise<number | null> => {
-    const payload: AnnouncementDraft = {
-      ...draft,
-      subject: draft.subject.trim(),
-      body: draft.body.trim(),
-    };
+    const payload: AnnouncementDraft = { ...draft, subject: cleanSubject, body: cleanBody };
     try {
       if (!saved) {
         const created = await create.mutateAsync(payload);
+        setDraft(draftOf(created));
         onCreated(created.id);
         return created.id;
       }
       if (contentDirty || audienceDirty) {
-        await update.mutateAsync({ id: announcement.id, ...payload });
+        // Szkic z odpowiedzi serwera — dalej porównujemy z tym, co zapisał.
+        setDraft(draftOf(await update.mutateAsync({ id: announcement.id, ...payload })));
       }
       return announcement.id;
     } catch (error) {

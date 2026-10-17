@@ -4,8 +4,10 @@ Trasy pod ``/api/care`` — router dołącza ``app/api/contract_care.py`` (ten
 sam prefiks, bez osobnego wpisu w ``app/main.py``). Bramki z
 ``app/api/care_gates.py``:
 
-* odczyt listy, rytmu i przydziału — czytelnicy opieki (``CareReader``;
-  zakres DL = portfel). Opinia menedżera w sygnałach tylko dla ról z D11,
+* odczyt listy, rytmu i przydziału — czytelnicy opieki i head back office
+  (``RhythmReader``; zakres DL = portfel, head back office — wszyscy klienci,
+  także bez sekcji Delivery: O8, O10). Opinia menedżera w sygnałach tylko
+  dla ról z D11,
 * zmiana rytmu — ta sama bramka, a prawo do kontraktu (opiekun kontraktu, DL
   klienta, head back office, admin) sprawdza ``care/cadence.set_cadence``,
 * zmiana opiekuna wielu kontraktów i próg obciążenia — ``CareAssigner``
@@ -21,7 +23,7 @@ from fastapi import APIRouter, Depends, Query, status
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.care_gates import CareAssigner, CareReader, reads_client_people
+from app.api.care_gates import CareAssigner, RhythmReader, reads_client_people
 from app.core.database import get_db
 from app.core.scheduling import business_today
 from app.models.user import User
@@ -50,7 +52,7 @@ CadenceReason = Literal[
 
 @router.get("/consultants")
 async def consultants(
-    current_user: User = Depends(CareReader), db: AsyncSession = Depends(get_db)
+    current_user: User = Depends(RhythmReader), db: AsyncSession = Depends(get_db)
 ) -> dict:
     """„Konsultanci”: rytm, następna i ostatnia rozmowa, sygnały, rozmowy w miesiącu."""
 
@@ -67,12 +69,14 @@ async def contract_cadence(
     contract_id: int,
     level: Optional[Level] = Query(default=None),
     until_on: Optional[date] = Query(default=None),
-    current_user: User = Depends(CareReader),
+    current_user: User = Depends(RhythmReader),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """Okno „Rytm kontaktu”; ``level`` (i ``until_on``) = podgląd zmiany bez zapisu."""
 
-    contract = await care_access.load_contract(db, contract_id, current_user)
+    contract = await care_access.load_contract(
+        db, contract_id, current_user, rhythm=True
+    )
     return await care_cadence.cadence_payload(
         db,
         contract,
@@ -94,10 +98,12 @@ class CadenceBody(BaseModel):
 async def set_contract_cadence(
     contract_id: int,
     body: CadenceBody,
-    current_user: User = Depends(CareReader),
+    current_user: User = Depends(RhythmReader),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    contract = await care_access.load_contract(db, contract_id, current_user)
+    contract = await care_access.load_contract(
+        db, contract_id, current_user, rhythm=True
+    )
     today = business_today()
     await care_cadence.set_cadence(
         db,
@@ -120,7 +126,7 @@ async def set_contract_cadence(
 
 @router.get("/assignment")
 async def assignment(
-    current_user: User = Depends(CareReader), db: AsyncSession = Depends(get_db)
+    current_user: User = Depends(RhythmReader), db: AsyncSession = Depends(get_db)
 ) -> dict:
     """„Przydział”: opiekunowie z obciążeniem z rytmów, kontrakty z podpowiedzią."""
 

@@ -218,3 +218,45 @@ async def test_recruiter_without_delivery_section_is_refused(app_client) -> None
     recruiter = await make_user(UserRole.recruiter)
     response = await app_client.get("/api/care/consultants", headers=headers(recruiter))
     assert response.status_code == 403
+
+
+@pytest.mark.usefixtures("care_on")
+async def test_project_end_from_redeploy_queue_is_a_signal(app_client) -> None:
+    """„Koniec projektu” z „Do przepięcia” stoi w kolumnie „Sygnał” jak w starej liście."""
+
+    owner = await make_user(UserRole.talent_community_manager)
+    client_id = await make_client()
+    ending, _ = await make_contract(client_id, started_days_ago=200)
+    closed, _ = await make_contract(client_id, started_days_ago=200)
+    for contract_id in (ending, closed):
+        await set_owner(contract_id, owner.id)
+    project_end = business_today() + timedelta(days=40)
+    async with AsyncSessionLocal() as db:
+        db.add(
+            RedeployQueueItem(
+                contract_id=ending,
+                reason="project_end",
+                status="open",
+                source="conversation",
+                due_on=project_end,
+            )
+        )
+        # Zamknięty wpis („przepięty”) nie jest już sygnałem.
+        db.add(
+            RedeployQueueItem(
+                contract_id=closed,
+                reason="project_end",
+                status="done",
+                source="conversation",
+                due_on=project_end,
+            )
+        )
+        await db.commit()
+
+    rows = await _rows(app_client, owner)
+    assert rows[ending]["signals"] == [
+        {"kind": "project_end", "on": project_end.isoformat()}
+    ]
+    # Sygnał informuje; rytmu nie podpowiada (O9 go nie wymienia).
+    assert rows[ending]["suggested_level"] is None
+    assert rows[closed]["signals"] == []

@@ -23,6 +23,20 @@ export function unknownPlaceholders(text: string): string[] {
   return found;
 }
 
+/**
+ * Temat tak, jak zapisze go serwer (`announcements._clean_subject`): bez NUL,
+ * każdy ciąg białych znaków (też spacja niełamliwa) → jedna spacja, bez spacji
+ * na brzegach. Porównanie bez tego blokowało „Wyślij” po zapisie.
+ */
+export function normalizeSubject(value: string): string {
+  return value.replaceAll("\0", "").split(/\s+/u).filter(Boolean).join(" ");
+}
+
+/** Treść tak, jak zapisze ją serwer (`announcements._clean_body`). */
+export function normalizeBody(value: string): string {
+  return value.replaceAll("\0", "").replaceAll("\r\n", "\n").trim();
+}
+
 export const KIND_LABELS: Record<AnnouncementKind, string> = {
   mandatory: "Obowiązkowy",
   informational: "Informacyjny",

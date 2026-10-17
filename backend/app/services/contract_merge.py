@@ -4197,6 +4197,7 @@ async def apply_contract_merge_plan(
             entries = await merge_contract_entries(db, list(loser_ids), survivor_id)
             moved["lifecycle_cases"] = entries["moved"]
             moved["lifecycle_cases_cancelled"] = entries["cancelled"]
+            moved["lifecycle_tasks_carried"] = entries["tasks_carried"]
             for kind, table in (
                 ("candidate", "contract_candidate_rates"),
                 ("client", "contract_client_rates"),

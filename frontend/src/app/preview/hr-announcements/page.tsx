@@ -66,6 +66,10 @@ function prepare(params: URLSearchParams) {
   client.setQueryData(announcementKeys.options, options());
   for (const kind of ["mandatory", "informational"] as const) {
     client.setQueryData(announcementKeys.preview(kind, { group: "all" }), preview());
+    client.setQueryData(
+      announcementKeys.preview(kind, { group: "all" }, DRAFT_ID),
+      preview(),
+    );
   }
   const user = viewer === "head" ? { ...HEAD, role: "delivery_lead" as const } : AUTHOR;
   return { user, client, value: { state } };

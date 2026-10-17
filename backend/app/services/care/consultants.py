@@ -7,9 +7,11 @@ rozmowa (``plan.next_contact`` — ta sama reguła co karta kontraktu), ostatnia
 rozmowa, sygnały z podpowiedzią „podnieść rytm?” i liczba rozmów w tym
 i następnym miesiącu wyliczona z rytmów (``plan.conversations_between``).
 
-Zakres „Moi” i filtry (rytm, wstrzymani, z sygnałem) liczy front z jednej
-odpowiedzi (``is_mine``) — liczniki przy filtrach widać naraz. Odczyt
-niczego nie zapisuje; opinia menedżera w sygnałach tylko dla ról z D11.
+Zakres: portfel Delivery Leada, head back office — wszyscy klienci
+(``access.rhythm_scope``). „Moi” i filtry (rytm, wstrzymani, z sygnałem)
+liczy front z jednej odpowiedzi (``is_mine``) — liczniki przy filtrach widać
+naraz. Odczyt niczego nie zapisuje; opinia menedżera w sygnałach tylko dla
+ról z D11.
 """
 
 from __future__ import annotations
@@ -33,7 +35,7 @@ def _month(bounds: tuple[date, date]) -> dict[str, date]:
 async def consultants(
     db: AsyncSession, user: User, *, today: date, include_feedback: bool
 ) -> dict[str, Any]:
-    allowed = await care_access.allowed_client_ids(user, db)
+    allowed = await care_access.rhythm_scope(user, db)
     contracts = await care_access.live_contracts(db, allowed=allowed)
     owners = await care_access.effective_owners(db, contracts)
     ids = [contract.id for contract in contracts]

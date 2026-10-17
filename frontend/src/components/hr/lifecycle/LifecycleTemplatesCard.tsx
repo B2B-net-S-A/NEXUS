@@ -36,6 +36,7 @@ import {
   type TaskCategory,
   type TemplateItem,
 } from "@/lib/api/hr-lifecycle";
+import { countPl } from "@/lib/plural-pl";
 import { isForbiddenError, resolveViewState } from "@/lib/view-state";
 
 import { behindLabel, conditionSummary, formatOffset } from "./lifecycle-format";
@@ -219,7 +220,8 @@ function PathList({
                   <span className="text-xs text-muted-foreground">v{row.version ?? 1}</span>
                 </span>
                 <span className="block text-xs text-muted-foreground">
-                  {AUDIENCE_LABELS[row.audience ?? "team"]} · {row.items.length} pozycji
+                  {AUDIENCE_LABELS[row.audience ?? "team"]} ·{" "}
+                  {countPl(row.items.length, "pozycja", "pozycje", "pozycji")}
                   {row.is_active ? "" : " · wyłączona"}
                 </span>
               </button>
@@ -410,7 +412,7 @@ function PathEditor({
                 catchUp.mutate(template.id, {
                   onSuccess: (result) =>
                     showToast(
-                      `Dociągnięte: ${result.tasks} pozycji w ${result.cases} sprawach`,
+                      `Dociągnięte: ${countPl(result.tasks, "pozycja", "pozycje", "pozycji")} w ${countPl(result.cases, "sprawie", "sprawach", "sprawach")}`,
                       "success",
                     ),
                   onError: (err) =>

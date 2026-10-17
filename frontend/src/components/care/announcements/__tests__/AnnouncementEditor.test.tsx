@@ -5,7 +5,7 @@
  */
 import * as React from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -36,15 +36,21 @@ const SMALL: Audience = { group: "client", client_ids: [7001] };
 function setup({
   announcement,
   sendingEnabled = true,
+  seedDraftPreview = true,
 }: {
   announcement: AnnouncementDetail | null;
   sendingEnabled?: boolean;
+  /** Podgląd szkicu (z id) w pamięci — `false` = editor pyta serwer. */
+  seedDraftPreview?: boolean;
 }) {
   const client = new QueryClient({ defaultOptions: { queries: { staleTime: Infinity, retry: false } } });
   client.setQueryData(announcementKeys.options, options());
+  const ids = seedDraftPreview && announcement ? [null, announcement.id] : [null];
   for (const kind of ["mandatory", "informational"] as const) {
-    client.setQueryData(announcementKeys.preview(kind, { group: "all" }), preview());
-    client.setQueryData(announcementKeys.preview(kind, SMALL), preview(SMALL));
+    for (const id of ids) {
+      client.setQueryData(announcementKeys.preview(kind, { group: "all" }, id), preview());
+      client.setQueryData(announcementKeys.preview(kind, SMALL, id), preview(SMALL));
+    }
   }
   const onCreated = vi.fn();
   const view: AnnouncementSettings = settings({ sending_enabled: sendingEnabled });
@@ -75,8 +81,8 @@ describe("AnnouncementEditor", () => {
     const user = userEvent.setup();
     const created = draft({ test_current: false, tested_at: null });
     api.post.mockImplementation(async (url: string) => {
-      if (url === "/care/announcements") return { data: created };
-      if (url === `/care/announcements/${DRAFT_ID}/test-send`) {
+      if (url === "/api/care/announcements") return { data: created };
+      if (url === `/api/care/announcements/${DRAFT_ID}/test-send`) {
         return { data: { ...created, test_current: true } };
       }
       throw new Error(`nieoczekiwane ${url}`);
@@ -90,10 +96,10 @@ describe("AnnouncementEditor", () => {
     await user.click(screen.getByRole("button", { name: "Wyślij próbnie do mnie" }));
     expect(api.post).toHaveBeenNthCalledWith(
       1,
-      "/care/announcements",
+      "/api/care/announcements",
       expect.objectContaining({ subject: "Ankieta o sprzęcie od klienta", audience: { group: "all" } }),
     );
-    expect(api.post).toHaveBeenNthCalledWith(2, `/care/announcements/${DRAFT_ID}/test-send`);
+    expect(api.post).toHaveBeenNthCalledWith(2, `/api/care/announcements/${DRAFT_ID}/test-send`);
     expect(onCreated).toHaveBeenCalledWith(DRAFT_ID);
   });
 
@@ -129,5 +135,63 @@ describe("AnnouncementEditor", () => {
     expect(screen.getByText(/Nieznane pole \{nazwisko\}/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Wyślij próbnie do mnie" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Zapisz szkic" })).toBeDisabled();
+  });
+
+  it("spacja niełamliwa i podwójna spacja w temacie nie blokują „Wyślij”", async () => {
+    const user = userEvent.setup();
+    setup({ announcement: draft() });
+    const subject = screen.getByLabelText("Temat");
+    await user.clear(subject);
+    // Serwer zapisuje temat po zamianie każdego ciągu białych znaków na spację.
+    await user.type(subject, "Ankieta  o\u00a0sprzęcie od klienta ");
+    expect(screen.getByRole("button", { name: "Wyślij do zatwierdzenia" })).toBeEnabled();
+    expect(screen.queryByText(/potrzebna po zmianie treści/)).not.toBeInTheDocument();
+  });
+
+  it("zapis wysyła temat po normalizacji serwera i odświeża szkic jego odpowiedzią", async () => {
+    const user = userEvent.setup();
+    const saved = draft({
+      subject: "Ankieta o sprzęcie od klienta 2026",
+      body: "Cześć {imię}, nowa treść.",
+      test_current: false,
+    });
+    api.patch.mockResolvedValue({ data: saved });
+    setup({ announcement: draft() });
+    const subject = screen.getByLabelText("Temat");
+    await user.clear(subject);
+    await user.type(subject, "Ankieta  o\u00a0sprzęcie od klienta  2026");
+    const body = screen.getByLabelText("Treść");
+    await user.clear(body);
+    await user.type(body, "Cześć {{imię}, nowa treść.\n\n");
+    await user.click(screen.getByRole("button", { name: "Zapisz szkic" }));
+    expect(api.patch).toHaveBeenCalledWith(
+      `/api/care/announcements/${DRAFT_ID}`,
+      expect.objectContaining({
+        subject: "Ankieta o sprzęcie od klienta 2026",
+        body: "Cześć {imię}, nowa treść.",
+      }),
+    );
+    expect(await screen.findByDisplayValue("Ankieta o sprzęcie od klienta 2026")).toBeInTheDocument();
+    expect(screen.getByLabelText("Treść")).toHaveValue("Cześć {imię}, nowa treść.");
+  });
+
+  it("podgląd zapisanego szkicu liczy w zakresie autora, a potwierdzenie mówi to samo", async () => {
+    const user = userEvent.setup();
+    // Admin przy szkicu Delivery Leada: serwer liczy portfel autora (15 osób).
+    api.post.mockImplementation(async (url: string) => {
+      if (url === "/api/care/announcements/preview") {
+        return { data: { ...preview(), total: 15, will_receive: 15, requires_approval: false } };
+      }
+      throw new Error(`nieoczekiwane ${url}`);
+    });
+    setup({ announcement: draft(), seedDraftPreview: false });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Wyślij" })).toBeEnabled());
+    expect(api.post).toHaveBeenCalledWith("/api/care/announcements/preview", {
+      kind: "mandatory",
+      audience: { group: "all" },
+      announcement_id: DRAFT_ID,
+    });
+    await user.click(screen.getByRole("button", { name: "Wyślij" }));
+    expect(await screen.findByText("Wysłać komunikat do 15 osób?")).toBeInTheDocument();
   });
 });

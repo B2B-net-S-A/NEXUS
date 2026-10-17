@@ -477,6 +477,24 @@ async def send(
     return row
 
 
+async def tick_entry_task_if_sent(db: AsyncSession, contract_id: int) -> bool:
+    """Kontrakt z wysłanym mailem ma odhaczone zadanie „Mail powitalny”.
+
+    Po scaleniu duplikatów kontraktu mail mógł wyjść z kontraktu, którego
+    wejście anulowano — zadanie zachowanej listy zamyka się wtedy tutaj
+    (jako osoba odhaczenia: ta, która wysłała mail). Nie commituje.
+    """
+
+    sent = await sent_for(db, contract_id)
+    if sent is None:
+        return False
+    from app.services.hr.lifecycle_service import complete_task_by_key
+
+    return await complete_task_by_key(
+        db, contract_id=contract_id, key=KEY_WELCOME_MAIL, actor_id=sent.sent_by
+    )
+
+
 def sent_payload(
     row: ConsultantWelcomeMail, *, sender_name: Optional[str]
 ) -> dict[str, Any]:

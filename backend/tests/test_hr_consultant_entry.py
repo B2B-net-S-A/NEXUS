@@ -24,6 +24,7 @@ from app.models.contract import Contract, ContractStatus, ContractType
 from app.models.contract_onboarding import ContractOnboardingItem
 from app.models.equipment import EquipmentTask
 from app.models.hr_lifecycle import LifecycleCase, LifecycleTask
+from app.models.notification import Notification, NotificationType
 from app.models.team_structure import DeliveryLeadClientAssignment
 from app.services.hr import client_pack, contract_hooks, lifecycle_service
 from app.services.hr.calendar import load_calendar
@@ -279,6 +280,7 @@ async def test_switched_off_lifecycle_module_leaves_contracts_as_today(pack) -> 
 
 @pytest.mark.asyncio
 async def test_broken_pack_does_not_block_the_entry(
+    app_client,
     modules_on,  # noqa: F811
     monkeypatch,
     back_office_head,  # noqa: F811
@@ -289,11 +291,130 @@ async def test_broken_pack_does_not_block_the_entry(
     monkeypatch.setattr(client_pack, "pack_tasks", broken)
     monkeypatch.setattr(client_pack, "load_pack", broken)
     world = await _world()
+    url = f"{BASE}/contracts/{world['id']}/entry"
     try:
         await _start(world["id"])
         tasks = await _tasks(world["id"])
         assert tasks and all(task.source != "client" for task in tasks)
+        # Sprawa pamięta awarię, a karta „Z czego to powstało” mówi to wprost
+        # (nie „Pakiet klienta (0)”).
+        view = await app_client.get(url, headers=_headers(world["owner"]))
+        assert view.status_code == 200, view.text
+        assert view.json()["pack_failed"] is True
+
+        # Pakiet znowu działa: kolejny przegląd dokłada jego pozycje raz
+        # i czyści znacznik; następny niczego nie dubluje.
+        async def tasks_ok(db, client_id):
+            return list(PACK)
+
+        async def load_ok(db, client_id):
+            return _Pack((_Item("laptop 14 cali"),))
+
+        monkeypatch.setattr(client_pack, "pack_tasks", tasks_ok)
+        monkeypatch.setattr(client_pack, "load_pack", load_ok)
+        await _start(world["id"])
+        await _start(world["id"])
+        after = await _tasks(world["id"])
+        from_client = sorted(task.title for task in after if task.source == "client")
+        assert from_client == sorted(spec.title for spec in PACK)
+        papers = next(t for t in after if t.title == "Zaświadczenie o niekaralności")
+        assert papers.due_date == await _due(world["start"], -1)
+        assert papers.assignee_user_id == world["owner"].id
+        kit = next(t for t in after if t.key == "equipment_kit")
+        assert kit.description == "Od nas: laptop 14 cali."
+        view = await app_client.get(url, headers=_headers(world["owner"]))
+        assert view.json()["pack_failed"] is False
     finally:
+        await _cleanup(world)
+
+
+@pytest.mark.asyncio
+async def test_daily_review_repairs_a_failed_pack_outside_the_start_window(
+    modules_on,  # noqa: F811
+    monkeypatch,
+    back_office_head,  # noqa: F811
+) -> None:
+    """Pakiet nie wczytał się przy wejściu założonym poza oknem 14 dni przed
+    startem — przegląd i tak dokłada jego pozycje (karta to zapowiada)."""
+
+    async def broken(db, client_id):
+        raise RuntimeError("pakiet nie działa")
+
+    monkeypatch.setattr(client_pack, "pack_tasks", broken)
+    monkeypatch.setattr(client_pack, "load_pack", broken)
+    world = await _world()  # start za 28 dni — poza oknem przeglądu startów
+    try:
+        await _start(world["id"])
+        assert all(task.source != "client" for task in await _tasks(world["id"]))
+
+        async def tasks_ok(db, client_id):
+            return list(PACK)
+
+        async def load_ok(db, client_id):
+            return _Pack((_Item("laptop 14 cali"),))
+
+        monkeypatch.setattr(client_pack, "pack_tasks", tasks_ok)
+        monkeypatch.setattr(client_pack, "load_pack", load_ok)
+        async with AsyncSessionLocal() as db:
+            result = await contract_hooks.reconcile_upcoming(db)
+            await db.commit()
+        assert result["packs_repaired"] >= 1
+        from_client = sorted(
+            task.title for task in await _tasks(world["id"]) if task.source == "client"
+        )
+        assert from_client == sorted(spec.title for spec in PACK)
+    finally:
+        await _cleanup(world)
+
+
+@pytest.mark.asyncio
+async def test_reception_gets_no_entry_bell_for_the_kit_it_handles_in_equipment(
+    modules_on,  # noqa: F811
+    pack,  # noqa: F811
+    back_office_head,  # noqa: F811
+) -> None:
+    """Zestaw sprzętu prowadzi recepcja w Sprzęcie — dzwonek wejścia go pomija.
+
+    Hak startu zakładał listę wejścia przed zadaniem recepcji, więc w chwili
+    dzwonka lustra jeszcze nie było i recepcja dostawała zestaw drugi raz.
+    """
+
+    world = await _world()
+    try:
+        await _start(world["id"])
+        async with AsyncSessionLocal() as db:
+            case_id = await db.scalar(
+                select(LifecycleCase.id).where(LifecycleCase.contract_id == world["id"])
+            )
+            messages = list(
+                await db.scalars(
+                    select(Notification.message).where(
+                        Notification.user_id == world["reception"].id,
+                        Notification.notification_type
+                        == NotificationType.hr_lifecycle_task,
+                        Notification.related_entity_id == case_id,
+                    )
+                )
+            )
+        # Wydanie sprzętu zostaje zwykłym zadaniem recepcji na liście wejścia.
+        assert messages and all("Wydanie sprzętu i protokół" in m for m in messages)
+        assert all("Przygotuj zestaw sprzętu" not in m for m in messages)
+        kit = next(t for t in await _tasks(world["id"]) if t.key == "equipment_kit")
+        async with AsyncSessionLocal() as db:
+            equipment = await db.scalar(
+                select(func.count())
+                .select_from(EquipmentTask)
+                .where(EquipmentTask.source_key == f"contract:{world['id']}:start")
+            )
+        assert kit.status == "open" and equipment == 1
+    finally:
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                delete(Notification).where(
+                    Notification.user_id == world["reception"].id
+                )
+            )
+            await db.commit()
         await _cleanup(world)
 
 
@@ -614,6 +735,80 @@ async def test_entry_tab_explains_missing_list_and_creates_it_on_demand(
         created = await app_client.post(url, headers=_headers(world["owner"]))
         assert created.status_code == 201, created.text
         assert created.json()["case"]["audience"] == "consultant"
+    finally:
+        await _cleanup(world)
+
+
+@pytest.mark.asyncio
+async def test_entry_tab_waits_for_two_weeks_before_start_and_can_be_made_now(
+    app_client,
+    modules_on,  # noqa: F811
+    pack,  # noqa: F811
+    back_office_head,  # noqa: F811
+) -> None:
+    """Start za 4 tygodnie: lista powstanie sama 14 dni przed startem.
+
+    Wcześniej zakładka mówiła „Nie ma aktywnej ścieżki ani pakietu”, choć
+    ścieżka była — przegląd startów po prostu jeszcze go nie objął.
+    """
+
+    world = await _world()
+    try:
+        url = f"{BASE}/contracts/{world['id']}/entry"
+        before = await app_client.get(url, headers=_headers(world["owner"]))
+        assert before.status_code == 200, before.text
+        body = before.json()
+        assert body["case"] is None
+        assert body["missing_reason"] == "not_yet"
+        assert (
+            body["auto_create_on"]
+            == (
+                world["start"] - timedelta(days=contract_hooks.LOOKAHEAD_DAYS)
+            ).isoformat()
+        )
+        assert body["can_create"] is True
+        created = await app_client.post(url, headers=_headers(world["owner"]))
+        assert created.status_code == 201, created.text
+        assert created.json()["case"]["audience"] == "consultant"
+        assert created.json()["missing_reason"] is None
+    finally:
+        await _cleanup(world)
+
+
+@pytest.mark.asyncio
+async def test_entry_tab_says_no_path_only_without_a_path_and_a_pack(
+    app_client,
+    modules_on,  # noqa: F811
+    monkeypatch,
+    back_office_head,  # noqa: F811
+) -> None:
+    from app.services.hr import lifecycle_entry
+
+    async def no_pack(db, client_id):
+        return []
+
+    async def no_path(db, kind, **_kwargs):
+        return None
+
+    monkeypatch.setattr(client_pack, "pack_tasks", no_pack)
+    monkeypatch.setattr(lifecycle_entry, "pick_template", no_path)
+    world = await _world()
+    try:
+        url = f"{BASE}/contracts/{world['id']}/entry"
+        view = await app_client.get(url, headers=_headers(world["owner"]))
+        body = view.json()
+        assert body["missing_reason"] == "no_path"
+        assert body["can_create"] is False and body["auto_create_on"] is None
+        refused = await app_client.post(url, headers=_headers(world["owner"]))
+        assert refused.status_code == 409
+        assert "ścieżki" in refused.json()["detail"]
+        # Bez ścieżki i pakietu „start minął” też nie obiecuje listy.
+        async with AsyncSessionLocal() as db:
+            contract = await db.get(Contract, world["id"])
+            contract.start_date = business_today() - timedelta(days=3)
+            await db.commit()
+        past = await app_client.get(url, headers=_headers(world["owner"]))
+        assert past.json()["missing_reason"] == "no_path"
     finally:
         await _cleanup(world)
 

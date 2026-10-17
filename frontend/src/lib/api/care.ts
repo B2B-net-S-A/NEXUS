@@ -82,6 +82,7 @@ export interface CadenceCurrent {
 export type CadenceSignal =
   | { kind: "weak_feedback"; average: number; on: string }
   | { kind: "order_end"; days: number; on: string }
+  | { kind: "project_end"; on: string | null }
   | { kind: "wants_change" }
   | { kind: "attrition_risk" }
   | { kind: "overdue"; days: number };

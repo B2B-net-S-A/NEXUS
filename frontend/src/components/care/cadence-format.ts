@@ -70,6 +70,8 @@ export function signalText(signal: CadenceSignal): string {
       return signal.days === 0
         ? "koniec zamówienia dziś"
         : `koniec zamówienia za ${daysText(signal.days)}`;
+    case "project_end":
+      return signal.on ? `koniec projektu ${formatDayMonthPl(signal.on)}` : "koniec projektu";
     case "wants_change":
       return "chce zmiany projektu";
     case "attrition_risk":

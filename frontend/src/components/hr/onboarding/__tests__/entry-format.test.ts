@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { LifecycleTask } from "@/lib/api/hr-lifecycle";
 
-import { entrySteps, missingReasonText, taskSourceLabel } from "../entry-format";
+import { createLabel, entrySteps, missingReasonText, taskSourceLabel } from "../entry-format";
 
 function task(patch: Partial<LifecycleTask>): LifecycleTask {
   return {
@@ -70,5 +70,23 @@ describe("missingReasonText", () => {
     expect(missingReasonText("past_start")).toMatch(/minął/);
     expect(missingReasonText("no_path")).toMatch(/ścieżki/);
     expect(missingReasonText(null)).toBe("");
+  });
+
+  it("start za ponad 14 dni: lista powstanie sama, z datą, i można wcześniej", () => {
+    expect(missingReasonText("not_yet", "2026-11-03")).toBe(
+      "Lista zadań powstanie sama 14 dni przed startem — 03.11.2026. Możesz założyć ją wcześniej.",
+    );
+    // Data już minęła (przegląd jeszcze nie przeszedł) — bez daty w przeszłości.
+    expect(missingReasonText("not_yet", null)).toBe(
+      "Lista zadań powstanie sama przy najbliższym przeglądzie startów. Możesz założyć ją już teraz.",
+    );
+    expect(missingReasonText("not_yet")).not.toMatch(/ścieżki/);
+  });
+});
+
+describe("createLabel", () => {
+  it("przed startem „Załóż teraz”, po starcie „Załóż listę wejścia”", () => {
+    expect(createLabel("not_yet")).toBe("Załóż teraz");
+    expect(createLabel("past_start")).toBe("Załóż listę wejścia");
   });
 });

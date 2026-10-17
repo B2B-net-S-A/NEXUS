@@ -156,8 +156,14 @@ class PackItemIn(BaseModel):
     requires_file: bool = False
 
 
+Provider = Literal["nasz", "klienta", "nieznany"]
+
+
 class EquipmentPartIn(BaseModel):
-    provider: Optional[Literal["nasz", "klienta", "nieznany"]] = None
+    #: Tylko przy zmianie flagi; ``expected_provider`` = wartość, od której
+    #: osoba zaczęła (inna na kliencie = 409, jak ``expected_version``).
+    provider: Optional[Provider] = None
+    expected_provider: Optional[Provider] = None
     issue_template_id: Optional[int] = None
     return_template_id: Optional[int] = None
     ours: list[PackItemIn] = Field(default_factory=list, max_length=30)

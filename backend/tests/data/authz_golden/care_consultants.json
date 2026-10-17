@@ -27,11 +27,11 @@
   "recruiter+cases"
  ],
  "routes": {
-  "GET /api/care/assignment": "BBDBBDDDBBBDBBBBDBBBDDDDD",
-  "GET /api/care/consultants": "BBDBBDDDBBBDBBBBDBBBDDDDD",
-  "GET /api/care/contracts/{contract_id}/cadence": "BBDBBDDDBBBDBBBBDBBBDDDDD",
-  "POST /api/care/assignment": "BBDBBDDDBBBDBBBDDDBDDDDDD",
-  "POST /api/care/contracts/{contract_id}/cadence": "BBDBBDDDBBBDBBBDDDBDDDDDD",
-  "PUT /api/care/assignment/threshold": "BBDBBDDDBBBDBBBDDDBDDDDDD"
+  "GET /api/care/assignment": "BBBBBBBDBBBBBBBBBBBBBBBBB",
+  "GET /api/care/consultants": "BBBBBBBDBBBBBBBBBBBBBBBBB",
+  "GET /api/care/contracts/{contract_id}/cadence": "BBBBBBBDBBBBBBBBBBBBBBBBB",
+  "POST /api/care/assignment": "BBBBBBBDBBBBBBBBBBBBBBBBB",
+  "POST /api/care/contracts/{contract_id}/cadence": "BBBBBBBDBBBBBBBBBBBBBBBBB",
+  "PUT /api/care/assignment/threshold": "BBBBBBBDBBBBBBBBBBBBBBBBB"
  }
 }

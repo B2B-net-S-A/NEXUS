@@ -364,6 +364,41 @@ async def test_upload_refusals_answer_422_and_duplicates_409(
     assert other_kind.status_code == 201
 
 
+async def test_two_uploads_with_one_name_at_once_answer_409_not_500(
+    app_client, modules_on, monkeypatch
+) -> None:
+    """Dwa równoczesne wgrania: oba przechodzą sprawdzenie nazwy, unikat bazy
+    zatrzymuje drugie — odpowiedź 409 z powodem, nie 500."""
+
+    reception = await make_user(UserRole.recruiter, grants=("equipment",))
+    name = f"Wyścig {tag()}"
+    first = await _upload(app_client, reception, deposit_template(), name=name)
+    assert first.status_code == 201, first.text
+
+    async def unseen(db, kind, name, *, exclude_id=None):
+        # Druga sesja sprawdzała nazwę, zanim pierwsza się zapisała.
+        return None
+
+    monkeypatch.setattr(tpl, "_ensure_unique_name", unseen)
+    twin = await _upload(app_client, reception, deposit_template(), name=name)
+    assert twin.status_code == 409, twin.text
+    assert "już jest" in twin.json()["detail"]
+    withdrawn = await app_client.patch(
+        f"/api/equipment/protocol-templates/{first.json()['id']}",
+        json={"is_active": False},
+        headers=headers(reception),
+    )
+    assert withdrawn.status_code == 200
+    second = await _upload(app_client, reception, deposit_template(), name=name)
+    assert second.status_code == 201
+    revived = await app_client.patch(
+        f"/api/equipment/protocol-templates/{first.json()['id']}",
+        json={"is_active": True},
+        headers=headers(reception),
+    )
+    assert revived.status_code == 409, revived.text
+
+
 async def test_template_used_by_a_pack_cannot_be_withdrawn(
     app_client, modules_on
 ) -> None:

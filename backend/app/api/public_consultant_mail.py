@@ -22,8 +22,9 @@ router = APIRouter()
 
 GENERIC_404 = "Link nieprawidłowy lub wygasły."
 
-# Limit per adres (czyli per token) i wspólny kubełek per IP na wszystkie
-# tokeny — seria różnych adresów nie posłuży do zgadywania.
+# Oba limity liczą się per IP (klucz limitera to adres klienta, nie token
+# w ścieżce): limit trasy i wspólny kubełek ``shared_limit`` na wszystkie
+# tokeny — seria różnych adresów z jednego IP nie posłuży do zgadywania.
 SHARED_READ = "60/minute"
 SHARED_WRITE = "10/minute"
 

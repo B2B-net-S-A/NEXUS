@@ -6,6 +6,8 @@ Dane fikcyjne (repo jest publiczne).
 
 from __future__ import annotations
 
+import uuid
+
 import pytest
 from sqlalchemy import select, text
 
@@ -316,6 +318,100 @@ async def test_team_onboarding_never_picks_the_consultant_path(
         headers=_headers(team["hr"]),
     )
     assert refused.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_wizard_preview_applies_item_conditions_like_the_case(
+    app_client,
+    modules_on,  # noqa: F811
+) -> None:
+    """Pozycja „tylko B2B” w kreatorze dla UoP: podgląd i sprawa mają N−1 zadań.
+
+    Podgląd brał wszystkie pozycje ścieżki, a sprawa tylko pasujące do formy —
+    kreator obiecywał zadania, których potem nie było.
+    """
+
+    team = await _team()
+    hr = _headers(team["hr"])
+    created = await app_client.post(
+        f"{BASE}/templates",
+        json={
+            "kind": "onboarding",
+            "name": "Wejście — warunek formy",
+            "department": f"Dział {uuid.uuid4().hex[:6]}",
+            "items": [
+                {
+                    "title": "Laptop",
+                    "category": "equipment",
+                    "assignee_kind": "reception",
+                    "due_offset_days": -2,
+                },
+                {
+                    "title": "Dane do faktur",
+                    "category": "documents",
+                    "assignee_kind": "people_admin",
+                    "due_offset_days": -1,
+                    "conditions": {"employment_types": ["b2b"]},
+                },
+                {
+                    "title": "Rozmowa",
+                    "category": "meeting",
+                    "assignee_kind": "manager",
+                    "due_offset_days": 0,
+                },
+            ],
+        },
+        headers=hr,
+    )
+    assert created.status_code == 201, created.text
+    template_id = created.json()["id"]
+    case_id = None
+    try:
+
+        async def preview(employment_type: str | None) -> list[str]:
+            response = await app_client.post(
+                f"{BASE}/preview",
+                json={
+                    "kind": "onboarding",
+                    "anchor": "2030-03-04",
+                    "template_id": template_id,
+                    "employment_type": employment_type,
+                },
+                headers=hr,
+            )
+            assert response.status_code == 200, response.text
+            return [task["title"] for task in response.json()["tasks"]]
+
+        assert await preview("uop") == ["Laptop", "Rozmowa"]
+        assert await preview(None) == ["Laptop", "Rozmowa"]  # bez formy = UoP
+        assert await preview("b2b") == ["Laptop", "Dane do faktur", "Rozmowa"]
+        case = await app_client.post(
+            f"{BASE}/cases/onboarding",
+            json={
+                "email": f"warunek-{uuid.uuid4().hex[:6]}@example.com",
+                "name": "Nowa Przykładowa",
+                "start_date": "2030-03-04",
+                "template_id": template_id,
+                "profile": {"employment_type": "uop"},
+            },
+            headers=hr,
+        )
+        assert case.status_code == 201, case.text
+        case_id = case.json()["id"]
+        assert sorted(task["title"] for task in case.json()["tasks"]) == sorted(
+            await preview("uop")
+        )
+    finally:
+        async with AsyncSessionLocal() as db:
+            if case_id is not None:
+                await db.execute(
+                    text("DELETE FROM lifecycle_cases WHERE id = :id"), {"id": case_id}
+                )
+            await db.execute(
+                text("DELETE FROM lifecycle_templates WHERE id = :id"),
+                {"id": template_id},
+            )
+            await db.commit()
 
 
 # ── Schemat: druga wersja 0460 na istniejącej bazie ──────────────────────────

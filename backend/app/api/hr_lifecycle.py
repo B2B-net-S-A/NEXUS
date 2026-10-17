@@ -52,6 +52,7 @@ from app.services.hr.lifecycle_access import (
     is_lifecycle_admin,
     owns_task,
 )
+from app.services.hr.lifecycle_planning import item_applies, preview_facts
 from app.services.hr.lifecycle_templates import editable_audiences, is_back_office_head
 from app.services.hr.modules import HrModule
 from app.services.hr_foundation_schema import EmploymentType
@@ -89,6 +90,9 @@ ENTRY_MISSING_DETAIL = {
     lifecycle_entry.REASON_NO_START: "Kontrakt nie ma daty startu.",
     lifecycle_entry.REASON_CLOSED: "Kontrakt jest zakończony albo unieważniony.",
     lifecycle_entry.REASON_PAST_START: "Start kontraktu już minął.",
+    lifecycle_entry.REASON_NOT_YET: (
+        "Lista wejścia powstanie sama 14 dni przed startem kontraktu."
+    ),
     lifecycle_entry.REASON_NO_PATH: (
         "Nie ma aktywnej ścieżki „Konsultant u klienta” ani pakietu klienta."
     ),
@@ -500,9 +504,14 @@ async def preview_tasks(
         )
     if template is None:
         return {"template_id": None, "template_name": None, "tasks": []}
-    planned = await service.plan_tasks(
-        db, await service.template_items(db, template.id), payload.anchor
-    )
+    # Te same warunki pozycji co przy zakładaniu sprawy (forma, sprzęt, student).
+    facts = await preview_facts(db, employment_type=payload.employment_type)
+    items = [
+        item
+        for item in await service.template_items(db, template.id)
+        if item_applies(item.conditions, facts)
+    ]
+    planned = await service.plan_tasks(db, items, payload.anchor)
     return {
         "template_id": template.id,
         "template_name": template.name,
@@ -976,8 +985,12 @@ async def _entry_view(db: AsyncSession, contract: Contract, user: User) -> dict:
         or 0
     )
     reason = None
+    auto_create_on = None
     if case is None:
-        reason = lifecycle_entry.missing_reason(contract, business_today())
+        today = business_today()
+        reason = await lifecycle_entry.missing_reason(db, contract, today)
+        if reason == lifecycle_entry.REASON_NOT_YET:
+            auto_create_on = lifecycle_entry.auto_create_on(contract, today)
     can_lead = await _can_lead_entry(db, user, contract)
     from app.services.hr.modules import load_modules  # noqa: PLC0415
 
@@ -992,10 +1005,14 @@ async def _entry_view(db: AsyncSession, contract: Contract, user: User) -> dict:
         "case": payload,
         "composition": await lifecycle_entry.composition(db, contract),
         "missing_reason": reason,
+        # ``not_yet``: dzień, od którego przegląd startów założy listę sam.
+        "auto_create_on": auto_create_on,
+        # Pakiet klienta nie wczytał się przy zakładaniu — pozycje dojdą później.
+        "pack_failed": bool(case is not None and lifecycle_entry.pack_failed(case)),
         "can_create": case is None
         and can_lead
         and reason
-        in (lifecycle_entry.REASON_PAST_START, lifecycle_entry.REASON_NO_PATH),
+        in (lifecycle_entry.REASON_PAST_START, lifecycle_entry.REASON_NOT_YET),
         "can_add_task": bool(payload and payload["can_add_task"]),
         "legacy_items": legacy,
     }
@@ -1019,7 +1036,8 @@ async def create_contract_entry(
     current_user: ContractEntryWriter,
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    """„Załóż listę wejścia” — także dla kontraktu ze startem w przeszłości."""
+    """„Załóż teraz” / „Załóż listę wejścia” — przed przeglądem startów (start
+    dalej niż 14 dni) i dla kontraktu ze startem w przeszłości."""
 
     contract = await _entry_contract(db, contract_id, current_user)
     if not await _can_lead_entry(db, current_user, contract):
@@ -1028,8 +1046,13 @@ async def create_contract_entry(
         db, contract, force=True, actor_id=current_user.id
     )
     if case is None:
-        reason = lifecycle_entry.missing_reason(contract, business_today())
-        raise HTTPException(status.HTTP_409_CONFLICT, ENTRY_MISSING_DETAIL[reason])
+        reason = await lifecycle_entry.missing_reason(db, contract, business_today())
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            ENTRY_MISSING_DETAIL.get(
+                reason, ENTRY_MISSING_DETAIL[lifecycle_entry.REASON_NO_PATH]
+            ),
+        )
     from app.services.admin_cases.hooks import sync_entry_checklist  # noqa: PLC0415
 
     await sync_entry_checklist(db, case)
