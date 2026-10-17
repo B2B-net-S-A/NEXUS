@@ -848,6 +848,7 @@ from app.models import hr_payroll as _hr_payroll_models  # noqa: F401,E402
 from app.models import hr_lifecycle as _hr_lifecycle_models  # noqa: F401,E402
 from app.models import contract_care as _contract_care_models  # noqa: F401,E402
 from app.models import care_announcement as _care_announcement_models  # noqa: F401,E402
+from app.models import hr_settlement as _hr_settlement_models  # noqa: F401,E402
 from app.models import admin_case as _admin_case_models  # noqa: F401,E402
 from app.models import equipment as _equipment_models  # noqa: F401,E402
 from app.models import equipment_intune as _equipment_intune_models  # noqa: F401,E402

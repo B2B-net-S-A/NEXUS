@@ -39,6 +39,7 @@ CHAIN = (
     ("0463_equipment", "0462_admin_cases", "equipment_schema"),
     ("0464_equipment_extras", "0463_equipment", "equipment_extras_schema"),
     ("0465_care_announcements", "0464_equipment_extras", "care_announcements_schema"),
+    ("0466_hr_settlements", "0465_care_announcements", "hr_settlement_schema"),
 )
 
 

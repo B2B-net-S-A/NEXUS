@@ -25,9 +25,10 @@ from app.services import hr_leave_schema as leave
 from app.services import hr_lifecycle_schema as lifecycle
 from app.services import hr_notification_schema as notifications
 from app.services import hr_payroll_schema as payroll
+from app.services import hr_settlement_schema as settlement
 from app.services import hr_time_schema as time_
 
-#: Moduły po fundamencie, w kolejności migracji 0457–0465 (kontrakt każdego:
+#: Moduły po fundamencie, w kolejności migracji 0457–0466 (kontrakt każdego:
 #: ``TABLE_DDL, COLUMN_DDL, INDEX_DDL, CONSTRAINT_DDL, DATA_DDL``).
 MODULES = (
     leave,
@@ -39,6 +40,7 @@ MODULES = (
     equipment,
     equipment_extras,
     care_announcements,
+    settlement,
 )
 
 COLUMN_DDL: tuple[str, ...] = (
