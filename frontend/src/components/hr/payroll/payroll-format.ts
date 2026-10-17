@@ -166,6 +166,30 @@ export function bonusStateLabel(bonus: Pick<BonusRow, "status" | "eligible" | "e
   return BONUS_STATUS_LABELS[bonus.status];
 }
 
+/**
+ * Powód anulowania premii dla osoby. Automat anuluje z kodem (premia nie
+ * znika bez śladu — etap 2, D2), ręczne anulowanie to „manual”.
+ */
+export function cancelReasonLabel(
+  reason: string | null | undefined,
+  requiredDays = 21,
+): string | null {
+  switch (reason) {
+    case "contract_ended":
+      return `kontrakt zakończony przed ${requiredDays}. dniem roboczym`;
+    case "contract_void":
+      return "kontrakt unieważniony";
+    case "contract_deleted":
+      return "kontrakt usunięty";
+    case "rule_no_longer_applies":
+      return "zmieniły się warunki premii";
+    case "manual":
+      return "anulowana przez Płace albo przełożonego";
+    default:
+      return null;
+  }
+}
+
 /** Procent paska „X z 21 dni roboczych” (0–100). */
 export function progressPercent(elapsed: number | null | undefined, required: number | undefined): number {
   if (!required || required <= 0 || elapsed == null) return 0;

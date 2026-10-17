@@ -220,11 +220,13 @@ async def my_balance(
     year: Optional[int] = Query(default=None, ge=2020, le=2100),
 ) -> dict:
     profile = await _own_profile(db, current_user)
+    today = business_today()
     return await balance_payload(
         db,
         user_id=current_user.id,
-        year=year or business_today().year,
+        year=year or today.year,
         employment_type=profile.employment_type,
+        today=today,
     )
 
 

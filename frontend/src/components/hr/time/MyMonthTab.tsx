@@ -29,6 +29,7 @@ import {
 import { resolveViewState } from "@/lib/view-state";
 
 import { EntryDialog } from "./EntryDialog";
+import { TimesheetArchive } from "./TimesheetArchive";
 import { useUrlMonth } from "./use-url-month";
 import { MonthGrid } from "./MonthGrid";
 import {
@@ -83,11 +84,11 @@ export function MyMonthTab({ config, initialMonth, onMonthChange }: MyMonthTabPr
     isSuccess: month.isSuccess,
   });
 
-  const go = (delta: number) => {
-    const next = shiftMonth(period, delta);
+  const openMonth = (next: YearMonth) => {
     setPeriod(next);
     onMonthChange?.(next);
   };
+  const go = (delta: number) => openMonth(shiftMonth(period, delta));
 
   if (!moduleOpen) {
     return (
@@ -176,7 +177,8 @@ export function MyMonthTab({ config, initialMonth, onMonthChange }: MyMonthTabPr
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-center gap-1">
+        {/* Zawija się na wąskim ekranie (360 px): status schodzi pod miesiąc. */}
+        <div className="flex min-w-0 flex-wrap items-center gap-1">
           <Button variant="ghost" size="icon-sm" aria-label="Poprzedni miesiąc" onClick={() => go(-1)}>
             <ChevronLeft className="h-4 w-4" aria-hidden />
           </Button>
@@ -262,6 +264,8 @@ export function MyMonthTab({ config, initialMonth, onMonthChange }: MyMonthTabPr
           />
         </>
       )}
+
+      <TimesheetArchive onOpenMonth={(item) => openMonth({ year: item.year, month: item.month })} />
 
       {editor && view ? (
         <EntryDialog

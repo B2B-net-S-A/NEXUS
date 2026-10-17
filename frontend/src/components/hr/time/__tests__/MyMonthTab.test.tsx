@@ -155,10 +155,16 @@ function renderTab(props: Partial<Parameters<typeof MyMonthTab>[0]> = {}) {
   );
 }
 
+const HISTORY = [
+  { id: 31, year: 2031, month: 3, status: "draft", approved_at: null, hours: 8 },
+  { id: 30, year: 2031, month: 2, status: "approved", approved_at: "2031-03-03T10:00:00Z", hours: 160 },
+];
+
 function routeGet(view: MonthView) {
   mocks.get.mockImplementation(async (url: string) => {
     if (url === "/api/hr/time/me/2031/3") return { data: view };
     if (url === "/api/hr/time/me/templates") return { data: { items: [], role_default: null } };
+    if (url === "/api/hr/time/me/history") return { data: { items: HISTORY } };
     if (url === "/api/hr/time/me/suggestion") {
       return { data: { day: "2031-03-05", counts: {}, jobs: [], client_interviews: [], text: "7 rozmów" } };
     }
@@ -284,6 +290,23 @@ describe("MyMonthTab", () => {
     renderTab();
     expect(await screen.findByRole("button", { name: /Spróbuj|Ponów/ })).toBeInTheDocument();
     expect(screen.queryByTestId("day-2031-03-03")).toBeNull();
+  });
+
+  it("archiwum timesheetów: pobierane po rozwinięciu, PDF tylko przy zaakceptowanym", async () => {
+    routeGet(month());
+    renderTab();
+    await screen.findByTestId("day-2031-03-03");
+    expect(mocks.get).not.toHaveBeenCalledWith("/api/hr/time/me/history");
+
+    fireEvent.click(screen.getByRole("button", { name: /Archiwum timesheetów/ }));
+    const archive = await screen.findByRole("button", { name: "Pobierz PDF luty 2031" });
+    expect(archive).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Pobierz PDF marzec 2031" })).toBeNull();
+    expect(screen.getByText("160 h")).toBeInTheDocument();
+
+    // Klik miesiąca z archiwum otwiera go w siatce.
+    fireEvent.click(screen.getByRole("button", { name: "Luty 2031" }));
+    await waitFor(() => expect(mocks.get).toHaveBeenCalledWith("/api/hr/time/me/2031/2"));
   });
 
   it("wyłączony moduł mówi o tym zamiast pytać serwer", () => {

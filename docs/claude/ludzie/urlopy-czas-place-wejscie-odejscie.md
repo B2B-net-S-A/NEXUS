@@ -171,6 +171,65 @@
   opisu, domyślnych opisów ról i wpisów timesheetu; timesheet zablokowany płacami
   jest nietykalny.
 
+## „Mój czas” — przegląd, saldo, premie w drodze, rozliczenie (etap 2, 17.10.2026)
+
+- **„Przegląd” jest pierwszą i domyślną zakładką** „Mojego czasu” (`?tab=overview`,
+  inne wartości `?tab=` jak dotąd; link z powiadomienia `?tab=bonuses` działa).
+  Karty: nieobecności, miesiąc, premie, przełożony, sprzęt, do zrobienia
+  (`components/hr/me/MyOverviewTab.tsx`). Karta modułu wyłączonego nie istnieje
+  i nie pyta serwera; awaria zapytania to zdanie z „Spróbuj ponownie” w karcie,
+  nigdy „0”.
+- **Forma zatrudnienia decyduje o słowach** (B2B i zlecenie nie mają urlopu
+  w rozumieniu Kodeksu pracy; decyzja Artura 17.10): UoP → „Urlop RRRR”
+  z „na żądanie X z 4” i „opieka nad dzieckiem X z 2”; B2B (i zlecenie)
+  z płatną pulą > 0 → „Płatne dni przerwy (z umowy)” bez limitów Kodeksu;
+  bez płatnej puli → „Nieobecności RRRR” bez „zostało”. Karta miesiąca:
+  UoP „Ewidencja czasu pracy”, B2B „Raport godzin”, zlecenie „Potwierdzenie
+  godzin” ze zdaniem o art. 8b ustawy o minimalnym wynagrodzeniu. Te same
+  reguły w saldzie zakładki „Urlopy” (`balanceStats`). Funkcje:
+  `components/hr/me/overview-format.ts`.
+- **Saldo rozbite** (`GET /api/hr/leave/balance`, `leave_balance.day_split`):
+  `used_days` = dni sprzed NEXUSA + zatwierdzone do dziś włącznie (dzień
+  nieobecności trwający dziś już się liczy), `planned_days` = zatwierdzone po
+  dziś, `pending_days` = czekające. Przy płatnej puli liczą się dni płatne
+  i z `remaining_days` sumują się do puli z zaległym; „zostało” dalej odejmuje
+  oczekujące. Bez płatnej puli (`has_paid_pool = false`: brak puli, pula 0)
+  trzy liczby to wszystkie dni rodzajów puli (bez wynagrodzenia), `remaining_days
+  = null`. Dzień liczy się do roku SWOJEJ daty (urlop przez Nowy Rok — dwie
+  pule). `approved_days` zostaje (czyta je Jarvis).
+- **Premie „w drodze” od podpisania umowy (D2).** Podpisana umowa przed startem
+  to kontrakt `active` z przyszłym startem (podpis aktywuje go od razu).
+  Automat zakłada propozycję, gdy zna marżę; bez stawki klienta (przychodzi
+  z zamówieniem) propozycji nie ma. `GET /api/hr/payroll/me` niesie `forecast`
+  (`services/hr/my_settlement.bonus_forecast`): kontrakty `active`/`ending`
+  w oknie automatu, przed terminem premii, bez końca przed terminem, bez
+  „powrotu po przerwie”, a odbiorcy i kwoty z tej samej czystej funkcji co
+  automat (`placement_bonuses.placement_targets`), termin `eligible_date`,
+  postęp `business_days_elapsed`. Pozycja, dla której automat ma już wiersz
+  premii (w dowolnym stanie), do prognozy nie trafia. Kwota to szacunek („~”);
+  bez stawek albo kursu NBP `amount = null` z `amount_missing_reason`. Nic nie
+  jest zapisywane.
+- `/me` zwraca premie w każdym stanie — **anulowane przez automat zostają**
+  z `cancel_reason` (Compass i pierwsza wersja ekranu je chowały), przyznane
+  mają `assigned_by_name`, każda `period_closed` (miesiąc zamknięty w płacach =
+  rozliczona), propozycja przed terminem — postęp „X z 21 dni” tą samą funkcją
+  co widok miesiąca płac (`_add_progress`). Ekran „Premie i stawka” pokazuje
+  etapy: umowa → 21 dni → decyzja Płac → wypłata (`BonusStagesTable`).
+- **„Moje rozliczenie” (D3)**: `GET /api/hr/payroll/me/settlement?year=`
+  (bramka `require_hr_payroll_member`, 403 bez własnej kartoteki — także Płace
+  i przełożony bez kartoteki). Miesiąc zamknięty = zamrożone `payroll_lines`
+  osoby (`final = true`); otwarty = szacunek regułą raportu płac: stawka z 1.
+  dnia miesiąca × suma wpisów timesheetu z „Mojego miesiąca” (zaakceptowanego
+  albo w toku — `hours_source` `approved`/`entered`) + premie przyznane
+  z okresem w tym miesiącu. Płace przy zamknięciu biorą tylko godziny
+  zaakceptowane, więc szacunek zmienia się do zamknięcia. Tylko o sobie.
+- **Archiwum timesheetów** w „Moim miesiącu” (`TimesheetArchive`): ostatnie
+  12 miesięcy ze statusem, sumą godzin i PDF zaakceptowanego
+  (`GET /api/hr/time/me/history`), pobierane dopiero po rozwinięciu.
+- Harness `/preview/hr-my-time`: domyślnie „Przegląd” osoby B2B z umowną pulą,
+  `?form=uop`, `?form=zlecenie`; zero żądań pilnuje
+  `app/preview/__tests__/hr-my-time-harness.test.tsx`.
+
 ## Wejście i odejście (`app/services/hr/lifecycle_*.py`, `handover.py`, `deactivation.py`)
 
 - Prowadzą Kadry; przełożony widzi sprawę swojego człowieka; wykonawca odhacza

@@ -37,10 +37,21 @@ export interface LeaveBalance {
   year: number;
   employment_type: EmploymentType;
   has_pool: boolean;
+  /** Pula z dniami płatnymi (> 0) — UoP albo kontraktor z umowną pulą. */
+  has_paid_pool: boolean;
   entitlement_days: string | null;
   carried_over_days: string | null;
   used_initial_days: string | null;
+  /** „Dziś” serwera (kalendarz firmy), od którego liczy wykorzystane i zaplanowane. */
+  as_of: string;
   approved_days: string;
+  /**
+   * Wykorzystane do dziś włącznie (przy puli: dni płatne + sprzed NEXUSA),
+   * zaplanowane = zatwierdzone po dziś, `pending_days` = czeka. Bez płatnej
+   * puli to wszystkie dni nieobecności (bez wynagrodzenia).
+   */
+  used_days: string;
+  planned_days: string;
   pending_days: string;
   unpaid_days: string;
   remaining_days: string | null;

@@ -14,6 +14,7 @@ import { useUrlSyncedState } from "@/lib/url-selection";
 import { resolveViewState } from "@/lib/view-state";
 
 import { MyLeaveTab } from "./leave/MyLeaveTab";
+import { MyOverviewTab } from "./me/MyOverviewTab";
 import { formatDays } from "./people/hr-format";
 import { MyBonusesTab } from "./payroll/MyBonusesTab";
 import { MyMonthTab } from "./time/MyMonthTab";
@@ -37,9 +38,8 @@ export interface MyTimeModuleTab {
 }
 
 /**
- * Zakładki modułów „Mój czas”, w kolejności na pasku. Punkt rozszerzenia:
- * „Mój miesiąc” (moduł `time`) i „Premie” (moduł `payroll`) dopisują tu swoje
- * wpisy razem z komponentami — do tego czasu ich zakładek nie ma wcale.
+ * Zakładki modułów „Mój czas”, w kolejności na pasku (po „Przeglądzie”).
+ * Zakładka modułu jest widoczna, gdy moduł jest otwarty.
  */
 export const MY_TIME_MODULE_TABS: MyTimeModuleTab[] = [
   { value: "leave", label: "Urlopy", module: "leave", render: () => <MyLeaveTab /> },
@@ -49,7 +49,12 @@ export const MY_TIME_MODULE_TABS: MyTimeModuleTab[] = [
     module: "time",
     render: (config, initialMonth) => <MyMonthTab config={config} initialMonth={initialMonth} />,
   },
-  { value: "bonuses", label: "Premie", module: "payroll", render: () => <MyBonusesTab /> },
+  {
+    value: "bonuses",
+    label: "Premie i stawka",
+    module: "payroll",
+    render: () => <MyBonusesTab />,
+  },
 ];
 
 /** Miesiąc z adresu (`?year=2026&month=10`); zły albo brak = brak. */
@@ -61,14 +66,19 @@ export function yearMonthFromParams(params: Pick<URLSearchParams, "get">): YearM
   return { year, month };
 }
 
+const OVERVIEW_TAB = { value: "overview", label: "Przegląd" } as const;
 const PROFILE_TAB = { value: "profile", label: "Kartoteka" } as const;
 
-/** Zakładki widoczne dla osoby: otwarte moduły + kartoteka (zawsze na końcu). */
+/**
+ * Zakładki widoczne dla osoby: „Przegląd” (zawsze pierwszy i domyślny,
+ * etap 2 D1), otwarte moduły i kartoteka (zawsze na końcu).
+ */
 export function myTimeTabs(
   config: Pick<HrConfig, "open_modules">,
   tabs: readonly MyTimeModuleTab[] = MY_TIME_MODULE_TABS,
 ): { value: string; label: string }[] {
   return [
+    OVERVIEW_TAB,
     ...tabs
       .filter((tab) => config.open_modules[tab.module])
       .map(({ value, label }) => ({ value, label })),
@@ -79,6 +89,9 @@ export function myTimeTabs(
 function ProfileCard({ person, leaveOpen }: { person: PersonFull; leaveOpen: boolean }) {
   const year = warsawYear();
   const pool = person.entitlements?.find((row) => row.year === year);
+  // B2B i zlecenie nie mają urlopu w rozumieniu Kodeksu pracy (17.10.2026).
+  const poolTitle =
+    person.employment_type === "uop" ? `Pula urlopowa ${year}` : `Płatne dni przerwy ${year}`;
   return (
     <div className="grid gap-4 md:grid-cols-2">
       <Card className="space-y-1 p-5">
@@ -98,7 +111,7 @@ function ProfileCard({ person, leaveOpen }: { person: PersonFull; leaveOpen: boo
       </Card>
       <Card className="space-y-1 p-5">
         <h2 className="text-[11px] font-semibold uppercase tracking-[0.05em] text-muted-foreground">
-          Pula urlopowa {year}
+          {poolTitle}
         </h2>
         {!pool ? (
           <p className="text-sm text-muted-foreground">
@@ -119,7 +132,7 @@ function ProfileCard({ person, leaveOpen }: { person: PersonFull; leaveOpen: boo
         )}
         {!leaveOpen ? (
           <p className="text-xs text-muted-foreground">
-            Wnioski urlopowe ruszą po włączeniu modułu urlopów.
+            Wnioski o nieobecność ruszą po włączeniu modułu nieobecności.
           </p>
         ) : null}
       </Card>
@@ -127,7 +140,10 @@ function ProfileCard({ person, leaveOpen }: { person: PersonFull; leaveOpen: boo
   );
 }
 
-/** „Mój czas” — własne urlopy, miesiąc pracy i premie (moduły włączane etapami). */
+/**
+ * „Mój czas” — przegląd, własne nieobecności, miesiąc pracy i premie (moduły
+ * włączane etapami). `?tab=` wybiera zakładkę (domyślnie „Przegląd”).
+ */
 export function MyTimeScreen({ config }: { config: HrConfig }) {
   const me = useMyHrProfile();
   const tabs = myTimeTabs(config);
@@ -149,7 +165,7 @@ export function MyTimeScreen({ config }: { config: HrConfig }) {
     <div className="space-y-4">
       <PageHeader
         title="Mój czas"
-        description="Urlopy, miesiąc pracy i premie w jednym miejscu."
+        description="Nieobecności, miesiąc pracy i premie w jednym miejscu."
         density="compact"
       />
       {state === "loading" ? (
@@ -175,7 +191,9 @@ export function MyTimeScreen({ config }: { config: HrConfig }) {
               onValueChange={setActive}
             />
           ) : null}
-          {moduleTab ? (
+          {current === OVERVIEW_TAB.value ? (
+            <MyOverviewTab config={config} person={me.data} onOpenTab={setActive} />
+          ) : moduleTab ? (
             moduleTab.render(config, initialMonth)
           ) : (
             <div className="space-y-4">

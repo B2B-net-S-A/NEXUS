@@ -3,12 +3,27 @@
 Pula roku = wymiar + przeniesiony − wykorzystany przed NEXUSEM − aktywne dni
 płatne z puli w tym roku (``leave_request_days.paid``, rok kalendarzowy dnia).
 Brak wiersza ``leave_entitlements`` albo pusty wymiar = osoba bez puli.
+
+Saldo dla osoby („Mój czas → Przegląd”, etap 2, D1) rozbija dni na trzy
+części. Przy puli (UoP albo kontraktor z umowną pulą płatnych dni) liczą się
+dni płatne z puli i z „zostało” sumują się do puli z zaległym:
+
+* **wykorzystane** — dni sprzed NEXUSA + zatwierdzone dni płatne do dziś
+  włącznie (dzień nieobecności, który trwa dziś, już się liczy),
+* **zaplanowane** — zatwierdzone dni płatne po dziś,
+* **czeka** — dni płatne wniosków oczekujących.
+
+„Zostało” odejmuje także oczekujące (jak przy składaniu wniosku), żeby osoba
+nie zaplanowała tych samych dni dwa razy. Bez puli (B2B bez umownych dni,
+zlecenie) „zostało” nie ma, a trzy liczby to wszystkie dni nieobecności
+z rodzajów puli (dni bez wynagrodzenia). „Dziś” to kalendarz firmy.
 """
 
 from __future__ import annotations
 
 from collections.abc import Iterable
 from dataclasses import dataclass
+from datetime import date
 from decimal import Decimal
 from typing import Any, Optional
 
@@ -21,6 +36,7 @@ from app.services.hr.leave_policy import (
     CHILDCARE_YEARLY_LIMIT,
     CONTRACTOR_TYPES,
     ON_DEMAND_YEARLY_LIMIT,
+    POOL_TYPES,
     PoolYear,
     allowed_types,
 )
@@ -134,18 +150,63 @@ async def pools_for(
     return pools
 
 
+@dataclass(frozen=True)
+class DaySplit:
+    used: Decimal = _ZERO
+    planned: Decimal = _ZERO
+    pending: Decimal = _ZERO
+
+
+async def day_split(
+    db: AsyncSession, user_id: int, year: int, today: date, *, paid_only: bool
+) -> DaySplit:
+    """Aktywne dni roku ``year``: zatwierdzone do ``today`` włącznie, zatwierdzone
+    po ``today`` i oczekujące. ``paid_only`` — tylko dni płatne z puli; bez tego
+    — wszystkie dni rodzajów puli (osoba bez puli)."""
+
+    future = LeaveRequestDay.day > today
+    statement = (
+        select(LeaveRequest.status, future, func.sum(LeaveRequestDay.fraction))
+        .join(LeaveRequest, LeaveRequest.id == LeaveRequestDay.leave_request_id)
+        .where(
+            LeaveRequestDay.user_id == user_id,
+            LeaveRequestDay.active.is_(True),
+            extract("year", LeaveRequestDay.day) == year,
+        )
+        .group_by(LeaveRequest.status, future)
+    )
+    if paid_only:
+        statement = statement.where(LeaveRequestDay.paid.is_(True))
+    else:
+        statement = statement.where(LeaveRequest.leave_type.in_(sorted(POOL_TYPES)))
+    used = planned = pending = _ZERO
+    for status, after_today, amount in (await db.execute(statement)).all():
+        amount = Decimal(amount or 0)
+        if status == "pending":
+            pending += amount
+        elif status == "approved" and after_today:
+            planned += amount
+        elif status == "approved":
+            used += amount
+    return DaySplit(used=used, planned=planned, pending=pending)
+
+
 def _num(value: Optional[Decimal]) -> Optional[str]:
     return None if value is None else f"{value:.1f}"
 
 
 async def balance_payload(
-    db: AsyncSession, *, user_id: int, year: int, employment_type: str
+    db: AsyncSession, *, user_id: int, year: int, employment_type: str, today: date
 ) -> dict[str, Any]:
     rows = await entitlements(db, user_id, [year])
     usage = (await year_usage(db, user_id, [year]))[year]
     row = rows.get(year)
     entitlement = row.entitlement_days if row else None
     carried = row.carried_over_days if row else _ZERO
+    # Pula zerowa (np. B2B bez umownych dni) liczy się jak brak puli: dni są
+    # bez wynagrodzenia, więc trzy liczby muszą policzyć wszystkie dni.
+    paid_pool = entitlement is not None and entitlement + carried > 0
+    split = await day_split(db, user_id, year, today, paid_only=paid_pool)
     used_initial = row.used_initial_days if row else _ZERO
     remaining = (
         None
@@ -161,11 +222,16 @@ async def balance_payload(
         "year": year,
         "employment_type": employment_type,
         "has_pool": entitlement is not None,
+        "has_paid_pool": paid_pool,
         "entitlement_days": _num(entitlement),
         "carried_over_days": _num(carried),
         "used_initial_days": _num(used_initial),
+        "as_of": today.isoformat(),
         "approved_days": _num(usage.approved_paid),
-        "pending_days": _num(usage.pending_paid),
+        "used_days": _num(used_initial + split.used),
+        "planned_days": _num(split.planned),
+        # Przy puli = dni płatne oczekujące (jak dotąd); bez niej — wszystkie.
+        "pending_days": _num(split.pending),
         "unpaid_days": _num(usage.unpaid),
         "remaining_days": _num(remaining),
         "on_demand_used": _num(usage.on_demand) if uop else None,

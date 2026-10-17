@@ -23,7 +23,11 @@ const balance = (overrides: Partial<LeaveBalance> = {}): LeaveBalance => ({
   entitlement_days: "26.0",
   carried_over_days: "2.0",
   used_initial_days: "0.0",
+  has_paid_pool: true,
+  as_of: "2026-10-22",
   approved_days: "10.0",
+  used_days: "8.0",
+  planned_days: "2.0",
   pending_days: "5.0",
   unpaid_days: "0.0",
   remaining_days: "13.0",
@@ -36,32 +40,61 @@ const balance = (overrides: Partial<LeaveBalance> = {}): LeaveBalance => ({
 });
 
 describe("saldo w „Mój czas → Urlopy”", () => {
-  it("umowa o pracę z pulą: zostało, pula z zaległym, na żądanie", () => {
+  it("umowa o pracę z pulą: zostało, pula, wykorzystane/zaplanowane/czeka, limity Kodeksu", () => {
     const stats = balanceStats(balance());
     expect(stats.map((s) => [s.id, s.value])).toEqual([
       ["remaining", "13 dni"],
       ["pool", "28 dni"],
-      ["approved", "10 dni"],
+      ["used", "8 dni"],
+      ["planned", "2 dni"],
       ["pending", "5 dni"],
       ["on-demand", "1 / 4"],
+      ["childcare", "0 / 2"],
     ]);
   });
 
-  it("B2B bez puli: bez puli i dni bezpłatne, bez limitu na żądanie", () => {
+  it("B2B z umowną pulą: płatne dni bez „urlopu”, bez na żądanie i opieki", () => {
     const stats = balanceStats(
       balance({
         employment_type: "b2b",
-        has_pool: false,
-        entitlement_days: null,
-        remaining_days: null,
-        unpaid_days: "3.0",
+        unpaid_days: "1.0",
         on_demand_used: null,
         on_demand_limit: null,
+        childcare_used: null,
+        childcare_limit: null,
       }),
     );
-    expect(stats.find((s) => s.id === "remaining")?.value).toBe("bez puli");
-    expect(stats.find((s) => s.id === "unpaid")?.value).toBe("3 dni");
-    expect(stats.some((s) => s.id === "on-demand")).toBe(false);
+    expect(stats.map((s) => s.id)).toEqual(["remaining", "pool", "used", "planned", "pending", "unpaid"]);
+    expect(stats.find((s) => s.id === "pool")?.label).toBe("pula z umowy");
+    expect(stats.find((s) => s.id === "unpaid")?.label).toBe("bez wynagrodzenia");
+    expect(stats.map((s) => String(s.label)).join(" ")).not.toMatch(/urlop/i);
+  });
+
+  it("B2B bez puli i zlecenie: same dni nieobecności, bez „zostało” i puli", () => {
+    for (const form of ["b2b", "zlecenie"] as const) {
+      const stats = balanceStats(
+        balance({
+          employment_type: form,
+          has_pool: false,
+          has_paid_pool: false,
+          entitlement_days: null,
+          remaining_days: null,
+          used_days: "1.0",
+          planned_days: "3.0",
+          pending_days: "1.0",
+          unpaid_days: "4.0",
+          on_demand_used: null,
+          on_demand_limit: null,
+          childcare_used: null,
+          childcare_limit: null,
+        }),
+      );
+      expect(stats.map((s) => [s.id, s.value])).toEqual([
+        ["used", "1 dzień"],
+        ["planned", "3 dni"],
+        ["pending", "1 dzień"],
+      ]);
+    }
   });
 });
 

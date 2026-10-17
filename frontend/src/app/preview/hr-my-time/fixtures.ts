@@ -8,7 +8,7 @@
 
 import { LEAVE_TYPE_LABELS, shiftMonth as shiftIsoMonth } from "@/components/hr/leave/leave-format";
 import type { YearMonth } from "@/components/hr/time/time-format";
-import type { PersonFull } from "@/lib/api/hr";
+import type { EmploymentType, PersonFull } from "@/lib/api/hr";
 import type { HolderEquipment } from "@/lib/api/equipment";
 import type {
   LeaveBalance,
@@ -16,12 +16,13 @@ import type {
   LeaveRequestRow,
   SubstituteCandidate,
 } from "@/lib/api/hr-leave";
-import type { BonusRow, MyPayroll, RateRow } from "@/lib/api/hr-payroll";
+import type { BonusForecast, BonusRow, MyPayroll, MySettlement, RateRow } from "@/lib/api/hr-payroll";
 import type {
   DayHint,
   MonthDay,
   MonthView,
   TimesheetEntry,
+  TimesheetHistoryItem,
   TimesheetTemplate,
 } from "@/lib/api/hr-time";
 
@@ -41,7 +42,11 @@ const isoMonth = ({ year, month }: YearMonth) => `${year}-${String(month).padSta
 
 // ── Kartoteka ───────────────────────────────────────────────────────────────
 
-export function myProfile(person: HarnessPerson, year: number): { has_profile: true } & PersonFull {
+export function myProfile(
+  person: HarnessPerson,
+  year: number,
+  form: EmploymentType = "b2b",
+): { has_profile: true } & PersonFull {
   return {
     has_profile: true,
     user_id: person.id,
@@ -55,16 +60,24 @@ export function myProfile(person: HarnessPerson, year: number): { has_profile: t
     manager_user_id: marta.id,
     manager_name: marta.name,
     scope: "full",
-    employment_type: "b2b",
+    employment_type: form,
     hired_on: "2025-03-03",
     work_start_date: "2025-03-03",
     last_working_day: null,
     timesheet_required: true,
     can_log_overtime: true,
     roles: person.roles ?? [person.role],
-    entitlements: [
-      { year, entitlement_days: "26", carried_over_days: "2", used_initial_days: "0" },
-    ],
+    entitlements:
+      form === "zlecenie"
+        ? []
+        : [
+            {
+              year,
+              entitlement_days: form === "uop" ? "26" : "24",
+              carried_over_days: "2",
+              used_initial_days: "0",
+            },
+          ],
   };
 }
 
@@ -97,8 +110,26 @@ export const MY_EQUIPMENT: HolderEquipment = {
   history: [],
   protocols: [
     { id: 6, number: "PZO/TEST/2025/006", kind: "wydanie", status: "potwierdzony", protocol_date: "2025-03-03" },
+    // Zwrot ładowarki czeka na podpis linkiem — „Przegląd → Do zrobienia”.
+    { id: 11, number: "PZO/TEST/2026/011", kind: "zwrot", status: "oczekuje", protocol_date: "2026-10-20" },
   ],
 };
+
+/** Moje zadanie z wejścia nowej osoby (wykonawca: Ola) — „Do zrobienia”. */
+export function myLifecycleTasks(today: string) {
+  return [
+    {
+      task_id: 71,
+      case_id: 7,
+      kind: "onboarding" as const,
+      person_name: "Adam Wzorcowy",
+      title: "Szkolenie stanowiskowe: praca w NEXUSIE",
+      due_date: shiftDay(today, 2),
+      overdue: false,
+      link: "/people/onboarding/7",
+    },
+  ];
+}
 
 // ── Urlopy ──────────────────────────────────────────────────────────────────
 
@@ -107,10 +138,14 @@ export function balance(year: number, remaining: string, approved: string): Leav
     year,
     employment_type: "b2b",
     has_pool: true,
+    has_paid_pool: true,
     entitlement_days: "26",
     carried_over_days: "2",
     used_initial_days: "0",
+    as_of: `${year}-10-22`,
     approved_days: approved,
+    used_days: approved,
+    planned_days: "0",
     pending_days: "0",
     unpaid_days: "0",
     remaining_days: remaining,
@@ -245,6 +280,56 @@ export function kamilPreview(today: string, substituteId: number | null): LeaveP
   };
 }
 
+/**
+ * Saldo Oli według formy zatrudnienia (17.10.2026): B2B z umowną pulą
+ * (domyślnie), UoP z limitami Kodeksu, zlecenie bez puli.
+ */
+export function formBalance(year: number, today: string, form: EmploymentType): LeaveBalance {
+  if (form === "zlecenie") {
+    return {
+      ...balance(year, "0", "0"),
+      employment_type: "zlecenie",
+      has_pool: false,
+      has_paid_pool: false,
+      entitlement_days: null,
+      carried_over_days: "0",
+      as_of: today,
+      approved_days: "0",
+      used_days: "2",
+      planned_days: "5",
+      pending_days: "1",
+      unpaid_days: "8",
+      remaining_days: null,
+    };
+  }
+  if (form === "uop") {
+    return {
+      ...balance(year, "11.5", "14.5"),
+      employment_type: "uop",
+      entitlement_days: "26",
+      as_of: today,
+      used_days: "12",
+      planned_days: "2.5",
+      pending_days: "2",
+      remaining_days: "11.5",
+      on_demand_used: "1",
+      on_demand_limit: "4",
+      childcare_used: "0",
+      childcare_limit: "2",
+      allowed_types: ["vacation", "on_demand", "occasional", "childcare", "sick_leave", "unpaid_leave"],
+    };
+  }
+  return {
+    ...balance(year, "11.5", "14.5"),
+    entitlement_days: "24",
+    as_of: today,
+    used_days: "12",
+    planned_days: "2.5",
+    pending_days: "0",
+    remaining_days: "11.5",
+  };
+}
+
 // ── Mój miesiąc ─────────────────────────────────────────────────────────────
 
 const DESCRIPTIONS: { project: string | null; text: string }[] = [
@@ -258,8 +343,30 @@ const DESCRIPTIONS: { project: string | null; text: string }[] = [
  * Miesiąc Oli: dni do wczoraj wpisane (urlop z wniosku i jeden dzień
  * z nadgodziną), dziś bez wpisu, jutro zaplanowane zdalnie, reszta pusta.
  */
-export function olaMonth(period: YearMonth, today: string, approved: boolean): MonthView {
-  return personMonth(ola, period, today, approved ? "approved" : "draft");
+export function olaMonth(
+  period: YearMonth,
+  today: string,
+  approved: boolean,
+  form: EmploymentType = "b2b",
+): MonthView {
+  return { ...personMonth(ola, period, today, approved ? "approved" : "draft"), employment_type: form };
+}
+
+/** Archiwum timesheetów Oli: bieżący szkic, poprzednie zaakceptowane (12 miesięcy). */
+export function olaHistory(current: YearMonth): TimesheetHistoryItem[] {
+  return Array.from({ length: 12 }, (_, index) => {
+    const index0 = current.year * 12 + (current.month - 1) - index;
+    const year = Math.floor(index0 / 12);
+    const month = (index0 % 12) + 1;
+    return {
+      id: 9000 + index,
+      year,
+      month,
+      status: index === 0 ? "draft" : "approved",
+      approved_at: index === 0 ? null : `${year}-${String(month).padStart(2, "0")}-28T12:00:00+01:00`,
+      hours: index === 0 ? 121 : 160 + (index % 3) * 8,
+    } satisfies TimesheetHistoryItem;
+  });
 }
 
 export type HarnessTimesheetMode = "draft" | "submitted" | "approved" | "missing";
@@ -460,9 +567,43 @@ function bonus(id: number, over: Partial<BonusRow> & Pick<BonusRow, "amount" | "
   };
 }
 
-export function olaPayroll(current: YearMonth): MyPayroll {
+/** Premia „w drodze” z umowy podpisanej przed startem (szacunek, bez wiersza w bazie). */
+function forecast(today: string, over: Partial<BonusForecast>): BonusForecast {
+  return {
+    key: "contract:9301:recruiter",
+    contract_id: 9301,
+    role: "recruiter",
+    category: "recruiter",
+    category_label: "Rekruter",
+    description: `Premia rekrutera — placement: Jan Konsultantowy (${bank.name})`,
+    amount: "2000.00",
+    currency: "PLN",
+    amount_missing_reason: null,
+    start_date: shiftDay(today, 11),
+    started: false,
+    eligible_on: shiftDay(today, 41),
+    business_days_elapsed: 0,
+    business_days_required: 21,
+    ...over,
+  };
+}
+
+export function olaPayroll(current: YearMonth, today: string = `${isoMonth(current)}-22`): MyPayroll {
   const previous = shiftIsoMonth(isoMonth(current), -1);
   const [prevYear, prevMonth] = previous.split("-").map(Number);
+  return {
+    forecast: [forecast(today, {})],
+    business_days_required: 21,
+    ...olaPayrollBase(current, previous, prevYear, prevMonth),
+  };
+}
+
+function olaPayrollBase(
+  current: YearMonth,
+  previous: string,
+  prevYear: number,
+  prevMonth: number,
+): Pick<MyPayroll, "current_rate" | "rates" | "bonuses"> {
   return {
     current_rate: rate(2, "120.00", `${current.year}-07-01`, null),
     rates: [rate(2, "120.00", `${current.year}-07-01`, null), rate(1, "110.00", "2025-03-03", `${current.year}-06-30`)],
@@ -473,8 +614,10 @@ export function olaPayroll(current: YearMonth): MyPayroll {
         category_label: "Premia rekrutera",
         period_year: prevYear,
         period_month: prevMonth,
-        description: `Placement: Michał Konsultantowy · ${bank.name} (próg II)`,
+        description: `Premia rekrutera — placement: Michał Konsultantowy (${bank.name})`,
         assigned_at: `${previous}-28T10:00:00+02:00`,
+        assigned_by_name: marta.name,
+        period_closed: true,
       }),
       bonus(12, {
         amount: "3000.00",
@@ -485,6 +628,8 @@ export function olaPayroll(current: YearMonth): MyPayroll {
         source: "league",
         description: "Liga Mistrzów — 2. miejsce w kwartale",
         assigned_at: `${previous}-28T10:00:00+02:00`,
+        assigned_by_name: ewa.name,
+        period_closed: false,
       }),
       bonus(13, {
         amount: "1000.00",
@@ -493,10 +638,83 @@ export function olaPayroll(current: YearMonth): MyPayroll {
         period_year: current.year,
         period_month: current.month,
         status: "proposed",
-        description: `Placement: Bartosz Testowy · ${bank.name} (próg I)`,
-        business_days_elapsed: 10,
+        description: `Premia rekrutera — placement: Bartosz Testowy (${telecom.name})`,
+        eligible: false,
+        eligible_on: `${isoMonth(current)}-28`,
+        business_days_elapsed: 14,
         business_days_required: 21,
+      }),
+      bonus(14, {
+        amount: "1500.00",
+        category: "recruiter",
+        category_label: "Premia rekrutera",
+        period_year: prevYear,
+        period_month: prevMonth,
+        status: "cancelled",
+        description: `Premia rekrutera — placement: Adam Próbny (${clinic.name})`,
+        cancel_reason: "contract_ended",
+        cancelled_at: `${previous}-20T10:00:00+02:00`,
       }),
     ],
   };
+}
+
+/** „Moje rozliczenie”: poprzedni miesiąc zamknięty, bieżący jako szacunek z „Mojego miesiąca”. */
+export function olaSettlement(current: YearMonth): MySettlement {
+  const previous = shiftIsoMonth(isoMonth(current), -1);
+  const [prevYear, prevMonth] = previous.split("-").map(Number);
+  const months: MySettlement["months"] = [
+    {
+      year: current.year,
+      month: current.month,
+      label: `${isoMonth(current)}`,
+      final: false,
+      hours: "121.00",
+      hours_source: "entered",
+      timesheet_status: "draft",
+      rate_missing: false,
+      lines: [
+        { currency: "PLN", hourly_rate: "120.00", hours_amount: "14520.00", bonus_total: "0.00", total: "14520.00" },
+      ],
+    },
+  ];
+  if (prevYear === current.year) {
+    months.push({
+      year: prevYear,
+      month: prevMonth,
+      label: previous,
+      final: true,
+      hours: "168.00",
+      hours_source: "frozen",
+      timesheet_status: "approved",
+      rate_missing: false,
+      lines: [
+        { currency: "PLN", hourly_rate: "120.00", hours_amount: "20160.00", bonus_total: "1500.00", total: "21660.00" },
+      ],
+    });
+  }
+  return {
+    year: current.year,
+    months: months.map((month) => ({ ...month, label: settlementLabel(month.year, month.month) })),
+    bonuses_paid: prevYear === current.year ? { PLN: "1500.00" } : {},
+  };
+}
+
+const MONTHS_PL = [
+  "styczeń",
+  "luty",
+  "marzec",
+  "kwiecień",
+  "maj",
+  "czerwiec",
+  "lipiec",
+  "sierpień",
+  "wrzesień",
+  "październik",
+  "listopad",
+  "grudzień",
+];
+
+function settlementLabel(year: number, month: number): string {
+  return `${MONTHS_PL[month - 1]} ${year}`;
 }

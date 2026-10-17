@@ -19,28 +19,41 @@ const open = (on: Partial<Record<HrModuleKey, boolean>>) => ({
 });
 
 describe("zakładki „Mój czas”", () => {
-  it("urlopy tylko przy otwartym module, kartoteka zawsze na końcu", () => {
+  it("„Przegląd” zawsze pierwszy, urlopy przy otwartym module, kartoteka na końcu", () => {
     expect(myTimeTabs(open({ leave: true })).map((tab) => tab.value)).toEqual([
+      "overview",
       "leave",
       "profile",
     ]);
-    expect(myTimeTabs(open({})).map((tab) => tab.value)).toEqual(["profile"]);
+    expect(myTimeTabs(open({})).map((tab) => tab.value)).toEqual(["overview", "profile"]);
+  });
+
+  it("zakładka Płac nazywa się „Premie i stawka”", () => {
+    const tabs = myTimeTabs(open({ payroll: true }));
+    expect(tabs.find((tab) => tab.value === "bonuses")?.label).toBe("Premie i stawka");
+    expect(tabs[0]).toEqual({ value: "overview", label: "Przegląd" });
   });
 
   it("zakładka modułu bez komponentu się nie pojawia, z komponentem — po włączeniu", () => {
     expect(myTimeTabs(open({ leave: true, time: true, payroll: true })).map((t) => t.value)).toEqual([
+      "overview",
       "leave",
       "month",
       "bonuses",
       "profile",
     ]);
-    expect(myTimeTabs(open({ leave: true })).map((t) => t.value)).toEqual(["leave", "profile"]);
+    expect(myTimeTabs(open({ leave: true })).map((t) => t.value)).toEqual([
+      "overview",
+      "leave",
+      "profile",
+    ]);
     const extra: MyTimeModuleTab[] = [
       { value: "leave", label: "Urlopy", module: "leave", render: () => null },
       { value: "month", label: "Mój miesiąc", module: "time", render: () => null },
       { value: "bonuses", label: "Premie", module: "payroll", render: () => null },
     ];
     expect(myTimeTabs(open({ leave: true, time: true }), extra).map((t) => t.value)).toEqual([
+      "overview",
       "leave",
       "month",
       "profile",

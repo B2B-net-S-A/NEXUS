@@ -18,6 +18,7 @@ import {
   BONUS_STATUS_TONE,
   bonusStateLabel,
   bonusTitle,
+  cancelReasonLabel,
   formatDay,
   formatMoney,
   monthLabel,
@@ -106,7 +107,16 @@ export function BonusTable({
                       </div>
                     </div>
                   ) : (
-                    <StatusDot tone={BONUS_STATUS_TONE[row.status]}>{bonusStateLabel(row)}</StatusDot>
+                    <StatusDot
+                      tone={BONUS_STATUS_TONE[row.status]}
+                      note={
+                        row.status === "cancelled" && row.cancel_reason !== "manual"
+                          ? (cancelReasonLabel(row.cancel_reason) ?? undefined)
+                          : undefined
+                      }
+                    >
+                      {bonusStateLabel(row)}
+                    </StatusDot>
                   )}
                 </TableCell>
                 {renderActions ? (

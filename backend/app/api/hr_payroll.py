@@ -43,6 +43,7 @@ from app.services.hr import audit, people
 from app.services.hr import modules as hr_modules
 from app.services.hr import (
     bonus_rules,
+    my_settlement,
     placement_bonuses,
     payroll_bonuses,
     payroll_close,
@@ -64,6 +65,7 @@ NOT_MEMBER_DETAIL = (
     "Płace widzą osoby z kartoteką pracownika, ich przełożeni i dział Płac."
 )
 NOT_ADMIN_DETAIL = "Miesiąc płac otwiera ponownie tylko administrator."
+NO_PROFILE_DETAIL = "Rozliczenie widzą osoby z kartoteką pracownika."
 MONTHS_LISTED = 13
 
 
@@ -291,17 +293,33 @@ async def _in_progress(
         query = query.where(HrBonus.recipient_user_id.in_(sorted(viewer.report_ids)))
     rows = list(await db.scalars(query))
     items = await _bonus_list(db, rows, viewer, today=today)
-    rules = await bonus_rules.load_rules(db)
-    for item, bonus in zip(items, rows):
+    _add_progress(items, rows, await bonus_rules.load_rules(db), today=today)
+    return items
+
+
+def _add_progress(
+    items: list[dict[str, Any]],
+    bonuses: list[HrBonus],
+    rules: bonus_rules.BonusRules,
+    *,
+    today: date,
+) -> None:
+    """Pasek „X z 21 dni roboczych” przy propozycji z placementu przed terminem.
+
+    Jedno liczenie dla widoku miesiąca płac i dla „Mojego czasu” — osoba
+    widzi tę samą liczbę co Płace.
+    """
+
+    for item, bonus in zip(items, bonuses):
+        if bonus.eligible_on is None or bonus.eligible_on <= today:
+            continue
         start = (bonus.rule_snapshot or {}).get("start_date")
-        elapsed = (
+        item["business_days_elapsed"] = (
             bonus_rules.business_days_elapsed(date.fromisoformat(start), today)
             if start
             else None
         )
-        item["business_days_elapsed"] = elapsed
         item["business_days_required"] = rules.eligible_business_days
-    return items
 
 
 # ── Moje ──────────────────────────────────────────────────────────────────────
@@ -311,26 +329,75 @@ async def _in_progress(
 async def my_payroll(
     current_user: PayrollMember, db: AsyncSession = Depends(get_db)
 ) -> dict[str, Any]:
+    """Moja stawka, moje premie i prognoza premii z podpisanych kontraktów.
+
+    Premie w każdym stanie — także anulowane przez automat, z kodem powodu
+    (``cancel_reason``), żeby nie znikały bez śladu. Propozycja przed terminem
+    ma postęp „X z 21 dni”, przyznana — kto i kiedy ją przyznał, a każda —
+    czy jej miesiąc jest już zamknięty w płacach (``period_closed``).
+    """
+
     today = business_today()
     viewer = await load_viewer(db, current_user)
+    rules = await bonus_rules.load_rules(db)
     rates = await payroll_rates.history(db, current_user.id)
     current = payroll_rates.rate_on(rates, today)
-    bonuses = [
-        bonus
-        for bonus in await payroll_bonuses.list_bonuses(
-            db, viewer, user_id=current_user.id, limit=200
-        )
-        if bonus.status != "cancelled" or bonus.cancel_reason == "manual"
-    ]
+    bonuses = await payroll_bonuses.list_bonuses(
+        db, viewer, user_id=current_user.id, limit=200
+    )
     names = await payroll_bonuses.names_for(db, bonuses)
+    assigners = {b.assigned_by for b in bonuses if b.assigned_by} - set(names)
+    if assigners:
+        names.update(
+            {
+                int(uid): str(name)
+                for uid, name in (
+                    await db.execute(
+                        select(User.id, User.name).where(User.id.in_(assigners))
+                    )
+                ).all()
+            }
+        )
+    closed = await payroll_periods.closed_months(db)
+    items = [
+        {
+            **payroll_bonuses.bonus_payload(b, names, with_snapshot=False, today=today),
+            "assigned_by_name": names.get(b.assigned_by) if b.assigned_by else None,
+            # Miesiąc premii zamknięty w płacach = premia rozliczona z wypłatą.
+            "period_closed": (b.period_year, b.period_month) in closed,
+        }
+        for b in bonuses
+    ]
+    _add_progress(items, bonuses, rules, today=today)
     return {
         "current_rate": payroll_rates.rate_payload(current) if current else None,
         "rates": [payroll_rates.rate_payload(rate) for rate in rates],
-        "bonuses": [
-            payroll_bonuses.bonus_payload(b, names, with_snapshot=False, today=today)
-            for b in bonuses
-        ],
+        "bonuses": items,
+        "forecast": await my_settlement.bonus_forecast(
+            db, user_id=current_user.id, today=today, rules=rules
+        ),
+        "business_days_required": rules.eligible_business_days,
     }
+
+
+@router.get("/me/settlement")
+async def my_payroll_settlement(
+    current_user: PayrollMember,
+    db: AsyncSession = Depends(get_db),
+    year: Optional[int] = Query(default=None, ge=2020, le=2100),
+) -> dict[str, Any]:
+    """„Moje rozliczenie”: miesiące zamknięte z linii płac, otwarte jako szacunek.
+
+    Tylko o sobie i tylko z kartoteką — Płace albo przełożony bez własnej
+    kartoteki dostają 403 (nie mają czego rozliczać).
+    """
+
+    if not await people.has_live_profile(db, current_user.id):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, NO_PROFILE_DETAIL)
+    today = business_today()
+    return await my_settlement.settlement(
+        db, user_id=current_user.id, year=year or today.year, today=today
+    )
 
 
 # ── Miesiące ──────────────────────────────────────────────────────────────────

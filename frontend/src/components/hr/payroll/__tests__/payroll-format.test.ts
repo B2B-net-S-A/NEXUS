@@ -190,9 +190,20 @@ describe("Moje premie", () => {
       ],
     };
     const stats = myStats(data, "2026-10-16");
-    expect(nbsp(String(stats[0].value))).toBe("120,00 zł/h");
-    expect(nbsp(String(stats[1].value))).toBe("2000,00 zł · 100,00 EUR");
-    expect(stats.find((s) => s.id === "waiting")?.value).toBe(1);
+    const value = (id: string) => nbsp(String(stats.find((s) => s.id === id)?.value));
+    expect(value("rate")).toBe("120,00 zł/h");
+    expect(value("bonuses")).toBe("2000,00 zł · 100,00 EUR");
+    // „W drodze” = propozycje bez decyzji (+ prognozy), kwota jako szacunek.
+    expect(stats.find((s) => s.id === "waiting")?.label).toBe("w drodze (1)");
+    expect(value("waiting")).toBe("~ 772,80 zł");
+    // Bez rozliczenia (np. awaria) nie ma liczby „wypłacone” — nie „0 zł”.
+    expect(stats.some((s) => s.id === "paid")).toBe(false);
+    const withSettlement = myStats(data, "2026-10-16", {
+      year: 2026,
+      months: [],
+      bonuses_paid: { PLN: "1500.00" },
+    });
+    expect(nbsp(String(withSettlement.find((s) => s.id === "paid")?.value))).toBe("1500,00 zł");
   });
 });
 

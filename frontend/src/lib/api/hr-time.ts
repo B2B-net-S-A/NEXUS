@@ -161,9 +161,20 @@ export const TIMESHEET_STATUS_LABELS: Record<QueueStatus, string> = {
   missing: "Nie założony",
 };
 
+/** Wiersz archiwum „Mój miesiąc” (`GET /me/history`, ostatnie 12 timesheetów). */
+export interface TimesheetHistoryItem {
+  id: number;
+  year: number;
+  month: number;
+  status: TimesheetStatus;
+  approved_at: string | null;
+  hours: number;
+}
+
 export const timeKeys = {
   all: ["hr-time"] as const,
   month: (year: number, month: number) => ["hr-time", "me", year, month] as const,
+  history: ["hr-time", "me", "history"] as const,
   templates: ["hr-time", "templates"] as const,
   hint: (day: string) => ["hr-time", "hint", day] as const,
   team: (year: number, month: number) => ["hr-time", "team", year, month] as const,
@@ -183,6 +194,15 @@ export function useMyMonth(year: number, month: number, enabled = true) {
   return useQuery({
     queryKey: timeKeys.month(year, month),
     queryFn: async () => (await api.get<MonthView>(timePaths.month(year, month))).data,
+    enabled,
+  });
+}
+
+export function useMyTimesheetHistory(enabled = true) {
+  return useQuery({
+    queryKey: timeKeys.history,
+    queryFn: async () =>
+      (await api.get<{ items: TimesheetHistoryItem[] }>("/api/hr/time/me/history")).data.items,
     enabled,
   });
 }

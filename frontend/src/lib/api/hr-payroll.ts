@@ -49,8 +49,13 @@ export interface BonusRow {
   eligible?: boolean;
   description: string | null;
   assigned_by: number | null;
+  /** Tylko „Mój czas” (`/me`): kto przyznał premię. */
+  assigned_by_name?: string | null;
+  /** Tylko „Mój czas” (`/me`): miesiąc premii zamknięty w płacach (rozliczona). */
+  period_closed?: boolean;
   assigned_at: string | null;
   cancelled_at: string | null;
+  /** `manual` albo kod automatu (`contract_ended`, `contract_void`, …). */
   cancel_reason: string | null;
   /** Kwota propozycji automatu poprawiona ręcznie. */
   edited: boolean;
@@ -130,10 +135,55 @@ export interface PayrollMonthDetail {
   warnings?: CloseWarning[];
 }
 
+/**
+ * Premia „w drodze” z podpisanego kontraktu, której automat jeszcze nie
+ * założył (D2): szacunek z tych samych reguł, nic nie jest zapisane.
+ */
+export interface BonusForecast {
+  key: string;
+  contract_id: number;
+  role: "dl" | "dl_extra" | "recruiter";
+  category: BonusCategory;
+  category_label: string;
+  description: string;
+  /** `null` = brak stawki klienta albo kursu — kwoty jeszcze nie da się policzyć. */
+  amount: string | null;
+  currency: Currency;
+  amount_missing_reason: "missing_rates" | "fx_missing" | null;
+  start_date: string;
+  started: boolean;
+  /** „~ od” — start + 21 dni roboczych. */
+  eligible_on: string;
+  business_days_elapsed: number;
+  business_days_required: number;
+}
+
 export interface MyPayroll {
   current_rate: RateRow | null;
   rates: RateRow[];
   bonuses: BonusRow[];
+  forecast?: BonusForecast[];
+  business_days_required?: number;
+}
+
+export interface SettlementMonth {
+  year: number;
+  month: number;
+  label: string;
+  /** `true` = linie zamrożone przez Płace; `false` = szacunek, zmienia się do zamknięcia. */
+  final: boolean;
+  hours: string;
+  hours_source: "frozen" | "approved" | "entered" | "none";
+  timesheet_status: TimesheetStatus | null;
+  rate_missing: boolean;
+  lines: PayrollLine[];
+}
+
+export interface MySettlement {
+  year: number;
+  months: SettlementMonth[];
+  /** Premie z zamkniętych miesięcy roku (per waluta). */
+  bonuses_paid: Record<string, string>;
 }
 
 export interface PersonPayroll {
@@ -187,6 +237,7 @@ export type BonusPatch = Partial<Omit<BonusInput, "recipient_user_id">>;
 export const payrollKeys = {
   all: ["hr-payroll"] as const,
   me: ["hr-payroll", "me"] as const,
+  settlement: (year: number) => ["hr-payroll", "me", "settlement", year] as const,
   months: ["hr-payroll", "months"] as const,
   month: (year: number, month: number) => ["hr-payroll", "month", year, month] as const,
   person: (userId: number) => ["hr-payroll", "person", userId] as const,
@@ -205,6 +256,16 @@ export function useMyPayroll(enabled = true) {
   return useQuery({
     queryKey: payrollKeys.me,
     queryFn: async () => (await api.get<MyPayroll>("/api/hr/payroll/me")).data,
+    enabled,
+  });
+}
+
+export function useMySettlement(year: number, enabled = true) {
+  return useQuery({
+    queryKey: payrollKeys.settlement(year),
+    queryFn: async () =>
+      (await api.get<MySettlement>("/api/hr/payroll/me/settlement", { params: { year } }))
+        .data,
     enabled,
   });
 }

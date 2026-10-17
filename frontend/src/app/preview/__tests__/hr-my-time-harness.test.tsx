@@ -1,9 +1,10 @@
 /**
- * `/preview/hr-my-time` (makiety 2 i 4 „Ludzi w NEXUSIE”): prawdziwy „Mój czas”
- * na danych fikcyjnych, ZERO prób żądania — także po otwarciu dnia, zmianie
- * miesiąca i przełączeniu zakładek.
+ * `/preview/hr-my-time` (makiety 2 i 4 „Ludzi w NEXUSIE” i „Mój czas · przegląd”
+ * etapu 2): prawdziwy „Mój czas” na danych fikcyjnych, ZERO prób żądania —
+ * także po otwarciu dnia, zmianie miesiąca, przełączeniu zakładek i formy
+ * zatrudnienia (`?form=`).
  */
-import { render, screen, within } from "@testing-library/react";
+import { cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Axios } from "axios";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -41,17 +42,55 @@ afterEach(() => {
 });
 
 describe("/preview/hr-my-time", () => {
+  it("Przegląd (domyślnie, B2B z pulą): płatne dni, raport godzin, premie w drodze, zadania", async () => {
+    open("");
+
+    expect(await screen.findByRole("tab", { name: "Przegląd", selected: true })).toBeInTheDocument();
+    const days = await screen.findByRole("generic", { name: "Płatne dni przerwy (z umowy)" });
+    expect(within(days).getByText(/wykorzystane 12 dni/)).toBeInTheDocument();
+    expect(within(days).queryByText(/na żądanie/i)).toBeNull();
+    expect(screen.getByRole("generic", { name: /^Raport godzin/ })).toBeInTheDocument();
+    const bonuses = screen.getByRole("generic", { name: "Premie" });
+    expect(within(bonuses).getByText(/umowa podpisana/)).toBeInTheDocument();
+    expect(within(bonuses).getByText(/14 z 21 dni/)).toBeInTheDocument();
+    const todo = screen.getByRole("generic", { name: "Do zrobienia" });
+    expect(within(todo).getByText("Podpisz protokół PZO/TEST/2026/011")).toBeInTheDocument();
+    expect(within(todo).getByText("Szkolenie stanowiskowe: praca w NEXUSIE")).toBeInTheDocument();
+    expect(screen.getByText("w pracy")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Zgłoś nieobecność" })).toBeInTheDocument();
+    expect(attempted()).toEqual([]);
+  });
+
+  it("Przegląd dla UoP i zlecenia: urlop z limitami albo nieobecności bez puli", async () => {
+    open("?form=uop");
+    const leave = await screen.findByRole("generic", { name: /^Urlop \d{4}$/ });
+    expect(within(leave).getByText(/Na żądanie 1 z 4/)).toBeInTheDocument();
+    expect(screen.getByRole("generic", { name: /^Ewidencja czasu pracy/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Złóż wniosek urlopowy" })).toBeInTheDocument();
+    expect(attempted()).toEqual([]);
+    cleanup();
+
+    open("?form=zlecenie");
+    const absences = await screen.findByRole("generic", { name: /^Nieobecności \d{4}$/ });
+    expect(within(absences).queryByText(/zostało/)).toBeNull();
+    expect(screen.getByRole("generic", { name: /^Potwierdzenie godzin/ })).toBeInTheDocument();
+    expect(screen.getByText(/art\. 8b ustawy o minimalnym wynagrodzeniu/)).toBeInTheDocument();
+    expect(attempted()).toEqual([]);
+  });
+
   it("Urlopy: saldo i wnioski Oli, przełączenie zakładek bez zapytań", async () => {
     const user = userEvent.setup();
-    open("");
+    open("?tab=leave");
 
     const table = await screen.findByRole("table");
     expect(within(table).getByText("Ewa Makietowa")).toBeInTheDocument();
     expect(within(table).getByText("przekierowanie poczty")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Złóż wniosek" })).toBeInTheDocument();
 
-    await user.click(screen.getByRole("tab", { name: "Premie" }));
-    expect(await screen.findByText("Liga Mistrzów")).toBeInTheDocument();
+    await user.click(screen.getByRole("tab", { name: "Premie i stawka" }));
+    expect(await screen.findByText("Liga Mistrzów — 2. miejsce w kwartale")).toBeInTheDocument();
+    expect(screen.getByText("kontrakt zakończony przed 21. dniem roboczym")).toBeInTheDocument();
+    expect(screen.getByRole("generic", { name: "Moje rozliczenie" })).toBeInTheDocument();
     await user.click(screen.getByRole("tab", { name: "Kartoteka" }));
     expect(await screen.findByText("Przełożony: Marta Fikcyjna")).toBeInTheDocument();
     expect(attempted()).toEqual([]);
@@ -87,6 +126,14 @@ describe("/preview/hr-my-time", () => {
     ).toBeInTheDocument();
     expect(screen.getByText("zaakceptowany")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Wyślij do akceptacji" })).toBeNull();
+
+    // Archiwum timesheetów rozwija się z zasiewu, bez zapytania.
+    await user.click(screen.getByRole("button", { name: /Archiwum timesheetów/ }));
+    expect(
+      await screen.findByRole("button", {
+        name: `Pobierz PDF ${monthTitle(shiftMonth(current, -2)).toLowerCase()}`,
+      }),
+    ).toBeInTheDocument();
     expect(attempted()).toEqual([]);
   });
 });
