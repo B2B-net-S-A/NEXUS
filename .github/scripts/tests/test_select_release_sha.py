@@ -139,6 +139,40 @@ class FreezeWindowTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 SELECT.parse_freeze_window(bad)
 
+    def test_weekend_has_no_window(self):
+        # Doprecyzowanie Artura 17.10.2026: okno 7-19 tylko pon–pt, w sobotę
+        # i niedzielę wdrażamy o każdej porze. Październik 2026 = CEST (UTC+2).
+        # Sobota 17.10 11:00 w Warszawie → bez okna; piątek 16.10 11:00 → okno.
+        self.assertFalse(SELECT.in_freeze(self.at("2026-10-17T09:00:00"), "7-19"))
+        self.assertFalse(SELECT.in_freeze(self.at("2026-10-18T09:00:00"), "7-19"))
+        self.assertTrue(SELECT.in_freeze(self.at("2026-10-16T09:00:00"), "7-19"))
+        # Poniedziałek 19.10: 06:59 jeszcze bez okna, od 07:00 okno.
+        self.assertFalse(SELECT.in_freeze(self.at("2026-10-19T04:59:00"), "7-19"))
+        self.assertTrue(SELECT.in_freeze(self.at("2026-10-19T05:00:00"), "7-19"))
+        # Zima (CET): sobota 05.12 12:00 → bez okna.
+        self.assertFalse(SELECT.in_freeze(self.at("2026-12-05T11:00:00"), "7-19"))
+
+    def test_weekend_counts_by_the_local_date_of_now(self):
+        # Okno przez północ: niedziela 23:30 → weekend; piątek 23:30 → okno;
+        # sobota 00:30 (w UTC jeszcze piątek) → weekend.
+        self.assertFalse(SELECT.in_freeze(self.at("2026-10-18T21:30:00"), "22-6"))
+        self.assertTrue(SELECT.in_freeze(self.at("2026-10-16T21:30:00"), "22-6"))
+        self.assertFalse(SELECT.in_freeze(self.at("2026-10-16T22:30:00"), "22-6"))
+        # Poniedziałek 00:30 (w UTC jeszcze niedziela) → okno.
+        self.assertTrue(SELECT.in_freeze(self.at("2026-10-18T22:30:00"), "22-6"))
+        self.assertTrue(SELECT.in_freeze(self.at("2026-10-18T22:30:00"), "0-7"))
+
+    def test_window_start_after_a_weekend_is_monday_midnight(self):
+        # Okno 22-6 w poniedziałek 03:00 zaczęło się o północy, nie w niedzielę
+        # o 22:00 — niedzielny wieczór był bez okna.
+        start = SELECT.window_closed_at(self.at("2026-10-19T01:00:00"), "22-6")
+        self.assertEqual(start, self.at("2026-10-18T22:00:00"))  # 00:00 CEST
+        # Wtorek 03:00 → poniedziałek 22:00, jak dotąd.
+        start = SELECT.window_closed_at(self.at("2026-10-20T01:00:00"), "22-6")
+        self.assertEqual(start, self.at("2026-10-19T20:00:00"))
+        start = SELECT.window_closed_at(self.at("2026-10-19T08:00:00"), "7-19")
+        self.assertEqual(start, self.at("2026-10-19T05:00:00"))
+
     def test_in_freeze_cli_exit_codes(self):
         args = SELECT.parse_args(["in-freeze", "--freeze-window", "0-7"])
         night = datetime(2026, 7, 1, 1, 0, tzinfo=timezone.utc)
@@ -251,6 +285,28 @@ class CliTests(unittest.TestCase):
         self.assertEqual(SELECT._run_select(args, fetch, now=now), 0)
         self.assertIn("defer=false", out.read_text())
 
+    def test_saturday_merge_and_manual_dispatch_deploy_at_noon(self):
+        # Sobota 17.10.2026 12:00 w Warszawie: bez okna — merge wdraża się od
+        # razu, a ręczny „Run workflow” nie potrzebuje emergency.
+        now = datetime(2026, 10, 17, 10, 0, tzinfo=timezone.utc)
+
+        def fetch(path):
+            if path.startswith("repos/o/r/commits/"):
+                return {"sha": A}
+            return {"workflow_runs": [run("completed", "success")]}
+
+        for extra in ([], ["--target-unverified"], ["--scheduled"]):
+            with self.subTest(extra=extra):
+                out, _ = self.env()
+                args = SELECT.parse_args(
+                    ["select", "--repo", "o/r", "--target", A,
+                     "--freeze-window", "7-19", *extra]
+                )
+                self.assertEqual(SELECT._run_select(args, fetch, now=now), 0)
+                text = out.read_text()
+                self.assertIn("defer=false", text)
+                self.assertNotIn("night_freeze", text)
+
     def test_emergency_dispatch_ignores_the_window(self):
         out, _ = self.env()
 
@@ -354,6 +410,12 @@ class CliTests(unittest.TestCase):
         out, _ = self.env()
         night = datetime(2026, 7, 14, 20, 0, tzinfo=timezone.utc)  # 22:00
         self.assertEqual(SELECT._run_night_check(self.night_args(), no_api, now=night), 0)
+        self.assertIn("checked=false", out.read_text())
+
+        # Sobota w południe to też okno wdrożeń — nocy nie oceniamy.
+        out, _ = self.env()
+        saturday = datetime(2026, 10, 17, 10, 0, tzinfo=timezone.utc)
+        self.assertEqual(SELECT._run_night_check(self.night_args(), no_api, now=saturday), 0)
         self.assertIn("checked=false", out.read_text())
 
         out, _ = self.env()

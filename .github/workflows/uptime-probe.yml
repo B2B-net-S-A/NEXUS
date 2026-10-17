@@ -440,9 +440,10 @@ jobs:
   # ── Noc bez wdrożenia (okno 19:00–07:00, decyzja Artura 14.10.2026) ────────
   # Merge'e z dnia wdraża wieczorny `schedule` w deploy.yml. Cron GitHuba
   # potrafi nie przyjść wcale (26.09.2026) — wtedy zmiany czekałyby kolejną
-  # dobę bez śladu. W dzień ta sonda sprawdza, czy na produkcji są wszystkie
-  # merge'e sprzed 07:00 (przy zielonej bramce HEAD-a; czerwoną obsługuje
-  # alarm wstrzymania w deploy.yml).
+  # dobę bez śladu. W dzień roboczy ta sonda sprawdza, czy na produkcji są
+  # wszystkie merge'e sprzed 07:00 (przy zielonej bramce HEAD-a; czerwoną
+  # obsługuje alarm wstrzymania w deploy.yml). W weekend okna nie ma
+  # (17.10.2026), więc nie ma też czego oceniać — `night-check` milczy.
   night-deploy:
     name: Noc bez wdrożenia (okno 19:00–07:00)
     if: ${{ github.event_name == 'schedule' }}
