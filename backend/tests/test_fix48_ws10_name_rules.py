@@ -2,8 +2,9 @@
 
 - „(nie aktywny)” i „[not active]” to NIE „szuka aktywnie”;
 - wielowyrazowy nawias z „czarną listą” ustawia status, nie tylko znika;
-- zdanie 422 wskazuje pola, które naprawdę są w oknie („Dyspozycyjność”,
-  status „Zablokowany”), a nie pole „Dostępność”, które jest datą.
+- zdanie 422 wskazuje pola, które naprawdę są w oknie („Dyspozycyjność”;
+  czarna lista od 17.10.2026 w menu profilu), a nie pole „Dostępność”,
+  które jest datą.
 
 Imiona są wymyślone (repo jest publiczne).
 """
@@ -79,8 +80,9 @@ def test_plain_active_still_means_actively_looking(markers: list[str]) -> None:
 def test_422_message_points_to_the_fields_of_the_candidate_window() -> None:
     message = name_marker_message()
     # Okna „Dodaj kandydata” / „Edytuj dane” (AppShell): „Dostępność” to data,
-    # „szuka aktywnie” ustawia się w „Dyspozycyjności”, czarną listę — statusem
-    # „Zablokowany”.
+    # „szuka aktywnie” ustawia się w „Dyspozycyjności”, czarną listę — od
+    # 17.10.2026 oknem „Czarna lista…” w menu profilu (pola „Status” nie ma).
     assert "Dyspozycyjność" in message
-    assert "Zablokowany" in message
+    assert "„Czarna lista…”" in message
+    assert "Zablokowany" not in message
     assert "polu Dostępność" not in message

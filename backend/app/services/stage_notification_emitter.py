@@ -42,6 +42,7 @@ from app.services.board_stage_badges import cpro_enabled_for_client
 from app.services.consultant_elsewhere_notifications import (
     notify_current_client_leads,
 )
+from app.services.hire_contract_reminder import notify_hire_without_contract
 from app.services import screening_fix_requests, stage_remarks
 from app.services.stage_handoff_recipients import (
     REASON_CLIENT_ACCEPTED,
@@ -381,6 +382,16 @@ async def notify_stage_change(
         candidate=candidate,
         mover=mover,
         hired_engagement=hired_engagement,
+    )
+    # 17.10.2026: „Zatrudniony” bez umowy w Kontraktach — Delivery Lead klienta
+    # ma ją wpisać, bo „Pracuje u nas” liczy się wyłącznie z umowy.
+    await notify_hire_without_contract(
+        db,
+        new_stage=new_stage,
+        previous_stage=previous_stage,
+        job=job,
+        candidate=candidate,
+        mover=mover,
     )
     try:
         recipients: list[ResolvedRecipient] = await resolve_recipients(

@@ -763,27 +763,12 @@ function CandidateFormFields({
           </div>
         </FieldGroup>
       </div>
+      {/* Bez pola „Status” (17.10.2026): czarną listę ustawia okno „Czarna
+          lista…” z powodem i autorem, a PATCH odrzuca zmianę statusu. */}
       <div className="grid grid-cols-2 gap-3">
         <FieldGroup label="Dostępność">
           <Input type="date" value={form.availability_date} onChange={e => onChange("availability_date", e.target.value)} />
         </FieldGroup>
-        <FieldGroup label="Status">
-          <Select value={form.status} onChange={e => onChange("status", e.target.value)}>
-            <option value="active">Aktywny</option>
-            <option value="passive">Pasywny</option>
-            <option value="blacklisted">Zablokowany</option>
-          </Select>
-        </FieldGroup>
-      </div>
-      {availabilityNote ? (
-        <p
-          data-testid="edit-availability-contract-note"
-          className="rounded-lg bg-success-muted px-3 py-2 text-xs leading-5 text-success-muted-foreground"
-        >
-          {availabilityNote}
-        </p>
-      ) : null}
-      <div className="grid grid-cols-2 gap-3">
         <FieldGroup label="Dyspozycyjność">
           <Select
             value={form.availability_status}
@@ -795,14 +780,18 @@ function CandidateFormFields({
             <option value="not_looking">Nie szuka</option>
           </Select>
         </FieldGroup>
-        <FieldGroup label="Aktualnie u klienta (opcjonalnie)">
-          <div className="text-xs text-muted-foreground dark:text-muted-foreground px-3 py-2 bg-muted dark:bg-card/40 rounded-lg">
-            W profilu kandydata: <strong>⋯ → Konflikty i weta → Dodaj konflikt</strong>,
-            typ <strong>Obecne zatrudnienie</strong> (albo „Oznacz jako zatrudnionego”
-            w szybkim podglądzie). Dzięki temu karta dostanie burgundowy alert „U KLIENTA”.
-          </div>
-        </FieldGroup>
       </div>
+      {availabilityNote ? (
+        <p
+          data-testid="edit-availability-contract-note"
+          className="rounded-lg bg-success-muted px-3 py-2 text-xs leading-5 text-success-muted-foreground"
+        >
+          {availabilityNote}
+        </p>
+      ) : null}
+      <p className="text-xs text-muted-foreground" data-testid="candidate-form-status-note">
+        „Pracuje u nas” wynika z umowy w Kontraktach. Czarną listę ustawiasz w menu profilu → „Czarna lista…”.
+      </p>
       <FieldGroup label="Tagi (rozdzielone przecinkami)">
         <Input value={form.tags} onChange={e => onChange("tags", e.target.value)} placeholder="React, TypeScript, Remote..." />
         {importedTagLabels.length > 0 && (
@@ -1489,9 +1478,12 @@ export function EditCandidateModal({ candidate, onClose, onSuccess }: { candidat
     if (!trimmedForm.name || !trimmedForm.lastname) { setError("Imię i nazwisko są wymagane"); return; }
     setSaving(true); setError(""); setEmailError(null); setNameErrors(null);
     try {
-      const { city: _city, country: _country, tags: _tags, ...nextPayload } =
+      // Status nie jedzie nigdy (17.10.2026): formularz nie ma już tego pola,
+      // czarną listę zmienia okno „Czarna lista…”, a PATCH odrzuca zmianę
+      // statusu na/z `blacklisted` (422).
+      const { city: _city, country: _country, tags: _tags, status: _status, ...nextPayload } =
         candidateFormToPayload(trimmedForm);
-      const { city: _c0, country: _k0, tags: _t0, ...initialPayload } =
+      const { city: _c0, country: _k0, tags: _t0, status: _s0, ...initialPayload } =
         candidateFormToPayload(trimmedInitial);
       // Tylko zmienione pola. Pole tożsamości wysłane „przy okazji” zamieniłoby
       // też wartość z nocnego syncu w fałszywą ręczną blokadę.

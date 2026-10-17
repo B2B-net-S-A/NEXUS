@@ -37,7 +37,8 @@ export interface EmploymentInfo {
  contract_id?: number | null;
  job_id?: number | null;
  contract_end_date?: string | null;
- source?:"contract" |"conflict" |"pipeline" |"none";
+ /** Od 17.10.2026 zatrudnienie daje tylko umowa w Kontraktach. */
+ source?:"contract" |"none";
  /**
   * Konsolidacja wieloklientowa: WSZYSTKIE aktywne kontrakty (pierwszy = ten
   * sam co pojedyncze pola wyżej). Osoba pracująca u 2 klientów naraz ma tu
@@ -113,9 +114,7 @@ export function AtOurClientBanner({
  .join(" · ")
  : employment.contract_end_date
  ? `Kontrakt do: ${formatIsoDatePl(employment.contract_end_date)}`
- : employment.source === "pipeline"
- ?"Zatrudniony u klienta (etap „hired” w rekrutacji)"
- :"Ręcznie oznaczony jako zatrudniony u klienta";
+ :"Kontrakt bez daty końca";
  const clientLabel = multi
  ? engagements.map((e) => e.client_name ?? `Klient #${e.client_id}`).join(", ")
  : (employment.client_name ??"naszego klienta");

@@ -51,6 +51,10 @@ import { canHardDeleteCandidate } from "@/lib/candidate-delete-access";
 import { humanNoteCount } from "@/lib/candidate-notes-view";
 import { canMergeCandidates } from "@/lib/api/candidateMerge";
 import { CandidateMergeDialog } from "@/components/v2/candidate-profile/CandidateMergeDialog";
+import {
+  BlacklistDialog,
+  BlacklistNotice,
+} from "@/components/v2/candidate-profile/BlacklistDialogs";
 import { ConfirmV2 } from "@/components/v2/modals/ConfirmV2";
 import { SendEmailV2 } from "@/components/v2/modals/SendEmailV2";
 import { CvGeneratorDialog } from "@/components/v2/cv-generator/CvGeneratorDialog";
@@ -378,6 +382,7 @@ export function CandidateDetailV2({
   const [conflictsOpen, setConflictsOpen] = useState(false);
   const [notesFactsOpen, setNotesFactsOpen] = useState(false);
   const [followupOpen, setFollowupOpen] = useState(false);
+  const [blacklistOpen, setBlacklistOpen] = useState(false);
 
   // ── Uprawnienia ───────────────────────────────────────────────────────
   const currentUser = useAuthStore((s) => s.user);
@@ -633,8 +638,19 @@ export function CandidateDetailV2({
           onConflicts: () => setConflictsOpen(true),
           onDelete: canDeleteCandidate ? () => setDeleteOpen(true) : undefined,
           onMerge: canMerge ? () => setMergeOpen(true) : undefined,
+          onBlacklist: canWriteSourcing ? () => setBlacklistOpen(true) : undefined,
         }}
       />
+
+      {/* Czarna lista „u nas” (17.10.2026): kto, kiedy i dlaczego — zamiast
+          plakietki w pasku osoby. „Zdejmij…” tylko admin, DL i HoR. */}
+      {candidate.status === "blacklisted" ? (
+        <BlacklistNotice
+          candidateId={candidateNumericId}
+          candidateName={fullName}
+          blacklist={candidate.blacklist}
+        />
+      ) : null}
 
       {/* Od 1100 px: karta „Do propozycji” po lewej (przyklejona), zakładki
           po prawej. `min-[1100px]` = szerokość okna; w szufladzie (embedded)
@@ -883,6 +899,13 @@ export function CandidateDetailV2({
             onOpenChange={setCvOpen}
             candidateId={candidateNumericId}
             candidateName={fullName}
+          />
+          <BlacklistDialog
+            open={blacklistOpen}
+            onOpenChange={setBlacklistOpen}
+            candidateId={candidateNumericId}
+            candidateName={fullName}
+            alreadyBlacklisted={candidate.status === "blacklisted"}
           />
           <QuickAssignV2
             open={assignOpen}

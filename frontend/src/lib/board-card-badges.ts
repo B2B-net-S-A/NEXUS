@@ -568,6 +568,17 @@ export function cardBadges(item: KanbanItem, ctx: CardBadgeContext): CardBadge[]
       title: agreement.title,
     });
   }
+  // 17.10.2026: „Pracuje u nas” daje wyłącznie umowa w Kontraktach — karta
+  // na „Zatrudniony” bez umowy mówi, czego brakuje (przed zamówieniem).
+  if (column === "hired" && item.missing_contract) {
+    out.push({
+      key: "contract",
+      label: "Brak umowy w Kontraktach",
+      tone: "wait",
+      title:
+        "Karta jest na „Zatrudniony”, ale w Kontraktach nie ma umowy tej osoby u klienta. „Pracuje u nas” pojawi się po wpisaniu umowy — Delivery Lead klienta dostał przypomnienie.",
+    });
+  }
   if (column === "hired" && item.order_status) {
     out.push(
       item.order_status === "missing"

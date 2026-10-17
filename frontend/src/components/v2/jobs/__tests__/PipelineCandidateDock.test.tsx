@@ -505,6 +505,61 @@ describe("PipelineCandidateDock", () => {
     await screen.findByText(/Oryginał CV:/);
     expect(screen.queryByRole("button", { name: /Wysyłka CV do klienta/ })).toBeNull();
   });
+
+  // 17.10.2026: „Pracuje u nas” liczy się wyłącznie z umowy w Kontraktach.
+  it("karta na „Zatrudniony” bez umowy: pigułka „Brak umowy w Kontraktach” z wyjaśnieniem", () => {
+    renderDock({ item: baseItem({ stage: "hired", missing_contract: true }) });
+    const pill = screen.getByTestId("dock-missing-contract");
+    expect(pill).toHaveTextContent("Brak umowy w Kontraktach");
+    expect(pill.getAttribute("title")).toContain("„Pracuje u nas” pojawi się po wpisaniu umowy.");
+    cleanup();
+    renderDock({ item: baseItem({ stage: "hired" }) });
+    expect(screen.queryByTestId("dock-missing-contract")).toBeNull();
+  });
+
+  it("czarna lista u nas: pigułka, a w dymku kto, kiedy i dlaczego (17.10.2026)", async () => {
+    const user = userEvent.setup();
+    candidatesGet.mockResolvedValue({
+      data: {
+        email: "anna@example.com",
+        status: "blacklisted",
+        blacklist: {
+          since: "2026-10-17T08:30:00Z",
+          by_user_id: 5,
+          by_name: "Ola Rekruterka",
+          reason: "zrezygnowała dzień przed startem",
+        },
+      },
+    });
+    renderDock();
+    await user.click(await screen.findByRole("button", { name: "Czarna lista — szczegóły" }));
+    expect(await screen.findByText("Nie współpracujemy z tą osobą")).toBeInTheDocument();
+    expect(screen.getByText("Od 17.10.2026 · dodał(a) Ola Rekruterka")).toBeInTheDocument();
+    expect(screen.getByText("Powód: zrezygnowała dzień przed startem")).toBeInTheDocument();
+  });
+
+  it("„⋯ → Czarna lista…” z prawem zapisu otwiera okno czarnej listy", async () => {
+    const user = userEvent.setup();
+    useAuthStore.setState({ user: { id: 7, role: "recruiter", roles: ["recruiter"] } } as never);
+    try {
+      renderDock();
+      await user.click(screen.getByRole("button", { name: "Więcej akcji osoby" }));
+      await user.click(await screen.findByRole("menuitem", { name: /Czarna lista…/ }));
+      expect(
+        await screen.findByRole("heading", { name: "Czarna lista — Anna Kowalska" }),
+      ).toBeInTheDocument();
+    } finally {
+      useAuthStore.setState({ user: null } as never);
+    }
+  });
+
+  it("bez prawa zapisu profilu menu „⋯” nie ma „Czarnej listy…”", async () => {
+    const user = userEvent.setup();
+    renderDock();
+    await user.click(screen.getByRole("button", { name: "Więcej akcji osoby" }));
+    await screen.findByRole("menuitem", { name: /Otwórz CV/ });
+    expect(screen.queryByRole("menuitem", { name: /Czarna lista/ })).toBeNull();
+  });
 });
 
 // ── Fala 3 („parytet z makietami") ─────────────────────────────────────────

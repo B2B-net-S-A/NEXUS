@@ -31,10 +31,24 @@
   },
   {
    "id": "c.blacklist",
-   "opis": "Ostrzeżenie: czarna lista",
+   "opis": "Czarna lista „u nas” — ramka pod paskiem osoby: kto, kiedy i dlaczego (17.10.2026; wcześniej sama plakietka w pasku)",
+   "file": "components/v2/candidate-profile/BlacklistDialogs.tsx",
+   "marker": "Czarna lista — nie współpracujemy z tą osobą",
+   "home": "Ramka pod paskiem osoby"
+  },
+  {
+   "id": "c.blacklist-dialog",
+   "opis": "Okno „Czarna lista…” — u nas albo u klienta, z powodem; zastępuje status „Zablokowany” w „Edytuj dane” (17.10.2026)",
    "file": "components/v2/candidate-profile/ProfileHeader.tsx",
-   "marker": "Czarna lista",
-   "home": "Pasek osoby"
+   "marker": "Czarna lista…",
+   "home": "Menu „⋯” → Status osoby"
+  },
+  {
+   "id": "c.blacklist-remove",
+   "opis": "Zdjęcie z czarnej listy „u nas” z powodem — admin, Delivery Lead, Head of Recruitment",
+   "file": "components/v2/candidate-profile/BlacklistDialogs.tsx",
+   "marker": "Zdejmij z czarnej listy",
+   "home": "Ramka czarnej listy → „Zdejmij…”"
   },
   {
    "id": "c.risk",

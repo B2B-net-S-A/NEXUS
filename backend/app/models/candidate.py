@@ -351,6 +351,16 @@ class Candidate(Base, TimestampMixin):
         nullable=False,
         index=True,
     )
+    # 0452 (17.10.2026): kto, kiedy i dlaczego dodał do czarnej listy „u nas”
+    # (okno „Czarna lista…”, `api/candidate_blacklist.py`). Puste przy
+    # wpisach sprzed zmiany (dopiski z Traffita) i po zdjęciu z listy.
+    blacklisted_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    blacklisted_by_user_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    blacklist_reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
     # Postawa wobec sourcingu — niezależna od statusu w bazie (Phase: Wyróżnienia).
     availability_status: Mapped[AvailabilityStatus] = mapped_column(

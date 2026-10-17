@@ -114,7 +114,7 @@ describe("markerLabel", () => {
 
   it("klient bez nazwy: numer; bez klienta: sam nagłówek", () => {
     expect(markerLabel(marker({ clients: [client({ client_name: null })] }))).toBe("Pracuje u nas · Klient #100");
-    expect(markerLabel(marker({ source: "pipeline", clients: [client({ client_id: null, client_name: null })] }))).toBe(
+    expect(markerLabel(marker({ clients: [client({ client_id: null, client_name: null })] }))).toBe(
       "Pracuje u nas",
     );
   });
@@ -151,15 +151,11 @@ describe("markerDetails", () => {
     ]);
   });
 
-  it("mówi, skąd wiemy, gdy nie ma umowy", () => {
-    const noContract = client({ contract_id: null });
-    expect(markerDetails(marker({ clients: [noContract] }))[0].detail).toBe("Zamówienie bez daty końca");
-    expect(markerDetails(marker({ source: "conflict", clients: [noContract] }))[0].detail).toBe(
-      "Oznaczone ręcznie",
-    );
-    expect(markerDetails(marker({ source: "pipeline", clients: [noContract] }))[0].detail).toBe(
-      "Etap „Zatrudniony” w rekrutacji",
-    );
+  it("umowa bez końca zamówień: „Zamówienie bez daty końca”, nic o ręcznym oznaczeniu ani etapie", () => {
+    // 17.10.2026: znacznik daje tylko umowa w Kontraktach.
+    const [line] = markerDetails(marker({ clients: [client({ delivery_lead_name: "Karol Wzorcowy" })] }));
+    expect(line.detail).toBe("Zamówienie bez daty końca · Delivery Lead: Karol Wzorcowy");
+    expect(line.detail).not.toMatch(/ręcznie|Zatrudniony/);
   });
 });
 

@@ -1,8 +1,9 @@
 """Reguła znacznika „Pracuje u nas” — część czysta, bez bazy (12.10.2026).
 
-Jedna funkcja ``build_markers`` rozstrzyga fazę (pracuje / kończy / zaczyna),
-źródło i klientów dla każdego ekranu. Zapytania i pole w odpowiedziach API
-sprawdza ``test_employment_marker.py`` (z bazą).
+Jedna funkcja ``build_markers`` rozstrzyga fazę (pracuje / kończy / zaczyna)
+i klientów dla każdego ekranu. Od 17.10.2026 jedynym źródłem jest umowa
+(decyzja Artura). Zapytania i pole w odpowiedziach API sprawdza
+``test_employment_marker.py`` (z bazą).
 """
 
 from __future__ import annotations
@@ -18,7 +19,6 @@ from app.models.recruitment_pipeline import PipelineStage
 from app.services.employment_marker import (
     ContractRow,
     OrderRow,
-    SignalRow,
     build_markers,
     marker_client_ids,
     order_end_by_contract,
@@ -38,20 +38,11 @@ def _contract(
     return ContractRow(candidate_id, contract_id, client_id, client_name, start_date)
 
 
-def _signal(
-    source: str,
-    candidate_id: int = 1,
-    client_id: int | None = 200,
-    client_name: str | None = "Telekom Przykładowy",
-) -> SignalRow:
-    return SignalRow(candidate_id, source, client_id, client_name)  # type: ignore[arg-type]
-
-
 # ── fazy z umowy ────────────────────────────────────────────────────────────
 
 
 def test_live_contract_without_order_end_is_working_without_a_date():
-    marker = build_markers([_contract()], [], today=TODAY)[1]
+    marker = build_markers([_contract()], today=TODAY)[1]
 
     assert marker.phase == "working"
     assert marker.source == "contract"
@@ -76,7 +67,7 @@ def test_live_contract_without_order_end_is_working_without_a_date():
 def test_ending_means_order_chain_ends_within_thirty_days(days_left, phase):
     end = TODAY + timedelta(days=days_left)
 
-    marker = build_markers([_contract()], [], today=TODAY, order_ends={10: end})[1]
+    marker = build_markers([_contract()], today=TODAY, order_ends={10: end})[1]
 
     assert marker.phase == phase
     assert marker.clients[0].phase == phase
@@ -89,7 +80,6 @@ def test_contract_starting_in_the_future_is_starting_not_working():
 
     marker = build_markers(
         [_contract(start_date=start)],
-        [],
         today=TODAY,
         # Zamówienie umowy, która jeszcze nie ruszyła, nie daje „kończy”.
         order_ends={10: TODAY + timedelta(days=5)},
@@ -100,16 +90,12 @@ def test_contract_starting_in_the_future_is_starting_not_working():
     assert marker.clients[0].order_end_date is None
 
 
-def test_signed_contract_beats_the_hired_stage_at_the_same_client():
+def test_signed_contract_with_a_later_start_is_starting():
     """Podpis w Generatorze: umowa aktywna od razu, start później, karta na
     „Zatrudniony”. Znacznik mówi „zaczyna”, a nie „pracuje”."""
     start = TODAY + timedelta(days=1)
 
-    marker = build_markers(
-        [_contract(start_date=start)],
-        [_signal("pipeline", client_id=100, client_name="Bank Przykładowy")],
-        today=TODAY,
-    )[1]
+    marker = build_markers([_contract(start_date=start)], today=TODAY)[1]
 
     assert (marker.source, marker.phase) == ("contract", "starting")
     assert len(marker.clients) == 1
@@ -117,9 +103,9 @@ def test_signed_contract_beats_the_hired_stage_at_the_same_client():
 
 def test_contract_without_client_still_gives_a_marker():
     """Stare pole mówi „zatrudniony” przy każdej żywej umowie — znacznik też."""
-    marker = build_markers(
-        [_contract(client_id=None, client_name=None)], [], today=TODAY
-    )[1]
+    marker = build_markers([_contract(client_id=None, client_name=None)], today=TODAY)[
+        1
+    ]
 
     assert marker.phase == "working"
     assert marker.clients[0].client_id is None
@@ -134,7 +120,6 @@ def test_two_clients_working_wins_and_goes_first():
             _contract(contract_id=11, client_id=101, client_name="Zeta"),
             _contract(contract_id=12, client_id=102, client_name="Alfa"),
         ],
-        [],
         today=TODAY,
         order_ends={12: TODAY + timedelta(days=10)},
     )[1]
@@ -157,7 +142,6 @@ def test_working_now_and_starting_elsewhere_lists_both():
                 start_date=TODAY + timedelta(days=14),
             ),
         ],
-        [],
         today=TODAY,
     )[1]
 
@@ -170,7 +154,7 @@ def test_working_now_and_starting_elsewhere_lists_both():
 
 def test_only_ending_clients_make_the_marker_ending():
     marker = build_markers(
-        [_contract()], [], today=TODAY, order_ends={10: TODAY + timedelta(days=3)}
+        [_contract()], today=TODAY, order_ends={10: TODAY + timedelta(days=3)}
     )[1]
 
     assert marker.phase == "ending"
@@ -182,7 +166,6 @@ def test_two_contracts_at_one_client_keep_the_one_that_lasts():
             _contract(contract_id=11),
             _contract(contract_id=12),
         ],
-        [],
         today=TODAY,
         order_ends={11: TODAY + timedelta(days=7)},
     )[1]
@@ -192,58 +175,8 @@ def test_two_contracts_at_one_client_keep_the_one_that_lasts():
     assert marker.clients[0].phase == "working"
 
 
-# ── starsze sygnały ─────────────────────────────────────────────────────────
-
-
-def test_manual_conflict_gives_working_without_dates():
-    marker = build_markers([], [_signal("conflict")], today=TODAY)[1]
-
-    assert (marker.source, marker.phase) == ("conflict", "working")
-    assert marker.clients[0].contract_id is None
-    assert marker.clients[0].order_end_date is None
-
-
-def test_hired_stage_gives_working_from_the_pipeline():
-    marker = build_markers([], [_signal("pipeline")], today=TODAY)[1]
-
-    assert (marker.source, marker.phase) == ("pipeline", "working")
-
-
-def test_source_order_is_contract_then_conflict_then_pipeline():
-    markers = build_markers(
-        [_contract(candidate_id=1)],
-        [
-            _signal("conflict", candidate_id=1, client_id=201),
-            _signal("pipeline", candidate_id=1, client_id=202),
-            _signal("conflict", candidate_id=2, client_id=201),
-            _signal("pipeline", candidate_id=2, client_id=202),
-            _signal("pipeline", candidate_id=3, client_id=202),
-        ],
-        today=TODAY,
-    )
-
-    assert {cid: m.source for cid, m in markers.items()} == {
-        1: "contract",
-        2: "conflict",
-        3: "pipeline",
-    }
-    # Niższe źródło nie dokleja klientów do wyższego.
-    assert [c.client_id for c in markers[1].clients] == [100]
-    assert [c.client_id for c in markers[2].clients] == [201]
-
-
-def test_repeated_signal_for_one_client_is_listed_once():
-    marker = build_markers(
-        [],
-        [_signal("pipeline"), _signal("pipeline")],
-        today=TODAY,
-    )[1]
-
-    assert len(marker.clients) == 1
-
-
-def test_person_without_any_signal_has_no_entry():
-    assert build_markers([], [], today=TODAY) == {}
+def test_person_without_a_live_contract_has_no_entry():
+    assert build_markers([], today=TODAY) == {}
 
 
 # ── klient rekrutacji i Delivery Lead ───────────────────────────────────────
@@ -254,7 +187,7 @@ def test_person_without_any_signal_has_no_entry():
     [(None, None), ({100, 105}, False), ({300}, True), (set(), True)],
 )
 def test_elsewhere_compares_with_the_job_client_family(family, expected):
-    marker = build_markers([_contract()], [], today=TODAY, job_client_ids=family)[1]
+    marker = build_markers([_contract()], today=TODAY, job_client_ids=family)[1]
 
     assert marker.elsewhere is expected
 
@@ -265,7 +198,6 @@ def test_elsewhere_is_true_when_any_client_is_outside_the_family():
             _contract(contract_id=11, client_id=100),
             _contract(contract_id=12, client_id=300, client_name="Inny"),
         ],
-        [],
         today=TODAY,
         job_client_ids={100},
     )[1]
@@ -275,8 +207,10 @@ def test_elsewhere_is_true_when_any_client_is_outside_the_family():
 
 def test_delivery_lead_name_comes_from_the_client_map():
     markers = build_markers(
-        [_contract(candidate_id=1)],
-        [_signal("conflict", candidate_id=2, client_id=200)],
+        [
+            _contract(candidate_id=1),
+            _contract(candidate_id=2, contract_id=20, client_id=200),
+        ],
         today=TODAY,
         leads={100: "Karol Wzorcowy", 200: "Olga Wzorcowa"},
     )
@@ -287,8 +221,7 @@ def test_delivery_lead_name_comes_from_the_client_map():
 
 def test_marker_client_ids_skips_rows_without_a_client():
     assert marker_client_ids(
-        [_contract(client_id=100), _contract(client_id=None)],
-        [_signal("pipeline", client_id=200), _signal("conflict", client_id=None)],
+        [_contract(client_id=100), _contract(client_id=None), _contract(client_id=200)]
     ) == {100, 200}
 
 
@@ -342,7 +275,9 @@ def _stage(stage_id: int, job_id: int, stage: PipelineStage, minute: int, client
     )
 
 
-def test_rows_from_candidate_reads_live_contracts_conflicts_and_current_hired():
+def test_rows_from_candidate_reads_only_live_contracts():
+    """17.10.2026: ręczny konflikt „Obecne zatrudnienie” i bieżący etap
+    „Zatrudniony” nie są już źródłem znacznika — tylko żywa umowa."""
     bank = _client(100, "bank-zrodlowy", display_name="Bank Przykładowy")
     telekom = _client(200, "Telekom Przykładowy")
     candidate = SimpleNamespace(
@@ -398,13 +333,12 @@ def test_rows_from_candidate_reads_live_contracts_conflicts_and_current_hired():
         ],
     )
 
-    contracts, signals = rows_from_candidate(candidate)
-
-    assert contracts == [ContractRow(7, 10, 100, "Bank Przykładowy", date(2025, 3, 1))]
-    assert signals == [
-        SignalRow(7, "conflict", 200, "Telekom Przykładowy"),
-        SignalRow(7, "pipeline", 200, "Telekom Przykładowy"),
+    assert rows_from_candidate(candidate) == [
+        ContractRow(7, 10, 100, "Bank Przykładowy", date(2025, 3, 1))
     ]
+    # Telekom: ręczny wpis i „Zatrudniony” bez umowy — brak znacznika.
+    markers = build_markers(rows_from_candidate(candidate), today=TODAY)
+    assert [c.client_id for c in markers[7].clients] == [100]
 
 
 def test_rows_from_candidate_handles_empty_relations():
@@ -412,4 +346,4 @@ def test_rows_from_candidate_handles_empty_relations():
         id=1, contracts=None, conflicts=None, pipeline_stages=None
     )
 
-    assert rows_from_candidate(candidate) == ([], [])
+    assert rows_from_candidate(candidate) == []

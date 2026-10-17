@@ -182,30 +182,31 @@ async def _seed_former_consultant() -> dict:
         }
 
 
-async def test_old_hire_with_an_ended_contract_is_not_employment():
+async def test_hires_without_a_live_contract_are_not_employment():
+    """Audyt 13.10 zamykał stary „Zatrudniony” umową; od 17.10.2026 (decyzja
+    Artura) żaden etap bez żywej umowy nie daje znacznika — ani były
+    konsultant, ani świeże ponowne zatrudnienie bez umowy. Filtr listy czyta
+    to samo (`_at_client_predicate` — tylko umowy)."""
     from sqlalchemy import select
 
+    from app.api.candidates import _at_client_predicate
     from app.core.database import AsyncSessionLocal
     from app.models.candidate import Candidate
-    from app.services.employment_marker import current_hired_signal_exists
 
     world = await _seed_former_consultant()
 
     markers = await _markers([world["former"], world["rehired"]])
 
     assert markers[world["former"]] is None
-    rehired = markers[world["rehired"]]
-    assert (rehired.source, rehired.phase) == ("pipeline", "working")
-    assert rehired.clients[0].client_id == world["former_client"]
-    # Ten sam warunek dla filtra listy (`employment=at_client`).
+    assert markers[world["rehired"]] is None
     async with AsyncSessionLocal() as db:
         found = await db.execute(
             select(Candidate.id).where(
                 Candidate.id.in_([world["former"], world["rehired"]]),
-                current_hired_signal_exists(Candidate.id),
+                _at_client_predicate(),
             )
         )
-    assert set(found.scalars().all()) == {world["rehired"]}
+    assert set(found.scalars().all()) == set()
 
 
 async def test_former_clients_lead_gets_no_bell_and_the_hire_window_asks_nothing():

@@ -1848,6 +1848,17 @@ export function usePipelineMove({
                   </label>
                 ))}
               </fieldset>
+              {/* 17.10.2026: „Pracuje u nas” daje wyłącznie umowa w Kontraktach —
+                  sam etap „Zatrudniony” już go nie zapala. */}
+              {hiredFromGenerator ? null : (
+                <p
+                  data-testid="hired-contract-marker-note"
+                  className="rounded-md border border-info/30 bg-info-muted px-3 py-2 text-xs text-info-muted-foreground"
+                >
+                  „Pracuje u nas” pojawi się, gdy umowa trafi do Kontraktów. Delivery Lead
+                  klienta dostanie przypomnienie, żeby ją wpisać.
+                </p>
+              )}
               {hiredAgreement && !hiredFromGenerator && hiredVia !== null ? (
                 <label className="flex items-center gap-2">
                   <input

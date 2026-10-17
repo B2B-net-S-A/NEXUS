@@ -62,6 +62,12 @@ SUPERSEDED_AFTER_EXPIRY_REASON = "Zastąpiony nowym wpisem po wygaśnięciu"
 NDA_REQUIRES_EXPIRY_DETAIL = "NDA wymaga daty wygaśnięcia."
 EXPIRY_IN_PAST_DETAIL = "Data wygaśnięcia musi być w przyszłości."
 ALREADY_INACTIVE_DETAIL = "Ten konflikt jest już nieaktywny."
+EMPLOYMENT_TYPE_RETIRED_DETAIL = {
+    "code": "conflict_type_retired",
+    "message": (
+        "„Pracuje u nas” wynika z umowy w Kontraktach — nie oznacza się go ręcznie."
+    ),
+}
 
 
 # ── Schematy ────────────────────────────────────────────────────────────────
@@ -205,6 +211,25 @@ async def create_conflict(
     current_user: ManagerOrAdmin,
     db: AsyncSession = Depends(get_db),
 ):
+    if data.type == ConflictType.current_employment:
+        # 17.10.2026 (decyzja Artura): „Pracuje u nas” liczy się wyłącznie
+        # z umowy, więc ręcznego wpisu zatrudnienia nie da się już dodać.
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=EMPLOYMENT_TYPE_RETIRED_DETAIL,
+        )
+    return await add_conflict(
+        db, candidate_id=candidate_id, data=data, user=current_user
+    )
+
+
+async def add_conflict(
+    db: AsyncSession, *, candidate_id: int, data: ConflictCreate, user: User
+) -> dict:
+    """Dopisuje konflikt i commituje — wspólne dla rejestru i okna „Czarna
+    lista…” (``api/candidate_blacklist.py``), które wpuszcza też rekrutera,
+    ale wyłącznie z typem ``blacklist``."""
+    current_user = user
     cand = await db.scalar(select(Candidate.id).where(Candidate.id == candidate_id))
     if not cand:
         raise HTTPException(status_code=404, detail="Candidate not found")

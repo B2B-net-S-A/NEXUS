@@ -104,6 +104,7 @@ import { CandidatePhoneCell } from "@/components/v2/candidates/CandidatePhoneCel
 import { CandidateProcessCell } from "@/components/v2/candidates/CandidateProcessCell";
 import { AvailabilityPill } from "@/components/ds/AvailabilityPill";
 import { EmploymentPill } from "@/components/ds/EmploymentMarker";
+import { BlacklistBadge } from "@/components/v2/candidate-profile/BlacklistDialogs";
 import type { EmploymentMarker } from "@/lib/employment-marker";
 import { hidesAvailabilityStatus } from "@/lib/contract-availability";
 import type { EmployedPerson } from "@/components/v2/employment/EmploymentNotice";
@@ -2565,6 +2566,8 @@ export function CandidatesListV2({ onRequestSearch, embed }: CandidatesListV2Pro
                                 {candidate.employment_marker ? (
                                   <EmploymentPill marker={candidate.employment_marker} appearance="text" />
                                 ) : null}
+                                {/* Czarna lista „u nas” (17.10.2026) — kto i dlaczego w profilu. */}
+                                {candidate.status === "blacklisted" ? <BlacklistBadge /> : null}
                                 <span className="min-w-0 shrink-[100] truncate" title={location ?? undefined}>
                                   {location ?? "brak lokalizacji"}
                                 </span>

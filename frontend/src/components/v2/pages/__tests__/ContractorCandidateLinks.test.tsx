@@ -120,7 +120,7 @@ describe("powiązania kandydata i kontraktora", () => {
       client_name: "Nordea",
       contract_id: 91,
       job_id: 20,
-      source: "pipeline",
+      source: "contract",
     };
 
     setDeliveryAccess("read");
@@ -139,7 +139,7 @@ describe("powiązania kandydata i kontraktora", () => {
       client_name: "Nordea",
       contract_id: 91,
       job_id: 20,
-      source: "pipeline",
+      source: "contract",
     };
 
     setDeliveryAccess("none");

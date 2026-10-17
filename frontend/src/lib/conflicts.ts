@@ -35,11 +35,16 @@ export const CONFLICT_TYPE_LABELS: Record<ConflictType, string> = {
   competitor: "Klient konkurencyjny",
 };
 
+/**
+ * Typy do wyboru w formularzu „Dodaj konflikt”. Bez „Obecnego zatrudnienia”
+ * (decyzja Artura 17.10.2026): „Pracuje u nas” daje wyłącznie umowa
+ * w Kontraktach, serwer odrzuca ten typ (422). Etykieta i plakietka zostają
+ * w mapach wyżej i niżej, bo stare wiersze są dalej w historii.
+ */
 export const CONFLICT_TYPES: readonly ConflictType[] = [
   "blacklist",
   "nda",
   "competitor",
-  "current_employment",
 ] as const;
 
 /** Etykieta typu: najpierw ta z backendu, potem lokalna, na końcu surowy kod. */

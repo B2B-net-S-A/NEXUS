@@ -163,10 +163,8 @@ async def test_loader_returns_every_id_and_one_phase_per_state():
     assert markers["starting"].clients[0].starts_on == world["today"] + timedelta(
         days=14
     )
-    assert (markers["hired"].phase, markers["hired"].source) == ("working", "pipeline")
-    # Nazwa do wyświetlania klienta, nie nazwa źródłowa.
-    assert markers["hired"].clients[0].client_name == world["b_name"]
-    assert markers["hired"].clients[0].client_id == world["b"]
+    # 17.10.2026: „Zatrudniony” bez umowy nie daje znacznika — tylko umowa.
+    assert markers["hired"] is None
     assert all(marker.elsewhere is None for marker in markers.values() if marker)
 
 
@@ -187,7 +185,7 @@ async def test_elsewhere_is_relative_to_the_recruitment_client():
 
     assert at_a["ending"].elsewhere is False
     assert at_a["starting"].elsewhere is True
-    assert at_a["hired"].elsewhere is True
+    assert at_a["hired"] is None
 
 
 async def test_delivery_lead_is_the_active_head_with_the_role():
@@ -309,7 +307,6 @@ async def test_list_marker_exists_exactly_when_employment_says_employed(
         ("extended", "working"),
         # Umowa ze startem w przyszłości: „nasza”, ale jeszcze nie pracuje.
         ("starting", "starting"),
-        ("hired", "working"),
     ):
         item = at_client[world[key]]
         assert item["employment"]["state"] == "employed_at_client", key
@@ -318,6 +315,10 @@ async def test_list_marker_exists_exactly_when_employment_says_employed(
     idle = available[world["idle"]]
     assert idle["employment"]["state"] != "employed_at_client"
     assert idle["employment_marker"] is None
+    # 17.10.2026: „Zatrudniony” bez umowy — nie pracuje u nas (tylko umowa).
+    hired = available[world["hired"]]
+    assert hired["employment"]["state"] == "on_bench"
+    assert hired["employment_marker"] is None
 
 
 async def test_ending_soon_filter_lists_only_people_without_continuation(
@@ -412,5 +413,8 @@ async def test_board_card_says_the_person_works_for_another_client(
     assert (marker["phase"], marker["elsewhere"]) == ("ending", True)
     assert marker["clients"][0]["client_id"] == world["a"]
     assert cards[world["idle"]]["employment_marker"] is None
-    # Osoba zatrudniona w tej rekrutacji pracuje u klienta tej rekrutacji.
-    assert cards[world["hired"]]["employment_marker"]["elsewhere"] is False
+    # Osoba zatrudniona w tej rekrutacji bez umowy: bez znacznika, za to
+    # karta mówi, że w Kontraktach brakuje umowy (17.10.2026).
+    assert cards[world["hired"]]["employment_marker"] is None
+    assert cards[world["hired"]]["missing_contract"] is True
+    assert cards[world["ending"]]["missing_contract"] is False

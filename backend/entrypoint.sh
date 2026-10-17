@@ -725,6 +725,8 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'champion_search_resumed'",
     # 0451: „Klient zaakceptował” (do rekrutera, prowadzącego, DL i HoR).
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'client_accepted'",
+    # 0452: karta na „Zatrudniony” bez umowy w Kontraktach (do DL klienta).
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'hire_missing_contract'",
     # callstatus: zapisywane przez POST /api/cloudtalk/initiate-call. Uśpione,
     # bo CLOUDTALK_ENABLED=false — ale leży dokładnie na ścieżce aktywacji.
     "ALTER TYPE callstatus ADD VALUE IF NOT EXISTS 'initiated'",
@@ -6239,6 +6241,13 @@ EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
     "REFERENCES service_accounts(id) ON DELETE SET NULL",
     "CREATE INDEX IF NOT EXISTS ix_md_consumption_imports_file_sha256 "
     "ON md_consumption_imports (period_month, file_sha256)",
+    # 0452: okno „Czarna lista…” (17.10.2026) — kto, kiedy i dlaczego przy
+    # kandydacie. ORM czyta te kolumny przy KAŻDYM zapytaniu o kandydata.
+    # Lustro 1:1 z migracją — pilnuje `test_blacklist_contract_only_migration.py`.
+    "ALTER TABLE candidates ADD COLUMN IF NOT EXISTS blacklisted_at TIMESTAMPTZ NULL",
+    "ALTER TABLE candidates ADD COLUMN IF NOT EXISTS blacklisted_by_user_id "
+    "INTEGER NULL REFERENCES users(id) ON DELETE SET NULL",
+    "ALTER TABLE candidates ADD COLUMN IF NOT EXISTS blacklist_reason TEXT NULL",
 ]
 
 _ROLE_DASHBOARD_CUTOVER_SQL = r"""
@@ -8341,6 +8350,18 @@ SELECT 'job', id, 'archived',
     "CROSS JOIN (VALUES ('rejected'), ('withdrawn')) AS c(cat) "
     "WHERE EXISTS (SELECT 1 FROM marker) "
     "ON CONFLICT (template_id, name, category) DO NOTHING",
+    # 0452: „Pracuje u nas” tylko z umowy (decyzja Artura 17.10.2026) —
+    # ręczne wpisy `current_employment` zdjęte raz, z powodem (wiersze zostają
+    # w historii). Lustro migracji.
+    "WITH marker AS ("
+    "INSERT INTO app_settings (key, value) "
+    "VALUES ('manual_employment_conflicts_retired_2026_10', 'true'::jsonb) "
+    "ON CONFLICT (key) DO NOTHING RETURNING key) "
+    "UPDATE candidate_conflicts SET active = FALSE, deactivated_at = NOW(), "
+    "deactivation_reason = 'Zatrudnienie wynika tylko z umowy w Kontraktach "
+    "(decyzja 17.10.2026)' "
+    "WHERE type::text = 'current_employment' AND active "
+    "AND EXISTS (SELECT 1 FROM marker)",
 ]
 
 

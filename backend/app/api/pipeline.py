@@ -3064,6 +3064,24 @@ async def build_kanban_view(
         if hired_ids
         else {}
     )
+    # 17.10.2026: „Zatrudniony” bez umowy w Kontraktach — „Pracuje u nas”
+    # liczy się wyłącznie z umowy, więc karta mówi, czego brakuje.
+    from app.services.hire_contract_reminder import missing_contract_ids
+
+    missing_contracts = (
+        await missing_contract_ids(
+            db,
+            job_client_id=job.client_id,
+            hired=[
+                (s.candidate_id, s.moved_at)
+                for s in seen.values()
+                if s.stage in HIRED_STAGES
+            ],
+            now=board_now,
+        )
+        if hired_ids
+        else set()
+    )
     # 04.10.2026: stan umowy z Generatora na karcie w każdej kolumnie.
     from app.services.agreement_status import agreement_status_for_pairs
 
@@ -3315,6 +3333,7 @@ async def build_kanban_view(
         payload["rate_change"] = rate_change_by_candidate.get(e.candidate_id)
         if e.stage in HIRED_STAGES:
             payload["order_status"] = order_statuses.get((e.candidate_id, job_id))
+            payload["missing_contract"] = e.candidate_id in missing_contracts
         payload["agreement"] = agreements.get(e.candidate_id)
         payload["client_acceptance"] = _client_acceptance_badge(
             latest_acceptance.get(e.candidate_id), user_name_by_id

@@ -38,7 +38,7 @@ from app.services.contract_availability import (
     from_marker,
     without_live_contract_clause,
 )
-from app.services.employment_marker import ContractRow, SignalRow, build_markers
+from app.services.employment_marker import ContractRow, build_markers
 
 TODAY = date(2026, 10, 15)
 
@@ -61,7 +61,7 @@ def _contract(
 
 
 def _marker(contracts, order_ends=None):
-    return build_markers(contracts, [], today=TODAY, order_ends=order_ends or {})[1]
+    return build_markers(contracts, today=TODAY, order_ends=order_ends or {})[1]
 
 
 # ── termin „wolny od” w znaczniku ───────────────────────────────────────────
@@ -125,13 +125,10 @@ def test_contract_end_date_earlier_than_orders_wins():
     assert marker.free_from == date(2026, 11, 1)
 
 
-@pytest.mark.parametrize("source", ["conflict", "pipeline"])
-def test_signal_without_contract_has_no_free_from(source):
-    marker = build_markers([], [SignalRow(1, source, 100, "Klient")], today=TODAY)[1]
-
-    assert marker.free_from is None
-    assert marker.free_from_basis is None
-    assert from_marker(marker) is None
+def test_no_contract_means_no_marker_and_no_free_from():
+    """Od 17.10.2026 znacznik bierze się wyłącznie z umowy."""
+    assert build_markers([], today=TODAY) == {}
+    assert from_marker(None) is None
 
 
 # ── termin = późniejsza z dat ───────────────────────────────────────────────
@@ -404,18 +401,14 @@ def test_status_counts_without_a_live_contract():
 
 def test_server_rule_matches_the_pill_on_the_profile():
     """Front chowa pigułkę przy znaczniku ze źródłem ``contract``; serwer
-    liczy to samo z wyniku znacznika — sam konflikt albo etap „Zatrudniony”
-    statusu nie chowa."""
+    liczy to samo z wyniku znacznika. Od 17.10.2026 znacznik jest tylko przy
+    umowie, więc sam konflikt albo etap „Zatrudniony” znacznika nie daje."""
     working = _marker([_contract()], {10: date(2026, 11, 30)})
     starting = _marker([_contract(start_date=date(2026, 11, 3))])
-    conflict = build_markers(
-        [], [SignalRow(1, "conflict", 100, "Klient 100")], today=TODAY
-    )[1]
 
     assert availability_status_hidden(from_marker(working))
     assert availability_status_hidden(from_marker(starting))
-    assert conflict.source == "conflict"
-    assert not availability_status_hidden(from_marker(conflict))
+    assert not availability_status_hidden(from_marker(None))
 
 
 def test_status_clause_is_not_exists_on_live_contracts_with_any_start():

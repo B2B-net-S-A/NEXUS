@@ -963,6 +963,10 @@ describe("usePipelineMove — ruch zbiorczy", () => {
     React.act(() => controls.requestMove(item, b.fresh, hired));
     const confirmButton = await screen.findByRole("button", { name: "Potwierdź zatrudnienie" });
     expect(confirmButton).toBeDisabled();
+    // 17.10.2026: „Pracuje u nas” tylko z umowy w Kontraktach — okno to mówi.
+    expect(screen.getByTestId("hired-contract-marker-note")).toHaveTextContent(
+      "„Pracuje u nas” pojawi się, gdy umowa trafi do Kontraktów. Delivery Lead klienta dostanie przypomnienie, żeby ją wpisać.",
+    );
     fireEvent.click(screen.getByRole("radio", { name: "Inna umowa" }));
     // „Inna umowa” wymaga opisu.
     expect(confirmButton).toBeDisabled();
@@ -1086,9 +1090,12 @@ describe("usePipelineMove — ruch zbiorczy", () => {
     it("z uprawnieniem otwiera okno podpisu tej umowy, bez ruchu karty", async () => {
       generatedList.mockResolvedValue([{ id: 55, contract_number: "1601/2026", can_confirm_signed: true }]);
       openHire();
+      expect(await screen.findByTestId("hired-contract-marker-note")).toBeInTheDocument();
       fireEvent.click(
         await screen.findByRole("radio", { name: /Umowa 1601\/2026 z Generatora jest podpisana/ }),
       );
+      // Podpis w Generatorze zakłada kontrakt sam — bez notki o wpisaniu umowy.
+      expect(screen.queryByTestId("hired-contract-marker-note")).toBeNull();
       fireEvent.click(screen.getByRole("button", { name: "Dalej: potwierdź podpis" }));
       expect(await screen.findByText("Potwierdź podpis umowy 1601/2026")).toBeInTheDocument();
       expect(requestSignature).not.toHaveBeenCalled();

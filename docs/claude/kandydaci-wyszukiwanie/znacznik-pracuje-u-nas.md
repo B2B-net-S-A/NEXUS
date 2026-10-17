@@ -11,6 +11,12 @@ https://claude.ai/artifact/QekWy3zx3pXNEKDKQmikf6, raport:
 
 ## Reguła
 
+- **Tylko umowa (decyzja Artura 17.10.2026).** Znacznik, stare pole
+  `employment`, filtry `at_client` / `available` i lista „Nasi konsultanci
+  u tego klienta” czytają wyłącznie żywą umowę w Kontraktach (B2B, umowa
+  o pracę, zlecenie). Etap „Zatrudniony” bez umowy i ręczny konflikt
+  `current_employment` („Oznacz jako zatrudnionego”) nie są już źródłem —
+  szczegóły w sekcji „Tylko umowa” na końcu. Nie przywracaj ich jako sygnału.
 - **Jedno źródło: `services/employment_marker.py`.** Czysta `build_markers`
   rozstrzyga fazę, źródło i klientów; każdy ekran czyta jej wynik jako pole
   `employment_marker`. Nowy ekran z osobą = to pole, nie własne wyliczenie
@@ -19,8 +25,8 @@ https://claude.ai/artifact/QekWy3zx3pXNEKDKQmikf6, raport:
   niż dziś albo bez daty (`current_employment.is_live_contract`); „zaczyna” =
   żywa umowa ze startem w przyszłości; „kończy” = do końca łańcucha zamówień
   bez kontynuacji zostało najwyżej 30 dni. Podpis w Generatorze aktywuje
-  umowę od razu i przesuwa kartę na „Zatrudniony”, więc ta sama umowa wygrywa
-  z sygnałem `hired` — znacznik mówi „zaczyna”, nie „pracuje”.
+  umowę od razu i przesuwa kartę na „Zatrudniony” — przy starcie w
+  przyszłości znacznik mówi „zaczyna”, nie „pracuje”.
 - **Stare pole `employment` zostaje.** `employed_at_client` znaczy „ma u nas
   żywą umowę albo sygnał zatrudnienia”, także przed dniem startu — filtr listy
   „Otwarci” nie może łapać osoby z podpisaną umową. Niezmiennik w teście:
@@ -82,9 +88,9 @@ https://claude.ai/artifact/QekWy3zx3pXNEKDKQmikf6, raport:
 - **Weryfikacja Profilu Championa → „Rozmowa z naszym konsultantem”**
   (14.10.2026): lista „Nasi konsultanci u tego klienta”
   (`GET /api/jobs/{id}/champion-profile/consultant-suggestions`) liczy tą samą
-  regułą — żywe umowy (także `ending`), konflikt `current_employment`,
-  „Zatrudniony” bez `hire_closed_by_contract_clause` — u klienta rekrutacji
-  ze scalonymi rekordami (`job_client_family`), bez limitu, alfabetycznie.
+  regułą — od 17.10.2026 wyłącznie żywe umowy (także `ending`) — u klienta
+  rekrutacji ze scalonymi rekordami (`job_client_family`), bez limitu,
+  alfabetycznie.
   Wcześniej własne wyliczenie (30 osób na źródło, umowy w przypadkowej
   kolejności, same `active`, każdy dawny „Zatrudniony”) zasłoniło Delivery
   Leadowi konsultanta, z którym rozmawiał. Okno (`champion/ConsultantPicker`)
@@ -128,16 +134,8 @@ okno zatrudnienia pytało o nieistniejącą współpracę), a wypowiedziana umow
 z linią MD i umowa po końcu ostatniego zamówienia mówiły „Zamówienie bez daty
 końca”. Teraz obowiązuje:
 
-- **Etap „Zatrudniony” nie jest sygnałem**, gdy umowa osoby u klienta tej
-  rekrutacji jest `ended`/`void` i skończyła się w dniu zatrudnienia albo
-  później (umowa bez żadnej daty też zamyka), a żadna inna umowa u tego
-  klienta nie trwa ani nie czeka na podpis (szkic, do podpisu). Umowa
-  zakończona PRZED zatrudnieniem nie zamyka — to ponowne zatrudnienie.
-  Reguła: `hire_closed_by_contract` (Python) i `hire_closed_by_contract_clause`
-  (SQL) w `services/employment_marker.py`. Stare pole `employment`
-  (`candidates._derive_employment`) i filtr `employment=at_client`/`available`
-  (`_at_client_predicate` → `current_hired_signal_exists`) muszą czytać to
-  samo — inaczej pęka niezmiennik „znacznik ⇔ `employed_at_client`”.
+- ~~Etap „Zatrudniony” zamykany umową (`hire_closed_by_contract`)~~ — od
+  17.10.2026 etap w ogóle nie jest sygnałem (sekcja „Tylko umowa”).
 - **Data końca = wcześniejsza z dwóch:** koniec łańcucha zamówień i data końca
   umowy (`contracts.end_date`; umowa B2B ma ją tylko po ręcznym zakończeniu).
   Wypowiedziana umowa z linią MD z budżetem kończy się w swojej dacie.
@@ -153,17 +151,8 @@ końca”. Teraz obowiązuje:
 - **Dzwonek o zatrudnieniu też raz na parę** osoba–rekrutacja (cofnięcie
   z „Zatrudniony” i ponowne zatrudnienie nie dzwoni drugi raz). Liczy się tylko
   wcześniejszy dzwonek o zatrudnieniu — dzwonek o „CV wysłane” go nie zastępuje.
-- **„Zatrudniony” bez żadnej umowy u klienta liczy się 12 miesięcy (decyzja
-  Artura 14.10.2026).** Etap starszy niż `STALE_HIRE_DAYS` (365 dni), gdy osoba
-  nie ma u klienta tej rekrutacji ŻADNEJ umowy, nie daje już „Pracuje u nas”
-  (znacznik, stare pole `employment`, filtry `at_client` / `available`). Powód:
-  pomiar produkcji 14.10 — 85 osób na „Zatrudniony” bez umowy w NEXUSIE (80
-  z rekrutacji Traffita, 65 zatrudnionych ponad rok temu) „pracowało u nas”
-  na zawsze. Świeże zatrudnienie bez umowy (umowa dopiero powstaje) zostaje
-  sygnałem. Jakakolwiek umowa u klienta — trwająca albo zakończona — oddaje
-  sprawę regule umów (`hire_closed_by_contract`), nie wiekowi etapu. Lustro SQL
-  w `hire_closed_by_contract_clause(today)`; testy
-  `test_stale_hire_without_contract*.py`.
+- ~~„Zatrudniony” bez umowy liczony 12 miesięcy (`STALE_HIRE_DAYS`)~~ —
+  zastąpione 17.10.2026 regułą „tylko umowa”.
 
 ## Dostępność i stawka z umowy (15.10.2026)
 
@@ -289,3 +278,40 @@ https://claude.ai/artifact/LZLL3SdRAyaK3j7GbF2DMb (Artur: „wdróż”, S5 = A)
   stawka do klienta, marża i kwoty zamówień zostają przy dostępie do finansów.
   API kluczy dalej za zakresem kosztów (`profile_rates(show_costs=…)`).
 - Znacznik dalej NIE niesie kwot — stawka idzie przez „Stawkę od”.
+
+## Tylko umowa (17.10.2026)
+
+Pytanie rekrutera „jak oznaczyć, że ktoś jest zatrudniony” i decyzja Artura:
+zatrudniony to osoba z umową w Kontraktach — z umowy czyta się też stawkę
+i termin dostępności, więc nie oznacza się go ręcznie. Makiety:
+https://claude.ai/artifact/UGYuAg37XJYhkAipLQyPeW. Pomiar produkcji 17.10:
+493 osoby z żywą umową; ok. 23 osoby z kartą „Zatrudniony” z ostatniego roku
+bez umowy i 1 ręczny wpis straciły znacznik.
+
+- **Źródło:** wyłącznie żywa umowa (`active` / `ending`; start w przyszłości =
+  „Zaczyna u nas”). `build_markers(contracts, …)` i `rows_from_candidate`
+  nie mają już sygnałów; `_derive_employment` daje `employed_at_client` tylko
+  z umowy (`source` ∈ `contract` / `none`), `_at_client_predicate` to samo
+  `EXISTS` po umowach. Usunięte: `SignalRow`, `hire_closed_by_contract*`,
+  `current_hired_signal_exists`, `STALE_HIRE_DAYS`.
+- **Ręczne „Oznacz jako zatrudnionego” zniknęło** (szybki podgląd, także
+  u Delivery Leada i admina; `capabilities.can_mark_employed` usunięte).
+  `POST /conflicts` z typem `current_employment` → 422
+  `conflict_type_retired`; formularz konfliktów go nie oferuje (stare wiersze
+  dalej się wyświetlają). Jedyny aktywny wpis na produkcji zdjęła migracja
+  0452 / faza danych entrypointu z powodem (marker
+  `manual_employment_conflicts_retired_2026_10`). Kod dopuszczalności dalej
+  umie czytać ręczne wiersze — nowych nie da się dodać.
+- **Karta „Zatrudniony” bez umowy** (ręczne „Potwierdź zatrudnienie”: B2B
+  poza Generatorem, umowa o pracę, zlecenie) niesie `missing_contract` —
+  plakietka „Brak umowy w Kontraktach” na karcie i w panelu osoby
+  (`services/hire_contract_reminder.missing_contract_ids`; tylko zatrudnienia
+  z ostatnich 365 dni, umowa = dowolny wpis poza `void` u klienta rekrutacji
+  i jego scalonych rekordów, także szkic). Okno zatrudnienia mówi, że znacznik
+  pojawi się po wpisaniu umowy.
+- **Dzwonek `hire_missing_contract`** (0452, temat „Rekrutacje” z dymkiem,
+  kategoria Kontrakty) do Delivery Leadów klienta rekrutacji, raz na parę
+  osoba–rekrutacja; wpięty w `stage_notification_emitter.notify_stage_change`
+  obok dzwonka „konsultant w innej rekrutacji”, po commicie, best-effort.
+  Podpis w Generatorze tworzy umowę przed ruchem, więc nie dzwoni.
+
