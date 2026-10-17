@@ -27,7 +27,14 @@ import {
 } from "@/components/v2/recruitment/cv-qc-cards";
 import type { CvIssueDismissBody, CvReviewFinding } from "@/lib/api/cvEditorIssues";
 import type { QcCheck, QcFix, QcItem } from "@/lib/api/cvQc";
-import { ISSUE_SOURCE_LABEL, REVIEW_FINDING_LABEL, type IssueRow } from "@/lib/cv-editor-issues";
+import {
+  ISSUE_SOURCE_LABEL,
+  REVIEW_FINDING_LABEL,
+  itemQuickFix,
+  itemSentence,
+  yearsPreview,
+  type IssueRow,
+} from "@/lib/cv-editor-issues";
 import type { ClassifiedCvWarning } from "@/lib/cv-generator";
 import {
   QC_DISMISS_QUOTE_MAX,
@@ -566,6 +573,20 @@ function TaskRow({ task, fixes, ctx }: { task: QcTask; fixes: QcFix[]; ctx: RowC
     );
   } else if (first?.fix === "upload_consent" || first?.fix === "generate_cv") {
     actions = <ItemAction item={first} ctx={qc} />;
+  } else if (first && itemQuickFix(check, first)?.action === "strip_client_rules") {
+    // Stawka i kontakt kandydata: serwer usuwa jednym razem wszystko, co łamie regułę (PR 2).
+    const rate = itemSentence(first).startsWith("Stawka");
+    actions = (
+      <Button
+        size="sm"
+        variant="outline"
+        className={SMALL}
+        disabled={busy}
+        onClick={() => qc.apply({ action: "strip_client_rules" }, "Usunięto stawkę i kontakt kandydata z CV.")}
+      >
+        {rate ? "Usuń stawkę" : "Usuń dane kontaktowe"}
+      </Button>
+    );
   }
 
   const details = (
@@ -710,6 +731,7 @@ function ItemRow({ row, ctx }: { row: Extract<IssueRow, { kind: "item" }>; ctx: 
   const name = itemName(item);
   const target = itemTarget(item);
   const label = name ? (item.role ? `${name} · ${item.role}` : name) : item.detail?.trim() || check.label;
+  const quick = itemQuickFix(check, item);
 
   let title: ReactNode = label;
   let sub: ReactNode = item.detail && name ? item.detail : check.label;
@@ -762,11 +784,53 @@ function ItemRow({ row, ctx }: { row: Extract<IssueRow, { kind: "item" }>; ctx: 
     action = proposal.action;
   } else if (item.fix === "ask_candidate") {
     action = <CopyQuestion item={item} qc={qc} />;
+  } else if (quick?.action === "years") {
+    // Liczba z dat historii — ta sama reguła co uwaga QC (PR 2, 17.10.2026).
+    const preview = yearsPreview(item);
+    title = preview ? (
+      <>
+        <del>{preview.before}</del> <ins className="rounded-sm bg-success-muted px-0.5 no-underline">{preview.after}</ins>
+      </>
+    ) : (
+      label
+    );
+    sub = preview ? "Lata w nagłówku · z dat w historii" : item.detail;
+    action = (
+      <Button
+        size="sm"
+        variant="outline"
+        className={SMALL}
+        disabled={busy}
+        aria-label="Zmień lata według historii"
+        onClick={() => qc.apply({ action: "years" }, "Lata doświadczenia według historii.")}
+      >
+        Zmień
+      </Button>
+    );
+  } else if (quick?.action === "title") {
+    title = (
+      <>
+        Tytuł CV: <ins className="rounded-sm bg-success-muted px-0.5 no-underline">{name}</ins>
+      </>
+    );
+    sub = "Początek CV nie mówi stanowiska z rekrutacji";
+    action = (
+      <Button
+        size="sm"
+        variant="outline"
+        className={SMALL}
+        disabled={busy}
+        aria-label={`Wpisz tytuł: ${name}`}
+        onClick={() => qc.apply({ action: "title" }, "Tytuł CV z rekrutacji.")}
+      >
+        Wpisz
+      </Button>
+    );
   }
 
   return (
     <RowShell
-      kind={item.fix ?? "note"}
+      kind={item.fix ?? quick?.action ?? "note"}
       title={title}
       sub={sub}
       actions={action}
@@ -909,16 +973,32 @@ function FindingRow({ finding, ctx }: { finding: CvReviewFinding; ctx: RowContex
       title={`„${finding.text}”`}
       sub={`${source} · ${REVIEW_FINDING_LABEL[finding.status] ?? "do sprawdzenia"}`}
       actions={
-        <Button
-          size="sm"
-          variant="outline"
-          className={SMALL}
-          disabled={ctx.dismiss.pending}
-          aria-label={`Zostaw: „${finding.text}”`}
-          onClick={() => ctx.dismiss.keep(issue)}
-        >
-          Zostaw
-        </Button>
+        <>
+          {ctx.qc ? (
+            <Button
+              size="sm"
+              variant="outline"
+              className={SMALL}
+              disabled={ctx.qc.busy || !ctx.qc.editable}
+              aria-label={`Usuń zdanie: „${finding.text}”`}
+              onClick={() =>
+                ctx.qc?.apply({ action: "remove_line", text: finding.text }, "Usunięto zdanie bez pokrycia.")
+              }
+            >
+              Usuń zdanie
+            </Button>
+          ) : null}
+          <Button
+            size="sm"
+            variant="outline"
+            className={SMALL}
+            disabled={ctx.dismiss.pending}
+            aria-label={`Zostaw: „${finding.text}”`}
+            onClick={() => ctx.dismiss.keep(issue)}
+          >
+            Zostaw
+          </Button>
+        </>
       }
       details={
         <DetailActions>

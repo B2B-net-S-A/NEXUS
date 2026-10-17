@@ -192,6 +192,19 @@ it("panel „Do poprawy” bierze QC, uwagi i poprawki z pamięci — pełny obi
   noNetwork();
 });
 
+it("„Usuń zdanie” przy kontroli AI zdejmuje linię bez pokrycia z kartki (PR 2, 17.10.2026)", async () => {
+  const dialog = await openEditor();
+  fireEvent.click(await within(dialog).findByRole("button", { name: "Do poprawy (6)" }));
+  const remove = await within(dialog).findByRole("button", {
+    name: "Usuń zdanie: „Przeglądy kodu i wdrażanie młodszych programistów.”",
+  });
+  const paper = dialog.querySelector(".cv-paper .ProseMirror") as HTMLElement;
+  expect(paper).toHaveTextContent("Przeglądy kodu i wdrażanie młodszych programistów.");
+  fireEvent.click(remove);
+  await waitFor(() => expect(paper).not.toHaveTextContent("Przeglądy kodu i wdrażanie młodszych programistów."));
+  noNetwork();
+});
+
 it("CV z Redakcji: QC „nie dotyczy”, a „Pogrub wymagania (1)” i tak pogrubia (16.10.2026)", async () => {
   const dialog = await openEditor("redakcja");
   // Pogrubienie nie jest uwagą: w „Do poprawy” o jedną mniej niż w szkicu.

@@ -38,3 +38,33 @@ z zakresem pogrubienia i terminem, przycisk w panelu czeka na asystenta.
 Testy lokalne: lib `cv-editor-issues` 42, panel 42, modal (3 pliki), harness
 29, inwentarz i okno QC — razem 616 zielonych; backend bez bazy:
 `test_cv_finding_dismissals.py` (nowe testy powodu `kept`). Testy z bazą — CI.
+
+## PR 2 · lata, tytuł, stawka i kontakt, zdanie z kontroli AI
+
+Co weszło:
+
+- Akcje `qc/transform` `years`, `title`, `strip_client_rules`, `remove_line`
+  (`cv_qc.fix_years_html`, `set_title_html`, `strip_client_rules_html`,
+  `remove_line_html`); `years` i `title` w „Popraw wszystkie” (D4).
+- Przyciski w wierszach: „Zmień” (podgląd „Ponad 10 lat → Ponad 7 lat”),
+  „Wpisz” (tytuł z rekrutacji), „Usuń stawkę” / „Usuń dane kontaktowe” przy
+  blokadzie reguł klienta, „Usuń zdanie” przy kontroli AI.
+- Wynik QC bez nowych pól — panel rozpoznaje uwagę po kluczu sprawdzenia, żeby
+  nie zmienić skrótu przebiegów i czasu oczekiwania w kolejce DL.
+
+Testy: backend bez bazy — 11 nowych w `test_cv_qc.py` (w tym liniowość
+czterech operacji na wejściu kilkuset KB: < 0,4 s); front — lib 44, panel,
+harness 30 („Usuń zdanie” na prawdziwym edytorze).
+
+Przegląd (python-reviewer) znalazł 7 rzeczy, poprawione z testami na jego
+przykładach: kwadratowe wzorce na surowych odstępach, liczba lat podmieniana
+poza cytatem, sprzątanie bloków nietkniętych przez operację, luźna kwota
+usuwająca treść („Moduł wynagrodzeń dla 250…”), kontakt zostający w linkach,
+tytuł nadpisujący imię („Imię – Rola”), inna historia niż w uwadze QC. Przy
+okazji: `_block_nodes` dla każdego bloku było kwadratowe (54 s) — węzły liczone
+raz. Runda 2 przeglądu: kwadratowo przy wielu twierdzeniach o stażu
+(323 s → 0,34 s; limit 10 na kliknięcie) i tytuł nadpisujący dopisek po
+imieniu — teraz tylko układ generatora „Rola – Imię”. Znalezione poza zakresem: `rate_mentions` w QC używa luźnego `_AMOUNT`,
+więc „Moduł wynagrodzeń dla 250 zleceniobiorców” bywa zgłaszany jako stawka
+(blokada `client_rules`, której nie da się pominąć) — przycisk wtedy mówi
+„W CV nie ma stawki…”; poprawka reguły QC to osobna decyzja (zmienia wynik QC).
