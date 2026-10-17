@@ -178,7 +178,7 @@ async def test_offboarding_scopes_hr_manager_assignee_and_outsider(
     assert case["manager_user_id"] == team["boss"].id
     assert case["exit_reason"] == "new_opportunity"
     kinds = [row["kind"] for row in case["work"]]
-    assert len(kinds) == 8 and kinds[0] == "recruitments"
+    assert len(kinds) == 9 and kinds[0] == "recruitments"
     # Domyślny przejmujący = przełożony (ma role rekrutera i DL-a).
     by_kind = {row["kind"]: row for row in case["work"]}
     assert by_kind["recruitments"]["receiver_user_id"] == team["boss"].id

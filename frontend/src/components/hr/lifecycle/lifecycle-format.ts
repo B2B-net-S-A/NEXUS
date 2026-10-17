@@ -95,3 +95,43 @@ export function warsawToday(now: Date = new Date()): string {
     day: "2-digit",
   }).format(now);
 }
+
+/** „1 osoba”, „3 osoby”, „5 osób”. */
+export function peopleCount(count: number): string {
+  const n = Math.abs(count);
+  if (n === 1) return "1 osoba";
+  const lastTwo = n % 100;
+  const last = n % 10;
+  if (last >= 2 && last <= 4 && (lastTwo < 12 || lastTwo > 14)) return `${n} osoby`;
+  return `${n} osób`;
+}
+
+interface ReportsRowLike {
+  kind: string;
+  count: number | null;
+  planned_count: number | null;
+  receiver_name: string | null;
+  status: string | null;
+  result: Record<string, number> | null;
+}
+
+/**
+ * Zdanie o podwładnych odchodzącej osoby (wiersz „Podwładni” przekazania, D5).
+ * `null` — nie ma podwładnych albo liczby (lista spraw liczy je tylko w szczegółach).
+ */
+export function reportsSummary(rows: readonly ReportsRowLike[]): string | null {
+  const row = rows.find((item) => item.kind === "reports");
+  if (!row) return null;
+  if (row.status === "done") {
+    const moved = row.result?.people ?? row.planned_count ?? 0;
+    if (!moved) return null;
+    return `Podwładni przekazani (${peopleCount(moved)}) — ich przełożonym jest ${
+      row.receiver_name ?? "wskazana osoba"
+    }.`;
+  }
+  if (!row.count) return null;
+  if (!row.receiver_name) {
+    return `Podwładni: ${peopleCount(row.count)}. Wskaż, kto zostanie ich przełożonym — bez tego przekazanie nie przejdzie, a konto nie wyłączy się samo.`;
+  }
+  return `Podwładni: ${peopleCount(row.count)}. Po przekazaniu ich przełożonym będzie ${row.receiver_name} — od tej chwili wnioski i timesheety idą do tej osoby.`;
+}

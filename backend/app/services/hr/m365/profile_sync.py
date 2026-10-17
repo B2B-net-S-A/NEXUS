@@ -23,6 +23,15 @@ jak w ``live``, ale do Graph nic nie wychodzi, a kartoteka zostaje bez zmian
 prawdziwy odczyt, tylko konta z ``HR_M365_MAILBOX_ALLOWLIST`` (pusta =
 wszystkie), jak przy zapisie w skrzynkach.
 
+Przełożony z katalogu (etap 2, D7): po koncie czytamy
+``GET /users/{upn}/manager?$select=userPrincipalName`` i w trybie ``live``
+zapisujemy UPN w ``m365_manager_upn`` (404 = bez przełożonego → pusto).
+``manager_user_id`` NIE zmienia się nigdy — rozjazd pokazuje „Ludzie →
+Struktura” z „Przyjmij” dla Kadr. Błąd tego odczytu (poza odmową dla całej
+rejestracji) zostawia poprzednią podpowiedź i liczy się w ``manager_errors``.
+Zmiana podpowiedzi nie jest zmianą kartoteki — bez śladu, licznik
+``manager_changed``.
+
 Odczyt: 404 = konto spoza tenanta albo bez skrzynki → pomijamy i liczymy;
 403 albo brak tokenu = rejestracja bez ``User.Read.All`` → przebieg kończy się
 ``failed`` (sonda ``hr_m365`` i ``hr_jobs`` degraded) i wraca przy następnym
@@ -54,6 +63,7 @@ from app.services.hr import audit
 from app.services.hr.m365 import runs
 from app.services.hr.m365.directory import (
     FIELDS,
+    MANAGER_SELECT,
     USER_SELECT,
     DirectoryOps,
     GraphDirectoryOps,
@@ -86,6 +96,7 @@ MANUAL_ACTIONS: tuple[str, ...] = ("profile_created", "profile_updated")
 #: Odmowa dla całej rejestracji — kolejne konta dostałyby to samo.
 ABORT_CATEGORIES = frozenset({"forbidden", "auth"})
 REQUEST_TEMPLATE = f"GET /users/{{upn}}?$select={USER_SELECT}"
+MANAGER_REQUEST_TEMPLATE = f"GET /users/{{upn}}/manager?$select={MANAGER_SELECT}"
 
 
 @dataclass(frozen=True)
@@ -172,9 +183,17 @@ async def _pinned(db: AsyncSession, user_id: int) -> set[str]:
 
 
 async def _apply(
-    db: AsyncSession, user_id: int, remote: dict[str, Optional[str]], now: datetime
-) -> tuple[str, int]:
-    """Zapis jednej kartoteki; zwraca (etykieta licznika, liczba przypiętych pól)."""
+    db: AsyncSession,
+    user_id: int,
+    remote: dict[str, Optional[str]],
+    now: datetime,
+    manager: Optional[str] = None,
+    *,
+    manager_read: bool = False,
+) -> tuple[str, int, bool]:
+    """Zapis jednej kartoteki: (etykieta licznika, przypięte pola, nowa podpowiedź
+    przełożonego). ``manager_read=False`` — odczyt przełożonego się nie udał,
+    podpowiedź zostaje jak była."""
 
     profile = await db.scalar(
         select(EmployeeProfile)
@@ -186,12 +205,15 @@ async def _apply(
     )
     if profile is None:
         await db.rollback()
-        return "missing", 0
+        return "missing", 0, False
     current = {field: getattr(profile, field) for field in FIELDS}
     changes, kept = plan_changes(current, remote, await _pinned(db, user_id))
     for field, value in changes.items():
         setattr(profile, field, value)
     profile.m365_synced_at = now
+    manager_changed = manager_read and profile.m365_manager_upn != manager
+    if manager_changed:
+        profile.m365_manager_upn = manager
     if changes:
         audit.record(
             db,
@@ -203,7 +225,7 @@ async def _apply(
             details={"fields": sorted(changes)},
         )
     await db.commit()
-    return ("updated" if changes else "unchanged"), len(kept)
+    return ("updated" if changes else "unchanged"), len(kept), manager_changed
 
 
 async def _sync(
@@ -237,12 +259,30 @@ async def _sync(
         counts["read"] += 1
         if account_disabled(data):
             counts["account_disabled"] += 1
+        manager: Optional[str] = None
+        manager_read = False
+        try:
+            manager = await directory.get_manager(target.upn)
+            manager_read = True
+        except MailboxError as exc:
+            if exc.category in ABORT_CATEGORIES:
+                return dict(counts), exc.category
+            counts["manager_errors"] += 1
         if mode != "live":
             continue
-        label, kept = await _apply(db, target.user_id, profile_values(data), now)
+        label, kept, manager_changed = await _apply(
+            db,
+            target.user_id,
+            profile_values(data),
+            now,
+            manager,
+            manager_read=manager_read,
+        )
         counts[label] += 1
         if kept:
             counts["kept_manual"] += kept
+        if manager_changed:
+            counts["manager_changed"] += 1
     if counts["errors"] and not counts["read"] and not counts["not_found"]:
         return dict(counts), "all_reads_failed"
     return dict(counts), None
@@ -299,6 +339,7 @@ async def run_once(
     counts = {"mode": mode, **counts}
     if mode == "simulate":
         counts["request"] = REQUEST_TEMPLATE
+        counts["manager_request"] = MANAGER_REQUEST_TEMPLATE
     if error is not None:
         logger.warning("hr_m365_profile_sync stopped: %s", error)
         await runs.finish(db, run_id, status="failed", counts=counts, error=error)

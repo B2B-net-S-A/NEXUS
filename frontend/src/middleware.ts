@@ -530,6 +530,10 @@ const PUBLIC_PATHS = [
   "/preview/hr-cases",
   "/preview/hr-equipment",
   "/preview/hr-equipment-issue",
+  // Etap 2 (17.10.2026): struktura, „Mój zespół”, struktura u klienta.
+  "/preview/hr-structure",
+  "/preview/hr-team",
+  "/preview/hr-client-people",
   // Strona kariery (kandydaci z LinkedIna) — publiczna z definicji. Na własnym
   // hoście (`kariera.dynaminds.pl`) obsługuje ją `careerHostResponse` niżej;
   // tu jest wejście pod `/kariera/*` na hoście aplikacji (dev, podgląd, grafiki

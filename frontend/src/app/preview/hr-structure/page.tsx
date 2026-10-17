@@ -1,0 +1,168 @@
+"use client";
+
+/**
+ * Harness „Ludzie → Struktura” (etap 2, makieta „Struktura”, D4 i D7).
+ *
+ * Prawdziwe `PeopleSectionNav` + `StructureScreen` na zasianym cache, ZERO
+ * zapytań (`hr-harness.tsx`). Ogląda Paulina (Kadry).
+ *
+ * Stany (`?state=`):
+ * - `tree` (domyślnie) — Front office (head Kamil) z Martą, która odchodzi
+ *   w przyszłym miesiącu i ma czworo ludzi (przejmie ich Kamil), rozjazd
+ *   z Microsoft 365 przy Oli, Kacper bez koordynatora z podpowiedzią „head
+ *   pionu”; Back office (head Piotr); Paulina bez pionu;
+ * - `empty` — nikt nie ma jeszcze kartoteki.
+ * Zaznaczenie osób i okna „Zmień koordynatora”, „Ustaw pion”, „Headowie
+ * pionów” otwierają się bez zapytań; zapisy blokuje harness.
+ */
+
+import { PageHeader } from "@/components/ds/PageHeader";
+import { shiftMonth, warsawToday } from "@/components/hr/leave/leave-format";
+import { PeopleSectionNav } from "@/components/hr/people/PeopleSectionNav";
+import { StructureScreen } from "@/components/hr/structure/StructureScreen";
+import type { Division, EmploymentType, HrConfig } from "@/lib/api/hr";
+import {
+  structureKeys,
+  type HrStructure,
+  type StructurePerson,
+} from "@/lib/api/hr-structure";
+
+import { HR_CAST, HR_CONFIG_QUERY_KEY, harnessWorkDays, hrConfig, type HarnessPerson } from "../hr-fixtures";
+import {
+  HrHarnessLoading,
+  HrHarnessShell,
+  harnessQueryClient,
+  pickState,
+  useHrHarness,
+} from "../hr-harness";
+
+const STATE_KEYS = ["tree", "empty"] as const;
+
+const STATES = [
+  { key: "tree", label: "Drzewo z pionami" },
+  { key: "empty", label: "Bez kartotek" },
+] as const;
+
+const { kamil, marta, ola, ewa, tomasz, julia, adam, kacper, piotr, natalia, zofia, paulina } =
+  HR_CAST;
+
+function row(
+  person: HarnessPerson,
+  division: Division | null,
+  manager: HarnessPerson | null,
+  type: EmploymentType = "b2b",
+): StructurePerson {
+  return {
+    user_id: person.id,
+    name: person.name,
+    email: person.email,
+    job_title: person.jobTitle,
+    department: person.department,
+    employment_type: type,
+    employment_status: "active",
+    division,
+    manager_user_id: manager?.id ?? null,
+    manager_name: manager?.name ?? null,
+    manager_state: manager ? "ok" : "none",
+    reports: 0,
+    leaving: null,
+    m365_hint: null,
+    suggested_manager: null,
+  };
+}
+
+function harnessStructure(): HrStructure {
+  const next = shiftMonth(warsawToday().slice(0, 7), 1);
+  const lastDay = harnessWorkDays(next).at(-1) ?? `${next}-28`;
+  const people: StructurePerson[] = [
+    { ...row(kamil, "front_office", null), reports: 2 },
+    {
+      ...row(marta, "front_office", kamil, "uop"),
+      reports: 4,
+      employment_status: "offboarding",
+      leaving: {
+        case_id: 4202,
+        status: "active",
+        last_working_day: lastDay,
+        reports_receiver_user_id: kamil.id,
+        reports_receiver_name: kamil.name,
+        reports_handover_status: "planned",
+      },
+    },
+    {
+      ...row(ola, "front_office", marta),
+      m365_hint: { upn: kamil.email, user_id: kamil.id, name: kamil.name, can_accept: true },
+    },
+    row(ewa, "front_office", marta),
+    row(tomasz, "front_office", marta),
+    row(julia, "front_office", marta, "zlecenie"),
+    row(adam, "front_office", kamil),
+    {
+      ...row(kacper, "front_office", null),
+      suggested_manager: { user_id: kamil.id, name: kamil.name },
+    },
+    { ...row(piotr, "back_office", null), reports: 1 },
+    row(natalia, "back_office", piotr),
+    {
+      ...row(zofia, "back_office", null, "zlecenie"),
+      suggested_manager: { user_id: piotr.id, name: piotr.name },
+    },
+    row(paulina, null, null, "uop"),
+  ];
+  return {
+    people,
+    outside_managers: [],
+    divisions: [
+      { key: "front_office", label: "Front office", head_user_id: kamil.id, head_name: kamil.name, head_active: true },
+      { key: "back_office", label: "Back office", head_user_id: piotr.id, head_name: piotr.name, head_active: true },
+    ],
+    total: people.length,
+    without_manager: 3,
+    inactive_manager: 0,
+    m365_mismatches: 1,
+  };
+}
+
+function prepare(params: URLSearchParams) {
+  const state = pickState(params.get("state"), STATE_KEYS, "tree");
+  const config: HrConfig = hrConfig({ people_admin: true, has_profile: true });
+  const client = harnessQueryClient();
+  client.setQueryData(HR_CONFIG_QUERY_KEY, config);
+  client.setQueryData(["hr", "counts"], { approvals: 3, cases: null });
+  client.setQueryData(
+    structureKeys.all,
+    state === "empty"
+      ? { ...harnessStructure(), people: [], total: 0, without_manager: 0, m365_mismatches: 0 }
+      : harnessStructure(),
+  );
+  return {
+    user: { ...paulina, grants: ["people_admin" as const] },
+    client,
+    value: { state, config },
+  };
+}
+
+export default function HrStructurePreviewPage() {
+  const ready = useHrHarness(prepare);
+  if (!ready) return <HrHarnessLoading />;
+  const { state, config } = ready.value;
+  return (
+    <HrHarnessShell
+      client={ready.client}
+      title="Ludzie → Struktura"
+      note="Dane fikcyjne, bez zapytań. Zmiana przełożonego działa od razu; Microsoft 365 i head pionu tylko podpowiadają."
+      states={STATES}
+      current={state}
+    >
+      <div className="space-y-4">
+        <PageHeader
+          title="Struktura"
+          description="Piony, przełożeni i koordynatorzy. Zmiana działa od razu."
+          density="compact"
+        />
+        <PeopleSectionNav config={config} active="structure" />
+        <StructureScreen config={config} />
+      </div>
+    </HrHarnessShell>
+  );
+}

@@ -14,11 +14,13 @@ import {
   EMPLOYMENT_STATUS_LABELS,
   EMPLOYMENT_TYPE_LABELS,
   LOCATION_LABELS,
+  type Division,
   type EmploymentStatus,
   type EmploymentType,
   type ProfileFields,
   type WorkLocation,
 } from "@/lib/api/hr";
+import { DIVISION_LABELS } from "@/lib/api/hr-structure";
 
 /** Wartości formularza kartoteki (puste pole = brak wartości). */
 export interface ProfileFormState {
@@ -33,6 +35,11 @@ export interface ProfileFormState {
   job_title: string;
   department: string;
   phone: string;
+  /**
+   * Pion firmy („” = bez pionu). Brak klucza = pole nie występuje w tym miejscu
+   * (kreator wejścia i „Dodaj osobę” — pion ustawia się w kartotece albo w Strukturze).
+   */
+  division?: Division | "";
 }
 
 export const EMPTY_PROFILE_FORM: ProfileFormState = {
@@ -50,6 +57,7 @@ export const EMPTY_PROFILE_FORM: ProfileFormState = {
 };
 
 const NO_MANAGER = "none";
+const NO_DIVISION = "none";
 
 export function profileFormToPayload(form: ProfileFormState): ProfileFields {
   const text = (value: string) => (value.trim() ? value.trim() : null);
@@ -65,6 +73,7 @@ export function profileFormToPayload(form: ProfileFormState): ProfileFields {
     job_title: text(form.job_title),
     department: text(form.department),
     phone: text(form.phone),
+    ...(form.division === undefined ? {} : { division: form.division || null }),
   };
 }
 
@@ -127,6 +136,28 @@ export function ProfileFieldsForm({
           </SelectContent>
         </Select>
       </FormField>
+      {form.division === undefined ? null : (
+        <FormField label="Pion" htmlFor={id("division")}>
+          <Select
+            value={form.division || NO_DIVISION}
+            onValueChange={(value) =>
+              set("division", value === NO_DIVISION ? "" : (value as Division))
+            }
+          >
+            <SelectTrigger id={id("division")}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={NO_DIVISION}>Bez pionu</SelectItem>
+              {(Object.keys(DIVISION_LABELS) as Division[]).map((key) => (
+                <SelectItem key={key} value={key}>
+                  {DIVISION_LABELS[key]}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </FormField>
+      )}
       <FormField label="Forma zatrudnienia" htmlFor={id("type")}>
         <Select
           value={form.employment_type}

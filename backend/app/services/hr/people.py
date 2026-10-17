@@ -13,12 +13,13 @@ wiersz w ``hr_audit_events`` z nazwami pól.
 
 from __future__ import annotations
 
+from collections.abc import Collection
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
 from typing import Any, Literal, Optional
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.hr_profile import CompanyDayOff, EmployeeProfile, LeaveEntitlement
@@ -26,6 +27,7 @@ from app.models.user import User, UserRole
 from app.services.action_permissions import ProductAction, has_permission
 from app.services.hr import audit
 from app.services.hr_foundation_schema import (
+    DIVISIONS,
     EMPLOYMENT_STATUSES,
     EMPLOYMENT_TYPES,
     LOCATIONS,
@@ -50,6 +52,7 @@ EDITABLE_FIELDS: tuple[str, ...] = (
     "job_title",
     "department",
     "phone",
+    "division",
 )
 
 _MAX_MANAGER_CHAIN = 50
@@ -164,6 +167,7 @@ def full_payload(row: PersonRow) -> dict[str, Any]:
         "last_working_day": profile.last_working_day,
         "timesheet_required": profile.timesheet_required,
         "can_log_overtime": profile.can_log_overtime,
+        "division": profile.division,
         "roles": [role.value for role in row.user.get_all_roles()],
     }
 
@@ -208,33 +212,78 @@ async def users_without_profile(db: AsyncSession) -> list[dict[str, Any]]:
     ]
 
 
-async def _validate_manager(
-    db: AsyncSession, *, user_id: int, manager_user_id: Optional[int]
-) -> None:
-    if manager_user_id is None:
-        return
-    if manager_user_id == user_id:
-        raise HrPeopleError("Osoba nie może być swoim własnym przełożonym.")
-    manager = await db.get(User, manager_user_id)
-    if manager is None or not manager.is_active:
-        raise HrPeopleError("Wybrany przełożony nie ma aktywnego konta.")
-    # Cykl (A → B → A) zablokowałby akceptacje: nikt nie byłby „nad” nikim.
-    seen = {user_id}
+#: Klucz blokady zmian przełożonych (``pg_advisory_xact_lock``): sprawdzenie
+#: pętli czyta łańcuch cudzych kartotek, więc dwie równoległe zmiany (A pod B
+#: i B pod A) przeszłyby obie. Biorą ją: kartoteka, „Struktura” i przekazanie
+#: podwładnych przy odejściu.
+_STRUCTURE_LOCK_SQL = text(
+    "SELECT pg_advisory_xact_lock(hashtext('hr_manager_structure'))"
+)
+
+
+async def lock_structure(db: AsyncSession) -> None:
+    """Blokada zmian przełożonych do końca transakcji."""
+
+    await db.execute(_STRUCTURE_LOCK_SQL)
+
+
+async def creates_manager_loop(
+    db: AsyncSession, *, user_ids: Collection[int], manager_user_id: int
+) -> bool:
+    """Czy przepięcie ``user_ids`` pod ``manager_user_id`` tworzy pętlę.
+
+    Pętla powstaje, gdy idąc od nowego przełożonego w górę (obecne kartoteki)
+    trafimy na którąś z przepinanych osób — wtedy ona byłaby nad samą sobą.
+    Istniejąca już pętla wyżej w łańcuchu też się liczy (nie dokładamy do niej).
+    """
+
+    seen = set(user_ids)
     current: Optional[int] = manager_user_id
     for _ in range(_MAX_MANAGER_CHAIN):
         if current is None:
-            return
+            return False
         if current in seen:
-            raise HrPeopleError(
-                "Ten wybór tworzy pętlę przełożonych — sprawdź, komu podlega "
-                "wybrana osoba."
-            )
+            return True
         seen.add(current)
         current = await db.scalar(
             select(EmployeeProfile.manager_user_id).where(
                 EmployeeProfile.user_id == current
             )
         )
+    return False
+
+
+async def validate_managers(
+    db: AsyncSession, *, user_ids: Collection[int], manager_user_id: Optional[int]
+) -> None:
+    """Reguły przełożonego dla jednej osoby albo wielu naraz („Struktura”).
+
+    Nie sam sobie, przełożony z aktywnym kontem, bez pętli — także wtedy,
+    gdy przepinamy zbiór osób (A i B naraz pod osobę, która podlega A).
+    """
+
+    if manager_user_id is None:
+        return
+    if manager_user_id in set(user_ids):
+        raise HrPeopleError("Osoba nie może być swoim własnym przełożonym.")
+    manager = await db.get(User, manager_user_id)
+    if manager is None or not manager.is_active:
+        raise HrPeopleError("Wybrany przełożony nie ma aktywnego konta.")
+    # Cykl (A → B → A) zablokowałby akceptacje: nikt nie byłby „nad” nikim.
+    if await creates_manager_loop(
+        db, user_ids=user_ids, manager_user_id=manager_user_id
+    ):
+        raise HrPeopleError(
+            "Ten wybór tworzy pętlę przełożonych — sprawdź, komu podlega wybrana osoba."
+        )
+
+
+async def _validate_manager(
+    db: AsyncSession, *, user_id: int, manager_user_id: Optional[int]
+) -> None:
+    if manager_user_id is not None:
+        await lock_structure(db)
+    await validate_managers(db, user_ids=[user_id], manager_user_id=manager_user_id)
 
 
 def _validate_values(values: dict[str, Any]) -> None:
@@ -250,6 +299,8 @@ def _validate_values(values: dict[str, Any]) -> None:
         raise HrPeopleError("Nieznany status zatrudnienia.")
     if "default_location" in values and values["default_location"] not in LOCATIONS:
         raise HrPeopleError("Nieznane domyślne miejsce pracy.")
+    if values.get("division") is not None and values["division"] not in DIVISIONS:
+        raise HrPeopleError("Nieznany pion firmy.")
     start = values.get("work_start_date")
     last = values.get("last_working_day")
     if start and last and last < start:

@@ -51,6 +51,12 @@ EMPLOYMENT_STATUSES: tuple[str, ...] = (
     "exited",
 )
 LOCATIONS: tuple[str, ...] = ("onsite", "remote")
+#: Pion firmy (decyzja Artura 17.10.2026): Front office — sprzedaż i rekrutacja,
+#: wszystko do podpisania zamówienia; Back office — opieka nad konsultantami,
+#: administracja, rozliczenia. Każdy pion ma jednego heada
+#: (``app_settings['hr_divisions']``, ekran „Ludzie → Struktura”).
+DIVISIONS: tuple[str, ...] = ("front_office", "back_office")
+HR_DIVISIONS_SETTING = "hr_divisions"
 DAY_OFF_KINDS: tuple[str, ...] = ("company", "bridge")
 SENSITIVITIES: tuple[str, ...] = ("general", "health", "payroll")
 JOB_RUN_STATUSES: tuple[str, ...] = ("claimed", "done", "skipped", "failed")
@@ -66,6 +72,7 @@ def quoted(values: tuple[str, ...]) -> str:
 CK_EMPLOYMENT_TYPE = f"employment_type IN ({quoted(EMPLOYMENT_TYPES)})"
 CK_EMPLOYMENT_STATUS = f"employment_status IN ({quoted(EMPLOYMENT_STATUSES)})"
 CK_LOCATION = f"default_location IN ({quoted(LOCATIONS)})"
+CK_DIVISION = f"division IS NULL OR division IN ({quoted(DIVISIONS)})"
 CK_NO_SELF_MANAGER = "manager_user_id IS NULL OR manager_user_id <> user_id"
 CK_ENTITLEMENT_YEAR = "year BETWEEN 2020 AND 2100"
 CK_ENTITLEMENT_DAYS = (
@@ -102,6 +109,8 @@ TABLE_DDL: tuple[str, ...] = (
     department VARCHAR(200) NULL,
     phone VARCHAR(64) NULL,
     m365_synced_at TIMESTAMPTZ NULL,
+    m365_manager_upn VARCHAR(255) NULL,
+    division VARCHAR(16) NULL,
     compass_profile_id UUID NULL,
     updated_by INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -112,8 +121,27 @@ TABLE_DDL: tuple[str, ...] = (
     CONSTRAINT ck_employee_profiles_type CHECK ({CK_EMPLOYMENT_TYPE}),
     CONSTRAINT ck_employee_profiles_status CHECK ({CK_EMPLOYMENT_STATUS}),
     CONSTRAINT ck_employee_profiles_location CHECK ({CK_LOCATION}),
-    CONSTRAINT ck_employee_profiles_no_self_manager CHECK ({CK_NO_SELF_MANAGER})
+    CONSTRAINT ck_employee_profiles_no_self_manager CHECK ({CK_NO_SELF_MANAGER}),
+    CONSTRAINT ck_employee_profiles_division CHECK ({CK_DIVISION})
 )""",
+    # Kolumny dopisane po pierwszej wersji 0452 (etap 2, 17.10.2026) — w bazie
+    # z wcześniejszą wersją tabeli; świeża baza ma je już z CREATE TABLE.
+    # ``m365_manager_upn`` — przełożony z katalogu Microsoft 365 (tylko
+    # podpowiedź rozjazdu w „Ludzie → Struktura”, D7; kartoteki nie zmienia),
+    # ``division`` — pion firmy (Front office / Back office).
+    "ALTER TABLE employee_profiles ADD COLUMN IF NOT EXISTS "
+    "m365_manager_upn VARCHAR(255) NULL",
+    "ALTER TABLE employee_profiles ADD COLUMN IF NOT EXISTS division VARCHAR(16) NULL",
+    f"""DO $$ BEGIN
+        IF NOT EXISTS (
+            SELECT 1 FROM pg_constraint
+            WHERE conname = 'ck_employee_profiles_division'
+              AND conrelid = 'employee_profiles'::regclass
+        ) THEN
+            ALTER TABLE employee_profiles ADD CONSTRAINT ck_employee_profiles_division
+                CHECK ({CK_DIVISION});
+        END IF;
+    END $$""",
     f"""CREATE TABLE IF NOT EXISTS leave_entitlements (
     id SERIAL PRIMARY KEY,
     user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,

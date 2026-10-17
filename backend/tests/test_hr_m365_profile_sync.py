@@ -40,12 +40,16 @@ T0 = datetime(2026, 1, 1, tzinfo=timezone.utc)
 
 
 class FakeDirectory:
-    """Katalog w pamięci: brak konta = 404, ``fail`` wstrzykuje błąd dla UPN."""
+    """Katalog w pamięci: brak konta = 404, ``fail`` wstrzykuje błąd dla UPN.
+
+    ``managers`` — UPN przełożonego z katalogu (brak wpisu = bez przełożonego).
+    """
 
     def __init__(self, accounts: Optional[dict[str, dict[str, Any]]] = None) -> None:
         self.accounts = accounts or {}
         self.failures: dict[str, MailboxError] = {}
         self.calls: list[str] = []
+        self.managers: dict[str, str] = {}
 
     def fail(self, upn: str, status: int) -> None:
         self.failures[upn] = MailboxError(status)
@@ -57,6 +61,9 @@ class FakeDirectory:
         if upn not in self.accounts:
             raise MailboxError(404, "Request_ResourceNotFound")
         return copy.deepcopy(self.accounts[upn])
+
+    async def get_manager(self, upn: str) -> Optional[str]:
+        return self.managers.get(upn)
 
     async def aclose(self) -> None:
         return None
@@ -451,12 +458,20 @@ async def test_simulate_reads_nothing_and_changes_nothing(people_module) -> None
     assert result["mode"] == "simulate" and result["read"] == 1
     assert result["request"] == f"GET /users/{{upn}}?$select={USER_SELECT}"
     assert person.email not in str(result)
+    assert result["manager_request"] == (
+        "GET /users/{upn}/manager?$select=userPrincipalName"
+    )
     assert recorder.requests == [
         {
             "method": "GET",
             "path": f"/users/{person.email}",
             "params": {"$select": USER_SELECT},
-        }
+        },
+        {
+            "method": "GET",
+            "path": f"/users/{person.email}/manager",
+            "params": {"$select": "userPrincipalName"},
+        },
     ]
     assert profile.job_title == "Rekruterka" and profile.m365_synced_at is None
     assert trail == []

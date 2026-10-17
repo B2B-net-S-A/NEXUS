@@ -31,6 +31,7 @@ export const TRANSFER_KINDS: TransferKind[] = [
   "my_people",
   "delivery_lead_jobs",
   "dl_clients",
+  "reports",
 ];
 
 export interface OffboardingScene {
@@ -77,6 +78,7 @@ const WORK: WorkSpec[] = [
   { kind: "my_people", label: "„Moi ludzie”", transferable: true, count: 37, note: "Osoby trafiają na listę przejmującego jako przypięte." },
   { kind: "delivery_lead_jobs", label: "Rekrutacje, w których jest Delivery Leadem", transferable: true, count: 0, note: "Przejmujący zostaje Delivery Leadem tych rekrutacji." },
   { kind: "dl_clients", label: "Klienci Delivery Leada", transferable: true, count: 0, note: "Przejmujący dostaje klientów do portfela (główny opiekun zostaje główny)." },
+  { kind: "reports", label: "Podwładni", transferable: true, count: 0, note: "Przejmujący zostaje ich przełożonym w kartotece — wnioski i timesheety w toku idą do niego." },
   { kind: "substitutions", label: "Zastępstwa w urlopach po ostatnim dniu", transferable: false, count: 1, note: "Zastępcę zmienia osoba na urlopie albo Kadry we wniosku." },
 ];
 

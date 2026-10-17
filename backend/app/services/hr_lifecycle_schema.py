@@ -27,7 +27,8 @@ Tabele:
   w ``deactivate_on``. Powód odejścia to słownik bez danych o zdrowiu,
 * ``lifecycle_tasks`` — zadania sprawy (z szablonu albo ręczne),
 * ``work_handovers`` — przekazanie pracy odchodzącej osoby per rodzaj pracy
-  (przejmujący, liczba pozycji, wynik w liczbach).
+  (przejmujący, liczba pozycji, wynik w liczbach); od etapu 2 także podwładni
+  przełożonego, który odchodzi (``reports``).
 """
 
 from __future__ import annotations
@@ -70,12 +71,14 @@ EXIT_REASONS: tuple[str, ...] = (
 )
 #: Rodzaje pracy, które przechodzą na przejmującego (pozostałe rodzaje
 #: z podsumowania „co osoba ma w NEXUSIE” idą z rekrutacjami albo są
-#: informacją — ``app/services/hr/handover.py``).
+#: informacją — ``app/services/hr/handover.py``). ``reports`` (etap 2, D5,
+#: 17.10.2026) — podwładni z kartoteki: przejmujący zostaje ich przełożonym.
 TRANSFER_KINDS: tuple[str, ...] = (
     "recruitments",
     "delivery_lead_jobs",
     "dl_clients",
     "my_people",
+    "reports",
 )
 HANDOVER_STATUSES: tuple[str, ...] = ("planned", "done", "failed")
 ACCOUNT_CLOSE_RESULTS: tuple[str, ...] = (
@@ -272,7 +275,23 @@ INDEX_DDL: tuple[str, ...] = (
     "CREATE INDEX IF NOT EXISTS ix_lifecycle_tasks_assignee_open "
     f"ON lifecycle_tasks (assignee_user_id, due_date) WHERE {OPEN_TASK_WHERE}",
 )
-CONSTRAINT_DDL: tuple[str, ...] = ()
+#: Piąty rodzaj pracy (``reports``) w CHECK-u tabeli założonej wcześniejszą
+#: wersją 0458 — blok podmienia CHECK tylko przy starej definicji (bez
+#: ``reports``); entrypoint wykonuje go przy każdym starcie.
+CONSTRAINT_DDL: tuple[str, ...] = (
+    f"""DO $$ BEGIN
+        IF NOT EXISTS (
+            SELECT 1 FROM pg_constraint
+            WHERE conname = 'ck_work_handovers_kind'
+              AND conrelid = 'work_handovers'::regclass
+              AND pg_get_constraintdef(oid) LIKE '%reports%'
+        ) THEN
+            ALTER TABLE work_handovers DROP CONSTRAINT IF EXISTS ck_work_handovers_kind;
+            ALTER TABLE work_handovers ADD CONSTRAINT ck_work_handovers_kind
+                CHECK ({CK_HANDOVER_KIND});
+        END IF;
+    END $$""",
+)
 
 #: Szablony startowe (tytuł, kategoria, kto wykonuje, przesunięcie w dniach
 #: roboczych). Kadry zmieniają je w Ustawieniach → Kadry; szablonów się nie

@@ -204,6 +204,7 @@ async def test_summary_counts_what_the_person_has(modules_on) -> None:
         "my_people",
         "delivery_lead_jobs",
         "dl_clients",
+        "reports",
         "substitutions",
     }
 

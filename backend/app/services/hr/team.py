@@ -1,0 +1,427 @@
+"""„Ludzie → Mój zespół” (etap 2, D6, 17.10.2026): przełożony o swoich ludziach.
+
+Jeden wiersz na bezpośredniego podwładnego (kartoteka, status ≠ ``exited``).
+Ekran SKŁADA istniejące odczyty, nie liczy po swojemu:
+
+* **dziś** — ``absence.absences_on`` (do kiedy, zastępca) + rodzaj z
+  ``absence.month_absences``: przełożony należy do kręgu D6 (osoba, przełożony,
+  Kadry, admin), więc rodzaj widzi; kto kogo dziś zastępuje — z tych samych
+  nieobecności,
+* **urlop i nieobecności** — saldo z ``leave_balance.balance_payload`` (to samo,
+  co osoba widzi w „Moim czasie”) tylko u osób z pulą; zaplanowane dni
+  nieobecności (zatwierdzone po dziś i czekające) z ``leave_request_days`` —
+  prawie wszyscy są na B2B albo zleceniu bez puli (decyzja Artura 17.10.2026),
+* **bieżący miesiąc** — ``time_month.team_queue`` dla przełożonego (godziny,
+  status timesheetu), norma jak w „Moim miesiącu” (dni robocze × 8 h),
+* **premie w drodze** — ``payroll_bonuses.list_bonuses`` w zakresie przełożonego
+  (propozycje i przyznane w otwartych miesiącach płac), ``bonus_payload`` BEZ
+  ``rule_snapshot`` — przełożony widzi kwoty premii, nigdy stawek (D2),
+* **do decyzji** — wnioski czekające i wysłane timesheety; propozycje premii
+  tylko do wiadomości (decydują Płace — zasada „nikt nie przyznaje sobie”).
+
+Kadry i admin oglądają zespół dowolnego przełożonego (``?manager=``). Premie
+widzi wtedy tylko osoba z Płacami albo sam przełożony — Kadry bez Płac nie
+widzą kwot (``payroll_access``).
+"""
+
+from __future__ import annotations
+
+from collections import defaultdict
+from datetime import date
+from decimal import Decimal
+from typing import Any, Optional
+
+from sqlalchemy import extract, func, select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.models.hr_leave import LeaveRequest, LeaveRequestDay
+from app.models.hr_profile import EmployeeProfile
+from app.models.hr_time import Timesheet
+from app.models.user import User, UserRole
+from app.services.hr import absence, leave_service, payroll_bonuses, people
+from app.services.hr import modules as hr_modules
+from app.services.hr.leave_balance import balance_payload
+from app.services.hr.leave_policy import LEAVE_TYPE_LABELS
+from app.services.hr.payroll_access import PayrollViewer, is_payroll
+from app.services.hr.payroll_periods import closed_months
+from app.services.hr.time_access import Actor
+from app.services.hr.time_calendar import month_calendar, submission_deadline
+from app.services.hr.time_entries import STANDARD
+from app.services.hr.time_flow import approvals_link
+from app.services.hr.time_month import team_queue
+
+#: Premie „w drodze” — jeszcze nie wypłacone (miesiąc płac otwarty).
+BONUS_IN_FLIGHT = ("proposed", "assigned")
+
+
+def _num(value: Decimal) -> str:
+    return f"{value:.1f}"
+
+
+async def reports_of(
+    db: AsyncSession, manager_id: int
+) -> list[tuple[EmployeeProfile, User]]:
+    rows = await db.execute(
+        select(EmployeeProfile, User)
+        .join(User, User.id == EmployeeProfile.user_id)
+        .where(
+            EmployeeProfile.manager_user_id == manager_id,
+            EmployeeProfile.employment_status != "exited",
+        )
+        .order_by(User.name, User.id)
+    )
+    return [(profile, user) for profile, user in rows.all()]
+
+
+async def managers(db: AsyncSession) -> list[dict[str, Any]]:
+    """Przełożeni z liczbą podwładnych (wybór zespołu dla Kadr i admina)."""
+
+    rows = await db.execute(
+        select(User.id, User.name, func.count(EmployeeProfile.id))
+        .join(EmployeeProfile, EmployeeProfile.manager_user_id == User.id)
+        .where(EmployeeProfile.employment_status != "exited")
+        .group_by(User.id, User.name)
+        .order_by(User.name, User.id)
+    )
+    return [
+        {"user_id": user_id, "name": name, "reports": int(count)}
+        for user_id, name, count in rows.all()
+    ]
+
+
+async def _today(
+    db: AsyncSession, ids: list[int], today: date
+) -> tuple[dict[int, dict[str, Any]], dict[int, list[str]]]:
+    """Nieobecni dziś (z rodzajem — krąg D6) i kogo kto dziś zastępuje."""
+
+    found = await absence.absences_on(db, ids, today)
+    types = {
+        item.user_id: item.leave_type
+        for item in await absence.month_absences(db, ids, today, today)
+        if item.status == "approved" and item.start <= today <= item.end
+    }
+    absent = {
+        user_id: {
+            "absent": True,
+            "until": item.until.isoformat(),
+            "half_day": item.half_day,
+            "leave_type": types.get(user_id),
+            "leave_type_label": LEAVE_TYPE_LABELS.get(
+                types.get(user_id, ""), "Nieobecność"
+            ),
+            "substitute_name": item.substitute_name,
+        }
+        for user_id, item in found.items()
+    }
+    covering: dict[int, list[str]] = defaultdict(list)
+    everyone_absent = await absence.absent_on(db, today)
+    if everyone_absent:
+        names = dict(
+            (
+                await db.execute(
+                    select(User.id, User.name).where(
+                        User.id.in_([item.user_id for item in everyone_absent])
+                    )
+                )
+            ).all()
+        )
+        for item in everyone_absent:
+            if item.substitute_user_id in ids and item.user_id in names:
+                covering[item.substitute_user_id].append(names[item.user_id])
+    return absent, covering
+
+
+async def _upcoming_absence_days(
+    db: AsyncSession, ids: list[int], today: date
+) -> dict[int, dict[str, Decimal]]:
+    """Dni nieobecności w tym roku po dziś: zatwierdzone i czekające.
+
+    Te same aktywne wiersze ``leave_request_days`` co saldo, ale bez podziału
+    na pulę — osoba na B2B albo zleceniu bez puli też planuje nieobecności.
+    """
+
+    rows = await db.execute(
+        select(
+            LeaveRequestDay.user_id,
+            LeaveRequest.status,
+            func.sum(LeaveRequestDay.fraction),
+        )
+        .join(LeaveRequest, LeaveRequest.id == LeaveRequestDay.leave_request_id)
+        .where(
+            LeaveRequestDay.user_id.in_(ids),
+            LeaveRequestDay.active.is_(True),
+            LeaveRequestDay.day > today,
+            extract("year", LeaveRequestDay.day) == today.year,
+            LeaveRequest.status.in_(("approved", "pending")),
+        )
+        .group_by(LeaveRequestDay.user_id, LeaveRequest.status)
+    )
+    result: dict[int, dict[str, Decimal]] = defaultdict(
+        lambda: {"approved": Decimal("0"), "pending": Decimal("0")}
+    )
+    for user_id, status, total in rows.all():
+        result[int(user_id)][status] = Decimal(total or 0)
+    return result
+
+
+async def _leave(
+    db: AsyncSession, pairs: list[tuple[EmployeeProfile, User]], today: date
+) -> dict[int, dict[str, Any]]:
+    ids = [profile.user_id for profile, _ in pairs]
+    upcoming = await _upcoming_absence_days(db, ids, today)
+    result: dict[int, dict[str, Any]] = {}
+    for profile, _ in pairs:
+        balance = await balance_payload(
+            db,
+            user_id=profile.user_id,
+            year=today.year,
+            employment_type=profile.employment_type,
+            today=today,
+        )
+        planned = upcoming.get(profile.user_id) or {
+            "approved": Decimal("0"),
+            "pending": Decimal("0"),
+        }
+        result[profile.user_id] = {
+            "has_pool": bool(balance["has_pool"]),
+            "remaining_days": balance["remaining_days"]
+            if balance["has_pool"]
+            else None,
+            "planned_days": _num(planned["approved"]),
+            "pending_days": _num(planned["pending"]),
+        }
+    return result
+
+
+async def _month(
+    db: AsyncSession, manager: User, ids: list[int], today: date
+) -> tuple[dict[str, Any], dict[int, dict[str, Any]]]:
+    # Aktor = sam przełożony (bez praw Kadr i zastępstw): kolejka to dokładnie
+    # jego zespół, nawet gdy ogląda Kadry albo przełożony sam ma Kadry.
+    actor = Actor(
+        user=manager,
+        profile=None,
+        is_admin=False,
+        people_admin=False,
+        payroll=False,
+        report_ids=frozenset(ids),
+    )
+    queue = await team_queue(db, actor=actor, year=today.year, month=today.month)
+    working_days = sum(
+        1
+        for day in await month_calendar(db, today.year, today.month)
+        if day.is_working_day
+    )
+    month = {
+        "year": today.year,
+        "month": today.month,
+        "norm_hours": working_days * int(STANDARD),
+        "deadline": submission_deadline(today.year, today.month).isoformat(),
+    }
+    rows = {
+        item["user_id"]: {
+            "hours": item["hours"],
+            "status": item["status"],
+            "timesheet_id": item["timesheet"]["id"] if item["timesheet"] else None,
+        }
+        for item in queue
+        if item["user_id"] in set(ids)
+    }
+    return month, rows
+
+
+async def _bonuses(
+    db: AsyncSession, manager: User, ids: list[int], today: date
+) -> dict[int, dict[str, Any]]:
+    viewer = PayrollViewer(
+        user_id=manager.id, payroll=False, admin=False, report_ids=frozenset(ids)
+    )
+    bonuses = [
+        bonus
+        for bonus in await payroll_bonuses.list_bonuses(db, viewer, limit=500)
+        if bonus.recipient_user_id in set(ids) and bonus.status in BONUS_IN_FLIGHT
+    ]
+    closed = await closed_months(
+        db, sorted({(b.period_year, b.period_month) for b in bonuses})
+    )
+    bonuses = [b for b in bonuses if (b.period_year, b.period_month) not in closed]
+    names = await payroll_bonuses.names_for(db, bonuses)
+    result: dict[int, dict[str, Any]] = {}
+    for user_id in ids:
+        own = [b for b in bonuses if b.recipient_user_id == user_id]
+        totals: dict[str, Decimal] = defaultdict(Decimal)
+        for bonus in own:
+            totals[bonus.currency] += Decimal(bonus.amount)
+        result[user_id] = {
+            "count": len(own),
+            "proposals": sum(1 for b in own if b.status == "proposed"),
+            "totals": [
+                {"currency": currency, "amount": f"{totals[currency]:.2f}"}
+                for currency in sorted(totals)
+            ],
+            # Bez `rule_snapshot` — w nim są marża i stawki (D2).
+            "items": [
+                payroll_bonuses.bonus_payload(
+                    b, names, with_snapshot=False, today=today
+                )
+                for b in own
+            ],
+        }
+    return result
+
+
+async def _to_decide(
+    db: AsyncSession, viewer: User, ids: list[int], today: date
+) -> tuple[dict[int, list[dict[str, Any]]], dict[int, list[dict[str, Any]]]]:
+    requests = list(
+        await db.scalars(
+            select(LeaveRequest)
+            .where(LeaveRequest.user_id.in_(ids), LeaveRequest.status == "pending")
+            .order_by(LeaveRequest.start_date)
+        )
+    )
+    leave_items: dict[int, list[dict[str, Any]]] = defaultdict(list)
+    for item in await leave_service.serialize(db, requests, viewer=viewer, today=today):
+        leave_items[item["user_id"]].append(
+            {
+                "id": item["id"],
+                "start_date": item["start_date"],
+                "end_date": item["end_date"],
+                "half_day": item["half_day"],
+                "leave_type_label": item["leave_type_label"],
+                "days_total": item["days_total"],
+            }
+        )
+    timesheets: dict[int, list[dict[str, Any]]] = defaultdict(list)
+    for timesheet in await db.scalars(
+        select(Timesheet)
+        .where(
+            Timesheet.user_id.in_(ids),
+            Timesheet.status == "submitted",
+            Timesheet.payroll_locked.is_(False),
+        )
+        .order_by(Timesheet.year, Timesheet.month)
+    ):
+        timesheets[timesheet.user_id].append(
+            {
+                "id": timesheet.id,
+                "year": timesheet.year,
+                "month": timesheet.month,
+                "link": approvals_link(
+                    timesheet.year, timesheet.month, timesheet.user_id
+                ),
+            }
+        )
+    return leave_items, timesheets
+
+
+def sees_bonuses_of(viewer: User, manager: User) -> bool:
+    """Kwoty premii zespołu: sam przełożony albo Płace (admin ma Płace)."""
+
+    return viewer.id == manager.id or is_payroll(viewer)
+
+
+async def team_view(
+    db: AsyncSession, *, viewer: User, manager: User, today: date
+) -> dict[str, Any]:
+    loaded = await hr_modules.load_modules(db)
+
+    def is_open(key: str) -> bool:
+        return hr_modules.module_open_for(viewer, loaded, key)
+
+    pairs = await reports_of(db, manager.id)
+    ids = [profile.user_id for profile, _ in pairs]
+    show_bonuses = is_open("payroll") and sees_bonuses_of(viewer, manager)
+
+    absent: dict[int, dict[str, Any]] = {}
+    covering: dict[int, list[str]] = {}
+    leave: dict[int, dict[str, Any]] = {}
+    leave_items: dict[int, list[dict[str, Any]]] = {}
+    if is_open("leave") and ids:
+        absent, covering = await _today(db, ids, today)
+        leave = await _leave(db, pairs, today)
+    month: Optional[dict[str, Any]] = None
+    month_rows: dict[int, dict[str, Any]] = {}
+    if is_open("time"):
+        month, month_rows = await _month(db, manager, ids, today)
+    bonuses: dict[int, dict[str, Any]] = {}
+    if show_bonuses and ids:
+        bonuses = await _bonuses(db, manager, ids, today)
+    leave_items, timesheets = (
+        await _to_decide(db, viewer, ids, today) if ids else ({}, {})
+    )
+    if not is_open("leave"):
+        leave_items = {}
+    if not is_open("time"):
+        timesheets = {}
+
+    people_rows: list[dict[str, Any]] = []
+    for profile, user in pairs:
+        people_rows.append(
+            {
+                "user_id": user.id,
+                "name": user.name,
+                "job_title": profile.job_title,
+                "employment_type": profile.employment_type,
+                "employment_status": profile.employment_status,
+                "last_working_day": profile.last_working_day.isoformat()
+                if profile.last_working_day
+                else None,
+                "today": absent.get(user.id, {"absent": False})
+                if is_open("leave")
+                else None,
+                "covering_for": covering.get(user.id, []),
+                "leave": leave.get(user.id),
+                "month": month_rows.get(user.id) if month is not None else None,
+                "timesheet_required": profile.timesheet_required,
+                "bonuses": bonuses.get(user.id) if show_bonuses else None,
+                "to_decide": {
+                    "leave_requests": leave_items.get(user.id, []),
+                    "timesheets": timesheets.get(user.id, []),
+                },
+            }
+        )
+    return {
+        "manager": {"user_id": manager.id, "name": manager.name},
+        "is_own": viewer.id == manager.id,
+        "today": today.isoformat(),
+        "modules": {
+            "leave": is_open("leave"),
+            "time": is_open("time"),
+            "payroll": is_open("payroll"),
+        },
+        "sees_bonuses": show_bonuses,
+        "month": month,
+        "people": people_rows,
+        "stats": {
+            "people": len(people_rows),
+            "absent_today": sum(
+                1 for row in people_rows if row["today"] and row["today"]["absent"]
+            ),
+            "leave_requests": sum(
+                len(row["to_decide"]["leave_requests"]) for row in people_rows
+            ),
+            "timesheets": sum(
+                len(row["to_decide"]["timesheets"]) for row in people_rows
+            ),
+            "bonus_proposals": sum(
+                row["bonuses"]["proposals"] for row in people_rows if row["bonuses"]
+            )
+            if show_bonuses
+            else None,
+        },
+    }
+
+
+def can_view_any_team(user: User) -> bool:
+    return user.has_role(UserRole.admin) or people.is_people_admin(user)
+
+
+__all__ = [
+    "BONUS_IN_FLIGHT",
+    "can_view_any_team",
+    "managers",
+    "reports_of",
+    "sees_bonuses_of",
+    "team_view",
+]

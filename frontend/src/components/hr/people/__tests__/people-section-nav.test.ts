@@ -58,14 +58,32 @@ describe("zakładki obszaru „Ludzie”", () => {
   it("wyłączony moduł chowa zakładkę mimo uprawnienia", () => {
     const off = { ...ALL_ON, cases: false, leave: false, time: false };
     const got = values(config({ cases: true, is_manager: true }, off));
-    expect(got).toEqual(["directory"]);
+    // „Mój zespół” zostaje — należy do modułu „Ludzie”, nie do urlopów i czasu.
+    expect(got).toEqual(["directory", "team"]);
   });
 
-  it("Kadry bez kartoteki widzą kalendarz i akceptacje", () => {
+  it("Kadry bez kartoteki widzą strukturę, kalendarz i akceptacje", () => {
     expect(values(config({ has_profile: false, people_admin: true }))).toEqual([
       "directory",
+      "structure",
       "calendar",
       "approvals",
     ]);
+  });
+
+  it("„Mój zespół” tylko u przełożonego, zaraz po katalogu", () => {
+    const manager = values(config({ is_manager: true, direct_reports: 2 }));
+    expect(manager.slice(0, 2)).toEqual(["directory", "team"]);
+    expect(manager).not.toContain("structure");
+    expect(values(config({ people_admin: true }))).not.toContain("team");
+  });
+
+  it("Struktura: Kadry i admin, tylko przy włączonym module „Ludzie”", () => {
+    expect(values(config({ is_admin: true }))).toContain("structure");
+    expect(values(config({}))).not.toContain("structure");
+    const off = { ...ALL_ON, people: false };
+    const got = values(config({ people_admin: true, is_manager: true }, off));
+    expect(got).not.toContain("structure");
+    expect(got).not.toContain("team");
   });
 });

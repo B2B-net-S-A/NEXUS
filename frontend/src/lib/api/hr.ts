@@ -28,6 +28,8 @@ export type EmploymentType = "uop" | "b2b" | "zlecenie";
 export type EmploymentStatus =
   "pending" | "onboarding" | "active" | "offboarding" | "exited";
 export type WorkLocation = "onsite" | "remote";
+/** Pion firmy (17.10.2026): Front office — do podpisania zamówienia, Back office — po. */
+export type Division = "front_office" | "back_office";
 
 export interface HrConfig {
   modules: Record<HrModuleKey, boolean>;
@@ -78,6 +80,7 @@ export interface PersonFull extends PersonCard {
   last_working_day: string | null;
   timesheet_required: boolean;
   can_log_overtime: boolean;
+  division?: Division | null;
   roles: string[];
   entitlements?: LeaveEntitlementRow[];
 }
@@ -101,6 +104,7 @@ export interface ProfileFields {
   job_title?: string | null;
   department?: string | null;
   phone?: string | null;
+  division?: Division | null;
 }
 
 export interface CompanyDayOff {

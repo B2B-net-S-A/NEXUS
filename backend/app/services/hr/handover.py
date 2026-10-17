@@ -1,9 +1,9 @@
 """Odejście = przekazanie pracy: co osoba ma w NEXUSIE i kto to przejmuje.
 
-Podsumowanie liczy osiem rodzajów pracy z tych samych danych co lista
-rekrutacji, „Moi ludzie”, portfel Delivery Leada i kalendarz. Cztery rodzaje
-przechodzą na przejmującego (``TRANSFER_KINDS``), każdy ISTNIEJĄCĄ ścieżką
-zapisu — nie ma tu nowej drogi zmiany właściciela:
+Podsumowanie liczy dziewięć rodzajów pracy z tych samych danych co lista
+rekrutacji, „Moi ludzie”, portfel Delivery Leada, kalendarz i kartoteka. Pięć
+rodzajów przechodzi na przejmującego (``TRANSFER_KINDS``), każdy ISTNIEJĄCĄ
+ścieżką zapisu — nie ma tu nowej drogi zmiany właściciela:
 
 * **rekrutacje** — ``job_team.remove_recruiter`` (zdjęcie z trzech miejsc
   naraz, blokada ``allocation_lock`` przed wierszem rekrutacji) +
@@ -17,7 +17,15 @@ zapisu — nie ma tu nowej drogi zmiany właściciela:
   jak w Ustawieniach → Struktura zespołu (główny opiekun zostaje głównym,
   unieważnienie zakresu DL-a),
 * **„Moi ludzie”** — przypięcie osób u przejmującego (``my_people_overrides``
-  ``pinned``, jak „Przypnij”); jego własnych uśpień nie nadpisujemy.
+  ``pinned``, jak „Przypnij”); jego własnych uśpień nie nadpisujemy,
+* **podwładni** (etap 2, D5) — kartoteki, w których odchodzący jest
+  przełożonym: przejmujący zostaje ich przełożonym (reguły
+  ``people.validate_managers`` pod blokadą struktury, ślad
+  ``profile_updated`` per osoba). Domyślnie przejmuje przełożony
+  odchodzącego; gdy Kadry wskażą kogoś z jego bezpośrednich podwładnych,
+  ta osoba dostaje przełożonego odchodzącego (awans w miejsce szefa).
+  Wnioski i timesheety w toku idą do nowego przełożonego, bo akceptującego
+  liczy się w chwili decyzji.
 
 Pozostałe rodzaje (karty w procesie, rozmowy u klienta po ostatnim dniu,
 umówione kontakty z kandydatami, zastępstwa w urlopach) idą z rekrutacjami
@@ -53,6 +61,7 @@ from app.models.calendar_event import CalendarEvent, EventStatus, EventType
 from app.models.candidate_followup import CandidateFollowup
 from app.models.hr_leave import LeaveRequest
 from app.models.hr_lifecycle import LifecycleCase, WorkHandover
+from app.models.hr_profile import EmployeeProfile
 from app.models.job import Job, JobStatus
 from app.models.my_people import MyPeopleOverride
 from app.models.notification import NotificationType
@@ -117,6 +126,13 @@ WORK_KINDS: tuple[WorkKind, ...] = (
         "Przejmujący dostaje klientów do portfela (główny opiekun zostaje główny).",
     ),
     WorkKind(
+        "reports",
+        "Podwładni",
+        True,
+        "Przejmujący zostaje ich przełożonym w kartotece — wnioski i timesheety "
+        "w toku idą do niego.",
+    ),
+    WorkKind(
         "substitutions",
         "Zastępstwa w urlopach po ostatnim dniu",
         False,
@@ -143,6 +159,19 @@ RECEIVER_ROLES: dict[str, frozenset[UserRole]] = {
             UserRole.admin,
         }
     ),
+    # Przełożony w kartotece — każda osoba zatrudniona w firmie (bez kont
+    # technicznych `automation`, starego podglądu `user` i praktykanta).
+    "reports": frozenset(
+        {
+            UserRole.admin,
+            UserRole.head_of_recruitment,
+            UserRole.delivery_lead,
+            UserRole.talent_community_manager,
+            UserRole.finance,
+            UserRole.recruiter,
+            UserRole.employee,
+        }
+    ),
 }
 
 RECEIVER_ERRORS: dict[str, str] = {
@@ -153,6 +182,10 @@ RECEIVER_ERRORS: dict[str, str] = {
     "receiver_leaving": (
         "Przejmujący sam odchodzi — jego ostatni dzień pracy wypada najpóźniej "
         "w dniu przekazania."
+    ),
+    "receiver_creates_loop": (
+        "Przejmujący podlega jednej z tych osób — wybierz kogoś spoza zespołu "
+        "odchodzącego albo z jego bezpośrednich podwładnych."
     ),
     "error": "Przekazanie nie wyszło — szczegóły w logu serwera.",
 }
@@ -193,9 +226,14 @@ async def receiver_issue(
     """``receiver_problem`` + przejmujący, który sam odchodzi (``None`` = może)."""
 
     problem = receiver_problem(receiver, work_kind, case.user_id)
-    if problem is not None or case.last_working_day is None:
+    if problem is not None:
         return problem
     assert receiver is not None
+    if work_kind == "reports" and case.user_id is not None:
+        if await _reports_loop(db, leaver_id=case.user_id, receiver_id=receiver.id):
+            return "receiver_creates_loop"
+    if case.last_working_day is None:
+        return None
     leaving = await db.scalar(
         _leaving_ids_statement(case.last_working_day)
         .where(
@@ -205,6 +243,24 @@ async def receiver_issue(
         .limit(1)
     )
     return "receiver_leaving" if leaving is not None else None
+
+
+async def _reports_loop(db: AsyncSession, *, leaver_id: int, receiver_id: int) -> bool:
+    """Czy przejmujący podlega (pośrednio) któremuś z podwładnych odchodzącego.
+
+    Bezpośredni podwładny jako przejmujący jest w porządku — jego samego nie
+    przepinamy pod siebie (dostaje przełożonego odchodzącego).
+    """
+
+    from app.services.hr import people  # noqa: PLC0415
+
+    reports = await people.direct_report_ids(db, leaver_id)
+    reports.discard(receiver_id)
+    if not reports:
+        return False
+    return await people.creates_manager_loop(
+        db, user_ids=reports, manager_user_id=receiver_id
+    )
 
 
 # ── Podsumowanie: co osoba ma w NEXUSIE ─────────────────────────────────────
@@ -253,6 +309,8 @@ async def work_summary(
 ) -> dict[str, int]:
     """Liczba pozycji per rodzaj pracy (stan na teraz)."""
 
+    from app.services.hr import people  # noqa: PLC0415
+
     after_last_day = local_day_start_utc(last_working_day + timedelta(days=1))
     counts: dict[str, int] = {
         "recruitments": await _count(db, _open_jobs_worked_by(user_id)),
@@ -298,6 +356,7 @@ async def work_summary(
                 DeliveryLeadClientAssignment.delivery_lead_user_id == user_id
             ),
         ),
+        "reports": len(await people.direct_report_ids(db, user_id)),
         "substitutions": await _count(
             db,
             select(LeaveRequest.id).where(
@@ -589,11 +648,81 @@ async def _transfer_my_people(
     return {"people": len(ids), "pinned": pinned}
 
 
+async def _transfer_reports(
+    db: AsyncSession,
+    *,
+    leaver_id: int,
+    receiver: User,
+    actor_id: Optional[int],
+    case_id: int,
+) -> dict[str, int]:
+    from app.services.hr import audit, people  # noqa: PLC0415
+
+    await people.lock_structure(db)
+    reports = list(
+        await db.scalars(
+            select(EmployeeProfile)
+            .where(
+                EmployeeProfile.manager_user_id == leaver_id,
+                EmployeeProfile.employment_status != "exited",
+            )
+            .order_by(EmployeeProfile.user_id)
+            .with_for_update()
+        )
+    )
+    if not reports:
+        return {"people": 0}
+    others = [p.user_id for p in reports if p.user_id != receiver.id]
+    # Ta sama walidacja co w „Strukturze” — dla całego zespołu naraz (stan
+    # kartotek mógł się zmienić od wyboru przejmującego).
+    await people.validate_managers(db, user_ids=others, manager_user_id=receiver.id)
+    targets = {user_id: receiver.id for user_id in others}
+    if len(others) < len(reports):
+        # Przejmujący z zespołu odchodzącego wchodzi na jego miejsce: dostaje
+        # przełożonego odchodzącego (bez niego — nikogo, widać to w Strukturze).
+        above = await db.scalar(
+            select(EmployeeProfile.manager_user_id).where(
+                EmployeeProfile.user_id == leaver_id
+            )
+        )
+        if above is not None:
+            try:
+                await people.validate_managers(
+                    db, user_ids=[receiver.id], manager_user_id=above
+                )
+            except people.HrPeopleError:
+                above = None
+        targets[receiver.id] = above
+    for profile in reports:
+        target = targets[profile.user_id]
+        previous = profile.manager_user_id
+        profile.manager_user_id = target
+        profile.updated_by = actor_id
+        audit.record(
+            db,
+            actor_user_id=actor_id,
+            subject_user_id=profile.user_id,
+            entity_type="employee_profile",
+            entity_id=profile.id,
+            action="profile_updated",
+            details={
+                "fields": ["manager_user_id"],
+                "source": "hr_work_handover",
+                "lifecycle_case_id": case_id,
+                "previous_manager_user_id": previous,
+                "manager_user_id": target,
+            },
+        )
+    await db.flush()
+    return {"people": len(reports)}
+
+
 EXECUTORS: dict[str, Executor] = {
     "recruitments": _transfer_recruitments,
     "delivery_lead_jobs": _transfer_delivery_lead_jobs,
     "dl_clients": _transfer_dl_clients,
     "my_people": _transfer_my_people,
+    "reports": _transfer_reports,
 }
 
 _RESULT_LABELS: dict[str, str] = {
@@ -601,6 +730,7 @@ _RESULT_LABELS: dict[str, str] = {
     "delivery_lead_jobs": "rekrutacje jako Delivery Lead",
     "dl_clients": "klienci",
     "my_people": "„Moi ludzie”",
+    "reports": "podwładni",
 }
 
 
@@ -610,6 +740,7 @@ def _moved(work_kind: str, result: dict[str, int]) -> int:
         "delivery_lead_jobs": "jobs",
         "dl_clients": "clients",
         "my_people": "people",
+        "reports": "people",
     }[work_kind]
     return int(result.get(key, 0))
 
@@ -713,7 +844,13 @@ async def _notify_receivers(
     name = await _person_name(db, case.user_id)
     for receiver_id, items in per_receiver.items():
         summary = ", ".join(f"{_RESULT_LABELS[kind]}: {count}" for kind, count in items)
-        link = "/jobs" if any(k == "recruitments" for k, _ in items) else "/dashboard"
+        kinds = {kind for kind, _ in items}
+        if "recruitments" in kinds:
+            link = "/jobs"
+        elif kinds == {"reports"}:
+            link = "/people/team"
+        else:
+            link = "/dashboard"
         try:
             async with db.begin_nested():
                 await emit(

@@ -41,12 +41,14 @@ export type WorkKind =
   | "my_people"
   | "delivery_lead_jobs"
   | "dl_clients"
+  | "reports"
   | "substitutions";
 export type TransferKind =
   | "recruitments"
   | "delivery_lead_jobs"
   | "dl_clients"
-  | "my_people";
+  | "my_people"
+  | "reports";
 export type HandoverStatus = "planned" | "done" | "failed";
 export type AccountCloseResult = "deactivated" | "already_inactive" | "skipped_admin";
 
@@ -257,6 +259,8 @@ export const HANDOVER_ERROR_LABELS: Record<string, string> = {
   receiver_is_leaver: "Osoba odchodząca nie przejmie własnej pracy.",
   receiver_leaving:
     "Przejmujący sam odchodzi — jego ostatni dzień pracy wypada najpóźniej w dniu przekazania.",
+  receiver_creates_loop:
+    "Przejmujący podlega jednej z tych osób — wybierz kogoś spoza zespołu odchodzącego albo z jego bezpośrednich podwładnych.",
   error: "Przekazanie nie wyszło — Kadry dostały dzwonek.",
 };
 

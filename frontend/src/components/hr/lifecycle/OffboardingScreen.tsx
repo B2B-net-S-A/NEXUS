@@ -53,6 +53,7 @@ import {
   formatDayShort,
   formatMoment,
   isLiveStatus,
+  reportsSummary,
   warsawToday,
 } from "./lifecycle-format";
 import { ReceiverSelect } from "./ReceiverSelect";
@@ -328,6 +329,17 @@ function WorkTable({ data }: { data: LifecycleCase }) {
         </tbody>
       </table>
     </div>
+  );
+}
+
+/** Podwładni odchodzącej osoby — kto zostanie ich przełożonym (D5, etap 2). */
+function ReportsNote({ data }: { data: LifecycleCase }) {
+  const text = reportsSummary(data.work ?? []);
+  if (!text) return null;
+  return (
+    <p className="rounded-lg border border-border bg-muted/40 px-3 py-2 text-sm text-foreground">
+      {text}
+    </p>
   );
 }
 
@@ -622,6 +634,7 @@ function OffboardingCase({ caseId }: { caseId: number }) {
           Odejście cofnięte {formatDate(data.cancelled_at)}.
         </p>
       ) : null}
+      <ReportsNote data={data} />
       <WorkTable data={data} />
       <div className="grid gap-4 lg:grid-cols-2">
         <Timeline data={data} />

@@ -74,6 +74,47 @@ z protokołami. Compass zostaje z Akademią i czyta listę osób z NEXUSA.
   uprawnienia „Płace”). „Kadry” mają tylko drogowskaz — osoba z samymi
   „Płacami” (Finanse) do „Kadr” nie wchodzi.
 
+## Struktura i „Mój zespół” (etap 2, D4–D7, 17.10.2026)
+
+- **„Ludzie → Struktura”** (`/people/structure`, `api/hr_structure.py`,
+  `services/hr/structure.py`, bramka `require_hr_people_admin` — Kadry i admin,
+  bez czekania na przełącznik modułu jak trasy Kadr). Drzewo z kartotek
+  (status ≠ `exited`), najpierw po **pionie**: kartoteka ma `division`
+  (`front_office` — sprzedaż i rekrutacja do podpisania zamówienia,
+  `back_office` — opieka, administracja, rozliczenia; decyzja Artura 17.10),
+  head pionu w `app_settings['hr_divisions']` (`PUT /divisions`, aktywne
+  konto). W pionie drzewo po przełożonym; osobno „Bez przełożonego” (bez
+  przełożonego i bez podwładnych, poza headem) i przełożony, który odszedł.
+- **Zmiana przełożonego dla wielu osób naraz działa OD RAZU** — bez daty „od
+  kiedy” z makiety, bo kartoteka nie ma harmonogramu zmian. Wnioski urlopowe
+  i timesheety w toku przechodzą do nowego przełożonego: akceptującego liczy
+  się w chwili decyzji (`leave_service._decision_scope`,
+  `time_access.Actor.can_approve`). Reguły jak w kartotece dla całego zbioru
+  (`people.validate_managers`: nie sam sobie, aktywne konto, bez pętli) pod
+  `pg_advisory_xact_lock` (kartoteka, Struktura i przekazanie biorą tę samą
+  blokadę); ślad `profile_updated` per osoba (`source: structure`).
+- **Podpowiedzi bez zapisu**: osoba w pionie z headem i bez przełożonego —
+  „przełożony = head pionu”; rozjazd z Microsoft 365 (D7) — dzienna
+  synchronizacja profili czyta `/users/{upn}/manager` i zapisuje tylko
+  `m365_manager_upn` (404 = bez przełożonego, `manager_user_id` nigdy). Oba
+  mają „Przyjmij” = zwykła zmiana przełożonego.
+- **Koordynator czy przełożony**: przy B2B i zleceniu ekrany mówią
+  „koordynator”, przy UoP „przełożony” (`managerWords` w `lib/api/hr-structure.ts`) —
+  tylko etykieta, pole to dalej `manager_user_id`. Przy osobie forma (UoP /
+  B2B / Zlecenie).
+- **„Ludzie → Mój zespół”** (`/people/team`, `api/hr_team.py`,
+  `services/hr/team.py`, bramka `require_hr_team_reader`: moduł „Ludzie” +
+  podwładni z kartoteką albo Kadry/admin). Wiersz na bezpośredniego
+  podwładnego, złożony z istniejących odczytów: dziś (z rodzajem — przełożony
+  jest w kręgu D6), nieobecności (pula z `balance_payload` tylko u osób
+  z pulą, u reszty zaplanowane dni — prawie wszyscy są na B2B albo zleceniu),
+  miesiąc z `team_queue`, premie w drodze (propozycje i przyznane w otwartych
+  miesiącach) z kwotą, **bez stawek i bez `rule_snapshot`** (D2, test
+  `test_team_response_never_carries_rates_or_margin`), sprawy do decyzji.
+  Propozycje premii tylko do wiadomości — decydują Płace. Kadry i admin
+  oglądają zespół dowolnego przełożonego (`?manager=`, link „Zespół”
+  w Strukturze); kwoty premii widzi wtedy tylko osoba z Płacami.
+
 ## Moduły ciemne
 
 - `app_settings['hr_modules']` = `people, leave, time, payroll, lifecycle, care,

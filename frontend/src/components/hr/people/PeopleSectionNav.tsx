@@ -7,6 +7,8 @@ import { useHrCounts, type HrConfig, type HrCounts } from "@/lib/api/hr";
 
 export type PeopleSection =
   | "directory"
+  | "structure"
+  | "team"
   | "calendar"
   | "approvals"
   | "cases"
@@ -23,6 +25,9 @@ interface PeopleSectionLink {
  * trasy; tu decydujemy tylko, czego nie pokazywać na pasku.
  *
  * * Katalog — moduł „Ludzie”,
+ * * Struktura — moduł „Ludzie”, Kadry albo admin (drzewo i zmiana przełożonego),
+ * * Mój zespół — moduł „Ludzie” i podwładni z kartoteką (Kadry i admin
+ *   oglądają cudze zespoły ze Struktury, `?manager=`),
  * * Kalendarz zespołu — moduł urlopów i kartoteka (albo Kadry),
  * * Akceptacje — przełożony (ma podwładnych) albo Kadry, gdy działa urlop lub czas,
  * * Sprawy — uprawnienie „Sprawy” albo przypisana sprawa,
@@ -35,6 +40,12 @@ export function peopleSections(config: HrConfig): PeopleSectionLink[] {
     me.is_manager || (me.covering?.length ?? 0) > 0 || me.people_admin || me.is_admin;
   const links: PeopleSectionLink[] = [];
   if (open.people) links.push({ value: "directory", label: "Katalog", href: "/people" });
+  if (open.people && (me.people_admin || me.is_admin)) {
+    links.push({ value: "structure", label: "Struktura", href: "/people/structure" });
+  }
+  if (open.people && me.is_manager) {
+    links.push({ value: "team", label: "Mój zespół", href: "/people/team" });
+  }
   if (open.leave && staff) {
     links.push({ value: "calendar", label: "Kalendarz zespołu", href: "/people/calendar" });
   }

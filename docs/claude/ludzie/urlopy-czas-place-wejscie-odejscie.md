@@ -234,15 +234,28 @@
 
 - Prowadzą Kadry; przełożony widzi sprawę swojego człowieka; wykonawca odhacza
   swoje zadania. Terminy zadań w dniach roboczych firmy.
-- Odejście: przekazanie pracy po 18:00 ostatniego dnia (cztery rodzaje pracy
-  przechodzą istniejącymi ścieżkami zapisu — rekrutacje, DL rekrutacji, klienci
-  DL, „Moi ludzie”), wyłączenie konta dzień później — ale dopiero po przekazaniu
+- Odejście: przekazanie pracy po 18:00 ostatniego dnia (pięć rodzajów pracy
+  przechodzi istniejącymi ścieżkami zapisu — rekrutacje, DL rekrutacji, klienci
+  DL, „Moi ludzie”, podwładni), wyłączenie konta dzień później — ale dopiero po przekazaniu
   całej pracy (inaczej „Wyłącz konto teraz” z jawnym „mimo to”, zapisanym w śladzie).
   Sprawy z nieprzekazaną pracą nie da się zamknąć; przejmujący nie może sam odchodzić
   do dnia przekazania. Konto wyłącza wyłącznie sprawa odejścia (nie brak osoby na
   liście), raz na sprawę; admina nie wyłącza automat; przebieg z więcej niż limitem
   deaktywacji nie wyłącza nikogo — kończy się `failed` (`mass_exit_suspected`, sonda
   `hr_jobs` degraded) i powiadomieniem z mailem do Kadr i adminów raz dziennie.
+- **Podwładni (etap 2, D5, 17.10.2026)** — piąty rodzaj (`reports`): osoby
+  z kartoteką (status ≠ `exited`), których przełożonym jest odchodzący.
+  Domyślnie przejmuje przełożony odchodzącego; bez niego — nikt, a wiersz
+  z podwładnymi kończy się `failed` jak inne rodzaje (konto czeka, „Wyłącz konto
+  teraz” bez „mimo to” = 409). Wykonanie zmienia `manager_user_id` regułami
+  kartoteki (`people.validate_managers`, blokada struktury), ślad
+  `profile_updated` per osoba (`source: hr_work_handover`). Bezpośredni
+  podwładny wskazany jako przejmujący wchodzi na miejsce szefa — dostaje
+  przełożonego odchodzącego; ktoś niżej w drzewie = odmowa
+  (`receiver_creates_loop`, byłaby pętla). Wnioski i timesheety w toku idą do
+  nowego przełożonego, bo akceptującego liczy się w chwili decyzji. Sprawy
+  wejścia/odejścia samych podwładnych (`case.manager_user_id`) przekazanie nie
+  przepina.
 - „Cofnij odejście” zamyka sprawę administracja@ i anuluje zadanie zwrotu sprzętu;
   unieważnienie szkicu kontraktu zamyka sprawę „Wejście konsultanta” i zadanie
   „Przygotuj zestaw”. Zapis szablonu listy zadań zmienia pozycje w miejscu (id) —

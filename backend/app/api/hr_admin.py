@@ -29,6 +29,7 @@ router = APIRouter(dependencies=[Depends(require_hr_people_admin())])
 EmploymentType = Literal["uop", "b2b", "zlecenie"]
 EmploymentStatus = Literal["pending", "onboarding", "active", "offboarding", "exited"]
 Location = Literal["onsite", "remote"]
+Division = Literal["front_office", "back_office"]
 
 
 class ProfileFields(BaseModel):
@@ -44,6 +45,8 @@ class ProfileFields(BaseModel):
     job_title: Optional[str] = Field(default=None, max_length=200)
     department: Optional[str] = Field(default=None, max_length=200)
     phone: Optional[str] = Field(default=None, max_length=64)
+    # Pion firmy (17.10.2026): Front office / Back office; `null` = bez pionu.
+    division: Optional[Division] = None
 
 
 class ProfileCreate(ProfileFields):

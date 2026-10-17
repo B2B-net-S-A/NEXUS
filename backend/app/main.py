@@ -198,6 +198,8 @@ from app.api import hr_admin as hr_admin_api
 from app.api import hr_counts as hr_counts_api
 from app.api import hr_dashboard as hr_dashboard_api
 from app.api import hr_import as hr_import_api
+from app.api import hr_structure as hr_structure_api
+from app.api import hr_team as hr_team_api
 from app.api import hr_people as hr_people_api
 from app.api import hr_m365 as hr_m365_api
 from app.api import hr_leave as hr_leave_api
@@ -1730,6 +1732,8 @@ app.include_router(hr_import_api.router, prefix="/api/hr/admin/import", tags=["h
 app.include_router(hr_admin_api.router, prefix="/api/hr/admin", tags=["hr"])
 app.include_router(hr_counts_api.router, prefix="/api/hr/counts", tags=["hr"])
 app.include_router(hr_dashboard_api.router, prefix="/api/hr/dashboard", tags=["hr"])
+app.include_router(hr_structure_api.router, prefix="/api/hr/structure", tags=["hr"])
+app.include_router(hr_team_api.router, prefix="/api/hr/team", tags=["hr"])
 app.include_router(hr_people_api.router, prefix="/api/hr", tags=["hr"])
 app.include_router(hr_m365_api.router, prefix="/api/hr/admin/m365", tags=["hr"])
 app.include_router(hr_leave_api.router, prefix="/api/hr/leave", tags=["hr"])
@@ -3064,6 +3068,7 @@ async def api_health_deep_check():
     from app.models.equipment_intune import EquipmentIntuneDevice
     from app.models.hr_leave import HrM365Operation, LeaveRequest
     from app.models.hr_lifecycle import LifecycleCase, WorkHandover
+    from app.models.contract_care import ClientFeedbackSession
     from app.models.hr_ops import HrAuditEvent, HrImportBatch, HrImportUpload, HrJobRun
     from app.models.hr_payroll import EmployeeRate, HrBonus, PayrollPeriod
     from app.models.hr_time import Timesheet, TimesheetEntry
@@ -3337,6 +3342,7 @@ async def api_health_deep_check():
         ("hr_job_runs", HrJobRun),
         ("hr_import_batches", HrImportBatch),
         ("hr_import_uploads", HrImportUpload),
+        ("client_feedback_sessions", ClientFeedbackSession),
         # 0454–0462: moduły „Ludzi w NEXUSIE” — po jednej-dwie tabele, bez
         # których główny ekran modułu daje 500 (pozostałe pilnuje dryf schematu).
         ("leave_requests", LeaveRequest),

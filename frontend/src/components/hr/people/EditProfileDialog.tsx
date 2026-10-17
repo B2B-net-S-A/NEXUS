@@ -27,6 +27,7 @@ function formFrom(person: PersonFull): ProfileFormState {
     job_title: person.job_title ?? "",
     department: person.department ?? "",
     phone: person.phone ?? "",
+    division: person.division ?? "",
   };
 }
 

@@ -55,6 +55,7 @@ class EmployeeProfile(Base, TimestampMixin):
         CheckConstraint(
             schema.CK_NO_SELF_MANAGER, name="ck_employee_profiles_no_self_manager"
         ),
+        CheckConstraint(schema.CK_DIVISION, name="ck_employee_profiles_division"),
         Index("ix_employee_profiles_manager", "manager_user_id"),
         Index("ix_employee_profiles_status", "employment_status"),
     )
@@ -99,6 +100,11 @@ class EmployeeProfile(Base, TimestampMixin):
     m365_synced_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    #: Przełożony z katalogu Microsoft 365 (UPN) — tylko podpowiedź rozjazdu
+    #: w „Ludzie → Struktura” (D7); o przełożonym decyduje ``manager_user_id``.
+    m365_manager_upn: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    #: Pion firmy: ``front_office`` / ``back_office`` (``None`` = bez pionu).
+    division: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
     compass_profile_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         UUID(as_uuid=True), nullable=True
     )

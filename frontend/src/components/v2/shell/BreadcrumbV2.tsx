@@ -29,6 +29,8 @@ export const SEGMENT_LABELS: Record<string, string> = {
   approvals: "Akceptacje",
   cases: "Sprawy",
   payroll: "Płace",
+  structure: "Struktura",
+  team: "Mój zespół",
   offboarding: "Odejście",
   care: "Opieka",
   protocol: "Protokół",
