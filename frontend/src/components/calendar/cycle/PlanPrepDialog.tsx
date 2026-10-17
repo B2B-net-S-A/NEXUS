@@ -6,11 +6,19 @@ import { Video } from "lucide-react";
 
 import { AppModal } from "@/components/ds/AppModal";
 import ScheduleInterviewModal from "@/components/calendar/ScheduleInterviewModal";
+import { PrepPeoplePicker } from "@/components/calendar/cycle/PrepPeoplePicker";
 import { useToast } from "@/components/Toast";
 import { apiErrorMessage } from "@/lib/api-error";
 import { prepMeetingsApi, usePrepOptions } from "@/lib/api/prepMeetings";
 import { candidateLabel, pairContext, type PairInfo } from "@/lib/interview-cycle";
 import { renderInvitationPreview } from "@/lib/prep-invitation";
+import {
+  NO_INVITEES,
+  invitablePeople,
+  recommendedPeople,
+  removeUser,
+  type Invitees,
+} from "@/lib/prep-people";
 import {
   defaultPrepStart,
   prepStartInPast,
@@ -18,6 +26,7 @@ import {
   type PrepInterview,
 } from "@/lib/prep-timing";
 import { cn } from "@/lib/utils";
+import { useAuthStore } from "@/store/auth";
 
 const INPUT =
   "w-full rounded-md border border-border bg-card px-3 py-2 text-sm focus:outline-hidden focus-visible:ring-2 focus-visible:ring-ring";
@@ -47,7 +56,9 @@ export function defaultOrganizerId(
  * Okno pokazuje dokładnie to, co dostanie kandydat (tytuł i treść z serwera),
  * i mówi wprost, w czyim kalendarzu powstaje spotkanie i kto dostaje
  * zaproszenie — 02.10.2026 osoba planująca prep „dla DL” spodziewała się go
- * u siebie.
+ * u siebie. Od 17.10.2026 (D1, D3) zaprasza się kogokolwiek z NEXUSA albo
+ * dowolny adres, a planujący za kogoś jest na liście od razu — spotkanie
+ * ma też u siebie.
  */
 export function PlanPrepDialog({
   open,
@@ -65,8 +76,9 @@ export function PlanPrepDialog({
   const toast = useToast();
   const qc = useQueryClient();
   const options = usePrepOptions(open ? pair.candidate_id : null, open ? pair.job_id : null);
+  const currentUserId = useAuthStore((st) => st.user?.id ?? null);
   const [organizerId, setOrganizerId] = useState<number | null>(null);
-  const [attendees, setAttendees] = useState<number[]>([]);
+  const [invitees, setInvitees] = useState<Invitees>(NO_INVITEES);
   const [start, setStart] = useState(() => defaultPrepStart(interview, prepNo, 45));
   const [duration, setDuration] = useState(45);
   const [note, setNote] = useState("");
@@ -85,21 +97,39 @@ export function PlanPrepDialog({
     setDuration(45);
     setNote("");
     setError(null);
-    setAttendees([]);
+    setInvitees(NO_INVITEES);
     // `interview?.start`, nie obiekt — wołający składa go przy każdym renderze.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, prepNo, pair.candidate_id, pair.job_id, interview?.start, interview?.end]);
 
   useEffect(() => {
-    if (options.data) setOrganizerId(defaultOrganizerId(options.data.suggested, prepNo));
-  }, [options.data, prepNo]);
+    if (!options.data) return;
+    const organizer = defaultOrganizerId(options.data.suggested, prepNo);
+    setOrganizerId(organizer);
+    // Planujący za kogoś jest zaproszony od razu — spotkanie ma też u siebie
+    // (D3); może się usunąć z listy.
+    setInvitees(
+      currentUserId != null && currentUserId !== organizer
+        ? { userIds: [currentUserId], emails: [] }
+        : NO_INVITEES,
+    );
+  }, [options.data, prepNo, currentUserId]);
 
   const timingWarning = prepTimingWarning(start, duration, interview);
   const startInPast = prepStartInPast(start);
 
   const team = useMemo(() => options.data?.team ?? [], [options.data]);
-  const others = team.filter((p) => p.id !== organizerId);
+  const people = useMemo(() => invitablePeople(options.data), [options.data]);
   const organizerName = team.find((p) => p.id === organizerId)?.name ?? "";
+  const excluded = useMemo(
+    () => new Set(organizerId != null ? [organizerId] : []),
+    [organizerId],
+  );
+  const recommended = recommendedPeople(
+    options.data?.suggested,
+    people,
+    new Set([...excluded, ...invitees.userIds]),
+  );
   const invitation = options.data?.invitation?.[String(prepNo)] ?? null;
   // Serwer wpisuje termin rozmowy do treści tylko, gdy prep jest przed nią.
   const beforeInterview =
@@ -116,7 +146,8 @@ export function PlanPrepDialog({
         organizer_user_id: organizerId as number,
         start: startDate.toISOString(),
         end: end.toISOString(),
-        attendee_user_ids: attendees,
+        attendee_user_ids: invitees.userIds.filter((id) => id !== organizerId),
+        attendee_emails: invitees.emails,
         note: note.trim() || null,
         client_request_id: requestId.current,
       });
@@ -210,7 +241,11 @@ export function PlanPrepDialog({
             <select
               id="prep-organizer"
               value={organizerId ?? ""}
-              onChange={(e) => setOrganizerId(e.target.value ? Number(e.target.value) : null)}
+              onChange={(e) => {
+                const next = e.target.value ? Number(e.target.value) : null;
+                setOrganizerId(next);
+                if (next != null) setInvitees((v) => removeUser(v, next));
+              }}
               className={INPUT}
             >
               <option value="">Wybierz osobę</option>
@@ -223,42 +258,22 @@ export function PlanPrepDialog({
             </select>
             <p className="mt-1 text-xs text-muted-foreground">
               Spotkanie powstanie w kalendarzu tej osoby (Outlook i Teams). Zaproszenie dostanie
-              kandydat i osoby zaznaczone niżej.
+              kandydat i osoby z pola „Zaproś”.
+              {organizerId != null && currentUserId != null && organizerId !== currentUserId
+                ? " Planujesz za nią — jesteś na liście zaproszonych, więc spotkanie będzie też u Ciebie."
+                : ""}
             </p>
           </div>
-          {others.length > 0 ? (
-            <fieldset>
-              <legend className="mb-1 text-xs font-semibold text-muted-foreground">
-                Zaproś też z zespołu (opcjonalnie)
-              </legend>
-              <div className="flex flex-wrap gap-2">
-                {others.map((p) => {
-                  const checked = attendees.includes(p.id);
-                  return (
-                    <label
-                      key={p.id}
-                      className={cn(
-                        "inline-flex cursor-pointer items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-xs",
-                        checked ? "border-primary bg-primary/10 text-primary" : "border-border",
-                      )}
-                    >
-                      <input
-                        type="checkbox"
-                        className="sr-only"
-                        checked={checked}
-                        onChange={() =>
-                          setAttendees((a) =>
-                            checked ? a.filter((id) => id !== p.id) : [...a, p.id],
-                          )
-                        }
-                      />
-                      {p.name}
-                    </label>
-                  );
-                })}
-              </div>
-            </fieldset>
-          ) : null}
+          <PrepPeoplePicker
+            id="prep-invitees"
+            label="Zaproś (opcjonalnie)"
+            people={people}
+            value={invitees}
+            onChange={setInvitees}
+            exclude={excluded}
+            currentUserId={currentUserId}
+            recommended={recommended}
+          />
           <div className="grid gap-3 sm:grid-cols-[1fr_140px]">
             <div>
               <label htmlFor="prep-start" className="mb-1 block text-xs font-semibold text-muted-foreground">
@@ -350,6 +365,10 @@ export function PlanPrepDialog({
                   ? "Transkrypcja włączy się automatycznie."
                   : "Włącz transkrypcję w Teams na początku rozmowy."}{" "}
                 Po spotkaniu NEXUS zapisze notatkę i oceni prep.
+              </p>
+              <p>
+                Zmienić albo odwołać prep mogą: prowadzący, Delivery Lead rekrutacji, rekruter
+                kandydata i osoba, która go planuje.
               </p>
               {invitation ? null : (
                 <p>Kandydat dostanie w zaproszeniu informację: „{options.data?.notice}”</p>

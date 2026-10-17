@@ -13,6 +13,21 @@ export interface PrepPerson {
   name: string;
 }
 
+/** Osoba do zaproszenia — każdy aktywny w NEXUSIE (17.10.2026, D1). */
+export interface PrepPersonOption extends PrepPerson {
+  /** Rola główna (`UserRole`); etykietę daje `ROLE_LABELS`. */
+  role: string | null;
+  /** W zespole tej rekrutacji — na górze listy. */
+  in_team: boolean;
+}
+
+/** Zaproszony na prep (bez kandydata). `user_id` puste = spoza NEXUSA. */
+export interface PrepAttendee {
+  email: string;
+  user_id: number | null;
+  name: string | null;
+}
+
 export interface PrepOptions {
   /** Integracja z Teams włączona i skonfigurowana (inaczej zwykłe zaproszenie). */
   enabled: boolean;
@@ -20,6 +35,8 @@ export interface PrepOptions {
   /** Podpowiedź organizatora dla Prepu 1 i 2 (klucze "1" i "2"). */
   suggested: Record<string, PrepPerson | null>;
   team: PrepPerson[];
+  /** Wszyscy, których można zaprosić; starszy serwer = brak (wtedy `team`). */
+  people?: PrepPersonOption[];
   /** Adnotacja o nagrywaniu pod treścią zaproszenia. */
   notice: string;
   /** Zaproszenie dla kandydata (klucze "1" i "2"); starszy serwer = brak. */
@@ -63,6 +80,12 @@ export interface Prep {
   candidate_id: number;
   job_id: number;
   organizer: PrepPerson | null;
+  /** Kto założył prep — też może go zmienić. */
+  scheduled_by?: PrepPerson | null;
+  attendees?: PrepAttendee[];
+  status?: "scheduled" | "completed" | "cancelled";
+  /** Zmienić i odwołać mogą ludzie pary (prowadzący, DL, rekruter, planujący), HoR i admin. */
+  can_edit?: boolean;
   start: string;
   end: string | null;
   online_meeting_url: string | null;
@@ -95,7 +118,18 @@ export interface PrepCreateInput {
   start: string;
   end: string;
   attendee_user_ids: number[];
+  attendee_emails?: string[];
   note?: string | null;
+  client_request_id?: string | null;
+}
+
+/** Zmiana prepu. Brak pola = bez zmian; `attendee_*` podane = pełna nowa lista. */
+export interface PrepUpdateInput {
+  start?: string;
+  end?: string;
+  organizer_user_id?: number;
+  attendee_user_ids?: number[];
+  attendee_emails?: string[];
   client_request_id?: string | null;
 }
 
@@ -117,6 +151,12 @@ export const prepMeetingsApi = {
     api.post<Prep>("/api/interview-cycle/preps", body).then((r) => r.data),
   get: (eventId: number) =>
     api.get<Prep>(`/api/interview-cycle/preps/${eventId}`).then((r) => r.data),
+  update: (eventId: number, body: PrepUpdateInput) =>
+    api.patch<Prep>(`/api/interview-cycle/preps/${eventId}`, body).then((r) => r.data),
+  cancel: (eventId: number, comment: string | null) =>
+    api
+      .post<Prep>(`/api/interview-cycle/preps/${eventId}/cancel`, { comment })
+      .then((r) => r.data),
   transcript: (eventId: number) =>
     api
       .get<PrepTranscript>(`/api/interview-cycle/preps/${eventId}/transcript`)

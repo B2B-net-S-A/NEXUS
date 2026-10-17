@@ -201,7 +201,7 @@ export interface KanbanItem {
    * Siedem kroków cyklu (kreski postępu na karcie i w doku); starszy serwer = brak.
    * `at` kroku „interview” to termin rozmowy — liczy względem niego okno prepu w doku.
    */
-  steps?: Array<{ key: StepKey; state: StepState; at?: string | null }>;
+  steps?: Array<{ key: StepKey; state: StepState; at?: string | null; event_id?: number | null }>;
   /** Rozmowa u klienta pary — debrief otwiera się prosto z doku. */
   interview_event_id?: number | null;
   /** Termin rozmowy czekający jeszcze na wybór albo potwierdzenie (ISO). */

@@ -1549,9 +1549,15 @@ async def interview_badges_for_job(
                 # te same kroki co na ekranie „Rozmowy u klienta”; id rozmowy
                 # otwiera debrief prosto z doku. ``at`` czyta okno „Zaplanuj
                 # prep” w doku (termin rozmowy): bez niego podpowiadało „jutro
-                # 10:00” i nie ostrzegało o prepie po rozmowie.
+                # 10:00” i nie ostrzegało o prepie po rozmowie. ``event_id``
+                # kroku prepu — dok zmienia i odwołuje TEN prep (17.10.2026).
                 badge["steps"] = [
-                    {"key": s["key"], "state": s["state"], "at": _iso(s["at"])}
+                    {
+                        "key": s["key"],
+                        "state": s["state"],
+                        "at": _iso(s["at"]),
+                        "event_id": s["event_id"],
+                    }
                     for s in compute_steps(snap, now, call_window_minutes=call_window)
                 ]
                 badge["interview_event_id"] = (

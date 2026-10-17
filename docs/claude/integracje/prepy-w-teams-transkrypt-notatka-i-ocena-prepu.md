@@ -51,6 +51,35 @@ zwykłym telefonem z ręcznym debriefem). Konfiguracja M365: `docs/teams-prep-se
   i w odznace doku). Kroki w odznace doku niosą `at` — do tej daty miały tylko
   `key` i `state`, więc okno prepu otwarte z doku nie znało terminu rozmowy,
   podpowiadało „jutro 10:00” i nie ostrzegało.
+- **Prep zmieniają ludzie pary, zaprosić można każdego (17.10.2026, decyzje
+  D1–D4, zgłoszenie DL-a).** Do tej daty spotkanie było własnością prowadzącego
+  (`created_by = organizator`): rekruter, który założył Prep 1 w kalendarzu
+  DL-a, dostawał 404 na „Szczegóły” i 403 na zmianę, a lista zaproszonych
+  przyjmowała wyłącznie zespół rekrutacji (422). Teraz:
+  `PATCH /api/interview-cycle/preps/{event_id}` (termin, zaproszeni,
+  prowadzący) i `POST …/{event_id}/cancel` rozstrzyga
+  `prep_meetings.user_can_edit_prep` — prowadzący, `scheduled_by_user_id`,
+  `job.delivery_lead_id`, rekruter kandydata (`default_recruiter_ids`),
+  zastępcy (`operational_owner_ids`), HoR i admin — a nie
+  `calendar_access` (reguła 17.09 „odwołuje tylko właściciel” zostaje dla
+  zwykłych wydarzeń: tam odwołanie idzie kontem M365 twórcy, prep idzie
+  aplikacją). Zmiana idzie najpierw do Outlooka prowadzącego, potem do bazy;
+  kandydat dostaje aktualizację tego samego zaproszenia. **Inny prowadzący =
+  nowe spotkanie, potem odwołanie starego** (Microsoft nie przenosi spotkania
+  między kalendarzami); gdy odwołanie starego padnie, nowe jest odwoływane,
+  a wiersze cofa rollback — nigdy dwa aktywne prepy o tym numerze. Zaprosić
+  można każdego aktywnego z NEXUSA (`options.people`, zespół na górze) i do
+  10 adresów spoza (`attendee_emails`, `EmailStr`); prowadzący dalej musi być
+  z zespołu albo z podpowiedzi (jego skrzynka jest w grupie aplikacji).
+  Planujący za kogoś jest od razu na liście zaproszonych (D3, front), więc ma
+  spotkanie u siebie. Kroki odznaki na Tablicy niosą `event_id` — dok pokazuje
+  zaplanowane prepy z „Zmień”/„Odwołaj” (`PrepEditButtons`, przyciski tylko
+  przy `can_edit`), panel w kalendarzu też (zamiast „Szczegóły”). Jedno okno
+  dla „Przełóż”, „Zmień” i „Odwołaj”: `ReschedulePrepDialog` (`mode`). Dopisku
+  do zaproszenia nie da się zmienić (nie jest zapisany osobno); zmiana
+  prowadzącego zakłada nowe zaproszenie bez dopisku. Osoba spoza NEXUSA na
+  prepie to drugi mówca spoza zespołu — kandydat w transkrypcie jest wtedy
+  rozpoznawany tylko po nazwisku (`teams_vtt`).
 - **Pętla `teams_prep_transcripts`** (`TEAMS_PREP_TRANSCRIPTS_ENABLED`, OFF
   kończy ją przed pętlą; heartbeat). Stan kolejki w bazie, odświeża termin
   z Outlooka przed pobraniem, backoff, po `TEAMS_PREP_FETCH_GIVE_UP_HOURS` →
