@@ -620,6 +620,34 @@ def test_dash_only_red_flags_line_means_none():
     assert card.fields["red_flags"] == {"raw": "-", "none": True}
 
 
+@pytest.mark.parametrize(
+    "content",
+    [
+        "Imię i nazwisko: Jan Fikcyjny\nStawka: 90\nDostępność: od zaraz",
+        "<p>Imię i nazwisko: Jan Fikcyjny</p><p>Stawka: 90</p><p>Lok: Gdynia</p>",
+        "Stawka - 85.\nAngielski: B2",
+    ],
+)
+def test_two_digit_rate_on_label_line_is_read(content):
+    # 17.10.2026: „Stawka: 90” ginęła jak numer pozycji listy („8.”), a karta
+    # bez stawki oddawała „Stawkę od” wyższej kwocie z innej rekrutacji.
+    rate = parse_card(content).fields["rate"]
+
+    assert (rate["currency"], rate["period"]) == ("PLN", "h")
+    assert rate["value"] in (90.0, 85.0)
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        "Stawka:\n8.\nDostępność: od zaraz",
+        "Stawka: 5\nDostępność: od zaraz",
+    ],
+)
+def test_list_number_is_still_not_a_rate(content):
+    assert "value" not in parse_card(content).fields.get("rate", {})
+
+
 def test_question_about_past_work_is_not_the_client_field():
     card = parse_card(
         "Stawka: 100\nPytanie 1: Czy pracowałeś z szablonami YAML? Około roku: głównie Helm."
@@ -907,9 +935,10 @@ def test_short_word_before_the_label_goes_with_it():
 # ── Parser v2 (07.10.2026) ─────────────────────────────────────────────────
 
 
-def test_parser_version_is_two():
+def test_parser_version_is_three():
     # Zmiana wersji zmienia odcisk notatek — pętla importu przelicza karty.
-    assert PARSER_VERSION == 2
+    # v3 (17.10.2026): „Stawka: 90”.
+    assert PARSER_VERSION == 3
 
 
 @pytest.mark.parametrize(

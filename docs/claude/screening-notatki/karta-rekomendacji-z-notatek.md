@@ -25,7 +25,15 @@ miękkie. Ekrany dochodzą w kolejnych etapach.
   litera; tylko bez wiersza odpowiedzi pod spodem), pytania zawinięte na 2–3
   wiersze (dalszy ciąg małą literą, początek wygląda na pytanie), „Stawka:
   160/115” (pierwsza wyższa, ukośnik) = kandydat 115. Lista numerowana staje
-  się pytaniami jak w v1 — tylko z odpowiedzią w osobnym wierszu.
+  się pytaniami jak w v1 — tylko z odpowiedzią w osobnym wierszu. v3
+  (17.10.2026): liczba 30–99 w wierszu etykiety stawki („Stawka: 90”) jest
+  stawką PLN/h jak „Stawka: 135”. Do v3 filtr numerów pozycji listy („8.”)
+  wycinał ją razem z numerami, karta zostawała bez stawki, a „Stawka od”
+  brała wyższą kwotę z innej rekrutacji (zgłoszenie Artura: 140 zamiast 90
+  przy budżecie 135). Pomiar przed zmianą na 16 033 notatkach: zmienia się
+  tylko pole stawki — 278 kart ją zyskuje, 28 zamienia następny wiersz bez
+  kwoty na kwotę z wiersza etykiety. Liczba w osobnym wierszu pod etykietą
+  dalej jest numerem listy.
 - **Odpowiedzi z notatek trafiają do arkusza screeningu (decyzje Artura
   07.10.2026 — do tej daty reguła brzmiała „nie trafiają”).** Jedyne miejsce
   zapisu: `services/screening_note_sync.py` (strażnik
