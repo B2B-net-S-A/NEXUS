@@ -159,6 +159,16 @@ export interface TeamPeopleResponse {
   rows: TeamPeopleRow[];
   /** Konta administracyjne — jeden wiersz pod tabelą (reguła Hall of Fame). */
   outside_scope?: TeamPeopleOutsideScope;
+  /**
+   * Kamienie, które nie liczą się nikomu — wiersz „Bez osoby z zasługą”
+   * (17.10.2026). Brak pola = odpowiedź sprzed wdrożenia.
+   */
+  unattributed?: {
+    verifications: number;
+    recommendations: number;
+    interviews: number;
+    placements: number;
+  };
   workdays: number;
   precision_target_pct: number;
   low_precision_pct: number;

@@ -25,6 +25,7 @@ import {
 import { resolveViewState, isBlockingViewState } from "@/lib/view-state";
 import { useAuthStore } from "@/store/auth";
 import { SectionError } from "@/components/insights/sections/_shared";
+import { MyWhoCountsPanel } from "@/components/insights/sections/WhoCountsPanel";
 import {
   FunnelBars,
   Panel,
@@ -244,6 +245,8 @@ export function MojMiesiacView() {
           }
         />
       </TileRow>
+
+      <MyWhoCountsPanel />
 
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
         <Panel title="Mój lejek w tym miesiącu" hint="pierwsze wejście na etap">

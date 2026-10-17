@@ -129,6 +129,10 @@ class TeamTotals:
     # użytkownika. NIE wchodzą do sum per osoba (nie ma do kogo), ale są
     # raportowane — inaczej „brak danych" wyglądałby jak zero.
     unattributed: int = 0
+    # Te same kamienie per etap (`(etap, liczba)`) — wiersz „Bez osoby
+    # z zasługą” w Insights → Zespół (17.10.2026). Krotka, bo klasa jest
+    # zamrożona i haszowalna.
+    unattributed_by_stage: tuple[tuple[str, int], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -212,9 +216,16 @@ async def compute_team_panel(
     # w tabeli (nie ma komu go przypisać).
     agg: dict[int, dict[str, dict[str, int]]] = {}
     unattributed = 0
+    unattributed_by_stage: dict[str, int] = {}
     for r in funnel_rows:
         if r["uid"] is None:
-            unattributed += int(r["period_cnt"])
+            count = int(r["period_cnt"])
+            unattributed += count
+            if count:
+                stage = str(r["stage"])
+                unattributed_by_stage[stage] = (
+                    unattributed_by_stage.get(stage, 0) + count
+                )
             continue
         agg.setdefault(int(r["uid"]), {})[r["stage"]] = {
             "p": int(r["period_cnt"]),
@@ -355,6 +366,7 @@ async def compute_team_panel(
         precision_pct=team_prec,
         people=len(rows),
         unattributed=unattributed,
+        unattributed_by_stage=tuple(sorted(unattributed_by_stage.items())),
     )
 
     return TeamPanelResult(

@@ -83,7 +83,8 @@ async def insights_team_people(
     today = business_today()
     # v2 (24.09.2026): precyzja jako kohorta i konta administracyjne poza
     # tabelą — stary kształt z cache'u nie może przeżyć wdrożenia.
-    cache_key = f"insights:team:people:v2:{resolved.cache_suffix}:{today}"
+    # v3 (17.10.2026): pole `unattributed` (wiersz „Bez osoby z zasługą”).
+    cache_key = f"insights:team:people:v3:{resolved.cache_suffix}:{today}"
     async with cache_single_flight(cache_key, db=db):
         cached = await cache_get(cache_key)
         if cached is not None:

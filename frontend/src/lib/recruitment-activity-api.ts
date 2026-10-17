@@ -7,7 +7,21 @@ export type RecruitmentActivityMetric =
   | "acceptance"
   | "placement"
 
-export type RecruitmentActivityWindow = "day" | "month"
+/**
+ * „week” = tydzień (od poniedziałku) wybranego dnia, jak cel „Rekomendacje
+ * w tygodniu”; „range” = dni od–do włącznie (okres z paska Insights).
+ */
+export type RecruitmentActivityWindow = "day" | "week" | "month" | "range"
+
+/** Gdzie para osoba × rekrutacja jest teraz (najnowszy wiersz etapu pary). */
+export type RecruitmentActivityState =
+  | "before_client"
+  | "waiting"
+  | "at_client"
+  | "hired"
+  | "rejected_by_client"
+  | "ended"
+  | "job_closed"
 
 export interface RecruitmentActivityPerson {
   id: number
@@ -53,9 +67,25 @@ export interface RecruitmentActivitySummaryResponse {
 
 export interface RecruitmentActivityDetailItem {
   candidate: { id: number; name: string; href: string }
-  job: { id: number; title: string; client_name: string; href: string }
+  job: {
+    id: number
+    /** Nazwa od klienta; ekran pokazuje `working_title ?? title` z numerem u klienta. */
+    title: string
+    working_title?: string | null
+    client_reference?: string | null
+    client_name: string
+    href: string
+  }
   credited_user: RecruitmentActivityPerson | null
   reached_at: string
+  /** Kto kliknął etap — przy rekomendacji zwykle Delivery Lead. */
+  moved_by?: RecruitmentActivityPerson | null
+  state?: RecruitmentActivityState | null
+  state_stage?: string | null
+  state_since?: string | null
+  state_reason?: string | null
+  /** W ilu rekrutacjach ta sama osoba liczy się w tym okresie. */
+  candidate_jobs?: number
 }
 
 export interface RecruitmentActivityDetailResponse {
@@ -64,8 +94,21 @@ export interface RecruitmentActivityDetailResponse {
   window: RecruitmentActivityWindow
   page: number
   page_size: number
+  /** Wierszy po filtrze stanu. */
   total: number
   items: RecruitmentActivityDetailItem[]
+  // Pola listy „Kto się liczy” (17.10.2026) — opcjonalne, bo karta otwarta
+  // przed wdrożeniem dostaje stary kształt odpowiedzi.
+  period_start?: string | null
+  period_end?: string | null
+  scope?: "person" | "team" | "unattributed" | null
+  subject?: RecruitmentActivityPerson | null
+  people?: number
+  moved_by_credited?: number
+  states?: Partial<Record<RecruitmentActivityState, number>>
+  state_filter?: RecruitmentActivityState | null
+  /** Wierszy w okresie przed filtrem stanu. */
+  period_total?: number
 }
 
 interface RecruitmentActivityFilters {
@@ -96,19 +139,32 @@ export async function getRecruitmentActivitySummary(
   return response.data
 }
 
+export interface RecruitmentActivityDetailFilters extends RecruitmentActivityFilters {
+  metric: RecruitmentActivityMetric
+  window: RecruitmentActivityWindow
+  /** Dla `window: "range"`: dni od–do włącznie (YYYY-MM-DD). */
+  dateFrom?: string | null
+  dateTo?: string | null
+  /** Kamienie bez osoby z zasługą (tylko role z wglądem w zespół). */
+  unattributed?: boolean
+  state?: RecruitmentActivityState | null
+  page?: number
+  pageSize?: number
+}
+
 export async function getRecruitmentActivityDetails(
-  filters: RecruitmentActivityFilters & {
-    metric: RecruitmentActivityMetric
-    window: RecruitmentActivityWindow
-    page?: number
-    pageSize?: number
-  },
+  filters: RecruitmentActivityDetailFilters,
 ): Promise<RecruitmentActivityDetailResponse> {
   const response = await api.get<RecruitmentActivityDetailResponse>(
     "/api/dashboard/v2/recruitment-activity/details",
     {
       params: {
         ...activityParams(filters),
+        ...(filters.unattributed ? { scope: "unattributed" } : {}),
+        ...(filters.window === "range" && filters.dateFrom && filters.dateTo
+          ? { date_from: filters.dateFrom, date_to: filters.dateTo }
+          : {}),
+        ...(filters.state ? { state: filters.state } : {}),
         metric: filters.metric,
         window: filters.window,
         page: filters.page ?? 1,
