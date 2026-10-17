@@ -456,15 +456,16 @@ async def test_mass_exit_bell_survives_a_task_bell_with_the_same_number(
     async with AsyncSessionLocal() as db:
         last = await db.scalar(text("SELECT last_value FROM hr_job_runs_id_seq"))
         for number in range(int(last) + 1, int(last) + 20):
-            db.add(
-                Notification(
-                    user_id=hr_id,
-                    title="Zadanie testowe",
-                    message="Zadanie testowe",
-                    notification_type=NotificationType.hr_lifecycle_task,
-                    related_entity_type="lifecycle_task",
-                    related_entity_id=number,
-                )
+            # Numer może mieć już dzwonek z zasiewu świata — ten też koliduje.
+            await db.execute(
+                text(
+                    "INSERT INTO notifications (user_id, title, message, "
+                    "notification_type, related_entity_type, related_entity_id) "
+                    "VALUES (:user, 'Zadanie testowe', 'Zadanie testowe', "
+                    "'hr_lifecycle_task', 'lifecycle_task', :number) "
+                    "ON CONFLICT DO NOTHING"
+                ),
+                {"user": hr_id, "number": number},
             )
         await db.commit()
 
