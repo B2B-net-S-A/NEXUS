@@ -14,6 +14,7 @@ const get = vi.fn();
 const post = vi.fn();
 const showSuccess = vi.fn();
 const showError = vi.fn();
+const showActionToast = vi.fn();
 const renderDocxSafely = vi.fn();
 const loadJobRejectionReasons = vi.fn();
 const fetchStageCvFile = vi.fn();
@@ -32,7 +33,7 @@ vi.mock("@/lib/api", () => ({
   },
 }));
 vi.mock("@/components/Toast", () => ({
-  useToast: () => ({ showSuccess, showError }),
+  useToast: () => ({ showSuccess, showError, showActionToast }),
 }));
 vi.mock("@/lib/docx-preview-safe", () => ({
   renderDocxSafely: (...a: unknown[]) => renderDocxSafely(...a),
@@ -468,10 +469,67 @@ describe("DlReviewPanel — przegląd DL przed wysłaniem CV do klienta", () => 
         ended_by: "delivery_lead",
         rejection_reason_id: 5,
         rejection_reason: undefined,
+        send_rejection_email: false,
         recruiter_remark: "Za drogo dla klienta",
       }),
     );
     expect(showSuccess).toHaveBeenCalledWith("Anna Nowak — odrzucony przez DL.");
+    expect(showActionToast).not.toHaveBeenCalled();
+  });
+
+  it("odrzucenie z mailem do kandydata: treść „przed klientem”, dopisek i „Cofnij wysyłkę” (17.10.2026)", async () => {
+    mockApi();
+    post.mockImplementation((url: string) => {
+      if (url === "/api/rejection-emails/preview") {
+        return Promise.resolve({
+          data: {
+            subject: "Informacja zwrotna — Senior Java Developer",
+            body: "Cześć Anna,\n\nw tym procesie nie przedstawimy Twojej kandydatury.",
+            closing: "Życzymy powodzenia!",
+            other_processes_text:
+              "To dotyczy tylko tej rekrutacji — nadal bierzesz udział w naszym pozostałym procesie:\n• Data Engineer",
+            text_kind: "before_client",
+            people: [
+              {
+                candidate_id: 21,
+                to_email: "anna@example.com",
+                skip_reason: null,
+                text_kind: "before_client",
+                other_processes: [
+                  { job_id: 40, title: "Data Engineer", mail_title: "Data Engineer", column: "verified" },
+                ],
+              },
+            ],
+          },
+        });
+      }
+      return Promise.resolve({ data: { scheduled_rejection_email_id: 77 } });
+    });
+    renderPanel();
+    await userEvent.click(screen.getByRole("button", { name: /^Odrzuć…/ }));
+    const group = screen.getByRole("group", { name: "Odrzucenie przez DL" });
+    await userEvent.selectOptions(await within(group).findByRole("combobox"), "5");
+    await userEvent.click(
+      within(group).getByRole("checkbox", { name: /Wyślij e-mail do kandydata/ }),
+    );
+    expect(await within(group).findByText("Treść: przed klientem")).toBeTruthy();
+    expect(within(group).getByTestId("rejection-email-other-processes")).toBeTruthy();
+    await userEvent.click(within(group).getByRole("button", { name: /Potwierdź odrzucenie/ }));
+    await waitFor(() =>
+      expect(post).toHaveBeenCalledWith(
+        "/api/pipeline/move",
+        expect.objectContaining({
+          ended_by: "delivery_lead",
+          send_rejection_email: true,
+          rejection_email_subject: undefined,
+          rejection_email_other_processes: undefined,
+        }),
+      ),
+    );
+    expect(showActionToast).toHaveBeenCalledWith(
+      "Email odrzucenia zostanie wysłany za 15 minut.",
+      expect.objectContaining({ actionLabel: "Cofnij wysyłkę" }),
+    );
   });
 
   it("„Nie akceptuje trybu pracy” pyta o dni w biurze i wysyła je z ruchem (14.10.2026)", async () => {

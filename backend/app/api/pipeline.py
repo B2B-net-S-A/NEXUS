@@ -2163,6 +2163,8 @@ async def apply_move(
                 template_override_id=data.rejection_email_template_id,
                 edited_subject=data.rejection_email_subject,
                 edited_body=data.rejection_email_body,
+                append_other_processes=data.rejection_email_other_processes
+                is not False,
             )
             if scheduled is not None:
                 scheduled_rejection_email_id = scheduled.id

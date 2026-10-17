@@ -415,7 +415,7 @@ async def test_previous_row_for_rejection_mail_follows_moved_at() -> None:
 
     from app.core.database import AsyncSessionLocal
     from app.models.recruitment_pipeline import CandidateStage, PipelineStage
-    from app.services.rejection_email_scheduler import _previous_row_client_visible
+    from app.services.rejection_email_scheduler import _previous_row_kind
     from tests.test_pipeline_membership_gate import _seed_candidate, _seed_job
 
     job_id, _ = await _seed_job(owner_id=None)
@@ -448,7 +448,7 @@ async def test_previous_row_for_rejection_mail_follows_moved_at() -> None:
         db.add(rejected)
         await db.flush()
         assert imported.id > sent.id
-        assert await _previous_row_client_visible(db, rejected) is True
+        assert await _previous_row_kind(db, rejected) == "after_client"
         await db.rollback()
 
 

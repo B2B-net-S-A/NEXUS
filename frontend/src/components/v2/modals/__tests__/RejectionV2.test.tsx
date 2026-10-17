@@ -493,13 +493,155 @@ describe("RejectionV2 — podgląd maila odrzucenia (13.10.2026)", () => {
     expect(await screen.findByText("tylko do odczytu")).toBeInTheDocument();
     expect(screen.getByText("Podgląd maila · Anna Przykładowa")).toBeInTheDocument();
     expect(screen.getByText("Mail wyjdzie do 1 z 2 osób")).toBeInTheDocument();
-    expect(screen.getByText("bez maila: CV nie trafiło do klienta")).toBeInTheDocument();
+    expect(screen.getByText("bez maila: przed weryfikacją")).toBeInTheDocument();
     expect(screen.queryByLabelText("Treść")).toBeNull();
 
     fireEvent.click(screen.getByText("Za wysoka stawka"));
     fireEvent.click(screen.getByRole("button", { name: "Potwierdź" }));
     expect(onConfirm.mock.calls[0][2]).toBe(true);
     expect(onConfirm.mock.calls[0][7]).toBeNull();
+  });
+
+  // 17.10.2026 (D2): osoba w innych rekrutacjach — dopisek zamiast zakończenia.
+  const MAIN =
+    "Cześć Anna,\n\ndziękujemy za rozmowę i czas poświęcony na rekrutację na stanowisko " +
+    "Senior Dev. Po przeanalizowaniu wymagań projektu zdecydowaliśmy, że w tym procesie " +
+    "nie przedstawimy Twojej kandydatury.";
+  const CLOSING =
+    "Życzymy powodzenia i zachęcamy do udziału w przyszłych procesach rekrutacyjnych!";
+  const OTHERS_TEXT =
+    "To dotyczy tylko tej rekrutacji — nadal bierzesz udział w naszym pozostałym procesie:\n" +
+    "• Java Tech Lead\n\nOdezwiemy się, gdy będziemy mieć w nim nowe informacje.";
+
+  function withOthersResponse() {
+    return {
+      data: {
+        subject: "Informacja zwrotna — Senior Dev",
+        body: MAIN,
+        closing: CLOSING,
+        other_processes_text: OTHERS_TEXT,
+        text_kind: "before_client",
+        title_warning: false,
+        people: [
+          {
+            candidate_id: 5,
+            to_email: "anna@example.com",
+            skip_reason: null,
+            text_kind: "before_client",
+            other_processes: [
+              { job_id: 8, title: "Java TL", mail_title: "Java Tech Lead", column: "client_interview" },
+            ],
+          },
+        ],
+      },
+    };
+  }
+
+  it("osoba w innej rekrutacji: dopisek obok pola, odznaczenie wraca do zakończenia", async () => {
+    mockPost.mockResolvedValue(withOthersResponse());
+    const onConfirm = renderWithPreview(ONE);
+    fireEvent.click(screen.getByRole("checkbox"));
+    const body = (await screen.findByLabelText("Treść")) as HTMLTextAreaElement;
+    expect(body.value).toBe(MAIN);
+    expect(screen.getByText("Treść: przed klientem")).toBeInTheDocument();
+    expect(screen.getByTestId("rejection-email-other-processes")).toHaveTextContent(
+      "nadal bierzesz udział w naszym pozostałym procesie",
+    );
+    expect(screen.getByText("Java TL · Rozmowa u klienta")).toBeInTheDocument();
+
+    // Bez zmian: domyślnie dopisek, nic nie idzie w 8. argumencie.
+    fireEvent.click(screen.getByText("Za wysoka stawka"));
+    fireEvent.click(screen.getByRole("button", { name: "Potwierdź" }));
+    expect(onConfirm.mock.calls[0][2]).toBe(true);
+    expect(onConfirm.mock.calls[0][7]).toBeNull();
+
+    // Odznaczony dopisek: nietknięte pole dostaje zakończenie, serwer — `false`.
+    fireEvent.click(screen.getByRole("checkbox", { name: /Dopisz pozostałe rekrutacje tej osoby/ }));
+    expect(body.value).toBe(`${MAIN}\n\n${CLOSING}`);
+    expect(screen.queryByTestId("rejection-email-other-processes")).toBeNull();
+    expect(screen.queryByText("Zmieniona ręcznie")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Potwierdź" }));
+    expect(onConfirm.mock.calls[1][7]).toEqual({ otherProcesses: false });
+  });
+
+  it("brak skrzynki: „Podłącz skrzynkę” otwiera Ustawienia w nowej karcie", async () => {
+    mockPost.mockResolvedValue(
+      previewResponse(
+        [{ candidate_id: 5, to_email: "anna@example.com", skip_reason: "no_mailbox" }],
+        false,
+      ),
+    );
+    renderWithPreview(ONE);
+    const link = await screen.findByRole("link", { name: /Podłącz skrzynkę/ });
+    expect(link).toHaveAttribute("href", "/settings?tab=integracje");
+    expect(link).toHaveAttribute("target", "_blank");
+  });
+
+  it("kilka osób z różnych etapów: dwie treści do przełączenia i „+N w toku”", async () => {
+    mockPost.mockResolvedValue({
+      data: {
+        subject: "Informacja zwrotna — Senior Dev",
+        body: MAIN,
+        closing: CLOSING,
+        text_kind: "before_client",
+        people: [
+          {
+            candidate_id: 5,
+            to_email: "anna@example.com",
+            skip_reason: null,
+            text_kind: "before_client",
+            other_processes: [
+              { job_id: 8, title: "Java TL", mail_title: "Java Tech Lead", column: "client_interview" },
+              { job_id: 9, title: "Kotlin", mail_title: null, column: "verified" },
+            ],
+          },
+          {
+            candidate_id: 6,
+            to_email: "jan@example.com",
+            skip_reason: null,
+            text_kind: "after_client",
+            other_processes: [],
+          },
+          { candidate_id: 7, to_email: null, skip_reason: "not_client_visible", text_kind: null },
+        ],
+        samples: [
+          {
+            text_kind: "before_client",
+            candidate_id: 5,
+            subject: "Informacja zwrotna — Senior Dev",
+            body: MAIN,
+            closing: CLOSING,
+            other_processes_text: OTHERS_TEXT,
+          },
+          {
+            text_kind: "after_client",
+            candidate_id: 6,
+            subject: "Informacja zwrotna — Senior Dev",
+            body: "Cześć Jan,\n\nNiestety został wybrany inny kandydat.",
+            closing: CLOSING,
+            other_processes_text: null,
+          },
+        ],
+      },
+    });
+    renderWithPreview({
+      jobId: 3,
+      people: [
+        { candidateId: 5, name: "Anna Przykładowa" },
+        { candidateId: 6, name: "Jan Testowy" },
+        { candidateId: 7, name: "Piotr Próbny" },
+      ],
+    });
+    fireEvent.click(screen.getByRole("checkbox"));
+    const before = await screen.findByRole("tab", { name: "Przed klientem (1)" });
+    expect(before).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByText(/w tym procesie nie przedstawimy/)).toBeInTheDocument();
+    expect(screen.getByText("· +2 w toku")).toBeInTheDocument();
+    expect(screen.getByText(/1 osoba dostanie zamiast ostatniego zdania dopisek/)).toBeInTheDocument();
+    expect(screen.getByText("bez maila: przed weryfikacją")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("tab", { name: "Po kliencie (1)" }));
+    expect(screen.getByText(/Niestety został wybrany inny kandydat/)).toBeInTheDocument();
   });
 
   it("awaria podglądu nie blokuje wysyłki z treścią domyślną", async () => {

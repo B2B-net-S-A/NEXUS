@@ -634,6 +634,7 @@ export function usePipelineMove({
           send_rejection_email: reason?.sendRejectionEmail ?? undefined,
           rejection_email_subject: reason?.emailText?.subject,
           rejection_email_body: reason?.emailText?.body,
+          rejection_email_other_processes: reason?.emailText?.otherProcesses,
           work_mode_max_onsite_days: reason?.workMode?.maxOnsiteDays ?? undefined,
           work_mode_save_to_profile: reason?.workMode
             ? reason.workMode.saveToProfile

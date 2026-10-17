@@ -14,6 +14,8 @@ import pytest
 
 from app.models.recruitment_pipeline import PipelineStage
 from app.models.user import User, UserRole
+from app.services import rejection_email_text as rejection_text
+from app.services.email_template_variables import plain_text_to_html
 from app.services.rejection_email_scheduler import (
     ACTIVE_OTHER_STAGES_EXCLUDE,
     DELAY_MINUTES,
@@ -23,9 +25,18 @@ from app.services.rejection_email_scheduler import (
     _can_send_rejection_email,
     _render,
     _resolve_template,
-    default_text,
+    mail_text_kind,
 )
 from app.services.section_permissions import ProductSection
+
+
+def default_text(*, candidate, job, recruiter=None, kind=rejection_text.TEXT_AFTER_CLIENT):
+    """Pełna treść domyślna (część do poprawy + zakończenie) jak w oknie."""
+    del recruiter
+    text = rejection_text.default_text(
+        candidate_name=candidate.name, job_title=job.title, kind=kind
+    )
+    return text.subject, text.full()
 
 
 # ── Constants ──────────────────────────────────────────────────────────────
@@ -43,8 +54,8 @@ def test_trigger_previous_stages_contains_all_client_visible() -> None:
 
 
 def test_trigger_previous_stages_excludes_early_internal() -> None:
-    """Early-internal stages must NOT trigger — otherwise we spam candidates
-    who were rejected at screening/interview before the client even saw them."""
+    """Etapy przed klientem nie dają treści „po kliencie” — od 17.10.2026 mail
+    z „Zweryfikowany” i „QC CV” ma treść „przed klientem” (``mail_text_kind``)."""
     for stage in (
         PipelineStage.new,
         PipelineStage.prep_call,
@@ -52,8 +63,33 @@ def test_trigger_previous_stages_excludes_early_internal() -> None:
         PipelineStage.interview,
     ):
         assert stage not in TRIGGER_PREVIOUS_STAGES, (
-            f"{stage} must not trigger rejection email — too early"
+            f"{stage} must not count as seen by the client"
         )
+
+
+@pytest.mark.parametrize(
+    ("legacy", "name", "expected"),
+    [
+        # D1 (17.10.2026): przed weryfikacją bez maila.
+        ("new", "Nowi / Analiza CV", None),
+        ("screening", "Screening", None),
+        ("prep_call", None, None),
+        # Po rozmowie z nami, przed klientem — treść „przed klientem”.
+        ("verified", "Kandydat Zweryfikowany", rejection_text.TEXT_BEFORE_CLIENT),
+        ("interview", "QC CV", rejection_text.TEXT_BEFORE_CLIENT),
+        ("new", "Wysłać do Cpro", rejection_text.TEXT_BEFORE_CLIENT),
+        # U klienta — treść z 13.10.2026.
+        ("cv_sent", "Wysłany do Klienta", rejection_text.TEXT_AFTER_CLIENT),
+        ("interview", "Po Interview", rejection_text.TEXT_AFTER_CLIENT),
+        ("client_interview", "Interview u klienta", rejection_text.TEXT_AFTER_CLIENT),
+        ("acceptance", None, rejection_text.TEXT_AFTER_CLIENT),
+        # Zamknięta karta to nie etap, po którym ktoś odrzuca.
+        ("rejected", "Odrzucony", None),
+    ],
+)
+def test_mail_text_kind_follows_the_board_column(legacy, name, expected) -> None:
+    category = "terminal" if legacy == "rejected" else "internal"
+    assert mail_text_kind(legacy, name=name, category=category) == expected
 
 
 def test_active_other_stages_exclude_terminals() -> None:
@@ -289,6 +325,37 @@ def test_default_text_is_the_approved_text() -> None:
     )
 
 
+def test_before_client_text_does_not_say_another_candidate_won() -> None:
+    """D4 (17.10.2026): CV nie trafiło do klienta — treść „przed klientem”."""
+    text = rejection_text.default_text(
+        candidate_name="Jan",
+        job_title="Senior Python Developer",
+        kind=rejection_text.TEXT_BEFORE_CLIENT,
+    )
+    assert text.subject == "Informacja zwrotna — Senior Python Developer"
+    assert text.body == (
+        "Cześć Jan,\n\n"
+        "dziękujemy za rozmowę i czas poświęcony na rekrutację na stanowisko "
+        "Senior Python Developer. Po przeanalizowaniu wymagań projektu "
+        "zdecydowaliśmy, że w tym procesie nie przedstawimy Twojej kandydatury."
+    )
+    assert "inny kandydat" not in text.full()
+    assert text.closing == rejection_text.CLOSING
+
+
+def test_renderer_fallback_matches_the_window_text() -> None:
+    """Zapas renderera (szablon nie istnieje) = treść „po kliencie” z okna."""
+    _, html = _render(
+        template=None,
+        candidate=_mk_candidate(),
+        job=_mk_job(),
+        recruiter=_mk_recruiter(),
+        other_processes=[],
+    )
+    _, text = default_text(candidate=_mk_candidate(), job=_mk_job())
+    assert html == plain_text_to_html(text)
+
+
 def test_default_mail_has_no_own_signoff_or_other_processes() -> None:
     """Podpis dokleja Outlook — własne „Pozdrawiam” dawało dwa pożegnania."""
     others = [{"job_id": 10, "title": "DevOps Lead"}]
@@ -317,14 +384,7 @@ def test_default_text_for_the_field_is_not_escaped_but_the_mail_is() -> None:
         candidate=_mk_candidate(), job=job, recruiter=_mk_recruiter()
     )
     assert "stanowisko R&D <Lead>." in text
-    _, html = _render(
-        template=None,
-        candidate=_mk_candidate(),
-        job=job,
-        recruiter=_mk_recruiter(),
-        other_processes=[],
-    )
-    assert "R&amp;D &lt;Lead&gt;" in html
+    assert "R&amp;D &lt;Lead&gt;" in plain_text_to_html(text)
 
 
 def test_text_from_the_window_is_always_escaped() -> None:
@@ -397,3 +457,77 @@ def test_default_subject_of_a_long_recruitment_title_can_be_sent_back() -> None:
         rejection_email_body=body + "\n\nDopisek rekrutera.",
     )
     assert move.rejection_email_subject == subject
+
+
+# ── Dopisek o pozostałych rekrutacjach i nazwy dla kandydata (17.10.2026) ──
+
+
+def test_other_processes_text_lists_named_and_counts_unnamed() -> None:
+    assert rejection_text.other_processes_text([]) is None
+    assert rejection_text.other_processes_text(["Java Tech Lead"]) == (
+        "To dotyczy tylko tej rekrutacji — nadal bierzesz udział w naszym "
+        "pozostałym procesie:\n"
+        "• Java Tech Lead\n\n"
+        "Odezwiemy się, gdy będziemy mieć w nim nowe informacje."
+    )
+    assert rejection_text.other_processes_text(
+        ["Java Tech Lead", None, "Backend Developer (Kotlin)", None, None]
+    ) == (
+        "To dotyczy tylko tej rekrutacji — nadal bierzesz udział w naszych "
+        "pozostałych procesach:\n"
+        "• Java Tech Lead\n"
+        "• Backend Developer (Kotlin)\n"
+        "• i jeszcze 3 inne rekrutacje\n\n"
+        "Odezwiemy się, gdy będziemy mieć w nich nowe informacje."
+    )
+
+
+def test_other_processes_text_without_any_name_gives_only_a_count() -> None:
+    assert rejection_text.other_processes_text([None]) == (
+        "To dotyczy tylko tej rekrutacji — nadal bierzesz udział w jeszcze "
+        "jednej naszej rekrutacji.\n\n"
+        "Odezwiemy się, gdy będziemy mieć w nim nowe informacje."
+    )
+    assert "w jeszcze 2 naszych rekrutacjach." in rejection_text.other_processes_text(
+        [None, None]
+    )
+
+
+@pytest.mark.parametrize(
+    ("title", "safe"),
+    [
+        ("Senior Java Developer", True),
+        ("C# Developer", True),
+        ("Java 17 Developer", True),
+        ("SAP Consultant REQ1234567", False),
+        ("Developer - Payments - DE#12345", False),
+        ("Nordea Analityk danych", False),
+        ("", False),
+    ],
+)
+def test_title_safe_for_mail_hides_codes_and_client(title: str, safe: bool) -> None:
+    assert rejection_text.title_safe_for_mail(title, ["Nordea Bank Abp"]) is safe
+
+
+def test_marker_is_filled_with_the_list_or_the_closing() -> None:
+    body = plain_text_to_html("Cześć Jan,\n\nW tym procesie nie przechodzisz dalej.")
+    stored = f"{body}\n{rejection_text.OTHER_PROCESSES_MARKER}"
+
+    filled = rejection_text.fill_other_processes(stored, ["R&D <Lead>"])
+    assert rejection_text.OTHER_PROCESSES_MARKER not in filled
+    assert "• R&amp;D &lt;Lead&gt;</p>" in filled
+    assert filled.startswith(body)
+
+    # Osoba odpadła w międzyczasie ze wszystkich — zwykłe zakończenie.
+    alone = rejection_text.fill_other_processes(stored, [])
+    assert alone == f"{body}\n<p>{rejection_text.CLOSING}</p>"
+
+    # Treść bez znacznika (szablon, odznaczony dopisek) zostaje bez zmian.
+    assert rejection_text.fill_other_processes(body, ["Java"]) == body
+
+
+def test_marker_typed_in_the_window_is_escaped_not_filled() -> None:
+    """Rekruter nie podrobi znacznika — `plain_text_to_html` robi z „<” encję."""
+    typed = plain_text_to_html(f"Cześć {rejection_text.OTHER_PROCESSES_MARKER}")
+    assert rejection_text.OTHER_PROCESSES_MARKER not in typed
+    assert rejection_text.fill_other_processes(typed, ["Java"]) == typed

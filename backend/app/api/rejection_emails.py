@@ -82,8 +82,9 @@ class RejectionEmailResponse(BaseModel):
 
 def _to_response(row: ScheduledRejectionEmail) -> RejectionEmailResponse:
     others_raw = row.other_processes or []
+    # Od 17.10.2026 `title` bywa `None` — rekrutacja bez nazwy dla kandydata.
     others = [
-        OtherProcessEntry(job_id=int(o["job_id"]), title=str(o.get("title", "")))
+        OtherProcessEntry(job_id=int(o["job_id"]), title=str(o.get("title") or ""))
         for o in others_raw
         if isinstance(o, dict) and "job_id" in o
     ]
@@ -117,17 +118,48 @@ class RejectionEmailPreviewRequest(BaseModel):
     candidate_ids: List[_DbId] = Field(min_length=1, max_length=200)
 
 
+class RejectionEmailPreviewOtherProcess(BaseModel):
+    job_id: int
+    # Nazwa w NEXUSIE — tylko do okna.
+    title: str
+    # Nazwa w mailu; `None` = bez nazwy („inna rekrutacja”).
+    mail_title: Optional[str]
+    # Kolumna Tablicy osoby w tamtej rekrutacji.
+    column: str
+
+
 class RejectionEmailPreviewPerson(BaseModel):
     candidate_id: int
     to_email: Optional[str]
     # Ten sam słownik co `rejection_email_status` z `POST /api/pipeline/move`.
     skip_reason: Optional[str]
+    # `before_client` / `after_client` — treść „przed klientem” / „po kliencie”.
+    text_kind: Optional[str] = None
+    other_processes: List[RejectionEmailPreviewOtherProcess] = []
+
+
+class RejectionEmailPreviewSample(BaseModel):
+    text_kind: str
+    candidate_id: int
+    subject: str
+    body: str
+    closing: str
+    other_processes_text: Optional[str]
 
 
 class RejectionEmailPreviewResponse(BaseModel):
+    # Pierwsza osoba, do której mail wyjdzie: temat, część do poprawy (bez
+    # zakończenia), zakończenie i dopisek o jej pozostałych rekrutacjach.
     subject: Optional[str]
     body: Optional[str]
+    closing: Optional[str] = None
+    other_processes_text: Optional[str] = None
+    text_kind: Optional[str] = None
+    # Nazwa rekrutacji w mailu nadal wygląda na kod zlecenia albo klienta.
+    title_warning: bool = False
     people: List[RejectionEmailPreviewPerson]
+    # Po jednej osobie każdego rodzaju treści (okno kilku osób).
+    samples: List[RejectionEmailPreviewSample] = []
 
 
 # ── Endpoints ───────────────────────────────────────────────────────────────
@@ -157,13 +189,38 @@ async def preview_rejection_email(
     return RejectionEmailPreviewResponse(
         subject=result.subject,
         body=result.body,
+        closing=result.closing,
+        other_processes_text=result.other_processes_text,
+        text_kind=result.text_kind,
+        title_warning=result.title_warning,
         people=[
             RejectionEmailPreviewPerson(
                 candidate_id=p.candidate_id,
                 to_email=p.to_email,
                 skip_reason=p.skip_reason,
+                text_kind=p.text_kind,
+                other_processes=[
+                    RejectionEmailPreviewOtherProcess(
+                        job_id=o.job_id,
+                        title=o.title,
+                        mail_title=o.mail_title,
+                        column=o.column,
+                    )
+                    for o in p.other_processes
+                ],
             )
             for p in result.people
+        ],
+        samples=[
+            RejectionEmailPreviewSample(
+                text_kind=s.text_kind,
+                candidate_id=s.candidate_id,
+                subject=s.subject,
+                body=s.body,
+                closing=s.closing,
+                other_processes_text=s.other_processes_text,
+            )
+            for s in result.samples
         ],
     )
 
