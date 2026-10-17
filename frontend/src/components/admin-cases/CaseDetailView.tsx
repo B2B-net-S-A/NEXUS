@@ -54,7 +54,7 @@ function Fact({ label, children }: { label: string; children: React.ReactNode })
   return (
     <div className="flex items-baseline justify-between gap-3 border-b border-border/60 py-1.5 text-sm last:border-b-0">
       <span className="text-muted-foreground">{label}</span>
-      <span className="min-w-0 text-right font-medium text-foreground">{children}</span>
+      <span className="min-w-0 break-words text-right font-medium text-foreground">{children}</span>
     </div>
   );
 }
@@ -191,11 +191,13 @@ function Messages({ detail }: { detail: CaseDetail }) {
                   .map((file, index) => (
                     <li
                       key={`${index}-${file.name}`}
-                      className="inline-flex items-center gap-1 rounded-full border border-border px-2 py-0.5 text-xs text-muted-foreground"
+                      className="inline-flex max-w-full items-center gap-1 rounded-full border border-border px-2 py-0.5 text-xs text-muted-foreground"
                     >
-                      <Paperclip className="h-3 w-3" aria-hidden />
-                      {file.name}
-                      {file.size != null ? ` · ${fileSize(file.size)}` : ""}
+                      <Paperclip className="h-3 w-3 shrink-0" aria-hidden />
+                      <span className="truncate">{file.name}</span>
+                      {file.size != null ? (
+                        <span className="shrink-0">{` · ${fileSize(file.size)}`}</span>
+                      ) : null}
                     </li>
                   ))}
               </ul>
@@ -405,7 +407,8 @@ export function CaseDetailView({ caseId }: { caseId: number }) {
       <Header detail={detail} onEdit={() => setEditing(true)} />
 
       <div className="grid gap-4 lg:grid-cols-3">
-        <div className="space-y-4 lg:col-span-2">
+        {/* `min-w-0`: bez tego długi adres albo nazwa załącznika rozpycha stronę na telefonie. */}
+        <div className="min-w-0 space-y-4 lg:col-span-2">
           <Card className="p-4">
             <SectionTitle>Opis</SectionTitle>
             <p className="whitespace-pre-line break-words text-sm text-foreground">
@@ -417,7 +420,7 @@ export function CaseDetailView({ caseId }: { caseId: number }) {
           <Messages detail={detail} />
           <Comments detail={detail} />
         </div>
-        <div className="space-y-4">
+        <div className="min-w-0 space-y-4">
           <Card className="p-4">
             <SectionTitle>Szczegóły</SectionTitle>
             <Fact label="Osoba odpowiedzialna">{detail.assignee?.name ?? "nikt"}</Fact>

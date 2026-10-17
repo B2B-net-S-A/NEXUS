@@ -84,7 +84,9 @@ describe("/preview/hr-cases", () => {
       await screen.findByRole("heading", { name: "Onboarding: Anna Kontraktorska" }),
     ).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Wiadomości · 1" })).toBeInTheDocument();
-    expect(screen.getByText("wniosek-vpn.docx · 47 kB")).toBeInTheDocument();
+    // Nazwa przycina się na wąskim ekranie, rozmiar stoi obok w osobnym elemencie.
+    const attachment = screen.getByText("wniosek-vpn.docx").closest("li");
+    expect(attachment).toHaveTextContent("wniosek-vpn.docx · 47 kB");
     expect(screen.getByRole("heading", { name: "Checklista · 1/4" })).toBeInTheDocument();
     expect(
       screen.getByRole("link", { name: "Anna Kontraktorska · Ubezpieczenia Fikcyjne" }),
