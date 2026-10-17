@@ -47,8 +47,8 @@ export function windowStartDay(
   const reference = value.anchor ?? today;
   const [y, m, d] = reference.split("-").map(Number);
   if (!y || !m || !d) return null;
-  // Z kotwicą okres jest wskazany wprost — przesunięcie liczy się od teraz.
-  const offset = value.anchor ? 0 : (value.offset ?? 0);
+  // Jak backend (`analytics/periods.py`): przesunięcie liczy się od kotwicy.
+  const offset = value.offset ?? 0;
   switch (value.period) {
     case "day":
       return iso(y, m, d + offset);

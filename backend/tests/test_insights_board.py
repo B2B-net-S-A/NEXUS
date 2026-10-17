@@ -277,12 +277,14 @@ async def test_window_is_half_open_and_excludes_the_next_period(
     """
     _, email, password = await _seed_user(UserRole.admin, "halfopen")
     headers = await _login(board_client, email, password)
-    params = _window("2013-03-01", "2013-03-31")
+    # Okno po 12.10.2026: wcześniejsze ruchy Tablicy nie liczą się do statystyk
+    # (migracja 0455) — test sprawdza półotwartość okna, nie historię.
+    params = _window("2033-03-01", "2033-03-31")
 
     before = await _board(board_client, headers, params)
-    assert before["period"]["start"].startswith("2013-03-01")
+    assert before["period"]["start"].startswith("2033-03-01")
     # end = pierwszy dzień POZA oknem.
-    assert before["period"]["end"].startswith("2013-04-01")
+    assert before["period"]["end"].startswith("2033-04-01")
     baseline = before["kpis"]["placements"]
 
     _, job_id, cand_id = await _seed_client_job_candidate()
@@ -290,14 +292,14 @@ async def test_window_is_half_open_and_excludes_the_next_period(
         cand_id,
         job_id,
         PipelineStage.hired,
-        datetime(2013, 3, 15, 12, tzinfo=timezone.utc),
+        datetime(2033, 3, 15, 12, tzinfo=timezone.utc),
     )
     _, out_job, out_cand = await _seed_client_job_candidate()
     await _seed_stage(
         out_cand,
         out_job,
         PipelineStage.hired,
-        datetime(2013, 4, 1, 12, tzinfo=timezone.utc),
+        datetime(2033, 4, 1, 12, tzinfo=timezone.utc),
     )
 
     after = await _board(board_client, headers, params)
@@ -319,7 +321,7 @@ async def test_placements_use_the_milestone_view_not_raw_stage_rows(
     """
     _, email, password = await _seed_user(UserRole.admin, "dedup")
     headers = await _login(board_client, email, password)
-    params = _window("2014-05-01", "2014-05-31")
+    params = _window("2034-05-01", "2034-05-31")
 
     baseline = (await _board(board_client, headers, params))["kpis"]["placements"]
 
@@ -328,13 +330,13 @@ async def test_placements_use_the_milestone_view_not_raw_stage_rows(
         cand_id,
         job_id,
         PipelineStage.hired,
-        datetime(2014, 5, 10, 9, tzinfo=timezone.utc),
+        datetime(2034, 5, 10, 9, tzinfo=timezone.utc),
     )
     await _seed_stage(
         cand_id,
         job_id,
         PipelineStage.hired,
-        datetime(2014, 5, 20, 9, tzinfo=timezone.utc),
+        datetime(2034, 5, 20, 9, tzinfo=timezone.utc),
     )
 
     after = await _board(board_client, headers, params)
@@ -594,7 +596,7 @@ async def test_placements_of_ongoing_month_compare_with_the_same_stretch():
     from app.analytics.periods import resolve_period
     from app.services.insights_board import compute_board
 
-    today = date(1905, 9, 10)
+    today = date(2035, 9, 10)
     resolved = resolve_period("month", anchor=today)
 
     async def _previous() -> tuple[int, dict]:
@@ -606,8 +608,8 @@ async def test_placements_of_ongoing_month_compare_with_the_same_stretch():
     baseline, comparison = await _previous()
     window = comparison["placements_previous_window"]
     assert window["same_stretch"] is True
-    assert window["start"].startswith("1905-08-01")
-    assert window["end"].startswith("1905-08-11")
+    assert window["start"].startswith("2035-08-01")
+    assert window["end"].startswith("2035-08-11")
 
     for day in (5, 20):
         _, job_id, cand_id = await _seed_client_job_candidate()
@@ -615,7 +617,7 @@ async def test_placements_of_ongoing_month_compare_with_the_same_stretch():
             cand_id,
             job_id,
             PipelineStage.hired,
-            datetime(1905, 8, day, 12, tzinfo=timezone.utc),
+            datetime(2035, 8, day, 12, tzinfo=timezone.utc),
         )
 
     after, _ = await _previous()

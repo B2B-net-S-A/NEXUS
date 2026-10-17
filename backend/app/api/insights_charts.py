@@ -427,19 +427,18 @@ async def insights_placement_analysis(
         # „Suma placementów” liczy tygodniowe wpisy rekruterów, a klientów —
         # placementy z klientem z DynaReportera; liczby bywają różne.
         client_total = sum(int(r["cnt"]) for r in client_rows)
-        by_client_acc: dict[int | None, dict] = {}
+        by_client_acc: dict[object, dict] = {}
         placements_without_job = 0
         for r in client_rows:
             if r["job_missing"]:
                 placements_without_job += int(r["cnt"])
-            key = r["client_id"]
+            name = (r["client_name"] or "").strip() or NO_CLIENT_LABEL
+            # Klient DynaReportera bez odpowiednika w NEXUS-ie nie ma `client_id`
+            # — osobny wycinek po nazwie, nie wspólny koszyk z innymi.
+            key = r["client_id"] if r["client_id"] is not None else ("name", name)
             entry = by_client_acc.setdefault(
                 key,
-                {
-                    "client_id": key,
-                    "name": (r["client_name"] or "").strip() or NO_CLIENT_LABEL,
-                    "placements": 0,
-                },
+                {"client_id": r["client_id"], "name": name, "placements": 0},
             )
             entry["placements"] += int(r["cnt"])
 
@@ -448,7 +447,7 @@ async def insights_placement_analysis(
                 {
                     **entry,
                     "share_pct": _ratio(entry["placements"], client_total),
-                    "attributed": entry["client_id"] is not None,
+                    "attributed": entry["name"] != NO_CLIENT_LABEL,
                 }
                 for entry in by_client_acc.values()
             ),

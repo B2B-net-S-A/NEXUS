@@ -25,6 +25,7 @@ from zoneinfo import ZoneInfo
 import pytest
 from fastapi import HTTPException
 from httpx import AsyncClient
+from sqlalchemy import text
 
 import app.models  # noqa: F401  (zarejestruj wszystkie mappery)
 from app.analytics.periods import PeriodError
@@ -509,7 +510,7 @@ def _at(year: int, month: int, day: int) -> datetime:
 
 
 async def _recruitment_world(*, hidden_client: bool = False) -> dict:
-    """Rekrutacja 1978: trzy osoby, zatrudnienie, odrzucenie z powodem."""
+    """Rekrutacja 2078: trzy osoby, zatrudnienie, odrzucenie z powodem."""
     from app.core.database import AsyncSessionLocal
     from app.models.candidate import Candidate
     from app.models.client import Client
@@ -554,21 +555,21 @@ async def _recruitment_world(*, hidden_client: bool = False) -> dict:
 
         db.add_all(
             [
-                move(anna, PipelineStage.new, _at(1978, 1, 5)),
-                move(anna, PipelineStage.verified, _at(1978, 1, 10)),
-                move(anna, PipelineStage.cv_sent, _at(1978, 1, 20)),
-                move(anna, PipelineStage.client_interview, _at(1978, 2, 3)),
-                move(anna, PipelineStage.hired, _at(1978, 2, 10)),
-                move(jan, PipelineStage.new, _at(1978, 1, 6)),
+                move(anna, PipelineStage.new, _at(2078, 1, 5)),
+                move(anna, PipelineStage.verified, _at(2078, 1, 10)),
+                move(anna, PipelineStage.cv_sent, _at(2078, 1, 20)),
+                move(anna, PipelineStage.client_interview, _at(2078, 2, 3)),
+                move(anna, PipelineStage.hired, _at(2078, 2, 10)),
+                move(jan, PipelineStage.new, _at(2078, 1, 6)),
                 move(
                     jan,
                     PipelineStage.rejected,
-                    _at(1978, 2, 12),
+                    _at(2078, 2, 12),
                     rejection_reason_id=reason.id,
                     ended_by="recruiter",
                 ),
-                move(ewa, PipelineStage.new, _at(1977, 12, 20)),
-                move(ewa, PipelineStage.verified, _at(1978, 1, 15)),
+                move(ewa, PipelineStage.new, _at(2077, 12, 20)),
+                move(ewa, PipelineStage.verified, _at(2078, 1, 15)),
             ]
         )
         await db.commit()
@@ -593,15 +594,15 @@ class TestRecruitmentRoute:
             f"{V1}/insights/recruitment",
             headers=_h(api_key),
             params={
-                "from": "1978-01-01",
-                "to": "1978-02-28",
+                "from": "2078-01-01",
+                "to": "2078-02-28",
                 "job_id": world["job_id"],
             },
         )
         assert resp.status_code == 200, resp.text
         body = resp.json()
-        assert body["period"]["from"] == "1978-01-01"
-        assert body["period"]["to"] == "1978-02-28"
+        assert body["period"]["from"] == "2078-01-01"
+        assert body["period"]["to"] == "2078-02-28"
         assert body["period"]["timezone"] == "Europe/Warsaw"
         assert body["job_id"] == world["job_id"]
         assert body["generated_at"]
@@ -620,8 +621,9 @@ class TestRecruitmentRoute:
         assert "details" not in recruiter["reasons"][0]
 
         months = body["months"]
-        assert [m["month"] for m in months] == ["1978-01", "1978-02"]
-        assert all(m["complete"] for m in months)
+        assert [m["month"] for m in months] == ["2078-01", "2078-02"]
+        # Miesiące w przyszłości nie są jeszcze zamknięte.
+        assert not any(m["complete"] for m in months)
         january, february = (_reached(m) for m in months)
         assert (january["added"], january["verified"], january["cv_sent"]) == (2, 2, 1)
         assert (february["client_interview"], february["hired"]) == (1, 1)
@@ -642,8 +644,8 @@ class TestRecruitmentRoute:
             f"{V1}/insights/recruitment",
             headers=_h(api_key),
             params={
-                "from": "1978-03-01",
-                "to": "1978-03-31",
+                "from": "2078-03-01",
+                "to": "2078-03-31",
                 "job_id": world["job_id"],
             },
         )
@@ -733,6 +735,26 @@ async def _placements_world() -> dict:
                 stage=PipelineStage.hired,
                 moved_at=_at(1977, 1, 20),
             )
+        )
+        # Przed 2026 placement i klient są tylko z raportu Rady DynaReportera
+        # (migracja 0455) — ruch Tablicy z 1977 się nie liczy.
+        await db.execute(
+            text(
+                """
+                INSERT INTO dr_board_monthly_report (report_month, placements)
+                VALUES (DATE '1977-01-01', 1)
+                ON CONFLICT (report_month) DO UPDATE
+                SET placements = dr_board_monthly_report.placements + 1
+                """
+            )
+        )
+        await db.execute(
+            text(
+                "INSERT INTO dr_board_placement_clients "
+                "(report_month, client_name, placement_count) "
+                "VALUES (DATE '1977-01-01', :name, 1)"
+            ),
+            {"name": client.name},
         )
         leaving = Contract(
             candidate_id=ola.id,
