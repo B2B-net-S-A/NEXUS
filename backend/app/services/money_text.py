@@ -181,6 +181,88 @@ def is_rate_text(text: str) -> bool:
     return False
 
 
+# Liczba bez waluty po słowie o pieniądzach jest stawką w CV tylko na końcu
+# zdania albo przed formą rozliczenia: „Stawka: 150”, „Rate 140”, „Stawka 150
+# B2B”, „Stawka 150 za godzinę”, „Stawka 150 + VAT”, „Stawka: 150 złotych”.
+# Dalej stoi treść CV — „Naliczanie wynagrodzeń 300 pracowników”, „System
+# wynagrodzeń 2.0 w SAP”, „Rate 100 per request”, „Zarobki 300/500 osób”.
+_TIME_UNIT = r"(?:godz\w*|h\b|hours?\b|dzie\w*|dni\b|days?\b|md\b|mies\w*|months?\b)"
+_CV_BARE_TAIL_RE = re.compile(
+    r"[^\S\n]*+(?:$|\n|[.,;:!?)\]]|/\s*" + _TIME_UNIT + r"|\+\s*vat\b"
+    r"|(?:b2b|uop|netto|brutto|net|gross|vat|zł|zl|pln|eur|euros?|usd|złot(?:y|e|ych)"
+    r"|dolar(?:y|ów)?|dollars?)(?!\w)"
+    r"|(?:za|per|na)\s+(?:" + _TIME_UNIT + r"|b2b\b|uop\b|faktur\w*|rękę\b|reke\b))",
+    re.IGNORECASE,
+)
+# Początek `_BARE_AMOUNT_RE` (te same słowa): dopasowanie liczby idzie od
+# słowa w oknie `_CV_RATE_WINDOW` — `\w*` i odstępy w `_BARE_AMOUNT_RE` wracają
+# kwadratowo na długim słowie albo ciągu spacji (przegląd 17.10.2026).
+_BARE_WORD_RE = re.compile(
+    r"\b(?:staw[kc]|rate\b|wynagrodz|salary|zarobk|zarabia|earns?\b|wide[lł]k|pensj)",
+    re.IGNORECASE,
+)
+# Rok, zakres lat albo miesiąc z rokiem po słowie o pieniądzach to data
+# stanowiska, nie kwota: „Specjalista ds. wynagrodzeń 2018 – 2022”,
+# „Analityk wynagrodzeń 03.2019 - 05.2021”, „Compensation & Salary 2020”.
+_DATE_LIKE_RE = re.compile(r"(?:\d{1,2}[./])?(?:19|20)\d{2}(?!\d)")
+# Waluta słowem („150 złotych”, „50 euros”) — poza `MONEY_RE`, które czytają
+# też notatki i AI w edytorze.
+_CV_CURRENCY_WORD_RE = re.compile(
+    r"\d[\d\s.,]*\s*(?:(?:tys|mln)\b\.?\s*|k\s*)?"
+    r"(?:złot(?:y|e|ych)|euros|dolar(?:y|ów)?|dollars?)(?!\w)",
+    re.IGNORECASE,
+)
+# Kwoty z walutą szukamy w oknie wokół słowa o pieniądzach: wzorzec kwoty
+# wraca kwadratowo na długim ciągu cyfr bez waluty, a stawka stoi przy słowie.
+_CV_RATE_WINDOW = 80
+_BUDGET_BEFORE = 40
+
+
+def _cv_bare_rate(text: str) -> bool:
+    for word in _BARE_WORD_RE.finditer(text):
+        end = min(len(text), word.start() + _CV_RATE_WINDOW)
+        match = _BARE_AMOUNT_RE.match(text, word.start(), end)
+        if match is None:
+            continue
+        number = re.search(r"\d", match.group())
+        if number and _DATE_LIKE_RE.match(match.group(), number.start()):
+            continue
+        # Ogon na całym tekście: okno ucina słowo po liczbie.
+        if _CV_BARE_TAIL_RE.match(text, match.end()):
+            return True
+    return False
+
+
+def is_cv_rate_text(text: str) -> bool:
+    """Czy tekst CV mówi o stawce — ściślej niż ``is_rate_text`` z notatek.
+
+    W CV słowa „wynagrodzenie”, „stawka” i „rate” bywają dziedziną pracy
+    (moduł płacowy, „error rate”, stanowisko z latami), a w notatce
+    o kandydacie prawie zawsze są jego pieniędzmi. Stawka w CV to: kwota za
+    czas („150 zł/h”), kwota z walutą (także słowem: „150 złotych”) w oknie
+    słowa o pieniądzach — chyba że to budżet projektu („o budżecie 2 mln
+    PLN”) — albo liczba bez waluty po takim słowie na końcu zdania lub przed
+    formą rozliczenia (`_CV_BARE_TAIL_RE`), jeśli nie jest datą. Jedna reguła
+    dla uwagi QC „Stawka w CV” i dla „Usuń stawkę” w edytorze.
+    """
+    text = text or ""
+    if _cv_bare_rate(text):
+        return True
+    for word in RATE_WORD_RE.finditer(text):
+        start = max(0, word.start() - _CV_RATE_WINDOW)
+        window = text[start : word.end() + _CV_RATE_WINDOW]
+        for money in (
+            *MONEY_RE.finditer(window),
+            *_CV_CURRENCY_WORD_RE.finditer(window),
+        ):
+            if _PER_TIME_RE.search(money.group()):
+                return True
+            before = window[max(0, money.start() - _BUDGET_BEFORE) : money.end()]
+            if not _PROJECT_BUDGET_RE.search(before):
+                return True
+    return False
+
+
 def _is_candidate_money(part: str) -> bool:
     if (
         is_rate_text(part)

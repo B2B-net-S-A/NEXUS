@@ -158,3 +158,50 @@ miało pewny błąd kolejności.
 Testy: sekcja „Kolejność stanowisk” w `tests/test_cv_qc.py` (także koszt na
 12 tys. stanowisk), `CvQcDialog.test.tsx` („Stanowiska od najnowszego”),
 reguła w `tests/test_cv_generator_legacy_v7.py`.
+
+## „Stawka w CV” = reguła „Usuń stawkę” (decyzja Artura 17.10.2026)
+
+Blokady `client_rules` nie da się pominąć („To nieprawda” — 422), więc
+fałszywa stawka zostawia rekruterowi tylko „Przekaż mimo uwag…”. Do
+`qc-truth-1` QC brało luźne „liczba + waluta” (`_AMOUNT`) przy słowie
+o pieniądzach w całym bloku: „Moduł wynagrodzeń dla 250 zleceniobiorców”
+(„250 zl…”), „3 europejskich” (EUR). „Usuń stawkę” (PR #2290) w takim zdaniu
+nic nie usuwało. Raport i decyzja: `docs/qc-rate-in-cv-proposal.md`.
+
+- **Jedna reguła dla uwagi i poprawki:** `rate_mentions` sprawdza cały blok,
+  a `strip_client_rules_html` zdanie po zdaniu — obie przez `_mentions_rate`
+  → `money_text.is_cv_rate_text`. Cały blok w QC, bo skrót spoza listy
+  `_SENTENCE_PIECE` („Daily rate approx. 600 EUR”) dzieliłby stawkę na dwa
+  zdania i QC by ją przepuściło (przegląd 17.10.2026). Lista skrótów ma też
+  „approx.”, „godz.”, „mies.”, „dz.”, „hr.”, „tys.”, „mln.”.
+- **`is_cv_rate_text`, nie `is_rate_text`.** W notatce o kandydacie
+  „wynagrodzenie”, „stawka”, „rate” to prawie zawsze jego pieniądze; w CV
+  bywają dziedziną pracy. Stawka w CV: kwota za czas („150 zł/h”); kwota
+  z walutą, także słowem („150 złotych”, „50 euros”), w oknie słowa
+  o pieniądzach, chyba że tuż przed nią stoi budżet projektu („o budżecie
+  2 mln PLN”); liczba bez waluty po takim słowie tylko na końcu zdania albo
+  przed formą rozliczenia („Stawka: 150”, „Stawka 150 B2B”, „… za godzinę”,
+  „+ VAT”) i nie rok ani data („Specjalista ds. wynagrodzeń 2018 – 2022”).
+  „Naliczanie wynagrodzeń 300 pracowników”, „System wynagrodzeń 2.0”,
+  „Error rate 0.1 po wdrożeniu”, „Rate 100 per request” to treść CV.
+  `is_rate_text` zostaje dla notatek (materiał generatora), bo tam „stawka
+  150 obecnie” to stawka.
+- **Czego reguła nie łapie** (tak jak `qc-truth-1`): kwoty za czas bez słowa
+  o pieniądzach („Oczekiwania finansowe: 150 zł/h netto”), liczby po
+  przymiotniku („Stawka godzinowa: 150 B2B”), roku jako kwoty („Stawka: 2000”).
+- **Koszt:** liczba bez waluty — od słowa, w oknie 80 znaków (ogon na całym
+  tekście); kwoty z walutą — w oknie 80 znaków wokół słowa o pieniądzach.
+  `_AMOUNT` z `qc-truth-1` liczyło blok „stawka” + 20 tys. cyfr 7 s
+  (kwadratowo); nowa reguła 200 tys. cyfr, spacji albo sklejonego słowa —
+  setne sekundy.
+- **`QC_VERSION` bez zmian.** Pomiar 17.10.2026 (295 par z przebiegiem QC,
+  tylko odczyt): ani stara, ani nowa reguła nie znajduje stawki w żadnym
+  bieżącym CV, wynik QC jest ten sam. Podbicie przeliczyłoby nieudane pary
+  i zapisało przebiegi bez zmiany (`_store_run` porównuje też wersję).
+- **Pomiar przed merge'em:** `backend/scripts/qc_rate_mentions_eval.py`
+  przez nakładkę `backend/scripts/qc_overlay.py` (kod gałęzi w procesie
+  z obrazu produkcji, przez stdin, bez zapisu w kontenerze).
+
+Testy: sekcja „Stawka w CV” w `tests/test_cv_qc.py` (`CV_NOT_RATES`,
+`CV_RATES`: uwaga QC i „Usuń stawkę” zgadzają się na każdym przykładzie;
+`test_rate_mentions_is_linear`).

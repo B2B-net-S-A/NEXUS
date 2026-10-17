@@ -61,7 +61,7 @@ from app.services.recommendation_card_parser import (
     redact_card_text,
 )
 from app.services.dz_review import Block, Requirement, Role
-from app.services.money_text import MONEY_RE, RATE_WORD_RE, is_rate_text
+from app.services.money_text import MONEY_RE, RATE_WORD_RE, is_cv_rate_text
 from app.services.prompt_fencing import fence, restore_tags
 from app.core.scheduling import business_today
 
@@ -78,6 +78,9 @@ FIXES_PROMPT_VERSION = "cv-qc-fixes-v6"
 # odmiany, zapisu i tłumaczeń (`dz.found_in`), nagłówek nie jest twierdzeniem,
 # tytuł z `cv_role_title`, pogrubienia tylko gdy generator pogrubiał, zdanie
 # w roli tylko przy opisie roli w oryginale.
+# „Stawka w CV” regułą „Usuń stawkę” (`money_text.is_cv_rate_text`, 17.10.2026)
+# bez podbicia: pomiar na produkcji — 295 par, ten sam wynik QC co stara reguła,
+# więc przeliczenie zapisałoby tylko nowe przebiegi bez zmiany.
 QC_VERSION = "qc-truth-1"
 # Runda 8 (R8-N8-2): cytat źródła musi być zdaniem o wymaganiu, nie słowem.
 SOURCE_QUOTE_MIN_WORDS = 4
@@ -639,14 +642,9 @@ def role_has_dates(blocks: list[Block], indices: list[int]) -> bool:
 
 # ── Reguły klienta: stawki, kontakt ─────────────────────────────────────────
 
-_AMOUNT = re.compile(
-    r"\d[\d\s.,]*\s*(?:z[łl]|pln|eur|€|usd|\$)(?:\s*/\s*(?:h|godz|md|dzie[nń]|mies))?"
-    r"|\d[\d\s.,]*\s*/\s*(?:h|godz|md)\b",
-    re.IGNORECASE,
-)
-# Kwota pieniędzy, ściślej niż `_AMOUNT`, które bierze „3 europejskich”
-# i „5 złożonych” za euro i złote: tam decyduje dopiero słowo „stawka” obok,
-# a ten wzorzec sam odrzuca cytat albo propozycję (poprawki QC, AI w edytorze).
+# Kwota pieniędzy, ściślej niż luźne „liczba + waluta”, które bierze
+# „3 europejskich” i „5 złożonych” za euro i złote: ten wzorzec sam odrzuca
+# cytat albo propozycję (poprawki QC, AI w edytorze).
 # Jeden wzorzec z materiałem generatora CV (`money_text`).
 _MONEY = MONEY_RE
 _RATE_WORD = RATE_WORD_RE
@@ -679,11 +677,12 @@ def brings_money(
 
 
 def rate_mentions(blocks: list[Block]) -> list[str]:
-    out: list[str] = []
-    for block in blocks:
-        if _RATE_WORD.search(block.text) and _AMOUNT.search(block.text):
-            out.append(block.text[:120])
-    return out
+    """Bloki ze stawką — regułą „Usuń stawkę” (`_mentions_rate`, decyzja
+    Artura 17.10.2026). Cały blok, nie zdanie po zdaniu: skrót spoza listy
+    `_SENTENCE_PIECE` („Daily rate approx. 600 EUR”) dzieliłby stawkę na dwa
+    zdania i przepuszczał ją — przy blokadzie wolimy uwagę bez poprawki
+    jednym kliknięciem niż stawkę u klienta."""
+    return [block.text[:120] for block in blocks if _mentions_rate(block.text)]
 
 
 def contact_leaks(text: str, email: Optional[str], phone: Optional[str]) -> list[str]:
@@ -4640,27 +4639,24 @@ _HREF = re.compile(r"""\bhref\s*+=\s*+["']([^"']*+)["']""", re.IGNORECASE)
 # „ok.”, „np.”, „ca.”, „tj.”, „min.”, „max.” też nie (stawka „ok. 150 zł/h”).
 _SENTENCE_PIECE = re.compile(
     r"(?:[^.!?;\n]|[.!?;](?=\d)"
-    r"|(?:(?<=\bok)|(?<=\bnp)|(?<=\bca)|(?<=\btj)|(?<=\bmin)|(?<=\bmax))\."
+    r"|(?:(?<=\bok)|(?<=\bnp)|(?<=\bca)|(?<=\btj)|(?<=\bmin)|(?<=\bmax)"
+    # Skróty przy stawce: „Stawka godz. 150 zł”, „Daily rate approx. 600 EUR”.
+    r"|(?<=\bapprox)|(?<=\bgodz)|(?<=\bmies)|(?<=\bdz)|(?<=\bhr)|(?<=\btys)"
+    r"|(?<=\bmln))\."
     # Skrót przedłuża zdanie tylko przed cyfrą, małą literą albo walutą —
     # „do 5 min. Oczekiwana stawka…” to dwa zdania (przegląd PR 2, runda 3).
     r"(?=[^\S\n]*+(?-i:[\da-ząćęłńóśźż€$])))*+(?:[.!?;]++|\n|$)",
     re.IGNORECASE,
 )
-# Kwoty szukamy tylko w oknie wokół słowa o pieniądzach: wzorce kwot wracają
-# kwadratowo na długim ciągu cyfr bez waluty, a stawka stoi przy swoim słowie.
-_RATE_WINDOW = 80
 _LEFTOVER_MAX = 80
 
 
 def _mentions_rate(text: str) -> bool:
-    """Stawka w tekście — ścisłe `money_text.is_rate_text` (kwota za czas albo
-    przy słowie „stawka”), nie luźne `_AMOUNT`: „Moduł wynagrodzeń dla 250
-    zleceniobiorców” i „Rate limiting dla 10 zleceń” to treść CV."""
-    for m in _RATE_WORD.finditer(text):
-        window = text[max(0, m.start() - _RATE_WINDOW) : m.end() + _RATE_WINDOW]
-        if is_rate_text(window):
-            return True
-    return False
+    """Stawka w zdaniu CV — `money_text.is_cv_rate_text`, jedna reguła dla
+    uwagi QC „Stawka w CV” (`rate_mentions`) i dla „Usuń stawkę”: „Moduł
+    wynagrodzeń dla 250 zleceniobiorców”, „Naliczanie wynagrodzeń 300
+    pracowników” i „Rate limiting dla 10 zleceń” to treść CV."""
+    return is_cv_rate_text(text)
 
 
 def _tidy_separators(text: str) -> str:
