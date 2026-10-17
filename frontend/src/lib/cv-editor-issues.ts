@@ -452,6 +452,57 @@ export interface IssueRows {
 
 const CHECK_FIXES: readonly CheckFixKind[] = ["bold_all", "spelling"];
 
+/** Zdanie uwagi QC (`QcItem.detail` — tekst z kontraktu QC, nie `detail` błędu API). */
+export function itemSentence(item: QcItem): string {
+  return typeof item.detail === "string" ? item.detail : "";
+}
+
+/**
+ * Poprawka jednym przyciskiem dla pozycji bez `fix` z serwera (PR 2,
+ * 17.10.2026). QC nie dostał nowego pola — zmieniłoby skrót zapisanego
+ * przebiegu i wyzerowało czas oczekiwania w kolejce DL — więc rodzaj poprawki
+ * wynika z klucza sprawdzenia: lata według historii, tytuł z rekrutacji
+ * (serwer bierze go sam), stawka albo kontakt kandydata w CV.
+ */
+export function itemQuickFix(check: QcCheck, item: QcItem): QcFixAction | null {
+  if (check.status !== "fail" || item.fix) return null;
+  if (check.key === "years_header") return { action: "years" };
+  if (check.key === "title_matches_role" && item.term?.trim()) return { action: "title" };
+  if (check.key === "client_rules" && /^(Stawka w CV|CV zawiera)/.test(itemSentence(item))) {
+    return { action: "strip_client_rules" };
+  }
+  return null;
+}
+
+const YEARS_NUMBER = /(?<![\d.,])(\d{1,2})(\s*\+?\s*)(lata|lat|roku|years?|yrs)\b/i;
+
+/** „lat” / „lata” po liczbie (lustro `cv_qc._years_word`). */
+function yearsWord(word: string, n: number): string {
+  const low = word.toLowerCase();
+  if (low === "lat" || low === "lata") {
+    const few = [2, 3, 4].includes(n % 10) && ![12, 13, 14].includes(n % 100);
+    return few ? "lata" : "lat";
+  }
+  if (low === "year" || low === "years") return n === 1 ? "year" : "years";
+  return word;
+}
+
+/**
+ * Podgląd poprawki lat: (cytat z CV, cytat po poprawce). Liczba z historii stoi
+ * w zdaniu uwagi QC („… wychodzi 7.”); bez niej — `null` (sam przycisk).
+ */
+export function yearsPreview(item: QcItem): { before: string; after: string } | null {
+  const quote = item.term?.trim();
+  const actual = /wychodzi (\d+)/.exec(itemSentence(item));
+  if (!quote || !actual) return null;
+  const n = Number(actual[1]);
+  if (!Number.isFinite(n) || n < 1) return null;
+  const match = YEARS_NUMBER.exec(quote);
+  if (!match) return null;
+  const after = quote.replace(YEARS_NUMBER, `${n}${match[2]}${yearsWord(match[3], n)}`);
+  return after === quote ? null : { before: quote, after };
+}
+
 /** Ta sama nazwa wymagania albo terminu (po normalizacji). */
 function sameName(left: string | null | undefined, right: string | null | undefined): boolean {
   const a = normalizeQcText(left ?? "");
@@ -515,7 +566,8 @@ export function issueRows(list: IssueList, fixes: readonly QcFix[], fixesPending
           const fixable =
             item.fix === "role_order" ||
             (item.fix === "remove_term" && term !== "") ||
-            (item.fix === "ai" && (own.length > 0 || fixesPending));
+            (item.fix === "ai" && (own.length > 0 || fixesPending)) ||
+            itemQuickFix(check, item) !== null;
           (fixable ? rows.fixable : rows.decide).push(row);
         });
         break;
@@ -535,8 +587,11 @@ export function rowInBulk(row: IssueRow): boolean {
     case "proposal":
       return true;
     case "task":
-    case "item":
       return row.fixes.length > 0;
+    case "item": {
+      const quick = itemQuickFix(row.check, row.item)?.action;
+      return row.fixes.length > 0 || quick === "years" || quick === "title";
+    }
     default:
       return false;
   }
@@ -572,6 +627,16 @@ export function appliedLabel(action: QcFixAction, checks: readonly QcCheck[], fi
       return "Poprawiono pisownię technologii";
     case "role_order":
       return "Ułożono stanowiska od najnowszego";
+    case "years":
+      return "Lata doświadczenia według historii";
+    case "title": {
+      const title = checks.find((check) => check.key === "title_matches_role")?.items[0]?.term?.trim();
+      return title ? `Tytuł CV: „${title}”` : "Tytuł CV z rekrutacji";
+    }
+    case "strip_client_rules":
+      return "Usunięto stawkę i kontakt kandydata z CV";
+    case "remove_line":
+      return `Usunięto: „${action.text}”`;
     case "remove_term":
       return `Usunięto „${action.term}” z CV`;
     case "ai_fix": {
@@ -614,8 +679,9 @@ export interface BulkPlan {
 
 /**
  * Poprawki, które wolno nałożyć hurtem (decyzja Artura D2, 12.10.2026):
- * formalne (pogrubienie wymagań, pisownia technologii) i zdania AI
- * w brzmieniu z serwera, czyli z cytatem sprawdzonym w źródle. Usunięcie
+ * formalne (pogrubienie wymagań, pisownia technologii), zdania AI
+ * w brzmieniu z serwera, czyli z cytatem sprawdzonym w źródle, a od
+ * 17.10.2026 (D4) lata według historii i tytuł z rekrutacji. Usunięcie
  * terminu i zdanie AI po edycji zatwierdza się pojedynczo — serwer i tak
  * odrzuca je w trybie `bulk` (`cv_qc.BULK_ACTIONS`). Zdania AI idą pierwsze:
  * szukają swojej linii po tekście, który pisownia by zmieniła (serwer ustawia
@@ -638,6 +704,18 @@ export function bulkPlan(checks: readonly QcCheck[], fixes: readonly QcFix[]): B
       }
     }
     spelling += check.items.filter((item) => item.fix === "spelling").length;
+    // D4 (17.10.2026): lata i tytuł liczy kod z danych QC — wchodzą do hurtu.
+    for (const item of check.items) {
+      const quick = itemQuickFix(check, item);
+      if (quick?.action === "years" && !actions.some((action) => action.action === "years")) {
+        actions.push(quick);
+        parts.push("lata doświadczenia według historii");
+      }
+      if (quick?.action === "title" && !actions.some((action) => action.action === "title")) {
+        actions.push(quick);
+        parts.push("tytuł CV z rekrutacji");
+      }
+    }
   }
   if (spelling > 0) {
     actions.push({ action: "spelling" });

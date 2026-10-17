@@ -880,6 +880,58 @@ describe("odpowiedzi jednym kliknięciem i „To nieprawda” (D5)", () => {
   });
 });
 
+describe("lata, tytuł, stawka i zdanie z kontroli AI jednym kliknięciem (PR 2, 17.10.2026)", () => {
+  const PR2_CHECKS: QcCheck[] = [
+    check({
+      key: "client_rules",
+      label: "Reguły klienta",
+      severity: "blocking",
+      items: [{ detail: "Stawka w CV: „150 zł/h”. Usuń — stawek w CV nie wysyłamy." }],
+    }),
+    check({
+      key: "years_header",
+      label: "Lata doświadczenia zgodne z historią",
+      items: [{ term: "Ponad 10 lat", detail: "Nagłówek mówi „Ponad 10 lat”, a z dat historii wychodzi 7." }],
+    }),
+    check({
+      key: "title_matches_role",
+      label: "Tytuł CV zgodny ze stanowiskiem",
+      items: [{ term: "Senior Java Developer", detail: "Początek CV nie mówi „Senior Java Developer” — sprawdź tytuł w nagłówku." }],
+    }),
+  ];
+
+  it("każda uwaga ma swój przycisk, a serwer dostaje akcję bez tekstu od klienta (poza linią kontroli AI)", async () => {
+    const api = memoryApi({ qc: vi.fn(async () => qcResult({ checks: PR2_CHECKS })) });
+    const { editor } = setup({ api });
+    const before = editor.getHTML();
+
+    const rate = await screen.findByRole("button", { name: "Usuń stawkę" });
+    fireEvent.click(rate);
+    await waitFor(() => expect(api.transform).toHaveBeenLastCalledWith(STAGE, { content_html: before, actions: [{ action: "strip_client_rules" }], bulk: false }));
+
+    const fixable = screen.getByRole("region", { name: "Do poprawy" });
+    expect(fixable).toHaveTextContent("Ponad 10 lat Ponad 7 lat");
+    expect(fixable).toHaveTextContent("Tytuł CV: Senior Java Developer");
+    expect(within(fixable).getByRole("button", { name: /Popraw wszystkie \(2\)/ })).toBeInTheDocument();
+
+    await waitFor(() => expect(within(fixable).getByRole("button", { name: "Zmień lata według historii" })).toBeEnabled());
+    fireEvent.click(within(fixable).getByRole("button", { name: "Zmień lata według historii" }));
+    await waitFor(() => expect(api.transform).toHaveBeenLastCalledWith(STAGE, expect.objectContaining({ actions: [{ action: "years" }] })));
+    await waitFor(() => expect(within(fixable).getByRole("button", { name: "Wpisz tytuł: Senior Java Developer" })).toBeEnabled());
+    fireEvent.click(within(fixable).getByRole("button", { name: "Wpisz tytuł: Senior Java Developer" }));
+    await waitFor(() => expect(api.transform).toHaveBeenLastCalledWith(STAGE, expect.objectContaining({ actions: [{ action: "title" }] })));
+  });
+
+  it("„Usuń zdanie” przy kontroli AI usuwa tę linię", async () => {
+    const api = memoryApi();
+    setup({ api });
+    fireEvent.click(await screen.findByRole("button", { name: "Usuń zdanie: „Przeglądy kodu.”" }));
+    await waitFor(() =>
+      expect(api.transform).toHaveBeenCalledWith(STAGE, expect.objectContaining({ actions: [{ action: "remove_line", text: "Przeglądy kodu." }], bulk: false })),
+    );
+  });
+});
+
 describe("zdania AI w wierszu swojej uwagi (D5, 14.10.2026 → wariant A)", () => {
   const AI_CHECKS: QcCheck[] = [
     ...CHECKS,

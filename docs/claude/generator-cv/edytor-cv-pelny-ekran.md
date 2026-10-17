@@ -376,6 +376,44 @@ Komponenty: `cv-editor/CvEditorIssues.tsx` (grupy, „Poprawione”, pasek),
   blokuje wysyłki”; grupy mają własne liczby wierszy (pogrubienie trzech
   wymagań to jeden wiersz). Licznik w pasku i na karcie „CV do klienta” liczy
   dalej `buildIssueList().total`.
+- **D3 · nowe poprawki jednym kliknięciem (PR 2).** Akcje `qc/transform` tylko
+  dla edytora (`QcTransformAction`; okno QC i `qc/apply` bez zmian):
+  `years` (lata w nagłówku i staż w firmie według dat historii — te same
+  `header_years`, `company_year_claims`, `experience_years`; bez pełnych dat
+  nic; „lat” → „lata” po nowej liczbie; liczba podmieniana W MIEJSCU cytatu QC,
+  nie pierwsza równa w bloku; historia = `candidate.experience`, ta sama co
+  w uwadze QC, nie odczyt z `role_entries`; najwyżej `YEARS_CLAIMS_MAX` = 10
+  twierdzeń o stażu na kliknięcie), `title` (tylko układ generatora „Rola –
+  Imię”: imię i nazwisko kandydata po prawej stronie OSTATNIEGO separatora,
+  jak `stage_cv_copy._name_part`, i nie po lewej; „Imię – Rola”, dopisek po
+  imieniu („… – Anna K. | Warszawa”), imię po obu stronach, brak imienia albo
+  separatora = nic, bo po prawej mogłoby stać miasto albo forma umowy; tytuł
+  bierze serwer z `expected_titles`, nie od klienta), `strip_client_rules`
+  (zdanie ze stawką według ścisłego
+  `money_text.is_rate_text` w oknie 80 znaków wokół słowa o pieniądzach —
+  „Moduł wynagrodzeń dla 250 zleceniobiorców” zostaje; kropka między cyframi
+  ani skrót przed cyfrą, małą literą albo walutą („ok. 150 zł/h”) nie kończą
+  zdania — „do 5 min. Oczekiwana stawka…” to dwa zdania; punkt mówiący tylko o stawce
+  znika cały, także z kwotą w pogrubieniu; e-mail i telefon kandydata (także
+  z twardymi spacjami) razem z etykietą oraz odnośniki `mailto:` / `tel:` do
+  nich, tylko w treści CV; sprzątanie pustych bloków tylko w blokach
+  zmienionych w tym wywołaniu; klauzula zgody i linie szablonu nietknięte),
+  `remove_line` (punkt albo akapit treści o tekście linii z kontroli AI —
+  każdy o tym tekście, bo uwaga nie niesie miejsca). `years` i `title` wchodzą do „Popraw
+  wszystkie” (D4, `BULK_ACTIONS`), usunięcia — pojedynczo.
+- **Wynik QC bez nowych pól.** Panel rozpoznaje te uwagi po kluczu sprawdzenia
+  (`itemQuickFix`: `years_header`, `title_matches_role`, `client_rules`
+  ze zdaniem „Stawka w CV…” / „CV zawiera…”). Nowe pole w pozycjach zmieniłoby
+  `_checks_hash`, więc następny zapis przebiegu dostałby nowy wiersz z dzisiejszą
+  datą — a od niej kolejka Delivery Leada liczy czas oczekiwania. Podgląd lat
+  bierze liczbę ze zdania uwagi („… wychodzi 7.”); bez niej sam przycisk.
+- **Liniowo.** Każda z czterech operacji przechodzi testy z limitem czasu
+  procesora (`test_one_click_actions_are_linear`, `…_on_raw_whitespace` —
+  200 tys. odstępów). Węzły tekstu mają SUROWE odstępy (inaczej niż
+  `Block.text`), więc: separatory i etykiety z `(?<!\s)` i kwantyfikatorami
+  zaborczymi, `[^\S\n]` zamiast sąsiednich `\s*`, kwota tylko w oknie wokół
+  słowa o pieniądzach, węzły bloków liczone raz (`_nodes_by_block` — wołanie
+  `_block_nodes` dla każdego bloku było kwadratowe: 54 s przy 20 tys. punktów).
 
 ## AI na zaznaczeniu (PR 3, 13.10.2026)
 

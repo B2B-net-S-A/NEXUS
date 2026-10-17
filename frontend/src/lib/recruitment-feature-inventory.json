@@ -2228,6 +2228,14 @@
    "v3_home": "karta „CV do klienta” → Otwórz i popraw → Do poprawy → Do decyzji"
   },
   {
+   "id": "cv.editor-one-click-years-title-rules",
+   "area": "cv",
+   "opis": "Panel „Do poprawy” (PR 2, 17.10.2026): lata w nagłówku według historii („Zmień”, z podglądem), tytuł CV z rekrutacji („Wpisz”), stawka i kontakt kandydata („Usuń stawkę” / „Usuń dane kontaktowe”) i „Usuń zdanie” przy uwadze kontroli AI — jednym kliknięciem; lata i tytuł także w „Popraw wszystkie”",
+   "file": "components/v2/cv-editor/CvEditorIssueRows.tsx",
+   "marker": "Zmień lata według historii",
+   "v3_home": "karta „CV do klienta” → Otwórz i popraw → Do poprawy"
+  },
+  {
    "id": "cv.editor-issues-override-in-panel",
    "area": "cv",
    "opis": "„Przekaż mimo uwag…” w nagłówku grupy „Blokuje wysyłkę” (17.10.2026) — to samo okno obejścia co w stopce, tylko gdy karta stoi na „Zweryfikowany” i jest prawo obejścia",

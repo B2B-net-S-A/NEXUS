@@ -4347,3 +4347,390 @@ def test_role_order_fix_refuses_roles_split_across_sections() -> None:
     assert (out, applied) == (html, [])
     assert [s["code"] for s in skipped] == ["nothing_to_do"]
     assert skipped[0]["message"] == qc.ROLE_ORDER_UNKNOWN
+
+
+# ── Poprawki jednym kliknięciem z panelu „Do poprawy” (wariant A, PR 2, 17.10.2026) ──
+
+TODAY_PR2 = date(2026, 10, 17)
+EXPERIENCE_PR2 = [
+    {"company": "Bank Alfa", "start": "2023-01", "end": None},
+    {"company": "Software House Beta", "start": "2018-03", "end": "2022-12"},
+]
+
+
+def test_years_header_follows_the_dates_of_the_history() -> None:
+    html = "<h1>Dev – Anna P.</h1><p>Ponad 12 lat doświadczenia w Javie.</p>"
+    out, count = qc.fix_years_html(html, EXPERIENCE_PR2, today=TODAY_PR2)
+    # 03.2018–10.2026 bez przerwy = 8 lat.
+    assert count == 1
+    assert "Ponad 8 lat doświadczenia w Javie." in out
+    # Zgodne z historią — nic do zrobienia.
+    assert qc.fix_years_html(out, EXPERIENCE_PR2, today=TODAY_PR2) == (out, 0)
+
+
+def test_years_keep_polish_grammar_and_survive_bold() -> None:
+    short = [{"company": "Bank Alfa", "start": "2023-02", "end": None}]
+    out, count = qc.fix_years_html(
+        "<p>Ponad <strong>10 lat</strong> doświadczenia</p>", short, today=TODAY_PR2
+    )
+    assert count == 1
+    assert "<strong>3 lata</strong>" in out
+
+
+def test_company_years_claim_follows_that_role() -> None:
+    html = (
+        "<p>8 lat doświadczenia w IT, w tym 6 lat w Bank Alfa.</p>"
+        '<p data-cv-section="role"><strong>Dev</strong> 2023 – obecnie</p>'
+    )
+    out, count = qc.fix_years_html(html, EXPERIENCE_PR2, today=TODAY_PR2)
+    assert count == 1
+    assert "w tym 3 lata w Bank Alfa" in out
+    assert "8 lat doświadczenia w IT" in out
+
+
+def test_years_without_full_history_are_left_alone() -> None:
+    html = "<p>Ponad 12 lat doświadczenia.</p>"
+    broken = [{"company": "Bank Alfa", "start": None, "end": None}]
+    assert qc.fix_years_html(html, broken, today=TODAY_PR2) == (html, 0)
+
+
+def test_title_replaces_the_role_before_the_name() -> None:
+    out, count = qc.set_title_html(
+        "<h1>Java Developer – Anna P.</h1><p>x</p>", "Senior Java Developer", "Anna P."
+    )
+    assert count == 1
+    assert out.startswith("<h1>Senior Java Developer – Anna P.</h1>")
+    bold, count = qc.set_title_html(
+        "<h1><strong>Dev</strong> – Anna P.</h1>", "Senior Java Developer", "Anna P."
+    )
+    assert count == 1 and bold.startswith(
+        "<h1><strong>Senior Java Developer</strong> – Anna P."
+    )
+
+
+@pytest.mark.parametrize(
+    "html",
+    [
+        "<h1>Anna P.</h1>",  # bez roli w nagłówku — tytuł wpisuje człowiek
+        "<p>Brak nagłówka</p>",
+        "<h1>Senior Java Developer – Anna P.</h1>",  # już zgodny
+    ],
+)
+def test_title_does_not_guess(html: str) -> None:
+    assert qc.set_title_html(html, "Senior Java Developer", "Anna P.") == (html, 0)
+
+
+def test_client_rules_remove_rate_and_contact_but_not_the_consent() -> None:
+    html = (
+        "<ul><li>Stawka: 150 zł/h B2B</li><li>Java 17, Spring Boot</li></ul>"
+        "<p>Zna branżę płatności. Oczekiwana stawka 150 zł/h netto. Dostępna od zaraz.</p>"
+        "<p>Kontakt: anna.p@example.com</p>"
+        "<p>Telefon kandydata: +48 600 100 200, wolne popołudnia</p>"
+        '<p data-cv-section="rodo">Zgoda na przetwarzanie danych — kontakt: rodo@example.com</p>'
+    )
+    out, count = qc.strip_client_rules_html(html, "anna.p@example.com", "600-100-200")
+    assert count >= 4
+    assert "150 zł" not in out
+    assert "<li>Java 17, Spring Boot</li>" in out
+    assert "Zna branżę płatności." in out and "Dostępna od zaraz." in out
+    assert "anna.p@example.com" not in out and "Kontakt:" not in out
+    assert "600 100 200" not in out and "wolne popołudnia" in out
+    # Klauzula zgody zostaje nietknięta.
+    assert "rodo@example.com" in out
+
+
+def test_client_rules_nothing_to_strip() -> None:
+    html = "<p>Java 17</p>"
+    assert qc.strip_client_rules_html(html, None, None) == (html, 0)
+
+
+def test_remove_line_removes_only_that_content_line() -> None:
+    html = (
+        "<h2>Przeglądy kodu.</h2>"
+        "<ul><li>Rozwój usług.</li><li>Przeglądy  kodu.</li></ul>"
+        "<p>Przeglądy kodu.</p>"
+        '<p data-cv-section="rodo">Przeglądy kodu.</p>'
+    )
+    out, count = qc.remove_line_html(html, "przeglądy kodu.")
+    assert count == 2
+    assert out.count("Przeglądy kodu.") == 2  # nagłówek i klauzula zostają
+    assert "<li>Rozwój usług.</li>" in out
+    assert qc.remove_line_html(html, "") == (html, 0)
+
+
+def test_transform_one_click_actions_and_bulk_rules() -> None:
+    html = (
+        "<h1>Java Developer – Anna P.</h1>"
+        "<p>Ponad 12 lat doświadczenia.</p>"
+        "<ul><li>Stawka: 150 zł/h</li><li>Przeglądy kodu.</li></ul>"
+    )
+    common = dict(
+        must=[],
+        nice=[],
+        fixes={},
+        experience=EXPERIENCE_PR2,
+        titles=("Senior Java Developer",),
+        email=None,
+        phone=None,
+        today=TODAY_PR2,
+        history=EXPERIENCE_PR2,
+        candidate_name="Anna P.",
+    )
+    out, applied, skipped = qc.transform_html(
+        html,
+        [{"action": "years"}, {"action": "title"}, {"action": "strip_client_rules"}],
+        bulk=True,
+        **common,
+    )
+    # D4: lata i tytuł wchodzą do „Popraw wszystkie”, usunięcia — pojedynczo.
+    assert [a["action"] for a in applied] == ["years", "title"]
+    assert [(s["action"], s["code"]) for s in skipped] == [
+        ("strip_client_rules", "not_in_bulk")
+    ]
+    assert "Ponad 8 lat" in out and "Senior Java Developer – Anna P." in out
+    out, applied, skipped = qc.transform_html(
+        out,
+        [
+            {"action": "strip_client_rules"},
+            {"action": "remove_line", "text": "Przeglądy kodu."},
+        ],
+        bulk=False,
+        **common,
+    )
+    assert [a["action"] for a in applied] == ["strip_client_rules", "remove_line"]
+    assert "Stawka" not in out and "Przeglądy" not in out
+    # Bez tytułu z rekrutacji nie ma czego wpisać.
+    _, applied, skipped = qc.transform_html(
+        html, [{"action": "title"}], bulk=False, **{**common, "titles": ()}
+    )
+    assert applied == [] and skipped[0]["code"] == "nothing_to_do"
+
+
+@pytest.mark.parametrize(
+    "run",
+    [
+        lambda html: qc.fix_years_html(html, EXPERIENCE_PR2, today=TODAY_PR2),
+        lambda html: qc.set_title_html(html, "Senior Java Developer", "Anna"),
+        lambda html: qc.strip_client_rules_html(html, "a@example.com", "600100200"),
+        lambda html: qc.remove_line_html(html, "x"),
+    ],
+)
+def test_one_click_actions_are_linear(run) -> None:
+    html = (
+        "<h1>Dev"
+        + " " * 200000
+        + "– Anna</h1>"
+        + "<ul>"
+        + "<li>x</li>" * 20000
+        + "</ul>"
+        + "<p>stawka "
+        + "1" * 200000
+        + "</p>"
+    )
+    spent = _cpu(lambda: run(html))
+    assert spent < TRANSFORM_CPU_LIMIT, f"{spent:.1f} s"
+
+
+# ── Przegląd PR 2 (python-reviewer, 17.10.2026) ──────────────────────────────
+
+K_PR2 = 200000
+
+
+@pytest.mark.parametrize(
+    "run",
+    [
+        # Odstępy bez separatora po nich — wyszukiwanie separatora od każdej spacji.
+        lambda: qc.set_title_html(
+            "<h1>Dev" + " " * K_PR2 + "Anna</h1>", "Senior", "Anna"
+        ),
+        # Sąsiednie `\s*\+?\s*` po liczbie lat.
+        lambda: qc.fix_years_html(
+            "<p>1" + " " * K_PR2 + "x <b>Ponad 12 lat doświadczenia</b></p>",
+            EXPERIENCE_PR2,
+            today=TODAY_PR2,
+        ),
+        # Zdanie ze stawką bez końca zdania przed nową linią.
+        lambda: qc.strip_client_rules_html(
+            "<p>Stawka: 100 zł/h " + "a" * K_PR2 + "\nb</p>", None, None
+        ),
+        # Etykieta kontaktu i długie odstępy bez numeru.
+        lambda: qc.strip_client_rules_html(
+            "<p>tel" + " " * K_PR2 + "x</p>", None, "600100200"
+        ),
+        # Sprzątanie separatorów po numerze.
+        lambda: qc.strip_client_rules_html(
+            "<p>Tel: 600 100 200" + " " * K_PR2 + "x</p>", None, "600100200"
+        ),
+    ],
+)
+def test_one_click_actions_are_linear_on_raw_whitespace(run) -> None:
+    spent = _cpu(run)
+    assert spent < TRANSFORM_CPU_LIMIT, f"{spent:.1f} s"
+
+
+def test_years_replace_the_quoted_claim_not_the_first_equal_number() -> None:
+    html = "<p>Ponad 8 lat doświadczenia, w tym 8 lat w Bank Alfa</p>"
+    out, count = qc.fix_years_html(html, EXPERIENCE_PR2, today=TODAY_PR2)
+    # Nagłówek (8 vs 8,6) się zgadza; myli się staż w Banku Alfa (3 lata).
+    assert count == 1
+    assert "Ponad 8 lat doświadczenia, w tym 3 lata w Bank Alfa" in out
+
+
+def test_strip_client_rules_leaves_untouched_blocks_alone() -> None:
+    html = (
+        "<ul><li>Backend</li><li>Mobile</li><li>Cloud</li></ul>"
+        "<ul><li>Kontakt</li><li>Adres</li></ul><p>—</p>"
+        "<p>Stawka: 100 zł/h</p>"
+    )
+    out, count = qc.strip_client_rules_html(html, None, None)
+    assert count == 1 and "Stawka" not in out
+    for kept in ("<li>Mobile</li>", "<li>Kontakt</li>", "<li>Adres</li>", "<p>—</p>"):
+        assert kept in out
+
+
+@pytest.mark.parametrize(
+    "html",
+    [
+        "<p>Moduł wynagrodzeń dla 250 zleceniobiorców. Java 17.</p>",
+        "<p>Rate limiting dla 10 zleceń na sekundę. Kafka.</p>",
+        "<p>Zarządzał stawkami VAT w 5 złożonych procesach.</p>",
+    ],
+)
+def test_strip_client_rules_keeps_content_that_only_looks_like_money(html: str) -> None:
+    assert qc.strip_client_rules_html(html, None, None) == (html, 0)
+
+
+def test_strip_client_rules_handles_decimals_and_bold_amounts() -> None:
+    out, count = qc.strip_client_rules_html(
+        "<p>Java 17. Oczekiwana stawka 150.50 zł/h netto. Dostępna od zaraz.</p>"
+        "<ul><li>Stawka: <b>150 zł/h</b></li></ul>",
+        None,
+        None,
+    )
+    assert count == 2
+    assert "150" not in out
+    assert "Java 17." in out and "Dostępna od zaraz." in out
+
+
+def test_strip_client_rules_removes_contact_links_too() -> None:
+    html = (
+        '<p>Java Developer, 8 lat. <a href="mailto:anna@x.pl">anna@x.pl</a> '
+        '<a href="tel:+48600100200">+48 600 100 200</a></p>'
+    )
+    out, count = qc.strip_client_rules_html(html, "anna@x.pl", "600 100 200")
+    assert count >= 2
+    assert (
+        "anna@x.pl" not in out and "600100200" not in out and "600 100 200" not in out
+    )
+    assert "Java Developer, 8 lat." in out
+
+
+def test_title_keeps_the_candidate_name() -> None:
+    # Układ generatora „Rola – Imię”: imię zostaje, rola się zmienia.
+    out, count = qc.set_title_html(
+        "<h1>Python Developer – Anna Kowalska</h1>",
+        "Senior Java Developer",
+        "Anna Kowalska",
+    )
+    assert count == 1 and out == "<h1>Senior Java Developer – Anna Kowalska</h1>"
+    # „Imię – Rola” (np. z wgranego Worda): po prawej mogłoby stać miasto — nic.
+    html = "<h1>Anna Kowalska – Python Developer</h1>"
+    assert qc.set_title_html(html, "Senior Java Developer", "Anna Kowalska") == (
+        html,
+        0,
+    )
+
+
+@pytest.mark.parametrize(
+    "html",
+    [
+        "<h1>Anna Kowalska - Nowak</h1>",  # nazwisko dwuczłonowe — imię po obu stronach
+        "<h1>Python Developer - Fintech</h1>",  # CV anonimowe — nie wiadomo, gdzie rola
+    ],
+)
+def test_title_skips_when_the_name_does_not_decide(html: str) -> None:
+    assert qc.set_title_html(html, "Senior Java Developer", "Anna Kowalska-Nowak") == (
+        html,
+        0,
+    )
+    assert qc.set_title_html(html, "Senior Java Developer", "") == (html, 0)
+
+
+def test_years_use_the_same_history_as_the_qc_check() -> None:
+    # Odczyt CV (role_entries) i historia profilu potrafią dać różne sumy —
+    # przycisk ma liczyć z tej samej listy co uwaga QC (`history`).
+    html = "<p>Ponad 12 lat doświadczenia.</p>"
+    rich = [{"company": "Bank Alfa", "start": "2010-01", "end": None}]
+    out, applied, _ = qc.transform_html(
+        html,
+        [{"action": "years"}],
+        must=[],
+        nice=[],
+        fixes={},
+        experience=rich,
+        bulk=False,
+        history=EXPERIENCE_PR2,
+        today=TODAY_PR2,
+    )
+    assert applied and "Ponad 8 lat" in out
+
+
+# ── Przegląd PR 2, runda 2 (17.10.2026) ──────────────────────────────────────
+
+
+def test_many_company_claims_stay_linear() -> None:
+    html = "<p>" + "9 lat w Bank Alfa. " * 20000 + "</p>"
+    result: list = []
+    spent = _cpu(
+        lambda: result.append(qc.fix_years_html(html, EXPERIENCE_PR2, today=TODAY_PR2))
+    )
+    assert spent < TRANSFORM_CPU_LIMIT, f"{spent:.1f} s"
+    out, count = result[0]
+    # Najwyżej tyle twierdzeń naraz — reszta przy następnym kliknięciu.
+    assert 0 < count <= qc.YEARS_CLAIMS_MAX
+
+
+@pytest.mark.parametrize(
+    "html",
+    [
+        "<h1>Python Developer – Anna Kowalska | Warszawa</h1>",
+        "<h1>Python Developer – Anna Kowalska - B2B</h1>",
+        "<h1>Anna Kowalska – Python Developer – Warszawa</h1>",
+    ],
+)
+def test_title_does_not_overwrite_a_suffix_after_the_name(html: str) -> None:
+    assert qc.set_title_html(html, "Senior Java Developer", "Anna Kowalska") == (
+        html,
+        0,
+    )
+
+
+def test_contact_with_non_breaking_spaces_and_rate_after_ok() -> None:
+    out, count = qc.strip_client_rules_html(
+        "<p>Java 17. Tel.\xa0600\xa0100\xa0200. Stawka ok. 150 zł/h. Dostępna od zaraz.</p>",
+        None,
+        "600100200",
+    )
+    assert count >= 2
+    assert "600" not in out and "150" not in out
+    assert "Java 17." in out and "Dostępna od zaraz." in out
+
+
+def test_contact_link_outside_cv_content_is_left_alone() -> None:
+    html = '<h1>Dev – <a href="mailto:anna@x.pl">Anna P.</a></h1><p>Java</p>'
+    assert qc.strip_client_rules_html(html, "anna@x.pl", None) == (html, 0)
+
+
+def test_abbreviation_at_sentence_end_does_not_glue_the_rate_sentence() -> None:
+    out, count = qc.strip_client_rules_html(
+        "<p>Skrócił czas wdrożenia do 5 min. Oczekiwana stawka 150 zł/h.</p>",
+        None,
+        None,
+    )
+    assert count == 1
+    assert "Skrócił czas wdrożenia do 5 min." in out and "150" not in out
+    # Skrót przed kwotą dalej trzyma zdanie razem.
+    out, _ = qc.strip_client_rules_html(
+        "<p>Java 17. Stawka min. 140 zł/h. Spring.</p>", None, None
+    )
+    assert "140" not in out and "Java 17." in out and "Spring." in out

@@ -193,13 +193,22 @@ export interface QcFixesResponse {
   fixes: QcFix[];
 }
 
-/** Jedna poprawka QC: zdanie AI, pogrubienie wymagań, usunięcie terminu albo pisownia. */
+/**
+ * Jedna poprawka QC: zdanie AI, pogrubienie wymagań, usunięcie terminu albo
+ * pisownia. Od 17.10.2026 (panel „Do poprawy”, PR 2) tylko w edytorze CV
+ * (`qc/transform`): lata według historii, tytuł z rekrutacji (serwer bierze
+ * go sam), stawka i kontakt kandydata, linia wskazana przez kontrolę AI.
+ */
 export type QcFixAction =
   | { action: "ai_fix"; fix_id: string; text?: string }
   | { action: "bold_all"; scope: "must" | "nice" }
   | { action: "remove_term"; term: string }
   | { action: "spelling" }
-  | { action: "role_order" };
+  | { action: "role_order" }
+  | { action: "years" }
+  | { action: "title" }
+  | { action: "strip_client_rules" }
+  | { action: "remove_line"; text: string };
 
 export type QcApplyBody = QcFixAction & { expected_revision?: number };
 

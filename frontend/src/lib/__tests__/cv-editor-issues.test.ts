@@ -13,9 +13,11 @@ import {
   fixStep,
   issueMarks,
   issueRows,
+  itemQuickFix,
   locateTarget,
   rowInBulk,
   termRanges,
+  yearsPreview,
 } from "../cv-editor-issues";
 import { cvEditorExtensions } from "../cv-editor-structure";
 import { itemTarget } from "../cv-qc";
@@ -581,12 +583,14 @@ describe("wiersze po wadze (wariant A, 17.10.2026)", () => {
     const rows = issueRows(list, [], false);
     expect(shape(rows.blocking)).toEqual(["task:qc:no_unsupported:Kafka"]);
     // Pogrubienie i pisownia: jeden wiersz na sprawdzenie, nie na wymaganie.
-    expect(rows.fixable.map((row) => row.kind)).toEqual(["check-fix", "check-fix", "item"]);
+    // Od PR 2 lata w nagłówku też mają przycisk (D3) — są w „Do poprawy”.
+    // Kolejność idzie za miejscem w CV (lata stoją w nagłówku) — liczą się rodzaje.
+    expect(rows.fixable.map((row) => row.kind).sort()).toEqual(["check-fix", "check-fix", "item", "item"]);
     const bold = rows.fixable.find((row) => row.kind === "check-fix" && row.fix === "bold_all");
     expect(bold?.kind === "check-fix" ? bold.items.map((item) => item.requirement) : null).toEqual(["Java", "Kotlin"]);
     expect(rows.fixable.some((row) => row.kind === "item" && row.item.fix === "role_order")).toBe(true);
-    // Bez gotowej poprawki: lata, uwaga do obejrzenia ręcznie, generator, kontrola AI.
-    expect(rows.decide.map((row) => row.kind).sort()).toEqual(["check", "finding", "item", "warning"]);
+    // Bez gotowej poprawki: uwaga do obejrzenia ręcznie, generator, kontrola AI.
+    expect(rows.decide.map((row) => row.kind).sort()).toEqual(["check", "finding", "warning"]);
   });
 
   it("zdanie AI stoi w wierszu swojej uwagi; propozycja bez pozycji dostaje własny wiersz", () => {
@@ -658,5 +662,56 @@ describe("wiersze po wadze (wariant A, 17.10.2026)", () => {
         [{ action: "bold_all", scope: "must", count: 2 }, { action: "remove_term", term: "Kafka", count: 1 }],
       ),
     ).toEqual([{ action: "bold_all", scope: "must" }]);
+  });
+});
+
+describe("poprawki jednym kliknięciem po kluczu sprawdzenia (PR 2, 17.10.2026)", () => {
+  const years = check({
+    key: "years_header",
+    items: [{ term: "Ponad 10 lat doświadczenia", detail: "Nagłówek mówi „Ponad 10 lat doświadczenia”, a z dat historii wychodzi 3." }],
+  });
+  const title = check({ key: "title_matches_role", items: [{ term: "Senior Java Developer", detail: "Początek CV nie mówi…" }] });
+  const rules = check({
+    key: "client_rules",
+    severity: "blocking",
+    items: [
+      { detail: "Stawka w CV: „150 zł/h”. Usuń — stawek w CV nie wysyłamy." },
+      { detail: "Klient wymaga zrzutu zgody RODO pod CV — brak zrzutu.", fix: "upload_consent" },
+    ],
+  });
+
+  it("rozpoznaje lata, tytuł i stawkę bez nowego pola w wyniku QC", () => {
+    expect(itemQuickFix(years, years.items[0])).toEqual({ action: "years" });
+    expect(itemQuickFix(title, title.items[0])).toEqual({ action: "title" });
+    expect(itemQuickFix(rules, rules.items[0])).toEqual({ action: "strip_client_rules" });
+    // Pozycja z własną poprawką (zgoda RODO) i zaliczone sprawdzenie — nic.
+    expect(itemQuickFix(rules, rules.items[1])).toBeNull();
+    expect(itemQuickFix({ ...years, status: "pass" }, years.items[0])).toBeNull();
+    expect(itemQuickFix(check({ key: "dates", items: [{ role: "Dev", detail: "Rola bez dat." }] }), { role: "Dev" })).toBeNull();
+  });
+
+  it("podgląd lat odmienia „lat” → „lata” i bez liczby z historii nie zgaduje", () => {
+    expect(yearsPreview(years.items[0])).toEqual({ before: "Ponad 10 lat doświadczenia", after: "Ponad 3 lata doświadczenia" });
+    expect(yearsPreview({ term: "8+ years of experience", detail: "… wychodzi 1." })).toEqual({
+      before: "8+ years of experience",
+      after: "1+ year of experience",
+    });
+    expect(yearsPreview({ term: "Ponad 10 lat", detail: "historia bez dat" })).toBeNull();
+  });
+
+  it("lata i tytuł w „Do poprawy” i w „Popraw wszystkie” (D4); stawka zostaje blokadą bez hurtu", () => {
+    const editor = open();
+    const list = buildIssueList({ doc: editor.state.doc, checks: [years, title, rules], warnings: [], findings: [] });
+    const rows = issueRows(list, [], false);
+    expect(rows.fixable.map((row) => (row.kind === "item" ? itemQuickFix(row.check, row.item)?.action : row.kind))).toEqual([
+      "years",
+      "title",
+    ]);
+    expect(rows.fixable.every(rowInBulk)).toBe(true);
+    expect(rows.blocking.map((row) => row.kind)).toEqual(["task", "task"]);
+    expect(rows.blocking.some(rowInBulk)).toBe(false);
+    const plan = bulkPlan([years, title, rules], []);
+    expect(plan.actions).toEqual([{ action: "years" }, { action: "title" }]);
+    expect(plan.parts).toEqual(["lata doświadczenia według historii", "tytuł CV z rekrutacji"]);
   });
 });
