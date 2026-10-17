@@ -19,11 +19,16 @@
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
   "recruiter+amounts_edit",
-  "automation"
+  "automation",
+  "employee",
+  "recruiter+people_admin",
+  "recruiter+payroll",
+  "recruiter+equipment",
+  "recruiter+cases"
  ],
  "routes": {
-  "GET /api/champion/template": "PPPPPPDDPPPPPPPPPPPP",
-  "POST /api/champion/preview": "PPPPPPDDPPPPPPPPPPPD",
-  "POST /api/champion/validate": "PPPPPPDDPPPPPPPPPPPD"
+  "GET /api/champion/template": "PPPPPPDDPPPPPPPPPPPPDPPPP",
+  "POST /api/champion/preview": "PPPPPPDDPPPPPPPPPPPDDPPPP",
+  "POST /api/champion/validate": "PPPPPPDDPPPPPPPPPPPDDPPPP"
  }
 }

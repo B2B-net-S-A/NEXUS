@@ -19,14 +19,19 @@
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
   "recruiter+amounts_edit",
-  "automation"
+  "automation",
+  "employee",
+  "recruiter+people_admin",
+  "recruiter+payroll",
+  "recruiter+equipment",
+  "recruiter+cases"
  ],
  "routes": {
-  "GET /api/rate-changes": "PPPPPPDDPPPPPPPPPPPP",
-  "GET /api/rate-changes/active-processes": "PPPPPPDDPPPPPPPPPPPP",
-  "POST /api/rate-changes": "PPPPPPDDPPPPPPPPPPPD",
-  "POST /api/rate-changes/{change_id}/decision": "PPPPPPDDPPPPPPPPPPPD",
-  "POST /api/rate-changes/{change_id}/negotiation": "PPPPPPDDPPPPPPPPPPPD",
-  "POST /api/rate-changes/{change_id}/outcome": "PPPPPPDDPPPPPPPPPPPD"
+  "GET /api/rate-changes": "PPPPPPDDPPPPPPPPPPPPDPPPP",
+  "GET /api/rate-changes/active-processes": "PPPPPPDDPPPPPPPPPPPPDPPPP",
+  "POST /api/rate-changes": "PPPPPPDDPPPPPPPPPPPDDPPPP",
+  "POST /api/rate-changes/{change_id}/decision": "PPPPPPDDPPPPPPPPPPPDDPPPP",
+  "POST /api/rate-changes/{change_id}/negotiation": "PPPPPPDDPPPPPPPPPPPDDPPPP",
+  "POST /api/rate-changes/{change_id}/outcome": "PPPPPPDDPPPPPPPPPPPDDPPPP"
  }
 }

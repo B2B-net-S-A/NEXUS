@@ -12,6 +12,7 @@ import {
   useState,
 } from "react";
 
+import { warsawToday } from "@/lib/warsaw-date";
 import {
   MentionScope,
   useMentionableUsers,
@@ -29,6 +30,13 @@ import { useElementWidth } from "@/lib/use-element-width";
 import { cn } from "@/lib/utils";
 import { ROLE_LABELS, type UserRole } from "@/store/auth";
 import type { ChatUserMini } from "@/types/job-chat";
+
+import {
+  absenceShortText,
+  insertAfterMention,
+  substituteHint,
+  substituteHintText,
+} from "./mention-absence";
 
 interface MentionState {
   open: boolean;
@@ -107,6 +115,11 @@ function measurePopupSpace(field: HTMLElement): { above: number; below: number }
  * Pole rośnie z tekstem (12.10.2026): od `rows` do `maxRows` linii. W polu
  * wyższym niż trzy linie lista staje przy linii z „@” — nad całym polem
  * byłaby daleko od kursora, a w dużym oknie notatki ucięta.
+ *
+ * Nieobecni (17.10.2026, moduł urlopów): przy osobie nieobecnej dziś lista
+ * pokazuje „nieobecność do pt 23.10”, a po oznaczeniu takiej osoby z zastępcą
+ * pod polem stoi podpowiedź „Oznaczyć też zastępcę?”. Bez modułu urlopów albo
+ * przy awarii zapytania pole działa jak wcześniej.
  */
 export function MentionTextarea({
   value,
@@ -156,8 +169,12 @@ export function MentionTextarea({
     field.style.overflowY = fit ? (fit.scroll ? "auto" : "hidden") : "";
   }, [ref, value, rows, maxRows, autoGrow, width]);
 
-  const usersQuery = useMentionableUsers(scope);
+  const usersQuery = useMentionableUsers(scope, { withAbsences: true });
   const users = usersQuery.data;
+  const absences = usersQuery.absences;
+  const today = warsawToday();
+  // Osoba, przy której wstawieniu pole podpowiada zastępcę.
+  const [hintFor, setHintFor] = useState<number | null>(null);
 
   const filtered = useMemo(
     () =>
@@ -252,12 +269,31 @@ export function MentionTextarea({
     const next = before + insertion + afterCaret;
     onChange(next);
     setMention(initialMentionState);
+    if (absences?.get(m.id)?.substitute_user_id) setHintFor(m.id);
     requestAnimationFrame(() => {
       const taNow = ref.current;
       if (!taNow) return;
       const newPos = (before + insertion).length;
       taNow.focus();
       taNow.setSelectionRange(newPos, newPos);
+    });
+  };
+
+  const hint =
+    hintFor != null && users && absences
+      ? substituteHint(value, hintFor, users, absences)
+      : null;
+
+  const addSubstitute = () => {
+    if (!hint) return;
+    const next = insertAfterMention(value, hint.person.email, hint.substitute.email);
+    onChange(next.text);
+    setHintFor(null);
+    requestAnimationFrame(() => {
+      const taNow = ref.current;
+      if (!taNow) return;
+      taNow.focus();
+      taNow.setSelectionRange(next.caret, next.caret);
     });
   };
 
@@ -318,32 +354,48 @@ export function MentionTextarea({
                 : "top-full mt-1",
           )}
         >
-          {filtered.map((m, idx) => (
-            <button
-              key={m.id}
-              type="button"
-              role="option"
-              aria-selected={idx === mention.highlightIdx}
-              onMouseDown={(e) => {
-                e.preventDefault();
-                insertMention(m);
-              }}
-              className={cn(
-                "flex w-full items-center gap-2 px-3 py-2 text-left text-sm",
-                idx === mention.highlightIdx ? "bg-primary/10" : "hover:bg-muted",
-              )}
-            >
-              <span className="shrink-0 font-medium">{m.name}</span>
-              <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
-                {m.email}
-              </span>
-              {m.role && (
-                <span className="shrink-0 text-[10px] text-muted-foreground">
-                  {ROLE_LABELS[m.role as UserRole] ?? m.role}
+          {filtered.map((m, idx) => {
+            const absence = absences?.get(m.id);
+            return (
+              <button
+                key={m.id}
+                type="button"
+                role="option"
+                aria-selected={idx === mention.highlightIdx}
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  insertMention(m);
+                }}
+                className={cn(
+                  "flex w-full items-center gap-2 px-3 py-2 text-left text-sm",
+                  idx === mention.highlightIdx ? "bg-primary/10" : "hover:bg-muted",
+                )}
+              >
+                <span className="shrink-0 font-medium">{m.name}</span>
+                <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
+                  {m.email}
                 </span>
-              )}
-            </button>
-          ))}
+                {absence ? (
+                  <span
+                    data-testid="mention-absence"
+                    title={
+                      absence.substitute_name
+                        ? `${absenceShortText(absence, today)} · zastępuje ${absence.substitute_name}`
+                        : absenceShortText(absence, today)
+                    }
+                    className="shrink-0 rounded-full bg-warning-muted px-1.5 text-[10px] font-medium leading-4 text-warning-muted-foreground"
+                  >
+                    {absenceShortText(absence, today)}
+                  </span>
+                ) : null}
+                {m.role && (
+                  <span className="shrink-0 text-[10px] text-muted-foreground">
+                    {ROLE_LABELS[m.role as UserRole] ?? m.role}
+                  </span>
+                )}
+              </button>
+            );
+          })}
           {status === "loading" && (
             <p className="px-3 py-2 text-xs text-muted-foreground">
               Wczytuję listę osób…
@@ -390,6 +442,33 @@ export function MentionTextarea({
           className,
         )}
       />
+      {/* Pod polem, gdy lista jest zamknięta — otwarta liczy miejsce od opakowania. */}
+      {hint && !popupVisible ? (
+        <div
+          role="status"
+          data-testid="mention-substitute-hint"
+          className="mt-1 flex shrink-0 flex-wrap items-center gap-x-2 gap-y-0.5 rounded-md bg-warning-muted px-2 py-1 text-xs text-warning-muted-foreground"
+        >
+          <span className="min-w-0">{substituteHintText(hint, today)}</span>
+          <button
+            type="button"
+            // Klik nie zabiera fokusu z pola.
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={addSubstitute}
+            className="font-medium text-primary hover:underline"
+          >
+            Oznacz zastępcę
+          </button>
+          <button
+            type="button"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => setHintFor(null)}
+            className="text-muted-foreground hover:underline"
+          >
+            Nie
+          </button>
+        </div>
+      ) : null}
     </div>
   );
 }

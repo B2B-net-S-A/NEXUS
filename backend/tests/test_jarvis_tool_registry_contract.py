@@ -143,6 +143,7 @@ def test_build_matches_the_declared_route():
         "source": "pipeline_moves",
         "measure": "first_reach",
         "period": "last_30_days",
+        "user_id": 99,
     }
     for tool in ALL_TOOLS:
         if tool.tier == "link":

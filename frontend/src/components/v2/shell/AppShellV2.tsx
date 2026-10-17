@@ -51,6 +51,8 @@ export function AppShellV2({ children }: { children: React.ReactNode }) {
   const isCvPreviewPage = pathname?.startsWith("/cv/") ?? false;
   // `/engagement/{token}` — public magic-link engagement page, no internal shell.
   const isEngagementPage = pathname?.startsWith("/engagement/") ?? false;
+  // `/protocol/{token}` — publiczny podpis protokołu sprzętu („Ludzie w NEXUSIE”).
+  const isProtocolPage = pathname?.startsWith("/protocol/") ?? false;
   // Strona kariery dla kandydatów (`/kariera/*`, host `kariera.dynaminds.pl`).
   // Na hoście kariery middleware PRZEPISUJE adres (`/r/x` → `/kariera/r/x`),
   // a `usePathname()` zwraca adres WIDOCZNY — samo `startsWith("/kariera")`
@@ -150,6 +152,7 @@ export function AppShellV2({ children }: { children: React.ReactNode }) {
   if (isRegisterPage) return <>{children}</>;
   if (isCvPreviewPage) return <>{children}</>;
   if (isEngagementPage) return <>{children}</>;
+  if (isProtocolPage) return <>{children}</>;
   if (isCareerPage) return <>{children}</>;
   // /preview/* — design-system prototype pages, rendered bare (no shell/auth).
   if (pathname?.startsWith("/preview")) return <>{children}</>;

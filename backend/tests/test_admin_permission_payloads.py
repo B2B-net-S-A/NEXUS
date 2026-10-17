@@ -177,6 +177,8 @@ def test_role_without_seeded_rows_is_shown_through_the_seed_rule() -> None:
         "delivery_view",
         "contract_status",
         "b2b_signature_confirmation",
+        # „Ludzie w NEXUSIE” (16.10.2026): TCM prowadzi skrzynkę administracja@.
+        "cases",
     ]
     assert payload["permissions"]["delivery"] == "write"
     assert payload["permissions"]["finance"] == "none"
@@ -221,6 +223,7 @@ def test_person_payload_separates_role_permissions_from_personal_grants() -> Non
         "delivery_view",
         "contract_status",
         "b2b_signature_confirmation",
+        "cases",
     ]
     assert payload["grants"] == ["contracts_orders_edit"]
     assert payload["restrictions"] == []
@@ -229,6 +232,7 @@ def test_person_payload_separates_role_permissions_from_personal_grants() -> Non
         "contracts_orders_edit",
         "contract_status",
         "b2b_signature_confirmation",
+        "cases",
     ]
     assert payload["legacy_section_caps"] == {}
 

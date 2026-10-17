@@ -59,6 +59,13 @@ TileType = Literal[
     "team_signals",
     "system_status",
     "my_week",
+    # „Ludzie w NEXUSIE” (17.10.2026): dane z tras `/api/hr/*` i `/api/equipment`,
+    # każda za swoją bramką modułu; katalog na froncie chowa je przy wyłączonym
+    # module.
+    "hr_substitution",
+    "hr_my_time",
+    "hr_approvals",
+    "equipment_tasks",
     "metric_number",
     "metric_chart",
     "metric_funnel",

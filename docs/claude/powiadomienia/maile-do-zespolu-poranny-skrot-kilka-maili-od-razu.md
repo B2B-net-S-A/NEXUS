@@ -23,7 +23,10 @@ Decyzja Artura 07.10.2026: mail ma nieść tylko to, co wymaga ruchu odbiorcy.
   `cv_returned` (zwrot do poprawy — rozpoznawany po początku tytułu,
   stałe `TITLE_*` w `stage_handoff_recipients`; zmieniasz tytuł dzwonka =
   zmieniasz stałą), `request_assigned` (tylko encja `job`, poranny skrót
-  przydziałów nie), `signature_request`, `system_failure`. Powiadomienie
+  przydziałów nie), `signature_request`, `system_failure`, `hr_people`
+  („Czas i ludzie”, 17.10.2026: typy z `notification_delivery.HR_MAIL_TYPES`;
+  treść składa `services/hr/hr_mail.py` — bez rodzaju nieobecności i kwot,
+  tytuł sprawy administracja@ i uwagi zwrotu timesheetu nigdy). Powiadomienie
   starsze niż 24 h nie idzie mailem. Rezerwacja i wynik niepewny jak
   w `job_deadline_alerts`.
 - **Alerty klientów i umów mailem tylko do Delivery Leada** (rola główna albo

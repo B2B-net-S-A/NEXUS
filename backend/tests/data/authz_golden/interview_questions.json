@@ -19,19 +19,24 @@
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
   "recruiter+amounts_edit",
-  "automation"
+  "automation",
+  "employee",
+  "recruiter+people_admin",
+  "recruiter+payroll",
+  "recruiter+equipment",
+  "recruiter+cases"
  ],
  "routes": {
-  "DELETE /api/interview-questions/{question_id}": "PPPPPPDDPPPPPPPPPPPD",
-  "DELETE /api/jobs/{job_id}/questions/{question_id}": "PPPPPPDDPPPPPPPPPPPD",
-  "GET /api/interview-questions": "PPPPPPPDPPPPPPPPPPPP",
-  "GET /api/interview-questions/{question_id}": "PPPPPPPDPPPPPPPPPPPP",
-  "GET /api/jobs/{job_id}/questions": "PPPPPPPDPPPPPPPPPPPP",
-  "GET /api/jobs/{job_id}/suggested-questions": "PPPPPPPDPPPPPPPPPPPP",
-  "PATCH /api/jobs/{job_id}/questions/reorder": "PPPPPPDDPPPPPPPPPPPD",
-  "POST /api/interview-questions": "PPPPPPDDPPPPPPPPPPPD",
-  "POST /api/interview-questions/{question_id}/rate": "PPPPPPDDPPPPPPPPPPPD",
-  "POST /api/jobs/{job_id}/questions/pin": "PPPPPPDDPPPPPPPPPPPD",
-  "PUT /api/interview-questions/{question_id}": "PPPPPPDDPPPPPPPPPPPD"
+  "DELETE /api/interview-questions/{question_id}": "PPPPPPDDPPPPPPPPPPPDDPPPP",
+  "DELETE /api/jobs/{job_id}/questions/{question_id}": "PPPPPPDDPPPPPPPPPPPDDPPPP",
+  "GET /api/interview-questions": "PPPPPPPDPPPPPPPPPPPPDPPPP",
+  "GET /api/interview-questions/{question_id}": "PPPPPPPDPPPPPPPPPPPPDPPPP",
+  "GET /api/jobs/{job_id}/questions": "PPPPPPPDPPPPPPPPPPPPDPPPP",
+  "GET /api/jobs/{job_id}/suggested-questions": "PPPPPPPDPPPPPPPPPPPPDPPPP",
+  "PATCH /api/jobs/{job_id}/questions/reorder": "PPPPPPDDPPPPPPPPPPPDDPPPP",
+  "POST /api/interview-questions": "PPPPPPDDPPPPPPPPPPPDDPPPP",
+  "POST /api/interview-questions/{question_id}/rate": "PPPPPPDDPPPPPPPPPPPDDPPPP",
+  "POST /api/jobs/{job_id}/questions/pin": "PPPPPPDDPPPPPPPPPPPDDPPPP",
+  "PUT /api/interview-questions/{question_id}": "PPPPPPDDPPPPPPPPPPPDDPPPP"
  }
 }

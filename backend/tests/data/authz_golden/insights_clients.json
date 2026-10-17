@@ -19,11 +19,16 @@
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
   "recruiter+amounts_edit",
-  "automation"
+  "automation",
+  "employee",
+  "recruiter+people_admin",
+  "recruiter+payroll",
+  "recruiter+equipment",
+  "recruiter+cases"
  ],
  "routes": {
-  "GET /api/insights/clients/hiring-managers": "PPPPPPPDPPPPPPPPPPPP",
-  "GET /api/insights/clients/hit-ratio": "PPPPPPPDPPPPPPPPPPPP",
-  "GET /api/insights/clients/ranking": "PPDDDDDDDDDDDDDDDPDD"
+  "GET /api/insights/clients/hiring-managers": "PPPPPPPDPPPPPPPPPPPPDPPPP",
+  "GET /api/insights/clients/hit-ratio": "PPPPPPPDPPPPPPPPPPPPDPPPP",
+  "GET /api/insights/clients/ranking": "PPDDDDDDDDDDDDDDDPDDDDDDD"
  }
 }

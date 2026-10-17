@@ -1,5 +1,6 @@
 /**
- * Dziewięć uprawnień z ekranu Ustawienia → Zespół i dostęp → Osoby i role.
+ * Uprawnienia z ekranu Ustawienia → Zespół i dostęp → Osoby i role
+ * (dziewięć + cztery z grupy „Ludzie”: Kadry, Płace, Sprzęt, Sprawy).
  *
  * Katalog (nazwy, grupy, zależności, domyślni posiadacze) to plik
  * `permission-catalog.json` — ten sam, który asertuje backend
@@ -22,9 +23,18 @@ export type Permission =
   | "recruitment_manage"
   | "amounts_view"
   | "amounts_edit"
-  | "finance_module";
+  | "finance_module"
+  // „Ludzie w NEXUSIE” (0456): Kadry, Płace, Sprzęt, Sprawy.
+  | "people_admin"
+  | "payroll"
+  | "equipment"
+  | "cases";
 
-export type PermissionGroupKey = "clients_contracts" | "recruitment" | "money";
+export type PermissionGroupKey =
+  | "clients_contracts"
+  | "recruitment"
+  | "money"
+  | "people";
 
 export interface PermissionDefinition {
   key: Permission;

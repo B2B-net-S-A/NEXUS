@@ -19,13 +19,18 @@
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
   "recruiter+amounts_edit",
-  "automation"
+  "automation",
+  "employee",
+  "recruiter+people_admin",
+  "recruiter+payroll",
+  "recruiter+equipment",
+  "recruiter+cases"
  ],
  "routes": {
-  "DELETE /api/teams-channels/{channel_db_id}": "PDDDDDDDDDDDDDDDDDDD",
-  "GET /api/teams-channels": "PDDDDDDDDDDDDDDDDDDD",
-  "PATCH /api/teams-channels/{channel_db_id}": "PDDDDDDDDDDDDDDDDDDD",
-  "POST /api/teams-channels": "PDDDDDDDDDDDDDDDDDDD",
-  "POST /api/teams-channels/{channel_db_id}/test": "PDDDDDDDDDDDDDDDDDDD"
+  "DELETE /api/teams-channels/{channel_db_id}": "PDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/teams-channels": "PDDDDDDDDDDDDDDDDDDDDDDDD",
+  "PATCH /api/teams-channels/{channel_db_id}": "PDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/teams-channels": "PDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/teams-channels/{channel_db_id}/test": "PDDDDDDDDDDDDDDDDDDDDDDDD"
  }
 }

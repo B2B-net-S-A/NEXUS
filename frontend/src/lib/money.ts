@@ -76,3 +76,18 @@ export function formatMoney(
   }).format(n);
   return `${amount} ${currencySymbol(currency)}${rateUnitSuffix(unit)}`;
 }
+
+/**
+ * Kwota w złotych jak na dokumencie (protokół recepcji sprzętu): spacja
+ * grupująca także przy czterech cyfrach („3 903,73 zł”; `formatMoney` daje
+ * „3903,73 zł” jak `Intl` dla pl-PL) i znak minus „−”. Pusta albo nieczytelna
+ * kwota → `null` — ekran sam mówi, co wtedy pokazać.
+ */
+export function formatPlnDocument(value: number | string | null | undefined): string | null {
+  const n = toNumber(value);
+  if (n == null) return null;
+  const cents = Math.round(Math.abs(n) * 100);
+  const whole = String(Math.floor(cents / 100)).replace(/\B(?=(\d{3})+(?!\d))/g, " ");
+  const fraction = String(cents % 100).padStart(2, "0");
+  return `${n < 0 ? "−" : ""}${whole},${fraction} zł`;
+}

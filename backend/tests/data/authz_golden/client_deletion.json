@@ -19,10 +19,15 @@
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
   "recruiter+amounts_edit",
-  "automation"
+  "automation",
+  "employee",
+  "recruiter+people_admin",
+  "recruiter+payroll",
+  "recruiter+equipment",
+  "recruiter+cases"
  ],
  "routes": {
-  "DELETE /api/clients/{client_id}": "BBDBBDDDBBBDBBBBDBBB",
-  "POST /api/clients/{client_id}/deletion-check": "BBDBBDDDBBBDBBBBDBBB"
+  "DELETE /api/clients/{client_id}": "BBDBBDDDBBBDBBBBDBBBDDDDD",
+  "POST /api/clients/{client_id}/deletion-check": "BBDBBDDDBBBDBBBBDBBBDDDDD"
  }
 }

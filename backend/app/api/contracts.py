@@ -73,6 +73,7 @@ from app.schemas.contract import (
     ContractFrameworkRateEntry,
     ContractCreate,
     AgreementTerminationPayload,
+    ClientManagerHint,
     ContractDetailResponse,
     ContractEurPlnRate,
     ContractDraftFinalizeResponse,
@@ -157,6 +158,7 @@ from app.services.contract_candidate_contact import (
     phone_too_long,
     resolve_for_contract as resolve_candidate_contact,
 )
+from app.services import contract_client_manager
 from app.services.contract_rates import effective_rate_fields
 from app.services.contractor_identity import contractor_identity_sql_expression
 from app.services.contract_service import (
@@ -1003,6 +1005,10 @@ async def _apply_termination_to_contract(
     # Data zakończenia projektu z przeszłości = „Zakończony” od razu, więc
     # Generator przestawia umowę teraz; przyszła data — w nocy, dzień po niej.
     await sync_generator_after_contract_ended(db, contract, actor_id=actor_id)
+    # „Ludzie w NEXUSIE”: premie przed terminem anulowane, odbiór sprzętu.
+    from app.services.hr import contract_hooks
+
+    await contract_hooks.contract_ended(db, contract)
 
 
 def _normalize_contract_currency(value: object, field: str) -> str:
@@ -1410,6 +1416,7 @@ def _to_detail(contract: Contract) -> ContractDetailResponse:
         "candidate_phone_source": contact.phone_source,
         "client_pm_name": contract.client_pm_name,
         "client_pm_email": contract.client_pm_email,
+        "client_pm_contact_id": contract.client_pm_contact_id,
         "line_manager": contract.line_manager,
         "work_mode": contract.work_mode,
         "office_location": contract.office_location,
@@ -1452,6 +1459,18 @@ def _to_detail(contract: Contract) -> ContractDetailResponse:
     # Derive current candidate + client rates / margin from the schedules.
     data.update(_effective_rate_fields(contract, business_today()))
     return ContractDetailResponse(**data)
+
+
+async def _fill_client_manager(
+    db: AsyncSession, contract: Contract, detail: ContractDetailResponse
+) -> None:
+    """„Menedżer u klienta” (D8): imię i stanowisko kontaktu albo podpowiedź."""
+
+    fields = await contract_client_manager.detail_fields(db, contract)
+    detail.client_pm_contact_name = fields["client_pm_contact_name"]
+    detail.client_pm_contact_position = fields["client_pm_contact_position"]
+    hint = fields["client_pm_contact_hint"]
+    detail.client_pm_contact_hint = ClientManagerHint(**hint) if hint else None
 
 
 def _apply_contract_list_filters(
@@ -3292,6 +3311,12 @@ async def create_contract(
     framework_schedule_input = payload.pop("framework_rate_schedule", None) or []
     _prepare_create_rate_currencies(payload, set(data.model_fields_set))
     contract = Contract(**payload)
+    if data.job_id is not None:
+        # D8: kontrakt z rekrutacji dostaje jej hiring managera jako menedżera
+        # u klienta — o ile to kontakt klienta tego kontraktu.
+        contract.client_pm_contact_id = await contract_client_manager.default_from_job(
+            db, job=job, client_id=client.id
+        )
     if schedule_input:
         # Schedule drives the candidate rate over time; persist each step.
         contract.candidate_rate_schedule = [
@@ -3389,7 +3414,9 @@ async def create_contract(
             selectinload(Contract.framework_rate_schedule),
         )
     )
-    detail = _to_detail(result.scalar_one())
+    created = result.scalar_one()
+    detail = _to_detail(created)
+    await _fill_client_manager(db, created, detail)
     detail.draft_order_id = draft_order.id if draft_order is not None else None
     # Operacyjny create bez pól finansowych nie grantuje ich odczytu. Wyjątkiem
     # pozostaje DL u przypisanego klienta; globalnej capability nadal nie ma.
@@ -3702,6 +3729,7 @@ async def get_contract(
         raise HTTPException(status_code=404, detail="Contract not found")
     await _ensure_delivery_lead_contract_visible(contract, current_user, db)
     detail = _to_detail(contract)
+    await _fill_client_manager(db, contract, detail)
     detail.related_contracts = await _related_contracts_for(db, contract, current_user)
     await _fill_termination_recovery(db, contract, detail)
     can_view_finance = can_read_client_finance(
@@ -4088,6 +4116,29 @@ async def apply_contract_update(
     )
     updates = data.model_dump(exclude_unset=True)
     _normalize_candidate_contact_updates(updates)
+    # „Menedżer u klienta” (D8): kontakt klienta TEGO kontraktu albo nowa osoba
+    # zakładana jako jego kontakt. Sprawdzamy tylko realną zmianę — formularz
+    # z dawnym kontaktem innego klienta nie może zablokować zapisu innych pól.
+    new_manager = updates.pop("client_pm_new_person", None)
+    if new_manager is not None:
+        contact = await contract_client_manager.resolve_new_person(
+            db,
+            contract,
+            name=new_manager["name"],
+            position=new_manager.get("position"),
+            email=new_manager.get("email"),
+            actor_id=policy.actor_id,
+        )
+        updates["client_pm_contact_id"] = contact.id
+    elif (
+        updates.get("client_pm_contact_id") is not None
+        and updates["client_pm_contact_id"] != contract.client_pm_contact_id
+    ):
+        await contract_client_manager.assert_contact_of_client(
+            db,
+            contact_id=updates["client_pm_contact_id"],
+            client_id=contract.client_id,
+        )
     _prepare_update_rate_currencies(contract, updates, set(data.model_fields_set))
     # The candidate-rate schedule ("stawka progresywna") is a relationship, not a
     # scalar column — pull it out of the setattr loop and replace it explicitly.
@@ -4522,6 +4573,7 @@ async def apply_contract_update(
     else:
         await db.refresh(contract)
         detail = _to_detail(contract)
+    await _fill_client_manager(db, contract, detail)
     return contract, detail
 
 
@@ -6184,6 +6236,26 @@ async def apply_contract_amendment(
 
 
 # ── Onboarding checklist (Phase 9 B6) ────────────────────────────────────────
+#
+# Od etapu 3 „Ludzi w NEXUSIE” (O1, 17.10.2026) wejście konsultanta to jedna
+# lista ze ścieżki „Konsultant u klienta” i pakietu klienta
+# (``/api/hr/lifecycle/contracts/{id}/entry``). Przy włączonym module
+# „Wejście i odejście” stare pozycje są tylko do odczytu, a nowe kontrakty
+# nie dostają już ośmiu stałych pozycji; wyłączony moduł = jak dotąd.
+
+LEGACY_ONBOARDING_READ_ONLY = (
+    "Lista wejścia powstaje teraz ze ścieżki „Konsultant u klienta” i pakietu "
+    "klienta (zakładka „Wejście”). Stare pozycje są tylko do odczytu."
+)
+
+
+async def _ensure_legacy_onboarding_writable(db: AsyncSession) -> None:
+    from app.services.hr.modules import HrModule, load_modules  # noqa: PLC0415
+
+    if (await load_modules(db)).get(HrModule.lifecycle):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=LEGACY_ONBOARDING_READ_ONLY
+        )
 
 
 @router.get(
@@ -6216,6 +6288,7 @@ async def create_onboarding_item(
     db: AsyncSession = Depends(get_db),
 ):
     await _assert_contract(db, contract_id, current_user)
+    await _ensure_legacy_onboarding_writable(db)
     item = ContractOnboardingItem(contract_id=contract_id, **data.model_dump())
     db.add(item)
     await db.flush()
@@ -6254,6 +6327,7 @@ async def seed_onboarding_items(
     zamiast dopisywać drugi komplet. Lista niepusta = nic nie jest dodawane.
     """
     await _assert_contract(db, contract_id, current_user)
+    await _ensure_legacy_onboarding_writable(db)
     await db.execute(
         select(Contract.id).where(Contract.id == contract_id).with_for_update()
     )
@@ -6285,6 +6359,7 @@ async def update_onboarding_item(
     db: AsyncSession = Depends(get_db),
 ):
     await _assert_contract(db, contract_id, current_user)
+    await _ensure_legacy_onboarding_writable(db)
     item = await db.scalar(
         select(ContractOnboardingItem).where(
             ContractOnboardingItem.id == item_id,
@@ -6311,6 +6386,7 @@ async def delete_onboarding_item(
     db: AsyncSession = Depends(get_db),
 ):
     await _assert_contract(db, contract_id, current_user)
+    await _ensure_legacy_onboarding_writable(db)
     item = await db.scalar(
         select(ContractOnboardingItem).where(
             ContractOnboardingItem.id == item_id,
@@ -6323,6 +6399,40 @@ async def delete_onboarding_item(
 
 
 # ── Equipment (Kontrakty expansion: ewidencja sprzętu) ──────────────────────
+
+#: Pola pozycji wydanej z magazynu, które opisuje rejestr „Sprzęt” (0464).
+_REGISTER_OWNED_FIELDS = frozenset(
+    {"return_status", "returned_date", "item_type", "owner", "serial_number"}
+)
+REGISTER_BYPASS_DETAIL = (
+    "Ta pozycja jest wydana z magazynu — zwrot przyjmuje recepcja w module "
+    "„Sprzęt” (powstaje protokół zwrotu)."
+)
+
+
+async def _refuse_register_bypass(
+    db: AsyncSession, item: ContractEquipment, updates: Optional[dict]
+) -> None:
+    """Pozycja z aktywnym wydaniem z rejestru nie zmienia stanu obok rejestru.
+
+    Inaczej zakładka mówiłaby „zwrócony”, a rejestr dalej „wydany” u tej osoby.
+    Termin zwrotu, opis i kaucję można zmieniać jak dotąd; ``updates=None`` =
+    usunięcie pozycji.
+    """
+    if item.assignment_id is None:
+        return
+    if updates is not None and not (_REGISTER_OWNED_FIELDS & set(updates)):
+        return
+    from app.models.equipment import EquipmentAssignment
+
+    active = await db.scalar(
+        select(EquipmentAssignment.id).where(
+            EquipmentAssignment.id == item.assignment_id,
+            EquipmentAssignment.returned_at.is_(None),
+        )
+    )
+    if active is not None:
+        raise HTTPException(status_code=409, detail=REGISTER_BYPASS_DETAIL)
 
 
 @router.get(
@@ -6411,6 +6521,7 @@ async def update_contract_equipment(
     if not item:
         raise HTTPException(status_code=404, detail="Equipment item not found")
     updates = data.model_dump(exclude_unset=True)
+    await _refuse_register_bypass(db, item, updates)
     for k, v in updates.items():
         setattr(item, k, v)
     # Guard: returned_date requires return_status=returned (mark as returned).
@@ -6455,6 +6566,7 @@ async def delete_contract_equipment(
     )
     if not item:
         raise HTTPException(status_code=404, detail="Equipment item not found")
+    await _refuse_register_bypass(db, item, None)
     db.add(
         Activity(
             entity_type="contract",
@@ -6627,6 +6739,9 @@ async def reverse_termination(
             },
         ) from exc
     result = plan.as_json()
+    from app.services.hr import contract_hooks
+
+    await contract_hooks.contract_end_undone(db, contract)
     await commit_order_write(db, actor_id=current_user.id)
     return ContractTerminationReversalPlanRead(**result, executed=True)
 

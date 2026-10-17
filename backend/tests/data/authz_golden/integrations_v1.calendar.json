@@ -19,10 +19,15 @@
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
   "recruiter+amounts_edit",
-  "automation"
+  "automation",
+  "employee",
+  "recruiter+people_admin",
+  "recruiter+payroll",
+  "recruiter+equipment",
+  "recruiter+cases"
  ],
  "routes": {
-  "GET /api/integrations/v1/interviews": "UUUUUUUUUUUUUUUUUUUU",
-  "GET /api/integrations/v1/interviews/{event_id}": "UUUUUUUUUUUUUUUUUUUU"
+  "GET /api/integrations/v1/interviews": "UUUUUUUUUUUUUUUUUUUUUUUUU",
+  "GET /api/integrations/v1/interviews/{event_id}": "UUUUUUUUUUUUUUUUUUUUUUUUU"
  }
 }

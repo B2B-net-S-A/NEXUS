@@ -19,15 +19,20 @@
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
   "recruiter+amounts_edit",
-  "automation"
+  "automation",
+  "employee",
+  "recruiter+people_admin",
+  "recruiter+payroll",
+  "recruiter+equipment",
+  "recruiter+cases"
  ],
  "routes": {
-  "GET /api/integrations/v1/candidates": "UUUUUUUUUUUUUUUUUUUU",
-  "GET /api/integrations/v1/candidates/{candidate_id}": "UUUUUUUUUUUUUUUUUUUU",
-  "GET /api/integrations/v1/candidates/{candidate_id}/cv-text": "UUUUUUUUUUUUUUUUUUUU",
-  "GET /api/integrations/v1/candidates/{candidate_id}/documents": "UUUUUUUUUUUUUUUUUUUU",
-  "GET /api/integrations/v1/candidates/{candidate_id}/documents/{document_id}/file": "UUUUUUUUUUUUUUUUUUUU",
-  "GET /api/integrations/v1/candidates/{candidate_id}/notes": "UUUUUUUUUUUUUUUUUUUU",
-  "GET /api/integrations/v1/recruitments/{job_id}/candidates/{candidate_id}/screening": "UUUUUUUUUUUUUUUUUUUU"
+  "GET /api/integrations/v1/candidates": "UUUUUUUUUUUUUUUUUUUUUUUUU",
+  "GET /api/integrations/v1/candidates/{candidate_id}": "UUUUUUUUUUUUUUUUUUUUUUUUU",
+  "GET /api/integrations/v1/candidates/{candidate_id}/cv-text": "UUUUUUUUUUUUUUUUUUUUUUUUU",
+  "GET /api/integrations/v1/candidates/{candidate_id}/documents": "UUUUUUUUUUUUUUUUUUUUUUUUU",
+  "GET /api/integrations/v1/candidates/{candidate_id}/documents/{document_id}/file": "UUUUUUUUUUUUUUUUUUUUUUUUU",
+  "GET /api/integrations/v1/candidates/{candidate_id}/notes": "UUUUUUUUUUUUUUUUUUUUUUUUU",
+  "GET /api/integrations/v1/recruitments/{job_id}/candidates/{candidate_id}/screening": "UUUUUUUUUUUUUUUUUUUUUUUUU"
  }
 }

@@ -22,6 +22,7 @@ from app.models.job_collaborator import JobCollaborator, JobCollaboratorSource
 from app.models.job_work_assignment import JobWorkAssignment
 from app.models.user import User, UserRole
 from app.core.config import settings
+from app.services.hr.availability_local import availability_enabled
 from app.services.job_team import working_assignment_job_ids
 from app.services.workforce_availability import (
     workforce_context,
@@ -233,7 +234,7 @@ async def list_job_member_ids(
     for (uid,) in admins.all():
         member_ids.add(uid)
 
-    if settings.COMPASS_AVAILABILITY_ENABLED:
+    if availability_enabled():
         context = await workforce_context(db)
         # Notifications use the same resource boundary as interactive access.
         # An observer's absence alone must not subscribe the substitute.

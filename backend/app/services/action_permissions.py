@@ -38,6 +38,10 @@ class ProductAction(StrEnum):
     amounts_view = "amounts_view"
     amounts_edit = "amounts_edit"
     finance_module = "finance_module"
+    people_admin = "people_admin"
+    payroll = "payroll"
+    equipment = "equipment"
+    cases = "cases"
 
 
 class ActionAccess(IntEnum):
@@ -82,6 +86,8 @@ _GENERATOR_DEFAULTS: dict[UserRole, ActionAccess] = {
     # 0446: rejestr umów B2B pokazuje stawki konsultantów — „Automatyzacje”
     # kwot nie widzą.
     UserRole.automation: ActionAccess.none,
+    # „Ludzie w NEXUSIE”: pracownik bez pracy w rekrutacji — bez rejestru umów.
+    UserRole.employee: ActionAccess.none,
 }
 
 

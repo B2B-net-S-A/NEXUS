@@ -19,13 +19,18 @@
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
   "recruiter+amounts_edit",
-  "automation"
+  "automation",
+  "employee",
+  "recruiter+people_admin",
+  "recruiter+payroll",
+  "recruiter+equipment",
+  "recruiter+cases"
  ],
  "routes": {
-  "GET /api/health": "PPPPPPPPPPPPPPPPPPPP",
-  "GET /api/health/alembic": "PPPPPPPPPPPPPPPPPPPP",
-  "GET /api/health/deep": "PPPPPPPPPPPPPPPPPPPP",
-  "GET /api/health/live": "PPPPPPPPPPPPPPPPPPPP",
-  "GET /health": "PPPPPPPPPPPPPPPPPPPP"
+  "GET /api/health": "PPPPPPPPPPPPPPPPPPPPPPPPP",
+  "GET /api/health/alembic": "PPPPPPPPPPPPPPPPPPPPPPPPP",
+  "GET /api/health/deep": "PPPPPPPPPPPPPPPPPPPPPPPPP",
+  "GET /api/health/live": "PPPPPPPPPPPPPPPPPPPPPPPPP",
+  "GET /health": "PPPPPPPPPPPPPPPPPPPPPPPPP"
  }
 }

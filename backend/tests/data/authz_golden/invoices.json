@@ -19,15 +19,20 @@
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
   "recruiter+amounts_edit",
-  "automation"
+  "automation",
+  "employee",
+  "recruiter+people_admin",
+  "recruiter+payroll",
+  "recruiter+equipment",
+  "recruiter+cases"
  ],
  "routes": {
-  "DELETE /api/invoices/{invoice_id}": "PPDDDDDDDDDDDDDDDPDD",
-  "GET /api/invoices": "PPDDDDDDDDDDDDDDDPDD",
-  "GET /api/invoices/dso": "PPDDDDDDDDDDDDDDDPDD",
-  "GET /api/invoices/export.csv": "PPDDDDDDDDDDDDDDDPDD",
-  "GET /api/invoices/{invoice_id}": "PPDDDDDDDDDDDDDDDPDD",
-  "PATCH /api/invoices/{invoice_id}": "PPDDDDDDDDDDDDDDDPDD",
-  "POST /api/invoices": "PPDDDDDDDDDDDDDDDPDD"
+  "DELETE /api/invoices/{invoice_id}": "PPDDDDDDDDDDDDDDDPDDDDDDD",
+  "GET /api/invoices": "PPDDDDDDDDDDDDDDDPDDDDDDD",
+  "GET /api/invoices/dso": "PPDDDDDDDDDDDDDDDPDDDDDDD",
+  "GET /api/invoices/export.csv": "PPDDDDDDDDDDDDDDDPDDDDDDD",
+  "GET /api/invoices/{invoice_id}": "PPDDDDDDDDDDDDDDDPDDDDDDD",
+  "PATCH /api/invoices/{invoice_id}": "PPDDDDDDDDDDDDDDDPDDDDDDD",
+  "POST /api/invoices": "PPDDDDDDDDDDDDDDDPDDDDDDD"
  }
 }

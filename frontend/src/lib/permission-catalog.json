@@ -26,6 +26,16 @@
         "amounts_edit",
         "finance_module"
       ]
+    },
+    {
+      "key": "people",
+      "label": "Ludzie",
+      "permissions": [
+        "people_admin",
+        "payroll",
+        "equipment",
+        "cases"
+      ]
     }
   ],
   "permissions": [
@@ -127,6 +137,38 @@
       ],
       "default_roles": [
         "finance"
+      ]
+    },
+    {
+      "key": "people_admin",
+      "label": "Kadry: kartoteka, urlopy za innych, wejście i odejście",
+      "group": "people",
+      "requires": [],
+      "default_roles": []
+    },
+    {
+      "key": "payroll",
+      "label": "Płace: stawki pracowników, premie, rozliczenie miesiąca",
+      "group": "people",
+      "requires": [],
+      "default_roles": [
+        "finance"
+      ]
+    },
+    {
+      "key": "equipment",
+      "label": "Sprzęt: ewidencja, wydania, zwroty i protokoły",
+      "group": "people",
+      "requires": [],
+      "default_roles": []
+    },
+    {
+      "key": "cases",
+      "label": "Sprawy: skrzynka administracja@",
+      "group": "people",
+      "requires": [],
+      "default_roles": [
+        "talent_community_manager"
       ]
     }
   ]

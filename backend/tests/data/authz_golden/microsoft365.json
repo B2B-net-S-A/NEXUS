@@ -19,15 +19,20 @@
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
   "recruiter+amounts_edit",
-  "automation"
+  "automation",
+  "employee",
+  "recruiter+people_admin",
+  "recruiter+payroll",
+  "recruiter+equipment",
+  "recruiter+cases"
  ],
  "routes": {
-  "DELETE /api/microsoft365/connection": "PPPPPPDDPPPPPPPPPPPD",
-  "GET /api/microsoft365/authorize": "PPPPPPDDPPPPPPPPPPPD",
-  "GET /api/microsoft365/callback": "PPPPPPPPPPPPPPPPPPPP",
-  "GET /api/microsoft365/connection": "PPPPPPDDPPPPPPPPPPPP",
-  "POST /api/microsoft365/free-busy": "PPPPPPDDPPPPPPPPPPPP",
-  "POST /api/microsoft365/sync/trigger": "PPPPPPDDPPPPPPPPPPPD",
-  "POST /api/microsoft365/webhooks": "PPPPPPPPPPPPPPPPPPPP"
+  "DELETE /api/microsoft365/connection": "PPPPPPDDPPPPPPPPPPPDDPPPP",
+  "GET /api/microsoft365/authorize": "PPPPPPDDPPPPPPPPPPPDDPPPP",
+  "GET /api/microsoft365/callback": "PPPPPPPPPPPPPPPPPPPPPPPPP",
+  "GET /api/microsoft365/connection": "PPPPPPDDPPPPPPPPPPPPDPPPP",
+  "POST /api/microsoft365/free-busy": "PPPPPPDDPPPPPPPPPPPPDPPPP",
+  "POST /api/microsoft365/sync/trigger": "PPPPPPDDPPPPPPPPPPPDDPPPP",
+  "POST /api/microsoft365/webhooks": "PPPPPPPPPPPPPPPPPPPPPPPPP"
  }
 }

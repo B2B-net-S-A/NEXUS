@@ -125,6 +125,9 @@ DEFAULT_ROLE_SECTION_ACCESS: dict[UserRole, dict[ProductSection, SectionAccess]]
         delivery=SectionAccess.read,
         insights=SectionAccess.read,
     ),
+    # „Ludzie w NEXUSIE”: pracownik nie ma żadnej sekcji produktu — jego
+    # ekrany („Mój czas”, „Ludzie”) stoją za kartoteką i uprawnieniami HR.
+    UserRole.employee: _policy(),
 }
 
 # Backwards-compatible export name. Tests use it as the migration seed contract.

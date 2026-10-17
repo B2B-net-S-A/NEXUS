@@ -19,11 +19,16 @@
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
   "recruiter+amounts_edit",
-  "automation"
+  "automation",
+  "employee",
+  "recruiter+people_admin",
+  "recruiter+payroll",
+  "recruiter+equipment",
+  "recruiter+cases"
  ],
  "routes": {
-  "GET /api/integrations/v1/academy/programs": "UUUUUUUUUUUUUUUUUUUU",
-  "GET /api/integrations/v1/academy/programs/{program_id}": "UUUUUUUUUUUUUUUUUUUU",
-  "GET /api/integrations/v1/academy/programs/{program_id}/participants": "UUUUUUUUUUUUUUUUUUUU"
+  "GET /api/integrations/v1/academy/programs": "UUUUUUUUUUUUUUUUUUUUUUUUU",
+  "GET /api/integrations/v1/academy/programs/{program_id}": "UUUUUUUUUUUUUUUUUUUUUUUUU",
+  "GET /api/integrations/v1/academy/programs/{program_id}/participants": "UUUUUUUUUUUUUUUUUUUUUUUUU"
  }
 }

@@ -19,13 +19,18 @@
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
   "recruiter+amounts_edit",
-  "automation"
+  "automation",
+  "employee",
+  "recruiter+people_admin",
+  "recruiter+payroll",
+  "recruiter+equipment",
+  "recruiter+cases"
  ],
  "routes": {
-  "DELETE /api/procedures/{procedure_id}": "PDDDDDDDDDDDDDDDDDDD",
-  "GET /api/procedures": "PPPPPPPDPPPPPPPPPPPP",
-  "GET /api/procedures/{id_or_slug}": "PPPPPPPDPPPPPPPPPPPP",
-  "POST /api/procedures": "PDDDDDDDDDDDDDDDDDDD",
-  "PUT /api/procedures/{procedure_id}": "PDDDDDDDDDDDDDDDDDDD"
+  "DELETE /api/procedures/{procedure_id}": "PDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/procedures": "PPPPPPPDPPPPPPPPPPPPPPPPP",
+  "GET /api/procedures/{id_or_slug}": "PPPPPPPDPPPPPPPPPPPPPPPPP",
+  "POST /api/procedures": "PDDDDDDDDDDDDDDDDDDDDDDDD",
+  "PUT /api/procedures/{procedure_id}": "PDDDDDDDDDDDDDDDDDDDDDDDD"
  }
 }

@@ -416,6 +416,11 @@ const PUBLIC_PATHS = [
   "/sign/",
   "/cv/",
   "/engagement/",
+  // Publiczny podpis protokołu sprzętu: token w adresie, bez logowania.
+  "/protocol/",
+  // Wypis konsultanta z komunikatów informacyjnych: token w adresie, konsultant
+  // nie ma konta (etap 3, O12).
+  "/wypis/",
   "/preview/candidates",
   "/preview/candidate-profile",
   "/preview/contact-queue",
@@ -516,6 +521,26 @@ const PUBLIC_PATHS = [
   "/preview/api-keys",
   // Praktykanci (0374): `/preview/trainee` pokrywa też `/preview/trainees`.
   "/preview/trainee",
+  // „Ludzie w NEXUSIE” (17.10.2026): harnessy 14 makiet — fikcja, zero zapytań
+  // (strażnik `app/preview/__tests__/hr-harnesses.test.ts`).
+  "/preview/hr-dashboard",
+  "/preview/hr-my-time",
+  "/preview/hr-calendar",
+  "/preview/hr-approvals",
+  "/preview/hr-person",
+  "/preview/hr-payroll",
+  "/preview/hr-offboarding",
+  "/preview/hr-onboarding",
+  "/preview/hr-care",
+  "/preview/hr-client-tech",
+  "/preview/hr-cases",
+  "/preview/hr-equipment",
+  "/preview/hr-equipment-issue",
+  // Etap 2 (17.10.2026): struktura, „Mój zespół”, struktura u klienta.
+  "/preview/hr-structure",
+  "/preview/hr-team",
+  "/preview/hr-client-people",
+  "/preview/hr-announcements",
   // Strona kariery (kandydaci z LinkedIna) — publiczna z definicji. Na własnym
   // hoście (`kariera.dynaminds.pl`) obsługuje ją `careerHostResponse` niżej;
   // tu jest wejście pod `/kariera/*` na hoście aplikacji (dev, podgląd, grafiki
@@ -677,6 +702,15 @@ export function middleware(request: NextRequest) {
     !isTraineeAllowedPath(pathname)
   ) {
     return NextResponse.redirect(new URL("/trainee", request.url));
+  }
+  // „Pracownik” (0456) nie ma pulpitu — strona startowa to „Mój czas”.
+  // Pozostałe trasy z sekcjami kończą się jak dotąd na /403.
+  if (
+    userRoles.size === 1 &&
+    userRoles.has("employee") &&
+    (pathname === "/" || pathname === "/dashboard" || pathname.startsWith("/dashboard/"))
+  ) {
+    return NextResponse.redirect(new URL("/my-time", request.url));
   }
   if (accessRule?.section && payload.sa) {
     if (

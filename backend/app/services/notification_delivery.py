@@ -116,6 +116,25 @@ CATALOG = (
         trigger="Ten sam automat (przegląd bazy, propozycje, auto-CV) padł 3 razy z rzędu.",
         recipient_rule="Aktywni administratorzy.",
     ),
+    # „Ludzie w NEXUSIE” (17.10.2026) — typy `HR_MAIL_TYPES`, treść składa
+    # `services/hr/hr_mail.py` (bez rodzaju nieobecności i bez kwot).
+    dict(
+        id="hr_people",
+        label="Czas i ludzie",
+        module="Ludzie",
+        trigger="Wniosek o nieobecność do decyzji i decyzja o nim, anulowana albo "
+        "zgłoszona nieobecność (na B2B i zleceniu: zgłoszona przerwa i kolizja "
+        "zgłoszona przez koordynatora), zastępstwo, raport godzin zaakceptowany, "
+        "zwrócony albo niewysłany w terminie, przekazana praca, zadania wejścia "
+        "i odejścia, sprawa administracja@, zadania sprzętu, podpisany protokół "
+        "i konsultant przekazany z opieki do front office.",
+        recipient_rule="Osoba, na którą sprawa czeka: akceptujący wniosku (przełożony "
+        "albo Kadry), koordynator osoby na B2B i zleceniu, wnioskodawca, zastępca, "
+        "przejmujący pracę, wykonawca zadania, "
+        "przypisany do sprawy, osoby z uprawnieniem „Sprzęt”, a przy przekazaniu do "
+        "front office: head pionu front office, Head of Recruitment i Delivery "
+        "Leadzi. W mailu nie ma rodzaju nieobecności ani kwot.",
+    ),
     # Poranny skrót (07.10.2026) — `tasks/daily_digest_email.py`.
     dict(
         id="daily_digest",
@@ -220,8 +239,35 @@ class DeliveryPolicy:
         )
 
 
+HR_MAIL_KIND = "hr_people"
+# Typy kadrowe, które idą mailem „Czas i ludzie”: sprawy, na które ktoś czeka.
+# Bez maila zostają premie i stawki (kwoty), timesheet do akceptacji (zbiór
+# na początku miesiąca — przełożony ma licznik w „Akceptacjach”) i opieka
+# (`care_contact_due`, sekcja Delivery). Przypomnienia o terminie
+# (`hr_timesheet_reminder` raz w miesiącu, zaległe zadania wejścia/odejścia
+# w poniedziałek, sprzęt na najbliższe dni) idą jak „Terminy rekrutacji”.
+HR_MAIL_TYPES: tuple[str, ...] = (
+    "hr_leave_requested",
+    "hr_leave_decided",
+    "hr_leave_cancelled",
+    "hr_leave_substitute",
+    "hr_absence_reported",
+    "hr_leave_conflict",
+    "hr_timesheet_decided",
+    "hr_timesheet_reminder",
+    "hr_lifecycle_task",
+    "hr_work_handover",
+    "admin_case_assigned",
+    "equipment_task",
+    "equipment_protocol_signed",
+    "care_front_office_handoff",
+    "care_announcement",
+)
+
+
 def notification_kind(notification_type: Any) -> str | None:
     return {
+        **dict.fromkeys(HR_MAIL_TYPES, HR_MAIL_KIND),
         "job_chat_message": "chat_unread",
         "job_chat_mention": "chat_unread",
         "note_mention": "mentions",
@@ -308,6 +354,7 @@ IMMEDIATE_KINDS = (
     "request_assigned",
     "signature_request",
     "system_failure",
+    HR_MAIL_KIND,
 )
 
 

@@ -19,12 +19,17 @@
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
   "recruiter+amounts_edit",
-  "automation"
+  "automation",
+  "employee",
+  "recruiter+people_admin",
+  "recruiter+payroll",
+  "recruiter+equipment",
+  "recruiter+cases"
  ],
  "routes": {
-  "DELETE /api/job-boards/jjit/connection": "PDDDDDDDDDDDDDDDDDDD",
-  "GET /api/job-boards/jjit/authorize": "PDDDDDDDDDDDDDDDDDDD",
-  "GET /api/job-boards/jjit/callback": "PPPPPPPPPPPPPPPPPPPP",
-  "GET /api/job-boards/jjit/connection": "PDDDDDDDDDDDDDDDDDDD"
+  "DELETE /api/job-boards/jjit/connection": "PDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/job-boards/jjit/authorize": "PDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/job-boards/jjit/callback": "PPPPPPPPPPPPPPPPPPPPPPPPP",
+  "GET /api/job-boards/jjit/connection": "PDDDDDDDDDDDDDDDDDDDDDDDD"
  }
 }

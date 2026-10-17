@@ -4,7 +4,6 @@ import * as React from"react";
 import { AlertTriangle } from"lucide-react";
 import {
  Dialog,
- DialogBody,
  DialogContent,
  DialogDescription,
  DialogFooter,
@@ -43,7 +42,9 @@ export function ConfirmV2({
  return (
  <Dialog open={open} onOpenChange={onOpenChange}>
  <DialogContent size="sm">
- <DialogHeader>
+ {/* Bez treści między opisem a stopką: linia stopki wystarcza, druga
+ (dolna krawędź nagłówka) dawałaby podwójną kreskę. */}
+ <DialogHeader className="border-b-0">
  <div className="flex items-center gap-2">
  {variant === "destructive" && (
  <AlertTriangle className="h-4 w-4 text-primary" />
@@ -52,8 +53,6 @@ export function ConfirmV2({
  </div>
  {description && <DialogDescription>{description}</DialogDescription>}
  </DialogHeader>
-
- <DialogBody />
 
  <DialogFooter>
  <Button

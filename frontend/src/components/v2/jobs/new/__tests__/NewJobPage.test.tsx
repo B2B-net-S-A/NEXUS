@@ -75,19 +75,24 @@ vi.mock("@/components/Toast", () => ({
 
 vi.mock("@/components/clients/ClientSinglePicker", () => ({
   ClientSinglePicker: ({
+    value,
     onChange,
     disabled,
   }: {
+    value?: { name?: string } | null;
     onChange: (c: unknown) => void;
     disabled?: boolean;
   }) => (
-    <button
-      type="button"
-      disabled={disabled}
-      onClick={() => onChange({ id: 7, name: "Alior Bank" })}
-    >
-      wybierz klienta
-    </button>
+    <>
+      {value ? <span data-testid="picked-client">{value.name}</span> : null}
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={() => onChange({ id: 7, name: "Alior Bank" })}
+      >
+        wybierz klienta
+      </button>
+    </>
   ),
 }));
 
@@ -2557,6 +2562,29 @@ describe("NewJobPage — szablon z podobnej rekrutacji (`?from=`)", () => {
     expect(screen.getByLabelText("Rola")).toHaveValue("");
     expect(screen.queryByTestId("new-job-source-pane")).toBeNull();
     expect(screen.queryByTestId("new-job-fill-summary")).toBeNull();
+  });
+});
+
+describe("NewJobPage — klient z mapy technologii (`?client=`)", () => {
+  it("ustawia klienta z adresu", async () => {
+    mocks.searchParams = new URLSearchParams("client=7");
+    serveGets((url) =>
+      url === "/api/clients/7" ? { id: 7, name: "Klient Demo (fikcja)" } : undefined,
+    );
+    renderPage();
+    expect(await screen.findByTestId("picked-client")).toHaveTextContent("Klient Demo (fikcja)");
+  });
+
+  it("gdy klienta nie da się wczytać, wybór zostaje pusty i pada komunikat", async () => {
+    mocks.searchParams = new URLSearchParams("client=7");
+    serveGets((url) => (url === "/api/clients/7" ? new Error("404") : undefined));
+    renderPage();
+    await waitFor(() =>
+      expect(mocks.showError).toHaveBeenCalledWith(
+        expect.stringContaining("Nie udało się wczytać klienta"),
+      ),
+    );
+    expect(screen.queryByTestId("picked-client")).not.toBeInTheDocument();
   });
 });
 

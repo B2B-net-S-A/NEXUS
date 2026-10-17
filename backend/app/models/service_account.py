@@ -149,6 +149,20 @@ class ServiceScope(str, enum.Enum):
     # i zarządzanie własnymi webhookami konta.
     events_read = "events:read"
     webhooks_manage = "webhooks:manage"
+    # ── „Ludzie w NEXUSIE” (16.10.2026) ──
+    # Lista osób dla COMPASSA (zostaje z Akademią): e-mail, imię, status
+    # zatrudnienia, przełożony, dział, daty — bez stawek i nieobecności.
+    people_roster_read = "people_roster:read"
+    # Sygnały sprzedażowe z kart technologicznych dla ATLASA (zastępuje
+    # `/api/internal/sales-signals` Compassa) i zwrot ich statusu.
+    sales_signals_read = "sales_signals:read"
+    sales_signals_write = "sales_signals:write"
+    # Nieobecności w API v1: kto i kiedy (zatwierdzone wnioski), NIGDY rodzaj
+    # — decyzja D6: rodzaj widzą tylko osoba, jej przełożony i Kadry.
+    absences_read = "absences:read"
+    # Sprzęt w API v1: wydania i zwroty (egzemplarz bez wartości z cennika
+    # i bez numerów seryjnych, IMEI, ICCID).
+    equipment_read = "equipment:read"
 
 
 SCOPE_LABELS: dict[ServiceScope, str] = {
@@ -156,6 +170,9 @@ SCOPE_LABELS: dict[ServiceScope, str] = {
     ServiceScope.traffit_read: "Odczyt statusu synchronizacji Traffit",
     ServiceScope.ops_snapshot: "Odczyt migawki operacyjnej (/api/admin/snapshot)",
     ServiceScope.contractors_read: "Eksport kontraktorów dla COMPASSA (bez kwot)",
+    ServiceScope.people_roster_read: "Lista osób dla COMPASSA (bez stawek i nieobecności)",
+    ServiceScope.sales_signals_read: "Sygnały sprzedażowe z kart technologicznych (ATLAS)",
+    ServiceScope.sales_signals_write: "Zwrot statusu sygnałów sprzedażowych (ATLAS)",
     ServiceScope.clients_read: "Klienci: odczyt (nazwa, NIP, Delivery Lead)",
     ServiceScope.contracts_read: "Kontrakty: odczyt (osoba, klient, okres, status)",
     ServiceScope.orders_read: "Zamówienia: odczyt (okresy, linie, PDF-y)",
@@ -208,6 +225,8 @@ SCOPE_LABELS: dict[ServiceScope, str] = {
     ServiceScope.academy_read: "Akademia: programy i nabór (odczyt)",
     ServiceScope.events_read: "Zdarzenia: kanał zdarzeń (same identyfikatory)",
     ServiceScope.webhooks_manage: "Webhooki: zarządzanie powiadomieniami konta",
+    ServiceScope.absences_read: "Nieobecności — kto i kiedy, bez rodzaju",
+    ServiceScope.equipment_read: "Sprzęt — wydania i zwroty",
 }
 
 

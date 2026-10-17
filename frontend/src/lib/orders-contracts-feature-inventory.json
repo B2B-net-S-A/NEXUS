@@ -651,6 +651,69 @@
    "file": "app/clients/[id]/page.tsx",
    "marker": "Importy MD",
    "b_home": "Bez zmian"
+  },
+  {
+   "id": "k.care-tab",
+   "opis": "Zakładka „Opieka” kontraktu: opiekun, plan kontaktów, rozmowy, karta technologiczna (moduł „care”)",
+   "file": "app/contracts/[id]/page.tsx",
+   "marker": "ContractCareTab",
+   "b_home": "Strona kontraktu: zakładka „Opieka”"
+  },
+  {
+   "id": "c.tech-tab",
+   "opis": "Zakładka „Technologie” klienta: mapa technologii z czterech źródeł (moduł „care”)",
+   "file": "app/clients/[id]/page.tsx",
+   "marker": "ClientTechnologiesTab",
+   "b_home": "Profil klienta: zakładka „Technologie”"
+  },
+  {
+   "id": "c.org-tab",
+   "opis": "Zakładka „Struktura u klienta”: działy, osoby klienta, menedżerowie naszych konsultantów, prośby o opinię i zapis opinii (moduł „care”, D8–D11)",
+   "file": "app/clients/[id]/page.tsx",
+   "marker": "ClientPeopleTab",
+   "b_home": "Profil klienta: zakładka „Struktura u klienta”"
+  },
+  {
+   "id": "k.client-manager",
+   "opis": "„Menedżer u klienta” na kontrakcie (kontakt klienta, podpowiedź „Przypnij”) w sekcji „Osadzenie u klienta” i w faktach kontraktu",
+   "file": "app/contracts/[id]/page.tsx",
+   "marker": "Menedżer u klienta",
+   "b_home": "Strona kontraktu: fakty i edycja „Osadzenie u klienta”"
+  },
+  {
+   "id": "k.client-feedback",
+   "opis": "Historia opinii klienta o konsultancie w zakładce „Opieka” kontraktu",
+   "file": "app/contracts/[id]/page.tsx",
+   "marker": "ContractFeedbackHistory",
+   "b_home": "Strona kontraktu: zakładka „Opieka”"
+  },
+  {
+   "id": "k.equipment-tab",
+   "opis": "Zakładka „Sprzęt” kontraktu: wpisy ręczne (dodaj, zwrócono, usuń) i termin zwrotu z dzwonkiem 14 dni",
+   "file": "components/contracts/ContractEquipmentTab.tsx",
+   "marker": "Dodaj sprzęt",
+   "b_home": "Strona kontraktu: zakładka „Sprzęt”"
+  },
+  {
+   "id": "k.equipment-register-issue",
+   "opis": "Wydanie z magazynu z protokołem recepcji (moduł „Sprzęt”)",
+   "file": "components/contracts/ContractEquipmentTab.tsx",
+   "marker": "Wydaj z magazynu",
+   "b_home": "Zakładka „Sprzęt” kontraktu, nad tabelą"
+  },
+  {
+   "id": "k.equipment-register-return",
+   "opis": "Zwrot pozycji z magazynu przez recepcję (protokół zwrotu)",
+   "file": "components/contracts/ContractEquipmentTab.tsx",
+   "marker": "zwrot przyjmuje recepcja",
+   "b_home": "Zakładka „Sprzęt” kontraktu, wiersz pozycji"
+  },
+  {
+   "id": "k.termination-equipment-return",
+   "opis": "Zakończenie współpracy: lista sprzętu do zwrotu i zadanie odbioru dla recepcji",
+   "file": "components/contracts/ContractTerminationDialog.tsx",
+   "marker": "Zwrot sprzętu",
+   "b_home": "Okno „Zakończ współpracę”"
   }
  ]
 }

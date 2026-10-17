@@ -19,21 +19,26 @@
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
   "recruiter+amounts_edit",
-  "automation"
+  "automation",
+  "employee",
+  "recruiter+people_admin",
+  "recruiter+payroll",
+  "recruiter+equipment",
+  "recruiter+cases"
  ],
  "routes": {
-  "DELETE /api/pipeline/stages/share-token/{token}": "PPPPPPDDPPPPPPPPPPPD",
-  "GET /api/pipeline/history/{candidate_id}/{job_id}": "PPPPPPDDPPPPPPPPPPPP",
-  "GET /api/pipeline/job/{job_id}/moves": "PPPPPPDDPPPPPPPPPPPP",
-  "GET /api/pipeline/kanban/{job_id}": "PPPPPPDDPPPPPPPPPPPP",
-  "GET /api/pipeline/my-next-steps": "PPPPPPDDPPPPPPPPPPPP",
-  "GET /api/pipeline/overview": "PPPPPPDDPPPPPPPPPPPP",
-  "GET /api/pipeline/stages": "PPPPPPPDPPPPPPPPPPPP",
-  "GET /api/pipeline/stages/{stage_id}/screening": "PPPPPPDDPPPPPPPPPPPP",
-  "POST /api/pipeline/bulk-move": "PPPPPPDDPPPPPPPPPPPD",
-  "POST /api/pipeline/claim": "PPPPPPDDPPPPPPPPPPPD",
-  "POST /api/pipeline/move": "PPPPPPDDPPPPPPPPPPPD",
-  "POST /api/pipeline/stages/{stage_id}/screening": "PPPPPPDDPPPPPPPPPPPD",
-  "POST /api/pipeline/stages/{stage_id}/share-token": "PPPPPPDDPPPPPPPPPPPD"
+  "DELETE /api/pipeline/stages/share-token/{token}": "PPPPPPDDPPPPPPPPPPPDDPPPP",
+  "GET /api/pipeline/history/{candidate_id}/{job_id}": "PPPPPPDDPPPPPPPPPPPPDPPPP",
+  "GET /api/pipeline/job/{job_id}/moves": "PPPPPPDDPPPPPPPPPPPPDPPPP",
+  "GET /api/pipeline/kanban/{job_id}": "PPPPPPDDPPPPPPPPPPPPDPPPP",
+  "GET /api/pipeline/my-next-steps": "PPPPPPDDPPPPPPPPPPPPDPPPP",
+  "GET /api/pipeline/overview": "PPPPPPDDPPPPPPPPPPPPDPPPP",
+  "GET /api/pipeline/stages": "PPPPPPPDPPPPPPPPPPPPDPPPP",
+  "GET /api/pipeline/stages/{stage_id}/screening": "PPPPPPDDPPPPPPPPPPPPDPPPP",
+  "POST /api/pipeline/bulk-move": "PPPPPPDDPPPPPPPPPPPDDPPPP",
+  "POST /api/pipeline/claim": "PPPPPPDDPPPPPPPPPPPDDPPPP",
+  "POST /api/pipeline/move": "PPPPPPDDPPPPPPPPPPPDDPPPP",
+  "POST /api/pipeline/stages/{stage_id}/screening": "PPPPPPDDPPPPPPPPPPPDDPPPP",
+  "POST /api/pipeline/stages/{stage_id}/share-token": "PPPPPPDDPPPPPPPPPPPDDPPPP"
  }
 }

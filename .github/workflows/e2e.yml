@@ -113,6 +113,16 @@ jobs:
           docker compose -f docker-compose.e2e.yml exec -T \
             -e E2E_SEED_CONFIRM=nexus-e2e -e E2E_SEED_PASSWORD="$E2E_USER_PASSWORD" \
             backend python scripts/seed_e2e.py
+      - name: Zasiej zespół HR („Ludzie w NEXUSIE”)
+        # Fikcyjny zespół z kartotekami, przełożoną i pulami urlopowymi oraz
+        # włączone moduły HR (`app_settings['hr_modules']`) — tylko na tym
+        # stacku. To samo jednorazowe hasło co konta ról; na te konta loguje
+        # się `e2e/flow-hr-leave.spec.ts`.
+        working-directory: .
+        run: |
+          docker compose -f docker-compose.e2e.yml exec -T \
+            -e HR_DEMO_SEED_CONFIRM=nexus-hr-demo -e HR_DEMO_SEED_PASSWORD="$E2E_USER_PASSWORD" \
+            backend python scripts/seed_hr_demo.py
       - name: Playwright — scenariusze @stack
         run: |
           set -o pipefail

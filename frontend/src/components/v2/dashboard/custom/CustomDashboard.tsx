@@ -25,6 +25,7 @@ import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { WidgetErrorBlock } from "@/components/v2/dashboard/WidgetState"
 import { apiErrorMessage } from "@/lib/api-error"
+import { useHrConfig } from "@/lib/api/hr"
 import {
   USER_DASHBOARD_QUERY_KEY,
   isDashboardVersionConflict,
@@ -216,9 +217,16 @@ export function CustomDashboard() {
     [user],
   )
   const contactFeature = useCandidateContactFeature({ queryEnabled: roleHasContactTiles })
+  // Kafelki „Ludzi w NEXUSIE” istnieją tylko przy włączonym module (stan
+  // z `/api/hr/config`, ten sam co w menu); bez niego katalog i układ roli
+  // ich nie mają.
+  const hrConfig = useHrConfig(Boolean(user))
   const roleLayoutOptions = useMemo(
-    () => (contactFeature.enabled ? {} : { skipTypes: CONTACT_TILE_TYPES }),
-    [contactFeature.enabled],
+    () => ({
+      ...(contactFeature.enabled ? {} : { skipTypes: CONTACT_TILE_TYPES }),
+      hr: hrConfig.data,
+    }),
+    [contactFeature.enabled, hrConfig.data],
   )
   const roleTiles = useMemo(
     () => roleDefaultTiles(user, roleLayoutOptions),
@@ -648,6 +656,7 @@ export function CustomDashboard() {
         user={user}
         onPick={pickTemplate}
         onCustomMetric={() => pickTemplate(CUSTOM_METRIC_TEMPLATE)}
+        hr={hrConfig.data}
         hiddenPanels={[...hiddenPanels]}
         onRestorePanel={(panel) =>
           setPanelHidden.mutate(

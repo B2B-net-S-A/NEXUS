@@ -19,14 +19,19 @@
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
   "recruiter+amounts_edit",
-  "automation"
+  "automation",
+  "employee",
+  "recruiter+people_admin",
+  "recruiter+payroll",
+  "recruiter+equipment",
+  "recruiter+cases"
  ],
  "routes": {
-  "GET /api/admin/audits/live-order-contract-repair": "PDDDDDDDDDDDDDDDDDDD",
-  "GET /api/admin/import-talent-radar/{task_id}": "PDDDDDDDDDDDDDDDDDDD",
-  "GET /api/admin/import-tasks": "PDDDDDDDDDDDDDDDDDDD",
-  "POST /api/admin/clients/{client_id}/ezdrowie-md-orders/import": "PDDDDDDDDDDDDDDDDDDD",
-  "POST /api/admin/clients/{client_id}/nordea-orders/import": "PDDDDDDDDDDDDDDDDDDD",
-  "POST /api/admin/import-talent-radar": "PDDDDDDDDDDDDDDDDDDD"
+  "GET /api/admin/audits/live-order-contract-repair": "PDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/admin/import-talent-radar/{task_id}": "PDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/admin/import-tasks": "PDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/admin/clients/{client_id}/ezdrowie-md-orders/import": "PDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/admin/clients/{client_id}/nordea-orders/import": "PDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/admin/import-talent-radar": "PDDDDDDDDDDDDDDDDDDDDDDDD"
  }
 }

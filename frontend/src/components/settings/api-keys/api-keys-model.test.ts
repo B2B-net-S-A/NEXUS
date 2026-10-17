@@ -117,6 +117,14 @@ describe("groupScopes — grupy uprawnień na ekranie", () => {
     ]);
   });
 
+  it("nieobecności i sprzęt mają własną grupę przed kwotami", () => {
+    const groups = groupScopes(["amounts:read", "equipment:read", "absences:read"], []);
+    expect(groups.map((g) => [g.title, g.scopes.map((s) => s.value)])).toEqual([
+      ["Ludzie i sprzęt", ["absences:read", "equipment:read"]],
+      ["Kwoty", ["amounts:read"]],
+    ]);
+  });
+
   it("chip pokazuje etykietę bez dopisku w nawiasie", () => {
     expect(shortScopeLabel("Zużycie MD: zapis (import, przypisanie wiersza)")).toBe("Zużycie MD: zapis");
     expect(shortScopeLabel("Raporty: odczyt")).toBe("Raporty: odczyt");

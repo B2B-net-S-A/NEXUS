@@ -19,10 +19,15 @@
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
   "recruiter+amounts_edit",
-  "automation"
+  "automation",
+  "employee",
+  "recruiter+people_admin",
+  "recruiter+payroll",
+  "recruiter+equipment",
+  "recruiter+cases"
  ],
  "routes": {
-  "GET /api/jobs/{job_id}/champions": "PPPPPPDDPPPPPPPPPPPD",
-  "PUT /api/jobs/{job_id}/champions": "PPPPPPDDPPPPPPPPPPPD"
+  "GET /api/jobs/{job_id}/champions": "PPPPPPDDPPPPPPPPPPPDDPPPP",
+  "PUT /api/jobs/{job_id}/champions": "PPPPPPDDPPPPPPPPPPPDDPPPP"
  }
 }

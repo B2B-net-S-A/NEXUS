@@ -19,12 +19,17 @@
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
   "recruiter+amounts_edit",
-  "automation"
+  "automation",
+  "employee",
+  "recruiter+people_admin",
+  "recruiter+payroll",
+  "recruiter+equipment",
+  "recruiter+cases"
  ],
  "routes": {
-  "GET /api/integrations/v1/insights/goals": "UUUUUUUUUUUUUUUUUUUU",
-  "GET /api/integrations/v1/insights/placements": "UUUUUUUUUUUUUUUUUUUU",
-  "GET /api/integrations/v1/insights/recruitment": "UUUUUUUUUUUUUUUUUUUU",
-  "GET /api/integrations/v1/insights/team": "UUUUUUUUUUUUUUUUUUUU"
+  "GET /api/integrations/v1/insights/goals": "UUUUUUUUUUUUUUUUUUUUUUUUU",
+  "GET /api/integrations/v1/insights/placements": "UUUUUUUUUUUUUUUUUUUUUUUUU",
+  "GET /api/integrations/v1/insights/recruitment": "UUUUUUUUUUUUUUUUUUUUUUUUU",
+  "GET /api/integrations/v1/insights/team": "UUUUUUUUUUUUUUUUUUUUUUUUU"
  }
 }

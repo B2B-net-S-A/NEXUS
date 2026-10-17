@@ -122,6 +122,7 @@ from app.api import my_relationships as my_relationships_api
 from app.api import my_people as my_people_api
 from app.api import also_fits as also_fits_api
 from app.api import academy as academy_api
+from app.api import academy_edition as academy_edition_api
 from app.api import trainee as trainee_api
 from app.api import board_tasks as board_tasks_api
 from app.api import candidate_followups as candidate_followups_api
@@ -192,6 +193,30 @@ from app.api import candidate_blacklist as candidate_blacklist_api
 from app.api import admin_import
 from app.api import kpis as kpis_api
 from app.api import kpi_targets_admin as kpi_targets_admin_api
+
+# „Ludzie w NEXUSIE” (16.10.2026): kartoteka, katalog ludzi, Kadry.
+from app.api import hr_admin as hr_admin_api
+from app.api import hr_counts as hr_counts_api
+from app.api import hr_dashboard as hr_dashboard_api
+from app.api import hr_import as hr_import_api
+from app.api import hr_structure as hr_structure_api
+from app.api import hr_team as hr_team_api
+from app.api import hr_people as hr_people_api
+from app.api import hr_m365 as hr_m365_api
+from app.api import hr_leave as hr_leave_api
+from app.api import hr_time as hr_time_api
+from app.api import hr_payroll as hr_payroll_api
+from app.api import hr_lifecycle as hr_lifecycle_api
+from app.api import contract_care as contract_care_api
+from app.api import care_atlas as care_atlas_api
+from app.api import care_skills as care_skills_api
+from app.api import care_announcements as care_announcements_api
+from app.api import public_consultant_mail as public_consultant_mail_api
+from app.api import admin_cases as admin_cases_api
+from app.api import equipment as equipment_api
+from app.api import client_onboarding as client_onboarding_api
+from app.api import equipment_intune as equipment_intune_api
+from app.api import equipment_public as equipment_public_api
 from app.api import onboarding as onboarding_api
 from app.api import procedures as procedures_api
 from app.api import help_screens as help_screens_api
@@ -768,6 +793,7 @@ async def lifespan(app: FastAPI):
         allocation_loop,
         allocation_matching_loop,
     )
+    from app.tasks import hr_loops
     from app.services.recruitment_allocation_events import register_allocation_events
 
     register_allocation_events()
@@ -931,6 +957,29 @@ async def lifespan(app: FastAPI):
         "workforce_availability": asyncio.create_task(availability_loop()),
         "recruitment_allocation": asyncio.create_task(allocation_loop()),
         "allocation_matching": asyncio.create_task(allocation_matching_loop()),
+        # „Ludzie w NEXUSIE” — pętle modułów kadrowych (`app/tasks/hr_loops.py`);
+        # kończą się na `HR_LOOPS_ENABLED=false`, moduły pilnują przełączników.
+        "hr_workdays": asyncio.create_task(hr_loops.hr_workdays_loop()),
+        "hr_m365_outbox": asyncio.create_task(hr_loops.hr_m365_outbox_loop()),
+        "hr_m365_reconcile": asyncio.create_task(hr_loops.hr_m365_reconcile_loop()),
+        "hr_m365_daily": asyncio.create_task(hr_loops.hr_m365_daily_loop()),
+        "hr_timesheet_reminder": asyncio.create_task(
+            hr_loops.hr_timesheet_reminder_loop()
+        ),
+        "care_reminders": asyncio.create_task(hr_loops.care_reminders_loop()),
+        "care_announcements_send": asyncio.create_task(
+            hr_loops.care_announcements_send_loop()
+        ),
+        "hr_lifecycle": asyncio.create_task(hr_loops.hr_lifecycle_loop()),
+        "hr_contract_hooks": asyncio.create_task(hr_loops.hr_contract_hooks_loop()),
+        "hr_bonus_proposals": asyncio.create_task(hr_loops.hr_bonus_proposals_loop()),
+        "equipment_reminders": asyncio.create_task(hr_loops.equipment_reminders_loop()),
+        "equipment_intune_sync": asyncio.create_task(
+            hr_loops.equipment_intune_sync_loop()
+        ),
+        "admin_cases_mail_ingest": asyncio.create_task(
+            hr_loops.admin_cases_mail_ingest_loop()
+        ),
     }
 
     # Śmierć pętli musi być ZDARZENIEM, nie zmianą ułamka „running/expected".
@@ -1257,6 +1306,12 @@ app.include_router(
 app.include_router(also_fits_api.router, prefix="/api", tags=["also-fits"])
 app.include_router(
     academy_api.router,
+    prefix="/api/academy",
+    tags=["academy"],
+)
+# Edycja Akademii od strony recepcji (0465): /editions, /programs/{id}/editions/{yyyy-mm}.
+app.include_router(
+    academy_edition_api.router,
     prefix="/api/academy",
     tags=["academy"],
 )
@@ -1683,6 +1738,43 @@ app.include_router(kpis_api.router, prefix="/api/kpis", tags=["kpis"])
 # Ustawienia → Cele KPI (plan PR3): edytor odstępstw ról i osobistych celów.
 app.include_router(
     kpi_targets_admin_api.router, prefix="/api/kpi-targets", tags=["kpis"]
+)
+# „Ludzie w NEXUSIE” — moduł kadrowy (bramki w `app/api/hr_gates.py`).
+app.include_router(hr_import_api.router, prefix="/api/hr/admin/import", tags=["hr"])
+app.include_router(hr_admin_api.router, prefix="/api/hr/admin", tags=["hr"])
+app.include_router(hr_counts_api.router, prefix="/api/hr/counts", tags=["hr"])
+app.include_router(hr_dashboard_api.router, prefix="/api/hr/dashboard", tags=["hr"])
+app.include_router(hr_structure_api.router, prefix="/api/hr/structure", tags=["hr"])
+app.include_router(hr_team_api.router, prefix="/api/hr/team", tags=["hr"])
+app.include_router(hr_people_api.router, prefix="/api/hr", tags=["hr"])
+app.include_router(hr_m365_api.router, prefix="/api/hr/admin/m365", tags=["hr"])
+app.include_router(hr_leave_api.router, prefix="/api/hr/leave", tags=["hr"])
+app.include_router(hr_time_api.router, prefix="/api/hr/time", tags=["hr"])
+app.include_router(hr_payroll_api.router, prefix="/api/hr/payroll", tags=["hr"])
+app.include_router(hr_lifecycle_api.router, prefix="/api/hr/lifecycle", tags=["hr"])
+app.include_router(contract_care_api.router, prefix="/api/care", tags=["hr"])
+app.include_router(care_skills_api.router, prefix="/api/care", tags=["hr"])
+app.include_router(care_atlas_api.router, prefix="/api/care", tags=["hr"])
+app.include_router(
+    care_announcements_api.router, prefix="/api/care/announcements", tags=["hr"]
+)
+app.include_router(
+    public_consultant_mail_api.router,
+    prefix="/api/public/consultant-mail",
+    tags=["hr"],
+)
+app.include_router(admin_cases_api.router, prefix="/api/cases", tags=["hr"])
+app.include_router(equipment_api.router, prefix="/api/equipment", tags=["hr"])
+app.include_router(
+    client_onboarding_api.router, prefix="/api/client-onboarding", tags=["hr"]
+)
+app.include_router(
+    equipment_intune_api.router, prefix="/api/equipment/intune", tags=["hr"]
+)
+app.include_router(
+    equipment_public_api.router,
+    prefix="/api/public/equipment-protocols",
+    tags=["hr"],
 )
 # Analytics v1 (plan 2026-07-16, PR 3) — wersjonowany kontrakt statystyk.
 # Endpointy 503 przy ANALYTICS_V1_MODE=off; RBAC/capabilities niezależnie.
@@ -2471,8 +2563,10 @@ async def api_health_check():
         except Exception:
             checks["priority_work"] = "degraded"
 
+    from app.services.hr.availability_local import availability_enabled
+
     for flag, key, model_name in (
-        (settings.COMPASS_AVAILABILITY_ENABLED, "workforce_availability", "source"),
+        (availability_enabled(), "workforce_availability", "source"),
         (
             settings.RECRUITMENT_ALLOCATION_ENABLED,
             "recruitment_allocation",
@@ -2515,6 +2609,37 @@ async def api_health_check():
                     )
             except Exception:
                 checks[key] = "degraded"
+
+    # Sprzęt ↔ Intune (etap 4, D9): disabled przy EQUIPMENT_INTUNE_MODE=off; healthy =
+    # udany odczyt < 26 h i bez błędu; inaczej degraded. Informacyjna.
+    from app.services.equipment import intune_graph as _intune_graph
+
+    if _intune_graph.current_mode() == "off":
+        checks["equipment_intune"] = "disabled"
+    else:
+        try:
+            from app.services.equipment import intune as _equipment_intune
+
+            async with AsyncSessionLocal() as session:
+                checks["equipment_intune"] = await asyncio.wait_for(
+                    _equipment_intune.health_state(session), timeout=1.0
+                )
+        except Exception:  # noqa: BLE001 — sonda informacyjna
+            checks["equipment_intune"] = "degraded"
+
+    # „Ludzie w NEXUSIE”: kolejka M365 urlopów, czytnik administracja@, przebiegi
+    # pętli HR (``app/services/hr/health.py``). Informacyjne — przy przełączeniu
+    # z Compassa pokazują, że coś utknęło, zanim zauważą to ludzie.
+    from app.services.hr import health as _hr_health
+
+    for _probe_key, _probe in _hr_health.PROBES:
+        try:
+            async with AsyncSessionLocal() as session:
+                checks[_probe_key] = await asyncio.wait_for(
+                    _probe(session), timeout=1.0
+                )
+        except Exception:  # noqa: BLE001 — sonda informacyjna
+            checks[_probe_key] = "degraded"
 
     # Anthropic key — config-only probe. Bez klucza generator CV (i każdy
     # feature na Claude API) wstaje, ale pierwsza generacja kończy się 502
@@ -2953,6 +3078,30 @@ async def api_health_deep_check():
         IntegrationEventOutbox,
         IntegrationWebhook,
     )
+    from app.models.admin_case import AdminCase
+    from app.models.contract_care import CareConversation, TechCard
+    from app.models.equipment import (
+        EquipmentAssignment,
+        EquipmentItem,
+        EquipmentProtocol,
+        EquipmentTask,
+    )
+    from app.models.academy_logistics import (
+        AcademyEditionChecklistItem,
+        AcademyParticipantLogistics,
+    )
+    from app.models.equipment_intune import EquipmentIntuneDevice
+    from app.models.hr_leave import HrM365Operation, LeaveRequest
+    from app.models.hr_lifecycle import LifecycleCase, WorkHandover
+    from app.models.contract_care import ClientFeedbackSession
+    from app.models.hr_ops import HrAuditEvent, HrImportBatch, HrImportUpload, HrJobRun
+    from app.models.hr_payroll import EmployeeRate, HrBonus, PayrollPeriod
+    from app.models.hr_time import Timesheet, TimesheetEntry
+    from app.models.hr_profile import (
+        CompanyDayOff,
+        EmployeeProfile,
+        LeaveEntitlement,
+    )
 
     core_checks = [
         ("workforce_availability_state", WorkforceAvailabilityState),
@@ -3209,6 +3358,38 @@ async def api_health_deep_check():
         ("integration_event_outbox", IntegrationEventOutbox),
         ("integration_events", IntegrationEvent),
         ("integration_webhooks", IntegrationWebhook),
+        # 0455: „Ludzie w NEXUSIE” — kartoteka i rezerwacje zadań HR. Brak
+        # tabeli = 500 na „Mój czas” / „Ludzie” i dublowane przebiegi zadań.
+        ("employee_profiles", EmployeeProfile),
+        ("leave_entitlements", LeaveEntitlement),
+        ("company_days_off", CompanyDayOff),
+        ("hr_audit_events", HrAuditEvent),
+        ("hr_job_runs", HrJobRun),
+        ("hr_import_batches", HrImportBatch),
+        ("hr_import_uploads", HrImportUpload),
+        ("client_feedback_sessions", ClientFeedbackSession),
+        # 0457–0465: moduły „Ludzi w NEXUSIE” — po jednej-dwie tabele, bez
+        # których główny ekran modułu daje 500 (pozostałe pilnuje dryf schematu).
+        ("leave_requests", LeaveRequest),
+        ("hr_m365_operations", HrM365Operation),
+        ("timesheets", Timesheet),
+        ("timesheet_entries", TimesheetEntry),
+        ("employee_rates", EmployeeRate),
+        ("hr_bonuses", HrBonus),
+        ("payroll_periods", PayrollPeriod),
+        ("lifecycle_cases", LifecycleCase),
+        ("work_handovers", WorkHandover),
+        ("tech_cards", TechCard),
+        ("care_conversations", CareConversation),
+        ("admin_cases", AdminCase),
+        ("equipment_items", EquipmentItem),
+        ("equipment_assignments", EquipmentAssignment),
+        ("equipment_protocols", EquipmentProtocol),
+        ("equipment_tasks", EquipmentTask),
+        # 0465: Intune (rozjazdy z ewidencją) i edycja Akademii od strony recepcji.
+        ("equipment_intune_devices", EquipmentIntuneDevice),
+        ("academy_edition_checklist", AcademyEditionChecklistItem),
+        ("academy_participant_logistics", AcademyParticipantLogistics),
     ]
 
     checks: dict[str, str] = {}

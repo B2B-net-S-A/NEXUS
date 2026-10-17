@@ -829,6 +829,24 @@ async def _stamp_academy_reapplied(
     )
 
 
+async def _refuse_academy_equipment(db: AsyncSession, keys: list[str]) -> None:
+    """Przegrane zgłoszenie Akademii z niezwróconym sprzętem — scalenie 409.
+
+    Zwrócone wydanie traci posiadacza (FK ``SET NULL``, historia zostaje
+    w protokole); niezwróconego nie zostawiamy „wydanego nikomu” (0465).
+    Zgłoszenie, które przechodzi na ocalałego, zabiera sprzęt ze sobą.
+    """
+    from app.services.equipment.registry import (
+        ACADEMY_EQUIPMENT_HELD,
+        active_academy_assignments,
+    )
+
+    if keys and await active_academy_assignments(
+        db, application_ids=[int(key) for key in keys]
+    ):
+        raise MergeError(409, "academy_equipment_active", ACADEMY_EQUIPMENT_HELD)
+
+
 async def _delete_keys(
     db: AsyncSession, ref: Reference, key: str, keys: list[str], ids: tuple[int, int]
 ) -> int:
@@ -1009,6 +1027,7 @@ async def _move_reference(
         if ref.table == "academy_applications":
             for kept, dropped in reapplied:
                 await _stamp_academy_reapplied(db, ref, key, kept, dropped)
+            await _refuse_academy_equipment(db, [*drop_survivor, *drop_duplicate])
         replaced += await _delete_keys(db, ref, key, sorted(drop_survivor), ids)
         replaced += await _delete_keys(db, ref, key, drop_duplicate, ids)
     moved = await _repoint(db, ref, survivor_id=survivor_id, duplicate_id=duplicate_id)

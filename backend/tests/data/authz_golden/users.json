@@ -19,14 +19,19 @@
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
   "recruiter+amounts_edit",
-  "automation"
+  "automation",
+  "employee",
+  "recruiter+people_admin",
+  "recruiter+payroll",
+  "recruiter+equipment",
+  "recruiter+cases"
  ],
  "routes": {
-  "GET /api/users": "PPPPPPDDPPPPPPPPPPPP",
-  "GET /api/users/me/email-notifications": "PPPPPPPDPPPPPPPPPPPP",
-  "GET /api/users/me/preferences": "PPPPPPPDPPPPPPPPPPPP",
-  "GET /api/users/mentionable": "PPPPPPDDPPPPPPPPPPPP",
-  "PATCH /api/users/me/preferences": "PPPPPPPDPPPPPPPPPPPP",
-  "PUT /api/users/me/email-notifications/{kind}": "PPPPPPPDPPPPPPPPPPPP"
+  "GET /api/users": "PPPPPPDDPPPPPPPPPPPPDPPPP",
+  "GET /api/users/me/email-notifications": "PPPPPPPDPPPPPPPPPPPPPPPPP",
+  "GET /api/users/me/preferences": "PPPPPPPDPPPPPPPPPPPPPPPPP",
+  "GET /api/users/mentionable": "PPPPPPDDPPPPPPPPPPPPDPPPP",
+  "PATCH /api/users/me/preferences": "PPPPPPPDPPPPPPPPPPPPPPPPP",
+  "PUT /api/users/me/email-notifications/{kind}": "PPPPPPPDPPPPPPPPPPPPPPPPP"
  }
 }

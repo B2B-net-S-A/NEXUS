@@ -19,16 +19,21 @@
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
   "recruiter+amounts_edit",
-  "automation"
+  "automation",
+  "employee",
+  "recruiter+people_admin",
+  "recruiter+payroll",
+  "recruiter+equipment",
+  "recruiter+cases"
  ],
  "routes": {
-  "DELETE /api/notes/{note_id}": "PPPPPPDDPPPPPPPPPPPD",
-  "DELETE /api/notes/{note_id}/pin": "PPPPPPDDPPPPPPPPPPPD",
-  "GET /api/notes": "PPPPPPDDPPPPPPPPPPPP",
-  "GET /api/notes/{note_id}": "PPPPPPDDPPPPPPPPPPPP",
-  "PATCH /api/notes/{note_id}": "PPPPPPDDPPPPPPPPPPPD",
-  "POST /api/notes": "PPPPPPDDPPPPPPPPPPPD",
-  "POST /api/notes/{note_id}/link-job": "PDDPDDDDPPPDDDDDDDDD",
-  "POST /api/notes/{note_id}/pin": "PPPPPPDDPPPPPPPPPPPD"
+  "DELETE /api/notes/{note_id}": "PPPPPPDDPPPPPPPPPPPDDPPPP",
+  "DELETE /api/notes/{note_id}/pin": "PPPPPPDDPPPPPPPPPPPDDPPPP",
+  "GET /api/notes": "PPPPPPDDPPPPPPPPPPPPDPPPP",
+  "GET /api/notes/{note_id}": "PPPPPPDDPPPPPPPPPPPPDPPPP",
+  "PATCH /api/notes/{note_id}": "PPPPPPDDPPPPPPPPPPPDDPPPP",
+  "POST /api/notes": "PPPPPPDDPPPPPPPPPPPDDPPPP",
+  "POST /api/notes/{note_id}/link-job": "PDDPDDDDPPPDDDDDDDDDDDDDD",
+  "POST /api/notes/{note_id}/pin": "PPPPPPDDPPPPPPPPPPPDDPPPP"
  }
 }

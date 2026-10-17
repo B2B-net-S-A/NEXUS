@@ -19,13 +19,18 @@
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
   "recruiter+amounts_edit",
-  "automation"
+  "automation",
+  "employee",
+  "recruiter+people_admin",
+  "recruiter+payroll",
+  "recruiter+equipment",
+  "recruiter+cases"
  ],
  "routes": {
-  "DELETE /api/settings/oauth-clients/{client_pk}": "PDDDDDDDDDDDDDDDDDDD",
-  "GET /api/settings/oauth-clients": "PDDDDDDDDDDDDDDDDDDD",
-  "GET /api/settings/oauth-clients/scopes": "PDDDDDDDDDDDDDDDDDDD",
-  "PATCH /api/settings/oauth-clients/{client_pk}": "PDDDDDDDDDDDDDDDDDDD",
-  "POST /api/settings/oauth-clients": "PDDDDDDDDDDDDDDDDDDD"
+  "DELETE /api/settings/oauth-clients/{client_pk}": "PDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/settings/oauth-clients": "PDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/settings/oauth-clients/scopes": "PDDDDDDDDDDDDDDDDDDDDDDDD",
+  "PATCH /api/settings/oauth-clients/{client_pk}": "PDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/settings/oauth-clients": "PDDDDDDDDDDDDDDDDDDDDDDDD"
  }
 }

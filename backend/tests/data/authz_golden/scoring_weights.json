@@ -19,12 +19,17 @@
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
   "recruiter+amounts_edit",
-  "automation"
+  "automation",
+  "employee",
+  "recruiter+people_admin",
+  "recruiter+payroll",
+  "recruiter+equipment",
+  "recruiter+cases"
  ],
  "routes": {
-  "DELETE /api/scoring-weights/{profile_id}": "PDDDDDDDDDDDDDDDDDDD",
-  "GET /api/scoring-weights": "PDDPDDDDPPPDDDDDDDDD",
-  "PATCH /api/scoring-weights/{profile_id}": "PDDDDDDDDDDDDDDDDDDD",
-  "POST /api/scoring-weights": "PDDDDDDDDDDDDDDDDDDD"
+  "DELETE /api/scoring-weights/{profile_id}": "PDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/scoring-weights": "PDDPDDDDPPPDDDDDDDDDDDDDD",
+  "PATCH /api/scoring-weights/{profile_id}": "PDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/scoring-weights": "PDDDDDDDDDDDDDDDDDDDDDDDD"
  }
 }

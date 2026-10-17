@@ -422,9 +422,9 @@ async def build_plan(
                     "code": BLOCKER_PM_CONTACT,
                     "ids": [contract.client_pm_contact_id],
                     "message": (
-                        "PM po stronie klienta jest kontaktem innego klienta "
+                        "Menedżer u klienta jest kontaktem innego klienta "
                         f"(kontakt #{contract.client_pm_contact_id}). Zmień albo usuń "
-                        "PM w edycji kontraktu przed przepięciem."
+                        "menedżera u klienta w edycji kontraktu przed przepięciem."
                     ),
                 }
             )

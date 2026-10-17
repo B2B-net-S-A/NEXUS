@@ -19,11 +19,16 @@
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
   "recruiter+amounts_edit",
-  "automation"
+  "automation",
+  "employee",
+  "recruiter+people_admin",
+  "recruiter+payroll",
+  "recruiter+equipment",
+  "recruiter+cases"
  ],
  "routes": {
-  "GET /api/insights/recruitment/stale-jobs": "PPPPPDDDPPPPPPDDDDDD",
-  "GET /api/insights/team/attention": "PPPPPDDDPPPPPPDDDDDD",
-  "GET /api/insights/team/people": "PPPPPDDDPPPPPPDDDDDD"
+  "GET /api/insights/recruitment/stale-jobs": "PPPPPDDDPPPPPPDDDDDDDDDDD",
+  "GET /api/insights/team/attention": "PPPPPDDDPPPPPPDDDDDDDDDDD",
+  "GET /api/insights/team/people": "PPPPPDDDPPPPPPDDDDDDDDDDD"
  }
 }

@@ -13,6 +13,9 @@ export type ClientTab =
   // rekrutacji i z Pomocy prowadzi od rundy 6 audytu do Ustawień
   // (`clientPlaybookEditHref`), bo DL nie widzi profilu cudzego klienta.
   | "zasady"
+  // Pakiet klienta „Wejście u klienta”: sprzęt, pierwszy dzień, dokumenty
+  // i dostępy dla wejścia konsultanta (etap 3, 17.10.2026).
+  | "wejscie"
   | "projekty"
   | "kontakty"
   | "umowy-ramowe"
@@ -21,17 +24,25 @@ export type ClientTab =
   // cel odsyłacza „Otwórz import →" z historii zamówienia.
   | "importy-md"
   | "analityka"
+  // Mapa technologii klienta („Ludzie w NEXUSIE”, 16.10.2026).
+  | "technologie"
+  // Struktura u klienta: działy, osoby, menedżerowie naszych konsultantów
+  // i opinie klienta (etap 2, 17.10.2026). Link z historii opinii kontraktu.
+  | "struktura"
   | "zespol";
 
 export const CLIENT_TAB_KEYS: readonly ClientTab[] = [
   "profil",
   "zasady",
+  "wejscie",
   "projekty",
   "kontakty",
   "umowy-ramowe",
   "zamowienia",
   "importy-md",
   "analityka",
+  "technologie",
+  "struktura",
   "zespol",
 ] as const;
 

@@ -19,14 +19,19 @@
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
   "recruiter+amounts_edit",
-  "automation"
+  "automation",
+  "employee",
+  "recruiter+people_admin",
+  "recruiter+payroll",
+  "recruiter+equipment",
+  "recruiter+cases"
  ],
  "routes": {
-  "GET /api/public/apply/{token}": "PPPPPPPPPPPPPPPPPPPP",
-  "GET /api/public/champion-card/{token}": "PPPPPPPPPPPPPPPPPPPP",
-  "GET /api/public/cv-i/{token}": "PPPPPPPPPPPPPPPPPPPP",
-  "GET /api/public/cv/{token}": "PPPPPPPPPPPPPPPPPPPP",
-  "POST /api/public/apply/{token}": "PPPPPPPPPPPPPPPPPPPP",
-  "POST /api/public/cv-i/{token}/chat": "PPPPPPPPPPPPPPPPPPPP"
+  "GET /api/public/apply/{token}": "PPPPPPPPPPPPPPPPPPPPPPPPP",
+  "GET /api/public/champion-card/{token}": "PPPPPPPPPPPPPPPPPPPPPPPPP",
+  "GET /api/public/cv-i/{token}": "PPPPPPPPPPPPPPPPPPPPPPPPP",
+  "GET /api/public/cv/{token}": "PPPPPPPPPPPPPPPPPPPPPPPPP",
+  "POST /api/public/apply/{token}": "PPPPPPPPPPPPPPPPPPPPPPPPP",
+  "POST /api/public/cv-i/{token}/chat": "PPPPPPPPPPPPPPPPPPPPPPPPP"
  }
 }

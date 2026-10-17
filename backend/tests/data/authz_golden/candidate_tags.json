@@ -19,11 +19,16 @@
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
   "recruiter+amounts_edit",
-  "automation"
+  "automation",
+  "employee",
+  "recruiter+people_admin",
+  "recruiter+payroll",
+  "recruiter+equipment",
+  "recruiter+cases"
  ],
  "routes": {
-  "DELETE /api/candidates/{candidate_id}/tags": "PPPPPPDDPPPPPPPPPPPD",
-  "GET /api/candidates/tags/suggest": "PPPPPPDDPPPPPPPPPPPP",
-  "POST /api/candidates/{candidate_id}/tags": "PPPPPPDDPPPPPPPPPPPD"
+  "DELETE /api/candidates/{candidate_id}/tags": "PPPPPPDDPPPPPPPPPPPDDPPPP",
+  "GET /api/candidates/tags/suggest": "PPPPPPDDPPPPPPPPPPPPDPPPP",
+  "POST /api/candidates/{candidate_id}/tags": "PPPPPPDDPPPPPPPPPPPDDPPPP"
  }
 }

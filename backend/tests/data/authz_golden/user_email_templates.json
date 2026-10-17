@@ -19,14 +19,19 @@
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
   "recruiter+amounts_edit",
-  "automation"
+  "automation",
+  "employee",
+  "recruiter+people_admin",
+  "recruiter+payroll",
+  "recruiter+equipment",
+  "recruiter+cases"
  ],
  "routes": {
-  "DELETE /api/user-email-templates/{template_id}": "PPPPPPPDPPPPPPPPPPPP",
-  "GET /api/user-email-templates": "PPPPPPPDPPPPPPPPPPPP",
-  "GET /api/user-email-templates/{template_id}": "PPPPPPPDPPPPPPPPPPPP",
-  "POST /api/user-email-templates": "PPPPPPDDPPPPPPPPPPPD",
-  "POST /api/user-email-templates/{template_id}/render": "PPPPPPDDPPPPPPPPPPPP",
-  "PUT /api/user-email-templates/{template_id}": "PPPPPPPDPPPPPPPPPPPP"
+  "DELETE /api/user-email-templates/{template_id}": "PPPPPPPDPPPPPPPPPPPPPPPPP",
+  "GET /api/user-email-templates": "PPPPPPPDPPPPPPPPPPPPPPPPP",
+  "GET /api/user-email-templates/{template_id}": "PPPPPPPDPPPPPPPPPPPPPPPPP",
+  "POST /api/user-email-templates": "PPPPPPDDPPPPPPPPPPPDDPPPP",
+  "POST /api/user-email-templates/{template_id}/render": "PPPPPPDDPPPPPPPPPPPPDPPPP",
+  "PUT /api/user-email-templates/{template_id}": "PPPPPPPDPPPPPPPPPPPPPPPPP"
  }
 }

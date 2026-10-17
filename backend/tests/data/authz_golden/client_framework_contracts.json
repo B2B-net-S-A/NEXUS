@@ -19,18 +19,23 @@
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
   "recruiter+amounts_edit",
-  "automation"
+  "automation",
+  "employee",
+  "recruiter+people_admin",
+  "recruiter+payroll",
+  "recruiter+equipment",
+  "recruiter+cases"
  ],
  "routes": {
-  "DELETE /api/clients/{client_id}/framework-contracts/{fc_id}": "PPDBDDDDBBBDDDDDDDDD",
-  "GET /api/clients/{client_id}/framework-contracts": "BBDBDDDDBBBDDDDDDBBD",
-  "GET /api/clients/{client_id}/framework-contracts/search": "BBDBDDDDBBBDDDDDDBBD",
-  "GET /api/clients/{client_id}/framework-contracts/{fc_id}": "BBDBDDDDBBBDDDDDDBBD",
-  "GET /api/clients/{client_id}/framework-contracts/{fc_id}/file": "BBDBDDDDBBBDDDDDDBBD",
-  "GET /api/clients/{client_id}/framework-contracts/{fc_id}/text": "BBDBDDDDBBBDDDDDDBBD",
-  "PATCH /api/clients/{client_id}/framework-contracts/{fc_id}": "PPDBDDDDBBBDDDDDDDDD",
-  "POST /api/clients/{client_id}/framework-contracts": "PPDBDDDDBBBDDDDDDDDD",
-  "POST /api/clients/{client_id}/framework-contracts/{fc_id}/send-autenti": "PPDBDDDDBBBDDDDDDDDD",
-  "PUT /api/clients/{client_id}/framework-contracts/{fc_id}/file": "PPDBDDDDBBBDDDDDDDDD"
+  "DELETE /api/clients/{client_id}/framework-contracts/{fc_id}": "PPDBDDDDBBBDDDDDDDDDDDDDD",
+  "GET /api/clients/{client_id}/framework-contracts": "BBDBDDDDBBBDDDDDDBBDDDDDD",
+  "GET /api/clients/{client_id}/framework-contracts/search": "BBDBDDDDBBBDDDDDDBBDDDDDD",
+  "GET /api/clients/{client_id}/framework-contracts/{fc_id}": "BBDBDDDDBBBDDDDDDBBDDDDDD",
+  "GET /api/clients/{client_id}/framework-contracts/{fc_id}/file": "BBDBDDDDBBBDDDDDDBBDDDDDD",
+  "GET /api/clients/{client_id}/framework-contracts/{fc_id}/text": "BBDBDDDDBBBDDDDDDBBDDDDDD",
+  "PATCH /api/clients/{client_id}/framework-contracts/{fc_id}": "PPDBDDDDBBBDDDDDDDDDDDDDD",
+  "POST /api/clients/{client_id}/framework-contracts": "PPDBDDDDBBBDDDDDDDDDDDDDD",
+  "POST /api/clients/{client_id}/framework-contracts/{fc_id}/send-autenti": "PPDBDDDDBBBDDDDDDDDDDDDDD",
+  "PUT /api/clients/{client_id}/framework-contracts/{fc_id}/file": "PPDBDDDDBBBDDDDDDDDDDDDDD"
  }
 }

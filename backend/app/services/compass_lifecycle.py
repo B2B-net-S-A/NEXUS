@@ -427,6 +427,15 @@ async def sync_user_lifecycle(db) -> LifecycleSyncResult:
     if not (settings.COMPASS_LIFECYCLE_URL and settings.COMPASS_LIFECYCLE_SECRET):
         result.error = "unconfigured"
         return result
+    # „Ludzie w NEXUSIE”: po włączeniu modułu wejścia/odejścia konta wyłącza
+    # NEXUS (dzień po ostatnim dniu pracy), a Compass czyta listę osób od nas —
+    # dwa źródła deaktywacji naraz to wyścig. Sonda zostaje zdrowa.
+    from app.services.hr import modules as hr_modules
+
+    if (await hr_modules.load_modules(db)).get("lifecycle"):
+        result.error = "superseded_by_hr_lifecycle"
+        await record_sync_outcome(db, ok=True)
+        return result
 
     try:
         payload = await fetch_roster()

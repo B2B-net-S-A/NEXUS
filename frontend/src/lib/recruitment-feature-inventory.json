@@ -85,6 +85,14 @@
    "v3_home": "kolumna „Rekruter” na liście rekrutacji"
   },
   {
+   "id": "list.recruiter-absence",
+   "area": "lista",
+   "opis": "Kropka nieobecności przy Rekruterze i DL (17.10.2026, moduł urlopów): kto jest dziś nieobecny, do kiedy i kto zastępuje — w podpowiedzi, bez rodzaju nieobecności; jedno zapytanie na stronę listy",
+   "file": "components/v2/jobs/JobListCells.tsx",
+   "marker": "job-recruiter-absence",
+   "v3_home": "kolumna „Rekruter” na liście rekrutacji"
+  },
+  {
    "id": "list.priority-badges",
    "area": "lista",
    "opis": "Odznaki Priority Work",

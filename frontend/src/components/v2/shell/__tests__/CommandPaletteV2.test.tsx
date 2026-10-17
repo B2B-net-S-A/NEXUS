@@ -25,6 +25,10 @@ vi.mock("@/store/auth", async (importOriginal) => ({
 vi.mock("@/hooks/useCandidateContactFeature", () => ({
   useCandidateContactFeature: () => ({ enabled: false }),
 }));
+// Stan modułu „Ludzie w NEXUSIE” też idzie z react-query — moduł wyłączony.
+vi.mock("@/lib/api/hr", () => ({
+  useHrNavState: () => ({ myTime: false, people: false, equipment: false }),
+}));
 // cmdk w jsdom wymaga ResizeObserver/scrollIntoView — test dotyczy wyłącznie
 // zapytań palety, więc prymitywy renderujemy jako zwykłe elementy.
 vi.mock("@/components/ui/command", () => {

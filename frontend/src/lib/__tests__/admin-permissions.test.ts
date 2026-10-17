@@ -72,11 +72,12 @@ describe("przełączniki roli", () => {
       new Set(),
     );
     expect(groups.map((group) => group.label)).toEqual([
+      "Ludzie",
       "Pieniądze",
       "Rekrutacje",
       "Klienci i kontrakty",
     ]);
-    expect(groups[0].rows.map((row) => row.label)).toEqual([
+    expect(groups[1].rows.map((row) => row.label)).toEqual([
       "Stawki i kwoty: podgląd",
       "Stawki i kwoty: zmiana",
       "Moduł Finanse",
@@ -255,6 +256,8 @@ describe("dodatkowe uprawnienia osoby", () => {
   it("role razem dają sumę uprawnień z zależnościami", () => {
     expect([...permissionsOfRoles(snapshot, tcm)].sort()).toEqual([
       "b2b_signature_confirmation",
+      // „Ludzie w NEXUSIE”: TCM domyślnie obsługuje skrzynkę administracja@.
+      "cases",
       "contract_status",
       "delivery_view",
     ]);
@@ -271,16 +274,27 @@ describe("dodatkowe uprawnienia osoby", () => {
       "amounts_view",
       "amounts_edit",
       "finance_module",
+      "people_admin",
+      "payroll",
+      "equipment",
     ]);
     expect(rows.every((row) => !row.checked)).toBe(true);
-    // Delivery Lead dostaje z roli prawie wszystko — zostają dwie pozycje.
+    // Delivery Lead dostaje z roli prawie wszystko z Delivery i pieniędzy —
+    // zostają dwie pozycje plus cztery z grupy „Ludzie”.
     expect(
       extraPermissionRows(
         snapshot,
         permissionsOfRoles(snapshot, ["delivery_lead"]),
         new Set(),
       ).map((row) => row.key),
-    ).toEqual(["amounts_edit", "finance_module"]);
+    ).toEqual([
+      "amounts_edit",
+      "finance_module",
+      "people_admin",
+      "payroll",
+      "equipment",
+      "cases",
+    ]);
   });
 
   it("uprawnienie wymagane przez zaznaczone jest zaznaczone i zablokowane", () => {
@@ -414,7 +428,7 @@ describe("dodatkowe uprawnienia osoby", () => {
     });
   });
 
-  it("zna wszystkie dziewięć uprawnień", () => {
-    expect(PERMISSION_KEYS).toHaveLength(9);
+  it("zna wszystkie trzynaście uprawnień (dziewięć + cztery „Ludzie”)", () => {
+    expect(PERMISSION_KEYS).toHaveLength(13);
   });
 });

@@ -1,0 +1,301 @@
+"use client";
+
+import { useState } from "react";
+import { ChevronLeft, ChevronRight, Download } from "lucide-react";
+
+import { InlineStats } from "@/components/ds/InlineStats";
+import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
+import { StatusDot } from "@/components/ds/StatusDot";
+import { useToast } from "@/components/Toast";
+import { Button } from "@/components/ui/button";
+import { useConfirmV2 } from "@/components/v2/modals/ConfirmV2";
+import { apiErrorMessage } from "@/lib/api-error";
+import { countPl } from "@/lib/plural-pl";
+import { downloadHrFile, type HrConfig, type WorkLocation } from "@/lib/api/hr";
+import {
+  timePaths,
+  useCopyPrevious,
+  useDayHint,
+  useDeleteMyEntry,
+  useFillMonth,
+  useMyMonth,
+  useMyTemplates,
+  useSaveMyEntry,
+  useSetAttendance,
+  useSubmitMonth,
+  type MonthDay,
+  type TimesheetEntry,
+} from "@/lib/api/hr-time";
+import { capitalize, employmentTerms } from "@/lib/hr-employment-terms";
+import { resolveViewState } from "@/lib/view-state";
+import { warsawToday } from "@/lib/warsaw-date";
+import { monthTitlePl, shiftMonth, type YearMonth } from "@/lib/date-pl";
+
+import { EntryDialog } from "./EntryDialog";
+import { TimesheetArchive } from "./TimesheetArchive";
+import { useUrlMonth } from "./use-url-month";
+import { MonthGrid } from "./MonthGrid";
+import {
+  STATUS_TONE,
+  canEditMonth,
+  currentYearMonth,
+  formatHours,
+  statusLine,
+} from "./time-format";
+
+export interface MyMonthTabProps {
+  config: HrConfig;
+  /** Miesiąc z adresu (np. link z powiadomienia); domyślnie bieżący. */
+  initialMonth?: YearMonth;
+  /** Zmiana miesiąca — do zapisania w adresie (`useUrlWriter`). */
+  onMonthChange?: (value: YearMonth) => void;
+}
+
+interface EditorState {
+  day: MonthDay;
+  entry: TimesheetEntry | null;
+}
+
+/**
+ * „Mój czas → Mój miesiąc”: obecność i godziny w jednej siatce dni. Nazwa
+ * raportu i kto go przyjmuje mówią językiem umowy (D4): ewidencja czasu pracy
+ * do akceptacji przełożonego, raport godzin albo potwierdzenie godzin (art. 8b)
+ * do potwierdzenia przez koordynatora.
+ */
+export function MyMonthTab({ config, initialMonth, onMonthChange }: MyMonthTabProps) {
+  const { showToast } = useToast();
+  const { askConfirm, confirmDialog } = useConfirmV2();
+  const [period, setPeriod] = useUrlMonth(initialMonth, currentYearMonth);
+  const [editor, setEditor] = useState<EditorState | null>(null);
+  const [pendingDay, setPendingDay] = useState<string | null>(null);
+  const moduleOpen = config.open_modules.time;
+
+  const month = useMyMonth(period.year, period.month, moduleOpen);
+  const templates = useMyTemplates(moduleOpen);
+  const hint = useDayHint(editor ? editor.day.date : null);
+  const save = useSaveMyEntry(period.year, period.month);
+  const remove = useDeleteMyEntry();
+  const attendance = useSetAttendance();
+  const fill = useFillMonth(period.year, period.month);
+  const copy = useCopyPrevious(period.year, period.month);
+  const submit = useSubmitMonth(period.year, period.month);
+  const today = warsawToday();
+
+  const state = resolveViewState({
+    isLoading: month.isLoading,
+    isError: month.isError,
+    error: month.error,
+    isSuccess: month.isSuccess,
+  });
+
+  const openMonth = (next: YearMonth) => {
+    setPeriod(next);
+    onMonthChange?.(next);
+  };
+  const go = (delta: number) => openMonth(shiftMonth(period, delta));
+
+  if (!moduleOpen) {
+    return (
+      <p className="rounded-lg border border-border/60 p-5 text-sm text-muted-foreground">
+        „Mój miesiąc” ruszy po włączeniu modułu czasu pracy — do tego czasu
+        timesheet prowadzisz w dotychczasowym systemie.
+      </p>
+    );
+  }
+
+  const view = month.data;
+  const editable = view ? canEditMonth(view) : false;
+  const words = employmentTerms(view?.employment_type);
+  const reviewNoun = words.review_noun;
+
+  const changeLocation = (day: MonthDay, location: WorkLocation) => {
+    setPendingDay(day.date);
+    attendance.mutate(
+      { day: day.date, status: "active", location },
+      {
+        onError: (err) =>
+          showToast(apiErrorMessage(err, "Nie udało się zapisać miejsca pracy."), "error"),
+        onSettled: () => setPendingDay(null),
+      },
+    );
+  };
+
+  const runFill = () => {
+    fill.mutate(
+      {},
+      {
+        onSuccess: (result) =>
+          showToast(
+            result.inserted > 0
+              ? `Wpisano ${countPl(result.inserted, "dzień", "dni", "dni")}: „${result.description}”.`
+              : "Wszystkie dni robocze mają już wpisy.",
+            "success",
+          ),
+        onError: (err) => showToast(apiErrorMessage(err, "Nie udało się wypełnić miesiąca."), "error"),
+      },
+    );
+  };
+
+  const runCopy = () => {
+    copy.mutate(undefined, {
+      onSuccess: (result) =>
+        showToast(
+          result.source
+            ? `Skopiowano opisy z ${monthTitlePl(result.source).toLowerCase()}: ${countPl(result.inserted, "dzień", "dni", "dni")}.`
+            : "Nie ma jeszcze zaakceptowanego miesiąca do skopiowania.",
+          result.source ? "success" : "info",
+        ),
+      onError: (err) => showToast(apiErrorMessage(err, "Nie udało się skopiować opisów."), "error"),
+    });
+  };
+
+  const runSubmit = async () => {
+    if (!view) return;
+    const missing = view.totals.days_missing;
+    const after = `Po wysłaniu poprawki wprowadza ${words.coordinator} albo zwraca ${words.timesheet_accusative} do Ciebie.`;
+    const ok = await askConfirm({
+      title: `Wysłać ${words.timesheet_accusative} za ${monthTitlePl(period).toLowerCase()} do ${reviewNoun}?`,
+      description:
+        missing > 0 ? `${countPl(missing, "dzień roboczy nie ma", "dni robocze nie mają", "dni roboczych nie ma")} wpisów. ${after}` : after,
+      confirmLabel: "Wyślij",
+    });
+    if (!ok) return;
+    submit.mutate(undefined, {
+      onSuccess: () => showToast(`${words.timesheet} — wysłano do ${reviewNoun}`, "success"),
+      onError: (err) =>
+        showToast(
+          apiErrorMessage(err, `Nie udało się wysłać: ${words.timesheet_accusative}.`),
+          "error",
+        ),
+    });
+  };
+
+  const downloadPdf = async () => {
+    try {
+      await downloadHrFile(
+        timePaths.myPdf(period.year, period.month),
+        `timesheet-${period.year}-${String(period.month).padStart(2, "0")}.pdf`,
+      );
+    } catch (err) {
+      showToast(apiErrorMessage(err, "Nie udało się pobrać PDF."), "error");
+    }
+  };
+
+  const status = view?.timesheet?.status ?? "draft";
+
+  return (
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        {/* Zawija się na wąskim ekranie (360 px): status schodzi pod miesiąc. */}
+        <div className="flex min-w-0 flex-wrap items-center gap-1">
+          <Button variant="ghost" size="icon-sm" aria-label="Poprzedni miesiąc" onClick={() => go(-1)}>
+            <ChevronLeft className="h-4 w-4" aria-hidden />
+          </Button>
+          <h2 className="min-w-[9.5rem] text-center text-base font-semibold text-foreground">
+            {monthTitlePl(period)}
+          </h2>
+          <Button variant="ghost" size="icon-sm" aria-label="Następny miesiąc" onClick={() => go(1)}>
+            <ChevronRight className="h-4 w-4" aria-hidden />
+          </Button>
+          {view ? (
+            <StatusDot tone={STATUS_TONE[status]} className="ml-2">
+              {statusLine(view)}
+            </StatusDot>
+          ) : null}
+        </div>
+        {view ? (
+          <div className="flex flex-wrap items-center gap-1.5">
+            {editable ? (
+              <>
+                <Button variant="ghost" size="sm" onClick={runCopy} disabled={copy.isPending}>
+                  Skopiuj opisy z poprzedniego
+                </Button>
+                <Button variant="outline" size="sm" onClick={runFill} disabled={fill.isPending}>
+                  Wypełnij miesiąc
+                </Button>
+                <Button size="sm" onClick={runSubmit} disabled={submit.isPending}>
+                  Wyślij do {reviewNoun}
+                </Button>
+              </>
+            ) : null}
+            {status === "approved" ? (
+              <Button variant="outline" size="sm" onClick={downloadPdf}>
+                <Download className="mr-1.5 h-4 w-4" aria-hidden />
+                Pobierz PDF
+              </Button>
+            ) : null}
+          </div>
+        ) : null}
+      </div>
+
+      {view?.timesheet?.return_note && status === "draft" ? (
+        <p role="status" className="rounded-md bg-warning-muted px-3 py-2 text-sm text-warning-muted-foreground">
+          Zwrócony do poprawy: {view.timesheet.return_note}
+        </p>
+      ) : null}
+
+      {state === "loading" ? (
+        <p className="text-sm text-muted-foreground">Wczytywanie miesiąca…</p>
+      ) : state !== "ready" || !view ? (
+        <QueryStateNotice
+          state={state === "forbidden" || state === "not_found" ? state : "error"}
+          onRetry={() => month.refetch()}
+        />
+      ) : (
+        <>
+          <InlineStats
+            id="my-month-stats"
+            stats={[
+              { id: "work", label: "praca", value: `${formatHours(view.totals.work_hours)} h` },
+              {
+                id: "leave",
+                label: view.employment_type === "uop" ? "urlop płatny" : "płatne dni z umowy",
+                value: `${formatHours(view.totals.leave_paid_hours)} h`,
+                title: "Płatne dni przerwy z umownej puli liczą się jak dni pracy.",
+              },
+              { id: "overtime", label: "nadgodziny", value: `${formatHours(view.totals.overtime_hours)} h` },
+              { id: "missing", label: "dni do uzupełnienia", value: view.totals.days_missing },
+              {
+                id: "norm",
+                label: `norma (${view.totals.working_days} dni)`,
+                value: `${view.totals.norm_hours} h`,
+              },
+              {
+                id: "approver",
+                label: words.review_verb,
+                value: view.approver_name ?? "Kadry",
+                title: capitalize(`${words.coordinator} przyjmuje ${words.timesheet_accusative}.`),
+              },
+            ]}
+          />
+          <MonthGrid
+            view={view}
+            today={today}
+            editable={editable}
+            onEntryClick={(day, entry) => setEditor({ day, entry })}
+            onLocationChange={changeLocation}
+            locationPending={pendingDay}
+          />
+        </>
+      )}
+
+      <TimesheetArchive onOpenMonth={(item) => openMonth({ year: item.year, month: item.month })} />
+
+      {editor && view ? (
+        <EntryDialog
+          key={`${editor.day.date}-${editor.entry?.id ?? "new"}`}
+          open
+          onOpenChange={(open) => !open && setEditor(null)}
+          day={editor.day}
+          entry={editor.entry}
+          allowOvertime={view.can_log_overtime}
+          templates={templates.data?.items}
+          hint={{ text: hint.data?.text ?? null, loading: hint.isLoading }}
+          onSave={(payload) => save.mutateAsync(payload)}
+          onDelete={(id) => remove.mutateAsync(id)}
+        />
+      ) : null}
+      {confirmDialog}
+    </div>
+  );
+}

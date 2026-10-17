@@ -19,10 +19,15 @@
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
   "recruiter+amounts_edit",
-  "automation"
+  "automation",
+  "employee",
+  "recruiter+people_admin",
+  "recruiter+payroll",
+  "recruiter+equipment",
+  "recruiter+cases"
  ],
  "routes": {
-  "GET /api/my-clients": "PPDPPDDDPPPDPPPPDPPP",
-  "GET /api/my-clients/{client_id}/dashboard": "BBDBBDDDBBBDBBBBDBBB"
+  "GET /api/my-clients": "PPDPPDDDPPPDPPPPDPPPDDDDD",
+  "GET /api/my-clients/{client_id}/dashboard": "BBDBBDDDBBBDBBBBDBBBDDDDD"
  }
 }

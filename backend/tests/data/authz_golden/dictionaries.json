@@ -19,13 +19,18 @@
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
   "recruiter+amounts_edit",
-  "automation"
+  "automation",
+  "employee",
+  "recruiter+people_admin",
+  "recruiter+payroll",
+  "recruiter+equipment",
+  "recruiter+cases"
  ],
  "routes": {
-  "GET /api/dictionaries/{slug}/items": "PPPPPPPDPPPPPPPPPPPP",
-  "GET /api/settings/dictionaries": "PDDDDDDDDDDDDDDDDDDD",
-  "GET /api/settings/dictionaries/{slug}": "PDDDDDDDDDDDDDDDDDDD",
-  "PATCH /api/settings/dictionaries/{slug}/items/{item_id}": "PDDDDDDDDDDDDDDDDDDD",
-  "POST /api/settings/dictionaries/{slug}/items": "PDDDDDDDDDDDDDDDDDDD"
+  "GET /api/dictionaries/{slug}/items": "PPPPPPPDPPPPPPPPPPPPPPPPP",
+  "GET /api/settings/dictionaries": "PDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/settings/dictionaries/{slug}": "PDDDDDDDDDDDDDDDDDDDDDDDD",
+  "PATCH /api/settings/dictionaries/{slug}/items/{item_id}": "PDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/settings/dictionaries/{slug}/items": "PDDDDDDDDDDDDDDDDDDDDDDDD"
  }
 }

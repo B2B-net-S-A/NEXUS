@@ -19,13 +19,18 @@
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
   "recruiter+amounts_edit",
-  "automation"
+  "automation",
+  "employee",
+  "recruiter+people_admin",
+  "recruiter+payroll",
+  "recruiter+equipment",
+  "recruiter+cases"
  ],
  "routes": {
-  "DELETE /api/shortlist/{entry_id}": "PPPPPPDDPPPPPPPPPPPD",
-  "GET /api/jobs/{job_id}/shortlist": "PPPPPPDDPPPPPPPPPPPP",
-  "PATCH /api/shortlist/{entry_id}": "PPPPPPDDPPPPPPPPPPPD",
-  "POST /api/jobs/{job_id}/shortlist": "PPPPPPDDPPPPPPPPPPPD",
-  "POST /api/shortlist/{entry_id}/promote": "PPPPPPDDPPPPPPPPPPPD"
+  "DELETE /api/shortlist/{entry_id}": "PPPPPPDDPPPPPPPPPPPDDPPPP",
+  "GET /api/jobs/{job_id}/shortlist": "PPPPPPDDPPPPPPPPPPPPDPPPP",
+  "PATCH /api/shortlist/{entry_id}": "PPPPPPDDPPPPPPPPPPPDDPPPP",
+  "POST /api/jobs/{job_id}/shortlist": "PPPPPPDDPPPPPPPPPPPDDPPPP",
+  "POST /api/shortlist/{entry_id}/promote": "PPPPPPDDPPPPPPPPPPPDDPPPP"
  }
 }
