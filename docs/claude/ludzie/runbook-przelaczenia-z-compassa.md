@@ -57,7 +57,10 @@ health zna nowe tabele; sondy `hr_m365`, `admin_cases_mail`, `hr_jobs`,
    `HR_EXPORTS_OFF=people,leave`.
 7. **Włączenie modułów:** Ustawienia → Kadry → moduły `people, leave, care,
    cases, equipment`. `ADMIN_CASES_MAIL_INGEST_ENABLED=true` (sonda
-   `admin_cases_mail` → healthy po pierwszym przebiegu).
+   `admin_cases_mail` → healthy po pierwszym przebiegu). Ustawienia →
+   Powiadomienia → Maile: włączyć „Czas i ludzie” (domyślnie wyłączone jak każdy
+   rodzaj; bez tego wnioski, L4 i zadania recepcji widać tylko w dymku
+   i licznikach zakładek).
 8. **Sprzęt:** import plików recepcji przez arkusz kontrolny (ekran „Sprzęt” →
    Import), pozycje „do wyjaśnienia” przegląda recepcja.
 9. **ATLAS:** przepięcie na `/api/care/atlas/sales-signals` — tylko za zgodą
