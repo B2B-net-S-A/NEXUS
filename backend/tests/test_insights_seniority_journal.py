@@ -151,8 +151,12 @@ async def _drop_placements(stage_ids: list[int]) -> None:
 
 
 async def _observe(thresholds: SeniorityThresholds = LOW) -> dict:
+    # Stan na koniec roku testu — placementy leżą po 12.10.2026 (0455), czyli
+    # w przyszłości względem „dziś”, jak w testach endpointu (`as_of`).
     async with AsyncSessionLocal() as db:
-        return await record_seniority_observations(db, thresholds=thresholds)
+        return await record_seniority_observations(
+            db, as_of=date(SEED_YEAR, 12, 31), thresholds=thresholds
+        )
 
 
 async def _rows_for(user_id: int) -> list[dict]:

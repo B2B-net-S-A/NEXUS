@@ -199,7 +199,9 @@ async def test_clients_fill_rate_handles_multi_seat(rep_client: AsyncClient):
 async def test_clients_zero_hires(rep_client: AsyncClient):
     """4 closed jobs, 0 hires → hit_ratio 0, all counted as lost."""
     client_id = await _seed_client("ZeroCo")
-    recent = datetime.now(timezone.utc) - timedelta(days=10)
+    # Zamknięcia liczą się od 12.10.2026 (decyzja Artura 18.10.2026) — dwa dni
+    # temu jest w oknie kroczącym i zawsze po tym dniu.
+    recent = datetime.now(timezone.utc) - timedelta(days=2)
 
     for _ in range(4):
         await _seed_closed_job(client_id=client_id, closed_at=recent, headcount=1)
