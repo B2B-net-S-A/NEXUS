@@ -30,12 +30,14 @@ from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
+from app.core.scheduling import business_today
 from app.models.hr_leave import HrM365Operation, LeaveRequest, LeaveRequestDay
 from app.models.hr_profile import EmployeeProfile
 from app.models.notification import NotificationType
 from app.models.user import User, UserRole
 from app.services.action_permissions import ProductAction, has_permission
-from app.services.hr import audit, people
+from app.services.hr import audit, leave_substitute, people
 from app.services.hr.calendar import load_calendar, years_between
 from app.services.hr.leave_balance import pools_for
 from app.services.hr.leave_context import (
@@ -48,15 +50,20 @@ from app.services.hr.leave_m365 import LeaveSnapshot, plan_operations
 from app.services.hr.leave_policy import (
     AUTO_APPROVED_TYPES,
     CONTRACTOR_TYPES,
+    FORWARD_OUTSIDE_COMPANY,
     HEALTH_TYPES,
     LEAVE_TYPE_LABELS,
+    SUBSTITUTE_ACK_ONLY,
     Actor,
     LeavePolicyError,
     POOL_TYPES,
     can_decide,
+    covering_manager,
+    forward_target_allowed,
     own_cancel_refusal,
     plan_days,
     requested_days,
+    substitute_sees_type,
     team_cancel_refusal,
     validate_shape,
 )
@@ -281,6 +288,15 @@ async def _validate_substitute(
             "Zastępcą może być osoba z kartoteką pracownika w NEXUSIE."
         )
     return substitute
+
+
+def _assert_forward_target(substitute: Optional[User]) -> None:
+    """Zgoda na przekierowanie tylko przy zastępcy z adresem w domenie firmy."""
+
+    if substitute is not None and not forward_target_allowed(
+        substitute.email, settings.sso_allowed_domains_list
+    ):
+        raise LeavePolicyError(FORWARD_OUTSIDE_COMPANY)
 
 
 async def _days_total(db: AsyncSession, request_id: uuid.UUID) -> Decimal:
@@ -598,6 +614,8 @@ async def submit(
     substitute = await _validate_substitute(
         db, subject_id=subject.id, substitute_id=data.substitute_user_id
     )
+    if for_self and data.forward_mail_consent:
+        _assert_forward_target(substitute)
     approved = on_behalf or data.leave_type in AUTO_APPROVED_TYPES
     now = datetime.now(timezone.utc)
     request = LeaveRequest(
@@ -662,15 +680,42 @@ async def submit(
     )
 
     if not approved:
+        recipients = await approver_ids(db, profile)
+        stand_in = await leave_substitute.stand_in_for(
+            db, profile.manager_user_id, today
+        )
+        decides = substitute_sees_type(data.leave_type)
+        if stand_in is not None and not decides:
+            # Zastępca L4 i pokrewnych tylko przyjmuje do wiadomości — wniosek
+            # nie może czekać do powrotu przełożonego, więc decydują też Kadry.
+            recipients = [*recipients, *await people_admin_ids(db)]
         await _notify(
             db,
-            await approver_ids(db, profile),
+            recipients,
             exclude={subject.id},
             title="Wniosek o nieobecność do akceptacji",
             message=f"{subject.name}: {span} ({days_text}).",
             ntype=NotificationType.hr_leave_requested,
             link=LINK_APPROVALS,
         )
+        if stand_in is not None:
+            await _notify(
+                db,
+                [stand_in.user_id],
+                exclude={subject.id, *recipients},
+                title=(
+                    "Wniosek o nieobecność do akceptacji"
+                    if decides
+                    else "Wniosek o nieobecność do wiadomości"
+                ),
+                message=(
+                    f"{subject.name}: {span} ({days_text}) — w zastępstwie za "
+                    f"{stand_in.manager_name}."
+                    + ("" if decides else " Decydują Kadry.")
+                ),
+                ntype=NotificationType.hr_leave_requested,
+                link=LINK_APPROVALS,
+            )
         return LeaveOutcome(request)
 
     if on_behalf:
@@ -697,6 +742,23 @@ async def submit(
             ntype=NotificationType.hr_absence_reported,
             link=LINK_APPROVALS,
         )
+        # Zastępca nieobecnego przełożonego przyjmuje do wiadomości (bez rodzaju).
+        stand_in = await leave_substitute.stand_in_for(
+            db, profile.manager_user_id, today
+        )
+        if stand_in is not None:
+            await _notify(
+                db,
+                [stand_in.user_id],
+                exclude={actor.id, subject.id, *recipients},
+                title="Zgłoszona nieobecność",
+                message=(
+                    f"{subject.name}: nieobecność {span}, zatwierdzona od razu — "
+                    f"do wiadomości, w zastępstwie za {stand_in.manager_name}."
+                ),
+                ntype=NotificationType.hr_absence_reported,
+                link=LINK_CALENDAR,
+            )
     locked = await _after_approval(
         db, request, subject=subject, actor=actor, today=today
     )
@@ -754,22 +816,77 @@ async def _request_days(db: AsyncSession, request_id: uuid.UUID) -> list[date]:
 async def _decidable(
     db: AsyncSession, actor: User, request_id: uuid.UUID
 ) -> tuple[LeaveRequest, User, Optional[EmployeeProfile]]:
+    request, subject, profile, _ = await _decision_scope(
+        db, actor, request_id, cover_on=None
+    )
+    return request, subject, profile
+
+
+async def _decision_scope(
+    db: AsyncSession,
+    actor: User,
+    request_id: uuid.UUID,
+    *,
+    cover_on: Optional[date],
+) -> tuple[
+    LeaveRequest, User, Optional[EmployeeProfile], Optional[leave_substitute.Cover]
+]:
+    """Wniosek, o którym osoba decyduje, i ewentualne zastępstwo.
+
+    ``cover_on`` (dziś) wpuszcza też zastępcę przełożonego, który jest tego
+    dnia na urlopie — tylko akceptacja i odrzucenie, nie anulowanie ani wpis
+    za pracownika. Rodzaj spoza planowych (L4 i pokrewne) zastępca tylko
+    przyjmuje do wiadomości (403).
+    """
+
     request = await db.get(LeaveRequest, request_id)
     if request is None:
         raise LeaveNotFound(request_id)
     profile = await people.profile_of(db, request.user_id)
     if request.user_id == actor.id:
         raise LeaveForbidden("Nie możesz decydować o własnym wniosku.")
+    manager_id = profile.manager_user_id if profile else None
+    cover: Optional[leave_substitute.Cover] = None
     if not can_decide(
-        actor_of(actor),
-        subject_user_id=request.user_id,
-        subject_manager_id=profile.manager_user_id if profile else None,
+        actor_of(actor), subject_user_id=request.user_id, subject_manager_id=manager_id
     ):
-        # Wniosek spoza zakresu wygląda jak nieistniejący (bez wycieku dat).
-        raise LeaveNotFound(request_id)
+        covers = (
+            await leave_substitute.covers_of(db, actor.id, cover_on)
+            if cover_on is not None
+            else []
+        )
+        covered = covering_manager(
+            actor.id,
+            subject_user_id=request.user_id,
+            subject_manager_id=manager_id,
+            covered_manager_ids=[c.manager_user_id for c in covers],
+        )
+        if covered is None:
+            # Wniosek spoza zakresu wygląda jak nieistniejący (bez wycieku dat).
+            raise LeaveNotFound(request_id)
+        if not substitute_sees_type(request.leave_type):
+            raise LeaveForbidden(SUBSTITUTE_ACK_ONLY)
+        cover = next(c for c in covers if c.manager_user_id == covered)
     subject = await db.get(User, request.user_id)
     assert subject is not None
-    return request, subject, profile
+    return request, subject, profile, cover
+
+
+def _cover_extra(cover: Optional[leave_substitute.Cover]) -> dict[str, Any]:
+    """Ślad decyzji zastępcy: „w zastępstwie za …”."""
+
+    if cover is None:
+        return {}
+    return {
+        "as_substitute_for_user_id": cover.manager_user_id,
+        "as_substitute_for": f"w zastępstwie za {cover.manager_name}",
+    }
+
+
+def _decided_by_text(actor: User, cover: Optional[leave_substitute.Cover]) -> str:
+    if cover is None:
+        return actor.name
+    return f"{actor.name} (w zastępstwie za {cover.manager_name})"
 
 
 async def _conditional_status(
@@ -801,7 +918,9 @@ async def approve(
     note: Optional[str],
     today: date,
 ) -> LeaveOutcome:
-    request, subject, _ = await _decidable(db, actor, request_id)
+    request, subject, _, cover = await _decision_scope(
+        db, actor, request_id, cover_on=today
+    )
     changed = await _conditional_status(
         db,
         request_id,
@@ -816,13 +935,22 @@ async def approve(
     if not changed:
         raise LeaveConflict("Ten wniosek ma już decyzję — odśwież listę.")
     await db.refresh(request)
-    _audit(db, actor_id=actor.id, request=request, action="leave_approved")
+    _audit(
+        db,
+        actor_id=actor.id,
+        request=request,
+        action="leave_approved",
+        extra=_cover_extra(cover),
+    )
     await _notify(
         db,
         [subject.id],
         exclude={actor.id},
         title="Wniosek zaakceptowany",
-        message=f"{format_range(request.start_date, request.end_date)} — akceptacja: {actor.name}.",
+        message=(
+            f"{format_range(request.start_date, request.end_date)} — "
+            f"akceptacja: {_decided_by_text(actor, cover)}."
+        ),
         ntype=NotificationType.hr_leave_decided,
         link=LINK_SELF,
     )
@@ -833,14 +961,21 @@ async def approve(
 
 
 async def reject(
-    db: AsyncSession, *, actor: User, request_id: uuid.UUID, note: str
+    db: AsyncSession,
+    *,
+    actor: User,
+    request_id: uuid.UUID,
+    note: str,
+    today: Optional[date] = None,
 ) -> LeaveRequest:
     reason = _clean(note)
     if reason is None or len(reason) < 3:
         raise LeavePolicyError(
             "Podaj powód odrzucenia — osoba zobaczy go przy wniosku."
         )
-    request, subject, _ = await _decidable(db, actor, request_id)
+    request, subject, _, cover = await _decision_scope(
+        db, actor, request_id, cover_on=today or business_today()
+    )
     changed = await _conditional_status(
         db,
         request_id,
@@ -856,7 +991,13 @@ async def reject(
         raise LeaveConflict("Ten wniosek ma już decyzję — odśwież listę.")
     await _set_days_active(db, request_id, False)
     await db.refresh(request)
-    _audit(db, actor_id=actor.id, request=request, action="leave_rejected")
+    _audit(
+        db,
+        actor_id=actor.id,
+        request=request,
+        action="leave_rejected",
+        extra=_cover_extra(cover),
+    )
     await _notify(
         db,
         [subject.id],
@@ -1008,6 +1149,8 @@ async def set_forward_consent(
         raise LeavePolicyError("Ta nieobecność już minęła.")
     if consent and request.substitute_user_id is None:
         raise LeavePolicyError("Przekierowanie wymaga zastępcy we wniosku.")
+    if consent:
+        _assert_forward_target(await db.get(User, request.substitute_user_id))
     if request.forward_mail_consent == consent:
         return request
     request.forward_mail_consent = consent
@@ -1370,10 +1513,48 @@ async def scope_user_ids(db: AsyncSession, actor: User) -> Optional[set[int]]:
     return await people.direct_report_ids(db, actor.id)
 
 
+def _mark_cover(
+    item: dict[str, Any],
+    row: LeaveRequest,
+    cover: Optional[leave_substitute.Cover],
+) -> None:
+    """Wiersz kolejki: czy decyduje patrzący i czy widzi rodzaj (D6).
+
+    Zastępca nie należy do kręgu D6: notatki nie widzi nigdy (bywa o zdrowiu),
+    rodzaj — tylko planowy; L4 i pokrewne przyjmuje do wiadomości.
+    """
+
+    item["as_substitute_for"] = cover.manager_name if cover else None
+    item["as_substitute_until"] = cover.until.isoformat() if cover else None
+    if cover is None:
+        item["type_visible"] = True
+        item["can_decide"] = True
+        return
+    visible = substitute_sees_type(row.leave_type)
+    item["type_visible"] = visible
+    item["can_decide"] = visible
+    item["note"] = None
+    if not visible:
+        item["leave_type"] = None
+        item["leave_type_label"] = "Nieobecność"
+
+
 async def pending_queue(
     db: AsyncSession, *, actor: User, today: date
 ) -> list[dict[str, Any]]:
     scope = await scope_user_ids(db, actor)
+    # Zastępca przełożonego, który jest dziś na urlopie, widzi też wnioski jego
+    # podwładnych (własny zespół wygrywa — tam jest pełnym przełożonym).
+    covered: dict[int, leave_substitute.Cover] = {}
+    if scope is not None:
+        covered = {
+            user_id: cover
+            for user_id, cover in (
+                await leave_substitute.covered_reports(db, actor.id, today)
+            ).items()
+            if user_id not in scope
+        }
+        scope = scope | set(covered)
     statement = select(LeaveRequest).where(
         LeaveRequest.status == "pending", LeaveRequest.user_id != actor.id
     )
@@ -1385,6 +1566,8 @@ async def pending_queue(
         await db.scalars(statement.order_by(LeaveRequest.start_date).limit(300))
     )
     items = await serialize(db, rows, viewer=actor, today=today)
+    for item, row in zip(items, rows, strict=True):
+        _mark_cover(item, row, covered.get(row.user_id))
     profiles = {
         p.user_id: p
         for p in await db.scalars(

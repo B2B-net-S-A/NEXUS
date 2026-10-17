@@ -31,7 +31,8 @@ interface PeopleSectionLink {
 export function peopleSections(config: HrConfig): PeopleSectionLink[] {
   const { me, open_modules: open } = config;
   const staff = me.has_profile || me.people_admin || me.is_admin;
-  const approver = me.is_manager || me.people_admin || me.is_admin;
+  const approver =
+    me.is_manager || (me.covering?.length ?? 0) > 0 || me.people_admin || me.is_admin;
   const links: PeopleSectionLink[] = [];
   if (open.people) links.push({ value: "directory", label: "Katalog", href: "/people" });
   if (open.leave && staff) {

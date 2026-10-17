@@ -15,11 +15,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.hr_gates import HrConfigReader, HrPeopleReader
 from app.core.database import get_db
+from app.core.scheduling import business_today
 from app.models.user import UserRole
 from app.services.action_permissions import ProductAction, has_permission
 from app.services.hr import modules as hr_modules
 from app.services.admin_cases import service as admin_cases_service
-from app.services.hr import people
+from app.services.hr import leave_substitute, people
 
 router = APIRouter()
 
@@ -42,6 +43,10 @@ async def hr_config(
             and profile.employment_status != "exited",
             "employment_status": profile.employment_status if profile else None,
             "is_manager": bool(reports),
+            # Kogo osoba zastępuje dziś (przełożony na urlopie) — „Akceptacje”.
+            "covering": await leave_substitute.covering_payload(
+                db, current_user.id, business_today()
+            ),
             "direct_reports": len(reports),
             "is_admin": is_admin,
             "people_admin": has_permission(current_user, ProductAction.people_admin),

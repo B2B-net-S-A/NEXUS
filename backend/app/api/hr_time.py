@@ -47,7 +47,7 @@ from app.services.hr import (
     time_pdf,
     time_suggest,
 )
-from app.services.hr.time_access import Actor, load_actor
+from app.services.hr.time_access import Actor, is_time_approver, load_actor
 from app.services.hr.time_entries import (
     EntryInput,
     TimeConflict,
@@ -94,11 +94,7 @@ def require_hr_time_approver():
         db: AsyncSession = Depends(get_db),
     ) -> User:
         await _module_open(db, current_user)
-        if current_user.has_role(UserRole.admin) or has_permission(
-            current_user, ProductAction.people_admin
-        ):
-            return current_user
-        if await people.direct_report_ids(db, current_user.id):
+        if await is_time_approver(db, current_user):
             return current_user
         raise HTTPException(status.HTTP_403_FORBIDDEN, NOT_APPROVER_DETAIL)
 
@@ -719,7 +715,7 @@ async def team_member_month(
             subject=profile,
             year=year,
             month=month,
-            show_leave_type=True,
+            show_leave_type=actor.sees_leave_type(profile),
             sync=False,
         )
 

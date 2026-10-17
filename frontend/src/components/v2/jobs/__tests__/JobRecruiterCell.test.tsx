@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 
 import {
   JobRecruiterCell,
+  jobListPeopleIds,
   myCandidatesOutsideTeam,
   type JobListRowFields,
 } from "@/components/v2/jobs/JobListCells";
@@ -164,5 +165,75 @@ describe("JobRecruiterCell — „Poprzedni rekruter” (14.10.2026)", () => {
     render(<JobRecruiterCell job={job({ recruiters: [] })} />);
 
     expect(screen.getByTestId("job-no-recruiter")).toBeInTheDocument();
+  });
+});
+
+describe("JobRecruiterCell — nieobecni dziś (moduł urlopów)", () => {
+  const away = (user_id: number, substitute_name: string | null = "Marta Zastępcza") => ({
+    user_id,
+    until: "2099-10-23",
+    half_day: null,
+    substitute_user_id: substitute_name ? 99 : null,
+    substitute_name,
+  });
+
+  beforeEach(() => {
+    useAuthStore.setState({ user: { id: ME } as User });
+  });
+
+  it("bez danych o nieobecnościach komórka jest jak dotąd", () => {
+    render(
+      <JobRecruiterCell
+        job={job({ delivery_lead_id: 5, delivery_lead_user: { name: "Kamil Testowy" } })}
+      />,
+    );
+    expect(screen.queryByTestId("job-recruiter-absence")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("job-delivery-lead-absence")).not.toBeInTheDocument();
+  });
+
+  it("nieobecny Rekruter: kropka z tekstem w podpowiedzi, bez rodzaju", () => {
+    render(<JobRecruiterCell job={job()} absences={new Map([[1, away(1)]])} />);
+    const dot = screen.getByTestId("job-recruiter-absence");
+    expect(dot).toHaveAttribute(
+      "title",
+      "Osoba 1: Nieobecność do 23.10 · zastępuje Marta Z.",
+    );
+    expect(dot).toHaveTextContent("Osoba 1: Nieobecność do 23.10");
+    expect(screen.queryByTestId("job-delivery-lead-absence")).not.toBeInTheDocument();
+  });
+
+  it("nieobecny DL: kropka przy „DL: …”, tekst DL bez zmian", () => {
+    render(
+      <JobRecruiterCell
+        job={job({ delivery_lead_id: 5, delivery_lead_user: { name: "Kamil Testowy" } })}
+        absences={new Map([[5, away(5, null)]])}
+      />,
+    );
+    expect(screen.getByTestId("job-delivery-lead")).toHaveTextContent("DL: Kamil T.");
+    expect(screen.getByTestId("job-delivery-lead-absence")).toHaveAttribute(
+      "title",
+      "Kamil Testowy: Nieobecność do 23.10",
+    );
+    expect(screen.queryByTestId("job-recruiter-absence")).not.toBeInTheDocument();
+  });
+
+  it("propozycja automatu nie dostaje kropki — to jeszcze nie praca", () => {
+    render(
+      <JobRecruiterCell
+        job={job({ recruiters: [recruiter(1), recruiter(2, { proposed: true })] })}
+        absences={new Map([[2, away(2)]])}
+      />,
+    );
+    expect(screen.queryByTestId("job-recruiter-absence")).not.toBeInTheDocument();
+  });
+});
+
+describe("jobListPeopleIds", () => {
+  it("pracujący Rekruterzy i DL z całej strony, bez powtórzeń i propozycji", () => {
+    const ids = jobListPeopleIds([
+      job({ recruiters: [recruiter(1), recruiter(2, { proposed: true })], delivery_lead_id: 5 }),
+      job({ recruiters: [recruiter(1), recruiter(3)], delivery_lead_id: null }),
+    ]);
+    expect([...ids].sort()).toEqual([1, 3, 5]);
   });
 });

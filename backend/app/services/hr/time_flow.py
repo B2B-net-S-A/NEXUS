@@ -110,6 +110,13 @@ async def _notify(
     return sent
 
 
+async def _cover_details(db: AsyncSession, actor: Actor, user_id: int) -> dict:
+    """Decyzja zastępcy przełożonego: „w zastępstwie za …” w śladzie."""
+
+    subject = await people.profile_of(db, user_id)
+    return actor.cover_details(subject) if subject is not None else {}
+
+
 async def _name(db: AsyncSession, user_id: int) -> str:
     return await db.scalar(select(User.name).where(User.id == user_id)) or "Pracownik"
 
@@ -244,7 +251,11 @@ async def approve(db: AsyncSession, *, timesheet_id: int, actor: Actor) -> Times
         entity_type="timesheet",
         entity_id=timesheet.id,
         action="timesheet_approved",
-        details={"year": timesheet.year, "month": timesheet.month},
+        details={
+            "year": timesheet.year,
+            "month": timesheet.month,
+            **await _cover_details(db, actor, timesheet.user_id),
+        },
     )
     await _notify(
         db,
@@ -303,7 +314,11 @@ async def return_for_fix(
         entity_type="timesheet",
         entity_id=timesheet.id,
         action="timesheet_returned",
-        details={"year": timesheet.year, "month": timesheet.month},
+        details={
+            "year": timesheet.year,
+            "month": timesheet.month,
+            **await _cover_details(db, actor, timesheet.user_id),
+        },
     )
     await _notify(
         db,

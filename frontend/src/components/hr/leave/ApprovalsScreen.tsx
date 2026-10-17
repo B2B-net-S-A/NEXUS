@@ -32,6 +32,7 @@ import type { HrConfig } from "@/lib/api/hr";
 import {
   useCancelTeamLeave,
   useDecideLeave,
+  useLeaveCovering,
   useLeaveHistory,
   useOnBehalfPeople,
   usePendingLeave,
@@ -48,6 +49,7 @@ import { RejectLeaveDialog } from "./RejectLeaveDialog";
 import {
   HALF_DAY_LABELS,
   LEAVE_STATUS_LABELS,
+  dayLabel,
   LEAVE_STATUS_TONE,
   daysLabel,
   formatRange,
@@ -144,6 +146,9 @@ function PendingLeaveList({ viewerIsHr }: { viewerIsHr: boolean }) {
               <TableCell className="py-2 align-top">
                 <span className="font-medium text-foreground">{row.user_name}</span>
                 {row.department ? <span className={CALM_SUBLINE}>{row.department}</span> : null}
+                {row.as_substitute_for ? (
+                  <span className={CALM_SUBLINE}>w zastępstwie za {row.as_substitute_for}</span>
+                ) : null}
               </TableCell>
               <TableCell className="py-2 align-top whitespace-nowrap">
                 {formatRange(row.start_date, row.end_date)} · {daysLabel(row.days_total)}
@@ -159,14 +164,18 @@ function PendingLeaveList({ viewerIsHr }: { viewerIsHr: boolean }) {
                 {row.note ? <span className={CALM_SUBLINE}>„{row.note}”</span> : null}
               </TableCell>
               <TableCell className="py-2 align-top text-right">
-                <div className="flex justify-end gap-1.5">
-                  <Button size="sm" variant="quiet" onClick={() => setRejecting(row)}>
-                    Odrzuć
-                  </Button>
-                  <Button size="sm" disabled={decide.isPending} onClick={() => approve(row)}>
-                    Akceptuj
-                  </Button>
-                </div>
+                {row.can_decide === false ? (
+                  <span className={CALM_SUBLINE}>do wiadomości — decydują Kadry</span>
+                ) : (
+                  <div className="flex justify-end gap-1.5">
+                    <Button size="sm" variant="quiet" onClick={() => setRejecting(row)}>
+                      Odrzuć
+                    </Button>
+                    <Button size="sm" disabled={decide.isPending} onClick={() => approve(row)}>
+                      Akceptuj
+                    </Button>
+                  </div>
+                )}
               </TableCell>
             </TableRow>
           ))}
@@ -335,6 +344,7 @@ function LeaveHistory() {
 export function ApprovalsScreen({ config }: { config: HrConfig }) {
   const params = useSearchParams();
   const pending = usePendingLeave(config.open_modules.leave);
+  const covering = useLeaveCovering(config.open_modules.leave);
   const [entering, setEntering] = useState(false);
   const viewerIsHr = config.me.people_admin || config.me.is_admin;
 
@@ -347,7 +357,11 @@ export function ApprovalsScreen({ config }: { config: HrConfig }) {
     });
   }
   const timesheetViewer =
-    config.me.is_manager || config.me.people_admin || config.me.payroll || config.me.is_admin;
+    config.me.is_manager ||
+    (config.me.covering?.length ?? 0) > 0 ||
+    config.me.people_admin ||
+    config.me.payroll ||
+    config.me.is_admin;
   if (config.open_modules.time && timesheetViewer) {
     const focusUser = Number(params.get("user"));
     const timesheets: ApprovalSection = {
@@ -396,6 +410,15 @@ export function ApprovalsScreen({ config }: { config: HrConfig }) {
           </Button>
         ) : null}
       </div>
+
+      {covering.data && covering.data.length > 0 ? (
+        <p className="text-sm text-muted-foreground" data-testid="approvals-covering">
+          {covering.data
+            .map((cover) => `W zastępstwie za ${cover.manager_name} do ${dayLabel(cover.until)}`)
+            .join(" · ")}
+          {" — decydujesz o wnioskach i timesheetach zastępowanego zespołu; L4 i pokrewne tylko do wiadomości."}
+        </p>
+      ) : null}
 
       {sections.length === 0 ? (
         <p className="text-sm text-muted-foreground">

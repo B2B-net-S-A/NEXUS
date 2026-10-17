@@ -45,6 +45,8 @@ export interface HrConfig {
     cases: boolean;
     /** Przypisany do sprawy administracja@ (bez uprawnienia widzi tylko swoje). */
     has_assigned_cases?: boolean;
+    /** Kogo osoba zastępuje dziś (przełożony na urlopie z nią jako zastępcą). */
+    covering?: { manager_user_id: number; manager_name: string; until: string; reports: number }[];
   };
 }
 

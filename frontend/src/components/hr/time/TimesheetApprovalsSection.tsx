@@ -61,7 +61,11 @@ export function TimesheetApprovalsSection({
   const [returning, setReturning] = useState<TeamQueueItem | null>(null);
   const [note, setNote] = useState("");
   const [noteError, setNoteError] = useState<string | null>(null);
-  const canApprove = config.me.is_admin || config.me.people_admin || config.me.is_manager;
+  const canApprove =
+    config.me.is_admin ||
+    config.me.people_admin ||
+    config.me.is_manager ||
+    (config.me.covering?.length ?? 0) > 0;
   const canZip = config.me.is_admin || config.me.people_admin || config.me.payroll;
   const queue = useTeamQueue(period.year, period.month, config.open_modules.time && canApprove);
   const decide = useDecideTimesheet();

@@ -8,8 +8,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { api } from "@/lib/api";
-import type { EmploymentType } from "@/lib/api/hr";
+import { useHrConfig, type EmploymentType } from "@/lib/api/hr";
 import { WS_BACKED_SAFETY_POLL_MS } from "@/lib/polling";
+import { useAuthStore } from "@/store/auth";
 
 export type LeaveType =
   | "vacation"
@@ -58,7 +59,8 @@ export interface LeaveRequestRow {
   payroll_warning?: string | null;
   user_id: number;
   user_name: string | null;
-  leave_type: LeaveType;
+  /** `null` w kolejce zastępcy przy L4 i pokrewnych (D6) — etykieta to wtedy „Nieobecność”. */
+  leave_type: LeaveType | null;
   leave_type_label: string;
   status: LeaveStatus;
   start_date: string;
@@ -101,6 +103,29 @@ export interface PendingLeaveRow extends LeaveRequestRow {
   work_total: number;
   work_by_kind: WorkSummary["by_kind"];
   department_absent: ColleagueAbsence[];
+  /**
+   * Wniosek widoczny, bo patrzący zastępuje dziś przełożonego tej osoby
+   * (imię przełożonego); `null` = własny zespół, Kadry albo admin.
+   */
+  as_substitute_for?: string | null;
+  as_substitute_until?: string | null;
+  /** `false` = zastępca widzi „Nieobecność” (L4 i pokrewne) i tylko przyjmuje do wiadomości. */
+  type_visible?: boolean;
+  can_decide?: boolean;
+}
+
+/** Kogo patrzący zastępuje dziś (przełożony na urlopie z nim jako zastępcą). */
+export interface LeaveCovering {
+  manager_user_id: number;
+  manager_name: string;
+  until: string;
+  reports: number;
+}
+
+interface PendingLeavePayload {
+  items: PendingLeaveRow[];
+  total: number;
+  covering?: LeaveCovering[];
 }
 
 export interface LeaveYearSplit {
@@ -339,11 +364,25 @@ export function useSetForwardConsent() {
   });
 }
 
+async function fetchPending(): Promise<PendingLeavePayload> {
+  return (await api.get<PendingLeavePayload>(`${ROOT}/approvals/pending`)).data;
+}
+
 export function usePendingLeave(enabled = true) {
   return useQuery({
     queryKey: leaveKeys.pending,
-    queryFn: async () =>
-      (await api.get<{ items: PendingLeaveRow[] }>(`${ROOT}/approvals/pending`)).data.items,
+    queryFn: fetchPending,
+    select: (payload: PendingLeavePayload) => payload.items,
+    enabled,
+  });
+}
+
+/** „W zastępstwie za …” — z tej samej odpowiedzi co kolejka (jedno zapytanie). */
+export function useLeaveCovering(enabled = true) {
+  return useQuery({
+    queryKey: leaveKeys.pending,
+    queryFn: fetchPending,
+    select: (payload: PendingLeavePayload) => payload.covering ?? [],
     enabled,
   });
 }
@@ -442,6 +481,20 @@ export function useAbsentToday(enabled: boolean) {
     staleTime: WS_BACKED_SAFETY_POLL_MS,
     refetchInterval: WS_BACKED_SAFETY_POLL_MS,
   });
+}
+
+/**
+ * Czy moduł urlopów jest otwarty dla zalogowanej osoby — plakietki przy
+ * osobach poza ekranami „Ludzi” (lista „@”, lista rekrutacji). Praktykant ma
+ * własną powłokę i nie pyta o moduły (jak „Nieobecni dziś” w pasku). Awaria
+ * zapytania = zamknięty: plakietka to dodatek, nie warunek działania ekranu.
+ */
+export function useLeaveModuleOpen(enabled = true): boolean {
+  const user = useAuthStore((state) => state.user);
+  const roles = new Set([user?.role, ...(user?.roles ?? [])].filter(Boolean));
+  const traineeOnly = roles.size === 1 && roles.has("trainee");
+  const config = useHrConfig(enabled && Boolean(user) && !traineeOnly);
+  return enabled && Boolean(config.data?.open_modules?.leave);
 }
 
 /**

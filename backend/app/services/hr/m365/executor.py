@@ -55,6 +55,7 @@ from app.models.user import User
 from app.services.hr import audit
 from app.services.hr.calendar import load_calendar
 from app.services.hr.leave_m365 import LeaveSnapshot, plan_operations
+from app.services.hr.leave_policy import forward_target_allowed
 from app.services.hr.m365 import (
     calendar_event,
     forward_rules,
@@ -538,6 +539,18 @@ async def _forward_open(ctx: Context) -> Outcome:
         )
 
     leave_id = str(leave.id)
+    if not forward_target_allowed(substitute.email, company_domains()):
+        # Poczta nie wychodzi poza firmę: reguły nie otwieramy, a regułę tego
+        # urlopu z przejęcia (Compass) zdejmujemy. W ``last_error`` sama kategoria.
+        for rule in await ctx.ops.list_rules(ctx.upn):
+            if (
+                rule.get("id")
+                and forward_rules.parse_leave_id(rule.get("displayName")) == leave_id
+            ):
+                await _delete_rule(ctx, str(rule["id"]))
+        return Outcome(
+            "error", error=MailboxError(None, category="substitute_outside_company")
+        )
     body = forward_rules.rule_body(
         leave_id=leave_id,
         substitute_email=substitute.email,

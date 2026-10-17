@@ -60,6 +60,7 @@ import {
   JobDeadlineCell,
   JobRecruiterCell,
   RequestStageBadge,
+  useJobListAbsences,
   SimilarJobsIconButton,
   JobStageCounts,
   JobStageCountsHeader,
@@ -324,6 +325,8 @@ function JobsTable({
   canDecideProposals: boolean;
 }) {
   const toast = useToast();
+  // Kropka nieobecności przy Rekruterze i DL — jedno zapytanie na stronę listy.
+  const absences = useJobListAbsences(items);
   return (
     // Jeden układ dla każdej szerokości (02.10.2026): wiersz to numer u klienta
     // (15.10.2026) i nazwa stanowiska, a pod nią kategoria, klient i tryb pracy.
@@ -520,6 +523,7 @@ function JobsTable({
                 <JobRecruiterCell
                   job={job}
                   highlightIds={workedBy}
+                  absences={absences}
                   // Zamkniętej rekrutacji obsady już się nie zmienia (serwer: 409).
                   edit={
                     canStaff && !locked && job.status !== "closed"

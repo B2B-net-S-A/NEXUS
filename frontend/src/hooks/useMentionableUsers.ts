@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 
 import { api } from "@/lib/api";
+import { useAbsences, useLeaveModuleOpen, type PersonAbsence } from "@/lib/api/hr-leave";
 import type { ChatUserMini } from "@/types/job-chat";
 
 export type MentionScope =
@@ -32,7 +33,16 @@ interface UseMentionableUsersOptions {
    * autora którego konto wygasło.
    */
   includeInactive?: boolean;
+  /**
+   * Dociągnij dzisiejsze nieobecności osób z listy (plakietka w liście „@”
+   * i podpowiedź zastępcy) — jedno zapytanie na całą listę. Tylko przy
+   * otwartym module urlopów; bez niego albo przy awarii `absences` jest
+   * puste, a wzmianki działają jak dotąd.
+   */
+  withAbsences?: boolean;
 }
+
+const NO_ABSENCES: ReadonlyMap<number, PersonAbsence> = new Map();
 
 /**
  * Lista użytkowników do autocomplete @mention. Cache'owana per scope przez
@@ -50,7 +60,8 @@ export function useMentionableUsers(
 ) {
   const key = scopeKey(scope);
   const includeInactive = Boolean(opts.includeInactive);
-  return useQuery<ChatUserMini[]>({
+  const withAbsences = Boolean(opts.withAbsences);
+  const query = useQuery<ChatUserMini[]>({
     queryKey: ["mentionable-users", key, includeInactive],
     queryFn: async () => {
       const params: Record<string, number | string> = {};
@@ -64,6 +75,15 @@ export function useMentionableUsers(
     },
     staleTime: 60_000,
   });
+  const leaveOpen = useLeaveModuleOpen(withAbsences);
+  const absences = useAbsences(
+    withAbsences ? (query.data ?? []).map((user) => user.id) : [],
+    { enabled: withAbsences && leaveOpen },
+  );
+  return {
+    ...query,
+    absences: absences.isSuccess ? absences.byUser : NO_ABSENCES,
+  };
 }
 
 function scopeKey(scope: MentionScope): string {

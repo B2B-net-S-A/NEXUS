@@ -7,7 +7,9 @@ przełącznik modułu w ``app_settings['hr_modules']``.
 * samoobsługa (kartoteka wymagana): saldo, moje wnioski, podgląd, złożenie,
   anulowanie, propozycje zastępcy, zgoda na przekierowanie poczty,
 * akceptacje (przełożony swojego zespołu, Kadry i admin wszystkich — nikt
-  siebie): kolejka, historia, akceptuj/odrzuć, wpis za pracownika, anulowanie,
+  siebie): kolejka, historia, akceptuj/odrzuć, wpis za pracownika, anulowanie;
+  zastępca przełożonego, który jest dziś na urlopie, dostaje kolejkę i
+  akceptuj/odrzuć dla jego podwładnych (``leave_substitute``),
 * kalendarz zespołu (osoby z kartoteką i uprawnienia „Ludzi”),
 * „Nieobecni dziś” i odczyt zbiorczy dla plakietki — każdy aktywny pracownik
   wewnętrzny, także rekruter bez kartoteki. Bez rodzaju nieobecności (D6).
@@ -34,6 +36,7 @@ from app.core.scheduling import business_today
 from app.models.user import User, UserRole
 from app.services.hr import absence as absence_service
 from app.services.hr import leave_service as service
+from app.services.hr import leave_substitute
 from app.services.hr import modules as hr_modules
 from app.services.hr import people
 from app.services.hr.leave_balance import balance_payload
@@ -59,7 +62,8 @@ async def _module_open(db: AsyncSession, user: User) -> None:
 
 
 def require_hr_leave_approver():
-    """Przełożony (ma podwładnych z kartoteką), Kadry albo admin."""
+    """Przełożony (ma podwładnych z kartoteką), Kadry albo admin — i zastępca
+    przełożonego, który jest dziś na urlopie (podwładni tego przełożonego)."""
 
     async def _check(
         current_user: User = Depends(require_onboarded_user),
@@ -69,6 +73,10 @@ def require_hr_leave_approver():
         if service.actor_of(current_user).sees_everyone:
             return current_user
         if await people.direct_report_ids(db, current_user.id):
+            return current_user
+        if await leave_substitute.covered_reports(
+            db, current_user.id, business_today()
+        ):
             return current_user
         raise HTTPException(status.HTTP_403_FORBIDDEN, APPROVER_DETAIL)
 
@@ -335,8 +343,14 @@ async def my_substitutes(
 async def approvals_pending(
     current_user: LeaveApprover, db: AsyncSession = Depends(get_db)
 ) -> dict:
-    items = await service.pending_queue(db, actor=current_user, today=business_today())
-    return {"items": items, "total": len(items)}
+    today = business_today()
+    items = await service.pending_queue(db, actor=current_user, today=today)
+    return {
+        "items": items,
+        "total": len(items),
+        # Kogo patrzący zastępuje dziś („W zastępstwie za …” nad kolejką).
+        "covering": await leave_substitute.covering_payload(db, current_user.id, today),
+    }
 
 
 @router.get("/approvals/history")
@@ -468,7 +482,11 @@ async def reject_request(
 ) -> dict:
     try:
         request = await service.reject(
-            db, actor=current_user, request_id=request_id, note=payload.note
+            db,
+            actor=current_user,
+            request_id=request_id,
+            note=payload.note,
+            today=business_today(),
         )
     except _HANDLED as exc:
         await db.rollback()

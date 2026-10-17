@@ -9,7 +9,10 @@ Przeniesione z Compassa (``lib/actions/internal-leave.ts``,
   bezpłatne nie zjadają puli płatnej (HF-09),
 * **limity ustawowe**: urlop na żądanie 4 dni w roku, opieka nad dzieckiem
   (art. 188 KP) 2 dni w roku — Compass ich nie pilnował,
-* **nikt nie decyduje o własnym wniosku**, także admin.
+* **nikt nie decyduje o własnym wniosku**, także admin,
+* **przekierowanie poczty tylko do skrzynki firmy** — zastępca z adresem spoza
+  domen ``SSO_ALLOWED_DOMAINS`` nie dostanie kopii poczty (Compass tego nie
+  sprawdzał).
 
 Dzień jest niepodzielny: przy puli B2B mniejszej niż pełny dzień ten dzień
 idzie jako bezpłatny (pół dnia mieści się w połówce puli).
@@ -329,6 +332,66 @@ def can_see_type(
     return subject_manager_id is not None and subject_manager_id == viewer.user_id
 
 
+# ── Zastępca nieobecnego przełożonego ─────────────────────────────────────────
+
+#: Rodzaje planowe — ich rodzaj widzi i o nich decyduje także zastępca
+#: przełożonego, który jest dziś na urlopie. Pozostałe (L4, urlop opiekuńczy
+#: z powodów medycznych, siła wyższa z powodu choroby lub wypadku, macierzyński,
+#: oddanie krwi) mówią o zdrowiu osoby albo jej bliskich: zastępca nie należy do
+#: kręgu D6, widzi „Nieobecność” i tylko przyjmuje do wiadomości — decyduje
+#: przełożony po powrocie albo Kadry.
+SUBSTITUTE_VISIBLE_TYPES: frozenset[str] = frozenset(
+    {
+        "vacation",
+        "on_demand",
+        "occasional",
+        "childcare",
+        "paternity",
+        "parental_leave",
+        "childrearing",
+        "unpaid_leave",
+        "training",
+        "holiday_in_lieu",
+        "other",
+    }
+)
+
+assert SUBSTITUTE_VISIBLE_TYPES <= set(LEAVE_TYPES)
+assert not SUBSTITUTE_VISIBLE_TYPES & HEALTH_TYPES
+
+SUBSTITUTE_ACK_ONLY = (
+    "O tej nieobecności decyduje przełożony albo Kadry — w zastępstwie "
+    "przyjmujesz ją tylko do wiadomości."
+)
+
+
+def substitute_sees_type(leave_type: str) -> bool:
+    return leave_type in SUBSTITUTE_VISIBLE_TYPES
+
+
+def covering_manager(
+    actor_id: int,
+    *,
+    subject_user_id: int,
+    subject_manager_id: Optional[int],
+    covered_manager_ids: Iterable[int],
+) -> Optional[int]:
+    """Za kogo ``actor_id`` decyduje w zastępstwie (``None`` = nie zastępuje).
+
+    ``covered_manager_ids`` to przełożeni, których osoba zastępuje dziś (jest
+    zastępcą w ich zatwierdzonym urlopie). Zakres to wyłącznie podwładni
+    nieobecnego przełożonego — nie on sam i nie osoba zastępująca.
+    """
+
+    if actor_id == subject_user_id or subject_manager_id is None:
+        return None
+    if subject_manager_id == actor_id:
+        return None
+    return (
+        subject_manager_id if subject_manager_id in set(covered_manager_ids) else None
+    )
+
+
 def own_cancel_refusal(*, status: str, start: date, today: date) -> Optional[str]:
     """Powód, dla którego osoba NIE może sama anulować wniosku (None = może).
 
@@ -350,6 +413,30 @@ def team_cancel_refusal(*, status: str) -> Optional[str]:
     if status in ("pending", "approved"):
         return None
     return "Ten wniosek jest już zamknięty."
+
+
+FORWARD_OUTSIDE_COMPANY = (
+    "Przekierowanie poczty działa tylko na adres w domenie firmy — "
+    "wybrany zastępca ma adres spoza niej."
+)
+
+
+def forward_target_allowed(
+    address: Optional[str], company_domains: Iterable[str]
+) -> bool:
+    """Adres zastępcy w jednej z domen firmy (``SSO_ALLOWED_DOMAINS``).
+
+    Bez skonfigurowanych domen nie ma z czym porównać (lokalnie, testy) — tak
+    samo filtr reguły nie wyklucza wtedy żadnej domeny firmy. Na produkcji lista
+    jest ustawiona, bo przez nią wpuszcza logowanie Microsoft.
+    """
+
+    domains = {d.strip().lower().lstrip("@") for d in company_domains if d.strip()}
+    if not domains:
+        return True
+    if not address or "@" not in address:
+        return False
+    return address.rsplit("@", 1)[1].strip().lower() in domains
 
 
 def overlapping(

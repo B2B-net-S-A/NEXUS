@@ -33,3 +33,44 @@ export function AbsenceBadge({ absence, today, className }: AbsenceBadgeProps) {
     </span>
   );
 }
+
+export interface AbsentPerson {
+  name: string;
+  absence: PersonAbsence;
+}
+
+export interface AbsenceDotProps {
+  people: readonly AbsentPerson[];
+  today?: string;
+  className?: string;
+  "data-testid"?: string;
+}
+
+/**
+ * Kropka przy osobach w ciasnej kolumnie (lista rekrutacji, 1280 px): nie
+ * poszerza komórki, a pełny tekst („Ola Nowak: Nieobecność do 23.10 ·
+ * zastępuje Marta Z.”) stoi w podpowiedzi i dla czytnika ekranu. Bez rodzaju
+ * nieobecności (D6).
+ */
+export function AbsenceDot({
+  people,
+  today,
+  className,
+  "data-testid": testId,
+}: AbsenceDotProps) {
+  if (people.length === 0) return null;
+  const day = today ?? warsawToday();
+  const text = people
+    .map((person) => `${person.name}: ${absenceBadgeText(person.absence, day)}`)
+    .join("\n");
+  return (
+    <span
+      title={text}
+      data-testid={testId}
+      className={cn("inline-flex h-4 w-2 shrink-0 items-center justify-center", className)}
+    >
+      <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-warning" />
+      <span className="sr-only">{text}</span>
+    </span>
+  );
+}

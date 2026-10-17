@@ -13,7 +13,7 @@ from datetime import date
 from decimal import Decimal
 from typing import Any, Optional
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.hr_profile import EmployeeProfile
@@ -332,7 +332,12 @@ async def team_queue(
     start, end = month_range(year, month)
     scope = select(EmployeeProfile, User).join(User, User.id == EmployeeProfile.user_id)
     if not actor.approves_everyone:
-        scope = scope.where(EmployeeProfile.manager_user_id == actor.user_id)
+        scope = scope.where(
+            or_(
+                EmployeeProfile.manager_user_id == actor.user_id,
+                EmployeeProfile.user_id.in_(sorted(actor.covered_ids) or [-1]),
+            )
+        )
     scope = scope.where(EmployeeProfile.user_id != actor.user_id)
     pairs = (await db.execute(scope)).all()
     timesheets = {
