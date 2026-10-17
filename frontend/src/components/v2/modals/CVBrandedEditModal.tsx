@@ -1103,6 +1103,14 @@ function CVBrandedEditContent({
                     // Ta sama droga co „Przekaż mimo uwag…” w stopce (okno obejścia, potem ruch).
                     onOverride={handoff && gate.kind === "override" ? openOverride : undefined}
                     overrideDisabled={!data || creatingDraft || assistant.busy}
+                    onAskAssistant={
+                      withAssistant && assistant.enabled
+                        ? (command) => {
+                            setAssistantOpen(true);
+                            assistant.send({ command });
+                          }
+                        : undefined
+                    }
                   />
                 </div>
                 {withAssistant ? (

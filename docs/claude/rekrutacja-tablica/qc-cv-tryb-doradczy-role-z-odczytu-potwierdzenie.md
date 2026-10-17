@@ -44,6 +44,18 @@ kandydatów w QC nie miało opisów ról w historii profilu.
   (`has_live_advisory_override` bez warunku CV i trybu), żeby nie ożyło po
   powrocie do starego CV. Testy: `test_fix48_ws11_qc_override_rule.py`,
   `test_fix48_ws11_qc_pair_status.py`.
+- **D6 (decyzja Artura, 17.10.2026): obejście idzie za CV, dopóki nie ma nowej
+  blokady.** Przepuszczenie ginęło przy każdej zmianie treści, więc poprawka
+  literówki po „Przekaż mimo uwag…” wymagała przepuszczenia od nowa. Teraz
+  `run_qc` (bramka ruchu, okno QC, panel w edytorze, zapis przebiegu) woła
+  `follow_advisory_override`: gdy bieżące blokady (`blocking_keys` — stałe
+  klucze pozycji) są podzbiorem blokad zapisanych w wierszu obejścia, wiersz
+  dostaje odcisk bieżącego CV. Reguła `_override_applies` (bramka, plakietka,
+  przegląd DL) się nie zmienia. Nowa blokada — np. dopisana treść spoza
+  oryginału — to nowy klucz, więc obejście nie idzie dalej. Tylko w trybie
+  doradczym i tylko dla niezużytego obejścia; odcisk zmienia się w sesji
+  wołającego (bez osobnego commitu). Test na bazie:
+  `test_advisory_override_follows_the_cv_until_a_new_blocker_appears`.
 - **Integracje nie decydują w QC.** Token klienta OAuth (scraper, n8n) działa
   jako konto z rolą operacyjną i przechodzi `ensure_job_membership`, więc
   obejście w trybie doradczym i `…/qc/confirm` odmawiają mu jawnie

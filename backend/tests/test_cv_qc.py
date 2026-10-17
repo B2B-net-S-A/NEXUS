@@ -3724,6 +3724,114 @@ async def test_advisory_mode_lets_the_recruiter_pass_and_rings_the_delivery_lead
 
 
 @pytest.mark.asyncio
+async def test_advisory_override_follows_the_cv_until_a_new_blocker_appears(
+    api_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """D6 (17.10.2026): rekruter przepuścił CV mimo uwag, potem poprawił coś
+    innego — przepuszczenie zostaje, dopóki poprawki nie dodały nowej blokady.
+    Do 17.10.2026 ginęło przy każdej zmianie treści (odcisk CV)."""
+    from app.models.job import Job
+
+    monkeypatch.setattr(settings, "CV_QC_GATE_ENABLED", True)
+    monkeypatch.setattr(settings, "CV_QC_ADVISORY", True)
+    monkeypatch.setenv("NORDEA_ORDER_NUMBER_CLIENT_IDS", "")
+    world = await _seed_world()
+    hor_id, hor_creds = await _seed_user(UserRole.head_of_recruitment)
+    dl_id, dl_creds = await _seed_user(UserRole.delivery_lead)
+    rec_id, rec_creds = await _seed_user(UserRole.recruiter)
+    hor = await _login(api_client, hor_creds)
+    dl = await _login(api_client, dl_creds)
+    rec = await _login(api_client, rec_creds)
+    stage_id = await _seed_review(world, hor, api_client)
+    await _mark_critical(world, "Java", "Kubernetes")
+    await _assign_job(world, delivery_lead_id=dl_id)
+    qc_url = f"/api/pipeline/stages/{stage_id}/qc"
+
+    async def append_to_cv(fragment: str) -> None:
+        async with AsyncSessionLocal() as db:
+            csv = await db.scalar(
+                select(CandidateStageCV).where(
+                    CandidateStageCV.candidate_stage_id == stage_id
+                )
+            )
+            csv.branded_draft_html = (csv.branded_draft_html or "") + fragment
+            await db.commit()
+
+    try:
+        with hydrated_taxonomy():
+            before = (await api_client.get(qc_url, headers=rec)).json()
+        assert before["blocking_failed"] > 0 and before["override"] is None
+        with hydrated_taxonomy():
+            ok = await api_client.post(
+                f"{qc_url}/override",
+                headers=rec,
+                json={"reason_code": "client_short_cv"},
+            )
+        assert ok.status_code == 200, ok.text
+
+        # Zmiana treści bez nowej blokady — przepuszczenie idzie za CV. Panel
+        # w edytorze pyta `?transient=true` (bez zapisu przebiegu) — odcisk
+        # w wierszu obejścia musi być widoczny już w tej odpowiedzi.
+        await append_to_cv("<p>Prowadził przeglądy kodu w zespole.</p>")
+        with hydrated_taxonomy():
+            same = (
+                await api_client.get(f"{qc_url}?transient=true", headers=rec)
+            ).json()
+        assert same["blocking_failed"] == before["blocking_failed"]
+        assert same["override"] is not None
+        assert same["override"]["reason"] == qc.OVERRIDE_REASONS["client_short_cv"]
+
+        # Nowa treść spoza oryginału = nowa blokada — przepuszczenie się kończy.
+        # Wymagania tej rekrutacji stoją w profilu Championa (`_mark_critical`).
+        async with AsyncSessionLocal() as db:
+            job = await db.get(Job, world["job_id"])
+            profile = dict(job.champion_profile or {})
+            stack = dict(profile.get("stack") or {})
+            stack["must"] = [*(stack.get("must") or []), {"name": "Terraform"}]
+            profile["stack"] = stack
+            job.champion_profile = profile
+            job.must_skills = [*(job.must_skills or []), "Terraform"]
+            await db.commit()
+        async with AsyncSessionLocal() as db:
+            csv = await db.scalar(
+                select(CandidateStageCV).where(
+                    CandidateStageCV.candidate_stage_id == stage_id
+                )
+            )
+            without_terraform = csv.branded_draft_html
+        await append_to_cv("<p>Infrastruktura w Terraform.</p>")
+        with hydrated_taxonomy():
+            after = (
+                await api_client.get(f"{qc_url}?transient=true", headers=rec)
+            ).json()
+        assert after["override"] is None
+
+        # Terraform wycięty, inna drobna zmiana i od razu wysyłka — bez
+        # odczytu QC po drodze: bramka sama przesuwa obejście na to CV.
+        async with AsyncSessionLocal() as db:
+            csv = await db.scalar(
+                select(CandidateStageCV).where(
+                    CandidateStageCV.candidate_stage_id == stage_id
+                )
+            )
+            csv.branded_draft_html = without_terraform + "<p>Mentoring młodszych.</p>"
+            await db.commit()
+        send = {
+            "candidate_id": world["candidate_id"],
+            "job_id": world["job_id"],
+            "stage_def_id": world["defs"]["cv_sent"],
+            "client_rate_value": "180",
+            "client_rate_unit": "hourly",
+            "client_rate_currency": "PLN",
+        }
+        with hydrated_taxonomy():
+            moved = await api_client.post("/api/pipeline/move", headers=dl, json=send)
+        assert moved.status_code == 200, moved.text
+    finally:
+        await _cleanup_advisory(world, stage_id, [hor_id, dl_id, rec_id])
+
+
+@pytest.mark.asyncio
 async def test_advisory_override_lets_the_delivery_lead_accept_to_cpro(
     api_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:

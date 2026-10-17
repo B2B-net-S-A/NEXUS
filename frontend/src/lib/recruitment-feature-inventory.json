@@ -2236,6 +2236,14 @@
    "v3_home": "karta „CV do klienta” → Otwórz i popraw → Do poprawy"
   },
   {
+   "id": "cv.editor-remove-term-via-assistant",
+   "area": "cv",
+   "opis": "„Usuń z CV” przy terminie spoza oryginału, który stoi w zdaniu (PR 3, 17.10.2026): serwer usuwa tylko z list, więc panel prosi asystenta o przeredagowanie zdania bez tego słowa, bez nowych faktów",
+   "file": "components/v2/cv-editor/CvEditorIssues.tsx",
+   "marker": "onAskAssistant",
+   "v3_home": "karta „CV do klienta” → Otwórz i popraw → Do poprawy → Blokuje wysyłkę"
+  },
+  {
    "id": "cv.editor-issues-override-in-panel",
    "area": "cv",
    "opis": "„Przekaż mimo uwag…” w nagłówku grupy „Blokuje wysyłkę” (17.10.2026) — to samo okno obejścia co w stopce, tylko gdy karta stoi na „Zweryfikowany” i jest prawo obejścia",

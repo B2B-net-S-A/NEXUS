@@ -177,3 +177,133 @@ async def test_status_query_reads_active_blocking_qc_dismissals(monkeypatch) -> 
     assert "cv_finding_dismissals.restored_at IS NULL" in dismissals_sql
     assert "cv_finding_dismissals.blocking IS true" in dismissals_sql
     assert "cv_finding_dismissals.source = %(source_1)s" in dismissals_sql
+
+
+# ── D6 (17.10.2026): przepuszczenie idzie za CV, dopóki nie ma nowej blokady ──
+
+
+def _blocking(*keys: str) -> list[dict]:
+    return [
+        {
+            "key": "no_unsupported",
+            "severity": "blocking",
+            "status": "fail" if keys else "pass",
+            "items": [{"key": key} for key in keys],
+        },
+        {
+            "key": "must_bolded",
+            "severity": "warning",
+            "status": "fail",
+            "items": [{"key": "must_bolded|java|cv"}],
+        },
+    ]
+
+
+def test_blocking_keys_count_only_failed_blocking_items() -> None:
+    assert qc.blocking_keys(_blocking("a", "b")) == frozenset({"a", "b"})
+    assert qc.blocking_keys(_blocking()) == frozenset()
+    # Blokada bez pozycji (brak CV) też ma klucz.
+    assert qc.blocking_keys(
+        [{"key": "cv_present", "severity": "blocking", "status": "fail", "items": []}]
+    ) == frozenset({"cv_present|#"})
+
+
+class _OverrideDb:
+    """Najpierw najnowszy wiersz etapu pary, potem wiersz obejścia; `flush` liczony."""
+
+    def __init__(self, row, latest_stage_id: int = 7) -> None:
+        self.answers = [latest_stage_id, row]
+        self.statements: list = []
+        self.flushes = 0
+
+    async def scalar(self, stmt):
+        self.statements.append(stmt)
+        return self.answers.pop(0) if self.answers else None
+
+    async def flush(self) -> None:
+        self.flushes += 1
+
+
+def _override_row(fp: str, *keys: str) -> SimpleNamespace:
+    return SimpleNamespace(cv_fingerprint=fp, result={"checks": _blocking(*keys)})
+
+
+@pytest.mark.asyncio
+async def test_override_follows_the_cv_while_no_new_blocker_appears(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(settings, "CV_QC_ADVISORY", True)
+    row = _override_row("old", "a", "b")
+    db = _OverrideDb(row)
+    # Poprawka usunęła blokadę „b”, „a” została — przepuszczenie przechodzi na nowe CV.
+    assert await qc.follow_advisory_override(db, 1, 2, 7, "new", _blocking("a")) is True
+    assert row.cv_fingerprint == "new"
+    # Sesja ma `autoflush=False` — bez zapisu `_latest_override` zaraz potem
+    # czytałby stary odcisk (bramka i panel widziałyby „bez obejścia”).
+    assert db.flushes == 1
+    compiled = db.statements[1].compile(dialect=postgresql.dialect())
+    sql = f"{compiled} {sorted(map(str, compiled.params.values()))}"
+    # Tylko niezużyte obejście doradcze tej pary.
+    assert "override_advisory" in sql and "override_spent_at" in sql
+
+
+@pytest.mark.asyncio
+async def test_new_blocker_ends_the_override(monkeypatch) -> None:
+    monkeypatch.setattr(settings, "CV_QC_ADVISORY", True)
+    row = _override_row("old", "a")
+    assert (
+        await qc.follow_advisory_override(
+            _OverrideDb(row), 1, 2, 7, "new", _blocking("a", "c")
+        )
+        is False
+    )
+    assert row.cv_fingerprint == "old"
+
+
+@pytest.mark.asyncio
+async def test_follow_needs_advisory_mode_a_fingerprint_and_an_override(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(settings, "CV_QC_ADVISORY", False)
+    row = _override_row("old", "a")
+    assert (
+        await qc.follow_advisory_override(
+            _OverrideDb(row), 1, 2, 7, "new", _blocking("a")
+        )
+        is False
+    )
+    monkeypatch.setattr(settings, "CV_QC_ADVISORY", True)
+    assert (
+        await qc.follow_advisory_override(
+            _OverrideDb(row), 1, 2, 7, None, _blocking("a")
+        )
+        is False
+    )
+    assert (
+        await qc.follow_advisory_override(
+            _OverrideDb(None), 1, 2, 7, "new", _blocking("a")
+        )
+        is False
+    )
+    assert row.cv_fingerprint == "old"
+    # To samo CV — nic do zrobienia.
+    same = _override_row("new", "a")
+    assert (
+        await qc.follow_advisory_override(
+            _OverrideDb(same), 1, 2, 7, "new", _blocking("a")
+        )
+        is False
+    )
+
+
+@pytest.mark.asyncio
+async def test_override_follows_only_from_the_pairs_latest_stage(monkeypatch) -> None:
+    # Starszy wiersz etapu ma inną migawkę oryginału i inne odpowiedzi — QC
+    # liczone na nim nie może przesunąć obejścia na nowe CV (przegląd PR 3).
+    monkeypatch.setattr(settings, "CV_QC_ADVISORY", True)
+    row = _override_row("old", "a")
+    db = _OverrideDb(row, latest_stage_id=9)
+    assert (
+        await qc.follow_advisory_override(db, 1, 2, 7, "new", _blocking("a")) is False
+    )
+    assert row.cv_fingerprint == "old" and db.flushes == 0
