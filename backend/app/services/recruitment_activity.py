@@ -26,6 +26,7 @@ from app.schemas.recruitment_activity import (
     RecruitmentActivityMetricCounts,
     RecruitmentActivityPerson,
     RecruitmentActivityProgress,
+    RecruitmentActivityState,
     RecruitmentActivitySummaryResponse,
     RecruitmentActivityWindow,
 )
@@ -98,71 +99,203 @@ _OVERVIEW_SQL = text(
 )
 
 
-# Filtr osób szczegółów: wybrana osoba (`IN :user_ids`) albo cały zespół
-# (każdy z kredytem — ta sama pula co suma w przeglądzie).
+# Filtr osób szczegółów: wybrana osoba (`IN :user_ids`), cały zespół (każdy
+# z kredytem — ta sama pula co suma w przeglądzie) albo kamienie bez osoby
+# z zasługą (wiersz „Bez osoby z zasługą” w Insights → Zespół, 17.10.2026).
 _PERSON_FILTER = "credited.credit_user IN :user_ids"
 _TEAM_FILTER = "credited.credit_user IS NOT NULL"
+_UNATTRIBUTED_FILTER = "credited.credit_user IS NULL"
 
+# Stan pary „teraz” — z najnowszego wiersza etapu pary (lista „Kto się liczy”,
+# 17.10.2026). Odrzucenie przez klienta czytamy jak `known_people_signal`:
+# `ended_by='client'`, a wiersz sprzed tej kolumny liczy się, gdy osoba była
+# u klienta. Kolejność warunków to pierwszeństwo: zatrudnienie i zakończenie
+# pary wygrywają z zamkniętą rekrutacją.
+DETAIL_STATES: tuple[RecruitmentActivityState, ...] = (
+    "before_client",
+    "waiting",
+    "at_client",
+    "hired",
+    "rejected_by_client",
+    "ended",
+    "job_closed",
+)
 
-def _detail_count_sql(person_filter: str):
-    statement = text(
-        VERIFIER_ANCHORED_CTE
-        + f"""
-    SELECT count(*)
-    FROM credited
-    WHERE {person_filter}
-      AND credited.stage = :stage
-      AND credited.reached_at >= :period_start
-      AND credited.reached_at < :period_end
-    """
+_DESCRIBED_CTE = """
+    ,
+    period_rows AS (
+        SELECT credited.candidate_id,
+               credited.job_id,
+               credited.credit_user,
+               credited.reached_at
+        FROM credited
+        WHERE {person_filter}
+          AND credited.stage = :stage
+          AND credited.reached_at >= :period_start
+          AND credited.reached_at < :period_end
+    ),
+    candidate_jobs AS (
+        SELECT candidate_id, count(DISTINCT job_id) AS jobs
+        FROM period_rows
+        GROUP BY candidate_id
+    ),
+    described AS (
+        SELECT period_rows.candidate_id,
+               period_rows.job_id,
+               period_rows.credit_user,
+               period_rows.reached_at,
+               candidate_jobs.jobs AS candidate_jobs,
+               mover.moved_by AS mover_id,
+               latest.stage AS latest_stage,
+               latest.moved_at AS latest_at,
+               latest.rejection_reason_id,
+               CASE
+                   WHEN latest.stage IN ('hired', 'onboarding') THEN 'hired'
+                   WHEN latest.stage = 'rejected' AND (
+                       latest.ended_by = 'client'
+                       OR (
+                           latest.ended_by IS NULL
+                           AND EXISTS (
+                               SELECT 1 FROM candidate_stages sent
+                               WHERE sent.candidate_id = period_rows.candidate_id
+                                 AND sent.job_id = period_rows.job_id
+                                 AND sent.stage::text IN (
+                                     'cv_sent', 'client_interview',
+                                     'acceptance', 'negotiation'
+                                 )
+                           )
+                       )
+                   ) THEN 'rejected_by_client'
+                   WHEN latest.stage IN ('rejected', 'withdrawn') THEN 'ended'
+                   WHEN job.status::text = 'closed' THEN 'job_closed'
+                   WHEN latest.stage IN (
+                       'client_interview', 'acceptance', 'negotiation'
+                   ) THEN 'at_client'
+                   WHEN latest.stage = 'cv_sent' THEN 'waiting'
+                   ELSE 'before_client'
+               END AS state
+        FROM period_rows
+        JOIN candidate_jobs ON candidate_jobs.candidate_id = period_rows.candidate_id
+        JOIN jobs job ON job.id = period_rows.job_id
+        -- Kto kliknął etap: wiersz, z którego `credited` wziął chwilę osiągnięcia
+        -- (przy „Zweryfikowany” po akceptacji to `approved_at`).
+        LEFT JOIN LATERAL (
+            SELECT cs.moved_by
+            FROM candidate_stages cs
+            WHERE cs.candidate_id = period_rows.candidate_id
+              AND cs.job_id = period_rows.job_id
+              AND cs.stage::text = :stage
+              AND (
+                  cs.moved_at = period_rows.reached_at
+                  OR cs.approved_at = period_rows.reached_at
+              )
+            ORDER BY cs.id
+            LIMIT 1
+        ) mover ON TRUE
+        LEFT JOIN LATERAL (
+            SELECT cs.stage::text AS stage,
+                   cs.moved_at,
+                   cs.ended_by,
+                   cs.rejection_reason_id
+            FROM candidate_stages cs
+            WHERE cs.candidate_id = period_rows.candidate_id
+              AND cs.job_id = period_rows.job_id
+            ORDER BY cs.moved_at DESC, cs.id DESC
+            LIMIT 1
+        ) latest ON TRUE
     )
+"""
+
+
+def _with_user_ids(statement, person_filter: str):
     if person_filter == _PERSON_FILTER:
-        statement = statement.bindparams(bindparam("user_ids", expanding=True))
+        return statement.bindparams(bindparam("user_ids", expanding=True))
     return statement
 
 
+def _detail_summary_sql(person_filter: str):
+    state_counts = ",\n           ".join(
+        f"count(*) FILTER (WHERE state = '{state}') AS state_{state}"
+        for state in DETAIL_STATES
+    )
+    return _with_user_ids(
+        text(
+            VERIFIER_ANCHORED_CTE
+            + _DESCRIBED_CTE.format(person_filter=person_filter)
+            + f"""
+    SELECT count(*) AS total,
+           count(DISTINCT candidate_id) AS people,
+           count(*) FILTER (
+               WHERE mover_id IS NOT NULL AND mover_id = credit_user
+           ) AS moved_by_credited,
+           {state_counts}
+    FROM described
+    """
+        ),
+        person_filter,
+    )
+
+
 def _detail_sql(person_filter: str):
-    statement = text(
-        VERIFIER_ANCHORED_CTE
-        + f"""
-    SELECT credited.candidate_id,
+    return _with_user_ids(
+        text(
+            VERIFIER_ANCHORED_CTE
+            + _DESCRIBED_CTE.format(person_filter=person_filter)
+            + """
+    SELECT described.candidate_id,
            trim(concat_ws(' ', candidate.name, candidate.lastname)) AS candidate_name,
-           credited.job_id,
+           described.job_id,
            job.title AS job_title,
+           job.working_title AS job_working_title,
+           job.client_reference AS job_client_reference,
            coalesce(
                nullif(client.display_name, ''),
                nullif(client.name, ''),
                'Klient #' || client.id::text
            ) AS client_name,
-           credited.credit_user,
+           described.credit_user,
            credit.name AS credit_user_name,
            credit.role::text AS credit_user_role,
-           credited.reached_at
-    FROM credited
-    JOIN candidates candidate ON candidate.id = credited.candidate_id
-    JOIN jobs job ON job.id = credited.job_id
+           described.reached_at,
+           described.mover_id,
+           mover.name AS mover_name,
+           mover.role::text AS mover_role,
+           described.state,
+           described.latest_stage,
+           described.latest_at,
+           reason.name AS reason_name,
+           described.candidate_jobs
+    FROM described
+    JOIN candidates candidate ON candidate.id = described.candidate_id
+    JOIN jobs job ON job.id = described.job_id
     JOIN clients client ON client.id = job.client_id
-    LEFT JOIN users credit ON credit.id = credited.credit_user
-    WHERE {person_filter}
-      AND credited.stage = :stage
-      AND credited.reached_at >= :period_start
-      AND credited.reached_at < :period_end
-    ORDER BY credited.reached_at DESC,
-             credited.candidate_id,
-             credited.job_id
+    LEFT JOIN users credit ON credit.id = described.credit_user
+    LEFT JOIN users mover ON mover.id = described.mover_id
+    LEFT JOIN rejection_reasons reason ON reason.id = described.rejection_reason_id
+    WHERE CAST(:state AS text) IS NULL OR described.state = CAST(:state AS text)
+    ORDER BY described.reached_at DESC,
+             described.candidate_id,
+             described.job_id
     OFFSET :offset
     LIMIT :limit
     """
+        ),
+        person_filter,
     )
-    if person_filter == _PERSON_FILTER:
-        statement = statement.bindparams(bindparam("user_ids", expanding=True))
-    return statement
 
 
-_DETAIL_COUNT_PERSON_SQL = _detail_count_sql(_PERSON_FILTER)
-_DETAIL_COUNT_TEAM_SQL = _detail_count_sql(_TEAM_FILTER)
-_DETAIL_PERSON_SQL = _detail_sql(_PERSON_FILTER)
-_DETAIL_TEAM_SQL = _detail_sql(_TEAM_FILTER)
+_DETAIL_SUMMARY_SQL = {
+    "person": _detail_summary_sql(_PERSON_FILTER),
+    "team": _detail_summary_sql(_TEAM_FILTER),
+    "unattributed": _detail_summary_sql(_UNATTRIBUTED_FILTER),
+}
+_DETAIL_SQL = {
+    "person": _detail_sql(_PERSON_FILTER),
+    "team": _detail_sql(_TEAM_FILTER),
+    "unattributed": _detail_sql(_UNATTRIBUTED_FILTER),
+}
+# Najdłuższy okres listy — jak okres „custom” w Insights (`MAX_CUSTOM_PERIOD_DAYS`).
+_MAX_RANGE_DAYS = 366
 
 
 @dataclass(frozen=True)
@@ -230,7 +363,16 @@ async def _activity_audience(
     subject_user_id: int | None,
     *,
     team_scope: bool = False,
+    any_subject: bool = False,
 ) -> _ActivityAudience:
+    """Kogo dotyczy widok.
+
+    ``any_subject`` (lista „Kto się liczy”): wybrana osoba nie musi być aktywnym
+    rekruterem. Tabela Insights → Zespół ma wiersze osób nieaktywnych i spoza
+    ról KPI z kredytem w okresie, a ich liczba ma się dać otworzyć jako lista.
+    Kto może patrzeć na kogo, nie zmienia się: inna osoba tylko dla ról z
+    ``_TEAM_DETAIL_ROLES``.
+    """
     if team_scope and subject_user_id is not None:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -257,6 +399,17 @@ async def _activity_audience(
                 detail="Brak dostępu do szczegółów KPI innej osoby.",
             )
         selected = next((user for user in users if user.id == subject_user_id), None)
+        if selected is None and any_subject:
+            selected = (
+                current_user
+                if subject_user_id == current_user.id
+                else await db.get(User, subject_user_id)
+            )
+            if selected is None:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Taka osoba nie istnieje.",
+                )
         if selected is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -491,47 +644,89 @@ async def list_recruitment_activity_details(
     team_scope: bool,
     page: int,
     page_size: int,
+    date_from: date | None = None,
+    date_to: date | None = None,
+    unattributed: bool = False,
+    state: RecruitmentActivityState | None = None,
 ) -> RecruitmentActivityDetailResponse:
+    """Wiersze za jedną liczbą — lista „Kto się liczy” i rozwinięcie kafla.
+
+    Wiersze bierze z ``VERIFIER_ANCHORED_CTE`` jak licznik celów w górnym pasku
+    (`kpi_engine.count_canonical_metric`), więc ``period_total`` dla osoby
+    i okresu celu jest tą samą liczbą co w pasku.
+    """
     if metric == "placement" and window == "day":
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="Placementy są raportowane wyłącznie miesięcznie.",
         )
-
-    audience = await _activity_audience(
-        db,
-        current_user,
-        subject_user_id,
-        team_scope=team_scope,
+    start_date, end_date = _detail_window(
+        window,
+        selected_day=selected_day,
+        selected_month=selected_month,
+        date_from=date_from,
+        date_to=date_to,
     )
-    if window == "day":
-        start_date = selected_day
-        end_date = selected_day + timedelta(days=1)
-    else:
-        start_date = _month_start(selected_month)
-        end_date = _shift_month(start_date, 1)
-    period_start, period_end = _warsaw_bounds(start_date, end_date)
 
+    if unattributed:
+        if team_scope or subject_user_id is not None:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Wybierz osobę, zespół albo kamienie bez osoby z zasługą.",
+            )
+        if not current_user.has_any_role(*_TEAM_DETAIL_ROLES):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Brak dostępu do imiennych szczegółów całego zespołu.",
+            )
+        scope = "unattributed"
+        subject = None
+    else:
+        audience = await _activity_audience(
+            db,
+            current_user,
+            subject_user_id,
+            team_scope=team_scope,
+            any_subject=True,
+        )
+        subject = audience.selected
+        # Bez osoby i bez `scope=team` konto spoza ról KPI (np. „Automatyzacje”,
+        # 0446) spadało do listy całego zespołu, choć jawne `scope=team` dawało
+        # mu 403 (przegląd bezpieczeństwa 17.10.2026).
+        if subject is None and not audience.can_view_team_details:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Brak dostępu do imiennych szczegółów całego zespołu.",
+            )
+        # Cały zespół = ta sama pula co suma kafla (R7-N9-1).
+        scope = "person" if subject is not None else "team"
+
+    period_start, period_end = _warsaw_bounds(start_date, end_date)
     params: dict = {
         "stage": _METRIC_STAGE[metric],
         "period_start": period_start,
         "period_end": period_end,
     }
-    if audience.selected is not None:
-        params["user_ids"] = [audience.selected.id]
-        count_sql, detail_sql = _DETAIL_COUNT_PERSON_SQL, _DETAIL_PERSON_SQL
-    else:
-        # Cały zespół = ta sama pula co suma kafla (R7-N9-1).
-        count_sql, detail_sql = _DETAIL_COUNT_TEAM_SQL, _DETAIL_TEAM_SQL
-    total = int(await db.scalar(count_sql, params) or 0)
+    if subject is not None:
+        params["user_ids"] = [subject.id]
+
+    summary = (await db.execute(_DETAIL_SUMMARY_SQL[scope], params)).mappings().one()
+    period_total = int(summary["total"] or 0)
+    states = {
+        name: int(summary[f"state_{name}"] or 0)
+        for name in DETAIL_STATES
+        if int(summary[f"state_{name}"] or 0) > 0
+    }
+    total = states.get(state, 0) if state is not None else period_total
     rows = []
     if total:
         rows = (
             (
                 await db.execute(
-                    detail_sql,
+                    _DETAIL_SQL[scope],
                     {
                         **params,
+                        "state": state,
                         "offset": (page - 1) * page_size,
                         "limit": page_size,
                     },
@@ -541,33 +736,7 @@ async def list_recruitment_activity_details(
             .all()
         )
 
-    items = [
-        RecruitmentActivityDetailItem(
-            candidate=RecruitmentActivityCandidate(
-                id=int(row["candidate_id"]),
-                name=str(row["candidate_name"] or f"Kandydat #{row['candidate_id']}"),
-                href=f"/candidates/{row['candidate_id']}",
-            ),
-            job=RecruitmentActivityJob(
-                id=int(row["job_id"]),
-                title=str(row["job_title"]),
-                client_name=str(row["client_name"]),
-                href=f"/jobs/{row['job_id']}",
-            ),
-            credited_user=(
-                RecruitmentActivityPerson(
-                    id=int(row["credit_user"]),
-                    name=str(row["credit_user_name"]),
-                    role=str(row["credit_user_role"] or "user"),
-                )
-                if row["credit_user"] is not None
-                and row["credit_user_name"] is not None
-                else None
-            ),
-            reached_at=row["reached_at"],
-        )
-        for row in rows
-    ]
+    items = [_detail_item(row) for row in rows]
     return RecruitmentActivityDetailResponse(
         generated_at=datetime.now(timezone.utc),
         metric=metric,
@@ -576,6 +745,103 @@ async def list_recruitment_activity_details(
         page_size=page_size,
         total=total,
         items=items,
+        period_start=start_date,
+        period_end=end_date - timedelta(days=1),
+        scope=scope,
+        subject=_person(subject) if subject is not None else None,
+        people=int(summary["people"] or 0),
+        moved_by_credited=int(summary["moved_by_credited"] or 0),
+        states=states,
+        state_filter=state,
+        period_total=period_total,
+    )
+
+
+def _detail_window(
+    window: RecruitmentActivityWindow,
+    *,
+    selected_day: date,
+    selected_month: date,
+    date_from: date | None,
+    date_to: date | None,
+) -> tuple[date, date]:
+    """Dni listy jako półotwarte ``[start, end)`` w kalendarzu firmy."""
+    if selected_day > date.max - timedelta(days=7):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Dzień jest poza zakresem kalendarza.",
+        )
+    if window == "day":
+        return selected_day, selected_day + timedelta(days=1)
+    if window == "week":
+        # Tydzień celu „Rekomendacje w tygodniu”: od poniedziałku
+        # (`kpi_engine.period_bounds`).
+        monday = selected_day - timedelta(days=selected_day.weekday())
+        return monday, monday + timedelta(days=7)
+    if window == "range":
+        if date_from is None or date_to is None:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Okres wymaga dat od i do.",
+            )
+        if date_from > date_to:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Data początku okresu jest późniejsza niż data końca.",
+            )
+        if (date_to - date_from).days + 1 > _MAX_RANGE_DAYS:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"Okres może mieć najwyżej {_MAX_RANGE_DAYS} dni.",
+            )
+        if date_to >= date.max:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Data końca okresu jest poza zakresem.",
+            )
+        return date_from, date_to + timedelta(days=1)
+    start = _month_start(selected_month)
+    return start, _shift_month(start, 1)
+
+
+def _detail_person(
+    user_id: object, name: object, role: object
+) -> RecruitmentActivityPerson | None:
+    if user_id is None or name is None:
+        return None
+    return RecruitmentActivityPerson(
+        id=int(user_id), name=str(name), role=str(role or "user")
+    )
+
+
+def _detail_item(row) -> RecruitmentActivityDetailItem:
+    candidate_id = int(row["candidate_id"])
+    job_id = int(row["job_id"])
+    return RecruitmentActivityDetailItem(
+        candidate=RecruitmentActivityCandidate(
+            id=candidate_id,
+            name=str(row["candidate_name"] or f"Kandydat #{candidate_id}"),
+            href=f"/candidates/{candidate_id}",
+        ),
+        job=RecruitmentActivityJob(
+            id=job_id,
+            title=str(row["job_title"]),
+            working_title=row["job_working_title"] or None,
+            client_reference=row["job_client_reference"] or None,
+            client_name=str(row["client_name"]),
+            # Otwiera rekrutację z panelem tej osoby (jak link z powiadomienia).
+            href=f"/jobs/{job_id}?candidate={candidate_id}",
+        ),
+        credited_user=_detail_person(
+            row["credit_user"], row["credit_user_name"], row["credit_user_role"]
+        ),
+        reached_at=row["reached_at"],
+        moved_by=_detail_person(row["mover_id"], row["mover_name"], row["mover_role"]),
+        state=row["state"],
+        state_stage=row["latest_stage"],
+        state_since=row["latest_at"],
+        state_reason=row["reason_name"] or None,
+        candidate_jobs=max(int(row["candidate_jobs"] or 1), 1),
     )
 
 

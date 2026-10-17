@@ -201,7 +201,7 @@ export interface KanbanItem {
    * Siedem kroków cyklu (kreski postępu na karcie i w doku); starszy serwer = brak.
    * `at` kroku „interview” to termin rozmowy — liczy względem niego okno prepu w doku.
    */
-  steps?: Array<{ key: StepKey; state: StepState; at?: string | null }>;
+  steps?: Array<{ key: StepKey; state: StepState; at?: string | null; event_id?: number | null }>;
   /** Rozmowa u klienta pary — debrief otwiera się prosto z doku. */
   interview_event_id?: number | null;
   /** Termin rozmowy czekający jeszcze na wybór albo potwierdzenie (ISO). */
@@ -230,6 +230,10 @@ export interface KanbanItem {
  } | null;
  // „Zatrudniony": czy jest uzupełnione zamówienie.
  order_status?: "complete" | "missing" | null;
+ // 17.10.2026: karta na „Zatrudniony” (z ostatniego roku), a w Kontraktach
+ // nie ma żadnej umowy tej osoby u klienta rekrutacji — „Pracuje u nas”
+ // liczy się wyłącznie z umowy, więc karta mówi, czego brakuje.
+ missing_contract?: boolean;
  // 04.10.2026: umowa B2B z Generatora tej pary — stan z rejestru, w każdej kolumnie.
  agreement?: CardAgreement | null;
  // 0451 (16.10.2026): ostatnia akceptacja klienta pary — karta i panel
@@ -272,6 +276,8 @@ export type InterviewBadgeKind =
  // 0370: prepy w Teams — przypomnienie, nie bramka.
  | "prep_weak"
  | "prep_missing"
+ // 0453: kandydat odrzucił prep albo proponuje inny termin.
+ | "prep_refused"
  | "prep2"
  | "prep_done"
  | "slot"

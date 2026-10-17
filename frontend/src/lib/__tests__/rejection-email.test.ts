@@ -10,6 +10,7 @@ import {
   rejectionEmailAvailableFrom,
   rejectionEmailBlockedMessage,
   rejectionEmailBulkSkipMessage,
+  rejectionEmailDefaultBody,
   rejectionEmailPreviewKey,
   rejectionEmailSkipMessage,
   rejectionEmailSkipShort,
@@ -43,16 +44,32 @@ describe("rejectionEmailAvailableFrom", () => {
     ).toBe(true);
   });
 
-  it("wewnętrzne etapy i brak etapu nie proponują maila", () => {
+  it("od „Zweryfikowany” mail jest możliwy także przed klientem (17.10.2026, D1)", () => {
     expect(
-      rejectionEmailAvailableFrom({ stage: "screening", category: "internal" })
-    ).toBe(false);
+      rejectionEmailAvailableFrom({ stage: "verified", category: "internal" })
+    ).toBe(true);
     expect(
       rejectionEmailAvailableFrom({
         stage: "interview",
         category: "internal",
         name: "QC CV",
       })
+    ).toBe(true);
+    expect(
+      rejectionEmailAvailableFrom({
+        stage: "new",
+        category: "internal",
+        name: "Wysłać do Cpro",
+      })
+    ).toBe(true);
+  });
+
+  it("przed weryfikacją i bez etapu mail nie jest proponowany", () => {
+    expect(
+      rejectionEmailAvailableFrom({ stage: "screening", category: "internal" })
+    ).toBe(false);
+    expect(
+      rejectionEmailAvailableFrom({ stage: "new", category: "internal", name: "Nowi" })
     ).toBe(false);
     expect(rejectionEmailAvailableFrom(null)).toBe(false);
   });
@@ -98,7 +115,7 @@ describe("rejectionEmailBulkSkipMessage", () => {
     expect(
       rejectionEmailBulkSkipMessage(["not_client_visible", "no_candidate_email", "not_client_visible"]),
     ).toBe(
-      "Mail odrzucenia nie został zaplanowany dla 3 osób — CV nie trafiło do klienta (2), brak adresu e-mail kandydata (1).",
+      "Mail odrzucenia nie został zaplanowany dla 3 osób — przed weryfikacją (2), brak adresu e-mail kandydata (1).",
     );
   });
 });
@@ -151,11 +168,24 @@ describe("podgląd w oknie odrzucenia (13.10.2026)", () => {
   });
 
   it("krótki powód przy osobie na liście", () => {
-    expect(rejectionEmailSkipShort("not_client_visible")).toBe("CV nie trafiło do klienta");
+    expect(rejectionEmailSkipShort("not_client_visible")).toBe("przed weryfikacją");
     expect(rejectionEmailSkipShort("coś_nowego")).toBe("inny powód");
   });
 
   it("klucz podglądu zależy od rekrutacji i listy osób", () => {
     expect(rejectionEmailPreviewKey(3, [5, 6])).toEqual(["rejection-email-preview", 3, "5,6"]);
+  });
+});
+
+describe("rejectionEmailDefaultBody", () => {
+  it("zakończenie idzie do pola, chyba że zamiast niego jest dopisek", () => {
+    expect(rejectionEmailDefaultBody("Cześć", "Powodzenia!", false)).toBe(
+      "Cześć\n\nPowodzenia!",
+    );
+    expect(rejectionEmailDefaultBody("Cześć", "Powodzenia!", true)).toBe("Cześć");
+    // Starszy serwer bez `closing` — treść w całości w `body`.
+    expect(rejectionEmailDefaultBody("Cześć i powodzenia", undefined, false)).toBe(
+      "Cześć i powodzenia",
+    );
   });
 });

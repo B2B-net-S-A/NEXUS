@@ -53,6 +53,7 @@ _JOBS = (
     _T.stage_rule,
     _T.stage_changed,
     _T.client_accepted,
+    _T.hire_missing_contract,
     _T.stage_stuck_7d,
     _T.dl_stage_stale_6h,
     _T.client_feedback_eobd,
@@ -126,6 +127,8 @@ def types_in_topic(topic: NotificationTopic) -> frozenset[NotificationType]:
 _JOBS_TOAST = (
     # Akceptacja klienta (0451) — dobra wiadomość dla całego zespołu pary.
     _T.client_accepted,
+    # 0452: Delivery Lead ma wpisać umowę zatrudnionej osoby.
+    _T.hire_missing_contract,
     _T.request_assignment_changed,
     _T.recruiter_parked,
     _T.recruiter_restored,

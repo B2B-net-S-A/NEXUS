@@ -735,7 +735,10 @@ async def load_state(
         nationality_suggestion,
     )
     from app.api.recruitment_access import user_can_edit_rates  # noqa: PLC0415
-    from app.services.candidate_rate_from import rate_summary  # noqa: PLC0415
+    from app.services.candidate_rate_from import (  # noqa: PLC0415
+        declared_rate_from,
+        rate_summary,
+    )
     from app.services.screening_suggestions import (  # noqa: PLC0415
         suggestions_from_notes,
     )
@@ -821,7 +824,10 @@ async def load_state(
     )
     card_hourly = cards.card_rate_hourly(current.fields.get("rate"))
     card_raw = str((current.fields.get("rate") or {}).get("raw") or "").strip() or None
-    rate_from = rate_summary(candidate).get("rate_from_hourly")
+    rate_summary_fields = rate_summary(candidate)
+    rate_from = rate_summary_fields.get("rate_from_hourly")
+    # R4 (17.10.2026): przy żywej umowie także najniższa zadeklarowana stawka.
+    declared = await declared_rate_from(db, candidate)
     assist_enabled = bool(settings.RECOMMENDATION_CARD_ASSIST_ENABLED)
     editable = state.reason is None and can_write
     read_only_message = (
@@ -877,6 +883,18 @@ async def load_state(
                 _form_rate(rate_from, "hourly", "PLN")
                 if rate_from is not None
                 else None
+            ),
+            # Skąd „Stawka od” i od kiedy (R1/R2, 17.10.2026): `contract` =
+            # stawka z żywej umowy, formularz podpisuje ją „z umowy”.
+            "rate_from_source": rate_summary_fields.get("rate_from_source"),
+            "rate_from_at": _iso(rate_summary_fields.get("rate_from_at")),
+            "declared_from": (
+                _form_rate(declared["rate_declared_from_hourly"], "hourly", "PLN")
+                if declared
+                else None
+            ),
+            "declared_from_at": (
+                _iso(declared["rate_declared_from_at"]) if declared else None
             ),
         },
         "rate_change_notifies": state.column in rate_change.NOTIFY_COLUMNS,

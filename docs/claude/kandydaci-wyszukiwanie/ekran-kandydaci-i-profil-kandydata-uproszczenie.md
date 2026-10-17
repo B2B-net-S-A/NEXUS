@@ -162,7 +162,8 @@ trzy tryby z 21.09 (Baza / Wyszukiwanie / Z treści requestu).
 - **Podgląd kandydata** (`CandidateQuickView`) jest odchudzony: fakty
   (dostępność, stawka z `quick-view` — `expected_rate_hourly`, lokalizacja),
   kontakt, „W procesie”, ostatnia notatka, „Przypisz” i „Otwórz profil”.
-  „Oznacz jako zatrudnionego” żyje wyłącznie w jego menu „⋯”.
+  Menu „⋯” z „Oznacz jako zatrudnionego” zniknęło 17.10.2026 — „Pracuje
+  u nas” liczy się wyłącznie z umowy (`znacznik-pracuje-u-nas.md`).
 
 **Profil `/candidates/[id]` — pasek osoby, „Do propozycji” po lewej, 6 zakładek
 (E1–E6 i D1–D8, decyzje Artura 13.10.2026; makiety

@@ -22,8 +22,8 @@ z tych informacji ma swoje pole.
 - **Ręczny wpis → 422 przy polu** (`loc: ["body","name"|"lastname"]`, typ
   `candidate_name_marker`, zdanie: „Imię i nazwisko bez dopisków w nawiasie.
   „Szuka aktywnie” ustaw w polu Dyspozycyjność („Aktywnie szuka pracy”),
-  czarną listę — w polu Status („Zablokowany”); zatrudnienie widać samo
-  z umowy.”): `POST /api/candidates` (w handlerze, nie
+  czarną listę — w menu profilu („Czarna lista…”); zatrudnienie widać samo
+  z umowy.” — od 17.10.2026, gdy pole „Status” zniknęło z okna): `POST /api/candidates` (w handlerze, nie
   w `CandidateCreate`), pola formularza `/from-cv` (przed płatnym odczytem CV),
   `PATCH /api/candidates/{id}` tylko dla pola, które się ZMIENIA — stary
   dopisek nie blokuje edycji telefonu. Front pokazuje zdanie pod polem

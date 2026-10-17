@@ -142,6 +142,38 @@ def test_person_with_placements_only_in_previous_period_stays_visible() -> None:
     assert rows[2]["previous_placements"] == 3
 
 
+def test_unattributed_milestones_are_one_row_per_column() -> None:
+    """Wiersz „Bez osoby z zasługą” (17.10.2026): kamienie bez kredytu per kolumna."""
+    current = _panel(_member(1, placements=2))
+    current = TeamPanelResult(
+        period=current.period,
+        precision_target_pct=current.precision_target_pct,
+        rows=current.rows,
+        totals=TeamTotals(
+            **{
+                **current.totals.__dict__,
+                "unattributed": 6,
+                "unattributed_by_stage": (
+                    ("cv_sent", 4),
+                    ("hired", 1),
+                    ("verified", 1),
+                ),
+            }
+        ),
+    )
+    people = TeamPeople(current=current, previous=_panel(), workdays=10)
+    payload = people_payload(people)
+    assert payload["unattributed"] == {
+        "verifications": 1,
+        "recommendations": 4,
+        "interviews": 0,
+        "placements": 1,
+    }
+    # Sumy firmy i wiersze osób bez zmian.
+    assert payload["totals"]["unattributed"] == 6
+    assert [r["user_id"] for r in payload["rows"]] == [1]
+
+
 def test_workdays_stop_at_today_and_skip_holidays() -> None:
     start = datetime(2026, 11, 1, tzinfo=WARSAW)
     end = datetime(2026, 12, 1, tzinfo=WARSAW)

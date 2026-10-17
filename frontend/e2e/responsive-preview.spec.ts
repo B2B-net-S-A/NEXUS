@@ -85,6 +85,7 @@ const PAGES = [
   "/preview/kariera",
   "/preview/kpi-targets",
   "/preview/kpi-topbar",
+  "/preview/kpi-who-counts",
   "/preview/jobs-list-v3",
   "/preview/job-board-screening",
   "/preview/job-board-screening?state=closed",
@@ -928,5 +929,57 @@ test.describe("lista rekrutacji — ostatnie filtry wracają po wyjściu", () =>
     await page.goBack();
     await expect(scope(page, /Wszystkie/)).toHaveAttribute("aria-pressed", "true");
     await expect(page.locator("tbody tr").first()).toBeVisible();
+  });
+});
+
+/**
+ * Tablica: upuszczenie karty z dołu długiej kolumny (zgłoszenie 16.10.2026).
+ * 29 osób w „Screeningu”, jedna w „Zweryfikowanym”: po przewinięciu tablicy
+ * w dół karty nie dało się upuścić na „Zweryfikowany” obok — kolumny miały
+ * wysokość okna tablicy, więc krótka kończyła się wyżej niż karta, a pod
+ * kursorem nie było pola upuszczenia. Rekruterka musiała przewinąć do góry.
+ *
+ * Każda kolumna (i jej pole upuszczenia) ma sięgać do dołu najdłuższej.
+ * Sprawdzamy to prawdziwym przeciąganiem: karta z dołu „Screeningu” przesunięta
+ * w bok podświetla „Zweryfikowany”; Escape przerywa ruch bez zapisu.
+ */
+test.describe("Tablica — upuszczenie z dołu długiej kolumny", () => {
+  test("/preview/pipeline-v4?screening=many: ostatnia karta „Screeningu” trafia w „Zweryfikowany”", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 720 });
+    await page.goto("/preview/pipeline-v4?screening=many");
+    const board = page.getByTestId("pipeline-board");
+    const screening = board.getByRole("group", { name: /^Screening,/ });
+    const verified = board.getByRole("group", { name: /^Zweryfikowany,/ });
+    const lastCard = screening.locator("[data-rfd-draggable-id]").last();
+    await expect(lastCard).toBeAttached();
+    await page.waitForLoadState("networkidle");
+    await board.evaluate((el) => {
+      el.scrollTop = el.scrollHeight;
+    });
+    await expect(lastCard).toBeInViewport();
+
+    const cardBox = await lastCard.boundingBox();
+    const verifiedBox = await verified.boundingBox();
+    const verifiedDrop = verified.locator("[data-rfd-droppable-id]");
+    const dropBox = await verifiedDrop.boundingBox();
+    expect(cardBox && verifiedBox && dropBox, "karta i kolumny na ekranie").toBeTruthy();
+    if (!cardBox || !verifiedBox || !dropBox) return;
+    expect(
+      dropBox.y + dropBox.height,
+      "dół pola upuszczenia „Zweryfikowanego” vs dół ostatniej karty „Screeningu”",
+    ).toBeGreaterThanOrEqual(cardBox.y + cardBox.height - 1);
+
+    // Chwyt za środek karty (bez przycisków), ruch w bok na środek kolumny.
+    const startX = cardBox.x + cardBox.width / 2;
+    const startY = cardBox.y + 12;
+    const targetX = verifiedBox.x + verifiedBox.width / 2;
+    await page.mouse.move(startX, startY);
+    await page.mouse.down();
+    await page.mouse.move(startX + 10, startY, { steps: 2 });
+    await page.mouse.move(targetX, startY, { steps: 12 });
+    await expect(verifiedDrop, "„Zweryfikowany” podświetlony pod kartą").toHaveClass(/bg-primary\/10/);
+    await page.keyboard.press("Escape");
+    await page.mouse.up();
+    expect(await pageOverflowPx(page)).toBeLessThanOrEqual(1);
   });
 });

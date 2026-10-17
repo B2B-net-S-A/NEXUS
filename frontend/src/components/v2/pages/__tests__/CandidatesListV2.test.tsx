@@ -423,6 +423,34 @@ describe("CandidatesListV2", () => {
       ).toBeTruthy();
     });
 
+    it("osoba na czarnej liście u nas ma pigułkę „Czarna lista” pod nazwiskiem (17.10.2026)", async () => {
+      listItems = [
+        {
+          id: 1,
+          name: "Marta",
+          lastname: "Kowalczyk",
+          status: "blacklisted",
+          availability_status: "actively_looking",
+        },
+        {
+          id: 2,
+          name: "Tomasz",
+          lastname: "Nowicki",
+          status: "active",
+          availability_status: "actively_looking",
+        },
+      ];
+      listTotal = 2;
+      renderList();
+      const row = await screen.findByTestId("candidate-row-1");
+      expect(within(row).getByTestId("blacklist-badge")).toHaveTextContent("Czarna lista");
+      // Pigułka zastępuje „Szuka aktywnie” — obok siebie wychodziły poza kolumnę.
+      expect(within(row).queryByText("Szuka aktywnie")).toBeNull();
+      const other = screen.getByTestId("candidate-row-2");
+      expect(within(other).queryByTestId("blacklist-badge")).toBeNull();
+      expect(within(other).getByText("Szuka aktywnie")).toBeTruthy();
+    });
+
     it("dostępność z notatki mówi, z którego dnia jest, a data człowieka nie", async () => {
       listItems = [
         {

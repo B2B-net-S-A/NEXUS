@@ -26,6 +26,26 @@ vi.mock("@/components/calendar/cycle/ReschedulePrepDialog", () => ({
   },
 }));
 
+// „Zmień”/„Odwołaj” pyta serwer o `can_edit` — tu zawsze wolno.
+vi.mock("@/components/calendar/cycle/PrepEditButtons", () => ({
+  PrepEditButtons: ({ eventId, onEdit }: { eventId: number; onEdit: (m: string) => void }) => (
+    <span data-testid={`prep-edit-${eventId}`}>
+      <button type="button" onClick={() => onEdit("edit")}>
+        Zmień
+      </button>
+      <button type="button" onClick={() => onEdit("cancel")}>
+        Odwołaj
+      </button>
+    </span>
+  ),
+}));
+
+vi.mock("@/components/calendar/cycle/PrepResponseChip", () => ({
+  PrepResponseChip: ({ eventId }: { eventId: number }) => (
+    <span data-testid={`prep-response-${eventId}`}>Kandydat przyjął</span>
+  ),
+}));
+
 const slotProps = vi.hoisted(() => ({ current: null as Record<string, unknown> | null }));
 
 vi.mock("@/components/calendar/cycle/SlotDialogs", () => ({
@@ -83,6 +103,39 @@ function badge(
 }
 
 describe("DockInterviewCycle", () => {
+  it("zaplanowany prep ma wiersz z „Zmień” i „Odwołaj” — to samo okno co „Przełóż” (17.10.2026)", () => {
+    const all = steps({ slots: "done", choice: "done", prep: "scheduled", interview: "scheduled" });
+    const withIds = all.map((s) =>
+      s.key === "prep" ? { ...s, at: "2031-10-08T08:00:00.000Z", event_id: 701 } : s,
+    );
+    render(
+      <DockInterviewCycle
+        badge={badge({ steps: withIds })}
+        pair={PAIR}
+        readOnly={false}
+        onDebrief={() => {}}
+      />,
+    );
+    const rows = screen.getByTestId("dock-scheduled-preps");
+    expect(rows).toHaveTextContent("Prep 1");
+    // Odpowiedź kandydata przy tym samym prepie (0453).
+    expect(screen.getByTestId("prep-response-701")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Odwołaj" }));
+    expect(rescheduleProps.current).toEqual(
+      expect.objectContaining({ eventId: 701, prepNo: 1, mode: "cancel", pair: PAIR }),
+    );
+  });
+
+  it("tylko do odczytu: bez wierszy z akcjami prepu", () => {
+    const withIds = steps({ prep: "scheduled" }).map((s) =>
+      s.key === "prep" ? { ...s, event_id: 701 } : s,
+    );
+    render(
+      <DockInterviewCycle badge={badge({ steps: withIds })} pair={PAIR} readOnly onDebrief={() => {}} />,
+    );
+    expect(screen.queryByTestId("dock-scheduled-preps")).toBeNull();
+  });
+
   it("prep po rozmowie u klienta: „Przełóż”, nie „Zaplanuj Prep 1”", () => {
     render(
       <DockInterviewCycle
@@ -100,7 +153,7 @@ describe("DockInterviewCycle", () => {
     fireEvent.click(screen.getByRole("button", { name: /Przełóż prep/ }));
     expect(screen.getByTestId("reschedule-prep-dialog")).toBeInTheDocument();
     expect(rescheduleProps.current).toEqual(
-      expect.objectContaining({ eventId: 604, prepNo: 1, pair: PAIR }),
+      expect.objectContaining({ eventId: 604, prepNo: 1, pair: PAIR, mode: "late" }),
     );
     // Prep 1 już istnieje (po rozmowie) — do zaplanowania zostaje tylko Prep 2.
     expect(screen.queryByRole("button", { name: "Zaplanuj Prep 1" })).toBeNull();

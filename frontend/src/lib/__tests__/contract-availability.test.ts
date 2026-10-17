@@ -99,12 +99,11 @@ describe("contractAvailability", () => {
     expect(contractAvailability(null, "2026-09-01", TODAY)).toBeNull();
     expect(
       contractAvailability(
-        marker({ source: "pipeline", free_from: null, free_from_basis: null }),
+        marker({ free_from: null, free_from_basis: null }),
         "2026-09-01",
         TODAY,
       ),
     ).toBeNull();
-    expect(hidesAvailabilityStatus(marker({ source: "conflict" }))).toBe(false);
     expect(hidesAvailabilityStatus(marker())).toBe(true);
     expect(hidesAvailabilityStatus(null)).toBe(false);
   });
@@ -147,8 +146,8 @@ describe("availabilityContractNote (D6, S4)", () => {
     expect(starting).toContain(hidden);
   });
 
-  it("is absent without a contract — a conflict alone does not hide the status", () => {
+  it("is absent without a contract", () => {
     expect(availabilityContractNote(null)).toBeNull();
-    expect(availabilityContractNote(marker({ source: "conflict" }))).toBeNull();
+    expect(availabilityContractNote(marker({ free_from: null, free_from_basis: null }))).toBeNull();
   });
 });

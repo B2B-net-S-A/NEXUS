@@ -56,9 +56,10 @@ export interface QcItem {
 /**
  * Powód „To nieprawda” — lustro `cv_finding_dismissals.REASONS` (13.10.2026, D5).
  * `kept_order` to „Zostaw tę kolejność” przy uwadze „Stanowiska od najnowszego”
- * (16.10.2026) — nie ma go w formularzu „To nieprawda”.
+ * (16.10.2026), a `kept` — „OK” / „Zostaw” przy uwadze generatora albo kontroli
+ * AI w panelu „Do poprawy” (17.10.2026). Żadnego z nich nie ma w formularzu.
  */
-export type QcDismissReason = "in_cv" | "other_name" | "wrong_place" | "not_needed" | "other" | "kept_order";
+export type QcDismissReason = "in_cv" | "other_name" | "wrong_place" | "not_needed" | "other" | "kept_order" | "kept";
 
 /** Pominięcie uwagi („To nieprawda”) — pary kandydat × rekrutacja, nie pliku. */
 export interface QcDismissal {
@@ -192,13 +193,22 @@ export interface QcFixesResponse {
   fixes: QcFix[];
 }
 
-/** Jedna poprawka QC: zdanie AI, pogrubienie wymagań, usunięcie terminu albo pisownia. */
+/**
+ * Jedna poprawka QC: zdanie AI, pogrubienie wymagań, usunięcie terminu albo
+ * pisownia. Od 17.10.2026 (panel „Do poprawy”, PR 2) tylko w edytorze CV
+ * (`qc/transform`): lata według historii, tytuł z rekrutacji (serwer bierze
+ * go sam), stawka i kontakt kandydata, linia wskazana przez kontrolę AI.
+ */
 export type QcFixAction =
   | { action: "ai_fix"; fix_id: string; text?: string }
   | { action: "bold_all"; scope: "must" | "nice" }
   | { action: "remove_term"; term: string }
   | { action: "spelling" }
-  | { action: "role_order" };
+  | { action: "role_order" }
+  | { action: "years" }
+  | { action: "title" }
+  | { action: "strip_client_rules" }
+  | { action: "remove_line"; text: string };
 
 export type QcApplyBody = QcFixAction & { expected_revision?: number };
 
@@ -217,6 +227,9 @@ export interface QcTransformBody {
 export interface QcTransformApplied {
   action: string;
   fix_id?: string | null;
+  /** Zakres pogrubienia (`bold_all`) i usunięty termin (`remove_term`, do 120 znaków). */
+  scope?: string | null;
+  term?: string | null;
   count?: number | null;
 }
 

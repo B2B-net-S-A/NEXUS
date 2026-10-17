@@ -63,6 +63,7 @@ import api, {
   candidatesApi,
   candidateStageCvApi,
   extractErrorMsg,
+  type CandidateBlacklistInfo,
   type ChampionProfile,
   type CVOriginalSnapshot,
 } from "@/lib/api";
@@ -84,6 +85,10 @@ import { AddedByMenuContent, type AddedByMenuProps } from "@/components/v2/jobs/
 import { readNoteDraft, writeNoteDraft } from "@/lib/note-drafts";
 import { cn, formatDate } from "@/lib/utils";
 import { EmploymentPopoverPill } from "@/components/v2/employment/EmploymentNotice";
+import {
+  BlacklistDialog,
+  BlacklistPopoverPill,
+} from "@/components/v2/candidate-profile/BlacklistDialogs";
 import { useAuthStore } from "@/store/auth";
 import { encodeJobBackRef } from "@/lib/url-filters";
 import { ContactStatusBadge } from "@/components/candidate-contact/ContactStatusBadge";
@@ -286,6 +291,8 @@ interface CandidateDetail extends CandidateInBase {
   city?: string | null;
   location?: string | null;
   status?: string | null;
+  /** Wpis czarnej listy „u nas” — tylko przy `status === "blacklisted"`. */
+  blacklist?: CandidateBlacklistInfo | null;
   availability_status?: string | null;
   availability_date?: string | null;
   notice_period?: number | null;
@@ -299,16 +306,6 @@ interface CandidateDetail extends CandidateInBase {
   /** Tu tylko znacznik kwarantanny tożsamości (`_identity_quarantine_source`). */
   cv_extracted_data?: unknown;
 }
-
-/** Etykiety statusu kandydata — lustro `CandidateStatus` z backendu. */
-const CANDIDATE_STATUS_LABEL: Record<string, string> = {
-  active: "Aktywny",
-  open_to_offers: "Otwarty na oferty",
-  employed: "Zatrudniony",
-  inactive: "Nieaktywny",
-  blacklisted: "Czarna lista",
-  archived: "Zarchiwizowany",
-};
 
 function daysLabel(n: number): string {
   return `${n} ${Math.abs(n) === 1 ? "dzień" : "dni"}`;
@@ -540,11 +537,14 @@ function PersonMoreMenu({
   onSendEmail,
   profileHref,
   onUndoClientAcceptance,
+  onBlacklist,
 }: {
   onOpenCv: () => void;
   onSendEmail: () => void;
   profileHref: string;
   onUndoClientAcceptance?: () => void;
+  /** „Czarna lista…” (17.10.2026) — to samo okno co w menu profilu. */
+  onBlacklist?: () => void;
 }) {
   return (
     <DropdownMenu modal={false}>
@@ -571,6 +571,14 @@ function PersonMoreMenu({
             className="text-warning focus:text-warning"
           >
             <Undo2 className="h-3.5 w-3.5" /> Cofnij akceptację klienta
+          </DropdownMenuItem>
+        )}
+        {onBlacklist && (
+          <DropdownMenuItem
+            onSelect={() => deferMenuAction(onBlacklist)}
+            className="text-destructive focus:text-destructive"
+          >
+            <Ban className="h-3.5 w-3.5" /> Czarna lista…
           </DropdownMenuItem>
         )}
       </DropdownMenuContent>
@@ -831,6 +839,7 @@ export function PipelineCandidateDock({
   const [openGenerator, setOpenGenerator] = useState(false);
   const [openShare, setOpenShare] = useState(false);
   const [openEmail, setOpenEmail] = useState(false);
+  const [openBlacklist, setOpenBlacklist] = useState(false);
   // Szkic notatki per osoba + rekrutacja (12.10.2026): dok montuje się na
   // nowo dla każdej osoby (`key` w `KanbanBoardV2`), więc niewysłany tekst
   // wraca z pamięci karty przeglądarki, a nie ze stanu.
@@ -868,6 +877,9 @@ export function PipelineCandidateDock({
   // ta sama capability co wgrywanie w zakładce „CV i dokumenty”.
   const canManageDocuments = useCapability("candidate.document.manage");
   const canUploadCv = !readOnly && canManageDocuments;
+  // „Czarna lista…” — ta sama bramka co zapis profilu (serwer: candidate write).
+  const canWriteCandidate = useCapability("candidate.write");
+  const canBlacklist = !readOnly && canWriteCandidate;
   const cvUpload = useStageCvUpload({ candidateId: item.candidate_id, stageId: item.id, jobId });
   // Nazwa kolejki strzałek za „‹ N z M ›”. Z menu „Kto dodał”, bo w widoku
   // „Rozwiń” Tablica (i przycisk w nagłówku) jest zasłonięta (14.10.2026).
@@ -1651,15 +1663,23 @@ export function PipelineCandidateDock({
               się, a treść pod nią ma tylko ~390 px przy 1280 × 650. Klient,
               koniec zamówienia i Delivery Lead są w dymku po kliknięciu. */}
           {item.employment_marker && <EmploymentPopoverPill marker={item.employment_marker} />}
+          {/* 17.10.2026: „Pracuje u nas” liczy się wyłącznie z umowy — karta na
+              „Zatrudniony” bez umowy u klienta mówi, czego brakuje. */}
+          {item.missing_contract && (
+            <Badge
+              variant="warning"
+              size="sm"
+              title="Karta jest na „Zatrudniony”, ale w Kontraktach nie ma umowy tej osoby u klienta. „Pracuje u nas” pojawi się po wpisaniu umowy."
+              data-testid="dock-missing-contract"
+            >
+              Brak umowy w Kontraktach
+            </Badge>
+          )}
           {/* „W bazie od” (13.10.2026): świeża osoba widoczna na każdej zakładce. */}
           <NewInBasePill candidate={candidate} />
+          {/* Czarna lista „u nas”: kto, kiedy i dlaczego w dymku po kliknięciu. */}
           {candidate?.status === "blacklisted" && (
-            <Badge
-              variant={candidate.status === "blacklisted" ? "danger" : "neutral"}
-              size="sm"
-            >
-              {CANDIDATE_STATUS_LABEL[candidate.status] ?? candidate.status}
-            </Badge>
+            <BlacklistPopoverPill blacklist={candidate.blacklist} />
           )}
           {overBudget && (
             <Badge
@@ -1811,6 +1831,7 @@ export function PipelineCandidateDock({
                 onSendEmail={() => setOpenEmail(true)}
                 profileHref={profileHref}
                 onUndoClientAcceptance={onUndoClientAcceptance}
+                onBlacklist={canBlacklist ? () => setOpenBlacklist(true) : undefined}
               />
             </div>
           </div>
@@ -2460,6 +2481,15 @@ export function PipelineCandidateDock({
           candidateName={fullName}
           candidateEmail={candidateDetailQuery.data.email ?? ""}
           requestId={jobId}
+        />
+      )}
+      {canBlacklist && openBlacklist && (
+        <BlacklistDialog
+          open
+          onOpenChange={setOpenBlacklist}
+          candidateId={item.candidate_id}
+          candidateName={fullName}
+          alreadyBlacklisted={candidate?.status === "blacklisted"}
         />
       )}
       {/* „Zastąpić CV do klienta?” po wgraniu pliku „B2B_…” (15.10.2026). */}

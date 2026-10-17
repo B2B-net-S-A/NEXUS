@@ -42,6 +42,23 @@ Kontrakt: `docs/screening-form-contract.md`, raport: `docs/screening-form-comple
   ruszona stawka nie wraca po odświeżeniu; stawka z notatki z rozmowy zastępuje wpis na start. Do tej daty
   zapis porównywał pole ze stawką z karty i gubił ją — etap zostawał bez stawki (`buildSavePayload`
   porównuje teraz tylko ze stawką etapu, jak serwer).
+- **Stawka na start = najniższa znana (R1–R3, 17.10.2026, zgłoszenie Artura: formularz wpisał 140 przy
+  zadeklarowanych 90 i budżecie 135).** Kolejność z D2 zmieniona: najpierw stawka z karty TEJ rekrutacji (kandydat
+  powiedział ją o tę rolę — notatka już jej nie zastępuje), przy żywej umowie (`rate_hints.rate_from_source =
+  "contract"`) „Stawka u nas” z podpisem „Stawka u nas · z umowy”, a w pozostałych przypadkach NIŻSZA z dwóch:
+  stawka z notatek z cytatem albo „Stawka od” (porównanie po godzinie, remis — notatka). Do 17.10 wygrywała
+  najnowsza notatka, także wyższa.
+  - **R2:** stawka w polu ponad budżetem, a znana jest niższa, która się w nim mieści („Stawka od”, przy umowie
+    `rate_hints.declared_from`, stawka z notatek) — ramka „ponad budżet” dopisuje „Znana też niższa stawka: 90 zł/h
+    (Stawka od, 8.10.2026) — mieści się w budżecie.” z przyciskiem „Użyj 90 zł/h” (`lowerKnownRate`,
+    `VerifiedRateFields.overBudgetNote`). To samo w oknie „Przesuń na „Zweryfikowany”” (z „Stawką od” karty
+    Tablicy). Dopisek nie blokuje ruchu.
+  - **R3:** ekstrakcja notatek zostawia „Stawka: 90” bez jednostki; `screening_suggestions` czyta wtedy `raw`
+    regułą karty (`recommendation_card_parser.parse_rate`) i oznacza PLN/h tylko, gdy kwota zgadza się
+    z ekstrakcją (pomiar prod 17.10: 1 748 osób). Podpowiedź bez „Użyj” mówi powód: „bez jednostki” albo „inna
+    waluta” (`rateSuggestionBlocker`), a data samego miesiąca („2026-10”) pokazuje się jako „10.2026”.
+  - **R4 w formularzu:** przy umowie podpowiedź „Stawka u nas” zamiast „Stawka od” i „Zadeklarowana od: 120 zł/h ·
+    1.09.2026” z „Użyj”. Reguła i profil: `stawka-od-i-historia-stawek-kandydata.md`, sekcja „Żywa umowa”.
 - **Pola „Warunków” i „Oceny” czyta się w widoku „Screening”** (dok, przegląd DL, profil) — od 09.10.2026 bez
   osobnej sekcji i nazwy „Karta rekomendacji” (sekcja „Jeden widok „Screening”…” niżej). Pole „Notatki
   rekrutera” (`screening_answers.notes`) zniknęło z formularza — stare wartości pokazujemy jako „Notatka z arkusza”

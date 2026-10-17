@@ -9,10 +9,11 @@
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime, timezone
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from fastapi import HTTPException
 
 from app.core import cache as cache_module
 from app.models.user import User, UserRole
@@ -38,6 +39,15 @@ def _row(uid: int, stage: str, *, day: int = 0, month: int = 0, bench: int = 0):
         "day_count": day,
         "month_count": month,
         "benchmark_count": bench,
+    }
+
+
+def _empty_summary() -> dict:
+    return {
+        "total": 0,
+        "people": 0,
+        "moved_by_credited": 0,
+        **{f"state_{name}": 0 for name in activity_service.DETAIL_STATES},
     }
 
 
@@ -173,8 +183,9 @@ async def test_overview_is_computed_once_for_two_viewers() -> None:
 async def test_team_drilldown_is_not_limited_to_active_kpi_accounts() -> None:
     head = _user(UserRole.head_of_recruitment, 1)
     db = AsyncMock()
-    db.execute.side_effect = [_result([head]), _result([])]
-    db.scalar.return_value = 0
+    summary = MagicMock()
+    summary.mappings.return_value.one.return_value = _empty_summary()
+    db.execute.side_effect = [_result([head]), summary]
 
     await activity_service.list_recruitment_activity_details(
         db,
@@ -189,8 +200,8 @@ async def test_team_drilldown_is_not_limited_to_active_kpi_accounts() -> None:
         page_size=25,
     )
 
-    count_sql, params = db.scalar.await_args.args
-    assert "credit_user IS NOT NULL" in str(count_sql)
+    summary_sql, params = db.execute.await_args.args
+    assert "credit_user IS NOT NULL" in str(summary_sql)
     assert "user_ids" not in params
 
 
@@ -313,3 +324,287 @@ async def test_admin_bulk_placements_do_not_inflate_the_team_average() -> None:
     assert comparisons["placement"].team_average == round(2 / (2 * 3), 1)
     by_metric = {metric.metric: metric for metric in result.metrics}
     assert by_metric["placement"].month == 10
+
+
+# ── Lista „Kto się liczy” (17.10.2026) ──────────────────────────────────────
+
+
+def _summary(**overrides: int) -> MagicMock:
+    summary = MagicMock()
+    summary.mappings.return_value.one.return_value = {**_empty_summary(), **overrides}
+    return summary
+
+
+def _detail_row(**overrides) -> dict:
+    row = {
+        "candidate_id": 501,
+        "candidate_name": "Anna Przykładowa",
+        "job_id": 77,
+        "job_title": "Java Developer (ZOB-1)",
+        "job_working_title": "Senior Java Developer",
+        "job_client_reference": "ZOB-1",
+        "client_name": "Bank Przykładowy",
+        "credit_user": 11,
+        "credit_user_name": "Osoba 11",
+        "credit_user_role": "recruiter",
+        "reached_at": datetime(2026, 10, 15, 14, 5, tzinfo=timezone.utc),
+        "mover_id": 21,
+        "mover_name": "Osoba 21",
+        "mover_role": "delivery_lead",
+        "state": "waiting",
+        "latest_stage": "cv_sent",
+        "latest_at": datetime(2026, 10, 15, 14, 5, tzinfo=timezone.utc),
+        "reason_name": None,
+        "candidate_jobs": 2,
+    }
+    row.update(overrides)
+    return row
+
+
+async def _details(db, user, **kwargs):
+    params = {
+        "metric": "recommendation",
+        "window": "week",
+        "selected_day": date(2026, 10, 15),
+        "selected_month": date(2026, 10, 1),
+        "subject_user_id": None,
+        "team_scope": False,
+        "page": 1,
+        "page_size": 25,
+    }
+    params.update(kwargs)
+    return await activity_service.list_recruitment_activity_details(db, user, **params)
+
+
+@pytest.mark.parametrize(
+    ("window", "kwargs", "expected"),
+    [
+        # Środa → tydzień od poniedziałku, jak cel „Rekomendacje w tygodniu”.
+        ("week", {}, (date(2026, 10, 12), date(2026, 10, 19))),
+        ("day", {}, (date(2026, 10, 15), date(2026, 10, 16))),
+        ("month", {}, (date(2026, 10, 1), date(2026, 11, 1))),
+        (
+            "range",
+            {"date_from": date(2026, 10, 1), "date_to": date(2026, 10, 31)},
+            (date(2026, 10, 1), date(2026, 11, 1)),
+        ),
+    ],
+)
+def test_detail_window_bounds(window, kwargs, expected) -> None:
+    bounds = activity_service._detail_window(
+        window,
+        selected_day=date(2026, 10, 15),
+        selected_month=date(2026, 10, 1),
+        date_from=kwargs.get("date_from"),
+        date_to=kwargs.get("date_to"),
+    )
+    assert bounds == expected
+
+
+@pytest.mark.parametrize(
+    ("date_from", "date_to"),
+    [
+        (None, date(2026, 10, 31)),
+        (date(2026, 10, 31), date(2026, 10, 1)),
+        (date(2025, 1, 1), date(2026, 1, 2)),
+    ],
+)
+def test_detail_range_rejects_missing_reversed_and_too_long(date_from, date_to) -> None:
+    with pytest.raises(HTTPException) as exc:
+        activity_service._detail_window(
+            "range",
+            selected_day=date(2026, 10, 15),
+            selected_month=date(2026, 10, 1),
+            date_from=date_from,
+            date_to=date_to,
+        )
+    assert exc.value.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_recruiter_cannot_open_unattributed_rows() -> None:
+    recruiter = _user(UserRole.recruiter, 11)
+    db = AsyncMock()
+    with pytest.raises(HTTPException) as exc:
+        await _details(db, recruiter, unattributed=True)
+    assert exc.value.status_code == 403
+    db.execute.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_unattributed_scope_reads_rows_without_credit_user() -> None:
+    head = _user(UserRole.head_of_recruitment, 1)
+    db = AsyncMock()
+    db.execute.side_effect = [_summary()]
+
+    result = await _details(db, head, unattributed=True)
+
+    summary_sql, params = db.execute.await_args.args
+    assert "credited.credit_user IS NULL" in str(summary_sql)
+    assert "user_ids" not in params
+    assert result.scope == "unattributed"
+    assert result.subject is None
+
+
+@pytest.mark.asyncio
+async def test_unattributed_scope_cannot_be_combined_with_a_person() -> None:
+    head = _user(UserRole.head_of_recruitment, 1)
+    with pytest.raises(HTTPException) as exc:
+        await _details(AsyncMock(), head, unattributed=True, subject_user_id=11)
+    assert exc.value.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_leader_opens_a_person_outside_the_recruiter_list() -> None:
+    """Zespół → Ludzie ma wiersze osób nieaktywnych i spoza ról KPI."""
+    head = _user(UserRole.head_of_recruitment, 1)
+    former = _user(UserRole.delivery_lead, 44)
+    former.is_active = False
+    db = AsyncMock()
+    db.execute.side_effect = [_result([head]), _summary()]
+    db.get.return_value = former
+
+    result = await _details(db, head, subject_user_id=44)
+
+    _, params = db.execute.await_args.args
+    assert params["user_ids"] == [44]
+    assert result.scope == "person"
+    assert result.subject is not None and result.subject.id == 44
+
+
+@pytest.mark.asyncio
+async def test_recruiter_still_cannot_open_another_person() -> None:
+    recruiter = _user(UserRole.recruiter, 11)
+    db = AsyncMock()
+    db.execute.side_effect = [_result([recruiter])]
+    with pytest.raises(HTTPException) as exc:
+        await _details(db, recruiter, subject_user_id=12)
+    assert exc.value.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_state_filter_pages_one_state_and_keeps_period_counts() -> None:
+    recruiter = _user(UserRole.recruiter, 11)
+    db = AsyncMock()
+    page = MagicMock()
+    page.mappings.return_value.all.return_value = [
+        _detail_row(
+            state="rejected_by_client", latest_stage="rejected", reason_name="Stawka"
+        )
+    ]
+    db.execute.side_effect = [
+        _result([recruiter]),
+        _summary(
+            total=23,
+            people=21,
+            moved_by_credited=7,
+            state_waiting=11,
+            state_rejected_by_client=5,
+            state_at_client=7,
+        ),
+        page,
+    ]
+
+    result = await _details(db, recruiter, state="rejected_by_client")
+
+    page_sql, page_params = db.execute.await_args.args
+    assert page_params["state"] == "rejected_by_client"
+    assert "CAST(:state AS text)" in str(page_sql)
+    assert result.total == 5
+    assert result.period_total == 23
+    assert result.people == 21
+    assert result.moved_by_credited == 7
+    assert result.states == {"waiting": 11, "at_client": 7, "rejected_by_client": 5}
+    assert result.period_start == date(2026, 10, 12)
+    assert result.period_end == date(2026, 10, 18)
+    assert result.items[0].state_reason == "Stawka"
+
+
+@pytest.mark.asyncio
+async def test_detail_row_names_the_job_like_its_header_and_who_clicked() -> None:
+    recruiter = _user(UserRole.recruiter, 11)
+    db = AsyncMock()
+    page = MagicMock()
+    page.mappings.return_value.all.return_value = [_detail_row()]
+    db.execute.side_effect = [
+        _result([recruiter]),
+        _summary(total=1, people=1, state_waiting=1),
+        page,
+    ]
+
+    result = await _details(db, recruiter)
+
+    item = result.items[0]
+    assert item.job.working_title == "Senior Java Developer"
+    assert item.job.client_reference == "ZOB-1"
+    assert item.job.href == "/jobs/77?candidate=501"
+    assert item.moved_by is not None and item.moved_by.id == 21
+    assert item.credited_user is not None and item.credited_user.id == 11
+    assert item.candidate_jobs == 2
+    assert item.state == "waiting"
+
+
+@pytest.mark.asyncio
+async def test_empty_period_skips_the_page_query() -> None:
+    recruiter = _user(UserRole.recruiter, 11)
+    db = AsyncMock()
+    db.execute.side_effect = [_result([recruiter]), _summary()]
+
+    result = await _details(db, recruiter)
+
+    assert db.execute.await_count == 2
+    assert result.total == 0 and result.items == []
+
+
+def test_detail_states_match_the_response_contract() -> None:
+    from typing import get_args
+
+    from app.schemas.recruitment_activity import RecruitmentActivityState
+
+    assert set(activity_service.DETAIL_STATES) == set(
+        get_args(RecruitmentActivityState)
+    )
+    sql = str(activity_service._DETAIL_SQL["person"])
+    # Odrzucenie przez klienta = ta sama reguła co `known_people_signal`.
+    assert "latest.ended_by = 'client'" in sql
+    assert "'cv_sent', 'client_interview'" in sql
+
+
+@pytest.mark.asyncio
+async def test_account_without_team_rights_gets_no_team_rows_by_default() -> None:
+    """Rola „Automatyzacje” (0446) nie ma imiennych KPI zespołu.
+
+    Bez `scope` i bez osoby lista spadała do zakresu zespołu, choć jawne
+    `scope=team` dawało tej samej roli 403 (przegląd bezpieczeństwa 17.10.2026).
+    """
+    automation = _user(UserRole.automation, 61)
+    db = AsyncMock()
+    db.execute.side_effect = [_result([automation])]
+    with pytest.raises(HTTPException) as exc:
+        await _details(db, automation)
+    assert exc.value.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_account_without_team_rights_still_opens_its_own_rows() -> None:
+    automation = _user(UserRole.automation, 61)
+    db = AsyncMock()
+    db.execute.side_effect = [_result([automation]), _summary()]
+
+    result = await _details(db, automation, subject_user_id=61)
+
+    _, params = db.execute.await_args.args
+    assert params["user_ids"] == [61]
+    assert result.scope == "person"
+
+
+def test_week_at_the_end_of_the_calendar_is_a_422_not_a_500() -> None:
+    with pytest.raises(HTTPException) as exc:
+        activity_service._detail_window(
+            "week",
+            selected_day=date(9999, 12, 31),
+            selected_month=date(9999, 12, 1),
+            date_from=None,
+            date_to=None,
+        )
+    assert exc.value.status_code == 422

@@ -63,7 +63,6 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEditor, EditorContent } from "@tiptap/react";
 import {
   Check,
-  ChevronDown,
   FileText,
   History,
   Loader2,
@@ -339,9 +338,9 @@ function CVBrandedEditContent({
   const [narrowPane, setNarrowPane] = useState<"cv" | "sources" | "issues" | "plan" | "history">(
     issuesFirst ? "issues" : "cv",
   );
-  // Panel „Do poprawy” nad asystentem: rozwinięty, gdy są blokady albo karta
-  // otwiera edytor na uwagach; potem decyduje człowiek (`null` = sam).
-  const [issuesChoice, setIssuesChoice] = useState<boolean | null>(issuesFirst ? true : null);
+  // Kolumna to lista uwag z asystentem zwiniętym do jednej linii (17.10.2026,
+  // wariant A); rozwinięty asystent zwija listę do paska z liczbami.
+  const [assistantOpen, setAssistantOpen] = useState(false);
   const [body, setBody] = useState<HTMLElement | null>(null);
   const bodyWidth = useElementWidth(body);
   const sideBySide = bodyWidth >= SIDE_BY_SIDE_MIN_WIDTH;
@@ -831,8 +830,7 @@ function CVBrandedEditContent({
   ];
   // Asystent ma tylko CV etapu (rekrutacja = wymagania, notatki i uprawnienia).
   const withAssistant = !isGenerated && hasCv;
-  const issuesExpanded =
-    issuesChoice ?? (issueCount.blocking > 0 || issueCount.state === "failed" || !withAssistant);
+  const assistantExpanded = withAssistant && assistantOpen;
   const sources = isGenerated ? (
     <CvEditorSources context={sourceContext ?? null} loaders={sourceLoaders} />
   ) : (
@@ -1084,12 +1082,7 @@ function CVBrandedEditContent({
                 )}
               >
                 {/* Zamontowany także zwinięty: liczy znaczniki na kartce i liczbę w pasku. */}
-                <div
-                  className={cn(
-                    "min-h-0",
-                    !withAssistant ? "flex-1" : issuesExpanded ? "flex-[2_1_0%] overflow-hidden" : "flex-none",
-                  )}
-                >
+                <div className={cn("min-h-0", assistantExpanded ? "flex-none" : "flex-1 overflow-hidden")}>
                   <CvEditorIssues
                     ref={issuesRef}
                     editor={editor}
@@ -1105,27 +1098,29 @@ function CVBrandedEditContent({
                     }}
                     onCount={setIssueCount}
                     api={issuesApi}
-                    collapsed={withAssistant && !issuesExpanded}
-                    heading={
-                      withAssistant ? (
-                        // Edytor CV 3 (PR 4): „Do poprawy” zwijane nad asystentem — jedna kolumna.
-                        <button
-                          type="button"
-                          aria-expanded={issuesExpanded}
-                          className="-mx-1 flex items-center gap-1.5 rounded px-1 py-1 text-left text-sm font-semibold hover:bg-muted/50"
-                          onClick={() => setIssuesChoice(!issuesExpanded)}
-                        >
-                          <ChevronDown aria-hidden className={cn("h-3.5 w-3.5 transition-transform", !issuesExpanded && "-rotate-90")} />
-                          {issuesLabel}
-                          {issueCount.blocking > 0 ? (
-                            <span className="text-xs font-normal text-destructive">· blokuje wysyłkę: {issueCount.blocking}</span>
-                          ) : null}
-                        </button>
-                      ) : undefined
+                    summary={assistantExpanded}
+                    onShowList={() => setAssistantOpen(false)}
+                    // Ta sama droga co „Przekaż mimo uwag…” w stopce (okno obejścia, potem ruch).
+                    onOverride={handoff && gate.kind === "override" ? openOverride : undefined}
+                    overrideDisabled={!data || creatingDraft || assistant.busy}
+                    onAskAssistant={
+                      withAssistant && assistant.enabled
+                        ? (command) => {
+                            setAssistantOpen(true);
+                            assistant.send({ command });
+                          }
+                        : undefined
                     }
                   />
                 </div>
-                {withAssistant ? <CvEditorAssistant controller={assistant} editor={editor} /> : null}
+                {withAssistant ? (
+                  <CvEditorAssistant
+                    controller={assistant}
+                    editor={editor}
+                    expanded={assistantExpanded}
+                    onExpand={() => setAssistantOpen(true)}
+                  />
+                ) : null}
               </aside>
             ) : null}
             {showHistory ? (

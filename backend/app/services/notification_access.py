@@ -115,6 +115,11 @@ NOTIFICATION_SECTION_BY_TYPE: dict[NotificationType, ProductSection] = {
     NotificationType.interview_slot_confirmed: ProductSection.pipeline,
     NotificationType.interview_debrief_saved: ProductSection.pipeline,
     NotificationType.prep_attention: ProductSection.pipeline,
+    NotificationType.prep_candidate_response: ProductSection.pipeline,
+    NotificationType.prep_candidate_declined: ProductSection.pipeline,
+    NotificationType.prep_changed: ProductSection.pipeline,
+    NotificationType.prep_changed_yours: ProductSection.pipeline,
+    NotificationType.prep_no_response: ProductSection.pipeline,
     NotificationType.trainee_program_decision: ProductSection.pipeline,
     NotificationType.candidate_followup_signal: ProductSection.pipeline,
     # 0399: odpowiedź na notatkę — notatki żyją za sekcją Sourcing (router).
@@ -144,6 +149,8 @@ NOTIFICATION_SECTION_BY_TYPE: dict[NotificationType, ProductSection] = {
     NotificationType.also_fits_added: ProductSection.pipeline,
     # 0451: link prowadzi do panelu osoby na Tablicy rekrutacji.
     NotificationType.client_accepted: ProductSection.pipeline,
+    # 0452: link prowadzi do panelu osoby na Tablicy rekrutacji.
+    NotificationType.hire_missing_contract: ProductSection.pipeline,
     # 0454: opieka nad konsultantem — link do zakładki „Opieka” kontraktu.
     NotificationType.care_contact_due: ProductSection.delivery,
 }

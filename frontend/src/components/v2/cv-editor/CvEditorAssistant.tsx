@@ -9,11 +9,16 @@
  * z „Tak” i „Nie” pada tylko przy fakcie bez źródła i przy usunięciu jedynego
  * miejsca z wymaganiem klienta (zasada 6). Zaznaczony tekst to kontekst
  * wiadomości. Logika: `useCvAssistant`.
+ *
+ * Od 17.10.2026 (panel „Do poprawy”, wariant A, D1) asystent stoi zwinięty do
+ * jednej linii pod listą uwag — pusty zabierał liście dwie trzecie kolumny.
+ * Kliknięcie w linię go rozwija (pole dostaje fokus), a lista zwija się wtedy
+ * do paska z liczbami; „Pokaż listę” wraca. Rozmowa zostaje w kontrolerze.
  */
 
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import { useEditorState, type Editor } from "@tiptap/react";
-import { Check, Loader2, SendHorizontal, Undo2 } from "lucide-react";
+import { Check, Loader2, SendHorizontal, Sparkles, Undo2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { CV_PANEL_ATTR, Marked } from "@/components/v2/cv-editor/Marked";
@@ -27,13 +32,17 @@ import { cn } from "@/lib/utils";
 export interface CvEditorAssistantProps {
   controller: CvAssistantController;
   editor: Editor;
+  /** Rozwinięty: rozmowa, podpowiedzi i pole. Zwinięty: jedna linia nad listą uwag. */
+  expanded: boolean;
+  /** Kliknięcie w zwiniętą linię. */
+  onExpand: () => void;
 }
 
 const REWRITE_PREFIX = "Napisz od nowa: ";
 
 const EXAMPLES = "Np. „rolę w Logistyce skróć do 3 punktów”, „pogrub Kafkę i Spring Boot”, „stanowisko: Senior Java Engineer”.";
 
-export function CvEditorAssistant({ controller, editor }: CvEditorAssistantProps) {
+export function CvEditorAssistant({ controller, editor, expanded, onExpand }: CvEditorAssistantProps) {
   const [text, setText] = useState("");
   const log = useRef<HTMLDivElement>(null);
   const input = useRef<HTMLTextAreaElement>(null);
@@ -64,7 +73,34 @@ export function CvEditorAssistant({ controller, editor }: CvEditorAssistantProps
   useEffect(() => {
     const node = log.current;
     if (node) node.scrollTop = node.scrollHeight;
-  }, [controller.messages.length, controller.locked]);
+  }, [controller.messages.length, controller.locked, expanded]);
+  // Rozwinięcie z linii = rekruter chce pisać: pole od razu z fokusem.
+  const wasExpanded = useRef(expanded);
+  useEffect(() => {
+    if (expanded && !wasExpanded.current) input.current?.focus();
+    wasExpanded.current = expanded;
+  }, [expanded]);
+
+  if (!expanded) {
+    const line = controller.locked
+      ? "Asystent pracuje…"
+      : controller.messages.length > 0
+        ? "Wróć do rozmowy z asystentem"
+        : "Napisz, co zmienić w CV…";
+    return (
+      <section aria-label="Asystent CV" className="flex-none border-t border-border p-2" {...{ [CV_PANEL_ATTR]: "" }}>
+        <button
+          type="button"
+          onClick={onExpand}
+          className="flex h-10 w-full items-center gap-2 rounded-md border border-input bg-background px-2.5 text-left text-sm text-muted-foreground transition-colors hover:border-primary/50 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <Sparkles aria-hidden className="h-4 w-4 shrink-0 text-primary" />
+          <span className="min-w-0 flex-1 truncate">{line}</span>
+          {controller.locked ? <Loader2 aria-hidden className="h-4 w-4 animate-spin" /> : null}
+        </button>
+      </section>
+    );
+  }
 
   const submit = (event?: FormEvent) => {
     event?.preventDefault();
@@ -84,7 +120,7 @@ export function CvEditorAssistant({ controller, editor }: CvEditorAssistantProps
   return (
     <section
       aria-label="Asystent CV"
-      className="flex min-h-[18rem] flex-[3_1_0%] flex-col border-t border-border"
+      className="flex min-h-[18rem] flex-1 flex-col border-t border-border"
       {...{ [CV_PANEL_ATTR]: "" }}
     >
       <header className="px-3 pb-1 pt-2">

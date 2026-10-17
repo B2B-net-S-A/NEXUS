@@ -67,6 +67,9 @@ const ACTIVITY_ACTION_LABELS: Record<string, string> = {
   candidate_identity_restored_from_traffit:
     "Przywrócono dane osobowe z Traffita",
   candidate_hard_deleted: "Trwale usunięto profil",
+  // 17.10.2026: okno „Czarna lista…” w profilu i w panelu osoby.
+  candidate_blacklisted: "Dodano do czarnej listy",
+  candidate_blacklist_removed: "Zdjęto z czarnej listy",
   // 12.10.2026: zatrudnienie osoby, która ma już trwającą umowę u innego
   // klienta — odpowiedź rekrutera z okna „Potwierdź zatrudnienie”.
   candidate_hired_engagement_switch:

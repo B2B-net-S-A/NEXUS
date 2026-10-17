@@ -179,6 +179,11 @@ CATEGORY_BY_TYPE: dict[NotificationType, NotificationCategory] = {
     _T.interview_slot_confirmed: _C.interviews,
     _T.interview_debrief_saved: _C.interviews,
     _T.prep_attention: _C.interviews,
+    _T.prep_candidate_response: _C.interviews,
+    _T.prep_candidate_declined: _C.interviews,
+    _T.prep_changed: _C.interviews,
+    _T.prep_changed_yours: _C.interviews,
+    _T.prep_no_response: _C.interviews,
     # Akceptacje klienta (0451)
     _T.client_accepted: _C.acceptances,
     # 0374: koniec programu praktykanta — decyzja Head of Recruitment.
@@ -214,6 +219,7 @@ CATEGORY_BY_TYPE: dict[NotificationType, NotificationCategory] = {
     _T.order_missing_successor: _C.contracts,
     _T.hired_order_missing: _C.contracts,
     _T.consultant_in_other_recruitment: _C.contracts,
+    _T.hire_missing_contract: _C.contracts,
     _T.framework_contract_expiring_30d: _C.contracts,
     _T.framework_contract_expiring_14d: _C.contracts,
     _T.framework_contract_expiring_7d: _C.contracts,
@@ -343,6 +349,11 @@ _SPLIT_GROUPS: dict[
         "Twój konsultant w innej rekrutacji",
         _C.contracts,
         (_T.consultant_in_other_recruitment,),
+    ),
+    "contracts_hire_missing_contract": (
+        "Zatrudniony bez umowy w Kontraktach",
+        _C.contracts,
+        (_T.hire_missing_contract,),
     ),
     # „Ludzie w NEXUSIE” (0459): przypomnienie opiekuna kontraktu — osobna
     # grupa, żeby rola mogła je wyłączyć bez końca umów i podpisów.

@@ -223,7 +223,9 @@ function memoryDismissal(id: number, reason: QcDismissReason, note: string | und
     reason_label:
       reason === "kept_order"
         ? "Kolejność stanowisk celowo inna"
-        : (QC_DISMISS_REASONS.find((option) => option.code === reason)?.label ?? reason),
+        : reason === "kept"
+          ? "Sprawdzone — zostaje w CV"
+          : (QC_DISMISS_REASONS.find((option) => option.code === reason)?.label ?? reason),
     note: note ?? null,
     by_name: "Marta Testowa",
     at: new Date().toISOString(),
@@ -353,6 +355,17 @@ export function memoryIssuesApi(savedHtml: () => string, variant: IssuesVariant)
         let next = html;
         if (action.action === "spelling") next = html.replaceAll(MISSPELLED, "GitHub");
         else if (action.action === "role_order") next = rolesNewestFirst(html);
+        else if (action.action === "remove_line") {
+          // Linia z kontroli AI: cały punkt listy o tej treści (`cv_qc.remove_line_html`).
+          if (body.bulk) {
+            skipped.push({ action: action.action, code: "not_in_bulk", message: "Tę poprawkę zatwierdza się pojedynczo." });
+            continue;
+          }
+          next = html.replace(`<li><p>${action.text}</p></li>`, "");
+        } else if (action.action === "years" || action.action === "title" || action.action === "strip_client_rules") {
+          // Harness nie ma tych uwag w QC — serwer odpowiedziałby „nie ma czego poprawić”.
+          next = html;
+        }
         else if (action.action === "bold_all") {
           next = html.replace(new RegExp(`(?<!<strong>)${UNBOLDED}(?!</strong>)`, "g"), `<strong>${UNBOLDED}</strong>`);
         } else if (action.action === "remove_term" || (action.action === "ai_fix" && action.text)) {

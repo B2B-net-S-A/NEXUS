@@ -61,7 +61,7 @@ from app.services.recommendation_card_parser import (
     redact_card_text,
 )
 from app.services.dz_review import Block, Requirement, Role
-from app.services.money_text import MONEY_RE, RATE_WORD_RE
+from app.services.money_text import MONEY_RE, RATE_WORD_RE, is_rate_text
 from app.services.prompt_fencing import fence, restore_tags
 from app.core.scheduling import business_today
 
@@ -2222,6 +2222,82 @@ def _override_applies(cv_fingerprint: Any = _LATEST_RUN_CV):
     )
 
 
+def blocking_keys(checks: list[dict]) -> frozenset[str]:
+    """Klucze rzeczy, które zatrzymują wysyłkę (pozycje niezaliczonych blokad;
+    blokada bez pozycji — `<sprawdzenie>|#`). Klucze pozycji są stałe
+    (`_assign_keys`), więc da się porównać chwilę obejścia z bieżącym QC."""
+
+    out: set[str] = set()
+    for check in checks or []:
+        if check.get("severity") != "blocking" or check.get("status") != "fail":
+            continue
+        items = check.get("items") or []
+        if not items:
+            out.add(f"{check.get('key')}|#")
+        for n, item in enumerate(items):
+            out.add(str(item.get("key") or f"{check.get('key')}|#{n}"))
+    return frozenset(out)
+
+
+async def follow_advisory_override(
+    db: AsyncSession,
+    candidate_id: int,
+    job_id: int,
+    stage_id: int,
+    fp: Optional[str],
+    checks: list[dict],
+) -> bool:
+    """D6 (decyzja Artura, 17.10.2026): obejście doradcze idzie za CV, dopóki
+    poprawki nie dodają nowej blokady.
+
+    Do 17.10.2026 przepuszczenie rekrutera ginęło przy KAŻDEJ zmianie treści
+    (odcisk CV — audyt 14.10.2026), więc poprawka literówki po „Przekaż mimo
+    uwag…” wymagała przepuszczenia od nowa. Teraz, gdy bieżące blokady są
+    podzbiorem blokad z chwili obejścia, wiersz obejścia dostaje odcisk
+    bieżącego CV (bez commitu) — bramka ruchu, plakietka na Tablicy i przegląd
+    DL czytają dalej tę samą regułę `_override_applies`. Nowa blokada (np.
+    dopisana treść spoza oryginału) = nowy klucz = obejście nie idzie dalej.
+    Poza trybem doradczym, bez odcisku albo bez obejścia — nic. Tylko QC
+    liczone na NAJNOWSZYM wierszu etapu pary (tym, który czyta bramka): starszy
+    wiersz ma inną migawkę oryginału i inne odpowiedzi (przegląd PR 3).
+    """
+
+    if fp is None or not advisory_mode():
+        return False
+    latest_stage = await db.scalar(
+        select(CandidateStage.id)
+        .where(
+            CandidateStage.candidate_id == candidate_id,
+            CandidateStage.job_id == job_id,
+        )
+        .order_by(CandidateStage.moved_at.desc(), CandidateStage.id.desc())
+        .limit(1)
+    )
+    if latest_stage != stage_id:
+        return False
+    row = await db.scalar(
+        select(CvQcRun)
+        .where(
+            CvQcRun.candidate_id == candidate_id,
+            CvQcRun.job_id == job_id,
+            _unspent_override(),
+            _is_advisory_override(),
+        )
+        .order_by(CvQcRun.created_at.desc(), CvQcRun.id.desc())
+        .limit(1)
+    )
+    if row is None or row.cv_fingerprint is None or row.cv_fingerprint == fp:
+        return False
+    granted = blocking_keys((row.result or {}).get("checks") or [])
+    if not blocking_keys(checks) <= granted:
+        return False
+    row.cv_fingerprint = fp
+    # Sesje mają `autoflush=False` — `_latest_override` zaraz po tym (bramka
+    # ruchu, panel `?transient=true`) czytałby stary odcisk (przegląd PR 3).
+    await db.flush()
+    return True
+
+
 async def has_live_advisory_override(
     db: AsyncSession, candidate_id: int, job_id: int
 ) -> bool:
@@ -2455,6 +2531,11 @@ async def run_qc(
     run_id: Optional[int] = None
     computed_at = datetime.now(timezone.utc)
     fp = fingerprint(src.blocks) if src.generated is not None else None
+    # D6: przepuszczenie przechodzi na to CV, gdy poprawki nie dodały blokady —
+    # przed zapisem przebiegu i przed `_latest_override` niżej (ta sama sesja).
+    await follow_advisory_override(
+        db, src.candidate.id, src.job.id, stage.id, fp, checks
+    )
     if persist:
         store = dict(
             candidate_id=src.candidate.id,
@@ -4320,6 +4401,445 @@ def fix_spelling_html(html: str) -> tuple[str, int]:
     return doc.html(), count
 
 
+# ── Poprawki jednym kliknięciem z panelu „Do poprawy” (wariant A, PR 2) ───────
+#
+# Decyzja Artura D3 (17.10.2026): uwagi, których poprawkę liczy kod z danych,
+# które QC już zna, dostają przycisk w wierszu panelu. Wynik QC się nie
+# zmienia (żadnego nowego pola w pozycjach — skrót przebiegu i kolejka DL
+# zostają), panel rozpoznaje uwagę po kluczu sprawdzenia. Każda operacja jest
+# liniowa sama z siebie — budżet `transform_html` działa MIĘDZY poprawkami.
+
+# Kwantyfikatory zaborcze i `[^\S\n]`: węzły tekstu trzymają surowe odstępy
+# (inaczej niż `Block.text`), więc sąsiednie `\s*` wracałyby kwadratowo.
+_YEARS_NUMBER = re.compile(
+    r"(?<![\d.,])(?P<n>\d{1,2})(?P<sp>[^\S\n]*+\+?[^\S\n]*+)"
+    r"(?P<w>lata|lat|roku|years?|yrs)\b",
+    re.IGNORECASE,
+)
+
+
+def _years_word(word: str, n: int) -> str:
+    """„lat” / „lata” po nowej liczbie (2–4, 22–24 … = „lata”); reszta bez zmian."""
+    low = word.casefold()
+    if low in {"lat", "lata"}:
+        few = n % 10 in (2, 3, 4) and n % 100 not in (12, 13, 14)
+        return "lata" if few else "lat"
+    if low in {"year", "years"}:
+        return "year" if n == 1 else "years"
+    return word
+
+
+def _block_nodes(doc: "EditableCv", block: Block) -> list[tuple[int, str]]:
+    """Węzły tekstu JEDNEGO bloku (indeks tokenu, bieżący tekst) w kolejności.
+    Dla wielu bloków `_nodes_by_block` — ta funkcja przegląda cały dokument."""
+    return [
+        (i, tok["text"])
+        for i, tok, ctx in doc.data_tokens()
+        if ctx["block"] is block and not ctx["skip"] and doc.tokens[i] is not None
+    ]
+
+
+def _nodes_by_block(doc: "EditableCv") -> dict[int, list[tuple[int, str]]]:
+    """Węzły tekstu wszystkich bloków jednym przejściem (id bloku → węzły)."""
+    out: dict[int, list[tuple[int, str]]] = {}
+    for i, tok, ctx in doc.data_tokens():
+        block = ctx["block"]
+        if block is None or ctx["skip"] or doc.tokens[i] is None:
+            continue
+        out.setdefault(id(block), []).append((i, tok["text"]))
+    return out
+
+
+def _replace_span(
+    doc: "EditableCv", nodes: list[tuple[int, str]], start: int, end: int, new: str
+) -> None:
+    """Zakres [start, end) złączonego tekstu węzłów → `new` (w pierwszym węźle zakresu)."""
+    pos = 0
+    placed = False
+    for i, text in nodes:
+        a, b = pos, pos + len(text)
+        pos = b
+        if b <= start or a >= end or a == b:
+            continue
+        lo, hi = max(start, a) - a, min(end, b) - a
+        doc.tokens[i] = {
+            "k": "data",
+            "text": text[:lo] + ("" if placed else new) + text[hi:],
+        }
+        placed = True
+
+
+def _collapsed(text: str) -> tuple[str, list[int]]:
+    """Tekst ze zwiniętymi odstępami (jak `Block.text`) i pozycja każdego znaku w oryginale."""
+    out: list[str] = []
+    where: list[int] = []
+    gap = False
+    for i, ch in enumerate(text):
+        if ch.isspace():
+            if gap:
+                continue
+            out.append(" ")
+            gap = True
+        else:
+            out.append(ch)
+            gap = False
+        where.append(i)
+    return "".join(out), where
+
+
+# Najwyżej tyle twierdzeń o stażu na jedno kliknięcie — każde przelicza złączony
+# tekst swojego bloku, więc bez limitu blok z tysiącami „N lat w X” był kwadratowy.
+YEARS_CLAIMS_MAX = 10
+
+
+def _replace_years_in(
+    doc: "EditableCv",
+    quote: str,
+    old: int,
+    new: int,
+    nodes_of: dict[int, list[tuple[int, str]]],
+) -> int:
+    """Liczba lat W MIEJSCU CYTATU QC → `new`.
+
+    Cytat szukamy w złączonym tekście bloku (pogrubienie potrafi go podzielić:
+    „Ponad <b>10 lat</b> doświadczenia”), a liczbę — tylko w nim, więc
+    „Ponad 8 lat …, w tym 8 lat w Bank Alfa” poprawia ten staż, o który chodzi.
+    """
+    if new < 1 or new == old or not quote:
+        return 0
+    for block in doc.blocks:
+        if block.kind == "h" or quote not in block.text:
+            continue
+        nodes = nodes_of.get(id(block), [])
+        # Cytat QC ma zwinięte odstępy (`Block.text`), węzły — surowe.
+        flat, where = _collapsed("".join(text for _, text in nodes))
+        at = flat.find(quote)
+        if at < 0:
+            continue
+        match = next(
+            (m for m in _YEARS_NUMBER.finditer(quote) if int(m.group("n")) == old),
+            None,
+        )
+        if match is None:
+            return 0
+        fixed = f"{new}{match.group('sp')}{_years_word(match.group('w'), new)}"
+        start = where[at + match.start()]
+        end = where[at + match.end() - 1] + 1
+        _replace_span(doc, nodes, start, end, fixed)
+        # Kolejne twierdzenie w tym bloku czyta już tekst po tej podmianie.
+        nodes_of[id(block)] = [
+            (i, tok["text"]) for i, _ in nodes if (tok := doc.tokens[i]) is not None
+        ]
+        return 1
+    return 0
+
+
+# „N lat w A i B” — staż kilku firm naraz. Liczba z dat jednej z nich (drugiej
+# zwykle nie ma w historii) byłaby w zdaniu nieprawdą w drugą stronę, więc
+# takiego twierdzenia poprawka nie przepisuje; uwaga QC zostaje (17.10.2026).
+_SEVERAL_COMPANIES = re.compile(r"\s(?:i|oraz|and)\s|[&/]", re.IGNORECASE)
+
+
+def _names_several_companies(quote: str) -> bool:
+    m = _COMPANY_YEARS.search(quote)
+    return bool(_SEVERAL_COMPANIES.search(m.group("company") if m else quote))
+
+
+def fix_years_html(
+    html: str, experience: Any, *, today: Optional[date] = None
+) -> tuple[str, int]:
+    """Lata w nagłówku i staż w firmie według dat historii — te same reguły
+    i ta sama historia co uwaga „Lata doświadczenia zgodne z historią”
+    (wołający podaje `candidate.experience`); bez pełnych dat nic."""
+
+    doc = EditableCv.parse(html)
+    nodes_of = _nodes_by_block(doc)
+    count = 0
+    claim = header_years(doc.blocks)
+    actual = experience_years(experience, today=today)
+    if claim is not None and actual is not None:
+        claimed, at_least, quote = claim
+        if not years_consistent(claimed, at_least, actual):
+            count += _replace_years_in(doc, quote, claimed, int(actual), nodes_of)
+    claims = company_year_claims(doc.blocks, experience, today=today)
+    for claimed, company_actual, _company, quote in claims[:YEARS_CLAIMS_MAX]:
+        if _names_several_companies(quote):
+            continue
+        count += _replace_years_in(doc, quote, claimed, int(company_actual), nodes_of)
+    return (doc.html(), count) if count else (html, 0)
+
+
+# Separator „Rola – Imię”: odstęp(y), kreska, odstęp. `(?<!\s)` i zaborcze
+# `\s++` — ciąg spacji bez kreski po nim sprawdzamy raz, nie od każdej spacji.
+_TITLE_SEPARATOR = re.compile(r"(?<!\s)\s++[–—|-](?=\s)")
+_NAME_WORD = re.compile(r"[^\W\d_]{2,}")
+
+
+def _name_words(text: str) -> set[str]:
+    return set(_NAME_WORD.findall((text or "").casefold()))
+
+
+def set_title_html(
+    html: str, title: str, candidate_name: Optional[str]
+) -> tuple[str, int]:
+    """Rola w nagłówku h1 → tytuł z rekrutacji (`expected_titles`).
+
+    Tylko układ generatora „Rola – Imię”: imię i nazwisko kandydata stoi po
+    prawej stronie OSTATNIEGO separatora (jak `stage_cv_copy._name_part`),
+    a po lewej go nie ma. „Imię – Rola”, dopisek po imieniu („… – Anna K. |
+    Warszawa”), imię po obu stronach („Anna Kowalska - Nowak”), CV anonimowe
+    i nagłówek bez separatora — nic nie zgadujemy, tytuł wpisuje człowiek
+    (po prawej mogłoby stać miasto albo forma umowy, nie rola).
+    """
+
+    title = " ".join((title or "").split())[:200]
+    name = _name_words(candidate_name or "")
+    if not title or not name:
+        return html, 0
+    doc = EditableCv.parse(html)
+    head = next((b for b in doc.blocks if b.kind == "h" and (b.level or 1) == 1), None)
+    if head is None:
+        return html, 0
+    nodes = _block_nodes(doc, head)
+    joined = "".join(text for _, text in nodes)
+    seps = list(_TITLE_SEPARATOR.finditer(joined))
+    if not seps:
+        return html, 0
+    sep = seps[-1]
+    left, right = joined[: sep.start()], joined[sep.end() :]
+    if not (name & _name_words(right)) or name & _name_words(left):
+        return html, 0
+    start = len(left) - len(left.lstrip())
+    end = sep.start()
+    if start >= end or _norm(joined[start:end]) == _norm(title):
+        return html, 0
+    _replace_span(doc, nodes, start, end, title)
+    return doc.html(), 1
+
+
+# Sama etykieta albo znaki po usunięciu kontaktu — taki blok znika cały.
+_CONTACT_LEFTOVER = re.compile(
+    r"^(?:[\s:;,.|/•·\-–—()]|tel\.?|telefon(?:u)?|phone|mobile|kom\.?|e-?mail|mail|"
+    r"kontakt(?:owy|owe)?|contact|kandydata|adres)*$",
+    re.IGNORECASE,
+)
+# Etykieta tuż przed numerem albo adresem znika razem z nim (zaborczo — bez
+# powrotów po długich odstępach).
+_CONTACT_LABEL = (
+    r"(?:(?:tel\.?|telefon(?:u)?(?:[^\S\n]++kandydata)?|phone|mobile|kom\.?|"
+    r"e-?mail(?:[^\S\n]++kandydata)?|mail|kontakt|contact)[^\S\n]*+:?[^\S\n]*+)?"
+)
+# Cyfry rozdzielone najwyżej trzema znakami (spacja, myślnik, nawias, kropka) —
+# każde powtórzenie zjada cyfrę, więc powroty są ograniczone.
+_PHONE_WITH_LABEL = re.compile(
+    _CONTACT_LABEL + r"(?P<num>\+?\d(?:[ \t\xa0\-().]{0,3}\d){7,})", re.IGNORECASE
+)
+_HREF = re.compile(r"""\bhref\s*+=\s*+["']([^"']*+)["']""", re.IGNORECASE)
+# Kawałki zdania: kropka między cyframi („150.50 zł/h”) nie kończy zdania.
+# Zaborczo — po każdym kawałku stoi koniec zdania, nowa linia albo koniec tekstu.
+# „ok.”, „np.”, „ca.”, „tj.”, „min.”, „max.” też nie (stawka „ok. 150 zł/h”).
+_SENTENCE_PIECE = re.compile(
+    r"(?:[^.!?;\n]|[.!?;](?=\d)"
+    r"|(?:(?<=\bok)|(?<=\bnp)|(?<=\bca)|(?<=\btj)|(?<=\bmin)|(?<=\bmax))\."
+    # Skrót przedłuża zdanie tylko przed cyfrą, małą literą albo walutą —
+    # „do 5 min. Oczekiwana stawka…” to dwa zdania (przegląd PR 2, runda 3).
+    r"(?=[^\S\n]*+(?-i:[\da-ząćęłńóśźż€$])))*+(?:[.!?;]++|\n|$)",
+    re.IGNORECASE,
+)
+# Kwoty szukamy tylko w oknie wokół słowa o pieniądzach: wzorce kwot wracają
+# kwadratowo na długim ciągu cyfr bez waluty, a stawka stoi przy swoim słowie.
+_RATE_WINDOW = 80
+_LEFTOVER_MAX = 80
+
+
+def _mentions_rate(text: str) -> bool:
+    """Stawka w tekście — ścisłe `money_text.is_rate_text` (kwota za czas albo
+    przy słowie „stawka”), nie luźne `_AMOUNT`: „Moduł wynagrodzeń dla 250
+    zleceniobiorców” i „Rate limiting dla 10 zleceń” to treść CV."""
+    for m in _RATE_WORD.finditer(text):
+        window = text[max(0, m.start() - _RATE_WINDOW) : m.end() + _RATE_WINDOW]
+        if is_rate_text(window):
+            return True
+    return False
+
+
+def _tidy_separators(text: str) -> str:
+    """Po wycięciu kontaktu albo zdania: bez „, ,”, przecinka na początku i podwójnych spacji."""
+    text = re.sub(r"(?<!\s)[^\S\n]*+([,;|])(?:[^\S\n]*+[,;|])++", r"\1", text)
+    text = re.sub(r"^[^\S\n]*+[,;|][^\S\n]*+", "", text)
+    # „Java 17. . Dostępna” po wycięciu „Tel. 600 100 200” — samotna kropka.
+    text = re.sub(r"(?<=[.!?;])[^\S\n]++[.;](?=[^\S\n]|$)", "", text)
+    return re.sub(r"[ \t\xa0]{2,}", " ", text)
+
+
+def _drop_rate_sentences(text: str) -> tuple[str, int]:
+    parts: list[str] = []
+    dropped = 0
+    for m in _SENTENCE_PIECE.finditer(text):
+        piece = m.group(0)
+        if not piece:
+            continue
+        if _mentions_rate(piece):
+            dropped += 1
+            continue
+        parts.append(piece)
+    return ("".join(parts), dropped) if dropped else (text, 0)
+
+
+def strip_client_rules_html(
+    html: str, email: Optional[str], phone: Optional[str]
+) -> tuple[str, int]:
+    """Stawka i kontakt kandydata z CV (reguły klienta) — bez klauzuli zgody.
+
+    Stawka: znika zdanie z kwotą stawki, reszta akapitu zostaje; punkt albo
+    akapit, który mówi tylko o stawce (także z kwotą w pogrubieniu), znika
+    cały. Kontakt: e-mail i telefon kandydata (ostatnie 9 cyfr, jak
+    `contact_leaks`) razem z etykietą („Tel.:”) oraz odnośniki `mailto:` /
+    `tel:` do nich. Sprzątanie pustych bloków dotyczy wyłącznie bloków
+    zmienionych w tym wywołaniu.
+    """
+
+    doc = EditableCv.parse(html)
+    count = 0
+    mail = (email or "").strip()
+    mail_re = (
+        re.compile(_CONTACT_LABEL + re.escape(mail), re.IGNORECASE) if mail else None
+    )
+    digits = re.sub(r"\D", "", phone or "")
+    tail = digits[-9:] if len(digits) >= 9 else ""
+    content = {
+        id(block): block
+        for block in doc.blocks
+        if block.kind != "h" and block.section not in _NON_CONTENT_SECTIONS
+    }
+    touched: set[int] = set()
+
+    def phone_hit(m: re.Match) -> str:
+        return "" if re.sub(r"\D", "", m.group("num")).endswith(tail) else m.group(0)
+
+    # Odnośniki `mailto:` / `tel:` do kandydata — cały <a>…</a>.
+    if mail or tail:
+        i = 0
+        while i < len(doc.tokens):
+            tok = doc.tokens[i]
+            raw = tok["raw"] if tok is not None and tok["k"] == "tag" else ""
+            href_m = _HREF.search(raw) if raw[:2].lower() == "<a" else None
+            href = href_m.group(1) if href_m else ""
+            hit = (mail and href.casefold() == f"mailto:{mail.casefold()}") or (
+                tail
+                and href.lower().startswith("tel:")
+                and re.sub(r"\D", "", href).endswith(tail)
+            )
+            if not hit:
+                i += 1
+                continue
+            # Koniec odnośnika i bloki jego tekstu — tylko treść CV (nie
+            # nagłówek, linia stanowiska ani klauzula zgody).
+            end = i
+            blocks_in: set[int] = set()
+            while end < len(doc.tokens):
+                inner = doc.tokens[end]
+                if inner is not None and inner["k"] == "data":
+                    block = doc.ctx.get(end, {}).get("block")
+                    if block is not None:
+                        blocks_in.add(id(block))
+                if (
+                    inner is not None
+                    and inner["k"] == "tag"
+                    and inner["raw"][:3].lower() == "</a"
+                ):
+                    break
+                end += 1
+            if any(block_id not in content for block_id in blocks_in):
+                i = end + 1
+                continue
+            for j in range(i, min(end, len(doc.tokens) - 1) + 1):
+                doc.tokens[j] = None
+            touched |= blocks_in
+            count += 1
+            i = end + 1
+
+    for i, tok, ctx in list(doc.data_tokens()):
+        block = ctx["block"]
+        if (
+            doc.tokens[i] is None
+            or ctx["skip"]
+            or block is None
+            or id(block) not in content
+        ):
+            continue
+        text, changed = _drop_rate_sentences(tok["text"])
+        if mail_re is not None and mail.casefold() in text.casefold():
+            text, n = mail_re.subn("", text)
+            changed += n
+        if tail:
+            fixed = _PHONE_WITH_LABEL.sub(phone_hit, text)
+            if fixed != text:
+                text = fixed
+                changed += 1
+        if changed:
+            doc.tokens[i] = {"k": "data", "text": _tidy_separators(text)}
+            count += changed
+            touched.add(id(block))
+
+    def drop(index: int, block: Block) -> None:
+        start, end = doc.spans[index]
+        if block.kind == "li" and doc.item_is_only_this_block(index):
+            start, end = doc.item_span(index)
+        if start is None or end is None:
+            return
+        for j in range(start, end + 1):
+            doc.tokens[j] = None
+
+    nodes_of = _nodes_by_block(doc)
+    for index, block in enumerate(doc.blocks):
+        if id(block) not in content:
+            continue
+        rest = "".join(text for _, text in nodes_of.get(id(block), ())).strip()
+        if id(block) in touched:
+            # Blok, z którego nic nie zostało albo sam napis „Kontakt:” / „Tel.:”.
+            if not rest or (
+                len(rest) <= _LEFTOVER_MAX and _CONTACT_LEFTOVER.fullmatch(rest)
+            ):
+                drop(index, block)
+            continue
+        # Stawka podzielona na węzły („Stawka: <b>150 zł/h</b>”): blok znika,
+        # gdy każde jego zdanie mówi o stawce — inaczej zostaje dla człowieka.
+        if rest and len(rest) <= _LEFTOVER_MAX * 2 and _mentions_rate(rest):
+            pieces = [m.group(0).strip() for m in _SENTENCE_PIECE.finditer(rest)]
+            if all(_mentions_rate(piece) for piece in pieces if piece):
+                drop(index, block)
+                count += 1
+    return (doc.html(), count) if count else (html, 0)
+
+
+def remove_line_html(html: str, text: str) -> tuple[str, int]:
+    """Usuń linię wskazaną przez kontrolę AI („bez pokrycia w źródłach”):
+    punkt albo akapit treści o tym tekście — nigdy nagłówek, linia
+    stanowiska, etykieta szablonu ani klauzula zgody."""
+
+    wanted = _norm(text)
+    if not wanted:
+        return html, 0
+    doc = EditableCv.parse(html)
+    count = 0
+    for index, block in enumerate(doc.blocks):
+        if block.kind == "h" or block.section in _NON_CONTENT_SECTIONS:
+            continue
+        if _norm(block.text) != wanted:
+            continue
+        if block.kind == "li" and doc.item_is_only_this_block(index):
+            start, end = doc.item_span(index)
+        else:
+            start, end = doc.spans[index]
+        if start is None or end is None:
+            continue
+        for j in range(start, end + 1):
+            doc.tokens[j] = None
+        count += 1
+    return (doc.html(), count) if count else (html, 0)
+
+
 def ensure_fresh_draft(csv: CandidateStageCV, expected: Optional[int]) -> None:
     """409 `CV_CHANGED`, gdy szkic zmienił się od wczytania listy QC.
 
@@ -4352,7 +4872,10 @@ def draft_after_fix(previous_html: str, fixed_html: str) -> str:
 # „Popraw wszystko” (decyzja Artura D2, 12.10.2026): tylko poprawki formalne
 # i poprawka AI w brzmieniu, którego cytat serwer sprawdził przy jej pobraniu.
 # Usunięcie terminu i własny tekst rekrutera zatwierdza się pojedynczo.
-BULK_ACTIONS = frozenset({"bold_all", "spelling", "ai_fix"})
+# D4 (17.10.2026): lata i tytuł liczy kod z danych, które QC już zna — wchodzą
+# do „Popraw wszystkie”. Usunięcia treści (termin, stawka i kontakt, linia
+# z kontroli AI) i kolejność stanowisk rekruter zatwierdza pojedynczo.
+BULK_ACTIONS = frozenset({"bold_all", "spelling", "ai_fix", "years", "title"})
 ROLE_ORDER_NOTHING = "Stanowiska już są ułożone od najnowszego."
 ROLE_ORDER_UNKNOWN = (
     "Nie umiem bezpiecznie przestawić stanowisk w tym CV — przestaw je ręcznie: "
@@ -4360,7 +4883,12 @@ ROLE_ORDER_UNKNOWN = (
 )
 # Kolejność stanowisk zmienia układ całego doświadczenia — rekruter ma ją
 # zobaczyć i kliknąć osobno (D3, 16.10.2026).
-_ACTIONS = BULK_ACTIONS | {"remove_term", "role_order"}
+_ACTIONS = BULK_ACTIONS | {
+    "remove_term",
+    "role_order",
+    "strip_client_rules",
+    "remove_line",
+}
 # Każda poprawka czyta całą treść od nowa (do 500 KB od klienta). Pierwsza idzie
 # zawsze, kolejne dopóki wątek nie zużył tyle sekund procesora: zwykłe CV
 # (kilkadziesiąt KB) mieści w tym wszystkie 20 poprawek z dużym zapasem.
@@ -4376,6 +4904,12 @@ def transform_html(
     fixes: dict[str, dict],
     experience: Any,
     bulk: bool,
+    titles: tuple[str, ...] = (),
+    email: Optional[str] = None,
+    phone: Optional[str] = None,
+    today: Optional[date] = None,
+    history: Any = None,
+    candidate_name: Optional[str] = None,
 ) -> tuple[str, list[dict], list[dict]]:
     """Nałóż poprawki QC na podaną treść — bez bazy i bez zapisu.
 
@@ -4466,6 +5000,41 @@ def transform_html(
                 changed, count = ordered or (current, 0)
                 nothing = ROLE_ORDER_NOTHING if ordered else ROLE_ORDER_UNKNOWN
                 done = {"action": action}
+            elif action == "years":
+                # Ta sama historia co uwaga QC (`candidate.experience`), nie
+                # odczyt CV z `role_entries` — inaczej przycisk wpisuje liczbę,
+                # której QC nie pokazuje.
+                changed, count = fix_years_html(
+                    current, experience if history is None else history, today=today
+                )
+                nothing = (
+                    "Lat nie da się policzyć z historii albo już się zgadzają — "
+                    "popraw je w edytorze CV."
+                )
+                done = {"action": action}
+            elif action == "title":
+                # Tytuł bierzemy z rekrutacji (`expected_titles`), nie od klienta.
+                changed, count = (
+                    set_title_html(current, titles[0], candidate_name)
+                    if titles
+                    else (current, 0)
+                )
+                nothing = (
+                    "Nie umiem bezpiecznie podmienić tytułu w tym nagłówku — "
+                    "wpisz stanowisko ręcznie."
+                )
+                done = {"action": action}
+            elif action == "strip_client_rules":
+                changed, count = strip_client_rules_html(current, email, phone)
+                nothing = "W CV nie ma stawki ani kontaktu kandydata do usunięcia."
+                done = {"action": action}
+            elif action == "remove_line":
+                line = str(payload.get("text") or "").strip()
+                if not line:
+                    raise ApplyError("Podaj linię do usunięcia.")
+                changed, count = remove_line_html(current, line)
+                nothing = "Tej linii nie ma już w CV."
+                done = {"action": action}
             else:
                 changed, count = fix_spelling_html(current)
                 nothing = "Nie ma pisowni do poprawienia."
@@ -4516,6 +5085,13 @@ async def transform_for_editor(
     dismissed = await dismissed_bold_requirements(db, src.candidate.id, src.job.id)
     must = without_dismissed_bold(src.must, "must", dismissed)
     nice = without_dismissed_bold(src.nice, "nice", dismissed)
+    wanted_actions = {str(payload.get("action") or "") for payload in actions}
+    # Tytuł z rekrutacji tylko, gdy ktoś o niego prosi (zapytanie o klienta).
+    titles = (
+        await expected_titles(db, src, await _generated_payload(db, src))
+        if "title" in wanted_actions
+        else ()
+    )
 
     def compute() -> tuple[str, list[dict], list[dict]]:
         return transform_html(
@@ -4526,6 +5102,13 @@ async def transform_for_editor(
             fixes=fixes,
             experience=experience,
             bulk=bulk,
+            titles=titles,
+            email=src.candidate.email,
+            phone=src.candidate.phone,
+            history=src.candidate.experience,
+            candidate_name=" ".join(
+                p for p in (src.candidate.name, src.candidate.lastname) if p
+            ),
         )
 
     # Sam procesor (do 500 KB treści od klienta razy kilka poprawek) — w wątku,

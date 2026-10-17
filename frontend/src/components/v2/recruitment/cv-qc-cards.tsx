@@ -252,7 +252,11 @@ function AskCandidateButtons({ item, ctx }: { item: QcItem; ctx: ActionContext }
   );
 }
 
-function ItemAction({ item, ctx }: { item: QcItem; ctx: ActionContext }) {
+/**
+ * Przycisk naprawy jednej pozycji — wspólny z wierszami panelu „Do poprawy”
+ * w edytorze CV (17.10.2026), który bierze z niego zgodę RODO i brak CV.
+ */
+export function ItemAction({ item, ctx }: { item: QcItem; ctx: ActionContext }) {
   const term = (item.term ?? item.requirement ?? "").trim();
   switch (item.fix) {
     case "role_order":

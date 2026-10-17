@@ -19,6 +19,12 @@ export const INTERVIEW_NOTIFICATION_TYPES = [
   "interview_slot_confirmed",
   "interview_debrief_saved",
   "prep_attention",
+  // 0453 (17.10.2026): odpowiedź kandydata na prep i zmiany prepu w parze.
+  "prep_candidate_response",
+  "prep_candidate_declined",
+  "prep_changed",
+  "prep_changed_yours",
+  "prep_no_response",
 ] as const;
 
 export type InterviewNotificationType = (typeof INTERVIEW_NOTIFICATION_TYPES)[number];
@@ -30,6 +36,18 @@ export function isInterviewNotificationType(
 ): type is InterviewNotificationType {
   return type != null && TYPE_SET.has(type);
 }
+
+/**
+ * Typy „Kalendarza” bez dymka — tylko licznik ikony (decyzja D6, 17.10.2026):
+ * kandydat przyjął / „może”, zmiana prepu w cudzym kalendarzu i przypomnienie
+ * o braku odpowiedzi. Dymek zostaje tam, gdzie ktoś ma ruch: odmowa albo inny
+ * termin kandydata i zmiana prepu w Twoim kalendarzu.
+ */
+export const QUIET_INTERVIEW_TYPES: ReadonlySet<string> = new Set([
+  "prep_candidate_response",
+  "prep_changed",
+  "prep_no_response",
+]);
 
 /** Zdarzenie okna: gniazdo dostarczyło powiadomienie kategorii „Rozmowy”. */
 export const INTERVIEW_NOTIFY_EVENT = "nexus:interview-notify";

@@ -552,7 +552,9 @@ async def _already_notified(
 async def check_prep_attention(db: AsyncSession, now: datetime) -> int:
     """Prep słaby / bez nagrania / po rozmowie od razu, brak prepu na dobę przed.
 
-    Do organizatora prepu i każdego Head of Recruitment (decyzja 23.09.2026).
+    Do organizatora prepu i każdego Head of Recruitment (decyzja 23.09.2026),
+    a od 17.10.2026 (D7) także do Delivery Leada rekrutacji — przy Prepie 2
+    (prowadzi rekruter) DL nie dowiadywał się o niczym.
     """
     global _PREP_ATTENTION_LAST_RUN
     if (
@@ -567,6 +569,20 @@ async def check_prep_attention(db: AsyncSession, now: datetime) -> int:
             items = await prep_attention.load_prep_attention(db, now)
             names, titles = await prep_attention.labels(db, items)
             hor = await _hor_user_ids(db)
+            job_ids = {item.job_id for item in items}
+            leads = (
+                dict(
+                    (
+                        await db.execute(
+                            select(Job.id, Job.delivery_lead_id).where(
+                                Job.id.in_(job_ids)
+                            )
+                        )
+                    ).all()
+                )
+                if job_ids
+                else {}
+            )
     except Exception:  # noqa: BLE001 — dzwonek nie może zatrzymać reszty ticku
         logger.exception("prep_attention: nie udało się policzyć prepów")
         return 0
@@ -588,7 +604,10 @@ async def check_prep_attention(db: AsyncSession, now: datetime) -> int:
         else:
             title = f"Prep {item.prep_no} bez nagrania"
             message = f"{who} — {what}: z prepu nie ma transkryptu, więc nie da się go ocenić."
-        recipients = {*hor, *([item.owner_id] if item.owner_id else [])}
+        recipients = {
+            *hor,
+            *(uid for uid in (item.owner_id, leads.get(item.job_id)) if uid),
+        }
         # Brak Prepu 1 i brak Prepu 2 wiszą na tej samej rozmowie — osobny typ
         # encji, żeby jeden dzwonek nie zjadał drugiego.
         # Spóźniony prep też dostaje własny typ: ten sam prep, przełożony

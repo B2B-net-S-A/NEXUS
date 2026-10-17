@@ -16,6 +16,8 @@ from __future__ import annotations
 import math
 from typing import Any, Optional
 
+from app.services.recommendation_card_parser import parse_rate
+
 _UNITS = {"h": "hour", "md": "day", "month": "month"}
 _MAX_TEXT = 200
 
@@ -35,6 +37,14 @@ def _number(value: Any) -> Optional[float]:
     except (TypeError, ValueError):
         return None
     return number if math.isfinite(number) and number > 0 else None
+
+
+def _card_hourly(raw: Optional[str]) -> Optional[float]:
+    """Kwota PLN/h z tekstu regułą karty rekomendacji albo ``None``."""
+    if not raw:
+        return None
+    parsed = parse_rate(raw)
+    return parsed["value"] if parsed.get("period") == "h" else None
 
 
 def suggestions_from_notes(candidate, *, include_rate: bool) -> dict:
@@ -57,11 +67,22 @@ def suggestions_from_notes(candidate, *, include_rate: bool) -> dict:
     if isinstance(rate, dict) and (value := _number(rate.get("value"))) is not None:
         if include_rate:
             period = rate.get("period")
+            unit = _UNITS.get(period) if isinstance(period, str) else None
+            currency = (_text(rate.get("currency")) or "").upper() or None
+            raw = _text(rate.get("raw"))
+            if (
+                unit is None
+                and currency in (None, "PLN")
+                and _card_hourly(raw) == value
+            ):
+                # R3 (17.10.2026): „Stawka: 90” bez jednostki — ta sama reguła co
+                # karta rekomendacji czyta je jako PLN/h.
+                unit, currency = "hour", "PLN"
             out["rate"] = {
                 "value": value,
-                "unit": _UNITS.get(period) if isinstance(period, str) else None,
-                "currency": (_text(rate.get("currency")) or "").upper() or None,
-                "raw": _text(rate.get("raw")),
+                "unit": unit,
+                "currency": currency,
+                "raw": raw,
                 "source_note_id": source_note_id,
                 "noted_at": _text(rate.get("as_of")) or extracted_at,
             }

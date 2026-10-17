@@ -35,11 +35,12 @@ from typing import Optional
 NAME_MARKER_ERROR_TYPE = "candidate_name_marker"
 # Nazwy pól jak w oknach „Dodaj kandydata” / „Edytuj dane” (AppShell). Pole
 # „Dostępność” jest tam datą — zdanie kierowało do niego „szuka aktywnie”
-# (audyt 13.10.2026).
+# (audyt 13.10.2026). Od 17.10.2026 pola „Status” w oknie nie ma — czarna
+# lista ma własne okno w menu profilu.
 _NAME_MARKER_MESSAGE = (
     "Imię i nazwisko bez dopisków w nawiasie. „Szuka aktywnie” ustaw w polu "
-    "Dyspozycyjność („Aktywnie szuka pracy”), czarną listę — w polu Status "
-    "(„Zablokowany”); zatrudnienie widać samo z umowy."
+    "Dyspozycyjność („Aktywnie szuka pracy”), czarną listę — w menu profilu "
+    "(„Czarna lista…”); zatrudnienie widać samo z umowy."
 )
 
 

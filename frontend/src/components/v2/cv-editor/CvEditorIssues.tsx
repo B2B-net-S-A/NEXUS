@@ -33,19 +33,27 @@
  * przy każdej pozycji, potem „Zapytaj kandydata”, „Pominięte”, „Informacje”
  * i „W porządku”. Uwaga generatora „MUST-HAVE: X” nie dubluje pozycji QC o X.
  * Ta sama liczba stoi na karcie „CV do klienta” (`cvChecksBeforeSending`).
+ *
+ * Wariant A (decyzje Artura D1–D7, 17.10.2026): lista idzie po tym, co
+ * rekruter ma zrobić — „Blokuje wysyłkę”, „Do poprawy” (z „Popraw
+ * wszystkie”), „Poprawione” (z „Cofnij”) i „Do decyzji · nie blokuje”. Jeden
+ * wiersz = problem, podgląd zmiany i jeden przycisk (`CvEditorIssueRows`);
+ * zdanie AI stoi w wierszu swojej uwagi. Gdy rekruter pisze do asystenta,
+ * panel zwija się do paska z liczbami (`summary`), a „Przekaż mimo uwag…”
+ * stoi także w nagłówku blokad (`onOverride` — ta sama droga co stopka).
  */
 
 import { useEffect, useId, useImperativeHandle, useMemo, useRef, useState, type ReactNode, type Ref } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Editor } from "@tiptap/core";
-import { CheckCircle2, ChevronRight, Loader2, LocateFixed, RefreshCw, Undo2, Wand2 } from "lucide-react";
+import { Check, CheckCircle2, ChevronDown, ChevronRight, Loader2, RefreshCw, Undo2, Wand2 } from "lucide-react";
+import type { Node as PMNode } from "@tiptap/pm/model";
 
 import { useToast } from "@/components/Toast";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { IssueRowView, type IssueDismiss, type RowContext } from "@/components/v2/cv-editor/CvEditorIssueRows";
 import {
-  AiFixesView,
-  CheckRow,
   Confirmations,
   DismissButton,
   DismissForm,
@@ -53,11 +61,8 @@ import {
   MutedChecks,
   PassedChecks,
   SECTION_TITLE,
-  SourceTag,
-  TaskCard,
   qcDismissedEntries,
   type ActionContext,
-  type DismissFormValue,
   type DismissedEntry,
 } from "@/components/v2/recruitment/cv-qc-cards";
 import { apiErrorMessage } from "@/lib/api-error";
@@ -84,8 +89,9 @@ import {
 import { copyTextToClipboard } from "@/lib/clipboard";
 import { clearIssueFocus, setIssueMarks, showIssueInCv } from "@/lib/cv-editor-issue-marks";
 import {
-  ISSUE_SOURCE_LABEL,
   REVIEW_FINDING_LABEL,
+  appliedActions,
+  appliedLabel,
   buildIssueList,
   boldRequirements,
   bulkPlan,
@@ -93,9 +99,11 @@ import {
   fixAlreadyInCv,
   fixStep,
   issueMarks,
+  issueRows,
   locateTarget,
-  type IssueEntry,
+  rowInBulk,
   type IssueRange,
+  type IssueRow,
 } from "@/lib/cv-editor-issues";
 import { classifyCvWarnings, type ClassifiedCvWarning } from "@/lib/cv-generator";
 import { candidateQuestion, countForm, qcDismissedMessage, type IssueTarget } from "@/lib/cv-qc";
@@ -140,12 +148,25 @@ export interface CvEditorIssuesProps {
   /** „Pogrub wymagania (N)” z nagłówka edytora woła poprawkę tego panelu. */
   ref?: Ref<CvEditorIssuesHandle>;
   /**
-   * Nagłówek zamiast tytułu i plakietki blokad — przycisk zwijania, gdy panel
-   * dzieli kolumnę z asystentem (Edytor CV 3, PR 4). Jeden nagłówek, nie dwa.
+   * Asystent rozwinięty (17.10.2026): zostaje pasek z liczbami i „Lista”, lista
+   * się chowa — panel dalej liczy znaczniki na kartce i liczbę w pasku.
    */
-  heading?: ReactNode;
-  /** Zwinięty: zostaje nagłówek, lista się chowa (panel dalej liczy znaczniki). */
-  collapsed?: boolean;
+  summary?: boolean;
+  /** „Lista” w pasku — wraca do listy (asystent zwija się do jednej linii). */
+  onShowList?: () => void;
+  /**
+   * „Przekaż mimo uwag…” w nagłówku blokad — ta sama akcja co w stopce
+   * (karta na „Zweryfikowany” i prawo obejścia); bez niej przycisku nie ma.
+   */
+  onOverride?: () => void;
+  /** Ten sam warunek co w stopce (asystent pracuje, szkic się zakłada) — przycisk czeka. */
+  overrideDisabled?: boolean;
+  /**
+   * „Usuń z CV” przy terminie, który stoi w zdaniu (nie na liście technologii):
+   * serwer go nie usuwa, więc panel prosi asystenta o przeredagowanie zdania
+   * bez tego słowa (PR 3, 17.10.2026). Bez asystenta — komunikat jak dotąd.
+   */
+  onAskAssistant?: (command: string) => void;
 }
 
 /** Polecenia panelu dla nagłówka edytora (Edytor CV 3, PR 3). */
@@ -168,16 +189,18 @@ function afterPaint(callback: () => void): void {
   else setTimeout(callback, 0);
 }
 
-interface BulkOutcome {
-  applied: number;
+/** Nałożona poprawka — wiersz „Poprawione” z „Cofnij”, dopóki CV się po niej nie zmieniło. */
+interface AppliedFix {
+  id: number;
+  labels: string[];
+  /** Dokument zaraz po poprawce — „Cofnij” działa tylko, gdy edytor nadal go trzyma. */
+  after: PMNode;
+  bulk: boolean;
   skipped: QcTransformSkipped[];
 }
 
-/** „To nieprawda” przy uwadze generatora albo kontroli AI (tylko edytor CV etapu). */
-interface IssueDismiss {
-  submit: (issue: Pick<CvIssueDismissBody, "source" | "text" | "status">, value: DismissFormValue, onSaved: () => void) => void;
-  pending: boolean;
-}
+/** Tyle ostatnich poprawek zostaje na liście „Poprawione”. */
+const APPLIED_SHOWN = 6;
 
 function GeneratorWarnings({ warnings, dismiss }: { warnings: readonly string[]; dismiss?: IssueDismiss }) {
   const infoId = useId();
@@ -244,103 +267,6 @@ function GeneratorWarnings({ warnings, dismiss }: { warnings: readonly string[];
   );
 }
 
-/** Uwaga generatora jako pozycja jednej listy. */
-function WarningItem({ warning, dismiss }: { warning: ClassifiedCvWarning; dismiss?: IssueDismiss }) {
-  const [formOpen, setFormOpen] = useState(false);
-  return (
-    <li className="space-y-1 rounded-lg border border-warning/30 px-3 py-2 text-sm" data-issue-kind="generator">
-      <p className="flex flex-wrap items-center gap-1.5">
-        <span className="text-[11px] font-semibold uppercase tracking-wide text-warning-muted-foreground">{warning.kind}</span>
-        <SourceTag label={ISSUE_SOURCE_LABEL.generator} />
-      </p>
-      <p className="[overflow-wrap:anywhere]">{warning.text}</p>
-      {dismiss ? (
-        formOpen ? (
-          <DismissForm
-            subject={warning.text}
-            pending={dismiss.pending}
-            onSubmit={(value) =>
-              dismiss.submit({ source: "generator", text: warning.text, status: null }, value, () => setFormOpen(false))
-            }
-            onClose={() => setFormOpen(false)}
-          />
-        ) : (
-          <DismissButton onClick={() => setFormOpen(true)} disabled={dismiss.pending} />
-        )
-      ) : null}
-    </li>
-  );
-}
-
-/** Uwaga kontroli AI (linia, która nadal stoi w CV) jako pozycja jednej listy. */
-function FindingItem({
-  finding,
-  version,
-  onLocate,
-  dismiss,
-}: {
-  finding: CvReviewFinding;
-  version: number | null;
-  onLocate: (target: IssueTarget) => void;
-  dismiss?: IssueDismiss;
-}) {
-  const [formOpen, setFormOpen] = useState(false);
-  return (
-    <li className="space-y-1 rounded-lg border border-warning/30 px-3 py-2 text-sm" data-issue-kind="review">
-      <p className="flex flex-wrap items-center gap-1.5">
-        <span className="text-[11px] font-semibold uppercase tracking-wide text-warning-muted-foreground">
-          {REVIEW_FINDING_LABEL[finding.status] ?? "do sprawdzenia"}
-        </span>
-        <SourceTag label={version != null ? `${ISSUE_SOURCE_LABEL.review} v${version}` : ISSUE_SOURCE_LABEL.review} />
-      </p>
-      <p className="italic [overflow-wrap:anywhere]">„{finding.text}”</p>
-      <div className="flex flex-wrap items-center gap-2">
-        <Button size="sm" variant="ghost" onClick={() => onLocate({ kind: "line", text: finding.text })}>
-          <LocateFixed className="size-3.5" aria-hidden />
-          Pokaż w CV
-        </Button>
-        {dismiss && !formOpen ? <DismissButton onClick={() => setFormOpen(true)} disabled={dismiss.pending} /> : null}
-      </div>
-      {dismiss && formOpen ? (
-        <DismissForm
-          subject={`„${finding.text}”`}
-          pending={dismiss.pending}
-          onSubmit={(value) =>
-            dismiss.submit({ source: "review", text: finding.text, status: finding.status }, value, () => setFormOpen(false))
-          }
-          onClose={() => setFormOpen(false)}
-        />
-      ) : null}
-    </li>
-  );
-}
-
-/** Jedna pozycja listy — karta QC (te same co w oknie QC) albo uwaga generatora / kontroli AI. */
-function EntryView({
-  entry,
-  ctx,
-  reviewVersion,
-  onLocate,
-  dismiss,
-}: {
-  entry: IssueEntry;
-  ctx: ActionContext | null;
-  reviewVersion: number | null;
-  onLocate: (target: IssueTarget) => void;
-  dismiss: IssueDismiss;
-}) {
-  switch (entry.kind) {
-    case "task":
-      return ctx ? <TaskCard task={entry.task} ctx={ctx} sourceLabel={ISSUE_SOURCE_LABEL.qc} /> : null;
-    case "check":
-      return ctx ? <CheckRow check={entry.check} ctx={ctx} sourceLabel={ISSUE_SOURCE_LABEL.qc} /> : null;
-    case "warning":
-      return <WarningItem warning={entry.warning} dismiss={dismiss} />;
-    case "finding":
-      return <FindingItem finding={entry.finding} version={reviewVersion} onLocate={onLocate} dismiss={dismiss} />;
-  }
-}
-
 /** Informacje generatora — co zrobił i dlaczego; zwinięte, nie liczą się. */
 function GeneratorInfo({ items }: { items: readonly ClassifiedCvWarning[] }) {
   const listId = useId();
@@ -384,8 +310,11 @@ export function CvEditorIssues({
   onCount,
   api = networkIssuesApi,
   ref,
-  heading,
-  collapsed = false,
+  summary = false,
+  onShowList,
+  onOverride,
+  overrideDisabled = false,
+  onAskAssistant,
 }: CvEditorIssuesProps) {
   const queryClient = useQueryClient();
   const { showSuccess, showError } = useToast();
@@ -516,18 +445,20 @@ export function CvEditorIssues({
       focusTimer.current = setTimeout(() => clearIssueFocus(editor), FOCUS_MS);
     });
   };
-  const locate = (target: IssueTarget) => {
+  // `quiet`: rozwinięcie wiersza też pokazuje miejsce, ale bez komunikatu, gdy go nie ma.
+  const locate = (target: IssueTarget, quiet = false) => {
     if (editor.isDestroyed) return;
     const range = locateTarget(editor.state.doc, target);
     if (range) flash(range);
-    else showError("Tego miejsca nie ma już w treści CV — tekst zmienił się od ostatniego sprawdzenia.");
+    else if (!quiet) showError("Tego miejsca nie ma już w treści CV — tekst zmienił się od ostatniego sprawdzenia.");
   };
 
   // ── Poprawki: serwer liczy, edytor nakłada jednym krokiem ──────────────────
   const [working, setWorking] = useState(false);
   const workingRef = useRef(false);
-  const [bulkOutcome, setBulkOutcome] = useState<BulkOutcome | null>(null);
-  const bulkDoc = useRef<unknown>(null);
+  // „Poprawione”: co panel nałożył w tej sesji, najnowsze pierwsze.
+  const [applied, setApplied] = useState<AppliedFix[]>([]);
+  const appliedId = useRef(0);
 
   const run = async (actions: QcFixAction[], bulk: boolean, success: string, onApplied?: () => void) => {
     if (!hasStage || workingRef.current || editor.isDestroyed) return;
@@ -546,6 +477,20 @@ export function CvEditorIssues({
       // Pusta treść nie jest poprawką — nie zastępujemy nią CV.
       const usable = result.changed && result.content_html.trim() !== "";
       if (!usable || !fixStep(editor.state, result.content_html)) {
+        const only = actions.length === 1 ? actions[0] : null;
+        if (
+          only?.action === "remove_term" &&
+          onAskAssistant &&
+          result.skipped[0]?.code === "nothing_to_do"
+        ) {
+          // Termin stoi w zdaniu — przeredagowanie robi asystent (z kontrolą
+          // „bez nowych faktów” i „Cofnij” przy odpowiedzi).
+          onAskAssistant(
+            `Usuń „${only.term}” z CV: przeredaguj zdania, w których to słowo stoi, bez niego. Nie dopisuj nowych faktów.`,
+          );
+          showSuccess(`„${only.term}” stoi w zdaniu — asystent przeredaguje je bez tego słowa.`);
+          return;
+        }
         showError(result.skipped[0]?.message ?? "Tej poprawki nie da się nałożyć na bieżącą treść CV.");
         return;
       }
@@ -556,10 +501,16 @@ export function CvEditorIssues({
       if (!step) return;
       editor.view.dispatch(step.transaction);
       flash(step.changed, true);
-      if (bulk) {
-        bulkDoc.current = editor.state.doc;
-        setBulkOutcome({ applied: result.applied.length, skipped: result.skipped });
-      }
+      const done = bulk ? appliedActions(actions, result.applied) : actions;
+      appliedId.current += 1;
+      const entry: AppliedFix = {
+        id: appliedId.current,
+        labels: done.map((action) => appliedLabel(action, checks, fixesQuery.data?.fixes ?? [])),
+        after: editor.state.doc,
+        bulk,
+        skipped: result.skipped,
+      };
+      setApplied((list) => [entry, ...list].slice(0, APPLIED_SHOWN));
       showSuccess(success);
       onApplied?.();
     } catch (error) {
@@ -602,6 +553,11 @@ export function CvEditorIssues({
   const restoreFailed = (error: unknown) =>
     showError(apiErrorMessage(error, "Nie udało się przywrócić uwagi. Spróbuj ponownie."));
   const issueDismiss: IssueDismiss = {
+    keep: (issue) =>
+      dismissIssue.mutate(
+        { ...issue, reason: "kept" },
+        { onSuccess: () => showSuccess("Zostaje w CV — uwaga zeszła z listy."), onError: dismissFailed },
+      ),
     submit: (issue, value, onSaved) =>
       dismissIssue.mutate(
         { ...issue, reason: value.reason, ...(value.note ? { note: value.note } : {}) },
@@ -627,7 +583,6 @@ export function CvEditorIssues({
     [editor, fixes, dismissed, docTick],
   );
 
-  const aiSectionId = `cv-editor-ai-${stageKey}`;
   const ctx: ActionContext | null =
     qc && !otherDocument
       ? {
@@ -645,11 +600,8 @@ export function CvEditorIssues({
                 showError(apiErrorMessage(error, "Nie udało się zapisać potwierdzenia. Spróbuj ponownie.")),
             }),
           confirming: confirm.isPending,
-          requestAiFixes: () => {
-            if (typeof document !== "undefined") {
-              document.getElementById(aiSectionId)?.scrollIntoView?.({ block: "nearest" });
-            }
-          },
+          // Zdanie AI stoi w wierszu swojej uwagi (17.10.2026) — nie ma dokąd przewijać.
+          requestAiFixes: () => undefined,
           copyQuestion: (item) => {
             const question = candidateQuestion(item);
             void copyTextToClipboard(question).then((ok) =>
@@ -698,7 +650,8 @@ export function CvEditorIssues({
     })),
   ];
 
-  const plan = useMemo(() => bulkPlan(checks, visibleFixes), [checks, visibleFixes]);
+  // Wyciszone w „Jakość QC” (QC często się przy nich myli) nie wchodzą do „Popraw wszystkie”.
+  const plan = useMemo(() => bulkPlan(checks.filter((check) => !check.muted), visibleFixes), [checks, visibleFixes]);
   const classified = useMemo(() => classifyCvWarnings(warnings), [warnings]);
   // Jedna lista: QC, generator i kontrola AI po sekcjach CV (miejsca liczone na bieżącej treści).
   const list = useMemo(
@@ -731,12 +684,14 @@ export function CvEditorIssues({
     },
   }));
 
-  // „Cofnij” przy wyniku „Popraw wszystko” — dopóki nic nie zmieniono po poprawce.
-  const canUndoBulk = bulkOutcome != null && !editor.isDestroyed && editor.state.doc === bulkDoc.current;
-  const undoBulk = () => {
+  // „Cofnij” przy ostatniej poprawce — dopóki nic nie zmieniono po niej (jak w asystencie).
+  const latest = applied[0] ?? null;
+  const canUndo = latest != null && !editor.isDestroyed && editor.state.doc === latest.after;
+  const undoLatest = () => {
+    if (!latest || !canUndo) return;
     editor.commands.undo();
-    setBulkOutcome(null);
-    showSuccess("Cofnięto poprawki.");
+    setApplied((list) => list.filter((entry) => entry.id !== latest.id));
+    showSuccess(latest.labels.length > 1 ? "Cofnięto poprawki." : "Cofnięto poprawkę.");
   };
 
   if (!hasStage) {
@@ -768,38 +723,103 @@ export function CvEditorIssues({
     list.covered.length > 0 ||
     list.info.length > 0 ||
     (ctx != null && (list.muted.length > 0 || (qc?.confirmations?.length ?? 0) > 0));
-  const entryView = (entry: IssueEntry) => (
-    <EntryView
-      key={entry.id}
-      entry={entry}
-      ctx={ctx}
-      reviewVersion={reviewVersion}
-      onLocate={locate}
-      dismiss={issueDismiss}
-    />
+  const fixesState: RowContext["fixesState"] =
+    fixesQuery.isError || fixes?.status === "unavailable" ? "failed" : hasAiGaps && !fixes ? "loading" : "ready";
+  const rows = issueRows(list, visibleFixes, fixesState === "loading");
+  const rowCtx: RowContext = {
+    qc: ctx,
+    locate,
+    applyFix: (fix, text) =>
+      ctx?.apply(
+        text ? { action: "ai_fix", fix_id: fix.id, text } : { action: "ai_fix", fix_id: fix.id },
+        "Zdanie dopisane do CV.",
+        // Własny tekst nie jest równy propozycji — znika z listy po zastosowaniu.
+        text ? () => setDismissed((prev) => new Set(prev).add(fix.id)) : undefined,
+      ),
+    rejectFix: (id) => setDismissed((prev) => new Set(prev).add(id)),
+    fixesState,
+    retryFixes: () => void fixesQuery.refetch(),
+    dismiss: issueDismiss,
+    reviewVersion,
+    refreshQc: () => void refetchQc(),
+  };
+  const rowView = (row: IssueRow) => <IssueRowView key={row.id} row={row} ctx={rowCtx} />;
+  // „Popraw wszystkie” stoi w nagłówku grupy, w której są poprawki z planu:
+  // zwykle „Do poprawy”, a gdy są tylko zdania AI do blokad — „Blokuje wysyłkę”.
+  const bulkHost =
+    !ctx || plan.actions.length === 0
+      ? null
+      : rows.fixable.some(rowInBulk) || !rows.blocking.some(rowInBulk)
+        ? "fixable"
+        : "blocking";
+  const bulkButton = (
+    <Button
+      size="sm"
+      className="h-7 px-2 text-xs"
+      disabled={working || readOnly}
+      title={`Jednym kliknięciem: ${plan.parts.join(", ")}. Usunięcie treści i własne poprawki zatwierdzasz pojedynczo.`}
+      onClick={() => void run(plan.actions, true, "Poprawki nałożone — jedno Ctrl+Z cofa wszystkie.")}
+    >
+      {working ? <Loader2 className="size-3.5 animate-spin" aria-hidden /> : <Wand2 className="size-3.5" aria-hidden />}
+      Popraw wszystkie ({plan.actions.length})
+    </Button>
   );
+  const appliedCount = applied.reduce((sum, entry) => sum + entry.labels.length, 0);
   const status = qcQuery.isFetching
     ? "Sprawdzam zapisaną treść…"
     : unsaved
       ? "Lista dotyczy ostatnio zapisanej treści — odświeży się po zapisie."
       : null;
+  const blockingBadge = ctx ? (
+    blocking > 0 ? (
+      <Badge variant="danger" size="sm">
+        {countForm(blocking, ["blokuje wysyłkę", "blokują wysyłkę", "blokuje wysyłkę"])}
+      </Badge>
+    ) : (
+      <Badge variant="success" size="sm">
+        Nic nie blokuje wysyłki
+      </Badge>
+    )
+  ) : null;
+
+  if (summary) {
+    // Asystent rozwinięty: pasek z liczbami, lista wraca po „Lista”.
+    const rest = Math.max(0, total - blocking);
+    return (
+      <div className="flex items-center gap-1.5 border-b border-border px-3 py-2" role="group" aria-label="Do poprawy">
+        <h2 className="shrink-0 text-sm font-semibold">Do poprawy</h2>
+        {/* Krótko — pasek dzieli wiersz z „Pokaż listę” w kolumnie 360 px. */}
+        {ctx ? (
+          blocking > 0 ? (
+            <Badge variant="danger" size="sm" title="Tyle rzeczy zatrzymuje wysyłkę CV">
+              {countForm(blocking, ["blokuje", "blokują", "blokuje"])}
+            </Badge>
+          ) : (
+            <Badge variant="success" size="sm">
+              nic nie blokuje
+            </Badge>
+          )
+        ) : null}
+        {rest > 0 ? (
+          <Badge variant="outline" size="sm">
+            {rest} do decyzji
+          </Badge>
+        ) : null}
+        {qcQuery.isFetching ? <Loader2 className="size-3.5 animate-spin text-muted-foreground" aria-label="Sprawdzam" /> : null}
+        <Button size="sm" variant="ghost" className="ml-auto h-7 shrink-0 px-2 text-xs" onClick={onShowList}>
+          Pokaż listę
+          <ChevronDown className="size-3.5" aria-hidden />
+        </Button>
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <header className={cn("space-y-1 border-b border-border px-3", heading ? "py-1" : "py-2")}>
+      <header className="space-y-1 border-b border-border px-3 py-2">
         <div className="flex flex-wrap items-center gap-2">
-          {heading ?? <h2 className="text-sm font-semibold">Do poprawy</h2>}
-          {ctx && !heading ? (
-            blocking > 0 ? (
-              <Badge variant="danger" size="sm">
-                Blokuje wysyłkę: {blocking}
-              </Badge>
-            ) : (
-              <Badge variant="success" size="sm">
-                Nic nie blokuje wysyłki
-              </Badge>
-            )
-          ) : null}
+          <h2 className="text-sm font-semibold">Do poprawy</h2>
+          {blockingBadge}
           <Button
             size="sm"
             variant="ghost"
@@ -818,14 +838,14 @@ export function CvEditorIssues({
             )}
           </Button>
         </div>
-        {status && !collapsed ? (
+        {status ? (
           <p role="status" className="text-xs text-muted-foreground">
             {status}
           </p>
         ) : null}
       </header>
 
-      <div hidden={collapsed} className="min-h-0 flex-1 space-y-3 overflow-y-auto p-3">
+      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-3">
         {qcQuery.isLoading ? (
           <p className="flex items-center gap-2 text-sm text-muted-foreground">
             <Loader2 className="size-4 animate-spin" aria-hidden />
@@ -857,45 +877,6 @@ export function CvEditorIssues({
             treści otwartej tutaj. Wynik zobaczysz w oknie QC na Tablicy.
           </p>
         ) : null}
-
-        {ctx && plan.actions.length > 0 ? (
-          <section aria-label="Popraw wszystko" className="space-y-1.5 rounded-lg border border-primary/30 bg-primary/5 p-3">
-            <Button
-              size="sm"
-              disabled={working || readOnly}
-              onClick={() =>
-                void run(plan.actions, true, "Poprawki nałożone — jedno Ctrl+Z cofa wszystkie.")
-              }
-            >
-              {working ? <Loader2 className="size-3.5 animate-spin" aria-hidden /> : <Wand2 className="size-3.5" aria-hidden />}
-              Popraw wszystko ({plan.actions.length})
-            </Button>
-            <p className="text-xs text-muted-foreground">
-              Jednym kliknięciem: {plan.parts.join(", ")}. Usunięcie treści i własne poprawki zatwierdzasz pojedynczo.
-            </p>
-          </section>
-        ) : null}
-        {bulkOutcome ? (
-          <section aria-label="Wynik poprawek" className="space-y-1.5 rounded-lg border border-border px-3 py-2 text-xs">
-            <p role="status" className="flex flex-wrap items-center gap-2">
-              <span>Nałożono: {countForm(bulkOutcome.applied, ["poprawkę", "poprawki", "poprawek"])}.</span>
-              {canUndoBulk ? (
-                <Button size="sm" variant="outline" onClick={undoBulk}>
-                  <Undo2 className="size-3.5" aria-hidden />
-                  Cofnij
-                </Button>
-              ) : null}
-            </p>
-            {bulkOutcome.skipped.length > 0 ? (
-              <ul className="space-y-0.5 text-muted-foreground">
-                {bulkOutcome.skipped.map((item, index) => (
-                  <li key={index}>Pominięto: {item.message}</li>
-                ))}
-              </ul>
-            ) : null}
-          </section>
-        ) : null}
-
         {issuesQuery.isError ? (
           <p role="alert" className="rounded-lg border border-border px-3 py-2 text-xs text-muted-foreground">
             Nie udało się wczytać uwag generatora i kontroli AI.{" "}
@@ -911,44 +892,79 @@ export function CvEditorIssues({
           </p>
         ) : null}
 
-        {/* Jedna lista po sekcjach CV — w grupie najpierw to, co zatrzymuje wysyłkę. */}
-        {list.sections.map((group) => (
-          <section key={group.key} aria-label={group.label} className="space-y-2">
-            <h3 className={SECTION_TITLE}>
-              {group.label} ({group.entries.length})
-            </h3>
-            <ul className="space-y-2">{group.entries.map(entryView)}</ul>
-          </section>
-        ))}
-        {ctx && hasAiGaps ? (
-          <AiFixesView
-            sectionId={aiSectionId}
-            ctx={ctx}
-            data={fixes}
-            loading={fixesQuery.isFetching && !fixes}
-            failed={fixesQuery.isError}
-            visible={visibleFixes}
-            onRetry={() => void fixesQuery.refetch()}
-            onApply={(fix, text) =>
-              ctx.apply(
-                text ? { action: "ai_fix", fix_id: fix.id, text } : { action: "ai_fix", fix_id: fix.id },
-                "Zdanie dopisane do CV.",
-                // Własny tekst nie jest równy propozycji — znika z listy po zastosowaniu.
-                text ? () => setDismissed((prev) => new Set(prev).add(fix.id)) : undefined,
-              )
+        {rows.blocking.length > 0 ? (
+          <IssueGroup
+            label="Blokuje wysyłkę"
+            count={rows.blocking.length}
+            tone="blocking"
+            action={
+              bulkHost === "blocking" || onOverride ? (
+                <>
+                  {bulkHost === "blocking" ? bulkButton : null}
+                  {onOverride ? (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-7 px-2 text-xs"
+                      disabled={overrideDisabled}
+                      onClick={onOverride}
+                    >
+                      Przekaż mimo uwag…
+                    </Button>
+                  ) : null}
+                </>
+              ) : null
             }
-            onDismiss={(id) => setDismissed((prev) => new Set(prev).add(id))}
-          />
+          >
+            <ul className="space-y-1.5">{rows.blocking.map(rowView)}</ul>
+          </IssueGroup>
         ) : null}
-        {list.ask.length > 0 ? (
-          <section aria-label="Zapytaj kandydata" className="space-y-2">
-            <h3 className={SECTION_TITLE}>Zapytaj kandydata ({list.ask.length})</h3>
-            <p className="text-xs text-muted-foreground">
-              Bez kandydata tego nie poprawisz: skopiuj pytanie, a odpowiedź zapisz jako potwierdzenie.
-            </p>
-            <ul className="space-y-2">{list.ask.map(entryView)}</ul>
-          </section>
+        {rows.fixable.length > 0 || bulkHost === "fixable" ? (
+          <IssueGroup label="Do poprawy" count={rows.fixable.length} action={bulkHost === "fixable" ? bulkButton : null}>
+            {rows.fixable.length > 0 ? <ul className={ROWS}>{rows.fixable.map(rowView)}</ul> : null}
+          </IssueGroup>
         ) : null}
+        {applied.length > 0 ? (
+          <IssueGroup
+            label="Poprawione"
+            count={appliedCount}
+            action={
+              canUndo && latest?.bulk ? (
+                <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={undoLatest}>
+                  <Undo2 className="size-3.5" aria-hidden />
+                  Cofnij wszystkie
+                </Button>
+              ) : null
+            }
+          >
+            <ul className={ROWS}>
+              {applied.flatMap((entry) => [
+                ...entry.labels.map((label, index) => (
+                  <li key={`${entry.id}:${index}`} className="flex items-center gap-2 px-2.5 py-1.5 text-sm text-muted-foreground">
+                    <Check className="size-3.5 shrink-0 text-success" aria-hidden />
+                    <span className="min-w-0 flex-1 [overflow-wrap:anywhere]">{label}</span>
+                    {entry === latest && canUndo && !entry.bulk && index === 0 ? (
+                      <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={undoLatest}>
+                        Cofnij
+                      </Button>
+                    ) : null}
+                  </li>
+                )),
+                ...entry.skipped.map((item, index) => (
+                  <li key={`${entry.id}:skip:${index}`} className="px-2.5 py-1.5 text-xs text-muted-foreground">
+                    Pominięto: {item.message}
+                  </li>
+                )),
+              ])}
+            </ul>
+          </IssueGroup>
+        ) : null}
+        {rows.decide.length > 0 ? (
+          <IssueGroup label="Do decyzji · nie blokuje" count={rows.decide.length}>
+            <ul className={ROWS}>{rows.decide.map(rowView)}</ul>
+          </IssueGroup>
+        ) : null}
+
         <DismissedSection entries={dismissedEntries} restoring={restoreQc.isPending || restoreIssue.isPending} />
         {hasInfo ? (
           <section aria-label="Informacje" className="space-y-2">
@@ -987,5 +1003,40 @@ export function CvEditorIssues({
         {ctx ? <PassedChecks passed={list.passed} skipped={list.skipped} ctx={ctx} /> : null}
       </div>
     </div>
+  );
+}
+
+/** Ramka wierszy grupy „Do poprawy”, „Poprawione” i „Do decyzji”. */
+const ROWS = "divide-y divide-border rounded-lg border border-border";
+
+/** Grupa listy: nazwa z liczbą i przycisk grupy po prawej. */
+function IssueGroup({
+  label,
+  count,
+  tone = "plain",
+  action,
+  children,
+}: {
+  label: string;
+  count: number;
+  tone?: "blocking" | "plain";
+  action?: ReactNode;
+  children: ReactNode;
+}) {
+  return (
+    <section aria-label={label} className="space-y-1.5">
+      <h3
+        className={cn(
+          "flex min-h-7 flex-wrap items-center gap-x-2 gap-y-1 text-xs font-semibold uppercase tracking-wider",
+          tone === "blocking" ? "text-destructive" : "text-muted-foreground",
+        )}
+      >
+        <span>
+          {label} · {count}
+        </span>
+        {action ? <span className="ml-auto flex flex-wrap gap-1 normal-case tracking-normal">{action}</span> : null}
+      </h3>
+      {children}
+    </section>
   );
 }

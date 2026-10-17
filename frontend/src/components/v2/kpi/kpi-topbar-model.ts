@@ -14,6 +14,7 @@
  */
 
 import type { KpiGoal, KpiPeriod, KpiResult, KpiState, MyKpiGoals } from "@/lib/api";
+import { KPI_ID_TO_WHO_COUNTS, whoCountsHref } from "@/lib/kpi-who-counts";
 import { countPl } from "@/lib/plural-pl";
 
 export type KpiMark = "behind" | "hit" | "missed" | null;
@@ -47,6 +48,11 @@ export interface KpiPanelRow {
   expectedPct: number | null;
   status: string | null;
   description: string | null;
+  /**
+   * Lista „Kto się liczy” za liczbą (17.10.2026) — tylko własne cele osoby
+   * z wynikiem większym od zera; cele zespołu i portfela jej nie mają.
+   */
+  link: { href: string; label: string } | null;
 }
 
 export interface KpiPanelGroup {
@@ -117,6 +123,8 @@ interface PacedItem {
   /** Ile powinno być „na teraz”; null = brak danych o tempie. */
   expected: number | null;
   description: string | null;
+  /** Lista osób za liczbą; null = cel bez listy albo zero. */
+  peopleHref: string | null;
 }
 
 /** Liczba po polsku: całkowita bez zmian, ułamek z przecinkiem („24,5”). */
@@ -149,7 +157,13 @@ function fromKpi(kpi: KpiResult): PacedItem {
     state: kpi.state,
     expected: kpi.expected_count ?? null,
     description: kpi.description_pl || null,
+    peopleHref: peopleHrefOf(kpi),
   };
+}
+
+function peopleHrefOf(kpi: KpiResult): string | null {
+  const metric = KPI_ID_TO_WHO_COUNTS[kpi.kpi_id];
+  return metric && kpi.current !== null && kpi.current > 0 ? whoCountsHref(metric) : null;
 }
 
 function fromGoal(goal: KpiGoal): PacedItem {
@@ -164,6 +178,7 @@ function fromGoal(goal: KpiGoal): PacedItem {
     state: goal.state,
     expected: goal.expected ?? null,
     description: goal.note,
+    peopleHref: null,
   };
 }
 
@@ -243,6 +258,7 @@ function rowOf(item: PacedItem): KpiPanelRow {
     expectedPct: paceTick(item),
     status: statusOf(item),
     description: item.description,
+    link: item.peopleHref ? { href: item.peopleHref, label: "Zobacz, kto się liczy" } : null,
   };
 }
 

@@ -203,7 +203,19 @@ class QcApplyRequest(BaseModel):
 
 
 class QcTransformAction(BaseModel):
-    action: Literal["ai_fix", "bold_all", "remove_term", "spelling", "role_order"]
+    # `years`, `title`, `strip_client_rules`, `remove_line` — tylko edytor CV
+    # (panel „Do poprawy”, wariant A, PR 2); okno QC dalej `QcApplyRequest`.
+    action: Literal[
+        "ai_fix",
+        "bold_all",
+        "remove_term",
+        "spelling",
+        "role_order",
+        "years",
+        "title",
+        "strip_client_rules",
+        "remove_line",
+    ]
     fix_id: Optional[str] = Field(default=None, max_length=40)
     text: Optional[str] = Field(default=None, max_length=1000)
     scope: Optional[Literal["must", "nice"]] = None

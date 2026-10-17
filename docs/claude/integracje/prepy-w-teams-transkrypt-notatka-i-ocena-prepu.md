@@ -51,6 +51,60 @@ zwykłym telefonem z ręcznym debriefem). Konfiguracja M365: `docs/teams-prep-se
   i w odznace doku). Kroki w odznace doku niosą `at` — do tej daty miały tylko
   `key` i `state`, więc okno prepu otwarte z doku nie znało terminu rozmowy,
   podpowiadało „jutro 10:00” i nie ostrzegało.
+- **Prep zmieniają ludzie pary, zaprosić można każdego (17.10.2026, decyzje
+  D1–D4, zgłoszenie DL-a).** Do tej daty spotkanie było własnością prowadzącego
+  (`created_by = organizator`): rekruter, który założył Prep 1 w kalendarzu
+  DL-a, dostawał 404 na „Szczegóły” i 403 na zmianę, a lista zaproszonych
+  przyjmowała wyłącznie zespół rekrutacji (422). Teraz:
+  `PATCH /api/interview-cycle/preps/{event_id}` (termin, zaproszeni,
+  prowadzący) i `POST …/{event_id}/cancel` rozstrzyga
+  `prep_meetings.user_can_edit_prep` — prowadzący, `scheduled_by_user_id`,
+  `job.delivery_lead_id`, rekruter kandydata (`default_recruiter_ids`),
+  zastępcy (`operational_owner_ids`), HoR i admin — a nie
+  `calendar_access` (reguła 17.09 „odwołuje tylko właściciel” zostaje dla
+  zwykłych wydarzeń: tam odwołanie idzie kontem M365 twórcy, prep idzie
+  aplikacją). Zmiana idzie najpierw do Outlooka prowadzącego, potem do bazy;
+  kandydat dostaje aktualizację tego samego zaproszenia. **Inny prowadzący =
+  nowe spotkanie, potem odwołanie starego** (Microsoft nie przenosi spotkania
+  między kalendarzami); gdy odwołanie starego padnie, nowe jest odwoływane,
+  a wiersze cofa rollback — nigdy dwa aktywne prepy o tym numerze. Zaprosić
+  można każdego aktywnego z NEXUSA (`options.people`, zespół na górze) i do
+  10 adresów spoza (`attendee_emails`, `EmailStr`); prowadzący dalej musi być
+  z zespołu albo z podpowiedzi (jego skrzynka jest w grupie aplikacji).
+  Planujący za kogoś jest od razu na liście zaproszonych (D3, front), więc ma
+  spotkanie u siebie. Kroki odznaki na Tablicy niosą `event_id` — dok pokazuje
+  zaplanowane prepy z „Zmień”/„Odwołaj” (`PrepEditButtons`, przyciski tylko
+  przy `can_edit`), panel w kalendarzu też (zamiast „Szczegóły”). Jedno okno
+  dla „Przełóż”, „Zmień” i „Odwołaj”: `ReschedulePrepDialog` (`mode`). Dopisku
+  do zaproszenia nie da się zmienić (nie jest zapisany osobno); zmiana
+  prowadzącego zakłada nowe zaproszenie bez dopisku. Osoba spoza NEXUSA na
+  prepie to drugi mówca spoza zespołu — kandydat w transkrypcie jest wtedy
+  rozpoznawany tylko po nazwisku (`teams_vtt`).
+- **Odpowiedź kandydata i powiadomienia pary (0453, 17.10.2026, D5–D8).**
+  Do tej daty NEXUS nie czytał odpowiedzi z zaproszenia (mail „Zaakceptowano”
+  dostawał tylko organizator), a zmianę zrobioną w Outlooku widział dopiero
+  po starej godzinie prepu. Teraz pętla `teams_prep_transcripts` (działa też
+  bez transkryptów, gdy `app_only_ready()`) co `TEAMS_PREP_POLL_MINUTES` woła
+  `prep_responses.sync_upcoming`: prepy z 14 dni, `GET` wydarzenia
+  z `attendees` (te same uprawnienia aplikacji, bez webhooków) →
+  `prep_meetings.candidate_response` (`none|accepted|tentative|declined`,
+  `NULL` = nie sprawdzano), `proposed_start/end`, przełożenie i odwołanie
+  z Outlooka. Pierwszy odczyt prepu sprzed 0453 nie dzwoni o „przyjął”
+  (inaczej wdrożenie wysłałoby zaległości naraz); odmowa i inny termin dzwonią
+  zawsze. Nowy termin z NEXUSA zeruje odpowiedź (Outlook robi to samo).
+  Powiadomienia (`services/prep_notifications.py`, ikona „Kalendarz”) do ludzi
+  pary bez autora: `prep_changed_yours` (prowadzący — zmiana w jego kalendarzu,
+  dymek), `prep_changed` (reszta pary, licznik; też zmiana z Outlooka),
+  `prep_candidate_response` (przyjął / „może”, licznik),
+  `prep_candidate_declined` (odmowa albo inny termin, dymek), `prep_no_response`
+  (raz na prep, dobę przed, prowadzący + planujący; nie przy prepie założonym
+  < 2 h temu). Dymek steruje front: `QUIET_INTERVIEW_TYPES`
+  w `lib/interview-notifications.ts`. `prep_attention` idzie też do DL-a
+  rekrutacji (D7). Plakietka Tablicy `prep_refused` („Prep N: kandydat
+  proponuje …” / „odrzucił”) stoi przed „Prep 2 …”. **`ix_notif_dedup_daily`
+  nie zna rodzaju encji** (adresat, typ, ID, dzień): „przełożony” tego samego
+  dnia co „zaplanowany” był odrzucany, więc `prep_changed*` idą bez
+  `related_entity_id`; odpowiedzi kandydata zostają przy dedupie.
 - **Pętla `teams_prep_transcripts`** (`TEAMS_PREP_TRANSCRIPTS_ENABLED`, OFF
   kończy ją przed pętlą; heartbeat). Stan kolejki w bazie, odświeża termin
   z Outlooka przed pobraniem, backoff, po `TEAMS_PREP_FETCH_GIVE_UP_HOURS` →

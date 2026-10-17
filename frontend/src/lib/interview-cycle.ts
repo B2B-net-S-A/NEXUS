@@ -684,7 +684,14 @@ export type CycleAction =
   | { type: "prep_review"; pair: PairInfo; eventId: number }
   | { type: "add_slots"; pair: PairInfo | null }
   /** Prep zaplanowany po rozmowie u klienta: nowy termin TEGO spotkania. */
-  | { type: "reschedule_prep"; pair: PairInfo; eventId: number; prepNo: 1 | 2 }
+  | {
+      type: "reschedule_prep";
+      pair: PairInfo;
+      eventId: number;
+      prepNo: 1 | 2;
+      /** Brak = „late” (prep po rozmowie u klienta); „edit”/„cancel” z wiersza prepu (17.10.2026). */
+      mode?: "late" | "edit" | "cancel";
+    }
   | { type: "open_event"; eventId: number };
 
 function pairOf(p: PairInfo): PairInfo {

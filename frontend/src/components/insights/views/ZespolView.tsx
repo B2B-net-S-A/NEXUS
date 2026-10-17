@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
 import {
@@ -20,6 +21,7 @@ import { reportHref, type ReportId } from "@/lib/insights-reports";
 import {
   insightsTeamSignalsApi,
   insightsTeamSignalsQueryKeys,
+  type TeamPeopleResponse,
   type TeamPeopleRow,
 } from "@/lib/insights-team-api";
 import {
@@ -41,6 +43,17 @@ import {
   PerformanceFlagsLoadNotice,
 } from "@/components/insights/sections/InsightsPerformanceFlag";
 import { SectionError } from "@/components/insights/sections/_shared";
+import {
+  TeamWhoCountsPanel,
+  type TeamWhoCountsSubject,
+} from "@/components/insights/sections/WhoCountsPanel";
+import {
+  WHO_COUNTS_METRICS,
+  addDays,
+  metricFromSlug,
+  type WhoCountsMetric,
+} from "@/lib/kpi-who-counts";
+import { useUrlWriter } from "@/lib/url-selection";
 import {
   FunnelBars,
   Panel,
@@ -364,6 +377,29 @@ function RecruiterTable({
   const rows = (data?.rows ?? []).filter(isPeopleRowWorthShowing);
   const quiet = (data?.rows.length ?? 0) - rows.length;
   const outside = data?.outside_scope;
+  // Lista „Kto się liczy” osoby z tabeli (17.10.2026): `?kto=…&osoba=<id>`
+  // albo `osoba=bez-zaslugi`. W adresie, więc „Wstecz” ją zamyka.
+  const searchParams = useSearchParams();
+  const { pushUrl, replaceUrl } = useUrlWriter();
+  const listMetric = metricFromSlug(searchParams.get("kto"));
+  const listWho = searchParams.get("osoba");
+  const writeList = (
+    metric: WhoCountsMetric | null,
+    who: string | null,
+    mode: "push" | "replace" = "push",
+  ) => {
+    const params = new URLSearchParams(searchParams.toString());
+    if (metric === null || who === null) {
+      params.delete("kto");
+      params.delete("osoba");
+    } else {
+      params.set("kto", WHO_COUNTS_METRICS[metric].slug);
+      params.set("osoba", who);
+    }
+    const href = `${window.location.pathname}?${params.toString()}`;
+    if (mode === "push") pushUrl(href);
+    else replaceUrl(href);
+  };
 
   if (peopleQuery.isPending) return <PanelLoading />;
   if (peopleQuery.isError || !data) {
@@ -377,8 +413,25 @@ function RecruiterTable({
   }
 
   const low = data.low_precision_pct;
+  const listSubject = teamListSubject(listWho, data.rows);
+  const unattributed = data.unattributed;
+  const unattributedShown =
+    unattributed !== undefined &&
+    unattributed.recommendations + unattributed.interviews + unattributed.placements > 0;
   return (
     <div className="space-y-2">
+      {listMetric && listSubject ? (
+        <TeamWhoCountsPanel
+          subject={listSubject}
+          metric={listMetric}
+          range={{
+            start: data.period.start.slice(0, 10),
+            end: addDays(data.period.end.slice(0, 10), -1),
+          }}
+          onMetricChange={(metric) => writeList(metric, listWho, "replace")}
+          onClose={() => writeList(null, null)}
+        />
+      ) : null}
       <PerformanceFlagsLoadNotice
         isPending={flagsQuery.isPending}
         isSuccess={flagsQuery.isSuccess}
@@ -415,6 +468,12 @@ function RecruiterTable({
                 <PersonRow
                   key={row.user_id}
                   row={row}
+                  openMetric={
+                    listSubject?.kind === "person" && listSubject.id === row.user_id
+                      ? listMetric
+                      : null
+                  }
+                  onOpen={(metric) => writeList(metric, String(row.user_id))}
                   lowPrecision={low}
                   flags={flagsQuery.data?.flags_by_user?.[String(row.user_id)] ?? []}
                   flagTypes={flagsQuery.data?.types ?? []}
@@ -440,14 +499,42 @@ function RecruiterTable({
                 <td className="px-4 py-2.5 text-right text-xs">—</td>
               </tr>
             ) : null}
+            {unattributed && unattributedShown ? (
+              <tr className="border-t border-border text-muted-foreground">
+                <td className="sticky left-0 bg-card px-4 py-2.5 text-xs">
+                  Bez osoby z zasługą
+                </td>
+                <td className="px-3 py-2.5 text-right text-xs">—</td>
+                {(
+                  [
+                    ["recommendation", unattributed.recommendations],
+                    ["interview", unattributed.interviews],
+                    ["placement", unattributed.placements],
+                  ] as const
+                ).map(([metric, value]) => (
+                  <CountCell
+                    key={metric}
+                    value={value}
+                    metric={metric}
+                    who="Bez osoby z zasługą"
+                    active={listSubject?.kind === "unattributed" && listMetric === metric}
+                    onOpen={() => writeList(metric, UNATTRIBUTED_SLUG)}
+                    className="text-xs"
+                  />
+                ))}
+                <td className="px-3 py-2.5 text-right text-xs">—</td>
+                <td className="px-4 py-2.5 text-right text-xs">—</td>
+              </tr>
+            ) : null}
           </tbody>
         </table>
       </div>
       <p className="text-xs text-muted-foreground">
         {quiet > 0 ? `Pominięto osoby bez ruchu w tym okresie: ${quiet}. ` : ""}
-        {data.totals.unattributed > 0
-          ? `${data.totals.unattributed} ruchów nie da się przypisać nikomu — są w lejku, nie ma ich w tabeli. `
+        {unattributedElsewhere(data) > 0
+          ? `${unattributedElsewhere(data)} ruchów${unattributed ? " na innych etapach" : ""} nie da się przypisać nikomu — są w lejku, nie ma ich w tabeli. `
           : ""}
+        Liczba przy osobie otwiera listę osób, które się na nią składają.{" "}
         Liczone jak w wyścigach i „Mój miesiąc”: CV wysłane, rozmowy
         i placementy pary dostaje osoba, która zweryfikowała kandydata — dlatego
         liczby różnią się od kafli wyżej i od raportu „Aktywność zespołu” (tam
@@ -460,13 +547,86 @@ function RecruiterTable({
   );
 }
 
+const UNATTRIBUTED_SLUG = "bez-zaslugi";
+
+/**
+ * Kamienie bez osoby z zasługą, których nie ma w wierszu „Bez osoby z zasługą”
+ * (weryfikacje, QC, akceptacje) — zostają w przypisie pod tabelą.
+ */
+function unattributedElsewhere(data: TeamPeopleResponse): number {
+  const row = data.unattributed;
+  if (!row) return data.totals.unattributed;
+  return Math.max(
+    data.totals.unattributed - row.recommendations - row.interviews - row.placements,
+    0,
+  );
+}
+
+/** Kogo otworzyć z `osoba=` w adresie; nieznany kształt = nic. */
+function teamListSubject(
+  who: string | null,
+  rows: readonly TeamPeopleRow[],
+): TeamWhoCountsSubject | null {
+  if (!who) return null;
+  if (who === UNATTRIBUTED_SLUG) return { kind: "unattributed" };
+  const id = Number(who);
+  if (!Number.isInteger(id) || id <= 0) return null;
+  const row = rows.find((candidate) => candidate.user_id === id);
+  return { kind: "person", id, name: row?.name ?? `Osoba #${id}` };
+}
+
+/** Liczba w tabeli, która otwiera listę osób za nią (0 zostaje zwykłą liczbą). */
+function CountCell({
+  value,
+  metric,
+  who,
+  active,
+  onOpen,
+  className,
+}: {
+  value: number;
+  metric: WhoCountsMetric;
+  who: string;
+  active: boolean;
+  onOpen: () => void;
+  className?: string;
+}) {
+  return (
+    <td
+      className={cn(
+        "px-3 py-2.5 text-right tabular-nums",
+        active && "bg-primary/5",
+        className,
+      )}
+    >
+      {value > 0 ? (
+        <button
+          type="button"
+          onClick={onOpen}
+          aria-pressed={active}
+          aria-label={`${who} · ${WHO_COUNTS_METRICS[metric].label}: ${value}. Pokaż osoby`}
+          className="rounded-sm underline decoration-dotted underline-offset-4 hover:text-primary focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          {value}
+        </button>
+      ) : (
+        value
+      )}
+    </td>
+  );
+}
+
 function PersonRow({
   row,
+  openMetric,
+  onOpen,
   lowPrecision,
   flags,
   flagTypes,
 }: {
   row: TeamPeopleRow;
+  openMetric: WhoCountsMetric | null;
+  onOpen: (metric: WhoCountsMetric) => void;
   lowPrecision: number;
   flags: Parameters<typeof InsightsPerformanceFlags>[0]["flags"];
   flagTypes: Parameters<typeof InsightsFlagAdmin>[0]["types"];
@@ -497,11 +657,28 @@ function PersonRow({
           ? "—"
           : row.verifications_per_workday.toLocaleString("pl-PL")}
       </td>
-      <td className="px-3 py-2.5 text-right tabular-nums">{row.recommendations}</td>
-      <td className="px-3 py-2.5 text-right tabular-nums">{row.interviews}</td>
-      <td className="px-3 py-2.5 text-right font-semibold tabular-nums">
-        {row.placements}
-      </td>
+      <CountCell
+        value={row.recommendations}
+        metric="recommendation"
+        who={row.name}
+        active={openMetric === "recommendation"}
+        onOpen={() => onOpen("recommendation")}
+      />
+      <CountCell
+        value={row.interviews}
+        metric="interview"
+        who={row.name}
+        active={openMetric === "interview"}
+        onOpen={() => onOpen("interview")}
+      />
+      <CountCell
+        value={row.placements}
+        metric="placement"
+        who={row.name}
+        active={openMetric === "placement"}
+        onOpen={() => onOpen("placement")}
+        className="font-semibold"
+      />
       <td
         className={cn(
           "px-3 py-2.5 text-right tabular-nums",

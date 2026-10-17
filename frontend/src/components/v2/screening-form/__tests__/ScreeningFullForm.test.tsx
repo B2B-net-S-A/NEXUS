@@ -766,10 +766,10 @@ describe("ScreeningFullForm — stawka na start, gdy etap jej nie ma (D2, 14.10.
   };
   const rateBlock = () => screen.getByTestId("screening-form-rate");
 
-  it("najnowsza stawka z notatki wpisuje się w pole, mówi skąd jest i idzie z zapisem", async () => {
+  it("niższa niż „Stawka od” stawka z notatki wpisuje się w pole, mówi skąd jest i idzie z zapisem", async () => {
     serverState = formState({
       suggestions_from_notes: { rate: NOTE_RATE },
-      rate_hints: { card: null, rate_from: { amount: 140, unit: "hourly", currency: "PLN" } },
+      rate_hints: { card: null, rate_from: { amount: 180, unit: "hourly", currency: "PLN" } },
     });
     mocks.put.mockImplementation(() => Promise.resolve({ data: formSaveResult(serverState, { changed: ["rate"] }) }));
     const user = userEvent.setup();
@@ -787,6 +787,57 @@ describe("ScreeningFullForm — stawka na start, gdy etap jej nie ma (D2, 14.10.
     await user.click(screen.getByRole("button", { name: /^Zapisz$/ }));
     await waitFor(() => expect(mocks.put).toHaveBeenCalledTimes(1));
     expect(lastPut().rate).toEqual({ amount: 160, unit: "hourly", currency: "PLN" });
+  });
+
+  it("R1 (17.10.2026): „Stawka od” niższa niż notatka wpisuje się, notatka zostaje jako „Użyj”", async () => {
+    serverState = formState({
+      suggestions_from_notes: { rate: NOTE_RATE },
+      rate_hints: { card: null, rate_from: { amount: 140, unit: "hourly", currency: "PLN" } },
+    });
+    mount();
+
+    expect(await screen.findByLabelText("Kwota")).toHaveValue(140);
+    expect(screen.getByTestId("rate-prefill-origin")).toHaveTextContent("Stawka od · najniższa z 18 mies. · zmień");
+    expect(rateBlock().querySelector('[data-testid="screening-suggestions"]')).toHaveTextContent("160 zł/h");
+  });
+
+  it("R2: ponad budżet przy niższej znanej stawce w budżecie — ramka to mówi, „Użyj” ją wpisuje", async () => {
+    serverState = formState({
+      rate: { amount: 140, unit: "hourly", currency: "PLN", source: "stage", at: null },
+      rate_hints: {
+        card: null,
+        rate_from: { amount: 90, unit: "hourly", currency: "PLN" },
+        rate_from_at: "2026-10-08T14:30:45Z",
+      },
+    });
+    const user = userEvent.setup();
+    mount({ jobBudgetHourly: 135 });
+
+    const note = await screen.findByTestId("rate-lower-known");
+    expect(note).toHaveTextContent(
+      "Znana też niższa stawka: 90 zł/h (Stawka od, 8.10.2026) — mieści się w budżecie.",
+    );
+    await user.click(within(note).getByRole("button", { name: "Użyj 90 zł/h" }));
+    expect(screen.getByLabelText("Kwota")).toHaveValue(90);
+    expect(screen.queryByTestId("rate-lower-known")).toBeNull();
+  });
+
+  it("R4: żywa umowa — „Stawka u nas · z umowy” w polu i „Zadeklarowana od” jako podpowiedź", async () => {
+    serverState = formState({
+      rate_hints: {
+        card: null,
+        rate_from: { amount: 150, unit: "hourly", currency: "PLN" },
+        rate_from_source: "contract",
+        declared_from: { amount: 120, unit: "hourly", currency: "PLN" },
+        declared_from_at: "2026-09-01T10:00:00Z",
+      },
+    });
+    mount();
+
+    expect(await screen.findByLabelText("Kwota")).toHaveValue(150);
+    expect(screen.getByTestId("rate-prefill-origin")).toHaveTextContent("Stawka u nas · z umowy · zmień");
+    expect(within(rateBlock()).getByRole("button", { name: "Użyj — Zadeklarowana od" })).toBeTruthy();
+    expect(rateBlock()).toHaveTextContent("Zadeklarowana od: 120 zł/h · 1.09.2026");
   });
 
   it("„zmień” stawia kursor w polu kwoty; inna kwota zdejmuje podpis", async () => {

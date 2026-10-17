@@ -62,6 +62,9 @@ export interface RateFromFields {
   rate_observation_count?: number | null;
   /** Skąd „Stawka od”; `contract` = stawka z żywej umowy (15.10.2026). */
   rate_from_source?: string | null;
+  /** Przy żywej umowie: najniższa zadeklarowana stawka, gdy niższa (R4, 17.10.2026). */
+  rate_declared_from_hourly?: string | number | null;
+  rate_declared_from_at?: string | null;
 }
 
 /** „od 80 zł/h”; stara stawka spoza 18 miesięcy z dopiskiem roku. */
@@ -73,6 +76,20 @@ export function rateFromText(fields: RateFromFields): string | null {
     return year ? `od ${text} · z ${year}` : `od ${text} · nieaktualna`;
   }
   return `od ${text}`;
+}
+
+/**
+ * „zadeklarowana od 90 zł/h (10.2026)” — osoba z żywą umową podała niższą
+ * stawkę (R4, 17.10.2026). Tylko przy „Stawce u nas” i deklaracji niższej
+ * niż umowa; inaczej `null`.
+ */
+export function declaredFromText(fields: RateFromFields): string | null {
+  if (fields.rate_from_source !== "contract") return null;
+  const contract = toAmount(fields.rate_from_hourly);
+  const declared = toAmount(fields.rate_declared_from_hourly);
+  if (contract === null || declared === null || declared >= contract - 0.005) return null;
+  const when = monthYear(fields.rate_declared_from_at ?? null);
+  return `zadeklarowana od ${hourlyText(declared)}${when ? ` (${when})` : ""}`;
 }
 
 /**

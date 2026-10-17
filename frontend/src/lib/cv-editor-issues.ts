@@ -26,7 +26,7 @@ import { Fragment, Slice, type Node as PMNode } from "@tiptap/pm/model";
 import { TextSelection, type EditorState, type Transaction } from "@tiptap/pm/state";
 
 import type { CvReviewFinding } from "@/lib/api/cvEditorIssues";
-import type { QcCheck, QcFix, QcFixAction, QcItem } from "@/lib/api/cvQc";
+import type { QcCheck, QcFix, QcFixAction, QcItem, QcResult, QcTransformApplied } from "@/lib/api/cvQc";
 import { cvOutline, type CvOutline, type CvRole, type CvSectionKey } from "@/lib/cv-editor-blocks";
 import { classifyCvWarnings, type ClassifiedCvWarning } from "@/lib/cv-generator";
 import {
@@ -418,6 +418,293 @@ export function buildIssueList({ doc, checks, warnings, findings }: IssueListInp
   };
 }
 
+// ── Wiersze panelu po wadze (wariant A, 17.10.2026) ─────────────────────────
+//
+// Rekruter: „panel mówi, co jest nie tak, a jednym guzikiem wprowadza zmianę”.
+// Lista nie idzie już po sekcjach CV, tylko po tym, co rekruter ma zrobić:
+// „Blokuje wysyłkę”, „Do poprawy” (jest przycisk, który poprawia) i „Do decyzji
+// · nie blokuje” (uwagi bez gotowej poprawki, generator, kontrola AI). Jeden
+// wiersz = problem, podgląd zmiany i jeden przycisk; zdanie AI stoi w wierszu
+// swojej uwagi, nie w osobnej sekcji pod listą.
+
+/** Poprawki jednym przyciskiem dla całego sprawdzenia. */
+export type CheckFixKind = "bold_all" | "spelling";
+
+export type IssueRow =
+  /** Rzecz zatrzymująca wysyłkę (jedno wymaganie albo pozycja bez nazwy) i propozycje AI do niej. */
+  | { kind: "task"; id: string; task: QcTask; fixes: QcFix[] }
+  /** Pogrubienie albo pisownia — jeden przycisk dla wszystkich pozycji sprawdzenia. */
+  | { kind: "check-fix"; id: string; check: QcCheck; fix: CheckFixKind; items: QcItem[] }
+  /** Jedna pozycja uwagi QC: kolejność stanowisk, usunięcie terminu, zdanie AI albo bez poprawki. */
+  | { kind: "item"; id: string; check: QcCheck; item: QcItem; fixes: QcFix[] }
+  /** Uwaga QC do obejrzenia ręcznie albo bez pozycji. */
+  | { kind: "check"; id: string; check: QcCheck }
+  /** Propozycja AI, której nie da się przypiąć do żadnej pozycji listy. */
+  | { kind: "proposal"; id: string; fix: QcFix }
+  | { kind: "warning"; id: string; warning: ClassifiedCvWarning }
+  | { kind: "finding"; id: string; finding: CvReviewFinding };
+
+export interface IssueRows {
+  blocking: IssueRow[];
+  fixable: IssueRow[];
+  decide: IssueRow[];
+}
+
+const CHECK_FIXES: readonly CheckFixKind[] = ["bold_all", "spelling"];
+
+/** Zdanie uwagi QC (`QcItem.detail` — tekst z kontraktu QC, nie `detail` błędu API). */
+export function itemSentence(item: QcItem): string {
+  return typeof item.detail === "string" ? item.detail : "";
+}
+
+/**
+ * Poprawka jednym przyciskiem dla pozycji bez `fix` z serwera (PR 2,
+ * 17.10.2026). QC nie dostał nowego pola — zmieniłoby skrót zapisanego
+ * przebiegu i wyzerowało czas oczekiwania w kolejce DL — więc rodzaj poprawki
+ * wynika z klucza sprawdzenia: lata według historii, tytuł z rekrutacji
+ * (serwer bierze go sam), stawka albo kontakt kandydata w CV.
+ */
+export function itemQuickFix(check: QcCheck, item: QcItem): QcFixAction | null {
+  if (check.status !== "fail" || item.fix) return null;
+  if (check.key === "years_header") return yearsFixable(item) ? { action: "years" } : null;
+  if (check.key === "title_matches_role" && item.term?.trim()) return { action: "title" };
+  if (check.key === "client_rules" && /^(Stawka w CV|CV zawiera)/.test(itemSentence(item))) {
+    return { action: "strip_client_rules" };
+  }
+  return null;
+}
+
+/** „N lat w A i B” — lustro `cv_qc._SEVERAL_COMPANIES` (tylko część po „w”). */
+const SEVERAL_COMPANIES = /\s(?:i|oraz|and)\s|[&/]/i;
+const COMPANY_PART = /\s(?:w|we|u|at|in|with)\s+(.+)$/i;
+
+/**
+ * Czy serwer poprawi te lata (17.10.2026): jest liczba z historii (co najmniej
+ * rok — zera serwer nie wpisuje) i staż w firmie nie mówi o kilku firmach naraz.
+ * Inaczej uwaga zostaje do decyzji, bez przycisku, który kończyłby się „nic do
+ * zrobienia”.
+ */
+function yearsFixable(item: QcItem): boolean {
+  if (!yearsPreview(item)) return false;
+  if (!/z dat roli w /.test(itemSentence(item))) return true;
+  const company = COMPANY_PART.exec(item.term ?? "");
+  return !SEVERAL_COMPANIES.test(company ? company[1] : (item.term ?? ""));
+}
+
+/** Gdzie dołączyć zrzut zgody RODO sprawdzanego CV (PR 4, 17.10.2026). */
+export type ConsentTarget =
+  | { generatedId: number }
+  | { stageCopy: { candidateId: number; stageId: number } };
+
+/**
+ * To samo rozstrzygnięcie co karta „CV do klienta”: CV z generatora dostaje
+ * zgodę przy wygenerowanym dokumencie (serwer odświeża wtedy kopię etapu),
+ * kopia bez generatora (plik Word, CV z innej rekrutacji) — na etapie, na
+ * którym leży. Bez jednego i drugiego — `null` (zostaje odnośnik do generatora).
+ */
+export function consentTarget(data: QcResult): ConsentTarget | null {
+  const cv = data.cv;
+  if (!cv) return null;
+  if (cv.generated_document_id != null) return { generatedId: cv.generated_document_id };
+  if (cv.stage_id != null) return { stageCopy: { candidateId: data.candidate_id, stageId: cv.stage_id } };
+  return null;
+}
+
+const YEARS_NUMBER = /(?<![\d.,])(\d{1,2})(\s*\+?\s*)(lata|lat|roku|years?|yrs)\b/i;
+
+/** „lat” / „lata” po liczbie (lustro `cv_qc._years_word`). */
+function yearsWord(word: string, n: number): string {
+  const low = word.toLowerCase();
+  if (low === "lat" || low === "lata") {
+    const few = [2, 3, 4].includes(n % 10) && ![12, 13, 14].includes(n % 100);
+    return few ? "lata" : "lat";
+  }
+  if (low === "year" || low === "years") return n === 1 ? "year" : "years";
+  return word;
+}
+
+/**
+ * Podgląd poprawki lat: (cytat z CV, cytat po poprawce). Liczba z historii stoi
+ * w zdaniu uwagi QC („… wychodzi 7.”); bez niej — `null` (sam przycisk).
+ */
+export function yearsPreview(item: QcItem): { before: string; after: string } | null {
+  const quote = item.term?.trim();
+  const actual = /wychodzi (\d+)/.exec(itemSentence(item));
+  if (!quote || !actual) return null;
+  const n = Number(actual[1]);
+  if (!Number.isFinite(n) || n < 1) return null;
+  const match = YEARS_NUMBER.exec(quote);
+  if (!match) return null;
+  const after = quote.replace(YEARS_NUMBER, `${n}${match[2]}${yearsWord(match[3], n)}`);
+  return after === quote ? null : { before: quote, after };
+}
+
+/** Ta sama nazwa wymagania albo terminu (po normalizacji). */
+function sameName(left: string | null | undefined, right: string | null | undefined): boolean {
+  const a = normalizeQcText(left ?? "");
+  return a !== "" && a === normalizeQcText(right ?? "");
+}
+
+/** Propozycja AI dotyczy tej pozycji QC: to samo sprawdzenie, wymaganie i — gdy obie znają — rola. */
+function fixMatchesItem(fix: QcFix, checkKey: string, item: QcItem): boolean {
+  if (fix.check_key !== checkKey) return false;
+  if (!sameName(fix.requirement, item.requirement ?? item.term)) return false;
+  if (typeof fix.role_index === "number" && typeof item.role_index === "number") {
+    return fix.role_index === item.role_index;
+  }
+  if (fix.role && item.role) return sameName(fix.role, item.role);
+  return true;
+}
+
+/**
+ * Wiersze panelu w trzech grupach. `fixes` to propozycje AI widoczne na liście
+ * (bez odrzuconych i już stojących w CV); `fixesPending` = jeszcze się ładują —
+ * pozycja z poprawką AI zostaje wtedy w „Do poprawy” z „Przygotowuję zdanie…”.
+ * Propozycja bez pozycji (np. QC przeliczone po zapisie) nie ginie: dostaje
+ * własny wiersz w „Do poprawy”.
+ */
+export function issueRows(list: IssueList, fixes: readonly QcFix[], fixesPending: boolean): IssueRows {
+  const rows: IssueRows = { blocking: [], fixable: [], decide: [] };
+  const used = new Set<string>();
+  const take = (checkKey: string, items: readonly QcItem[]) => {
+    const found = fixes.filter((fix) => !used.has(fix.id) && items.some((item) => fixMatchesItem(fix, checkKey, item)));
+    found.forEach((fix) => used.add(fix.id));
+    return found;
+  };
+
+  const entries = [...list.sections.flatMap((group) => group.entries), ...list.ask];
+  for (const entry of entries) {
+    switch (entry.kind) {
+      case "task":
+        rows.blocking.push({ kind: "task", id: entry.id, task: entry.task, fixes: take(entry.task.check.key, entry.task.items) });
+        break;
+      case "warning":
+        rows.decide.push({ kind: "warning", id: entry.id, warning: entry.warning });
+        break;
+      case "finding":
+        rows.decide.push({ kind: "finding", id: entry.id, finding: entry.finding });
+        break;
+      case "check": {
+        const { check } = entry;
+        if (check.status !== "fail" || check.items.length === 0) {
+          rows.decide.push({ kind: "check", id: entry.id, check });
+          break;
+        }
+        for (const fix of CHECK_FIXES) {
+          const items = check.items.filter((item) => item.fix === fix);
+          if (items.length > 0) rows.fixable.push({ kind: "check-fix", id: `${entry.id}:${fix}`, check, fix, items });
+        }
+        check.items.forEach((item, index) => {
+          if (item.fix && (CHECK_FIXES as readonly string[]).includes(item.fix)) return;
+          const own = item.fix === "ai" ? take(check.key, [item]) : [];
+          const row: IssueRow = { kind: "item", id: `${entry.id}:${item.key ?? index}`, check, item, fixes: own };
+          const term = (item.term ?? item.requirement ?? "").trim();
+          const fixable =
+            item.fix === "role_order" ||
+            (item.fix === "remove_term" && term !== "") ||
+            (item.fix === "ai" && (own.length > 0 || fixesPending)) ||
+            itemQuickFix(check, item) !== null;
+          (fixable ? rows.fixable : rows.decide).push(row);
+        });
+        break;
+      }
+    }
+  }
+  for (const fix of fixes) {
+    if (!used.has(fix.id)) rows.fixable.push({ kind: "proposal", id: `fix:${fix.id}`, fix });
+  }
+  return rows;
+}
+
+/** Czy wiersz ma poprawkę, którą bierze „Popraw wszystkie” (lustro `bulkPlan`). */
+export function rowInBulk(row: IssueRow): boolean {
+  switch (row.kind) {
+    case "check-fix":
+    case "proposal":
+      return true;
+    case "task":
+      return row.fixes.length > 0;
+    case "item": {
+      const quick = itemQuickFix(row.check, row.item)?.action;
+      return row.fixes.length > 0 || quick === "years" || quick === "title";
+    }
+    default:
+      return false;
+  }
+}
+
+/** Nazwy pozycji do jednej linii („Kafka, Docker i 2 inne”). */
+function namesLine(items: readonly QcItem[]): string {
+  const names: string[] = [];
+  for (const item of items) {
+    const name = (item.requirement ?? item.term ?? "").trim();
+    if (name && !names.includes(name)) names.push(name);
+  }
+  const head = names.slice(0, 3).join(", ");
+  return names.length > 3 ? `${head} i ${countForm(names.length - 3, ["inne", "inne", "innych"])}` : head;
+}
+
+/**
+ * Co zrobiła nałożona poprawka — wiersz grupy „Poprawione” (z „Cofnij”).
+ * Liczone z tego, o co panel prosił, i z wyniku QC sprzed poprawki.
+ */
+export function appliedLabel(action: QcFixAction, checks: readonly QcCheck[], fixes: readonly QcFix[]): string {
+  switch (action.action) {
+    case "bold_all": {
+      const key = action.scope === "nice" ? "nice_bolded" : "must_bolded";
+      const items = checks
+        .filter((check) => check.key === key)
+        .flatMap((check) => [...check.items, ...(check.info ?? [])])
+        .filter((item) => item.fix === "bold_all");
+      const names = namesLine(items);
+      return names ? `Pogrubiono: ${names}` : "Pogrubiono wymagania klienta";
+    }
+    case "spelling":
+      return "Poprawiono pisownię technologii";
+    case "role_order":
+      return "Ułożono stanowiska od najnowszego";
+    case "years":
+      return "Lata doświadczenia według historii";
+    case "title": {
+      const title = checks.find((check) => check.key === "title_matches_role")?.items[0]?.term?.trim();
+      return title ? `Tytuł CV: „${title}”` : "Tytuł CV z rekrutacji";
+    }
+    case "strip_client_rules":
+      return "Usunięto stawkę i kontakt kandydata z CV";
+    case "remove_line":
+      return `Usunięto: „${action.text}”`;
+    case "remove_term":
+      return `Usunięto „${action.term}” z CV`;
+    case "ai_fix": {
+      const fix = fixes.find((candidate) => candidate.id === action.fix_id);
+      const where = [fix?.requirement, fix?.cv_role_label || fix?.role].filter(Boolean).join(" · ");
+      return where ? `Dopisano zdanie: ${where}` : "Dopisano zdanie z oryginału";
+    }
+  }
+}
+
+/**
+ * Poprawki z żądania, które serwer naprawdę nałożył. Wynik niesie nazwę akcji
+ * i to, czym się różnią poprawki tej samej akcji: id zdania AI, zakres
+ * pogrubienia (must / nice), termin — pole, którego wynik nie podał, nie
+ * rozstrzyga (harness i starsze odpowiedzi).
+ */
+export function appliedActions(
+  requested: readonly QcFixAction[],
+  applied: readonly QcTransformApplied[],
+): QcFixAction[] {
+  const same = (wanted: string | undefined, got: string | null | undefined) => !got || got === wanted;
+  return requested.filter((action) =>
+    applied.some((done) => {
+      if (done.action !== action.action) return false;
+      if (action.action === "ai_fix") return same(action.fix_id, done.fix_id);
+      if (action.action === "bold_all") return same(action.scope, done.scope);
+      if (action.action === "remove_term") return same(action.term.slice(0, 120), done.term);
+      return true;
+    }),
+  );
+}
+
 // ── „Popraw wszystko” ────────────────────────────────────────────────────────
 
 export interface BulkPlan {
@@ -428,8 +715,9 @@ export interface BulkPlan {
 
 /**
  * Poprawki, które wolno nałożyć hurtem (decyzja Artura D2, 12.10.2026):
- * formalne (pogrubienie wymagań, pisownia technologii) i zdania AI
- * w brzmieniu z serwera, czyli z cytatem sprawdzonym w źródle. Usunięcie
+ * formalne (pogrubienie wymagań, pisownia technologii), zdania AI
+ * w brzmieniu z serwera, czyli z cytatem sprawdzonym w źródle, a od
+ * 17.10.2026 (D4) lata według historii i tytuł z rekrutacji. Usunięcie
  * terminu i zdanie AI po edycji zatwierdza się pojedynczo — serwer i tak
  * odrzuca je w trybie `bulk` (`cv_qc.BULK_ACTIONS`). Zdania AI idą pierwsze:
  * szukają swojej linii po tekście, który pisownia by zmieniła (serwer ustawia
@@ -452,6 +740,18 @@ export function bulkPlan(checks: readonly QcCheck[], fixes: readonly QcFix[]): B
       }
     }
     spelling += check.items.filter((item) => item.fix === "spelling").length;
+    // D4 (17.10.2026): lata i tytuł liczy kod z danych QC — wchodzą do hurtu.
+    for (const item of check.items) {
+      const quick = itemQuickFix(check, item);
+      if (quick?.action === "years" && !actions.some((action) => action.action === "years")) {
+        actions.push(quick);
+        parts.push("lata doświadczenia według historii");
+      }
+      if (quick?.action === "title" && !actions.some((action) => action.action === "title")) {
+        actions.push(quick);
+        parts.push("tytuł CV z rekrutacji");
+      }
+    }
   }
   if (spelling > 0) {
     actions.push({ action: "spelling" });

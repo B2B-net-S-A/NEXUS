@@ -70,6 +70,7 @@ export default function InterviewActionDialogs({
           eventId={action.eventId}
           pair={action.pair}
           prepNo={action.prepNo}
+          mode={action.mode}
           interview={prepInterviewForPair(overview, action.pair)}
         />
       );

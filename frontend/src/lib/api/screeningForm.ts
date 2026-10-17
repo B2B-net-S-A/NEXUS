@@ -126,7 +126,17 @@ export interface ScreeningFormState {
   /** Stawka zapisana tekstem („130–150 zł/h”), gdy `rate` jest puste. */
   rate_text?: string | null;
   /** `card_raw` — dosłowny tekst stawki z karty (14.10.2026), gdy `card` jest. */
-  rate_hints: { card: FormRate | null; card_raw?: string | null; rate_from: FormRate | null };
+  rate_hints: {
+    card: FormRate | null;
+    card_raw?: string | null;
+    rate_from: FormRate | null;
+    /** Skąd „Stawka od”; `contract` = stawka z żywej umowy (R1, 17.10.2026). */
+    rate_from_source?: string | null;
+    rate_from_at?: string | null;
+    /** Przy żywej umowie: najniższa zadeklarowana stawka, gdy niższa (R4). */
+    declared_from?: FormRate | null;
+    declared_from_at?: string | null;
+  };
   /** Zmiana stawki otworzy sprawę u Delivery Leada (kolumna od „Zweryfikowany”). */
   rate_change_notifies: boolean;
   can_edit_rate: boolean;

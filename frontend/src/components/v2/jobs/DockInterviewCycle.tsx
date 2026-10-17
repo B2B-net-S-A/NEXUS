@@ -7,6 +7,8 @@ import { ArrowUpRight } from "lucide-react";
 import { DebriefDialog } from "@/components/calendar/cycle/DebriefDialog";
 import { InterviewCycleProgress } from "@/components/calendar/cycle/InterviewCycleProgress";
 import { PlanPrepDialog } from "@/components/calendar/cycle/PlanPrepDialog";
+import { PrepEditButtons } from "@/components/calendar/cycle/PrepEditButtons";
+import { PrepResponseChip } from "@/components/calendar/cycle/PrepResponseChip";
 import { PrepReviewDialog } from "@/components/calendar/cycle/PrepReviewDialog";
 import { SlotDecisionDialog } from "@/components/calendar/cycle/SlotDialogs";
 import { ReschedulePrepDialog } from "@/components/calendar/cycle/ReschedulePrepDialog";
@@ -14,6 +16,8 @@ import type { KanbanItem } from "@/components/v2/pages/kanban-shared";
 import {
   candidateLabel,
   debriefSummaryLine,
+  formatDayLabel,
+  formatTime,
   pairContext,
   type PairInfo,
   type StepState,
@@ -66,7 +70,12 @@ export function DockInterviewCycle({
   const canConfirmSlot = slotRequest?.status === "awaiting_dl" && Boolean(onAddClientSlots);
   // Prep z oceną (także „niedostępna”) — okno mówi, co z niej wynika.
   const reviewedPreps = (badge.preps ?? []).filter((p) => p.review_status != null);
-  const [rescheduling, setRescheduling] = useState(false);
+  // „Przełóż” (prep po rozmowie), „Zmień” i „Odwołaj” otwierają to samo okno.
+  const [editing, setEditing] = useState<{
+    eventId: number;
+    prepNo: 1 | 2;
+    mode: "late" | "edit" | "cancel";
+  } | null>(null);
   const steps = badge.steps ?? [];
   const state = (key: string) => steps.find((s) => s.key === key)?.state;
   const interviewDone = state("interview") === "done";
@@ -87,6 +96,13 @@ export function DockInterviewCycle({
   // istnieje — przekładamy TO spotkanie (nowy termin), zamiast zakładać drugie.
   const latePrepId = badge.late_prep_event_id ?? null;
   const latePrepNo: 1 | 2 = state("prep") !== "overdue" && state("prep2") === "overdue" ? 2 : 1;
+  // Zaplanowane prepy z terminem i akcjami (17.10.2026, D2) — do tej daty
+  // zaplanowany prep nie miał w doku żadnej akcji.
+  const scheduledPreps = steps.flatMap((s) =>
+    (s.key === "prep" || s.key === "prep2") && s.state === "scheduled" && s.event_id != null
+      ? [{ eventId: s.event_id, prepNo: (s.key === "prep2" ? 2 : 1) as 1 | 2, at: s.at ?? null }]
+      : [],
+  );
   // Termin rozmowy bywa dopiero proponowany — okno prepu liczy względem niego.
   const prepInterview =
     scheduledInterviewFromSteps(steps) ??
@@ -113,6 +129,29 @@ export function DockInterviewCycle({
       </div>
       <div className={cn("rounded-md px-2 py-1 font-semibold", TONE[badge.tone])}>{badge.label}</div>
       {steps.length ? <InterviewCycleProgress steps={steps} labels /> : null}
+      {!readOnly && scheduledPreps.length ? (
+        <ul className="space-y-1" data-testid="dock-scheduled-preps">
+          {scheduledPreps.map((p) => (
+            <li
+              key={p.eventId}
+              className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-md border border-border px-2 py-1"
+            >
+              <span className="font-semibold text-foreground">Prep {p.prepNo}</span>
+              {p.at ? (
+                <span className="tabular-nums text-muted-foreground">
+                  {formatDayLabel(p.at)}, {formatTime(p.at)}
+                </span>
+              ) : null}
+              <PrepResponseChip eventId={p.eventId} />
+              <PrepEditButtons
+                className="ml-auto"
+                eventId={p.eventId}
+                onEdit={(mode) => setEditing({ eventId: p.eventId, prepNo: p.prepNo, mode })}
+              />
+            </li>
+          ))}
+        </ul>
+      ) : null}
       {!readOnly &&
       (debriefOpen ||
         nextPrep ||
@@ -151,7 +190,9 @@ export function DockInterviewCycle({
           {latePrepId ? (
             <button
               type="button"
-              onClick={() => setRescheduling(true)}
+              onClick={() =>
+                setEditing({ eventId: latePrepId, prepNo: latePrepNo, mode: "late" })
+              }
               className="inline-flex h-8 items-center rounded-md border border-destructive/40 bg-card px-3 text-xs font-semibold text-destructive hover:bg-destructive/10"
             >
               Przełóż prep (wypada po rozmowie)
@@ -246,13 +287,14 @@ export function DockInterviewCycle({
           submitLabel="Zapisz poprawkę"
         />
       ) : null}
-      {rescheduling && latePrepId ? (
+      {editing ? (
         <ReschedulePrepDialog
           open
-          onOpenChange={(o) => !o && setRescheduling(false)}
-          eventId={latePrepId}
+          onOpenChange={(o) => !o && setEditing(null)}
+          eventId={editing.eventId}
           pair={pair}
-          prepNo={latePrepNo}
+          prepNo={editing.prepNo}
+          mode={editing.mode}
           interview={prepInterview}
         />
       ) : null}

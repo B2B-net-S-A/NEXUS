@@ -155,13 +155,11 @@ from app.services.scoring_service import (
 )
 from app.services.employment_marker import (
     ContractRow,
-    SignalRow,
-    current_hired_signal_exists,
     ending_soon_exists,
-    hire_closed_by_contract,
     markers_from_rows,
     rows_from_candidate,
 )
+from app.services.candidate_blacklist import load_blacklist_info
 from app.services.dedup_service import (
     find_candidate_by_email,
     find_candidate_duplicates,
@@ -219,7 +217,7 @@ from app.api.recruitment_access import (
 from app.api.section_access import SOURCING_SECTION_DEPENDENCIES
 from app.services import candidate_audit
 from app.services.candidate_audit import candidate_subject_reference
-from app.services.candidate_rate_from import rate_summary
+from app.services.candidate_rate_from import declared_rate_from, rate_summary
 from app.services.candidate_monthly_rate_retirement import (
     RETIRED_MONTHLY_FILTER_KEYS,
     reject_retired_candidate_rate,
@@ -735,29 +733,15 @@ _EMPLOYMENT_FILTER_VALUES = frozenset({"at_client", "available", "ending_soon"})
 def _at_client_predicate():
     """
     Derived SQL predicate: candidate is currently employed at one of our
-    clients. True when ANY of:
-      • a live Contract (``active`` or date-driven ``ending``), OR
-      • an active `current_employment` conflict, OR
-      • a recruitment whose LATEST stage is `hired`.
+    clients — a live Contract (``active`` or date-driven ``ending``). Drives
+    the inverse `employment=available` filter too, via
+    `not_(_at_client_predicate())`.
 
-    The hired-stage clause is what makes `employment=at_client` return the real
-    placed-consultant population. `candidate_stages.stage='hired'` is documented
-    as "Zatrudniony / kontrakt aktywny" and is the signal the Traffit import
-    populated — the `contracts` table was never backfilled, so the contract /
-    conflict clauses alone matched ~1 row out of ~700 placed consultants.
-
-    `candidate_stages` is append-only history, so "currently hired" means a
-    `hired` row with no later move for the same job (mirrored in
-    `_derive_employment`; the SQL rule lives in
-    `employment_marker.current_hired_signal_exists`). Drives the inverse
-    `employment=available` filter too, via `not_(_at_client_predicate())`.
-
-    Od 14.10.2026 to sygnał znacznika „Pracuje u nas”: „Zatrudniony” u klienta,
-    u którego umowa osoby skończyła się po zatrudnieniu i żadna inna nie trwa
-    (`hire_closed_by_contract`), już się nie liczy — do tej pory filtr
-    i znacznik sobie przeczyły (audyt 13.10, pkt 13).
+    Od 17.10.2026 (decyzja Artura) tylko umowa: ręczny konflikt
+    `current_employment` i etap „Zatrudniony” bez umowy nie są już sygnałem
+    — tak samo jak w znaczniku „Pracuje u nas” (`services/employment_marker`).
     """
-    contract_exists = (
+    return (
         select(1)
         .where(
             and_(
@@ -767,19 +751,6 @@ def _at_client_predicate():
         )
         .exists()
     )
-    conflict_exists = (
-        select(1)
-        .where(
-            and_(
-                CandidateConflict.candidate_id == Candidate.id,
-                CandidateConflict.type == ConflictType.current_employment,
-                CandidateConflict.active.is_(True),
-            )
-        )
-        .exists()
-    )
-    hired_latest_exists = current_hired_signal_exists(Candidate.id)
-    return or_(contract_exists, conflict_exists, hired_latest_exists)
 
 
 # `end` wpisu doświadczenia po przycięciu i bez wielkości liter — porównywane
@@ -976,17 +947,14 @@ async def _page_employment_markers(
 ) -> dict[int, EmploymentMarker]:
     """Znaczniki „Pracuje u nas” dla osób wczytanych z `_candidate_list_options`.
 
-    Źródła (umowy, konflikty, etapy) są już w pamięci, więc lista — gorąca
-    ścieżka — nie dokłada o nie zapytań; zamówienia i Delivery Leadzi
-    dochodzą tylko, gdy na stronie jest ktoś z sygnałem zatrudnienia.
+    Umowy są już w pamięci, więc lista — gorąca ścieżka — nie dokłada o nie
+    zapytań; zamówienia i Delivery Leadzi dochodzą tylko, gdy na stronie jest
+    ktoś z umową.
     """
     contracts: list[ContractRow] = []
-    signals: list[SignalRow] = []
     for candidate in candidates:
-        candidate_contracts, candidate_signals = rows_from_candidate(candidate)
-        contracts.extend(candidate_contracts)
-        signals.extend(candidate_signals)
-    return await markers_from_rows(db, contracts, signals, today=business_today())
+        contracts.extend(rows_from_candidate(candidate))
+    return await markers_from_rows(db, contracts, today=business_today())
 
 
 def _candidate_to_response(candidate: Candidate) -> CandidateResponse:
@@ -1019,15 +987,13 @@ def _candidate_to_response(candidate: Candidate) -> CandidateResponse:
 def _derive_employment(candidate: Candidate) -> EmploymentInfo:
     """
     Compute EmploymentInfo from eager-loaded `contracts` + `conflicts` +
-    `pipeline_stages`. Preference order: live Contract (``active`` or
-    date-driven ``ending``; source of truth) →
-    active current_employment conflict (manual flag) → currently hired
-    (latest pipeline stage == `hired`) → on_bench (has history, incl. past
-    placements) → external (never engaged).
+    `pipeline_stages`. Live Contract (``active`` or date-driven ``ending``)
+    = employed_at_client → on_bench (has history, incl. past placements and
+    old manual flags) → external (never engaged).
 
-    Requires `pipeline_stages → job → client` eager-loaded (see
-    `_candidate_list_options`) — otherwise the `hired` branch lazy-loads and
-    raises MissingGreenlet in async.
+    Od 17.10.2026 (decyzja Artura) zatrudnienie wynika wyłącznie z umowy:
+    ręczny konflikt `current_employment` i etap „Zatrudniony” bez umowy
+    dają już tylko `on_bench` — tak jak znacznik „Pracuje u nas”.
     """
     active_contracts = [
         c
@@ -1065,73 +1031,6 @@ def _derive_employment(candidate: Candidate) -> EmploymentInfo:
                 )
                 for c in ordered
             ],
-        )
-
-    active_conflicts = [
-        cf
-        for cf in (candidate.conflicts or [])
-        if cf.active and cf.type == ConflictType.current_employment
-    ]
-    if active_conflicts:
-        chosen = active_conflicts[0]
-        return EmploymentInfo(
-            state=EmploymentState.employed_at_client,
-            client_id=chosen.client_id,
-            client_name=client_display_name(chosen.client) if chosen.client else None,
-            contract_end_date=None,
-            source="conflict",
-        )
-
-    # Pipeline signal: candidate currently sits at `hired` in some recruitment.
-    # `candidate_stages` is append-only history, so "current" = the latest row
-    # per job. Mirrors the hired-latest clause in `_at_client_predicate`.
-    # „Zatrudniony” zamknięty umową u tego klienta (skończyła się po
-    # zatrudnieniu, żadna inna nie trwa) to historia — jak w znaczniku
-    # (`rows_from_candidate`); do 14.10.2026 były konsultant był tu
-    # „zatrudniony” na zawsze (audyt 13.10, pkt 13).
-    latest_stage_by_job: dict[int, CandidateStage] = {}
-    for st in candidate.pipeline_stages or []:
-        cur = latest_stage_by_job.get(st.job_id)
-        if cur is None or (st.moved_at, st.id) > (cur.moved_at, cur.id):
-            latest_stage_by_job[st.job_id] = st
-    hired_now = [
-        st
-        for st in latest_stage_by_job.values()
-        if st.stage == PipelineStage.hired
-        and not hire_closed_by_contract(
-            client_id=st.job.client_id if st.job else None,
-            hired_at=st.moved_at,
-            contracts=candidate.contracts or [],
-        )
-    ]
-    if hired_now:
-        chosen = max(hired_now, key=lambda s: (s.moved_at, s.id))
-        client = chosen.job.client if chosen.job else None
-        matching_contracts = [
-            contract
-            for contract in (candidate.contracts or [])
-            if contract.job_id == chosen.job_id
-            and contract.status
-            in (
-                ContractStatus.draft,
-                ContractStatus.ready_for_signature,
-                ContractStatus.active,
-                ContractStatus.ending,
-            )
-        ]
-        linked_contract = (
-            max(matching_contracts, key=lambda contract: contract.id)
-            if matching_contracts
-            else None
-        )
-        return EmploymentInfo(
-            state=EmploymentState.employed_at_client,
-            client_id=client.id if client else None,
-            client_name=client_display_name(client) if client else None,
-            contract_id=linked_contract.id if linked_contract else None,
-            job_id=chosen.job_id,
-            contract_end_date=None,
-            source="pipeline",
         )
 
     ever_hired = any(
@@ -4568,6 +4467,8 @@ async def get_candidate(
     if not candidate:
         raise HTTPException(status_code=404, detail="Candidate not found")
     payload = _candidate_to_response(candidate)
+    # R4 (17.10.2026): przy żywej umowie „zadeklarowana od” — tylko profil.
+    payload = payload.model_copy(update=await declared_rate_from(db, candidate))
     invite_source = await _resolve_invite_source(candidate_id, db)
     contact_case = (await load_contact_case_summaries(db, [candidate_id])).get(
         candidate_id
@@ -4593,6 +4494,7 @@ async def get_candidate(
             "contact_case": contact_case,
             "call_facts_verified_by_name": verified_by_name,
             "employment_marker": employment_markers.get(candidate.id),
+            "blacklist": await load_blacklist_info(db, candidate),
         }
     )
 
@@ -4795,6 +4697,7 @@ async def get_candidate_quick_view(
             status=candidate.status,
             employment=_derive_employment(candidate),
             employment_marker=employment_markers.get(candidate.id),
+            blacklist=await load_blacklist_info(db, candidate),
             competence_category_id=candidate.competence_category_id,
             competence_category=candidate.competence_category,
             skills=candidate.skills,
@@ -4821,9 +4724,6 @@ async def get_candidate_quick_view(
         cv_highlights=CandidateCvHighlights(**resolve_cv_highlights(candidate)),
         capabilities=CandidateQuickViewCapabilities(
             can_assign=current_user.has_any_role(*CANDIDATE_WRITE_ROLES),
-            can_mark_employed=current_user.has_any_role(
-                UserRole.admin, UserRole.delivery_lead
-            ),
             can_view_documents=current_user.has_any_role(*CANDIDATE_DOCUMENT_ROLES),
             can_open_full_profile=True,
         ),
@@ -6510,6 +6410,21 @@ async def update_candidate(
                     "Globalną stawkę B2B edytuj przez "
                     f"/api/candidates/{candidate_id}/profile-rate z If-Match."
                 ),
+            },
+        )
+    # 17.10.2026: czarna lista „u nas” tylko przez okno „Czarna lista…”
+    # (`api/candidate_blacklist.py`) — z osobą, datą i powodem.
+    new_status = updates.get("status")
+    if (
+        "status" in updates
+        and new_status != candidate.status
+        and CandidateStatus.blacklisted in (new_status, candidate.status)
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={
+                "code": "candidate_blacklist_dedicated_endpoint",
+                "message": "Czarną listę ustawiasz w menu profilu → „Czarna lista…”.",
             },
         )
 

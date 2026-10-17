@@ -8,8 +8,8 @@ Wdrożenie **nexus** idzie WYŁĄCZNIE przez workflow „Deploy” (`.github/wor
 bramka zielonego HEAD-a maina (DEP-01), smoke, deep health, kontrola migracji.
 Bezpośrednie wywołanie API Coolify omija te kontrole — nie używaj go.
 
-**Okno wdrożeń 19:00–07:00 (Europe/Warsaw, decyzja Artura 14.10.2026).** W dzień
-zwykły bieg kończy się błędem okna. `emergency=true` (z powodem) omija okno —
+**Okno wdrożeń 19:00–07:00 pon–pt (Europe/Warsaw, decyzja Artura 14.10.2026).** W dzień
+roboczy zwykły bieg kończy się błędem okna; w sobotę i niedzielę okna nie ma (17.10.2026). `emergency=true` (z powodem) omija okno —
 **wyłącznie na wyraźne polecenie Artura w czacie**. Awaryjny deploy wypuszcza cały HEAD
 maina, czyli wszystko scalone w ciągu dnia.
 

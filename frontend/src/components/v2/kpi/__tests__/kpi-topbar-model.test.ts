@@ -331,3 +331,37 @@ describe("licznik celów — Delivery Lead", () => {
     expect(model?.facts).toEqual([]);
   });
 });
+
+describe("licznik celów — lista „Kto się liczy” (17.10.2026)", () => {
+  function rowsById(model: ReturnType<typeof buildKpiTopbarModel>) {
+    return Object.fromEntries(
+      (model?.groups ?? []).flatMap((group) => group.rows).map((row) => [row.id, row]),
+    );
+  }
+
+  it("własne cele z wynikiem mają link na listę w Mój miesiąc", () => {
+    const rows = rowsById(buildKpiTopbarModel([VERIFICATIONS, RECOMMENDATIONS, CALLS], null));
+    expect(rows.weekly_cvs_sent.link).toEqual({
+      href: "/insights?tab=moj-miesiac&kto=rekomendacje#kto-sie-liczy",
+      label: "Zobacz, kto się liczy",
+    });
+    expect(rows.daily_first_verifications.link?.href).toBe(
+      "/insights?tab=moj-miesiac&kto=weryfikacje#kto-sie-liczy",
+    );
+    // Rozmowy telefoniczne to nie kamień kandydata — bez listy.
+    expect(rows.daily_completed_calls.link).toBeNull();
+  });
+
+  it("zero nie ma linku — nie ma czego pokazać", () => {
+    const rows = rowsById(buildKpiTopbarModel([PLACEMENTS, { ...RECOMMENDATIONS, current: 0 }], null));
+    expect(rows.monthly_placements.link).toBeNull();
+    expect(rows.weekly_cvs_sent.link).toBeNull();
+  });
+
+  it("cele zespołu i portfela nie mają linku", () => {
+    const team = rowsById(buildKpiTopbarModel([], teamGoals()));
+    expect(Object.values(team).every((row) => row.link === null)).toBe(true);
+    const lead = rowsById(buildKpiTopbarModel([], dlGoals()));
+    expect(Object.values(lead).every((row) => row.link === null)).toBe(true);
+  });
+});

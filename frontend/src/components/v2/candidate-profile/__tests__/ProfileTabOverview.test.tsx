@@ -130,6 +130,11 @@ describe("Przegląd — Do zrobienia", () => {
       "href",
       "/jobs/12?candidate=42",
     );
+    // Nazwa rekrutacji też prowadzi na Tablicę z otwartą osobą (17.10.2026).
+    expect(within(row).getByRole("link", { name: "Analityk systemowy" })).toHaveAttribute(
+      "href",
+      "/jobs/12?candidate=42",
+    );
     // Ruch klienta i zakończona rekrutacja nie są „do zrobienia”.
     expect(within(list).queryByText("Java Developer")).toBeNull();
     expect(within(list).queryByText("Stara rekrutacja")).toBeNull();
@@ -153,6 +158,10 @@ describe("Przegląd — Do zrobienia", () => {
     });
     expect(screen.getByText(/Nie jest teraz w żadnej rekrutacji/)).toHaveTextContent(
       "Ostatnio: odrzucony · Stara rekrutacja",
+    );
+    expect(screen.getByRole("link", { name: "Stara rekrutacja" })).toHaveAttribute(
+      "href",
+      "/jobs/11?candidate=42",
     );
     await user.click(screen.getByRole("button", { name: "Zakończone rekrutacje (1)" }));
     expect(onNavigate).toHaveBeenCalledWith({ section: "recruitments" });

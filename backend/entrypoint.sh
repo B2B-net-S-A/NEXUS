@@ -748,6 +748,15 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'champion_search_resumed'",
     # 0451: „Klient zaakceptował” (do rekrutera, prowadzącego, DL i HoR).
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'client_accepted'",
+    # 0452: karta na „Zatrudniony” bez umowy w Kontraktach (do DL klienta).
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'hire_missing_contract'",
+    # 0453: prepy — odpowiedź kandydata, odmowa / inny termin, zmiana prepu
+    # przez kogoś z pary (u siebie i w cudzym kalendarzu), brak odpowiedzi.
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'prep_candidate_response'",
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'prep_candidate_declined'",
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'prep_changed'",
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'prep_changed_yours'",
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'prep_no_response'",
     # callstatus: zapisywane przez POST /api/cloudtalk/initiate-call. Uśpione,
     # bo CLOUDTALK_ENABLED=false — ale leży dokładnie na ścieżce aktywacji.
     "ALTER TYPE callstatus ADD VALUE IF NOT EXISTS 'initiated'",
@@ -5944,6 +5953,14 @@ END $$""",
 )""",
     "CREATE INDEX IF NOT EXISTS ix_prep_meetings_fetch_queue ON prep_meetings (transcript_status, next_fetch_at)",
     "CREATE INDEX IF NOT EXISTS ix_prep_meetings_pair ON prep_meetings (candidate_id, job_id)",
+    # 0453: odpowiedź kandydata na zaproszenie na prep (17.10.2026, D5) —
+    # z Outlooka prowadzącego. Lustro 1:1 z migracją — pilnuje
+    # `test_prep_candidate_responses_migration.py`.
+    "ALTER TABLE prep_meetings ADD COLUMN IF NOT EXISTS candidate_response VARCHAR(20) NULL",
+    "ALTER TABLE prep_meetings ADD COLUMN IF NOT EXISTS candidate_response_at TIMESTAMPTZ NULL",
+    "ALTER TABLE prep_meetings ADD COLUMN IF NOT EXISTS proposed_start TIMESTAMPTZ NULL",
+    "ALTER TABLE prep_meetings ADD COLUMN IF NOT EXISTS proposed_end TIMESTAMPTZ NULL",
+    "ALTER TABLE prep_meetings ADD COLUMN IF NOT EXISTS outlook_checked_at TIMESTAMPTZ NULL",
     # 0382: pozycja faktury Nordei zapisana przy zamówieniu
     # (`nordea_invoice_lines.py`). Pilnuje `test_nordea_invoice_lines.py`.
     "ALTER TABLE client_orders ADD COLUMN IF NOT EXISTS invoice_lines JSONB NULL",
@@ -6277,6 +6294,13 @@ EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
     "REFERENCES service_accounts(id) ON DELETE SET NULL",
     "CREATE INDEX IF NOT EXISTS ix_md_consumption_imports_file_sha256 "
     "ON md_consumption_imports (period_month, file_sha256)",
+    # 0452: okno „Czarna lista…” (17.10.2026) — kto, kiedy i dlaczego przy
+    # kandydacie. ORM czyta te kolumny przy KAŻDYM zapytaniu o kandydata.
+    # Lustro 1:1 z migracją — pilnuje `test_blacklist_contract_only_migration.py`.
+    "ALTER TABLE candidates ADD COLUMN IF NOT EXISTS blacklisted_at TIMESTAMPTZ NULL",
+    "ALTER TABLE candidates ADD COLUMN IF NOT EXISTS blacklisted_by_user_id "
+    "INTEGER NULL REFERENCES users(id) ON DELETE SET NULL",
+    "ALTER TABLE candidates ADD COLUMN IF NOT EXISTS blacklist_reason TEXT NULL",
     # „Ludzie w NEXUSIE” — tabele, indeksy i CHECK-i ról (przed zasiewem
     # macierzy w `_DATA_STATEMENTS`).
     *_HR_COLUMN_DDL,
@@ -8393,6 +8417,18 @@ SELECT 'job', id, 'archived',
     "CROSS JOIN (VALUES ('rejected'), ('withdrawn')) AS c(cat) "
     "WHERE EXISTS (SELECT 1 FROM marker) "
     "ON CONFLICT (template_id, name, category) DO NOTHING",
+    # 0452: „Pracuje u nas” tylko z umowy (decyzja Artura 17.10.2026) —
+    # ręczne wpisy `current_employment` zdjęte raz, z powodem (wiersze zostają
+    # w historii). Lustro migracji.
+    "WITH marker AS ("
+    "INSERT INTO app_settings (key, value) "
+    "VALUES ('manual_employment_conflicts_retired_2026_10', 'true'::jsonb) "
+    "ON CONFLICT (key) DO NOTHING RETURNING key) "
+    "UPDATE candidate_conflicts SET active = FALSE, deactivated_at = NOW(), "
+    "deactivation_reason = 'Zatrudnienie wynika tylko z umowy w Kontraktach "
+    "(decyzja 17.10.2026)' "
+    "WHERE type::text = 'current_employment' AND active "
+    "AND EXISTS (SELECT 1 FROM marker)",
     # „Ludzie w NEXUSIE” — przełączniki modułów i zasiew roli „Pracownik”.
     *_HR_DATA_DDL,
 ]
@@ -8408,6 +8444,12 @@ SELECT 'job', id, 'archived',
 # Bez tego jedna zabłąkana wartość zablokowałaby start kontenera. VALIDATE
 # CONSTRAINT można uruchomić później, świadomie, po policzeniu sierot.
 _CONSTRAINT_STATEMENTS = [
+    # 0453: odpowiedź kandydata na prep — zamknięty słownik.
+    """DO $$ BEGIN
+        ALTER TABLE prep_meetings ADD CONSTRAINT ck_prep_meetings_candidate_response
+            CHECK (candidate_response IS NULL
+                   OR candidate_response IN ('none', 'accepted', 'tentative', 'declined'));
+    EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
     # 0443: źródło „integration” (zapis kluczem API v1). Poszerzenie domeny =
     # jawny DROP+ADD w jednym bloku; JEDYNA definicja poza CREATE TABLE —
     # pilnuje `tests/test_entrypoint_order_change_source_mirror.py`.

@@ -104,6 +104,7 @@ import { CandidatePhoneCell } from "@/components/v2/candidates/CandidatePhoneCel
 import { CandidateProcessCell } from "@/components/v2/candidates/CandidateProcessCell";
 import { AvailabilityPill } from "@/components/ds/AvailabilityPill";
 import { EmploymentPill } from "@/components/ds/EmploymentMarker";
+import { BlacklistBadge } from "@/components/v2/candidate-profile/BlacklistDialogs";
 import type { EmploymentMarker } from "@/lib/employment-marker";
 import { hidesAvailabilityStatus } from "@/lib/contract-availability";
 import type { EmployedPerson } from "@/components/v2/employment/EmploymentNotice";
@@ -2559,7 +2560,13 @@ export function CandidatesListV2({ onRequestSearch, embed }: CandidatesListV2Pro
                                   zatrudnienia mają pierwszeństwo, lokalizacja
                                   ustępuje im miejsca; pełna treść w dymku. */}
                               <p className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
-                                {hidesAvailabilityStatus(candidate.employment_marker) ? null : (
+                                {/* Czarna lista „u nas” (17.10.2026) zastępuje „szuka
+                                    aktywnie” — obok siebie nie mieszczą się w kolumnie,
+                                    a przy czarnej liście dostępność nie ma znaczenia.
+                                    Kto i dlaczego — w profilu. */}
+                                {candidate.status === "blacklisted" ? (
+                                  <BlacklistBadge />
+                                ) : hidesAvailabilityStatus(candidate.employment_marker) ? null : (
                                   <AvailabilityPill status={candidate.availability_status} appearance="text" />
                                 )}
                                 {candidate.employment_marker ? (

@@ -265,3 +265,63 @@ def test_staleness_reads_the_latest_rate_date(monkeypatch):
         profile_rate_updated_at=None,
     )
     assert rf.effective_rate_at(candidate) == _at(2026, 9)
+
+
+# ── „Deklarował od” przy żywej umowie (R4, 17.10.2026) ──────────────────────
+
+
+def test_declared_from_ignores_contract_and_reports_lower_rate():
+    result = rf.declared_from(
+        [
+            _obs("contract:7", 150, _at(2026, 2), source="contract"),
+            _obs("card:1", 90, _at(2026, 9)),
+            _obs("card:2", 160, _at(2026, 5)),
+        ],
+        set(),
+        TODAY,
+        contract_hourly=Decimal("150"),
+    )
+    assert result is not None
+    assert result.amount == Decimal("90")
+    assert result.key == "card:1"
+
+
+@pytest.mark.parametrize(
+    "observations",
+    [
+        # Deklaracja nie niższa niż umowa — nic do powiedzenia.
+        [_obs("card:1", 150, _at(2026, 9)), _obs("card:2", 170, _at(2026, 5))],
+        # Jedyna niższa sprzed 18 miesięcy — „nieaktualna”, nie pokazujemy.
+        [_obs("card:1", 90, _at(2024, 1))],
+        # Brak deklaracji.
+        [],
+    ],
+)
+def test_declared_from_is_empty_without_a_lower_rate_in_window(observations):
+    assert (
+        rf.declared_from(observations, set(), TODAY, contract_hourly=Decimal("150"))
+        is None
+    )
+
+
+def test_declared_from_respects_human_exclusion():
+    observations = [_obs("card:1", 40, _at(2026, 9)), _obs("card:2", 120, _at(2026, 8))]
+    result = rf.declared_from(
+        observations, {"card:1"}, TODAY, contract_hourly=Decimal("150")
+    )
+    assert result is not None and result.amount == Decimal("120")
+
+
+@pytest.mark.asyncio
+async def test_declared_rate_from_skips_people_without_live_contract(monkeypatch):
+    monkeypatch.setattr(rf.settings, "CANDIDATE_RATE_FROM_ENABLED", True, raising=False)
+    candidate = SimpleNamespace(
+        id=1,
+        rate_from_computed_at=_at(2026, 10),
+        rate_from_hourly=Decimal("90"),
+        rate_from_source="card",
+        expected_rate_hourly=Decimal("140"),
+        expected_rate_currency="PLN",
+    )
+    # Bez umowy nie ma zapytań do bazy — `db=None` by je wywrócił.
+    assert await rf.declared_rate_from(None, candidate) == {}

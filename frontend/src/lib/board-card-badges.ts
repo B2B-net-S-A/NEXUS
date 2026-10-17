@@ -47,6 +47,8 @@ const PREP_BADGE_TITLE: Partial<Record<string, string>> = {
     "Przed rozmową u klienta brakuje prepu z kandydatem (Prep 1 — Delivery Lead, Prep 2 — rekruter). Umów go w kalendarzu „Rozmowy u klienta”.",
   prep_weak:
     "Prep odbył się, ale wypadł słabo (transkrypt z Teams). Warto umówić jeszcze jedną rozmowę przed spotkaniem u klienta.",
+  prep_refused:
+    "Kandydat odrzucił zaproszenie na prep albo zaproponował inny termin. Przyjmij jego termin albo przełóż prep w panelu osoby.",
 };
 
 export interface CardBadgeContext {
@@ -566,6 +568,17 @@ export function cardBadges(item: KanbanItem, ctx: CardBadgeContext): CardBadge[]
       label: agreement.label,
       tone: agreement.tone === "success" ? "ok" : agreement.tone === "warning" ? "wait" : "info",
       title: agreement.title,
+    });
+  }
+  // 17.10.2026: „Pracuje u nas” daje wyłącznie umowa w Kontraktach — karta
+  // na „Zatrudniony” bez umowy mówi, czego brakuje (przed zamówieniem).
+  if (column === "hired" && item.missing_contract) {
+    out.push({
+      key: "contract",
+      label: "Brak umowy w Kontraktach",
+      tone: "wait",
+      title:
+        "Karta jest na „Zatrudniony”, ale w Kontraktach nie ma umowy tej osoby u klienta. „Pracuje u nas” pojawi się po wpisaniu umowy — Delivery Lead klienta dostał przypomnienie.",
     });
   }
   if (column === "hired" && item.order_status) {

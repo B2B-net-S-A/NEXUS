@@ -99,26 +99,57 @@ async def _move(api_client: AsyncClient, world: dict, who: str):
 
 
 @pytest.mark.asyncio
-async def test_advisory_override_is_for_the_cv_it_was_made_on(
+async def test_advisory_override_ends_when_the_cv_gets_a_new_blocker(
     api_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    world = await _advisory_world(api_client, monkeypatch)
-    try:
-        await _override(api_client, world, "rec")
-        assert (await _status(world))["status"] == "overridden"
+    """Obejście jest dla CV, na którym je zrobiono (audyt 14.10.2026) — od D6
+    (17.10.2026) idzie za zmianami, dopóki nie dodają nowej blokady.
+    Ścieżka „idzie za CV” bez nowej blokady:
+    `test_cv_qc.test_advisory_override_follows_the_cv_until_a_new_blocker_appears`."""
+    from app.models.job import Job
 
-        # Po obejściu ktoś zmienia CV — krytyczne dalej są do poprawy.
+    world = await _advisory_world(api_client, monkeypatch)
+
+    async def set_cv(html: str) -> None:
         async with AsyncSessionLocal() as db:
             csv = await db.scalar(
                 select(CandidateStageCV).where(
                     CandidateStageCV.candidate_stage_id == world["stage_id"]
                 )
             )
-            csv.branded_draft_html = BRANDED_HTML.replace(
+            csv.branded_draft_html = html
+            await db.commit()
+
+    try:
+        await _override(api_client, world, "rec")
+        assert (await _status(world))["status"] == "overridden"
+
+        # Zmiana bez nowej blokady (krytyczne dalej te same) — obejście zostaje.
+        await set_cv(
+            BRANDED_HTML.replace(
                 "Rozwój usług w <b>Java</b> i Spring.",
                 "Rozwój usług w <b>Java</b>, Spring i Kafka.",
             )
+        )
+        with hydrated_taxonomy():
+            body = (
+                await api_client.get(
+                    f"{world['qc_url']}?transient=true", headers=world["rec"]
+                )
+            ).json()
+        assert body["override"] is not None
+
+        # Treść spoza oryginału przy wymaganiu rekrutacji = nowa blokada.
+        async with AsyncSessionLocal() as db:
+            job = await db.get(Job, world["job_id"])
+            profile = dict(job.champion_profile or {})
+            stack = dict(profile.get("stack") or {})
+            stack["must"] = [*(stack.get("must") or []), {"name": "Terraform"}]
+            profile["stack"] = stack
+            job.champion_profile = profile
+            job.must_skills = [*(job.must_skills or []), "Terraform"]
             await db.commit()
+        await set_cv(BRANDED_HTML + "<p>Infrastruktura w Terraform.</p>")
 
         refused = await _move(api_client, world, "dl")
         assert refused.status_code == 409, refused.text

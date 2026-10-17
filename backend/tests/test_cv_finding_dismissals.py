@@ -299,6 +299,63 @@ async def test_editor_moves_untrue_generator_and_review_findings_aside(
     }
 
 
+def test_kept_is_a_reason_only_for_generator_and_review_findings() -> None:
+    # „OK” / „Zostaw” w panelu „Do poprawy” (17.10.2026): rekruter sprawdził
+    # uwagę generatora albo kontroli AI i zostawia treść — bez formularza
+    # powodu. To decyzja, nie dowód, że QC kłamie, i nie dotyczy pozycji QC.
+    for source in ("generator", "review"):
+        assert dismissals.validate_reason("kept", None, check_key=source) == (
+            "kept",
+            None,
+        )
+    assert "kept" not in dismissals.QC_WRONG_REASONS
+    for other in (None, "no_unsupported", "must_bolded", "role_order"):
+        with pytest.raises(dismissals.DismissError):
+            dismissals.validate_reason("kept", None, check_key=other)
+    # Powód kolejności nadal tylko przy kolejności.
+    with pytest.raises(dismissals.DismissError):
+        dismissals.validate_reason("kept_order", None, check_key="generator")
+
+
+@pytest.mark.asyncio
+async def test_editor_dismiss_checks_the_reason_against_the_source(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.services import cv_editor_issues
+
+    warning = "WERYFIKUJ: rola bez miesiąca zakończenia — przyjęto 02.2021"
+    rows: list = []
+
+    async def raw(_db, _csv):
+        return {
+            "generator_warnings": [warning],
+            "content_review": {"status": "reviewed", "findings": [], "version": 2},
+        }
+
+    async def insert_once(_db, row):
+        rows.append(row)
+        return True
+
+    async def stage_issues(_db, _csv, _pair):
+        return {"generator_warnings": [], "dismissed": []}
+
+    monkeypatch.setattr(cv_editor_issues, "_raw_issues", raw)
+    monkeypatch.setattr(cv_editor_issues, "stage_issues", stage_issues)
+    monkeypatch.setattr(dismissals, "insert_once", insert_once)
+    common = dict(
+        pair=(1, 2), stage_id=3, source="generator", text=warning, status=None
+    )
+
+    await cv_editor_issues.dismiss(
+        object(), object(), reason="kept", note=None, user_id=4, **common
+    )
+    assert [(r.reason, r.check_key) for r in rows] == [("kept", "generator")]
+    with pytest.raises(dismissals.DismissError):
+        await cv_editor_issues.dismiss(
+            object(), object(), reason="kept_order", note=None, user_id=4, **common
+        )
+
+
 def test_checks_with_dismissals_can_be_hashed_and_stored() -> None:
     # Przegląd PR 3: datetime w widoku pominięcia wywracał `_checks_hash`
     # (zapis przebiegu) — każde „To nieprawda” kończyło się 500.

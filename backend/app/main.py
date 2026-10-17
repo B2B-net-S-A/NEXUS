@@ -189,6 +189,7 @@ from app.api import phase3
 from app.api import phase4
 from app.api import phase5
 from app.api import candidate_conflicts as candidate_conflicts_api
+from app.api import candidate_blacklist as candidate_blacklist_api
 from app.api import admin_import
 from app.api import kpis as kpis_api
 from app.api import kpi_targets_admin as kpi_targets_admin_api
@@ -1722,6 +1723,9 @@ app.include_router(phase4.router, prefix="/api", tags=["phase4"])
 app.include_router(phase5.router, prefix="/api", tags=["phase5"])
 app.include_router(
     candidate_conflicts_api.router, prefix="/api", tags=["candidate-conflicts"]
+)
+app.include_router(
+    candidate_blacklist_api.router, prefix="/api", tags=["candidate-blacklist"]
 )
 app.include_router(admin_import.router, prefix="/api", tags=["admin-import"])
 app.include_router(kpis_api.router, prefix="/api/kpis", tags=["kpis"])

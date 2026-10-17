@@ -4,27 +4,40 @@
   podpowiedzi organizatora dla obu prepów i zespół rekrutacji do wyboru.
 * ``POST /api/interview-cycle/preps`` — zakłada prep w kalendarzu
   organizatora (Teams, zaproszenie kandydata, automatyczna transkrypcja).
-* ``GET  /api/interview-cycle/preps/{event_id}`` — stan prepu i ocena.
+* ``GET  /api/interview-cycle/preps/{event_id}`` — stan prepu, zaproszeni,
+  ocena i ``can_edit``.
+* ``PATCH /api/interview-cycle/preps/{event_id}`` — nowy termin, zaproszeni
+  albo prowadzący (17.10.2026, decyzje D1–D4).
+* ``POST /api/interview-cycle/preps/{event_id}/cancel`` — odwołanie.
 * ``GET  /api/interview-cycle/preps/{event_id}/transcript`` — pełny transkrypt
   (zespół rekrutacji, jak każdy odczyt rekrutacji).
 * ``GET  /api/interview-cycle/prep-quality`` — raport jakości prepów per
   organizator (admin i Head of Recruitment).
 
 Sekcja Pipeline + role zapisu kalendarza + członkostwo w rekrutacji — te same
-bramki co pozostałe trasy „Rozmów u klienta”.
+bramki co pozostałe trasy „Rozmów u klienta”. Zmianę i odwołanie prepu
+rozstrzyga ``prep_meetings.user_can_edit_prep`` (ludzie pary), nie
+właściciel wydarzenia z ``calendar_access``.
 """
 
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel, Field, model_validator
-from sqlalchemy import select
+from pydantic import BaseModel, EmailStr, Field, model_validator
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.calendar_access import (
+    CALENDAR_EVENT_CANCELLED,
+    CALENDAR_EVENT_UPDATED,
+    _attendee_emails,
+    record_calendar_audit,
+    user_is_override,
+)
 from app.api.candidate_access import user_has_candidate_read
 from app.api.recruitment_access import (
     CalendarWriteAccess,
@@ -35,13 +48,18 @@ from app.api.recruitment_access import (
 from app.api.section_access import PIPELINE_SECTION_DEPENDENCIES
 from app.core.config import settings
 from app.core.database import get_db
-from app.models.calendar_event import CalendarEvent
+from app.models.calendar_event import CalendarEvent, EventStatus
 from app.models.candidate import Candidate
 from app.models.client import Client
 from app.models.job import Job
 from app.models.prep_meeting import PrepMeeting, PrepReview, PrepTranscript
 from app.models.user import User
-from app.services import interview_slots, prep_invitation, prep_meetings
+from app.services import (
+    interview_slots,
+    prep_invitation,
+    prep_meetings,
+    prep_notifications,
+)
 from app.services.job_membership import list_job_member_ids
 
 logger = logging.getLogger(__name__)
@@ -49,9 +67,32 @@ logger = logging.getLogger(__name__)
 router = APIRouter(dependencies=PIPELINE_SECTION_DEPENDENCIES)
 
 
+def _aware(value: Optional[datetime]) -> Optional[datetime]:
+    if value is None:
+        return None
+    return value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
+
+
 class PersonOut(BaseModel):
     id: int
     name: str
+
+
+class PersonOption(BaseModel):
+    """Osoba do zaproszenia na prep — każdy aktywny w NEXUSIE (decyzja D1)."""
+
+    id: int
+    name: str
+    role: Optional[str] = None
+    in_team: bool = False
+
+
+class AttendeeOut(BaseModel):
+    """Zaproszony na prep (bez kandydata); ``user_id`` puste = spoza NEXUSA."""
+
+    email: str
+    user_id: Optional[int] = None
+    name: Optional[str] = None
 
 
 class InvitationPreviewOut(BaseModel):
@@ -74,6 +115,7 @@ class PrepOptionsOut(BaseModel):
     auto_transcribe: bool
     suggested: dict[int, Optional[PersonOut]]
     team: list[PersonOut]
+    people: list[PersonOption] = []
     notice: str
     invitation: dict[int, InvitationPreviewOut] = {}
 
@@ -92,6 +134,7 @@ class PrepCreate(BaseModel):
     start: datetime
     end: datetime
     attendee_user_ids: list[int] = Field(default_factory=list, max_length=10)
+    attendee_emails: list[EmailStr] = Field(default_factory=list, max_length=10)
     note: Optional[str] = Field(default=None, max_length=2000)
     client_request_id: Optional[str] = Field(default=None, max_length=80)
 
@@ -100,6 +143,29 @@ class PrepCreate(BaseModel):
         if self.end <= self.start:
             raise ValueError("Koniec prepu musi być późniejszy niż jego początek.")
         return self
+
+
+class PrepUpdate(BaseModel):
+    """Zmiana prepu. Pola puste zostają; ``attendee_*`` podane = pełna nowa lista."""
+
+    start: Optional[datetime] = None
+    end: Optional[datetime] = None
+    organizer_user_id: Optional[int] = None
+    attendee_user_ids: Optional[list[int]] = Field(default=None, max_length=10)
+    attendee_emails: Optional[list[EmailStr]] = Field(default=None, max_length=10)
+    client_request_id: Optional[str] = Field(default=None, max_length=80)
+
+    @model_validator(mode="after")
+    def _window(self) -> "PrepUpdate":
+        if (self.start is None) != (self.end is None):
+            raise ValueError("Podaj początek i koniec prepu.")
+        if self.start is not None and self.end is not None and self.end <= self.start:
+            raise ValueError("Koniec prepu musi być późniejszy niż jego początek.")
+        return self
+
+
+class PrepCancel(BaseModel):
+    comment: Optional[str] = Field(default=None, max_length=500)
 
 
 class ReviewOut(BaseModel):
@@ -117,6 +183,16 @@ class PrepOut(BaseModel):
     candidate_id: int
     job_id: int
     organizer: Optional[PersonOut] = None
+    scheduled_by: Optional[PersonOut] = None
+    attendees: list[AttendeeOut] = []
+    status: str = "scheduled"
+    can_edit: bool = False
+    # Odpowiedź kandydata z Outlooka prowadzącego (0453): none | accepted |
+    # tentative | declined; NULL = jeszcze nie sprawdzano.
+    candidate_response: Optional[str] = None
+    candidate_response_at: Optional[datetime] = None
+    proposed_start: Optional[datetime] = None
+    proposed_end: Optional[datetime] = None
     start: datetime
     end: Optional[datetime] = None
     online_meeting_url: Optional[str] = None
@@ -143,6 +219,66 @@ async def _people(db: AsyncSession, ids: list[int]) -> dict[int, PersonOut]:
     return {uid: PersonOut(id=uid, name=name) for uid, name in rows.all()}
 
 
+async def _invitable_people(db: AsyncSession, team_ids: set[int]) -> list[PersonOption]:
+    """Wszyscy aktywni z adresem e-mail — zespół rekrutacji na górze (D1)."""
+    rows = await db.execute(
+        select(User.id, User.name, User.role).where(
+            User.is_active.is_(True), User.email.isnot(None), User.email != ""
+        )
+    )
+    people = [
+        PersonOption(
+            id=uid,
+            name=name,
+            role=role.value if role is not None else None,
+            in_team=uid in team_ids,
+        )
+        for uid, name, role in rows.all()
+        if name
+    ]
+    return sorted(people, key=lambda p: (not p.in_team, p.name.lower()))
+
+
+async def _active_users(db: AsyncSession, ids: set[int]) -> dict[int, User]:
+    if not ids:
+        return {}
+    return {
+        u.id: u
+        for u in (
+            await db.scalars(
+                select(User).where(User.id.in_(ids), User.is_active.is_(True))
+            )
+        ).all()
+    }
+
+
+async def _attendee_users(db: AsyncSession, ids: list[int]) -> list[User]:
+    """Zaproszeni z NEXUSA: aktywni, z adresem. Inaczej 422 (nie cicho pomijamy)."""
+    found = await _active_users(db, set(ids))
+    missing = [i for i in ids if i not in found or not found[i].email]
+    if missing:
+        raise HTTPException(
+            status_code=422,
+            detail="Część zaproszonych osób jest nieaktywna albo nie ma adresu "
+            "e-mail w NEXUSIE — usuń je z listy.",
+        )
+    return [found[i] for i in dict.fromkeys(ids)]
+
+
+async def _organizer_allowed(
+    db: AsyncSession, *, job: Job, candidate_id: int, prep_no: int
+) -> set[int]:
+    """Prowadzić może zespół rekrutacji albo podpowiadana osoba — ich skrzynki
+    są w grupie, w której aplikacja zakłada spotkania."""
+    allowed = set(await list_job_member_ids(db, job.id))
+    suggested = await prep_meetings.suggest_organizer_id(
+        db, job=job, candidate_id=candidate_id, prep_no=prep_no
+    )
+    if suggested:
+        allowed.add(suggested)
+    return allowed
+
+
 @router.get("/interview-cycle/preps/options", response_model=PrepOptionsOut)
 async def prep_options(
     current_user: CalendarWriteAccess,
@@ -158,9 +294,8 @@ async def prep_options(
         db, job=job, candidate_id=candidate_id
     )
     member_ids = await list_job_member_ids(db, job_id)
-    people = await _people(
-        db, sorted({*member_ids, *[i for i in suggested_ids.values() if i]})
-    )
+    team_ids = {*member_ids, *[i for i in suggested_ids.values() if i]}
+    people = await _people(db, sorted(team_ids))
     # Nazwisko w podglądzie tytułu tylko dla ról czytających kandydatów —
     # jak na ekranie „Rozmowy u klienta” (``load_overview``).
     candidate = (
@@ -180,6 +315,7 @@ async def prep_options(
             n: people.get(uid) if uid else None for n, uid in suggested_ids.items()
         },
         team=sorted(people.values(), key=lambda p: p.name.lower()),
+        people=await _invitable_people(db, team_ids),
         notice=prep_invitation.NOTICE_TEXT,
         invitation={
             n: InvitationPreviewOut(
@@ -244,29 +380,24 @@ async def create_prep(
             },
         )
 
-    allowed = set(await list_job_member_ids(db, job.id))
-    suggested = await prep_meetings.suggest_organizer_id(
+    # Zaprosić można każdego (D1, 17.10.2026); prowadzący dalej musi być
+    # z zespołu albo z podpowiedzi.
+    allowed = await _organizer_allowed(
         db, job=job, candidate_id=candidate.id, prep_no=body.prep_no
     )
-    if suggested:
-        allowed.add(suggested)
-    wanted = {body.organizer_user_id, *body.attendee_user_ids}
-    if not wanted <= allowed:
+    if body.organizer_user_id not in allowed:
         raise HTTPException(
             status_code=422,
-            detail="Organizator i uczestnicy prepu muszą należeć do zespołu tej rekrutacji.",
+            detail="Prep prowadzi ktoś z zespołu tej rekrutacji.",
         )
-    users = {
-        u.id: u
-        for u in (
-            await db.scalars(
-                select(User).where(User.id.in_(wanted), User.is_active.is_(True))
-            )
-        ).all()
-    }
-    organizer = users.get(body.organizer_user_id)
+    organizer = (await _active_users(db, {body.organizer_user_id})).get(
+        body.organizer_user_id
+    )
     if organizer is None:
         raise HTTPException(status_code=422, detail="Organizator jest nieaktywny.")
+    attendees = await _attendee_users(
+        db, [i for i in body.attendee_user_ids if i != organizer.id]
+    )
 
     created = await prep_meetings.create_prep(
         db,
@@ -277,13 +408,22 @@ async def create_prep(
         organizer=organizer,
         start=body.start,
         end=body.end,
-        extra_attendees=[users[i] for i in body.attendee_user_ids if i in users],
+        extra_attendees=attendees,
         note=body.note,
         client_request_id=body.client_request_id,
         client_name=await _client_name(db, job),
+        extra_emails=[str(e) for e in body.attendee_emails],
+    )
+    # Prep w cudzym kalendarzu albo dla kandydata innej osoby z pary (D6).
+    await prep_notifications.notify_prep_change(
+        db,
+        actor=current_user,
+        prep=created.prep,
+        event=created.event,
+        kind="scheduled",
     )
     await db.commit()
-    return await _prep_out(db, created.prep, created.event)
+    return await _prep_out(db, created.prep, created.event, current_user)
 
 
 async def _load(db: AsyncSession, event_id: int) -> tuple[PrepMeeting, CalendarEvent]:
@@ -294,8 +434,40 @@ async def _load(db: AsyncSession, event_id: int) -> tuple[PrepMeeting, CalendarE
     return prep, event
 
 
+async def _attendees_out(
+    db: AsyncSession, event: CalendarEvent, candidate_email: Optional[str]
+) -> list[AttendeeOut]:
+    skip = {(candidate_email or "").lower()}
+    emails = [
+        e
+        for e in dict.fromkeys(_attendee_emails(event.attendees))
+        if e.lower() not in skip
+    ]
+    if not emails:
+        return []
+    users = {
+        email.lower(): (uid, name)
+        for uid, name, email in (
+            await db.execute(
+                select(User.id, User.name, User.email).where(
+                    func.lower(User.email).in_([e.lower() for e in emails])
+                )
+            )
+        ).all()
+        if email
+    }
+    out = []
+    for email in emails:
+        uid, name = users.get(email.lower(), (None, None))
+        out.append(AttendeeOut(email=email, user_id=uid, name=name))
+    return out
+
+
 async def _prep_out(
-    db: AsyncSession, prep: PrepMeeting, event: CalendarEvent
+    db: AsyncSession,
+    prep: PrepMeeting,
+    event: CalendarEvent,
+    viewer: Optional[User] = None,
 ) -> PrepOut:
     transcript = await db.scalar(
         select(PrepTranscript).where(PrepTranscript.prep_meeting_id == prep.id)
@@ -304,14 +476,31 @@ async def _prep_out(
         select(PrepReview).where(PrepReview.prep_meeting_id == prep.id)
     )
     people = await _people(
-        db, [prep.organizer_user_id] if prep.organizer_user_id else []
+        db, [i for i in (prep.organizer_user_id, prep.scheduled_by_user_id) if i]
     )
+    candidate_email = await db.scalar(
+        select(Candidate.email).where(Candidate.id == prep.candidate_id)
+    )
+    can_edit = False
+    if viewer is not None and event.status != EventStatus.cancelled:
+        job = await db.get(Job, prep.job_id)
+        can_edit = prep_meetings.user_can_edit_prep(
+            viewer, await prep_meetings.prep_editor_ids(db, prep, job)
+        )
     return PrepOut(
         event_id=event.id,
         prep_no=prep.prep_no,
         candidate_id=prep.candidate_id,
         job_id=prep.job_id,
         organizer=people.get(prep.organizer_user_id or 0),
+        scheduled_by=people.get(prep.scheduled_by_user_id or 0),
+        attendees=await _attendees_out(db, event, candidate_email),
+        status=event.status.value if event.status is not None else "scheduled",
+        can_edit=can_edit,
+        candidate_response=prep.candidate_response,
+        candidate_response_at=prep.candidate_response_at,
+        proposed_start=prep.proposed_start,
+        proposed_end=prep.proposed_end,
         start=event.start_time,
         end=event.end_time,
         online_meeting_url=event.online_meeting_url,
@@ -342,7 +531,185 @@ async def get_prep(
 ) -> PrepOut:
     prep, event = await _load(db, event_id)
     await ensure_job_read_access(db, current_user, prep.job_id)
-    return await _prep_out(db, prep, event)
+    return await _prep_out(db, prep, event, current_user)
+
+
+async def _editable(
+    db: AsyncSession, event_id: int, user: User
+) -> tuple[PrepMeeting, CalendarEvent, Job]:
+    prep, event = await _load(db, event_id)
+    await ensure_job_read_access(db, user, prep.job_id)
+    job = await db.get(Job, prep.job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Nie znaleziono rekrutacji.")
+    if not prep_meetings.user_can_edit_prep(
+        user, await prep_meetings.prep_editor_ids(db, prep, job)
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail="Ten prep mogą zmienić: prowadzący, Delivery Lead rekrutacji, "
+            "rekruter kandydata i osoba, która go zaplanowała.",
+        )
+    return prep, event, job
+
+
+@router.patch("/interview-cycle/preps/{event_id}", response_model=PrepOut)
+async def update_prep(
+    event_id: int,
+    body: PrepUpdate,
+    current_user: CalendarWriteAccess,
+    db: AsyncSession = Depends(get_db),
+) -> PrepOut:
+    """Nowy termin, zaproszeni albo prowadzący prepu (17.10.2026, D1–D4).
+
+    Zmienia każdy z ludzi pary (``user_can_edit_prep``), nie tylko prowadzący:
+    rekruter planuje Prep 1 w kalendarzu DL-a i to do niego kandydat pisze,
+    że termin mu nie pasuje.
+    """
+    prep, event, job = await _editable(db, event_id, current_user)
+    prep_meetings.ensure_prep_open(event)
+    candidate = await db.get(Candidate, prep.candidate_id)
+    if candidate is None or not candidate.email:
+        raise HTTPException(
+            status_code=422,
+            detail="Kandydat nie ma adresu e-mail — nie da się wysłać zmiany.",
+        )
+    start = body.start or event.start_time
+    end = body.end or event.end_time
+    attendees_changed = body.attendee_user_ids is not None or (
+        body.attendee_emails is not None
+    )
+    if attendees_changed:
+        users = await _attendee_users(db, body.attendee_user_ids or [])
+        emails = [str(e) for e in body.attendee_emails or []]
+    else:
+        users = []
+        emails = [a.email for a in await _attendees_out(db, event, candidate.email)]
+
+    if (
+        body.organizer_user_id is not None
+        and body.organizer_user_id != prep.organizer_user_id
+    ):
+        allowed = await _organizer_allowed(
+            db, job=job, candidate_id=candidate.id, prep_no=prep.prep_no
+        )
+        organizer = (await _active_users(db, {body.organizer_user_id})).get(
+            body.organizer_user_id
+        )
+        if body.organizer_user_id not in allowed or organizer is None:
+            raise HTTPException(
+                status_code=422,
+                detail="Prep prowadzi aktywna osoba z zespołu tej rekrutacji.",
+            )
+        created = await prep_meetings.replace_organizer(
+            db,
+            actor=current_user,
+            prep=prep,
+            event=event,
+            candidate=candidate,
+            job=job,
+            organizer=organizer,
+            start=start,
+            end=end,
+            users=[u for u in users if u.id != organizer.id],
+            emails=emails,
+            client_request_id=body.client_request_id,
+            client_name=await _client_name(db, job),
+        )
+        record_calendar_audit(
+            db,
+            action=CALENDAR_EVENT_CANCELLED,
+            user_id=current_user.id,
+            event_id=event.id,
+            override=user_is_override(current_user),
+            details={"replaced_by": created.event.id, "reason": "organizer_changed"},
+        )
+        await prep_notifications.notify_prep_change(
+            db,
+            actor=current_user,
+            prep=created.prep,
+            event=created.event,
+            kind="organizer",
+            previous_organizer_id=prep.organizer_user_id,
+        )
+        await db.commit()
+        return await _prep_out(db, created.prep, created.event, current_user)
+
+    moved = body.start is not None and (
+        _aware(body.start) != _aware(event.start_time)
+        or _aware(body.end) != _aware(event.end_time)
+    )
+    new_list = (
+        prep_meetings.attendee_emails(
+            candidate_email=candidate.email,
+            organizer_email=prep.organizer_upn,
+            users=users,
+            emails=emails,
+        )
+        if attendees_changed
+        else None
+    )
+    if new_list is not None and [a.lower() for a in new_list] == [
+        a.lower() for a in _attendee_emails(event.attendees)
+    ]:
+        new_list = None
+    if not moved and new_list is None:
+        return await _prep_out(db, prep, event, current_user)
+    previous_start = event.start_time
+    await prep_meetings.push_prep_update(
+        prep,
+        event,
+        start=start if moved else None,
+        end=end if moved else None,
+        attendees=new_list,
+    )
+    record_calendar_audit(
+        db,
+        action=CALENDAR_EVENT_UPDATED,
+        user_id=current_user.id,
+        event_id=event.id,
+        override=user_is_override(current_user),
+        details={"moved": moved, "attendees": new_list is not None},
+    )
+    await prep_notifications.notify_prep_change(
+        db,
+        actor=current_user,
+        prep=prep,
+        event=event,
+        kind="moved" if moved else "attendees",
+        previous_start=previous_start,
+    )
+    await db.commit()
+    return await _prep_out(db, prep, event, current_user)
+
+
+@router.post("/interview-cycle/preps/{event_id}/cancel", response_model=PrepOut)
+async def cancel_prep(
+    event_id: int,
+    body: PrepCancel,
+    current_user: CalendarWriteAccess,
+    db: AsyncSession = Depends(get_db),
+) -> PrepOut:
+    """Odwołanie prepu przez kogoś z pary — kandydat dostaje odwołanie od
+    prowadzącego. Drugi raz to samo = bez zmian."""
+    prep, event, _job = await _editable(db, event_id, current_user)
+    if event.status == EventStatus.cancelled:
+        return await _prep_out(db, prep, event, current_user)
+    prep_meetings.ensure_prep_open(event)
+    outlook = await prep_meetings.cancel_prep(prep, event, body.comment)
+    record_calendar_audit(
+        db,
+        action=CALENDAR_EVENT_CANCELLED,
+        user_id=current_user.id,
+        event_id=event.id,
+        override=user_is_override(current_user),
+        details={"outlook": outlook},
+    )
+    await prep_notifications.notify_prep_change(
+        db, actor=current_user, prep=prep, event=event, kind="cancelled"
+    )
+    await db.commit()
+    return await _prep_out(db, prep, event, current_user)
 
 
 @router.get(

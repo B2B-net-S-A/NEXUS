@@ -198,9 +198,18 @@ def people_payload(people: TeamPeople) -> dict:
     rows.sort(key=lambda row: (-row["placements"], -row["verifications"], row["name"]))
     totals = people.current.totals
     prev_totals = people.previous.totals
+    # Wiersz „Bez osoby z zasługą” (17.10.2026): kamienie, które nie liczą się
+    # nikomu. Bez niego suma wierszy osób nie zgadzała się z sumą firmy.
+    unattributed = dict(totals.unattributed_by_stage)
     return {
         "rows": rows,
         "outside_scope": outside_row,
+        "unattributed": {
+            "verifications": unattributed.get("verified", 0),
+            "recommendations": unattributed.get("cv_sent", 0),
+            "interviews": unattributed.get("client_interview", 0),
+            "placements": unattributed.get("hired", 0),
+        },
         "workdays": people.workdays,
         "precision_target_pct": people.current.precision_target_pct,
         "low_precision_pct": LOW_PRECISION_PCT,

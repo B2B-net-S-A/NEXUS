@@ -306,6 +306,64 @@ def rate_summary(candidate: Any) -> dict[str, Any]:
     }
 
 
+# ── „Deklarował od” przy żywej umowie (R4, 17.10.2026) ──────────────────────
+
+
+def declared_from(
+    observations: Iterable[RateObservation],
+    excluded_keys: Iterable[str],
+    today: date,
+    *,
+    contract_hourly: Decimal,
+) -> Optional[RateFrom]:
+    """Najniższa zadeklarowana stawka (ta sama reguła co „Stawka od”, bez umów).
+
+    ``None``, gdy nie jest niższa niż stawka z umowy albo pochodzi sprzed
+    18 miesięcy — wtedy „Stawka u nas” mówi wszystko.
+    """
+    result = compute(
+        [o for o in observations if o.source != CONTRACT_SOURCE], excluded_keys, today
+    )
+    if result.amount is None or result.stale or result.amount >= contract_hourly:
+        return None
+    return result
+
+
+async def declared_rate_from(db: AsyncSession, candidate: Any) -> dict[str, Any]:
+    """Pola ``rate_declared_from_*`` dla osoby z żywą umową, inaczej ``{}``.
+
+    Liczone przy odczycie jednej osoby (profil, formularz screeningu), nie
+    zapisywane: dotyczy tylko osób ze „Stawką u nas”. Awaria odczytu nie
+    zabiera profilu — savepoint i wpis w logu.
+    """
+    summary = rate_summary(candidate)
+    contract = summary.get("rate_from_hourly")
+    if summary.get("rate_from_source") != CONTRACT_SOURCE or contract is None:
+        return {}
+    today = business_today()
+    try:
+        async with db.begin_nested():
+            items = (
+                await collect(db, [candidate.id], today=today, with_contracts=False)
+            ).get(candidate.id, [])
+            decisions = await load_decisions(db, [candidate.id])
+    except Exception:  # noqa: BLE001 — dodatek, nigdy warunek odczytu profilu
+        logger.warning(
+            "declared rate failed for candidate=%s", candidate.id, exc_info=True
+        )
+        return {}
+    excluded = active_exclusions(items, decisions.get(candidate.id, []))
+    result = declared_from(
+        items, set(excluded), today, contract_hourly=Decimal(str(contract))
+    )
+    if result is None:
+        return {}
+    return {
+        "rate_declared_from_hourly": result.amount,
+        "rate_declared_from_at": result.at,
+    }
+
+
 async def this_job_rates(
     db: AsyncSession, job_id: int, candidate_ids: Iterable[int]
 ) -> dict[int, dict[str, Any]]:

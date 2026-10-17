@@ -193,6 +193,18 @@ class NotificationType(str, enum.Enum):
     # na dobę przed rozmową u klienta. Do organizatora prepu i Head of
     # Recruitment; related_entity=(calendar_event, id) — jeden wpis na sprawę.
     prep_attention = "prep_attention"
+    # 0453 (17.10.2026, D5–D8): odpowiedź kandydata na zaproszenie na prep
+    # (przyjął / może — sam licznik; odmówił albo proponuje inny termin —
+    # dymek), zmiana prepu przez kogoś z pary (`prep_changed_yours` do
+    # prowadzącego, w którego kalendarzu stoi spotkanie — dymek; reszta pary
+    # `prep_changed` — licznik) i brak odpowiedzi na dobę przed prepem.
+    # related_entity=(<rodzaj zdarzenia>, calendar_event.id); zmiany prepu
+    # (`prep_changed*`) bez id — dzienny dedup zjadałby drugą zmianę w dniu.
+    prep_candidate_response = "prep_candidate_response"
+    prep_candidate_declined = "prep_candidate_declined"
+    prep_changed = "prep_changed"
+    prep_changed_yours = "prep_changed_yours"
+    prep_no_response = "prep_no_response"
     # 0371: automat przydziału requestów — rano JEDEN wpis na osobę („Od dziś:
     # X. Zwolnione: Y (champion)”); related_entity=(user, id), dedup dobowy.
     # Od 02.10.2026 także od razu po akceptacji propozycji: „Nowy request do
@@ -254,6 +266,11 @@ class NotificationType(str, enum.Enum):
     # zaznaczyła; related_entity=(candidate_stage, id). Bez maila,
     # kategoria „Akceptacje klienta” nie do wyciszenia.
     client_accepted = "client_accepted"
+    # 0452: ręczne „Potwierdź zatrudnienie”, a w Kontraktach nie ma umowy osoby
+    # u klienta rekrutacji — „Pracuje u nas” liczy się wyłącznie z umowy
+    # (17.10.2026). Do Delivery Leadów klienta, raz na parę osoba–rekrutacja;
+    # related_entity=(candidate_stage, id). `services/hire_contract_reminder.py`.
+    hire_missing_contract = "hire_missing_contract"
     # 0454: „Ludzie w NEXUSIE” — moduły kadrowe. Osobiste (odbiorcę wybiera
     # reguła modułu, nie sekcja): urlopy, timesheety, premie i stawki,
     # wejście/odejście, sprawy administracja@, sprzęt. Opieka nad konsultantem

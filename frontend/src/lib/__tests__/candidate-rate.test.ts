@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  declaredFromText,
   hourlyText,
   rateFromContextLine,
   rateFromText,
@@ -98,5 +99,26 @@ describe("list rate cell", () => {
         expected_rate_currency: "EUR",
       }),
     ).toBe("40 EUR/h");
+  });
+});
+
+describe("declaredFromText — „zadeklarowana od” przy żywej umowie (R4, 17.10.2026)", () => {
+  it("umowa i niższa deklaracja — linia z miesiącem", () => {
+    expect(
+      declaredFromText({
+        rate_from_hourly: "150.00",
+        rate_from_source: "contract",
+        rate_declared_from_hourly: "90.00",
+        rate_declared_from_at: "2026-10-08T14:30:45Z",
+      }),
+    ).toBe("zadeklarowana od 90 zł/h (10.2026)");
+  });
+
+  it("bez umowy, bez deklaracji albo deklaracja nie niższa — nic", () => {
+    expect(declaredFromText({ rate_from_hourly: "90", rate_from_source: "card", rate_declared_from_hourly: "80" })).toBeNull();
+    expect(declaredFromText({ rate_from_hourly: "150", rate_from_source: "contract" })).toBeNull();
+    expect(
+      declaredFromText({ rate_from_hourly: "150", rate_from_source: "contract", rate_declared_from_hourly: "150" }),
+    ).toBeNull();
   });
 });
