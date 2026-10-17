@@ -26,9 +26,10 @@ Skoro nie da się wskazać Coolify commitu, pilnujemy obu końców budowy:
     i trzeba go wycofać.
 
 ``select`` — okno ciszy (PROD-04, audyt 22.09.2026; dzień od 14.10.2026)
-    Od 14.10.2026 (decyzja Artura) wdrożenia idą tylko 19:00–07:00 czasu
-    warszawskiego: w dzień wszyscy pracują w systemie, a przebudowa to ~2 min
-    przerwy. Okno ``--freeze-window`` (w deploy.yml domyślnie ``7-19``):
+    Od 14.10.2026 (decyzja Artura) wdrożenia idą pon–pt tylko 19:00–07:00
+    czasu warszawskiego: w dzień wszyscy pracują w systemie, a przebudowa to
+    ~2 min przerwy. W sobotę i niedzielę okna nie ma (17.10.2026) — wdrażamy
+    o każdej porze. Okno ``--freeze-window`` (w deploy.yml domyślnie ``7-19``):
     automatyczny deploy (``workflow_run`` i ``schedule``) jest odraczany —
     ``head_status=night_freeze``, ``defer=true``, kod 0 — a zaległe merge'e
     wdraża wieczorny ``schedule``. Ręczny ``workflow_dispatch`` w oknie kończy
@@ -68,6 +69,8 @@ GREEN = "success"
 PENDING = {"in_progress", "missing"}
 FREEZE_STATUS = "night_freeze"
 DEFAULT_TZ = "Europe/Warsaw"
+# ``datetime.weekday()``: 5 = sobota, 6 = niedziela — w weekend okna ciszy nie ma.
+WEEKEND_FROM = 5
 # Bramka „CI Gate” kończy się w ~2 min, a kolejka merge'ów stempluje commit
 # ~10–15 min przed wejściem na maina. Godzina bez żadnego przebiegu bramki to
 # już nie „zaraz ruszy”, tylko brak bramki (np. push tokenem Actions).
@@ -149,14 +152,23 @@ def parse_freeze_window(window: Optional[str]) -> Optional[tuple[int, int]]:
 
 
 def in_freeze(now_utc: datetime, window: Optional[str], tz: str = DEFAULT_TZ) -> bool:
-    """Czy ``now_utc`` wypada w oknie ciszy (godziny czasu lokalnego ``tz``)."""
+    """Czy ``now_utc`` wypada w oknie ciszy (godziny czasu lokalnego ``tz``).
+
+    Okno obowiązuje tylko pon–pt (doprecyzowanie Artura 17.10.2026): w sobotę
+    i niedzielę nikt nie pracuje w systemie, więc wdrażamy o każdej porze.
+    Dzień liczymy po dacie lokalnej chwili ``now`` — przy oknie przez północ
+    niedziela 23:30 jest jeszcze weekendem, a poniedziałek 00:30 już nie.
+    """
     bounds = parse_freeze_window(window)
     if bounds is None:
         return False
     start, end = bounds
     if now_utc.tzinfo is None:
         now_utc = now_utc.replace(tzinfo=timezone.utc)
-    hour = now_utc.astimezone(ZoneInfo(tz)).hour
+    local = now_utc.astimezone(ZoneInfo(tz))
+    if local.weekday() >= WEEKEND_FROM:
+        return False
+    hour = local.hour
     if start < end:
         return start <= hour < end
     return hour >= start or hour < end
@@ -289,7 +301,8 @@ def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
     select.add_argument(
         "--freeze-window",
         default="",
-        help="okno ciszy deployu w godzinach czasu warszawskiego, np. 7-19 (pusty = brak)",
+        help="okno ciszy deployu pon–pt w godzinach czasu warszawskiego, np. 7-19 "
+        "(pusty = brak; w weekend okna nie ma)",
     )
     select.add_argument(
         "--emergency",
@@ -364,8 +377,9 @@ def _run_select(
             if manual:
                 print(
                     f"::error::Okno ciszy {args.freeze_window} (czas {DEFAULT_TZ}): "
-                    "wdrożenia tylko 19:00–07:00. Uruchom ponownie po 19:00 albo — "
-                    "wyłącznie na polecenie Artura — z emergency=true i powodem.",
+                    "w dni robocze wdrożenia tylko 19:00–07:00. Uruchom ponownie "
+                    "po 19:00 albo — wyłącznie na polecenie Artura — z emergency=true "
+                    "i powodem.",
                     file=sys.stderr,
                 )
                 return 1
@@ -477,6 +491,9 @@ def window_closed_at(now_utc: datetime, window: str, tz: str = DEFAULT_TZ) -> da
     start = local.replace(hour=bounds[0], minute=0, second=0, microsecond=0)
     if start > local:  # okno przez północ, np. 22-6 o 03:00
         start = start - timedelta(days=1)
+        if start.weekday() >= WEEKEND_FROM:
+            # Niedzielny wieczór był bez okna — cisza ruszyła o północy.
+            start = local.replace(hour=0, minute=0, second=0, microsecond=0)
     return start.astimezone(timezone.utc)
 
 
