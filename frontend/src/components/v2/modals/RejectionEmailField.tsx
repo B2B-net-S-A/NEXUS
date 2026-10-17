@@ -229,8 +229,6 @@ export function RejectionEmailField({
     : "Powiadomienie e-mail do kandydatów";
   const nameOf = (candidateId: number | undefined) =>
     preview?.people.find((p) => p.candidateId === candidateId)?.name ?? null;
-  const firstName = nameOf(eligible[0]?.candidate_id);
-  const shortName = firstName?.split(" ")[0] ?? "osoby";
 
   // Starszy serwer (albo atrapa) bez `samples` — jedna treść z pól głównych.
   const samples: RejectionEmailPreviewSample[] = data?.samples?.length
@@ -400,7 +398,7 @@ export function RejectionEmailField({
                       />
                       <span>
                         <span className="font-medium">
-                          Dopisz pozostałe rekrutacje {shortName} ({others.length})
+                          Dopisz pozostałe rekrutacje tej osoby ({others.length})
                         </span>
                         <span className="block text-xs text-muted-foreground">
                           {others.map(otherProcessLine).join(" — ")}

@@ -556,7 +556,7 @@ describe("RejectionV2 — podgląd maila odrzucenia (13.10.2026)", () => {
     expect(onConfirm.mock.calls[0][7]).toBeNull();
 
     // Odznaczony dopisek: nietknięte pole dostaje zakończenie, serwer — `false`.
-    fireEvent.click(screen.getByRole("checkbox", { name: /Dopisz pozostałe rekrutacje Anna/ }));
+    fireEvent.click(screen.getByRole("checkbox", { name: /Dopisz pozostałe rekrutacje tej osoby/ }));
     expect(body.value).toBe(`${MAIN}\n\n${CLOSING}`);
     expect(screen.queryByTestId("rejection-email-other-processes")).toBeNull();
     expect(screen.queryByText("Zmieniona ręcznie")).toBeNull();
