@@ -18,6 +18,11 @@ kategorii osoby (`user_can_receive_notification`) i jej własne wyłączniki
 maili (`email_opted_out`). Powiadomienie starsze niż
 `MAX_AGE` nie idzie mailem — po dniu przerwy w wysyłce mail byłby już tylko
 przypomnieniem o rzeczy załatwionej.
+
+Wiersz, którego odbiorca nie dostaje (wyciszona kategoria, brak sekcji),
+zostaje bez rezerwacji do `MAX_AGE`. Przebieg idzie wtedy dalej kolejnymi
+stronami (kursor po `created_at`, `id`), aż spróbuje `BATCH` wysyłek —
+inaczej 50 takich wierszy zatrzymywało maile wszystkich na dobę (17.10.2026).
 """
 
 from __future__ import annotations
@@ -26,7 +31,7 @@ import asyncio
 import logging
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import and_, func, not_, or_, select, update
+from sqlalchemy import and_, func, not_, or_, select, tuple_, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -59,6 +64,9 @@ logger = logging.getLogger(__name__)
 LOOP_SLEEP_SECONDS = 60
 MAX_AGE = timedelta(hours=24)
 BATCH = 50
+# Ile stron po `BATCH` przejrzeć w jednym przebiegu, zanim spróbuje się
+# `BATCH` wysyłek — górna granica pracy przy wielu wierszach bez odbiorcy.
+MAX_PAGES = 20
 _CLAIM_STALE_MIN = 15
 
 
@@ -137,7 +145,12 @@ def _can_receive(user: User, notif: Notification, kind: str) -> bool:
     )
 
 
-async def _due(db: AsyncSession, kinds: list[str], cutoffs: dict) -> list:
+async def _due(
+    db: AsyncSession,
+    kinds: list[str],
+    cutoffs: dict,
+    after: tuple[datetime, int] | None = None,
+) -> list:
     now = datetime.now(timezone.utc)
     stale_cutoff = now - timedelta(minutes=_CLAIM_STALE_MIN)
     per_kind = [
@@ -149,7 +162,7 @@ async def _due(db: AsyncSession, kinds: list[str], cutoffs: dict) -> list:
         )
         for kind in kinds
     ]
-    rows = await db.execute(
+    query = (
         select(Notification, User)
         .join(User, User.id == Notification.user_id)
         .where(or_(*per_kind))
@@ -162,10 +175,14 @@ async def _due(db: AsyncSession, kinds: list[str], cutoffs: dict) -> list:
                 Notification.email_send_started_at <= stale_cutoff,
             )
         )
-        .order_by(Notification.created_at.asc())
+        .order_by(Notification.created_at.asc(), Notification.id.asc())
         .limit(BATCH)
     )
-    return rows.all()
+    if after is not None:
+        query = query.where(
+            tuple_(Notification.created_at, Notification.id) > tuple_(*after)
+        )
+    return (await db.execute(query)).all()
 
 
 async def dispatch(db: AsyncSession) -> int:
@@ -175,80 +192,102 @@ async def dispatch(db: AsyncSession) -> int:
     if not kinds or not email_channel_enabled():
         return 0
     cutoffs = {k: policy.cutoff_for(k) for k in kinds}
-    pairs = await _due(db, kinds, cutoffs)
-    if not pairs:
-        return 0
-    await resolve_effective_section_access_for_users(db, [u for _, u in pairs])
 
-    sent = 0
-    for notif, user in pairs:
-        kind = immediate_email_kind(
-            notif.notification_type,
-            title=notif.title,
-            related_entity_type=notif.related_entity_type,
-        )
-        if kind not in kinds or not _can_receive(user, notif, kind):
-            # Bez rezerwacji: wiersz wypadnie z kolejki po `MAX_AGE`.
-            continue
-        if not await _claim(db, notif.id):
-            continue
-        # Rola, sekcje i wyciszenia mogły się zmienić między odczytem a rezerwacją.
-        await db.refresh(
-            user,
-            attribute_names=[
-                "role",
-                "roles",
-                "is_active",
-                "muted_notification_categories",
-                "email_opt_outs",
-            ],
-        )
-        await resolve_effective_section_access(db, user)
-        if not _can_receive(user, notif, kind):
-            await _set(db, notif.id, email_send_started_at=None)
-            continue
-
-        title, message = notif.title, notif.message
-        if kind == HR_MAIL_KIND:
-            # Mail wychodzi poza aplikację: bez rodzaju nieobecności i kwot (D6).
-            title, message = mail_text(notif.notification_type, title, message)
-        subject, text_body, html_body = render_notification_email(
-            recipient_name=user.name or user.email,
-            title=title,
-            message=message,
-            deep_link_path=notif.link or "/dashboard",
-        )
-        to_addr = user.email
-        created_at = notif.created_at
-
-        def _send(kind=kind, to_addr=to_addr, created_at=created_at) -> bool | None:
-            # Flagi wyniku nadawcy żyją w wątku wysyłki — liczymy je tutaj.
-            from app.services.email import send_email
-
-            return app_mail_send_outcome(
-                guarded_send(
-                    kind, created_at, send_email, to_addr, subject, text_body, html_body
-                )
-            )
-
-        ok: bool | None = False
-        try:
-            ok = await asyncio.to_thread(_send)
-        except Exception as exc:  # noqa: BLE001
-            logger.warning(
-                "notification_email_outbox: wysyłka %s notif=%d: %s",
-                kind,
-                notif.id,
-                type(exc).__name__,
-            )
-        if ok is DELIVERY_UNCERTAIN:
-            await _set(db, notif.id, email_delivery_uncertain=True)
-        elif ok:
-            await _set(db, notif.id, email_sent_at=func.now())
-            sent += 1
-        else:
-            await _set(db, notif.id, email_send_started_at=None)
+    sent = attempted = 0
+    after: tuple[datetime, int] | None = None
+    for _ in range(MAX_PAGES):
+        pairs = await _due(db, kinds, cutoffs, after)
+        if not pairs:
+            break
+        last = pairs[-1][0]
+        after = (last.created_at, last.id)
+        await resolve_effective_section_access_for_users(db, [u for _, u in pairs])
+        for notif, user in pairs:
+            outcome = await _deliver(db, notif, user, kinds)
+            if outcome is None:
+                continue
+            attempted += 1
+            sent += int(outcome)
+            if attempted >= BATCH:
+                return sent
+        if len(pairs) < BATCH:
+            break
     return sent
+
+
+async def _deliver(
+    db: AsyncSession, notif: Notification, user: User, kinds: list[str]
+) -> bool | None:
+    """``True`` wysłany, ``False`` próba bez wysyłki, ``None`` bez próby."""
+
+    kind = immediate_email_kind(
+        notif.notification_type,
+        title=notif.title,
+        related_entity_type=notif.related_entity_type,
+    )
+    if kind not in kinds or not _can_receive(user, notif, kind):
+        # Bez rezerwacji: wiersz wypadnie z kolejki po `MAX_AGE`, a przebieg
+        # idzie dalej kursorem, więc nie zajmuje miejsca innym.
+        return None
+    if not await _claim(db, notif.id):
+        return None
+    # Rola, sekcje i wyciszenia mogły się zmienić między odczytem a rezerwacją.
+    await db.refresh(
+        user,
+        attribute_names=[
+            "role",
+            "roles",
+            "is_active",
+            "muted_notification_categories",
+            "email_opt_outs",
+        ],
+    )
+    await resolve_effective_section_access(db, user)
+    if not _can_receive(user, notif, kind):
+        await _set(db, notif.id, email_send_started_at=None)
+        return None
+
+    title, message = notif.title, notif.message
+    if kind == HR_MAIL_KIND:
+        # Mail wychodzi poza aplikację: bez rodzaju nieobecności i kwot (D6).
+        title, message = mail_text(notif.notification_type, title, message)
+    subject, text_body, html_body = render_notification_email(
+        recipient_name=user.name or user.email,
+        title=title,
+        message=message,
+        deep_link_path=notif.link or "/dashboard",
+    )
+    to_addr = user.email
+    created_at = notif.created_at
+
+    def _send(kind=kind, to_addr=to_addr, created_at=created_at) -> bool | None:
+        # Flagi wyniku nadawcy żyją w wątku wysyłki — liczymy je tutaj.
+        from app.services.email import send_email
+
+        return app_mail_send_outcome(
+            guarded_send(
+                kind, created_at, send_email, to_addr, subject, text_body, html_body
+            )
+        )
+
+    ok: bool | None = False
+    try:
+        ok = await asyncio.to_thread(_send)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "notification_email_outbox: wysyłka %s notif=%d: %s",
+            kind,
+            notif.id,
+            type(exc).__name__,
+        )
+    if ok is DELIVERY_UNCERTAIN:
+        await _set(db, notif.id, email_delivery_uncertain=True)
+        return False
+    if ok:
+        await _set(db, notif.id, email_sent_at=func.now())
+        return True
+    await _set(db, notif.id, email_send_started_at=None)
+    return False
 
 
 async def run_once() -> int:

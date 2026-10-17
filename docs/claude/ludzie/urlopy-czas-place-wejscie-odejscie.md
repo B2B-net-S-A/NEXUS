@@ -42,6 +42,12 @@ decyduje o słowach i o przebiegu nieobecności.
   Rodzaj „vacation” osoby na B2B/zleceniu ma etykietę „Przerwa w świadczeniu
   usług” / „Nieobecność” (`leave_policy.type_label`). Autoodpowiedź M365 i
   wydarzenie w kalendarzu mówią „poza biurem” — słowa „urlop” tam nie ma.
+- **Przełożony / koordynator = jedna funkcja** `recipients.supervisor_of`
+  (urlop, czas, zadania; 17.10.2026): przełożony z kartoteki z aktywnym kontem
+  i statusem innym niż `exited` → head pionu → Kadry (bez adminów). Head pionu
+  akceptuje wnioski, timesheety i wpisy za osoby swojego pionu bez żywego
+  przełożonego. Etykieta „akceptuje” w podglądzie wniosku i w „Moim miesiącu”
+  liczy się tą samą regułą — nie dopisuj drugiej.
 - **Zgłoszenie zamiast wniosku** (D5, Artur 17.10): na B2B i zleceniu własna
   nieobecność jest od razu `approved` bez decydującego (`decided_by` NULL),
   M365 i godziny od razu. Informacja (`hr_absence_reported`, bez rodzaju) idzie
@@ -190,6 +196,11 @@ decyduje o słowach i o przebiegu nieobecności.
   Pobranie PDF przy rozjeździe sumy = 409.
 - `payroll_locked` (zamknięty miesiąc płac) blokuje każdą zmianę timesheetu,
   także nowo zakładanego (`ensure_timesheet` czyta `payroll_periods.is_closed`).
+- **Odczyt bez zapisu** (17.10.2026): `GET` „Mojego miesiąca” niczego nie
+  zapisuje. Bez timesheetu widok pokazuje szkic wirtualny (z auto-wpisami
+  płatnego urlopu), a wiersz `timesheets` zakłada pierwszy zapis
+  (`time_entries.open_draft`: wpis, „Wypełnij miesiąc”, wysyłka). Wysyłka
+  w zamkniętym miesiącu bez timesheetu = 409.
 - **Potwierdzenie godzin na zleceniu** (D7, art. 8b/8c): przyjęty raport osoby
   na zleceniu po terminie wypłaty (koniec miesiąca następnego) zostaje bez zmian
   3 lata (`time_retention.py`): cofnięcie przyjęcia i usunięcie wpisu = 409,

@@ -39,7 +39,7 @@ from app.services.hr.time_entries import (
     leave_map,
     planned_leave_paid,
 )
-from app.services.hr_foundation_schema import EMPLOYMENT_STATUSES
+from app.services.hr_foundation_schema import WORKING_STATUSES
 from app.services.hr_time_schema import ATTENDANCE_STATUSES, LOCATIONS
 
 NEUTRAL_ABSENCE = "Nieobecność"
@@ -47,10 +47,7 @@ MAX_NOTE = 500
 
 #: Statusy zatrudnienia (``employee_profiles.employment_status``), w których
 #: osoba prowadzi timesheet — przed startem (``pending``) i po odejściu nie.
-# TODO(koordynator): po dodaniu ``EmploymentStatus`` (F1a, hr_foundation_schema)
-# zamienić na krotkę członków enuma.
-TIMESHEET_EMPLOYMENT_STATUSES: tuple[str, ...] = ("onboarding", "active", "offboarding")
-assert set(TIMESHEET_EMPLOYMENT_STATUSES) < set(EMPLOYMENT_STATUSES)
+TIMESHEET_EMPLOYMENT_STATUSES = WORKING_STATUSES
 
 
 def _leave_payload(

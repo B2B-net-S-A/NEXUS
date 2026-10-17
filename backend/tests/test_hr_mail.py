@@ -386,16 +386,6 @@ async def test_outbox_mails_hr_events_without_absence_kind_or_amounts(monkeypatc
             await db.commit()
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "Błąd kolejki maili (raport F1b, 17.10.2026): wiersz, którego odbiorca "
-        "nie dostaje (wyciszona kategoria), zostaje w kolejce bez rezerwacji do "
-        "24 h, a `_due` bierze co przebieg te same najstarsze 50 — 50 takich "
-        "wierszy zatrzymuje maile wszystkich. Poprawka w "
-        "app/tasks/notification_email_outbox.py; po niej zdjąć xfail."
-    ),
-)
 @pytest.mark.asyncio
 async def test_rows_nobody_receives_do_not_block_the_mail_queue(monkeypatch):
     async with AsyncSessionLocal() as db:
