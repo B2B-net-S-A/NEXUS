@@ -111,11 +111,65 @@ async def cancel_event(upn: str, graph_event_id: str, comment: str) -> str:
     return "cancelled"
 
 
-async def get_event(upn: str, graph_event_id: str) -> Optional[dict]:
-    """Termin i stan wydarzenia z kalendarza organizatora (czas w UTC).
+@dataclass(frozen=True)
+class AttendeeResponse:
+    """Odpowiedź zaproszonego z kalendarza organizatora (``attendees[].status``).
 
-    Zwraca ``{"start", "end", "isCancelled", "join_url"}`` (czasy ze strefą).
-    404 leci wyżej — wołający traktuje je jak odwołanie.
+    ``response`` jak w Graphie: none, organizer, tentativelyAccepted, accepted,
+    declined, notResponded. ``proposed_*`` — „Zaproponuj nowy termin” (UTC).
+    """
+
+    email: str
+    response: str
+    time: Optional[datetime] = None
+    proposed_start: Optional[datetime] = None
+    proposed_end: Optional[datetime] = None
+
+
+def _graph_utc(raw: object) -> Optional[datetime]:
+    from app.services.m365.calendar import _parse_iso_utc
+
+    if not isinstance(raw, str) or not raw:
+        return None
+    try:
+        parsed = _parse_iso_utc(raw)
+    except ValueError:
+        return None
+    # Graph oddaje „0001-01-01T00:00:00Z”, gdy odpowiedzi nie było.
+    return parsed if parsed.year >= 2000 else None
+
+
+def parse_attendees(raw: object) -> list[AttendeeResponse]:
+    """Czyste: ``attendees`` z Grapha → odpowiedzi (adres małymi literami)."""
+    out: list[AttendeeResponse] = []
+    for item in raw if isinstance(raw, list) else []:
+        if not isinstance(item, dict):
+            continue
+        address = ((item.get("emailAddress") or {}).get("address") or "").strip()
+        if not address:
+            continue
+        status = item.get("status") or {}
+        proposed = item.get("proposedNewTime") or {}
+        start = _graph_utc((proposed.get("start") or {}).get("dateTime"))
+        end = _graph_utc((proposed.get("end") or {}).get("dateTime"))
+        out.append(
+            AttendeeResponse(
+                email=address.lower(),
+                response=str(status.get("response") or "none"),
+                time=_graph_utc(status.get("time")),
+                proposed_start=start if start and end else None,
+                proposed_end=end if start and end else None,
+            )
+        )
+    return out
+
+
+async def get_event(upn: str, graph_event_id: str) -> Optional[dict]:
+    """Termin, stan i odpowiedzi zaproszonych z kalendarza organizatora (UTC).
+
+    Zwraca ``{"start", "end", "isCancelled", "join_url", "attendees"}`` (czasy
+    ze strefą, ``attendees`` — lista ``AttendeeResponse``). 404 leci wyżej —
+    wołający traktuje je jak odwołanie.
     """
     from app.services.m365.calendar import _parse_iso_utc
 
@@ -123,7 +177,7 @@ async def get_event(upn: str, graph_event_id: str) -> Optional[dict]:
         data = await gc._request(
             "GET",
             f"{_user(upn)}/events/{graph_event_id}",
-            params={"$select": "start,end,isCancelled,onlineMeeting"},
+            params={"$select": "start,end,isCancelled,onlineMeeting,attendees"},
             headers={"Prefer": 'outlook.timezone="UTC"'},
         )
     if not isinstance(data, dict):
@@ -132,6 +186,7 @@ async def get_event(upn: str, graph_event_id: str) -> Optional[dict]:
     out: dict = {
         "isCancelled": bool(data.get("isCancelled")),
         "join_url": online.get("joinUrl") if isinstance(online, dict) else None,
+        "attendees": parse_attendees(data.get("attendees")),
     }
     for key in ("start", "end"):
         raw = (data.get(key) or {}).get("dateTime")

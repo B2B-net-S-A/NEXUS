@@ -54,7 +54,12 @@ from app.models.client import Client
 from app.models.job import Job
 from app.models.prep_meeting import PrepMeeting, PrepReview, PrepTranscript
 from app.models.user import User
-from app.services import interview_slots, prep_invitation, prep_meetings
+from app.services import (
+    interview_slots,
+    prep_invitation,
+    prep_meetings,
+    prep_notifications,
+)
 from app.services.job_membership import list_job_member_ids
 
 logger = logging.getLogger(__name__)
@@ -182,6 +187,12 @@ class PrepOut(BaseModel):
     attendees: list[AttendeeOut] = []
     status: str = "scheduled"
     can_edit: bool = False
+    # Odpowiedź kandydata z Outlooka prowadzącego (0453): none | accepted |
+    # tentative | declined; NULL = jeszcze nie sprawdzano.
+    candidate_response: Optional[str] = None
+    candidate_response_at: Optional[datetime] = None
+    proposed_start: Optional[datetime] = None
+    proposed_end: Optional[datetime] = None
     start: datetime
     end: Optional[datetime] = None
     online_meeting_url: Optional[str] = None
@@ -403,6 +414,14 @@ async def create_prep(
         client_name=await _client_name(db, job),
         extra_emails=[str(e) for e in body.attendee_emails],
     )
+    # Prep w cudzym kalendarzu albo dla kandydata innej osoby z pary (D6).
+    await prep_notifications.notify_prep_change(
+        db,
+        actor=current_user,
+        prep=created.prep,
+        event=created.event,
+        kind="scheduled",
+    )
     await db.commit()
     return await _prep_out(db, created.prep, created.event, current_user)
 
@@ -478,6 +497,10 @@ async def _prep_out(
         attendees=await _attendees_out(db, event, candidate_email),
         status=event.status.value if event.status is not None else "scheduled",
         can_edit=can_edit,
+        candidate_response=prep.candidate_response,
+        candidate_response_at=prep.candidate_response_at,
+        proposed_start=prep.proposed_start,
+        proposed_end=prep.proposed_end,
         start=event.start_time,
         end=event.end_time,
         online_meeting_url=event.online_meeting_url,
@@ -601,6 +624,14 @@ async def update_prep(
             override=user_is_override(current_user),
             details={"replaced_by": created.event.id, "reason": "organizer_changed"},
         )
+        await prep_notifications.notify_prep_change(
+            db,
+            actor=current_user,
+            prep=created.prep,
+            event=created.event,
+            kind="organizer",
+            previous_organizer_id=prep.organizer_user_id,
+        )
         await db.commit()
         return await _prep_out(db, created.prep, created.event, current_user)
 
@@ -624,6 +655,7 @@ async def update_prep(
         new_list = None
     if not moved and new_list is None:
         return await _prep_out(db, prep, event, current_user)
+    previous_start = event.start_time
     await prep_meetings.push_prep_update(
         prep,
         event,
@@ -638,6 +670,14 @@ async def update_prep(
         event_id=event.id,
         override=user_is_override(current_user),
         details={"moved": moved, "attendees": new_list is not None},
+    )
+    await prep_notifications.notify_prep_change(
+        db,
+        actor=current_user,
+        prep=prep,
+        event=event,
+        kind="moved" if moved else "attendees",
+        previous_start=previous_start,
     )
     await db.commit()
     return await _prep_out(db, prep, event, current_user)
@@ -664,6 +704,9 @@ async def cancel_prep(
         event_id=event.id,
         override=user_is_override(current_user),
         details={"outlook": outlook},
+    )
+    await prep_notifications.notify_prep_change(
+        db, actor=current_user, prep=prep, event=event, kind="cancelled"
     )
     await db.commit()
     return await _prep_out(db, prep, event, current_user)

@@ -715,10 +715,13 @@ async def update_event(
 
     await _reject_teams_meeting_relink(db, event, changes)
     outlook_fields = _outlook_changed_fields(event, changes)
+    previous_start = event.start_time
     if outlook_fields:
         await _push_outlook_changes(db, event, changes, outlook_fields)
     for field, value in changes.items():
         setattr(event, field, value)
+    if {"start_time", "end_time"} & set(outlook_fields):
+        await _notify_prep_moved(db, event, current_user, previous_start)
     if normalize_all_day_range:
         event.start_time, event.end_time = normalize_all_day(
             event.start_time, event.end_time
@@ -762,6 +765,32 @@ async def update_event(
     await db.commit()
     await db.refresh(event)
     return await _event_response(db, event, current_user)
+
+
+async def _notify_prep_moved(
+    db: AsyncSession, event: CalendarEvent, actor: User, previous_start
+) -> None:
+    """Prep przełożony z widoku Tydzień — ludzie pary dowiadują się jak przy
+    „Zmień prep” (0453, 17.10.2026), a odpowiedź kandydata wraca do „brak”,
+    bo Outlook zeruje ją przy nowym terminie."""
+    from app.services import prep_notifications
+    from app.services.prep_meetings import prep_for_event
+
+    prep = await prep_for_event(db, event.id)
+    if prep is None:
+        return
+    prep.candidate_response = "none"
+    prep.candidate_response_at = None
+    prep.proposed_start = None
+    prep.proposed_end = None
+    await prep_notifications.notify_prep_change(
+        db,
+        actor=actor,
+        prep=prep,
+        event=event,
+        kind="moved",
+        previous_start=previous_start,
+    )
 
 
 async def _reject_teams_meeting_relink(
@@ -1025,6 +1054,14 @@ async def cancel_event(
             ) from exc
         if prep.transcript_status == "waiting":
             prep.transcript_status = "cancelled"
+        from app.services import prep_notifications
+        from app.services.prep_meetings import prep_for_event
+
+        prep_row = await prep_for_event(db, event.id)
+        if prep_row is not None:
+            await prep_notifications.notify_prep_change(
+                db, actor=current_user, prep=prep_row, event=event, kind="cancelled"
+            )
     elif _is_outlook_event(event):
         conn = (
             await db.scalar(

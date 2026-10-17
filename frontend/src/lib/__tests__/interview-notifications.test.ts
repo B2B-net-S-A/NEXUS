@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   INTERVIEW_NOTIFICATION_TYPES,
+  QUIET_INTERVIEW_TYPES,
   isInterviewNotificationType,
   parseInterviewLink,
   safeMeetingUrl,
@@ -23,6 +24,16 @@ describe("typy kategorii „Rozmowy”", () => {
 
     expect(backend.length).toBeGreaterThan(0);
     expect([...INTERVIEW_NOTIFICATION_TYPES].sort()).toEqual([...backend].sort());
+  });
+
+  it("bez dymka tylko informacje o prepie bez ruchu (D6, 17.10.2026)", () => {
+    for (const type of QUIET_INTERVIEW_TYPES) {
+      expect(isInterviewNotificationType(type)).toBe(true);
+    }
+    // Odmowa / inny termin i zmiana we własnym kalendarzu — z dymkiem.
+    expect(QUIET_INTERVIEW_TYPES.has("prep_candidate_declined")).toBe(false);
+    expect(QUIET_INTERVIEW_TYPES.has("prep_changed_yours")).toBe(false);
+    expect(QUIET_INTERVIEW_TYPES.has("prep_attention")).toBe(false);
   });
 
   it("rozpoznaje typ po nazwie, a nie każde powiadomienie", () => {

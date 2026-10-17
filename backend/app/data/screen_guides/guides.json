@@ -451,7 +451,7 @@
       "Bez debriefu kandydat nie wyjdzie z kolumny „Rozmowa u klienta” na tablicy rekrutacji.",
       "Zmiana terminu wydarzenia z Outlooka idzie najpierw do Outlooka — bez połączonej skrzynki zapis zostanie odrzucony.",
     "Terminy od klienta przesuwają kandydata na „Rozmowę u klienta” tylko wtedy, gdy jego CV zostało już wysłane do klienta. Inaczej karta zostaje na swoim etapie — przesuń ją na tablicy rekrutacji.",
-      "Prep zmieniają prowadzący, Delivery Lead rekrutacji, rekruter kandydata i osoba, która go zaplanowała — kandydat dostaje aktualizację tego samego zaproszenia. Prep po rozmowie u klienta świeci na czerwono z „Przełóż”. Inny prowadzący = odwołanie i nowe zaproszenie."
+      "Prep zmieniają prowadzący, Delivery Lead rekrutacji, rekruter kandydata i osoba, która go zaplanowała — kandydat dostaje aktualizację tego samego zaproszenia. Prep po rozmowie u klienta świeci na czerwono z „Przełóż”. Inny prowadzący = odwołanie i nowe zaproszenie. Przy prepie widać odpowiedź kandydata z Outlooka; gdy proponuje inny termin, „Przyjmij termin” przekłada prep."
     ],
     "anchors": [
       {"id": "calendar.board", "label": "Tablica kroków", "describe": "Siedem kroków cyklu, kandydaci w kolumnach, zadania na kartach."},

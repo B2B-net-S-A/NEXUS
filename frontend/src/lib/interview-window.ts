@@ -432,6 +432,18 @@ export function buildInterviewWindow({
         }
         icon = "alert";
         break;
+      // 0453: odpowiedź kandydata i zmiany prepu — informacja, własny wiersz.
+      case "prep_candidate_declined":
+      case "prep_no_response":
+        icon = "alert";
+        break;
+      case "prep_candidate_response":
+        icon = "confirm";
+        break;
+      case "prep_changed":
+      case "prep_changed_yours":
+        icon = "video";
+        break;
       case "interview_scheduled": {
         // Po starcie wydarzenia przypomnienie nic już nie mówi. Wydarzenie
         // spoza agendy cyklu (screening, zwykła rozmowa, termin) nie ma tu

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { ArrowUpRight, Video } from "lucide-react";
 
 import { PrepEditButtons } from "@/components/calendar/cycle/PrepEditButtons";
+import { PrepResponseChip } from "@/components/calendar/cycle/PrepResponseChip";
 import {
   Sheet,
   SheetBody,
@@ -307,6 +308,7 @@ function PairEventRow({
               po rozmowie u klienta
             </span>
           ) : null}
+          {nexusPrepAhead ? <PrepResponseChip eventId={entry.event_id as number} /> : null}
         </div>
         <div className="mt-0.5 text-xs text-muted-foreground tabular-nums">
           {formatDayLabel(entry.start, now)} · {range}

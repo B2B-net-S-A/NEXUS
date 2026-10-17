@@ -86,6 +86,12 @@ export interface Prep {
   status?: "scheduled" | "completed" | "cancelled";
   /** Zmienić i odwołać mogą ludzie pary (prowadzący, DL, rekruter, planujący), HoR i admin. */
   can_edit?: boolean;
+  /** Odpowiedź kandydata z Outlooka prowadzącego (0453); `null` = nie sprawdzano. */
+  candidate_response?: "none" | "accepted" | "tentative" | "declined" | null;
+  candidate_response_at?: string | null;
+  /** Termin zaproponowany przez kandydata. */
+  proposed_start?: string | null;
+  proposed_end?: string | null;
   start: string;
   end: string | null;
   online_meeting_url: string | null;

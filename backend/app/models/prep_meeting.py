@@ -41,6 +41,7 @@ TRANSCRIPTION_SETUP_STATES = ("pending", "enabled", "failed", "disabled")
 TRANSCRIPT_STATES = ("waiting", "fetched", "missing", "cancelled", "forbidden", "error")
 REVIEW_STATUSES = ("ok", "unavailable")
 REVIEW_LEVELS = ("weak", "ok", "good")
+CANDIDATE_RESPONSES = ("none", "accepted", "tentative", "declined")
 
 
 class PrepMeeting(Base):
@@ -55,6 +56,11 @@ class PrepMeeting(Base):
             "transcript_status IN "
             "('waiting','fetched','missing','cancelled','forbidden','error')",
             name="ck_prep_meetings_transcript_status",
+        ),
+        CheckConstraint(
+            "candidate_response IS NULL OR candidate_response IN "
+            "('none','accepted','tentative','declined')",
+            name="ck_prep_meetings_candidate_response",
         ),
         Index("ix_prep_meetings_fetch_queue", "transcript_status", "next_fetch_at"),
         Index("ix_prep_meetings_pair", "candidate_id", "job_id"),
@@ -96,6 +102,18 @@ class PrepMeeting(Base):
     next_fetch_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     # Klasa błędu albo kod HTTP — nigdy treść odpowiedzi ani transkryptu.
     last_error: Mapped[Optional[str]] = mapped_column(String(120))
+    # Odpowiedź kandydata z Outlooka prowadzącego (0453, 17.10.2026, D5).
+    # NULL = jeszcze nie sprawdzano (prep sprzed 0453); 'none' = bez odpowiedzi.
+    candidate_response: Mapped[Optional[str]] = mapped_column(String(20))
+    candidate_response_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True)
+    )
+    # Inny termin zaproponowany przez kandydata („Zaproponuj nowy termin”).
+    proposed_start: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    proposed_end: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    outlook_checked_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True)
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
