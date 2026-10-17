@@ -12,7 +12,10 @@ import { apiErrorMessage } from "@/lib/api-error";
 import {
   M365_KIND_LABELS,
   M365_MODE_LABELS,
+  m365Day,
+  m365ProfileSyncView,
   m365ReasonLabel,
+  m365SecretView,
   m365StatusView,
   useM365Operations,
   useM365Status,
@@ -20,6 +23,7 @@ import {
   type M365Mode,
   type M365Operation,
   type M365QueueTab,
+  type M365Secret,
   type M365Status,
 } from "@/lib/api/hr-m365";
 import { CALM_HEAD, CALM_ROW, CALM_SUBLINE } from "@/lib/calm-table";
@@ -46,14 +50,6 @@ const EMPTY_TEXT: Record<M365QueueTab, string> = {
 
 const MAX_ATTEMPTS = 6;
 
-/** „2026-11-02” → „2.11.2026” bez przeliczania strefy. */
-function isoDay(value: string | null): string | null {
-  if (!value) return null;
-  const [year, month, day] = value.split("-");
-  if (!year || !month || !day) return value;
-  return `${Number(day)}.${month}.${year}`;
-}
-
 function warsawMoment(value: string | null): string {
   if (!value) return "—";
   return new Intl.DateTimeFormat("pl-PL", {
@@ -66,8 +62,8 @@ function warsawMoment(value: string | null): string {
 }
 
 function windowLabel(op: M365Operation): string | null {
-  const start = isoDay(op.window_start);
-  const end = isoDay(op.window_end);
+  const start = m365Day(op.window_start);
+  const end = m365Day(op.window_end);
   if (!start) return null;
   return end && end !== start ? `${start} – ${end}` : start;
 }
@@ -99,6 +95,8 @@ function requestPreview(op: M365Operation): string {
 
 function Facts({ status }: { status: M365Status }) {
   const reconcile = status.last_reconcile;
+  const profiles = m365ProfileSyncView(status.last_profile_sync);
+  const secret = m365SecretView(status.secret);
   return (
     <dl className="grid gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
       <div>
@@ -121,7 +119,7 @@ function Facts({ status }: { status: M365Status }) {
         <dt className="text-xs text-muted-foreground">Uzgadnianie o 7:00</dt>
         <dd>
           {reconcile
-            ? `${isoDay(reconcile.day)} · ${reconcile.status === "failed" ? "nie udało się" : reconcile.status === "done" ? "zakończone" : "w trakcie"}`
+            ? `${m365Day(reconcile.day)} · ${reconcile.status === "failed" ? "nie udało się" : reconcile.status === "done" ? "zakończone" : "w trakcie"}`
             : "Jeszcze się nie odbyło"}
         </dd>
       </div>
@@ -129,8 +127,61 @@ function Facts({ status }: { status: M365Status }) {
         <dt className="text-xs text-muted-foreground">Czekające na termin</dt>
         <dd className="tabular-nums">{status.deferred}</dd>
       </div>
+      <div>
+        <dt className="text-xs text-muted-foreground">
+          Profile z katalogu (stanowisko, dział, telefon)
+        </dt>
+        <dd>
+          <StatusDot tone={profiles.tone} note={profiles.note}>
+            {profiles.label}
+          </StatusDot>
+        </dd>
+      </div>
+      <div>
+        <dt className="text-xs text-muted-foreground">Sekret aplikacji</dt>
+        <dd>
+          <StatusDot tone={secret.tone} note={secret.note}>
+            {secret.label}
+          </StatusDot>
+        </dd>
+      </div>
     </dl>
   );
+}
+
+/** Ostrzeżenie nad kartą, gdy sekret wygasa w 30 dni, wygasł albo nie znamy terminu. */
+function SecretWarning({ secret }: { secret: M365Secret }) {
+  const day = m365Day(secret.expires_on);
+  if (secret.state === "expired") {
+    return (
+      <p role="alert" className="rounded-md bg-destructive-muted px-3 py-2 text-sm text-destructive-muted-foreground">
+        {secret.days_left === 0
+          ? `Sekret aplikacji wygasa dziś (${day}).`
+          : `Sekret aplikacji wygasł ${day}.`}{" "}
+        Autoodpowiedzi, przekierowania i czytnik administracja@ przestają działać — potrzebny
+        nowy sekret.
+      </p>
+    );
+  }
+  if (secret.state === "expiring") {
+    const when = secret.days_left === 1 ? "jutro" : `za ${secret.days_left} dni`;
+    return (
+      <p role="status" className="rounded-md bg-warning-muted px-3 py-2 text-sm text-warning-muted-foreground">
+        Sekret aplikacji wygasa {when} ({day}). Po tym terminie staną autoodpowiedzi,
+        przekierowania i czytnik administracja@ — admin ustawia nowy sekret i datę przez
+        „Coolify set env”.
+      </p>
+    );
+  }
+  if (secret.state === "missing") {
+    return (
+      <p role="status" className="rounded-md bg-warning-muted px-3 py-2 text-sm text-warning-muted-foreground">
+        Nie znamy daty wygaśnięcia sekretu aplikacji. Bez niej NEXUS nie ostrzeże przed
+        terminem — admin ustawia ją przy rotacji sekretu.
+      </p>
+    );
+  }
+  return null;
 }
 
 function OperationsTable({ tab }: { tab: M365QueueTab }) {
@@ -328,6 +379,7 @@ export function M365Card() {
         <p className="text-sm text-muted-foreground">Wczytywanie…</p>
       ) : (
         <>
+          <SecretWarning secret={data.secret} />
           <p className="text-sm text-foreground">{MODE_NOTE[data.mode]}</p>
           <Facts status={data} />
           <TabbedNav

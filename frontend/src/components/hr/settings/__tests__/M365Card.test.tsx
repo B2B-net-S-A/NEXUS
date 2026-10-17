@@ -27,7 +27,15 @@ const STATUS: M365Status = {
   allowlist: ["anna.przykladowa@example.com"],
   counts: { pending: 1, running: 0, failed: 1, simulated: 1, skipped: 0, done: 0 },
   deferred: 1,
-  last_reconcile: { day: "2026-10-16", status: "done", finished_at: null, counts: {} },
+  last_reconcile: { day: "2026-10-16", status: "done", finished_at: null, counts: {}, error: null },
+  last_profile_sync: {
+    day: "2026-10-17",
+    status: "done",
+    finished_at: null,
+    counts: { mode: "live", read: 12, updated: 2 },
+    error: null,
+  },
+  secret: { expires_on: "2027-04-30", days_left: 195, state: "ok" },
   custom_oof_mailboxes: [{ user_id: 7, name: "Ewa Własna", last_reconciled_at: null }],
   mailbox_errors: [{ user_id: 8, name: "Jan Przykładowy", last_error: "forbidden (403)" }],
 };
@@ -89,9 +97,9 @@ const QUEUES: Record<string, M365Operation[]> = {
   ],
 };
 
-function mockApi({ operationsFail = false } = {}) {
+function mockApi({ operationsFail = false, status = STATUS } = {}) {
   get.mockImplementation((url: string, config?: { params?: { status?: string } }) => {
-    if (url === "/api/hr/admin/m365/status") return Promise.resolve({ data: STATUS });
+    if (url === "/api/hr/admin/m365/status") return Promise.resolve({ data: status });
     if (operationsFail) {
       return Promise.reject({ response: { status: 500, data: { detail: "Błąd" } } });
     }
@@ -102,7 +110,7 @@ function mockApi({ operationsFail = false } = {}) {
 
 function renderCard() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  render(
+  return render(
     <QueryClientProvider client={client}>
       <M365Card />
     </QueryClientProvider>,
@@ -127,6 +135,34 @@ describe("M365Card", () => {
     expect(screen.getByText(/Czeka na pierwszy dzień urlopu/)).toBeInTheDocument();
     expect(screen.getByText("Ewa Własna")).toBeInTheDocument();
     expect(screen.getByText(/Brak uprawnień aplikacji w Exchange \(403\)/)).toBeInTheDocument();
+    expect(screen.getByText("17.10.2026 · zakończony")).toBeInTheDocument();
+    expect(screen.getByText("zaktualizowano 2 z 12")).toBeInTheDocument();
+    expect(screen.getByText("Ważny do 30.04.2027")).toBeInTheDocument();
+    expect(screen.queryByText(/Sekret aplikacji wygasa/)).not.toBeInTheDocument();
+  });
+
+  it("warns above the card when the secret expires within 30 days or has expired", async () => {
+    mockApi({
+      status: { ...STATUS, secret: { expires_on: "2026-10-29", days_left: 12, state: "expiring" } },
+    });
+    const { unmount } = renderCard();
+    expect(await screen.findByRole("status")).toHaveTextContent(
+      "Sekret aplikacji wygasa za 12 dni (29.10.2026).",
+    );
+    expect(screen.getByText("Wygasa za 12 dni")).toBeInTheDocument();
+    unmount();
+
+    mockApi({
+      status: {
+        ...STATUS,
+        last_profile_sync: { ...STATUS.last_profile_sync!, status: "failed", error: "forbidden" },
+        secret: { expires_on: "2026-10-10", days_left: -7, state: "expired" },
+      },
+    });
+    renderCard();
+    expect(await screen.findByText(/Sekret aplikacji wygasł 10.10.2026/)).toBeInTheDocument();
+    expect(screen.getByText("Wygasł")).toBeInTheDocument();
+    expect(screen.getByText("aplikacja nie ma uprawnienia User.Read.All")).toBeInTheDocument();
   });
 
   it("previews the exact simulated requests", async () => {

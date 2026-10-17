@@ -952,6 +952,7 @@ async def lifespan(app: FastAPI):
         "hr_workdays": asyncio.create_task(hr_loops.hr_workdays_loop()),
         "hr_m365_outbox": asyncio.create_task(hr_loops.hr_m365_outbox_loop()),
         "hr_m365_reconcile": asyncio.create_task(hr_loops.hr_m365_reconcile_loop()),
+        "hr_m365_daily": asyncio.create_task(hr_loops.hr_m365_daily_loop()),
         "hr_timesheet_reminder": asyncio.create_task(
             hr_loops.hr_timesheet_reminder_loop()
         ),

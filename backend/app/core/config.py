@@ -1541,6 +1541,11 @@ class Settings(BaseSettings):
     # Tenant = M365_MAIL_TENANT_ID (jak prepy w Teams).
     HR_M365_CLIENT_ID: str = ""
     HR_M365_CLIENT_SECRET: str = ""
+    # Data wygaśnięcia sekretu rejestracji „NEXUS Kadry” (RRRR-MM-DD, jak w Entra
+    # ID). Ustawiana razem z sekretem przez workflow „Coolify set env” przy każdej
+    # rotacji. Sonda `hr_m365` i alarm do adminów 30/14/7/1 dni przed terminem
+    # (`app/services/hr/m365/secret_expiry.py`); pusta albo błędna = „nie znamy”.
+    HR_M365_CLIENT_SECRET_EXPIRES_ON: Optional[date] = None
     # Sprzęt ↔ Intune (etap 4, D9): off = nic nie czytamy (do zgody administratora na
     # APPLICATION DeviceManagementManagedDevices.Read.All w rejestracji „NEXUS Kadry”);
     # simulate = fikcyjna lista urządzeń; live = Graph, raz na dobę od 05:30.
@@ -1626,6 +1631,28 @@ class Settings(BaseSettings):
     JOB_PORTAL_STATUS_SYNC_HOURS: int = 6
 
     TRAFFIT_SYNC_ENABLED: bool = False
+
+    @field_validator("HR_M365_CLIENT_SECRET_EXPIRES_ON", mode="before")
+    @classmethod
+    def _lenient_secret_expiry(cls, v: object) -> object:
+        """Literówka w dacie nie może zatrzymać startu backendu.
+
+        Pole jest informacyjne (sonda i alarm), więc pusta albo nieczytelna
+        wartość to „nie znamy daty” — sonda `hr_m365` mówi to sama.
+        """
+        if v is None or isinstance(v, date):
+            return v
+        text = str(v).strip()
+        if not text:
+            return None
+        try:
+            return date.fromisoformat(text)
+        except ValueError:
+            warnings.warn(
+                "HR_M365_CLIENT_SECRET_EXPIRES_ON nie jest datą RRRR-MM-DD — pomijam",
+                stacklevel=2,
+            )
+            return None
 
     @field_validator("TRAFFIT_SYNC_ENABLED", "CANDIDATE_CONTACT_TRAFFIT_INTAKE_ENABLED")
     @classmethod

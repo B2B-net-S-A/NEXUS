@@ -176,6 +176,41 @@ async def hr_m365_reconcile_loop() -> None:
     )
 
 
+# ── Microsoft 365: termin sekretu i kartoteka z katalogu (krok 7) ──────────
+HR_M365_DAILY_INTERVAL_SECONDS = 3600
+
+
+async def hr_m365_daily_job(db: AsyncSession) -> dict[str, Any] | None:
+    """Alarm o terminie sekretu (od 7:00, raz na próg) i odczyt profili (od 6:00, raz
+    dziennie). Pętla startuje także przy ``HR_M365_MODE=off`` — rejestracji
+    „NEXUS Kadry” używają też Intune i czytnik administracja@."""
+    from app.services.hr.m365 import profile_sync, secret_expiry
+
+    result: dict[str, Any] = {}
+    try:
+        alert = await secret_expiry.run_once(db)
+        if alert.get("status") in {"notified", "failed"}:
+            result["secret"] = alert
+    except Exception:  # noqa: BLE001 — alarm nie blokuje odczytu profili
+        logger.exception("hr_m365_daily secret check failed")
+        await db.rollback()
+    sync = await profile_sync.run_once(db)
+    if sync != {"mode": "off"} and not sync.get("skipped"):
+        result["profiles"] = sync
+    return result or None
+
+
+async def hr_m365_daily_loop() -> None:
+    if not loops_enabled("hr_m365_daily"):
+        return
+    beat = loop_heartbeat.register(
+        "hr_m365_daily", max_silence_seconds=HR_M365_DAILY_INTERVAL_SECONDS + 1800
+    )
+    await run_periodic(
+        "hr_m365_daily", beat, HR_M365_DAILY_INTERVAL_SECONDS, hr_m365_daily_job
+    )
+
+
 # ── „Mój miesiąc”: przypomnienie o timesheecie 1.–5. dnia (E2) ─────────────
 TIMESHEET_REMINDER_INTERVAL_SECONDS = 3 * 3600
 

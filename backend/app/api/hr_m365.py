@@ -1,8 +1,9 @@
 """Microsoft 365 dla urlopów — karta w Ustawieniach → Kadry („Ludzie w NEXUSIE”).
 
 Tryb (``HR_M365_MODE``), kolejka operacji (oczekujące, nieudane,
-zasymulowane z podglądem dokładnego żądania), „Ponów” i skrzynki, w których
-zachowaliśmy własną autoodpowiedź osoby. Za uprawnieniem „Kadry”
+zasymulowane z podglądem dokładnego żądania), „Ponów”, skrzynki, w których
+zachowaliśmy własną autoodpowiedź osoby, ostatni odczyt profili z katalogu
+i termin sekretu rejestracji „NEXUS Kadry”. Za uprawnieniem „Kadry”
 (``people_admin``; admin ma wszystkie). Przełącznik modułu nie zamyka karty —
 Kadry przygotowują przełączenie, zanim moduł urlopów zostanie włączony.
 
@@ -20,13 +21,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import require_permission
 from app.core.database import get_db
+from app.core.scheduling import business_today
 from app.models.hr_leave import HrM365MailboxState, HrM365Operation
 from app.models.hr_ops import HrJobRun
 from app.models.user import User
 from app.services.action_permissions import ProductAction
 from app.services.hr import audit
-from app.services.hr.m365 import executor
+from app.services.hr.m365 import executor, secret_expiry
 from app.services.hr.m365.auth import credentials_configured
+from app.services.hr.m365.profile_sync import JOB_KIND as PROFILE_SYNC_KIND
 from app.services.hr.m365.reconcile import JOB_KIND as RECONCILE_KIND
 
 router = APIRouter()
@@ -56,6 +59,24 @@ HrM365Admin = Annotated[User, Depends(require_hr_m365_admin())]
 
 def _iso(value: Optional[datetime]) -> Optional[str]:
     return value.isoformat() if value else None
+
+
+async def _last_run(db: AsyncSession, kind: str) -> Optional[dict[str, Any]]:
+    run = await db.scalar(
+        select(HrJobRun)
+        .where(HrJobRun.kind == kind)
+        .order_by(HrJobRun.claimed_at.desc())
+        .limit(1)
+    )
+    if run is None:
+        return None
+    return {
+        "day": run.period_key,
+        "status": run.status,
+        "finished_at": _iso(run.finished_at),
+        "counts": run.counts or {},
+        "error": run.error,
+    }
 
 
 def _operation_out(op: HrM365Operation, user_name: Optional[str]) -> dict[str, Any]:
@@ -99,12 +120,6 @@ async def m365_status(
             HrM365Operation.last_error.in_(executor.DEFERRAL_REASONS),
         )
     )
-    last_run = await db.scalar(
-        select(HrJobRun)
-        .where(HrJobRun.kind == RECONCILE_KIND)
-        .order_by(HrJobRun.claimed_at.desc())
-        .limit(1)
-    )
     custom_rows = (
         await db.execute(
             select(
@@ -131,16 +146,9 @@ async def m365_status(
         "allowlist": sorted(executor.allowlist()),
         "counts": {key: int(counts.get(key, 0)) for key in OPERATION_STATUSES},
         "deferred": int(deferred or 0),
-        "last_reconcile": (
-            {
-                "day": last_run.period_key,
-                "status": last_run.status,
-                "finished_at": _iso(last_run.finished_at),
-                "counts": last_run.counts or {},
-            }
-            if last_run
-            else None
-        ),
+        "last_reconcile": await _last_run(db, RECONCILE_KIND),
+        "last_profile_sync": await _last_run(db, PROFILE_SYNC_KIND),
+        "secret": secret_expiry.status(business_today()),
         "custom_oof_mailboxes": [
             {"user_id": uid, "name": name, "last_reconciled_at": _iso(at)}
             for uid, name, at in custom_rows

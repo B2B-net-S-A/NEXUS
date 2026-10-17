@@ -15,7 +15,7 @@ Coolify Compassa + restart (nie wdrożenie).
 | Kto | Co |
 |---|---|
 | Admin Azure | Rejestracja aplikacji „NEXUS Kadry”: `MailboxSettings.ReadWrite`, `Calendars.ReadWrite`, `Mail.Send`, `User.Read.All` (odświeżanie profili), dostęp do skrzynki administracja@ (RBAC for Applications zawężony do skrzynek z listy). Intune: `DeviceManagementManagedDevices.Read.All` — osobno, za zgodą. |
-| Admin NEXUSA | `HR_M365_CLIENT_ID`, `HR_M365_CLIENT_SECRET`, data wygaśnięcia sekretu, `HR_M365_MAILBOX_ALLOWLIST` (jedna skrzynka testowa), `ADMIN_CASES_MAILBOX` przez „Coolify set env”. `HR_M365_MODE` zostaje `off`. |
+| Admin NEXUSA | `HR_M365_CLIENT_ID`, `HR_M365_CLIENT_SECRET`, `HR_M365_CLIENT_SECRET_EXPIRES_ON` (data wygaśnięcia sekretu, RRRR-MM-DD — przy każdej rotacji), `HR_M365_MAILBOX_ALLOWLIST` (jedna skrzynka testowa), `ADMIN_CASES_MAILBOX` przez „Coolify set env”. `HR_M365_MODE` zostaje `off`. |
 | Admin NEXUSA | Konto serwisowe dla Compassa z zakresem `people_roster:read` (Ustawienia → konta serwisowe); klucz trafia do vaulta Compassa jako `NEXUS_ROSTER_API_KEY`, adres `/api/integrations/compass/roster` jako `NEXUS_ROSTER_URL`. Dla ATLASA klucz z `sales_signals:read` (+ `:write` do zwrotu statusów). |
 | Recepcja | Usunąć klucz BitLocker i kody PUK z plików recepcji; przejrzeć arkusz kontrolny importu sprzętu. |
 | Kadry | Dni wolne firmy na 2026–2027, zasada przeniesienia urlopu, kto ma obowiązek timesheetu. |

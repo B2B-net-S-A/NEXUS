@@ -2,7 +2,9 @@
 //
 // Lustro `backend/app/api/hr_m365.py` (`/api/hr/admin/m365`). Tryb pochodzi
 // z env (`HR_M365_MODE`), więc karta go tylko pokazuje. Operacje nie niosą
-// rodzaju nieobecności (D6) — nie ma go też tutaj.
+// rodzaju nieobecności (D6) — nie ma go też tutaj. Karta pokazuje też ostatni
+// odczyt profili z katalogu i termin sekretu rejestracji „NEXUS Kadry”
+// (`HR_M365_CLIENT_SECRET_EXPIRES_ON`).
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
@@ -55,18 +57,33 @@ export interface M365Operation {
   } | null;
 }
 
+/** Przebieg zadania dziennego (`hr_job_runs`): uzgadnianie albo odczyt profili. */
+export interface M365JobRun {
+  day: string;
+  status: "claimed" | "done" | "skipped" | "failed";
+  finished_at: string | null;
+  counts: Record<string, number | string>;
+  error: string | null;
+}
+
+/** `missing` = rejestracja pracuje na żywo bez daty; `not_set` = nic jej jeszcze nie używa. */
+export type M365SecretState = "ok" | "expiring" | "expired" | "missing" | "not_set";
+
+export interface M365Secret {
+  expires_on: string | null;
+  days_left: number | null;
+  state: M365SecretState;
+}
+
 export interface M365Status {
   mode: M365Mode;
   credentials_configured: boolean;
   allowlist: string[];
   counts: Record<M365OperationStatus, number>;
   deferred: number;
-  last_reconcile: {
-    day: string;
-    status: "claimed" | "done" | "skipped" | "failed";
-    finished_at: string | null;
-    counts: Record<string, number>;
-  } | null;
+  last_reconcile: M365JobRun | null;
+  last_profile_sync: M365JobRun | null;
+  secret: M365Secret;
   custom_oof_mailboxes: { user_id: number; name: string; last_reconciled_at: string | null }[];
   mailbox_errors: { user_id: number; name: string; last_error: string }[];
 }
@@ -126,6 +143,77 @@ export function m365ReasonLabel(code: string | null | undefined): string | null 
 }
 
 export type M365Tone = "success" | "warning" | "danger" | "info" | "neutral";
+
+/** „2026-11-02” → „2.11.2026” bez przeliczania strefy. */
+export function m365Day(value: string | null): string | null {
+  if (!value) return null;
+  const [year, month, day] = value.split("-");
+  if (!year || !month || !day) return value;
+  return `${Number(day)}.${month}.${year}`;
+}
+
+export interface M365View {
+  label: string;
+  tone: M365Tone;
+  note?: string;
+}
+
+/** Termin sekretu rejestracji „NEXUS Kadry” → etykieta i kolor (ostrzeżenie nad kartą osobno). */
+export function m365SecretView(secret: M365Secret): M365View {
+  const day = m365Day(secret.expires_on) ?? undefined;
+  const days = secret.days_left ?? 0;
+  switch (secret.state) {
+    case "expired":
+      return { label: days === 0 ? "Wygasa dziś" : "Wygasł", tone: "danger", note: day };
+    case "expiring":
+      return {
+        label: days === 1 ? "Wygasa jutro" : `Wygasa za ${days} dni`,
+        tone: "warning",
+        note: day,
+      };
+    case "ok":
+      return { label: `Ważny do ${day}`, tone: "success" };
+    case "missing":
+      return { label: "Brak daty wygaśnięcia", tone: "warning" };
+    case "not_set":
+      return { label: "Data wygaśnięcia nieustawiona", tone: "neutral" };
+  }
+}
+
+const PROFILE_SYNC_ERRORS: Record<string, string> = {
+  forbidden: "aplikacja nie ma uprawnienia User.Read.All",
+  auth: "brak tokenu aplikacji",
+  all_reads_failed: "Microsoft nie odpowiadał",
+};
+
+function count(run: M365JobRun, key: string): number {
+  const value = run.counts[key];
+  return typeof value === "number" ? value : 0;
+}
+
+/** Ostatni odczyt stanowisk, działów i telefonów z katalogu → etykieta i liczby. */
+export function m365ProfileSyncView(run: M365JobRun | null): M365View {
+  if (!run) return { label: "Jeszcze się nie odbył", tone: "neutral" };
+  const day = m365Day(run.day);
+  if (run.status === "failed") {
+    const reason = (run.error && PROFILE_SYNC_ERRORS[run.error]) || "błąd po stronie NEXUSA";
+    return { label: `${day} · nie udał się`, tone: "danger", note: reason };
+  }
+  if (run.status === "claimed") return { label: `${day} · w trakcie`, tone: "info" };
+  if (run.counts.mode === "simulate") {
+    return {
+      label: `${day} · symulacja`,
+      tone: "info",
+      note: `Kont do odczytu: ${count(run, "read")} · kartoteka bez zmian`,
+    };
+  }
+  const parts = [`zaktualizowano ${count(run, "updated")} z ${count(run, "read")}`];
+  const kept = count(run, "kept_manual");
+  if (kept) parts.push(`zostawione zmiany Kadr: ${kept}`);
+  const missing = count(run, "not_found");
+  if (missing) parts.push(`bez konta w Microsoft 365: ${missing}`);
+  return { label: `${day} · zakończony`, tone: "success", note: parts.join(" · ") };
+}
 
 /** Kolor kropki i etykieta stanu operacji. */
 export function m365StatusView(op: Pick<M365Operation, "status" | "deferred">): {
