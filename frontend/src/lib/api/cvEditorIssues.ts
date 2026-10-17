@@ -20,7 +20,7 @@ import type {
 /** Uwaga kontroli AI z tekstem linii CV, której dotyczy. */
 export interface CvReviewFinding {
   text: string;
-  /** `unsupported` | `contradicted` | `private` | `invalid_evidence`. */
+  /** `unsupported` | `contradicted` | `private` | `invalid_evidence` | `weak` (D1-A: prawie to samo w źródłach). */
   status: string;
 }
 

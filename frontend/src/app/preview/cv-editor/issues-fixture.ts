@@ -177,11 +177,17 @@ const ISSUES: CvEditorIssuesData = {
     "MUST-HAVE: wymaganie „Kafka” ma pokrycie tylko w notatce ze screeningu — potwierdź przed wysyłką.",
     "WERYFIKUJ: rola „Java Developer” nie ma w oryginale miesiąca zakończenia — przyjęto 02.2021.",
     "Wyróżnienia: pogrubiono 6 wystąpień wymagań must-have.",
+    // D1-A: kod złagodził uwagę kontroli AI — na liście, poza licznikiem.
+    "WERYFIKUJ (kontrola AI): doświadczenie — „Projektowała mikroserwisy płatności w Spring Boot” (w źródłach jest prawie to samo — sprawdź brzmienie)",
   ],
   content_review: {
     status: "reviewed",
     version: 2,
-    findings: [{ text: "Przeglądy kodu i wdrażanie młodszych programistów.", status: "unsupported" }],
+    findings: [
+      { text: "Przeglądy kodu i wdrażanie młodszych programistów.", status: "unsupported" },
+      // D1-A: prawie to samo w źródłach — bez „Usuń zdanie”.
+      { text: "Testy jednostkowe i integracyjne (JUnit, Testcontainers).", status: "weak" },
+    ],
   },
 };
 

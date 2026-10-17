@@ -37,6 +37,12 @@ from app.services.cv_generator_b2b.factual_verification import (
     verify_final_cv,
 )
 from app.services.cv_generator_b2b.provider import CVGeneratorAIError
+from app.services.cv_generator_b2b.review_coverage import (
+    IN_SOURCE,
+    MOSTLY,
+    ReviewSources,
+    covered_paths,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -93,6 +99,14 @@ _REASON_SUFFIX = {
         "private": "content from private notes / recruiter assessment",
     },
 }
+# D1-A (17.10.2026): recenzent zakwestionował, ale prawie to samo stoi
+# w źródłach — „WERYFIKUJ”, nie „BRAK POKRYCIA”. Front rozpoznaje tę uwagę po
+# dopisku (`AI_REVIEW_MOSTLY_SUFFIXES` w lib/cv-generator.ts) i nie liczy jej
+# do „Do poprawy”.
+_MOSTLY_SUFFIX = {
+    "pl": "w źródłach jest prawie to samo — sprawdź brzmienie",
+    "en": "almost the same is in the sources — check the wording",
+}
 
 
 def final_review_enabled() -> bool:
@@ -144,8 +158,8 @@ def _lang(language: str | None) -> str:
     return "en" if (language or "").lower().startswith("en") else "pl"
 
 
-def _claim_snippet(projection: dict[str, Any], path: str) -> str:
-    """Wartość twierdzenia spod ścieżki JSON — z DOKUMENTU, nigdy ze źródeł."""
+def _claim_value(projection: dict[str, Any], path: str) -> str:
+    """Pełna wartość twierdzenia spod ścieżki JSON — z DOKUMENTU, nigdy ze źródeł."""
 
     node: Any = projection
     for part in path.strip("/").split("/"):
@@ -160,8 +174,23 @@ def _claim_snippet(projection: dict[str, Any], path: str) -> str:
             return ""
     if not isinstance(node, str):
         return ""
-    text = " ".join(node.split())
+    return " ".join(node.split())
+
+
+def _claim_snippet(projection: dict[str, Any], path: str) -> str:
+    text = _claim_value(projection, path)
     return text if len(text) <= 90 else text[:89].rstrip() + "…"
+
+
+def code_coverage(
+    report: dict[str, Any], data: dict[str, Any], sources: ReviewSources
+) -> dict[str, str]:
+    """Które zakwestionowane twierdzenia stoją w źródłach recenzenta (D1-A)."""
+
+    projection = factual_projection(data)
+    paths = [p for p in report.get("paths") or [] if isinstance(p, str)]
+    claims = {path: _claim_value(projection, path) for path in paths}
+    return covered_paths(paths, report.get("statuses") or {}, claims, sources)
 
 
 def _field_label(path: str, lang: str) -> str:
@@ -192,15 +221,21 @@ def review_warnings(
 
     projection = factual_projection(data)
     statuses = report.get("statuses") or {}
+    covered = report.get("code_coverage") or {}
     issues: list[str] = []
     for path in report.get("paths") or []:
         verdict = statuses.get(path, "unsupported")
+        # D1-A: twierdzenie stoi w źródłach dosłownie — recenzent się pomylił.
+        if covered.get(path) == IN_SOURCE:
+            continue
         label = _field_label(path, lang)
         snippet = _claim_snippet(projection, path)
         suffix = _REASON_SUFFIX[lang].get(verdict, _REASON_SUFFIX[lang]["unsupported"])
         # Błędny cytat recenzenta to jego pomyłka, nie pewny brak w źródle —
         # więc „WERYFIKUJ”, nie „BRAK POKRYCIA” (13.10.2026).
         prefix = soft if verdict in ("private", "invalid_evidence") else high
+        if covered.get(path) == MOSTLY:
+            prefix, suffix = soft, _MOSTLY_SUFFIX[lang]
         quoted = (
             f" „{snippet}”"
             if snippet and lang == "pl"
@@ -211,6 +246,9 @@ def review_warnings(
             if lang == "pl"
             else f"{prefix} (AI review): {label} —{quoted} ({suffix})"
         )
+    if not issues and covered:
+        # Wszystko, co recenzent zakwestionował, stoi w źródłach dosłownie.
+        return []
     if not issues:
         # Odrzucenie protokolarne (np. model oddał niepoprawny JSON): nie ma
         # pojedynczych twierdzeń do wypisania, ale milczenie czytałoby się
@@ -295,6 +333,9 @@ def run_final_review(
             "paths": list(err.paths),
             "statuses": dict(err.statuses),
         }
+        covered = code_coverage(report, data, ReviewSources(cv_text, screening_notes))
+        if covered:
+            report["code_coverage"] = covered
         logger.info(
             "[cv_final_review][%s] advisory reason=%s field_count=%d",
             request_id,

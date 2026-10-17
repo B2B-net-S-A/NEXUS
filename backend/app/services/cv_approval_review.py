@@ -290,14 +290,31 @@ async def execute_approval_review(
         # Advisory: the review COMPLETED and found problems. That is a result,
         # not a failure — it travels with the approved version so the recruiter
         # sees what to check before sending the CV out.
+        # D1-A (17.10.2026): kod po recenzencie — linia, która stoi w źródłach
+        # dosłownie, nie jest uwagą; prawie to samo = `weak` (bez „Usuń”).
+        from app.services.cv_generator_b2b.review_coverage import (
+            ReviewSources,
+            editor_findings,
+        )
+
+        kept = editor_findings(
+            list(exc.paths),
+            dict(exc.statuses),
+            editor_claims(prepared.content_html),
+            ReviewSources(prepared.cv_text, prepared.screening_notes),
+        )
+        coverage = (
+            {"code_coverage": kept["code_coverage"]} if kept["code_coverage"] else {}
+        )
         return receipt(
-            "reviewed",
+            "reviewed" if kept["count"] else "verified",
             findings={
                 "reason": exc.reason,
-                "count": len(exc.paths),
-                "paths": list(exc.paths),
-                "statuses": dict(exc.statuses),
+                "count": kept["count"],
+                "paths": kept["paths"],
+                "statuses": kept["statuses"],
             },
+            **coverage,
         )
     except CVGeneratorAIError as exc:
         if enforced:

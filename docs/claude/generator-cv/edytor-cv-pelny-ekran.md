@@ -263,6 +263,22 @@ i kontrola AI ostatniej zatwierdzonej wersji. Komponent
   skrócie i tej samej wersji podziału na linie. Panel pokazuje te uwagi,
   których linia nadal stoi w CV. Nie ma „Sprawdź teraz” — kontrola biegnie po
   „Zapisz”.
+- **Kod po kontroli AI (D1-A, 17.10.2026).** Pomiar produkcji
+  (`docs/qc-no-coverage-measurement.md`): 32% uwag „BRAK POKRYCIA (kontrola
+  AI)” miało cytat dosłownie w oryginale, kolejne 38% — ≥ 80% słów w źródłach.
+  `cv_generator_b2b/review_coverage.py` sprawdza każdy werdykt `unsupported`
+  na tekście, który dostał recenzent (CV kandydata + notatki bez zdań
+  przeczących): krótkie twierdzenie (≤ 60 znaków) dosłownie w źródłach →
+  uwaga znika (`code_coverage: in_source` w raporcie / paragonie, werdykt
+  zostaje w `paths`); dłuższe dosłownie albo ≥ 80% słów → generator pisze
+  „WERYFIKUJ (kontrola AI) … (w źródłach jest prawie to samo — sprawdź
+  brzmienie)”, a kontrola po edycji daje status `weak`. Łagodna uwaga stoi
+  w „Do decyzji”, bez „Usuń zdanie” i poza licznikiem „Do poprawy (N)”
+  (`isSoftEntry`; dopisek pilnuje `AI_REVIEW_MOSTLY_SUFFIXES` i test lustra).
+  `contradicted`, `private`, `invalid_evidence` zostają recenzentowi. Gdy po
+  kodzie nie zostaje nic mocnego, paragon edytora ma `verified`, a „N uwag”
+  karty CV do klienta liczy tylko uwagi w mocy. Działa przy nowym generowaniu
+  i nowym zatwierdzeniu — starsze uwagi zostają do następnego.
 - **Awaria QC nie wygląda jak CV bez uwag:** osobny komunikat z „Ponów”,
   bez zielonej plakietki. Brak dostępu mówi o dostępie. Licznik w pasku niesie
   stan (`CvIssueCount.state`): „Do poprawy” bez liczby, dopóki QC się liczy,

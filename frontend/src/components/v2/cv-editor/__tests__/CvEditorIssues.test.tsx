@@ -957,6 +957,23 @@ describe("lata, tytuł, stawka i zdanie z kontroli AI jednym kliknięciem (PR 2,
     await waitFor(() => expect(api.transform).toHaveBeenLastCalledWith(STAGE, expect.objectContaining({ actions: [{ action: "title" }] })));
   });
 
+  it("„prawie to samo jest w źródłach” (D1-A): bez „Usuń zdanie”, tylko „Zostaw”", async () => {
+    const api = memoryApi({
+      issues: vi.fn(
+        async (): Promise<CvEditorIssuesData> => ({
+          ...ISSUES,
+          content_review: { status: "reviewed", version: 2, findings: [{ text: "Przeglądy kodu.", status: "weak" }] },
+        }),
+      ),
+    });
+    setup({ api });
+    await screen.findByText("„Przeglądy kodu.”");
+    const row = itemOf("„Przeglądy kodu.”");
+    expect(row).toHaveTextContent("prawie to samo jest w źródłach — sprawdź brzmienie");
+    expect(within(row).queryByRole("button", { name: /Usuń zdanie/ })).toBeNull();
+    expect(within(row).getByRole("button", { name: "Zostaw: „Przeglądy kodu.”" })).toBeInTheDocument();
+  });
+
   it("„Usuń zdanie” przy kontroli AI usuwa tę linię", async () => {
     const api = memoryApi();
     setup({ api });
