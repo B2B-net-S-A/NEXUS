@@ -266,6 +266,11 @@ describe("MyOverviewTab", () => {
     expect(within(bonuses).getByText(/umowa podpisana/)).toBeInTheDocument();
     expect(within(bonuses).getByText(/14 z 21 dni/)).toBeInTheDocument();
     expect(nbsp(bonuses.textContent)).toContain("stawka 95,00 zł/h od 01.10");
+
+    // B2B: koordynator i zgłoszenie, nie „przełożony” i „wniosek” (D4, D5).
+    const coordinator = await card("Mój koordynator");
+    expect(within(coordinator).getByText(/wskazujesz w zgłoszeniu/)).toBeInTheDocument();
+    expect(screen.queryByRole("generic", { name: "Mój przełożony" })).toBeNull();
   });
 
   it("awaria zapytania to komunikat w karcie, nie „0”", async () => {
@@ -356,5 +361,7 @@ describe("MyOverviewTab", () => {
     expect(await within(todo).findByText("Podpisz protokół PZO/TEST/2026/011")).toBeInTheDocument();
     expect(within(todo).getByText(/Wyślij ewidencję czasu pracy za/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Złóż wniosek urlopowy" })).toBeInTheDocument();
+    const manager = await card("Mój przełożony");
+    expect(within(manager).getByText(/wskazujesz we wniosku/)).toBeInTheDocument();
   });
 });

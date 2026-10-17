@@ -59,6 +59,11 @@ describe("„Mój zespół” — komórki", () => {
       leaveCell({ has_pool: false, remaining_days: null, planned_days: "0.0", pending_days: "0.0" }).text,
     ).toBe("nic zaplanowanego");
     expect(leaveCell(null).text).toBe("—");
+    // B2B z umowną pulą: „z puli”, nie „urlopu” (D4).
+    expect(
+      leaveCell({ has_pool: true, remaining_days: "5.0", planned_days: "0.0", pending_days: "0.0" }, "b2b")
+        .text,
+    ).toBe("zostało 5 dni z puli");
   });
 
   it("miesiąc: godziny do normy i status timesheetu", () => {

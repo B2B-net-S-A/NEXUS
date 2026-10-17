@@ -209,7 +209,7 @@ function TeamTable({ data }: { data: MyTeam }) {
                   <CellView cell={todayCell(person.today, person.covering_for)} />
                 </TableCell>
                 <TableCell>
-                  <CellView cell={leaveCell(person.leave)} />
+                  <CellView cell={leaveCell(person.leave, person.employment_type)} />
                 </TableCell>
                 <TableCell>
                   <CellView cell={monthCell(person, data)} />

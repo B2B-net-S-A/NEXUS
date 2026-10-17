@@ -67,7 +67,7 @@ export function PreviewPanel({
               </span>
               {Number(split.paid) > 0 ? (
                 <>
-                  {" "}→ po wniosku{" "}
+                  {" "}→ po {report ? "zgłoszeniu" : "wniosku"}{" "}
                   <span className="tabular-nums text-foreground">
                     {daysLabel(split.remaining_after ?? "0")}
                   </span>

@@ -215,6 +215,26 @@ describe("MyMonthTab", () => {
     expect(screen.queryByRole("button", { name: /Pobierz PDF/ })).toBeNull();
   });
 
+  it("B2B: płatny dzień przerwy przed pierwszym zapisem wpisze się ze zgłoszenia, nie z wniosku", async () => {
+    const view = month({ employment_type: "b2b" });
+    view.days[1] = day("2031-03-04", 2, {
+      leave: {
+        status: "approved",
+        fraction: 1,
+        full: true,
+        paid_work: true,
+        paid_hours: 8,
+        label: "Przerwa w świadczeniu usług",
+      },
+    });
+    routeGet(view);
+    renderTab();
+
+    const paid = await screen.findByTestId("day-2031-03-04");
+    expect(within(paid).getByText(/wpisze się ze zgłoszenia/)).toBeInTheDocument();
+    expect(within(paid).queryByText(/wniosk/)).toBeNull();
+  });
+
   it("wysłany timesheet nie ma akcji edycji, zaakceptowany ma PDF", async () => {
     const header = {
       id: 5,

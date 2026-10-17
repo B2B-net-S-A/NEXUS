@@ -3,6 +3,7 @@
 // `null` z serwera = moduł wyłączony albo brak prawa → „—”, nigdy „0”.
 
 import { daysLabel, formatRange } from "@/components/hr/leave/leave-format";
+import type { EmploymentType } from "@/lib/api/hr";
 import type {
   MyTeam,
   TeamBonuses,
@@ -41,7 +42,7 @@ export function todayCell(today: TeamToday | null, coveringFor: readonly string[
  * Nieobecności: pula tylko u osób z pulą (UoP albo B2B z umowną pulą),
  * u reszty zaplanowane dni (decyzja Artura 17.10.2026).
  */
-export function leaveCell(leave: TeamLeave | null): Cell {
+export function leaveCell(leave: TeamLeave | null, form?: EmploymentType): Cell {
   if (!leave) return DASH;
   const planned = Number(leave.planned_days);
   const pending = Number(leave.pending_days);
@@ -50,7 +51,8 @@ export function leaveCell(leave: TeamLeave | null): Cell {
   if (pending > 0) parts.push(`czeka ${daysLabel(pending)}`);
   if (leave.has_pool && leave.remaining_days !== null) {
     return {
-      text: `zostało ${daysLabel(leave.remaining_days)} urlopu`,
+      // Pula B2B jest umowna — „urlop” tylko przy umowie o pracę (D4).
+      text: `zostało ${daysLabel(leave.remaining_days)} ${form && form !== "uop" ? "z puli" : "urlopu"}`,
       sub: parts.join(" · ") || undefined,
     };
   }

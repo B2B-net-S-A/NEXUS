@@ -5,6 +5,7 @@ import Link from "next/link";
 import { AbsenceBadge } from "@/components/hr/AbsenceBadge";
 import type { PersonFull } from "@/lib/api/hr";
 import { useAbsences } from "@/lib/api/hr-leave";
+import { capitalize, employmentTerms } from "@/lib/hr-employment-terms";
 
 import { OverviewCard } from "./OverviewCard";
 
@@ -21,8 +22,10 @@ export function ManagerCard({ person, leaveOpen }: { person: PersonFull; leaveOp
   const managerId = person.manager_user_id;
   const absences = useAbsences(managerId ? [managerId] : [], { enabled: leaveOpen && Boolean(managerId) });
   const absence = managerId ? absences.byUser.get(managerId) : undefined;
+  // UoP „przełożony” i „wniosek”, B2B i zlecenie „koordynator” i „zgłoszenie” (D4, D5).
+  const terms = employmentTerms(person.employment_type);
   return (
-    <OverviewCard title="Mój przełożony">
+    <OverviewCard title={`Mój ${terms.coordinator}`}>
       {person.manager_name && managerId ? (
         <div className="flex items-center gap-3">
           <span
@@ -45,10 +48,14 @@ export function ManagerCard({ person, leaveOpen }: { person: PersonFull; leaveOp
           </div>
         </div>
       ) : (
-        <p className="text-sm text-muted-foreground">Przełożony nie jest ustawiony — ustawią go Kadry.</p>
+        <p className="text-sm text-muted-foreground">
+          {capitalize(terms.coordinator)} nie jest ustawiony — ustawią go Kadry.
+        </p>
       )}
       {leaveOpen ? (
-        <p className="text-xs text-muted-foreground">Zastępcę na czas nieobecności wskazujesz we wniosku.</p>
+        <p className="text-xs text-muted-foreground">
+          Zastępcę na czas nieobecności wskazujesz {terms.flow === "request" ? "we wniosku" : "w zgłoszeniu"}.
+        </p>
       ) : null}
     </OverviewCard>
   );

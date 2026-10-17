@@ -152,7 +152,8 @@ export function MonthGrid({
                 <td className="px-2 py-1.5">
                   {day.entries.length === 0 && day.leave?.paid_work ? (
                     <span className="text-xs text-muted-foreground">
-                      Praca standardowa · wpisze się z wniosku
+                      Praca standardowa · wpisze się{" "}
+                      {view.employment_type === "uop" ? "z wniosku" : "ze zgłoszenia"}
                     </span>
                   ) : null}
                   {day.entries.map((entry) => {
