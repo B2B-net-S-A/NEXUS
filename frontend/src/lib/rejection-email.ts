@@ -138,13 +138,24 @@ export function rejectionEmailSkipShort(status: string): string {
   );
 }
 
-/** `before_client` — „Zweryfikowany”, „QC CV”; `after_client` — od „CV wysłane”. */
-export type RejectionEmailTextKind = "before_client" | "after_client";
+/** `before_client` — „Zweryfikowany”, „QC CV”; `after_client` — od „CV wysłane”;
+ *  `merged` — jeden mail o kilku rekrutacjach tej samej osoby (D3). */
+export type RejectionEmailTextKind = "before_client" | "after_client" | "merged";
 
 export const REJECTION_EMAIL_TEXT_KIND_LABEL: Record<RejectionEmailTextKind, string> = {
   before_client: "przed klientem",
   after_client: "po kliencie",
+  merged: "wspólny mail",
 };
+
+/** Mail odrzucenia, który do tej osoby jeszcze czeka (17.10.2026, D3). */
+export interface RejectionEmailPendingMail {
+  id: number;
+  scheduled_at: string;
+  sender_name: string;
+  /** Rekrutacje, o których już mówi — nazwy w NEXUSIE. */
+  job_titles: string[];
+}
 
 /** Inna rekrutacja osoby, w której jest od „Zweryfikowany” (17.10.2026, D2). */
 export interface RejectionEmailOtherProcess {
@@ -163,6 +174,7 @@ export interface RejectionEmailPreviewPerson {
   skip_reason: string | null;
   text_kind?: RejectionEmailTextKind | null;
   other_processes?: RejectionEmailOtherProcess[];
+  pending_mail?: RejectionEmailPendingMail | null;
 }
 
 export interface RejectionEmailPreviewSample {
@@ -188,6 +200,17 @@ export interface RejectionEmailPreview {
   people: RejectionEmailPreviewPerson[];
   /** Po jednej osobie każdego rodzaju treści (okno kilku osób). */
   samples?: RejectionEmailPreviewSample[];
+  /** Wspólna treść dla pierwszej osoby z czekającym mailem (D3). */
+  merged?: RejectionEmailPreviewSample | null;
+}
+
+/** „11:42” — kiedy wyjdzie czekający mail (czas Warszawy). */
+export function rejectionEmailPendingTime(iso: string): string {
+  return new Date(iso).toLocaleTimeString("pl-PL", {
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone: "Europe/Warsaw",
+  });
 }
 
 /** Treść domyślna pola: bez zakończenia, gdy zamiast niego idzie dopisek. */
@@ -206,6 +229,8 @@ export interface RejectionEmailText {
   body?: string;
   /** `false` — bez dopisku o pozostałych rekrutacjach osoby. */
   otherProcesses?: boolean;
+  /** `false` — osobny mail, choć do osoby czeka już inny (D3). */
+  merge?: boolean;
 }
 
 export function rejectionEmailPreviewKey(

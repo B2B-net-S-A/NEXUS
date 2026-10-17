@@ -13,6 +13,8 @@
 // `?state=others` — osoba z „Zweryfikowany”, która jest w dwóch innych
 //   rekrutacjach (17.10.2026, D2): treść „przed klientem”, dopisek obok pola,
 //   jedna rekrutacja bez nazwy dla kandydata.
+// `?state=merge` — do osoby czeka już mail z innej rekrutacji (17.10.2026, D3):
+//   „Jeden wspólny mail” (domyślnie) albo „Osobny mail”.
 // `?state=work_mode` — powód „Nie akceptuje trybu pracy” (14.10.2026):
 //   rekrutacja hybrydowa z 2 dniami w biurze, na profilu „Hybrydowo · do
 //   3 dni”; po wyborze powodu pytanie o dni i podgląd zmiany na profilu.
@@ -26,7 +28,7 @@ import {
   type RejectionEmailPreview,
 } from "@/lib/rejection-email";
 
-type State = "one" | "blocked" | "bulk" | "others" | "work_mode";
+type State = "one" | "blocked" | "bulk" | "others" | "merge" | "work_mode";
 
 const JOB_ID = 9001;
 const CLOSING =
@@ -60,6 +62,7 @@ const PEOPLE: Record<State, { candidateId: number; name: string }[]> = {
     { candidateId: 503, name: "Ewa Fikcyjna" },
   ],
   others: [{ candidateId: 531, name: "Ewa Fikcyjna" }],
+  merge: [{ candidateId: 541, name: "Anna Przykładowa" }],
   work_mode: [{ candidateId: 521, name: "Tomasz Przykładowy" }],
 };
 
@@ -150,6 +153,42 @@ const PREVIEW: Record<State, RejectionEmailPreview> = {
       },
     ],
   },
+  merge: {
+    subject: SUBJECT,
+    body: AFTER_BODY,
+    closing: CLOSING,
+    text_kind: "after_client",
+    merged: {
+      text_kind: "merged",
+      candidate_id: 541,
+      subject: "Informacja zwrotna — Java Tech Lead, Senior Data Architect",
+      body:
+        "Cześć Anna,\n\ndziękujemy za udział w rekrutacjach na stanowiska Java Tech Lead " +
+        "i Senior Data Architect. W tych dwóch procesach nie przechodzisz dalej.",
+      closing: CLOSING,
+      other_processes_text:
+        "To dotyczy tylko tych rekrutacji — nadal bierzesz udział w naszym pozostałym " +
+        "procesie:\n• Backend Developer (Kotlin)\n\n" +
+        "Odezwiemy się, gdy będziemy mieć w nim nowe informacje.",
+    },
+    people: [
+      {
+        candidate_id: 541,
+        to_email: "anna.przykladowa@example.com",
+        skip_reason: null,
+        text_kind: "after_client",
+        other_processes: [
+          { job_id: 9103, title: "Backend Kotlin · płatności", mail_title: "Backend Developer (Kotlin)", column: "verified" },
+        ],
+        pending_mail: {
+          id: 77,
+          scheduled_at: "2026-10-17T09:42:00Z",
+          sender_name: "Marta Testowa",
+          job_titles: ["Java Tech Lead · bankowość"],
+        },
+      },
+    ],
+  },
   work_mode: {
     subject: SUBJECT,
     body: AFTER_BODY,
@@ -164,6 +203,7 @@ const STAGE_LABEL: Record<State, string> = {
   blocked: "CV wysłane",
   bulk: "",
   others: "Zweryfikowany",
+  merge: "Rozmowa u klienta",
   work_mode: "Rozmowa u klienta",
 };
 
@@ -183,7 +223,11 @@ const REASONS = [
 
 function readState(): State {
   const raw = new URLSearchParams(window.location.search).get("state");
-  return raw === "blocked" || raw === "bulk" || raw === "others" || raw === "work_mode"
+  return raw === "blocked" ||
+    raw === "bulk" ||
+    raw === "others" ||
+    raw === "merge" ||
+    raw === "work_mode"
     ? raw
     : "one";
 }

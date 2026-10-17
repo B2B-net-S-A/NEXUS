@@ -384,6 +384,8 @@ async def test_rejection_dispatch_commits_reservation_and_leases_row(
     db = AsyncMock()
     db.add = MagicMock()
     db.scalar.side_effect = [row, PipelineStage.rejected, SimpleNamespace(id=1)]
+    # Wspólny mail (17.10.2026, D3): ten wiersz nie ma dołączonych maili.
+    monkeypatch.setattr(scheduler, "covered_job_ids", AsyncMock(return_value=[3]))
     owner = SimpleNamespace(id=5)
     monkeypatch.setattr(scheduler, "eligible_m365_owner", AsyncMock(return_value=owner))
     monkeypatch.setattr(scheduler, "_can_send_rejection_email", lambda _u: True)

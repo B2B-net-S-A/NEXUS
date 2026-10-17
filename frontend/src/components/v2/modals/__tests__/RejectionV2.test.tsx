@@ -644,6 +644,67 @@ describe("RejectionV2 — podgląd maila odrzucenia (13.10.2026)", () => {
     expect(screen.getByText(/Niestety został wybrany inny kandydat/)).toBeInTheDocument();
   });
 
+  // 17.10.2026 (D3): do osoby czeka już mail z innej rekrutacji — jeden wspólny.
+  it("czekający mail: domyślnie wspólny, „Osobny mail” wraca do zwykłej treści", async () => {
+    const merged = {
+      text_kind: "merged",
+      candidate_id: 5,
+      subject: "Informacja zwrotna — Java Developer, Senior Dev",
+      body:
+        "Cześć Anna,\n\ndziękujemy za udział w rekrutacjach na stanowiska Java Developer " +
+        "i Senior Dev. W tych dwóch procesach nie przechodzisz dalej.",
+      closing: CLOSING,
+      other_processes_text: null,
+    };
+    mockPost.mockResolvedValue({
+      data: {
+        subject: "Informacja zwrotna — Senior Dev",
+        body: MAIN,
+        closing: CLOSING,
+        text_kind: "before_client",
+        merged,
+        people: [
+          {
+            candidate_id: 5,
+            to_email: "anna@example.com",
+            skip_reason: null,
+            text_kind: "before_client",
+            other_processes: [],
+            pending_mail: {
+              id: 41,
+              scheduled_at: "2026-10-17T09:42:00Z",
+              sender_name: "Marta Testowa",
+              job_titles: ["Java Developer"],
+            },
+          },
+        ],
+      },
+    });
+    const onConfirm = renderWithPreview(ONE);
+    fireEvent.click(screen.getByRole("checkbox"));
+    const banner = await screen.findByTestId("rejection-email-pending");
+    expect(banner).toHaveTextContent("ma już zaplanowany mail odrzucenia z rekrutacji Java Developer");
+    expect(banner).toHaveTextContent("wyjdzie o 11:42, wysyła Marta Testowa");
+    expect(screen.getByLabelText("Temat")).toHaveValue(merged.subject);
+    expect((screen.getByLabelText("Treść") as HTMLTextAreaElement).value).toBe(
+      `${merged.body}\n\n${CLOSING}`,
+    );
+    expect(screen.getByText("Podgląd wspólnego maila")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText("Za wysoka stawka"));
+    fireEvent.click(screen.getByRole("button", { name: "Potwierdź" }));
+    expect(onConfirm.mock.calls[0][7]).toBeNull();
+
+    fireEvent.click(screen.getByRole("radio", { name: "Osobny mail tylko o tej rekrutacji" }));
+    expect(screen.getByLabelText("Temat")).toHaveValue("Informacja zwrotna — Senior Dev");
+    expect((screen.getByLabelText("Treść") as HTMLTextAreaElement).value).toBe(
+      `${MAIN}\n\n${CLOSING}`,
+    );
+    expect(screen.queryByText("Zmieniona ręcznie")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Potwierdź" }));
+    expect(onConfirm.mock.calls[1][7]).toEqual({ merge: false });
+  });
+
   it("awaria podglądu nie blokuje wysyłki z treścią domyślną", async () => {
     mockPost.mockRejectedValue(new Error("Network Error"));
     const onConfirm = renderWithPreview(ONE);
