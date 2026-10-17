@@ -1104,6 +1104,16 @@ CV_NOT_RATES = [
     "Error rate 0.1 po wdrożeniu.",
     "Wdrożyła moduł wynagrodzeń o budżecie 2 mln PLN.",
     "Stawki VAT 23% i 8% w module fakturowania.",
+    # Przegląd 17.10.2026: lata stanowiska po słowie o pieniądzach, „per
+    # request”, „300/500 osób”.
+    "Specjalista ds. wynagrodzeń 2018 – 2022",
+    "Analityk wynagrodzeń 2021",
+    "Kierownik ds. wynagrodzeń 03.2019 - 05.2021",
+    "Raport wynagrodzeń 2024",
+    "Zarządzanie stawkami 2020–2023",
+    "Compensation &amp; Salary 2020",
+    "Rate 100 per request",
+    "Zarobki 300/500 pracowników",
 ]
 
 CV_RATES = [
@@ -1124,6 +1134,15 @@ CV_RATES = [
     "Hourly rate 45 USD",
     "Stawka 150 zł, budżet projektu 2 mln PLN.",
     "Zna branżę płatności. Oczekiwana stawka 150 zł/h netto. Dostępna od zaraz.",
+    # Przegląd 17.10.2026: skrót między słowem a kwotą i waluta słowem.
+    "Daily rate approx. 600 EUR",
+    "Expected salary approx. 20 000 PLN",
+    "Wynagrodzenie mies. 18 000 PLN",
+    "Stawka godz. 150 zł",
+    "Rate hr. 50 USD",
+    "Stawka: 150 złotych za godzinę",
+    "Rate: 50 euros per hour",
+    "Stawka godzinowa 150 złotych",
 ]
 
 
@@ -1159,14 +1178,27 @@ def test_rate_quote_names_the_block_not_a_neighbour() -> None:
     assert qc.rate_mentions(_blocks(html)) == ["Oczekiwana stawka: 120 PLN netto/h"]
 
 
-def test_rate_mentions_is_linear_on_long_digit_runs() -> None:
-    html = (
-        "<p>stawka "
-        + "1" * 200000
-        + " pracowników</p>"
-        + "<p>wynagrodzeń 3</p>" * 20000
-    )
-    spent = _cpu(lambda: qc.rate_mentions(_blocks(html)))
+@pytest.mark.parametrize(
+    "blocks",
+    [
+        lambda: _blocks(
+            "<p>stawka "
+            + "1" * 200000
+            + " pracowników</p>"
+            + "<p>wynagrodzeń 3</p>" * 20000
+        ),
+        # Przegląd 17.10.2026: `\w*` po słowie o pieniądzach i ciąg spacji.
+        lambda: _blocks("<p>wynagrodzenie" + "to" * 200000 + "x</p>"),
+        lambda: dz.text_blocks("stawka" + " " * 200000 + "x"),
+        lambda: _blocks("<p>" + ("stawka " + "1" * 150 + " ") * 2000 + "</p>"),
+    ],
+)
+def test_rate_mentions_is_linear(blocks) -> None:
+    built = blocks()
+    spent = _cpu(lambda: qc.rate_mentions(built))
+    assert spent < TRANSFORM_CPU_LIMIT, f"{spent:.1f} s"
+    html = "".join(f"<p>{b.text}</p>" for b in built[:1])
+    spent = _cpu(lambda: qc.strip_client_rules_html(html, None, None))
     assert spent < TRANSFORM_CPU_LIMIT, f"{spent:.1f} s"
 
 

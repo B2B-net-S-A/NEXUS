@@ -676,15 +676,12 @@ def brings_money(
 
 
 def rate_mentions(blocks: list[Block]) -> list[str]:
-    """Bloki ze stawką — zdanie po zdaniu tą samą regułą co „Usuń stawkę”
-    (`_mentions_rate`), żeby uwaga, której nie da się pominąć, zawsze miała
-    poprawkę jednym kliknięciem (propozycja 17.10.2026)."""
-    out: list[str] = []
-    for block in blocks:
-        pieces = _SENTENCE_PIECE.finditer(block.text)
-        if any(_mentions_rate(m.group(0)) for m in pieces):
-            out.append(block.text[:120])
-    return out
+    """Bloki ze stawką — regułą „Usuń stawkę” (`_mentions_rate`, propozycja
+    17.10.2026). Cały blok, nie zdanie po zdaniu: skrót spoza listy
+    `_SENTENCE_PIECE` („Daily rate approx. 600 EUR”) dzieliłby stawkę na dwa
+    zdania i przepuszczał ją — przy blokadzie wolimy uwagę bez poprawki
+    jednym kliknięciem niż stawkę u klienta."""
+    return [block.text[:120] for block in blocks if _mentions_rate(block.text)]
 
 
 def contact_leaks(text: str, email: Optional[str], phone: Optional[str]) -> list[str]:
@@ -4641,7 +4638,10 @@ _HREF = re.compile(r"""\bhref\s*+=\s*+["']([^"']*+)["']""", re.IGNORECASE)
 # „ok.”, „np.”, „ca.”, „tj.”, „min.”, „max.” też nie (stawka „ok. 150 zł/h”).
 _SENTENCE_PIECE = re.compile(
     r"(?:[^.!?;\n]|[.!?;](?=\d)"
-    r"|(?:(?<=\bok)|(?<=\bnp)|(?<=\bca)|(?<=\btj)|(?<=\bmin)|(?<=\bmax))\."
+    r"|(?:(?<=\bok)|(?<=\bnp)|(?<=\bca)|(?<=\btj)|(?<=\bmin)|(?<=\bmax)"
+    # Skróty przy stawce: „Stawka godz. 150 zł”, „Daily rate approx. 600 EUR”.
+    r"|(?<=\bapprox)|(?<=\bgodz)|(?<=\bmies)|(?<=\bdz)|(?<=\bhr)|(?<=\btys)"
+    r"|(?<=\bmln))\."
     # Skrót przedłuża zdanie tylko przed cyfrą, małą literą albo walutą —
     # „do 5 min. Oczekiwana stawka…” to dwa zdania (przegląd PR 2, runda 3).
     r"(?=[^\S\n]*+(?-i:[\da-ząćęłńóśźż€$])))*+(?:[.!?;]++|\n|$)",

@@ -8,16 +8,17 @@ liczy QC raz na parę (`cv_qc.evaluate`, przebieg w ostatnich N dniach —
 - `legacy` — luźne `_AMOUNT` przy słowie o pieniądzach (QC do 17.10.2026);
 - `strict` — `money_text.is_rate_text` zdanie po zdaniu w oknie 80 znaków
   (to, co od PR #2290 usuwa „Usuń stawkę”);
-- `cv` — `money_text.is_cv_rate_text` (propozycja; jest tylko z nakładką
-  `scripts/qc_overlay.py`, bez niej ta kolumna jest pusta).
+- `cv` — `cv_qc.rate_mentions` z `money_text.is_cv_rate_text` (propozycja;
+  jest tylko z nakładką `scripts/qc_overlay.py`, bez niej tej kolumny nie ma).
 
 Wypisuje JSON: ile par i bloków ma „Stawkę w CV”, ile par zmieniłoby wynik
 QC (blokada → zaliczone i odwrotnie) i cechy bloków, które w nowej regule
 przestają albo zaczynają blokować — kwota z walutą jako osobnym słowem albo
 kwota za czas w bloku, który przestaje blokować, to sygnał, że prawdziwa
 stawka mogłaby przejść. Bez treści, nazw i identyfikatorów osób.
-`QC_RATE_WORDS=1` dopisuje najczęstsze słowa, w których luźny wzorzec widział
-walutę („zleceniobiorców”), i słowa po liczbie w nowych blokadach.
+`QC_RATE_WORDS=1` dopisuje słowa, w których luźny wzorzec widział walutę
+(„zleceniobiorców”), i słowa po liczbie w nowych blokadach — tylko te, które
+stoją w co najmniej `WORDS_MIN` blokach, żeby nie wypisać fragmentu jednego CV.
 
 Uruchomienie w kontenerze backendu (sesja bazy tylko do odczytu):
     python3 scripts/qc_overlay.py scripts/qc_rate_mentions_eval.py \\
@@ -33,6 +34,7 @@ import re
 
 DAYS = int(os.environ.get("QC_AUDIT_DAYS", "30"))
 WORDS = os.environ.get("QC_RATE_WORDS") == "1"
+WORDS_MIN = 5
 
 # Reguła sprzed propozycji — kopia, żeby pomiar działał też po merge'u.
 _LEGACY_AMOUNT = re.compile(
@@ -50,8 +52,13 @@ _GLUED = re.compile(r"\d[\d\s.,]*\s*((?:z[łl]|pln|eur|usd)\w+)", re.IGNORECASE)
 _AFTER_NUMBER = re.compile(r"\d(?:[\d\s.,]*\d)?\s*(\S{0,12})")
 
 
-def build_rules(cv_qc, money_text) -> dict:
-    """Reguły stawki po nazwie: blok CV → lista cytatów (jak `rate_mentions`)."""
+def build_rules(cv_qc, money_text, base_qc=None) -> dict:
+    """Reguły stawki po nazwie: blok CV → lista cytatów (jak `rate_mentions`).
+
+    `strict` dzieli zdania tak jak dziś produkcja (`base_qc` — moduł z obrazu
+    sprzed nakładki), bo ma pokazać, co dziś usuwa „Usuń stawkę”.
+    """
+    splitter = (base_qc or cv_qc)._SENTENCE_PIECE
 
     def legacy(blocks):
         return [
@@ -67,20 +74,17 @@ def build_rules(cv_qc, money_text) -> dict:
                 return True
         return False
 
-    def by_sentence(test):
-        def rule(blocks):
-            return [
-                b.text[:120]
-                for b in blocks
-                if any(test(m.group(0)) for m in cv_qc._SENTENCE_PIECE.finditer(b.text))
-            ]
+    def strict(blocks):
+        return [
+            b.text[:120]
+            for b in blocks
+            if any(strict_sentence(m.group(0)) for m in splitter.finditer(b.text))
+        ]
 
-        return rule
-
-    rules = {"legacy": legacy, "strict": by_sentence(strict_sentence)}
-    cv_rule = getattr(money_text, "is_cv_rate_text", None)
-    if cv_rule is not None:
-        rules["cv"] = by_sentence(cv_rule)
+    rules = {"legacy": legacy, "strict": strict}
+    if getattr(money_text, "is_cv_rate_text", None) is not None:
+        # Propozycja: cały blok regułą „Usuń stawkę” — `rate_mentions` z gałęzi.
+        rules["cv"] = cv_qc.rate_mentions
     return rules
 
 
@@ -93,7 +97,8 @@ async def main() -> None:
     from app.services.skill_taxonomy_loader import refresh_alias_map
 
     await refresh_alias_map()
-    rules = build_rules(cv_qc, money_text)
+    base = globals().get("QC_OVERLAY_BASE", {}).get("app.services.cv_qc")
+    rules = build_rules(cv_qc, money_text, base)
 
     real_compute = cv_qc.compute_checks
     real_mentions = cv_qc.rate_mentions
@@ -196,7 +201,7 @@ async def main() -> None:
                     )
                     if WORDS:
                         glued_words.update(
-                            f"{name}:{w.lower()}" for w in _GLUED.findall(block)
+                            {f"{name}:{w.lower()}" for w in _GLUED.findall(block)}
                         )
                 for block in found[name] - found["legacy"]:
                     added[f"{name}:blocks"] += 1
@@ -205,7 +210,10 @@ async def main() -> None:
                     )
                     if WORDS:
                         after_words.update(
-                            f"{name}:{w.lower()}" for w in _AFTER_NUMBER.findall(block)
+                            {
+                                f"{name}:{w.lower()}"
+                                for w in _AFTER_NUMBER.findall(block)
+                            }
                         )
     cv_qc.compute_checks = real_compute
     await engine.dispose()
@@ -221,8 +229,12 @@ async def main() -> None:
         "errors": dict(errors),
     }
     if WORDS:
-        out["glued_words"] = dict(glued_words.most_common(30))
-        out["words_after_number"] = dict(after_words.most_common(30))
+        out["glued_words"] = {
+            w: n for w, n in glued_words.most_common(30) if n >= WORDS_MIN
+        }
+        out["words_after_number"] = {
+            w: n for w, n in after_words.most_common(30) if n >= WORDS_MIN
+        }
     print(json.dumps(out, ensure_ascii=False))
 
 

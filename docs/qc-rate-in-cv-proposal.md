@@ -33,27 +33,43 @@ Artura — gałąź `claude/qc-rate-in-cv-rule`, bez PR-a.
 
 ## Propozycja (na gałęzi)
 
-- `money_text.is_cv_rate_text` — reguła stawki dla treści CV: kwota za czas
-  („150 zł/h”); kwota z walutą przy słowie o pieniądzach, chyba że tuż przed
-  nią stoi budżet projektu; liczba bez waluty po takim słowie tylko na końcu
-  zdania albo przed formą rozliczenia (B2B, netto, „za godzinę”, „+ VAT”).
+- `money_text.is_cv_rate_text` — reguła stawki dla treści CV:
+  - kwota za czas („150 zł/h”) — zawsze;
+  - kwota z walutą, także słowem („150 złotych”, „50 euros”), w oknie 80
+    znaków wokół słowa o pieniądzach — chyba że tuż przed nią stoi budżet
+    projektu („o budżecie 2 mln PLN”);
+  - liczba bez waluty po słowie o pieniądzach tylko na końcu zdania albo
+    przed formą rozliczenia (B2B, netto, „za godzinę”, „+ VAT”, „złotych”)
+    i tylko, gdy nie jest rokiem ani datą („Specjalista ds. wynagrodzeń
+    2018 – 2022”).
   `is_rate_text` zostaje dla notatek i materiału generatora.
-- `rate_mentions` sprawdza blok zdanie po zdaniu tą samą funkcją co „Usuń
-  stawkę” (`_mentions_rate`) — uwaga, której nie da się pominąć, zawsze ma
-  działającą poprawkę, a poprawka usuwa tylko to, co QC zgłosiło.
+- `rate_mentions` sprawdza cały blok tą funkcją (`_mentions_rate`), a „Usuń
+  stawkę” — zdanie po zdaniu tą samą funkcją. Cały blok, nie zdania, bo skrót
+  spoza listy („approx.”) dzieliłby stawkę na dwa zdania i QC by ją
+  przepuściło; przy blokadzie lepsza uwaga bez poprawki jednym kliknięciem
+  niż stawka u klienta. Lista skrótów w `_SENTENCE_PIECE` dostała „approx.”,
+  „godz.”, „mies.”, „dz.”, „hr.”, „tys.”, „mln.” — żeby „Usuń stawkę” radziło
+  sobie ze „Stawka godz. 150 zł”.
 - `QC_VERSION` `qc-truth-1` → `qc-truth-2`; `_AMOUNT` usunięte.
-- Testy bez bazy w `tests/test_cv_qc.py` (sekcja „Stawka w CV”): 12 zdań,
-  które nie są stawką, 17 stawek (także w pogrubieniu i w środku akapitu),
-  cytat wskazuje właściwy blok, koszt na 200 tys. cyfr. Każdy przykład
-  sprawdza naraz uwagę QC i „Usuń stawkę”. Na kodzie z `main` 19 z nich
-  pada, a test kosztu nie kończy się; na gałęzi wszystkie przechodzą
-  (lokalnie 467 testów bez bazy z plików, które dotykają kwot; 24 czerwone to
-  wyłącznie brak Postgresa — sprawdza je CI).
+- Testy bez bazy w `tests/test_cv_qc.py` (sekcja „Stawka w CV”): 20 zdań,
+  które nie są stawką, 25 stawek (także w pogrubieniu, w środku akapitu, ze
+  skrótem i walutą słowem), cytat wskazuje właściwy blok, koszt liniowy na
+  200 tys. cyfr, sklejonym słowie i ciągu spacji. Każdy przykład sprawdza
+  naraz uwagę QC i „Usuń stawkę”. Na kodzie z `main` 19 z pierwszych 30
+  przypadków pada, a test kosztu się nie kończy; na gałęzi przechodzą
+  wszystkie (lokalnie 486 testów bez bazy z plików, które dotykają kwot;
+  24 czerwone to te same testy z Postgresem co na `main` — sprawdza je CI).
+- **Przegląd kodu (python-reviewer, 17.10.2026)** znalazł w pierwszej wersji
+  kwadratowy koszt na sklejonym słowie i ciągu spacji, stawki ze skrótem
+  i walutą słowem, które przestawały blokować, lata stanowisk jako „stawkę”
+  i słowa z CV w wyjściu skryptu. Każde zgłoszenie sprawdziłem i poprawiłem;
+  przypadki są w testach.
 
 ## Przykłady (wynik kodu, nie ocena ręczna)
 
 „QC dziś” = `qc-truth-1` na produkcji; „ścisłe” = to, co dziś usuwa „Usuń
-stawkę”; „propozycja” = gałąź.
+stawkę” (zdanie po zdaniu, podział zdań z produkcji); „propozycja” = gałąź.
+Kod uruchomiony lokalnie: `main` jako produkcja, gałąź jako nakładka.
 
 | Zdanie | Stawka? | QC dziś | ścisłe `is_rate_text` | propozycja |
 |---|---|---|---|---|
@@ -69,7 +85,16 @@ stawkę”; „propozycja” = gałąź.
 | Error rate 0.1 po wdrożeniu. | nie | — | blokuje | — |
 | Wdrożyła moduł wynagrodzeń o budżecie 2 mln PLN. | nie | — | blokuje | — |
 | Stawki VAT 23% i 8% w module fakturowania. | nie | — | — | — |
+| Specjalista ds. wynagrodzeń 2018 – 2022 | nie | — | blokuje | — |
+| Analityk wynagrodzeń 2021 | nie | — | blokuje | — |
+| Kierownik ds. wynagrodzeń 03.2019 - 05.2021 | nie | — | blokuje | — |
+| Raport wynagrodzeń 2024 | nie | — | blokuje | — |
+| Zarządzanie stawkami 2020–2023 | nie | — | blokuje | — |
+| Compensation &amp; Salary 2020 | nie | — | blokuje | — |
+| Rate 100 per request | nie | — | blokuje | — |
+| Zarobki 300/500 pracowników | nie | — | blokuje | — |
 | Payroll: wynagrodzenia dla 3 spółek, koszt licencji 40 000 PLN rocznie. | nie | blokuje | blokuje | blokuje |
+| Moduł Salary 360. | nie | — | blokuje | blokuje |
 | Stawka: 150 zł/h B2B. | tak | blokuje | blokuje | blokuje |
 | Oczekiwana stawka: 120 PLN netto/h | tak | blokuje | blokuje | blokuje |
 | Stawka: **150 zł/h** | tak | blokuje | blokuje | blokuje |
@@ -87,14 +112,27 @@ stawkę”; „propozycja” = gałąź.
 | Hourly rate 45 USD | tak | blokuje | blokuje | blokuje |
 | Stawka 150 zł, budżet projektu 2 mln PLN. | tak | blokuje | blokuje | blokuje |
 | Zna branżę płatności. Oczekiwana stawka 150 zł/h netto. Dostępna od zaraz. | tak | blokuje | blokuje | blokuje |
+| Daily rate approx. 600 EUR | tak | blokuje | — | blokuje |
+| Expected salary approx. 20 000 PLN | tak | blokuje | — | blokuje |
+| Wynagrodzenie mies. 18 000 PLN | tak | blokuje | — | blokuje |
+| Stawka godz. 150 zł | tak | blokuje | — | blokuje |
+| Rate hr. 50 USD | tak | blokuje | — | blokuje |
+| Stawka: 150 złotych za godzinę | tak | blokuje | blokuje | blokuje |
+| Rate: 50 euros per hour | tak | blokuje | blokuje | blokuje |
+| Stawka godzinowa 150 złotych | tak | blokuje | — | blokuje |
 | Oczekiwania finansowe: 150 zł/h netto | tak | — | — | — |
+| Stawka: 2000 | tak | — | blokuje | — |
+| Stawka godzinowa: 150 B2B | tak | — | — | — |
 
-Zostaje w obu regułach: „koszt licencji 40 000 PLN” w zdaniu ze słowem
-„wynagrodzenia” (kwota z walutą przy słowie o pieniądzach) i kwota za czas
-bez takiego słowa („Oczekiwania finansowe: 150 zł/h netto” — dziś też
-przechodzi). To drugie można łapać osobno (kwota z walutą i „/h” w dowolnym
-miejscu), ale wymaga zmiany „Usuń stawkę” przy kwocie w pogrubieniu — poza tą
-propozycją.
+Propozycja blokuje każdą stawkę z tabeli, którą blokuje dzisiejsze QC, i 7
+kolejnych. Z treści CV nowa fałszywa blokada to tylko „Moduł Salary 360.”
+(liczba po słowie o pieniądzach na końcu zdania). Zostaje w obu regułach:
+„koszt licencji 40 000 PLN” w zdaniu ze słowem „wynagrodzenia”. Nie łapie
+ani dziś, ani po zmianie: kwoty za czas bez słowa o pieniądzach
+(„Oczekiwania finansowe: 150 zł/h netto”), liczby po przymiotniku („Stawka
+godzinowa: 150 B2B”) i gołego roku-kwoty („Stawka: 2000”). To pierwsze można
+łapać osobno (kwota z walutą i „/h” w dowolnym miejscu), ale wymaga zmiany
+„Usuń stawkę” przy kwocie w pogrubieniu — poza tą propozycją.
 
 ## Co się zmieni po wdrożeniu
 
@@ -162,6 +200,15 @@ i `<backend>` — host i kontenery z notatek operacyjnych (nie w repo).
    fałszywych stawek, pozostałe sprawdzenia bez zmian (`client_rules` nie ma
    pominięć „To nieprawda”, więc `qc_eval_dismissals` nie powinien się
    zmienić).
+
+## Poza zakresem
+
+- `money_text.is_rate_text` i `strip_rates_and_availability` (notatki →
+  materiał generatora CV, AI w edytorze przez `cv_command_ai.has_amount`)
+  mają ten sam kwadratowy koszt co pierwsza wersja tej zmiany: tekst
+  „stawka” + 10 tys. spacji albo sklejone „wynagrodzenietoto…” to 3,3 s CPU
+  (5 tys. — 0,8 s). Ta propozycja tego nie zmienia; poprawka to osobny PR
+  (`_BARE_AMOUNT_RE` od słowa w ograniczonym oknie, jak `_cv_bare_rate`).
 
 ## Decyzja
 
