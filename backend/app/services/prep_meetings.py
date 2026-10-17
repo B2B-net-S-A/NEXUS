@@ -17,7 +17,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Iterable, Optional
+from typing import Iterable, Optional, Sequence
 
 from fastapi import HTTPException
 from sqlalchemy import func, select
@@ -28,16 +28,18 @@ from app.models.calendar_event import CalendarEvent, EventStatus, EventType
 from app.models.candidate import Candidate
 from app.models.job import Job
 from app.models.prep_meeting import PrepMeeting
-from app.models.user import User
+from app.models.user import User, UserRole
 from app.services import interview_slots, prep_invitation
 from app.services.m365 import teams_prep_auth, teams_prep_graph
 from app.services.m365.app_graph_client import AppOnlyTokenUnavailable
 from app.services.m365.calendar import (
     M365_SOURCE,
     _build_event_payload,
+    _graph_datetime,
     event_transaction_id,
 )
 from app.services.m365.graph_client import GraphRequestError
+from app.services.workforce_availability import operational_owner_ids
 
 logger = logging.getLogger(__name__)
 
@@ -239,8 +241,14 @@ async def create_prep(
     note: Optional[str],
     client_request_id: Optional[str],
     client_name: Optional[str] = None,
+    extra_emails: Sequence[str] = (),
 ) -> CreatedPrep:
-    """Spotkanie w kalendarzu organizatora + wiersze NEXUSA. Flush, bez commitu."""
+    """Spotkanie w kalendarzu organizatora + wiersze NEXUSA. Flush, bez commitu.
+
+    ``extra_emails`` — zaproszeni spoza NEXUSA (decyzja D1, 17.10.2026: Delivery
+    Lead chciał dopisać kogoś spoza zespołu rekrutacji, a lista pozwalała tylko
+    na zespół).
+    """
     if not organizer.email:
         raise HTTPException(
             status_code=422,
@@ -270,11 +278,12 @@ async def create_prep(
         organizer_name=organizer.name or "",
     )
     description = prep_invitation.as_plain(invitation)
-    attendees = [candidate.email]
-    for user in extra_attendees:
-        if user.email and user.email.lower() not in {a.lower() for a in attendees}:
-            if user.id != organizer.id:
-                attendees.append(user.email)
+    attendees = attendee_emails(
+        candidate_email=candidate.email,
+        organizer_email=organizer.email,
+        users=extra_attendees,
+        emails=extra_emails,
+    )
     payload = _build_event_payload(
         title=title,
         description=prep_invitation.as_html(invitation),
@@ -423,3 +432,224 @@ async def suggestion_summary(
         await suggest_organizer_ids(db, {job.id: job}, [(candidate_id, job.id)])
     ).get((candidate_id, job.id), (None, None))
     return {1: prep1, 2: prep2}
+
+
+# ── Zmiana i odwołanie prepu przez ludzi pary (decyzje D1–D4, 17.10.2026) ────
+
+_PREP_OVERSIGHT = (UserRole.admin, UserRole.head_of_recruitment)
+DEFAULT_CANCEL_COMMENT = "Spotkanie zostało odwołane."
+
+
+def attendee_emails(
+    *,
+    candidate_email: str,
+    organizer_email: Optional[str],
+    users: Sequence[User],
+    emails: Sequence[str],
+) -> list[str]:
+    """Adresy zaproszonych: kandydat pierwszy, bez organizatora i bez powtórzeń."""
+    out = [candidate_email]
+    seen = {candidate_email.lower(), (organizer_email or "").lower()}
+    for raw in [*(u.email for u in users), *emails]:
+        address = (raw or "").strip()
+        if address and address.lower() not in seen:
+            seen.add(address.lower())
+            out.append(address)
+    return out
+
+
+async def prep_editor_ids(
+    db: AsyncSession, prep: PrepMeeting, job: Optional[Job]
+) -> set[int]:
+    """Ludzie pary, którzy mogą zmienić i odwołać prep (decyzja D2).
+
+    Prowadzący, osoba, która prep zaplanowała, Delivery Lead rekrutacji
+    i rekruter kandydata (``default_recruiter_ids`` — ta sama reguła co
+    podpowiedź Prepu 2). Do 17.10.2026 prep zmieniał tylko właściciel
+    wydarzenia, czyli prowadzący: rekruter, który założył Prep 1 w kalendarzu
+    DL-a, dostawał 404 na „Szczegóły” i 403 na zmianę terminu, choć to on
+    ustala termin z kandydatem.
+    """
+    ids = {prep.organizer_user_id, prep.scheduled_by_user_id}
+    if job is not None:
+        ids.add(job.delivery_lead_id)
+    pair = (prep.candidate_id, prep.job_id)
+    ids.add((await interview_slots.default_recruiter_ids(db, [pair])).get(pair))
+    return {i for i in ids if i}
+
+
+def user_can_edit_prep(user: User, editor_ids: set[int]) -> bool:
+    """Admin i Head of Recruitment zawsze; reszta, gdy jest kimś z pary
+    (albo go zastępuje — ``operational_owner_ids``).
+
+    Odwołanie cudzego wydarzenia zostaje zastrzeżone dla właściciela
+    (``calendar_access.user_can_remove_event``, decyzja z 17.09.2026), bo idzie
+    połączonym kontem M365 twórcy. Prep zmienia aplikacja w kalendarzu
+    prowadzącego niezależnie od tego, kto klika, więc tamten powód tu nie
+    występuje.
+    """
+    if user.has_any_role(*_PREP_OVERSIGHT):
+        return True
+    return bool(operational_owner_ids(user) & editor_ids)
+
+
+def ensure_prep_open(event: CalendarEvent, now: Optional[datetime] = None) -> None:
+    """Zmienić i odwołać da się tylko prep, który jest przed nami."""
+    now = now or datetime.now(timezone.utc)
+    if event.status == EventStatus.cancelled:
+        raise HTTPException(
+            status_code=409, detail="Ten prep jest odwołany. Zaplanuj nowy."
+        )
+    end = event.end_time or event.start_time
+    if end is not None and _utc(end) <= now:
+        raise HTTPException(
+            status_code=409,
+            detail="Ten prep już się odbył — zmienić można tylko prep, który jest "
+            "przed nami.",
+        )
+
+
+def _graph_failure(exc: Exception, event_id: int, what: str) -> HTTPException:
+    if isinstance(exc, GraphRequestError):
+        logger.warning("prep %s: Graph %s for event %s", what, exc.status, event_id)
+        return HTTPException(
+            status_code=502 if exc.status >= 500 else 409,
+            detail="Outlook nie przyjął zmiany prepu. W NEXUSIE nic nie zostało "
+            "zmienione.",
+        )
+    logger.warning("prep %s: %s for event %s", what, type(exc).__name__, event_id)
+    return HTTPException(
+        status_code=502,
+        detail="Nie udało się połączyć z Outlookiem. W NEXUSIE nic nie zostało "
+        "zmienione.",
+    )
+
+
+async def push_prep_update(
+    prep: PrepMeeting,
+    event: CalendarEvent,
+    *,
+    start: Optional[datetime],
+    end: Optional[datetime],
+    attendees: Optional[list[str]],
+) -> None:
+    """Nowy termin albo nowa lista zaproszonych w kalendarzu prowadzącego.
+
+    Najpierw Outlook, potem baza (jak ``_push_prep_changes``): zapis tylko
+    w NEXUSIE cofnęłoby odświeżenie terminu z Outlooka, a kandydat zostałby
+    przy starym. Graph wysyła aktualizację tego samego zaproszenia, nowym
+    osobom zaproszenie, a usuniętym odwołanie.
+    """
+    payload: dict = {}
+    if start is not None and end is not None:
+        payload["start"] = _graph_datetime(start)
+        payload["end"] = _graph_datetime(end)
+    if attendees is not None:
+        payload["attendees"] = [
+            {"emailAddress": {"address": a}, "type": "required"} for a in attendees
+        ]
+    if not payload:
+        return
+    try:
+        change_key = await teams_prep_graph.update_event(
+            prep.organizer_upn, event.external_id, payload
+        )
+    except Exception as exc:  # noqa: BLE001 — Graph, token, sieć
+        raise _graph_failure(exc, event.id, "update") from exc
+    if change_key:
+        event.m365_change_key = change_key
+    if start is not None and end is not None:
+        event.start_time, event.end_time = start, end
+        reschedule_fetch(prep, end)
+    if attendees is not None:
+        event.attendees = [{"address": a} for a in attendees]
+
+
+async def cancel_prep(
+    prep: PrepMeeting, event: CalendarEvent, comment: Optional[str]
+) -> str:
+    """Odwołanie w kalendarzu prowadzącego; kandydat i zaproszeni dostają odwołanie."""
+    try:
+        outlook = await teams_prep_graph.cancel_event(
+            prep.organizer_upn,
+            event.external_id,
+            (comment or "").strip() or DEFAULT_CANCEL_COMMENT,
+        )
+    except Exception as exc:  # noqa: BLE001 — Graph, token, sieć
+        raise _graph_failure(exc, event.id, "cancel") from exc
+    event.status = EventStatus.cancelled
+    if prep.transcript_status == "waiting":
+        prep.transcript_status = "cancelled"
+    return outlook
+
+
+async def replace_organizer(
+    db: AsyncSession,
+    *,
+    actor: User,
+    prep: PrepMeeting,
+    event: CalendarEvent,
+    candidate: Candidate,
+    job: Job,
+    organizer: User,
+    start: datetime,
+    end: datetime,
+    users: list[User],
+    emails: Sequence[str],
+    client_request_id: Optional[str],
+    client_name: Optional[str],
+) -> CreatedPrep:
+    """Inny prowadzący = nowe zaproszenie i odwołanie starego (decyzja D4).
+
+    Microsoft nie przenosi spotkania między kalendarzami. Najpierw powstaje
+    nowe spotkanie, potem znika stare — kandydat przez chwilę ma dwa
+    zaproszenia, ale nigdy żadnego. Gdy odwołanie starego się nie uda, nowe
+    jest odwoływane, a wiersze NEXUSA cofa rollback żądania.
+    """
+    created = await create_prep(
+        db,
+        actor=actor,
+        candidate=candidate,
+        job=job,
+        prep_no=prep.prep_no,
+        organizer=organizer,
+        start=start,
+        end=end,
+        extra_attendees=users,
+        note=None,
+        client_request_id=client_request_id,
+        client_name=client_name,
+        extra_emails=emails,
+    )
+    who = organizer.name or "inna osoba"
+    try:
+        await teams_prep_graph.cancel_event(
+            prep.organizer_upn,
+            event.external_id,
+            f"Prep poprowadzi {who}. Nowe zaproszenie przyszło w osobnej wiadomości.",
+        )
+    except Exception as exc:  # noqa: BLE001 — Graph, token, sieć
+        logger.warning(
+            "prep replace: old cancel %s for event %s", type(exc).__name__, event.id
+        )
+        try:
+            await teams_prep_graph.cancel_event(
+                created.prep.organizer_upn,
+                created.event.external_id,
+                DEFAULT_CANCEL_COMMENT,
+            )
+        except Exception as undo:  # noqa: BLE001
+            logger.warning(
+                "prep replace: undo %s for new event of %s",
+                type(undo).__name__,
+                event.id,
+            )
+        raise HTTPException(
+            status_code=502,
+            detail="Nie udało się zmienić prowadzącego — Outlook nie przyjął "
+            "odwołania starego spotkania. Nic się nie zmieniło.",
+        ) from exc
+    event.status = EventStatus.cancelled
+    if prep.transcript_status == "waiting":
+        prep.transcript_status = "cancelled"
+    return created

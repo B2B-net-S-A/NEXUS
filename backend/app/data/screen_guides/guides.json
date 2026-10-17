@@ -437,8 +437,8 @@
         "anchor": "calendar.board"
       },
       {
-        "q": "Jak zaplanować prep i zobaczyć jego ocenę?",
-        "a": "Przed rozmową u klienta są dwa prepy: Prep 1 prowadzi Delivery Lead, Prep 2 rekruter. Kliknij nazwisko na karcie, a przy kroku Prep „Zaplanuj”: wybierz prowadzącego i termin. Okno pokazuje zaproszenie, które dostanie kandydat; spotkanie powstaje w kalendarzu prowadzącego. Po spotkaniu w panelu pojawi się „Ocena prepu” z oceną i transkryptem.",
+        "q": "Jak zaplanować, zmienić albo odwołać prep?",
+        "a": "Przed rozmową u klienta są dwa prepy: Prep 1 prowadzi Delivery Lead, Prep 2 rekruter. Kliknij nazwisko na karcie i przy kroku Prep „Zaplanuj”: prowadzący, termin i kogo zaprosić — każdego z NEXUSA albo adres e-mail. Zaplanowany prep zmienisz albo odwołasz w panelu kandydata („Zmień”, „Odwołaj”). Po spotkaniu pojawi się „Ocena prepu”.",
         "anchor": "calendar.board"
       },
       {
@@ -451,7 +451,7 @@
       "Bez debriefu kandydat nie wyjdzie z kolumny „Rozmowa u klienta” na tablicy rekrutacji.",
       "Zmiana terminu wydarzenia z Outlooka idzie najpierw do Outlooka — bez połączonej skrzynki zapis zostanie odrzucony.",
     "Terminy od klienta przesuwają kandydata na „Rozmowę u klienta” tylko wtedy, gdy jego CV zostało już wysłane do klienta. Inaczej karta zostaje na swoim etapie — przesuń ją na tablicy rekrutacji.",
-      "Prep zaplanowany po rozmowie u klienta świeci na czerwono z przyciskiem „Przełóż”. Otwiera okno z tym samym spotkaniem — ustawiasz tylko nowy termin przed rozmową, a kandydat dostaje aktualizację zaproszenia. Drugiego prepu o tym numerze nie da się założyć."
+      "Prep zmieniają prowadzący, Delivery Lead rekrutacji, rekruter kandydata i osoba, która go zaplanowała — kandydat dostaje aktualizację tego samego zaproszenia. Prep po rozmowie u klienta świeci na czerwono z „Przełóż”. Inny prowadzący = odwołanie i nowe zaproszenie."
     ],
     "anchors": [
       {"id": "calendar.board", "label": "Tablica kroków", "describe": "Siedem kroków cyklu, kandydaci w kolumnach, zadania na kartach."},

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { ArrowUpRight, Video } from "lucide-react";
 
+import { PrepEditButtons } from "@/components/calendar/cycle/PrepEditButtons";
 import {
   Sheet,
   SheetBody,
@@ -276,6 +277,14 @@ function PairEventRow({
       ? entry.done
       : new Date(entry.end ?? entry.start).getTime() < now.getTime();
   const range = entry.end ? `${formatTime(entry.start)}–${formatTime(entry.end)}` : formatTime(entry.start);
+  // Prep z NEXUSA przed nami: „Zmień” i „Odwołaj” dla ludzi pary (17.10.2026).
+  // „Szczegóły” otwierały wydarzenie kalendarza, którego właścicielem jest
+  // prowadzący — rekruter, który prep założył, dostawał 404.
+  const nexusPrepAhead =
+    (entry.kind === "prep" || entry.kind === "prep2") &&
+    Boolean(entry.from_nexus) &&
+    !past &&
+    entry.event_id != null;
   return (
     <li className={cn("flex flex-wrap items-center gap-x-3 gap-y-1.5 px-3 py-2.5", past && !debrief && "opacity-60")}>
       <div className="min-w-0 flex-1">
@@ -370,7 +379,21 @@ function PairEventRow({
             Ocena prepu
           </button>
         ) : null}
-        {entry.kind !== "call" && entry.event_id != null ? (
+        {nexusPrepAhead ? (
+          <PrepEditButtons
+            eventId={entry.event_id as number}
+            onEdit={(mode) =>
+              onAction({
+                type: "reschedule_prep",
+                pair: entry,
+                eventId: entry.event_id as number,
+                prepNo: entry.kind === "prep2" ? 2 : 1,
+                mode,
+              })
+            }
+          />
+        ) : null}
+        {entry.kind !== "call" && entry.event_id != null && !nexusPrepAhead ? (
           <button
             type="button"
             onClick={() => onAction({ type: "open_event", eventId: entry.event_id as number })}

@@ -45,7 +45,13 @@ type Dialog =
   | { kind: "prep"; pair: PairInfo; second: boolean }
   | { kind: "prep_review"; pair: PairInfo; eventId: number }
   | { kind: "slots"; pair: PairInfo | null }
-  | { kind: "reschedule_prep"; pair: PairInfo; eventId: number; prepNo: 1 | 2 }
+  | {
+      kind: "reschedule_prep";
+      pair: PairInfo;
+      eventId: number;
+      prepNo: 1 | 2;
+      mode?: "late" | "edit" | "cancel";
+    }
   | null;
 
 /**
@@ -193,6 +199,7 @@ export function CalendarCycleScreen({
           pair: action.pair,
           eventId: action.eventId,
           prepNo: action.prepNo,
+          mode: action.mode,
         });
         break;
       case "open_event": {
@@ -369,6 +376,7 @@ export function CalendarCycleScreen({
           eventId={dialog.eventId}
           pair={dialog.pair}
           prepNo={dialog.prepNo}
+          mode={dialog.mode}
           interview={prepInterviewForPair(data, dialog.pair)}
         />
       ) : null}
