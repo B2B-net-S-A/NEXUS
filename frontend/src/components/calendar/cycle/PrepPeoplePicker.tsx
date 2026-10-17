@@ -207,7 +207,7 @@ export function PrepPeoplePicker({
             // Wpisany cały adres nie ginie, gdy ktoś kliknie dalej zamiast Enter.
             if (typedEmail) pick({ kind: "email", email: typedEmail });
           }}
-          className="min-w-[10rem] flex-1 bg-transparent px-1 py-1 text-sm outline-hidden"
+          className="w-0 min-w-[10rem] flex-1 bg-transparent px-1 py-1 text-sm outline-hidden"
         />
       </div>
       {open ? (
