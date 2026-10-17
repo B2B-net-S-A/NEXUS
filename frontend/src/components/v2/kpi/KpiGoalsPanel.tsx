@@ -20,7 +20,7 @@ function statusClass(row: KpiPanelRow): string {
   return "text-foreground";
 }
 
-function PanelRow({ row }: { row: KpiPanelRow }) {
+function PanelRow({ row, onNavigate }: { row: KpiPanelRow; onNavigate?: () => void }) {
   return (
     <div className="flex flex-col gap-1.5" data-kpi-row={row.id}>
       <div className="flex items-center justify-between gap-2 text-[13px] leading-[18px]">
@@ -49,6 +49,15 @@ function PanelRow({ row }: { row: KpiPanelRow }) {
           {row.status && row.description ? " " : null}
           {row.description}
         </p>
+      ) : null}
+      {row.link ? (
+        <Link
+          href={row.link.href}
+          onClick={onNavigate}
+          className="w-fit text-xs font-medium text-primary hover:underline"
+        >
+          {row.link.label} →
+        </Link>
       ) : null}
     </div>
   );
@@ -79,7 +88,7 @@ export function KpiGoalsPanel({ model, onNavigate }: KpiGoalsPanelProps) {
             </div>
             <div className="flex flex-col gap-3.5 px-4 py-3">
               {group.rows.map((row) => (
-                <PanelRow key={row.id} row={row} />
+                <PanelRow key={row.id} row={row} onNavigate={onNavigate} />
               ))}
             </div>
           </section>

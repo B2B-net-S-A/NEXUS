@@ -85,6 +85,7 @@ const PAGES = [
   "/preview/kariera",
   "/preview/kpi-targets",
   "/preview/kpi-topbar",
+  "/preview/kpi-who-counts",
   "/preview/jobs-list-v3",
   "/preview/job-board-screening",
   "/preview/job-board-screening?state=closed",

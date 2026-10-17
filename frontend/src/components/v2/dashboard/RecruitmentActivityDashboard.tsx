@@ -1,6 +1,5 @@
 "use client"
 
-import Link from "next/link"
 import { useEffect, useMemo, useRef, useState } from "react"
 import {
   BriefcaseBusiness,
@@ -26,8 +25,8 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Skeleton } from "@/components/ui/skeleton"
+import { WhoCountsList } from "@/components/v2/kpi/WhoCountsList"
 import {
-  getRecruitmentActivityDetails,
   getRecruitmentActivitySummary,
   type RecruitmentActivityComparison,
   type RecruitmentActivityMetric,
@@ -82,16 +81,6 @@ function formatDate(value: string): string {
     year: "numeric",
     timeZone: "Europe/Warsaw",
   }).format(new Date(`${value}T12:00:00Z`))
-}
-
-function formatReachedAt(value: string): string {
-  return new Intl.DateTimeFormat("pl-PL", {
-    day: "2-digit",
-    month: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    timeZone: "Europe/Warsaw",
-  }).format(new Date(value))
 }
 
 function metricLabel(metric: RecruitmentActivityMetric): string {
@@ -178,6 +167,7 @@ function ActivityDetails({
   dayCount,
   monthCount,
   scopeCacheKey,
+  viewerId,
 }: {
   metric: RecruitmentActivityMetric
   window: RecruitmentActivityWindow
@@ -189,46 +179,22 @@ function ActivityDetails({
   dayCount: number | null
   monthCount: number
   scopeCacheKey: string
+  viewerId: number | null
 }) {
-  const [page, setPage] = useState(1)
-
-  useEffect(() => {
-    setPage(1)
-  }, [metric, window, day, month, subjectUserId, teamScope])
-
-  const query = useQuery({
-    queryKey: [
-      "recruitment-activity",
-      scopeCacheKey,
-      "details",
-      metric,
-      window,
-      day,
-      month,
-      subjectUserId ?? null,
-      teamScope,
-      page,
-    ],
-    queryFn: () =>
-      getRecruitmentActivityDetails({
-        metric,
-        window,
-        day,
-        month,
-        subjectUserId,
-        teamScope,
-        page,
-        pageSize: DETAIL_PAGE_SIZE,
-      }),
-    staleTime: 30_000,
-  })
-  const totalPages = query.data
-    ? Math.max(1, Math.ceil(query.data.total / query.data.page_size))
-    : 1
+  // Te same wiersze co lista „Kto się liczy” w Insights (17.10.2026): kto
+  // kliknął etap, gdzie osoba jest teraz, filtry stanu. Tydzień = tydzień
+  // wybranego dnia, jak cel „Rekomendacje w tygodniu”.
+  const windows: Array<{ value: RecruitmentActivityWindow; label: string }> = [
+    ...(metric !== "placement"
+      ? [{ value: "day" as const, label: `Dzień (${dayCount ?? 0})` }]
+      : []),
+    { value: "week", label: "Tydzień" },
+    { value: "month", label: `Miesiąc (${monthCount})` },
+  ]
 
   return (
     <div className="border-t border-border bg-muted/20 px-4 py-4 @xl:px-5">
-      <div className="flex flex-col gap-3 @xl:flex-row @xl:items-center @xl:justify-between">
+      <div className="mb-4 flex flex-col gap-3 @xl:flex-row @xl:items-center @xl:justify-between">
         <div>
           <h3 className="text-sm font-semibold text-foreground">
             Osoby: {metricLabel(metric)}
@@ -238,109 +204,27 @@ function ActivityDetails({
           </p>
         </div>
         <div className="inline-flex w-fit rounded-lg border border-border bg-card p-1">
-          {metric !== "placement" ? (
+          {windows.map((option) => (
             <Button
+              key={option.value}
               type="button"
               size="sm"
-              variant={window === "day" ? "secondary" : "ghost"}
-              onClick={() => setWindow("day")}
+              variant={window === option.value ? "secondary" : "ghost"}
+              onClick={() => setWindow(option.value)}
               className="h-7"
             >
-              Dzień ({dayCount ?? 0})
+              {option.label}
             </Button>
-          ) : null}
-          <Button
-            type="button"
-            size="sm"
-            variant={window === "month" ? "secondary" : "ghost"}
-            onClick={() => setWindow("month")}
-            className="h-7"
-          >
-            Miesiąc ({monthCount})
-          </Button>
-        </div>
-      </div>
-
-      {query.isLoading ? (
-        <div className="mt-4 space-y-2">
-          {Array.from({ length: 3 }).map((_, index) => (
-            <Skeleton key={index} className="h-14 w-full" />
           ))}
         </div>
-      ) : query.isError ? (
-        <div className="mt-4 flex items-center justify-between gap-3 rounded-lg border border-destructive/30 bg-destructive/5 p-3">
-          <p className="text-sm text-foreground">Nie udało się pobrać osób.</p>
-          <Button size="sm" variant="outline" onClick={() => void query.refetch()}>
-            Ponów
-          </Button>
-        </div>
-      ) : query.data?.items.length ? (
-        <div className="mt-4 overflow-hidden rounded-lg border border-border bg-card">
-          <div className="divide-y divide-border">
-            {query.data.items.map((item, index) => (
-              <div
-                key={`${item.candidate.id}-${item.job.id}-${item.reached_at}-${index}`}
-                className="grid gap-2 px-3 py-3 @xl:grid-cols-[minmax(180px,0.8fr)_minmax(220px,1fr)_auto] @xl:items-center"
-              >
-                <Link
-                  href={item.candidate.href}
-                  className="truncate text-sm font-medium text-foreground hover:text-primary hover:underline"
-                >
-                  {item.candidate.name}
-                </Link>
-                <div className="min-w-0">
-                  <Link
-                    href={item.job.href}
-                    className="block truncate text-sm text-foreground hover:text-primary hover:underline"
-                  >
-                    {item.job.title}
-                  </Link>
-                  <p className="truncate text-xs text-muted-foreground">
-                    {item.job.client_name}
-                    {teamScope && item.credited_user
-                      ? ` · ${item.credited_user.name}`
-                      : ""}
-                  </p>
-                </div>
-                <time className="text-xs tabular-nums text-muted-foreground">
-                  {formatReachedAt(item.reached_at)}
-                </time>
-              </div>
-            ))}
-          </div>
-          {totalPages > 1 ? (
-            <div className="flex items-center justify-between border-t border-border px-3 py-2">
-              <span className="text-xs text-muted-foreground">
-                Strona {page} z {totalPages} · {query.data.total} wyników
-              </span>
-              <div className="flex gap-2">
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  disabled={page <= 1}
-                  onClick={() => setPage((value) => Math.max(1, value - 1))}
-                >
-                  Wstecz
-                </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  disabled={page >= totalPages}
-                  onClick={() => setPage((value) => value + 1)}
-                >
-                  Dalej
-                </Button>
-              </div>
-            </div>
-          ) : null}
-        </div>
-      ) : (
-        <p className="mt-4 rounded-lg border border-dashed border-border bg-card px-4 py-6 text-center text-sm text-muted-foreground">
-          Brak osób w tym okresie.
-        </p>
-      )}
+      </div>
+      <WhoCountsList
+        metric={metric}
+        viewerId={viewerId}
+        cacheKey={scopeCacheKey}
+        pageSize={DETAIL_PAGE_SIZE}
+        query={{ window, day, month, subjectUserId, teamScope }}
+      />
     </div>
   )
 }
@@ -710,6 +594,7 @@ export function RecruitmentActivityDashboard({
                 dayCount={activeCounts.day}
                 monthCount={activeCounts.month}
                 scopeCacheKey={scopeCacheKey}
+                viewerId={authUser?.id ?? null}
               />
             ) : null}
           </Card>

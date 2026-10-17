@@ -47,6 +47,17 @@ vi.mock("@/lib/insights-team-api", async (importOriginal) => ({
   insightsTeamQueryKeys: { teamTableAnchored: () => ["insights", "team", "anchored"] },
 }));
 
+// Panel „Kto się liczy” (17.10.2026) czyta stan z adresu i pyta o listę —
+// tu liczy się tylko wyścig, więc lista nigdy nie wraca.
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
+  useSearchParams: () => new URLSearchParams(),
+}));
+vi.mock("@/lib/recruitment-activity-api", async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  getRecruitmentActivityDetails: () => new Promise(() => {}),
+}));
+
 import { MojMiesiacView } from "../MojMiesiacView";
 import { useAuthStore } from "@/store/auth";
 
