@@ -341,7 +341,8 @@ export function ReschedulePrepDialog({
           ) : view === "cancel" ? (
             <div className="space-y-3">
               <p className="text-sm text-foreground">
-                Kandydat i zaproszeni dostaną odwołanie od {prep.organizer?.name ?? "prowadzącego"}.
+                Kandydat i zaproszeni dostaną odwołanie z kalendarza prowadzącego
+                {prep.organizer?.name ? ` (${prep.organizer.name})` : ""}.
                 Krok „Prep{prep.prep_no === 2 ? " 2" : ""}” wróci do zaplanowania.
               </p>
               <div>
@@ -432,9 +433,9 @@ export function ReschedulePrepDialog({
                   </select>
                   {organizerChanged ? (
                     <p className="mt-1 rounded-md bg-warning-muted px-3 py-2 text-xs text-warning-muted-foreground">
-                      Kandydat dostanie odwołanie od {prep.organizer?.name ?? "obecnego prowadzącego"}{" "}
-                      i nowe zaproszenie od {newOrganizerName} — Microsoft nie przenosi spotkania
-                      między kalendarzami. Transkrypt i ocena pójdą na nową osobę.
+                      Kandydat dostanie odwołanie z kalendarza: {prep.organizer?.name ?? "obecny prowadzący"}{" "}
+                      i nowe zaproszenie z kalendarza: {newOrganizerName}. Microsoft nie przenosi
+                      spotkania między kalendarzami. Transkrypt i ocena pójdą na nową osobę.
                     </p>
                   ) : null}
                 </div>
@@ -451,8 +452,9 @@ export function ReschedulePrepDialog({
               />
               {!organizerChanged ? (
                 <p className="text-xs text-muted-foreground">
-                  Kandydat i zaproszeni dostaną aktualizację tego samego zaproszenia od{" "}
-                  {prep.organizer?.name ?? "prowadzącego"}. Link Teams zostaje.
+                  Kandydat i zaproszeni dostaną aktualizację tego samego zaproszenia
+                  {prep.organizer?.name ? ` (z kalendarza: ${prep.organizer.name})` : ""}. Link
+                  Teams zostaje.
                 </p>
               ) : null}
             </>

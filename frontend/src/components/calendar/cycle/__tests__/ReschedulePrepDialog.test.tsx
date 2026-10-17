@@ -170,7 +170,7 @@ describe("ReschedulePrepDialog", () => {
     renderDialog("edit");
     const select = (await screen.findByLabelText("Prowadzi")) as HTMLSelectElement;
     fireEvent.change(select, { target: { value: "7" } });
-    expect(screen.getByText(/nowe zaproszenie od Ola Planująca/)).toBeInTheDocument();
+    expect(screen.getByText(/nowe zaproszenie z kalendarza: Ola Planująca/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Zapisz zmiany" }));
     await waitFor(() => expect(mocks.patch).toHaveBeenCalledTimes(1));
     const [, body] = mocks.patch.mock.calls[0];

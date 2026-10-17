@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useMemo, useState, type KeyboardEvent } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { Plus, X } from "lucide-react";
 
 import type { PrepPersonOption } from "@/lib/api/prepMeetings";
@@ -56,6 +56,7 @@ export function PrepPeoplePicker({
   names?: Readonly<Record<number, string>>;
 }) {
   const listId = useId();
+  const listRef = useRef<HTMLUListElement>(null);
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
 
@@ -67,6 +68,11 @@ export function PrepPeoplePicker({
     ...(typedEmail ? [{ kind: "email" as const, email: typedEmail }] : []),
   ];
   const open = query.trim().length > 0;
+  // Pole stoi nisko w oknie, które przewija się w środku — na laptopie
+  // 1280×720 lista wyników otwierała się poniżej widocznej części okna.
+  useEffect(() => {
+    if (open) listRef.current?.scrollIntoView?.({ block: "nearest" });
+  }, [open]);
   const full = value.userIds.length >= MAX_INVITEES && value.emails.length >= MAX_INVITEES;
 
   const nameOf = (uid: number) =>
@@ -206,6 +212,7 @@ export function PrepPeoplePicker({
       </div>
       {open ? (
         <ul
+          ref={listRef}
           id={listId}
           role="listbox"
           aria-label="Wyniki wyszukiwania"
