@@ -2158,7 +2158,7 @@
   {
    "id": "cv.editor-issues-panel",
    "area": "cv",
-   "opis": "Panel „Do poprawy” w edytorze CV: jedna lista z QC CV pary (te same karty co w oknie QC), uwag generatora i kontroli AI zatwierdzonej wersji, pogrupowana po sekcjach CV z etykietą źródła przy każdej pozycji, potem „Zapytaj kandydata”, „Pominięte”, „Informacje” i „W porządku”; uwaga generatora „MUST-HAVE: X” nie dubluje pozycji QC o X (13.10.2026)",
+   "opis": "Panel „Do poprawy” w edytorze CV: jedna lista z QC CV pary, uwag generatora i kontroli AI zatwierdzonej wersji, od 17.10.2026 w grupach po wadze — „Blokuje wysyłkę”, „Do poprawy”, „Poprawione”, „Do decyzji · nie blokuje” — wiersz = problem, podgląd zmiany i jeden przycisk, zdanie AI w wierszu swojej uwagi; potem „Pominięte”, „Informacje” i „W porządku”; uwaga generatora „MUST-HAVE: X” nie dubluje pozycji QC o X",
    "file": "components/v2/cv-editor/CvEditorIssues.tsx",
    "marker": "buildIssueList",
    "v3_home": "karta „CV do klienta” → Otwórz i popraw → Do poprawy"
@@ -2166,9 +2166,9 @@
   {
    "id": "cv.editor-issues-counter",
    "area": "cv",
-   "opis": "Licznik w edytorze CV: „Do poprawy (N)” w pasku i „Blokuje wysyłkę: N” w panelu (liczba z QC na serwerze); lista odświeża się po autozapisie",
+   "opis": "Licznik w edytorze CV: „Do poprawy (N)” w pasku i „N blokuje / blokują wysyłkę” w panelu (liczba z QC na serwerze); lista odświeża się po autozapisie",
    "file": "components/v2/cv-editor/CvEditorIssues.tsx",
-   "marker": "Blokuje wysyłkę:",
+   "marker": "blokują wysyłkę",
    "v3_home": "karta „CV do klienta” → Otwórz i popraw → Do poprawy"
   },
   {
@@ -2182,10 +2182,42 @@
   {
    "id": "cv.editor-fix-all",
    "area": "cv",
-   "opis": "„Popraw wszystko” w edytorze CV: pogrubienie wymagań, pisownia technologii i zdania AI z cytatem ze źródła jednym kliknięciem, z „Cofnij”; usunięcie treści i własne poprawki pojedynczo",
+   "opis": "„Popraw wszystkie” w edytorze CV: pogrubienie wymagań, pisownia technologii i zdania AI z cytatem ze źródła jednym kliknięciem, z „Cofnij wszystkie” w grupie „Poprawione”; usunięcie treści i własne poprawki pojedynczo",
    "file": "components/v2/cv-editor/CvEditorIssues.tsx",
-   "marker": "Popraw wszystko",
+   "marker": "Popraw wszystkie",
    "v3_home": "karta „CV do klienta” → Otwórz i popraw → Do poprawy"
+  },
+  {
+   "id": "cv.editor-issues-applied-undo",
+   "area": "cv",
+   "opis": "Grupa „Poprawione” w panelu „Do poprawy” (17.10.2026): co panel nałożył w tej sesji, z „Cofnij” przy ostatniej poprawce, dopóki CV się po niej nie zmieniło",
+   "file": "components/v2/cv-editor/CvEditorIssues.tsx",
+   "marker": "Poprawione",
+   "v3_home": "karta „CV do klienta” → Otwórz i popraw → Do poprawy → Poprawione"
+  },
+  {
+   "id": "cv.editor-unsupported-quick-answers",
+   "area": "cv",
+   "opis": "Treść spoza oryginału w panelu „Do poprawy” (D5, 17.10.2026): „Usuń z CV”, „Kandydat to ma” (notatka „Potwierdzone z kandydatem”) i „Jest w oryginale” (pominięcie z fragmentem, który sprawdza serwer) jednym kliknięciem w wierszu",
+   "file": "components/v2/cv-editor/CvEditorIssueRows.tsx",
+   "marker": "Jest w oryginale",
+   "v3_home": "karta „CV do klienta” → Otwórz i popraw → Do poprawy → Blokuje wysyłkę"
+  },
+  {
+   "id": "cv.editor-issue-keep",
+   "area": "cv",
+   "opis": "„OK” przy uwadze generatora i „Zostaw” przy uwadze kontroli AI (17.10.2026): pominięcie z powodem „Sprawdzone — zostaje w CV” jednym kliknięciem, bez formularza",
+   "file": "components/v2/cv-editor/CvEditorIssueRows.tsx",
+   "marker": "dismiss.keep",
+   "v3_home": "karta „CV do klienta” → Otwórz i popraw → Do poprawy → Do decyzji"
+  },
+  {
+   "id": "cv.editor-issues-override-in-panel",
+   "area": "cv",
+   "opis": "„Przekaż mimo uwag…” w nagłówku grupy „Blokuje wysyłkę” (17.10.2026) — to samo okno obejścia co w stopce, tylko gdy karta stoi na „Zweryfikowany” i jest prawo obejścia",
+   "file": "components/v2/modals/CVBrandedEditModal.tsx",
+   "marker": "onOverride={handoff && gate.kind === \"override\" ? openOverride : undefined}",
+   "v3_home": "karta „CV do klienta” → Otwórz i popraw → Do poprawy → Blokuje wysyłkę"
   },
   {
    "id": "cv.editor-ai-selection",

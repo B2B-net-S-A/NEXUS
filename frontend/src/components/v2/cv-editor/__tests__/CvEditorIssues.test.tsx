@@ -115,11 +115,18 @@ function memoryApi(overrides: Partial<CvEditorIssuesApi> = {}): CvEditorIssuesAp
 
 const editors: Editor[] = [];
 
-/** Pozycja listy (karta QC, uwaga generatora, linia kontroli AI) po swoim tekście. */
+/** Wiersz listy (blokada, poprawka, uwaga) po swoim tekście. */
 function itemOf(text: string | RegExp): HTMLElement {
   const item = screen.getByText(text).closest("li");
   if (!item) throw new Error(`brak pozycji: ${String(text)}`);
   return item as HTMLElement;
+}
+
+/** Rozwija wiersz (tytuł = przycisk) — szczegóły: „Pokaż w CV”, „To nieprawda”, dowód. */
+function expand(row: HTMLElement): HTMLElement {
+  const title = within(row).getAllByRole("button")[0];
+  fireEvent.click(title);
+  return row;
 }
 
 /** Nazwy grup listy w kolejności panelu. */
@@ -129,6 +136,8 @@ function regionOrder(names: readonly string[]): string[] {
     .map((region) => region.getAttribute("aria-label") ?? "")
     .filter((name) => names.includes(name));
 }
+
+const GROUPS = ["Blokuje wysyłkę", "Do poprawy", "Poprawione", "Do decyzji · nie blokuje", "Pominięte", "Informacje", "W porządku"];
 
 function openEditor(): Editor {
   const element = document.body.appendChild(document.createElement("div"));
@@ -201,31 +210,35 @@ afterEach(() => {
   }
 });
 
-describe("panel „Do poprawy” w edytorze CV", () => {
-  it("jedna lista: QC, generator i kontrola AI po sekcjach CV, z etykietą źródła, i licznik do paska", async () => {
+describe("panel „Do poprawy” w edytorze CV (wariant A, 17.10.2026)", () => {
+  it("grupy po wadze: blokady, poprawki jednym przyciskiem, rzeczy do decyzji — i licznik do paska", async () => {
     const { counts, editor } = setup();
-    expect(await screen.findByText("Blokuje wysyłkę: 1")).toBeInTheDocument();
+    expect(await screen.findByText("1 blokuje wysyłkę")).toBeInTheDocument();
 
-    // Sekcja doświadczenia: blokada QC pierwsza, potem uwaga QC i linia kontroli AI.
-    const experience = await screen.findByRole("region", { name: "Doświadczenie" });
-    await within(experience).findByText("„Przeglądy kodu.”");
-    const items = within(experience).getAllByRole("listitem").filter((li) => li.parentElement?.parentElement === experience);
-    expect(items.map((li) => li.textContent)).toEqual([
-      expect.stringContaining("AWS — jest w CV, a nie ma tego w oryginale"),
-      expect.stringContaining("Must-have pogrubione"),
-      expect.stringContaining("„Przeglądy kodu.”"),
-    ]);
-    expect(within(experience).getByRole("button", { name: "Usuń „AWS” z CV" })).toBeEnabled();
-    expect(items[0]).toHaveTextContent("QC");
-    expect(items[2]).toHaveTextContent("kontrola AI v2");
-    expect(items[2]).toHaveTextContent("bez pokrycia w źródłach");
+    const blocking = await screen.findByRole("region", { name: "Blokuje wysyłkę" });
+    const task = within(blocking).getByRole("listitem");
+    expect(task).toHaveTextContent("AWS — jest w CV, a nie ma tego w oryginale");
+    expect(task).toHaveTextContent("zgodność z oryginałem");
+    // Treść spoza oryginału: trzy odpowiedzi jednym kliknięciem (D5).
+    expect(within(task).getByRole("button", { name: "Usuń z CV: AWS" })).toBeEnabled();
+    expect(within(task).getByRole("button", { name: "Kandydat to ma" })).toBeInTheDocument();
+    // „Jest w oryginale” to pominięcie — pozycja bez klucza (przebieg sprzed 13.10) go nie ma.
+    expect(within(task).queryByRole("button", { name: "Jest w oryginale" })).not.toBeInTheDocument();
+
+    // Pogrubienie: jeden wiersz z przyciskiem i „Popraw wszystkie” w nagłówku grupy.
+    const fixable = screen.getByRole("region", { name: "Do poprawy" });
+    expect(within(fixable).getByRole("listitem")).toHaveTextContent("Pogrub: Java");
+    expect(within(fixable).getByRole("button", { name: "Pogrub wszystkie: Java" })).toBeEnabled();
+    expect(within(fixable).getByRole("button", { name: /Popraw wszystkie \(1\)/ })).toBeEnabled();
+
+    // Generator i kontrola AI: do decyzji, z jednym przyciskiem „OK” / „Zostaw”.
+    const decide = screen.getByRole("region", { name: "Do decyzji · nie blokuje" });
+    await within(decide).findByText("„Przeglądy kodu.”");
+    expect(itemOf("„Przeglądy kodu.”")).toHaveTextContent("kontrola AI v2 · bez pokrycia w źródłach");
+    expect(within(itemOf("„Przeglądy kodu.”")).getByRole("button", { name: "Zostaw: „Przeglądy kodu.”" })).toBeInTheDocument();
+    expect(itemOf("MUST-HAVE: brak Kafka w źródłach.")).toHaveTextContent("Uwaga generatora");
     // Kontrola AI: tylko linia, która nadal stoi w CV.
     expect(screen.queryByText("„Linia, której już nie ma.”")).not.toBeInTheDocument();
-
-    // Uwaga generatora bez miejsca w tekście — „Całe CV”, przed sekcjami kartki.
-    const whole = screen.getByRole("region", { name: "Całe CV" });
-    expect(whole).toHaveTextContent("MUST-HAVE: brak Kafka w źródłach.");
-    expect(within(whole).getByText("generator")).toBeInTheDocument();
 
     // „Wyróżnienia: …” to informacja o tym, co generator zrobił — zwinięta w „Informacjach”.
     const info = screen.getByRole("region", { name: "Informacje" });
@@ -233,19 +246,36 @@ describe("panel „Do poprawy” w edytorze CV", () => {
     expect(within(info).getByRole("button", { name: /Od generatora \(1\)/ })).toHaveAttribute("aria-expanded", "false");
     expect(info).toHaveTextContent("1 uwaga kontroli AI dotyczyła linii, której już nie ma w CV.");
 
-    expect(regionOrder(["Całe CV", "Doświadczenie", "Zapytaj kandydata", "Pominięte", "Informacje", "W porządku"])).toEqual([
-      "Całe CV",
-      "Doświadczenie",
-      "Informacje",
-      "W porządku",
-    ]);
+    expect(regionOrder(GROUPS)).toEqual(["Blokuje wysyłkę", "Do poprawy", "Do decyzji · nie blokuje", "Informacje", "W porządku"]);
+    // Zdania AI nie mają już osobnej sekcji pod listą.
+    expect(screen.queryByRole("region", { name: "Propozycje AI" })).not.toBeInTheDocument();
 
     // 1 blokująca + 1 uwaga QC + 1 uwaga generatora + 1 linia kontroli AI.
     await waitFor(() => expect(counts.at(-1)).toMatchObject({ total: 4, blocking: 1, state: "ready" }));
-    // Miejsca uwag są zaznaczone na kartce.
     await waitFor(() => expect(editor.view.dom.querySelector(".cv-issue-term.cv-issue--blocking")?.textContent).toBe("AWS"));
-    // Panel nie ma obejścia QC ani ruchu karty.
-    expect(screen.queryByRole("button", { name: /Przesuń|Przepuść/ })).not.toBeInTheDocument();
+    // Bez `onOverride` (karta nie na „Zweryfikowany”) panel nie przepuszcza.
+    expect(screen.queryByRole("button", { name: /Przekaż mimo uwag|Przesuń|Przepuść/ })).not.toBeInTheDocument();
+  });
+
+  it("„Przekaż mimo uwag…” w nagłówku blokad woła tę samą akcję co stopka", async () => {
+    const onOverride = vi.fn();
+    setup({ props: { onOverride } });
+    const blocking = await screen.findByRole("region", { name: "Blokuje wysyłkę" });
+    fireEvent.click(within(blocking).getByRole("button", { name: "Przekaż mimo uwag…" }));
+    expect(onOverride).toHaveBeenCalledTimes(1);
+  });
+
+  it("asystent rozwinięty: zostaje pasek z liczbami, „Pokaż listę” wraca, znaczniki zostają", async () => {
+    const onShowList = vi.fn();
+    const { editor, counts } = setup({ props: { summary: true, onShowList } });
+    const bar = await screen.findByRole("group", { name: "Do poprawy" });
+    await within(bar).findByText("1 blokuje");
+    expect(bar).toHaveTextContent("3 do decyzji");
+    expect(screen.queryByRole("region", { name: "Blokuje wysyłkę" })).not.toBeInTheDocument();
+    fireEvent.click(within(bar).getByRole("button", { name: "Pokaż listę" }));
+    expect(onShowList).toHaveBeenCalled();
+    await waitFor(() => expect(editor.view.dom.querySelector(".cv-issue-term")).not.toBeNull());
+    await waitFor(() => expect(counts.at(-1)).toMatchObject({ total: 4, blocking: 1, state: "ready" }));
   });
 
   it("awaria QC nie wygląda jak CV bez uwag", async () => {
@@ -270,41 +300,43 @@ describe("panel „Do poprawy” w edytorze CV", () => {
     const { editor } = setup({ api: memoryApi({ qc: vi.fn(async () => other) }) });
     expect(await screen.findByText(/sprawdza inne CV tej osoby/)).toBeInTheDocument();
     expect(screen.queryByText("AWS — jest w CV, a nie ma tego w oryginale")).not.toBeInTheDocument();
-    expect(screen.queryByText(/Blokuje wysyłkę/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/blokuje wysyłkę/)).not.toBeInTheDocument();
     expect(editor.view.dom.querySelector(".cv-issue-term")).toBeNull();
     // Uwagi generatora i kontroli AI należą do TEGO wiersza etapu — zostają.
-    expect(await screen.findByRole("region", { name: "Całe CV" })).toHaveTextContent("MUST-HAVE: brak Kafka");
+    const decide = await screen.findByRole("region", { name: "Do decyzji · nie blokuje" });
+    expect(decide).toHaveTextContent("MUST-HAVE: brak Kafka");
     expect(await screen.findByText("„Przeglądy kodu.”")).toBeInTheDocument();
   });
 
-  it("„Pokaż w CV” pokazuje kartkę i wyróżnia linię", async () => {
+  it("klik w wiersz pokazuje miejsce na kartce, „Pokaż w CV” w szczegółach też", async () => {
     const { editor, onShowCv } = setup();
     await screen.findByText("„Przeglądy kodu.”");
-    fireEvent.click(within(itemOf("„Przeglądy kodu.”")).getByRole("button", { name: "Pokaż w CV" }));
+    const row = expand(itemOf("„Przeglądy kodu.”"));
     expect(onShowCv).toHaveBeenCalled();
     await waitFor(() => expect(editor.view.dom.querySelector(".cv-issue-focus")?.textContent).toBe("Przeglądy kodu."));
     // Samo wskazanie miejsca nie zabiera fokusu z listy.
     expect(editor.view.dom).not.toHaveFocus();
+    fireEvent.click(within(row).getByRole("button", { name: "Pokaż w CV" }));
+    expect(onShowCv).toHaveBeenCalledTimes(2);
   });
 
-  it("miejsce, którego już nie ma, daje komunikat zamiast cichego niczego", async () => {
+  it("miejsce, którego już nie ma: rozwinięcie milczy, „Pokaż w CV” mówi wprost", async () => {
     const { editor } = setup();
     await screen.findByText("AWS — jest w CV, a nie ma tego w oryginale");
     const task = itemOf("AWS — jest w CV, a nie ma tego w oryginale");
-    const html = editor.getHTML().replace(" i AWS", "");
-    loadCvHtml(editor, html);
+    loadCvHtml(editor, editor.getHTML().replace(" i AWS", ""));
+    expand(task);
+    expect(toast.showError).not.toHaveBeenCalled();
     fireEvent.click(within(task).getByRole("button", { name: "Pokaż w CV" }));
     expect(toast.showError).toHaveBeenCalledWith(expect.stringContaining("Tego miejsca nie ma już w treści CV"));
   });
 
-  it("poprawka: serwer liczy na treści z edytora, edytor nakłada ją jednym cofalnym krokiem", async () => {
+  it("poprawka: serwer liczy na treści z edytora, edytor nakłada ją jednym cofalnym krokiem, wiersz w „Poprawione”", async () => {
     const { api, editor, ensureDraft } = setup();
     const before = editor.getHTML();
     const updates = vi.fn();
     editor.on("update", updates);
-    const notes = await screen.findByRole("region", { name: "Doświadczenie" });
-    fireEvent.click(within(notes).getByRole("button", { name: /Must-have pogrubione/ }));
-    fireEvent.click(within(notes).getByRole("button", { name: "Pogrub wszystkie" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Pogrub wszystkie: Java" }));
 
     await waitFor(() => expect(editor.getHTML()).toContain("<strong>Java</strong>"));
     expect(ensureDraft).toHaveBeenCalledTimes(1);
@@ -318,11 +350,31 @@ describe("panel „Do poprawy” w edytorze CV", () => {
     expect(toast.showSuccess).toHaveBeenCalledWith("Pogrubiono wszystkie wystąpienia. Ctrl+Z cofa.");
     // Klawiatura wraca do tekstu — Ctrl+Z cofa poprawkę bez klikania w kartkę.
     await waitFor(() => expect(editor.view.dom).toHaveFocus());
-    editor.commands.undo();
+
+    const done = await screen.findByRole("region", { name: "Poprawione" });
+    expect(done).toHaveTextContent("Pogrubiono: Java");
+    fireEvent.click(within(done).getByRole("button", { name: "Cofnij" }));
     expect(editor.getHTML()).toBe(before);
+    expect(screen.queryByRole("region", { name: "Poprawione" })).not.toBeInTheDocument();
   });
 
-  it("„Popraw wszystko” bierze tylko poprawki formalne i daje „Cofnij”", async () => {
+  it("„Cofnij” znika, gdy CV zmieniło się po poprawce (wtedy Ctrl+Z)", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const { editor } = setup();
+    fireEvent.click(await screen.findByRole("button", { name: "Pogrub wszystkie: Java" }));
+    const done = await screen.findByRole("region", { name: "Poprawione" });
+    expect(within(done).getByRole("button", { name: "Cofnij" })).toBeInTheDocument();
+    act(() => {
+      editor.commands.insertContentAt(1, "PISZĘ ");
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(300);
+    });
+    expect(within(done).queryByRole("button", { name: "Cofnij" })).not.toBeInTheDocument();
+    expect(done).toHaveTextContent("Pogrubiono: Java");
+  });
+
+  it("„Popraw wszystkie” bierze tylko poprawki formalne, mówi, co pominięto, i cofa się jednym kliknięciem", async () => {
     const api = memoryApi({
       transform: vi.fn(async (_stage: number, body: QcTransformBody) => ({
         content_html: body.content_html.replace("w Java i", "w <strong>Java</strong> i"),
@@ -333,24 +385,24 @@ describe("panel „Do poprawy” w edytorze CV", () => {
     });
     const { editor } = setup({ api });
     const before = editor.getHTML();
-    const bulk = await screen.findByRole("region", { name: "Popraw wszystko" });
-    expect(bulk).toHaveTextContent("Jednym kliknięciem: pogrubienie 1 wymagania must-have.");
-    fireEvent.click(within(bulk).getByRole("button", { name: "Popraw wszystko (1)" }));
+    const bulk = await screen.findByRole("button", { name: /Popraw wszystkie \(1\)/ });
+    expect(bulk).toHaveAttribute("title", expect.stringContaining("Jednym kliknięciem: pogrubienie 1 wymagania must-have."));
+    fireEvent.click(bulk);
 
-    const outcome = await screen.findByRole("region", { name: "Wynik poprawek" });
-    // Usunięcie „AWS” (treść) nie wchodzi do hurtu — zostaje na karcie.
+    const done = await screen.findByRole("region", { name: "Poprawione" });
+    // Usunięcie „AWS” (treść) nie wchodzi do hurtu — zostaje w wierszu blokady.
     expect(api.transform).toHaveBeenCalledWith(STAGE, {
       content_html: before,
       actions: [{ action: "bold_all", scope: "must" }],
       bulk: true,
     });
-    expect(outcome).toHaveTextContent("Nałożono: 1 poprawkę.");
-    expect(outcome).toHaveTextContent("Pominięto: Nie ma pisowni do poprawienia.");
+    expect(done).toHaveTextContent("Pogrubiono: Java");
+    expect(done).toHaveTextContent("Pominięto: Nie ma pisowni do poprawienia.");
     expect(editor.getHTML()).toContain("<strong>Java</strong>");
 
-    fireEvent.click(within(outcome).getByRole("button", { name: "Cofnij" }));
+    fireEvent.click(within(done).getByRole("button", { name: "Cofnij wszystkie" }));
     expect(editor.getHTML()).toBe(before);
-    expect(screen.queryByRole("region", { name: "Wynik poprawek" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Poprawione" })).not.toBeInTheDocument();
   });
 
   it("poprawka, której nie da się nałożyć, mówi dlaczego i nie rusza treści", async () => {
@@ -364,21 +416,20 @@ describe("panel „Do poprawy” w edytorze CV", () => {
     });
     const { editor } = setup({ api });
     const before = editor.getHTML();
-    fireEvent.click(await screen.findByRole("button", { name: "Usuń „AWS” z CV" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Usuń z CV: AWS" }));
     await waitFor(() =>
       expect(toast.showError).toHaveBeenCalledWith("„AWS” nie stoi na liście technologii — usuń je w edytorze CV."),
     );
     expect(editor.getHTML()).toBe(before);
     expect(editor.can().undo()).toBe(false);
+    expect(screen.queryByRole("region", { name: "Poprawione" })).not.toBeInTheDocument();
   });
 
   it("nie udało się założyć szkicu na zatwierdzonej wersji — poprawka nie rusza treści", async () => {
     const { editor, ensureDraft } = setup();
     const before = editor.getHTML();
     ensureDraft.mockResolvedValueOnce(false);
-    const notes = await screen.findByRole("region", { name: "Doświadczenie" });
-    fireEvent.click(within(notes).getByRole("button", { name: /Must-have pogrubione/ }));
-    fireEvent.click(within(notes).getByRole("button", { name: "Pogrub wszystkie" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Pogrub wszystkie: Java" }));
     await waitFor(() => expect(ensureDraft).toHaveBeenCalled());
     expect(editor.getHTML()).toBe(before);
     expect(toast.showSuccess).not.toHaveBeenCalled();
@@ -404,7 +455,7 @@ describe("panel „Do poprawy” w edytorze CV", () => {
       order.push("ensureDraft");
       return true;
     });
-    fireEvent.click(await screen.findByRole("button", { name: "Usuń „AWS” z CV" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Usuń z CV: AWS" }));
     await waitFor(() => expect(toast.showError).toHaveBeenCalledWith("Nie ma czego usunąć."));
     expect(order).toEqual(["transform"]);
   });
@@ -415,7 +466,7 @@ describe("panel „Do poprawy” w edytorze CV", () => {
     });
     const { editor, ensureDraft } = setup({ api });
     const before = editor.getHTML();
-    fireEvent.click(await screen.findByRole("button", { name: "Usuń „AWS” z CV" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Usuń z CV: AWS" }));
     await waitFor(() => expect(toast.showError).toHaveBeenCalled());
     expect(editor.getHTML()).toBe(before);
     expect(ensureDraft).not.toHaveBeenCalled();
@@ -432,7 +483,7 @@ describe("panel „Do poprawy” w edytorze CV", () => {
       ),
     });
     const { editor } = setup({ api });
-    fireEvent.click(await screen.findByRole("button", { name: "Usuń „AWS” z CV" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Usuń z CV: AWS" }));
     await waitFor(() => expect(api.transform).toHaveBeenCalled());
     editor.commands.insertContentAt(1, "PISZĘ ");
     const typed = editor.getHTML();
@@ -445,18 +496,20 @@ describe("panel „Do poprawy” w edytorze CV", () => {
 
   it("podgląd Word albo trwający zapis wyłącza poprawki", async () => {
     setup({ props: { readOnly: true } });
-    expect(await screen.findByRole("button", { name: "Usuń „AWS” z CV" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Popraw wszystko (1)" })).toBeDisabled();
+    expect(await screen.findByRole("button", { name: "Usuń z CV: AWS" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Pogrub wszystkie: Java" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /Popraw wszystkie \(1\)/ })).toBeDisabled();
   });
 
   it("po autozapisie liczy QC od nowa, a przy niezapisanych zmianach mówi, czego dotyczy lista", async () => {
     const { api, rerender } = setup();
-    await screen.findByText("Blokuje wysyłkę: 1");
+    await screen.findByText("1 blokuje wysyłkę");
     expect(api.qc).toHaveBeenCalledTimes(1);
 
     vi.useFakeTimers();
     rerender({ unsaved: true });
-    expect(screen.getByRole("status")).toHaveTextContent("Lista dotyczy ostatnio zapisanej treści");
+    expect(screen.getByRole("status", { name: "" }) ?? screen.getAllByRole("status")[0]).toBeTruthy();
+    expect(screen.getByText(/Lista dotyczy ostatnio zapisanej treści/)).toBeInTheDocument();
     await act(async () => {
       await vi.advanceTimersByTimeAsync(3000);
     });
@@ -471,12 +524,12 @@ describe("panel „Do poprawy” w edytorze CV", () => {
 
   it("przebieg QC dla Tablicy zapisuje raz, przy zamknięciu, i tylko po zmianie treści", async () => {
     const untouched = setup();
-    await screen.findByText("Blokuje wysyłkę: 1");
+    await screen.findByText("1 blokuje wysyłkę");
     untouched.view.unmount();
     expect(untouched.api.persistQc).not.toHaveBeenCalled();
 
     const edited = setup();
-    await screen.findByText("Blokuje wysyłkę: 1");
+    await screen.findByText("1 blokuje wysyłkę");
     edited.rerender({ savedRevision: 5 });
     edited.view.unmount();
     expect(edited.api.persistQc).toHaveBeenCalledTimes(1);
@@ -491,12 +544,12 @@ describe("panel „Do poprawy” w edytorze CV", () => {
       .mockResolvedValue(qcResult({ blocking_failed: 0, passed: true, checks: [] }));
     const api = memoryApi({ qc });
     const first = setup({ api, client });
-    await screen.findByText("Blokuje wysyłkę: 1");
+    await screen.findByText("1 blokuje wysyłkę");
     first.view.unmount();
 
     setup({ api, client });
     expect(await screen.findByText("Nic nie blokuje wysyłki")).toBeInTheDocument();
-    expect(screen.queryByText("Blokuje wysyłkę: 1")).not.toBeInTheDocument();
+    expect(screen.queryByText("1 blokuje wysyłkę")).not.toBeInTheDocument();
     expect(qc).toHaveBeenCalledTimes(2);
     expect(api.issues).toHaveBeenCalledTimes(2);
   });
@@ -525,7 +578,7 @@ describe("panel „Do poprawy” w edytorze CV", () => {
     });
     const boom = new Error("500");
     const { view, rerender } = setup({ client, api: memoryApi({ persistQc: vi.fn(async () => Promise.reject(boom)) }) });
-    await screen.findByText("Blokuje wysyłkę: 1");
+    await screen.findByText("1 blokuje wysyłkę");
     rerender({ savedRevision: 5 });
     view.unmount();
     await waitFor(() => expect(failures).toContain(boom));
@@ -550,7 +603,7 @@ describe("panel „Do poprawy” w edytorze CV", () => {
   });
 });
 
-describe("„To nieprawda” w panelu „Do poprawy” (D5, 13.10.2026)", () => {
+describe("odpowiedzi jednym kliknięciem i „To nieprawda” (D5)", () => {
   const SUBMIT = "Oznacz jako nieprawdę";
   const DISMISSAL = {
     id: 41,
@@ -566,17 +619,91 @@ describe("„To nieprawda” w panelu „Do poprawy” (D5, 13.10.2026)", () => 
     items: c.items.map((item) => ({ ...item, key: `${c.key}|${(item.term ?? "").toLowerCase()}|cv` })),
   }));
 
-  it("uwaga generatora: powód bez fragmentu źródła, świeża lista z serwera, wpis w „Pominięte”", async () => {
+  it("„OK” przy uwadze generatora i „Zostaw” przy kontroli AI: pominięcie z powodem `kept`, bez formularza", async () => {
+    const after: CvEditorIssuesData = {
+      ...ISSUES,
+      generator_warnings: ["Wyróżnienia: pogrubiono 4 terminy."],
+      dismissed: [
+        {
+          source: "generator",
+          text: "MUST-HAVE: brak Kafka w źródłach.",
+          status: null,
+          dismissal: { ...DISMISSAL, id: 52, reason: "kept", reason_label: "Sprawdzone — zostaje w CV" },
+        },
+      ],
+    };
+    const api = memoryApi({ dismissIssue: vi.fn(async () => after) });
+    const { counts } = setup({ api });
+    fireEvent.click(await screen.findByRole("button", { name: "OK, sprawdzone: MUST-HAVE: brak Kafka w źródłach." }));
+    await waitFor(() =>
+      expect(api.dismissIssue).toHaveBeenCalledWith(STAGE, {
+        source: "generator",
+        text: "MUST-HAVE: brak Kafka w źródłach.",
+        status: null,
+        reason: "kept",
+      }),
+    );
+    expect(toast.showSuccess).toHaveBeenCalledWith("Zostaje w CV — uwaga zeszła z listy.");
+    await waitFor(() => expect(screen.queryByText("MUST-HAVE: brak Kafka w źródłach.")).not.toBeInTheDocument());
+    expect(screen.getByRole("region", { name: "Pominięte" })).toHaveTextContent("Pominięte (1)");
+    await waitFor(() => expect(counts.at(-1)).toMatchObject({ total: 3, blocking: 1, state: "ready" }));
+
+    fireEvent.click(screen.getByRole("button", { name: "Zostaw: „Przeglądy kodu.”" }));
+    await waitFor(() =>
+      expect(api.dismissIssue).toHaveBeenLastCalledWith(STAGE, {
+        source: "review",
+        text: "Przeglądy kodu.",
+        status: "unsupported",
+        reason: "kept",
+      }),
+    );
+  });
+
+  it("„Kandydat to ma”: notatka z tym, co powiedział, i świeże QC", async () => {
+    const api = memoryApi({ qc: vi.fn(async () => qcResult({ checks: KEYED })) });
+    setup({ api });
+    fireEvent.click(await screen.findByRole("button", { name: "Kandydat to ma" }));
+    const field = screen.getByLabelText("Co powiedział kandydat? (opcjonalnie)");
+    fireEvent.change(field, { target: { value: " AWS w projekcie migracji " } });
+    fireEvent.click(screen.getByRole("button", { name: "Zapisz w notatkach" }));
+    await waitFor(() => expect(api.confirm).toHaveBeenCalledWith(STAGE, { term: "AWS", text: "AWS w projekcie migracji" }));
+    expect(toast.showSuccess).toHaveBeenCalledWith("Potwierdzenie zapisane w notatkach kandydata.");
+    expect(await screen.findByText("Nic nie blokuje wysyłki")).toBeInTheDocument();
+  });
+
+  it("„Jest w oryginale”: pominięcie „pod inną nazwą” z fragmentem, który sprawdzi serwer", async () => {
+    const api = memoryApi({ qc: vi.fn(async () => qcResult({ checks: KEYED })) });
+    setup({ api });
+    fireEvent.click(await screen.findByRole("button", { name: "Jest w oryginale" }));
+    fireEvent.click(screen.getByRole("button", { name: "Pomiń uwagę" }));
+    expect(screen.getByRole("alert")).toHaveTextContent("Wklej fragment");
+    expect(api.dismiss).not.toHaveBeenCalled();
+    fireEvent.change(screen.getByLabelText("Jak to brzmi w oryginale? Wklej fragment"), {
+      target: { value: "Amazon Web Services (EC2, S3)" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Pomiń uwagę" }));
+    await waitFor(() =>
+      expect(api.dismiss).toHaveBeenCalledWith(STAGE, {
+        check_key: "no_unsupported",
+        key: "no_unsupported|aws|cv",
+        reason: "other_name",
+        quote: "Amazon Web Services (EC2, S3)",
+      }),
+    );
+  });
+
+  it("„To nieprawda” przy uwadze generatora: powód bez fragmentu źródła, świeża lista, wpis w „Pominięte”", async () => {
     const after: CvEditorIssuesData = {
       ...ISSUES,
       generator_warnings: ["Wyróżnienia: pogrubiono 4 terminy."],
       dismissed: [{ source: "generator", text: "MUST-HAVE: brak Kafka w źródłach.", status: null, dismissal: { ...DISMISSAL, id: 52 } }],
     };
     const api = memoryApi({ dismissIssue: vi.fn(async () => after) });
-    const { counts } = setup({ api });
-    const generator = await screen.findByRole("region", { name: "Całe CV" });
-    fireEvent.click(within(generator).getByRole("button", { name: "To nieprawda" }));
-    const form = within(generator).getByRole("form", { name: "To nieprawda: MUST-HAVE: brak Kafka w źródłach." });
+    setup({ api });
+    await screen.findByText("MUST-HAVE: brak Kafka w źródłach.");
+    const row = expand(itemOf("MUST-HAVE: brak Kafka w źródłach."));
+    fireEvent.click(within(row).getByRole("button", { name: "To nieprawda" }));
+    const form = within(row).getByRole("form", { name: "To nieprawda: MUST-HAVE: brak Kafka w źródłach." });
     fireEvent.click(within(form).getByRole("radio", { name: "Jest w źródłach pod inną nazwą" }));
     // Fragment źródła dotyczy tylko QC — uwaga generatora go nie potrzebuje.
     expect(within(form).queryByLabelText("Fragment źródła")).toBeNull();
@@ -594,19 +721,14 @@ describe("„To nieprawda” w panelu „Do poprawy” (D5, 13.10.2026)", () => 
       }),
     );
     expect(toast.showSuccess).toHaveBeenCalledWith("Oznaczono jako nieprawdę.");
-    // Jedyna pozycja „Całe CV” zniknęła — razem z grupą.
-    await waitFor(() => expect(screen.queryByRole("region", { name: "Całe CV" })).not.toBeInTheDocument());
-    expect(screen.queryByText("MUST-HAVE: brak Kafka w źródłach.")).not.toBeInTheDocument();
-    expect(screen.getByRole("region", { name: "Pominięte" })).toHaveTextContent("Pominięte (1)");
-    // Pominięta uwaga nie liczy się do paska: 1 blokująca + 1 uwaga QC + 1 linia kontroli AI.
-    await waitFor(() => expect(counts.at(-1)).toMatchObject({ total: 3, blocking: 1, state: "ready" }));
+    await waitFor(() => expect(screen.queryByText("MUST-HAVE: brak Kafka w źródłach.")).not.toBeInTheDocument());
   });
 
-  it("uwaga kontroli AI: tekst linii i status idą do serwera; „Inny powód” wymaga opisu", async () => {
+  it("„To nieprawda” przy kontroli AI: tekst linii i status idą do serwera; „Inny powód” wymaga opisu", async () => {
     const api = memoryApi();
     setup({ api });
     await screen.findByText("„Przeglądy kodu.”");
-    const review = itemOf("„Przeglądy kodu.”");
+    const review = expand(itemOf("„Przeglądy kodu.”"));
     fireEvent.click(within(review).getByRole("button", { name: "To nieprawda" }));
     const form = within(review).getByRole("form", { name: "To nieprawda: „Przeglądy kodu.”" });
     fireEvent.click(within(form).getByRole("radio", { name: "Inny powód" }));
@@ -626,7 +748,7 @@ describe("„To nieprawda” w panelu „Do poprawy” (D5, 13.10.2026)", () => 
     );
   });
 
-  it("odmowa serwera przy uwadze — komunikat serwera, formularz zostaje", async () => {
+  it("odmowa serwera przy uwadze — komunikat serwera", async () => {
     const api = memoryApi({
       dismissIssue: vi.fn(async () =>
         Promise.reject({
@@ -635,16 +757,12 @@ describe("„To nieprawda” w panelu „Do poprawy” (D5, 13.10.2026)", () => 
       ),
     });
     setup({ api });
-    const generator = await screen.findByRole("region", { name: "Całe CV" });
-    fireEvent.click(within(generator).getByRole("button", { name: "To nieprawda" }));
-    const form = within(generator).getByRole("form", { name: /^To nieprawda:/ });
-    fireEvent.click(within(form).getByRole("radio", { name: "Nie dotyczy tej rekrutacji" }));
-    fireEvent.click(within(form).getByRole("button", { name: SUBMIT }));
+    fireEvent.click(await screen.findByRole("button", { name: "OK, sprawdzone: MUST-HAVE: brak Kafka w źródłach." }));
     await waitFor(() => expect(toast.showError).toHaveBeenCalledWith("Tej uwagi już nie ma — odśwież panel."));
-    expect(within(generator).getByRole("form", { name: /^To nieprawda:/ })).toBeInTheDocument();
+    expect(screen.getByText("MUST-HAVE: brak Kafka w źródłach.")).toBeInTheDocument();
   });
 
-  it("pozycja QC: te same karty co w oknie QC — wynik trafia do panelu i do okna QC", async () => {
+  it("pozycja QC: pominięcie trafia do panelu i do okna QC, „Przywróć” wraca", async () => {
     const afterChecks: QcCheck[] = [
       { ...KEYED[0], status: "pass", items: [], dismissed_items: [{ ...KEYED[0].items[0], dismissal: DISMISSAL }] },
       KEYED[1],
@@ -657,9 +775,9 @@ describe("„To nieprawda” w panelu „Do poprawy” (D5, 13.10.2026)", () => 
     });
     const { client } = setup({ api });
     await screen.findByText("AWS — jest w CV, a nie ma tego w oryginale");
-    const tasks = itemOf("AWS — jest w CV, a nie ma tego w oryginale");
-    fireEvent.click(within(tasks).getByRole("button", { name: "To nieprawda" }));
-    const form = within(tasks).getByRole("form", { name: "To nieprawda: AWS" });
+    const task = expand(itemOf("AWS — jest w CV, a nie ma tego w oryginale"));
+    fireEvent.click(within(task).getByRole("button", { name: "To nieprawda" }));
+    const form = within(task).getByRole("form", { name: "To nieprawda: AWS" });
     fireEvent.click(within(form).getByRole("radio", { name: "Jest w CV — QC tego nie znalazło" }));
     fireEvent.click(within(form).getByRole("button", { name: SUBMIT }));
     await waitFor(() =>
@@ -675,20 +793,50 @@ describe("„To nieprawda” w panelu „Do poprawy” (D5, 13.10.2026)", () => 
     expect(entry).toHaveTextContent("Zgodność z oryginałem");
     fireEvent.click(within(entry).getByRole("button", { name: "Przywróć" }));
     await waitFor(() => expect(api.restore).toHaveBeenCalledWith(STAGE, 41));
-    expect(await screen.findByText("Blokuje wysyłkę: 1")).toBeInTheDocument();
+    expect(await screen.findByText("1 blokuje wysyłkę")).toBeInTheDocument();
   });
 
-  it("bez prawa obejścia blokady nie da się pominąć — uwagę tak", async () => {
+  it("bez prawa obejścia blokady nie da się pominąć ani „Jest w oryginale” — uwagę tak", async () => {
     setup({ api: memoryApi({ qc: vi.fn(async () => qcResult({ can_override: false, checks: KEYED })) }) });
     await screen.findByText("AWS — jest w CV, a nie ma tego w oryginale");
-    const tasks = itemOf("AWS — jest w CV, a nie ma tego w oryginale");
-    expect(within(tasks).queryByRole("button", { name: "To nieprawda" })).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: /Must-have pogrubione/ }));
-    const notes = itemOf("Must-have pogrubione");
-    expect(within(notes).getByRole("button", { name: "To nieprawda" })).toBeInTheDocument();
+    const task = expand(itemOf("AWS — jest w CV, a nie ma tego w oryginale"));
+    expect(within(task).queryByRole("button", { name: "To nieprawda" })).not.toBeInTheDocument();
+    expect(within(task).queryByRole("button", { name: "Jest w oryginale" })).not.toBeInTheDocument();
+    expect(within(task).getByRole("button", { name: "Kandydat to ma" })).toBeInTheDocument();
+    const bold = expand(itemOf("Pogrub: Java"));
+    expect(within(bold).getByRole("button", { name: "To nieprawda" })).toBeInTheDocument();
   });
 
-  it("„Przywróć” przy uwadze generatora woła trasę edytora z id pominięcia", async () => {
+  it("blokada w kilku rolach: „To nieprawda” przy każdej roli osobno (przegląd 17.10)", async () => {
+    const critical = check({
+      key: "critical_skills",
+      label: "Umiejętności krytyczne",
+      severity: "blocking",
+      items: [
+        { key: "critical_skills|java|alfa", requirement: "Java", role: "Alfa — Developer", role_index: 0, evidence_kind: "technologies" },
+        { key: "critical_skills|java|beta", requirement: "Java", role: "Beta — Developer", role_index: 1, evidence_kind: "technologies" },
+      ],
+    });
+    const api = memoryApi({ qc: vi.fn(async () => qcResult({ checks: [critical, ...KEYED.slice(1)] })) });
+    setup({ api });
+    await screen.findByText("Java — brak opisu w 2 rolach");
+    const task = expand(itemOf("Java — brak opisu w 2 rolach"));
+    const dismissButtons = within(task).getAllByRole("button", { name: "To nieprawda" });
+    expect(dismissButtons).toHaveLength(2);
+    fireEvent.click(dismissButtons[1]);
+    const form = within(task).getByRole("form", { name: "To nieprawda: Java · Beta — Developer" });
+    fireEvent.click(within(form).getByRole("radio", { name: "Dotyczy innej roli albo sekcji" }));
+    fireEvent.click(within(form).getByRole("button", { name: SUBMIT }));
+    await waitFor(() =>
+      expect(api.dismiss).toHaveBeenCalledWith(STAGE, {
+        check_key: "critical_skills",
+        key: "critical_skills|java|beta",
+        reason: "wrong_place",
+      }),
+    );
+  });
+
+  it("„Przywróć” przy uwadze kontroli AI woła trasę edytora z id pominięcia", async () => {
     const api = memoryApi({
       issues: vi.fn(async () => ({
         ...ISSUES,
@@ -720,8 +868,7 @@ describe("„To nieprawda” w panelu „Do poprawy” (D5, 13.10.2026)", () => 
     expect(await screen.findByRole("region", { name: "Informacje — wyciszone w „Jakość QC”" })).toHaveTextContent(
       "Must-have pogrubione",
     );
-    expect(screen.getByRole("region", { name: "Informacje" })).toHaveTextContent("Must-have pogrubione");
-    expect(screen.getByRole("region", { name: "Doświadczenie" })).not.toHaveTextContent("Must-have pogrubione");
+    expect(screen.queryByRole("region", { name: "Do poprawy" })).not.toBeInTheDocument();
     // 1 blokująca + 1 uwaga generatora + 1 linia kontroli AI — bez wyciszonej.
     await waitFor(() => expect(counts.at(-1)).toMatchObject({ total: 3, blocking: 1, state: "ready" }));
   });
@@ -733,7 +880,7 @@ describe("„To nieprawda” w panelu „Do poprawy” (D5, 13.10.2026)", () => 
   });
 });
 
-describe("propozycje AI ładują się same (D5, 14.10.2026)", () => {
+describe("zdania AI w wierszu swojej uwagi (D5, 14.10.2026 → wariant A)", () => {
   const AI_CHECKS: QcCheck[] = [
     ...CHECKS,
     check({
@@ -747,26 +894,28 @@ describe("propozycje AI ładują się same (D5, 14.10.2026)", () => {
     check_key: "must_in_roles",
     requirement: "Kafka",
     role: "Bank Przykładowy — Senior Developer",
+    role_index: 0,
     current_text: "Przeglądy kodu.",
     proposed_text: "Przeglądy kodu i integracje przez **Kafka**.",
     source: "original" as const,
     source_quote: "Integracje przez Kafkę w banku",
   };
 
-  it("bez klikania: propozycja stoi w panelu i od razu wchodzi do „Popraw wszystko”", async () => {
+  it("bez klikania: zdanie stoi w wierszu uwagi, „Dopisz” nakłada je, a „Popraw wszystkie” bierze je od razu", async () => {
     const api = memoryApi({
       qc: vi.fn(async () => qcResult({ checks: AI_CHECKS })),
       fixes: vi.fn(async () => ({ status: "ok" as const, cached: true, fixes: [KAFKA_FIX] })),
     });
     const { editor } = setup({ api });
-    const ai = await screen.findByRole("region", { name: "Propozycje AI" });
-    expect(await within(ai).findByRole("listitem", { name: "Propozycja: Kafka" })).toBeInTheDocument();
+    // QC, potem propozycje — dwa zapytania po kolei.
+    const dopisz = await screen.findByRole("button", { name: "Dopisz: Kafka" }, { timeout: 5000 });
+    const row = dopisz.closest("li") as HTMLElement;
+    expect(row).toHaveTextContent("Kafka · Bank Przykładowy — Senior Developer");
+    expect(row).toHaveTextContent("Przeglądy kodu i integracje przez Kafka.");
+    expect(row).toHaveTextContent("z oryginalnego CV");
     expect(api.fixes).toHaveBeenCalledWith(STAGE);
-    expect(screen.queryByRole("button", { name: /Zaproponuj poprawki/ })).not.toBeInTheDocument();
 
-    const bulk = screen.getByRole("region", { name: "Popraw wszystko" });
-    expect(bulk).toHaveTextContent("1 zdanie AI z cytatem ze źródła");
-    fireEvent.click(within(bulk).getByRole("button", { name: "Popraw wszystko (2)" }));
+    fireEvent.click(screen.getByRole("button", { name: /Popraw wszystkie \(2\)/ }));
     await waitFor(() =>
       expect(api.transform).toHaveBeenCalledWith(STAGE, {
         content_html: editor.getHTML(),
@@ -776,16 +925,35 @@ describe("propozycje AI ładują się same (D5, 14.10.2026)", () => {
     );
   });
 
+  it("„Edytuj zdanie” w szczegółach dopisuje własny tekst pojedynczo", async () => {
+    const api = memoryApi({
+      qc: vi.fn(async () => qcResult({ checks: AI_CHECKS })),
+      fixes: vi.fn(async () => ({ status: "ok" as const, cached: true, fixes: [KAFKA_FIX] })),
+    });
+    const { editor } = setup({ api });
+    const row = (await screen.findByRole("button", { name: "Dopisz: Kafka" }, { timeout: 5000 })).closest("li") as HTMLElement;
+    expand(row);
+    fireEvent.click(within(row).getByRole("button", { name: "Edytuj zdanie" }));
+    fireEvent.change(within(row).getByLabelText("Treść zdania"), { target: { value: "Przeglądy kodu; kolejki **Kafka**." } });
+    fireEvent.click(within(row).getByRole("button", { name: "Dopisz edytowane" }));
+    await waitFor(() =>
+      expect(api.transform).toHaveBeenCalledWith(STAGE, {
+        content_html: editor.getHTML(),
+        actions: [{ action: "ai_fix", fix_id: "f-kafka", text: "Przeglądy kodu; kolejki **Kafka**." }],
+        bulk: false,
+      }),
+    );
+  });
+
   it("bez pozycji z poprawką AI nic nie pobiera", async () => {
     const api = memoryApi();
     setup({ api });
-    expect(await screen.findByText("Blokuje wysyłkę: 1")).toBeInTheDocument();
-    await screen.findByRole("region", { name: "Popraw wszystko" });
+    expect(await screen.findByText("1 blokuje wysyłkę")).toBeInTheDocument();
+    await screen.findByRole("button", { name: /Popraw wszystkie/ });
     expect(api.fixes).not.toHaveBeenCalled();
-    expect(screen.queryByRole("region", { name: "Propozycje AI" })).not.toBeInTheDocument();
   });
 
-  it("w trakcie mówi „Przygotowuję poprawki AI…”, po awarii daje „Ponów”", async () => {
+  it("w trakcie mówi „Przygotowuję zdanie…”, po awarii daje „Ponów” w wierszu", async () => {
     let fail = true;
     let release: () => void = () => undefined;
     const api = memoryApi({
@@ -798,15 +966,61 @@ describe("propozycje AI ładują się same (D5, 14.10.2026)", () => {
       ),
     });
     setup({ api });
-    const ai = await screen.findByRole("region", { name: "Propozycje AI" });
-    expect(ai).toHaveTextContent("Przygotowuję poprawki AI…");
+    expect(await screen.findByText("Przygotowuję zdanie…")).toBeInTheDocument();
     await act(async () => release());
-    expect(await within(ai).findByText(/Propozycje AI są chwilowo niedostępne/)).toBeInTheDocument();
+    expect(await screen.findByText(/Propozycje AI są chwilowo niedostępne/)).toBeInTheDocument();
     fail = false;
-    fireEvent.click(within(ai).getByRole("button", { name: "Ponów" }));
+    fireEvent.click(screen.getByRole("button", { name: "Ponów" }));
     await waitFor(() => expect(api.fixes).toHaveBeenCalledTimes(2));
     await act(async () => release());
-    expect(await within(ai).findByRole("listitem", { name: "Propozycja: Kafka" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Dopisz: Kafka" }, { timeout: 5000 })).toBeInTheDocument();
+  });
+
+  it("kilka zdań AI do jednej blokady: każde ma „Odrzuć”, odrzucone wypada z „Popraw wszystkie” (przegląd 17.10)", async () => {
+    const critical = check({
+      key: "critical_skills",
+      label: "Umiejętności krytyczne",
+      severity: "blocking",
+      items: [
+        { key: "critical_skills|kafka|alfa", requirement: "Kafka", role: "Alfa — Developer", role_index: 0, fix: "ai", evidence_kind: "description" },
+        { key: "critical_skills|kafka|beta", requirement: "Kafka", role: "Beta — Developer", role_index: 1, fix: "ai", evidence_kind: "description" },
+      ],
+    });
+    const fix = (id: string, roleIndex: number, role: string) => ({
+      id,
+      check_key: "critical_skills",
+      requirement: "Kafka",
+      role,
+      role_index: roleIndex,
+      cv_role_label: role,
+      current_text: null,
+      proposed_text: `Kolejki **Kafka** w ${role}.`,
+      source: "original" as const,
+      source_quote: "Kafka",
+    });
+    const api = memoryApi({
+      qc: vi.fn(async () => qcResult({ checks: [critical, ...CHECKS.slice(1)] })),
+      fixes: vi.fn(async () => ({
+        status: "ok" as const,
+        cached: true,
+        fixes: [fix("f-alfa", 0, "Alfa — Developer"), fix("f-beta", 1, "Beta — Developer")],
+      })),
+    });
+    setup({ api });
+    expect(await screen.findByRole("button", { name: /Popraw wszystkie \(3\)/ }, { timeout: 5000 })).toBeInTheDocument();
+    const proposals = screen.getByLabelText("Propozycje: Kafka");
+    const lines = within(proposals).getAllByRole("listitem");
+    expect(lines).toHaveLength(2);
+    for (const line of lines) {
+      expect(within(line).getByRole("button", { name: /^Dopisz/ })).toBeInTheDocument();
+      expect(within(line).getByRole("button", { name: "Odrzuć propozycję" })).toBeInTheDocument();
+      expect(within(line).getByRole("button", { name: "Edytuj zdanie" })).toBeInTheDocument();
+    }
+    fireEvent.click(within(lines[1]).getByRole("button", { name: "Odrzuć propozycję" }));
+    expect(await screen.findByRole("button", { name: /Popraw wszystkie \(2\)/ })).toBeInTheDocument();
+    // Jedna propozycja zostaje — wiersz pokazuje ją jak pojedynczą, z „Dopisz” po prawej.
+    expect(screen.queryByLabelText("Propozycje: Kafka")).not.toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: /^Dopisz: Kafka/ })).toHaveLength(1);
   });
 
   it("licznik do paska niesie wynik QC tej treści (stopka przekazania czyta z niego obejście)", async () => {

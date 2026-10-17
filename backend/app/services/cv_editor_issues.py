@@ -151,7 +151,7 @@ async def dismiss(
     z bieżącej listy — tekst od klienta musi się z nią zgadzać. Bez commitu."""
     from app.services import cv_finding_dismissals as dismissals
 
-    reason, note = dismissals.validate_reason(reason, note)
+    reason, note = dismissals.validate_reason(reason, note, check_key=source)
     issues = await _raw_issues(db, csv)
     wanted = " ".join((text or "").split())
     if source == "generator":

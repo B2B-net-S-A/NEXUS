@@ -37,9 +37,17 @@ REASONS: dict[str, tuple[str, bool]] = {
     # „Zostaw tę kolejność” przy uwadze „Stanowiska od najnowszego” (D6,
     # 16.10.2026): wybór rekrutera, nie błąd QC — i tylko przy tej uwadze.
     "kept_order": ("Kolejność stanowisk celowo inna", False),
+    # „OK” / „Zostaw” przy uwadze generatora albo kontroli AI w panelu „Do
+    # poprawy” (17.10.2026): rekruter sprawdził i zostawia treść, jednym
+    # kliknięciem, bez formularza — decyzja, nie dowód, że uwaga kłamie.
+    "kept": ("Sprawdzone — zostaje w CV", False),
 }
-# Powody przypisane do jednego sprawdzenia QC.
-REASON_CHECKS = {"kept_order": "role_order"}
+# Powody, które pasują tylko do części uwag: sprawdzenie QC albo źródło uwagi
+# w edytorze („generator”, „review”).
+REASON_CHECKS: dict[str, frozenset[str]] = {
+    "kept_order": frozenset({"role_order"}),
+    "kept": frozenset({"generator", "review"}),
+}
 QC_WRONG_REASONS = frozenset(code for code, (_, wrong) in REASONS.items() if wrong)
 NOT_DISMISSABLE = frozenset({"cv_present", "client_rules"})
 SOURCES = ("qc", "generator", "review")
@@ -180,7 +188,8 @@ def validate_reason(
 ) -> tuple[str, Optional[str]]:
     if reason not in REASONS:
         raise DismissError("Wybierz powód pominięcia.")
-    if REASON_CHECKS.get(reason, check_key) != check_key:
+    allowed = REASON_CHECKS.get(reason)
+    if allowed is not None and check_key not in allowed:
         raise DismissError("Ten powód nie pasuje do tej uwagi — wybierz inny.")
     clean = " ".join((note or "").split())[:NOTE_MAX] or None
     if reason == "other" and not clean:

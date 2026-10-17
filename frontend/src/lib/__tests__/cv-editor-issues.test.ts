@@ -3,6 +3,8 @@ import { Editor } from "@tiptap/core";
 
 import type { QcCheck, QcFix } from "../api/cvQc";
 import {
+  appliedActions,
+  appliedLabel,
   boldRequirements,
   buildIssueList,
   bulkPlan,
@@ -10,7 +12,9 @@ import {
   fixAlreadyInCv,
   fixStep,
   issueMarks,
+  issueRows,
   locateTarget,
+  rowInBulk,
   termRanges,
 } from "../cv-editor-issues";
 import { cvEditorExtensions } from "../cv-editor-structure";
@@ -534,5 +538,125 @@ describe("jedna lista „Do poprawy” (PR 4, 13.10.2026)", () => {
     expect(list.sections).toEqual([]);
     expect(list.muted.map((c) => c.key)).toEqual(["must_bolded"]);
     expect(list.total).toBe(0);
+  });
+});
+
+describe("wiersze po wadze (wariant A, 17.10.2026)", () => {
+  const kafkaFix = (overrides: Partial<QcFix> = {}): QcFix => ({
+    id: "f-kafka",
+    check_key: "critical_skills",
+    requirement: "Kafka",
+    role: "Bank Przykładowy — Senior Developer",
+    role_index: 0,
+    cv_role_label: "Senior Developer · Bank Przykładowy",
+    current_text: null,
+    proposed_text: "Integracje przez **Kafka**.",
+    source: "original",
+    source_quote: "Kafka w integracjach",
+    ...overrides,
+  });
+  const shape = (rows: { kind: string; id: string }[]) => rows.map((row) => `${row.kind}:${row.id}`);
+
+  it("blokady osobno, poprawki jednym przyciskiem w „Do poprawy”, reszta w „Do decyzji”", () => {
+    const editor = open();
+    const list = buildIssueList({
+      doc: editor.state.doc,
+      checks: [
+        check({ key: "no_unsupported", severity: "blocking", items: [{ key: "u", term: "Kafka", fix: "remove_term" }] }),
+        check({
+          key: "must_bolded",
+          items: [
+            { key: "b1", requirement: "Java", term: "Java", fix: "bold_all" },
+            { key: "b2", requirement: "Kotlin", term: "Kotlin", fix: "bold_all" },
+          ],
+        }),
+        check({ key: "spelling", items: [{ key: "s", term: "Github", fix: "spelling", detail: "„Github” → „GitHub”" }] }),
+        check({ key: "role_order", items: [{ key: "r", role: "Developer", fix: "role_order", role_index: 1 }] }),
+        check({ key: "years_header", items: [{ key: "y", term: "10 lat", detail: "Nagłówek mówi „10 lat”" }] }),
+        check({ key: "title_matches_role", status: "manual", items: [] }),
+      ],
+      warnings: ["WERYFIKUJ: usunięto „OpenTelemetry” z umiejętności"],
+      findings: [{ text: "Przeglądy kodu.", status: "unsupported" }],
+    });
+    const rows = issueRows(list, [], false);
+    expect(shape(rows.blocking)).toEqual(["task:qc:no_unsupported:Kafka"]);
+    // Pogrubienie i pisownia: jeden wiersz na sprawdzenie, nie na wymaganie.
+    expect(rows.fixable.map((row) => row.kind)).toEqual(["check-fix", "check-fix", "item"]);
+    const bold = rows.fixable.find((row) => row.kind === "check-fix" && row.fix === "bold_all");
+    expect(bold?.kind === "check-fix" ? bold.items.map((item) => item.requirement) : null).toEqual(["Java", "Kotlin"]);
+    expect(rows.fixable.some((row) => row.kind === "item" && row.item.fix === "role_order")).toBe(true);
+    // Bez gotowej poprawki: lata, uwaga do obejrzenia ręcznie, generator, kontrola AI.
+    expect(rows.decide.map((row) => row.kind).sort()).toEqual(["check", "finding", "item", "warning"]);
+  });
+
+  it("zdanie AI stoi w wierszu swojej uwagi; propozycja bez pozycji dostaje własny wiersz", () => {
+    const editor = open();
+    const list = buildIssueList({
+      doc: editor.state.doc,
+      checks: [
+        check({
+          key: "critical_skills",
+          severity: "blocking",
+          items: [{ key: "c", requirement: "Kafka", role: "Bank Przykładowy — Senior Developer", role_index: 0, fix: "ai", evidence_kind: "description" }],
+        }),
+        check({ key: "must_in_roles", items: [{ key: "m", requirement: "Docker", role: "Software House Przykład — Developer", role_index: 1, fix: "ai" }] }),
+      ],
+      warnings: [],
+      findings: [],
+    });
+    const loose = kafkaFix({ id: "f-old", check_key: "must_in_roles", requirement: "Terraform", role_index: 1 });
+    const docker = kafkaFix({ id: "f-docker", check_key: "must_in_roles", requirement: "Docker", role_index: 1, role: "Software House Przykład — Developer" });
+    const rows = issueRows(list, [kafkaFix(), docker, loose], false);
+    expect(rows.blocking[0].kind === "task" ? rows.blocking[0].fixes.map((fix) => fix.id) : null).toEqual(["f-kafka"]);
+    expect(rows.fixable.map((row) => (row.kind === "item" ? `item:${row.fixes.map((f) => f.id)}` : row.kind))).toEqual([
+      "item:f-docker",
+      "proposal",
+    ]);
+    // Rola się nie zgadza — propozycja nie trafia do cudzej pozycji.
+    const wrongRole = issueRows(list, [kafkaFix({ role_index: 1 })], false);
+    expect(wrongRole.blocking[0].kind === "task" ? wrongRole.blocking[0].fixes : null).toEqual([]);
+    expect(wrongRole.fixable.map((row) => row.kind)).toEqual(["proposal"]);
+    expect([...rows.blocking, ...rows.fixable].every(rowInBulk)).toBe(true);
+  });
+
+  it("pozycja z poprawką AI: w trakcie ładowania w „Do poprawy”, bez propozycji — w „Do decyzji”", () => {
+    const editor = open();
+    const list = buildIssueList({
+      doc: editor.state.doc,
+      checks: [check({ key: "must_in_roles", items: [{ key: "m", requirement: "Docker", role_index: 1, fix: "ai" }] })],
+      warnings: [],
+      findings: [],
+    });
+    expect(issueRows(list, [], true).fixable.map((row) => row.kind)).toEqual(["item"]);
+    expect(issueRows(list, [], false).decide.map((row) => row.kind)).toEqual(["item"]);
+    expect(rowInBulk(issueRows(list, [], true).fixable[0])).toBe(false);
+  });
+
+  it("„Poprawione” mówi, co nałożono: nazwy wymagań, termin, miejsce zdania", () => {
+    const checks = [
+      check({ key: "must_bolded", items: [{ requirement: "Java", fix: "bold_all" }, { requirement: "Kotlin", fix: "bold_all" }] }),
+    ];
+    const fixes = [kafkaFix()];
+    expect(appliedLabel({ action: "bold_all", scope: "must" }, checks, fixes)).toBe("Pogrubiono: Java, Kotlin");
+    expect(appliedLabel({ action: "bold_all", scope: "nice" }, checks, fixes)).toBe("Pogrubiono wymagania klienta");
+    expect(appliedLabel({ action: "remove_term", term: "AWS" }, checks, fixes)).toBe("Usunięto „AWS” z CV");
+    expect(appliedLabel({ action: "ai_fix", fix_id: "f-kafka" }, checks, fixes)).toBe(
+      "Dopisano zdanie: Kafka · Senior Developer · Bank Przykładowy",
+    );
+    expect(appliedLabel({ action: "role_order" }, checks, fixes)).toBe("Ułożono stanowiska od najnowszego");
+    // Z „Popraw wszystkie” liczy się tylko to, co serwer naprawdę nałożył.
+    expect(
+      appliedActions(
+        [{ action: "ai_fix", fix_id: "a" }, { action: "ai_fix", fix_id: "b" }, { action: "spelling" }],
+        [{ action: "ai_fix", fix_id: "b" }],
+      ),
+    ).toEqual([{ action: "ai_fix", fix_id: "b" }]);
+    // Pogrubienie must nałożone, nice pominięte — „Poprawione” nie może mówić o nice (przegląd 17.10).
+    expect(
+      appliedActions(
+        [{ action: "bold_all", scope: "must" }, { action: "bold_all", scope: "nice" }, { action: "remove_term", term: "AWS" }],
+        [{ action: "bold_all", scope: "must", count: 2 }, { action: "remove_term", term: "Kafka", count: 1 }],
+      ),
+    ).toEqual([{ action: "bold_all", scope: "must" }]);
   });
 });

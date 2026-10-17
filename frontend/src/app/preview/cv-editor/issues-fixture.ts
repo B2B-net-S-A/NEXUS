@@ -223,7 +223,9 @@ function memoryDismissal(id: number, reason: QcDismissReason, note: string | und
     reason_label:
       reason === "kept_order"
         ? "Kolejność stanowisk celowo inna"
-        : (QC_DISMISS_REASONS.find((option) => option.code === reason)?.label ?? reason),
+        : reason === "kept"
+          ? "Sprawdzone — zostaje w CV"
+          : (QC_DISMISS_REASONS.find((option) => option.code === reason)?.label ?? reason),
     note: note ?? null,
     by_name: "Marta Testowa",
     at: new Date().toISOString(),

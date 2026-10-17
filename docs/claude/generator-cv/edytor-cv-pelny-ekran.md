@@ -221,7 +221,7 @@ i kontrola AI ostatniej zatwierdzonej wersji. Komponent
   serwer potwierdzi, że poprawka coś zmienia: nowy szkic zdejmuje z CV stan
   „zatwierdzone” (linki, wysyłka), więc poprawka, której nie da się nałożyć,
   nie może kosztować ponownego zatwierdzania.
-- **„Popraw wszystko” (decyzja D2)** bierze tylko: pogrubienie wymagań,
+- **„Popraw wszystkie” (dawniej „Popraw wszystko”, decyzja D2)** bierze tylko: pogrubienie wymagań,
   pisownię technologii i zdania AI w brzmieniu z serwera (cytat sprawdzony przy
   pobraniu propozycji). Usunięcie terminu i zdanie AI z własnym tekstem
   zatwierdza się pojedynczo. Listę pilnuje SERWER (`cv_qc.BULK_ACTIONS`, pole
@@ -272,15 +272,19 @@ i kontrola AI ostatniej zatwierdzonej wersji. Komponent
   grupuje je po sekcjach CV (`cvOutline`: „Całe CV”, „Nagłówek”, sekcje
   w kolejności CV, „Pozostałe sekcje”) z etykietą źródła (QC / generator /
   kontrola AI), a uwaga generatora „MUST-HAVE: X” znika, gdy QC mówi o X
-  (zadanie, informacja albo pominięcie). Kolejność: „Popraw wszystko”, grupy
-  sekcji, propozycje AI, „Zapytaj kandydata”, „Pominięte”, „Informacje”,
-  „W porządku”. Edytor bez etapu ma dalej osobny blok uwag generatora.
-- **Panel nie ma obejścia QC ani ruchu karty** — przekazanie Delivery
-  Leadowi (z obejściem „Przekaż mimo uwag…”) stoi w stopce edytora, sekcja
-  „Przekazanie Delivery Leadowi ze stopki” niżej (D6, 14.10.2026); panel
-  podaje stopce wynik QC przez `onCount` (`CvIssueCount.qc`). Karty są wspólne
-  (`recruitment/cv-qc-cards.tsx`); „Pokaż w CV” i odnośniki w nowej karcie
-  włącza kontekst edytora (`locate`, `linksInNewTab`).
+  (zadanie, informacja albo pominięcie). Od 17.10.2026 panel NIE pokazuje
+  grup sekcji — `issueRows` przekłada tę listę na grupy po wadze (sekcja niżej,
+  „Panel »Do poprawy« jednym kliknięciem”); `buildIssueList` zostaje źródłem
+  licznika i kolejności. Edytor bez etapu ma dalej osobny blok uwag generatora.
+- **Panel nie rusza karty sam** — przekazanie Delivery Leadowi (z obejściem
+  „Przekaż mimo uwag…”) stoi w stopce edytora, sekcja „Przekazanie Delivery
+  Leadowi ze stopki” niżej (D6, 14.10.2026); panel podaje stopce wynik QC przez
+  `onCount` (`CvIssueCount.qc`). Od 17.10.2026 ten sam „Przekaż mimo uwag…”
+  stoi też w nagłówku grupy „Blokuje wysyłkę” (`onOverride` = `openOverride`
+  ze stopki, tylko przy `handoff` i `gate.kind === "override"`). Okno QC na
+  Tablicy ma dalej karty z `recruitment/cv-qc-cards.tsx`; panel bierze z nich
+  tylko formularz „To nieprawda”, „Szukałem w” i `ItemAction` (zgoda RODO,
+  brak CV).
 - **Układ:** 1180–1539 px (laptop 1280) — obok kartki JEDEN panel: źródła
   (440 px, lewa) albo „Do poprawy” (360 px, prawa); od 1540 px oba; węziej
   przełącznik kolumny. Gdy są uwagi, „Do poprawy” otwiera się samo, raz. Panel
@@ -305,6 +309,73 @@ i kontrola AI ostatniej zatwierdzonej wersji. Komponent
   nie ratuje przed jednym długim wywołaniem `re` (trzyma GIL). Nowa operacja na
   treści z edytora ma być liniowa — pilnują testy z limitem czasu procesora
   w `tests/test_cv_qc.py` (`TRANSFORM_CPU_LIMIT`, kształty z przeglądu).
+
+## Panel „Do poprawy” jednym kliknięciem (wariant A, 17.10.2026)
+
+Rekruter: „super by była opcja, że panel QC mówi, co jest nie tak, i jednym
+guzikiem można wprowadzić zmiany; sekcja »Do poprawy« zajmuje mega małą część
+ekranu” oraz „możliwość przepuszczania dalej mimo uwag AI”. Pomiar w harnessie
+przy 1280 × 720: lista miała 205 px, pusty asystent pod nią 370 px. Makiety
+i decyzje Artura D1–D7: https://claude.ai/artifact/Y9XgB3H1iMS2f5WQYsHJyG.
+Komponenty: `cv-editor/CvEditorIssues.tsx` (grupy, „Poprawione”, pasek),
+`cv-editor/CvEditorIssueRows.tsx` (wiersze), logika `issueRows`,
+`rowInBulk`, `appliedLabel`, `appliedActions` w `lib/cv-editor-issues.ts`.
+
+- **D1 · lista na pierwszym planie.** Asystent stoi zwinięty do jednej linii
+  („Napisz, co zmienić w CV…”) pod listą; kliknięcie go rozwija (pole dostaje
+  fokus), a panel zwija się wtedy do paska z liczbami (`summary`) i „Pokaż
+  listę”. Rozmowa zostaje w kontrolerze — zwinięta linia mówi „Wróć do rozmowy
+  z asystentem” albo „Asystent pracuje…”. Lista ma przy 1280 × 720 ok. 510 px.
+  Zwinięty panel dalej liczy znaczniki i licznik — nie zamieniaj go na
+  warunkowe renderowanie.
+- **D2 · grupy po wadze, nie po sekcjach CV:** „Blokuje wysyłkę” (zadania QC
+  z `BLOCKING_KEYS`, także te do wyjaśnienia z kandydatem), „Do poprawy” (jest
+  przycisk, który poprawia: pogrubienie, pisownia, kolejność stanowisk,
+  usunięcie terminu z listy, zdanie AI z propozycją albo w trakcie ładowania),
+  „Poprawione” (co panel nałożył w tej sesji) i „Do decyzji · nie blokuje”
+  (uwagi QC bez poprawki, do obejrzenia ręcznie, generator, kontrola AI). Jeden
+  wiersz = problem, podgląd zmiany (przekreślone → zielone) i jeden przycisk.
+  Tytuł wiersza to przycisk: rozwija szczegóły (dowód, „Szukałem w”, „Pokaż
+  w CV”, „To nieprawda”) i pokazuje miejsce na kartce bez komunikatu, gdy go
+  już nie ma (`locate(target, quiet)`); jawne „Pokaż w CV” mówi o tym wprost.
+- **Zdanie AI w wierszu swojej uwagi.** Osobnej sekcji „Propozycje AI” w edytorze
+  nie ma. Propozycja przypina się do pozycji po sprawdzeniu, wymaganiu
+  i — gdy obie znają — numerze stanowiska albo etykiecie roli; propozycja bez
+  pozycji dostaje własny wiersz w „Do poprawy”, żeby nie zginęła. Awaria
+  propozycji = „Propozycje AI są chwilowo niedostępne · Ponów” w wierszu.
+  Okno QC na Tablicy ma dalej swoją sekcję „Propozycje AI”.
+- **„Popraw wszystkie (N)”** stoi w nagłówku grupy, w której są poprawki
+  z planu (zwykle „Do poprawy”; gdy są tylko zdania AI do blokad — „Blokuje
+  wysyłkę”). Zakres bez zmian (D2 z 12.10: pogrubienie, pisownia, zdania AI
+  z cytatem); sprawdzenia wyciszone w „Jakość QC” nie wchodzą do planu.
+- **„Poprawione” z „Cofnij”.** Każda nałożona poprawka (pojedyncza albo hurt)
+  zostaje na liście z etykietą z `appliedLabel` („Pogrubiono: Java, Kotlin”,
+  „Dopisano zdanie: Kafka · …”). „Cofnij” jest tylko przy ostatniej i tylko
+  dopóki edytor trzyma dokument zaraz po niej (`editor.state.doc === after`,
+  jak w asystencie) — potem Ctrl+Z. Hurt cofa się „Cofnij wszystkie” w nagłówku
+  grupy (jedna transakcja). Pominięte poprawki hurtu stoją pod nim jako
+  „Pominięto: …”. Lista żyje do zamknięcia edytora, najwyżej 6 wpisów.
+- **D5 · treść spoza oryginału bez formularza.** W wierszu blokady
+  `no_unsupported`: „Usuń z CV” (`remove_term`), „Kandydat to ma” (pole „Co
+  powiedział kandydat? (opcjonalnie)” → `qc/confirm`, ta sama notatka
+  „Potwierdzone z kandydatem”) i „Jest w oryginale” (pole na fragment →
+  pominięcie `other_name` z `quote`; serwer sprawdza fragment jak dotąd).
+  „Jest w oryginale” tylko przy pozycji z kluczem i prawie obejścia
+  (`canDismissItem`). Pozostałe powody „To nieprawda” zostają w szczegółach.
+- **„OK” i „Zostaw” (powód `kept`).** Uwaga generatora ma „OK”, uwaga kontroli
+  AI „Zostaw” — jedno kliknięcie, pominięcie dla pary z powodem „Sprawdzone —
+  zostaje w CV” (`cv_finding_dismissals.REASONS["kept"]`). Powód pasuje tylko
+  do źródeł `generator` i `review` (`REASON_CHECKS` jako zbiory;
+  `cv_editor_issues.dismiss` podaje `check_key=source`), nie liczy się do
+  trafności QC i nie ma go w formularzu „To nieprawda” ani w trasie QC.
+- **D7 · bez „Pomiń wszystkie uwagi AI”.** Blokady to rzeczy, które zobaczy
+  klient; jeden przycisk na wszystko uczyłby klikania bez czytania i odciął
+  „Jakość QC” od powodów. Przepuszczenie całego CV = „Przekaż mimo uwag…”
+  z powodem (stopka albo nagłówek blokad).
+- **Licznik.** Panel pokazuje „N blokuje / blokują wysyłkę” albo „Nic nie
+  blokuje wysyłki”; grupy mają własne liczby wierszy (pogrubienie trzech
+  wymagań to jeden wiersz). Licznik w pasku i na karcie „CV do klienta” liczy
+  dalej `buildIssueList().total`.
 
 ## AI na zaznaczeniu (PR 3, 13.10.2026)
 
@@ -903,13 +974,12 @@ planu. Rekruter pisze jak do czatu („rolę w Logistyce skróć do 3 punktów�
   jako dane, nie polecenia. Zaznaczony tekst to kontekst wiadomości („Dotyczy
   zaznaczenia: …” nad polem). Ślad użycia (`_log`): rodzaje operacji, pytania,
   liczba wiadomości i zaznaczonych wierszy — bez treści.
-- **Kolumna przy 1280 × 720**: „Do poprawy” zwijane nagłówkiem panelu
-  (`heading` + `collapsed` w `CvEditorIssues` — jeden nagłówek, nie dwa),
-  rozwinięte domyślnie przy blokadach wysyłki, awarii QC i z „Sprawdź
-  i popraw”; zwinięte panel dalej liczy znaczniki i liczbę w pasku. Asystent
-  ma co najmniej 18rem (nagłówek, dwa rzędy podpowiedzi, pole i kilka linii
-  rozmowy), rozwinięta lista 2 : 3 z asystentem; rozmowa przewija się do
-  najnowszej odpowiedzi. Pole asystenta rośnie od 2 do **4** linii
+- **Kolumna przy 1280 × 720** (od 17.10.2026, wariant A): asystent zwinięty do
+  jednej linii pod listą „Do poprawy”, rozwinięty dopiero po kliknięciu —
+  wtedy ma całą kolumnę poza paskiem z liczbami (`expanded` / `onExpand`
+  w `CvEditorAssistant`, `summary` w `CvEditorIssues`). Rozwinięty asystent ma
+  co najmniej 18rem; rozmowa przewija się do najnowszej odpowiedzi. Dawne
+  zwijanie listy nagłówkiem (`heading`, `collapsed`, proporcja 2 : 3) zniknęło. Pole asystenta rośnie od 2 do **4** linii
   (`useTextareaAutogrow`), nie wyżej — przy 1280 × 650 pole na 5 linii
   zostawiało rozmowie 21 px. Po wysłaniu pole wraca do 2 linii. Pod polem
   „Enter wyślij · Shift+Enter nowa linia” i licznik. Edytor wyniku generatora (bez etapu) asystenta nie
