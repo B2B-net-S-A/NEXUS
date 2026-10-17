@@ -125,6 +125,23 @@ export function isCertainWarning(warning: string): boolean {
 }
 
 /**
+ * Dopisek uwagi kontroli AI, którą kod złagodził: recenzent zakwestionował
+ * twierdzenie, a prawie to samo stoi w źródłach (D1-A, 17.10.2026). MUSI być
+ * zgodne z `_MOSTLY_SUFFIX` w
+ * `backend/app/services/cv_generator_b2b/final_review.py`.
+ */
+export const AI_REVIEW_MOSTLY_SUFFIXES = [
+  "(w źródłach jest prawie to samo — sprawdź brzmienie)",
+  "(almost the same is in the sources — check the wording)",
+] as const;
+
+/** Czy uwaga kontroli AI jest łagodna — do decyzji, poza licznikiem „Do poprawy”. */
+export function isSoftAiReviewWarning(warning: string): boolean {
+  const text = warning.trimEnd();
+  return AI_REVIEW_MOSTLY_SUFFIXES.some((suffix) => text.endsWith(suffix));
+}
+
+/**
  * Client-side upload precheck. Mirrors the server's `_validate_upload`
  * (`standalone_service.py`) so a file the backend would reject never costs the
  * recruiter a round trip — the server remains the authority.

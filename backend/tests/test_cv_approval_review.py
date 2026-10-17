@@ -595,3 +595,67 @@ async def test_reviewer_outage_yields_unverified_receipt_in_advisory(monkeypatch
     result = await review.execute_approval_review(AsyncMock(), prepared, 7)
     assert result["status"] == "unverified"
     assert result["method_detail"] == "review_unavailable"
+
+
+# D1-A (17.10.2026): linia, która stoi w źródłach, nie jest uwagą kontroli AI.
+async def test_findings_standing_in_the_source_do_not_reach_the_editor(monkeypatch):
+    _advisory_review(monkeypatch)
+
+    @asynccontextmanager
+    async def quota(*_args, **_kwargs):
+        yield
+
+    monkeypatch.setattr(review, "ai_feature", quota)
+    paths = ("/why_points/0", "/why_points/1", "/why_points/2")
+    monkeypatch.setattr(
+        review,
+        "verify_editor_content",
+        Mock(
+            side_effect=FactualVerificationError(
+                list(paths),
+                reason="semantic_rejection",
+                statuses={path: "unsupported" for path in paths},
+            )
+        ),
+    )
+    html = (
+        "<p>Acme Sp. z o.o.</p>"
+        "<p>Utrzymanie API w Pythonie i PostgreSQL</p>"
+        "<p>Prowadzenie zespołu dziesięciu architektów</p>"
+    )
+    source = (
+        "01.2015 – 07.2019, Acme Sp. z o.o., Backend Developer\n"
+        "Utrzymanie API w Pythonie. Technologie: Python, PostgreSQL."
+    )
+    prepared = review.PreparedApprovalReview(
+        html, source, "", "", 11, "snapshot", "review:1:1", "{}"
+    )
+    result = await review.execute_approval_review(AsyncMock(), prepared, 7)
+    assert result["status"] == "reviewed"
+    assert result["findings"]["paths"] == ["/why_points/1", "/why_points/2"]
+    assert result["findings"]["statuses"] == {
+        "/why_points/1": "weak",
+        "/why_points/2": "unsupported",
+    }
+    assert result["findings"]["count"] == 1
+    assert result["code_coverage"] == {
+        "/why_points/0": "in_source",
+        "/why_points/1": "mostly",
+    }
+    assert review.review_outcome({"content_review": result}) == ("reviewed", 1)
+
+    # Wszystko w źródłach: kontrola przeszła, nie „0 uwag do sprawdzenia”.
+    monkeypatch.setattr(
+        review,
+        "verify_editor_content",
+        Mock(
+            side_effect=FactualVerificationError(
+                [paths[0]],
+                reason="semantic_rejection",
+                statuses={paths[0]: "unsupported"},
+            )
+        ),
+    )
+    result = await review.execute_approval_review(AsyncMock(), prepared, 7)
+    assert result["status"] == "verified"
+    assert result["findings"]["paths"] == []

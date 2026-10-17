@@ -986,7 +986,8 @@ function FindingRow({ finding, ctx }: { finding: CvReviewFinding; ctx: RowContex
       sub={`${source} · ${REVIEW_FINDING_LABEL[finding.status] ?? "do sprawdzenia"}`}
       actions={
         <>
-          {ctx.qc ? (
+          {/* „Prawie to samo jest w źródłach” (D1-A) — usuwanie jednym kliknięciem skasowałoby prawdę. */}
+          {ctx.qc && finding.status !== "weak" ? (
             <Button
               size="sm"
               variant="outline"

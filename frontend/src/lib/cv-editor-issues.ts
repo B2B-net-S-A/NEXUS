@@ -28,7 +28,7 @@ import { TextSelection, type EditorState, type Transaction } from "@tiptap/pm/st
 import type { CvReviewFinding } from "@/lib/api/cvEditorIssues";
 import type { QcCheck, QcFix, QcFixAction, QcItem, QcResult, QcTransformApplied } from "@/lib/api/cvQc";
 import { cvOutline, type CvOutline, type CvRole, type CvSectionKey } from "@/lib/cv-editor-blocks";
-import { classifyCvWarnings, type ClassifiedCvWarning } from "@/lib/cv-generator";
+import { classifyCvWarnings, isSoftAiReviewWarning, type ClassifiedCvWarning } from "@/lib/cv-generator";
 import {
   countForm,
   itemTarget,
@@ -212,7 +212,20 @@ export const REVIEW_FINDING_LABEL: Record<string, string> = {
   contradicted: "sprzeczne ze źródłem",
   private: "dane prywatne",
   invalid_evidence: "kontrola nie wskazała źródła",
+  // D1-A (17.10.2026): kod znalazł w źródłach prawie to samo — bez „Usuń zdanie”.
+  weak: "prawie to samo jest w źródłach — sprawdź brzmienie",
 };
+
+/**
+ * Uwaga kontroli AI, którą kod złagodził (D1-A, 17.10.2026): zostaje na liście
+ * „Do decyzji”, ale nie liczy się do „Do poprawy (N)” — pomiar 17.10 pokazał,
+ * że takie twierdzenia stoją w źródłach prawie dosłownie.
+ */
+function isSoftEntry(entry: IssueEntry): boolean {
+  if (entry.kind === "finding") return entry.finding.status === "weak";
+  if (entry.kind === "warning") return isSoftAiReviewWarning(entry.warning.text);
+  return false;
+}
 
 // ── Jedna lista „Do poprawy” (PR 4, 13.10.2026) ──────────────────────────────
 
@@ -414,7 +427,7 @@ export function buildIssueList({ doc, checks, warnings, findings }: IssueListInp
     covered,
     passed: split.passed,
     skipped: split.skipped,
-    total: placed.length + ask.length,
+    total: placed.filter((item) => !isSoftEntry(item.entry)).length + ask.length,
   };
 }
 
