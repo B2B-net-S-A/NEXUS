@@ -2560,14 +2560,18 @@ export function CandidatesListV2({ onRequestSearch, embed }: CandidatesListV2Pro
                                   zatrudnienia mają pierwszeństwo, lokalizacja
                                   ustępuje im miejsca; pełna treść w dymku. */}
                               <p className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
-                                {hidesAvailabilityStatus(candidate.employment_marker) ? null : (
+                                {/* Czarna lista „u nas” (17.10.2026) zastępuje „szuka
+                                    aktywnie” — obok siebie nie mieszczą się w kolumnie,
+                                    a przy czarnej liście dostępność nie ma znaczenia.
+                                    Kto i dlaczego — w profilu. */}
+                                {candidate.status === "blacklisted" ? (
+                                  <BlacklistBadge />
+                                ) : hidesAvailabilityStatus(candidate.employment_marker) ? null : (
                                   <AvailabilityPill status={candidate.availability_status} appearance="text" />
                                 )}
                                 {candidate.employment_marker ? (
                                   <EmploymentPill marker={candidate.employment_marker} appearance="text" />
                                 ) : null}
-                                {/* Czarna lista „u nas” (17.10.2026) — kto i dlaczego w profilu. */}
-                                {candidate.status === "blacklisted" ? <BlacklistBadge /> : null}
                                 <span className="min-w-0 shrink-[100] truncate" title={location ?? undefined}>
                                   {location ?? "brak lokalizacji"}
                                 </span>
