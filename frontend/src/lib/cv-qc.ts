@@ -418,6 +418,24 @@ export function notePreview(check: QcCheck): string | null {
 }
 
 /** Krótki tytuł rzeczy do poprawy (karta w oknie QC, lista w oknie obejścia). */
+/** Rzecz w oknie obejścia (D4, 17.10.2026): tytuł i klucze pozycji do etykiety „QC się myli”. */
+export interface QcPendingItem {
+  title: string;
+  /** Klucze pozycji QC tej rzeczy (krytyczna w kilku rolach = kilka kluczy). */
+  keys: string[];
+  /** Blokadę da się oznaczyć „QC się myli” — brak CV i reguły klienta nie. */
+  labelable: boolean;
+}
+
+export function taskPendingItem(task: QcTask): QcPendingItem {
+  const keys = task.items.map((item) => item.key).filter((key): key is string => !!key);
+  return {
+    title: taskTitle(task),
+    keys,
+    labelable: keys.length > 0 && task.check.severity === "blocking" && !QC_NOT_DISMISSABLE.has(task.check.key),
+  };
+}
+
 export function taskTitle(task: QcTask): string {
   const { check, name, items } = task;
   if (!name) return items[0]?.detail?.trim() || check.label;

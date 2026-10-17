@@ -282,10 +282,18 @@ class QcOverrideRequest(BaseModel):
 
     reason_code: Optional[str] = Field(default=None, max_length=40)
     reason: str = Field(default="", max_length=1000)
+    # Blokady oznaczone w oknie „QC się myli” (D4, 17.10.2026) — klucze pozycji
+    # z bieżącego przebiegu; serwer bierze tylko te, które QC nadal zgłasza.
+    wrong_keys: list[str] = Field(
+        default_factory=list, max_length=cv_qc.OVERRIDE_WRONG_MAX
+    )
 
     @model_validator(mode="after")
     def _reason_given(self) -> "QcOverrideRequest":
         self.reason = " ".join(self.reason.split())
+        self.wrong_keys = list(
+            dict.fromkeys(key.strip()[:400] for key in self.wrong_keys if key.strip())
+        )
         if (
             self.reason_code is not None
             and self.reason_code not in cv_qc.OVERRIDE_REASONS
@@ -496,6 +504,7 @@ async def override_stage_qc(
         reason_code=payload.reason_code,
         notify_reviewers=not reviewer,
         note=payload.reason,
+        wrong_keys=payload.wrong_keys,
     )
     await db.commit()
     return await _response(db, request, current_user, result)

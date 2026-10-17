@@ -1180,6 +1180,7 @@ function CVBrandedEditContent({
           open
           onOpenChange={setOverrideOpen}
           pending={gate.pending}
+          pendingItems={gate.pendingItems}
           advisory={gate.advisory}
           // Powód zapisany — dalej to samo co „Zapisz i przekaż do DL”.
           onDone={() => void saveAndHandOff()}

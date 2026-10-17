@@ -33,6 +33,7 @@ import {
   roleGaps,
   segmentCv,
   splitChecks,
+  taskPendingItem,
   taskTitle,
   thingsLabel,
   unboldedTerms,
@@ -574,5 +575,32 @@ describe("uwagi generatora „MUST-HAVE: X” a pozycje QC (13.10.2026)", () => 
     expect(warningsBeyondQc(warnings, passed)).toEqual({ kept: warnings, covered: [] });
     const failing = [check({ key: "must_in_cv", items: [{ requirement: "Kafka" }] })];
     expect(warningsBeyondQc(warnings, failing)).toEqual({ kept: [warnings[1]], covered: [warnings[0]] });
+  });
+});
+
+
+describe("taskPendingItem (D4, 17.10.2026)", () => {
+  it("blokada z kluczami da się oznaczyć „QC się myli”; reguły klienta i uwagi — nie", () => {
+    const tasks = splitChecks([
+      check({
+        key: "critical_skills",
+        severity: "blocking",
+        status: "fail",
+        items: [
+          { key: "critical_skills|kafka|a", requirement: "Kafka", role: "A — Dev", fix: "ai" },
+          { key: "critical_skills|kafka|b", requirement: "Kafka", role: "B — Dev", fix: "ai" },
+        ],
+      }),
+      check({
+        key: "client_rules",
+        severity: "blocking",
+        status: "fail",
+        items: [{ key: "client_rules|rodo|cv", detail: "Brak zrzutu zgody RODO." }],
+      }),
+    ]).tasks;
+    expect(tasks.map(taskPendingItem)).toEqual([
+      { title: taskTitle(tasks[0]), keys: ["critical_skills|kafka|a", "critical_skills|kafka|b"], labelable: true },
+      { title: taskTitle(tasks[1]), keys: ["client_rules|rodo|cv"], labelable: false },
+    ]);
   });
 });

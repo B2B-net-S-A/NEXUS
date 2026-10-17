@@ -81,6 +81,20 @@ Makiety i decyzje: https://claude.ai/artifact/BZZRshjBDC4CMEGGP6m4Wr. PR 3 z 4
   `GET …/issues` ma `dismissed`. Wpisy `Activity`: `cv_qc_dismissed`,
   `cv_qc_dismissal_restored`.
 
+- **„QC się myli” w oknie obejścia** (D4, decyzja Artura 17.10.2026). Pomiar
+  17.10: 4 „To nieprawda” na 47 obejść — trafność 100% w „Jakość QC”
+  znaczyła brak danych. `QcOverrideDialog` dostaje `pendingItems`
+  (`taskPendingItem`: tytuł, klucze pozycji, `labelable` = blokada spoza
+  `cv_present`/`client_rules`) i przy każdej blokadzie ma „Prawda”
+  (domyślnie) / „QC się myli”. Żądanie obejścia niesie `wrong_keys`;
+  `record_override` → `override_labels` bierze tylko klucze niezaliczonych
+  blokad z bieżącego przebiegu, zapisuje pominięcie z powodem
+  `qc_wrong_override` („QC się myli — zaznaczone przy przepuszczeniu”, liczy
+  się do trafności), Activity `cv_qc_dismissed` z `via: override`,
+  a w przebiegu obejścia `override_labels` = `{wrong, kept}`. Bez osobnego
+  dzwonka — obejście doradcze już dzwoni. Powodu nie ma w formularzu „To
+  nieprawda”.
+
 ## „Jakość QC” (D6)
 
 - **Trafność** sprawdzenia = 1 − (pominięte jako „QC się myli” / pokazane)

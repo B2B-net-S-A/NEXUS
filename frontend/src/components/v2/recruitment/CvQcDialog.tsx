@@ -86,6 +86,7 @@ import {
   roleGaps,
   segmentCv,
   splitChecks,
+  taskPendingItem,
   taskTitle,
   thingsLabel,
   unboldedTerms,
@@ -585,6 +586,7 @@ export function CvQcDialogView({
   const [overrideOpen, setOverrideOpen] = useState(false);
   const editorTarget = qcEditorTarget(data?.cv);
   const pending = useMemo(() => (data ? splitChecks(data.checks).tasks.map(taskTitle) : []), [data]);
+  const pendingItems = useMemo(() => (data ? splitChecks(data.checks).tasks.map(taskPendingItem) : []), [data]);
   const cleared = Boolean(data && (data.passed || data.override));
 
   return (
@@ -702,6 +704,7 @@ export function CvQcDialogView({
         open
         onOpenChange={setOverrideOpen}
         pending={pending}
+        pendingItems={pendingItems}
         onChanged={onChanged}
         advisory={advisory}
         // Tryb doradczy: zapisany powód od razu przesuwa kartę — jedno przejście.

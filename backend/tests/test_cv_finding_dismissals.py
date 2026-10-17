@@ -415,3 +415,11 @@ async def test_a_second_identical_dismissal_is_idempotent(
         user_id=4,
     )
     assert await dismissals.insert_once(_Db(), row) is False
+
+
+def test_qc_wrong_at_override_counts_as_qc_being_wrong() -> None:
+    # D4 (17.10.2026): „QC się myli” przy blokadzie w oknie obejścia.
+    assert "qc_wrong_override" in dismissals.QC_WRONG_REASONS
+    assert dismissals.validate_reason(
+        "qc_wrong_override", None, check_key="no_unsupported"
+    ) == ("qc_wrong_override", None)
