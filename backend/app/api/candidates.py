@@ -4568,6 +4568,8 @@ async def get_candidate(
     if not candidate:
         raise HTTPException(status_code=404, detail="Candidate not found")
     payload = _candidate_to_response(candidate)
+    # R4 (17.10.2026): przy żywej umowie „zadeklarowana od” — tylko profil.
+    payload = payload.model_copy(update=await declared_rate_from(db, candidate))
     invite_source = await _resolve_invite_source(candidate_id, db)
     contact_case = (await load_contact_case_summaries(db, [candidate_id])).get(
         candidate_id
@@ -4586,7 +4588,6 @@ async def get_candidate(
         else None
     )
     employment_markers = await _page_employment_markers(db, [candidate])
-    declared = await declared_rate_from(db, candidate)
     return payload.model_copy(
         update={
             "invite_source": invite_source,
@@ -4594,7 +4595,6 @@ async def get_candidate(
             "contact_case": contact_case,
             "call_facts_verified_by_name": verified_by_name,
             "employment_marker": employment_markers.get(candidate.id),
-            **declared,
         }
     )
 
