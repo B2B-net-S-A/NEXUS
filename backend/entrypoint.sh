@@ -160,10 +160,10 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE userrole ADD VALUE IF NOT EXISTS 'trainee'",
     # 0446: „Automatyzacje” — podgląd bez kwot i bez zapisu.
     "ALTER TYPE userrole ADD VALUE IF NOT EXISTS 'automation'",
-    # „Ludzie w NEXUSIE” (0453): rola „Pracownik” — lustro
+    # „Ludzie w NEXUSIE” (0455): rola „Pracownik” — lustro
     # `app/services/hr_access_schema.ENUM_DDL`.
     "ALTER TYPE userrole ADD VALUE IF NOT EXISTS 'employee'",
-    # „Ludzie w NEXUSIE” (0454): typy powiadomień modułów kadrowych — lustro
+    # „Ludzie w NEXUSIE” (0456): typy powiadomień modułów kadrowych — lustro
     # `app/services/hr_notification_schema.ENUM_DDL`.
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'hr_leave_requested'",
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'hr_leave_decided'",
@@ -1046,7 +1046,7 @@ except Exception as _proposal_feedback_err:  # noqa: BLE001
     _JOB_PROPOSAL_FEEDBACK_CONSTRAINTS = []
     _JOB_PROPOSAL_STATUS_CONSTRAINTS = []
 
-# „Ludzie w NEXUSIE” (migracje 0452+): moduł kadrowy, czas pracy, płace,
+# „Ludzie w NEXUSIE” (migracje 0454+): moduł kadrowy, czas pracy, płace,
 # sprzęt, opieka nad konsultantami, sprawy — JEDNO źródło z migracjami przez
 # agregator `app/services/hr_schema_bundle.py`. Wpięte na KOŃCACH faz.
 try:
@@ -6800,7 +6800,7 @@ _DATA_STATEMENTS = [
               CASE WHEN action = 'delivery_view' THEN 'manage' ELSE 'none' END
        FROM rbac_role_action_permissions
        ON CONFLICT (role, action) DO NOTHING""",
-    # 0453: „Pracownik” (`employee`) stoi wyżej w zasiewie pustej macierzy
+    # 0455: „Pracownik” (`employee`) stoi wyżej w zasiewie pustej macierzy
     # (CHECK roli poszerza `_HR_COLUMN_DDL` w fazie kolumn). Wiersze `none` do
     # istniejącej macierzy dopisuje `hr_access_schema.SEED_DDL` w `_HR_DATA_DDL`,
     # a cztery uprawnienia „Ludzi” — siatka `named_permissions_bootstrap`.

@@ -271,7 +271,7 @@ class NotificationType(str, enum.Enum):
     # (17.10.2026). Do Delivery Leadów klienta, raz na parę osoba–rekrutacja;
     # related_entity=(candidate_stage, id). `services/hire_contract_reminder.py`.
     hire_missing_contract = "hire_missing_contract"
-    # 0454: „Ludzie w NEXUSIE” — moduły kadrowe. Osobiste (odbiorcę wybiera
+    # 0456: „Ludzie w NEXUSIE” — moduły kadrowe. Osobiste (odbiorcę wybiera
     # reguła modułu, nie sekcja): urlopy, timesheety, premie i stawki,
     # wejście/odejście, sprawy administracja@, sprzęt. Opieka nad konsultantem
     # (``care_contact_due``) prowadzi do kontraktu — sekcja Delivery. Lista

@@ -58,7 +58,7 @@ const STATUS_LABELS: Record<EquipmentReturnStatus, string> = {
   written_off: "Spisany",
 };
 
-/** Pozycja wydana z magazynu (rejestr „Sprzęt”, 0461) — zwrot przyjmuje recepcja. */
+/** Pozycja wydana z magazynu (rejestr „Sprzęt”, 0463) — zwrot przyjmuje recepcja. */
 type RegisterLinkedItem = ContractEquipmentItem & {
   item_id?: number | null;
   assignment_id?: number | null;

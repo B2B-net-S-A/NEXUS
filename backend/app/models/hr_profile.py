@@ -1,4 +1,4 @@
-"""Kartoteka pracownika, pule urlopowe i dni wolne firmy (migracja 0452).
+"""Kartoteka pracownika, pule urlopowe i dni wolne firmy (migracja 0454).
 
 „Ludzie w NEXUSIE” (16.10.2026). Dane kadrowe NIE są kolumnami ``users`` —
 osobna tabela 1:1 z kontem, osobne uprawnienia (Kadry, Płace). Konsultanci

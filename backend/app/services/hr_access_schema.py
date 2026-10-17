@@ -1,6 +1,6 @@
 """„Ludzie w NEXUSIE” — rola „Pracownik” i cztery uprawnienia z grupy „Ludzie”.
 
-JEDNO źródło SQL dla ``alembic/versions/0453_hr_access.py`` i ``entrypoint.sh``
+JEDNO źródło SQL dla ``alembic/versions/0455_hr_access.py`` i ``entrypoint.sh``
 (przez ``hr_schema_bundle``). Wzór: 0446 (rola „Automatyzacje”).
 
 * ``employee`` — rola wyłączna (decyzja Artura 16.10.2026, D1): osoba bez pracy

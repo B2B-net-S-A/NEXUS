@@ -1,18 +1,18 @@
-"""„Ludzie w NEXUSIE” — Wejście i odejście.
+"""„Ludzie w NEXUSIE” — Sprawy administracja@.
 
-Revision ID: 0458_hr_lifecycle
-Revises: 0457_hr_payroll
+Revision ID: 0462_admin_cases
+Revises: 0461_contract_care
 
-Zakres: szablony i sprawy cyklu życia, zadania, przekazania pracy. SQL ma jedno źródło (``app/services/hr_lifecycle_schema.py``) — ten sam
+Zakres: sprawy, wiadomości, komentarze, stan czytnika skrzynki. SQL ma jedno źródło (``app/services/admin_cases_schema.py``) — ten sam
 moduł czyta ``entrypoint.sh`` przez ``hr_schema_bundle``.
 """
 
 from alembic import op
 
-from app.services import hr_lifecycle_schema as schema
+from app.services import admin_cases_schema as schema
 
-revision = "0458_hr_lifecycle"
-down_revision = "0457_hr_payroll"
+revision = "0462_admin_cases"
+down_revision = "0461_contract_care"
 branch_labels = None
 depends_on = None
 

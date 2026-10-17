@@ -1,6 +1,6 @@
-"""„Ludzie w NEXUSIE” — Sprzęt, etapy 4–5: SQL migracji ``0462_equipment_extras`` i lustra entrypointu.
+"""„Ludzie w NEXUSIE” — Sprzęt, etapy 4–5: SQL migracji ``0464_equipment_extras`` i lustra entrypointu.
 
-JEDNO źródło instrukcji dla ``alembic/versions/0462_equipment_extras.py`` i ``entrypoint.sh``
+JEDNO źródło instrukcji dla ``alembic/versions/0464_equipment_extras.py`` i ``entrypoint.sh``
 (przez ``app/services/hr_schema_bundle.py``). Kontrakt modułu jak w ``equipment_schema``.
 
 Zakres (propozycja recepcji z 15.10, etapy 4 i 5, D9):
@@ -154,7 +154,7 @@ INDEX_DDL: tuple[str, ...] = (
 
 #: Czterech posiadaczy zamiast trzech, zwrócone wydanie może stracić posiadacza.
 #: Bloki podmieniają CHECK i klucz obcy tylko wtedy, gdy stoi jeszcze stara wersja
-#: (0461: trzech posiadaczy; pierwsza wersja 0462: ``RESTRICT`` i CHECK bez
+#: (0463: trzech posiadaczy; pierwsza wersja 0464: ``RESTRICT`` i CHECK bez
 #: ``returned_at``) — entrypoint wykonuje je przy każdym starcie.
 CONSTRAINT_DDL: tuple[str, ...] = (
     """DO $$

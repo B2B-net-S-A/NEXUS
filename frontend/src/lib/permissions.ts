@@ -24,7 +24,7 @@ export type Permission =
   | "amounts_view"
   | "amounts_edit"
   | "finance_module"
-  // „Ludzie w NEXUSIE” (0453): Kadry, Płace, Sprzęt, Sprawy.
+  // „Ludzie w NEXUSIE” (0455): Kadry, Płace, Sprzęt, Sprawy.
   | "people_admin"
   | "payroll"
   | "equipment"

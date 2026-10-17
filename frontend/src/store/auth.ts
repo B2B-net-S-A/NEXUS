@@ -28,7 +28,7 @@ export type UserRole =
   // „Automatyzacje” (0446) — rola WYŁĄCZNA: podgląd rekrutacji, kandydatów,
   // Insights oraz klientów, kontraktów i zamówień bez kwot; bez zapisu.
   | "automation"
-  // „Pracownik” (0453, „Ludzie w NEXUSIE”) — rola WYŁĄCZNA: osoba bez pracy
+  // „Pracownik” (0455, „Ludzie w NEXUSIE”) — rola WYŁĄCZNA: osoba bez pracy
   // w rekrutacji widzi swój czas, ludzi i pomoc; przyjmuje nadania (np. Sprzęt).
   | "employee"
 
@@ -255,7 +255,7 @@ export function postLoginDestination(
   // Praktykant ma jeden ekran — `?next=` do innej trasy i tak odbiłby się
   // w middleware z powrotem na `/trainee`.
   if (isTraineeOnly(user)) return "/trainee"
-  // „Pracownik” (0453) nie ma pulpitu ani sekcji produktu — jego dom to
+  // „Pracownik” (0455) nie ma pulpitu ani sekcji produktu — jego dom to
   // „Mój czas”. Jawny `?next=` do innego ekranu „Ludzi” zostaje.
   if (isEmployeeOnly(user)) {
     return fallback === "/" || fallback.startsWith("/dashboard") ? "/my-time" : fallback

@@ -1,7 +1,7 @@
 """„Ludzie w NEXUSIE” — Mój miesiąc.
 
-Revision ID: 0456_hr_time
-Revises: 0455_hr_leave
+Revision ID: 0458_hr_time
+Revises: 0457_hr_leave
 
 Zakres: obecność (tylko wyjątki), timesheety i wpisy, szablony opisów. SQL ma jedno źródło (``app/services/hr_time_schema.py``) — ten sam
 moduł czyta ``entrypoint.sh`` przez ``hr_schema_bundle``.
@@ -11,8 +11,8 @@ from alembic import op
 
 from app.services import hr_time_schema as schema
 
-revision = "0456_hr_time"
-down_revision = "0455_hr_leave"
+revision = "0458_hr_time"
+down_revision = "0457_hr_leave"
 branch_labels = None
 depends_on = None
 

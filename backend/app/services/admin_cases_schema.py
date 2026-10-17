@@ -1,6 +1,6 @@
-"""„Ludzie w NEXUSIE” — Sprawy administracja@: SQL migracji ``0460_admin_cases`` i lustra entrypointu.
+"""„Ludzie w NEXUSIE” — Sprawy administracja@: SQL migracji ``0462_admin_cases`` i lustra entrypointu.
 
-JEDNO źródło instrukcji dla ``alembic/versions/0460_admin_cases.py`` i ``entrypoint.sh``
+JEDNO źródło instrukcji dla ``alembic/versions/0462_admin_cases.py`` i ``entrypoint.sh``
 (przez ``app/services/hr_schema_bundle.py``). Zakres: sprawy, wiadomości, komentarze, stan czytnika skrzynki.
 
 Kontrakt modułu (czyta go agregator i test łańcucha):

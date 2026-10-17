@@ -198,9 +198,9 @@ reszty (`tasks/notification_email_outbox.py`, 17.10.2026).
 - Każdy moduł ma `app/services/<moduł>_schema.py` (`TABLE_DDL, COLUMN_DDL,
   INDEX_DDL, CONSTRAINT_DDL, DATA_DDL, TABLES, DOWNGRADE_DDL, ALL_DDL`), który czyta
   jego migracja i — przez `app/services/hr_schema_bundle.py` — `entrypoint.sh`.
-  Łańcuch: `0452_hr_foundation → 0453_hr_access → 0454_hr_notifications →
-  0455_hr_leave → 0456_hr_time → 0457_hr_payroll → 0458_hr_lifecycle →
-  0459_contract_care → 0460_admin_cases → 0461_equipment → 0462_equipment_extras`.
+  Łańcuch: `0454_hr_foundation → 0455_hr_access → 0456_hr_notifications →
+  0457_hr_leave → 0458_hr_time → 0459_hr_payroll → 0460_hr_lifecycle →
+  0461_contract_care → 0462_admin_cases → 0463_equipment → 0464_equipment_extras`.
   Nowy moduł = nowy plik schematu + wpis w `MODULES` agregatora + wiersz w
   `tests/test_hr_module_chain.py`. Testy szukają migracji po sufiksie, nie po
   numerze (po synchronizacji z mainem numery się przesuwają — `rechain_migration.py`).
@@ -214,7 +214,7 @@ reszty (`tasks/notification_email_outbox.py`, 17.10.2026).
   `student_contribution_exempt` / `contribution_exempt_until`
   (`ck_employee_profiles_exempt_until`) i `leave_seniority_years` /
   `zus_certificate_received_on` (`ck_employee_profiles_seniority` 0–60) —
-  dopisane w miejscu do `hr_foundation_schema.py` (0452 nie jest wdrożona).
+  dopisane w miejscu do `hr_foundation_schema.py` (0454 nie jest wdrożona).
 - Minimalna stawka na zleceniu (D7): `app_settings['hr_minimum_hourly_rates']`
   (`{"2025": "30.50", "2026": "31.40"}`, brak wpisu = te wartości), edycja
   w Ustawienia → Płace (`GET/PUT /api/hr/payroll/settings/minimum-rates`,

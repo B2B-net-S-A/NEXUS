@@ -39,7 +39,7 @@ export function TopbarV2({
   onOpenCommandPalette,
 }: Props) {
   const [isMac, setIsMac] = useState(false);
-  // „Pracownik” (0453) i inne konta bez sekcji pracy nie przeszukują kandydatów,
+  // „Pracownik” (0455) i inne konta bez sekcji pracy nie przeszukują kandydatów,
   // rekrutacji ani klientów — paleta służy im tylko do przejścia na ekran.
   // Przed odczytem konta (`user === null` do `hydrate()`) zostaje podpowiedź
   // większości, inaczej pole na chwilę mówi „Przejdź do ekranu…” każdemu.

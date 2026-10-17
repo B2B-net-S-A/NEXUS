@@ -994,7 +994,7 @@ async def test_summary_counts_free_items(app_client, modules_on, people) -> None
     )
 
 
-# ── Czwarty posiadacz: uczestnik Akademii (0462) ──────────────────────────────
+# ── Czwarty posiadacz: uczestnik Akademii (0464) ──────────────────────────────
 
 
 async def make_academy_participant(

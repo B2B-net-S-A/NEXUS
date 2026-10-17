@@ -699,7 +699,7 @@ export function middleware(request: NextRequest) {
   ) {
     return NextResponse.redirect(new URL("/trainee", request.url));
   }
-  // „Pracownik” (0453) nie ma pulpitu — strona startowa to „Mój czas”.
+  // „Pracownik” (0455) nie ma pulpitu — strona startowa to „Mój czas”.
   // Pozostałe trasy z sekcjami kończą się jak dotąd na /403.
   if (
     userRoles.size === 1 &&

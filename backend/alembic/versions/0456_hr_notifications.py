@@ -1,7 +1,7 @@
 """„Ludzie w NEXUSIE” — typy powiadomień modułów kadrowych.
 
-Revision ID: 0454_hr_notifications
-Revises: 0453_hr_access
+Revision ID: 0456_hr_notifications
+Revises: 0455_hr_access
 
 Urlopy, timesheety, premie, wejście/odejście, sprawy administracja@, sprzęt
 (typy osobiste) i opieka nad konsultantem (sekcja Delivery). Lista wartości ma
@@ -13,8 +13,8 @@ from alembic import op
 
 from app.services import hr_notification_schema as schema
 
-revision = "0454_hr_notifications"
-down_revision = "0453_hr_access"
+revision = "0456_hr_notifications"
+down_revision = "0455_hr_access"
 branch_labels = None
 depends_on = None
 
@@ -26,7 +26,7 @@ BEGIN
         SELECT 1 FROM notifications
         WHERE notification_type::text IN ({", ".join(f"'{t}'" for t in schema.NOTIFICATION_TYPES)})
     ) THEN
-        RAISE EXCEPTION 'Downgrade 0454 odmawia: notifications ma wpisy typów HR, których kod sprzed tej rewizji nie odczyta.';
+        RAISE EXCEPTION 'Downgrade 0456 odmawia: notifications ma wpisy typów HR, których kod sprzed tej rewizji nie odczyta.';
     END IF;
 END $$"""
 

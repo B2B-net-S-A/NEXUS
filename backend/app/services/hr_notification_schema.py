@@ -1,7 +1,7 @@
-"""„Ludzie w NEXUSIE” — typy powiadomień modułów kadrowych (migracja 0454).
+"""„Ludzie w NEXUSIE” — typy powiadomień modułów kadrowych (migracja 0456).
 
 Jedno źródło wartości ``notificationtype`` dla migracji
-``0454_hr_notifications`` i testu lustra ``entrypoint.sh`` (tam stoją
+``0456_hr_notifications`` i testu lustra ``entrypoint.sh`` (tam stoją
 literalnie w ``_ENUM_STATEMENTS``, bo ta lista powstaje przed importami).
 
 Typy osobiste (``PERSONAL_TYPES``) trafiają do odbiorcy wybranego przez regułę

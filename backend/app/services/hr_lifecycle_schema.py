@@ -1,6 +1,6 @@
-"""„Ludzie w NEXUSIE” — Wejście i odejście: SQL migracji ``0458_hr_lifecycle`` i lustra entrypointu.
+"""„Ludzie w NEXUSIE” — Wejście i odejście: SQL migracji ``0460_hr_lifecycle`` i lustra entrypointu.
 
-JEDNO źródło instrukcji dla ``alembic/versions/0458_hr_lifecycle.py`` i ``entrypoint.sh``
+JEDNO źródło instrukcji dla ``alembic/versions/0460_hr_lifecycle.py`` i ``entrypoint.sh``
 (przez ``app/services/hr_schema_bundle.py``). Zakres: szablony i sprawy cyklu życia, zadania, przekazania pracy.
 
 Kontrakt modułu (czyta go agregator i test łańcucha):
@@ -276,7 +276,7 @@ INDEX_DDL: tuple[str, ...] = (
     f"ON lifecycle_tasks (assignee_user_id, due_date) WHERE {OPEN_TASK_WHERE}",
 )
 #: Piąty rodzaj pracy (``reports``) w CHECK-u tabeli założonej wcześniejszą
-#: wersją 0458 — blok podmienia CHECK tylko przy starej definicji (bez
+#: wersją 0460 — blok podmienia CHECK tylko przy starej definicji (bez
 #: ``reports``); entrypoint wykonuje go przy każdym starcie.
 CONSTRAINT_DDL: tuple[str, ...] = (
     f"""DO $$ BEGIN

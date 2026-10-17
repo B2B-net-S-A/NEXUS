@@ -1,6 +1,6 @@
-"""„Ludzie w NEXUSIE” — Płace i premie: SQL migracji ``0457_hr_payroll`` i lustra entrypointu.
+"""„Ludzie w NEXUSIE” — Płace i premie: SQL migracji ``0459_hr_payroll`` i lustra entrypointu.
 
-JEDNO źródło instrukcji dla ``alembic/versions/0457_hr_payroll.py`` i ``entrypoint.sh``
+JEDNO źródło instrukcji dla ``alembic/versions/0459_hr_payroll.py`` i ``entrypoint.sh``
 (przez ``app/services/hr_schema_bundle.py``). Zakres: historia stawek, premie, okresy płacowe i zamrożone linie.
 
 Kontrakt modułu (czyta go agregator i test łańcucha):

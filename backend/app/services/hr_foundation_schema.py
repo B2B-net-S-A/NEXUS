@@ -1,6 +1,6 @@
 """„Ludzie w NEXUSIE” — fundament modułu kadrowego: SQL migracji i lustra.
 
-JEDNO źródło instrukcji dla ``alembic/versions/0452_hr_foundation.py``
+JEDNO źródło instrukcji dla ``alembic/versions/0454_hr_foundation.py``
 i ``entrypoint.sh`` (przez ``hr_schema_bundle``; alembic na produkcji bywa
 osierocony, więc entrypoint jest wdrożeniem schematu).
 
@@ -161,7 +161,7 @@ TABLE_DDL: tuple[str, ...] = (
     CONSTRAINT ck_employee_profiles_exempt_until CHECK ({CK_EXEMPT_UNTIL}),
     CONSTRAINT ck_employee_profiles_seniority CHECK ({CK_LEAVE_SENIORITY})
 )""",
-    # Kolumny dopisane po pierwszej wersji 0452 (etap 2, 17.10.2026) — w bazie
+    # Kolumny dopisane po pierwszej wersji 0454 (etap 2, 17.10.2026) — w bazie
     # z wcześniejszą wersją tabeli; świeża baza ma je już z CREATE TABLE.
     # ``m365_manager_upn`` — przełożony z katalogu Microsoft 365 (tylko
     # podpowiedź rozjazdu w „Ludzie → Struktura”, D7; kartoteki nie zmienia),

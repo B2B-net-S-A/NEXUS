@@ -1,7 +1,7 @@
 """„Ludzie w NEXUSIE”: rola „Pracownik” i uprawnienia Kadry, Płace, Sprzęt, Sprawy.
 
-Revision ID: 0453_hr_access
-Revises: 0452_hr_foundation
+Revision ID: 0455_hr_access
+Revises: 0454_hr_foundation
 
 * rola ``employee`` (wyłączna, bez sekcji produktu; przyjmuje nadania),
 * cztery uprawnienia z grupy „Ludzie” na końcu katalogu — CHECK akcji
@@ -18,8 +18,8 @@ from alembic import op
 from app.services import hr_access_schema as schema
 from app.services import permission_schema
 
-revision = "0453_hr_access"
-down_revision = "0452_hr_foundation"
+revision = "0455_hr_access"
+down_revision = "0454_hr_foundation"
 branch_labels = None
 depends_on = None
 
@@ -62,7 +62,7 @@ def downgrade() -> None:
             SELECT 1 FROM users
             WHERE role::text = 'employee' OR roles ? 'employee'
         ) THEN
-            RAISE EXCEPTION 'Konta z rolą employee istnieją — zmień im rolę przed cofnięciem 0453';
+            RAISE EXCEPTION 'Konta z rolą employee istnieją — zmień im rolę przed cofnięciem 0455';
         END IF;
     END $$""")
     new_actions = ", ".join(f"'{action}'" for action in schema.NEW_ACTIONS)

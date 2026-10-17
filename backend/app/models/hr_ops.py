@@ -1,4 +1,4 @@
-"""Ślad HR, rezerwacje zadań okresowych i import z Compassa (migracja 0452).
+"""Ślad HR, rezerwacje zadań okresowych i import z Compassa (migracja 0454).
 
 * ``HrAuditEvent`` — zmiany w kartotece, urlopach i płacach z poziomem
   wrażliwości; odczyt filtruje wiersze po uprawnieniu czytającego
