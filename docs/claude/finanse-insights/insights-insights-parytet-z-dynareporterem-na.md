@@ -391,10 +391,10 @@ biznesowe (`competition_history.DR_HISTORY_START`, `RESULTS_CUTOVER`), pilnuje
   (osoby), Firma (etapy, placementy, seria 12 miesięcy), Ścieżka rozwoju,
   Hall of Fame, kampanie.
 - **Czego DynaReporter nie zna, więc zostaje z ruchów Tablicy:** rozbicia na
-  klienta i rekrutację (Analiza placementów → klienci ma osobny wycinek
-  „DynaReporter — bez klienta”; w Roku do roku „Liczba placementów” liczy
-  wpisy, a unikalni klienci, udział top klienta i rozbicie na klientów — pary
-  Tablicy z własnym mianownikiem `client_placements`; kafle metryk pomijają
+  klienta i rekrutację (Analiza placementów i Rok do roku: „Suma / Liczba
+  placementów” liczy wpisy, a klienci — donut, unikalni klienci, udział top
+  klienta — pary Tablicy z własną sumą `client_placements`; UI pisze, skąd
+  różnica; kafle metryk pomijają
   wpisy przy podziale na klienta i kategorię, także w poprzednim okresie —
   `board_only`), lejek po etapach Tablicy, czas do zatrudnienia, hit ratio,
   portfele DL i Liga DL, źródła kandydatów.
