@@ -18,6 +18,8 @@
  * i „Przejrzyj po kolei (2)” w nagłówku kolumny.
  * `?questions=none` — rekrutacja bez pytań screeningowych (13.10.2026): dwie
  * karty w „Screeningu”, bez oceny („Dlaczego ten kandydat”) i z oceną.
+ * `?screening=many` — 20 osób w „Screeningu” (17.10.2026): kolumna dużo dłuższa
+ * od sąsiednich, a pole upuszczenia „Zweryfikowanego” ma sięgać do jej dołu.
  *
  * Droga rekrutera do DL (14.10.2026): w „Zweryfikowanym” stan CV firmowego —
  * „CV w przygotowaniu…”, „CV gotowe · QC: 3 do poprawy”, „CV gotowe · QC bez uwag”
@@ -102,7 +104,12 @@ function col(
   } as unknown as KanbanColumn;
 }
 
-function columns(viewerId: number, noQuestions = false, dlQueue = false): KanbanColumn[] {
+function columns(
+  viewerId: number,
+  noQuestions = false,
+  dlQueue = false,
+  manyInScreening = false,
+): KanbanColumn[] {
   nextId = 1;
   return [
     col("posting", "Ogłoszenia", "internal", 10, [
@@ -160,7 +167,11 @@ function columns(viewerId: number, noQuestions = false, dlQueue = false): Kanban
               expected_rate_currency: "PLN",
             }),
           ]
-        : [],
+        : manyInScreening
+          ? Array.from({ length: 20 }, (_, i) =>
+              card("Osoba", `Próbna ${i + 1}`, { days_in_stage: i % 4, screening_done: false }),
+            )
+          : [],
     ),
     col("verified", "Zweryfikowany", "internal", 13, [
       card("Anna", "Kowalczyk", {
@@ -554,7 +565,11 @@ function PipelineV4Harness() {
     setReady(true);
   }, [asDl, viewerId]);
   const noQuestions = params.get("questions") === "none";
-  const cols = useMemo(() => columns(viewerId, noQuestions, asDl), [viewerId, noQuestions, asDl]);
+  const manyInScreening = params.get("screening") === "many";
+  const cols = useMemo(
+    () => columns(viewerId, noQuestions, asDl, manyInScreening),
+    [viewerId, noQuestions, asDl, manyInScreening],
+  );
   // Pierścienie dopasowania i „brak: …” (16.10.2026) — fikcyjne liczby, bez zapytań.
   const scoreMap = useMemo(
     () => new Map(cols.flatMap((c) => c.items).map((it, i) => [it.candidate_id, 58 + ((i * 7) % 35)])),
