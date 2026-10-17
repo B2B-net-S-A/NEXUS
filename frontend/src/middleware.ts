@@ -515,6 +515,21 @@ const PUBLIC_PATHS = [
   "/preview/api-keys",
   // Praktykanci (0374): `/preview/trainee` pokrywa też `/preview/trainees`.
   "/preview/trainee",
+  // „Ludzie w NEXUSIE” (17.10.2026): harnessy 14 makiet — fikcja, zero zapytań
+  // (strażnik `app/preview/__tests__/hr-harnesses.test.ts`).
+  "/preview/hr-dashboard",
+  "/preview/hr-my-time",
+  "/preview/hr-calendar",
+  "/preview/hr-approvals",
+  "/preview/hr-person",
+  "/preview/hr-payroll",
+  "/preview/hr-offboarding",
+  "/preview/hr-onboarding",
+  "/preview/hr-care",
+  "/preview/hr-client-tech",
+  "/preview/hr-cases",
+  "/preview/hr-equipment",
+  "/preview/hr-equipment-issue",
   // Strona kariery (kandydaci z LinkedIna) — publiczna z definicji. Na własnym
   // hoście (`kariera.dynaminds.pl`) obsługuje ją `careerHostResponse` niżej;
   // tu jest wejście pod `/kariera/*` na hoście aplikacji (dev, podgląd, grafiki
