@@ -31,7 +31,11 @@ from app.models.competition_period_closure import (
 from app.models.competition_winner import CompetitionType, CompetitionWinner
 from app.models.hr_payroll import HrBonus
 from app.services.hr.bonus_rules import BonusRules, load_rules
-from app.services.hr.payroll_periods import add_months, first_open_month_from, month_end
+from app.services.hr.payroll_periods import (
+    add_months,
+    first_open_month_locked,
+    month_end,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -113,7 +117,9 @@ async def sync_league(
                 select(HrBonus.source_key).where(HrBonus.source_key.in_(keys))
             )
         )
-        target = await first_open_month_from(db, *add_months(end.year, end.month, 1))
+        # Miesiąc pod blokadą współdzieloną — trwające zamknięcie nie dostanie
+        # propozycji po sprawdzeniu „wszystkie mają decyzję”.
+        target = await first_open_month_locked(db, *add_months(end.year, end.month, 1))
         for winner, key in zip(winners, keys):
             if key in present:
                 counts["existing"] += 1

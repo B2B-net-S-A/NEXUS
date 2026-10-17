@@ -9,6 +9,8 @@ Dla kontraktu z datą startu (status aktywny, kończący się albo zakończony):
 
 * termin premii = start + 21 polskich dni roboczych (``bonus_rules``),
 * okres premii = miesiąc terminu (zamknięty miesiąc → pierwszy otwarty),
+  wybierany pod blokadą współdzieloną okresu — miesiąc, który właśnie się
+  zamyka, automat omija, zamiast dorzucić do niego propozycję,
 * marża/h = stawka klienta − stawka kosztowa z dnia startu, w zł/h:
   stawka godzinowa bez zmian, dzienna (MD) ÷ 8, miesięczna ÷ godziny
   rozliczeniowe kontraktu; waluta obca po kursie NBP z dnia startu (brak
@@ -63,7 +65,12 @@ from app.services.hr.bonus_rules import (
     recruiter_tier,
 )
 from app.services.hr.payroll_bonuses import AUTO_CANCEL_REASONS
-from app.services.hr.payroll_periods import closed_months, first_open_month_from
+from app.services.hr.payroll_periods import (
+    YearMonth,
+    closed_months,
+    first_open_month_locked,
+    lock_period_shared,
+)
 from app.services.order_rate_snapshots import CONTRACT_RATE_SCALE, convert_order_rate
 
 logger = logging.getLogger(__name__)
@@ -207,6 +214,39 @@ def _edited(bonus: HrBonus) -> bool:
     return bool((bonus.rule_snapshot or {}).get("edited_amount"))
 
 
+async def _lock_periods(
+    db: AsyncSession, contract: Contract, rules: BonusRules, today: date
+) -> Optional[YearMonth]:
+    """Okresy premii kontraktu pod ``FOR SHARE``, ZANIM ruszymy premie.
+
+    Ta sama kolejność co zamknięcie miesiąca i akceptacje: okres, potem
+    wiersze. Blokujemy miesiące istniejących propozycji (przesunięcie albo
+    przywrócenie) i wybieramy miesiąc docelowy nowych; zwraca go, gdy kontrakt
+    w ogóle dostaje propozycje.
+    """
+
+    held = sorted(
+        {
+            (int(year), int(month))
+            for year, month in (
+                await db.execute(
+                    select(HrBonus.period_year, HrBonus.period_month).where(
+                        HrBonus.source == SOURCE, HrBonus.contract_id == contract.id
+                    )
+                )
+            ).all()
+        }
+    )
+    for year, month in held:
+        await lock_period_shared(db, year, month)
+    if contract.start_date is None or _status(contract) not in STARTED_STATUSES:
+        return None
+    if not held and contract.start_date < _automation_floor(rules, today):
+        return None
+    eligible_on = eligible_date(contract.start_date, rules)
+    return await first_open_month_locked(db, eligible_on.year, eligible_on.month)
+
+
 async def reconcile_contract(
     db: AsyncSession,
     contract_id: int,
@@ -224,6 +264,7 @@ async def reconcile_contract(
     )
     if contract is None:
         return {**counts, "skipped": "not_found"}
+    locked_target = await _lock_periods(db, contract, rules, today)
     existing = {
         bonus.source_key: bonus
         for bonus in await db.scalars(
@@ -270,7 +311,7 @@ async def reconcile_contract(
             targets["recruiter"] = (recruiter_id, rec_amount, "recruiter")
 
     period = (eligible_on.year, eligible_on.month)
-    target_period = await first_open_month_from(db, *period)
+    target_period = locked_target or await first_open_month_locked(db, *period)
     closed = await closed_months(db)
     candidate_name, client_name = await _names(db, contract)
     common: dict[str, Any] = {

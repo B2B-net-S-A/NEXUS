@@ -40,6 +40,7 @@ from app.services.hr import (
     leave_service,
     payroll_bonuses,
     payroll_close,
+    payroll_periods,
     payroll_report,
     payroll_time_bridge,
     placement_bonuses,
@@ -636,16 +637,12 @@ async def test_undo_end_restores_bonus_whose_month_was_closed(
     ended = await _reconcile(world["contract"])
     assert ended["cancelled"] == 2
 
-    # Płace zamknęły miesiąc premii, zanim ktoś cofnął zakończenie.
+    # Płace zamknęły miesiąc premii, zanim ktoś cofnął zakończenie. Wiersz
+    # okresu mógł już założyć automat (wybiera miesiąc pod blokadą okresu).
     async with AsyncSessionLocal() as db:
-        db.add(
-            PayrollPeriod(
-                year=period[0],
-                month=period[1],
-                status="closed",
-                closed_at=datetime.now(timezone.utc),
-            )
-        )
+        closed = await payroll_periods.lock_period(db, *period)
+        closed.status = "closed"
+        closed.closed_at = datetime.now(timezone.utc)
         await db.commit()
 
     await _update_contract(

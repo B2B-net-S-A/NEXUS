@@ -19,7 +19,9 @@ Warszawy, ręcznie — admin):
 
 Rozjazdy liczymy przy odczycie (``discrepancies``). Rejestru sami nie
 zmieniamy (propozycja recepcji: „Do wyjaśnienia” z podpowiedzią, bez
-automatycznej zmiany); urządzenie z ``resolution`` nie jest rozjazdem.
+automatycznej zmiany); urządzenie z ``resolution`` nie jest rozjazdem —
+leży w ``resolved`` („Wyjaśnione i pominięte”), skąd recepcja może cofnąć
+decyzję (``unresolve``) i urządzenie wraca na listę.
 """
 
 from __future__ import annotations
@@ -640,6 +642,7 @@ async def discrepancies(db: AsyncSession) -> dict[str, Any]:
     counts: dict[str, int] = {kind: 0 for kind in KINDS}
     counts.update(zgodne=0, wyjasnione=0)
     rows: list[dict[str, Any]] = []
+    resolved: list[dict[str, Any]] = []
 
     def add(kind: str, device: Any, user: Any, item_id: Optional[int]) -> None:
         counts[kind] += 1
@@ -657,6 +660,15 @@ async def discrepancies(db: AsyncSession) -> dict[str, Any]:
     for device, user in device_rows:
         if device.resolution:
             counts["wyjasnione"] += 1
+            entry = items.get(device.item_id) if device.item_id else None
+            resolved.append(
+                {
+                    "key": f"device:{device.id}",
+                    "device": _device_payload(device, user),
+                    "item": _item_payload(entry[0], entry[1]) if entry else None,
+                    "holder": entry[2].payload() if entry and entry[2] else None,
+                }
+            )
         elif device.missing_since is not None:
             add("zniknal_z_intune", device, user, device.item_id)
         elif device.item_id is None or device.item_id not in items:
@@ -686,8 +698,12 @@ async def discrepancies(db: AsyncSession) -> dict[str, Any]:
             row["key"],
         )
     )
+    resolved.sort(
+        key=lambda row: (row["device"]["resolved_at"] or "", row["key"]), reverse=True
+    )
     return {
         "rows": rows,
+        "resolved": resolved,
         "counts": counts,
         "checked": checked,
         "devices": sum(1 for device, _ in device_rows if device.missing_since is None),
@@ -759,6 +775,29 @@ async def resolve(
     return await _payload(db, device)
 
 
+async def unresolve(db: AsyncSession, device_id: int, user: User) -> dict[str, Any]:
+    """„Cofnij decyzję” — urządzenie wraca na listę rozjazdów (o ile nim jest)."""
+
+    device = await _device(db, device_id)
+    if device.resolution is None:
+        raise EquipmentConflict("To urządzenie nie ma decyzji do cofnięcia.")
+    previous = device.resolution
+    device.resolution = None
+    device.resolution_note = None
+    device.resolved_by = None
+    device.resolved_at = None
+    audit.record(
+        db,
+        actor_user_id=user.id,
+        subject_user_id=device.user_id,
+        entity_type="equipment_intune_device",
+        entity_id=device.id,
+        action="intune_resolution_undone",
+        details={"previous": previous},
+    )
+    return await _payload(db, device)
+
+
 async def link_item(
     db: AsyncSession, device_id: int, item_id: int, user: User
 ) -> dict[str, Any]:
@@ -804,4 +843,5 @@ __all__ = [
     "resolve",
     "run_once",
     "sync_status",
+    "unresolve",
 ]

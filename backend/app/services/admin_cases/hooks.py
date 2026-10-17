@@ -15,8 +15,9 @@ przełączenia sprawy prowadzi Compass, a ciemna tablica zbierałaby duplikaty.
 
 Gdy powód sprawy znika, automat ją zamyka (``close_automatic_case``, też po
 ``source_key``, z notatką obsługi): „Cofnij odejście”
-(``close_case_for_cancelled_offboarding``) i unieważniony kontrakt
-(``close_case_for_voided_contract``). Sprawa już zamknięta albo zrobiona
+(``close_case_for_cancelled_offboarding``), unieważniony kontrakt
+(``close_case_for_voided_contract``) i kontrakt usunięty trwale
+(``close_case_for_deleted_contract``). Sprawa już zamknięta albo zrobiona
 zostaje, jak jest.
 """
 
@@ -187,4 +188,17 @@ async def close_case_for_voided_contract(
         db,
         contract_source_key(contract_id),
         note="Kontrakt unieważniony — sprawa zamknięta automatycznie.",
+    )
+
+
+async def close_case_for_deleted_contract(
+    db: AsyncSession, contract_id: int
+) -> Optional[AdminCase]:
+    """Kontrakt trwale usunięty — FK zeruje ``contract_id``, a sprawa zostałaby
+    otwarta bez kontraktu. Zamykamy ją przed usunięciem."""
+
+    return await close_automatic_case(
+        db,
+        contract_source_key(contract_id),
+        note="Kontrakt usunięty z NEXUSA — sprawa zamknięta automatycznie.",
     )

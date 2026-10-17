@@ -24,7 +24,7 @@ from datetime import date
 from decimal import Decimal, InvalidOperation
 from typing import Any, Optional
 
-from sqlalchemy import delete, select, update
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -507,6 +507,9 @@ async def delete_entry(
         )
     work_date = entry.work_date
     await db.delete(entry)
+    # Usunięty wpis nie zostawia śladu w wierszach — nagłówek niesie zmianę
+    # (ponowny import z Compassa nie przywróci wpisu skasowanego w NEXUSIE).
+    timesheet.updated_at = func.now()
     await db.flush()
     leaves = await leave_map(
         db,
@@ -627,6 +630,7 @@ async def remove_hours_on_full_leave_days(
                 TimesheetEntry.id.in_([row.id for row in rows])
             )
         )
+        timesheet.updated_at = func.now()  # jak ``delete_entry``
     return rows
 
 

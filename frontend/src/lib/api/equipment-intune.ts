@@ -76,10 +76,15 @@ export interface IntuneDiscrepancy {
   holder: IntuneHolderRef | null;
 }
 
+/** Urządzenie z decyzją recepcji („Wyjaśnione i pominięte”) — nie jest rozjazdem. */
+export type IntuneResolvedRow = Omit<IntuneDiscrepancy, "kind">;
+
 export type IntuneCounts = Record<IntuneDiscrepancyKind | "zgodne" | "wyjasnione", number>;
 
 export interface IntuneDiscrepancies {
   rows: IntuneDiscrepancy[];
+  /** Urządzenia z decyzją recepcji, najnowsze decyzje pierwsze. */
+  resolved: IntuneResolvedRow[];
   counts: IntuneCounts;
   /** Był choć jeden udany odczyt — dopiero wtedy liczymy „brak w Intune”. */
   checked: boolean;
@@ -139,6 +144,16 @@ export function useResolveIntuneDevice() {
           note: payload.note,
         })
       ).data,
+    onSuccess: invalidate,
+  });
+}
+
+/** „Cofnij decyzję” — urządzenie wraca do liczenia rozjazdów. */
+export function useUnresolveIntuneDevice() {
+  const invalidate = useInvalidateIntune();
+  return useMutation({
+    mutationFn: async (deviceId: number) =>
+      (await api.delete<IntuneDevice>(`${BASE}/devices/${deviceId}/resolution`)).data,
     onSuccess: invalidate,
   });
 }

@@ -8,7 +8,10 @@ Reguły (Compass ``internal-rates.ts`` + naprawy):
 * nowa stawka domyka poprzednią w tej samej transakcji (``effective_to`` =
   dzień przed nową) i sama kończy się dzień przed kolejną, jeśli taka jest,
 * ta sama data „od” = poprawka istniejącego kroku,
-* nic nie zmienia się w zamkniętym miesiącu płac (409),
+* nic nie zmienia się w zamkniętym miesiącu płac (409) — także w miesiącu,
+  który właśnie się zamyka: miesiące od daty stawki do „dziś” są sprawdzane pod
+  blokadą współdzieloną, ZANIM zablokujemy historię stawek (kolejność jak przy
+  akceptacjach: okres, potem reszta),
 * osoba dostaje dzwonek ``hr_rate_changed`` BEZ kwoty (Compass miał typ
   ``rate_changed``, którego nikt nie wysyłał); kwota zostaje w
   ``hr_audit_events`` z ``sensitivity='payroll'``.
@@ -24,12 +27,18 @@ from typing import Any, Optional
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.scheduling import business_today
+
 from app.models.hr_payroll import EmployeeRate
 from app.models.hr_profile import EmployeeProfile
 from app.models.notification import NotificationType
 from app.services.hr import audit
 from app.services.hr.payroll_errors import PayrollError, PayrollNotFound
-from app.services.hr.payroll_periods import add_months, assert_range_open
+from app.services.hr.payroll_periods import (
+    add_months,
+    assert_range_open,
+    lock_months_shared,
+)
 from app.services.hr_payroll_schema import CURRENCIES
 from app.services.notification_triggers import emit
 
@@ -153,6 +162,7 @@ async def set_rate(
     if note and len(note) > 500:
         raise PayrollError("Powód zmiany: najwyżej 500 znaków.")
 
+    await lock_months_shared(db, effective_from, today)
     rows = await _locked_history(db, user_id)
     same = next((r for r in rows if r.effective_from == effective_from), None)
     earlier = [r for r in rows if r.effective_from < effective_from]
@@ -213,11 +223,19 @@ async def set_rate(
 async def delete_rate(db: AsyncSession, *, rate_id: int, actor_id: int) -> int:
     """Usuwa pomyłkowy krok; poprzedni krok przejmuje jego okres. Zwraca ``user_id``."""
 
-    user_id = await db.scalar(
-        select(EmployeeRate.user_id).where(EmployeeRate.id == rate_id)
-    )
-    if user_id is None:
+    found = (
+        await db.execute(
+            select(EmployeeRate.user_id, EmployeeRate.effective_from).where(
+                EmployeeRate.id == rate_id
+            )
+        )
+    ).first()
+    if found is None:
         raise PayrollNotFound("Nie ma takiej stawki.")
+    user_id = found.user_id
+    # Data „od” kroku się nie zmienia (ta sama data = poprawka w miejscu), więc
+    # blokada od niej do „dziś” obejmuje każdy miesiąc, którego dotyczy usunięcie.
+    await lock_months_shared(db, found.effective_from, business_today())
     rows = await _locked_history(db, user_id)
     rate = next((r for r in rows if r.id == rate_id), None)
     if rate is None:

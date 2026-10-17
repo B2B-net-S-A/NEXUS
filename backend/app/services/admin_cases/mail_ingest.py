@@ -28,6 +28,12 @@ Reguły:
   statusem ``partial`` z liczbą pominiętych, log niesie tylko skrót. Bez tego
   zepsuta wiadomość i ponad ``MAX_MESSAGES_PER_RUN`` nowszych zatrzymałyby
   odbiór nowszych na zawsze (każdy przebieg czytałby te same 200),
+* **pełna paczka nie zatrzymuje odbioru**: odczyt idzie rosnąco od znacznika
+  minus nakładka i kończy się na ``MAX_MESSAGES_PER_RUN``. Gdy w oknie nakładki
+  leży cała paczka, znacznik nie rósłby nigdy. Po pełnej paczce następny
+  przebieg czyta od najnowszej przetworzonej wiadomości BEZ nakładki
+  (``stats['resume_from']``, włącznie — wiadomości z tą samą sekundą wracają
+  jako duplikaty), aż paczka przestanie być pełna; potem wraca nakładka,
 * załączniki tylko jako metadane (nazwa, typ, rozmiar) — bez treści plików.
 
 Klient Graph jest wstrzykiwany (``AdminMailbox``); testy podają fałszywą
@@ -77,6 +83,8 @@ MAX_MESSAGES_PER_RUN = 200
 MAX_MESSAGE_ATTEMPTS = 5
 #: Klucz w ``admin_mail_ingest_state.stats``: skrót id wiadomości → porażki.
 ATTEMPTS_KEY = "message_attempts"
+#: Klucz w ``stats``: po pełnej paczce następny odczyt startuje stąd (ISO, UTC).
+RESUME_KEY = "resume_from"
 
 _MESSAGE_SELECT = (
     "id,internetMessageId,conversationId,subject,from,sender,receivedDateTime,"
@@ -376,6 +384,11 @@ async def _state(db: AsyncSession, upn: str) -> AdminMailIngestState:
         # Inna skrzynka = inny znacznik; stary dotyczyłby cudzych maili.
         state.mailbox = upn
         state.last_received_at = None
+        state.stats = {
+            key: value
+            for key, value in (state.stats or {}).items()
+            if key != RESUME_KEY
+        }
     return state
 
 
@@ -390,10 +403,30 @@ def _stored_attempts(state: AdminMailIngestState) -> dict[str, int]:
     }
 
 
+def _stored_resume(state: AdminMailIngestState) -> Optional[datetime]:
+    raw = (state.stats or {}).get(RESUME_KEY)
+    return _parse_dt(raw) if isinstance(raw, str) else None
+
+
 def _since(state: AdminMailIngestState, now: datetime) -> datetime:
+    resume = _stored_resume(state)
+    if resume is not None:
+        # Poprzednia paczka była pełna — dalej, bez nakładki.
+        return resume
     if state.last_received_at is not None:
         return state.last_received_at - OVERLAP
     return now - INITIAL_LOOKBACK
+
+
+def _stats(
+    counts: Counter[str], attempts: dict[str, int], resume: Optional[datetime]
+) -> dict[str, Any]:
+    stats: dict[str, Any] = dict(counts)
+    if attempts:
+        stats[ATTEMPTS_KEY] = attempts
+    if resume is not None:
+        stats[RESUME_KEY] = resume.astimezone(timezone.utc).isoformat()
+    return stats
 
 
 async def read_status(db: AsyncSession) -> dict[str, Any]:
@@ -431,6 +464,7 @@ async def run_once(
     status = "ok"
     error: Optional[str] = None
     attempts: dict[str, int] = {}
+    resume: Optional[datetime] = None
     try:
         state = await _state(db, upn)
         state.last_run_started_at = started
@@ -441,12 +475,12 @@ async def run_once(
 
             async with GraphAdminMailbox(token_provider=acquire_hr_token) as real:
                 messages = await real.list_messages(upn, since)
-                attempts = await _ingest_all(
+                attempts, resume = await _ingest_all(
                     db, real, upn, messages, state, counts, attempts
                 )
         else:
             messages = await graph.list_messages(upn, since)
-            attempts = await _ingest_all(
+            attempts, resume = await _ingest_all(
                 db, graph, upn, messages, state, counts, attempts
             )
         if counts["failed"]:
@@ -468,10 +502,11 @@ async def run_once(
         if status == "error":
             state = await _state(db, upn)
             attempts = _stored_attempts(state)
+            resume = _stored_resume(state)
         state.last_run_finished_at = datetime.now(timezone.utc)
         state.last_status = status
         state.last_error = error
-        state.stats = {**counts, ATTEMPTS_KEY: attempts} if attempts else dict(counts)
+        state.stats = _stats(counts, attempts, resume)
         await _release_lease(
             db,
             status="done" if status != "error" else "failed",
@@ -494,8 +529,9 @@ async def _ingest_all(
     state: AdminMailIngestState,
     counts: Counter[str],
     attempts: dict[str, int],
-) -> dict[str, int]:
-    """Zapisuje wiadomości; zwraca liczniki porażek wiadomości z tego odczytu.
+) -> tuple[dict[str, int], Optional[datetime]]:
+    """Zapisuje wiadomości; zwraca liczniki porażek wiadomości z tego odczytu
+    i — po pełnej paczce — punkt startu następnego odczytu (bez nakładki).
 
     Licznik wiadomości, której odczyt już nie zwraca (znacznik poszedł dalej),
     wypada — mapa nie rośnie bez końca.
@@ -508,11 +544,15 @@ async def _ingest_all(
             or datetime.min.replace(tzinfo=timezone.utc)
         ),
     )
+    batch = ordered[:MAX_MESSAGES_PER_RUN]
     newest: Optional[datetime] = state.last_received_at
+    batch_newest: Optional[datetime] = None
     earliest_failed: Optional[datetime] = None
     still_failing: dict[str, int] = {}
-    for msg in ordered[:MAX_MESSAGES_PER_RUN]:
+    for msg in batch:
         received = _parse_dt(msg.get("receivedDateTime"))
+        if received is not None and (batch_newest is None or received > batch_newest):
+            batch_newest = received
         graph_id = _nul_free(msg.get("id"), 512)
         digest = mail_source_key(graph_id) if graph_id else None
         tried = attempts.get(digest, 0) if digest else 0
@@ -547,9 +587,16 @@ async def _ingest_all(
                 counts[outcome] += 1
         if received is not None and (newest is None or received > newest):
             newest = received
+    resume: Optional[datetime] = None
+    if len(messages) >= MAX_MESSAGES_PER_RUN:
+        # Pełna paczka: dalsze wiadomości mogą leżeć w oknie nakładki, którego
+        # znacznik już nie przesunie — następny odczyt startuje od tej paczki.
+        resume = batch_newest
     if earliest_failed is not None:
         # Następny przebieg zapyta o zepsutą wiadomość jeszcze raz.
         before_failed = earliest_failed - timedelta(seconds=1)
         newest = before_failed if newest is None else min(newest, before_failed)
+        if resume is not None:
+            resume = min(resume, before_failed)
     state.last_received_at = newest
-    return still_failing
+    return still_failing, resume

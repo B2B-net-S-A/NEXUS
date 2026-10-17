@@ -5,11 +5,13 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 const get = vi.fn();
 const post = vi.fn();
+const del = vi.fn();
 vi.mock("@/lib/api", () => ({
   __esModule: true,
   api: {
     get: (...a: unknown[]) => get(...a),
     post: (...a: unknown[]) => post(...a),
+    delete: (...a: unknown[]) => del(...a),
   },
 }));
 
@@ -108,15 +110,32 @@ const ROWS: IntuneDiscrepancy[] = [
   },
 ];
 
+const RESOLVED = [
+  {
+    key: "device:8",
+    device: device({
+      id: 8,
+      device_name: "LAPTOP-SKIPPED",
+      serial_number: "TESTSN0008",
+      resolution: "pominiete" as const,
+      resolution_note: "Sprzęt testowy działu IT",
+      resolved_at: "2026-10-15T09:00:00+00:00",
+    }),
+    item: null,
+    holder: null,
+  },
+];
+
 const REPORT: IntuneDiscrepancies = {
   rows: ROWS,
+  resolved: RESOLVED,
   counts: {
     zniknal_z_intune: 1,
     brak_w_ewidencji: 1,
     inny_posiadacz: 1,
     brak_w_intune: 1,
     zgodne: 120,
-    wyjasnione: 3,
+    wyjasnione: 1,
   },
   checked: true,
   devices: 152,
@@ -124,6 +143,7 @@ const REPORT: IntuneDiscrepancies = {
 
 const EMPTY: IntuneDiscrepancies = {
   rows: [],
+  resolved: [],
   counts: {
     zniknal_z_intune: 0,
     brak_w_ewidencji: 0,
@@ -212,6 +232,7 @@ beforeAll(() => {
 beforeEach(() => {
   get.mockReset();
   post.mockReset();
+  del.mockReset();
   showToast.mockReset();
   onOpenItem.mockReset();
 });
@@ -279,6 +300,52 @@ describe("IntuneTab", () => {
       }),
     );
     expect(showToast).toHaveBeenCalledWith("Urządzenie pominięte", "success");
+  });
+
+  it("lists resolved devices only in their own view and undoes a decision", async () => {
+    mockApi();
+    del.mockResolvedValue({ data: device({ id: 8 }) });
+    renderTab();
+    await screen.findByTestId("intune-row-device:1");
+    // Urządzenie z decyzją nie jest rozjazdem — nie ma go na liście „Wszystkie rozjazdy”.
+    expect(screen.queryByTestId("intune-resolved-device:8")).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("combobox", { name: "Rodzaj rozjazdu" }));
+    await userEvent.click(await screen.findByRole("option", { name: "Wyjaśnione i pominięte (1)" }));
+    const row = await screen.findByTestId("intune-resolved-device:8");
+    expect(screen.queryByTestId("intune-row-device:1")).not.toBeInTheDocument();
+    expect(within(row).getByText("Pominięte")).toBeInTheDocument();
+    expect(within(row).getByText("Sprzęt testowy działu IT")).toBeInTheDocument();
+    expect(within(row).queryByRole("button", { name: "Pomiń" })).not.toBeInTheDocument();
+
+    await userEvent.click(within(row).getByRole("button", { name: "Cofnij decyzję" }));
+    await waitFor(() =>
+      expect(del).toHaveBeenCalledWith("/api/equipment/intune/devices/8/resolution"),
+    );
+    expect(showToast).toHaveBeenCalledWith("Decyzja cofnięta", "success");
+  });
+
+  it("shows an empty resolved view calmly", async () => {
+    mockApi({ report: { ...REPORT, resolved: [], counts: { ...REPORT.counts, wyjasnione: 0 } } });
+    renderTab();
+    await userEvent.click(await screen.findByRole("combobox", { name: "Rodzaj rozjazdu" }));
+    await userEvent.click(await screen.findByRole("option", { name: "Wyjaśnione i pominięte (0)" }));
+    expect(await screen.findByText("Żadne urządzenie nie ma jeszcze decyzji recepcji.")).toBeInTheDocument();
+  });
+
+  it("tells why an undo was refused", async () => {
+    mockApi();
+    del.mockRejectedValue({
+      response: { status: 409, data: { detail: "To urządzenie nie ma decyzji do cofnięcia." } },
+    });
+    renderTab();
+    await userEvent.click(await screen.findByRole("combobox", { name: "Rodzaj rozjazdu" }));
+    await userEvent.click(await screen.findByRole("option", { name: "Wyjaśnione i pominięte (1)" }));
+    const row = await screen.findByTestId("intune-resolved-device:8");
+    await userEvent.click(within(row).getByRole("button", { name: "Cofnij decyzję" }));
+    await waitFor(() =>
+      expect(showToast).toHaveBeenCalledWith("To urządzenie nie ma decyzji do cofnięcia.", "error"),
+    );
   });
 
   it("shows the server reason when linking an item already taken", async () => {

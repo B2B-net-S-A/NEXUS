@@ -21,8 +21,11 @@ Tabele i reguły:
 
 Ponowny import nie nadpisuje NEXUSA: timesheet w zamkniętym miesiącu płac
 (``payroll_locked``) albo zmieniony w NEXUSIE po imporcie (akceptacja,
-zwrot, cofnięcie) i dzień obecności poprawiony w NEXUSIE dostają „bez zmian”
-(gdy paczka mówi to samo) albo „conflict” — nigdy „update”.
+zwrot, cofnięcie, poprawka albo usunięcie wpisu), dzień obecności, fragment
+opisu i domyślny opis roli poprawione w NEXUSIE dostają „bez zmian” (gdy
+paczka mówi to samo) albo „conflict” — nigdy „update”. „Zmieniony” = jego
+``updated_at`` (albo wpisu timesheetu) jest późniejszy niż zapis partii, która
+go ostatnio zapisała.
 """
 
 from __future__ import annotations
@@ -82,6 +85,12 @@ CHANGED_IN_NEXUS = "timesheet zmieniony w NEXUSIE po imporcie — bez nadpisania
 LOCKED_IN_PAYROLL = "timesheet w zamkniętym miesiącu płac — bez nadpisania"
 ATTENDANCE_CHANGED_IN_NEXUS = (
     "dzień obecności zmieniony w NEXUSIE po imporcie — bez nadpisania"
+)
+TEMPLATE_CHANGED_IN_NEXUS = (
+    "fragment opisu zmieniony w NEXUSIE po imporcie — bez nadpisania"
+)
+ROLE_DEFAULT_CHANGED_IN_NEXUS = (
+    "domyślny opis roli zmieniony w NEXUSIE po imporcie — bez nadpisania"
 )
 NO_DESCRIPTION = "(bez opisu)"
 OVERTIME_FALLBACK = "Nadgodziny zatwierdzone w Compassie"
@@ -298,7 +307,9 @@ async def _plan_timesheets(
             else:
                 result.rows.append(RowPlan(sid, "conflict", LOCKED_IN_PAYROLL, payload))
             continue
-        if await changed_in_nexus(db, mapping.get(sid), existing.updated_at):
+        # Poprawka wpisu w „Moim miesiącu” zmienia wpis, nie nagłówek timesheetu.
+        touched = max([existing.updated_at, *(e.updated_at for e in current)])
+        if await changed_in_nexus(db, mapping.get(sid), touched):
             if same:
                 result.rows.append(RowPlan(sid, "unchanged", reason, payload))
             else:
@@ -434,8 +445,14 @@ async def _plan_role_defaults(
             result.rows.append(RowPlan(sid, action, reason, payload))
             continue
         payload["default_id"] = existing.id
-        action = "update" if changed_fields(existing, values) else "unchanged"
-        result.rows.append(RowPlan(sid, action, reason, payload))
+        if not changed_fields(existing, values):
+            result.rows.append(RowPlan(sid, "unchanged", reason, payload))
+        elif await changed_in_nexus(db, known, existing.updated_at):
+            result.rows.append(
+                RowPlan(sid, "conflict", ROLE_DEFAULT_CHANGED_IN_NEXUS, payload)
+            )
+        else:
+            result.rows.append(RowPlan(sid, "update", reason, payload))
 
 
 async def _plan_templates(
@@ -465,8 +482,14 @@ async def _plan_templates(
         )
         if existing is not None:
             payload["template_id"] = existing.id
-            action = "update" if changed_fields(existing, values) else "unchanged"
-            result.rows.append(RowPlan(sid, action, "", payload))
+            if not changed_fields(existing, values):
+                result.rows.append(RowPlan(sid, "unchanged", "", payload))
+            elif await changed_in_nexus(db, known, existing.updated_at):
+                result.rows.append(
+                    RowPlan(sid, "conflict", TEMPLATE_CHANGED_IN_NEXUS, payload)
+                )
+            else:
+                result.rows.append(RowPlan(sid, "update", "", payload))
             continue
         same_name = await db.scalar(
             select(TimesheetTemplate).where(

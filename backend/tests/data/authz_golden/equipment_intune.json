@@ -22,6 +22,7 @@
   "automation"
  ],
  "routes": {
+  "DELETE /api/equipment/intune/devices/{device_id}/resolution": "BBBBBBBDBBBBBBBBBBBB",
   "GET /api/equipment/intune/discrepancies": "BBBBBBBDBBBBBBBBBBBB",
   "GET /api/equipment/intune/status": "BBBBBBBDBBBBBBBBBBBB",
   "POST /api/equipment/intune/devices/{device_id}/link": "BBBBBBBDBBBBBBBBBBBB",

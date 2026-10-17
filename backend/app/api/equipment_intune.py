@@ -98,6 +98,20 @@ async def resolve_device(
         raise _http(exc) from exc
 
 
+@router.delete("/devices/{device_id}/resolution")
+async def unresolve_device(
+    device_id: int,
+    current_user: User = Depends(_manager),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """„Cofnij decyzję” recepcji (wyjaśnione / pominięte); bez decyzji → 409."""
+
+    try:
+        return await intune.unresolve(db, device_id, current_user)
+    except EquipmentError as exc:
+        raise _http(exc) from exc
+
+
 @router.post("/devices/{device_id}/link")
 async def link_device(
     device_id: int,

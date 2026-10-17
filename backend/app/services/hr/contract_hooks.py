@@ -1,6 +1,6 @@
 """Kontrakt zmienia stan → moduły „Ludzi w NEXUSIE” dowiadują się o tym tutaj.
 
-Trzy zdarzenia:
+Cztery zdarzenia:
 
 * ``contract_started`` — aktywacja: propozycje premii z placementu (Płace),
   zadanie „przygotuj zestaw” (Sprzęt, klient z „sprzęt od nas”), sprawa
@@ -10,7 +10,9 @@ Trzy zdarzenia:
   szkicu) dodatkowo anulowane zadanie „Przygotuj zestaw” i zamknięta sprawa
   „Wejście konsultanta” — wejścia nie będzie,
 * ``contract_end_undone`` — cofnięcie zakończenia / ponowne otwarcie: premie
-  wracają.
+  wracają,
+* ``contract_deleted`` — trwałe usunięcie (``hard_delete_contract``): sprawa
+  „Wejście konsultanta” zamknięta, zanim FK wyzeruje jej kontrakt.
 
 Każdy moduł sam sprawdza swój przełącznik i jest idempotentny po kluczu
 (``source_key``), a krok biegnie w savepoincie: awaria modułu pobocznego jest
@@ -131,6 +133,12 @@ async def _cases_start(db: AsyncSession, contract: Contract) -> None:
     await open_case_for_new_contract(db, contract)
 
 
+async def _cases_deleted(db: AsyncSession, contract: Contract) -> None:
+    from app.services.admin_cases import hooks
+
+    await hooks.close_case_for_deleted_contract(db, contract.id)
+
+
 async def contract_started(db: AsyncSession, contract: Contract) -> dict[str, str]:
     return await _run(
         db,
@@ -159,6 +167,13 @@ async def contract_ended(db: AsyncSession, contract: Contract) -> dict[str, str]
 
 async def contract_end_undone(db: AsyncSession, contract: Contract) -> dict[str, str]:
     return await _run(db, contract, "end_undone", [("payroll", _payroll_end_undone)])
+
+
+async def contract_deleted(db: AsyncSession, contract: Contract) -> dict[str, str]:
+    """Przed trwałym usunięciem: FK zeruje ``admin_cases.contract_id``, więc
+    sprawa wejścia zostałaby otwarta bez kontraktu (zadania sprzętu idą kaskadą)."""
+
+    return await _run(db, contract, "deleted", [("cases", _cases_deleted)])
 
 
 _LIVE = (ContractStatus.active, ContractStatus.ending)

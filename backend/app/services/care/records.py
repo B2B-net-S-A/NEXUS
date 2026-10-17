@@ -28,6 +28,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.contract_care import (
     CareConversation,
+    CarePlanItem,
     ClientArea,
     RedeployQueueItem,
     TechCard,
@@ -113,6 +114,16 @@ async def add_conversation(
     )
     if payload.plan_item_id is not None and closed is None:
         raise HTTPException(_UNPROCESSABLE, "Ten punkt planu jest już zamknięty.")
+    # Rozmowa zamyka wszystkie zaległe punkty — ślad wymienia każdy z nich
+    # (sesja bez autoflush: najpierw zapis zamknięć).
+    await db.flush()
+    closed_ids = sorted(
+        await db.scalars(
+            select(CarePlanItem.id).where(
+                CarePlanItem.done_conversation_id == conversation.id
+            )
+        )
+    )
     for reason, flagged in (
         ("wants_change", payload.wants_change),
         ("attrition_risk", payload.attrition_risk),
@@ -139,6 +150,7 @@ async def add_conversation(
             "contract_id": contract.id,
             "channel": payload.channel,
             "plan_item_id": closed.id if closed else None,
+            "plan_item_ids": closed_ids,
             "signals": [
                 name
                 for name, on in (

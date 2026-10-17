@@ -5,10 +5,12 @@ ani premii z tym okresem (409) — linie są zamrożone, a timesheety mają
 ``payroll_locked``. Otwiera go ponownie tylko administrator, ze śladem.
 
 Zamknięcie trzyma wiersz okresu pod ``FOR UPDATE`` od początku do commita;
-zmiany wchodzące do płac (premia, akceptacja timesheetu) sprawdzają okres pod
-``FOR SHARE`` (``assert_open`` / ``lock_period_shared``). Zmiana albo kończy
-się przed zamknięciem (i trafia do zamrożonych linii), albo czeka na jego
-koniec i widzi „zamknięty” — nie ma okna, w którym mija się z raportem.
+zmiany wchodzące do płac (premia, akceptacja timesheetu, automat premii,
+stawka) sprawdzają okres pod ``FOR SHARE`` (``assert_open`` /
+``lock_period_shared`` / ``first_open_month_locked`` / ``lock_months_shared``)
+— najpierw okres, potem własne wiersze. Zmiana albo kończy się przed
+zamknięciem (i trafia do zamrożonych linii), albo czeka na jego koniec i widzi
+„zamknięty” — nie ma okna, w którym mija się z raportem.
 """
 
 from __future__ import annotations
@@ -134,6 +136,33 @@ async def lock_period_shared(db: AsyncSession, year: int, month: int) -> Payroll
     return period
 
 
+async def lock_months_shared(db: AsyncSession, start: date, today: date) -> None:
+    """Miesiące od ``start`` do miesiąca „dziś” pod ``FOR SHARE`` (zakłada brakujące).
+
+    Zamknąć da się tylko miesiąc, który już się skończył (``close_month``), więc
+    dalsze miesiące nie mogą być w trakcie zamykania — blokada do nich nie sięga.
+    Wstawienie przed blokadą jak w ``lock_period_shared``: zamknięcie, które
+    dopiero zakłada wiersz, jest niewidoczne, a ``ON CONFLICT`` czeka na jego koniec.
+    """
+
+    first = (start.year, start.month)
+    last = (today.year, today.month)
+    if first > last:
+        return
+    months = months_between(first, last)
+    await db.execute(
+        insert(PayrollPeriod)
+        .values([{"year": y, "month": m, "status": "open"} for y, m in months])
+        .on_conflict_do_nothing(index_elements=["year", "month"])
+    )
+    await db.execute(
+        select(PayrollPeriod.id)
+        .where(tuple_(PayrollPeriod.year, PayrollPeriod.month).in_(months))
+        .order_by(PayrollPeriod.year, PayrollPeriod.month)
+        .with_for_update(read=True)
+    )
+
+
 async def closed_months(
     db: AsyncSession, months: Optional[list[YearMonth]] = None
 ) -> set[YearMonth]:
@@ -190,12 +219,16 @@ async def assert_range_open(db: AsyncSession, start: date, end: Optional[date]) 
             )
 
 
-async def first_open_month_from(db: AsyncSession, year: int, month: int) -> YearMonth:
-    """Pierwszy niezamknięty miesiąc od podanego (premia z automatu nie trafia do zamkniętego)."""
+async def first_open_month_locked(db: AsyncSession, year: int, month: int) -> YearMonth:
+    """Pierwszy niezamknięty miesiąc od podanego; każdy sprawdzany pod ``FOR SHARE``.
 
-    closed = await closed_months(db)
+    Premia z automatu nie trafia do zamkniętego miesiąca ani do takiego, który
+    właśnie się zamyka: automat czeka na koniec zamknięcia i idzie do kolejnego. Blokady trzymają się do końca
+    transakcji — zamknięcie nie wyprzedzi zapisu propozycji.
+    """
+
     current = (year, month)
-    while current in closed:
+    while (await lock_period_shared(db, *current)).status == "closed":
         current = add_months(current[0], current[1], 1)
     return current
 
@@ -207,10 +240,11 @@ __all__ = [
     "assert_range_open",
     "closed_detail",
     "closed_months",
-    "first_open_month_from",
+    "first_open_month_locked",
     "get_period",
     "is_closed",
     "label",
+    "lock_months_shared",
     "lock_period",
     "lock_period_shared",
     "month_end",
