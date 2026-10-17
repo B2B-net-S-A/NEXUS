@@ -97,6 +97,7 @@ import {
 } from "@/lib/candidate-card-facts";
 import { useAuthStore } from "@/store/auth";
 import {
+  declaredFromText,
   rateFromText,
   rateSecondLine,
   toAmount,
@@ -2010,6 +2011,9 @@ export function CandidateProfileFactsBar({
       ? (rateFromText(candidate) ?? "").replace(/^od /, "")
       : null;
   const rateSecond = rateFrom && !rateFromContract ? rateSecondLine(candidate) : null;
+  // R4 (17.10.2026): przy żywej umowie niższa zadeklarowana stawka — w samym
+  // kaflu, nie tylko w opisie źródła, żeby nikt nie wziął umowy za minimum.
+  const rateDeclared = rateFromContract ? declaredFromText(candidate) : null;
   const contractClients =
     candidate.employment_marker?.clients
       .map((client) => client.client_name?.trim())
@@ -2140,6 +2144,14 @@ export function CandidateProfileFactsBar({
             }
           >
             {rateFrom ?? formatRate(rateQuery.data.data.amount)}
+            {rateDeclared ? (
+              <span
+                className="block text-[11px] font-normal leading-4 text-muted-foreground"
+                data-testid="rate-declared-from"
+              >
+                {rateDeclared}
+              </span>
+            ) : null}
           </FactShell>
         ) : null
       ) : null}

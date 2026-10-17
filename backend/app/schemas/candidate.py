@@ -645,6 +645,10 @@ class CandidateResponse(BaseModel):
     rate_observation_count: Optional[int] = None
     # Skąd „Stawka od”; `contract` = stawka z żywej umowy (15.10.2026).
     rate_from_source: Optional[str] = None
+    # Przy żywej umowie: najniższa zadeklarowana stawka, gdy niższa niż umowa
+    # (R4, 17.10.2026) — tylko odpowiedź profilu, listy jej nie liczą.
+    rate_declared_from_hourly: Optional[Decimal] = None
+    rate_declared_from_at: Optional[datetime] = None
     rate_from_computed_at: Optional[datetime] = Field(default=None, exclude=True)
     availability_date: Optional[date]
     # Data wpisana z notatek — lista pokazuje „z notatki · stan na” (bez

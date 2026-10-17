@@ -26,6 +26,7 @@ import {
   cardChanges,
   cardFieldLabel,
 } from "@/lib/recommendation-card";
+import { rateToHourly } from "@/lib/rate-to-hourly";
 import { notedAtDateLabel, rateSuggestionFill, type ScreeningSuggestions } from "@/lib/screening-suggestions";
 import {
   championScreeningQuestions,
@@ -292,44 +293,67 @@ function ratePrefillColumn(state: Pick<ScreeningFormState, "board_column">): boo
 export type RatePrefillOrigin =
   | { kind: "note"; quote: string; notedAt: string | null }
   | { kind: "card"; quote: string | null }
-  | { kind: "rate_from" };
+  | { kind: "rate_from" }
+  /** „Stawka u nas” — stawka z żywej umowy (R1, 17.10.2026). */
+  | { kind: "contract" };
 
 export interface RatePrefill {
   rate: FormRate;
   origin: RatePrefillOrigin;
 }
 
-/**
- * Stawka do wpisania, gdy etap pary jej nie ma: najpierw najnowsza stawka
- * z notatek z dosłownym cytatem (w PLN, ze znaną jednostką), potem stawka
- * z karty rekomendacji, na końcu „Stawka od”. `null` = etap ma stawkę, osoba
- * nie może zmieniać stawek albo nie ma nic pewnego. Wpis idzie jako zmiana
- * formularza — zapisze się z „Zapisz”.
- */
-export function ratePrefill(
-  state: Pick<
-    ScreeningFormState,
-    "rate" | "rate_hints" | "can_edit_rate" | "suggestions_from_notes" | "board_column"
-  >,
-): RatePrefill | null {
-  // Poza „Nowymi” i „Screeningiem” podpowiedź nie staje się stawką sama.
-  if (!state.can_edit_rate || state.rate?.source === "stage" || !ratePrefillColumn(state)) return null;
+type PrefillState = Pick<
+  ScreeningFormState,
+  "rate" | "rate_hints" | "can_edit_rate" | "suggestions_from_notes" | "board_column"
+>;
+
+/** Stawka z notatek, którą da się wpisać bez zgadywania (PLN, znana jednostka, cytat). */
+function noteRate(state: Pick<ScreeningFormState, "suggestions_from_notes">): RatePrefill | null {
   const note = (state.suggestions_from_notes as ScreeningSuggestions | undefined)?.rate;
   const quote = note?.raw?.trim();
   const fill = note && quote ? rateSuggestionFill(note) : null;
-  if (note && quote && fill) {
-    return {
-      rate: { amount: Number(fill.rate), unit: fill.unit, currency: "PLN" },
-      origin: { kind: "note", quote, notedAt: note.noted_at ?? null },
-    };
-  }
+  if (!note || !quote || !fill) return null;
+  return {
+    rate: { amount: Number(fill.rate), unit: fill.unit, currency: "PLN" },
+    origin: { kind: "note", quote, notedAt: note.noted_at ?? null },
+  };
+}
+
+function hourlyOf(rate: FormRate | null | undefined): number | null {
+  return rate ? rateToHourly(rate.amount, rate.unit, rate.currency) : null;
+}
+
+/**
+ * Stawka do wpisania, gdy etap pary jej nie ma (R1, 17.10.2026): najpierw
+ * stawka z karty TEJ rekrutacji (kandydat powiedział ją o tę rolę), przy żywej
+ * umowie „Stawka u nas”, a w pozostałych przypadkach NIŻSZA z dwóch — stawka
+ * z notatek z dosłownym cytatem albo „Stawka od”. Do 17.10 wygrywała najnowsza
+ * notatka, nawet wyższa — formularz wpisywał 140 przy zadeklarowanych 90.
+ * `null` = etap ma stawkę, osoba nie może zmieniać stawek albo nie ma nic
+ * pewnego. Wpis idzie jako zmiana formularza — zapisze się z „Zapisz”.
+ */
+export function ratePrefill(state: PrefillState): RatePrefill | null {
+  // Poza „Nowymi” i „Screeningiem” podpowiedź nie staje się stawką sama.
+  if (!state.can_edit_rate || state.rate?.source === "stage" || !ratePrefillColumn(state)) return null;
   const card = state.rate_hints?.card;
   if (card && card.amount > 0) {
     return { rate: card, origin: { kind: "card", quote: state.rate_hints.card_raw?.trim() || null } };
   }
   const from = state.rate_hints?.rate_from;
-  if (from && from.amount > 0) return { rate: from, origin: { kind: "rate_from" } };
-  return null;
+  const fromPick: RatePrefill | null =
+    from && from.amount > 0
+      ? {
+          rate: from,
+          origin: state.rate_hints.rate_from_source === "contract" ? { kind: "contract" } : { kind: "rate_from" },
+        }
+      : null;
+  if (fromPick?.origin.kind === "contract") return fromPick;
+  const note = noteRate(state);
+  if (!note || !fromPick) return note ?? fromPick;
+  const noteHourly = hourlyOf(note.rate);
+  const fromHourly = hourlyOf(fromPick.rate);
+  if (noteHourly === null || fromHourly === null) return note;
+  return noteHourly <= fromHourly ? note : fromPick;
 }
 
 /** „z notatki 2.04.2025: „150 na B2B”” — bez „· zmień”, które dokłada widok. */
@@ -343,7 +367,61 @@ export function ratePrefillCaption(origin: RatePrefillOrigin): string {
       return origin.quote ? `z karty rekomendacji: „${origin.quote}”` : "z karty rekomendacji";
     case "rate_from":
       return "Stawka od · najniższa z 18 mies.";
+    case "contract":
+      return "Stawka u nas · z umowy";
   }
+}
+
+/** Niższa znana stawka kandydata, która mieści się w budżecie (R2). */
+export interface LowerKnownRate {
+  rate: FormRate;
+  source: "rate_from" | "declared" | "note";
+  at: string | null;
+}
+
+/**
+ * R2 (17.10.2026): stawka w polu jest ponad budżetem, a kandydat podał też
+ * niższą, która się w nim mieści — ostrzeżenie mówi to wprost, żeby nikt nie
+ * odrzucił osoby za stawkę, której nie żąda. Kandydaci: „Stawka od” (przy
+ * żywej umowie — najniższa zadeklarowana zamiast stawki z umowy) i stawka
+ * z notatek. Wygrywa najniższa. `null` = nie ma czego dopowiedzieć.
+ */
+export function lowerKnownRate(
+  state: Pick<ScreeningFormState, "rate_hints" | "suggestions_from_notes">,
+  entered: FormRate | null,
+  budgetHourly: number | null,
+): LowerKnownRate | null {
+  const enteredHourly = hourlyOf(entered);
+  if (budgetHourly === null || enteredHourly === null || enteredHourly <= budgetHourly) return null;
+  const hints = state.rate_hints;
+  const contract = hints?.rate_from_source === "contract";
+  const note = noteRate(state);
+  const known: LowerKnownRate[] = [];
+  if (!contract && hints?.rate_from) known.push({ rate: hints.rate_from, source: "rate_from", at: hints.rate_from_at ?? null });
+  if (contract && hints?.declared_from) {
+    known.push({ rate: hints.declared_from, source: "declared", at: hints.declared_from_at ?? null });
+  }
+  if (note && note.origin.kind === "note") known.push({ rate: note.rate, source: "note", at: note.origin.notedAt });
+  let best: { item: LowerKnownRate; hourly: number } | null = null;
+  for (const item of known) {
+    const hourly = hourlyOf(item.rate);
+    if (hourly === null || hourly >= enteredHourly || hourly > budgetHourly) continue;
+    if (!best || hourly < best.hourly) best = { item, hourly };
+  }
+  return best?.item ?? null;
+}
+
+const LOWER_SOURCE_LABEL: Record<LowerKnownRate["source"], string> = {
+  rate_from: "Stawka od",
+  declared: "deklaracja",
+  note: "z notatki",
+};
+
+/** „Znana też niższa stawka: 90 zł/h (Stawka od, 8.10.2026) — mieści się w budżecie.” */
+export function lowerKnownRateText(lower: LowerKnownRate): string {
+  const date = notedAtDateLabel(lower.at);
+  const origin = [LOWER_SOURCE_LABEL[lower.source], date].filter(Boolean).join(", ");
+  return `Znana też niższa stawka: ${formatFormRate(lower.rate)} (${origin}) — mieści się w budżecie.`;
 }
 
 /** Pytania bez odpowiedzi blokujące „Zapisz i przekaż dalej” (pominięte przy przepięciu — nie). */

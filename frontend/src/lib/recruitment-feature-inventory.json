@@ -802,6 +802,22 @@
    "v3_home": "panel osoby → formularz screeningu → Warunki → Stawka kandydata"
   },
   {
+   "id": "screening.rate-lower-known",
+   "area": "screening",
+   "opis": "Ramka „ponad budżet” dopisuje niższą znaną stawkę w budżecie („Znana też niższa stawka: … — mieści się w budżecie.”) z „Użyj”; formularz screeningu i okno „Przesuń na Zweryfikowany” (R2, 17.10.2026)",
+   "file": "components/v2/screening/VerifiedRateFields.tsx",
+   "marker": "rate-lower-known",
+   "v3_home": "panel osoby → formularz screeningu → Warunki → Stawka kandydata"
+  },
+  {
+   "id": "screening.rate-declared-from",
+   "area": "screening",
+   "opis": "Osoba z żywą umową: podpis „Stawka u nas · z umowy” pod polem stawki i podpowiedź „Zadeklarowana od” z „Użyj” (R4, 17.10.2026)",
+   "file": "components/v2/screening-form/ScreeningFullForm.tsx",
+   "marker": "Zadeklarowana od",
+   "v3_home": "panel osoby → formularz screeningu → Warunki → Stawka kandydata"
+  },
+  {
    "id": "cv.auto-generate-skip-reason",
    "area": "cv",
    "opis": "Informacja w sekcji CV, dlaczego automat nie wygenerował CV tej osoby (np. reguła klienta wymaga zrzutu zgody RODO) — z „Pracy w tle”",

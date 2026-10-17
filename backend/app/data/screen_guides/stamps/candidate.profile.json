@@ -1,9 +1,9 @@
 {
-  "entry": "6282ffc302cd232faa18e9387846c05ba6c6d7251cd2556d654797e873122a1f",
+  "entry": "33eb112d6591b34185bba7e3b680fc29e199f30feb1ed735e2222bd406ec7b30",
   "guide": "candidate.profile",
   "sources": {
     "frontend/src/components/v2/candidate-profile/ProfileHeader.tsx": "cc21e65cae4bc29e3511e78a38d05f4dc9954e21a7e295331fddc8037d628df8",
     "frontend/src/components/v2/pages/CandidateDetailV2.tsx": "0780243fb1317f081c7525e27678caa76763b15d08e6463f4b96f844a8672026",
-    "frontend/src/components/v2/pages/CandidateProfileFactsBar.tsx": "c49f282cc047157aba36efc6c408fe252d25127aca3a17217862bdc7ede06eab"
+    "frontend/src/components/v2/pages/CandidateProfileFactsBar.tsx": "e490cc3686e97ca4c7dc58df9a6e17586105223dbe0e4a7da308c582dbcf6224"
   }
 }

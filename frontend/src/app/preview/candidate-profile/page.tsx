@@ -1334,6 +1334,9 @@ function seededClient(employed: boolean, user: PreviewUser): QueryClient {
           rate_from_source: "contract",
           rate_latest_hourly: "160.00",
           rate_from_stale: false,
+          // R4 (17.10.2026): niższa stawka podana w ostatnich 18 miesiącach.
+          rate_declared_from_hourly: "120.00",
+          rate_declared_from_at: "2026-09-01T10:00:00Z",
         }
       : CANDIDATE,
   );

@@ -217,7 +217,7 @@ from app.api.recruitment_access import (
 from app.api.section_access import SOURCING_SECTION_DEPENDENCIES
 from app.services import candidate_audit
 from app.services.candidate_audit import candidate_subject_reference
-from app.services.candidate_rate_from import rate_summary
+from app.services.candidate_rate_from import declared_rate_from, rate_summary
 from app.services.candidate_monthly_rate_retirement import (
     RETIRED_MONTHLY_FILTER_KEYS,
     reject_retired_candidate_rate,
@@ -4467,6 +4467,8 @@ async def get_candidate(
     if not candidate:
         raise HTTPException(status_code=404, detail="Candidate not found")
     payload = _candidate_to_response(candidate)
+    # R4 (17.10.2026): przy żywej umowie „zadeklarowana od” — tylko profil.
+    payload = payload.model_copy(update=await declared_rate_from(db, candidate))
     invite_source = await _resolve_invite_source(candidate_id, db)
     contact_case = (await load_contact_case_summaries(db, [candidate_id])).get(
         candidate_id

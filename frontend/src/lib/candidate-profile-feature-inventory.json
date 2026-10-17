@@ -275,6 +275,13 @@
    "home": "Karta „Do propozycji”"
   },
   {
+   "id": "f.rate_contract_declared",
+   "opis": "„zadeklarowana od 90 zł/h (10.2026)” pod „Stawką u nas”, gdy osoba z żywą umową podała niższą stawkę w ostatnich 18 miesiącach (R4, 17.10.2026)",
+   "file": "components/v2/pages/CandidateProfileFactsBar.tsx",
+   "marker": "rate-declared-from",
+   "home": "Karta „Do propozycji”"
+  },
+  {
    "id": "f.workmode",
    "opis": "Tryb pracy i dni w biurze (bez edycji razem z miastem w wierszu „Praca”)",
    "file": "components/v2/pages/CandidateProfileFactsBar.tsx",
