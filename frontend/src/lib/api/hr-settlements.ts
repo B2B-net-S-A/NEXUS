@@ -21,7 +21,8 @@ export type SettlementStatus =
   | "cancelled";
 export type AmountBasis = "net" | "gross";
 export type AccountSource = "white_list" | "manual";
-export type SettlementProblem = "amount" | "white_list";
+/** `gross` — brutto do zapłaty nie wynika z netto i VAT (wymaga drugiej osoby). */
+export type SettlementProblem = "amount" | "gross" | "white_list";
 export type StepState = "done" | "current" | "todo" | "warn";
 
 export interface SettlementItem {

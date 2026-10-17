@@ -7,8 +7,9 @@
   faktura korygująca z KSeF podepnie się sama (``settlements.match_invoice``).
 * **„Uznaj różnicę”** — powód i DRUGA osoba z Płac, Finansów albo admin
   (wnioskujący nie potwierdza sam, CHECK ``override_two_people``). Uznanie
-  obejmuje problemy widoczne w chwili wniosku: różnicę netto i rachunek spoza
-  białej listy. Nowy dokument albo zmiana rachunku je kasuje.
+  obejmuje problemy widoczne w chwili wniosku: różnicę netto, brutto
+  niezgodne z netto i VAT oraz rachunek spoza białej listy. Nowy dokument
+  albo zmiana rachunku je kasuje.
 * **Ręczne „opłacono”** (awaryjnie, Finanse) — z powodem, kwotą i dniem.
 
 Własnego rozliczenia nikt nie rusza (403). Rozliczenie spoza zakresu — 404.
@@ -37,7 +38,7 @@ from app.services.hr.payroll_errors import (
 )
 from app.services.hr.payroll_periods import label, month_start
 from app.services.hr.settlements import SettlementError
-from app.services.hr.settlements_rules import B2B, override_kind_for, problems_of
+from app.services.hr.settlements_rules import B2B, override_kind_for
 from app.services.hr_settlement_schema import REASON_MAX_LENGTH
 
 NOT_FOUND = "Nie ma takiego rozliczenia."
@@ -102,12 +103,7 @@ def _audit(
 async def current_problems(
     db: AsyncSession, settlement: PayrollSettlement
 ) -> tuple[str, ...]:
-    billing = await settlements.billing_of(db, settlement.user_id)
-    return problems_of(
-        employment_type=settlement.employment_type,
-        discrepancy=settlement.discrepancy_amount,
-        account_source=billing.account_source if billing else None,
-    )
+    return await settlements.problems_now(db, settlement)
 
 
 async def approve(
@@ -190,7 +186,6 @@ async def request_correction(
         ntype=NotificationType.hr_settlement_correction,
         link=settlements.PERSON_LINK,
         related_entity_type="payroll_settlement",
-        related_entity_id=settlement.id,
         log_tag="settlements",
     )
     return settlement

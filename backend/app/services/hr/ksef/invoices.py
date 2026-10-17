@@ -9,9 +9,11 @@
   wpisanymi przez Płace; NIP osoby bez NIP-u w danych do rozliczeń uzupełnia
   ``billing_details.assign_nip``,
 * ``assign_period`` — „Przypisz do miesiąca” (i do osoby, gdy NIP mają dwie),
-  potem zwykłe dopasowanie,
+  potem zwykłe dopasowanie; faktura dopasowana do rozliczenia, które nie jest
+  opłacone, zostaje najpierw odpięta (rozliczenie przeliczone),
 * ``set_ignored`` — „Pomiń” fakturę, która nie jest rozliczeniem miesiąca
-  (z powodem w śladzie) i „Przywróć”.
+  (z powodem w śladzie) i „Przywróć”; dopasowaną odpina jak wyżej.
+  Faktury przy rozliczeniu opłaconym zostają (dowód zapłaty) — 409.
 * ``status_payload`` — karta stanu KSeF (tylko odczyt).
 
 Kwoty idą w odpowiedziach jako napisy dziesiętne; w śladzie z poziomem
@@ -42,6 +44,7 @@ from app.services.hr.ksef import environment, pdf_store, sync
 from app.services.hr.ksef.client import format_instant, parse_instant
 from app.services.hr.payroll_errors import PayrollError
 from app.services.hr.payroll_periods import add_months, month_end, month_start
+from app.services.hr.settlements_rules import VAT_MAX_RATE
 from app.services.hr_settlement_schema import (
     AMOUNT_MAX,
     CURRENCIES,
@@ -49,6 +52,8 @@ from app.services.hr_settlement_schema import (
 )
 
 NOT_FOUND = "Nie ma takiej faktury."
+#: Statusy z wykazu VAT, przy których faktura nie ma VAT.
+NO_VAT_STATUSES: tuple[str, ...] = ("exempt", "unregistered")
 LIST_LIMIT = 500
 _LIMIT = Decimal(AMOUNT_MAX)
 _CENT = Decimal("0.01")
@@ -317,6 +322,9 @@ async def add_manual_pdf(
         raise KsefInvoiceError("Kwoty faktury muszą być dodatnie.")
     if net + vat != gross:
         raise KsefInvoiceError("Netto + VAT musi dać brutto co do grosza.")
+    # Płacimy brutto, porównujemy netto — VAT nie może nadmuchać przelewu.
+    if vat > (net * VAT_MAX_RATE).quantize(_CENT) + _CENT:
+        raise KsefInvoiceError("VAT: najwyżej 23% netto (najwyższa stawka w Polsce).")
     try:
         digest = pdf_store.check_pdf(pdf)
     except pdf_store.PdfRejected as exc:
@@ -328,6 +336,11 @@ async def add_manual_pdf(
     if profile is None:
         raise KsefInvoiceError("Nie ma takiej osoby.", 404)
     billing = await settlements.billing_of(db, user_id)
+    if vat > 0 and billing is not None and billing.vat_status in NO_VAT_STATUSES:
+        raise KsefInvoiceError(
+            "Osoba jest w wykazie VAT jako zwolniona albo niezarejestrowana — "
+            "faktura nie może mieć VAT."
+        )
     nip = billing.nip if billing is not None else None
     if seller_nip:
         try:
@@ -418,6 +431,33 @@ async def pdf_path(db: AsyncSession, invoice_id: int) -> Path:
 # ── Przypisanie i pominięcie ─────────────────────────────────────────────────
 
 
+PAID_REFUSAL = (
+    "Faktura należy do opłaconego rozliczenia — zostaje przy nim jako dowód zapłaty."
+)
+
+
+async def _detach(db: AsyncSession, invoice: PayrollInvoice) -> Optional[int]:
+    """Odepnij dopasowaną fakturę i przelicz rozliczenie; opłacone = 409.
+
+    Inny zestaw dokumentów to nowe porównanie: uznanie różnicy znika,
+    a zatwierdzone do zapłaty wraca do przeliczenia (``recompute``).
+    """
+
+    if invoice.match_status != "matched" or invoice.settlement_id is None:
+        return None
+    settlement = await settlements.lock_settlement(db, invoice.settlement_id)
+    if settlement is not None and settlement.status == "paid":
+        raise KsefInvoiceError(PAID_REFUSAL, 409)
+    invoice.settlement_id = None
+    invoice.match_status = "unmatched"
+    await db.flush()
+    if settlement is None or settlement.status == "cancelled":
+        return None
+    settlements.clear_override(settlement)
+    await settlements.recompute(db, settlement)
+    return settlement.id
+
+
 async def assign_period(
     db: AsyncSession,
     *,
@@ -429,8 +469,7 @@ async def assign_period(
 ) -> PayrollInvoice:
     _valid_period(year, month)
     invoice = await _locked(db, invoice_id)
-    if invoice.match_status == "matched":
-        raise KsefInvoiceError("Faktura jest już dopasowana do rozliczenia.", 409)
+    detached = await _detach(db, invoice)
     if user_id is not None:
         owners = await settlements.users_with_nip(db, invoice.seller_nip)
         if owners and user_id not in owners:
@@ -451,6 +490,7 @@ async def assign_period(
         details={
             "period": f"{year:04d}-{month:02d}",
             "match_status": invoice.match_status,
+            "detached_from": detached,
         },
     )
     await db.flush()
@@ -470,10 +510,7 @@ async def set_ignored(
         text = " ".join(str(reason or "").split())
         if not 1 <= len(text) <= REASON_MAX_LENGTH:
             raise KsefInvoiceError("Napisz, dlaczego faktura nie jest rozliczeniem.")
-        if invoice.match_status == "matched":
-            raise KsefInvoiceError(
-                "Faktura jest dopasowana do rozliczenia — nie można jej pominąć.", 409
-            )
+        detached = await _detach(db, invoice)
         invoice.match_status = "ignored"
         invoice.settlement_id = None
         await db.flush()
@@ -482,7 +519,7 @@ async def set_ignored(
             invoice,
             actor_id=actor.id,
             action="payroll_invoice_ignored",
-            details={"reason": text},
+            details={"reason": text, "detached_from": detached},
         )
     else:
         if invoice.match_status != "ignored":

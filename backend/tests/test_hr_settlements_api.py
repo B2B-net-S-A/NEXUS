@@ -398,7 +398,9 @@ async def test_mismatch_needs_a_second_person_then_approval_and_payment(
     )
     assert requested.status_code == 200
     assert requested.json()["override"]["can_confirm"] is False
-    assert await _bells(team.finance2.id, NotificationType.hr_settlement_review) >= 1
+    # Dwa dzwonki tego samego dnia: rozbieżność i wniosek o uznanie — dzienny
+    # odsiew powiadomień nie może połknąć wniosku o drugą parę oczu.
+    assert await _bells(team.finance2.id, NotificationType.hr_settlement_review) == 2
     # Wnioskujący nie potwierdza sam.
     assert (
         await app_client.post(f"{base}/override/confirm", headers=headers(team.finance))

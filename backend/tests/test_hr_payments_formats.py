@@ -299,3 +299,27 @@ def test_bonus_sheet_header_from_settings_is_formula_safe():
     )
     header = [cell.value for cell in load_workbook(_io.BytesIO(content)).active[1]]
     assert header[-1] == "'=HYPERLINK(1)"
+
+
+# ── Po przeglądzie (17/18.10): podpola :86: sklejane liniowo ────────────────
+
+
+def _best_time(body: str) -> float:
+    import time
+
+    runs = []
+    for _ in range(3):
+        start = time.perf_counter()
+        fields = mt940._subfields(body)
+        runs.append(time.perf_counter() - start)
+    assert fields["20"] == "A" * body.count("~20")
+    return min(runs)
+
+
+def test_podpola_opisu_sklejaja_sie_liniowo_na_megabajcie():
+    # ~1 MB opisu z tym samym podpolem powtórzonym 250 000 razy (wyciąg ma
+    # limit 5 MB): czas ma rosnąć liniowo z rozmiarem, nie z kwadratem.
+    small = _best_time("~20A" * 62_500)
+    large = _best_time("~20A" * 250_000)
+    assert large < 2.0
+    assert large / max(small, 1e-4) < 8, (small, large)

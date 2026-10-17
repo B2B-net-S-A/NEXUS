@@ -343,14 +343,20 @@ async def set_billing(
     account: Optional[str] = None,
     source: Optional[str] = None,
     terms: int = 14,
+    vat_status: Optional[str] = None,
 ) -> None:
+    """Rachunek z białej listy = osoba sprawdzona w wykazie (czynny VAT)."""
+
     from app.core.encryption import get_token_cipher
 
+    if vat_status is None and account and source == "white_list":
+        vat_status = "active"
     async with AsyncSessionLocal() as db:
         db.add(
             EmployeeBillingDetails(
                 user_id=user.id,
                 nip=nip,
+                vat_status=vat_status,
                 account_encrypted=get_token_cipher().encrypt(account)
                 if account
                 else None,

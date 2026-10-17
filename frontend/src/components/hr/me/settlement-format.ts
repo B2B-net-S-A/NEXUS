@@ -164,6 +164,9 @@ export function queueStatus(row: SettlementRow): string {
     const value = Number(row.discrepancy);
     return `${row.status_label.toLowerCase()} ${value > 0 ? "+" : "−"}${formatMoney(Math.abs(value), row.currency).replace(/\s?zł$/, "")}`;
   }
+  if (row.status === "mismatch" && row.problems.includes("gross")) {
+    return "brutto albo VAT do sprawdzenia";
+  }
   if (row.status === "mismatch" && row.problems.includes("white_list")) {
     return "rachunek spoza białej listy";
   }

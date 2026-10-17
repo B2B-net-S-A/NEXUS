@@ -219,8 +219,12 @@ export function AssignPeriodDialog({
     <AppModal
       open
       onOpenChange={(open) => (open ? undefined : onClose())}
-      title="Przypisz do miesiąca"
-      description={`Faktura ${invoice.invoice_number}. NEXUS dopasuje ją do rozliczenia osoby za wybrany miesiąc.`}
+      title={invoice.match_status === "matched" ? "Przenieś do innego miesiąca" : "Przypisz do miesiąca"}
+      description={
+        invoice.match_status === "matched"
+          ? `Faktura ${invoice.invoice_number}. NEXUS odepnie ją od obecnego rozliczenia (przeliczy je) i dopasuje do rozliczenia osoby za wybrany miesiąc.`
+          : `Faktura ${invoice.invoice_number}. NEXUS dopasuje ją do rozliczenia osoby za wybrany miesiąc.`
+      }
       size="md"
       footer={
         <>
@@ -297,7 +301,11 @@ export function IgnoreInvoiceDialog({
       open
       onOpenChange={(open) => (open ? undefined : onClose())}
       title="Pomiń fakturę"
-      description={`Faktura ${invoice.invoice_number} zniknie z listy do przypisania. Można ją przywrócić.`}
+      description={
+        invoice.match_status === "matched"
+          ? `Faktura ${invoice.invoice_number} jest przy rozliczeniu — NEXUS odepnie ją od rozliczenia i przeliczy je od nowa. Można ją przywrócić.`
+          : `Faktura ${invoice.invoice_number} zniknie z listy do przypisania. Można ją przywrócić.`
+      }
       size="md"
       footer={
         <>
@@ -355,6 +363,10 @@ export function manualFormError(form: ManualForm, file: File | null): string | n
   }
   if (Math.round((Number(net) + Number(vat)) * 100) !== Math.round(Number(gross) * 100)) {
     return "Netto + VAT musi dać brutto co do grosza.";
+  }
+  // Jak na serwerze: VAT najwyżej 23% netto (z groszem na zaokrąglenie).
+  if (Math.round(Number(vat) * 100) > Math.round(Number(net) * 23) + 1) {
+    return "VAT: najwyżej 23% netto (najwyższa stawka w Polsce).";
   }
   if (!file) return "Dołącz PDF faktury.";
   return null;

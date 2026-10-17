@@ -30,7 +30,7 @@ from app.models.hr_settlement import (
     PayrollSettlement,
 )
 from app.models.user import User
-from app.services.hr import white_list
+from app.services.hr import billing_details, white_list
 from app.services.hr_foundation_schema import HR_MODULES_SETTING
 from tests.hr import payments_fixtures as fx
 
@@ -500,3 +500,70 @@ async def test_white_list_override_is_void_after_account_change(client, env):
     (item,) = preview.json()["items"]
     assert item["included"] is False
     assert item["reason"] == "override_stale"
+
+
+# ── Po przeglądzie bezpieczeństwa (17/18.10): rachunek z tą samą końcówką ──
+
+
+@pytest.mark.asyncio
+async def test_rachunek_wpisany_recznie_z_ta_sama_koncowka_cofa_zatwierdzenie(
+    client, env
+):
+    finance, made = await _people()
+    await _enable()
+    key = await _batch_for(client, finance, made["listed"].id)
+    # Inny rachunek, te same 4 ostatnie cyfry co rachunek z wykazu.
+    swapped = fx.account("99990009", "4521")
+    assert swapped != LISTED and swapped[-4:] == LISTED[-4:]
+    # To samo robi ``PUT /api/hr/settlements/billing/{id}`` (Kadry albo Płace).
+    async with AsyncSessionLocal() as db:
+        actor = await db.get(User, finance.id)
+        await billing_details.update_details(
+            db,
+            actor=actor,
+            user_id=made["listed"].user_id,
+            changes={"account": swapped},
+        )
+        await db.commit()
+    async with AsyncSessionLocal() as db:
+        row = await db.get(PayrollSettlement, made["listed"].id)
+    # Rachunek spoza wykazu na B2B = rozbieżność do decyzji dwóch osób.
+    assert row.status == "mismatch"
+    assert row.approved_by is None and row.approved_at is None
+    file = await client.get(f"{PREFIX}/batches/{key}/file", headers=fx.headers(finance))
+    assert file.status_code == 409
+    assert swapped not in file.text and LISTED not in file.text
+
+
+@pytest.mark.asyncio
+async def test_podmieniony_rachunek_z_ta_sama_koncowka_blokuje_pobranie(client, env):
+    finance, made = await _people()
+    await _enable()
+    key = await _batch_for(client, finance, made["listed"].id)
+    swapped = fx.account("99990009", "4521")
+    async with AsyncSessionLocal() as db:
+        details = await db.scalar(
+            select(EmployeeBillingDetails).where(
+                EmployeeBillingDetails.user_id == made["listed"].user_id
+            )
+        )
+        details.account_encrypted = get_token_cipher().encrypt(swapped)
+        assert details.account_last4 == swapped[-4:]
+        await db.commit()
+    response = await client.get(
+        f"{PREFIX}/batches/{key}/file", headers=fx.headers(finance)
+    )
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "batch_account_changed"
+    assert swapped not in response.text
+    async with AsyncSessionLocal() as db:
+        stored = list(
+            await db.scalars(
+                select(PayrollPayment).where(PayrollPayment.batch_key == key)
+            )
+        )
+    # Paczka pamięta skrót pełnego rachunku, nie sam numer.
+    assert all(
+        payment.counterparty_hmac and LISTED not in payment.counterparty_hmac
+        for payment in stored
+    )

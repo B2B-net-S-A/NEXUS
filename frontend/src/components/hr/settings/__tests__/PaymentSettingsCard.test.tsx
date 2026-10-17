@@ -24,7 +24,12 @@ const COMPANY = "72999900010000000000001234";
 function settings(overrides: Partial<PaymentSettings> = {}): PaymentSettings {
   return {
     payout_day: 10,
-    transfer_batch: { enabled: false, format: "elixir", sender_account: null, sender_name: "" },
+    transfer_batch: {
+      enabled: false,
+      format: "elixir",
+      sender_account_last4: null,
+      sender_name: "",
+    },
     symfonia: {
       leave_events: { vacation: "Urlop wypoczynkowy", sick_leave: "Choroba zwykła" },
       export_sick_leave: false,
@@ -69,6 +74,23 @@ describe("Ustawienia → Płace → Płatności i Symfonia", () => {
         settings({ symfonia: { ...settings().symfonia, work_start: "17:00" } }),
       ),
     ).toEqual(expect.objectContaining({ error: expect.stringMatching(/Początek dnia/) }));
+  });
+
+  it("zapisany rachunek nadawcy widać tylko jako 4 cyfry i zostaje bez nowego numeru", () => {
+    const saved = settings({
+      transfer_batch: {
+        enabled: true,
+        format: "elixir",
+        sender_account_last4: "1234",
+        sender_name: "Spółka Przykładowa S.A.",
+      },
+    });
+    const parsed = paymentSettingsPayload(saved);
+    expect("payload" in parsed && parsed.payload.transfer_batch.sender_account).toBeNull();
+    query.value = { data: saved, isLoading: false, isError: false, error: null, isSuccess: true };
+    render(<PaymentSettingsCard />);
+    expect(screen.getByText(/Zapisany rachunek •• 1234/)).toBeInTheDocument();
+    expect(screen.queryByDisplayValue(/1234/)).not.toBeInTheDocument();
   });
 
   it("puste nazwy znikają z ciała (ten rodzaj trafia do listy „do zrobienia”)", () => {

@@ -60,6 +60,7 @@ from app.services.hr.bank.titles import ksef_numbers_in
 from app.services.hr.payroll_errors import (
     PayrollConflict,
     PayrollError,
+    PayrollForbidden,
     PayrollNotFound,
 )
 from app.services.hr.payroll_report import money
@@ -631,12 +632,25 @@ async def unmatched_lines(db: AsyncSession) -> list[dict[str, Any]]:
 async def assign_line(
     db: AsyncSession, payment_id: int, settlement_id: int, *, actor_id: int
 ) -> dict[str, Any]:
+    """„Przypisz” operację z wyciągu — te same strażniki co ręczne „opłacono”.
+
+    Własnego rozliczenia nikt nie oznacza jako opłacone (403), a opłacone
+    i anulowane nie przyjmują kolejnej zapłaty (409) — druga zapłata tej
+    samej faktury zostaje nierozpoznana, do wyjaśnienia.
+    """
+
     payment = await _line(db, payment_id)
-    settlement = await db.get(PayrollSettlement, settlement_id)
+    settlement = await settlement_service.lock_settlement(db, settlement_id)
     if settlement is None:
         raise PayrollNotFound("Nie ma takiego rozliczenia.")
+    if settlement.user_id == actor_id:
+        raise PayrollForbidden("Własnego rozliczenia nie oznaczasz jako opłacone.")
     if settlement.status == "cancelled":
         raise PayrollConflict("To rozliczenie jest anulowane.")
+    if settlement.status == "paid":
+        raise PayrollConflict(
+            "To rozliczenie jest już opłacone — sprawdź, czy to nie podwójna zapłata."
+        )
     if settlement.currency != payment.currency:
         raise PayrollError("Waluta przelewu jest inna niż waluta rozliczenia.")
     payment.settlement_id = settlement.id

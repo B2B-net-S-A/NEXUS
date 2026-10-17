@@ -339,6 +339,13 @@ Schemat: `hr_settlement_schema.py` (migracja `0467_hr_settlements`, stany w docs
   inny z Płac/Finansów/admin; nowy dokument albo zmiana rachunku kasują uznanie. Nikt nie
   zatwierdza ani nie oznacza zapłaty własnego rozliczenia. R11: przy włączonym module premia
   „wypłacona” dopiero z opłaconym rozliczeniem (`payroll_bonuses.paid_flags`).
+- **Zmiana odbiorcy** (rachunek albo NIP) cofa zatwierdzenie i kasuje uznanie KAŻDEGO rodzaju;
+  sama zmiana terminu nie. Uznanie rachunku nie obejmuje późniejszego problemu z kwotą.
+  Problem `gross` (jak różnica kwoty, druga osoba): brutto ≠ netto + VAT (> 0,01), VAT > 0 przy
+  statusie VAT ≠ `active`, VAT > 23% netto; faktur z KSeF nie odrzucamy, ręczny PDF tak.
+  Faktura z KSeF łączy się z wcześniej dopiętym PDF-em (ten sam NIP, numer, waluta) zamiast
+  liczyć się drugi raz; dopasowaną, nieopłaconą Płace mogą odpiąć („Pomiń”, „Przenieś”).
+  Dzwonki rozliczeń idą bez numeru encji (dzienny odsiew powiadomień nie zna jej rodzaju).
 - **Dane do rozliczeń** (`employee_billing_details`): osoba (odczyt), Kadry, Płace, admin;
   przełożony i zespół — 404. Rachunek szyfrowany (`TokenCipher`), na zewnątrz tylko 4 cyfry;
   NIP unikalny między osobami (409); identyfikator osoby w Symfonii zamiast PESEL-u (PESEL
@@ -359,7 +366,9 @@ Schemat: `hr_settlement_schema.py` (migracja `0467_hr_settlements`, stany w docs
   ludzi z zespołu; zlecenie/UoP opłacone z wyciągu tylko z miesiącem w tytule, inaczej decyzja
   Płac; drugi przelew tej samej faktury → decyzja Płac. Paczka przelewów Elixir-O/CSV to
   opcja wyłączona domyślnie (format nie sprawdzony w banku firmy); pozycja bez pozytywnego
-  `white_list.check` jest zablokowana do decyzji Finansów.
+  `white_list.check` jest zablokowana do decyzji Finansów. Wiersz paczki pamięta skrót HMAC
+  pełnego rachunku (klucz wyprowadzony z `M365_TOKEN_ENCRYPTION_KEY`) — podmiana rachunku po
+  utworzeniu paczki = 409 `batch_account_changed` przy pobraniu pliku.
 - **Symfonia** (`symfonia_export.py`): ZIP z ekranu miesiąca Płac — `zdarzenia_RRRR-MM.xml`
   (windows-1250; L4 tylko, gdy Płace nie pobierają e-ZLA), XLSX premii, XLSX rozliczeń zleceń,
   PDF zestawienia z listą rzeczy do zrobienia ręcznie. Kwoty w paczce tylko dla Płac, plik

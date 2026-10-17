@@ -17,7 +17,11 @@ Zapisujemy wyłącznie faktury od NIP-ów z ``employee_billing_details``;
 pozostałe (dostawcy firmy) to tylko licznik ``skipped`` — bez numeru, NIP-u
 i kwot w bazie i w logach. Faktura od znanego NIP-u: XML z KSeF → ``fa``
 → wiersz ``payroll_invoices`` (unikalny numer KSeF, skrót SHA-256 XML-a;
-samego XML-a nie trzymamy) → ``settlements.match_invoice`` w SAVEPOINT
+samego XML-a nie trzymamy). Ta sama faktura dopięta wcześniej przez Płace
+jako PDF (ten sam NIP sprzedawcy, numer i waluta) nie dostaje drugiego
+wiersza: wiersz PDF-u przechodzi na źródło ``ksef`` z numerem KSeF, skrótem
+XML-a, datą przyjęcia i kwotami z XML-a (PDF zostaje) — inaczej netto
+liczyłoby się dwa razy. Potem ``settlements.match_invoice`` w SAVEPOINT
 (awaria dopasowania zostawia fakturę „do przypisania”, nie zatrzymuje
 pobierania). Korekta wskazuje fakturę pierwotną (numer KSeF albo numer
 faktury tego samego sprzedawcy); korekta, która przyszła przed pierwotną,
@@ -43,11 +47,12 @@ import logging
 from collections import Counter
 from dataclasses import dataclass, field
 from datetime import date, datetime, time, timedelta, timezone
+from decimal import Decimal
 from typing import Any, Optional
 from zoneinfo import ZoneInfo
 
 import httpx
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -55,7 +60,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.scheduling import DEFAULT_TZ
 from app.models.app_setting import AppSetting
 from app.models.hr_settlement import EmployeeBillingDetails, PayrollInvoice
-from app.services.hr import job_runs, settlements
+from app.services.hr import audit, job_runs, settlements
 from app.services.hr.ksef import fa, numbers
 from app.services.hr.ksef.client import (
     SUBJECT_BUYER,
@@ -255,6 +260,94 @@ async def _link_orphan_corrections(
     return orphans
 
 
+async def _manual_twin(
+    db: AsyncSession, parsed: fa.ParsedInvoice
+) -> Optional[PayrollInvoice]:
+    """PDF dopięty ręcznie, który jest tą samą fakturą co ta z KSeF."""
+
+    if parsed.kind != "original":
+        return None
+    return await db.scalar(
+        select(PayrollInvoice)
+        .where(
+            PayrollInvoice.source == "manual_pdf",
+            PayrollInvoice.ksef_number.is_(None),
+            PayrollInvoice.invoice_kind == "original",
+            PayrollInvoice.seller_nip == parsed.seller_nip,
+            PayrollInvoice.currency == parsed.currency,
+            func.lower(PayrollInvoice.invoice_number) == parsed.invoice_number.lower(),
+        )
+        .order_by(PayrollInvoice.id)
+        .limit(1)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+
+
+async def _bind_twin(
+    db: AsyncSession,
+    twin: PayrollInvoice,
+    *,
+    ksef_number: str,
+    parsed: fa.ParsedInvoice,
+    net: Decimal,
+    period: Optional[tuple[int, int]],
+    xml_sha256: str,
+    user_id: Optional[int],
+    acquired_at: Optional[datetime],
+    now: datetime,
+) -> Optional[PayrollInvoice]:
+    """Wiersz PDF-u dostaje numer KSeF i kwoty z XML-a (dokument z KSeF wiąże)."""
+
+    changed = (twin.net_amount, twin.vat_amount, twin.gross_amount) != (
+        net,
+        parsed.vat_amount,
+        parsed.gross_amount,
+    )
+    try:
+        async with db.begin_nested():
+            twin.source = "ksef"
+            twin.ksef_number = ksef_number
+            twin.ksef_acquired_at = acquired_at
+            twin.xml_sha256 = xml_sha256
+            twin.issue_date = parsed.issue_date
+            twin.sale_date = parsed.sale_date or twin.sale_date
+            if twin.period_year is None and period is not None:
+                twin.period_year, twin.period_month = period
+            twin.net_amount = net
+            twin.vat_amount = parsed.vat_amount
+            twin.gross_amount = parsed.gross_amount
+            twin.items = parsed.items
+            twin.fetched_at = now
+            if twin.user_id is None:
+                twin.user_id = user_id
+            await db.flush()
+    except IntegrityError:
+        if await _exists(db, ksef_number):
+            return None
+        raise InvoiceRejected("payroll_invoices") from None
+    if changed and twin.match_status == "matched" and twin.settlement_id:
+        settlement = await settlements.lock_settlement(db, twin.settlement_id)
+        if settlement is not None and settlement.status != "paid":
+            # Inne kwoty niż wpisane z PDF-u = nowy dokument; uznanie od nowa.
+            settlements.clear_override(settlement)
+    audit.record(
+        db,
+        actor_user_id=None,
+        subject_user_id=twin.user_id,
+        entity_type="payroll_invoice",
+        entity_id=twin.id,
+        action="payroll_invoice_ksef_linked",
+        sensitivity="payroll",
+        details={"amounts_changed": changed, "match_status": twin.match_status},
+    )
+    corrections = await _link_orphan_corrections(db, twin)
+    await match(db, twin)
+    for correction in corrections:
+        await match(db, correction)
+    return twin
+
+
 async def store_ksef_invoice(
     db: AsyncSession,
     *,
@@ -274,6 +367,20 @@ async def store_ksef_invoice(
     net = parsed.net_amount
     if net is None:
         net = parsed.gross_amount - parsed.vat_amount
+    twin = await _manual_twin(db, parsed)
+    if twin is not None:
+        return await _bind_twin(
+            db,
+            twin,
+            ksef_number=ksef_number,
+            parsed=parsed,
+            net=net,
+            period=period,
+            xml_sha256=xml_sha256,
+            user_id=user_id,
+            acquired_at=acquired_at,
+            now=now,
+        )
     invoice = PayrollInvoice(
         source="ksef",
         ksef_number=ksef_number,
@@ -491,7 +598,15 @@ async def _incremental(run: _Run, state: dict[str, Any]) -> None:
             end = start + WINDOW if run.now - start > WINDOW else None
             run.progress = None
             hwm = await _window(run, date_from=cursor, date_to=_iso(end))
-            reached = hwm or _iso(end)
+            reached = hwm
+            if end is not None:
+                # Okno przycięte do 99 dni: KSeF podaje HWM całego magazynu,
+                # często dalej niż koniec okna — znacznik idzie najwyżej do
+                # końca okna (min(HWM, koniec)), inaczej przeskoczyłby faktury
+                # między końcem okna a HWM, o które nikt nie zapytał.
+                hwm_at = parse_instant(hwm)
+                if hwm_at is None or hwm_at > end:
+                    reached = _iso(end)
             if reached is None or (parse_instant(reached) or start) <= start:
                 break
             cursor = reached

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { manualFormError } from "@/components/hr/payroll/ksef/KsefDialogs";
 import {
+  canDetach,
   canFetch,
   invoiceStats,
   lastRunLine,
@@ -82,6 +83,28 @@ describe("ksef-format", () => {
   });
 });
 
+describe("canDetach", () => {
+  it("lets Payroll move or skip a matched invoice until the settlement is paid", () => {
+    expect(canDetach(invoice())).toBe(true);
+    expect(
+      canDetach(
+        invoice({
+          settlement: { id: 3, status: "approved", expected_amount: "1.00", year: 2026, month: 10 },
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      canDetach(
+        invoice({
+          settlement: { id: 3, status: "paid", expected_amount: "1.00", year: 2026, month: 10 },
+        }),
+      ),
+    ).toBe(false);
+    expect(canDetach(invoice({ match_status: "unmatched", settlement: null }))).toBe(false);
+    expect(canDetach(invoice({ match_status: "ignored", settlement: null }))).toBe(false);
+  });
+});
+
 describe("manualFormError", () => {
   const form = {
     personId: "7",
@@ -108,6 +131,7 @@ describe("manualFormError", () => {
     [{ period: "" }, "Wybierz miesiąc rozliczenia."],
     [{ net: "12,345" }, "Kwoty wpisz jak 1234,50 (najwyżej dwa miejsca po przecinku)."],
     [{ gross: "2400,01" }, "Netto + VAT musi dać brutto co do grosza."],
+    [{ vat: "600", gross: "3000" }, "VAT: najwyżej 23% netto (najwyższa stawka w Polsce)."],
   ])("refuses %o", (overrides, message) => {
     expect(manualFormError({ ...form, ...overrides }, file)).toBe(message);
   });

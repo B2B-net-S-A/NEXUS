@@ -42,6 +42,7 @@ import {
 } from "./KsefDialogs";
 import {
   HEALTH_TONE,
+  canDetach,
   canFetch,
   invoiceStats,
   lastRunLine,
@@ -295,6 +296,16 @@ function InvoiceRow({ invoice, onAssign, onIgnore, onRestore, onPdf, pending }: 
             <>
               <Button size="sm" variant="outline" onClick={onAssign}>
                 Przypisz
+              </Button>
+              <Button size="sm" variant="ghost" onClick={onIgnore}>
+                Pomiń
+              </Button>
+            </>
+          ) : null}
+          {canDetach(invoice) ? (
+            <>
+              <Button size="sm" variant="ghost" onClick={onAssign}>
+                Przenieś
               </Button>
               <Button size="sm" variant="ghost" onClick={onIgnore}>
                 Pomiń

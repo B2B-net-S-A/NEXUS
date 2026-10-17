@@ -65,9 +65,11 @@ from app.services.hr.settlements_rules import (
     PAYMENT_SETTINGS_KEY,
     amount_basis,
     clamp_payout_day,
+    gross_problem,
     initial_status,
     invoice_due_date,
     net_total,
+    override_covers,
     payout_date,
     problems_of,
 )
@@ -197,6 +199,32 @@ async def matched_invoices(
     )
 
 
+def gross_issue_of(
+    invoices: list[PayrollInvoice], billing: Optional[EmployeeBillingDetails]
+) -> bool:
+    """Brutto dopasowanych faktur nie wynika z netto i VAT (``gross_problem``)."""
+
+    return gross_problem(
+        ((i.net_amount, i.vat_amount, i.gross_amount) for i in invoices),
+        vat_status=billing.vat_status if billing is not None else None,
+    )
+
+
+async def problems_now(
+    db: AsyncSession, settlement: PayrollSettlement
+) -> tuple[str, ...]:
+    """Problemy rozliczenia teraz (wniosek o uznanie bierze je do śladu)."""
+
+    billing = await billing_of(db, settlement.user_id)
+    invoices = await matched_invoices(db, settlement.id)
+    return problems_of(
+        employment_type=settlement.employment_type,
+        discrepancy=settlement.discrepancy_amount,
+        account_source=billing.account_source if billing is not None else None,
+        gross_issue=gross_issue_of(invoices, billing),
+    )
+
+
 def clear_override(settlement: PayrollSettlement) -> None:
     settlement.override_kind = None
     settlement.override_reason = None
@@ -212,6 +240,13 @@ def _clear_approval(settlement: PayrollSettlement) -> None:
 
 
 # ── Powiadomienia (bez kwot) ──────────────────────────────────────────────────
+#
+# Dzwonki rozliczeń idą BEZ ``related_entity_id``: dzienny odsiew
+# ``ix_notif_dedup_daily`` (osoba, typ, encja, doba) połknąłby drugi dzwonek
+# o tym samym rozliczeniu tego samego dnia — np. wniosek o uznanie różnicy
+# zaraz po dzwonku o rozbieżności. Powtórek pilnuje kod (dzwonek o rozbieżności
+# tylko przy wejściu w ``mismatch``, „opłacono” raz). Jak w urlopach
+# i komunikatach do konsultantów.
 
 
 async def notify_review(
@@ -233,7 +268,6 @@ async def notify_review(
         ntype=NotificationType.hr_settlement_review,
         link=queue_link(period.year, period.month, settlement.id),
         related_entity_type="payroll_settlement",
-        related_entity_id=settlement.id,
         exclude=(settlement.user_id, *exclude),
         log_tag="settlements",
     )
@@ -293,8 +327,11 @@ async def recompute(
             employment_type=B2B,
             discrepancy=discrepancy,
             account_source=billing.account_source if billing is not None else None,
+            gross_issue=gross_issue_of(invoices, billing),
         )
-        confirmed = settlement.override_confirmed_by is not None
+        confirmed = settlement.override_confirmed_by is not None and override_covers(
+            settlement.override_kind, problems
+        )
         target = "ready" if not problems or confirmed else "mismatch"
     if previous == "paid":
         return previous
@@ -565,7 +602,6 @@ async def mark_paid(
         ntype=NotificationType.hr_settlement_paid,
         link=PERSON_LINK,
         related_entity_type="payroll_settlement",
-        related_entity_id=locked.id,
         exclude=(actor_id,),
         log_tag="settlements",
     )
@@ -736,11 +772,17 @@ async def cancel_for_period(
     return len(rows)
 
 
-async def billing_changed(db: AsyncSession, user_id: int) -> None:
-    """Zmiana NIP-u albo rachunku osoby: przelicz jej faktury w toku.
+async def billing_changed(
+    db: AsyncSession, user_id: int, *, payee_changed: bool = True
+) -> None:
+    """Zmiana danych do rozliczeń osoby: przelicz jej rozliczenia B2B przed zapłatą.
 
-    Uznanie „rachunek spoza białej listy” dotyczyło poprzedniego rachunku —
-    znika; faktury z nowym NIP-em, które czekały, dopasowują się.
+    ``payee_changed`` — zmienił się rachunek albo NIP (komu idą pieniądze).
+    Wtedy znika uznanie KAŻDEGO rodzaju (dwie osoby uznały różnicę przy
+    poprzednim odbiorcy) i zatwierdzenie do zapłaty: zatwierdzone wraca do
+    przeliczenia, a rachunek spoza białej listy daje rozbieżność do decyzji
+    dwóch osób. Sam termin płatności albo status VAT tylko przelicza stan.
+    Faktury z nowym NIP-em, które czekały, dopasowują się.
     """
 
     rows = list(
@@ -750,17 +792,21 @@ async def billing_changed(db: AsyncSession, user_id: int) -> None:
                 PayrollSettlement.user_id == user_id,
                 PayrollSettlement.employment_type == B2B,
                 PayrollSettlement.status.in_(
-                    ("awaiting_document", "mismatch", "ready")
+                    ("awaiting_document", "mismatch", "ready", "approved")
                 ),
             )
             .order_by(PayrollSettlement.id)
             .with_for_update()
+            .execution_options(populate_existing=True)
         )
     )
     billing = await billing_of(db, user_id)
     for row in rows:
-        if row.override_kind == "white_list":
+        if payee_changed:
             clear_override(row)
+            if row.status == "approved":
+                _clear_approval(row)
+                row.status = "ready"
         await recompute(db, row, billing=billing)
         await attach_waiting_invoices(db, row, await period_of(db, row))
 
@@ -774,6 +820,7 @@ __all__ = [
     "cancel_for_period",
     "clear_override",
     "ensure_for_period",
+    "gross_issue_of",
     "invoice_period",
     "load_payout_day",
     "lock_settlement",
@@ -785,6 +832,7 @@ __all__ = [
     "payable",
     "payroll_ids",
     "person_name",
+    "problems_now",
     "queue_link",
     "received_on",
     "recompute",

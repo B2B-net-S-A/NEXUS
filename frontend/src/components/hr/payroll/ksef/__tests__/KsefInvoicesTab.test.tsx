@@ -184,6 +184,33 @@ describe("KsefInvoicesTab", () => {
     );
   });
 
+  it("moves or skips a matched invoice until its settlement is paid", async () => {
+    mockApi({
+      list: {
+        invoices: [
+          invoice(),
+          invoice({
+            id: 4,
+            invoice_number: "FV 8/2026",
+            settlement: { id: 5, status: "paid", expected_amount: "100.00", year: 2026, month: 10 },
+          }),
+        ],
+        counts: { total: 2, matched: 2, unmatched: 0, ignored: 0 },
+      },
+    });
+    renderWithClient(<KsefInvoicesTab year={2026} month={10} />);
+    const open = await screen.findByTestId("ksef-invoice-1");
+    expect(within(open).getByRole("button", { name: "Przenieś" })).toBeInTheDocument();
+    await userEvent.click(within(open).getByRole("button", { name: "Pomiń" }));
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText(/odepnie ją od rozliczenia/)).toBeInTheDocument();
+    await userEvent.keyboard("{Escape}");
+
+    const paid = screen.getByTestId("ksef-invoice-4");
+    expect(within(paid).queryByRole("button", { name: "Przenieś" })).not.toBeInTheDocument();
+    expect(within(paid).queryByRole("button", { name: "Pomiń" })).not.toBeInTheDocument();
+  });
+
   it("shows server refusal in the manual invoice dialog", async () => {
     mockApi();
     renderWithClient(<KsefInvoicesTab year={2026} month={10} />);

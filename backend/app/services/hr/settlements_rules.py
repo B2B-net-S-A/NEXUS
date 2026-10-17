@@ -12,7 +12,8 @@ Czyste funkcje (testy bez bazy w ``tests/test_hr_settlements_rules.py``):
   ostatni dzień miesiąca),
 * **podstawa kwoty** — B2B porównuje netto faktury, zlecenie i UoP brutto
   (R4: NEXUS nie liczy podatków ani składek),
-* **co blokuje zatwierdzenie** (R7, R10) — różnica netto choćby o grosz
+* **co blokuje zatwierdzenie** (R7, R10) — różnica netto choćby o grosz,
+  brutto, które nie wynika z netto i VAT (płacimy brutto, porównujemy netto),
   i rachunek spoza białej listy VAT.
 """
 
@@ -31,6 +32,9 @@ from app.services.hr.payroll_periods import add_months
 PAYMENT_SETTINGS_KEY = "hr_payment_settings"
 DEFAULT_PAYOUT_DAY = 10
 DEFAULT_TERMS_DAYS = 14
+#: Najwyższa stawka VAT w Polsce — więcej niż 23% netto to nie VAT od usługi.
+VAT_MAX_RATE = Decimal("0.23")
+_CENT = Decimal("0.01")
 
 B2B = "b2b"
 #: Stany, w których dokument jeszcze może zmienić rozliczenie.
@@ -115,17 +119,48 @@ def net_total(amounts: Iterable[Decimal]) -> Decimal:
     )
 
 
+def gross_problem(
+    amounts: Iterable[tuple[Decimal, Decimal, Decimal]],
+    *,
+    vat_status: Optional[str],
+) -> bool:
+    """Brutto do zapłaty nie wynika z netto, które porównujemy (R7).
+
+    ``amounts`` — (netto, VAT, brutto) dopasowanych faktur (korekty niosą
+    różnice). Problem, gdy brutto którejkolwiek różni się od netto + VAT
+    o więcej niż grosz, gdy suma VAT > 0 u osoby, która nie jest czynnym
+    podatnikiem VAT (status z wykazu ≠ ``active``, także niesprawdzony), albo
+    gdy VAT przekracza 23% netto (z groszem zapasu na zaokrąglenie każdej
+    faktury). Faktury z KSeF przyjmujemy bez zmian — decyzję podejmują Płace.
+    """
+
+    rows = [(Decimal(net), Decimal(vat), Decimal(gross)) for net, vat, gross in amounts]
+    if not rows:
+        return False
+    if any(abs(gross - net - vat) > _CENT for net, vat, gross in rows):
+        return True
+    net_sum = sum((net for net, _vat, _gross in rows), Decimal("0"))
+    vat_sum = sum((vat for _net, vat, _gross in rows), Decimal("0"))
+    if vat_sum > 0 and vat_status != "active":
+        return True
+    ceiling = (net_sum * VAT_MAX_RATE).quantize(_CENT) + _CENT * len(rows)
+    return vat_sum > ceiling
+
+
 def problems_of(
     *,
     employment_type: str,
     discrepancy: Optional[Decimal],
     account_source: Optional[str],
+    gross_issue: bool = False,
 ) -> tuple[str, ...]:
     """Co nie pozwala zatwierdzić faktury bez drugiej osoby (R7, R10).
 
     ``amount`` — netto faktury różni się od kwoty z NEXUSA choćby o grosz,
-    ``white_list`` — rachunek do przelewu nie pochodzi z wykazu VAT (albo go
-    nie ma). Zlecenie i UoP nie mają faktury — nic tu nie zgłaszają.
+    ``gross`` — brutto (to, co płacimy) nie wynika z netto i VAT
+    (``gross_problem``), ``white_list`` — rachunek do przelewu nie pochodzi
+    z wykazu VAT (albo go nie ma). Zlecenie i UoP nie mają faktury — nic tu
+    nie zgłaszają.
     """
 
     if employment_type != B2B:
@@ -133,19 +168,38 @@ def problems_of(
     found: list[str] = []
     if discrepancy is not None and discrepancy != 0:
         found.append("amount")
+    if gross_issue:
+        found.append("gross")
     if account_source != "white_list":
         found.append("white_list")
     return tuple(found)
 
 
+def override_covers(kind: Optional[str], problems: tuple[str, ...]) -> bool:
+    """Czy potwierdzone uznanie obejmuje obecne problemy.
+
+    Uznanie różnicy kwoty (``amount``) obejmuje wszystko, co było widać przy
+    wniosku; uznanie samego rachunku (``white_list``) nie przepuszcza
+    problemu z kwotą, który pojawił się później (np. VAT u osoby, która
+    w wykazie jest teraz zwolniona). Nowy dokument i zmiana odbiorcy kasują
+    uznanie osobno.
+    """
+
+    if kind == "amount":
+        return True
+    if kind == "white_list":
+        return set(problems) <= {"white_list"}
+    return False
+
+
 def override_kind_for(problems: tuple[str, ...]) -> Optional[str]:
-    """Rodzaj uznania: różnica kwoty ma pierwszeństwo przed rachunkiem.
+    """Rodzaj uznania: różnica kwoty (netto albo brutto) przed rachunkiem.
 
     Uznanie obejmuje WSZYSTKIE problemy widoczne w chwili wniosku (lista idzie
     do śladu); nowy dokument albo zmiana rachunku je kasuje.
     """
 
-    if "amount" in problems:
+    if "amount" in problems or "gross" in problems:
         return "amount"
     if "white_list" in problems:
         return "white_list"
@@ -159,11 +213,14 @@ __all__ = [
     "OPEN_STATUSES",
     "PAYMENT_SETTINGS_KEY",
     "URGENCY",
+    "VAT_MAX_RATE",
     "amount_basis",
     "clamp_payout_day",
+    "gross_problem",
     "initial_status",
     "invoice_due_date",
     "net_total",
+    "override_covers",
     "override_kind_for",
     "payout_date",
     "problems_of",

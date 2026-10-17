@@ -6,7 +6,9 @@ Zmieniają je Płace w Ustawieniach → Płace (karta „Płatności i Symfonia�
   miesiąca (domyślnie 10.). Ten sam wpis czyta termin w rozliczeniu
   (``settlements.load_payout_day`` i ``settlements_rules.payout_date``),
 * **paczka przelewów** (R9) — opcja, domyślnie WYŁĄCZONA: przelewy robią
-  Finanse jak dziś (eBI24 albo bank). Włączona wymaga rachunku i nazwy nadawcy,
+  Finanse jak dziś (eBI24 albo bank). Włączona wymaga rachunku i nazwy nadawcy.
+  Rachunek nadawcy wraca w odpowiedzi API tylko jako 4 ostatnie cyfry
+  (``api_payload``); formularz bez nowego numeru zostawia zapisany,
 * **słowniki Symfonii** (R5) — dokładne nazwy zdarzeń nieobecności z „Definicji
   zdarzeń”, zdarzenie nadgodzin i początek dnia pracy (koniec normy 8 h =
   początek nadgodzin), kolumny premii (rodzaj premii NEXUSA → nazwa kolumny
@@ -254,6 +256,27 @@ def as_payload(settings: PaymentSettings) -> dict[str, Any]:
     }
 
 
+def api_payload(settings: PaymentSettings) -> dict[str, Any]:
+    """Odpowiedź API: jak ``as_payload``, ale rachunek nadawcy tylko jako 4 cyfry."""
+
+    body = as_payload(settings)
+    batch = dict(body["transfer_batch"])
+    account = batch.pop("sender_account")
+    batch["sender_account_last4"] = account[-4:] if account else None
+    return {**body, "transfer_batch": batch}
+
+
+def _keep_sender_account(incoming: Any, current: Mapping[str, Any]) -> Any:
+    """Formularz bez nowego rachunku nadawcy (brak pola albo ``null``) go nie kasuje."""
+
+    if not isinstance(incoming, Mapping) or incoming.get("sender_account") is not None:
+        return incoming
+    stored = current.get("transfer_batch")
+    if not isinstance(stored, Mapping):
+        return incoming
+    return {**incoming, "sender_account": stored.get("sender_account")}
+
+
 async def load_settings(db: AsyncSession) -> PaymentSettings:
     raw = await db.scalar(select(AppSetting.value).where(AppSetting.key == SETTING_KEY))
     if raw is None:
@@ -278,10 +301,12 @@ async def save_settings(
         select(AppSetting.value).where(AppSetting.key == SETTING_KEY)
     )
     current = dict(stored) if isinstance(stored, Mapping) else {}
-    merged = {
-        **current,
-        **{key: value for key, value in raw.items() if value is not None},
-    }
+    incoming = {key: value for key, value in raw.items() if value is not None}
+    if "transfer_batch" in incoming:
+        incoming["transfer_batch"] = _keep_sender_account(
+            incoming["transfer_batch"], current
+        )
+    merged = {**current, **incoming}
     parsed = parse_settings(merged)
     value = {**current, **as_payload(parsed)}
     statement = insert(AppSetting).values(
@@ -305,6 +330,7 @@ __all__ = [
     "SETTING_KEY",
     "SymfoniaSettings",
     "TransferBatchSettings",
+    "api_payload",
     "as_payload",
     "load_settings",
     "parse_settings",

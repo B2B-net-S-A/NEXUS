@@ -700,3 +700,201 @@ async def test_wyczerpany_budzet_zapytan_przesuwa_znacznik(env, monkeypatch):
         assert result.get("partial") is True
         env.clock.advance(hours=1)
     assert {OLA_INVOICE, ANNA_INVOICE, ANNA_CORRECTION} <= saved
+
+
+# ── Po przeglądzie (17/18.10): brutto z KSeF niezgodne z netto i VAT ─────────
+
+
+async def test_podmienione_brutto_to_rozbieznosc_a_nie_zgodna(env):
+    from app.core.encryption import get_token_cipher
+    from app.services.hr.bank.accounts import iban_check_digits
+
+    bban = "99990001" + "0000000000004521"  # bank 9999xxxx nie istnieje
+    account = iban_check_digits(bban) + bban
+    async with AsyncSessionLocal() as db:
+        details = await db.scalar(
+            select(EmployeeBillingDetails).where(
+                EmployeeBillingDetails.user_id == env.ola.id
+            )
+        )
+        details.vat_status = "active"
+        details.account_encrypted = get_token_cipher().encrypt(account)
+        details.account_last4 = account[-4:]
+        details.account_source = "white_list"
+        details.account_check_request_id = "sim-fikcyjne-1"
+        period = await db.scalar(
+            select(PayrollPeriod).where(
+                PayrollPeriod.year == 2026, PayrollPeriod.month == 9
+            )
+        )
+        created = period is None
+        if created:
+            period = PayrollPeriod(
+                year=2026, month=9, status="closed", closed_at=env.clock()
+            )
+            db.add(period)
+            await db.flush()
+        settlement = PayrollSettlement(
+            period_id=period.id,
+            user_id=env.ola.id,
+            employment_type="b2b",
+            currency="PLN",
+            expected_amount=Decimal("16400.00"),
+            amount_basis="net",
+            status="awaiting_document",
+        )
+        db.add(settlement)
+        await db.commit()
+        settlement_id, period_id = settlement.id, period.id
+    # Netto i VAT bez zmian, P_15 dziesięć razy większe. Faktury nie odrzucamy.
+    env.fake.xml[OLA_INVOICE] = env.fake.xml[OLA_INVOICE].replace(
+        b"<P_15>20172.00</P_15>", b"<P_15>201720.00</P_15>"
+    )
+    try:
+        await env.run()
+        ola = next(
+            row for row in await env.invoices() if row.ksef_number == OLA_INVOICE
+        )
+        assert ola.match_status == "matched"
+        assert ola.gross_amount == Decimal("201720.00")
+        async with AsyncSessionLocal() as db:
+            refreshed = await db.get(PayrollSettlement, settlement_id)
+            assert refreshed.discrepancy_amount == Decimal("0.00")
+            assert refreshed.status == "mismatch"
+    finally:
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                delete(PayrollInvoice).where(
+                    PayrollInvoice.seller_nip.in_(FIXTURE_NIPS)
+                )
+            )
+            await db.execute(
+                delete(PayrollSettlement).where(PayrollSettlement.id == settlement_id)
+            )
+            if created:
+                await db.execute(
+                    delete(PayrollPeriod).where(PayrollPeriod.id == period_id)
+                )
+            await db.commit()
+
+
+# ── Po przeglądzie (17/18.10): ta sama faktura z PDF-u i z KSeF ──────────────
+
+
+async def test_faktura_z_ksef_laczy_sie_z_recznym_pdfem_tej_samej_faktury(env):
+    async with AsyncSessionLocal() as db:
+        period = await db.scalar(
+            select(PayrollPeriod).where(
+                PayrollPeriod.year == 2026, PayrollPeriod.month == 9
+            )
+        )
+        created = period is None
+        if created:
+            period = PayrollPeriod(
+                year=2026, month=9, status="closed", closed_at=env.clock()
+            )
+            db.add(period)
+            await db.flush()
+        settlement = PayrollSettlement(
+            period_id=period.id,
+            user_id=env.ola.id,
+            employment_type="b2b",
+            currency="PLN",
+            expected_amount=Decimal("16400.00"),
+            amount_basis="net",
+            status="mismatch",
+            discrepancy_amount=Decimal("0.00"),
+        )
+        db.add(settlement)
+        await db.flush()
+        # Płace dopięły PDF tej samej faktury, zanim przyszła z KSeF.
+        manual = PayrollInvoice(
+            source="manual_pdf",
+            seller_nip=OLA_NIP,
+            user_id=env.ola.id,
+            invoice_number="fv 9/2026",
+            issue_date=datetime(2026, 10, 3).date(),
+            period_year=2026,
+            period_month=9,
+            currency="PLN",
+            net_amount=Decimal("16400.00"),
+            vat_amount=Decimal("3772.00"),
+            gross_amount=Decimal("20172.00"),
+            items=[],
+            pdf_storage_key="payroll_invoices/aa/fikcyjna.pdf",
+            pdf_sha256="b" * 64,
+            settlement_id=settlement.id,
+            match_status="matched",
+        )
+        db.add(manual)
+        await db.commit()
+        settlement_id, period_id, manual_id = settlement.id, period.id, manual.id
+    try:
+        await env.run()
+        rows = [
+            row
+            for row in await env.invoices()
+            if row.seller_nip == OLA_NIP and row.invoice_kind == "original"
+        ]
+        assert [row.id for row in rows] == [manual_id]
+        (row,) = rows
+        assert row.source == "ksef" and row.ksef_number == OLA_INVOICE
+        assert row.xml_sha256 == hashlib.sha256(env.fake.xml[OLA_INVOICE]).hexdigest()
+        assert row.pdf_storage_key == "payroll_invoices/aa/fikcyjna.pdf"
+        assert row.ksef_acquired_at == datetime(2026, 10, 3, 8, 15, tzinfo=timezone.utc)
+        assert row.settlement_id == settlement_id and row.match_status == "matched"
+        async with AsyncSessionLocal() as db:
+            refreshed = await db.get(PayrollSettlement, settlement_id)
+            # Netto liczone raz, nie dwa razy (16 400, a nie 32 800).
+            assert refreshed.discrepancy_amount == Decimal("0.00")
+    finally:
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                delete(PayrollInvoice).where(
+                    PayrollInvoice.seller_nip.in_(FIXTURE_NIPS)
+                )
+            )
+            await db.execute(
+                delete(PayrollSettlement).where(PayrollSettlement.id == settlement_id)
+            )
+            if created:
+                await db.execute(
+                    delete(PayrollPeriod).where(PayrollPeriod.id == period_id)
+                )
+            await db.commit()
+
+
+# ── Po przeglądzie (17/18.10): znacznik przy oknie przyciętym do 99 dni ──────
+
+
+async def test_znacznik_nie_przeskakuje_konca_przycietego_okna(env):
+    """KSeF podaje HWM całego magazynu — dalej niż koniec przyciętego okna."""
+
+    await _set_setting(
+        sync.STATE_KEY,
+        {"cursors": {STATE: "2026-05-01T00:00:00.000+00:00"}},
+    )
+    original = env.fake._metadata
+
+    def far_hwm(request, body, now):
+        response = original(request, body, now)
+        payload = response.json()
+        payload["permanentStorageHwmDate"] = ksef_client.format_instant(now)
+        return httpx.Response(response.status_code, json=payload)
+
+    env.fake._metadata = far_hwm
+    result = await env.run()
+    assert result["status"] == "ok"
+    queries = [
+        body["dateRange"]
+        for body, call in zip(env.fake.bodies, env.fake.calls)
+        if call.url.path.endswith("/invoices/query/metadata")
+    ]
+    assert queries[0]["to"] == "2026-08-08T00:00:00.000+00:00"
+    # Kolejne okno zaczyna się tam, gdzie skończyło poprzednie, nie na HWM.
+    assert queries[1]["from"] == "2026-08-08T00:00:00.000+00:00"
+    assert {row.ksef_number for row in await env.invoices()} == {
+        OLA_INVOICE,
+        ANNA_INVOICE,
+        ANNA_CORRECTION,
+    }

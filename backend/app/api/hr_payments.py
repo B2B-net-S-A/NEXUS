@@ -147,7 +147,7 @@ class PaymentSettingsIn(BaseModel):
 async def get_settings(
     current_user: PaymentsAdmin, db: AsyncSession = Depends(get_db)
 ) -> dict[str, Any]:
-    return payment_settings.as_payload(await payment_settings.load_settings(db))
+    return payment_settings.api_payload(await payment_settings.load_settings(db))
 
 
 @router.put("/settings")
@@ -160,7 +160,7 @@ async def put_settings(
         saved = await payment_settings.save_settings(
             db, payload.model_dump(exclude_none=True), actor_id=current_user.id
         )
-    body = payment_settings.as_payload(saved)
+    body = payment_settings.api_payload(saved)
     audit.record(
         db,
         actor_user_id=current_user.id,

@@ -100,12 +100,13 @@ def _subfields(text: str) -> dict[str, str]:
     marks = list(_SUBFIELD.finditer(flat))
     if len(marks) < 2:
         return {}
-    fields: dict[str, str] = {}
+    # Kawałki do listy i jedno sklejenie na końcu — ``+=`` na napisie w słowniku
+    # kopiuje całość za każdym razem (kwadratowo przy powtórzonym podpolu).
+    chunks: dict[str, list[str]] = {}
     for index, mark in enumerate(marks):
         end = marks[index + 1].start() if index + 1 < len(marks) else len(flat)
-        fields.setdefault(mark.group(1), "")
-        fields[mark.group(1)] += flat[mark.end() : end]
-    return fields
+        chunks.setdefault(mark.group(1), []).append(flat[mark.end() : end])
+    return {key: "".join(parts) for key, parts in chunks.items()}
 
 
 def _account_from_text(text: str) -> Optional[str]:

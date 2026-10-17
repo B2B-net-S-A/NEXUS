@@ -452,6 +452,13 @@ async def test_przypisz_do_miesiaca(app_client, ctx):
         row.match_status = "matched"
         await db.commit()
     try:
+        # Dopasowaną do rozliczenia opłaconego nie da się przenieść.
+        async with AsyncSessionLocal() as db:
+            paid = await db.get(PayrollSettlement, settlement.id)
+            paid.status = "paid"
+            paid.paid_at = _now()
+            paid.paid_source = "statement"
+            await db.commit()
         matched = await app_client.post(
             f"{BASE}/invoices/{invoice.id}/period",
             headers=_headers(ctx.payroll),
@@ -498,3 +505,172 @@ async def test_pomin_i_przywroc(app_client, ctx):
         f"{BASE}/invoices/999999999/ignore", headers=headers, json={"ignored": False}
     )
     assert missing.status_code == 404
+
+
+# ── Po przeglądzie (17/18.10): VAT w ręcznym PDF-ie ──────────────────────────
+
+
+async def test_reczny_pdf_vat_ponad_23_procent_netto_422(app_client, ctx):
+    response = await app_client.post(
+        f"{BASE}/invoices/manual",
+        headers=_headers(ctx.payroll),
+        data=_form(ctx, vat_amount="600,00", gross_amount="3000.00"),
+        files={"file": ("faktura.pdf", PDF, "application/pdf")},
+    )
+    assert response.status_code == 422, response.text
+    assert "23%" in response.json()["detail"]
+
+
+async def test_reczny_pdf_z_vat_u_osoby_zwolnionej_422(app_client, ctx):
+    async with AsyncSessionLocal() as db:
+        details = await db.scalar(
+            select(EmployeeBillingDetails).where(
+                EmployeeBillingDetails.user_id == ctx.ola.id
+            )
+        )
+        details.vat_status = "exempt"
+        await db.commit()
+    refused = await app_client.post(
+        f"{BASE}/invoices/manual",
+        headers=_headers(ctx.payroll),
+        data=_form(ctx, vat_amount="552,00", gross_amount="2952.00"),
+        files={"file": ("faktura.pdf", PDF, "application/pdf")},
+    )
+    assert refused.status_code == 422, refused.text
+    assert "zwolnion" in refused.json()["detail"]
+    allowed = await app_client.post(
+        f"{BASE}/invoices/manual",
+        headers=_headers(ctx.payroll),
+        data=_form(ctx),
+        files={"file": ("faktura.pdf", PDF, "application/pdf")},
+    )
+    assert allowed.status_code == 201, allowed.text
+
+
+# ── Po przeglądzie (17/18.10): odpięcie dopasowanej, nieopłaconej faktury ────
+
+
+async def _matched_invoice(ctx, *, status: str = "ready"):
+    async with AsyncSessionLocal() as db:
+        period = await db.scalar(
+            select(PayrollPeriod).where(
+                PayrollPeriod.year == 2026, PayrollPeriod.month == 9
+            )
+        )
+        created = period is None
+        if created:
+            period = PayrollPeriod(
+                year=2026, month=9, status="closed", closed_at=_now()
+            )
+            db.add(period)
+            await db.flush()
+        settlement = PayrollSettlement(
+            period_id=period.id,
+            user_id=ctx.ola.id,
+            employment_type="b2b",
+            currency="PLN",
+            expected_amount=Decimal("16400.00"),
+            amount_basis="net",
+            status=status,
+            discrepancy_amount=Decimal("0.00"),
+            due_on=date(2026, 10, 17),
+        )
+        if status == "approved":
+            settlement.approved_by = ctx.payroll.id
+            settlement.approved_at = _now()
+        if status == "paid":
+            settlement.paid_at = _now()
+            settlement.paid_source = "statement"
+        db.add(settlement)
+        await db.flush()
+        invoice = PayrollInvoice(
+            source="ksef",
+            ksef_number=OLA_INVOICE,
+            seller_nip=OLA_NIP,
+            user_id=ctx.ola.id,
+            invoice_number="FV 9/2026",
+            issue_date=date(2026, 10, 3),
+            period_year=2026,
+            period_month=9,
+            currency="PLN",
+            net_amount=Decimal("16400.00"),
+            vat_amount=Decimal("3772.00"),
+            gross_amount=Decimal("20172.00"),
+            items=[],
+            xml_sha256="a" * 64,
+            settlement_id=settlement.id,
+            match_status="matched",
+        )
+        db.add(invoice)
+        await db.commit()
+        return invoice.id, settlement.id, (period.id if created else None)
+
+
+async def _cleanup(period_id) -> None:
+    if period_id is None:
+        return
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            delete(PayrollInvoice).where(PayrollInvoice.seller_nip == OLA_NIP)
+        )
+        await db.execute(
+            delete(PayrollSettlement).where(PayrollSettlement.period_id == period_id)
+        )
+        await db.execute(delete(PayrollPeriod).where(PayrollPeriod.id == period_id))
+        await db.commit()
+
+
+async def test_pominiecie_dopasowanej_faktury_przelicza_rozliczenie(app_client, ctx):
+    invoice_id, settlement_id, period_id = await _matched_invoice(
+        ctx, status="approved"
+    )
+    try:
+        response = await app_client.post(
+            f"{BASE}/invoices/{invoice_id}/ignore",
+            headers=_headers(ctx.payroll),
+            json={"ignored": True, "reason": "Ta sama faktura przyszła dwa razy"},
+        )
+        assert response.status_code == 200, response.text
+        assert response.json()["match_status"] == "ignored"
+        async with AsyncSessionLocal() as db:
+            settlement = await db.get(PayrollSettlement, settlement_id)
+            invoice = await db.get(PayrollInvoice, invoice_id)
+        assert invoice.settlement_id is None
+        # Bez faktury rozliczenie znów czeka na dokument, zatwierdzenie cofnięte.
+        assert settlement.status == "awaiting_document"
+        assert settlement.approved_by is None and settlement.discrepancy_amount is None
+    finally:
+        await _cleanup(period_id)
+
+
+async def test_przeniesienie_dopasowanej_faktury_do_innego_miesiaca(app_client, ctx):
+    invoice_id, settlement_id, period_id = await _matched_invoice(ctx)
+    try:
+        moved = await app_client.post(
+            f"{BASE}/invoices/{invoice_id}/period",
+            headers=_headers(ctx.payroll),
+            json={"year": 2026, "month": 8},
+        )
+        assert moved.status_code == 200, moved.text
+        assert moved.json()["period"] == "2026-08"
+        async with AsyncSessionLocal() as db:
+            settlement = await db.get(PayrollSettlement, settlement_id)
+        assert settlement.status == "awaiting_document"
+    finally:
+        await _cleanup(period_id)
+
+
+async def test_faktury_przy_oplaconym_rozliczeniu_nie_da_sie_pominac(app_client, ctx):
+    invoice_id, settlement_id, period_id = await _matched_invoice(ctx, status="paid")
+    try:
+        response = await app_client.post(
+            f"{BASE}/invoices/{invoice_id}/ignore",
+            headers=_headers(ctx.payroll),
+            json={"ignored": True, "reason": "Pomyłka"},
+        )
+        assert response.status_code == 409
+        async with AsyncSessionLocal() as db:
+            invoice = await db.get(PayrollInvoice, invoice_id)
+        assert invoice.match_status == "matched"
+    finally:
+        await _cleanup(period_id)

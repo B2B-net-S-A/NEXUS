@@ -184,6 +184,7 @@ def row_payload(
         employment_type=settlement.employment_type,
         discrepancy=settlement.discrepancy_amount,
         account_source=billing.account_source if billing else None,
+        gross_issue=settlements.gross_issue_of(invoices, billing),
     )
     hours_confirmed = None if line is None else line.timesheet_status == "approved"
     status = settlement.status
@@ -401,6 +402,12 @@ def explain(
         hint = _hours_hint(amounts, invoices)
         if hint:
             out.append(hint)
+    if settlements.gross_issue_of(invoices, billing):
+        out.append(
+            "Brutto do zapłaty nie wynika z netto i VAT (brutto różne od netto + VAT, "
+            "VAT ponad 23% netto albo VAT u osoby, która nie jest czynnym podatnikiem "
+            "VAT) — zapłata wymaga drugiej osoby."
+        )
     if billing is None or billing.account_last4 is None:
         out.append("Brak rachunku do przelewu w danych do rozliczeń.")
     elif billing.account_source != "white_list":

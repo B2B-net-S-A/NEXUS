@@ -186,7 +186,10 @@ export interface PaymentSettings {
   transfer_batch: {
     enabled: boolean;
     format: "elixir" | "csv";
-    sender_account: string | null;
+    /** Zapisany rachunek nadawcy — serwer oddaje tylko 4 ostatnie cyfry. */
+    sender_account_last4?: string | null;
+    /** Nowy rachunek z formularza (tylko w zapisie); `null` = zostaje zapisany. */
+    sender_account?: string | null;
     sender_name: string;
   };
   symfonia: {

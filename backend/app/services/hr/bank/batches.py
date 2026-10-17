@@ -14,14 +14,16 @@ Płace mogą pobrać plik Elixir-O albo CSV z zatwierdzonymi fakturami B2B:
 * rozliczenie w paczce, która czeka, nie trafia do kolejnej.
 
 Paczka to wiersze ``payroll_payments`` (``kind='transfer_batch'``, wspólny
-``batch_key``). Plik powstaje przy pobraniu z bieżącego rachunku osoby
-— jeśli rachunek zmienił się po utworzeniu paczki (inne 4 ostatnie cyfry),
+``batch_key``) z 4 cyframi i skrótem HMAC pełnego rachunku odbiorcy. Plik
+powstaje przy pobraniu z bieżącego rachunku osoby — jeśli rachunek zmienił
+się po utworzeniu paczki (inny skrót, także przy tej samej końcówce),
 pobranie odmawia. „Bank wykonał” oznacza opłacone (``mark_paid`` ze źródłem
 ``transfer_batch``); „Anuluj paczkę” zwalnia rozliczenia.
 """
 
 from __future__ import annotations
 
+import hmac
 import uuid
 from dataclasses import dataclass
 from datetime import date, timedelta
@@ -78,6 +80,8 @@ class BatchItem:
     included: bool
     reason: Optional[str] = None
     white_list_request_id: Optional[str] = None
+    #: Skrót pełnego rachunku z chwili planu (zapisywany w wierszu paczki).
+    account_hmac: Optional[str] = None
 
 
 def ensure_enabled(settings: PaymentSettings) -> None:
@@ -153,6 +157,16 @@ def _account(details: Optional[EmployeeBillingDetails]) -> tuple[Optional[str], 
     return account, "" if account else "no_account"
 
 
+def _same_account(account: Optional[str], payment: PayrollPayment) -> bool:
+    if account is None or not payment.counterparty_hmac:
+        return False
+    try:
+        current = billing_details.account_fingerprint(account)
+    except TokenCipherNotConfigured:
+        return False
+    return hmac.compare_digest(current, payment.counterparty_hmac)
+
+
 async def plan(
     db: AsyncSession,
     *,
@@ -200,6 +214,7 @@ async def plan(
         if account is None:
             items.append(BatchItem(row=row, included=False, reason=problem))
             continue
+        fingerprint = billing_details.account_fingerprint(account)
         override = row.white_list_override
         honored = override and _override_fresh(by_id[row.settlement_id], details)
 
@@ -209,7 +224,14 @@ async def plan(
             return "override_stale" if override else default
 
         if not row.nip:
-            items.append(BatchItem(row=row, included=honored, reason=refused("no_nip")))
+            items.append(
+                BatchItem(
+                    row=row,
+                    included=honored,
+                    reason=refused("no_nip"),
+                    account_hmac=fingerprint,
+                )
+            )
             continue
         try:
             check = await white_list.check(
@@ -222,7 +244,12 @@ async def plan(
             )
         except white_list.WhiteListError:
             items.append(
-                BatchItem(row=row, included=honored, reason=refused("unchecked"))
+                BatchItem(
+                    row=row,
+                    included=honored,
+                    reason=refused("unchecked"),
+                    account_hmac=fingerprint,
+                )
             )
             continue
         listed = check.listed or honored
@@ -232,6 +259,7 @@ async def plan(
                 included=listed,
                 reason=None if check.listed else refused("not_listed"),
                 white_list_request_id=check.request_id,
+                account_hmac=fingerprint,
             )
         )
     return items
@@ -299,6 +327,7 @@ async def create_batch(
                 booked_on=when,
                 title=row.title[:TITLE_MAX_LENGTH],
                 counterparty_last4=row.account_last4,
+                counterparty_hmac=item.account_hmac,
                 batch_key=key,
                 batch_format=settings.transfer_batch.format,
                 created_by=actor_id,
@@ -407,8 +436,8 @@ async def batch_file(db: AsyncSession, key: str) -> tuple[str, bytes, str]:
     for payment in rows:
         settlement = settlements[payment.settlement_id]
         details = billing.get(settlement.user_id)
-        account, problem = _account(details)
-        if account is None or account[-4:] != payment.counterparty_last4:
+        account, _problem = _account(details)
+        if not _same_account(account, payment):
             raise PayrollConflict(
                 "Rachunek osoby zmienił się po utworzeniu paczki albo jest nieczytelny "
                 "— anuluj paczkę i utwórz nową.",

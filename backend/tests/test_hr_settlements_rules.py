@@ -204,3 +204,72 @@ def test_bad_account_message_never_echoes_the_number() -> None:
     assert bad[-8:] not in str(caught.value.detail)
     assert caught.value.__cause__ is None
     assert billing_details.clean_account(f"PL{good[:2]} {good[2:]}") == good
+
+
+# ── Po przeglądzie (17/18.10): zgodność po netto, płatność po brutto ──────────
+
+
+def _amounts(*rows: tuple[str, str, str]) -> list[tuple[Decimal, Decimal, Decimal]]:
+    return [tuple(Decimal(value) for value in row) for row in rows]
+
+
+def test_brutto_musi_wynikac_z_netto_i_vat_co_do_grosza() -> None:
+    assert not rules.gross_problem(
+        _amounts(("16400.00", "3772.00", "20172.00")), vat_status="active"
+    )
+    # P_15 podmienione — netto się zgadza, do zapłaty poszłoby brutto.
+    assert rules.gross_problem(
+        _amounts(("16400.00", "3772.00", "201720.00")), vat_status="active"
+    )
+    assert not rules.gross_problem(
+        _amounts(("100.00", "23.00", "123.01")), vat_status="active"
+    )
+    assert rules.gross_problem(
+        _amounts(("100.00", "23.00", "123.02")), vat_status="active"
+    )
+    assert not rules.gross_problem([], vat_status=None)
+
+
+def test_vat_najwyzej_23_procent_i_tylko_u_czynnego_podatnika() -> None:
+    assert rules.gross_problem(
+        _amounts(("100.00", "24.00", "124.00")), vat_status="active"
+    )
+    for status in ("exempt", "unregistered", None):
+        assert rules.gross_problem(
+            _amounts(("100.00", "23.00", "123.00")), vat_status=status
+        )
+        assert not rules.gross_problem(
+            _amounts(("100.00", "0.00", "100.00")), vat_status=status
+        )
+    # Korekta znosi VAT faktury pierwotnej — liczy się suma.
+    assert not rules.gross_problem(
+        _amounts(("100.00", "23.00", "123.00"), ("-100.00", "-23.00", "-123.00")),
+        vat_status="exempt",
+    )
+
+
+def test_problem_brutto_dziala_jak_roznica_kwoty() -> None:
+    assert rules.problems_of(
+        employment_type="b2b",
+        discrepancy=Decimal("0.00"),
+        account_source="white_list",
+        gross_issue=True,
+    ) == ("gross",)
+    assert (
+        rules.problems_of(
+            employment_type="zlecenie",
+            discrepancy=None,
+            account_source=None,
+            gross_issue=True,
+        )
+        == ()
+    )
+    assert rules.override_kind_for(("gross", "white_list")) == "amount"
+
+
+def test_uznanie_rachunku_nie_obejmuje_problemu_z_kwota() -> None:
+    assert rules.override_covers("amount", ("amount", "gross", "white_list"))
+    assert rules.override_covers("white_list", ("white_list",))
+    assert not rules.override_covers("white_list", ("gross", "white_list"))
+    assert not rules.override_covers("white_list", ("amount",))
+    assert not rules.override_covers(None, ())

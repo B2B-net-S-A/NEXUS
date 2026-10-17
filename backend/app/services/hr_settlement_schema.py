@@ -46,7 +46,8 @@ Tabele:
   Korekta wskazuje fakturę pierwotną; dopasowanie do rozliczenia po NIP
   i miesiącu (``period_year``/``period_month`` z pozycji albo daty sprzedaży).
 * ``payroll_payments`` — zdarzenia płatności: wiersz paczki przelewów (opcja,
-  domyślnie wyłączona), wiersz wyciągu (MT940/CAMT.053; ponowny import tego
+  domyślnie wyłączona; pamięta 4 cyfry i skrót HMAC pełnego rachunku
+  odbiorcy), wiersz wyciągu (MT940/CAMT.053; ponowny import tego
   samego pliku nic nie dubluje) albo ręczne „opłacono” z powodem. Wiersz
   wyciągu bez dopasowania ma ``settlement_id`` NULL i stan ``unmatched``.
 """
@@ -184,10 +185,15 @@ CK_PAYMENT_MATCH = f"match_status IN ({quoted(PAYMENT_MATCH_STATUSES)})"
 CK_PAYMENT_MATCHED = "match_status <> 'matched' OR settlement_id IS NOT NULL"
 CK_PAYMENT_CURRENCY = f"currency IN ({quoted(CURRENCIES)})"
 CK_PAYMENT_AMOUNT = f"abs(amount) <= {AMOUNT_MAX}"
+#: Wiersz paczki pamięta skrót HMAC pełnego rachunku odbiorcy (nie sam numer):
+#: pobranie pliku porównuje go z bieżącym rachunkiem osoby — 4 ostatnie cyfry
+#: nie wystarczą, bo podmieniony rachunek może mieć tę samą końcówkę.
 CK_PAYMENT_BATCH = (
     "kind <> 'transfer_batch' OR (batch_key IS NOT NULL "
-    f"AND batch_format IN ({quoted(BATCH_FORMATS)}))"
+    f"AND batch_format IN ({quoted(BATCH_FORMATS)}) "
+    "AND counterparty_hmac IS NOT NULL)"
 )
+CK_PAYMENT_HMAC = "counterparty_hmac IS NULL OR counterparty_hmac ~ '^[0-9a-f]{64}$'"
 CK_PAYMENT_STATEMENT = (
     "kind <> 'statement_line' OR (statement_sha256 ~ '^[0-9a-f]{64}$' "
     f"AND statement_format IN ({quoted(STATEMENT_FORMATS)}) "
@@ -328,6 +334,7 @@ TABLE_DDL: tuple[str, ...] = (
     booked_on DATE NULL,
     title VARCHAR({TITLE_MAX_LENGTH}) NULL,
     counterparty_last4 VARCHAR(4) NULL,
+    counterparty_hmac VARCHAR(64) NULL,
     batch_key VARCHAR(64) NULL,
     batch_format VARCHAR(8) NULL,
     statement_sha256 VARCHAR(64) NULL,
@@ -345,7 +352,8 @@ TABLE_DDL: tuple[str, ...] = (
     CONSTRAINT ck_payroll_payments_statement CHECK ({CK_PAYMENT_STATEMENT}),
     CONSTRAINT ck_payroll_payments_manual CHECK ({CK_PAYMENT_MANUAL}),
     CONSTRAINT ck_payroll_payments_title CHECK ({CK_PAYMENT_TITLE}),
-    CONSTRAINT ck_payroll_payments_last4 CHECK ({CK_PAYMENT_LAST4})
+    CONSTRAINT ck_payroll_payments_last4 CHECK ({CK_PAYMENT_LAST4}),
+    CONSTRAINT ck_payroll_payments_hmac CHECK ({CK_PAYMENT_HMAC})
 )""",
 )
 

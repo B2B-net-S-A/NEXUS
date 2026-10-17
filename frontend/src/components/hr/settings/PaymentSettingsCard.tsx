@@ -52,7 +52,9 @@ export function paymentSettingsPayload(
   if (account && !isValidPlAccount(account)) {
     return { error: "Rachunek nadawcy: 26 cyfr z poprawną sumą kontrolną (opcjonalnie z PL)." };
   }
-  if (form.transfer_batch.enabled && (!account || !form.transfer_batch.sender_name.trim())) {
+  // Puste pole = zostaje zapisany rachunek (serwer pokazuje tylko jego 4 cyfry).
+  const hasAccount = Boolean(account || form.transfer_batch.sender_account_last4);
+  if (form.transfer_batch.enabled && (!hasAccount || !form.transfer_batch.sender_name.trim())) {
     return { error: "Paczka przelewów wymaga rachunku i nazwy nadawcy (firmy)." };
   }
   if (!TIME.test(form.symfonia.work_start) || Number(form.symfonia.work_start.slice(0, 2)) > 15) {
@@ -71,7 +73,8 @@ export function paymentSettingsPayload(
     payload: {
       payout_day: day,
       transfer_batch: {
-        ...form.transfer_batch,
+        enabled: form.transfer_batch.enabled,
+        format: form.transfer_batch.format,
         sender_account: account || null,
         sender_name: form.transfer_batch.sender_name.trim(),
       },
@@ -214,7 +217,14 @@ export function PaymentSettingsCard() {
                     ))}
                   </div>
                 </FormField>
-                <FormField label="Rachunek firmy (nadawca)">
+                <FormField
+                  label="Rachunek firmy (nadawca)"
+                  description={
+                    current.transfer_batch.sender_account_last4
+                      ? `Zapisany rachunek •• ${current.transfer_batch.sender_account_last4} — wpisz nowy, żeby go zmienić.`
+                      : undefined
+                  }
+                >
                   <Input
                     className="h-8"
                     value={current.transfer_batch.sender_account ?? ""}

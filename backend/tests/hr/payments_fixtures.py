@@ -106,6 +106,7 @@ async def set_billing(
         if source == "white_list":
             details.account_check_request_id = "sim-test-0001"
             details.account_checked_at = local_now()
+            details.vat_status = "active"
     db.add(details)
     await db.flush()
     return details

@@ -718,3 +718,123 @@ async def test_b2b_items_include_paid_break_from_timesheet() -> None:
     ]
     assert sum(item.amount for item in amounts.items) == amounts.total
     assert amounts.timesheet.approved_by_name == team.boss.name
+
+
+# ── Po przeglądzie (17/18.10): zmiana rachunku albo NIP-u kasuje każde uznanie ──
+
+
+async def _confirmed_amount_override(team, period_id: int) -> int:
+    async with AsyncSessionLocal() as db:
+        row = await settlements.lock_settlement(
+            db, (await _settlement(team.b2b.id, period_id)).id
+        )
+        row.override_kind = "amount"
+        row.override_reason = "Zaokrąglenie godzin uzgodnione"
+        row.override_requested_by = team.finance.id
+        row.override_confirmed_by = team.finance2.id
+        await settlements.recompute(db, row)
+        await db.commit()
+        return row.id
+
+
+async def _change_billing(team, changes: dict) -> None:
+    """To samo robi ``PUT /api/hr/settlements/billing/{id}`` (tu jako admin)."""
+
+    from app.services.hr import billing_details
+    from tests.hr_settlements_seed import make_user
+
+    admin = await make_user("admin", profile=False, name="Adam Admin")
+    async with AsyncSessionLocal() as db:
+        await billing_details.update_details(
+            db, actor=admin, user_id=team.b2b.id, changes=changes
+        )
+        await db.commit()
+
+
+@pytest.mark.usefixtures("settlements_on")
+@pytest.mark.asyncio
+async def test_uznanie_roznicy_kwoty_znika_po_zmianie_rachunku() -> None:
+    team = await make_team()
+    year, month, period_id, nip = await _b2b_month(team)
+    await _match(invoice(nip=nip, net="15320.00", year=year, month=month))
+    await _confirmed_amount_override(team, period_id)
+    assert (await _settlement(team.b2b.id, period_id)).status == "ready"
+
+    await _change_billing(team, {"account": fake_account()})
+    row = await _settlement(team.b2b.id, period_id)
+    assert row.status == "mismatch"
+    assert row.override_confirmed_by is None and row.override_kind is None
+
+
+@pytest.mark.usefixtures("settlements_on")
+@pytest.mark.asyncio
+async def test_zmiana_nipu_po_zatwierdzeniu_cofa_zatwierdzenie_i_uznanie() -> None:
+    team = await make_team()
+    year, month, period_id, nip = await _b2b_month(team)
+    await _match(invoice(nip=nip, net="15320.00", year=year, month=month))
+    settlement_id = await _confirmed_amount_override(team, period_id)
+    async with AsyncSessionLocal() as db:
+        from app.services.hr import settlements_decisions
+
+        await settlements_decisions.approve(
+            db, actor=team.finance, settlement_id=settlement_id
+        )
+        await db.commit()
+    assert (await _settlement(team.b2b.id, period_id)).status == "approved"
+
+    await _change_billing(team, {"nip": fake_nip()})
+    row = await _settlement(team.b2b.id, period_id)
+    assert row.status != "approved" and row.approved_by is None
+    assert row.override_confirmed_by is None
+
+
+@pytest.mark.usefixtures("settlements_on")
+@pytest.mark.asyncio
+async def test_zmiana_samego_terminu_nie_cofa_zatwierdzenia() -> None:
+    team = await make_team()
+    year, month, period_id, nip = await _b2b_month(team)
+    await _match(invoice(nip=nip, net="15200.00", year=year, month=month))
+    row = await _settlement(team.b2b.id, period_id)
+    async with AsyncSessionLocal() as db:
+        from app.services.hr import settlements_decisions
+
+        await settlements_decisions.approve(
+            db, actor=team.finance, settlement_id=row.id
+        )
+        await db.commit()
+    await _change_billing(team, {"payment_terms_days": 30})
+    after = await _settlement(team.b2b.id, period_id)
+    assert after.status == "approved" and after.approved_by == team.finance.id
+
+
+@pytest.mark.usefixtures("settlements_on")
+@pytest.mark.asyncio
+async def test_uznanie_rachunku_nie_obejmuje_nowego_problemu_z_kwota() -> None:
+    """Uznanie „rachunek spoza białej listy” nie przepuszcza VAT u osoby zwolnionej."""
+
+    team = await make_team()
+    year, month, period_id, nip = await _b2b_month(team, account_source="manual")
+    async with AsyncSessionLocal() as db:
+        (await settlements.billing_of(db, team.b2b.id)).vat_status = "active"
+        await db.commit()
+    await _match(invoice(nip=nip, net="15200.00", year=year, month=month))
+    async with AsyncSessionLocal() as db:
+        row = await settlements.lock_settlement(
+            db, (await _settlement(team.b2b.id, period_id)).id
+        )
+        row.override_kind = "white_list"
+        row.override_reason = "Rachunek potwierdzony telefonicznie"
+        row.override_requested_by = team.finance.id
+        row.override_confirmed_by = team.finance2.id
+        await settlements.recompute(db, row)
+        await db.commit()
+    assert (await _settlement(team.b2b.id, period_id)).status == "ready"
+
+    # Wykaz VAT mówi teraz „zwolniony” — faktura z VAT to nowy problem z kwotą.
+    async with AsyncSessionLocal() as db:
+        details = await settlements.billing_of(db, team.b2b.id)
+        details.vat_status = "exempt"
+        await db.flush()
+        await settlements.billing_changed(db, team.b2b.id, payee_changed=False)
+        await db.commit()
+    assert (await _settlement(team.b2b.id, period_id)).status == "mismatch"

@@ -121,6 +121,9 @@ describe("settlement-format", () => {
     expect(queueStatus({ ...base, discrepancy: "0.00", problems: ["white_list"] })).toBe(
       "rachunek spoza białej listy",
     );
+    expect(queueStatus({ ...base, discrepancy: "0.00", problems: ["gross", "white_list"] })).toBe(
+      "brutto albo VAT do sprawdzenia",
+    );
     expect(
       queueStatus({
         ...base,

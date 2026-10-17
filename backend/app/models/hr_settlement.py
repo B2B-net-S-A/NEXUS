@@ -1,4 +1,4 @@
-"""„Ludzie w NEXUSIE” — modele: Rozliczenia zespołu (0466).
+"""„Ludzie w NEXUSIE” — modele: Rozliczenia zespołu (0467).
 
 CHECK-i i indeksy muszą być identyczne z ``app/services/hr_settlement_schema.py``
 (strażnik dryfu schematu porównuje model z bazą po migracji). Opis tabel i stanów
@@ -341,6 +341,7 @@ class PayrollPayment(Base):
         CheckConstraint(schema.CK_PAYMENT_MANUAL, name="ck_payroll_payments_manual"),
         CheckConstraint(schema.CK_PAYMENT_TITLE, name="ck_payroll_payments_title"),
         CheckConstraint(schema.CK_PAYMENT_LAST4, name="ck_payroll_payments_last4"),
+        CheckConstraint(schema.CK_PAYMENT_HMAC, name="ck_payroll_payments_hmac"),
         Index(
             "uq_payroll_payments_statement_line",
             "statement_sha256",
@@ -373,6 +374,8 @@ class PayrollPayment(Base):
         String(schema.TITLE_MAX_LENGTH), nullable=True
     )
     counterparty_last4: Mapped[Optional[str]] = mapped_column(String(4), nullable=True)
+    #: Skrót HMAC pełnego rachunku odbiorcy (paczka przelewów) — nie numer.
+    counterparty_hmac: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     batch_key: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     batch_format: Mapped[Optional[str]] = mapped_column(String(8), nullable=True)
     statement_sha256: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)

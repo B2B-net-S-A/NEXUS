@@ -741,3 +741,101 @@ async def test_second_payment_of_paid_invoice_is_flagged_not_swallowed(client, e
     (waiting,) = overview["unmatched"]
     assert "było już opłacone" in waiting["reason"]
     assert (await _status(ola_s.id)).paid_amount == Decimal("21106.80")
+
+
+# ── Po przeglądzie (17/18.10): przypisanie operacji z wyciągu ────────────────
+
+
+@pytest.mark.asyncio
+async def test_operacji_nie_przypiszesz_do_wlasnego_ani_oplaconego_rozliczenia(
+    client, env
+):
+    finance, _hr, _ola, _kuba, ola_s, _kuba_s = await _team()
+    async with AsyncSessionLocal() as db:
+        period = await db.get(PayrollPeriod, ola_s.period_id)
+        own = await fx.settlement(
+            db, period, finance, employment_type="uop", expected="9000.00"
+        )
+        await db.commit()
+    raw = (
+        (DATA / "mt940_listopad.sta").read_bytes().replace(b"DN21106,80", b"DN21000,00")
+    )
+    await _upload(client, finance, "wyciag.sta", raw)
+    overview = (
+        await client.get(f"{PREFIX}/statements", headers=fx.headers(finance))
+    ).json()
+    line = next(item for item in overview["unmatched"] if item["amount"] == "21000.00")
+    url = f"{PREFIX}/statement-lines/{line['id']}/assign"
+
+    mine = await client.post(
+        url, json={"settlement_id": own.id}, headers=fx.headers(finance)
+    )
+    assert mine.status_code == 403, mine.text
+
+    async with AsyncSessionLocal() as db:
+        target = await db.get(PayrollSettlement, ola_s.id)
+        await settlement_service.mark_paid(
+            db,
+            target,
+            source="manual",
+            amount=Decimal("21106.80"),
+            paid_on=date(2026, 11, 18),
+            actor_id=finance.id,
+            reason="Przelew z banku poza NEXUSEM",
+        )
+        await db.commit()
+    paid = await client.post(
+        url, json={"settlement_id": ola_s.id}, headers=fx.headers(finance)
+    )
+    assert paid.status_code == 409, paid.text
+    async with AsyncSessionLocal() as db:
+        stored = await db.get(PayrollPayment, line["id"])
+    assert stored.match_status == "unmatched" and stored.settlement_id is None
+
+
+# ── Po przeglądzie (17/18.10): rachunek nadawcy w odpowiedzi tylko jako 4 cyfry ──
+
+
+@pytest.mark.asyncio
+async def test_rachunek_nadawcy_w_ustawieniach_tylko_jako_cztery_cyfry(client, env):
+    company = fx.account("99990001", "1234")
+    async with AsyncSessionLocal() as db:
+        finance = await fx.make_user(db, "finance")
+        await db.commit()
+    saved = await client.put(
+        f"{PREFIX}/settings",
+        json={
+            "transfer_batch": {
+                "enabled": True,
+                "format": "elixir",
+                "sender_account": company,
+                "sender_name": "Spółka Przykładowa S.A.",
+            }
+        },
+        headers=fx.headers(finance),
+    )
+    assert saved.status_code == 200, saved.text
+    assert company not in saved.text
+    current = await client.get(f"{PREFIX}/settings", headers=fx.headers(finance))
+    assert company not in current.text and company[2:10] not in current.text
+    batch = current.json()["transfer_batch"]
+    assert batch["sender_account_last4"] == "1234"
+    assert "sender_account" not in batch
+
+    # Formularz bez nowego rachunku (pole puste) zostawia zapisany.
+    again = await client.put(
+        f"{PREFIX}/settings",
+        json={
+            "transfer_batch": {
+                "enabled": True,
+                "format": "csv",
+                "sender_account": None,
+                "sender_name": "Spółka Przykładowa S.A.",
+            }
+        },
+        headers=fx.headers(finance),
+    )
+    assert again.status_code == 200, again.text
+    stored = await fx.get_setting(fx.SETTING_KEY)
+    assert stored["transfer_batch"]["sender_account"] == company
+    assert stored["transfer_batch"]["format"] == "csv"

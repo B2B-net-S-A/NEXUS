@@ -63,6 +63,20 @@ export function matchTone(invoice: KsefInvoice): StatusDotTone {
   return SETTLEMENT_TONE[invoice.settlement.status as SettlementStatus] ?? "neutral";
 }
 
+/**
+ * Dopasowaną fakturę Płace mogą przenieść do innego miesiąca albo pominąć,
+ * dopóki rozliczenie nie jest opłacone (serwer odpina ją i przelicza
+ * rozliczenie; przy opłaconym zostaje jako dowód zapłaty — 409).
+ */
+export function canDetach(invoice: KsefInvoice): boolean {
+  return (
+    invoice.match_status === "matched" &&
+    invoice.settlement !== null &&
+    invoice.settlement.status !== "paid" &&
+    invoice.settlement.status !== "cancelled"
+  );
+}
+
 /** „Anna P. · październik” — osoba i miesiąc rozliczenia w kolumnie dopasowania. */
 export function matchPerson(invoice: KsefInvoice): string | null {
   const name = invoice.user?.name?.trim();

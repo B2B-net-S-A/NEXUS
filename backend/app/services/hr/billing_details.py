@@ -23,6 +23,8 @@ ewidencyjny, a 11 cyfr z poprawną sumą kontrolną PESEL-u jest odrzucane.
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import re
 from datetime import date
 from typing import Any, Optional
@@ -31,6 +33,7 @@ from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.core.encryption import TokenCipherNotConfigured, get_token_cipher
 from app.core.scheduling import local_now
 from app.models.hr_profile import EmployeeProfile
@@ -145,6 +148,23 @@ def decrypt_account(details: Optional[EmployeeBillingDetails]) -> Optional[str]:
     if details is None or not details.account_encrypted:
         return None
     return get_token_cipher().decrypt(details.account_encrypted)
+
+
+def account_fingerprint(account: str) -> str:
+    """Skrót HMAC-SHA256 pełnego rachunku (64 znaki hex) — do porównań, nie do odczytu.
+
+    Paczka przelewów pamięta go zamiast numeru: 4 ostatnie cyfry nie wykryją
+    podmiany na rachunek z tą samą końcówką. Klucz pochodzi z tego samego
+    sekretu co szyfrowanie rachunku (bez nowej zmiennej), z osobnym
+    przeznaczeniem — skrót nie jest kluczem szyfru. Brak sekretu =
+    ``TokenCipherNotConfigured``, jak przy odszyfrowaniu.
+    """
+
+    secret = settings.M365_TOKEN_ENCRYPTION_KEY
+    if not secret:
+        raise TokenCipherNotConfigured("brak klucza szyfrowania rachunków")
+    key = hashlib.sha256(b"nexus-hr-payee-account:" + secret.encode()).digest()
+    return hmac.new(key, account.encode(), hashlib.sha256).hexdigest()
 
 
 def _set_account(
@@ -316,13 +336,14 @@ async def update_details(
     details = await _locked_or_new(db, user_id)
     fields: list[str] = []
     money_relevant = False
+    payee_changed = False
     if "nip" in changes:
         nip = clean_nip(changes["nip"])
         if nip is not None:
             await _assert_nip_free(db, nip, user_id)
         if _change_nip(details, nip):
             fields.append("nip")
-            money_relevant = True
+            money_relevant = payee_changed = True
     if "payment_terms_days" in changes:
         days = clean_terms(changes["payment_terms_days"])
         if days != details.payment_terms_days:
@@ -338,20 +359,38 @@ async def update_details(
         if details.account_encrypted is not None:
             _set_account(details, None, source=None)
             fields.append("account")
-            money_relevant = True
+            money_relevant = payee_changed = True
     elif changes.get("account"):
+        # Ręczny rachunek zawsze liczy się jako nowy odbiorca — nawet ten sam
+        # numer wpisany drugi raz traci pochodzenie z białej listy.
         account = clean_account(str(changes["account"]))
         _set_account(details, account, source="manual")
         fields.append("account")
-        money_relevant = True
+        money_relevant = payee_changed = True
     details.updated_by = actor.id
     await db.flush()
     if fields:
         _audit(db, details, actor_id=actor.id, action="billing_updated", fields=fields)
     if money_relevant:
-        await settlements.billing_changed(db, user_id)
+        await settlements.billing_changed(db, user_id, payee_changed=payee_changed)
     await db.flush()
     return details
+
+
+async def _vat_changed(
+    db: AsyncSession, details: EmployeeBillingDetails, previous: Optional[str]
+) -> None:
+    """Status VAT decyduje, czy faktura może mieć VAT — przelicz rozliczenia."""
+
+    if details.vat_status != previous:
+        await settlements.billing_changed(db, details.user_id, payee_changed=False)
+
+
+def _current_account(details: EmployeeBillingDetails) -> Optional[str]:
+    try:
+        return decrypt_account(details)
+    except (TokenCipherNotConfigured, ValueError):
+        return None
 
 
 async def white_list_lookup(
@@ -373,15 +412,18 @@ async def white_list_lookup(
         raise BillingError(exc.message, exc.http_status, code=exc.code) from None
     details.vat_checked_at = local_now()
     details.updated_by = actor.id
+    previous_vat = details.vat_status
     if entry is None:
         details.registry_name = None
         details.vat_status = None
         await db.flush()
+        await _vat_changed(db, details, previous_vat)
         return {"found": False, "accounts": [], "has_virtual_accounts": False}
     details.registry_name = (entry.name or "")[:255] or None
     details.vat_status = entry.vat_status
     current = decrypt_account(details) if details.account_encrypted else None
     await db.flush()
+    await _vat_changed(db, details, previous_vat)
     return {
         "found": True,
         "name": details.registry_name,
@@ -428,6 +470,10 @@ async def select_white_list_account(
         raise BillingError(
             "Wykaz VAT nie potwierdził tego rachunku — pobierz listę ponownie.", 409
         )
+    # Ponowne sprawdzenie tego samego rachunku z wykazu nie zmienia odbiorcy.
+    same_payee = (
+        details.account_source == "white_list" and _current_account(details) == account
+    )
     _set_account(details, account, source="white_list", request_id=result.request_id)
     details.registry_name = (entry.name or "")[:255] or None
     details.vat_status = entry.vat_status
@@ -441,7 +487,7 @@ async def select_white_list_account(
         action="billing_account_selected",
         fields=["account"],
     )
-    await settlements.billing_changed(db, user_id)
+    await settlements.billing_changed(db, user_id, payee_changed=not same_payee)
     await db.flush()
     return details
 
@@ -479,6 +525,7 @@ async def assign_nip(
 
 __all__ = [
     "BillingError",
+    "account_fingerprint",
     "assign_nip",
     "can_edit",
     "can_view",
