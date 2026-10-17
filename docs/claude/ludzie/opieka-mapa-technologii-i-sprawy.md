@@ -60,8 +60,16 @@
 - Nowa wiadomość = nowa sprawa; odpowiedź w wątku = ta sama sprawa (najpierw
   `conversationId`, potem `In-Reply-To`/`References`) i ponowne otwarcie sprawy
   zamkniętej. Compass zakładał sprawę z każdej odpowiedzi — tego nie powtarzamy.
-  Idempotentnie po `graph_message_id`; załączniki tylko jako metadane.
+  Idempotentnie po `graph_message_id`; załączniki tylko jako metadane. Po pełnej
+  paczce (`MAX_MESSAGES_PER_RUN`) następny przebieg czyta dalej bez nakładki
+  (`stats['resume_from']`), żeby zepsuta wiadomość nie zatrzymała nowszych.
 - Haki: nowy kontrakt → „Wejście konsultanta: …”, odejście pracownika →
   „Odejście: …”; idempotentne po `source_key`, nie commitują. Przy wyłączonym
-  module nic nie zakładają — do przełączenia sprawy prowadzi Compass.
+  module nic nie zakładają — do przełączenia sprawy prowadzi Compass. Trwałe
+  usunięcie kontraktu zamyka jego sprawę wejścia (savepoint — awaria spraw nie
+  blokuje usunięcia).
 - Zakładkę „Sprawy” widzi uprawnienie „Sprawy”, admin i osoba przypisana do sprawy.
+- Przypisanie sprawy innej osobie (`admin_case_assigned`) to dymek i mail „Czas
+  i ludzie” z linkiem `/people/cases/{id}`. Tytuł sprawy (temat cudzego maila)
+  do maila nie idzie — mail mówi tylko, że sprawa czeka. Zakładka „Sprawy” ma
+  licznik otwartych spraw przypisanych do czytającego (`GET /api/hr/counts`).

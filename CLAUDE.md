@@ -374,6 +374,7 @@ Moduły przeniesione z Compassa (bez Akademii) i sprzęt recepcji.
 
 - `modul-ludzie-dostep-schemat-i-przelaczenie.md` — „Ludzie w NEXUSIE” — dostęp, schemat, przełączenie z Compassa (16.10.2026)
 - `opieka-mapa-technologii-i-sprawy.md` — Opieka, mapa technologii, ATLAS, administracja@ (16.10.2026)
+- `runbook-przelaczenia-z-compassa.md` — Runbook przełączenia z Compassa na „Ludzi w NEXUSIE” (17.10.2026)
 - `sprzet-i-protokoly-recepcji.md` — Sprzęt i protokoły recepcji (D2–D10, 16.10.2026)
 - `urlopy-czas-place-wejscie-odejscie.md` — Urlopy i M365, „Mój miesiąc”, płace, wejście i odejście (16.10.2026)
 

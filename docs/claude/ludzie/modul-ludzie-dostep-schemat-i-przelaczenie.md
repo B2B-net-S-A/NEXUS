@@ -22,7 +22,7 @@ z protokołami. Compass zostaje z Akademią i czyta listę osób z NEXUSA.
   Pomoc i Ustawienia; po logowaniu ląduje na `/my-time`. Osoba z inną rolą
   dostaje „Mój czas” przez wiersz kartoteki, nie przez drugą rolę.
 - **D6 — rodzaj nieobecności widzą tylko osoba, jej przełożony, Kadry i admin.**
-  Zespół, kalendarz, plakietka, dzwonek zastępcy, Outlook i Teams widzą
+  Zespół, kalendarz, plakietka, powiadomienie i mail zastępcy, Outlook i Teams widzą
   „nieobecny”. Każde nowe miejsce, które pokazuje nieobecność, bierze dane
   z `app/services/hr/absence.py` (odczyty bez rodzaju), a nie z `leave_requests`.
 - **Przełożony nie widzi stawek ani kwot** (D2) — godziny i premie zespołu tak.
@@ -43,6 +43,37 @@ z protokołami. Compass zostaje z Akademią i czyta listę osób z NEXUSA.
   otwarte dla osoby. Do modelu nie trafia rodzaj nieobecności (także przy własnym
   wniosku — L4 to dane o zdrowiu), notatki, kwoty płac, wartości sprzętu ani S/N.
 
+## Pulpit i Ustawienia → Płace (17.10.2026)
+
+- **Cztery kafelki pulpitu** w kategorii „Czas i ludzie”: `hr_substitution`
+  „W zastępstwie”, `hr_my_time` „Mój czas”, `hr_approvals` „Do akceptacji”,
+  `equipment_tasks` „Sprzęt do zrobienia” (cztery miejsca jak każdy kafelek:
+  `TileType`, `TILE_TYPES`, katalog, `TileContent`). Moduł, kartotekę i rolę
+  przełożonego zna dopiero `/api/hr/config`, więc rozstrzyga je jedna funkcja
+  `hrTileGate` (`lib/dashboard-tiles/catalog.ts`) — w katalogu, w układzie roli
+  i w zapisanym kafelku (`HrTileGate`). Wyłączony moduł = kafelka nie ma
+  w katalogu ani w układzie roli (a nie „Brak dostępu”); zapisany wcześniej
+  mówi zdaniem, że moduł jest wyłączony.
+- **„W zastępstwie”** czyta `GET /api/hr/dashboard/substitution`
+  (`services/hr/substitution_summary.py`): wyłącznie delegacje silnika
+  zastępstw (`workforce_context`) i to, co silnik już przekazał — rekrutacje
+  nieobecnego (Rekruter bez uśpienia albo DL, jak „Moje”), jego rozmowy
+  u klienta do końca zastępstwa, jego otwarte procesy. Przeglądu DL przed
+  wysłaniem CV nie obiecuje, bo `board_tasks.reviews_as_dl` nie idzie za
+  zastępstwem. Ostrzeżenie `substitute_absent` widzą wpisany zastępca
+  i przełożony nieobecnego; bez rodzaju nieobecności (D6).
+- **„Mój czas”** i **„Sprzęt do zrobienia”** czytają trasy swoich ekranów
+  (te same klucze zapytań), **„Do akceptacji”** — `GET /api/hr/counts`, czyli
+  tę samą liczbę co zakładka „Akceptacje”. Awaria to blok błędu, nigdy „0”.
+- Układ roli: „Pracownik” dostaje „Mój czas” (konto wyłącznie z tą rolą
+  i tak ląduje na `/my-time`), osoba z uprawnieniem „Sprzęt” — „Sprzęt do
+  zrobienia” na końcu układu (admin, który ma je z urzędu, nie). Reszta do
+  wyboru w „Dodaj kafelek”.
+- **Reguły premii są w Ustawienia → Zespół i dostęp → Płace**
+  (`/settings/payroll`, pozycja `payroll` w `settings-registry`, bramka
+  uprawnienia „Płace”). „Kadry” mają tylko drogowskaz — osoba z samymi
+  „Płacami” (Finanse) do „Kadr” nie wchodzi.
+
 ## Moduły ciemne
 
 - `app_settings['hr_modules']` = `people, leave, time, payroll, lifecycle, care,
@@ -61,7 +92,35 @@ z protokołami. Compass zostaje z Akademią i czyta listę osób z NEXUSA.
   przy nocnym wdrożeniu nie robi niczego dwa razy.
 - Powiadomienia HR (`hr_*`, `admin_case_assigned`, `equipment_*`) są osobiste:
   widoczne bez sekcji, kategoria „Czas i ludzie”. `care_contact_due` należy do
-  sekcji Delivery.
+  sekcji Delivery. **Dzwonka nie ma** (pasek z ikonami jednego tematu,
+  `powiadomienia/pasek-tematy-bez-dzwonka.md`): typy HR mają temat `other`,
+  czyli dymek dla zalogowanych, mail i liczniki na ekranach — bez listy i bez
+  nowej ikony w pasku.
+- **Mail „Czas i ludzie” (`hr_people`, 17.10.2026)** — kolejka maili natychmiast
+  (`tasks/notification_email_outbox.py`), typy `notification_delivery.HR_MAIL_TYPES`:
+  wniosek do decyzji, decyzja i przeliczenie dni, anulowana i zgłoszona
+  nieobecność, zastępstwo, timesheet zaakceptowany/zwrócony/cofnięty
+  i przypomnienie o wysłaniu, przekazana praca, zadania wejścia i odejścia,
+  sprawa administracja@, zadania sprzętu, podpisany protokół. Bez maila: premie
+  i stawki (kwoty), timesheet do akceptacji (zbiór na początku miesiąca —
+  przełożony ma licznik), `care_contact_due`. Treść składa `services/hr/hr_mail.py`:
+  tytuł i treść powiadomienia przechodzą tylko bez rodzaju nieobecności i kwot,
+  inaczej stałe zdanie typu („nieobecność”, nie „L4” — także dla przełożonego
+  i Kadr, bo mail wychodzi poza aplikację); tytuł sprawy i uwagi przy zwrocie
+  timesheetu nie idą mailem nigdy. Nowy typ HR = wpis w `HR_MAIL_TYPES` albo
+  świadomie w liście „bez maila” w `tests/test_hr_mail.py`, plus zdanie
+  w `hr_mail.FALLBACK`. Rodzaj jest za polityką z Ustawień → Powiadomienia
+  (domyślnie wyłączony, włącza admin) i własnym wyłącznikiem w „Moich
+  powiadomieniach” (`APPLIES`: konto, dla którego działa któryś moduł „Ludzi”;
+  admin zawsze). Wyciszona kategoria „Czas i ludzie” zatrzymuje też mail.
+- **Liczniki zakładek „Ludzi”** — `GET /api/hr/counts` (`api/hr_counts.py`,
+  bramka `require_hr_config_reader`): `approvals` = wnioski
+  (`leave_service.pending_queue`) + wysłane timesheety z każdego miesiąca,
+  które osoba może zaakceptować (`time_access.Actor.can_approve`), `cases` =
+  jej otwarte sprawy administracja@ (tylko z dostępem do Spraw). `null` =
+  nie dotyczy; awaria to brak liczby w zakładce, nigdy „0”
+  (`PeopleSectionNav`, `sectionCount`). Zmiana zakresu akceptujących = ta sama
+  funkcja liczy ekran i licznik.
 
 ## Schemat
 
@@ -91,11 +150,36 @@ z protokołami. Compass zostaje z Akademią i czyta listę osób z NEXUSA.
   tę samą paczkę (`bundle_sha256` partii) po przeliczeniu planu na świeżych
   danych. Mapa id (`hr_import_id_map`) robi z drugiego zapisu same „bez zmian”.
   Kolejność: `profiles → leave → time → payroll → lifecycle → cases → care`.
+- **Ekran Ustawienia → „Import z Compassa”** (`/settings/hr-import`,
+  `api/hr_import.py`, prefiks `/api/hr/admin/import`, 17.10.2026) — ten sam
+  przebieg dla wszystkich modułów naraz, bez wchodzenia do kontenera. Plik
+  `.json` albo `.zip` z jednym `.json` (limit 25 MB pliku, 64 MB po
+  rozpakowaniu, archiwum sprawdzane po nagłówkach przed rozpakowaniem).
+  Na sucho sprawdzają Kadry (`people_admin`) i admin; **zapisuje tylko admin**
+  (hurtem dane płacowe i zdrowotne). Na sucho moduły liczą się łańcuchem
+  w kolejności zależności — próbny zapis każdego idzie do SAVEPOINT-u
+  i na końcu jest cofany — więc urlopy, czas i płace przy pierwszym imporcie
+  nie wyglądają jak „osoba bez kartoteki”. Zapis wymaga SHA-256 z raportu,
+  sprawdzenia młodszego niż 24 h i braku innego zapisu po nim (też z CLI);
+  idzie w jednej transakcji, a gdy paczka zakłada nowe kartoteki, inne moduły
+  bez kartotek są odrzucane (422). Import na sucho i zapis biorą
+  `pg_try_advisory_xact_lock` — drugi równoległy dostaje 409.
+- **Co zostaje po zapisie:** surowa paczka leży w `hr_import_uploads.bundle`
+  tylko do zapisu albo 24 h (CHECK: plik tylko w stanie `dry_run`); po zapisie,
+  wygaśnięciu albo zapisie innej paczki (`superseded`) zostają SHA-256, liczby
+  per moduł, kto i kiedy (historia na ekranie, `GET /batches`) oraz partie
+  modułów w `hr_import_batches`. Raport i logi niosą liczby i identyfikatory
+  Compassa; e-mail osoby przy pozycji do wyjaśnienia dostaje wyłącznie admin,
+  w odpowiedzi na sucho. Ślad w `hr_audit_events` (`compass_import_dry_run`,
+  `compass_import_apply`). Wygasłe paczki sprząta kolejny przebieg na sucho
+  (`purge_expired_uploads`).
 - Błędy Compassa naprawiamy, nie przenosimy — każdy ma test w module
   (pula urlopu przez Nowy Rok, pula B2B liczona dniami płatnymi, samozatwierdzanie,
   placement poza zakresem managera, wektory `pdf_hash` z kodu Compassa).
 
-## Przełączenie (runbook w planie programu)
+## Przełączenie
+
+Krok po kroku: `ludzie/runbook-przelaczenia-z-compassa.md`.
 
 Kolejność ma znaczenie: najpierw Compass przestaje pisać (moduł tylko do odczytu,
 wyłączony `oof-reconcile`), potem eksport i import na sucho z raportem do Artura,

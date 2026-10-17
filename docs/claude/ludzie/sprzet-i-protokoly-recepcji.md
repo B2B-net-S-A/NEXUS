@@ -58,6 +58,10 @@ osobie z kartoteki i uczestniku Akademii.
 - Haki kontraktu (`app/services/hr/contract_hooks.py`) biegną w savepoincie:
   awaria sprzętu nie blokuje zmiany kontraktu. Źródłem prawdy jest przegląd
   `reconcile_upcoming` w pętli HR (kontrakt zmienia stan wieloma ścieżkami).
+- Przypomnienie (`equipment_task`, raz dziennie, gdy są zadania po terminie albo
+  na dziś i najbliższe dni) i podpis protokołu linkiem (`equipment_protocol_signed`)
+  to dymek i mail „Czas i ludzie” (liczba zadań albo numer protokołu i nazwisko
+  odbierającego — bez listy sprzętu i bez kwot). Listą zadań jest zakładka „Do zrobienia”, nie powiadomienia.
 
 ## Import plików recepcji
 

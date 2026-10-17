@@ -27,3 +27,8 @@ listy poprawnie; zawodził ekran i stara reguła „tylko zespół”.
   członków” w trakcie ładowania czytało się jak czat bez nikogo. Zespół to
   osoby, które dostają powiadomienie o każdej wiadomości; pisać i być
   oznaczoną może każda rola wewnętrzna.
+- Nieobecność przy „@” (17.10.2026): lista pokazuje „nieobecność do …” przy osobie
+  nieobecnej dziś (bez rodzaju), a po oznaczeniu nieobecnej osoby z zastępcą pod polem
+  stoi podpowiedź „Oznaczyć też zastępcę?” — `components/v2/forms/mention-absence.ts`,
+  reguły w `ludzie/urlopy-czas-place-wejscie-odejscie.md`. Moduł urlopów wyłączony albo
+  awaria zapytania = wzmianki jak dawniej.
