@@ -143,7 +143,11 @@ test.describe("Ludzie w NEXUSIE — urlopy i dostęp @stack", () => {
       const conflict = manager.page.getByRole("dialog", { name: "Zgłoś kolizję z terminem" });
       await conflict.locator("#leave-conflict-note").fill(`Wdrożenie u klienta ${uniqueSuffix()}`);
       await conflict.getByRole("button", { name: "Zgłoś kolizję" }).click();
-      await expect(manager.page.getByText("Kolizja zgłoszona")).toBeVisible();
+      // Komunikat po zapisie; wiersz zgłoszenia od razu dostaje też dopisek
+      // „kolizja zgłoszona · …” (odświeżenie po mutacji), więc szukamy pełnego zdania.
+      await expect(
+        manager.page.getByText("Kolizja zgłoszona — osoba dostała powiadomienie"),
+      ).toBeVisible();
 
       // Osoba widzi kolizję przy swoim zgłoszeniu; termin dalej jest zgłoszony.
       await contractor.page.reload();
