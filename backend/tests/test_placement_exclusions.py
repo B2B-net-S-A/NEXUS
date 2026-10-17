@@ -211,7 +211,8 @@ async def _pair_with_milestones(db, *, classified: bool):
     from app.models.recruitment_priority import PriorityOriginKind
     from app.models.recruitment_process import ProcessStatus, RecruitmentProcess
 
-    t0 = datetime(2026, 7, 1, 9, 0, tzinfo=timezone.utc)
+    # Poza 1.01–11.10.2026 — tam statystyki liczą wpisy DynaReportera (0454).
+    t0 = datetime(2025, 7, 1, 9, 0, tzinfo=timezone.utc)
     a = await _user(db)
     b = await _user(db)
     marker = uuid.uuid4().hex[:8]

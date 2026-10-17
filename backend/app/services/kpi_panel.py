@@ -106,6 +106,16 @@ _PANEL_KPI_IDS = (
 # Drugie „Zatrudniony" tej samej pary w kolejnej próbie procesu też nie jest
 # placementem (15.10.2026) — próba otwarta po zatrudnieniu nie zatrudnia drugi
 # raz. Weryfikacje i pozostałe etapy kolejnej próby liczą się jak dotąd.
+#
+# 1.01–11.10.2026 Z DYNAREPORTERA (decyzja Artura 17.10.2026): zespół klika
+# w NEXUS-ie od 12.10.2026, a wcześniej oficjalny był tygodniowy wpis
+# w DynaReporterze. `credited` w tych dniach nie bierze ruchów z historii
+# Traffita (`credited_nexus`), tylko wiersze z `analytics_kpi_milestones`
+# o źródle `dynareporter` (migracja 0454): osoba z wpisu, bez kandydata
+# i rekrutacji (`candidate_id`/`job_id` = NULL), dzień = `report_date`.
+# Konsument, który łączy po parze albo rekrutacji, gubi te wiersze —
+# to świadome: DynaReporter nie zna par ani klientów. Surowe ruchy
+# (diagnostyka adopcji, rekonsyliacja) czytaj z `credited_nexus`.
 # Konsument dokleja własny SELECT … FROM credited.
 VERIFIER_ANCHORED_CTE = """
     WITH process_windows AS (
@@ -287,12 +297,24 @@ VERIFIER_ANCHORED_CTE = """
         LEFT JOIN legacy_anchor a USING (candidate_id, job_id)
         WHERE a.kpi_eligible IS DISTINCT FROM FALSE
     ),
-    credited AS (
+    credited_nexus AS (
         SELECT * FROM classified_credited
         UNION ALL
         SELECT * FROM classified_fallback
         UNION ALL
         SELECT * FROM legacy_credited
+    ),
+    credited AS (
+        SELECT * FROM credited_nexus
+        WHERE reached_at
+                < (TIMESTAMP '2026-01-01 00:00' AT TIME ZONE 'Europe/Warsaw')
+           OR reached_at
+                >= (TIMESTAMP '2026-10-12 00:00' AT TIME ZONE 'Europe/Warsaw')
+        UNION ALL
+        SELECT dr.stage::text, dr.first_reached_at, dr.candidate_id,
+               dr.job_id, dr.first_moved_by
+        FROM analytics_kpi_milestones dr
+        WHERE dr.source = 'dynareporter'
     )
 """
 
@@ -305,6 +327,10 @@ VERIFIER_ANCHORED_CTE = """
 # par zweryfikowanych wcześniej: Insights → Zespół pokazywał 900% (45
 # rekomendacji przy 5 weryfikacjach), 200% i 161%. `credit_user IS NULL`
 # (kamień bez autora) nie ma wiersza w tabeli, więc tu go pomijamy.
+#
+# Dni z DynaReportera (wiersze `credited` bez pary) nie mają kohorty — tam
+# precyzja jest taka jak w DynaReporterze: rekomendacje / weryfikacje wpisów
+# z okna, rekomendacje obcięte do weryfikacji, żeby nie przekroczyć 100%.
 PRECISION_COHORT_CTE = """
     ,
     precision_verified AS (
@@ -313,6 +339,7 @@ PRECISION_COHORT_CTE = """
         WHERE stage = 'verified'
           AND reached_at >= :rolling30
           AND credit_user IS NOT NULL
+          AND candidate_id IS NOT NULL
         GROUP BY credit_user, candidate_id, job_id
     ),
     precision_sent AS (
@@ -320,18 +347,41 @@ PRECISION_COHORT_CTE = """
         FROM credited
         WHERE stage = 'cv_sent'
           AND credit_user IS NOT NULL
+          AND candidate_id IS NOT NULL
         GROUP BY credit_user, candidate_id, job_id
     ),
+    precision_history AS (
+        SELECT credit_user,
+               count(*) FILTER (WHERE stage = 'verified') AS verified_n,
+               count(*) FILTER (WHERE stage = 'cv_sent') AS sent_n
+        FROM credited
+        WHERE candidate_id IS NULL
+          AND credit_user IS NOT NULL
+          AND reached_at >= :rolling30
+          AND stage IN ('verified', 'cv_sent')
+        GROUP BY credit_user
+    ),
     precision_cohort AS (
-        SELECT v.credit_user,
-               count(*) AS verified_pairs,
-               count(*) FILTER (WHERE s.last_sent_at >= v.verified_at) AS sent_pairs
-        FROM precision_verified v
-        LEFT JOIN precision_sent s
-          ON s.credit_user = v.credit_user
-         AND s.candidate_id = v.candidate_id
-         AND s.job_id = v.job_id
-        GROUP BY v.credit_user
+        SELECT credit_user,
+               sum(verified_pairs) AS verified_pairs,
+               sum(sent_pairs) AS sent_pairs
+        FROM (
+            SELECT v.credit_user,
+                   count(*) AS verified_pairs,
+                   count(*) FILTER (
+                       WHERE s.last_sent_at >= v.verified_at
+                   ) AS sent_pairs
+            FROM precision_verified v
+            LEFT JOIN precision_sent s
+              ON s.credit_user = v.credit_user
+             AND s.candidate_id = v.candidate_id
+             AND s.job_id = v.job_id
+            GROUP BY v.credit_user
+            UNION ALL
+            SELECT credit_user, verified_n, LEAST(sent_n, verified_n)
+            FROM precision_history
+        ) parts
+        GROUP BY credit_user
     )
 """
 

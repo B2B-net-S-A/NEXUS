@@ -424,6 +424,31 @@ describe("InsightsPlacementAnalysis", () => {
     );
   });
 
+  it("klienci z Tablicy mają własną sumę i zdanie o DynaReporterze", async () => {
+    // Q3 2026: 90 placementów z wpisów DynaReportera, klienci z 10 par Tablicy.
+    respond(PLACEMENTS_URL, {
+      ...PLACEMENTS,
+      totals: { ...PLACEMENTS.totals, placements: 90, client_placements: 10 },
+    });
+    renderWithClient(
+      <InsightsPlacementAnalysis period={{ period: "month", offset: -1 }} />,
+    );
+
+    expect(await screen.findByTestId("placements-clients-source")).toHaveTextContent(
+      "(10 z 90 placementów okna)",
+    );
+  }, 30000);
+
+  it("bez dni z DynaReportera nie ma zdania o źródle klientów", async () => {
+    respond(PLACEMENTS_URL, PLACEMENTS);
+    renderWithClient(
+      <InsightsPlacementAnalysis period={{ period: "month", offset: -1 }} />,
+    );
+
+    expect(await screen.findByText("Placementy wg klientów")).toBeInTheDocument();
+    expect(screen.queryByTestId("placements-clients-source")).not.toBeInTheDocument();
+  }, 30000);
+
   it("null udziału renderuje myślnik, nie zero procent", async () => {
     respond(PLACEMENTS_URL, {
       ...PLACEMENTS,

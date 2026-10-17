@@ -19,8 +19,9 @@ maili (`email_opted_out`). Powiadomienie starsze niż
 `MAX_AGE` nie idzie mailem — po dniu przerwy w wysyłce mail byłby już tylko
 przypomnieniem o rzeczy załatwionej.
 
-Wiersz, którego odbiorca nie dostaje (wyciszona kategoria, brak sekcji),
-zostaje bez rezerwacji do `MAX_AGE`. Przebieg idzie wtedy dalej kolejnymi
+Wiersz, którego odbiorca nie dostaje (wyciszona kategoria, typ tylko dla
+admina, brak sekcji, grupa wyłączona dla roli), zostaje bez rezerwacji do
+`MAX_AGE`. Przebieg idzie wtedy dalej kolejnymi
 stronami (kursor po `created_at`, `id`), aż spróbuje `BATCH` wysyłek —
 inaczej 50 takich wierszy zatrzymywało maile wszystkich na dobę (17.10.2026).
 """

@@ -14,7 +14,8 @@
  * rekrutacjach, dostaje zamiast zakończenia dopisek „To dotyczy tylko tej
  * rekrutacji — nadal bierzesz udział w…” — serwer liczy listę w chwili
  * wysyłki, więc dopisek stoi obok pola, nie w nim. Bez skrzynki Microsoft 365
- * okno daje „Podłącz skrzynkę” i po powrocie sprawdza jeszcze raz.
+ * okno daje „Podłącz skrzynkę” i po powrocie sprawdza jeszcze raz. Gdy do
+ * osoby czeka już mail z innej rekrutacji (D3), okno proponuje jeden wspólny.
  *
  * Podgląd: `POST /api/rejection-emails/preview` (ta sama reguła co planowanie
  * wysyłki w `rejection_email_scheduler`).
@@ -22,7 +23,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { ExternalLink, Mail, PenLine } from "lucide-react";
+import { Clock, ExternalLink, Mail, PenLine } from "lucide-react";
 
 import api from "@/lib/api";
 import { apiErrorMessage } from "@/lib/api-error";
@@ -31,6 +32,7 @@ import {
   REJECTION_EMAIL_TEXT_KIND_LABEL,
   rejectionEmailBlockedMessage,
   rejectionEmailDefaultBody,
+  rejectionEmailPendingTime,
   rejectionEmailPreviewKey,
   rejectionEmailSkipShort,
   type RejectionEmailOtherProcess,
@@ -78,6 +80,7 @@ const SETTINGS_INTEGRATIONS = "/settings?tab=integracje";
 const KIND_TAB_LABEL: Record<RejectionEmailTextKind, string> = {
   before_client: "Przed klientem",
   after_client: "Po kliencie",
+  merged: "Wspólny",
 };
 
 function columnLabel(column: string): string {
@@ -164,13 +167,35 @@ export function RejectionEmailField({
   const [appendOthers, setAppendOthers] = useState(true);
   const withOthers = others.length > 0 && appendOthers;
 
-  const defaults: Draft | null =
-    data?.subject != null && data?.body != null
+  // D3: do tej osoby czeka już mail z innej rekrutacji — domyślnie jeden wspólny.
+  const pendingMail = single ? (eligible[0]?.pending_mail ?? null) : null;
+  const canMerge = pendingMail !== null && data?.merged != null;
+  const [mergeChoice, setMergeChoice] = useState(true);
+  const merging = canMerge && mergeChoice;
+  const active = merging && data?.merged
+    ? {
+        subject: data.merged.subject,
+        body: data.merged.body,
+        closing: data.merged.closing,
+        others: data.merged.other_processes_text,
+        kind: data.merged.text_kind,
+      }
+    : data?.subject != null && data?.body != null
       ? {
           subject: data.subject,
-          body: rejectionEmailDefaultBody(data.body, data.closing, withOthers),
+          body: data.body,
+          closing: data.closing,
+          others: data.other_processes_text ?? null,
+          kind: data.text_kind ?? null,
         }
       : null;
+
+  const defaults: Draft | null = active
+    ? {
+        subject: active.subject,
+        body: rejectionEmailDefaultBody(active.body, active.closing, withOthers),
+      }
+    : null;
   const [draft, setDraft] = useState<Draft | null>(null);
   useEffect(() => {
     if (defaults && draft === null) setDraft(defaults);
@@ -191,13 +216,27 @@ export function RejectionEmailField({
   // Zmiana dopisku zmienia treść domyślną (zakończenie znika albo wraca) —
   // nietknięte pole idzie za nią, poprawionego nie ruszamy.
   const toggleOthers = (next: boolean) => {
-    if (data?.body != null && editDraft !== null && !edited) {
+    if (active && editDraft !== null && !edited) {
       setDraft({
         subject: editDraft.subject,
-        body: rejectionEmailDefaultBody(data.body, data.closing, others.length > 0 && next),
+        body: rejectionEmailDefaultBody(active.body, active.closing, others.length > 0 && next),
       });
     }
     setAppendOthers(next);
+  };
+
+  // Wspólny ↔ osobny zmienia temat i treść domyślną; poprawionych nie ruszamy.
+  const chooseMerge = (next: boolean) => {
+    if (data && editDraft !== null && !edited) {
+      const source = next && data.merged ? data.merged : data;
+      if (source.subject != null && source.body != null) {
+        setDraft({
+          subject: source.subject,
+          body: rejectionEmailDefaultBody(source.body, source.closing, withOthers),
+        });
+      }
+    }
+    setMergeChoice(next);
   };
 
   useEffect(() => {
@@ -205,6 +244,7 @@ export function RejectionEmailField({
   }, [blocked, checked, onCheckedChange]);
 
   const othersOff = others.length > 0 && !appendOthers;
+  const mergeOff = canMerge && !mergeChoice;
   useEffect(() => {
     const text: RejectionEmailText = {};
     if (edited && editDraft) {
@@ -212,12 +252,13 @@ export function RejectionEmailField({
       text.body = editDraft.body;
     }
     if (othersOff) text.otherProcesses = false;
+    if (mergeOff) text.merge = false;
     onStateChange({
       blocked,
       invalid,
       text: Object.keys(text).length > 0 ? text : null,
     });
-  }, [blocked, invalid, edited, editDraft, othersOff, onStateChange]);
+  }, [blocked, invalid, edited, editDraft, othersOff, mergeOff, onStateChange]);
 
   const boxRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -313,13 +354,53 @@ export function RejectionEmailField({
               )} Mail wyjdzie z treścią domyślną.`}
             />
           ) : editDraft && defaults ? (
+            <div className="space-y-2">
+            {canMerge && pendingMail ? (
+              <div
+                role="status"
+                className="space-y-2 rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-sm"
+                data-testid="rejection-email-pending"
+              >
+                <p className="flex items-start gap-2">
+                  <Clock className="mt-0.5 h-4 w-4 shrink-0 text-primary" aria-hidden />
+                  <span>
+                    Ta osoba ma już zaplanowany mail odrzucenia z rekrutacji{" "}
+                    <b className="font-semibold">{pendingMail.job_titles.join(", ")}</b> —
+                    wyjdzie o {rejectionEmailPendingTime(pendingMail.scheduled_at)}
+                    {pendingMail.sender_name ? `, wysyła ${pendingMail.sender_name}` : ""}.
+                  </span>
+                </p>
+                <div role="radiogroup" aria-label="Jak wysłać" className="space-y-1 pl-6">
+                  <label className="flex cursor-pointer items-center gap-2">
+                    <input
+                      type="radio"
+                      name="rejection-email-merge"
+                      className="h-4 w-4 text-primary focus:ring-primary"
+                      checked={mergeChoice}
+                      onChange={() => chooseMerge(true)}
+                    />
+                    <span className="font-medium">Jeden wspólny mail o obu rekrutacjach</span>
+                  </label>
+                  <label className="flex cursor-pointer items-center gap-2">
+                    <input
+                      type="radio"
+                      name="rejection-email-merge"
+                      className="h-4 w-4 text-primary focus:ring-primary"
+                      checked={!mergeChoice}
+                      onChange={() => chooseMerge(false)}
+                    />
+                    <span>Osobny mail tylko o tej rekrutacji</span>
+                  </label>
+                </div>
+              </div>
+            ) : null}
             <div className="rounded-lg border border-primary/30">
               <div className="flex flex-wrap items-center justify-between gap-2 rounded-t-lg border-b border-border bg-primary/5 px-3 py-1.5">
                 <span className="text-xs font-semibold uppercase tracking-[0.06em] text-primary">
-                  Podgląd maila
+                  {merging ? "Podgląd wspólnego maila" : "Podgląd maila"}
                 </span>
                 <span className="flex flex-wrap items-center gap-2">
-                  <KindBadge kind={data?.text_kind} />
+                  <KindBadge kind={active?.kind} />
                   {edited ? (
                     <>
                       <Badge variant="warning" size="sm">
@@ -405,8 +486,8 @@ export function RejectionEmailField({
                         </span>
                       </span>
                     </label>
-                    {appendOthers && data?.other_processes_text ? (
-                      <OtherProcessesNote text={data.other_processes_text} />
+                    {appendOthers && active?.others ? (
+                      <OtherProcessesNote text={active.others} />
                     ) : null}
                   </div>
                 ) : null}
@@ -415,7 +496,15 @@ export function RejectionEmailField({
                   Pod treścią NEXUS doda Twój podpis z Outlooka. Mail wyjdzie z Twojej
                   skrzynki Microsoft 365.
                 </p>
+                {merging && pendingMail ? (
+                  <p className="text-xs text-muted-foreground">
+                    Tamten mail zostanie anulowany
+                    {pendingMail.sender_name ? `, a ${pendingMail.sender_name} dostanie dzwonek` : ""}
+                    {" "}— kandydat dostanie jeden mail.
+                  </p>
+                ) : null}
               </div>
+            </div>
             </div>
           ) : data && sample ? (
             <div className="rounded-lg border border-primary/30">
@@ -496,6 +585,12 @@ export function RejectionEmailField({
                                   <span>{REJECTION_EMAIL_TEXT_KIND_LABEL[p.text_kind]}</span>
                                 ) : null}
                                 {othersCount > 0 ? <span>· +{othersCount} w toku</span> : null}
+                                {p.pending_mail ? (
+                                  <span>
+                                    · dołączy do maila z{" "}
+                                    {rejectionEmailPendingTime(p.pending_mail.scheduled_at)}
+                                  </span>
+                                ) : null}
                                 <span>· {p.to_email}</span>
                               </>
                             )}

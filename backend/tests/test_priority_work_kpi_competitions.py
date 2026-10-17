@@ -165,7 +165,8 @@ async def test_hall_of_fame_counts_placements_like_placement_analysis() -> None:
     Do 2026-09-01 ta funkcja stała na `VERIFIER_ANCHORED_CTE`, przez co dwie
     sąsiadujące sekcje jednego ekranu podpisane „placementy" pokazywały liczby
     policzone dwiema regułami. Teraz obie czytają
-    `analytics_first_milestones.first_moved_by` — czyli PIERWSZE wejście pary
+    `analytics_kpi_milestones.first_moved_by` (od 17.10.2026: dni 1.01–11.10.2026
+    z wpisów DynaReportera, migracja 0454) — czyli PIERWSZE wejście pary
     (kandydat, oferta) na etap „Zatrudniony", przypisane osobie, która ten
     etap przesunęła.
 
@@ -192,7 +193,7 @@ async def test_hall_of_fame_counts_placements_like_placement_analysis() -> None:
 
     statement, params = db.execute.await_args.args
     sql = str(statement)
-    assert "analytics_first_milestones" in sql
+    assert "analytics_kpi_milestones" in sql
     assert "fm.first_moved_by" in sql
     # Stara atrybucja NIE MOŻE wrócić bocznymi drzwiami.
     assert "credited" not in sql

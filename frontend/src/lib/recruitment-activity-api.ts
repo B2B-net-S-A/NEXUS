@@ -107,8 +107,13 @@ export interface RecruitmentActivityDetailResponse {
   moved_by_credited?: number
   states?: Partial<Record<RecruitmentActivityState, number>>
   state_filter?: RecruitmentActivityState | null
-  /** Wierszy w okresie przed filtrem stanu. */
+  /** Liczba okresu przed filtrem stanu — razem z `history_total`, jak licznik celów. */
   period_total?: number
+  /**
+   * Ile z `period_total` to tygodniowe wpisy DynaReportera (1.01–11.10.2026):
+   * liczą się do wyniku, ale nie ma ich na liście (DynaReporter nie zapisywał kandydatów).
+   */
+  history_total?: number
 }
 
 interface RecruitmentActivityFilters {

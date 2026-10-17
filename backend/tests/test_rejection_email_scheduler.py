@@ -531,3 +531,29 @@ def test_marker_typed_in_the_window_is_escaped_not_filled() -> None:
     typed = plain_text_to_html(f"Cześć {rejection_text.OTHER_PROCESSES_MARKER}")
     assert rejection_text.OTHER_PROCESSES_MARKER not in typed
     assert rejection_text.fill_other_processes(typed, ["Java"]) == typed
+
+
+# ── Wspólny mail o kilku rekrutacjach (17.10.2026, D3) ─────────────────────
+
+
+def test_merged_text_names_every_recruitment() -> None:
+    text = rejection_text.merged_text(
+        candidate_name="Anna", job_titles=["Senior Java Developer", "Java Tech Lead"]
+    )
+    assert text.subject == "Informacja zwrotna — Senior Java Developer, Java Tech Lead"
+    assert text.body == (
+        "Cześć Anna,\n\n"
+        "dziękujemy za udział w rekrutacjach na stanowiska Senior Java Developer "
+        "i Java Tech Lead. W tych dwóch procesach nie przechodzisz dalej."
+    )
+    three = rejection_text.merged_text(candidate_name="Anna", job_titles=["A", "B", "C"])
+    assert "na stanowiska A, B i C. W tych trzech procesach" in three.body
+
+
+def test_other_processes_text_after_a_merged_mail_speaks_of_these_recruitments() -> None:
+    text = rejection_text.other_processes_text(["Backend Developer"], merged=True)
+    assert text.startswith("To dotyczy tylko tych rekrutacji — nadal bierzesz udział")
+    stored = f"<p>x</p>\n{rejection_text.OTHER_PROCESSES_MARKER}"
+    assert "tylko tych rekrutacji" in rejection_text.fill_other_processes(
+        stored, ["Backend Developer"], merged=True
+    )

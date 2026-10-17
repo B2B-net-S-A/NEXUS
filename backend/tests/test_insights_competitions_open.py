@@ -246,7 +246,9 @@ async def test_hall_of_fame_sql_actually_runs_against_the_real_schema(
         total = (
             await db.execute(
                 text(
-                    "SELECT count(*) FROM analytics_first_milestones "
+                    # Widok KPI (0454): 1.01–11.10.2026 placementy z wpisów
+                    # DynaReportera — ten sam, który czyta Hall of Fame.
+                    "SELECT count(*) FROM analytics_kpi_milestones "
                     "WHERE stage::text = 'hired'"
                 )
             )

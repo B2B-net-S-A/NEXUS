@@ -9,18 +9,24 @@ tylko z profilu (audyt 13.10.2026: taka notatka szła do promptu generatora).
 from __future__ import annotations
 
 import re
+from collections.abc import Iterator
 
 RATE_WORD_RE = re.compile(r"stawk|\brate\b|wynagrodz|salary|zarobk", re.IGNORECASE)
 
 # Kwota pieniędzy, ściślej niż luźne „liczba + waluta”, które bierze
-# „3 europejskich” i „5 złożonych” za euro i złote.
+# „3 europejskich” i „5 złożonych” za euro i złote. Ciąg cyfr zaborczo
+# (`*+`): po nim stoi waluta albo „/”, więc oddawanie znaków niczego nie
+# zmienia, a na „1  1  1…” wracało kwadratowo (17.10.2026). Szukaj przez
+# `money_matches` — `finditer` próbuje od każdej cyfry ciągu.
 MONEY_RE = re.compile(
-    r"\d[\d\s.,]*\s*(?:(?:tys|mln)\b\.?\s*|k\s*)?(?:zł|zl|pln|euro|eur|usd|€|\$)(?!\w)"
+    r"\d[\d\s.,]*+\s*(?:(?:tys|mln)\b\.?\s*|k\s*)?(?:zł|zl|pln|euro|eur|usd|€|\$)(?!\w)"
     r"(?:\s*/\s*(?:h|godz|md|dzie[nń]|mies)\w*)?"
     r"|[€$]\s*\d[\d\s.,]*\d|[€$]\s*\d"
-    r"|\d[\d\s.,]*\s*/\s*(?:h|godz|md)\b",
+    r"|\d[\d\s.,]*+\s*/\s*(?:h|godz|md)\b",
     re.IGNORECASE,
 )
+_MONEY_START_RE = re.compile(r"[€$\d]")
+_NUMBER_RUN_RE = re.compile(r"[\d\s.,]*+")
 
 # Kwota za czas pracy („150 PLN/h”, „1200 zł/md”, „160/h”) — to zawsze stawka,
 # także bez słowa „stawka” obok.
@@ -31,10 +37,13 @@ _PER_TIME_RE = re.compile(r"/\s*(?:h|godz|md|dzie[nń]|mies)", re.IGNORECASE)
 # 13.10.2026: przechodziły do generatora). Między słowem a liczbą najwyżej
 # dwukropek albo „ok.”, „około”, „to”; procent i jednostka czasu albo skali
 # odpadają — „success rate 95%” i „rate limiting 1000 req/s” to fakty.
+# Końcówka słowa najwyżej 40 znaków, odstępy po nim zaborczo: `\w*` i dwa
+# `\s*` wracały kwadratowo na sklejonym słowie i ciągu spacji (17.10.2026).
+# Dłuższej końcówki nie ma żadne słowo; dopasowania są te same co z `\w*`.
 _BARE_AMOUNT_RE = re.compile(
-    r"\b(?:staw[kc]\w*|rate\b|wynagrodz\w*|salary|zarobk\w*|zarabia\w*|earns?\b"
-    r"|wide[lł]k\w*|pensj\w*)"
-    r"\s*[:=]?\s*(?:(?:ok\.?|około|okolo|to|of|at|about|is|was|wynosi\w*|min\.?"
+    r"\b(?:staw[kc]\w{0,40}|rate\b|wynagrodz\w{0,40}|salary|zarobk\w{0,40}"
+    r"|zarabia\w{0,40}|earns?\b|wide[lł]k\w{0,40}|pensj\w{0,40})"
+    r"\s*+[:=]?+\s*+(?:(?:ok\.?|około|okolo|to|of|at|about|is|was|wynosi\w*|min\.?"
     r"|max\.?|~)\s*)*"
     r"\d+(?:[\s.,]\d+)*(?:\s*[-–]\s*\d+(?:[\s.,]\d+)*)?\s*(?:k|tys\.?)?(?![\w%])"
     r"(?!\s*(?:%|proc|lat\b|lata|rok|roku|years?|months?|mies|tyg|weeks?|dni|days?"
@@ -75,7 +84,7 @@ _AVAILABILITY_RE = re.compile(
     r"|in\s+\d|within)"
     r"|\b(?:is|will\s+be|candidate)\s+available"
     r"|\bavailability\s*:"
-    r"|\bnotice\s+period|\bnotice\s*:|\d+\s*(?:months?|weeks?)\s*(?:of\s+)?notice"
+    r"|\bnotice\s+period|\bnotice\s*:|(?<!\d)\d+\s*(?:months?|weeks?)\s*(?:of\s+)?notice"
     r"|\b(?:can|could|will|able\s+to|ready\s+to)\s+start\b"
     r"|\bstart\s+(?:asap|immediately|now|right\s+away|in\s+\d|within"
     r"|from\s+(?:\d|now|" + _MONTH + r"))",
@@ -92,10 +101,16 @@ _CANDIDATE_MONEY_WORD_RE = re.compile(
 # „chce 150 na B2B”, „150 B2B”. „Pracuje od 3 lat na B2B” zostaje.
 _WANTED_AMOUNT_RE = re.compile(
     r"\b(?:chc\w*|wants?|asks?\s+for|asking\s+for)\s+(?:min\.?\s*|około\s+|ok\.?\s*)?"
-    r"\d+(?:[\s.,]\d+)*\s*(?:k\b|tys|(?:zł\s*)?(?:na\s+)?(?:b2b|uop)\b|netto|brutto)"
-    r"|\b\d+(?:[\s.,]\d+)*\s*(?:k|tys\.?)?\s*(?:na\s+)?(?:b2b|uop)\b",
+    r"\d+(?:[\s.,]\d+)*\s*(?:k\b|tys|(?:zł\s*)?(?:na\s+)?(?:b2b|uop)\b|netto|brutto)",
     re.IGNORECASE,
 )
+# Kwota przy formie umowy bez słowa „chce” („150 B2B”) — przez
+# `_has_contract_amount`, bo `search` próbował od każdej liczby ciągu „1 1 1…”.
+_CONTRACT_AMOUNT_RE = re.compile(
+    r"\d+(?:[\s.,]\d+)*\s*(?:k|tys\.?)?\s*(?:na\s+)?(?:b2b|uop)\b", re.IGNORECASE
+)
+_CONTRACT_START_RE = re.compile(r"\b\d")
+_DIGIT_CHAIN_RE = re.compile(r"\d++(?:[\s.,]\d++)*+")
 # Budżet albo wartość projektu to fakt z CV: „Zarządzał budżetem 2 mln PLN”,
 # „Prowadził projekt wart 5 mln PLN”.
 _PROJECT_BUDGET_RE = re.compile(
@@ -112,23 +127,152 @@ _PROJECT_BUDGET_RE = re.compile(
 _SEGMENT_END_RE = re.compile(r"(?<=[,;])\s+|(?<=\.)\s+(?=[A-ZĄĆĘŁŃÓŚŹŻ\d])|\n")
 
 
+def money_matches(text: str | None) -> Iterator[re.Match[str]]:
+    """Dopasowania `MONEY_RE` jak `finditer`, ale w czasie liniowym.
+
+    Kwota zaczyna się na „€”/„$” albo na pierwszej cyfrze ciągu cyfr,
+    odstępów, kropek i przecinków: od późniejszej cyfry tego ciągu dopasowanie
+    sięgałoby tego samego końca ciągu, więc jest to samo albo żadne. Po
+    nieudanej próbie reszta ciągu jest pomijana.
+    """
+    text = text or ""
+    pos = 0
+    while (start := _MONEY_START_RE.search(text, pos)) is not None:
+        at = start.start()
+        match = MONEY_RE.match(text, at)
+        if match is not None:
+            yield match
+            pos = match.end()
+        elif text[at].isdigit():
+            pos = _NUMBER_RUN_RE.match(text, at).end()
+        else:
+            pos = at + 1
+
+
+def _has_contract_amount(text: str) -> bool:
+    """`\\b` + `_CONTRACT_AMOUNT_RE.search` w czasie liniowym: po nieudanej
+    próbie od liczby na granicy słowa reszta ciągu liczb („1 2 3”, „1.2.3”) jest
+    pomijana — od każdej następnej liczby tego ciągu wynik byłby ten sam."""
+    pos = 0
+    while (start := _CONTRACT_START_RE.search(text, pos)) is not None:
+        at = start.start()
+        if _CONTRACT_AMOUNT_RE.match(text, at):
+            return True
+        pos = _DIGIT_CHAIN_RE.match(text, at).end()
+    return False
+
+
 def is_rate_text(text: str) -> bool:
     """Czy fragment mówi o stawce: kwota za czas albo kwota przy słowie „stawka”
     (z walutą albo bez: „stawka 150 B2B”, „rate 140”)."""
-    if _BARE_AMOUNT_RE.search(text or ""):
+    text = text or ""
+    if _BARE_AMOUNT_RE.search(text):
         return True
-    for match in MONEY_RE.finditer(text or ""):
-        if _PER_TIME_RE.search(match.group()) or RATE_WORD_RE.search(text):
+    rate_word: bool | None = None
+    for match in money_matches(text):
+        if _PER_TIME_RE.search(match.group()):
+            return True
+        # Słowo szukane raz na tekst, nie raz na kwotę (kwadratowo przy wielu
+        # kwotach bez słowa „stawka”).
+        if rate_word is None:
+            rate_word = RATE_WORD_RE.search(text) is not None
+        if rate_word:
             return True
     return False
 
 
+# Liczba bez waluty po słowie o pieniądzach jest stawką w CV tylko na końcu
+# zdania albo przed formą rozliczenia: „Stawka: 150”, „Rate 140”, „Stawka 150
+# B2B”, „Stawka 150 za godzinę”, „Stawka 150 + VAT”, „Stawka: 150 złotych”.
+# Dalej stoi treść CV — „Naliczanie wynagrodzeń 300 pracowników”, „System
+# wynagrodzeń 2.0 w SAP”, „Rate 100 per request”, „Zarobki 300/500 osób”.
+_TIME_UNIT = r"(?:godz\w*|h\b|hours?\b|dzie\w*|dni\b|days?\b|md\b|mies\w*|months?\b)"
+_CV_BARE_TAIL_RE = re.compile(
+    r"[^\S\n]*+(?:$|\n|[.,;:!?)\]]|/\s*" + _TIME_UNIT + r"|\+\s*vat\b"
+    r"|(?:b2b|uop|netto|brutto|net|gross|vat|zł|zl|pln|eur|euros?|usd|złot(?:y|e|ych)"
+    r"|dolar(?:y|ów)?|dollars?)(?!\w)"
+    r"|(?:za|per|na)\s+(?:" + _TIME_UNIT + r"|b2b\b|uop\b|faktur\w*|rękę\b|reke\b))",
+    re.IGNORECASE,
+)
+# Początek `_BARE_AMOUNT_RE` (te same słowa): dopasowanie liczby idzie od
+# słowa w oknie `_CV_RATE_WINDOW` — `\w*` i odstępy w `_BARE_AMOUNT_RE` wracają
+# kwadratowo na długim słowie albo ciągu spacji (przegląd 17.10.2026).
+_BARE_WORD_RE = re.compile(
+    r"\b(?:staw[kc]|rate\b|wynagrodz|salary|zarobk|zarabia|earns?\b|wide[lł]k|pensj)",
+    re.IGNORECASE,
+)
+# Rok, zakres lat albo miesiąc z rokiem po słowie o pieniądzach to data
+# stanowiska, nie kwota: „Specjalista ds. wynagrodzeń 2018 – 2022”,
+# „Analityk wynagrodzeń 03.2019 - 05.2021”, „Compensation & Salary 2020”.
+_DATE_LIKE_RE = re.compile(r"(?:\d{1,2}[./])?(?:19|20)\d{2}(?!\d)")
+# Waluta słowem („150 złotych”, „50 euros”) — poza `MONEY_RE`, które czytają
+# też notatki i AI w edytorze.
+_CV_CURRENCY_WORD_RE = re.compile(
+    r"\d[\d\s.,]*\s*(?:(?:tys|mln)\b\.?\s*|k\s*)?"
+    r"(?:złot(?:y|e|ych)|euros|dolar(?:y|ów)?|dollars?)(?!\w)",
+    re.IGNORECASE,
+)
+# Kwoty z walutą szukamy w oknie wokół słowa o pieniądzach: wzorzec kwoty
+# wraca kwadratowo na długim ciągu cyfr bez waluty, a stawka stoi przy słowie.
+_CV_RATE_WINDOW = 80
+_BUDGET_BEFORE = 40
+
+
+def _cv_bare_rate(text: str) -> bool:
+    for word in _BARE_WORD_RE.finditer(text):
+        end = min(len(text), word.start() + _CV_RATE_WINDOW)
+        match = _BARE_AMOUNT_RE.match(text, word.start(), end)
+        if match is None:
+            continue
+        number = re.search(r"\d", match.group())
+        if number and _DATE_LIKE_RE.match(match.group(), number.start()):
+            continue
+        # Ogon na całym tekście: okno ucina słowo po liczbie.
+        if _CV_BARE_TAIL_RE.match(text, match.end()):
+            return True
+    return False
+
+
+def is_cv_rate_text(text: str) -> bool:
+    """Czy tekst CV mówi o stawce — ściślej niż ``is_rate_text`` z notatek.
+
+    W CV słowa „wynagrodzenie”, „stawka” i „rate” bywają dziedziną pracy
+    (moduł płacowy, „error rate”, stanowisko z latami), a w notatce
+    o kandydacie prawie zawsze są jego pieniędzmi. Stawka w CV to: kwota za
+    czas („150 zł/h”), kwota z walutą (także słowem: „150 złotych”) w oknie
+    słowa o pieniądzach — chyba że to budżet projektu („o budżecie 2 mln
+    PLN”) — albo liczba bez waluty po takim słowie na końcu zdania lub przed
+    formą rozliczenia (`_CV_BARE_TAIL_RE`), jeśli nie jest datą. Jedna reguła
+    dla uwagi QC „Stawka w CV” i dla „Usuń stawkę” w edytorze.
+    """
+    text = text or ""
+    if _cv_bare_rate(text):
+        return True
+    for word in RATE_WORD_RE.finditer(text):
+        start = max(0, word.start() - _CV_RATE_WINDOW)
+        window = text[start : word.end() + _CV_RATE_WINDOW]
+        for money in (
+            *MONEY_RE.finditer(window),
+            *_CV_CURRENCY_WORD_RE.finditer(window),
+        ):
+            if _PER_TIME_RE.search(money.group()):
+                return True
+            before = window[max(0, money.start() - _BUDGET_BEFORE) : money.end()]
+            if not _PROJECT_BUDGET_RE.search(before):
+                return True
+    return False
+
+
 def _is_candidate_money(part: str) -> bool:
-    if is_rate_text(part) or _WANTED_AMOUNT_RE.search(part):
+    if (
+        is_rate_text(part)
+        or _WANTED_AMOUNT_RE.search(part)
+        or _has_contract_amount(part)
+    ):
         return True
     if _PROJECT_BUDGET_RE.search(part):
         return False
-    return bool(MONEY_RE.search(part)) or bool(
+    return next(money_matches(part), None) is not None or bool(
         re.search(r"\d", part) and _CANDIDATE_MONEY_WORD_RE.search(part)
     )
 

@@ -48,6 +48,7 @@ def _empty_summary() -> dict:
         "people": 0,
         "moved_by_credited": 0,
         **{f"state_{name}": 0 for name in activity_service.DETAIL_STATES},
+        "history_total": 0,
     }
 
 

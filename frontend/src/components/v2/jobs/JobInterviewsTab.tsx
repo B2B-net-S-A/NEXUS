@@ -334,6 +334,7 @@ export function JobInterviewsTab({
           rejection_email_subject: vars.emailText?.subject,
           rejection_email_body: vars.emailText?.body,
           rejection_email_other_processes: vars.emailText?.otherProcesses,
+          rejection_email_merge: vars.emailText?.merge,
           work_mode_max_onsite_days: vars.workMode?.maxOnsiteDays,
           work_mode_save_to_profile: vars.workMode?.saveToProfile,
           candidate_offer_response: vars.offerResponse ?? undefined,

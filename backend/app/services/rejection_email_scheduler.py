@@ -117,6 +117,12 @@ def send_in_progress(row: ScheduledRejectionEmail) -> bool:
     )
 
 
+# Wspólny mail (D3, 17.10.2026): wiersz dołączony do nowszego maila tej samej
+# osoby ma status `cancelled` i `last_error = "merged_into:<id>"` — dzięki
+# temu wiadomo, o których rekrutacjach mówi wspólny mail, bez nowej kolumny.
+MERGED_INTO_PREFIX = "merged_into:"
+
+
 def _can_send_rejection_email(user: User) -> bool:
     """Require both the candidate persona and current Pipeline write access."""
 
@@ -285,12 +291,24 @@ class OtherProcess:
 
 
 @dataclass(frozen=True)
+class PendingMail:
+    """Mail odrzucenia, który do tej osoby jeszcze czeka (D3)."""
+
+    id: int
+    scheduled_at: datetime
+    sender_name: str
+    # Rekrutacje, o których już mówi — nazwy w NEXUSIE (do okna).
+    job_titles: tuple[str, ...]
+
+
+@dataclass(frozen=True)
 class PreviewPerson:
     candidate_id: int
     to_email: Optional[str]
     skip_reason: Optional[str]
     text_kind: Optional[str] = None
     other_processes: tuple[OtherProcess, ...] = ()
+    pending_mail: Optional[PendingMail] = None
 
 
 @dataclass(frozen=True)
@@ -326,6 +344,9 @@ class RejectionEmailPreview:
     text_kind: Optional[str] = None
     # Nazwa rekrutacji w mailu nadal wygląda na kod zlecenia albo klienta.
     title_warning: bool = False
+    # Pierwsza osoba z czekającym mailem: wspólna treść o wszystkich jej
+    # rekrutacjach (D3) — okno pokazuje ją, gdy wybrany jest „jeden mail”.
+    merged: Optional[PreviewSample] = None
 
 
 async def preview(
@@ -403,6 +424,7 @@ async def preview(
 
     people: list[PreviewPerson] = []
     samples: dict[str, PreviewSample] = {}
+    merged: Optional[PreviewSample] = None
     for candidate_id in ids:
         candidate = candidates.get(candidate_id)
         kind = kinds.get(candidate_id)
@@ -418,6 +440,21 @@ async def preview(
         else:
             reason = sender_reason
         person_others = tuple(others.get(candidate_id, ())) if kind else ()
+        pending: Optional[PendingMail] = None
+        if reason is None:
+            pending_row = await mergeable_pending_mail(
+                db, candidate_id=candidate_id, exclude_job_id=job.id
+            )
+            if pending_row is not None:
+                covered = await covered_job_ids(db, pending_row)
+                pending = await _pending_mail_view(db, pending_row, covered)
+                if merged is None:
+                    merged = await _merged_sample(
+                        db,
+                        candidate=candidate,
+                        job_ids=[*covered, job.id],
+                        others=person_others,
+                    )
         if reason is None and kind is not None and kind not in samples:
             text = rejection_text.default_text(
                 candidate_name=candidate.name or "", job_title=job_title, kind=kind
@@ -439,6 +476,7 @@ async def preview(
                 skip_reason=reason,
                 text_kind=kind,
                 other_processes=person_others,
+                pending_mail=pending,
             )
         )
 
@@ -453,6 +491,7 @@ async def preview(
         other_processes_text=first.other_processes_text if first else None,
         text_kind=first.text_kind if first else None,
         title_warning=first is not None and not title_safe,
+        merged=merged,
     )
 
 
@@ -466,6 +505,7 @@ async def maybe_schedule(
     edited_subject: Optional[str] = None,
     edited_body: Optional[str] = None,
     append_other_processes: bool = True,
+    merge: bool = True,
 ) -> Optional[ScheduledRejectionEmail]:
     """Maybe schedule a rejection email for a freshly-created rejected stage.
 
@@ -486,6 +526,11 @@ async def maybe_schedule(
     rekrutacjach od „Zweryfikowany”, zamiast zakończenia idzie znacznik, który
     ``dispatch`` wypełnia listą z chwili wysyłki. ``False`` (odznaczone w oknie)
     = zwykłe zakończenie bez słowa o innych rekrutacjach.
+
+    ``merge`` (D3, 17.10.2026) — gdy do tej osoby czeka już mail odrzucenia
+    z innej rekrutacji (nie ruszył, treść nie była poprawiana), powstaje jeden
+    wspólny o wszystkich tych rekrutacjach, a tamten wiersz jest anulowany
+    z ``last_error = "merged_into:<id>"``. ``False`` = osobny mail.
     """
     from app.services.email_template_variables import plain_text_to_html
 
@@ -509,17 +554,26 @@ async def maybe_schedule(
     if not _can_send_rejection_email(recruiter):
         return None
 
+    edited = bool(edited_subject or edited_body)
+    template = None if edited else await _resolve_template(db, template_override_id)
+    previous: Optional[ScheduledRejectionEmail] = None
+    if merge and template is None:
+        previous = await mergeable_pending_mail(
+            db, candidate_id=candidate.id, exclude_job_id=stage.job_id, lock=True
+        )
+    covered = [stage.job_id]
+    if previous is not None:
+        covered = [*await covered_job_ids(db, previous), stage.job_id]
+
     job_title, _title_safe = await mail_job_title(db, job)
     others = (
         await _other_processes_for(
-            db, candidate_ids=[candidate.id], exclude_job_ids={stage.job_id}
+            db, candidate_ids=[candidate.id], exclude_job_ids=set(covered)
         )
     ).get(candidate.id, [])
     other_processes = [{"job_id": p.job_id, "title": p.mail_title} for p in others]
     append = append_other_processes and bool(others)
 
-    edited = bool(edited_subject or edited_body)
-    template = None if edited else await _resolve_template(db, template_override_id)
     if template is not None:
         subject, body_html = _render(
             template=template,
@@ -531,9 +585,16 @@ async def maybe_schedule(
         )
         append = False
     else:
-        text = rejection_text.default_text(
-            candidate_name=candidate.name or "", job_title=job_title, kind=kind
-        )
+        if previous is not None:
+            titles = await _mail_titles(db, covered, known={job.id: job_title})
+            text = rejection_text.merged_text(
+                candidate_name=candidate.name or "", job_titles=titles
+            )
+            kind = rejection_text.TEXT_MERGED
+        else:
+            text = rejection_text.default_text(
+                candidate_name=candidate.name or "", job_title=job_title, kind=kind
+            )
         subject = edited_subject or text.subject
         body_text = edited_body or (text.body if append else text.full())
         body_html = plain_text_to_html(body_text)
@@ -555,6 +616,10 @@ async def maybe_schedule(
     )
     db.add(scheduled)
     await db.flush()
+    if previous is not None:
+        await _merge_into(
+            db, previous=previous, target=scheduled, actor_id=recruiter_id
+        )
 
     db.add(
         Activity(
@@ -572,6 +637,8 @@ async def maybe_schedule(
                 "other_processes_appended": append,
                 "text_kind": kind,
                 "edited": edited,
+                "merged_from": previous.id if previous is not None else None,
+                "job_ids": covered,
             },
         )
     )
@@ -652,15 +719,23 @@ async def dispatch(db: AsyncSession, row_id: int) -> None:
     # ominąć anulowanie. Sprawdzamy AKTUALNY (najnowszy) etap pary
     # (candidate, job) tuż przed wysyłką; jeśli to już nie `rejected`, kandydat
     # wrócił do procesu → oznaczamy mail jako cancelled i nic nie wysyłamy.
-    current_stage = await db.scalar(
-        select(CandidateStage.stage)
-        .where(
-            CandidateStage.candidate_id == row.candidate_id,
-            CandidateStage.job_id == row.job_id,
+    # Wspólny mail (D3) sprawdza KAŻDĄ rekrutację, o której mówi.
+    covered = await covered_job_ids(db, row)
+    current_stage = PipelineStage.rejected
+    restored_job_id = row.job_id
+    for covered_job_id in covered:
+        current_stage = await db.scalar(
+            select(CandidateStage.stage)
+            .where(
+                CandidateStage.candidate_id == row.candidate_id,
+                CandidateStage.job_id == covered_job_id,
+            )
+            .order_by(CandidateStage.moved_at.desc(), CandidateStage.id.desc())
+            .limit(1)
         )
-        .order_by(CandidateStage.moved_at.desc(), CandidateStage.id.desc())
-        .limit(1)
-    )
+        if current_stage != PipelineStage.rejected:
+            restored_job_id = covered_job_id
+            break
     if current_stage != PipelineStage.rejected:
         current_stage_label = getattr(current_stage, "value", current_stage)
         row.status = RejectionEmailStatus.cancelled
@@ -674,7 +749,7 @@ async def dispatch(db: AsyncSession, row_id: int) -> None:
                 user_id=row.recruiter_id,
                 details={
                     "scheduled_rejection_email_id": row.id,
-                    "job_id": row.job_id,
+                    "job_id": restored_job_id,
                     "reason": "candidate_no_longer_rejected_at_dispatch",
                     "current_stage": current_stage_label,
                 },
@@ -759,11 +834,13 @@ async def dispatch(db: AsyncSession, row_id: int) -> None:
     if rejection_text.OTHER_PROCESSES_MARKER in (row.body_html or ""):
         others_now = (
             await _other_processes_for(
-                db, candidate_ids=[row.candidate_id], exclude_job_ids={row.job_id}
+                db, candidate_ids=[row.candidate_id], exclude_job_ids=set(covered)
             )
         ).get(row.candidate_id, [])
         row.body_html = rejection_text.fill_other_processes(
-            row.body_html, [p.mail_title for p in others_now]
+            row.body_html,
+            [p.mail_title for p in others_now],
+            merged=len(covered) > 1,
         )
 
     # Rezerwacja wysyłki (wiersz ``Email`` z kluczem ``scheduled-rejection:
@@ -979,6 +1056,237 @@ async def _mark_send_outcome_unknown(
             row.id,
         )
     await db.commit()
+
+
+async def _merged_rows(db: AsyncSession, row_id: int) -> list[ScheduledRejectionEmail]:
+    """Wiersze dołączone do wspólnego maila ``row_id`` (najstarsze pierwsze)."""
+    return list(
+        (
+            await db.scalars(
+                select(ScheduledRejectionEmail)
+                .where(
+                    ScheduledRejectionEmail.status == RejectionEmailStatus.cancelled,
+                    ScheduledRejectionEmail.last_error
+                    == f"{MERGED_INTO_PREFIX}{row_id}",
+                )
+                .order_by(ScheduledRejectionEmail.id)
+            )
+        ).all()
+    )
+
+
+async def covered_job_ids(db: AsyncSession, row: ScheduledRejectionEmail) -> list[int]:
+    """Rekrutacje, o których mówi mail: dołączone wcześniej, na końcu jego własna."""
+    ids = [r.job_id for r in await _merged_rows(db, row.id)]
+    ids.append(row.job_id)
+    return list(dict.fromkeys(ids))
+
+
+async def _row_edited(db: AsyncSession, row: ScheduledRejectionEmail) -> bool:
+    """Treść tego maila poprawiono w oknie — z niczym jej nie łączymy."""
+    details = (
+        await db.scalars(
+            select(Activity.details).where(
+                Activity.entity_type == "candidate",
+                Activity.entity_id == row.candidate_id,
+                Activity.action == "rejection_email_scheduled",
+            )
+        )
+    ).all()
+    return any(
+        (d or {}).get("scheduled_rejection_email_id") == row.id
+        and bool((d or {}).get("edited"))
+        for d in details
+    )
+
+
+async def mergeable_pending_mail(
+    db: AsyncSession,
+    *,
+    candidate_id: int,
+    exclude_job_id: int,
+    lock: bool = False,
+) -> Optional[ScheduledRejectionEmail]:
+    """Mail odrzucenia, który do tej osoby jeszcze czeka i da się z nim
+    połączyć (D3). Nie łączymy z mailem, którego wysyłka ruszyła, z treścią
+    ze szablonu ani z treścią poprawioną ręcznie — tamten wyjdzie osobno
+    (i tak z dopiskiem liczonym w chwili wysyłki)."""
+    query = (
+        select(ScheduledRejectionEmail)
+        .where(
+            ScheduledRejectionEmail.candidate_id == candidate_id,
+            ScheduledRejectionEmail.status == RejectionEmailStatus.pending,
+            ScheduledRejectionEmail.job_id != exclude_job_id,
+        )
+        .order_by(ScheduledRejectionEmail.scheduled_at.desc())
+    )
+    if lock:
+        query = query.with_for_update()
+    for row in (await db.scalars(query)).all():
+        if send_in_progress(row) or row.template_id is not None:
+            continue
+        if await _row_edited(db, row):
+            continue
+        return row
+    return None
+
+
+async def pending_rows_covering(
+    db: AsyncSession, *, candidate_id: int, job_id: int
+) -> list[ScheduledRejectionEmail]:
+    """Czekające maile, które mówią o tej rekrutacji: jej własny i wspólny,
+    do którego dołączono jej mail (D3). Z blokadą wiersza — jak ruch."""
+    own = (
+        await db.scalars(
+            select(ScheduledRejectionEmail)
+            .where(
+                ScheduledRejectionEmail.candidate_id == candidate_id,
+                ScheduledRejectionEmail.job_id == job_id,
+                ScheduledRejectionEmail.status == RejectionEmailStatus.pending,
+            )
+            .with_for_update()
+        )
+    ).all()
+    merged_errors = (
+        await db.scalars(
+            select(ScheduledRejectionEmail.last_error).where(
+                ScheduledRejectionEmail.candidate_id == candidate_id,
+                ScheduledRejectionEmail.job_id == job_id,
+                ScheduledRejectionEmail.status == RejectionEmailStatus.cancelled,
+                ScheduledRejectionEmail.last_error.like(f"{MERGED_INTO_PREFIX}%"),
+            )
+        )
+    ).all()
+    target_ids = {
+        int(err[len(MERGED_INTO_PREFIX) :])
+        for err in merged_errors
+        if err and err[len(MERGED_INTO_PREFIX) :].isdigit()
+    }
+    targets = []
+    if target_ids:
+        targets = (
+            await db.scalars(
+                select(ScheduledRejectionEmail)
+                .where(
+                    ScheduledRejectionEmail.id.in_(target_ids),
+                    ScheduledRejectionEmail.status == RejectionEmailStatus.pending,
+                )
+                .with_for_update()
+            )
+        ).all()
+    seen: dict[int, ScheduledRejectionEmail] = {r.id: r for r in own}
+    for row in targets:
+        seen.setdefault(row.id, row)
+    return list(seen.values())
+
+
+async def _merge_into(
+    db: AsyncSession,
+    *,
+    previous: ScheduledRejectionEmail,
+    target: ScheduledRejectionEmail,
+    actor_id: int,
+) -> None:
+    """Czekający mail ``previous`` (i to, co już do niego dołączono) wchodzi
+    do wspólnego ``target``. Nadawca tamtego dostaje dzwonek."""
+    marker = f"{MERGED_INTO_PREFIX}{target.id}"
+    for row in await _merged_rows(db, previous.id):
+        row.last_error = marker
+    previous.status = RejectionEmailStatus.cancelled
+    previous.cancelled_at = datetime.now(timezone.utc)
+    previous.cancelled_by = actor_id
+    previous.last_error = marker
+    db.add(
+        Activity(
+            entity_type="candidate",
+            entity_id=target.candidate_id,
+            action="rejection_email_merged",
+            user_id=actor_id,
+            details={
+                "scheduled_rejection_email_id": target.id,
+                "merged_from": previous.id,
+                "job_id": previous.job_id,
+            },
+        )
+    )
+    if previous.recruiter_id != actor_id:
+        actor = await db.get(User, actor_id)
+        who = (actor.name or actor.email) if actor is not None else "inna osoba"
+        db.add(
+            Notification(
+                user_id=previous.recruiter_id,
+                title="Mail odrzucenia dołączony do wspólnego",
+                message=(
+                    f"Twój mail odrzucenia do {previous.to_email} wyjdzie razem "
+                    f"z mailem od {who} — kandydat dostanie jeden mail o obu "
+                    "rekrutacjach."
+                ),
+                link=f"/candidates/{previous.candidate_id}",
+                notification_type=NotificationType.rejection_email_cancelled,
+                related_entity_type="scheduled_rejection_email",
+                related_entity_id=target.id,
+            )
+        )
+    await db.flush()
+
+
+async def _mail_titles(
+    db: AsyncSession, job_ids: Sequence[int], *, known: Optional[dict] = None
+) -> list[str]:
+    """Nazwy rekrutacji dla kandydata w kolejności ``job_ids``."""
+    titles: list[str] = []
+    for job_id in job_ids:
+        if known and job_id in known:
+            titles.append(known[job_id])
+            continue
+        other = await db.get(Job, job_id)
+        if other is not None:
+            titles.append((await mail_job_title(db, other))[0])
+    return titles
+
+
+async def _pending_mail_view(
+    db: AsyncSession, row: ScheduledRejectionEmail, covered: Sequence[int]
+) -> PendingMail:
+    sender = await db.get(User, row.recruiter_id)
+    titles: list[str] = []
+    for job_id in covered:
+        other = await db.get(Job, job_id)
+        if other is not None:
+            titles.append(
+                (getattr(other, "working_title", None) or other.title or "").strip()
+            )
+    return PendingMail(
+        id=row.id,
+        scheduled_at=row.scheduled_at,
+        sender_name=(sender.name or sender.email or "") if sender is not None else "",
+        job_titles=tuple(titles),
+    )
+
+
+async def _merged_sample(
+    db: AsyncSession,
+    *,
+    candidate: Candidate,
+    job_ids: Sequence[int],
+    others: Sequence[OtherProcess],
+) -> PreviewSample:
+    """Wspólna treść o wszystkich rekrutacjach osoby (podgląd okna, D3)."""
+    titles = await _mail_titles(db, job_ids)
+    text = rejection_text.merged_text(
+        candidate_name=candidate.name or "", job_titles=titles
+    )
+    covered = set(job_ids)
+    return PreviewSample(
+        text_kind=rejection_text.TEXT_MERGED,
+        candidate_id=candidate.id,
+        subject=text.subject,
+        body=text.body,
+        closing=text.closing,
+        other_processes_text=rejection_text.other_processes_text(
+            [p.mail_title for p in others if p.job_id not in covered], merged=True
+        ),
+    )
 
 
 async def _previous_row_kind(

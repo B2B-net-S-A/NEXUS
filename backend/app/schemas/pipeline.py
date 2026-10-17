@@ -60,6 +60,9 @@ class StageMove(BaseModel):
     # = dopisz, gdy osoba jest w innych rekrutacjach od „Zweryfikowany”;
     # `False` = odznaczone w oknie, zwykłe zakończenie.
     rejection_email_other_processes: Optional[bool] = None
+    # Wspólny mail (17.10.2026, D3) — `None`/`True` = gdy do osoby czeka już
+    # mail odrzucenia z innej rekrutacji, wychodzi jeden o obu; `False` = osobny.
+    rejection_email_merge: Optional[bool] = None
     # Powód „Nie akceptuje trybu pracy” (`work_mode_mismatch`, 14.10.2026):
     # ile dni w biurze kandydat akceptuje (0 = tylko zdalnie). Przy tym
     # powodzie wymagane, przy każdym innym → 422. `save_to_profile` = zapis

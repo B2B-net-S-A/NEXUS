@@ -1191,8 +1191,9 @@ async def hall_of_fame_with_scope(
 ) -> tuple[list[RankedUser], HallOfFameScope]:
     """Ranking wszech czasów wg definicji D2 — jak „Analiza placementów".
 
-    ATRYBUCJA: `analytics_first_milestones.first_moved_by`, czyli osoba, która
-    przesunęła parę (kandydat, oferta) na etap „Zatrudniony" PIERWSZY raz.
+    ATRYBUCJA: `analytics_kpi_milestones.first_moved_by`, czyli osoba, która
+    przesunęła parę (kandydat, oferta) na etap „Zatrudniony" PIERWSZY raz;
+    1.01–11.10.2026 — osoba z tygodniowego wpisu DynaReportera (migracja 0454).
     Ta sama reguła, którą stosuje `/api/insights/charts/placement-analysis`
     i tabela „Performance per osoba" — dzięki temu trzy liczby podpisane
     „placementy" na jednym ekranie znaczą to samo.
@@ -1226,7 +1227,7 @@ async def hall_of_fame_with_scope(
                 f"""
                 WITH hired AS (
                     SELECT fm.first_moved_by AS uid
-                    FROM analytics_first_milestones fm
+                    FROM analytics_kpi_milestones fm
                     WHERE fm.stage::text = 'hired'
                 ),
                 classified AS (
