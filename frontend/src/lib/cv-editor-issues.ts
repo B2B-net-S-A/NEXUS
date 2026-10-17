@@ -466,12 +466,29 @@ export function itemSentence(item: QcItem): string {
  */
 export function itemQuickFix(check: QcCheck, item: QcItem): QcFixAction | null {
   if (check.status !== "fail" || item.fix) return null;
-  if (check.key === "years_header") return { action: "years" };
+  if (check.key === "years_header") return yearsFixable(item) ? { action: "years" } : null;
   if (check.key === "title_matches_role" && item.term?.trim()) return { action: "title" };
   if (check.key === "client_rules" && /^(Stawka w CV|CV zawiera)/.test(itemSentence(item))) {
     return { action: "strip_client_rules" };
   }
   return null;
+}
+
+/** „N lat w A i B” — lustro `cv_qc._SEVERAL_COMPANIES` (tylko część po „w”). */
+const SEVERAL_COMPANIES = /\s(?:i|oraz|and)\s|[&/]/i;
+const COMPANY_PART = /\s(?:w|we|u|at|in|with)\s+(.+)$/i;
+
+/**
+ * Czy serwer poprawi te lata (17.10.2026): jest liczba z historii (co najmniej
+ * rok — zera serwer nie wpisuje) i staż w firmie nie mówi o kilku firmach naraz.
+ * Inaczej uwaga zostaje do decyzji, bez przycisku, który kończyłby się „nic do
+ * zrobienia”.
+ */
+function yearsFixable(item: QcItem): boolean {
+  if (!yearsPreview(item)) return false;
+  if (!/z dat roli w /.test(itemSentence(item))) return true;
+  const company = COMPANY_PART.exec(item.term ?? "");
+  return !SEVERAL_COMPANIES.test(company ? company[1] : (item.term ?? ""));
 }
 
 const YEARS_NUMBER = /(?<![\d.,])(\d{1,2})(\s*\+?\s*)(lata|lat|roku|years?|yrs)\b/i;
