@@ -41,6 +41,7 @@ from app.models.user import User, UserRole
 from app.services.hr import payroll_report
 from app.services.hr.payroll_periods import add_months, previous_month
 from app.services.hr_foundation_schema import HR_MODULE_KEYS, HR_MODULES_SETTING
+from tests.hr_settlements_seed import delete_settlement_rows
 
 BACKEND = Path(__file__).resolve().parents[1]
 
@@ -80,6 +81,7 @@ async def _set_modules(value) -> None:
 
 async def _wipe() -> None:
     async with AsyncSessionLocal() as db:
+        await delete_settlement_rows(db)
         await db.execute(delete(PayrollLine))
         await db.execute(delete(PayrollPeriod))
         await db.execute(delete(HrBonus))

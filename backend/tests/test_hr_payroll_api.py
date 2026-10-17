@@ -32,6 +32,7 @@ from app.models.user import User, UserRole
 from app.services.hr.bonus_rules import SETTING_KEY as RULES_KEY
 from app.services.hr.payroll_periods import add_months
 from app.services.hr_foundation_schema import HR_MODULE_KEYS, HR_MODULES_SETTING
+from tests.hr_settlements_seed import delete_settlement_rows
 
 # ── Pomocnicze ────────────────────────────────────────────────────────────────
 
@@ -78,6 +79,7 @@ async def _set_setting(key: str, value) -> None:
 
 async def _wipe_payroll() -> None:
     async with AsyncSessionLocal() as db:
+        await delete_settlement_rows(db)
         await db.execute(delete(PayrollLine))
         await db.execute(delete(PayrollPeriod))
         await db.execute(delete(HrBonus))
@@ -560,7 +562,12 @@ async def test_close_month_freezes_lines_locks_timesheets_and_is_idempotent(
     y, m = _months_ago(2)
     async with AsyncSessionLocal() as db:
         sheet = await _timesheet(
-            db, worker.id, y, m, "approved", [(3, "8", False), (4, "5", False), (4, "5", True)]
+            db,
+            worker.id,
+            y,
+            m,
+            "approved",
+            [(3, "8", False), (4, "5", False), (4, "5", True)],
         )
         admin = await _user(db, "admin")
         await db.commit()

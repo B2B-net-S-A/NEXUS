@@ -94,6 +94,14 @@ FALLBACK: dict[str, tuple[str, str]] = {
         "Komunikat do konsultantów",
         "Komunikat do konsultantów czeka na Ciebie — szczegóły znajdziesz w NEXUSIE.",
     ),
+    "hr_settlement_correction": (
+        "Płace proszą o korektę faktury",
+        "Porównanie z raportem godzin znajdziesz w „Moim czasie” → Rozliczenie.",
+    ),
+    "hr_settlement_review": (
+        "Rozliczenie do sprawdzenia",
+        "Rozliczenie w Płacach czeka na Twoją decyzję — szczegóły znajdziesz w NEXUSIE.",
+    ),
 }
 _DEFAULT = ("Czas i ludzie", "Szczegóły znajdziesz w NEXUSIE.")
 

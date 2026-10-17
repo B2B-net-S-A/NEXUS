@@ -36,6 +36,11 @@ PERSONAL_TYPES: tuple[str, ...] = (
     # Komunikat do konsultantów: do zatwierdzenia → head back office / admin,
     # decyzja → autor, odbity mail → opiekun („popraw e-mail”).
     "care_announcement",
+    # Rozliczenia zespołu (etap 4): prośba o korektę faktury → osoba, rozliczenie
+    # opłacone → osoba, rozbieżność albo uznanie różnicy do drugiej osoby → Płace.
+    "hr_settlement_correction",
+    "hr_settlement_paid",
+    "hr_settlement_review",
 )
 
 #: Opieka nad konsultantem — link do kontraktu, sekcja Delivery.

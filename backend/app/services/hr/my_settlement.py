@@ -28,6 +28,12 @@ obowiązująca 1. dnia miesiąca, premie przyznane z okresem w tym miesiącu,
 a godziny z „Mojego miesiąca” — suma wpisów timesheetu (zaakceptowanego albo
 w toku: szkic i wysłany liczą się tak, jak są wpisane). Płace przy zamknięciu
 biorą tylko zaakceptowane, więc szacunek zmienia się do zamknięcia.
+
+**Premie wypłacone (R11, etap 4).** ``bonuses_paid`` przy włączonym module
+rozliczeń sumuje premie z linii, których rozliczenie jest opłacone
+(``payroll_settlements.status = 'paid'``, ta sama waluta); przy wyłączonym —
+jak dotąd, premie z zamkniętych miesięcy. ``bonuses_rule`` mówi frontowi,
+która reguła liczyła (``paid_settlement`` / ``closed_month``).
 """
 
 from __future__ import annotations
@@ -42,11 +48,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.contract import Contract, ContractStatus
 from app.models.hr_payroll import HrBonus, PayrollLine, PayrollPeriod
+from app.models.hr_settlement import PayrollSettlement
 from app.models.hr_time import Timesheet, TimesheetEntry
 from app.models.job import Job
 from app.models.team_structure import DeliveryLeadClientAssignment
 from app.services import fx_service
 from app.services.contract_rates import RATE_SCHEDULE_LOADS
+from app.services.hr import modules as hr_modules
 from app.services.hr import payroll_rates
 from app.services.hr import placement_bonuses as placements
 from app.services.hr.bonus_rules import (
@@ -389,6 +397,24 @@ async def settlement(
     timesheets = await _timesheets(db, user_id, year)
     bonuses = await _assigned_bonuses(db, user_id, year)
     rates = await payroll_rates.history(db, user_id)
+    paid_lines: Optional[set[tuple[int, str]]] = None
+    if (await hr_modules.load_modules(db)).get(hr_modules.HrModule.settlements):
+        paid_lines = {
+            (int(month), str(currency))
+            for month, currency in (
+                await db.execute(
+                    select(PayrollPeriod.month, PayrollSettlement.currency)
+                    .join(
+                        PayrollPeriod, PayrollPeriod.id == PayrollSettlement.period_id
+                    )
+                    .where(
+                        PayrollPeriod.year == year,
+                        PayrollSettlement.user_id == user_id,
+                        PayrollSettlement.status == "paid",
+                    )
+                )
+            ).all()
+        }
 
     months: list[dict[str, Any]] = []
     paid: dict[str, Decimal] = defaultdict(lambda: ZERO)
@@ -399,7 +425,8 @@ async def settlement(
                 continue  # osoby nie było na liście płac tego miesiąca
             months.append(_frozen_month(year, month, lines))
             for line in lines:
-                paid[line.currency] += Decimal(line.bonus_total)
+                if paid_lines is None or (month, line.currency) in paid_lines:
+                    paid[line.currency] += Decimal(line.bonus_total)
             continue
         timesheet = timesheets.get(month)
         month_bonuses = bonuses.get(month, {})
@@ -425,6 +452,7 @@ async def settlement(
         "bonuses_paid": {
             currency: str(money(total)) for currency, total in sorted(paid.items())
         },
+        "bonuses_rule": "closed_month" if paid_lines is None else "paid_settlement",
     }
 
 

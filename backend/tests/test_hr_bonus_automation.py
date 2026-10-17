@@ -45,6 +45,7 @@ from app.services.hr.bonus_rules import (
     parse_rules,
 )
 from app.services.hr_foundation_schema import HR_MODULE_KEYS, HR_MODULES_SETTING
+from tests.hr_settlements_seed import delete_settlement_rows
 
 
 async def _set_setting(key: str, value) -> None:
@@ -62,6 +63,7 @@ async def _set_setting(key: str, value) -> None:
 
 async def _wipe() -> None:
     async with AsyncSessionLocal() as db:
+        await delete_settlement_rows(db)
         await db.execute(delete(PayrollLine))
         await db.execute(delete(PayrollPeriod))
         await db.execute(delete(HrBonus))

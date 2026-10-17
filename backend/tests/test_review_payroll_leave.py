@@ -68,6 +68,7 @@ from tests.test_hr_compass_import_leave import (
     make_person,
     run_import,
 )
+from tests.hr_settlements_seed import delete_settlement_rows
 from tests.test_hr_leave_api import (  # noqa: F401
     _body,
     _grant,
@@ -447,6 +448,7 @@ async def _cleanup_month(year: int, month: int, user_ids: list[int]) -> None:
             )
         )
         if period is not None:
+            await delete_settlement_rows(db, period.id)
             await db.execute(
                 delete(PayrollLine).where(PayrollLine.period_id == period.id)
             )

@@ -14,6 +14,8 @@ import type { HrConfig } from "@/lib/api/hr";
 import { useMinimumRates, useSaveMinimumRates, type MinimumRates } from "@/lib/api/hr-payroll";
 import { resolveViewState } from "@/lib/view-state";
 
+import { PaymentSettingsCard } from "./PaymentSettingsCard";
+
 /** Kto zmienia reguły premii — lustro `require_hr_payroll_admin` (Płace, admin zawsze). */
 export function canEditPayrollSettings(config: Pick<HrConfig, "me">): boolean {
   return config.me.payroll || config.me.is_admin;
@@ -198,6 +200,7 @@ export function PayrollSettings({ config }: { config: HrConfig }) {
         <>
           <BonusRulesCard />
           <MinimumRatesCard />
+          {config.open_modules.settlements ? <PaymentSettingsCard /> : null}
         </>
       ) : (
         <p className="text-sm text-muted-foreground">

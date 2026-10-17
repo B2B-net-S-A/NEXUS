@@ -2,6 +2,7 @@
 
 import { InlineStats, type InlineStat } from "@/components/ds/InlineStats";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
+import { useMyHrProfile } from "@/lib/api/hr";
 import { useMyPayroll, useMySettlement, type MyPayroll, type MySettlement } from "@/lib/api/hr-payroll";
 import { resolveViewState } from "@/lib/view-state";
 import { warsawToday } from "@/lib/warsaw-date";
@@ -62,7 +63,11 @@ export function myStats(
       id: "paid",
       label: `premie wypłacone w ${year}`,
       value: totalsLabel(settlement.bonuses_paid),
-      title: "Premie z miesięcy zamkniętych w płacach.",
+      // R11: przy włączonych rozliczeniach liczą się premie z opłaconych rozliczeń.
+      title:
+        (settlement as MySettlement & { bonuses_rule?: string }).bonuses_rule === "paid_settlement"
+          ? "Premie z opłaconych rozliczeń miesięcy."
+          : "Premie z miesięcy zamkniętych w płacach.",
     });
   }
   return stats;
@@ -78,6 +83,8 @@ export function MyBonusesTab() {
   const year = Number(today.slice(0, 4));
   const me = useMyPayroll();
   const settlement = useMySettlement(year);
+  const profile = useMyHrProfile();
+  const form = profile.data?.has_profile ? profile.data.employment_type : null;
   const data = me.data;
   const items = data ? myBonusItems(data, today) : [];
   const state = resolveViewState({
@@ -130,6 +137,7 @@ export function MyBonusesTab() {
       <MySettlementCard
         state={settlementState}
         data={settlement.data}
+        form={form}
         onRetry={() => settlement.refetch()}
       />
       {data.rates.length > 0 ? (

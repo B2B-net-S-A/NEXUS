@@ -175,9 +175,26 @@ function stages(labels: string[], current: number): BonusStage[] {
   }));
 }
 
-function payoutLabel(year: number, month: number, closed: boolean, currentYear: number): string {
+/**
+ * Premia „wypłacona” (R11, etap 4): przy włączonych rozliczeniach `/me` niesie
+ * `paid` — premia jest wypłacona dopiero z opłaconym rozliczeniem miesiąca.
+ * Bez pola (moduł rozliczeń wyłączony) zostaje stara reguła: miesiąc zamknięty
+ * w płacach = rozliczona.
+ */
+export function bonusSettled(row: BonusRow): boolean {
+  const paid = (row as BonusRow & { paid?: boolean | null }).paid;
+  return typeof paid === "boolean" ? paid : Boolean(row.period_closed);
+}
+
+function payoutLabel(row: BonusRow, currentYear: number): string {
+  const { period_year: year, period_month: month } = row;
   const suffix = year === currentYear ? "" : ` ${year}`;
-  return closed
+  const paid = (row as BonusRow & { paid?: boolean | null }).paid;
+  if (paid === true) return `wypłacona z rozliczeniem za ${MONTHS_PL[month - 1]}${suffix}`;
+  if (paid === false && row.period_closed) {
+    return `rozliczona za ${MONTHS_PL[month - 1]}${suffix} · czeka na zapłatę`;
+  }
+  return row.period_closed
     ? `rozliczona za ${MONTHS_PL[month - 1]}${suffix}`
     : `wypłata z ${MONTHS_INSTRUMENTAL[month - 1]}${suffix}`;
 }
@@ -217,7 +234,7 @@ export function bonusItemFromRow(
       when: reason ?? "anulowana",
     };
   }
-  const payout = payoutLabel(row.period_year, row.period_month, Boolean(row.period_closed), currentYear);
+  const payout = payoutLabel(row, currentYear);
   if (row.status === "assigned") {
     const who = row.assigned_by_name ? ` · ${row.assigned_by_name}` : "";
     // `assigned_at` to chwila UTC — dzień liczy kalendarz firmy (00:30 w Warszawie to jeszcze wczoraj w UTC).
@@ -227,7 +244,7 @@ export function bonusItemFromRow(
       : ["przyznana", payout];
     return {
       ...base,
-      stages: stages(labels, row.period_closed ? labels.length : labels.length - 1),
+      stages: stages(labels, bonusSettled(row) ? labels.length : labels.length - 1),
       when,
     };
   }
