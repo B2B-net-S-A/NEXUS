@@ -53,6 +53,7 @@ function config(cases: boolean): HrConfig {
     care: true,
     cases: true,
     equipment: true,
+    settlements: false,
   };
   return {
     modules: on,
