@@ -170,11 +170,9 @@ describe("visibleNavSections", () => {
     expect(viewer).not.toContain("/finance");
   });
 
-  it("praktykant (0374) nie ma menu; panel „Praktykanci” mają admin i HoR", () => {
+  it("praktykant (0374) nie ma menu; panel „Praktykanci” zdjęty z menu 17.10.2026", () => {
     expect(hrefs("trainee")).toEqual([]);
-    expect(hrefs("head_of_recruitment")).toContain("/trainees");
-    expect(hrefs("admin")).toContain("/trainees");
-    for (const role of ["recruiter", "delivery_lead", "finance", "user"] as UserRole[]) {
+    for (const role of ["admin", "head_of_recruitment", "recruiter", "delivery_lead", "finance", "user"] as UserRole[]) {
       expect(hrefs(role)).not.toContain("/trainees");
     }
   });
