@@ -3,8 +3,8 @@
 Rekruterzy zgłaszają uwagi QC „bez pokrycia”. Najostrzejsza z nich to
 „Reguły klienta → Stawka w CV”: blokada, której nie da się pominąć („To
 nieprawda” → 422), więc przy fałszywej stawce zostaje tylko „Przekaż mimo
-uwag…”. Zmiana reguły QC to decyzja Artura — gałąź
-`claude/qc-rate-in-cv-rule`, bez PR-a.
+uwag…”. Zmiana reguły QC to decyzja Artura — 17.10.2026: „Tak — otwórz PR
+z gałęzi `claude/qc-rate-in-cv-rule` z auto-merge, bez podbicia QC_VERSION”.
 
 **Wynik pomiaru na produkcji (17.10.2026, tylko odczyt): problem dziś nie
 występuje.** Od startu QC (23.09) w 786 zapisanych przebiegach 231 par nie
@@ -42,7 +42,7 @@ waluty, których stara reguła nie widzi.
 6. **Koszt:** `_AMOUNT` wraca kwadratowo na długim ciągu cyfr — blok
    „stawka” + 20 tys. cyfr to 7 s CPU na każde liczenie QC. (Ten sam problem
    w `money_text` dla notatek naprawił B2B-net-S-A/NEXUS#2295, na produkcji
-   od 17.10.2026; `_AMOUNT` w QC zostaje do decyzji.)
+   od 17.10.2026; `_AMOUNT` w QC usuwa ta zmiana.)
 
 ## Propozycja (na gałęzi)
 
@@ -239,3 +239,5 @@ stawkę” przestaje kasować cudze zdania, a QC przestaje liczyć kwadratowo.
 Rekomendacja: tak, jako zwykły PR z auto-merge. Skargi rekruterów na uwagi
 „bez pokrycia” nie dotyczą tej reguły — warto zmierzyć „Jakość QC” dla
 `no_unsupported` i pozostałych sprawdzeń.
+
+**Decyzja Artura (17.10.2026): tak — PR z auto-merge, bez podbicia `QC_VERSION`.**

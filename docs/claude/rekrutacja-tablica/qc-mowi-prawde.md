@@ -159,7 +159,7 @@ Testy: sekcja „Kolejność stanowisk” w `tests/test_cv_qc.py` (także koszt 
 12 tys. stanowisk), `CvQcDialog.test.tsx` („Stanowiska od najnowszego”),
 reguła w `tests/test_cv_generator_legacy_v7.py`.
 
-## „Stawka w CV” = reguła „Usuń stawkę” (propozycja 17.10.2026)
+## „Stawka w CV” = reguła „Usuń stawkę” (decyzja Artura 17.10.2026)
 
 Blokady `client_rules` nie da się pominąć („To nieprawda” — 422), więc
 fałszywa stawka zostawia rekruterowi tylko „Przekaż mimo uwag…”. Do

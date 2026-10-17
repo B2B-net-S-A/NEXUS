@@ -677,8 +677,8 @@ def brings_money(
 
 
 def rate_mentions(blocks: list[Block]) -> list[str]:
-    """Bloki ze stawką — regułą „Usuń stawkę” (`_mentions_rate`, propozycja
-    17.10.2026). Cały blok, nie zdanie po zdaniu: skrót spoza listy
+    """Bloki ze stawką — regułą „Usuń stawkę” (`_mentions_rate`, decyzja
+    Artura 17.10.2026). Cały blok, nie zdanie po zdaniu: skrót spoza listy
     `_SENTENCE_PIECE` („Daily rate approx. 600 EUR”) dzieliłby stawkę na dwa
     zdania i przepuszczał ją — przy blokadzie wolimy uwagę bez poprawki
     jednym kliknięciem niż stawkę u klienta."""

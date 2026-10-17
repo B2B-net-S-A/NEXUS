@@ -1083,7 +1083,7 @@ def test_missing_rodo_consent_asks_for_upload() -> None:
     assert by["client_rules"]["status"] == "manual"
 
 
-# ── „Stawka w CV” = ta sama reguła co „Usuń stawkę” (propozycja 17.10.2026) ─
+# ── „Stawka w CV” = ta sama reguła co „Usuń stawkę” (decyzja 17.10.2026) ───
 #
 # Blokady `client_rules` nie da się pominąć, więc fałszywa „stawka” zostawia
 # rekruterowi tylko „Przekaż mimo uwag…”. Luźne `_AMOUNT` brało walutę
