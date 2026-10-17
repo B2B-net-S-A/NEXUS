@@ -61,7 +61,7 @@ from app.services.recommendation_card_parser import (
     redact_card_text,
 )
 from app.services.dz_review import Block, Requirement, Role
-from app.services.money_text import MONEY_RE, RATE_WORD_RE, is_rate_text
+from app.services.money_text import MONEY_RE, RATE_WORD_RE, is_cv_rate_text
 from app.services.prompt_fencing import fence, restore_tags
 from app.core.scheduling import business_today
 
@@ -78,7 +78,9 @@ FIXES_PROMPT_VERSION = "cv-qc-fixes-v6"
 # odmiany, zapisu i tłumaczeń (`dz.found_in`), nagłówek nie jest twierdzeniem,
 # tytuł z `cv_role_title`, pogrubienia tylko gdy generator pogrubiał, zdanie
 # w roli tylko przy opisie roli w oryginale.
-QC_VERSION = "qc-truth-1"
+# „qc-truth-2” (propozycja 17.10.2026): „Stawka w CV” regułą „Usuń stawkę”
+# (`money_text.is_cv_rate_text`) zamiast luźnego „liczba + waluta”.
+QC_VERSION = "qc-truth-2"
 # Runda 8 (R8-N8-2): cytat źródła musi być zdaniem o wymaganiu, nie słowem.
 SOURCE_QUOTE_MIN_WORDS = 4
 NOTES_TEXT_MAX = 12_000
@@ -639,14 +641,9 @@ def role_has_dates(blocks: list[Block], indices: list[int]) -> bool:
 
 # ── Reguły klienta: stawki, kontakt ─────────────────────────────────────────
 
-_AMOUNT = re.compile(
-    r"\d[\d\s.,]*\s*(?:z[łl]|pln|eur|€|usd|\$)(?:\s*/\s*(?:h|godz|md|dzie[nń]|mies))?"
-    r"|\d[\d\s.,]*\s*/\s*(?:h|godz|md)\b",
-    re.IGNORECASE,
-)
-# Kwota pieniędzy, ściślej niż `_AMOUNT`, które bierze „3 europejskich”
-# i „5 złożonych” za euro i złote: tam decyduje dopiero słowo „stawka” obok,
-# a ten wzorzec sam odrzuca cytat albo propozycję (poprawki QC, AI w edytorze).
+# Kwota pieniędzy, ściślej niż luźne „liczba + waluta”, które bierze
+# „3 europejskich” i „5 złożonych” za euro i złote: ten wzorzec sam odrzuca
+# cytat albo propozycję (poprawki QC, AI w edytorze).
 # Jeden wzorzec z materiałem generatora CV (`money_text`).
 _MONEY = MONEY_RE
 _RATE_WORD = RATE_WORD_RE
@@ -679,9 +676,13 @@ def brings_money(
 
 
 def rate_mentions(blocks: list[Block]) -> list[str]:
+    """Bloki ze stawką — zdanie po zdaniu tą samą regułą co „Usuń stawkę”
+    (`_mentions_rate`), żeby uwaga, której nie da się pominąć, zawsze miała
+    poprawkę jednym kliknięciem (propozycja 17.10.2026)."""
     out: list[str] = []
     for block in blocks:
-        if _RATE_WORD.search(block.text) and _AMOUNT.search(block.text):
+        pieces = _SENTENCE_PIECE.finditer(block.text)
+        if any(_mentions_rate(m.group(0)) for m in pieces):
             out.append(block.text[:120])
     return out
 
@@ -4646,21 +4647,15 @@ _SENTENCE_PIECE = re.compile(
     r"(?=[^\S\n]*+(?-i:[\da-ząćęłńóśźż€$])))*+(?:[.!?;]++|\n|$)",
     re.IGNORECASE,
 )
-# Kwoty szukamy tylko w oknie wokół słowa o pieniądzach: wzorce kwot wracają
-# kwadratowo na długim ciągu cyfr bez waluty, a stawka stoi przy swoim słowie.
-_RATE_WINDOW = 80
 _LEFTOVER_MAX = 80
 
 
 def _mentions_rate(text: str) -> bool:
-    """Stawka w tekście — ścisłe `money_text.is_rate_text` (kwota za czas albo
-    przy słowie „stawka”), nie luźne `_AMOUNT`: „Moduł wynagrodzeń dla 250
-    zleceniobiorców” i „Rate limiting dla 10 zleceń” to treść CV."""
-    for m in _RATE_WORD.finditer(text):
-        window = text[max(0, m.start() - _RATE_WINDOW) : m.end() + _RATE_WINDOW]
-        if is_rate_text(window):
-            return True
-    return False
+    """Stawka w zdaniu CV — `money_text.is_cv_rate_text`, jedna reguła dla
+    uwagi QC „Stawka w CV” (`rate_mentions`) i dla „Usuń stawkę”: „Moduł
+    wynagrodzeń dla 250 zleceniobiorców”, „Naliczanie wynagrodzeń 300
+    pracowników” i „Rate limiting dla 10 zleceń” to treść CV."""
+    return is_cv_rate_text(text)
 
 
 def _tidy_separators(text: str) -> str:

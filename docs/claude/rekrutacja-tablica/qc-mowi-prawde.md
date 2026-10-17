@@ -158,3 +158,38 @@ miało pewny błąd kolejności.
 Testy: sekcja „Kolejność stanowisk” w `tests/test_cv_qc.py` (także koszt na
 12 tys. stanowisk), `CvQcDialog.test.tsx` („Stanowiska od najnowszego”),
 reguła w `tests/test_cv_generator_legacy_v7.py`.
+
+## „Stawka w CV” = reguła „Usuń stawkę” (propozycja 17.10.2026, `qc-truth-2`)
+
+Blokady `client_rules` nie da się pominąć („To nieprawda” — 422), więc
+fałszywa stawka zostawia rekruterowi tylko „Przekaż mimo uwag…”. Do
+`qc-truth-1` QC brało luźne „liczba + waluta” (`_AMOUNT`) przy słowie
+o pieniądzach w całym bloku: „Moduł wynagrodzeń dla 250 zleceniobiorców”
+(„250 zl…”), „3 europejskich” (EUR). „Usuń stawkę” (PR #2290) w takim zdaniu
+nic nie usuwało. Raport i decyzja: `docs/qc-rate-in-cv-proposal.md`.
+
+- **Jedna reguła dla uwagi i poprawki:** `rate_mentions` sprawdza blok zdanie
+  po zdaniu (`_SENTENCE_PIECE`) tą samą funkcją co `strip_client_rules_html`
+  (`_mentions_rate` → `money_text.is_cv_rate_text`).
+- **`is_cv_rate_text`, nie `is_rate_text`.** W notatce o kandydacie
+  „wynagrodzenie”, „stawka”, „rate” to prawie zawsze jego pieniądze; w CV
+  bywają dziedziną pracy. Stawka w CV: kwota za czas („150 zł/h”); kwota
+  z walutą przy słowie o pieniądzach, chyba że tuż przed nią stoi budżet
+  projektu („o budżecie 2 mln PLN”); liczba bez waluty po takim słowie tylko
+  na końcu zdania albo przed formą rozliczenia („Stawka: 150”, „Stawka 150
+  B2B”, „… za godzinę”, „+ VAT”). „Naliczanie wynagrodzeń 300 pracowników”,
+  „System wynagrodzeń 2.0”, „Error rate 0.1 po wdrożeniu” to treść CV.
+  `is_rate_text` zostaje dla notatek (materiał generatora), bo tam „stawka
+  150 obecnie” to stawka.
+- **Czego reguła nie łapie:** kwoty za czas bez słowa o pieniądzach
+  („Oczekiwania finansowe: 150 zł/h netto”) — tak jak `qc-truth-1`.
+- **Koszt:** kwoty z walutą tylko w oknie 80 znaków wokół słowa
+  o pieniądzach (wzorzec kwoty wraca kwadratowo na długim ciągu cyfr);
+  `_AMOUNT` z `qc-truth-1` liczyło blok „stawka” + 20 tys. cyfr 7 s
+  (kwadratowo), nowa reguła 200 tys. cyfr — 0,01 s.
+- **Pomiar przed merge'em:** `backend/scripts/qc_rate_mentions_eval.py`
+  przez nakładkę `backend/scripts/qc_overlay.py` (kod gałęzi w procesie
+  z obrazu produkcji, przez stdin, bez zapisu w kontenerze).
+
+Testy: sekcja „Stawka w CV” w `tests/test_cv_qc.py` (`CV_NOT_RATES`,
+`CV_RATES`: uwaga QC i „Usuń stawkę” zgadzają się na każdym przykładzie).
