@@ -31,6 +31,7 @@ import collections
 import json
 import os
 import re
+import sys
 
 DAYS = int(os.environ.get("QC_AUDIT_DAYS", "30"))
 WORDS = os.environ.get("QC_RATE_WORDS") == "1"
@@ -144,7 +145,10 @@ async def main() -> None:
             .scalars()
             .all()
         )
-        for stage_id in stage_ids:
+        for done, stage_id in enumerate(stage_ids, 1):
+            # Postęp na stderr (same liczby): długi bieg bez wyjścia zrywa SSH.
+            if done % 25 == 0:
+                print(f"{done}/{len(stage_ids)}", file=sys.stderr, flush=True)
             try:
                 stage = await db.get(CandidateStage, stage_id)
                 if stage is None:
