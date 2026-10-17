@@ -317,7 +317,7 @@ function RulesEditor({ rules }: { rules: BonusRules }) {
 }
 
 /**
- * Ustawienia → Kadry: reguły premii z placementów i z Ligi (Płace albo admin).
+ * Ustawienia → Płace: reguły premii z placementów i z Ligi (Płace albo admin).
  * Wartości domyślne to reguły Compassa; osoby wskazuje się tu, nie w kodzie.
  */
 export function BonusRulesCard() {

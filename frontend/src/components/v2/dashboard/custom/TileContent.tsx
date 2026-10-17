@@ -27,6 +27,11 @@ import { getDefaultDashboardPreset } from "@/lib/dashboard-presets"
 import { useCandidateContactFeature } from "@/hooks/useCandidateContactFeature"
 import { useAuthStore } from "@/store/auth"
 
+import { EquipmentTasksTile } from "./EquipmentTasksTile"
+import { HrApprovalsTile } from "./HrApprovalsTile"
+import { HrMyTimeTile } from "./HrMyTimeTile"
+import { HrSubstitutionTile } from "./HrSubstitutionTile"
+import { HrTileGate } from "./HrTileGate"
 import { MetricTileBody } from "./MetricTileBody"
 import { MyRecruitmentsTile } from "./MyRecruitmentsTile"
 import { MyWeekTile } from "./MyWeekTile"
@@ -132,6 +137,18 @@ export function TileContent({ tile }: { tile: DashboardTile }) {
       return <SystemStatusTile />
     case "my_week":
       return <MyWeekTile />
+    // „Ludzie w NEXUSIE”: moduł, kartotekę i rolę przełożonego zna dopiero
+    // `/api/hr/config` — rozstrzyga `HrTileGate` tą samą regułą co katalog.
+    case "hr_substitution":
+      return <HrTileGate type={tile.type}>{() => <HrSubstitutionTile />}</HrTileGate>
+    case "hr_my_time":
+      return (
+        <HrTileGate type={tile.type}>{(config) => <HrMyTimeTile config={config} />}</HrTileGate>
+      )
+    case "hr_approvals":
+      return <HrTileGate type={tile.type}>{() => <HrApprovalsTile />}</HrTileGate>
+    case "equipment_tasks":
+      return <HrTileGate type={tile.type}>{() => <EquipmentTasksTile />}</HrTileGate>
     case "note":
       return <NoteBody config={tile.config} />
     case "metric_number":

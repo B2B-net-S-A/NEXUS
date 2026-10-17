@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import Link from "next/link";
 import { Trash2 } from "lucide-react";
 
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
@@ -27,9 +28,9 @@ import { formatDate } from "@/lib/utils";
 import { resolveViewState } from "@/lib/view-state";
 
 import { LifecycleTemplatesCard } from "@/components/hr/lifecycle/LifecycleTemplatesCard";
-import { BonusRulesCard } from "@/components/hr/payroll/BonusRulesCard";
 
 import { M365Card } from "./M365Card";
+import { canEditPayrollSettings } from "./PayrollSettings";
 
 function warsawYear(): number {
   return Number(
@@ -263,8 +264,36 @@ function ModulesCard({ config }: { config: HrConfig }) {
 }
 
 /**
+ * Reguły premii mieszkają od 17.10.2026 w Ustawienia → Płace — Kadry, które
+ * szukały ich tutaj, dostają drogowskaz (link tylko z uprawnieniem „Płace”).
+ */
+function BonusRulesMovedCard({ config }: { config: HrConfig }) {
+  return (
+    <Card className="space-y-1 p-5">
+      <h2 className="text-[11px] font-semibold uppercase tracking-[0.05em] text-muted-foreground">
+        Reguły premii
+      </h2>
+      {canEditPayrollSettings(config) ? (
+        <p className="text-sm text-foreground">
+          Reguły premii są w{" "}
+          <Link href="/settings/payroll" className="font-medium text-primary hover:underline">
+            Ustawienia → Płace
+          </Link>
+          .
+        </p>
+      ) : (
+        <p className="text-sm text-muted-foreground">
+          Reguły premii są w Ustawienia → Płace — zmienia je osoba z uprawnieniem „Płace”.
+        </p>
+      )}
+    </Card>
+  );
+}
+
+/**
  * Ustawienia → Kadry: dni wolne firmy i szablony wejścia/odejścia (Kadry),
- * reguły premii (Płace), przełączniki modułów i źródło urlopów (admin), M365.
+ * przełączniki modułów i źródło urlopów (admin), M365. Reguły premii są
+ * w Ustawienia → Płace (`PayrollSettings`).
  */
 export function HrSettings({ config }: { config: HrConfig }) {
   return (
@@ -276,11 +305,7 @@ export function HrSettings({ config }: { config: HrConfig }) {
           <LifecycleTemplatesCard config={config} />
         </div>
       ) : null}
-      {config.open_modules.payroll && (config.me.payroll || config.me.is_admin) ? (
-        <div className="lg:col-span-2">
-          <BonusRulesCard />
-        </div>
-      ) : null}
+      {config.open_modules.payroll ? <BonusRulesMovedCard config={config} /> : null}
       {config.me.people_admin ? (
         <div className="lg:col-span-2">
           <M365Card />

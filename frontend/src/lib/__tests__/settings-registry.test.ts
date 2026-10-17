@@ -91,7 +91,8 @@ describe("settings-registry — widoczność jak przed przebudową", () => {
   it("Finanse bez admina widzą swoje powierzchnie i Outlooka (U6, 22.09)", () => {
     const f = user("finance", { finance: "write", insights: "read" });
     const listed = SETTINGS_ITEMS.filter((i) => !i.hidden && canSeeSettingsItem(f as never, i)).map((i) => i.id);
-    expect(listed.sort()).toEqual(["assign", "contracts", "history", "my-notifications", "outlook", "rates"]);
+    // „Płace” (17.10.2026) — Finanse mają to uprawnienie z roli (D2).
+    expect(listed.sort()).toEqual(["assign", "contracts", "history", "my-notifications", "outlook", "payroll", "rates"]);
   });
 
   it("Szablony maili: każdy z capability candidate.write, nie tylko admin (U10)", () => {
@@ -261,5 +262,36 @@ describe("settings-registry — „Klucze API” (konta serwisowe, 14.10.2026)",
     expect(searchSettingsItems(admin as never, "n8n").map((i) => i.id)).toEqual(["api-keys"]);
     // Samo „klucz” łapie też „Wykluczone placementy” (szukanie po fragmencie).
     expect(searchSettingsItems(admin as never, "klucze api").map((i) => i.id)).toContain("api-keys");
+  });
+});
+
+describe("settings-registry — „Płace” (reguły premii, 17.10.2026)", () => {
+  const see = (account: ReturnType<typeof accessSnapshot>) =>
+    canSeeSettingsItem(account, item("payroll"));
+
+  it("idzie za uprawnieniem „Płace”, nie za „Kadrami” (lustro require_hr_payroll_admin)", () => {
+    expect(see(accessSnapshot("admin"))).toBe(true);
+    expect(see(accessSnapshot("finance"))).toBe(true);
+    expect(see(accessSnapshot("finance", { revoke: ["payroll"] }))).toBe(false);
+    expect(see(accessSnapshot("recruiter", { grant: ["payroll"] }))).toBe(true);
+    // Kadry bez „Płac” nie zmieniają reguł premii — mają drogowskaz w „Kadrach”.
+    expect(see(accessSnapshot("recruiter", { grant: ["people_admin"] }))).toBe(false);
+    expect(see(accessSnapshot("delivery_lead"))).toBe(false);
+    expect(see(accessSnapshot("employee"))).toBe(false);
+  });
+
+  it("ma własną trasę obok „Kadr” w obszarze Zespół i dostęp", () => {
+    expect(item("payroll").area).toBe("team");
+    expect(findSettingsItemByRoute("/settings/payroll")?.id).toBe("payroll");
+    const ids = SETTINGS_ITEMS.map((i) => i.id);
+    expect(ids.indexOf("payroll")).toBe(ids.indexOf("hr") + 1);
+    const admin = user("admin", { system_admin: "write" });
+    expect(resolveSettingsView(admin as never, { item: "payroll" }).kind).toBe("home");
+  });
+
+  it("znajduje się po „premie” i „liga”", () => {
+    const finance = accessSnapshot("finance");
+    expect(searchSettingsItems(finance, "premie").map((i) => i.id)).toEqual(["payroll"]);
+    expect(searchSettingsItems(finance, "liga").map((i) => i.id)).toContain("payroll");
   });
 });

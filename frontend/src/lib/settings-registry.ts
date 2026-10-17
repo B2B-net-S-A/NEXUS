@@ -39,6 +39,7 @@ export type SettingsItemId =
   | "my-notifications"
   | "people"
   | "hr"
+  | "payroll"
   | "assign"
   | "competence-team"
   | "stages"
@@ -139,6 +140,16 @@ export const SETTINGS_ITEMS: readonly SettingsItem[] = [
     keywords: "kadry hr urlopy dni wolne swieta moduly ludzie kartoteka",
     route: "/settings/hr",
     gate: { permission: "people_admin" },
+  },
+  {
+    // Reguły premii (17.10.2026) — `/api/hr/payroll/rules` stoi za uprawnieniem
+    // „Płace” (Finanse z roli, admin zawsze). Do 17.10 karta była w „Kadrach”,
+    // których osoba z samymi „Płacami” nie widziała.
+    id: "payroll", area: "team", title: "Płace",
+    description: "Reguły premii z placementów i z Ligi Mistrzów: progi marży, premia Delivery Leada, dodatkowe premie.",
+    keywords: "place premie premia placementy liga mistrzow progi marza wynagrodzenia wyplaty bonus",
+    route: "/settings/payroll",
+    gate: { permission: "payroll" },
   },
   {
     id: "competence-team", area: "team", title: "Kategorie kompetencji",
