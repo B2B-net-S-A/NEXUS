@@ -370,7 +370,7 @@ Traffit, COMPASS, CloudTalk, kalendarz i rozmowy u klienta, prepy w Teams, archi
 
 ### Programy — `docs/claude/programy/`
 
-Akademia i program praktykanta („Telefony na dziś”).
+Akademia i program praktykanta — oba ukryte z UI od 17.10.2026.
 
 - `akademia-nabor-do-programow-szkoleniowych.md` — Akademia — nabór do programów szkoleniowych (0369, 24.09.2026)
 - `praktykant-telefony-na-dzis.md` — Praktykant — „Telefony na dziś” (0374, 24.09.2026)

@@ -1468,8 +1468,7 @@ const SIDEBAR_HREF_CAPABILITY: Record<string, Capability> = {
   // ekranów Klienci / Kontrakty (wejście z ⌘K), więc nie mają pozycji menu.
   "/contracts": "nav.contracts",
   "/finance": "nav.finance",
-  // Panel „Praktykanci” (0374) — w „Więcej” → Codzienna praca.
-  "/trainees": "nav.trainees",
+  // Panel „Praktykanci” (0374) zdjęty z menu i palety 17.10.2026.
   // `/manager` przekierowuje na `/dashboard` — bez pozycji w menu i palecie
   // (capability `nav.manager` zdjęta 22.09.2026).
 };
@@ -1498,9 +1497,7 @@ const SIDEBAR_ROLE_GATED_WITHOUT_CAPABILITY: readonly string[] = [
   // należą do sekcji, a nie do osobnej capability nawigacyjnej.
   "/calendar",
   "/cv-generator",
-  // Akademia (0369): tak jak Kalendarz — sekcja Pipeline + RecruiterPlus;
-  // lista ról odcina tylko legacy viewera `user`.
-  "/academy",
+  // Akademia (0369) zdjęta z menu i palety 17.10.2026.
 ];
 
 describe("kontrakt sidebar ↔ rejestr capability", () => {

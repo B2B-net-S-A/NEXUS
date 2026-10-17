@@ -1,5 +1,14 @@
 # Praktykant — „Telefony na dziś” (0374, 24.09.2026)
 
+**Ukryty z UI od 17.10.2026 (decyzja Artura, razem z Akademią).** Panel
+„Praktykanci” (`/trainees`) zszedł z menu „Więcej” i palety ⌘K
+(`inSidebar: false`, `inPalette: false` w `lib/nav-registry.ts`), kafelek
+„Lista telefonów praktykantów” w Ustawieniach ma `hidden: true`, a okno
+użytkownika nie proponuje roli „Praktykant” — pokazuje ją tylko kontu, które
+już ją ma (`offersRole` w `UserModal.tsx`), żeby stan konta nie zniknął po
+cichu. Trasy `/trainee`, `/trainees`, `/settings/trainee-rules`, API
+`/api/trainee/*` i poranna pętla list zostały bez zmian.
+
 Nowi sourcerzy/rekruterzy przez pierwsze 40 dni roboczych tylko dzwonią do
 kandydatów z codziennej listy i zapisują fakty, bez których rekruter dzwoni
 na próżno. Decyzje Artura 24.09.2026, makieta

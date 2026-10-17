@@ -435,7 +435,7 @@ describe("InsightsPlacementAnalysis", () => {
     );
 
     expect(await screen.findByTestId("placements-clients-source")).toHaveTextContent(
-      "(10 z 90 placementów okna)",
+      "Podział na klientów liczy ruchy Tablicy: 10 placementów (suma okna: 90).",
     );
   }, 30000);
 
