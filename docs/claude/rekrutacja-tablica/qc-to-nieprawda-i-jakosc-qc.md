@@ -35,6 +35,18 @@ Makiety i decyzje: https://claude.ai/artifact/BZZRshjBDC4CMEGGP6m4Wr. PR 3 z 4
   `generator` i `review`, 17.10.2026). Żaden nie liczy się do trafności.
 - **Nie da się pominąć** `cv_present` i `client_rules` (stawka, kontakt,
   zgoda RODO) — 422, przycisku nie ma.
+- **Obejście „Kandydat potwierdził to w rozmowie” zapisuje fakt** (D3,
+  decyzja Artura 17.10.2026). `record_override` z `reason_code
+  confirmed_in_call` dodaje „Potwierdzone z kandydatem: X — opis” (ta sama
+  notatka co `confirm_with_candidate`, `_add_confirmation`, Activity
+  `cv_qc_confirmed` z `via: override`) przy każdej rzeczy z
+  `confirmable_terms`: termin `no_unsupported` i krytyczna `ask_candidate`
+  bez roli (brak zdania w roli to poprawka CV, nie fakt). Najwyżej
+  `CONFIRMATIONS_MAX`. Przebieg obejścia zapisuje stan sprzed potwierdzeń,
+  następny — już z nimi. Okno obejścia przy tym powodzie mówi, że powstaną
+  notatki (czytają je QC i generator). Pomiar 17.10: 24 z 47 obejść niosło
+  `no_unsupported`, a rekruter wiedział z rozmowy to, czego nie było
+  w notatkach.
 - **Uwaga blokująca = obejście.** Pomija ją ten, kto może przesunąć kartę
   mimo uwag (`api/cv_qc._can_override`: prawo wysyłki CV, a w trybie
   doradczym każdy członek rekrutacji); inaczej 403. Delivery Lead dostaje

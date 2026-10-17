@@ -495,6 +495,7 @@ async def override_stage_qc(
         reason=cv_qc.override_reason_text(payload.reason_code, payload.reason),
         reason_code=payload.reason_code,
         notify_reviewers=not reviewer,
+        note=payload.reason,
     )
     await db.commit()
     return await _response(db, request, current_user, result)

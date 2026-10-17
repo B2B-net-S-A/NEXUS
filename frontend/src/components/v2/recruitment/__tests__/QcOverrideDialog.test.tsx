@@ -89,6 +89,18 @@ describe("QcOverrideDialog — „Przepuść mimo QC”", () => {
     );
   });
 
+  it("„Kandydat potwierdził to w rozmowie” mówi, że powstaną notatki „Potwierdzone z kandydatem” (D3)", async () => {
+    renderDialog();
+    expect(screen.queryByText(/Potwierdzone z kandydatem/)).toBeNull();
+    await userEvent.click(screen.getByRole("radio", { name: "Kandydat potwierdził to w rozmowie, w CV tego nie ma" }));
+    expect(screen.getByText(/zapiszemy w notatkach kandydata „Potwierdzone z kandydatem”/)).toBeInTheDocument();
+    await userEvent.type(screen.getByRole("textbox"), "Spring Boot w Acme");
+    await userEvent.click(screen.getByRole("button", { name: "Przepuść CV" }));
+    await waitFor(() =>
+      expect(post).toHaveBeenCalledWith(OVERRIDE_URL, { reason_code: "confirmed_in_call", reason: "Spring Boot w Acme" }),
+    );
+  });
+
   it("„Inny powód” wymaga opisu — choćby jednego słowa", async () => {
     renderDialog();
     await userEvent.click(screen.getByRole("radio", { name: "Inny powód — napiszę niżej" }));

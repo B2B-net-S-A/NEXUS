@@ -4090,6 +4090,104 @@ async def test_confirmed_with_candidate_becomes_a_note_and_clears_the_item(
 
 
 @pytest.mark.asyncio
+async def test_override_confirmed_in_call_saves_confirmations(
+    api_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """D3 (17.10.2026): obejście „Kandydat potwierdził to w rozmowie” zapisuje
+    „Potwierdzone z kandydatem” przy zablokowanym terminie bez źródła — fakt
+    z rozmowy zostaje w notatkach pary, a QC ma już źródło."""
+    from app.models.job import Job
+    from app.models.note import Note
+    from app.services import note_kinds
+
+    monkeypatch.setenv("NORDEA_ORDER_NUMBER_CLIENT_IDS", "")
+    world = await _seed_world()
+    hor_id, hor_creds = await _seed_user(UserRole.head_of_recruitment)
+    hor = await _login(api_client, hor_creds)
+    stage_id = await _seed_review(world, hor, api_client)
+    # „Spring” stoi w CV firmowym, a oryginał i notatki o nim nie mówią.
+    async with AsyncSessionLocal() as db:
+        job = await db.get(Job, world["job_id"])
+        job.must_skills = ["Java", "Spring"]
+        await db.commit()
+    override_url = f"/api/pipeline/stages/{stage_id}/qc/override"
+
+    async def confirmations() -> list[str]:
+        async with AsyncSessionLocal() as db:
+            rows = await db.scalars(
+                select(Note.content).where(
+                    Note.candidate_id == world["candidate_id"],
+                    Note.external_source == note_kinds.QC_CONFIRM_SOURCE,
+                )
+            )
+            return list(rows)
+
+    try:
+        # Inny powód niczego nie potwierdza.
+        with hydrated_taxonomy():
+            short = await api_client.post(
+                override_url, headers=hor, json={"reason_code": "client_short_cv"}
+            )
+        assert short.status_code == 200, short.text
+        assert await confirmations() == []
+
+        with hydrated_taxonomy():
+            ok = await api_client.post(
+                override_url,
+                headers=hor,
+                json={
+                    "reason_code": "confirmed_in_call",
+                    "reason": "Spring Boot w Acme",
+                },
+            )
+        assert ok.status_code == 200, ok.text
+        body = ok.json()
+        check = next(c for c in body["checks"] if c["key"] == "no_unsupported")
+        assert check["status"] != "fail"
+        assert await confirmations() == [
+            "Potwierdzone z kandydatem: Spring — Spring Boot w Acme"
+        ]
+        async with AsyncSessionLocal() as db:
+            via = await db.scalar(
+                select(Activity.details["via"].astext).where(
+                    Activity.action == "cv_qc_confirmed",
+                    Activity.entity_id == stage_id,
+                )
+            )
+        assert via == "override"
+    finally:
+        await _cleanup_advisory(world, stage_id, [hor_id])
+
+
+def test_confirmable_terms_are_unsupported_terms_and_absent_critical_skills() -> None:
+    def chk(key: str, status: str, items: list[dict]) -> dict:
+        return {"key": key, "status": status, "severity": "blocking", "items": items}
+
+    checks = [
+        chk(
+            "no_unsupported",
+            "fail",
+            [{"term": "Spring", "requirement": "Spring"}, {"term": " spring "}],
+        ),
+        chk(
+            "critical_skills",
+            "fail",
+            [
+                {"requirement": "Scala", "fix": "ask_candidate"},
+                # Brak zdania w roli to poprawka CV, nie fakt do potwierdzenia.
+                {"requirement": "Kafka", "fix": "ai", "role": "Acme — Dev"},
+                {"requirement": "Docker", "fix": "ask_candidate", "role": "Acme — Dev"},
+            ],
+        ),
+        chk("client_rules", "fail", [{"detail": "Brak zrzutu zgody RODO."}]),
+        chk("bold_unsupported", "pass", [{"term": "Go"}]),
+    ]
+    assert qc.confirmable_terms(checks) == ["Spring", "Scala"]
+    many = [chk("no_unsupported", "fail", [{"term": f"T{i}"} for i in range(40)])]
+    assert len(qc.confirmable_terms(many)) == qc.CONFIRMATIONS_MAX
+
+
+@pytest.mark.asyncio
 async def test_recompute_outdated_refreshes_failed_runs_of_older_rules(
     api_client: AsyncClient,
 ) -> None:
