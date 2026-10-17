@@ -44,7 +44,9 @@ from app.models.skill import Skill as _Skill  # noqa: F401
 from app.models.user import User, UserRole
 from app.services.kpi_panel import VERIFIER_ANCHORED_CTE
 
-T0 = datetime(2026, 7, 1, 9, 0, tzinfo=timezone.utc)
+# Poza 1.01–11.10.2026: tam statystyki liczą wpisy DynaReportera (migracja 0454),
+# a test sprawdza ruchy Tablicy.
+T0 = datetime(2025, 7, 1, 9, 0, tzinfo=timezone.utc)
 
 
 async def _seed(db, *, verified_status: VerificationStatus, second_user_cv_sent: bool):

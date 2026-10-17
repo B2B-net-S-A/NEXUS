@@ -260,7 +260,7 @@ async def insights_recruitment_funnel(
                     text(
                         """
                     SELECT fm.stage AS stage, count(*) AS cnt
-                    FROM analytics_first_milestones fm
+                    FROM analytics_kpi_milestones fm
                     WHERE fm.first_reached_at >= :start
                       AND fm.first_reached_at < :end
                     GROUP BY fm.stage

@@ -410,17 +410,23 @@ export function summaryParts(
   const total = response.period_total ?? response.total
   const parts = [countNoun(metric, total)]
   if (total === 0) return parts
+  // Wpisy DynaReportera są w liczbie, ale nie na liście — reszta podsumowania
+  // opisuje tylko wiersze listy.
+  const history = response.history_total ?? 0
+  const listed = total - history
   const people = response.people ?? 0
-  if (people > 0 && people !== total) {
+  if (people > 0 && people !== listed) {
     parts.push(`${people} ${pluralPl(people, "osoba", "osoby", "osób")}`)
   }
+  if (history > 0) parts.push(`${history} z DynaReportera (do 11.10.2026)`)
   const self = response.moved_by_credited
   if (
     metric !== "verification" &&
     response.scope === "person" &&
-    typeof self === "number"
+    typeof self === "number" &&
+    listed > 0
   ) {
-    const other = total - self
+    const other = listed - self
     const mine = viewerId !== null && response.subject?.id === viewerId
     const verb = metric === "recommendation" ? "CV wysłane" : "Etap wpisany"
     parts.push(
@@ -430,6 +436,16 @@ export function summaryParts(
     )
   }
   return parts
+}
+
+/**
+ * Zdanie pod podsumowaniem, gdy część liczby to tygodniowe wpisy DynaReportera
+ * (decyzja Artura 17.10.2026: do 11.10.2026 wynik to wpis w DynaReporterze).
+ */
+export function historyNote(response: RecruitmentActivityDetailResponse): string | null {
+  const history = response.history_total ?? 0
+  if (history <= 0) return null
+  return `Dni do 11.10.2026 pochodzą z tygodniowych wpisów w DynaReporterze (${history}). Liczą się do wyniku, ale DynaReporter nie zapisywał kandydatów, więc nie ma ich na liście.`
 }
 
 /** Filtry stanu z liczbami całego okresu; tylko stany, które wystąpiły. */

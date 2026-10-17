@@ -151,7 +151,7 @@ async def compute_board(
                 text(
                     """
                     SELECT fm.stage::text AS stage, count(*) AS cnt
-                    FROM analytics_first_milestones fm
+                    FROM analytics_kpi_milestones fm
                     WHERE fm.first_reached_at >= :start
                       AND fm.first_reached_at < :end
                     GROUP BY 1
@@ -172,7 +172,7 @@ async def compute_board(
                 text(
                     """
                     SELECT count(*) AS cnt
-                    FROM analytics_first_milestones fm
+                    FROM analytics_kpi_milestones fm
                     WHERE fm.stage::text = 'hired'
                       AND fm.first_reached_at >= :start
                       AND fm.first_reached_at < :end
@@ -238,7 +238,7 @@ async def compute_board(
                         'YYYY-MM'
                       ) AS bucket,
                       count(*) AS cnt
-                    FROM analytics_first_milestones fm
+                    FROM analytics_kpi_milestones fm
                     WHERE fm.stage::text = 'hired'
                       AND fm.first_reached_at >= :start
                       AND fm.first_reached_at < :end

@@ -228,7 +228,12 @@ def _detail_summary_sql(person_filter: str):
            count(*) FILTER (
                WHERE mover_id IS NOT NULL AND mover_id = credit_user
            ) AS moved_by_credited,
-           {state_counts}
+           {state_counts},
+           -- Dni z DynaReportera (1.01–11.10.2026): wiersz bez pary, więc
+           -- nie ma go w `described`; licznik celów i tak go liczy.
+           (
+               SELECT count(*) FROM period_rows WHERE candidate_id IS NULL
+           ) AS history_total
     FROM described
     """
         ),
@@ -711,13 +716,18 @@ async def list_recruitment_activity_details(
         params["user_ids"] = [subject.id]
 
     summary = (await db.execute(_DETAIL_SUMMARY_SQL[scope], params)).mappings().one()
-    period_total = int(summary["total"] or 0)
+    listed_total = int(summary["total"] or 0)
+    # Licznik celów liczy też tygodniowe wpisy DynaReportera sprzed 12.10.2026,
+    # których nie da się rozpisać na osoby kandydatów — suma okresu je zawiera,
+    # lista (i jej stronicowanie) nie.
+    history_total = int(summary["history_total"] or 0)
+    period_total = listed_total + history_total
     states = {
         name: int(summary[f"state_{name}"] or 0)
         for name in DETAIL_STATES
         if int(summary[f"state_{name}"] or 0) > 0
     }
-    total = states.get(state, 0) if state is not None else period_total
+    total = states.get(state, 0) if state is not None else listed_total
     rows = []
     if total:
         rows = (
@@ -754,6 +764,7 @@ async def list_recruitment_activity_details(
         states=states,
         state_filter=state,
         period_total=period_total,
+        history_total=history_total,
     )
 
 

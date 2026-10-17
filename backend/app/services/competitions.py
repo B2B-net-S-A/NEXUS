@@ -1226,7 +1226,7 @@ async def hall_of_fame_with_scope(
                 f"""
                 WITH hired AS (
                     SELECT fm.first_moved_by AS uid
-                    FROM analytics_first_milestones fm
+                    FROM analytics_kpi_milestones fm
                     WHERE fm.stage::text = 'hired'
                 ),
                 classified AS (

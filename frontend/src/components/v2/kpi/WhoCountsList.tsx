@@ -15,6 +15,7 @@ import {
   candidateJobsBadge,
   formatTime,
   groupByDay,
+  historyNote,
   moverText,
   stateFilters,
   stateText,
@@ -75,6 +76,7 @@ export function WhoCountsListView({
   const columns = 3 + (showMover ? 1 : 0) + (showCredited ? 1 : 0) + (showState ? 1 : 0)
   const totalPages = Math.max(1, Math.ceil(response.total / response.page_size))
   const periodTotal = response.period_total ?? response.total
+  const history = historyNote(response)
 
   return (
     <div className="flex flex-col gap-3" data-testid="who-counts-list">
@@ -85,6 +87,11 @@ export function WhoCountsListView({
           </span>
         ))}
       </p>
+      {history ? (
+        <p className="rounded-md border border-border bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
+          {history}
+        </p>
+      ) : null}
 
       {filters.length > 1 ? (
         <div role="group" aria-label="Gdzie są teraz" className="flex flex-wrap gap-1.5">
@@ -105,7 +112,11 @@ export function WhoCountsListView({
 
       {response.items.length === 0 ? (
         <p className="rounded-lg border border-dashed border-border bg-card px-4 py-6 text-center text-sm text-muted-foreground">
-          {state ? "Nikogo w tym stanie w tym okresie." : "Nikogo w tym okresie."}
+          {state
+            ? "Nikogo w tym stanie w tym okresie."
+            : history
+              ? "Na liście nikogo — wynik tego okresu to wpisy z DynaReportera."
+              : "Nikogo w tym okresie."}
         </p>
       ) : (
         <div

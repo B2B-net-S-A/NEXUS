@@ -165,7 +165,7 @@ async def _placements_by_month_client(db: AsyncSession, span_start, span_end) ->
                         AT TIME ZONE 'Europe/Warsaw')::int  AS mo,
                       c.name                                 AS client_name,
                       count(*)                               AS cnt
-                    FROM analytics_first_milestones fm
+                    FROM analytics_kpi_milestones fm
                     LEFT JOIN jobs j   ON j.id = fm.job_id
                     LEFT JOIN clients c ON c.id = j.client_id
                     WHERE fm.stage::text = 'hired'

@@ -4,6 +4,7 @@ import {
   candidateJobsBadge,
   currentPeriodHint,
   groupByDay,
+  historyNote,
   isIsoDay,
   isLatestPeriod,
   metricFromSlug,
@@ -205,6 +206,41 @@ describe("wiersze i podsumowanie", () => {
     expect(summaryParts(response({ people: 23 }), "verification", 11)).toEqual(["23 weryfikacje"]);
     expect(summaryParts(response({ period_total: 0, total: 0, people: 0 }), "placement", 11)).toEqual([
       "0 placementów",
+    ]);
+  });
+
+  it("wpisy DynaReportera są w liczbie, ale nie w podziale listy", () => {
+    // Wrzesień: 30 rekomendacji, z czego 25 z tygodniowych wpisów DynaReportera,
+    // a na liście 5 par z NEXUS-a, 4 osoby (2 wysłane przez tę osobę).
+    const september = response({
+      period_total: 30,
+      history_total: 25,
+      total: 5,
+      people: 4,
+      moved_by_credited: 2,
+    });
+    expect(summaryParts(september, "recommendation", 11)).toEqual([
+      "30 rekomendacji",
+      "4 osoby",
+      "25 z DynaReportera (do 11.10.2026)",
+      "CV wysłane przez Ciebie: 2, pozostałe: 3",
+    ]);
+    expect(historyNote(september)).toContain("DynaReporterze (25)");
+    expect(historyNote(response())).toBeNull();
+  });
+
+  it("okres w całości z DynaReportera nie dzieli wyniku na „przez Ciebie / pozostałe”", () => {
+    const march = response({
+      period_total: 34,
+      history_total: 34,
+      total: 0,
+      people: 0,
+      moved_by_credited: 0,
+      items: [],
+    });
+    expect(summaryParts(march, "recommendation", 11)).toEqual([
+      "34 rekomendacje",
+      "34 z DynaReportera (do 11.10.2026)",
     ]);
   });
 

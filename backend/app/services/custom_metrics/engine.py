@@ -104,13 +104,16 @@ _SECTION_LABELS_PL = {
 }
 _AUTHOR_LABELS_PL = {"me": "moje", "team": "mój zespół", "all": "cała firma"}
 
+# Widok KPI (0454): ruchy Tablicy, a 1.01–11.10.2026 wpisy DynaReportera
+# (`source = 'dynareporter'`, bez rekrutacji) — ta sama reguła co Insights.
 _MILESTONES = table(
-    "analytics_first_milestones",
+    "analytics_kpi_milestones",
     column("candidate_id"),
     column("job_id"),
     column("stage"),
     column("first_reached_at"),
     column("first_moved_by"),
+    column("source"),
 )
 
 
@@ -128,7 +131,11 @@ _CREDITED_KEY_PREFIX = "dashboard_metric:credited:v1:"
 _CREDITED_SPAN_DAYS = 800
 
 # (credit_user, stage, job_id, client_id, competence_category_id, dzień, liczba)
-CreditedRow = tuple[Optional[int], str, int, Optional[int], Optional[int], date, int]
+# `job_id` = None: wiersz z DynaReportera (1.01–11.10.2026, patrz
+# `VERIFIER_ANCHORED_CTE`) — osoba i dzień są, rekrutacji i klienta nie ma.
+CreditedRow = tuple[
+    Optional[int], str, Optional[int], Optional[int], Optional[int], date, int
+]
 
 
 def _uses_credit(
@@ -170,7 +177,7 @@ async def _credited_snapshot(db: AsyncSession, since: date) -> list[CreditedRow]
                    (c.reached_at AT TIME ZONE '{TZ}')::date AS day,
                    count(*) AS n
             FROM credited c
-            JOIN jobs j ON j.id = c.job_id
+            LEFT JOIN jobs j ON j.id = c.job_id
             WHERE c.stage IN :stages
               AND c.reached_at >= :since
             GROUP BY 1, 2, 3, 4, 5, 6
@@ -187,7 +194,7 @@ async def _credited_snapshot(db: AsyncSession, since: date) -> list[CreditedRow]
             (
                 None if r[0] is None else int(r[0]),
                 str(r[1]),
-                int(r[2]),
+                None if r[2] is None else int(r[2]),
                 None if r[3] is None else int(r[3]),
                 None if r[4] is None else int(r[4]),
                 r[5],
@@ -256,6 +263,13 @@ def _credited_counts(
         if categories and category not in categories:
             continue
         if jobs and job_id not in jobs:
+            continue
+        # Podział na klienta albo kategorię: DynaReporter ich nie zna, więc
+        # wiersz bez rekrutacji nie trafia do żadnej grupy (zamiast „brak”).
+        if job_id is None and definition.group_by in (
+            "client",
+            "competence_category",
+        ):
             continue
         k = _credited_key(definition, row) if grouped else None
         out[k] = out.get(k, 0) + n
@@ -525,7 +539,13 @@ def _pipeline_query(
         conds.append(Job.competence_category_id.in_(f.competence_category_ids))
     if f.job_ids:
         conds.append(m.job_id.in_(f.job_ids))
-    base = source.join(Job, Job.id == m.job_id)
+    # Wiersz z DynaReportera nie ma rekrutacji: liczy się w sumach, tygodniach,
+    # miesiącach, etapach i osobach, ale nie w podziale na klienta i kategorię.
+    # Ruch Tablicy bez rekrutacji w bazie wypada jak dotąd (dawny INNER JOIN).
+    conds.append(or_(Job.id.isnot(None), m.source == "dynareporter"))
+    if definition.group_by in ("client", "competence_category"):
+        conds.append(Job.id.isnot(None))
+    base = source.outerjoin(Job, Job.id == m.job_id)
     return base, conds, cols, reached_at
 
 
