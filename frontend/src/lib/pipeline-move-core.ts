@@ -43,6 +43,8 @@ export interface PipelineMovePayload {
   /** Temat i treść maila poprawione w oknie odrzucenia (13.10.2026). */
   rejection_email_subject?: string;
   rejection_email_body?: string;
+  /** `false` — bez dopisku o pozostałych rekrutacjach osoby (17.10.2026). */
+  rejection_email_other_processes?: boolean;
   /** „Nie akceptuje trybu pracy” (14.10.2026): dni w biurze, które kandydat
    *  akceptuje (0 = tylko zdalnie), i zapis trybu pracy na profilu. */
   work_mode_max_onsite_days?: number;

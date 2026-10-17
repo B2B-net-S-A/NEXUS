@@ -37,8 +37,9 @@ from app.models.rejection_email import (
     ScheduledRejectionEmail,
 )
 from app.models.user import User, UserRole
+from app.services import rejection_email_text as rejection_text
 from app.services.rejection_email_scheduler import (
-    _load_other_active_processes,
+    _other_processes_for,
     dispatch,
     maybe_schedule,
     preview,
@@ -342,22 +343,139 @@ async def _approve_public_profile(db, job_id: int, public_title: str) -> None:
     await db.flush()
 
 
+async def _set_job_title(db, job_id: int, title: str) -> None:
+    """Nazwa od klienta bez losowego sufiksu fixture (cztery cyfry = kod)."""
+    from sqlalchemy import text
+
+    await db.execute(
+        text("UPDATE jobs SET title = :title WHERE id = :id"),
+        {"title": title, "id": job_id},
+    )
+    db.expire_all()
+
+
 @pytest.mark.asyncio
-async def test_other_processes_excludes_current_and_terminals(seeded_entities):
-    """Lista „inne procesy” w mailu do kandydata (runda 9, R9-N10-2):
+async def test_other_processes_are_jobs_after_verification(seeded_entities):
+    """Pozostałe rekrutacje w mailu (17.10.2026, D2 i D5):
     - bez bieżącej rekrutacji,
-    - tylko rekrutacje opublikowane, w których osoba jest dziś u klienta,
-    - tytuł WYŁĄCZNIE z zatwierdzonego opisu publicznego (nigdy `jobs.title`),
+    - tylko opublikowane, w których osoba jest od „Zweryfikowany” do „Umowa”,
+    - nazwa dla kandydata bez numeru zlecenia i klienta, inaczej bez nazwy,
+    - zatwierdzony opis na stronę kariery wygrywa,
     - bez rekrutacji zakończonych zatrudnieniem.
     """
     ids = seeded_entities
+    cid = ids["candidate_id"]
+    rid = ids["recruiter_id"]
+    other_id = ids["job_other_id"]
+
+    async def others(db):
+        return await _other_processes_for(
+            db, candidate_ids=[cid], exclude_job_ids={ids["job_primary_id"]}
+        )
+
     async with AsyncSessionLocal() as db:
-        # Wewnętrzny etap w innej rekrutacji — klient osoby jeszcze nie widział.
+        await _set_job_title(db, other_id, "Programista Java")
+        # Przed weryfikacją — osoba nie wie jeszcze, że bierze udział.
+        await _add_stage(
+            db, candidate_id=cid, job_id=other_id, stage=PipelineStage.screening, moved_by=rid
+        )
+        await _add_stage(
+            db,
+            candidate_id=cid,
+            job_id=ids["job_primary_id"],
+            stage=PipelineStage.cv_sent,
+            moved_by=rid,
+        )
+        await db.commit()
+        assert await others(db) == {}
+
+        await _add_stage(
+            db, candidate_id=cid, job_id=other_id, stage=PipelineStage.verified, moved_by=rid
+        )
+        await db.commit()
+        found = (await others(db))[cid]
+        assert [(p.job_id, p.mail_title, p.column) for p in found] == [
+            (other_id, "Programista Java", "verified")
+        ]
+
+        # Numer zlecenia w nazwie — do kandydata idzie bez nazwy.
+        await _set_job_title(db, other_id, "Analityk 123456 danych")
+        await db.commit()
+        found = (await others(db))[cid]
+        assert found[0].mail_title is None
+        assert found[0].title == "Analityk 123456 danych"
+
+        # Zatwierdzony opis publiczny wygrywa.
+        await _approve_public_profile(db, other_id, "Programista Java")
+        await db.commit()
+        assert (await others(db))[cid][0].mail_title == "Programista Java"
+
+        # Rekrutacja zamknięta znika z listy.
+        other_job = await db.get(Job, other_id)
+        other_job.status = JobStatus.closed
+        await db.commit()
+        assert await others(db) == {}
+        other_job.status = JobStatus.published
+        await db.commit()
+
+    # Zatrudnienie w innej rekrutacji — ten proces się skończył.
+    async with AsyncSessionLocal() as db:
+        await _add_stage(
+            db, candidate_id=cid, job_id=other_id, stage=PipelineStage.hired, moved_by=rid
+        )
+        await db.commit()
+        assert await others(db) == {}
+
+
+@pytest.mark.asyncio
+async def test_schedules_from_verified_with_the_before_client_text(seeded_entities):
+    """D1 i D4 (17.10.2026): po rozmowie z nami mail wychodzi, ale nie mówi,
+    że „wybrano innego kandydata” — CV nie trafiło do klienta."""
+    ids = seeded_entities
+    async with AsyncSessionLocal() as db:
+        await _set_job_title(db, ids["job_primary_id"], "Programista Java")
+        await _add_stage(
+            db,
+            candidate_id=ids["candidate_id"],
+            job_id=ids["job_primary_id"],
+            stage=PipelineStage.verified,
+            moved_by=ids["recruiter_id"],
+        )
+        rejected_stage = await _add_stage(
+            db,
+            candidate_id=ids["candidate_id"],
+            job_id=ids["job_primary_id"],
+            stage=PipelineStage.rejected,
+            moved_by=ids["recruiter_id"],
+        )
+        job = await db.get(Job, ids["job_primary_id"])
+        scheduled = await maybe_schedule(
+            db, stage=rejected_stage, job=job, recruiter_id=ids["recruiter_id"]
+        )
+        assert scheduled is not None
+        assert scheduled.subject == "Informacja zwrotna — Programista Java"
+        assert "nie przedstawimy Twojej kandydatury" in scheduled.body_html
+        assert "inny kandydat" not in scheduled.body_html
+        assert scheduled.body_html.endswith(f"<p>{rejection_text.CLOSING}</p>")
+        details = await _scheduled_activity_details(db, scheduled)
+        assert details["text_kind"] == "before_client"
+        assert details["other_processes_appended"] is False
+        await db.commit()
+
+
+@pytest.mark.asyncio
+async def test_other_processes_go_as_a_marker_unless_unchecked(seeded_entities):
+    """D2: osoba w innej rekrutacji — zamiast zakończenia znacznik dopisku,
+    wypełniany przy wysyłce. Odznaczony dopisek = zwykłe zakończenie."""
+    ids = seeded_entities
+
+    async def schedule(db, **kwargs):
+        await _set_job_title(db, ids["job_other_id"], "Backend Developer")
         await _add_stage(
             db,
             candidate_id=ids["candidate_id"],
             job_id=ids["job_other_id"],
-            stage=PipelineStage.screening,
+            stage=PipelineStage.client_interview,
             moved_by=ids["recruiter_id"],
         )
         await _add_stage(
@@ -367,71 +485,40 @@ async def test_other_processes_excludes_current_and_terminals(seeded_entities):
             stage=PipelineStage.cv_sent,
             moved_by=ids["recruiter_id"],
         )
-        await db.commit()
-        others = await _load_other_active_processes(
+        rejected_stage = await _add_stage(
             db,
             candidate_id=ids["candidate_id"],
-            current_job_id=ids["job_primary_id"],
-        )
-        assert others == []
-
-        # CV u klienta, ale bez zatwierdzonego opisu publicznego — tytuł
-        # z `jobs.title` nie może trafić do kandydata.
-        await _add_stage(
-            db,
-            candidate_id=ids["candidate_id"],
-            job_id=ids["job_other_id"],
-            stage=PipelineStage.cv_sent,
+            job_id=ids["job_primary_id"],
+            stage=PipelineStage.rejected,
             moved_by=ids["recruiter_id"],
         )
-        await db.commit()
-        others = await _load_other_active_processes(
+        job = await db.get(Job, ids["job_primary_id"])
+        return await maybe_schedule(
             db,
-            candidate_id=ids["candidate_id"],
-            current_job_id=ids["job_primary_id"],
+            stage=rejected_stage,
+            job=job,
+            recruiter_id=ids["recruiter_id"],
+            **kwargs,
         )
-        assert others == []
 
-        await _approve_public_profile(db, ids["job_other_id"], "Programista Java")
-        await db.commit()
-        others = await _load_other_active_processes(
-            db,
-            candidate_id=ids["candidate_id"],
-            current_job_id=ids["job_primary_id"],
-        )
-        assert others == [{"job_id": ids["job_other_id"], "title": "Programista Java"}]
-        assert not any("Other Active Role" in o["title"] for o in others)
-
-        # Rekrutacja zamknięta znika z listy mimo zatwierdzonego opisu.
-        other_job = await db.get(Job, ids["job_other_id"])
-        other_job.status = JobStatus.closed
-        await db.commit()
-        others = await _load_other_active_processes(
-            db,
-            candidate_id=ids["candidate_id"],
-            current_job_id=ids["job_primary_id"],
-        )
-        assert others == []
-        other_job.status = JobStatus.published
-        await db.commit()
-
-    # Zatrudnienie w innej rekrutacji — ten proces się skończył.
     async with AsyncSessionLocal() as db:
-        await _add_stage(
-            db,
-            candidate_id=ids["candidate_id"],
-            job_id=ids["job_other_id"],
-            stage=PipelineStage.hired,
-            moved_by=ids["recruiter_id"],
-        )
-        await db.commit()
+        scheduled = await schedule(db)
+        assert scheduled is not None
+        assert scheduled.body_html.endswith(rejection_text.OTHER_PROCESSES_MARKER)
+        assert rejection_text.CLOSING not in scheduled.body_html
+        assert scheduled.other_processes == [
+            {"job_id": ids["job_other_id"], "title": "Backend Developer"}
+        ]
+        details = await _scheduled_activity_details(db, scheduled)
+        assert details["other_processes_appended"] is True
+        await db.rollback()
 
-        others_after = await _load_other_active_processes(
-            db,
-            candidate_id=ids["candidate_id"],
-            current_job_id=ids["job_primary_id"],
-        )
-        assert others_after == []
+    async with AsyncSessionLocal() as db:
+        scheduled = await schedule(db, append_other_processes=False)
+        assert scheduled is not None
+        assert rejection_text.OTHER_PROCESSES_MARKER not in scheduled.body_html
+        assert scheduled.body_html.endswith(f"<p>{rejection_text.CLOSING}</p>")
+        await db.rollback()
 
 
 @pytest.mark.asyncio
@@ -1038,3 +1125,162 @@ async def test_preview_without_mailbox_blocks_everyone(seeded_entities, monkeypa
         assert result.people[0].skip_reason == "no_mailbox"
         assert result.subject is None
         await db.commit()
+
+
+@pytest.mark.asyncio
+async def test_preview_shows_other_processes_and_the_text_kind(
+    seeded_entities, monkeypatch
+):
+    """Okno widzi rodzaj treści, pozostałe rekrutacje osoby i dopisek (D2)."""
+    from unittest.mock import AsyncMock
+
+    import app.services.rejection_email_scheduler as scheduler
+
+    monkeypatch.setattr(scheduler, "sender_has_mailbox", AsyncMock(return_value=True))
+    ids = seeded_entities
+    async with AsyncSessionLocal() as db:
+        await _set_job_title(db, ids["job_primary_id"], "Programista Java")
+        await _set_job_title(db, ids["job_other_id"], "Backend Developer")
+        await _add_stage(
+            db,
+            candidate_id=ids["candidate_id"],
+            job_id=ids["job_other_id"],
+            stage=PipelineStage.client_interview,
+            moved_by=ids["recruiter_id"],
+        )
+        await _add_stage(
+            db,
+            candidate_id=ids["candidate_id"],
+            job_id=ids["job_primary_id"],
+            stage=PipelineStage.verified,
+            moved_by=ids["recruiter_id"],
+        )
+        job = await db.get(Job, ids["job_primary_id"])
+        sender = await db.get(User, ids["recruiter_id"])
+
+        result = await preview(
+            db, job=job, candidate_ids=[ids["candidate_id"]], sender=sender
+        )
+        person = result.people[0]
+        assert person.skip_reason is None
+        assert person.text_kind == "before_client"
+        assert [(o.job_id, o.mail_title, o.column) for o in person.other_processes] == [
+            (ids["job_other_id"], "Backend Developer", "client_interview")
+        ]
+        assert result.text_kind == "before_client"
+        assert result.subject == "Informacja zwrotna — Programista Java"
+        assert "nie przedstawimy Twojej kandydatury" in result.body
+        assert result.closing == rejection_text.CLOSING
+        assert "• Backend Developer" in result.other_processes_text
+        assert [s.text_kind for s in result.samples] == ["before_client"]
+        assert result.title_warning is False
+
+        # Numer zlecenia w nazwie tej rekrutacji — okno ostrzega.
+        await _set_job_title(db, ids["job_primary_id"], "Programista Java 123456")
+        job = await db.get(Job, ids["job_primary_id"])
+        result = await preview(
+            db, job=job, candidate_ids=[ids["candidate_id"]], sender=sender
+        )
+        assert result.title_warning is True
+        await db.rollback()
+
+
+@pytest.mark.asyncio
+async def test_dispatch_fills_the_list_as_of_sending(seeded_entities, monkeypatch):
+    """D2: lista pozostałych rekrutacji liczona przy wysyłce — osoba odrzucona
+    w międzyczasie także w drugiej rekrutacji nie przeczyta, że „nadal bierze
+    w niej udział”, tylko zwykłe zakończenie."""
+    from datetime import timedelta
+
+    from sqlalchemy import delete
+
+    from app.models.m365 import M365Connection
+    from app.services import rejection_email_scheduler as sched
+    from app.services.m365 import sender as sender_mod
+
+    ids = seeded_entities
+    sent: list[str] = []
+
+    async def _send_new(db, connection, *, body_html, **_kw):  # noqa: ANN001
+        sent.append(body_html)
+        # Wynik nieznany = wiersz zamknięty bez ponowień; treść zostaje.
+        raise sender_mod.EmailSendConflict("uncertain", None)
+
+    async def _eligible_owner(db, user_id):  # noqa: ANN001
+        return await db.get(User, user_id)
+
+    monkeypatch.setattr(sender_mod, "send_new", _send_new)
+    monkeypatch.setattr(sched, "eligible_m365_owner", _eligible_owner)
+    monkeypatch.setattr(sched, "_can_send_rejection_email", lambda user: True)
+
+    async with AsyncSessionLocal() as db:
+        conn = M365Connection(
+            user_id=ids["recruiter_id"],
+            tenant_id="tenant",
+            mailbox_upn=ids["recruiter_email"],
+            access_token_ct="x",
+            refresh_token_ct="x",
+            expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
+            is_active=True,
+        )
+        db.add(conn)
+        await _set_job_title(db, ids["job_other_id"], "Backend Developer")
+        await _add_stage(
+            db,
+            candidate_id=ids["candidate_id"],
+            job_id=ids["job_other_id"],
+            stage=PipelineStage.verified,
+            moved_by=ids["recruiter_id"],
+        )
+        await _add_stage(
+            db,
+            candidate_id=ids["candidate_id"],
+            job_id=ids["job_primary_id"],
+            stage=PipelineStage.cv_sent,
+            moved_by=ids["recruiter_id"],
+        )
+        rejected_stage = await _add_stage(
+            db,
+            candidate_id=ids["candidate_id"],
+            job_id=ids["job_primary_id"],
+            stage=PipelineStage.rejected,
+            moved_by=ids["recruiter_id"],
+        )
+        job = await db.get(Job, ids["job_primary_id"])
+        scheduled = await maybe_schedule(
+            db, stage=rejected_stage, job=job, recruiter_id=ids["recruiter_id"]
+        )
+        assert scheduled.body_html.endswith(rejection_text.OTHER_PROCESSES_MARKER)
+        await db.commit()
+        row_id = scheduled.id
+        conn_id = conn.id
+
+    # Zanim mail wyszedł, osoba odpadła także z drugiej rekrutacji.
+    async with AsyncSessionLocal() as db:
+        await _add_stage(
+            db,
+            candidate_id=ids["candidate_id"],
+            job_id=ids["job_other_id"],
+            stage=PipelineStage.rejected,
+            moved_by=ids["recruiter_id"],
+        )
+        await db.commit()
+
+    try:
+        async with AsyncSessionLocal() as db:
+            await dispatch(db, row_id)
+        assert len(sent) == 1
+        assert "nadal bierzesz udział" not in sent[0]
+        assert sent[0].endswith(f"<p>{rejection_text.CLOSING}</p>")
+        async with AsyncSessionLocal() as db:
+            row = await db.get(ScheduledRejectionEmail, row_id)
+            assert row.body_html == sent[0]
+    finally:
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                delete(ScheduledRejectionEmail).where(
+                    ScheduledRejectionEmail.id == row_id
+                )
+            )
+            await db.execute(delete(M365Connection).where(M365Connection.id == conn_id))
+            await db.commit()

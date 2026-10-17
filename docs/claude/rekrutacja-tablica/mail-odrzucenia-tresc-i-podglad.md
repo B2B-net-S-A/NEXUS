@@ -10,8 +10,10 @@ i podpisem Outlooka, który `m365/sender.py` dokleja po „--” do każdego mai
 
 ## Treść domyślna
 
-- Żyje w kodzie: `_DEFAULT_SUBJECT` / `_DEFAULT_BODY` w
-  `services/rejection_email_scheduler.py`. Zwykły tekst, pusta linia = akapit.
+- Żyje w kodzie: od 17.10.2026 w `services/rejection_email_text.py`
+  (wcześniej `_DEFAULT_SUBJECT` / `_DEFAULT_BODY` w
+  `rejection_email_scheduler.py` — zostały jako zapas renderera). Zwykły
+  tekst, pusta linia = akapit.
   Temat bez zmian: „Informacja zwrotna — {{job_title}}”.
 - Treść (D2: „Życzymy”): „Cześć {{candidate_name}}, dziękujemy za udział
   w rekrutacji na stanowisko {{job_title}}. Niestety został wybrany inny
@@ -19,8 +21,9 @@ i podpisem Outlooka, który `m365/sender.py` dokleja po „--” do każdego mai
   rekrutacyjnych!”
 - Bez „Pozdrawiam” i imienia rekrutera — pożegnanie daje podpis Outlooka.
   Nie dopisuj go z powrotem.
-- Bez bloku „Nadal rozważamy Cię w N innych procesach” (D4). Renderer nadal
-  obsługuje `{{#if other_processes}}` w szablonie wskazanym jawnie.
+- Bez bloku „Nadal rozważamy Cię w N innych procesach” (D4). Od 17.10.2026
+  zastępuje go dopisek o pozostałych rekrutacjach (sekcja niżej). Renderer
+  nadal obsługuje `{{#if other_processes}}` w szablonie wskazanym jawnie.
 - D6: wysyłka NIE sięga po szablony odrzucenia z Ustawień → Szablony
   (nazwany „Auto-odrzucenie…”, domyślny, dowolny). `_resolve_template` bierze
   tylko jawny `rejection_email_template_id` kategorii rejection, inaczej
@@ -68,9 +71,51 @@ i podpisem Outlooka, który `m365/sender.py` dokleja po „--” do każdego mai
   kandydata dopisuje „· treść zmieniona ręcznie”. Wysłany temat i treść stoją
   w `scheduled_rejection_emails` jak dotąd.
 
+## Mail od „Zweryfikowany” i dopisek o pozostałych rekrutacjach (17.10.2026)
+
+Prośba rekrutera, decyzje Artura D1–D8 z 17.10.2026 (makiety i pomiar:
+https://claude.ai/artifact/HvWWRjHpxovrQeNbLJudYL). Pomiar z produkcji:
+w 30 dni 415 odrzuceń w NEXUSIE, 64 z możliwym mailem, wysłany 1; 35 z 80
+osób odrzuconych od „Zweryfikowany” było dalej w innej otwartej rekrutacji.
+
+- **Kiedy mail (D1):** poprzedni etap w kolumnie „Zweryfikowany”, „QC CV”
+  (z kolejką Cpro), „CV wysłane”, „Rozmowa u klienta”, „Umowa”
+  (`mail_text_kind`, lustro `lib/rejection-email.ts`). „Nowi” i „Screening”
+  bez maila — kod powodu `not_client_visible` zostaje (zna go API
+  integracyjne), zdanie mówi „od etapu Zweryfikowany”.
+- **Dwie treści (D4):** „po kliencie” (od „CV wysłane”) = tekst z 13.10 bez
+  zmian; „przed klientem” („Zweryfikowany”, „QC CV”) nie mówi, że „wybrano
+  innego kandydata”. `previous_is_client_visible` rozdziela tylko treści.
+- **Dopisek (D2):** osoba, która jest w innej OPUBLIKOWANEJ rekrutacji od
+  „Zweryfikowany” do „Umowa”, dostaje zamiast zakończenia „To dotyczy tylko
+  tej rekrutacji — nadal bierzesz udział w…”. Zapisana treść niesie znacznik
+  `OTHER_PROCESSES_MARKER`, a `dispatch` wypełnia go listą Z CHWILI WYSYŁKI —
+  osoba odrzucona w międzyczasie i tam nie przeczyta, że nadal bierze udział.
+  Lista pusta przy wysyłce = zwykłe zakończenie. Pole edycji w oknie nie
+  zawiera dopisku; checkbox „Dopisz pozostałe rekrutacje” (domyślnie
+  zaznaczony) → `StageMove.rejection_email_other_processes=false` wyłącza go.
+- **Nazwy dla kandydata (D5):** `mail_job_title` — zatwierdzony opis na
+  stronę kariery wygrywa, inaczej `default_public_title` (bez prefiksu klienta
+  i kodów). Nazwa, w której po czyszczeniu nadal widać 4 cyfry albo klienta
+  (kontrola strony kariery + pierwsze słowo nazwy klienta), w dopisku idzie
+  jako „inna rekrutacja”, a w temacie i treści zostaje z ostrzeżeniem
+  `title_warning` w oknie. Pomiar 17.10: numer w 33 z 201 nazw (było 145),
+  klient w 1 (było 47). Do 17.10 lista brała tylko rekrutacje z zatwierdzonym
+  opisem publicznym (runda 9, R9-N10-2) — miało go 2 z 201.
+- **Przegląd DL (D6):** `DlReviewPanel` ma to samo pole maila w „Odrzuć…”;
+  mail wychodzi ze skrzynki DL (reguła „mail od osoby, która odrzuca”).
+- **Brak skrzynki (D7):** okno daje „Podłącz skrzynkę” (Ustawienia →
+  Integracje w nowej karcie), podgląd odświeża się po powrocie do karty.
+  17.10 skrzynkę miało 8 osób; z 10 rekruterów, którzy odrzucali, 2.
+- **Checkbox (D8):** dalej domyślnie odznaczony.
+- Podgląd (`preview`) oddaje przy osobie `text_kind` i `other_processes`
+  (nazwa w NEXUSIE, nazwa w mailu, kolumna), a `samples` — po jednej treści
+  każdego rodzaju dla okna kilku osób (przełącznik „Przed klientem /
+  Po kliencie”).
+
 ## Harness
 
-`/preview/rejection-email?state=one|blocked|bulk` — prawdziwy `RejectionV2`,
+`/preview/rejection-email?state=one|blocked|bulk|others|work_mode` — prawdziwy `RejectionV2`,
 podgląd zasiany w cache ze znacznikiem czasu w przyszłości, dane fikcyjne.
 
 ## Powód „Nie akceptuje trybu pracy” zapisuje tryb pracy na profilu (14.10.2026)

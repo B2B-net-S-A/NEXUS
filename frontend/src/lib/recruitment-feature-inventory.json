@@ -503,6 +503,22 @@
    "v3_home": "RejectionV2"
   },
   {
+   "id": "move.rejection-email-other-processes",
+   "area": "ruch",
+   "opis": "Mail odrzucenia od „Zweryfikowany” w górę, treść „przed klientem” albo „po kliencie” i dopisek o pozostałych rekrutacjach osoby („To dotyczy tylko tej rekrutacji — nadal bierzesz udział w…”), liczony w chwili wysyłki; przy kilku osobach przełącznik treści i „+N w toku” (17.10.2026)",
+   "file": "components/v2/modals/RejectionEmailField.tsx",
+   "marker": "Dopisz pozostałe rekrutacje",
+   "v3_home": "RejectionV2"
+  },
+  {
+   "id": "move.rejection-email-connect-mailbox",
+   "area": "ruch",
+   "opis": "Bez podłączonej skrzynki Microsoft 365 okno odrzucenia daje „Podłącz skrzynkę” (Ustawienia → Integracje w nowej karcie) i po powrocie sprawdza jeszcze raz (17.10.2026)",
+   "file": "components/v2/modals/RejectionEmailField.tsx",
+   "marker": "Podłącz skrzynkę",
+   "v3_home": "RejectionV2"
+  },
+  {
    "id": "move.rejection-work-mode",
    "area": "ruch",
    "opis": "Powód „Nie akceptuje trybu pracy” w oknie odrzucenia: pytanie, ile dni w biurze kandydat akceptuje (tylko mniej, niż wymaga rekrutacja), i zapis trybu pracy na profilu z podglądem „Teraz na profilu” (14.10.2026)",
@@ -1697,6 +1713,14 @@
    "opis": "„Uwagi dla rekrutera” przy każdej decyzji DL (wysyłka, powrót, odrzucenie): notatka pary, dzwonek i linia na liście „Twoje CV w drodze”",
    "file": "components/v2/recruitment/DlReviewPanel.tsx",
    "marker": "recruiter_remark",
+   "v3_home": "Pulpit → przegląd DL → Przejrzyj"
+  },
+  {
+   "id": "dl-review.rejection-email",
+   "area": "przegląd DL",
+   "opis": "Mail odrzucenia z „Odrzuć…” w przeglądzie Delivery Leada — checkbox, podgląd z treścią „przed klientem” i dopiskiem o pozostałych rekrutacjach, toast „Cofnij wysyłkę”; mail wychodzi ze skrzynki DL (17.10.2026)",
+   "file": "components/v2/recruitment/DlReviewPanel.tsx",
+   "marker": "<RejectionEmailField",
    "v3_home": "Pulpit → przegląd DL → Przejrzyj"
   },
   {
