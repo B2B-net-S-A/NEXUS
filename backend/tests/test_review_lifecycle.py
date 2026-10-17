@@ -444,6 +444,42 @@ async def test_mass_exit_is_a_failed_run_and_rings_hr_and_admins_once_a_day(
             await db.rollback()
 
 
+async def test_mass_exit_bell_survives_a_task_bell_with_the_same_number(
+    modules_on,
+) -> None:
+    """Dzienny odsiew powiadomień nie zna rodzaju encji: dzwonek alarmu z numerem
+    przebiegu ginął, gdy osoba z Kadr miała tego dnia dzwonek zadania z tym samym
+    numerem (CI, 18.10.2026: 0 dzwonków zamiast 1)."""
+
+    worlds = [await _world() for _ in range(MAX_DEACTIVATIONS_PER_RUN + 1)]
+    hr_id = worlds[0]["hr"]
+    async with AsyncSessionLocal() as db:
+        last = await db.scalar(text("SELECT last_value FROM hr_job_runs_id_seq"))
+        for number in range(int(last) + 1, int(last) + 20):
+            db.add(
+                Notification(
+                    user_id=hr_id,
+                    title="Zadanie testowe",
+                    message="Zadanie testowe",
+                    notification_type=NotificationType.hr_lifecycle_task,
+                    related_entity_type="lifecycle_task",
+                    related_entity_id=number,
+                )
+            )
+        await db.commit()
+
+    result = await _run(_at(worlds[0]["deactivate_on"], 1, 0))
+    assert result["deactivation_error"] == "mass_exit_suspected"
+    async with AsyncSessionLocal() as db:
+        bells = await db.scalar(
+            select(func.count(Notification.id)).where(
+                Notification.user_id == hr_id,
+                Notification.title.like("Wyłączenie kont wstrzymane%"),
+            )
+        )
+    assert bells == 1
+
+
 # ── C13: przejmujący nie odchodzi, przełożony = domyślny przejmujący ─────────
 
 
