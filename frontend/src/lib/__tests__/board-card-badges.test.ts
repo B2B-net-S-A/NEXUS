@@ -164,6 +164,17 @@ describe("odznaki karty — Pipeline v4", () => {
     ]);
   });
 
+  it("„Zatrudniony” bez umowy w Kontraktach: odznaka przed zamówieniem, tylko w tej kolumnie (17.10.2026)", () => {
+    const noContract = item({ missing_contract: true, order_status: "missing" });
+    const badges = cardBadges(noContract, ctx({ column: "hired" }));
+    expect(badges.map((b) => b.label)).toEqual(["Brak umowy w Kontraktach", "Brak zamówienia"]);
+    expect(badges[0]).toMatchObject({ key: "contract", tone: "wait" });
+    expect(badges[0].title).toContain("„Pracuje u nas” pojawi się po wpisaniu umowy");
+    // Inna kolumna (karta cofnięta z „Zatrudniony”) i karta z umową — bez odznaki.
+    expect(labels(noContract, ctx({ column: "contract" }))).not.toContain("Brak umowy w Kontraktach");
+    expect(labels(item({ missing_contract: false }), ctx({ column: "hired" }))).toEqual([]);
+  });
+
   it("prepy w Teams: brak prepu i słaby prep jak inne odznaki terminarza, z podpowiedzią", () => {
     const missing = item({
       interview_badge: { kind: "prep_missing", label: "Brak prepu · rozmowa jutro", tone: "urgent" },

@@ -2296,6 +2296,38 @@
    "v3_home": "panel osoby → głowa"
   },
   {
+   "id": "dock.blacklist-pill",
+   "area": "panel osoby",
+   "opis": "Pigułka „Czarna lista” w głowie panelu osoby; po kliknięciu kto, kiedy i dlaczego (17.10.2026)",
+   "file": "components/v2/jobs/PipelineCandidateDock.tsx",
+   "marker": "<BlacklistPopoverPill",
+   "v3_home": "panel osoby → głowa"
+  },
+  {
+   "id": "dock.blacklist-dialog",
+   "area": "panel osoby",
+   "opis": "„Czarna lista…” w menu panelu osoby — to samo okno co w profilu (u nas albo u klienta, z powodem)",
+   "file": "components/v2/jobs/PipelineCandidateDock.tsx",
+   "marker": "Czarna lista…",
+   "v3_home": "panel osoby → „Więcej akcji osoby”"
+  },
+  {
+   "id": "dock.missing-contract",
+   "area": "panel osoby",
+   "opis": "Pigułka „Brak umowy w Kontraktach” przy osobie na „Zatrudniony” bez umowy — „Pracuje u nas” liczy się wyłącznie z umowy (17.10.2026)",
+   "file": "components/v2/jobs/PipelineCandidateDock.tsx",
+   "marker": "Brak umowy w Kontraktach",
+   "v3_home": "panel osoby → głowa"
+  },
+  {
+   "id": "card.missing-contract",
+   "area": "tablica",
+   "opis": "Plakietka „Brak umowy w Kontraktach” na karcie w kolumnie „Zatrudniony” (17.10.2026)",
+   "file": "lib/board-card-badges.ts",
+   "marker": "Brak umowy w Kontraktach",
+   "v3_home": "Tablica → karta osoby"
+  },
+  {
    "id": "add.employment-notice",
    "area": "pozyskiwanie",
    "opis": "Okna dodawania do rekrutacji: znacznik „Pracuje u nas” przy osobie i ramka po zaznaczeniu (klient, koniec zamówienia, Delivery Lead) — informacja, nie blokada",

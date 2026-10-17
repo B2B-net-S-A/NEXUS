@@ -47,9 +47,9 @@ class EmploymentEngagement(BaseModel):
 class EmploymentInfo(BaseModel):
     """
     Employment snapshot rendered next to every candidate in the list/profile.
-    `source` exposes whether the fact came from a live Contract, a manual
-    CandidateConflict, or the recruitment pipeline (a `hired` stage) so the UI
-    can show a different tooltip.
+    Od 17.10.2026 (decyzja Artura) zatrudnienie wynika wyłącznie z żywej
+    umowy: `source` to `contract` albo `none` — ręczny konflikt i etap
+    „Zatrudniony” bez umowy nie są już źródłem.
     """
 
     state: EmploymentState
@@ -58,11 +58,24 @@ class EmploymentInfo(BaseModel):
     contract_id: Optional[int] = None
     job_id: Optional[int] = None
     contract_end_date: Optional[date] = None
-    source: Literal["contract", "conflict", "pipeline", "none"] = "none"
+    source: Literal["contract", "none"] = "none"
     # WSZYSTKIE żywe kontrakty (`active` i `ending` — ta sama populacja co
     # gałąź `contract` wyżej, żeby lista nigdy nie przeczyła pojedynczym polom).
     # Pierwszy wpis = ten sam kontrakt co `client_id`/`contract_id`.
     engagements: list[EmploymentEngagement] = []
+
+
+class CandidateBlacklistInfo(BaseModel):
+    """Czarna lista „u nas” (okno „Czarna lista…”, 17.10.2026).
+
+    Obecne tylko przy `status == blacklisted`. Wpisy sprzed zmiany (dopiski
+    z Traffita w imieniu) mają wszystkie pola puste — powodu nikt nie zapisał.
+    """
+
+    since: Optional[datetime] = None
+    by_user_id: Optional[int] = None
+    by_name: Optional[str] = None
+    reason: Optional[str] = None
 
 
 EmploymentPhase = Literal["working", "ending", "starting"]
@@ -97,13 +110,14 @@ class EmploymentMarker(BaseModel):
     """
 
     phase: EmploymentPhase
-    source: Literal["contract", "conflict", "pipeline"]
+    # Od 17.10.2026 zawsze `contract` — pole zostaje dla kształtu API.
+    source: Literal["contract"] = "contract"
     # Liczone tylko, gdy znany jest klient rekrutacji: True = któryś z klientów
     # znacznika jest spoza rodziny klienta tej rekrutacji.
     elsewhere: Optional[bool] = None
     clients: list[EmploymentMarkerClient] = []
-    # Tylko `source == "contract"` (15.10.2026): pierwszy dzień po pracy
-    # u nas. Dostępność osoby = późniejsza z tej daty i daty z profilu —
+    # Pierwszy dzień po pracy u nas (15.10.2026). Dostępność osoby =
+    # późniejsza z tej daty i daty z profilu —
     # notatki ze screeningu sprzed zatrudnienia jej nie przesuwają.
     free_from: Optional[date] = None
     free_from_basis: Optional[EmploymentFreeFromBasis] = None
@@ -651,6 +665,9 @@ class CandidateResponse(BaseModel):
     # Znacznik „Pracuje u nas” — lista, szczegóły i szybki podgląd; mutacje
     # go nie liczą (front nie wkłada ich odpowiedzi do cache szczegółów).
     employment_marker: Optional[EmploymentMarker] = None
+    # Czarna lista „u nas” z osobą, datą i powodem — tylko szczegóły
+    # (`services/candidate_blacklist.load_blacklist_info`); lista ma `status`.
+    blacklist: Optional[CandidateBlacklistInfo] = None
     tags: Optional[Any]
     skills: Optional[Any]
     experience: Optional[Any]
@@ -887,7 +904,6 @@ class CandidateCvHighlights(BaseModel):
 
 class CandidateQuickViewCapabilities(BaseModel):
     can_assign: bool
-    can_mark_employed: bool
     can_view_documents: bool
     can_open_full_profile: bool
 
@@ -909,6 +925,7 @@ class CandidateQuickViewCandidate(BaseModel):
     status: CandidateStatus
     employment: EmploymentInfo = EmploymentInfo(state=EmploymentState.unknown)
     employment_marker: Optional[EmploymentMarker] = None
+    blacklist: Optional[CandidateBlacklistInfo] = None
     competence_category_id: Optional[int] = None
     competence_category: Optional[str] = None
     skills: Optional[Any] = None

@@ -98,9 +98,9 @@ describe("ProfilePersonBar — tożsamość i pigułki (E1, D4, 13.10.2026)", ()
     expect(screen.getByText(/Pracuje u nas/)).toBeInTheDocument();
   });
 
-  it("czarna lista zostaje jako jedyne ostrzeżenie statusu", () => {
+  it("czarna lista nie jest pigułką w pasku — mówi o niej baner pod paskiem (17.10.2026)", () => {
     renderBar({ status: "blacklisted" });
-    expect(screen.getByText("Czarna lista")).toBeInTheDocument();
+    expect(screen.queryByText("Czarna lista")).toBeNull();
   });
 
   it("inicjały biorą litery, nie nawias z dopiskiem", () => {
@@ -168,5 +168,21 @@ describe("ProfilePersonBar — menu „⋯”", () => {
     for (const gone of [/Obserwuj/, /Wrzuć na targ/, /Korekta imienia/, /Generuj CV/]) {
       expect(screen.queryByRole("menuitem", { name: gone })).toBeNull();
     }
+  });
+
+  it("„Status osoby → Czarna lista…” z prawem zapisu otwiera okno (17.10.2026)", async () => {
+    const onBlacklist = vi.fn();
+    renderBar({}, true, { onBlacklist });
+    fireEvent.keyDown(screen.getByRole("button", { name: "Więcej akcji" }), { key: "Enter" });
+    expect(screen.getByText("Status osoby")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("menuitem", { name: /Czarna lista…/ }));
+    await waitFor(() => expect(onBlacklist).toHaveBeenCalledTimes(1));
+  });
+
+  it("bez prawa zapisu nie ma „Czarnej listy…”", () => {
+    renderBar({}, false, { onBlacklist: vi.fn() });
+    fireEvent.keyDown(screen.getByRole("button", { name: "Więcej akcji" }), { key: "Enter" });
+    expect(screen.queryByRole("menuitem", { name: /Czarna lista/ })).toBeNull();
+    expect(screen.queryByText("Status osoby")).toBeNull();
   });
 });

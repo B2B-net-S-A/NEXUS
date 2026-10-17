@@ -237,8 +237,9 @@ async def test_status_rule_is_the_same_in_python_sql_and_the_marker(
     }
     expected = {world[k] for k in ("ends", "open", "starting", "follow")}
     assert python_hidden == sql_hidden == pill_hidden == expected
-    # Sam konflikt ma znacznik, ale nie chowa statusu — jak pigułka na froncie.
-    assert markers[world["conflict"]].source == "conflict"
+    # Sam ręczny konflikt „Obecne zatrudnienie” od 17.10.2026 nie daje
+    # znacznika (tylko umowa) i nie chowa statusu — jak pigułka na froncie.
+    assert markers[world["conflict"]] is None
 
 
 @pytest.mark.asyncio

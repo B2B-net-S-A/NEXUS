@@ -230,6 +230,10 @@ export interface KanbanItem {
  } | null;
  // „Zatrudniony": czy jest uzupełnione zamówienie.
  order_status?: "complete" | "missing" | null;
+ // 17.10.2026: karta na „Zatrudniony” (z ostatniego roku), a w Kontraktach
+ // nie ma żadnej umowy tej osoby u klienta rekrutacji — „Pracuje u nas”
+ // liczy się wyłącznie z umowy, więc karta mówi, czego brakuje.
+ missing_contract?: boolean;
  // 04.10.2026: umowa B2B z Generatora tej pary — stan z rejestru, w każdej kolumnie.
  agreement?: CardAgreement | null;
  // 0451 (16.10.2026): ostatnia akceptacja klienta pary — karta i panel

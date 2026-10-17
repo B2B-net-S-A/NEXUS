@@ -72,3 +72,43 @@ i polskim powodem.
   `GET /api/conflicts` zasila sekcję „Konflikty z kandydatami" na profilu
   klienta i zakładkę Ustawienia → Konflikty. Tabela nie miała wcześniej
   żadnego lustra w `entrypoint.sh` — teraz ma (kolumny, indeksy, CHECK alertu).
+
+## Czarna lista — jedno okno „Czarna lista…” (17.10.2026)
+
+Pytanie rekrutera, jak oznaczyć czarną listę. Pomiar produkcji 17.10: 37 osób
+„Zablokowany” (wszystkie z dopisków Traffita w imieniu, ręcznie w NEXUSIE —
+raz), 2 wpisy w rejestrze konfliktów w całej historii, a 74 osoby miały
+notatkę „czarna lista / nie współpracujemy / nie proponować” (55 bez
+statusu). Decyzja Artura („możemy zrobić, jakie proponujesz”), makiety:
+https://claude.ai/artifact/UGYuAg37XJYhkAipLQyPeW.
+
+- **Jedno wejście** w menu profilu („Status osoby” → „Czarna lista…”) i w menu
+  panelu osoby na Tablicy: „U nas — nie współpracujemy” albo „U klienta — nie
+  proponować do: [klient]”, powód obowiązkowy (5–2000 znaków).
+  Front: `components/v2/candidate-profile/BlacklistDialogs.tsx` (okno, ramka
+  `BlacklistNotice`, pigułki listy i panelu).
+- **„U nas”** = status `blacklisted` jak dotąd (ukryty w wyszukiwaniu pod
+  rekrutację, blokada dodania), plus kolumny `blacklisted_at`,
+  `blacklisted_by_user_id`, `blacklist_reason` (0452, lustro w
+  `entrypoint.sh`) — `POST /api/candidates/{id}/blacklist` `{scope: "global"}`
+  (`api/candidate_blacklist.py`, `services/candidate_blacklist.py`).
+  `GET /api/candidates/{id}` i szybki podgląd niosą `blacklist` {since,
+  by_user_id, by_name, reason}; wpisy sprzed 17.10 mają same `null`.
+- **„U klienta”** = wpis `blacklist` w tym rejestrze (ostrzeżenie, jak
+  wyżej) przez `scope: "client"` — wspólne `candidate_conflicts.add_conflict`.
+- **Kto:** dodaje każdy z zapisem kandydata, także rekruter (globalną listę
+  mógł ustawić i wcześniej polem „Status”; wpis u klienta nic nie blokuje).
+  Zdejmuje „u nas” tylko admin, Delivery Lead i Head of Recruitment
+  (`POST …/blacklist/remove` z powodem; `REMOVER_ROLES`). Wpis u klienta
+  zdejmuje się jak każdy konflikt. Formularz „Dodaj konflikt” (NDA,
+  konkurent) dalej tylko admin i Delivery Lead.
+- **Pole „Status” zniknęło z „Edytuj dane”**, a `PATCH /api/candidates/{id}`
+  ze zmianą statusu na albo z `blacklisted` → 422
+  `candidate_blacklist_dedicated_endpoint` — inaczej powód i autor dałyby
+  się ominąć. Importy (CSV, `/bulk-import`, mapper Traffita) dalej ustawiają
+  status z dopisku w imieniu, bez powodu.
+- **Ślad:** aktywności `candidate_blacklisted` / `candidate_blacklist_removed`
+  (szczegóły: zakres, powód, przy zdjęciu też powód dodania — kolumny są
+  wtedy czyszczone). Lista kandydatów pokazuje pigułkę „Czarna lista”.
+- Typ `current_employment` nie da się już dodać (422) — „Pracuje u nas”
+  liczy się wyłącznie z umowy (`kandydaci-wyszukiwanie/znacznik-pracuje-u-nas.md`).

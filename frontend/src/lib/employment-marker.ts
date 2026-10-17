@@ -6,6 +6,12 @@
  * w propozycjach i w „Moich ludziach”. Tu jest wyłącznie to, co z niego
  * czytamy: etykieta pigułki, kolor i wiersze ramki.
  *
+ * Od 17.10.2026 (decyzja Artura) jedynym źródłem jest umowa w Kontraktach
+ * (B2B, umowa o pracę, zlecenie — trwająca albo podpisana z przyszłym
+ * startem). Ręcznego oznaczania i znacznika z samego etapu „Zatrudniony” już
+ * nie ma; karta na „Zatrudniony” bez umowy mówi „Brak umowy w Kontraktach”
+ * (`lib/board-card-badges.ts`).
+ *
  * Świadomie bez importów z `@/lib/api` — testy okien mockują tamte moduły
  * wąsko i import wartości stamtąd wywracał cały plik testu.
  */
@@ -32,7 +38,8 @@ export interface EmploymentMarkerClient {
 
 export interface EmploymentMarker {
   phase: EmploymentPhase;
-  source: "contract" | "conflict" | "pipeline";
+  /** Zawsze `contract` (17.10.2026) — „Pracuje u nas” daje tylko umowa. */
+  source: "contract";
   /**
    * Liczone tylko w kontekście rekrutacji: `true` = któryś klient znacznika
    * jest inny niż klient tej rekrutacji, `false` = to klient tej rekrutacji.
@@ -40,8 +47,8 @@ export interface EmploymentMarker {
   elsewhere?: boolean | null;
   clients: EmploymentMarkerClient[];
   /**
-   * Tylko `source === "contract"` (15.10.2026): pierwszy dzień po pracy
-   * u nas. Termin dostępności czyta `lib/contract-availability.ts`.
+   * Pierwszy dzień po pracy u nas (15.10.2026). Termin dostępności czyta
+   * `lib/contract-availability.ts`.
    */
   free_from?: string | null;
   free_from_basis?: "work_end" | "no_end_date" | "starting" | null;
@@ -171,10 +178,6 @@ export function markerDetails(marker: EmploymentMarker): MarkerDetailLine[] {
       if (client.starts_on) parts.push(`Start ${formatIsoDatePl(client.starts_on)}`);
     } else if (client.order_end_date) {
       parts.push(`Zamówienie do ${formatIsoDatePl(client.order_end_date)}`);
-    } else if (marker.source === "conflict") {
-      parts.push("Oznaczone ręcznie");
-    } else if (marker.source === "pipeline") {
-      parts.push("Etap „Zatrudniony” w rekrutacji");
     } else {
       parts.push("Zamówienie bez daty końca");
     }

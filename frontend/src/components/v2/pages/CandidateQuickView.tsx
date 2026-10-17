@@ -5,14 +5,12 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import {
   AlertTriangle,
-  BriefcaseBusiness,
   ChevronLeft,
   ChevronRight,
   Mail,
   Maximize2,
   MessageSquare,
   Pin,
-  MoreHorizontal,
   Phone,
   UserPlus,
   X,
@@ -24,12 +22,6 @@ import { DEFAULT_FILTERS, encodeNavContext } from "@/lib/url-filters";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { SheetDescription, SheetTitle } from "@/components/ui/sheet";
 import CallButton from "@/components/calls/CallButton";
 import {
@@ -38,7 +30,6 @@ import {
 } from "@/components/v2/CandidateHighlights";
 import { CompetenceCategoryBadge } from "@/components/v2/CompetenceCategoryBadge";
 import type { EmploymentMarker } from "@/lib/employment-marker";
-import { MarkEmployedAction } from "@/components/v2/MarkEmployedAction";
 import { QuickAssignV2 } from "@/components/v2/modals/QuickAssignV2";
 import { RiskBadge } from "@/components/v2/RiskBadge";
 import { useCandidateNavigation } from "@/hooks/useCandidateNavigation";
@@ -146,7 +137,6 @@ interface CandidateQuickViewData {
   } | null;
   capabilities: {
     can_assign: boolean;
-    can_mark_employed: boolean;
     can_view_documents: boolean;
     can_open_full_profile: boolean;
   };
@@ -167,11 +157,6 @@ export interface CandidateQuickViewProps {
    * „brak"), `undefined` = nie wiemy (np. kandydat spoza bieżącej strony).
    */
   rateLookup?: (candidateId: number) => string | null | undefined;
-}
-
-/** Let a Radix menu close (and return focus) before the next layer opens. */
-function deferMenuAction(action: () => void) {
-  window.setTimeout(action, 0);
 }
 
 function requestStatus(error: unknown): number | null {
@@ -291,7 +276,6 @@ export function CandidateQuickView({
     enabled: Boolean(currentUser) && canWriteSourcing,
   });
   const [assignOpen, setAssignOpen] = React.useState(false);
-  const [markEmployedOpen, setMarkEmployedOpen] = React.useState(false);
   const [contactOutcomeOpen, setContactOutcomeOpen] = React.useState(false);
 
   const navigationState = useCandidateNavigation(
@@ -394,54 +378,6 @@ export function CandidateQuickView({
     : "Profil kandydata";
   // Stawka z odpowiedzi podglądu; wiersz listy tylko do czasu jej wczytania.
   const rate = (candidate ? rateCellText(candidate) : null) ?? rateLookup?.(candidateId);
-
-  const isEmployedAtClient =
-    candidate?.employment?.state === "employed_at_client";
-  const canMarkEmployed =
-    canWriteSourcing &&
-    !isEmployedAtClient &&
-    quickView?.capabilities.can_mark_employed === true;
-  // „Oznacz jako zatrudnionego" nie ma innego miejsca w aplikacji — zostaje
-  // w małym menu „⋯". Popover akcji kotwiczy się na tym opakowaniu (korzeń
-  // menu Radixa nie renderuje własnego DOM-u).
-  const moreActionsMenu = (
-    <div className="flex">
-      <DropdownMenu modal={false}>
-        <DropdownMenuTrigger asChild>
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            aria-label="Więcej akcji kandydata"
-            title="Więcej akcji"
-          >
-            <MoreHorizontal className="h-4 w-4" />
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-60">
-          {isEmployedAtClient ? (
-            <DropdownMenuItem disabled>
-              <BriefcaseBusiness className="h-4 w-4" />
-              Oznaczono jako zatrudnionego
-            </DropdownMenuItem>
-          ) : canMarkEmployed ? (
-            <DropdownMenuItem
-              onSelect={() =>
-                deferMenuAction(() => setMarkEmployedOpen(true))
-              }
-            >
-              <BriefcaseBusiness className="h-4 w-4" />
-              Oznacz jako zatrudnionego
-            </DropdownMenuItem>
-          ) : (
-            <DropdownMenuItem disabled>
-              <BriefcaseBusiness className="h-4 w-4" />
-              Oznacz jako zatrudnionego
-            </DropdownMenuItem>
-          )}
-        </DropdownMenuContent>
-      </DropdownMenu>
-    </div>
-  );
 
   const titleLine = [
     quickView?.current_position.title || null,
@@ -812,21 +748,6 @@ export function CandidateQuickView({
               <Phone className="h-3.5 w-3.5" />
               Zaloguj wynik telefonu
             </Button>
-          ) : null}
-          {canWriteSourcing ? (
-            <div className="ml-auto">
-              {canMarkEmployed ? (
-                <MarkEmployedAction
-                  candidateId={candidateId}
-                  employment={candidate.employment}
-                  open={markEmployedOpen}
-                  onOpenChange={setMarkEmployedOpen}
-                  anchor={moreActionsMenu}
-                />
-              ) : (
-                moreActionsMenu
-              )}
-            </div>
           ) : null}
         </footer>
       ) : null}

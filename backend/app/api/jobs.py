@@ -45,14 +45,10 @@ from app.services.critical_events import audited_deletion
 from app.core.database import get_db
 from app.core.scheduling import business_today
 from app.models.candidate import Candidate
-from app.models.candidate_conflict import CandidateConflict, ConflictType
 from app.models.contract import Contract
 from app.services.current_employment import LIVE_CONTRACT_STATUSES
-from app.services.employment_marker import (
-    hire_closed_by_contract_clause,
-    job_client_family,
-)
-from app.services.pipeline_latest import current_hired_stage_clause, latest_stage_ids
+from app.services.employment_marker import job_client_family
+from app.services.pipeline_latest import latest_stage_ids
 from app.services.access_scope import DL_CLIENT_OUT_OF_SCOPE_DETAIL
 from app.models.competence_category import UserCompetenceCategory
 from app.models.job import Job, JobStatus
@@ -4152,9 +4148,10 @@ async def champion_consultant_suggestions(
     """Nasi konsultanci, którzy dziś pracują u klienta tej rekrutacji.
 
     Ta sama reguła co znacznik „Pracuje u nas” (``services/employment_marker``):
-    żywa umowa (także wypowiedziana), aktywny konflikt ``current_employment``
-    albo bieżący etap „Zatrudniony”, którego nie zamknęła umowa — u klienta
-    rekrutacji razem z jego scalonymi rekordami. Do 14.10.2026 lista brała
+    żywa umowa (także wypowiedziana) u klienta rekrutacji razem z jego
+    scalonymi rekordami. Od 17.10.2026 wyłącznie umowa — etap „Zatrudniony”
+    bez umowy i ręczny konflikt ``current_employment`` już nie (decyzja
+    Artura). Okno i tak szuka w całej bazie. Do 14.10.2026 lista brała
     najwyżej 30 osób z każdego źródła (umowy w przypadkowej kolejności), tylko
     umowy ``active``, jeden rekord klienta i każdego, kto kiedykolwiek był
     „Zatrudniony” — Delivery Lead dostawał byłych konsultantów, a tego,
@@ -4185,39 +4182,9 @@ async def champion_consultant_suggestions(
             .order_by(Contract.start_date.desc().nulls_last(), Contract.id.desc())
         )
     ).all()
-    hired_rows = (
-        await db.execute(
-            select(
-                Candidate.id,
-                Candidate.name,
-                Candidate.lastname,
-                Job.title,
-                CandidateStage.moved_at,
-            )
-            .join(CandidateStage, CandidateStage.candidate_id == Candidate.id)
-            .join(Job, Job.id == CandidateStage.job_id)
-            .where(
-                Job.client_id.in_(family),
-                current_hired_stage_clause(),
-                ~hire_closed_by_contract_clause(),
-            )
-            .order_by(CandidateStage.moved_at.desc(), CandidateStage.id.desc())
-        )
-    ).all()
-    conflict_rows = (
-        await db.execute(
-            select(Candidate.id, Candidate.name, Candidate.lastname)
-            .join(CandidateConflict, CandidateConflict.candidate_id == Candidate.id)
-            .where(
-                CandidateConflict.client_id.in_(family),
-                CandidateConflict.type == ConflictType.current_employment,
-                CandidateConflict.active.is_(True),
-            )
-        )
-    ).all()
 
     people: dict[int, dict] = {}
-    for cid, first, last, title, since in [*contract_rows, *hired_rows]:
+    for cid, first, last, title, since in contract_rows:
         people.setdefault(
             cid,
             {
@@ -4225,16 +4192,6 @@ async def champion_consultant_suggestions(
                 "name": f"{first or ''} {last or ''}".strip(),
                 "job_title": title,
                 "since": since.isoformat() if since else None,
-            },
-        )
-    for cid, first, last in conflict_rows:
-        people.setdefault(
-            cid,
-            {
-                "candidate_id": cid,
-                "name": f"{first or ''} {last or ''}".strip(),
-                "job_title": None,
-                "since": None,
             },
         )
     return sorted(

@@ -138,6 +138,22 @@ describe("ConflictsWidget", () => {
     expect(mocks.list).toHaveBeenCalledWith(7, true);
   });
 
+  it("the type select has no „Obecne zatrudnienie”, an old row of that type still shows it", async () => {
+    // 17.10.2026: „Pracuje u nas” tylko z umowy w Kontraktach; stare wiersze zostają historią.
+    mocks.list.mockResolvedValue({
+      data: [row({ type: "current_employment", type_label: "Obecne zatrudnienie", expires_at: null })],
+    });
+    renderWidget();
+    const item = await screen.findByTestId("conflict-row-11");
+    expect(within(item).getByText("Obecne zatrudnienie")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId("conflict-add-toggle"));
+    const options = Array.from(
+      screen.getByLabelText("Typ konfliktu").querySelectorAll("option"),
+    ).map((option) => option.textContent);
+    expect(options).toEqual(["Czarna lista klienta", "NDA / cooling-off", "Klient konkurencyjny"]);
+  });
+
   it("validates inline: client required, NDA requires a date — nothing is sent", async () => {
     renderWidget();
     fireEvent.click(await screen.findByTestId("conflict-add-toggle"));

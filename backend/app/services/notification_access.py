@@ -135,6 +135,8 @@ NOTIFICATION_SECTION_BY_TYPE: dict[NotificationType, ProductSection] = {
     NotificationType.also_fits_added: ProductSection.pipeline,
     # 0451: link prowadzi do panelu osoby na Tablicy rekrutacji.
     NotificationType.client_accepted: ProductSection.pipeline,
+    # 0452: link prowadzi do panelu osoby na Tablicy rekrutacji.
+    NotificationType.hire_missing_contract: ProductSection.pipeline,
 }
 
 CONTEXTUAL_NOTIFICATION_TYPES: frozenset[NotificationType] = frozenset(

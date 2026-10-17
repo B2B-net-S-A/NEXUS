@@ -246,9 +246,11 @@ async def test_verification_reset(app_client, app_auth_headers):
 
 
 @pytest.mark.asyncio
-async def test_consultant_suggestions_returns_hired_at_client(
+async def test_consultant_suggestions_skip_a_hire_without_a_contract(
     app_client, app_auth_headers
 ):
+    """17.10.2026: „Pracuje u nas” wyłącznie z umowy — karta „Zatrudniony”
+    bez umowy nie trafia na listę (okno i tak szuka w całej bazie)."""
     client_id, job_id = await _seed_client_and_job()
     consultant_id = await _seed_hired_candidate(client_id, lastname="Hirowana")
 
@@ -257,11 +259,7 @@ async def test_consultant_suggestions_returns_hired_at_client(
         headers=app_auth_headers,
     )
     assert resp.status_code == 200
-    rows = resp.json()
-    by_id = {r["candidate_id"]: r for r in rows}
-    assert consultant_id in by_id
-    assert by_id[consultant_id]["name"] == "Janina Hirowana"
-    assert by_id[consultant_id]["job_title"] == "Java Developer (placed)"
+    assert consultant_id not in {r["candidate_id"] for r in resp.json()}
 
 
 async def _seed_consultants_at_client(client_id: int, job_id: int) -> dict:
