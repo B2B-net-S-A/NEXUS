@@ -974,6 +974,24 @@ describe("lata, tytuł, stawka i zdanie z kontroli AI jednym kliknięciem (PR 2,
     expect(within(row).getByRole("button", { name: "Zostaw: „Przeglądy kodu.”" })).toBeInTheDocument();
   });
 
+  it("luki kandydata (D2): jedna linia w „Informacje”, bez pozycji do poprawy", async () => {
+    const gaps = check({
+      key: "must_in_cv",
+      label: "Pozostałe wymagania",
+      status: "pass",
+      items: [],
+      info: [
+        { requirement: "Terraform", detail: "Luka kandydata — nie ma tego w CV, w oryginale ani w rozmowie.", fix: "ask_candidate" },
+        { requirement: "Ansible", detail: "Luka kandydata — nie ma tego w CV, w oryginale ani w rozmowie.", fix: "ask_candidate" },
+      ],
+    });
+    const api = memoryApi({ qc: vi.fn(async () => qcResult({ checks: [gaps] })) });
+    setup({ api });
+    const info = await screen.findByRole("region", { name: "Informacje" });
+    expect(info).toHaveTextContent("Luki kandydata (2): Terraform, Ansible — nie ma tego w CV, w oryginale ani w rozmowie.");
+    expect(screen.queryByText(/Terraform/, { selector: "button" })).toBeNull();
+  });
+
   it("„Usuń zdanie” przy kontroli AI usuwa tę linię", async () => {
     const api = memoryApi();
     setup({ api });

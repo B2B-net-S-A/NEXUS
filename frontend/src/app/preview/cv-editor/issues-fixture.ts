@@ -165,6 +165,25 @@ function checksFor(html: string, confirmed: ReadonlySet<string>, boldExpected: b
         ? [{ key: "spelling|github|cv", term: MISSPELLED, fix: "spelling", detail: "„Github” → „GitHub”" }]
         : [],
     ),
+    // D2 (17.10.2026): luki kandydata — informacja QC, nie pozycja do poprawy.
+    {
+      ...check("must_in_cv", "Pozostałe wymagania klienta są w CV", "warning", []),
+      summary: "3/5",
+      info: [
+        {
+          key: "must_in_cv|terraform|cv",
+          requirement: "Terraform",
+          fix: "ask_candidate",
+          detail: "Luka kandydata — nie ma tego w CV, w oryginale ani w rozmowie. Do rozmowy, nie do poprawy w CV.",
+        },
+        {
+          key: "must_in_cv|ansible|cv",
+          requirement: "Ansible",
+          fix: "ask_candidate",
+          detail: "Luka kandydata — nie ma tego w CV, w oryginale ani w rozmowie. Do rozmowy, nie do poprawy w CV.",
+        },
+      ],
+    },
     check("dates", "Daty w rolach", "warning", []),
     check("role_order", "Stanowiska od najnowszego", "warning", roleOrderItems(html)),
     check("client_rules", "Reguły klienta", "blocking", []),

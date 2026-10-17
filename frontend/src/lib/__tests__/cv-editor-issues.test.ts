@@ -489,6 +489,30 @@ describe("jedna lista „Do poprawy” (PR 4, 13.10.2026)", () => {
     expect(list.total).toBe(2);
   });
 
+  it("luki kandydata (D2) z informacji QC — poza listą i licznikiem", () => {
+    const editor = open();
+    const list = buildIssueList({
+      doc: editor.state.doc,
+      checks: [
+        check({
+          key: "must_in_cv",
+          status: "pass",
+          items: [],
+          info: [
+            { requirement: "Terraform", detail: "Luka kandydata — …", fix: "ask_candidate" },
+            { requirement: "Doświadczenie w sektorze publicznym", detail: "Wymaganie opisowe — …", fix: null },
+          ],
+        }),
+      ],
+      warnings: [],
+      findings: [],
+    });
+    expect(list.gaps.map((item) => item.requirement)).toEqual(["Terraform"]);
+    expect(list.total).toBe(0);
+    // Nie „W porządku”: wymagania nie są w CV — kandydat ich nie ma.
+    expect(list.passed.map((c) => c.key)).not.toContain("must_in_cv");
+  });
+
   it("„MUST-HAVE: X” od generatora nie dubluje pozycji QC o X — zostaje w „covered”", () => {
     const editor = open();
     const list = buildIssueList({

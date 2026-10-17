@@ -83,6 +83,7 @@ import {
   type QcFix,
   type QcFixAction,
   type QcFixesResponse,
+  type QcItem,
   type QcResult,
   type QcTransformSkipped,
 } from "@/lib/api/cvQc";
@@ -268,6 +269,24 @@ function GeneratorWarnings({ warnings, dismiss }: { warnings: readonly string[];
 }
 
 /** Informacje generatora — co zrobił i dlaczego; zwinięte, nie liczą się. */
+/**
+ * Luki kandydata (D2, 17.10.2026): wymagania, których nie ma w CV, oryginale
+ * ani rozmowie. Jedna linia zamiast pozycji „do poprawy” — w CV nie ma czego
+ * poprawić, to pytanie do rozmowy z kandydatem.
+ */
+function CandidateGaps({ items }: { items: readonly QcItem[] }) {
+  const names = [...new Set(items.map((item) => (item.requirement ?? "").trim()).filter(Boolean))];
+  if (names.length === 0) return null;
+  const head = names.slice(0, 3).join(", ");
+  const rest = names.length > 3 ? ` i ${countForm(names.length - 3, ["inne", "inne", "innych"])}` : "";
+  return (
+    <p className="text-xs text-muted-foreground [overflow-wrap:anywhere]">
+      <span className="font-semibold text-foreground">Luki kandydata ({names.length}):</span> {head}
+      {rest} — nie ma tego w CV, w oryginale ani w rozmowie. Do rozmowy, nie do poprawy w CV.
+    </p>
+  );
+}
+
 function GeneratorInfo({ items }: { items: readonly ClassifiedCvWarning[] }) {
   const listId = useId();
   const [open, setOpen] = useState(false);
@@ -722,6 +741,7 @@ export function CvEditorIssues({
     goneFindings > 0 ||
     list.covered.length > 0 ||
     list.info.length > 0 ||
+    list.gaps.length > 0 ||
     (ctx != null && (list.muted.length > 0 || (qc?.confirmations?.length ?? 0) > 0));
   const fixesState: RowContext["fixesState"] =
     fixesQuery.isError || fixes?.status === "unavailable" ? "failed" : hasAiGaps && !fixes ? "loading" : "ready";
@@ -995,6 +1015,7 @@ export function CvEditorIssues({
                 przy pozycji QC o tym samym wymaganiu.
               </p>
             ) : null}
+            <CandidateGaps items={list.gaps} />
             {ctx ? <MutedChecks checks={list.muted} ctx={ctx} /> : null}
             <GeneratorInfo items={list.info} />
             {ctx ? <Confirmations items={qc?.confirmations ?? []} /> : null}

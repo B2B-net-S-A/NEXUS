@@ -278,6 +278,12 @@ export interface IssueList {
   info: ClassifiedCvWarning[];
   /** Uwagi generatora „MUST-HAVE: X” schowane, bo QC ma pozycję X. */
   covered: ClassifiedCvWarning[];
+  /**
+   * Luki kandydata (D2, 17.10.2026): must-have, którego nie ma w CV, oryginale
+   * ani rozmowie — informacja QC (`must_in_cv.info`, `fix: ask_candidate`),
+   * do rozmowy, nie do poprawy w CV. Nie liczy się.
+   */
+  gaps: QcItem[];
   passed: QcCheck[];
   skipped: QcCheck[];
   /** Ile rzeczy do sprawdzenia (grupy sekcji + „Zapytaj kandydata”) — licznik w pasku i na karcie. */
@@ -419,13 +425,19 @@ export function buildIssueList({ doc, checks, warnings, findings }: IssueListInp
         .map((item) => item.entry),
     }));
 
+  const gaps = checks
+    .filter((check) => check.key === "must_in_cv")
+    .flatMap((check) => (check.info ?? []).filter((item) => item.fix === "ask_candidate"));
+
   return {
     sections,
     ask,
     muted: split.muted,
     info: classified.info,
     covered,
-    passed: split.passed,
+    gaps,
+    // „Pozostałe wymagania są w CV” obok luk kandydata czytałoby się jak sprzeczność.
+    passed: gaps.length > 0 ? split.passed.filter((check) => check.key !== "must_in_cv") : split.passed,
     skipped: split.skipped,
     total: placed.filter((item) => !isSoftEntry(item.entry)).length + ask.length,
   };

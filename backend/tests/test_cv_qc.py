@@ -785,6 +785,45 @@ def test_requirement_in_another_language_or_form_is_in_the_cv() -> None:
     assert "bankowości" not in {i["requirement"] for i in must["items"]}
 
 
+def test_must_absent_everywhere_is_a_candidate_gap_not_a_cv_fix() -> None:
+    """D2 (17.10.2026): brak w CV, oryginale i rozmowie to luka kandydata —
+    informacja, nie uwaga do poprawy (pomiar: 80% pozycji `must_in_cv`)."""
+    data = _qc_input(BRANDED_HTML, must=_reqs("Java", "Terraform", "Kubernetes"))
+    checks = qc.compute_checks(data)
+    must = _by_key(checks)["must_in_cv"]
+    # Kubernetes jest w oryginale — dalej uwaga z poprawką AI.
+    assert [(i["requirement"], i["fix"]) for i in must["items"]] == [
+        ("Kubernetes", "ai")
+    ]
+    gaps = [i for i in must["info"] if i["fix"] == "ask_candidate"]
+    assert [i["requirement"] for i in gaps] == ["Terraform"]
+    assert gaps[0]["detail"].startswith("Luka kandydata")
+    assert must["summary"] == "1/3"
+
+    # Same luki: sprawdzenie nie ma uwag, a licznik uwag ich nie liczy.
+    only_gaps = qc.compute_checks(
+        _qc_input(BRANDED_HTML, must=_reqs("Java", "Terraform"))
+    )
+    must = _by_key(only_gaps)["must_in_cv"]
+    assert must["status"] == "pass" and must["items"] == []
+    assert [i["requirement"] for i in must["info"]] == ["Terraform"]
+    without = [c for c in only_gaps if c["key"] != "must_in_cv"]
+    assert qc.summarize(only_gaps)[2] == qc.summarize(without)[2]
+
+
+def test_must_mentioned_in_the_talk_stays_a_fix() -> None:
+    data = _qc_input(
+        BRANDED_HTML,
+        must=_reqs("Java", "Terraform"),
+        notes_text="Kandydat pracował z Terraform przy migracji.",
+    )
+    must = _by_key(qc.compute_checks(data))["must_in_cv"]
+    assert [(i["requirement"], i["fix"]) for i in must["items"]] == [
+        ("Terraform", None)
+    ]
+    assert must["info"] == []
+
+
 def test_answers_text_keeps_answers_without_questions_and_denials() -> None:
     stage = SimpleNamespace(
         screening_answers={

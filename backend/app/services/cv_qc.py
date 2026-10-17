@@ -1441,10 +1441,12 @@ def compute_checks(data: QcInput) -> list[dict]:
             )
         )
 
-    # 2. Pozostałe must-have w CV. Brak, którego nie ma też w oryginale
-    # ani w rozmowie, to pytanie do kandydata; wymaganie opisowe (zdanie,
-    # nie nazwa) bez trafienia to informacja — tego nie da się znaleźć
-    # dopasowaniem słów.
+    # 2. Pozostałe must-have w CV. Wymaganie opisowe (zdanie, nie nazwa) bez
+    # trafienia to informacja — tego nie da się znaleźć dopasowaniem słów.
+    # Brak, którego nie ma też w oryginale ani w rozmowie, to luka kandydata,
+    # nie błąd CV: w CV nie ma czego poprawić (D2, 17.10.2026 — pomiar: 80%
+    # pozycji tego sprawdzenia). Idzie do informacji z `fix: ask_candidate`,
+    # poza uwagi do poprawy; panel edytora zbiera je w „Luki kandydata”.
     missing: list[dict] = []
     missing_info: list[dict] = []
     for req in rest:
@@ -1452,11 +1454,18 @@ def compute_checks(data: QcInput) -> list[dict]:
             continue
         in_original = dz.found_in(original, req) is not None
         in_talk = dz.found_in("\n".join((notes, answers)), req) is not None
-        if not in_original and not in_talk and word_count(req.label) >= 4:
+        if not in_original and not in_talk:
+            descriptive = word_count(req.label) >= 4
             missing_info.append(
                 _item(
                     requirement=req.label,
-                    detail="Wymaganie opisowe — sprawdź ręcznie, czy CV je pokazuje.",
+                    detail=(
+                        "Wymaganie opisowe — sprawdź ręcznie, czy CV je pokazuje."
+                        if descriptive
+                        else "Luka kandydata — nie ma tego w CV, w oryginale ani "
+                        "w rozmowie. Do rozmowy, nie do poprawy w CV."
+                    ),
+                    fix=None if descriptive else "ask_candidate",
                 )
             )
             continue
@@ -1468,10 +1477,8 @@ def compute_checks(data: QcInput) -> list[dict]:
                         "Brak w CV — w oryginale jest, dopisz w roli."
                         if in_original
                         else "Brak w CV — kandydat mówił o tym w rozmowie, dopisz."
-                        if in_talk
-                        else "Brak w CV, w oryginale i w rozmowie — zapytaj kandydata."
                     ),
-                    fix="ai" if in_original else None if in_talk else "ask_candidate",
+                    fix="ai" if in_original else None,
                 ),
                 "searched": searched(req),
             }
