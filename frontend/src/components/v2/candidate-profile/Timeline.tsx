@@ -34,6 +34,7 @@ import {
 } from "@/components/v2/pages/candidate-timeline-labels";
 import { JobNameLabel } from "@/components/v2/jobs/JobNameLabel";
 import { candidateJobNames, jobNameText } from "@/lib/job-name-text";
+import { candidateBoardHref } from "./profile-helpers";
 import { unwrapNoteContent } from "./profile-shared";
 
 /* eslint-disable @typescript-eslint/no-explicit-any -- payload osi czasu jest luźno typowany (import Traffit + kilka źródeł) */
@@ -291,7 +292,15 @@ function TimelineHeadline({
   );
 }
 
-function TimelineCard({ item, fromStage }: { item: any; fromStage?: string }) {
+function TimelineCard({
+  item,
+  fromStage,
+  candidateId,
+}: {
+  item: any;
+  fromStage?: string;
+  candidateId?: number;
+}) {
   const actor = timelineActor(item);
   const useAvatar =
     !!actor && (item.type === "stage_change" || item.type === "note");
@@ -340,7 +349,13 @@ function TimelineCard({ item, fromStage }: { item: any; fromStage?: string }) {
         {item.job_title && (
           <JobNameLabel
             job={candidateJobNames(item)}
+            href={
+              candidateId != null && typeof item.job_id === "number"
+                ? candidateBoardHref(item.job_id, candidateId)
+                : undefined
+            }
             className="mt-1 text-xs text-muted-foreground"
+            titleClassName="hover:text-primary"
           />
         )}
 
@@ -483,7 +498,8 @@ function TimelineDownloadRun({ items }: { items: any[] }) {
   );
 }
 
-export function TimelineTab({ items }: { items: any[] }) {
+/** `candidateId` — nazwa rekrutacji wpisu prowadzi na jej Tablicę z otwartą osobą. */
+export function TimelineTab({ items, candidateId }: { items: any[]; candidateId?: number }) {
   const { groups, fromMap } = useMemo(() => {
     const list = Array.isArray(items) ? items : [];
     const stageFrom = buildStageFromMap(list);
@@ -529,6 +545,7 @@ export function TimelineTab({ items }: { items: any[] }) {
               <TimelineCard
                 key={`${row.item.type}-${row.item.id}-${i}`}
                 item={row.item}
+                candidateId={candidateId}
                 fromStage={
                   row.item.type === "stage_change" && row.item.id != null
                     ? fromMap.get(row.item.id)

@@ -4,13 +4,17 @@
  * Zakładka „Rekrutacje” (13.10.2026, E3 + D5):
  *
  * 1. „W toku · N” — zwarta tabela: rekrutacja z klientem, etap, kto ma ruch,
- *    dni bez ruchu, stawki; na górze proces najdłużej bez ruchu. Klik w wiersz
- *    rozwija kartę procesu (stawki, CV dla klienta, ścieżka etapów), zwiniętą
- *    „Ocenę dopasowania” tej rekrutacji i feedback po jej rozmowach. „⋯”
- *    wiersza: Tablica i „Usuń z rekrutacji”; akcje CV zostają w karcie, więc
- *    zwinięty wiersz nie pyta serwera o CV.
- * 2. „Zakończone · N” — otwarte, 5 ostatnich + „Pokaż wszystkie”; klik
- *    rozwija ścieżkę etapów, CV oryginalne, ocenę dopasowania i feedback.
+ *    dni bez ruchu, stawki; na górze proces najdłużej bez ruchu. Klik w nazwę
+ *    rekrutacji otwiera jej Tablicę z panelem tej osoby (17.10.2026 — wcześniej
+ *    nazwa tylko rozwijała wiersz i rekruterzy szukali rekrutacji po numerze
+ *    w wyszukiwarce). Strzałka i reszta wiersza rozwijają kartę procesu
+ *    (stawki, CV dla klienta, ścieżka etapów), zwiniętą „Ocenę dopasowania”
+ *    tej rekrutacji i feedback po jej rozmowach. „⋯” wiersza: Tablica
+ *    i „Usuń z rekrutacji”; akcje CV zostają w karcie, więc zwinięty wiersz nie
+ *    pyta serwera o CV.
+ * 2. „Zakończone · N” — otwarte, 5 ostatnich + „Pokaż wszystkie”; nazwa
+ *    prowadzi na Tablicę, strzałka i wiersz rozwijają ścieżkę etapów,
+ *    CV oryginalne, ocenę dopasowania i feedback.
  * 3. Feedback po rozmowach bez rekrutacji (albo z rekrutacji spoza listy).
  * 4. „Pasujące rekrutacje” — zwinięte; rekomendacje pobierają się dopiero
  *    po „Pokaż”, a nie przy każdym wejściu w zakładkę.
@@ -101,7 +105,7 @@ import {
 import { cn, formatDate } from "@/lib/utils";
 import { JobNameLabel } from "@/components/v2/jobs/JobNameLabel";
 import { candidateJobNames, jobNameText } from "@/lib/job-name-text";
-import { splitRecruitments } from "./profile-helpers";
+import { candidateBoardHref, splitRecruitments } from "./profile-helpers";
 import { SectionError, SectionLoading, formatRate } from "./profile-shared";
 
 /* eslint-disable @typescript-eslint/no-explicit-any -- odpowiedź /history jest luźno typowana */
@@ -455,6 +459,37 @@ function useRecruitmentRows(
   };
 }
 
+/**
+ * Strzałka rozwijająca wiersz. Nazwa rekrutacji obok jest linkiem do Tablicy,
+ * więc przycisk ma własną nazwę; ujemny margines powiększa pole kliknięcia
+ * bez przesuwania układu.
+ */
+function RowToggle({
+  open,
+  onToggle,
+  controls,
+  title,
+}: {
+  open: boolean;
+  onToggle: () => void;
+  controls: string;
+  title: string;
+}) {
+  const Icon = open ? ChevronUp : ChevronDown;
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      aria-expanded={open}
+      aria-controls={controls}
+      aria-label={`Szczegóły: ${title}`}
+      className="-m-1 shrink-0 rounded p-1 text-muted-foreground hover:text-primary"
+    >
+      <Icon aria-hidden="true" className="mt-0.5 h-3.5 w-3.5" />
+    </button>
+  );
+}
+
 /** Klik w wiersz rozwija go — poza przyciskami, linkami i oknami z portalu. */
 function isNestedControlClick(event: MouseEvent<HTMLElement>): boolean {
   const target = event.target;
@@ -620,31 +655,23 @@ function ActiveRecruitmentRow({
         }}
       >
         <td className="sticky left-0 z-10 bg-card px-3 py-1.5 group-hover:bg-accent">
-          <button
-            type="button"
-            id={`candidate-recruitment-${jobId}-title`}
-            onClick={onToggle}
-            aria-expanded={open}
-            aria-controls={detailsId}
-            className="flex min-h-9 items-start gap-1.5 text-left"
-          >
-            {open ? (
-              <ChevronUp aria-hidden="true" className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-            ) : (
-              <ChevronDown aria-hidden="true" className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-            )}
+          {/* Nazwa prowadzi na Tablicę z otwartą osobą (17.10.2026); strzałka
+              i reszta wiersza rozwijają szczegóły. */}
+          <div className="flex min-h-9 items-start gap-1.5">
+            <RowToggle open={open} onToggle={onToggle} controls={detailsId} title={title} />
             <span className="min-w-0">
               <JobNameLabel
                 job={names}
-                copyable={false}
+                href={candidateBoardHref(jobId, candidateId)}
+                titleId={`candidate-recruitment-${jobId}-title`}
                 wrap
-                className="font-medium text-foreground group-hover:text-primary"
+                titleClassName="font-medium text-foreground hover:text-primary"
               />
               {job.client_name ? (
                 <span className="block text-xs text-muted-foreground">{job.client_name}</span>
               ) : null}
             </span>
-          </button>
+          </div>
         </td>
         <td className="px-3 py-1.5">
           <Badge size="sm" variant="neutral">
@@ -697,7 +724,7 @@ function ActiveRecruitmentRow({
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-56">
               <DropdownMenuItem asChild className="min-h-11">
-                <Link href={`/jobs/${jobId}?candidate=${candidateId}`}>
+                <Link href={candidateBoardHref(jobId, candidateId)}>
                   <Kanban className="h-4 w-4" />
                   Tablica
                 </Link>
@@ -1004,24 +1031,31 @@ function ClosedRecruitmentRow({
   jobTitles: ReadonlyMap<number, string>;
 }) {
   const detailsId = `candidate-closed-recruitment-${jobId}-details`;
+  const names = candidateJobNames({ ...job, job_id: jobId });
   return (
     <>
-      <tr className="border-t border-border hover:bg-muted/30">
+      <tr
+        className="cursor-pointer border-t border-border hover:bg-muted/30"
+        onClick={(event) => {
+          if (isNestedControlClick(event)) return;
+          onToggle();
+        }}
+      >
         <td className="px-3 py-2">
-          <button
-            type="button"
-            onClick={onToggle}
-            aria-expanded={open}
-            aria-controls={detailsId}
-            className="flex min-h-9 items-center gap-1.5 text-left font-medium text-foreground hover:text-primary"
-          >
-            {open ? (
-              <ChevronUp aria-hidden="true" className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-            ) : (
-              <ChevronDown aria-hidden="true" className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-            )}
-            <JobNameLabel job={candidateJobNames({ ...job, job_id: jobId })} copyable={false} wrap />
-          </button>
+          <div className="flex min-h-9 items-center gap-1.5">
+            <RowToggle
+              open={open}
+              onToggle={onToggle}
+              controls={detailsId}
+              title={jobNameText(names)}
+            />
+            <JobNameLabel
+              job={names}
+              href={candidateBoardHref(jobId, candidateId)}
+              wrap
+              titleClassName="font-medium text-foreground hover:text-primary"
+            />
+          </div>
         </td>
         <td className="px-3 py-2 text-muted-foreground">{job.client_name ?? "—"}</td>
         <td className="px-3 py-2 text-muted-foreground">
@@ -1433,7 +1467,7 @@ function RecruitmentCard({
           <>
             <JobNameLabel
               job={candidateJobNames({ ...job, job_id: jobId })}
-              href={`/jobs/${jobId}`}
+              href={candidateBoardHref(jobId, candidateId)}
               titleId={recruitmentTitleId}
               wrap
               titleClassName="font-medium text-foreground"

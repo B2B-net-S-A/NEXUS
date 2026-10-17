@@ -341,8 +341,15 @@
    "id": "r.board",
    "opis": "Link do Tablicy z otwartą osobą",
    "file": "components/v2/candidate-profile/RecruitmentsTab.tsx",
-   "marker": "?candidate=${candidateId}",
+   "marker": "<Link href={candidateBoardHref(jobId, candidateId)}>",
    "home": "Rekrutacje → wiersz → „⋯”"
+  },
+  {
+   "id": "r.name_to_board",
+   "opis": "Klik w nazwę rekrutacji otwiera jej Tablicę z panelem osoby",
+   "file": "components/v2/candidate-profile/RecruitmentsTab.tsx",
+   "marker": "href={candidateBoardHref(jobId, candidateId)}",
+   "home": "Rekrutacje → nazwa w wierszu (W toku, Zakończone)"
   },
   {
    "id": "r.path",
