@@ -290,6 +290,10 @@ export function UserModal({ initial, onClose, onSave, loading, error }: UserModa
           ...rawInitialRoles.filter((role) => !isExclusiveRole(role)),
         ]),
       );
+  // Praktykanci ukryci 17.10.2026 (decyzja Artura) — roli nie da się nadać,
+  // ale konto, które już ją ma, dalej ją widzi zamiast pustego wyboru.
+  const offersRole = (role: string) =>
+    role !== "trainee" || initialRoles.includes("trainee");
   const [form, setForm] = useState<UserFormData>({
     name: initial?.name ?? "",
     email: initial?.email ?? "",
@@ -411,7 +415,7 @@ export function UserModal({ initial, onClose, onSave, loading, error }: UserModa
               onChange={(e) => setPrimaryRole(e.target.value)}
               className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:outline-hidden focus:ring-2 focus-visible:ring-ring"
             >
-              {ROLES.filter((r) => r !== "user").map((r) => (
+              {ROLES.filter((r) => r !== "user" && offersRole(r)).map((r) => (
                 <option key={r} value={r}>{ROLE_LABELS[r] ?? r}</option>
               ))}
             </select>
@@ -423,7 +427,7 @@ export function UserModal({ initial, onClose, onSave, loading, error }: UserModa
           <div>
             <label className="block text-sm font-medium text-foreground mb-1">Dodatkowe role</label>
             <div className="space-y-1.5 border border-border rounded-lg px-3 py-2 max-h-44 overflow-y-auto">
-              {ROLES.filter((r) => r !== "user" || r === form.role).map((r) => {
+              {ROLES.filter((r) => (r !== "user" || r === form.role) && offersRole(r)).map((r) => {
                 const isPrimary = r === form.role;
                 const checked = form.roles.includes(r);
                 const primaryIsExclusive = isExclusiveRole(form.role);
@@ -454,7 +458,7 @@ export function UserModal({ initial, onClose, onSave, loading, error }: UserModa
             </div>
             <p className="text-xs text-muted-foreground mt-1">
               Osobom z kilkoma rolami (np. DL + Rekruter) zaznacz obie. Rola podstawowa
-              jest zawsze wybrana. Finanse, Praktykant i Viewer (legacy) są rolami
+              jest zawsze wybrana. Finanse i Viewer (legacy) są rolami
               wyłącznymi i nie mogą być łączone z innymi; Viewer nie jest
               dostępny jako rola dodatkowa.
             </p>

@@ -1,5 +1,13 @@
 # Akademia — nabór do programów szkoleniowych (0369, 24.09.2026)
 
+**Ukryta z UI od 17.10.2026 (decyzja Artura: na razie z programu nie
+korzystamy).** Pozycja „Akademia” w `lib/nav-registry.ts` ma `inSidebar: false`
+i `inPalette: false` — nie ma jej w menu „Więcej” ani w palecie ⌘K. Strona
+`/academy`, trasy `/api/academy/*` i pętla `academy_intake` zostały bez zmian,
+więc adres dalej się otwiera. Przywrócenie = zdjęcie obu flag i powrót
+oczekiwań w `nav-registry.test.ts` (sekcja „Akademia i Praktykanci zdjęci
+z nawigacji”), `capabilities.test.ts` i `SidebarV2.test.ts`.
+
 `/academy` (menu „Więcej” → Codzienna praca): ogłoszenia → sortowanie Luny →
 dwuminutowy telefon z zapisem na termin w biurze → spotkanie → zadanie →
 dokumenty i umowa → edycja (program do 10 dni roboczych). Decyzje Artura
