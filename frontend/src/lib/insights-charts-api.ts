@@ -105,6 +105,12 @@ export interface PlacementAnalysisTotals {
   unattributed_placements: number;
   /** Placementy pary, której oferta zniknęła z bazy. */
   placements_without_job: number;
+  /**
+   * Suma donutu klientów — pary Tablicy. Różni się od `placements` w dniach
+   * 1.01–11.10.2026, gdy placementy liczy DynaReporter (nie zapisywał klienta).
+   * Opcjonalne: karta otwarta przed wdrożeniem dostaje stary kształt.
+   */
+  client_placements?: number;
   /** Placementy kont administracyjnych — jeden wycinek donuta, nie osoba. */
   outside_scope_placements?: number;
 }

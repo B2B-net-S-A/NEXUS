@@ -113,9 +113,6 @@ YEARLY_CONVERSIONS: list[dict] = [
 # dwie liczby o tym samym pod jednym nagłówkiem.
 UNATTRIBUTED_LABEL = "(nieprzypisane)"
 NO_CLIENT_LABEL = "(bez klienta)"
-# Placementy 1.01–11.10.2026 z tygodniowych wpisów DynaReportera — DynaReporter
-# nie zapisywał klienta, więc to osobny wycinek, nie luka w danych.
-HISTORY_CLIENT_LABEL = "DynaReporter — bez klienta (do 11.10.2026)"
 
 # Nazwa miesiąca na oś X. `strftime("%b")` zależy od locale kontenera, więc
 # etykieta z serwera byłaby raz polska, raz angielska, w zależności od obrazu.
@@ -322,8 +319,9 @@ async def insights_placement_analysis(
     resolved = _resolve(period, offset, anchor, date_from, date_to)
 
     # v2 (24.09.2026): konta administracyjne jednym wycinkiem.
-    # v3 (17.10.2026): dni 1.01–11.10.2026 z DynaReportera.
-    cache_key = f"insights:charts:placements:v3:{resolved.cache_suffix}"
+    # v4 (17.10.2026): osoby i suma z widoku KPI (dni 1.01–11.10.2026
+    # z DynaReportera), klienci z par Tablicy z własną sumą.
+    cache_key = f"insights:charts:placements:v4:{resolved.cache_suffix}"
     async with cache_single_flight(cache_key, db=db):
         cached = await cache_get(cache_key)
         if cached is not None:
@@ -367,15 +365,14 @@ async def insights_placement_analysis(
                         SELECT c.id AS client_id,
                                c.name AS client_name,
                                (j.id IS NULL) AS job_missing,
-                               (fm.source = 'dynareporter') AS from_history,
                                count(*) AS cnt
-                        FROM analytics_kpi_milestones fm
+                        FROM analytics_first_milestones fm
                         LEFT JOIN jobs j ON j.id = fm.job_id
                         LEFT JOIN clients c ON c.id = j.client_id
                         WHERE fm.stage = 'hired'
                           AND fm.first_reached_at >= :start
                           AND fm.first_reached_at < :end
-                        GROUP BY 1, 2, 3, 4
+                        GROUP BY 1, 2, 3
                         ORDER BY count(*) DESC, 2 NULLS LAST
                         """
                     ),
@@ -434,13 +431,14 @@ async def insights_placement_analysis(
         # Klient bez wiersza w `clients` i placement bez oferty lądują w tym samym
         # koszyku „(bez klienta)" — z osobnym licznikiem `placements_without_job`,
         # żeby dało się odróżnić lukę w danych od oferty bez przypisanego klienta.
+        # Klienci z par Tablicy (`analytics_first_milestones`): w dniach
+        # 1.01–11.10.2026 „Suma placementów” liczy wpisy DynaReportera, który
+        # nie zapisywał klienta — donut klientów ma więc własną sumę
+        # (`client_placements`), jak „Rok do roku” (17.10.2026).
+        client_total = sum(int(r["cnt"]) for r in client_rows)
         by_client_acc: dict[int | None, dict] = {}
         placements_without_job = 0
-        placements_from_history = 0
         for r in client_rows:
-            if r["from_history"]:
-                placements_from_history += int(r["cnt"])
-                continue
             if r["job_missing"]:
                 placements_without_job += int(r["cnt"])
             key = r["client_id"]
@@ -458,24 +456,13 @@ async def insights_placement_analysis(
             (
                 {
                     **entry,
-                    "share_pct": _ratio(entry["placements"], total),
+                    "share_pct": _ratio(entry["placements"], client_total),
                     "attributed": entry["client_id"] is not None,
                 }
                 for entry in by_client_acc.values()
             ),
             key=lambda e: (-e["placements"], e["name"]),
         )
-        if placements_from_history:
-            by_client.append(
-                {
-                    "client_id": None,
-                    "name": HISTORY_CLIENT_LABEL,
-                    "placements": placements_from_history,
-                    "share_pct": _ratio(placements_from_history, total),
-                    "attributed": False,
-                }
-            )
-            by_client.sort(key=lambda e: (-e["placements"], e["name"]))
 
         result = {
             "period": resolved.as_payload(),
@@ -494,7 +481,9 @@ async def insights_placement_analysis(
                 # Placementy kont administracyjnych — w donucie jednym wycinkiem.
                 "outside_scope_placements": outside_placements,
                 "placements_without_job": placements_without_job,
-                "placements_from_dynareporter": placements_from_history,
+                # Suma donutu klientów (pary Tablicy). Różni się od
+                # `placements` tylko w dniach z DynaReportera.
+                "client_placements": client_total,
             },
             "by_person": by_person,
             "by_client": by_client,
