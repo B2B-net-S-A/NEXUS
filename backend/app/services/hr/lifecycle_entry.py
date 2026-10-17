@@ -9,12 +9,17 @@ Konsultant nie ma konta w NEXUSIE, więc sprawa wejścia wisi na kontrakcie
   i studenta; zestaw i wydanie sprzętu są tutaj (klucze ``equipment_kit``,
   ``equipment_issue``), a opis zestawu bierze rzeczy „od nas” z pakietu,
 * **pakiet klienta** (``client_pack.pack_tasks``) — dokumenty od konsultanta,
-  dostępy, odbiór rzeczy od klienta; awaria pakietu nie blokuje wejścia
-  (lista powstaje bez niego, a karta „Z czego to powstało” to mówi),
+  dostępy, odbiór rzeczy od klienta; zadanie pakietu ma klucz ``pack:…``
+  (ta sama pozycja = ten sam klucz). Awaria pakietu nie blokuje wejścia: lista
+  powstaje bez niego, sprawa pamięta to w ``profile_values['pack_failed']``,
+  karta „Z czego to powstało” to mówi, a kolejny przegląd dokłada brakujące
+  pozycje i czyści znacznik,
 * **forma współpracy** — pozycje ścieżki z warunkiem formy mają źródło „forma”.
 
 Zakłada je hak startu kontraktu (``contract_hooks``) albo przegląd nadchodzących
-startów; zmiana daty startu przelicza terminy otwartych zadań. Jedna lista
+startów (``LOOKAHEAD_DAYS`` przed startem — wcześniej zakładka mówi, kiedy lista
+powstanie sama, i pozwala założyć ją od razu); zmiana daty startu przelicza
+terminy otwartych zadań. Jedna lista
 zamiast trzech (O1): sprawa administracja@ powstaje dalej, ale jej checklista to
 zadania „Administracja” tej listy (``admin_cases.hooks``), a zestaw sprzętu to
 zadanie recepcji z haka Sprzętu (lustro w ``task_mirrors``). Stare pozycje
@@ -28,8 +33,9 @@ klienta; bez DL — opiekun), pule Kadr, recepcji, IT i administracji. Zadania
 
 from __future__ import annotations
 
+import hashlib
 import logging
-from datetime import date
+from datetime import date, timedelta
 from typing import Any, Optional
 
 from sqlalchemy import delete, select
@@ -47,6 +53,7 @@ from app.models.team_structure import DeliveryLeadClientAssignment
 from app.models.user import User, UserRole
 from app.services.hr import audit
 from app.services.hr.calendar import load_calendar
+from app.services.hr.contract_hooks import LOOKAHEAD_DAYS
 from app.services.hr.employment_terms import FORM_SHORT_LABELS
 from app.services.hr.lifecycle_dates import calendar_window, shift_working_days
 from app.services.hr.lifecycle_planning import (
@@ -79,9 +86,15 @@ _FORM_OF_CONTRACT: dict[str, str] = {
 _EQUIPMENT_OF_PROVIDER: dict[str, str] = {"nasz": "ours", "klienta": "client"}
 #: Zadania pakietu idą za pozycjami ścieżki (lista i tak sortuje się po terminie).
 _PACK_POSITION = 100
+#: Klucz zadania z pakietu klienta (``pack:<skrót pozycji>``).
+PACK_KEY_PREFIX = "pack:"
+#: ``profile_values`` sprawy: pakiet nie wczytał się przy zakładaniu.
+PACK_FAILED = "pack_failed"
 
 #: Dlaczego zakładka „Wejście” nie ma listy.
 REASON_PAST_START = "past_start"
+#: Start dalej niż ``LOOKAHEAD_DAYS`` — lista powstanie sama, można wcześniej.
+REASON_NOT_YET = "not_yet"
 REASON_NO_START = "no_start"
 REASON_CLOSED = "closed"
 REASON_NO_PATH = "no_path"
@@ -313,18 +326,44 @@ def _clamp(offset: int) -> int:
     return max(-MAX_OFFSET_BEFORE, min(MAX_OFFSET_AFTER, int(offset)))
 
 
+def pack_keys(pack: list[Any]) -> list[str]:
+    """Klucze zadań pakietu: ta sama pozycja (kategoria i tytuł) → ten sam klucz.
+
+    Dokładanie po awarii pakietu i scalenie duplikatów porównują zadania po
+    kluczu; dwie pozycje o tym samym tytule dostają kolejne numery.
+    """
+
+    seen: dict[str, int] = {}
+    keys: list[str] = []
+    for spec in pack:
+        title = " ".join(str(spec.title).split()).casefold()
+        digest = hashlib.sha256(f"{spec.category}:{title}".encode()).hexdigest()[:20]
+        seen[digest] = seen.get(digest, 0) + 1
+        suffix = f":{seen[digest]}" if seen[digest] > 1 else ""
+        keys.append(f"{PACK_KEY_PREFIX}{digest}{suffix}")
+    return keys
+
+
+def pack_failed(case: LifecycleCase) -> bool:
+    return bool((case.profile_values or {}).get(PACK_FAILED))
+
+
 async def _add_pack_tasks(
     db: AsyncSession,
     case: LifecycleCase,
     pack: list[Any],
     facts: CaseFacts,
+    *,
+    skip_keys: frozenset[str] = frozenset(),
 ) -> list[LifecycleTask]:
     if not pack:
         return []
     start, end = calendar_window(case.start_date)
     calendar = await load_calendar(db, start, end)
     added: list[LifecycleTask] = []
-    for index, spec in enumerate(pack):
+    for index, (spec, key) in enumerate(zip(pack, pack_keys(pack))):
+        if key in skip_keys:
+            continue
         role = spec.assignee if spec.assignee in TASK_ASSIGNEES else "care_owner"
         offset = _clamp(spec.offset_days)
         task = LifecycleTask(
@@ -342,6 +381,7 @@ async def _add_pack_tasks(
             source="client",
             source_label=(facts.client_name or "")[:160] or None,
             due_offset_days=offset,
+            key=key,
         )
         db.add(task)
         added.append(task)
@@ -387,6 +427,108 @@ async def _redate_pack_tasks(db: AsyncSession, case: LifecycleCase) -> None:
         )
 
 
+async def _add_missing_pack_tasks(
+    db: AsyncSession, case: LifecycleCase, contract: Contract
+) -> list[LifecycleTask]:
+    """Pakiet nie wczytał się przy zakładaniu — teraz dokłada brakujące pozycje.
+
+    Idempotentnie po kluczu (``pack:…``): pozycji, którą sprawa już ma, nie
+    dubluje. Udany odczyt czyści znacznik; kolejna awaria go zostawia.
+    """
+
+    if not pack_failed(case):
+        return []
+    pack, pack_ok = await _pack_tasks(db, contract.client_id)
+    if not pack_ok:
+        return []
+    have = frozenset(
+        await db.scalars(
+            select(LifecycleTask.key).where(
+                LifecycleTask.case_id == case.id,
+                LifecycleTask.key.startswith(PACK_KEY_PREFIX),
+            )
+        )
+    )
+    added = await _add_pack_tasks(
+        db, case, pack, await entry_facts(db, contract), skip_keys=have
+    )
+    case.profile_values = {
+        key: value
+        for key, value in (case.profile_values or {}).items()
+        if key != PACK_FAILED
+    }
+    await _describe_kit(db, case, contract.client_id)
+    audit.record(
+        db,
+        actor_user_id=None,
+        subject_user_id=None,
+        entity_type="lifecycle_case",
+        entity_id=case.id,
+        action="consultant_onboarding_pack_added",
+        details={"contract_id": contract.id, "pack_tasks": len(added)},
+    )
+    await db.flush()
+    if added:
+        from app.services.hr.lifecycle_service import notify_assignees  # noqa: PLC0415
+
+        await notify_assignees(db, case, added, actor_id=None)
+    return added
+
+
+async def retry_failed_packs(db: AsyncSession) -> int:
+    """Przegląd: żywe wejścia, którym pakiet nie wczytał się przy zakładaniu.
+
+    Dokłada brakujące pozycje niezależnie od daty startu (także po starcie),
+    żeby zapowiedź z karty „Z czego to powstało” była prawdą. Zwraca liczbę
+    spraw, którym udało się uzupełnić pakiet.
+    """
+
+    if not await _module_on(db):
+        return 0
+    cases = list(
+        await db.scalars(
+            select(LifecycleCase).where(
+                LifecycleCase.audience == "consultant",
+                LifecycleCase.status.in_(LIVE_CASE_STATUSES),
+                LifecycleCase.contract_id.is_not(None),
+                LifecycleCase.profile_values.has_key(PACK_FAILED),
+            )
+        )
+    )
+    repaired = 0
+    for case in cases:
+        contract = await db.get(Contract, case.contract_id)
+        if contract is None:
+            continue
+        await _add_missing_pack_tasks(db, case, contract)
+        if not pack_failed(case):
+            repaired += 1
+    return repaired
+
+
+async def _prepare_kit_task(db: AsyncSession, contract: Contract) -> None:
+    """Zadanie recepcji „Przygotuj zestaw” przed pierwszym dzwonkiem listy.
+
+    Zestaw z listy wejścia to lustro zadania recepcji w Sprzęcie — dzwonek
+    listy go pomija, ale tylko gdy zadanie recepcji już jest. Hak startu
+    zakłada je krokiem po liście, więc bez tego recepcja dostawała zestaw
+    w dzwonku listy i drugi raz w Sprzęcie. To samo wywołanie co krok Sprzętu
+    (idempotentne po ``source_key``); awaria nie blokuje wejścia.
+    """
+
+    if not (await load_modules(db)).get(HrModule.equipment):
+        return
+    from app.services.equipment import tasks as equipment_tasks  # noqa: PLC0415
+
+    try:
+        async with db.begin_nested():
+            await equipment_tasks.tasks_for_contract_start(db, contract)
+    except Exception:  # noqa: BLE001 — Sprzęt nie blokuje wejścia
+        logger.exception(
+            "hr_entry: zadanie zestawu kontraktu %s nie powstało", contract.id
+        )
+
+
 # ── Zakładanie i życie wejścia ───────────────────────────────────────────────
 
 
@@ -418,16 +560,17 @@ async def ensure_contract_entry(
         .with_for_update()
     )
     if existing is not None:
-        if (
-            existing.status in LIVE_CASE_STATUSES
-            and existing.start_date != contract.start_date
-        ):
+        if existing.status not in LIVE_CASE_STATUSES:
+            return None
+        if existing.start_date != contract.start_date:
             await refresh_entry(db, existing, contract)
-        return existing if existing.status in LIVE_CASE_STATUSES else None
+        else:
+            await _add_missing_pack_tasks(db, existing, contract)
+        return existing
     if not force and contract.start_date < business_today():
         return None
     template = await pick_template(db, "onboarding", audience="consultant")
-    pack, _pack_ok = await _pack_tasks(db, contract.client_id)
+    pack, pack_ok = await _pack_tasks(db, contract.client_id)
     if template is None and not pack:
         return None
     facts = await entry_facts(db, contract)
@@ -449,7 +592,7 @@ async def ensure_contract_entry(
             owner_user_id=facts.assignees.get("care_owner")
             if facts.assignees
             else None,
-            profile_values={},
+            profile_values={} if pack_ok else {PACK_FAILED: True},
             started_at=now,
             source_key=entry_source_key(contract.id),
             created_by=actor_id,
@@ -475,9 +618,11 @@ async def ensure_contract_entry(
             "contract_id": contract.id,
             "template_version": case.template_version,
             "pack_tasks": len(pack),
+            "pack_failed": not pack_ok,
         },
     )
     await db.flush()
+    await _prepare_kit_task(db, contract)
     from app.services.hr.lifecycle_service import case_tasks, notify_assignees  # noqa: PLC0415
 
     await notify_assignees(db, case, await case_tasks(db, case.id), actor_id=actor_id)
@@ -494,6 +639,7 @@ async def refresh_entry(
     facts = await entry_facts(db, contract)
     await replan_template_tasks(db, case, facts)
     await _redate_pack_tasks(db, case)
+    await _add_missing_pack_tasks(db, case, contract)
     audit.record(
         db,
         actor_user_id=None,
@@ -565,6 +711,69 @@ async def delete_contract_entry(db: AsyncSession, contract_id: int) -> int:
     return len(ids)
 
 
+async def _carry_progress(
+    db: AsyncSession, source: LifecycleCase, target: LifecycleCase
+) -> int:
+    """Zamknięte zadania anulowanego duplikatu → te same otwarte zadania zachowanej.
+
+    „To samo zadanie” = ta sama pozycja ścieżki (``template_item_id``) albo ten
+    sam klucz (``key``: pakiet klienta, mail powitalny, sprzęt). Przechodzi stan
+    (zrobione / pominięte), data i osoba odhaczenia; notatka, gdy zachowane
+    zadanie jej nie ma. Zadanie bez odpowiednika zostaje w historii duplikatu.
+    """
+
+    rows = list(
+        await db.scalars(
+            select(LifecycleTask)
+            .where(LifecycleTask.case_id.in_([source.id, target.id]))
+            .order_by(LifecycleTask.id)
+            .with_for_update()
+        )
+    )
+    by_item: dict[int, LifecycleTask] = {}
+    by_key: dict[str, LifecycleTask] = {}
+    for task in rows:
+        if task.case_id != target.id or task.status != "open":
+            continue
+        if task.template_item_id is not None:
+            by_item.setdefault(task.template_item_id, task)
+        if task.key:
+            by_key.setdefault(task.key, task)
+    carried = 0
+    for task in rows:
+        if task.case_id != source.id or task.status == "open":
+            continue
+        match = (
+            by_item.get(task.template_item_id)
+            if task.template_item_id is not None
+            else None
+        ) or (by_key.get(task.key) if task.key else None)
+        if match is None or match.status != "open":
+            continue
+        match.status = task.status
+        match.done_at = task.done_at
+        match.done_by = task.done_by
+        if task.note and not match.note:
+            match.note = task.note
+        audit.record(
+            db,
+            actor_user_id=None,
+            subject_user_id=None,
+            entity_type="lifecycle_task",
+            entity_id=match.id,
+            action="task_updated",
+            details={
+                "fields": ["status"],
+                "status": match.status,
+                "source": "contract_merge",
+                "from_task_id": task.id,
+            },
+        )
+        carried += 1
+    await db.flush()
+    return carried
+
+
 async def merge_contract_entries(
     db: AsyncSession, loser_ids: list[int], survivor_id: int
 ) -> dict[str, int]:
@@ -573,12 +782,18 @@ async def merge_contract_entries(
     Żywa sprawa (szkic, w toku) jest jedna na kontrakt — zostaje sprawa
     zachowanego, a bez niej najstarsza z przegranych (dostaje klucz
     zachowanego, jeśli ten go nie ma); pozostałe żywe są anulowane ze śladem
-    w audycie. Zakończone i anulowane przechodzą jako historia. Bez FK, więc
-    scalenie woła to samo, zanim skasuje przegrane kontrakty.
+    w audycie. Postęp anulowanej nie ginie: jej zrobione zadania przechodzą na
+    zachowaną (``_carry_progress``), sprawa administracja@ wskazująca anulowaną
+    wskazuje zachowaną, a zadanie „Mail powitalny” zamyka się, gdy kontrakt ma
+    po scaleniu wysłany mail. Zakończone i anulowane przechodzą jako historia.
+    Bez FK, więc scalenie woła to samo, zanim skasuje przegrane kontrakty
+    (FK maili powitalnych i spraw są już wtedy przepięte).
     """
 
     if not loser_ids:
-        return {"moved": 0, "cancelled": 0}
+        return {"moved": 0, "cancelled": 0, "tasks_carried": 0}
+    from app.services.admin_cases import hooks as case_hooks  # noqa: PLC0415
+
     rows = list(
         await db.scalars(
             select(LifecycleCase)
@@ -596,11 +811,14 @@ async def merge_contract_entries(
     )
     kept: dict[str, LifecycleCase] = {}
     cancelled = 0
+    carried = 0
     now = local_now()
     for case in live:
         if case.kind not in kept:
             kept[case.kind] = case
             continue
+        target = kept[case.kind]
+        carried += await _carry_progress(db, case, target)
         case.status = "cancelled"
         case.cancelled_at = now
         cancelled += 1
@@ -611,8 +829,13 @@ async def merge_contract_entries(
             entity_type="lifecycle_case",
             entity_id=case.id,
             action="consultant_onboarding_cancelled_on_merge",
-            details={"contract_id": case.contract_id, "survivor_id": survivor_id},
+            details={
+                "contract_id": case.contract_id,
+                "survivor_id": survivor_id,
+                "kept_case_id": target.id,
+            },
         )
+        await case_hooks.relink_merged_entry(db, case.id, target)
     survivor_key = entry_source_key(survivor_id)
     key_taken = any(case.source_key == survivor_key for case in rows)
     moved = 0
@@ -625,11 +848,17 @@ async def merge_contract_entries(
             case.source_key = survivor_key
             key_taken = True
     await db.flush()
-    return {"moved": moved, "cancelled": cancelled}
+    entry = kept.get("onboarding")
+    if entry is not None:
+        from app.services.hr import welcome_mail  # noqa: PLC0415
+
+        await welcome_mail.tick_entry_task_if_sent(db, survivor_id)
+        await case_hooks.sync_entry_checklist(db, entry)
+    return {"moved": moved, "cancelled": cancelled, "tasks_carried": carried}
 
 
 async def complete_task_by_key(
-    db: AsyncSession, *, contract_id: int, key: str, actor_id: int
+    db: AsyncSession, *, contract_id: int, key: str, actor_id: Optional[int]
 ) -> bool:
     """Odhacza otwarte zadanie o kluczu ``key`` w wejściu tego kontraktu.
 
@@ -724,22 +953,53 @@ async def composition(db: AsyncSession, contract: Contract) -> dict[str, Any]:
     }
 
 
-def missing_reason(contract: Contract, today: date) -> str:
+async def _has_source(db: AsyncSession, contract: Contract) -> bool:
+    """Czy z czego założyć listę: aktywna ścieżka konsultanta albo pakiet klienta."""
+
+    if await pick_template(db, "onboarding", audience="consultant") is not None:
+        return True
+    pack, _pack_ok = await _pack_tasks(db, contract.client_id)
+    return bool(pack)
+
+
+async def missing_reason(db: AsyncSession, contract: Contract, today: date) -> str:
+    """Dlaczego kontrakt nie ma listy wejścia (zakładka „Wejście”).
+
+    ``no_path`` tylko wtedy, gdy naprawdę nie ma z czego jej założyć — także
+    przy starcie w przeszłości. Start dalej niż ``LOOKAHEAD_DAYS`` to
+    ``not_yet``: przegląd startów założy listę sam (``auto_create_on``).
+    """
+
     if contract.start_date is None:
         return REASON_NO_START
     if _closed(contract):
         return REASON_CLOSED
+    if not await _has_source(db, contract):
+        return REASON_NO_PATH
     if contract.start_date < today:
         return REASON_PAST_START
-    return REASON_NO_PATH
+    return REASON_NOT_YET
+
+
+def auto_create_on(contract: Contract, today: date) -> Optional[date]:
+    """Dzień, od którego przegląd startów sam założy listę (``None`` = już teraz)."""
+
+    if contract.start_date is None:
+        return None
+    day = contract.start_date - timedelta(days=LOOKAHEAD_DAYS)
+    return day if day > today else None
 
 
 __all__ = [
+    "PACK_FAILED",
+    "PACK_KEY_PREFIX",
     "REASON_CLOSED",
     "REASON_MODULE_OFF",
+    "REASON_NOT_YET",
     "REASON_NO_PATH",
     "REASON_NO_START",
     "REASON_PAST_START",
+    "auto_create_on",
     "cancel_contract_entry",
     "complete_task_by_key",
     "composition",
@@ -752,5 +1012,8 @@ __all__ = [
     "latest_contract_entry",
     "merge_contract_entries",
     "missing_reason",
+    "pack_failed",
+    "pack_keys",
     "refresh_entry",
+    "retry_failed_packs",
 ]

@@ -11,6 +11,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { ContractEntryView, LifecycleTask } from "@/lib/api/hr-lifecycle";
 
+import type { EntryView } from "../entry-format";
+
 const mocks = vi.hoisted(() => ({
   get: vi.fn(),
   post: vi.fn(),
@@ -222,6 +224,36 @@ describe("ContractEntryTab", () => {
     await waitFor(() =>
       expect(mocks.post).toHaveBeenCalledWith("/api/hr/lifecycle/contracts/7/entry"),
     );
+  });
+
+  it("start za ponad 14 dni: mówi, kiedy lista powstanie sama, i zakłada ją od razu", async () => {
+    const waiting: EntryView = {
+      ...view({ case: null, can_create: true }),
+      missing_reason: "not_yet",
+      auto_create_on: "2026-10-20",
+    };
+    mocks.get.mockResolvedValue({ data: waiting });
+    mocks.post.mockResolvedValue({ data: view() });
+    renderTab();
+    expect(
+      await screen.findByText(
+        "Lista zadań powstanie sama 14 dni przed startem — 20.10.2026. Możesz założyć ją wcześniej.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/Nie ma aktywnej ścieżki/)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Załóż teraz" }));
+    await waitFor(() =>
+      expect(mocks.post).toHaveBeenCalledWith("/api/hr/lifecycle/contracts/7/entry"),
+    );
+  });
+
+  it("pakiet, który się nie wczytał, karta nazywa wprost zamiast „(0)”", async () => {
+    const broken: EntryView = { ...view(), pack_failed: true };
+    mocks.get.mockResolvedValue({ data: broken });
+    renderTab();
+    expect(await screen.findByText(/Pakiet klienta nie wczytał się/)).toBeInTheDocument();
+    expect(screen.getByText("nie wczytał się")).toBeInTheDocument();
+    expect(screen.queryByText(/Nordline Bank \(\d+\)/)).not.toBeInTheDocument();
   });
 
   it("stare pozycje są pod listą tylko do odczytu", async () => {

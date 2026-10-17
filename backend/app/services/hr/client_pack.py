@@ -22,8 +22,13 @@ to pozycje ścieżki z warunkiem „sprzęt od nas” (klucze ``equipment_kit``,
 ścieżka czyta z ``load_pack(...).equipment_ours``.
 
 Zapis: cała część naraz (lista zastępuje listę), ``version`` rośnie przy
-każdym zapisie, ``expected_version`` chroni przed nadpisaniem cudzej zmiany.
-Kto może zapisać którą część, decyduje trasa (``api/client_onboarding.py``).
+każdym zapisie, ``expected_version`` chroni przed nadpisaniem cudzej zmiany
+(``0`` = osoba zaczęła od pustego pakietu — gdy pakiet już jest, 409). Flaga
+sprzętu żyje na kliencie i zmienia się też poza pakietem (profil klienta,
+Sprzęt), więc wersja pakietu jej nie pilnuje: ``equipment.provider`` przychodzi
+tylko przy zmianie flagi, z ``expected_provider`` — wartością, od której osoba
+zaczęła; inna wartość na kliencie = 409. Kto może zapisać którą część,
+decyduje trasa (``api/client_onboarding.py``).
 """
 
 from __future__ import annotations
@@ -114,6 +119,13 @@ PART_SECTIONS: dict[str, tuple[str, ...]] = {
     "accesses": ("access",),
 }
 _TIME = re.compile(r"^([01]?[0-9]|2[0-3]):([0-5][0-9])$")
+VERSION_CONFLICT = (
+    "Ktoś zmienił pakiet w międzyczasie — odśwież i wprowadź zmiany jeszcze raz."
+)
+PROVIDER_CONFLICT = (
+    "Ktoś zmienił w międzyczasie, kto daje sprzęt konsultantom tego klienta — "
+    "odśwież i wybierz jeszcze raz."
+)
 _LIVE_CONTRACT = (
     ContractStatus.draft,
     ContractStatus.ready_for_signature,
@@ -352,7 +364,8 @@ async def save_pack(
         text("SELECT pg_advisory_xact_lock(hashtext('client_onboarding_pack'), :id)"),
         {"id": client_id},
     )
-    if await registry.client_provider(db, client_id) is None:
+    current_provider = await registry.client_provider(db, client_id)
+    if current_provider is None:
         raise EquipmentNotFound("Nie ma takiego klienta.")
     row = await _pack_row(db, client_id, for_update=True)
     if (
@@ -360,9 +373,17 @@ async def save_pack(
         and row is not None
         and row.version != expected_version
     ):
-        raise EquipmentConflict(
-            "Ktoś zmienił pakiet w międzyczasie — odśwież i wprowadź zmiany jeszcze raz."
-        )
+        raise EquipmentConflict(VERSION_CONFLICT)
+    equipment = changes.get("equipment") or {}
+    provider = equipment.get("provider")
+    expected_provider = equipment.get("expected_provider")
+    if (
+        provider is not None
+        and expected_provider is not None
+        and expected_provider != current_provider
+        and provider != current_provider
+    ):
+        raise EquipmentConflict(PROVIDER_CONFLICT)
     created = row is None
     if row is None:
         row = ClientOnboardingPack(client_id=client_id, version=1)
@@ -371,11 +392,7 @@ async def save_pack(
 
     new_items: dict[str, list[PackItem]] = {}
     if "equipment" in changes:
-        equipment = changes["equipment"] or {}
-        provider = equipment.get("provider")
-        if provider is not None and provider != await registry.client_provider(
-            db, client_id
-        ):
+        if provider is not None and provider != current_provider:
             await registry.set_client_provider(db, client_id, provider, actor=actor)
         row.issue_template_id = await _check_template(
             db, equipment.get("issue_template_id"), "wydanie", row.issue_template_id

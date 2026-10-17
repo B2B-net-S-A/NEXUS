@@ -2,9 +2,26 @@
 
 import {
   TASK_SOURCE_LABELS,
+  type ContractEntryView,
   type EntryMissingReason,
   type LifecycleTask,
 } from "@/lib/api/hr-lifecycle";
+import { formatIsoDatePl } from "@/lib/date-pl";
+
+/** Powód braku listy — z `not_yet` (start dalej niż 14 dni, lista powstanie sama). */
+export type EntryReason = EntryMissingReason | "not_yet";
+
+/**
+ * Widok zakładki „Wejście” z polami po poprawkach etapu 3
+ * (lustro `api/hr_lifecycle._entry_view`).
+ */
+export type EntryView = Omit<ContractEntryView, "missing_reason"> & {
+  missing_reason: EntryReason | null;
+  /** `not_yet`: dzień, od którego przegląd startów założy listę sam (`null` = już teraz). */
+  auto_create_on?: string | null;
+  /** Pakiet klienta nie wczytał się przy zakładaniu — jego pozycje dojdą później. */
+  pack_failed?: boolean;
+};
 
 export interface EntryStep {
   key: "before" | "start" | "two_weeks" | "month" | "all";
@@ -58,7 +75,8 @@ export function taskSourceLabel(task: LifecycleTask): string {
   return TASK_SOURCE_LABELS[source];
 }
 
-const MISSING: Record<EntryMissingReason, string> = {
+// `not_yet` ma zdanie z datą (niżej) — mapa działa też, gdy typ API już go zna.
+const MISSING: Record<Exclude<EntryReason, "not_yet">, string> = {
   past_start:
     "Start kontraktu już minął, więc lista wejścia nie powstała sama. Możesz ją założyć teraz.",
   no_start: "Kontrakt nie ma daty startu — lista wejścia powstanie, gdy data się pojawi.",
@@ -68,6 +86,16 @@ const MISSING: Record<EntryMissingReason, string> = {
   module_off: "Moduł „Wejście i odejście” nie jest jeszcze włączony.",
 };
 
-export function missingReasonText(reason: EntryMissingReason | null): string {
+export function missingReasonText(reason: EntryReason | null, autoCreateOn?: string | null): string {
+  if (reason === "not_yet") {
+    return autoCreateOn
+      ? `Lista zadań powstanie sama 14 dni przed startem — ${formatIsoDatePl(autoCreateOn)}. Możesz założyć ją wcześniej.`
+      : "Lista zadań powstanie sama przy najbliższym przeglądzie startów. Możesz założyć ją już teraz.";
+  }
   return reason ? MISSING[reason] : "";
+}
+
+/** Przycisk zakładania: przed startem „Załóż teraz”, po starcie lista „na zaległe”. */
+export function createLabel(reason: EntryReason | null): string {
+  return reason === "not_yet" ? "Załóż teraz" : "Załóż listę wejścia";
 }

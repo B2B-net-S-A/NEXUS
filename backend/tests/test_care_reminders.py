@@ -28,7 +28,7 @@ from app.models.contract_care import (
     RedeployQueueItem,
     TechCard,
 )
-from app.models.hr_ops import HrJobRun
+from app.models.hr_ops import HrAuditEvent, HrJobRun
 from app.models.notification import Notification, NotificationType
 from app.models.user import UserRole
 from app.services.care import access as care_access
@@ -248,3 +248,118 @@ async def test_follow_up_is_due_by_the_warsaw_calendar() -> None:
                 HrJobRun.kind == reminders.JOB_KIND, HrJobRun.period_key == "2026-10-17"
             )
         )
+
+
+#: 17.10.2026 10:00 w Warszawie.
+OCT_17_MORNING = datetime(2026, 10, 17, 8, 0, tzinfo=timezone.utc)
+
+
+async def _open_due(contract_id: int, today: date) -> list[CarePlanItem]:
+    async with AsyncSessionLocal() as db:
+        return list(
+            (
+                await db.scalars(
+                    select(CarePlanItem).where(
+                        CarePlanItem.contract_id == contract_id,
+                        CarePlanItem.status == "open",
+                        CarePlanItem.due_on <= today,
+                    )
+                )
+            ).all()
+        )
+
+
+@pytest.mark.usefixtures("care_on")
+async def test_last_talk_covers_earlier_plan_points() -> None:
+    """Rozmowa opiekuna (także z importu Compassa) pokrywa wcześniejsze punkty.
+
+    Po włączeniu modułu prawie każdy kontrakt miał zaległą rozmowę z rytmu,
+    choć opiekun rozmawiał z konsultantem po jej terminie (przegląd
+    17.10.2026). Punkt z terminem nie późniejszym niż ostatnia rozmowa nie
+    powstaje, a już otwarty zamyka przebieg nocny tą rozmową. Kontrakt bez
+    żadnej rozmowy dalej ma zaległość.
+    """
+
+    owner = await make_user(UserRole.talent_community_manager)
+    client_id = await make_client()
+    # Program 90 dni do 01.07, potem co miesiąc: 01.08, 01.09, 01.10, 01.11…
+    start = date(2026, 7, 1) - timedelta(days=90)
+    imported, planned, silent = [(await make_contract(client_id))[0] for _ in range(3)]
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            update(Contract)
+            .where(Contract.id.in_([imported, planned, silent]))
+            .values(start_date=start)
+        )
+        await db.commit()
+    for contract_id in (imported, planned, silent):
+        await _set_owner(contract_id, owner.id)
+    await _forget_run("2026-10-17")
+
+    with time_machine.travel(OCT_17_MORNING, tick=False):
+        today = business_today()
+        async with AsyncSessionLocal() as db:
+            # Plan założony przed importem rozmów (moduł włączony wcześniej).
+            contracts = await care_access.live_contracts(db, contract_ids=[planned])
+            await care_plan.ensure_plans(db, contracts, today=today)
+            await db.commit()
+        assert [item.due_on for item in await _open_due(planned, today)] == [
+            date(2026, 10, 1)
+        ]
+        async with AsyncSessionLocal() as db:
+            talks = {
+                contract_id: CareConversation(
+                    contract_id=contract_id,
+                    occurred_on=date(2026, 10, 10),
+                    channel="phone",
+                    compass_source_id=f"compass-{contract_id}",
+                )
+                for contract_id in (imported, planned)
+            }
+            db.add_all(talks.values())
+            await db.commit()
+            talk_ids = {cid: talk.id for cid, talk in talks.items()}
+
+        async with AsyncSessionLocal() as db:
+            result = await reminders.run_once(db)
+    assert result["status"] == "done", result
+
+    today = date(2026, 10, 17)
+    assert await _open_due(imported, today) == []
+    assert await _open_due(planned, today) == []
+    async with AsyncSessionLocal() as db:
+        closed = (
+            await db.scalars(
+                select(CarePlanItem).where(
+                    CarePlanItem.contract_id == planned,
+                    CarePlanItem.due_on == date(2026, 10, 1),
+                )
+            )
+        ).one()
+    assert closed.status == "done"
+    assert closed.done_conversation_id == talk_ids[planned]
+    assert closed.resolved_by is None
+    async with AsyncSessionLocal() as db:
+        traces = (
+            await db.scalars(
+                select(HrAuditEvent).where(
+                    HrAuditEvent.entity_type == "contract",
+                    HrAuditEvent.entity_id.in_([str(imported), str(planned)]),
+                    HrAuditEvent.action == "care.plan_covered",
+                )
+            )
+        ).all()
+    assert [(t.entity_id, t.actor_user_id, t.details) for t in traces] == [
+        (
+            str(planned),
+            None,
+            {"plan_item_ids": [closed.id], "conversation_ids": [talk_ids[planned]]},
+        )
+    ]
+    assert await _reminders_for(imported) == []
+    assert await _reminders_for(planned) == []
+    # Bez żadnej rozmowy zaległość jest prawdziwą informacją.
+    assert [item.due_on for item in await _open_due(silent, today)] == [
+        date(2026, 10, 1)
+    ]
+    assert [n.user_id for n in await _reminders_for(silent)] == [owner.id]

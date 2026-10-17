@@ -12,7 +12,7 @@ Dane fikcyjne (repo jest publiczne).
 
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import date, timedelta
 
 import pytest
 import pytest_asyncio
@@ -20,14 +20,16 @@ from sqlalchemy import select, update
 
 import app.models  # noqa: F401  (rejestracja wszystkich mapperów)
 from app.core.database import AsyncSessionLocal
-from app.core.scheduling import business_today
+from app.core.scheduling import business_today, local_now
 from app.models.app_setting import AppSetting
-from app.models.contract import ContractStatus
+from app.models.contract import Contract, ContractStatus
 from app.models.contract_care import CONTRACTS_CARE, CareCadencePeriod, CarePlanItem
 from app.models.hr_ops import HrAuditEvent
 from app.models.user import UserRole
 from app.services.care import access as care_access
+from app.services.care import cadence as care_cadence
 from app.services.care import plan as care_plan
+from app.services.care import records
 from app.services.care.cadence_rules import add_months
 from app.services.hr_foundation_schema import HR_DIVISIONS_SETTING
 from tests.test_care_api import (
@@ -422,3 +424,86 @@ async def test_contract_tab_shows_the_rhythm(app_client) -> None:
     assert body["cadence"]["level"] == "biweekly"
     assert body["cadence"]["source"] == "program"
     assert body["cadence"]["can_edit"] is True
+
+
+async def set_start(contract_id: int, start: date) -> None:
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            update(Contract).where(Contract.id == contract_id).values(start_date=start)
+        )
+        await db.commit()
+
+
+async def rhythm_status(contract_id: int) -> dict[date, str]:
+    async with AsyncSessionLocal() as db:
+        rows = (
+            await db.execute(
+                select(CarePlanItem.due_on, CarePlanItem.status).where(
+                    CarePlanItem.contract_id == contract_id,
+                    CarePlanItem.kind == "cadence",
+                )
+            )
+        ).all()
+    return {due_on: status for due_on, status in rows}
+
+
+@pytest.mark.usefixtures("care_on")
+async def test_rhythm_change_keeps_todays_talk_for_the_conversation() -> None:
+    """Zmiana rytmu w dniu rozmowy starego rytmu (przegląd 17.10.2026).
+
+    Dzisiejszy punkt starego rytmu zostaje (znikają tylko późniejsze), więc
+    rozmowa zapisana dziś bez wskazania punktu zamyka właśnie jego — a nie
+    pierwszą rozmowę nowego rytmu za 14 dni.
+    """
+
+    day = date(2026, 10, 15)
+    owner = await make_user(UserRole.talent_community_manager)
+    contract_id, _ = await make_contract(await make_client())
+    # Program 90 dni do 15.07, potem co miesiąc: 15.08, 15.09, 15.10…
+    await set_start(contract_id, date(2026, 7, 15) - timedelta(days=90))
+    await set_owner(contract_id, owner.id)
+    async with AsyncSessionLocal() as db:
+        contract = await care_access.load_contract(db, contract_id, owner)
+        await care_plan.ensure_plan(
+            db, contract_id, start=contract.start_date, end=None, today=day
+        )
+        # Wrześniowa rozmowa odbyła się — przed zmianą nic nie jest zaległe.
+        await records.add_conversation(
+            db,
+            contract,
+            records.ConversationInput(occurred_on=date(2026, 9, 15), channel="phone"),
+            actor_id=owner.id,
+            today=day,
+            now=local_now(),
+        )
+        await care_cadence.set_cadence(
+            db,
+            contract,
+            user=owner,
+            level="biweekly",
+            reason="weak_feedback",
+            note=None,
+            until_on=None,
+            today=day,
+        )
+        await db.commit()
+    before_talk = await rhythm_status(contract_id)
+    assert before_talk[day] == "open"
+    assert before_talk[date(2026, 10, 29)] == "open"
+    # Przyszłe rozmowy starego rytmu znikają.
+    assert date(2026, 11, 15) not in before_talk
+
+    async with AsyncSessionLocal() as db:
+        contract = await care_access.load_contract(db, contract_id, owner)
+        await records.add_conversation(
+            db,
+            contract,
+            records.ConversationInput(occurred_on=day, channel="phone"),
+            actor_id=owner.id,
+            today=day,
+            now=local_now(),
+        )
+        await db.commit()
+    after_talk = await rhythm_status(contract_id)
+    assert after_talk[day] == "done"
+    assert after_talk[date(2026, 10, 29)] == "open"

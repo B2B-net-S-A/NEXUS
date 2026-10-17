@@ -65,6 +65,9 @@ class AnnouncementPatch(BaseModel):
 class PreviewIn(BaseModel):
     kind: Kind
     audience: dict[str, Any]
+    # Podgląd istniejącego komunikatu liczy w zakresie jego autora — tak jak
+    # wysyłka (admin przy szkicu Delivery Leada).
+    announcement_id: Optional[int] = Field(default=None, ge=1)
 
 
 class ReturnIn(BaseModel):
@@ -117,7 +120,11 @@ async def preview_audience(
     actor = await _actor(db, current_user)
     try:
         return await service.preview(
-            db, actor, kind=payload.kind, audience=payload.audience
+            db,
+            actor,
+            kind=payload.kind,
+            audience=payload.audience,
+            announcement_id=payload.announcement_id,
         )
     except service.AnnouncementError as exc:
         raise _refuse(exc) from exc
@@ -247,3 +254,14 @@ async def cancel(
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     return await _transition(db, current_user, announcement_id, service.cancel)
+
+
+@router.post("/{announcement_id}/retry-failed")
+async def retry_failed(
+    announcement_id: int,
+    current_user: AnnouncementsUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """„Wyślij ponownie do nieudanych” — autor, head back office, admin."""
+
+    return await _transition(db, current_user, announcement_id, service.retry_failed)

@@ -14,6 +14,12 @@ pierwszą uruchamia Artur.
   → „Wyślij”: lista odbiorców zamraża się (zatwierdzający widzi dokładnie tę
   listę); do 20 osób idzie od razu do kolejki, powyżej — czeka na
   zatwierdzenie → kolejka 30 maili na minutę (``announcement_queue``) → raport.
+  „Wyślij ponownie do nieudanych” wraca do kolejki tylko osoby z błędem
+  wysyłki; „niepewny” zostaje (mail mógł wyjść) — raport każe go sprawdzić.
+* **Dzwonki** (do zatwierdzenia, zatwierdzony, zwrócony, niedoręczony) idą bez
+  numeru encji: dzienny unikat ``ix_notif_dedup_daily`` (osoba, rodzaj, encja,
+  dzień) połknąłby drugie zdarzenie tego dnia (zwrot → poprawka → ponowne
+  wysłanie), a numer osoby z odbitego maila zderzał się z numerem komunikatu.
 * **Wyłączona wysyłka**: tworzenie, podgląd i próba do siebie działają (to
   konto wewnętrzne), wysyłka do konsultantów = 409, kolejka stoi.
 * **Wypis** z informacyjnych: token z linku (w bazie SHA-256), wypisany
@@ -28,6 +34,7 @@ Logi i ślad niosą identyfikatory i liczby — bez adresów i treści.
 from __future__ import annotations
 
 import logging
+import re
 from collections import Counter
 from collections.abc import Iterable
 from dataclasses import dataclass
@@ -98,6 +105,8 @@ OWN_APPROVAL = (
     "Komunikatu nie zatwierdza jego autor ani osoba, która wysłała go do zatwierdzenia."
 )
 EDIT_DENIED = "Komunikat zmienia jego autor albo administrator."
+TEST_FAILED = "Nie udało się wysłać próby. Spróbuj ponownie za chwilę."
+RETRY_DENIED = "Ponownie wysyła autor komunikatu, head back office albo administrator."
 
 
 class AnnouncementError(Exception):
@@ -353,12 +362,24 @@ def _summary(statuses: Iterable[str]) -> dict[str, int]:
 
 
 async def preview(
-    db: AsyncSession, actor: Actor, *, kind: object, audience: object
+    db: AsyncSession,
+    actor: Actor,
+    *,
+    kind: object,
+    audience: object,
+    announcement_id: Optional[int] = None,
 ) -> dict[str, Any]:
+    """Odbiorcy grupy. Z ``announcement_id`` — w zakresie autora komunikatu,
+    tak jak policzy ich „Wyślij” (admin przy szkicu Delivery Leada widzi
+    portfel Delivery Leada, nie całą firmę)."""
+
+    scope = actor
+    if announcement_id is not None:
+        scope = await _author_scope(db, actor, await load(db, actor, announcement_id))
     people = await audience_svc.resolve(
         db,
-        allowed=actor.allowed,
-        audience=_audience(actor, audience),
+        allowed=scope.allowed,
+        audience=_audience(scope, audience),
         kind=_clean_kind(kind),
     )
     return {
@@ -404,17 +425,18 @@ async def test_send(
         unsubscribe=None,
         test=True,
     )
-    outcome = await sender.send(to=to, subject=subject, text=text)
+    try:
+        outcome = await sender.send(to=to, subject=subject, text=text)
+    except Exception:  # noqa: BLE001 — próba do siebie, bez 500
+        logger.exception("[care_announcements] próba %s padła", announcement.id)
+        raise AnnouncementError(502, TEST_FAILED) from None
     if outcome.status != "accepted":
         logger.warning(
             "[care_announcements] próba %s nie wyszła: %s",
             announcement.id,
             outcome.code or outcome.status,
         )
-        raise AnnouncementError(
-            503,
-            "Nie udało się wysłać próby. Spróbuj ponownie za chwilę.",
-        )
+        raise AnnouncementError(502, TEST_FAILED)
     announcement.tested_version = announcement.content_version
     announcement.tested_at = datetime.now(timezone.utc)
     await db.flush()
@@ -544,7 +566,6 @@ async def submit(
             ntype=NotificationType.care_announcement,
             link=_link(announcement.id),
             related_entity_type="care_announcement_review",
-            related_entity_id=announcement.id,
             log_tag="care_announcements",
         )
     return announcement
@@ -588,7 +609,6 @@ async def approve(
         ntype=NotificationType.care_announcement,
         link=_link(announcement.id),
         related_entity_type="care_announcement_decision",
-        related_entity_id=announcement.id,
         exclude=[actor.user.id],
         log_tag="care_announcements",
     )
@@ -637,7 +657,6 @@ async def return_to_draft(
         ntype=NotificationType.care_announcement,
         link=_link(announcement.id),
         related_entity_type="care_announcement_decision",
-        related_entity_id=announcement.id,
         exclude=[actor.user.id],
         log_tag="care_announcements",
     )
@@ -673,6 +692,63 @@ async def cancel(
         entity_id=announcement.id,
         action="care_announcement.cancelled",
         details={"stopped": stopped.rowcount or 0},
+    )
+    return announcement
+
+
+def may_retry(actor: Actor, announcement: CareAnnouncement) -> bool:
+    return may_edit(actor, announcement) or actor.can_approve
+
+
+async def retry_failed(
+    db: AsyncSession, actor: Actor, announcement: CareAnnouncement
+) -> CareAnnouncement:
+    """„Wyślij ponownie do nieudanych”: błąd wysyłki → kolejka od zera prób.
+
+    „Niepewny” nie wraca (mail mógł wyjść) — raport pokazuje go do
+    sprawdzenia w skrzynce administracja@.
+    """
+
+    if not may_retry(actor, announcement):
+        raise AnnouncementError(403, RETRY_DENIED)
+    if announcement.status not in ("queued", "sent"):
+        raise AnnouncementError(
+            409, "Ponownie wysłać można komunikat wysłany albo w trakcie wysyłki."
+        )
+    if not await sending_enabled(db):
+        raise AnnouncementError(409, SENDING_OFF)
+    now = datetime.now(timezone.utc)
+    requeued = await db.execute(
+        update(CareAnnouncementRecipient)
+        .where(
+            CareAnnouncementRecipient.announcement_id == announcement.id,
+            CareAnnouncementRecipient.status == "failed",
+        )
+        .values(
+            status="pending",
+            attempts=0,
+            error_code=None,
+            claimed_at=None,
+            updated_at=now,
+        )
+    )
+    count = requeued.rowcount or 0
+    if count == 0:
+        raise AnnouncementError(
+            409, "Nikt z tego komunikatu nie ma błędu wysyłki — nie ma czego ponowić."
+        )
+    announcement.status = "queued"
+    announcement.send_finished_at = None
+    announcement.updated_at = now
+    await db.flush()
+    audit.record(
+        db,
+        actor_user_id=actor.user.id,
+        subject_user_id=announcement.created_by,
+        entity_type=ENTITY,
+        entity_id=announcement.id,
+        action="care_announcement.retried_failed",
+        details={"recipients": count},
     )
     return announcement
 
@@ -930,6 +1006,9 @@ async def detail(
         "can_submit": editable and test_current,
         "can_cancel": announcement.status in ("draft", "pending", "queued")
         and (may_edit(actor, announcement) or actor.can_approve),
+        "can_retry_failed": announcement.status in ("queued", "sent")
+        and counts.get("failed", 0) > 0
+        and may_retry(actor, announcement),
     }
 
 
@@ -990,6 +1069,14 @@ def looks_like_bounce(sender: Optional[str]) -> bool:
     return any(lowered.startswith(prefix) for prefix in _BOUNCE_SENDERS)
 
 
+#: Adres w treści zwrotki — cały, nie fragment: „ola@” nie siedzi w „mola@”.
+_ADDRESS_RE = re.compile(r"[\w.!#$%&'*+/=?^`{|}~-]+@[\w-]+(?:\.[\w-]+)+")
+
+
+def bounced_addresses(body_text: Optional[str]) -> set[str]:
+    return {match.lower() for match in _ADDRESS_RE.findall(body_text or "")}
+
+
 async def link_mail_case(
     db: AsyncSession,
     case: AdminCase,
@@ -1027,11 +1114,11 @@ async def link_mail_case(
     kind = "bounce" if looks_like_bounce(sender_email) else "reply"
     matched: Optional[CareAnnouncementRecipient] = None
     if kind == "bounce":
-        haystack = (body_text or "").lower()
+        addresses = bounced_addresses(body_text)
         bounced = [
             r
             for r in recipients
-            if r.status in ("sent", "uncertain") and r.email.lower() in haystack
+            if r.status in ("sent", "uncertain") and r.email.lower() in addresses
         ]
         now = datetime.now(timezone.utc)
         for recipient in bounced:
@@ -1080,6 +1167,5 @@ async def _notify_bounces(
             ntype=NotificationType.care_announcement,
             link=f"/contracts/{recipient.contract_id}",
             related_entity_type="care_announcement_bounce",
-            related_entity_id=recipient.id,
             log_tag="care_announcements",
         )

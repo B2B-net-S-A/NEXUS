@@ -274,3 +274,235 @@ async def test_report_counts_sent_failed_and_exclusions(
     counts = detail.json()["counts"]
     assert counts["sent"] == 1 and counts["failed"] == 1
     assert detail.json()["status"] == "sent"
+
+
+# ── Awaria połączenia, zły wiersz, przerwany przebieg (poprawki 17.10) ──────
+
+
+async def _rows(announcement_id: int) -> list[CareAnnouncementRecipient]:
+    async with AsyncSessionLocal() as db:
+        return list(
+            (
+                await db.scalars(
+                    select(CareAnnouncementRecipient)
+                    .where(CareAnnouncementRecipient.announcement_id == announcement_id)
+                    .order_by(CareAnnouncementRecipient.id)
+                )
+            ).all()
+        )
+
+
+@pytest.mark.usefixtures("care_on", "sending_on", "quiet_queue")
+async def test_missing_token_ends_the_pass_without_using_anyones_attempts(
+    app_client, monkeypatch
+) -> None:
+    """Brak tokenu to awaria połączenia: przebieg kończy się od razu, nikt nie
+    traci próby i nikt nie trafia do „błąd wysyłki”, choćby trwało to godzinę."""
+
+    from app.services.care.announcement_mail import GraphMailer
+    from app.services.hr.m365 import auth as m365_auth
+
+    install_mailer(monkeypatch)
+    author = await make_user(UserRole.talent_community_manager)
+    announcement_id, _, _ = await _queued(app_client, author, 3)
+    asked: list[bool] = []
+
+    def no_token(*, force_refresh: bool = False):
+        asked.append(force_refresh)
+        return None
+
+    monkeypatch.setattr(m365_auth, "acquire_hr_token", no_token)
+    graph = GraphMailer("administracja@example.com")
+    minute = _minute()
+    for step in range(MAX_PASSES):
+        async with AsyncSessionLocal() as db:
+            result = await announcement_queue.run_once(
+                db, mailer=graph, now=minute + timedelta(minutes=step)
+            )
+        assert result["status"] == "deferred", result
+        assert result["reason"] == "transport"
+    # Jedno pytanie o token na przebieg — nie trzy osoby po kolei.
+    assert len(asked) == MAX_PASSES
+    rows = await _rows(announcement_id)
+    assert {row.status for row in rows} == {"pending"}
+    assert {row.attempts for row in rows} == {0}
+    assert {row.claimed_at for row in rows} == {None}
+
+    fake = FakeMailer()
+    async with AsyncSessionLocal() as db:
+        await announcement_queue.run_once(
+            db, mailer=fake, now=minute + timedelta(minutes=MAX_PASSES)
+        )
+    assert set(await _statuses(announcement_id)) == {"sent"}
+
+
+MAX_PASSES = announcement_queue.MAX_ATTEMPTS + 2
+
+
+@pytest.mark.usefixtures("care_on", "sending_on", "quiet_queue")
+async def test_rate_limit_still_defers_one_person_with_attempts(
+    app_client, monkeypatch
+) -> None:
+    install_mailer(monkeypatch)
+    author = await make_user(UserRole.talent_community_manager)
+    announcement_id, _, _ = await _queued(app_client, author, 2)
+    fake = FakeMailer(outcome=MailOutcome("deferred", "http_429"))
+    minute = _minute()
+    for step in range(announcement_queue.MAX_ATTEMPTS):
+        async with AsyncSessionLocal() as db:
+            await announcement_queue.run_once(
+                db, mailer=fake, now=minute + timedelta(minutes=step)
+            )
+    rows = await _rows(announcement_id)
+    assert {row.status for row in rows} == {"failed"}
+    assert {row.attempts for row in rows} == {announcement_queue.MAX_ATTEMPTS}
+
+
+@pytest.mark.usefixtures("care_on", "sending_on", "quiet_queue")
+async def test_one_broken_person_does_not_spoil_the_batch(
+    app_client, monkeypatch
+) -> None:
+    """Błąd przygotowania maila jednej osoby zapisuje jej stan; reszta paczki
+    wychodzi, a nikt nie zostaje „w wysyłce” ani „niepewny” bez wysłania."""
+
+    from app.services.care import announcement_mail
+
+    install_mailer(monkeypatch)
+    author = await make_user(UserRole.talent_community_manager)
+    announcement_id, _, _ = await _queued(app_client, author, 3)
+    real_compose = announcement_mail.compose
+
+    def compose(**kwargs):
+        if kwargs.get("first_name") == "Osoba1":
+            raise ValueError("zepsuty wiersz")
+        return real_compose(**kwargs)
+
+    monkeypatch.setattr(announcement_mail, "compose", compose)
+    fake = FakeMailer()
+    async with AsyncSessionLocal() as db:
+        result = await announcement_queue.run_once(db, mailer=fake, now=_minute())
+    assert result["status"] == "ok", result
+    by_name = {row.first_name: row for row in await _rows(announcement_id)}
+    assert by_name["Osoba0"].status == "sent"
+    assert by_name["Osoba2"].status == "sent"
+    broken = by_name["Osoba1"]
+    assert broken.status == "pending" and broken.attempts == 1
+    assert broken.error_code == "prepare"
+    assert len(fake.sent) == 2
+
+
+@pytest.mark.usefixtures("care_on", "sending_on", "quiet_queue")
+async def test_person_removed_mid_batch_is_skipped(app_client, monkeypatch) -> None:
+    """Wiersz osoby zniknął (usunięty kandydat) między rezerwacją a wysyłką."""
+
+    from sqlalchemy import delete
+
+    install_mailer(monkeypatch)
+    author = await make_user(UserRole.talent_community_manager)
+    announcement_id, _, _ = await _queued(app_client, author, 3)
+    rows = await _rows(announcement_id)
+    doomed = rows[1].id
+
+    class Deleting(FakeMailer):
+        async def send(self, *, to: str, subject: str, text: str) -> MailOutcome:
+            if not self.sent:
+                async with AsyncSessionLocal() as other:
+                    await other.execute(
+                        delete(CareAnnouncementRecipient).where(
+                            CareAnnouncementRecipient.id == doomed
+                        )
+                    )
+                    await other.commit()
+            return await super().send(to=to, subject=subject, text=text)
+
+    fake = Deleting()
+    async with AsyncSessionLocal() as db:
+        result = await announcement_queue.run_once(db, mailer=fake, now=_minute())
+    assert result["status"] == "ok", result
+    assert sorted(await _statuses(announcement_id)) == ["sent", "sent"]
+    async with AsyncSessionLocal() as db:
+        done = await db.get(CareAnnouncement, announcement_id)
+    assert done.status == "sent"
+
+
+@pytest.mark.usefixtures("care_on", "sending_on", "quiet_queue")
+async def test_rows_claimed_but_never_started_go_back_to_the_queue(
+    app_client, monkeypatch
+) -> None:
+    """Przerwany przebieg: osoba zarezerwowana, a nieobsłużona, wraca do kolejki
+    (dostaje mail); osoba, do której wysyłka ruszyła — „niepewny”."""
+
+    from sqlalchemy import update
+
+    install_mailer(monkeypatch)
+    author = await make_user(UserRole.talent_community_manager)
+    announcement_id, _, _ = await _queued(app_client, author, 2)
+    never_started, mid_send = (row.id for row in await _rows(announcement_id))
+    old = datetime.now(timezone.utc) - timedelta(minutes=30)
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            update(CareAnnouncementRecipient)
+            .where(CareAnnouncementRecipient.id == never_started)
+            .values(status="sending", claimed_at=None, updated_at=old)
+        )
+        await db.execute(
+            update(CareAnnouncementRecipient)
+            .where(CareAnnouncementRecipient.id == mid_send)
+            .values(status="sending", claimed_at=old, updated_at=old)
+        )
+        await db.commit()
+    fake = FakeMailer()
+    async with AsyncSessionLocal() as db:
+        await announcement_queue.run_once(db, mailer=fake, now=_minute())
+    by_id = {row.id: row for row in await _rows(announcement_id)}
+    assert by_id[never_started].status == "sent"
+    assert by_id[mid_send].status == "uncertain"
+    assert len(fake.sent) == 1
+
+
+@pytest.mark.usefixtures("care_on", "sending_on", "quiet_queue")
+async def test_idle_queue_does_not_book_a_job_run(app_client, monkeypatch) -> None:
+    from app.models.hr_ops import HrJobRun
+
+    mailer = install_mailer(monkeypatch)
+    minute = _minute()
+    async with AsyncSessionLocal() as db:
+        result = await announcement_queue.run_once(db, mailer=mailer, now=minute)
+        booked = await db.scalar(
+            select(HrJobRun.id).where(
+                HrJobRun.kind == announcement_queue.JOB_KIND,
+                HrJobRun.period_key == minute.strftime("%Y-%m-%dT%H:%M"),
+            )
+        )
+    assert result["status"] == "idle"
+    assert booked is None
+
+
+@pytest.mark.usefixtures("care_on", "sending_on", "quiet_queue")
+async def test_unstarted_row_of_a_cancelled_announcement_ends_cancelled(
+    app_client, monkeypatch
+) -> None:
+    from sqlalchemy import update
+
+    install_mailer(monkeypatch)
+    author = await make_user(UserRole.talent_community_manager)
+    announcement_id, _, _ = await _queued(app_client, author, 1)
+    (row,) = await _rows(announcement_id)
+    old = datetime.now(timezone.utc) - timedelta(minutes=30)
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            update(CareAnnouncementRecipient)
+            .where(CareAnnouncementRecipient.id == row.id)
+            .values(status="sending", claimed_at=None, updated_at=old)
+        )
+        await db.execute(
+            update(CareAnnouncement)
+            .where(CareAnnouncement.id == announcement_id)
+            .values(status="cancelled")
+        )
+        await db.commit()
+    fake = FakeMailer()
+    async with AsyncSessionLocal() as db:
+        await announcement_queue.run_once(db, mailer=fake, now=_minute())
+    assert await _statuses(announcement_id) == ["cancelled"]
+    assert fake.sent == []

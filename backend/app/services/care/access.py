@@ -3,6 +3,8 @@
 * **Zakres klientów** = zakres Delivery (``access_scope.resolve_delivery_lead_client_ids``):
   Delivery Lead działa u swoich klientów, admin, Finanse i TCM u wszystkich.
   Cudzy klient → 403 z tym samym zdaniem co w Klientach i Kontraktach.
+  „Konsultanci”, rytm i „Przydział” (``rhythm_scope``): head back office
+  u wszystkich klientów, także gdy jest Delivery Leadem (O8, O10).
 * **Opiekun kontraktu** (decyzja z makiety „Opieka”, 16.10.2026): pole
   kontraktu, a gdy puste — domyślny opiekun klienta, a gdy i tego brak —
   Delivery Lead kontraktu (prowadzący rekrutację, z której przyszedł
@@ -33,6 +35,7 @@ from app.services.access_scope import (
     resolve_delivery_lead_client_ids,
 )
 from app.services.care.plan import end_of_cooperation
+from app.services.hr.lifecycle_templates import is_back_office_head
 
 #: Role, które prowadzą opiekę (zapis rozmów, kart, przepięć) i mogą być opiekunem.
 CARE_ROLES: tuple[UserRole, ...] = (
@@ -159,19 +162,32 @@ async def allowed_client_ids(user: User, db: AsyncSession) -> frozenset[int] | N
     return await resolve_delivery_lead_client_ids(user, db)
 
 
+async def rhythm_scope(user: User, db: AsyncSession) -> frozenset[int] | None:
+    """Zakres „Konsultantów”, rytmu i „Przydziału”: head back office — wszyscy."""
+
+    if await is_back_office_head(db, user):
+        return None
+    return await allowed_client_ids(user, db)
+
+
 def assert_client_in_scope(client_id: int, allowed: frozenset[int] | None) -> None:
     if allowed is not None and client_id not in allowed:
         raise HTTPException(status.HTTP_403_FORBIDDEN, DL_CLIENT_OUT_OF_SCOPE_DETAIL)
 
 
-async def load_contract(db: AsyncSession, contract_id: int, user: User) -> CareContract:
+async def load_contract(
+    db: AsyncSession, contract_id: int, user: User, *, rhythm: bool = False
+) -> CareContract:
+    """Kontrakt w zakresie czytającego (``rhythm`` = zakres ``rhythm_scope``)."""
+
     row = (
         await db.execute(_contract_query().where(Contract.id == contract_id))
     ).first()
     if row is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, CONTRACT_NOT_FOUND)
     contract = _row_to_contract(row)
-    assert_client_in_scope(contract.client_id, await allowed_client_ids(user, db))
+    scope = rhythm_scope if rhythm else allowed_client_ids
+    assert_client_in_scope(contract.client_id, await scope(user, db))
     return contract
 
 

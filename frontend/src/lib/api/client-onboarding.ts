@@ -86,7 +86,9 @@ export interface PackItemInput {
 export interface ClientPackSave {
   expected_version?: number;
   equipment?: {
-    provider: EquipmentProvider;
+    /** Tylko przy zmianie flagi; `expected_provider` = wartość sprzed edycji (inna = 409). */
+    provider?: EquipmentProvider;
+    expected_provider?: EquipmentProvider;
     issue_template_id: number | null;
     return_template_id: number | null;
     ours: PackItemInput[];

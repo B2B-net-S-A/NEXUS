@@ -23,8 +23,11 @@ Karta bez pewnego kontraktu trafia do klienta z pustym ``contract_id``
 bez klienta jest pomijana. Rozmowa bez pewnego kontraktu nie przechodzi.
 Technologia spoza słownika ``skills`` (nazwa ani alias) idzie do
 ``skill_review_queue``, a karta trzyma tekst w ``unrecognized_skills``.
-Import nie zgłasza „Do przepięcia”, nie zamyka punktów planu i nie wysyła
-przypomnień.
+Import nie zgłasza „Do przepięcia” i nie wysyła przypomnień. Punktów planu
+sam nie zamyka — rozmowa z importu pokrywa punkty z terminem nie późniejszym
+niż jej dzień: plan ich nie zakłada, a otwarte zamyka nocny przebieg opieki
+(``care.plan.close_covered``), więc po imporcie kontrakt nie ma zaległości
+sprzed ostatniej rozmowy.
 
 Rytm i opiekun (etap 3, 17.10.2026) — z ``contractor_success_settings``
 i ``contractors.owner_tcm_id``, tylko przy pewnym kontrakcie (ta sama reguła

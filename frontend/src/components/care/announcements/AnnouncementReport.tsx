@@ -94,12 +94,15 @@ export function AnnouncementReport({ announcement, settings, onEdit }: Announcem
   const { askConfirm, confirmDialog } = useConfirmV2();
   const approve = useAnnouncementStep("approve");
   const cancel = useAnnouncementStep("cancel");
+  const retry = useAnnouncementStep("retry-failed");
   const [returning, setReturning] = useState(false);
   const [listOpen, setListOpen] = useState(false);
   const view = statusView(announcement);
   const { counts } = announcement;
   const simulated = announcement.recipients.some((row) => row.simulated);
-  const busy = approve.isPending || cancel.isPending;
+  // „Niepewny” nie wraca do kolejki sam (mail mógł wyjść) — do sprawdzenia w skrzynce.
+  const uncertain = announcement.recipients.filter((row) => row.status === "uncertain");
+  const busy = approve.isPending || cancel.isPending || retry.isPending;
 
   const runApprove = async () => {
     const confirmed = await askConfirm({
@@ -131,6 +134,21 @@ export function AnnouncementReport({ announcement, settings, onEdit }: Announcem
       onSuccess: () => showToast(queued ? "Wysyłka zatrzymana" : "Komunikat anulowany", "success"),
       onError: (error) =>
         showToast(apiErrorMessage(error, "Nie udało się anulować komunikatu."), "error"),
+    });
+  };
+
+  const runRetry = async () => {
+    const confirmed = await askConfirm({
+      title: "Wysłać ponownie do nieudanych?",
+      description: `${plural(counts.failed, "osoba z błędem wysyłki wróci", "osoby z błędem wysyłki wrócą", "osób z błędem wysyłki wróci")} do kolejki. Osoby „niepewne” nie dostaną drugiego maila — sprawdź je w skrzynce.`,
+      confirmLabel: "Wyślij ponownie",
+      cancelLabel: "Wróć",
+    });
+    if (!confirmed) return;
+    retry.mutate(announcement.id, {
+      onSuccess: () => showToast("Nieudane wróciły do kolejki wysyłki", "success"),
+      onError: (error) =>
+        showToast(apiErrorMessage(error, "Nie udało się wysłać ponownie."), "error"),
     });
   };
 
@@ -218,6 +236,30 @@ export function AnnouncementReport({ announcement, settings, onEdit }: Announcem
         ) : null}
       </dl>
 
+      {uncertain.length ? (
+        <div className="space-y-1 text-sm">
+          <p id={`announcement-${announcement.id}-uncertain`} className="font-medium">
+            Sprawdź ręcznie w skrzynce administracja@
+          </p>
+          <ul
+            aria-labelledby={`announcement-${announcement.id}-uncertain`}
+            className="space-y-0.5 text-muted-foreground"
+          >
+            {uncertain.slice(0, 10).map((row) => (
+              <li key={row.candidate_id} className="truncate">
+                {row.name}
+                {row.email ? ` · ${row.email}` : ""}
+              </li>
+            ))}
+          </ul>
+          {uncertain.length > 10 ? (
+            <p className="text-xs text-muted-foreground">
+              …i {uncertain.length - 10} więcej — pełna lista w „Pokaż listę”.
+            </p>
+          ) : null}
+        </div>
+      ) : null}
+
       {announcement.reply_cases.some((reply) => reply.kind === "reply") ? (
         <ul className="space-y-0.5 text-sm" aria-label="Odpowiedzi w Sprawach">
           {announcement.reply_cases
@@ -268,6 +310,17 @@ export function AnnouncementReport({ announcement, settings, onEdit }: Announcem
         {announcement.recipients.length ? (
           <Button size="sm" variant="ghost" onClick={() => setListOpen(true)}>
             Pokaż listę
+          </Button>
+        ) : null}
+        {announcement.can_retry_failed ? (
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={busy || !settings.sending_enabled}
+            loading={retry.isPending}
+            onClick={() => void runRetry()}
+          >
+            Wyślij ponownie do nieudanych
           </Button>
         ) : null}
         {announcement.can_cancel && announcement.status !== "draft" ? (

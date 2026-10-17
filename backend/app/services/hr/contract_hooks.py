@@ -285,7 +285,19 @@ async def reconcile_upcoming(db: AsyncSession) -> dict[str, int]:
                 ("cases", _cases_void),
             ],
         )
-    return {"starting": len(starting), "ending": len(ending), "voided": len(voided)}
+    from app.services.hr import lifecycle_entry
+
+    try:
+        packs = await lifecycle_entry.retry_failed_packs(db)
+    except Exception:  # noqa: BLE001 — przegląd nie może paść na pakiecie
+        logger.exception("contract_hooks: retry of failed client packs failed")
+        packs = 0
+    return {
+        "starting": len(starting),
+        "ending": len(ending),
+        "voided": len(voided),
+        "packs_repaired": packs,
+    }
 
 
 async def _voided_with_open_start(db: AsyncSession) -> list[Contract]:

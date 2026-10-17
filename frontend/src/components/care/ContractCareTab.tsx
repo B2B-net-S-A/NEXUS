@@ -115,7 +115,10 @@ function PlanList({
   return (
     <ul className="divide-y divide-border/60">
       {care.plan.map((item) => (
-        <li key={item.id} className="flex items-center justify-between gap-2 py-1.5 text-sm">
+        <li
+          key={item.id}
+          className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 py-1.5 text-sm"
+        >
           <StatusDot
             tone={
               item.status === "done"

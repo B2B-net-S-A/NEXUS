@@ -13,7 +13,16 @@ Wiersze ``contract_care_plan_items`` powstają z wyprzedzeniem
 Przy pierwszym włączeniu modułu dla starego kontraktu nie zakładamy zaległości
 sprzed ``LOOKBACK_DAYS`` — to nie były kontakty, które ktoś przegapił
 w NEXUSIE, tylko historia sprzed modułu. Zmiana rytmu zdejmuje otwarte
-przyszłe rozmowy z rytmu, których nowy rytm już nie ma; zaległe zostają.
+przyszłe rozmowy z rytmu, których nowy rytm już nie ma; zaległe i dzisiejsza
+zostają (przegląd 17.10.2026).
+
+Rozmowa pokrywa wcześniejsze punkty (przegląd 17.10.2026): punkt z terminem
+nie późniejszym niż ostatnia rozmowa opiekuna z konsultantem
+(``care_conversations.occurred_on``, także z importu Compassa) nie powstaje,
+a już otwarty ``ensure_plans`` zamyka tą rozmową (``done_conversation_id`` =
+pierwsza rozmowa w dniu terminu albo po nim, ślad ``care.plan_covered``) —
+po włączeniu modułu kontrakt, z którym opiekun rozmawiał po terminie, nie
+startuje z zaległością. Kontrakt bez żadnej rozmowy ma ją dalej.
 
 Plan dopisuje dzienny przebieg (``reminders.run_once``), zmiana rytmu i zapis,
 który zmienia opiekuna (``ensure_plans`` zbiorczo: jeden DELETE na rodzaj
@@ -36,13 +45,14 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from typing import Any, Optional, Protocol
 
-from sqlalchemy import select, text
+from sqlalchemy import func, select, text
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.contract_care import CareCadencePeriod, CareConversation, CarePlanItem
 from app.services.care.cadence_rules import PeriodLike, regular_dates
 from app.services.care.cadence_rules import add_months as add_months
+from app.services.hr import audit
 
 #: Kamień po starcie i przed końcem zamówienia albo umowy.
 FIRST_WEEK_DAYS = 7
@@ -184,14 +194,32 @@ _DELETE_STALE_PRE_END = text(
     "AS k(contract_id, seq) WHERE k.contract_id = p.contract_id AND k.seq = p.seq)"
 )
 #: Otwarte przyszłe rozmowy z rytmu, których obecny rytm już nie ma (zmiana
-#: rytmu, krótszy koniec). Zaległe zostają — wypadły w dawnym rytmie.
+#: rytmu, krótszy koniec). Zaległe i dzisiejsza zostają — wypadły w dawnym
+#: rytmie; zmiana w dniu rozmowy nie może jej zdjąć, bo rozmowa zapisana
+#: potem bez wskazania punktu zamknęłaby pierwszą rozmowę nowego rytmu.
 _DELETE_STALE_CADENCE = text(
     "DELETE FROM contract_care_plan_items p "
     "WHERE p.contract_id = ANY(CAST(:ids AS integer[])) "
-    "AND p.kind = 'cadence' AND p.status = 'open' AND p.due_on >= :today "
+    "AND p.kind = 'cadence' AND p.status = 'open' AND p.due_on > :today "
     "AND NOT EXISTS ("
     "SELECT 1 FROM unnest(CAST(:keep_ids AS integer[]), CAST(:keep_seqs AS integer[])) "
     "AS k(contract_id, seq) WHERE k.contract_id = p.contract_id AND k.seq = p.seq)"
+)
+
+#: Otwarte punkty z terminem nie późniejszym niż rozmowa z konsultantem —
+#: zamyka je pierwsza rozmowa w dniu terminu albo po nim (rozmowy z importu
+#: nie zamykały planu, a plan powstaje z ``LOOKBACK_DAYS`` wstecz).
+_CLOSE_COVERED = text(
+    "UPDATE contract_care_plan_items p SET status = 'done', "
+    "done_conversation_id = ("
+    "SELECT c.id FROM care_conversations c "
+    "WHERE c.contract_id = p.contract_id AND c.occurred_on >= p.due_on "
+    "ORDER BY c.occurred_on, c.id LIMIT 1), "
+    "resolved_by = NULL, resolved_at = now() "
+    "WHERE p.contract_id = ANY(CAST(:ids AS integer[])) AND p.status = 'open' "
+    "AND EXISTS (SELECT 1 FROM care_conversations c "
+    "WHERE c.contract_id = p.contract_id AND c.occurred_on >= p.due_on) "
+    "RETURNING p.id, p.contract_id, p.done_conversation_id"
 )
 
 
@@ -225,6 +253,47 @@ async def periods_by_contract(
     return out
 
 
+async def last_talk_days(
+    db: AsyncSession, contract_ids: Sequence[int]
+) -> dict[int, date]:
+    """Dzień ostatniej rozmowy z konsultantem per kontrakt (także z importu)."""
+
+    if not contract_ids:
+        return {}
+    rows = await db.execute(
+        select(CareConversation.contract_id, func.max(CareConversation.occurred_on))
+        .where(CareConversation.contract_id.in_(list(contract_ids)))
+        .group_by(CareConversation.contract_id)
+    )
+    return {contract_id: day for contract_id, day in rows.all()}
+
+
+async def close_covered(db: AsyncSession, contract_ids: Sequence[int]) -> int:
+    """Zamyka otwarte punkty pokryte późniejszą rozmową; ślad per kontrakt."""
+
+    if not contract_ids:
+        return 0
+    closed: dict[int, list[tuple[int, int]]] = defaultdict(list)
+    for item_id, contract_id, conversation_id in (
+        await db.execute(_CLOSE_COVERED, {"ids": list(contract_ids)})
+    ).all():
+        closed[contract_id].append((item_id, conversation_id))
+    for contract_id, rows in sorted(closed.items()):
+        audit.record(
+            db,
+            actor_user_id=None,
+            subject_user_id=None,
+            entity_type="contract",
+            entity_id=contract_id,
+            action="care.plan_covered",
+            details={
+                "plan_item_ids": sorted(item_id for item_id, _ in rows),
+                "conversation_ids": sorted({cid for _, cid in rows}),
+            },
+        )
+    return sum(len(rows) for rows in closed.values())
+
+
 async def ensure_plans(
     db: AsyncSession, contracts: Iterable[PlanContract], *, today: date
 ) -> int:
@@ -233,7 +302,8 @@ async def ensure_plans(
     Jeden DELETE na rodzaj i wielowierszowy INSERT (w paczkach) zamiast
     instrukcji na kontrakt. Otwarty punkt „przed końcem” dla innej daty końca
     znika — koniec się przesunął albo umowa stała się bezterminowa — a otwarta
-    przyszła rozmowa z rytmu, której obecny rytm nie ma, też.
+    przyszła rozmowa z rytmu, której obecny rytm nie ma, też. Punkty pokryte
+    ostatnią rozmową nie powstają, a otwarte zamyka ``close_covered``.
     """
 
     items = list(contracts)
@@ -241,13 +311,18 @@ async def ensure_plans(
         return 0
     ids = [contract.id for contract in items]
     periods = await periods_by_contract(db, ids)
+    talked = await last_talk_days(db, ids)
     planned = {
-        contract.id: planned_slots(
-            contract.start_date,
-            contract.end_date,
-            today,
-            periods=periods.get(contract.id, ()),
-        )
+        contract.id: [
+            slot
+            for slot in planned_slots(
+                contract.start_date,
+                contract.end_date,
+                today,
+                periods=periods.get(contract.id, ()),
+            )
+            if contract.id not in talked or slot.due_on > talked[contract.id]
+        ]
         for contract in items
         if contract.start_date is not None
     }
@@ -299,6 +374,7 @@ async def ensure_plans(
             .returning(CarePlanItem.id)
         )
         created += len((await db.execute(statement)).scalars().all())
+    await close_covered(db, [cid for cid in ids if cid in talked])
     return created
 
 

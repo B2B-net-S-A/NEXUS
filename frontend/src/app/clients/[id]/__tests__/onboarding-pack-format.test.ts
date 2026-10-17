@@ -39,7 +39,7 @@ describe("termin względem startu", () => {
 describe("zapis pakietu", () => {
   it("wysyła wszystkie części z wersją, od której zaczęła się edycja", () => {
     const draft = draftFromPack(packFixture());
-    const payload = saveFromDraft(draft, { equipment: true, rest: true }, 3);
+    const payload = saveFromDraft(draft, { equipment: true, rest: true }, 3, "nasz");
     expect(payload.expected_version).toBe(3);
     expect(payload.equipment?.ours).toEqual([{ name: "Laptop 14 cali", note: null }]);
     expect(payload.first_day).toEqual({ contact_id: null, place: "ul. Przykładowa 20", time: "09:00", bring: null });
@@ -57,13 +57,30 @@ describe("zapis pakietu", () => {
 
   it("recepcja wysyła tylko część sprzętową", () => {
     const draft = draftFromPack(packFixture());
-    const payload = saveFromDraft(draft, { equipment: true, rest: false }, 3);
+    const payload = saveFromDraft(draft, { equipment: true, rest: false }, 3, "nasz");
     expect(Object.keys(payload).sort()).toEqual(["equipment", "expected_version"]);
   });
 
-  it("nowy pakiet nie ma wersji do sprawdzenia", () => {
+  it("nowy pakiet wysyła wersję 0 — serwer odmówi, gdy ktoś zdążył go założyć", () => {
     const draft = draftFromPack(packFixture({ exists: false, version: 0 }));
-    expect(saveFromDraft(draft, { equipment: true, rest: true }, 0).expected_version).toBeUndefined();
+    expect(saveFromDraft(draft, { equipment: true, rest: true }, 0, "nasz").expected_version).toBe(0);
+  });
+
+  it("flaga sprzętu idzie tylko przy zmianie, z wartością, od której zaczęła się edycja", () => {
+    const draft = draftFromPack(packFixture());
+    const unchanged = saveFromDraft(draft, { equipment: true, rest: true }, 3, "nasz");
+    expect(unchanged.equipment).not.toHaveProperty("provider");
+    expect(unchanged.equipment).not.toHaveProperty("expected_provider");
+    const changed = saveFromDraft(
+      { ...draft, provider: "klienta" },
+      { equipment: true, rest: true },
+      3,
+      "nasz",
+    );
+    expect(changed.equipment).toMatchObject({ provider: "klienta", expected_provider: "nasz" });
+    expect(isDirty(draft, { ...draft, provider: "klienta" }, { equipment: true, rest: false })).toBe(
+      true,
+    );
   });
 
   it("widzi zmianę tylko w częściach, które osoba może zapisać", () => {

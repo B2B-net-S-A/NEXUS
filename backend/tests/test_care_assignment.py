@@ -24,6 +24,7 @@ from app.core.scheduling import business_today
 from app.models.app_setting import AppSetting
 from app.models.contract import ContractStatus
 from app.models.contract_care import CLIENTS_CARE, CONTRACTS_CARE
+from app.models.hr_ops import HrAuditEvent
 from app.models.user import UserRole
 from app.services.care import cadence
 from app.services.care import plan as care_plan
@@ -39,6 +40,7 @@ from tests.test_care_cadence import (
     audit_events,
     divisions_reset,  # noqa: F401  (fixture)
     make_back_office_head,
+    set_division_heads,
     set_owner,
 )
 
@@ -310,3 +312,142 @@ async def test_timeline_shows_rhythm_changes_and_return(app_client) -> None:
     assert back["title"] == "Rytm wraca: co miesiąc"
     assert back["on"] == (until + timedelta(days=1)).isoformat()
     assert back["future"] is True
+
+
+@pytest.mark.usefixtures("care_on", "divisions_reset")
+async def test_back_office_head_without_delivery_reads_changes_and_assigns(
+    app_client, threshold_reset
+) -> None:
+    """O8 i O10: head back office to dowolne konto — także bez sekcji Delivery.
+
+    Czyta „Konsultantów” i „Przydział” u wszystkich klientów, zmienia rytm
+    i przydziela opiekunów; takie samo konto bez funkcji head back office dostaje 403.
+    """
+
+    head = await make_user(UserRole.user)
+    plain = await make_user(UserRole.user)
+    await set_division_heads({"front_office": None, "back_office": head.id})
+    dl = await make_user(UserRole.delivery_lead)
+    target = await make_user(UserRole.talent_community_manager)
+    contract_id, _ = await make_contract(await make_client(dl=dl), started_days_ago=200)
+    cadence_url = f"/api/care/contracts/{contract_id}/cadence"
+    assign_body = {
+        "contract_ids": [contract_id],
+        "owner_user_id": target.id,
+        "reason": "balance_load",
+    }
+
+    listing = await app_client.get("/api/care/consultants", headers=headers(head))
+    assert listing.status_code == 200, listing.text
+    row = next(r for r in listing.json()["items"] if r["contract_id"] == contract_id)
+    assert row["can_change_cadence"] is True
+    view = await app_client.get(cadence_url, headers=headers(head))
+    assert view.status_code == 200, view.text
+    assert view.json()["can_edit"] is True
+    saved = await app_client.post(
+        cadence_url,
+        headers=headers(head),
+        json={"level": "quarterly", "reason": "stable"},
+    )
+    assert saved.status_code == 201, saved.text
+    overview = await app_client.get("/api/care/assignment", headers=headers(head))
+    assert overview.status_code == 200, overview.text
+    assert overview.json()["can_assign"] is True
+    assert contract_id in {r["contract_id"] for r in overview.json()["items"]}
+    assigned = await app_client.post(
+        "/api/care/assignment", headers=headers(head), json=assign_body
+    )
+    assert assigned.status_code == 200, assigned.text
+    assert assigned.json()["changed"] == 1
+    threshold = await app_client.put(
+        "/api/care/assignment/threshold",
+        headers=headers(head),
+        json={"monthly_conversations": 40},
+    )
+    assert threshold.status_code == 200, threshold.text
+
+    for method, url, body in (
+        ("GET", "/api/care/consultants", None),
+        ("GET", cadence_url, None),
+        ("POST", cadence_url, {"level": "monthly", "reason": "stable"}),
+        ("GET", "/api/care/assignment", None),
+        ("POST", "/api/care/assignment", assign_body),
+        ("PUT", "/api/care/assignment/threshold", {"monthly_conversations": 5}),
+    ):
+        denied = await app_client.request(
+            method, url, headers=headers(plain), json=body
+        )
+        assert denied.status_code == 403, (method, url, denied.text)
+
+
+@pytest.mark.usefixtures("care_on", "divisions_reset")
+async def test_back_office_head_sees_every_client_not_only_a_portfolio(
+    app_client,
+) -> None:
+    """Head back office z rolą Delivery Leada: zakres wszystkich klientów."""
+
+    head = await make_user(UserRole.delivery_lead)
+    await set_division_heads({"front_office": None, "back_office": head.id})
+    target = await make_user(UserRole.talent_community_manager)
+    foreign, _ = await make_contract(
+        await make_client(dl=await make_user(UserRole.delivery_lead)),
+        started_days_ago=200,
+    )
+
+    listing = await app_client.get("/api/care/consultants", headers=headers(head))
+    assert foreign in {r["contract_id"] for r in listing.json()["items"]}
+    view = await app_client.get(
+        f"/api/care/contracts/{foreign}/cadence", headers=headers(head)
+    )
+    assert view.status_code == 200, view.text
+    overview = await app_client.get("/api/care/assignment", headers=headers(head))
+    assert foreign in {r["contract_id"] for r in overview.json()["items"]}
+    assigned = await app_client.post(
+        "/api/care/assignment",
+        headers=headers(head),
+        json={
+            "contract_ids": [foreign],
+            "owner_user_id": target.id,
+            "reason": "client_change",
+        },
+    )
+    assert assigned.status_code == 200, assigned.text
+    assert await _explicit_owner(foreign) == target.id
+
+
+@pytest.mark.usefixtures("care_on")
+async def test_timeline_names_the_work_handover_as_owner_change_reason(
+    app_client,
+) -> None:
+    """Przekazanie pracy przy odejściu opiekuna (``hr.handover``) ma etykietę."""
+
+    leaver = await make_user(UserRole.talent_community_manager)
+    receiver = await make_user(UserRole.talent_community_manager)
+    contract_id, _ = await make_contract(await make_client(), started_days_ago=60)
+    await set_owner(contract_id, receiver.id)
+    async with AsyncSessionLocal() as db:
+        # Ten sam ślad, który zapisuje ``handover._transfer_care``.
+        db.add(
+            HrAuditEvent(
+                actor_user_id=None,
+                subject_user_id=receiver.id,
+                entity_type="contract",
+                entity_id=str(contract_id),
+                action="care.owner_set",
+                details={
+                    "previous": leaver.id,
+                    "owner": receiver.id,
+                    "reason": "handover",
+                    "source": "hr_work_handover",
+                },
+            )
+        )
+        await db.commit()
+
+    timeline = await app_client.get(
+        f"/api/care/contracts/{contract_id}/timeline", headers=headers(receiver)
+    )
+    assert timeline.status_code == 200, timeline.text
+    event = next(e for e in timeline.json()["events"] if e["kind"] == "owner")
+    assert event["title"] == f"Opiekun: {receiver.name}"
+    assert event["detail"] == "przekazanie pracy przy odejściu opiekuna"

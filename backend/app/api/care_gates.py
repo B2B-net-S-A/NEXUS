@@ -17,7 +17,11 @@ Dostęp (decyzja D7 i zadanie E5, 16.10.2026):
   head back office i admin (sprawdza serwis ``care/cadence`` per kontrakt);
   przydział wielu konsultantów naraz i próg obciążenia — head back office
   (``app_settings['hr_divisions']``) i admin (``require_hr_care_assigner``).
-  DL zmienia opiekuna pojedynczo u swoich klientów jak dotąd.
+  DL zmienia opiekuna pojedynczo u swoich klientów jak dotąd. Head back
+  office to dowolne konto (``hr/structure.py``), więc „Konsultanci”, rytm
+  i „Przydział” (``require_hr_care_rhythm_reader``, ``CareAssigner``)
+  przepuszczają go także bez sekcji i podglądu Delivery — z zakresem
+  wszystkich klientów (``care_access.rhythm_scope``); reszta jak odczyt.
 * **Struktura u klienta i opinie klienta** (etap 2, D8–D11, 17.10.2026) —
   czytają opiekun (DL, TCM, admin) i Head of Recruitment; Finanse i Kadry
   z samego uprawnienia nie (D11). Opinię zapisują piszący opiekę, a „Podlega
@@ -30,11 +34,12 @@ Nazwy fabryk zaczynają się od ``require_hr_`` — test kontraktu tras
 
 from __future__ import annotations
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import (
     Caller,
+    require_onboarded_user,
     require_permission_or_roles,
     require_roles,
     require_service_scope,
@@ -54,6 +59,7 @@ from app.services.care import access as care_access
 from app.services.care import cadence as care_cadence
 from app.services.hr import modules as hr_modules
 from app.services.hr.modules import HrModule
+from app.services.permission_denial import ensure_permission
 from app.services.section_permissions import ProductSection
 
 WRITER_DENIED = (
@@ -123,14 +129,47 @@ def require_hr_care_writer():
     return _check
 
 
+async def _delivery_or_back_office_head(
+    request: Request, user: User, db: AsyncSession
+) -> None:
+    """Wejście ``CareReader`` (podgląd i sekcja Delivery) albo head back office.
+
+    Kolejność i treść odmowy jak w ``CareReader``: najpierw uprawnienie, potem
+    sekcja. Head back office przechodzi mimo odmowy (O8, O10).
+    """
+
+    try:
+        ensure_permission(user, ProductAction.delivery_view)
+        await _DELIVERY_SECTION(request, user)
+    except HTTPException:
+        if not await care_cadence.is_back_office_head(db, user):
+            raise
+
+
+def require_hr_care_rhythm_reader():
+    """„Konsultanci”, rytm kontaktu i „Przydział”: czytelnicy opieki i head back office."""
+
+    async def _check(
+        request: Request,
+        current_user: User = Depends(require_onboarded_user),
+        db: AsyncSession = Depends(get_db),
+    ) -> User:
+        await _delivery_or_back_office_head(request, current_user, db)
+        await ensure_module(db, current_user, HrModule.care)
+        return current_user
+
+    return _check
+
+
 def require_hr_care_assigner():
     """Przydział wielu konsultantów naraz i próg obciążenia: head back office, admin."""
 
     async def _check(
-        viewer: DeliveryViewUser,
-        current_user: User = Depends(_DELIVERY_SECTION),
+        request: Request,
+        current_user: User = Depends(require_onboarded_user),
         db: AsyncSession = Depends(get_db),
     ) -> User:
+        await _delivery_or_back_office_head(request, current_user, db)
         await ensure_module(db, current_user, HrModule.care)
         if not current_user.has_role(
             UserRole.admin
@@ -255,6 +294,7 @@ def can_curate(user: User) -> bool:
 CareReader = require_hr_care_reader()
 CareWriter = require_hr_care_writer()
 CareAssigner = require_hr_care_assigner()
+RhythmReader = require_hr_care_rhythm_reader()
 ReviewReader = require_hr_care_review_reader()
 SkillCurator = require_hr_care_skill_curator()
 AtlasReader = require_hr_care_atlas_reader()

@@ -611,6 +611,7 @@ export type EntryMissingReason =
   | "no_start"
   | "closed"
   | "no_path"
+  | "not_yet"
   | "module_off";
 
 /** Karta „Z czego to powstało” (M6). */
@@ -633,6 +634,10 @@ export interface ContractEntryView {
   case: LifecycleCase | null;
   composition: EntryComposition;
   missing_reason: EntryMissingReason | null;
+  /** Dzień, w którym lista założy się sama (14 dni przed startem). */
+  auto_create_on?: string | null;
+  /** Pakiet klienta nie wczytał się przy zakładaniu — pozycje dojdą później. */
+  pack_failed?: boolean;
   can_create: boolean;
   can_add_task: boolean;
   /** Stare pozycje `contract_onboarding_items` (tylko do odczytu). */

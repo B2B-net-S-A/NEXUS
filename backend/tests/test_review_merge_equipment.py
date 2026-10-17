@@ -561,6 +561,28 @@ async def _entry_case(db, contract_id: int, *, status: str, key: str | None) -> 
     )
 
 
+async def _entry_task(
+    db,
+    case_id: int,
+    *,
+    key: str,
+    done_at: datetime | None = None,
+    done_by: int | None = None,
+) -> int:
+    return await _insert(
+        db,
+        "INSERT INTO lifecycle_tasks (case_id, title, category, assignee_kind, "
+        "status, done_at, done_by, key, source) VALUES (:case, :title, 'other', "
+        "'care_owner', CAST(:st AS VARCHAR), :at, :by, :key, 'client')",
+        case=case_id,
+        title=f"Zadanie {key}",
+        st="done" if done_at else "open",
+        at=done_at,
+        by=done_by,
+        key=key,
+    )
+
+
 @pytest.mark.parametrize("survivor_has_entry", [True, False])
 async def test_contract_merge_carries_care_rhythm_mails_and_consultant_entry(
     survivor_has_entry: bool,
@@ -622,6 +644,38 @@ async def test_contract_merge_carries_care_rhythm_mails_and_consultant_entry(
                 entries["s_live"] = await _entry_case(
                     db, sid, status="active", key=f"contract:{sid}:entry"
                 )
+            # Postęp wejścia duplikatu: zrobione zadanie i sprawa administracja@.
+            ticked_at = datetime(2026, 10, 12, 9, 30, tzinfo=timezone.utc)
+            tasks = {
+                "l_nda": await _entry_task(
+                    db,
+                    entries["l_live"],
+                    key="pack:nda",
+                    done_at=ticked_at,
+                    done_by=owner.id,
+                ),
+                "l_mail": await _entry_task(db, entries["l_live"], key="welcome_mail"),
+            }
+            if survivor_has_entry:
+                tasks["s_nda"] = await _entry_task(
+                    db, entries["s_live"], key="pack:nda"
+                )
+                tasks["s_other"] = await _entry_task(
+                    db, entries["s_live"], key="pack:vpn"
+                )
+                tasks["s_mail"] = await _entry_task(
+                    db, entries["s_live"], key="welcome_mail"
+                )
+            admin_case = await _insert(
+                db,
+                "INSERT INTO admin_cases (title, area, source, source_key, "
+                "contract_id, lifecycle_case_id) VALUES ('Wejście konsultanta: "
+                "Scalana Przykładowa', 'onboarding', 'contract', :key, :c, :lc)",
+                key=f"contract:{lid}:start",
+                c=lid,
+                lc=entries["l_live"],
+            )
+            ids["cases"] = [admin_case]
             await db.commit()
 
             manifest = ContractMergeManifest(same_client_groups=((sid, lid),))
@@ -677,6 +731,34 @@ async def test_contract_merge_carries_care_rhythm_mails_and_consultant_entry(
                     entries["l_live"]: (sid, "active", f"contract:{sid}:entry"),
                     entries["l_done"]: (sid, "done", None),
                 }
+            state = {
+                row.id: (row.status, row.done_by, row.done_at)
+                for row in await db.execute(
+                    text(
+                        "SELECT id, status, done_by, done_at FROM lifecycle_tasks "
+                        "WHERE id = ANY(:ids)"
+                    ),
+                    {"ids": list(tasks.values())},
+                )
+            }
+            kept = entries["s_live"] if survivor_has_entry else entries["l_live"]
+            if survivor_has_entry:
+                # Zrobione u duplikatu przechodzi na to samo zadanie zachowanej
+                # sprawy — z datą i osobą odhaczenia; reszta zostaje otwarta.
+                assert state[tasks["s_nda"]] == ("done", ids["users"][0], ticked_at)
+                assert state[tasks["s_other"]][0] == "open"
+                mail_task = tasks["s_mail"]
+            else:
+                mail_task = tasks["l_mail"]
+            # Kontrakt ma po scaleniu wysłany mail — zadanie maila zamknięte.
+            assert state[mail_task][0] == "done"
+            assert (
+                await db.scalar(
+                    text("SELECT lifecycle_case_id FROM admin_cases WHERE id = :id"),
+                    {"id": admin_case},
+                )
+                == kept
+            )
     finally:
         async with AsyncSessionLocal() as db:
             if ids.get("contracts"):

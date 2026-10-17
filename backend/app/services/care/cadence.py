@@ -12,6 +12,8 @@
   koniec zamówienia za mniej niż 45 dni, „chce zmiany projektu” i „ryzyko
   odejścia” z rozmów („Do przepięcia”), zaległa rozmowa. Długiej
   nieobecności konsultanta NEXUS nie zna (konsultant nie ma kartoteki).
+  „Koniec projektu” z „Do przepięcia” też stoi przy osobie (był w dawnej
+  liście), ale podnieść rytmu nie podpowiada — O9 go nie wymienia.
 """
 
 from __future__ import annotations
@@ -41,7 +43,8 @@ from app.services.care.cadence_rules import (
     transitions,
 )
 from app.services.care.week import client_managers
-from app.services.hr import audit, structure
+from app.services.hr import audit
+from app.services.hr.lifecycle_templates import is_back_office_head
 
 LEVEL_LABELS: dict[str, str] = {
     "biweekly": "co 2 tygodnie",
@@ -98,11 +101,6 @@ class Changer:
             or (owner_id is not None and owner_id == self.user_id)
             or contract.client_id in self.dl_clients
         )
-
-
-async def is_back_office_head(db: AsyncSession, user: User) -> bool:
-    heads = await structure.load_division_heads(db)
-    return heads.get("back_office") == user.id
 
 
 async def changer(db: AsyncSession, user: User) -> Changer:
@@ -270,7 +268,12 @@ async def signals_for(
         end = contract.end_date
         if end is not None and 0 <= (end - today).days < ORDER_END_SIGNAL_DAYS:
             signals.append({"kind": "order_end", "days": (end - today).days, "on": end})
-        reasons = {item.reason for item in redeploy.get(contract.id, ())}
+        active = redeploy.get(contract.id, ())
+        project_end = next((i for i in active if i.reason == "project_end"), None)
+        if project_end is not None:
+            # Jak w dawnej liście „Moi konsultanci”; rytmu nie podpowiada (O9).
+            signals.append({"kind": "project_end", "on": project_end.due_on})
+        reasons = {item.reason for item in active}
         for reason in ("wants_change", "attrition_risk"):
             if reason in reasons:
                 signals.append({"kind": reason})

@@ -29,14 +29,19 @@ import {
   useCreateContractEntry,
   useUpdateTask,
   type AssigneeKind,
-  type ContractEntryView,
   type LifecycleTask,
 } from "@/lib/api/hr-lifecycle";
 import { CALM_HEAD, CALM_ROW, CALM_SUBLINE } from "@/lib/calm-table";
 import { formatDayMonthPl, formatIsoDatePl } from "@/lib/date-pl";
 import { isNotFoundError, resolveViewState } from "@/lib/view-state";
 
-import { entrySteps, missingReasonText, taskSourceLabel } from "./entry-format";
+import {
+  createLabel,
+  entrySteps,
+  missingReasonText,
+  taskSourceLabel,
+  type EntryView,
+} from "./entry-format";
 import { WelcomeMailCard } from "./WelcomeMailCard";
 
 const EQUIPMENT_LABELS = { ours: "od nas", client: "od klienta" } as const;
@@ -80,7 +85,7 @@ export function ContractEntryTab({ contractId, readOnly = false }: ContractEntry
       />
     );
   }
-  const view = query.data;
+  const view = query.data as EntryView;
   if (!view.module_on) {
     return <ContractOnboardingTab contractId={contractId} readOnly={readOnly} />;
   }
@@ -102,12 +107,14 @@ export function ContractEntryTab({ contractId, readOnly = false }: ContractEntry
   );
 }
 
-function MissingEntry({ view }: { view: ContractEntryView }) {
+function MissingEntry({ view }: { view: EntryView }) {
   const { showToast } = useToast();
   const create = useCreateContractEntry(view.contract_id);
   return (
     <Card className="space-y-3 p-4">
-      <p className="text-sm text-foreground">{missingReasonText(view.missing_reason)}</p>
+      <p className="text-sm text-foreground">
+        {missingReasonText(view.missing_reason, view.auto_create_on)}
+      </p>
       {view.can_create ? (
         <Button
           size="sm"
@@ -120,14 +127,14 @@ function MissingEntry({ view }: { view: ContractEntryView }) {
             })
           }
         >
-          Załóż listę wejścia
+          {createLabel(view.missing_reason)}
         </Button>
       ) : null}
     </Card>
   );
 }
 
-function EntryList({ view }: { view: ContractEntryView }) {
+function EntryList({ view }: { view: EntryView }) {
   const data = view.case!;
   const live = data.status === "draft" || data.status === "active";
   const steps = entrySteps(data.tasks, data.start_date);
@@ -263,7 +270,7 @@ function Fact({ label, children }: { label: string; children: React.ReactNode })
   );
 }
 
-function CompositionCard({ view }: { view: ContractEntryView }) {
+function CompositionCard({ view }: { view: EntryView }) {
   const data = view.case!;
   const { composition } = view;
   const fromClient = data.tasks.filter((task) => task.source === "client").length;
@@ -286,7 +293,7 @@ function CompositionCard({ view }: { view: ContractEntryView }) {
           : "bez ścieżki"}
       </Fact>
       <Fact label="Pakiet klienta">
-        {composition.client_name ?? "—"} ({fromClient})
+        {view.pack_failed ? "nie wczytał się" : `${composition.client_name ?? "—"} (${fromClient})`}
       </Fact>
       <Fact label="Forma">
         {composition.employment_label ?? "—"} ({fromForm})
@@ -296,6 +303,12 @@ function CompositionCard({ view }: { view: ContractEntryView }) {
       </Fact>
       <Fact label="Opiekun">{composition.care_owner?.name ?? "bez opiekuna"}</Fact>
       <Fact label="Menedżer u klienta">{composition.client_manager ?? "—"}</Fact>
+      {view.pack_failed ? (
+        <p className="pt-1 text-xs text-warning-muted-foreground">
+          Pakiet klienta nie wczytał się przy zakładaniu listy — jego pozycje dojdą same przy
+          kolejnym przeglądzie startów.
+        </p>
+      ) : null}
     </Card>
   );
 }

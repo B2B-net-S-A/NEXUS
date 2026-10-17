@@ -109,6 +109,13 @@ describe("sygnały", () => {
     expect(signalText({ kind: "overdue", days: 3 })).toBe("zaległa 3 dni");
   });
 
+  it("„Koniec projektu” z „Do przepięcia” stoi w kolumnie sygnałów (jak w dawnej liście)", () => {
+    expect(signalText({ kind: "project_end", on: "2026-11-26" })).toBe("koniec projektu 26.11");
+    expect(signalText({ kind: "project_end", on: null })).toBe("koniec projektu");
+    const row = consultant({ signals: [{ kind: "project_end", on: "2026-11-26" }] });
+    expect(rowSignals(row)).toEqual([{ kind: "project_end", on: "2026-11-26" }]);
+  });
+
   it("zaległość stoi przy następnej rozmowie, nie w kolumnie sygnałów", () => {
     const row = consultant({ signals: [{ kind: "overdue", days: 3 }, { kind: "wants_change" }] });
     expect(rowSignals(row)).toEqual([{ kind: "wants_change" }]);

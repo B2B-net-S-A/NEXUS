@@ -50,6 +50,8 @@ describe("AnnouncementsTab", () => {
     renderTab(new QueryClient({ defaultOptions: { queries: { retry: false } } }));
     expect(await screen.findByText("Nie ma jeszcze komunikatów")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Nowy komunikat" })).toBeInTheDocument();
+    // Trasa backendu ma prefiks /api — bez niego lista dostawała 404 („Nie znaleziono”).
+    expect(api.get).toHaveBeenCalledWith("/api/care/announcements");
   });
 
   it("szkic autora z adresu otwiera edytor", async () => {
@@ -58,10 +60,11 @@ describe("AnnouncementsTab", () => {
     client.setQueryData(announcementKeys.list, list("author"));
     client.setQueryData(announcementKeys.detail(DRAFT_ID), detail(DRAFT_ID, "author"));
     client.setQueryData(announcementKeys.options, options());
-    client.setQueryData(announcementKeys.preview("mandatory", { group: "all" }), preview());
+    client.setQueryData(announcementKeys.preview("mandatory", { group: "all" }, DRAFT_ID), preview());
     renderTab(client);
     expect(await screen.findByRole("heading", { name: "Szkic komunikatu" })).toBeInTheDocument();
     expect(screen.getByLabelText("Temat")).toHaveValue("Ankieta o sprzęcie od klienta");
     expect(api.get).not.toHaveBeenCalled();
+    expect(api.post).not.toHaveBeenCalled();
   });
 });
