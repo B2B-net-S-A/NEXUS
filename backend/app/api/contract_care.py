@@ -27,6 +27,11 @@ Dostęp (decyzja D7 i zadanie E5, 16.10.2026):
   17.10.2026) — czytają czytelnicy opieki (zakres jak lista opieki), prośby
   o opinię i opinie na osi tylko role z D11 (Finanse widzą resztę);
   przekazanie zapisują piszący opiekę.
+* **„Konsultanci”, rytm kontaktu i „Przydział”** (etap 3, O7–O10,
+  17.10.2026) — trasy w ``app/api/care_consultants.py``, dołączone na końcu
+  tego modułu (ten sam prefiks). „Pomiń” punkt planu wymaga powodu z listy
+  i zostawia ślad ``care.plan_item_skipped``; zmiana opiekuna niesie powód
+  i poprzedniego opiekuna w śladzie ``care.owner_set``.
 """
 
 from __future__ import annotations
@@ -82,6 +87,7 @@ from app.services.contract_care_schema import (
     NOTE_MAX,
     SHORT_TEXT_MAX,
 )
+from app.services.care.assignment import OwnerReason
 from app.services.hr import audit
 
 router = APIRouter()
@@ -110,6 +116,12 @@ async def contract_care(
 
 class OwnerBody(BaseModel):
     user_id: Optional[int] = None
+    #: Powód zmiany (etap 3) — na osi konsultanta; stare wywołania go nie mają.
+    reason: Optional[OwnerReason] = None
+
+
+class DefaultOwnerBody(BaseModel):
+    user_id: Optional[int] = None
 
 
 @router.put("/contracts/{contract_id}/owner")
@@ -122,6 +134,7 @@ async def set_contract_owner(
     contract = await care_access.load_contract(db, contract_id, current_user)
     if body.user_id is not None:
         await care_access.validate_owner(db, body.user_id, client_id=contract.client_id)
+    previous = (await care_access.effective_owners(db, [contract]))[contract.id]
     await db.execute(
         update(CONTRACTS_CARE)
         .where(CONTRACTS_CARE.c.id == contract.id)
@@ -134,7 +147,12 @@ async def set_contract_owner(
         entity_type="contract",
         entity_id=contract.id,
         action="care.owner_set",
-        details={"previous": contract.explicit_owner_id, "owner": body.user_id},
+        details={
+            "previous": contract.explicit_owner_id,
+            "previous_effective": previous.user_id,
+            "owner": body.user_id,
+            "reason": body.reason,
+        },
     )
     fresh = await care_access.load_contract(db, contract_id, current_user)
     return await care_overview.contract_overview(db, fresh, current_user)
@@ -176,8 +194,16 @@ async def add_conversation(
     return await care_overview.contract_overview(db, contract, current_user)
 
 
+SkipReason = Literal[
+    "recent_contact", "unreachable", "absence", "person_request", "ending", "other"
+]
+
+
 class PlanItemBody(BaseModel):
     status: Literal["open", "skipped"]
+    #: Powód „Pomiń” (wymagany przy ``skipped``) i notatka.
+    reason: Optional[SkipReason] = None
+    note: Optional[str] = Field(default=None, max_length=SHORT_TEXT_MAX)
 
 
 @router.patch("/plan-items/{item_id}")
@@ -195,9 +221,32 @@ async def update_plan_item(
         raise HTTPException(
             status.HTTP_409_CONFLICT, "Ten kontakt jest już zapisany rozmową."
         )
+    skipping = body.status == "skipped"
+    if skipping and body.reason is None:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY, "Podaj powód pominięcia."
+        )
     item.status = body.status
-    item.resolved_at = local_now() if body.status == "skipped" else None
-    item.resolved_by = current_user.id if body.status == "skipped" else None
+    item.resolved_at = local_now() if skipping else None
+    item.resolved_by = current_user.id if skipping else None
+    item.skip_reason = body.reason if skipping else None
+    item.skip_note = (" ".join((body.note or "").split()) or None) if skipping else None
+    details: dict[str, Any] = {
+        "plan_item_id": item.id,
+        "kind": item.kind,
+        "due_on": item.due_on.isoformat(),
+    }
+    if skipping:
+        details["reason"] = body.reason
+    audit.record(
+        db,
+        actor_user_id=current_user.id,
+        subject_user_id=None,
+        entity_type="contract",
+        entity_id=contract.id,
+        action="care.plan_item_skipped" if skipping else "care.plan_item_restored",
+        details=details,
+    )
     await db.flush()
     return await care_overview.contract_overview(db, contract, current_user)
 
@@ -391,7 +440,7 @@ async def add_client_area(
 @router.put("/clients/{client_id}/default-owner")
 async def set_client_default_owner(
     client_id: int,
-    body: OwnerBody,
+    body: DefaultOwnerBody,
     current_user: User = Depends(CareWriter),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
@@ -865,3 +914,9 @@ async def care_summary(
         "can_edit": care_access.is_care_worker(current_user),
         "can_curate": can_curate(current_user),
     }
+
+
+# „Konsultanci”, rytm kontaktu i „Przydział” (etap 3) — ten sam prefiks ``/api/care``.
+from app.api import care_consultants  # noqa: E402
+
+router.include_router(care_consultants.router)

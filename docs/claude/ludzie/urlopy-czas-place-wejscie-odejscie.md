@@ -364,3 +364,71 @@ decyduje o słowach i o przebiegu nieobecności.
   awaria (503), nie „wszyscy odeszli”. Przy włączonym module `lifecycle` przepływ
   `compass_lifecycle` (NEXUS ciągnął roster Compassa) zwraca
   `superseded_by_hr_lifecycle`.
+
+### Ścieżki i wejście konsultanta (etap 3, O1, O4–O6, O11, 17.10.2026)
+
+- **Ścieżki zamiast list** (O1): szablon ma odbiorców (`audience`: `team` —
+  zespół wewnętrzny z kontem, `consultant` — konsultant u klienta bez konta)
+  i wersję. Pozycja: termin w dniach roboczych, wykonawca (rola: przełożony,
+  Kadry, recepcja, IT, osoba, opiekun kontraktu `care_owner`, DL klienta
+  `delivery_lead`, administracja `administration` = uprawnienie „Sprawy”),
+  opis, „wymagane”, „z plikiem”, warunki (`employment_types`, `equipment`
+  `ours`/`client` z `clients.equipment_provider`, `student`) i stały klucz
+  (`key`). Warunek zamiast osobnej ścieżki: pozycja pojawia się tylko tam,
+  gdzie pasuje. Sprzęt nieznany (klient bez ustawienia) = bez pozycji sprzętu
+  (jak hak Sprzętu); student nieznany (konsultant nie ma kartoteki) = pozycja
+  zostaje z dopiskiem „jeśli nie jest studentem, pomiń”.
+- **Kto zmienia** (O4): Kadry — `team`, head back office
+  (`structure.load_division_heads()['back_office']`) — `consultant`, admin —
+  obie; każdy z nich widzi obie (`can_edit` w odpowiedzi). Odbiorców ani
+  rodzaju ścieżki nie da się zmienić zapisem (422). Pozycji z kluczem nie da
+  się usunąć (422) — czytają ją inne moduły (`welcome_mail` — mail powitalny,
+  `equipment_kit`, `equipment_issue`).
+- **Wersje** (O5): każdy zapis = wersja + 1, nowa pozycja pamięta
+  `added_in_version`, sprawa — `template_version`. Nowe sprawy dostają
+  bieżącą wersję, trwające zostają na swojej; „Dociągnij do trwających”
+  (`POST /templates/{id}/catch-up`) tylko DOPISUJE brakujące pozycje nowszej
+  wersji, które pasują do warunków sprawy. Zmiana daty sprawy przelicza ją do
+  bieżącej wersji (jak dotąd: terminy otwartych, nowe pozycje, znikają otwarte
+  spoza ścieżki).
+- **Wejście konsultanta** (`lifecycle_entry.py`): sprawa `audience =
+  'consultant'` przy kontrakcie (`contract_id` bez FK, klucz
+  `contract:{id}:entry`), bez konta osoby. Zakłada ją hak startu kontraktu
+  i przegląd nadchodzących startów (`contract_hooks`, krok `lifecycle` PRZED
+  sprawą administracja@); kontrakt ze startem w przeszłości — tylko ręcznie
+  („Załóż listę wejścia”). Lista = ścieżka „Konsultant u klienta” + pakiet
+  klienta (`client_pack.pack_tasks`: dokumenty, dostępy, odbiór od klienta;
+  awaria pakietu nie blokuje wejścia) + pozycje z warunkiem formy. Zestaw
+  i wydanie sprzętu są w ścieżce (warunek „sprzęt od nas”), opis zestawu
+  z `load_pack(...).equipment_ours`. Wykonawcy: opiekun jedną regułą opieki
+  (`care.access.effective_owners`, bez niego head back office), DL —
+  rekrutacji, a bez niego główny DL klienta (bez DL — opiekun); zadania
+  „osoby” i „przełożonego” odhacza opiekun (O6). Zmiana daty startu kontraktu
+  przelicza terminy otwartych zadań; unieważnienie anuluje wejście, trwałe
+  usunięcie je kasuje.
+- **Jedna lista zamiast trzech**: sprawa „Wejście konsultanta” w Sprawach
+  powstaje dalej, ale `lifecycle_case_id` wskazuje wejście, a checklista to
+  zadania „Administracja” (odhaczenie w liście → checklista,
+  `admin_cases.hooks.sync_entry_checklist`; w drugą stronę
+  `sync_entry_tasks_from_checklist`). Zestaw sprzętu to zadanie recepcji
+  `contract:{id}:start` z haka Sprzętu: lista pokazuje jego stan (`mirror`),
+  odhacza się je tylko w Sprzęcie (409 na liście), bez dzwonka i bez „Moich
+  zadań”. Administracja nie dostaje dzwonka (ma kartę sprawy).
+- Stare `contract_onboarding_items`: przy włączonym module tylko do odczytu
+  (POST/seed/PATCH/DELETE = 409), widoczne pod listą wejścia; wyłączony moduł
+  = jak dotąd (zakładka pokazuje starą listę).
+- Zakładka „Wejście” kontraktu: `GET /api/hr/lifecycle/contracts/{id}/entry`
+  (sekcja Delivery + podgląd Delivery, DL tylko u swoich klientów), lista,
+  kroki (przed startem / dzień startu / 2 tygodnie / do 30 dni), „Z czego to
+  powstało”, mail powitalny (G2). Prowadzą (dopisanie pozycji, odhaczanie
+  każdego zadania): opiekun, DL klienta, head back office, Kadry, admin.
+  `complete_task_by_key(db, contract_id=…, key=…, actor_id=…)` z
+  `lifecycle_service` odhacza pozycję z kluczem (mail powitalny).
+- **Opieka w przekazaniu** (O11): szósty rodzaj pracy `care` — kontrakty
+  odchodzącego opiekuna (bez końca i unieważnienia) i domyślne opieki klientów
+  przechodzą na przejmującego (ślad `care.owner_set` /
+  `care.default_owner_set` z `previous` i `reason: handover`); domyślnie
+  przejmuje head back office, bez niego przełożony. DL przejmie opiekę tylko
+  z wszystkimi tymi klientami w portfelu (`receiver_out_of_scope`).
+- „Koniec projektu konsultanta” jest zasiany, ale sprawy końca projektu
+  jeszcze nie powstają (zwrot sprzętu robi hak końca kontraktu jak dotąd).

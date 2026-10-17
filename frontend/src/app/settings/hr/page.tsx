@@ -11,7 +11,7 @@ export default function HrSettingsPage() {
   return (
     <HrConfigGate>
       {(config) =>
-        config.me.people_admin || config.me.is_admin ? (
+        config.me.people_admin || config.me.is_admin || config.me.back_office_head ? (
           <div className="mx-auto max-w-7xl space-y-6">
             <div>
               <h1 className="flex items-center gap-2 text-2xl font-bold text-foreground">

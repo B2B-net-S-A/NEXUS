@@ -9,6 +9,10 @@ zdarzenia „przed nami” (``future``).
 Bez stawek (zamówienie to tytuł, status i daty) i bez danych o zdrowiu —
 rozmowy opieki ich nie zbierają. Opinie klienta tylko dla ról z D11
 (trasa przekazuje ``include_feedback``): Finanse widzą oś bez nich.
+
+Etap 3 (O8, O10): zmiany rytmu kontaktu z powodem i autorem, powrót rytmu
+po dacie „do kiedy” (przed nami, gdy w przyszłości) i zmiany opiekuna ze
+śladu ``care.owner_set`` z powodem — zmianę widzi DL klienta na osi.
 """
 
 from __future__ import annotations
@@ -24,6 +28,7 @@ from app.core.scheduling import DEFAULT_TZ
 from app.models.client_order import ClientOrder, ClientOrderStatus
 from app.models.contact import Contact
 from app.models.contract_care import (
+    CareCadencePeriod,
     CareConversation,
     CarePlanItem,
     ClientArea,
@@ -33,11 +38,15 @@ from app.models.contract_care import (
     TechCard,
     TechCardSkill,
 )
+from app.models.hr_ops import HrAuditEvent
 from app.models.job import Job
 from app.services.care import access as care_access
 from app.services.care import client_feedback, front_office
 from app.services.care import plan as care_plan
 from app.services.care.access import CareContract
+from app.services.care.assignment import OWNER_REASON_LABELS
+from app.services.care.cadence import LEVEL_LABELS, REASON_LABELS
+from app.services.care.cadence_rules import transitions
 from app.services.care.week import client_managers, conversation_signals, excerpt
 from app.services.job_working_title import display_title
 
@@ -79,6 +88,9 @@ _KIND_ORDER = {
     "tech_card": 4,
     "feedback": 5,
     "redeploy": 6,
+    "owner": 6,
+    "cadence": 6,
+    "cadence_return": 6,
     "handoff": 7,
     "plan": 8,
     "order_end": 9,
@@ -364,6 +376,93 @@ async def _handoffs(
     return out
 
 
+async def _cadence(
+    db: AsyncSession, contract: CareContract, today: date
+) -> list[dict[str, Any]]:
+    periods: list[CareCadencePeriod] = (
+        await care_plan.periods_by_contract(db, [contract.id])
+    ).get(contract.id, [])
+    if not periods:
+        return []
+    names = await care_access.user_names(db, [p.created_by for p in periods])
+    out = []
+    for step in transitions(contract.start_date or date.min, periods):
+        label = LEVEL_LABELS.get(step.level, step.level)
+        if step.kind == "change":
+            period = step.period
+            parts = [REASON_LABELS.get(period.reason, period.reason)]
+            note = excerpt(period.note, 120)
+            if note:
+                parts.append(f"„{note}”")
+            if period.created_by in names:
+                parts.append(names[period.created_by])
+            if period.until_on is not None:
+                parts.append(f"do {period.until_on.strftime('%d.%m.%Y')}")
+            out.append(
+                _event(
+                    "cadence",
+                    step.on,
+                    f"Rytm: {label}",
+                    today=today,
+                    detail=" · ".join(parts),
+                )
+            )
+        elif step.kind == "return":
+            out.append(
+                _event("cadence_return", step.on, f"Rytm wraca: {label}", today=today)
+            )
+    return out
+
+
+async def _owners(
+    db: AsyncSession, contract_id: int, today: date
+) -> list[dict[str, Any]]:
+    events = (
+        await db.scalars(
+            select(HrAuditEvent)
+            .where(
+                HrAuditEvent.entity_type == "contract",
+                HrAuditEvent.entity_id == str(contract_id),
+                HrAuditEvent.action == "care.owner_set",
+            )
+            .order_by(HrAuditEvent.created_at, HrAuditEvent.id)
+        )
+    ).all()
+    if not events:
+        return []
+    names = await care_access.user_names(
+        db,
+        [
+            *(event.actor_user_id for event in events),
+            *((event.details or {}).get("owner") for event in events),
+        ],
+    )
+    out = []
+    for event in events:
+        details = event.details or {}
+        owner = details.get("owner")
+        title = (
+            f"Opiekun: {names.get(owner, '')}"
+            if owner is not None
+            else "Opiekun: domyślny (klient albo DL)"
+        )
+        parts = []
+        if details.get("reason"):
+            parts.append(OWNER_REASON_LABELS.get(details["reason"], details["reason"]))
+        if event.actor_user_id in names:
+            parts.append(names[event.actor_user_id])
+        out.append(
+            _event(
+                "owner",
+                front_office.local_day(event),
+                title,
+                today=today,
+                detail=" · ".join(parts) or None,
+            )
+        )
+    return out
+
+
 async def _next_plan(
     db: AsyncSession, contract_id: int, today: date
 ) -> Optional[dict[str, Any]]:
@@ -412,6 +511,8 @@ async def contract_timeline(
         *(await _orders(db, contract.id, today)),
         *(await _redeploy(db, contract.id, today)),
         *(await _handoffs(db, contract.id, today)),
+        *(await _cadence(db, contract, today)),
+        *(await _owners(db, contract.id, today)),
         _event(
             "contract_end",
             contract.contract_end_date,

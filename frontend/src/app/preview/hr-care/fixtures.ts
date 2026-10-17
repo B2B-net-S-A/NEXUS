@@ -4,8 +4,9 @@
  *
  * Daty liczymy od „dziś” przeglądarki (`warsawToday`, jak ekran), żeby kontrakt
  * zawsze był w 45. dniu współpracy: start = dziś − 44 (serwer liczy dzień jako
- * `(dziś − start) + 1`), plan 7/30/90 dni od startu, karta technologiczna
- * w 31. dniu (zamyka kontakt „Dzień 30”).
+ * `(dziś − start) + 1`). Plan z rytmu (etap 3): kamień „Dzień 7” i rozmowy co
+ * 2 tygodnie przez pierwsze 90 dni — dzień 28 pominięty z powodem (karta
+ * technologiczna w 31. dniu), dzień 56 następny.
  */
 
 import {
@@ -14,7 +15,6 @@ import {
   type CarePlanItem,
   type CareSummary,
   type ContractCare,
-  type MyConsultantRow,
   type PersonRef,
   type RedeployRow,
   type SkillReviewRow,
@@ -28,9 +28,8 @@ export const CARE_CLIENT = HR_CLIENTS.bank;
 
 const ref = (person: { id: number; name: string }): PersonRef => ({ id: person.id, name: person.name });
 const natalia = ref(HR_CAST.natalia);
-const kamil = ref(HR_CAST.kamil);
 
-export const CARE_OWNERS: PersonRef[] = [natalia, kamil, ref(HR_CAST.adam)];
+export const CARE_OWNERS: PersonRef[] = [natalia, ref(HR_CAST.kamil), ref(HR_CAST.adam)];
 
 export const CLIENT_AREAS = [
   { id: 301, name: "Płatności" },
@@ -118,18 +117,23 @@ function planItem(
   dueOn: string,
   doneOn: string | null,
   conversationId: number | null = null,
+  skipReason: CarePlanItem["skip_reason"] = null,
 ): CarePlanItem {
   return {
     id,
     kind,
     label,
     due_on: dueOn,
-    status: doneOn ? "done" : "open",
+    status: skipReason ? "skipped" : doneOn ? "done" : "open",
     overdue: false,
     done_conversation_id: conversationId,
     resolved_at: doneOn ? at(doneOn) : null,
+    skip_reason: skipReason,
+    skip_note: null,
   };
 }
+
+const RHYTHM = "Rozmowa według rytmu";
 
 /** Zakładka „Opieka” kontraktu Michała w Banku Przykładowym (makieta 9). */
 export function contractCare(today: string): ContractCare {
@@ -153,12 +157,26 @@ export function contractCare(today: string): ContractCare {
     },
     owner: { user: natalia, source: "contract", explicit: true },
     client_default_owner: natalia,
+    cadence: {
+      level: "biweekly",
+      source: "program",
+      starts_on: start,
+      until_on: shiftDay(start, 89),
+      returns_to: "monthly",
+      reason: null,
+      note: null,
+      author: null,
+      can_edit: true,
+    },
     plan: [
       planItem(1, "day_7", "Dzień 7", shiftDay(start, 7), shiftDay(start, 7), 11),
-      planItem(2, "day_30", "Dzień 30", shiftDay(start, 30), card.interview_on),
-      planItem(3, "day_90", "Dzień 90", shiftDay(start, 90), null),
+      planItem(2, "cadence", RHYTHM, shiftDay(start, 14), shiftDay(start, 14), 12),
+      planItem(3, "cadence", RHYTHM, shiftDay(start, 28), card.interview_on, null, "recent_contact"),
+      planItem(4, "cadence", RHYTHM, shiftDay(start, 42), card.interview_on),
+      planItem(5, "cadence", RHYTHM, shiftDay(start, 56), null),
+      planItem(6, "cadence", RHYTHM, shiftDay(start, 70), null),
     ],
-    next_contact: { due_on: shiftDay(start, 90), label: "Dzień 90", overdue: false, plan_item_id: 3 },
+    next_contact: { due_on: shiftDay(start, 56), label: RHYTHM, overdue: false, plan_item_id: 5 },
     last_satisfaction: { value: 4, on: card.interview_on },
     conversations: [
       conversation(
@@ -177,105 +195,6 @@ export function contractCare(today: string): ContractCare {
 }
 
 // ── `/care` (stan `list`) ───────────────────────────────────────────────────
-
-function row(
-  contractId: number,
-  consultant: { id: number; name: string },
-  client: { id: number; name: string },
-  jobTitle: string,
-  start: string,
-  end: string | null,
-  owner: PersonRef,
-  next: MyConsultantRow["next_contact"],
-  last: { on: string; satisfaction: number | null } | null,
-  reasons: MyConsultantRow["redeploy_reasons"] = [],
-): MyConsultantRow {
-  return {
-    contract_id: contractId,
-    candidate_id: consultant.id,
-    candidate_name: consultant.name,
-    client_id: client.id,
-    client_name: client.name,
-    job_title: jobTitle,
-    start_date: start,
-    end_date: end,
-    owner,
-    next_contact: next,
-    overdue_count: next?.overdue ? 1 : 0,
-    last_conversation_on: last?.on ?? null,
-    last_satisfaction: last?.satisfaction ?? null,
-    redeploy_reasons: reasons,
-  };
-}
-
-export function myConsultants(today: string, scope: "mine" | "all") {
-  const start = contractStart(today);
-  const karolinaStart = shiftDay(today, -33);
-  const annaStart = shiftDay(today, 18);
-  const mine: MyConsultantRow[] = [
-    row(
-      4502,
-      HR_CONSULTANTS.karolina,
-      HR_CLIENTS.telecom,
-      "Testerka automatyzująca",
-      karolinaStart,
-      null,
-      natalia,
-      { due_on: shiftDay(karolinaStart, 30), label: "Dzień 30", overdue: true },
-      { on: shiftDay(karolinaStart, 8), satisfaction: 5 },
-    ),
-    row(
-      4504,
-      HR_CONSULTANTS.pawel,
-      CARE_CLIENT,
-      "Java Developer",
-      shiftDay(today, -300),
-      shiftDay(today, 46),
-      natalia,
-      { due_on: shiftDay(today, 16), label: "Przed końcem zamówienia", overdue: false },
-      { on: shiftDay(today, -20), satisfaction: 4 },
-      ["project_end", "wants_change"],
-    ),
-    row(
-      CARE_CONTRACT_ID,
-      HR_CONSULTANTS.michal,
-      CARE_CLIENT,
-      "Java Developer",
-      start,
-      null,
-      natalia,
-      { due_on: shiftDay(start, 90), label: "Dzień 90", overdue: false },
-      { on: shiftDay(start, 31), satisfaction: 4 },
-    ),
-    row(
-      4503,
-      HR_CONSULTANTS.bartosz,
-      CARE_CLIENT,
-      "DevOps Engineer",
-      shiftDay(today, -400),
-      null,
-      natalia,
-      { due_on: shiftDay(today, 12), label: "Kontakt kwartalny", overdue: false },
-      { on: shiftDay(today, -40), satisfaction: 3 },
-      ["project_end"],
-    ),
-  ];
-  const others: MyConsultantRow[] = [
-    row(
-      4505,
-      HR_CONSULTANTS.anna,
-      HR_CLIENTS.insurance,
-      "Analityczka biznesowa",
-      annaStart,
-      null,
-      kamil,
-      { due_on: shiftDay(annaStart, 7), label: "Dzień 7", overdue: false },
-      null,
-    ),
-  ];
-  const items = scope === "mine" ? mine : [...mine, ...others];
-  return { items, total: items.length };
-}
 
 function redeploy(
   id: number,

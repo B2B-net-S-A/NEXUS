@@ -87,3 +87,28 @@ osobie z kartoteki i uczestniku Akademii.
   hotel i bilet uczestnika (`academy_participant_logistics`), zestaw i protokół
   z wydań sprzętu. Rezygnacja zamienia „zrobione” hotel i bilet na
   „do anulowania” i zakłada zwrot, jeśli uczestnik ma rzeczy.
+
+## Wzory protokołów i pakiet klienta (etap 3, O3, 17.10.2026)
+
+- **Wzory wgrywa recepcja** („Sprzęt → Wzory protokołów”, uprawnienie
+  „Sprzęt”, admin): plik Word z polami `{{ … }}` — te same pola co standard
+  (`protocol_template.FIELDS`, wiersz tabeli `line.*`). Punkt wyjścia:
+  „Standard wydania / zwrotu” do pobrania. Wymagane pola rodzaju:
+  `number`, `protocol_date`, `holder_name`, `lines`; pole spoza listy = 422.
+- **Plik od człowieka wypełnia się wyłącznie w sandboxie** jinja2
+  (`protocol_template.sandboxed_env`, docxtpl `render(…, jinja_env=…)`): bez
+  atrybutów Pythona, makr, dołączania plików i funkcji globalnych, krótka
+  lista filtrów, bez potęgowania, mnożenia i formatowania napisów. Przy
+  wgraniu: tylko `.docx` (zip bez makr), 2 MB spakowany / 40 MB rozpakowany,
+  próbne wypełnienie fikcyjnym protokołem. Wbudowany standard (kod NEXUSA)
+  zostaje na zwykłym `Environment` — nowy wzór z pliku NIGDY.
+- **Wzoru się nie podmienia ani nie kasuje**: treść pliku leży w bazie
+  (`equipment_protocol_templates.content`), nowy plik = nowy wzór, stary się
+  wycofuje. Wycofanie wzoru wybranego w pakiecie klienta = 409. Protokół
+  pamięta wzór (`equipment_protocols.template_id`, `template_version =
+  wzor-<id>`) i zawsze pobiera się z niego (`protocols.render_docx` /
+  `render_pdf`), także po wycofaniu.
+- **Wzór dla klienta wybiera się w pakiecie** („Klienci → Wejście u klienta”,
+  osobno wydanie i zwrot). Protokół kontraktu bierze wzór z pakietu klienta
+  kontraktu w chwili sporządzenia; wycofany albo brak = standard. Konto,
+  osoba spoza NEXUSA i uczestnik Akademii — zawsze standard.

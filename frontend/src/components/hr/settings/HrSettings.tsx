@@ -300,7 +300,8 @@ export function HrSettings({ config }: { config: HrConfig }) {
     <div className="grid gap-4 lg:grid-cols-2">
       {config.me.people_admin ? <DaysOffCard /> : null}
       {config.me.is_admin ? <ModulesCard config={config} /> : null}
-      {config.open_modules.lifecycle && (config.me.people_admin || config.me.is_admin) ? (
+      {config.open_modules.lifecycle &&
+      (config.me.people_admin || config.me.is_admin || config.me.back_office_head) ? (
         <div className="lg:col-span-2">
           <LifecycleTemplatesCard config={config} />
         </div>

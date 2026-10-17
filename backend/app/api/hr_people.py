@@ -21,6 +21,7 @@ from app.services.action_permissions import ProductAction, has_permission
 from app.services.hr import modules as hr_modules
 from app.services.admin_cases import service as admin_cases_service
 from app.services.hr import leave_substitute, people
+from app.services.hr.lifecycle_templates import is_back_office_head
 from app.services.hr_foundation_schema import EmploymentStatus
 
 router = APIRouter()
@@ -59,6 +60,8 @@ async def hr_config(
             "has_assigned_cases": await admin_cases_service.has_assigned_cases(
                 db, current_user.id
             ),
+            # Head back office edytuje ścieżkę „Konsultant u klienta” (etap 3, O4).
+            "back_office_head": await is_back_office_head(db, current_user),
         },
     }
 

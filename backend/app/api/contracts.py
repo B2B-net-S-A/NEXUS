@@ -6236,6 +6236,26 @@ async def apply_contract_amendment(
 
 
 # ── Onboarding checklist (Phase 9 B6) ────────────────────────────────────────
+#
+# Od etapu 3 „Ludzi w NEXUSIE” (O1, 17.10.2026) wejście konsultanta to jedna
+# lista ze ścieżki „Konsultant u klienta” i pakietu klienta
+# (``/api/hr/lifecycle/contracts/{id}/entry``). Przy włączonym module
+# „Wejście i odejście” stare pozycje są tylko do odczytu, a nowe kontrakty
+# nie dostają już ośmiu stałych pozycji; wyłączony moduł = jak dotąd.
+
+LEGACY_ONBOARDING_READ_ONLY = (
+    "Lista wejścia powstaje teraz ze ścieżki „Konsultant u klienta” i pakietu "
+    "klienta (zakładka „Wejście”). Stare pozycje są tylko do odczytu."
+)
+
+
+async def _ensure_legacy_onboarding_writable(db: AsyncSession) -> None:
+    from app.services.hr.modules import HrModule, load_modules  # noqa: PLC0415
+
+    if (await load_modules(db)).get(HrModule.lifecycle):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=LEGACY_ONBOARDING_READ_ONLY
+        )
 
 
 @router.get(
@@ -6268,6 +6288,7 @@ async def create_onboarding_item(
     db: AsyncSession = Depends(get_db),
 ):
     await _assert_contract(db, contract_id, current_user)
+    await _ensure_legacy_onboarding_writable(db)
     item = ContractOnboardingItem(contract_id=contract_id, **data.model_dump())
     db.add(item)
     await db.flush()
@@ -6306,6 +6327,7 @@ async def seed_onboarding_items(
     zamiast dopisywać drugi komplet. Lista niepusta = nic nie jest dodawane.
     """
     await _assert_contract(db, contract_id, current_user)
+    await _ensure_legacy_onboarding_writable(db)
     await db.execute(
         select(Contract.id).where(Contract.id == contract_id).with_for_update()
     )
@@ -6337,6 +6359,7 @@ async def update_onboarding_item(
     db: AsyncSession = Depends(get_db),
 ):
     await _assert_contract(db, contract_id, current_user)
+    await _ensure_legacy_onboarding_writable(db)
     item = await db.scalar(
         select(ContractOnboardingItem).where(
             ContractOnboardingItem.id == item_id,
@@ -6363,6 +6386,7 @@ async def delete_onboarding_item(
     db: AsyncSession = Depends(get_db),
 ):
     await _assert_contract(db, contract_id, current_user)
+    await _ensure_legacy_onboarding_writable(db)
     item = await db.scalar(
         select(ContractOnboardingItem).where(
             ContractOnboardingItem.id == item_id,

@@ -19,6 +19,7 @@ import { ClientTechnologiesTab } from "@/components/care/ClientTechnologiesTab";
 import { ClientPeopleTab } from "@/components/care/ClientPeopleTab";
 import { canReadClientPeople } from "@/lib/api/client-people";
 import { useHrConfig } from "@/lib/api/hr";
+import { hasAnyPermission } from "@/lib/permissions";
 import {
   ArrowLeft,
   Building2,
@@ -71,6 +72,7 @@ import { DeleteButton } from "@/components/ConfirmDialog";
 import { EditClientModal } from "@/components/AppShell";
 import { RateCardsTab } from "@/components/RateCardsTab";
 import { MaterialsTab } from "./MaterialsTab";
+import { OnboardingPackTab } from "./OnboardingPackTab";
 import { ClientEquipmentProviderField } from "@/components/equipment/ClientEquipmentProviderField";
 import { OwnersTab } from "./OwnersTab";
 import { ProfileTab } from "./ProfileTab";
@@ -1000,6 +1002,11 @@ export default function ClientDetailPage() {
   const hrConfig = useHrConfig().data;
   const careOpen = hrConfig?.open_modules.care === true;
   const equipmentOpen = hrConfig?.open_modules.equipment === true;
+  // „Wejście u klienta” — moduł wejścia i odejścia; czyta podgląd Delivery
+  // (Delivery Lead u swoich klientów) i recepcja („Sprzęt”).
+  const packOpen =
+    hrConfig?.open_modules.lifecycle === true &&
+    hasAnyPermission(user, "delivery_view", "equipment");
   const orderMailDocParam = Number(searchParams.get("orderMailDoc"));
   const orderMailDocId =
     Number.isInteger(orderMailDocParam) && orderMailDocParam > 0
@@ -1164,6 +1171,7 @@ export default function ClientDetailPage() {
     // Karta klienta — bez filtra po roli: rola `user` dostanie 403 z backendu
     // i karta pokaże „Brak uprawnień", nie pustkę (zamierzone).
     { key: "zasady", label: "Zasady współpracy" },
+    { key: "wejscie", label: "Wejście u klienta" },
     { key: "projekty", label: "Projekty" },
     { key: "zamowienia", label: "Zamówienia" },
     { key: "importy-md", label: "Importy MD" },
@@ -1180,6 +1188,7 @@ export default function ClientDetailPage() {
     (tab) =>
       (canViewDeliveryLegal || tab.key !== "umowy-ramowe") &&
       (careOpen || tab.key !== "technologie") &&
+      (packOpen || tab.key !== "wejscie") &&
       (peopleOpen || tab.key !== "struktura"),
   );
 
@@ -1391,6 +1400,8 @@ export default function ClientDetailPage() {
           )}
 
           {activeTab === "zasady" && <ClientPlaybookTab clientId={Number(id)} />}
+
+          {packOpen && activeTab === "wejscie" && <OnboardingPackTab clientId={Number(id)} />}
 
           {activeTab === "projekty" && <ProjectsTab clientId={Number(id)} />}
 

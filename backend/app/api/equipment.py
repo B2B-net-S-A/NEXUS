@@ -14,7 +14,10 @@ Kto co widzi (D13 — „Sprzęt” osobno od „Kadr”):
 * podgląd Delivery — sprzęt kontraktu (zakładka „Sprzęt” kontraktu) w zakresie
   klientów Delivery Leada; zadanie zwrotu przy zakończeniu współpracy zakłada
   też „Status kontraktu”; flagę klienta „sprzęt od nas” zmienia też „Edycja
-  klientów”.
+  klientów”,
+* wzory protokołów (etap 3, O3) — wgrywa, wycofuje i pobiera recepcja (admin
+  ma wszystko); wybór wzoru dla klienta jest w pakiecie klienta
+  (``api/client_onboarding.py``).
 """
 
 from __future__ import annotations
@@ -54,6 +57,7 @@ from app.services.equipment import (
     importer,
     issuing,
     protocol_document,
+    protocol_template,
     protocols,
     registry,
     tasks,
@@ -253,6 +257,12 @@ class ImportRowPatch(BaseModel):
 
 class ProviderIn(BaseModel):
     equipment_provider: Literal["nasz", "klienta", "nieznany"]
+
+
+class TemplatePatch(BaseModel):
+    name: Optional[str] = Field(default=None, min_length=1, max_length=120)
+    description: Optional[str] = Field(default=None, max_length=300)
+    is_active: Optional[bool] = None
 
 
 # ── Rejestr ───────────────────────────────────────────────────────────────────
@@ -538,7 +548,11 @@ async def protocol_docx(
     protocol_id: int, _: User = Depends(_manager), db: AsyncSession = Depends(get_db)
 ) -> Response:
     protocol = await _protocol(db, protocol_id)
-    content = protocol_document.render_docx(await protocols.render(db, protocol))
+    try:
+        # Wzór z pakietu klienta, z którego powstał protokół (albo standard).
+        content = await protocols.render_docx(db, protocol)
+    except EquipmentError as exc:
+        raise _http(exc) from exc
     return Response(
         content,
         media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -555,9 +569,10 @@ async def protocol_pdf(
     protocol_id: int, _: User = Depends(_manager), db: AsyncSession = Depends(get_db)
 ) -> Response:
     protocol = await _protocol(db, protocol_id)
-    view = await protocols.render(db, protocol)
     try:
-        content = await protocol_document.render_pdf(view)
+        content = await protocols.render_pdf(db, protocol)
+    except EquipmentError as exc:
+        raise _http(exc) from exc
     except protocol_document.ProtocolPdfUnavailable as exc:
         raise HTTPException(
             status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -654,6 +669,108 @@ async def confirm_protocol(
     except EquipmentError as exc:
         raise _http(exc) from exc
     return protocols.protocol_payload(protocol)
+
+
+# ── Wzory protokołów (etap 3, O3) ─────────────────────────────────────────────
+
+_DOCX = protocol_template.DOCX_MEDIA_TYPE
+
+
+def _docx_response(content: bytes, filename: str) -> Response:
+    return Response(
+        content,
+        media_type=_DOCX,
+        headers={"Content-Disposition": content_disposition(filename)},
+    )
+
+
+@router.get("/protocol-templates")
+async def list_protocol_templates(
+    _: User = Depends(_manager), db: AsyncSession = Depends(get_db)
+) -> dict:
+    """Wgrane wzory z liczbą pakietów i protokołów oraz lista pól do wzoru."""
+    return {
+        "items": await protocol_template.list_templates(db),
+        "fields": list(protocol_template.field_rows()),
+        "required": protocol_template.REQUIRED_FIELDS,
+        "max_bytes": protocol_template.MAX_UPLOAD_BYTES,
+    }
+
+
+@router.post("/protocol-templates", status_code=status.HTTP_201_CREATED)
+async def upload_protocol_template(
+    file: UploadFile = File(...),
+    kind: Literal["wydanie", "zwrot"] = Form(...),
+    name: str = Form(..., min_length=1, max_length=120),
+    description: Optional[str] = Form(default=None, max_length=300),
+    current_user: User = Depends(_manager),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    content = await file.read(protocol_template.MAX_UPLOAD_BYTES + 1)
+    try:
+        template = await protocol_template.create_template(
+            db,
+            kind=kind,
+            name=name,
+            description=description,
+            filename=file.filename or "",
+            content=content,
+            actor=current_user,
+        )
+    except EquipmentError as exc:
+        raise _http(exc) from exc
+    return protocol_template.template_payload(template)
+
+
+@router.patch("/protocol-templates/{template_id}")
+async def update_protocol_template(
+    template_id: int,
+    payload: TemplatePatch,
+    current_user: User = Depends(_manager),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    try:
+        template = await protocol_template.update_template(
+            db, template_id, payload.model_dump(exclude_unset=True), actor=current_user
+        )
+    except EquipmentError as exc:
+        raise _http(exc) from exc
+    return protocol_template.template_payload(template)
+
+
+@router.get("/protocol-templates/standard/{kind}")
+async def standard_protocol_template(
+    kind: Literal["wydanie", "zwrot"], _: User = Depends(_manager)
+) -> Response:
+    """Wbudowany standard jako punkt wyjścia do własnego wzoru."""
+    return _docx_response(
+        protocol_template.standard_template_bytes(kind),
+        f"Wzor_protokolu_{kind}_standard.docx",
+    )
+
+
+@router.get("/protocol-templates/{template_id}/file")
+async def protocol_template_file(
+    template_id: int, _: User = Depends(_manager), db: AsyncSession = Depends(get_db)
+) -> Response:
+    try:
+        template, content = await protocol_template.template_content(db, template_id)
+    except EquipmentError as exc:
+        raise _http(exc) from exc
+    return _docx_response(content, template.file_name)
+
+
+@router.get("/protocol-templates/{template_id}/sample")
+async def protocol_template_sample(
+    template_id: int, _: User = Depends(_manager), db: AsyncSession = Depends(get_db)
+) -> Response:
+    """Wzór wypełniony fikcyjnym protokołem — sprawdzenie przed wyborem w pakiecie."""
+    try:
+        template, content = await protocol_template.template_content(db, template_id)
+        document = protocol_template.sample_document(content, template.kind)
+    except EquipmentError as exc:
+        raise _http(exc) from exc
+    return _docx_response(document, f"Probka_{template.file_name}")
 
 
 # ── Do zrobienia ──────────────────────────────────────────────────────────────

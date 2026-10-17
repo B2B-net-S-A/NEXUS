@@ -292,6 +292,12 @@ async def update_case(
     )
     if "assignee_user_id" in changed and case.assignee_user_id != previous_assignee:
         await notify_assignee(db, case, actor_id=actor.id)
+    if "checklist" in changed and case.lifecycle_case_id is not None:
+        # Sprawa „Wejście konsultanta”: jej checklista to zadania Administracji
+        # z listy wejścia (etap 3), więc odhaczenie tutaj odhacza zadanie.
+        from app.services.admin_cases.hooks import sync_entry_tasks_from_checklist
+
+        await sync_entry_tasks_from_checklist(db, case, actor_id=actor.id)
     return changed
 
 

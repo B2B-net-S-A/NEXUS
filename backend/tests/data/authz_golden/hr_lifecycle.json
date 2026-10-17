@@ -30,6 +30,7 @@
   "GET /api/hr/lifecycle/cases": "BBBBBBBDBBBBBBBBBBBBBBBBB",
   "GET /api/hr/lifecycle/cases/{case_id}": "BBBBBBBDBBBBBBBBBBBBBBBBB",
   "GET /api/hr/lifecycle/cases/{case_id}/receivers": "BBBBBBBDBBBBBBBBBBBBBBBBB",
+  "GET /api/hr/lifecycle/contracts/{contract_id}/entry": "BBDBBDDDBBBDBBBBDBBBDDDDD",
   "GET /api/hr/lifecycle/my-tasks": "BBBBBBBDBBBBBBBBBBBBBBBBB",
   "GET /api/hr/lifecycle/people/{user_id}/summary": "BBBBBBBDBBBBBBBBBBBBBBBBB",
   "GET /api/hr/lifecycle/templates": "BBBBBBBDBBBBBBBBBBBBBBBBB",
@@ -42,8 +43,11 @@
   "POST /api/hr/lifecycle/cases/{case_id}/deactivate-now": "BBBBBBBDBBBBBBBBBBBBBBBBB",
   "POST /api/hr/lifecycle/cases/{case_id}/start": "BBBBBBBDBBBBBBBBBBBBBBBBB",
   "POST /api/hr/lifecycle/cases/{case_id}/tasks": "BBBBBBBDBBBBBBBBBBBBBBBBB",
+  "POST /api/hr/lifecycle/contracts/{contract_id}/entry": "BBDBBDDDBBBDBBBDDDBDDDDDD",
+  "POST /api/hr/lifecycle/contracts/{contract_id}/entry/tasks": "BBDBBDDDBBBDBBBDDDBDDDDDD",
   "POST /api/hr/lifecycle/preview": "BBBBBBBDBBBBBBBBBBBBBBBBB",
   "POST /api/hr/lifecycle/templates": "BBBBBBBDBBBBBBBBBBBBBBBBB",
+  "POST /api/hr/lifecycle/templates/{template_id}/catch-up": "BBBBBBBDBBBBBBBBBBBBBBBBB",
   "PUT /api/hr/lifecycle/cases/{case_id}/handovers": "BBBBBBBDBBBBBBBBBBBBBBBBB",
   "PUT /api/hr/lifecycle/templates/{template_id}": "BBBBBBBDBBBBBBBBBBBBBBBBB"
  }

@@ -35,9 +35,29 @@ Tabele (propozycja recepcji z 15.10, decyzje D2–D10):
 * ``contract_equipment.item_id`` / ``assignment_id`` — pozycja zakładki
   „Sprzęt” kontraktu wskazuje egzemplarz z rejestru,
 * ``clients.equipment_provider`` — kto daje sprzęt konsultantom klienta (D7).
+
+Etap 3 (17.10.2026, decyzje O2, O3, O6):
+
+* ``equipment_protocol_templates`` — wzory protokołów wgrane przez recepcję
+  (DOCX z polami, treść pliku w bazie); wbudowany standard nie ma wiersza,
+* ``equipment_protocols.template_id`` — z którego wgranego wzoru powstał
+  protokół (``NULL`` = wbudowany standard),
+* ``client_onboarding_packs`` / ``_items`` — pakiet klienta („Wejście
+  u klienta”): wzory protokołów, pierwszy dzień, rzeczy od nas i od klienta,
+  dokumenty od konsultanta i dostępy,
+* ``consultant_welcome_mails`` — mail powitalny wysłany konsultantowi
+  (treść taka, jaką opiekun wysłał). Jeden na kontrakt pilnuje blokada
+  doradcza wysyłki, nie UNIQUE: scalenie duplikatów kontraktu przenosi ślady
+  obu maili na zachowany kontrakt bez kasowania (``contract_merge``).
 """
 
 from __future__ import annotations
+
+from app.services.hr_lifecycle_schema import (
+    MAX_OFFSET_AFTER,
+    MAX_OFFSET_BEFORE,
+    TASK_ASSIGNEES,
+)
 
 CATEGORIES: tuple[str, ...] = (
     "laptop",
@@ -77,6 +97,14 @@ TASK_KINDS: tuple[str, ...] = ("wydanie", "zwrot", "podpis", "zakup")
 TASK_STATUSES: tuple[str, ...] = ("otwarte", "zrobione", "anulowane")
 IMPORT_BATCH_STATUSES: tuple[str, ...] = ("nowa", "zatwierdzona")
 IMPORT_DECISIONS: tuple[str, ...] = ("przyjmij", "pomin", "konflikt", "do_wyjasnienia")
+#: Części pakietu klienta: rzeczy od nas, rzeczy od klienta, dokumenty od
+#: konsultanta, dostępy u klienta.
+PACK_SECTIONS: tuple[str, ...] = (
+    "equipment_ours",
+    "equipment_client",
+    "document",
+    "access",
+)
 
 
 def quoted(values: tuple[str, ...]) -> str:
@@ -113,6 +141,28 @@ CK_TASK_STATUS = f"status IN ({quoted(TASK_STATUSES)})"
 CK_IMPORT_BATCH_STATUS = f"status IN ({quoted(IMPORT_BATCH_STATUSES)})"
 CK_IMPORT_DECISION = f"decision IN ({quoted(IMPORT_DECISIONS)})"
 CK_CLIENT_PROVIDER = f"equipment_provider IN ({quoted(PROVIDERS)})"
+CK_TEMPLATE_KIND = f"kind IN ({quoted(PROTOCOL_KINDS)})"
+CK_TEMPLATE_NAME = "btrim(name) <> ''"
+CK_TEMPLATE_SIZE = "file_size > 0"
+CK_PACK_TIME = (
+    "first_day_time IS NULL OR first_day_time ~ '^([01][0-9]|2[0-3]):[0-5][0-9]$'"
+)
+CK_PACK_VERSION = "version > 0"
+CK_PACK_ITEM_SECTION = f"section IN ({quoted(PACK_SECTIONS)})"
+CK_PACK_ITEM_NAME = "btrim(name) <> ''"
+CK_PACK_ITEM_ASSIGNEE = f"assignee IS NULL OR assignee IN ({quoted(TASK_ASSIGNEES)})"
+CK_PACK_ITEM_OFFSET = (
+    f"offset_days IS NULL OR offset_days BETWEEN -{MAX_OFFSET_BEFORE} "
+    f"AND {MAX_OFFSET_AFTER}"
+)
+CK_WELCOME_BODY = "btrim(body) <> ''"
+#: Wynik wysyłki maila powitalnego: przyjęty przez Graph, tryb symulacji
+#: (``HR_M365_MODE=simulate`` — nic nie wyszło) albo niepewny (brama Graph
+#: odpowiedziała błędem po przyjęciu żądania — bez ponowienia).
+WELCOME_DELIVERIES: tuple[str, ...] = ("sent", "simulated", "uncertain")
+CK_WELCOME_DELIVERY = f"delivery IN ({quoted(WELCOME_DELIVERIES)})"
+#: Jeden aktywny wzór o tej nazwie na rodzaj (wycofany nie blokuje nazwy).
+TEMPLATE_ACTIVE_WHERE = "is_active"
 
 #: Unikalne identyfikatory egzemplarza (indeks częściowy: tylko niepuste).
 ITEM_UNIQUE_COLUMNS: tuple[str, ...] = (
@@ -314,6 +364,75 @@ TABLE_DDL: tuple[str, ...] = (
     CONSTRAINT uq_equipment_import_rows_position UNIQUE (batch_id, sheet, row_number),
     CONSTRAINT ck_equipment_import_rows_decision CHECK ({CK_IMPORT_DECISION})
 )""",
+    f"""CREATE TABLE IF NOT EXISTS equipment_protocol_templates (
+    id SERIAL PRIMARY KEY,
+    kind VARCHAR(16) NOT NULL,
+    name VARCHAR(120) NOT NULL,
+    description VARCHAR(300) NULL,
+    file_name VARCHAR(255) NOT NULL,
+    content BYTEA NOT NULL,
+    file_sha256 VARCHAR(64) NOT NULL,
+    file_size INTEGER NOT NULL,
+    fields JSONB NOT NULL DEFAULT '[]'::jsonb,
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    created_by INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
+    updated_by INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT ck_equipment_protocol_templates_kind CHECK ({CK_TEMPLATE_KIND}),
+    CONSTRAINT ck_equipment_protocol_templates_name CHECK ({CK_TEMPLATE_NAME}),
+    CONSTRAINT ck_equipment_protocol_templates_size CHECK ({CK_TEMPLATE_SIZE})
+)""",
+    f"""CREATE TABLE IF NOT EXISTS client_onboarding_packs (
+    id SERIAL PRIMARY KEY,
+    client_id INTEGER NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+    issue_template_id INTEGER NULL
+        REFERENCES equipment_protocol_templates(id) ON DELETE SET NULL,
+    return_template_id INTEGER NULL
+        REFERENCES equipment_protocol_templates(id) ON DELETE SET NULL,
+    first_day_contact_id INTEGER NULL REFERENCES contacts(id) ON DELETE SET NULL,
+    first_day_place VARCHAR(300) NULL,
+    first_day_time VARCHAR(5) NULL,
+    first_day_bring VARCHAR(500) NULL,
+    version INTEGER NOT NULL DEFAULT 1,
+    updated_by INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT uq_client_onboarding_packs_client UNIQUE (client_id),
+    CONSTRAINT ck_client_onboarding_packs_time CHECK ({CK_PACK_TIME}),
+    CONSTRAINT ck_client_onboarding_packs_version CHECK ({CK_PACK_VERSION})
+)""",
+    f"""CREATE TABLE IF NOT EXISTS client_onboarding_pack_items (
+    id SERIAL PRIMARY KEY,
+    pack_id INTEGER NOT NULL REFERENCES client_onboarding_packs(id) ON DELETE CASCADE,
+    section VARCHAR(16) NOT NULL,
+    position SMALLINT NOT NULL,
+    name VARCHAR(200) NOT NULL,
+    note VARCHAR(300) NULL,
+    assignee VARCHAR(24) NULL,
+    offset_days SMALLINT NULL,
+    required BOOLEAN NOT NULL DEFAULT TRUE,
+    requires_file BOOLEAN NOT NULL DEFAULT FALSE,
+    CONSTRAINT uq_client_onboarding_pack_items_position
+        UNIQUE (pack_id, section, position),
+    CONSTRAINT ck_client_onboarding_pack_items_section CHECK ({CK_PACK_ITEM_SECTION}),
+    CONSTRAINT ck_client_onboarding_pack_items_name CHECK ({CK_PACK_ITEM_NAME}),
+    CONSTRAINT ck_client_onboarding_pack_items_assignee
+        CHECK ({CK_PACK_ITEM_ASSIGNEE}),
+    CONSTRAINT ck_client_onboarding_pack_items_offset CHECK ({CK_PACK_ITEM_OFFSET})
+)""",
+    f"""CREATE TABLE IF NOT EXISTS consultant_welcome_mails (
+    id SERIAL PRIMARY KEY,
+    contract_id INTEGER NOT NULL REFERENCES contracts(id) ON DELETE CASCADE,
+    recipient_email VARCHAR(255) NOT NULL,
+    subject VARCHAR(200) NOT NULL,
+    body TEXT NOT NULL,
+    delivery VARCHAR(16) NOT NULL DEFAULT 'sent',
+    sent_by INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
+    sent_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT ck_consultant_welcome_mails_body CHECK ({CK_WELCOME_BODY}),
+    CONSTRAINT ck_consultant_welcome_mails_delivery CHECK ({CK_WELCOME_DELIVERY})
+)""",
 )
 
 COLUMN_DDL: tuple[str, ...] = (
@@ -323,6 +442,10 @@ COLUMN_DDL: tuple[str, ...] = (
     "REFERENCES equipment_assignments(id) ON DELETE SET NULL",
     "ALTER TABLE clients ADD COLUMN IF NOT EXISTS equipment_provider VARCHAR(16) "
     "NOT NULL DEFAULT 'nieznany'",
+    # Etap 3: wgrany wzór, z którego powstał protokół (NULL = standard). Wzoru
+    # użytego w protokole nie da się skasować — recepcja go tylko wycofuje.
+    "ALTER TABLE equipment_protocols ADD COLUMN IF NOT EXISTS template_id INTEGER NULL "
+    "REFERENCES equipment_protocol_templates(id) ON DELETE RESTRICT",
 )
 
 INDEX_DDL: tuple[str, ...] = (
@@ -358,6 +481,16 @@ INDEX_DDL: tuple[str, ...] = (
     "ON contract_equipment (item_id)",
     "CREATE INDEX IF NOT EXISTS ix_contract_equipment_assignment_id "
     "ON contract_equipment (assignment_id)",
+    "CREATE INDEX IF NOT EXISTS ix_equipment_protocols_template "
+    "ON equipment_protocols (template_id)",
+    "CREATE UNIQUE INDEX IF NOT EXISTS ux_equipment_protocol_templates_active_name "
+    f"ON equipment_protocol_templates (kind, name) WHERE {TEMPLATE_ACTIVE_WHERE}",
+    "CREATE INDEX IF NOT EXISTS ix_consultant_welcome_mails_contract "
+    "ON consultant_welcome_mails (contract_id)",
+    "CREATE INDEX IF NOT EXISTS ix_client_onboarding_packs_issue_template "
+    "ON client_onboarding_packs (issue_template_id)",
+    "CREATE INDEX IF NOT EXISTS ix_client_onboarding_packs_return_template "
+    "ON client_onboarding_packs (return_template_id)",
 )
 
 CONSTRAINT_DDL: tuple[str, ...] = (
@@ -433,9 +566,14 @@ TABLES: tuple[str, ...] = (
     "equipment_tasks",
     "equipment_import_batches",
     "equipment_import_rows",
+    "equipment_protocol_templates",
+    "client_onboarding_packs",
+    "client_onboarding_pack_items",
+    "consultant_welcome_mails",
 )
 
 DOWNGRADE_DDL: tuple[str, ...] = (
+    "ALTER TABLE equipment_protocols DROP COLUMN IF EXISTS template_id",
     "ALTER TABLE contract_equipment DROP COLUMN IF EXISTS assignment_id",
     "ALTER TABLE contract_equipment DROP COLUMN IF EXISTS item_id",
     "ALTER TABLE clients DROP CONSTRAINT IF EXISTS ck_clients_equipment_provider",

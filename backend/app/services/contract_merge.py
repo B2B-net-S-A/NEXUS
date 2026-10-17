@@ -146,6 +146,12 @@ _KNOWN_CONTRACT_FKS = {
     ("b2b_contract_documents", "contract_id"),
     ("b2b_generated_contracts", "contract_id"),
     ("calls", "contract_id"),
+    # Odbiorcy komunikatu do konsultantów (etap 3) — ślad wysyłki, unikat
+    # (komunikat, kandydat) nie zależy od kontraktu.
+    ("care_announcement_recipients", "contract_id"),
+    # Rytm kontaktu (etap 3): okresy z powodem i „do kiedy” — bez unikatu,
+    # idą za kontraktem zachowanym razem z historią opieki.
+    ("care_cadence_periods", "contract_id"),
     # Rozmowy opiekuna z konsultantem — historia, przenoszona w całości.
     ("care_conversations", "contract_id"),
     # Oceny konsultanta z opinii klienta (etap 2, D9–D11): idą za kontraktem
@@ -160,6 +166,8 @@ _KNOWN_CONTRACT_FKS = {
     # audit plan instead of letting the loser DELETE cascade erase the evidence.
     ("client_order_offboarding_cases", "contract_id"),
     ("client_orders", "contract_id"),
+    # Wysłane maile powitalne (etap 3) — historia wysyłki, bez unikatu.
+    ("consultant_welcome_mails", "contract_id"),
     ("contract_amendments", "contract_id"),
     ("contract_candidate_rates", "contract_id"),
     # Plan kontaktów: UNIQUE (contract_id, kind, seq) — jeden punkt na termin,
@@ -4182,6 +4190,13 @@ async def apply_contract_merge_plan(
             moved["contract_alert_dedup_aliases"] = await _alias_alert_dedup(
                 db, loser_ids, survivor_id
             )
+            # Wejście konsultanta (etap 3) wisi na kontrakcie bez FK — przepięte
+            # tu, zanim przegrane kontrakty znikną.
+            from app.services.hr.lifecycle_entry import merge_contract_entries
+
+            entries = await merge_contract_entries(db, list(loser_ids), survivor_id)
+            moved["lifecycle_cases"] = entries["moved"]
+            moved["lifecycle_cases_cancelled"] = entries["cancelled"]
             for kind, table in (
                 ("candidate", "contract_candidate_rates"),
                 ("client", "contract_client_rates"),

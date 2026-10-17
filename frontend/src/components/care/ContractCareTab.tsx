@@ -22,6 +22,7 @@ import {
   OWNER_SOURCE_LABELS,
   REDEPLOY_REASON_LABELS,
   REDEPLOY_STATUS_LABELS,
+  SKIP_REASON_LABELS,
   useCareOwners,
   useContractCare,
   useSetContractOwner,
@@ -33,8 +34,11 @@ import {
 import { resolveViewState } from "@/lib/view-state";
 import { formatIsoDatePl } from "@/lib/date-pl";
 
+import { cadenceLabel, cadenceSubline } from "./cadence-format";
 import { careTimeline, conversationSignals } from "./care-format";
+import { CadenceDialog } from "./CadenceDialog";
 import { ConversationDialog } from "./ConversationDialog";
+import { SkipPlanItemDialog } from "./SkipPlanItemDialog";
 import { TechCardDialog } from "./TechCardDialog";
 
 const DEFAULT_OWNER = "default";
@@ -88,7 +92,15 @@ function OwnerPicker({ care }: { care: ContractCare }) {
   );
 }
 
-function PlanList({ care, onRecord }: { care: ContractCare; onRecord: (item: CarePlanItem) => void }) {
+function PlanList({
+  care,
+  onRecord,
+  onSkip,
+}: {
+  care: ContractCare;
+  onRecord: (item: CarePlanItem) => void;
+  onSkip: (item: CarePlanItem) => void;
+}) {
   const { showToast } = useToast();
   const update = useUpdatePlanItem(care.contract.id);
   if (!care.plan.length) {
@@ -118,7 +130,9 @@ function PlanList({ care, onRecord }: { care: ContractCare; onRecord: (item: Car
               item.status === "done"
                 ? "zrobiony"
                 : item.status === "skipped"
-                  ? "pominięty"
+                  ? item.skip_reason
+                    ? `pominięty · ${SKIP_REASON_LABELS[item.skip_reason].toLowerCase()}`
+                    : "pominięty"
                   : item.overdue
                     ? "po terminie"
                     : undefined
@@ -131,20 +145,7 @@ function PlanList({ care, onRecord }: { care: ContractCare; onRecord: (item: Car
               <Button variant="ghost" size="sm" onClick={() => onRecord(item)}>
                 Zapisz
               </Button>
-              <Button
-                variant="quiet"
-                size="sm"
-                disabled={update.isPending}
-                onClick={() =>
-                  update.mutate(
-                    { itemId: item.id, status: "skipped" },
-                    {
-                      onError: (err) =>
-                        showToast(apiErrorMessage(err, "Nie udało się pominąć kontaktu."), "error"),
-                    },
-                  )
-                }
-              >
+              <Button variant="quiet" size="sm" onClick={() => onSkip(item)}>
                 Pomiń
               </Button>
             </span>
@@ -154,7 +155,15 @@ function PlanList({ care, onRecord }: { care: ContractCare; onRecord: (item: Car
               variant="ghost"
               size="sm"
               disabled={update.isPending}
-              onClick={() => update.mutate({ itemId: item.id, status: "open" })}
+              onClick={() =>
+                update.mutate(
+                  { itemId: item.id, status: "open" },
+                  {
+                    onError: (err) =>
+                      showToast(apiErrorMessage(err, "Nie udało się przywrócić kontaktu."), "error"),
+                  },
+                )
+              }
             >
               Przywróć
             </Button>
@@ -295,6 +304,8 @@ export function ContractCareTab({ contractId }: { contractId: number }) {
   const query = useContractCare(contractId);
   const [conversationFor, setConversationFor] = useState<CarePlanItem | null | undefined>(undefined);
   const [cardDialog, setCardDialog] = useState<{ card: TechCard | null } | null>(null);
+  const [skipping, setSkipping] = useState<CarePlanItem | null>(null);
+  const [cadenceOpen, setCadenceOpen] = useState(false);
   const state = resolveViewState({
     isLoading: query.isLoading,
     isError: query.isError,
@@ -349,6 +360,28 @@ export function ContractCareTab({ contractId }: { contractId: number }) {
                 <OwnerPicker care={care} />
               </div>
             ) : null}
+            {care.cadence ? (
+              <>
+                <Fact label="Rytm kontaktu">
+                  <span className="inline-flex items-center gap-1.5">
+                    {cadenceLabel(care.cadence.level)}
+                    {care.cadence.can_edit ? (
+                      <Button
+                        variant="quiet"
+                        size="sm"
+                        className="h-6 px-1.5 text-xs"
+                        onClick={() => setCadenceOpen(true)}
+                      >
+                        Zmień
+                      </Button>
+                    ) : null}
+                  </span>
+                </Fact>
+                {cadenceSubline(care.cadence) ? (
+                  <p className="text-right text-xs text-muted-foreground">{cadenceSubline(care.cadence)}</p>
+                ) : null}
+              </>
+            ) : null}
             <Fact label="Dzień współpracy">{care.contract.day_of_cooperation ?? "—"}</Fact>
             <Fact label="Zadowolenie">
               {care.last_satisfaction
@@ -366,7 +399,11 @@ export function ContractCareTab({ contractId }: { contractId: number }) {
             </Fact>
           </Section>
           <Section title="Plan kontaktów">
-            <PlanList care={care} onRecord={(item) => setConversationFor(item)} />
+            <PlanList
+              care={care}
+              onRecord={(item) => setConversationFor(item)}
+              onSkip={(item) => setSkipping(item)}
+            />
           </Section>
           <Section title="Sygnały">
             {care.project_end?.end_on ? (
@@ -407,6 +444,18 @@ export function ContractCareTab({ contractId }: { contractId: number }) {
             if (!open) setConversationFor(undefined);
           }}
         />
+      ) : null}
+      {skipping ? (
+        <SkipPlanItemDialog
+          contractId={contractId}
+          item={skipping}
+          onOpenChange={(open) => {
+            if (!open) setSkipping(null);
+          }}
+        />
+      ) : null}
+      {cadenceOpen ? (
+        <CadenceDialog contractId={contractId} open onOpenChange={setCadenceOpen} />
       ) : null}
       {cardDialog ? (
         <TechCardDialog

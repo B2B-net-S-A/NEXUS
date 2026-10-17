@@ -14,7 +14,7 @@ import { AppModal } from "@/components/ds/AppModal";
 import { AddProjectDialog } from "@/components/contracts/AddProjectDialog";
 import { ContractDocumentsTab } from "@/components/ContractDocumentsTab";
 import { ContractAmendmentsTab } from "@/components/ContractAmendmentsTab";
-import { ContractOnboardingTab } from "@/components/ContractOnboardingTab";
+import { ContractEntryTab } from "@/components/hr/onboarding/ContractEntryTab";
 import { ContractInvoicesTab } from "@/components/ContractInvoicesTab";
 import { ContractEquipmentTab } from "@/components/contracts/ContractEquipmentTab";
 import {
@@ -364,7 +364,7 @@ const TABS: Tab[] = [
   { key: "details", label: "Szczegóły" },
   { key: "documents", label: "Dokumenty" },
   { key: "amendments", label: "Aneksy" },
-  { key: "onboarding", label: "Onboarding" },
+  { key: "onboarding", label: "Wejście" },
   { key: "equipment", label: "Sprzęt" },
   { key: "notes", label: "Notatki / Rozmowy" },
   { key: "care", label: "Opieka" },
@@ -2473,9 +2473,9 @@ export default function ContractDetailPage() {
         />
       )}
 
-      {/* Tab: Onboarding */}
+      {/* Tab: Wejście (dawniej „Onboarding”): lista wejścia konsultanta, stara lista przy wyłączonym module */}
       {activeTab === "onboarding" && (
-        <ContractOnboardingTab
+        <ContractEntryTab
           contractId={id}
           readOnly={!canEditContract}
         />

@@ -1,8 +1,9 @@
 // „Ludzie w NEXUSIE” (16.10.2026) — opieka nad konsultantami i mapa technologii.
 //
-// Lustro `backend/app/api/contract_care.py` (prefiks `/api/care`). Zakres
-// klientów Delivery Leada i prawo zapisu liczy serwer (`can_edit`,
-// `can_curate`); front pokazuje to, co dostał. Bez stawek i danych o zdrowiu.
+// Lustro `backend/app/api/contract_care.py` i `care_consultants.py` (prefiks
+// `/api/care`). Zakres klientów Delivery Leada i prawo zapisu liczy serwer
+// (`can_edit`, `can_curate`, `can_change_cadence`, `can_assign`); front
+// pokazuje to, co dostał. Bez stawek i danych o zdrowiu.
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
@@ -11,7 +12,34 @@ import { api } from "@/lib/api";
 import type { FeedbackReason, LastFeedback, OrgConsultant } from "./client-people";
 
 export type CareChannel = "phone" | "meeting" | "chat";
-export type PlanKind = "day_7" | "day_30" | "day_90" | "quarterly" | "pre_end";
+/** `day_7` i `pre_end` — kamienie; `cadence` — rozmowa z rytmu; reszta to stały plan sprzed 17.10.2026. */
+export type PlanKind = "day_7" | "cadence" | "pre_end" | "day_30" | "day_90" | "quarterly";
+/** Rytm kontaktu (etap 3, O7). */
+export type CadenceLevel = "biweekly" | "monthly" | "quarterly" | "milestones" | "paused";
+export type CadenceReason =
+  | "new_at_client"
+  | "weak_feedback"
+  | "order_end"
+  | "wants_change"
+  | "stable"
+  | "person_request"
+  | "long_absence"
+  | "other"
+  | "imported";
+export type SkipReason =
+  | "recent_contact"
+  | "unreachable"
+  | "absence"
+  | "person_request"
+  | "ending"
+  | "other";
+export type OwnerReason =
+  | "new_consultants"
+  | "balance_load"
+  | "owner_leaving"
+  | "client_change"
+  | "person_request"
+  | "other";
 export type PlanStatus = "open" | "done" | "skipped";
 export type CardStatus = "ok" | "odmowa" | "brak_czasu" | "niechetny";
 export type HiringSource = "widzial" | "slyszal" | "plotka";
@@ -34,7 +62,29 @@ export interface CarePlanItem {
   overdue: boolean;
   done_conversation_id: number | null;
   resolved_at: string | null;
+  skip_reason?: SkipReason | null;
+  skip_note?: string | null;
 }
+
+/** Obecny rytm: poziom, skąd (program 90 dni, domyślny, zmiana), do kiedy i powód. */
+export interface CadenceCurrent {
+  level: CadenceLevel;
+  source: "program" | "default" | "period";
+  starts_on: string | null;
+  until_on: string | null;
+  /** Rytm po dacie „do kiedy” (albo po programie pierwszych 90 dni). */
+  returns_to: CadenceLevel | null;
+  reason: CadenceReason | null;
+  note: string | null;
+  author: PersonRef | null;
+}
+
+export type CadenceSignal =
+  | { kind: "weak_feedback"; average: number; on: string }
+  | { kind: "order_end"; days: number; on: string }
+  | { kind: "wants_change" }
+  | { kind: "attrition_risk" }
+  | { kind: "overdue"; days: number };
 
 export interface CareConversation {
   id: number;
@@ -125,6 +175,7 @@ export interface ContractCare {
     explicit: boolean;
   };
   client_default_owner: PersonRef | null;
+  cadence?: (CadenceCurrent & { can_edit: boolean }) | null;
   plan: CarePlanItem[];
   next_contact: NextContact | null;
   last_satisfaction: { value: number; on: string } | null;
@@ -266,21 +317,150 @@ export interface ClientTechMap {
   can_edit: boolean;
 }
 
-export interface MyConsultantRow {
+/** Wiersz „Konsultanci” (M1). */
+export interface ConsultantRow {
   contract_id: number;
   candidate_id: number | null;
   candidate_name: string | null;
   client_id: number;
   client_name: string;
   job_title: string | null;
+  contract_type: "b2b" | "uop" | "uzlecenie" | null;
   start_date: string | null;
   end_date: string | null;
   owner: PersonRef | null;
-  next_contact: NextContact | null;
-  overdue_count: number;
-  last_conversation_on: string | null;
-  last_satisfaction: number | null;
-  redeploy_reasons: RedeployReason[];
+  is_mine: boolean;
+  manager: ClientManagerRef | null;
+  cadence: CadenceCurrent;
+  next_contact: (NextContact & { kind: WeekReasonKind; overdue_days: number }) | null;
+  last_conversation: {
+    id: number;
+    occurred_on: string;
+    satisfaction: number | null;
+    note_excerpt: string | null;
+    signals: string[];
+  } | null;
+  signals: CadenceSignal[];
+  suggested_level: CadenceLevel | null;
+  conversations: { this_month: number; next_month: number };
+  can_change_cadence: boolean;
+}
+
+export interface CareConsultants {
+  today: string;
+  months: { this: { from: string; to: string }; next: { from: string; to: string } };
+  items: ConsultantRow[];
+  total: number;
+  feedback_visible: boolean;
+}
+
+export interface CadenceHistoryStep {
+  on: string;
+  kind: "start" | "program_end" | "change" | "return";
+  level: CadenceLevel;
+  reason: CadenceReason | null;
+  note: string | null;
+  until_on: string | null;
+  author: PersonRef | null;
+  future: boolean;
+}
+
+export interface CadenceUpcoming {
+  due_on: string;
+  kind: PlanKind;
+  label: string;
+}
+
+/** Okno „Rytm kontaktu” (M2); `preview` tylko przy podglądzie zmiany. */
+export interface ContractCadence {
+  contract_id: number;
+  candidate_name: string | null;
+  client_name: string;
+  start_date: string | null;
+  end_date: string | null;
+  is_live: boolean;
+  owner: PersonRef | null;
+  manager: ClientManagerRef | null;
+  current: CadenceCurrent;
+  history: CadenceHistoryStep[];
+  upcoming: CadenceUpcoming[];
+  signals: CadenceSignal[];
+  suggested_level: CadenceLevel | null;
+  preview: {
+    level: CadenceLevel;
+    until_on: string | null;
+    returns_to: CadenceLevel | null;
+    upcoming: CadenceUpcoming[];
+    owner_month: { owner: PersonRef; month: string; before: number; after: number } | null;
+  } | null;
+  can_edit: boolean;
+}
+
+export interface CadencePayload {
+  level: CadenceLevel;
+  reason: Exclude<CadenceReason, "imported">;
+  note: string | null;
+  until_on: string | null;
+}
+
+/** „Przydział” (M3): opiekunowie z obciążeniem z rytmów i kontrakty z podpowiedzią. */
+export interface OwnerLoad {
+  id: number;
+  name: string;
+  is_delivery_lead: boolean;
+  consultants: number;
+  conversations: number;
+  by_level: Partial<Record<CadenceLevel, number>>;
+  clients: string[];
+  over_threshold: boolean;
+}
+
+export type OwnerHint = "contract" | "client" | "delivery_lead" | "default_inactive" | "no_default";
+
+export interface AssignmentRow {
+  contract_id: number;
+  candidate_id: number | null;
+  candidate_name: string | null;
+  job_title: string | null;
+  contract_type: "b2b" | "uop" | "uzlecenie" | null;
+  client_id: number;
+  client_name: string;
+  start_date: string | null;
+  end_date: string | null;
+  owner: PersonRef | null;
+  owner_source: "contract" | "client" | "delivery_lead" | null;
+  explicit_owner_id: number | null;
+  client_default_owner: PersonRef | null;
+  hint: OwnerHint;
+  ending_soon: boolean;
+  cadence_level: CadenceLevel | null;
+  conversations_next_month: number;
+}
+
+export interface CareAssignment {
+  today: string;
+  month: { from: string; to: string };
+  counts: {
+    active: number;
+    without_owner: number;
+    owners: number;
+    conversations: number;
+    ending: number;
+  };
+  threshold: { monthly_conversations: number | null };
+  owners: OwnerLoad[];
+  items: AssignmentRow[];
+  clients: {
+    id: number;
+    name: string;
+    default_owner: PersonRef | null;
+    default_owner_active: boolean;
+    consultants: number;
+  }[];
+  owner_choices: PersonRef[];
+  can_assign: boolean;
+  can_edit_threshold: boolean;
+  can_edit_defaults: boolean;
 }
 
 export interface RedeployRow extends RedeployItem {
@@ -392,6 +572,9 @@ export type TimelineKind =
   | "tech_card"
   | "feedback"
   | "redeploy"
+  | "owner"
+  | "cadence"
+  | "cadence_return"
   | "handoff"
   | "plan"
   | "order_end"
@@ -519,13 +702,73 @@ export const OWNER_SOURCE_LABELS: Record<"contract" | "client" | "delivery_lead"
   delivery_lead: "Delivery Lead kontraktu",
 };
 
+/** Poziomy rytmu w kolejności od najczęstszego (okno „Rytm kontaktu”). */
+export const CADENCE_LEVELS: CadenceLevel[] = [
+  "biweekly",
+  "monthly",
+  "quarterly",
+  "milestones",
+  "paused",
+];
+
+export const CADENCE_LEVEL_LABELS: Record<CadenceLevel, string> = {
+  biweekly: "co 2 tygodnie",
+  monthly: "co miesiąc",
+  quarterly: "co kwartał",
+  milestones: "tylko kamienie",
+  paused: "wstrzymany",
+};
+
+/** Kiedy który rytm (podpis w oknie zmiany). */
+export const CADENCE_LEVEL_HINTS: Record<CadenceLevel, string> = {
+  biweekly: "nowi, sygnał, zmiana",
+  monthly: "domyślnie po 90 dniach",
+  quarterly: "stabilnie, długo u klienta",
+  milestones: "start i koniec zamówienia",
+  paused: "nieobecność, prośba osoby",
+};
+
+export const CADENCE_REASON_LABELS: Record<CadenceReason, string> = {
+  new_at_client: "Nowy u klienta",
+  weak_feedback: "Słaba opinia menedżera u klienta",
+  order_end: "Koniec zamówienia",
+  wants_change: "Chce zmiany projektu",
+  stable: "Stabilnie",
+  person_request: "Prośba osoby",
+  long_absence: "Długa nieobecność",
+  other: "Inny powód",
+  imported: "Z Compassa",
+};
+
+export const SKIP_REASON_LABELS: Record<SkipReason, string> = {
+  recent_contact: "Niedawno rozmawialiśmy",
+  unreachable: "Konsultant nieosiągalny",
+  absence: "Nieobecność konsultanta",
+  person_request: "Prośba konsultanta",
+  ending: "Kończy współpracę",
+  other: "Inny powód",
+};
+
+export const OWNER_REASON_LABELS: Record<OwnerReason, string> = {
+  new_consultants: "Nowi konsultanci klienta",
+  balance_load: "Wyrównanie obciążenia",
+  owner_leaving: "Odejście albo nieobecność opiekuna",
+  client_change: "Zmiana u klienta",
+  person_request: "Prośba konsultanta",
+  other: "Inny powód",
+};
+
 export const careKeys = {
   all: ["care"] as const,
   contract: (id: number) => ["care", "contract", id] as const,
   clientMap: (id: number) => ["care", "client", id, "tech-map"] as const,
   clientAreas: (id: number) => ["care", "client", id, "areas"] as const,
   owners: ["care", "owners"] as const,
-  myConsultants: (scope: "mine" | "all") => ["care", "my-consultants", scope] as const,
+  consultants: ["care", "consultants"] as const,
+  /** `level`/`until` — podgląd zmiany rytmu (null = sam odczyt). */
+  cadence: (contractId: number, level: CadenceLevel | null = null, until: string | null = null) =>
+    ["care", "contract", contractId, "cadence", level, until] as const,
+  assignment: ["care", "assignment"] as const,
   redeploy: (state: "active" | "closed") => ["care", "redeploy", state] as const,
   skillReview: (state: "open" | "closed") => ["care", "skill-review", state] as const,
   summary: ["care", "summary"] as const,
@@ -577,16 +820,96 @@ export function useCareOwners(enabled = true) {
   });
 }
 
-export function useMyConsultants(scope: "mine" | "all") {
+export function useCareConsultants() {
   return useQuery({
-    queryKey: careKeys.myConsultants(scope),
+    queryKey: careKeys.consultants,
+    queryFn: async () => (await api.get<CareConsultants>("/api/care/consultants")).data,
+    staleTime: 60_000,
+  });
+}
+
+/** Rytm kontraktu; `level` (i `until`) = podgląd zmiany bez zapisu. */
+export function useContractCadence(
+  contractId: number,
+  proposal: { level: CadenceLevel | null; until: string | null } = { level: null, until: null },
+  enabled = true,
+) {
+  const params: Record<string, string> = {};
+  if (proposal.level) params.level = proposal.level;
+  if (proposal.level && proposal.until) params.until_on = proposal.until;
+  return useQuery({
+    queryKey: careKeys.cadence(contractId, proposal.level, proposal.level ? proposal.until : null),
     queryFn: async () =>
       (
-        await api.get<{ items: MyConsultantRow[]; total: number }>(
-          "/api/care/my-consultants",
-          { params: { scope } },
+        await api.get<ContractCadence>(`/api/care/contracts/${contractId}/cadence`, { params })
+      ).data,
+    enabled: enabled && Number.isFinite(contractId) && contractId > 0,
+    // Podgląd przy zmianie poziomu nie miga pustym oknem.
+    placeholderData: (previous) => previous,
+  });
+}
+
+export function useCareAssignment(enabled = true) {
+  return useQuery({
+    queryKey: careKeys.assignment,
+    queryFn: async () => (await api.get<CareAssignment>("/api/care/assignment")).data,
+    enabled,
+  });
+}
+
+/** Po zmianie opiekuna albo rytmu: listy, przydział, tydzień i oś. */
+function invalidateCareLists(
+  queryClient: ReturnType<typeof useQueryClient>,
+  contractIds: number[] = [],
+) {
+  void queryClient.invalidateQueries({ queryKey: careKeys.consultants });
+  void queryClient.invalidateQueries({ queryKey: careKeys.assignment });
+  void queryClient.invalidateQueries({ queryKey: ["care", "week"] });
+  for (const id of contractIds) {
+    void queryClient.invalidateQueries({ queryKey: ["care", "contract", id] });
+  }
+}
+
+export function useSetContractCadence(contractId: number) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (payload: CadencePayload) =>
+      (
+        await api.post<ContractCadence>(`/api/care/contracts/${contractId}/cadence`, payload)
+      ).data,
+    onSuccess: () => invalidateCareLists(queryClient, [contractId]),
+  });
+}
+
+export function useAssignOwners() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (payload: {
+      contract_ids: number[];
+      owner_user_id: number;
+      reason: OwnerReason;
+    }) =>
+      (
+        await api.post<{ changed: number; unchanged: number; owner: PersonRef }>(
+          "/api/care/assignment",
+          payload,
         )
       ).data,
+    onSuccess: (_data, payload) => invalidateCareLists(queryClient, payload.contract_ids),
+  });
+}
+
+export function useSetLoadThreshold() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (value: number | null) =>
+      (
+        await api.put<{ monthly_conversations: number | null }>(
+          "/api/care/assignment/threshold",
+          { monthly_conversations: value },
+        )
+      ).data,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: careKeys.assignment }),
   });
 }
 
@@ -651,7 +974,8 @@ function useContractMutation<TVars>(
     onSuccess: (data) => {
       queryClient.setQueryData(careKeys.contract(contractId), data);
       queryClient.invalidateQueries({ queryKey: ["care", "client", data.contract.client_id] });
-      queryClient.invalidateQueries({ queryKey: ["care", "my-consultants"] });
+      queryClient.invalidateQueries({ queryKey: careKeys.consultants });
+      queryClient.invalidateQueries({ queryKey: careKeys.assignment });
       queryClient.invalidateQueries({ queryKey: ["care", "redeploy"] });
       queryClient.invalidateQueries({ queryKey: careKeys.summary });
       queryClient.invalidateQueries({ queryKey: ["care", "week"] });
@@ -684,8 +1008,24 @@ export function useAddConversation(contractId: number) {
 export function useUpdatePlanItem(contractId: number) {
   return useContractMutation(
     contractId,
-    async ({ itemId, status }: { itemId: number; status: "open" | "skipped" }) =>
-      (await api.patch<ContractCare>(`/api/care/plan-items/${itemId}`, { status })).data,
+    async ({
+      itemId,
+      status,
+      reason,
+      note,
+    }: {
+      itemId: number;
+      status: "open" | "skipped";
+      /** Wymagany przy „Pomiń” (serwer odpowiada 422 bez powodu). */
+      reason?: SkipReason;
+      note?: string | null;
+    }) =>
+      (
+        await api.patch<ContractCare>(`/api/care/plan-items/${itemId}`, {
+          status,
+          ...(status === "skipped" ? { reason, note: note ?? null } : {}),
+        })
+      ).data,
   );
 }
 

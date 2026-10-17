@@ -31,6 +31,17 @@ rodzajów przechodzi na przejmującego (``TRANSFER_KINDS``), każdy ISTNIEJĄCĄ
   (``lifecycle_service.follow_profile_manager``) — do 17.10.2026 podwładni
   trafiali do przełożonego zapisanego w sprawie przy jej założeniu.
 
+* **opieka nad konsultantami** (etap 3, O11, 17.10.2026) — kontrakty, których
+  odchodzący jest opiekunem (``contracts.care_owner_user_id``, kontrakty bez
+  końca i unieważnienia), i domyślne opieki klientów
+  (``clients.default_care_owner_user_id``) przechodzą na przejmującego tymi
+  samymi kolumnami co „Opiekun” w zakładce „Opieka” i domyślny opiekun klienta
+  (ślad ``care.owner_set`` / ``care.default_owner_set`` z poprzednim opiekunem
+  i powodem ``handover``). Domyślnie przejmuje head back office, który
+  rozdziela konsultantów dalej w „Przydziale”; bez niego — przełożony.
+  Opiekun może być Delivery Leadem, TCM albo adminem; Delivery Lead tylko
+  wtedy, gdy ma wszystkich tych klientów w portfelu.
+
 Pozostałe rodzaje (karty w procesie, rozmowy u klienta po ostatnim dniu,
 umówione kontakty z kandydatami, zastępstwa w urlopach) idą z rekrutacjami
 albo wymagają decyzji w innym miejscu — podsumowanie je pokazuje, przekazanie
@@ -55,7 +66,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from typing import Any, Awaitable, Callable, Optional
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -63,6 +74,8 @@ from app.core.scheduling import local_day_start_utc
 from app.models.activity import Activity
 from app.models.calendar_event import CalendarEvent, EventStatus, EventType
 from app.models.candidate_followup import CandidateFollowup
+from app.models.contract import Contract, ContractStatus
+from app.models.contract_care import CLIENTS_CARE, CONTRACTS_CARE
 from app.models.hr_leave import LeaveRequest
 from app.models.hr_lifecycle import LifecycleCase, WorkHandover
 from app.models.hr_profile import EmployeeProfile
@@ -139,6 +152,13 @@ WORK_KINDS: tuple[WorkKind, ...] = (
         "w toku idą do niego.",
     ),
     WorkKind(
+        "care",
+        "Opieka nad konsultantami",
+        True,
+        "Kontrakty i domyślne opieki klientów przechodzą na przejmującego — "
+        "domyślnie na head back office, który rozdziela je dalej w „Przydziale”.",
+    ),
+    WorkKind(
         "substitutions",
         "Zastępstwa w urlopach po ostatnim dniu",
         False,
@@ -178,6 +198,10 @@ RECEIVER_ROLES: dict[str, frozenset[UserRole]] = {
             UserRole.employee,
         }
     ),
+    # Opiekun kontraktu (`care.access.CARE_ROLES`): DL, TCM, admin.
+    "care": frozenset(
+        {UserRole.admin, UserRole.delivery_lead, UserRole.talent_community_manager}
+    ),
 }
 
 RECEIVER_ERRORS: dict[str, str] = {
@@ -192,6 +216,10 @@ RECEIVER_ERRORS: dict[str, str] = {
     "receiver_creates_loop": (
         "Przejmujący podlega jednej z tych osób — wybierz kogoś spoza zespołu "
         "odchodzącego albo z jego bezpośrednich podwładnych."
+    ),
+    "receiver_out_of_scope": (
+        "Przejmujący nie ma części tych klientów w portfelu — wybierz head back "
+        "office, Talent Community Managera albo administratora."
     ),
     "error": "Przekazanie nie wyszło — szczegóły w logu serwera.",
 }
@@ -238,6 +266,9 @@ async def receiver_issue(
     if work_kind == "reports" and case.user_id is not None:
         if await _reports_loop(db, leaver_id=case.user_id, receiver_id=receiver.id):
             return "receiver_creates_loop"
+    if work_kind == "care" and case.user_id is not None:
+        if await _care_out_of_scope(db, leaver_id=case.user_id, receiver=receiver):
+            return "receiver_out_of_scope"
     if case.last_working_day is None:
         return None
     leaving = await db.scalar(
@@ -267,6 +298,47 @@ async def _reports_loop(db: AsyncSession, *, leaver_id: int, receiver_id: int) -
     return await people.creates_manager_loop(
         db, user_ids=reports, manager_user_id=receiver_id
     )
+
+
+_ENDED_CONTRACTS = (ContractStatus.ended, ContractStatus.void)
+_contracts_care = CONTRACTS_CARE.alias("contracts_care")
+
+
+def _cared_contracts(user_id: int):
+    """Kontrakty bez końca i unieważnienia, których osoba jest opiekunem."""
+
+    return (
+        select(Contract.id, Contract.client_id)
+        .join(_contracts_care, _contracts_care.c.id == Contract.id)
+        .where(
+            _contracts_care.c.care_owner_user_id == user_id,
+            Contract.status.not_in(_ENDED_CONTRACTS),
+            Contract.voided_at.is_(None),
+        )
+    )
+
+
+def _cared_clients(user_id: int):
+    return select(CLIENTS_CARE.c.id).where(
+        CLIENTS_CARE.c.default_care_owner_user_id == user_id
+    )
+
+
+async def _care_out_of_scope(
+    db: AsyncSession, *, leaver_id: int, receiver: User
+) -> bool:
+    """Delivery Lead przejmie opiekę tylko u klientów ze swojego portfela."""
+
+    from app.services.access_scope import resolve_delivery_lead_client_ids  # noqa: PLC0415
+
+    scope = await resolve_delivery_lead_client_ids(receiver, db)
+    if scope is None:
+        return False
+    clients = {
+        row.client_id for row in (await db.execute(_cared_contracts(leaver_id))).all()
+    }
+    clients.update(await db.scalars(_cared_clients(leaver_id)))
+    return not clients <= set(scope)
 
 
 # ── Podsumowanie: co osoba ma w NEXUSIE ─────────────────────────────────────
@@ -363,6 +435,8 @@ async def work_summary(
             ),
         ),
         "reports": len(await people.direct_report_ids(db, user_id)),
+        "care": await _count(db, _cared_contracts(user_id))
+        + await _count(db, _cared_clients(user_id)),
         "substitutions": await _count(
             db,
             select(LeaveRequest.id).where(
@@ -421,11 +495,7 @@ async def plan_handovers(db: AsyncSession, case: LifecycleCase) -> list[WorkHand
     for work_kind in TRANSFER_KINDS:
         row = existing.get(work_kind)
         if row is None:
-            default = (
-                manager.id
-                if await receiver_issue(db, manager, work_kind, case) is None
-                else None
-            )
+            default = await _default_receiver(db, case, work_kind, manager)
             row = WorkHandover(
                 case_id=case.id,
                 work_kind=work_kind,
@@ -438,6 +508,25 @@ async def plan_handovers(db: AsyncSession, case: LifecycleCase) -> list[WorkHand
         rows.append(row)
     await db.flush()
     return rows
+
+
+async def _default_receiver(
+    db: AsyncSession, case: LifecycleCase, work_kind: str, manager: Optional[User]
+) -> Optional[int]:
+    """Domyślny przejmujący: przełożony; opiekę — head back office (O11)."""
+
+    candidates: list[Optional[User]] = [manager]
+    if work_kind == "care":
+        from app.services.hr.structure import load_division_heads  # noqa: PLC0415
+
+        head_id = (await load_division_heads(db)).get("back_office")
+        head = await db.get(User, head_id) if head_id else None
+        candidates = [head, manager]
+    for candidate in candidates:
+        if await receiver_issue(db, candidate, work_kind, case) is None:
+            assert candidate is not None
+            return candidate.id
+    return None
 
 
 async def retarget_default_receivers(
@@ -458,11 +547,7 @@ async def retarget_default_receivers(
             continue
         if row.receiver_user_id not in (None, previous_manager_id):
             continue
-        target = (
-            manager.id
-            if await receiver_issue(db, manager, row.work_kind, case) is None
-            else None
-        )
+        target = await _default_receiver(db, case, row.work_kind, manager)
         if row.receiver_user_id == target:
             continue
         row.receiver_user_id = target
@@ -734,12 +819,85 @@ async def _transfer_reports(
     return {"people": len(reports)}
 
 
+async def _transfer_care(
+    db: AsyncSession,
+    *,
+    leaver_id: int,
+    receiver: User,
+    actor_id: Optional[int],
+    case_id: int,
+) -> dict[str, int]:
+    from app.services.hr import audit  # noqa: PLC0415
+
+    contracts = list(
+        await db.scalars(
+            select(Contract.id)
+            .where(
+                Contract.id.in_(
+                    _cared_contracts(leaver_id).with_only_columns(Contract.id)
+                )
+            )
+            .order_by(Contract.id)
+            .with_for_update(of=Contract)
+        )
+    )
+    clients = list(
+        await db.scalars(_cared_clients(leaver_id).order_by(CLIENTS_CARE.c.id))
+    )
+    if contracts:
+        await db.execute(
+            update(CONTRACTS_CARE)
+            .where(CONTRACTS_CARE.c.id.in_(contracts))
+            .values(care_owner_user_id=receiver.id)
+        )
+    if clients:
+        await db.execute(
+            update(CLIENTS_CARE)
+            .where(CLIENTS_CARE.c.id.in_(clients))
+            .values(default_care_owner_user_id=receiver.id)
+        )
+    details = {
+        "previous": leaver_id,
+        "owner": receiver.id,
+        "reason": "handover",
+        "source": "hr_work_handover",
+        "lifecycle_case_id": case_id,
+    }
+    for contract_id in contracts:
+        audit.record(
+            db,
+            actor_user_id=actor_id,
+            subject_user_id=receiver.id,
+            entity_type="contract",
+            entity_id=contract_id,
+            action="care.owner_set",
+            details=details,
+        )
+    for client_id in clients:
+        audit.record(
+            db,
+            actor_user_id=actor_id,
+            subject_user_id=receiver.id,
+            entity_type="client",
+            entity_id=client_id,
+            action="care.default_owner_set",
+            details=details,
+        )
+    await db.flush()
+    return {
+        "contracts": len(contracts),
+        "clients": len(clients),
+        "items": len(contracts) + len(clients),
+    }
+
+
 EXECUTORS: dict[str, Executor] = {
     "recruitments": _transfer_recruitments,
     "delivery_lead_jobs": _transfer_delivery_lead_jobs,
     "dl_clients": _transfer_dl_clients,
     "my_people": _transfer_my_people,
     "reports": _transfer_reports,
+    "care": _transfer_care,
 }
 
 _RESULT_LABELS: dict[str, str] = {
@@ -748,6 +906,7 @@ _RESULT_LABELS: dict[str, str] = {
     "dl_clients": "klienci",
     "my_people": "„Moi ludzie”",
     "reports": "podwładni",
+    "care": "opieka nad konsultantami",
 }
 
 
@@ -758,6 +917,7 @@ def _moved(work_kind: str, result: dict[str, int]) -> int:
         "dl_clients": "clients",
         "my_people": "people",
         "reports": "people",
+        "care": "items",
     }[work_kind]
     return int(result.get(key, 0))
 
@@ -864,6 +1024,8 @@ async def _notify_receivers(
             link = "/jobs"
         elif kinds == {"reports"}:
             link = "/people/team"
+        elif kinds == {"care"}:
+            link = "/care"
         else:
             link = "/dashboard"
         # Dzwonek nie cofa przekazania (``notify_each`` łapie awarię).

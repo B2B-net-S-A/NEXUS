@@ -9,6 +9,11 @@
 * Link: token tylko w adresie, w bazie SHA-256; 14 dni, jednorazowy. Nowy
   link unieważnia poprzednie niezużyte. Zły, zużyty, wygasły i unieważniony
   token wyglądają z zewnątrz tak samo.
+* Wzór (etap 3, O3): protokół kontraktu bierze wzór wydania albo zwrotu
+  z pakietu klienta (``client_pack.template_for``) i zapamiętuje go
+  (``template_id``); bez wzoru w pakiecie — wbudowany standard. Plik
+  protokołu powstaje zawsze z TEGO wzoru (``render_docx`` / ``render_pdf``),
+  wgrany wypełnia się w sandboxie (``protocol_template.render_uploaded``).
 """
 
 from __future__ import annotations
@@ -19,21 +24,25 @@ import secrets
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Optional, Sequence
 
+from jinja2 import TemplateError
+from jinja2.exceptions import SecurityError
 from sqlalchemy import select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
+from app.models.contract import Contract
 from app.models.equipment import (
     EquipmentAssignment,
     EquipmentProtocol,
     EquipmentProtocolLine,
     EquipmentProtocolLink,
+    EquipmentProtocolTemplate,
     EquipmentTask,
 )
 from app.models.notification import NotificationType
 from app.models.user import User
-from app.services import storage_service
-from app.services.equipment import protocol_document
+from app.services import cv_pdf_preview, storage_service
+from app.services.equipment import protocol_document, protocol_template
 from app.services.equipment.protocol_template import TEMPLATE_VERSION
 from app.services.equipment.errors import (
     EquipmentConflict,
@@ -73,6 +82,25 @@ async def next_number(db: AsyncSession, protocol_date: date) -> tuple[int, int, 
     return year, seq, f"PZO/{year}/{protocol_date.month:02d}/{seq:03d}"
 
 
+def uploaded_template_version(template_id: int) -> str:
+    """``template_version`` protokołu z wgranego wzoru (mieści się w 16 znakach)."""
+    return f"wzor-{template_id}"[:16]
+
+
+async def template_for_holder(
+    db: AsyncSession, kind: str, holder: Holder
+) -> Optional[EquipmentProtocolTemplate]:
+    """Wzór z pakietu klienta dla konsultanta (kontrakt); reszta — standard."""
+    if holder.kind != "contract":
+        return None
+    from app.services.hr import client_pack
+
+    client_id = await db.scalar(
+        select(Contract.client_id).where(Contract.id == holder.id)
+    )
+    return await client_pack.template_for(db, client_id, kind)
+
+
 async def create_protocol(
     db: AsyncSession,
     *,
@@ -84,6 +112,7 @@ async def create_protocol(
     issuer_name: Optional[str] = None,
 ) -> EquipmentProtocol:
     """Protokół z migawką pozycji (``lines``: name, identifier, unit_value…)."""
+    template = await template_for_holder(db, kind, holder)
     year, seq, number = await next_number(db, protocol_date)
     views = [
         protocol_document.LineView(
@@ -106,7 +135,10 @@ async def create_protocol(
         issuer_user_id=actor.id,
         issuer_name=(issuer_name or actor.name or actor.email)[:200],
         total_value=protocol_document.protocol_total(views),
-        template_version=TEMPLATE_VERSION,
+        template_version=(
+            uploaded_template_version(template.id) if template else TEMPLATE_VERSION
+        ),
+        template_id=template.id if template else None,
         **holder_columns(holder.kind, holder.id),
     )
     db.add(protocol)
@@ -182,6 +214,40 @@ async def render(
     return view_of(protocol, await protocol_lines(db, protocol.id))
 
 
+async def render_docx(db: AsyncSession, protocol: EquipmentProtocol) -> bytes:
+    """Plik Word protokołu z wzoru, z którego powstał (wgrany albo standard)."""
+    view = await render(db, protocol)
+    if protocol.template_id is None:
+        return protocol_document.render_docx(view)
+    content = await db.scalar(
+        select(EquipmentProtocolTemplate.content).where(
+            EquipmentProtocolTemplate.id == protocol.template_id
+        )
+    )
+    if content is None:
+        raise EquipmentNotFound("Nie ma już wzoru, z którego powstał ten protokół.")
+    try:
+        return protocol_template.render_uploaded(
+            content, protocol_document.context_for(view)
+        )
+    except (SecurityError, TemplateError) as exc:
+        # Wzór przeszedł sprawdzenie przy wgraniu; tu trafia tylko protokół,
+        # którego dane różnią się od próbnych (np. pole użyte warunkowo).
+        raise EquipmentError(
+            "Wzoru tego protokołu nie da się wypełnić — sprawdź wzór w zakładce "
+            "„Wzory protokołów”."
+        ) from exc
+
+
+async def render_pdf(db: AsyncSession, protocol: EquipmentProtocol) -> bytes:
+    """PDF z tego samego pliku Word (``ProtocolPdfUnavailable`` → trasa 503)."""
+    content = await render_docx(db, protocol)
+    try:
+        return await cv_pdf_preview.pdf_from_docx(content)
+    except cv_pdf_preview.PdfPreviewUnavailable as exc:
+        raise protocol_document.ProtocolPdfUnavailable(str(exc)) from exc
+
+
 def line_payload(line: EquipmentProtocolLine) -> dict[str, Any]:
     return {
         "position": line.position,
@@ -225,6 +291,7 @@ def protocol_payload(
             protocol.confirmed_at.isoformat() if protocol.confirmed_at else None
         ),
         "template_version": protocol.template_version,
+        "template_id": protocol.template_id,
         "created_at": protocol.created_at.isoformat() if protocol.created_at else None,
         "link": (
             {

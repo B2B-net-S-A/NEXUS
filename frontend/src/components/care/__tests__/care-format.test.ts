@@ -165,11 +165,15 @@ describe("karta technologiczna", () => {
 });
 
 describe("ekran /care", () => {
-  it("czyta zakładkę z adresu, nieznana = „Ten tydzień”, dawne „mine” = wszystkie kontrakty", () => {
+  it("czyta zakładkę z adresu, nieznana = „Ten tydzień”, dawne listy = „Konsultanci”", () => {
     expect(careTabFrom("redeploy")).toBe("redeploy");
     expect(careTabFrom("review")).toBe("review");
-    expect(careTabFrom("contracts")).toBe("contracts");
-    expect(careTabFrom("mine")).toBe("contracts");
+    expect(careTabFrom("consultants")).toBe("consultants");
+    expect(careTabFrom("assignment")).toBe("assignment");
+    // Link z powiadomienia o komunikacie (etap 3, O12).
+    expect(careTabFrom("announcements")).toBe("announcements");
+    expect(careTabFrom("contracts")).toBe("consultants");
+    expect(careTabFrom("mine")).toBe("consultants");
     expect(careTabFrom("cokolwiek")).toBe("week");
     expect(careTabFrom(null)).toBe("week");
   });

@@ -17,6 +17,7 @@ from app.core.scheduling import business_today
 from app.models.admin_case import AdminCase
 from app.models.contract import Contract
 from app.models.equipment import EquipmentTask
+from app.models.hr_lifecycle import LifecycleCase
 from app.services.hr import contract_hooks
 from tests.test_equipment_api import _contract, _drop_contract, modules_on  # noqa: F401
 
@@ -35,7 +36,11 @@ async def test_failing_module_does_not_stop_the_others(monkeypatch) -> None:
     async def cases(db, contract) -> None:
         calls.append("cases")
 
+    async def entry(db, contract) -> None:
+        calls.append("lifecycle")
+
     monkeypatch.setattr(contract_hooks, "_payroll_started", broken)
+    monkeypatch.setattr(contract_hooks, "_lifecycle_start", entry)
     monkeypatch.setattr(contract_hooks, "_equipment_start", ok)
     monkeypatch.setattr(contract_hooks, "_cases_start", cases)
     async with AsyncSessionLocal() as db:
@@ -44,8 +49,14 @@ async def test_failing_module_does_not_stop_the_others(monkeypatch) -> None:
             outcome = await contract_hooks.contract_started(db, contract)
         finally:
             await db.rollback()
-    assert calls == ["payroll", "equipment", "cases"]
-    assert outcome == {"payroll": "RuntimeError", "equipment": "ok", "cases": "ok"}
+    # Wejście konsultanta przed sprawą administracja@ — sprawa czyta jego listę.
+    assert calls == ["payroll", "lifecycle", "equipment", "cases"]
+    assert outcome == {
+        "payroll": "RuntimeError",
+        "lifecycle": "ok",
+        "equipment": "ok",
+        "cases": "ok",
+    }
 
 
 @pytest.mark.asyncio
@@ -79,6 +90,12 @@ async def test_reconcile_creates_start_task_and_case_once(modules_on) -> None:  
             )
             await db.execute(
                 AdminCase.__table__.delete().where(AdminCase.contract_id == ids["id"])
+            )
+            # Wejście konsultanta (etap 3) nie ma FK do kontraktu.
+            await db.execute(
+                LifecycleCase.__table__.delete().where(
+                    LifecycleCase.contract_id == ids["id"]
+                )
             )
             await db.commit()
         await _drop_contract(ids)

@@ -161,7 +161,10 @@ export function OnboardingWizard({ config }: { config: HrConfig }) {
     );
   };
 
-  const activeTemplates = (templates.data ?? []).filter((t) => t.is_active);
+  const activeTemplates = (templates.data ?? []).filter(
+    // Ścieżki konsultanta wiszą przy kontrakcie — nie dla osoby z kontem.
+    (t) => t.is_active && (t.audience ?? "team") === "team",
+  );
   const title = personLabel
     ? `${personLabel}${form.job_title.trim() ? ` · ${form.job_title.trim()}` : ""}${
         form.work_start_date ? ` · start ${formatWeekdayDayPl(form.work_start_date)}` : ""

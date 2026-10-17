@@ -152,7 +152,8 @@ async def test_week_queue_overdue_this_week_follow_up_and_scope(
     client_id = await make_client(dl=dl)
     # Klient innego Delivery Leada — poza portfelem czytającego.
     foreign_client = await make_client(dl=await make_user(UserRole.delivery_lead))
-    # Zaległy „Dzień 30” (start 40 dni temu: dzień 7 jest sprzed okna planu).
+    # Zaległe rozmowy z rytmu (start 40 dni temu: co 2 tygodnie — dzień 14
+    # i 28; dzień 7 jest sprzed okna planu).
     overdue, _ = await make_contract(client_id, started_days_ago=40)
     # „Dzień 7” wypada w piątek tego tygodnia.
     this_week, _ = await make_contract(
@@ -178,8 +179,12 @@ async def test_week_queue_overdue_this_week_follow_up_and_scope(
     assert quiet not in rows and foreign not in rows
 
     late = rows[overdue]
-    assert [r["kind"] for r in late["reasons"]] == ["day_30"]
-    assert late["overdue"] is True and late["overdue_days"] == 10
+    assert {r["kind"] for r in late["reasons"]} == {"cadence"}
+    assert [r["due_on"] for r in late["reasons"]][:2] == [
+        (today - timedelta(days=26)).isoformat(),
+        (today - timedelta(days=12)).isoformat(),
+    ]
+    assert late["overdue"] is True and late["overdue_days"] == 26
     assert late["owner"]["id"] == dl.id
     assert late["plan_item_id"] is not None
     assert rows[this_week]["reasons"][0]["kind"] == "day_7"

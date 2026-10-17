@@ -1,4 +1,4 @@
-"""„Ludzie w NEXUSIE” — modele: Opieka nad konsultantami, technologie i opinie klienta (0461).
+"""„Ludzie w NEXUSIE” — modele: Opieka nad konsultantami, rytm kontaktu, technologie i opinie klienta (0461).
 
 CHECK-i i indeksy muszą być identyczne z ``app/services/*_schema.py`` modułu
 (strażnik dryfu schematu porównuje model z bazą po migracji).
@@ -157,6 +157,10 @@ class CarePlanItem(Base):
         CheckConstraint(
             schema.CK_PLAN_RESOLUTION, name="ck_contract_care_plan_items_resolution"
         ),
+        CheckConstraint(
+            schema.CK_PLAN_SKIP_REASON, name="ck_contract_care_plan_items_skip_reason"
+        ),
+        CheckConstraint(schema.CK_PLAN_SKIP, name="ck_contract_care_plan_items_skip"),
         Index("ix_contract_care_plan_items_due", "status", "due_on"),
     )
 
@@ -180,6 +184,47 @@ class CarePlanItem(Base):
     )
     resolved_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True
+    )
+    #: Powód „Pomiń” (``schema.SKIP_REASONS``) i notatka — tylko przy pominiętym.
+    skip_reason: Mapped[Optional[str]] = mapped_column(String(24), nullable=True)
+    skip_note: Mapped[Optional[str]] = mapped_column(
+        String(schema.SHORT_TEXT_MAX), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class CareCadencePeriod(Base):
+    """Zmiana rytmu kontaktu z konsultantem (kontraktem) od ``starts_on``.
+
+    ``until_on`` — ostatni dzień zmiany; potem obowiązuje to, co przed nią
+    (``services/care/cadence_rules.level_on``).
+    """
+
+    __tablename__ = "care_cadence_periods"
+    __table_args__ = (
+        CheckConstraint(schema.CK_CADENCE_LEVEL, name="ck_care_cadence_periods_level"),
+        CheckConstraint(
+            schema.CK_CADENCE_REASON, name="ck_care_cadence_periods_reason"
+        ),
+        CheckConstraint(schema.CK_CADENCE_UNTIL, name="ck_care_cadence_periods_until"),
+        Index("ix_care_cadence_periods_contract", "contract_id", "starts_on"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    contract_id: Mapped[int] = mapped_column(
+        ForeignKey("contracts.id", ondelete="CASCADE"), nullable=False
+    )
+    level: Mapped[str] = mapped_column(String(16), nullable=False)
+    starts_on: Mapped[date] = mapped_column(Date, nullable=False)
+    until_on: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+    reason: Mapped[str] = mapped_column(String(24), nullable=False)
+    note: Mapped[Optional[str]] = mapped_column(
+        String(schema.SHORT_TEXT_MAX), nullable=True
+    )
+    created_by: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()

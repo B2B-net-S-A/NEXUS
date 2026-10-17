@@ -25,6 +25,22 @@ Technologia spoza słownika ``skills`` (nazwa ani alias) idzie do
 ``skill_review_queue``, a karta trzyma tekst w ``unrecognized_skills``.
 Import nie zgłasza „Do przepięcia”, nie zamyka punktów planu i nie wysyła
 przypomnień.
+
+Rytm i opiekun (etap 3, 17.10.2026) — z ``contractor_success_settings``
+i ``contractors.owner_tcm_id``, tylko przy pewnym kontrakcie (ta sama reguła
+co rozmowy: kotwica osoby + klient z ``contractors.current_client`` + dzień
+eksportu w okresie umowy):
+
+* rytm: monitoring wstrzymany → „wstrzymany”; aktywny w programie wejścia
+  (``onboarding_program_ends_on`` nie minął) → co 2 tygodnie do końca
+  programu; inaczej ``check_in_cadence_days`` ≤ 14 co 2 tygodnie, ≤ 31 co
+  miesiąc, ≤ 93 co kwartał, dalej tylko kamienie. Monitoring nieaktywny →
+  rytm domyślny NEXUSA (do raportu). Okres od dnia eksportu z powodem
+  „z Compassa”; rytm zmieniony już w NEXUSIE zostaje (``conflict``).
+  Plan przelicza nocny przebieg opieki,
+* opiekun: konto opiekuna Compassa, które może być opiekunem w NEXUSIE
+  (aktywny DL z klientem w portfelu, TCM, admin), na kontrakcie bez
+  opiekuna; inny opiekun wpisany w NEXUSIE zostaje (``conflict``).
 """
 
 from __future__ import annotations
@@ -43,6 +59,8 @@ from app.models.candidate import Candidate
 from app.models.client import Client
 from app.models.contract import Contract, ContractStatus
 from app.models.contract_care import (
+    CONTRACTS_CARE,
+    CareCadencePeriod,
     CareConversation,
     ClientArea,
     SkillReviewItem,
@@ -52,6 +70,8 @@ from app.models.contract_care import (
     TechVendor,
 )
 from app.models.hr_ops import HrImportBatch
+from app.models.user import User
+from app.services.care import access as care_access
 from app.services.care import skills as care_skills
 from app.services.client_portfolio_import import normalize_client_name
 from app.services.contract_care_schema import (
@@ -62,6 +82,9 @@ from app.services.contract_care_schema import (
     SHORT_TEXT_MAX,
 )
 
+from app.core.scheduling import business_today
+from app.services.hr import audit
+
 from .bundle import Bundle
 from .common import (
     ImportPlan,
@@ -69,6 +92,7 @@ from .common import (
     changed_fields,
     join_notes,
     load_people,
+    local_date,
     parse_date,
     parse_datetime,
     parse_uuid,
@@ -76,7 +100,7 @@ from .common import (
     source_id,
     text,
 )
-from .core import ModulePlan, RowPlan, remember
+from .core import ModulePlan, RowPlan, mapped_target, remember
 
 MODULE = "care"
 CARDS = "tech_interview_cards"
@@ -85,6 +109,16 @@ CONVERSATIONS = "contractor_conversations"
 NO_LINK = "kontraktor bez powiązania z NEXUSEM (kolejka „Tożsamość NEXUS”)"
 UNSURE_CONTRACT = "kontrakt niepewny — karta przy kliencie, bez kontraktu"
 UNKNOWN_SKILL = "technologia spoza słownika — w kolejce do przejrzenia"
+RHYTHMS = "contractor_success_settings"
+OWNERS = "contractors"
+RHYTHM_UNSURE = "kontrakt rytmu niepewny"
+RHYTHM_INACTIVE = "monitoring nieaktywny w Compassie — rytm domyślny NEXUSA"
+RHYTHM_UNKNOWN = "nieznany stan monitoringu"
+RHYTHM_SET_IN_NEXUS = "rytm zmieniony w NEXUSIE — bez nadpisania"
+OWNER_UNSURE = "kontrakt opiekuna niepewny"
+OWNER_NO_ACCOUNT = "opiekun bez konta w NEXUSIE"
+OWNER_NOT_CARE = "opiekun z Compassa nie może być opiekunem tego kontraktu"
+OWNER_SET_IN_NEXUS = "opiekun ustawiony w NEXUSIE — bez nadpisania"
 _SKIPPED_CONTRACT_STATUSES = (ContractStatus.void, ContractStatus.draft)
 
 CATEGORY_LABELS: dict[str, str] = {
@@ -575,12 +609,173 @@ async def _plan_conversations(
         result.rows.append(RowPlan(sid, action, reason, payload))
 
 
+def rhythm_level(
+    status: Any,
+    days: Any,
+    program_ends_on: Optional[date],
+    program_done: bool,
+    day: date,
+) -> Optional[tuple[str, Optional[date]]]:
+    """(poziom, do kiedy) z ustawień opieki Compassa; ``None`` = bez okresu."""
+
+    if status == "paused":
+        return "paused", None
+    if status != "active":
+        return None
+    if program_ends_on is not None and not program_done and program_ends_on > day:
+        return "biweekly", program_ends_on
+    cadence = small_int(days)
+    if cadence is None:
+        return None
+    if cadence <= 14:
+        return "biweekly", None
+    if cadence <= 31:
+        return "monthly", None
+    if cadence <= 93:
+        return "quarterly", None
+    return "milestones", None
+
+
+def _sure_contract(
+    links: Links, contractor_id: Any, day: date
+) -> tuple[Optional[int], Optional[int], Optional[int]]:
+    """(kandydat, kontrakt, klient) kontraktora w dniu eksportu."""
+
+    candidate_id = links.candidate_for(contractor_id)
+    if candidate_id is None:
+        return None, None, None
+    row = links.contractors.get(str(contractor_id)) or {}
+    contract_id, client_id = links.contract_for(
+        candidate_id, links.client_for_name(row.get("current_client")), day
+    )
+    return candidate_id, contract_id, client_id
+
+
+async def _plan_rhythms(
+    db: AsyncSession, bundle: Bundle, links: Links, result: ImportPlan, day: date
+) -> None:
+    for row in bundle.rows(RHYTHMS):
+        sid = f"{RHYTHMS}:{row.get('contractor_id')}"
+        candidate_id, contract_id, _ = _sure_contract(
+            links, row.get("contractor_id"), day
+        )
+        if candidate_id is None:
+            result.rows.append(RowPlan(sid, "skip", NO_LINK))
+            continue
+        if contract_id is None:
+            result.rows.append(RowPlan(sid, "conflict", RHYTHM_UNSURE))
+            continue
+        status = row.get("monitoring_status")
+        if status == "inactive":
+            result.rows.append(RowPlan(sid, "skip", RHYTHM_INACTIVE))
+            continue
+        mapped = rhythm_level(
+            status,
+            row.get("check_in_cadence_days"),
+            parse_date(row.get("onboarding_program_ends_on")),
+            row.get("onboarding_program_completed_at") not in (None, ""),
+            day,
+        )
+        if mapped is None:
+            result.rows.append(RowPlan(sid, "skip", RHYTHM_UNKNOWN))
+            continue
+        level, until_on = mapped
+        days = small_int(row.get("check_in_cadence_days"))
+        values = {
+            "level": level,
+            "until_on": until_on,
+            "note": "Z Compassa: wstrzymany."
+            if level == "paused"
+            else f"Z Compassa: kontakt co {days} dni."
+            if days
+            else "Z Compassa.",
+        }
+        payload = {"contract_id": contract_id, "values": values, "starts_on": day}
+        previous = await mapped_target(db, MODULE, sid)
+        existing = (
+            await db.get(CareCadencePeriod, int(previous.target_id))
+            if previous is not None
+            else None
+        )
+        manual = await db.scalar(
+            select(CareCadencePeriod.id).where(
+                CareCadencePeriod.contract_id == contract_id,
+                CareCadencePeriod.reason != "imported",
+            )
+        )
+        if manual is not None:
+            result.rows.append(RowPlan(sid, "conflict", RHYTHM_SET_IN_NEXUS))
+            continue
+        if existing is None:
+            result.rows.append(RowPlan(sid, "create", "", payload))
+            continue
+        payload["period_id"] = existing.id
+        action = "update" if changed_fields(existing, values) else "unchanged"
+        result.rows.append(RowPlan(sid, action, "", payload))
+
+
+async def _plan_owners(
+    db: AsyncSession,
+    bundle: Bundle,
+    people: People,
+    links: Links,
+    result: ImportPlan,
+    day: date,
+) -> None:
+    owners = [row for row in bundle.rows(OWNERS) if row.get("owner_tcm_id")]
+    contract_ids: dict[str, Optional[int]] = {}
+    for row in owners:
+        _, contract_id, _ = _sure_contract(links, row.get("id"), day)
+        contract_ids[str(row.get("id"))] = contract_id
+    known = await care_access.contracts_by_id(
+        db, [cid for cid in contract_ids.values() if cid is not None]
+    )
+    for row in owners:
+        sid = source_id(OWNERS, row)
+        if links.candidate_for(row.get("id")) is None:
+            result.rows.append(RowPlan(sid, "skip", NO_LINK))
+            continue
+        contract = known.get(contract_ids[str(row.get("id"))] or -1)
+        if contract is None:
+            result.rows.append(RowPlan(sid, "conflict", OWNER_UNSURE))
+            continue
+        account_id = people.account(row.get("owner_tcm_id"))
+        if account_id is None:
+            result.rows.append(RowPlan(sid, "conflict", OWNER_NO_ACCOUNT))
+            continue
+        account = await db.get(User, account_id)
+        scope = (
+            await care_access.allowed_client_ids(account, db)
+            if account is not None
+            else None
+        )
+        if (
+            account is None
+            or not account.is_active
+            or not care_access.is_care_worker(account)
+            or (scope is not None and contract.client_id not in scope)
+        ):
+            result.rows.append(RowPlan(sid, "conflict", OWNER_NOT_CARE))
+            continue
+        payload = {"contract_id": contract.id, "owner_id": account_id}
+        if contract.explicit_owner_id == account_id:
+            result.rows.append(RowPlan(sid, "unchanged", "", payload))
+        elif contract.explicit_owner_id is not None:
+            result.rows.append(RowPlan(sid, "conflict", OWNER_SET_IN_NEXUS))
+        else:
+            result.rows.append(RowPlan(sid, "create", "", payload))
+
+
 async def plan(db: AsyncSession, bundle: Bundle) -> ModulePlan:
     result = ImportPlan(module=MODULE)
     people = await load_people(db, bundle)
     links = await _links(db, bundle)
+    # Dzień eksportu: na nim sprawdzamy okres umowy i od niego liczy się rytm.
+    day = local_date(bundle.exported_at) or business_today()
     await _plan_cards(db, bundle, people, links, result)
     await _plan_conversations(db, bundle, people, links, result)
+    await _plan_rhythms(db, bundle, links, result, day)
+    await _plan_owners(db, bundle, people, links, result, day)
     return result
 
 
@@ -677,6 +872,8 @@ async def apply(
         "cards_written": 0,
         "cards_without_contract": 0,
         "conversations_written": 0,
+        "rhythms_written": 0,
+        "owners_written": 0,
     }
     for row in module_plan.rows:
         table = row.source_id.split(":", 1)[0]
@@ -704,6 +901,50 @@ async def apply(
             await db.flush()
             written["conversations_written"] += 1
             target_table, target_id = "care_conversations", conversation.id
+        elif table == RHYTHMS and row.action in ("create", "update"):
+            payload = row.payload
+            if "period_id" in payload:
+                period = await db.get(CareCadencePeriod, payload["period_id"])
+                for key, value in payload["values"].items():
+                    setattr(period, key, value)
+            else:
+                period = CareCadencePeriod(
+                    contract_id=payload["contract_id"],
+                    starts_on=payload["starts_on"],
+                    reason="imported",
+                    created_by=actor_user_id,
+                    **payload["values"],
+                )
+                db.add(period)
+            await db.flush()
+            written["rhythms_written"] += 1
+            target_table, target_id = "care_cadence_periods", period.id
+        elif table == OWNERS and row.action == "create":
+            payload = row.payload
+            await db.execute(
+                CONTRACTS_CARE.update()
+                .where(
+                    CONTRACTS_CARE.c.id == payload["contract_id"],
+                    CONTRACTS_CARE.c.care_owner_user_id.is_(None),
+                )
+                .values(care_owner_user_id=payload["owner_id"])
+            )
+            audit.record(
+                db,
+                actor_user_id=actor_user_id,
+                subject_user_id=payload["owner_id"],
+                entity_type="contract",
+                entity_id=payload["contract_id"],
+                action="care.owner_set",
+                details={
+                    "previous": None,
+                    "owner": payload["owner_id"],
+                    "reason": None,
+                    "source": "compass_import",
+                },
+            )
+            written["owners_written"] += 1
+            target_table, target_id = "contracts", payload["contract_id"]
         else:
             continue
         await remember(

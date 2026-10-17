@@ -4,6 +4,10 @@
 // wykonawca zadania), terminy w dniach roboczych, przekazanie pracy o 18:00
 // ostatniego dnia i wyłączenie konta dzień później liczy serwer; front pokazuje
 // to, co dostał. Powód odejścia przychodzi tylko do Kadr i przełożonego.
+//
+// Etap 3 (17.10.2026): ścieżki mają odbiorców (zespół wewnętrzny / konsultant
+// u klienta), wersje i warunki pozycji; wejście konsultanta to lista przy
+// kontrakcie (`/contracts/{id}/entry`) ze ścieżki, pakietu klienta i formy.
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
@@ -12,7 +16,9 @@ import { hrKeys, type EmploymentType, type WorkLocation } from "@/lib/api/hr";
 
 export type CaseKind = "onboarding" | "offboarding";
 export type CaseStatus = "draft" | "active" | "done" | "cancelled";
-export type CaseScope = "admin" | "manager" | "assignee";
+export type CaseScope = "admin" | "manager" | "assignee" | "viewer";
+export type Audience = "team" | "consultant";
+export type TaskSource = "path" | "client" | "form" | "manual";
 export type TaskCategory =
   | "accounts"
   | "equipment"
@@ -20,7 +26,15 @@ export type TaskCategory =
   | "training"
   | "meeting"
   | "other";
-export type AssigneeKind = "manager" | "people_admin" | "reception" | "person" | "it";
+export type AssigneeKind =
+  | "manager"
+  | "people_admin"
+  | "reception"
+  | "person"
+  | "it"
+  | "care_owner"
+  | "delivery_lead"
+  | "administration";
 export type TaskStatus = "open" | "done" | "skipped";
 export type ExitInitiator = "employee" | "company" | "mutual";
 export type ExitReason =
@@ -42,13 +56,15 @@ export type WorkKind =
   | "delivery_lead_jobs"
   | "dl_clients"
   | "reports"
+  | "care"
   | "substitutions";
 export type TransferKind =
   | "recruitments"
   | "delivery_lead_jobs"
   | "dl_clients"
   | "my_people"
-  | "reports";
+  | "reports"
+  | "care";
 export type HandoverStatus = "planned" | "done" | "failed";
 export type AccountCloseResult = "deactivated" | "already_inactive" | "skipped_admin";
 
@@ -65,7 +81,17 @@ export interface LifecycleTask {
   done_at: string | null;
   done_by_name: string | null;
   note: string | null;
+  description?: string | null;
+  required?: boolean;
+  requires_file?: boolean;
+  /** Stały klucz pozycji ścieżki (np. `welcome_mail`). */
+  key?: string | null;
+  source?: TaskSource;
+  /** Nazwa klienta albo forma przy zadaniu z pakietu lub formy. */
+  source_label?: string | null;
   from_template: boolean;
+  /** Zadanie prowadzi inny moduł (zestaw sprzętu odhacza recepcja w Sprzęcie). */
+  mirror?: { module: "equipment"; task_id: number; status: TaskStatus; note: string } | null;
   can_toggle: boolean;
 }
 
@@ -112,6 +138,10 @@ export interface LifecycleCase {
   pending_email: string | null;
   template_id: number | null;
   template_name: string | null;
+  audience?: Audience;
+  contract_id?: number | null;
+  template_version?: number | null;
+  template_current_version?: number | null;
   start_date: string | null;
   last_working_day: string | null;
   deactivate_on: string | null;
@@ -128,6 +158,7 @@ export interface LifecycleCase {
   scope: CaseScope;
   can_manage: boolean;
   can_cancel: boolean;
+  can_add_task?: boolean;
   tasks: LifecycleTask[];
   progress: CaseProgress;
   exit_initiator?: ExitInitiator | null;
@@ -137,26 +168,49 @@ export interface LifecycleCase {
   work?: WorkRow[];
 }
 
+export type EquipmentCondition = "ours" | "client";
+
+/** Warunki pozycji ścieżki (puste = zawsze). */
+export interface ItemConditions {
+  employment_types?: EmploymentType[];
+  equipment?: EquipmentCondition | null;
+  student?: boolean | null;
+}
+
 export interface TemplateItem {
   id?: number;
   title: string;
   category: TaskCategory;
   assignee_kind: AssigneeKind;
   due_offset_days: number;
+  description?: string | null;
+  required?: boolean;
+  requires_file?: boolean;
+  conditions?: ItemConditions;
+  /** Tylko z serwera — formularz go nie zmienia. */
+  key?: string | null;
+  added_in_version?: number;
 }
 
 export interface LifecycleTemplate {
   id: number;
   kind: CaseKind;
+  audience?: Audience;
+  version?: number;
   name: string;
   is_active: boolean;
   employment_type: EmploymentType | null;
   department: string | null;
+  /** Czy oglądający może zmienić tę ścieżkę (O4). */
+  can_edit?: boolean;
+  /** Trwające sprawy na starszej wersji („Dociągnij”). */
+  live_cases_behind?: number;
   items: TemplateItem[];
 }
 
 export interface TemplateInput {
   kind: CaseKind;
+  audience?: Audience;
   name: string;
   is_active: boolean;
   employment_type: EmploymentType | null;
@@ -232,6 +286,34 @@ export const ASSIGNEE_LABELS: Record<AssigneeKind, string> = {
   reception: "Recepcja",
   person: "Osoba",
   it: "IT",
+  care_owner: "Opiekun",
+  delivery_lead: "DL",
+  administration: "Administracja",
+};
+
+/** Wykonawcy, których ma sens wybierać przy ścieżce danych odbiorców. */
+export const AUDIENCE_ASSIGNEES: Record<Audience, AssigneeKind[]> = {
+  team: ["manager", "people_admin", "reception", "it", "person", "administration"],
+  consultant: [
+    "care_owner",
+    "delivery_lead",
+    "reception",
+    "administration",
+    "people_admin",
+    "it",
+  ],
+};
+
+export const AUDIENCE_LABELS: Record<Audience, string> = {
+  team: "Zespół wewnętrzny",
+  consultant: "Konsultant u klienta",
+};
+
+export const TASK_SOURCE_LABELS: Record<TaskSource, string> = {
+  path: "ścieżka",
+  client: "klient",
+  form: "forma",
+  manual: "dopisane",
 };
 
 export const EXIT_INITIATOR_LABELS: Record<ExitInitiator, string> = {
@@ -261,6 +343,8 @@ export const HANDOVER_ERROR_LABELS: Record<string, string> = {
     "Przejmujący sam odchodzi — jego ostatni dzień pracy wypada najpóźniej w dniu przekazania.",
   receiver_creates_loop:
     "Przejmujący podlega jednej z tych osób — wybierz kogoś spoza zespołu odchodzącego albo z jego bezpośrednich podwładnych.",
+  receiver_out_of_scope:
+    "Przejmujący nie ma części tych klientów w portfelu — wybierz head back office, Talent Community Managera albo administratora.",
   error: "Przekazanie nie wyszło — Kadry dostały dzwonek.",
 };
 
@@ -284,6 +368,8 @@ export const lifecycleKeys = {
     ["hr", "lifecycle", "receivers", id, kind] as const,
   summary: (userId: number) => ["hr", "lifecycle", "summary", userId] as const,
   myTasks: ["hr", "lifecycle", "my-tasks"] as const,
+  contractEntry: (contractId: number) =>
+    ["hr", "lifecycle", "contract-entry", contractId] as const,
   preview: (payload: PreviewTasksPayload) => ["hr", "lifecycle", "preview", payload] as const,
 };
 
@@ -501,6 +587,92 @@ export function useUpdateTask() {
       status?: TaskStatus;
       note?: string | null;
     }) => (await api.patch<LifecycleCase>(`${BASE}/tasks/${taskId}`, payload)).data,
+    onSuccess: invalidate,
+  });
+}
+
+// ── Etap 3: ścieżki z wersjami i wejście konsultanta przy kontrakcie ─────────
+
+export function useCatchUpTemplate() {
+  const invalidate = useInvalidateLifecycle();
+  return useMutation({
+    mutationFn: async (templateId: number) =>
+      (
+        await api.post<{ cases: number; tasks: number; template: LifecycleTemplate }>(
+          `${BASE}/templates/${templateId}/catch-up`,
+        )
+      ).data,
+    onSuccess: invalidate,
+  });
+}
+
+export type EntryMissingReason =
+  | "past_start"
+  | "no_start"
+  | "closed"
+  | "no_path"
+  | "module_off";
+
+/** Karta „Z czego to powstało” (M6). */
+export interface EntryComposition {
+  client_id: number;
+  client_name: string | null;
+  employment_type: EmploymentType | null;
+  employment_label: string | null;
+  equipment: EquipmentCondition | null;
+  care_owner: { id: number; name: string | null; source: string | null } | null;
+  delivery_lead: { id: number; name: string | null } | null;
+  client_manager: string | null;
+}
+
+/** `GET /api/hr/lifecycle/contracts/{id}/entry` — zakładka „Wejście” kontraktu. */
+export interface ContractEntryView {
+  contract_id: number;
+  module_on: boolean;
+  start_date: string | null;
+  case: LifecycleCase | null;
+  composition: EntryComposition;
+  missing_reason: EntryMissingReason | null;
+  can_create: boolean;
+  can_add_task: boolean;
+  /** Stare pozycje `contract_onboarding_items` (tylko do odczytu). */
+  legacy_items: number;
+}
+
+export function useContractEntry(contractId: number, enabled = true) {
+  return useQuery({
+    queryKey: lifecycleKeys.contractEntry(contractId),
+    queryFn: async () =>
+      (await api.get<ContractEntryView>(`${BASE}/contracts/${contractId}/entry`)).data,
+    enabled: enabled && Number.isFinite(contractId) && contractId > 0,
+  });
+}
+
+export function useCreateContractEntry(contractId: number) {
+  const invalidate = useInvalidateLifecycle();
+  return useMutation({
+    mutationFn: async () =>
+      (await api.post<ContractEntryView>(`${BASE}/contracts/${contractId}/entry`)).data,
+    onSuccess: invalidate,
+  });
+}
+
+export function useAddContractEntryTask(contractId: number) {
+  const invalidate = useInvalidateLifecycle();
+  return useMutation({
+    mutationFn: async (payload: {
+      title: string;
+      category: TaskCategory;
+      assignee_kind: AssigneeKind;
+      due_date: string | null;
+      description?: string | null;
+    }) =>
+      (
+        await api.post<ContractEntryView>(
+          `${BASE}/contracts/${contractId}/entry/tasks`,
+          payload,
+        )
+      ).data,
     onSuccess: invalidate,
   });
 }

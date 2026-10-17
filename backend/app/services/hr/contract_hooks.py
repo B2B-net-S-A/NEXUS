@@ -3,17 +3,21 @@
 Cztery zdarzenia:
 
 * ``contract_started`` — aktywacja: propozycje premii z placementu (Płace),
-  zadanie „przygotuj zestaw” (Sprzęt, klient z „sprzęt od nas”), sprawa
-  „Wejście konsultanta” (Sprawy administracja@),
+  lista wejścia konsultanta ze ścieżki „Konsultant u klienta” i pakietu
+  klienta (Wejście i odejście, etap 3), zadanie „przygotuj zestaw” (Sprzęt,
+  klient z „sprzęt od nas”), sprawa „Wejście konsultanta” (Sprawy
+  administracja@) z checklistą z zadań „Administracja” tej listy — w tej
+  kolejności, bo sprawa czyta listę wejścia,
 * ``contract_ended`` — zakończenie albo unieważnienie: premie przed terminem
   anulowane, zadanie odbioru sprzętu; przy unieważnieniu (``void``, także
-  szkicu) dodatkowo anulowane zadanie „Przygotuj zestaw” i zamknięta sprawa
-  „Wejście konsultanta” — wejścia nie będzie,
+  szkicu) dodatkowo anulowane wejście konsultanta, zadanie „Przygotuj zestaw”
+  i zamknięta sprawa „Wejście konsultanta” — wejścia nie będzie,
 * ``contract_end_undone`` — cofnięcie zakończenia / ponowne otwarcie: premie
   wracają,
 * ``contract_deleted`` — trwałe usunięcie (``hard_delete_contract``): sprawa
   „Wejście konsultanta” zamknięta i propozycje premii z placementu anulowane
-  (``contract_deleted``), zanim FK wyzeruje kontrakt; przyznane premie zostają.
+  (``contract_deleted``), zanim FK wyzeruje kontrakt; przyznane premie zostają;
+  wejście konsultanta (bez FK) znika razem z kontraktem.
 
 Każdy moduł sam sprawdza swój przełącznik i jest idempotentny po kluczu
 (``source_key``), a krok biegnie w savepoincie: awaria modułu pobocznego jest
@@ -40,7 +44,9 @@ from app.core.scheduling import business_today
 from app.models.admin_case import AdminCase
 from app.models.contract import Contract, ContractStatus
 from app.models.equipment import EquipmentTask
+from app.models.hr_lifecycle import LifecycleCase
 from app.services.admin_cases_schema import TERMINAL_STATUSES
+from app.services.hr_lifecycle_schema import LIVE_CASE_STATUSES
 
 logger = logging.getLogger(__name__)
 
@@ -92,6 +98,28 @@ async def _payroll_end_undone(db: AsyncSession, contract: Contract) -> None:
     from app.services.hr import placement_bonuses
 
     await placement_bonuses.on_contract_end_undone(db, contract)
+
+
+async def _lifecycle_start(db: AsyncSession, contract: Contract) -> None:
+    from app.services.hr import lifecycle_entry
+
+    await lifecycle_entry.ensure_contract_entry(db, contract)
+
+
+async def _lifecycle_void(db: AsyncSession, contract: Contract) -> None:
+    if contract.status != ContractStatus.void:
+        return
+    from app.services.hr import lifecycle_entry
+
+    await lifecycle_entry.cancel_contract_entry(
+        db, contract.id, reason="contract_voided"
+    )
+
+
+async def _lifecycle_deleted(db: AsyncSession, contract: Contract) -> None:
+    from app.services.hr import lifecycle_entry
+
+    await lifecycle_entry.delete_contract_entry(db, contract.id)
 
 
 async def _equipment_start(db: AsyncSession, contract: Contract) -> None:
@@ -153,6 +181,7 @@ async def contract_started(db: AsyncSession, contract: Contract) -> dict[str, st
         "started",
         [
             ("payroll", _payroll_started),
+            ("lifecycle", _lifecycle_start),
             ("equipment", _equipment_start),
             ("cases", _cases_start),
         ],
@@ -166,6 +195,7 @@ async def contract_ended(db: AsyncSession, contract: Contract) -> dict[str, str]
         "ended",
         [
             ("payroll", _payroll_ended),
+            ("lifecycle", _lifecycle_void),
             ("equipment", _equipment_end),
             ("cases", _cases_void),
         ],
@@ -185,7 +215,11 @@ async def contract_deleted(db: AsyncSession, contract: Contract) -> dict[str, st
         db,
         contract,
         "deleted",
-        [("payroll", _payroll_deleted), ("cases", _cases_deleted)],
+        [
+            ("payroll", _payroll_deleted),
+            ("lifecycle", _lifecycle_deleted),
+            ("cases", _cases_deleted),
+        ],
     )
 
 
@@ -231,7 +265,11 @@ async def reconcile_upcoming(db: AsyncSession) -> dict[str, int]:
             db,
             contract,
             "reconcile_start",
-            [("equipment", _equipment_start), ("cases", _cases_start)],
+            [
+                ("lifecycle", _lifecycle_start),
+                ("equipment", _equipment_start),
+                ("cases", _cases_start),
+            ],
         )
     for contract in ending:
         await _run(db, contract, "reconcile_end", [("equipment", _equipment_end)])
@@ -241,13 +279,17 @@ async def reconcile_upcoming(db: AsyncSession) -> dict[str, int]:
             db,
             contract,
             "reconcile_void",
-            [("equipment", _equipment_void), ("cases", _cases_void)],
+            [
+                ("lifecycle", _lifecycle_void),
+                ("equipment", _equipment_void),
+                ("cases", _cases_void),
+            ],
         )
     return {"starting": len(starting), "ending": len(ending), "voided": len(voided)}
 
 
 async def _voided_with_open_start(db: AsyncSession) -> list[Contract]:
-    """Unieważnione kontrakty z otwartą sprawą albo zadaniem startu."""
+    """Unieważnione kontrakty z otwartą sprawą, zadaniem startu albo wejściem."""
 
     start_key = "contract:%:start"
     open_links = union(
@@ -260,6 +302,11 @@ async def _voided_with_open_start(db: AsyncSession) -> list[Contract]:
             EquipmentTask.source_key.like(start_key),
             EquipmentTask.status == "otwarte",
             EquipmentTask.contract_id.is_not(None),
+        ),
+        select(LifecycleCase.contract_id).where(
+            LifecycleCase.source_key.like("contract:%:entry"),
+            LifecycleCase.status.in_(LIVE_CASE_STATUSES),
+            LifecycleCase.contract_id.is_not(None),
         ),
     )
     return list(

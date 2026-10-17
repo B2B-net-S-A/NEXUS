@@ -1,10 +1,11 @@
 /**
- * `/preview/hr-care` (makieta 9 „Ludzi w NEXUSIE” i makieta 7 etapu 2):
- * prawdziwa zakładka „Opieka” kontraktu i ekran `/care` („Ten tydzień”
- * z osią konsultanta i „Przekaż do front office”, „Wszystkie kontrakty”,
- * „Do przepięcia”) na danych fikcyjnych, ZERO prób żądania — także po
- * otwarciu okien „Zapisz rozmowę”, „Zapisz opinię” i „Karta technologiczna”,
- * pytań z mapy technologii i po przełączeniu zakresu list.
+ * `/preview/hr-care` (makieta 9 „Ludzi w NEXUSIE”, makieta 7 etapu 2
+ * i makiety M1–M3 etapu 3): prawdziwa zakładka „Opieka” kontraktu z rytmem
+ * i ekran `/care` („Ten tydzień” z osią konsultanta i „Przekaż do front
+ * office”, „Konsultanci” z rytmem, „Przydział”, „Do przepięcia”) na danych
+ * fikcyjnych, ZERO prób żądania — także po otwarciu okien „Zapisz rozmowę”,
+ * „Zapisz opinię”, „Karta technologiczna”, „Pomiń kontakt” i „Rytm
+ * kontaktu”, pytań z mapy technologii i po przełączeniu zakresu list.
  */
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -38,7 +39,7 @@ afterEach(() => {
 });
 
 describe("/preview/hr-care", () => {
-  it("zakładka „Opieka”: dzień 45, plan 7/30/90, sygnały i oś z kartą technologiczną", async () => {
+  it("zakładka „Opieka”: dzień 45, rytm, plan z rytmu, sygnały i oś z kartą technologiczną", async () => {
     const user = userEvent.setup();
     window.history.replaceState({}, "", "/preview/hr-care");
     render(<HrCarePreviewPage />);
@@ -48,8 +49,10 @@ describe("/preview/hr-care", () => {
     expect(useAuthStore.getState().user?.role).toBe("talent_community_manager");
     expect(screen.getByText("Dzień współpracy").nextSibling).toHaveTextContent("45");
     expect(screen.getByText(/^Dzień 7 ·/)).toBeInTheDocument();
-    expect(screen.getByText(/^Dzień 30 ·/)).toBeInTheDocument();
-    expect(screen.getAllByText(/^Dzień 90 ·/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/^Rozmowa według rytmu ·/).length).toBeGreaterThanOrEqual(5);
+    expect(screen.getByText("pominięty · niedawno rozmawialiśmy")).toBeInTheDocument();
+    expect(screen.getByText("Rytm kontaktu").nextSibling).toHaveTextContent("co 2 tygodnie");
+    expect(screen.getByText("pierwsze 90 dni")).toBeInTheDocument();
     expect(screen.getByText("Klient zatrudnia").nextSibling).toHaveTextContent("Java, QA");
     expect(screen.getByText("Koniec projektu")).toBeInTheDocument();
     expect(screen.getByText(/^Karta technologiczna · Natalia Opiekuńcza · Rozmowa odbyta/)).toBeInTheDocument();
@@ -65,6 +68,13 @@ describe("/preview/hr-care", () => {
     await user.click(screen.getByRole("button", { name: "Anuluj" }));
     await user.click(screen.getByRole("button", { name: "Zapisz rozmowę" }));
     expect(await screen.findByRole("dialog")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Anuluj" }));
+    await user.click(screen.getAllByRole("button", { name: "Pomiń" })[0]);
+    expect(await screen.findByRole("dialog", { name: "Pomiń kontakt" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Anuluj" }));
+    await user.click(screen.getByRole("button", { name: "Zmień" }));
+    const rhythm = await screen.findByRole("dialog", { name: /Rytm kontaktu · Michał Konsultantowy/ });
+    expect(within(rhythm).getByText(/Start · co 2 tygodnie \(pierwsze 90 dni\)/)).toBeInTheDocument();
     expect(attempted()).toEqual([]);
   });
 
@@ -138,15 +148,21 @@ describe("/preview/hr-care", () => {
     expect(attempted()).toEqual([]);
   });
 
-  it("stan list: „Wszystkie kontrakty”, zakres „Wszyscy” i kolejka przepięć bez zapytań", async () => {
+  it("stan list: „Konsultanci” (dawne „Wszystkie kontrakty”), zakres „Wszyscy” i kolejka przepięć bez zapytań", async () => {
     const user = userEvent.setup();
     window.history.replaceState({}, "", "/preview/hr-care?state=list&tab=contracts");
     const { unmount } = render(<HrCarePreviewPage />);
 
-    expect(await screen.findByRole("link", { name: "Michał Konsultantowy" })).toBeInTheDocument();
+    const table = await screen.findByRole("table", { name: "Konsultanci i rytm kontaktu" });
+    expect(screen.getByRole("tab", { name: "Konsultanci" })).toHaveAttribute("aria-selected", "true");
+    const bartosz = within(table).getByRole("row", { name: /Bartosz Testowy/ });
+    expect(within(bartosz).getByText("opinia 2,7 / 5")).toBeInTheDocument();
+    expect(within(bartosz).getByText("podnieść rytm?")).toBeInTheDocument();
+    const olga = within(table).getByRole("row", { name: /Olga Wzorcowa/ });
+    expect(within(olga).getByText("wstrzymany")).toBeInTheDocument();
     expect(screen.queryByText("Anna Kontraktorska")).toBeNull();
-    await user.click(screen.getByRole("button", { name: "Wszyscy w moim zakresie" }));
-    expect(await screen.findByRole("link", { name: "Anna Kontraktorska" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /^Wszyscy w moim zakresie/ }));
+    expect(await screen.findByText("Anna Kontraktorska")).toBeInTheDocument();
     expect(attempted()).toEqual([]);
     unmount();
 
@@ -156,6 +172,31 @@ describe("/preview/hr-care", () => {
     expect(screen.getByRole("link", { name: "Paweł Makietowy" })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Zamknięte" }));
     expect(await screen.findByText("Brak zamkniętych wpisów")).toBeInTheDocument();
+    expect(attempted()).toEqual([]);
+  });
+
+  it("stan cadence: okno „Rytm kontaktu” Bartosza z podglądem „co 2 tygodnie”", async () => {
+    const user = userEvent.setup();
+    window.history.replaceState({}, "", "/preview/hr-care?state=cadence&tab=consultants");
+    render(<HrCarePreviewPage />);
+
+    const dialog = await screen.findByRole("dialog", { name: /Rytm kontaktu · Bartosz Testowy/ });
+    expect(within(dialog).getByText(/podpowiedź: co 2 tygodnie/)).toBeInTheDocument();
+    await user.click(within(dialog).getByRole("radio", { name: "Co 2 tygodnie" }));
+    expect(await within(dialog).findByText("11 rozmów zamiast 9")).toBeInTheDocument();
+    expect(attempted()).toEqual([]);
+  });
+
+  it("stan list: „Przydział” z obciążeniem, progiem i osobami bez opiekuna", async () => {
+    window.history.replaceState({}, "", "/preview/hr-care?state=list&tab=assignment");
+    render(<HrCarePreviewPage />);
+
+    const loads = await screen.findByRole("region", { name: "Opiekunowie i obciążenie" });
+    expect(within(loads).getByText("powyżej progu 20 rozmów")).toBeInTheDocument();
+    const table = screen.getByRole("table", { name: "Kontrakty do przydziału" });
+    expect(within(table).getByText("Marek Nowoprzyjęty")).toBeInTheDocument();
+    expect(within(table).getAllByRole("checkbox").length).toBeGreaterThan(1);
+    expect(screen.getByLabelText(/Próg obciążenia/)).toHaveValue(20);
     expect(attempted()).toEqual([]);
   });
 });

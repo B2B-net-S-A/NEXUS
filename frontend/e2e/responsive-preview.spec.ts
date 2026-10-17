@@ -183,12 +183,17 @@ const PAGES = [
   "/preview/hr-onboarding",
   "/preview/hr-onboarding?state=case",
   "/preview/hr-onboarding?state=draft",
+  "/preview/hr-onboarding?state=contract",
+  "/preview/hr-onboarding?state=paths",
   "/preview/hr-care",
   "/preview/hr-care?state=techcard",
   "/preview/hr-care?state=list",
   "/preview/hr-care?state=list&tab=redeploy",
   "/preview/hr-care?state=list&contract=4504",
   "/preview/hr-care?state=list&tab=contracts",
+  "/preview/hr-care?state=list&tab=consultants",
+  "/preview/hr-care?state=cadence&tab=consultants",
+  "/preview/hr-care?state=list&tab=assignment",
   "/preview/hr-client-tech",
   "/preview/hr-cases",
   "/preview/hr-cases?state=detail",
@@ -204,6 +209,10 @@ const PAGES = [
   "/preview/hr-structure",
   "/preview/hr-team",
   "/preview/hr-client-people",
+  "/preview/hr-announcements",
+  "/preview/hr-announcements?state=report&announcement=4102",
+  "/preview/hr-announcements?state=new&announcement=new",
+  "/preview/hr-announcements?state=off",
 ] as const;
 
 async function pageOverflowPx(page: Page): Promise<number> {

@@ -1,0 +1,37 @@
+{
+ "personas": [
+  "admin",
+  "finance",
+  "head_of_recruitment",
+  "delivery_lead",
+  "talent_community_manager",
+  "recruiter",
+  "user",
+  "trainee",
+  "delivery_lead+talent_community_manager",
+  "head_of_recruitment+delivery_lead",
+  "delivery_lead+recruiter",
+  "head_of_recruitment+recruiter",
+  "talent_community_manager+recruiter",
+  "talent_community_manager+contracts_orders_edit",
+  "recruiter+clients_edit",
+  "recruiter+delivery_view",
+  "recruiter+recruitment_manage",
+  "recruiter+finance_module",
+  "recruiter+amounts_edit",
+  "automation",
+  "employee",
+  "recruiter+people_admin",
+  "recruiter+payroll",
+  "recruiter+equipment",
+  "recruiter+cases"
+ ],
+ "routes": {
+  "GET /api/care/assignment": "BBDBBDDDBBBDBBBBDBBBDDDDD",
+  "GET /api/care/consultants": "BBDBBDDDBBBDBBBBDBBBDDDDD",
+  "GET /api/care/contracts/{contract_id}/cadence": "BBDBBDDDBBBDBBBBDBBBDDDDD",
+  "POST /api/care/assignment": "BBDBBDDDBBBDBBBDDDBDDDDDD",
+  "POST /api/care/contracts/{contract_id}/cadence": "BBDBBDDDBBBDBBBDDDBDDDDDD",
+  "PUT /api/care/assignment/threshold": "BBDBBDDDBBBDBBBDDDBDDDDDD"
+ }
+}

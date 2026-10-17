@@ -1,7 +1,9 @@
 """Opieka nad konsultantami — reguły bez bazy (plan kontaktów, nazwy, notatki).
 
-Plan liczony od startu kontraktu: dzień 7, 30, 90, potem co kwartał oraz
-30 dni przed końcem zamówienia/umowy. Daty są stałe (bez „dziś” przy imporcie).
+Plan liczony od startu kontraktu (etap 3, O7, 17.10.2026): kamienie — dzień 7
+od startu i 30 dni przed końcem zamówienia/umowy — oraz rozmowy według rytmu:
+domyślnie co 2 tygodnie przez pierwsze 90 dni, potem co miesiąc. Daty są
+stałe (bez „dziś” przy imporcie).
 """
 
 from __future__ import annotations
@@ -32,18 +34,26 @@ def _kinds(slots: list[PlannedSlot]) -> list[tuple[str, date]]:
     return [(slot.kind, slot.due_on) for slot in slots]
 
 
-def test_plan_starts_with_days_7_30_90_then_quarters() -> None:
+def test_plan_starts_with_day_7_then_biweekly_for_90_days_then_monthly() -> None:
     start = date(2026, 9, 1)
-    slots = planned_slots(start, None, date(2026, 9, 1), lookahead_days=400)
-    assert _kinds(slots)[:6] == [
+    slots = planned_slots(start, None, date(2026, 9, 1), lookahead_days=200)
+    assert _kinds(slots) == [
         ("day_7", date(2026, 9, 8)),
-        ("day_30", date(2026, 10, 1)),
-        ("day_90", date(2026, 11, 30)),
-        ("quarterly", date(2027, 3, 1)),
-        ("quarterly", date(2027, 6, 1)),
-        ("quarterly", date(2027, 9, 1)),
+        ("cadence", date(2026, 9, 15)),
+        ("cadence", date(2026, 9, 29)),
+        ("cadence", date(2026, 10, 13)),
+        ("cadence", date(2026, 10, 27)),
+        ("cadence", date(2026, 11, 10)),
+        ("cadence", date(2026, 11, 24)),
+        # Dzień 90 (30.11) kończy program; co miesiąc liczy się od niego.
+        ("cadence", date(2026, 12, 30)),
+        ("cadence", date(2027, 1, 30)),
+        ("cadence", date(2027, 2, 28)),
     ]
-    assert [slot.seq for slot in slots if slot.kind == "quarterly"] == [1, 2, 3]
+    # ``seq`` rozmowy z rytmu = dzień terminu (jeden punkt na dzień).
+    assert [s.seq for s in slots if s.kind == "cadence"][0] == date(
+        2026, 9, 15
+    ).toordinal()
 
 
 def test_plan_adds_pre_end_and_stops_after_the_end() -> None:
@@ -63,15 +73,21 @@ def test_plan_does_not_backfill_history_before_the_window() -> None:
 
     slots = planned_slots(date(2024, 1, 15), None, date(2026, 10, 16))
     assert all(slot.due_on >= date(2026, 9, 16) for slot in slots)
-    assert [(slot.kind, slot.due_on) for slot in slots] == [
-        ("quarterly", date(2026, 10, 15)),
-        ("quarterly", date(2027, 1, 15)),
+    # Co miesiąc od dnia 90 (14.04.2024).
+    assert _kinds(slots) == [
+        ("cadence", date(2026, 10, 14)),
+        ("cadence", date(2026, 11, 14)),
+        ("cadence", date(2026, 12, 14)),
+        ("cadence", date(2027, 1, 14)),
     ]
 
 
 def test_plan_skips_pre_end_shorter_than_cooperation() -> None:
     slots = planned_slots(date(2026, 10, 1), date(2026, 10, 20), date(2026, 10, 1))
-    assert _kinds(slots) == [("day_7", date(2026, 10, 8))]
+    assert _kinds(slots) == [
+        ("day_7", date(2026, 10, 8)),
+        ("cadence", date(2026, 10, 15)),
+    ]
 
 
 def test_add_months_clamps_to_month_end() -> None:

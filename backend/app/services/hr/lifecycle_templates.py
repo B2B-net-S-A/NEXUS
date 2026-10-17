@@ -1,42 +1,76 @@
-"""Szablony list zadań wejścia i odejścia („Ludzie w NEXUSIE”, krok E4).
+"""Ścieżki wejścia i odejścia („Ludzie w NEXUSIE”, krok E4, etap 3).
 
-Szablon to przepis na zadania nowych spraw: dobór najlepiej pasującego
-(dział i forma > forma > dział > ogólny) i zapis listy pozycji w miejscu
-(save_template). Zadania założonych już spraw zostają przy swoich
-pozycjach — przeliczenie terminów robi lifecycle_service.
+Ścieżka (szablon) to przepis na zadania nowych spraw: dobór najlepiej
+pasującej (dział i forma > forma > dział > ogólna) w obrębie odbiorców
+(zespół wewnętrzny albo konsultant u klienta) i zapis listy pozycji w miejscu
+(save_template). Każdy zapis to nowa wersja (O5): nowe sprawy dostają ją od
+razu, trwające zostają na swojej, dopóki ktoś ich nie „dociągnie”.
+
+Kto zmienia ścieżki (O4): Kadry — zespół wewnętrzny, head back office —
+konsultant u klienta, admin — wszystkie.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Optional
+from dataclasses import dataclass, field
+from typing import Any, Optional
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.hr_lifecycle import LifecycleTemplate, LifecycleTemplateItem
-from app.models.user import User
+from app.models.user import User, UserRole
+from app.services.action_permissions import ProductAction, has_permission
 from app.services.hr import audit
 from app.services.hr.lifecycle_errors import LifecycleError
 from app.services.hr_lifecycle_schema import (
-    ASSIGNEE_KINDS,
+    DESCRIPTION_MAX,
+    EQUIPMENT_CONDITIONS,
     MAX_OFFSET_AFTER,
     MAX_OFFSET_BEFORE,
+    TASK_ASSIGNEES,
     TASK_CATEGORIES,
 )
 
+_EMPLOYMENT_TYPES: tuple[str, ...] = ("uop", "b2b", "zlecenie")
+
 
 async def templates(
-    db: AsyncSession, *, kind: Optional[str] = None
+    db: AsyncSession,
+    *,
+    kind: Optional[str] = None,
+    audience: Optional[str] = None,
 ) -> list[LifecycleTemplate]:
     statement = select(LifecycleTemplate).order_by(
         LifecycleTemplate.kind,
+        LifecycleTemplate.audience.desc(),
         LifecycleTemplate.is_active.desc(),
         LifecycleTemplate.name,
     )
     if kind is not None:
         statement = statement.where(LifecycleTemplate.kind == kind)
+    if audience is not None:
+        statement = statement.where(LifecycleTemplate.audience == audience)
     return list(await db.scalars(statement))
+
+
+async def is_back_office_head(db: AsyncSession, user: User) -> bool:
+    from app.services.hr.structure import load_division_heads  # noqa: PLC0415
+
+    return (await load_division_heads(db)).get("back_office") == user.id
+
+
+async def editable_audiences(db: AsyncSession, user: User) -> frozenset[str]:
+    """O4: Kadry — zespół wewnętrzny, head back office — konsultant, admin — oba."""
+
+    if user.has_role(UserRole.admin):
+        return frozenset({"team", "consultant"})
+    out: set[str] = set()
+    if has_permission(user, ProductAction.people_admin):
+        out.add("team")
+    if await is_back_office_head(db, user):
+        out.add("consultant")
+    return frozenset(out)
 
 
 async def template_items(
@@ -57,10 +91,13 @@ async def pick_template(
     *,
     employment_type: Optional[str] = None,
     department: Optional[str] = None,
+    audience: str = "team",
 ) -> Optional[LifecycleTemplate]:
     """Najlepiej pasujący aktywny szablon: dział i forma > forma > dział > ogólny."""
 
-    candidates = [t for t in await templates(db, kind=kind) if t.is_active]
+    candidates = [
+        t for t in await templates(db, kind=kind, audience=audience) if t.is_active
+    ]
 
     def score(template: LifecycleTemplate) -> tuple[int, int]:
         if template.employment_type and template.employment_type != employment_type:
@@ -90,6 +127,38 @@ class ItemInput:
     #: Id istniejącej pozycji szablonu (edycja w miejscu); ``None`` = nowa
     #: albo z frontu, który id nie odsyła (wtedy dopasowanie po tytule).
     id: Optional[int] = None
+    description: Optional[str] = None
+    required: bool = True
+    requires_file: bool = False
+    conditions: dict[str, Any] = field(default_factory=dict)
+
+
+def validate_conditions(raw: Optional[dict[str, Any]]) -> dict[str, Any]:
+    """Warunki pozycji: forma współpracy, sprzęt od nas / od klienta, student."""
+
+    raw = raw or {}
+    unknown = sorted(set(raw) - {"employment_types", "equipment", "student"})
+    if unknown:
+        raise LifecycleError("Nieznany warunek pozycji.")
+    out: dict[str, Any] = {}
+    forms = raw.get("employment_types")
+    if forms:
+        if not isinstance(forms, list) or any(
+            form not in _EMPLOYMENT_TYPES for form in forms
+        ):
+            raise LifecycleError("Warunek formy: UoP, B2B albo zlecenie.")
+        out["employment_types"] = sorted(set(forms), key=_EMPLOYMENT_TYPES.index)
+    equipment = raw.get("equipment")
+    if equipment:
+        if equipment not in EQUIPMENT_CONDITIONS:
+            raise LifecycleError("Warunek sprzętu: od nas albo od klienta.")
+        out["equipment"] = equipment
+    student = raw.get("student")
+    if student not in (None, False, True):
+        raise LifecycleError("Warunek „student” to tak albo brak warunku.")
+    if student is True:
+        out["student"] = True
+    return out
 
 
 def validate_item(item: ItemInput) -> ItemInput:
@@ -98,15 +167,24 @@ def validate_item(item: ItemInput) -> ItemInput:
         raise LifecycleError("Każde zadanie potrzebuje tytułu.")
     if item.category not in TASK_CATEGORIES:
         raise LifecycleError("Nieznana kategoria zadania.")
-    if item.assignee_kind not in ASSIGNEE_KINDS:
+    if item.assignee_kind not in TASK_ASSIGNEES:
         raise LifecycleError("Nieznany wykonawca zadania.")
     if not -MAX_OFFSET_BEFORE <= item.due_offset_days <= MAX_OFFSET_AFTER:
         raise LifecycleError(
             f"Termin to od {MAX_OFFSET_BEFORE} dni roboczych przed "
             f"do {MAX_OFFSET_AFTER} po dacie sprawy."
         )
+    description = (item.description or "").strip()[:DESCRIPTION_MAX] or None
     return ItemInput(
-        title[:200], item.category, item.assignee_kind, item.due_offset_days, item.id
+        title[:200],
+        item.category,
+        item.assignee_kind,
+        item.due_offset_days,
+        item.id,
+        description,
+        bool(item.required),
+        bool(item.requires_file),
+        validate_conditions(item.conditions),
     )
 
 
@@ -168,9 +246,13 @@ async def save_template(
     employment_type: Optional[str],
     department: Optional[str],
     items: list[ItemInput],
+    audience: str = "team",
 ) -> LifecycleTemplate:
     """Zakłada albo zmienia szablon razem z listą pozycji (lista zastępuje starą).
 
+    Każdy zapis istniejącej ścieżki podnosi jej wersję; pozycja dodana w tym
+    zapisie pamięta wersję, w której się pojawiła („Dociągnij”). Klucz
+    pozycji (``key``) zostaje przy pozycji — formularz go nie zmienia.
     Zadania już założonych spraw zostają — szablon to przepis na nowe sprawy.
     Pozycje zmieniają się W MIEJSCU (to samo id), bo zadania spraw wskazują
     pozycję, z której powstały: przeliczenie terminów rozpoznaje po niej, co
@@ -184,14 +266,19 @@ async def save_template(
         raise LifecycleError("Podaj nazwę szablonu.")
     clean_items = [validate_item(item) for item in items]
     if template_id is None:
-        template = LifecycleTemplate(kind=kind, created_by=actor.id)
+        template = LifecycleTemplate(
+            kind=kind, audience=audience, version=1, created_by=actor.id
+        )
         db.add(template)
     else:
-        template = await db.get(LifecycleTemplate, template_id)
+        template = await db.get(LifecycleTemplate, template_id, with_for_update=True)
         if template is None:
             raise LookupError(template_id)
         if template.kind != kind:
             raise LifecycleError("Rodzaju szablonu nie można zmienić.")
+        if template.audience != audience:
+            raise LifecycleError("Odbiorców ścieżki nie można zmienić.")
+        template.version = (template.version or 1) + 1
     template.name = clean_name[:160]
     template.is_active = is_active
     template.employment_type = employment_type or None
@@ -203,16 +290,28 @@ async def save_template(
     kept = {row.id for row in matched if row is not None}
     for row in existing:
         if row.id not in kept:
+            if row.key:
+                # Pozycję z kluczem czytają inne moduły (mail powitalny, Sprzęt).
+                raise LifecycleError(
+                    f"Pozycji „{row.title}” nie można usunąć — korzystają z niej "
+                    "inne moduły. Możesz ją zmienić albo wyłączyć całą ścieżkę."
+                )
             await db.delete(row)
     for position, (item, row) in enumerate(zip(clean_items, matched)):
         if row is None:
-            row = LifecycleTemplateItem(template_id=template.id)
+            row = LifecycleTemplateItem(
+                template_id=template.id, added_in_version=template.version
+            )
             db.add(row)
         row.position = position
         row.title = item.title
         row.category = item.category
         row.assignee_kind = item.assignee_kind
         row.due_offset_days = item.due_offset_days
+        row.description = item.description
+        row.required = item.required
+        row.requires_file = item.requires_file
+        row.conditions = item.conditions
     audit.record(
         db,
         actor_user_id=actor.id,
@@ -220,7 +319,13 @@ async def save_template(
         entity_type="lifecycle_template",
         entity_id=template.id,
         action="template_saved",
-        details={"kind": kind, "items": len(clean_items), "active": is_active},
+        details={
+            "kind": kind,
+            "audience": audience,
+            "version": template.version,
+            "items": len(clean_items),
+            "active": is_active,
+        },
     )
     await db.flush()
     return template
@@ -228,9 +333,12 @@ async def save_template(
 
 __all__ = [
     "ItemInput",
+    "editable_audiences",
+    "is_back_office_head",
     "pick_template",
     "save_template",
     "template_items",
     "templates",
+    "validate_conditions",
     "validate_item",
 ]

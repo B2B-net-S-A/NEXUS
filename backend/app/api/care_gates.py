@@ -12,6 +12,12 @@ Dostęp (decyzja D7 i zadanie E5, 16.10.2026):
 * **ATLAS** — klucz konta serwisowego (``X-API-Key``) z ``clients:read``
   i ``contracts:read`` (najbliższe istniejące zakresy; własnego zakresu
   sygnałów nie ma), zwrot statusów — na razie tylko admin.
+* **Rytm kontaktu i przydział opiekunów** (etap 3, O8 i O10, 17.10.2026) —
+  rytm czytają czytelnicy opieki, a zmienia go opiekun kontraktu, DL klienta,
+  head back office i admin (sprawdza serwis ``care/cadence`` per kontrakt);
+  przydział wielu konsultantów naraz i próg obciążenia — head back office
+  (``app_settings['hr_divisions']``) i admin (``require_hr_care_assigner``).
+  DL zmienia opiekuna pojedynczo u swoich klientów jak dotąd.
 * **Struktura u klienta i opinie klienta** (etap 2, D8–D11, 17.10.2026) —
   czytają opiekun (DL, TCM, admin) i Head of Recruitment; Finanse i Kadry
   z samego uprawnienia nie (D11). Opinię zapisują piszący opiekę, a „Podlega
@@ -45,6 +51,7 @@ from app.models.service_account import ServiceScope
 from app.models.user import User, UserRole
 from app.services.action_permissions import ProductAction
 from app.services.care import access as care_access
+from app.services.care import cadence as care_cadence
 from app.services.hr import modules as hr_modules
 from app.services.hr.modules import HrModule
 from app.services.section_permissions import ProductSection
@@ -73,6 +80,10 @@ _PEOPLE_READER_ROLES: tuple[UserRole, ...] = (
     UserRole.delivery_lead,
     UserRole.talent_community_manager,
     UserRole.head_of_recruitment,
+)
+ASSIGN_DENIED = (
+    "Przydział wielu konsultantów naraz i próg obciążenia ustawia head back "
+    "office albo administrator."
 )
 PEOPLE_DENIED = (
     "Strukturę u klienta i opinie klienta widzą opiekun kontraktu, Delivery Lead "
@@ -107,6 +118,24 @@ def require_hr_care_writer():
         if not care_access.is_care_worker(current_user):
             raise HTTPException(status.HTTP_403_FORBIDDEN, WRITER_DENIED)
         await ensure_module(db, current_user, HrModule.care)
+        return current_user
+
+    return _check
+
+
+def require_hr_care_assigner():
+    """Przydział wielu konsultantów naraz i próg obciążenia: head back office, admin."""
+
+    async def _check(
+        viewer: DeliveryViewUser,
+        current_user: User = Depends(_DELIVERY_SECTION),
+        db: AsyncSession = Depends(get_db),
+    ) -> User:
+        await ensure_module(db, current_user, HrModule.care)
+        if not current_user.has_role(
+            UserRole.admin
+        ) and not await care_cadence.is_back_office_head(db, current_user):
+            raise HTTPException(status.HTTP_403_FORBIDDEN, ASSIGN_DENIED)
         return current_user
 
     return _check
@@ -225,6 +254,7 @@ def can_curate(user: User) -> bool:
 
 CareReader = require_hr_care_reader()
 CareWriter = require_hr_care_writer()
+CareAssigner = require_hr_care_assigner()
 ReviewReader = require_hr_care_review_reader()
 SkillCurator = require_hr_care_skill_curator()
 AtlasReader = require_hr_care_atlas_reader()

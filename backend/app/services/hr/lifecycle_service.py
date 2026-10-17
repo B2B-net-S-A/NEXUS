@@ -26,7 +26,6 @@ są w ``lifecycle_templates``, odczyt i kształt odpowiedzi w
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from datetime import date
 from typing import Any, Optional
 
@@ -34,23 +33,19 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.scheduling import business_today, local_now
+from app.models.contract import Contract
 from app.models.hr_lifecycle import (
     LifecycleCase,
     LifecycleTask,
     LifecycleTemplate,
-    LifecycleTemplateItem,
     WorkHandover,
 )
 from app.models.notification import NotificationType
 from app.models.user import User
 from app.services.hr import audit, people
-from app.services.hr.calendar import load_calendar
 from app.services.hr.lifecycle_access import POOL_KINDS, pool_member_ids
-from app.services.hr.lifecycle_dates import (
-    calendar_window,
-    deactivate_on_for,
-    shift_working_days,
-)
+from app.services.hr.lifecycle_dates import deactivate_on_for
+from app.services.hr.lifecycle_entry import complete_task_by_key, entry_facts
 from app.services.hr.lifecycle_errors import LifecycleConflict, LifecycleError
 from app.services.hr.lifecycle_hooks import LifecycleEvent, lifecycle_integrations
 from app.services.hr.lifecycle_payloads import (
@@ -60,9 +55,19 @@ from app.services.hr.lifecycle_payloads import (
     case_tasks,
     handover_started,
     latest_case_for,
+    live_cases_behind,
     person_name,
+    task_mirrors,
     task_payload,
     template_payload,
+)
+from app.services.hr.lifecycle_planning import (
+    CaseFacts,
+    add_missing_items,
+    assignee_of,
+    plan_tasks,
+    replan_template_tasks,
+    team_facts,
 )
 from app.services.hr.lifecycle_templates import (
     ItemInput,
@@ -92,105 +97,26 @@ _DATE_FIELDS = ("hired_on", "work_start_date", "last_working_day")
 # ── Zadania z terminami ──────────────────────────────────────────────────────
 
 
-def anchor_of(case: LifecycleCase) -> date:
-    anchor = case.start_date if case.kind == "onboarding" else case.last_working_day
-    assert anchor is not None
-    return anchor
+async def case_facts(db: AsyncSession, case: LifecycleCase) -> CaseFacts:
+    """Fakty sprawy dla warunków i wykonawców (osoba z kontem albo kontrakt)."""
 
-
-def assignee_for(case: LifecycleCase, assignee_kind: str) -> Optional[int]:
-    """Konkretna osoba dla zadania; pule (Kadry, recepcja, IT) zostają bez osoby."""
-
-    if assignee_kind == "manager":
-        return case.manager_user_id
-    if assignee_kind == "person":
-        return case.user_id
-    return None
-
-
-@dataclass(frozen=True)
-class PlannedTask:
-    item_id: Optional[int]
-    position: int
-    title: str
-    category: str
-    assignee_kind: str
-    due_date: date
-
-
-async def plan_tasks(
-    db: AsyncSession, items: list[LifecycleTemplateItem], anchor: date
-) -> list[PlannedTask]:
-    start, end = calendar_window(anchor)
-    calendar = await load_calendar(db, start, end)
-    return [
-        PlannedTask(
-            item_id=item.id,
-            position=item.position,
-            title=item.title,
-            category=item.category,
-            assignee_kind=item.assignee_kind,
-            due_date=shift_working_days(calendar, anchor, item.due_offset_days),
-        )
-        for item in items
-    ]
+    if case.audience == "consultant" and case.contract_id is not None:
+        contract = await db.get(Contract, case.contract_id)
+        if contract is not None:
+            return await entry_facts(db, contract)
+    return await team_facts(db, case)
 
 
 async def _replan_template_tasks(db: AsyncSession, case: LifecycleCase) -> None:
-    """Zadania z szablonu zgodne z bieżącym szablonem i datą sprawy — w miejscu.
+    await replan_template_tasks(db, case, await case_facts(db, case))
 
-    * pozycja ze zrobionym albo pominiętym zadaniem — nic (zrobione nie wraca),
-    * pozycja z otwartym zadaniem — nowy termin, tytuł i wykonawca w tym samym
-      wierszu (notatka zostaje); nadmiarowe kopie tej samej pozycji znikają,
-    * pozycja bez zadania — nowe zadanie,
-    * otwarte zadanie z pozycji spoza bieżącego szablonu (zmiana szablonu) —
-      znika. Zadania ręczne i odpięte (``template_item_id`` NULL) zostają.
-    """
 
-    tasks = list(
-        await db.scalars(
-            select(LifecycleTask)
-            .where(
-                LifecycleTask.case_id == case.id,
-                LifecycleTask.template_item_id.is_not(None),
-            )
-            .order_by(LifecycleTask.id)
-        )
-    )
-    items = (
-        await template_items(db, case.template_id)
-        if case.template_id is not None
-        else []
-    )
-    wanted = {item.id for item in items}
-    by_item: dict[int, list[LifecycleTask]] = {}
-    for task in tasks:
-        if task.template_item_id not in wanted:
-            if task.status == "open":
-                await db.delete(task)
-            continue
-        by_item.setdefault(task.template_item_id, []).append(task)
-    for planned in await plan_tasks(db, items, anchor_of(case)):
-        existing = by_item.get(planned.item_id, [])
-        if any(task.status != "open" for task in existing):
-            for task in existing:
-                if task.status == "open":
-                    await db.delete(task)
-            continue
-        if existing:
-            task, *copies = existing
-            for copy in copies:
-                await db.delete(copy)
-        else:
-            task = LifecycleTask(case_id=case.id, template_item_id=planned.item_id)
-            db.add(task)
-        task.position = planned.position
-        task.title = planned.title
-        task.category = planned.category
-        task.assignee_kind = planned.assignee_kind
-        task.assignee_user_id = assignee_for(case, planned.assignee_kind)
-        task.due_date = planned.due_date
-    await db.flush()
+async def resolve_assignee(
+    db: AsyncSession, case: LifecycleCase, assignee_kind: str
+) -> Optional[int]:
+    """Konkretna osoba dla zadania; pule (Kadry, recepcja, IT, administracja) bez osoby."""
+
+    return assignee_of(await case_facts(db, case), assignee_kind)
 
 
 # ── Zakładanie spraw ─────────────────────────────────────────────────────────
@@ -351,6 +277,11 @@ async def _resolve_template(
     template = await db.get(LifecycleTemplate, template_id)
     if template is None or template.kind != kind:
         raise LifecycleError("Wybrany szablon nie pasuje do tej sprawy.")
+    if template.audience != "team":
+        raise LifecycleError(
+            "Ta ścieżka jest dla konsultantów u klienta — wejście konsultanta "
+            "powstaje przy kontrakcie."
+        )
     if not template.is_active:
         raise LifecycleError("Wybrany szablon jest wyłączony.")
     return template
@@ -479,6 +410,15 @@ async def update_case(
         case.template_id = template.id if template else None
         changed.append("template_id")
         replan = True
+    if (
+        case.audience == "consultant"
+        and values.get("start_date")
+        and values["start_date"] != case.start_date
+    ):
+        raise LifecycleError(
+            "Datę startu konsultanta zmienia się w kontrakcie — lista wejścia "
+            "przeliczy terminy sama."
+        )
     if case.kind == "onboarding":
         if values.get("start_date") and values["start_date"] != case.start_date:
             case.start_date = values["start_date"]
@@ -932,16 +872,19 @@ async def add_task(
     assignee_kind: str,
     assignee_user_id: Optional[int],
     due_date: Optional[date],
+    description: Optional[str] = None,
 ) -> LifecycleTask:
     if case.status not in LIVE_CASE_STATUSES:
         raise LifecycleConflict("Sprawa jest zamknięta.")
-    item = validate_item(ItemInput(title, category, assignee_kind, 0))
+    item = validate_item(
+        ItemInput(title, category, assignee_kind, 0, description=description)
+    )
     if assignee_user_id is not None:
         assignee = await db.get(User, assignee_user_id)
         if assignee is None or not assignee.is_active:
             raise LifecycleError("Wykonawca nie ma aktywnego konta.")
     else:
-        assignee_user_id = assignee_for(case, item.assignee_kind)
+        assignee_user_id = await resolve_assignee(db, case, item.assignee_kind)
     position = len(await case_tasks(db, case.id))
     task = LifecycleTask(
         case_id=case.id,
@@ -951,6 +894,9 @@ async def add_task(
         assignee_kind=item.assignee_kind,
         assignee_user_id=assignee_user_id,
         due_date=due_date,
+        description=item.description,
+        required=item.required,
+        source="manual",
     )
     db.add(task)
     await db.flush()
@@ -1004,7 +950,58 @@ async def update_task(
             details={"fields": changed, "status": task.status},
         )
     await db.flush()
+    if "status" in changed and task.assignee_kind == "administration":
+        # Ta sama pozycja jest na checkliście sprawy administracja@ (O1).
+        from app.services.admin_cases.hooks import sync_entry_checklist  # noqa: PLC0415
+
+        await sync_entry_checklist(db, case)
     return task
+
+
+# ── „Dociągnij do trwających” (O5) ───────────────────────────────────────────
+
+
+async def catch_up(
+    db: AsyncSession, template: LifecycleTemplate, *, actor: User
+) -> dict[str, int]:
+    """Dopisuje pozycje nowej wersji ścieżki do trwających spraw na starszej.
+
+    Sprawy zamknięte, anulowane i już na bieżącej wersji zostają. Zadania,
+    które sprawa ma, się nie zmieniają (to robi tylko zmiana daty sprawy).
+    """
+
+    cases = list(
+        await db.scalars(
+            select(LifecycleCase)
+            .where(
+                LifecycleCase.template_id == template.id,
+                LifecycleCase.status.in_(LIVE_CASE_STATUSES),
+            )
+            .order_by(LifecycleCase.id)
+            .with_for_update(skip_locked=True)
+        )
+    )
+    touched = 0
+    added_total = 0
+    for case in cases:
+        if (case.template_version or 0) >= template.version:
+            continue
+        added = await add_missing_items(db, case, template, await case_facts(db, case))
+        touched += 1
+        added_total += len(added)
+        if added and case.status == "active":
+            await notify_assignees(db, case, added, actor_id=actor.id)
+    audit.record(
+        db,
+        actor_user_id=actor.id,
+        subject_user_id=None,
+        entity_type="lifecycle_template",
+        entity_id=template.id,
+        action="template_caught_up",
+        details={"version": template.version, "cases": touched, "tasks": added_total},
+    )
+    await db.flush()
+    return {"cases": touched, "tasks": added_total}
 
 
 # ── Powiadomienia ────────────────────────────────────────────────────────────
@@ -1046,8 +1043,21 @@ async def notify_assignees(
 ) -> int:
     """Dzwonek do wykonawców (bez autora zmiany); nie cofa zapisu sprawy."""
 
+    if case.audience == "consultant":
+        # Administracja widzi swoje pozycje na checkliście sprawy w Sprawach,
+        # a zestaw sprzętu recepcja w Sprzęcie — bez drugiego dzwonka.
+        mirrored = await task_mirrors(db, case, tasks)
+        tasks = [
+            task
+            for task in tasks
+            if task.assignee_kind != "administration" and task.id not in mirrored
+        ]
     name = await person_name(db, case)
     label = "wejście" if case.kind == "onboarding" else "odejście"
+    if case.audience == "consultant":
+        label = (
+            "wejście konsultanta" if case.kind == "onboarding" else "koniec projektu"
+        )
     title = (
         f"Zaległe zadania: {label} — {name}"
         if reminder
@@ -1082,18 +1092,23 @@ __all__ = [
     "case_handovers",
     "case_link",
     "case_payload",
+    "case_facts",
     "case_tasks",
+    "catch_up",
     "complete_case",
+    "complete_task_by_key",
     "create_offboarding",
     "create_onboarding",
     "deactivate_now",
     "handover_started",
     "latest_case_for",
     "lifecycle_integrations",
+    "live_cases_behind",
     "notify_assignees",
     "person_name",
     "pick_template",
     "plan_tasks",
+    "resolve_assignee",
     "save_template",
     "set_receivers",
     "start_case",

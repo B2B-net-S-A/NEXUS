@@ -246,6 +246,8 @@ async def test_care_dry_run_apply_and_second_apply_changes_nothing() -> None:
                 "cards_written": 4,
                 "cards_without_contract": 2,
                 "conversations_written": 1,
+                "rhythms_written": 0,
+                "owners_written": 0,
             }
 
             cards = {
@@ -345,6 +347,8 @@ async def test_care_dry_run_apply_and_second_apply_changes_nothing() -> None:
                 "cards_written": 0,
                 "cards_without_contract": 0,
                 "conversations_written": 0,
+                "rhythms_written": 0,
+                "owners_written": 0,
             }
             await db.refresh(review)
             assert review.occurrences == 1
@@ -389,5 +393,214 @@ async def test_care_dry_run_writes_nothing() -> None:
                 )
                 is None
             )
+        finally:
+            await db.rollback()
+
+
+def _rhythm(contractor: str, **values) -> dict:
+    return {
+        "contractor_id": contractor,
+        "monitoring_status": "active",
+        "check_in_cadence_days": 30,
+        "onboarding_program_ends_on": None,
+        "onboarding_program_completed_at": None,
+        **values,
+    }
+
+
+@pytest.mark.asyncio
+async def test_care_import_brings_rhythm_and_owner_only_for_sure_contracts() -> None:
+    """Etap 3: rytm z ``contractor_success_settings`` i opiekun z
+    ``contractors.owner_tcm_id`` — tylko przy pewnym kontrakcie (kotwica osoby
+    + klient + okres), opiekun ustawiony w NEXUSIE zostaje."""
+
+    from app.models.contract_care import CONTRACTS_CARE, CareCadencePeriod
+    from app.models.user import UserRole
+
+    tag = uuid.uuid4().hex[:8]
+    async with AsyncSessionLocal() as db:
+        try:
+            tcm, t_id, t_row = await make_person(
+                db, f"{tag}-tcm", role=UserRole.talent_community_manager
+            )
+            other, _o_id, _o_row = await make_person(
+                db, f"{tag}-inny", role=UserRole.talent_community_manager
+            )
+            rec, r_id, r_row = await make_person(db, f"{tag}-rek")
+            client = Client(name=f"Bank Rytmu {tag} S.A.")
+            people = [
+                Candidate(
+                    name="Konsultant",
+                    lastname=f"R{index}{tag}",
+                    email=f"r{index}-{tag}@example.com",
+                )
+                for index in range(8)
+            ]
+            db.add_all([client, *people])
+            await db.flush()
+            contracts = [
+                await _contract(db, person, client, date(2026, 1, 1))
+                for person in people
+            ]
+            # Dwa trwające kontrakty tej samej osoby — kontrakt niepewny.
+            await _contract(db, people[7], client, date(2026, 3, 1))
+            await db.execute(
+                CONTRACTS_CARE.update()
+                .where(CONTRACTS_CARE.c.id == contracts[5].id)
+                .values(care_owner_user_id=other.id)
+            )
+            await db.flush()
+
+            def contractor(index: int, owner: str | None, anchor: bool = True) -> dict:
+                return {
+                    "id": str(uuid.uuid4()),
+                    "nexus_candidate_id": people[index].id if anchor else None,
+                    "nexus_contract_id": None,
+                    "owner_tcm_id": owner,
+                    "current_client": f"bank rytmu {tag} s.a.",
+                }
+
+            rows = [
+                contractor(0, t_id),  # co 14 dni → co 2 tygodnie, opiekun TCM
+                contractor(
+                    1, r_id
+                ),  # co 60 dni → co kwartał; rekruter nie jest opiekunem
+                contractor(2, None),  # wstrzymany
+                contractor(3, None),  # monitoring nieaktywny
+                contractor(4, None),  # w programie wejścia do 01.12
+                contractor(5, t_id),  # co 120 dni; opiekun ustawiony w NEXUSIE
+                contractor(6, t_id, anchor=False),  # bez kotwicy
+                contractor(7, t_id),  # dwa kontrakty
+            ]
+            ids = [row["id"] for row in rows]
+            settings = [
+                _rhythm(ids[0], check_in_cadence_days=14),
+                _rhythm(ids[1], check_in_cadence_days=60),
+                _rhythm(ids[2], monitoring_status="paused"),
+                _rhythm(ids[3], monitoring_status="inactive"),
+                _rhythm(
+                    ids[4],
+                    check_in_cadence_days=14,
+                    onboarding_program_ends_on="2026-12-01",
+                ),
+                _rhythm(ids[5], check_in_cadence_days=120),
+                _rhythm(ids[6]),
+                _rhythm(ids[7]),
+            ]
+            bundle = make_bundle(
+                {
+                    "profiles": [t_row, r_row],
+                    "contractors": rows,
+                    "contractor_success_settings": settings,
+                }
+            )
+            batch, report, written = await run_import(db, "care", bundle)
+            reasons = report["reasons"]
+            assert reasons[care_import.NO_LINK] == 2  # rytm i opiekun bez kotwicy
+            assert reasons[care_import.RHYTHM_UNSURE] == 1
+            assert reasons[care_import.OWNER_UNSURE] == 1
+            assert reasons[care_import.RHYTHM_INACTIVE] == 1
+            assert reasons[care_import.OWNER_NOT_CARE] == 1
+            assert reasons[care_import.OWNER_SET_IN_NEXUS] == 1
+            assert written["rhythms_written"] == 5
+            assert written["owners_written"] == 1
+            assert_report_clean(batch.report, "Konsultant")
+
+            periods = {
+                period.contract_id: period
+                for period in await db.scalars(
+                    select(CareCadencePeriod).where(
+                        CareCadencePeriod.contract_id.in_([c.id for c in contracts])
+                    )
+                )
+            }
+            levels = {
+                index: (periods[c.id].level, periods[c.id].until_on)
+                for index, c in enumerate(contracts)
+                if c.id in periods
+            }
+            assert levels == {
+                0: ("biweekly", None),
+                1: ("quarterly", None),
+                2: ("paused", None),
+                4: ("biweekly", date(2026, 12, 1)),
+                5: ("milestones", None),
+            }
+            first = periods[contracts[0].id]
+            assert (first.reason, first.starts_on, first.created_by) == (
+                "imported",
+                date(2026, 11, 13),
+                None,
+            )
+            owners = dict(
+                (
+                    await db.execute(
+                        select(
+                            CONTRACTS_CARE.c.id, CONTRACTS_CARE.c.care_owner_user_id
+                        ).where(CONTRACTS_CARE.c.id.in_([c.id for c in contracts]))
+                    )
+                ).all()
+            )
+            assert owners[contracts[0].id] == tcm.id
+            assert owners[contracts[1].id] is None
+            assert owners[contracts[5].id] == other.id
+
+            importer = compass_import.IMPORTERS["care"]
+            batch2, _ = await compass_import.dry_run(
+                db,
+                module="care",
+                bundle=bundle,
+                planner=importer.plan,
+                actor_user_id=None,
+            )
+            counts = batch2.report["dry_run"]["counts"]
+            assert counts["unchanged"] == 6
+            assert "create" not in counts and "update" not in counts
+        finally:
+            await db.rollback()
+
+
+@pytest.mark.asyncio
+async def test_care_import_leaves_rhythm_set_in_nexus() -> None:
+    from app.models.contract_care import CareCadencePeriod
+
+    tag = uuid.uuid4().hex[:8]
+    async with AsyncSessionLocal() as db:
+        try:
+            client = Client(name=f"Bank Ręczny {tag}")
+            person = Candidate(
+                name="Konsultant", lastname=f"M{tag}", email=f"m-{tag}@example.com"
+            )
+            db.add_all([client, person])
+            await db.flush()
+            contract = await _contract(db, person, client, date(2026, 1, 1))
+            db.add(
+                CareCadencePeriod(
+                    contract_id=contract.id,
+                    level="monthly",
+                    starts_on=date(2026, 9, 1),
+                    reason="stable",
+                )
+            )
+            await db.flush()
+            row = {
+                "id": str(uuid.uuid4()),
+                "nexus_candidate_id": person.id,
+                "nexus_contract_id": None,
+                "owner_tcm_id": None,
+                "current_client": None,
+            }
+            bundle = make_bundle(
+                {
+                    "contractors": [row],
+                    "contractor_success_settings": [
+                        _rhythm(row["id"], check_in_cadence_days=90)
+                    ],
+                }
+            )
+            _batch, report, written = await run_import(db, "care", bundle)
+            assert report["counts"] == {"conflict": 1}
+            assert report["reasons"] == {care_import.RHYTHM_SET_IN_NEXUS: 1}
+            assert written["rhythms_written"] == 0
         finally:
             await db.rollback()

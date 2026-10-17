@@ -261,6 +261,7 @@ HR_MAIL_TYPES: tuple[str, ...] = (
     "equipment_task",
     "equipment_protocol_signed",
     "care_front_office_handoff",
+    "care_announcement",
 )
 
 

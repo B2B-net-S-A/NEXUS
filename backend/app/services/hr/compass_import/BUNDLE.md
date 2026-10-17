@@ -104,7 +104,8 @@ Rozmów kontraktorów (`contractor_%`) i helpdesku nie eksportujemy.
 | `client_areas` | `id`, `client_id`, `name` |
 | `vendors` | `id`, `name` |
 | `technologies` | `id`, `name`, `aliases` |
-| `contractors` | `id`, `nexus_candidate_id`, `nexus_contract_id` |
+| `contractors` | `id`, `nexus_candidate_id`, `nexus_contract_id`, `owner_tcm_id`, `current_client` |
+| `contractor_success_settings` | `contractor_id`, `monitoring_status`, `check_in_cadence_days`, `onboarding_program_ends_on`, `onboarding_program_completed_at` |
 | `tech_interview_cards` | `id`, `contractor_id`, `client_id`, `client_area_id`, `tcm_id`, `created_by`, `interview_date`, `status`, `is_draft`, `finalized_at`, `satisfaction`, `satisfaction_comment`, `hiring`, `hiring_source`, `hiring_roles`, `project_end_month`, `project_end_year`, `project_end_unknown`, `team_size`, `team_externals`, `memorable_quote`, `tech_old_new`, `vendors_note`, `title`, `professional_insurance`, `created_at` |
 | `tech_interview_card_technologies` | `card_id`, `technology_id` |
 | `tech_interview_card_vendors` | `card_id`, `vendor_id` |
@@ -116,3 +117,13 @@ Z `contractors` wystarczą kotwice NEXUSA — imię i nazwisko nie są potrzebne
 (import nie łączy osób po nazwisku). Karta i rozmowa przechodzą na kontrakt
 tylko z kotwicą osoby z kolejki „Tożsamość NEXUS”; bez niej karta ląduje przy
 kliencie bez kontraktu, a rozmowa zostaje w Compassie.
+
+Rytm kontaktu i opiekun (etap 3, 17.10.2026): `contractor_success_settings`
+daje poziom rytmu (wstrzymany; aktywny w programie wejścia → co 2 tygodnie do
+`onboarding_program_ends_on`; inaczej `check_in_cadence_days` ≤ 14 / ≤ 31 /
+≤ 93 → co 2 tygodnie / co miesiąc / co kwartał, dalej tylko kamienie;
+monitoring nieaktywny → rytm domyślny NEXUSA), a `owner_tcm_id` — opiekuna
+kontraktu. Oba tylko przy pewnym kontrakcie: kotwica osoby + klient
+z `current_client` (nazwa jak `client_snapshot` rozmów) + dzień eksportu
+(`exported_at`) w okresie umowy. Rytm albo opiekun ustawiony już w NEXUSIE
+zostaje; reszta idzie do raportu importu.

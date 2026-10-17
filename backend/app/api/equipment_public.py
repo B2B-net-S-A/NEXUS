@@ -44,6 +44,14 @@ def _not_found() -> HTTPException:
     return HTTPException(status_code=404, detail=GENERIC_404)
 
 
+async def _document(db: AsyncSession, protocol) -> bytes:
+    """Plik Word protokołu z wzoru, z którego powstał (pakiet klienta albo standard)."""
+    try:
+        return await protocols.render_docx(db, protocol)
+    except EquipmentError as exc:
+        raise HTTPException(status_code=exc.status, detail=exc.message) from exc
+
+
 @router.get("/{token}")
 @limiter.limit("30/minute")
 @limiter.shared_limit(SHARED_READ, scope="equipment-protocols-read")
@@ -77,9 +85,7 @@ async def get_protocol_for_signature(
             for line in view.lines
         ],
         "total": protocol_document.total_amount(protocol.total_value),
-        "document": protocol_document.document_blocks(
-            protocol_document.render_docx(view)
-        ),
+        "document": protocol_document.document_blocks(await _document(db, protocol)),
     }
 
 
@@ -96,9 +102,9 @@ async def get_protocol_pdf(
     except EquipmentNotFound as exc:
         raise _not_found() from exc
     try:
-        content = await protocol_document.render_pdf(
-            await protocols.render(db, protocol)
-        )
+        content = await protocols.render_pdf(db, protocol)
+    except EquipmentError as exc:
+        raise HTTPException(status_code=exc.status, detail=exc.message) from exc
     except protocol_document.ProtocolPdfUnavailable as exc:
         raise HTTPException(
             status_code=503, detail="PDF jest chwilowo niedostępny."

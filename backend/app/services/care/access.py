@@ -80,6 +80,8 @@ class CareContract:
     order_end_date: Optional[date]
     explicit_owner_id: Optional[int]
     client_default_owner_id: Optional[int]
+    #: Forma współpracy kontraktu (``b2b`` | ``uop`` | ``uzlecenie``).
+    contract_type: Optional[str] = None
 
     @property
     def end_date(self) -> Optional[date]:
@@ -113,6 +115,7 @@ def _contract_query():
             Contract.client_order_end_date,
             _contracts_care.c.care_owner_user_id,
             _clients_care.c.default_care_owner_user_id,
+            Contract.contract_type,
         )
         .select_from(Contract)
         .join(Client, Client.id == Contract.client_id)
@@ -123,8 +126,14 @@ def _contract_query():
     )
 
 
+def _value(raw) -> Optional[str]:
+    if raw is None:
+        return None
+    return raw.value if hasattr(raw, "value") else str(raw)
+
+
 def _row_to_contract(row) -> CareContract:
-    status_value = row[9].value if hasattr(row[9], "value") else str(row[9])
+    status_value = _value(row[9])
     return CareContract(
         id=row[0],
         client_id=row[1],
@@ -140,6 +149,7 @@ def _row_to_contract(row) -> CareContract:
         order_end_date=row[12],
         explicit_owner_id=row[13],
         client_default_owner_id=row[14],
+        contract_type=_value(row[15]),
     )
 
 

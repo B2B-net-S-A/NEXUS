@@ -3,7 +3,8 @@
 CHECK-i i indeksy muszą być identyczne z ``app/services/*_schema.py`` modułu
 (strażnik dryfu schematu porównuje model z bazą po migracji).
 
-* ``LifecycleTemplate`` / ``LifecycleTemplateItem`` — listy zadań Kadr,
+* ``LifecycleTemplate`` / ``LifecycleTemplateItem`` — ścieżki wejścia
+  i odejścia (zespół wewnętrzny i konsultant u klienta, z wersją),
 * ``LifecycleCase`` — wejście albo odejście osoby (odejście: ostatni dzień
   pracy, przekazanie pracy o 18:00, wyłączenie konta w ``deactivate_on``),
 * ``LifecycleTask`` — zadanie sprawy dla przełożonego, Kadr, recepcji, IT
@@ -46,6 +47,12 @@ class LifecycleTemplate(Base, TimestampMixin):
             schema.CK_TEMPLATE_EMPLOYMENT_TYPE,
             name="ck_lifecycle_templates_employment_type",
         ),
+        CheckConstraint(
+            schema.CK_TEMPLATE_AUDIENCE, name="ck_lifecycle_templates_audience"
+        ),
+        CheckConstraint(
+            schema.CK_TEMPLATE_VERSION, name="ck_lifecycle_templates_version"
+        ),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -56,6 +63,14 @@ class LifecycleTemplate(Base, TimestampMixin):
     )
     employment_type: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
     department: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    #: Zespół wewnętrzny albo konsultant u klienta (etap 3, O1).
+    audience: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="team", server_default="team"
+    )
+    #: Każdy zapis ścieżki to nowa wersja; sprawa pamięta swoją (O5).
+    version: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=1, server_default="1"
+    )
     created_by: Mapped[Optional[int]] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
@@ -76,7 +91,21 @@ class LifecycleTemplateItem(Base, TimestampMixin):
         CheckConstraint(
             schema.CK_ITEM_OFFSET, name="ck_lifecycle_template_items_offset"
         ),
+        CheckConstraint(
+            schema.CK_ITEM_CONDITIONS, name="ck_lifecycle_template_items_conditions"
+        ),
+        CheckConstraint(
+            schema.CK_ITEM_ADDED_IN_VERSION,
+            name="ck_lifecycle_template_items_added_in",
+        ),
         Index("ix_lifecycle_template_items_template", "template_id", "position"),
+        Index(
+            "uq_lifecycle_template_items_key",
+            "template_id",
+            "key",
+            unique=True,
+            postgresql_where=text(schema.ITEM_KEY_WHERE),
+        ),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -98,6 +127,26 @@ class LifecycleTemplateItem(Base, TimestampMixin):
     )
     due_offset_days: Mapped[int] = mapped_column(
         SmallInteger, nullable=False, default=0, server_default="0"
+    )
+    description: Mapped[Optional[str]] = mapped_column(
+        String(schema.DESCRIPTION_MAX), nullable=True
+    )
+    required: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true"
+    )
+    requires_file: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    #: Warunki pozycji: ``employment_types`` (lista form), ``equipment``
+    #: (``ours``/``client``), ``student`` (``true``). Pusty = zawsze.
+    conditions: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, nullable=False, default=dict, server_default="{}"
+    )
+    #: Stały klucz pozycji (np. ``welcome_mail``) — czytają go inne moduły.
+    key: Mapped[Optional[str]] = mapped_column(String(schema.KEY_MAX), nullable=True)
+    #: Wersja ścieżki, w której pozycja się pojawiła („Dociągnij”).
+    added_in_version: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=1, server_default="1"
     )
 
 
@@ -139,8 +188,29 @@ class LifecycleCase(Base, TimestampMixin):
             unique=True,
             postgresql_where=text(schema.PENDING_EMAIL_WHERE),
         ),
+        CheckConstraint(schema.CK_CASE_AUDIENCE, name="ck_lifecycle_cases_audience"),
+        CheckConstraint(
+            schema.CK_CASE_CONSULTANT_CONTRACT,
+            name="ck_lifecycle_cases_consultant_contract",
+        ),
+        CheckConstraint(
+            schema.CK_CASE_TEMPLATE_VERSION,
+            name="ck_lifecycle_cases_template_version",
+        ),
+        Index(
+            "uq_lifecycle_cases_contract_live",
+            "contract_id",
+            "kind",
+            unique=True,
+            postgresql_where=text(schema.LIVE_CONTRACT_CASE_WHERE),
+        ),
         Index("ix_lifecycle_cases_status_deactivate", "status", "deactivate_on"),
         Index("ix_lifecycle_cases_user", "user_id"),
+        Index(
+            "ix_lifecycle_cases_contract",
+            "contract_id",
+            postgresql_where=text(schema.CONTRACT_CASE_WHERE),
+        ),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -197,6 +267,14 @@ class LifecycleCase(Base, TimestampMixin):
     compass_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         UUID(as_uuid=True), nullable=True
     )
+    audience: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="team", server_default="team"
+    )
+    #: Kontrakt wejścia konsultanta (bez FK — scalenie i trwałe usunięcie
+    #: kontraktu obsługują haki ``contract_hooks``).
+    contract_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    #: Wersja ścieżki, z której powstały zadania sprawy.
+    template_version: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     created_by: Mapped[Optional[int]] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
@@ -209,6 +287,7 @@ class LifecycleTask(Base, TimestampMixin):
         CheckConstraint(schema.CK_TASK_ASSIGNEE, name="ck_lifecycle_tasks_assignee"),
         CheckConstraint(schema.CK_TASK_STATUS, name="ck_lifecycle_tasks_status"),
         CheckConstraint(schema.CK_TASK_DONE_AT, name="ck_lifecycle_tasks_done_at"),
+        CheckConstraint(schema.CK_TASK_SOURCE, name="ck_lifecycle_tasks_source"),
         Index("ix_lifecycle_tasks_case", "case_id", "position"),
         Index(
             "ix_lifecycle_tasks_assignee_open",
@@ -247,6 +326,25 @@ class LifecycleTask(Base, TimestampMixin):
         DateTime(timezone=True), nullable=True
     )
     note: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    description: Mapped[Optional[str]] = mapped_column(
+        String(schema.DESCRIPTION_MAX), nullable=True
+    )
+    required: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true"
+    )
+    requires_file: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    key: Mapped[Optional[str]] = mapped_column(String(schema.KEY_MAX), nullable=True)
+    #: ``path`` / ``client`` / ``form`` / ``manual`` (kolumna „Skąd”).
+    source: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="manual", server_default="manual"
+    )
+    #: Nazwa klienta albo forma współpracy przy zadaniu z pakietu lub formy.
+    source_label: Mapped[Optional[str]] = mapped_column(String(160), nullable=True)
+    #: Przesunięcie od startu (dni robocze) — pakiet klienta przelicza termin
+    #: po zmianie daty startu kontraktu.
+    due_offset_days: Mapped[Optional[int]] = mapped_column(SmallInteger, nullable=True)
 
 
 class WorkHandover(Base, TimestampMixin):

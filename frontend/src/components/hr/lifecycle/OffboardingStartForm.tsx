@@ -54,7 +54,10 @@ export function OffboardingStartForm({
   const [error, setError] = useState<string | null>(null);
 
   const managers = (directory.data?.items ?? []).filter((row) => row.user_id !== userId);
-  const activeTemplates = (templates.data ?? []).filter((t) => t.is_active);
+  const activeTemplates = (templates.data ?? []).filter(
+    // Ścieżki konsultanta wiszą przy kontrakcie — nie dla osoby z kontem.
+    (t) => t.is_active && (t.audience ?? "team") === "team",
+  );
 
   const submit = async (start: boolean) => {
     setError(null);

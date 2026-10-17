@@ -132,7 +132,8 @@ async def test_run_once_plans_reminds_owner_and_flags_project_end() -> None:
                 )
             ).all()
         )
-        assert {"day_7", "day_30", "day_90"} <= kinds
+        # Kamień „dzień 7” i rozmowy z rytmu (etap 3: co 2 tygodnie przez 90 dni).
+        assert {"day_7", "cadence"} <= kinds
         flagged = (
             await db.scalars(
                 select(RedeployQueueItem).where(

@@ -95,4 +95,29 @@ describe("/preview/hr-onboarding", () => {
     expect(screen.getByRole("button", { name: "Rozpocznij" })).toBeInTheDocument();
     expect(attempted()).toEqual([]);
   });
+
+  it("wejście konsultanta (M6): lista ze ścieżki, pakietu i formy bez zapytań", async () => {
+    window.history.replaceState({}, "", "/preview/hr-onboarding?state=contract");
+    render(<HrOnboardingPreviewPage />);
+
+    expect(await screen.findByText("Przygotuj zestaw sprzętu")).toBeInTheDocument();
+    expect(screen.getByRole("list", { name: "Kroki wejścia" })).toBeInTheDocument();
+    expect(screen.getByText("Z czego to powstało")).toBeInTheDocument();
+    expect(screen.getByText(/Odhacza recepcja w Sprzęcie/)).toBeInTheDocument();
+    expect(screen.getAllByText("Bank Fikcyjny", { selector: "td" }).length).toBeGreaterThan(0);
+    expect(attempted()).toEqual([]);
+  });
+
+  it("ścieżki (M4): head back office zmienia ścieżkę konsultanta, zespołu nie", async () => {
+    const user = userEvent.setup();
+    window.history.replaceState({}, "", "/preview/hr-onboarding?state=paths");
+    render(<HrOnboardingPreviewPage />);
+
+    await user.click((await screen.findAllByRole("button", { name: /^Konsultant u klienta/ }))[0]);
+    expect(screen.getByRole("button", { name: "Zapisz jako wersję 5" })).toBeInTheDocument();
+    expect(screen.getByText(/3 trwające wejścia są na starszej wersji/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /^Zespół wewnętrzny/ }));
+    expect(screen.getByText(/tylko do odczytu/)).toBeInTheDocument();
+    expect(attempted()).toEqual([]);
+  });
 });

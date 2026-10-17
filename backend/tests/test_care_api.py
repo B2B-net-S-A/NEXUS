@@ -347,7 +347,9 @@ async def test_conversation_closes_plan_item_and_flags_redeploy_once(
     plan = {item["kind"]: item for item in overview["plan"]}
     assert plan["day_7"]["overdue"] is True
     assert plan["day_7"]["status"] == "open"
-    assert "day_30" in plan and "day_90" in plan
+    # Rytm domyślny (etap 3): pierwsze 90 dni co 2 tygodnie od startu.
+    rhythm = [item for item in overview["plan"] if item["kind"] == "cadence"]
+    assert rhythm[0]["due_on"] == (today + timedelta(days=4)).isoformat()
 
     body = {
         "occurred_on": today.isoformat(),
@@ -368,7 +370,8 @@ async def test_conversation_closes_plan_item_and_flags_redeploy_once(
     data = first.json()
     plan = {item["kind"]: item for item in data["plan"]}
     assert plan["day_7"]["status"] == "done"
-    assert plan["day_30"]["status"] == "open"
+    # Zaległość zamyka tylko zaległe punkty — rozmowy z rytmu czekają dalej.
+    assert {i["status"] for i in data["plan"] if i["kind"] == "cadence"} == {"open"}
     active = sorted(r["reason"] for r in data["redeploy"] if r["status"] == "open")
     assert active == ["attrition_risk", "project_end", "wants_change"]
     assert data["last_satisfaction"]["value"] == 2
@@ -434,15 +437,17 @@ async def test_next_contact_skips_follow_up_older_than_lookback(
     )
     assert overview.status_code == 200, overview.text
     upcoming = overview.json()["next_contact"]
-    assert (upcoming["label"], upcoming["overdue"]) == ("Kontakt kwartalny", False)
+    # Stary kontrakt rozmawia co miesiąc (etap 3) — punkt z rytmu, nie follow-up.
+    assert upcoming["label"] == "Rozmowa według rytmu"
     assert upcoming["plan_item_id"] is not None
+    assert upcoming["due_on"] >= (today - timedelta(days=LOOKBACK_DAYS)).isoformat()
 
     listing = await app_client.get(
         "/api/care/my-consultants?scope=all", headers=headers(tcm)
     )
     row = next(r for r in listing.json()["items"] if r["contract_id"] == contract_id)
     assert row["next_contact"]["due_on"] == upcoming["due_on"]
-    assert row["next_contact"]["label"] == "Kontakt kwartalny"
+    assert row["next_contact"]["label"] == "Rozmowa według rytmu"
 
 
 async def test_dismissed_project_end_does_not_come_back_for_the_same_date(

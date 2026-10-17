@@ -168,7 +168,8 @@ async def _manager_of(db, user_id: int) -> Optional[int]:
 
 
 def test_reports_are_the_fifth_transfer_kind() -> None:
-    assert TRANSFER_KINDS[-1] == "reports" and len(TRANSFER_KINDS) == 5
+    # Szósty rodzaj (etap 3, O11) to opieka nad konsultantami.
+    assert TRANSFER_KINDS[4] == "reports" and len(TRANSFER_KINDS) == 6
     employee = User(id=7, role=UserRole.employee, roles=["employee"], is_active=True)
     bot = User(id=8, role=UserRole.automation, roles=["automation"], is_active=True)
     assert receiver_problem(employee, "reports", 1) is None

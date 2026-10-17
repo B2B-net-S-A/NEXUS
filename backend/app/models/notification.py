@@ -296,6 +296,10 @@ class NotificationType(str, enum.Enum):
     # zmiany — head pionu front office, Head of Recruitment i Delivery Leadzi;
     # osobisty (bez sekcji), bo front office nie ma sekcji Delivery.
     care_front_office_handoff = "care_front_office_handoff"
+    # 0465: komunikat do konsultantów (O12) — do zatwierdzenia (head back
+    # office, admin), decyzja (autor), odbity mail (opiekun: „popraw e-mail”).
+    # Osobisty, link do `/care?tab=announcements` albo do kontraktu.
+    care_announcement = "care_announcement"
     care_contact_due = "care_contact_due"
 
 

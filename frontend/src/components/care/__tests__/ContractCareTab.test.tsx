@@ -4,23 +4,38 @@
  */
 import * as React from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const mocks = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), showToast: vi.fn() }));
+const mocks = vi.hoisted(() => ({
+  get: vi.fn(),
+  post: vi.fn(),
+  patch: vi.fn(),
+  showToast: vi.fn(),
+}));
 
 vi.mock("@/lib/api", () => ({
   api: {
     get: (...a: unknown[]) => mocks.get(...a),
     post: (...a: unknown[]) => mocks.post(...a),
     put: vi.fn(),
-    patch: vi.fn(),
+    patch: (...a: unknown[]) => mocks.patch(...a),
   },
 }));
 
 vi.mock("@/components/Toast", () => ({
   useToast: () => ({ showToast: mocks.showToast, showError: vi.fn() }),
 }));
+
+// Lista wyboru Radix w jsdom: brak API przechwytywania wskaźnika.
+if (!Element.prototype.hasPointerCapture) {
+  Object.assign(Element.prototype, {
+    hasPointerCapture: () => false,
+    setPointerCapture: () => undefined,
+    releasePointerCapture: () => undefined,
+  });
+}
 
 import { ContractCareTab } from "@/components/care/ContractCareTab";
 import type { ContractCare } from "@/lib/api/care";
@@ -85,6 +100,7 @@ function renderTab() {
 beforeEach(() => {
   mocks.get.mockReset();
   mocks.post.mockReset();
+  mocks.patch.mockReset();
 });
 
 describe("ContractCareTab", () => {
@@ -125,5 +141,67 @@ describe("ContractCareTab", () => {
     expect(url).toBe("/api/care/contracts/5/conversations");
     expect(body.plan_item_id).toBe(11);
     expect(body.channel).toBe("phone");
+  });
+
+  it("„Pomiń” wymaga powodu z listy i wysyła go z notatką", async () => {
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    mocks.get.mockImplementation((url: string) =>
+      Promise.resolve({ data: url.includes("/owners") ? { items: [] } : care() }),
+    );
+    mocks.patch.mockResolvedValue({ data: care({ plan: [] }) });
+    renderTab();
+    await user.click(await screen.findByRole("button", { name: "Pomiń" }));
+    const dialog = await screen.findByRole("dialog", { name: "Pomiń kontakt" });
+    await user.click(within(dialog).getByRole("button", { name: "Pomiń" }));
+    expect(within(dialog).getByRole("alert")).toHaveTextContent("Wybierz powód pominięcia.");
+    expect(mocks.patch).not.toHaveBeenCalled();
+
+    await user.click(within(dialog).getByRole("combobox", { name: /Powód/ }));
+    await user.click(await screen.findByRole("option", { name: "Nieobecność konsultanta" }));
+    await user.type(within(dialog).getByLabelText(/Notatka/), "Wraca za tydzień.");
+    await user.click(within(dialog).getByRole("button", { name: "Pomiń" }));
+    await waitFor(() => expect(mocks.patch).toHaveBeenCalled());
+    expect(mocks.patch.mock.calls[0]).toEqual([
+      "/api/care/plan-items/11",
+      { status: "skipped", reason: "absence", note: "Wraca za tydzień." },
+    ]);
+  });
+
+  it("pokazuje rytm kontaktu z podpisem i powód pominiętego punktu", async () => {
+    mocks.get.mockResolvedValue({
+      data: care({
+        can_edit: false,
+        cadence: {
+          level: "biweekly",
+          source: "period",
+          starts_on: "2026-10-10",
+          until_on: "2026-11-30",
+          returns_to: "monthly",
+          reason: "wants_change",
+          note: null,
+          author: { id: 2, name: "Natalia Opiekunka" },
+          can_edit: false,
+        },
+        plan: [
+          {
+            id: 12,
+            kind: "cadence",
+            label: "Rozmowa według rytmu",
+            due_on: "2026-10-15",
+            status: "skipped",
+            overdue: false,
+            done_conversation_id: null,
+            resolved_at: "2026-10-15T09:00:00Z",
+            skip_reason: "unreachable",
+            skip_note: null,
+          },
+        ],
+      }),
+    });
+    renderTab();
+    expect(await screen.findByText("co 2 tygodnie")).toBeInTheDocument();
+    expect(screen.getByText("do 30.11 · chce zmiany projektu")).toBeInTheDocument();
+    expect(screen.getByText(/pominięty · konsultant nieosiągalny/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Zmień" })).not.toBeInTheDocument();
   });
 });

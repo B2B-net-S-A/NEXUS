@@ -33,6 +33,9 @@ PERSONAL_TYPES: tuple[str, ...] = (
     "equipment_protocol_signed",  # protokół podpisany przez odbierającego
     # „Przekaż do front office” → head pionu front office, HoR, Delivery Leadzi.
     "care_front_office_handoff",
+    # Komunikat do konsultantów: do zatwierdzenia → head back office / admin,
+    # decyzja → autor, odbity mail → opiekun („popraw e-mail”).
+    "care_announcement",
 )
 
 #: Opieka nad konsultantem — link do kontraktu, sekcja Delivery.

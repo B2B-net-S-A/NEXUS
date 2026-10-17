@@ -8,6 +8,10 @@ z wydań (``EquipmentAssignment``) — dokładnie jeden posiadacz: konto NEXUSA,
 kontrakt konsultanta albo osoba zewnętrzna. Protokół zamraża pozycje
 i wartości w chwili wydania (``EquipmentProtocolLine``). PUK, klucza BitLocker,
 PESEL-u ani prywatnego e-maila tu nie ma i nie będzie (decyzja D10).
+
+Etap 3 (O2, O3, O6): wgrane wzory protokołów, pakiet klienta („Wejście
+u klienta”) i ślad maila powitalnego konsultanta — ich SQL żyje w tym samym
+module schematu (``equipment_schema``), więc modele są tutaj.
 """
 
 from __future__ import annotations
@@ -25,6 +29,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    LargeBinary,
     Numeric,
     SmallInteger,
     String,
@@ -34,7 +39,7 @@ from sqlalchemy import (
     text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, deferred, mapped_column
 
 from app.core.database import Base
 from app.models.base import TimestampMixin
@@ -158,6 +163,7 @@ class EquipmentProtocol(Base, TimestampMixin):
         Index("ix_equipment_protocols_status", "status"),
         Index("ix_equipment_protocols_contract", "contract_id"),
         Index("ix_equipment_protocols_user", "user_id"),
+        Index("ix_equipment_protocols_template", "template_id"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -210,6 +216,11 @@ class EquipmentProtocol(Base, TimestampMixin):
         DateTime(timezone=True), nullable=True
     )
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    # Etap 3: wgrany wzór, z którego powstał protokół (``None`` = standard).
+    template_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("equipment_protocol_templates.id", ondelete="RESTRICT"),
+        nullable=True,
+    )
 
 
 class EquipmentAssignment(Base, TimestampMixin):
@@ -479,4 +490,179 @@ class EquipmentImportRow(Base):
     )
     applied_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True
+    )
+
+
+class EquipmentProtocolTemplate(Base, TimestampMixin):
+    """Wzór protokołu wgrany przez recepcję (DOCX z polami, O3).
+
+    Treść pliku leży w bazie (``content``, ładowana dopiero na żądanie).
+    Wzoru się nie podmienia ani nie kasuje: nowy plik = nowy wzór, stary
+    się wycofuje — protokół zawsze da się odtworzyć z wzoru, z którego powstał.
+    """
+
+    __tablename__ = "equipment_protocol_templates"
+    __table_args__ = (
+        CheckConstraint(
+            schema.CK_TEMPLATE_KIND, name="ck_equipment_protocol_templates_kind"
+        ),
+        CheckConstraint(
+            schema.CK_TEMPLATE_NAME, name="ck_equipment_protocol_templates_name"
+        ),
+        CheckConstraint(
+            schema.CK_TEMPLATE_SIZE, name="ck_equipment_protocol_templates_size"
+        ),
+        Index(
+            "ux_equipment_protocol_templates_active_name",
+            "kind",
+            "name",
+            unique=True,
+            postgresql_where=text(schema.TEMPLATE_ACTIVE_WHERE),
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    kind: Mapped[str] = mapped_column(String(16), nullable=False)
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    description: Mapped[Optional[str]] = mapped_column(String(300), nullable=True)
+    file_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    content: Mapped[bytes] = deferred(mapped_column(LargeBinary, nullable=False))
+    file_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    file_size: Mapped[int] = mapped_column(Integer, nullable=False)
+    fields: Mapped[list[str]] = mapped_column(
+        JSONB, nullable=False, default=list, server_default="[]"
+    )
+    is_active: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true"
+    )
+    created_by: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    updated_by: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+
+
+class ClientOnboardingPack(Base, TimestampMixin):
+    """Pakiet klienta: co wejście konsultanta dostaje od klienta (O2).
+
+    Jeden na klienta. Rzeczy, dokumenty i dostępy to wiersze
+    ``ClientOnboardingPackItem``; flaga „sprzęt od nas / od klienta” zostaje
+    na kliencie (``clients.equipment_provider``, D7).
+    """
+
+    __tablename__ = "client_onboarding_packs"
+    __table_args__ = (
+        UniqueConstraint("client_id", name="uq_client_onboarding_packs_client"),
+        CheckConstraint(schema.CK_PACK_TIME, name="ck_client_onboarding_packs_time"),
+        CheckConstraint(
+            schema.CK_PACK_VERSION, name="ck_client_onboarding_packs_version"
+        ),
+        Index("ix_client_onboarding_packs_issue_template", "issue_template_id"),
+        Index("ix_client_onboarding_packs_return_template", "return_template_id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    client_id: Mapped[int] = mapped_column(
+        ForeignKey("clients.id", ondelete="CASCADE"), nullable=False
+    )
+    issue_template_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("equipment_protocol_templates.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    return_template_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("equipment_protocol_templates.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    first_day_contact_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("contacts.id", ondelete="SET NULL"), nullable=True
+    )
+    first_day_place: Mapped[Optional[str]] = mapped_column(String(300), nullable=True)
+    first_day_time: Mapped[Optional[str]] = mapped_column(String(5), nullable=True)
+    first_day_bring: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    version: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=1, server_default="1"
+    )
+    updated_by: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+
+
+class ClientOnboardingPackItem(Base):
+    """Wiersz pakietu: rzecz od nas / od klienta, dokument albo dostęp."""
+
+    __tablename__ = "client_onboarding_pack_items"
+    __table_args__ = (
+        UniqueConstraint(
+            "pack_id",
+            "section",
+            "position",
+            name="uq_client_onboarding_pack_items_position",
+        ),
+        CheckConstraint(
+            schema.CK_PACK_ITEM_SECTION, name="ck_client_onboarding_pack_items_section"
+        ),
+        CheckConstraint(
+            schema.CK_PACK_ITEM_NAME, name="ck_client_onboarding_pack_items_name"
+        ),
+        CheckConstraint(
+            schema.CK_PACK_ITEM_ASSIGNEE,
+            name="ck_client_onboarding_pack_items_assignee",
+        ),
+        CheckConstraint(
+            schema.CK_PACK_ITEM_OFFSET, name="ck_client_onboarding_pack_items_offset"
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    pack_id: Mapped[int] = mapped_column(
+        ForeignKey("client_onboarding_packs.id", ondelete="CASCADE"), nullable=False
+    )
+    section: Mapped[str] = mapped_column(String(16), nullable=False)
+    position: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    note: Mapped[Optional[str]] = mapped_column(String(300), nullable=True)
+    assignee: Mapped[Optional[str]] = mapped_column(String(24), nullable=True)
+    offset_days: Mapped[Optional[int]] = mapped_column(SmallInteger, nullable=True)
+    required: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true"
+    )
+    requires_file: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+
+
+class ConsultantWelcomeMail(Base):
+    """Mail powitalny wysłany konsultantowi (O6).
+
+    Jeden na kontrakt pilnuje wysyłka (blokada doradcza); po scaleniu
+    duplikatów kontraktu zostają ślady obu maili, liczy się najwcześniejszy.
+    """
+
+    __tablename__ = "consultant_welcome_mails"
+    __table_args__ = (
+        Index("ix_consultant_welcome_mails_contract", "contract_id"),
+        CheckConstraint(
+            schema.CK_WELCOME_BODY, name="ck_consultant_welcome_mails_body"
+        ),
+        CheckConstraint(
+            schema.CK_WELCOME_DELIVERY, name="ck_consultant_welcome_mails_delivery"
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    contract_id: Mapped[int] = mapped_column(
+        ForeignKey("contracts.id", ondelete="CASCADE"), nullable=False
+    )
+    recipient_email: Mapped[str] = mapped_column(String(255), nullable=False)
+    subject: Mapped[str] = mapped_column(String(200), nullable=False)
+    body: Mapped[str] = mapped_column(Text, nullable=False)
+    delivery: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="sent", server_default="sent"
+    )
+    sent_by: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    sent_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
     )

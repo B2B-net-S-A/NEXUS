@@ -210,8 +210,11 @@ from app.api import hr_lifecycle as hr_lifecycle_api
 from app.api import contract_care as contract_care_api
 from app.api import care_atlas as care_atlas_api
 from app.api import care_skills as care_skills_api
+from app.api import care_announcements as care_announcements_api
+from app.api import public_consultant_mail as public_consultant_mail_api
 from app.api import admin_cases as admin_cases_api
 from app.api import equipment as equipment_api
+from app.api import client_onboarding as client_onboarding_api
 from app.api import equipment_intune as equipment_intune_api
 from app.api import equipment_public as equipment_public_api
 from app.api import onboarding as onboarding_api
@@ -964,6 +967,9 @@ async def lifespan(app: FastAPI):
             hr_loops.hr_timesheet_reminder_loop()
         ),
         "care_reminders": asyncio.create_task(hr_loops.care_reminders_loop()),
+        "care_announcements_send": asyncio.create_task(
+            hr_loops.care_announcements_send_loop()
+        ),
         "hr_lifecycle": asyncio.create_task(hr_loops.hr_lifecycle_loop()),
         "hr_contract_hooks": asyncio.create_task(hr_loops.hr_contract_hooks_loop()),
         "hr_bonus_proposals": asyncio.create_task(hr_loops.hr_bonus_proposals_loop()),
@@ -1749,8 +1755,19 @@ app.include_router(hr_lifecycle_api.router, prefix="/api/hr/lifecycle", tags=["h
 app.include_router(contract_care_api.router, prefix="/api/care", tags=["hr"])
 app.include_router(care_skills_api.router, prefix="/api/care", tags=["hr"])
 app.include_router(care_atlas_api.router, prefix="/api/care", tags=["hr"])
+app.include_router(
+    care_announcements_api.router, prefix="/api/care/announcements", tags=["hr"]
+)
+app.include_router(
+    public_consultant_mail_api.router,
+    prefix="/api/public/consultant-mail",
+    tags=["hr"],
+)
 app.include_router(admin_cases_api.router, prefix="/api/cases", tags=["hr"])
 app.include_router(equipment_api.router, prefix="/api/equipment", tags=["hr"])
+app.include_router(
+    client_onboarding_api.router, prefix="/api/client-onboarding", tags=["hr"]
+)
 app.include_router(
     equipment_intune_api.router, prefix="/api/equipment/intune", tags=["hr"]
 )

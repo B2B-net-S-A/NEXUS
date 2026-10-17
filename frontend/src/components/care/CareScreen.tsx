@@ -9,18 +9,37 @@ import { HrConfigGate } from "@/components/hr/HrConfigGate";
 import { useCareSummary, useCareWeek } from "@/lib/api/care";
 import { useUrlWriter } from "@/lib/url-selection";
 
-import { MyConsultantsPanel } from "./MyConsultantsPanel";
+import { AnnouncementsTab } from "./announcements/AnnouncementsTab";
+import { AssignmentPanel } from "./AssignmentPanel";
+import { ConsultantsPanel } from "./ConsultantsPanel";
 import { RedeployPanel } from "./RedeployPanel";
 import { SkillReviewPanel } from "./SkillReviewPanel";
 import { WeekPanel } from "./week/WeekPanel";
 
-export type CareTab = "week" | "contracts" | "redeploy" | "review";
+export type CareTab =
+  | "week"
+  | "consultants"
+  | "assignment"
+  | "announcements"
+  | "redeploy"
+  | "review";
 
-/** Zakładka z `?tab=`; dawne `mine` („Moi konsultanci”) to dziś „Wszystkie kontrakty”. */
+const TABS: readonly CareTab[] = [
+  "week",
+  "consultants",
+  "assignment",
+  "announcements",
+  "redeploy",
+  "review",
+];
+
+/**
+ * Zakładka z `?tab=`; dawne „Wszystkie kontrakty” (`contracts`) i „Moi
+ * konsultanci” (`mine`) to dziś „Konsultanci” (etap 3, M1).
+ */
 export function careTabFrom(value: string | null | undefined): CareTab {
-  if (value === "redeploy" || value === "review" || value === "contracts") return value;
-  if (value === "mine") return "contracts";
-  return "week";
+  if (value === "contracts" || value === "mine") return "consultants";
+  return TABS.find((tab) => tab === value) ?? "week";
 }
 
 function CareTabs() {
@@ -34,8 +53,9 @@ function CareTabs() {
     const params = new URLSearchParams(window.location.search);
     if (next === "week") params.delete("tab");
     else params.set("tab", next);
-    // Panel osi należy do listy tygodnia.
+    // Panel osi należy do listy tygodnia, komunikat — do „Komunikatów”.
     params.delete("contract");
+    params.delete("announcement");
     const qs = params.toString();
     replaceUrl(qs ? `${window.location.pathname}?${qs}` : window.location.pathname);
   };
@@ -46,18 +66,22 @@ function CareTabs() {
       onValueChange={select}
       tabs={[
         { value: "week", label: "Ten tydzień", count: week.data?.counts.overdue || undefined },
-        { value: "contracts", label: "Wszystkie kontrakty" },
+        { value: "consultants", label: "Konsultanci" },
+        { value: "assignment", label: "Przydział" },
+        { value: "announcements", label: "Komunikaty" },
         { value: "redeploy", label: "Do przepięcia", count: summary.data?.redeploy_active },
         {
           value: "review",
-          label: "Technologie do przejrzenia",
+          label: "Technologie",
           count: summary.data?.skill_review_open,
         },
       ]}
     >
       <div className="pt-3">
         {tab === "week" ? <WeekPanel /> : null}
-        {tab === "contracts" ? <MyConsultantsPanel /> : null}
+        {tab === "consultants" ? <ConsultantsPanel /> : null}
+        {tab === "assignment" ? <AssignmentPanel /> : null}
+        {tab === "announcements" ? <AnnouncementsTab /> : null}
         {tab === "redeploy" ? <RedeployPanel /> : null}
         {tab === "review" ? <SkillReviewPanel /> : null}
       </div>
@@ -65,7 +89,7 @@ function CareTabs() {
   );
 }
 
-/** `/care` — opiekun: kolejka na ten tydzień, wszystkie kontrakty i kolejki. */
+/** `/care` — opiekun: kolejka na ten tydzień, konsultanci z rytmem, przydział, komunikaty i kolejki. */
 export function CareScreen() {
   return (
     <HrConfigGate>
@@ -73,7 +97,7 @@ export function CareScreen() {
         <div className="space-y-4">
           <PageHeader
             title="Opieka nad konsultantami"
-            description="Kontakty z konsultantami i menedżerami u klientów, przepięcia i technologie z rozmów."
+            description="Kontakty z konsultantami i menedżerami u klientów, rytm i opiekunowie, przepięcia i technologie z rozmów."
             density="compact"
           />
           {config.open_modules.care ? (

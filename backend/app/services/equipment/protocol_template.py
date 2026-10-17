@@ -17,19 +17,60 @@ Szablony w ``app/templates/equipment`` są WYNIKIEM tego modułu (jak
 
 Zmiana treści = zmiana tutaj, ponowne uruchomienie i nowa
 ``TEMPLATE_VERSION`` (protokół zapisuje wersję wzoru, z której powstał).
+
+Wzory wgrane przez recepcję (etap 3, O3)
+----------------------------------------
+
+Recepcja i admin wgrywają własne wzory (np. „z kaucją”, „zwrot u klienta”)
+jako DOCX z polami ``{{ … }}`` — te same pola, które wypełnia standard
+(``FIELDS``, wiersze tabeli ``LINE_FIELDS``). Plik przychodzi od człowieka,
+więc:
+
+* przed zapisem przechodzi ``check_upload``: tylko ``.docx`` (zip bez makr,
+  limit rozmiaru spakowanego i rozpakowanego), wymagane pola rodzaju, żadnych
+  pól spoza listy i próbne wypełnienie fikcyjnym protokołem,
+* wypełnia się WYŁĄCZNIE w ``SandboxedEnvironment`` jinja2 (docxtpl
+  ``render(…, jinja_env=…)``): bez atrybutów Pythona (``__class__``,
+  ``__globals__``…), bez makr, dołączania plików, funkcji globalnych
+  (``range``, ``lipsum``…), potęgowania, mnożenia i formatowania napisów
+  (pamięć), z krótką listą filtrów i ``StrictUndefined`` — literówka w polu
+  pada przy wgraniu, a nie w protokole do podpisu.
 """
 
 from __future__ import annotations
 
+import hashlib
+import io
+import zipfile
 from dataclasses import dataclass
+from datetime import date
+from decimal import Decimal
 from pathlib import Path
+from typing import Any, Iterable, Mapping, Optional
 
 import docx
 from docx.enum.table import WD_TABLE_ALIGNMENT
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.shared import Emu, Pt, Twips
+from docxtpl import DocxTemplate
+from jinja2 import StrictUndefined, TemplateError, TemplateSyntaxError, nodes
+from jinja2.exceptions import SecurityError
+from jinja2.sandbox import SandboxedEnvironment
+from sqlalchemy import func, or_, select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.docx_cells import row_cells
+from app.models.equipment import (
+    ClientOnboardingPack,
+    EquipmentProtocol,
+    EquipmentProtocolTemplate,
+)
+from app.models.user import User
+from app.services.equipment.errors import (
+    EquipmentConflict,
+    EquipmentError,
+    EquipmentNotFound,
+)
 
 TEMPLATE_DIR = Path(__file__).resolve().parents[2] / "templates" / "equipment"
 ISSUE_TEMPLATE = "protokol_wydania.docx"
@@ -360,6 +401,489 @@ def write_templates(target: Path = TEMPLATE_DIR) -> list[Path]:
         builder().save(str(path))
         written.append(path)
     return written
+
+
+# ── Wzory wgrane przez recepcję (etap 3, O3) ──────────────────────────────────
+
+#: Limit pliku wzoru (spakowanego) i jego treści po rozpakowaniu (zip bomb).
+MAX_UPLOAD_BYTES = 2 * 1024 * 1024
+MAX_UNPACKED_BYTES = 40 * 1024 * 1024
+MAX_ZIP_ENTRIES = 400
+DOCX_MEDIA_TYPE = (
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+)
+
+#: Pola protokołu (kontekst ``protocol_document.context_for``) z opisem dla
+#: recepcji — lista na ekranie „Wzory protokołów”.
+FIELDS: dict[str, str] = {
+    "number": "numer protokołu (PZO/rok/miesiąc/kolejny)",
+    "protocol_date": "data protokołu (dd.mm.rrrr)",
+    "holder_name": "imię i nazwisko osoby, która odbiera albo zwraca sprzęt",
+    "issuer_name": "kto z recepcji wydaje albo przyjmuje",
+    "lines": "tabela pozycji: wiersz {%tr for line in lines %} … {%tr endfor %}",
+    "total": "suma wartości (np. 3 903,73)",
+    "total_words": "suma słownie",
+}
+#: Pola wiersza tabeli (``line.<pole>``).
+LINE_FIELDS: dict[str, str] = {
+    "position": "Lp.",
+    "name": "nazwa sprzętu",
+    "identifier": "numer seryjny, IMEI albo numer karty",
+    "quantity": "ilość",
+    "price": "cena",
+    "value": "wartość",
+    "condition": "stan przy zwrocie",
+    "notes": "uwagi",
+}
+#: Bez tych pól protokołu nie da się odszukać ani przypisać osobie.
+REQUIRED_FIELDS: dict[str, tuple[str, ...]] = {
+    "wydanie": ("number", "protocol_date", "holder_name", "lines"),
+    "zwrot": ("number", "protocol_date", "holder_name", "lines"),
+}
+_MACRO_PARTS = ("vbaproject.bin", "vbadata.xml")
+
+
+class TemplateRejected(ValueError):
+    """Wgrany wzór nie nadaje się do użycia — zdanie dla recepcji."""
+
+
+#: Filtry, które nie budują dużych napisów z małego wzoru (bez ``center``,
+#: ``indent``, ``format``, ``replace``…).
+_SAFE_FILTERS = frozenset(
+    {
+        "abs",
+        "capitalize",
+        "count",
+        "d",
+        "default",
+        "e",
+        "escape",
+        "first",
+        "float",
+        "int",
+        "join",
+        "last",
+        "length",
+        "lower",
+        "round",
+        "string",
+        "title",
+        "trim",
+        "truncate",
+        "upper",
+    }
+)
+#: Makra (rekurencja), bloki i dołączanie innych plików — nie we wzorze.
+_FORBIDDEN_NODES = (
+    nodes.Macro,
+    nodes.CallBlock,
+    nodes.Include,
+    nodes.Import,
+    nodes.FromImport,
+    nodes.Extends,
+    nodes.Block,
+)
+_SEQUENCES = (str, bytes, list, tuple)
+
+
+class _ProtocolSandbox(SandboxedEnvironment):
+    """Sandbox wzorów z pliku: atrybuty Pythona blokuje jinja2, a ta klasa
+    dokłada: bez makr i dołączania, bez funkcji globalnych, krótka lista
+    filtrów, bez potęgowania i bez mnożenia i formatowania napisów (pamięć)."""
+
+    intercepted_binops = frozenset({"*", "**", "%"})
+
+    def __init__(self, **options: Any) -> None:
+        super().__init__(**options)
+        self.globals.clear()
+        self.filters = {
+            name: value for name, value in self.filters.items() if name in _SAFE_FILTERS
+        }
+
+    def _parse(self, source: str, name: Any, filename: Any) -> nodes.Template:
+        tree = super()._parse(source, name, filename)
+        forbidden = next(iter(tree.find_all(_FORBIDDEN_NODES)), None)
+        if forbidden is not None:
+            raise TemplateSyntaxError(
+                "Makra, bloki i dołączanie innych plików nie są dostępne we wzorze.",
+                forbidden.lineno,
+                name,
+                filename,
+            )
+        return tree
+
+    def call_binop(self, context: Any, operator: str, left: Any, right: Any) -> Any:
+        if operator == "**":
+            raise SecurityError("Potęgowanie nie jest dostępne we wzorze.")
+        if isinstance(left, _SEQUENCES) or isinstance(right, _SEQUENCES):
+            raise SecurityError(
+                "Mnożenie i formatowanie tekstu nie są dostępne we wzorze."
+            )
+        return super().call_binop(context, operator, left, right)
+
+
+def sandboxed_env() -> SandboxedEnvironment:
+    """Środowisko jinja2 dla wzorów z pliku (każde wypełnienie — nowe)."""
+    return _ProtocolSandbox(autoescape=True, undefined=StrictUndefined)
+
+
+def _check_package(content: bytes) -> None:
+    try:
+        package = zipfile.ZipFile(io.BytesIO(content))
+    except zipfile.BadZipFile as exc:
+        raise TemplateRejected("To nie jest plik Word (.docx).") from exc
+    with package:
+        entries = package.infolist()
+        if len(entries) > MAX_ZIP_ENTRIES:
+            raise TemplateRejected(
+                "Plik ma za dużo części — zapisz go w Wordzie od nowa."
+            )
+        if sum(entry.file_size for entry in entries) > MAX_UNPACKED_BYTES:
+            raise TemplateRejected("Plik po rozpakowaniu jest za duży.")
+        names = {entry.filename.lower() for entry in entries}
+        if "word/document.xml" not in names or "[content_types].xml" not in names:
+            raise TemplateRejected("To nie jest plik Word (.docx).")
+        if any(name.rsplit("/", 1)[-1] in _MACRO_PARTS for name in names):
+            raise TemplateRejected(
+                "Wzór z makrami nie jest przyjmowany — zapisz go jako .docx."
+            )
+        types = package.read("[Content_Types].xml").decode("utf-8", "replace")
+        if "macroEnabled" in types:
+            raise TemplateRejected(
+                "Wzór z makrami nie jest przyjmowany — zapisz go jako .docx."
+            )
+
+
+def _sample_context(kind: str) -> dict[str, Any]:
+    """Fikcyjny protokół do próbnego wypełnienia (te same pola co prawdziwy)."""
+    from app.services.equipment import protocol_document
+
+    view = protocol_document.ProtocolView(
+        kind=kind,
+        number="PZO/2026/01/001",
+        protocol_date=date(2026, 1, 15),
+        holder_name="Anna Przykładowa",
+        issuer_name="Recepcja Przykładowa",
+        lines=(
+            protocol_document.LineView(
+                position=1,
+                name="Laptop przykładowy 14 cali",
+                identifier="TEST0001",
+                quantity=1,
+                unit_value=Decimal("1234.56"),
+                condition="sprawny" if kind == "zwrot" else None,
+            ),
+        ),
+    )
+    return protocol_document.context_for(view)
+
+
+def _short(error: Exception) -> str:
+    text_value = " ".join(str(error).split())
+    return text_value[:200] or error.__class__.__name__
+
+
+def template_fields(content: bytes) -> set[str]:
+    """Pola najwyższego poziomu użyte we wzorze (bez zmiennych pętli)."""
+    try:
+        return set(
+            DocxTemplate(io.BytesIO(content)).get_undeclared_template_variables(
+                jinja_env=sandboxed_env()
+            )
+        )
+    except TemplateError as exc:
+        raise TemplateRejected(f"Błąd w polach wzoru: {_short(exc)}") from exc
+    except Exception as exc:  # uszkodzony DOCX (python-docx, lxml)
+        raise TemplateRejected("Nie da się odczytać pliku Word.") from exc
+
+
+def render_uploaded(content: bytes, context: dict[str, Any]) -> bytes:
+    """Wzór z pliku wypełniony w sandboxie (``SecurityError`` / ``TemplateError`` lecą dalej)."""
+    template = DocxTemplate(io.BytesIO(content))
+    template.render(context, jinja_env=sandboxed_env())
+    buffer = io.BytesIO()
+    template.save(buffer)
+    return buffer.getvalue()
+
+
+def check_upload(filename: str, content: bytes, kind: str) -> list[str]:
+    """Walidacja wgranego wzoru; zwraca użyte pola albo ``TemplateRejected``."""
+    if kind not in REQUIRED_FIELDS:
+        raise TemplateRejected("Wybierz rodzaj wzoru: wydanie albo zwrot.")
+    if not (filename or "").lower().endswith(".docx"):
+        raise TemplateRejected("Wgraj plik Word w formacie .docx.")
+    if not content or len(content) > MAX_UPLOAD_BYTES:
+        raise TemplateRejected("Plik jest pusty albo większy niż 2 MB.")
+    _check_package(content)
+    fields = template_fields(content)
+    unknown = sorted(fields - set(FIELDS))
+    if unknown:
+        raise TemplateRejected(
+            "Wzór ma pola, których protokół nie zna: "
+            + ", ".join(unknown)
+            + ". Dostępne pola: "
+            + ", ".join(FIELDS)
+            + "."
+        )
+    missing = [field for field in REQUIRED_FIELDS[kind] if field not in fields]
+    if missing:
+        raise TemplateRejected(
+            "Wzór nie ma wymaganych pól: " + ", ".join(missing) + "."
+        )
+    try:
+        render_uploaded(content, _sample_context(kind))
+    except SecurityError as exc:
+        raise TemplateRejected(
+            "Wzór próbuje sięgnąć poza dane protokołu — takiego wzoru nie da się użyć."
+        ) from exc
+    except TemplateError as exc:
+        raise TemplateRejected(f"Wzór nie daje się wypełnić: {_short(exc)}") from exc
+    except Exception as exc:
+        raise TemplateRejected("Wzór nie daje się wypełnić.") from exc
+    return sorted(fields)
+
+
+def standard_template_bytes(kind: str) -> bytes:
+    """Wbudowany standard — punkt wyjścia do własnego wzoru recepcji."""
+    name = ISSUE_TEMPLATE if kind == "wydanie" else RETURN_TEMPLATE
+    return (TEMPLATE_DIR / name).read_bytes()
+
+
+def field_rows() -> Iterable[dict[str, str]]:
+    """Pola do listy na ekranie „Wzory protokołów” (pole, opis, gdzie)."""
+    for key, label in FIELDS.items():
+        yield {"field": key, "label": label, "scope": "protocol"}
+    for key, label in LINE_FIELDS.items():
+        yield {"field": f"line.{key}", "label": label, "scope": "line"}
+
+
+# ── Rejestr wzorów (ekran „Sprzęt → Wzory protokołów”) ───────────────────────
+
+KIND_LABELS = {"wydanie": "wydania", "zwrot": "zwrotu"}
+
+
+def template_payload(
+    template: EquipmentProtocolTemplate, *, packs: int = 0, protocols: int = 0
+) -> dict[str, Any]:
+    return {
+        "id": template.id,
+        "kind": template.kind,
+        "name": template.name,
+        "description": template.description,
+        "file_name": template.file_name,
+        "file_size": template.file_size,
+        "fields": list(template.fields or []),
+        "is_active": template.is_active,
+        "created_at": template.created_at.isoformat() if template.created_at else None,
+        "packs": packs,
+        "protocols": protocols,
+    }
+
+
+async def _usage(
+    db: AsyncSession, ids: list[int]
+) -> tuple[dict[int, int], dict[int, int]]:
+    if not ids:
+        return {}, {}
+    packs: dict[int, int] = {}
+    for column in (
+        ClientOnboardingPack.issue_template_id,
+        ClientOnboardingPack.return_template_id,
+    ):
+        for template_id, count in (
+            await db.execute(
+                select(column, func.count()).where(column.in_(ids)).group_by(column)
+            )
+        ).all():
+            packs[template_id] = packs.get(template_id, 0) + int(count)
+    protocols = {
+        template_id: int(count)
+        for template_id, count in (
+            await db.execute(
+                select(EquipmentProtocol.template_id, func.count())
+                .where(EquipmentProtocol.template_id.in_(ids))
+                .group_by(EquipmentProtocol.template_id)
+            )
+        ).all()
+    }
+    return packs, protocols
+
+
+async def list_templates(db: AsyncSession) -> list[dict[str, Any]]:
+    """Wgrane wzory: najpierw w użyciu, potem wycofane (z liczbą pakietów i protokołów)."""
+    rows = (
+        await db.scalars(
+            select(EquipmentProtocolTemplate).order_by(
+                EquipmentProtocolTemplate.is_active.desc(),
+                EquipmentProtocolTemplate.kind,
+                EquipmentProtocolTemplate.name,
+            )
+        )
+    ).all()
+    packs, protocols = await _usage(db, [row.id for row in rows])
+    return [
+        template_payload(
+            row, packs=packs.get(row.id, 0), protocols=protocols.get(row.id, 0)
+        )
+        for row in rows
+    ]
+
+
+def _clean_name(value: Any) -> str:
+    name = " ".join(str(value or "").split())
+    if not name:
+        raise EquipmentError("Nazwij wzór, np. „Standard z kaucją”.")
+    if len(name) > 120:
+        raise EquipmentError("Nazwa wzoru może mieć najwyżej 120 znaków.")
+    return name
+
+
+def _clean_description(value: Any) -> Optional[str]:
+    text_value = " ".join(str(value or "").split())
+    if len(text_value) > 300:
+        raise EquipmentError("Opis wzoru może mieć najwyżej 300 znaków.")
+    return text_value or None
+
+
+async def _ensure_unique_name(
+    db: AsyncSession, kind: str, name: str, *, exclude_id: Optional[int] = None
+) -> None:
+    query = select(EquipmentProtocolTemplate.id).where(
+        EquipmentProtocolTemplate.kind == kind,
+        EquipmentProtocolTemplate.is_active.is_(True),
+        func.lower(EquipmentProtocolTemplate.name) == name.lower(),
+    )
+    if exclude_id is not None:
+        query = query.where(EquipmentProtocolTemplate.id != exclude_id)
+    if await db.scalar(query.limit(1)) is not None:
+        raise EquipmentConflict(
+            f"Wzór {KIND_LABELS[kind]} o nazwie „{name}” już jest — wybierz inną nazwę."
+        )
+
+
+async def create_template(
+    db: AsyncSession,
+    *,
+    kind: str,
+    name: Any,
+    description: Any,
+    filename: str,
+    content: bytes,
+    actor: User,
+) -> EquipmentProtocolTemplate:
+    """Nowy wzór z pliku po ``check_upload`` (odmowa = ``EquipmentError`` 422)."""
+    from app.services.hr import audit
+
+    clean = _clean_name(name)
+    try:
+        fields = check_upload(filename, content, kind)
+    except TemplateRejected as exc:
+        raise EquipmentError(str(exc)) from exc
+    await _ensure_unique_name(db, kind, clean)
+    template = EquipmentProtocolTemplate(
+        kind=kind,
+        name=clean,
+        description=_clean_description(description),
+        file_name=Path(filename).name[:255] or "wzor.docx",
+        content=content,
+        file_sha256=hashlib.sha256(content).hexdigest(),
+        file_size=len(content),
+        fields=fields,
+        created_by=actor.id,
+        updated_by=actor.id,
+    )
+    db.add(template)
+    await db.flush()
+    audit.record(
+        db,
+        actor_user_id=actor.id,
+        subject_user_id=None,
+        entity_type="equipment_protocol_template",
+        entity_id=template.id,
+        action="template_uploaded",
+        details={"kind": kind, "fields": fields},
+    )
+    return template
+
+
+async def get_template(db: AsyncSession, template_id: int) -> EquipmentProtocolTemplate:
+    template = await db.get(EquipmentProtocolTemplate, template_id)
+    if template is None:
+        raise EquipmentNotFound("Nie ma takiego wzoru protokołu.")
+    return template
+
+
+async def update_template(
+    db: AsyncSession, template_id: int, values: Mapping[str, Any], *, actor: User
+) -> EquipmentProtocolTemplate:
+    """Nazwa, opis i wycofanie. Treści pliku się nie zmienia — nowy plik = nowy wzór."""
+    from app.services.hr import audit
+
+    template = await get_template(db, template_id)
+    if "name" in values and values["name"] is not None:
+        name = _clean_name(values["name"])
+        if template.is_active:
+            await _ensure_unique_name(db, template.kind, name, exclude_id=template.id)
+        template.name = name
+    if "description" in values:
+        template.description = _clean_description(values["description"])
+    if values.get("is_active") is False and template.is_active:
+        clients = (
+            await db.scalars(
+                select(ClientOnboardingPack.client_id).where(
+                    or_(
+                        ClientOnboardingPack.issue_template_id == template.id,
+                        ClientOnboardingPack.return_template_id == template.id,
+                    )
+                )
+            )
+        ).all()
+        if clients:
+            raise EquipmentConflict(
+                f"Wzór jest wybrany w pakiecie {len(clients)} "
+                + ("klienta" if len(clients) == 1 else "klientów")
+                + " — najpierw wybierz tam inny wzór."
+            )
+        template.is_active = False
+    elif values.get("is_active") is True and not template.is_active:
+        await _ensure_unique_name(
+            db, template.kind, template.name, exclude_id=template.id
+        )
+        template.is_active = True
+    template.updated_by = actor.id
+    await db.flush()
+    audit.record(
+        db,
+        actor_user_id=actor.id,
+        subject_user_id=None,
+        entity_type="equipment_protocol_template",
+        entity_id=template.id,
+        action="template_updated",
+        details={"fields": sorted(values), "is_active": template.is_active},
+    )
+    return template
+
+
+async def template_content(
+    db: AsyncSession, template_id: int
+) -> tuple[EquipmentProtocolTemplate, bytes]:
+    template = await get_template(db, template_id)
+    content = await db.scalar(
+        select(EquipmentProtocolTemplate.content).where(
+            EquipmentProtocolTemplate.id == template_id
+        )
+    )
+    return template, content or b""
+
+
+def sample_document(content: bytes, kind: str) -> bytes:
+    """Wzór wypełniony fikcyjnym protokołem — podgląd dla recepcji."""
+    try:
+        return render_uploaded(content, _sample_context(kind))
+    except (SecurityError, TemplateError) as exc:
+        raise EquipmentError(
+            "Tego wzoru nie da się wypełnić — wgraj poprawiony plik."
+        ) from exc
 
 
 if __name__ == "__main__":

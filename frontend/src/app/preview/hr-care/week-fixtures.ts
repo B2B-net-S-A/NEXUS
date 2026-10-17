@@ -4,7 +4,7 @@
  *
  * Tydzień liczymy od „dziś” przeglądarki tak jak serwer: poniedziałek–piątek,
  * w weekend — tydzień, który się zaczyna. Konsultanci są ci sami co na liście
- * „Wszystkie kontrakty” (`fixtures.ts`): Karolina (zaległy „Dzień 30”,
+ * „Konsultanci” (`rhythm-fixtures.ts`): Karolina (zaległy „Dzień 30”,
  * kończy projekt), Paweł (przed końcem zamówienia, chce zmiany — do front
  * office), Michał (umówiony kontakt). Dwie prośby o opinię od menedżerów.
  */

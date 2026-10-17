@@ -264,6 +264,34 @@ async def care_reminders_loop() -> None:
     )
 
 
+# ── Opieka: komunikaty do konsultantów, kolejka 30 maili na minutę (O12) ────
+CARE_ANNOUNCEMENTS_INTERVAL_SECONDS = 60
+
+
+async def care_announcements_job(db: AsyncSession) -> dict[str, Any] | None:
+    """Wysyła kolejkę zatwierdzonych komunikatów; wyłączony przełącznik = nic."""
+    from app.services.care.announcement_queue import run_once
+
+    result = await run_once(db)
+    keys = ("sent", "failed", "uncertain", "deferred", "interrupted")
+    return result if any(result.get(key) for key in keys) else None
+
+
+async def care_announcements_send_loop() -> None:
+    if not loops_enabled("care_announcements_send"):
+        return
+    beat = loop_heartbeat.register(
+        "care_announcements_send",
+        max_silence_seconds=CARE_ANNOUNCEMENTS_INTERVAL_SECONDS + 600,
+    )
+    await run_periodic(
+        "care_announcements_send",
+        beat,
+        CARE_ANNOUNCEMENTS_INTERVAL_SECONDS,
+        care_announcements_job,
+    )
+
+
 # ── Wejście i odejście: przekazanie pracy, wyłączenie kont, przypomnienia (E4) ─
 LIFECYCLE_INTERVAL_SECONDS = 15 * 60
 

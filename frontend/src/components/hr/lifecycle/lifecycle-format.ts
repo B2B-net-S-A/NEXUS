@@ -111,3 +111,36 @@ export function reportsSummary(rows: readonly ReportsRowLike[]): string | null {
   }
   return `Podwładni: ${peopleCount(row.count)}. Po przekazaniu ich przełożonym będzie ${row.receiver_name} — od tej chwili wnioski i timesheety idą do tej osoby.`;
 }
+
+const CONDITION_FORM_LABELS: Record<string, string> = {
+  uop: "UoP",
+  b2b: "B2B",
+  zlecenie: "zlecenie",
+};
+
+interface ConditionsLike {
+  employment_types?: readonly string[];
+  equipment?: "ours" | "client" | null;
+  student?: boolean | null;
+}
+
+/** Kolumna „Warunek” ścieżki: „B2B · sprzęt od nas · student”; pusto = zawsze. */
+export function conditionSummary(conditions: ConditionsLike | null | undefined): string {
+  if (!conditions) return "";
+  const parts: string[] = [];
+  const forms = conditions.employment_types ?? [];
+  if (forms.length) parts.push(forms.map((form) => CONDITION_FORM_LABELS[form] ?? form).join(", "));
+  if (conditions.equipment === "ours") parts.push("sprzęt od nas");
+  if (conditions.equipment === "client") parts.push("sprzęt od klienta");
+  if (conditions.student) parts.push("student");
+  return parts.join(" · ");
+}
+
+/** Baner „Dociągnij”: „3 trwające wejścia są na starszej wersji”. */
+export function behindLabel(count: number, kind: CaseKind): string {
+  const noun =
+    kind === "onboarding"
+      ? countPl(count, "trwające wejście jest", "trwające wejścia są", "trwających wejść jest")
+      : countPl(count, "trwające odejście jest", "trwające odejścia są", "trwających odejść jest");
+  return `${noun} na starszej wersji tej ścieżki.`;
+}

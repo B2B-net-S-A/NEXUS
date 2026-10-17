@@ -20,16 +20,21 @@
  *   umie otworzyć go bez kliknięcia); obszary klienta są zasiane;
  * - `list` — ekran `/care`: domyślnie „Ten tydzień” (makieta 7 etapu 2 —
  *   prośby o opinię od menedżerów, rozmowy z powodem, licznik zaległych),
- *   dalej „Wszystkie kontrakty”, „Do przepięcia”, „Technologie do
- *   przejrzenia”; zakładkę wybiera sam ekran z `?tab=`, oba zakresy list
- *   i obie kolejki są zasiane. `&contract=4504` otwiera oś Pawła z „Przekaż
- *   do front office” (dwie pasujące rekrutacje); osie i „front office”
- *   pozostałych osób z tygodnia też są zasiane, a okno rozmowy ma pytania
- *   z mapy technologii klienta.
+ *   dalej „Konsultanci” (etap 3, M1 — rytm przy każdej osobie, sygnały),
+ *   „Przydział” (M3 — obciążenie opiekunów z rytmów, próg, bez opiekuna),
+ *   „Do przepięcia”, „Technologie”; zakładkę wybiera sam ekran z `?tab=`,
+ *   listy i kolejki są zasiane („Komunikaty” mają własny harness
+ *   `/preview/hr-announcements`). `&contract=4504` otwiera oś Pawła
+ *   z „Przekaż do front office” (dwie pasujące rekrutacje); osie i „front
+ *   office” pozostałych osób z tygodnia też są zasiane, a okno rozmowy ma
+ *   pytania z mapy technologii klienta;
+ * - `cadence` — „Konsultanci” z otwartym oknem „Rytm kontaktu” Bartosza
+ *   (M2: słaba opinia menedżera, podgląd „co 2 tygodnie” zasiany).
  */
 
 import { Suspense, useState } from "react";
 
+import { CadenceDialog } from "@/components/care/CadenceDialog";
 import { CareScreen } from "@/components/care/CareScreen";
 import { ContractCareTab } from "@/components/care/ContractCareTab";
 import { TechCardDialog } from "@/components/care/TechCardDialog";
@@ -61,10 +66,17 @@ import {
   careTechCard,
   contractCare,
   contractStart,
-  myConsultants,
   redeployQueue,
   skillReview,
 } from "./fixtures";
+import {
+  BARTOSZ_CONTRACT,
+  bartoszCadence,
+  bartoszCadencePreview,
+  careAssignment,
+  careConsultants,
+  michalCadence,
+} from "./rhythm-fixtures";
 import {
   WEEK_HANDOFF_CONTRACT,
   careWeek,
@@ -75,7 +87,7 @@ import {
   telecomTechMap,
 } from "./week-fixtures";
 
-const KNOWN = ["tab", "techcard", "list"] as const;
+const KNOWN = ["tab", "techcard", "list", "cadence"] as const;
 type State = (typeof KNOWN)[number];
 
 const STATES = [
@@ -87,6 +99,9 @@ const STATES = [
     label: "Oś konsultanta i front office",
     href: `?state=list&contract=${WEEK_HANDOFF_CONTRACT}`,
   },
+  { key: "consultants", label: "Konsultanci (rytm)", href: "?state=list&tab=consultants" },
+  { key: "cadence", label: "Zmiana rytmu", href: "?state=cadence&tab=consultants" },
+  { key: "assignment", label: "Przydział opiekunów", href: "?state=list&tab=assignment" },
 ] as const;
 
 function prepare(params: URLSearchParams) {
@@ -98,9 +113,11 @@ function prepare(params: URLSearchParams) {
   client.setQueryData(careKeys.owners, CARE_OWNERS);
   client.setQueryData(careKeys.clientAreas(CARE_CLIENT.id), CLIENT_AREAS);
   client.setQueryData(careKeys.summary, CARE_SUMMARY);
-  for (const scope of ["mine", "all"] as const) {
-    client.setQueryData(careKeys.myConsultants(scope), myConsultants(today, scope));
-  }
+  client.setQueryData(careKeys.consultants, careConsultants(today));
+  client.setQueryData(careKeys.assignment, careAssignment(today));
+  client.setQueryData(careKeys.cadence(BARTOSZ_CONTRACT), bartoszCadence(today));
+  client.setQueryData(careKeys.cadence(BARTOSZ_CONTRACT, "biweekly"), bartoszCadencePreview(today));
+  client.setQueryData(careKeys.cadence(CARE_CONTRACT_ID), michalCadence(today));
   for (const queue of ["active", "closed"] as const) {
     client.setQueryData(careKeys.redeploy(queue), redeployQueue(today, queue));
   }
@@ -157,11 +174,18 @@ function OpenTechCard({ today }: { today: string }) {
   );
 }
 
+function OpenCadence() {
+  const [open, setOpen] = useState(true);
+  if (!open) return null;
+  return <CadenceDialog contractId={BARTOSZ_CONTRACT} open onOpenChange={setOpen} />;
+}
+
 function body(state: State, today: string) {
-  if (state === "list") {
+  if (state === "list" || state === "cadence") {
     return (
       <Suspense fallback={<HrHarnessLoading />}>
         <CareScreen />
+        {state === "cadence" ? <OpenCadence /> : null}
       </Suspense>
     );
   }

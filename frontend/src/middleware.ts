@@ -418,6 +418,9 @@ const PUBLIC_PATHS = [
   "/engagement/",
   // Publiczny podpis protokołu sprzętu: token w adresie, bez logowania.
   "/protocol/",
+  // Wypis konsultanta z komunikatów informacyjnych: token w adresie, konsultant
+  // nie ma konta (etap 3, O12).
+  "/wypis/",
   "/preview/candidates",
   "/preview/candidate-profile",
   "/preview/contact-queue",
@@ -537,6 +540,7 @@ const PUBLIC_PATHS = [
   "/preview/hr-structure",
   "/preview/hr-team",
   "/preview/hr-client-people",
+  "/preview/hr-announcements",
   // Strona kariery (kandydaci z LinkedIna) — publiczna z definicji. Na własnym
   // hoście (`kariera.dynaminds.pl`) obsługuje ją `careerHostResponse` niżej;
   // tu jest wejście pod `/kariera/*` na hoście aplikacji (dev, podgląd, grafiki

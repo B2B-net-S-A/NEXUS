@@ -34,7 +34,10 @@ Reguły:
   przebieg czyta od najnowszej przetworzonej wiadomości BEZ nakładki
   (``stats['resume_from']``, włącznie — wiadomości z tą samą sekundą wracają
   jako duplikaty), aż paczka przestanie być pełna; potem wraca nakładka,
-* załączniki tylko jako metadane (nazwa, typ, rozmiar) — bez treści plików.
+* załączniki tylko jako metadane (nazwa, typ, rozmiar) — bez treści plików,
+* **odpowiedź na komunikat do konsultantów** (znacznik ``[Komunikat <id>/<kod>]``
+  w temacie nowej sprawy) albo odbity mail — sprawa dostaje odnośnik do
+  komunikatu i kontraktu nadawcy (``care/announcements.link_mail_case``).
 
 Klient Graph jest wstrzykiwany (``AdminMailbox``); testy podają fałszywą
 skrzynkę. Prawdziwa skrzynka idzie przez rejestrację HR (``acquire_hr_token``)
@@ -310,6 +313,7 @@ async def _ingest_message(
     attachments: list[dict[str, Any]] = []
     if msg.get("hasAttachments"):
         attachments = _attachment_meta(await mailbox.list_attachments(upn, graph_id))
+    body_text = _body(msg)
     db.add(
         AdminCaseMessage(
             case_id=case.id,
@@ -320,11 +324,19 @@ async def _ingest_message(
             sender_name=sender_name,
             subject=subject,
             received_at=received_at,
-            body_text=_body(msg),
+            body_text=body_text,
             attachments=attachments,
         )
     )
     await db.flush()
+    if outcome == "created":
+        # Odpowiedź na komunikat do konsultantów (znacznik w temacie) albo
+        # odbity mail — sprawa dostaje odnośnik do komunikatu i kontraktu.
+        from app.services.care.announcements import link_mail_case
+
+        await link_mail_case(
+            db, case, subject=subject, sender_email=sender_email, body_text=body_text
+        )
     return outcome
 
 

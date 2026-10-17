@@ -34,12 +34,28 @@ kontakt TEGO klienta (``contacts.reports_to_contact_id``, bez cykli — pilnuje
 ``care/client_people``) i należy do działu z ``client_areas`` („Działy
 i obszary”, ten sam słownik co mapa technologii). Tekst ``contacts.department``
 zostaje — ekran podpowiada dział, nic nie przypisuje się samo.
+
+Rytm kontaktu (etap 3, O7–O8, 17.10.2026): ``care_cadence_periods`` — zmiana
+rytmu konsultanta (kontraktu) od dnia zmiany, z powodem z listy, notatką
+i opcjonalną datą „do kiedy” (po niej wraca poprzedni rytm,
+``services/care/cadence_rules.py``). Bez wiersza obowiązuje program: 90 dni
+co 2 tygodnie, potem co miesiąc. Plan dostał rodzaj ``cadence`` (rozmowa
+z rytmu, ``seq`` = dzień terminu) obok kamieni ``day_7`` i ``pre_end``;
+dawne ``day_30``/``day_90``/``quarterly`` zostają w historii. „Pomiń” punkt
+planu zapisuje powód (``skip_reason``) i notatkę.
 """
 
 from __future__ import annotations
 
 CARE_CHANNELS: tuple[str, ...] = ("phone", "meeting", "chat")
-PLAN_KINDS: tuple[str, ...] = ("day_7", "day_30", "day_90", "quarterly", "pre_end")
+PLAN_KINDS: tuple[str, ...] = (
+    "day_7",
+    "day_30",
+    "day_90",
+    "quarterly",
+    "pre_end",
+    "cadence",
+)
 PLAN_STATUSES: tuple[str, ...] = ("open", "done", "skipped")
 CARD_STATUSES: tuple[str, ...] = ("ok", "odmowa", "brak_czasu", "niechetny")
 HIRING_SOURCES: tuple[str, ...] = ("widzial", "slyszal", "plotka")
@@ -49,6 +65,36 @@ REDEPLOY_REASONS: tuple[str, ...] = ("project_end", "wants_change", "attrition_r
 REDEPLOY_STATUSES: tuple[str, ...] = ("open", "in_progress", "done", "dismissed")
 REDEPLOY_ACTIVE_STATUSES: tuple[str, ...] = ("open", "in_progress")
 REDEPLOY_SOURCES: tuple[str, ...] = ("tech_card", "conversation", "manual")
+
+#: Rytm kontaktu: co 2 tygodnie, co miesiąc, co kwartał, tylko kamienie, wstrzymany.
+CADENCE_LEVELS: tuple[str, ...] = (
+    "biweekly",
+    "monthly",
+    "quarterly",
+    "milestones",
+    "paused",
+)
+#: Powód zmiany rytmu; ``imported`` ustawia tylko import z Compassa.
+CADENCE_REASONS: tuple[str, ...] = (
+    "new_at_client",
+    "weak_feedback",
+    "order_end",
+    "wants_change",
+    "stable",
+    "person_request",
+    "long_absence",
+    "other",
+    "imported",
+)
+#: Powód „Pomiń” przy punkcie planu.
+SKIP_REASONS: tuple[str, ...] = (
+    "recent_contact",
+    "unreachable",
+    "absence",
+    "person_request",
+    "ending",
+    "other",
+)
 
 FEEDBACK_CHANNELS: tuple[str, ...] = ("phone", "meeting", "email")
 EXTENSION_OUTLOOKS: tuple[str, ...] = ("yes", "likely", "unsure", "no")
@@ -72,6 +118,12 @@ CK_CONV_FOLLOW_UP = "follow_up_on IS NULL OR follow_up_on >= occurred_on"
 CK_PLAN_KIND = f"kind IN ({quoted(PLAN_KINDS)})"
 CK_PLAN_STATUS = f"status IN ({quoted(PLAN_STATUSES)})"
 CK_PLAN_RESOLUTION = "(status = 'open') = (resolved_at IS NULL)"
+CK_PLAN_SKIP_REASON = f"skip_reason IS NULL OR skip_reason IN ({quoted(SKIP_REASONS)})"
+#: Powód „Pomiń” tylko przy pominiętym punkcie (przywrócenie go zdejmuje).
+CK_PLAN_SKIP = "skip_reason IS NULL OR status = 'skipped'"
+CK_CADENCE_LEVEL = f"level IN ({quoted(CADENCE_LEVELS)})"
+CK_CADENCE_REASON = f"reason IN ({quoted(CADENCE_REASONS)})"
+CK_CADENCE_UNTIL = "until_on IS NULL OR until_on >= starts_on"
 CK_CARD_STATUS = f"status IS NULL OR status IN ({quoted(CARD_STATUSES)})"
 CK_CARD_FINAL = "is_draft OR status IS NOT NULL"
 CK_CARD_HIRING_SOURCE = f"hiring_source IS NULL OR (hiring IS TRUE AND hiring_source IN ({quoted(HIRING_SOURCES)}))"
@@ -144,10 +196,11 @@ TABLE_DDL: tuple[str, ...] = (
     CONSTRAINT ck_care_conversations_note CHECK ({CK_CONV_NOTE}),
     CONSTRAINT ck_care_conversations_follow_up CHECK ({CK_CONV_FOLLOW_UP})
 )""",
-    # Plan kontaktów: dzień 7, 30, 90 od startu, potem co kwartał, oraz
-    # 30 dni przed końcem zamówienia/umowy (``seq`` = dzień końca, więc nowa
-    # data końca daje nowy punkt). Wiersze powstają z wyprzedzeniem
-    # (``services/care/plan.py``), a status zapisuje opiekun.
+    # Plan kontaktów: kamienie (dzień 7 od startu i 30 dni przed końcem
+    # zamówienia/umowy — ``seq`` = dzień końca, więc nowa data końca daje nowy
+    # punkt) i rozmowy z rytmu (``cadence``, ``seq`` = dzień terminu). Wiersze
+    # powstają z wyprzedzeniem (``services/care/plan.py``), a status zapisuje
+    # opiekun; „Pomiń” z powodem z listy.
     f"""CREATE TABLE IF NOT EXISTS contract_care_plan_items (
     id SERIAL PRIMARY KEY,
     contract_id INTEGER NOT NULL REFERENCES contracts(id) ON DELETE CASCADE,
@@ -158,11 +211,15 @@ TABLE_DDL: tuple[str, ...] = (
     done_conversation_id INTEGER NULL REFERENCES care_conversations(id) ON DELETE SET NULL,
     resolved_by INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
     resolved_at TIMESTAMPTZ NULL,
+    skip_reason VARCHAR(24) NULL,
+    skip_note VARCHAR({SHORT_TEXT_MAX}) NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     CONSTRAINT uq_contract_care_plan_items_slot UNIQUE (contract_id, kind, seq),
     CONSTRAINT ck_contract_care_plan_items_kind CHECK ({CK_PLAN_KIND}),
     CONSTRAINT ck_contract_care_plan_items_status CHECK ({CK_PLAN_STATUS}),
-    CONSTRAINT ck_contract_care_plan_items_resolution CHECK ({CK_PLAN_RESOLUTION})
+    CONSTRAINT ck_contract_care_plan_items_resolution CHECK ({CK_PLAN_RESOLUTION}),
+    CONSTRAINT ck_contract_care_plan_items_skip_reason CHECK ({CK_PLAN_SKIP_REASON}),
+    CONSTRAINT ck_contract_care_plan_items_skip CHECK ({CK_PLAN_SKIP})
 )""",
     # Karta technologiczna (pola z Compassa). ``contract_id`` może być pusty
     # tylko dla karty z importu, której konsultanta nie dało się jeszcze
@@ -289,6 +346,23 @@ TABLE_DDL: tuple[str, ...] = (
     CONSTRAINT ck_client_feedback_scores_autonomy CHECK ({CK_SCORE_AUTONOMY}),
     CONSTRAINT ck_client_feedback_scores_any CHECK ({CK_SCORE_ANY})
 )""",
+    # Zmiana rytmu kontaktu (O7–O8): od ``starts_on``, opcjonalnie do
+    # ``until_on`` (potem wraca poprzedni). Kto i dlaczego — powód z listy
+    # i notatka; zdarzenie ``care.cadence_set`` w śladzie HR.
+    f"""CREATE TABLE IF NOT EXISTS care_cadence_periods (
+    id SERIAL PRIMARY KEY,
+    contract_id INTEGER NOT NULL REFERENCES contracts(id) ON DELETE CASCADE,
+    level VARCHAR(16) NOT NULL,
+    starts_on DATE NOT NULL,
+    until_on DATE NULL,
+    reason VARCHAR(24) NOT NULL,
+    note VARCHAR({SHORT_TEXT_MAX}) NULL,
+    created_by INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT ck_care_cadence_periods_level CHECK ({CK_CADENCE_LEVEL}),
+    CONSTRAINT ck_care_cadence_periods_reason CHECK ({CK_CADENCE_REASON}),
+    CONSTRAINT ck_care_cadence_periods_until CHECK ({CK_CADENCE_UNTIL})
+)""",
 )
 
 COLUMN_DDL: tuple[str, ...] = (
@@ -302,6 +376,11 @@ COLUMN_DDL: tuple[str, ...] = (
     "REFERENCES contacts(id) ON DELETE SET NULL",
     "ALTER TABLE contacts ADD COLUMN IF NOT EXISTS client_area_id INTEGER NULL "
     "REFERENCES client_areas(id) ON DELETE SET NULL",
+    # „Pomiń” z powodem (etap 3) — baza sprzed zmiany dostaje kolumny tu.
+    "ALTER TABLE contract_care_plan_items ADD COLUMN IF NOT EXISTS skip_reason "
+    "VARCHAR(24) NULL",
+    "ALTER TABLE contract_care_plan_items ADD COLUMN IF NOT EXISTS skip_note "
+    f"VARCHAR({SHORT_TEXT_MAX}) NULL",
 )
 
 INDEX_DDL: tuple[str, ...] = (
@@ -331,9 +410,44 @@ INDEX_DDL: tuple[str, ...] = (
     "ON contacts (reports_to_contact_id) WHERE reports_to_contact_id IS NOT NULL",
     "CREATE INDEX IF NOT EXISTS ix_contacts_client_area "
     "ON contacts (client_area_id) WHERE client_area_id IS NOT NULL",
+    "CREATE INDEX IF NOT EXISTS ix_care_cadence_periods_contract "
+    "ON care_cadence_periods (contract_id, starts_on)",
 )
 
-CONSTRAINT_DDL: tuple[str, ...] = ()
+
+def _add_check(table: str, name: str, condition: str) -> str:
+    return f"""DO $$ BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = '{name}') THEN
+            ALTER TABLE {table} ADD CONSTRAINT {name} CHECK ({condition});
+        END IF;
+    END $$"""
+
+
+#: Baza sprzed etapu 3 (0461 nie jest wdrożona, ale bazy lokalne i testowe ją
+#: mają): rodzaj ``cadence`` w CHECK-u planu i CHECK-i powodu „Pomiń”.
+#: Bloki podmieniają/dokładają ograniczenie tylko przy starej definicji.
+CONSTRAINT_DDL: tuple[str, ...] = (
+    f"""DO $$ BEGIN
+        IF NOT EXISTS (
+            SELECT 1 FROM pg_constraint
+            WHERE conname = 'ck_contract_care_plan_items_kind'
+              AND pg_get_constraintdef(oid) LIKE '%cadence%'
+        ) THEN
+            ALTER TABLE contract_care_plan_items
+                DROP CONSTRAINT IF EXISTS ck_contract_care_plan_items_kind;
+            ALTER TABLE contract_care_plan_items
+                ADD CONSTRAINT ck_contract_care_plan_items_kind CHECK ({CK_PLAN_KIND});
+        END IF;
+    END $$""",
+    _add_check(
+        "contract_care_plan_items",
+        "ck_contract_care_plan_items_skip_reason",
+        CK_PLAN_SKIP_REASON,
+    ),
+    _add_check(
+        "contract_care_plan_items", "ck_contract_care_plan_items_skip", CK_PLAN_SKIP
+    ),
+)
 DATA_DDL: tuple[str, ...] = ()
 
 TABLES: tuple[str, ...] = (
@@ -348,6 +462,7 @@ TABLES: tuple[str, ...] = (
     "redeploy_queue_items",
     "client_feedback_sessions",
     "client_feedback_scores",
+    "care_cadence_periods",
 )
 
 DOWNGRADE_DDL: tuple[str, ...] = (

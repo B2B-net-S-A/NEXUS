@@ -90,6 +90,10 @@ FALLBACK: dict[str, tuple[str, str]] = {
         "Konsultant dla front office",
         "Konsultant kończy projekt albo chce zmiany — szczegóły znajdziesz w NEXUSIE.",
     ),
+    "care_announcement": (
+        "Komunikat do konsultantów",
+        "Komunikat do konsultantów czeka na Ciebie — szczegóły znajdziesz w NEXUSIE.",
+    ),
 }
 _DEFAULT = ("Czas i ludzie", "Szczegóły znajdziesz w NEXUSIE.")
 

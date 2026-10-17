@@ -13,6 +13,9 @@ export type ClientTab =
   // rekrutacji i z Pomocy prowadzi od rundy 6 audytu do Ustawień
   // (`clientPlaybookEditHref`), bo DL nie widzi profilu cudzego klienta.
   | "zasady"
+  // Pakiet klienta „Wejście u klienta”: sprzęt, pierwszy dzień, dokumenty
+  // i dostępy dla wejścia konsultanta (etap 3, 17.10.2026).
+  | "wejscie"
   | "projekty"
   | "kontakty"
   | "umowy-ramowe"
@@ -31,6 +34,7 @@ export type ClientTab =
 export const CLIENT_TAB_KEYS: readonly ClientTab[] = [
   "profil",
   "zasady",
+  "wejscie",
   "projekty",
   "kontakty",
   "umowy-ramowe",

@@ -6,9 +6,12 @@
   DL u swoich klientów, admin, Finanse i TCM u wszystkich. Cudzy klient → 403.
 - Opiekun kontraktu: pole kontraktu, gdy puste — domyślny opiekun klienta,
   gdy i tego brak — Delivery Lead kontraktu.
-- Plan kontaktów od startu kontraktu: dzień 7, 30, 90, potem co kwartał oraz
-  30 dni przed końcem zamówienia albo umowy. Przy pierwszym włączeniu modułu
-  stare kontrakty nie dostają zaległości sprzed okna — to historia sprzed modułu.
+- Plan kontaktów od startu kontraktu (etap 3, 17.10.2026): kamienie — dzień 7
+  i 30 dni przed końcem zamówienia albo umowy, przy KAŻDYM rytmie, także
+  wstrzymanym — i rozmowy według rytmu konsultanta (rodzaj `cadence`, niżej).
+  Do 17.10.2026 plan był stały (dzień 7, 30, 90, potem co kwartał) — takie
+  punkty zostają w bazie jako historia. Przy pierwszym włączeniu modułu stare
+  kontrakty nie dostają zaległości sprzed okna — to historia sprzed modułu.
 - Rozmowa zamyka punkt planu. Okno mówi „Bez danych o zdrowiu i bez stawek”
   i tak ma zostać. Sygnały „ryzyko odejścia” i „chce zmiany projektu” trafiają do
   kolejki „Do przepięcia”; „klient zatrudnia” to sygnał popytu.
@@ -17,7 +20,7 @@
   opiekuna, najwyżej raz na 7 dni na kontrakt; koniec projektu < 60 dni → wpis
   „Do przepięcia”.
 - **„Następny kontakt” liczy jedna funkcja** `care/plan.next_contact` (karta
-  kontraktu, „Wszystkie kontrakty”, dzwonek opiekuna): najwcześniejszy otwarty
+  kontraktu, „Konsultanci”, dzwonek opiekuna): najwcześniejszy otwarty
   punkt planu albo umówiony kontakt z OSTATNIEJ rozmowy, nie starszy niż
   30 dni (`plan.live_follow_up` — tej samej reguły używa „Ten tydzień”); remis
   wygrywa punkt planu. Od 17.10.2026 także karta i lista pomijają follow-up
@@ -30,8 +33,9 @@
 ## Opieka · „Ten tydzień”, oś konsultanta, front office (etap 2, D15, 17.10.2026)
 
 Domyślna zakładka `/care` (`components/care/week/`, `GET /api/care/week`,
-serwis `care/week.py`); dawna lista „Moi konsultanci” to „Wszystkie kontrakty”
-(`?tab=contracts`, stary `?tab=mine` prowadzi tam samo).
+serwis `care/week.py`); dawne listy „Moi konsultanci” i „Wszystkie kontrakty”
+to od etapu 3 „Konsultanci” (`?tab=consultants`; `?tab=contracts` i `?tab=mine`
+prowadzą tam samo).
 
 - **Tydzień** = poniedziałek–piątek kalendarza firmy; w weekend „Ten tydzień”
   to tydzień, który się zaczyna. `?from=` przesuwa tydzień, zakres `mine|all`
@@ -74,6 +78,67 @@ serwis `care/week.py`); dawna lista „Moi konsultanci” to „Wszystkie kontra
   mail „Czas i ludzie”, temat „Rekrutacje” z dymkiem — front office zwykle
   nie ma sekcji Delivery, więc typ opieki `care_contact_due` do niego nie
   docierał (do 17.10.2026). Odpowiedź i toast mówią, kto naprawdę dostał.
+
+## Rytm kontaktu, „Konsultanci” i „Przydział” (etap 3, O7–O10, 17.10.2026)
+
+Zakładki `/care`: Ten tydzień · Konsultanci · Przydział · Komunikaty · Do
+przepięcia · Technologie (`components/care/CareScreen.tsx`; dawne
+`?tab=contracts` i `?tab=mine` prowadzą do „Konsultantów”). Trasy
+w `api/care_consultants.py` (router dołącza `api/contract_care.py`), reguły
+w `care/cadence_rules.py` (bez bazy), zapis i sygnały w `care/cadence.py`,
+lista w `care/consultants.py`, przydział w `care/assignment.py`.
+
+- **Poziomy rytmu**: co 2 tygodnie, co miesiąc, co kwartał, tylko kamienie,
+  wstrzymany. Bez zmiany: pierwsze 90 dni od startu co 2 tygodnie
+  (`program`), potem co miesiąc (`default`). Zmiana = wiersz
+  `care_cadence_periods` od dnia zmiany z powodem z listy, notatką ≤ 500
+  i opcjonalnym „do kiedy”. W danym dniu obowiązuje okres, który go obejmuje
+  i zaczął się najpóźniej — po „do kiedy” wraca to, co było przed zmianą, nie
+  domyślny rytm. Terminy liczą się od początku odcinka (start, dzień 90, dzień
+  zmiany, dzień po „do kiedy”); ten sam poziom obok siebie nie przesuwa
+  terminów; rozmowa z rytmu najwyżej 6 dni od kamienia odpada (kamień to ta
+  sama rozmowa).
+- **Kto zmienia rytm** (O8): opiekun kontraktu (z łańcucha
+  `effective_owners`), DL klienta (przypisanie w portfelu), head back office
+  (`app_settings['hr_divisions']['back_office']`) i admin; inny TCM i Finanse
+  dostają 403. Bez akceptacji. Zapis od razu przelicza plan (`ensure_plan`):
+  otwarte PRZYSZŁE rozmowy z rytmu, których nowy rytm nie ma, znikają;
+  zaległe zostają. Ślad `care.cadence_set` (kody, bez notatki). Okno „Rytm
+  kontaktu” (`CadenceDialog`) liczy podgląd po stronie serwera
+  (`GET …/cadence?level=&until_on=` — najbliższe rozmowy i rozmowy opiekuna
+  w następnym miesiącu przed i po zmianie) i pokazuje historię rytmu.
+- **Sygnały** (O9) tylko podpowiadają („podnieść rytm?” przy rytmie rzadszym
+  niż co 2 tygodnie, nie przy wstrzymanym): ostatnia opinia menedżera < 3
+  (tylko role z D11 — Finanse nie widzą), koniec zamówienia < 45 dni, „chce
+  zmiany projektu” i „ryzyko odejścia” z „Do przepięcia”, zaległa rozmowa.
+  Długiej nieobecności konsultanta NEXUS nie zna — konsultant nie ma kartoteki.
+- **„Pomiń” punkt planu** wymaga powodu z listy (`skip_reason`, 422 bez
+  niego) i notatki opcjonalnie; ślad `care.plan_item_skipped` /
+  `care.plan_item_restored`, powód widać przy punkcie.
+- **„Konsultanci”** (M1): jedna odpowiedź `GET /api/care/consultants` dla
+  całego zakresu (`is_mine` — „Moi”), filtry i liczniki liczy front; liczba
+  rozmów w miesiącu to suma rytmów (`plan.conversations_between`, kamienie
+  i rytm). Odczyt niczego nie zapisuje.
+- **„Przydział”** (M3, O10): obciążenie opiekuna = osoby i rozmowy
+  w NASTĘPNYM miesiącu z rytmów, osoby po poziomach; próg
+  (`app_settings['care_load_threshold']`, rozmowy w miesiącu) to
+  ostrzeżenie, nie blokada. Zmiana wielu kontraktów naraz
+  (`POST /api/care/assignment`, ≤ 500) i próg — tylko head back office
+  i admin (`require_hr_care_assigner`); DL zmienia opiekuna pojedynczo
+  u swoich klientów w zakładce „Opieka” kontraktu. Każda zmiana opiekuna (też
+  pojedyncza, z opcjonalnym powodem) to ślad `care.owner_set` z powodem,
+  poprzednim opiekunem wpisanym na kontrakcie i poprzednim faktycznym;
+  oś konsultanta pokazuje zmiany opiekuna i rytmu (także powrót po „do
+  kiedy”). „Bez opiekuna” = nikt w łańcuchu; podpowiedź mówi, skąd opiekun
+  albo czego brakuje. „Domyślni opiekunowie klientów” w tym samym ekranie.
+- **Import z Compassa**: `contractor_success_settings` → poziom (wstrzymany;
+  program wejścia → co 2 tygodnie do jego końca; ≤ 14 / ≤ 31 / ≤ 93 dni →
+  co 2 tygodnie / co miesiąc / co kwartał; dalej tylko kamienie; monitoring
+  nieaktywny → rytm domyślny) i `contractors.owner_tcm_id` → opiekun
+  kontraktu, tylko przy pewnym kontrakcie (reguła rozmów: kotwica osoby +
+  klient z `current_client` + dzień eksportu w okresie umowy). Rytm albo
+  opiekun ustawiony już w NEXUSIE zostaje (`conflict` w raporcie). Plan po
+  imporcie przelicza nocny przebieg.
 
 ## Struktura u klienta i opinie klienta (etap 2, D8–D11, 17.10.2026)
 
@@ -206,3 +271,92 @@ Zakładka klienta „Struktura u klienta” (`components/care/ClientPeopleTab.ts
   i ludzie” z linkiem `/people/cases/{id}`. Tytuł sprawy (temat cudzego maila)
   do maila nie idzie — mail mówi tylko, że sprawa czeka. Zakładka „Sprawy” ma
   licznik otwartych spraw przypisanych do czytającego (`GET /api/hr/counts`).
+
+## Opieka · Komunikaty do konsultantów (O12, etap 3, 17.10.2026)
+
+Zakładka „Komunikaty” w `/care` (`components/care/announcements/`, trasy
+`api/care_announcements.py` pod `/api/care/announcements`, serwisy
+`care/announcements.py`, `announcement_audience.py`, `announcement_mail.py`,
+`announcement_queue.py`, migracja 0465). Konsultant nie ma konta — komunikat to
+wysyłka do ludzi spoza firmy.
+
+- **Wysyłka jest wyłączona, dopóki admin jej nie włączy**
+  (`app_settings['care_announcements'] = {"sending_enabled": true}`; brak
+  wiersza = wyłączona). Wyłączona: szkic, podgląd odbiorców i próba do siebie
+  działają, „Wyślij” i „Zatwierdź” = 409, kolejka stoi. Pierwszą wysyłkę
+  uruchamia Artur.
+- **Kto**: piszą opiekunowie (TCM) i Delivery Lead u swoich klientów (z dostępem
+  do Delivery), head back office (`hr_divisions['back_office']`) i admin.
+  Komunikat widzi autor, head back office i admin. Powyżej 20 osób zatwierdza
+  head back office albo admin — nigdy autor ani osoba, która wysłała komunikat
+  do zatwierdzenia (CHECK `ck_care_announcements_approver` w bazie); do 20 osób
+  autor wysyła sam. Lista liczy się zakresem AUTORA także wtedy, gdy „Wyślij”
+  klika admin (szkic Delivery Leada = jego klienci).
+- **Próba do siebie jest obowiązkowa po każdej zmianie treści** (rodzaj, temat,
+  treść podbijają `content_version`; „Wyślij” wymaga `tested_version` równej
+  wersji). Zmiana grupy próby nie unieważnia.
+- **Grupy**: wszyscy, klient, opiekun (łańcuch `effective_owners`), forma
+  (`b2b | uop | zlecenie`), kończący zamówienie w N dni (`CareContract.end_date`),
+  wybrane osoby. Jedna osoba = jeden mail (kontrakt z najpóźniejszym startem).
+  E-mail jak na karcie kontraktu (`contract_candidate_contact`). Wykluczenia:
+  brak poprawnego adresu, wypisani — tylko przy informacyjnym; obowiązkowy idzie
+  do wszystkich z grupy. Pola w treści: wyłącznie `{imię}` i `{opiekun}`
+  (nieznane pole = 422); temat bez pól.
+- **„Wyślij” zamraża listę** (`care_announcement_recipients`, z wykluczeniami):
+  zatwierdzający widzi dokładnie tę listę; „Zwróć do poprawy” ją kasuje.
+- **Kolejka** (`announcement_queue.run_once`, pętla co 60 s): rezerwacja
+  MINUTY w `hr_job_runs` i najwyżej 30 osób na minutę; osoba „w wysyłce” jest
+  commitowana przed mailem, a przerwana wysyłka to „niepewny” bez ponowienia.
+  Odłożona (429, 5xx, token) wraca do 3 prób, odrzucona (np. 400) = „błąd”.
+  Osobny mail do każdego, jeden adresat, nadawca `ADMIN_CASES_MAILBOX`
+  przez rejestrację „NEXUS Kadry”, tryb z `HR_M365_MODE` (`simulate` = nic nie
+  wychodzi, wiersz ma `simulated`).
+- **Wypis** (informacyjne): token z linku `/wypis/<token>` (w bazie tylko
+  SHA-256), publiczne `GET/POST /api/public/consultant-mail/unsubscribe/{token}`
+  z limiterem, odpowiedź bez danych osobowych, zły token = to samo 404. GET nic
+  nie zmienia (skanery linków w poczcie), wypisuje POST.
+- **Odpowiedzi**: temat niesie `[Komunikat <id>/<kod>]` (kod losowy — sam numer
+  niczego nie przypina). Czytnik administracja@ przy NOWEJ sprawie woła
+  `link_mail_case`: odnośnik w `care_announcement_replies`, a gdy nadawca jest
+  odbiorcą — `admin_cases.contract_id` jego kontraktu. Zwrotka serwera (WYŁĄCZNIE
+  nadawca postmaster@ / mailer-daemon@ / MicrosoftExchange… — temat
+  „Undeliverable” od człowieka to zwykła odpowiedź) z adresem odbiorcy
+  w treści = osoba „odbity” i powiadomienie `care_announcement` do opiekuna
+  („popraw e-mail”, link do kontraktu, bez adresu w treści).
+- **Powiadomienie `care_announcement`** (osobiste, „Czas i ludzie”, mail):
+  do zatwierdzenia → head back office (bez niego aktywni admini), decyzja →
+  autor, odbity mail → opiekun. NEXUS nie śledzi otwarć maili.
+
+## Wejście u klienta: pakiet klienta i mail powitalny (O2, O3, O6, etap 3, 17.10.2026)
+
+- **Pakiet klienta** (zakładka klienta „Wejście u klienta”,
+  `services/hr/client_pack.py`, trasy `/api/client-onboarding/clients/{id}/pack`,
+  moduł „Wejście i odejście”): rzeczy od nas i od klienta, wzory protokołu
+  wydania i zwrotu, pierwszy dzień (gdzie, o której, co zabrać, zapasowa
+  osoba odbierająca), dokumenty od konsultanta (termin w dniach roboczych
+  względem startu, wymagane, z plikiem) i dostępy (kto po naszej stronie
+  pilnuje). Flaga „sprzęt od nas / od klienta” zostaje na kliencie (D7).
+- **Kto**: czyta podgląd Delivery (DL u swoich klientów) i recepcja; zapisuje
+  „Klienci: dodawanie i edycja” (DL u swoich), część sprzętową także „Sprzęt”.
+  Zapis wysyła `expected_version` — cudza zmiana w międzyczasie = 409, nie
+  ciche nadpisanie. Ślad `onboarding_pack_updated` w Historii zdarzeń klienta.
+- **Ścieżka wejścia dokłada pakiet** (`pack_tasks`): dokumenty (wykonawca
+  opiekun — konsultant nie ma konta), dostępy (wykonawca z wiersza) i „Odbiór
+  od klienta: …”. „Przygotuj zestaw” i „Wydanie sprzętu i protokół” to pozycje
+  ścieżki z warunkiem „sprzęt od nas” — pakiet ich NIE zwraca (dubel z zadaniem
+  recepcji); lista rzeczy od nas idzie do opisu pozycji (`load_pack().equipment_ours`).
+- **Pierwszy dzień** (`first_day`): odbiera menedżer z kontraktu
+  (`client_pm_contact_id`, osoba z drzewa klienta), zapasowo kontakt z pakietu;
+  kontakt innego klienta się nie liczy.
+- **Mail powitalny** (karta w zakładce „Wejście” kontraktu,
+  `services/hr/welcome_mail.py`): treść z kontraktu i pakietu, podgląd,
+  poprawka, potwierdzenie, „Wyślij” — wysyła opiekun (DL, TCM, admin) w zakresie
+  klienta. Jeden mail na kontrakt (`consultant_welcome_mails`), nadawca
+  administracja@ kanałem komunikatów (`care.announcement_mail.default_mailer`,
+  `HR_M365_MODE`: `off` = 409, `simulate` = nic nie wychodzi i ślad to mówi).
+  Odłożona albo odrzucona wysyłka nic nie zapisuje (502, można ponowić),
+  niepewna zostaje zapisana bez ponowienia. Wysłanie odhacza pozycję ścieżki
+  `welcome_mail` (`lifecycle_service.complete_task_by_key`).
+- **Przełącznik** `app_settings['consultant_welcome_mail']` jest domyślnie
+  WYŁĄCZONY (brak wiersza = wyłączony): podgląd działa, wysyłka 409. Włącza go
+  admin (karta maila, potwierdzenie) — pierwszą wysyłkę uruchamia Artur.

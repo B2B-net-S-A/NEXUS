@@ -548,6 +548,151 @@ async def test_contract_merge_carries_every_hr_table_with_duplicate_rules():
         await _cleanup_merge(ids)
 
 
+async def _entry_case(db, contract_id: int, *, status: str, key: str | None) -> int:
+    return await _insert(
+        db,
+        "INSERT INTO lifecycle_cases (kind, status, audience, contract_id, "
+        "pending_name, start_date, source_key) VALUES ('onboarding', "
+        "CAST(:st AS VARCHAR), 'consultant', :c, 'Scalana Przykładowa', :d, :key)",
+        st=status,
+        c=contract_id,
+        d=business_today(),
+        key=key,
+    )
+
+
+@pytest.mark.parametrize("survivor_has_entry", [True, False])
+async def test_contract_merge_carries_care_rhythm_mails_and_consultant_entry(
+    survivor_has_entry: bool,
+):
+    """Etap 3: rytm kontaktu, maile powitalne, odbiorcy komunikatów i wejście.
+
+    Bez wpisu w katalogu FK scalenie odmawiało (``unknown_contract_foreign_keys``),
+    a wejście konsultanta (bez FK) zostawało przy skasowanym kontrakcie — lista
+    zadań znikała z zachowanego, a drugie żywe wejście łamało unikat kontraktu.
+    """
+    suffix = uuid.uuid4().hex[:10]
+    today = business_today()
+    ids: dict = {}
+    try:
+        async with AsyncSessionLocal() as db:
+            owner, dl = await _merge_users(db)
+            ids["users"] = [owner.id, dl.id]
+            candidate, client, survivor, loser = await _merge_pair(db, suffix=suffix)
+            sid, lid = survivor.id, loser.id
+            ids.update(contracts=[sid, lid], candidate=candidate.id, client=client.id)
+            cadence = await _insert(
+                db,
+                "INSERT INTO care_cadence_periods (contract_id, level, starts_on, "
+                "reason, created_by) VALUES (:c, 'monthly', :d, 'new_at_client', :u)",
+                c=lid,
+                d=today,
+                u=owner.id,
+            )
+            mail = await _insert(
+                db,
+                "INSERT INTO consultant_welcome_mails (contract_id, "
+                "recipient_email, subject, body, delivery) VALUES (:c, "
+                "'konsultant@example.com', 'Witaj', 'Treść testowa', 'simulated')",
+                c=lid,
+            )
+            announcement = await _insert(
+                db,
+                "INSERT INTO care_announcements (code, subject, body) "
+                "VALUES (:code, 'Komunikat testowy', 'Treść testowa')",
+                code=uuid.uuid4().hex[:8].upper(),
+            )
+            ids["announcements"] = [announcement]
+            recipient = await _insert(
+                db,
+                "INSERT INTO care_announcement_recipients (announcement_id, "
+                "candidate_id, contract_id, email) VALUES (:a, :cand, :c, "
+                "'konsultant@example.com')",
+                a=announcement,
+                cand=candidate.id,
+                c=lid,
+            )
+            entries = {
+                "l_live": await _entry_case(
+                    db, lid, status="active", key=f"contract:{lid}:entry"
+                ),
+                "l_done": await _entry_case(db, lid, status="done", key=None),
+            }
+            if survivor_has_entry:
+                entries["s_live"] = await _entry_case(
+                    db, sid, status="active", key=f"contract:{sid}:entry"
+                )
+            await db.commit()
+
+            manifest = ContractMergeManifest(same_client_groups=((sid, lid),))
+            audit = await build_contract_merge_plan(db, manifest, today=today)
+            assert audit["global_blockers"] == []
+            assert audit["groups"][0]["blockers"] == []
+            await db.rollback()
+            applied = await apply_contract_merge_plan(
+                db,
+                manifest,
+                expected_fingerprint=audit["fingerprint"],
+                expected_approval_fingerprint=approval_fingerprint(
+                    audit["fingerprint"]
+                ),
+                today=today,
+            )
+            await db.commit()
+            moved = applied["applied"][0]["reparented"]
+            assert moved["lifecycle_cases"] == 2
+            assert moved["lifecycle_cases_cancelled"] == (
+                1 if survivor_has_entry else 0
+            )
+            for table, row_id in (
+                ("care_cadence_periods", cadence),
+                ("consultant_welcome_mails", mail),
+                ("care_announcement_recipients", recipient),
+            ):
+                assert (
+                    await db.scalar(
+                        text(f"SELECT contract_id FROM {table} WHERE id = :id"),
+                        {"id": row_id},
+                    )
+                    == sid
+                ), table
+            cases = {
+                row.id: (row.contract_id, row.status, row.source_key)
+                for row in await db.execute(
+                    text(
+                        "SELECT id, contract_id, status, source_key "
+                        "FROM lifecycle_cases WHERE id = ANY(:ids)"
+                    ),
+                    {"ids": list(entries.values())},
+                )
+            }
+            if survivor_has_entry:
+                assert cases == {
+                    entries["s_live"]: (sid, "active", f"contract:{sid}:entry"),
+                    entries["l_live"]: (sid, "cancelled", f"contract:{lid}:entry"),
+                    entries["l_done"]: (sid, "done", None),
+                }
+            else:
+                assert cases == {
+                    entries["l_live"]: (sid, "active", f"contract:{sid}:entry"),
+                    entries["l_done"]: (sid, "done", None),
+                }
+    finally:
+        async with AsyncSessionLocal() as db:
+            if ids.get("contracts"):
+                await db.execute(
+                    text("DELETE FROM lifecycle_cases WHERE contract_id = ANY(:ids)"),
+                    {"ids": ids["contracts"]},
+                )
+            if ids.get("announcements"):
+                await db.execute(
+                    text("DELETE FROM care_announcements WHERE id = ANY(:ids)"),
+                    {"ids": ids["announcements"]},
+                )
+            await db.commit()
+        await _cleanup_merge(ids)
+
+
 async def test_contract_merge_blocks_two_assigned_placement_bonuses_of_one_role():
     """Dwie zatwierdzone premie DL za jeden placement — scalenie czeka na Płace."""
     suffix = uuid.uuid4().hex[:10]

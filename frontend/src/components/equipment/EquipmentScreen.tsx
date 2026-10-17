@@ -22,6 +22,7 @@ import { ItemFormDialog } from "./ItemFormDialog";
 import { ItemsTab } from "./ItemsTab";
 import { PriceListTab } from "./PriceListTab";
 import { ProtocolDialog } from "./ProtocolDialog";
+import { ProtocolTemplatesTab } from "./ProtocolTemplatesTab";
 import { ProtocolsTab } from "./ProtocolsTab";
 import { ReturnWizard } from "./ReturnWizard";
 import { TasksTab } from "./TasksTab";
@@ -30,6 +31,7 @@ export type EquipmentTab =
   | "items"
   | "tasks"
   | "protocols"
+  | "templates"
   | "prices"
   | "import"
   | "intune"
@@ -38,6 +40,7 @@ const TABS: EquipmentTab[] = [
   "items",
   "tasks",
   "protocols",
+  "templates",
   "prices",
   "import",
   "intune",
@@ -53,7 +56,7 @@ const MODULE_OFF =
 const NO_PERMISSION =
   "Sprzęt prowadzi recepcja: ekran widzą osoby z uprawnieniem „Sprzęt” (Ustawienia → Osoby i role).";
 
-/** „Sprzęt” — rejestr, Do zrobienia, Protokoły, Cennik, Import, Intune (recepcja). */
+/** „Sprzęt” — rejestr, Do zrobienia, Protokoły, Wzory protokołów, Cennik, Import, Intune (recepcja). */
 export function EquipmentScreen({ config }: { config: HrConfig }) {
   const searchParams = useSearchParams();
   const { replaceUrl } = useUrlWriter();
@@ -139,6 +142,7 @@ export function EquipmentScreen({ config }: { config: HrConfig }) {
           { value: "items", label: "Sprzęt" },
           { value: "tasks", label: "Do zrobienia" },
           { value: "protocols", label: "Protokoły", count: s?.protocols_waiting || undefined },
+          { value: "templates", label: "Wzory protokołów" },
           { value: "prices", label: "Cennik" },
           { value: "import", label: "Import" },
           { value: "intune", label: "Intune" },
@@ -153,6 +157,8 @@ export function EquipmentScreen({ config }: { config: HrConfig }) {
         />
       ) : tab === "protocols" ? (
         <ProtocolsTab onOpenProtocol={setProtocolId} />
+      ) : tab === "templates" ? (
+        <ProtocolTemplatesTab />
       ) : tab === "prices" ? (
         <PriceListTab />
       ) : tab === "import" ? (

@@ -9,6 +9,14 @@
   „IT” (admini NEXUSA); zadanie „osoba” należy do samej osoby.
 * Pozostali — 403.
 
+Wejście konsultanta (etap 3, sprawa przy kontrakcie, bez konta osoby):
+opiekun kontraktu, Delivery Lead klienta (u swoich klientów) i head back
+office prowadzą je jak przełożony — odhaczają każde zadanie, także zadania
+„po stronie konsultanta” (O6); wykonawca odhacza swoje; Kadry i admin
+wszystko. Pozostali czytelnicy kontraktu widzą listę bez odhaczania
+(``viewer`` — nadaje go trasa zakładki kontraktu). Pula „administracja” to
+uprawnienie „Sprawy”.
+
 Powód odejścia widzą wyłącznie Kadry i przełożony (wykonawca dostaje samą
 sprawę i zadania).
 """
@@ -24,11 +32,16 @@ from app.models.hr_lifecycle import LifecycleCase, LifecycleTask
 from app.models.hr_profile import EmployeeProfile
 from app.models.user import User, UserRole
 from app.services.action_permissions import ProductAction, has_permission
+from app.services.hr.lifecycle_planning import POOL_KINDS
 
-CaseScope = Literal["admin", "manager", "assignee", "none"]
+CaseScope = Literal["admin", "manager", "assignee", "viewer", "none"]
 
-#: Pule wykonawców bez konkretnej osoby w zadaniu.
-POOL_KINDS: frozenset[str] = frozenset({"people_admin", "reception", "it"})
+#: Pula → uprawnienie (IT to admini NEXUSA).
+_POOL_PERMISSIONS: dict[str, ProductAction] = {
+    "people_admin": ProductAction.people_admin,
+    "reception": ProductAction.equipment,
+    "administration": ProductAction.cases,
+}
 
 
 def is_lifecycle_admin(user: User) -> bool:
@@ -42,11 +55,8 @@ def in_pool(user: User, assignee_kind: str) -> bool:
 
     if user.has_role(UserRole.admin):
         return True
-    if assignee_kind == "people_admin":
-        return has_permission(user, ProductAction.people_admin)
-    if assignee_kind == "reception":
-        return has_permission(user, ProductAction.equipment)
-    return False
+    action = _POOL_PERMISSIONS.get(assignee_kind)
+    return action is not None and has_permission(user, action)
 
 
 def owns_task(user: User, task: LifecycleTask) -> bool:
@@ -68,10 +78,25 @@ async def is_manager_of_case(db: AsyncSession, user: User, case: LifecycleCase) 
     return manager_id is not None and manager_id == user.id
 
 
+async def leads_consultant_case(
+    db: AsyncSession, user: User, case: LifecycleCase
+) -> bool:
+    """Opiekun kontraktu, DL klienta (w swoim portfelu) albo head back office."""
+
+    from app.services.hr.lifecycle_entry import consultant_leads  # noqa: PLC0415
+
+    if case.contract_id is None:
+        return False
+    return user.id in await consultant_leads(db, case.contract_id)
+
+
 async def case_scope(db: AsyncSession, user: User, case: LifecycleCase) -> CaseScope:
     if is_lifecycle_admin(user):
         return "admin"
-    if await is_manager_of_case(db, user, case):
+    if case.audience == "consultant":
+        if await leads_consultant_case(db, user, case):
+            return "manager"
+    elif await is_manager_of_case(db, user, case):
         return "manager"
     tasks = await db.scalars(
         select(LifecycleTask).where(LifecycleTask.case_id == case.id)
@@ -96,10 +121,7 @@ async def pool_member_ids(db: AsyncSession, assignee_kind: str) -> list[int]:
     admins = [user.id for user in users if user.has_role(UserRole.admin)]
     if assignee_kind == "it":
         return admins
-    action: Optional[ProductAction] = {
-        "people_admin": ProductAction.people_admin,
-        "reception": ProductAction.equipment,
-    }.get(assignee_kind)
+    action: Optional[ProductAction] = _POOL_PERMISSIONS.get(assignee_kind)
     if action is None:
         return []
     await resolve_effective_access(db, users)

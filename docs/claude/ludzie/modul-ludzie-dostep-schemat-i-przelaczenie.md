@@ -146,7 +146,8 @@ z protokołami. Compass zostaje z Akademią i czyta listę osób z NEXUSA.
   nieobecność, zastępstwo, timesheet zaakceptowany/zwrócony/cofnięty
   i przypomnienie o wysłaniu, przekazana praca, zadania wejścia i odejścia,
   sprawa administracja@, zadania sprzętu, podpisany protokół, konsultant
-  przekazany do front office. Bez maila: premie
+  przekazany do front office, komunikat do konsultantów (do zatwierdzenia,
+  zatwierdzony, zwrócony, niedoręczony — `care_announcement`). Bez maila: premie
   i stawki (kwoty), timesheet do akceptacji (zbiór na początku miesiąca —
   przełożony ma licznik), `care_contact_due`. Treść składa `services/hr/hr_mail.py`:
   tytuł i treść powiadomienia przechodzą tylko bez rodzaju nieobecności i kwot,
@@ -200,7 +201,9 @@ reszty (`tasks/notification_email_outbox.py`, 17.10.2026).
   jego migracja i — przez `app/services/hr_schema_bundle.py` — `entrypoint.sh`.
   Łańcuch: `0454_hr_foundation → 0455_hr_access → 0456_hr_notifications →
   0457_hr_leave → 0458_hr_time → 0459_hr_payroll → 0460_hr_lifecycle →
-  0461_contract_care → 0462_admin_cases → 0463_equipment → 0464_equipment_extras`.
+  0461_contract_care → 0462_admin_cases → 0463_equipment → 0464_equipment_extras →
+  0465_care_announcements`. Etap 3 dopisał tabele w miejscu do 0460, 0461 i 0463
+  (rytm kontaktu, pakiet klienta, wzory protokołów, maile powitalne).
   Nowy moduł = nowy plik schematu + wpis w `MODULES` agregatora + wiersz w
   `tests/test_hr_module_chain.py`. Testy szukają migracji po sufiksie, nie po
   numerze (po synchronizacji z mainem numery się przesuwają — `rechain_migration.py`).

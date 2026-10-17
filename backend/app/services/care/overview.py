@@ -24,6 +24,7 @@ from app.models.contract_care import (
 from app.models.skill import Skill
 from app.models.user import User
 from app.services.care import access as care_access
+from app.services.care import cadence as care_cadence
 from app.services.care import plan as care_plan
 from app.services.care import records
 from app.services.care import skills as care_skills
@@ -46,6 +47,8 @@ def plan_payload(item: CarePlanItem, today: date) -> dict[str, Any]:
         "overdue": item.status == "open" and item.due_on < today,
         "done_conversation_id": item.done_conversation_id,
         "resolved_at": item.resolved_at,
+        "skip_reason": item.skip_reason,
+        "skip_note": item.skip_note,
     }
 
 
@@ -281,6 +284,9 @@ async def contract_overview(
             "explicit": contract.explicit_owner_id is not None,
         },
         "client_default_owner": person(contract.client_default_owner_id, names),
+        "cadence": await care_cadence.contract_cadence(
+            db, contract, user=user, today=today
+        ),
         "plan": [plan_payload(item, today) for item in plan_items],
         "next_contact": upcoming.payload(today) if upcoming else None,
         "last_satisfaction": satisfaction,

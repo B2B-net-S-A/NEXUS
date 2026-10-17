@@ -249,6 +249,7 @@ CATEGORY_BY_TYPE: dict[NotificationType, NotificationCategory] = {
     _T.equipment_task: _C.people,
     _T.equipment_protocol_signed: _C.people,
     _T.care_front_office_handoff: _C.people,
+    _T.care_announcement: _C.people,
     _T.care_contact_due: _C.contracts,
     # Konto i system
     _T.password_reset_requested: _C.system,
