@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pytest
 import pytest_asyncio
-from jinja2.exceptions import SecurityError
+from jinja2.exceptions import SecurityError, TemplateError
 from sqlalchemy import select
 
 from app.core.database import AsyncSessionLocal
@@ -101,6 +101,51 @@ def test_zip_without_word_document_and_macro_package_are_refused() -> None:
     assert "makrami" in _rejected(macro.getvalue())
 
 
+def _with_part(name: str, data: str) -> bytes:
+    source = zipfile.ZipFile(io.BytesIO(deposit_template()))
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as package:
+        for item in source.infolist():
+            payload = source.read(item.filename)
+            if item.filename == name:
+                payload = data.encode("utf-8")
+            package.writestr(item, payload)
+        if name not in source.namelist():
+            package.writestr(name, data)
+    return buffer.getvalue()
+
+
+_RELS_HEAD = (
+    '<?xml version="1.0" encoding="UTF-8"?><Relationships '
+    'xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+)
+_REL_TYPE = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/"
+
+
+def test_external_template_image_and_embedded_object_are_refused() -> None:
+    """LibreOffice przy konwersji pobrałby zasób z sieci z serwera (SSRF)."""
+    for rel in (
+        f'<Relationship Id="rId90" Type="{_REL_TYPE}attachedTemplate" '
+        'Target="http://example.com/wzor.dotx" TargetMode="External"/>',
+        f'<Relationship Id="rId91" Type="{_REL_TYPE}image" '
+        'Target="http://169.254.169.254/obraz.png" TargetMode="External"/>',
+    ):
+        rels = _RELS_HEAD + rel + "</Relationships>"
+        message = _rejected(_with_part("word/_rels/settings.xml.rels", rels))
+        assert "spoza dokumentu" in message
+    embedded = _with_part("word/embeddings/oleObject1.bin", "x")
+    assert "osadzonymi obiektami" in _rejected(embedded)
+
+
+def test_plain_hyperlink_in_template_is_accepted() -> None:
+    rels = (
+        _RELS_HEAD + f'<Relationship Id="rId92" Type="{_REL_TYPE}hyperlink" '
+        'Target="https://example.com" TargetMode="External"/></Relationships>'
+    )
+    content = _with_part("word/_rels/footer9.xml.rels", rels)
+    assert "number" in tpl.check_upload("wzor.docx", content, "wydanie")
+
+
 def test_zip_bomb_is_refused_before_reading_fields() -> None:
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as package:
@@ -153,8 +198,9 @@ def test_template_reaching_python_internals_runs_no_code(
     message = _rejected(content)
     assert "sięgnąć poza dane protokołu" in message or "Błąd w polach" in message
     assert not marker.exists()
-    # Wypełnianie protokołu też idzie przez sandbox — nie tylko sprawdzenie.
-    with pytest.raises(SecurityError):
+    # Wypełnianie protokołu też idzie przez sandbox — nie tylko sprawdzenie
+    # (pętla po czymś innym niż pozycje odpada już przy czytaniu wzoru).
+    with pytest.raises((SecurityError, TemplateError)):
         tpl.render_uploaded(content, tpl._sample_context("wydanie"))
     assert not marker.exists()
 
@@ -172,6 +218,62 @@ def test_macros_includes_globals_and_wide_filters_are_unavailable(
     statement: str,
 ) -> None:
     _rejected(docx_bytes(*DEPOSIT_PARAGRAPHS, statement))
+
+
+# Małe wzory, które w sandboksie z listą zakazanych węzłów zajmowały pamięć
+# albo procesor (przegląd bezpieczeństwa 17.10.2026): wywołanie metody pola,
+# podwajanie napisu przez ``set``, pętla po znakach pola i pętla w pętli.
+_AMPLIFIERS = (
+    "{{ holder_name.ljust(2000000000) }}",
+    "{% set s = holder_name %}{% set s = s ~ s %}{% set s = s ~ s %}{{ s }}",
+    "{{ holder_name ~ holder_name }}",
+    "{% for c in holder_name %}{{ c }}{% endfor %}",
+    "{% for a in lines %}{% for b in lines %}{{ b.name }}{% endfor %}{% endfor %}",
+    "{% with s = holder_name %}{{ s }}{% endwith %}",
+    "{% filter upper %}{{ holder_name }}{% endfilter %}",
+)
+
+
+@pytest.mark.parametrize("statement", _AMPLIFIERS)
+def test_templates_that_amplify_memory_or_time_are_refused(statement: str) -> None:
+    message = _rejected(docx_bytes(*DEPOSIT_PARAGRAPHS, statement))
+    assert message.startswith("Błąd w polach wzoru")
+    with pytest.raises(TemplateError):
+        tpl.render_uploaded(
+            docx_bytes(*DEPOSIT_PARAGRAPHS, statement), tpl._sample_context("wydanie")
+        )
+
+
+def test_arithmetic_is_not_available_in_templates() -> None:
+    """Mnożenie wielkich liczb zajmowało procesor przy każdym wypełnieniu."""
+    big = "9" * 4000
+    for statement in (
+        "{{ holder_name + number }}",
+        "{% if " + "*".join([big] * 5) + " > 0 %}x{% endif %}",
+        "{{ -lines|length }}",
+    ):
+        assert _rejected(docx_bytes(*DEPOSIT_PARAGRAPHS, statement)).startswith(
+            "Błąd w polach wzoru"
+        )
+
+
+def test_package_part_in_other_letter_case_is_422_not_500() -> None:
+    source = zipfile.ZipFile(io.BytesIO(deposit_template()))
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as package:
+        for item in source.infolist():
+            name = item.filename
+            if name == "[Content_Types].xml":
+                name = "[content_types].xml"
+            package.writestr(name, source.read(item.filename))
+    message = _rejected(buffer.getvalue())
+    assert message
+
+
+def test_template_with_too_many_fields_is_refused() -> None:
+    crowded = "{{ number }}" * (tpl.MAX_TEMPLATE_NODES + 1)
+    message = _rejected(docx_bytes(*DEPOSIT_PARAGRAPHS, crowded))
+    assert "za dużo pól" in message
 
 
 def test_uploaded_template_fills_with_protocol_data() -> None:

@@ -32,6 +32,7 @@ from tests.client_onboarding_support import (
     make_user,
     modules_state,
     set_setting,
+    tag,
 )
 
 pytestmark = pytest.mark.asyncio
@@ -318,6 +319,24 @@ async def test_missing_mailbox_or_email_blocks_sending(
         _url(no_email), json={"subject": "T", "body": "B"}, headers=headers(dl)
     )
     assert refused.status_code == 422 and "e-mail" in refused.json()["detail"]
+    assert fake_sender.sent == []
+
+
+async def test_malformed_address_blocks_sending(
+    app_client, modules_on, mail_switch, monkeypatch, fake_sender
+) -> None:
+    await mail_switch(True)
+    monkeypatch.setattr(settings, "ADMIN_CASES_MAILBOX", MAILBOX)
+    dl = await make_user(UserRole.delivery_lead)
+    client_id = await make_client(dl=dl)
+    contract_id = await make_contract(client_id, email=f"konsultant-{tag()}@example")
+    state = (await app_client.get(_url(contract_id), headers=headers(dl))).json()
+    assert state["can_send"] is False
+    assert "bad_email" in {issue["code"] for issue in state["issues"]}
+    refused = await app_client.post(
+        _url(contract_id), json={"subject": "T", "body": "B"}, headers=headers(dl)
+    )
+    assert refused.status_code == 422
     assert fake_sender.sent == []
 
 

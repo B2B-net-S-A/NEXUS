@@ -69,8 +69,10 @@ def require_hr_onboarding(*permissions: ProductAction):
         current_user: User = Depends(require_onboarded_user),
         db: AsyncSession = Depends(get_db),
     ) -> User:
-        await ensure_module(db, current_user, HrModule.lifecycle)
+        # Uprawnienie przed modułem: odmowa bez sięgania do bazy (wzorzec
+        # dostępu ``authz_golden`` widzi wtedy, kto naprawdę ma wstęp).
         ensure_any_permission(current_user, *permissions)
+        await ensure_module(db, current_user, HrModule.lifecycle)
         return current_user
 
     _check.required_permissions = permissions
@@ -84,10 +86,10 @@ def require_hr_welcome_mail_sender():
         current_user: User = Depends(require_onboarded_user),
         db: AsyncSession = Depends(get_db),
     ) -> User:
-        await ensure_module(db, current_user, HrModule.lifecycle)
         ensure_any_permission(current_user, ProductAction.delivery_view)
         if not care_access.is_care_worker(current_user):
             raise HTTPException(status.HTTP_403_FORBIDDEN, SENDER_DENIED)
+        await ensure_module(db, current_user, HrModule.lifecycle)
         return current_user
 
     _check.required_permissions = (ProductAction.delivery_view,)
@@ -101,9 +103,9 @@ def require_hr_welcome_mail_admin():
         current_user: User = Depends(require_onboarded_user),
         db: AsyncSession = Depends(get_db),
     ) -> User:
-        await ensure_module(db, current_user, HrModule.lifecycle)
         if not current_user.has_role(UserRole.admin):
             raise HTTPException(status.HTTP_403_FORBIDDEN, ADMIN_ONLY)
+        await ensure_module(db, current_user, HrModule.lifecycle)
         return current_user
 
     return _check

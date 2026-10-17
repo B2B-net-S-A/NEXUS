@@ -41,6 +41,7 @@ from __future__ import annotations
 
 import hashlib
 import io
+import re
 import zipfile
 from dataclasses import dataclass
 from datetime import date
@@ -473,25 +474,87 @@ _SAFE_FILTERS = frozenset(
         "upper",
     }
 )
-#: Makra (rekurencja), bloki i dołączanie innych plików — nie we wzorze.
-_FORBIDDEN_NODES = (
-    nodes.Macro,
-    nodes.CallBlock,
-    nodes.Include,
-    nodes.Import,
-    nodes.FromImport,
-    nodes.Extends,
-    nodes.Block,
+#: Węzły, z których może się składać wzór z pliku (lista dozwolonych, nie
+#: zakazanych): pola, tekst, warunki, porównania, filtry z ``_SAFE_FILTERS``
+#: i JEDNA pętla po ``lines``. Bez wywołań metod (``ljust``), przypisań
+#: (``set s = s ~ s``), sklejania ``~``, arytmetyki (mnożenie wielkich liczb
+#: zajmuje procesor; kwoty przychodzą już jako tekst) i zagnieżdżonych pętli —
+#: każda z tych konstrukcji pozwala małym wzorem zająć pamięć albo procesor.
+_ALLOWED_NODES = (
+    nodes.Template,
+    nodes.Output,
+    nodes.TemplateData,
+    nodes.Name,
+    nodes.Const,
+    nodes.Getattr,
+    nodes.Getitem,
+    nodes.Slice,
+    nodes.Filter,
+    nodes.Test,
+    nodes.Keyword,
+    nodes.If,
+    nodes.CondExpr,
+    nodes.Compare,
+    nodes.Operand,
+    nodes.And,
+    nodes.Or,
+    nodes.Not,
+    nodes.List,
+    nodes.Tuple,
+    nodes.For,
 )
+#: Górna granica liczby węzłów — standardowe wzory mają ich ok. 45.
+MAX_TEMPLATE_NODES = 2000
+#: Jedyna lista, po której wzór może iterować (pozycje protokołu).
+LOOP_FIELD = "lines"
 _SEQUENCES = (str, bytes, list, tuple)
+
+
+def _reject_node(message: str, node: nodes.Node, name: Any, filename: Any) -> None:
+    raise TemplateSyntaxError(message, node.lineno, name, filename)
+
+
+def _check_tree(tree: nodes.Template, name: Any, filename: Any) -> None:
+    count = 0
+    for node in tree.find_all(nodes.Node):
+        count += 1
+        if count > MAX_TEMPLATE_NODES:
+            _reject_node("Wzór ma za dużo pól i warunków.", node, name, filename)
+        if not isinstance(node, _ALLOWED_NODES):
+            _reject_node(
+                "We wzorze są dostępne tylko pola, warunki i jedna pętla po "
+                "pozycjach protokołu.",
+                node,
+                name,
+                filename,
+            )
+        if isinstance(node, nodes.For):
+            if (
+                node.recursive
+                or not isinstance(node.iter, nodes.Name)
+                or node.iter.name != LOOP_FIELD
+                or not isinstance(node.target, nodes.Name)
+            ):
+                _reject_node(
+                    "Pętla we wzorze może iść tylko po pozycjach protokołu "
+                    "(for line in lines).",
+                    node,
+                    name,
+                    filename,
+                )
+            if next(iter(node.find_all(nodes.For)), None) is not None:
+                _reject_node(
+                    "Pętla w pętli nie jest dostępna we wzorze.", node, name, filename
+                )
 
 
 class _ProtocolSandbox(SandboxedEnvironment):
     """Sandbox wzorów z pliku: atrybuty Pythona blokuje jinja2, a ta klasa
-    dokłada: bez makr i dołączania, bez funkcji globalnych, krótka lista
-    filtrów, bez potęgowania i bez mnożenia i formatowania napisów (pamięć)."""
+    dokłada listę dozwolonych węzłów (``_check_tree``), brak funkcji
+    globalnych, krótką listę filtrów oraz brak potęgowania, mnożenia,
+    dodawania i formatowania napisów (pamięć)."""
 
-    intercepted_binops = frozenset({"*", "**", "%"})
+    intercepted_binops = frozenset({"*", "**", "%", "+"})
 
     def __init__(self, **options: Any) -> None:
         super().__init__(**options)
@@ -502,14 +565,7 @@ class _ProtocolSandbox(SandboxedEnvironment):
 
     def _parse(self, source: str, name: Any, filename: Any) -> nodes.Template:
         tree = super()._parse(source, name, filename)
-        forbidden = next(iter(tree.find_all(_FORBIDDEN_NODES)), None)
-        if forbidden is not None:
-            raise TemplateSyntaxError(
-                "Makra, bloki i dołączanie innych plików nie są dostępne we wzorze.",
-                forbidden.lineno,
-                name,
-                filename,
-            )
+        _check_tree(tree, name, filename)
         return tree
 
     def call_binop(self, context: Any, operator: str, left: Any, right: Any) -> Any:
@@ -517,7 +573,7 @@ class _ProtocolSandbox(SandboxedEnvironment):
             raise SecurityError("Potęgowanie nie jest dostępne we wzorze.")
         if isinstance(left, _SEQUENCES) or isinstance(right, _SEQUENCES):
             raise SecurityError(
-                "Mnożenie i formatowanie tekstu nie są dostępne we wzorze."
+                "Mnożenie, dodawanie i formatowanie tekstu nie są dostępne we wzorze."
             )
         return super().call_binop(context, operator, left, right)
 
@@ -527,30 +583,78 @@ def sandboxed_env() -> SandboxedEnvironment:
     return _ProtocolSandbox(autoescape=True, undefined=StrictUndefined)
 
 
+#: Osadzone obiekty (OLE, ActiveX) — nie we wzorze protokołu.
+_EMBEDDED_PREFIXES = ("word/embeddings/", "word/activex/")
+_RELATION = re.compile(r"<Relationship\b[^>]*>", re.IGNORECASE)
+
+
+def _external_relation(rels_xml: str) -> bool:
+    """Relacja do zasobu spoza paczki (dołączony szablon, obraz z sieci, OLE).
+
+    Zwykłe hiperłącza zostają — LibreOffice ich nie pobiera przy konwersji.
+    """
+
+    for match in _RELATION.finditer(rels_xml):
+        tag = match.group(0)
+        if not re.search(r"TargetMode\s*=\s*[\"']External[\"']", tag):
+            continue
+        if not re.search(r"Type\s*=\s*[\"'][^\"']*/hyperlink[\"']", tag):
+            return True
+    return False
+
+
 def _check_package(content: bytes) -> None:
     try:
         package = zipfile.ZipFile(io.BytesIO(content))
     except zipfile.BadZipFile as exc:
         raise TemplateRejected("To nie jest plik Word (.docx).") from exc
-    with package:
-        entries = package.infolist()
-        if len(entries) > MAX_ZIP_ENTRIES:
+    try:
+        with package:
+            _check_parts(package)
+    except TemplateRejected:
+        raise
+    except (KeyError, RuntimeError, NotImplementedError, zipfile.BadZipFile) as exc:
+        # Część pod inną wielkością liter, zaszyfrowana albo uszkodzona.
+        raise TemplateRejected(
+            "Nie da się odczytać pliku Word — zapisz go w Wordzie od nowa."
+        ) from exc
+
+
+def _check_parts(package: zipfile.ZipFile) -> None:
+    entries = package.infolist()
+    if len(entries) > MAX_ZIP_ENTRIES:
+        raise TemplateRejected("Plik ma za dużo części — zapisz go w Wordzie od nowa.")
+    if sum(entry.file_size for entry in entries) > MAX_UNPACKED_BYTES:
+        raise TemplateRejected("Plik po rozpakowaniu jest za duży.")
+    names = {entry.filename.lower() for entry in entries}
+    if "word/document.xml" not in names or "[content_types].xml" not in names:
+        raise TemplateRejected("To nie jest plik Word (.docx).")
+    if any(name.rsplit("/", 1)[-1] in _MACRO_PARTS for name in names):
+        raise TemplateRejected(
+            "Wzór z makrami nie jest przyjmowany — zapisz go jako .docx."
+        )
+    types_name = next(
+        entry.filename
+        for entry in entries
+        if entry.filename.lower() == "[content_types].xml"
+    )
+    types = package.read(types_name).decode("utf-8", "replace")
+    if "macroEnabled" in types:
+        raise TemplateRejected(
+            "Wzór z makrami nie jest przyjmowany — zapisz go jako .docx."
+        )
+    if any(name.startswith(_EMBEDDED_PREFIXES) for name in names):
+        raise TemplateRejected(
+            "Wzór z osadzonymi obiektami nie jest przyjmowany — "
+            "zapisz go jako zwykły .docx."
+        )
+    for entry in entries:
+        if entry.filename.lower().endswith(".rels") and _external_relation(
+            package.read(entry).decode("utf-8", "replace")
+        ):
             raise TemplateRejected(
-                "Plik ma za dużo części — zapisz go w Wordzie od nowa."
-            )
-        if sum(entry.file_size for entry in entries) > MAX_UNPACKED_BYTES:
-            raise TemplateRejected("Plik po rozpakowaniu jest za duży.")
-        names = {entry.filename.lower() for entry in entries}
-        if "word/document.xml" not in names or "[content_types].xml" not in names:
-            raise TemplateRejected("To nie jest plik Word (.docx).")
-        if any(name.rsplit("/", 1)[-1] in _MACRO_PARTS for name in names):
-            raise TemplateRejected(
-                "Wzór z makrami nie jest przyjmowany — zapisz go jako .docx."
-            )
-        types = package.read("[Content_Types].xml").decode("utf-8", "replace")
-        if "macroEnabled" in types:
-            raise TemplateRejected(
-                "Wzór z makrami nie jest przyjmowany — zapisz go jako .docx."
+                "Wzór odwołuje się do plików spoza dokumentu (szablon, "
+                "obraz z sieci) — zapisz go bez łączy zewnętrznych."
             )
 
 

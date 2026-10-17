@@ -43,6 +43,7 @@ from app.models.client import Client
 from app.models.contract import Contract
 from app.models.equipment import ConsultantWelcomeMail
 from app.models.user import User
+from app.services.care.announcement_audience import valid_email
 from app.services.equipment.errors import EquipmentError
 from app.services.hr import audit, client_pack
 from app.services.hr_lifecycle_schema import KEY_WELCOME_MAIL
@@ -269,6 +270,15 @@ async def draft_for(db: AsyncSession, contract_id: int) -> Draft:
         issues.append(
             Issue(
                 "no_email", "Kontrakt i profil kandydata nie mają adresu e-mail.", True
+            )
+        )
+    elif valid_email(email) is None:
+        issues.append(
+            Issue(
+                "bad_email",
+                "Adres e-mail konsultanta jest niepoprawny — popraw go w kontrakcie "
+                "albo w profilu kandydata.",
+                True,
             )
         )
     if contract.start_date is None:

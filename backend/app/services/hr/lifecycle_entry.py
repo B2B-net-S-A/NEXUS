@@ -165,17 +165,12 @@ async def _care_owner(
 
 
 async def _client_delivery_lead(db: AsyncSession, contract: Contract) -> Optional[int]:
-    """DL rekrutacji, z której przyszedł konsultant, a bez niego główny DL klienta."""
+    """DL rekrutacji, z której przyszedł konsultant, a bez niego główny DL klienta.
 
-    if contract.job_id is not None:
-        lead = await _active(
-            db,
-            await db.scalar(
-                select(Job.delivery_lead_id).where(Job.id == contract.job_id)
-            ),
-        )
-        if lead is not None and lead.has_role(UserRole.delivery_lead):
-            return lead.id
+    Tylko Delivery Lead z portfela klienta — DL spoza portfela nie widzi
+    kontraktu, więc nie dostaje też jego zadań.
+    """
+
     rows = await db.scalars(
         select(User)
         .join(
@@ -190,17 +185,22 @@ async def _client_delivery_lead(db: AsyncSession, contract: Contract) -> Optiona
             DeliveryLeadClientAssignment.is_head.desc(), DeliveryLeadClientAssignment.id
         )
     )
-    for user in rows:
-        if user.has_role(UserRole.delivery_lead):
-            return user.id
-    return None
+    leads = [user.id for user in rows if user.has_role(UserRole.delivery_lead)]
+    if contract.job_id is not None:
+        job_lead = await db.scalar(
+            select(Job.delivery_lead_id).where(Job.id == contract.job_id)
+        )
+        if job_lead in leads:
+            return job_lead
+    return leads[0] if leads else None
 
 
 async def consultant_leads(db: AsyncSession, contract_id: int) -> set[int]:
     """Konta, które prowadzą wejście konsultanta jak przełożony.
 
-    Opiekun kontraktu (jedną regułą opieki), każdy Delivery Lead klienta
-    i DL rekrutacji, head back office.
+    Opiekun kontraktu (jedną regułą opieki), każdy Delivery Lead z portfela
+    klienta i head back office. DL rekrutacji spoza portfela klienta nie —
+    Delivery Lead widzi tylko swoich klientów.
     """
 
     contract = await db.get(Contract, contract_id)
@@ -213,12 +213,6 @@ async def consultant_leads(db: AsyncSession, contract_id: int) -> set[int]:
     head = await _back_office_head(db)
     if head is not None:
         out.add(head)
-    if contract.job_id is not None:
-        job_lead = await db.scalar(
-            select(Job.delivery_lead_id).where(Job.id == contract.job_id)
-        )
-        if job_lead is not None:
-            out.add(job_lead)
     out.update(
         await db.scalars(
             select(DeliveryLeadClientAssignment.delivery_lead_user_id).where(

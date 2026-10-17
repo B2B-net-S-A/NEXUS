@@ -27,12 +27,12 @@
   "recruiter+cases"
  ],
  "routes": {
-  "GET /api/client-onboarding/clients/{client_id}/pack": "BBBBBBBDBBBBBBBBBBBBBBBBB",
-  "GET /api/client-onboarding/clients/{client_id}/pack/welcome-preview": "BBBBBBBDBBBBBBBBBBBBBBBBB",
-  "GET /api/client-onboarding/contracts/{contract_id}/welcome-mail": "BBBBBBBDBBBBBBBBBBBBBBBBB",
-  "GET /api/client-onboarding/welcome-mail/switch": "BBBBBBBDBBBBBBBBBBBBBBBBB",
-  "POST /api/client-onboarding/contracts/{contract_id}/welcome-mail": "BBBBBBBDBBBBBBBBBBBBBBBBB",
-  "PUT /api/client-onboarding/clients/{client_id}/pack": "BBBBBBBDBBBBBBBBBBBBBBBBB",
-  "PUT /api/client-onboarding/welcome-mail/switch": "BBBBBBBDBBBBBBBBBBBBBBBBB"
+  "GET /api/client-onboarding/clients/{client_id}/pack": "BBDBBDDDBBBDBBBBDBBBDDDBD",
+  "GET /api/client-onboarding/clients/{client_id}/pack/welcome-preview": "BBDBBDDDBBBDBBBBDBBBDDDBD",
+  "GET /api/client-onboarding/contracts/{contract_id}/welcome-mail": "BBDBBDDDBBBDBBBBDBBBDDDDD",
+  "GET /api/client-onboarding/welcome-mail/switch": "BBDBBDDDBBBDBBBBDBBBDDDDD",
+  "POST /api/client-onboarding/contracts/{contract_id}/welcome-mail": "BDDBBDDDBBBDBBDDDDDDDDDDD",
+  "PUT /api/client-onboarding/clients/{client_id}/pack": "BDDBDDDDBBBDDDBDDDDDDDDBD",
+  "PUT /api/client-onboarding/welcome-mail/switch": "BDDDDDDDDDDDDDDDDDDDDDDDD"
  }
 }
