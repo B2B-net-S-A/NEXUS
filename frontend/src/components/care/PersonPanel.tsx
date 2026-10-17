@@ -126,7 +126,14 @@ export function PersonPanel({
         )}
         <h4 className={cn(CALM_HEAD, "pt-1.5")}>Dział</h4>
         {org.can_edit_org ? (
-          <AreaPicker org={org} person={person} saving={update.isPending} onSave={save} />
+          // `key`: wpisywana nazwa nowego działu należy do tej osoby, nie do następnej.
+          <AreaPicker
+            key={person.id}
+            org={org}
+            person={person}
+            saving={update.isPending}
+            onSave={save}
+          />
         ) : (
           <p>
             {org.areas.find((area) => area.id === person.area_id)?.name ??

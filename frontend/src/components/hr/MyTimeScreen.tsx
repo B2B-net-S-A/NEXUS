@@ -17,7 +17,7 @@ import {
   type PersonFull,
 } from "@/lib/api/hr";
 import { coordinatorLabel, employmentTerms } from "@/lib/hr-employment-terms";
-import { useUrlSyncedState } from "@/lib/url-selection";
+import { useUrlSyncedState, useUrlWriter } from "@/lib/url-selection";
 import { resolveViewState } from "@/lib/view-state";
 import type { YearMonth } from "@/lib/date-pl";
 
@@ -26,6 +26,7 @@ import { MyOverviewTab } from "./me/MyOverviewTab";
 import { formatDays } from "./people/hr-format";
 import { MyBonusesTab } from "./payroll/MyBonusesTab";
 import { MyMonthTab } from "./time/MyMonthTab";
+import { currentYearMonth } from "./time/time-format";
 
 function warsawYear(): number {
   return Number(
@@ -179,6 +180,7 @@ export function MyTimeScreen({ config }: { config: HrConfig }) {
   // Zakładka z adresu (link z powiadomienia także przy otwartym ekranie), przełączalna ręcznie.
   const [active, setActive] = useUrlSyncedState<string>(params.get("tab"), tabs[0].value);
   const initialMonth = yearMonthFromParams(params);
+  const { replaceUrl } = useUrlWriter();
   const current = active && tabs.some((tab) => tab.value === active) ? active : tabs[0].value;
   const state = resolveViewState({
     isLoading: me.isLoading,
@@ -188,6 +190,24 @@ export function MyTimeScreen({ config }: { config: HrConfig }) {
   });
 
   const moduleTab = MY_TIME_MODULE_TABS.find((tab) => tab.value === current);
+
+  // Przejście z „Przeglądu”: zakładka raportu czyta miesiąc z adresu, więc
+  // idzie tam zawsze jawny miesiąc — zaległy z „Do zrobienia” albo bieżący
+  // („Uzupełnij dzień”), żeby nie otworzył się ten, który został w adresie.
+  const openTab = (value: string, month?: YearMonth) => {
+    setActive(value);
+    const next = new URLSearchParams(params.toString());
+    next.set("tab", value);
+    const target = value === "month" ? (month ?? currentYearMonth()) : null;
+    if (target) {
+      next.set("year", String(target.year));
+      next.set("month", String(target.month));
+    } else {
+      next.delete("year");
+      next.delete("month");
+    }
+    replaceUrl(`?${next.toString()}`);
+  };
 
   return (
     <div className="space-y-4">
@@ -220,7 +240,7 @@ export function MyTimeScreen({ config }: { config: HrConfig }) {
             />
           ) : null}
           {current === OVERVIEW_TAB.value ? (
-            <MyOverviewTab config={config} person={me.data} onOpenTab={setActive} />
+            <MyOverviewTab config={config} person={me.data} onOpenTab={openTab} />
           ) : moduleTab ? (
             moduleTab.render(config, initialMonth)
           ) : (

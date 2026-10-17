@@ -42,9 +42,12 @@ export function nearestApprovedLeave(
   return upcoming[0] ?? null
 }
 
-/** „11,5 dnia” albo „bez puli” (B2B bez puli, umowa zlecenie). */
+/**
+ * „11,5 dnia” albo „bez puli” (B2B bez puli albo z pulą 0, umowa zlecenie).
+ * Liczy się płatna pula (> 0), nie sam wiersz puli — jak karta w „Przeglądzie”.
+ */
 export function remainingLabel(balance: LeaveBalance): string {
-  return balance.has_pool ? daysLabel(balance.remaining_days ?? "0") : "bez puli"
+  return balance.has_paid_pool ? daysLabel(balance.remaining_days ?? "0") : "bez puli"
 }
 
 /** Nagłówek liczby w kafelku według formy: urlop, płatne dni przerwy, nieobecności. */
@@ -102,7 +105,7 @@ function LeavePart({ year, today }: { year: number; today: string }) {
       <Stat
         label={balanceTitle(balance.data, year)}
         value={remainingLabel(balance.data)}
-        hint={balance.data.has_pool ? "zostało" : "bez wynagrodzenia"}
+        hint={balance.data.has_paid_pool ? "zostało" : "bez wynagrodzenia"}
       />
       <Stat
         label="Najbliższy"

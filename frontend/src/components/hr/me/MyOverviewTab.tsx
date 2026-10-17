@@ -7,6 +7,7 @@ import { PersonEquipmentPanel } from "@/components/equipment/PersonEquipmentPane
 import { Button } from "@/components/ui/button";
 import type { HrConfig, PersonFull } from "@/lib/api/hr";
 import { useLeaveBalance } from "@/lib/api/hr-leave";
+import type { YearMonth } from "@/lib/date-pl";
 import { warsawToday } from "@/lib/warsaw-date";
 
 import { LeaveRequestDialog } from "../leave/LeaveRequestDialog";
@@ -21,8 +22,11 @@ import { absenceActionLabel } from "./overview-format";
 export interface MyOverviewTabProps {
   config: HrConfig;
   person: PersonFull;
-  /** Przejście do innej zakładki „Mojego czasu” (wartość `?tab=`). */
-  onOpenTab: (value: string) => void;
+  /**
+   * Przejście do innej zakładki „Mojego czasu” (wartość `?tab=`); `month` —
+   * miesiąc raportu do otwarcia (zaległy z „Do zrobienia”), bez niego bieżący.
+   */
+  onOpenTab: (value: string, month?: YearMonth) => void;
 }
 
 /**
@@ -38,6 +42,8 @@ export function MyOverviewTab({ config, person, onOpenTab }: MyOverviewTabProps)
   const [dialogOpen, setDialogOpen] = useState(false);
   const balance = useLeaveBalance(year, open.leave);
   const form = person.employment_type;
+  // Jak „Do zrobienia”: bez obowiązku timesheetu nie ma czego uzupełniać.
+  const timesheets = open.time && person.timesheet_required;
   const firstName = person.name.split(/\s+/)[0] ?? person.name;
 
   return (
@@ -45,7 +51,7 @@ export function MyOverviewTab({ config, person, onOpenTab }: MyOverviewTabProps)
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-sm text-muted-foreground">Dzień dobry, {firstName}</p>
         <div className="flex flex-wrap gap-2">
-          {open.time ? (
+          {timesheets ? (
             <Button variant="outline" size="sm" onClick={() => onOpenTab("month")}>
               <Clock className="mr-1.5 h-4 w-4" aria-hidden />
               Uzupełnij dzień
@@ -61,7 +67,14 @@ export function MyOverviewTab({ config, person, onOpenTab }: MyOverviewTabProps)
       </div>
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
         {open.leave ? <AbsenceCard form={form} year={year} today={today} /> : null}
-        {open.time ? <MonthCard form={form} today={today} onOpenTab={onOpenTab} /> : null}
+        {open.time ? (
+          <MonthCard
+            form={form}
+            today={today}
+            timesheetRequired={person.timesheet_required}
+            onOpenTab={onOpenTab}
+          />
+        ) : null}
         {open.payroll ? <BonusCard today={today} onOpenTab={onOpenTab} /> : null}
         <ManagerCard person={person} leaveOpen={open.leave} />
         {open.equipment ? (

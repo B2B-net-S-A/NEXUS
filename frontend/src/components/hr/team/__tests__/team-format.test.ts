@@ -20,7 +20,7 @@ function person(extra: Partial<TeamPerson> = {}): TeamPerson {
     last_working_day: null,
     today: { absent: false },
     covering_for: [],
-    leave: { has_pool: false, remaining_days: null, planned_days: "0.0", pending_days: "0.0" },
+    leave: { has_pool: false, has_paid_pool: false, remaining_days: null, planned_days: "0.0", pending_days: "0.0" },
     month: { hours: 121, status: "draft", timesheet_id: 5 },
     timesheet_required: true,
     bonuses: null,
@@ -50,20 +50,31 @@ describe("„Mój zespół” — komórki", () => {
 
   it("nieobecności: pula tylko u osób z pulą, reszta — zaplanowane dni", () => {
     expect(
-      leaveCell({ has_pool: true, remaining_days: "11.5", planned_days: "3.0", pending_days: "0.0" }),
+      leaveCell({ has_pool: true, has_paid_pool: true, remaining_days: "11.5", planned_days: "3.0", pending_days: "0.0" }),
     ).toEqual({ text: "zostało 11,5 dnia urlopu", sub: "zaplanowane 3 dni" });
     expect(
-      leaveCell({ has_pool: false, remaining_days: null, planned_days: "2.0", pending_days: "1.0" }),
+      leaveCell({ has_pool: false, has_paid_pool: false, remaining_days: null, planned_days: "2.0", pending_days: "1.0" }),
     ).toEqual({ text: "zaplanowane 2 dni", sub: "czeka 1 dzień" });
     expect(
-      leaveCell({ has_pool: false, remaining_days: null, planned_days: "0.0", pending_days: "0.0" }).text,
+      leaveCell({ has_pool: false, has_paid_pool: false, remaining_days: null, planned_days: "0.0", pending_days: "0.0" }).text,
     ).toBe("nic zaplanowanego");
     expect(leaveCell(null).text).toBe("—");
     // B2B z umowną pulą: „z puli”, nie „urlopu” (D4).
     expect(
-      leaveCell({ has_pool: true, remaining_days: "5.0", planned_days: "0.0", pending_days: "0.0" }, "b2b")
-        .text,
+      leaveCell(
+        { has_pool: true, has_paid_pool: true, remaining_days: "5.0", planned_days: "0.0", pending_days: "0.0" },
+        "b2b",
+      ).text,
     ).toBe("zostało 5 dni z puli");
+  });
+
+  it("wiersz puli z zerem (B2B bez płatnych dni) to nie „zostało 0 dni” — liczy się płatna pula", () => {
+    const zero = leaveCell(
+      { has_pool: true, has_paid_pool: false, remaining_days: "0.0", planned_days: "2.0", pending_days: "0.0" },
+      "b2b",
+    );
+    expect(zero.text).not.toMatch(/zostało/);
+    expect(zero).toEqual({ text: "zaplanowane 2 dni", sub: undefined });
   });
 
   it("miesiąc: godziny do normy i status timesheetu", () => {

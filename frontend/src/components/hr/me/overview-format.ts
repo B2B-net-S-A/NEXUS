@@ -17,6 +17,7 @@ import type { MonthView, TimesheetHistoryItem } from "@/lib/api/hr-time";
 import { MONTHS_PL, formatDayMonthPl, monthYearPl, type YearMonth } from "@/lib/date-pl";
 import { timesheetAccusative } from "@/lib/hr-employment-terms";
 import { formatMoney } from "@/lib/money";
+import { warsawDateOf } from "@/lib/warsaw-date";
 
 import { cancelReasonLabel } from "../payroll/payroll-format";
 
@@ -219,7 +220,8 @@ export function bonusItemFromRow(
   const payout = payoutLabel(row.period_year, row.period_month, Boolean(row.period_closed), currentYear);
   if (row.status === "assigned") {
     const who = row.assigned_by_name ? ` · ${row.assigned_by_name}` : "";
-    const when = row.assigned_at ? `przyznano ${formatDayMonthPl(row.assigned_at.slice(0, 10))}${who}` : "przyznana";
+    // `assigned_at` to chwila UTC — dzień liczy kalendarz firmy (00:30 w Warszawie to jeszcze wczoraj w UTC).
+    const when = row.assigned_at ? `przyznano ${formatDayMonthPl(warsawDateOf(row.assigned_at))}${who}` : "przyznana";
     const labels = placement
       ? ["umowa", `${requiredDays} dni`, "przyznana", payout]
       : ["przyznana", payout];
@@ -351,6 +353,8 @@ export interface TodoItem {
   href?: string;
   /** Zakładka „Mojego czasu” do otwarcia, gdy pozycja nie ma linku. */
   tab?: "month";
+  /** Miesiąc raportu, który zakładka ma otworzyć (zaległy to nie bieżący). */
+  month?: YearMonth;
   overdue?: boolean;
 }
 
@@ -399,6 +403,7 @@ export function todoItems(sources: TodoSources): TodoItem[] {
         title: `Wyślij ${form} za ${monthYearPl(item)}`,
         detail: "termin minął",
         tab: "month",
+        month: { year: item.year, month: item.month },
         overdue: true,
       });
     }
@@ -414,6 +419,7 @@ export function todoItems(sources: TodoSources): TodoItem[] {
         ? `zwrócono do poprawy · do ${formatDayMonthPl(view.deadline)}`
         : `do ${formatDayMonthPl(view.deadline)}`,
       tab: "month",
+      month: { year: current.year, month: current.month },
     });
   }
   return items;

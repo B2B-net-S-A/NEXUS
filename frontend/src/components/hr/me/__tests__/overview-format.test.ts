@@ -211,6 +211,25 @@ describe("premie z etapami", () => {
     expect(paid.stages.at(-1)).toEqual({ label: "rozliczona za październik", state: "done" });
   });
 
+  it("„przyznano” to dzień w kalendarzu firmy, nie dzień UTC chwili z serwera", () => {
+    // 17.10.2026 00:30 w Warszawie (CEST, UTC+2) = 16.10.2026 22:30 UTC.
+    const late = bonus({
+      status: "assigned",
+      source: "league",
+      category: "league",
+      category_label: "Liga",
+      description: "Liga",
+      period_month: 10,
+      assigned_at: "2026-10-16T22:30:00+00:00",
+      assigned_by_name: null,
+    });
+    expect(bonusItemFromRow(late, "2026-10-17").when).toBe("przyznano 17.10");
+    // Zimą (CET, UTC+1): 31.12 23:30 UTC to już 1 stycznia w Warszawie.
+    expect(
+      bonusItemFromRow({ ...late, assigned_at: "2026-12-31T23:30:00Z" }, "2027-01-01").when,
+    ).toBe("przyznano 01.01");
+  });
+
   it("anulowana przez automat zostaje z powodem", () => {
     const cancelled = bonusItemFromRow(
       bonus({ status: "cancelled", cancel_reason: "contract_ended" }),
@@ -322,6 +341,31 @@ describe("„Do zrobienia”", () => {
       detail: "zwrócono do poprawy · do 05.11",
     });
     expect(current(month({ status: "submitted" }))).toEqual([]);
+  });
+
+  it("pozycja timesheetu niesie swój rok i miesiąc — klik otwiera ten miesiąc, nie bieżący", () => {
+    const items = todoItems(
+      sources({
+        employmentType: "b2b",
+        timesheets: { history: [history({ id: 9, month: 8 })], month: month(null) },
+      }),
+    );
+    expect(items.find((item) => item.key === "ts-9")).toMatchObject({
+      tab: "month",
+      month: { year: 2026, month: 8 },
+    });
+    expect(items.find((item) => item.key === "ts-current")).toMatchObject({
+      tab: "month",
+      month: { year: 2026, month: 10 },
+    });
+    // Przełom roku: zaległy grudzień przy bieżącym styczniu.
+    const january = todoItems(
+      sources({
+        current: { year: 2027, month: 1 },
+        timesheets: { history: [history({ id: 4, year: 2026, month: 12 })], month: undefined },
+      }),
+    );
+    expect(january[0]).toMatchObject({ key: "ts-4", month: { year: 2026, month: 12 } });
   });
 });
 

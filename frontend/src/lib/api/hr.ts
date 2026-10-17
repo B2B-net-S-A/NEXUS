@@ -87,6 +87,11 @@ export interface PersonFull extends PersonCard {
   division?: Division | null;
   /** Uczeń/student na zleceniu bez składek ZUS do `contribution_exempt_until` (D8). */
   student_contribution_exempt?: boolean;
+  /**
+   * Pola Kadr — stąd do `suggested_entitlement_days`. Przełożony dostaje je
+   * bez kluczy (`HR_ONLY_FIELDS` w `services/hr/people.py`): brak pola = nie
+   * dla niego, `null` = Kadry nie uzupełniły.
+   */
   contribution_exempt_until?: string | null;
   /** Dzień po końcu zwolnienia — od niego Płace naliczają składki. */
   contributions_from?: string | null;

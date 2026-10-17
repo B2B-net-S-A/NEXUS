@@ -4,12 +4,12 @@ import type { ReactNode } from "react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import type { HrConfig, HrModuleKey } from "@/lib/api/hr"
-import type { LeaveRequestRow } from "@/lib/api/hr-leave"
+import type { LeaveBalance, LeaveRequestRow } from "@/lib/api/hr-leave"
 import { useAuthStore, type User } from "@/store/auth"
 
 import { EquipmentTasksTile, equipmentTaskStats } from "../EquipmentTasksTile"
 import { HrApprovalsTile, approvalsLabel } from "../HrApprovalsTile"
-import { HrMyTimeTile, nearestApprovedLeave } from "../HrMyTimeTile"
+import { HrMyTimeTile, balanceTitle, nearestApprovedLeave, remainingLabel } from "../HrMyTimeTile"
 import { HrSubstitutionTile, warningText } from "../HrSubstitutionTile"
 import { HrTileGate } from "../HrTileGate"
 import { TileCatalogSheet } from "../TileCatalogSheet"
@@ -240,6 +240,26 @@ describe("„Mój czas”", () => {
     expect(screen.getByText("zgłoszony")).toBeInTheDocument()
     expect(screen.getByRole("link", { name: "Zgłoś przerwę" })).toBeInTheDocument()
     expect(screen.queryByText(/Urlop/)).toBeNull()
+  })
+
+  it("B2B z wierszem puli 0: „Nieobecności” bez „zostało 0 dni” — jak karta w Przeglądzie", async () => {
+    const zeroPool = {
+      employment_type: "b2b",
+      has_pool: true,
+      has_paid_pool: false,
+      remaining_days: "0.0",
+      year: 2026,
+    } as LeaveBalance
+    expect(balanceTitle(zeroPool, 2026)).toBe("Nieobecności 2026")
+    expect(remainingLabel(zeroPool)).toBe("bez puli")
+    routes["/api/hr/leave/balance"] = zeroPool
+    routes["/api/hr/leave/my-requests"] = { items: [] }
+    routes["/api/hr/time/me/"] = { totals: { work_hours: 8, norm_hours: 176, days_missing: 0 } }
+    renderWith(<HrMyTimeTile config={hrConfig()} />)
+    expect(await screen.findByText("bez puli")).toBeInTheDocument()
+    expect(screen.getByText("bez wynagrodzenia")).toBeInTheDocument()
+    expect(screen.queryByText("zostało")).toBeNull()
+    expect(screen.queryByText(/0 dni/)).toBeNull()
   })
 
   it("awaria salda nie udaje „0 dni” — zdanie z ponowieniem; godziny dalej widać", async () => {

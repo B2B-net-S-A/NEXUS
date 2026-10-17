@@ -244,31 +244,36 @@ export function PersonProfile({ userId, config }: { userId: number; config: HrCo
                 {full.timesheet_required ? "tak" : "nie"}
               </Fact>
               <Fact label="Nadgodziny">{full.can_log_overtime ? "tak" : "nie"}</Fact>
+              {/* Daty Kadr (koniec zwolnienia, „składki od”, staż, ZUS) przełożony
+                  dostaje bez kluczy (przegląd 17.10.2026): brak pola w odpowiedzi
+                  = brak wiersza, `null` = „brak”. */}
               {full.employment_type === "zlecenie" ? (
                 <Fact label="Uczeń lub student">
-                  {full.student_contribution_exempt
-                    ? full.contribution_exempt_until
-                      ? `bez składek do ${formatIsoDatePl(full.contribution_exempt_until)}`
-                      : "tak — brak daty końca zwolnienia"
-                    : "nie"}
+                  {!full.student_contribution_exempt
+                    ? "nie"
+                    : !("contribution_exempt_until" in full)
+                      ? "tak"
+                      : full.contribution_exempt_until
+                        ? `bez składek do ${formatIsoDatePl(full.contribution_exempt_until)}`
+                        : "tak — brak daty końca zwolnienia"}
                 </Fact>
               ) : null}
               {full.employment_type === "zlecenie" && full.contributions_from ? (
                 <Fact label="Składki od">{formatIsoDatePl(full.contributions_from)}</Fact>
               ) : null}
-              {full.employment_type === "uop" ? (
-                <>
-                  <Fact label="Staż do urlopu">
-                    {full.leave_seniority_years == null
-                      ? "—"
-                      : `${full.leave_seniority_years} lat`}
-                  </Fact>
-                  <Fact label="Zaświadczenie z ZUS">
-                    {full.zus_certificate_received_on
-                      ? formatIsoDatePl(full.zus_certificate_received_on)
-                      : "—"}
-                  </Fact>
-                </>
+              {full.employment_type === "uop" && "leave_seniority_years" in full ? (
+                <Fact label="Staż do urlopu">
+                  {full.leave_seniority_years == null
+                    ? "—"
+                    : `${full.leave_seniority_years} lat`}
+                </Fact>
+              ) : null}
+              {full.employment_type === "uop" && "zus_certificate_received_on" in full ? (
+                <Fact label="Zaświadczenie z ZUS">
+                  {full.zus_certificate_received_on
+                    ? formatIsoDatePl(full.zus_certificate_received_on)
+                    : "—"}
+                </Fact>
               ) : null}
             </Card>
             <LeavePoolCard person={full} year={year} canEdit={canEdit} />

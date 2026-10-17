@@ -6,6 +6,7 @@ import { useMyEquipment } from "@/lib/api/equipment";
 import type { HrConfig, PersonFull } from "@/lib/api/hr";
 import { useMyLifecycleTasks } from "@/lib/api/hr-lifecycle";
 import { useMyMonth, useMyTimesheetHistory } from "@/lib/api/hr-time";
+import type { YearMonth } from "@/lib/date-pl";
 import { cn } from "@/lib/utils";
 
 import { currentYearMonth } from "../../time/time-format";
@@ -19,7 +20,7 @@ export function TodoCard({
 }: {
   config: HrConfig;
   person: PersonFull;
-  onOpenTab: (value: string) => void;
+  onOpenTab: (value: string, month?: YearMonth) => void;
 }) {
   const open = config.open_modules;
   const current = currentYearMonth();
@@ -71,7 +72,7 @@ export function TodoCard({
               ) : item.tab ? (
                 <button
                   type="button"
-                  onClick={() => item.tab && onOpenTab(item.tab)}
+                  onClick={() => item.tab && onOpenTab(item.tab, item.month)}
                   className="text-left font-medium text-foreground hover:underline"
                 >
                   {item.title}

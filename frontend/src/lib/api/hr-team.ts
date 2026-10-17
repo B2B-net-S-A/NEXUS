@@ -24,6 +24,8 @@ export interface TeamToday {
 
 export interface TeamLeave {
   has_pool: boolean;
+  /** Pula z dniami płatnymi (> 0) — to samo co w `GET /api/hr/leave/balance`. */
+  has_paid_pool: boolean;
   remaining_days: string | null;
   planned_days: string;
   pending_days: string;

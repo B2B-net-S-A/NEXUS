@@ -4,8 +4,9 @@
  * Harness „Ludzie → Mój zespół” (etap 2, makieta „Mój zespół”, D6).
  *
  * Prawdziwe `PeopleSectionNav` + `TeamScreen` na zasianym cache, ZERO zapytań
- * (`hr-harness.tsx`). Zespół Marty: większość na B2B albo zleceniu (bez puli —
- * kolumna „Nieobecności” pokazuje zaplanowane dni), Julia na UoP z pulą.
+ * (`hr-harness.tsx`). Zespół Marty: większość na B2B albo zleceniu (bez puli
+ * albo, jak Ola, z wierszem puli 0 — kolumna „Nieobecności” pokazuje
+ * zaplanowane dni), Julia na UoP z pulą.
  *
  * Stany (`?as=`):
  * - `manager` (domyślnie) — Marta o swoich ludziach: Ewa na urlopie (rodzaj
@@ -56,7 +57,7 @@ function base(person: HarnessPerson): TeamPerson {
     last_working_day: null,
     today: { absent: false },
     covering_for: [],
-    leave: { has_pool: false, remaining_days: null, planned_days: "0.0", pending_days: "0.0" },
+    leave: { has_pool: false, has_paid_pool: false, remaining_days: null, planned_days: "0.0", pending_days: "0.0" },
     month: { hours: 0, status: "draft", timesheet_id: null },
     timesheet_required: true,
     bonuses: null,
@@ -76,7 +77,14 @@ function harnessTeam(withBonuses: boolean): MyTeam {
       ...base(ola),
       covering_for: [ewa.name],
       // B2B (D5): zgłoszone przerwy wchodzą od razu — nic nie czeka na decyzję.
-      leave: { has_pool: false, remaining_days: null, planned_days: "8.0", pending_days: "0.0" },
+      // Wiersz puli z zerem (umowa bez płatnych dni): bez „zostało 0 dni”.
+      leave: {
+        has_pool: true,
+        has_paid_pool: false,
+        remaining_days: "0.0",
+        planned_days: "8.0",
+        pending_days: "0.0",
+      },
       month: { hours: Math.round(norm * 0.7), status: "draft", timesheet_id: 5101 },
       bonuses: {
         count: 2,
@@ -96,7 +104,7 @@ function harnessTeam(withBonuses: boolean): MyTeam {
         leave_type_label: "Przerwa w świadczeniu usług",
         substitute_name: ola.name,
       },
-      leave: { has_pool: false, remaining_days: null, planned_days: "2.0", pending_days: "0.0" },
+      leave: { has_pool: false, has_paid_pool: false, remaining_days: null, planned_days: "2.0", pending_days: "0.0" },
       month: { hours: Math.round(norm * 0.6), status: "draft", timesheet_id: 5102 },
       bonuses: {
         count: 1,
@@ -125,7 +133,7 @@ function harnessTeam(withBonuses: boolean): MyTeam {
     {
       ...base(julia),
       employment_type: "uop",
-      leave: { has_pool: true, remaining_days: "14.0", planned_days: "0.0", pending_days: "5.0" },
+      leave: { has_pool: true, has_paid_pool: true, remaining_days: "14.0", planned_days: "0.0", pending_days: "5.0" },
       month: { hours: Math.round(norm * 0.75), status: "draft", timesheet_id: 5104 },
       bonuses: { count: 0, proposals: 0, totals: [], items: [] },
       // Umowa o pracę: wniosek urlopowy czeka na akceptację przełożonej.

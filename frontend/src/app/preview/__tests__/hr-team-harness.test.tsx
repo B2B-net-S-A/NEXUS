@@ -43,6 +43,8 @@ describe("/preview/hr-team", () => {
     const ola = screen.getByRole("row", { name: /^Ola Przykładowa/ });
     expect(ola).toHaveTextContent("zastępuje: Ewa Makietowa");
     expect(ola).toHaveTextContent("zaplanowane 8 dni");
+    // Wiersz puli z zerem na B2B: liczy się płatna pula, nie sam wiersz.
+    expect(ola).not.toHaveTextContent(/zostało/);
     expect(ola).toHaveTextContent("1 propozycja — decydują Płace");
     // B2B (D5): bez wniosków do decyzji.
     expect(within(ola).queryByRole("link", { name: /^wniosek / })).toBeNull();

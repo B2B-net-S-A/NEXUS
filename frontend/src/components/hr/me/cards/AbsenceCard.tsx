@@ -7,6 +7,7 @@ import {
   type LeaveBalance,
   type LeaveRequestRow,
 } from "@/lib/api/hr-leave";
+import { reportsAbsence } from "@/lib/hr-employment-terms";
 
 import { daysLabel, formatRange, shortName } from "../../leave/leave-format";
 import {
@@ -44,8 +45,12 @@ function nextLine(kind: AbsenceCardKind, row: LeaveRequestRow | null): string {
   const leave = kind === "leave";
   const lead = leave ? "Najbliższy urlop" : "Najbliższa nieobecność";
   if (!row) return `${lead}: brak zaplanowane${leave ? "go" : "j"}`;
-  const state =
-    row.status === "approved" ? (leave ? "zatwierdzony" : "zatwierdzona") : "czeka na akceptację";
+  // Zgłoszenie z B2B i zlecenia wchodzi od razu — „zgłoszona”, nikt jej nie
+  // zatwierdza (D5); to samo słowo co w liście „Moje” (`statusLabel`).
+  const approved = row.is_report
+    ? leave ? "zgłoszony" : "zgłoszona"
+    : leave ? "zatwierdzony" : "zatwierdzona";
+  const state = row.status === "approved" ? approved : "czeka na akceptację";
   const stand = row.substitute_name ? ` · zastępuje ${shortName(row.substitute_name)}` : "";
   return `${lead}: ${formatRange(row.start_date, row.end_date)} · ${state}${stand}`;
 }
@@ -85,6 +90,12 @@ export function AbsenceCard({ form, year, today }: { form: PersonFull["employmen
     );
 
   if (kind === "absences") {
+    // Na B2B i zleceniu nic nie czeka na akceptację (D5) — liczba tylko, gdy
+    // coś zostało sprzed zmiany formy (jak `balanceStats`).
+    const pending =
+      reportsAbsence(form) && !(Number(data.pending_days) > 0)
+        ? ""
+        : ` · czeka na akceptację ${daysLabel(data.pending_days)}`;
     return (
       <OverviewCard title={title}>
         <p className="text-lg font-semibold tabular-nums text-foreground">
@@ -92,7 +103,8 @@ export function AbsenceCard({ form, year, today }: { form: PersonFull["employmen
           <span className="text-sm font-normal text-muted-foreground">zaplanowane</span>
         </p>
         <p className="text-xs text-muted-foreground">
-          wykorzystane {daysLabel(data.used_days)} · czeka na akceptację {daysLabel(data.pending_days)}
+          wykorzystane {daysLabel(data.used_days)}
+          {pending}
         </p>
         {nextPart}
       </OverviewCard>

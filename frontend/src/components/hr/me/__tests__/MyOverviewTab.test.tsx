@@ -5,13 +5,14 @@
  * Dane fikcyjne.
  */
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { HrConfig, HrModuleKey, PersonFull } from "@/lib/api/hr";
 import type { LeaveBalance } from "@/lib/api/hr-leave";
 import type { MyPayroll } from "@/lib/api/hr-payroll";
-import type { MonthView } from "@/lib/api/hr-time";
+import type { MonthDay, MonthView } from "@/lib/api/hr-time";
+import { monthYearPl, shiftMonth } from "@/lib/date-pl";
 import { warsawToday } from "@/lib/warsaw-date";
 
 const mocks = vi.hoisted(() => ({ get: vi.fn(), toast: vi.fn() }));
@@ -231,16 +232,19 @@ function healthy(over: Routes = {}): Routes {
   };
 }
 
-function renderTab(cfg = config(), who = person()) {
+function renderTab(cfg = config(), who = person(), onOpenTab = vi.fn()) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={client}>
-      <MyOverviewTab config={cfg} person={who} onOpenTab={vi.fn()} />
+      <MyOverviewTab config={cfg} person={who} onOpenTab={onOpenTab} />
     </QueryClientProvider>,
   );
 }
 
-const card = (name: string) => screen.findByRole("generic", { name });
+/** Dzień roboczy do dziś bez wpisu — liczy się do „dni do uzupełnienia”. */
+const emptyWorkday = { date: today, working_day: true, entries: [], leave: null } as unknown as MonthDay;
+
+const card = (name: string | RegExp) => screen.findByRole("generic", { name });
 
 describe("MyOverviewTab", () => {
   beforeEach(() => vi.clearAllMocks());
@@ -363,5 +367,44 @@ describe("MyOverviewTab", () => {
     expect(screen.getByRole("button", { name: "Złóż wniosek urlopowy" })).toBeInTheDocument();
     const manager = await card("Mój przełożony");
     expect(within(manager).getByText(/wskazujesz we wniosku/)).toBeInTheDocument();
+  });
+
+  it("osoba bez obowiązku timesheetu: bez „dni do uzupełnienia” i bez „Uzupełnij dzień”", async () => {
+    route(healthy({ [monthUrl]: { ...monthView(), days: [emptyWorkday] } }));
+    renderTab(config(), { ...person(), timesheet_required: false });
+
+    const month = await card(/^Raport godzin · /);
+    expect(await within(month).findByText(/Bez obowiązku raportu godzin/)).toBeInTheDocument();
+    expect(nbsp(month.textContent)).not.toMatch(/do uzupełnienia|wyślij do/i);
+    expect(screen.queryByRole("button", { name: "Uzupełnij dzień" })).toBeNull();
+    expect(await screen.findByText("Nic do zrobienia.")).toBeInTheDocument();
+  });
+
+  it("z obowiązkiem timesheetu: dzień bez wpisu do uzupełnienia i przycisk „Uzupełnij dzień”", async () => {
+    route(healthy({ [monthUrl]: { ...monthView(), days: [emptyWorkday] } }));
+    renderTab();
+
+    const month = await card(/^Raport godzin · /);
+    expect(await within(month).findByText(/1 dzień do uzupełnienia/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Uzupełnij dzień" })).toBeInTheDocument();
+  });
+
+  it("zaległy raport z „Do zrobienia” otwiera swój miesiąc, nie bieżący", async () => {
+    const overdue = shiftMonth(current, -2);
+    route(
+      healthy({
+        "/api/hr/time/me/history": {
+          items: [{ id: 9, ...overdue, status: "draft", approved_at: null, hours: 0 }],
+        },
+      }),
+    );
+    const onOpenTab = vi.fn();
+    renderTab(config(), person(), onOpenTab);
+
+    const todo = await card("Do zrobienia");
+    fireEvent.click(
+      await within(todo).findByRole("button", { name: `Wyślij raport godzin za ${monthYearPl(overdue)}` }),
+    );
+    expect(onOpenTab).toHaveBeenCalledWith("month", overdue);
   });
 });

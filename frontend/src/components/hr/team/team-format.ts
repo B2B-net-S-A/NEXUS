@@ -39,8 +39,9 @@ export function todayCell(today: TeamToday | null, coveringFor: readonly string[
 }
 
 /**
- * Nieobecności: pula tylko u osób z pulą (UoP albo B2B z umowną pulą),
- * u reszty zaplanowane dni (decyzja Artura 17.10.2026).
+ * Nieobecności: pula tylko u osób z płatną pulą (UoP albo B2B z umowną pulą
+ * > 0 — sam wiersz z zerem to nie pula), u reszty zaplanowane dni (decyzja
+ * Artura 17.10.2026).
  */
 export function leaveCell(leave: TeamLeave | null, form?: EmploymentType): Cell {
   if (!leave) return DASH;
@@ -49,7 +50,7 @@ export function leaveCell(leave: TeamLeave | null, form?: EmploymentType): Cell 
   const parts: string[] = [];
   if (planned > 0) parts.push(`zaplanowane ${daysLabel(planned)}`);
   if (pending > 0) parts.push(`czeka ${daysLabel(pending)}`);
-  if (leave.has_pool && leave.remaining_days !== null) {
+  if (leave.has_paid_pool && leave.remaining_days !== null) {
     return {
       // Pula B2B jest umowna — „urlop” tylko przy umowie o pracę (D4).
       text: `zostało ${daysLabel(leave.remaining_days)} ${form && form !== "uop" ? "z puli" : "urlopu"}`,

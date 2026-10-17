@@ -13,6 +13,7 @@ import {
   useMyTimesheetHistory,
   type TimesheetHistoryItem,
 } from "@/lib/api/hr-time";
+import { employmentTerms } from "@/lib/hr-employment-terms";
 import { countPl } from "@/lib/plural-pl";
 import { monthTitlePl } from "@/lib/date-pl";
 
@@ -38,10 +39,13 @@ function previousTimesheet(
 export function MonthCard({
   form,
   today,
+  timesheetRequired,
   onOpenTab,
 }: {
   form: PersonFull["employment_type"];
   today: string;
+  /** Bez obowiązku timesheetu nie ma dni „do uzupełnienia” ani terminu wysyłki (jak „Do zrobienia”). */
+  timesheetRequired: boolean;
   onOpenTab: (value: string) => void;
 }) {
   const current = currentYearMonth();
@@ -50,6 +54,7 @@ export function MonthCard({
   const { showToast } = useToast();
   const state = stateOf(month);
   const title = `${timesheetCardTitle(form)} · ${monthTitlePl(current).split(" ")[0]}`;
+  const words = employmentTerms(form);
 
   const download = async (item: TimesheetHistoryItem) => {
     try {
@@ -78,17 +83,21 @@ export function MonthCard({
   }
   const view = month.data;
   const missing = missingDaysUntil(view, today);
+  const missingLine =
+    missing.length > 0
+      ? `${countPl(missing.length, "dzień", "dni", "dni")} do uzupełnienia: ${compactDays(missing)}`
+      : "Dni do dziś uzupełnione";
+  const reviewer = view.approver_name ? shortName(view.approver_name) : "Kadry";
+  // Raport przyjmuje przełożony („akceptuje”) albo koordynator („potwierdza”) — D4.
+  const progress = timesheetRequired
+    ? `${missingLine} · ${words.review_verb} ${reviewer}`
+    : `Bez obowiązku ${words.timesheet_genitive}`;
   const previous =
     history.isSuccess && history.data ? previousTimesheet(history.data, current) : null;
   return (
-    <OverviewCard title={title} aside={statusLine(view)}>
+    <OverviewCard title={title} aside={timesheetRequired ? statusLine(view) : undefined}>
       <p className="text-lg font-semibold tabular-nums text-foreground">{hoursLabel(view.totals)}</p>
-      <p className="text-xs text-muted-foreground">
-        {missing.length > 0
-          ? `${countPl(missing.length, "dzień", "dni", "dni")} do uzupełnienia: ${compactDays(missing)}`
-          : "Dni do dziś uzupełnione"}
-        {` · akceptuje ${view.approver_name ? shortName(view.approver_name) : "Kadry"}`}
-      </p>
+      <p className="text-xs text-muted-foreground">{progress}</p>
       {form === "zlecenie" ? <p className="text-xs text-muted-foreground">{MANDATE_HOURS_NOTE}</p> : null}
       <div className="mt-auto flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
         <button
