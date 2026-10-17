@@ -8,8 +8,9 @@ import { LOCATION_LABELS, type WorkLocation } from "@/lib/api/hr";
 import type { MonthDay, MonthView, TimesheetEntry } from "@/lib/api/hr-time";
 import { CALM_EMPTY, CALM_HEAD } from "@/lib/calm-table";
 import { cn } from "@/lib/utils";
+import { formatWeekdayDayPl } from "@/lib/date-pl";
 
-import { dayLabel, dayRowTone, formatHours } from "./time-format";
+import { dayRowTone, formatHours } from "./time-format";
 
 export interface MonthGridProps {
   view: MonthView;
@@ -124,7 +125,7 @@ export function MonthGrid({
                     tone.muted && !tone.today && "bg-muted/30 text-muted-foreground",
                   )}
                 >
-                  {dayLabel(day.date, day.weekday)}
+                  {formatWeekdayDayPl(day.date)}
                 </td>
                 <td className="px-2 py-1">
                   <PlaceCell

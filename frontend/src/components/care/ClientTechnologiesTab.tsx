@@ -31,8 +31,9 @@ import {
   type TechSource,
 } from "@/lib/api/care";
 import { CALM_AMOUNT, CALM_EMPTY, CALM_HEAD, CALM_ROW, CALM_SUBLINE } from "@/lib/calm-table";
-import { cn, formatDate } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 import { resolveViewState } from "@/lib/view-state";
+import { formatIsoDatePl } from "@/lib/date-pl";
 
 import { sourceSummary, technologiesInArea } from "./care-format";
 import { candidatesHref, gapQuestion } from "./tech-gaps";
@@ -407,7 +408,7 @@ export function ClientTechnologiesTab({ clientId }: { clientId: number }) {
                       <SourceMarks counts={tech.counts} />
                     </td>
                     <td className="px-3 py-1.5 tabular-nums">
-                      {tech.last_seen ? formatDate(tech.last_seen) : <span className={CALM_EMPTY}>—</span>}
+                      {tech.last_seen ? formatIsoDatePl(tech.last_seen) : <span className={CALM_EMPTY}>—</span>}
                     </td>
                     <td className={cn(CALM_AMOUNT, "px-3 py-1.5")}>
                       {tech.counts.consultants || <span className={CALM_EMPTY}>—</span>}
@@ -437,7 +438,7 @@ export function ClientTechnologiesTab({ clientId }: { clientId: number }) {
                     </span>
                     <span className={CALM_SUBLINE}>
                       {[
-                        formatDate(signal.on),
+                        formatIsoDatePl(signal.on),
                         signal.area,
                         signal.source ? HIRING_SOURCE_LABELS[signal.source] : null,
                         signal.sales_status === "converted" ? "sprzedaż: szansa" : null,
@@ -496,7 +497,7 @@ export function ClientTechnologiesTab({ clientId }: { clientId: number }) {
                 {map.notes.map((note) => (
                   <li key={note.id}>
                     <span className="line-clamp-3 whitespace-pre-line">{note.content}</span>
-                    <span className={CALM_SUBLINE}>{formatDate(note.created_on)}</span>
+                    <span className={CALM_SUBLINE}>{formatIsoDatePl(note.created_on)}</span>
                   </li>
                 ))}
               </ul>

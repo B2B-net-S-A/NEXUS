@@ -6,7 +6,7 @@
 // oznaczyć też zastępcę. Bez rodzaju nieobecności (D6): `/api/hr/leave/absence`
 // go nie oddaje, plakietkę widzi każdy, kto może oznaczyć osobę.
 
-import { dayLabel } from "@/components/hr/leave/leave-format";
+import { formatWeekdayDayPl as dayLabel } from "@/lib/date-pl";
 import type { PersonAbsence } from "@/lib/api/hr-leave";
 import type { ChatUserMini } from "@/types/job-chat";
 

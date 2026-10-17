@@ -5,40 +5,21 @@ import type { CalendarAbsence } from "@/lib/api/hr-leave";
 import {
   absenceBadgeText,
   calendarCells,
-  dayLabel,
   daysLabel,
   formatRange,
-  monthLabel,
-  shiftMonth,
+  leaveInputFrom,
   shortName,
   validRange,
-  warsawToday,
-  weekdayOf,
+  type LeaveFormValues,
 } from "../leave-format";
 
 describe("daty urlopów", () => {
-  it("„dziś” to dzień w Warszawie, nie w UTC (wieczór 22.12 UTC = 23.12)", () => {
-    expect(warsawToday(new Date("2026-12-22T23:30:00Z"))).toBe("2026-12-23");
-    expect(warsawToday(new Date("2026-07-01T21:59:00Z"))).toBe("2026-07-01");
-    expect(warsawToday(new Date("2026-07-01T22:01:00Z"))).toBe("2026-07-02");
-  });
 
   it("zakres dat po polsku", () => {
     expect(formatRange("2026-12-23", "2026-12-31")).toBe("23–31.12.2026");
     expect(formatRange("2026-10-28", "2026-11-03")).toBe("28.10–03.11.2026");
     expect(formatRange("2026-12-29", "2027-01-04")).toBe("29.12.2026–04.01.2027");
     expect(formatRange("2026-11-14", "2026-11-14")).toBe("14.11.2026");
-  });
-
-  it("dzień tygodnia liczony z samej daty, bez strefy", () => {
-    expect(weekdayOf("2026-12-23")).toBe(2);
-    expect(dayLabel("2027-01-04")).toBe("pn 04.01");
-  });
-
-  it("miesiące w kalendarzu zespołu", () => {
-    expect(monthLabel("2026-11")).toBe("Listopad 2026");
-    expect(shiftMonth("2026-12", 1)).toBe("2027-01");
-    expect(shiftMonth("2027-01", -1)).toBe("2026-12");
   });
 
   it("poprawny zakres włącza podgląd", () => {
@@ -138,5 +119,104 @@ describe("leaveToast — zmiana urlopu w zamkniętym miesiącu płac", () => {
       "Wniosek zaakceptowany. Miesiąc 2031-03 jest zamknięty w Płacach — dostały informację.",
       "info",
     ]);
+  });
+});
+
+describe("leaveInputFrom — dane wniosku ze stanu okna", () => {
+  const values = (overrides: Partial<LeaveFormValues> = {}): LeaveFormValues => ({
+    leaveType: "vacation",
+    start: "2026-11-02",
+    end: "2026-11-02",
+    halfDay: "full",
+    substitute: "none",
+    note: "",
+    forward: false,
+    oofInternal: "",
+    oofExternal: "",
+    ...overrides,
+  });
+
+  it("niepełne albo odwrócone daty = brak danych", () => {
+    expect(leaveInputFrom(values({ start: "" }), "preview")).toBeNull();
+    expect(leaveInputFrom(values({ end: "2026-11-01" }), "self")).toBeNull();
+    expect(leaveInputFrom(values({ end: "2026-11-01" }), "on_behalf")).toBeNull();
+  });
+
+  it("pół dnia tylko przy jednym dniu; cały dzień = null", () => {
+    expect(leaveInputFrom(values({ halfDay: "morning" }), "preview")?.half_day).toBe("morning");
+    expect(leaveInputFrom(values({ halfDay: "afternoon" }), "self")?.half_day).toBe("afternoon");
+    expect(leaveInputFrom(values({ halfDay: "full" }), "preview")?.half_day).toBeNull();
+    expect(
+      leaveInputFrom(values({ halfDay: "morning", end: "2026-11-04" }), "preview")?.half_day,
+    ).toBeNull();
+  });
+
+  it("podgląd: rodzaj, daty, pół dnia i zastępca — bez notatki i OOF", () => {
+    expect(
+      leaveInputFrom(
+        values({ leaveType: "on_demand", substitute: "5", note: "Wyjazd", oofInternal: "Wracam" }),
+        "preview",
+      ),
+    ).toStrictEqual({
+      leave_type: "on_demand",
+      start_date: "2026-11-02",
+      end_date: "2026-11-02",
+      half_day: null,
+      substitute_user_id: 5,
+    });
+    expect(leaveInputFrom(values(), "preview")?.substitute_user_id).toBeNull();
+  });
+
+  it("własny wniosek: notatka i OOF przycięte, puste = null, zgoda na przekierowanie tylko z zastępcą", () => {
+    expect(
+      leaveInputFrom(
+        values({
+          substitute: "5",
+          note: "  Wyjazd rodzinny ",
+          forward: true,
+          oofInternal: " Wracam 3.11. ",
+          oofExternal: "   ",
+        }),
+        "self",
+      ),
+    ).toStrictEqual({
+      leave_type: "vacation",
+      start_date: "2026-11-02",
+      end_date: "2026-11-02",
+      half_day: null,
+      substitute_user_id: 5,
+      note: "Wyjazd rodzinny",
+      forward_mail_consent: true,
+      oof_internal_message: "Wracam 3.11.",
+      oof_external_message: null,
+    });
+    const withoutSubstitute = leaveInputFrom(values({ forward: true, note: "  " }), "self");
+    expect(withoutSubstitute?.forward_mail_consent).toBe(false);
+    expect(withoutSubstitute?.note).toBeNull();
+  });
+
+  it("wpis za pracownika: notatka bez zgody na przekierowanie i bez OOF", () => {
+    expect(
+      leaveInputFrom(
+        values({
+          leaveType: "sick_leave",
+          end: "2026-11-04",
+          substitute: "5",
+          note: "Zwolnienie od lekarza",
+          forward: true,
+          oofInternal: "Wracam",
+          oofExternal: "Back soon",
+        }),
+        "on_behalf",
+      ),
+    ).toStrictEqual({
+      leave_type: "sick_leave",
+      start_date: "2026-11-02",
+      end_date: "2026-11-04",
+      half_day: null,
+      substitute_user_id: 5,
+      note: "Zwolnienie od lekarza",
+    });
+    expect(leaveInputFrom(values(), "on_behalf")?.note).toBeNull();
   });
 });

@@ -8,10 +8,8 @@ import {
   caseSubline,
   dueLabel,
   fileSize,
-  fullDate,
   groupByStatus,
   removeChecklistItem,
-  shortDate,
   toggleChecklistItem,
 } from "../case-format";
 
@@ -39,13 +37,6 @@ function card(overrides: Partial<CaseCard> = {}): CaseCard {
 }
 
 describe("daty spraw", () => {
-  it("data kalendarzowa bez przesunięcia strefy", () => {
-    expect(shortDate("2026-01-01")).toBe("01.01");
-    expect(fullDate("2026-12-31")).toBe("31.12.2026");
-    expect(shortDate(null)).toBe("—");
-    expect(fullDate("nie-data")).toBe("—");
-  });
-
   it("termin: po terminie liczy serwer, zrobiona sprawa nie ma terminu", () => {
     expect(dueLabel(card())).toEqual({ text: "do 20.10", overdue: false });
     expect(dueLabel(card({ overdue: true }))).toEqual({

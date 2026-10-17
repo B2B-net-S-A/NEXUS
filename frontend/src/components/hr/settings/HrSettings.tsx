@@ -24,7 +24,7 @@ import {
   type HrConfig,
   type HrModuleKey,
 } from "@/lib/api/hr";
-import { formatDate } from "@/lib/utils";
+import { formatIsoDatePl } from "@/lib/date-pl";
 import { resolveViewState } from "@/lib/view-state";
 
 import { LifecycleTemplatesCard } from "@/components/hr/lifecycle/LifecycleTemplatesCard";
@@ -123,14 +123,14 @@ function DaysOffCard() {
           {(days.data ?? []).map((item) => (
             <li key={item.id} className="flex items-center justify-between gap-3 py-2 text-sm">
               <span>
-                <span className="font-medium tabular-nums">{formatDate(item.day)}</span>{" "}
+                <span className="font-medium tabular-nums">{formatIsoDatePl(item.day)}</span>{" "}
                 · {item.name}
               </span>
               <Button
                 variant="quiet"
                 size="sm"
                 aria-label={`Usuń ${item.name}`}
-                onClick={() => removeDay(item.id, `${formatDate(item.day)} (${item.name})`)}
+                onClick={() => removeDay(item.id, `${formatIsoDatePl(item.day)} (${item.name})`)}
               >
                 <Trash2 className="h-4 w-4" aria-hidden />
               </Button>

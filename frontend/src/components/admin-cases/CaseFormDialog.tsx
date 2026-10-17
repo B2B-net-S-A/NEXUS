@@ -31,8 +31,7 @@ import {
   type CaseDetail,
   type CasePriority,
 } from "@/lib/api/admin-cases";
-
-import { fullDate } from "./case-format";
+import { formatIsoDatePl } from "@/lib/date-pl";
 
 const NONE = "none";
 
@@ -172,7 +171,7 @@ function ContractPicker({
                   ) : null}
                 </span>
                 <span className="shrink-0 text-xs text-muted-foreground">
-                  od {fullDate(item.start_date)}
+                  od {formatIsoDatePl(item.start_date)}
                 </span>
               </button>
             </li>

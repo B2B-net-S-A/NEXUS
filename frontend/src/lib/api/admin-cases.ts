@@ -7,6 +7,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { api } from "@/lib/api";
+import { HR_COUNTS_MUTATION_KEY } from "@/lib/api/hr";
 
 export type CaseArea =
   | "onboarding"
@@ -161,7 +162,7 @@ export const CASE_SOURCE_LABELS: Record<CaseSource, string> = {
 export const CASE_AREAS = Object.keys(CASE_AREA_LABELS) as CaseArea[];
 export const CASE_STATUSES = Object.keys(CASE_STATUS_LABELS) as CaseStatus[];
 
-const keys = {
+export const caseKeys = {
   all: ["admin-cases"] as const,
   list: (filters: CaseListFilters) => ["admin-cases", "list", filters] as const,
   detail: (id: number) => ["admin-cases", "detail", id] as const,
@@ -182,7 +183,7 @@ function listParams(filters: CaseListFilters): Record<string, string> {
 
 export function useCases(filters: CaseListFilters) {
   return useQuery({
-    queryKey: keys.list(filters),
+    queryKey: caseKeys.list(filters),
     queryFn: async () =>
       (await api.get<CaseList>("/api/cases", { params: listParams(filters) })).data,
   });
@@ -190,7 +191,7 @@ export function useCases(filters: CaseListFilters) {
 
 export function useCase(id: number) {
   return useQuery({
-    queryKey: keys.detail(id),
+    queryKey: caseKeys.detail(id),
     queryFn: async () => (await api.get<CaseDetail>(`/api/cases/${id}`)).data,
     enabled: Number.isFinite(id) && id > 0,
   });
@@ -198,7 +199,7 @@ export function useCase(id: number) {
 
 export function useCaseAssignees(enabled: boolean) {
   return useQuery({
-    queryKey: keys.assignees,
+    queryKey: caseKeys.assignees,
     queryFn: async () =>
       (await api.get<{ items: AssigneeOption[] }>("/api/cases/assignees")).data.items,
     enabled,
@@ -209,7 +210,7 @@ export function useCaseAssignees(enabled: boolean) {
 export function useCaseContractOptions(q: string, enabled: boolean) {
   const term = q.trim();
   return useQuery({
-    queryKey: keys.contracts(term),
+    queryKey: caseKeys.contracts(term),
     queryFn: async () =>
       (
         await api.get<{ items: CaseContractRef[] }>("/api/cases/contract-options", {
@@ -222,12 +223,16 @@ export function useCaseContractOptions(q: string, enabled: boolean) {
 
 function useInvalidateCases() {
   const queryClient = useQueryClient();
-  return () => queryClient.invalidateQueries({ queryKey: keys.all });
+  return () => queryClient.invalidateQueries({ queryKey: caseKeys.all });
 }
+
+/** Nowa, zmieniona albo zamknięta sprawa zmienia licznik zakładki „Sprawy”. */
+const CASE_COUNTS_MUTATION_KEY = [...HR_COUNTS_MUTATION_KEY, "case"] as const;
 
 export function useCreateCase() {
   const invalidate = useInvalidateCases();
   return useMutation({
+    mutationKey: CASE_COUNTS_MUTATION_KEY,
     mutationFn: async (payload: CaseCreateInput) =>
       (await api.post<CaseDetail>("/api/cases", payload)).data,
     onSuccess: invalidate,
@@ -237,6 +242,7 @@ export function useCreateCase() {
 export function useUpdateCase(id: number) {
   const invalidate = useInvalidateCases();
   return useMutation({
+    mutationKey: CASE_COUNTS_MUTATION_KEY,
     mutationFn: async (payload: CaseUpdateInput) =>
       (await api.patch<CaseDetail>(`/api/cases/${id}`, payload)).data,
     onSuccess: invalidate,
@@ -246,6 +252,7 @@ export function useUpdateCase(id: number) {
 export function useCloseCase(id: number) {
   const invalidate = useInvalidateCases();
   return useMutation({
+    mutationKey: CASE_COUNTS_MUTATION_KEY,
     mutationFn: async () => (await api.post<CaseDetail>(`/api/cases/${id}/close`)).data,
     onSuccess: invalidate,
   });

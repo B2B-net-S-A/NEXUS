@@ -8,10 +8,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { api } from "@/lib/api";
-import {
-  downloadBlob,
-  fetchAuthenticatedDownload,
-} from "@/lib/authenticated-files";
+import { payrollKeys } from "@/lib/api/hr-payroll";
+import { teamKeys } from "@/lib/api/hr-team";
 
 import { HR_COUNTS_MUTATION_KEY, type WorkLocation } from "./hr";
 
@@ -172,14 +170,14 @@ export interface TimesheetHistoryItem {
 }
 
 export const timeKeys = {
-  all: ["hr-time"] as const,
-  month: (year: number, month: number) => ["hr-time", "me", year, month] as const,
-  history: ["hr-time", "me", "history"] as const,
-  templates: ["hr-time", "templates"] as const,
-  hint: (day: string) => ["hr-time", "hint", day] as const,
-  team: (year: number, month: number) => ["hr-time", "team", year, month] as const,
+  all: ["hr", "time"] as const,
+  month: (year: number, month: number) => ["hr", "time", "me", year, month] as const,
+  history: ["hr", "time", "me", "history"] as const,
+  templates: ["hr", "time", "templates"] as const,
+  hint: (day: string) => ["hr", "time", "hint", day] as const,
+  team: (year: number, month: number) => ["hr", "time", "team", year, month] as const,
   member: (userId: number, year: number, month: number) =>
-    ["hr-time", "team", userId, year, month] as const,
+    ["hr", "time", "team", userId, year, month] as const,
 };
 
 /** Ścieżki API (jedno miejsce — także dla pobrań plików). */
@@ -232,9 +230,15 @@ export function useDayHint(day: string | null) {
   });
 }
 
+// Godziny i statusy timesheetów widać też w Płacach i w „Moim zespole”.
+const TIME_AFFECTS = [timeKeys.all, payrollKeys.all, teamKeys.all] as const;
+
 function useInvalidateTime() {
   const queryClient = useQueryClient();
-  return () => queryClient.invalidateQueries({ queryKey: timeKeys.all });
+  return () =>
+    Promise.all(
+      TIME_AFFECTS.map((queryKey) => queryClient.invalidateQueries({ queryKey })),
+    );
 }
 
 export function useSaveMyEntry(year: number, month: number) {
@@ -391,10 +395,4 @@ export function useDecideTimesheet() {
       ).data,
     onSuccess: invalidate,
   });
-}
-
-/** Pobiera plik (PDF/ZIP) z tokenem i zapisuje pod nazwą z serwera. */
-export async function downloadTimeFile(path: string, fallbackName: string): Promise<void> {
-  const { blob, filename } = await fetchAuthenticatedDownload(path);
-  downloadBlob(blob, filename ?? fallbackName);
 }

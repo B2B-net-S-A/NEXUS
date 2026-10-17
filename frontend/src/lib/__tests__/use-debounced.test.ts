@@ -1,7 +1,7 @@
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { useDebounced } from "../LeaveRequestDialog";
+import { useDebounced } from "../use-debounced";
 
 describe("useDebounced w oknie wniosku", () => {
   beforeEach(() => vi.useFakeTimers());

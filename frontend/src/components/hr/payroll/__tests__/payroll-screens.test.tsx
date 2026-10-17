@@ -4,7 +4,8 @@ import { render, screen } from "@testing-library/react";
 import type { BonusRow, PayrollMonthDetail, PayrollPerson } from "@/lib/api/hr-payroll";
 
 import { BonusTable } from "../BonusTable";
-import { PeopleTable, monthStats, splitBonuses } from "../PayrollMonthScreen";
+import { PayrollPeopleTable } from "../PayrollPeopleTable";
+import { monthStats, splitBonuses } from "../payroll-format";
 
 vi.mock("next/link", () => ({
   default: ({ href, children, ...rest }: { href: string; children: React.ReactNode }) => (
@@ -68,7 +69,7 @@ function proposal(overrides: Partial<BonusRow> = {}): BonusRow {
 
 describe("Płace — tabela osób", () => {
   it("Płace widzą stawkę, kwotę za godziny i razem", () => {
-    render(<PeopleTable people={[worker]} scope="payroll" />);
+    render(<PayrollPeopleTable people={[worker]} scope="payroll" />);
     expect(screen.getByText("Stawka /h")).toBeInTheDocument();
     expect(screen.getByText(/23\s652,80 zł/)).toBeInTheDocument();
     expect(screen.getByText(/w tym 2 ponad normę/)).toBeInTheDocument();
@@ -81,7 +82,7 @@ describe("Płace — tabela osób", () => {
       rate_missing: undefined,
       bonuses: [{ currency: "PLN", bonus_total: "772.80" }],
     };
-    render(<PeopleTable people={[teamRow]} scope="team" />);
+    render(<PayrollPeopleTable people={[teamRow]} scope="team" />);
     expect(screen.queryByText("Stawka /h")).not.toBeInTheDocument();
     expect(screen.queryByText("Razem")).not.toBeInTheDocument();
     expect(screen.getByText("176")).toBeInTheDocument();

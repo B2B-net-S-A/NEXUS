@@ -9,9 +9,7 @@ import {
   useUpdateTask,
   type LifecycleTask,
 } from "@/lib/api/hr-lifecycle";
-import { formatDate } from "@/lib/utils";
-
-import { formatDayShort } from "./lifecycle-format";
+import { formatIsoDatePl, formatWeekdayDayPl } from "@/lib/date-pl";
 
 interface LifecycleTaskListProps {
   tasks: LifecycleTask[];
@@ -59,10 +57,10 @@ export function LifecycleTaskList({ tasks, editable }: LifecycleTaskListProps) {
               </p>
               <p className="text-xs text-muted-foreground">
                 {who} · {CATEGORY_LABELS[task.category]}
-                {task.due_date ? ` · do ${formatDayShort(task.due_date)}` : ""}
+                {task.due_date ? ` · do ${formatWeekdayDayPl(task.due_date)}` : ""}
                 {task.status === "skipped" ? " · pominięte" : ""}
                 {closed && task.done_by_name
-                  ? ` · ${task.done_by_name}, ${formatDate(task.done_at)}`
+                  ? ` · ${task.done_by_name}, ${formatIsoDatePl(task.done_at)}`
                   : ""}
               </p>
               {task.note ? (

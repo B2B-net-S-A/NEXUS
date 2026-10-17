@@ -24,11 +24,12 @@
  */
 
 import { PersonProfile } from "@/components/hr/people/PersonProfile";
-import type { EmploymentType, HrConfig } from "@/lib/api/hr";
+import { hrKeys, type EmploymentType, type HrConfig } from "@/lib/api/hr";
 import { equipmentKeys } from "@/lib/api/equipment";
 import { payrollKeys, type PersonPayroll } from "@/lib/api/hr-payroll";
+import { lifecycleKeys } from "@/lib/api/hr-lifecycle";
 
-import { HR_CAST, HR_CONFIG_QUERY_KEY, hrConfig } from "../hr-fixtures";
+import { HR_CAST, hrConfig } from "../hr-fixtures";
 import {
   HrHarnessLoading,
   HrHarnessShell,
@@ -38,8 +39,6 @@ import {
 } from "../hr-harness";
 import { MARTA_REPORTS, closingBonuses, payrollScene } from "../hr-payroll/fixtures";
 import {
-  HR_PEOPLE_KEYS,
-  LIFECYCLE_KEYS,
   OLA_EQUIPMENT,
   OLA_RATES,
   harnessDirectory,
@@ -100,14 +99,14 @@ function prepare(params: URLSearchParams) {
         ? hrConfig({ is_manager: true, direct_reports: MARTA_REPORTS.size })
         : hrConfig();
   const client = harnessQueryClient();
-  client.setQueryData(HR_CONFIG_QUERY_KEY, config);
-  client.setQueryData(HR_PEOPLE_KEYS.people, harnessDirectory());
-  client.setQueryData(HR_PEOPLE_KEYS.person(ola.id), as === "colleague" ? personCard(ola) : olaFull(form));
+  client.setQueryData(hrKeys.config, config);
+  client.setQueryData(hrKeys.people, harnessDirectory());
+  client.setQueryData(hrKeys.person(ola.id), as === "colleague" ? personCard(ola) : olaFull(form));
   if (as === "colleague") {
-    seedHttpError(client, LIFECYCLE_KEYS.summary(ola.id), 403, "Brak dostępu do tej sprawy.");
+    seedHttpError(client, lifecycleKeys.summary(ola.id), 403, "Brak dostępu do tej sprawy.");
     seedHttpError(client, payrollKeys.person(ola.id), 404, "Nie ma takiej osoby w Płacach.");
   } else {
-    client.setQueryData(LIFECYCLE_KEYS.summary(ola.id), { case: null, can_manage: as === "hr" });
+    client.setQueryData(lifecycleKeys.summary(ola.id), { case: null, can_manage: as === "hr" });
     client.setQueryData(payrollKeys.person(ola.id), payroll(as));
   }
   // Panel sprzętu montuje się tylko dla Kadr, recepcji i admina.

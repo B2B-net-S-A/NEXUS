@@ -209,7 +209,7 @@ describe("MyMonthTab", () => {
     const leave = screen.getByTestId("day-2031-03-04");
     expect(within(leave).getByText("Urlop wypoczynkowy")).toBeInTheDocument();
     expect(within(leave).queryByRole("button", { name: /Dodaj wpis/ })).toBeNull();
-    expect(screen.getByText("szkic · wyślij do 5.04")).toBeInTheDocument();
+    expect(screen.getByText("szkic · wyślij do 05.04")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Wyślij do akceptacji" })).toBeInTheDocument();
     expect(screen.getByText("Jan Przełożony")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Pobierz PDF/ })).toBeNull();

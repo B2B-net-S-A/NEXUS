@@ -8,7 +8,6 @@
  * (`backend/app/services/hr/handover.py`, `WORK_KINDS`); liczby zmyślone.
  */
 
-import { shiftMonth, warsawToday } from "@/components/hr/leave/leave-format";
 import type { PersonFull } from "@/lib/api/hr";
 import type {
   LifecycleCase,
@@ -18,6 +17,8 @@ import type {
   WorkKind,
   WorkRow,
 } from "@/lib/api/hr-lifecycle";
+import { warsawToday } from "@/lib/warsaw-date";
+import { shiftMonth } from "@/lib/date-pl";
 
 import { HR_CAST, harnessWorkDays, shiftDay, type HarnessPerson } from "../hr-fixtures";
 import { addWorkDays, personCard, warsawMomentIso } from "../hr-person/fixtures";

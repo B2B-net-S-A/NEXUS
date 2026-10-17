@@ -12,7 +12,7 @@ import {
   useState,
 } from "react";
 
-import { warsawToday } from "@/components/hr/leave/leave-format";
+import { warsawToday } from "@/lib/warsaw-date";
 import {
   MentionScope,
   useMentionableUsers,

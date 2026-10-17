@@ -10,7 +10,7 @@ import { useToast } from "@/components/Toast";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
-import { formatDayShort, peopleCount } from "@/components/hr/lifecycle/lifecycle-format";
+import { peopleCount } from "@/components/hr/lifecycle/lifecycle-format";
 import { contributionsBadge } from "@/components/hr/people/form-rules";
 import { apiErrorMessage } from "@/lib/api-error";
 import type { HrConfig } from "@/lib/api/hr";
@@ -25,6 +25,7 @@ import {
 } from "@/lib/api/hr-structure";
 import { CALM_SUBLINE } from "@/lib/calm-table";
 import { resolveViewState } from "@/lib/view-state";
+import { formatWeekdayDayPl } from "@/lib/date-pl";
 
 import { DivisionDialog, DivisionHeadsDialog, ReassignDialog } from "./StructureDialogs";
 import { buildStructure, divisionKey, flatten, leavingManagers } from "./structure-tree";
@@ -208,7 +209,7 @@ function LeavingBanners({ data }: { data: HrStructure }) {
             key={person.user_id}
             className="rounded-lg border border-border bg-muted/40 px-3 py-2 text-sm text-foreground"
           >
-            {person.name} kończy pracę {formatDayShort(info.last_working_day)}. Podwładni:{" "}
+            {person.name} kończy pracę {formatWeekdayDayPl(info.last_working_day)}. Podwładni:{" "}
             {peopleCount(person.reports)} —{" "}
             {info.reports_receiver_name
               ? `przejmie ich ${info.reports_receiver_name}.`
@@ -304,7 +305,7 @@ function PersonRow({
           {person.leaving ? (
             <StatusDot tone="warning">
               {person.leaving.status === "draft" ? "szkic odejścia" : "odchodzi"}{" "}
-              {formatDayShort(person.leaving.last_working_day)}
+              {formatWeekdayDayPl(person.leaving.last_working_day)}
             </StatusDot>
           ) : null}
         </div>

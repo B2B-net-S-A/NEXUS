@@ -7,17 +7,19 @@
  * ewidencji (recepcja), konto M365 (IT), mail powitalny, check-iny 1/7/30.
  */
 
-import { shiftMonth, warsawToday } from "@/components/hr/leave/leave-format";
 import type { EmploymentType } from "@/lib/api/hr";
-import type {
-  LifecycleCase,
-  LifecycleTask,
-  LifecycleTemplate,
-  PreviewTask,
+import {
+  lifecycleKeys,
+  type LifecycleCase,
+  type LifecycleTask,
+  type LifecycleTemplate,
+  type PreviewTask,
 } from "@/lib/api/hr-lifecycle";
+import { warsawToday } from "@/lib/warsaw-date";
+import { shiftMonth } from "@/lib/date-pl";
 
 import { HR_CAST, nthWorkDay, type HarnessPerson } from "../hr-fixtures";
-import { LIFECYCLE_KEYS, addWorkDays } from "../hr-person/fixtures";
+import { addWorkDays } from "../hr-person/fixtures";
 
 const { kacper, marta, paulina, zofia } = HR_CAST;
 
@@ -100,7 +102,7 @@ export function previewSeeds(start: string) {
   return types.flatMap((employment_type) =>
     departments.flatMap((department) =>
       templates.map((template_id) => ({
-        key: LIFECYCLE_KEYS.preview({
+        key: lifecycleKeys.preview({
           kind: "onboarding",
           anchor: start,
           template_id,

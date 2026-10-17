@@ -18,8 +18,9 @@ import type { HrConfig } from "@/lib/api/hr";
 import { usePayrollMonths, type PayrollMonthSummary } from "@/lib/api/hr-payroll";
 import { CALM_AMOUNT, CALM_EMPTY, CALM_HEAD, CALM_ROW } from "@/lib/calm-table";
 import { resolveViewState } from "@/lib/view-state";
+import { capitalize } from "@/lib/hr-employment-terms";
 
-import { capitalize, formatTotals, ymSegment } from "./payroll-format";
+import { formatTotals, ymSegment } from "./payroll-format";
 
 /** Stan miesiąca w liście (czysta funkcja — test bez renderu). */
 export function monthState(row: PayrollMonthSummary): {

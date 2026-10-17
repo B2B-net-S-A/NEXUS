@@ -14,10 +14,12 @@ import {
   type TimesheetEntry,
 } from "@/lib/api/hr-time";
 import { resolveViewState } from "@/lib/view-state";
+import { warsawToday } from "@/lib/warsaw-date";
+import { monthTitlePl, type YearMonth } from "@/lib/date-pl";
 
 import { EntryDialog } from "./EntryDialog";
 import { MonthGrid } from "./MonthGrid";
-import { formatHours, monthTitle, warsawToday, type YearMonth } from "./time-format";
+import { formatHours } from "./time-format";
 
 export interface TimesheetPreviewDialogProps {
   userId: number;
@@ -69,7 +71,7 @@ export function TimesheetPreviewDialog({
       open={open}
       onOpenChange={onOpenChange}
       size="xl"
-      title={`${name} · ${monthTitle(period)}`}
+      title={`${name} · ${monthTitlePl(period)}`}
       description="Godziny i miejsce pracy z każdego dnia. Stawek tu nie ma."
       footer={
         <>

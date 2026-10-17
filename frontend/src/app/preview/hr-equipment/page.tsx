@@ -24,9 +24,9 @@ import { Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 
 import { EquipmentScreen, type EquipmentTab } from "@/components/equipment/EquipmentScreen";
-import type { HrConfig } from "@/lib/api/hr";
+import { hrKeys, type HrConfig } from "@/lib/api/hr";
 
-import { HR_CAST, HR_CONFIG_QUERY_KEY, hrConfig } from "../hr-fixtures";
+import { HR_CAST, hrConfig } from "../hr-fixtures";
 import {
   HrHarnessLoading,
   HrHarnessShell,
@@ -64,7 +64,7 @@ interface Value {
 function prepare(): HrHarnessSetup<Value> {
   const config = hrConfig({ equipment: true });
   const client = harnessQueryClient();
-  client.setQueryData(HR_CONFIG_QUERY_KEY, config);
+  client.setQueryData(hrKeys.config, config);
   seedEquipment(client, buildEquipmentData("after"));
   return { user: { ...HR_CAST.zofia, grants: ["equipment"] }, client, value: { config } };
 }

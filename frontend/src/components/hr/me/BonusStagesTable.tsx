@@ -12,8 +12,8 @@ import {
 } from "@/components/ui/table";
 import { CALM_AMOUNT, CALM_HEAD, CALM_ROW, CALM_SUBLINE } from "@/lib/calm-table";
 import { cn } from "@/lib/utils";
+import { formatMoney } from "@/lib/money";
 
-import { formatMoney } from "../payroll/payroll-format";
 import type { BonusStage, MyBonusItem } from "./overview-format";
 
 const STAGE_CLASS: Record<BonusStage["state"], string> = {

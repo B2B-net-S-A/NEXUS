@@ -12,6 +12,7 @@ import type { HrConfig, HrModuleKey, PersonFull } from "@/lib/api/hr";
 import type { LeaveBalance } from "@/lib/api/hr-leave";
 import type { MyPayroll } from "@/lib/api/hr-payroll";
 import type { MonthView } from "@/lib/api/hr-time";
+import { warsawToday } from "@/lib/warsaw-date";
 
 const mocks = vi.hoisted(() => ({ get: vi.fn(), toast: vi.fn() }));
 
@@ -30,7 +31,7 @@ vi.mock("next/link", () => ({
   ),
 }));
 
-import { currentYearMonth, warsawToday } from "../../time/time-format";
+import { currentYearMonth } from "../../time/time-format";
 import { MyOverviewTab } from "../MyOverviewTab";
 
 const today = warsawToday();

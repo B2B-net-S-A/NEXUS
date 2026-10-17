@@ -34,14 +34,14 @@ import { CareScreen } from "@/components/care/CareScreen";
 import { ContractCareTab } from "@/components/care/ContractCareTab";
 import { TechCardDialog } from "@/components/care/TechCardDialog";
 import { careKeys } from "@/lib/api/care";
-import { formatDate } from "@/lib/utils";
 import { warsawToday } from "@/lib/warsaw-date";
+import { hrKeys } from "@/lib/api/hr";
+import { formatIsoDatePl } from "@/lib/date-pl";
 
 import { clientTechMap } from "../hr-client-tech/fixtures";
 import {
   HR_CAST,
   HR_CLIENTS,
-  HR_CONFIG_QUERY_KEY,
   HR_CONSULTANTS,
   hrConfig,
 } from "../hr-fixtures";
@@ -93,7 +93,7 @@ function prepare(params: URLSearchParams) {
   const state = pickState(params.get("state"), KNOWN, "tab");
   const today = warsawToday();
   const client = harnessQueryClient();
-  client.setQueryData(HR_CONFIG_QUERY_KEY, hrConfig());
+  client.setQueryData(hrKeys.config, hrConfig());
   client.setQueryData(careKeys.contract(CARE_CONTRACT_ID), contractCare(today));
   client.setQueryData(careKeys.owners, CARE_OWNERS);
   client.setQueryData(careKeys.clientAreas(CARE_CLIENT.id), CLIENT_AREAS);
@@ -129,7 +129,7 @@ function ContractHeader({ start }: { start: string }) {
     <div className="space-y-3">
       <div className="space-y-1">
         <p className="text-xs text-muted-foreground">
-          Kontrakty · B2B · aktywny od {formatDate(start)}
+          Kontrakty · B2B · aktywny od {formatIsoDatePl(start)}
         </p>
         <h2 className="text-xl font-semibold text-foreground">{HR_CONSULTANTS.michal.name}</h2>
         <p className="text-sm text-muted-foreground">Java Developer @ {CARE_CLIENT.name}</p>

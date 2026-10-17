@@ -4,9 +4,8 @@ import { render, screen } from "@testing-library/react";
 import { AbsenceBadge } from "@/components/hr/AbsenceBadge";
 import type { AbsentTodayRow, LeaveBalance, LeaveRequestRow, PendingLeaveRow } from "@/lib/api/hr-leave";
 
-import { AbsentTodayPanel, absentRowText } from "../AbsentTodayButton";
-import { pendingDetails } from "../ApprovalsScreen";
-import { balanceStats, canToggleForward } from "../MyLeaveTab";
+import { AbsentTodayPanel } from "../AbsentTodayButton";
+import { absentRowText, balanceStats, canToggleForward, pendingDetails } from "../leave-format";
 
 vi.mock("next/link", () => ({
   default: ({ href, children, ...rest }: { href: string; children: React.ReactNode }) => (

@@ -14,6 +14,9 @@ import type {
   ReturnCondition,
   SignatureMethod,
 } from "@/lib/api/equipment";
+import { formatIsoDatePl } from "@/lib/date-pl";
+import { formatPlnDocument } from "@/lib/money";
+import { countPl } from "@/lib/plural-pl";
 
 export const CATEGORY_LABELS: Record<EquipmentCategory, string> = {
   laptop: "Laptop",
@@ -146,18 +149,9 @@ export function itemIdentifier(item: Identified): string {
   return item.serial_number ?? item.imei ?? "—";
 }
 
-/**
- * Kwota w złotych jak w protokole recepcji: „3 903,73 zł” (spacja także przy
- * czterech cyfrach — `toLocaleString("pl-PL")` dałby „3903,73”). Brak = „bez wartości”.
- */
+/** Kwota jak w protokole recepcji (`formatPlnDocument`): „3 903,73 zł”; brak = „bez wartości”. */
 export function formatPln(value: string | number | null | undefined): string {
-  if (value == null || value === "") return "bez wartości";
-  const number = Number(value);
-  if (!Number.isFinite(number)) return "bez wartości";
-  const cents = Math.round(Math.abs(number) * 100);
-  const whole = String(Math.floor(cents / 100)).replace(/\B(?=(\d{3})+(?!\d))/g, "\u00a0");
-  const fraction = String(cents % 100).padStart(2, "0");
-  return `${number < 0 ? "−" : ""}${whole},${fraction}\u00a0zł`;
+  return formatPlnDocument(value) ?? "bez wartości";
 }
 
 export interface IssueDraftLine {
@@ -217,19 +211,9 @@ export function assignmentLabel(row: AssignmentRow): string {
 /** „Do zrobienia”: termin i opóźnienie słowami. */
 export function dueLabel(dueOn: string | null, overdueDays: number): string {
   if (!dueOn) return "bez terminu";
-  const [year, month, day] = dueOn.split("-");
-  const date = `${day}.${month}.${year}`;
-  if (overdueDays > 0) return `po terminie ${overdueDays} ${overdueDays === 1 ? "dzień" : "dni"} (${date})`;
+  const date = formatIsoDatePl(dueOn);
+  if (overdueDays > 0) return `po terminie ${countPl(overdueDays, "dzień", "dni", "dni")} (${date})`;
   return `do ${date}`;
-}
-
-/** Data ISO (dzień albo chwila) → „28.10.2026”. */
-export function formatDatePl(value: string | null | undefined): string {
-  if (!value) return "—";
-  const day = value.slice(0, 10);
-  const [year, month, date] = day.split("-");
-  if (!year || !month || !date) return "—";
-  return `${date}.${month}.${year}`;
 }
 
 /** Treść wiadomości z linkiem do podpisu (recepcja wysyła ją ze swojej poczty). */

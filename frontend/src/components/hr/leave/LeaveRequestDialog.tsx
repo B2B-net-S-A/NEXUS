@@ -24,52 +24,28 @@ import {
   useOnBehalfPeople,
   useSubmitLeave,
   useSubstitutes,
-  type HalfDay,
   type LeaveInput,
-  type LeavePreview,
   type LeaveType,
 } from "@/lib/api/hr-leave";
 import { employmentTerms, reportsAbsence } from "@/lib/hr-employment-terms";
+import { useDebounced } from "@/lib/use-debounced";
+import { warsawToday } from "@/lib/warsaw-date";
 
 import {
+  FULL_DAY,
   LEAVE_TYPE_LABELS,
-  dayLabel,
-  daysLabel,
-  eventLabel,
+  NO_SUBSTITUTE,
   formatRange,
+  leaveInputFrom,
   leaveToast,
-  paySplitLabel,
-  reportOutcome,
   submitLabel,
   submittedToast,
   validRange,
-  warsawToday,
 } from "./leave-format";
+import { PreviewPanel } from "./LeavePreviewPanel";
 
 const ALL_TYPES = Object.keys(LEAVE_TYPE_LABELS) as LeaveType[];
 const CONTRACTOR = new Set(["b2b", "zlecenie"]);
-const NONE = "none";
-const FULL_DAY = "full";
-
-/** Opóźnia wartość, żeby podgląd nie pytał serwera przy każdej literze. */
-/**
- * Wartość po `delayMs` bez zmian. Porównanie po treści (JSON), nie po
- * referencji: okno buduje `{start, end}` i dane wniosku na nowo w każdym
- * renderze, a porównanie referencji zapętlało rendery i nie dawało podglądowi
- * dogonić formularza („Wyślij do akceptacji” zostawał zablokowany).
- */
-export function useDebounced<T>(value: T, delayMs: number): T {
-  const key = JSON.stringify(value);
-  const [debounced, setDebounced] = useState(value);
-  useEffect(() => {
-    const timer = setTimeout(
-      () => setDebounced(key === undefined ? (undefined as T) : (JSON.parse(key) as T)),
-      delayMs,
-    );
-    return () => clearTimeout(timer);
-  }, [key, delayMs]);
-  return debounced;
-}
 
 export interface LeaveRequestDialogProps {
   open: boolean;
@@ -106,7 +82,7 @@ export function LeaveRequestDialog({
   const [start, setStart] = useState(today);
   const [end, setEnd] = useState(today);
   const [halfDay, setHalfDay] = useState<string>(FULL_DAY);
-  const [substitute, setSubstitute] = useState(NONE);
+  const [substitute, setSubstitute] = useState(NO_SUBSTITUTE);
   const [note, setNote] = useState("");
   const [oofInternal, setOofInternal] = useState("");
   const [oofExternal, setOofExternal] = useState("");
@@ -128,7 +104,6 @@ export function LeaveRequestDialog({
   }, [types, leaveType]);
 
   const singleDay = start === end;
-  const half: HalfDay | null = singleDay && halfDay !== FULL_DAY ? (halfDay as HalfDay) : null;
   const rangeOk = validRange(start, end);
   const range = useDebounced(rangeOk ? { start, end } : null, 300);
   // Okno jest zamontowane na stałe w „Urlopach” — zamknięte nie pyta serwera.
@@ -136,18 +111,21 @@ export function LeaveRequestDialog({
     !open || (onBehalf && !subjectId) ? null : range,
     subjectId,
   );
-  const substituteId = substitute === NONE ? null : Number(substitute);
+  const substituteId = substitute === NO_SUBSTITUTE ? null : Number(substitute);
 
+  const values = {
+    leaveType,
+    start,
+    end,
+    halfDay,
+    substitute,
+    note,
+    forward,
+    oofInternal,
+    oofExternal,
+  };
   const input: LeaveInput | null =
-    rangeOk && (!onBehalf || subjectId)
-      ? {
-          leave_type: leaveType,
-          start_date: start,
-          end_date: end,
-          half_day: half,
-          substitute_user_id: substituteId,
-        }
-      : null;
+    !onBehalf || subjectId ? leaveInputFrom(values, "preview") : null;
   const debouncedInput = useDebounced(input, 350);
   const preview = useLeavePreview(open ? debouncedInput : null, subjectId);
   const shown = preview.data;
@@ -165,7 +143,7 @@ export function LeaveRequestDialog({
     setStart(today);
     setEnd(today);
     setHalfDay(FULL_DAY);
-    setSubstitute(NONE);
+    setSubstitute(NO_SUBSTITUTE);
     setNote("");
     setOofInternal("");
     setOofExternal("");
@@ -184,14 +162,14 @@ export function LeaveRequestDialog({
     !input || stale || preview.isFetching || !shown || shown.blocking_reason !== null;
 
   const submit = () => {
-    if (!input) return;
+    const payload = leaveInputFrom(values, mode);
+    if (!input || !payload) return;
     setError(null);
     const onError = (err: unknown) =>
       setError(apiErrorMessage(err, "Nie udało się zapisać wniosku."));
-    const base = { ...input, note: note.trim() || null };
     if (onBehalf && subjectId) {
       submitFor.mutate(
-        { ...base, user_id: subjectId },
+        { ...payload, user_id: subjectId },
         {
           onSuccess: (saved) => {
             showToast(...leaveToast("Nieobecność wpisana", saved));
@@ -202,21 +180,13 @@ export function LeaveRequestDialog({
       );
       return;
     }
-    submitOwn.mutate(
-      {
-        ...base,
-        forward_mail_consent: Boolean(substituteId) && forward,
-        oof_internal_message: oofInternal.trim() || null,
-        oof_external_message: oofExternal.trim() || null,
+    submitOwn.mutate(payload, {
+      onSuccess: (row) => {
+        showToast(...leaveToast(submittedToast(row), row));
+        close(false);
       },
-      {
-        onSuccess: (row) => {
-          showToast(...leaveToast(submittedToast(row), row));
-          close(false);
-        },
-        onError,
-      },
-    );
+      onError,
+    });
   };
 
   const saveLabel = submitLabel({ onBehalf, form, autoApproved: shown?.auto_approved });
@@ -255,7 +225,7 @@ export function LeaveRequestDialog({
                 value={personId}
                 onValueChange={(value) => {
                   setPersonId(value);
-                  setSubstitute(NONE);
+                  setSubstitute(NO_SUBSTITUTE);
                 }}
               >
                 <SelectTrigger id="leave-person">
@@ -333,7 +303,7 @@ export function LeaveRequestDialog({
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value={NONE}>Bez zastępcy</SelectItem>
+                <SelectItem value={NO_SUBSTITUTE}>Bez zastępcy</SelectItem>
                 {(substitutes.data ?? []).map((row) => (
                   <SelectItem key={row.user_id} value={String(row.user_id)}>
                     {row.name}
@@ -417,153 +387,5 @@ export function LeaveRequestDialog({
         />
       </div>
     </AppModal>
-  );
-}
-
-interface PreviewPanelProps {
-  preview: LeavePreview | undefined;
-  loading: boolean;
-  failed: boolean;
-  waitingForPerson: boolean;
-  onBehalf: boolean;
-  range: string | null;
-  /** Forma osoby — słowa puli i „Co się stanie po zgłoszeniu” (D4, D5). */
-  form?: EmploymentType;
-}
-
-/** „Co wypada w tym czasie” — dni, pula, praca w NEXUSIE, nieobecni z działu. */
-export function PreviewPanel({
-  preview,
-  loading,
-  failed,
-  waitingForPerson,
-  onBehalf,
-  range,
-  form,
-}: PreviewPanelProps) {
-  const box = "grid content-start gap-3 rounded-lg border border-border bg-muted/40 p-4 text-sm";
-  const report = reportsAbsence(form);
-  if (waitingForPerson) {
-    return <div className={box}>Wybierz osobę, żeby policzyć dni i pulę.</div>;
-  }
-  if (!range) {
-    return <div className={box}>Podaj daty, żeby policzyć dni robocze.</div>;
-  }
-  if (failed && !preview) {
-    return <div className={box}>Nie udało się policzyć dni — spróbuj zmienić daty.</div>;
-  }
-  if (!preview) {
-    return <div className={box}>Liczę dni robocze…</div>;
-  }
-  return (
-    <div className={box} aria-busy={loading}>
-      <div className="flex items-baseline justify-between gap-2">
-        <b className="text-foreground">Co wypada w tym czasie</b>
-        <span className="text-[11px] text-muted-foreground">{range}</span>
-      </div>
-      {preview.blocking_reason ? (
-        <p role="alert" className="rounded-md bg-destructive-muted p-2 text-destructive-muted-foreground">
-          {preview.blocking_reason}
-        </p>
-      ) : null}
-      <p className="text-foreground">
-        <b className="tabular-nums">{daysLabel(preview.days_total)} roboczych</b>
-        {preview.return_on ? (
-          <span className="text-muted-foreground"> · powrót {dayLabel(preview.return_on)}</span>
-        ) : null}
-      </p>
-      {preview.years.map((split) => (
-        <p key={split.year} className="text-muted-foreground">
-          {split.has_pool && split.remaining_before !== null ? (
-            <>
-              {report ? `Płatne dni z umowy ${split.year}` : `Pula ${split.year}`}: zostało{" "}
-              <span className="tabular-nums text-foreground">
-                {daysLabel(split.remaining_before)}
-              </span>
-              {Number(split.paid) > 0 ? (
-                <>
-                  {" "}→ po wniosku{" "}
-                  <span className="tabular-nums text-foreground">
-                    {daysLabel(split.remaining_after ?? "0")}
-                  </span>
-                </>
-              ) : null}
-            </>
-          ) : (
-            <>
-              Rok {split.year}: {report ? "bez płatnych dni — bez wynagrodzenia" : "bez puli"}
-            </>
-          )}
-          {Number(split.unpaid) > 0 ? (
-            <span className="block text-warning-muted-foreground">
-              {report ? "Bez wynagrodzenia" : "Bezpłatnie"}: {daysLabel(split.unpaid)}
-            </span>
-          ) : null}
-        </p>
-      ))}
-      {preview.work.total > 0 ? (
-        <div>
-          <b className="text-foreground">{onBehalf ? "W tym czasie ta osoba ma" : "W tym czasie masz"}</b>
-          <ul className="mt-1 space-y-0.5 text-muted-foreground">
-            {preview.work.by_kind.map((kind) => (
-              <li key={kind.kind}>
-                {kind.label}: <span className="tabular-nums text-foreground">{kind.count}</span>
-              </li>
-            ))}
-          </ul>
-          <ul className="mt-1 space-y-0.5 text-[12px] text-muted-foreground">
-            {preview.work.items.slice(0, 4).map((item) => (
-              <li key={`${item.starts_at}-${item.kind}`} className="truncate">
-                {eventLabel(item.starts_at)} · {item.title ?? item.label}
-              </li>
-            ))}
-          </ul>
-          <p className="mt-1 text-[12px] text-muted-foreground">Przejmie je zastępca.</p>
-        </div>
-      ) : null}
-      {preview.department_absent.length > 0 ? (
-        <div>
-          <b className="text-foreground">Z działu też nieobecni</b>
-          <ul className="mt-1 space-y-0.5 text-muted-foreground">
-            {preview.department_absent.map((row) => (
-              <li key={row.user_id}>
-                {row.name} · {formatRange(row.start_date, row.end_date)}
-              </li>
-            ))}
-          </ul>
-        </div>
-      ) : null}
-      {preview.substitute_absent ? (
-        <p className="text-warning-muted-foreground">
-          Wybrany zastępca też jest nieobecny w części tego okresu.
-        </p>
-      ) : null}
-      {report && !onBehalf ? (
-        <div data-testid="report-outcome">
-          <b className="text-foreground">Co się stanie po zgłoszeniu</b>
-          <ul className="mt-1 space-y-1 text-muted-foreground">
-            {reportOutcome(preview, form).map((line) => (
-              <li key={line.title}>
-                <span className="text-foreground">{line.title}</span> — {line.text}
-              </li>
-            ))}
-          </ul>
-          {form === "b2b" && paySplitLabel(preview) ? (
-            <p className="mt-1 text-[12px] text-muted-foreground">{paySplitLabel(preview)}</p>
-          ) : null}
-        </div>
-      ) : preview.auto_approved ? (
-        <p className="text-muted-foreground">
-          {onBehalf
-            ? "Wpis jest od razu zatwierdzony; osoba dostanie powiadomienie."
-            : "Zwolnienie zatwierdza się od razu — przełożony i Kadry dostaną powiadomienie."}
-        </p>
-      ) : null}
-      {!report && !onBehalf && !preview.auto_approved ? (
-        <p className="text-[12px] text-muted-foreground">
-          Wniosek czeka na akceptację: {preview.approver}.
-        </p>
-      ) : null}
-    </div>
   );
 }

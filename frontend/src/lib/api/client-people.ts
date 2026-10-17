@@ -12,7 +12,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { hasRole, type User } from "@/store/auth";
 
-import type { PersonRef } from "./care";
+import { careKeys, type PersonRef } from "./care";
 
 export type FeedbackChannel = "phone" | "meeting" | "email";
 export type ExtensionOutlook = "yes" | "likely" | "unsure" | "no";
@@ -248,9 +248,11 @@ export function useUpdateContactOrg(clientId: number) {
         )
       ).data,
     onSuccess: (org) => {
+      // Drzewo wraca w odpowiedzi — bez drugiego zapytania. Nowy dział zasila
+      // też mapę technologii i listę obszarów kart.
       queryClient.setQueryData(clientPeopleKeys.org(clientId), org);
-      // Nowy dział zasila też mapę technologii i listę obszarów kart.
-      void queryClient.invalidateQueries({ queryKey: ["care", "client", clientId] });
+      void queryClient.invalidateQueries({ queryKey: careKeys.clientMap(clientId) });
+      void queryClient.invalidateQueries({ queryKey: careKeys.clientAreas(clientId) });
     },
   });
 }

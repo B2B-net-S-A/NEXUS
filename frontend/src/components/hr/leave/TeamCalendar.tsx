@@ -14,19 +14,16 @@ import {
 } from "@/lib/api/hr-leave";
 import { cn } from "@/lib/utils";
 import { resolveViewState } from "@/lib/view-state";
+import { WEEKDAYS_PL, monthTitlePl, shiftMonth } from "@/lib/date-pl";
+import { warsawToday } from "@/lib/warsaw-date";
 
 import { personInitials } from "../people/hr-format";
 import {
   HALF_DAY_LABELS,
   calendarCells,
   formatRange,
-  monthLabel,
-  shiftMonth,
   shortName,
-  warsawToday,
 } from "./leave-format";
-
-const WEEKDAY_SHORT = ["pn", "wt", "śr", "cz", "pt", "sb", "nd"];
 
 type Filter = { kind: "all" } | { kind: "team" } | { kind: "department"; name: string };
 
@@ -80,7 +77,7 @@ export function TeamCalendar({ config }: { config: HrConfig }) {
         >
           <ChevronLeft className="h-4 w-4" aria-hidden />
         </Button>
-        <b className="min-w-[132px] text-center text-sm text-foreground">{monthLabel(month)}</b>
+        <b className="min-w-[132px] text-center text-sm text-foreground">{monthTitlePl(month)}</b>
         <Button
           size="sm"
           variant="ghost"
@@ -215,7 +212,7 @@ function CalendarGrid({ data, selected, onSelect }: CalendarGridProps) {
                     isToday && "text-primary",
                   )}
                 >
-                  <span className="block text-[9.5px]">{WEEKDAY_SHORT[day.weekday]}</span>
+                  <span className="block text-[9.5px]">{WEEKDAYS_PL[day.weekday]}</span>
                   <span className={cn("block tabular-nums", isToday && "font-semibold")}>
                     {Number(day.date.slice(8, 10))}
                   </span>

@@ -15,9 +15,10 @@ vi.mock("next/navigation", () => ({
   useSearchParams: () => new URLSearchParams(window.location.search),
 }));
 
-import { warsawToday } from "@/components/hr/leave/leave-format";
-import { currentYearMonth, monthTitle, shiftMonth } from "@/components/hr/time/time-format";
+import { currentYearMonth } from "@/components/hr/time/time-format";
 import { useAuthStore } from "@/store/auth";
+import { warsawToday } from "@/lib/warsaw-date";
+import { monthTitlePl, shiftMonth } from "@/lib/date-pl";
 import HrMyTimePreviewPage from "../hr-my-time/page";
 
 // Cała strona z prawdziwymi ekranami — na obciążonej maszynie 5 s nie wystarcza.
@@ -141,7 +142,7 @@ describe("/preview/hr-my-time", () => {
     const current = currentYearMonth();
     open("?tab=month");
 
-    expect(await screen.findByRole("heading", { name: monthTitle(current) })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: monthTitlePl(current) })).toBeInTheDocument();
     // B2B: raport godzin idzie do potwierdzenia koordynatorki (D4).
     expect(screen.getByRole("button", { name: "Wyślij do potwierdzenia" })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: `Dodaj wpis ${today}` }));
@@ -151,7 +152,7 @@ describe("/preview/hr-my-time", () => {
 
     await user.click(screen.getByRole("button", { name: "Poprzedni miesiąc" }));
     expect(
-      await screen.findByRole("heading", { name: monthTitle(shiftMonth(current, -1)) }),
+      await screen.findByRole("heading", { name: monthTitlePl(shiftMonth(current, -1)) }),
     ).toBeInTheDocument();
     expect(screen.getByText("zaakceptowany")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Wyślij do potwierdzenia" })).toBeNull();
@@ -160,7 +161,7 @@ describe("/preview/hr-my-time", () => {
     await user.click(screen.getByRole("button", { name: /Archiwum timesheetów/ }));
     expect(
       await screen.findByRole("button", {
-        name: `Pobierz PDF ${monthTitle(shiftMonth(current, -2)).toLowerCase()}`,
+        name: `Pobierz PDF ${monthTitlePl(shiftMonth(current, -2)).toLowerCase()}`,
       }),
     ).toBeInTheDocument();
     expect(attempted()).toEqual([]);

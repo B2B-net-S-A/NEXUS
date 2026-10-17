@@ -25,7 +25,6 @@ import type { ReactNode } from "react";
 import { Search } from "lucide-react";
 
 import { AbsentTodayButton, AbsentTodayPanel } from "@/components/hr/leave/AbsentTodayButton";
-import { warsawToday } from "@/components/hr/leave/leave-format";
 import { currentYearMonth } from "@/components/hr/time/time-format";
 import { TileFrame, type TileActions } from "@/components/v2/dashboard/custom/TileFrame";
 import { equipmentKeys, type EquipmentTask } from "@/lib/api/equipment";
@@ -38,11 +37,12 @@ import { timeKeys } from "@/lib/api/hr-time";
 import type { DashboardTile, TileType } from "@/lib/api/userDashboard";
 import { ROW_HEIGHT } from "@/lib/dashboard-tiles/layout";
 import { cn } from "@/lib/utils";
+import { hrKeys } from "@/lib/api/hr";
+import { warsawToday } from "@/lib/warsaw-date";
 
 import {
   HR_CAST,
   HR_CLIENTS,
-  HR_CONFIG_QUERY_KEY,
   hrConfig,
   shiftDay,
   type HarnessPerson,
@@ -204,14 +204,14 @@ function prepare(params: URLSearchParams) {
   const current = currentYearMonth();
   const client = harnessQueryClient();
   client.setQueryData(
-    HR_CONFIG_QUERY_KEY,
+    hrKeys.config,
     hrConfig({
       is_manager: as === "manager",
       direct_reports: as === "manager" ? 9 : 0,
       equipment: as === "reception",
     }),
   );
-  client.setQueryData(["hr", "counts"], { approvals: as === "manager" ? 4 : null, cases: null });
+  client.setQueryData(hrKeys.counts, { approvals: as === "manager" ? 4 : null, cases: null });
   client.setQueryData(leaveKeys.absentToday, absentToday(today, viewer));
   client.setQueryData(SUBSTITUTION_QUERY_KEY, substitution(as, today));
   client.setQueryData(leaveKeys.balance(current.year), balance(current.year, "11.5", "16.5"));

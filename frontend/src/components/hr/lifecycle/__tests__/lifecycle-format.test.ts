@@ -6,11 +6,9 @@ import type { PersonLifecycleSummary } from "@/lib/api/hr-lifecycle";
 import { lifecycleSummaryLine } from "../LifecycleProfileSection";
 import {
   canDeactivateNow,
-  formatDayShort,
   formatMoment,
   formatOffset,
   progressLabel,
-  warsawToday,
   workingDays,
 } from "../lifecycle-format";
 import { onboardingProfile, stepProblem } from "../OnboardingWizard";
@@ -37,20 +35,10 @@ describe("dni robocze po polsku", () => {
 });
 
 describe("daty", () => {
-  it("dzień kalendarzowy bez przesunięcia strefy", () => {
-    expect(formatDayShort("2026-11-30")).toBe("pon 30.11");
-    expect(formatDayShort("2026-10-29")).toBe("czw 29.10");
-    expect(formatDayShort(null)).toBe("—");
-  });
 
   it("chwila przekazania w czasie Warszawy", () => {
     // 17:00 UTC w listopadzie = 18:00 w Warszawie.
     expect(formatMoment("2026-11-30T17:00:00Z")).toContain("18:00");
-  });
-
-  it("dzisiejsza data w kalendarzu firmy, nie UTC", () => {
-    // 23:30 UTC 31.12 to już 1.01 w Warszawie.
-    expect(warsawToday(new Date("2026-12-31T23:30:00Z"))).toBe("2027-01-01");
   });
 });
 
@@ -140,7 +128,7 @@ describe("sekcja w kartotece", () => {
       lifecycleSummaryLine(
         summary({ kind: "onboarding", start_date: "2026-11-02", last_working_day: null }),
       ),
-    ).toBe("Wejście · start pon 2.11 · 2 z 6 zadań");
+    ).toBe("Wejście · start pon 02.11 · 2 z 6 zadań");
     expect(lifecycleSummaryLine({ case: null, can_manage: false })).toBeNull();
   });
 });

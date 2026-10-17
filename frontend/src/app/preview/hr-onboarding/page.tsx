@@ -23,9 +23,10 @@
 
 import { OnboardingCaseView } from "@/components/hr/lifecycle/OnboardingCaseView";
 import { OnboardingWizard } from "@/components/hr/lifecycle/OnboardingWizard";
-import type { HrConfig } from "@/lib/api/hr";
+import { hrKeys, type HrConfig } from "@/lib/api/hr";
+import { lifecycleKeys } from "@/lib/api/hr-lifecycle";
 
-import { HR_CAST, HR_CONFIG_QUERY_KEY, hrConfig } from "../hr-fixtures";
+import { HR_CAST, hrConfig } from "../hr-fixtures";
 import {
   HrHarnessLoading,
   HrHarnessShell,
@@ -33,7 +34,7 @@ import {
   pickState,
   useHrHarness,
 } from "../hr-harness";
-import { HR_PEOPLE_KEYS, LIFECYCLE_KEYS, harnessDirectory } from "../hr-person/fixtures";
+import { harnessDirectory } from "../hr-person/fixtures";
 import {
   ACCOUNTS_WITHOUT_PROFILE,
   ONBOARDING_CASE_ID,
@@ -57,13 +58,13 @@ function prepare(params: URLSearchParams) {
   const scene = onboardingScene();
   const config: HrConfig = hrConfig({ people_admin: true });
   const client = harnessQueryClient();
-  client.setQueryData(HR_CONFIG_QUERY_KEY, config);
-  client.setQueryData(HR_PEOPLE_KEYS.people, harnessDirectory());
-  client.setQueryData(HR_PEOPLE_KEYS.withoutProfile, ACCOUNTS_WITHOUT_PROFILE);
-  client.setQueryData(LIFECYCLE_KEYS.templates("onboarding"), ONBOARDING_TEMPLATES);
+  client.setQueryData(hrKeys.config, config);
+  client.setQueryData(hrKeys.people, harnessDirectory());
+  client.setQueryData(hrKeys.withoutProfile, ACCOUNTS_WITHOUT_PROFILE);
+  client.setQueryData(lifecycleKeys.templates("onboarding"), ONBOARDING_TEMPLATES);
   for (const seed of previewSeeds(scene.start)) client.setQueryData(seed.key, seed.data);
-  client.setQueryData(LIFECYCLE_KEYS.case(ONBOARDING_CASE_ID), onboardingCase(scene, "active"));
-  client.setQueryData(LIFECYCLE_KEYS.case(ONBOARDING_DRAFT_ID), onboardingCase(scene, "draft"));
+  client.setQueryData(lifecycleKeys.case(ONBOARDING_CASE_ID), onboardingCase(scene, "active"));
+  client.setQueryData(lifecycleKeys.case(ONBOARDING_DRAFT_ID), onboardingCase(scene, "draft"));
   return {
     user: { ...HR_CAST.paulina, grants: ["people_admin" as const] },
     client,

@@ -12,18 +12,18 @@ import { FormField } from "@/components/ui/form-field";
 import { Textarea } from "@/components/ui/textarea";
 import { useConfirmV2 } from "@/components/v2/modals/ConfirmV2";
 import { apiErrorMessage } from "@/lib/api-error";
-import type { HrConfig } from "@/lib/api/hr";
+import { downloadHrFile, type HrConfig } from "@/lib/api/hr";
 import {
   TIMESHEET_STATUS_LABELS,
-  downloadTimeFile,
   timePaths,
   useDecideTimesheet,
   useTeamQueue,
   type TeamQueueItem,
 } from "@/lib/api/hr-time";
 import { CALM_AMOUNT, CALM_EMPTY, CALM_HEAD, CALM_ROW, CALM_SUBLINE } from "@/lib/calm-table";
-import { cn, formatDate } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 import { resolveViewState } from "@/lib/view-state";
+import { monthTitlePl, shiftMonth, type YearMonth, formatIsoDatePl } from "@/lib/date-pl";
 
 import { TimesheetPreviewDialog } from "./TimesheetPreviewDialog";
 import { useUrlMonth } from "./use-url-month";
@@ -31,9 +31,6 @@ import {
   STATUS_TONE,
   defaultQueueMonth,
   formatHours,
-  monthTitle,
-  shiftMonth,
-  type YearMonth,
 } from "./time-format";
 
 export interface TimesheetApprovalsSectionProps {
@@ -86,7 +83,7 @@ export function TimesheetApprovalsSection({
     if (!item.timesheet) return;
     const ok = await askConfirm({
       title: `Zaakceptować timesheet: ${item.name}?`,
-      description: `${monthTitle(period)} · ${formatHours(item.hours)} h${
+      description: `${monthTitlePl(period)} · ${formatHours(item.hours)} h${
         item.overtime_hours > 0 ? `, w tym ${formatHours(item.overtime_hours)} h nadgodzin` : ""
       }. Po akceptacji powstaje PDF z sumą kontrolną.`,
       confirmLabel: "Akceptuj",
@@ -108,7 +105,7 @@ export function TimesheetApprovalsSection({
     if (!item.timesheet) return;
     const ok = await askConfirm({
       title: "Cofnąć akceptację?",
-      description: `${item.name}, ${monthTitle(period).toLowerCase()}: timesheet wróci do akceptacji, a Płace dostaną powiadomienie.`,
+      description: `${item.name}, ${monthTitlePl(period).toLowerCase()}: timesheet wróci do akceptacji, a Płace dostaną powiadomienie.`,
       confirmLabel: "Cofnij akceptację",
       variant: "destructive",
     });
@@ -144,7 +141,7 @@ export function TimesheetApprovalsSection({
 
   const downloadZip = async () => {
     try {
-      await downloadTimeFile(
+      await downloadHrFile(
         timePaths.monthZip(period.year, period.month),
         `timesheety-${period.year}-${String(period.month).padStart(2, "0")}.zip`,
       );
@@ -187,7 +184,7 @@ export function TimesheetApprovalsSection({
           <Button variant="ghost" size="icon-sm" aria-label="Poprzedni miesiąc" onClick={() => setPeriod((p) => shiftMonth(p, -1))}>
             <ChevronLeft className="h-4 w-4" aria-hidden />
           </Button>
-          <span className="min-w-[8.5rem] text-center text-sm font-medium">{monthTitle(period)}</span>
+          <span className="min-w-[8.5rem] text-center text-sm font-medium">{monthTitlePl(period)}</span>
           <Button variant="ghost" size="icon-sm" aria-label="Następny miesiąc" onClick={() => setPeriod((p) => shiftMonth(p, 1))}>
             <ChevronRight className="h-4 w-4" aria-hidden />
           </Button>
@@ -204,7 +201,7 @@ export function TimesheetApprovalsSection({
         <p className="text-sm text-muted-foreground">Wczytywanie zespołu…</p>
       ) : state === "empty" ? (
         <p className="text-sm text-muted-foreground">
-          W {monthTitle(period).toLowerCase()} nikt z Twojego zespołu nie prowadzi timesheetu.
+          W {monthTitlePl(period).toLowerCase()} nikt z Twojego zespołu nie prowadzi timesheetu.
         </p>
       ) : state !== "ready" ? (
         <QueryStateNotice
@@ -238,7 +235,7 @@ export function TimesheetApprovalsSection({
                       tone={STATUS_TONE[item.status]}
                       note={
                         item.timesheet?.submitted_at && item.status === "submitted"
-                          ? `wysłany ${formatDate(item.timesheet.submitted_at)}`
+                          ? `wysłany ${formatIsoDatePl(item.timesheet.submitted_at)}`
                           : item.timesheet?.payroll_locked
                             ? "zamknięty w płacach"
                             : undefined

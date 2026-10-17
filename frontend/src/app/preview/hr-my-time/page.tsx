@@ -41,16 +41,18 @@
 import { useState } from "react";
 
 import { LeaveRequestDialog } from "@/components/hr/leave/LeaveRequestDialog";
-import { warsawToday } from "@/components/hr/leave/leave-format";
 import { MyTimeScreen } from "@/components/hr/MyTimeScreen";
-import { currentYearMonth, shiftMonth } from "@/components/hr/time/time-format";
+import { currentYearMonth } from "@/components/hr/time/time-format";
 import { equipmentKeys } from "@/lib/api/equipment";
 import { leaveKeys, type LeaveInput } from "@/lib/api/hr-leave";
-import type { EmploymentType } from "@/lib/api/hr";
+import { hrKeys, type EmploymentType } from "@/lib/api/hr";
 import { payrollKeys } from "@/lib/api/hr-payroll";
 import { timeKeys } from "@/lib/api/hr-time";
+import { lifecycleKeys } from "@/lib/api/hr-lifecycle";
+import { warsawToday } from "@/lib/warsaw-date";
+import { shiftMonth } from "@/lib/date-pl";
 
-import { HR_CAST, HR_CONFIG_QUERY_KEY, harnessMonthDays, hrConfig } from "../hr-fixtures";
+import { HR_CAST, harnessMonthDays, hrConfig } from "../hr-fixtures";
 import {
   HrHarnessLoading,
   HrHarnessShell,
@@ -109,11 +111,11 @@ function prepare(params: URLSearchParams) {
   const client = harnessQueryClient();
   const config = hrConfig();
 
-  client.setQueryData(HR_CONFIG_QUERY_KEY, config);
-  client.setQueryData(["hr", "me"], myProfile(viewer, year, form));
+  client.setQueryData(hrKeys.config, config);
+  client.setQueryData(hrKeys.me, myProfile(viewer, year, form));
   client.setQueryData(equipmentKeys.me, MY_EQUIPMENT);
   // „Przegląd → Do zrobienia”: moje zadania wejścia/odejścia (klucz `useMyLifecycleTasks`).
-  client.setQueryData(["hr", "lifecycle", "my-tasks"], myLifecycleTasks(today));
+  client.setQueryData(lifecycleKeys.myTasks, myLifecycleTasks(today));
   // „Mój przełożony”: Marta w pracy (brak nieobecności).
   client.setQueryData(leaveKeys.absence(String(HR_CAST.marta.id), null), { on: today, items: [] });
 

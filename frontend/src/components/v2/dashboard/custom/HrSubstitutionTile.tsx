@@ -10,7 +10,7 @@
 import Link from "next/link"
 import { AlertTriangle } from "lucide-react"
 
-import { dayLabel, eventLabel } from "@/components/hr/leave/leave-format"
+import { eventLabel } from "@/components/hr/leave/leave-format"
 import { Skeleton } from "@/components/ui/skeleton"
 import { WidgetErrorBlock } from "@/components/v2/dashboard/WidgetState"
 import {
@@ -20,6 +20,7 @@ import {
 } from "@/lib/api/hr-dashboard"
 import { pluralPl } from "@/lib/plural-pl"
 import { resolveViewState } from "@/lib/view-state"
+import { formatWeekdayDayPl } from "@/lib/date-pl"
 
 /** Zdanie ostrzeżenia — inne dla samego zastępcy, inne dla przełożonego. */
 export function warningText(warning: SubstitutionWarning): string {
@@ -68,7 +69,7 @@ function CoverCard({ item }: { item: SubstitutionItem }) {
     >
       <p className="text-sm font-semibold text-foreground">
         Zastępujesz: {item.owner_name ?? "osobę z zespołu"}
-        <span className="font-normal text-muted-foreground"> · do {dayLabel(item.end_date)}</span>
+        <span className="font-normal text-muted-foreground"> · do {formatWeekdayDayPl(item.end_date)}</span>
       </p>
       <WorkRow
         count={item.recruitments.count}

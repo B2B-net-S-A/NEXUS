@@ -8,8 +8,7 @@
  * premie osoby to suma premii przyznanych w miesiącu.
  */
 
-import { shiftMonth, warsawToday } from "@/components/hr/leave/leave-format";
-import { CATEGORY_LABELS, monthLabel } from "@/components/hr/payroll/payroll-format";
+import { CATEGORY_LABELS } from "@/components/hr/payroll/payroll-format";
 import type {
   BonusCategory,
   BonusRow,
@@ -20,6 +19,8 @@ import type {
   TimesheetStatus,
 } from "@/lib/api/hr-payroll";
 import type { EmploymentType } from "@/lib/api/hr";
+import { warsawToday } from "@/lib/warsaw-date";
+import { shiftMonth, monthYearPl } from "@/lib/date-pl";
 
 import { HR_CAST, HR_CLIENTS, HR_CONSULTANTS, harnessWorkDays, nthWorkDay, type HarnessPerson } from "../hr-fixtures";
 import { addWorkDays } from "../hr-person/fixtures";
@@ -220,7 +221,7 @@ export function closingDetail(scene: PayrollScene, scope: "payroll" | "team"): P
   const detail: PayrollMonthDetail = {
     year: scene.year,
     month: scene.month,
-    label: monthLabel(scene.year, scene.month),
+    label: monthYearPl(scene),
     status: "open",
     frozen: false,
     scope,
@@ -265,7 +266,7 @@ export function monthsList(scene: PayrollScene): PayrollMonthSummary[] {
     const ym = shiftMonth(scene.current, -index);
     const [year, month] = ym.split("-").map(Number);
     const pending = inProgress.filter((row) => row.period_year === year && row.period_month === month).length;
-    const base = { year, month, label: monthLabel(year, month), people: PEOPLE.length };
+    const base = { year, month, label: monthYearPl({ year, month }), people: PEOPLE.length };
     if (index === 0) {
       return { ...base, status: "open" as const, totals: {}, pending_proposals: pending, can_close: false };
     }

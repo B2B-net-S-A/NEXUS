@@ -20,9 +20,10 @@
  */
 
 import { OffboardingScreen } from "@/components/hr/lifecycle/OffboardingScreen";
-import type { HrConfig } from "@/lib/api/hr";
+import { hrKeys, type HrConfig } from "@/lib/api/hr";
+import { lifecycleKeys } from "@/lib/api/hr-lifecycle";
 
-import { HR_CAST, HR_CONFIG_QUERY_KEY, hrConfig } from "../hr-fixtures";
+import { HR_CAST, hrConfig } from "../hr-fixtures";
 import {
   HrHarnessLoading,
   HrHarnessShell,
@@ -30,7 +31,7 @@ import {
   pickState,
   useHrHarness,
 } from "../hr-harness";
-import { HR_PEOPLE_KEYS, LIFECYCLE_KEYS, harnessDirectory } from "../hr-person/fixtures";
+import { harnessDirectory } from "../hr-person/fixtures";
 import {
   OFFBOARDING_CASE_ID,
   OFFBOARDING_TEMPLATES,
@@ -56,16 +57,16 @@ function prepare(params: URLSearchParams) {
   const scene = offboardingScene();
   const config: HrConfig = hrConfig({ people_admin: true });
   const client = harnessQueryClient();
-  client.setQueryData(HR_CONFIG_QUERY_KEY, config);
-  client.setQueryData(HR_PEOPLE_KEYS.people, harnessDirectory());
+  client.setQueryData(hrKeys.config, config);
+  client.setQueryData(hrKeys.people, harnessDirectory());
   if (state === "form") {
-    client.setQueryData(HR_PEOPLE_KEYS.person(tomasz.id), tomaszProfile(null));
-    client.setQueryData(LIFECYCLE_KEYS.summary(tomasz.id), { case: null, can_manage: true });
-    client.setQueryData(LIFECYCLE_KEYS.templates("offboarding"), OFFBOARDING_TEMPLATES);
+    client.setQueryData(hrKeys.person(tomasz.id), tomaszProfile(null));
+    client.setQueryData(lifecycleKeys.summary(tomasz.id), { case: null, can_manage: true });
+    client.setQueryData(lifecycleKeys.templates("offboarding"), OFFBOARDING_TEMPLATES);
   } else {
     const item = offboardingCase(scene, state === "case" ? "active" : "draft");
-    client.setQueryData(HR_PEOPLE_KEYS.person(tomasz.id), tomaszProfile(scene));
-    client.setQueryData(LIFECYCLE_KEYS.summary(tomasz.id), {
+    client.setQueryData(hrKeys.person(tomasz.id), tomaszProfile(scene));
+    client.setQueryData(lifecycleKeys.summary(tomasz.id), {
       case: {
         id: item.id,
         kind: item.kind,
@@ -81,9 +82,9 @@ function prepare(params: URLSearchParams) {
       },
       can_manage: true,
     });
-    client.setQueryData(LIFECYCLE_KEYS.case(OFFBOARDING_CASE_ID), item);
+    client.setQueryData(lifecycleKeys.case(OFFBOARDING_CASE_ID), item);
     for (const kind of TRANSFER_KINDS) {
-      client.setQueryData(LIFECYCLE_KEYS.receivers(OFFBOARDING_CASE_ID, kind), receiversFor(kind));
+      client.setQueryData(lifecycleKeys.receivers(OFFBOARDING_CASE_ID, kind), receiversFor(kind));
     }
   }
   return {

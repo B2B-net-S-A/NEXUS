@@ -6,6 +6,7 @@ import type {
   CasePriority,
   CaseStatus,
 } from "@/lib/api/admin-cases";
+import { formatDayMonthPl } from "@/lib/date-pl";
 
 /** Kolumny tablicy; zamknięte tylko po zaznaczeniu „Pokaż zamknięte”. */
 export const BOARD_COLUMNS: readonly CaseStatus[] = ["new", "in_progress", "waiting", "done"];
@@ -24,35 +25,6 @@ export const STATUS_TONE: Record<CaseStatus, StatusDotTone> = {
   closed: "neutral",
 };
 
-const ISO_DATE = /^(\d{4})-(\d{2})-(\d{2})/;
-
-/** „2026-10-20” → „20.10” (bez strefy czasowej — data kalendarzowa z serwera). */
-export function shortDate(value: string | null | undefined): string {
-  const match = value ? ISO_DATE.exec(value) : null;
-  return match ? `${match[3]}.${match[2]}` : "—";
-}
-
-/** „2026-10-20” → „20.10.2026”. */
-export function fullDate(value: string | null | undefined): string {
-  const match = value ? ISO_DATE.exec(value) : null;
-  return match ? `${match[3]}.${match[2]}.${match[1]}` : "—";
-}
-
-/** Znacznik czasu z serwera jako „20.10.2026, 14:05” w czasie Warszawy. */
-export function dateTime(value: string | null | undefined): string {
-  if (!value) return "—";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "—";
-  return new Intl.DateTimeFormat("pl-PL", {
-    timeZone: "Europe/Warsaw",
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(date);
-}
-
 /** Etykieta terminu na karcie; po terminie liczy serwer (kalendarz firmy). */
 export function dueLabel(card: Pick<CaseCard, "due_on" | "overdue" | "status">): {
   text: string;
@@ -60,8 +32,8 @@ export function dueLabel(card: Pick<CaseCard, "due_on" | "overdue" | "status">):
 } | null {
   if (!card.due_on || card.status === "done" || card.status === "closed") return null;
   return card.overdue
-    ? { text: `po terminie · ${shortDate(card.due_on)}`, overdue: true }
-    : { text: `do ${shortDate(card.due_on)}`, overdue: false };
+    ? { text: `po terminie · ${formatDayMonthPl(card.due_on)}`, overdue: true }
+    : { text: `do ${formatDayMonthPl(card.due_on)}`, overdue: false };
 }
 
 /** Karty w kolumnach tablicy, w kolejności z serwera (priorytet, termin). */

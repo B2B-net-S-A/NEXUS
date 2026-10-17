@@ -28,8 +28,9 @@ import {
   type RedeployStatus,
 } from "@/lib/api/care";
 import { CALM_EMPTY, CALM_HEAD, CALM_ROW, CALM_SUBLINE } from "@/lib/calm-table";
-import { cn, formatDate } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 import { resolveViewState } from "@/lib/view-state";
+import { formatIsoDatePl } from "@/lib/date-pl";
 
 function NoteDialog({ row, onClose }: { row: RedeployRow; onClose: () => void }) {
   const { showToast } = useToast();
@@ -177,7 +178,7 @@ export function RedeployPanel() {
                   <td className="px-3 py-1.5">
                     {REDEPLOY_REASON_LABELS[row.reason]}
                     <span className={CALM_SUBLINE}>
-                      {row.due_on ? `koniec ${formatDate(row.due_on)}` : `od ${formatDate(row.created_at)}`}
+                      {row.due_on ? `koniec ${formatIsoDatePl(row.due_on)}` : `od ${formatIsoDatePl(row.created_at)}`}
                       {row.note ? ` · ${row.note}` : ""}
                     </span>
                   </td>

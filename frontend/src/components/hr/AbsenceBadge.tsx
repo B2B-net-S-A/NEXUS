@@ -7,9 +7,10 @@
 // `<AbsenceBadge absence={byUser.get(id)} />`. Bez rodzaju nieobecności (D6) —
 // plakietkę widzi cały zespół. Brak nieobecności = nic się nie renderuje.
 
-import { warsawToday, absenceBadgeText } from "@/components/hr/leave/leave-format";
+import { absenceBadgeText } from "@/components/hr/leave/leave-format";
 import type { PersonAbsence } from "@/lib/api/hr-leave";
 import { cn } from "@/lib/utils";
+import { warsawToday } from "@/lib/warsaw-date";
 
 export interface AbsenceBadgeProps {
   absence: PersonAbsence | null | undefined;

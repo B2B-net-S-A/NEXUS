@@ -14,8 +14,9 @@ vi.mock("next/navigation", () => ({
   useSearchParams: () => new URLSearchParams(window.location.search),
 }));
 
-import { currentYearMonth, monthTitle, shiftMonth } from "@/components/hr/time/time-format";
+import { currentYearMonth } from "@/components/hr/time/time-format";
 import { useAuthStore } from "@/store/auth";
+import { monthTitlePl, shiftMonth } from "@/lib/date-pl";
 import HrApprovalsPreviewPage from "../hr-approvals/page";
 
 // Cała strona z prawdziwymi ekranami — na obciążonej maszynie 5 s nie wystarcza.
@@ -63,7 +64,7 @@ describe("/preview/hr-approvals", () => {
     const previous = shiftMonth(currentYearMonth(), -1);
     open(`?kind=timesheet&year=${previous.year}&month=${previous.month}`);
 
-    expect(await screen.findByText(monthTitle(previous))).toBeInTheDocument();
+    expect(await screen.findByText(monthTitlePl(previous))).toBeInTheDocument();
     const ewa = screen.getByTestId("queue-103");
     expect(ewa).toHaveTextContent("Do akceptacji");
     expect(screen.getByTestId("queue-107")).toHaveTextContent("Nie założony");

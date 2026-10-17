@@ -14,8 +14,8 @@ vi.mock("next/navigation", () => ({
   useSearchParams: () => new URLSearchParams(window.location.search),
 }));
 
-import { capitalize, monthLabel } from "@/components/hr/payroll/payroll-format";
 import { useAuthStore } from "@/store/auth";
+import { monthTitlePl } from "@/lib/date-pl";
 import { payrollScene } from "../hr-payroll/fixtures";
 import HrPayrollPreviewPage from "../hr-payroll/page";
 
@@ -36,10 +36,7 @@ afterEach(() => {
   useAuthStore.setState({ user: null, realUser: null });
 });
 
-const closingLabel = () => {
-  const { year, month } = payrollScene();
-  return capitalize(monthLabel(year, month));
-};
+const closingLabel = () => monthTitlePl(payrollScene());
 
 describe("/preview/hr-payroll", () => {
   it("Płace: poprzedni miesiąc ze stawkami, ostrzeżeniem i premiami z placementów i Ligi", async () => {

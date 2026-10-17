@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { formatMoney, rateUnitSuffix, currencySymbol } from "@/lib/money";
+import { formatMoney, formatPlnDocument, rateUnitSuffix, currencySymbol } from "@/lib/money";
 import {
   contractStatusLabel,
   contractStatusVariant,
@@ -56,5 +56,14 @@ describe("status-labels", () => {
   it("nieznany status pokazuje kod, brak statusu kreskę", () => {
     expect(contractStatusLabel("weird")).toBe("weird");
     expect(contractStatusLabel(null)).toBe("—");
+  });
+});
+
+describe("formatPlnDocument — kwota jak w protokole recepcji", () => {
+  it("spacja także przy czterech cyfrach, minus typograficzny, brak = null", () => {
+    expect(formatPlnDocument("3903.73")).toBe(`3${nbsp}903,73${nbsp}zł`);
+    expect(formatPlnDocument(-12.5)).toBe(`−12,50${nbsp}zł`);
+    expect(formatPlnDocument(null)).toBeNull();
+    expect(formatPlnDocument("abc")).toBeNull();
   });
 });

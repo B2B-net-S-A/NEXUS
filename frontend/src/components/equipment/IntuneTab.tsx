@@ -1,15 +1,13 @@
 "use client";
 
-import { useDeferredValue, useState } from "react";
-import { Link2, RefreshCw, Search } from "lucide-react";
+import { useState } from "react";
+import { Link2, RefreshCw } from "lucide-react";
 
-import { AppModal } from "@/components/ds/AppModal";
 import { InlineStats } from "@/components/ds/InlineStats";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
-import { StatusDot, type StatusDotTone } from "@/components/ds/StatusDot";
+import { StatusDot } from "@/components/ds/StatusDot";
 import { useToast } from "@/components/Toast";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import {
   Table,
   TableBody,
@@ -18,110 +16,41 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Textarea } from "@/components/ui/textarea";
 import { apiErrorMessage } from "@/lib/api-error";
-import { useEquipmentItems } from "@/lib/api/equipment";
 import {
   useIntuneDiscrepancies,
   useIntuneStatus,
   useIntuneSync,
-  useLinkIntuneDevice,
-  useResolveIntuneDevice,
   useUnresolveIntuneDevice,
   type IntuneDiscrepancy,
-  type IntuneDiscrepancyKind,
-  type IntuneMode,
   type IntuneResolution,
   type IntuneResolvedRow,
-  type IntuneStatus,
 } from "@/lib/api/equipment-intune";
 import { CALM_EMPTY, CALM_HEAD, CALM_ROW, CALM_SUBLINE } from "@/lib/calm-table";
 import { resolveViewState } from "@/lib/view-state";
+import { formatIsoDatePl, formatMomentPl } from "@/lib/date-pl";
 
-import { CATEGORY_LABELS, ITEM_STATUS_LABELS, formatDatePl, itemIdentifier } from "./equipment-format";
+import { CATEGORY_LABELS, ITEM_STATUS_LABELS } from "./equipment-format";
 import { FilterSelect } from "./FilterSelect";
-
-export const INTUNE_KINDS: IntuneDiscrepancyKind[] = [
-  "zniknal_z_intune",
-  "brak_w_ewidencji",
-  "inny_posiadacz",
-  "brak_w_intune",
-];
-
-export const INTUNE_KIND_LABELS: Record<IntuneDiscrepancyKind, string> = {
-  zniknal_z_intune: "Zniknęło z Intune",
-  brak_w_ewidencji: "Brak w ewidencji",
-  inny_posiadacz: "Inny posiadacz",
-  brak_w_intune: "Brak w Intune",
-};
-
-/** Widok „Wyjaśnione i pominięte” w tym samym filtrze co rodzaje rozjazdów. */
-const RESOLVED_VIEW = "wyjasnione" as const;
-type IntuneFilter = IntuneDiscrepancyKind | typeof RESOLVED_VIEW;
-
-const RESOLUTION_LABELS: Record<IntuneResolution, string> = {
-  wyjasnione: "Wyjaśnione",
-  pominiete: "Pominięte",
-};
-
-const KIND_TONE: Record<IntuneDiscrepancyKind, StatusDotTone> = {
-  zniknal_z_intune: "warning",
-  brak_w_ewidencji: "warning",
-  inny_posiadacz: "danger",
-  brak_w_intune: "warning",
-};
-
-const KIND_HINTS: Record<IntuneDiscrepancyKind, string> = {
-  zniknal_z_intune: "Urządzenie było w Intune, a w ostatnim odczycie go zabrakło.",
-  brak_w_ewidencji: "Urządzenie jest w Intune, a w rejestrze nie ma egzemplarza z tym S/N.",
-  inny_posiadacz: "W rejestrze laptop jest wydany komuś innemu niż użytkownik w Intune.",
-  brak_w_intune: "Laptop jest wydany w rejestrze, a Intune go nie widzi.",
-};
-
-export const INTUNE_MODE_LABELS: Record<IntuneMode, string> = {
-  off: "wyłączony",
-  simulate: "tryb próbny",
-  live: "włączony",
-};
-
-const MODE_NOTE: Record<IntuneMode, string> = {
-  off:
-    "NEXUS nie czyta jeszcze urządzeń z Intune — odczyt czeka na zgodę administratora " +
-    "Microsoft 365. Potem lista będzie się odświeżać co noc, wyłącznie do odczytu, bez kluczy i haseł.",
-  simulate:
-    "Fikcyjne urządzenia do sprawdzenia ekranu. Nic nie łączy się z Microsoftem.",
-  live: "NEXUS czyta urządzenia z Intune co noc, wyłącznie do odczytu. Rejestru sam nie zmienia.",
-};
-
-/** Ton kropki stanu: wyłączony szary, próbny niebieski, potem zdrowie odczytu. */
-export function intuneStatusTone(status: Pick<IntuneStatus, "mode" | "health">): StatusDotTone {
-  if (status.mode === "off") return "neutral";
-  if (status.mode === "simulate") return "info";
-  return status.health === "healthy" ? "success" : "warning";
-}
-
-/** Chwila ISO → „16.10.2026, 05:31” w czasie warszawskim. */
-export function formatMoment(value: string | null | undefined): string {
-  if (!value) return "—";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "—";
-  return new Intl.DateTimeFormat("pl-PL", {
-    timeZone: "Europe/Warsaw",
-    day: "numeric",
-    month: "numeric",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(date);
-}
+import { LinkDialog, ResolveDialog, type ResolveTarget } from "./IntuneDialogs";
+import {
+  INTUNE_KINDS,
+  INTUNE_KIND_LABELS,
+  INTUNE_MODE_LABELS,
+  KIND_HINTS,
+  KIND_TONE,
+  MODE_NOTE,
+  RESOLUTION_LABELS,
+  RESOLVED_VIEW,
+  intuneStatusTone,
+  type IntuneFilter,
+} from "./intune-format";
 
 interface IntuneTabProps {
   /** Ręczny odczyt uruchamia tylko admin. */
   isAdmin: boolean;
   onOpenItem: (itemId: number) => void;
 }
-
-type ResolveTarget = { row: IntuneDiscrepancy; resolution: IntuneResolution };
 
 /** „Intune”: stan nocnego odczytu i rozjazdy z rejestrem (zamiast zakładki „InTune” w Excelu). */
 export function IntuneTab({ isAdmin, onOpenItem }: IntuneTabProps) {
@@ -180,13 +109,13 @@ export function IntuneTab({ isAdmin, onOpenItem }: IntuneTabProps) {
             <p className="text-xs text-muted-foreground">{MODE_NOTE[status.data.mode]}</p>
             {status.data.mode !== "off" ? (
               <p className="text-xs text-muted-foreground">
-                Ostatni udany odczyt: {formatMoment(status.data.last_success_at)} · urządzeń:{" "}
+                Ostatni udany odczyt: {formatMomentPl(status.data.last_success_at)} · urządzeń:{" "}
                 <span className="tabular-nums">{status.data.device_count}</span>
               </p>
             ) : null}
             {status.data.error ? (
               <p className="text-xs text-destructive">
-                Odczyt {formatMoment(status.data.last_run_at)} się nie udał. {status.data.error}
+                Odczyt {formatMomentPl(status.data.last_run_at)} się nie udał. {status.data.error}
               </p>
             ) : null}
           </div>
@@ -335,7 +264,7 @@ function DiscrepancyRow({ row, onOpenItem, onResolve, onLink }: DiscrepancyRowPr
           title={KIND_HINTS[row.kind]}
           note={
             row.kind === "zniknal_z_intune" && device?.missing_since
-              ? `od ${formatDatePl(device.missing_since)}`
+              ? `od ${formatIsoDatePl(device.missing_since)}`
               : undefined
           }
         >
@@ -387,7 +316,7 @@ function ResolvedRow({ row, onOpenItem, onUndo, pending }: ResolvedRowProps) {
         {device?.resolution ? (
           <StatusDot
             tone="neutral"
-            note={device.resolved_at ? formatDatePl(device.resolved_at) : undefined}
+            note={device.resolved_at ? formatIsoDatePl(device.resolved_at) : undefined}
           >
             {RESOLUTION_LABELS[device.resolution]}
           </StatusDot>
@@ -475,155 +404,5 @@ function DeviceCells({
         )}
       </TableCell>
     </>
-  );
-}
-
-function deviceLabel(row: IntuneDiscrepancy): string {
-  const device = row.device;
-  if (!device) return "";
-  const name = device.device_name ?? "Urządzenie bez nazwy";
-  return device.serial_number ? `${name} · S/N ${device.serial_number}` : name;
-}
-
-function ResolveDialog({ target, onClose }: { target: ResolveTarget; onClose: () => void }) {
-  const { showToast } = useToast();
-  const resolve = useResolveIntuneDevice();
-  const [note, setNote] = useState("");
-  const explained = target.resolution === "wyjasnione";
-  const deviceId = target.row.device?.id;
-
-  const submit = () => {
-    if (!deviceId) return;
-    resolve.mutate(
-      { deviceId, resolution: target.resolution, note: note.trim() || null },
-      {
-        onSuccess: () => {
-          showToast(explained ? "Oznaczone jako wyjaśnione" : "Urządzenie pominięte", "success");
-          onClose();
-        },
-        onError: (err) => showToast(apiErrorMessage(err, "Nie udało się zapisać."), "error"),
-      },
-    );
-  };
-
-  return (
-    <AppModal
-      open
-      onOpenChange={(open) => (open ? undefined : onClose())}
-      title={explained ? "Rozjazd wyjaśniony" : "Pomiń urządzenie"}
-      description={
-        explained
-          ? "Rozjazd zniknie z listy. Notatka zostaje przy urządzeniu."
-          : "Urządzenie nie będzie pokazywane jako rozjazd (np. sprzęt testowy albo klienta)."
-      }
-      size="md"
-      footer={
-        <>
-          <Button variant="ghost" onClick={onClose}>
-            Anuluj
-          </Button>
-          <Button onClick={submit} disabled={resolve.isPending}>
-            {resolve.isPending ? "Zapisywanie…" : "Zapisz"}
-          </Button>
-        </>
-      }
-    >
-      <div className="space-y-2">
-        <p className="text-sm font-medium">{deviceLabel(target.row)}</p>
-        <label className="block space-y-1 text-sm">
-          <span className="text-xs text-muted-foreground">Notatka (opcjonalnie)</span>
-          <Textarea
-            value={note}
-            maxLength={500}
-            rows={3}
-            onChange={(event) => setNote(event.target.value)}
-            placeholder="Np. laptop oddany do serwisu, wpis w Intune zostanie usunięty."
-          />
-        </label>
-      </div>
-    </AppModal>
-  );
-}
-
-function LinkDialog({ row, onClose }: { row: IntuneDiscrepancy; onClose: () => void }) {
-  const { showToast } = useToast();
-  const link = useLinkIntuneDevice();
-  // Podpowiedź „przypisz do …”: zaczynamy od osoby, która używa urządzenia.
-  const [query, setQuery] = useState(row.device?.user?.name ?? "");
-  const deferred = useDeferredValue(query.trim());
-  const enabled = deferred.length >= 2;
-  const items = useEquipmentItems({ q: deferred }, enabled);
-  const found = items.data?.items.slice(0, 8) ?? [];
-  const deviceId = row.device?.id;
-
-  const choose = (itemId: number) => {
-    if (!deviceId) return;
-    link.mutate(
-      { deviceId, itemId },
-      {
-        onSuccess: () => {
-          showToast("Powiązano z egzemplarzem", "success");
-          onClose();
-        },
-        onError: (err) => showToast(apiErrorMessage(err, "Nie udało się powiązać."), "error"),
-      },
-    );
-  };
-
-  return (
-    <AppModal
-      open
-      onOpenChange={(open) => (open ? undefined : onClose())}
-      title="Powiąż z egzemplarzem"
-      description="Wybierz pozycję z rejestru, która jest tym urządzeniem (np. gdy S/N w rejestrze ma literówkę)."
-      size="lg"
-    >
-      <div className="space-y-3">
-        <p className="text-sm font-medium">{deviceLabel(row)}</p>
-        <div className="relative">
-          <Search
-            aria-hidden
-            className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
-          />
-          <Input
-            aria-label="Szukaj pozycji w rejestrze"
-            placeholder="S/N, numer ewidencyjny, model albo osoba…"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            className="h-9 pl-8"
-          />
-        </div>
-        {!enabled ? (
-          <p className="text-sm text-muted-foreground">Wpisz co najmniej 2 znaki.</p>
-        ) : items.isLoading ? (
-          <p className="text-sm text-muted-foreground">Szukanie…</p>
-        ) : items.isError ? (
-          <p className="text-sm text-destructive">
-            {apiErrorMessage(items.error, "Nie udało się przeszukać rejestru.")}
-          </p>
-        ) : found.length === 0 ? (
-          <p className="text-sm text-muted-foreground">Nic nie pasuje.</p>
-        ) : (
-          <ul className="divide-y divide-border rounded-md border border-border">
-            {found.map((item) => (
-              <li key={item.id} className="flex items-center gap-3 px-3 py-2 text-sm">
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate">
-                    {CATEGORY_LABELS[item.category]} {item.model.name}
-                    {item.inventory_number ? ` (${item.inventory_number})` : ""}
-                  </span>
-                  <span className="block truncate text-xs text-muted-foreground">
-                    {itemIdentifier(item)} · {item.holder?.name ?? ITEM_STATUS_LABELS[item.status].toLowerCase()}
-                  </span>
-                </span>
-                <Button size="sm" variant="outline" onClick={() => choose(item.id)} disabled={link.isPending}>
-                  Powiąż
-                </Button>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
-    </AppModal>
   );
 }

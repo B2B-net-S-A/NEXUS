@@ -4,8 +4,9 @@ import { Button } from "@/components/ui/button";
 import type { WeekContact } from "@/lib/api/care";
 import { CALM_EMPTY, CALM_HEAD, CALM_ROW, CALM_SUBLINE } from "@/lib/calm-table";
 import { cn } from "@/lib/utils";
+import { formatDayMonthPl } from "@/lib/date-pl";
 
-import { dayMonth, frontOfficeText, lastContactText, reasonText } from "./week-format";
+import { frontOfficeText, lastContactText, reasonText } from "./week-format";
 
 interface ContactsTableProps {
   rows: WeekContact[];
@@ -81,7 +82,7 @@ export function ContactsTable({
                   {row.front_office.reasons.length ? (
                     <span className={CALM_SUBLINE}>
                       {row.front_office.handed_off_on
-                        ? `przekazany do front office ${dayMonth(row.front_office.handed_off_on)}`
+                        ? `przekazany do front office ${formatDayMonthPl(row.front_office.handed_off_on)}`
                         : `do front office: ${frontOfficeText(row.front_office.reasons)}`}
                     </span>
                   ) : null}
@@ -90,7 +91,7 @@ export function ContactsTable({
                   {row.last_conversation ? (
                     <>
                       <span className="tabular-nums">
-                        {dayMonth(row.last_conversation.occurred_on)}
+                        {formatDayMonthPl(row.last_conversation.occurred_on)}
                         {row.last_conversation.satisfaction
                           ? ` · ${row.last_conversation.satisfaction}/5`
                           : ""}

@@ -9,8 +9,9 @@ import type { WeekFeedback } from "@/lib/api/care";
 import { REASON_LABELS, formatAverage } from "@/lib/api/client-people";
 import { CALM_ROW, CALM_SUBLINE } from "@/lib/calm-table";
 import { cn } from "@/lib/utils";
+import { formatDayMonthPl } from "@/lib/date-pl";
 
-import { dayMonth, shortNames } from "./week-format";
+import { shortNames } from "./week-format";
 
 /** Ostatnia data końca wśród konsultantów menedżera („zamówienia do 30.11”). */
 function endsText(item: WeekFeedback): string | null {
@@ -20,7 +21,7 @@ function endsText(item: WeekFeedback): string | null {
     .sort();
   if (!ends.length) return null;
   const label = item.consultants.length > 1 ? "zamówienia do" : "zamówienie do";
-  return `${label} ${dayMonth(ends[ends.length - 1])}`;
+  return `${label} ${formatDayMonthPl(ends[ends.length - 1])}`;
 }
 
 /**
@@ -66,7 +67,7 @@ export function FeedbackRequestsSection({
                   {[
                     ends,
                     item.reasons.map((r) => REASON_LABELS[r]).join(", "),
-                    item.overdue ? `czeka od ${dayMonth(item.due_on)}` : null,
+                    item.overdue ? `czeka od ${formatDayMonthPl(item.due_on)}` : null,
                   ]
                     .filter(Boolean)
                     .join(" · ")}
@@ -74,7 +75,7 @@ export function FeedbackRequestsSection({
               </div>
               <div className="w-36 text-sm tabular-nums text-muted-foreground">
                 {item.last_feedback
-                  ? `ostatnio ${dayMonth(item.last_feedback.held_on)} · ${formatAverage(item.last_feedback.average)}`
+                  ? `ostatnio ${formatDayMonthPl(item.last_feedback.held_on)} · ${formatAverage(item.last_feedback.average)}`
                   : "bez opinii"}
               </div>
               {canWrite ? (

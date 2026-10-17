@@ -31,12 +31,12 @@ import {
 } from "@/lib/api/equipment";
 import { CALM_EMPTY, CALM_HEAD, CALM_ROW, CALM_SUBLINE } from "@/lib/calm-table";
 import { resolveViewState } from "@/lib/view-state";
+import { formatIsoDatePl } from "@/lib/date-pl";
 
 import {
   CATEGORY_LABELS,
   DECISION_LABELS,
   ITEM_STATUS_LABELS,
-  formatDatePl,
 } from "./equipment-format";
 import { FilterSelect } from "./FilterSelect";
 import { HolderPicker } from "./HolderPicker";
@@ -378,7 +378,7 @@ export function ImportTab() {
                 }`}
               >
                 <span className="block font-medium">{batch.file_name}</span>
-                {formatDatePl(batch.created_at)} ·{" "}
+                {formatIsoDatePl(batch.created_at)} ·{" "}
                 {batch.status === "zatwierdzona" ? "zapisana" : "czeka na zatwierdzenie"}
               </button>
             ))}

@@ -6,8 +6,7 @@
  * w zasiew niezależnie od dnia otwarcia harnessu.
  */
 
-import { LEAVE_TYPE_LABELS, shiftMonth as shiftIsoMonth } from "@/components/hr/leave/leave-format";
-import type { YearMonth } from "@/components/hr/time/time-format";
+import { LEAVE_TYPE_LABELS } from "@/components/hr/leave/leave-format";
 import type { EmploymentType, PersonFull } from "@/lib/api/hr";
 import type { HolderEquipment } from "@/lib/api/equipment";
 import type {
@@ -25,6 +24,7 @@ import type {
   TimesheetHistoryItem,
   TimesheetTemplate,
 } from "@/lib/api/hr-time";
+import { monthYearPl, shiftMonth, type YearMonth } from "@/lib/date-pl";
 
 import {
   HR_CAST,
@@ -203,10 +203,10 @@ function request(
  */
 export function olaRequests(current: YearMonth, form: EmploymentType = "uop"): LeaveRequestRow[] {
   const month = isoMonth(current);
-  const next = shiftIsoMonth(month, 1);
+  const next = shiftMonth(month, 1);
   const leaveDay = harnessWorkDays(month)[3];
   const nextDays = harnessWorkDays(next);
-  const previous = harnessWorkDays(shiftIsoMonth(month, -1));
+  const previous = harnessWorkDays(shiftMonth(month, -1));
   if (form !== "uop") {
     const label = form === "b2b" ? "Przerwa w świadczeniu usług" : "Nieobecność";
     const report = {
@@ -247,7 +247,7 @@ export function olaRequests(current: YearMonth, form: EmploymentType = "uop"): L
 }
 
 export function kamilRequests(current: YearMonth): LeaveRequestRow[] {
-  const previous = harnessWorkDays(shiftIsoMonth(isoMonth(current), -1));
+  const previous = harnessWorkDays(shiftMonth(isoMonth(current), -1));
   return [request("lv-kamil-1", kamil, previous[5], previous[6], "2", "approved")];
 }
 
@@ -511,7 +511,7 @@ export function personMonth(
   });
   const work = days.flatMap((day) => day.entries).filter((entry) => entry.source === "manual");
   const workingDays = workDays.length;
-  const next = shiftIsoMonth(month, 1);
+  const next = shiftMonth(month, 1);
   return {
     user_id: person.id,
     name: person.name,
@@ -640,7 +640,7 @@ function forecast(today: string, over: Partial<BonusForecast>): BonusForecast {
 }
 
 export function olaPayroll(current: YearMonth, today: string = `${isoMonth(current)}-22`): MyPayroll {
-  const previous = shiftIsoMonth(isoMonth(current), -1);
+  const previous = shiftMonth(isoMonth(current), -1);
   const [prevYear, prevMonth] = previous.split("-").map(Number);
   return {
     forecast: [forecast(today, {})],
@@ -712,7 +712,7 @@ function olaPayrollBase(
 
 /** „Moje rozliczenie”: poprzedni miesiąc zamknięty, bieżący jako szacunek z „Mojego miesiąca”. */
 export function olaSettlement(current: YearMonth): MySettlement {
-  const previous = shiftIsoMonth(isoMonth(current), -1);
+  const previous = shiftMonth(isoMonth(current), -1);
   const [prevYear, prevMonth] = previous.split("-").map(Number);
   const months: MySettlement["months"] = [
     {
@@ -746,26 +746,8 @@ export function olaSettlement(current: YearMonth): MySettlement {
   }
   return {
     year: current.year,
-    months: months.map((month) => ({ ...month, label: settlementLabel(month.year, month.month) })),
+    months: months.map((month) => ({ ...month, label: monthYearPl(month) })),
     bonuses_paid: prevYear === current.year ? { PLN: "1500.00" } : {},
   };
 }
 
-const MONTHS_PL = [
-  "styczeń",
-  "luty",
-  "marzec",
-  "kwiecień",
-  "maj",
-  "czerwiec",
-  "lipiec",
-  "sierpień",
-  "wrzesień",
-  "październik",
-  "listopad",
-  "grudzień",
-];
-
-function settlementLabel(year: number, month: number): string {
-  return `${MONTHS_PL[month - 1]} ${year}`;
-}

@@ -6,6 +6,7 @@ import type {
   RedeployReason,
   TechCard,
 } from "@/lib/api/care";
+import { countPl } from "@/lib/plural-pl";
 
 export type TimelineEntry =
   | { kind: "conversation"; date: string; id: number; item: CareConversation }
@@ -72,23 +73,11 @@ export function technologiesInArea(
 export function sourceSummary(tech: MapTechnology): string {
   const parts: string[] = [];
   const { cards, jobs, consultants, notes } = tech.counts;
-  if (cards) parts.push(`${cards} ${plural(cards, "karta", "karty", "kart")}`);
-  if (jobs) parts.push(`${jobs} ${plural(jobs, "rekrutacja", "rekrutacje", "rekrutacji")}`);
-  if (consultants)
-    parts.push(
-      `${consultants} ${plural(consultants, "konsultant", "konsultantów", "konsultantów")}`,
-    );
-  if (notes) parts.push(`${notes} ${plural(notes, "notatka", "notatki", "notatek")}`);
+  if (cards) parts.push(countPl(cards, "karta", "karty", "kart"));
+  if (jobs) parts.push(countPl(jobs, "rekrutacja", "rekrutacje", "rekrutacji"));
+  if (consultants) parts.push(countPl(consultants, "konsultant", "konsultantów", "konsultantów"));
+  if (notes) parts.push(countPl(notes, "notatka", "notatki", "notatek"));
   return parts.join(", ");
-}
-
-/** Polska odmiana liczebnika (1 karta, 2 karty, 5 kart). */
-export function plural(count: number, one: string, few: string, many: string): string {
-  if (count === 1) return one;
-  const tens = count % 100;
-  const units = count % 10;
-  if (units >= 2 && units <= 4 && (tens < 12 || tens > 14)) return few;
-  return many;
 }
 
 /** Wpisy technologii z pola tekstowego (przecinek, średnik albo nowa linia). */

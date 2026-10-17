@@ -44,6 +44,7 @@ import {
 import { CALM_EMPTY, CALM_HEAD, CALM_ROW, CALM_SUBLINE } from "@/lib/calm-table";
 import { countPl } from "@/lib/plural-pl";
 import { resolveViewState } from "@/lib/view-state";
+import { formatWeekdayDayPl } from "@/lib/date-pl";
 
 import { LeaveRequestDialog } from "./LeaveRequestDialog";
 import { RejectLeaveDialog } from "./RejectLeaveDialog";
@@ -51,31 +52,13 @@ import { ReportConflictDialog } from "./ReportConflictDialog";
 import {
   HALF_DAY_LABELS,
   LEAVE_STATUS_LABELS,
-  dayLabel,
   LEAVE_STATUS_TONE,
   daysLabel,
   formatRange,
   leaveToast,
-  shortDate,
   statusLabel,
+  pendingDetails,
 } from "./leave-format";
-
-/** Zdania pod wnioskiem w kolejce — co akceptujący powinien wiedzieć. */
-export function pendingDetails(row: PendingLeaveRow, viewerIsHr: boolean): string[] {
-  const lines: string[] = [];
-  lines.push(row.substitute_name ? `zastępca ${row.substitute_name}` : "bez zastępcy");
-  for (const kind of row.work_by_kind) {
-    lines.push(`${kind.label}: ${kind.count}`);
-  }
-  if (row.department_absent.length > 0) {
-    const names = row.department_absent
-      .map((other) => `${other.name} (${shortDate(other.start_date)}–${shortDate(other.end_date)})`)
-      .join(", ");
-    lines.push(`w tym czasie nieobecni też: ${names}`);
-  }
-  if (viewerIsHr && row.manager_name) lines.push(`przełożony: ${row.manager_name}`);
-  return lines;
-}
 
 interface ApprovalSection {
   key: string;
@@ -522,7 +505,7 @@ export function ApprovalsScreen({ config }: { config: HrConfig }) {
       {covering.data && covering.data.length > 0 ? (
         <p className="text-sm text-muted-foreground" data-testid="approvals-covering">
           {covering.data
-            .map((cover) => `W zastępstwie za ${cover.manager_name} do ${dayLabel(cover.until)}`)
+            .map((cover) => `W zastępstwie za ${cover.manager_name} do ${formatWeekdayDayPl(cover.until)}`)
             .join(" · ")}
           {" — decydujesz o wnioskach i timesheetach zastępowanego zespołu; L4 i pokrewne tylko do wiadomości."}
         </p>

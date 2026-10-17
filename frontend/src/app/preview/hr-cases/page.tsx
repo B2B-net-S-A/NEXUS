@@ -24,11 +24,11 @@ import { CaseDetailView } from "@/components/admin-cases/CaseDetailView";
 import { CasesBoard } from "@/components/admin-cases/CasesBoard";
 import { PageHeader } from "@/components/ds/PageHeader";
 import { PeopleSectionNav } from "@/components/hr/people/PeopleSectionNav";
-import type { CaseListFilters } from "@/lib/api/admin-cases";
-import type { HrConfig } from "@/lib/api/hr";
+import { caseKeys, type CaseListFilters } from "@/lib/api/admin-cases";
+import { hrKeys, type HrConfig } from "@/lib/api/hr";
 import { warsawToday } from "@/lib/warsaw-date";
 
-import { HR_CAST, HR_CONFIG_QUERY_KEY, hrConfig } from "../hr-fixtures";
+import { HR_CAST, hrConfig } from "../hr-fixtures";
 import {
   HrHarnessLoading,
   HrHarnessShell,
@@ -51,25 +51,17 @@ const STATES = [
   { key: "detail", label: "Sprawa onboardingu" },
 ] as const;
 
-// Klucze `lib/api/admin-cases.ts` — moduł nie eksportuje swojej fabryki kluczy
-// (`keys`), więc powtarzamy ją tu 1:1. Obiekt filtrów ma TEN SAM kształt co
-// w `CasesBoard` (`mine`, `area` z `null`, `q`, `include_closed`).
-const caseKeys = {
-  list: (filters: CaseListFilters) => ["admin-cases", "list", filters] as const,
-  detail: (id: number) => ["admin-cases", "detail", id] as const,
-  assignees: ["admin-cases", "assignees"] as const,
-};
-
 function prepare(params: URLSearchParams) {
   const state = pickState(params.get("state"), KNOWN, "board");
   const today = warsawToday();
   const config: HrConfig = hrConfig({ cases: true, has_assigned_cases: true });
   const client = harnessQueryClient();
-  client.setQueryData(HR_CONFIG_QUERY_KEY, config);
-  client.setQueryData(["hr", "counts"], { approvals: null, cases: 2 });
+  client.setQueryData(hrKeys.config, config);
+  client.setQueryData(hrKeys.counts, { approvals: null, cases: 2 });
   for (const mine of [false, true]) {
     for (const area of BOARD_AREAS) {
       for (const includeClosed of [false, true]) {
+        // TEN SAM kształt filtrów co w `CasesBoard` — inaczej klucz listy się nie zgodzi.
         const filters: CaseListFilters = { mine, area, q: "", include_closed: includeClosed };
         client.setQueryData(caseKeys.list(filters), caseList(today, filters));
       }

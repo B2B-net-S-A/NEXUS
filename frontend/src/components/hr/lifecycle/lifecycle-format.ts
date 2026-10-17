@@ -1,22 +1,17 @@
 // Wejście i odejście — czyste funkcje do ekranów (bez zapytań, testowalne).
 
+import type { StatusDotTone } from "@/components/ds/StatusDot";
 import type {
   AccountCloseResult,
   CaseKind,
   CaseProgress,
   CaseStatus,
 } from "@/lib/api/hr-lifecycle";
+import { countPl } from "@/lib/plural-pl";
 
-/** „1 dzień roboczy”, „2 dni robocze”, „5 dni roboczych”. */
+/** „1 dzień roboczy”, „2 dni robocze”, „5 dni roboczych” (liczba bez znaku). */
 export function workingDays(count: number): string {
-  const n = Math.abs(count);
-  if (n === 1) return "1 dzień roboczy";
-  const lastTwo = n % 100;
-  const last = n % 10;
-  if (last >= 2 && last <= 4 && (lastTwo < 12 || lastTwo > 14)) {
-    return `${n} dni robocze`;
-  }
-  return `${n} dni roboczych`;
+  return countPl(Math.abs(count), "dzień roboczy", "dni robocze", "dni roboczych");
 }
 
 /** Termin pozycji szablonu: „2 dni robocze przed startem”, „w ostatnim dniu”. */
@@ -26,18 +21,6 @@ export function formatOffset(kind: CaseKind, days: number): string {
   return days < 0
     ? `${workingDays(days)} przed ${anchor}`
     : `${workingDays(days)} po ${kind === "onboarding" ? "starcie" : "ostatnim dniu"}`;
-}
-
-const WEEKDAY = new Intl.DateTimeFormat("pl-PL", { weekday: "short", timeZone: "UTC" });
-
-/** „pon 30.11” — data kalendarzowa (YYYY-MM-DD) bez przesunięcia strefy. */
-export function formatDayShort(iso: string | null | undefined): string {
-  if (!iso) return "—";
-  const [year, month, day] = iso.slice(0, 10).split("-").map(Number);
-  if (!year || !month || !day) return "—";
-  const date = new Date(Date.UTC(year, month - 1, day));
-  const weekday = WEEKDAY.format(date).replace(".", "");
-  return `${weekday} ${day}.${String(month).padStart(2, "0")}`;
 }
 
 const MOMENT = new Intl.DateTimeFormat("pl-PL", {
@@ -55,6 +38,14 @@ export function formatMoment(iso: string | null | undefined): string {
   if (Number.isNaN(date.getTime())) return "—";
   return MOMENT.format(date);
 }
+
+/** Kolor statusu sprawy wejścia i odejścia — ten sam w kartotece, sprawie i odejściu. */
+export const CASE_STATUS_TONE: Record<CaseStatus, StatusDotTone> = {
+  draft: "neutral",
+  active: "info",
+  done: "success",
+  cancelled: "neutral",
+};
 
 export function isLiveStatus(status: CaseStatus): boolean {
   return status === "draft" || status === "active";
@@ -86,24 +77,9 @@ export function canDeactivateNow(
   return today >= deactivateOn.slice(0, 10);
 }
 
-/** Dzisiejsza data w kalendarzu firmy (YYYY-MM-DD, Europe/Warsaw). */
-export function warsawToday(now: Date = new Date()): string {
-  return new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Europe/Warsaw",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(now);
-}
-
 /** „1 osoba”, „3 osoby”, „5 osób”. */
 export function peopleCount(count: number): string {
-  const n = Math.abs(count);
-  if (n === 1) return "1 osoba";
-  const lastTwo = n % 100;
-  const last = n % 10;
-  if (last >= 2 && last <= 4 && (lastTwo < 12 || lastTwo > 14)) return `${n} osoby`;
-  return `${n} osób`;
+  return countPl(Math.abs(count), "osoba", "osoby", "osób");
 }
 
 interface ReportsRowLike {

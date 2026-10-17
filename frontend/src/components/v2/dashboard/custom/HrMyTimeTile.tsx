@@ -10,9 +10,9 @@
 
 import Link from "next/link"
 
-import { formatRange, daysLabel, warsawToday } from "@/components/hr/leave/leave-format"
+import { formatRange, daysLabel } from "@/components/hr/leave/leave-format"
 import { absenceCardKind } from "@/components/hr/me/overview-format"
-import { currentYearMonth, formatHours, monthTitle } from "@/components/hr/time/time-format"
+import { currentYearMonth, hoursLabel } from "@/components/hr/time/time-format"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import type { HrConfig } from "@/lib/api/hr"
@@ -22,10 +22,12 @@ import {
   type LeaveBalance,
   type LeaveRequestRow,
 } from "@/lib/api/hr-leave"
-import { useMyMonth, type MonthTotals } from "@/lib/api/hr-time"
+import { useMyMonth } from "@/lib/api/hr-time"
 import { absenceActionLabel } from "@/lib/hr-employment-terms"
 import { countPl } from "@/lib/plural-pl"
 import { resolveViewState } from "@/lib/view-state"
+import { warsawToday } from "@/lib/warsaw-date"
+import { monthTitlePl } from "@/lib/date-pl"
 
 import { TilePartError } from "./HrTileGate"
 
@@ -51,11 +53,6 @@ export function balanceTitle(balance: LeaveBalance, year: number): string {
   if (kind === "leave") return `Urlop ${year}`
   if (kind === "paid_days") return `Płatne dni przerwy ${year}`
   return `Nieobecności ${year}`
-}
-
-/** „121 / 176 h” — praca wpisana w miesiącu wobec normy (jak „Mój miesiąc”). */
-export function hoursLabel(totals: MonthTotals): string {
-  return `${formatHours(totals.work_hours)} / ${totals.norm_hours} h`
 }
 
 function Stat({ label, value, hint }: { label: string; value: string; hint?: string }) {
@@ -139,7 +136,7 @@ function HoursPart({ year, month }: { year: number; month: number }) {
   const { totals } = view.data
   return (
     <Stat
-      label={`Godziny · ${monthTitle({ year, month })}`}
+      label={`Godziny · ${monthTitlePl({ year, month })}`}
       value={hoursLabel(totals)}
       hint={
         totals.days_missing > 0

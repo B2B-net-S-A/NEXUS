@@ -36,16 +36,15 @@ import {
   type CaseStatus,
 } from "@/lib/api/admin-cases";
 import { resolveViewState } from "@/lib/view-state";
+import { formatIsoDatePl, formatMomentPl } from "@/lib/date-pl";
 
 import { CaseFormDialog } from "./CaseFormDialog";
 import {
   PRIORITY_BADGE,
   STATUS_TONE,
   addChecklistItem,
-  dateTime,
   dueLabel,
   fileSize,
-  fullDate,
   removeChecklistItem,
   toggleChecklistItem,
 } from "./case-format";
@@ -176,7 +175,7 @@ function Messages({ detail }: { detail: CaseDetail }) {
                   <span className="truncate">{message.sender_email}</span>
                 ) : null}
               </span>
-              <span>{dateTime(message.received_at)}</span>
+              <span>{formatMomentPl(message.received_at)}</span>
             </div>
             {message.subject ? (
               <p className="mt-1 text-sm font-medium text-foreground">{message.subject}</p>
@@ -230,7 +229,7 @@ function Comments({ detail }: { detail: CaseDetail }) {
                 <span className="font-medium text-foreground">
                   {comment.author?.name ?? "Konto usunięte"}
                 </span>
-                <span>{dateTime(comment.created_at)}</span>
+                <span>{formatMomentPl(comment.created_at)}</span>
               </div>
               <p className="mt-0.5 whitespace-pre-line break-words text-foreground">
                 {comment.body}
@@ -424,13 +423,13 @@ export function CaseDetailView({ caseId }: { caseId: number }) {
           <Card className="p-4">
             <SectionTitle>Szczegóły</SectionTitle>
             <Fact label="Osoba odpowiedzialna">{detail.assignee?.name ?? "nikt"}</Fact>
-            <Fact label="Termin">{fullDate(detail.due_on)}</Fact>
-            <Fact label="Kontakt">{fullDate(detail.follow_up_on)}</Fact>
-            <Fact label="Założona">{dateTime(detail.created_at)}</Fact>
+            <Fact label="Termin">{formatIsoDatePl(detail.due_on)}</Fact>
+            <Fact label="Kontakt">{formatIsoDatePl(detail.follow_up_on)}</Fact>
+            <Fact label="Założona">{formatMomentPl(detail.created_at)}</Fact>
             {detail.created_by ? (
               <Fact label="Założył(a)">{detail.created_by.name ?? "—"}</Fact>
             ) : null}
-            {detail.closed_at ? <Fact label="Zakończona">{dateTime(detail.closed_at)}</Fact> : null}
+            {detail.closed_at ? <Fact label="Zakończona">{formatMomentPl(detail.closed_at)}</Fact> : null}
           </Card>
           <Checklist detail={detail} />
           <Card className="p-4">

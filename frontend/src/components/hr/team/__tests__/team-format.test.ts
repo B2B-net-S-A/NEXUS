@@ -62,7 +62,7 @@ describe("„Mój zespół” — komórki", () => {
   });
 
   it("miesiąc: godziny do normy i status timesheetu", () => {
-    expect(monthCell(person(), team)).toEqual({ text: "121/176 h", sub: "do wysłania" });
+    expect(monthCell(person(), team)).toEqual({ text: "121/176 h", sub: "szkic" });
     expect(monthCell(person({ month: null, timesheet_required: false }), team).text).toBe(
       "bez timesheetu",
     );
@@ -76,10 +76,20 @@ describe("„Mój zespół” — komórki", () => {
       totals: [{ currency: "PLN", amount: "3000.00" }],
       items: [],
     });
-    expect(cell.text).toMatch(/^2 · 3\s?000\szł$/);
+    // Kwota jak w całej aplikacji (`@/lib/money`): dwa miejsca po przecinku.
+    expect(cell.text).toBe("2 · 3000,00\u00a0zł");
     expect(cell.sub).toBe("1 propozycja — decydują Płace");
     expect(bonusCell(null).text).toBe("—");
     expect(bonusCell({ count: 0, proposals: 0, totals: [], items: [] }).text).toBe("—");
+  });
+
+  it("propozycje odmieniane po polsku (było „5 propozycje”)", () => {
+    const sub = (proposals: number) =>
+      bonusCell({ count: 6, proposals, totals: [{ currency: "PLN", amount: "100.00" }], items: [] }).sub;
+    expect(sub(2)).toBe("2 propozycje — decydują Płace");
+    expect(sub(5)).toBe("5 propozycji — decydują Płace");
+    expect(sub(12)).toBe("12 propozycji — decydują Płace");
+    expect(sub(22)).toBe("22 propozycje — decydują Płace");
   });
 
   it("do decyzji: wnioski i timesheety z linkami", () => {

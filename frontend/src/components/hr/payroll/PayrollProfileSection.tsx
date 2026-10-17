@@ -19,10 +19,11 @@ import { apiErrorMessage } from "@/lib/api-error";
 import { useDeleteRate, usePersonPayroll, type RateRow } from "@/lib/api/hr-payroll";
 import { CALM_AMOUNT, CALM_HEAD, CALM_ROW, CALM_SUBLINE } from "@/lib/calm-table";
 import { resolveViewState } from "@/lib/view-state";
+import { formatMoney } from "@/lib/money";
+import { formatIsoDatePl } from "@/lib/date-pl";
 
 import { BonusDialog } from "./BonusDialog";
 import { BonusTable } from "./BonusTable";
-import { formatDay, formatMoney } from "./payroll-format";
 import { RateDialog } from "./RateDialog";
 
 const SECTION_TITLE =
@@ -30,8 +31,8 @@ const SECTION_TITLE =
 
 /** Okres stawki w jednej linii: „od 01.09.2026” albo „01.06.2026 – 31.08.2026”. */
 export function rateRange(rate: Pick<RateRow, "effective_from" | "effective_to">): string {
-  if (!rate.effective_to) return `od ${formatDay(rate.effective_from)}`;
-  return `${formatDay(rate.effective_from)} – ${formatDay(rate.effective_to)}`;
+  if (!rate.effective_to) return `od ${formatIsoDatePl(rate.effective_from)}`;
+  return `${formatIsoDatePl(rate.effective_from)} – ${formatIsoDatePl(rate.effective_to)}`;
 }
 
 function RatesTable({

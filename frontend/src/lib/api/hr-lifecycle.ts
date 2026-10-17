@@ -8,7 +8,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { api } from "@/lib/api";
-import type { EmploymentType, WorkLocation } from "@/lib/api/hr";
+import { hrKeys, type EmploymentType, type WorkLocation } from "@/lib/api/hr";
 
 export type CaseKind = "onboarding" | "offboarding";
 export type CaseStatus = "draft" | "active" | "done" | "cancelled";
@@ -266,7 +266,16 @@ export const HANDOVER_ERROR_LABELS: Record<string, string> = {
 
 const BASE = "/api/hr/lifecycle";
 
-const keys = {
+/** Ładunek podglądu zadań (`POST /preview`) — także część klucza zapytania. */
+export interface PreviewTasksPayload {
+  kind: CaseKind;
+  anchor: string;
+  template_id?: number | null;
+  employment_type?: EmploymentType | null;
+  department?: string | null;
+}
+
+export const lifecycleKeys = {
   all: ["hr", "lifecycle"] as const,
   templates: (kind: CaseKind | null) => ["hr", "lifecycle", "templates", kind] as const,
   cases: (kind: CaseKind | null) => ["hr", "lifecycle", "cases", kind] as const,
@@ -275,17 +284,18 @@ const keys = {
     ["hr", "lifecycle", "receivers", id, kind] as const,
   summary: (userId: number) => ["hr", "lifecycle", "summary", userId] as const,
   myTasks: ["hr", "lifecycle", "my-tasks"] as const,
+  preview: (payload: PreviewTasksPayload) => ["hr", "lifecycle", "preview", payload] as const,
 };
 
 function useInvalidateLifecycle() {
   const queryClient = useQueryClient();
   // Kartoteka (status, ostatni dzień) też się zmienia — odśwież cały obszar.
-  return () => queryClient.invalidateQueries({ queryKey: ["hr"] });
+  return () => queryClient.invalidateQueries({ queryKey: hrKeys.all });
 }
 
 export function useLifecycleTemplates(kind: CaseKind | null, enabled = true) {
   return useQuery({
-    queryKey: keys.templates(kind),
+    queryKey: lifecycleKeys.templates(kind),
     queryFn: async () =>
       (
         await api.get<{ items: LifecycleTemplate[] }>(`${BASE}/templates`, {
@@ -307,17 +317,10 @@ export function useSaveTemplate() {
   });
 }
 
-export function usePreviewTasks(input: {
-  kind: CaseKind;
-  anchor: string;
-  template_id?: number | null;
-  employment_type?: EmploymentType | null;
-  department?: string | null;
-  enabled: boolean;
-}) {
+export function usePreviewTasks(input: PreviewTasksPayload & { enabled: boolean }) {
   const { enabled, ...payload } = input;
   return useQuery({
-    queryKey: ["hr", "lifecycle", "preview", payload],
+    queryKey: lifecycleKeys.preview(payload),
     queryFn: async () =>
       (
         await api.post<{
@@ -332,7 +335,7 @@ export function usePreviewTasks(input: {
 
 export function useLifecycleCases(kind: CaseKind | null, enabled = true) {
   return useQuery({
-    queryKey: keys.cases(kind),
+    queryKey: lifecycleKeys.cases(kind),
     queryFn: async () =>
       (
         await api.get<{ items: LifecycleCase[]; total: number }>(`${BASE}/cases`, {
@@ -345,7 +348,7 @@ export function useLifecycleCases(kind: CaseKind | null, enabled = true) {
 
 export function useLifecycleCase(caseId: number | null) {
   return useQuery({
-    queryKey: keys.case(caseId ?? 0),
+    queryKey: lifecycleKeys.case(caseId ?? 0),
     queryFn: async () =>
       (await api.get<LifecycleCase>(`${BASE}/cases/${caseId}`)).data,
     enabled: caseId != null && Number.isFinite(caseId) && caseId > 0,
@@ -354,31 +357,30 @@ export function useLifecycleCase(caseId: number | null) {
 
 export function usePersonLifecycleSummary(userId: number, enabled = true) {
   return useQuery({
-    queryKey: keys.summary(userId),
+    queryKey: lifecycleKeys.summary(userId),
     queryFn: async () =>
       (await api.get<PersonLifecycleSummary>(`${BASE}/people/${userId}/summary`)).data,
     enabled: enabled && Number.isFinite(userId) && userId > 0,
   });
 }
 
+/** Moje zadanie wejścia albo odejścia („Mój czas → Do zrobienia”). */
+export interface MyLifecycleTask {
+  task_id: number;
+  case_id: number;
+  kind: CaseKind;
+  person_name: string;
+  title: string;
+  due_date: string | null;
+  overdue: boolean;
+  link: string;
+}
+
 export function useMyLifecycleTasks(enabled = true) {
   return useQuery({
-    queryKey: keys.myTasks,
+    queryKey: lifecycleKeys.myTasks,
     queryFn: async () =>
-      (
-        await api.get<{
-          items: {
-            task_id: number;
-            case_id: number;
-            kind: CaseKind;
-            person_name: string;
-            title: string;
-            due_date: string | null;
-            overdue: boolean;
-            link: string;
-          }[];
-        }>(`${BASE}/my-tasks`)
-      ).data.items,
+      (await api.get<{ items: MyLifecycleTask[] }>(`${BASE}/my-tasks`)).data.items,
     enabled,
   });
 }
@@ -462,7 +464,7 @@ export function useSetReceivers(caseId: number) {
 
 export function useReceivers(caseId: number, kind: TransferKind, enabled = true) {
   return useQuery({
-    queryKey: keys.receivers(caseId, kind),
+    queryKey: lifecycleKeys.receivers(caseId, kind),
     queryFn: async () =>
       (
         await api.get<{ items: { user_id: number; name: string }[] }>(

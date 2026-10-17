@@ -5,7 +5,6 @@ import type { EquipmentItem } from "@/lib/api/equipment";
 import {
   canIssue,
   dueLabel,
-  formatDatePl,
   formatPln,
   issueBlocker,
   issueTotal,
@@ -107,9 +106,6 @@ describe("teksty", () => {
     expect(formatPln(1234567.5)).toBe("1\u00a0234\u00a0567,50\u00a0zł");
     expect(formatPln("0")).toBe("0,00\u00a0zł");
     expect(formatPln(null)).toBe("bez wartości");
-    expect(formatDatePl("2026-10-28")).toBe("28.10.2026");
-    expect(formatDatePl("2026-10-28T10:00:00+02:00")).toBe("28.10.2026");
-    expect(formatDatePl(null)).toBe("—");
   });
 
   it("termin zadania mówi o opóźnieniu", () => {

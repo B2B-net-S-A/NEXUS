@@ -30,8 +30,8 @@ import {
   type ContractCare,
   type TechCard,
 } from "@/lib/api/care";
-import { formatDate } from "@/lib/utils";
 import { resolveViewState } from "@/lib/view-state";
+import { formatIsoDatePl } from "@/lib/date-pl";
 
 import { careTimeline, conversationSignals } from "./care-format";
 import { ConversationDialog } from "./ConversationDialog";
@@ -124,7 +124,7 @@ function PlanList({ care, onRecord }: { care: ContractCare; onRecord: (item: Car
                     : undefined
             }
           >
-            {item.label} · {formatDate(item.due_on)}
+            {item.label} · {formatIsoDatePl(item.due_on)}
           </StatusDot>
           {care.can_edit && item.status === "open" ? (
             <span className="flex shrink-0 gap-1">
@@ -238,7 +238,7 @@ function Timeline({ care, onEditCard }: { care: ContractCare; onEditCard: (card:
       {entries.map((entry) => (
         <li key={`${entry.kind}-${entry.id}`} className="grid grid-cols-[72px_minmax(0,1fr)] gap-3">
           <span className="pt-0.5 text-xs tabular-nums text-muted-foreground">
-            {formatDate(entry.date)}
+            {formatIsoDatePl(entry.date)}
           </span>
           {entry.kind === "conversation" ? (
             <div className="grid gap-1 text-sm">
@@ -250,7 +250,7 @@ function Timeline({ care, onEditCard }: { care: ContractCare; onEditCard: (card:
               {conversationSignals(entry.item).length ? (
                 <span className="text-xs text-muted-foreground">
                   Sygnały: {conversationSignals(entry.item).join(" · ")}
-                  {entry.item.project_end_on ? ` (${formatDate(entry.item.project_end_on)})` : ""}
+                  {entry.item.project_end_on ? ` (${formatIsoDatePl(entry.item.project_end_on)})` : ""}
                 </span>
               ) : null}
               {entry.item.note ? <p className="whitespace-pre-line">{entry.item.note}</p> : null}
@@ -259,7 +259,7 @@ function Timeline({ care, onEditCard }: { care: ContractCare; onEditCard: (card:
               ) : null}
               {entry.item.follow_up_on ? (
                 <span className="text-xs text-muted-foreground">
-                  Następny kontakt: {formatDate(entry.item.follow_up_on)}
+                  Następny kontakt: {formatIsoDatePl(entry.item.follow_up_on)}
                 </span>
               ) : null}
             </div>
@@ -352,13 +352,13 @@ export function ContractCareTab({ contractId }: { contractId: number }) {
             <Fact label="Dzień współpracy">{care.contract.day_of_cooperation ?? "—"}</Fact>
             <Fact label="Zadowolenie">
               {care.last_satisfaction
-                ? `${care.last_satisfaction.value} / 5 · ${formatDate(care.last_satisfaction.on)}`
+                ? `${care.last_satisfaction.value} / 5 · ${formatIsoDatePl(care.last_satisfaction.on)}`
                 : "—"}
             </Fact>
             <Fact label="Następny kontakt">
               {care.next_contact ? (
                 <span className={care.next_contact.overdue ? "text-destructive" : undefined}>
-                  {care.next_contact.label} · {formatDate(care.next_contact.due_on)}
+                  {care.next_contact.label} · {formatIsoDatePl(care.next_contact.due_on)}
                 </span>
               ) : (
                 "—"
@@ -370,7 +370,7 @@ export function ContractCareTab({ contractId }: { contractId: number }) {
           </Section>
           <Section title="Sygnały">
             {care.project_end?.end_on ? (
-              <Fact label="Koniec projektu">{formatDate(care.project_end.end_on)}</Fact>
+              <Fact label="Koniec projektu">{formatIsoDatePl(care.project_end.end_on)}</Fact>
             ) : null}
             {latestHiring ? (
               <Fact label="Klient zatrudnia">
@@ -383,7 +383,7 @@ export function ContractCareTab({ contractId }: { contractId: number }) {
                   <li key={item.id}>
                     <StatusDot tone="warning" note={REDEPLOY_STATUS_LABELS[item.status]}>
                       Do przepięcia: {REDEPLOY_REASON_LABELS[item.reason]}
-                      {item.due_on ? ` · ${formatDate(item.due_on)}` : ""}
+                      {item.due_on ? ` · ${formatIsoDatePl(item.due_on)}` : ""}
                     </StatusDot>
                   </li>
                 ))}

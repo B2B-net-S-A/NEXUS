@@ -6,7 +6,8 @@ import {
   type WeekContact,
   type WeekReason,
 } from "@/lib/api/care";
-import { plural } from "@/components/care/care-format";
+import { formatDayMonthPl } from "@/lib/date-pl";
+import { countPl } from "@/lib/plural-pl";
 
 const ISO = /^(\d{4})-(\d{2})-(\d{2})$/;
 
@@ -16,12 +17,6 @@ export function shiftIso(iso: string, days: number): string {
   if (!match) return iso;
   const moment = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]) + days));
   return moment.toISOString().slice(0, 10);
-}
-
-/** „DD.MM” z daty RRRR-MM-DD. */
-export function dayMonth(iso: string | null | undefined): string {
-  const match = iso ? ISO.exec(iso) : null;
-  return match ? `${match[3]}.${match[2]}` : "—";
 }
 
 /** „19–23.10” albo „28.10–01.11” — tydzień pracy w nagłówku listy. */
@@ -37,16 +32,16 @@ export function weekRangeLabel(from: string, to: string): string {
 export function reasonText(reason: WeekReason, today: string): string {
   const what =
     reason.kind === "follow_up"
-      ? `umówiony kontakt${reason.from_conversation_on ? ` z ${dayMonth(reason.from_conversation_on)}` : ""}`
+      ? `umówiony kontakt${reason.from_conversation_on ? ` z ${formatDayMonthPl(reason.from_conversation_on)}` : ""}`
       : reason.kind === "pre_end"
         ? "30 dni przed końcem zamówienia"
         : reason.label.toLowerCase();
   if (reason.due_on < today) {
     const days = daysBetween(reason.due_on, today);
-    return `zaległy ${days} ${plural(days, "dzień", "dni", "dni")} · ${what}`;
+    return `zaległy ${countPl(days, "dzień", "dni", "dni")} · ${what}`;
   }
   if (reason.due_on === today) return `dziś · ${what}`;
-  return `${dayMonth(reason.due_on)} · ${what}`;
+  return `${formatDayMonthPl(reason.due_on)} · ${what}`;
 }
 
 /** Dni między dwiema datami RRRR-MM-DD (b − a). */

@@ -8,8 +8,10 @@ import { useQuery } from "@tanstack/react-query";
 
 import { api } from "@/lib/api";
 import type { EmploymentStatus, EmploymentType } from "@/lib/api/hr";
+import type { QueueStatus } from "@/lib/api/hr-time";
 
-export type TeamTimesheetStatus = "draft" | "submitted" | "approved" | "missing";
+/** Status timesheetu z kolejki akceptacji (ten sam słownik co „Mój miesiąc”). */
+export type TeamTimesheetStatus = QueueStatus;
 
 export interface TeamToday {
   absent: boolean;
@@ -116,6 +118,7 @@ export interface TeamManager {
 const BASE = "/api/hr/team";
 
 export const teamKeys = {
+  all: ["hr", "team"] as const,
   team: (managerId: number | null) => ["hr", "team", managerId] as const,
   managers: ["hr", "team", "managers"] as const,
 };

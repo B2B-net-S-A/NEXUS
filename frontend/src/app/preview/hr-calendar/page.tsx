@@ -18,9 +18,9 @@
 
 import { PageHeader } from "@/components/ds/PageHeader";
 import { TeamCalendar } from "@/components/hr/leave/TeamCalendar";
-import { LEAVE_TYPE_LABELS, warsawToday, shiftMonth } from "@/components/hr/leave/leave-format";
+import { LEAVE_TYPE_LABELS } from "@/components/hr/leave/leave-format";
 import { PeopleSectionNav } from "@/components/hr/people/PeopleSectionNav";
-import type { HrConfig } from "@/lib/api/hr";
+import { hrKeys, type HrConfig } from "@/lib/api/hr";
 import {
   leaveKeys,
   type CalendarAbsence,
@@ -28,10 +28,11 @@ import {
   type TeamCalendar as TeamCalendarData,
   type TeamCalendarPerson,
 } from "@/lib/api/hr-leave";
+import { warsawToday } from "@/lib/warsaw-date";
+import { shiftMonth } from "@/lib/date-pl";
 
 import {
   HR_CAST,
-  HR_CONFIG_QUERY_KEY,
   hrConfig,
   harnessMonthDays,
   nthWorkDay,
@@ -116,8 +117,8 @@ function prepare(params: URLSearchParams) {
     as === "manager" ? { is_manager: true, direct_reports: REPORTS.size } : {},
   );
   const client = harnessQueryClient();
-  client.setQueryData(HR_CONFIG_QUERY_KEY, config);
-  client.setQueryData(["hr", "counts"], { approvals: as === "manager" ? 4 : null, cases: null });
+  client.setQueryData(hrKeys.config, config);
+  client.setQueryData(hrKeys.counts, { approvals: as === "manager" ? 4 : null, cases: null });
   const current = warsawToday().slice(0, 7);
   const departments = [...new Set(PLANS.map((plan) => plan.person.department))];
   for (const month of [shiftMonth(current, -1), current, shiftMonth(current, 1)]) {

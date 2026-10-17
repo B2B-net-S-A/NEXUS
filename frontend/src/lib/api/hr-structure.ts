@@ -8,7 +8,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { api } from "@/lib/api";
-import type { Division, EmploymentStatus, EmploymentType } from "@/lib/api/hr";
+import { hrKeys, type Division, type EmploymentStatus, type EmploymentType } from "@/lib/api/hr";
 import { EMPLOYMENT_TERMS } from "@/lib/hr-employment-terms";
 
 export const DIVISION_LABELS: Record<Division, string> = {
@@ -143,7 +143,7 @@ export function useHrStructure(enabled = true) {
 function useInvalidateHr() {
   const queryClient = useQueryClient();
   // Przełożony zmienia kartotekę, „Mój zespół”, akceptacje i stan `/api/hr/config`.
-  return () => queryClient.invalidateQueries({ queryKey: ["hr"] });
+  return () => queryClient.invalidateQueries({ queryKey: hrKeys.all });
 }
 
 export function useReassignManager() {

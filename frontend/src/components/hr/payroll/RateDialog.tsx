@@ -17,7 +17,7 @@ import {
 import { apiErrorMessage } from "@/lib/api-error";
 import { useSetRate, type Currency } from "@/lib/api/hr-payroll";
 
-import { CURRENCIES, parseAmount, warsawMonth } from "./payroll-format";
+import { CURRENCIES, parseAmount, rateToast, warsawMonth } from "./payroll-format";
 
 interface RateDialogProps {
   userId: number;
@@ -59,8 +59,8 @@ export function RateDialog({ userId, name, open, onOpenChange, defaultCurrency }
         reason: reason.trim() || null,
       },
       {
-        onSuccess: () => {
-          showToast("Stawka zapisana", "success");
+        onSuccess: (row) => {
+          showToast(...rateToast(row));
           onOpenChange(false);
         },
         onError: (err) => setError(apiErrorMessage(err, "Nie udało się zapisać stawki.")),

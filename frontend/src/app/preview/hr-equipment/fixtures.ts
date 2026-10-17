@@ -15,7 +15,7 @@
 
 import type { QueryClient } from "@tanstack/react-query";
 
-import { CATEGORY_LABELS, formatDatePl } from "@/components/equipment/equipment-format";
+import { CATEGORY_LABELS } from "@/components/equipment/equipment-format";
 import { editionKeys } from "@/lib/api/academy-edition";
 import {
   equipmentKeys,
@@ -48,6 +48,7 @@ import {
   type IntuneStatus,
 } from "@/lib/api/equipment-intune";
 import { warsawToday } from "@/lib/warsaw-date";
+import { formatIsoDatePl } from "@/lib/date-pl";
 
 import { HR_CAST, HR_CLIENTS, HR_CONSULTANTS, shiftDay } from "../hr-fixtures";
 
@@ -137,7 +138,7 @@ function contractHolder(person: Person, client: { name: string }, start: string)
     id: person.id,
     name: person.name,
     email: person.email,
-    detail: `Kontraktor · ${client.name} · start ${formatDatePl(start)}`,
+    detail: `Kontraktor · ${client.name} · start ${formatIsoDatePl(start)}`,
     client_name: client.name,
   };
 }
@@ -190,7 +191,7 @@ function registeredSpecs(today: string): ItemSpec[] {
       sn: "SN-TEST-0157",
       status: "serwis",
       location: "IT",
-      notes: `Do przygotowania przez IT od ${formatDatePl(shiftDay(today, -7))}: reinstalacja systemu.`,
+      notes: `Do przygotowania przez IT od ${formatIsoDatePl(shiftDay(today, -7))}: reinstalacja systemu.`,
       bought: 30,
     },
     { id: 1102, model: "galaxy", nr: "T-102", imei: "TEST-0102", holder: "anna", protocol: "P14", bought: 30 },

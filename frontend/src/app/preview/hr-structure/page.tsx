@@ -17,17 +17,18 @@
  */
 
 import { PageHeader } from "@/components/ds/PageHeader";
-import { shiftMonth, warsawToday } from "@/components/hr/leave/leave-format";
 import { PeopleSectionNav } from "@/components/hr/people/PeopleSectionNav";
 import { StructureScreen } from "@/components/hr/structure/StructureScreen";
-import type { Division, EmploymentType, HrConfig } from "@/lib/api/hr";
+import { hrKeys, type Division, type EmploymentType, type HrConfig } from "@/lib/api/hr";
 import {
   structureKeys,
   type HrStructure,
   type StructurePerson,
 } from "@/lib/api/hr-structure";
+import { warsawToday } from "@/lib/warsaw-date";
+import { shiftMonth } from "@/lib/date-pl";
 
-import { HR_CAST, HR_CONFIG_QUERY_KEY, harnessWorkDays, hrConfig, type HarnessPerson } from "../hr-fixtures";
+import { HR_CAST, harnessWorkDays, hrConfig, type HarnessPerson } from "../hr-fixtures";
 import {
   HrHarnessLoading,
   HrHarnessShell,
@@ -128,8 +129,8 @@ function prepare(params: URLSearchParams) {
   const state = pickState(params.get("state"), STATE_KEYS, "tree");
   const config: HrConfig = hrConfig({ people_admin: true, has_profile: true });
   const client = harnessQueryClient();
-  client.setQueryData(HR_CONFIG_QUERY_KEY, config);
-  client.setQueryData(["hr", "counts"], { approvals: 3, cases: null });
+  client.setQueryData(hrKeys.config, config);
+  client.setQueryData(hrKeys.counts, { approvals: 3, cases: null });
   client.setQueryData(
     structureKeys.all,
     state === "empty"

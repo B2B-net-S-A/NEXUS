@@ -9,8 +9,9 @@ import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import { Button } from "@/components/ui/button";
 import { REDEPLOY_REASON_LABELS, useMyConsultants } from "@/lib/api/care";
 import { CALM_EMPTY, CALM_HEAD, CALM_ROW, CALM_SUBLINE } from "@/lib/calm-table";
-import { cn, formatDate } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 import { resolveViewState } from "@/lib/view-state";
+import { formatIsoDatePl } from "@/lib/date-pl";
 
 /** „Moi konsultanci” — kontrakty, przy których jestem opiekunem (albo wszystkie w zakresie). */
 export function MyConsultantsPanel() {
@@ -94,7 +95,7 @@ export function MyConsultantsPanel() {
                     {row.next_contact ? (
                       <>
                         <span className={cn("tabular-nums", row.next_contact.overdue && "text-destructive")}>
-                          {formatDate(row.next_contact.due_on)}
+                          {formatIsoDatePl(row.next_contact.due_on)}
                         </span>
                         <span className={CALM_SUBLINE}>
                           {row.next_contact.label}
@@ -108,7 +109,7 @@ export function MyConsultantsPanel() {
                   <td className="px-3 py-1.5 tabular-nums">
                     {row.last_conversation_on ? (
                       <>
-                        {formatDate(row.last_conversation_on)}
+                        {formatIsoDatePl(row.last_conversation_on)}
                         {row.last_satisfaction ? (
                           <span className={CALM_SUBLINE}>zadowolenie {row.last_satisfaction}/5</span>
                         ) : null}

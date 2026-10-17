@@ -11,6 +11,7 @@ import { useConfirmV2 } from "@/components/v2/modals/ConfirmV2";
 import { apiErrorMessage } from "@/lib/api-error";
 import { useDeleteItem, useEquipmentItem } from "@/lib/api/equipment";
 import { resolveViewState } from "@/lib/view-state";
+import { formatIsoDatePl } from "@/lib/date-pl";
 
 import {
   CATEGORY_LABELS,
@@ -18,7 +19,6 @@ import {
   HOLDER_KIND_LABELS,
   ITEM_STATUS_LABELS,
   ITEM_STATUS_TONE,
-  formatDatePl,
   formatPln,
   itemIdentifier,
   itemNumber,
@@ -134,7 +134,7 @@ export function ItemDetailDialog({ itemId, onClose, onOpenProtocol }: ItemDetail
               </div>
               <div>
                 <dt className="text-xs text-muted-foreground">Data zakupu</dt>
-                <dd>{formatDatePl(item.purchase_date)}</dd>
+                <dd>{formatIsoDatePl(item.purchase_date)}</dd>
               </div>
               {item.notes ? (
                 <div className="col-span-2 sm:col-span-3">
@@ -155,7 +155,7 @@ export function ItemDetailDialog({ itemId, onClose, onOpenProtocol }: ItemDetail
                     <li key={row.assignment_id} className="flex flex-wrap items-baseline gap-x-3 px-3 py-2">
                       <span className="font-medium">{row.holder.name}</span>
                       <span className="text-xs text-muted-foreground">
-                        {formatDatePl(row.issued_at)} – {row.returned_at ? formatDatePl(row.returned_at) : "teraz"}
+                        {formatIsoDatePl(row.issued_at)} – {row.returned_at ? formatIsoDatePl(row.returned_at) : "teraz"}
                         {row.return_condition ? ` · ${CONDITION_LABELS[row.return_condition]}` : ""}
                       </span>
                       <span className="ml-auto flex gap-2 text-xs">

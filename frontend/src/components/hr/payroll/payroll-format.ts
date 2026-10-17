@@ -1,29 +1,23 @@
-// Formatowanie Płac: kwoty po polsku, miesiące, statusy premii i timesheetów.
+// Formatowanie Płac: sumy kwot, statusy premii i timesheetów. Kwoty, daty
+// i miesiące z `@/lib/money` i `@/lib/date-pl` (jeden format w całej aplikacji).
 // Czyste funkcje — testowane bez renderu (`__tests__/payroll-format.test.ts`).
 
+import type { InlineStat } from "@/components/ds/InlineStats";
 import type { StatusDotTone } from "@/components/ds/StatusDot";
+import { STATUS_TONE } from "@/components/hr/time/time-format";
 import type {
   BonusCategory,
   BonusRow,
   BonusStatus,
   Currency,
+  PayrollMonthDetail,
+  RateRow,
   TimesheetStatus,
 } from "@/lib/api/hr-payroll";
-
-export const MONTHS_PL = [
-  "styczeń",
-  "luty",
-  "marzec",
-  "kwiecień",
-  "maj",
-  "czerwiec",
-  "lipiec",
-  "sierpień",
-  "wrzesień",
-  "październik",
-  "listopad",
-  "grudzień",
-] as const;
+import { TIMESHEET_STATUS_LABELS } from "@/lib/api/hr-time";
+import { formatDayMonthPl } from "@/lib/date-pl";
+import { formatMoney } from "@/lib/money";
+import { warsawToday } from "@/lib/warsaw-date";
 
 export const CURRENCIES: Currency[] = ["PLN", "EUR", "USD"];
 
@@ -49,23 +43,6 @@ export const EMPLOYMENT_LABELS: Record<string, string> = {
   zlecenie: "Zlecenie",
 };
 
-const CURRENCY_SUFFIX: Record<string, string> = { PLN: "zł", EUR: "EUR", USD: "USD" };
-
-/** „1 234,50 zł” — kwota z tekstu dziesiętnego; brak = „—”. */
-export function formatMoney(
-  value: string | number | null | undefined,
-  currency: string = "PLN",
-): string {
-  if (value == null || value === "") return "—";
-  const number = Number(value);
-  if (!Number.isFinite(number)) return "—";
-  const amount = number.toLocaleString("pl-PL", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
-  return `${amount} ${CURRENCY_SUFFIX[currency] ?? currency}`;
-}
-
 /** Sumy per waluta w jednej linii: „12 345,00 zł · 100,00 EUR”. */
 export function formatTotals(totals: Record<string, string> | undefined): string {
   const entries = Object.entries(totals ?? {}).filter(([, value]) => Number(value) !== 0);
@@ -79,14 +56,6 @@ export function formatHours(value: string | number | null | undefined): string {
   const number = Number(value);
   if (!Number.isFinite(number)) return "—";
   return number.toLocaleString("pl-PL", { maximumFractionDigits: 2 });
-}
-
-export function monthLabel(year: number, month: number): string {
-  return `${MONTHS_PL[month - 1] ?? ""} ${year}`;
-}
-
-export function capitalize(text: string): string {
-  return text ? text[0].toUpperCase() + text.slice(1) : text;
 }
 
 /** Segment adresu `/people/payroll/2026-09`. */
@@ -103,27 +72,9 @@ export function parseYm(segment: string | undefined | null): { year: number; mon
   return { year, month };
 }
 
-/** Dziś w kalendarzu firmy (Europe/Warsaw) jako „RRRR-MM-DD”. */
-export function warsawToday(now: Date = new Date()): string {
-  return new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Europe/Warsaw",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(now);
-}
-
 /** Bieżący miesiąc (Warszawa) jako „RRRR-MM” — wartość pola `type="month"`. */
 export function warsawMonth(now: Date = new Date()): string {
   return warsawToday(now).slice(0, 7);
-}
-
-/** „2026-09-30” → „30.09.2026” (bez strefy czasowej — data kalendarzowa). */
-export function formatDay(value: string | null | undefined): string {
-  if (!value) return "—";
-  const [year, month, day] = value.slice(0, 10).split("-");
-  if (!year || !month || !day) return "—";
-  return `${day}.${month}.${year}`;
 }
 
 export const BONUS_STATUS_LABELS: Record<BonusStatus, string> = {
@@ -138,28 +89,25 @@ export const BONUS_STATUS_TONE: Record<BonusStatus, StatusDotTone> = {
   cancelled: "neutral",
 };
 
-export const TIMESHEET_LABELS: Record<TimesheetStatus, string> = {
-  draft: "szkic",
-  submitted: "czeka na akceptację",
-  approved: "zaakceptowany",
-};
-
+/**
+ * Status timesheetu osoby w Płacach — słownik i kolory te same co w „Moim
+ * miesiącu” i „Moim zespole”; osoba bez obowiązku timesheetu: „bez obowiązku”.
+ */
 export function timesheetLabel(status: TimesheetStatus | null, required: boolean): string {
-  if (status) return TIMESHEET_LABELS[status];
-  return required ? "nie wysłany" : "bez obowiązku";
+  if (status) return TIMESHEET_STATUS_LABELS[status].toLowerCase();
+  return required ? TIMESHEET_STATUS_LABELS.missing.toLowerCase() : "bez obowiązku";
 }
 
 export function timesheetTone(status: TimesheetStatus | null, required: boolean): StatusDotTone {
-  if (status === "approved") return "success";
-  if (status === "submitted") return "warning";
-  return required ? "danger" : "neutral";
+  if (status) return STATUS_TONE[status];
+  return required ? STATUS_TONE.missing : "neutral";
 }
 
 /** Status premii dla osoby: „liczy się do 30.09”, „czeka na zatwierdzenie”… */
 export function bonusStateLabel(bonus: Pick<BonusRow, "status" | "eligible" | "eligible_on">): string {
   if (bonus.status === "proposed") {
     if (bonus.eligible === false && bonus.eligible_on) {
-      return `liczy się do ${formatDay(bonus.eligible_on).slice(0, 5)}`;
+      return `liczy się do ${formatDayMonthPl(bonus.eligible_on)}`;
     }
     return "czeka na zatwierdzenie";
   }
@@ -206,4 +154,51 @@ export function parseAmount(raw: string): string | null {
   const cleaned = raw.replace(/\s/g, "").replace(",", ".");
   if (!/^\d+(\.\d{1,2})?$/.test(cleaned)) return null;
   return cleaned;
+}
+
+/**
+ * Komunikat po zapisie stawki. Serwer zapisuje, ale ostrzega (rok bez
+ * minimalnej stawki zlecenia albo stawka w innej walucie niż złoty, D7) —
+ * ostrzeżenie doklejone, typ „info” (wzorzec `leaveToast`).
+ */
+export function rateToast(row?: Pick<RateRow, "warning"> | null): [string, "success" | "info"] {
+  const warning = row?.warning?.trim();
+  return warning ? [`Stawka zapisana. ${warning}`, "info"] : ["Stawka zapisana", "success"];
+}
+
+/** Liczby nad tabelą (czysta funkcja — test bez renderu). */
+export function monthStats(detail: PayrollMonthDetail): InlineStat[] {
+  const stats: InlineStat[] = [
+    { id: "people", label: "osób", value: detail.stats.people },
+    {
+      id: "approved",
+      label: "timesheetów zaakceptowanych",
+      value: detail.stats.timesheets_approved,
+    },
+    { id: "submitted", label: "czeka na akceptację", value: detail.stats.timesheets_submitted },
+    { id: "missing", label: "nie wysłanych", value: detail.stats.timesheets_missing },
+    { id: "proposals", label: "premie do decyzji", value: detail.stats.proposals },
+  ];
+  if (detail.totals) {
+    stats.push({
+      id: "totals",
+      label: "razem do wypłaty",
+      value: formatTotals(detail.totals),
+      title: "Liczone są tylko zaakceptowane godziny i przyznane premie.",
+    });
+  }
+  return stats;
+}
+
+/** Premie podzielone na sekcje ekranu. */
+export function splitBonuses(bonuses: BonusRow[]): {
+  toDecide: BonusRow[];
+  assigned: BonusRow[];
+  cancelled: number;
+} {
+  return {
+    toDecide: bonuses.filter((b) => b.status === "proposed"),
+    assigned: bonuses.filter((b) => b.status === "assigned"),
+    cancelled: bonuses.filter((b) => b.status === "cancelled").length,
+  };
 }

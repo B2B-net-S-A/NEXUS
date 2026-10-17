@@ -20,11 +20,8 @@ vi.mock("@/components/Toast", () => ({
   useToast: () => ({ showToast }),
 }));
 
-import {
-  IntuneTab,
-  formatMoment,
-  intuneStatusTone,
-} from "@/components/equipment/IntuneTab";
+import { IntuneTab } from "@/components/equipment/IntuneTab";
+import { deviceLabel, intuneStatusTone } from "@/components/equipment/intune-format";
 import type {
   IntuneDevice,
   IntuneDiscrepancies,
@@ -392,16 +389,18 @@ describe("IntuneTab", () => {
 });
 
 describe("Intune format helpers", () => {
-  it("formats moments in Warsaw time", () => {
-    expect(formatMoment("2026-10-16T03:31:00+00:00")).toBe("16.10.2026, 05:31");
-    expect(formatMoment(null)).toBe("—");
-    expect(formatMoment("nie-data")).toBe("—");
-  });
-
   it("picks a calm tone per mode and health", () => {
     expect(intuneStatusTone({ mode: "off", health: "disabled" })).toBe("neutral");
     expect(intuneStatusTone({ mode: "simulate", health: "degraded" })).toBe("info");
     expect(intuneStatusTone({ mode: "live", health: "healthy" })).toBe("success");
     expect(intuneStatusTone({ mode: "live", health: "degraded" })).toBe("warning");
+  });
+
+  it("labels the device by name and S/N, falling back when either is missing", () => {
+    expect(deviceLabel(ROWS[2])).toBe("LAPTOP-OTHER · S/N TESTSN0002");
+    expect(deviceLabel({ ...ROWS[1], device: device({ device_name: null, serial_number: null }) })).toBe(
+      "Urządzenie bez nazwy",
+    );
+    expect(deviceLabel(ROWS[3])).toBe("");
   });
 });

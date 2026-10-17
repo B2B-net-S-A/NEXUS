@@ -8,13 +8,17 @@
 // `@/lib/hr-employment-terms` (lustro backendu); liczby liczy serwer, tu tylko
 // wybór i składanie.
 
+import type { ProtocolRef } from "@/lib/api/equipment";
 import type { EmploymentType } from "@/lib/api/hr";
+import type { MyLifecycleTask } from "@/lib/api/hr-lifecycle";
 import type { LeaveBalance, LeaveRequestRow } from "@/lib/api/hr-leave";
 import type { BonusForecast, BonusRow, MyPayroll } from "@/lib/api/hr-payroll";
-import type { MonthView } from "@/lib/api/hr-time";
+import type { MonthView, TimesheetHistoryItem } from "@/lib/api/hr-time";
+import { MONTHS_PL, formatDayMonthPl, monthYearPl, type YearMonth } from "@/lib/date-pl";
+import { timesheetAccusative } from "@/lib/hr-employment-terms";
+import { formatMoney } from "@/lib/money";
 
-import { shortDate } from "../leave/leave-format";
-import { cancelReasonLabel, formatMoney } from "../payroll/payroll-format";
+import { cancelReasonLabel } from "../payroll/payroll-format";
 
 export {
   MANDATE_HOURS_NOTE,
@@ -111,7 +115,7 @@ export function compactDays(dates: readonly string[]): string {
   if (dates.length === 0) return "";
   const last = dates[dates.length - 1];
   const days = dates.slice(0, -1).map((iso) => String(Number(iso.slice(8, 10))));
-  return [...days, shortDate(last)].join(", ");
+  return [...days, formatDayMonthPl(last)].join(", ");
 }
 
 // ── Premie ───────────────────────────────────────────────────────────────────
@@ -129,21 +133,6 @@ const MONTHS_INSTRUMENTAL = [
   "październikiem",
   "listopadem",
   "grudniem",
-] as const;
-
-const MONTHS_ACCUSATIVE = [
-  "styczeń",
-  "luty",
-  "marzec",
-  "kwiecień",
-  "maj",
-  "czerwiec",
-  "lipiec",
-  "sierpień",
-  "wrzesień",
-  "październik",
-  "listopad",
-  "grudzień",
 ] as const;
 
 export type StageState = "done" | "current" | "todo";
@@ -188,7 +177,7 @@ function stages(labels: string[], current: number): BonusStage[] {
 function payoutLabel(year: number, month: number, closed: boolean, currentYear: number): string {
   const suffix = year === currentYear ? "" : ` ${year}`;
   return closed
-    ? `rozliczona za ${MONTHS_ACCUSATIVE[month - 1]}${suffix}`
+    ? `rozliczona za ${MONTHS_PL[month - 1]}${suffix}`
     : `wypłata z ${MONTHS_INSTRUMENTAL[month - 1]}${suffix}`;
 }
 
@@ -230,7 +219,7 @@ export function bonusItemFromRow(
   const payout = payoutLabel(row.period_year, row.period_month, Boolean(row.period_closed), currentYear);
   if (row.status === "assigned") {
     const who = row.assigned_by_name ? ` · ${row.assigned_by_name}` : "";
-    const when = row.assigned_at ? `przyznano ${shortDate(row.assigned_at.slice(0, 10))}${who}` : "przyznana";
+    const when = row.assigned_at ? `przyznano ${formatDayMonthPl(row.assigned_at.slice(0, 10))}${who}` : "przyznana";
     const labels = placement
       ? ["umowa", `${requiredDays} dni`, "przyznana", payout]
       : ["przyznana", payout];
@@ -258,7 +247,7 @@ export function bonusItemFromRow(
       stages: stages(labels, current),
       when: row.eligible_on
         ? beforeDeadline
-          ? `od ${shortDate(row.eligible_on)}`
+          ? `od ${formatDayMonthPl(row.eligible_on)}`
           : "czeka na decyzję Płac"
         : "czeka na decyzję Płac",
     };
@@ -290,8 +279,8 @@ export function bonusItemFromForecast(item: BonusForecast): MyBonusItem {
     currency: item.currency,
     estimate: true,
     when: item.started
-      ? `~ od ${shortDate(item.eligible_on)}`
-      : `~ od ${shortDate(item.eligible_on)} (start ${shortDate(item.start_date)})`,
+      ? `~ od ${formatDayMonthPl(item.eligible_on)}`
+      : `~ od ${formatDayMonthPl(item.eligible_on)} (start ${formatDayMonthPl(item.start_date)})`,
     cancelled: false,
     inTransit: true,
   };
@@ -351,4 +340,81 @@ export function totalsLabel(totals: Record<string, number | string>): string {
   const entries = Object.entries(totals);
   if (entries.length === 0) return formatMoney(0);
   return entries.map(([currency, total]) => formatMoney(total, currency)).join(" · ");
+}
+
+// ── Do zrobienia ─────────────────────────────────────────────────────────────
+
+export interface TodoItem {
+  key: string;
+  title: string;
+  detail: string;
+  href?: string;
+  /** Zakładka „Mojego czasu” do otwarcia, gdy pozycja nie ma linku. */
+  tab?: "month";
+  overdue?: boolean;
+}
+
+/** Źródła karty; `null` = moduł zamknięty albo osoba bez timesheetu. */
+export interface TodoSources {
+  current: YearMonth;
+  employmentType: EmploymentType;
+  tasks: readonly MyLifecycleTask[] | null;
+  protocols: readonly Pick<ProtocolRef, "id" | "number" | "status" | "protocol_date">[] | null;
+  timesheets: { history: readonly TimesheetHistoryItem[]; month: MonthView | undefined } | null;
+}
+
+/**
+ * „Do zrobienia”: moje zadania wejścia/odejścia, protokoły sprzętu do podpisu,
+ * zaległe timesheety i bieżący miesiąc do wysłania (albo poprawy).
+ */
+export function todoItems(sources: TodoSources): TodoItem[] {
+  const { current } = sources;
+  const form = timesheetAccusative(sources.employmentType);
+  const items: TodoItem[] = [];
+  for (const task of sources.tasks ?? []) {
+    items.push({
+      key: `task-${task.task_id}`,
+      title: task.title,
+      detail: [task.person_name, task.due_date ? `do ${formatDayMonthPl(task.due_date)}` : null]
+        .filter(Boolean)
+        .join(" · "),
+      href: task.link,
+      overdue: task.overdue,
+    });
+  }
+  for (const protocol of sources.protocols ?? []) {
+    if (protocol.status !== "oczekuje") continue;
+    items.push({
+      key: `protocol-${protocol.id}`,
+      title: `Podpisz protokół ${protocol.number}`,
+      detail: `Recepcja · link w mailu · z ${formatDayMonthPl(protocol.protocol_date)}`,
+    });
+  }
+  if (!sources.timesheets) return items;
+  for (const item of sources.timesheets.history) {
+    const older = item.year * 12 + item.month < current.year * 12 + current.month;
+    if (older && item.status === "draft") {
+      items.push({
+        key: `ts-${item.id}`,
+        title: `Wyślij ${form} za ${monthYearPl(item)}`,
+        detail: "termin minął",
+        tab: "month",
+        overdue: true,
+      });
+    }
+  }
+  const view = sources.timesheets.month;
+  if (view && (view.timesheet?.status ?? "draft") === "draft") {
+    const monthName = MONTHS_PL[current.month - 1];
+    const returned = Boolean(view.timesheet?.return_note);
+    items.push({
+      key: "ts-current",
+      title: `${returned ? "Popraw" : "Wyślij"} ${form} za ${monthName}`,
+      detail: returned
+        ? `zwrócono do poprawy · do ${formatDayMonthPl(view.deadline)}`
+        : `do ${formatDayMonthPl(view.deadline)}`,
+      tab: "month",
+    });
+  }
+  return items;
 }

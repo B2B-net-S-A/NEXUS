@@ -38,8 +38,7 @@ import {
   type OnboardingProfileValues,
 } from "@/lib/api/hr-lifecycle";
 import { cn } from "@/lib/utils";
-
-import { formatDayShort } from "./lifecycle-format";
+import { formatWeekdayDayPl } from "@/lib/date-pl";
 
 const STEPS = ["Osoba i konto", "Zatrudnienie", "Zadania", "Podsumowanie"] as const;
 const AUTO = "auto";
@@ -165,7 +164,7 @@ export function OnboardingWizard({ config }: { config: HrConfig }) {
   const activeTemplates = (templates.data ?? []).filter((t) => t.is_active);
   const title = personLabel
     ? `${personLabel}${form.job_title.trim() ? ` · ${form.job_title.trim()}` : ""}${
-        form.work_start_date ? ` · start ${formatDayShort(form.work_start_date)}` : ""
+        form.work_start_date ? ` · start ${formatWeekdayDayPl(form.work_start_date)}` : ""
       }`
     : "Nowa osoba";
 
@@ -329,7 +328,7 @@ export function OnboardingWizard({ config }: { config: HrConfig }) {
                 {(preview.data?.tasks ?? []).map((task, index) => (
                   <li key={`${task.title}-${index}`} className="flex items-center gap-3 py-2 text-sm">
                     <span className="w-20 shrink-0 tabular-nums text-muted-foreground">
-                      {formatDayShort(task.due_date)}
+                      {formatWeekdayDayPl(task.due_date)}
                     </span>
                     <span className="min-w-0 flex-1 text-foreground">{task.title}</span>
                     <span className="shrink-0 text-xs text-muted-foreground">
@@ -353,7 +352,7 @@ export function OnboardingWizard({ config }: { config: HrConfig }) {
             </div>
             <div>
               <dt className="text-muted-foreground">Start</dt>
-              <dd className="font-medium">{formatDayShort(form.work_start_date)}</dd>
+              <dd className="font-medium">{formatWeekdayDayPl(form.work_start_date)}</dd>
             </div>
             <div>
               <dt className="text-muted-foreground">Stanowisko i dział</dt>

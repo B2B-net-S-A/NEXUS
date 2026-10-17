@@ -15,21 +15,9 @@ import { useAbsentToday, type AbsentTodayRow } from "@/lib/api/hr-leave";
 import { countPl } from "@/lib/plural-pl";
 import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/store/auth";
+import { formatDayMonthPl, formatWeekdayDayPl } from "@/lib/date-pl";
 
-import { dayLabel, shortDate } from "./leave-format";
-
-/** Druga linia wiersza: do kiedy i kto zastępuje (bez rodzaju nieobecności). */
-export function absentRowText(row: AbsentTodayRow, today: string): string {
-  const until =
-    row.half_day && row.until === today
-      ? "Dziś pół dnia"
-      : row.until === today
-        ? "Nieobecność dziś"
-        : `Nieobecność do ${dayLabel(row.until)}`;
-  if (row.i_substitute) return `${until} · zastępujesz Ty`;
-  if (row.substitute_name) return `${until} · zastępuje ${row.substitute_name}`;
-  return `${until} · bez zastępcy`;
-}
+import { absentRowText } from "./leave-format";
 
 interface AbsentTodayPanelProps {
   date: string;
@@ -42,7 +30,7 @@ export function AbsentTodayPanel({ date, items, onNavigate }: AbsentTodayPanelPr
   return (
     <div className="space-y-2">
       <div className="flex items-baseline justify-between gap-2">
-        <b className="text-sm text-foreground">Nieobecni dziś · {dayLabel(date)}</b>
+        <b className="text-sm text-foreground">Nieobecni dziś · {formatWeekdayDayPl(date)}</b>
         <Link
           href="/people/calendar"
           onClick={onNavigate}
@@ -70,7 +58,7 @@ export function AbsentTodayPanel({ date, items, onNavigate }: AbsentTodayPanelPr
         ))}
       </ul>
       <p className="text-[11px] text-muted-foreground">
-        Rodzaj nieobecności widzą tylko osoba, jej przełożony i Kadry. Dane z {shortDate(date)}.
+        Rodzaj nieobecności widzą tylko osoba, jej przełożony i Kadry. Dane z {formatDayMonthPl(date)}.
       </p>
     </div>
   );

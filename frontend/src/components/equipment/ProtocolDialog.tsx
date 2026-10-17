@@ -25,13 +25,13 @@ import {
   useUploadSignedProtocol,
 } from "@/lib/api/equipment";
 import { resolveViewState } from "@/lib/view-state";
+import { formatIsoDatePl } from "@/lib/date-pl";
 
 import {
   CONDITION_LABELS,
   PROTOCOL_STATUS_LABELS,
   PROTOCOL_STATUS_TONE,
   SIGNATURE_LABELS,
-  formatDatePl,
   formatPln,
 } from "./equipment-format";
 import { ProtocolDownloads } from "./ProtocolDownloads";
@@ -122,7 +122,7 @@ export function ProtocolDialog({ protocolId, onClose }: { protocolId: number; on
       title={protocol ? `Protokół ${protocol.number}` : "Protokół"}
       description={
         protocol
-          ? `${protocol.kind === "wydanie" ? "Wydanie" : "Zwrot"} · ${formatDatePl(protocol.protocol_date)} · ${protocol.holder.name}`
+          ? `${protocol.kind === "wydanie" ? "Wydanie" : "Zwrot"} · ${formatIsoDatePl(protocol.protocol_date)} · ${protocol.holder.name}`
           : undefined
       }
       size="lg"
@@ -144,7 +144,7 @@ export function ProtocolDialog({ protocolId, onClose }: { protocolId: number; on
             <span className="text-xs text-muted-foreground">
               Podpis: {SIGNATURE_LABELS[protocol.signature_method]}
               {protocol.signer_name ? ` · ${protocol.signer_name}` : ""}
-              {protocol.signed_at ? ` · ${formatDatePl(protocol.signed_at)}` : ""}
+              {protocol.signed_at ? ` · ${formatIsoDatePl(protocol.signed_at)}` : ""}
             </span>
             <span className="text-xs text-muted-foreground">Wydał(a): {protocol.issuer_name}</span>
           </div>
@@ -189,8 +189,8 @@ export function ProtocolDialog({ protocolId, onClose }: { protocolId: number; on
             <ProtocolLinkBox url={linkUrl} number={protocol.number} email={protocol.holder.email} />
           ) : protocol.link && protocol.status === "oczekuje" ? (
             <p className="text-xs text-muted-foreground">
-              Link wysłany {formatDatePl(protocol.link.created_at)}, ważny do{" "}
-              {formatDatePl(protocol.link.expires_at)}.
+              Link wysłany {formatIsoDatePl(protocol.link.created_at)}, ważny do{" "}
+              {formatIsoDatePl(protocol.link.expires_at)}.
             </p>
           ) : null}
 

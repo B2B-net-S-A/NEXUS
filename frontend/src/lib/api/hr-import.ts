@@ -8,6 +8,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { api } from "@/lib/api";
+import { hrKeys } from "@/lib/api/hr";
 import { SLOW_ENDPOINT_TIMEOUT_MS } from "@/lib/http-timeouts";
 
 const BASE = "/api/hr/admin/import";
@@ -82,13 +83,13 @@ export const HR_IMPORT_ACTION_LABELS: Record<HrImportAction, string> = {
   skip: "Do wyjaśnienia",
 };
 
-const keys = {
+export const hrImportKeys = {
   batches: ["hr", "import", "batches"] as const,
 };
 
 export function useHrImportBatches(enabled = true) {
   return useQuery({
-    queryKey: keys.batches,
+    queryKey: hrImportKeys.batches,
     queryFn: async () => (await api.get<HrImportUpload[]>(`${BASE}/batches`)).data,
     enabled,
   });
@@ -96,7 +97,7 @@ export function useHrImportBatches(enabled = true) {
 
 function useInvalidateBatches() {
   const queryClient = useQueryClient();
-  return () => queryClient.invalidateQueries({ queryKey: keys.batches });
+  return () => queryClient.invalidateQueries({ queryKey: hrImportKeys.batches });
 }
 
 // Sprawdzenie i zapis liczą cały łańcuch modułów, a osoba czeka przy ekranie
@@ -119,7 +120,6 @@ export function useHrImportDryRun() {
 }
 
 export function useHrImportApply() {
-  const invalidate = useInvalidateBatches();
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async ({
@@ -138,10 +138,8 @@ export function useHrImportApply() {
           { timeout: SLOW_ENDPOINT_TIMEOUT_MS },
         )
       ).data,
-    onSuccess: () => {
-      invalidate();
-      // Zapis zmienia kartoteki, urlopy i resztę ekranów „Ludzi”.
-      queryClient.invalidateQueries({ queryKey: ["hr"] });
-    },
+    // Zapis zmienia kartoteki, urlopy, godziny, Płace i resztę ekranów „Ludzi”
+    // (razem z listą paczek — wszystko pod korzeniem `["hr"]`).
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: hrKeys.all }),
   });
 }

@@ -19,8 +19,9 @@
 import { ClientTechnologiesTab } from "@/components/care/ClientTechnologiesTab";
 import { careKeys } from "@/lib/api/care";
 import { warsawToday } from "@/lib/warsaw-date";
+import { hrKeys } from "@/lib/api/hr";
 
-import { HR_CAST, HR_CONFIG_QUERY_KEY, hrConfig } from "../hr-fixtures";
+import { HR_CAST, hrConfig } from "../hr-fixtures";
 import { HrHarnessLoading, HrHarnessShell, harnessQueryClient, useHrHarness } from "../hr-harness";
 import { CARE_OWNERS, MAP_CLIENT, clientTechMap } from "./fixtures";
 
@@ -29,7 +30,7 @@ const STATES = [{ key: "map", label: "Mapa (Delivery Lead klienta)" }] as const;
 function prepare() {
   const map = clientTechMap(warsawToday());
   const client = harnessQueryClient();
-  client.setQueryData(HR_CONFIG_QUERY_KEY, hrConfig());
+  client.setQueryData(hrKeys.config, hrConfig());
   client.setQueryData(careKeys.clientMap(MAP_CLIENT.id), map);
   client.setQueryData(careKeys.owners, CARE_OWNERS);
   return {

@@ -19,8 +19,9 @@
 import { ClientPeopleTab } from "@/components/care/ClientPeopleTab";
 import { clientPeopleKeys } from "@/lib/api/client-people";
 import { warsawToday } from "@/lib/warsaw-date";
+import { hrKeys } from "@/lib/api/hr";
 
-import { HR_CAST, HR_CONFIG_QUERY_KEY, hrConfig } from "../hr-fixtures";
+import { HR_CAST, hrConfig } from "../hr-fixtures";
 import { HrHarnessLoading, HrHarnessShell, harnessQueryClient, useHrHarness } from "../hr-harness";
 import { ORG_CLIENT, clientOrg } from "./fixtures";
 
@@ -29,7 +30,7 @@ const STATES = [{ key: "org", label: "Struktura (Delivery Lead klienta)" }] as c
 function prepare() {
   const org = clientOrg(warsawToday());
   const client = harnessQueryClient();
-  client.setQueryData(HR_CONFIG_QUERY_KEY, hrConfig());
+  client.setQueryData(hrKeys.config, hrConfig());
   client.setQueryData(clientPeopleKeys.org(ORG_CLIENT.id), org);
   return {
     user: HR_CAST.kamil,

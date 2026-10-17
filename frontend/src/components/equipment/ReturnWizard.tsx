@@ -24,8 +24,9 @@ import {
 } from "@/lib/api/equipment";
 import { resolveViewState } from "@/lib/view-state";
 import { warsawToday } from "@/lib/warsaw-date";
+import { formatIsoDatePl } from "@/lib/date-pl";
 
-import { CONDITION_LABELS, assignmentLabel, formatDatePl } from "./equipment-format";
+import { CONDITION_LABELS, assignmentLabel } from "./equipment-format";
 import { HolderPicker } from "./HolderPicker";
 import { ProtocolDownloads } from "./ProtocolDownloads";
 
@@ -156,7 +157,7 @@ export function ReturnWizard({ onClose, presetHolder = null }: ReturnWizardProps
                         <span className="min-w-0">
                           <span className="block font-medium">{assignmentLabel(row)}</span>
                           <span className="block text-xs text-muted-foreground">
-                            wydany {formatDatePl(row.issued_at)}
+                            wydany {formatIsoDatePl(row.issued_at)}
                             {row.issue_protocol ? ` · ${row.issue_protocol}` : ""}
                             {row.ownership === "klienta" ? " · sprzęt klienta" : ""}
                           </span>

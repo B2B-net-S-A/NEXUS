@@ -238,14 +238,15 @@ export function m365StatusView(op: Pick<M365Operation, "status" | "deferred">): 
   }
 }
 
-const keys = {
+export const m365Keys = {
+  all: ["hr", "m365"] as const,
   status: ["hr", "m365", "status"] as const,
   operations: (tab: M365QueueTab) => ["hr", "m365", "operations", tab] as const,
 };
 
 export function useM365Status(enabled = true) {
   return useQuery({
-    queryKey: keys.status,
+    queryKey: m365Keys.status,
     queryFn: async () =>
       (await api.get<M365Status>("/api/hr/admin/m365/status")).data,
     enabled,
@@ -255,7 +256,7 @@ export function useM365Status(enabled = true) {
 
 export function useM365Operations(tab: M365QueueTab, enabled = true) {
   return useQuery({
-    queryKey: keys.operations(tab),
+    queryKey: m365Keys.operations(tab),
     queryFn: async () =>
       (
         await api.get<{ items: M365Operation[]; total: number }>(
@@ -276,6 +277,6 @@ export function useRetryM365Operation() {
           `/api/hr/admin/m365/operations/${operationId}/retry`,
         )
       ).data,
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["hr", "m365"] }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: m365Keys.all }),
   });
 }

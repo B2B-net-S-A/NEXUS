@@ -4,7 +4,7 @@ import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
-import { StatusDot, type StatusDotTone } from "@/components/ds/StatusDot";
+import { StatusDot } from "@/components/ds/StatusDot";
 import { useToast } from "@/components/Toast";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -15,19 +15,12 @@ import {
   CASE_STATUS_LABELS,
   useCaseAction,
   useLifecycleCase,
-  type CaseStatus,
 } from "@/lib/api/hr-lifecycle";
 import { resolveViewState } from "@/lib/view-state";
+import { formatWeekdayDayPl } from "@/lib/date-pl";
 
 import { LifecycleTaskList } from "./LifecycleTaskList";
-import { formatDayShort, isLiveStatus, progressLabel } from "./lifecycle-format";
-
-const STATUS_TONE: Record<CaseStatus, StatusDotTone> = {
-  draft: "neutral",
-  active: "info",
-  done: "success",
-  cancelled: "neutral",
-};
+import { CASE_STATUS_TONE, isLiveStatus, progressLabel } from "./lifecycle-format";
 
 function Fact({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -99,8 +92,8 @@ export function OnboardingCaseView({ caseId }: { caseId: number }) {
           <h1 className="flex flex-wrap items-center gap-3 text-xl font-semibold text-foreground">
             {data.person_name}
             {values.job_title ? ` · ${values.job_title}` : ""} · start{" "}
-            {formatDayShort(data.start_date)}
-            <StatusDot tone={STATUS_TONE[data.status]}>{CASE_STATUS_LABELS[data.status]}</StatusDot>
+            {formatWeekdayDayPl(data.start_date)}
+            <StatusDot tone={CASE_STATUS_TONE[data.status]}>{CASE_STATUS_LABELS[data.status]}</StatusDot>
           </h1>
           <p className="mt-0.5 text-sm text-muted-foreground">{progressLabel(data.progress)}</p>
         </div>
@@ -133,7 +126,7 @@ export function OnboardingCaseView({ caseId }: { caseId: number }) {
       <div className="grid gap-4 lg:grid-cols-3">
         <Card className="p-4">
           <h2 className="mb-2 text-sm font-semibold text-foreground">Zatrudnienie</h2>
-          <Fact label="Start">{formatDayShort(data.start_date)}</Fact>
+          <Fact label="Start">{formatWeekdayDayPl(data.start_date)}</Fact>
           <Fact label="Przełożony">{data.manager_name ?? "—"}</Fact>
           <Fact label="Forma">
             {values.employment_type ? EMPLOYMENT_TYPE_LABELS[values.employment_type] : "—"}

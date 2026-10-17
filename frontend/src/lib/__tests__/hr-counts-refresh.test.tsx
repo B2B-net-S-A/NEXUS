@@ -7,14 +7,19 @@ import { describe, expect, it, vi } from "vitest";
 // (`HR_COUNTS_MUTATION_KEY`), nie po każdym zapisie w aplikacji (audyt 17.10.2026).
 
 const get = vi.hoisted(() => vi.fn(async () => ({ data: { approvals: 1, cases: null } })));
-vi.mock("@/lib/api", () => ({ __esModule: true, api: { get } }));
+const post = vi.hoisted(() =>
+  vi.fn(() => new Promise((resolve) => setTimeout(() => resolve({ data: { id: 1 } }), 15))),
+);
+vi.mock("@/lib/api", () => ({ __esModule: true, api: { get, post } }));
 
+import { useCloseCase } from "@/lib/api/admin-cases";
 import { HR_COUNTS_MUTATION_KEY, useHrCounts } from "@/lib/api/hr";
 
 // Zapis trwa chwilę (jak żądanie) — licznik widzi stan „w toku”, potem koniec.
 const slow = () => new Promise<string>((resolve) => setTimeout(() => resolve("ok"), 15));
 
 function setup() {
+  get.mockClear();
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const wrapper = ({ children }: { children: ReactNode }) => (
     <QueryClientProvider client={client}>{children}</QueryClientProvider>
@@ -27,6 +32,7 @@ function setup() {
         mutationFn: slow,
       }),
       other: useMutation({ mutationKey: ["candidates", "save"], mutationFn: slow }),
+      closeCase: useCloseCase(1),
     }),
     { wrapper },
   );
@@ -46,6 +52,17 @@ describe("odświeżanie liczników „Ludzi”", () => {
 
     await act(async () => {
       await result.current.hr.mutateAsync();
+    });
+    await waitFor(() => expect(get).toHaveBeenCalledTimes(2));
+  });
+
+  it("zamknięcie sprawy od razu odświeża licznik „Spraw”", async () => {
+    const { result } = setup();
+    await waitFor(() => expect(result.current.counts.isSuccess).toBe(true));
+    expect(get).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      await result.current.closeCase.mutateAsync();
     });
     await waitFor(() => expect(get).toHaveBeenCalledTimes(2));
   });

@@ -32,9 +32,9 @@ import { IssueWizard } from "@/components/equipment/IssueWizard";
 import { ReturnWizard } from "@/components/equipment/ReturnWizard";
 import { Button } from "@/components/ui/button";
 import type { EquipmentHolder } from "@/lib/api/equipment";
-import type { HrConfig } from "@/lib/api/hr";
+import { hrKeys, type HrConfig } from "@/lib/api/hr";
 
-import { HR_CAST, HR_CONFIG_QUERY_KEY, hrConfig } from "../hr-fixtures";
+import { HR_CAST, hrConfig } from "../hr-fixtures";
 import {
   HrHarnessLoading,
   HrHarnessShell,
@@ -71,7 +71,7 @@ function prepare(params: URLSearchParams): HrHarnessSetup<Value> {
   const state = pickState(params.get("state"), STATE_KEYS, "kit");
   const config = hrConfig({ equipment: true });
   const client = harnessQueryClient();
-  client.setQueryData(HR_CONFIG_QUERY_KEY, config);
+  client.setQueryData(hrKeys.config, config);
   const data = buildEquipmentData("before");
   seedEquipment(client, data);
   return {

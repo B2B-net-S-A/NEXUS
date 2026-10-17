@@ -9,14 +9,14 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { api } from "@/lib/api";
 import type { EmploymentType } from "@/lib/api/hr";
-import { downloadBlob, fetchAuthenticatedDownload } from "@/lib/authenticated-files";
+import type { TimesheetStatus } from "@/lib/api/hr-time";
 
 export type Currency = "PLN" | "EUR" | "USD";
 export type BonusCategory = "sales" | "delivery_lead" | "recruiter" | "custom" | "league";
 export type BonusStatus = "proposed" | "assigned" | "cancelled";
 export type BonusSource = "manual" | "contract_placement" | "league" | "compass_import";
-export type TimesheetStatus = "draft" | "submitted" | "approved";
 export type PeriodStatus = "open" | "closed";
+export type { TimesheetStatus };
 
 export interface RateRow {
   id: number;
@@ -246,22 +246,19 @@ export interface BonusInput {
 export type BonusPatch = Partial<Omit<BonusInput, "recipient_user_id">>;
 
 export const payrollKeys = {
-  all: ["hr-payroll"] as const,
-  me: ["hr-payroll", "me"] as const,
-  settlement: (year: number) => ["hr-payroll", "me", "settlement", year] as const,
-  months: ["hr-payroll", "months"] as const,
-  month: (year: number, month: number) => ["hr-payroll", "month", year, month] as const,
-  person: (userId: number) => ["hr-payroll", "person", userId] as const,
-  rules: ["hr-payroll", "rules"] as const,
-  minimumRates: ["hr-payroll", "minimum-rates"] as const,
+  all: ["hr", "payroll"] as const,
+  me: ["hr", "payroll", "me"] as const,
+  settlement: (year: number) => ["hr", "payroll", "me", "settlement", year] as const,
+  months: ["hr", "payroll", "months"] as const,
+  month: (year: number, month: number) => ["hr", "payroll", "month", year, month] as const,
+  person: (userId: number) => ["hr", "payroll", "person", userId] as const,
+  rules: ["hr", "payroll", "rules"] as const,
+  minimumRates: ["hr", "payroll", "minimum-rates"] as const,
 };
 
 export const payrollPaths = {
   export: (year: number, month: number) =>
     `/api/hr/payroll/months/${year}/${month}/export.xlsx`,
-  /** Paczka PDF-ów zatwierdzonych timesheetów (moduł czasu, `hr_time.py`). */
-  timesheetsZip: (year: number, month: number) =>
-    `/api/hr/time/export/${year}/${month}/zip`,
 };
 
 export function useMyPayroll(enabled = true) {
@@ -443,12 +440,6 @@ export function useRefreshProposals() {
       (await api.post<Record<string, number>>("/api/hr/payroll/proposals/refresh")).data,
     onSuccess: invalidate,
   });
-}
-
-/** Pobiera plik (XLSX/ZIP) z tokenem i zapisuje pod nazwą z serwera. */
-export async function downloadPayrollFile(path: string, fallbackName: string): Promise<void> {
-  const { blob, filename } = await fetchAuthenticatedDownload(path);
-  downloadBlob(blob, filename ?? fallbackName);
 }
 
 /** 409 przy zamykaniu miesiąca: kod i dane (ostrzeżenia albo liczba propozycji). */

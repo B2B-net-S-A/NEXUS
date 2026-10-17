@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { LeaveBalance, LeaveRequestRow } from "@/lib/api/hr-leave";
 import type { BonusForecast, BonusRow, MyPayroll } from "@/lib/api/hr-payroll";
-import type { MonthDay } from "@/lib/api/hr-time";
+import type { MonthDay, MonthView, TimesheetHistoryItem } from "@/lib/api/hr-time";
 
 import {
   absenceActionLabel,
@@ -20,6 +20,8 @@ import {
   poolSegments,
   timesheetAccusative,
   timesheetCardTitle,
+  todoItems,
+  type TodoSources,
 } from "../overview-format";
 
 const nbsp = (text: string) => text.replace(/\s/g, " ");
@@ -244,3 +246,82 @@ describe("premie z etapami", () => {
     expect(placementLabel(null)).toBeNull();
   });
 });
+
+describe("„Do zrobienia”", () => {
+  const sources = (over: Partial<TodoSources> = {}): TodoSources => ({
+    current: { year: 2026, month: 10 },
+    employmentType: "uop",
+    tasks: null,
+    protocols: null,
+    timesheets: null,
+    ...over,
+  });
+  const history = (over: Partial<TimesheetHistoryItem>): TimesheetHistoryItem => ({
+    id: 1,
+    year: 2026,
+    month: 9,
+    status: "draft",
+    approved_at: null,
+    hours: 0,
+    ...over,
+  });
+  const month = (timesheet: Partial<NonNullable<MonthView["timesheet"]>> | null) =>
+    ({
+      deadline: "2026-11-05",
+      timesheet: timesheet
+        ? { id: 3, status: "draft", return_note: null, ...timesheet }
+        : null,
+    }) as MonthView;
+
+  it("zamknięte moduły i osoba bez timesheetu — nic do zrobienia", () => {
+    expect(todoItems(sources())).toEqual([]);
+  });
+
+  it("zadanie z linkiem, protokół do podpisu (podpisany pomija) i zaległy timesheet", () => {
+    const items = todoItems(
+      sources({
+        tasks: [
+          {
+            task_id: 7,
+            case_id: 2,
+            kind: "onboarding",
+            person_name: "Anna Przykładowa",
+            title: "Przygotuj laptop",
+            due_date: "2026-10-05",
+            overdue: true,
+            link: "/people/new/2",
+          },
+        ],
+        protocols: [
+          { id: 4, number: "P/1/2026", status: "oczekuje", protocol_date: "2026-10-02" },
+          { id: 5, number: "P/2/2026", status: "potwierdzony", protocol_date: "2026-10-03" },
+        ],
+        timesheets: { history: [history({}), history({ id: 2, month: 8, status: "approved" })], month: undefined },
+      }),
+    );
+    expect(items.map((item) => [item.title, item.detail])).toEqual([
+      ["Przygotuj laptop", "Anna Przykładowa · do 05.10"],
+      ["Podpisz protokół P/1/2026", "Recepcja · link w mailu · z 02.10"],
+      [`Wyślij ${timesheetAccusative("uop")} za wrzesień 2026`, "termin minął"],
+    ]);
+    expect(items[0]).toMatchObject({ href: "/people/new/2", overdue: true });
+    expect(items[2]).toMatchObject({ tab: "month", overdue: true });
+  });
+
+  it("bieżący miesiąc: szkic do wysłania, zwrócony do poprawy, wysłany — bez pozycji", () => {
+    const current = (view: MonthView) =>
+      todoItems(sources({ timesheets: { history: [], month: view } }));
+    expect(current(month(null))[0]).toMatchObject({
+      key: "ts-current",
+      title: `Wyślij ${timesheetAccusative("uop")} za październik`,
+      detail: "do 05.11",
+      tab: "month",
+    });
+    expect(current(month({ return_note: "brak godzin 3.10" }))[0]).toMatchObject({
+      title: `Popraw ${timesheetAccusative("uop")} za październik`,
+      detail: "zwrócono do poprawy · do 05.11",
+    });
+    expect(current(month({ status: "submitted" }))).toEqual([]);
+  });
+});
+

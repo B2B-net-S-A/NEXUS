@@ -4,6 +4,9 @@ import { InlineStats, type InlineStat } from "@/components/ds/InlineStats";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import { useMyPayroll, useMySettlement, type MyPayroll, type MySettlement } from "@/lib/api/hr-payroll";
 import { resolveViewState } from "@/lib/view-state";
+import { warsawToday } from "@/lib/warsaw-date";
+import { formatMoney } from "@/lib/money";
+import { formatIsoDatePl } from "@/lib/date-pl";
 
 import { BonusStagesTable } from "../me/BonusStagesTable";
 import { MySettlementCard } from "../me/MySettlementCard";
@@ -14,7 +17,6 @@ import {
   myBonusItems,
   totalsLabel,
 } from "../me/overview-format";
-import { formatDay, formatMoney, warsawToday } from "./payroll-format";
 
 /**
  * Liczby nad listą: moja stawka, premie w drodze (propozycje + prognozy
@@ -32,7 +34,7 @@ export function myStats(
     {
       id: "rate",
       label: data.current_rate
-        ? `moja stawka od ${formatDay(data.current_rate.effective_from)}`
+        ? `moja stawka od ${formatIsoDatePl(data.current_rate.effective_from)}`
         : "moja stawka",
       value: data.current_rate
         ? `${formatMoney(data.current_rate.hourly_rate, data.current_rate.currency)}/h`
@@ -145,8 +147,8 @@ export function MyBonusesTab() {
                   {formatMoney(rate.hourly_rate, rate.currency)}/h
                 </span>{" "}
                 {rate.effective_to
-                  ? `${formatDay(rate.effective_from)} – ${formatDay(rate.effective_to)}`
-                  : `od ${formatDay(rate.effective_from)}`}
+                  ? `${formatIsoDatePl(rate.effective_from)} – ${formatIsoDatePl(rate.effective_to)}`
+                  : `od ${formatIsoDatePl(rate.effective_from)}`}
                 {rate.reason ? ` · ${rate.reason}` : ""}
               </li>
             ))}

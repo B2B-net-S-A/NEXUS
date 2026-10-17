@@ -20,10 +20,10 @@
 
 import { PayrollMonthScreen } from "@/components/hr/payroll/PayrollMonthScreen";
 import { PayrollMonthsScreen } from "@/components/hr/payroll/PayrollMonthsScreen";
-import type { HrConfig } from "@/lib/api/hr";
+import { hrKeys, type HrConfig } from "@/lib/api/hr";
 import { payrollKeys } from "@/lib/api/hr-payroll";
 
-import { HR_CAST, HR_CONFIG_QUERY_KEY, hrConfig } from "../hr-fixtures";
+import { HR_CAST, hrConfig } from "../hr-fixtures";
 import {
   HrHarnessLoading,
   HrHarnessShell,
@@ -62,8 +62,8 @@ function prepare(params: URLSearchParams) {
     ? hrConfig({ is_manager: true, direct_reports: MARTA_REPORTS.size })
     : hrConfig({ payroll: true });
   const client = harnessQueryClient();
-  client.setQueryData(HR_CONFIG_QUERY_KEY, config);
-  client.setQueryData(["hr", "counts"], { approvals: team ? 2 : null, cases: null });
+  client.setQueryData(hrKeys.config, config);
+  client.setQueryData(hrKeys.counts, { approvals: team ? 2 : null, cases: null });
   client.setQueryData(
     payrollKeys.month(scene.year, scene.month),
     closingDetail(scene, team ? "team" : "payroll"),

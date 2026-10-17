@@ -26,8 +26,9 @@ import {
   type SkillReviewRow,
 } from "@/lib/api/care";
 import { CALM_HEAD, CALM_ROW, CALM_SUBLINE } from "@/lib/calm-table";
-import { cn, formatDate } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 import { resolveViewState } from "@/lib/view-state";
+import { formatIsoDatePl } from "@/lib/date-pl";
 
 // Kategorie słownika, w których żyją technologie (jak w „Słowniku umiejętności”).
 const CATEGORIES = [
@@ -317,7 +318,7 @@ export function SkillReviewPanel() {
                     <span className="font-medium">{row.name}</span>
                     <span className={CALM_SUBLINE}>
                       {row.reported_by ? `${row.reported_by.name} · ` : ""}
-                      {formatDate(row.created_at)}
+                      {formatIsoDatePl(row.created_at)}
                     </span>
                   </td>
                   <td className="px-3 py-1.5 text-right tabular-nums">{row.occurrences}</td>

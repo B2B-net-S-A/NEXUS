@@ -10,9 +10,8 @@ import { useToast } from "@/components/Toast";
 import { Button } from "@/components/ui/button";
 import { useConfirmV2 } from "@/components/v2/modals/ConfirmV2";
 import { apiErrorMessage } from "@/lib/api-error";
-import type { HrConfig, WorkLocation } from "@/lib/api/hr";
+import { downloadHrFile, type HrConfig, type WorkLocation } from "@/lib/api/hr";
 import {
-  downloadTimeFile,
   timePaths,
   useCopyPrevious,
   useDayHint,
@@ -28,6 +27,8 @@ import {
 } from "@/lib/api/hr-time";
 import { capitalize, employmentTerms } from "@/lib/hr-employment-terms";
 import { resolveViewState } from "@/lib/view-state";
+import { warsawToday } from "@/lib/warsaw-date";
+import { monthTitlePl, shiftMonth, type YearMonth } from "@/lib/date-pl";
 
 import { EntryDialog } from "./EntryDialog";
 import { TimesheetArchive } from "./TimesheetArchive";
@@ -38,11 +39,7 @@ import {
   canEditMonth,
   currentYearMonth,
   formatHours,
-  monthTitle,
-  shiftMonth,
   statusLine,
-  warsawToday,
-  type YearMonth,
 } from "./time-format";
 
 export interface MyMonthTabProps {
@@ -143,7 +140,7 @@ export function MyMonthTab({ config, initialMonth, onMonthChange }: MyMonthTabPr
       onSuccess: (result) =>
         showToast(
           result.source
-            ? `Skopiowano opisy z ${monthTitle(result.source).toLowerCase()}: ${result.inserted} dni.`
+            ? `Skopiowano opisy z ${monthTitlePl(result.source).toLowerCase()}: ${result.inserted} dni.`
             : "Nie ma jeszcze zaakceptowanego miesiąca do skopiowania.",
           result.source ? "success" : "info",
         ),
@@ -156,7 +153,7 @@ export function MyMonthTab({ config, initialMonth, onMonthChange }: MyMonthTabPr
     const missing = view.totals.days_missing;
     const after = `Po wysłaniu poprawki wprowadza ${words.coordinator} albo zwraca ${words.timesheet_accusative} do Ciebie.`;
     const ok = await askConfirm({
-      title: `Wysłać ${words.timesheet_accusative} za ${monthTitle(period).toLowerCase()} do ${reviewNoun}?`,
+      title: `Wysłać ${words.timesheet_accusative} za ${monthTitlePl(period).toLowerCase()} do ${reviewNoun}?`,
       description:
         missing > 0 ? `${missing} dni roboczych nie ma wpisów. ${after}` : after,
       confirmLabel: "Wyślij",
@@ -174,7 +171,7 @@ export function MyMonthTab({ config, initialMonth, onMonthChange }: MyMonthTabPr
 
   const downloadPdf = async () => {
     try {
-      await downloadTimeFile(
+      await downloadHrFile(
         timePaths.myPdf(period.year, period.month),
         `timesheet-${period.year}-${String(period.month).padStart(2, "0")}.pdf`,
       );
@@ -194,7 +191,7 @@ export function MyMonthTab({ config, initialMonth, onMonthChange }: MyMonthTabPr
             <ChevronLeft className="h-4 w-4" aria-hidden />
           </Button>
           <h2 className="min-w-[9.5rem] text-center text-base font-semibold text-foreground">
-            {monthTitle(period)}
+            {monthTitlePl(period)}
           </h2>
           <Button variant="ghost" size="icon-sm" aria-label="Następny miesiąc" onClick={() => go(1)}>
             <ChevronRight className="h-4 w-4" aria-hidden />

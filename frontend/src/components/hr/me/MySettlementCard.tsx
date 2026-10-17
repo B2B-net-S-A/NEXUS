@@ -4,8 +4,10 @@ import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import { Card } from "@/components/ui/card";
 import type { MySettlement, PayrollLine, SettlementMonth } from "@/lib/api/hr-payroll";
 import type { ViewState } from "@/lib/view-state";
+import { formatMoney } from "@/lib/money";
+import { capitalize } from "@/lib/hr-employment-terms";
 
-import { capitalize, formatHours, formatMoney } from "../payroll/payroll-format";
+import { formatHours } from "../payroll/payroll-format";
 
 const HOURS_SOURCE: Record<SettlementMonth["hours_source"], string> = {
   frozen: "zamknięty",

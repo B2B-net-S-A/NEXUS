@@ -12,8 +12,9 @@ import { apiErrorMessage } from "@/lib/api-error";
 import { useFrontOffice, useHandOffToFrontOffice, type HandoffResult } from "@/lib/api/care";
 import { CALM_SUBLINE } from "@/lib/calm-table";
 import { resolveViewState } from "@/lib/view-state";
+import { formatDayMonthPl } from "@/lib/date-pl";
 
-import { dayMonth, frontOfficeText } from "./week-format";
+import { frontOfficeText } from "./week-format";
 
 /** Zdanie po przekazaniu: kto naprawdę dostał powiadomienie. */
 export function handoffToast(result: HandoffResult): { text: string; tone: "success" | "info" } {
@@ -80,7 +81,7 @@ export function FrontOfficeSection({ contractId }: { contractId: number }) {
     <DetailSection title="Front office">
       <p className="text-sm">
         {frontOfficeText(data.reasons)}
-        {data.end_date ? ` · koniec ${dayMonth(data.end_date)}` : ""}
+        {data.end_date ? ` · koniec ${formatDayMonthPl(data.end_date)}` : ""}
       </p>
       {data.status === "unavailable" ? (
         <p className="text-sm text-muted-foreground">
@@ -129,7 +130,7 @@ export function FrontOfficeSection({ contractId }: { contractId: number }) {
       )}
       {last ? (
         <p className="text-xs text-muted-foreground">
-          Przekazano {dayMonth(last.on)}
+          Przekazano {formatDayMonthPl(last.on)}
           {last.by ? ` · ${last.by.name}` : ""}
           {` · powiadomieni: ${last.notified_count}`}
         </p>

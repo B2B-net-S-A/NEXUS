@@ -19,12 +19,12 @@ import {
   type PersonFull,
 } from "@/lib/api/hr";
 import { employmentTerms } from "@/lib/hr-employment-terms";
-import { formatDate } from "@/lib/utils";
 import { resolveViewState } from "@/lib/view-state";
 import { ROLE_LABELS } from "@/store/auth";
 import { PersonEquipmentPanel } from "@/components/equipment/PersonEquipmentPanel";
 import { LifecycleProfileSection } from "@/components/hr/lifecycle/LifecycleProfileSection";
 import { PayrollProfileSection } from "@/components/hr/payroll/PayrollProfileSection";
+import { formatIsoDatePl } from "@/lib/date-pl";
 
 import { EditProfileDialog } from "./EditProfileDialog";
 import { EntitlementDialog } from "./EntitlementDialog";
@@ -236,9 +236,9 @@ export function PersonProfile({ userId, config }: { userId: number; config: HrCo
             <Card className="p-4">
               <CardTitle>Zatrudnienie</CardTitle>
               <Fact label="Forma">{EMPLOYMENT_TYPE_LABELS[full.employment_type]}</Fact>
-              <Fact label="Start pracy">{formatDate(full.work_start_date)}</Fact>
+              <Fact label="Start pracy">{formatIsoDatePl(full.work_start_date)}</Fact>
               <Fact label="Ostatni dzień pracy">
-                {full.last_working_day ? formatDate(full.last_working_day) : "—"}
+                {full.last_working_day ? formatIsoDatePl(full.last_working_day) : "—"}
               </Fact>
               <Fact label={words?.timesheet ?? "Timesheet"}>
                 {full.timesheet_required ? "tak" : "nie"}
@@ -248,13 +248,13 @@ export function PersonProfile({ userId, config }: { userId: number; config: HrCo
                 <Fact label="Uczeń lub student">
                   {full.student_contribution_exempt
                     ? full.contribution_exempt_until
-                      ? `bez składek do ${formatDate(full.contribution_exempt_until)}`
+                      ? `bez składek do ${formatIsoDatePl(full.contribution_exempt_until)}`
                       : "tak — brak daty końca zwolnienia"
                     : "nie"}
                 </Fact>
               ) : null}
               {full.employment_type === "zlecenie" && full.contributions_from ? (
-                <Fact label="Składki od">{formatDate(full.contributions_from)}</Fact>
+                <Fact label="Składki od">{formatIsoDatePl(full.contributions_from)}</Fact>
               ) : null}
               {full.employment_type === "uop" ? (
                 <>
@@ -265,7 +265,7 @@ export function PersonProfile({ userId, config }: { userId: number; config: HrCo
                   </Fact>
                   <Fact label="Zaświadczenie z ZUS">
                     {full.zus_certificate_received_on
-                      ? formatDate(full.zus_certificate_received_on)
+                      ? formatIsoDatePl(full.zus_certificate_received_on)
                       : "—"}
                   </Fact>
                 </>

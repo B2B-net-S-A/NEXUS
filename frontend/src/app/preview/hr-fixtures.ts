@@ -122,9 +122,6 @@ export function hrConfig(me: Partial<HrConfig["me"]> = {}): HrConfig {
   };
 }
 
-/** Klucz `useHrConfig` (`lib/api/hr.ts`) — zasiewa go każdy harness HR. */
-export const HR_CONFIG_QUERY_KEY = ["hr", "config"] as const;
-
 // ── Kalendarz harnessów ─────────────────────────────────────────────────────
 // Ekrany liczą „dziś” z zegara przeglądarki (Europe/Warsaw), więc klucze
 // zapytań i daty w danych budujemy względem bieżącego miesiąca, a nie na

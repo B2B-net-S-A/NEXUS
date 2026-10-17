@@ -11,6 +11,10 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { api } from "@/lib/api";
 import { HR_COUNTS_MUTATION_KEY, useHrConfig, type EmploymentType } from "@/lib/api/hr";
+import { SUBSTITUTION_QUERY_KEY } from "@/lib/api/hr-dashboard";
+import { payrollKeys } from "@/lib/api/hr-payroll";
+import { teamKeys } from "@/lib/api/hr-team";
+import { timeKeys } from "@/lib/api/hr-time";
 import { WS_BACKED_SAFETY_POLL_MS } from "@/lib/polling";
 import { useAuthStore } from "@/store/auth";
 
@@ -361,9 +365,26 @@ export function useSubstitutes(
   });
 }
 
+/**
+ * Co zmienia zapis nieobecności poza listami urlopów: godziny w timesheecie
+ * (urlop wpisuje i zdejmuje dni — `time_hooks.py`), Płace, „Mój zespół”
+ * i kafelek zastępstw. Bez tego „Mój miesiąc” przez `staleTime` pokazywał
+ * godziny sprzed zgłoszenia.
+ */
+const LEAVE_AFFECTS = [
+  leaveKeys.all,
+  timeKeys.all,
+  payrollKeys.all,
+  teamKeys.all,
+  SUBSTITUTION_QUERY_KEY,
+] as const;
+
 function useInvalidateLeave() {
   const queryClient = useQueryClient();
-  return () => queryClient.invalidateQueries({ queryKey: leaveKeys.all });
+  return () =>
+    Promise.all(
+      LEAVE_AFFECTS.map((queryKey) => queryClient.invalidateQueries({ queryKey })),
+    );
 }
 
 export function useSubmitLeave() {

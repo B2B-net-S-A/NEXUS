@@ -31,6 +31,7 @@ import {
 } from "@/lib/api/admin-cases";
 import type { HrConfig } from "@/lib/api/hr";
 import { resolveViewState } from "@/lib/view-state";
+import { formatDayMonthPl } from "@/lib/date-pl";
 
 import { CaseFormDialog } from "./CaseFormDialog";
 import {
@@ -39,7 +40,6 @@ import {
   caseSubline,
   dueLabel,
   groupByStatus,
-  shortDate,
 } from "./case-format";
 
 const ALL_AREAS = "all";
@@ -69,7 +69,7 @@ function CaseTile({ card, onOpen }: { card: CaseCard; onOpen: () => void }) {
         ) : null}
         {card.follow_up_on && card.status === "waiting" ? (
           <Badge variant="outline" size="sm">
-            kontakt {shortDate(card.follow_up_on)}
+            kontakt {formatDayMonthPl(card.follow_up_on)}
           </Badge>
         ) : null}
       </div>
@@ -84,7 +84,7 @@ function CaseTile({ card, onOpen }: { card: CaseCard; onOpen: () => void }) {
           {card.checklist_total > 0
             ? `${card.contract ? " · " : ""}${card.checklist_done}/${card.checklist_total} na liście`
             : null}
-          {card.status === "done" && card.closed_at ? `zrobione ${shortDate(card.closed_at)}` : null}
+          {card.status === "done" && card.closed_at ? `zrobione ${formatDayMonthPl(card.closed_at)}` : null}
         </span>
         {card.assignee ? (
           <span

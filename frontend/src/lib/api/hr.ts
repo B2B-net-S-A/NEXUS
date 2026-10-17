@@ -13,6 +13,7 @@ import {
 } from "@tanstack/react-query";
 
 import { api } from "@/lib/api";
+import { downloadBlob, fetchAuthenticatedDownload } from "@/lib/authenticated-files";
 import { EMPLOYMENT_TERMS } from "@/lib/hr-employment-terms";
 
 export type HrModuleKey =
@@ -162,18 +163,28 @@ export const HR_MODULE_LABELS: Record<HrModuleKey, string> = {
   equipment: "Sprzęt i protokoły",
 };
 
-const keys = {
+/** Klucze zapytań „Ludzi” — wszystkie moduły HR mają wspólny korzeń `["hr"]`. */
+export const hrKeys = {
+  all: ["hr"] as const,
   config: ["hr", "config"] as const,
   people: ["hr", "people"] as const,
   person: (userId: number) => ["hr", "people", userId] as const,
   me: ["hr", "me"] as const,
   withoutProfile: ["hr", "admin", "users-without-profile"] as const,
   daysOff: (year: number | null) => ["hr", "admin", "days-off", year] as const,
+  availabilitySource: ["hr", "admin", "availability-source"] as const,
+  counts: ["hr", "counts"] as const,
 };
+
+/** Pobiera plik modułu (PDF, XLSX, ZIP) z tokenem i zapisuje pod nazwą z serwera. */
+export async function downloadHrFile(path: string, fallbackName: string): Promise<void> {
+  const { blob, filename } = await fetchAuthenticatedDownload(path);
+  downloadBlob(blob, filename ?? fallbackName);
+}
 
 export function useHrConfig(enabled = true) {
   return useQuery({
-    queryKey: keys.config,
+    queryKey: hrKeys.config,
     queryFn: async () => (await api.get<HrConfig>("/api/hr/config")).data,
     staleTime: 5 * 60 * 1000,
     enabled,
@@ -182,7 +193,7 @@ export function useHrConfig(enabled = true) {
 
 export function usePeople() {
   return useQuery({
-    queryKey: keys.people,
+    queryKey: hrKeys.people,
     queryFn: async () =>
       (await api.get<{ items: Person[]; total: number }>("/api/hr/people"))
         .data,
@@ -191,7 +202,7 @@ export function usePeople() {
 
 export function usePerson(userId: number) {
   return useQuery({
-    queryKey: keys.person(userId),
+    queryKey: hrKeys.person(userId),
     queryFn: async () =>
       (await api.get<Person>(`/api/hr/people/${userId}`)).data,
     enabled: Number.isFinite(userId) && userId > 0,
@@ -200,7 +211,7 @@ export function usePerson(userId: number) {
 
 export function useMyHrProfile() {
   return useQuery({
-    queryKey: keys.me,
+    queryKey: hrKeys.me,
     queryFn: async () =>
       (
         await api.get<
@@ -212,7 +223,7 @@ export function useMyHrProfile() {
 
 export function useUsersWithoutProfile(enabled: boolean) {
   return useQuery({
-    queryKey: keys.withoutProfile,
+    queryKey: hrKeys.withoutProfile,
     queryFn: async () =>
       (
         await api.get<{
@@ -225,7 +236,7 @@ export function useUsersWithoutProfile(enabled: boolean) {
 
 function useInvalidatePeople() {
   const queryClient = useQueryClient();
-  return () => queryClient.invalidateQueries({ queryKey: ["hr"] });
+  return () => queryClient.invalidateQueries({ queryKey: hrKeys.all });
 }
 
 export function useCreateProfile() {
@@ -273,7 +284,7 @@ export function useSetEntitlement(userId: number) {
 
 export function useCompanyDaysOff(year: number | null, enabled = true) {
   return useQuery({
-    queryKey: keys.daysOff(year),
+    queryKey: hrKeys.daysOff(year),
     queryFn: async () =>
       (
         await api.get<{ items: CompanyDayOff[] }>("/api/hr/admin/days-off", {
@@ -322,7 +333,7 @@ export type AvailabilitySource = "compass" | "local";
 /** Skąd zastępstwa i dni robocze biorą urlopy (admin; krok runbooka). */
 export function useAvailabilitySource(enabled: boolean) {
   return useQuery({
-    queryKey: ["hr", "admin", "availability-source"] as const,
+    queryKey: hrKeys.availabilitySource,
     queryFn: async () =>
       (await api.get<{ source: AvailabilitySource }>("/api/hr/admin/availability-source"))
         .data.source,
@@ -390,8 +401,6 @@ export interface HrCounts {
   cases: number | null;
 }
 
-const countsKey = ["hr", "counts"] as const;
-
 /**
  * Klucz mutacji, po których liczniki „Ludzi” liczą się od nowa (decyzja
  * o wniosku, anulowanie, decyzja o timesheecie). Mutacje z tym prefiksem
@@ -421,8 +430,8 @@ export function useHrCounts(enabled = true) {
   const queryClient = useQueryClient();
   const mutating = useIsMutating({ mutationKey: HR_COUNTS_MUTATION_KEY });
   const wasMutating = useRef(false);
-  // Decyzja o wniosku, timesheecie albo sprawie zmienia liczby, a klucze tych
-  // ekranów mają inne korzenie — po zapisie oznaczonym `HR_COUNTS_MUTATION_KEY`
+  // Decyzja o wniosku, timesheecie albo sprawie zmienia liczby, a te mutacje
+  // odświeżają tylko swój obszar — po zapisie oznaczonym `HR_COUNTS_MUTATION_KEY`
   // liczymy od nowa.
   useEffect(() => {
     if (mutating > 0) {
@@ -431,10 +440,10 @@ export function useHrCounts(enabled = true) {
     }
     if (!wasMutating.current) return;
     wasMutating.current = false;
-    void queryClient.invalidateQueries({ queryKey: countsKey });
+    void queryClient.invalidateQueries({ queryKey: hrKeys.counts });
   }, [mutating, queryClient]);
   return useQuery({
-    queryKey: countsKey,
+    queryKey: hrKeys.counts,
     queryFn: async () => parseHrCounts((await api.get<unknown>("/api/hr/counts")).data),
     enabled,
     staleTime: 30 * 1000,

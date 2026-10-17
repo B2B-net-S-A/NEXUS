@@ -15,8 +15,9 @@ import type {
   TimesheetEntry,
   TimesheetTemplate,
 } from "@/lib/api/hr-time";
+import { formatWeekdayDayPl } from "@/lib/date-pl";
 
-import { dayLabel, formatHours, parseHours, wouldExceedDay } from "./time-format";
+import { formatHours, parseHours, wouldExceedDay } from "./time-format";
 
 export interface EntryDialogProps {
   open: boolean;
@@ -99,7 +100,7 @@ export function EntryDialog({
     if (!entry || !onDelete) return;
     const ok = await askConfirm({
       title: "Usunąć wpis?",
-      description: `${dayLabel(day.date, day.weekday)} · ${formatHours(entry.hours)} h — wpis zniknie z timesheetu.`,
+      description: `${formatWeekdayDayPl(day.date)} · ${formatHours(entry.hours)} h — wpis zniknie z timesheetu.`,
       confirmLabel: "Usuń",
       variant: "destructive",
     });
@@ -119,7 +120,7 @@ export function EntryDialog({
     <AppModal
       open={open}
       onOpenChange={onOpenChange}
-      title={`${entry ? "Wpis" : "Nowy wpis"} · ${dayLabel(day.date, day.weekday)}`}
+      title={`${entry ? "Wpis" : "Nowy wpis"} · ${formatWeekdayDayPl(day.date)}`}
       description={
         day.capacity != null && day.capacity < 8
           ? `Pół dnia urlopu — do wpisania ${formatHours(day.capacity)} h.`

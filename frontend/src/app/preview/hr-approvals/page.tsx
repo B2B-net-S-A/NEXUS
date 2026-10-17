@@ -26,15 +26,13 @@
 
 import { PageHeader } from "@/components/ds/PageHeader";
 import { ApprovalsScreen } from "@/components/hr/leave/ApprovalsScreen";
-import { LEAVE_TYPE_LABELS, warsawToday } from "@/components/hr/leave/leave-format";
+import { LEAVE_TYPE_LABELS } from "@/components/hr/leave/leave-format";
 import { PeopleSectionNav } from "@/components/hr/people/PeopleSectionNav";
 import {
   currentYearMonth,
   defaultQueueMonth,
-  shiftMonth,
-  type YearMonth,
 } from "@/components/hr/time/time-format";
-import type { HrConfig } from "@/lib/api/hr";
+import { hrKeys, type HrConfig } from "@/lib/api/hr";
 import {
   leaveKeys,
   type LeaveCovering,
@@ -44,11 +42,12 @@ import {
   type PendingLeaveRow,
 } from "@/lib/api/hr-leave";
 import { timeKeys, type QueueStatus, type TeamQueueItem } from "@/lib/api/hr-time";
+import { warsawToday } from "@/lib/warsaw-date";
+import { shiftMonth, type YearMonth } from "@/lib/date-pl";
 
 import {
   HR_CAST,
   HR_CLIENTS,
-  HR_CONFIG_QUERY_KEY,
   hrConfig,
   nthWorkDay,
   shiftDay,
@@ -302,8 +301,8 @@ function prepare(params: URLSearchParams) {
   const today = warsawToday();
   const team = state === "covering" ? KAMIL_TEAM : TEAM;
   const client = harnessQueryClient();
-  client.setQueryData(HR_CONFIG_QUERY_KEY, config);
-  client.setQueryData(["hr", "counts"], { approvals: state === "covering" ? 1 : 4, cases: null });
+  client.setQueryData(hrKeys.config, config);
+  client.setQueryData(hrKeys.counts, { approvals: state === "covering" ? 1 : 4, cases: null });
 
   const pending = pendingFor(state, today);
   client.setQueryData(leaveKeys.pending, pending);

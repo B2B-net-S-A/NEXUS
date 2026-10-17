@@ -19,13 +19,13 @@ import {
 import { coordinatorLabel, employmentTerms } from "@/lib/hr-employment-terms";
 import { useUrlSyncedState } from "@/lib/url-selection";
 import { resolveViewState } from "@/lib/view-state";
+import type { YearMonth } from "@/lib/date-pl";
 
 import { MyLeaveTab } from "./leave/MyLeaveTab";
 import { MyOverviewTab } from "./me/MyOverviewTab";
 import { formatDays } from "./people/hr-format";
 import { MyBonusesTab } from "./payroll/MyBonusesTab";
 import { MyMonthTab } from "./time/MyMonthTab";
-import type { YearMonth } from "./time/time-format";
 
 function warsawYear(): number {
   return Number(

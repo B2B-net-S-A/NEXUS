@@ -16,15 +16,14 @@
  */
 
 import { PageHeader } from "@/components/ds/PageHeader";
-import { warsawToday } from "@/components/hr/leave/leave-format";
 import { PeopleSectionNav } from "@/components/hr/people/PeopleSectionNav";
 import { TeamScreen } from "@/components/hr/team/TeamScreen";
-import type { HrConfig } from "@/lib/api/hr";
+import { hrKeys, type HrConfig } from "@/lib/api/hr";
 import { teamKeys, type MyTeam, type TeamPerson } from "@/lib/api/hr-team";
+import { warsawToday } from "@/lib/warsaw-date";
 
 import {
   HR_CAST,
-  HR_CONFIG_QUERY_KEY,
   harnessWorkDays,
   hrConfig,
   shiftDay,
@@ -181,8 +180,8 @@ function prepare(params: URLSearchParams) {
     as === "hr"
       ? hrConfig({ people_admin: true })
       : hrConfig({ is_manager: true, direct_reports: 5 });
-  client.setQueryData(HR_CONFIG_QUERY_KEY, config);
-  client.setQueryData(["hr", "counts"], { approvals: 2, cases: null });
+  client.setQueryData(hrKeys.config, config);
+  client.setQueryData(hrKeys.counts, { approvals: 2, cases: null });
   if (as === "hr") {
     client.setQueryData(teamKeys.team(marta.id), harnessTeam(false));
     client.setQueryData(teamKeys.managers, [

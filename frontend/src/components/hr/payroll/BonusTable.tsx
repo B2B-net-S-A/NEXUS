@@ -13,15 +13,14 @@ import {
 } from "@/components/ui/table";
 import type { BonusRow } from "@/lib/api/hr-payroll";
 import { CALM_AMOUNT, CALM_HEAD, CALM_ROW, CALM_SUBLINE } from "@/lib/calm-table";
+import { formatMoney } from "@/lib/money";
+import { formatIsoDatePl, monthYearPl } from "@/lib/date-pl";
 
 import {
   BONUS_STATUS_TONE,
   bonusStateLabel,
   bonusTitle,
   cancelReasonLabel,
-  formatDay,
-  formatMoney,
-  monthLabel,
   progressPercent,
 } from "./payroll-format";
 
@@ -74,7 +73,7 @@ export function BonusTable({
                   </span>
                   <span className={CALM_SUBLINE}>
                     {row.category_label}
-                    {row.eligible_on ? ` · termin ${formatDay(row.eligible_on)}` : ""}
+                    {row.eligible_on ? ` · termin ${formatIsoDatePl(row.eligible_on)}` : ""}
                     {row.edited ? " · kwota poprawiona" : ""}
                   </span>
                 </TableCell>
@@ -84,7 +83,7 @@ export function BonusTable({
                   </TableCell>
                 ) : null}
                 <TableCell className="whitespace-nowrap text-sm text-muted-foreground">
-                  {monthLabel(row.period_year, row.period_month)}
+                  {monthYearPl({ year: row.period_year, month: row.period_month })}
                 </TableCell>
                 <TableCell className={`${CALM_AMOUNT} text-sm font-medium text-foreground`}>
                   {formatMoney(row.amount, row.currency)}

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 
-import type { YearMonth } from "./time-format";
+import type { YearMonth } from "@/lib/date-pl";
 
 /**
  * Miesiąc sterowany adresem (link z powiadomienia), nadal przełączalny strzałkami.

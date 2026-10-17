@@ -3,7 +3,6 @@ import { describe, expect, it } from "vitest";
 import {
   careTimeline,
   conversationSignals,
-  plural,
   sourceSummary,
   splitNames,
   technologiesInArea,
@@ -108,8 +107,6 @@ describe("mapa technologii", () => {
     expect(sourceSummary(tech("Java", [], { cards: 2, jobs: 1, consultants: 5 }))).toBe(
       "2 karty, 1 rekrutacja, 5 konsultantów",
     );
-    expect(plural(12, "karta", "karty", "kart")).toBe("kart");
-    expect(plural(22, "karta", "karty", "kart")).toBe("karty");
   });
 });
 

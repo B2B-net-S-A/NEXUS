@@ -9,14 +9,14 @@ import { Button } from "@/components/ui/button";
 import { useContractTimeline, type TimelineEvent } from "@/lib/api/care";
 import { cn } from "@/lib/utils";
 import { resolveViewState } from "@/lib/view-state";
+import { formatDayMonthPl } from "@/lib/date-pl";
 
 import { FrontOfficeSection } from "./FrontOfficeSection";
-import { dayMonth } from "./week-format";
 
 function EventRow({ event }: { event: TimelineEvent }) {
   return (
     <li className={cn("grid grid-cols-[3rem_minmax(0,1fr)] gap-2", event.future && "text-muted-foreground")}>
-      <span className="tabular-nums text-xs leading-5 text-muted-foreground">{dayMonth(event.on)}</span>
+      <span className="tabular-nums text-xs leading-5 text-muted-foreground">{formatDayMonthPl(event.on)}</span>
       <span className="min-w-0">
         {event.link ? (
           <Link href={event.link} className="hover:underline">
@@ -64,7 +64,7 @@ export function ConsultantPanel({
         data.manager
           ? `menedżer: ${data.manager.name}${data.manager.position ? ` (${data.manager.position})` : ""}`
           : "menedżer u klienta: nie wskazano",
-        data.contract.end_date ? `koniec ${dayMonth(data.contract.end_date)}` : null,
+        data.contract.end_date ? `koniec ${formatDayMonthPl(data.contract.end_date)}` : null,
       ]
         .filter(Boolean)
         .join(" · ")

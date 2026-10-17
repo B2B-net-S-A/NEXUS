@@ -3,11 +3,11 @@
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import { useMyEquipment, usePersonEquipment, type HolderEquipment } from "@/lib/api/equipment";
 import { resolveViewState } from "@/lib/view-state";
+import { formatIsoDatePl } from "@/lib/date-pl";
 
 import {
   PROTOCOL_STATUS_LABELS,
   assignmentLabel,
-  formatDatePl,
 } from "./equipment-format";
 
 interface PersonEquipmentPanelProps {
@@ -51,7 +51,7 @@ export function PersonEquipmentPanel({ userId }: PersonEquipmentPanelProps) {
             <li key={row.assignment_id} className="flex flex-wrap items-baseline gap-x-3 px-3 py-2">
               <span className="font-medium">{assignmentLabel(row)}</span>
               <span className="text-xs text-muted-foreground">
-                od {formatDatePl(row.issued_at)}
+                od {formatIsoDatePl(row.issued_at)}
                 {row.issue_protocol ? ` · ${row.issue_protocol}` : ""}
               </span>
             </li>

@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
 import { closeConflict, type BonusRow, type MyPayroll } from "@/lib/api/hr-payroll";
+import { warsawToday } from "@/lib/warsaw-date";
+import { formatMoney } from "@/lib/money";
+import { formatIsoDatePl } from "@/lib/date-pl";
 
 import { formFromRules, rulesPayload } from "../BonusRulesCard";
 import { myStats } from "../MyBonusesTab";
@@ -8,17 +11,15 @@ import { monthState } from "../PayrollMonthsScreen";
 import { rateRange } from "../PayrollProfileSection";
 import {
   bonusStateLabel,
-  formatDay,
   formatHours,
-  formatMoney,
   formatTotals,
   parseAmount,
   parseYm,
   progressPercent,
+  rateToast,
   timesheetLabel,
   timesheetTone,
   warsawMonth,
-  warsawToday,
   ymSegment,
 } from "../payroll-format";
 
@@ -96,7 +97,7 @@ describe("miesiące i daty", () => {
   });
 
   it("data kalendarzowa bez przesunięcia strefy", () => {
-    expect(formatDay("2026-09-30")).toBe("30.09.2026");
+    expect(formatIsoDatePl("2026-09-30")).toBe("30.09.2026");
     expect(rateRange({ effective_from: "2026-06-01", effective_to: "2026-08-31" })).toBe(
       "01.06.2026 – 31.08.2026",
     );
@@ -121,11 +122,14 @@ describe("statusy", () => {
     expect(progressPercent(null, 21)).toBe(0);
   });
 
-  it("timesheet: brak przy obowiązku to „nie wysłany”", () => {
-    expect(timesheetLabel(null, true)).toBe("nie wysłany");
-    expect(timesheetTone(null, true)).toBe("danger");
+  it("timesheet: słownik i kolory te same co w „Moim miesiącu” i „Moim zespole”", () => {
+    expect(timesheetLabel(null, true)).toBe("nie założony");
+    expect(timesheetTone(null, true)).toBe("warning");
     expect(timesheetLabel(null, false)).toBe("bez obowiązku");
-    expect(timesheetTone("submitted", true)).toBe("warning");
+    expect(timesheetTone(null, false)).toBe("neutral");
+    expect(timesheetLabel("submitted", true)).toBe("do akceptacji");
+    expect(timesheetTone("submitted", true)).toBe("info");
+    expect(timesheetLabel("approved", true)).toBe("zaakceptowany");
   });
 
   it("stan miesiąca na liście", () => {
@@ -140,6 +144,17 @@ describe("statusy", () => {
     expect(monthState({ ...base, status: "closed", can_close: false }).label).toBe("zamknięty");
     expect(monthState({ ...base, status: "open", can_close: true }).label).toBe("do zamknięcia");
     expect(monthState({ ...base, status: "open", can_close: false }).label).toBe("w toku");
+  });
+});
+
+describe("zapis stawki", () => {
+  it("ostrzeżenie serwera (rok bez minimum, inna waluta) trafia do komunikatu jako informacja", () => {
+    expect(rateToast({ warning: null })).toEqual(["Stawka zapisana", "success"]);
+    expect(rateToast({ warning: "  " })).toEqual(["Stawka zapisana", "success"]);
+    expect(rateToast({ warning: "Brak minimalnej stawki zlecenia na 2027 r." })).toEqual([
+      "Stawka zapisana. Brak minimalnej stawki zlecenia na 2027 r.",
+      "info",
+    ]);
   });
 });
 

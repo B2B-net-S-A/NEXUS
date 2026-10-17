@@ -1,7 +1,7 @@
 /**
  * Dane harnessu `/preview/hr-person` (makieta 6 „Kartoteka osoby”) oraz
  * pomocnicy wspólni dla harnessów kartoteki, płac, odejścia i wejścia:
- * katalog osób, klucze nieeksportowanych hooków, błąd HTTP w cache i dni
+ * katalog osób, błąd HTTP w cache i dni
  * robocze w przód / w tył. Kandydaci do przeniesienia do `hr-fixtures.ts`
  * i `hr-harness.tsx`.
  *
@@ -12,36 +12,9 @@ import type { QueryClient, QueryKey } from "@tanstack/react-query";
 
 import type { HolderEquipment, AssignmentRow } from "@/lib/api/equipment";
 import type { EmploymentStatus, EmploymentType, PersonCard, PersonFull } from "@/lib/api/hr";
-import type { CaseKind, TransferKind } from "@/lib/api/hr-lifecycle";
 import type { RateRow } from "@/lib/api/hr-payroll";
 
 import { HR_CAST, harnessMonthDays, shiftDay, type HarnessPerson } from "../hr-fixtures";
-
-// ── Klucze hooków, które ich nie eksportują ─────────────────────────────────
-
-/** Lustro nieeksportowanego `keys` z `lib/api/hr.ts`. */
-export const HR_PEOPLE_KEYS = {
-  people: ["hr", "people"] as const,
-  person: (userId: number) => ["hr", "people", userId] as const,
-  withoutProfile: ["hr", "admin", "users-without-profile"] as const,
-};
-
-/** Lustro nieeksportowanego `keys` z `lib/api/hr-lifecycle.ts`. */
-export const LIFECYCLE_KEYS = {
-  templates: (kind: CaseKind | null) => ["hr", "lifecycle", "templates", kind] as const,
-  case: (id: number) => ["hr", "lifecycle", "case", id] as const,
-  receivers: (id: number, kind: TransferKind) =>
-    ["hr", "lifecycle", "receivers", id, kind] as const,
-  summary: (userId: number) => ["hr", "lifecycle", "summary", userId] as const,
-  /** Klucz `usePreviewTasks` (budowany w hooku z ładunku zapytania). */
-  preview: (payload: {
-    kind: CaseKind;
-    anchor: string;
-    template_id: number | null;
-    employment_type: string | null;
-    department: string | null;
-  }) => ["hr", "lifecycle", "preview", payload] as const,
-};
 
 /**
  * Zapytanie w stanie błędu HTTP (403/404) bez wysyłki: `retryOnMount: false`

@@ -17,12 +17,12 @@ import {
 import { useProtocols, type ProtocolKind } from "@/lib/api/equipment";
 import { CALM_AMOUNT, CALM_HEAD, CALM_ROW, CALM_SUBLINE } from "@/lib/calm-table";
 import { resolveViewState } from "@/lib/view-state";
+import { formatIsoDatePl } from "@/lib/date-pl";
 
 import {
   PROTOCOL_STATUS_LABELS,
   PROTOCOL_STATUS_TONE,
   SIGNATURE_LABELS,
-  formatDatePl,
   formatPln,
 } from "./equipment-format";
 import { FilterSelect } from "./FilterSelect";
@@ -129,13 +129,13 @@ export function ProtocolsTab({ onOpenProtocol }: { onOpenProtocol: (id: number) 
                     </span>
                   </TableCell>
                   <TableCell>{protocol.holder.name}</TableCell>
-                  <TableCell>{formatDatePl(protocol.protocol_date)}</TableCell>
+                  <TableCell>{formatIsoDatePl(protocol.protocol_date)}</TableCell>
                   <TableCell>
                     <StatusDot
                       tone={PROTOCOL_STATUS_TONE[protocol.status]}
                       note={
                         protocol.link && protocol.status === "oczekuje"
-                          ? `link do ${formatDatePl(protocol.link.expires_at)}`
+                          ? `link do ${formatIsoDatePl(protocol.link.expires_at)}`
                           : undefined
                       }
                     >

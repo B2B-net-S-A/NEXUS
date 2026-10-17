@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { CalendarPlus } from "lucide-react";
 
-import { InlineStats, type InlineStat } from "@/components/ds/InlineStats";
+import { InlineStats } from "@/components/ds/InlineStats";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import { StatusDot } from "@/components/ds/StatusDot";
 import { useToast } from "@/components/Toast";
@@ -23,14 +23,13 @@ import {
   useLeaveBalance,
   useMyLeaveRequests,
   useSetForwardConsent,
-  type LeaveBalance,
   type LeaveRequestRow,
 } from "@/lib/api/hr-leave";
 import { CALM_EMPTY, CALM_HEAD, CALM_ROW, CALM_SUBLINE } from "@/lib/calm-table";
 import { employmentTerms, reportsAbsence } from "@/lib/hr-employment-terms";
 import { resolveViewState } from "@/lib/view-state";
+import { warsawToday } from "@/lib/warsaw-date";
 
-import { absenceCardKind } from "../me/overview-format";
 import { LeaveRequestDialog } from "./LeaveRequestDialog";
 import {
   HALF_DAY_LABELS,
@@ -39,98 +38,9 @@ import {
   formatRange,
   leaveToast,
   statusLabel,
-  warsawToday,
+  balanceStats,
+  canToggleForward,
 } from "./leave-format";
-
-/**
- * Liczby salda do nagłówka zakładki (czysta funkcja — test bez renderu).
- *
- * Słowa zależą od formy (17.10.2026): UoP — urlop z pulą, na żądanie i opieką
- * art. 188; B2B/zlecenie z umowną pulą — płatne dni przerwy bez limitów
- * Kodeksu; bez puli — same dni nieobecności, bez „zostało”. Trzy liczby
- * (wykorzystane do dziś, zaplanowane po dziś, czeka) liczy serwer.
- */
-export function balanceStats(balance: LeaveBalance): InlineStat[] {
-  const kind = absenceCardKind(balance.employment_type, balance);
-  // Na B2B i zleceniu nic nie czeka na akceptację (zgłoszenie, D5) — liczba
-  // „czeka” pokazuje się tylko, gdy coś zostało sprzed zmiany formy.
-  const report = reportsAbsence(balance.employment_type);
-  const pending =
-    report && !(Number(balance.pending_days) > 0)
-      ? []
-      : [{ id: "pending", label: "czeka na akceptację", value: daysLabel(balance.pending_days) }];
-  const stats: InlineStat[] = [];
-  if (kind === "absences") {
-    stats.push(
-      { id: "used", label: `wykorzystane w ${balance.year}`, value: daysLabel(balance.used_days) },
-      { id: "planned", label: `zaplanowane w ${balance.year}`, value: daysLabel(balance.planned_days) },
-      ...pending,
-    );
-    return stats;
-  }
-  if (balance.has_pool) {
-    stats.push(
-      {
-        id: "remaining",
-        label: `zostało w ${balance.year}`,
-        value: daysLabel(balance.remaining_days ?? "0"),
-        title: "Pula minus wykorzystane, zaplanowane i czekające na akceptację.",
-      },
-      {
-        id: "pool",
-        label: kind === "leave" ? "pula z zaległym" : "pula z umowy",
-        value: daysLabel(
-          Number(balance.entitlement_days ?? 0) + Number(balance.carried_over_days ?? 0),
-        ),
-        title: Number(balance.used_initial_days ?? 0)
-          ? `W tym ${daysLabel(balance.used_initial_days ?? "0")} wykorzystane przed NEXUSEM.`
-          : undefined,
-      },
-    );
-  } else {
-    stats.push({ id: "remaining", label: `pula ${balance.year}`, value: "nie ustawiona" });
-  }
-  stats.push(
-    { id: "used", label: "wykorzystane", value: daysLabel(balance.used_days) },
-    { id: "planned", label: "zaplanowane", value: daysLabel(balance.planned_days) },
-    ...pending,
-  );
-  if (Number(balance.unpaid_days) > 0) {
-    stats.push({
-      id: "unpaid",
-      label: kind === "leave" ? "bezpłatne" : "bez wynagrodzenia",
-      value: daysLabel(balance.unpaid_days),
-    });
-  }
-  if (kind === "leave" && balance.on_demand_limit !== null) {
-    stats.push({
-      id: "on-demand",
-      label: "na żądanie",
-      value: `${Number(balance.on_demand_used ?? 0).toLocaleString("pl-PL")} / ${Number(
-        balance.on_demand_limit,
-      )}`,
-    });
-  }
-  if (kind === "leave" && balance.childcare_limit !== null) {
-    stats.push({
-      id: "childcare",
-      label: "opieka nad dzieckiem (art. 188)",
-      value: `${Number(balance.childcare_used ?? 0).toLocaleString("pl-PL")} / ${Number(
-        balance.childcare_limit,
-      )}`,
-    });
-  }
-  return stats;
-}
-
-/** Czy osoba może jeszcze przełączyć przekierowanie poczty przy wniosku. */
-export function canToggleForward(row: LeaveRequestRow, today: string): boolean {
-  return (
-    row.substitute_user_id !== null &&
-    (row.status === "pending" || row.status === "approved") &&
-    row.end_date >= today
-  );
-}
 
 /**
  * „Mój czas → Urlop / Przerwy / Nieobecności” (nazwa według formy, D4): saldo,

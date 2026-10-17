@@ -2,39 +2,32 @@
 
 import Link from "next/link";
 
-import { StatusDot, type StatusDotTone } from "@/components/ds/StatusDot";
+import { StatusDot } from "@/components/ds/StatusDot";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import type { HrConfig } from "@/lib/api/hr";
 import {
   CASE_STATUS_LABELS,
   usePersonLifecycleSummary,
-  type CaseStatus,
   type PersonLifecycleSummary,
 } from "@/lib/api/hr-lifecycle";
 import { isForbiddenError, isNotFoundError } from "@/lib/view-state";
+import { formatWeekdayDayPl } from "@/lib/date-pl";
 
-import { ACCOUNT_RESULT_LABELS, formatDayShort, progressLabel } from "./lifecycle-format";
-
-const STATUS_TONE: Record<CaseStatus, StatusDotTone> = {
-  draft: "neutral",
-  active: "info",
-  done: "success",
-  cancelled: "neutral",
-};
+import { CASE_STATUS_TONE, ACCOUNT_RESULT_LABELS, progressLabel } from "./lifecycle-format";
 
 /** Zdanie o sprawie do kartoteki (czysta funkcja — test bez zapytań). */
 export function lifecycleSummaryLine(summary: PersonLifecycleSummary): string | null {
   const item = summary.case;
   if (!item) return null;
   if (item.kind === "onboarding") {
-    return `Wejście · start ${formatDayShort(item.start_date)} · ${progressLabel(item.progress)}`;
+    return `Wejście · start ${formatWeekdayDayPl(item.start_date)} · ${progressLabel(item.progress)}`;
   }
   if (item.account_close_result) {
-    return `Odejście · ostatni dzień ${formatDayShort(item.last_working_day)} · ${ACCOUNT_RESULT_LABELS[item.account_close_result]}`;
+    return `Odejście · ostatni dzień ${formatWeekdayDayPl(item.last_working_day)} · ${ACCOUNT_RESULT_LABELS[item.account_close_result]}`;
   }
   const handed = item.handover_executed_at ? " · praca przekazana" : "";
-  return `Odejście · ostatni dzień ${formatDayShort(item.last_working_day)}${handed} · ${progressLabel(item.progress)}`;
+  return `Odejście · ostatni dzień ${formatWeekdayDayPl(item.last_working_day)}${handed} · ${progressLabel(item.progress)}`;
 }
 
 interface LifecycleProfileSectionProps {
@@ -90,7 +83,7 @@ export function LifecycleProfileSection({ userId, config }: LifecycleProfileSect
           {item ? (
             <p className="flex flex-wrap items-center gap-2 text-sm text-foreground">
               {line}
-              <StatusDot tone={STATUS_TONE[item.status]}>{CASE_STATUS_LABELS[item.status]}</StatusDot>
+              <StatusDot tone={CASE_STATUS_TONE[item.status]}>{CASE_STATUS_LABELS[item.status]}</StatusDot>
             </p>
           ) : (
             <p className="text-sm text-muted-foreground">Bez sprawy wejścia ani odejścia.</p>
