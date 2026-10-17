@@ -198,7 +198,8 @@ describe("szyna i „Więcej” (rekrutacja v3)", () => {
   it("„Więcej” grupuje resztę; puste grupy odpadają", () => {
     const groups = visibleMoreGroups(userOf("recruiter"), opts);
     expect(groups.map((group) => [group.title, group.items.map((i) => i.label)])).toEqual([
-      ["Codzienna praca", ["Do przedzwonienia", "Akademia"]],
+      // Akademia zdjęta z „Więcej” 17.10.2026.
+      ["Codzienna praca", ["Do przedzwonienia"]],
       ["Dokumenty", ["Generator Umów B2B"]],
       ["System", ["Pomoc", "Ustawienia"]],
     ]);
@@ -374,10 +375,8 @@ describe("menu (szyna + „Więcej”, sekcjami) — pozycje per rola identyczne
     // „/talents" i „/sourcing/marketplace" zdjęte z menu 21.09.2026,
     // „/cv-generator" 13.10.2026.
   ];
-  // Akademia (0369) — w „Więcej”, ta sama bramka co Kalendarz.
-  const PIPELINE = ["/jobs", "/calendar", "/academy"];
-  // Panel „Praktykanci” (0374) — tylko admin i Head of Recruitment.
-  const PIPELINE_WITH_TRAINEES = [...PIPELINE, "/trainees"];
+  // Akademia i Praktykanci zdjęci z menu 17.10.2026.
+  const PIPELINE = ["/jobs", "/calendar"];
   const DELIVERY = ["/clients", "/contracts"];
   const INSIGHTS = ["/insights"];
   const SYSTEM = ["/help", "/settings"];
@@ -398,7 +397,7 @@ describe("menu (szyna + „Więcej”, sekcjami) — pozycje per rola identyczne
     ],
     admin: [
       ...SOURCING_OPERATIONAL,
-      ...PIPELINE_WITH_TRAINEES,
+      ...PIPELINE,
       ...DELIVERY,
       ...INSIGHTS,
       "/finance",
@@ -415,7 +414,7 @@ describe("menu (szyna + „Więcej”, sekcjami) — pozycje per rola identyczne
     // HoR nie rozpatruje zgłoszeń (UAT A-B02) i nie ma sekcji Delivery.
     head_of_recruitment: [
       ...SOURCING_OPERATIONAL,
-      ...PIPELINE_WITH_TRAINEES,
+      ...PIPELINE,
       ...INSIGHTS,
       ...SYSTEM,
     ],
@@ -595,5 +594,23 @@ describe("Talenty i Targ zdjęte z nawigacji (21.09.2026)", () => {
       expect(hrefs).not.toContain("/talents");
       expect(hrefs).not.toContain("/sourcing/marketplace");
     }
+  });
+});
+
+describe("Akademia i Praktykanci zdjęci z nawigacji (17.10.2026)", () => {
+  const opts = { contactQueueEnabled: true };
+  it("nie ma ich w menu ani w palecie dla żadnej roli, strony dalej istnieją", () => {
+    for (const role of ALL_ROLES) {
+      const user = userOf(role);
+      const hrefs = [
+        ...visibleNavHrefs(user, opts),
+        ...visiblePaletteEntries(user, opts, () => true).map((e) => e.href),
+      ];
+      expect(hrefs).not.toContain("/academy");
+      expect(hrefs).not.toContain("/trainees");
+    }
+    expect(NAV_REGISTRY.map((entry) => entry.href)).toEqual(
+      expect.arrayContaining(["/academy", "/trainees"]),
+    );
   });
 });

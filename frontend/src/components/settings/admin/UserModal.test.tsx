@@ -92,28 +92,28 @@ describe("UserModal — exclusive personas", () => {
     );
   });
 
-  it("Praktykant (0374) jest rolą wyłączną — czyści pozostałe role", () => {
-    const { onSave } = renderModal({
-      initial: { role: "recruiter", roles: ["recruiter", "delivery_lead"] },
-    });
-
-    fireEvent.change(screen.getAllByRole("combobox")[0], {
-      target: { value: "trainee" },
-    });
-
-    expect(screen.getByRole("checkbox", { name: /Praktykant/ })).toBeChecked();
-    expect(screen.getByRole("checkbox", { name: "Delivery Lead" })).toBeDisabled();
-    expect(screen.getByRole("checkbox", { name: "Rekruter" })).toBeDisabled();
-
-    fireEvent.click(screen.getByRole("button", { name: "Zapisz" }));
-    expect(onSave).toHaveBeenCalledWith(
-      expect.objectContaining({ role: "trainee", roles: ["trainee"] }),
-    );
+  it("roli Praktykant nie da się nadać — moduł ukryty 17.10.2026", () => {
+    renderModal({ initial: { role: "recruiter", roles: ["recruiter"] } });
+    expect(screen.queryByRole("option", { name: "Praktykant" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("checkbox", { name: /Praktykant/ })).not.toBeInTheDocument();
   });
 
-  it("praktykanta nie da się dołożyć jako roli dodatkowej", () => {
-    renderModal({ initial: { role: "recruiter", roles: ["recruiter"] } });
-    expect(screen.getByRole("checkbox", { name: "Praktykant" })).toBeDisabled();
+  it("konto, które już ma rolę Praktykant, dalej ją widzi i może ją zmienić", () => {
+    const { onSave } = renderModal({
+      initial: { id: 5, role: "trainee", roles: ["trainee"] },
+    });
+
+    expect(screen.getAllByRole("combobox")[0]).toHaveValue("trainee");
+    expect(screen.getByRole("checkbox", { name: /Praktykant/ })).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "Rekruter" })).toBeDisabled();
+
+    fireEvent.change(screen.getAllByRole("combobox")[0], {
+      target: { value: "recruiter" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Zapisz" }));
+    expect(onSave).toHaveBeenCalledWith(
+      expect.objectContaining({ role: "recruiter", roles: ["recruiter"] }),
+    );
   });
 
   it("removes Finance when switching back to an operational primary role", () => {
@@ -419,18 +419,21 @@ describe("UserModal — dodatkowe uprawnienia osoby", () => {
     );
   });
 
-  it("zmiana roli na praktykanta chowa sekcję i nie wysyła uprawnień", async () => {
-    personIs(userPermissionsResponse({ grants: ["contracts_orders_edit"] }));
-    const { onSave } = renderModal({ initial: tcm });
-    await extraPermissions();
-
-    fireEvent.change(screen.getAllByRole("combobox")[0], {
-      target: { value: "trainee" },
+  it("konto praktykanta nie ma sekcji i nie wysyła uprawnień", async () => {
+    personIs(
+      userPermissionsResponse({ roles: ["trainee"], locked: true, grantable: false }),
+    );
+    const { onSave } = renderModal({
+      initial: { id: 5, role: "trainee", roles: ["trainee"] },
     });
 
-    expect(
-      screen.queryByRole("group", { name: "Dodatkowe uprawnienia" }),
-    ).not.toBeInTheDocument();
+    // Same zasady wystarczą, żeby schować sekcję — praktykantowi nic się nie nadaje.
+    await waitFor(() => expect(adminApi.getSectionPermissions).toHaveBeenCalled());
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("group", { name: "Dodatkowe uprawnienia" }),
+      ).not.toBeInTheDocument(),
+    );
     fireEvent.click(screen.getByRole("button", { name: "Zapisz" }));
     expect(onSave.mock.calls[0][0]).not.toHaveProperty("permissions");
   });

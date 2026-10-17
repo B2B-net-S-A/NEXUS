@@ -7,6 +7,7 @@ import {
   findSettingsItem,
   findSettingsItemByRoute,
   listedSettingsAreas,
+  listedSettingsItems,
   resolveSettingsView,
   searchSettingsItems,
 } from "@/lib/settings-registry";
@@ -192,6 +193,13 @@ describe("settings-registry — lista telefonów praktykantów (0374)", () => {
   it("ma własną trasę w obszarze Rekrutacja", () => {
     expect(item("trainee-rules").area).toBe("rec");
     expect(findSettingsItemByRoute("/settings/trainee-rules")?.id).toBe("trainee-rules");
+  });
+
+  it("od 17.10.2026 ukryta: nie ma jej na liście ani w wyszukiwarce, adres działa", () => {
+    const admin = user("admin", {}) as never;
+    expect(listedSettingsItems(admin).map((i) => i.id)).not.toContain("trainee-rules");
+    expect(searchSettingsItems(admin, "praktykant")).toEqual([]);
+    expect(item("trainee-rules").hidden).toBe(true);
   });
 });
 

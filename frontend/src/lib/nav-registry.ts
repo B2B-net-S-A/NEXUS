@@ -413,7 +413,11 @@ export const NAV_REGISTRY: readonly NavEntry[] = [
     placement: "more",
     moreGroup: "daily",
     paletteKeywords: ["akademia rekrutera", "nabór", "szkolenie"],
-    inPalette: true,
+    // Ukryte z menu i palety 17.10.2026 (decyzja Artura): na razie
+    // z programu nie korzystamy. Strona i API działają dalej — to tylko
+    // zdjęcie wejścia z nawigacji.
+    inSidebar: false,
+    inPalette: false,
   },
   {
     // Praktykanci (0374): postęp programu, próbka jakości, decyzja po
@@ -429,7 +433,9 @@ export const NAV_REGISTRY: readonly NavEntry[] = [
     placement: "more",
     moreGroup: "daily",
     paletteKeywords: ["praktykant", "telefony", "lista telefonów", "program"],
-    inPalette: true,
+    // Ukryte z menu i palety 17.10.2026 razem z Akademią (decyzja Artura).
+    inSidebar: false,
+    inPalette: false,
   },
   // Pozycje Delivery i Finansów nie mają listy ról: wejście daje uprawnienie
   // z ekranu Osoby i role — to samo, którego wymaga ich capability (jedna

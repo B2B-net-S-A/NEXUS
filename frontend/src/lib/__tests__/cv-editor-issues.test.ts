@@ -469,6 +469,26 @@ describe("jedna lista „Do poprawy” (PR 4, 13.10.2026)", () => {
     expect(list.total).toBe(6);
   });
 
+  it("łagodne uwagi kontroli AI (D1-A) są na liście, ale poza licznikiem", () => {
+    const editor = open();
+    const list = buildIssueList({
+      doc: editor.state.doc,
+      checks: [],
+      warnings: [
+        "WERYFIKUJ (kontrola AI): doświadczenie — „Utrzymanie API” (w źródłach jest prawie to samo — sprawdź brzmienie)",
+        "BRAK POKRYCIA (kontrola AI): doświadczenie — „Prowadzenie zespołu” (brak potwierdzenia w CV i notatkach)",
+      ],
+      findings: [
+        { text: "Przeglądy kodu.", status: "weak" },
+        { text: "Linia spoza źródeł.", status: "unsupported" },
+      ],
+    });
+    const all = list.sections.flatMap((group) => group.entries);
+    expect(all).toHaveLength(4);
+    // Liczą się: pewna uwaga generatora i linia „bez pokrycia”.
+    expect(list.total).toBe(2);
+  });
+
   it("„MUST-HAVE: X” od generatora nie dubluje pozycji QC o X — zostaje w „covered”", () => {
     const editor = open();
     const list = buildIssueList({
