@@ -269,9 +269,16 @@ LIFECYCLE_INTERVAL_SECONDS = 15 * 60
 
 
 async def lifecycle_job(db: AsyncSession) -> dict[str, Any] | None:
+    from app.api.hr_import import purge_expired_uploads
     from app.services.hr.lifecycle_jobs import run_once
 
-    return await run_once(db)
+    result = await run_once(db)
+    # Paczka importu z Compassa niesie dane osobowe — po 24 h bez zapisu
+    # traci surowe dane także wtedy, gdy nikt nie robi kolejnego importu.
+    if purged := await purge_expired_uploads(db):
+        await db.commit()
+        result = {**(result or {}), "import_uploads_expired": purged}
+    return result
 
 
 async def hr_lifecycle_loop() -> None:

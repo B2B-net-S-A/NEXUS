@@ -40,6 +40,7 @@ export type SettingsItemId =
   | "people"
   | "hr"
   | "payroll"
+  | "hr-import"
   | "assign"
   | "competence-team"
   | "stages"
@@ -150,6 +151,16 @@ export const SETTINGS_ITEMS: readonly SettingsItem[] = [
     keywords: "place premie premia placementy liga mistrzow progi marza wynagrodzenia wyplaty bonus",
     route: "/settings/payroll",
     gate: { permission: "payroll" },
+  },
+  {
+    // „Ludzie w NEXUSIE” (17.10.2026): import paczki z Compassa — na sucho
+    // Kadry i admin, zapis tylko admin (`/api/hr/admin/import`).
+    id: "hr-import", area: "team", title: "Import z Compassa",
+    description: "Paczka eksportu Compassa: sprawdzenie na sucho, zapis wybranych modułów i historia partii.",
+    keywords: "import compass paczka kadry urlopy timesheety place migracja przelaczenie na sucho",
+    route: "/settings/hr-import",
+    wide: true,
+    gate: { permission: "people_admin" },
   },
   {
     id: "competence-team", area: "team", title: "Kategorie kompetencji",

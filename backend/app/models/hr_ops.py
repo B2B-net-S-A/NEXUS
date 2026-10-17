@@ -8,6 +8,8 @@
   nocny restart przy wdrożeniu nie powtarza wysyłki ani zamknięcia miesiąca.
 * ``HrImportBatch`` / ``HrImportIdMap`` — paczki importu z Compassa i mapa
   identyfikatorów (raport niesie same liczby, bez nazwisk i kwot).
+* ``HrImportUpload`` — paczka wgrana z ekranu importu; surowy plik tylko do
+  zapisu albo 24 h, potem zostają SHA-256 i liczby.
 """
 
 from __future__ import annotations
@@ -28,7 +30,7 @@ from sqlalchemy import (
     UniqueConstraint,
     func,
 )
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import BYTEA, JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -140,4 +142,41 @@ class HrImportIdMap(Base):
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class HrImportUpload(Base):
+    __tablename__ = "hr_import_uploads"
+    __table_args__ = (
+        CheckConstraint(schema.CK_UPLOAD_STATUS, name="ck_hr_import_uploads_status"),
+        CheckConstraint(schema.CK_UPLOAD_BUNDLE, name="ck_hr_import_uploads_bundle"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    bundle_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    size_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
+    bundle: Mapped[Optional[bytes]] = mapped_column(BYTEA, nullable=True, deferred=True)
+    status: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="dry_run", server_default="dry_run"
+    )
+    batch_ids: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, nullable=False, default=dict, server_default="{}"
+    )
+    report: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, nullable=False, default=dict, server_default="{}"
+    )
+    created_by: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    expires_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    applied_by: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    applied_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
     )

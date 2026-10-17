@@ -11,7 +11,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from app.models.hr_ops import HrAuditEvent, HrImportBatch, HrImportIdMap, HrJobRun
+from app.models.hr_ops import HrAuditEvent, HrImportBatch, HrImportIdMap, HrImportUpload, HrJobRun
 from app.models.hr_profile import CompanyDayOff, EmployeeProfile, LeaveEntitlement
 from app.services import hr_foundation_schema as schema
 from app.services import hr_schema_bundle as bundle
@@ -26,6 +26,7 @@ MODELS = {
     "hr_audit_events": HrAuditEvent,
     "hr_job_runs": HrJobRun,
     "hr_import_batches": HrImportBatch,
+    "hr_import_uploads": HrImportUpload,
     "hr_import_id_map": HrImportIdMap,
 }
 

@@ -20,6 +20,9 @@ Tabele:
   wdrożeniu nie powtarza wysyłki ani zamknięcia miesiąca).
 * ``hr_import_batches`` / ``hr_import_id_map`` — import z Compassa:
   na sucho → raport (same liczby) → zapis; mapa id czyni import idempotentnym.
+* ``hr_import_uploads`` — paczka wgrana z ekranu „Import z Compassa”: surowy
+  plik leży tu najwyżej do zapisu albo 24 h (potem ``bundle`` = NULL, zostają
+  SHA-256 i liczby); ``batch_ids`` wskazuje partie modułów z przebiegu na sucho.
 
 Przełączniki modułów: ``app_settings['hr_modules']`` (domyślnie wszystko
 wyłączone; admin włącza przy przełączeniu, bez wdrożenia).
@@ -53,6 +56,7 @@ SENSITIVITIES: tuple[str, ...] = ("general", "health", "payroll")
 JOB_RUN_STATUSES: tuple[str, ...] = ("claimed", "done", "skipped", "failed")
 IMPORT_STATUSES: tuple[str, ...] = ("uploaded", "dry_run", "applied", "failed")
 IMPORT_DECISIONS: tuple[str, ...] = ("auto", "manual", "skipped")
+UPLOAD_STATUSES: tuple[str, ...] = ("dry_run", "applied", "expired", "superseded")
 
 
 def quoted(values: tuple[str, ...]) -> str:
@@ -75,6 +79,9 @@ CK_JOB_RUN_STATUS = f"status IN ({quoted(JOB_RUN_STATUSES)})"
 CK_IMPORT_MODULE = f"module IN ({quoted(('profiles', *HR_MODULE_KEYS))})"
 CK_IMPORT_STATUS = f"status IN ({quoted(IMPORT_STATUSES)})"
 CK_IMPORT_DECISION = f"decision IN ({quoted(IMPORT_DECISIONS)})"
+CK_UPLOAD_STATUS = f"status IN ({quoted(UPLOAD_STATUSES)})"
+# Surowa paczka (dane osobowe) żyje tylko w partii czekającej na zapis.
+CK_UPLOAD_BUNDLE = "status = 'dry_run' OR bundle IS NULL"
 
 TABLE_DDL: tuple[str, ...] = (
     f"""CREATE TABLE IF NOT EXISTS employee_profiles (
@@ -184,6 +191,22 @@ TABLE_DDL: tuple[str, ...] = (
     CONSTRAINT uq_hr_import_id_map_source UNIQUE (module, source_id),
     CONSTRAINT ck_hr_import_id_map_decision CHECK ({CK_IMPORT_DECISION})
 )""",
+    f"""CREATE TABLE IF NOT EXISTS hr_import_uploads (
+    id SERIAL PRIMARY KEY,
+    bundle_sha256 VARCHAR(64) NOT NULL,
+    size_bytes INTEGER NOT NULL,
+    bundle BYTEA NULL,
+    status VARCHAR(16) NOT NULL DEFAULT 'dry_run',
+    batch_ids JSONB NOT NULL DEFAULT '{{}}'::jsonb,
+    report JSONB NOT NULL DEFAULT '{{}}'::jsonb,
+    created_by INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    expires_at TIMESTAMPTZ NOT NULL,
+    applied_by INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
+    applied_at TIMESTAMPTZ NULL,
+    CONSTRAINT ck_hr_import_uploads_status CHECK ({CK_UPLOAD_STATUS}),
+    CONSTRAINT ck_hr_import_uploads_bundle CHECK ({CK_UPLOAD_BUNDLE})
+)""",
 )
 
 INDEX_DDL: tuple[str, ...] = (
@@ -215,6 +238,7 @@ TABLES: tuple[str, ...] = (
     "hr_job_runs",
     "hr_import_batches",
     "hr_import_id_map",
+    "hr_import_uploads",
 )
 
 ALL_DDL: tuple[str, ...] = TABLE_DDL + INDEX_DDL + DATA_DDL
