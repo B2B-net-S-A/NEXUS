@@ -107,7 +107,9 @@ type HarnessState =
   | "cvconsent"
   | "cvready"
   | "cvnewer"
-  | "joint";
+  | "joint"
+  | "overbudget"
+  | "contract";
 const STATES: ReadonlyArray<{ value: HarnessState; label: string }> = [
   { value: "nowi", label: "Nowi — formularz od razu" },
   { value: "earlier", label: "Wcześniejsze odpowiedzi" },
@@ -122,6 +124,8 @@ const STATES: ReadonlyArray<{ value: HarnessState; label: string }> = [
   { value: "cvready", label: "CV firmowe — wybrane" },
   { value: "cvnewer", label: "W profilu jest nowsze CV" },
   { value: "joint", label: "Screening dla — dwie rekrutacje" },
+  { value: "overbudget", label: "Stawka ponad budżet, niższa znana" },
+  { value: "contract", label: "Pracuje u nas — stawka z umowy" },
 ];
 
 /** Stany wyboru CV z profilu (09.10.2026) — w podglądzie kliknij „CV” → „CV firmowe”. */
@@ -407,18 +411,46 @@ const BASE_STATE: ScreeningFormState = {
   phrase_language: "pl",
 };
 
-// D2 (14.10.2026): etap bez stawki — pole dostaje stawkę z cytatu notatki.
+// D2 (14.10.2026): etap bez stawki — pole dostaje stawkę z cytatu notatki
+// (R1, 17.10.2026: niższą niż „Stawka od” 140).
 const NOWI_STATE: ScreeningFormState = {
   ...BASE_STATE,
   suggestions_from_notes: {
     rate: {
-      value: 150,
+      value: 130,
       unit: "hour",
       currency: "PLN",
-      raw: "150 netto na B2B, mniej nie zejdzie",
+      raw: "130 netto na B2B, mniej nie zejdzie",
       source_note_id: null,
       noted_at: "2025-03-14",
     },
+  },
+};
+
+// R2 (17.10.2026): stawka etapu ponad budżetem 150, „Stawka od” 90 w budżecie.
+const OVER_BUDGET_STATE: ScreeningFormState = {
+  ...BASE_STATE,
+  rate: { amount: 160, unit: "hourly", currency: "PLN", source: "stage", at: "2026-10-16T10:43:00Z" },
+  rate_hints: {
+    card: null,
+    rate_from: { amount: 90, unit: "hourly", currency: "PLN" },
+    rate_from_at: "2026-10-08T14:30:45Z",
+  },
+  suggestions_from_notes: {
+    rate: { value: 90, unit: null, currency: null, raw: "Stawka: 90", source_note_id: null, noted_at: "2026-10" },
+  },
+};
+
+// R4 (17.10.2026): osoba z żywą umową — „Stawka u nas” 170 i niższa deklaracja 120.
+const CONTRACT_STATE: ScreeningFormState = {
+  ...BASE_STATE,
+  rate_hints: {
+    card: null,
+    rate_from: { amount: 170, unit: "hourly", currency: "PLN" },
+    rate_from_source: "contract",
+    rate_from_at: "2026-02-01T00:00:00Z",
+    declared_from: { amount: 120, unit: "hourly", currency: "PLN" },
+    declared_from_at: "2026-09-01T10:00:00Z",
   },
 };
 
@@ -917,7 +949,11 @@ function seededClient(state: HarnessState): QueryClient {
   const formState =
     state === "nowi" || state === "joint"
       ? NOWI_STATE
-      : state === "earlier"
+      : state === "overbudget"
+        ? OVER_BUDGET_STATE
+        : state === "contract"
+          ? CONTRACT_STATE
+          : state === "earlier"
         ? EARLIER_STATE
         : state === "readonly"
           ? ENDED_STATE

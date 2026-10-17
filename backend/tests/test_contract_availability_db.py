@@ -440,3 +440,36 @@ async def test_recruiter_sees_live_contract_amount_but_not_ended(
     assert live["redacted"] is False
     assert ended["amount_hourly"] is None
     assert ended["redacted"] is True
+
+
+@pytest.mark.asyncio
+async def test_profile_shows_declared_rate_below_live_contract(app_client: AsyncClient):
+    # R4 (17.10.2026): „Stawka u nas” 150 z umowy, a profil mówi 130 —
+    # odpowiedź profilu niesie „deklarował od 130”.
+    pair = await _seed_rate_pair()
+    _, recruiter_headers = await _user(UserRole.recruiter)
+    async with AsyncSessionLocal() as db:
+        db.add(
+            Contract(
+                candidate_id=pair["candidate"],
+                client_id=pair["client"],
+                start_date=pair["today"] - timedelta(days=100),
+                status=ContractStatus.active,
+                rate_candidate=Decimal("150"),
+                rate_candidate_currency="PLN",
+                rate_unit=RateUnit.hourly,
+            )
+        )
+        await db.commit()
+    await _drain()
+
+    response = await app_client.get(
+        f"/api/candidates/{pair['candidate']}", headers=recruiter_headers
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["rate_from_source"] == "contract"
+    assert Decimal(str(body["rate_from_hourly"])) == Decimal("150.00")
+    assert Decimal(str(body["rate_declared_from_hourly"])) == Decimal("130.00")
+    assert body["rate_declared_from_at"] is not None

@@ -101,6 +101,16 @@ Artura 04.10.2026 (makiety: https://claude.ai/artifact/SxV3wMXBL8FhA2Q743HwEd).
 - **`with_contracts=False`** w `collect` dla `this_job_rates` /
   `candidate_job_rates` — obserwacja z umowy nie ma rekrutacji (`job_id`
   pusty, więc „W tej rekrutacji” i podpowiedź umowy B2B jej nie biorą).
+- **„Zadeklarowana od” (R4, 17.10.2026):** przy żywej umowie profil i formularz
+  screeningu pokazują też najniższą zadeklarowaną stawkę, gdy jest niższa niż
+  umowa — „zadeklarowana od 90 zł/h (10.2026)” w kaflu „Stawka u nas”.
+  Reguła: `candidate_rate_from.declared_from` = `compute` bez obserwacji
+  z umów; pusto, gdy nie jest niższa albo pochodzi sprzed 18 miesięcy
+  (`stale`). Liczona przy odczycie jednej osoby (`declared_rate_from`:
+  `GET /api/candidates/{id}` → `rate_declared_from_*`, stan formularza →
+  `rate_hints.declared_from*`), w savepoincie — nie ma kolumn, listy i Tablica
+  jej nie znają. Pomiar prod 17.10: 138 z 481 osób z żywą umową, mediana
+  różnicy 10 zł/h.
 - „Nie licz jako minimum” nie działa dla klucza `contract:` (`_KEY_PATTERN`
   go odrzuca, przycisk ukryty). Kto widzi kwotę — `kandydaci-wyszukiwanie/znacznik-pracuje-u-nas.md`,
   sekcja „Dostępność i stawka z umowy”.

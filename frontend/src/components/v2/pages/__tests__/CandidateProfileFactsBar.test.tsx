@@ -1028,6 +1028,28 @@ describe("osoba pracująca u nas — dostępność i stawka z umowy (15.10.2026)
     expect(screen.queryByText("Stawka od")).toBeNull();
   });
 
+  it("R4 (17.10.2026): „Stawka u nas” z linią „zadeklarowana od” przy niższej deklaracji", async () => {
+    renderBar(
+      {
+        employment_marker: marker,
+        rate_from_hourly: "150.00",
+        rate_from_source: "contract",
+        rate_declared_from_hourly: "90.00",
+        rate_declared_from_at: "2026-10-08T14:30:45Z",
+      },
+      "column",
+    );
+
+    expect(await screen.findByText("Stawka u nas")).toBeInTheDocument();
+    expect(screen.getByTestId("rate-declared-from")).toHaveTextContent("zadeklarowana od 90 zł/h (10.2026)");
+  });
+
+  it("bez umowy linii „zadeklarowana od” nie ma", async () => {
+    renderBar({ rate_from_hourly: "90.00", rate_from_source: "card", rate_declared_from_hourly: "80.00" }, "column");
+    expect(await screen.findByText("Stawka od")).toBeInTheDocument();
+    expect(screen.queryByTestId("rate-declared-from")).toBeNull();
+  });
+
   it("okno dostępności mówi, do kiedy osoba pracuje i kto ustala wcześniejsze odejście", async () => {
     const user = userEvent.setup();
     renderBar({ employment_marker: marker }, "column");

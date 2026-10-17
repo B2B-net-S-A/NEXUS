@@ -27,6 +27,8 @@ import {
   parseRateAmount,
   rateFromValues,
   rateNotRestoredMessage,
+  lowerKnownRate,
+  lowerKnownRateText,
   ratePrefill,
   ratePrefillCaption,
   sameRate,
@@ -294,20 +296,48 @@ describe("ratePrefill — stawka na start, gdy etap jej nie ma (D2, 14.10.2026)"
   const CARD = { amount: 150, unit: "hourly" as const, currency: "PLN" };
   const FROM = { amount: 140, unit: "hourly" as const, currency: "PLN" };
 
-  it("kolejność: notatka z cytatem, potem karta, potem „Stawka od”", () => {
+  it("R1 (17.10.2026): karta tej rekrutacji, potem niższa z notatki i „Stawki od”", () => {
     const all = formState({
       suggestions_from_notes: { rate: NOTE_RATE },
       rate_hints: { card: CARD, card_raw: "150 zł/h", rate_from: FROM },
     });
-    expect(ratePrefill(all)).toEqual({
-      rate: { amount: 160, unit: "hourly", currency: "PLN" },
-      origin: { kind: "note", quote: "160 na B2B", notedAt: "2025-04-02" },
+    expect(ratePrefill(all)).toEqual({ rate: CARD, origin: { kind: "card", quote: "150 zł/h" } });
+    // Notatka 160 > „Stawka od” 140 — wpisuje się niższa.
+    const noteHigher = formState({ suggestions_from_notes: { rate: NOTE_RATE }, rate_hints: { card: null, rate_from: FROM } });
+    expect(ratePrefill(noteHigher)).toEqual({ rate: FROM, origin: { kind: "rate_from" } });
+    // Notatka 90 < 140 — wpisuje się notatka z cytatem.
+    const noteLower = formState({
+      suggestions_from_notes: { rate: { ...NOTE_RATE, value: 90, raw: "Stawka: 90" } },
+      rate_hints: { card: null, rate_from: FROM },
     });
-    const cardOnly = formState({ rate_hints: { card: CARD, card_raw: "150 zł/h", rate_from: FROM } });
-    expect(ratePrefill(cardOnly)).toEqual({ rate: CARD, origin: { kind: "card", quote: "150 zł/h" } });
+    expect(ratePrefill(noteLower)).toEqual({
+      rate: { amount: 90, unit: "hourly", currency: "PLN" },
+      origin: { kind: "note", quote: "Stawka: 90", notedAt: "2025-04-02" },
+    });
     const fromOnly = formState({ rate_hints: { card: null, rate_from: FROM } });
     expect(ratePrefill(fromOnly)).toEqual({ rate: FROM, origin: { kind: "rate_from" } });
     expect(ratePrefill(formState())).toBeNull();
+  });
+
+  it("notatka i „Stawka od” porównują się po godzinie; remis — notatka z cytatem", () => {
+    const daily = { ...NOTE_RATE, value: 1200, unit: "day" as const, raw: "1200/MD" };
+    expect(
+      ratePrefill(formState({ suggestions_from_notes: { rate: daily }, rate_hints: { card: null, rate_from: FROM } }))?.origin.kind,
+    ).toBe("rate_from");
+    const tie = { ...NOTE_RATE, value: 140, raw: "140" };
+    expect(
+      ratePrefill(formState({ suggestions_from_notes: { rate: tie }, rate_hints: { card: null, rate_from: FROM } }))?.origin.kind,
+    ).toBe("note");
+  });
+
+  it("żywa umowa: wpisuje się „Stawka u nas”, nie niższa notatka; karta tej rekrutacji dalej wygrywa", () => {
+    const hints = { card: null, rate_from: { ...FROM, amount: 150 }, rate_from_source: "contract" };
+    const lowNote = { ...NOTE_RATE, value: 90, raw: "Stawka: 90" };
+    expect(ratePrefill(formState({ suggestions_from_notes: { rate: lowNote }, rate_hints: hints }))).toEqual({
+      rate: { ...FROM, amount: 150 },
+      origin: { kind: "contract" },
+    });
+    expect(ratePrefill(formState({ rate_hints: { ...hints, card: CARD, card_raw: "150 zł/h" } }))?.origin.kind).toBe("card");
   });
 
   it("notatka bez cytatu, w innej walucie albo bez jednostki nie wpisuje się — idzie następne źródło", () => {
@@ -337,13 +367,13 @@ describe("ratePrefill — stawka na start, gdy etap jej nie ma (D2, 14.10.2026)"
     expect(ratePrefill(formState({ board_column: "screening", rate_hints: hints }))).not.toBeNull();
   });
 
-  it("stawka z karty w polu (etap bez stawki) też ustępuje nowszej notatce", () => {
+  it("stawka z karty w polu (etap bez stawki) zostaje — notatka jej nie zastępuje (R1)", () => {
     const state = formState({
       rate: { ...CARD, source: "card", at: null },
       rate_hints: { card: CARD, rate_from: null },
-      suggestions_from_notes: { rate: NOTE_RATE },
+      suggestions_from_notes: { rate: { ...NOTE_RATE, value: 90 } },
     });
-    expect(ratePrefill(state)?.origin.kind).toBe("note");
+    expect(ratePrefill(state)?.origin.kind).toBe("card");
   });
 
   it("podpis pod polem mówi, skąd jest stawka", () => {
@@ -355,6 +385,52 @@ describe("ratePrefill — stawka na start, gdy etap jej nie ma (D2, 14.10.2026)"
     expect(ratePrefillCaption({ kind: "card", quote: "150 zł/h" })).toBe("z karty rekomendacji: „150 zł/h”");
     expect(ratePrefillCaption({ kind: "card", quote: null })).toBe("z karty rekomendacji");
     expect(ratePrefillCaption({ kind: "rate_from" })).toBe("Stawka od · najniższa z 18 mies.");
+    expect(ratePrefillCaption({ kind: "contract" })).toBe("Stawka u nas · z umowy");
+  });
+});
+
+describe("lowerKnownRate — niższa znana stawka w ostrzeżeniu „ponad budżet” (R2, 17.10.2026)", () => {
+  const FROM = { amount: 90, unit: "hourly" as const, currency: "PLN" };
+  const ENTERED = { amount: 140, unit: "hourly" as const, currency: "PLN" };
+
+  it("ponad budżet i niższa stawka w budżecie — pokazuje najniższą z datą", () => {
+    const state = formState({ rate_hints: { card: null, rate_from: FROM, rate_from_at: "2026-10-08T14:30:45Z" } });
+    expect(lowerKnownRate(state, ENTERED, 135)).toEqual({
+      rate: FROM,
+      source: "rate_from",
+      at: "2026-10-08T14:30:45Z",
+    });
+    expect(lowerKnownRateText({ rate: FROM, source: "rate_from", at: "2026-10-08T14:30:45Z" })).toBe(
+      "Znana też niższa stawka: 90 zł/h (Stawka od, 8.10.2026) — mieści się w budżecie.",
+    );
+  });
+
+  it("w budżecie, bez budżetu albo bez niższej stawki w budżecie — nic", () => {
+    const state = formState({ rate_hints: { card: null, rate_from: FROM } });
+    expect(lowerKnownRate(state, { ...ENTERED, amount: 130 }, 135)).toBeNull();
+    expect(lowerKnownRate(state, ENTERED, null)).toBeNull();
+    const high = formState({ rate_hints: { card: null, rate_from: { ...FROM, amount: 138 } } });
+    expect(lowerKnownRate(high, ENTERED, 135)).toBeNull();
+  });
+
+  it("przy umowie liczy się deklaracja, nie „Stawka u nas”; notatka też", () => {
+    const contract = formState({
+      rate_hints: {
+        card: null,
+        rate_from: { ...FROM, amount: 150 },
+        rate_from_source: "contract",
+        declared_from: { ...FROM, amount: 120 },
+        declared_from_at: "2026-09-01T10:00:00Z",
+      },
+    });
+    expect(lowerKnownRate(contract, { ...ENTERED, amount: 150 }, 135)?.source).toBe("declared");
+    const note = formState({
+      rate_hints: { card: null, rate_from: null },
+      suggestions_from_notes: {
+        rate: { value: 100, unit: "hour", currency: "PLN", raw: "100", source_note_id: null, noted_at: null },
+      },
+    });
+    expect(lowerKnownRate(note, ENTERED, 135)?.source).toBe("note");
   });
 });
 

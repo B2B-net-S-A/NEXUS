@@ -4,6 +4,7 @@ import {
   availabilityProfilePatch,
   availabilitySuggestionText,
   notedAtLabel,
+  rateSuggestionBlocker,
   rateSuggestionFill,
   rateSuggestionLabel,
 } from "@/lib/screening-suggestions";
@@ -59,5 +60,19 @@ describe("screening-suggestions", () => {
     expect(notedAtLabel("2026-09-12T08:00:00Z")).toBe("12.09");
     expect(notedAtLabel("wczoraj")).toBeNull();
     expect(notedAtLabel(null)).toBeNull();
+  });
+
+  it("data notatki z samego miesiąca („as_of” ekstrakcji) — „10.2026” (17.10.2026)", () => {
+    expect(notedAtLabel("2026-10")).toBe("10.2026");
+    expect(rateSuggestionLabel(rate({ unit: null, currency: null, value: 90, noted_at: "2026-10" }))).toBe(
+      "90 zł · 10.2026",
+    );
+  });
+
+  it("powód braku „Użyj”: waluta albo brak jednostki — nie „inna waluta lub jednostka” (R3)", () => {
+    expect(rateSuggestionBlocker(rate({ unit: null, currency: null }))).toBe("bez jednostki — wpisz ręcznie");
+    expect(rateSuggestionBlocker(rate({ unit: null, currency: "PLN" }))).toBe("bez jednostki — wpisz ręcznie");
+    expect(rateSuggestionBlocker(rate({ currency: "EUR" }))).toBe("inna waluta — wpisz ręcznie");
+    expect(rateSuggestionBlocker(rate())).toBeNull();
   });
 });

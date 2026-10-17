@@ -22,6 +22,7 @@ import {
   availabilityProfilePatch,
   availabilitySuggestionText,
   notedAtLabel,
+  rateSuggestionBlocker,
   rateSuggestionFill,
   rateSuggestionLabel,
   type ScreeningSuggestions,
@@ -114,7 +115,7 @@ export function ScreeningSuggestionChips({
           text={rateSuggestionLabel(rate)}
           actionLabel="Użyj stawki z notatek"
           onUse={!disabled && fill && onUseRate ? () => onUseRate(fill) : undefined}
-          hint={!fill ? "inna waluta lub jednostka — wpisz ręcznie" : undefined}
+          hint={rateSuggestionBlocker(rate) ?? undefined}
         />
       ) : null}
       {availabilityText ? (

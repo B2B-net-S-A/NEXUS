@@ -219,7 +219,7 @@ from app.api.recruitment_access import (
 from app.api.section_access import SOURCING_SECTION_DEPENDENCIES
 from app.services import candidate_audit
 from app.services.candidate_audit import candidate_subject_reference
-from app.services.candidate_rate_from import rate_summary
+from app.services.candidate_rate_from import declared_rate_from, rate_summary
 from app.services.candidate_monthly_rate_retirement import (
     RETIRED_MONTHLY_FILTER_KEYS,
     reject_retired_candidate_rate,
@@ -4586,6 +4586,7 @@ async def get_candidate(
         else None
     )
     employment_markers = await _page_employment_markers(db, [candidate])
+    declared = await declared_rate_from(db, candidate)
     return payload.model_copy(
         update={
             "invite_source": invite_source,
@@ -4593,6 +4594,7 @@ async def get_candidate(
             "contact_case": contact_case,
             "call_facts_verified_by_name": verified_by_name,
             "employment_marker": employment_markers.get(candidate.id),
+            **declared,
         }
     )
 

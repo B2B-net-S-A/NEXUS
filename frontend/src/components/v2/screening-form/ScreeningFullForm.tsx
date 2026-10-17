@@ -109,6 +109,8 @@ import {
   formQuestions,
   mergeLegacyNote,
   missingAnswersForForward,
+  lowerKnownRate,
+  lowerKnownRateText,
   ratePrefill,
   ratePrefillCaption,
   rateFromValues,
@@ -122,7 +124,7 @@ import {
   type ScreeningFullFormValues,
 } from "@/lib/screening-form";
 import { onsiteText } from "@/lib/person-facts";
-import { rateSuggestionFill, type ScreeningSuggestions } from "@/lib/screening-suggestions";
+import { notedAtDateLabel, rateSuggestionFill, type ScreeningSuggestions } from "@/lib/screening-suggestions";
 import {
   memoryFromSingle,
   singleRestore,
@@ -249,7 +251,8 @@ export function useScreeningFormModel(
       const key = `${next.candidate_id}:${next.job_id}`;
       const pick = rateTouched.current === key ? null : ratePrefill(next);
       const current = rateFromValues(methods.getValues());
-      // Stawka z karty stoi w polu od wartości startowych — nowsza notatka ją zastępuje.
+      // Stawka z karty stoi w polu od wartości startowych — `ratePrefill` też ją
+      // wybiera (R1, 17.10.2026: karta tej rekrutacji wygrywa z notatką).
       const fromCard = next.rate?.source === "card" && sameRate(current, next.rate);
       if (!pick || (current != null && !fromCard)) {
         setRatePrefilled(null);
@@ -654,6 +657,11 @@ export function ScreeningFullFormView({
   const noteRateInField =
     noteRateFill != null &&
     inField({ amount: Number(noteRateFill.rate), unit: noteRateFill.unit, currency: "PLN" });
+  // R2 (17.10.2026): ponad budżetem, a kandydat podał też niższą w budżecie.
+  const lowerRate = lowerKnownRate(state, fieldRate, jobBudgetHourly);
+  const contractRate = state.rate_hints?.rate_from_source === "contract";
+  const declared = contractRate ? (state.rate_hints?.declared_from ?? null) : null;
+  const declaredDate = notedAtDateLabel(state.rate_hints?.declared_from_at);
   const rateBlockRef = useRef<HTMLDivElement | null>(null);
   const focusRate = () => {
     const input = rateBlockRef.current?.querySelector<HTMLInputElement>("#screening-form-rate-value");
@@ -861,6 +869,15 @@ export function ScreeningFullFormView({
               gate={gate}
               disabled={!state.can_edit_rate}
               idPrefix="screening-form-rate"
+              overBudgetNote={
+                lowerRate
+                  ? {
+                      text: lowerKnownRateText(lowerRate),
+                      useLabel: `Użyj ${formatFormRate(lowerRate.rate)}`,
+                      onUse: () => setRate(lowerRate.rate),
+                    }
+                  : null
+              }
             />
             {prefilled ? (
               <p className="text-[11px] text-muted-foreground [overflow-wrap:anywhere]" data-testid="rate-prefill-origin">
@@ -893,9 +910,17 @@ export function ScreeningFullFormView({
                 ) : null}
                 {state.rate_hints?.rate_from && !inField(state.rate_hints.rate_from) ? (
                   <HintChip
-                    label="Stawka od"
+                    label={contractRate ? "Stawka u nas" : "Stawka od"}
                     text={formatFormRate(state.rate_hints.rate_from)}
                     onUse={() => setRate(state.rate_hints.rate_from as FormRate)}
+                  />
+                ) : null}
+                {declared && !inField(declared) ? (
+                  // R4 (17.10.2026): przy żywej umowie — najniższa zadeklarowana stawka.
+                  <HintChip
+                    label="Zadeklarowana od"
+                    text={`${formatFormRate(declared)}${declaredDate ? ` · ${declaredDate}` : ""}`}
+                    onUse={() => setRate(declared)}
                   />
                 ) : null}
               </div>

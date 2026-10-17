@@ -42,6 +42,12 @@ export interface VerifiedRateFieldsProps {
   onSubmit?: () => void;
   /** Unikalne id — dwa te same pola potrafią stać na jednym ekranie. */
   idPrefix?: string;
+  /**
+   * Niższa znana stawka, która mieści się w budżecie (R2, 17.10.2026) —
+   * dopisek w ramce „ponad budżet”, żeby nikt nie odrzucił osoby za stawkę,
+   * której nie żąda. Pokazujemy tylko przy werdykcie „ponad budżet”.
+   */
+  overBudgetNote?: { text: string; useLabel: string; onUse?: () => void } | null;
 }
 
 /** Kolory i ikona werdyktu — wyłącznie tokeny DS, zero hardcodów palety. */
@@ -72,6 +78,7 @@ export function VerifiedRateFields({
   autoFocus,
   onSubmit,
   idPrefix = "verified-rate",
+  overBudgetNote = null,
 }: VerifiedRateFieldsProps) {
   const rateId = `${idPrefix}-value`;
   const unitId = `${idPrefix}-unit`;
@@ -135,7 +142,23 @@ export function VerifiedRateFields({
           role="status"
         >
           <VerdictIcon className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-          <span>{gate.message}</span>
+          <span className="min-w-0">
+            {gate.message}
+            {gate.verdict === "over_budget" && overBudgetNote ? (
+              <span className="mt-1 block font-semibold" data-testid="rate-lower-known">
+                {overBudgetNote.text}{" "}
+                {overBudgetNote.onUse && !disabled ? (
+                  <button
+                    type="button"
+                    onClick={overBudgetNote.onUse}
+                    className="font-semibold underline underline-offset-2"
+                  >
+                    {overBudgetNote.useLabel}
+                  </button>
+                ) : null}
+              </span>
+            ) : null}
+          </span>
         </div>
       )}
 

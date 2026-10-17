@@ -27,7 +27,8 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import { hourlyText } from "@/lib/candidate-rate";
+import { hourlyText, toAmount } from "@/lib/candidate-rate";
+import { formatFormRate, lowerKnownRate, lowerKnownRateText } from "@/lib/screening-form";
 import { VerifiedRateFields } from "@/components/v2/screening/VerifiedRateFields";
 import { evaluateRateGate } from "@/lib/verified-rate-gate";
 import type { RateUnit } from "@/lib/api";
@@ -90,6 +91,19 @@ export function VerifiedRateModal({
     currency,
     jobBudgetHourly,
   });
+  // R2 (17.10.2026): ponad budżetem, a „Stawka od” mieści się w budżecie.
+  const rateFromAmount = toAmount(rateFromHourly);
+  const lower = lowerKnownRate(
+    {
+      rate_hints: {
+        card: null,
+        rate_from: rateFromAmount !== null ? { amount: rateFromAmount, unit: "hourly", currency: "PLN" } : null,
+      },
+      suggestions_from_notes: {},
+    },
+    gate.isValid ? { amount: gate.numericRate, unit, currency } : null,
+    jobBudgetHourly,
+  );
 
   const handleSubmit = () => {
     if (!gate.isValid || submitting) return;
@@ -128,6 +142,18 @@ export function VerifiedRateModal({
             autoFocus
             onSubmit={handleSubmit}
             idPrefix="verified-rate-modal"
+            overBudgetNote={
+              lower
+                ? {
+                    text: lowerKnownRateText(lower),
+                    useLabel: `Użyj ${formatFormRate(lower.rate)}`,
+                    onUse: () => {
+                      setRate(String(lower.rate.amount));
+                      setUnit("hourly");
+                    },
+                  }
+                : null
+            }
           />
           {rateFromLabel ? (
             <p className="mt-3 text-xs text-muted-foreground">
