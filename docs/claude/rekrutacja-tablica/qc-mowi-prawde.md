@@ -74,6 +74,16 @@ w żadnym źródle.
   nie ma jej w całym CV albo brakuje zdania tam, gdzie oryginał ją opisuje.
   Wymaganie opisowe (≥ 4 słowa), którego nie ma nigdzie, to informacja
   („sprawdź ręcznie”), nie „zapytaj kandydata”.
+- **Luka kandydata to informacja, nie uwaga** (D2, decyzja Artura
+  17.10.2026). `must_in_cv`: wymaganie, którego nie ma w CV, w oryginale ani
+  w rozmowie, idzie do `check["info"]` z `fix: "ask_candidate"` i detalem
+  „Luka kandydata — … Do rozmowy, nie do poprawy w CV.” — w CV nie ma czego
+  poprawić (pomiar 17.10: 80% pozycji tego sprawdzenia). Uwagami zostają
+  „w oryginale jest, dopisz” (`ai`) i „kandydat mówił w rozmowie” (bez
+  `fix`). Panel edytora zbiera luki w jedną linię „Luki kandydata (N)”
+  w „Informacje” i wtedy nie pokazuje `must_in_cv` w „W porządku”; okno QC
+  — w „Informacje — bez poprawki”. Wynik QC (zaliczenie) bez zmian, więc
+  `QC_VERSION` też.
 - **Pozycje informacyjne nie są w `items`.** `_tasks`, `summarize`,
   `fixes_material`, `checkTasks` i `roleGaps` liczą tylko `items`; `info`
   pokazuje okno w „Informacje — bez poprawki”.
