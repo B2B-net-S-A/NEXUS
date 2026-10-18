@@ -694,6 +694,24 @@ describe("odpowiedzi jednym kliknięciem i „To nieprawda” (D5)", () => {
     );
   });
 
+  // 18.10.2026 (Kalwala, 789131): rekruter czytał w „Do decyzji” surowy angielski strażnik lat.
+  it("uwaga generatora po angielsku: w wierszu zdanie po polsku, „OK” wysyła surowy tekst", async () => {
+    const raw = "NOT IN SOURCE: '32 year' (why_points) follows neither from the source nor from the dates — „32 years”";
+    const api = memoryApi({
+      issues: vi.fn(async () => ({ ...ISSUES, generator_warnings: [raw] })),
+      dismissIssue: vi.fn(async () => ISSUES),
+    });
+    setup({ api });
+    const shown =
+      "Sprawdź „32 year” w sekcji „Dlaczego nasz kandydat”: tej liczby lat nie ma w oryginale i nie wynika ona z dat stanowisk.";
+    expect(await screen.findByText(shown)).toBeInTheDocument();
+    expect(screen.queryByText(raw)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: `OK, sprawdzone: ${shown}` }));
+    await waitFor(() =>
+      expect(api.dismissIssue).toHaveBeenCalledWith(STAGE, { source: "generator", text: raw, status: null, reason: "kept" }),
+    );
+  });
+
   it("„Kandydat to ma”: notatka z tym, co powiedział, i świeże QC", async () => {
     const api = memoryApi({ qc: vi.fn(async () => qcResult({ checks: KEYED })) });
     setup({ api });
