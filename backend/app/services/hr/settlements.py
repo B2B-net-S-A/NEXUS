@@ -63,6 +63,7 @@ from app.services.hr.payroll_report import money
 from app.services.hr.settlements_rules import (
     B2B,
     PAYMENT_SETTINGS_KEY,
+    SETTLEMENTS_SINCE_KEY,
     amount_basis,
     clamp_payout_day,
     gross_problem,
@@ -70,8 +71,10 @@ from app.services.hr.settlements_rules import (
     invoice_due_date,
     net_total,
     override_covers,
+    parse_since,
     payout_date,
     problems_of,
+    settled_in_nexus,
 )
 from app.services.hr_settlement_schema import (
     AMOUNT_MAX,
@@ -135,6 +138,17 @@ async def load_payout_day(db: AsyncSession) -> int:
         select(AppSetting.value).where(AppSetting.key == PAYMENT_SETTINGS_KEY)
     )
     return clamp_payout_day(raw.get("payout_day") if isinstance(raw, dict) else None)
+
+
+async def load_settlements_since(db: AsyncSession) -> Optional[tuple[int, int]]:
+    """Pierwszy miesiąc rozliczany w NEXUSIE (``settlements_since``); ``None`` = bez progu."""
+
+    raw = await db.scalar(
+        select(AppSetting.value).where(AppSetting.key == PAYMENT_SETTINGS_KEY)
+    )
+    return parse_since(
+        raw.get(SETTLEMENTS_SINCE_KEY) if isinstance(raw, dict) else None
+    )
 
 
 async def payroll_ids(db: AsyncSession) -> list[int]:
@@ -669,6 +683,12 @@ async def ensure_for_period(
 
     if period.status != "closed":
         raise SettlementError("Rozliczenia powstają z zamkniętego miesiąca płac.")
+    since = await load_settlements_since(db)
+    if not settled_in_nexus(period.year, period.month, since):
+        raise SettlementError(
+            "Ten miesiąc jest sprzed rozliczeń w NEXUSIE (pierwszy rozliczany: "
+            f"{label(*since)}) — rozliczono go poza NEXUSEM."
+        )
     lines = list(
         await db.scalars(
             select(PayrollLine)
@@ -820,6 +840,7 @@ __all__ = [
     "cancel_for_period",
     "clear_override",
     "ensure_for_period",
+    "load_settlements_since",
     "gross_issue_of",
     "invoice_period",
     "load_payout_day",

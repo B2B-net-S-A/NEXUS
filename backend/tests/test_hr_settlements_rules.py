@@ -273,3 +273,30 @@ def test_uznanie_rachunku_nie_obejmuje_problemu_z_kwota() -> None:
     assert not rules.override_covers("white_list", ("gross", "white_list"))
     assert not rules.override_covers("white_list", ("amount",))
     assert not rules.override_covers(None, ())
+
+
+# ── Od którego miesiąca rozlicza NEXUS (settlements_since) ────────────────────
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ("2026-10", (2026, 10)),
+        ("2026-1", None),
+        ("2026-13", None),
+        ("październik", None),
+        (None, None),
+        (202610, None),
+    ],
+)
+def test_parse_since(raw, expected) -> None:
+    assert rules.parse_since(raw) == expected
+
+
+def test_settled_in_nexus_from_since_month() -> None:
+    since = (2026, 10)
+    assert not rules.settled_in_nexus(2026, 9, since)
+    assert rules.settled_in_nexus(2026, 10, since)
+    assert rules.settled_in_nexus(2027, 1, since)
+    assert not rules.settled_in_nexus(2025, 12, since)
+    assert rules.settled_in_nexus(2020, 1, None)
