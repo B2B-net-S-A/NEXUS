@@ -14,7 +14,8 @@ import { api } from "@/lib/api";
 import { downloadBlob, fetchAuthenticatedDownload } from "@/lib/authenticated-files";
 
 export type BillingKind = "md" | "cost" | "periodic";
-export type BillingBasis = "md" | "hours" | "days" | "month";
+/** `cost` — zamówienie kosztowe: kwotę faktury ustalają Finanse, NEXUS pokazuje budżet. */
+export type BillingBasis = "md" | "hours" | "days" | "month" | "cost";
 export type RowStatus =
   | "not_invoiced"
   | "sheet"
@@ -24,6 +25,8 @@ export type RowStatus =
   | "difference"
   | "unknown";
 export type InvoiceCheck = "ok" | "accepted" | "difference" | "unknown" | "unmatched" | "ignored";
+/** `budget` — faktura zamówienia kosztowego porównana z resztą jego budżetu. */
+export type CheckBasis = "amount" | "budget";
 export type MatchStatus = "unmatched" | "matched" | "ignored";
 export type MatchMethod = "order_number" | "amount" | "correction" | "manual";
 export type PaymentStatus = "paid" | "partial" | "unpaid" | "overpaid" | "none";
@@ -42,6 +45,12 @@ export interface BillingLine {
   sheet_invoiced: string | null;
 }
 
+/** Budżet zamówienia kosztowego; `available` — zostało przed fakturami za ten miesiąc. */
+export interface CostBudget {
+  amount: string;
+  available: string;
+}
+
 export interface BillingRow {
   key: string;
   kind: BillingKind;
@@ -56,6 +65,8 @@ export interface BillingRow {
   expected_net: string | null;
   missing: number;
   sheet_invoiced: string | null;
+  /** Tylko zamówienie kosztowe. */
+  budget: CostBudget | null;
   lines: BillingLine[];
   invoice_ids: number[];
   status: RowStatus;
@@ -102,6 +113,7 @@ export interface SalesInvoice {
   ignore_reason: string | null;
   targets: SalesInvoiceTarget[];
   check: InvoiceCheck;
+  check_basis: CheckBasis;
   expected: string | null;
   difference: string | null;
   difference_accepted: { amount: string; reason: string; at: string | null } | null;
@@ -123,6 +135,8 @@ export interface InvoicingSummary {
   invoiced: number;
   differences: number;
   unknown: number;
+  /** Zamówienia kosztowe — bez kwoty „do faktury”, więc poza sumą netto. */
+  cost: number;
   unmatched_invoices: number;
   expected: MoneyTotal[];
   invoiced_net: MoneyTotal[];
@@ -208,6 +222,8 @@ export interface CreditImportResult {
   known: number;
   skipped: number;
   error: boolean;
+  /** Importujący bez modułu Finanse — uznania tylko policzone. */
+  restricted: boolean;
 }
 
 const CLIENTS = "/api/clients";

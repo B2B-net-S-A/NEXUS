@@ -75,6 +75,15 @@ export function quantityText(line: BillingLine): string | null {
   return `${quantity} ${line.unit} × ${price}`;
 }
 
+/** Budżet zamówienia kosztowego: „budżet 500 000,00 zł · zostało 380 000,00 zł”. */
+export function budgetText(row: BillingRow): string | null {
+  if (!row.budget) return null;
+  return `budżet ${formatMoney(row.budget.amount, row.currency)} · zostało ${formatMoney(
+    row.budget.available,
+    row.currency,
+  )}`;
+}
+
 export function totalsText(totals: MoneyTotal[]): string {
   if (totals.length === 0) return formatMoney("0", "PLN");
   return totals.map((total) => formatMoney(total.amount, total.currency)).join(" · ");
@@ -85,6 +94,19 @@ export function summaryStats(
   period: string,
   overdue?: number,
 ): InlineStat[] {
+  const outside = [
+    summary.unknown
+      ? `Bez ${countPl(summary.unknown, "zamówienia", "zamówień", "zamówień")} — czekają na zużycie MD.`
+      : null,
+    summary.cost
+      ? `Bez ${countPl(
+          summary.cost,
+          "zamówienia kosztowego",
+          "zamówień kosztowych",
+          "zamówień kosztowych",
+        )} — ich kwotę ustalają Finanse.`
+      : null,
+  ].filter(Boolean);
   const stats: InlineStat[] = [
     {
       id: "rows",
@@ -96,9 +118,7 @@ export function summaryStats(
       id: "expected",
       label: `netto do faktury · ${monthYearPl(period)}`,
       value: totalsText(summary.expected),
-      title: summary.unknown
-        ? `Bez ${countPl(summary.unknown, "zamówienia", "zamówień", "zamówień")} — czekają na zużycie MD.`
-        : undefined,
+      title: outside.length ? outside.join(" ") : undefined,
     },
   ];
   if (summary.differences) {
@@ -159,6 +179,12 @@ export function paymentTone(invoice: SalesInvoice): StatusDotTone {
 }
 
 export function checkText(invoice: SalesInvoice): string {
+  if (invoice.check_basis === "budget") {
+    if (invoice.check === "ok") return "mieści się w budżecie";
+    if (invoice.check === "difference" && invoice.difference && Number(invoice.difference) > 0) {
+      return `ponad budżet o ${formatMoney(invoice.difference, invoice.currency)}`;
+    }
+  }
   if (invoice.check === "difference" && invoice.difference) {
     const value = Number(invoice.difference);
     const sign = value > 0 ? "+" : "";

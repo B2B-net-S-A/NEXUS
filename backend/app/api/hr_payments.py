@@ -320,7 +320,13 @@ async def upload_statement(
 ) -> dict[str, Any]:
     raw = await file.read(statements.MAX_STATEMENT_BYTES + 1)
     with _http_errors():
-        result = await statements.import_statement(db, raw, actor_id=current_user.id)
+        result = await statements.import_statement(
+            db,
+            raw,
+            actor_id=current_user.id,
+            # Zapłatę faktury klienta stwierdzają Finanse, nie same Płace.
+            match_credits=has_permission(current_user, ProductAction.finance_module),
+        )
     return result.as_dict()
 
 

@@ -13,6 +13,10 @@ Stan wiersza „do faktury” (zamówienie w miesiącu):
   z dwóch osób zamówienia),
 * ``difference`` — różnica do sprawdzenia przez Finanse,
 * ``unknown`` — kwoty „do faktury” nie da się policzyć (brak zużycia MD).
+
+Zamówienie kosztowe (wiersz z ``budget``) nie ma kwoty „do faktury”: ``ok`` —
+faktury mieszczą się w tym, co zostało z budżetu przed tym miesiącem,
+``difference`` — ponad budżet (różnica = nadwyżka), do sprawdzenia przez Finanse.
 """
 
 from __future__ import annotations
@@ -38,6 +42,11 @@ ROW_STATUS_LABELS = {
     "partial": "część pozycji bez faktury",
     "difference": "różnica do sprawdzenia",
     "unknown": "czeka na zużycie MD",
+}
+#: Zamówienie kosztowe porównuje fakturę z budżetem, nie z kwotą „do faktury”.
+COST_STATUS_LABELS = {
+    "ok": "mieści się w budżecie",
+    "difference": "ponad budżet — do sprawdzenia",
 }
 KIND_LABELS = {"md": "MD", "cost": "kosztowe", "periodic": "okresowe"}
 _SEVERITY = {"difference": 3, "unknown": 2, "partial": 1}
@@ -127,6 +136,7 @@ def chain_payload(
             for link in chain.links
         ],
         "check": result.status,
+        "check_basis": result.basis,
         "expected": _amount(result.expected),
         "difference": _amount(result.difference),
         "difference_accepted": (
@@ -156,6 +166,9 @@ def _row_keys_for(chain: Chain, rows: dict[str, BillingRow]) -> set[str]:
         for line in row.lines
         if line.order_id
     }
+    line_rows.update(
+        {order_id: row.key for row in rows.values() for order_id in row.member_ids}
+    )
     keys: set[str] = set()
     for link in chain.links:
         if link.order_group_id is not None:
@@ -178,6 +191,8 @@ def row_status(
         return ("sheet" if row.sheet_invoiced else "not_invoiced"), None, None
     invoiced = money(sum((chain.net for chain, _ in attached), ZERO))
     checks = {result.status for _, result in attached}
+    if row.budget is not None:
+        return _budget_status(row.budget.available, attached, single, invoiced, checks)
     expected = row.expected_net
     difference = money(invoiced - expected) if single and expected is not None else None
     if "difference" in checks:
@@ -185,7 +200,14 @@ def row_status(
     if "unknown" in checks or (single and expected is None):
         return "unknown", invoiced, None
     # Uznane różnice faktur tłumaczą różnicę wiersza; reszta to brak faktury.
-    accepted = money(
+    accepted = _accepted(attached)
+    if single and difference is not None and difference != accepted:
+        return "partial", invoiced, difference
+    return ("accepted" if "accepted" in checks else "ok"), invoiced, difference
+
+
+def _accepted(attached: list[tuple[Chain, ChainCheck]]) -> Decimal:
+    return money(
         sum(
             (
                 result.difference or ZERO
@@ -195,15 +217,36 @@ def row_status(
             ZERO,
         )
     )
-    if single and difference is not None and difference != accepted:
-        return "partial", invoiced, difference
-    return ("accepted" if "accepted" in checks else "ok"), invoiced, difference
+
+
+def _budget_status(
+    available: Decimal,
+    attached: list[tuple[Chain, ChainCheck]],
+    single: bool,
+    invoiced: Decimal,
+    checks: set[str],
+) -> tuple[str, Optional[Decimal], Optional[Decimal]]:
+    """Zamówienie kosztowe: suma faktur wiersza a reszta budżetu przed miesiącem.
+
+    Każda faktura z osobna może się zmieścić, a razem już nie — dlatego przy
+    wierszu liczy się suma (gdy faktury dotyczą tylko tego zamówienia).
+    """
+
+    over = money(invoiced - available) if single else None
+    if "difference" in checks:
+        return "difference", invoiced, over
+    if "unknown" in checks:
+        return "unknown", invoiced, None
+    if over is not None and over > ZERO and over != _accepted(attached):
+        return "difference", invoiced, over
+    return ("accepted" if "accepted" in checks else "ok"), invoiced, None
 
 
 def row_payload(
     row: BillingRow, attached: list[tuple[Chain, ChainCheck]], single: bool
 ) -> dict[str, Any]:
     status, invoiced, difference = row_status(row, attached, single)
+    labels = COST_STATUS_LABELS if row.budget is not None else {}
     return {
         "key": row.key,
         "kind": row.kind,
@@ -216,10 +259,16 @@ def row_payload(
         "expected_net": _amount(row.expected_net),
         "missing": row.missing,
         "sheet_invoiced": _amount(row.sheet_invoiced),
+        "budget": {
+            "amount": _amount(row.budget.amount),
+            "available": _amount(row.budget.available),
+        }
+        if row.budget is not None
+        else None,
         "lines": [line_payload(line) for line in row.lines],
         "invoice_ids": [chain.head.id for chain, _ in attached],
         "status": status,
-        "status_label": ROW_STATUS_LABELS[status],
+        "status_label": labels.get(status, ROW_STATUS_LABELS[status]),
         "invoiced_net": _amount(invoiced),
         "difference": _amount(difference),
     }
@@ -302,6 +351,8 @@ async def month_view(
             "invoiced": len(row_items) - statuses["not_invoiced"] - statuses["sheet"],
             "differences": statuses["difference"],
             "unknown": statuses["unknown"],
+            # Bez kwoty „do faktury” — tych zamówień nie ma w sumie netto.
+            "cost": sum(1 for row in rows if row.budget is not None),
             "unmatched_invoices": sum(
                 1 for item in invoice_items if item["match_status"] == "unmatched"
             ),
@@ -363,9 +414,12 @@ async def client_summary(
                 "rows": 0,
                 "statuses": defaultdict(int),
                 "expected": [],
+                "incomplete": False,
             },
         )
         entry["rows"] += 1
+        # Niepełna suma = brak zużycia MD albo stawki; kosztowe mają kwotę od Finansów.
+        entry["incomplete"] = entry["incomplete"] or item["missing"] > 0
         entry["statuses"][item["status"]] += 1
         entry["expected"].append((item["currency"], item["expected_net"]))
     out = []
@@ -380,7 +434,7 @@ async def client_summary(
                     (currency, Decimal(value) if value is not None else None)
                     for currency, value in entry["expected"]
                 ),
-                "incomplete": any(value is None for _c, value in entry["expected"]),
+                "incomplete": entry["incomplete"],
             }
         )
     return sorted(out, key=lambda e: (e["client_name"] or "").lower())
@@ -504,6 +558,7 @@ async def assignment_options(
 
 
 __all__ = [
+    "COST_STATUS_LABELS",
     "KIND_LABELS",
     "ROW_STATUS_LABELS",
     "assignment_options",

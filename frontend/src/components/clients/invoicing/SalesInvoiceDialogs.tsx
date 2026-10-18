@@ -131,7 +131,9 @@ export function AssignInvoiceDialog({
                 <label htmlFor={`assign-${key}`} className="min-w-0 flex-1 cursor-pointer">
                   <span className="block truncate">{option.label}</span>
                   <span className="block text-xs text-muted-foreground">
-                    do faktury {formatMoney(option.expected_net, option.currency)}
+                    {option.kind === "cost"
+                      ? "zamówienie kosztowe — kwotę ustalają Finanse"
+                      : `do faktury ${formatMoney(option.expected_net, option.currency)}`}
                   </span>
                 </label>
               </li>

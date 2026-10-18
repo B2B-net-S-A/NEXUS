@@ -8,13 +8,18 @@ from __future__ import annotations
 from datetime import date
 from decimal import Decimal
 
+from app.models.client_sales_invoice import ClientSalesInvoice, ClientSalesInvoiceLink
 from app.services.client_invoicing.billing import (
+    COST_NOTE,
     BillingLine,
     BillingRow,
+    CostBudget,
     OrderRef,
     period_fraction,
 )
+from app.services.client_invoicing.ledger import Chain, check
 from app.services.client_invoicing.matching import Target, decide, numbers_found
+from app.services.client_invoicing.views import row_status
 from app.services.client_invoicing.payments import (
     OpenInvoice,
     decide_credit,
@@ -58,6 +63,31 @@ def _periodic(order_id, number, net, currency="PLN"):
         order_number=number,
         currency=currency,
         lines=(_line(order_id, net),),
+    )
+
+
+def _cost(group_id, number, available, members=(31,)):
+    return BillingRow(
+        client_id=1,
+        kind="cost",
+        group_id=group_id,
+        order_id=None,
+        order_number=number,
+        currency="PLN",
+        lines=(
+            BillingLine(
+                order_id=None,
+                consultant="Marta Kosztowa",
+                basis="cost",
+                quantity=None,
+                unit_price=None,
+                net=None,
+                currency="PLN",
+                note=COST_NOTE,
+            ),
+        ),
+        budget=CostBudget(amount=Decimal("500000.00"), available=Decimal(available)),
+        member_ids=frozenset(members),
     )
 
 
@@ -187,6 +217,27 @@ def test_amount_that_matches_nothing_waits_for_finance():
     assert unknown.reason == "expected_unknown"
 
 
+def test_cost_order_binds_only_by_number_and_never_waits_for_md_usage():
+    cost = _cost(30, "SAP 4500000001", "380000.00")
+    bound = decide(
+        net=Decimal("12345.67"),
+        currency="PLN",
+        texts=["Zamówienie SAP 4500000001"],
+        rows=[cost],
+        refs=_refs(cost),
+    )
+    assert bound.targets == (Target(group_id=30),)
+    # Bez numeru kosztowego nie wiąże kwota, a powód nie mówi o zużyciu MD.
+    loose = decide(
+        net=Decimal("12345.67"),
+        currency="PLN",
+        texts=[],
+        rows=[cost, _periodic(20, "ZAM/2", "31920.00")],
+        refs=[],
+    )
+    assert not loose.matched and loose.reason == "amount_differs"
+
+
 def test_currency_must_match_and_empty_month_is_reported():
     rows = [_periodic(20, "ZAM/2", "1000.00", currency="EUR")]
     assert (
@@ -201,6 +252,70 @@ def test_currency_must_match_and_empty_month_is_reported():
         ).reason
         == "no_orders"
     )
+
+
+# ── Faktura a budżet zamówienia kosztowego ───────────────────────────────────
+
+
+def _chain(net, *links, accepted=None):
+    head = ClientSalesInvoice(
+        id=1,
+        net_amount=Decimal(net),
+        gross_amount=Decimal(net),
+        match_status="matched",
+        difference_accepted_amount=None if accepted is None else Decimal(accepted),
+    )
+    return Chain(
+        head=head,
+        links=[
+            ClientSalesInvoiceLink(
+                order_group_id=group_id,
+                order_id=order_id,
+                period_year=2026,
+                period_month=10,
+            )
+            for group_id, order_id in links
+        ],
+    )
+
+
+def _rows(*rows):
+    return {row.key: row for row in rows}
+
+
+def test_cost_invoice_is_compared_with_the_remaining_budget():
+    rows = _rows(
+        _cost(30, "SAP 1", "380000.00"), _group(10, "ZAM/1", _line(1, "1000.00"))
+    )
+    within = check(_chain("380000.00", (30, None)), rows)
+    assert (within.status, within.basis) == ("ok", "budget")
+    over = check(_chain("380000.01", (30, None)), rows)
+    assert (over.status, over.difference) == ("difference", Decimal("0.01"))
+    # Powiązanie z osobą z zamówienia kosztowego też idzie do budżetu zamówienia.
+    assert check(_chain("1000.00", (None, 31)), rows).status == "ok"
+    # Faktura na MD i kosztowe razem: najpierw MD wg stawek, reszta z budżetu.
+    assert check(_chain("381000.00", (10, None), (30, None)), rows).status == "ok"
+    short = check(_chain("500.00", (10, None), (30, None)), rows)
+    assert (short.status, short.difference) == ("difference", Decimal("-500.00"))
+    accepted = check(_chain("400000.00", (30, None), accepted="20000.00"), rows)
+    assert accepted.status == "accepted"
+    # Zamówienie MD bez zmian: porównanie kwoty co do grosza.
+    md = check(_chain("1000.00", (10, None)), rows)
+    assert (md.status, md.basis) == ("ok", "amount")
+
+
+def test_two_cost_invoices_within_budget_alone_can_exceed_it_together():
+    cost = _cost(30, "SAP 1", "100.00")
+    rows = _rows(cost)
+    first, second = _chain("60.00", (30, None)), _chain("60.00", (30, None))
+    attached = [(first, check(first, rows)), (second, check(second, rows))]
+    assert [result.status for _chain_, result in attached] == ["ok", "ok"]
+    assert row_status(cost, attached, True) == (
+        "difference",
+        Decimal("120.00"),
+        Decimal("20.00"),
+    )
+    assert row_status(cost, attached[:1], True) == ("ok", Decimal("60.00"), None)
 
 
 # ── Część miesiąca ───────────────────────────────────────────────────────────

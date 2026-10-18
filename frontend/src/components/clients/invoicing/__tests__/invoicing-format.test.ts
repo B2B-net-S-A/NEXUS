@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  budgetText,
   canAcceptDifference,
   canMarkPaid,
   checkText,
@@ -57,6 +58,20 @@ describe("invoicing-format", () => {
     expect(rowInvoiceText(notInvoiced, [])).toBe("jeszcze nie wystawiona");
     const sheet = row({ status: "sheet", status_label: "wg arkusza Finansów", sheet_invoiced: "11000" });
     expect(nbsp(rowInvoiceText(sheet, []))).toBe("wg arkusza Finansów: 11 000,00 zł");
+  });
+
+  it("compares a cost order with its budget, not with an amount to invoice", () => {
+    const cost = CLIENT_MONTH.rows[4];
+    expect(nbsp(budgetText(cost) ?? "")).toBe("budżet 500 000,00 zł · zostało 380 000,00 zł");
+    expect(budgetText(row())).toBeNull();
+    const within = invoice({ check: "ok", check_basis: "budget", difference: "0.00" });
+    expect(checkText(within)).toBe("mieści się w budżecie");
+    const over = invoice({ check: "difference", check_basis: "budget", difference: "20000.00" });
+    expect(nbsp(checkText(over))).toBe("ponad budżet o 20 000,00 zł");
+    const title = summaryStats({ ...CLIENT_MONTH.summary, cost: 2 }, "2026-10").find(
+      (stat) => stat.id === "expected",
+    )?.title;
+    expect(title).toBe("Bez 2 zamówień kosztowych — ich kwotę ustalają Finanse.");
   });
 
   it("lists invoices not attached to any row and what they wait for", () => {

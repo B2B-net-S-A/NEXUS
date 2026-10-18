@@ -33,6 +33,7 @@ import { resolveViewState } from "@/lib/view-state";
 import {
   CHECK_TONE,
   ROW_TONE,
+  budgetText,
   buyerText,
   checkText,
   defaultPeriod,
@@ -201,8 +202,9 @@ export function ClientInvoicingTab({
 
           <p className="text-xs text-muted-foreground">
             „Do faktury” liczy NEXUS z zamówienia: zużycie MD × stawka osoby, a przy zamówieniach
-            okresowych stawka × godziny albo miesiąc z zamówienia. Wystawioną fakturę NEXUS
-            znajduje w KSeF i łączy z zamówieniem, a zapłatę bierze z wyciągu.
+            okresowych stawka × godziny albo miesiąc z zamówienia. Kwotę faktury do zamówienia
+            kosztowego ustalają Finanse — NEXUS sprawdza, czy mieści się w budżecie. Wystawioną
+            fakturę NEXUS znajduje w KSeF i łączy z zamówieniem, a zapłatę bierze z wyciągu.
           </p>
         </>
       ) : null}
@@ -227,12 +229,20 @@ function BillingRowView({ row, invoices }: { row: BillingRow; invoices: SalesInv
             {line.note ? <span className={CALM_SUBLINE}>{line.note}</span> : null}
           </div>
         ))}
+        {budgetText(row) ? (
+          <span className={CALM_SUBLINE} title="Reszta budżetu przed fakturami za ten miesiąc">
+            {budgetText(row)}
+          </span>
+        ) : null}
       </TableCell>
       <TableCell className={CALM_AMOUNT}>
         {row.expected_net ? (
           formatMoney(row.expected_net, row.currency)
         ) : (
-          <span className={CALM_EMPTY} title="Kwoty nie da się jeszcze policzyć">
+          <span
+            className={CALM_EMPTY}
+            title={row.budget ? "Kwotę faktury ustalają Finanse" : "Kwoty nie da się jeszcze policzyć"}
+          >
             —
           </span>
         )}

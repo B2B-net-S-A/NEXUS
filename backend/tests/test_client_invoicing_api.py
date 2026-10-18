@@ -19,15 +19,18 @@ import pytest_asyncio
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from openpyxl import load_workbook
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from app.api import client_sales_invoices as api
+from app.api import hr_payments
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
 from app.models.client_sales_invoice import ClientSalesInvoicePayment
+from app.models.section_permission import UserActionOverride
 from app.services.client_invoicing import sync
 from app.services.client_invoicing.views import ROW_STATUS_LABELS
 from app.services.hr.bank import statements
+from app.services.hr_foundation_schema import HR_MODULE_KEYS, HR_MODULES_SETTING
 from tests.client_invoicing import helpers as fx
 
 pytestmark = pytest.mark.asyncio
@@ -51,6 +54,20 @@ async def client():
         target = FastAPI()
         target.include_router(api.router, prefix=CLIENTS)
         target.include_router(api.finance_router, prefix=FINANCE)
+    async with AsyncClient(
+        transport=ASGITransport(app=target), base_url="http://testserver"
+    ) as http:
+        yield http
+
+
+@pytest_asyncio.fixture
+async def payroll_client():
+    """Trasy faktur do klientów i wyciągu Płac (``/api/hr/payments``) razem."""
+
+    target = FastAPI()
+    target.include_router(api.router, prefix=CLIENTS)
+    target.include_router(api.finance_router, prefix=FINANCE)
+    target.include_router(hr_payments.router, prefix="/api/hr/payments")
     async with AsyncClient(
         transport=ASGITransport(app=target), base_url="http://testserver"
     ) as http:
@@ -388,11 +405,90 @@ async def test_statement_credits_pay_invoices_and_reimport_changes_nothing(
     assert twice.status_code == 409
 
 
+async def _payroll_upload(client, user, raw: bytes):
+    """Wyciąg przez Płace (``/api/hr/payments/statements``) przy włączonych modułach HR."""
+
+    async with AsyncSessionLocal() as db:
+        row = await db.get(fx.AppSetting, HR_MODULES_SETTING)
+        before = None if row is None else dict(row.value)
+        if row is None:
+            db.add(
+                fx.AppSetting(
+                    key=HR_MODULES_SETTING, value={k: True for k in HR_MODULE_KEYS}
+                )
+            )
+        else:
+            row.value = {k: True for k in HR_MODULE_KEYS}
+        await db.commit()
+    try:
+        return await client.post(
+            "/api/hr/payments/statements",
+            files={"file": ("wyciag.xml", io.BytesIO(raw), "application/xml")},
+            headers=fx.headers(user),
+        )
+    finally:
+        async with AsyncSessionLocal() as db:
+            row = await db.get(fx.AppSetting, HR_MODULES_SETTING)
+            if before is None:
+                await db.delete(row)
+            else:
+                row.value = before
+            await db.commit()
+
+
+async def test_payroll_without_finance_only_counts_client_credits(payroll_client, seed):
+    """Płace bez modułu Finanse nie opłacają faktur klientów i nie widzą, co pasuje."""
+
+    async with AsyncSessionLocal() as db:
+        payroll = await fx.make_user(db, "recruiter", name="Paula Płacowa")
+        db.add(
+            UserActionOverride(user_id=payroll.id, action="payroll", access="manage")
+        )
+        await db.commit()
+    raw = STATEMENT.read_bytes()
+    response = await _payroll_upload(payroll_client, payroll, raw)
+    assert response.status_code == 200, response.text
+    async with AsyncSessionLocal() as db:
+        stored = await db.scalar(
+            select(func.count()).select_from(ClientSalesInvoicePayment)
+        )
+    assert stored == 0
+    tab = (await _tab(payroll_client, seed.users["finance"], seed)).json()
+    invoices = fx.as_dict(tab["invoices"], "invoice_number")
+    assert invoices["FS 10/118/2026"]["payment_status"] == "unpaid"
+    credits = response.json()["credits"]
+    # Odpowiedź nie mówi, czy numer faktury z tytułu istnieje — tylko ile uznań.
+    assert (
+        credits["matched"],
+        credits["unmatched"],
+        credits["skipped"],
+        credits["known"],
+    ) == (0, 0, 0, 0)
+    assert credits["credits"] == 5
+    assert credits["restricted"] is True
+
+    # Ten sam plik wgrany potem przez Finanse dopasowuje uznania normalnie.
+    finance = (await _upload(payroll_client, seed.users["finance"], raw)).json()
+    assert (finance["matched"], finance["unmatched"]) == (3, 1)
+
+
+async def test_payroll_with_finance_books_client_credits_through_the_payroll_route(
+    payroll_client, seed
+):
+    response = await _payroll_upload(
+        payroll_client, seed.users["finance"], STATEMENT.read_bytes()
+    )
+    assert response.status_code == 200, response.text
+    credits = response.json()["credits"]
+    assert credits["restricted"] is False
+    assert (credits["matched"], credits["unmatched"]) == (3, 1)
+
+
 async def test_payroll_statement_import_also_books_client_credits(seed, monkeypatch):
     raw = STATEMENT.read_bytes()
     async with AsyncSessionLocal() as db:
         result = await statements.import_statement(
-            db, raw, actor_id=seed.users["finance"].id
+            db, raw, actor_id=seed.users["finance"].id, match_credits=True
         )
         await db.commit()
     # Obciążenia: czynsz nie dotyczy zespołu — jak dotąd tylko licznik.
@@ -417,7 +513,10 @@ async def test_payroll_import_survives_a_failure_on_the_client_side(seed, monkey
     monkeypatch.setattr(statements.client_payments, "import_credits", broken)
     async with AsyncSessionLocal() as db:
         result = await statements.import_statement(
-            db, STATEMENT.read_bytes(), actor_id=seed.users["finance"].id
+            db,
+            STATEMENT.read_bytes(),
+            actor_id=seed.users["finance"].id,
+            match_credits=True,
         )
         await db.commit()
     assert result.credits["error"] is True
@@ -428,7 +527,10 @@ async def test_payroll_import_skips_credits_when_module_is_off(seed):
     await fx.set_module(False)
     async with AsyncSessionLocal() as db:
         result = await statements.import_statement(
-            db, STATEMENT.read_bytes(), actor_id=seed.users["finance"].id
+            db,
+            STATEMENT.read_bytes(),
+            actor_id=seed.users["finance"].id,
+            match_credits=True,
         )
         await db.commit()
     assert result.credits["disabled"] is True

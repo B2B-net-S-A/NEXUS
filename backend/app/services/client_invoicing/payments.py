@@ -26,7 +26,11 @@ Ten sam plik drugi raz nic nie zmienia (skrót pliku + numer pozycji,
 ``uq_client_sales_invoice_payments_statement``); ta sama operacja na innym
 pliku (wyciąg dzienny i miesięczny) zostaje jako ``ignored`` z powodem.
 Wynik importu niesie same liczby — bez kwot i nazw klientów, bo widzą go
-też Płace.
+też Płace. Wyciąg wgrany przez Płace bez modułu Finanse NIE dopasowuje uznań
+(``count_credits``): zapłatę faktury klienta stwierdzają Finanse, a liczniki
+„dopasowane / do sprawdzenia” mówiłyby, czy numer faktury z tytułu istnieje.
+Takie uznania czekają na wyciąg wgrany przez Finanse (ten sam plik dopisze je
+wtedy normalnie).
 """
 
 from __future__ import annotations
@@ -105,6 +109,8 @@ class CreditResult:
     known: int = 0
     skipped: int = 0
     error: bool = False
+    #: Importujący bez modułu Finanse — uznania tylko policzone.
+    restricted: bool = False
     paid_invoice_ids: list[int] = field(default_factory=list)
 
     def as_dict(self) -> dict[str, Any]:
@@ -117,6 +123,7 @@ class CreditResult:
             "known": self.known,
             "skipped": self.skipped,
             "error": self.error,
+            "restricted": self.restricted,
         }
 
 
@@ -264,6 +271,22 @@ async def _all_chains(db: AsyncSession) -> list[Chain]:
     )
 
 
+def credit_lines(parsed: ParsedStatement) -> list[StatementLine]:
+    """Uznania w walutach faktur — jedyne pozycje wyciągu, które tu dotyczą."""
+
+    return [
+        line
+        for line in parsed.lines
+        if line.direction == "credit" and line.currency in CURRENCIES
+    ]
+
+
+def count_credits(parsed: ParsedStatement) -> CreditResult:
+    """Same liczby, bez dopasowania — dla importującego bez modułu Finanse."""
+
+    return CreditResult(credits=len(credit_lines(parsed)), restricted=True)
+
+
 async def import_credits(
     db: AsyncSession,
     parsed: ParsedStatement,
@@ -278,11 +301,7 @@ async def import_credits(
     if require_enabled and not await module_settings.is_enabled(db):
         result.disabled = True
         return result
-    credits = [
-        line
-        for line in parsed.lines
-        if line.direction == "credit" and line.currency in CURRENCIES
-    ]
+    credits = credit_lines(parsed)
     result.credits = len(credits)
     if not credits:
         return result
@@ -473,6 +492,8 @@ __all__ = [
     "PaymentError",
     "REASON_LABELS",
     "assign_credit",
+    "count_credits",
+    "credit_lines",
     "decide_credit",
     "ignore_credit",
     "import_credits",

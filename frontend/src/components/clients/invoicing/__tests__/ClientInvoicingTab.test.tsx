@@ -62,6 +62,13 @@ describe("ClientInvoicingTab", () => {
     const difference = screen.getByTestId("billing-row-g13");
     expect(nbsp(difference.textContent)).toContain("różnica do sprawdzenia · +75,00 zł");
 
+    // Kosztowe: bez kwoty „do faktury”, z budżetem i porównaniem faktury z resztą.
+    const cost = screen.getByTestId("billing-row-g15");
+    expect(within(cost).getByText("zamówienie kosztowe — kwotę faktury ustalają Finanse")).toBeInTheDocument();
+    expect(nbsp(cost.textContent)).toContain("budżet 500 000,00 zł · zostało 380 000,00 zł");
+    expect(within(cost).getByText("mieści się w budżecie")).toBeInTheDocument();
+    expect(within(cost).getByTitle("Kwotę faktury ustalają Finanse")).toHaveTextContent("—");
+
     const waiting = screen.getByTestId("billing-row-g14");
     expect(within(waiting).getByText("jeszcze nie wystawiona")).toBeInTheDocument();
     expect(within(waiting).getByText("czeka na zużycie MD za miesiąc")).toBeInTheDocument();

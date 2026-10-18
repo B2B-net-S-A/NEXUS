@@ -123,8 +123,14 @@ async def md_group(
     people: list[tuple[str, str, str, Optional[str]]],
     cost: bool = False,
 ) -> tuple[int, list[int]]:
-    """Zamówienie MD z osobami: (imię, nazwisko, stawka MD, zużycie MD w październiku)."""
+    """Zamówienie MD z osobami: (imię, nazwisko, stawka MD, zużycie MD w październiku).
 
+    Zamówienie kosztowe (``cost=True``) nie ma zużycia MD — import MD pomija
+    linie kosztowe (``md_total IS NULL``), więc zasiew też go nie tworzy.
+    """
+
+    if cost and any(md is not None for *_rest, md in people):
+        raise ValueError("Linia zamówienia kosztowego nie ma zużycia MD.")
     group = ClientOrderGroup(
         client_id=client_id,
         order_number=number,

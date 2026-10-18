@@ -22,10 +22,14 @@ Płac („Przypisz” albo „Pomiń”). Obciążenia, które nie dotyczą niko
 
 Uznania idą osobną ścieżką (``_import_credits``, etap 5 — E8): zapłaty faktur
 do klientów (``services/client_invoicing/payments.py``), gdy moduł faktur do
-klientów jest włączony. Biegną w SAVEPOINT przed obciążeniami — błąd po tamtej
-stronie nie zatrzymuje „opłacono” dla zespołu, a wynik niesie same liczby
-(Płace nie widzą kwot klientów). Ponowny import pliku dopisuje tylko uznania,
-których jeszcze nie było (np. wyciąg wgrany przed włączeniem modułu).
+klientów jest włączony, a importujący ma moduł Finanse (``match_credits`` —
+trasa sprawdza ``finance_module`` u bieżącego konta). Bez niego uznania są
+tylko policzone: same „Płace” nie oznaczają faktury klienta jako zapłaconej
+i z wyniku nie wynika, czy numer faktury z tytułu istnieje. Biegną
+w SAVEPOINT przed obciążeniami — błąd po tamtej stronie nie zatrzymuje
+„opłacono” dla zespołu, a wynik niesie same liczby (Płace nie widzą kwot
+klientów). Ponowny import pliku dopisuje tylko uznania, których jeszcze nie
+było (np. wyciąg wgrany przed włączeniem modułu albo przez Płace bez Finansów).
 
 Ten sam plik drugi raz nic nie zmienia (skrót SHA-256 pliku + numer pozycji,
 indeks unikalny ``uq_payroll_payments_statement_line``); ta sama operacja na
@@ -402,10 +406,17 @@ async def _seen_elsewhere(db: AsyncSession, line: StatementLine, sha: str) -> bo
 
 
 async def _import_credits(
-    db: AsyncSession, parsed: ParsedStatement, sha: str, actor_id: int
+    db: AsyncSession,
+    parsed: ParsedStatement,
+    sha: str,
+    actor_id: int,
+    *,
+    match_credits: bool,
 ) -> dict[str, Any]:
     """Uznania → faktury do klientów; awaria tej ścieżki nie rusza obciążeń."""
 
+    if not match_credits:
+        return client_payments.count_credits(parsed).as_dict()
     try:
         async with db.begin_nested():
             outcome = await client_payments.import_credits(
@@ -418,8 +429,10 @@ async def _import_credits(
 
 
 async def import_statement(
-    db: AsyncSession, raw: bytes, *, actor_id: int
+    db: AsyncSession, raw: bytes, *, actor_id: int, match_credits: bool
 ) -> ImportResult:
+    """Wyciąg Płac; ``match_credits`` — importujący ma moduł Finanse (uznania klientów)."""
+
     parsed = parse_file(raw)
     sha = hashlib.sha256(raw).hexdigest()
     result = ImportResult(format=parsed.format, sha256=sha)
@@ -428,7 +441,9 @@ async def import_statement(
         text("SELECT pg_advisory_xact_lock(hashtext(:key))"),
         {"key": f"hr-statement:{sha}"},
     )
-    result.credits = await _import_credits(db, parsed, sha, actor_id)
+    result.credits = await _import_credits(
+        db, parsed, sha, actor_id, match_credits=match_credits
+    )
     known = await db.scalar(
         select(func.count())
         .select_from(PayrollPayment)

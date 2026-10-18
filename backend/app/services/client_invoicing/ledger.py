@@ -11,6 +11,13 @@ Stany: ``ok`` (zgodna co do grosza), ``accepted`` (Finanse uznały TĘ różnic�
 ``difference`` (do sprawdzenia), ``unknown`` (kwoty „do faktury” nie da się
 policzyć — np. brak zużycia MD), ``unmatched`` / ``ignored``.
 
+Zamówienie kosztowe nie ma kwoty „do faktury” (ustalają ją Finanse), więc
+porównanie idzie z budżetem (``basis='budget'``): faktura jest zgodna, gdy
+jej część na zamówienia kosztowe (netto minus „do faktury” powiązanych
+zamówień MD i okresowych) mieści się w tym, co zostało z budżetu przed tym
+miesiącem; nadwyżka nad budżetem (albo część ujemna) to różnica do
+sprawdzenia przez Finanse.
+
 Zapłata: suma uznań i ręcznych „opłacono” przypisanych do faktur łańcucha;
 „Zapłacono” w samej fakturze liczy się jako zapłata całości. Po terminie =
 termin z faktury pierwotnej minął, a do zapłaty zostało więcej niż zero.
@@ -128,6 +135,28 @@ class ChainCheck:
     status: str
     expected: Optional[Decimal]
     difference: Optional[Decimal]
+    #: ``amount`` — z kwotą „do faktury”; ``budget`` — z resztą budżetu kosztowego.
+    basis: str = "amount"
+
+
+def _cost_row(
+    link: ClientSalesInvoiceLink, rows: dict[str, BillingRow]
+) -> Optional[BillingRow]:
+    """Wiersz zamówienia kosztowego, którego dotyczy powiązanie (całe albo osoba)."""
+
+    if link.order_group_id is not None:
+        row = rows.get(f"g{link.order_group_id}")
+        return row if row is not None and row.budget is not None else None
+    if link.order_id is None:
+        return None
+    return next(
+        (
+            row
+            for row in rows.values()
+            if row.budget is not None and int(link.order_id) in row.member_ids
+        ),
+        None,
+    )
 
 
 def _expected_for_link(
@@ -155,7 +184,12 @@ def check(chain: Chain, rows: dict[str, BillingRow]) -> ChainCheck:
     if status != "matched":
         return ChainCheck(status, None, None)
     total = ZERO
+    budgets: dict[str, Decimal] = {}
     for link in chain.links:
+        cost = _cost_row(link, rows)
+        if cost is not None:
+            budgets[cost.key] = cost.budget.available
+            continue
         present, value = _expected_for_link(link, rows)
         if not present:
             # Zamówienie bez pozycji w tym miesiącu: do faktury 0.
@@ -163,14 +197,34 @@ def check(chain: Chain, rows: dict[str, BillingRow]) -> ChainCheck:
         if value is None:
             return ChainCheck("unknown", None, None)
         total += value
+    if budgets:
+        return _budget_check(chain, money(total), money(sum(budgets.values(), ZERO)))
     expected = money(total)
     difference = money(chain.net - expected)
     if difference == ZERO:
         return ChainCheck("ok", expected, difference)
+    return _difference(chain, expected, difference, "amount")
+
+
+def _difference(
+    chain: Chain, expected: Optional[Decimal], difference: Decimal, basis: str
+) -> ChainCheck:
     accepted = chain.head.difference_accepted_amount
     if accepted is not None and money(Decimal(accepted)) == difference:
-        return ChainCheck("accepted", expected, difference)
-    return ChainCheck("difference", expected, difference)
+        return ChainCheck("accepted", expected, difference, basis)
+    return ChainCheck("difference", expected, difference, basis)
+
+
+def _budget_check(chain: Chain, fixed: Decimal, available: Decimal) -> ChainCheck:
+    """Część faktury na zamówienia kosztowe a reszta ich budżetu."""
+
+    cost_part = money(chain.net - fixed)
+    if cost_part < ZERO:
+        return _difference(chain, None, cost_part, "budget")
+    over = money(cost_part - available)
+    if over > ZERO:
+        return _difference(chain, None, over, "budget")
+    return ChainCheck("ok", None, ZERO, "budget")
 
 
 def _root(invoice: ClientSalesInvoice, by_id: dict[int, ClientSalesInvoice]) -> int:

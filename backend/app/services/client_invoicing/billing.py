@@ -8,13 +8,22 @@ Wiersz = zamówienie, które się fakturuje:
 
 * **zamówienie MD** (grupa z numerem klienta, osoby jako linie) — dla każdej
   osoby zużycie MD z miesiąca × jej stawka przychodowa (``md_rate_revenue``,
-  PLN/MD). Wspólna pula MD: zejście puli z podziałem na osoby (``breakdown``),
+  PLN/MD). Wspólna pula MD (``shared_md_orders.uses_shared_md_pool`` — sama
+  flaga ``is_md_budget_based`` z 0246 nie rozstrzyga): zejście puli z podziałem
+  na osoby (``breakdown``),
   bez podziału — jedna pozycja, jeśli wszystkie osoby mają tę samą stawkę;
   inaczej kwoty nie liczymy (Finanse widzą „brak podziału puli”),
-* **zamówienie kosztowe** — tak samo zużycie MD × stawka; kwota z kolumny
-  „Faktura” arkusza Finansów (``client_order_invoice_consumptions``) zostaje
-  obok jako zapas „zafakturowano wg arkusza”, gdy faktury z KSeF jeszcze nie
-  ma (odczyt z KSeF zastępuje import, import zostaje),
+* **zamówienie kosztowe** — rozlicza FAKTURĘ, nie MD: linie nie mają
+  budżetu MD (``md_total IS NULL``) i import MD ich nie dotyka, więc kwoty
+  „do faktury” NEXUS nie liczy — ustalają ją Finanse. Wiersz ma jedną pozycję
+  (osoby z zamówienia) i budżet zamówienia (``CostBudget``): kwota oraz to, co
+  zostało przed fakturami za ten miesiąc — pula ``budget_amount`` + korekta
+  minus faktury z wcześniejszych miesięcy rozliczone przez
+  ``cost_orders.settle_group`` (arkusz Finansów,
+  ``client_order_invoice_consumptions``). Faktura z KSeF jest sprawdzana
+  z tą resztą (``ledger.check``). Kwota z kolumny „Faktura” arkusza za ten
+  miesiąc zostaje obok jako zapas „wg arkusza Finansów”, gdy faktury z KSeF
+  jeszcze nie ma,
 * **zamówienie okresowe** (samodzielne ``client_orders``) — stawka klienta
   według jednostki zamówienia: miesięczna × miesiąc, godzinowa × godziny
   z zamówienia (``billing_hours_per_month``, domyślnie 168 h), dzienna ×
@@ -39,7 +48,7 @@ from datetime import date
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Optional
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -60,8 +69,11 @@ from app.services.client_order_lines import line_settles_in_month
 from app.services.hr.calendar import month_range
 from app.services.order_burn_rate import workdays_between
 from app.services.order_engagement_separation import AUTO_DRAFT_TITLE_PLACEHOLDER
+from app.services.shared_md_orders import uses_shared_md_pool
 
 CENT = Decimal("0.01")
+ZERO = Decimal("0.00")
+COST_NOTE = "zamówienie kosztowe — kwotę faktury ustalają Finanse"
 _SETTLING = (ClientOrderStatus.active, ClientOrderStatus.completed)
 _NOT_BILLED_GROUPS = (GROUP_STATUS_DRAFT, GROUP_STATUS_CANCELLED)
 UNIT_LABELS = {"md": "MD", "hours": "h", "days": "dni", "month": "mies."}
@@ -108,6 +120,19 @@ class BillingLine:
 
 
 @dataclass(frozen=True)
+class CostBudget:
+    """Budżet zamówienia kosztowego widziany z miesiąca usługi."""
+
+    #: Kwota zamówienia (``budget_amount``).
+    amount: Decimal
+    #: Zostało przed fakturami za ten miesiąc: pula (kwota + korekta) minus
+    #: faktury z wcześniejszych miesięcy rozliczone w budżecie. Faktura za ten
+    #: miesiąc z arkusza Finansów się tu nie odejmuje — to ta sama faktura,
+    #: którą porównujemy z KSeF.
+    available: Decimal
+
+
+@dataclass(frozen=True)
 class BillingRow:
     """Zamówienie do zafakturowania w miesiącu."""
 
@@ -118,6 +143,9 @@ class BillingRow:
     order_number: str
     currency: str
     lines: tuple[BillingLine, ...] = field(default_factory=tuple)
+    #: Tylko zamówienie kosztowe: budżet i linie osób (jedna pozycja na wiersz).
+    budget: Optional[CostBudget] = None
+    member_ids: frozenset[int] = frozenset()
 
     @property
     def key(self) -> str:
@@ -125,7 +153,10 @@ class BillingRow:
 
     @property
     def expected_net(self) -> Optional[Decimal]:
-        """Suma pozycji; ``None``, gdy którejś kwoty nie da się policzyć."""
+        """Suma pozycji; ``None``, gdy którejś kwoty nie da się policzyć.
+
+        Zamówienie kosztowe zawsze ``None`` — kwotę faktury ustalają Finanse.
+        """
 
         if not self.lines or any(line.net is None for line in self.lines):
             return None
@@ -133,7 +164,11 @@ class BillingRow:
 
     @property
     def missing(self) -> int:
-        return sum(1 for line in self.lines if line.net is None)
+        """Pozycje, którym brakuje danych (zużycia MD, stawki) — bez kosztowych."""
+
+        return sum(
+            1 for line in self.lines if line.net is None and line.basis != "cost"
+        )
 
     @property
     def sheet_invoiced(self) -> Optional[Decimal]:
@@ -248,12 +283,7 @@ def _periodic_line(order: ClientOrder, first: date, last: date) -> BillingLine:
     )
 
 
-def _md_line(
-    order: ClientOrder,
-    md: Optional[Decimal],
-    *,
-    sheet: Optional[Decimal] = None,
-) -> BillingLine:
+def _md_line(order: ClientOrder, md: Optional[Decimal]) -> BillingLine:
     name = _consultant(order)
     rate = order.md_rate_revenue
     if md is None:
@@ -266,7 +296,6 @@ def _md_line(
             net=None,
             currency="PLN",
             note="czeka na zużycie MD za miesiąc",
-            sheet_invoiced=sheet,
         )
     if rate is None:
         return BillingLine(
@@ -278,7 +307,6 @@ def _md_line(
             net=None,
             currency="PLN",
             note="osoba bez stawki MD do klienta",
-            sheet_invoiced=sheet,
         )
     return BillingLine(
         order_id=order.id,
@@ -288,7 +316,6 @@ def _md_line(
         unit_price=Decimal(rate),
         net=money(md * Decimal(rate)),
         currency="PLN",
-        sheet_invoiced=sheet,
     )
 
 
@@ -338,6 +365,55 @@ def _pool_lines(
             note="osoby mają różne stawki, a zejście puli nie ma podziału na osoby",
         )
     ]
+
+
+def _cost_line(
+    members: list[ClientOrder], sheet_by_line: dict[int, Decimal]
+) -> BillingLine:
+    """Jedna pozycja zamówienia kosztowego: osoby, bez kwoty, z zapasem z arkusza."""
+
+    sheet = [sheet_by_line[order.id] for order in members if order.id in sheet_by_line]
+    return BillingLine(
+        order_id=None,
+        consultant=", ".join(_consultant(order) for order in members),
+        basis="cost",
+        quantity=None,
+        unit_price=None,
+        net=None,
+        currency="PLN",
+        note=COST_NOTE,
+        sheet_invoiced=money(sum(sheet, Decimal("0"))) if sheet else None,
+    )
+
+
+def _cost_budget(group: ClientOrderGroup, settled_before: Decimal) -> CostBudget:
+    """Lustro ``cost_orders.settle_group``: pula nie schodzi poniżej zera."""
+
+    amount = money(Decimal(group.budget_amount))
+    pool = max(amount + money(Decimal(group.budget_manual_adjustment or 0)), ZERO)
+    return CostBudget(amount=amount, available=max(pool - money(settled_before), ZERO))
+
+
+async def _settled_before(
+    db: AsyncSession, group_ids: list[int], period: str
+) -> dict[int, Decimal]:
+    """Faktury z arkusza Finansów rozliczone w budżecie przed miesiącem ``period``."""
+
+    if not group_ids:
+        return {}
+    rows = await db.execute(
+        select(
+            ClientOrder.order_group_id,
+            func.coalesce(func.sum(ClientOrderInvoiceConsumption.settled_amount), 0),
+        )
+        .join(ClientOrder, ClientOrder.id == ClientOrderInvoiceConsumption.order_id)
+        .where(
+            ClientOrder.order_group_id.in_(group_ids),
+            ClientOrderInvoiceConsumption.period_month < period,
+        )
+        .group_by(ClientOrder.order_group_id)
+    )
+    return {int(group_id): Decimal(total) for group_id, total in rows.all()}
 
 
 async def billing_rows(
@@ -423,6 +499,10 @@ async def billing_rows(
             )
         }
 
+    settled_before = await _settled_before(
+        db, [gid for gid, group in groups.items() if group.is_cost_based], period
+    )
+
     by_group: dict[int, list[ClientOrder]] = defaultdict(list)
     rows: list[BillingRow] = []
     for order in sorted(orders, key=lambda o: (o.start_date or first, o.id)):
@@ -461,17 +541,14 @@ async def billing_rows(
 
     for group_id, members in by_group.items():
         group = groups[group_id]
-        if group.is_md_budget_based:
+        budget: Optional[CostBudget] = None
+        if group.is_cost_based:
+            lines = [_cost_line(members, sheet_by_line)]
+            budget = _cost_budget(group, settled_before.get(group_id, ZERO))
+        elif uses_shared_md_pool(group):
             lines = _pool_lines(group, members, pools.get(group_id))
         else:
-            lines = [
-                _md_line(
-                    order,
-                    md_by_line.get(order.id),
-                    sheet=sheet_by_line.get(order.id) if group.is_cost_based else None,
-                )
-                for order in members
-            ]
+            lines = [_md_line(order, md_by_line.get(order.id)) for order in members]
         rows.append(
             BillingRow(
                 client_id=group.client_id,
@@ -481,6 +558,10 @@ async def billing_rows(
                 order_number=(group.order_number or "").strip() or f"#{group.id}",
                 currency="PLN",
                 lines=tuple(lines),
+                budget=budget,
+                member_ids=frozenset(order.id for order in members)
+                if budget is not None
+                else frozenset(),
             )
         )
     rows.sort(key=lambda row: (row.client_id, row.order_number.lower(), row.key))
@@ -526,8 +607,10 @@ async def order_refs(db: AsyncSession, client_ids: Iterable[int]) -> list[OrderR
 
 
 __all__ = [
+    "COST_NOTE",
     "BillingLine",
     "BillingRow",
+    "CostBudget",
     "OrderRef",
     "billing_rows",
     "money",

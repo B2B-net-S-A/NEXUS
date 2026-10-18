@@ -14,7 +14,8 @@ Kolejność, od najpewniejszego:
    (kwota równa pozycji tej osoby) wiąże się z tą osobą,
 4. **kwota** bez numeru — wyłącznie jednoznaczna: dokładnie jedno zamówienie
    (albo jedna osoba z zamówienia MD) z kwotą „do faktury” równą netto
-   faktury co do grosza.
+   faktury co do grosza. Zamówienie kosztowe nie ma kwoty „do faktury”
+   (ustalają ją Finanse) — wiąże je wyłącznie numer.
 
 Wszystko inne zostaje Finansom z powodem (``REASON_LABELS``) — system nie
 zgaduje. Korekta idzie za fakturą pierwotną (te same zamówienia). Ręczne
@@ -189,7 +190,8 @@ def decide(
         return Decision((Target(order_id=equal_people[0].order_id),), "amount")
     if len(equal_people) > 1:
         return Decision(reason="amount_ambiguous")
-    if any(row.expected_net is None for row in candidates):
+    # Kosztowe nie czeka na zużycie MD — jego kwoty NEXUS nie liczy wcale.
+    if any(row.expected_net is None and row.budget is None for row in candidates):
         return Decision(reason="expected_unknown")
     return Decision(reason="amount_differs")
 
