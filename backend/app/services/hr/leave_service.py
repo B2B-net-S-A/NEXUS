@@ -72,6 +72,7 @@ from app.services.hr.leave_context import (
     work_in_period,
 )
 from app.services.hr.leave_m365 import LeaveSnapshot, plan_operations
+from app.services.hr.leave_outlook import SOURCE as OUTLOOK_SOURCE
 from app.services.hr.leave_policy import (
     ACTIVE_DAY_UNIQUE,
     AUTO_APPROVED_TYPES,
@@ -254,6 +255,11 @@ async def _enqueue_m365(
     revision = await _forward_revision(db, request.id)
     created = 0
     for op in plan_operations(event, snapshot, today=today, revision=revision):  # type: ignore[arg-type]
+        if request.source == OUTLOOK_SOURCE and not op.kind.startswith("forward_"):
+            # Wniosek z autoodpowiedzi w Outlooku: osoba ma już swoją
+            # autoodpowiedź — bez naszej i bez wydarzenia (``leave_outlook``).
+            # Przekierowanie zostaje: zgodę daje na nie sama osoba.
+            continue
         created += int(
             await outbox.enqueue(
                 db,

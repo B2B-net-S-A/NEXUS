@@ -10,6 +10,9 @@ przełącznik modułu w ``app_settings['hr_modules']``.
   siebie): kolejka, historia, akceptuj/odrzuć, wpis za pracownika, anulowanie;
   zastępca przełożonego, który jest dziś na urlopie, dostaje kolejkę i
   akceptuj/odrzuć dla jego podwładnych (``leave_substitute``),
+* zmiana cudzego wniosku (``PATCH /approvals/{id}``: rodzaj, daty, pół dnia,
+  zastępca — ``leave_edit``) i wyłączenie przekierowania poczty przez Kadry
+  z powodem (``POST /approvals/{id}/forward-off``),
 * zgłoszenia z B2B i zlecenia (D5, 17.10.2026): wchodzą od razu, koordynator
   widzi je „do wiadomości” obok kolejki (``reported`` w ``/approvals/pending``)
   i może zgłosić kolizję (``POST /{id}/conflict``) — bez akceptacji i odrzucenia,
@@ -38,6 +41,7 @@ from app.core.database import get_db
 from app.core.scheduling import business_today
 from app.models.user import User, UserRole
 from app.services.hr import absence as absence_service
+from app.services.hr import leave_edit
 from app.services.hr import leave_service as service
 from app.services.hr import leave_substitute
 from app.services.hr import people
@@ -45,8 +49,8 @@ from app.services.hr.leave_balance import balance_payload
 from app.services.hr.leave_calendar import team_calendar
 from app.services.hr.leave_context import candidate_payload, substitute_candidates
 from app.services.hr.leave_policy import LeavePolicyError
-from app.services.hr.leave_queries import mask_for_viewer
-from app.services.hr.modules import HrModule
+from app.services.hr.leave_queries import history_counts, mask_for_viewer
+from app.services.hr.modules import HrModule, load_modules, module_open_for
 from app.services.hr.recipients import division_charges
 from app.services.hr_leave_schema import LEAVE_STATUSES
 
@@ -154,6 +158,23 @@ class ConsentIn(BaseModel):
 
 class ConflictIn(BaseModel):
     note: str = Field(min_length=1, max_length=service.CONFLICT_NOTE_MAX)
+
+
+class EditIn(BaseModel):
+    """Zmiana wniosku — pole pominięte zostaje; ``null`` czyści pół dnia
+    i zastępcę. Zgody na przekierowanie ani tekstów OOF tu nie ma (należą do
+    osoby)."""
+
+    model_config = ConfigDict(extra="forbid")
+    leave_type: Optional[str] = Field(default=None, min_length=1, max_length=24)
+    start_date: Optional[date] = None
+    end_date: Optional[date] = None
+    half_day: Optional[HalfDay] = None
+    substitute_user_id: Optional[int] = None
+
+
+class ForwardOffIn(BaseModel):
+    reason: str = Field(min_length=1, max_length=leave_edit.FORWARD_REASON_MAX)
 
 
 def _input(payload: LeaveFields) -> service.LeaveInput:
@@ -385,7 +406,15 @@ async def approvals_history(
         date_to=date_to,
         limit=limit,
     )
-    return {"items": items, "total": len(items)}
+    # Liczniki przy filtrach statusu: ten sam zakres i filtry bez statusu.
+    counts = await history_counts(
+        db,
+        actor=current_user,
+        user_id=user_id,
+        date_from=date_from,
+        date_to=date_to,
+    )
+    return {"items": items, "total": len(items), "counts": counts}
 
 
 @router.get("/approvals/people")
@@ -522,6 +551,66 @@ async def cancel_team_request(
     return await _outcome(db, outcome, current_user)
 
 
+def _changes(payload: EditIn) -> leave_edit.LeaveChanges:
+    sent = payload.model_fields_set
+    values: dict = {}
+    for name in ("leave_type", "start_date", "end_date"):
+        if name in sent and getattr(payload, name) is not None:
+            values[name] = getattr(payload, name)
+    for name in ("half_day", "substitute_user_id"):
+        if name in sent:
+            values[name] = getattr(payload, name)
+    return leave_edit.LeaveChanges(**values)
+
+
+@router.patch("/approvals/{request_id}")
+async def edit_team_request(
+    request_id: uuid.UUID,
+    payload: EditIn,
+    current_user: LeaveApprover,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Przełożony albo Kadry zmieniają rodzaj, daty, pół dnia albo zastępcę."""
+
+    try:
+        outcome = await leave_edit.edit_request(
+            db,
+            actor=current_user,
+            request_id=request_id,
+            changes=_changes(payload),
+            today=business_today(),
+        )
+    except _HANDLED as exc:
+        await db.rollback()
+        raise _translate(exc) from exc
+    await db.commit()
+    return await _outcome(db, outcome, current_user)
+
+
+@router.post("/approvals/{request_id}/forward-off")
+async def forward_off(
+    request_id: uuid.UUID,
+    payload: ForwardOffIn,
+    current_user: LeaveApprover,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Kadry wyłączają przekierowanie poczty cudzego wniosku (powód w śladzie)."""
+
+    try:
+        request = await leave_edit.forward_off_by_hr(
+            db,
+            actor=current_user,
+            request_id=request_id,
+            reason=payload.reason,
+            today=business_today(),
+        )
+    except _HANDLED as exc:
+        await db.rollback()
+        raise _translate(exc) from exc
+    await db.commit()
+    return await _one(db, request, current_user)
+
+
 @router.post("/{request_id}/conflict")
 async def report_conflict(
     request_id: uuid.UUID,
@@ -573,6 +662,10 @@ async def calendar_month(
         department=department or None,
         team_only=team,
         today=today,
+        # Praca zdalna i delegacja to dane modułu czasu — tylko gdy jest otwarty.
+        with_presence=module_open_for(
+            current_user, await load_modules(db), HrModule.time
+        ),
     )
 
 

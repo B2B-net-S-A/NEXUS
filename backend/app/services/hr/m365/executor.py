@@ -22,6 +22,10 @@ zapisem w skrzynce: anulowany urlop nie dostanie autoodpowiedzi z operacji,
 która czekała na ponowienie, a przekierowanie bez zgody osoby się nie
 otworzy, nawet jeśli kolejność operacji w kolejce się rozjechała.
 
+Autoodpowiedź i wydarzenie z oknem innym niż obecne daty wniosku (wniosek
+zmieniony po zaplanowaniu operacji) kończą się ``skipped: leave_changed`` —
+edycja dokłada operacje z nowym oknem.
+
 Graph trzyma JEDEN harmonogram autoodpowiedzi, a wcześniejszy urlop nadpisuje
 późniejszy. Zdjęcie naszej autoodpowiedzi (anulowanie) dokłada więc
 ``set_oof`` najbliższego innego zatwierdzonego urlopu osoby — inaczej
@@ -174,6 +178,17 @@ def _date(value: Any) -> Optional[date]:
         return None
 
 
+def _window_changed(leave: Optional[LeaveRequest], start: date, end: date) -> bool:
+    """Wniosek po edycji ma inne daty niż operacja, która czekała w kolejce.
+
+    Edycja (``leave_edit``) dokłada operacje z nowym oknem; stara czekająca
+    (np. odroczona do końca autoodpowiedzi innego urlopu) nie może ustawić
+    w skrzynce starego terminu.
+    """
+
+    return leave is not None and (leave.start_date, leave.end_date) != (start, end)
+
+
 def _bad_payload() -> Outcome:
     return Outcome("error", error=MailboxError(None, category="bad_payload"))
 
@@ -220,6 +235,8 @@ async def _set_oof(ctx: Context) -> Outcome:
         return _bad_payload()
     if ctx.leave is not None and ctx.leave.status != "approved":
         return Outcome("skipped", "leave_not_active")
+    if _window_changed(ctx.leave, start, end):
+        return Outcome("skipped", "leave_changed")
     if end < ctx.today:
         return Outcome("skipped", "leave_ended")
 
@@ -394,6 +411,8 @@ async def _calendar_upsert(ctx: Context) -> Outcome:
         return _bad_payload()
     if ctx.leave is not None and ctx.leave.status != "approved":
         return Outcome("skipped", "leave_not_active")
+    if _window_changed(ctx.leave, start, end):
+        return Outcome("skipped", "leave_changed")
     if end < ctx.today:
         return Outcome("skipped", "leave_ended")
 
