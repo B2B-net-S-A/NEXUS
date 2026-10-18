@@ -85,9 +85,15 @@ def _routes_with_include_dependencies(app):
 def test_every_program_route_stands_behind_the_switch() -> None:
     from app.main import app
 
+    # Liczy się pierwsza rejestracja pary (metoda, ścieżka) — to ona obsługuje
+    # żądanie. Starsze testy HR dopinają routery drugi raz (pod FastAPI 0.139+
+    # nie widzą ich w płaskim `app.routes`); takie duplikaty są zasłonięte.
+    serving: dict[tuple[frozenset[str], str], tuple] = {}
+    for path, route, inherited in _routes_with_include_dependencies(app):
+        serving.setdefault((frozenset(route.methods), path), (path, route, inherited))
     program = [
         (path, route, inherited)
-        for path, route, inherited in _routes_with_include_dependencies(app)
+        for path, route, inherited in serving.values()
         if route.endpoint.__module__ in PROGRAM_API_MODULES
         or path.startswith(PROGRAM_PREFIXES)
     ]
