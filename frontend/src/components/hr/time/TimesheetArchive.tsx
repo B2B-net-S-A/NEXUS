@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { ChevronDown, Download } from "lucide-react";
+import { ChevronDown, Download, FileSpreadsheet } from "lucide-react";
 
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import { StatusDot } from "@/components/ds/StatusDot";
@@ -15,15 +15,18 @@ import {
   type TimesheetHistoryItem,
 } from "@/lib/api/hr-time";
 import { resolveViewState } from "@/lib/view-state";
-import { monthTitlePl } from "@/lib/date-pl";
+import { monthTitlePl, type YearMonth } from "@/lib/date-pl";
 import { downloadHrFile } from "@/lib/api/hr";
 
-import { STATUS_TONE, formatHours } from "./time-format";
+import { TimesheetCsvDialog } from "./TimesheetCsvDialog";
+import { STATUS_TONE, currentYearMonth, formatHours } from "./time-format";
 
 interface TimesheetArchiveProps {
   /** Otwarcie miesiąca w siatce „Mojego miesiąca”. */
   onOpenMonth?: (item: TimesheetHistoryItem) => void;
   defaultOpen?: boolean;
+  /** Miesiąc otwarty w siatce — domyślny zakres eksportu CSV. */
+  period?: YearMonth;
 }
 
 /**
@@ -32,8 +35,9 @@ interface TimesheetArchiveProps {
  * Zwinięte domyślnie i pobierane dopiero po rozwinięciu (`defaultOpen` —
  * rozwinięte od razu, np. po przejściu z „Przeglądu”).
  */
-export function TimesheetArchive({ onOpenMonth, defaultOpen = false }: TimesheetArchiveProps) {
+export function TimesheetArchive({ onOpenMonth, defaultOpen = false, period }: TimesheetArchiveProps) {
   const [open, setOpen] = useState(defaultOpen);
+  const [exporting, setExporting] = useState(false);
   const history = useMyTimesheetHistory(open);
   const { showToast } = useToast();
   const items = history.data ?? [];
@@ -74,6 +78,13 @@ export function TimesheetArchive({ onOpenMonth, defaultOpen = false }: Timesheet
       </button>
       {open ? (
         <div id="timesheet-archive" className="border-t border-border/60 px-3 py-2">
+          {/* Eksport CSV (jak „Mój timesheet CSV” w Compassie) — własne godziny za zakres miesięcy. */}
+          <div className="flex justify-end pb-1">
+            <Button variant="ghost" size="sm" onClick={() => setExporting(true)}>
+              <FileSpreadsheet className="mr-1.5 h-4 w-4" aria-hidden />
+              Eksport CSV
+            </Button>
+          </div>
           {state === "loading" ? (
             <p className="text-sm text-muted-foreground">Wczytywanie archiwum…</p>
           ) : state === "empty" ? (
@@ -123,6 +134,14 @@ export function TimesheetArchive({ onOpenMonth, defaultOpen = false }: Timesheet
             </ul>
           )}
         </div>
+      ) : null}
+      {exporting ? (
+        <TimesheetCsvDialog
+          open
+          onOpenChange={setExporting}
+          mode={{ kind: "self" }}
+          period={period ?? currentYearMonth()}
+        />
       ) : null}
     </section>
   );

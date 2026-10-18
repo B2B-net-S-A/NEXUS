@@ -129,14 +129,49 @@ export interface TimesheetTemplate {
   sort_order: number;
 }
 
+export interface TemplateInput {
+  name: string;
+  description: string;
+  project?: string | null;
+  sort_order?: number;
+}
+
+/** Okno „Wypełnij miesiąc” (jak Compass): godziny dziennie, źródło opisu, nadpisanie. */
+export interface FillInput {
+  project?: string | null;
+  description?: string | null;
+  template_id?: number | null;
+  /** Brak = 8 h; serwer przyjmuje (0, 8] — nadgodziny wpisuje się w dniu. */
+  hours_per_day?: number;
+  /** Kasuje wpisy szkicu (poza auto-wpisami płatnej puli) przed wypełnieniem. */
+  overwrite?: boolean;
+}
+
 export interface FillResult {
   inserted: number;
   skipped_existing: number;
   skipped_leave: number;
   working_days: number;
+  /** Wpisy skasowane przez „nadpisz istniejące wpisy”. */
+  removed: number;
+  hours_per_day: number;
   description: string;
   project: string | null;
 }
+
+/** Domyślny opis Kadr (Ustawienia → Kadry): rola → etykieta, projekt, opis. */
+export interface RoleDefault {
+  id: number;
+  label: string;
+  /** Rola NEXUSA; `null` = dla wszystkich ról. */
+  applies_to_role: string | null;
+  project: string | null;
+  default_description: string;
+  is_active: boolean;
+  sort_order: number;
+}
+
+export type RoleDefaultInput = Partial<Omit<RoleDefault, "id">>;
 
 export type QueueStatus = TimesheetStatus | "missing";
 
@@ -174,6 +209,7 @@ export const timeKeys = {
   month: (year: number, month: number) => ["hr", "time", "me", year, month] as const,
   history: ["hr", "time", "me", "history"] as const,
   templates: ["hr", "time", "templates"] as const,
+  roleDefaults: ["hr", "time", "role-defaults"] as const,
   hint: (day: string) => ["hr", "time", "hint", day] as const,
   team: (year: number, month: number) => ["hr", "time", "team", year, month] as const,
   member: (userId: number, year: number, month: number) =>
@@ -186,6 +222,12 @@ export const timePaths = {
   myPdf: (year: number, month: number) => `/api/hr/time/me/${year}/${month}/pdf`,
   timesheetPdf: (id: number) => `/api/hr/time/timesheets/${id}/pdf`,
   monthZip: (year: number, month: number) => `/api/hr/time/export/${year}/${month}/zip`,
+  /** CSV godzin: miesiące `RRRR-MM` od–do (najwyżej 24). */
+  myCsv: (from: string, to: string) =>
+    `/api/hr/time/me/export.csv?${new URLSearchParams({ from, to })}`,
+  personCsv: (userId: number, from: string, to: string) =>
+    `/api/hr/time/people/${userId}/export.csv?${new URLSearchParams({ from, to })}`,
+  monthCsv: (year: number, month: number) => `/api/hr/time/export/${year}/${month}/csv`,
 };
 
 export function useMyMonth(year: number, month: number, enabled = true) {
@@ -286,12 +328,121 @@ export function useSetAttendance() {
 export function useFillMonth(year: number, month: number) {
   const invalidate = useInvalidateTime();
   return useMutation({
-    mutationFn: async (payload: {
-      project?: string | null;
-      description?: string | null;
-      template_id?: number | null;
-    }) => (await api.post<FillResult>(`/api/hr/time/me/${year}/${month}/fill`, payload)).data,
+    mutationFn: async (payload: FillInput) =>
+      (await api.post<FillResult>(`/api/hr/time/me/${year}/${month}/fill`, payload)).data,
     onSuccess: invalidate,
+  });
+}
+
+// ── Moje szablony opisów ─────────────────────────────────────────────────────
+
+function useInvalidateTemplates() {
+  const queryClient = useQueryClient();
+  return () => queryClient.invalidateQueries({ queryKey: timeKeys.templates });
+}
+
+export function useSaveTemplate() {
+  const invalidate = useInvalidateTemplates();
+  return useMutation({
+    mutationFn: async ({ id, ...payload }: Partial<TemplateInput> & { id?: number }) =>
+      id
+        ? (await api.patch<TimesheetTemplate>(`/api/hr/time/me/templates/${id}`, payload)).data
+        : (await api.post<TimesheetTemplate>("/api/hr/time/me/templates", payload)).data,
+    onSuccess: invalidate,
+  });
+}
+
+export function useDeleteTemplate() {
+  const invalidate = useInvalidateTemplates();
+  return useMutation({
+    mutationFn: async (id: number) => {
+      await api.delete(`/api/hr/time/me/templates/${id}`);
+    },
+    onSuccess: invalidate,
+  });
+}
+
+/**
+ * Kolejność wierszy (szablony, domyślne opisy): `sort_order` = pozycja na
+ * liście, zapis tylko tych, które się przesunęły.
+ */
+export function reorderedSortOrders<T extends { id: number; sort_order: number }>(
+  items: readonly T[],
+): { id: number; sort_order: number }[] {
+  return items
+    .map((item, index) => ({ id: item.id, sort_order: index, before: item.sort_order }))
+    .filter((item) => item.sort_order !== item.before)
+    .map(({ id, sort_order }) => ({ id, sort_order }));
+}
+
+export function useReorderTemplates() {
+  const invalidate = useInvalidateTemplates();
+  return useMutation({
+    mutationFn: async (ordered: readonly TimesheetTemplate[]) => {
+      for (const change of reorderedSortOrders(ordered)) {
+        await api.patch(`/api/hr/time/me/templates/${change.id}`, {
+          sort_order: change.sort_order,
+        });
+      }
+    },
+    onSettled: invalidate,
+  });
+}
+
+// ── Domyślne opisy (Kadry) ───────────────────────────────────────────────────
+
+export function useRoleDefaults(enabled = true) {
+  return useQuery({
+    queryKey: timeKeys.roleDefaults,
+    queryFn: async () =>
+      (await api.get<{ items: RoleDefault[] }>("/api/hr/time/role-defaults")).data.items,
+    enabled,
+  });
+}
+
+// Domyślny opis roli widać też w „Moim miesiącu” (okno „Wypełnij miesiąc”).
+function useInvalidateRoleDefaults() {
+  const queryClient = useQueryClient();
+  return () =>
+    Promise.all(
+      [timeKeys.roleDefaults, timeKeys.templates].map((queryKey) =>
+        queryClient.invalidateQueries({ queryKey }),
+      ),
+    );
+}
+
+export function useSaveRoleDefault() {
+  const invalidate = useInvalidateRoleDefaults();
+  return useMutation({
+    mutationFn: async ({ id, ...payload }: RoleDefaultInput & { id?: number }) =>
+      id
+        ? (await api.patch<RoleDefault>(`/api/hr/time/role-defaults/${id}`, payload)).data
+        : (await api.post<RoleDefault>("/api/hr/time/role-defaults", payload)).data,
+    onSuccess: invalidate,
+  });
+}
+
+export function useDeleteRoleDefault() {
+  const invalidate = useInvalidateRoleDefaults();
+  return useMutation({
+    mutationFn: async (id: number) => {
+      await api.delete(`/api/hr/time/role-defaults/${id}`);
+    },
+    onSuccess: invalidate,
+  });
+}
+
+export function useReorderRoleDefaults() {
+  const invalidate = useInvalidateRoleDefaults();
+  return useMutation({
+    mutationFn: async (ordered: readonly RoleDefault[]) => {
+      for (const change of reorderedSortOrders(ordered)) {
+        await api.patch(`/api/hr/time/role-defaults/${change.id}`, {
+          sort_order: change.sort_order,
+        });
+      }
+    },
+    onSettled: invalidate,
   });
 }
 

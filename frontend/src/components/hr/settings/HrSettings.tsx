@@ -33,6 +33,7 @@ import { DocumentsRetentionCard } from "@/components/hr/people/documents/Documen
 
 import { M365Card } from "./M365Card";
 import { canEditPayrollSettings } from "./PayrollSettings";
+import { RoleDefaultsCard } from "./RoleDefaultsCard";
 
 function warsawYear(): number {
   return Number(
@@ -293,8 +294,8 @@ function BonusRulesMovedCard({ config }: { config: HrConfig }) {
 }
 
 /**
- * Ustawienia → Kadry: dni wolne firmy i szablony wejścia/odejścia (Kadry),
- * przełączniki modułów i źródło urlopów (admin), M365. Reguły premii są
+ * Ustawienia → Kadry: dni wolne firmy, szablony wejścia/odejścia i domyślne
+ * opisy godzin (Kadry), przełączniki modułów i źródło urlopów (admin), M365. Reguły premii są
  * w Ustawienia → Płace (`PayrollSettings`).
  */
 export function HrSettings({ config }: { config: HrConfig }) {
@@ -309,6 +310,12 @@ export function HrSettings({ config }: { config: HrConfig }) {
         </div>
       ) : null}
       {config.open_modules.payroll ? <BonusRulesMovedCard config={config} /> : null}
+      {/* Domyślne opisy godzin (jak Compass `internal/admin/role-defaults`). */}
+      {config.open_modules.time && (config.me.people_admin || config.me.is_admin) ? (
+        <div className="lg:col-span-2">
+          <RoleDefaultsCard />
+        </div>
+      ) : null}
       {config.me.people_admin ? (
         <div className="lg:col-span-2">
           <M365Card />

@@ -23,6 +23,7 @@ import {
   useSaveMyEntry,
   useSetAttendance,
   useSubmitMonth,
+  type FillResult,
   type MonthDay,
   type TimesheetEntry,
 } from "@/lib/api/hr-time";
@@ -32,6 +33,8 @@ import { warsawToday } from "@/lib/warsaw-date";
 import { monthTitlePl, shiftMonth, type YearMonth } from "@/lib/date-pl";
 
 import { EntryDialog } from "./EntryDialog";
+import { FillMonthDialog } from "./FillMonthDialog";
+import { TemplatesDialog } from "./TemplatesDialog";
 import { TimesheetArchive } from "./TimesheetArchive";
 import { useUrlMonth } from "./use-url-month";
 import { MonthGrid } from "./MonthGrid";
@@ -68,6 +71,8 @@ export function MyMonthTab({ config, initialMonth, onMonthChange }: MyMonthTabPr
   const [period, setPeriod] = useUrlMonth(initialMonth, currentYearMonth);
   const [editor, setEditor] = useState<EditorState | null>(null);
   const [pendingDay, setPendingDay] = useState<string | null>(null);
+  const [filling, setFilling] = useState(false);
+  const [managingTemplates, setManagingTemplates] = useState(false);
   const moduleOpen = config.open_modules.time;
 
   const month = useMyMonth(period.year, period.month, moduleOpen);
@@ -120,19 +125,16 @@ export function MyMonthTab({ config, initialMonth, onMonthChange }: MyMonthTabPr
     );
   };
 
-  const runFill = () => {
-    fill.mutate(
-      {},
-      {
-        onSuccess: (result) =>
-          showToast(
-            result.inserted > 0
-              ? `Wpisano ${countPl(result.inserted, "dzień", "dni", "dni")}: „${result.description}”.`
-              : "Wszystkie dni robocze mają już wpisy.",
-            "success",
-          ),
-        onError: (err) => showToast(apiErrorMessage(err, "Nie udało się wypełnić miesiąca."), "error"),
-      },
+  const filled = (result: FillResult) => {
+    const removed =
+      result.removed > 0
+        ? ` Usunięto ${countPl(result.removed, "wcześniejszy wpis", "wcześniejsze wpisy", "wcześniejszych wpisów")}.`
+        : "";
+    showToast(
+      result.inserted > 0
+        ? `Wpisano ${countPl(result.inserted, "dzień", "dni", "dni")} po ${formatHours(result.hours_per_day)} h: „${result.description}”.${removed}`
+        : `Wszystkie dni robocze mają już wpisy.${removed}`,
+      "success",
     );
   };
 
@@ -205,13 +207,21 @@ export function MyMonthTab({ config, initialMonth, onMonthChange }: MyMonthTabPr
         </div>
         {view ? (
           <div className="flex flex-wrap items-center gap-1.5">
+            <Button variant="ghost" size="sm" onClick={() => setManagingTemplates(true)}>
+              Szablony opisów
+            </Button>
             {editable ? (
               <>
                 <Button variant="ghost" size="sm" onClick={runCopy} disabled={copy.isPending}>
                   Skopiuj opisy z poprzedniego
                 </Button>
-                <Button variant="outline" size="sm" onClick={runFill} disabled={fill.isPending}>
-                  Wypełnij miesiąc
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setFilling(true)}
+                  disabled={fill.isPending}
+                >
+                  Wypełnij miesiąc…
                 </Button>
                 <Button size="sm" onClick={runSubmit} disabled={submit.isPending}>
                   Wyślij do {reviewNoun}
@@ -279,7 +289,25 @@ export function MyMonthTab({ config, initialMonth, onMonthChange }: MyMonthTabPr
         </>
       )}
 
-      <TimesheetArchive onOpenMonth={(item) => openMonth({ year: item.year, month: item.month })} />
+      <TimesheetArchive
+        period={period}
+        onOpenMonth={(item) => openMonth({ year: item.year, month: item.month })}
+      />
+
+      {filling && view ? (
+        <FillMonthDialog
+          open
+          onOpenChange={setFilling}
+          period={period}
+          templates={templates.data?.items ?? []}
+          roleDefault={templates.data?.role_default ?? null}
+          onFill={(payload) => fill.mutateAsync(payload)}
+          onDone={filled}
+        />
+      ) : null}
+      {managingTemplates ? (
+        <TemplatesDialog open onOpenChange={setManagingTemplates} />
+      ) : null}
 
       {editor && view ? (
         <EntryDialog
