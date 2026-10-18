@@ -275,8 +275,9 @@ zapełnić.
   Finanse i Kadry — 403). Menedżera konsultanta zatwierdza, zmienia i pomija
   Delivery Lead klienta albo admin z edycją kontraktów u tego klienta
   (`require_hr_client_manager_approver` = `ClientContractsEditUser` + rola DL
-  albo admin). TCM czyta, nie zatwierdza. „Podlega pod” — edytujący kontakty
-  klienta, jak ręcznie (`OrgEditor` + `can_edit_contacts`). Wzorzec bramek:
+  albo admin). TCM czyta, nie zatwierdza. „Podlega pod” z propozycji — krąg
+  D11 z edycją kontaktów klienta (`OrgEditor` + `can_edit_contacts`); samo
+  „Klienci: edycja” bez roli z D11 dostaje 403, bo odpowiedź niesie konsultantów. Wzorzec bramek:
   `tests/data/authz_golden/care_structure.json`.
 - **Zatwierdzenie nie nadpisuje człowieka**: kontrakt, któremu ktoś
   w międzyczasie wpisał menedżera tego klienta, zostaje bez zmian (`conflicts`).

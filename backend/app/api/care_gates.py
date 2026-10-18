@@ -310,6 +310,27 @@ def require_hr_client_manager_approver():
     return _check
 
 
+def require_hr_client_org_proposals_editor():
+    """„Podlega pod” z propozycji: jak ``OrgEditor`` + krąg D11.
+
+    Odpowiedź niesie propozycje z konsultantami, więc samo „Klienci: edycja”
+    (np. Finanse) jej nie dostaje. Ręczna zmiana w drzewie zostaje przy
+    ``OrgEditor``. Portfel DL i ``can_edit_contacts`` sprawdza trasa.
+    """
+
+    async def _check(
+        editor: ClientsEditUser,
+        current_user: User = Depends(_DELIVERY_SECTION),
+        db: AsyncSession = Depends(get_db),
+    ) -> User:
+        if not reads_client_people(current_user):
+            raise HTTPException(status.HTTP_403_FORBIDDEN, PEOPLE_DENIED)
+        await ensure_module(db, current_user, HrModule.care)
+        return current_user
+
+    return _check
+
+
 def approves_client_managers(user: User) -> bool:
     """Rola z ``require_hr_client_manager_approver`` (portfel sprawdza trasa)."""
 
@@ -341,3 +362,4 @@ AtlasAdmin = require_hr_care_atlas_admin()
 PeopleReader = require_hr_client_people_reader()
 OrgEditor = require_hr_client_org_editor()
 ManagerApprover = require_hr_client_manager_approver()
+OrgProposalsEditor = require_hr_client_org_proposals_editor()

@@ -625,6 +625,16 @@ async def apply_managers(
         has_name = bool((choice.new_person_name or "").strip())
         if has_name and choice.contact_id is not None:
             raise HTTPException(_UNPROCESSABLE, BOTH_INPUTS)
+        current = contract.client_pm_contact_id
+        if current is not None and current != choice.contact_id:
+            owner = await db.scalar(
+                select(Contact.client_id).where(Contact.id == current)
+            )
+            if owner == client_id:
+                # Menedżer wpisany w międzyczasie — bez zmian i bez zakładania
+                # nowej osoby, która zostałaby osierocona.
+                conflicts.append({"contract_id": contract.id, "reason": "manager_set"})
+                continue
         if has_name:
             contact = await contract_client_manager.resolve_new_person(
                 db,
@@ -640,14 +650,6 @@ async def apply_managers(
             )
         else:
             raise HTTPException(_UNPROCESSABLE, NO_INPUT)
-        current = contract.client_pm_contact_id
-        if current is not None and current != contact.id:
-            owner = await db.scalar(
-                select(Contact.client_id).where(Contact.id == current)
-            )
-            if owner == client_id:
-                conflicts.append({"contract_id": contract.id, "reason": "manager_set"})
-                continue
         if current == contact.id:
             applied.append(contract.id)
             continue
@@ -717,13 +719,16 @@ async def set_skip(
     subject_column = "contract_id" if kind == "manager" else "contact_id"
     await clear_skip(db, client_id=client_id, kind=kind, subject_id=subject_id)
     await db.execute(
-        pg_insert(ClientStructureSkip).values(
+        pg_insert(ClientStructureSkip)
+        .values(
             client_id=client_id,
             kind=kind,
             proposed_contact_id=proposed_contact_id,
             skipped_by_user_id=actor_id,
             **{subject_column: subject_id},
         )
+        # Podwójne „Pomiń” z dwóch kart: drugie trafia w unikalny indeks pozycji.
+        .on_conflict_do_nothing()
     )
 
 

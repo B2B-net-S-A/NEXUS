@@ -274,6 +274,11 @@ async def test_scope_and_roles(app_client, care_module) -> None:
         assert (
             await app_client.get(_url(foreign), headers=headers(user))
         ).status_code == 403
+        # Zapis „Podlega pod” też niesie propozycje — poza kręgiem D11 odmowa.
+        skip = await app_client.put(
+            _url(foreign, f"/reports-to/{contact}/skip"), headers=headers(user), json={}
+        )
+        assert skip.status_code == 403, skip.text
     # TCM czyta (opiekun), ale menedżera zatwierdza Delivery Lead albo admin.
     tcm_read = await app_client.get(_url(foreign), headers=headers(tcm))
     assert tcm_read.status_code == 200, tcm_read.text

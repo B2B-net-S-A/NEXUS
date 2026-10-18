@@ -11,8 +11,9 @@
 * menedżer konsultanta: zatwierdzenie (też „Zatwierdź pewne”), zmiana na inną
   osobę klienta albo nową, „Pomiń” i „Przywróć” — ``ManagerApprover``
   (Delivery Lead klienta z edycją kontraktów albo admin),
-* „Podlega pod”: zatwierdzenie i „Pomiń” — ``OrgEditor`` i prawo edycji
-  kontaktów klienta, jak ręczna zmiana w drzewie
+* „Podlega pod”: zatwierdzenie i „Pomiń” — ``OrgProposalsEditor`` (krąg D11,
+  bo odpowiedź niesie propozycje z konsultantami) i prawo edycji kontaktów klienta, jak
+  ręczna zmiana w drzewie
   (``PATCH /clients/{id}/contacts/{contact_id}``).
 
 Nic nie wychodzi do klienta: odczyt niczego nie zapisuje, a zapis zmienia
@@ -29,9 +30,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.care_gates import (
     ManagerApprover,
-    OrgEditor,
+    OrgProposalsEditor,
     PeopleReader,
     approves_client_managers,
+    reads_client_people,
 )
 from app.core.database import get_db
 from app.models.user import User
@@ -66,7 +68,7 @@ async def _client_payload(
     return {
         **payload,
         "can_apply_managers": await _can_apply_managers(db, user, client_id),
-        "can_apply_org": access.can_edit_contacts,
+        "can_apply_org": access.can_edit_contacts and reads_client_people(user),
     }
 
 
@@ -208,7 +210,7 @@ class ReportsToBody(BaseModel):
 async def apply_reports_to(
     client_id: int,
     body: ReportsToBody,
-    current_user: User = Depends(OrgEditor),
+    current_user: User = Depends(OrgProposalsEditor),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """„Podlega pod” z propozycji — ta sama reguła co ręczna zmiana w drzewie.
@@ -270,7 +272,7 @@ async def skip_reports_to(
     client_id: int,
     contact_id: int,
     body: SkipBody,
-    current_user: User = Depends(OrgEditor),
+    current_user: User = Depends(OrgProposalsEditor),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     client = await _org_editor_client(db, client_id, current_user)
@@ -289,7 +291,7 @@ async def skip_reports_to(
 async def restore_reports_to(
     client_id: int,
     contact_id: int,
-    current_user: User = Depends(OrgEditor),
+    current_user: User = Depends(OrgProposalsEditor),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     client = await _org_editor_client(db, client_id, current_user)
