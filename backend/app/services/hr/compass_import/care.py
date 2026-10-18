@@ -216,8 +216,9 @@ class Links:
 
     def card_client_options(self, compass_client_id: Any) -> set[int]:
         """Klienci NEXUSA dla klienta karty: nazwa, nazwa bez formy prawnej,
-        a na końcu zbiór słów bez „ex” („ERSTE / Santander” = „ERSTE (ex
-        Santander)”). Kilka = duplikat z Traffita — rozstrzyga kontrakt osoby."""
+        a na końcu zbiór słów bez „ex” i „o” („ERSTE / Santander” = „ERSTE (ex
+        Santander)”, „Firma” = „Firma sp. z o.o.”). Kilka = duplikat
+        z Traffita — rozstrzyga kontrakt osoby."""
 
         name = self.compass_clients.get(str(compass_client_id))
         for found in (
@@ -353,8 +354,13 @@ async def _links(db: AsyncSession, bundle: Bundle) -> Links:
     return links
 
 
+#: Słowa bez znaczenia przy porównaniu nazw: „ex” z „(ex Santander)” i „o”
+#: z „z o.o.” (``loose_client_name`` zostawia je po kropkach).
+_CLIENT_NOISE_WORDS = frozenset({"ex", "o"})
+
+
 def _client_words(name: Optional[str]) -> frozenset[str]:
-    return frozenset(loose_client_name(name).split()) - {"ex"}
+    return frozenset(loose_client_name(name).split()) - _CLIENT_NOISE_WORDS
 
 
 def _month_end(year: Optional[int], month: Optional[int]) -> Optional[date]:
