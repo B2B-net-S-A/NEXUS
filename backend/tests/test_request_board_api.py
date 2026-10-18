@@ -919,3 +919,58 @@ async def test_released_proposal_does_not_mark_a_human_owner_as_automat() -> Non
     assert release_reason_label(f"{PROPOSAL_RELEASE_PREFIX}mode_off") == (
         "Automat wyłączony"
     )
+
+
+async def test_sent_counts_people_at_the_client_now_like_the_board(
+    app_client: AsyncClient, app_auth_headers: dict
+) -> None:
+    """„Wysłani” = osoby, których karta stoi DZIŚ u klienta (jak Tablica).
+
+    Do 19.10.2026 kolumna liczyła każdego, kto kiedykolwiek przeszedł przez
+    „CV wysłane” — ZOB-2948 pokazywał 4 przy jednej osobie na Tablicy,
+    ZOB-3033 pokazywał 5 przy pustej kolumnie (wszyscy odrzuceni 15.10).
+    """
+    from datetime import datetime, timedelta, timezone
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.recruitment_pipeline import CandidateStage, PipelineStage
+    from tests._jarvis_helpers import make_candidate
+
+    job_id = await _seed_job(work_state="searching")
+    still_sent, at_interview, rejected, backdated, screening = [
+        await make_candidate("Wyslana") for _ in range(5)
+    ]
+    t0 = datetime(2026, 10, 7, 9, 0, tzinfo=timezone.utc)
+
+    def at(hours: int) -> datetime:
+        return t0 + timedelta(hours=hours)
+
+    history = [
+        (still_sent, PipelineStage.cv_sent, at(1)),
+        (at_interview, PipelineStage.cv_sent, at(1)),
+        (at_interview, PipelineStage.client_interview, at(2)),
+        (rejected, PipelineStage.cv_sent, at(1)),
+        (rejected, PipelineStage.rejected, at(3)),
+        # Import Traffita: wiersz wstawiony później, ale z cofniętym czasem —
+        # bieżący etap to odrzucenie, nie „CV wysłane”.
+        (backdated, PipelineStage.rejected, at(5)),
+        (backdated, PipelineStage.cv_sent, at(4)),
+        (screening, PipelineStage.screening, at(1)),
+    ]
+    async with AsyncSessionLocal() as db:
+        for candidate_id, stage, moved_at in history:
+            db.add(
+                CandidateStage(
+                    candidate_id=candidate_id,
+                    job_id=job_id,
+                    stage=stage,
+                    moved_at=moved_at,
+                )
+            )
+        await db.commit()
+
+    board = (
+        await app_client.get("/api/request-board", headers=app_auth_headers)
+    ).json()
+    rows = {r["job_id"]: r for r in board["requests"]}
+    assert rows[job_id]["sent"] == 2

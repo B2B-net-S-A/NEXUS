@@ -568,6 +568,32 @@ async def sent_counts(db: AsyncSession, job_ids: Iterable[int]) -> dict[int, int
     return {job_id: int(n) for job_id, n in rows}
 
 
+async def at_client_counts(db: AsyncSession, job_ids: Iterable[int]) -> dict[int, int]:
+    """Ile osób w rekrutacji stoi DZIŚ u klienta (od „CV wysłane”) — jak Tablica.
+
+    W odróżnieniu od :func:`sent_counts` liczy bieżący etap pary, więc osoba
+    wysłana i potem odrzucona już się nie liczy. Na tym stoi kolumna
+    „Wysłani” na pulpicie requestów (do 19.10.2026 pokazywała historię:
+    4 przy jednej karcie w „CV wysłane”)."""
+    from app.services.pipeline_latest import latest_stage_ids  # noqa: PLC0415
+
+    ids = list(set(job_ids))
+    if not ids:
+        return {}
+    latest = latest_stage_ids(job_ids=ids)
+    rows = (
+        await db.execute(
+            select(CandidateStage.job_id, func.count(CandidateStage.candidate_id))
+            .where(
+                CandidateStage.id.in_(select(latest.c.latest_id)),
+                CandidateStage.stage.in_(CLIENT_STAGES),
+            )
+            .group_by(CandidateStage.job_id)
+        )
+    ).all()
+    return {job_id: int(n) for job_id, n in rows}
+
+
 async def reassignable_counts(
     db: AsyncSession, target_job_id: int, source_job_ids: Iterable[int]
 ) -> tuple[dict[int, int], int]:
