@@ -145,6 +145,56 @@ decyduje o słowach i o przebiegu nieobecności.
   uprawnienie katalogu Entra ID, nie Exchange — RBAC for Applications go nie
   zawęża; daje stanowiska, działy i telefony całego tenanta, bez poczty.
 
+### Luki z Compassa przed przełączeniem 24.10 (18.10.2026)
+
+- **Autoodpowiedź z Outlooka bez wniosku → wniosek** (`leave_outlook.py`,
+  krok 4 uzgadniania o 7:00 i „Uzgodnij teraz”). Własna autoodpowiedź osoby
+  z harmonogramem: dni robocze okna (start od 15:00 = następny dzień, koniec do
+  9:00 = bez dnia końca — reguły Compassa) bez aktywnego wniosku stają się
+  wnioskiem `vacation`, `source='outlook_oof'`, `created_by` NULL, z notatką
+  „Wykryte z autoodpowiedzi w Outlooku (od–do)…”. UoP — czeka na przełożonego
+  (`hr_leave_requested`); B2B i zlecenie — przyjęte zgłoszenie, informacja do
+  koordynatora i Kadr typem `hr_absence_reported` (bez nowego typu). Odcinek
+  ponad pulę UoP albo na dni z wysłanego raportu godzin nie powstaje. Wniosek
+  `outlook_oof` odrzucony albo anulowany pokrywa swoje okno na stałe. Bez
+  autoodpowiedzi i wydarzenia od nas (`_enqueue_m365` i uzgadnianie je
+  pomijają; przekierowanie za zgodą osoby zostaje). Autoodpowiedź bez dat →
+  bez wniosku, `custom_oof_detected` (lista w karcie). Tylko przy włączonym
+  module urlopów.
+- **Karta Microsoft 365 → przekierowania** (`m365/forward_admin.py`):
+  `GET /forwards` (z bazy), `POST /forwards/check` (odczyt reguł na żywo,
+  tylko tryb `live`; inny tryb = zdanie, nie błąd), `POST /forwards/close`
+  (`forward_rule_close` przez kolejkę; reguły trwającego urlopu ze zgodą tak
+  nie zamkniesz — 409, od tego jest wyłączenie we wniosku), `POST /reconcile`
+  („Uzgodnij teraz”: bez rezerwacji dnia i bez 7:00; blokada
+  `hr_m365_reconcile_lock` wspólna z przebiegiem dziennym — równoległy ręczny
+  dostaje 409, dzienny kończy dzień jako `failed` i bierze go kolejny obrót).
+  Każde działanie w `hr_audit_events`.
+- **Kadry wyłączają przekierowanie cudzego wniosku**
+  (`POST /api/hr/leave/approvals/{id}/forward-off`, powód 3–500 znaków
+  w śladzie `forward_consent_off`, osoba dostaje powiadomienie bez powodu).
+  Włącza z powrotem tylko sama osoba.
+- **Edycja wniosku** (`leave_edit.py`, `PATCH /api/hr/leave/approvals/{id}`):
+  rodzaj, daty, pół dnia, zastępca — przełożony, head pionu, Kadry, admin
+  (zastępca nieobecnego przełożonego nie); zgłoszenie B2B/zlecenia tylko Kadry
+  i admin (403 dla koordynatora, D5). Dni i pula jak przy złożeniu
+  (`exclude_request_id`), kolizje bez samego wniosku, zgoda na przekierowanie
+  i tekst OOF zostają (zgoda przechodzi na nowego zastępcę, bez zastępcy
+  znika). Zatwierdzony: godziny (`time_hooks`) i `leave_m365.plan_edit`
+  (zdjęcie starej autoodpowiedzi, nowa, przesunięcie wydarzenia tym samym
+  `transactionId`, zamknięcie + otwarcie reguły; klucze `…:edit{n}`).
+  Wykonawca pomija `set_oof` i `calendar_event_upsert`, których okno nie
+  zgadza się już z datami wniosku (`leave_changed`).
+- **„Wszystkie wnioski”**: `counts` per status w odpowiedzi historii (zakres
+  i filtry bez statusu), plakietki źródła „Wpis za pracownika”, „Z Outlooka”,
+  „Import z Compassa”.
+- **Kalendarz zespołu**: praca zdalna („Z”) i delegacja („D”) z wierszy
+  `attendance_days` (bez notatki, tylko przy module czasu otwartym dla
+  patrzącego; domyślna praca zdalna z kartoteki się nie pokazuje); filtr
+  „Wszyscy / Nieobecni / Zdalnie” — dziś w bieżącym miesiącu, w innym
+  ktokolwiek w miesiącu; delegacja liczy się do „Nieobecnych” (jak „OOO”
+  w Compassie).
+
 ### Kartoteka z katalogu M365 (`m365/profile_sync.py`, `m365/directory.py`)
 
 - Raz dziennie od 6:00 (pętla `hr_m365_daily`, rezerwacja `hr_job_runs`
