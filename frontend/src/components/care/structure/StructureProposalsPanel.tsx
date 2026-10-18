@@ -21,9 +21,11 @@ import { useConfirmV2 } from "@/components/v2/modals/ConfirmV2";
 import { apiErrorMessage } from "@/lib/api-error";
 import {
   CONFIDENCE_LABELS,
+  NEW_PERSON_SOURCE_LABELS,
   SOURCE_LABELS,
   certainManagerChoices,
   certainReportsToChoices,
+  newPersonChoices,
   useApplyManagers,
   useApplyReportsTo,
   useClientStructureProposals,
@@ -39,6 +41,7 @@ import {
   type SkipKind,
 } from "@/lib/api/structure-proposals";
 import { CALM_SUBLINE } from "@/lib/calm-table";
+import { countPl } from "@/lib/plural-pl";
 import { cn } from "@/lib/utils";
 import { resolveViewState } from "@/lib/view-state";
 
@@ -156,14 +159,18 @@ function ProposalLine({
   alternatives,
   onPick,
   canApply,
+  quietWhenEmpty = false,
 }: {
   confidence: ProposalConfidence;
   proposal: ProposalCandidate | null;
   alternatives: ProposalCandidate[];
   onPick: (contactId: number) => void;
   canApply: boolean;
+  /** Pozycja ma „Dodaj X jako menedżera” — zdanie o braku propozycji byłoby mylące. */
+  quietWhenEmpty?: boolean;
 }) {
   if (!proposal?.contact) {
+    if (quietWhenEmpty) return null;
     return (
       <span className={CALM_SUBLINE}>
         Automat nie znalazł osoby w danych NEXUSA — wskaż ją ręcznie („Zmień”).
@@ -383,6 +390,16 @@ export function StructureProposalsPanel({
 
   const certainManagers = certainManagerChoices(data);
   const certainOrg = certainReportsToChoices(data);
+  const newPeople = newPersonChoices(data);
+  const addAllNewPeople = async () => {
+    const names = new Set(newPeople.map((choice) => choice.new_person_name));
+    const ok = await askConfirm({
+      title: `Dodać menedżerów z pola „Line Manager” (${newPeople.length})?`,
+      description: `Do kontaktów klienta dojdzie najwyżej ${countPl(names.size, "nowa osoba", "nowe osoby", "nowych osób")} (ta sama osoba wpisana inaczej nie stanie się drugim kontaktem) i trafią na kontrakty jako „Menedżer u klienta”. Kontraktów, którym ktoś w międzyczasie wpisał menedżera, nie zmienimy.`,
+      confirmLabel: "Dodaj",
+    });
+    if (ok) saveManagers(newPeople, `Dodano menedżerów: ${newPeople.length}`);
+  };
   const approveAllManagers = async () => {
     const ok = await askConfirm({
       title: `Zatwierdzić ${certainManagers.length} pewnych propozycji?`,
@@ -431,6 +448,7 @@ export function StructureProposalsPanel({
                 proposal={row.proposal}
                 alternatives={row.alternatives}
                 canApply={data.can_apply_managers}
+                quietWhenEmpty={Boolean(row.new_person)}
                 onPick={(contactId) =>
                   saveManagers(
                     [{ contract_id: row.contract_id, contact_id: contactId }],
@@ -439,6 +457,31 @@ export function StructureProposalsPanel({
                 }
               />
             )}
+            {!row.skipped && row.new_person ? (
+              <span className={cn(CALM_SUBLINE, "flex flex-wrap items-center gap-x-2 gap-y-1")}>
+                <span>
+                  {NEW_PERSON_SOURCE_LABELS[row.new_person.source]} na kontrakcie:{" "}
+                  <span className="font-medium text-foreground">{row.new_person.name}</span> —
+                  takiej osoby nie ma w kontaktach klienta.
+                </span>
+                {data.can_apply_managers ? (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-6 px-2 text-xs"
+                    disabled={busy}
+                    onClick={() =>
+                      saveManagers(
+                        [{ contract_id: row.contract_id, new_person_name: row.new_person!.name }],
+                        "Menedżer dodany",
+                      )
+                    }
+                  >
+                    Dodaj „{row.new_person.name}” jako menedżera
+                  </Button>
+                ) : null}
+              </span>
+            ) : null}
           </div>
           {row.skipped ? (
             data.can_apply_managers ? (
@@ -590,11 +633,20 @@ export function StructureProposalsPanel({
         title="Menedżer u klienta — propozycje"
         note="Automat szuka menedżera w kontrakcie, zamówieniach, rekrutacji i u kolegów z zespołu. Nic nie zapisuje się samo; do klienta nic nie wychodzi."
         action={
-          data.can_apply_managers && certainManagers.length ? (
-            <Button size="sm" disabled={busy} onClick={approveAllManagers}>
-              <Check className="mr-1 size-4" aria-hidden />
-              Zatwierdź pewne ({certainManagers.length})
-            </Button>
+          data.can_apply_managers && (certainManagers.length || newPeople.length) ? (
+            <div className="flex flex-wrap gap-2">
+              {newPeople.length ? (
+                <Button size="sm" variant="outline" disabled={busy} onClick={addAllNewPeople}>
+                  Dodaj z „Line Manager” ({newPeople.length})
+                </Button>
+              ) : null}
+              {certainManagers.length ? (
+                <Button size="sm" disabled={busy} onClick={approveAllManagers}>
+                  <Check className="mr-1 size-4" aria-hidden />
+                  Zatwierdź pewne ({certainManagers.length})
+                </Button>
+              ) : null}
+            </div>
           ) : null
         }
       >
@@ -606,6 +658,9 @@ export function StructureProposalsPanel({
             { id: "certain", label: "pewne", value: c.certain },
             { id: "uncertain", label: "do sprawdzenia", value: c.uncertain },
             { id: "none", label: "bez propozycji", value: c.none },
+            ...(c.new_person
+              ? [{ id: "new-person", label: "do dodania z „Line Manager”", value: c.new_person }]
+              : []),
           ]}
         />
         {managersLive.length ? (

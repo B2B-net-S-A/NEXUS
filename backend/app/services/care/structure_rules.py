@@ -259,6 +259,96 @@ class ContactIndex:
         return self._by_mail.get(mail) if mail else None
 
 
+# ── Nowa osoba z tekstu „Line Manager” ─────────────────────────────────────
+
+#: Słowo imienia albo nazwiska: litery (min. 2), łącznik w środku, przedrostek
+#: z apostrofem („O'Neil”, „D’Angelo”).
+_NAME_WORD = re.compile(r"(?:[^\W\d_]['’])?[^\W\d_]{2,}(?:-[^\W\d_]{2,})*")
+#: Słowa, które w polu menedżera znaczą „nie wiem” albo opisują rolę, nie osobę.
+_NOT_A_NAME = frozenset(
+    {
+        "brak",
+        "nie",
+        "tbd",
+        "nieznany",
+        "nieznana",
+        "do",
+        "ustalenia",
+        "team",
+        "zespół",
+        "zespol",
+        "dział",
+        "dzial",
+        "kierownik",
+        "kierowniczka",
+        "manager",
+        "menedżer",
+        "menadżer",
+        "lead",
+        "leader",
+        "lider",
+        "pm",
+        "head",
+        "dyrektor",
+        "klient",
+        "client",
+        "wakat",
+        "vacat",
+    }
+)
+NAME_WORDS_MAX = 4
+
+
+@dataclass(frozen=True)
+class NewPersonHint:
+    """„Dodaj X jako menedżera” — osoba z pola kontraktu, której nie ma w kontaktach."""
+
+    name: str
+    source: str  # line_manager | client_pm_name
+
+
+def person_name_from_text(value: Optional[str]) -> Optional[str]:
+    """Imię i nazwisko z pola tekstowego albo ``None``, gdy to nie wygląda na osobę.
+
+    Dwa do czterech słów z samych liter (łącznik i apostrof w środku dozwolone),
+    każde co najmniej dwuliterowe — inicjał („Jan K.”), cyfry, ukośnik, przecinek,
+    e-mail czy „brak” odpadają: zakładanie kontaktu z takiego tekstu dałoby
+    w strukturze klienta osobę, której nie ma.
+    """
+
+    text = _clean(value)
+    if text is None:
+        return None
+    words = text.split(" ")
+    if not 2 <= len(words) <= NAME_WORDS_MAX:
+        return None
+    if not all(_NAME_WORD.fullmatch(word) for word in words):
+        return None
+    if any(word.casefold() in _NOT_A_NAME for word in words):
+        return None
+    return text
+
+
+def new_person_hint(
+    facts: ContractFacts, index: ContactIndex
+) -> Optional[NewPersonHint]:
+    """Osoba z „Line Manager” (a bez niego z „PM po stronie klienta”), gdy żaden
+    kontakt klienta nie ma tego imienia i nazwiska. Nic nie zakłada — kontakt
+    powstaje dopiero po kliknięciu DL (``find_or_create_contact``, bez duplikatu)."""
+
+    for source, value in (
+        ("line_manager", facts.line_manager),
+        ("client_pm_name", facts.client_pm_name),
+    ):
+        name = person_name_from_text(value)
+        if name is None:
+            continue
+        if index.by_name(name) is not None:
+            return None
+        return NewPersonHint(name=name, source=source)
+    return None
+
+
 def manager_signals(
     facts: ContractFacts,
     index: ContactIndex,

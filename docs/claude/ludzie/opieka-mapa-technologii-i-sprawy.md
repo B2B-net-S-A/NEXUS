@@ -293,6 +293,17 @@ zapełnić.
   manager tej rekrutacji, się nie liczy — od 17.10 automat D8 wpisuje HM jako
   menedżera, więc byłby to ten sam dowód drugi raz (HM nie może dać pewności).
 
+- **„Dodaj X jako menedżera”** (18.10.2026, wieczorem): gdy w „Line Manager”
+  (a bez niego w „PM po stronie klienta”) stoi imię i nazwisko, którego nie ma
+  w kontaktach klienta, pozycja bez pewnej propozycji dostaje przycisk, a sekcja
+  — hurtowe „Dodaj z „Line Manager” (N)” z potwierdzeniem. Na produkcji 18.10
+  dotyczyło to 207 z 414 konsultantów bez propozycji. Kontakt powstaje dopiero
+  po kliknięciu (`find_or_create_contact` — ta sama osoba wpisana inaczej to
+  jeden kontakt). Tekst musi wyglądać na osobę (`structure_rules.person_name_from_text`):
+  2–4 słowa z liter, każde ≥ 2 litery (przedrostek z apostrofem „O'Neil”
+  dozwolony), bez inicjałów, cyfr, ukośników, przecinków, e-maili i słów
+  w rodzaju „brak”, „Team”, „Kierownik”.
+
 ### „Kto komu podlega”
 
 - Z tytułów: szczeble 4 zarząd/C-level, 3 dyrektor/head, 2 kierownik/lead,

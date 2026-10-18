@@ -301,6 +301,8 @@ class ManagerItem:
     proposal: rules.Proposal
     skipped: Optional[ClientStructureSkip]
     outside: bool
+    #: „Dodaj X jako menedżera” — osoba z „Line Manager”, której nie ma w kontaktach.
+    new_person: Optional[rules.NewPersonHint] = None
 
 
 @dataclass(frozen=True)
@@ -335,9 +337,8 @@ def manager_items(data: ClientData) -> list[ManagerItem]:
     for contract in data.contracts:
         if data.managers.get(contract.id) is not None:
             continue
-        proposal = rules.decide(
-            rules.manager_signals(data.facts[contract.id], index, peers=peers)
-        )
+        facts = data.facts[contract.id]
+        proposal = rules.decide(rules.manager_signals(facts, index, peers=peers))
         skip = data.skips.get(("manager", contract.id))
         items.append(
             ManagerItem(
@@ -345,6 +346,7 @@ def manager_items(data: ClientData) -> list[ManagerItem]:
                 proposal=proposal,
                 skipped=skip if _is_skipped(skip, proposal) else None,
                 outside=contract.id in data.outside,
+                new_person=rules.new_person_hint(facts, index),
             )
         )
     return items
@@ -394,6 +396,8 @@ class Counts:
     skipped: int
     reports_to_certain: int
     reports_to_uncertain: int
+    #: Niepominięci bez pewnej propozycji z „Dodaj X jako menedżera”.
+    new_person: int = 0
 
     @property
     def open_managers(self) -> int:
@@ -412,6 +416,7 @@ class Counts:
             "open": self.open_managers,
             "reports_to_certain": self.reports_to_certain,
             "reports_to_uncertain": self.reports_to_uncertain,
+            "new_person": self.new_person,
         }
 
 
@@ -435,7 +440,14 @@ def counts(
         reports_to_uncertain=sum(
             1 for i in org_live if i.proposal.confidence == "uncertain"
         ),
+        new_person=sum(1 for i in live if _offers_new_person(i)),
     )
+
+
+def _offers_new_person(item: ManagerItem) -> bool:
+    """„Dodaj X” stoi przy pozycji bez pewnej propozycji — pewna wskazuje już osobę."""
+
+    return item.new_person is not None and item.proposal.confidence != "certain"
 
 
 # ── Odpowiedzi tras ─────────────────────────────────────────────────────────
@@ -515,6 +527,11 @@ async def client_payload(db: AsyncSession, data: ClientData) -> dict[str, Any]:
             "end_date": item.contract.end_date,
             "manager_outside_client": item.outside,
             **_proposal(item.proposal, people, data.areas),
+            "new_person": (
+                {"name": item.new_person.name, "source": item.new_person.source}
+                if _offers_new_person(item)
+                else None
+            ),
             "skipped": _skip(item.skipped, names),
         }
         for item in sorted(

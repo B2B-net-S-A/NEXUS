@@ -22,6 +22,7 @@ import app.models  # noqa: F401  (rejestracja wszystkich mapperów)
 from app.core.database import AsyncSessionLocal
 from app.core.scheduling import local_now
 from app.models.client_structure import ClientStructureSkip
+from app.models.contact import Contact
 from app.models.contract import Contract
 from app.models.contract_care import CONTACTS_ORG
 from app.models.job import Job, JobStatus
@@ -387,3 +388,55 @@ async def test_reminder_goes_to_client_delivery_lead_once_a_week(care_module) ->
         await structure_proposals.remind(db, now=now + timedelta(days=1))
         await db.commit()
     assert await sent_to_dl() == 1
+
+
+async def test_line_manager_text_without_contact_offers_one_new_person(
+    app_client, care_module
+) -> None:
+    """207 kontraktów na produkcji (18.10) ma „Line Manager” bez kontaktu —
+    „Dodaj X jako menedżera” zakłada JEDEN kontakt dla wszystkich jego ludzi."""
+
+    dl = await make_user(UserRole.delivery_lead)
+    client_id = await make_client(dl=dl)
+    await make_contact(client_id, "Anna Nowak")
+    first = await make_consultant(client_id, line_manager="Marta Nowicka")
+    second = await make_consultant(client_id, line_manager="nowicka  marta")
+    junk = await make_consultant(client_id, line_manager="brak")
+
+    payload = (await app_client.get(_url(client_id), headers=headers(dl))).json()
+    assert _row(payload, first)["new_person"] == {
+        "name": "Marta Nowicka",
+        "source": "line_manager",
+    }
+    assert _row(payload, second)["new_person"]["name"] == "nowicka marta"
+    assert _row(payload, junk)["new_person"] is None
+    assert payload["counts"]["new_person"] == 2
+    async with AsyncSessionLocal() as db:
+        before = await db.scalar(
+            select(func.count())
+            .select_from(Contact)
+            .where(Contact.client_id == client_id)
+        )
+    assert before == 1  # odczyt niczego nie zakłada
+
+    applied = await app_client.post(
+        _url(client_id, "/managers"),
+        headers=headers(dl),
+        json={
+            "items": [
+                {"contract_id": first, "new_person_name": "Marta Nowicka"},
+                {"contract_id": second, "new_person_name": "nowicka marta"},
+            ]
+        },
+    )
+    assert applied.status_code == 200, applied.text
+    assert sorted(applied.json()["applied"]) == sorted([first, second])
+    manager = await _manager_of(first)
+    assert manager is not None and await _manager_of(second) == manager
+    async with AsyncSessionLocal() as db:
+        after = await db.scalar(
+            select(func.count())
+            .select_from(Contact)
+            .where(Contact.client_id == client_id)
+        )
+    assert after == 2

@@ -23,6 +23,7 @@ function rowLine(row: StructureSummaryRow): string {
   if (row.certain) parts.push(countPl(row.certain, "pewna", "pewne", "pewnych"));
   if (row.uncertain) parts.push(`${row.uncertain} do sprawdzenia`);
   if (row.none) parts.push(`${row.none} bez propozycji`);
+  if (row.new_person) parts.push(`${row.new_person} z „Line Manager”`);
   return parts.join(" · ");
 }
 

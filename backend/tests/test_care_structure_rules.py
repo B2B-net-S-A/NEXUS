@@ -362,3 +362,45 @@ def test_colleague_with_the_same_hiring_manager_is_not_a_second_source() -> None
     assert proposal.contact_id == JAN.id
     assert proposal.confidence == "uncertain"
     assert [s.source for s in proposal.top.signals] == ["job_hiring_manager"]
+
+
+# ── „Dodaj X jako menedżera” z tekstu pola ─────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    ("text", "name"),
+    [
+        ("  Marta   Nowicka ", "Marta Nowicka"),
+        ("Anna Maria Kowalska-Nowak", "Anna Maria Kowalska-Nowak"),
+        ("Sean O'Neil", "Sean O'Neil"),
+        ("Łukasz Żółtowski", "Łukasz Żółtowski"),
+        ("Marta", None),
+        ("Jan K.", None),
+        ("Jan K", None),
+        ("brak danych", None),
+        ("Team Lead", None),
+        ("Kierownik Projektu", None),
+        ("Jan Kowalski / Anna Nowak", None),
+        ("Jan Kowalski, Anna Nowak", None),
+        ("jan.kowalski@klient.pl", None),
+        ("Jan Kowalski 2", None),
+        ("Jan Piotr Maria Anna Kowalska", None),
+        (None, None),
+    ],
+)
+def test_person_name_from_text(text, name) -> None:
+    assert rules.person_name_from_text(text) == name
+
+
+def test_new_person_hint_only_when_nobody_has_that_name() -> None:
+    index = ContactIndex(PEOPLE)
+    hint = rules.new_person_hint(facts(line_manager="Marta Nowicka"), index)
+    assert hint == rules.NewPersonHint(name="Marta Nowicka", source="line_manager")
+    # Ta sama osoba wpisana inaczej — już jest w kontaktach, propozycja wskazuje ją.
+    assert rules.new_person_hint(facts(line_manager="nowak anna"), index) is None
+    # Bez osoby w „Line Manager” — z „PM po stronie klienta”.
+    hint = rules.new_person_hint(
+        facts(line_manager="brak", client_pm_name="Ola Nowa"), index
+    )
+    assert hint == rules.NewPersonHint(name="Ola Nowa", source="client_pm_name")
+    assert rules.new_person_hint(facts(), index) is None
