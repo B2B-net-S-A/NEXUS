@@ -115,7 +115,7 @@ export function FillMonthDialog({
     }
     if (overwrite) {
       const ok = await askConfirm({
-        title: `Nadpisać wpisy z ${monthName}?`,
+        title: `Nadpisać wpisy za ${monthName}?`,
         description:
           "Wpisy z tego miesiąca znikną i miesiąc wypełni się od nowa. Auto-wpisy płatnych dni z puli zostają.",
         confirmLabel: "Nadpisz i wypełnij",
@@ -247,7 +247,7 @@ export function FillMonthDialog({
             Nadpisz istniejące wpisy
             <span className="block text-xs text-muted-foreground">
               {overwrite
-                ? `Wpisy z ${monthName} znikną, a każdy dzień roboczy dostanie ${formatHours(parseHours(hours))} h. Auto-wpisy płatnych dni z puli zostają.`
+                ? `Wpisy za ${monthName} znikną, a każdy dzień roboczy dostanie ${formatHours(parseHours(hours))} h. Auto-wpisy płatnych dni z puli zostają.`
                 : "Bez zaznaczenia dni, które mają już wpis, zostają bez zmian."}
             </span>
           </span>

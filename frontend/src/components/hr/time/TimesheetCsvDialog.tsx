@@ -173,7 +173,7 @@ export function TimesheetCsvDialog({ open, onOpenChange, mode, period }: Timeshe
         ) : null}
         {wholeMonth ? (
           <p className="text-sm text-muted-foreground sm:col-span-2">
-            Wszystkie wpisy z {monthName} — każdy status raportu (szkic, wysłany,
+            Wszystkie wpisy za {monthName} — każdy status raportu (szkic, wysłany,
             zaakceptowany). Miesiąc zmienisz strzałkami nad tabelą.
           </p>
         ) : (
