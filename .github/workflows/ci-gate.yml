@@ -211,6 +211,8 @@ jobs:
         run: python3 -m unittest discover -s ../.github/scripts/tests -p 'test_coolify_release*.py'
       - name: Release selection tests (DEP-01, native only)
         run: python3 -m unittest discover -s ../.github/scripts/tests -p 'test_select_release_sha.py'
+      - name: Deploy dedup tests (18.10.2026, native only)
+        run: python3 -m unittest discover -s ../.github/scripts/tests -p 'test_deploy_needed.py'
       - name: Alert issue script tests (OPS-N08, native only)
         run: python3 -m unittest discover -s ../.github/scripts/tests -p 'test_alert_issue.py'
       - name: Queue feedback and weekly report script tests (native only)

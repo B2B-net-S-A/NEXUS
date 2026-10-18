@@ -22,5 +22,34 @@
   bramką = czerwony deploy z instrukcją wycofania. Czerwony HEAD maina
   wstrzymuje deploye do następnego zielonego commitu — to zamierzone. Zmiana
   bramki deployu z „CI Gate” na „CI” wymaga zmiany `GATE_WORKFLOW` w skrypcie.
+- **Jeden rebuild na zmianę, także przy „Coolify set env” (18.10.2026).**
+  18.10 ok. 15:30 użytkownicy mieli dwie przerwy (~15:30–15:34 i ~15:36–15:40)
+  przez dwa Deploye tego samego commitu 1644e9e30: merge #2313 (sam `docs/`)
+  przebudował produkcję, a ręczny Deploy po dwóch „Coolify set env”
+  (`redeploy=false`) czekał w kolejce za nim i przebudował ją drugi raz, bo
+  ręczny bieg nigdy nie pomijał rebuildu. Od tej poprawki krok koalescencji
+  w `deploy.yml` (`.github/scripts/deploy_needed.py`) pomija rebuild w KAŻDYM
+  biegu — automatycznym i ręcznym — gdy od wersji z `/api/health` nie zmienił
+  się kod obrazu (zmiany wyłącznie w `docs/`, `*.md` w korzeniu repo,
+  `.github/workflows/`, `.github/scripts/tests/`) i żadna zmienna w Coolify
+  (`updated_at`) nie jest nowsza niż start kroku „Trigger deployment”
+  w ostatnim udanym Deployu. Coolify robi zrzut zmiennych na początku
+  wdrożenia, więc zmienna ustawiona w trakcie budowy wymusza następny rebuild —
+  i on się odbędzie. Skutki:
+  - Kilka zmiennych: ustaw wszystkie z `redeploy=false`, potem JEDEN Deploy
+    (albo ostatni set env z `redeploy=true`). Deploy uruchomiony po wdrożeniu,
+    które zmienne już zabrało, kończy się na kroku koalescencji bez przerwy.
+  - Zmienne przed merge'em, nie zaraz po nim: wtedy deploy merge'a zabiera je
+    od razu. Zmiana zmiennej w trakcie budowy = dwie przerwy (nie da się tego
+    uniknąć bez przerywania wdrożenia w Coolify).
+  - Po merge'u samych dokumentów `/api/health` dalej pokazuje poprzedni SHA —
+    to nie zaległe wdrożenie. DoD: produkcja ma ostatni commit, który zmienia
+    kod obrazu (`git diff --stat <live>..origin/main`).
+  - Rebuild mimo braku zmian (zawieszony kontener, usunięta zmienna — usunięcia
+    `updated_at` nie widzi): Deploy z `force_rebuild=true`, który pomija to
+    sprawdzenie. Okno wdrożeń i `emergency` działają jak dotąd.
+  - Brak odczytu zmiennych z API Coolify: bieg automatyczny pomija rebuild
+    tylko przy tym samym kodzie (jak przed 18.10), ręczny wdraża. Każdy inny
+    błąd sprawdzenia = wdrożenie.
 - **Rollback:** Coolify panel `https://coolify-nexus.dynaminds.pl` → Resources → nexus → Deployments → poprzedni → Redeploy. W dzień roboczy (pon–pt 07:00–19:00) tylko na polecenie Artura — to też przebudowa z przerwą; w weekend bez ograniczeń.
 - **Standardy + procedury:** patrz `~/.claude/rules/deployment.md` + `~/.claude/rules/deployment-runbook.md`.

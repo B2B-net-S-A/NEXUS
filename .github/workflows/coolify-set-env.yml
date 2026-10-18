@@ -10,6 +10,9 @@ name: Coolify set env
 # i kontroli migracji. Teraz `redeploy=true` uruchamia workflow „Deploy”
 # (`force_rebuild` = `is_buildtime`), który przechodzi przez wszystkie bramki.
 # Kilka zmiennych naraz: ustaw je z `redeploy=false`, a na końcu jeden Deploy.
+# Deploy przebudowuje tylko wtedy, gdy zmienna jest nowsza niż ostatnie
+# wdrożenie albo zmienił się kod obrazu (18.10.2026, `deploy_needed.py`), więc
+# Deploy po wdrożeniu, które zmienne już zabrało, niczego nie restartuje.
 on:
   workflow_dispatch:
     inputs:
