@@ -2,6 +2,7 @@
 
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import { Card } from "@/components/ui/card";
+import type { EmploymentType } from "@/lib/api/hr";
 import type { MySettlement, PayrollLine, SettlementMonth } from "@/lib/api/hr-payroll";
 import type { ViewState } from "@/lib/view-state";
 import { formatMoney } from "@/lib/money";
@@ -38,14 +39,25 @@ export function settlementLineText(month: Pick<SettlementMonth, "hours" | "rate_
 interface MySettlementCardProps {
   state: ViewState;
   data: MySettlement | undefined;
+  /** Forma współpracy osoby — słowa kwoty i dokumentu (etap 4). */
+  form?: EmploymentType | null;
   onRetry: () => void;
+}
+
+/** Co znaczy kwota według formy: netto do faktury (B2B) albo brutto (R4). */
+export function settlementBasisNote(form: EmploymentType | null | undefined): string {
+  if (form === "b2b") return "Kwota netto do faktury — VAT dolicza Twój program.";
+  if (form === "zlecenie") {
+    return "Kwota brutto z potwierdzenia godzin — kwotę na rękę policzy program płacowy.";
+  }
+  return "Kwota brutto z NEXUSA (godziny i premie) — listę płac liczy program kadrowo-płacowy.";
 }
 
 /**
  * „Moje rozliczenie” (D3): zamknięte miesiące z linii zamrożonych przez Płace,
  * bieżący jako szacunek z „Mojego miesiąca”. Awaria to komunikat, nie zera.
  */
-export function MySettlementCard({ state, data, onRetry }: MySettlementCardProps) {
+export function MySettlementCard({ state, data, form, onRetry }: MySettlementCardProps) {
   return (
     <Card size="sm" className="space-y-2" aria-labelledby="my-settlement-title">
       <h2
@@ -100,7 +112,7 @@ export function MySettlementCard({ state, data, onRetry }: MySettlementCardProps
         </ul>
       )}
       <p className="text-xs text-muted-foreground">
-        Zamknięty miesiąc to linie zamrożone przez Płace. Bieżący liczymy z godzin w „Moim
+        {settlementBasisNote(form)} Zamknięty miesiąc to linie zamrożone przez Płace. Bieżący liczymy z godzin w „Moim
         miesiącu” (wpisanych albo zaakceptowanych) i bieżącej stawki — zmienia się do zamknięcia,
         a Płace biorą tylko godziny zaakceptowane.
       </p>

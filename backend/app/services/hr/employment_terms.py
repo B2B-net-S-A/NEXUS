@@ -10,7 +10,8 @@ PDF raportu godzin) bierze słowa z formy osoby:
 * B2B — przerwa w świadczeniu usług, zgłoszenie, koordynator, raport godzin,
   faktura,
 * zlecenie — nieobecność, zgłoszenie, koordynator, potwierdzenie godzin
-  (art. 8b ustawy o minimalnym wynagrodzeniu), rachunek.
+  (art. 8b ustawy o minimalnym wynagrodzeniu); dokumentem rozliczenia jest
+  to samo potwierdzenie godzin z kwotą brutto — bez osobnego rachunku (R3).
 
 Brak formy (osoba bez kartoteki) = jak umowa o pracę. ``EMPLOYMENT_TERMS`` ma
 lustro słowo w słowo we froncie (``frontend/src/lib/hr-employment-terms.ts``,
@@ -94,7 +95,7 @@ EMPLOYMENT_TERMS: dict[str, dict[str, str]] = {
         "timesheet_genitive": "potwierdzenia godzin",
         "review_verb": "potwierdza",
         "review_noun": "potwierdzenia",
-        "settlement": "Rachunek",
+        "settlement": "Potwierdzenie godzin",
         "person": "Zleceniobiorca",
     },
 }

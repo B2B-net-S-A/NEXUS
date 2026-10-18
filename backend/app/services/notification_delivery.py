@@ -243,7 +243,9 @@ HR_MAIL_KIND = "hr_people"
 # Typy kadrowe, które idą mailem „Czas i ludzie”: sprawy, na które ktoś czeka.
 # Bez maila zostają premie i stawki (kwoty), timesheet do akceptacji (zbiór
 # na początku miesiąca — przełożony ma licznik w „Akceptacjach”) i opieka
-# (`care_contact_due`, sekcja Delivery). Przypomnienia o terminie
+# (`care_contact_due`, sekcja Delivery), a z rozliczeń — informacja o zapłacie
+# (`hr_settlement_paid`; prośba o korektę faktury i rozliczenie do decyzji
+# Płac idą mailem). Przypomnienia o terminie
 # (`hr_timesheet_reminder` raz w miesiącu, zaległe zadania wejścia/odejścia
 # w poniedziałek, sprzęt na najbliższe dni) idą jak „Terminy rekrutacji”.
 HR_MAIL_TYPES: tuple[str, ...] = (
@@ -262,6 +264,9 @@ HR_MAIL_TYPES: tuple[str, ...] = (
     "equipment_protocol_signed",
     "care_front_office_handoff",
     "care_announcement",
+    "hr_settlement_correction",
+    "hr_settlement_review",
+    "hr_agreement_update",
 )
 
 

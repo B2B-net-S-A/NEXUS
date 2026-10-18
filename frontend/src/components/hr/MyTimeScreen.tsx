@@ -27,6 +27,7 @@ import { formatDays } from "./people/hr-format";
 import { MyBonusesTab } from "./payroll/MyBonusesTab";
 import { MyMonthTab } from "./time/MyMonthTab";
 import { currentYearMonth } from "./time/time-format";
+import { MySettlementTab } from "./me/MySettlementTab";
 
 function warsawYear(): number {
   return Number(
@@ -67,6 +68,12 @@ export const MY_TIME_MODULE_TABS: MyTimeModuleTab[] = [
     labelFor: (form) => employmentTerms(form).timesheet,
     module: "time",
     render: (config, initialMonth) => <MyMonthTab config={config} initialMonth={initialMonth} />,
+  },
+  {
+    value: "settlement",
+    label: "Rozliczenie",
+    module: "settlements",
+    render: () => <MySettlementTab />,
   },
   {
     value: "bonuses",

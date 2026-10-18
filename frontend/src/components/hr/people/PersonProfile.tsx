@@ -20,12 +20,15 @@ import {
 } from "@/lib/api/hr";
 import { employmentTerms } from "@/lib/hr-employment-terms";
 import { resolveViewState } from "@/lib/view-state";
-import { ROLE_LABELS } from "@/store/auth";
+import { ROLE_LABELS, useAuthStore } from "@/store/auth";
 import { PersonEquipmentPanel } from "@/components/equipment/PersonEquipmentPanel";
 import { LifecycleProfileSection } from "@/components/hr/lifecycle/LifecycleProfileSection";
 import { PayrollProfileSection } from "@/components/hr/payroll/PayrollProfileSection";
+import { PersonAgreementsSection } from "@/components/hr/people/agreements/PersonAgreementsSection";
+import { PersonDocumentsSection } from "@/components/hr/people/documents/PersonDocumentsSection";
 import { formatIsoDatePl } from "@/lib/date-pl";
 
+import { BillingDetailsSection } from "./BillingDetailsSection";
 import { EditProfileDialog } from "./EditProfileDialog";
 import { EntitlementDialog } from "./EntitlementDialog";
 import { poolAllowed } from "./form-rules";
@@ -129,6 +132,21 @@ function LeavePoolCard({
 export function PersonProfile({ userId, config }: { userId: number; config: HrConfig }) {
   const person = usePerson(userId);
   const canEdit = config.me.people_admin;
+  const viewerId = useAuthStore((state) => state.user?.id);
+  // Dane do rozliczeń (M7): osoba, Kadry, Płace, admin — przełożony nie pyta serwera.
+  const billingVisible =
+    config.open_modules.settlements &&
+    (config.me.people_admin || config.me.payroll || config.me.is_admin || viewerId === userId);
+  // E-teczka (E4): osoba, Kadry, Płace, recepcja — przełożony nie pyta serwera.
+  const documentsVisible =
+    config.open_modules.people &&
+    (config.me.people_admin ||
+      config.me.payroll ||
+      config.me.equipment ||
+      config.me.is_admin ||
+      viewerId === userId);
+  // Umowy z ludźmi (E5): Kadry (zapis) i Płace (odczyt).
+  const agreementsVisible = config.me.people_admin || config.me.payroll || config.me.is_admin;
   const directory = usePeople();
   const [editing, setEditing] = useState(false);
   // Pula liczona na rok kalendarzowy osoby czytającej (Europe/Warsaw jak serwer).
@@ -304,6 +322,9 @@ export function PersonProfile({ userId, config }: { userId: number; config: HrCo
       {config.open_modules.payroll ? (
         <PayrollProfileSection userId={userId} name={data.name} />
       ) : null}
+      {full ? <BillingDetailsSection userId={userId} enabled={billingVisible} /> : null}
+      <PersonDocumentsSection userId={userId} name={data.name} enabled={documentsVisible} />
+      {full ? <PersonAgreementsSection userId={userId} enabled={agreementsVisible} /> : null}
       {config.open_modules.equipment &&
       (config.me.equipment || config.me.people_admin || config.me.is_admin) ? (
         <PersonEquipmentPanel userId={userId} />

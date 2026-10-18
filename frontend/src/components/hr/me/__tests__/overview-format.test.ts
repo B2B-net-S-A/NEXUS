@@ -10,6 +10,7 @@ import {
   absenceCardTitle,
   bonusItemFromForecast,
   bonusItemFromRow,
+  bonusSettled,
   compactDays,
   inTransitLabel,
   inTransitSummary,
@@ -369,3 +370,40 @@ describe("„Do zrobienia”", () => {
   });
 });
 
+
+describe("premia wypłacona z rozliczeniem (R11, etap 4)", () => {
+  const assigned = () =>
+    bonus({
+      status: "assigned",
+      source: "manual",
+      category: "custom",
+      category_label: "Inna",
+      description: "Premia za wdrożenie",
+      period_month: 10,
+      assigned_at: "2026-10-03T10:00:00+02:00",
+    });
+
+  it("zamknięty miesiąc bez zapłaty — rozliczona, ale wypłata dopiero przed nami", () => {
+    const row = { ...assigned(), period_closed: true, paid: false };
+    expect(bonusSettled(row)).toBe(false);
+    const item = bonusItemFromRow(row, "2026-11-08");
+    expect(item.stages.at(-1)).toEqual({
+      label: "rozliczona za październik · czeka na zapłatę",
+      state: "current",
+    });
+  });
+
+  it("opłacone rozliczenie — premia wypłacona", () => {
+    const row = { ...assigned(), period_closed: true, paid: true };
+    expect(bonusSettled(row)).toBe(true);
+    expect(bonusItemFromRow(row, "2026-11-20").stages.at(-1)).toEqual({
+      label: "wypłacona z rozliczeniem za październik",
+      state: "done",
+    });
+  });
+
+  it("bez pola `paid` (moduł rozliczeń wyłączony) — stara reguła zamkniętego miesiąca", () => {
+    expect(bonusSettled({ ...assigned(), period_closed: true })).toBe(true);
+    expect(bonusSettled({ ...assigned(), period_closed: false })).toBe(false);
+  });
+});

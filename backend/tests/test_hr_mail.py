@@ -36,6 +36,8 @@ _NO_MAIL = (
     "hr_rate_changed",
     "hr_timesheet_submitted",
     "care_contact_due",
+    # Informacja o zapłacie — nikt na nią nie czeka (dymek i „Mój czas”).
+    "hr_settlement_paid",
 )
 
 

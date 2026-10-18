@@ -13,6 +13,7 @@ const MODULES = {
   care: false,
   cases: false,
   equipment: true,
+  settlements: false,
 };
 
 function config(me: Partial<HrConfig["me"]>, open = MODULES): HrConfig {
@@ -68,7 +69,7 @@ describe("menu modułu „Ludzie w NEXUSIE”", () => {
   });
 
   it("wyłączony moduł chowa pozycję mimo kartoteki", () => {
-    const off = { ...MODULES, people: false, leave: false, equipment: false };
+    const off = { ...MODULES, people: false, leave: false, equipment: false, settlements: false };
     expect(hrNavState(config({ has_profile: true }, off))).toEqual({
       myTime: false,
       people: false,

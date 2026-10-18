@@ -158,6 +158,11 @@ async def handle_event(db: AsyncSession, claims: dict[str, Any]) -> HandlerOutco
         select(DocumentSignature).where(DocumentSignature.provider_ref == process_id)
     )
     if sig is None:
+        # Umowy z ludźmi (E5) trzymają proces w ``hr_agreements``, nie tutaj.
+        from app.services.hr import agreements_signing  # noqa: PLC0415
+
+        if await agreements_signing.on_autenti_process(db, process_id):
+            return "ok"
         logger.warning(
             "Webhook for unknown process_id=%s (event=%s) — ignoring",
             process_id,

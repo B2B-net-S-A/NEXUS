@@ -25,6 +25,7 @@ import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/store/auth";
 
 import { parseFinanceView, type FinanceViewMode as ViewMode } from "@/lib/finance-view";
+import { FinanceSalesInvoicesTab } from "@/components/clients/invoicing/FinanceSalesInvoicesTab";
 
 /** Jedno zdanie pod tytułem — mówi, co pokazuje wybrana zakładka. */
 const VIEW_DESCRIPTION: Record<ViewMode, string> = {
@@ -36,6 +37,8 @@ const VIEW_DESCRIPTION: Record<ViewMode, string> = {
     "Bieżący, comiesięczny audyt zdarzeń w zamówieniach na potrzeby rozliczeń",
   "order-pdfs":
     "PDF-y nowych zamówień, przedłużeń i aneksów według miesiąca rozpoczęcia i klienta",
+  "sales-invoices":
+    "Faktury do klientów z KSeF dopasowane do zamówień, wpłaty z wyciągu i zaległości",
 };
 
 /**
@@ -220,6 +223,12 @@ export default function FinancePage() {
           >
             Zamówienia PDF
           </ModeButton>
+          <ModeButton
+            active={visibleView === "sales-invoices"}
+            onClick={() => changeView("sales-invoices")}
+          >
+            Faktury do klientów
+          </ModeButton>
         </div>
 
         {!mounted ? (
@@ -234,6 +243,8 @@ export default function FinancePage() {
           <OrderChangesTab onOpenInPdfs={openInPdfs} />
         ) : visibleView === "order-pdfs" ? (
           <OrderPdfsTab />
+        ) : visibleView === "sales-invoices" ? (
+          <FinanceSalesInvoicesTab />
         ) : (
           <MdImportWorkspace />
         )}

@@ -48,6 +48,7 @@ from app.services.hr.bonus_rules import (
 from app.services.hr.calendar import WorkCalendar
 from app.services.hr.payroll_periods import add_months
 from app.services.hr_foundation_schema import HR_MODULE_KEYS, HR_MODULES_SETTING
+from tests.hr_settlements_seed import delete_settlement_rows
 
 ME = "/api/hr/payroll/me"
 SETTLEMENT = "/api/hr/payroll/me/settlement"
@@ -73,6 +74,7 @@ async def _set_setting(key: str, value) -> None:
 
 async def _wipe() -> None:
     async with AsyncSessionLocal() as db:
+        await delete_settlement_rows(db)
         await db.execute(delete(PayrollLine))
         await db.execute(delete(PayrollPeriod))
         await db.execute(delete(HrBonus))
@@ -469,7 +471,11 @@ async def test_settlement_closed_month_is_final_current_is_estimate(
             "total": "16500.00",
         }
     ]
-    assert closed.json()["bonuses_paid"] == {"PLN": "500.00"}
+    # R11 (etap 4): przy włączonym module rozliczeń premia jest wypłacona
+    # dopiero z opłaconym rozliczeniem — sam zamknięty miesiąc już nie wystarcza
+    # (stara reguła przy wyłączonym module: test_hr_settlements_service).
+    assert closed.json()["bonuses_rule"] == "paid_settlement"
+    assert closed.json()["bonuses_paid"] == {}
 
     current = (await app_client.get(SETTLEMENT, headers=_headers(me))).json()
     assert current["year"] == today.year

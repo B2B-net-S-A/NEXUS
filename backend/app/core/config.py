@@ -1553,6 +1553,22 @@ class Settings(BaseSettings):
     # Czytnik skrzynki administracja@ (Sprawy): UPN skrzynki i wyłącznik.
     ADMIN_CASES_MAILBOX: str = ""
     ADMIN_CASES_MAIL_INGEST_ENABLED: bool = False
+    # Rozliczenia zespołu (etap 4, R1): faktury od osób na B2B z KSeF 2.0 — tylko
+    # odczyt, spółka jako nabywca (`app/services/hr/ksef/`). Tryb: off = nic nie
+    # wychodzi (domyślnie); simulate = pliki z `KSEF_SIMULATE_DIR` (lokalnie);
+    # test / demo / prod = API MF. Pusty NIP albo token = integracja wyłączona.
+    KSEF_MODE: str = "off"
+    # NIP spółki (kontekst logowania w KSeF, 10 cyfr).
+    KSEF_CONTEXT_NIP: str = ""
+    # Token KSeF spółki z uprawnieniem „odczyt faktur” (InvoiceRead). Sekret —
+    # tylko przez workflow „Coolify set env”, nigdy w logach.
+    KSEF_TOKEN: str = ""
+    # Katalog trybu simulate (`metadata.json` + pliki XML); pusty = `tests/data/ksef`.
+    KSEF_SIMULATE_DIR: str = ""
+    # Biała lista VAT (wykaz podatników, `app/services/hr/white_list.py`):
+    # off = bez zapytań (domyślnie), simulate = fikcyjne wpisy lokalnie,
+    # test = wl-test.mf.gov.pl, live = wl-api.mf.gov.pl.
+    WHITE_LIST_MODE: str = "off"
 
     COMPASS_WORKDAYS_ENABLED: bool = False
     COMPASS_WORKDAYS_URL: str = ""
