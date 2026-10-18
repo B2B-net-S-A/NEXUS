@@ -223,14 +223,16 @@ async def test_contract_start_proposes_dl_and_recruiter_bonus_once(payroll_on) -
     assert len(await _bonuses(world["contract"])) == 2
 
 
-async def _legacy_placement(*, verified: bool) -> dict:
+async def _legacy_placement(
+    *, verified: bool, lead_role: str = "delivery_lead"
+) -> dict:
     """Rekrutacja jak sprzed 10.2026: DL w polu „prowadzący”, bez DL rekrutacji,
     DL klienta z przypisania, kandydata weryfikuje trzecia osoba."""
 
     tag = uuid.uuid4().hex[:8]
     today = business_today()
     async with AsyncSessionLocal() as db:
-        lead = await _person(db, "delivery_lead")
+        lead = await _person(db, lead_role)
         client_head = await _person(db, "delivery_lead")
         verifier = await _person(db, "recruiter")
         client = Client(name=f"Firma Przykładowa {tag}")
@@ -286,15 +288,26 @@ async def _legacy_placement(*, verified: bool) -> dict:
 
 
 @pytest.mark.asyncio
-async def test_recruiter_bonus_goes_to_verifier_and_dl_bonus_to_client_dl(
+async def test_recruiter_bonus_goes_to_verifier_and_dl_bonus_to_dl_lead(
     payroll_on,
 ) -> None:
     world = await _legacy_placement(verified=True)
     assert (await _reconcile(world["contract"]))["created"] == 2
     found = await _bonuses(world["contract"])
     assert found["recruiter"].recipient_user_id == world["verifier"]
+    # Rekrutacja bez DL: prowadzący z rolą DL wyprzedza DL klienta.
+    assert found["dl"].recipient_user_id == world["lead"]
+    assert found["dl"].rule_snapshot["people_source"] == "job_lead"
+
+
+@pytest.mark.asyncio
+async def test_lead_without_dl_role_leaves_dl_bonus_to_client_dl(payroll_on) -> None:
+    world = await _legacy_placement(verified=True, lead_role="recruiter")
+    assert (await _reconcile(world["contract"]))["created"] == 2
+    found = await _bonuses(world["contract"])
     assert found["dl"].recipient_user_id == world["client_head"]
     assert found["dl"].rule_snapshot["people_source"] == "client_head"
+    assert found["recruiter"].recipient_user_id == world["verifier"]
     recipients = {bonus.recipient_user_id for bonus in found.values()}
     assert world["lead"] not in recipients
 

@@ -22,7 +22,8 @@ Dla kontraktu z datą startu (status aktywny, kończący się albo zakończony):
   jako pierwsza zweryfikowała kandydata w tej rekrutacji (etap „Zweryfikowany”,
   ta sama zasada co KPI i Liga), a nie prowadzący (``jobs.recruiter_id`` —
   w rekrutacjach sprzed 10.2026 siedzi tam zwykle Delivery Lead); DL =
-  ``jobs.delivery_lead_id``, a gdy go brak — DL klienta (głowa albo jedyne
+  ``jobs.delivery_lead_id``, a gdy go brak — prowadzący rekrutację, jeśli ma
+  rolę Delivery Leada, a dopiero potem DL klienta (głowa albo jedyne
   przypisanie). Bez weryfikującego premii rekrutera nie ma.
 
 Kontrakt zakończony przed terminem (albo anulowany) → propozycje anulowane
@@ -62,6 +63,7 @@ from app.models.hr_payroll import HrBonus
 from app.models.job import Job
 from app.models.recruitment_pipeline import CandidateStage, PipelineStage
 from app.models.team_structure import DeliveryLeadClientAssignment
+from app.models.user import User, UserRole, known_roles
 from app.services import fx_service
 from app.services.contract_rates import RATE_SCHEDULE_LOADS
 from app.services.hr import audit
@@ -195,12 +197,15 @@ class PlacementContext:
     clients: dict[int, str]
     #: (kandydat, rekrutacja) → pierwszy weryfikujący (etap „Zweryfikowany”)
     verifiers: dict[tuple[int, int], int] = field(default_factory=dict)
+    #: rekrutacja bez DL → prowadzący (``jobs.recruiter_id``) z rolą Delivery Leada
+    job_leads: dict[int, int] = field(default_factory=dict)
 
     def people(self, contract: Contract) -> tuple[Optional[int], Optional[int], str]:
         """(Delivery Lead, rekruter, skąd DL).
 
         Rekruter = pierwszy weryfikujący kandydata w rekrutacji kontraktu;
-        DL z rekrutacji, zapasowo DL klienta.
+        DL z rekrutacji, potem prowadzący z rolą DL, zapasowo DL klienta
+        (decyzje Artura 18.10.2026).
         """
 
         recruiter_id = (
@@ -211,6 +216,9 @@ class PlacementContext:
         dl_id = self.jobs.get(contract.job_id)
         if dl_id is not None:
             return dl_id, recruiter_id, "job"
+        lead_id = self.job_leads.get(contract.job_id)
+        if lead_id is not None:
+            return lead_id, recruiter_id, "job_lead"
         rows = self.client_leads.get(contract.client_id, [])
         heads = [uid for uid, head in rows if head]
         if len(heads) == 1:
@@ -234,11 +242,19 @@ async def load_context(
 
     job_ids = sorted({c.job_id for c in contracts if c.job_id is not None})
     jobs: dict[int, Optional[int]] = {}
+    job_leads: dict[int, int] = {}
     if job_ids:
         rows = await db.execute(
-            select(Job.id, Job.delivery_lead_id).where(Job.id.in_(job_ids))
+            select(
+                Job.id, Job.delivery_lead_id, Job.recruiter_id, User.role, User.roles
+            )
+            .outerjoin(User, User.id == Job.recruiter_id)
+            .where(Job.id.in_(job_ids))
         )
-        jobs = {job_id: dl for job_id, dl in rows.all()}
+        for job_id, dl, lead, role, roles in rows.all():
+            jobs[job_id] = dl
+            if dl is None and lead is not None and holds_dl_role(role, roles):
+                job_leads[job_id] = lead
     verifiers = await load_verifiers(
         db,
         {
@@ -252,7 +268,9 @@ async def load_context(
         {
             c.client_id
             for c in contracts
-            if c.client_id is not None and jobs.get(c.job_id) is None
+            if c.client_id is not None
+            and jobs.get(c.job_id) is None
+            and c.job_id not in job_leads
         }
     )
     client_leads: dict[int, list[tuple[int, bool]]] = {}
@@ -285,7 +303,19 @@ async def load_context(
             select(Client.id, Client.name).where(Client.id.in_(client_ids))
         )
         clients = {client_id: name for client_id, name in rows.all() if name}
-    return PlacementContext(jobs, client_leads, candidates, clients, verifiers)
+    return PlacementContext(
+        jobs, client_leads, candidates, clients, verifiers, job_leads
+    )
+
+
+def holds_dl_role(role: object, roles: object) -> bool:
+    """Czy konto ma rolę Delivery Leada — główną albo dodatkową."""
+
+    primary = getattr(role, "value", role)
+    if primary == UserRole.delivery_lead.value:
+        return True
+    extra = roles if isinstance(roles, (list, tuple)) else ()
+    return UserRole.delivery_lead in known_roles(extra)
 
 
 async def load_verifiers(
@@ -785,6 +815,7 @@ __all__ = [
     "contract_margin",
     "ends_before_deadline",
     "load_context",
+    "holds_dl_role",
     "load_verifiers",
     "on_contract_deleted",
     "on_contract_end_undone",

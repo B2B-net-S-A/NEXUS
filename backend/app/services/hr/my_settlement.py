@@ -83,8 +83,9 @@ FORECAST_STATUSES = (ContractStatus.active, ContractStatus.ending)
 def _relevance_clause(user_id: int, dl_ids: set[int], client_ids: set[int]) -> Any:
     """Kontrakty, przy których osoba MOŻE być odbiorcą (nadzbiór — decyduje
     ``placement_targets``): weryfikujący kandydata w rekrutacji kontraktu
-    (rekruter premii), DL rekrutacji, DL klienta (zapasowo, gdy rekrutacja nie
-    ma DL), DL, za którym idzie dodatkowa premia."""
+    (rekruter premii), DL rekrutacji, prowadzący (gdy rekrutacja nie ma DL,
+    a on ma rolę DL), DL klienta (zapasowo), DL, za którym idzie dodatkowa
+    premia."""
 
     verified_by_user = (
         select(CandidateStage.id)
@@ -96,7 +97,11 @@ def _relevance_clause(user_id: int, dl_ids: set[int], client_ids: set[int]) -> A
         )
         .exists()
     )
-    clauses = [verified_by_user, Job.delivery_lead_id.in_(sorted(dl_ids))]
+    clauses = [
+        verified_by_user,
+        Job.delivery_lead_id.in_(sorted(dl_ids)),
+        Job.recruiter_id.in_(sorted(dl_ids)),
+    ]
     if client_ids:
         clauses.append(Contract.client_id.in_(sorted(client_ids)))
     return or_(*clauses)

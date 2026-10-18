@@ -3,7 +3,7 @@
 Granice progów rekrutera, 10% × marża/h × 168 dla DL, termin = start + 21
 polskich dni roboczych (ze świętami), przeliczenie stawek MD/miesięcznych na
 godzinę, walidacja ustawień i odbiorcy premii (rekruter = weryfikujący,
-DL rekrutacji albo klienta). Kwoty i stawki są fikcyjne.
+DL rekrutacji, prowadzący z rolą DL albo DL klienta). Kwoty i stawki są fikcyjne.
 """
 
 from __future__ import annotations
@@ -25,7 +25,12 @@ from app.services.hr.bonus_rules import (
     recruiter_tier,
 )
 from app.services.hr.calendar import WorkCalendar
-from app.services.hr.placement_bonuses import PlacementContext, contract_margin
+from app.models.user import UserRole
+from app.services.hr.placement_bonuses import (
+    PlacementContext,
+    contract_margin,
+    holds_dl_role,
+)
 
 #: Sam kalendarz ustawowy (bez dni wolnych firmy) — czyste granice reguły.
 PLAIN = WorkCalendar()
@@ -218,6 +223,7 @@ def _context(**overrides) -> PlacementContext:
         "candidates": {},
         "clients": {},
         "verifiers": {},
+        "job_leads": {},
     }
     values.update(overrides)
     return PlacementContext(**values)
@@ -244,6 +250,32 @@ def test_no_verifier_means_no_recruiter_bonus() -> None:
 def test_verifier_of_another_recruitment_does_not_count() -> None:
     context = _context(jobs={10: 7, 11: 8}, verifiers={(1, 11): 42})
     assert context.people(_placement_contract())[1] is None
+
+
+def test_dl_lead_of_recruitment_comes_before_client_dl() -> None:
+    context = _context(
+        jobs={10: None}, job_leads={10: 3}, client_leads={100: [(6, True)]}
+    )
+    assert context.people(_placement_contract()) == (3, None, "job_lead")
+
+
+def test_dl_of_recruitment_wins_over_lead() -> None:
+    context = _context(jobs={10: 7}, job_leads={10: 3})
+    assert context.people(_placement_contract())[0] == 7
+
+
+@pytest.mark.parametrize(
+    ("role", "roles", "expected"),
+    [
+        ("delivery_lead", ["delivery_lead"], True),
+        (UserRole.recruiter, ["recruiter", "delivery_lead"], True),
+        ("recruiter", ["recruiter"], False),
+        ("head_of_recruitment", None, False),
+        (None, "delivery_lead", False),  # nie-lista nie jest listą ról
+    ],
+)
+def test_dl_role_is_primary_or_secondary(role, roles, expected) -> None:
+    assert holds_dl_role(role, roles) is expected
 
 
 def test_dl_falls_back_to_client_head_then_single_assignment() -> None:

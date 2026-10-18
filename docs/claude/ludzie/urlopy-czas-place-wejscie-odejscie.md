@@ -319,9 +319,13 @@ decyduje o słowach i o przebiegu nieobecności.
   kandydata w rekrutacji kontraktu (etap „Zweryfikowany”, kolejność jak w KPI:
   `approved_at`, potem `moved_at`); bez weryfikującego premii rekrutera nie ma.
   Prowadzący (`jobs.recruiter_id`) nie jest odbiorcą — w rekrutacjach sprzed
-  10.2026 siedzi tam zwykle Delivery Lead (porównanie IX 2026: 19 z 27). DL =
-  `jobs.delivery_lead_id`, a gdy pusty — DL klienta (głowa albo jedyne
-  przypisanie). Prognoza „w drodze” szuka kontraktów osoby po tej samej regule.
+  10.2026 siedzi tam zwykle Delivery Lead (porównanie IX 2026: 19 z 27) i jako
+  rekruter nie dostaje premii. DL = `jobs.delivery_lead_id`; gdy pusty —
+  prowadzący (`jobs.recruiter_id`), jeśli ma rolę Delivery Leada (główną albo
+  dodatkową, `people_source = job_lead`); dopiero potem DL klienta (głowa albo
+  jedyne przypisanie). Z tym krokiem DL zgadza się z Compassem w 24 z 27
+  placementów IX 2026 (bez niego 17). Prognoza „w drodze” szuka kontraktów
+  osoby po tej samej regule.
 - **`automation_since`** w `hr_bonus_rules` oddziela placementy Compassa od
   automatu NEXUSA: premie z Compassa wchodzą importem (`compass_import`, klucz
   `compass:<uuid>`), automat ma klucz `contract:<id>:<rola>` — bez daty
