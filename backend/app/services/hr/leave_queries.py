@@ -3,6 +3,8 @@
 Wiersz wniosku (``serialize``) jest tylko dla kręgu D6 (osoba, przełożony,
 Kadry); kolejki dokładają oznaczenie zastępstwa (``_mark_cover``) i kontekst
 (dział, przełożony, praca w NEXUSIE, nieobecni z działu) zbiorczo.
+Załączniki (``leave_proofs``): liczbę widzi cały krąg D6, listę z pobraniem
+— osoba i Kadry; zastępca przy rodzaju ukrytym nie widzi nawet liczby.
 
 Dni wniosku — razem, płatne i bezpłatne — liczy jedna reguła
 (``leave_policy.split_days``) z wierszy ``leave_request_days``; kolumny
@@ -29,7 +31,7 @@ from app.models.hr_leave import LeaveRequest, LeaveRequestDay
 from app.models.hr_ops import HrAuditEvent
 from app.models.hr_profile import EmployeeProfile
 from app.models.user import User
-from app.services.hr import leave_substitute, people
+from app.services.hr import leave_proofs, leave_substitute, people
 from app.services.hr.employment_terms import REPORT_FORMS, reports_absence
 from app.services.hr.leave_context import (
     RequestWindow,
@@ -45,6 +47,7 @@ from app.services.hr.leave_policy import (
     type_label,
 )
 from app.services.hr.recipients import division_charges
+from app.services.hr_leave_schema import ACTIVE_STATUSES
 
 #: Kolizja zgłoszona przez koordynatora (D5) — wpis śladu HR przy wniosku.
 CONFLICT_ACTION = "leave_conflict_reported"
@@ -138,9 +141,18 @@ async def serialize(
     )
     splits = await request_splits(db, requests)
     forms = await _forms_of(db, {r.user_id for r in requests})
+    # Treść załącznika (akt zgonu, dokument dziecka) widzą osoba i Kadry;
+    # przełożony tylko liczbę (D6).
+    sees_files = actor_of(viewer).sees_everyone
+    with_files = {r.id for r in requests if sees_files or r.user_id == viewer.id}
+    proofs = await leave_proofs.proofs_by_request(db, with_files)
+    counts = await leave_proofs.proof_counts(
+        db, [r.id for r in requests if r.id not in with_files]
+    )
     items = []
     for r in requests:
         own = r.user_id == viewer.id
+        files = proofs.get(r.id, []) if own or sees_files else None
         conflict = conflicts.get(str(r.id))
         split = splits[r.id]
         items.append(
@@ -170,6 +182,14 @@ async def serialize(
                 "decision_note": r.decision_note,
                 "source": r.source,
                 "created_at": r.created_at.isoformat() if r.created_at else None,
+                "proof_count": len(files) if files is not None else counts.get(r.id, 0),
+                "proofs": None
+                if files is None
+                else [
+                    leave_proofs.proof_payload(doc, viewer_id=viewer.id)
+                    for doc in files
+                ],
+                "can_add_proof": own and r.status in ACTIVE_STATUSES,
                 "can_cancel": own
                 and own_cancel_refusal(
                     status=r.status,
@@ -246,6 +266,10 @@ def _mark_cover(
     item["type_visible"] = visible
     item["can_decide"] = visible
     item["note"] = None
+    item["proofs"] = None
+    if not visible:
+        # Załącznik przy L4 i pokrewnych zdradzałby rodzaj.
+        item["proof_count"] = None
     if not visible:
         item["leave_type"] = None
         item["leave_type_label"] = "Nieobecność"

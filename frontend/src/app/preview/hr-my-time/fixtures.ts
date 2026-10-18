@@ -192,6 +192,9 @@ function request(
     source: "self",
     created_at: `${shiftDay(start, -14)}T10:00:00+02:00`,
     can_cancel: status === "pending",
+    proof_count: 0,
+    proofs: [],
+    can_add_proof: status === "pending" || status === "approved",
     ...extra,
   };
 }
@@ -238,6 +241,22 @@ export function olaRequests(current: YearMonth, form: EmploymentType = "uop"): L
       substitute_name: ewa.name,
       forward_mail_consent: true,
       can_cancel: true,
+    }),
+    // Urlop okolicznościowy z aktem ślubu w załączniku (trafia do e-teczki Oli).
+    request("lv-ola-3", ola, nextDays[2], nextDays[3], "2", "pending", {
+      leave_type: "occasional",
+      leave_type_label: LEAVE_TYPE_LABELS.occasional,
+      proof_count: 1,
+      proofs: [
+        {
+          id: 9201,
+          file_name: "akt-slubu.pdf",
+          mime: "application/pdf",
+          size_bytes: 182_000,
+          created_at: `${shiftDay(nextDays[2], -14)}T10:05:00+02:00`,
+          can_remove: true,
+        },
+      ],
     }),
     request("lv-ola-1", ola, leaveDay, leaveDay, "1", "approved"),
     request("lv-ola-0", ola, previous[10], previous[11], "2", "rejected", {

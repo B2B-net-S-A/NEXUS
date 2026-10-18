@@ -315,7 +315,7 @@ async def upload(
         source="upload",
         source_ref=None,
         file_path=path,
-        file_name=_clean_file_name(file_name),
+        file_name=clean_file_name(file_name),
         mime=mime,
         size_bytes=len(content),
         sha256=digest,
@@ -359,7 +359,7 @@ async def upload(
     return document, sync
 
 
-def _clean_file_name(file_name: Optional[str]) -> Optional[str]:
+def clean_file_name(file_name: Optional[str]) -> Optional[str]:
     name = (file_name or "").replace("\x00", "").strip()
     if not name:
         return None
@@ -628,6 +628,9 @@ def payload(
         "title": document.title,
         "source": document.source,
         "source_ref": document.source_ref,
+        "leave_request_id": str(document.leave_request_id)
+        if document.leave_request_id
+        else None,
         "file_name": document.file_name,
         "mime": document.mime,
         "size_bytes": document.size_bytes,

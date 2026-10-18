@@ -16,6 +16,10 @@ przełącznik modułu w ``app_settings['hr_modules']``.
 * zgłoszenia z B2B i zlecenia (D5, 17.10.2026): wchodzą od razu, koordynator
   widzi je „do wiadomości” obok kolejki (``reported`` w ``/approvals/pending``)
   i może zgłosić kolizję (``POST /{id}/conflict``) — bez akceptacji i odrzucenia,
+* załącznik do wniosku (potwierdzenie nieobecności w e-teczce, ``leave_proofs``):
+  osoba dołącza, pobiera i usuwa własny plik (``/requests/{id}/proofs``),
+  Kadry pobierają (``/approvals/{id}/proofs/{doc}/file``, bramka
+  ``require_hr_leave_proof_reader``); przełożony widzi tylko ``proof_count``,
 * kalendarz zespołu (osoby z kartoteką i uprawnienia „Ludzi”),
 * „Nieobecni dziś” i odczyt zbiorczy dla plakietki — każdy aktywny pracownik
   wewnętrzny, także rekruter bez kartoteki. Bez rodzaju nieobecności (D6).
@@ -27,7 +31,16 @@ import uuid
 from datetime import date
 from typing import Annotated, Literal, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    HTTPException,
+    Query,
+    UploadFile,
+    status,
+)
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -38,9 +51,14 @@ from app.api.hr_gates import (
     require_hr_self_service,
 )
 from app.core.database import get_db
+from app.core.http_headers import content_disposition, safe_document_disposition
 from app.core.scheduling import business_today
+from app.models.hr_document import HrDocument
+from app.models.hr_leave import LeaveRequest
 from app.models.user import User, UserRole
+from app.services.action_permissions import ProductAction
 from app.services.hr import absence as absence_service
+from app.services.hr import documents, leave_proofs
 from app.services.hr import leave_edit
 from app.services.hr import leave_service as service
 from app.services.hr import leave_substitute
@@ -53,6 +71,7 @@ from app.services.hr.leave_queries import history_counts, mask_for_viewer
 from app.services.hr.modules import HrModule, load_modules, module_open_for
 from app.services.hr.recipients import division_charges
 from app.services.hr_leave_schema import LEAVE_STATUSES
+from app.services.permission_denial import ensure_any_permission
 
 router = APIRouter()
 
@@ -106,10 +125,27 @@ def require_hr_absence_reader():
     return _check
 
 
+def require_hr_leave_proof_reader():
+    """Moduł urlopów włączony i uprawnienie „Kadry” (admin ma je zawsze) —
+    treść załącznika do cudzego wniosku. Przełożony widzi tylko, że jest (D6)."""
+
+    async def _check(
+        current_user: User = Depends(require_onboarded_user),
+        db: AsyncSession = Depends(get_db),
+    ) -> User:
+        await ensure_module(db, current_user, MODULE)
+        ensure_any_permission(current_user, ProductAction.people_admin)
+        return current_user
+
+    _check.required_permissions = (ProductAction.people_admin,)
+    return _check
+
+
 LeaveSelf = Annotated[User, Depends(require_hr_self_service(MODULE))]
 LeaveApprover = Annotated[User, Depends(require_hr_leave_approver())]
 LeaveCalendarReader = Annotated[User, Depends(require_hr_people_reader(module=MODULE))]
 AbsenceReader = Annotated[User, Depends(require_hr_absence_reader())]
+LeaveProofReader = Annotated[User, Depends(require_hr_leave_proof_reader())]
 
 HalfDay = Literal["morning", "afternoon"]
 
@@ -331,6 +367,99 @@ async def set_forward_consent(
         await db.rollback()
         raise _translate(exc) from exc
     await db.commit()
+    return await _one(db, request, current_user)
+
+
+# ── Załącznik do wniosku (potwierdzenie nieobecności) ────────────────────────
+
+
+async def _own_request(
+    db: AsyncSession, request_id: uuid.UUID, user: User
+) -> LeaveRequest:
+    request = await db.get(LeaveRequest, request_id)
+    if request is None or request.user_id != user.id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Nie ma takiego wniosku.")
+    return request
+
+
+def _proof_error(exc: documents.HrDocumentError) -> HTTPException:
+    return HTTPException(exc.status_code, exc.message)
+
+
+def _proof_file(document: HrDocument) -> FileResponse:
+    try:
+        path = documents.file_of(document)
+    except documents.HrDocumentError as exc:
+        raise _proof_error(exc) from None
+    return FileResponse(
+        path,
+        media_type=document.mime,
+        headers={
+            "Content-Disposition": content_disposition(
+                documents.download_name(document),
+                safe_document_disposition(document.mime, "attachment"),
+            )
+        },
+    )
+
+
+@router.post("/requests/{request_id}/proofs", status_code=status.HTTP_201_CREATED)
+async def attach_proof(
+    request_id: uuid.UUID,
+    current_user: LeaveSelf,
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    request = await _own_request(db, request_id, current_user)
+    content = await file.read(leave_proofs.MAX_PROOF_BYTES + 1)
+    try:
+        await leave_proofs.attach(
+            db,
+            request=request,
+            content=content,
+            file_name=file.filename,
+            actor=current_user,
+        )
+    except documents.HrDocumentError as exc:
+        await db.rollback()
+        raise _proof_error(exc) from None
+    await db.commit()
+    return await _one(db, request, current_user)
+
+
+@router.get("/requests/{request_id}/proofs/{document_id}/file")
+async def own_proof_file(
+    request_id: uuid.UUID,
+    document_id: int,
+    current_user: LeaveSelf,
+    db: AsyncSession = Depends(get_db),
+) -> FileResponse:
+    request = await _own_request(db, request_id, current_user)
+    try:
+        document = await leave_proofs.proof_of(db, request, document_id)
+    except documents.HrDocumentError as exc:
+        raise _proof_error(exc) from None
+    return _proof_file(document)
+
+
+@router.post("/requests/{request_id}/proofs/{document_id}/remove")
+async def remove_own_proof(
+    request_id: uuid.UUID,
+    document_id: int,
+    current_user: LeaveSelf,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    request = await _own_request(db, request_id, current_user)
+    try:
+        document = await leave_proofs.proof_of(db, request, document_id)
+        orphan = await leave_proofs.remove_own(
+            db, request, document, actor=current_user
+        )
+    except documents.HrDocumentError as exc:
+        await db.rollback()
+        raise _proof_error(exc) from None
+    await db.commit()
+    documents.delete_files([orphan])
     return await _one(db, request, current_user)
 
 
@@ -609,6 +738,25 @@ async def forward_off(
         raise _translate(exc) from exc
     await db.commit()
     return await _one(db, request, current_user)
+
+
+@router.get("/approvals/{request_id}/proofs/{document_id}/file")
+async def team_proof_file(
+    request_id: uuid.UUID,
+    document_id: int,
+    current_user: LeaveProofReader,
+    db: AsyncSession = Depends(get_db),
+) -> FileResponse:
+    """Kadry pobierają załącznik cudzego wniosku (przy akceptacji i w historii)."""
+
+    request = await db.get(LeaveRequest, request_id)
+    if request is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Nie ma takiego wniosku.")
+    try:
+        document = await leave_proofs.proof_of(db, request, document_id)
+    except documents.HrDocumentError as exc:
+        raise _proof_error(exc) from None
+    return _proof_file(document)
 
 
 @router.post("/{request_id}/conflict")

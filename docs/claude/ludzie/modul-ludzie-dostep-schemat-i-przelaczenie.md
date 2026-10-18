@@ -314,7 +314,9 @@ miesiącu liczonym równolegle w obu systemach. Danych Compassa nie kasujemy.
 ## E-teczka — dokumenty osoby (etap 5, E4, 18.10.2026)
 
 - Tabela `hr_documents` (migracja `0469_hr_documents`). Rodzaje: umowa, aneks, oświadczenie,
-  zaświadczenie, protokół, inne (`documents_rules.KIND_LABELS`, lustro we froncie).
+  zaświadczenie, protokół, potwierdzenie nieobecności, inne (`documents_rules.KIND_LABELS`,
+  lustro we froncie). Potwierdzenie nieobecności bywa załącznikiem wniosku urlopowego
+  (`leave_request_id`, 0473) — reguły w `urlopy-czas-place-wejscie-odejscie.md`.
 - Plik w wolumenie uploadów `hr_documents/<osoba>/<sha256>.<rozszerzenie>`; tylko PDF, DOCX bez
   makr, JPG i PNG, typ rozpoznany z treści; w przeglądarce otwierają się tylko typy bezpieczne.
 - Kadry i admin widzą wszystko; osoba, Płace i recepcja — dokumenty ze swoim znacznikiem;

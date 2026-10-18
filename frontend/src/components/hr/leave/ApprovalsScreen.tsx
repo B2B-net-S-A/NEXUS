@@ -50,6 +50,7 @@ import { formatWeekdayDayPl } from "@/lib/date-pl";
 import { EditLeaveDialog } from "./EditLeaveDialog";
 import { ForwardOffDialog } from "./ForwardOffDialog";
 import { LeaveRequestDialog } from "./LeaveRequestDialog";
+import { ApproverProofNote } from "./LeaveProofs";
 import { RejectLeaveDialog } from "./RejectLeaveDialog";
 import { ReportConflictDialog } from "./ReportConflictDialog";
 import {
@@ -167,6 +168,7 @@ function PendingLeaveList({ viewerIsHr }: { viewerIsHr: boolean }) {
                   {pendingDetails(row, viewerIsHr).join(" · ")}
                 </span>
                 {row.note ? <span className={CALM_SUBLINE}>„{row.note}”</span> : null}
+                <ApproverProofNote row={row} />
               </TableCell>
               <TableCell className="py-2 align-top text-right">
                 {row.can_decide === false ? (
@@ -432,7 +434,10 @@ function LeaveHistory({ viewerIsHr }: { viewerIsHr: boolean }) {
                     {row.user_name}
                     <SourceBadge row={row} />
                   </TableCell>
-                  <TableCell>{row.leave_type_label}</TableCell>
+                  <TableCell>
+                    {row.leave_type_label}
+                    <ApproverProofNote row={row} />
+                  </TableCell>
                   <TableCell className="whitespace-nowrap">
                     {formatRange(row.start_date, row.end_date)}
                   </TableCell>

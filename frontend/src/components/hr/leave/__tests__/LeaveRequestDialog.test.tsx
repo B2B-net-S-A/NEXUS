@@ -16,6 +16,7 @@ import { LeaveRequestDialog } from "../LeaveRequestDialog";
 const mocks = vi.hoisted(() => ({
   submitOwn: vi.fn(),
   submitFor: vi.fn(),
+  attach: vi.fn(),
   preview: vi.fn(),
   blockingReason: null as string | null,
 }));
@@ -26,6 +27,7 @@ vi.mock("@/lib/api/hr-leave", async (importOriginal) => ({
   useSubstitutes: () => ({ data: SUBSTITUTES }),
   useSubmitLeave: () => ({ mutate: mocks.submitOwn, isPending: false }),
   useEnterOnBehalf: () => ({ mutate: mocks.submitFor, isPending: false }),
+  useAttachLeaveProof: () => ({ mutate: mocks.attach, isPending: false }),
   useLeavePreview: (input: LeaveInput | null, onBehalfOf: number | null) => {
     mocks.preview(input, onBehalfOf);
     return {
@@ -146,6 +148,7 @@ const SETTLE = { timeout: 3000 };
 beforeEach(() => {
   mocks.submitOwn.mockReset();
   mocks.submitFor.mockReset();
+  mocks.attach.mockReset();
   mocks.preview.mockReset();
   mocks.blockingReason = null;
 });
@@ -265,5 +268,59 @@ describe("LeaveRequestDialog — ładunek zapisu i podglądu", () => {
     expect(save).toBeDisabled();
     await user.click(save);
     expect(mocks.submitOwn).not.toHaveBeenCalled();
+  });
+});
+
+describe("LeaveRequestDialog — załącznik do własnego wniosku", () => {
+  const proof = () => new File(["%PDF-1.4"], "akt-slubu.pdf", { type: "application/pdf" });
+
+  it("okolicznościowy podpowiada akt; plik idzie do id zapisanego wniosku", async () => {
+    const user = userEvent.setup();
+    const dialog = open("self");
+
+    await user.selectOptions(within(dialog).getByLabelText("Rodzaj"), "occasional");
+    expect(within(dialog).getByText(/akt ślubu, urodzenia albo zgonu/)).toBeInTheDocument();
+    await user.upload(within(dialog).getByLabelText("Załącznik (opcjonalnie)"), proof());
+    expect(within(dialog).getByText(/akt-slubu\.pdf/)).toBeInTheDocument();
+
+    const save = within(dialog).getByRole("button", { name: "Wyślij do akceptacji" });
+    await waitFor(() => expect(save).toBeEnabled(), SETTLE);
+    await user.click(save);
+
+    expect(mocks.submitOwn).toHaveBeenCalledTimes(1);
+    // Wniosek zapisany → dopiero wtedy plik, do jego id.
+    expect(mocks.attach).not.toHaveBeenCalled();
+    const { onSuccess } = mocks.submitOwn.mock.calls[0][1] as {
+      onSuccess: (row: { id: string; status: string }) => void;
+    };
+    onSuccess({ id: "r-42", status: "pending" });
+    expect(mocks.attach).toHaveBeenCalledTimes(1);
+    expect(mocks.attach.mock.calls[0][0].id).toBe("r-42");
+    expect(mocks.attach.mock.calls[0][0].file.name).toBe("akt-slubu.pdf");
+  });
+
+  it("plik spoza PDF/JPG/PNG nie wchodzi; bez pliku nic nie idzie do załączników", async () => {
+    const user = userEvent.setup({ applyAccept: false });
+    const dialog = open("self");
+
+    await user.upload(
+      within(dialog).getByLabelText("Załącznik (opcjonalnie)"),
+      new File(["x"], "akt.docx", { type: "application/msword" }),
+    );
+    expect(within(dialog).getByRole("alert")).toHaveTextContent("Dozwolone formaty");
+
+    const save = within(dialog).getByRole("button", { name: "Wyślij do akceptacji" });
+    await waitFor(() => expect(save).toBeEnabled(), SETTLE);
+    await user.click(save);
+    const { onSuccess } = mocks.submitOwn.mock.calls[0][1] as {
+      onSuccess: (row: { id: string; status: string }) => void;
+    };
+    onSuccess({ id: "r-43", status: "pending" });
+    expect(mocks.attach).not.toHaveBeenCalled();
+  });
+
+  it("wpis za pracownika nie ma pola załącznika", () => {
+    const dialog = open("on_behalf");
+    expect(within(dialog).queryByLabelText("Załącznik (opcjonalnie)")).toBeNull();
   });
 });

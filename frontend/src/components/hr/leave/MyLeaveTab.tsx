@@ -31,6 +31,7 @@ import { resolveViewState } from "@/lib/view-state";
 import { warsawToday } from "@/lib/warsaw-date";
 
 import { LeaveRequestDialog } from "./LeaveRequestDialog";
+import { MyProofsCell } from "./LeaveProofs";
 import {
   sourceBadge,
   HALF_DAY_LABELS,
@@ -46,7 +47,8 @@ import {
 /**
  * „Mój czas → Urlop / Przerwy / Nieobecności” (nazwa według formy, D4): saldo,
  * „Złóż wniosek” albo „Zgłoś przerwę”, moje wpisy z anulowaniem i kolizją
- * zgłoszoną przez koordynatora (D5).
+ * zgłoszoną przez koordynatora (D5), załączniki do wniosków (dołącz, pobierz,
+ * usuń własny plik).
  */
 export function MyLeaveTab() {
   const today = warsawToday();
@@ -145,7 +147,7 @@ export function MyLeaveTab() {
         </div>
       ) : (
         <div className="relative overflow-x-auto rounded-lg border border-border bg-card" data-help="hr.my_time.leave_list">
-          <Table density="compact" className="min-w-[760px]">
+          <Table density="compact" className="min-w-[880px]">
             <TableHeader>
               <TableRow>
                 <TableHead className={CALM_HEAD}>Rodzaj</TableHead>
@@ -153,6 +155,8 @@ export function MyLeaveTab() {
                 <TableHead className={`${CALM_HEAD} text-right`}>Dni</TableHead>
                 <TableHead className={CALM_HEAD}>Status</TableHead>
                 <TableHead className={CALM_HEAD}>Zastępca</TableHead>
+                {/* Zgłoszenia B2B i zlecenia nie potrzebują dokumentu (D5). */}
+                {report ? null : <TableHead className={CALM_HEAD}>Załącznik</TableHead>}
                 <TableHead className={CALM_HEAD}>
                   <span className="sr-only">Akcje</span>
                 </TableHead>
@@ -174,7 +178,7 @@ export function MyLeaveTab() {
                       <span className={CALM_SUBLINE}>{HALF_DAY_LABELS[row.half_day]}</span>
                     ) : null}
                   </TableCell>
-                  <TableCell className="text-right tabular-nums">
+                  <TableCell className="whitespace-nowrap text-right tabular-nums">
                     {daysLabel(row.days_total)}
                     {Number(row.unpaid_days) > 0 ? (
                       <span className={CALM_SUBLINE}>
@@ -211,6 +215,11 @@ export function MyLeaveTab() {
                       <span className={CALM_SUBLINE}>przekierowanie poczty</span>
                     ) : null}
                   </TableCell>
+                  {report ? null : (
+                    <TableCell>
+                      <MyProofsCell row={row} />
+                    </TableCell>
+                  )}
                   <TableCell className="text-right">
                     <div className="flex justify-end gap-1">
                       {canToggleForward(row, today) ? (
