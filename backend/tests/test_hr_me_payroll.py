@@ -35,6 +35,7 @@ from app.models.contract import Contract, ContractStatus, RateUnit
 from app.models.hr_payroll import EmployeeRate, HrBonus, PayrollLine, PayrollPeriod
 from app.models.hr_profile import CompanyDayOff, EmployeeProfile
 from app.models.job import Job, JobStatus
+from app.models.recruitment_pipeline import CandidateStage, PipelineStage
 from app.models.section_permission import UserActionOverride
 from app.models.team_structure import DeliveryLeadClientAssignment
 from app.models.user import User, UserRole
@@ -157,6 +158,17 @@ async def _contract(
         rate_candidate_currency="PLN",
     )
     db.add(contract)
+    if job is not None and job.recruiter_id is not None:
+        # Rekruter premii = weryfikujący kandydata (decyzja 18.10.2026);
+        # w tych testach weryfikuje prowadzący.
+        db.add(
+            CandidateStage(
+                candidate_id=candidate.id,
+                job_id=job.id,
+                stage=PipelineStage.verified,
+                moved_by=job.recruiter_id,
+            )
+        )
     await db.flush()
     return contract
 

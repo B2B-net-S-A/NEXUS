@@ -250,6 +250,15 @@ export function SkillReviewPanel() {
     isEmpty: rows.length === 0,
   });
 
+  const mapTo = (row: SkillReviewRow, skill: { id: number; name: string }) =>
+    resolve.mutate(
+      { kind: "map", itemId: row.id, skillId: skill.id },
+      {
+        onSuccess: () => showToast(`„${row.name}” → ${skill.name}`, "success"),
+        onError: (err) => showToast(apiErrorMessage(err, "Nie udało się zmapować."), "error"),
+      },
+    );
+
   const dismiss = async (row: SkillReviewRow) => {
     const ok = await askConfirm({
       title: `Odrzucić „${row.name}”?`,
@@ -325,10 +334,27 @@ export function SkillReviewPanel() {
                   <td className="px-3 py-1.5">
                     {STATUS_LABELS[row.status]}
                     {row.skill ? <span className={CALM_SUBLINE}>→ {row.skill.name}</span> : null}
+                    {!canCurate && row.suggestions?.length ? (
+                      <span className={CALM_SUBLINE}>
+                        Propozycja: {row.suggestions.map((skill) => skill.name).join(", ")}
+                      </span>
+                    ) : null}
                   </td>
                   <td className="px-3 py-1.5">
                     {canCurate && row.status !== "mapped" && row.status !== "created" ? (
                       <span className="flex flex-wrap gap-1">
+                        {(row.suggestions ?? []).map((skill) => (
+                          <Button
+                            key={skill.id}
+                            variant="outline"
+                            size="sm"
+                            disabled={resolve.isPending}
+                            title="Propozycja ze słownika — nazwa zostanie aliasem tej umiejętności"
+                            onClick={() => mapTo(row, skill)}
+                          >
+                            Zmapuj na „{skill.name}”
+                          </Button>
+                        ))}
                         <Button variant="ghost" size="sm" onClick={() => setDialog({ kind: "map", row })}>
                           Zmapuj
                         </Button>

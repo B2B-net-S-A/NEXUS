@@ -285,7 +285,7 @@ zapełnić.
   w międzyczasie wpisał menedżera tego klienta, zostaje bez zmian (`conflicts`).
   Ślad: `care.client_manager_set` w `hr_audit_events` (same identyfikatory)
   i `client_managers_set` w Historii zdarzeń klienta.
-- **„Pomiń”** (`client_structure_skips`, migracja 0474) pamięta osobę, którą
+- **„Pomiń”** (`client_structure_skips`, migracja 0475) pamięta osobę, którą
   automat proponował. Gdy automat wskaże kogoś innego, pozycja wraca;
   „Przywróć” kasuje wiersz; zatwierdzenie też.
 
@@ -312,6 +312,44 @@ zapełnić.
   umiejętności”, przez `skill_curation` z tymi samymi kontrolami konfliktów.
 - W polu technologii lista po odpowiedzi słownika pokazuje „Dodaj „…” · do
   przejrzenia”, gdy nie ma dokładnego trafienia (Enter robi to samo).
+- **Propozycje w kolejce (18.10.2026)**: `GET /api/care/skill-review` podaje
+  przy otwartej nazwie do 3 umiejętności słownika (`care_skills.suggester`:
+  klucz bez wersji, wielkości liter, polskich znaków, spacji, kropek
+  i myślników, potem bez końcówki „js”). Kolejka pokazuje „Zmapuj na „X””
+  jednym kliknięciem — to zwykłe „Zmapuj” (alias), więc bez duplikatu
+  w słowniku. Nic nie mapuje się samo, także w imporcie z Compassa.
+
+## Karty z Compassa i kontrakty (import 18.10.2026)
+
+- Compass nie wie, który kandydat to jego kontraktor (kolejka „Tożsamość
+  NEXUS” jest pusta), więc import karty łączy ją z kontraktem po kliencie,
+  imieniu i nazwisku i dniu rozmowy — decyzja Artura „Import + automatyczne
+  parowanie”, reguły w `care/card_linking.py`: nazwisko bez wielkości liter,
+  polskich znaków, kolejności słów i dopisków Traffita; klient po scaleniu;
+  umowa bez anulowanych i szkiców. DOKŁADNIE jeden kontrakt z dniem rozmowy
+  w okresie umowy = połączenie automatyczne. Kilka albo tylko poza okresem =
+  propozycje, brak = bez propozycji — karta czeka przy kliencie z pustym
+  `contract_id` i z nazwiskiem z Compassa (`tech_cards.compass_person_name`,
+  migracja 0474). Mapa liczy ją od razu (źródło T nie wymaga kontraktu).
+- Klient Compassa → klient NEXUSA (karty): nazwa po `normalize_client_name`,
+  bez trafienia — po nazwie bez formy prawnej (`loose_client_name`), na końcu
+  po zbiorze słów bez „ex” („ERSTE / Santander” = „ERSTE (ex Santander)”).
+  Kilku klientów o tej nazwie (duplikat z Traffita, np. dwa „PFRON”) =
+  wygrywa ten, u którego osoba ma pewny kontrakt w dniu rozmowy; inaczej karta
+  pominięta. NIP-u Compass nie eksportuje.
+- **„Karty z Compassa do połączenia”** w zakładce „Technologie” klienta
+  (`UnlinkedCardsPanel`, `GET /api/care/clients/{id}/tech-cards/unlinked`,
+  serwis `care/card_inbox.py`): propozycje liczone przy odczycie (kontrakt
+  dodany po imporcie też się pojawi), wybór „Inny kontrakt klienta” do 500
+  kontraktów. Bez kart sekcji nie ma; awaria odczytu mówi o sobie.
+- **„Połącz”** (`POST /api/care/tech-cards/{id}/link`, piszący opiekę w
+  zakresie klienta): tylko karta bez kontraktu (inaczej 409), tylko kontrakt
+  tego samego klienta po scaleniu (422) i nie anulowany ani szkic (422). Ślad
+  `care.tech_card_linked` (kontrakt i czy był propozycją). Raz połączonej
+  karty ta trasa nie przepina.
+- Rozmowy, rytm i opiekun z Compassa łączą się nadal WYŁĄCZNIE po kotwicy —
+  parowanie po nazwisku dotyczy tylko kart. Ponowny import łączy kartę, gdy
+  w NEXUSIE pojawi się pewny kontrakt, i nie odpina kontraktu wybranego przez DL.
 
 ## Mapa technologii klienta (zakładka „Technologie”)
 
@@ -354,9 +392,27 @@ zapełnić.
 
 ## Sprawy administracja@ (`app/services/admin_cases/*`, `/people/cases`)
 
+- **Dwa adresy administracji** (`admin_cases/mailbox.py`, 18.10.2026).
+  administracja@b2bnetwork.pl żyje na home.pl (MX domeny wskazuje na home.pl)
+  i tam czytają ją ludzie; NEXUS czyta przez Graph tylko skrzynki M365, więc
+  dostaje kopię poczty w osobnej skrzynce (wariant B, decyzja Artura):
+  - `ADMIN_CASES_MAILBOX` = adres widoczny: autoodpowiedź urlopowa („w pilnych
+    sprawach”), Reply-To komunikatów i maila powitalnego, ekrany,
+  - `ADMIN_CASES_M365_MAILBOX` = skrzynka M365, którą czyta czytnik i z której
+    NEXUS wysyła (pole From).
+  Pusta jedna = obie role ma druga (skrzynka przeniesiona do M365 = jedna
+  zmienna). Nie wpisuj skrzynki z kopią do autoodpowiedzi ani adresu z home.pl
+  jako skrzynki do czytania — Graph go nie zna, a autoodpowiedź pokazałaby
+  adres, którego nikt nie czyta. Odpowiedź konsultanta idzie na Reply-To
+  (home.pl), a do Spraw trafia jej kopia; zwrotki wracają na From (M365).
+- **Wiadomość od administracji** (nadawca = adres widoczny albo skrzynka M365):
+  w wątku istniejącej sprawy dołącza do niej BEZ ponownego otwarcia, poza
+  wątkiem jest pomijana (to nie zgłoszenie). Tak do Spraw trafia odpowiedź
+  wysłana z home.pl, gdy ma administracja@ w kopii (UDW) — sama kopia z home.pl
+  niesie tylko pocztę przychodzącą.
 - Czytnik skrzynki: app-only Graph (wzorzec `order_mail_ingest`), wyłączony, gdy
-  `ADMIN_CASES_MAILBOX` pusty, `ADMIN_CASES_MAIL_INGEST_ENABLED ≠ true` albo moduł
-  `cases` wyłączony. Potrzebuje tokenu rejestracji HR — rejestracja zamówień ma
+  nie ma skrzynki M365 (obie zmienne puste), `ADMIN_CASES_MAIL_INGEST_ENABLED ≠ true`
+  albo moduł `cases` wyłączony. Potrzebuje tokenu rejestracji HR — rejestracja zamówień ma
   politykę tylko na skrzynkę zamówień.
 - Nowa wiadomość = nowa sprawa; odpowiedź w wątku = ta sama sprawa (najpierw
   `conversationId`, potem `In-Reply-To`/`References`) i ponowne otwarcie sprawy
@@ -411,8 +467,8 @@ wysyłka do ludzi spoza firmy.
   MINUTY w `hr_job_runs` i najwyżej 30 osób na minutę; osoba „w wysyłce” jest
   commitowana przed mailem, a przerwana wysyłka to „niepewny” bez ponowienia.
   Odłożona (429, 5xx, token) wraca do 3 prób, odrzucona (np. 400) = „błąd”.
-  Osobny mail do każdego, jeden adresat, nadawca `ADMIN_CASES_MAILBOX`
-  przez rejestrację „NEXUS Kadry”, tryb z `HR_M365_MODE` (`simulate` = nic nie
+  Osobny mail do każdego, jeden adresat, nadawca = skrzynka M365 administracji
+  z Reply-To na adres widoczny (dwa adresy wyżej), przez rejestrację „NEXUS Kadry”, tryb z `HR_M365_MODE` (`simulate` = nic nie
   wychodzi, wiersz ma `simulated`).
 - **Wypis** (informacyjne): token z linku `/wypis/<token>` (w bazie tylko
   SHA-256), publiczne `GET/POST /api/public/consultant-mail/unsubscribe/{token}`

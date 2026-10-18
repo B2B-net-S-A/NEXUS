@@ -365,6 +365,16 @@ TABLE_DDL: tuple[str, ...] = (
 )""",
 )
 
+#: Imię i nazwisko konsultanta z karty Compassa (migracja 0474, 18.10.2026).
+#: Compass nie wiąże kontraktora z kandydatem, więc import paruje kartę
+#: z kontraktem po kliencie, nazwisku i dacie rozmowy; karta bez pewnej pary
+#: czeka bez kontraktu, a Delivery Lead widzi przy niej, o kogo chodzi.
+PERSON_NAME_MAX = 200
+TECH_CARD_PERSON_DDL: tuple[str, ...] = (
+    "ALTER TABLE tech_cards ADD COLUMN IF NOT EXISTS compass_person_name "
+    f"VARCHAR({PERSON_NAME_MAX}) NULL",
+)
+
 COLUMN_DDL: tuple[str, ...] = (
     # Opiekun kontraktu; pusty = domyślny opiekun klienta, potem DL kontraktu.
     "ALTER TABLE contracts ADD COLUMN IF NOT EXISTS care_owner_user_id INTEGER NULL "
@@ -381,6 +391,7 @@ COLUMN_DDL: tuple[str, ...] = (
     "VARCHAR(24) NULL",
     "ALTER TABLE contract_care_plan_items ADD COLUMN IF NOT EXISTS skip_note "
     f"VARCHAR({SHORT_TEXT_MAX}) NULL",
+    *TECH_CARD_PERSON_DDL,
 )
 
 INDEX_DDL: tuple[str, ...] = (

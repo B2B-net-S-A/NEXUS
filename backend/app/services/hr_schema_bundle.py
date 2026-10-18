@@ -33,7 +33,7 @@ from app.services import hr_payroll_schema as payroll
 from app.services import hr_settlement_schema as settlement
 from app.services import hr_time_schema as time_
 
-#: Moduły po fundamencie, w kolejności migracji 0458–0474 (0467 i 0472 to statystyki z maina) (kontrakt każdego:
+#: Moduły po fundamencie, w kolejności migracji 0458–0475 (0467 i 0472 to statystyki z maina) (kontrakt każdego:
 #: ``TABLE_DDL, COLUMN_DDL, INDEX_DDL, CONSTRAINT_DDL, DATA_DDL``).
 MODULES = (
     leave,

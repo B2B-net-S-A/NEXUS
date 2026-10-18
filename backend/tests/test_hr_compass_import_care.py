@@ -236,7 +236,10 @@ async def test_care_dry_run_apply_and_second_apply_changes_nothing() -> None:
             reasons = report["reasons"]
             assert reasons[care_import.UNSURE_CONTRACT] == 1
             assert reasons[care_import.UNKNOWN_SKILL] == 1
-            assert reasons[care_import.NO_LINK] == 2  # karta i rozmowa bez kotwicy
+            # Rozmowa bez kotwicy nie przechodzi; karta bez kotwicy szuka
+            # kontraktu po nazwisku (tu nikogo takiego nie ma).
+            assert reasons[care_import.NO_LINK] == 1
+            assert reasons[care_import.NAME_NOT_FOUND] == 1
             assert reasons["kontrakt rozmowy niepewny"] == 2
             assert reasons["klient karty bez odpowiednika w NEXUSIE"] == 1
             assert_report_clean(
@@ -352,6 +355,144 @@ async def test_care_dry_run_apply_and_second_apply_changes_nothing() -> None:
             }
             await db.refresh(review)
             assert review.occurrences == 1
+        finally:
+            await db.rollback()
+
+
+@pytest.mark.asyncio
+async def test_card_without_anchor_links_by_client_name_and_date() -> None:
+    """18.10.2026: kolejka „Tożsamość NEXUS” jest pusta, więc karta łączy się
+    z kontraktem po kliencie (także bez formy prawnej), imieniu i nazwisku
+    (bez polskich znaków, kolejności i dopisków Traffita) i dniu rozmowy.
+    Niepewne czekają bez kontraktu, z nazwiskiem z Compassa na karcie."""
+
+    tag = uuid.uuid4().hex[:8]
+    async with AsyncSessionLocal() as db:
+        try:
+            client = Client(name=f"Spółka Testowa {tag} sp. z o.o.")
+            other = Client(name=f"Inna Spółka {tag}")
+            sure = Candidate(
+                name="Łukasz", lastname=f"Żółw{tag}", email=f"z-{tag}@example.com"
+            )
+            twice = Candidate(
+                name="Anna", lastname=f"Nowak{tag}", email=f"n-{tag}@example.com"
+            )
+            later = Candidate(
+                name="Ewa", lastname=f"Kot{tag}", email=f"k-{tag}@example.com"
+            )
+            elsewhere = Candidate(
+                name="Jan", lastname=f"Obcy{tag}", email=f"o-{tag}@example.com"
+            )
+            # Dwa nie scalone rekordy tego samego klienta (duplikat z Traffita)
+            # i klient przemianowany („ex”).
+            dup_a = Client(name=f"Fundusz {tag}")
+            dup_b = Client(name=f"Fundusz {tag}")
+            renamed = Client(name=f"Bank {tag} (ex Stary{tag})")
+            at_dup = Candidate(
+                name="Olga", lastname=f"Dubel{tag}", email=f"d-{tag}@example.com"
+            )
+            db.add_all(
+                [client, other, sure, twice, later, elsewhere]
+                + [dup_a, dup_b, renamed, at_dup]
+            )
+            await db.flush()
+            dup_contract = await _contract(db, at_dup, dup_b, date(2026, 1, 1))
+            sure_contract = await _contract(db, sure, client, date(2026, 1, 1))
+            sure_contract.end_date = date(2026, 12, 31)
+            await _contract(db, twice, client, date(2026, 1, 1))
+            await _contract(db, twice, client, date(2026, 3, 1))
+            later_contract = await _contract(db, later, client, date(2026, 9, 1))
+            await _contract(db, elsewhere, other, date(2026, 1, 1))
+            await db.flush()
+
+            compass_client = str(uuid.uuid4())
+            compass_dup = str(uuid.uuid4())
+            compass_renamed = str(uuid.uuid4())
+            contractors = [
+                {"id": str(uuid.uuid4()), "full_name": f"zolw{tag} lukasz [ACTIVE]"},
+                {"id": str(uuid.uuid4()), "full_name": f"Anna Nowak{tag}"},
+                {"id": str(uuid.uuid4()), "full_name": f"Ewa Kot{tag}"},
+                {"id": str(uuid.uuid4()), "full_name": f"Jan Obcy{tag}"},
+            ]
+            ids = [row["id"] for row in contractors]
+            cards = [_card(contractor, compass_client) for contractor in ids]
+            dup_person = {"id": str(uuid.uuid4()), "full_name": f"Olga Dubel{tag}"}
+            contractors.append(dup_person)
+            dup_card = _card(dup_person["id"], compass_dup)
+            renamed_card = _card(ids[3], compass_renamed)
+            bundle = make_bundle(
+                {
+                    "clients": [
+                        {"id": compass_client, "name": f"SPÓŁKA TESTOWA {tag}"},
+                        {"id": compass_dup, "name": f"Fundusz {tag}"},
+                        {"id": compass_renamed, "name": f"Bank {tag} / Stary{tag}"},
+                    ],
+                    "contractors": contractors,
+                    "tech_interview_cards": [*cards, dup_card, renamed_card],
+                }
+            )
+            batch, report, written = await run_import(db, "care", bundle)
+            assert report["extra"]["cards"] == {
+                "linked_by_anchor": 0,
+                "linked_by_name": 2,
+                "to_confirm_with_suggestions": 2,
+                "to_confirm_without_match": 2,
+                "without_client": 0,
+            }
+            assert report["reasons"][care_import.NAME_LINKED] == 2
+            assert report["reasons"][care_import.NAME_SUGGESTED] == 2
+            assert report["reasons"][care_import.NAME_NOT_FOUND] == 2
+            assert_report_clean(batch.report, "Nowak", "Kot", "Obcy", "lukasz")
+            assert written["cards_written"] == 6
+            assert written["cards_without_contract"] == 4
+            by_source = {
+                str(card.compass_card_id): card
+                for card in await db.scalars(
+                    select(TechCard).where(
+                        TechCard.client_id.in_([dup_a.id, dup_b.id, renamed.id])
+                    )
+                )
+            }
+            assert by_source[dup_card["id"]].client_id == dup_b.id
+            assert by_source[dup_card["id"]].contract_id == dup_contract.id
+            assert by_source[renamed_card["id"]].client_id == renamed.id
+            assert by_source[renamed_card["id"]].contract_id is None
+
+            stored = {
+                str(card.compass_card_id): card
+                for card in await db.scalars(
+                    select(TechCard).where(TechCard.client_id == client.id)
+                )
+            }
+            assert stored[cards[0]["id"]].contract_id == sure_contract.id
+            assert stored[cards[1]["id"]].contract_id is None
+            assert stored[cards[2]["id"]].contract_id is None
+            assert stored[cards[2]["id"]].compass_person_name == f"Ewa Kot{tag}"
+            assert stored[cards[3]["id"]].contract_id is None
+
+            # Kontrakt osoby zaczął się po rozmowie — po imporcie zmienia się
+            # okres umowy, więc ponowny import łączy kartę sam („update”).
+            later_contract.start_date = date(2026, 8, 1)
+            await db.flush()
+            importer = compass_import.IMPORTERS["care"]
+            batch2, plan2 = await compass_import.dry_run(
+                db,
+                module="care",
+                bundle=bundle,
+                planner=importer.plan,
+                actor_user_id=None,
+            )
+            assert plan2.counts().get("update") == 1
+            await compass_import.apply(
+                db,
+                batch=batch2,
+                bundle=bundle,
+                planner=importer.plan,
+                applier=importer.apply,
+                actor_user_id=None,
+            )
+            await db.refresh(stored[cards[2]["id"]])
+            assert stored[cards[2]["id"]].contract_id == later_contract.id
         finally:
             await db.rollback()
 

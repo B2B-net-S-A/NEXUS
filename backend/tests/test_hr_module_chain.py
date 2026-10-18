@@ -54,9 +54,11 @@ CHAIN = (
         "0472_kpi_milestones_manual_fill",
         "hr_leave_proofs_schema",
     ),
+    # Imię i nazwisko konsultanta na karcie z Compassa (18.10.2026).
+    ("0474_tech_card_person", "0473_hr_leave_proofs", "contract_care_schema"),
     (
-        "0474_client_structure_proposals",
-        "0473_hr_leave_proofs",
+        "0475_client_structure_proposals",
+        "0474_tech_card_person",
         "client_structure_schema",
     ),
 )

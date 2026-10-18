@@ -97,7 +97,7 @@ export function TeamCalendar({ config }: { config: HrConfig }) {
 
   return (
     <div className="space-y-3">
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2" data-help="hr.team_calendar.filters">
         <Button
           size="sm"
           variant="ghost"
@@ -219,7 +219,10 @@ export function TeamCalendar({ config }: { config: HrConfig }) {
  */
 function Legend({ withPresence }: { withPresence: boolean }) {
   return (
-    <div className="ml-auto flex flex-wrap items-center gap-3 text-[11.5px] text-muted-foreground">
+    <div
+      className="ml-auto flex flex-wrap items-center gap-3 text-[11.5px] text-muted-foreground"
+      data-help="hr.team_calendar.legend"
+    >
       <span
         className="inline-flex items-center gap-1.5"
         title="Zatwierdzony urlop albo zgłoszona przerwa (B2B, zlecenie)"
@@ -279,7 +282,7 @@ interface CalendarGridProps {
 function CalendarGrid({ data, people, selected, onSelect }: CalendarGridProps) {
   const days = useMemo(() => data.days.map((day) => day.date), [data.days]);
   return (
-    <div className="overflow-x-auto rounded-lg border border-border bg-card">
+    <div className="overflow-x-auto rounded-lg border border-border bg-card" data-help="hr.team_calendar.grid">
       <table className="w-full min-w-[720px] table-fixed border-collapse text-xs">
         <colgroup>
           <col className="w-[168px]" />

@@ -1,4 +1,4 @@
-"""Pamięć „Pomiń” propozycji struktury u klienta (migracja 0474).
+"""Pamięć „Pomiń” propozycji struktury u klienta (migracja 0475).
 
 Reguły i kontrakt tabeli: ``app/services/client_structure_schema.py``.
 """

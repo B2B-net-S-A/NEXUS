@@ -13,9 +13,10 @@ import type {
   PersonRef,
   TechGap,
   TechSource,
+  UnlinkedTechCards,
 } from "@/lib/api/care";
 
-import { HR_CAST, HR_CLIENTS, shiftDay } from "../hr-fixtures";
+import { HR_CAST, HR_CLIENTS, HR_CONSULTANTS, shiftDay } from "../hr-fixtures";
 
 export const MAP_CLIENT = HR_CLIENTS.bank;
 
@@ -207,5 +208,58 @@ export function clientTechMap(today: string): ClientTechMap {
     gaps: gaps(today),
     default_owner: ref(HR_CAST.natalia),
     can_edit: true,
+  };
+}
+
+/** Karty z importu Compassa bez kontraktu (zakładka „Technologie” banku). */
+export function unlinkedCards(today: string): UnlinkedTechCards {
+  const anna = {
+    id: 4504,
+    candidate_name: HR_CONSULTANTS.anna.name,
+    start_date: shiftDay(today, -400),
+    end_date: null,
+    status: "active",
+  };
+  const annaBefore = {
+    id: 4503,
+    candidate_name: HR_CONSULTANTS.anna.name,
+    start_date: shiftDay(today, -800),
+    end_date: shiftDay(today, -401),
+    status: "ended",
+  };
+  const michal = {
+    id: 4501,
+    candidate_name: HR_CONSULTANTS.michal.name,
+    start_date: shiftDay(today, -44),
+    end_date: null,
+    status: "active",
+  };
+  return {
+    items: [
+      {
+        id: 61,
+        interview_on: shiftDay(today, -120),
+        person_name: HR_CONSULTANTS.anna.name,
+        area: "Płatności",
+        author: HR_CAST.natalia.name,
+        is_draft: false,
+        skills: ["Java", "Kafka", "Spring Boot"],
+        unrecognized_skills: ["camunda 8"],
+        suggestions: [anna, annaBefore],
+      },
+      {
+        id: 62,
+        interview_on: shiftDay(today, -300),
+        person_name: "Konsultant Spoza Bazy",
+        area: null,
+        author: HR_CAST.natalia.name,
+        is_draft: false,
+        skills: ["Angular"],
+        unrecognized_skills: [],
+        suggestions: [],
+      },
+    ],
+    contracts: [michal, anna, annaBefore],
+    can_link: true,
   };
 }

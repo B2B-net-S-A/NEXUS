@@ -480,9 +480,39 @@ export interface SkillReviewRow {
   status: "open" | "mapped" | "created" | "dismissed";
   occurrences: number;
   skill: { id: number; name: string } | null;
+  /** Propozycje mapowania na słownik (tylko otwarte nazwy). */
+  suggestions?: { id: number; name: string }[];
   reported_by: PersonRef | null;
   created_at: string;
   resolved_at: string | null;
+}
+
+/** Kontrakt do połączenia z kartą z Compassa (bez stawek). */
+export interface LinkableContract {
+  id: number;
+  candidate_name: string | null;
+  start_date: string | null;
+  end_date: string | null;
+  status: string;
+}
+
+/** Karta z Compassa bez kontraktu — czeka na połączenie przez DL. */
+export interface UnlinkedTechCard {
+  id: number;
+  interview_on: string;
+  person_name: string | null;
+  area: string | null;
+  author: string | null;
+  is_draft: boolean;
+  skills: string[];
+  unrecognized_skills: string[];
+  suggestions: LinkableContract[];
+}
+
+export interface UnlinkedTechCards {
+  items: UnlinkedTechCard[];
+  contracts: LinkableContract[];
+  can_link: boolean;
 }
 
 export interface CareSummary {
@@ -764,6 +794,7 @@ export const careKeys = {
   contract: (id: number) => ["care", "contract", id] as const,
   clientMap: (id: number) => ["care", "client", id, "tech-map"] as const,
   clientAreas: (id: number) => ["care", "client", id, "areas"] as const,
+  clientUnlinkedCards: (id: number) => ["care", "client", id, "unlinked-cards"] as const,
   owners: ["care", "owners"] as const,
   consultants: ["care", "consultants"] as const,
   /** `level`/`until` — podgląd zmiany rytmu (null = sam odczyt). */
@@ -1114,6 +1145,33 @@ export function useResolveSkillReview() {
       return (await api.post(`${base}/dismiss`)).data;
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: careKeys.all }),
+  });
+}
+
+export function useUnlinkedTechCards(clientId: number, enabled = true) {
+  return useQuery({
+    queryKey: careKeys.clientUnlinkedCards(clientId),
+    queryFn: async () =>
+      (await api.get<UnlinkedTechCards>(`/api/care/clients/${clientId}/tech-cards/unlinked`))
+        .data,
+    enabled: enabled && Number.isFinite(clientId) && clientId > 0,
+  });
+}
+
+export function useLinkTechCard(clientId: number) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ cardId, contractId }: { cardId: number; contractId: number }) =>
+      (
+        await api.post<{ id: number; contract_id: number }>(`/api/care/tech-cards/${cardId}/link`, {
+          contract_id: contractId,
+        })
+      ).data,
+    onSuccess: (_data, { contractId }) => {
+      queryClient.invalidateQueries({ queryKey: careKeys.clientUnlinkedCards(clientId) });
+      queryClient.invalidateQueries({ queryKey: careKeys.clientMap(clientId) });
+      queryClient.invalidateQueries({ queryKey: careKeys.contract(contractId) });
+    },
   });
 }
 

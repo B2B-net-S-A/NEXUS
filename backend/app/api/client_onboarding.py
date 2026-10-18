@@ -27,7 +27,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import require_onboarded_user
 from app.api.hr_gates import ensure_module
-from app.core.config import settings
 from app.core.database import get_db
 from app.models.client import Client
 from app.models.user import User, UserRole
@@ -36,6 +35,7 @@ from app.services.access_scope import (
     resolve_delivery_lead_client_ids,
 )
 from app.services.action_permissions import ProductAction, has_permission
+from app.services.admin_cases import mailbox as admin_mailbox
 from app.services.care import access as care_access
 from app.services.equipment.errors import EquipmentError
 from app.services.hr import client_pack, welcome_mail
@@ -292,7 +292,7 @@ async def _mail_state(
     sender: Optional[welcome_mail.WelcomeMailSender],
 ) -> dict:
     enabled = await welcome_mail.is_enabled(db)
-    mailbox_ready = bool((settings.ADMIN_CASES_MAILBOX or "").strip())
+    mailbox_ready = admin_mailbox.m365_mailbox() is not None
     transport_ready = sender is not None
     sent = await welcome_mail.sent_for(db, contract_id)
     state: dict = {

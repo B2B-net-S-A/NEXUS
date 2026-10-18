@@ -1,6 +1,6 @@
-"""„Ludzie w NEXUSIE” — propozycje struktury u klienta: SQL migracji ``0474_client_structure_proposals`` i lustra entrypointu.
+"""„Ludzie w NEXUSIE” — propozycje struktury u klienta: SQL migracji ``0475_client_structure_proposals`` i lustra entrypointu.
 
-JEDNO źródło instrukcji dla ``alembic/versions/0474_client_structure_proposals.py``
+JEDNO źródło instrukcji dla ``alembic/versions/0475_client_structure_proposals.py``
 i ``entrypoint.sh`` (przez ``app/services/hr_schema_bundle.py``). Kontrakt
 modułu jak w pozostałych ``*_schema.py``; każda instrukcja idempotentna.
 

@@ -61,6 +61,9 @@ async def skill_review(
         else {}
     )
     names = await care_access.user_names(db, [i.reported_by for i in items])
+    # Propozycje mapowania (tylko otwarte nazwy) — klik „Zmapuj na …” w kolejce.
+    dictionary = await care_skills.load_dictionary(db) if state == "open" else None
+    suggest = care_skills.suggester(dictionary) if dictionary is not None else None
     return {
         "items": [
             {
@@ -74,6 +77,12 @@ async def skill_review(
                     else None
                 ),
                 "reported_by": person(item.reported_by, names),
+                "suggestions": [
+                    {"id": sid, "name": dictionary.names.get(sid, "")}
+                    for sid in suggest(item.name)
+                ]
+                if suggest is not None and dictionary is not None
+                else [],
                 "created_at": item.created_at,
                 "resolved_at": item.resolved_at,
             }

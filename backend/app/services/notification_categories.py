@@ -368,7 +368,7 @@ _SPLIT_GROUPS: dict[
         _C.contracts,
         (_T.care_contact_due,),
     ),
-    # 0474: Delivery Lead uzupełnia strukturę u klienta (menedżerowie konsultantów).
+    # 0475: Delivery Lead uzupełnia strukturę u klienta (menedżerowie konsultantów).
     "contracts_client_structure": (
         "Opieka: struktura u klienta",
         _C.contracts,

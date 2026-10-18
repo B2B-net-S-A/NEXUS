@@ -341,6 +341,23 @@ z odnośnikiem `hr_documents.leave_request_id`.
   premia DL = 10% × marża/h × 168 h; rekruter progami marży PLN/h. Progi
   i „dodatkowa premia DL” to ustawienia (`app_settings['hr_bonus_rules']`),
   w kodzie nie ma żadnej osoby.
+- **Odbiorcy premii z placementu jak w Compassie** (decyzja Artura 18.10.2026,
+  `PlacementContext.people`): rekruter = osoba, która jako pierwsza zweryfikowała
+  kandydata w rekrutacji kontraktu (etap „Zweryfikowany”, kolejność jak w KPI:
+  `approved_at`, potem `moved_at`); bez weryfikującego premii rekrutera nie ma.
+  Prowadzący (`jobs.recruiter_id`) nie jest odbiorcą — w rekrutacjach sprzed
+  10.2026 siedzi tam zwykle Delivery Lead (porównanie IX 2026: 19 z 27) i jako
+  rekruter nie dostaje premii. DL = `jobs.delivery_lead_id`; gdy pusty —
+  prowadzący (`jobs.recruiter_id`), jeśli ma rolę Delivery Leada (główną albo
+  dodatkową, `people_source = job_lead`); dopiero potem DL klienta (głowa albo
+  jedyne przypisanie). Z tym krokiem DL zgadza się z Compassem w 24 z 27
+  placementów IX 2026 (bez niego 17). Prognoza „w drodze” szuka kontraktów
+  osoby po tej samej regule.
+- **`automation_since`** w `hr_bonus_rules` oddziela placementy Compassa od
+  automatu NEXUSA: premie z Compassa wchodzą importem (`compass_import`, klucz
+  `compass:<uuid>`), automat ma klucz `contract:<id>:<rola>` — bez daty
+  granicznej automat w oknie 120 dni wstecz zaproponowałby je drugi raz. Ta sama
+  data odcina Ligę: okres kończący się przed nią nie trafia do płac.
 - Zakończenie kontraktu przed terminem anuluje premię, cofnięcie zakończenia ją
   przywraca (`app/services/hr/contract_hooks.py`).
 - Zamknięcie miesiąca: propozycje premii muszą mieć decyzję, ostrzeżenia wymagają

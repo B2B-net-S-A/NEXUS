@@ -13,6 +13,9 @@ osobie z kartoteki i uczestniku Akademii.
   (`app/services/equipment/sanitize.py`). Nowa kolumna w imporcie albo w formularzu
   egzemplarza = sprawdź, czy nie otwiera drogi dla tych danych.
 - Plik importu nie jest przechowywany — partia ma jego SHA-256 i oczyszczone wiersze.
+- Artur 18.10.2026 potwierdził: klucze BitLocker zostają w Intune/Entra, PIN i PUK
+  u operatora. NEXUS ich nie przechowuje, tylko pokazuje drogę do nich
+  (`secretHint` w `equipment-format.ts`, okno szczegółu laptopa, telefonu i karty SIM).
 
 ## Rejestr i posiadacze
 

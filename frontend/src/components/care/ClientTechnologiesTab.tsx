@@ -37,6 +37,7 @@ import { formatIsoDatePl } from "@/lib/date-pl";
 
 import { sourceSummary, technologiesInArea } from "./care-format";
 import { candidatesHref, gapQuestion } from "./tech-gaps";
+import { UnlinkedCardsPanel } from "./UnlinkedCardsPanel";
 
 const SOURCES: { key: TechSource; letter: string }[] = [
   { key: "cards", letter: "T" },
@@ -338,6 +339,8 @@ export function ClientTechnologiesTab({ clientId }: { clientId: number }) {
           </Button>
         </div>
       </div>
+
+      <UnlinkedCardsPanel clientId={clientId} />
 
       {map.departments.length ? (
         <DepartmentsTable departments={map.departments} />

@@ -159,7 +159,7 @@ _KNOWN_CONTRACT_FKS = {
     # duplikaty — rozstrzyga ``_resolve_child_duplicates`` (oceny łączone,
     # wiersz zachowanego wygrywa); oceny z różnych rozmów przechodzą wszystkie.
     ("client_feedback_scores", "contract_id"),
-    # „Pomiń” propozycji menedżera u klienta (0474): podpowiedź, nie historia.
+    # „Pomiń” propozycji menedżera u klienta (0475): podpowiedź, nie historia.
     # Unikat na kontrakt — pominięcia przegranych kasuje
     # ``_resolve_child_duplicates``, zostaje pominięcie zachowanego.
     ("client_structure_skips", "contract_id"),

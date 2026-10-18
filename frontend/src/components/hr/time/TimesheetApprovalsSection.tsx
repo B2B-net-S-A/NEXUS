@@ -178,7 +178,7 @@ export function TimesheetApprovalsSection({
   };
 
   return (
-    <section aria-labelledby="timesheet-approvals-title" className="space-y-3">
+    <section aria-labelledby="timesheet-approvals-title" className="space-y-3" data-help="hr.approvals.timesheets">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-1">
           <h2 id="timesheet-approvals-title" className="mr-2 text-base font-semibold text-foreground">

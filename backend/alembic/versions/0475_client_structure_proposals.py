@@ -1,7 +1,7 @@
 """„Ludzie w NEXUSIE” — propozycje struktury u klienta („Propozycja automatu + akcept DL”).
 
-Revision ID: 0474_client_structure_proposals
-Revises: 0473_hr_leave_proofs
+Revision ID: 0475_client_structure_proposals
+Revises: 0474_tech_card_person
 
 Zakres: pamięć „Pomiń” propozycji menedżera konsultanta i przełożonego osoby
 klienta (``client_structure_skips``) i dzwonek ``care_client_structure`` do
@@ -13,8 +13,8 @@ from alembic import op
 
 from app.services import client_structure_schema as schema
 
-revision = "0474_client_structure_proposals"
-down_revision = "0473_hr_leave_proofs"
+revision = "0475_client_structure_proposals"
+down_revision = "0474_tech_card_person"
 branch_labels = None
 depends_on = None
 
@@ -27,7 +27,7 @@ BEGIN
         SELECT 1 FROM notifications
         WHERE notification_type::text IN ({", ".join(f"'{t}'" for t in schema.NOTIFICATION_TYPES)})
     ) THEN
-        RAISE EXCEPTION 'Downgrade 0474 odmawia: notifications ma wpisy typu struktury u klienta, których kod sprzed tej rewizji nie odczyta.';
+        RAISE EXCEPTION 'Downgrade 0475 odmawia: notifications ma wpisy typu struktury u klienta, których kod sprzed tej rewizji nie odczyta.';
     END IF;
 END $$"""
 
