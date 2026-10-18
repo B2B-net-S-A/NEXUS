@@ -383,8 +383,20 @@ async def test_card_without_anchor_links_by_client_name_and_date() -> None:
             elsewhere = Candidate(
                 name="Jan", lastname=f"Obcy{tag}", email=f"o-{tag}@example.com"
             )
-            db.add_all([client, other, sure, twice, later, elsewhere])
+            # Dwa nie scalone rekordy tego samego klienta (duplikat z Traffita)
+            # i klient przemianowany („ex”).
+            dup_a = Client(name=f"Fundusz {tag}")
+            dup_b = Client(name=f"Fundusz {tag}")
+            renamed = Client(name=f"Bank {tag} (ex Stary{tag})")
+            at_dup = Candidate(
+                name="Olga", lastname=f"Dubel{tag}", email=f"d-{tag}@example.com"
+            )
+            db.add_all(
+                [client, other, sure, twice, later, elsewhere]
+                + [dup_a, dup_b, renamed, at_dup]
+            )
             await db.flush()
+            dup_contract = await _contract(db, at_dup, dup_b, date(2026, 1, 1))
             sure_contract = await _contract(db, sure, client, date(2026, 1, 1))
             sure_contract.end_date = date(2026, 12, 31)
             await _contract(db, twice, client, date(2026, 1, 1))
@@ -394,6 +406,8 @@ async def test_card_without_anchor_links_by_client_name_and_date() -> None:
             await db.flush()
 
             compass_client = str(uuid.uuid4())
+            compass_dup = str(uuid.uuid4())
+            compass_renamed = str(uuid.uuid4())
             contractors = [
                 {"id": str(uuid.uuid4()), "full_name": f"zolw{tag} lukasz [ACTIVE]"},
                 {"id": str(uuid.uuid4()), "full_name": f"Anna Nowak{tag}"},
@@ -402,29 +416,47 @@ async def test_card_without_anchor_links_by_client_name_and_date() -> None:
             ]
             ids = [row["id"] for row in contractors]
             cards = [_card(contractor, compass_client) for contractor in ids]
+            dup_person = {"id": str(uuid.uuid4()), "full_name": f"Olga Dubel{tag}"}
+            contractors.append(dup_person)
+            dup_card = _card(dup_person["id"], compass_dup)
+            renamed_card = _card(ids[3], compass_renamed)
             bundle = make_bundle(
                 {
                     "clients": [
-                        {"id": compass_client, "name": f"SPÓŁKA TESTOWA {tag}"}
+                        {"id": compass_client, "name": f"SPÓŁKA TESTOWA {tag}"},
+                        {"id": compass_dup, "name": f"Fundusz {tag}"},
+                        {"id": compass_renamed, "name": f"Bank {tag} / Stary{tag}"},
                     ],
                     "contractors": contractors,
-                    "tech_interview_cards": cards,
+                    "tech_interview_cards": [*cards, dup_card, renamed_card],
                 }
             )
             batch, report, written = await run_import(db, "care", bundle)
             assert report["extra"]["cards"] == {
                 "linked_by_anchor": 0,
-                "linked_by_name": 1,
+                "linked_by_name": 2,
                 "to_confirm_with_suggestions": 2,
-                "to_confirm_without_match": 1,
+                "to_confirm_without_match": 2,
                 "without_client": 0,
             }
-            assert report["reasons"][care_import.NAME_LINKED] == 1
+            assert report["reasons"][care_import.NAME_LINKED] == 2
             assert report["reasons"][care_import.NAME_SUGGESTED] == 2
-            assert report["reasons"][care_import.NAME_NOT_FOUND] == 1
+            assert report["reasons"][care_import.NAME_NOT_FOUND] == 2
             assert_report_clean(batch.report, "Nowak", "Kot", "Obcy", "lukasz")
-            assert written["cards_written"] == 4
-            assert written["cards_without_contract"] == 3
+            assert written["cards_written"] == 6
+            assert written["cards_without_contract"] == 4
+            by_source = {
+                str(card.compass_card_id): card
+                for card in await db.scalars(
+                    select(TechCard).where(
+                        TechCard.client_id.in_([dup_a.id, dup_b.id, renamed.id])
+                    )
+                )
+            }
+            assert by_source[dup_card["id"]].client_id == dup_b.id
+            assert by_source[dup_card["id"]].contract_id == dup_contract.id
+            assert by_source[renamed_card["id"]].client_id == renamed.id
+            assert by_source[renamed_card["id"]].contract_id is None
 
             stored = {
                 str(card.compass_card_id): card

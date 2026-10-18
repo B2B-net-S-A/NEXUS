@@ -228,9 +228,12 @@ Zakładka klienta „Struktura u klienta” (`components/care/ClientPeopleTab.ts
   propozycje, brak = bez propozycji — karta czeka przy kliencie z pustym
   `contract_id` i z nazwiskiem z Compassa (`tech_cards.compass_person_name`,
   migracja 0474). Mapa liczy ją od razu (źródło T nie wymaga kontraktu).
-- Klient Compassa → klient NEXUSA: nazwa po `normalize_client_name`, bez
-  trafienia — po nazwie bez formy prawnej (`loose_client_name`); dwa trafienia
-  = karta pominięta. NIP-u Compass nie eksportuje.
+- Klient Compassa → klient NEXUSA (karty): nazwa po `normalize_client_name`,
+  bez trafienia — po nazwie bez formy prawnej (`loose_client_name`), na końcu
+  po zbiorze słów bez „ex” („ERSTE / Santander” = „ERSTE (ex Santander)”).
+  Kilku klientów o tej nazwie (duplikat z Traffita, np. dwa „PFRON”) =
+  wygrywa ten, u którego osoba ma pewny kontrakt w dniu rozmowy; inaczej karta
+  pominięta. NIP-u Compass nie eksportuje.
 - **„Karty z Compassa do połączenia”** w zakładce „Technologie” klienta
   (`UnlinkedCardsPanel`, `GET /api/care/clients/{id}/tech-cards/unlinked`,
   serwis `care/card_inbox.py`): propozycje liczone przy odczycie (kontrakt

@@ -195,6 +195,7 @@ class Links:
     compass_clients: dict[str, str]
     contractors: dict[str, Mapping[str, Any]]
     clients_by_loose: dict[str, set[int]] = field(default_factory=dict)
+    clients_by_words: dict[frozenset[str], set[int]] = field(default_factory=dict)
     by_name: card_linking.ContractIndex = field(
         default_factory=card_linking.ContractIndex
     )
@@ -212,6 +213,21 @@ class Links:
 
     def client_for(self, compass_client_id: Any) -> Optional[int]:
         return self.client_for_name(self.compass_clients.get(str(compass_client_id)))
+
+    def card_client_options(self, compass_client_id: Any) -> set[int]:
+        """Klienci NEXUSA dla klienta karty: nazwa, nazwa bez formy prawnej,
+        a na końcu zbiór słów bez „ex” („ERSTE / Santander” = „ERSTE (ex
+        Santander)”). Kilka = duplikat z Traffita — rozstrzyga kontrakt osoby."""
+
+        name = self.compass_clients.get(str(compass_client_id))
+        for found in (
+            self.clients_by_key.get(normalize_client_name(name)),
+            self.clients_by_loose.get(loose_client_name(name)),
+            self.clients_by_words.get(_client_words(name)),
+        ):
+            if found:
+                return found
+        return set()
 
     def candidate_for(self, contractor_id: Any) -> Optional[int]:
         row = self.contractors.get(str(contractor_id)) or {}
@@ -243,6 +259,7 @@ class Links:
 async def _links(db: AsyncSession, bundle: Bundle) -> Links:
     clients_by_key: dict[str, set[int]] = defaultdict(set)
     clients_by_loose: dict[str, set[int]] = defaultdict(set)
+    clients_by_words: dict[frozenset[str], set[int]] = defaultdict(set)
     rows = (
         await db.execute(
             select(
@@ -270,6 +287,9 @@ async def _links(db: AsyncSession, bundle: Bundle) -> Links:
             loose = loose_client_name(value)
             if loose:
                 clients_by_loose[loose].add(final(client_id))
+            words = _client_words(value)
+            if words:
+                clients_by_words[words].add(final(client_id))
 
     contractors = {str(row.get("id")): row for row in bundle.rows("contractors")}
     contract_ids = {
@@ -285,6 +305,7 @@ async def _links(db: AsyncSession, bundle: Bundle) -> Links:
     links = Links(
         clients_by_key=dict(clients_by_key),
         clients_by_loose=dict(clients_by_loose),
+        clients_by_words=dict(clients_by_words),
         compass_clients={
             str(row.get("id")): str(row.get("name") or "")
             for row in bundle.rows("clients")
@@ -330,6 +351,10 @@ async def _links(db: AsyncSession, bundle: Bundle) -> Links:
     if bundle.rows(CARDS):
         links.by_name = await card_linking.load_index(db)
     return links
+
+
+def _client_words(name: Optional[str]) -> frozenset[str]:
+    return frozenset(loose_client_name(name).split()) - {"ex"}
 
 
 def _month_end(year: Optional[int], month: Optional[int]) -> Optional[date]:
@@ -401,16 +426,25 @@ async def _plan_cards(
         if compass_card_id is None or interview_on is None:
             result.rows.append(RowPlan(sid, "skip", "karta bez id albo daty rozmowy"))
             continue
-        client_id = links.client_for(row.get("client_id"))
-        if client_id is None:
+        contractor = links.contractors.get(str(row.get("contractor_id"))) or {}
+        person_name = text(contractor.get("full_name"), PERSON_NAME_MAX)
+        options = links.card_client_options(row.get("client_id"))
+        if len(options) > 1:
+            # Duplikat klienta (np. dwa „PFRON” z Traffita): wygrywa ten,
+            # u którego osoba ma pewny kontrakt w dniu rozmowy.
+            options = {
+                option
+                for option in options
+                if links.by_name.match(option, person_name, interview_on).contract_id
+            }
+        if len(options) != 1:
             no_client += 1
             result.rows.append(
                 RowPlan(sid, "skip", "klient karty bez odpowiednika w NEXUSIE")
             )
             continue
+        client_id = next(iter(options))
         notes: list[str] = []
-        contractor = links.contractors.get(str(row.get("contractor_id"))) or {}
-        person_name = text(contractor.get("full_name"), PERSON_NAME_MAX)
         candidate_id = links.candidate_for(row.get("contractor_id"))
         contract_id = None
         if candidate_id is not None:
