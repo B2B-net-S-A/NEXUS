@@ -237,6 +237,14 @@ async def test_manual_reconcile_runs_after_daily_and_respects_running_pass() -> 
             retake_done=True,
         )
         assert lock is not None
+        # ``claimed_at`` to zegar bazy — test udaje 22.10, więc blokada musi mieć
+        # tę samą chwilę, inaczej wyglądałaby na porzuconą (STALE_CLAIM).
+        await db.execute(
+            update(HrJobRun)
+            .where(HrJobRun.id == lock)
+            .values(claimed_at=at(D(2026, 10, 22), 7, 0))
+        )
+        await db.commit()
         refused = await reconcile.run_manual(
             db, ops=fake, mode="live", now=at(D(2026, 10, 22), 7, 1), user_ids=[user.id]
         )

@@ -21,7 +21,7 @@ from sqlalchemy import select
 from app.core.database import AsyncSessionLocal
 from app.core.security import create_access_token
 from app.models.app_setting import AppSetting
-from app.models.hr_leave import HrM365Operation, LeaveRequest
+from app.models.hr_leave import HrM365Operation, LeaveRequest, LeaveRequestDay
 from app.models.hr_ops import HrAuditEvent
 from app.models.hr_profile import EmployeeProfile, LeaveEntitlement
 from app.models.notification import Notification, NotificationType
@@ -166,8 +166,8 @@ async def test_manager_moves_approved_leave_and_m365_follows(
     )
     assert body["days_total"] == "3.0"
     assert body["substitute_user_id"] == new_sub.id
-    # Zgoda osoby i jej tekst zostają po zmianie.
-    assert body["forward_mail_consent"] is True
+    # Zgodę osoba dała na poprzedniego zastępcę — nowy jej nie dziedziczy.
+    assert body["forward_mail_consent"] is False
 
     added = [op for op in await _ops(request_id) if op.dedupe_key not in before]
     kinds = [op.kind for op in added]
@@ -176,12 +176,12 @@ async def test_manager_moves_approved_leave_and_m365_follows(
         "set_oof",
         "calendar_event_upsert",
         "forward_rule_close",
-        "forward_rule_open",
     ]
     set_oof = added[1]
     assert set_oof.payload["start"] == NEXT_MON.isoformat()
+    # Własny tekst autoodpowiedzi osoby zostaje po zmianie.
     assert set_oof.payload["internal_message"] == "Wracam w poniedziałek"
-    assert added[-1].payload["substitute_user_id"] == new_sub.id
+    assert set_oof.payload["substitute_user_id"] == new_sub.id
 
     async with AsyncSessionLocal() as db:
         bells = list(
@@ -200,10 +200,75 @@ async def test_manager_moves_approved_leave_and_m365_follows(
                 )
             )
         )
-    assert any(bell.title == "Zmieniono Twój wniosek" for bell in bells)
+    edited_bell = next(bell for bell in bells if bell.title == "Zmieniono Twój wniosek")
+    assert "Przekierowanie poczty do zastępcy wyłączone" in edited_bell.message
     (event,) = trail
     assert event.details["changed"] == ["end_date", "start_date", "substitute_user_id"]
     assert event.details["before"]["start_date"] == MON.isoformat()
+    assert event.details["forward_consent_dropped"] is True
+
+
+async def test_edit_keeps_consent_with_the_same_substitute(
+    app_client, modules_on
+) -> None:
+    boss, worker, substitute, _ = await _team()
+    request_id = await _approved(
+        app_client,
+        boss,
+        worker,
+        substitute_user_id=substitute.id,
+        forward_mail_consent=True,
+    )
+    before = {op.dedupe_key for op in await _ops(request_id)}
+    edited = await app_client.patch(
+        f"{BASE}/approvals/{request_id}",
+        json={"end_date": date(2092, 10, 15).isoformat()},
+        headers=_headers(boss),
+    )
+    assert edited.status_code == 200, edited.text
+    assert edited.json()["forward_mail_consent"] is True
+    kinds = [op.kind for op in await _ops(request_id) if op.dedupe_key not in before]
+    assert kinds[-2:] == ["forward_rule_close", "forward_rule_open"]
+
+
+async def test_edit_after_parallel_cancel_is_a_conflict(app_client, modules_on) -> None:
+    """Edycja z nieaktualnym stanem wniosku (anulowany w innej sesji) = 409."""
+
+    from app.services.hr import leave_edit, leave_service
+
+    boss, worker, _, _ = await _team()
+    request_id = await _approved(app_client, boss, worker)
+    async with AsyncSessionLocal() as db:
+        actor = await db.get(User, boss.id)
+        seen = await db.get(LeaveRequest, uuid.UUID(request_id))
+        assert seen.status == "approved"
+        async with AsyncSessionLocal() as other:
+            other_actor = await other.get(User, boss.id)
+            await leave_service.cancel_as_approver(
+                other,
+                actor=other_actor,
+                request_id=uuid.UUID(request_id),
+                today=MON,
+            )
+            await other.commit()
+        try:
+            await leave_edit.edit_request(
+                db,
+                actor=actor,
+                request_id=uuid.UUID(request_id),
+                changes=leave_edit.LeaveChanges(end_date=date(2092, 10, 15)),
+                today=MON,
+            )
+        except leave_service.LeaveConflict:
+            await db.rollback()
+        else:
+            raise AssertionError("edycja anulowanego wniosku przeszła")
+        active = await db.scalars(
+            select(LeaveRequestDay.active).where(
+                LeaveRequestDay.leave_request_id == uuid.UUID(request_id)
+            )
+        )
+        assert not any(active.all())
 
 
 async def test_edit_recounts_pool_and_refuses_overlap_and_over_limit(

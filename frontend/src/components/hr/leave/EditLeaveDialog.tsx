@@ -190,7 +190,7 @@ export function EditLeaveDialog({ request, onClose }: EditLeaveDialogProps) {
           htmlFor="leave-edit-substitute"
           description={
             request.forward_mail_consent
-              ? "Osoba zgodziła się na przekierowanie poczty — reguła przejdzie na nowego zastępcę, a bez zastępcy zniknie."
+              ? "Osoba zgodziła się na przekierowanie poczty do tego zastępcy — inny zastępca albo jego brak wyłączy przekierowanie (osoba może je włączyć ponownie)."
               : undefined
           }
         >

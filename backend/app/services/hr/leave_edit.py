@@ -6,10 +6,12 @@
   (``validate_shape``) i kolizje też. Zatwierdzony wniosek przesuwa godziny
   w „Moim miesiącu” (``time_hooks``) i operacje Microsoft 365
   (``leave_m365.plan_edit``: stara autoodpowiedź zdjęta, nowa ustawiona,
-  wydarzenie przesunięte, reguła przekierowania przepięta). Zgoda osoby na
-  przekierowanie i jej własny tekst autoodpowiedzi zostają — edycja zgody nie
-  daje ani nie zabiera, chyba że wniosek traci zastępcę. Osoba dostaje
-  powiadomienie.
+  wydarzenie przesunięte, reguła przekierowania zamknięta albo przepięta na
+  nowe daty). Własny tekst autoodpowiedzi zostaje; zgoda na przekierowanie
+  zostaje tylko przy tym samym zastępcy — zgodę osoba dała na konkretną osobę,
+  więc zmiana albo usunięcie zastępcy ją zdejmuje (powiadomienie mówi, że może
+  ją włączyć ponownie). Zmiana idzie pod blokadą wiersza wniosku — równoległa
+  akceptacja albo anulowanie nie rozjedzie dni i statusu.
 * ``forward_off_by_hr`` — Kadry (i admin) wyłączają przekierowanie poczty
   cudzego wniosku z powodem zapisanym w śladzie; regułę zamyka kolejka M365.
   Włączyć przekierowanie może dalej tylko sama osoba.
@@ -153,6 +155,14 @@ async def edit_request(
         .where(EmployeeProfile.user_id == request.user_id)
         .with_for_update()
     )
+    # Wiersz wniosku pod blokadą: równoległa akceptacja albo anulowanie
+    # (warunkowy UPDATE) czeka na tę zmianę albo ją wyprzedza — wtedy 409.
+    seen_status = request.status
+    await _lock_request(db, request.id)
+    if request.status != seen_status:
+        raise core.LeaveConflict(
+            "Ten wniosek zmienił się w międzyczasie — odśwież listę."
+        )
     clash = await db.scalar(
         select(LeaveRequest)
         .where(
@@ -187,17 +197,14 @@ async def edit_request(
     plan = plan_days(
         leave_type=leave_type, employment_type=form, days=days, pools=pools
     )
-    substitute: Optional[User] = None
     if substitute_id != request.substitute_user_id:
-        substitute = await core._validate_substitute(
+        await core._validate_substitute(
             db, subject_id=request.user_id, substitute_id=substitute_id
         )
-    elif substitute_id is not None:
-        substitute = await db.get(User, substitute_id)
     before_consent = request.forward_mail_consent
-    consent = before_consent and substitute is not None
-    if consent:
-        core._assert_forward_target(substitute)
+    # Zgodę osoba dała na konkretnego zastępcę: inny zastępca albo brak
+    # zastępcy ją zdejmuje — włączyć z powrotem może tylko sama osoba.
+    consent = before_consent and substitute_id == request.substitute_user_id
 
     before = await core._snapshot(db, request) if approved else None
     old_days = await core._request_days(db, request.id)
@@ -264,7 +271,13 @@ async def edit_request(
         title="Zmieniono Twoje zgłoszenie"
         if reports_absence(form)
         else "Zmieniono Twój wniosek",
-        message=f"{span} — zmiana: {actor.name}.",
+        message=f"{span} — zmiana: {actor.name}."
+        + (
+            " Przekierowanie poczty do zastępcy wyłączone — możesz je włączyć"
+            " przy wniosku w „Mój czas”."
+            if before_consent and not consent
+            else ""
+        ),
         ntype=NotificationType.hr_leave_decided,
         link=LINK_SELF_LEAVE,
     )
@@ -306,6 +319,19 @@ async def edit_request(
     return core.LeaveOutcome(request, locked)
 
 
+async def _lock_request(
+    db: AsyncSession, request_id: uuid.UUID
+) -> Optional[LeaveRequest]:
+    """Wniosek ``FOR UPDATE`` ze świeżym stanem z bazy (nie z mapy tożsamości)."""
+
+    return await db.scalar(
+        select(LeaveRequest)
+        .where(LeaveRequest.id == request_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+
+
 async def _enqueue_edit(
     db: AsyncSession, request: LeaveRequest, before: LeaveSnapshot, *, today: date
 ) -> None:
@@ -343,7 +369,7 @@ async def forward_off_by_hr(
         )
     if len(text) > FORWARD_REASON_MAX:
         raise LeavePolicyError(f"Powód może mieć najwyżej {FORWARD_REASON_MAX} znaków.")
-    request = await db.get(LeaveRequest, request_id)
+    request = await _lock_request(db, request_id)
     if request is None:
         raise core.LeaveNotFound(request_id)
     if request.user_id == actor.id:

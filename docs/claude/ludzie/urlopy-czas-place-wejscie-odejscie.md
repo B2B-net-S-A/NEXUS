@@ -178,9 +178,11 @@ decyduje o słowach i o przebiegu nieobecności.
   rodzaj, daty, pół dnia, zastępca — przełożony, head pionu, Kadry, admin
   (zastępca nieobecnego przełożonego nie); zgłoszenie B2B/zlecenia tylko Kadry
   i admin (403 dla koordynatora, D5). Dni i pula jak przy złożeniu
-  (`exclude_request_id`), kolizje bez samego wniosku, zgoda na przekierowanie
-  i tekst OOF zostają (zgoda przechodzi na nowego zastępcę, bez zastępcy
-  znika). Zatwierdzony: godziny (`time_hooks`) i `leave_m365.plan_edit`
+  (`exclude_request_id`), kolizje bez samego wniosku, tekst OOF zostaje,
+  zgoda na przekierowanie tylko przy tym samym zastępcy (inny albo brak
+  zastępcy ją zdejmuje — osoba dostaje to w powiadomieniu i może ją włączyć
+  sama). Wiersz wniosku idzie `FOR UPDATE` i status jest sprawdzany ponownie
+  (równoległe anulowanie = 409). Zatwierdzony: godziny (`time_hooks`) i `leave_m365.plan_edit`
   (zdjęcie starej autoodpowiedzi, nowa, przesunięcie wydarzenia tym samym
   `transactionId`, zamknięcie + otwarcie reguły; klucze `…:edit{n}`).
   Wykonawca pomija `set_oof` i `calendar_event_upsert`, których okno nie
