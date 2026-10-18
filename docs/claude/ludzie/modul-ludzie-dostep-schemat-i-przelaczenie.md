@@ -281,7 +281,7 @@ miesiącu liczonym równolegle w obu systemach. Danych Compassa nie kasujemy.
 
 ## E-teczka — dokumenty osoby (etap 5, E4, 18.10.2026)
 
-- Tabela `hr_documents` (migracja `0468_hr_documents`). Rodzaje: umowa, aneks, oświadczenie,
+- Tabela `hr_documents` (migracja `0469_hr_documents`). Rodzaje: umowa, aneks, oświadczenie,
   zaświadczenie, protokół, inne (`documents_rules.KIND_LABELS`, lustro we froncie).
 - Plik w wolumenie uploadów `hr_documents/<osoba>/<sha256>.<rozszerzenie>`; tylko PDF, DOCX bez
   makr, JPG i PNG, typ rozpoznany z treści; w przeglądarce otwierają się tylko typy bezpieczne.
@@ -299,7 +299,7 @@ miesiącu liczonym równolegle w obu systemach. Danych Compassa nie kasujemy.
 ## Umowy z ludźmi (etap 5, E5, 18.10.2026)
 
 - Moduł za przełącznikiem `app_settings['hr_agreements']` (domyślnie wyłączony, włącza admin,
-  działa przy włączonym module „Ludzie”). Migracja `0469_hr_agreements` (wzory, wersje, umowy;
+  działa przy włączonym module „Ludzie”). Migracja `0470_hr_agreements` (wzory, wersje, umowy;
   typ powiadomienia `hr_agreement_update` do osoby z Kadr, bez kwot).
 - Treść prawną daje wzór DOCX od Kadr: pola z `agreements_templates.FIELDS`, sandbox wzorów
   protokołów sprzętu; nowy plik = nowa wersja, umowa pamięta swoją. Żadnego pola PESEL ani dowodu.

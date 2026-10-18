@@ -1,6 +1,6 @@
-"""„Ludzie w NEXUSIE” — dokumenty osoby (e-teczka, etap 5, E4): SQL migracji ``0468_hr_documents`` i lustra entrypointu.
+"""„Ludzie w NEXUSIE” — dokumenty osoby (e-teczka, etap 5, E4): SQL migracji ``0469_hr_documents`` i lustra entrypointu.
 
-JEDNO źródło instrukcji dla ``alembic/versions/0468_hr_documents.py`` i ``entrypoint.sh``
+JEDNO źródło instrukcji dla ``alembic/versions/0469_hr_documents.py`` i ``entrypoint.sh``
 (przez ``app/services/hr_schema_bundle.py``). Kontrakt modułu jak w pozostałych
 ``*_schema.py``; każda instrukcja idempotentna (entrypoint wykonuje je przy
 każdym starcie).

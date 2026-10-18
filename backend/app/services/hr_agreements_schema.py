@@ -1,6 +1,6 @@
-"""„Ludzie w NEXUSIE” — umowy z ludźmi (etap 5, E5): SQL migracji ``0469_hr_agreements`` i lustra entrypointu.
+"""„Ludzie w NEXUSIE” — umowy z ludźmi (etap 5, E5): SQL migracji ``0470_hr_agreements`` i lustra entrypointu.
 
-JEDNO źródło instrukcji dla ``alembic/versions/0469_hr_agreements.py`` i ``entrypoint.sh``
+JEDNO źródło instrukcji dla ``alembic/versions/0470_hr_agreements.py`` i ``entrypoint.sh``
 (przez ``app/services/hr_schema_bundle.py``). Kontrakt modułu jak w pozostałych
 ``*_schema.py``; każda instrukcja idempotentna.
 

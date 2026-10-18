@@ -1,6 +1,6 @@
-"""Faktury sprzedażowe do klientów z KSeF (etap 5, E8 cz. 1): SQL migracji ``0470_client_sales_invoices`` i lustra entrypointu.
+"""Faktury sprzedażowe do klientów z KSeF (etap 5, E8 cz. 1): SQL migracji ``0471_client_sales_invoices`` i lustra entrypointu.
 
-JEDNO źródło instrukcji dla ``alembic/versions/0470_client_sales_invoices.py`` i ``entrypoint.sh``
+JEDNO źródło instrukcji dla ``alembic/versions/0471_client_sales_invoices.py`` i ``entrypoint.sh``
 (przez ``app/services/hr_schema_bundle.py``). Kontrakt modułu jak w pozostałych
 ``*_schema.py``; każda instrukcja idempotentna.
 

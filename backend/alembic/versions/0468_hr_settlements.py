@@ -1,7 +1,7 @@
 """„Ludzie w NEXUSIE” — rozliczenia zespołu (etap 4, R1–R12).
 
-Revision ID: 0467_hr_settlements
-Revises: 0466_care_announcements
+Revision ID: 0468_hr_settlements
+Revises: 0467_kpi_milestones_history_only_dr
 
 Zakres: dane do rozliczeń osoby (NIP, wykaz VAT, rachunek zaszyfrowany,
 identyfikator w Symfonii), rozliczenia zamkniętego miesiąca, faktury od osób
@@ -14,8 +14,8 @@ from alembic import op
 
 from app.services import hr_settlement_schema as schema
 
-revision = "0467_hr_settlements"
-down_revision = "0466_care_announcements"
+revision = "0468_hr_settlements"
+down_revision = "0467_kpi_milestones_history_only_dr"
 branch_labels = None
 depends_on = None
 

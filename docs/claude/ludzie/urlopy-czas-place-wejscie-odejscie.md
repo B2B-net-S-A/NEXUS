@@ -323,7 +323,7 @@ decyduje o słowach i o przebiegu nieobecności.
 
 Moduł `settlements` (domyślnie wyłączony). NEXUS nie liczy podatków ani składek —
 kwota oczekiwana to zamrożona linia płac; netto, PIT, ZUS i PPK liczy Symfonia.
-Schemat: `hr_settlement_schema.py` (migracja `0467_hr_settlements`, stany w docstringu).
+Schemat: `hr_settlement_schema.py` (migracja `0468_hr_settlements`, stany w docstringu).
 
 - **Rozliczenie** (`payroll_settlements`) powstaje przy zamknięciu miesiąca z każdej linii
   z kwotą > 0 (`payroll_close` → `settlements.ensure_for_period`); miesiąc zamknięty przed

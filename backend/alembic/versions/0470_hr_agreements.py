@@ -1,7 +1,7 @@
 """„Ludzie w NEXUSIE” — umowy z ludźmi (etap 5, E5).
 
-Revision ID: 0469_hr_agreements
-Revises: 0468_hr_documents
+Revision ID: 0470_hr_agreements
+Revises: 0469_hr_documents
 
 Zakres: wzory umów z wersjami (DOCX od Kadr), umowy i aneksy z osobami,
 podpis przez Autenti albo ręcznie ze skanem, przepisanie do kartoteki po
@@ -13,8 +13,8 @@ from alembic import op
 
 from app.services import hr_agreements_schema as schema
 
-revision = "0469_hr_agreements"
-down_revision = "0468_hr_documents"
+revision = "0470_hr_agreements"
+down_revision = "0469_hr_documents"
 branch_labels = None
 depends_on = None
 

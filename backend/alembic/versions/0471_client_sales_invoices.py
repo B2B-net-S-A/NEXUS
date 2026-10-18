@@ -1,7 +1,7 @@
 """Faktury sprzedażowe do klientów z KSeF (etap 5, E8 cz. 1).
 
-Revision ID: 0470_client_sales_invoices
-Revises: 0469_hr_agreements
+Revision ID: 0471_client_sales_invoices
+Revises: 0470_hr_agreements
 
 SQL ma jedno źródło (``app/services/client_sales_invoices_schema.py``) — ten sam moduł czyta
 ``entrypoint.sh`` przez ``hr_schema_bundle``.
@@ -11,8 +11,8 @@ from alembic import op
 
 from app.services import client_sales_invoices_schema as schema
 
-revision = "0470_client_sales_invoices"
-down_revision = "0469_hr_agreements"
+revision = "0471_client_sales_invoices"
+down_revision = "0470_hr_agreements"
 branch_labels = None
 depends_on = None
 

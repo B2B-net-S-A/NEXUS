@@ -15,7 +15,7 @@
   równać); jest zgodna, gdy mieści się w tej reszcie, nadwyżka to różnica do sprawdzenia przez
   Finanse (`check_basis: "budget"`). Przy wierszu liczy się suma faktur — dwie faktury mogą
   zmieścić się osobno, a razem nie.
-- Faktury sprzedażowe z KSeF jako `Subject1` (migracja `0470_client_sales_invoices`). Klient
+- Faktury sprzedażowe z KSeF jako `Subject1` (migracja `0471_client_sales_invoices`). Klient
   i `KSEF_*` wspólne z rozliczeniami ludzi (etap 4), znacznik HWM osobny
   (`app_settings['client_sales_ksef_sync']`), pętla `sales_ksef_fetch`. Budżet przebiegu: 6 zapytań
   o metadane i 20 pobrań; blokada 429 z którejkolwiek ścieżki wstrzymuje obie (limit tokenu spółki).

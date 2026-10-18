@@ -1,6 +1,6 @@
-"""„Ludzie w NEXUSIE” — Rozliczenia zespołu: SQL migracji ``0467_hr_settlements`` i lustra entrypointu.
+"""„Ludzie w NEXUSIE” — Rozliczenia zespołu: SQL migracji ``0468_hr_settlements`` i lustra entrypointu.
 
-JEDNO źródło instrukcji dla ``alembic/versions/0467_hr_settlements.py`` i ``entrypoint.sh``
+JEDNO źródło instrukcji dla ``alembic/versions/0468_hr_settlements.py`` i ``entrypoint.sh``
 (przez ``app/services/hr_schema_bundle.py``). Etap 4 (R1–R12, 17.10.2026): faktury
 B2B z KSeF, rozliczenie zlecenia z potwierdzenia godzin, dane UoP do Symfonii,
 statusy płatności z wyciągu. NEXUS nie liczy podatków ani składek — kwoty
