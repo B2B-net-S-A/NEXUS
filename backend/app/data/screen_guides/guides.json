@@ -735,7 +735,7 @@
       {
         "id": "hr.my_time.leave_list",
         "label": "Moje wnioski",
-        "describe": "Terminy, status, zastępca, przekierowanie poczty i anulowanie."
+        "describe": "Terminy, status, zastępca, załącznik do wniosku (umowa o pracę), przekierowanie poczty i anulowanie."
       },
       {
         "id": "hr.my_time.month_actions",
