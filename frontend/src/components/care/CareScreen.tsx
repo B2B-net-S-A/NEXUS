@@ -7,6 +7,9 @@ import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import { TabbedNav } from "@/components/ds/TabbedNav";
 import { HrConfigGate } from "@/components/hr/HrConfigGate";
 import { useCareSummary, useCareWeek } from "@/lib/api/care";
+import { canReadClientPeople } from "@/lib/api/client-people";
+import { useStructureSummary } from "@/lib/api/structure-proposals";
+import { useAuthStore } from "@/store/auth";
 import { useUrlWriter } from "@/lib/url-selection";
 
 import { AnnouncementsTab } from "./announcements/AnnouncementsTab";
@@ -14,11 +17,13 @@ import { AssignmentPanel } from "./AssignmentPanel";
 import { ConsultantsPanel } from "./ConsultantsPanel";
 import { RedeployPanel } from "./RedeployPanel";
 import { SkillReviewPanel } from "./SkillReviewPanel";
+import { StructureTab } from "./structure/StructureTab";
 import { WeekPanel } from "./week/WeekPanel";
 
 export type CareTab =
   | "week"
   | "consultants"
+  | "structure"
   | "assignment"
   | "announcements"
   | "redeploy"
@@ -27,6 +32,7 @@ export type CareTab =
 const TABS: readonly CareTab[] = [
   "week",
   "consultants",
+  "structure",
   "assignment",
   "announcements",
   "redeploy",
@@ -48,7 +54,12 @@ function CareTabs() {
   const summary = useCareSummary();
   // Licznik zaległych przy „Ten tydzień” — to samo zapytanie co lista (domyślny zakres).
   const week = useCareWeek("mine", null);
-  const tab = careTabFrom(searchParams?.get("tab"));
+  // „Struktura u klientów” — krąg D11 (Finanse i Kadry jej nie widzą, serwer odmawia 403).
+  const user = useAuthStore((s) => s.user);
+  const peopleOpen = canReadClientPeople(user);
+  const structure = useStructureSummary(peopleOpen);
+  const requested = careTabFrom(searchParams?.get("tab"));
+  const tab = requested === "structure" && !peopleOpen ? "week" : requested;
   const select = (next: string) => {
     const params = new URLSearchParams(window.location.search);
     if (next === "week") params.delete("tab");
@@ -56,6 +67,7 @@ function CareTabs() {
     // Panel osi należy do listy tygodnia, komunikat — do „Komunikatów”.
     params.delete("contract");
     params.delete("announcement");
+    params.delete("client");
     const qs = params.toString();
     replaceUrl(qs ? `${window.location.pathname}?${qs}` : window.location.pathname);
   };
@@ -67,6 +79,15 @@ function CareTabs() {
       tabs={[
         { value: "week", label: "Ten tydzień", count: week.data?.counts.overdue || undefined },
         { value: "consultants", label: "Konsultanci" },
+        ...(peopleOpen
+          ? [
+              {
+                value: "structure",
+                label: "Struktura u klientów",
+                count: structure.data?.totals.open || undefined,
+              },
+            ]
+          : []),
         { value: "assignment", label: "Przydział" },
         { value: "announcements", label: "Komunikaty" },
         { value: "redeploy", label: "Do przepięcia", count: summary.data?.redeploy_active },
@@ -80,6 +101,7 @@ function CareTabs() {
       <div className="pt-3">
         {tab === "week" ? <WeekPanel /> : null}
         {tab === "consultants" ? <ConsultantsPanel /> : null}
+        {tab === "structure" ? <StructureTab /> : null}
         {tab === "assignment" ? <AssignmentPanel /> : null}
         {tab === "announcements" ? <AnnouncementsTab /> : null}
         {tab === "redeploy" ? <RedeployPanel /> : null}

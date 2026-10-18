@@ -29,6 +29,11 @@ Dostęp (decyzja D7 i zadanie E5, 16.10.2026):
   z samego uprawnienia nie (D11). Opinię zapisują piszący opiekę, a „Podlega
   pod” i dział kontaktu — ci, którzy edytują kontakty klienta
   (``ClientAccess.can_edit_contacts``, ta sama reguła co ``api/contacts.py``).
+* **Propozycje struktury u klienta** (decyzja Artura 18.10.2026 „Propozycja
+  automatu + akcept DL”) — czytają ci sami co strukturę (D11); menedżera
+  konsultanta zatwierdza, zmienia i pomija Delivery Lead klienta albo admin
+  z edycją kontraktów u tego klienta (``ClientContractsEditUser`` — portfel
+  DL), „Podlega pod” — edytujący kontakty, jak ręcznie w drzewie.
 
 Nazwy fabryk zaczynają się od ``require_hr_`` — test kontraktu tras
 (``tests/test_route_authz_contract.py``) rozpoznaje je jako bramki.
@@ -47,7 +52,11 @@ from app.api.deps import (
     require_service_scope,
 )
 from app.api.hr_gates import MODULE_DISABLED_DETAIL, ensure_module
-from app.api.permission_access import ClientsEditUser, DeliveryViewUser
+from app.api.permission_access import (
+    ClientContractsEditUser,
+    ClientsEditUser,
+    DeliveryViewUser,
+)
 from app.api.section_access import (
     require_section_access,
     require_section_access_any,
@@ -96,6 +105,9 @@ ASSIGN_DENIED = (
 PEOPLE_DENIED = (
     "Strukturę u klienta i opinie klienta widzą opiekun kontraktu, Delivery Lead "
     "klienta, Head of Recruitment i administrator."
+)
+MANAGER_APPROVER_DENIED = (
+    "Menedżera u klienta zatwierdza Delivery Lead klienta albo administrator."
 )
 _ATLAS_SCOPE = require_service_scope(ServiceScope.sales_signals_read)
 _ATLAS_WRITE_SCOPE = require_service_scope(ServiceScope.sales_signals_write)
@@ -279,6 +291,54 @@ def require_hr_client_org_editor():
     return _check
 
 
+def require_hr_client_manager_approver():
+    """Zatwierdzenie, zmiana i „Pomiń” menedżera konsultanta (akcept DL).
+
+    Edycja kontraktów u klienta ze ścieżki (Delivery Lead tylko u swoich
+    klientów) + sekcja Delivery + rola Delivery Lead albo admin: decyzja
+    Artura to akcept DL, nie każdego z prawem edycji kontraktów.
+    """
+
+    async def _check(
+        editor: ClientContractsEditUser,
+        current_user: User = Depends(_DELIVERY_SECTION),
+        db: AsyncSession = Depends(get_db),
+    ) -> User:
+        if not current_user.has_any_role(UserRole.admin, UserRole.delivery_lead):
+            raise HTTPException(status.HTTP_403_FORBIDDEN, MANAGER_APPROVER_DENIED)
+        await ensure_module(db, current_user, HrModule.care)
+        return current_user
+
+    return _check
+
+
+def require_hr_client_org_proposals_editor():
+    """„Podlega pod” z propozycji: jak ``OrgEditor`` + krąg D11.
+
+    Odpowiedź niesie propozycje z konsultantami, więc samo „Klienci: edycja”
+    (np. Finanse) jej nie dostaje. Ręczna zmiana w drzewie zostaje przy
+    ``OrgEditor``. Portfel DL i ``can_edit_contacts`` sprawdza trasa.
+    """
+
+    async def _check(
+        editor: ClientsEditUser,
+        current_user: User = Depends(_DELIVERY_SECTION),
+        db: AsyncSession = Depends(get_db),
+    ) -> User:
+        if not reads_client_people(current_user):
+            raise HTTPException(status.HTTP_403_FORBIDDEN, PEOPLE_DENIED)
+        await ensure_module(db, current_user, HrModule.care)
+        return current_user
+
+    return _check
+
+
+def approves_client_managers(user: User) -> bool:
+    """Rola z ``require_hr_client_manager_approver`` (portfel sprawdza trasa)."""
+
+    return user.has_any_role(UserRole.admin, UserRole.delivery_lead)
+
+
 def reads_client_people(user: User) -> bool:
     """D11: opinie klienta widzą opiekun, DL, Head of Recruitment i admin."""
 
@@ -303,3 +363,5 @@ AtlasReader = require_hr_care_atlas_reader()
 AtlasAdmin = require_hr_care_atlas_admin()
 PeopleReader = require_hr_client_people_reader()
 OrgEditor = require_hr_client_org_editor()
+ManagerApprover = require_hr_client_manager_approver()
+OrgProposalsEditor = require_hr_client_org_proposals_editor()

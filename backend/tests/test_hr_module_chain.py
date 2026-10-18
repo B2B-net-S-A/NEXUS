@@ -56,6 +56,11 @@ CHAIN = (
     ),
     # Imię i nazwisko konsultanta na karcie z Compassa (18.10.2026).
     ("0474_tech_card_person", "0473_hr_leave_proofs", "contract_care_schema"),
+    (
+        "0475_client_structure_proposals",
+        "0474_tech_card_person",
+        "client_structure_schema",
+    ),
 )
 
 

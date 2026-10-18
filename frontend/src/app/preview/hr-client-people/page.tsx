@@ -23,6 +23,7 @@ import { hrKeys } from "@/lib/api/hr";
 
 import { HR_CAST, hrConfig } from "../hr-fixtures";
 import { HrHarnessLoading, HrHarnessShell, harnessQueryClient, useHrHarness } from "../hr-harness";
+import { seedStructure } from "../hr-client-structure/fixtures";
 import { ORG_CLIENT, clientOrg } from "./fixtures";
 
 const STATES = [{ key: "org", label: "Struktura (Delivery Lead klienta)" }] as const;
@@ -32,6 +33,7 @@ function prepare() {
   const client = harnessQueryClient();
   client.setQueryData(hrKeys.config, hrConfig());
   client.setQueryData(clientPeopleKeys.org(ORG_CLIENT.id), org);
+  seedStructure(client, warsawToday());
   return {
     user: HR_CAST.kamil,
     client,

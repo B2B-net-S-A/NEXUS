@@ -950,3 +950,8 @@ async def care_summary(
 from app.api import care_consultants  # noqa: E402
 
 router.include_router(care_consultants.router)
+
+# Propozycje struktury u klienta („Propozycja automatu + akcept DL”, 18.10.2026).
+from app.api import care_structure  # noqa: E402
+
+router.include_router(care_structure.router)

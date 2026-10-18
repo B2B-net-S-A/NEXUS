@@ -847,6 +847,7 @@ from app.models import hr_time as _hr_time_models  # noqa: F401,E402
 from app.models import hr_payroll as _hr_payroll_models  # noqa: F401,E402
 from app.models import hr_lifecycle as _hr_lifecycle_models  # noqa: F401,E402
 from app.models import contract_care as _contract_care_models  # noqa: F401,E402
+from app.models import client_structure as _client_structure_models  # noqa: F401,E402
 from app.models import care_announcement as _care_announcement_models  # noqa: F401,E402
 from app.models import hr_settlement as _hr_settlement_models  # noqa: F401,E402
 from app.models import hr_document as _hr_document_models  # noqa: F401,E402

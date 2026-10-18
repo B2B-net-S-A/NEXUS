@@ -39,6 +39,7 @@ import {
 } from "@/components/care/client-people-format";
 import { scoresForPayload, type ClientOrg } from "@/lib/api/client-people";
 import { clientOrg } from "@/app/preview/hr-client-people/fixtures";
+import { bankStructure } from "@/app/preview/hr-client-structure/fixtures";
 
 function httpError(status: number) {
   return Object.assign(new Error(`HTTP ${status}`), { response: { status, data: {} } });
@@ -50,6 +51,13 @@ function renderWith(node: React.ReactNode) {
 }
 
 const TODAY = "2026-10-19";
+
+/** Drzewo i propozycje automatu nad nim to dwa zapytania zakładki. */
+function serve(org: ClientOrg) {
+  mocks.get.mockImplementation((url: string) =>
+    Promise.resolve({ data: url.endsWith("/structure-proposals") ? bankStructure() : org }),
+  );
+}
 
 beforeEach(() => {
   mocks.get.mockReset();
@@ -105,7 +113,7 @@ describe("ClientPeopleTab", () => {
       can_edit_org: false,
       can_write_feedback: false,
     };
-    mocks.get.mockResolvedValue({ data: org });
+    serve(org);
     renderWith(<ClientPeopleTab clientId={7001} />);
     const data = await screen.findByRole("region", { name: "Data" });
     fireEvent.click(within(data).getByRole("button", { name: /Piotr Menedżerski/ }));
@@ -117,7 +125,7 @@ describe("ClientPeopleTab", () => {
 
   it("„Przypisz: Data” z tekstu działu zapisuje dział dopiero po kliknięciu", async () => {
     const org = clientOrg(TODAY);
-    mocks.get.mockResolvedValue({ data: org });
+    serve(org);
     mocks.patch.mockResolvedValue({ data: org });
     renderWith(<ClientPeopleTab clientId={7001} />);
     const loose = await screen.findByRole("region", { name: "Bez działu" });
@@ -129,6 +137,32 @@ describe("ClientPeopleTab", () => {
         client_area_id: 8101,
       }),
     );
+  });
+});
+
+describe("ClientPeopleTab · propozycje automatu", () => {
+  it("sekcja jest zwinięta i nic nie zapisuje, dopóki DL nie kliknie", async () => {
+    serve(clientOrg(TODAY));
+    renderWith(<ClientPeopleTab clientId={7001} />);
+    expect(
+      await screen.findByText(/1 konsultant bez menedżera · 1 pewna propozycja/),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Zatwierdź" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Przejrzyj propozycje" }));
+    expect(await screen.findByText(/Skąd: „Line Manager” na kontrakcie/)).toBeInTheDocument();
+    expect(mocks.post).not.toHaveBeenCalled();
+  });
+
+  it("awaria propozycji nie zasłania drzewa", async () => {
+    const org = clientOrg(TODAY);
+    mocks.get.mockImplementation((url: string) =>
+      url.endsWith("/structure-proposals")
+        ? Promise.reject(httpError(500))
+        : Promise.resolve({ data: org }),
+    );
+    renderWith(<ClientPeopleTab clientId={7001} />);
+    expect(await screen.findByRole("region", { name: "Data" })).toBeInTheDocument();
+    expect(screen.queryByText("Propozycje automatu")).toBeNull();
   });
 });
 
