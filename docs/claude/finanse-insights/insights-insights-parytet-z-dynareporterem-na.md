@@ -441,10 +441,30 @@ z Tablicy. Granice to fakty biznesowe (`competition_history.DR_HISTORY_START`
   portfela DL w Insights (wcześniej październik był pomijany), ale nie do Ligi
   DL ani celu DL (`competitions.dl_portfolio_counts`): mianownik hit ratio —
   rekrutacje zamknięte — liczy się od 12.10, więc placementy 1–11.10 zawyżyłyby
-  próg 30% przy wypłatach; to czeka na decyzję Artura. Uzupełnienie miesięcy
+  próg 30% przy wypłatach (rozstrzygnięte 18.10: październik DL zostaje
+  pusty — niżej „Temat zamknięty”). Uzupełnienie miesięcy
   1–9.2026 zmienia statystyki, nie zamrożone wyniki konkursów (paragony
   `dynareporter_settlement_2026`, `dynareporter_dl_league_2026`). Etapów Tablicy
   poza czterema kamieniami, źródeł, czasu do zatrudnienia i hit ratio sprzed
   12.10 tak nie uzupełnimy — nie mają tabeli `dr_*`, z której liczą ekrany.
   `load_dynareporter_history.py` nie uruchamiaj ponownie: kasuje wpisy DL
   i placementy z klientem sprzed 12.10, także ręczne.
+- **Temat zamknięty 18.10.2026** (Artur: „chcę już zamknąć cały ten temat”,
+  działaj według rekomendacji). Ręcznego uzupełnienia nie robimy — dane sprzed
+  12.10 są w NEXUS-ie w takim stanie, w jakim prowadził je DynaReporter, od
+  12.10 liczą ruchy w NEXUS-ie. Co `--gaps` nadal pokazuje i dlaczego to nie
+  są braki:
+  - miesiące DL bez wpisu w 1–9.2026 i „brakujące” tygodnie rekruterów w
+    październiku — osoba w tym czasie nie pełniła tej roli (role się zmieniały:
+    DL bywał rekruterem, rekruter przechodził do innej roli; pojedyncze
+    placementy w tygodniach rekrutera u osób, które dziś są DL albo `finance`,
+    to ślad dawnej roli, nie luka). Nie wpisuj tam zer;
+  - październik 2026 (1–11.10) bez wpisów DL — DynaReporter wpisywał miesiąc DL
+    po jego końcu, a październik się w nim nie skończył. Zostaje pusty:
+    portfel DL w Insights, Liga DL i cel DL liczą IV kwartał 2026 jednakowo,
+    od 12.10. Placementy 1–11.10 są w statystykach rekruterów i firmy
+    (`dr_kpi_body_leasing`, `dr_placement_details`), tylko nie w portfelu DL;
+  - KPI rekruterów 2025 — DynaReporter ich nie prowadził; 2025 = placementy
+    Rady (firma i klienci w miesiącu).
+  Narzędzie (`dr_manual_fill_sheet.py`, `import_dr_manual_fill.py`) zostaje na
+  wypadek, gdyby ktoś znalazł konkretną pomyłkę w danych DynaReportera.

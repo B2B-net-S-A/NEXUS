@@ -17,6 +17,7 @@ import type { BoardColumnKey, StageBadgeKey } from "@/lib/board-stages";
 import { cardBadgeLabel } from "@/lib/candidate-followup";
 import { WHY_CANDIDATE_LABEL } from "@/lib/pipeline-next-action";
 import { autoMatchBadgeLabel, autoMatchBadgeTitle } from "@/lib/candidate-notes-view";
+import { qcCountsText } from "@/lib/cv-qc";
 import { rateArrowLine, rateChangeBadgeText } from "@/lib/rate-change";
 import { warsawToday } from "@/lib/warsaw-date";
 import { addedToBaseTitle, addedToBaseView, newInBaseDaysText } from "@/lib/added-to-base";
@@ -227,8 +228,9 @@ export function dlWaitingStatus(item: KanbanItem | null | undefined, now: Date):
 
 /**
  * Jedna plakietka o CV firmowym — karta Tablicy i wiersz tabeli osób:
- * automat jeszcze pisze CV, CV jest i QC już je sprawdziło (ile do poprawy —
- * uwagi blokujące i nieblokujące razem), albo gotowe auto-CV czeka na
+ * automat jeszcze pisze CV, CV jest i QC już je sprawdziło (ile do poprawy
+ * i ile uwag — osobno, jak w panelu osoby, 18.10.2026; przepuszczone QC mówi
+ * „przepuszczone”, nie „do poprawy”), albo gotowe auto-CV czeka na
  * przegląd (QC jeszcze nie biegło). Liczba mówi „QC:” (14.10.2026): karta CV
  * liczy więcej — QC, uwagi generatora i kontrolę AI („N rzeczy do
  * sprawdzenia”), a goła liczba dawała na jednym ekranie dwie różne wartości
@@ -250,14 +252,26 @@ export function cvStateBadge(item: KanbanItem, column: BoardColumnKey | null): C
   const hasCompanyCv =
     item.company_cv === true || (item.company_cv == null && item.auto_cv_ready === true);
   if (column === "verified" && hasCompanyCv && qc && qcRan) {
-    const toFix = qc.blocking_failed + (qc.warnings_count ?? 0);
-    return toFix > 0
+    if (qc.status === "overridden") {
+      return {
+        key: "cv_state",
+        label: "CV gotowe · QC przepuszczone",
+        tone: "ok",
+        title:
+          "CV firmowe jest gotowe, a QC zostało przepuszczone mimo uwag. Uwagi nadal widać w karcie CV.",
+      };
+    }
+    const blocking = qc.blocking_failed;
+    const warnings = qc.warnings_count ?? 0;
+    return blocking + warnings > 0
       ? {
           key: "cv_state",
-          label: `CV gotowe · QC: ${toFix} do poprawy`,
-          tone: "wait",
+          label: `CV gotowe · QC: ${qcCountsText(blocking, warnings)}`,
+          tone: blocking > 0 ? "wait" : "info",
           title:
-            "CV firmowe jest gotowe, a QC znalazło rzeczy do poprawy. Pełna lista (z uwagami generatora i kontrolą AI) jest w karcie CV.",
+            blocking > 0
+              ? "CV firmowe jest gotowe, a QC znalazło rzeczy do poprawy przed wysłaniem. Uwagi nie blokują. Pełna lista (z uwagami generatora i kontrolą AI) jest w karcie CV."
+              : "CV firmowe jest gotowe, QC nie blokuje — zostały uwagi do decyzji. Pełna lista (z uwagami generatora i kontrolą AI) jest w karcie CV.",
         }
       : {
           key: "cv_state",

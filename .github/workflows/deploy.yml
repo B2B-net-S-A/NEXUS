@@ -387,18 +387,28 @@ jobs:
 
       - name: Skip if release already live (burst coalescing)
         id: precheck
-        # Ręczny workflow_dispatch NIGDY nie skipuje — to ścieżka świadomego
-        # redeployu (np. po zmianie env varów), gdzie rebuild jest celem.
-        # Wyjątek: bieg z budzika okna wdrożeń, który jest planowy jak `schedule`.
-        if: ${{ github.event_name != 'workflow_dispatch' || env.WINDOW_SLOT == 'true' }}
+        # 18.10.2026: dwa rebuildy tego samego commitu = dwie przerwy dla
+        # wszystkich. Rebuild tylko wtedy, gdy od produkcji zmienił się kod
+        # obrazu (merge samych `docs/` nie przebudowuje) albo zmienna w Coolify
+        # od ostatniego udanego wdrożenia — reguła w
+        # `.github/scripts/deploy_needed.py`. Dotyczy też ręcznego biegu: kilka
+        # „Coolify set env” + merge daje jeden rebuild, a Deploy uruchomiony po
+        # wdrożeniu, które zmienne już zabrało, kończy się na tym kroku.
+        # Świadomy rebuild „mimo wszystko”: `force_rebuild=true` (bez sprawdzenia).
+        # Nazwy kroków „Trigger deployment” i „Wait for deployment to finish”
+        # czyta skrypt w historii biegów — zmiana nazwy = zmiana w skrypcie.
+        if: ${{ !(github.event_name == 'workflow_dispatch' && (inputs.force_rebuild == true || inputs.force_rebuild == 'true')) }}
         env:
           APP_URL: ${{ vars.APP_URL }}
+          GH_TOKEN: ${{ github.token }}
+          CO_URL: ${{ secrets.COOLIFY_URL }}
+          CO_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
+          CO_APP_UUID: ${{ secrets.COOLIFY_APP_UUID }}
+          # Biegi automatyczne bez odczytu zmiennych zachowują się jak przed
+          # 18.10 (pomijają przy tym samym kodzie); ręczny bieg wtedy wdraża.
+          ENV_UNKNOWN: ${{ (github.event_name != 'workflow_dispatch' || env.WINDOW_SLOT == 'true') && '--env-unknown-is-unchanged' || '' }}
         run: |
-          # Przy burstach merge'y wcześniejszy przebieg zwykle wdrożył już ten
-          # sam RELEASE_SHA (HEAD z zieloną bramką). Kolejny pełny rebuild
-          # niczego wtedy nie zmienia, a rebuild-churn zapychał kolejkę Coolify
-          # (HTTP 429) i dysk serwera. Skip WYŁĄCZNIE przy równości z
-          # RELEASE_SHA. Każdy błąd sondy = fail-open do deployu.
+          # Każdy błąd sondy = fail-open do deployu.
           echo "skip=false" >> "$GITHUB_OUTPUT"
           if [ -z "$APP_URL" ]; then
             echo "APP_URL unset — deploying normally"
@@ -406,12 +416,18 @@ jobs:
           fi
           response=$(curl -fsSL --max-time 15 -A "$SMOKE_UA" "$APP_URL/api/health" 2>/dev/null || echo '')
           version=$(echo "$response" | jq -r '.version // ""' 2>/dev/null || echo '')
-          if [ "$version" = "$RELEASE_SHA" ]; then
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-            echo "✅ Produkcja już serwuje wydanie $RELEASE_SHA — pomijam redundantny rebuild."
-          else
-            echo "Live=${version:-brak}, wydanie=$RELEASE_SHA — deploying normally"
-          fi
+          echo "Live=${version:-brak}, wydanie=$RELEASE_SHA"
+          # Do pliku idą tylko klucze i daty zmian — bez wartości (sekrety).
+          envs_file="$RUNNER_TEMP/env-stamps.json"
+          curl -fsS --max-time 20 -H "Authorization: Bearer $CO_TOKEN" -H "Accept: application/json" \
+            "${CO_URL%/}/api/v1/applications/$CO_APP_UUID/envs" 2>/dev/null \
+            | jq '[.[]? | {key, updated_at}]' > "$envs_file" 2>/dev/null || echo 'null' > "$envs_file"
+          # GITHUB_OUTPUT dopisuje skrypt; ostatni wpis `skip=` wygrywa.
+          # Pusta flaga ma zniknąć, nie być "" — stąd brak cudzysłowu.
+          # shellcheck disable=SC2086
+          python3 .github/scripts/deploy_needed.py --repo "${{ github.repository }}" \
+            --live "$version" --release "$RELEASE_SHA" --envs-file "$envs_file" $ENV_UNKNOWN \
+            || echo "Sprawdzenie padło — wdrażamy."
 
       - name: Configure release metadata from actual Coolify image tags
         if: ${{ steps.precheck.outputs.skip != 'true' }}

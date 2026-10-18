@@ -164,3 +164,21 @@ https://claude.ai/artifact/J6p2cjG5opYDpkh2P6iMaE, raport
 - Harnessy: `/preview/cv-to-client` (osoba „Po „CV wysłane” — bez podmiany CV”),
   `/preview/job-detail` („Karol” — zatwierdzone CV na wierszu sprzed ruchu),
   `/preview/candidate-profile` (wiersz podpięty i „nieużyte w rekrutacji”).
+
+## Liczby QC i uwagi generatora po polsku (18.10.2026)
+
+- Plakietka karty Tablicy („CV gotowe · QC: …”) i zdanie QC w panelu osoby
+  liczą tak samo (`qcCountsText` / `qcWarningsText` w `lib/cv-qc.ts`):
+  blokujące „do poprawy” i nieblokujące „uwagi” osobno, np. karta
+  „QC: 1 do poprawy · 1 uwaga”, panel „1 rzecz do poprawy przed wysłaniem ·
+  1 uwaga (nie blokuje)”. Do 18.10 karta sumowała obie liczby, a panel liczył
+  tylko blokujące — ta sama osoba miała „2” na karcie i „1” w panelu.
+- QC przepuszczone mimo uwag (`overridden`) mówi na karcie
+  „CV gotowe · QC przepuszczone”, nie „do poprawy”.
+- Uwagi generatora w edytorze CV pokazuje `humanizeCvWarning`
+  (`lib/cv-warning-text.ts`): jedno zdanie po polsku, co sprawdzić, także dla
+  CV po angielsku (strażnik lat, liczby i skali, kontrola AI bez wyniku,
+  technologie i certyfikaty spoza źródeł). Surowy tekst zostaje kluczem
+  pominięcia i podstawą klasyfikacji — wynik QC się nie zmienia. Nowy szablon
+  uwagi w generatorze = nowy wzorzec w tym pliku, inaczej rekruter zobaczy go
+  surowo.
