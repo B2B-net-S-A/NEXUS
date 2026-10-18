@@ -24,6 +24,7 @@ describe("hr-m365 labels", () => {
     expect(m365ReasonLabel("forbidden (403)")).toBe("Brak uprawnień aplikacji w Exchange (403)");
     expect(m365ReasonLabel("user_custom")).toBe("Osoba ma własną autoodpowiedź");
     expect(m365ReasonLabel("waiting_for_window")).toBe("Czeka na pierwszy dzień urlopu");
+    expect(m365ReasonLabel("user_exited")).toBe("Osoba odeszła — skrzynka poza zakresem aplikacji");
     expect(m365ReasonLabel(null)).toBeNull();
     // Nieznany kod zostaje widoczny, zamiast zniknąć.
     expect(m365ReasonLabel("nowy_powod")).toBe("nowy_powod");

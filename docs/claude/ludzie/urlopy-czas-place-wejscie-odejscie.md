@@ -139,6 +139,12 @@ decyduje o słowach i o przebiegu nieobecności.
   `SSO_ALLOWED_DOMAINS`. Reguła Outlooka nie ma warunków czasowych — sprzątanie
   sierot w uzgadnianiu 07:00 jest obowiązkowe.
 - Wydarzenie w kalendarzu: prywatne „Poza biurem”, bez rodzaju nieobecności.
+- **Osoba, która odeszła** (konto wyłączone albo kartoteka `exited`, 19.10.2026):
+  jej skrzynka jest poza grupą aplikacji, więc Graph odpowiada 403. Uzgadnianie
+  jej nie czyta (licznik `skipped_exited`, nie `read_errors`), a wykonawca kończy
+  jej zaległe operacje jako `skipped: user_exited` bez wywołania Graph
+  (`executor.left_company`). Właściciel urlopu bez kartoteki z aktywnym kontem
+  nadal jest uzgadniany.
 - **Uprawnienia rejestracji „NEXUS Kadry”**: APPLICATION `MailboxSettings.ReadWrite`,
   `Calendars.ReadWrite`, `Mail.Send` zawężone RBAC for Applications do skrzynek
   zespołu, plus `User.Read.All` (odczyt profili niżej). `User.Read.All` to

@@ -11,10 +11,12 @@ from __future__ import annotations
 import uuid
 from datetime import date
 
+import pytest
 from sqlalchemy import update
 
 from app.core.database import AsyncSessionLocal
 from app.models.hr_leave import HrM365MailboxState, HrM365Operation
+from app.models.hr_profile import EmployeeProfile
 from app.services.hr.m365 import executor, oof_state, oof_template, reconcile
 from tests.hr.fakes import FakeMailboxOps
 from tests.hr.m365_helpers import (
@@ -272,3 +274,69 @@ async def test_simulated_reconcile_does_not_repeat_itself_the_next_day() -> None
 
     assert [(op.kind, op.status) for op in ops] == [("set_oof", "simulated")]
     assert state is None  # symulacja nie zapisuje stanu skrzynki
+
+
+async def _leaver(db, *, active: bool, profile: bool):
+    """Osoba po odejściu: konto wyłączone i/albo kartoteka ``exited``."""
+
+    user = await make_user(db, profile=profile)
+    user.is_active = active
+    if profile:
+        await db.execute(
+            update(EmployeeProfile)
+            .where(EmployeeProfile.user_id == user.id)
+            .values(employment_status="exited")
+        )
+    return user
+
+
+@pytest.mark.parametrize(
+    ("active", "profile"),
+    [(False, True), (True, True), (False, False)],
+    ids=["inactive_exited", "active_exited", "inactive_no_profile"],
+)
+async def test_leave_owner_who_left_is_skipped_not_read(active, profile) -> None:
+    # Prod 19.10.2026: urlop z Compassa osoby, która odeszła — skrzynka poza
+    # grupą aplikacji, odczyt = 403 i fałszywy „błąd odczytu” co rano.
+    fake = FakeMailboxOps()
+    fake.fail_always("get_auto_replies", 403)
+    fake.fail_always("list_rules", 403)
+    async with AsyncSessionLocal() as db:
+        await reset_reconcile_runs(db)
+        leaver = await _leaver(db, active=active, profile=profile)
+        await make_leave(
+            db, leaver, D(2026, 10, 16), D(2026, 10, 19), source="compass_import"
+        )
+        await db.commit()
+        counts = await reconcile.run_once(
+            db, ops=fake, mode="live", now=at(D(2026, 10, 19), 8), user_ids=[leaver.id]
+        )
+        ops = await operations(db, leaver.id)
+        state = await db.get(HrM365MailboxState, leaver.id)
+
+    assert counts.get("read_errors", 0) == 0
+    assert counts.get("mailboxes", 0) == 0
+    assert counts["skipped_exited"] == 1
+    assert fake.calls == []
+    assert ops == []
+    assert state is None
+
+
+async def test_leave_owner_without_profile_still_gets_reconciled() -> None:
+    # Właściciel urlopu spoza kartoteki (aktywne konto) to celowy wyjątek.
+    fake = FakeMailboxOps()
+    async with AsyncSessionLocal() as db:
+        await reset_reconcile_runs(db)
+        user = await make_user(db, profile=False)
+        await make_leave(
+            db, user, D(2026, 10, 19), D(2026, 10, 23), source="compass_import"
+        )
+        await db.commit()
+        counts = await reconcile.run_once(
+            db, ops=fake, mode="live", now=at(D(2026, 10, 20), 8), user_ids=[user.id]
+        )
+        ops = await operations(db, user.id)
+
+    assert counts["mailboxes"] == 1
+    assert "skipped_exited" not in counts
+    assert [op.kind for op in ops] == ["set_oof"]
