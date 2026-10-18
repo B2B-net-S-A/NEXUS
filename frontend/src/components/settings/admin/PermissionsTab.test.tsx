@@ -37,7 +37,7 @@ function permissionSwitch(name: string) {
   return screen.getByRole("switch", { name });
 }
 
-describe("PermissionsTab — jedna rola, dziewięć przełączników", () => {
+describe("PermissionsTab — jedna rola, trzynaście przełączników", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(adminApi.getSectionPermissions).mockResolvedValue({
@@ -84,7 +84,7 @@ describe("PermissionsTab — jedna rola, dziewięć przełączników", () => {
     expect(screen.queryByText(/Wyjątki użytkowników/)).not.toBeInTheDocument();
   });
 
-  it("rysuje trzy grupy i dziewięć przełączników ze stanem roli", async () => {
+  it("rysuje cztery grupy i trzynaście przełączników ze stanem roli", async () => {
     renderTab();
     await screen.findByRole("group", { name: "Rola" });
 
@@ -92,6 +92,7 @@ describe("PermissionsTab — jedna rola, dziewięć przełączników", () => {
       ["Klienci i kontrakty", 5],
       ["Rekrutacje", 1],
       ["Pieniądze", 3],
+      ["Ludzie", 4],
     ] as const) {
       expect(
         within(screen.getByRole("group", { name })).getAllByRole("switch"),
@@ -99,8 +100,8 @@ describe("PermissionsTab — jedna rola, dziewięć przełączników", () => {
     }
     expect(
       screen.getAllByRole("heading", { level: 3 }).map((heading) => heading.textContent),
-    ).toEqual(["Klienci i kontrakty", "Rekrutacje", "Pieniądze"]);
-    expect(screen.getAllByRole("switch")).toHaveLength(9);
+    ).toEqual(["Klienci i kontrakty", "Rekrutacje", "Pieniądze", "Ludzie"]);
+    expect(screen.getAllByRole("switch")).toHaveLength(13);
     expect(
       permissionSwitch("Finanse: Kontrakty i zamówienia: tworzenie i edycja"),
     ).toBeChecked();
@@ -453,7 +454,7 @@ describe("PermissionsTab — jedna rola, dziewięć przełączników", () => {
 
     await user.click(within(alert).getByRole("button", { name: /Spróbuj ponownie/ }));
 
-    expect(await screen.findAllByRole("switch")).toHaveLength(9);
+    expect(await screen.findAllByRole("switch")).toHaveLength(13);
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 

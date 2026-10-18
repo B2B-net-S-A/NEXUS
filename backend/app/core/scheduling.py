@@ -37,6 +37,17 @@ def business_today(tz: str = DEFAULT_TZ) -> date:
     return local_now(tz).date()
 
 
+def business_date(moment: datetime, tz: str = DEFAULT_TZ) -> date:
+    """Dzień kalendarza firmy, na który wypada ``moment`` (``business_today``
+    dla podanej chwili — pętle w tle dostają „teraz” jako argument).
+
+    Chwila bez strefy to czas firmy (jak w ``is_business_day``).
+    """
+    zone = ZoneInfo(tz)
+    local = moment.astimezone(zone) if moment.tzinfo else moment.replace(tzinfo=zone)
+    return local.date()
+
+
 @dataclass(frozen=True)
 class PeriodBounds:
     """Granice lokalnego okresu kalendarzowego przeliczone do UTC.

@@ -51,6 +51,8 @@ _V1_MODULES = tuple(
         "applications",
         "insights",
         "academy",
+        "absences",
+        "equipment",
         "events",
     )
 )
@@ -67,6 +69,8 @@ _RATE_LIMITED_MODULES = (
     # (to drugie zamienia guard `Annotated` w parametr QUERY, czyli 422 na
     # poprawnym żądaniu).
     "api/integrations_compass.py",
+    # „Ludzie w NEXUSIE”: publiczny link do podpisu protokołu sprzętu (token).
+    "api/equipment_public.py",
     "api/champion_intake.py",
     # Własna metryka pulpitu: każde wywołanie liczy agregat po bazie.
     "api/dashboard_metrics.py",

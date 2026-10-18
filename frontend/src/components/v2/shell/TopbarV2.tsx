@@ -14,7 +14,10 @@ import { MyPeopleTopbarButton } from "@/components/v2/my-people/MyPeopleLauncher
 import { ChatNotificationsDropdown } from "./ChatNotificationsDropdown";
 import { CvNotificationsDropdown } from "./CvNotificationsDropdown";
 import { JobsNotificationsDropdown } from "./JobsNotificationsDropdown";
+import { AbsentTodayButton } from "@/components/hr/leave/AbsentTodayButton";
 import { InterviewNotificationsDropdown } from "./InterviewNotificationsDropdown";
+import { hasSectionAccess } from "@/lib/section-access";
+import { useAuthStore } from "@/store/auth";
 import {
   TOPBAR_ACTIONS_CLASS,
   TOPBAR_BREADCRUMB_CLASS,
@@ -36,6 +39,16 @@ export function TopbarV2({
   onOpenCommandPalette,
 }: Props) {
   const [isMac, setIsMac] = useState(false);
+  // „Pracownik” (0456) i inne konta bez sekcji pracy nie przeszukują kandydatów,
+  // rekrutacji ani klientów — paleta służy im tylko do przejścia na ekran.
+  // Przed odczytem konta (`user === null` do `hydrate()`) zostaje podpowiedź
+  // większości, inaczej pole na chwilę mówi „Przejdź do ekranu…” każdemu.
+  const user = useAuthStore((state) => state.user);
+  const searchesWork =
+    user === null ||
+    (["sourcing", "pipeline", "delivery"] as const).some((section) =>
+      hasSectionAccess(user, section),
+    );
 
   useEffect(() => {
     if (typeof navigator !== "undefined") {
@@ -63,7 +76,9 @@ export function TopbarV2({
         className={TOPBAR_SEARCH_CLASS}
       >
         <Search className="h-4 w-4 shrink-0" />
-        <span className="truncate">Szukaj kandydatów, rekrutacji, klientów…</span>
+        <span className="truncate">
+          {searchesWork ? "Szukaj kandydatów, rekrutacji, klientów…" : "Przejdź do ekranu…"}
+        </span>
         <div className="ml-auto hidden sm:flex items-center gap-1 shrink-0">
           <Kbd>{isMac ? "⌘" : "Ctrl"}</Kbd>
           <Kbd>K</Kbd>
@@ -86,6 +101,8 @@ export function TopbarV2({
         <JobsNotificationsDropdown />
         <ChatNotificationsDropdown />
         <InterviewNotificationsDropdown />
+        {/* „Ludzie w NEXUSIE”: nieobecni dziś (moduł urlopów); przy zerze go nie ma. */}
+        <AbsentTodayButton />
         <QuickActionsV2
           externalModal={pendingModal}
           onExternalModalClear={onClearPendingModal}

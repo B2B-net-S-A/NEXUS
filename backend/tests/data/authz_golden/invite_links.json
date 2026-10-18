@@ -19,11 +19,16 @@
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
   "recruiter+amounts_edit",
-  "automation"
+  "automation",
+  "employee",
+  "recruiter+people_admin",
+  "recruiter+payroll",
+  "recruiter+equipment",
+  "recruiter+cases"
  ],
  "routes": {
-  "GET /api/invite-links": "PPPPPPPDPPPPPPPPPPPP",
-  "POST /api/invite-links": "PPPPPPDDPPPPPPPPPPPD",
-  "POST /api/invite-links/{token}/revoke": "PPPPPPDDPPPPPPPPPPPD"
+  "GET /api/invite-links": "PPPPPPPDPPPPPPPPPPPPDPPPP",
+  "POST /api/invite-links": "PPPPPPDDPPPPPPPPPPPDDPPPP",
+  "POST /api/invite-links/{token}/revoke": "PPPPPPDDPPPPPPPPPPPDDPPPP"
  }
 }

@@ -14,7 +14,7 @@ import { AppModal } from "@/components/ds/AppModal";
 import { AddProjectDialog } from "@/components/contracts/AddProjectDialog";
 import { ContractDocumentsTab } from "@/components/ContractDocumentsTab";
 import { ContractAmendmentsTab } from "@/components/ContractAmendmentsTab";
-import { ContractOnboardingTab } from "@/components/ContractOnboardingTab";
+import { ContractEntryTab } from "@/components/hr/onboarding/ContractEntryTab";
 import { ContractInvoicesTab } from "@/components/ContractInvoicesTab";
 import { ContractEquipmentTab } from "@/components/contracts/ContractEquipmentTab";
 import {
@@ -22,6 +22,12 @@ import {
   type EurPlnRate,
 } from "@/components/contracts/FinancialRatesCard";
 import { ContractNotesTab } from "@/components/contracts/ContractNotesTab";
+import { ContractCareTab } from "@/components/care/ContractCareTab";
+import { ContractFeedbackHistory } from "@/components/care/ContractFeedbackHistory";
+import { HiringManagerCombobox } from "@/components/jobs/HiringManagerCombobox";
+import { canReadClientPeople, type ManagerHint } from "@/lib/api/client-people";
+import type { HiringManagerChoice } from "@/lib/hiring-manager";
+import { useHrConfig } from "@/lib/api/hr";
 import {
   contractActivityDetailRows,
   contractActivityLabel,
@@ -177,6 +183,12 @@ interface ContractDetail {
   documents: unknown;
   client_pm_name: string | null;
   client_pm_email: string | null;
+  // „Menedżer u klienta” (D8, 17.10.2026) — kontakt klienta; podpowiedź, gdy
+  // pusty, a tekst Line Manager/PM to dokładnie kontakt klienta.
+  client_pm_contact_id?: number | null;
+  client_pm_contact_name?: string | null;
+  client_pm_contact_position?: string | null;
+  client_pm_contact_hint?: ManagerHint | null;
   line_manager: string | null;
   work_mode: "remote" | "hybrid" | "onsite" | null;
   office_location: string | null;
@@ -352,9 +364,10 @@ const TABS: Tab[] = [
   { key: "details", label: "Szczegóły" },
   { key: "documents", label: "Dokumenty" },
   { key: "amendments", label: "Aneksy" },
-  { key: "onboarding", label: "Onboarding" },
+  { key: "onboarding", label: "Wejście" },
   { key: "equipment", label: "Sprzęt" },
   { key: "notes", label: "Notatki / Rozmowy" },
+  { key: "care", label: "Opieka" },
   { key: "invoices", label: "Faktury" },
   { key: "rateHistory", label: "Historia stawek" },
   { key: "timeline", label: "Timeline" },
@@ -398,6 +411,7 @@ interface EditForm {
   status: string;
   client_pm_name: string;
   client_pm_email: string;
+  client_manager: HiringManagerChoice | null;
   line_manager: string;
   work_mode: string;
   office_location: string;
@@ -450,6 +464,14 @@ function contractToForm(c: ContractDetail): EditForm {
     status: c.status,
     client_pm_name: c.client_pm_name ?? "",
     client_pm_email: c.client_pm_email ?? "",
+    client_manager:
+      c.client_pm_contact_id != null
+        ? {
+            kind: "contact",
+            id: c.client_pm_contact_id,
+            name: c.client_pm_contact_name ?? `Kontakt #${c.client_pm_contact_id}`,
+          }
+        : null,
     line_manager: c.line_manager ?? "",
     work_mode: c.work_mode ?? "",
     office_location: c.office_location ?? "",
@@ -459,6 +481,28 @@ function contractToForm(c: ContractDetail): EditForm {
     order_consumption: c.order_consumption?.toString() ?? "",
     order_consumption_unit: c.order_consumption_unit ?? "rbh",
     notice_period_months: c.notice_period_months?.toString() ?? "",
+  };
+}
+
+/**
+ * „Menedżer u klienta” w PATCH — tylko przy realnej zmianie: kontakt klienta
+ * (`client_pm_contact_id`), nowa osoba (`client_pm_new_person`, serwer zakłada
+ * kontakt albo podpina istniejący) albo `null` (wyczyszczenie).
+ */
+function clientManagerPayload(
+  choice: HiringManagerChoice | null,
+  currentId: number | null,
+): Record<string, unknown> {
+  if (choice === null) return currentId === null ? {} : { client_pm_contact_id: null };
+  if (choice.kind === "contact") {
+    return choice.id === currentId ? {} : { client_pm_contact_id: choice.id };
+  }
+  return {
+    client_pm_new_person: {
+      name: choice.name.trim(),
+      position: choice.position?.trim() || null,
+      email: choice.email?.trim() || null,
+    },
   };
 }
 
@@ -512,6 +556,8 @@ export default function ContractDetailPage() {
         contractDetailTabHref(window.location.pathname, window.location.search, tab),
       ),
   );
+  // „Opieka” tylko przy włączonym module opieki (admin widzi zawsze).
+  const careOpen = useHrConfig().data?.open_modules.care === true;
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState<EditForm | null>(null);
   const [error, setError] = useState("");
@@ -590,6 +636,17 @@ export default function ContractDetailPage() {
   // edytujemy jedno pole w miejscu. `InlineText` oczekuje Promise'a, którego
   // ODRZUCENIE niesie gotowy komunikat — surowy AxiosError dałby użytkownikowi
   // „Request failed with status code 422" zamiast powodu z backendu.
+  // „Przypnij: X” — jawna decyzja osoby z prawem edycji; nic nie przypina się samo.
+  const pinClientManager = async (contactId: number) => {
+    try {
+      await contractsApi.update(id, { client_pm_contact_id: contactId });
+      setError("");
+    } catch (err: unknown) {
+      setError(extractErrorMsg(err));
+    }
+    await queryClient.invalidateQueries({ queryKey: ["contract", id] });
+  };
+
   const saveCandidateContact = async (patch: Record<string, string>) => {
     try {
       await contractsApi.update(id, patch);
@@ -761,6 +818,7 @@ export default function ContractDetailPage() {
       status: form.status,
       client_pm_name: form.client_pm_name || null,
       client_pm_email: form.client_pm_email || null,
+      ...clientManagerPayload(form.client_manager, contract.client_pm_contact_id ?? null),
       line_manager: form.line_manager || null,
       work_mode: form.work_mode || null,
       office_location: form.office_location || null,
@@ -864,6 +922,7 @@ export default function ContractDetailPage() {
 
   const visibleTabs = TABS.filter(
     (tab) =>
+      (careOpen || tab.key !== "care") &&
       (canViewContractDocuments || tab.key !== "documents") &&
       (canViewFinance || tab.key !== "rateHistory") &&
       (canViewInvoices || tab.key !== "invoices"),
@@ -893,6 +952,7 @@ export default function ContractDetailPage() {
   const rateRangeCurrency =
     contract.rate_client_currency ?? contract.currency ?? "PLN";
   const linkClass = "text-primary hover:underline";
+  const managerHint = contract.client_pm_contact_hint ?? null;
   const indefinite = <span className="italic text-muted-foreground">bezterminowo</span>;
   const facts: KeyFact[] = [
     {
@@ -1000,6 +1060,28 @@ export default function ContractDetailPage() {
                   : "—"}
               </span>
             ),
+          },
+        ]
+      : []),
+    ...(contract.client_pm_contact_id != null || managerHint
+      ? [
+          {
+            id: "client-manager",
+            label: "Menedżer u klienta",
+            value: contract.client_pm_contact_name ?? undefined,
+            hint: contract.client_pm_contact_name ? (
+              contract.client_pm_contact_position ?? undefined
+            ) : managerHint && canEditContract ? (
+              <button
+                type="button"
+                className="text-primary hover:underline"
+                onClick={() => void pinClientManager(managerHint.contact_id)}
+              >
+                Przypnij: {managerHint.name}
+              </button>
+            ) : managerHint ? (
+              `Pasuje do tekstu: ${managerHint.name}`
+            ) : undefined,
           },
         ]
       : []),
@@ -2165,6 +2247,55 @@ export default function ContractDetailPage() {
                     Osadzenie u klienta
                   </summary>
                   <div className="space-y-3 mt-3">
+                    <div>
+                      <span
+                        id="contract-edit-client-manager"
+                        className="block text-xs font-medium text-muted-foreground dark:text-muted-foreground mb-1"
+                      >
+                        Menedżer u klienta
+                      </span>
+                      <HiringManagerCombobox
+                        clientId={contract.client_id}
+                        value={form.client_manager}
+                        onChange={(choice) =>
+                          setForm((f) => (f ? { ...f, client_manager: choice } : f))
+                        }
+                        labelledBy="contract-edit-client-manager"
+                        labels={{
+                          none: "Bez menedżera u klienta",
+                          create: (typed) => `Dodaj „${typed}” jako menedżera u klienta`,
+                        }}
+                      />
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        Osoba z kontaktów klienta, pod którą pracuje konsultant. PM i Line
+                        Manager niżej zostają opisem.
+                        {!form.client_manager && managerHint ? (
+                          <>
+                            {" "}
+                            <button
+                              type="button"
+                              className="text-primary hover:underline"
+                              onClick={() =>
+                                setForm((f) =>
+                                  f
+                                    ? {
+                                        ...f,
+                                        client_manager: {
+                                          kind: "contact",
+                                          id: managerHint.contact_id,
+                                          name: managerHint.name,
+                                        },
+                                      }
+                                    : f,
+                                )
+                              }
+                            >
+                              Przypnij: {managerHint.name}
+                            </button>
+                          </>
+                        ) : null}
+                      </p>
+                    </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <div>
                         <label htmlFor="contract-edit-client-pm-name" className="block text-xs font-medium text-muted-foreground dark:text-muted-foreground mb-1">
@@ -2342,9 +2473,9 @@ export default function ContractDetailPage() {
         />
       )}
 
-      {/* Tab: Onboarding */}
+      {/* Tab: Wejście (dawniej „Onboarding”): lista wejścia konsultanta, stara lista przy wyłączonym module */}
       {activeTab === "onboarding" && (
-        <ContractOnboardingTab
+        <ContractEntryTab
           contractId={id}
           readOnly={!canEditContract}
         />
@@ -2364,6 +2495,16 @@ export default function ContractDetailPage() {
       {activeTab === "notes" && (
         <div className="rounded-lg border border-border bg-card p-4">
           <ContractNotesTab contractId={id} canAddNote={canEditContract} />
+        </div>
+      )}
+
+      {/* Tab: Opieka (moduł „care” z „Ludzi w NEXUSIE”) */}
+      {careOpen && activeTab === "care" && (
+        <div className="space-y-4">
+          <ContractCareTab contractId={id} />
+          {canReadClientPeople(user) ? (
+            <ContractFeedbackHistory contractId={id} clientId={contract.client_id} />
+          ) : null}
         </div>
       )}
 

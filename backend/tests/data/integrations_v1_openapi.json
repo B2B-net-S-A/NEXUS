@@ -1,6 +1,194 @@
 {
   "components": {
     "schemas": {
+      "AbsenceDayOut": {
+        "properties": {
+          "date": {
+            "format": "date",
+            "title": "Date",
+            "type": "string"
+          },
+          "fraction": {
+            "description": "1.0 — cały dzień, 0.5 — pół dnia.",
+            "title": "Fraction",
+            "type": "number"
+          },
+          "request_id": {
+            "description": "Wniosek, z którego jest ten dzień.",
+            "format": "uuid",
+            "title": "Request Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "date",
+          "fraction",
+          "request_id"
+        ],
+        "title": "AbsenceDayOut",
+        "type": "object"
+      },
+      "AbsenceRequestDayOut": {
+        "properties": {
+          "date": {
+            "format": "date",
+            "title": "Date",
+            "type": "string"
+          },
+          "fraction": {
+            "title": "Fraction",
+            "type": "number"
+          }
+        },
+        "required": [
+          "date",
+          "fraction"
+        ],
+        "title": "AbsenceRequestDayOut",
+        "type": "object"
+      },
+      "AbsenceRequestOut": {
+        "properties": {
+          "days": {
+            "description": "Dni robocze wniosku (przy anulowanym — te, które były zajęte).",
+            "items": {
+              "$ref": "#/components/schemas/AbsenceRequestDayOut"
+            },
+            "title": "Days",
+            "type": "array"
+          },
+          "days_total": {
+            "title": "Days Total",
+            "type": "number"
+          },
+          "decided_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decided At"
+          },
+          "end_date": {
+            "format": "date",
+            "title": "End Date",
+            "type": "string"
+          },
+          "half_day": {
+            "anyOf": [
+              {
+                "enum": [
+                  "morning",
+                  "afternoon"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Half Day"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "request_id": {
+            "format": "uuid",
+            "title": "Request Id",
+            "type": "string"
+          },
+          "start_date": {
+            "format": "date",
+            "title": "Start Date",
+            "type": "string"
+          },
+          "status": {
+            "description": "cancelled — zatwierdzona nieobecność, którą anulowano.",
+            "enum": [
+              "approved",
+              "cancelled"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "user_id": {
+            "title": "User Id",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "request_id",
+          "user_id",
+          "name",
+          "status",
+          "start_date",
+          "end_date",
+          "half_day",
+          "days_total",
+          "days",
+          "decided_at",
+          "updated_at"
+        ],
+        "title": "AbsenceRequestOut",
+        "type": "object"
+      },
+      "AbsentPersonOut": {
+        "properties": {
+          "days": {
+            "description": "Dni robocze nieobecności w zakresie, rosnąco.",
+            "items": {
+              "$ref": "#/components/schemas/AbsenceDayOut"
+            },
+            "title": "Days",
+            "type": "array"
+          },
+          "days_total": {
+            "description": "Suma dni roboczych w zakresie.",
+            "title": "Days Total",
+            "type": "number"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "user_id": {
+            "title": "User Id",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "user_id",
+          "name",
+          "days_total",
+          "days"
+        ],
+        "title": "AbsentPersonOut",
+        "type": "object"
+      },
       "AcademyCountsOut": {
         "description": "Liczba zgłoszeń na etapie przepływu (jak liczniki ekranu).",
         "properties": {
@@ -4418,6 +4606,151 @@
           "clients"
         ],
         "title": "EmploymentMarkerOut",
+        "type": "object"
+      },
+      "EquipmentAssignmentOut": {
+        "properties": {
+          "assignment_id": {
+            "title": "Assignment Id",
+            "type": "integer"
+          },
+          "holder": {
+            "$ref": "#/components/schemas/EquipmentHolderRefOut"
+          },
+          "issued_at": {
+            "format": "date-time",
+            "title": "Issued At",
+            "type": "string"
+          },
+          "item": {
+            "$ref": "#/components/schemas/EquipmentItemSummaryOut"
+          },
+          "return_condition": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "sprawny · uszkodzony · niekompletny · zgubiony",
+            "title": "Return Condition"
+          },
+          "returned_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "null — sprzęt u posiadacza.",
+            "title": "Returned At"
+          }
+        },
+        "required": [
+          "assignment_id",
+          "item",
+          "holder",
+          "issued_at",
+          "returned_at",
+          "return_condition"
+        ],
+        "title": "EquipmentAssignmentOut",
+        "type": "object"
+      },
+      "EquipmentHolderRefOut": {
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "kind": {
+            "description": "user — konto NEXUSA, contract — kontrakt konsultanta, external — osoba spoza NEXUSA, academy_application — uczestnik Akademii",
+            "enum": [
+              "user",
+              "contract",
+              "external",
+              "academy_application"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          }
+        },
+        "required": [
+          "kind",
+          "id",
+          "name"
+        ],
+        "title": "EquipmentHolderRefOut",
+        "type": "object"
+      },
+      "EquipmentItemSummaryOut": {
+        "properties": {
+          "category": {
+            "description": "laptop · telefon · monitor · karta_sim · karta_dostepu · akcesorium · inne",
+            "title": "Category",
+            "type": "string"
+          },
+          "inventory_number": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Inventory Number"
+          },
+          "item_id": {
+            "title": "Item Id",
+            "type": "integer"
+          },
+          "manufacturer": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Manufacturer"
+          },
+          "model": {
+            "title": "Model",
+            "type": "string"
+          },
+          "ownership": {
+            "description": "nasz · klienta",
+            "title": "Ownership",
+            "type": "string"
+          }
+        },
+        "required": [
+          "item_id",
+          "category",
+          "model",
+          "manufacturer",
+          "inventory_number",
+          "ownership"
+        ],
+        "title": "EquipmentItemSummaryOut",
         "type": "object"
       },
       "EventFeed": {
@@ -9716,6 +10049,42 @@
         "title": "OrderPersonOut",
         "type": "object"
       },
+      "Page_AbsentPersonOut_": {
+        "properties": {
+          "has_more": {
+            "title": "Has More",
+            "type": "boolean"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/AbsentPersonOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "page": {
+            "title": "Page",
+            "type": "integer"
+          },
+          "page_size": {
+            "title": "Page Size",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "page",
+          "page_size",
+          "total",
+          "has_more"
+        ],
+        "title": "Page[AbsentPersonOut]",
+        "type": "object"
+      },
       "Page_AcademyParticipantOut_": {
         "properties": {
           "has_more": {
@@ -13921,7 +14290,7 @@
             "items": {
               "type": "string"
             },
-            "maxItems": 12,
+            "maxItems": 16,
             "title": "Event Types",
             "type": "array"
           },
@@ -14346,6 +14715,132 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/integrations/v1/absences": {
+      "get": {
+        "description": "Osoby z zatwierdzoną nieobecnością w zakresie, po imieniu i nazwisku:\ndni robocze (cały dzień albo pół) z identyfikatorem wniosku. Bez rodzaju\nnieobecności, notatki i zastępcy.",
+        "operationId": "list_absences_api_integrations_v1_absences_get",
+        "parameters": [
+          {
+            "description": "Pierwszy dzień zakresu (włącznie).",
+            "in": "query",
+            "name": "from",
+            "required": true,
+            "schema": {
+              "description": "Pierwszy dzień zakresu (włącznie).",
+              "format": "date",
+              "title": "From",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Ostatni dzień zakresu (włącznie, najwyżej 93 dni).",
+            "in": "query",
+            "name": "to",
+            "required": true,
+            "schema": {
+              "description": "Ostatni dzień zakresu (włącznie, najwyżej 93 dni).",
+              "format": "date",
+              "title": "To",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "maximum": 100000,
+              "minimum": 1,
+              "title": "Page",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page_size",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Page Size",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_AbsentPersonOut_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Kto jest nieobecny w zakresie dat (bez rodzaju nieobecności)",
+        "tags": [
+          "integrations-v1"
+        ]
+      }
+    },
+    "/api/integrations/v1/absences/{request_id}": {
+      "get": {
+        "description": "Osoba, okres i dni robocze wniosku. Wniosek oczekujący, odrzucony albo\nanulowany przed decyzją nie był nieobecnością — 404. Bez rodzaju\nnieobecności, notatki i zastępcy.",
+        "operationId": "get_absence_api_integrations_v1_absences__request_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "request_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Request Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbsenceRequestOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Nieobecność (wniosek zatwierdzony albo anulowany po zatwierdzeniu)",
+        "tags": [
+          "integrations-v1"
+        ]
+      }
+    },
     "/api/integrations/v1/academy/programs": {
       "get": {
         "description": "Programy (najpierw aktywne, potem po nazwie): kryteria naboru, liczba\nzgłoszeń na każdym etapie i daty najbliższej edycji. Bez danych osobowych.",
@@ -15927,6 +16422,51 @@
           }
         },
         "summary": "Zmień status kontraktu",
+        "tags": [
+          "integrations-v1"
+        ]
+      }
+    },
+    "/api/integrations/v1/equipment/assignments/{assignment_id}": {
+      "get": {
+        "description": "Egzemplarz (kategoria, model, numer ewidencyjny), posiadacz (rodzaj, id,\nimię i nazwisko) oraz daty wydania i zwrotu. Bez wartości sprzętu i bez\nnumerów seryjnych, IMEI, ICCID, telefonu i karty dostępu.",
+        "operationId": "get_assignment_api_integrations_v1_equipment_assignments__assignment_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "assignment_id",
+            "required": true,
+            "schema": {
+              "maximum": 2147483647,
+              "minimum": 1,
+              "title": "Assignment Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EquipmentAssignmentOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Wydanie sprzętu: egzemplarz, posiadacz, daty",
         "tags": [
           "integrations-v1"
         ]

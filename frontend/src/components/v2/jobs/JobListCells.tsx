@@ -14,6 +14,7 @@ import { ArrowLeftRight, History, Trophy } from "lucide-react";
 import Link from "next/link";
 import type { MouseEvent } from "react";
 
+import { AbsenceDot, type AbsentPerson } from "@/components/hr/AbsenceBadge";
 import { Badge } from "@/components/ui/badge";
 import {
   competenceShortLabel,
@@ -23,6 +24,7 @@ import {
 import { RecruiterCellEditor } from "@/components/v2/jobs/JobRecruiterEditor";
 import { RecruiterChips } from "@/components/v2/jobs/RecruiterChips";
 import { AD_PORTALS, portalAdHref, type JobAdPublicationBrief } from "@/lib/api/jobAd";
+import { useAbsences, useLeaveModuleOpen, type PersonAbsence } from "@/lib/api/hr-leave";
 import { shortenPersonName } from "@/lib/job-header-subtitle";
 import {
   pinRecruiters,
@@ -554,6 +556,7 @@ export interface JobListRowFields extends JobTeamSource {
   opened_at?: string | null;
   created_at?: string | null;
   delivery_lead_user?: { name?: string | null } | null;
+  delivery_lead_id?: number | null;
   competence_category_id?: number | null;
   /**
    * Ilu kandydatów patrzący prowadzi w tej rekrutacji (otwarte procesy, których
@@ -645,6 +648,40 @@ export function NoRecruiterPill({ className }: { className?: string }) {
 
 const shortName = (name: string) => shortenPersonName(name) ?? name;
 
+/** Osoby kolumny „Rekruter” z widocznych wierszy: pracujący Rekruterzy i DL. */
+export function jobListPeopleIds(items: readonly JobListRowFields[]): number[] {
+  const ids = new Set<number>();
+  for (const job of items) {
+    for (const person of workingRecruiters(recruitersOf(job))) ids.add(person.user_id);
+    if (job.delivery_lead_id != null) ids.add(job.delivery_lead_id);
+  }
+  return [...ids];
+}
+
+/**
+ * Nieobecności Rekruterów i DL na stronie listy (17.10.2026, moduł urlopów) —
+ * jedno zapytanie na stronę, nie na wiersz. `undefined` (moduł wyłączony,
+ * wczytywanie, awaria) = kolumna wygląda jak dotąd.
+ */
+export function useJobListAbsences(
+  items: readonly JobListRowFields[],
+): ReadonlyMap<number, PersonAbsence> | undefined {
+  const leaveOpen = useLeaveModuleOpen();
+  const absences = useAbsences(jobListPeopleIds(items), { enabled: leaveOpen });
+  return leaveOpen && absences.isSuccess ? absences.byUser : undefined;
+}
+
+function absentAmong(
+  people: readonly { user_id: number; name: string }[],
+  absences: ReadonlyMap<number, PersonAbsence> | undefined,
+): AbsentPerson[] {
+  if (!absences) return [];
+  return people.flatMap((person) => {
+    const absence = absences.get(person.user_id);
+    return absence ? [{ name: person.name, absence }] : [];
+  });
+}
+
 /**
  * Kolumna „Rekruter”: osoby, które pracują nad rekrutacją, a pod nimi
  * Delivery Lead drobnym drukiem (bez osobnej kolumny).
@@ -659,21 +696,32 @@ const shortName = (name: string) => shortenPersonName(name) ?? name;
  *
  * Z `edit` osoby (albo „Bez rekrutera”) otwierają okienko edycji
  * (`RecruiterCellEditor`, 14.10.2026); „DL: …” zostaje poza nim.
+ *
+ * Nieobecny dziś Rekruter albo DL (17.10.2026): kropka za osobami, tekst
+ * w podpowiedzi — szerokość kolumny się nie zmienia.
  */
 export function JobRecruiterCell({
   job,
   highlightIds = [],
   edit,
+  absences,
 }: {
   job: JobListRowFields;
   /** Osoby z filtra „Rekruter” listy (`worked_by`). */
   highlightIds?: readonly number[];
   /** Rola przydzielająca przy niezamkniętej rekrutacji — o tym decyduje lista. */
   edit?: { jobId: number; jobTitle: string; canDecide: boolean };
+  /** Dzisiejsze nieobecności z `useJobListAbsences` (jedno zapytanie na listę). */
+  absences?: ReadonlyMap<number, PersonAbsence>;
 }) {
   const dlName = job.delivery_lead_user?.name?.trim() || null;
   const viewerId = useAuthStore((s) => s.user?.id);
   const people = pinRecruiters(recruitersOf(job), [...highlightIds, viewerId]);
+  const absentRecruiters = absentAmong(workingRecruiters(people), absences);
+  const dlAbsent =
+    dlName && job.delivery_lead_id != null
+      ? absentAmong([{ user_id: job.delivery_lead_id, name: dlName }], absences)
+      : [];
   const mine = myCandidatesOutsideTeam(job, viewerId);
   const previous = previousRecruitersOf(job);
   const content =
@@ -684,8 +732,9 @@ export function JobRecruiterCell({
         <NoRecruiterPill />
       )
     ) : (
-      <span className="flex min-w-0">
+      <span className="flex min-w-0 items-center gap-0.5">
         <RecruiterChips compact maxNames={2} size="sm" people={people} />
+        <AbsenceDot people={absentRecruiters} data-testid="job-recruiter-absence" />
       </span>
     );
   return (
@@ -705,7 +754,18 @@ export function JobRecruiterCell({
       ) : (
         content
       )}
-      {dlName && (
+      {dlName && dlAbsent.length > 0 ? (
+        <span className="flex min-w-0 items-center gap-0.5">
+          <span
+            className="min-w-0 truncate text-[11px] text-muted-foreground"
+            title={`Delivery Lead: ${dlName}`}
+            data-testid="job-delivery-lead"
+          >
+            DL: {shortName(dlName)}
+          </span>
+          <AbsenceDot people={dlAbsent} data-testid="job-delivery-lead-absence" />
+        </span>
+      ) : dlName ? (
         <span
           className="min-w-0 truncate text-[11px] text-muted-foreground"
           title={`Delivery Lead: ${dlName}`}
@@ -713,7 +773,7 @@ export function JobRecruiterCell({
         >
           DL: {shortName(dlName)}
         </span>
-      )}
+      ) : null}
       {mine != null && (
         <span
           className="inline-flex h-5 w-fit items-center whitespace-nowrap rounded-full bg-info-muted px-2 text-[11px] font-medium text-info-muted-foreground"

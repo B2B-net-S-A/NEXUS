@@ -160,6 +160,30 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE userrole ADD VALUE IF NOT EXISTS 'trainee'",
     # 0446: „Automatyzacje” — podgląd bez kwot i bez zapisu.
     "ALTER TYPE userrole ADD VALUE IF NOT EXISTS 'automation'",
+    # „Ludzie w NEXUSIE” (0456): rola „Pracownik” — lustro
+    # `app/services/hr_access_schema.ENUM_DDL`.
+    "ALTER TYPE userrole ADD VALUE IF NOT EXISTS 'employee'",
+    # „Ludzie w NEXUSIE” (0457): typy powiadomień modułów kadrowych — lustro
+    # `app/services/hr_notification_schema.ENUM_DDL`.
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'hr_leave_requested'",
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'hr_leave_decided'",
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'hr_leave_cancelled'",
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'hr_leave_substitute'",
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'hr_absence_reported'",
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'hr_leave_conflict'",
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'hr_timesheet_submitted'",
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'hr_timesheet_decided'",
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'hr_timesheet_reminder'",
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'hr_bonus_assigned'",
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'hr_rate_changed'",
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'hr_lifecycle_task'",
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'hr_work_handover'",
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'admin_case_assigned'",
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'equipment_task'",
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'equipment_protocol_signed'",
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'care_front_office_handoff'",
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'care_announcement'",
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'care_contact_due'",
     # notificationtype: 5 trigger types + champion_profile_updated
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'dl_stage_stale_6h'",
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'client_feedback_eobd'",
@@ -1023,6 +1047,21 @@ except Exception as _proposal_feedback_err:  # noqa: BLE001
     _JOB_PROPOSAL_FEEDBACK_CONSTRAINTS = []
     _JOB_PROPOSAL_STATUS_CONSTRAINTS = []
 
+# „Ludzie w NEXUSIE” (migracje 0455+): moduł kadrowy, czas pracy, płace,
+# sprzęt, opieka nad konsultantami, sprawy — JEDNO źródło z migracjami przez
+# agregator `app/services/hr_schema_bundle.py`. Wpięte na KOŃCACH faz.
+try:
+    from app.services import hr_schema_bundle as _hr_bundle
+
+    _HR_COLUMN_DDL = list(_hr_bundle.COLUMN_DDL)
+    _HR_DATA_DDL = list(_hr_bundle.DATA_DDL)
+    _HR_CONSTRAINT_DDL = list(_hr_bundle.CONSTRAINT_DDL)
+except Exception as _hr_bundle_err:  # noqa: BLE001
+    print(f"hr schema bundle unavailable: {_hr_bundle_err!r}")
+    _HR_COLUMN_DDL = []
+    _HR_DATA_DDL = []
+    _HR_CONSTRAINT_DDL = []
+
 _COLUMN_STATEMENTS = [
     *_KEYWORD_CORPUS_DDL,
     *_JOB_PROPOSAL_FEEDBACK_COLUMNS,
@@ -1096,7 +1135,7 @@ _COLUMN_STATEMENTS = [
                role IN ('admin','head_of_recruitment','delivery_lead','talent_community_manager','finance','tac','recruiter','sourcer','user','trainee','automation')
            ),
            CONSTRAINT ck_rbac_role_action_permissions_action CHECK (
-               action IN ('b2b_contract_generator', 'delivery_view', 'clients_edit', 'contracts_orders_edit', 'contract_status', 'b2b_signature_confirmation', 'recruitment_manage', 'amounts_view', 'amounts_edit', 'finance_module')
+               action IN ('b2b_contract_generator', 'delivery_view', 'clients_edit', 'contracts_orders_edit', 'contract_status', 'b2b_signature_confirmation', 'recruitment_manage', 'amounts_view', 'amounts_edit', 'finance_module', 'people_admin', 'payroll', 'equipment', 'cases')
            ),
            CONSTRAINT ck_rbac_role_action_permissions_access CHECK (
                access IN ('none','view','generate','manage')
@@ -1110,7 +1149,7 @@ _COLUMN_STATEMENTS = [
            updated_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
            PRIMARY KEY (user_id, action),
            CONSTRAINT ck_rbac_user_action_overrides_action CHECK (
-               action IN ('b2b_contract_generator', 'delivery_view', 'clients_edit', 'contracts_orders_edit', 'contract_status', 'b2b_signature_confirmation', 'recruitment_manage', 'amounts_view', 'amounts_edit', 'finance_module')
+               action IN ('b2b_contract_generator', 'delivery_view', 'clients_edit', 'contracts_orders_edit', 'contract_status', 'b2b_signature_confirmation', 'recruitment_manage', 'amounts_view', 'amounts_edit', 'finance_module', 'people_admin', 'payroll', 'equipment', 'cases')
            ),
            CONSTRAINT ck_rbac_user_action_overrides_access CHECK (
                access IN ('none','view','generate','manage')
@@ -6352,6 +6391,9 @@ EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
     "ALTER TABLE candidates ADD COLUMN IF NOT EXISTS blacklisted_by_user_id "
     "INTEGER NULL REFERENCES users(id) ON DELETE SET NULL",
     "ALTER TABLE candidates ADD COLUMN IF NOT EXISTS blacklist_reason TEXT NULL",
+    # „Ludzie w NEXUSIE” — tabele, indeksy i CHECK-i ról (przed zasiewem
+    # macierzy w `_DATA_STATEMENTS`).
+    *_HR_COLUMN_DDL,
 ]
 
 _ROLE_DASHBOARD_CUTOVER_SQL = r"""
@@ -6754,7 +6796,13 @@ _DATA_STATEMENTS = [
            ('automation', 'delivery', 'read'),
            ('automation', 'insights', 'read'),
            ('automation', 'finance', 'none'),
-           ('automation', 'system_admin', 'none')
+           ('automation', 'system_admin', 'none'),
+           ('employee', 'sourcing', 'none'),
+           ('employee', 'pipeline', 'none'),
+           ('employee', 'delivery', 'none'),
+           ('employee', 'insights', 'none'),
+           ('employee', 'finance', 'none'),
+           ('employee', 'system_admin', 'none')
        ) AS defaults(role, section, access)
        WHERE NOT EXISTS (
            SELECT 1 FROM rbac_role_section_permissions
@@ -6811,7 +6859,8 @@ _DATA_STATEMENTS = [
            ('recruiter', 'b2b_contract_generator', 'manage'),
            ('user', 'b2b_contract_generator', 'view'),
            ('trainee', 'b2b_contract_generator', 'none'),
-           ('automation', 'b2b_contract_generator', 'none')
+           ('automation', 'b2b_contract_generator', 'none'),
+           ('employee', 'b2b_contract_generator', 'none')
        ) AS defaults(role, action, access)
        WHERE NOT EXISTS (
            SELECT 1 FROM rbac_role_action_permissions
@@ -6841,6 +6890,10 @@ _DATA_STATEMENTS = [
               CASE WHEN action = 'delivery_view' THEN 'manage' ELSE 'none' END
        FROM rbac_role_action_permissions
        ON CONFLICT (role, action) DO NOTHING""",
+    # 0456: „Pracownik” (`employee`) stoi wyżej w zasiewie pustej macierzy
+    # (CHECK roli poszerza `_HR_COLUMN_DDL` w fazie kolumn). Wiersze `none` do
+    # istniejącej macierzy dopisuje `hr_access_schema.SEED_DDL` w `_HR_DATA_DDL`,
+    # a cztery uprawnienia „Ludzi” — siatka `named_permissions_bootstrap`.
     # 0256: seed domyślnej punktacji Insights. `ON CONFLICT DO NOTHING`, więc
     # wartości ustawione wcześniej przez admina zostają nietknięte — ten blok
     # biegnie przy KAŻDYM starcie kontenera, a nadpisanie cofałoby strojenie
@@ -8466,6 +8519,8 @@ SELECT 'job', id, 'archived',
     "(decyzja 17.10.2026)' "
     "WHERE type::text = 'current_employment' AND active "
     "AND EXISTS (SELECT 1 FROM marker)",
+    # „Ludzie w NEXUSIE” — przełączniki modułów i zasiew roli „Pracownik”.
+    *_HR_DATA_DDL,
 ]
 
 
@@ -9260,6 +9315,8 @@ _CONSTRAINT_STATEMENTS = [
             CHECK (status IS NULL OR status IN ('accepted', 'protocol'));
     EXCEPTION WHEN duplicate_object THEN NULL;
     END $$""",
+    # „Ludzie w NEXUSIE” — ograniczenia dokładane do istniejących tabel.
+    *_HR_CONSTRAINT_DDL,
 ]
 
 # ── Indeksy zadeklarowane w ORM (index=True), których nie tworzy żadna migracja ──

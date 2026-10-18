@@ -19,13 +19,18 @@
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
   "recruiter+amounts_edit",
-  "automation"
+  "automation",
+  "employee",
+  "recruiter+people_admin",
+  "recruiter+payroll",
+  "recruiter+equipment",
+  "recruiter+cases"
  ],
  "routes": {
-  "GET /api/integrations/v1/order-groups": "UUUUUUUUUUUUUUUUUUUU",
-  "GET /api/integrations/v1/order-groups/{group_id}": "UUUUUUUUUUUUUUUUUUUU",
-  "GET /api/integrations/v1/orders": "UUUUUUUUUUUUUUUUUUUU",
-  "GET /api/integrations/v1/orders/{order_id}": "UUUUUUUUUUUUUUUUUUUU",
-  "GET /api/integrations/v1/orders/{order_id}/md-consumptions": "UUUUUUUUUUUUUUUUUUUU"
+  "GET /api/integrations/v1/order-groups": "UUUUUUUUUUUUUUUUUUUUUUUUU",
+  "GET /api/integrations/v1/order-groups/{group_id}": "UUUUUUUUUUUUUUUUUUUUUUUUU",
+  "GET /api/integrations/v1/orders": "UUUUUUUUUUUUUUUUUUUUUUUUU",
+  "GET /api/integrations/v1/orders/{order_id}": "UUUUUUUUUUUUUUUUUUUUUUUUU",
+  "GET /api/integrations/v1/orders/{order_id}/md-consumptions": "UUUUUUUUUUUUUUUUUUUUUUUUU"
  }
 }

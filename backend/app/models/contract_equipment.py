@@ -78,6 +78,19 @@ class ContractEquipment(Base, TimestampMixin):
 
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
+    # „Ludzie w NEXUSIE” (0464): pozycja wydana z magazynu wskazuje egzemplarz
+    # z rejestru i jego wydanie. Puste = wpis ręczny jak dotąd (bez rejestru).
+    item_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("equipment_items.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    assignment_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("equipment_assignments.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+
     contract = relationship("Contract", back_populates="equipment")
 
     def __repr__(self) -> str:

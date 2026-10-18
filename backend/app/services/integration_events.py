@@ -24,6 +24,18 @@ edycji ekranów: każda ścieżka, która zapisuje przez ORM, daje zdarzenie.
 * ``contracts`` zmiana ``status`` → ``contract.status_changed``
 * ``md_consumption_imports`` INSERT → ``md_import.created``
 * ``invoices`` INSERT → ``invoice.created``; zmiana pól → ``invoice.updated``
+* ``leave.approved`` / ``leave.cancelled`` — z wiersza śladu
+  ``hr_audit_events`` (INSERT), nie z ``leave_requests``: decyzje o wniosku
+  idą warunkowym ``UPDATE … WHERE status = …`` (Core, flush ich nie widzi),
+  a każda ma wiersz śladu zapisany przez ORM w tej samej transakcji — jak
+  ``order.changed`` z dziennika. ``leave.approved`` = akceptacja, wniosek
+  zatwierdzony od razu (L4) albo wpis za pracownika; ``leave.cancelled`` =
+  anulowanie wniosku, który był zatwierdzony (oczekujący nie był
+  nieobecnością). Import z Compassa śladu nie pisze, więc zdarzeń nie daje.
+  Rodzaju nieobecności w ``refs`` nie ma NIGDY (D6), choć ślad go niesie
+* ``equipment_assignments`` INSERT z protokołem wydania → ``equipment.issued``
+  (import arkusza recepcji zakłada wydania bez protokołu — to stan
+  początkowy, nie wydanie); ustawienie ``returned_at`` → ``equipment.returned``
 
 Zmiany robione hurtowym ``UPDATE`` (Core, z pominięciem flusha — np. nocne
 przejście kontraktów ``active`` → ``ending`` w ``contract_alerts``) zdarzeń
@@ -85,6 +97,10 @@ EVENT_TYPES: dict[str, str] = {
     "md_import.created": ServiceScope.md_read.value,
     "invoice.created": ServiceScope.invoices_read.value,
     "invoice.updated": ServiceScope.invoices_read.value,
+    "leave.approved": ServiceScope.absences_read.value,
+    "leave.cancelled": ServiceScope.absences_read.value,
+    "equipment.issued": ServiceScope.equipment_read.value,
+    "equipment.returned": ServiceScope.equipment_read.value,
 }
 
 #: Zdarzenie próbne webhooka — nie trafia do kanału, ma ``id = 0``.
@@ -234,7 +250,76 @@ def _created_events(obj: Any, table: str) -> list[dict[str, Any]]:
                 },
             )
         ]
+    if table == "hr_audit_events":
+        return _leave_events(obj)
+    if table == "equipment_assignments":
+        if _values(obj, "issue_protocol_id")["issue_protocol_id"] is None:
+            return []
+        return [_row("equipment.issued", _assignment_refs(obj))]
     return []
+
+
+#: Wpisy śladu, po których wniosek jest zatwierdzony: akceptacja, nieobecność
+#: zatwierdzona od razu (``absence_reported``) i wpis za pracownika.
+_LEAVE_APPROVED_ACTIONS = frozenset(
+    {"leave_approved", "absence_reported", "leave_entered_on_behalf"}
+)
+_APPROVED = "approved"
+
+
+def _leave_events(obj: Any) -> list[dict[str, Any]]:
+    """Zdarzenie nieobecności z wiersza śladu HR — daty i osoba, bez rodzaju."""
+    v = _values(obj, "entity_type", "entity_id", "action", "subject_user_id")
+    if v["entity_type"] != "leave_request":
+        return []
+    details = _values(obj, "details")["details"]
+    details = details if isinstance(details, dict) else {}
+    if v["action"] in _LEAVE_APPROVED_ACTIONS and details.get("status") == _APPROVED:
+        event_type = "leave.approved"
+    elif (
+        v["action"] == "leave_cancelled" and details.get("previous_status") == _APPROVED
+    ):
+        event_type = "leave.cancelled"
+    else:
+        return []
+    return [
+        _row(
+            event_type,
+            {
+                "leave_request_id": v["entity_id"],
+                "user_id": v["subject_user_id"],
+                "start_date": details.get("start_date"),
+                "end_date": details.get("end_date"),
+            },
+        )
+    ]
+
+
+#: Kolumna posiadacza wydania → rodzaj w ``refs`` (CHECK: dokładnie jedna).
+_HOLDER_COLUMNS = (
+    ("user_id", "user"),
+    ("contract_id", "contract"),
+    ("external_person_id", "external"),
+    ("academy_application_id", "academy_application"),
+)
+
+
+def _assignment_refs(obj: Any) -> dict[str, Any]:
+    v = _values(obj, "id", "item_id", *(column for column, _ in _HOLDER_COLUMNS))
+    kind, holder_id = next(
+        (
+            (kind, v[column])
+            for column, kind in _HOLDER_COLUMNS
+            if v[column] is not None
+        ),
+        (None, None),
+    )
+    return {
+        "assignment_id": v["id"],
+        "item_id": v["item_id"],
+        "holder_kind": kind,
+        "holder_id": holder_id,
+    }
 
 
 def _process_application(obj: Any) -> list[dict[str, Any]]:
@@ -302,6 +387,15 @@ def _updated_events(obj: Any, table: str) -> list[dict[str, Any]]:
                 },
             )
         ]
+    if table == "equipment_assignments":
+        # Zwrot = ``returned_at`` ustawione na wydaniu, które było otwarte;
+        # poprawka daty już zwróconego wydania zwrotem nie jest.
+        change = _change(obj, "returned_at")
+        if change is None or change[1] is None:
+            return []
+        if change[0] is not _UNKNOWN and change[0] is not None:
+            return []
+        return [_row("equipment.returned", _assignment_refs(obj))]
     return []
 
 
@@ -316,9 +410,13 @@ _CREATED_TABLES = frozenset(
         "md_consumption_imports",
         "invoices",
         "recruitment_processes",
+        "hr_audit_events",
+        "equipment_assignments",
     }
 )
-_UPDATED_TABLES = frozenset({"jobs", "contracts", "invoices", "recruitment_processes"})
+_UPDATED_TABLES = frozenset(
+    {"jobs", "contracts", "invoices", "recruitment_processes", "equipment_assignments"}
+)
 
 
 def _submission_jobs(objects: Iterable[Any]) -> set[tuple[Any, Any]]:

@@ -19,19 +19,24 @@
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
   "recruiter+amounts_edit",
-  "automation"
+  "automation",
+  "employee",
+  "recruiter+people_admin",
+  "recruiter+payroll",
+  "recruiter+equipment",
+  "recruiter+cases"
  ],
  "routes": {
-  "DELETE /api/clients/{client_id}/required-documents/{doc_id}": "BDDBDDDDBBBDDDBDDDDD",
-  "DELETE /api/required-document-templates/{template_id}": "PDDDDDDDDDDDDDDDDDDD",
-  "GET /api/clients/{client_id}/required-documents": "BBDBBDDDBBBDBBBBDBBB",
-  "GET /api/clients/{client_id}/required-documents/{doc_id}/download": "BBDBBDDDBBBDBBBBDBBB",
-  "GET /api/required-document-templates": "PPPPPPDDPPPPPPPPPPPP",
-  "PATCH /api/clients/{client_id}/required-documents/{doc_id}": "BDDBDDDDBBBDDDBDDDDD",
-  "PATCH /api/required-document-templates/{template_id}": "PDDDDDDDDDDDDDDDDDDD",
-  "POST /api/clients/{client_id}/required-documents": "BDDBDDDDBBBDDDBDDDDD",
-  "POST /api/clients/{client_id}/required-documents/apply-templates": "BDDBDDDDBBBDDDBDDDDD",
-  "POST /api/clients/{client_id}/required-documents/{doc_id}/upload": "BDDBDDDDBBBDDDBDDDDD",
-  "POST /api/required-document-templates": "PDDDDDDDDDDDDDDDDDDD"
+  "DELETE /api/clients/{client_id}/required-documents/{doc_id}": "BDDBDDDDBBBDDDBDDDDDDDDDD",
+  "DELETE /api/required-document-templates/{template_id}": "PDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/clients/{client_id}/required-documents": "BBDBBDDDBBBDBBBBDBBBDDDDD",
+  "GET /api/clients/{client_id}/required-documents/{doc_id}/download": "BBDBBDDDBBBDBBBBDBBBDDDDD",
+  "GET /api/required-document-templates": "PPPPPPDDPPPPPPPPPPPPDPPPP",
+  "PATCH /api/clients/{client_id}/required-documents/{doc_id}": "BDDBDDDDBBBDDDBDDDDDDDDDD",
+  "PATCH /api/required-document-templates/{template_id}": "PDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/clients/{client_id}/required-documents": "BDDBDDDDBBBDDDBDDDDDDDDDD",
+  "POST /api/clients/{client_id}/required-documents/apply-templates": "BDDBDDDDBBBDDDBDDDDDDDDDD",
+  "POST /api/clients/{client_id}/required-documents/{doc_id}/upload": "BDDBDDDDBBBDDDBDDDDDDDDDD",
+  "POST /api/required-document-templates": "PDDDDDDDDDDDDDDDDDDDDDDDD"
  }
 }

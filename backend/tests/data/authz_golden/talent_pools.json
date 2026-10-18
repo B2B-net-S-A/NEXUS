@@ -19,16 +19,21 @@
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
   "recruiter+amounts_edit",
-  "automation"
+  "automation",
+  "employee",
+  "recruiter+people_admin",
+  "recruiter+payroll",
+  "recruiter+equipment",
+  "recruiter+cases"
  ],
  "routes": {
-  "DELETE /api/talent-pools/{pool_id}": "PPPPPPDDPPPPPPPPPPPD",
-  "DELETE /api/talent-pools/{pool_id}/remove/{candidate_id}": "PPPPPPDDPPPPPPPPPPPD",
-  "GET /api/talent-pools": "PPPPPPDDPPPPPPPPPPPP",
-  "GET /api/talent-pools/for-candidate/{candidate_id}": "PPPPPPDDPPPPPPPPPPPP",
-  "GET /api/talent-pools/{pool_id}/candidates": "PPPPPPDDPPPPPPPPPPPP",
-  "POST /api/talent-pools": "PPPPPPDDPPPPPPPPPPPD",
-  "POST /api/talent-pools/{pool_id}/add": "PPPPPPDDPPPPPPPPPPPD",
-  "POST /api/talent-pools/{pool_id}/bulk-add": "PPPPPPDDPPPPPPPPPPPD"
+  "DELETE /api/talent-pools/{pool_id}": "PPPPPPDDPPPPPPPPPPPDDPPPP",
+  "DELETE /api/talent-pools/{pool_id}/remove/{candidate_id}": "PPPPPPDDPPPPPPPPPPPDDPPPP",
+  "GET /api/talent-pools": "PPPPPPDDPPPPPPPPPPPPDPPPP",
+  "GET /api/talent-pools/for-candidate/{candidate_id}": "PPPPPPDDPPPPPPPPPPPPDPPPP",
+  "GET /api/talent-pools/{pool_id}/candidates": "PPPPPPDDPPPPPPPPPPPPDPPPP",
+  "POST /api/talent-pools": "PPPPPPDDPPPPPPPPPPPDDPPPP",
+  "POST /api/talent-pools/{pool_id}/add": "PPPPPPDDPPPPPPPPPPPDDPPPP",
+  "POST /api/talent-pools/{pool_id}/bulk-add": "PPPPPPDDPPPPPPPPPPPDDPPPP"
  }
 }

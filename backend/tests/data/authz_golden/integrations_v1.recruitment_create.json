@@ -19,10 +19,15 @@
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
   "recruiter+amounts_edit",
-  "automation"
+  "automation",
+  "employee",
+  "recruiter+people_admin",
+  "recruiter+payroll",
+  "recruiter+equipment",
+  "recruiter+cases"
  ],
  "routes": {
-  "POST /api/integrations/v1/recruitments": "UUUUUUUUUUUUUUUUUUUU",
-  "POST /api/integrations/v1/recruitments/read-request": "UUUUUUUUUUUUUUUUUUUU"
+  "POST /api/integrations/v1/recruitments": "UUUUUUUUUUUUUUUUUUUUUUUUU",
+  "POST /api/integrations/v1/recruitments/read-request": "UUUUUUUUUUUUUUUUUUUUUUUUU"
  }
 }

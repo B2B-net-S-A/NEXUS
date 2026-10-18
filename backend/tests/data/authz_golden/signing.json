@@ -19,15 +19,20 @@
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
   "recruiter+amounts_edit",
-  "automation"
+  "automation",
+  "employee",
+  "recruiter+people_admin",
+  "recruiter+payroll",
+  "recruiter+equipment",
+  "recruiter+cases"
  ],
  "routes": {
-  "GET /api/signing/contracts/{contract_id}/signatures": "PPDPDDDDPPPDDDDDDPPD",
-  "GET /api/signing/health": "PPPPPPPDPPPPPPPPPPPP",
-  "GET /api/signing/signatures/{signature_id}": "PPDPDDDDPPPDDDDDDPPD",
-  "POST /api/signing/contracts/{contract_id}/mark-sent-offline": "PPDPDDDDPPPDDPDDDDDD",
-  "POST /api/signing/contracts/{contract_id}/send-for-signature": "PPDPDDDDPPPDDPDDDDDD",
-  "POST /api/signing/signatures/{signature_id}/regenerate-link": "PPDPDDDDPPPDDPDDDDDD",
-  "POST /api/signing/signatures/{signature_id}/withdraw": "PPDPDDDDPPPDDPDDDDDD"
+  "GET /api/signing/contracts/{contract_id}/signatures": "PPDPDDDDPPPDDDDDDPPDDDDDD",
+  "GET /api/signing/health": "PPPPPPPDPPPPPPPPPPPPPPPPP",
+  "GET /api/signing/signatures/{signature_id}": "PPDPDDDDPPPDDDDDDPPDDDDDD",
+  "POST /api/signing/contracts/{contract_id}/mark-sent-offline": "PPDPDDDDPPPDDPDDDDDDDDDDD",
+  "POST /api/signing/contracts/{contract_id}/send-for-signature": "PPDPDDDDPPPDDPDDDDDDDDDDD",
+  "POST /api/signing/signatures/{signature_id}/regenerate-link": "PPDPDDDDPPPDDPDDDDDDDDDDD",
+  "POST /api/signing/signatures/{signature_id}/withdraw": "PPDPDDDDPPPDDPDDDDDDDDDDD"
  }
 }

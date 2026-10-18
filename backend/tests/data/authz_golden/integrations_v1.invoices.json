@@ -19,14 +19,19 @@
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
   "recruiter+amounts_edit",
-  "automation"
+  "automation",
+  "employee",
+  "recruiter+people_admin",
+  "recruiter+payroll",
+  "recruiter+equipment",
+  "recruiter+cases"
  ],
  "routes": {
-  "GET /api/integrations/v1/invoices": "UUUUUUUUUUUUUUUUUUUU",
-  "GET /api/integrations/v1/invoices/dso": "UUUUUUUUUUUUUUUUUUUU",
-  "GET /api/integrations/v1/invoices/{invoice_id}": "UUUUUUUUUUUUUUUUUUUU",
-  "PATCH /api/integrations/v1/invoices/{invoice_id}": "UUUUUUUUUUUUUUUUUUUU",
-  "POST /api/integrations/v1/invoices": "UUUUUUUUUUUUUUUUUUUU",
-  "POST /api/integrations/v1/invoices/{invoice_id}/cancel": "UUUUUUUUUUUUUUUUUUUU"
+  "GET /api/integrations/v1/invoices": "UUUUUUUUUUUUUUUUUUUUUUUUU",
+  "GET /api/integrations/v1/invoices/dso": "UUUUUUUUUUUUUUUUUUUUUUUUU",
+  "GET /api/integrations/v1/invoices/{invoice_id}": "UUUUUUUUUUUUUUUUUUUUUUUUU",
+  "PATCH /api/integrations/v1/invoices/{invoice_id}": "UUUUUUUUUUUUUUUUUUUUUUUUU",
+  "POST /api/integrations/v1/invoices": "UUUUUUUUUUUUUUUUUUUUUUUUU",
+  "POST /api/integrations/v1/invoices/{invoice_id}/cancel": "UUUUUUUUUUUUUUUUUUUUUUUUU"
  }
 }

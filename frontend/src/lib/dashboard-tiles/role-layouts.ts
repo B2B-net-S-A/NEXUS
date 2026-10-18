@@ -15,10 +15,12 @@ import {
   TILE_DEFINITIONS,
   TILE_TEMPLATES,
   templateAvailability,
+  type TileHrContext,
   type TileTemplate,
 } from "@/lib/dashboard-tiles/catalog"
 import { GRID_COLUMNS, firstFreeSpot } from "@/lib/dashboard-tiles/layout"
 import type { TileType } from "@/lib/api/userDashboard"
+import { hasPermission, type Permission } from "@/lib/permissions"
 import { getUserRoles, type User, type UserRole } from "@/store/auth"
 
 type Entry = { key: string; w?: number; h?: number }
@@ -66,6 +68,19 @@ const ROLE_LAYOUTS: Partial<Record<UserRole, Entry[]>> = {
     { key: "my_people", w: 7, h: 3 },
     { key: "my_week", w: 5, h: 3 },
   ],
+  // „Pracownik” (17.10.2026). Konto wyłącznie z tą rolą middleware i tak
+  // przenosi z pulpitu na „Mój czas”; wpis działa, gdyby rola przestała być
+  // wyłączna.
+  employee: [{ key: "hr_my_time", w: 6, h: 3 }],
+}
+
+/**
+ * Kafelki za uprawnieniem, nie za rolą — dokładane na końcu układu roli.
+ * Administrator ma każde uprawnienie z urzędu, więc ich nie dostaje: to praca
+ * osoby, której uprawnienie nadano (recepcja ze „Sprzętem”).
+ */
+const PERMISSION_LAYOUTS: Partial<Record<Permission, Entry[]>> = {
+  equipment: [{ key: "equipment_tasks", w: 6, h: 4 }],
 }
 
 const FALLBACK: Entry[] = [
@@ -81,6 +96,7 @@ const ROLE_PRIORITY: UserRole[] = [
   "delivery_lead",
   "talent_community_manager",
   "recruiter",
+  "employee",
 ]
 
 // Kafelki pracy osoby przy rekrutacjach (kolejka, „Dziś”, moje rekrutacje) —
@@ -97,6 +113,7 @@ export const ROLE_LABELS_PL: Partial<Record<UserRole, string>> = {
   delivery_lead: "Delivery Lead",
   talent_community_manager: "Talent Community Manager",
   recruiter: "Rekruter",
+  employee: "Pracownik",
 }
 
 function layoutRoles(user: User | null | undefined): UserRole[] {
@@ -123,6 +140,11 @@ export interface RoleLayoutOptions {
    * `null`, a w układzie roli zostałaby pusta dziura.
    */
   skipTypes?: ReadonlySet<TileType>
+  /**
+   * Stan „Ludzi w NEXUSIE” (`/api/hr/config`). Bez niego układ pomija kafelki
+   * modułu — przy wyłączonym module byłyby pustą dziurą.
+   */
+  hr?: TileHrContext
 }
 
 /** Kafelki kontaktu z kandydatem — działają tylko przy włączonej funkcji. */
@@ -136,9 +158,15 @@ function roleEntries(
   options: RoleLayoutOptions = {},
 ): PlacedTemplate[] {
   const roles = layoutRoles(user)
-  const entries = roles.length
-    ? roles.flatMap((r) => ROLE_LAYOUTS[r] ?? [])
-    : FALLBACK
+  const byPermission = getUserRoles(user).includes("admin")
+    ? []
+    : (Object.keys(PERMISSION_LAYOUTS) as Permission[])
+        .filter((permission) => hasPermission(user, permission))
+        .flatMap((permission) => PERMISSION_LAYOUTS[permission] ?? [])
+  const entries = [
+    ...(roles.length ? roles.flatMap((r) => ROLE_LAYOUTS[r] ?? []) : FALLBACK),
+    ...byPermission,
+  ]
   const seenKeys = new Set<string>()
   const seenTypes = new Set<TileType>()
   const out: PlacedTemplate[] = []
@@ -148,7 +176,7 @@ function roleEntries(
     if (!template) continue
     // Jedna tablica „Requesty i obłożenie” — zakres z pierwszej roli.
     if (template.type === "request_board" && seenTypes.has("request_board")) continue
-    if (!templateAvailability(template, user).ok) continue
+    if (!templateAvailability(template, user, options.hr).ok) continue
     if (options.skipTypes?.has(template.type)) continue
     seenKeys.add(entry.key)
     seenTypes.add(template.type)

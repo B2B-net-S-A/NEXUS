@@ -14,6 +14,9 @@ export type ContractDetailTab =
   | "onboarding"
   | "equipment"
   | "notes"
+  // Opieka nad konsultantem („Ludzie w NEXUSIE”, 16.10.2026); cel dzwonka
+  // `care_contact_due` (`/contracts/{id}?tab=care`).
+  | "care"
   | "invoices"
   | "rateHistory"
   | "timeline";
@@ -25,6 +28,7 @@ export const CONTRACT_DETAIL_TAB_KEYS: readonly ContractDetailTab[] = [
   "onboarding",
   "equipment",
   "notes",
+  "care",
   "invoices",
   "rateHistory",
   "timeline",

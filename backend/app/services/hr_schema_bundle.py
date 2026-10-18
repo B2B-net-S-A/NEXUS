@@ -1,0 +1,64 @@
+"""„Ludzie w NEXUSIE” — jeden punkt, z którego ``entrypoint.sh`` bierze SQL modułu.
+
+Każdy moduł HR ma własny ``*_schema.py`` (to samo źródło czyta jego migracja).
+Entrypoint importuje tylko ten agregator i wpina listy w swoje fazy:
+
+* ``COLUMN_DDL`` — tabele, kolumny, indeksy nowych tabel i CHECK-i ról
+  (koniec ``_COLUMN_STATEMENTS``: tabele bazowe już istnieją),
+* ``DATA_DDL`` — zasiewy i znaczniki jednorazowe (koniec ``_DATA_STATEMENTS``),
+* ``CONSTRAINT_DDL`` — ograniczenia dokładane do istniejących tabel.
+
+Nowe wartości typów enum (``userrole``, ``notificationtype``) stoją literalnie
+w ``_ENUM_STATEMENTS`` — ta lista jest zdefiniowana przed importami.
+"""
+
+from __future__ import annotations
+
+from app.services import admin_cases_schema as admin_cases
+from app.services import care_announcements_schema as care_announcements
+from app.services import contract_care_schema as contract_care
+from app.services import equipment_extras_schema as equipment_extras
+from app.services import equipment_schema as equipment
+from app.services import hr_access_schema as access
+from app.services import hr_foundation_schema as foundation
+from app.services import hr_leave_schema as leave
+from app.services import hr_lifecycle_schema as lifecycle
+from app.services import hr_notification_schema as notifications
+from app.services import hr_payroll_schema as payroll
+from app.services import hr_time_schema as time_
+
+#: Moduły po fundamencie, w kolejności migracji 0458–0466 (kontrakt każdego:
+#: ``TABLE_DDL, COLUMN_DDL, INDEX_DDL, CONSTRAINT_DDL, DATA_DDL``).
+MODULES = (
+    leave,
+    time_,
+    payroll,
+    lifecycle,
+    contract_care,
+    admin_cases,
+    equipment,
+    equipment_extras,
+    care_announcements,
+)
+
+COLUMN_DDL: tuple[str, ...] = (
+    *foundation.TABLE_DDL,
+    *foundation.INDEX_DDL,
+    *access.ROLE_CHECK_DDL,
+    *(stmt for module in MODULES for stmt in module.TABLE_DDL),
+    *(stmt for module in MODULES for stmt in module.COLUMN_DDL),
+    *(stmt for module in MODULES for stmt in module.INDEX_DDL),
+)
+
+DATA_DDL: tuple[str, ...] = (
+    *foundation.DATA_DDL,
+    *access.SEED_DDL,
+    *(stmt for module in MODULES for stmt in module.DATA_DDL),
+)
+
+CONSTRAINT_DDL: tuple[str, ...] = tuple(
+    stmt for module in MODULES for stmt in module.CONSTRAINT_DDL
+)
+
+#: Wartości enumów, które musi znać ``_ENUM_STATEMENTS`` (test lustra).
+ENUM_DDL: tuple[str, ...] = (access.ENUM_DDL, *notifications.ENUM_DDL)

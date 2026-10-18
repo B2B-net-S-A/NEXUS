@@ -19,11 +19,16 @@
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
   "recruiter+amounts_edit",
-  "automation"
+  "automation",
+  "employee",
+  "recruiter+people_admin",
+  "recruiter+payroll",
+  "recruiter+equipment",
+  "recruiter+cases"
  ],
  "routes": {
-  "GET /api/jobs/{job_id}/proposals": "PPPPPPDDPPPPPPPPPPPP",
-  "GET /api/jobs/{job_id}/proposals/latest": "PPPPPPDDPPPPPPPPPPPP",
-  "POST /api/jobs/{job_id}/proposals/regenerate": "PPPPPPDDPPPPPPPPPPPD"
+  "GET /api/jobs/{job_id}/proposals": "PPPPPPDDPPPPPPPPPPPPDPPPP",
+  "GET /api/jobs/{job_id}/proposals/latest": "PPPPPPDDPPPPPPPPPPPPDPPPP",
+  "POST /api/jobs/{job_id}/proposals/regenerate": "PPPPPPDDPPPPPPPPPPPDDPPPP"
  }
 }

@@ -19,13 +19,18 @@
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
   "recruiter+amounts_edit",
-  "automation"
+  "automation",
+  "employee",
+  "recruiter+people_admin",
+  "recruiter+payroll",
+  "recruiter+equipment",
+  "recruiter+cases"
  ],
  "routes": {
-  "DELETE /api/competence-team/assignments/{assignment_id}": "PDPDDDDDDPDPDDDDDDDD",
-  "GET /api/competence-team": "PDPDDDDDDPDPDDDDDDDD",
-  "PATCH /api/competence-team/people/{user_id}/allocation": "PDPDDDDDDPDPDDDDDDDD",
-  "PUT /api/competence-team/assignments": "PDPDDDDDDPDPDDDDDDDD",
-  "PUT /api/competence-team/rules": "PDPDDDDDDPDPDDDDDDDD"
+  "DELETE /api/competence-team/assignments/{assignment_id}": "PDPDDDDDDPDPDDDDDDDDDDDDD",
+  "GET /api/competence-team": "PDPDDDDDDPDPDDDDDDDDDDDDD",
+  "PATCH /api/competence-team/people/{user_id}/allocation": "PDPDDDDDDPDPDDDDDDDDDDDDD",
+  "PUT /api/competence-team/assignments": "PDPDDDDDDPDPDDDDDDDDDDDDD",
+  "PUT /api/competence-team/rules": "PDPDDDDDDPDPDDDDDDDDDDDDD"
  }
 }

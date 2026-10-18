@@ -38,7 +38,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Iterable, Optional
 
-from sqlalchemy import and_, exists, not_, or_, select
+from sqlalchemy import and_, exists, not_, or_, select, true
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased, load_only
@@ -78,23 +78,27 @@ WORK_ROLES = (UserRole.recruiter,)
 
 
 def working_assignment_job_ids(
-    user_ids: Optional[list[int]] = None, *, exclude_parked: bool = False
+    user_ids: Optional[list[int]] = None,
+    *,
+    exclude_parked: bool = False,
+    active_only: bool = True,
 ):
     """Rekrutacje z AKTYWNYM przypisaniem (punkt 2 reguły).
 
     Propozycja (``proposed``) i lustro prowadzącego (``source = 'owner'``) się
     nie liczą; liczą się wyłącznie aktywne konta. ``exclude_parked`` — reguła
     zespołu (bez „Poprzednich rekruterów”); bez niego — dostęp i historia.
+    ``active_only=False`` — także konta wyłączone (przekazanie pracy osoby,
+    która odeszła: jej rekrutacje muszą przejść, choć zespół jej nie liczy).
     """
-    subq = (
-        select(JobWorkAssignment.job_id)
-        .join(User, User.id == JobWorkAssignment.user_id)
-        .where(
-            JobWorkAssignment.state == "active",
-            JobWorkAssignment.source != "owner",
-            User.is_active.is_(True),
-        )
+    subq = select(JobWorkAssignment.job_id).where(
+        JobWorkAssignment.state == "active",
+        JobWorkAssignment.source != "owner",
     )
+    if active_only:
+        subq = subq.join(User, User.id == JobWorkAssignment.user_id).where(
+            User.is_active.is_(True)
+        )
     if user_ids is not None:
         subq = subq.where(JobWorkAssignment.user_id.in_(user_ids))
     if exclude_parked:
@@ -104,11 +108,12 @@ def working_assignment_job_ids(
     return subq
 
 
-def owner_is_working_clause():
+def owner_is_working_clause(*, active_only: bool = True):
     """Prowadzący (``jobs.recruiter_id``) pracuje nad rekrutacją (punkt 1).
 
-    Liczy się aktywne konto; prowadzący zdjęty RĘCZNIE w bieżącym stanie
-    requestu nie wraca (lustro ``request_allocation._blocked``), tak samo
+    Liczy się aktywne konto (``active_only=False`` — także wyłączone, jak
+    w ``working_assignment_job_ids``); prowadzący zdjęty RĘCZNIE w bieżącym
+    stanie requestu nie wraca (lustro ``request_allocation._blocked``), tak samo
     prowadzący wśród „Poprzednich rekruterów”. Klauzula skorelowana
     z zewnętrznym ``Job`` — nie podzapytanie po ``jobs``.
     """
@@ -129,30 +134,32 @@ def owner_is_working_clause():
     )
     return and_(
         Job.recruiter_id.is_not(None),
-        active_owner,
+        active_owner if active_only else true(),
         not_(released_manually),
         not_(parked_exists(Job.id, Job.recruiter_id)),
     )
 
 
 def manual_collaborator_job_ids(
-    user_ids: Optional[list[int]] = None, *, exclude_parked: bool = False
+    user_ids: Optional[list[int]] = None,
+    *,
+    exclude_parked: bool = False,
+    active_only: bool = True,
 ):
     """Rekrutacje z RĘCZNIE dopisanym współpracownikiem (punkt 3).
 
     Wiersze ``auto_cc`` (cała kategoria kompetencji) się nie liczą — to
     informacja, kto może request wziąć, a nie kto nad nim pracuje.
-    ``exclude_parked`` jak w ``working_assignment_job_ids``.
+    ``exclude_parked`` i ``active_only`` jak w ``working_assignment_job_ids``.
     """
-    subq = (
-        select(JobCollaborator.job_id)
-        .join(User, User.id == JobCollaborator.user_id)
-        .where(
-            JobCollaborator.source == JobCollaboratorSource.manual,
-            JobCollaborator.removed_from_auto_cc.is_(False),
-            User.is_active.is_(True),
-        )
+    subq = select(JobCollaborator.job_id).where(
+        JobCollaborator.source == JobCollaboratorSource.manual,
+        JobCollaborator.removed_from_auto_cc.is_(False),
     )
+    if active_only:
+        subq = subq.join(User, User.id == JobCollaborator.user_id).where(
+            User.is_active.is_(True)
+        )
     if user_ids is not None:
         subq = subq.where(JobCollaborator.user_id.in_(user_ids))
     if exclude_parked:
@@ -162,18 +169,34 @@ def manual_collaborator_job_ids(
     return subq
 
 
-def jobs_worked_by_clause(user_ids: list[int], *, include_parked: bool = False):
+def jobs_worked_by_clause(
+    user_ids: list[int], *, include_parked: bool = False, active_only: bool = True
+):
     """Filtr „Rekruter” — któraś z osób jest Rekruterem rekrutacji.
 
     ``include_parked`` (zakres „Wszystkie”): także rekrutacje, przy których
     osoba jest wśród „Poprzednich rekruterów” — inaczej po zamknięciu nikt nie
     znalazłby swoich zamkniętych rekrutacji. Jawnie, bo zwolnione przy
     zejściu z P1 przypisanie samo by jej nie znalazło.
+    ``active_only=False`` — także osoby z wyłączonym kontem (przekazanie pracy
+    po odejściu, ``app/services/hr/handover.py``); listy i liczniki zostają
+    przy domyślnym ``True``.
     """
     clause = or_(
-        and_(Job.recruiter_id.in_(user_ids), owner_is_working_clause()),
-        Job.id.in_(working_assignment_job_ids(user_ids, exclude_parked=True)),
-        Job.id.in_(manual_collaborator_job_ids(user_ids, exclude_parked=True)),
+        and_(
+            Job.recruiter_id.in_(user_ids),
+            owner_is_working_clause(active_only=active_only),
+        ),
+        Job.id.in_(
+            working_assignment_job_ids(
+                user_ids, exclude_parked=True, active_only=active_only
+            )
+        ),
+        Job.id.in_(
+            manual_collaborator_job_ids(
+                user_ids, exclude_parked=True, active_only=active_only
+            )
+        ),
     )
     if include_parked:
         clause = or_(clause, Job.id.in_(parked_job_ids(user_ids)))

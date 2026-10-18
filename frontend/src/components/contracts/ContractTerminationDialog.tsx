@@ -6,6 +6,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle } from "lucide-react";
 import {
   CONTRACT_TERMINATION_REASONS,
+  contractEquipmentApi,
   contractsApi,
   type AgreementTerminationMode,
   type AgreementTerminationParty,
@@ -28,6 +29,11 @@ import {
 } from "@/lib/contract-termination";
 import { warsawToday } from "@/lib/warsaw-date";
 import { documentsHref } from "@/lib/b2b-documents";
+import {
+  useContractEquipmentRegister,
+  useCreateReturnTask,
+} from "@/lib/api/equipment";
+import { assignmentLabel } from "@/components/equipment/equipment-format";
 
 interface Props {
   /** Jedna umowa = „Zakończ współpracę"; kilka = „Oznacz zakończone" w rejestrze. */
@@ -113,6 +119,28 @@ export function ContractTerminationDialog({
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
   const [changed, setChanged] = useState(0);
 
+  // „Zwrot sprzętu” (moduł „Sprzęt”, „Ludzie w NEXUSIE”): co konsultant ma
+  // oddać i zadanie odbioru dla recepcji. Wyłączony moduł (404) i brak
+  // uprawnień (403) chowają sekcję — zakończenie działa jak dotąd.
+  const equipmentRegister = useContractEquipmentRegister(contractIds[0], !bulk);
+  const manualEquipment = useQuery({
+    queryKey: ["contract-equipment", contractIds[0]],
+    queryFn: () => contractEquipmentApi.list(contractIds[0]).then((r) => r.data),
+    enabled: !bulk,
+    retry: false,
+  });
+  const createReturnTask = useCreateReturnTask();
+  const [planReturn, setPlanReturn] = useState(true);
+  const [returnTaskError, setReturnTaskError] = useState<string | null>(null);
+  const registerActive = equipmentRegister.data?.active ?? [];
+  const manualPending = (manualEquipment.data ?? []).filter(
+    (row) =>
+      row.return_status === "pending" &&
+      (row as { assignment_id?: number | null }).assignment_id == null,
+  );
+  const hasEquipmentToReturn = registerActive.length + manualPending.length > 0;
+  const canPlanReturn = !bulk && equipmentRegister.isSuccess && hasEquipmentToReturn;
+
   const set = (patch: Partial<TerminationFormState>) =>
     setForm((prev) => {
       const next = { ...prev, ...patch };
@@ -168,6 +196,19 @@ export function ContractTerminationDialog({
           agreement_termination: agreement,
         });
       }
+      // Zadanie odbioru sprzętu dla recepcji — jak załącznik: zakończenie jest
+      // już zapisane, więc błąd tylko się pokazuje.
+      let returnError: string | null = null;
+      if (canPlanReturn && planReturn) {
+        try {
+          await createReturnTask.mutateAsync(contractIds[0]);
+        } catch (error: unknown) {
+          returnError = apiErrorMessage(
+            error,
+            "Nie udało się założyć zadania odbioru sprzętu.",
+          );
+        }
+      }
       // Załącznik osobnym żądaniem — zakończenie jest już zapisane, więc
       // padnięty upload nie może go cofnąć ani udawać, że nic się nie stało.
       let uploadError: string | null = null;
@@ -183,13 +224,14 @@ export function ContractTerminationDialog({
           }
         }
       }
-      return { count, uploadError };
+      return { count, uploadError, returnError };
     },
-    onSuccess: ({ count, uploadError }) => {
+    onSuccess: ({ count, uploadError, returnError }) => {
       invalidate();
-      if (uploadError) {
+      if (uploadError || returnError) {
         setChanged(count);
         setAttachmentError(uploadError);
+        setReturnTaskError(returnError);
         return;
       }
       onSuccess({ changed: count });
@@ -207,7 +249,7 @@ export function ContractTerminationDialog({
       ? "Umowa nie ma zapisanego okresu wypowiedzenia — wpisz datę ręcznie."
       : "Koniec okresu wypowiedzenia lub dzień wskazany w porozumieniu";
 
-  if (attachmentError) {
+  if (attachmentError || returnTaskError) {
     return (
       <AppModal
         open
@@ -225,10 +267,19 @@ export function ContractTerminationDialog({
           </button>
         }
       >
-        <p role="alert" className="text-sm text-destructive">
-          Zakończenie współpracy jest zapisane, ale załącznik nie trafił do
-          dokumentów kontraktu: {attachmentError} Dodaj go w zakładce „Dokumenty".
-        </p>
+        {attachmentError ? (
+          <p role="alert" className="text-sm text-destructive">
+            Zakończenie współpracy jest zapisane, ale załącznik nie trafił do
+            dokumentów kontraktu: {attachmentError} Dodaj go w zakładce „Dokumenty".
+          </p>
+        ) : null}
+        {returnTaskError ? (
+          <p role="alert" className="text-sm text-destructive">
+            Zakończenie współpracy jest zapisane, ale recepcja nie dostała
+            zadania odbioru sprzętu: {returnTaskError} Daj znać recepcji, że
+            sprzęt jest do odebrania.
+          </p>
+        ) : null}
       </AppModal>
     );
   }
@@ -426,6 +477,40 @@ export function ContractTerminationDialog({
             </div>
           )}
         </div>
+
+        {!bulk && hasEquipmentToReturn ? (
+          <div className="rounded-md border border-border p-3 space-y-2">
+            <p className="text-sm font-medium">Zwrot sprzętu</p>
+            <ul className="space-y-0.5 text-xs text-muted-foreground">
+              {registerActive.map((row) => (
+                <li key={`r-${row.assignment_id}`}>
+                  {assignmentLabel(row)}
+                  {row.ownership === "klienta" ? " · zwrot do klienta" : ""}
+                </li>
+              ))}
+              {manualPending.map((row) => (
+                <li key={`m-${row.id}`}>
+                  {row.brand_model || "Sprzęt"}
+                  {row.serial_number ? ` · ${row.serial_number}` : ""}
+                  {row.owner === "client" ? " · sprzęt klienta" : ""}
+                </li>
+              ))}
+            </ul>
+            {canPlanReturn ? (
+              <label className="flex items-start gap-2">
+                <input
+                  type="checkbox"
+                  checked={planReturn}
+                  onChange={(e) => setPlanReturn(e.target.checked)}
+                  className="mt-0.5"
+                />
+                <span className="text-sm">
+                  Załóż recepcji zadanie odbioru sprzętu na dzień zakończenia
+                </span>
+              </label>
+            ) : null}
+          </div>
+        ) : null}
 
         <label className="block">
           <span className="text-xs text-muted-foreground">

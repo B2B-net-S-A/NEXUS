@@ -19,11 +19,16 @@
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
   "recruiter+amounts_edit",
-  "automation"
+  "automation",
+  "employee",
+  "recruiter+people_admin",
+  "recruiter+payroll",
+  "recruiter+equipment",
+  "recruiter+cases"
  ],
  "routes": {
-  "GET /api/candidates/stages/{stage_id}/cv/branded/versions/{version_number}/pdf": "PPPPPPDDPPPPPPPPPPPP",
-  "POST /api/candidates/stages/{stage_id}/cv/branded/preview-pdf": "PPPPPPDDPPPPPPPPPPPD",
-  "POST /api/cv-generator/generated/{generated_id}/editor/preview-pdf": "PPPPPPDDPPPPPPPPPPPD"
+  "GET /api/candidates/stages/{stage_id}/cv/branded/versions/{version_number}/pdf": "PPPPPPDDPPPPPPPPPPPPDPPPP",
+  "POST /api/candidates/stages/{stage_id}/cv/branded/preview-pdf": "PPPPPPDDPPPPPPPPPPPDDPPPP",
+  "POST /api/cv-generator/generated/{generated_id}/editor/preview-pdf": "PPPPPPDDPPPPPPPPPPPDDPPPP"
  }
 }

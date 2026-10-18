@@ -19,14 +19,19 @@
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
   "recruiter+amounts_edit",
-  "automation"
+  "automation",
+  "employee",
+  "recruiter+people_admin",
+  "recruiter+payroll",
+  "recruiter+equipment",
+  "recruiter+cases"
  ],
  "routes": {
-  "GET /api/recruitment-allocation/jobs/{job_id}": "PPPPPPDDPPPPPPPPPPPP",
-  "GET /api/recruitment-allocation/mine": "PPPPPPDDPPPPPPPPPPPP",
-  "GET /api/recruitment-allocation/onboarding": "PPPPPPDDPPPPPPPPPPPP",
-  "GET /api/recruitment-allocation/team": "PDPDDDDDDPDPDDDDDDDD",
-  "PATCH /api/recruitment-allocation/onboarding/{item_id}": "PPPPPPDDPPPPPPPPPPPD",
-  "PUT /api/recruitment-allocation/mode": "PDPDDDDDDPDPDDDDDDDD"
+  "GET /api/recruitment-allocation/jobs/{job_id}": "PPPPPPDDPPPPPPPPPPPPDPPPP",
+  "GET /api/recruitment-allocation/mine": "PPPPPPDDPPPPPPPPPPPPDPPPP",
+  "GET /api/recruitment-allocation/onboarding": "PPPPPPDDPPPPPPPPPPPPDPPPP",
+  "GET /api/recruitment-allocation/team": "PDPDDDDDDPDPDDDDDDDDDDDDD",
+  "PATCH /api/recruitment-allocation/onboarding/{item_id}": "PPPPPPDDPPPPPPPPPPPDDPPPP",
+  "PUT /api/recruitment-allocation/mode": "PDPDDDDDDPDPDDDDDDDDDDDDD"
  }
 }

@@ -154,27 +154,41 @@ async def fetch_workdays(date_from: date, date_to: date, bucket: str = "month") 
 
 
 async def sync_workdays(
-    db: AsyncSession, date_from: date, date_to: date, bucket: str = "month"
+    db: AsyncSession,
+    date_from: date,
+    date_to: date,
+    bucket: str = "month",
+    *,
+    source: str = "compass",
 ) -> WorkdaySyncResult:
-    """Zaciągnij dni robocze i zapisz je idempotentnie."""
+    """Zaciągnij dni robocze i zapisz je idempotentnie.
+
+    ``source="nexus"`` liczy te same wiersze z urlopów NEXUSA („Ludzie
+    w NEXUSIE”, krok 6) — bez sieci i bez flag Compassa.
+    """
     result = WorkdaySyncResult()
     result.months_requested = (
         (date_to.year - date_from.year) * 12 + (date_to.month - date_from.month) + 1
     )
 
-    if not settings.COMPASS_WORKDAYS_ENABLED:
-        result.error = "disabled"
-        return result
-    if not settings.COMPASS_WORKDAYS_URL or not settings.COMPASS_WORKDAYS_SECRET:
-        result.error = "unconfigured"
-        return result
+    if source == "nexus":
+        from app.services.hr.availability_local import local_workdays_payload
 
-    try:
-        payload = await fetch_workdays(date_from, date_to, bucket)
-    except Exception as exc:  # noqa: BLE001 — awaria COMPASSA nie może wywalić NEXUSA
-        logger.warning("compass_workdays_fetch_failed error=%s", exc)
-        result.error = f"fetch_failed: {exc}"
-        return result
+        payload = await local_workdays_payload(db, date_from, date_to, bucket)
+    else:
+        if not settings.COMPASS_WORKDAYS_ENABLED:
+            result.error = "disabled"
+            return result
+        if not settings.COMPASS_WORKDAYS_URL or not settings.COMPASS_WORKDAYS_SECRET:
+            result.error = "unconfigured"
+            return result
+
+        try:
+            payload = await fetch_workdays(date_from, date_to, bucket)
+        except Exception as exc:  # noqa: BLE001 — awaria COMPASSA nie może wywalić NEXUSA
+            logger.warning("compass_workdays_fetch_failed error=%s", exc)
+            result.error = f"fetch_failed: {exc}"
+            return result
 
     result.basis = payload.get("basis")
     if result.basis and result.basis != EXPECTED_BASIS:
@@ -229,7 +243,7 @@ async def sync_workdays(
             "absence_days": float(row.get("absence_days") or 0),
             "working_days": float(row.get("working_days") or 0),
             "basis": EXPECTED_BASIS,
-            "source": "compass",
+            "source": source,
             "synced_at": datetime.now(timezone.utc),
         }
         key = (user_id, p_start, p_end)

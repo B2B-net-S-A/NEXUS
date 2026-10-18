@@ -19,12 +19,17 @@
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
   "recruiter+amounts_edit",
-  "automation"
+  "automation",
+  "employee",
+  "recruiter+people_admin",
+  "recruiter+payroll",
+  "recruiter+equipment",
+  "recruiter+cases"
  ],
  "routes": {
-  "GET /api/kpi-targets": "PDPDDDDDDPDPDDDDDDDD",
-  "GET /api/kpi-targets/history": "PDPDDDDDDPDPDDDDDDDD",
-  "PUT /api/kpi-targets/role-default": "PDPDDDDDDPDPDDDDDDDD",
-  "PUT /api/kpi-targets/user-target": "PDPDDDDDDPDPDDDDDDDD"
+  "GET /api/kpi-targets": "PDPDDDDDDPDPDDDDDDDDDDDDD",
+  "GET /api/kpi-targets/history": "PDPDDDDDDPDPDDDDDDDDDDDDD",
+  "PUT /api/kpi-targets/role-default": "PDPDDDDDDPDPDDDDDDDDDDDDD",
+  "PUT /api/kpi-targets/user-target": "PDPDDDDDDPDPDDDDDDDDDDDDD"
  }
 }

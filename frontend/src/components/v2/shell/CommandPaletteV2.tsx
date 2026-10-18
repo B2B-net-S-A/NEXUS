@@ -28,6 +28,7 @@ import {
   visiblePaletteEntries,
 } from "@/lib/nav-registry";
 import { hasSectionAccess } from "@/lib/section-access";
+import { useHrNavState } from "@/lib/api/hr";
 import { useCandidateContactFeature } from "@/hooks/useCandidateContactFeature";
 import { useCapabilities } from "@/hooks/useCapability";
 import { useAuthStore } from "@/store/auth";
@@ -253,11 +254,20 @@ export function CommandPaletteV2({
   // Każda pozycja Ustawień, którą ta osoba widzi — ⌘K „reguły CV" prowadzi
   // prosto do ekranu (przebudowa Ustawień 22.09.2026).
   const settingsItems = useMemo(() => listedSettingsItems(user), [user]);
+  const {
+    myTime: hrMyTime,
+    people: hrPeople,
+    equipment: hrEquipment,
+    care: hrCare,
+  } = useHrNavState(user);
   const visibleNav = useMemo(
     () =>
       visiblePaletteEntries(
         user,
-        { contactQueueEnabled: contactFeature.enabled },
+        {
+          contactQueueEnabled: contactFeature.enabled,
+          hr: { myTime: hrMyTime, people: hrPeople, equipment: hrEquipment, care: hrCare },
+        },
         (capability) => can[capability],
       ).map((entry) => ({
         id: entry.id,
@@ -266,7 +276,7 @@ export function CommandPaletteV2({
         icon: entry.icon,
         keywords: entry.paletteKeywords ?? [],
       })),
-    [user, contactFeature.enabled, can],
+    [user, contactFeature.enabled, can, hrMyTime, hrPeople, hrEquipment, hrCare],
   );
 
   // Po wpisaniu ≥2 znaków pozycje nawigacji pasujące do zapytania zostają

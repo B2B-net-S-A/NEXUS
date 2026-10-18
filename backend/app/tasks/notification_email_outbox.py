@@ -4,8 +4,10 @@ Dzwonek ma za dużo wpisów, żeby był kanałem dla spraw, na które ktoś czek
 (pomiar 30.09–07.10.2026: czytane 0–8%). Mailem idzie od razu tylko to, co
 blokuje cudzą pracę — rodzaje `IMMEDIATE_KINDS` z
 `notification_delivery` (CV czeka na przegląd DL, CV wróciło do poprawy, nowa
-rekrutacja, prośba o potwierdzenie podpisu, awaria automatu). Resztę zbiera
-poranny skrót (`tasks/daily_digest_email.py`).
+rekrutacja, prośba o potwierdzenie podpisu, awaria automatu, od 17.10.2026
+sprawy „Czas i ludzie” — treść składa `services/hr/hr_mail.py`, bez rodzaju
+nieobecności i kwot). Resztę zbiera poranny skrót
+(`tasks/daily_digest_email.py`).
 
 Pętla co minutę bierze wiersze `Notification` tych typów bez `email_sent_at`
 i wysyła je wzorcem `job_deadline_alerts`: rezerwacja `email_send_started_at`
@@ -17,11 +19,11 @@ maili (`email_opted_out`). Powiadomienie starsze niż
 `MAX_AGE` nie idzie mailem — po dniu przerwy w wysyłce mail byłby już tylko
 przypomnieniem o rzeczy załatwionej.
 
-Wiersz, którego odbiorca nie dostaje (typ tylko dla admina, brak sekcji,
-grupa wyłączona dla roli), zostaje bez rezerwacji do `MAX_AGE`. Przebieg idzie
-wtedy dalej kolejnymi stronami (kursor po `created_at`, `id`), aż spróbuje
-`BATCH` wysyłek — inaczej 50 takich wierszy zatrzymywało maile wszystkich
-na dobę (17.10.2026).
+Wiersz, którego odbiorca nie dostaje (wyciszona kategoria, typ tylko dla
+admina, brak sekcji, grupa wyłączona dla roli), zostaje bez rezerwacji do
+`MAX_AGE`. Przebieg idzie wtedy dalej kolejnymi
+stronami (kursor po `created_at`, `id`), aż spróbuje `BATCH` wysyłek —
+inaczej 50 takich wierszy zatrzymywało maile wszystkich na dobę (17.10.2026).
 """
 
 from __future__ import annotations
@@ -39,9 +41,12 @@ from app.models.notification import Notification, NotificationType
 from app.models.user import User
 from app.services import loop_heartbeat
 from app.services.email import email_channel_enabled, render_notification_email
+from app.services.hr.hr_mail import mail_text
 from app.services.m365.system_mail import DELIVERY_UNCERTAIN, app_mail_send_outcome
 from app.services.notification_access import user_can_receive_notification
 from app.services.notification_delivery import (
+    HR_MAIL_KIND,
+    HR_MAIL_TYPES,
     IMMEDIATE_KINDS,
     email_queue_clause,
     email_wanted,
@@ -93,6 +98,8 @@ def kind_clause(kind: str):
         return ntype == NotificationType.b2b_signature_requested
     if kind == "system_failure":
         return ntype == NotificationType.automation_failing
+    if kind == HR_MAIL_KIND:
+        return ntype.in_([NotificationType(value) for value in HR_MAIL_TYPES])
     raise ValueError(kind)
 
 
@@ -241,10 +248,14 @@ async def _deliver(
         await _set(db, notif.id, email_send_started_at=None)
         return None
 
+    title, message = notif.title, notif.message
+    if kind == HR_MAIL_KIND:
+        # Mail wychodzi poza aplikację: bez rodzaju nieobecności i kwot (D6).
+        title, message = mail_text(notif.notification_type, title, message)
     subject, text_body, html_body = render_notification_email(
         recipient_name=user.name or user.email,
-        title=notif.title,
-        message=notif.message,
+        title=title,
+        message=message,
         deep_link_path=notif.link or "/dashboard",
     )
     to_addr = user.email

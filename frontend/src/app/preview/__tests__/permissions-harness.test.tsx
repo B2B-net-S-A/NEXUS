@@ -34,10 +34,10 @@ afterEach(() => {
 });
 
 describe("/preview/permissions", () => {
-  it("domyślnie: zakładka „Uprawnienia”, rola Finanse, dziewięć przełączników", async () => {
+  it("domyślnie: zakładka „Uprawnienia”, rola Finanse, trzynaście przełączników", async () => {
     render(<PermissionsPreviewPage />);
 
-    expect(await screen.findAllByRole("switch")).toHaveLength(9);
+    expect(await screen.findAllByRole("switch")).toHaveLength(13);
     expect(screen.getByRole("button", { name: "Finanse" })).toHaveAttribute(
       "aria-pressed",
       "true",
@@ -77,7 +77,8 @@ describe("/preview/permissions", () => {
         name: "Kontrakty i zamówienia: tworzenie i edycja",
       }),
     ).toBeChecked();
-    expect(within(group).getAllByRole("checkbox")).toHaveLength(6);
+    // Sześć z grup Delivery i Pieniądze + Kadry, Płace, Sprzęt (TCM ma Sprawy).
+    expect(within(group).getAllByRole("checkbox")).toHaveLength(9);
     expect(group).toHaveTextContent(
       "Lista pokazuje tylko to, czego rola Talent Community Manager nie daje.",
     );

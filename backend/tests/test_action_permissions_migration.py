@@ -33,6 +33,13 @@ SEED_DIVERGENCE_AFTER_0273: dict[str, tuple[str, str]] = {
 ROLES_ADDED_AFTER_0273: dict[str, str] = {
     UserRole.trainee.value: "0374_trainee_call_lists.py",
     UserRole.automation.value: "0446_automation_role.py",
+    UserRole.employee.value: "0456_hr_access.py",
+}
+
+# Migracje, których SQL stoi w module schematu (to samo źródło czyta
+# entrypoint przez `hr_schema_bundle`) — test czyta migrację razem z nim.
+MIGRATION_SQL_MODULES: dict[str, str] = {
+    "0456_hr_access.py": "app/services/hr_access_schema.py",
 }
 
 # Role wycofane w 0411 (sourcer, TAC → rekruter). Zamrożona migracja 0273 nadal
@@ -125,6 +132,10 @@ def test_signature_recovery_uses_migration_only_when_policy_is_missing() -> None
 def test_roles_added_after_0273_are_seeded_by_their_own_migration() -> None:
     for role, migration_file in ROLES_ADDED_AFTER_0273.items():
         source = (MIGRATION_PATH.parent / migration_file).read_text()
+        module = MIGRATION_SQL_MODULES.get(migration_file)
+        if module is not None:
+            assert f"import {Path(module).stem}" in source
+            source += (BACKEND_ROOT / module).read_text()
         assert "INSERT INTO rbac_role_action_permissions" in source
         assert f"SELECT DISTINCT '{role}', action" in source
         # Komplet wierszy dla każdej akcji; „manage” dokładnie tam, gdzie daje

@@ -19,11 +19,16 @@
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
   "recruiter+amounts_edit",
-  "automation"
+  "automation",
+  "employee",
+  "recruiter+people_admin",
+  "recruiter+payroll",
+  "recruiter+equipment",
+  "recruiter+cases"
  ],
  "routes": {
-  "DELETE /api/client-knowledge/{knowledge_id}": "PDDPDDDDPPPDDDPDDDDD",
-  "GET /api/clients/{client_id}/knowledge": "PPDBPDDDBBBDPPPPDPPP",
-  "POST /api/clients/{client_id}/knowledge": "PDDBDDDDBBBDDDPDDDDD"
+  "DELETE /api/client-knowledge/{knowledge_id}": "PDDPDDDDPPPDDDPDDDDDDDDDD",
+  "GET /api/clients/{client_id}/knowledge": "PPDBPDDDBBBDPPPPDPPPDDDDD",
+  "POST /api/clients/{client_id}/knowledge": "PDDBDDDDBBBDDDPDDDDDDDDDD"
  }
 }

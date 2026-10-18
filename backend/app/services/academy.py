@@ -593,6 +593,13 @@ async def perform_action(
                 },
             )
         )
+        # Recepcja (moduł „Sprzęt”): zadanie zestawu po podpisie, logistyka
+        # i zwrot po odejściu. Hak sam łapie swoje awarie w savepoincie.
+        from app.services import academy_edition
+
+        await academy_edition.on_status_changed(
+            db, row, before=before, actor_id=user_id
+        )
     return row
 
 

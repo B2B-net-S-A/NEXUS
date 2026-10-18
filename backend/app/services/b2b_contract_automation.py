@@ -40,6 +40,9 @@ from app.services.contract_candidate_contact import (
     normalize_phone,
 )
 from app.services.candidate_contact_hooks import maybe_close_contact_opportunity
+from app.services.contract_client_manager import (
+    default_from_job as default_client_manager,
+)
 from app.services.cost_orders import skips_standard_order_automation
 from app.services.multi_consultant_orders import is_multi_consultant_client
 from app.services.order_engagement_separation import has_open_group_line
@@ -1202,6 +1205,10 @@ async def ensure_b2b_employment_draft(
         )
         if seeded_rate_candidate is not None:
             contract.rate_candidate_currency = "PLN"
+        # D8 (17.10.2026): hiring manager rekrutacji jako menedżer u klienta.
+        contract.client_pm_contact_id = await default_client_manager(
+            db, job=job, client_id=job.client_id
+        )
         db.add(contract)
         await db.flush()
         existing_detail = None
@@ -1209,6 +1216,12 @@ async def ensure_b2b_employment_draft(
         contract = contracts[0]
         if contract.job_id is None:
             contract.job_id = job.id
+            # Szkic bez rekrutacji (np. z maila zamówienia) właśnie ją dostał —
+            # pusty menedżer bierze hiring managera; wpisanego nie ruszamy.
+            if contract.client_pm_contact_id is None:
+                contract.client_pm_contact_id = await default_client_manager(
+                    db, job=job, client_id=contract.client_id
+                )
         existing_detail = contract.b2b_detail
         skeletal_pipeline_draft = await _is_skeletal_pipeline_draft(
             db,

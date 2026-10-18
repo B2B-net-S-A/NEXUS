@@ -3,6 +3,8 @@
 // Katalog kafelków (panel z prawej): kategorie, wyszukiwarka, „Własna metryka".
 // Kafelki, do których konto nie ma dostępu, są widoczne i wyszarzone z powodem
 // — znikający kafelek czytałby się jak brak funkcji, a nie brak uprawnień.
+// Wyjątek: kafelki wyłączonego modułu „Ludzi w NEXUSIE” znikają, bo funkcji
+// naprawdę nie ma (`isTemplateOffered`).
 
 import { useMemo, useState } from "react"
 import { Lock, Plus, Search, Undo2, Wand2 } from "lucide-react"
@@ -19,8 +21,10 @@ import {
 import {
   TILE_CATEGORY_LABELS,
   TILE_TEMPLATES,
+  isTemplateOffered,
   templateAvailability,
   type TileCategory,
+  type TileHrContext,
   type TileTemplate,
 } from "@/lib/dashboard-tiles/catalog"
 import type { DashboardPanelKey } from "@/lib/api/userDashboard"
@@ -44,6 +48,7 @@ export function TileCatalogSheet({
   highlightKey,
   hiddenPanels = [],
   onRestorePanel,
+  hr,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -54,17 +59,25 @@ export function TileCatalogSheet({
   /** Listy nad kafelkami usunięte z pulpitu — katalog pozwala je przywrócić. */
   hiddenPanels?: DashboardPanelKey[]
   onRestorePanel?: (panel: DashboardPanelKey) => void
+  /** Stan „Ludzi w NEXUSIE” (`/api/hr/config`); brak = kafelków modułu nie ma. */
+  hr?: TileHrContext
 }) {
   const [query, setQuery] = useState("")
   const [category, setCategory] = useState<CategoryFilter>("all")
 
+  const offered = useMemo(() => TILE_TEMPLATES.filter((t) => isTemplateOffered(t, hr)), [hr])
   const counts = useMemo(() => {
-    const out: Record<string, number> = { all: TILE_TEMPLATES.length }
-    for (const t of TILE_TEMPLATES) out[t.category] = (out[t.category] ?? 0) + 1
+    const out: Record<string, number> = { all: offered.length }
+    for (const t of offered) out[t.category] = (out[t.category] ?? 0) + 1
     return out
-  }, [])
+  }, [offered])
+  // Kategoria bez żadnego kafelka (np. „Czas i ludzie” przy wyłączonych
+  // modułach) nie stoi w menu.
+  const categories = (["all", ...Object.keys(TILE_CATEGORY_LABELS)] as CategoryFilter[]).filter(
+    (c) => c === "all" || (counts[c] ?? 0) > 0,
+  )
 
-  const visible = TILE_TEMPLATES.filter((t) => {
+  const visible = offered.filter((t) => {
     if (category !== "all" && t.category !== category) return false
     if (!query.trim()) return true
     const q = normalize(query.trim())
@@ -98,7 +111,7 @@ export function TileCatalogSheet({
             aria-label="Kategorie kafelków (telefon)"
             className="-mx-1 mt-2 flex gap-1 overflow-x-auto px-1 pb-1 sm:hidden"
           >
-            {(["all", ...Object.keys(TILE_CATEGORY_LABELS)] as CategoryFilter[]).map((c) => (
+            {categories.map((c) => (
               <button
                 key={c}
                 type="button"
@@ -122,7 +135,7 @@ export function TileCatalogSheet({
             aria-label="Kategorie kafelków"
             className="hidden w-52 shrink-0 flex-col gap-0.5 border-r border-border p-3 sm:flex"
           >
-            {(["all", ...Object.keys(TILE_CATEGORY_LABELS)] as CategoryFilter[]).map((c) => (
+            {categories.map((c) => (
               <button
                 key={c}
                 type="button"
@@ -189,7 +202,7 @@ export function TileCatalogSheet({
               </p>
             ) : null}
             {visible.map((t) => {
-              const availability = templateAvailability(t, user)
+              const availability = templateAvailability(t, user, hr)
               return (
                 <div
                   key={t.key}

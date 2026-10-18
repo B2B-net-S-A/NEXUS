@@ -70,6 +70,9 @@ _GATE_QUALNAME_MARKERS = (
     "require_any_permission",
     "require_client_contracts_edit",
     "_require_board_trend_reader",
+    # „Ludzie w NEXUSIE” (16.10.2026): kartoteka, samoobsługa i przełączniki
+    # modułów — fabryki w ``app/api/hr_gates.py``.
+    "require_hr_",
 )
 
 # The bare authentication dependency: proves identity, decides nothing.

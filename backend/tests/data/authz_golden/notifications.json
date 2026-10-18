@@ -19,22 +19,27 @@
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
   "recruiter+amounts_edit",
-  "automation"
+  "automation",
+  "employee",
+  "recruiter+people_admin",
+  "recruiter+payroll",
+  "recruiter+equipment",
+  "recruiter+cases"
  ],
  "routes": {
-  "GET /api/notifications": "PPPPPPPDPPPPPPPPPPPP",
-  "GET /api/notifications/chats": "PPPPPPPDPPPPPPPPPPPP",
-  "GET /api/notifications/count": "PPPPPPPDPPPPPPPPPPPP",
-  "GET /api/notifications/interviews": "PPPPPPPDPPPPPPPPPPPP",
-  "GET /api/notifications/jobs": "PPPPPPPDPPPPPPPPPPPP",
-  "GET /api/notifications/preferences": "PPPPPPPDPPPPPPPPPPPP",
-  "PATCH /api/notifications/read-all": "PPPPPPPDPPPPPPPPPPPP",
-  "PATCH /api/notifications/{notification_id}/read": "PPPPPPPDPPPPPPPPPPPP",
-  "PUT /api/notifications/chats/read": "PPPPPPPDPPPPPPPPPPPP",
-  "PUT /api/notifications/interviews/read": "PPPPPPPDPPPPPPPPPPPP",
-  "PUT /api/notifications/preferences/{category}": "PPPPPPPDPPPPPPPPPPPP",
-  "PUT /api/notifications/read-all": "PPPPPPPDPPPPPPPPPPPP",
-  "PUT /api/notifications/topics/read": "PPPPPPPDPPPPPPPPPPPP",
-  "PUT /api/notifications/{notification_id}/read": "PPPPPPPDPPPPPPPPPPPP"
+  "GET /api/notifications": "PPPPPPPDPPPPPPPPPPPPPPPPP",
+  "GET /api/notifications/chats": "PPPPPPPDPPPPPPPPPPPPPPPPP",
+  "GET /api/notifications/count": "PPPPPPPDPPPPPPPPPPPPPPPPP",
+  "GET /api/notifications/interviews": "PPPPPPPDPPPPPPPPPPPPPPPPP",
+  "GET /api/notifications/jobs": "PPPPPPPDPPPPPPPPPPPPPPPPP",
+  "GET /api/notifications/preferences": "PPPPPPPDPPPPPPPPPPPPPPPPP",
+  "PATCH /api/notifications/read-all": "PPPPPPPDPPPPPPPPPPPPPPPPP",
+  "PATCH /api/notifications/{notification_id}/read": "PPPPPPPDPPPPPPPPPPPPPPPPP",
+  "PUT /api/notifications/chats/read": "PPPPPPPDPPPPPPPPPPPPPPPPP",
+  "PUT /api/notifications/interviews/read": "PPPPPPPDPPPPPPPPPPPPPPPPP",
+  "PUT /api/notifications/preferences/{category}": "PPPPPPPDPPPPPPPPPPPPPPPPP",
+  "PUT /api/notifications/read-all": "PPPPPPPDPPPPPPPPPPPPPPPPP",
+  "PUT /api/notifications/topics/read": "PPPPPPPDPPPPPPPPPPPPPPPPP",
+  "PUT /api/notifications/{notification_id}/read": "PPPPPPPDPPPPPPPPPPPPPPPPP"
  }
 }

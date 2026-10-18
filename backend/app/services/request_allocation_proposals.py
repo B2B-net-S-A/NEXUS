@@ -31,6 +31,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
 from app.core.config import settings
+from app.services.hr.availability_local import availability_enabled
 from app.core.scheduling import business_today
 from app.models.client import Client
 from app.models.competence_category import CompetenceCategory, UserCompetenceCategory
@@ -211,7 +212,7 @@ async def load_pending(db: AsyncSession) -> list[PendingProposal]:
 async def leave_data_known(db: AsyncSession) -> bool:
     """Czy urlopy z Compassa są włączone i świeże — bez tego panel nie może
     twierdzić, że proponowana osoba jest dziś w pracy."""
-    if not settings.COMPASS_AVAILABILITY_ENABLED:
+    if not availability_enabled():
         return False
     return bool((await workforce_context(db)).fresh)
 

@@ -108,6 +108,8 @@ def test_finance_gets_contracts_and_the_finance_module() -> None:
         "amounts_view",
         "amounts_edit",
         "finance_module",
+        # D2 (16.10.2026): Finanse prowadzą stawki pracowników i rozliczenie.
+        "payroll",
     }
     assert access.sections[ProductSection.delivery] is SectionAccess.write
     assert access.sections[ProductSection.finance] is SectionAccess.write
@@ -134,6 +136,8 @@ def test_delivery_lead_and_talent_community_manager_keep_their_work() -> None:
         "delivery_view",
         "contract_status",
         "b2b_signature_confirmation",
+        # „Ludzie w NEXUSIE” (16.10.2026): TCM prowadzi skrzynkę administracja@.
+        "cases",
     }
     assert tcm.sections[ProductSection.delivery] is SectionAccess.write
     assert tcm.sections[ProductSection.finance] is SectionAccess.none
@@ -163,6 +167,7 @@ def test_multi_role_account_is_the_union_of_its_roles() -> None:
         "delivery_view",
         "contract_status",
         "b2b_signature_confirmation",
+        "cases",
     }
     assert access.sections[ProductSection.delivery] is SectionAccess.write
 

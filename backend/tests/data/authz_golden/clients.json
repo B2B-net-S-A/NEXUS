@@ -19,14 +19,19 @@
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
   "recruiter+amounts_edit",
-  "automation"
+  "automation",
+  "employee",
+  "recruiter+people_admin",
+  "recruiter+payroll",
+  "recruiter+equipment",
+  "recruiter+cases"
  ],
  "routes": {
-  "GET /api/clients": "PPDPPDDDPPPDPPPPDPPP",
-  "GET /api/clients/{client_id}": "PPDPPDDDPPPDPPPPDPPP",
-  "GET /api/clients/{client_id}/profile": "PPDPPDDDPPPDPPPPDPPP",
-  "PATCH /api/clients/{client_id}": "PDDPDDDDPPPDDDPDDDDD",
-  "POST /api/clients": "PDDPDDDDPPPDDDPDDDDD",
-  "POST /api/clients/{client_id}/merge-into/{target_id}": "PDDDDDDDDDDDDDDDDDDD"
+  "GET /api/clients": "PPDPPDDDPPPDPPPPDPPPDDDDD",
+  "GET /api/clients/{client_id}": "PPDPPDDDPPPDPPPPDPPPDDDDD",
+  "GET /api/clients/{client_id}/profile": "PPDPPDDDPPPDPPPPDPPPDDDDD",
+  "PATCH /api/clients/{client_id}": "PDDPDDDDPPPDDDPDDDDDDDDDD",
+  "POST /api/clients": "PDDPDDDDPPPDDDPDDDDDDDDDD",
+  "POST /api/clients/{client_id}/merge-into/{target_id}": "PDDDDDDDDDDDDDDDDDDDDDDDD"
  }
 }

@@ -19,17 +19,22 @@
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
   "recruiter+amounts_edit",
-  "automation"
+  "automation",
+  "employee",
+  "recruiter+people_admin",
+  "recruiter+payroll",
+  "recruiter+equipment",
+  "recruiter+cases"
  ],
  "routes": {
-  "GET /api/candidates/{candidate_id}/recommendations": "PPPPPPDDPPPPPPPPPPPP",
-  "GET /api/jobs/{job_id}/candidates-from-similar": "PPPPPPDDPPPPPPPPPPPP",
-  "GET /api/jobs/{job_id}/pipeline-scores": "PPPPPPDDPPPPPPPPPPPP",
-  "GET /api/jobs/{job_id}/recommendations": "PPPPPPDDPPPPPPPPPPPP",
-  "GET /api/recommendations/seeking-contractors": "PPPPPPDDPPPPPPPPPPPP",
-  "POST /api/candidates/{candidate_id}/assign-to-job/{job_id}": "PPPPPPDDPPPPPPPPPPPD",
-  "POST /api/jobs/{job_id}/generate-criteria-preview": "PDDPDDDDPPPDDDDDDDDD",
-  "POST /api/jobs/{job_id}/recompute-scores": "PDDPDDDDPPPDDDDDDDDD",
-  "POST /api/jobs/{job_id}/refresh-criteria": "PDDPDDDDPPPDDDDDDDDD"
+  "GET /api/candidates/{candidate_id}/recommendations": "PPPPPPDDPPPPPPPPPPPPDPPPP",
+  "GET /api/jobs/{job_id}/candidates-from-similar": "PPPPPPDDPPPPPPPPPPPPDPPPP",
+  "GET /api/jobs/{job_id}/pipeline-scores": "PPPPPPDDPPPPPPPPPPPPDPPPP",
+  "GET /api/jobs/{job_id}/recommendations": "PPPPPPDDPPPPPPPPPPPPDPPPP",
+  "GET /api/recommendations/seeking-contractors": "PPPPPPDDPPPPPPPPPPPPDPPPP",
+  "POST /api/candidates/{candidate_id}/assign-to-job/{job_id}": "PPPPPPDDPPPPPPPPPPPDDPPPP",
+  "POST /api/jobs/{job_id}/generate-criteria-preview": "PDDPDDDDPPPDDDDDDDDDDDDDD",
+  "POST /api/jobs/{job_id}/recompute-scores": "PDDPDDDDPPPDDDDDDDDDDDDDD",
+  "POST /api/jobs/{job_id}/refresh-criteria": "PDDPDDDDPPPDDDDDDDDDDDDDD"
  }
 }

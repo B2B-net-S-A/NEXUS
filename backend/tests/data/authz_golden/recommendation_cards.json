@@ -19,11 +19,16 @@
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
   "recruiter+amounts_edit",
-  "automation"
+  "automation",
+  "employee",
+  "recruiter+people_admin",
+  "recruiter+payroll",
+  "recruiter+equipment",
+  "recruiter+cases"
  ],
  "routes": {
-  "GET /api/recommendation-cards": "PPPPPPDDPPPPPPPPPPPP",
-  "POST /api/recommendation-cards/deal-breaker": "PPPPPPDDPPPPPPPPPPPD",
-  "PUT /api/recommendation-cards": "PPPPPPDDPPPPPPPPPPPD"
+  "GET /api/recommendation-cards": "PPPPPPDDPPPPPPPPPPPPDPPPP",
+  "POST /api/recommendation-cards/deal-breaker": "PPPPPPDDPPPPPPPPPPPDDPPPP",
+  "PUT /api/recommendation-cards": "PPPPPPDDPPPPPPPPPPPDDPPPP"
  }
 }

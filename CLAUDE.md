@@ -261,7 +261,7 @@ Generator CV, reguły CV klienta, zgoda RODO, interaktywne CV, automaty rekrutac
 - `automaty-rekrutacji-v3.md` — Automaty rekrutacji v3 (21.09.2026, migracja 0335)
 - `autonomiczny-przeplyw-cv.md` — Autonomiczny przepływ CV (17.09.2026)
 - `cv-w-procesie.md` — CV w procesie (13.10.2026, D4) · źródła AI w karcie, jedna lista „Do poprawy”
-- `edytor-cv-pelny-ekran.md` — Edytor CV na cały ekran — kartka, bloki, źródła, stała klauzula RODO (12.10.2026) · kontrakt HTML edytor ↔ Word, bloki i etykiety szablonu, blokada klauzuli (przeglądarka + serwer), pola w nawiasach, wpis `cv_file_downloaded`, panel „Do poprawy” (QC, uwagi generatora, kontrola AI, „Popraw wszystko”, `qc/transform`), AI na zaznaczeniu (`cv-ai/selection`, kontrola „bez nowych faktów”, klucz `cv_selection_edit`), polecenie dla całego CV (`cv-ai/command`, plan zmian sprawdzany przez kod, klucz `cv_editor_command`), historia wersji i powrót pliku Word (`…/versions`, `…/import-preview` bez zapisu, treść nakłada edytor), harness `/preview/cv-editor`
+- `edytor-cv-pelny-ekran.md` — Edytor CV na cały ekran — kartka, bloki, źródła, stała klauzula RODO (12.10.2026) · kontrakt HTML ↔ Word, klauzula RODO, „Do poprawy”, AI na zaznaczeniu i dla całego CV, historia wersji
 - `generator-cv-domyslnie-sciezka-sprzed-przebudowy.md` — Generator CV — domyślnie ścieżka sprzed przebudowy (`legacy_v7`, 10.09.2026)
 - `generator-cv-tylko-w-rekrutacji.md` — Generator CV tylko w rekrutacji (13.10.2026)
 - `generator-cv-v3-jeden-ekran-od-osoby.md` — Generator CV v3 — jeden ekran od osoby (23.09.2026)
@@ -307,7 +307,7 @@ Generator umów B2B, cykl życia kontraktu, zakończenie i cofnięcie, synchroni
 - `kontakt-do-konsultanta-na-umowie.md` — Kontakt do konsultanta na umowie (09.2026, migracja 0320)
 - `kontrakty-i-zamowienia-lista-z-panelem.md` — Kontrakty i Zamówienia: lista z panelem (wersja B, 29.09.2026)
 - `przedluzenie-zamowienia-wskrzesza-zakonczony.md` — Przedłużenie zamówienia wskrzesza zakończony kontrakt
-- `rejestr-aneksow-i-aneks-w-kontrakcie.md` — Rejestr aneksów i aneks w kontrakcie od wygenerowania (13.10.2026) · rejestr aneksów w „Generatorze aneksów”, jeden stan aneksu, aneks do umowy spoza Nexusa zapisany przy kontrakcie, „Bez kontraktu”, wybór osoby zamiast „Umowa spoza Nexusa”, kto wiąże aneks z kontraktem (edycja kontraktów, nie samo prawo generatora), dowiązanie umowy z Excela, wiersz rejestru po „Popraw”, skan podpisanego aneksu, zakładka „Aneksy” kontraktu jako rzut dokumentu, etykieta aneksu w „Umowach bieżących”
+- `rejestr-aneksow-i-aneks-w-kontrakcie.md` — Rejestr aneksów i aneks w kontrakcie od wygenerowania (13.10.2026) · jeden stan aneksu, aneks do umowy spoza Nexusa, kto wiąże aneks z kontraktem, skan podpisanego, zakładka „Aneksy”
 - `stawki-z-rekrutacji-w-zamowieniu-i-umowie.md` — Stawki z rekrutacji w zamówieniu i umowie (D7, 08.10.2026)
 - `synchronizacja-kontrakt-zamowienia.md` — Synchronizacja kontrakt ↔ zamówienia (09.2026, migracja 0304)
 - `umowa-b2b-jest-bezterminowa-dopoki-ktos-jej-recznie.md` — Umowa B2B jest bezterminowa, dopóki ktoś jej ręcznie nie zakończy (11.09.2026)
@@ -367,6 +367,16 @@ Traffit, COMPASS, CloudTalk, kalendarz i rozmowy u klienta, prepy w Teams, archi
 - `prepy-w-teams-transkrypt-notatka-i-ocena-prepu.md` — Prepy w Teams → transkrypt, notatka i ocena prepu (0370, 23.09.2026)
 - `przeniesienie-rekrutacji-z-traffita-falami.md` — Przeniesienie rekrutacji z Traffita do NEXUSA falami (11.10.2026) · próba i wykonanie fali, lista osób per stan jako źródło prawdy, remis czasu wpisów historii, osoby zdjęte w Traffit, bliźniaki, scalenie duplikatów, skutki otwarcia
 - `traffit-daily-sync-scheduled-import.md` — Traffit daily sync (scheduled import) · wyłączony na stałe 14.10.2026 (strażnik `traffit_retired.py`, 410, pętle nie startują) — co stoi, co zostało tylko w Traffit
+
+### Ludzie w NEXUSIE — `docs/claude/ludzie/`
+
+Moduły przeniesione z Compassa (bez Akademii) i sprzęt recepcji.
+
+- `modul-ludzie-dostep-schemat-i-przelaczenie.md` — „Ludzie w NEXUSIE” — dostęp, schemat, przełączenie z Compassa (16.10.2026)
+- `opieka-mapa-technologii-i-sprawy.md` — Opieka, mapa technologii, ATLAS, administracja@ (16.10.2026)
+- `runbook-przelaczenia-z-compassa.md` — Runbook przełączenia z Compassa na „Ludzi w NEXUSIE” (17.10.2026)
+- `sprzet-i-protokoly-recepcji.md` — Sprzęt i protokoły recepcji (D2–D10, 16.10.2026)
+- `urlopy-czas-place-wejscie-odejscie.md` — Urlopy i M365, „Mój miesiąc”, płace, wejście i odejście (16.10.2026)
 
 ### Programy — `docs/claude/programy/`
 

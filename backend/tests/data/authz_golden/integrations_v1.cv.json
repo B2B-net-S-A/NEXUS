@@ -19,11 +19,16 @@
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
   "recruiter+amounts_edit",
-  "automation"
+  "automation",
+  "employee",
+  "recruiter+people_admin",
+  "recruiter+payroll",
+  "recruiter+equipment",
+  "recruiter+cases"
  ],
  "routes": {
-  "GET /api/integrations/v1/recruitments/{job_id}/candidates/{candidate_id}/cv": "UUUUUUUUUUUUUUUUUUUU",
-  "GET /api/integrations/v1/recruitments/{job_id}/candidates/{candidate_id}/cv/file": "UUUUUUUUUUUUUUUUUUUU",
-  "POST /api/integrations/v1/recruitments/{job_id}/candidates/{candidate_id}/cv": "UUUUUUUUUUUUUUUUUUUU"
+  "GET /api/integrations/v1/recruitments/{job_id}/candidates/{candidate_id}/cv": "UUUUUUUUUUUUUUUUUUUUUUUUU",
+  "GET /api/integrations/v1/recruitments/{job_id}/candidates/{candidate_id}/cv/file": "UUUUUUUUUUUUUUUUUUUUUUUUU",
+  "POST /api/integrations/v1/recruitments/{job_id}/candidates/{candidate_id}/cv": "UUUUUUUUUUUUUUUUUUUUUUUUU"
  }
 }

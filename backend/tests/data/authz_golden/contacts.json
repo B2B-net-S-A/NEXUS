@@ -19,13 +19,18 @@
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
   "recruiter+amounts_edit",
-  "automation"
+  "automation",
+  "employee",
+  "recruiter+people_admin",
+  "recruiter+payroll",
+  "recruiter+equipment",
+  "recruiter+cases"
  ],
  "routes": {
-  "DELETE /api/contacts/{contact_id}": "PDDPDDDDPPPDDDPDDDDD",
-  "GET /api/clients/{client_id}/contacts": "PPPPPPPDPPPPPPPPPPPP",
-  "GET /api/contacts": "PPPBPBDDBBBPPPPPBPPP",
-  "POST /api/contacts": "PDDPDDDDPPPDDDPDDDDD",
-  "PUT /api/contacts/{contact_id}": "PPDPPDDDPPPDPPPDDDPD"
+  "DELETE /api/contacts/{contact_id}": "PDDPDDDDPPPDDDPDDDDDDDDDD",
+  "GET /api/clients/{client_id}/contacts": "PPPPPPPDPPPPPPPPPPPPDPPPP",
+  "GET /api/contacts": "PPPBPBDDBBBPPPPPBPPPDBBBB",
+  "POST /api/contacts": "PDDPDDDDPPPDDDPDDDDDDDDDD",
+  "PUT /api/contacts/{contact_id}": "PPDPPDDDPPPDPPPDDDPDDDDDD"
  }
 }
