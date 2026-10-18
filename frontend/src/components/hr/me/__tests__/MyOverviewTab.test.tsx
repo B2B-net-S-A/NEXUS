@@ -55,6 +55,7 @@ const ALL: Record<HrModuleKey, boolean> = {
 function config(open: Partial<Record<HrModuleKey, boolean>> = {}): HrConfig {
   const modules = { ...ALL, ...open };
   return {
+    program: true,
     modules,
     open_modules: modules,
     me: {

@@ -263,27 +263,10 @@ async def quiet_queue():
 
 @pytest.fixture(scope="module")
 def announcement_routes():
-    """Trasy modułu w aplikacji testowej, dopóki koordynator nie wepnie ich w ``main.py``."""
+    """Trasy są w ``main.py`` (za wyłącznikiem programu) — fixture zostaje jako
+    znacznik zależności testów; montowanie drugi raz omijało wyłącznik."""
 
-    from app.api import care_announcements, public_consultant_mail
-    from app.main import app
-
-    before = list(app.router.routes)
-    paths = {getattr(route, "path", "") for route in before}
-    added = False
-    if BASE not in paths:
-        app.include_router(care_announcements.router, prefix=BASE, tags=["hr"])
-        added = True
-    if "/api/public/consultant-mail/unsubscribe/{token}" not in paths:
-        app.include_router(
-            public_consultant_mail.router,
-            prefix="/api/public/consultant-mail",
-            tags=["hr"],
-        )
-        added = True
     yield
-    if added:
-        app.router.routes[:] = before
 
 
 def draft_body(**overrides) -> dict:

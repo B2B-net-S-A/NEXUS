@@ -55,6 +55,7 @@ from app.services.hr.agreements_errors import (
 )
 from app.services.hr.bank.settings import load_settings as load_payment_settings
 from app.services.hr.payroll_errors import PayrollError
+from app.services.hr.program import program_enabled
 from app.services.hr_agreements_schema import (
     CURRENCIES,
     LIVE_STATUSES,
@@ -99,8 +100,11 @@ _RATE_MAX = Decimal(RATE_MAX)
 
 
 async def load_enabled(db: AsyncSession) -> bool:
-    """Brak wpisu albo wpis bez ``enabled: true`` = moduł wyłączony."""
+    """Brak wpisu albo wpis bez ``enabled: true`` = moduł wyłączony; wyłączony
+    program „Ludzi w NEXUSIE” zamyka go zawsze."""
 
+    if not program_enabled():
+        return False
     raw = await db.scalar(
         select(AppSetting.value).where(AppSetting.key == SETTINGS_KEY)
     )
@@ -130,6 +134,8 @@ async def save_enabled(db: AsyncSession, enabled: bool, *, actor_id: int) -> boo
 
 
 def open_for(user: User, enabled: bool) -> bool:
+    if not program_enabled():
+        return False
     return enabled or user.has_role(UserRole.admin)
 
 

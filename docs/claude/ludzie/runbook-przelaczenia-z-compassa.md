@@ -10,6 +10,18 @@ Zmienne środowiskowe NEXUSA zmienia wyłącznie workflow „Coolify set env”
 (nazwy niżej, wartości nigdy w repo ani w logach). Zmienne Compassa — vault
 Coolify Compassa + restart (nie wdrożenie).
 
+## Warunek wstępny: dane, potem włączenie programu (Artur 18.10.2026)
+
+Cały program stoi za `HR_PROGRAM_ENABLED=false` — nikt, także admin, go nie
+widzi. Nie włączamy pustych modułów: najpierw dopracowane integracje i próba
+generalna importu na kopii danych (kartoteki, urlopy, timesheety, płace, karty
+technologiczne, sprawy, sprzęt z arkuszem kontrolnym recepcji, wzory umów od
+Kadr), porównanie z Compassem i OK Artura. Dopiero potem `HR_PROGRAM_ENABLED=true`
+przez „Coolify set env” — moduły dalej są wyłączone przełącznikami, admin widzi
+ekrany do importu, a kroki niżej włączają je po kolei. Krok z kontem serwisowym
+dla Compassa (`people_roster:read`) wymaga już włączonego programu — wcześniej
+tego zakresu nie ma w pickerze.
+
 ## 0. Przed pierwszym wieczorem (nie blokuje wdrożenia)
 
 | Kto | Co |

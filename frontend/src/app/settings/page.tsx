@@ -41,6 +41,7 @@ import { TraffitSyncCard } from "@/components/settings/TraffitSyncCard";
 import JobAdFixedBlocksCard from "@/components/settings/JobAdFixedBlocksCard";
 import JobBoardsCard from "@/components/settings/JobBoardsCard";
 import EmailTemplatesCard from "@/components/settings/EmailTemplatesCard";
+import { useHrProgram } from "@/lib/api/hr";
 import { useAuthStore, hasRole, type UserRole } from "@/store/auth";
 import { resetScreenSeen } from "@/lib/jarvis/bubble-budget";
 import { openJarvis } from "@/lib/jarvis/events";
@@ -49,6 +50,7 @@ import {
   isFinanceReadOnly,
   listedSettingsAreas,
   listedSettingsItems,
+  type SettingsContext,
   resolveSettingsView,
   searchSettingsItems,
   settingsItemHref,
@@ -311,9 +313,17 @@ function SettingsItemRows({ items, showArea = false }: { items: SettingsItem[]; 
   );
 }
 
-function SettingsHome({ areas, user }: { areas: SettingsArea[]; user: Parameters<typeof searchSettingsItems>[0] }) {
+function SettingsHome({
+  areas,
+  user,
+  context,
+}: {
+  areas: SettingsArea[];
+  user: Parameters<typeof searchSettingsItems>[0];
+  context: SettingsContext;
+}) {
   const [query, setQuery] = useState("");
-  const results = searchSettingsItems(user, query);
+  const results = searchSettingsItems(user, query, context);
   const searching = query.trim() !== "";
   return (
     <>
@@ -449,6 +459,8 @@ function AdvancedLinksGrid({ user }: { user: Parameters<typeof hasSectionAccess>
 
 export default function SettingsPage() {
   const { user, hydrated } = useAuthStore();
+  // Pozycje „Ludzi w NEXUSIE” tylko przy włączonym programie (Artur 18.10.2026).
+  const settingsContext: SettingsContext = { hrProgram: useHrProgram(Boolean(user)) };
   const searchParams = useSearchParams();
 
   // The auth store hydrates `user` from localStorage in a post-mount effect
@@ -468,7 +480,11 @@ export default function SettingsPage() {
   return (
     <div className={cn("mx-auto space-y-6", wide ? "max-w-7xl" : "max-w-4xl")}>
       {view.kind === "home" && (
-        <SettingsHome areas={listedSettingsAreas(user)} user={user} />
+        <SettingsHome
+          areas={listedSettingsAreas(user, settingsContext)}
+          user={user}
+          context={settingsContext}
+        />
       )}
 
       {view.kind === "area" && (
@@ -479,7 +495,9 @@ export default function SettingsPage() {
             <p className="mt-0.5 text-sm text-muted-foreground">{view.area.hint}</p>
           </div>
           <SettingsItemRows
-            items={listedSettingsItems(user).filter((i) => i.area === view.area.id)}
+            items={listedSettingsItems(user, settingsContext).filter(
+              (i) => i.area === view.area.id,
+            )}
           />
         </>
       )}

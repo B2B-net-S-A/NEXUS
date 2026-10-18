@@ -39,6 +39,7 @@ const modules = {
 
 function config(me: Partial<HrConfig["me"]>): HrConfig {
   return {
+    program: true,
     modules,
     open_modules: modules,
     me: {

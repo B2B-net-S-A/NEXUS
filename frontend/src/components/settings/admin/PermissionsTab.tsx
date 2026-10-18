@@ -31,12 +31,13 @@ import {
   type PermissionRowGroup,
 } from "@/lib/admin-permissions";
 import { adminApi } from "@/lib/api";
+import { useHrProgram } from "@/lib/api/hr";
 import { apiErrorMessage } from "@/lib/api-error";
 import type { Permission } from "@/lib/permissions";
 import { pluralPl } from "@/lib/plural-pl";
 import { cn } from "@/lib/utils";
 import type { UserRole } from "@/store/auth";
-import { ROLE_LABELS } from "./types";
+import { HR_PROGRAM_PERMISSION_GROUP, HR_PROGRAM_ROLE, ROLE_LABELS } from "./types";
 
 /** Wspólne pytanie przy porzucaniu niezapisanych przełączników (rola, zakładka). */
 export const DISCARD_PERMISSION_CHANGES = {
@@ -226,7 +227,14 @@ function RolePermissionsEditor({
   const queryClient = useQueryClient();
   const { showError, showSuccess } = useToast();
   const { askConfirm, confirmDialog } = useConfirmV2();
-  const roles = useMemo(() => grantableRoles(snapshot), [snapshot]);
+  const hrProgram = useHrProgram();
+  const roles = useMemo(
+    () =>
+      grantableRoles(snapshot).filter(
+        (entry) => hrProgram || entry.role !== HR_PROGRAM_ROLE,
+      ),
+    [snapshot, hrProgram],
+  );
   const [selectedRole, setSelectedRole] = useState<UserRole>(roles[0].role);
   const [draft, setDraft] = useState<RoleDraft | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -240,8 +248,11 @@ function RolePermissionsEditor({
     [draft, role],
   );
   const groups = useMemo(
-    () => rolePermissionGroups(snapshot, role, granted),
-    [snapshot, role, granted],
+    () =>
+      rolePermissionGroups(snapshot, role, granted).filter(
+        (group) => hrProgram || group.key !== HR_PROGRAM_PERMISSION_GROUP,
+      ),
+    [snapshot, role, granted, hrProgram],
   );
   const changed = useMemo(() => changedRows(groups), [groups]);
   const changes = useMemo(

@@ -28,7 +28,7 @@ import {
   visiblePaletteEntries,
 } from "@/lib/nav-registry";
 import { hasSectionAccess } from "@/lib/section-access";
-import { useHrNavState } from "@/lib/api/hr";
+import { useHrNavState, useHrProgram } from "@/lib/api/hr";
 import { useCandidateContactFeature } from "@/hooks/useCandidateContactFeature";
 import { useCapabilities } from "@/hooks/useCapability";
 import { useAuthStore } from "@/store/auth";
@@ -253,7 +253,11 @@ export function CommandPaletteV2({
   });
   // Każda pozycja Ustawień, którą ta osoba widzi — ⌘K „reguły CV" prowadzi
   // prosto do ekranu (przebudowa Ustawień 22.09.2026).
-  const settingsItems = useMemo(() => listedSettingsItems(user), [user]);
+  const hrProgram = useHrProgram(Boolean(user));
+  const settingsItems = useMemo(
+    () => listedSettingsItems(user, { hrProgram }),
+    [user, hrProgram],
+  );
   const {
     myTime: hrMyTime,
     people: hrPeople,

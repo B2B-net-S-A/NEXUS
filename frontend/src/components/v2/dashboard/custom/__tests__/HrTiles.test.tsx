@@ -43,6 +43,7 @@ function hrConfig(
     boolean
   >
   return {
+    program: true,
     modules,
     open_modules: modules,
     me: {

@@ -3,8 +3,7 @@
 * ``documents_on`` — wszystkie moduły „Ludzi” włączone, pusta tabela
   ``hr_documents`` i domyślne okresy przechowywania (przed i po teście),
 * ``documents_store_root`` — magazyn plików w katalogu tymczasowym testu,
-* ``documents_routes`` — trasy modułu w aplikacji testowej, dopóki koordynator
-  nie wepnie ich w ``main.py``,
+* ``documents_routes`` — znacznik zależności (trasy są w ``main.py``),
 * pliki: najmniejszy PDF, PNG i DOCX (z makrem i bez) zbudowane w pamięci.
 """
 
@@ -107,17 +106,10 @@ def documents_store_root(tmp_path, monkeypatch):
 
 @pytest.fixture(scope="module")
 def documents_routes():
-    from app.api import hr_documents
-    from app.main import app
+    """Trasy są w ``main.py`` (za wyłącznikiem programu) — montowanie drugi raz
+    omijało wyłącznik."""
 
-    before = list(app.router.routes)
-    added = False
-    if f"{PREFIX}/retention" not in {getattr(route, "path", "") for route in before}:
-        app.include_router(hr_documents.router, prefix=PREFIX, tags=["hr"])
-        added = True
     yield
-    if added:
-        app.router.routes[:] = before
 
 
 __all__ = [

@@ -44,6 +44,7 @@ function hr(
     boolean
   >;
   return {
+    program: true,
     modules,
     open_modules: modules,
     me: {

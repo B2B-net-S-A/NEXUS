@@ -19,6 +19,7 @@ from app.services.notification_categories import (
     GROUP_BY_TYPE,
     GROUP_INFO,
 )
+from app.services.hr import program as hr_program
 from app.services.notification_role_mutes import (
     MATRIX_ROLES,
     ROLE_LABELS,
@@ -80,6 +81,8 @@ async def admin_view(db: AsyncSession) -> dict[str, Any]:
     role_keys = [role.value for role in MATRIX_ROLES]
     categories = []
     for category, info in CATEGORY_INFO.items():
+        if hr_program.hides_category(category.value):
+            continue
         groups = []
         for key, group in GROUP_INFO.items():
             if group.category != category:

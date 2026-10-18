@@ -104,6 +104,7 @@ const ALL_MODULES: Record<HrModuleKey, boolean> = {
 /** Stan modułów i prawa oglądającego — wszystkie moduły włączone. */
 export function hrConfig(me: Partial<HrConfig["me"]> = {}): HrConfig {
   return {
+    program: true,
     modules: { ...ALL_MODULES },
     open_modules: { ...ALL_MODULES },
     me: {

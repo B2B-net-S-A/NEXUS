@@ -3,7 +3,9 @@
 Moduły wchodzą na produkcję wyłączone i są włączane przy przełączeniu
 z Compassa, bez wdrożenia (decyzja Artura 16.10.2026: jeden PR, potem
 przełączenia modułami). Brak wiersza albo nieznany klucz = wyłączony.
-Admin widzi ekrany także przy wyłączonym module (przygotowanie importu).
+Przy włączonym programie admin widzi ekrany także przy wyłączonym module
+(przygotowanie importu); wyłączony program (``HR_PROGRAM_ENABLED``) zamyka
+wszystkie moduły dla wszystkich, także admina (``hr.program``).
 """
 
 from __future__ import annotations
@@ -17,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.app_setting import AppSetting
 from app.models.user import User, UserRole
+from app.services.hr.program import program_enabled
 from app.services.hr_foundation_schema import HR_MODULE_KEYS, HR_MODULES_SETTING
 
 
@@ -44,6 +47,8 @@ def normalize(raw: object) -> dict[str, bool]:
 
 
 async def load_modules(db: AsyncSession) -> dict[str, bool]:
+    if not program_enabled():
+        return normalize(None)
     raw = await db.scalar(
         select(AppSetting.value).where(AppSetting.key == HR_MODULES_SETTING)
     )
@@ -51,8 +56,11 @@ async def load_modules(db: AsyncSession) -> dict[str, bool]:
 
 
 def module_open_for(user: User, modules: Mapping[str, bool], key: str) -> bool:
-    """Czy moduł działa dla tej osoby (admin widzi ekrany zawsze)."""
+    """Czy moduł działa dla tej osoby (przy włączonym programie admin widzi
+    ekrany zawsze)."""
 
+    if not program_enabled():
+        return False
     return bool(modules.get(key)) or user.has_role(UserRole.admin)
 
 

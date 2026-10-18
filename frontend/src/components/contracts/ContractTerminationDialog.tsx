@@ -478,7 +478,8 @@ export function ContractTerminationDialog({
           )}
         </div>
 
-        {!bulk && hasEquipmentToReturn ? (
+        {/* Sekcja modułu „Sprzęt” — bez rejestru (moduł wyłączony, 404) jej nie ma. */}
+        {canPlanReturn ? (
           <div className="rounded-md border border-border p-3 space-y-2">
             <p className="text-sm font-medium">Zwrot sprzętu</p>
             <ul className="space-y-0.5 text-xs text-muted-foreground">
@@ -496,19 +497,17 @@ export function ContractTerminationDialog({
                 </li>
               ))}
             </ul>
-            {canPlanReturn ? (
-              <label className="flex items-start gap-2">
-                <input
-                  type="checkbox"
-                  checked={planReturn}
-                  onChange={(e) => setPlanReturn(e.target.checked)}
-                  className="mt-0.5"
-                />
-                <span className="text-sm">
-                  Załóż recepcji zadanie odbioru sprzętu na dzień zakończenia
-                </span>
-              </label>
-            ) : null}
+            <label className="flex items-start gap-2">
+              <input
+                type="checkbox"
+                checked={planReturn}
+                onChange={(e) => setPlanReturn(e.target.checked)}
+                className="mt-0.5"
+              />
+              <span className="text-sm">
+                Załóż recepcji zadanie odbioru sprzętu na dzień zakończenia
+              </span>
+            </label>
           </div>
         ) : null}
 

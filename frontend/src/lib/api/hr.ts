@@ -35,6 +35,11 @@ export type WorkLocation = "onsite" | "remote";
 export type Division = "front_office" | "back_office";
 
 export interface HrConfig {
+  /**
+   * Główny wyłącznik programu (`HR_PROGRAM_ENABLED`, Artur 18.10.2026).
+   * `false` = nic z „Ludzi w NEXUSIE” nie jest widoczne, także dla admina.
+   */
+  program: boolean;
   modules: Record<HrModuleKey, boolean>;
   /** Moduły otwarte dla tej osoby (admin widzi wszystkie). */
   open_modules: Record<HrModuleKey, boolean>;
@@ -198,6 +203,11 @@ export function useHrConfig(enabled = true) {
     staleTime: 5 * 60 * 1000,
     enabled,
   });
+}
+
+/** Czy program „Ludzie w NEXUSIE” jest włączony (brak odpowiedzi = nie). */
+export function useHrProgram(enabled = true): boolean {
+  return useHrConfig(enabled).data?.program === true;
 }
 
 export function usePeople() {
@@ -387,7 +397,7 @@ export function useHrNavState(
 }
 
 export function hrNavState(config: HrConfig | undefined): HrNavState {
-  if (!config) return { myTime: false, people: false, equipment: false, care: false };
+  if (!config?.program) return { myTime: false, people: false, equipment: false, care: false };
   const { me, open_modules: open } = config;
   const anyHrRight = me.people_admin || me.payroll || me.equipment || me.cases;
   return {

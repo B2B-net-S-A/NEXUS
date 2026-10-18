@@ -30,5 +30,7 @@ export function HrConfigGate({ children }: { children: (config: HrConfig) => Rea
       />
     );
   }
+  // Wyłączony program (`HR_PROGRAM_ENABLED`) wygląda jak nieistniejąca strona.
+  if (!config.data.program) return <QueryStateNotice state="not_found" />;
   return <>{children(config.data)}</>;
 }

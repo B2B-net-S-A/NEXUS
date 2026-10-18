@@ -33,6 +33,7 @@ function config(me: Partial<HrConfig["me"]>, payrollOpen = true): HrConfig {
     MODULES.map((key) => [key, key === "payroll" ? payrollOpen : true]),
   ) as Record<HrModuleKey, boolean>;
   return {
+    program: true,
     modules,
     open_modules: modules,
     me: {

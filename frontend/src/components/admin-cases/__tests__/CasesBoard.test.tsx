@@ -56,6 +56,7 @@ function config(cases: boolean): HrConfig {
     settlements: false,
   };
   return {
+    program: true,
     modules: on,
     open_modules: on,
     me: {

@@ -22,6 +22,7 @@ from app.services.hr import modules as hr_modules
 from app.services.admin_cases import service as admin_cases_service
 from app.services.hr import leave_substitute, people
 from app.services.hr.lifecycle_templates import is_back_office_head
+from app.services.hr.program import program_enabled
 from app.services.hr_foundation_schema import EmploymentStatus
 
 router = APIRouter()
@@ -32,10 +33,33 @@ async def hr_config(
     current_user: HrConfigReader, db: AsyncSession = Depends(get_db)
 ) -> dict:
     loaded = await hr_modules.load_modules(db)
+    if not program_enabled():
+        # Program wyłączony: wszystko zamknięte, bez zapytań o kartotekę —
+        # tę sondę woła każdy ekran (menu, profil klienta, kontrakt).
+        return {
+            "program": False,
+            "modules": loaded,
+            "open_modules": {key: False for key in loaded},
+            "me": {
+                "has_profile": False,
+                "employment_status": None,
+                "is_manager": False,
+                "covering": [],
+                "direct_reports": 0,
+                "is_admin": False,
+                "people_admin": False,
+                "payroll": False,
+                "equipment": False,
+                "cases": False,
+                "has_assigned_cases": False,
+                "back_office_head": False,
+            },
+        }
     profile = await people.profile_of(db, current_user.id)
     reports = await people.direct_report_ids(db, current_user.id)
     is_admin = current_user.has_role(UserRole.admin)
     return {
+        "program": True,
         "modules": loaded,
         "open_modules": {
             key: hr_modules.module_open_for(current_user, loaded, key) for key in loaded

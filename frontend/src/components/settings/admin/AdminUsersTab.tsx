@@ -33,8 +33,10 @@ import {
   AdminUser,
   UserFormData,
   ROLE_LABELS,
+  HR_PROGRAM_ROLE,
   formatDate,
 } from "./types";
+import { useHrProgram } from "@/lib/api/hr";
 import { UserModal } from "./UserModal";
 import { ResetPasswordModal } from "./ResetPasswordModal";
 import { SystemTab } from "./SystemTab";
@@ -119,6 +121,7 @@ export function AdminUsersTab({
   // UAT M11-B02: przy ~240 kontach sama lista ze statusem nie wystarczała.
   const [search, setSearch] = useState("");
   const [roleFilter, setRoleFilter] = useState<string>("all");
+  const hrProgram = useHrProgram();
 
   const { data: users, isLoading } = useQuery({
     queryKey: ["admin-users"],
@@ -387,7 +390,9 @@ export function AdminUsersTab({
               className="rounded-lg border border-border bg-background px-3 py-1.5 text-sm"
             >
               <option value="all">Wszystkie role</option>
-              {Object.entries(ROLE_LABELS).map(([id, label]) => (
+              {Object.entries(ROLE_LABELS)
+                .filter(([id]) => hrProgram || id !== HR_PROGRAM_ROLE)
+                .map(([id, label]) => (
                 <option key={id} value={id}>
                   {label}
                 </option>

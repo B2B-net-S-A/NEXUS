@@ -24,6 +24,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ToastProvider } from "@/components/Toast";
 import { AdminUsersTab } from "@/components/settings/admin/AdminUsersTab";
 import { UserModal } from "@/components/settings/admin/UserModal";
+import { hrConfig } from "@/app/preview/hr-fixtures";
+import { hrKeys } from "@/lib/api/hr";
 import type { AdminUser } from "@/components/settings/admin/types";
 import type {
   AdminPermissionsSnapshot,
@@ -213,6 +215,8 @@ function seededClient(): QueryClient {
   });
   qc.setQueryData(["admin-users"], PEOPLE.map(accountRow));
   qc.setQueryData(["admin-section-permissions"], SNAPSHOT);
+  // Harness pokazuje pełny ekran — także grupę „Ludzie” programu „Ludzie w NEXUSIE”.
+  qc.setQueryData(hrKeys.config, hrConfig({ is_admin: true }));
   for (const person of PEOPLE) {
     qc.setQueryData(["admin-user-permissions", person.id], personPermissions(person));
   }

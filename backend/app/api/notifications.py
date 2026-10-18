@@ -24,6 +24,7 @@ from app.services.notification_access import (
     role_muted_types_of,
     user_may_receive_type,
 )
+from app.services.hr import program as hr_program
 from app.services.notification_categories import (
     CATEGORY_BY_TYPE,
     CATEGORY_INFO,
@@ -878,6 +879,8 @@ _CONTEXT_PROBES: dict[
 
 
 def _category_reachable(user: User, category: NotificationCategory) -> bool:
+    if hr_program.hides_category(category.value):
+        return False
     for ntype in types_in(category):
         probes = _CONTEXT_PROBES.get(ntype, ((None, None),))
         for related_entity_type, link in probes:
