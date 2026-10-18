@@ -74,7 +74,7 @@ from app.services.care import access as care_access
 from app.services.care import plan as care_plan
 from app.services.care import records
 from app.services.care import skills as care_skills
-from app.services.care import client_feedback, client_people, tech_map
+from app.services.care import card_inbox, client_feedback, client_people, tech_map
 from app.services.care import front_office
 from app.services.care import overview as care_overview
 from app.services.care import timeline as care_timeline
@@ -396,6 +396,36 @@ async def client_tech_map(
         "default_owner": person(default_owner, names),
         "can_edit": await care_access.is_care_writer(db, current_user),
     }
+
+
+@router.get("/clients/{client_id}/tech-cards/unlinked")
+async def client_unlinked_tech_cards(
+    client_id: int,
+    current_user: User = Depends(CareReader),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Karty z Compassa bez kontraktu z propozycjami (import 18.10.2026)."""
+
+    client = await care_access.load_client(db, client_id, current_user)
+    result = await card_inbox.unlinked_cards(db, client.id)
+    return {**result, "can_link": care_access.is_care_worker(current_user)}
+
+
+class LinkCardBody(BaseModel):
+    contract_id: int
+
+
+@router.post("/tech-cards/{card_id}/link")
+async def link_tech_card(
+    card_id: int,
+    body: LinkCardBody,
+    current_user: User = Depends(CareWriter),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    card = await card_inbox.link_card(
+        db, card_id=card_id, contract_id=body.contract_id, user=current_user
+    )
+    return {"id": card.id, "contract_id": card.contract_id}
 
 
 @router.get("/clients/{client_id}/areas")

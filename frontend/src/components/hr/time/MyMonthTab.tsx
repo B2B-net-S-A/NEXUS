@@ -206,7 +206,7 @@ export function MyMonthTab({ config, initialMonth, onMonthChange }: MyMonthTabPr
           ) : null}
         </div>
         {view ? (
-          <div className="flex flex-wrap items-center gap-1.5">
+          <div className="flex flex-wrap items-center gap-1.5" data-help="hr.my_time.month_actions">
             <Button variant="ghost" size="sm" onClick={() => setManagingTemplates(true)}>
               Szablony opisów
             </Button>

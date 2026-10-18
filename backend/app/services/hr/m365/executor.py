@@ -56,6 +56,7 @@ from app.models.hr_leave import (
 )
 from app.models.hr_profile import EmployeeProfile
 from app.models.user import User
+from app.services.admin_cases import mailbox as admin_mailbox
 from app.services.hr import audit
 from app.services.hr.calendar import load_calendar
 from app.services.hr.leave_m365 import LeaveSnapshot, plan_operations
@@ -224,7 +225,7 @@ async def _contact(
             and manager_status != EmploymentStatus.exited
         ):
             return oof_template.Contact("manager", manager.email, manager.name)
-    office = (settings.ADMIN_CASES_MAILBOX or "").strip()
+    office = admin_mailbox.public_address()
     return oof_template.Contact("office", office) if office else None
 
 

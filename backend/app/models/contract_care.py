@@ -304,6 +304,10 @@ class TechCard(Base, TimestampMixin):
     compass_card_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         UUID(as_uuid=True), nullable=True
     )
+    # Konsultant z karty Compassa — podpowiedź przy łączeniu z kontraktem.
+    compass_person_name: Mapped[Optional[str]] = mapped_column(
+        String(schema.PERSON_NAME_MAX), nullable=True
+    )
 
 
 class TechCardSkill(Base):

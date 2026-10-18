@@ -7,7 +7,8 @@ maila z nakładką, stan przebiegu w bazie.
 
 Reguły:
 
-* **wyłączony**, gdy ``ADMIN_CASES_MAILBOX`` (UPN skrzynki) jest pusty,
+* **wyłączony**, gdy nie ma skrzynki M365 (``ADMIN_CASES_M365_MAILBOX``, pusta =
+  ``ADMIN_CASES_MAILBOX``; role adresów w ``admin_cases/mailbox.py``),
   ``ADMIN_CASES_MAIL_INGEST_ENABLED`` ≠ ``true`` albo moduł „cases” jest
   wyłączony w ``app_settings['hr_modules']`` — wtedy niczego nie czyta
   i niczego nie zapisuje,
@@ -72,6 +73,7 @@ from app.services.admin_cases.service import (
 logger = logging.getLogger(__name__)
 
 MAILBOX_ENV = "ADMIN_CASES_MAILBOX"
+M365_MAILBOX_ENV = "ADMIN_CASES_M365_MAILBOX"
 ENABLED_ENV = "ADMIN_CASES_MAIL_INGEST_ENABLED"
 
 JOB_KIND = "admin_cases_mail_ingest"
@@ -164,8 +166,22 @@ class GraphAdminMailbox:
 
 
 def mailbox_upn() -> Optional[str]:
-    value = (os.environ.get(MAILBOX_ENV) or "").strip()
-    return value or None
+    """Skrzynka M365 do czytania — ta sama reguła co ``mailbox.m365_mailbox``."""
+
+    for env in (M365_MAILBOX_ENV, MAILBOX_ENV):
+        value = (os.environ.get(env) or "").strip()
+        if value:
+            return value
+    return None
+
+
+def _own_addresses(upn: str) -> frozenset[str]:
+    """Adresy administracji: skrzynka M365 i adres widoczny (home.pl)."""
+
+    values = [upn] + [
+        os.environ.get(env) or "" for env in (MAILBOX_ENV, M365_MAILBOX_ENV)
+    ]
+    return frozenset(value.strip().lower() for value in values if value.strip())
 
 
 def ingest_enabled() -> bool:
@@ -282,16 +298,21 @@ async def _ingest_message(
     if known is not None:
         return "duplicate"
     sender_email, sender_name = _sender(msg)
-    if sender_email and sender_email == upn.lower():
-        # Wiadomość wysłana ze skrzynki (kopia do siebie) — to nie zgłoszenie.
-        return "skipped"
+    own = sender_email is not None and sender_email in _own_addresses(upn)
     received_at = _parse_dt(msg.get("receivedDateTime"))
     subject = _nul_free(msg.get("subject"), 500)
 
     case = await _thread_case(db, msg)
     outcome = "attached"
     now = datetime.now(timezone.utc)
-    if case is None:
+    if own:
+        # Wiadomość wysłana przez administrację: kopia do siebie albo odpowiedź
+        # z home.pl z administracja@ w kopii (wariant B). W wątku sprawy to jej
+        # odpowiedź — dołącza bez ponownego otwarcia; poza wątkiem to nie
+        # zgłoszenie.
+        if case is None:
+            return "skipped"
+    elif case is None:
         case, _created = await open_automatic_case(
             db,
             AutomaticCase(
