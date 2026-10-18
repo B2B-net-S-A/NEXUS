@@ -61,7 +61,7 @@ export function TimesheetArchive({ onOpenMonth, defaultOpen = false, period }: T
   };
 
   return (
-    <section className="rounded-lg border border-border/60 bg-card">
+    <section className="rounded-lg border border-border/60 bg-card" data-help="hr.my_time.archive">
       <button
         type="button"
         aria-expanded={open}

@@ -119,7 +119,7 @@ export function MyLeaveTab() {
         ) : (
           <span className="text-sm text-muted-foreground">Liczę saldo…</span>
         )}
-        <Button className="ml-auto" onClick={() => setDialogOpen(true)}>
+        <Button className="ml-auto" data-help="hr.my_time.leave_submit" onClick={() => setDialogOpen(true)}>
           <CalendarPlus className="h-4 w-4" aria-hidden />
           {report ? words.submit_action : "Złóż wniosek"}
         </Button>
@@ -146,7 +146,7 @@ export function MyLeaveTab() {
             : "Nie masz jeszcze wniosków. „Złóż wniosek” policzy dni robocze i pulę."}
         </div>
       ) : (
-        <div className="relative overflow-x-auto rounded-lg border border-border bg-card">
+        <div className="relative overflow-x-auto rounded-lg border border-border bg-card" data-help="hr.my_time.leave_list">
           <Table density="compact" className="min-w-[880px]">
             <TableHeader>
               <TableRow>
