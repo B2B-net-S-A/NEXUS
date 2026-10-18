@@ -24,6 +24,7 @@ from app.services import hr_access_schema as access
 from app.services import hr_agreements_schema as agreements
 from app.services import hr_documents_schema as documents
 from app.services import hr_foundation_schema as foundation
+from app.services import hr_leave_proofs_schema as leave_proofs
 from app.services import hr_leave_schema as leave
 from app.services import hr_lifecycle_schema as lifecycle
 from app.services import hr_notification_schema as notifications
@@ -31,7 +32,7 @@ from app.services import hr_payroll_schema as payroll
 from app.services import hr_settlement_schema as settlement
 from app.services import hr_time_schema as time_
 
-#: Moduły po fundamencie, w kolejności migracji 0458–0471 (0467 to statystyki z maina) (kontrakt każdego:
+#: Moduły po fundamencie, w kolejności migracji 0458–0473 (0467 i 0472 to statystyki z maina) (kontrakt każdego:
 #: ``TABLE_DDL, COLUMN_DDL, INDEX_DDL, CONSTRAINT_DDL, DATA_DDL``).
 MODULES = (
     leave,
@@ -47,6 +48,7 @@ MODULES = (
     documents,
     agreements,
     sales_invoices,
+    leave_proofs,
 )
 
 COLUMN_DDL: tuple[str, ...] = (

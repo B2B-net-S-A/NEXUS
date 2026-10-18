@@ -1,12 +1,14 @@
 """„Ludzie w NEXUSIE” — model: dokumenty osoby (e-teczka, 0468).
 
 CHECK-i i indeksy muszą być identyczne z ``app/services/hr_documents_schema.py``
-(strażnik dryfu schematu porównuje model z bazą po migracji). Opis tabeli,
+i ``app/services/hr_leave_proofs_schema.py`` (odnośnik do wniosku urlopowego,
+0473; strażnik dryfu schematu porównuje model z bazą po migracji). Opis tabeli,
 źródeł, kręgu widzących i retencji — w docstringu modułu schematu.
 """
 
 from __future__ import annotations
 
+import uuid
 from datetime import date, datetime
 from typing import Optional
 
@@ -22,11 +24,13 @@ from sqlalchemy import (
     Text,
     text,
 )
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
 from app.models.base import TimestampMixin
 from app.services import hr_documents_schema as schema
+from app.services import hr_leave_proofs_schema as proofs_schema
 
 
 class HrDocument(Base, TimestampMixin):
@@ -49,7 +53,16 @@ class HrDocument(Base, TimestampMixin):
         CheckConstraint(
             schema.CK_DOCUMENT_DELETION_NOTE, name="ck_hr_documents_deletion_note"
         ),
+        CheckConstraint(
+            proofs_schema.CK_DOCUMENT_LEAVE_REQUEST,
+            name="ck_hr_documents_leave_request",
+        ),
         Index("ix_hr_documents_user", "user_id"),
+        Index(
+            "ix_hr_documents_leave_request",
+            "leave_request_id",
+            postgresql_where=text(proofs_schema.LEAVE_REQUEST_WHERE),
+        ),
         Index(
             "uq_hr_documents_source_ref",
             "source",
@@ -88,6 +101,12 @@ class HrDocument(Base, TimestampMixin):
     mime: Mapped[str] = mapped_column(String(100), nullable=False)
     size_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
     sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    #: Wniosek urlopowy, do którego osoba dołączyła potwierdzenie (0473).
+    leave_request_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("leave_requests.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     valid_until: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
     visible_to_person: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=True, server_default="true"

@@ -197,6 +197,33 @@ decyduje o słowach i o przebiegu nieobecności.
   ktokolwiek w miesiącu; delegacja liczy się do „Nieobecnych” (jak „OOO”
   w Compassie).
 
+### Załącznik do wniosku (`leave_proofs.py`, 0473, 18.10.2026)
+
+Compass miał przy wniosku plik do 5 MB (`uploadLeaveProof`). W NEXUSIE załącznik jest
+dokumentem e-teczki osoby rodzaju „potwierdzenie nieobecności” (`absence_proof`)
+z odnośnikiem `hr_documents.leave_request_id`.
+
+- Dołącza tylko sama osoba do własnego wniosku: przy składaniu (okno wysyła plik zaraz
+  po zapisie wniosku; gdy plik nie przejdzie, wniosek zostaje, a toast mówi, że plik
+  dołącza się z tabeli) albo później z „Moje nieobecności” (`POST /requests/{id}/proofs`).
+  Wniosek oczekujący albo zatwierdzony; do odrzuconego i anulowanego — 409. Najwyżej
+  5 plików na wniosek, ten sam plik drugi raz — 409 (indeks żywych uploadów osoby).
+- PDF, JPG, PNG do 5 MB (DOCX nie — to skan albo zdjęcie dokumentu), typ z treści
+  (`documents_store.check`), nazwa od człowieka tylko w bazie. Okno podpowiada dokument
+  przy urlopie okolicznościowym, opiece nad dzieckiem i krwiodawstwie; L4 przychodzi
+  przez e-ZLA, więc bez wymogu. Zgłoszenia B2B i zlecenia (D5) nie mają pola ani kolumny.
+- Kto widzi (D6): liczbę (`proof_count`, „Załącznik ✓”) — osoba, przełożony, Kadry;
+  listę z pobraniem (`proofs`) — osoba i Kadry. Kadry pobierają przez
+  `GET /approvals/{id}/proofs/{doc}/file` (bramka `require_hr_leave_proof_reader` =
+  uprawnienie „Kadry”); przełożony dostaje 403, a e-teczki osoby nie widzi wcale.
+  Zastępca nieobecnego przełożonego nie dostaje listy, a przy rodzaju ukrytym (L4
+  i pokrewne) nawet liczby — zdradzałaby rodzaj.
+- Krąg dokumentu: osoba i Kadry (bez Płac i recepcji); ślad w `hr_audit_events`
+  z `sensitivity='health'`. Osoba usuwa plik, który sama dodała (pomyłka) — plik
+  znika, wiersz zostaje jako ślad „mistake”; plik dodany przez Kadry usuwają Kadry.
+- Import z Compassa przenosi tylko informację, że plik był; stare pliki zostają
+  w magazynie Compassa.
+
 ### Kartoteka z katalogu M365 (`m365/profile_sync.py`, `m365/directory.py`)
 
 - Raz dziennie od 6:00 (pętla `hr_m365_daily`, rezerwacja `hr_job_runs`
@@ -314,6 +341,23 @@ decyduje o słowach i o przebiegu nieobecności.
   premia DL = 10% × marża/h × 168 h; rekruter progami marży PLN/h. Progi
   i „dodatkowa premia DL” to ustawienia (`app_settings['hr_bonus_rules']`),
   w kodzie nie ma żadnej osoby.
+- **Odbiorcy premii z placementu jak w Compassie** (decyzja Artura 18.10.2026,
+  `PlacementContext.people`): rekruter = osoba, która jako pierwsza zweryfikowała
+  kandydata w rekrutacji kontraktu (etap „Zweryfikowany”, kolejność jak w KPI:
+  `approved_at`, potem `moved_at`); bez weryfikującego premii rekrutera nie ma.
+  Prowadzący (`jobs.recruiter_id`) nie jest odbiorcą — w rekrutacjach sprzed
+  10.2026 siedzi tam zwykle Delivery Lead (porównanie IX 2026: 19 z 27) i jako
+  rekruter nie dostaje premii. DL = `jobs.delivery_lead_id`; gdy pusty —
+  prowadzący (`jobs.recruiter_id`), jeśli ma rolę Delivery Leada (główną albo
+  dodatkową, `people_source = job_lead`); dopiero potem DL klienta (głowa albo
+  jedyne przypisanie). Z tym krokiem DL zgadza się z Compassem w 24 z 27
+  placementów IX 2026 (bez niego 17). Prognoza „w drodze” szuka kontraktów
+  osoby po tej samej regule.
+- **`automation_since`** w `hr_bonus_rules` oddziela placementy Compassa od
+  automatu NEXUSA: premie z Compassa wchodzą importem (`compass_import`, klucz
+  `compass:<uuid>`), automat ma klucz `contract:<id>:<rola>` — bez daty
+  granicznej automat w oknie 120 dni wstecz zaproponowałby je drugi raz. Ta sama
+  data odcina Ligę: okres kończący się przed nią nie trafia do płac.
 - Zakończenie kontraktu przed terminem anuluje premię, cofnięcie zakończenia ją
   przywraca (`app/services/hr/contract_hooks.py`).
 - Zamknięcie miesiąca: propozycje premii muszą mieć decyzję, ostrzeżenia wymagają

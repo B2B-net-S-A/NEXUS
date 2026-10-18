@@ -48,6 +48,12 @@ CHAIN = (
         "0470_hr_agreements",
         "client_sales_invoices_schema",
     ),
+    # Załącznik do wniosku urlopowego idzie za ręcznym uzupełnieniem statystyk (0472).
+    (
+        "0473_hr_leave_proofs",
+        "0472_kpi_milestones_manual_fill",
+        "hr_leave_proofs_schema",
+    ),
 )
 
 

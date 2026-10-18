@@ -3,8 +3,9 @@
 * Rodzaje i etykiety — lustro we froncie (``frontend/src/lib/api/hr-documents.ts``,
   test ``tests/test_hr_documents_labels_mirror.py``).
 * Domyślny krąg (Kadry i admin widzą zawsze): umowy, aneksy, oświadczenia
-  i zaświadczenia — osoba i Płace; protokół — osoba i recepcja; inne — osoba.
-  Kadry zmieniają go przy wgraniu.
+  i zaświadczenia — osoba i Płace; protokół — osoba i recepcja; potwierdzenie
+  nieobecności (załącznik wniosku urlopowego, ``leave_proofs``) i inne —
+  osoba. Kadry zmieniają go przy wgraniu.
 * Retencja po odejściu: lata na rodzaj w ``app_settings['hr_document_retention']``,
   liczone od końca roku kalendarzowego, w którym osoba odeszła (ostatni dzień
   pracy). Wartości domyślne są ostrożne — 10 lat (okres dokumentacji
@@ -34,6 +35,7 @@ KIND_LABELS: dict[str, str] = {
     "statement": "oświadczenie",
     "certificate": "zaświadczenie",
     "protocol": "protokół",
+    "absence_proof": "potwierdzenie nieobecności",
     "other": "inne",
 }
 PURPOSE_LABELS: dict[str, str] = {
@@ -46,6 +48,7 @@ DEFAULT_AUDIENCE: dict[str, tuple[bool, bool, bool]] = {
     "statement": (True, True, False),
     "certificate": (True, True, False),
     "protocol": (True, False, True),
+    "absence_proof": (True, False, False),
     "other": (True, False, False),
 }
 DEFAULT_RETENTION_YEARS: dict[str, int] = {
@@ -54,6 +57,7 @@ DEFAULT_RETENTION_YEARS: dict[str, int] = {
     "statement": 10,
     "certificate": 10,
     "protocol": 10,
+    "absence_proof": 10,
     "other": 5,
 }
 RETENTION_MIN_YEARS = 1

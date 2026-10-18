@@ -12,6 +12,7 @@ import {
   itemNumber,
   lineValue,
   phoneDisplay,
+  secretHint,
   signatureMailHref,
   type IssueDraftLine,
 } from "../equipment-format";
@@ -124,5 +125,16 @@ describe("teksty", () => {
     expect(href.startsWith("mailto:anna%40example.com?subject=")).toBe(true);
     expect(decodeURIComponent(href)).toContain("https://nexus.example.com/protocol/abc");
     expect(decodeURIComponent(href)).toContain("ważny 14 dni");
+  });
+});
+
+describe("secretHint", () => {
+  it("laptop points to Intune, SIM and phone to the operator, the rest nothing", () => {
+    expect(secretHint("laptop")?.label).toBe("Klucz odzyskiwania BitLocker");
+    expect(secretHint("laptop")?.href).toBe("https://intune.microsoft.com/");
+    expect(secretHint("karta_sim")?.text).toContain("operatora");
+    expect(secretHint("telefon")?.label).toBe("PIN i PUK karty SIM");
+    expect(secretHint("monitor")).toBeNull();
+    expect(secretHint("karta_dostepu")).toBeNull();
   });
 });

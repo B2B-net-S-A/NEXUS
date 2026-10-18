@@ -3,7 +3,7 @@
  * na danych fikcyjnych, ZERO prób żądania — także po otwarciu podglądu
  * timesheetu i okna odrzucenia.
  */
-import { render, screen, within } from "@testing-library/react";
+import { cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Axios } from "axios";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -121,6 +121,23 @@ describe("/preview/hr-approvals", () => {
       "przełożony: Marta Fikcyjna",
     );
     expect(screen.getByText("wszyscy")).toBeInTheDocument();
+    expect(attempted()).toEqual([]);
+  });
+
+  it("załącznik Julii: przełożona widzi tylko „Załącznik ✓”, Kadry nazwę pliku (D6)", async () => {
+    open("");
+    const leave = await screen.findByRole("region", { name: "Wnioski do decyzji (umowa o pracę)" });
+    const julia = within(leave).getByRole("row", { name: /Julia Próbna/ });
+    expect(within(julia).getByText("Załącznik ✓")).toBeInTheDocument();
+    expect(within(julia).queryByText(/akt-slubu/)).toBeNull();
+    cleanup();
+
+    open("?state=hr");
+    const hrLeave = await screen.findByRole("region", {
+      name: "Wnioski do decyzji (umowa o pracę)",
+    });
+    const hrJulia = within(hrLeave).getByRole("row", { name: /Julia Próbna/ });
+    expect(within(hrJulia).getByRole("button", { name: "akt-slubu.pdf" })).toBeInTheDocument();
     expect(attempted()).toEqual([]);
   });
 });
