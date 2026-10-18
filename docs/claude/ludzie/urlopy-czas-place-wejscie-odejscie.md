@@ -222,6 +222,28 @@ decyduje o słowach i o przebiegu nieobecności.
   odejście i wyłączenie konta nie ruszają godzin).
 - PDF: tytuł z formy — „Ewidencja czasu pracy”, „Raport godzin”, „Potwierdzenie
   liczby godzin” z dopiskiem o art. 8b; role „Pracownik/Wykonawca/Zleceniobiorca”.
+- **Luki z Compassa domknięte przed 1.11.2026 (18.10.2026):**
+  - „Wypełnij miesiąc” ma okno: godziny dziennie (domyślnie 8, powyżej 8 = 422 —
+    nadgodziny tylko wpisem dnia z uzasadnieniem), opis (domyślny roli / szablon /
+    własny), projekt i „nadpisz istniejące wpisy” (kasuje wpisy szkicu poza
+    auto-wpisami płatnej puli; blokada retencji jak przy usuwaniu wpisu). Dzień
+    dostaje najwyżej tyle, ile zostawia urlop (pół dnia urlopu = 4 h).
+  - „Szablony opisów” osoby (dodaj, edytuj, usuń, kolejność = `sort_order`)
+    i karta „Domyślne opisy godzin” w Ustawieniach → Kadry (role NEXUSA bez
+    `user`/`sourcer`/`tac`) — na istniejących trasach `/api/hr/time/me/templates`
+    i `/api/hr/time/role-defaults`.
+  - Eksport CSV (`services/hr/time_export.py`): własny
+    (`/me/export.csv`), osoby (`/people/{id}/export.csv`, bramka jak PDF)
+    i miesiąc zespołu (`/export/{r}/{m}/csv`, bramka jak ZIP, każdy status).
+    Separator `;`, przecinek dziesiętny, UTF-8 z BOM, bez kwot, `safe_row`,
+    najwyżej 24 miesiące; eksport cudzych godzin zostawia ślad
+    `timesheet_csv_exported`. Bez prawa do rodzaju nieobecności auto-wpis puli
+    to „wpis automatyczny” (D6).
+  - „Składa raport godzin” (`timesheet_required`) hurtem w katalogu „Ludzi”
+    (`POST /api/hr/admin/profiles/timesheet-required`, Kadry/admin, ślad per
+    osoba). Domyślnie `true` dla każdej kartoteki — przypomnienia 1.–5. idą
+    tylko do osób z flagą, więc przed pierwszym miesiącem w NEXUSIE Kadry
+    ustawiają listę (Compass pomijał B2B).
 
 ## Płace i premie (`app/services/hr/payroll_*.py`, `bonus_rules.py`)
 
