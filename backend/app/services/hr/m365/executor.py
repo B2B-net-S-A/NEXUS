@@ -22,6 +22,10 @@ zapisem w skrzynce: anulowany urlop nie dostanie autoodpowiedzi z operacji,
 która czekała na ponowienie, a przekierowanie bez zgody osoby się nie
 otworzy, nawet jeśli kolejność operacji w kolejce się rozjechała.
 
+Operacje osoby, która odeszła (konto wyłączone albo kartoteka ``exited``),
+kończą się ``skipped: user_exited`` bez wywołania Graph — jej skrzynka jest
+już poza zakresem aplikacji.
+
 Autoodpowiedź i wydarzenie z oknem innym niż obecne daty wniosku (wniosek
 zmieniony po zaplanowaniu operacji) kończą się ``skipped: leave_changed`` —
 edycja dokłada operacje z nowym oknem.
@@ -43,7 +47,7 @@ from decimal import Decimal
 from typing import Any, Optional
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import func, select, update
+from sqlalchemy import Select, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -114,6 +118,32 @@ def mailbox_address(user: Optional[User]) -> Optional[str]:
         return None
     address = (user.microsoft_upn or user.email or "").strip()
     return address or None
+
+
+def exited_profiles() -> Select[tuple[int]]:
+    """Osoby z kartoteką ``exited`` (podzapytanie)."""
+
+    return select(EmployeeProfile.user_id).where(
+        EmployeeProfile.employment_status == EmploymentStatus.exited
+    )
+
+
+async def left_company(db: AsyncSession, user_ids: Collection[int]) -> set[int]:
+    """Kto z tych osób odszedł: konto wyłączone albo kartoteka ``exited``.
+
+    Skrzynka takiej osoby wypada z grupy aplikacji (RBAC for Applications),
+    więc każdy odczyt i zapis kończy się 403 — nie próbujemy (prod 19.10.2026).
+    """
+
+    if not user_ids:
+        return set()
+    rows = await db.scalars(
+        select(User.id).where(
+            User.id.in_(list(user_ids)),
+            User.is_active.is_not(True) | User.id.in_(exited_profiles()),
+        )
+    )
+    return set(rows.all())
 
 
 def company_domains() -> list[str]:
@@ -777,6 +807,8 @@ async def _execute(
         return Outcome(
             "error", error=MailboxError(None, category="no_mailbox_address")
         ), None
+    if await left_company(db, [user.id]):
+        return Outcome("skipped", "user_exited"), None
     if mode == "live" and not mailbox_allowed(upn, allowed):
         return Outcome(
             "deferred", "not_allowlisted", retry_at=now + NOT_ALLOWLISTED_DELAY

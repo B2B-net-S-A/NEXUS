@@ -206,5 +206,9 @@ describe("hr-m365 helpers", () => {
 
   it("summarises an empty pass", () => {
     expect(reconcileSummary({ mailboxes: 2 })).toBe("skrzynek: 2 · bez nowych operacji");
+    // Osoba, która odeszła, to nie błąd odczytu (prod 19.10.2026).
+    expect(reconcileSummary({ mailboxes: 2, skipped_exited: 1 })).toBe(
+      "skrzynek: 2 · bez nowych operacji · pominięte (osoby, które odeszły): 1",
+    );
   });
 });

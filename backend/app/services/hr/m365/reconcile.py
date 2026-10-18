@@ -37,7 +37,9 @@ Rezerwacja w ``hr_job_runs`` (``kind = hr_m365_reconcile``, klucz = dzień):
 drugi przebieg tego samego dnia nic nie robi. „Uzgodnij teraz” w karcie
 (``run_manual``) omija rezerwację dnia i godzinę 7:00; przed równoległym
 przebiegiem (ręcznym albo dziennym) chroni wspólna blokada ``LOCK_KIND``. Odczyt skrzynki nieudany =
-„nie wiadomo”, a nie „pusto” — wtedy niczego nie wnioskujemy.
+„nie wiadomo”, a nie „pusto” — wtedy niczego nie wnioskujemy. Skrzynek osób,
+które odeszły (konto wyłączone albo kartoteka ``exited``), nie czytamy wcale —
+licznik ``skipped_exited``, nie ``read_errors``.
 """
 
 from __future__ import annotations
@@ -62,8 +64,10 @@ from app.services.hr.m365.executor import (
     allowlist,
     current_mode,
     enqueue_at,
+    exited_profiles,
     forward_should_be_active,
     leave_day_totals,
+    left_company,
     mailbox_address,
     save_mailbox_state,
     set_oof_payload,
@@ -215,15 +219,24 @@ async def _simulated_calendar(
 async def mailbox_users(
     db: AsyncSession, owner_ids: set[int], only: Optional[Collection[int]]
 ) -> list[User]:
-    """Skrzynki zespołu (kartoteka nie ``exited``) i właściciele urlopów."""
+    """Skrzynki zespołu (kartoteka nie ``exited``) i właściciele urlopów.
+
+    Właściciel urlopu bez kartoteki wchodzi — jego urlop też ma autoodpowiedź
+    i reguły do uzgodnienia. Osoba, która odeszła (konto wyłączone albo
+    kartoteka ``exited``), nie wchodzi: patrz ``left_company``.
+    """
 
     staff = select(EmployeeProfile.user_id).where(
         EmployeeProfile.employment_status != EmploymentStatus.exited
     )
-    condition = User.is_active.is_(True) & User.id.in_(staff)
+    members = User.id.in_(staff)
     if owner_ids:
-        condition = condition | User.id.in_(owner_ids)
-    query = select(User).where(condition)
+        members = members | User.id.in_(owner_ids)
+    query = select(User).where(
+        User.is_active.is_(True),
+        User.id.not_in(exited_profiles()),
+        members,
+    )
     if only is not None:
         query = query.where(User.id.in_(list(only)))
     rows = await db.scalars(query.order_by(User.id).limit(MAX_MAILBOXES))
@@ -291,9 +304,18 @@ async def _reconcile(
     last_writes = await _last_oof_writes(db, set(by_user), executed)
     calendar_redo = await _simulated_calendar(db, today) if mode == "live" else {}
 
+    owners = set(by_user) | set(calendar_redo)
+    if only is not None:
+        owners &= set(only)
+    left = await left_company(db, owners)
+    if left:
+        # Urlop osoby, która odeszła — nie czytamy skrzynki poza zakresem
+        # aplikacji (403) i nie liczymy tego jako błąd odczytu.
+        counts["skipped_exited"] = len(left)
+
     allowed = allowlist() if mode == "live" else frozenset()
     day_key = today.isoformat()
-    for user in await mailbox_users(db, set(by_user) | set(calendar_redo), only):
+    for user in await mailbox_users(db, owners, only):
         upn = mailbox_address(user)
         if upn is None:
             continue

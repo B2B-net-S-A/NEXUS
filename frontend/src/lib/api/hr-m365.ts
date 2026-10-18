@@ -118,6 +118,7 @@ const REASON_LABELS: Record<string, string> = {
   still_active: "Przekierowanie nadal potrzebne",
   bad_payload: "Uszkodzona operacja",
   no_mailbox_address: "Konto bez adresu skrzynki",
+  user_exited: "Osoba odeszła — skrzynka poza zakresem aplikacji",
   substitute_unavailable: "Zastępca nieaktywny albo bez adresu",
   forbidden: "Brak uprawnień aplikacji w Exchange",
   throttled: "Microsoft chwilowo ogranicza ruch",
@@ -364,6 +365,8 @@ export function reconcileSummary(counts: Record<string, number | string>): strin
   parts.push(added ? `operacji do kolejki: ${added}` : "bez nowych operacji");
   const requests = number("oof_request_created");
   if (requests) parts.push(`wnioski z Outlooka: ${requests}`);
+  const left = number("skipped_exited");
+  if (left) parts.push(`pominięte (osoby, które odeszły): ${left}`);
   const errors = number("read_errors");
   if (errors) parts.push(`błędy odczytu: ${errors}`);
   return parts.join(" · ");
