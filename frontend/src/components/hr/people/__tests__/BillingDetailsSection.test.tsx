@@ -76,6 +76,35 @@ describe("BillingDetailsSection", () => {
     });
   });
 
+  it("rachunki z białej listy zostają do wyboru, gdy dane po sprawdzeniu się odświeżą", async () => {
+    // Sprawdzenie w wykazie zapisuje nazwę i status VAT — `updated_at` się zmienia,
+    // a formularz był kluczowany po nim i gubił listę rachunków (przeklikanie 18.10).
+    const user = userEvent.setup();
+    const before = { ...data(), account_last4: null, account_source: null };
+    const after = { ...before, registry_name: "Działalność Przykładowa", updated_at: "2026-10-18T02:00:00Z" };
+    mocks.get.mockResolvedValue({ data: after });
+    mocks.post.mockResolvedValue({
+      data: {
+        found: true,
+        name: "Działalność Przykładowa",
+        vat_status: "active",
+        has_virtual_accounts: false,
+        accounts: [
+          { last4: "0001", ref: 0, selected: false },
+          { last4: "0002", ref: 1, selected: false },
+        ],
+        billing: after,
+      },
+    });
+    wrap(<BillingDetailsSection userId={101} enabled />, (client) =>
+      client.setQueryData(settlementKeys.billing(101), before),
+    );
+    await user.click(screen.getByRole("button", { name: "Pobierz z białej listy" }));
+    await waitFor(() => expect(mocks.get).toHaveBeenCalled());
+    expect(await screen.findByText("•• 0001 · na białej liście VAT")).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: "Wybierz" })).toHaveLength(2);
+  });
+
   it("zły NIP podpowiada już w formularzu", async () => {
     const user = userEvent.setup();
     wrap(<BillingDetailsSection userId={101} enabled />, (client) =>

@@ -93,7 +93,17 @@ function WhiteListAccounts({
   );
 }
 
-function BillingForm({ data }: { data: BillingDetails }) {
+function BillingForm({
+  data,
+  found,
+  onFound,
+}: {
+  data: BillingDetails;
+  /** Wynik sprawdzenia w wykazie — trzymany w sekcji, bo formularz przemontowuje
+   *  się po każdej zmianie `updated_at` (także po samym sprawdzeniu). */
+  found: WhiteListLookup | null;
+  onFound: (lookup: WhiteListLookup | null) => void;
+}) {
   const { showToast } = useToast();
   const save = useSaveBilling(data.user_id);
   const lookup = useWhiteListLookup(data.user_id);
@@ -103,7 +113,6 @@ function BillingForm({ data }: { data: BillingDetails }) {
   const [symfonia, setSymfonia] = useState(data.symfonia_id ?? "");
   const [account, setAccount] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [found, setFound] = useState<WhiteListLookup | null>(null);
   const b2b = data.employment_type === "b2b";
   const nipHint = nip.trim() && !nipValid(nip) ? "NIP ma 10 cyfr i sumę kontrolną — sprawdź cyfry." : undefined;
 
@@ -126,7 +135,7 @@ function BillingForm({ data }: { data: BillingDetails }) {
   const fetchWhiteList = () => {
     setError(null);
     lookup.mutate(undefined, {
-      onSuccess: (result) => setFound(result),
+      onSuccess: (result) => onFound(result),
       onError: (err) => setError(apiErrorMessage(err, "Nie udało się sprawdzić białej listy.")),
     });
   };
@@ -135,7 +144,7 @@ function BillingForm({ data }: { data: BillingDetails }) {
     setError(null);
     pick.mutate(ref, {
       onSuccess: () => {
-        setFound(null);
+        onFound(null);
         showToast("Rachunek z białej listy zapisany", "success");
       },
       onError: (err) => setError(apiErrorMessage(err, "Nie udało się zapisać rachunku.")),
@@ -293,6 +302,7 @@ function BillingReadOnly({ data }: { data: BillingDetails }) {
  */
 export function BillingDetailsSection({ userId, enabled }: { userId: number; enabled: boolean }) {
   const query = useBillingDetails(userId, enabled);
+  const [found, setFound] = useState<WhiteListLookup | null>(null);
   const state = resolveViewState({
     isLoading: query.isLoading,
     isError: query.isError,
@@ -320,7 +330,12 @@ export function BillingDetailsSection({ userId, enabled }: { userId: number; ena
           onRetry={() => query.refetch()}
         />
       ) : query.data.can_edit ? (
-        <BillingForm key={query.data.updated_at ?? "new"} data={query.data} />
+        <BillingForm
+          key={query.data.updated_at ?? "new"}
+          data={query.data}
+          found={found}
+          onFound={setFound}
+        />
       ) : (
         <BillingReadOnly data={query.data} />
       )}
