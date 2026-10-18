@@ -9,7 +9,7 @@ import { useToast } from "@/components/Toast";
 import { Button } from "@/components/ui/button";
 import { useConfirmV2 } from "@/components/v2/modals/ConfirmV2";
 import { apiErrorMessage } from "@/lib/api-error";
-import { useDeleteItem, useEquipmentItem } from "@/lib/api/equipment";
+import { useDeleteItem, useEquipmentItem, type EquipmentItem } from "@/lib/api/equipment";
 import { resolveViewState } from "@/lib/view-state";
 import { formatIsoDatePl } from "@/lib/date-pl";
 
@@ -22,6 +22,7 @@ import {
   formatPln,
   itemIdentifier,
   itemNumber,
+  secretHint,
 } from "./equipment-format";
 import { ItemFormDialog } from "./ItemFormDialog";
 
@@ -143,6 +144,7 @@ export function ItemDetailDialog({ itemId, onClose, onOpenProtocol }: ItemDetail
                 </div>
               ) : null}
             </dl>
+            <SecretHintNote category={item.category} />
             <section>
               <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                 Historia wydań
@@ -193,5 +195,29 @@ export function ItemDetailDialog({ itemId, onClose, onOpenProtocol }: ItemDetail
       ) : null}
       {confirmDialog}
     </>
+  );
+}
+
+function SecretHintNote({ category }: { category: EquipmentItem["category"] }) {
+  const hint = secretHint(category);
+  if (!hint) return null;
+  return (
+    <p className="rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+      <span className="font-medium text-foreground">{hint.label}:</span> NEXUS go nie
+      przechowuje. {hint.text}
+      {hint.href ? (
+        <>
+          {" "}
+          <a
+            href={hint.href}
+            target="_blank"
+            rel="noreferrer"
+            className="text-primary hover:underline"
+          >
+            Otwórz Intune
+          </a>
+        </>
+      ) : null}
+    </p>
   );
 }
