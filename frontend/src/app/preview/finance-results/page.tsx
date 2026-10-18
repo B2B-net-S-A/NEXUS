@@ -29,6 +29,7 @@ import FinancePage from "@/app/finance/page";
 import { ORDER_CHANGES_SUMMARY_KEY } from "@/components/finance/OrderChangesTab";
 import { ToastProvider } from "@/components/Toast";
 import { api } from "@/lib/api";
+import { invoicingKeys } from "@/lib/api/client-invoicing";
 import type {
   FinanceImportRun,
   FinancePeriod,
@@ -104,6 +105,8 @@ function seededClient(today: Date): QueryClient {
   );
   qc.setQueryData<ClientRef[]>(["clients-lookup-order-changes"], CLIENTS_LOOKUP);
   qc.setQueryData<OrderPdfMonth[]>(["finance-order-pdf-months"], ORDER_PDF_MONTHS);
+  // „Faktury do klientów” mają własny harness (`/preview/client-invoicing`).
+  qc.setQueryData(invoicingKeys.module, { enabled: false, open: false });
   return qc;
 }
 

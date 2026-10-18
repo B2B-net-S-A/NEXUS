@@ -340,7 +340,7 @@ async def statement_overview(
     }
 
 
-class AssignIn(BaseModel):
+class StatementLineAssignIn(BaseModel):
     settlement_id: int = Field(..., gt=0)
 
 
@@ -351,7 +351,7 @@ class IgnoreIn(BaseModel):
 @router.post("/statement-lines/{payment_id}/assign")
 async def assign_statement_line(
     payment_id: int,
-    payload: AssignIn,
+    payload: StatementLineAssignIn,
     current_user: PaymentsAdmin,
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:

@@ -227,7 +227,11 @@ export function useUploadDocument(userId: number) {
       form.append("visible_to_person", String(input.audience.person));
       form.append("visible_to_payroll", String(input.audience.payroll));
       form.append("visible_to_equipment", String(input.audience.equipment));
-      return (await api.post<DocumentSaved>(`${BASE}/people/${userId}`, form)).data;
+      return (
+        await api.post<DocumentSaved>(`${BASE}/people/${userId}`, form, {
+          headers: { "Content-Type": "multipart/form-data" },
+        })
+      ).data;
     },
     onSuccess: invalidate,
   });

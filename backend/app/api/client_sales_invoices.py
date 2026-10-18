@@ -267,7 +267,7 @@ class TargetIn(BaseModel):
         return self
 
 
-class AssignIn(BaseModel):
+class SalesInvoiceAssignIn(BaseModel):
     targets: list[TargetIn] = Field(..., min_length=1, max_length=20)
     year: int = Field(..., ge=2020, le=2100)
     month: int = Field(..., ge=1, le=12)
@@ -509,7 +509,7 @@ async def finance_invoice_options(
 @finance_router.post("/{invoice_id}/assign")
 async def finance_invoice_assign(
     invoice_id: int,
-    body: AssignIn,
+    body: SalesInvoiceAssignIn,
     current_user: FinanceModuleUser,
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:

@@ -306,7 +306,7 @@ export function AgreementTemplatesCard({ isAdmin }: { isAdmin: boolean }) {
           Nie ma jeszcze wzorów umów — dodaj pierwszy plik Word od kancelarii albo Kadr.
         </div>
       ) : (
-        <div className="overflow-x-auto">
+        <div className="relative overflow-x-auto">
           <table className="w-full min-w-[720px] text-sm">
             <thead>
               <tr>

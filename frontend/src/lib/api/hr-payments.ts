@@ -277,10 +277,10 @@ export function useImportStatement() {
   const invalidate = useInvalidatePayments();
   return useMutation({
     mutationFn: async (file: File) => {
-      const body = new FormData();
-      body.append("file", file);
+      const form = new FormData();
+      form.append("file", file);
       return (
-        await api.post<StatementImport>(`${BASE}/statements`, body, {
+        await api.post<StatementImport>(`${BASE}/statements`, form, {
           headers: { "Content-Type": "multipart/form-data" },
         })
       ).data;

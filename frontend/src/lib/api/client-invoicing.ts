@@ -378,7 +378,11 @@ export function useUploadSalesStatement() {
     mutationFn: async (file: File) => {
       const form = new FormData();
       form.append("file", file);
-      return (await api.post<CreditImportResult>(`${FINANCE}/statements`, form)).data;
+      return (
+        await api.post<CreditImportResult>(`${FINANCE}/statements`, form, {
+          headers: { "Content-Type": "multipart/form-data" },
+        })
+      ).data;
     },
     onSuccess: invalidate,
   });

@@ -182,7 +182,7 @@ export function DocumentsRetentionCard() {
             <p className="text-sm text-muted-foreground">Nic nie czeka na usunięcie.</p>
           ) : (
             <div className="space-y-2">
-              <div className="overflow-x-auto">
+              <div className="relative overflow-x-auto">
                 <table className="w-full min-w-[560px] table-fixed text-sm">
                   <thead>
                     <tr className="border-b border-border">

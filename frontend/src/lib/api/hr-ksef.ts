@@ -194,7 +194,11 @@ export function useAddManualInvoice() {
         form.append(key, String(value));
       }
       form.append("file", input.file);
-      return (await api.post<KsefInvoice>(`${BASE}/invoices/manual`, form)).data;
+      return (
+        await api.post<KsefInvoice>(`${BASE}/invoices/manual`, form, {
+          headers: { "Content-Type": "multipart/form-data" },
+        })
+      ).data;
     },
     onSuccess: invalidate,
   });

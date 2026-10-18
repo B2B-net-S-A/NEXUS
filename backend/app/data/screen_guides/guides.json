@@ -637,7 +637,7 @@
     "title": "Finanse",
     "section": "finance",
     "roles": ["finance", "admin"],
-    "what": "Tu rozliczasz miesiąc: wyniki, import zużycia MD, comiesięczny audyt zmian w zamówieniach (wejścia, zejścia, braki) i PDF-y zamówień.",
+    "what": "Tu rozliczasz miesiąc: wyniki, import zużycia MD, comiesięczny audyt zmian w zamówieniach (wejścia, zejścia, braki), PDF-y zamówień i — przy włączonym module — faktury do klientów z KSeF z wpłatami.",
     "tasks": [
       {
         "q": "Co się zmieniło w zamówieniach w tym miesiącu?",
@@ -670,7 +670,7 @@
       "Powtórny import tego samego miesiąca nadpisuje wcześniejsze zużycie."
     ],
     "anchors": [
-      {"id": "finance.modes", "label": "Tryby modułu Finanse", "describe": "Wyniki, Archiwum, Import MD, Zmiany w zamówieniach, Zamówienia PDF."},
+      {"id": "finance.modes", "label": "Tryby modułu Finanse", "describe": "Wyniki, Archiwum, Import MD, Zmiany w zamówieniach, Zamówienia PDF, Faktury do klientów (przy włączonym module)."},
       {"id": "finance.order_changes", "label": "Zmiany w zamówieniach", "describe": "Podzakładki audytu i wybór miesiąca."},
       {"id": "finance.export", "label": "Eksport do Excela", "describe": "Eksport bieżącej podzakładki z filtrami."},
       {"id": "finance.md_import", "label": "Import zużycia MD", "describe": "Wgranie miesięcznego raportu MD."}
