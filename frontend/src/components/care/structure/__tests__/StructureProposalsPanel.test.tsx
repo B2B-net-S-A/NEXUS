@@ -107,7 +107,8 @@ describe("StructureProposalsPanel", () => {
     expect(
       within(item).getByText(/Skąd: „Line Manager” na kontrakcie \(Iwona Zespołowa\)/),
     ).toBeInTheDocument();
-    expect(within(row("Lena Makietowa")).getByText(/Automat nie znalazł osoby/)).toBeInTheDocument();
+    expect(within(row("Ernest Testowy")).getByText(/Automat nie znalazł osoby/)).toBeInTheDocument();
+    expect(within(row("Lena Makietowa")).queryByText(/Automat nie znalazł osoby/)).toBeNull();
     // Pominięta pozycja nie stoi na liście głównej.
     expect(screen.queryByRole("link", { name: "Oskar Fikcyjny" })).toBeNull();
 
@@ -204,6 +205,41 @@ describe("StructureProposalsPanel", () => {
     );
   });
 
+  it("„Dodaj X jako menedżera” wysyła nową osobę z pola „Line Manager”, hurt po potwierdzeniu", async () => {
+    const data = telecomStructure(TODAY);
+    mocks.post.mockResolvedValue({ data: { applied: [9504], conflicts: [], client: data } });
+    renderPanel(data);
+    await screen.findByRole("link", { name: "Lena Makietowa" });
+    const lena = row("Lena Makietowa");
+    expect(within(lena).getByText(/takiej osoby nie ma w kontaktach klienta/)).toBeInTheDocument();
+    fireEvent.click(
+      within(lena).getByRole("button", { name: "Dodaj „Wiktor Liniowy” jako menedżera" }),
+    );
+    await waitFor(() =>
+      expect(mocks.post).toHaveBeenCalledWith(
+        "/api/care/clients/7002/structure-proposals/managers",
+        { items: [{ contract_id: 9504, new_person_name: "Wiktor Liniowy" }] },
+      ),
+    );
+    mocks.post.mockClear();
+    fireEvent.click(screen.getByRole("button", { name: "Dodaj z „Line Manager” (2)" }));
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText(/najwyżej 1 nowa osoba/)).toBeInTheDocument();
+    expect(mocks.post).not.toHaveBeenCalled();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Dodaj" }));
+    await waitFor(() =>
+      expect(mocks.post).toHaveBeenCalledWith(
+        "/api/care/clients/7002/structure-proposals/managers",
+        {
+          items: [
+            { contract_id: 9504, new_person_name: "Wiktor Liniowy" },
+            { contract_id: 9506, new_person_name: "Wiktor Liniowy" },
+          ],
+        },
+      ),
+    );
+  });
+
   it("bez prawa zatwierdzania nie ma przycisków, jest zdanie, kto zatwierdza", async () => {
     renderPanel({
       ...telecomStructure(TODAY),
@@ -211,7 +247,7 @@ describe("StructureProposalsPanel", () => {
       can_apply_org: false,
     });
     await screen.findByRole("link", { name: "Konrad Przykładowy" });
-    for (const name of ["Zatwierdź", "Zmień", "Pomiń", /Zatwierdź pewne/]) {
+    for (const name of ["Zatwierdź", "Zmień", "Pomiń", /Zatwierdź pewne/, /Dodaj/]) {
       expect(screen.queryByRole("button", { name })).toBeNull();
     }
     expect(

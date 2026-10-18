@@ -93,6 +93,7 @@ async def structure_summary(
                 "uncertain",
                 "none",
                 "open",
+                "new_person",
             )
         },
     }

@@ -56,6 +56,12 @@ interface ProposalBase {
   skipped: ProposalSkip | null;
 }
 
+/** „Dodaj X jako menedżera” — osoba z pola kontraktu, której nie ma w kontaktach klienta. */
+export interface NewPersonHint {
+  name: string;
+  source: "line_manager" | "client_pm_name";
+}
+
 export interface ManagerProposal extends ProposalBase {
   contract_id: number;
   candidate_id: number | null;
@@ -63,6 +69,7 @@ export interface ManagerProposal extends ProposalBase {
   role: string | null;
   end_date: string | null;
   manager_outside_client: boolean;
+  new_person: NewPersonHint | null;
 }
 
 export interface ReportsToProposal extends ProposalBase {
@@ -80,6 +87,7 @@ export interface StructureCounts {
   open: number;
   reports_to_certain: number;
   reports_to_uncertain: number;
+  new_person: number;
 }
 
 export interface ClientStructureProposals {
@@ -102,7 +110,7 @@ export interface StructureSummary {
   items: StructureSummaryRow[];
   totals: Pick<
     StructureCounts,
-    "consultants" | "without_manager" | "certain" | "uncertain" | "none" | "open"
+    "consultants" | "without_manager" | "certain" | "uncertain" | "none" | "open" | "new_person"
   >;
 }
 
@@ -242,6 +250,18 @@ export function certainManagerChoices(data: ClientStructureProposals): ManagerCh
     .filter((row) => row.confidence === "certain" && !row.skipped && row.proposal?.contact)
     .map((row) => ({ contract_id: row.contract_id, contact_id: row.proposal!.contact!.id }));
 }
+
+/** Pozycje do „Dodaj z „Line Manager””: niepominięte z podpowiedzią nowej osoby. */
+export function newPersonChoices(data: ClientStructureProposals): ManagerChoice[] {
+  return data.managers
+    .filter((row) => !row.skipped && row.new_person)
+    .map((row) => ({ contract_id: row.contract_id, new_person_name: row.new_person!.name }));
+}
+
+export const NEW_PERSON_SOURCE_LABELS: Record<NewPersonHint["source"], string> = {
+  line_manager: "„Line Manager”",
+  client_pm_name: "„PM po stronie klienta”",
+};
 
 export function certainReportsToChoices(
   data: ClientStructureProposals,

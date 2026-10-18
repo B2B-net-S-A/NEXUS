@@ -41,7 +41,7 @@ function manager(
   role: string,
   endDate: string | null,
   rest: Pick<ManagerProposal, "confidence" | "proposal"> &
-    Partial<Pick<ManagerProposal, "alternatives" | "skipped">>,
+    Partial<Pick<ManagerProposal, "alternatives" | "skipped" | "new_person">>,
 ): ManagerProposal {
   return {
     contract_id: contractId,
@@ -50,6 +50,7 @@ function manager(
     role,
     end_date: endDate,
     manager_outside_client: false,
+    new_person: null,
     alternatives: [],
     skipped: null,
     ...rest,
@@ -69,6 +70,7 @@ function counts(managers: ManagerProposal[], org: ReportsToProposal[], consultan
     open: live.length,
     reports_to_certain: orgLive.filter((o) => o.confidence === "certain").length,
     reports_to_uncertain: orgLive.filter((o) => o.confidence === "uncertain").length,
+    new_person: live.filter((m) => m.new_person && m.confidence !== "certain").length,
   };
 }
 
@@ -100,7 +102,17 @@ export function telecomStructure(today: string): ClientStructureProposals {
       proposal: candidate(TOMASZ, [{ source: "job_hiring_manager", detail: "Tester automatyzujący" }]),
       alternatives: [candidate(ROBERT, [{ source: "order_sender", detail: null }])],
     }),
-    manager(9504, "Lena Makietowa", "DevOps", null, { confidence: "none", proposal: null }),
+    manager(9504, "Lena Makietowa", "DevOps", null, {
+      confidence: "none",
+      proposal: null,
+      new_person: { name: "Wiktor Liniowy", source: "line_manager" },
+    }),
+    manager(9506, "Julia Przykładowa", "Analityczka danych", shiftDay(today, 90), {
+      confidence: "none",
+      proposal: null,
+      new_person: { name: "Wiktor Liniowy", source: "line_manager" },
+    }),
+    manager(9507, "Ernest Testowy", "Programista .NET", null, { confidence: "none", proposal: null }),
     manager(9505, "Oskar Fikcyjny", "Administrator baz danych", shiftDay(today, 15), {
       confidence: "uncertain",
       proposal: candidate(MARTA, [{ source: "order_sender", detail: null }]),
@@ -130,7 +142,7 @@ export function telecomStructure(today: string): ClientStructureProposals {
   return {
     client_id: HR_CLIENTS.telecom.id,
     client_name: HR_CLIENTS.telecom.name,
-    counts: counts(managers, reportsTo, 7),
+    counts: counts(managers, reportsTo, 9),
     managers,
     reports_to: reportsTo,
     people: [IWONA, MARTA, ROBERT, TOMASZ],
@@ -208,6 +220,7 @@ export function structureSummary(today: string): StructureSummary {
       uncertain: sum("uncertain"),
       none: sum("none"),
       open: sum("open"),
+      new_person: sum("new_person"),
     },
   };
 }

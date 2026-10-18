@@ -42,7 +42,7 @@ describe("/preview/hr-client-structure", () => {
     expect(await screen.findByRole("heading", { name: "Telekom Wzorcowy" })).toBeInTheDocument();
     expect(useAuthStore.getState().user?.role).toBe("delivery_lead");
     const clients = screen.getByRole("navigation", { name: "Klienci" });
-    expect(within(clients).getByText(/4 do uzupełnienia · 2 pewne/)).toBeInTheDocument();
+    expect(within(clients).getByText(/6 do uzupełnienia · 2 pewne · 1 do sprawdzenia · 3 bez propozycji · 2 z „Line Manager”/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Zatwierdź pewne (2)" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Igor Testowy" })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Pominięte (1)" }));
