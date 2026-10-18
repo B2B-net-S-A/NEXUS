@@ -9,7 +9,10 @@
  * na zasianym cache, ZERO zapytań (`hr-harness.tsx`). Ogląda Delivery Lead
  * klienta (może dodać notatkę o stacku i zmienić domyślnego opiekuna).
  *
- * Jeden stan: mapa z czterech źródeł (T rozmowy, R rekrutacje, K nasi
+ * Stan „links”: nad mapą „Karty z Compassa do połączenia” (import 18.10.2026)
+ * — karta z dwiema propozycjami i karta bez kontraktu z tym nazwiskiem.
+ *
+ * Stan „map”: mapa z czterech źródeł (T rozmowy, R rekrutacje, K nasi
  * konsultanci, N notatki) — 7 technologii w trzech obszarach, „Klient zatrudnia”
  * z karty technologicznej, „Do przepięcia” = 2, trzy otwarte rekrutacje,
  * dostawcy i domyślny opiekun. Filtr obszaru działa w przeglądarce, „Dodaj
@@ -22,21 +25,38 @@ import { warsawToday } from "@/lib/warsaw-date";
 import { hrKeys } from "@/lib/api/hr";
 
 import { HR_CAST, hrConfig } from "../hr-fixtures";
-import { HrHarnessLoading, HrHarnessShell, harnessQueryClient, useHrHarness } from "../hr-harness";
-import { CARE_OWNERS, MAP_CLIENT, clientTechMap } from "./fixtures";
+import {
+  HrHarnessLoading,
+  HrHarnessShell,
+  harnessQueryClient,
+  pickState,
+  useHrHarness,
+} from "../hr-harness";
+import { CARE_OWNERS, MAP_CLIENT, clientTechMap, unlinkedCards } from "./fixtures";
 
-const STATES = [{ key: "map", label: "Mapa (Delivery Lead klienta)" }] as const;
+const STATES = [
+  { key: "map", label: "Mapa (Delivery Lead klienta)" },
+  { key: "links", label: "Karty z Compassa do połączenia" },
+] as const;
+type HarnessState = (typeof STATES)[number]["key"];
 
-function prepare() {
-  const map = clientTechMap(warsawToday());
+function prepare(params: URLSearchParams) {
+  const state: HarnessState = pickState(params.get("state"), ["map", "links"] as const, "map");
+  const today = warsawToday();
+  const map = clientTechMap(today);
   const client = harnessQueryClient();
   client.setQueryData(hrKeys.config, hrConfig());
   client.setQueryData(careKeys.clientMap(MAP_CLIENT.id), map);
+  // „map”: wszystkie karty połączone — sekcji „do połączenia” nie ma.
+  client.setQueryData(
+    careKeys.clientUnlinkedCards(MAP_CLIENT.id),
+    state === "links" ? unlinkedCards(today) : { items: [], contracts: [], can_link: true },
+  );
   client.setQueryData(careKeys.owners, CARE_OWNERS);
   return {
     user: HR_CAST.kamil,
     client,
-    value: { consultants: map.consultants_count, openJobs: map.open_jobs_count },
+    value: { consultants: map.consultants_count, openJobs: map.open_jobs_count, state },
   };
 }
 
@@ -72,10 +92,10 @@ export default function HrClientTechPreviewPage() {
       title="Technologie klienta"
       note="Dane fikcyjne, bez zapytań. Ogląda Delivery Lead klienta; liczby źródeł to karty, rekrutacje, konsultanci i notatki z technologią."
       states={STATES}
-      current="map"
+      current={ready.value.state}
     >
       <div className="space-y-4">
-        <ClientHeader {...ready.value} />
+        <ClientHeader consultants={ready.value.consultants} openJobs={ready.value.openJobs} />
         <ClientTechnologiesTab clientId={MAP_CLIENT.id} />
       </div>
     </HrHarnessShell>

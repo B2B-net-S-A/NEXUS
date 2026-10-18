@@ -257,7 +257,10 @@ export function skillReview(today: string, state: "open" | "closed") {
   });
   const items =
     state === "open"
-      ? [item(51, "Camunda 8", "open", 2, null, 6), item(52, "Oracle GoldenGate", "open", 1, null, 13)]
+      ? [
+          { ...item(51, "Camunda 8", "open", 2, null, 6), suggestions: [{ id: 811, name: "Camunda" }] },
+          item(52, "Oracle GoldenGate", "open", 1, null, 13),
+        ]
       : [item(53, "Springboot", "mapped", 3, { id: 802, name: "Spring Boot" }, 20)];
   return { items, can_curate: true };
 }

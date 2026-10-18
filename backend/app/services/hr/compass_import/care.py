@@ -9,18 +9,25 @@ Tabele Compassa: ``tech_interview_cards`` (+ ``tech_interview_card_technologies`
 Połączenie z NEXUSEM (decyzja D7: karta i rozmowa żyją na kontrakcie):
 
 * klient: nazwa klienta Compassa = nazwa (albo nazwa wyświetlana) klienta
-  NEXUSA po ``normalize_client_name``; klient scalony → klient docelowy;
-  dwa trafienia = brak pewności,
-* osoba: WYŁĄCZNIE kotwica z kolejki „Tożsamość NEXUS” Compassa
+  NEXUSA po ``normalize_client_name``, a bez trafienia — po nazwie bez formy
+  prawnej (``loose_client_name``, „S.A.”, „sp. z o.o.”); klient scalony →
+  klient docelowy; dwa trafienia = brak pewności,
+* osoba: kotwica z kolejki „Tożsamość NEXUS” Compassa
   (``contractors.nexus_candidate_id``, a bez niej ``nexus_contract_id`` →
-  kandydat kontraktu). Po samym imieniu i nazwisku nie łączymy — tak samo
-  zdecydował Compass („Name matching is intentionally forbidden”),
+  kandydat kontraktu),
 * kontrakt: kandydat + klient + okres (dzień rozmowy w trakcie umowy, umowa
   nie anulowana i nie szkic) — dokładnie jeden, inaczej „conflict”.
 
-Karta bez pewnego kontraktu trafia do klienta z pustym ``contract_id``
-(schemat dopuszcza to tylko dla importu) jako „conflict” do dopięcia; karta
-bez klienta jest pomijana. Rozmowa bez pewnego kontraktu nie przechodzi.
+Karta bez kotwicy (18.10.2026 — wszystkie: kolejka „Tożsamość NEXUS” jest
+pusta) łączy się z kontraktem po kliencie, imieniu i nazwisku konsultanta
+(``contractors.full_name``) i dniu rozmowy — decyzja Artura „Import
++ automatyczne parowanie”, reguły w ``app/services/care/card_linking.py``:
+dokładnie jeden kontrakt w okresie = połączenie automatyczne, inaczej karta
+trafia do klienta z pustym ``contract_id`` (schemat dopuszcza to tylko dla
+importu) i czeka na liście „Karty do połączenia” z propozycjami; imię
+i nazwisko z Compassa zostaje na karcie (``compass_person_name``). Karta bez
+klienta jest pomijana. Rozmowy, rytm i opiekun łączą się nadal wyłącznie
+po kotwicy — rozmowa bez pewnego kontraktu nie przechodzi.
 Technologia spoza słownika ``skills`` (nazwa ani alias) idzie do
 ``skill_review_queue``, a karta trzyma tekst w ``unrecognized_skills``.
 Import nie zgłasza „Do przepięcia” i nie wysyła przypomnień. Punktów planu
@@ -49,7 +56,7 @@ eksportu w okresie umowy):
 from __future__ import annotations
 
 import calendar as month_calendar
-from collections import defaultdict
+from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from datetime import date
 from typing import Any, Mapping, Optional
@@ -75,12 +82,17 @@ from app.models.contract_care import (
 from app.models.hr_ops import HrImportBatch
 from app.models.user import User
 from app.services.care import access as care_access
+from app.services.care import card_linking
 from app.services.care import skills as care_skills
-from app.services.client_portfolio_import import normalize_client_name
+from app.services.client_portfolio_import import (
+    loose_client_name,
+    normalize_client_name,
+)
 from app.services.contract_care_schema import (
     CARD_STATUSES,
     HIRING_SOURCES,
     NOTE_MAX,
+    PERSON_NAME_MAX,
     SALES_STATUSES,
     SHORT_TEXT_MAX,
 )
@@ -111,6 +123,9 @@ CONVERSATIONS = "contractor_conversations"
 
 NO_LINK = "kontraktor bez powiązania z NEXUSEM (kolejka „Tożsamość NEXUS”)"
 UNSURE_CONTRACT = "kontrakt niepewny — karta przy kliencie, bez kontraktu"
+NAME_LINKED = "kontrakt dopasowany po kliencie, imieniu i nazwisku oraz dacie"
+NAME_SUGGESTED = "do potwierdzenia przez DL — kilka kontraktów albo poza okresem umowy"
+NAME_NOT_FOUND = "bez kontraktu z tym imieniem i nazwiskiem u klienta"
 UNKNOWN_SKILL = "technologia spoza słownika — w kolejce do przejrzenia"
 RHYTHMS = "contractor_success_settings"
 OWNERS = "contractors"
@@ -179,6 +194,10 @@ class Links:
     clients_by_key: dict[str, set[int]]
     compass_clients: dict[str, str]
     contractors: dict[str, Mapping[str, Any]]
+    clients_by_loose: dict[str, set[int]] = field(default_factory=dict)
+    by_name: card_linking.ContractIndex = field(
+        default_factory=card_linking.ContractIndex
+    )
     contract_candidate: dict[int, Optional[int]] = field(default_factory=dict)
     known_candidates: set[int] = field(default_factory=set)
     contracts: dict[int, list[tuple[int, int, Optional[date], Optional[date]]]] = field(
@@ -187,6 +206,8 @@ class Links:
 
     def client_for_name(self, name: Optional[str]) -> Optional[int]:
         matches = self.clients_by_key.get(normalize_client_name(name), set())
+        if not matches and loose_client_name(name):
+            matches = self.clients_by_loose.get(loose_client_name(name), set())
         return next(iter(matches)) if len(matches) == 1 else None
 
     def client_for(self, compass_client_id: Any) -> Optional[int]:
@@ -221,6 +242,7 @@ class Links:
 
 async def _links(db: AsyncSession, bundle: Bundle) -> Links:
     clients_by_key: dict[str, set[int]] = defaultdict(set)
+    clients_by_loose: dict[str, set[int]] = defaultdict(set)
     rows = (
         await db.execute(
             select(
@@ -245,6 +267,9 @@ async def _links(db: AsyncSession, bundle: Bundle) -> Links:
             key = normalize_client_name(value)
             if key:
                 clients_by_key[key].add(final(client_id))
+            loose = loose_client_name(value)
+            if loose:
+                clients_by_loose[loose].add(final(client_id))
 
     contractors = {str(row.get("id")): row for row in bundle.rows("contractors")}
     contract_ids = {
@@ -259,6 +284,7 @@ async def _links(db: AsyncSession, bundle: Bundle) -> Links:
     }
     links = Links(
         clients_by_key=dict(clients_by_key),
+        clients_by_loose=dict(clients_by_loose),
         compass_clients={
             str(row.get("id")): str(row.get("name") or "")
             for row in bundle.rows("clients")
@@ -301,6 +327,8 @@ async def _links(db: AsyncSession, bundle: Bundle) -> Links:
                 (contract_id, final(client_id), start, end)
             )
         links.contracts = dict(by_candidate)
+    if bundle.rows(CARDS):
+        links.by_name = await card_linking.load_index(db)
     return links
 
 
@@ -362,6 +390,8 @@ async def _plan_cards(
     sales = {
         str(row.get("card_id")): row for row in bundle.rows("tech_card_sales_status")
     }
+    pairings: Counter[str] = Counter()
+    no_client = 0
 
     for row in bundle.rows(CARDS):
         sid = source_id(CARDS, row)
@@ -373,17 +403,33 @@ async def _plan_cards(
             continue
         client_id = links.client_for(row.get("client_id"))
         if client_id is None:
+            no_client += 1
             result.rows.append(
                 RowPlan(sid, "skip", "klient karty bez odpowiednika w NEXUSIE")
             )
             continue
         notes: list[str] = []
+        contractor = links.contractors.get(str(row.get("contractor_id"))) or {}
+        person_name = text(contractor.get("full_name"), PERSON_NAME_MAX)
         candidate_id = links.candidate_for(row.get("contractor_id"))
         contract_id = None
         if candidate_id is not None:
             contract_id, _ = links.contract_for(candidate_id, client_id, interview_on)
-        if contract_id is None:
-            notes.append(UNSURE_CONTRACT if candidate_id is not None else NO_LINK)
+            if contract_id is None:
+                notes.append(UNSURE_CONTRACT)
+            pairing = "anchor" if contract_id is not None else "anchor_unsure"
+        else:
+            match = links.by_name.match(client_id, person_name, interview_on)
+            contract_id = match.contract_id
+            pairing = match.state
+            notes.append(
+                {
+                    "auto": NAME_LINKED,
+                    "suggested": NAME_SUGGESTED,
+                    "none": NAME_NOT_FOUND,
+                }[match.state]
+            )
+        pairings[pairing] += 1
 
         skill_ids: set[int] = set()
         unrecognized: dict[str, str] = {}
@@ -427,6 +473,7 @@ async def _plan_cards(
         values = {
             "contract_id": contract_id,
             "client_id": client_id,
+            "compass_person_name": person_name,
             "author_user_id": people.account(row.get("tcm_id"))
             or people.account(row.get("created_by")),
             "interview_on": interview_on,
@@ -505,8 +552,9 @@ async def _plan_cards(
         same_relations = await _same_relations(db, existing, payload)
         if not changed and same_relations:
             result.rows.append(RowPlan(sid, "unchanged", reason, payload))
-        elif changed == ["contract_id"] and same_relations:
-            # Kotwica osoby dopisana w Compassie po poprzednim imporcie.
+        elif set(changed) <= {"contract_id", "compass_person_name"} and same_relations:
+            # Kontrakt znaleziony po poprzednim imporcie (kotwica w Compassie,
+            # nowy kontrakt w NEXUSIE) albo karta sprzed kolumny z nazwiskiem.
             payload["write"] = True
             result.rows.append(RowPlan(sid, "update", reason, payload))
         else:
@@ -518,6 +566,14 @@ async def _plan_cards(
                     payload,
                 )
             )
+    # Same liczby (bez nazwisk): ile kart połączył import, ile czeka na DL.
+    result.extra["cards"] = {
+        "linked_by_anchor": pairings["anchor"],
+        "linked_by_name": pairings["auto"],
+        "to_confirm_with_suggestions": pairings["suggested"],
+        "to_confirm_without_match": pairings["none"] + pairings["anchor_unsure"],
+        "without_client": no_client,
+    }
 
 
 async def _same_relations(

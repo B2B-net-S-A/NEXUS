@@ -104,7 +104,7 @@ Rozmów kontraktorów (`contractor_%`) i helpdesku nie eksportujemy.
 | `client_areas` | `id`, `client_id`, `name` |
 | `vendors` | `id`, `name` |
 | `technologies` | `id`, `name`, `aliases` |
-| `contractors` | `id`, `nexus_candidate_id`, `nexus_contract_id`, `owner_tcm_id`, `current_client` |
+| `contractors` | `id`, `full_name`, `nexus_candidate_id`, `nexus_contract_id`, `owner_tcm_id`, `current_client` |
 | `contractor_success_settings` | `contractor_id`, `monitoring_status`, `check_in_cadence_days`, `onboarding_program_ends_on`, `onboarding_program_completed_at` |
 | `tech_interview_cards` | `id`, `contractor_id`, `client_id`, `client_area_id`, `tcm_id`, `created_by`, `interview_date`, `status`, `is_draft`, `finalized_at`, `satisfaction`, `satisfaction_comment`, `hiring`, `hiring_source`, `hiring_roles`, `project_end_month`, `project_end_year`, `project_end_unknown`, `team_size`, `team_externals`, `memorable_quote`, `tech_old_new`, `vendors_note`, `title`, `professional_insurance`, `created_at` |
 | `tech_interview_card_technologies` | `card_id`, `technology_id` |
@@ -113,10 +113,13 @@ Rozmów kontraktorów (`contractor_%`) i helpdesku nie eksportujemy.
 | `tech_card_sales_status` | `card_id`, `status`, `atlas_deal_title`, `reason`, `handled_by_name`, `handled_at` |
 | `contractor_conversations` | `id`, `contractor_id`, `conversation_date`, `client_snapshot`, `category`, `status`, `note`, `follow_up_date`, `tcm_id`, `created_by`, `created_at` |
 
-Z `contractors` wystarczą kotwice NEXUSA — imię i nazwisko nie są potrzebne
-(import nie łączy osób po nazwisku). Karta i rozmowa przechodzą na kontrakt
-tylko z kotwicą osoby z kolejki „Tożsamość NEXUS”; bez niej karta ląduje przy
-kliencie bez kontraktu, a rozmowa zostaje w Compassie.
+Z `contractors` import bierze kotwice NEXUSA i `full_name` (od 18.10.2026).
+Kolejka „Tożsamość NEXUS” nie ma ani jednej kotwicy, więc karta bez kotwicy
+łączy się z kontraktem po kliencie, imieniu i nazwisku konsultanta i dniu
+rozmowy (decyzja Artura „Import + automatyczne parowanie”, reguły
+w `app/services/care/card_linking.py`); niepewna czeka przy kliencie na
+połączenie przez Delivery Leada, z nazwiskiem na karcie. Rozmowa przechodzi na
+kontrakt tylko z kotwicą — bez niej zostaje w Compassie.
 
 Rytm kontaktu i opiekun (etap 3, 17.10.2026): `contractor_success_settings`
 daje poziom rytmu (wstrzymany; aktywny w programie wejścia → co 2 tygodnie do
