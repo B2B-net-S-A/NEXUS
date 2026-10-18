@@ -499,6 +499,9 @@ export function itemQuickFix(check: QcCheck, item: QcItem): QcFixAction | null {
   return null;
 }
 
+/** Lustro zdań `cv_qc._lower_bound_detail` i stażu w firmie przy uciętym odczycie. */
+const LOWER_BOUND = /dolna granica|nie zna (?:\d+ z \d+|wszystkich) ról/i;
+
 /** „N lat w A i B” — lustro `cv_qc._SEVERAL_COMPANIES` (tylko część po „w”). */
 const SEVERAL_COMPANIES = /\s(?:i|oraz|and)\s|[&/]/i;
 const COMPANY_PART = /\s(?:w|we|u|at|in|with)\s+(.+)$/i;
@@ -507,10 +510,12 @@ const COMPANY_PART = /\s(?:w|we|u|at|in|with)\s+(.+)$/i;
  * Czy serwer poprawi te lata (17.10.2026): jest liczba z historii (co najmniej
  * rok — zera serwer nie wpisuje) i staż w firmie nie mówi o kilku firmach naraz.
  * Inaczej uwaga zostaje do decyzji, bez przycisku, który kończyłby się „nic do
- * zrobienia”.
+ * zrobienia”. Tak samo, gdy odczyt oryginału nie zna części ról CV (18.10.2026):
+ * jego lata to tylko dolna granica, a serwer ich nie wpisze (`cv_qc.YearsEstimate`).
  */
 function yearsFixable(item: QcItem): boolean {
   if (!yearsPreview(item)) return false;
+  if (LOWER_BOUND.test(itemSentence(item))) return false;
   if (!/z dat roli w /.test(itemSentence(item))) return true;
   const company = COMPANY_PART.exec(item.term ?? "");
   return !SEVERAL_COMPANIES.test(company ? company[1] : (item.term ?? ""));

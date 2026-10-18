@@ -4890,6 +4890,74 @@ def test_years_never_write_zero_nor_one_company_into_a_claim_about_several() -> 
     assert "w tym 8 lat w Bank Alfa." in out
 
 
+# Produkcja 18.10.2026 (rekrutacja 789131): odczyt AI oryginału ma 15 ról,
+# a CV — jak oryginał — 24. Lata z odczytu (21) proponowano zamiast 30 z dat
+# ról w CV, a „Zmień” wpisywał je jednym kliknięciem.
+TODAY_TRUNCATED = date(2026, 10, 18)
+_CV_YEARS = list(range(2002, 2026))  # 24 role, po jednym roku, ostatnia do dziś
+_READ_YEARS = [y for y in _CV_YEARS if not 2008 <= y <= 2015][:15]
+
+
+def _truncated_case(header: str) -> tuple[str, list[dict]]:
+    roles = "".join(
+        f'<p data-cv-section="role"><strong>Developer</strong> 01.{y} – '
+        f"{'obecnie' if y == _CV_YEARS[-1] else f'12.{y}'}</p>"
+        f'<p data-cv-section="employer">Kappa{y}</p>'
+        "<ul><li>Rozwój systemów transakcyjnych dla klientów banku.</li></ul>"
+        for y in reversed(_CV_YEARS)
+    )
+    html = (
+        "<h1>Developer – Anna P.</h1>"
+        f"<p>{header}</p>"
+        '<h2 data-cv-section="experience">Doświadczenie</h2>' + roles
+    )
+    read = [
+        {
+            "company": f"Kappa{y}",
+            "title": "Developer",
+            "start": f"{y}-01",
+            "end": None if y == _CV_YEARS[-1] else f"{y}-12",
+        }
+        for y in reversed(_READ_YEARS)
+    ]
+    return html, read
+
+
+def test_years_from_a_truncated_read_are_not_proposed_nor_written() -> None:
+    assert len(_READ_YEARS) == 15
+    # Nagłówek zgodny z datami ról w CV — nic do poprawy.
+    html, read = _truncated_case("25 years of experience in IT.")
+    by = _by_key(
+        qc.compute_checks(_qc_input(html, experience=read, today=TODAY_TRUNCATED))
+    )
+    assert by["years_header"]["status"] == "pass"
+    assert qc.fix_years_html(html, read, today=TODAY_TRUNCATED) == (html, 0)
+
+    # Nagłówek niezgodny z niczym — uwaga do decyzji bez liczby z odczytu.
+    html, read = _truncated_case("32 years of experience in IT.")
+    by = _by_key(
+        qc.compute_checks(_qc_input(html, experience=read, today=TODAY_TRUNCATED))
+    )
+    years = by["years_header"]
+    assert years["status"] == "fail"
+    detail = years["items"][0]["detail"]
+    assert not re.search(r"wychodzi \d", detail)
+    assert "15" not in detail
+    assert qc.fix_years_html(html, read, today=TODAY_TRUNCATED) == (html, 0)
+
+
+def test_years_from_a_complete_read_are_still_fixed() -> None:
+    html, _ = _truncated_case("32 years of experience in IT.")
+    full = [
+        {"company": f"Kappa{y}", "start": f"{y}-01", "end": f"{y}-12"}
+        for y in reversed(_CV_YEARS)
+    ]
+    full[0]["end"] = None
+    out, count = qc.fix_years_html(html, full, today=TODAY_TRUNCATED)
+    assert count == 1
+    assert "24 years of experience in IT." in out
+
+
 def test_title_replaces_the_role_before_the_name() -> None:
     out, count = qc.set_title_html(
         "<h1>Java Developer – Anna P.</h1><p>x</p>", "Senior Java Developer", "Anna P."

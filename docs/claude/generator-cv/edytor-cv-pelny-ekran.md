@@ -449,6 +449,21 @@ Komponenty: `cv-editor/CvEditorIssues.tsx` (grupy, „Poprawione”, pasek),
   `_checks_hash`, więc następny zapis przebiegu dostałby nowy wiersz z dzisiejszą
   datą — a od niej kolejka Delivery Leada liczy czas oczekiwania. Podgląd lat
   bierze liczbę ze zdania uwagi („… wychodzi 7.”); bez niej sam przycisk.
+- **Ucięty odczyt oryginału = lata tylko jako dolna granica (18.10.2026).**
+  `candidate.experience` (odczyt AI) bywa krótszy niż CV: produkcja, rekrutacja
+  789131 — odczyt 15 ról, CV i oryginał 24, z odczytu 21 lat, z dat ról w CV 30,
+  a „Zmień” wpisywał „21 years” zamiast „32 years”. `cv_qc.estimate_years`
+  liczy obie wersje: `read` (odczyt), `cv` (`cv_role_years` — zakresy dat
+  z pierwszych bloków każdej roli CV; rola bez czytelnego zakresu = `None`)
+  i `missing` (role CV bez pary w odczycie, `role_pairs`). Gdy CV ma role bez
+  pary albo `cv` przekracza `read` o więcej niż rok (`read_is_lower_bound`):
+  nagłówek zgodny z `cv` → zaliczone; inaczej uwaga do decyzji BEZ „wychodzi N”
+  (`_lower_bound_detail`), staż w firmie też bez liczby, a `fix_years_html`
+  nic nie wpisuje (także w „Popraw wszystkie”). Front dodatkowo nie daje
+  „Zmień”, gdy zdanie mówi „dolna granica” / „nie zna … ról”
+  (`yearsFixable`, `LOWER_BOUND`). CV wklejone bez znaczników generatora ma
+  role wyznaczane z firm odczytu, więc brakującej roli nie widać i lata
+  z odczytu działają tam jak dotąd.
 - **Liniowo.** Każda z czterech operacji przechodzi testy z limitem czasu
   procesora (`test_one_click_actions_are_linear`, `…_on_raw_whitespace` —
   200 tys. odstępów). Węzły tekstu mają SUROWE odstępy (inaczej niż
