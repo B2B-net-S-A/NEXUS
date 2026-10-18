@@ -91,9 +91,14 @@ describe("settings-registry — widoczność jak przed przebudową", () => {
 
   it("Finanse bez admina widzą swoje powierzchnie i Outlooka (U6, 22.09)", () => {
     const f = user("finance", { finance: "write", insights: "read" });
-    const listed = SETTINGS_ITEMS.filter((i) => !i.hidden && canSeeSettingsItem(f as never, i)).map((i) => i.id);
-    // „Płace” (17.10.2026) — Finanse mają to uprawnienie z roli (D2).
-    expect(listed.sort()).toEqual(["assign", "contracts", "history", "my-notifications", "outlook", "payroll", "rates"]);
+    const listed = (hrProgram: boolean) =>
+      SETTINGS_ITEMS.filter((i) => !i.hidden && canSeeSettingsItem(f as never, i, { hrProgram }))
+        .map((i) => i.id)
+        .sort();
+    // „Płace” (17.10.2026) — Finanse mają to uprawnienie z roli (D2), ale tylko
+    // przy włączonym programie „Ludzie w NEXUSIE” (18.10.2026).
+    expect(listed(false)).toEqual(["assign", "contracts", "history", "my-notifications", "outlook", "rates"]);
+    expect(listed(true)).toEqual(["assign", "contracts", "history", "my-notifications", "outlook", "payroll", "rates"]);
   });
 
   it("Szablony maili: każdy z capability candidate.write, nie tylko admin (U10)", () => {
@@ -275,7 +280,7 @@ describe("settings-registry — „Klucze API” (konta serwisowe, 14.10.2026)",
 
 describe("settings-registry — „Płace” (reguły premii, 17.10.2026)", () => {
   const see = (account: ReturnType<typeof accessSnapshot>) =>
-    canSeeSettingsItem(account, item("payroll"));
+    canSeeSettingsItem(account, item("payroll"), { hrProgram: true });
 
   it("idzie za uprawnieniem „Płace”, nie za „Kadrami” (lustro require_hr_payroll_admin)", () => {
     expect(see(accessSnapshot("admin"))).toBe(true);
@@ -299,7 +304,30 @@ describe("settings-registry — „Płace” (reguły premii, 17.10.2026)", () =
 
   it("znajduje się po „premie” i „liga”", () => {
     const finance = accessSnapshot("finance");
-    expect(searchSettingsItems(finance, "premie").map((i) => i.id)).toEqual(["payroll"]);
-    expect(searchSettingsItems(finance, "liga").map((i) => i.id)).toContain("payroll");
+    const on = { hrProgram: true };
+    expect(searchSettingsItems(finance, "premie", on).map((i) => i.id)).toEqual(["payroll"]);
+    expect(searchSettingsItems(finance, "liga", on).map((i) => i.id)).toContain("payroll");
+  });
+});
+
+describe("settings-registry — wyłączony program „Ludzie w NEXUSIE” (18.10.2026)", () => {
+  const HR_ITEMS = ["hr", "payroll", "hr-import"];
+
+  it("nikt, także admin, nie widzi pozycji programu bez włączonego programu", () => {
+    const admin = accessSnapshot("admin");
+    for (const id of HR_ITEMS) {
+      expect(canSeeSettingsItem(admin, item(id))).toBe(false);
+      expect(canSeeSettingsItem(admin, item(id), { hrProgram: false })).toBe(false);
+      expect(canSeeSettingsItem(admin, item(id), { hrProgram: true })).toBe(true);
+    }
+    const listed = listedSettingsItems(admin).map((i) => i.id);
+    expect(listed.filter((id) => HR_ITEMS.includes(id))).toEqual([]);
+  });
+
+  it("wyszukiwarka ich nie znajduje", () => {
+    const admin = accessSnapshot("admin");
+    expect(searchSettingsItems(admin, "kadry").map((i) => i.id)).not.toContain("hr");
+    expect(searchSettingsItems(admin, "premie").map((i) => i.id)).toEqual([]);
+    expect(searchSettingsItems(admin, "compass").map((i) => i.id)).not.toContain("hr-import");
   });
 });

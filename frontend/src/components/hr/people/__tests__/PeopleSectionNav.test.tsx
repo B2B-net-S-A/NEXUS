@@ -38,6 +38,7 @@ const ALL_ON: Record<HrModuleKey, boolean> = {
 
 function config(me: Partial<HrConfig["me"]>): HrConfig {
   return {
+    program: true,
     modules: ALL_ON,
     open_modules: ALL_ON,
     me: {

@@ -360,11 +360,14 @@ export function extraPermissionRows(
   snapshot: AdminPermissionsSnapshot,
   roleGiven: ReadonlySet<Permission>,
   draft: ReadonlySet<Permission>,
+  /** Grupy, których nie pokazujemy (np. „people” przy wyłączonym programie). */
+  hiddenGroups: ReadonlySet<string> = new Set(),
 ): ExtraPermissionRow[] {
   const labels = new Map(
     snapshot.permissions.map((permission) => [permission.key, permission.label]),
   );
   return snapshot.permission_groups
+    .filter((group) => !hiddenGroups.has(group.key))
     .flatMap((group) => group.permissions)
     .filter((key) => isPermission(key) && !roleGiven.has(key))
     .map((key) => {

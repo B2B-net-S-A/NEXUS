@@ -8,6 +8,14 @@ import type { AdminPermissionsSnapshot } from "@/lib/admin-permissions";
 import { PermissionsTab } from "./PermissionsTab";
 import { permissionsSnapshot } from "./__tests__/permission-fixtures";
 
+// Program „Ludzie w NEXUSIE” (18.10.2026): domyślnie włączony w tych testach;
+// przypadki wyłączonego programu przestawiają `hrProgram.on`.
+const hrProgram = vi.hoisted(() => ({ on: true }));
+vi.mock("@/lib/api/hr", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/api/hr")>()),
+  useHrProgram: () => hrProgram.on,
+}));
+
 vi.mock("@/lib/api", () => ({
   adminApi: {
     getSectionPermissions: vi.fn(),
@@ -39,6 +47,7 @@ function permissionSwitch(name: string) {
 
 describe("PermissionsTab — jedna rola, trzynaście przełączników", () => {
   beforeEach(() => {
+    hrProgram.on = true;
     vi.clearAllMocks();
     vi.mocked(adminApi.getSectionPermissions).mockResolvedValue({
       data: policy,
@@ -82,6 +91,22 @@ describe("PermissionsTab — jedna rola, trzynaście przełączników", () => {
     expect(screen.queryByRole("table")).not.toBeInTheDocument();
     expect(screen.queryByText("Funkcje specjalne")).not.toBeInTheDocument();
     expect(screen.queryByText(/Wyjątki użytkowników/)).not.toBeInTheDocument();
+  });
+
+  it("wyłączony program „Ludzie w NEXUSIE” chowa grupę „Ludzie” i rolę Pracownik", async () => {
+    hrProgram.on = false;
+    renderTab();
+    await screen.findByRole("group", { name: "Rola" });
+    expect(screen.queryByRole("group", { name: "Ludzie" })).toBeNull();
+    expect(
+      screen.getAllByRole("heading", { level: 3 }).map((heading) => heading.textContent),
+    ).toEqual(["Klienci i kontrakty", "Rekrutacje", "Pieniądze"]);
+    expect(screen.getAllByRole("switch")).toHaveLength(9);
+    expect(
+      within(screen.getByRole("group", { name: "Rola" })).queryByRole("button", {
+        name: "Pracownik",
+      }),
+    ).toBeNull();
   });
 
   it("rysuje cztery grupy i trzynaście przełączników ze stanem roli", async () => {

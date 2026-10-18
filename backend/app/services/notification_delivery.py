@@ -22,6 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.models.app_setting import AppSetting
+from app.services.hr import program as hr_program
 
 logger = logging.getLogger(__name__)
 SETTING_KEY = "notification_email_delivery"
@@ -633,6 +634,8 @@ async def admin_view(db: AsyncSession) -> dict[str, Any]:
     types = []
     for spec in CATALOG:
         kind = spec["id"]
+        if kind == hr_program.MAIL_KIND and not hr_program.program_enabled():
+            continue
         use_delegated = (
             kind in {"job_deadline", "delivery_alert"} and delegated is not None
         )

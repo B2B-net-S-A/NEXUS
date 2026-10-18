@@ -279,6 +279,21 @@ describe("dodatkowe uprawnienia osoby", () => {
       "equipment",
     ]);
     expect(rows.every((row) => !row.checked)).toBe(true);
+    // Wyłączony program „Ludzie w NEXUSIE” (18.10.2026): bez grupy „people”.
+    const hidden = extraPermissionRows(
+      snapshot,
+      permissionsOfRoles(snapshot, tcm),
+      new Set(),
+      new Set(["people"]),
+    );
+    expect(hidden.map((row) => row.key)).toEqual([
+      "clients_edit",
+      "contracts_orders_edit",
+      "recruitment_manage",
+      "amounts_view",
+      "amounts_edit",
+      "finance_module",
+    ]);
     // Delivery Lead dostaje z roli prawie wszystko z Delivery i pieniędzy —
     // zostają dwie pozycje plus cztery z grupy „Ludzie”.
     expect(

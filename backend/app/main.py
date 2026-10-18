@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 import os
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from slowapi import _rate_limit_exceeded_handler
@@ -223,6 +223,7 @@ from app.api import equipment as equipment_api
 from app.api import client_onboarding as client_onboarding_api
 from app.api import equipment_intune as equipment_intune_api
 from app.api import equipment_public as equipment_public_api
+from app.services.hr.program import require_hr_program
 from app.api import onboarding as onboarding_api
 from app.api import procedures as procedures_api
 from app.api import help_screens as help_screens_api
@@ -1751,56 +1752,148 @@ app.include_router(
     kpi_targets_admin_api.router, prefix="/api/kpi-targets", tags=["kpis"]
 )
 # „Ludzie w NEXUSIE” — moduł kadrowy (bramki w `app/api/hr_gates.py`).
-app.include_router(hr_import_api.router, prefix="/api/hr/admin/import", tags=["hr"])
-app.include_router(hr_admin_api.router, prefix="/api/hr/admin", tags=["hr"])
-app.include_router(hr_counts_api.router, prefix="/api/hr/counts", tags=["hr"])
-app.include_router(hr_dashboard_api.router, prefix="/api/hr/dashboard", tags=["hr"])
-app.include_router(hr_structure_api.router, prefix="/api/hr/structure", tags=["hr"])
-app.include_router(hr_team_api.router, prefix="/api/hr/team", tags=["hr"])
-app.include_router(hr_people_api.router, prefix="/api/hr", tags=["hr"])
-app.include_router(hr_m365_api.router, prefix="/api/hr/admin/m365", tags=["hr"])
-app.include_router(hr_leave_api.router, prefix="/api/hr/leave", tags=["hr"])
-app.include_router(hr_time_api.router, prefix="/api/hr/time", tags=["hr"])
-app.include_router(hr_payroll_api.router, prefix="/api/hr/payroll", tags=["hr"])
-# Rozliczenia zespołu (etap 4): rozliczenia miesiąca, faktury z KSeF, przelewy i Symfonia.
-app.include_router(hr_settlements_api.router, prefix="/api/hr/settlements", tags=["hr"])
-app.include_router(hr_ksef_api.router, prefix="/api/hr/ksef", tags=["hr"])
-app.include_router(hr_payments_api.router, prefix="/api/hr/payments", tags=["hr"])
-# Etap 5: e-teczka, umowy z ludźmi, faktury do klientów z KSeF.
-app.include_router(hr_documents_api.router, prefix="/api/hr/documents", tags=["hr"])
-app.include_router(hr_agreements_api.router, prefix="/api/hr/agreements", tags=["hr"])
+# Każdy router programu stoi za głównym wyłącznikiem `HR_PROGRAM_ENABLED`
+# (`app/services/hr/program.py`): wyłączony = 404 dla wszystkich, także admina.
+_HR_PROGRAM = [Depends(require_hr_program)]
 app.include_router(
-    client_sales_invoices_api.router, prefix="/api/clients", tags=["client-invoicing"]
+    hr_import_api.router,
+    prefix="/api/hr/admin/import",
+    tags=["hr"],
+    dependencies=_HR_PROGRAM,
+)
+app.include_router(
+    hr_admin_api.router, prefix="/api/hr/admin", tags=["hr"], dependencies=_HR_PROGRAM
+)
+app.include_router(
+    hr_counts_api.router, prefix="/api/hr/counts", tags=["hr"], dependencies=_HR_PROGRAM
+)
+app.include_router(
+    hr_dashboard_api.router,
+    prefix="/api/hr/dashboard",
+    tags=["hr"],
+    dependencies=_HR_PROGRAM,
+)
+app.include_router(
+    hr_structure_api.router,
+    prefix="/api/hr/structure",
+    tags=["hr"],
+    dependencies=_HR_PROGRAM,
+)
+app.include_router(
+    hr_team_api.router, prefix="/api/hr/team", tags=["hr"], dependencies=_HR_PROGRAM
+)
+app.include_router(
+    hr_people_api.router, prefix="/api/hr", tags=["hr"], dependencies=_HR_PROGRAM
+)
+app.include_router(
+    hr_m365_api.router,
+    prefix="/api/hr/admin/m365",
+    tags=["hr"],
+    dependencies=_HR_PROGRAM,
+)
+app.include_router(
+    hr_leave_api.router, prefix="/api/hr/leave", tags=["hr"], dependencies=_HR_PROGRAM
+)
+app.include_router(
+    hr_time_api.router, prefix="/api/hr/time", tags=["hr"], dependencies=_HR_PROGRAM
+)
+app.include_router(
+    hr_payroll_api.router,
+    prefix="/api/hr/payroll",
+    tags=["hr"],
+    dependencies=_HR_PROGRAM,
+)
+# Rozliczenia zespołu (etap 4): rozliczenia miesiąca, faktury z KSeF, przelewy i Symfonia.
+app.include_router(
+    hr_settlements_api.router,
+    prefix="/api/hr/settlements",
+    tags=["hr"],
+    dependencies=_HR_PROGRAM,
+)
+app.include_router(
+    hr_ksef_api.router, prefix="/api/hr/ksef", tags=["hr"], dependencies=_HR_PROGRAM
+)
+app.include_router(
+    hr_payments_api.router,
+    prefix="/api/hr/payments",
+    tags=["hr"],
+    dependencies=_HR_PROGRAM,
+)
+# Etap 5: e-teczka, umowy z ludźmi, faktury do klientów z KSeF.
+app.include_router(
+    hr_documents_api.router,
+    prefix="/api/hr/documents",
+    tags=["hr"],
+    dependencies=_HR_PROGRAM,
+)
+app.include_router(
+    hr_agreements_api.router,
+    prefix="/api/hr/agreements",
+    tags=["hr"],
+    dependencies=_HR_PROGRAM,
+)
+app.include_router(
+    client_sales_invoices_api.router,
+    prefix="/api/clients",
+    tags=["client-invoicing"],
+    dependencies=_HR_PROGRAM,
 )
 app.include_router(
     client_sales_invoices_api.finance_router,
     prefix="/api/finance/sales-invoices",
     tags=["client-invoicing"],
+    dependencies=_HR_PROGRAM,
 )
-app.include_router(hr_lifecycle_api.router, prefix="/api/hr/lifecycle", tags=["hr"])
-app.include_router(contract_care_api.router, prefix="/api/care", tags=["hr"])
-app.include_router(care_skills_api.router, prefix="/api/care", tags=["hr"])
-app.include_router(care_atlas_api.router, prefix="/api/care", tags=["hr"])
 app.include_router(
-    care_announcements_api.router, prefix="/api/care/announcements", tags=["hr"]
+    hr_lifecycle_api.router,
+    prefix="/api/hr/lifecycle",
+    tags=["hr"],
+    dependencies=_HR_PROGRAM,
+)
+app.include_router(
+    contract_care_api.router, prefix="/api/care", tags=["hr"], dependencies=_HR_PROGRAM
+)
+app.include_router(
+    care_skills_api.router, prefix="/api/care", tags=["hr"], dependencies=_HR_PROGRAM
+)
+app.include_router(
+    care_atlas_api.router, prefix="/api/care", tags=["hr"], dependencies=_HR_PROGRAM
+)
+app.include_router(
+    care_announcements_api.router,
+    prefix="/api/care/announcements",
+    tags=["hr"],
+    dependencies=_HR_PROGRAM,
 )
 app.include_router(
     public_consultant_mail_api.router,
     prefix="/api/public/consultant-mail",
     tags=["hr"],
-)
-app.include_router(admin_cases_api.router, prefix="/api/cases", tags=["hr"])
-app.include_router(equipment_api.router, prefix="/api/equipment", tags=["hr"])
-app.include_router(
-    client_onboarding_api.router, prefix="/api/client-onboarding", tags=["hr"]
+    dependencies=_HR_PROGRAM,
 )
 app.include_router(
-    equipment_intune_api.router, prefix="/api/equipment/intune", tags=["hr"]
+    admin_cases_api.router, prefix="/api/cases", tags=["hr"], dependencies=_HR_PROGRAM
+)
+app.include_router(
+    equipment_api.router, prefix="/api/equipment", tags=["hr"], dependencies=_HR_PROGRAM
+)
+app.include_router(
+    client_onboarding_api.router,
+    prefix="/api/client-onboarding",
+    tags=["hr"],
+    dependencies=_HR_PROGRAM,
+)
+app.include_router(
+    equipment_intune_api.router,
+    prefix="/api/equipment/intune",
+    tags=["hr"],
+    dependencies=_HR_PROGRAM,
 )
 app.include_router(
     equipment_public_api.router,
     prefix="/api/public/equipment-protocols",
     tags=["hr"],
+    dependencies=_HR_PROGRAM,
 )
 # Analytics v1 (plan 2026-07-16, PR 3) — wersjonowany kontrakt statystyk.
 # Endpointy 503 przy ANALYTICS_V1_MODE=off; RBAC/capabilities niezależnie.

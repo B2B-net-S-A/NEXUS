@@ -1063,7 +1063,8 @@ export default function ContractDetailPage() {
           },
         ]
       : []),
-    ...(contract.client_pm_contact_id != null || managerHint
+    // „Menedżer u klienta” — moduł opieki „Ludzi w NEXUSIE” (wyłączony = bez faktu).
+    ...(careOpen && (contract.client_pm_contact_id != null || managerHint)
       ? [
           {
             id: "client-manager",
@@ -2247,55 +2248,59 @@ export default function ContractDetailPage() {
                     Osadzenie u klienta
                   </summary>
                   <div className="space-y-3 mt-3">
-                    <div>
-                      <span
-                        id="contract-edit-client-manager"
-                        className="block text-xs font-medium text-muted-foreground dark:text-muted-foreground mb-1"
-                      >
-                        Menedżer u klienta
-                      </span>
-                      <HiringManagerCombobox
-                        clientId={contract.client_id}
-                        value={form.client_manager}
-                        onChange={(choice) =>
-                          setForm((f) => (f ? { ...f, client_manager: choice } : f))
-                        }
-                        labelledBy="contract-edit-client-manager"
-                        labels={{
-                          none: "Bez menedżera u klienta",
-                          create: (typed) => `Dodaj „${typed}” jako menedżera u klienta`,
-                        }}
-                      />
-                      <p className="mt-1 text-xs text-muted-foreground">
-                        Osoba z kontaktów klienta, pod którą pracuje konsultant. PM i Line
-                        Manager niżej zostają opisem.
-                        {!form.client_manager && managerHint ? (
-                          <>
-                            {" "}
-                            <button
-                              type="button"
-                              className="text-primary hover:underline"
-                              onClick={() =>
-                                setForm((f) =>
-                                  f
-                                    ? {
-                                        ...f,
-                                        client_manager: {
-                                          kind: "contact",
-                                          id: managerHint.contact_id,
-                                          name: managerHint.name,
-                                        },
-                                      }
-                                    : f,
-                                )
-                              }
-                            >
-                              Przypnij: {managerHint.name}
-                            </button>
-                          </>
-                        ) : null}
-                      </p>
-                    </div>
+                    {/* „Menedżer u klienta” — struktura u klienta (moduł opieki,
+                        „Ludzie w NEXUSIE”); wyłączony moduł = bez pola. */}
+                    {careOpen ? (
+                      <div>
+                        <span
+                          id="contract-edit-client-manager"
+                          className="block text-xs font-medium text-muted-foreground dark:text-muted-foreground mb-1"
+                        >
+                          Menedżer u klienta
+                        </span>
+                        <HiringManagerCombobox
+                          clientId={contract.client_id}
+                          value={form.client_manager}
+                          onChange={(choice) =>
+                            setForm((f) => (f ? { ...f, client_manager: choice } : f))
+                          }
+                          labelledBy="contract-edit-client-manager"
+                          labels={{
+                            none: "Bez menedżera u klienta",
+                            create: (typed) => `Dodaj „${typed}” jako menedżera u klienta`,
+                          }}
+                        />
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          Osoba z kontaktów klienta, pod którą pracuje konsultant. PM i Line
+                          Manager niżej zostają opisem.
+                          {!form.client_manager && managerHint ? (
+                            <>
+                              {" "}
+                              <button
+                                type="button"
+                                className="text-primary hover:underline"
+                                onClick={() =>
+                                  setForm((f) =>
+                                    f
+                                      ? {
+                                          ...f,
+                                          client_manager: {
+                                            kind: "contact",
+                                            id: managerHint.contact_id,
+                                            name: managerHint.name,
+                                          },
+                                        }
+                                      : f,
+                                  )
+                                }
+                              >
+                                Przypnij: {managerHint.name}
+                              </button>
+                            </>
+                          ) : null}
+                        </p>
+                      </div>
+                    ) : null}
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <div>
                         <label htmlFor="contract-edit-client-pm-name" className="block text-xs font-medium text-muted-foreground dark:text-muted-foreground mb-1">

@@ -64,7 +64,9 @@ async def refresh_source(db: AsyncSession, *, force: bool = False) -> bool:
     value = await db.scalar(
         select(AppSetting.value).where(AppSetting.key == SOURCE_SETTING)
     )
-    _SOURCE.update(local=value == "local", checked=now)
+    # Wyłączony program „Ludzi w NEXUSIE” nie przełącza dostępności na urlopy NEXUSA.
+    local = bool(settings.HR_PROGRAM_ENABLED) and value == "local"
+    _SOURCE.update(local=local, checked=now)
     return bool(_SOURCE["local"])
 
 

@@ -1526,9 +1526,17 @@ class Settings(BaseSettings):
     RECRUITMENT_ALLOCATION_ENABLED: bool = False
 
     # ── „Ludzie w NEXUSIE” (16.10.2026) ─────────────────────────────────
-    # Moduły włącza admin w `app_settings['hr_modules']` (bez wdrożenia);
-    # env niesie tylko wyłączniki pętli i sekrety. `HR_LOOPS_ENABLED=false`
-    # zatrzymuje wszystkie pętle modułu (testy, awaria).
+    # Główny wyłącznik całego programu (moduły kadrowe, opieka, sprzęt,
+    # sprawy, rozliczenia, e-teczka, umowy z ludźmi, faktury do klientów).
+    # Wyłączony = trasy 404 dla wszystkich, także admina, bez śladu w menu,
+    # Ustawieniach i na ekranach klienta/kontraktu, pętle nie startują
+    # (`app/services/hr/program.py`). Artur 18.10.2026: włączamy dopiero po
+    # dopracowaniu integracji i z danymi — nie pokazujemy pustych modułów.
+    # Włączenie wyłącznie workflow „Coolify set env”.
+    HR_PROGRAM_ENABLED: bool = False
+    # Przy włączonym programie moduły włącza admin w `app_settings['hr_modules']`
+    # (bez wdrożenia); env niesie tylko wyłączniki pętli i sekrety.
+    # `HR_LOOPS_ENABLED=false` zatrzymuje wszystkie pętle modułu (testy, awaria).
     HR_LOOPS_ENABLED: bool = True
     # Microsoft 365 dla urlopów: off = nic nie wychodzi; simulate = dokładne
     # żądania lądują w `hr_m365_operations.simulated_request`; live = Graph.

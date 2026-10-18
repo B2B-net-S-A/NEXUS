@@ -5,7 +5,8 @@ administrator, gdy Finanse potwierdzą, że faktury sprzedażowe są w KSeF.
 Brak wiersza albo wartość inna niż ``{"enabled": true}`` = wyłączony.
 Admin widzi ekrany także przy wyłączonym module (przygotowanie, sprawdzenie
 pozycji „do faktury”); pętla KSeF i uznania z wyciągu działają tylko przy
-włączonym.
+włączonym. Wyłączony program „Ludzi w NEXUSIE” (``HR_PROGRAM_ENABLED``)
+zamyka moduł dla wszystkich, także admina.
 """
 
 from __future__ import annotations
@@ -18,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.app_setting import AppSetting
 from app.models.user import User, UserRole
+from app.services.hr.program import program_enabled
 
 SETTING_KEY = "client_invoicing"
 MODULE_DISABLED_DETAIL = "Moduł faktur do klientów jest wyłączony."
@@ -29,6 +31,8 @@ def normalize(raw: object) -> dict[str, Any]:
 
 
 async def load(db: AsyncSession) -> dict[str, Any]:
+    if not program_enabled():
+        return normalize(None)
     raw = await db.scalar(select(AppSetting.value).where(AppSetting.key == SETTING_KEY))
     return normalize(raw)
 
@@ -38,8 +42,11 @@ async def is_enabled(db: AsyncSession) -> bool:
 
 
 def open_for(user: User, enabled: bool) -> bool:
-    """Czy ekrany modułu działają dla tej osoby (admin widzi je zawsze)."""
+    """Czy ekrany modułu działają dla tej osoby (przy włączonym programie
+    admin widzi je zawsze)."""
 
+    if not program_enabled():
+        return False
     return enabled or user.has_role(UserRole.admin)
 
 

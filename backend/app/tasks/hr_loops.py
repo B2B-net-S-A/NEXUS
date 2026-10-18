@@ -27,6 +27,9 @@ Job = Callable[[AsyncSession], Awaitable[dict[str, Any] | None]]
 
 
 def loops_enabled(name: str) -> bool:
+    if not settings.HR_PROGRAM_ENABLED:
+        logger.info("%s disabled (HR_PROGRAM_ENABLED=false) — pętla nie startuje", name)
+        return False
     if settings.HR_LOOPS_ENABLED:
         return True
     logger.info("%s disabled (HR_LOOPS_ENABLED=false) — pętla nie startuje", name)

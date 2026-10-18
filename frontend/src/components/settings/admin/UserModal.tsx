@@ -16,6 +16,7 @@ import {
   type UserPermissionsSave,
 } from "@/lib/admin-permissions";
 import { adminApi } from "@/lib/api";
+import { useHrProgram } from "@/lib/api/hr";
 import { isPermission, type Permission } from "@/lib/permissions";
 import { cn } from "@/lib/utils";
 import {
@@ -23,6 +24,8 @@ import {
   UserFormData,
   ROLES,
   ROLE_LABELS,
+  HR_PROGRAM_PERMISSION_GROUP,
+  HR_PROGRAM_ROLE,
   isExclusiveRole,
 } from "./types";
 
@@ -59,6 +62,7 @@ function useExtraPermissions(
   roles: string[],
 ): ExtraPermissionsState {
   const enabled = userId !== null;
+  const hrProgram = useHrProgram();
   const snapshotQuery = useQuery({
     queryKey: ["admin-section-permissions"],
     queryFn: () =>
@@ -121,7 +125,12 @@ function useExtraPermissions(
     roles.some((role) => !savedRoles.has(role));
   return {
     status: "ready",
-    rows: extraPermissionRows(snapshot, roleGiven, granted),
+    rows: extraPermissionRows(
+      snapshot,
+      roleGiven,
+      granted,
+      hrProgram ? undefined : new Set([HR_PROGRAM_PERMISSION_GROUP]),
+    ),
     legacy: legacyLimits(person.user),
     removeLegacy,
     refreshed,
@@ -292,8 +301,10 @@ export function UserModal({ initial, onClose, onSave, loading, error }: UserModa
       );
   // Praktykanci ukryci 17.10.2026 (decyzja Artura) — roli nie da się nadać,
   // ale konto, które już ją ma, dalej ją widzi zamiast pustego wyboru.
+  const hrProgram = useHrProgram();
   const offersRole = (role: string) =>
-    role !== "trainee" || initialRoles.includes("trainee");
+    (role !== "trainee" || initialRoles.includes("trainee")) &&
+    (role !== HR_PROGRAM_ROLE || hrProgram || initialRoles.includes(HR_PROGRAM_ROLE));
   const [form, setForm] = useState<UserFormData>({
     name: initial?.name ?? "",
     email: initial?.email ?? "",

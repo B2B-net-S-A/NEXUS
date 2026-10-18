@@ -63,6 +63,14 @@ export const EXCLUSIVE_ROLES: readonly string[] = [
   "employee",
 ];
 
+/**
+ * Rola i grupa uprawnień programu „Ludzie w NEXUSIE” — przy wyłączonym
+ * programie (`useHrProgram`, Artur 18.10.2026) nie ma ich na ekranach
+ * „Osoby i role”, chyba że ktoś już je ma.
+ */
+export const HR_PROGRAM_ROLE = "employee";
+export const HR_PROGRAM_PERMISSION_GROUP = "people";
+
 export function isExclusiveRole(role: string): boolean {
   return EXCLUSIVE_ROLES.includes(role);
 }

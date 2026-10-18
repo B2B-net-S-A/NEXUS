@@ -15,6 +15,14 @@ import type { AdminUser } from "./types";
 
 const address = vi.hoisted(() => ({ search: "" }));
 
+// Program „Ludzie w NEXUSIE” (18.10.2026): domyślnie włączony w tych testach;
+// przypadki wyłączonego programu przestawiają `hrProgram.on`.
+const hrProgram = vi.hoisted(() => ({ on: true }));
+vi.mock("@/lib/api/hr", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/api/hr")>()),
+  useHrProgram: () => hrProgram.on,
+}));
+
 vi.mock("next/navigation", () => ({
   useSearchParams: () => new URLSearchParams(address.search),
 }));

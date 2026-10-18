@@ -28,6 +28,7 @@ vi.mock("@/hooks/useCandidateContactFeature", () => ({
 // Stan modułu „Ludzie w NEXUSIE” też idzie z react-query — moduł wyłączony.
 vi.mock("@/lib/api/hr", () => ({
   useHrNavState: () => ({ myTime: false, people: false, equipment: false }),
+  useHrProgram: () => false,
 }));
 // cmdk w jsdom wymaga ResizeObserver/scrollIntoView — test dotyczy wyłącznie
 // zapytań palety, więc prymitywy renderujemy jako zwykłe elementy.

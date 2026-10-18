@@ -88,6 +88,11 @@ type Gate = {
   required?: Exclude<SectionAccess, "none">;
   /** Rola Finanse bez admina widzi tylko pozycje z tą flagą. */
   finance?: boolean;
+  /**
+   * Pozycja programu „Ludzie w NEXUSIE” — widoczna tylko przy włączonym
+   * programie (`program` z `/api/hr/config`); wyłączony = nie widzi jej nikt.
+   */
+  hrProgram?: boolean;
 };
 
 export interface SettingsItem {
@@ -140,7 +145,7 @@ export const SETTINGS_ITEMS: readonly SettingsItem[] = [
     description: "Dni wolne firmy i moduły „Ludzi w NEXUSIE” (urlopy, czas pracy, płace, sprzęt).",
     keywords: "kadry hr urlopy dni wolne swieta moduly ludzie kartoteka",
     route: "/settings/hr",
-    gate: { permission: "people_admin" },
+    gate: { permission: "people_admin", hrProgram: true },
   },
   {
     // Reguły premii (17.10.2026) — `/api/hr/payroll/rules` stoi za uprawnieniem
@@ -150,7 +155,7 @@ export const SETTINGS_ITEMS: readonly SettingsItem[] = [
     description: "Reguły premii z placementów i z Ligi Mistrzów: progi marży, premia Delivery Leada, dodatkowe premie.",
     keywords: "place premie premia placementy liga mistrzow progi marza wynagrodzenia wyplaty bonus",
     route: "/settings/payroll",
-    gate: { permission: "payroll" },
+    gate: { permission: "payroll", hrProgram: true },
   },
   {
     // „Ludzie w NEXUSIE” (17.10.2026): import paczki z Compassa — na sucho
@@ -160,7 +165,7 @@ export const SETTINGS_ITEMS: readonly SettingsItem[] = [
     keywords: "import compass paczka kadry urlopy timesheety place migracja przelaczenie na sucho",
     route: "/settings/hr-import",
     wide: true,
-    gate: { permission: "people_admin" },
+    gate: { permission: "people_admin", hrProgram: true },
   },
   {
     id: "competence-team", area: "team", title: "Kategorie kompetencji",
@@ -389,9 +394,20 @@ export function isFinanceReadOnly(user: SettingsUser | null): boolean {
   return hasRole(user, "finance") && !hasRole(user, "admin");
 }
 
-export function canSeeSettingsItem(user: SettingsUser | null, item: SettingsItem): boolean {
+/** Stan spoza konta, od którego zależy widoczność pozycji. */
+export interface SettingsContext {
+  /** Program „Ludzie w NEXUSIE” włączony (`useHrProgram`); brak = wyłączony. */
+  hrProgram?: boolean;
+}
+
+export function canSeeSettingsItem(
+  user: SettingsUser | null,
+  item: SettingsItem,
+  context: SettingsContext = {},
+): boolean {
   if (!user) return false;
   const { gate } = item;
+  if (gate.hrProgram && !context.hrProgram) return false;
   // Uprawnienie nadane na ekranie Osoby i role jest jawną decyzją
   // administratora, więc pozycji z `permission` filtr Finansów nie zasłania.
   if (isFinanceReadOnly(user) && !gate.finance && !gate.permission) return false;
@@ -403,12 +419,18 @@ export function canSeeSettingsItem(user: SettingsUser | null, item: SettingsItem
 }
 
 /** Pozycje widoczne w menu (bez ukrytych). */
-export function listedSettingsItems(user: SettingsUser | null): SettingsItem[] {
-  return SETTINGS_ITEMS.filter((i) => !i.hidden && canSeeSettingsItem(user, i));
+export function listedSettingsItems(
+  user: SettingsUser | null,
+  context: SettingsContext = {},
+): SettingsItem[] {
+  return SETTINGS_ITEMS.filter((i) => !i.hidden && canSeeSettingsItem(user, i, context));
 }
 
-export function listedSettingsAreas(user: SettingsUser | null): SettingsArea[] {
-  const items = listedSettingsItems(user);
+export function listedSettingsAreas(
+  user: SettingsUser | null,
+  context: SettingsContext = {},
+): SettingsArea[] {
+  const items = listedSettingsItems(user, context);
   return SETTINGS_AREAS.filter((a) => items.some((i) => i.area === a.id));
 }
 
@@ -488,10 +510,14 @@ function termMatches(term: string, hay: string, words: string[]): boolean {
 
 /** Wyszukiwarka: każde słowo zapytania musi pasować do tytułu, opisu,
  *  słów kluczowych albo nazwy obszaru (bez polskich znaków). */
-export function searchSettingsItems(user: SettingsUser | null, query: string): SettingsItem[] {
+export function searchSettingsItems(
+  user: SettingsUser | null,
+  query: string,
+  context: SettingsContext = {},
+): SettingsItem[] {
   const terms = normalize(query).trim().split(/\s+/).filter(Boolean);
   if (terms.length === 0) return [];
-  return listedSettingsItems(user).filter((i) => {
+  return listedSettingsItems(user, context).filter((i) => {
     const hay = normalize(
       `${i.title} ${i.description} ${i.keywords} ${findSettingsArea(i.area)?.name ?? ""}`,
     );

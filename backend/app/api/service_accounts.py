@@ -58,6 +58,7 @@ from app.schemas.service_account import (
 from app.services.compass_service_account_bootstrap import retire_key_ids
 from app.services.integration_webhooks import display_url
 from app.services.service_account_auth import default_expires_at, generate_api_key
+from app.services.hr import program as hr_program
 
 logger = logging.getLogger(__name__)
 
@@ -85,6 +86,7 @@ async def list_scopes(_: AdminUser) -> List[ScopeInfo]:
     return [
         ScopeInfo(value=scope.value, label=SCOPE_LABELS.get(scope, scope.value))
         for scope in ServiceScope
+        if not hr_program.hides_scope(scope.value)
     ]
 
 

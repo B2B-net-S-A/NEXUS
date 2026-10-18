@@ -6,6 +6,38 @@ urlopy, obecność i timesheety, stawki i premie, kartoteka, wejście i odejści
 opieka nad konsultantami z mapą technologii, skrzynka administracja@, sprzęt
 z protokołami. Compass zostaje z Akademią i czyta listę osób z NEXUSA.
 
+## Główny wyłącznik programu (Artur 18.10.2026)
+
+`HR_PROGRAM_ENABLED` (env, domyślnie `false`, zmiana tylko workflow „Coolify set
+env”) zamyka cały program — kadry, czas, płace, rozliczenia, e-teczkę, umowy
+z ludźmi, opiekę, sprawy, sprzęt i faktury do klientów — **dla wszystkich, także
+admina**. Artur: dopóki integracje nie są dopracowane, programu nie widzi nikt;
+„nie możemy deployować po prostu pustych modułów” — włączamy dopiero, gdy moduły
+mają dane (import z Compassa, plików recepcji, kartotek, wzorów umów).
+
+- Każdy router programu w `main.py` ma `dependencies=_HR_PROGRAM`
+  (`app/services/hr/program.require_hr_program`): wyłączony = `404 Not Found`,
+  ta sama odpowiedź co nieistniejąca trasa. Wyjątek: dwie sondy, o które pyta
+  każdy ekran (`/api/hr/config`, `/api/clients/sales-invoices/module`) —
+  odpowiadają „wszystko zamknięte”. Strażnik `test_hr_program_switch.py`
+  sprawdza, że każda trasa programu (dziś 335) stoi za wyłącznikiem — nowy
+  router programu bez niego = czerwony test.
+- Podgląd admina przy wyłączonym module (`hr.modules.module_open_for`,
+  `client_invoicing.settings.open_for`, `hr.agreements.open_for`) działa tylko
+  przy włączonym programie.
+- Front czyta `program` z `/api/hr/config` (`useHrProgram`): `HrConfigGate`
+  pokazuje „Nie znaleziono”, menu i kafelki są puste, Ustawienia nie mają pozycji
+  z `gate.hrProgram` (Kadry, Płace, Import z Compassa), „Osoby i role” nie
+  pokazują roli „Pracownik” ani grupy uprawnień „Ludzie” (chyba że ktoś już je ma),
+  okno zakończenia współpracy nie ma „Zwrotu sprzętu”, kontrakt nie ma
+  „Menedżera u klienta”.
+- Wyłączony program: pętle `hr_loops` nie startują, dostępność nie przechodzi na
+  urlopy NEXUSA, kategoria i mail „Czas i ludzie” znikają z ustawień powiadomień,
+  zakresy kluczy API `people_roster:read`, `absences:read`, `equipment:read`
+  znikają z pickera.
+- Testy backendu działają przy włączonym programie (autouse w `conftest.py`),
+  stos E2E też (`docker-compose.e2e.yml`).
+
 ## Dostęp
 
 - **Bez sekcji produktu.** Moduł kadrowy nie ma sekcji w `section_permissions`

@@ -247,6 +247,18 @@ def _open_the_order_mail_recheck_window(monkeypatch):
     monkeypatch.setattr(settings, "ORDER_MAIL_RECHECK_END_HOUR_LOCAL", 0)
 
 
+# ── „Ludzie w NEXUSIE”: główny wyłącznik programu ──────────────────────────
+
+
+@pytest.fixture(autouse=True)
+def _hr_program_enabled_in_tests(monkeypatch):
+    """Na produkcji program jest wyłączony (`HR_PROGRAM_ENABLED=false`, Artur
+    18.10.2026), a testy modułów sprawdzają ich działanie — dlatego tu włączony.
+    Stan wyłączony sprawdza `test_hr_program_switch.py`."""
+
+    monkeypatch.setattr(settings, "HR_PROGRAM_ENABLED", True)
+
+
 # ── Auto-CV po ruchu na „Zweryfikowany" ─────────────────────────────────────
 
 

@@ -129,7 +129,7 @@ async def admin_cases_mail_state(
 
 
 async def hr_jobs_state(db: AsyncSession, *, now: Optional[datetime] = None) -> str:
-    if not settings.HR_LOOPS_ENABLED:
+    if not (settings.HR_PROGRAM_ENABLED and settings.HR_LOOPS_ENABLED):
         return "disabled"
     moment = _now(now)
     problems = await db.scalar(

@@ -18,6 +18,7 @@ const MODULES = {
 
 function config(me: Partial<HrConfig["me"]>, open = MODULES): HrConfig {
   return {
+    program: true,
     modules: open,
     open_modules: open,
     me: {
@@ -36,6 +37,12 @@ function config(me: Partial<HrConfig["me"]>, open = MODULES): HrConfig {
 }
 
 describe("menu modułu „Ludzie w NEXUSIE”", () => {
+  it("wyłączony program ukrywa wszystko, także adminowi z otwartymi modułami", () => {
+    const all = Object.fromEntries(Object.keys(MODULES).map((k) => [k, true])) as typeof MODULES;
+    const off = { ...config({ is_admin: true, has_profile: true, people_admin: true }, all), program: false };
+    expect(hrNavState(off)).toEqual({ myTime: false, people: false, equipment: false, care: false });
+  });
+
   it("bez odczytu konfiguracji wszystko ukryte", () => {
     expect(hrNavState(undefined)).toEqual({
       myTime: false,

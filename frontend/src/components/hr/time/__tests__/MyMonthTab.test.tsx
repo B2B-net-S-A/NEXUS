@@ -35,6 +35,7 @@ vi.mock("@/components/v2/modals/ConfirmV2", () => ({
 import { MyMonthTab } from "../MyMonthTab";
 
 const config: HrConfig = {
+  program: true,
   modules: {
     people: true,
     leave: true,

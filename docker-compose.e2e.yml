@@ -71,6 +71,9 @@ services:
       SMTP_ENABLED: "false"
       SELF_REGISTRATION_ENABLED: "false"
       SENTRY_DSN: ""
+      # „Ludzie w NEXUSIE”: na produkcji program wyłączony (Artur 18.10.2026),
+      # a scenariusz @stack `flow-hr-leave.spec.ts` sprawdza jego działanie.
+      HR_PROGRAM_ENABLED: "true"
     ports:
       - "8000:8000"
     depends_on:
