@@ -104,7 +104,7 @@ export const EMPLOYMENT_TERMS = {
     "timesheet_genitive": "potwierdzenia godzin",
     "review_verb": "potwierdza",
     "review_noun": "potwierdzenia",
-    "settlement": "Rachunek",
+    "settlement": "Potwierdzenie godzin",
     "person": "Zleceniobiorca"
   }
 } as const satisfies Record<EmploymentType, EmploymentTerms>;

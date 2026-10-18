@@ -25,6 +25,8 @@ import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/store/auth";
 
 import { parseFinanceView, type FinanceViewMode as ViewMode } from "@/lib/finance-view";
+import { FinanceSalesInvoicesTab } from "@/components/clients/invoicing/FinanceSalesInvoicesTab";
+import { useInvoicingModule } from "@/lib/api/client-invoicing";
 
 /** Jedno zdanie pod tytułem — mówi, co pokazuje wybrana zakładka. */
 const VIEW_DESCRIPTION: Record<ViewMode, string> = {
@@ -36,6 +38,8 @@ const VIEW_DESCRIPTION: Record<ViewMode, string> = {
     "Bieżący, comiesięczny audyt zdarzeń w zamówieniach na potrzeby rozliczeń",
   "order-pdfs":
     "PDF-y nowych zamówień, przedłużeń i aneksów według miesiąca rozpoczęcia i klienta",
+  "sales-invoices":
+    "Faktury do klientów z KSeF dopasowane do zamówień, wpłaty z wyciągu i zaległości",
 };
 
 /**
@@ -94,7 +98,12 @@ export default function FinancePage() {
   // import, restore lub edycja komórek zadziałają.
   const canWrite =
     !impersonating && hasSectionAccess(user, "finance", "write");
-  const visibleView = view === "md" && !canWrite ? "results" : view;
+  // „Faktury do klientów” (E8) tylko przy włączonym module (admin widzi zawsze).
+  const invoicingOpen = useInvoicingModule().data?.open === true;
+  const visibleView =
+    (view === "md" && !canWrite) || (view === "sales-invoices" && !invoicingOpen)
+      ? "results"
+      : view;
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -220,6 +229,14 @@ export default function FinancePage() {
           >
             Zamówienia PDF
           </ModeButton>
+          {invoicingOpen ? (
+            <ModeButton
+              active={visibleView === "sales-invoices"}
+              onClick={() => changeView("sales-invoices")}
+            >
+              Faktury do klientów
+            </ModeButton>
+          ) : null}
         </div>
 
         {!mounted ? (
@@ -234,6 +251,8 @@ export default function FinancePage() {
           <OrderChangesTab onOpenInPdfs={openInPdfs} />
         ) : visibleView === "order-pdfs" ? (
           <OrderPdfsTab />
+        ) : visibleView === "sales-invoices" ? (
+          <FinanceSalesInvoicesTab />
         ) : (
           <MdImportWorkspace />
         )}

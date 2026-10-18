@@ -33,6 +33,7 @@ const ALL_ON: Record<HrModuleKey, boolean> = {
   care: true,
   cases: true,
   equipment: true,
+  settlements: false,
 };
 
 function config(me: Partial<HrConfig["me"]>): HrConfig {

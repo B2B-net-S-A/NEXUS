@@ -4,7 +4,8 @@ export type FinanceViewMode =
   | "archive"
   | "md"
   | "order-changes"
-  | "order-pdfs";
+  | "order-pdfs"
+  | "sales-invoices";
 
 const VIEW_MODES: readonly FinanceViewMode[] = [
   "results",
@@ -12,6 +13,7 @@ const VIEW_MODES: readonly FinanceViewMode[] = [
   "md",
   "order-changes",
   "order-pdfs",
+  "sales-invoices",
 ];
 
 /** `?view=` → widok; nieznany albo brak = „Wyniki miesięczne” (FE-N09). */

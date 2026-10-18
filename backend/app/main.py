@@ -206,6 +206,12 @@ from app.api import hr_m365 as hr_m365_api
 from app.api import hr_leave as hr_leave_api
 from app.api import hr_time as hr_time_api
 from app.api import hr_payroll as hr_payroll_api
+from app.api import hr_settlements as hr_settlements_api
+from app.api import hr_ksef as hr_ksef_api
+from app.api import hr_payments as hr_payments_api
+from app.api import hr_documents as hr_documents_api
+from app.api import hr_agreements as hr_agreements_api
+from app.api import client_sales_invoices as client_sales_invoices_api
 from app.api import hr_lifecycle as hr_lifecycle_api
 from app.api import contract_care as contract_care_api
 from app.api import care_atlas as care_atlas_api
@@ -969,6 +975,11 @@ async def lifespan(app: FastAPI):
         "care_reminders": asyncio.create_task(hr_loops.care_reminders_loop()),
         "care_announcements_send": asyncio.create_task(
             hr_loops.care_announcements_send_loop()
+        ),
+        "ksef_fetch": asyncio.create_task(hr_loops.ksef_fetch_loop()),
+        "sales_ksef_fetch": asyncio.create_task(hr_loops.sales_ksef_fetch_loop()),
+        "hr_agreements_signing": asyncio.create_task(
+            hr_loops.agreements_signing_loop()
         ),
         "hr_lifecycle": asyncio.create_task(hr_loops.hr_lifecycle_loop()),
         "hr_contract_hooks": asyncio.create_task(hr_loops.hr_contract_hooks_loop()),
@@ -1751,6 +1762,21 @@ app.include_router(hr_m365_api.router, prefix="/api/hr/admin/m365", tags=["hr"])
 app.include_router(hr_leave_api.router, prefix="/api/hr/leave", tags=["hr"])
 app.include_router(hr_time_api.router, prefix="/api/hr/time", tags=["hr"])
 app.include_router(hr_payroll_api.router, prefix="/api/hr/payroll", tags=["hr"])
+# Rozliczenia zespołu (etap 4): rozliczenia miesiąca, faktury z KSeF, przelewy i Symfonia.
+app.include_router(hr_settlements_api.router, prefix="/api/hr/settlements", tags=["hr"])
+app.include_router(hr_ksef_api.router, prefix="/api/hr/ksef", tags=["hr"])
+app.include_router(hr_payments_api.router, prefix="/api/hr/payments", tags=["hr"])
+# Etap 5: e-teczka, umowy z ludźmi, faktury do klientów z KSeF.
+app.include_router(hr_documents_api.router, prefix="/api/hr/documents", tags=["hr"])
+app.include_router(hr_agreements_api.router, prefix="/api/hr/agreements", tags=["hr"])
+app.include_router(
+    client_sales_invoices_api.router, prefix="/api/clients", tags=["client-invoicing"]
+)
+app.include_router(
+    client_sales_invoices_api.finance_router,
+    prefix="/api/finance/sales-invoices",
+    tags=["client-invoicing"],
+)
 app.include_router(hr_lifecycle_api.router, prefix="/api/hr/lifecycle", tags=["hr"])
 app.include_router(contract_care_api.router, prefix="/api/care", tags=["hr"])
 app.include_router(care_skills_api.router, prefix="/api/care", tags=["hr"])

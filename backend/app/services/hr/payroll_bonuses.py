@@ -15,6 +15,12 @@ miesiącu (409). Anulowanie jest miękkie — wiersz zostaje ze statusem.
 
 Dzwonek ``hr_bonus_assigned`` (przyznanie, zmiana i anulowanie przyznanej)
 nie niesie kwoty; kwota zostaje w ``hr_audit_events`` z ``sensitivity='payroll'``.
+
+**Premia „wypłacona” (R11, etap 4).** Przy włączonym module rozliczeń premia
+jest wypłacona dopiero, gdy opłacone jest rozliczenie miesiąca, w którym ją
+przyznano (ta sama osoba, okres i waluta — ``paid_flags``), a nie przy
+zamknięciu miesiąca. Przy wyłączonym module zostaje stara reguła (miesiąc
+zamknięty w płacach) — ``paid_flags`` zwraca wtedy ``None``.
 """
 
 from __future__ import annotations
@@ -28,11 +34,13 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.scheduling import local_now
-from app.models.hr_payroll import HrBonus
+from app.models.hr_payroll import HrBonus, PayrollPeriod
+from app.models.hr_settlement import PayrollSettlement
 from app.models.hr_profile import EmployeeProfile
 from app.models.notification import NotificationType
 from app.models.user import User
 from app.services.hr import audit
+from app.services.hr import modules as hr_modules
 from app.services.hr.notify import notify_each
 from app.services.hr.payroll_access import PayrollViewer
 from app.services.hr.payroll_errors import (
@@ -417,6 +425,53 @@ async def cancel_bonus(
     return bonus
 
 
+async def paid_flags(
+    db: AsyncSession, bonuses: list[HrBonus]
+) -> Optional[dict[int, bool]]:
+    """Premia wypłacona = rozliczenie jej miesiąca opłacone (R11).
+
+    ``None`` — moduł rozliczeń wyłączony: wołający zostaje przy starej regule
+    („miesiąc zamknięty w płacach = rozliczona”).
+    """
+
+    modules = await hr_modules.load_modules(db)
+    if not modules.get(hr_modules.HrModule.settlements):
+        return None
+    assigned = [bonus for bonus in bonuses if bonus.status == "assigned"]
+    if not assigned:
+        return {bonus.id: False for bonus in bonuses}
+    rows = await db.execute(
+        select(
+            PayrollSettlement.user_id,
+            PayrollSettlement.currency,
+            PayrollPeriod.year,
+            PayrollPeriod.month,
+        )
+        .join(PayrollPeriod, PayrollPeriod.id == PayrollSettlement.period_id)
+        .where(
+            PayrollSettlement.status == "paid",
+            PayrollSettlement.user_id.in_(
+                sorted({bonus.recipient_user_id for bonus in assigned})
+            ),
+        )
+    )
+    paid = {
+        (int(user_id), str(currency), int(year), int(month))
+        for user_id, currency, year, month in rows.all()
+    }
+    return {
+        bonus.id: bonus.status == "assigned"
+        and (
+            bonus.recipient_user_id,
+            bonus.currency,
+            bonus.period_year,
+            bonus.period_month,
+        )
+        in paid
+        for bonus in bonuses
+    }
+
+
 async def list_bonuses(
     db: AsyncSession,
     viewer: PayrollViewer,
@@ -455,6 +510,7 @@ __all__ = [
     "create_manual",
     "list_bonuses",
     "names_for",
+    "paid_flags",
     "update_bonus",
     "validate_manual_period",
 ]

@@ -1,0 +1,140 @@
+{
+  "invoices": [
+    {
+      "ksefNumber": "1234563218-20261003-5F2A9C0D71B3-C3",
+      "invoiceNumber": "FV 9/2026",
+      "issueDate": "2026-10-03",
+      "invoicingDate": "2026-10-03T08:15:00.000+00:00",
+      "acquisitionDate": "2026-10-03T08:15:00.000+00:00",
+      "permanentStorageDate": "2026-10-03T08:16:02.000+00:00",
+      "seller": {
+        "nip": "1234563218",
+        "name": "Nowak Recruitment Ola Nowak"
+      },
+      "buyer": {
+        "identifier": {
+          "type": "Nip",
+          "value": "9876543210"
+        },
+        "name": "Spółka Testowa sp. z o.o."
+      },
+      "netAmount": 16400.0,
+      "grossAmount": 20172.0,
+      "vatAmount": 3772.0,
+      "currency": "PLN",
+      "invoicingMode": "Online",
+      "invoiceType": "Vat",
+      "formCode": {
+        "systemCode": "FA (3)",
+        "schemaVersion": "1-0E",
+        "value": "FA"
+      },
+      "isSelfInvoicing": false,
+      "hasAttachment": false,
+      "invoiceHash": "Ut8aaQOkRaXypdiFMt31H1V7gJX9dQFQ+cDkdn9K9aQ=",
+      "thirdSubjects": []
+    },
+    {
+      "ksefNumber": "7777777777-20261004-0B91E4C2A7D8-A7",
+      "invoiceNumber": "FV/26/09/26",
+      "issueDate": "2026-10-04",
+      "invoicingDate": "2026-10-04T10:02:00.000+00:00",
+      "acquisitionDate": "2026-10-04T10:02:00.000+00:00",
+      "permanentStorageDate": "2026-10-04T10:03:11.000+00:00",
+      "seller": {
+        "nip": "7777777777",
+        "name": "Anna Przykładowa Consulting"
+      },
+      "buyer": {
+        "identifier": {
+          "type": "Nip",
+          "value": "9876543210"
+        },
+        "name": "Spółka Testowa sp. z o.o."
+      },
+      "netAmount": 14540.0,
+      "grossAmount": 17884.2,
+      "vatAmount": 3344.2,
+      "currency": "PLN",
+      "invoicingMode": "Online",
+      "invoiceType": "Vat",
+      "formCode": {
+        "systemCode": "FA (3)",
+        "schemaVersion": "1-0E",
+        "value": "FA"
+      },
+      "isSelfInvoicing": false,
+      "hasAttachment": false,
+      "invoiceHash": "s1VIb/XnRI2s6kvYZESA+Ovz568jcgJs7NULWsSrnnY=",
+      "thirdSubjects": []
+    },
+    {
+      "ksefNumber": "5555555555-20261005-77C1A0E9B2F4-F7",
+      "invoiceNumber": "1/10/2026",
+      "issueDate": "2026-10-05",
+      "invoicingDate": "2026-10-05T07:30:00.000+00:00",
+      "acquisitionDate": "2026-10-05T07:30:00.000+00:00",
+      "permanentStorageDate": "2026-10-05T07:31:00.000+00:00",
+      "seller": {
+        "nip": "5555555555",
+        "name": "Dostawca Biurowy Przykładowy sp. z o.o."
+      },
+      "buyer": {
+        "identifier": {
+          "type": "Nip",
+          "value": "9876543210"
+        },
+        "name": "Spółka Testowa sp. z o.o."
+      },
+      "netAmount": 2400.0,
+      "grossAmount": 2952.0,
+      "vatAmount": 552.0,
+      "currency": "PLN",
+      "invoicingMode": "Online",
+      "invoiceType": "Vat",
+      "formCode": {
+        "systemCode": "FA (3)",
+        "schemaVersion": "1-0E",
+        "value": "FA"
+      },
+      "isSelfInvoicing": false,
+      "hasAttachment": false,
+      "invoiceHash": "AAAA",
+      "thirdSubjects": []
+    },
+    {
+      "ksefNumber": "7777777777-20261006-1C02F5D3B8E9-BA",
+      "invoiceNumber": "FV/K/1/10/26",
+      "issueDate": "2026-10-06",
+      "invoicingDate": "2026-10-06T12:40:00.000+00:00",
+      "acquisitionDate": "2026-10-06T12:40:00.000+00:00",
+      "permanentStorageDate": "2026-10-06T12:41:30.000+00:00",
+      "seller": {
+        "nip": "7777777777",
+        "name": "Anna Przykładowa Consulting"
+      },
+      "buyer": {
+        "identifier": {
+          "type": "Nip",
+          "value": "9876543210"
+        },
+        "name": "Spółka Testowa sp. z o.o."
+      },
+      "netAmount": -120.0,
+      "grossAmount": -147.6,
+      "vatAmount": -27.6,
+      "currency": "PLN",
+      "invoicingMode": "Online",
+      "invoiceType": "Kor",
+      "formCode": {
+        "systemCode": "FA (3)",
+        "schemaVersion": "1-0E",
+        "value": "FA"
+      },
+      "isSelfInvoicing": false,
+      "hasAttachment": false,
+      "invoiceHash": "saoYnwmMqJr7hMQG1K6CGU/zNiosqXt3n1vfNzS585U=",
+      "thirdSubjects": []
+    }
+  ]
+}

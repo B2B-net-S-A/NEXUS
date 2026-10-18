@@ -177,17 +177,20 @@ async def _actual_foreign_keys(db: AsyncSession) -> set[tuple[str, str, str]]:
     """
     rows = (
         await db.execute(
+            # pg_catalog, nie information_schema: przy ~1000 kluczy złączenie
+            # widoków information_schema trwało 9 s lokalnie i przekraczało
+            # CHECK_TIMEOUT_SECONDS na CI (18.10.2026); ten sam zbiór — 8 ms.
             text("""
-                SELECT tc.table_name, kcu.column_name, ccu.table_name AS referenced
-                FROM information_schema.table_constraints tc
-                JOIN information_schema.key_column_usage kcu
-                  ON kcu.constraint_name = tc.constraint_name
-                 AND kcu.table_schema = tc.table_schema
-                JOIN information_schema.constraint_column_usage ccu
-                  ON ccu.constraint_name = tc.constraint_name
-                 AND ccu.table_schema = tc.table_schema
-                WHERE tc.constraint_type = 'FOREIGN KEY'
-                  AND tc.table_schema = 'public'
+                SELECT cl.relname, att.attname, rc.relname AS referenced
+                FROM pg_constraint con
+                JOIN pg_class cl ON cl.oid = con.conrelid
+                JOIN pg_namespace n ON n.oid = cl.relnamespace
+                JOIN pg_class rc ON rc.oid = con.confrelid
+                CROSS JOIN LATERAL unnest(con.conkey) AS k(attnum)
+                JOIN pg_attribute att
+                  ON att.attrelid = con.conrelid AND att.attnum = k.attnum
+                WHERE con.contype = 'f'
+                  AND n.nspname = 'public'
             """)
         )
     ).all()

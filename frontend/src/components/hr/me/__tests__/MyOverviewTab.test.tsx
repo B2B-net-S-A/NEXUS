@@ -49,6 +49,7 @@ const ALL: Record<HrModuleKey, boolean> = {
   care: false,
   cases: false,
   equipment: true,
+  settlements: false,
 };
 
 function config(open: Partial<Record<HrModuleKey, boolean>> = {}): HrConfig {
@@ -65,6 +66,7 @@ function config(open: Partial<Record<HrModuleKey, boolean>> = {}): HrConfig {
       people_admin: false,
       payroll: false,
       equipment: false,
+      settlements: false,
       cases: false,
     },
   } as HrConfig;

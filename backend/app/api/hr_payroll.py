@@ -372,12 +372,15 @@ async def my_payroll(
             }
         )
     closed = await payroll_periods.closed_months(db)
+    # R11: przy włączonych rozliczeniach premia wypłacona = rozliczenie opłacone.
+    paid = await payroll_bonuses.paid_flags(db, bonuses)
     items = [
         {
             **payroll_bonuses.bonus_payload(b, names, with_snapshot=False, today=today),
             "assigned_by_name": names.get(b.assigned_by) if b.assigned_by else None,
             # Miesiąc premii zamknięty w płacach = premia rozliczona z wypłatą.
             "period_closed": (b.period_year, b.period_month) in closed,
+            **({"paid": paid.get(b.id, False)} if paid is not None else {}),
         }
         for b in bonuses
     ]

@@ -18,12 +18,20 @@ Zamknięcie (Płace):
 
 Ponowne otwarcie: wyłącznie administrator, z powodem; linie znikają (raport
 znów liczy się z danych), timesheety odblokowane, ślad z poprzednimi sumami.
+
+Rozliczenia (etap 4, moduł ``settlements``): zamknięcie zakłada rozliczenie
+każdej linii z kwotą (``settlements.ensure_for_period`` — B2B czeka na
+fakturę, zlecenie i UoP mają kwotę od razu; faktury, które przyszły
+wcześniej, dopinają się same). Przy wyłączonym module rozliczeń nic nie
+powstaje (moduł ciemny — ``POST /api/hr/settlements/months/…/prepare``
+założy je później). Ponowne otwarcie anuluje nieopłacone rozliczenia zawsze,
+także przy wyłączonym module; opłacone zostają jako dowód.
 """
 
 from __future__ import annotations
 
 from datetime import date
-from typing import Any
+from typing import Any, Optional
 
 from sqlalchemy import delete, func, insert, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -32,7 +40,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.scheduling import local_now
 from app.models.hr_ops import HrJobRun
 from app.models.hr_payroll import HrBonus, PayrollLine
-from app.services.hr import audit, payroll_time_bridge
+from app.services.hr import audit, payroll_time_bridge, settlements
+from app.services.hr import modules as hr_modules
 from app.services.hr.payroll_errors import PayrollConflict, PayrollError
 from app.services.hr.payroll_periods import (
     get_period,
@@ -178,11 +187,16 @@ async def close_month(
     period.closed_by = actor_id
     period.closed_at = local_now()
     period.close_count = (period.close_count or 0) + 1
+    created: Optional[dict[str, int]] = None
+    if (await hr_modules.load_modules(db)).get(hr_modules.HrModule.settlements):
+        await db.flush()
+        created = await settlements.ensure_for_period(db, period, actor_id=actor_id)
     counts = {
         "people": len(people),
         "lines": len(rows),
         "timesheets_locked": locked,
         "warnings": [w["code"] for w in warnings],
+        **({"settlements": created["created"]} if created is not None else {}),
     }
     # Ślad przebiegu (bez kwot); kolejne zamknięcie po ponownym otwarciu ma
     # własny klucz. Upsert: ślad nie może zablokować zamknięcia.
@@ -220,7 +234,7 @@ async def close_month(
         },
     )
     await db.flush()
-    return {
+    result: dict[str, Any] = {
         "year": year,
         "month": month,
         "status": "closed",
@@ -228,6 +242,9 @@ async def close_month(
         "people": len(people),
         "timesheets_locked": locked,
     }
+    if created is not None:
+        result["settlements"] = created
+    return result
 
 
 async def reopen_month(
@@ -251,6 +268,7 @@ async def reopen_month(
     )
     user_ids = {line.user_id for line in lines}
     user_ids |= await payroll_time_bridge.locked_user_ids(db, year, month)
+    cancelled = await settlements.cancel_for_period(db, period, actor_id=actor_id)
     await db.execute(delete(PayrollLine).where(PayrollLine.period_id == period.id))
     unlocked = await payroll_time_bridge.set_payroll_lock(
         db, year, month, user_ids, locked=False
@@ -272,6 +290,7 @@ async def reopen_month(
             "month": month,
             "reason": note[:1000],
             "previous_totals": previous,
+            "settlements_cancelled": cancelled,
         },
     )
     await db.flush()

@@ -24,7 +24,8 @@ export type HrModuleKey =
   | "lifecycle"
   | "care"
   | "cases"
-  | "equipment";
+  | "equipment"
+  | "settlements";
 
 export type EmploymentType = "uop" | "b2b" | "zlecenie";
 export type EmploymentStatus =
@@ -168,6 +169,7 @@ export const HR_MODULE_LABELS: Record<HrModuleKey, string> = {
   care: "Opieka nad konsultantami",
   cases: "Sprawy administracja@",
   equipment: "Sprzęt i protokoły",
+  settlements: "Rozliczenia zespołu",
 };
 
 /** Klucze zapytań „Ludzi” — wszystkie moduły HR mają wspólny korzeń `["hr"]`. */

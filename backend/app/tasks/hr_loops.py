@@ -277,6 +277,86 @@ async def care_announcements_job(db: AsyncSession) -> dict[str, Any] | None:
     return result if any(result.get(key) for key in keys) else None
 
 
+KSEF_FETCH_INTERVAL_SECONDS = (
+    15 * 60
+)  # przebieg i tak raz na godzinę (klucz w hr_job_runs)
+
+
+async def ksef_fetch_job(db: AsyncSession) -> dict[str, Any] | None:
+    """Faktury od osób z KSeF (etap 4); wyłączona integracja = nic."""
+    from app.services.hr.ksef import sync
+
+    result = await sync.run_once(db)
+    return None if result.get("status") in {"disabled", "skipped"} else result
+
+
+async def ksef_fetch_loop() -> None:
+    from app.services.hr.ksef.environment import load_config
+
+    if not loops_enabled("ksef_fetch"):
+        return
+    if load_config().mode == "off":
+        logger.info("ksef_fetch disabled (KSEF_MODE=off) — pętla nie startuje")
+        return
+    beat = loop_heartbeat.register(
+        "ksef_fetch", max_silence_seconds=KSEF_FETCH_INTERVAL_SECONDS + 1800
+    )
+    await run_periodic("ksef_fetch", beat, KSEF_FETCH_INTERVAL_SECONDS, ksef_fetch_job)
+
+
+async def sales_ksef_fetch_job(db: AsyncSession) -> dict[str, Any] | None:
+    """Faktury sprzedażowe z KSeF (E8); wyłączona integracja albo moduł = nic."""
+    from app.services.client_invoicing import sync
+
+    result = await sync.run_once(db)
+    return None if result.get("status") in {"disabled", "skipped"} else result
+
+
+async def sales_ksef_fetch_loop() -> None:
+    from app.services.hr.ksef.environment import load_config
+
+    if not loops_enabled("sales_ksef_fetch"):
+        return
+    if load_config().mode == "off":
+        logger.info("sales_ksef_fetch disabled (KSEF_MODE=off) — pętla nie startuje")
+        return
+    beat = loop_heartbeat.register(
+        "sales_ksef_fetch", max_silence_seconds=KSEF_FETCH_INTERVAL_SECONDS + 1800
+    )
+    await run_periodic(
+        "sales_ksef_fetch", beat, KSEF_FETCH_INTERVAL_SECONDS, sales_ksef_fetch_job
+    )
+
+
+AGREEMENTS_SIGNING_INTERVAL_SECONDS = 5 * 60  # przebieg raz na 15 min (hr_job_runs)
+
+
+async def agreements_signing_job(db: AsyncSession) -> dict[str, Any] | None:
+    """Stan podpisów umów z ludźmi w Autenti (E5); bez Autenti = nic."""
+    from app.services.hr import agreements_signing
+
+    result = await agreements_signing.run_once(db)
+    return None if result.get("status") in {"disabled", "skipped"} else result
+
+
+async def agreements_signing_loop() -> None:
+    if not loops_enabled("hr_agreements_signing"):
+        return
+    if not settings.AUTENTI_ENABLED:
+        logger.info("hr_agreements_signing disabled (AUTENTI_ENABLED=false)")
+        return
+    beat = loop_heartbeat.register(
+        "hr_agreements_signing",
+        max_silence_seconds=AGREEMENTS_SIGNING_INTERVAL_SECONDS + 1800,
+    )
+    await run_periodic(
+        "hr_agreements_signing",
+        beat,
+        AGREEMENTS_SIGNING_INTERVAL_SECONDS,
+        agreements_signing_job,
+    )
+
+
 async def care_announcements_send_loop() -> None:
     if not loops_enabled("care_announcements_send"):
         return

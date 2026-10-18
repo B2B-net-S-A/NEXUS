@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Document xmlns="urn:iso:std:iso:20022:tech:xsd:camt.053.001.08">
+ <BkToCstmrStmt>
+  <GrpHdr><MsgId>WYCIAG-2026-11-18</MsgId><CreDtTm>2026-11-18T20:00:00</CreDtTm></GrpHdr>
+  <Stmt>
+   <Id>STMT-321</Id>
+   <Acct><Id><IBAN>PL72999900010000000000001234</IBAN></Id><Ccy>PLN</Ccy></Acct>
+   <Ntry>
+    <Amt Ccy="PLN">21106.80</Amt><CdtDbtInd>DBIT</CdtDbtInd><Sts><Cd>BOOK</Cd></Sts>
+    <BookgDt><Dt>2026-11-18</Dt></BookgDt><ValDt><Dt>2026-11-18</Dt></ValDt>
+    <AcctSvcrRef>BR2611180001</AcctSvcrRef>
+    <NtryDtls><TxDtls>
+     <Refs><EndToEndId>NOTPROVIDED</EndToEndId></Refs>
+     <RltdPties><Cdtr><Pty><Nm>Nowak Recruitment Ola Nowak</Nm></Pty></Cdtr>
+      <CdtrAcct><Id><IBAN>PL53999900020000000000004521</IBAN></Id></CdtrAcct></RltdPties>
+     <RmtInf><Ustrd>FV 10/2026 1234563218-20261104-5F2A9C0D71B3-4E</Ustrd></RmtInf>
+    </TxDtls></NtryDtls>
+   </Ntry>
+   <Ntry>
+    <Amt Ccy="PLN">5612.00</Amt><CdtDbtInd>DBIT</CdtDbtInd>
+    <BookgDt><Dt>2026-11-18</Dt></BookgDt>
+    <AcctSvcrRef>BR2611180002</AcctSvcrRef>
+    <NtryDtls>
+     <TxDtls>
+      <Refs><EndToEndId>E2E-ZLEC-10</EndToEndId></Refs>
+      <Amt Ccy="PLN">1612.00</Amt>
+      <RltdPties><Cdtr><Nm>Kuba Lato</Nm></Cdtr>
+       <CdtrAcct><Id><IBAN>PL87999900030000000000000937</IBAN></Id></CdtrAcct></RltdPties>
+      <RmtInf><Ustrd>Wynagrodzenie zlecenie 10/2026</Ustrd></RmtInf>
+     </TxDtls>
+     <TxDtls>
+      <Refs><EndToEndId>E2E-CZYNSZ</EndToEndId></Refs>
+      <AmtDtls><TxAmt><Amt Ccy="PLN">4000.00</Amt></TxAmt></AmtDtls>
+      <RltdPties><Cdtr><Nm>Biuro Przykładowe Sp. z o.o.</Nm></Cdtr>
+       <CdtrAcct><Id><IBAN>PL70999900040000000000007777</IBAN></Id></CdtrAcct></RltdPties>
+      <RmtInf><Ustrd>Czynsz za biuro, listopad 2026</Ustrd></RmtInf>
+     </TxDtls>
+    </NtryDtls>
+   </Ntry>
+   <Ntry>
+    <Amt Ccy="PLN">500.00</Amt><CdtDbtInd>CRDT</CdtDbtInd>
+    <BookgDt><Dt>2026-11-19</Dt></BookgDt>
+    <AddtlNtryInf>Zwrot kaucji</AddtlNtryInf>
+   </Ntry>
+  </Stmt>
+ </BkToCstmrStmt>
+</Document>

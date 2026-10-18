@@ -14,6 +14,7 @@ const open = (on: Partial<Record<HrModuleKey, boolean>>) => ({
     care: false,
     cases: false,
     equipment: false,
+    settlements: false,
     ...on,
   },
 });

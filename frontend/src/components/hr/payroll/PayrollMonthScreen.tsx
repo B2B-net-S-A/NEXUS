@@ -2,11 +2,13 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { FileArchive, FileSpreadsheet, Lock, LockOpen, Plus } from "lucide-react";
 
 import { InlineStats } from "@/components/ds/InlineStats";
 import { PageHeader } from "@/components/ds/PageHeader";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
+import { TabbedNav } from "@/components/ds/TabbedNav";
 import { PeopleSectionNav } from "@/components/hr/people/PeopleSectionNav";
 import { useToast } from "@/components/Toast";
 import { Button } from "@/components/ui/button";
@@ -28,14 +30,21 @@ import { useAuthStore } from "@/store/auth";
 import { formatMoney } from "@/lib/money";
 import { formatIsoDatePl } from "@/lib/date-pl";
 import { capitalize } from "@/lib/hr-employment-terms";
+import { useUrlSyncedState, writeUrlParams } from "@/lib/url-selection";
 
 import { BonusDialog } from "./BonusDialog";
 import { BonusTable } from "./BonusTable";
 import { PayrollPeopleTable } from "./PayrollPeopleTable";
+import { SymfoniaExportButton } from "./payments/SymfoniaExportButton";
 import { ReopenMonthDialog } from "./ReopenMonthDialog";
 import { monthStats, splitBonuses, ymSegment } from "./payroll-format";
+import { MONTH_VIEW, PAYROLL_MONTH_TABS, payrollMonthTabs } from "./payroll-month-tabs";
 
-/** „Ludzie → Płace → miesiąc”: osoby, premie do decyzji, eksport i zamknięcie. */
+/**
+ * „Ludzie → Płace → miesiąc”: osoby, premie do decyzji, eksport i zamknięcie.
+ * Płace mają zakładki modułów etapu 4 (`?view=settlements` — „Rozliczenia”,
+ * `payroll-month-tabs.tsx`); przełożony widzi sam miesiąc swojego zespołu.
+ */
 export function PayrollMonthScreen({
   config,
   year,
@@ -56,6 +65,8 @@ export function PayrollMonthScreen({
   const [editing, setEditing] = useState<BonusRow | null>(null);
   const [reopenOpen, setReopenOpen] = useState(false);
   const [downloading, setDownloading] = useState<"xlsx" | "zip" | null>(null);
+  const params = useSearchParams();
+  const [view, setView] = useUrlSyncedState<string>(params.get("view"), MONTH_VIEW);
 
   const state = resolveViewState({
     isLoading: detail.isLoading,
@@ -173,6 +184,13 @@ export function PayrollMonthScreen({
   const { toDecide, assigned, cancelled } = splitBonuses(data.bonuses);
   const decidable = toDecide.filter((b) => b.eligible !== false);
   const people = data.people.map((p) => ({ user_id: p.user_id, name: p.name }));
+  const tabs = payrollMonthTabs(config, payroll);
+  const activeView = tabs.some((tab) => tab.value === view) ? view : MONTH_VIEW;
+  const moduleTab = PAYROLL_MONTH_TABS.find((tab) => tab.value === activeView);
+  const changeView = (value: string) => {
+    setView(value);
+    writeUrlParams({ view: value === MONTH_VIEW ? null : value, settlement: null });
+  };
   const mine = (row: BonusRow) => me?.id === row.recipient_user_id;
   const canEdit = (row: BonusRow) =>
     open && !mine(row) && (payroll || row.proposed_by === me?.id);
@@ -213,6 +231,9 @@ export function PayrollMonthScreen({
                 <FileArchive className="h-4 w-4" aria-hidden />
                 {downloading === "zip" ? "Pobieranie…" : "PDF-y timesheetów (ZIP)"}
               </Button>
+              {config.open_modules.settlements ? (
+                <SymfoniaExportButton year={year} month={month} closed={data.status === "closed"} />
+              ) : null}
               {data.can_close ? (
                 <Button size="sm" onClick={closeMonth} disabled={close.isPending}>
                   <Lock className="h-4 w-4" aria-hidden />
@@ -230,106 +251,121 @@ export function PayrollMonthScreen({
         }
       />
       <PeopleSectionNav config={config} active="payroll" />
-
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <InlineStats id="payroll-month-stats" stats={monthStats(data)} />
-        <div className="flex items-center gap-3">
-          {payroll ? (
-            <Link href="/people/payroll" className="text-sm text-primary hover:underline">
-              Wszystkie miesiące
-            </Link>
-          ) : null}
-          {open && people.length > 0 ? (
-            <Button size="sm" variant="secondary" onClick={() => setBonusOpen(true)}>
-              <Plus className="h-4 w-4" aria-hidden />
-              Nowa premia
-            </Button>
-          ) : null}
-        </div>
-      </div>
-
-      {payroll && open && (data.warnings ?? []).length > 0 ? (
-        <div className="rounded-lg border border-border bg-muted/40 px-4 py-2 text-sm text-muted-foreground">
-          Przed zamknięciem: {(data.warnings ?? []).map((w) => w.message).join(" ")}
-        </div>
+      {tabs.length > 0 ? (
+        <TabbedNav
+          ariaLabel="Miesiąc płac"
+          overflow="scroll"
+          tabs={tabs}
+          value={activeView ?? MONTH_VIEW}
+          onValueChange={changeView}
+        />
       ) : null}
 
-      {data.people.length === 0 ? (
-        <div className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
-          {payroll
-            ? "W tym miesiącu nikt z kartoteką nie był zatrudniony."
-            : "Nikt z Twojego zespołu nie ma w tym miesiącu godzin ani premii."}
-        </div>
+      {moduleTab ? (
+        moduleTab.render({ config, year, month })
       ) : (
-        <PayrollPeopleTable people={data.people} scope={data.scope} />
-      )}
+        <>
+          <div className="flex flex-wrap items-end justify-between gap-3">
+            <InlineStats id="payroll-month-stats" stats={monthStats(data)} />
+            <div className="flex items-center gap-3">
+              {payroll ? (
+                <Link href="/people/payroll" className="text-sm text-primary hover:underline">
+                  Wszystkie miesiące
+                </Link>
+              ) : null}
+              {open && people.length > 0 ? (
+                <Button size="sm" variant="secondary" onClick={() => setBonusOpen(true)}>
+                  <Plus className="h-4 w-4" aria-hidden />
+                  Nowa premia
+                </Button>
+              ) : null}
+            </div>
+          </div>
 
-      {decidable.length > 0 ? (
-        <section className="space-y-2">
-          <h2 className="text-[11px] font-semibold uppercase tracking-[0.05em] text-muted-foreground">
-            Premie do decyzji
-          </h2>
-          <BonusTable
-            rows={decidable}
-            renderActions={(row) =>
-              open && !mine(row) ? (
-                <div className="flex justify-end gap-1">
-                  <Button size="sm" onClick={() => approveRow(row)} disabled={approve.isPending}>
-                    Zatwierdź
-                  </Button>
-                  {payroll ? (
-                    <Button size="sm" variant="ghost" onClick={() => setEditing(row)}>
-                      Zmień
-                    </Button>
-                  ) : null}
-                  <Button size="sm" variant="quiet" onClick={() => cancelRow(row)}>
-                    Odrzuć
-                  </Button>
-                </div>
-              ) : null
-            }
-          />
-        </section>
-      ) : null}
-
-      {data.in_progress.length > 0 ? (
-        <section className="space-y-2">
-          <h2 className="text-[11px] font-semibold uppercase tracking-[0.05em] text-muted-foreground">
-            Placementy — premie liczą się
-          </h2>
-          <BonusTable rows={data.in_progress} showProgress />
-        </section>
-      ) : null}
-
-      <section className="space-y-2">
-        <h2 className="text-[11px] font-semibold uppercase tracking-[0.05em] text-muted-foreground">
-          Premie przyznane w tym miesiącu
-          {cancelled > 0 ? (
-            <span className="ml-2 font-normal normal-case tracking-normal">
-              · anulowane: {cancelled}
-            </span>
+          {payroll && open && (data.warnings ?? []).length > 0 ? (
+            <div className="rounded-lg border border-border bg-muted/40 px-4 py-2 text-sm text-muted-foreground">
+              Przed zamknięciem: {(data.warnings ?? []).map((w) => w.message).join(" ")}
+            </div>
           ) : null}
-        </h2>
-        {assigned.length === 0 ? (
-          <p className="text-sm text-muted-foreground">Brak przyznanych premii.</p>
-        ) : (
-          <BonusTable
-            rows={assigned}
-            renderActions={(row) =>
-              canEdit(row) ? (
-                <div className="flex justify-end gap-1">
-                  <Button size="sm" variant="ghost" onClick={() => setEditing(row)}>
-                    Zmień
-                  </Button>
-                  <Button size="sm" variant="quiet" onClick={() => cancelRow(row)}>
-                    Anuluj
-                  </Button>
-                </div>
-              ) : null
-            }
-          />
-        )}
-      </section>
+
+          {data.people.length === 0 ? (
+            <div className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
+              {payroll
+                ? "W tym miesiącu nikt z kartoteką nie był zatrudniony."
+                : "Nikt z Twojego zespołu nie ma w tym miesiącu godzin ani premii."}
+            </div>
+          ) : (
+            <PayrollPeopleTable people={data.people} scope={data.scope} />
+          )}
+
+          {decidable.length > 0 ? (
+            <section className="space-y-2">
+              <h2 className="text-[11px] font-semibold uppercase tracking-[0.05em] text-muted-foreground">
+                Premie do decyzji
+              </h2>
+              <BonusTable
+                rows={decidable}
+                renderActions={(row) =>
+                  open && !mine(row) ? (
+                    <div className="flex justify-end gap-1">
+                      <Button size="sm" onClick={() => approveRow(row)} disabled={approve.isPending}>
+                        Zatwierdź
+                      </Button>
+                      {payroll ? (
+                        <Button size="sm" variant="ghost" onClick={() => setEditing(row)}>
+                          Zmień
+                        </Button>
+                      ) : null}
+                      <Button size="sm" variant="quiet" onClick={() => cancelRow(row)}>
+                        Odrzuć
+                      </Button>
+                    </div>
+                  ) : null
+                }
+              />
+            </section>
+          ) : null}
+
+          {data.in_progress.length > 0 ? (
+            <section className="space-y-2">
+              <h2 className="text-[11px] font-semibold uppercase tracking-[0.05em] text-muted-foreground">
+                Placementy — premie liczą się
+              </h2>
+              <BonusTable rows={data.in_progress} showProgress />
+            </section>
+          ) : null}
+
+          <section className="space-y-2">
+            <h2 className="text-[11px] font-semibold uppercase tracking-[0.05em] text-muted-foreground">
+              Premie przyznane w tym miesiącu
+              {cancelled > 0 ? (
+                <span className="ml-2 font-normal normal-case tracking-normal">
+                  · anulowane: {cancelled}
+                </span>
+              ) : null}
+            </h2>
+            {assigned.length === 0 ? (
+              <p className="text-sm text-muted-foreground">Brak przyznanych premii.</p>
+            ) : (
+              <BonusTable
+                rows={assigned}
+                renderActions={(row) =>
+                  canEdit(row) ? (
+                    <div className="flex justify-end gap-1">
+                      <Button size="sm" variant="ghost" onClick={() => setEditing(row)}>
+                        Zmień
+                      </Button>
+                      <Button size="sm" variant="quiet" onClick={() => cancelRow(row)}>
+                        Anuluj
+                      </Button>
+                    </div>
+                  ) : null
+                }
+              />
+            )}
+          </section>
+        </>
+      )}
 
       {bonusOpen ? (
         <BonusDialog

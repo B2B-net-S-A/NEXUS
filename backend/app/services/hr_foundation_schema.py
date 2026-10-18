@@ -42,6 +42,12 @@ HR_MODULE_KEYS: tuple[str, ...] = (
     "care",
     "cases",
     "equipment",
+    "settlements",
+)
+#: Moduły importu z Compassa — rozliczeń (etap 4) Compass nie ma, więc lista
+#: (i CHECK partii importu) zostaje bez nich.
+IMPORT_MODULE_KEYS: tuple[str, ...] = tuple(
+    key for key in HR_MODULE_KEYS if key != "settlements"
 )
 
 
@@ -114,7 +120,7 @@ CK_USED_INITIAL_DAYS = "used_initial_days >= 0 AND used_initial_days <= 366"
 CK_DAY_OFF_KIND = f"kind IN ({quoted(DAY_OFF_KINDS)})"
 CK_SENSITIVITY = f"sensitivity IN ({quoted(SENSITIVITIES)})"
 CK_JOB_RUN_STATUS = f"status IN ({quoted(JOB_RUN_STATUSES)})"
-CK_IMPORT_MODULE = f"module IN ({quoted(('profiles', *HR_MODULE_KEYS))})"
+CK_IMPORT_MODULE = f"module IN ({quoted(('profiles', *IMPORT_MODULE_KEYS))})"
 CK_IMPORT_STATUS = f"status IN ({quoted(IMPORT_STATUSES)})"
 CK_IMPORT_DECISION = f"decision IN ({quoted(IMPORT_DECISIONS)})"
 CK_UPLOAD_STATUS = f"status IN ({quoted(UPLOAD_STATUSES)})"

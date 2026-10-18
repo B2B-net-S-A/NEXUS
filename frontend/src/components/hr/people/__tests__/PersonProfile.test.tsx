@@ -37,6 +37,12 @@ vi.mock("@/components/hr/lifecycle/LifecycleProfileSection", () => ({
 vi.mock("@/components/hr/payroll/PayrollProfileSection", () => ({
   PayrollProfileSection: () => null,
 }));
+vi.mock("@/components/hr/people/documents/PersonDocumentsSection", () => ({
+  PersonDocumentsSection: () => null,
+}));
+vi.mock("@/components/hr/people/agreements/PersonAgreementsSection", () => ({
+  PersonAgreementsSection: () => null,
+}));
 vi.mock("@/components/equipment/PersonEquipmentPanel", () => ({
   PersonEquipmentPanel: () => null,
 }));

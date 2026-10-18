@@ -300,6 +300,13 @@ class NotificationType(str, enum.Enum):
     # office, admin), decyzja (autor), odbity mail (opiekun: „popraw e-mail”).
     # Osobisty, link do `/care?tab=announcements` albo do kontraktu.
     care_announcement = "care_announcement"
+    # 0466: rozliczenia zespołu — prośba o korektę faktury (osoba), rozliczenie
+    # opłacone (osoba), rozbieżność / uznanie różnicy do drugiej osoby (Płace).
+    # Bez kwot w tytule i treści; link do „Mojego czasu” albo kolejki Płac.
+    hr_settlement_correction = "hr_settlement_correction"
+    hr_settlement_paid = "hr_settlement_paid"
+    hr_settlement_review = "hr_settlement_review"
+    hr_agreement_update = "hr_agreement_update"
     care_contact_due = "care_contact_due"
 
 

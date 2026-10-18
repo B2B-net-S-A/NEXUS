@@ -44,6 +44,7 @@ const config: HrConfig = {
     care: false,
     cases: false,
     equipment: false,
+    settlements: false,
   },
   open_modules: {
     people: true,
@@ -54,6 +55,7 @@ const config: HrConfig = {
     care: false,
     cases: false,
     equipment: false,
+    settlements: false,
   },
   me: {
     has_profile: true,

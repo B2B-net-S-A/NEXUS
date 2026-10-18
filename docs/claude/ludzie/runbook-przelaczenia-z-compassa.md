@@ -102,3 +102,15 @@ przenieść ręcznie (lista z `hr_audit_events` od chwili włączenia). Compass
 nie zna znaczników NEXUSA (`NEXUS · …`) i ich nie sprząta — przed powrotem
 M365 do Compassa zostaw NEXUS w `live` do końca bieżących urlopów albo zdejmij
 autoodpowiedzi i reguły `NEXUS · …` ręcznie.
+
+## Rozliczenia zespołu (etap 4, osobny PR po wdrożeniu „Ludzi”)
+
+1. Po wdrożeniu: `/api/health` = SHA, sonda `hr_ksef` = `disabled`, moduł `settlements` wyłączony.
+2. Biała lista: `WHITE_LIST_MODE=test` → sprawdzenie NIP-u spółki w „Danych do rozliczeń” → `live`.
+3. KSeF: najpierw środowisko TEST MF (certyfikat testowy, token z `InvoiceRead`, `KSEF_MODE=test`,
+   `KSEF_CONTEXT_NIP`, `KSEF_TOKEN` przez „Coolify set env” z `value_from_secret`), „Pobierz teraz”,
+   potem token produkcyjny spółki i `KSEF_MODE=prod`.
+4. Płace uzupełniają dane do rozliczeń osób (NIP, rachunek z wykazu, identyfikator w Symfonii),
+   ustawienia płatności i słowniki Symfonii; włączenie modułu `settlements`.
+5. Pierwszy miesiąc: rozliczenia w NEXUSIE obok dotychczasowego trybu, paczka dla Symfonii
+   zaimportowana próbnie przez Płace; paczka przelewów zostaje wyłączona do testu w banku.

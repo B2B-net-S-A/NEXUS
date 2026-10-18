@@ -31,6 +31,9 @@ class HrModule(StrEnum):
     care = "care"
     cases = "cases"
     equipment = "equipment"
+    #: Rozliczenia zespołu (etap 4): faktury z KSeF, potwierdzenia godzin,
+    #: płatności i eksport do Symfonii — domyślnie wyłączone.
+    settlements = "settlements"
 
 
 def normalize(raw: object) -> dict[str, bool]:

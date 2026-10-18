@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Faktura xmlns="http://crd.gov.pl/wzor/2025/06/25/13775/">
+  <Naglowek>
+    <KodFormularza kodSystemowy="FA (3)" wersjaSchemy="1-0E">FA</KodFormularza>
+    <WariantFormularza>3</WariantFormularza>
+    <DataWytworzeniaFa>2026-11-03T09:00:00Z</DataWytworzeniaFa>
+    <SystemInfo>Program Przykładowy</SystemInfo>
+  </Naglowek>
+  <Podmiot1>
+    <DaneIdentyfikacyjne><NIP>9876543210</NIP><Nazwa>Spółka Testowa sp. z o.o.</Nazwa></DaneIdentyfikacyjne>
+    <Adres><KodKraju>PL</KodKraju><AdresL1>ul. Testowa 10</AdresL1></Adres>
+  </Podmiot1>
+  <Podmiot2>
+    <DaneIdentyfikacyjne><NIP>1111111111</NIP><Nazwa>Bank Testowy S.A.</Nazwa></DaneIdentyfikacyjne>
+    <Adres><KodKraju>PL</KodKraju><AdresL1>ul. Przykładowa 5</AdresL1></Adres>
+    <JST>2</JST><GV>2</GV>
+  </Podmiot2>
+  <Fa>
+    <KodWaluty>PLN</KodWaluty>
+    <P_1>2026-11-09</P_1>
+    <P_2>FS/K/1/11/2026</P_2>
+    <P_13_1>-75.00</P_13_1>
+    <P_14_1>-17.25</P_14_1>
+    <P_15>-92.25</P_15>
+    <Adnotacje><P_16>2</P_16><P_17>2</P_17><P_18>2</P_18><P_18A>2</P_18A>
+      <Zwolnienie><P_19N>1</P_19N></Zwolnienie><NoweSrodkiTransportu><P_22N>1</P_22N></NoweSrodkiTransportu>
+      <P_23>2</P_23><PMarzy><P_PMarzyN>1</P_PMarzyN></PMarzy></Adnotacje>
+    <RodzajFaktury>KOR</RodzajFaktury>
+    <PrzyczynaKorekty>Zmiana liczby MD</PrzyczynaKorekty>
+    <TypKorekty>2</TypKorekty>
+    <DaneFaKorygowanej><DataWystFaKorygowanej>2026-11-04</DataWystFaKorygowanej><NrFaKorygowanej>FS 10/124/2026</NrFaKorygowanej><NrKSeF>1</NrKSeF><NrKSeFFaKorygowanej>9876543210-20261104-A1240C0FFEE3-7D</NrKSeFFaKorygowanej></DaneFaKorygowanej>
+    <FaWiersz><NrWierszaFa>1</NrWierszaFa><P_7>Korekta liczby MD — październik 2026</P_7><P_8A>MD</P_8A><P_8B>-0.065</P_8B><P_9A>1153.846</P_9A><P_11>-75.00</P_11><P_12>23</P_12></FaWiersz>
+    <Platnosc>
+      <TerminPlatnosci><Termin>2026-11-18</Termin></TerminPlatnosci>
+      <FormaPlatnosci>6</FormaPlatnosci>
+    </Platnosc>
+  </Fa>
+</Faktura>
