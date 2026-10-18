@@ -111,9 +111,10 @@ regexes = [
   # cały zakres commitów. Zakotwiczona, dokładnie ta jedna wartość.
   '''^test_fix48_ws07_marker_db\.py$''',
   # Fikcyjne identyfikatory wniosków urlopowych w testach „Ludzi w NEXUSIE”
-  # (PR #2304) — UUID-y bez materiału klucza, które reguła ``fireflies-api-key``
-  # bierze za klucz. Zakotwiczone, dokładnie trzy wartości.
-  '''^(00000000-0000-0000-0000-000000000001|3f1c2a9e-1b2c-4d5e-8f90-123456789abc|9b2f4c1e-0000-4000-8000-000000000001)$''',
+  # (PR #2304) i fikcyjny GUID kartoteki Symfonii w teście eksportu (PR #2310)
+  # — UUID-y bez materiału klucza, które reguła ``fireflies-api-key`` bierze
+  # za klucz. Zakotwiczone, dokładnie cztery wartości.
+  '''^(00000000-0000-0000-0000-000000000001|3f1c2a9e-1b2c-4d5e-8f90-123456789abc|9b2f4c1e-0000-4000-8000-000000000001|2099071c-84e5-4aaf-aa70-57d2d40afffa)$''',
 ]
 
 [[rules]]
