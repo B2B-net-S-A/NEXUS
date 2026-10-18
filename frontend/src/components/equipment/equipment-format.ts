@@ -28,6 +28,34 @@ export const CATEGORY_LABELS: Record<EquipmentCategory, string> = {
   inne: "Inne",
 };
 
+/**
+ * Gdzie szukać kodów, których NEXUS nie przechowuje (Artur 18.10.2026): klucz
+ * odzyskiwania BitLocker zostaje w Intune/Entra, PIN i PUK karty SIM u operatora.
+ * Ewidencja pokazuje tylko drogę do nich.
+ */
+export interface SecretHint {
+  label: string;
+  text: string;
+  href?: string;
+}
+
+export function secretHint(category: EquipmentCategory): SecretHint | null {
+  if (category === "laptop") {
+    return {
+      label: "Klucz odzyskiwania BitLocker",
+      text: "Intune → Urządzenia → Wszystkie urządzenia → ten komputer → Klucze odzyskiwania (albo Entra → Urządzenia → Klucze BitLocker).",
+      href: "https://intune.microsoft.com/",
+    };
+  }
+  if (category === "karta_sim" || category === "telefon") {
+    return {
+      label: "PIN i PUK karty SIM",
+      text: "U operatora: panel firmowy operatora albo opiekun biznesowy, po numerze telefonu.",
+    };
+  }
+  return null;
+}
+
 export const CATEGORY_ORDER: EquipmentCategory[] = [
   "laptop",
   "telefon",
