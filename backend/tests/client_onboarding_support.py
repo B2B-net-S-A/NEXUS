@@ -43,19 +43,12 @@ def headers(user: User) -> dict[str, str]:
 
 
 def ensure_router_mounted() -> None:
-    """Zamontuj router, jeśli koordynator jeszcze go nie wpiął w ``main.py``.
+    """Router jest w ``main.py`` (za wyłącznikiem programu) — nic do montowania.
 
-    Warunek staje się no-opem, gdy montaż wejdzie do ``main.py`` — testy
-    sprawdzają realny router pod docelowym adresem.
+    Dawniej montował router, zanim koordynator wpiął go w ``main.py``; pod
+    FastAPI 0.139+ szukanie trasy w płaskim ``app.routes`` nie widziało
+    wpiętego routera i montowało go drugi raz, bez ``require_hr_program``.
     """
-    from app.main import app
-
-    path = f"{PREFIX}/clients/{{client_id}}/pack"
-    if any(getattr(route, "path", None) == path for route in app.routes):
-        return
-    from app.api import client_onboarding
-
-    app.include_router(client_onboarding.router, prefix=PREFIX, tags=["hr"])
 
 
 async def make_user(
