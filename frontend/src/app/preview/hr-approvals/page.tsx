@@ -17,6 +17,8 @@
  * - `?kind=timesheet&year=…&month=…` — link z powiadomienia: timesheety
  *   poprzedniego miesiąca na górze (Ewa wysłała, Tomasz z nadgodzinami,
  *   Julia nie założyła, reszta zaakceptowana);
+ * - urlop okolicznościowy Julii z załącznikiem: Marta widzi „Załącznik ✓” bez
+ *   pliku (D6), Kadry — nazwę pliku z pobraniem (harness nie pobiera: zero zapytań);
  * - `?state=hr` — Kadry: zakres „wszyscy”, przy wniosku nazwisko przełożonego;
  * - `?state=covering` — Ola w zastępstwie za Kamila: decyduje o urlopie jego
  *   osoby, L4 widzi jako „Nieobecność” tylko do wiadomości (D6).
@@ -204,9 +206,26 @@ function pendingFor(
       ],
       note: `Rozmowy u klienta (${HR_CLIENTS.bank.name}) przejmie Ola — umówione z klientem.`,
     }),
-    leaveRow("lv-p-12", julia, nthWorkDay(next, 8), nthWorkDay(next, 12), "5", {
+    leaveRow("lv-p-12", julia, nthWorkDay(next, 8), nthWorkDay(next, 9), "2", {
+      leave_type: "occasional",
+      leave_type_label: LEAVE_TYPE_LABELS.occasional,
       substitute_user_id: tomasz.id,
       substitute_name: tomasz.name,
+      // Treść załącznika widzą Kadry; przełożona — tylko że jest (D6).
+      proof_count: 1,
+      proofs:
+        state === "hr"
+          ? [
+              {
+                id: 9101,
+                file_name: "akt-slubu.pdf",
+                mime: "application/pdf",
+                size_bytes: 182_000,
+                created_at: `${today}T08:30:00+02:00`,
+                can_remove: false,
+              },
+            ]
+          : null,
     }),
   ];
   return { items, total: items.length, covering: [], reported: reportedFor(today) };

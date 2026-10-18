@@ -167,4 +167,24 @@ describe("/preview/hr-my-time", () => {
     ).toBeInTheDocument();
     expect(attempted()).toEqual([]);
   });
+
+  it("Urlopy (UoP): okolicznościowy z załącznikiem — pobranie, usunięcie, „Dołącz kolejny”", async () => {
+    open("?tab=leave&form=uop");
+    const row = (await screen.findAllByRole("row")).find((item) =>
+      item.textContent?.includes("Urlop okolicznościowy"),
+    );
+    expect(row).toBeDefined();
+    expect(within(row!).getByRole("button", { name: "akt-slubu.pdf" })).toBeInTheDocument();
+    expect(within(row!).getByRole("button", { name: "Usuń akt-slubu.pdf" })).toBeInTheDocument();
+    expect(within(row!).getByRole("button", { name: "Dołącz kolejny" })).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "Załącznik" })).toBeInTheDocument();
+    expect(attempted()).toEqual([]);
+  });
+
+  it("Przerwy (B2B): bez kolumny załącznika — zgłoszenie nie potrzebuje dokumentu", async () => {
+    open("?tab=leave");
+    await screen.findAllByRole("row");
+    expect(screen.queryByRole("columnheader", { name: "Załącznik" })).toBeNull();
+  });
 });
+

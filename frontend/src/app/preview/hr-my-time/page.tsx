@@ -19,7 +19,8 @@
  * - `?tab=leave` — przerwy Oli (B2B, etap 2 D5: zgłoszenia bez akceptacji):
  *   saldo z umownej puli, zgłoszona przerwa z przekierowaniem poczty i kolizją
  *   od koordynatorki, zgłoszony dzień, anulowane; `&form=uop` — wnioski
- *   urlopowe (zatwierdzony, wpisany, odrzucony z powodem);
+ *   urlopowe (zatwierdzony, wpisany, odrzucony z powodem, okolicznościowy
+ *   z załącznikiem „akt-slubu.pdf” i „Dołącz kolejny”);
  * - `?state=report` — Ola (B2B) z otwartym oknem „Zgłoś przerwę w świadczeniu
  *   usług” (makieta m5): bez wyboru rodzaju, rozliczenie z puli i „Co się
  *   stanie po zgłoszeniu”;
@@ -89,6 +90,7 @@ const LINKS = [
   { key: "overview-uop", label: "Przegląd (UoP)", href: "?tab=overview&form=uop" },
   { key: "overview-zlecenie", label: "Przegląd (zlecenie)", href: "?tab=overview&form=zlecenie" },
   { key: "leave", label: "Przerwy (B2B)", href: "?tab=leave" },
+  { key: "leave-uop", label: "Urlopy z załącznikiem (UoP)", href: "?tab=leave&form=uop" },
   { key: "report", label: "Zgłoszenie przerwy (Ola, B2B)", href: "?state=report&tab=leave" },
   { key: "request", label: "Wniosek urlopowy (Kamil, UoP)", href: "?state=request&tab=leave" },
   { key: "month", label: "Raport godzin", href: "?tab=month" },
@@ -188,7 +190,12 @@ export default function HrMyTimePreviewPage() {
   const [dialogOpen, setDialogOpen] = useState(true);
   if (!ready) return <HrHarnessLoading />;
   const { state, config, form } = ready.value;
-  const current = state === "overview" && form !== "b2b" ? `overview-${form}` : state;
+  const current =
+    state === "overview" && form !== "b2b"
+      ? `overview-${form}`
+      : state === "leave" && form === "uop"
+        ? "leave-uop"
+        : state;
   return (
     <HrHarnessShell
       client={ready.client}

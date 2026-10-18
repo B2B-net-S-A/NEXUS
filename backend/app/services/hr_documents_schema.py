@@ -8,7 +8,10 @@ każdym starcie).
 Tabela ``hr_documents`` — dokument przy osobie (kartoteka), jeden wiersz na plik:
 
 * **rodzaj** (``kind``) ze słownika: umowa, aneks, oświadczenie, zaświadczenie,
-  protokół, inne (etykiety — ``services/hr/documents_rules.KIND_LABELS``);
+  protokół, potwierdzenie nieobecności, inne (etykiety —
+  ``services/hr/documents_rules.KIND_LABELS``); potwierdzenie nieobecności
+  bywa załącznikiem wniosku urlopowego (``leave_request_id``, 0473 —
+  ``hr_leave_proofs_schema``);
   ``purpose = 'student_status'`` oznacza oświadczenie o statusie ucznia lub
   studenta — jego „ważny do” zasila datę końca zwolnienia ze składek
   w kartotece, a z niej przypomnienie dla Płac 30 dni wcześniej
@@ -41,6 +44,7 @@ DOCUMENT_KINDS: tuple[str, ...] = (
     "statement",
     "certificate",
     "protocol",
+    "absence_proof",
     "other",
 )
 DOCUMENT_PURPOSES: tuple[str, ...] = ("student_status",)

@@ -33,9 +33,11 @@
   "GET /api/hr/leave/approvals/pending": "BBBBBBBDBBBBBBBBBBBBBBBBB",
   "GET /api/hr/leave/approvals/people": "BBBBBBBDBBBBBBBBBBBBBBBBB",
   "GET /api/hr/leave/approvals/substitutes": "BBBBBBBDBBBBBBBBBBBBBBBBB",
+  "GET /api/hr/leave/approvals/{request_id}/proofs/{document_id}/file": "BBBBBBBDBBBBBBBBBBBBBBBBB",
   "GET /api/hr/leave/balance": "BBBBBBBDBBBBBBBBBBBBBBBBB",
   "GET /api/hr/leave/calendar": "BBBBBBBDBBBBBBBBBBBBBBBBB",
   "GET /api/hr/leave/my-requests": "BBBBBBBDBBBBBBBBBBBBBBBBB",
+  "GET /api/hr/leave/requests/{request_id}/proofs/{document_id}/file": "BBBBBBBDBBBBBBBBBBBBBBBBB",
   "GET /api/hr/leave/substitutes": "BBBBBBBDBBBBBBBBBBBBBBBBB",
   "PATCH /api/hr/leave/approvals/{request_id}": "BBBBBBBDBBBBBBBBBBBBBBBBB",
   "POST /api/hr/leave/approvals/on-behalf": "BBBBBBBDBBBBBBBBBBBBBBBBB",
@@ -47,6 +49,8 @@
   "POST /api/hr/leave/preview": "BBBBBBBDBBBBBBBBBBBBBBBBB",
   "POST /api/hr/leave/requests": "BBBBBBBDBBBBBBBBBBBBBBBBB",
   "POST /api/hr/leave/requests/{request_id}/cancel": "BBBBBBBDBBBBBBBBBBBBBBBBB",
+  "POST /api/hr/leave/requests/{request_id}/proofs": "BBBBBBBDBBBBBBBBBBBBBBBBB",
+  "POST /api/hr/leave/requests/{request_id}/proofs/{document_id}/remove": "BBBBBBBDBBBBBBBBBBBBBBBBB",
   "POST /api/hr/leave/{request_id}/conflict": "BBBBBBBDBBBBBBBBBBBBBBBBB",
   "PUT /api/hr/leave/requests/{request_id}/forward-consent": "BBBBBBBDBBBBBBBBBBBBBBBBB"
  }
