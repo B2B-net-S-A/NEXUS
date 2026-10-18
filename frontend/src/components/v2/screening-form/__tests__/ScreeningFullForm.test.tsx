@@ -782,7 +782,11 @@ describe("ScreeningFullForm — stawka na start, gdy etap jej nie ma (D2, 14.10.
     // Podpowiedź z tą samą wartością co w polu znika, inna zostaje jako „Użyj”.
     expect(rateBlock().querySelector('[data-testid="screening-suggestions"]')).toBeNull();
     expect(within(rateBlock()).getByRole("button", { name: "Użyj — Stawka od" })).toBeTruthy();
-    expect(screen.getByText("Niezapisane zmiany")).toBeInTheDocument();
+    // Stawka na start to podpowiedź, nie zmiana rekrutera — stopka nie mówi
+    // „Niezapisane zmiany” zaraz po otwarciu (przeklikanie 18.10.2026, 200 zł/h
+    // z notatki), a stawka i tak idzie z zapisem.
+    expect(screen.queryByText("Niezapisane zmiany")).toBeNull();
+    expect(screen.getByText("Formularz jeszcze niezapisany")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: /^Zapisz$/ }));
     await waitFor(() => expect(mocks.put).toHaveBeenCalledTimes(1));
@@ -855,6 +859,7 @@ describe("ScreeningFullForm — stawka na start, gdy etap jej nie ma (D2, 14.10.
     await user.clear(amount);
     await user.type(amount, "170");
     expect(screen.queryByTestId("rate-prefill-origin")).toBeNull();
+    expect(screen.getByText("Niezapisane zmiany")).toBeInTheDocument();
     // Notatka wraca jako zwykła podpowiedź „Użyj”.
     expect(rateBlock().querySelector('[data-testid="screening-suggestions"]')).toHaveTextContent("160 zł/h");
   });

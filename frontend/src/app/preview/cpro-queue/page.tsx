@@ -124,6 +124,22 @@ const BOARD_TASKS: BoardTasksResponse = {
     ),
   ),
   cpro_sent: [row({ kind: "cpro_sent", stage_id: 31, candidate_id: 41, candidate_name: "Paweł Wysłany", since: daysAgo(6), target_stage_def_id: null })],
+  // Prep 1 zaplanowany, brakuje Prepu 2 — plakietka mówi którego (18.10.2026).
+  prep_attention: [
+    {
+      reason: "missing",
+      prep_no: 2,
+      candidate_id: 51,
+      candidate_name: "Marta Przedrozmową",
+      job_id: 7,
+      job_title: "Data Engineer",
+      interview_event_id: 901,
+      interview_start: new Date(Date.now() + 3 * 86_400_000).toISOString(),
+      prep_event_id: null,
+      owner_id: 1,
+      urgent: false,
+    },
+  ],
 };
 
 export default function CproQueuePreviewPage() {

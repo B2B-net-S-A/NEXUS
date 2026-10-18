@@ -69,8 +69,8 @@ import { AllocationProposalsSection } from "@/components/v2/dashboard/Allocation
 import { WidgetErrorBlock } from "@/components/v2/dashboard/WidgetState";
 import { FollowupSection } from "@/components/v2/followups/FollowupSection";
 import {
-  PREP_ATTENTION_REASON_LABEL,
   groupCproByJob,
+  prepAttentionLabel,
   prepAttentionLink,
   useBoardTasks,
   useCproSender,
@@ -399,7 +399,7 @@ export function BoardTasksPanel({
                     {row.candidate_name}
                   </Link>
                   <p className="truncate text-xs text-muted-foreground">
-                    {row.job_title} · Prep {row.prep_no}
+                    {row.job_title}
                   </p>
                   <p className="text-xs tabular-nums text-muted-foreground">
                     Rozmowa u klienta: {formatDayLabel(row.interview_start)}, {formatTime(row.interview_start)}
@@ -409,7 +409,7 @@ export function BoardTasksPanel({
                   className={`inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${prepReasonClass(row)}`}
                 >
                   {row.urgent && <AlertTriangle className="h-3 w-3" aria-hidden />}
-                  {PREP_ATTENTION_REASON_LABEL[row.reason]}
+                  {prepAttentionLabel(row)}
                   {row.urgent && <span className="sr-only"> — pilne</span>}
                 </span>
               </li>
