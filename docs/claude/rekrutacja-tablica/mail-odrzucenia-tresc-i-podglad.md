@@ -102,6 +102,14 @@ osób odrzuconych od „Zweryfikowany” było dalej w innej otwartej rekrutacji
   `title_warning` w oknie. Pomiar 17.10: numer w 33 z 201 nazw (było 145),
   klient w 1 (było 47). Do 17.10 lista brała tylko rekrutacje z zatwierdzonym
   opisem publicznym (runda 9, R9-N10-2) — miało go 2 z 201.
+  Od 18.10.2026 (decyzja Artura, wariant B z makiety
+  https://claude.ai/artifact/XKwCRn3N3iFv6Uhdny3Ej8): gdy nazwa od klienta
+  nie przechodzi kontroli, zapasowo tytuł dla rekrutera do pierwszego „ · ”
+  (`rejection_email_text.pick_mail_title`), jeśli przechodzi tę samą kontrolę;
+  dopiero gdy i on nie przechodzi — nazwa od klienta z `title_warning`. Pomiar
+  18.10: 35 z 201 nazw niebezpiecznych, 21 ratuje tytuł rekrutera. Kontrola nie
+  łapie nazwisk w tytule rekrutera ani literówek — rekruter widzi temat i treść
+  w podglądzie przed potwierdzeniem.
 - **Przegląd DL (D6):** `DlReviewPanel` ma to samo pole maila w „Odrzuć…”;
   mail wychodzi ze skrzynki DL (reguła „mail od osoby, która odrzuca”).
 - **Brak skrzynki (D7):** okno daje „Podłącz skrzynkę” (Ustawienia →

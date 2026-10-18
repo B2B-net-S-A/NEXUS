@@ -509,6 +509,43 @@ def test_title_safe_for_mail_hides_codes_and_client(title: str, safe: bool) -> N
     assert rejection_text.title_safe_for_mail(title, ["Nordea Bank Abp"]) is safe
 
 
+NORDEA = ["Nordea Bank Abp"]
+
+
+def test_pick_mail_title_keeps_a_safe_client_title() -> None:
+    # Bezpieczna nazwa od klienta wygrywa z tytułem dla rekrutera.
+    assert rejection_text.pick_mail_title(
+        "Senior Java Developer", "Java Developer · Java, Spring · 5+ lat", NORDEA
+    ) == ("Senior Java Developer", True)
+
+
+def test_pick_mail_title_falls_back_to_working_title_up_to_first_dot() -> None:
+    # Przeklikanie 18.10.2026 (rekrutacja 789131), decyzja Artura — wariant B.
+    assert rejection_text.pick_mail_title(
+        "PL_Transaction Monitoring_IT Developer Expert_TP#45785",
+        "Data Engineer · Python, Apache Spark · 8+ lat",
+        NORDEA,
+    ) == ("Data Engineer", True)
+
+
+@pytest.mark.parametrize(
+    "working_title",
+    [
+        None,
+        "",
+        " · Python",
+        "PL_KYC_3 x IT Automation Tester Senior_TP#43719 · C#, .NET 8",
+        "Nordea Analityk danych · SQL",
+    ],
+)
+def test_pick_mail_title_keeps_the_warning_when_working_title_is_unsafe(
+    working_title: str | None,
+) -> None:
+    unsafe = "PL - Data Engineer TP#44116"
+    picked = rejection_text.pick_mail_title(unsafe, working_title, NORDEA)
+    assert picked == (unsafe, False)
+
+
 def test_marker_is_filled_with_the_list_or_the_closing() -> None:
     body = plain_text_to_html("Cześć Jan,\n\nW tym procesie nie przechodzisz dalej.")
     stored = f"{body}\n{rejection_text.OTHER_PROCESSES_MARKER}"

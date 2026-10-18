@@ -1188,6 +1188,24 @@ async def test_preview_shows_other_processes_and_the_text_kind(
             db, job=job, candidate_ids=[ids["candidate_id"]], sender=sender
         )
         assert result.title_warning is True
+
+        # Wariant B (18.10.2026): tytuł dla rekrutera do pierwszego „ · ”.
+        from sqlalchemy import text
+
+        await db.execute(
+            text("UPDATE jobs SET working_title = :w WHERE id = :id"),
+            {
+                "w": "Java Developer · Java, Spring · 5+ lat",
+                "id": ids["job_primary_id"],
+            },
+        )
+        job = await db.get(Job, ids["job_primary_id"])
+        await db.refresh(job)
+        result = await preview(
+            db, job=job, candidate_ids=[ids["candidate_id"]], sender=sender
+        )
+        assert result.subject == "Informacja zwrotna — Java Developer"
+        assert result.title_warning is False
         await db.rollback()
 
 

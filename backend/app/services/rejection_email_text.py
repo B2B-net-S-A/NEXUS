@@ -12,7 +12,9 @@ https://claude.ai/artifact/HvWWRjHpxovrQeNbLJudYL):
   rekrutacji — nadal bierzesz udział w…” zastępuje zakończenie i jest liczony
   w chwili wysyłki (znacznik w zapisanej treści), poza polem edycji.
 - D5: nazwy rekrutacji z kodu strony kariery; nazwa, w której po czyszczeniu
-  nadal widać kod zlecenia albo klienta, nie trafia do kandydata.
+  nadal widać kod zlecenia albo klienta, nie trafia do kandydata. Od
+  18.10.2026 (wariant B) zapasowo tytuł dla rekrutera do pierwszego „ · ”,
+  jeśli przechodzi tę samą kontrolę (``pick_mail_title``).
 - D3: osoba odrzucona w drugiej rekrutacji, zanim wyszedł pierwszy mail,
   dostaje jeden wspólny (``merged_text``, dopisek „tych rekrutacji”).
 
@@ -134,6 +136,26 @@ def title_safe_for_mail(title: Optional[str], client_names: Iterable[str]) -> bo
         if sum(ch.isalpha() for ch in first) >= 4:
             names.append(first)
     return not lint_public_texts([clean], client_names=names)
+
+
+def pick_mail_title(
+    default: str, working_title: Optional[str], client_names: Iterable[str]
+) -> tuple[str, bool]:
+    """Nazwa do maila bez zatwierdzonego opisu strony kariery i czy jest bezpieczna.
+
+    Najpierw nazwa od klienta po czyszczeniu (``default_public_title``). Gdy
+    nadal widać w niej numer albo klienta, tytuł dla rekrutera do pierwszego
+    „ · ” — reszta to umiejętności i lata (decyzja Artura 18.10.2026, wariant
+    B: w 21 z 35 takich rekrutacji znika ręczna poprawka). Gdy i on nie
+    przechodzi kontroli, zostaje nazwa od klienta z ostrzeżeniem.
+    """
+    names = list(client_names)
+    if title_safe_for_mail(default, names):
+        return default, True
+    head = (working_title or "").split(" · ", 1)[0].strip()
+    if title_safe_for_mail(head, names):
+        return head, True
+    return default, False
 
 
 def _plural(n: int, one: str, few: str, many: str) -> str:
