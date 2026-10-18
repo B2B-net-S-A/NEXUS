@@ -167,14 +167,22 @@ def test_single_letter_requirement_gives_no_keyword_row():
 def test_find_words_drop_only_the_single_letter_option():
     """Lupa „Szukaj w CV” (16.10.2026) podświetla, nie wycina: z „C lub C++”
     zostaje „C++”, a nie pusty wiersz. Resztę etykiety czyta jak wiersz słów
-    kluczowych — „.NET lub C#” to dwie opcje, nie jedna fraza."""
-    assert keyword_suggest.requirement_find_words("C lub C++") == ("C++",)
-    assert keyword_suggest.requirement_find_words("R") == ()
-    assert keyword_suggest.requirement_find_words(".NET lub C#") == (".NET", "C#")
-    assert keyword_suggest.requirement_find_words("Docker/Kubernetes") == (
-        "Docker",
-        "Kubernetes",
-    )
+    kluczowych — „.NET lub C#” to dwie opcje, nie jedna fraza.
+
+    Pusty katalog jawnie: wcześniejszy test w tym samym shardzie CI potrafi
+    zostawić katalog z odpowiednikami („C++” → „cpp”, „c plus plus”)."""
+    saved = keyword_suggest._catalog
+    keyword_suggest.load_catalog([], [])
+    try:
+        assert keyword_suggest.requirement_find_words("C lub C++") == ("C++",)
+        assert keyword_suggest.requirement_find_words("R") == ()
+        assert keyword_suggest.requirement_find_words(".NET lub C#") == (".NET", "C#")
+        assert keyword_suggest.requirement_find_words("Docker/Kubernetes") == (
+            "Docker",
+            "Kubernetes",
+        )
+    finally:
+        keyword_suggest._catalog = saved
 
 
 def test_find_words_strip_the_wildcard_of_equivalents():
