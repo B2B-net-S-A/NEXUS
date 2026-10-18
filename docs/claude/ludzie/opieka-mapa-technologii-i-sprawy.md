@@ -251,9 +251,22 @@ Zakładka klienta „Struktura u klienta” (`components/care/ClientPeopleTab.ts
 
 ## Sprawy administracja@ (`app/services/admin_cases/*`, `/people/cases`)
 
+- **Dwa adresy administracji** (`admin_cases/mailbox.py`, 18.10.2026).
+  administracja@b2bnetwork.pl żyje na home.pl (MX domeny wskazuje na home.pl)
+  i tam czytają ją ludzie; NEXUS czyta przez Graph tylko skrzynki M365, więc
+  dostaje kopię poczty w osobnej skrzynce (wariant B, decyzja Artura):
+  - `ADMIN_CASES_MAILBOX` = adres widoczny: autoodpowiedź urlopowa („w pilnych
+    sprawach”), Reply-To komunikatów i maila powitalnego, ekrany,
+  - `ADMIN_CASES_M365_MAILBOX` = skrzynka M365, którą czyta czytnik i z której
+    NEXUS wysyła (pole From).
+  Pusta jedna = obie role ma druga (skrzynka przeniesiona do M365 = jedna
+  zmienna). Nie wpisuj skrzynki z kopią do autoodpowiedzi ani adresu z home.pl
+  jako skrzynki do czytania — Graph go nie zna, a autoodpowiedź pokazałaby
+  adres, którego nikt nie czyta. Odpowiedź konsultanta idzie na Reply-To
+  (home.pl), a do Spraw trafia jej kopia; zwrotki wracają na From (M365).
 - Czytnik skrzynki: app-only Graph (wzorzec `order_mail_ingest`), wyłączony, gdy
-  `ADMIN_CASES_MAILBOX` pusty, `ADMIN_CASES_MAIL_INGEST_ENABLED ≠ true` albo moduł
-  `cases` wyłączony. Potrzebuje tokenu rejestracji HR — rejestracja zamówień ma
+  nie ma skrzynki M365 (obie zmienne puste), `ADMIN_CASES_MAIL_INGEST_ENABLED ≠ true`
+  albo moduł `cases` wyłączony. Potrzebuje tokenu rejestracji HR — rejestracja zamówień ma
   politykę tylko na skrzynkę zamówień.
 - Nowa wiadomość = nowa sprawa; odpowiedź w wątku = ta sama sprawa (najpierw
   `conversationId`, potem `In-Reply-To`/`References`) i ponowne otwarcie sprawy
@@ -308,8 +321,8 @@ wysyłka do ludzi spoza firmy.
   MINUTY w `hr_job_runs` i najwyżej 30 osób na minutę; osoba „w wysyłce” jest
   commitowana przed mailem, a przerwana wysyłka to „niepewny” bez ponowienia.
   Odłożona (429, 5xx, token) wraca do 3 prób, odrzucona (np. 400) = „błąd”.
-  Osobny mail do każdego, jeden adresat, nadawca `ADMIN_CASES_MAILBOX`
-  przez rejestrację „NEXUS Kadry”, tryb z `HR_M365_MODE` (`simulate` = nic nie
+  Osobny mail do każdego, jeden adresat, nadawca = skrzynka M365 administracji
+  z Reply-To na adres widoczny (dwa adresy wyżej), przez rejestrację „NEXUS Kadry”, tryb z `HR_M365_MODE` (`simulate` = nic nie
   wychodzi, wiersz ma `simulated`).
 - **Wypis** (informacyjne): token z linku `/wypis/<token>` (w bazie tylko
   SHA-256), publiczne `GET/POST /api/public/consultant-mail/unsubscribe/{token}`

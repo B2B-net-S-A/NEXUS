@@ -10,7 +10,8 @@ podgląd, może go poprawić i dopiero wtedy wysyła.
   WYŁĄCZONY (brak wiersza = wyłączony). Wyłączony = podgląd działa, wysyłka
   409 z wyjaśnieniem. Włącza go administrator; to wysyłka do ludzi spoza
   firmy, więc pierwszą uruchamia Artur.
-* **Nadawca** — skrzynka administracja@ (``settings.ADMIN_CASES_MAILBOX``)
+* **Nadawca** — skrzynka M365 administracji (``admin_cases.mailbox.m365_mailbox``,
+  Reply-To = adres widoczny ``public_address``)
   przez ten sam kanał co komunikaty do konsultantów
   (``care.announcement_mail.default_mailer``, rejestracja „NEXUS Kadry”).
   Tryb z ``HR_M365_MODE``: ``off`` = brak nadawcy (409), ``simulate`` = nic
@@ -36,13 +37,13 @@ from typing import Any, Optional, Protocol, Sequence
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import settings
 from app.models.app_setting import AppSetting
 from app.models.candidate import Candidate
 from app.models.client import Client
 from app.models.contract import Contract
 from app.models.equipment import ConsultantWelcomeMail
 from app.models.user import User
+from app.services.admin_cases import mailbox as admin_mailbox
 from app.services.care.announcement_audience import valid_email
 from app.services.equipment.errors import EquipmentError
 from app.services.hr import audit, client_pack
@@ -407,7 +408,7 @@ async def send(
 
     if not await is_enabled(db):
         raise EquipmentError(DISABLED_DETAIL, status=409)
-    if not (settings.ADMIN_CASES_MAILBOX or "").strip():
+    if admin_mailbox.m365_mailbox() is None:
         raise EquipmentError(NO_MAILBOX_DETAIL, status=409)
     if sender is None:
         raise EquipmentError(NO_TRANSPORT_DETAIL, status=409)

@@ -7,9 +7,11 @@
   innych pól nie ma (zapis odrzuca nieznane, zanim ktoś wyśle „Cześć {nazwisko}”).
 * **Informacyjny** dostaje link wypisu z własnym tokenem osoby; obowiązkowy
   (umowa, rozliczenia, bezpieczeństwo) — nie.
-* **Nadawca** to skrzynka ``ADMIN_CASES_MAILBOX`` przez rejestrację „NEXUS
-  Kadry” (ta sama, którą czyta czytnik spraw), więc odpowiedzi wracają do
-  Spraw. Tryb bierzemy z ``HR_M365_MODE``: ``off`` = brak nadawcy, ``simulate``
+* **Nadawca** to skrzynka M365 administracji (``admin_cases.mailbox``) przez
+  rejestrację „NEXUS Kadry” (ta sama, którą czyta czytnik spraw). Gdy adres
+  widoczny jest inny (administracja@ na home.pl, NEXUS czyta kopię), mail
+  niesie Reply-To na adres widoczny — odpowiedź trafia tam, gdzie czytają
+  ludzie, a kopia z niej do Spraw. Tryb bierzemy z ``HR_M365_MODE``: ``off`` = brak nadawcy, ``simulate``
   = nic nie wychodzi (lokalnie i przed przełączeniem), ``live`` = Graph.
   Jeden adresat na mail — nikt nie widzi innych adresów.
 
@@ -24,11 +26,12 @@ import logging
 import re
 import secrets
 from dataclasses import dataclass
-from typing import Literal, Optional, Protocol
+from typing import Any, Literal, Optional, Protocol
 
 import httpx
 
 from app.core.config import settings
+from app.services.admin_cases import mailbox as admin_mailbox
 
 logger = logging.getLogger(__name__)
 
@@ -148,8 +151,9 @@ def compose(
 
 
 def sender_address() -> Optional[str]:
-    value = (settings.ADMIN_CASES_MAILBOX or "").strip()
-    return value or None
+    """Adres administracji widoczny dla adresata (ekran, stopka, Reply-To)."""
+
+    return admin_mailbox.public_address()
 
 
 def transport_mode() -> str:
@@ -173,10 +177,12 @@ _DEFERRED_STATUSES = frozenset({408, 429})
 
 
 class GraphMailer:
-    """``POST /users/{administracja@}/sendMail`` tokenem rejestracji HR."""
+    """``POST /users/{skrzynka M365}/sendMail`` tokenem rejestracji HR."""
 
-    def __init__(self, mailbox: str) -> None:
+    def __init__(self, mailbox: str, reply_to: Optional[str] = None) -> None:
         self._mailbox = mailbox
+        same = reply_to is None or reply_to.casefold() == mailbox.casefold()
+        self._reply_to = None if same else reply_to
 
     async def _token(self, *, force_refresh: bool = False) -> Optional[str]:
         """Token albo ``None`` — awaria MSAL nie wywraca wysyłki."""
@@ -194,14 +200,14 @@ class GraphMailer:
             return None
 
     async def send(self, *, to: str, subject: str, text: str) -> MailOutcome:
-        payload = {
-            "message": {
-                "subject": subject,
-                "body": {"contentType": "Text", "content": text},
-                "toRecipients": [{"emailAddress": {"address": to}}],
-            },
-            "saveToSentItems": True,
+        message: dict[str, Any] = {
+            "subject": subject,
+            "body": {"contentType": "Text", "content": text},
+            "toRecipients": [{"emailAddress": {"address": to}}],
         }
+        if self._reply_to:
+            message["replyTo"] = [{"emailAddress": {"address": self._reply_to}}]
+        payload = {"message": message, "saveToSentItems": True}
         url = f"{_GRAPH_BASE}/users/{self._mailbox}/sendMail"
         token = await self._token()
         if not token:
@@ -260,7 +266,7 @@ def default_mailer() -> Optional[AnnouncementMailer]:
         return None
     from app.services.hr.m365.auth import credentials_configured
 
-    mailbox = sender_address()
+    mailbox = admin_mailbox.m365_mailbox()
     if mailbox is None or not credentials_configured():
         return None
-    return GraphMailer(mailbox)
+    return GraphMailer(mailbox, reply_to=admin_mailbox.public_address())
