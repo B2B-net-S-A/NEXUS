@@ -322,6 +322,7 @@ Poczta zamówień i odczyt PDF per klient, zamówienia MD, kosztowe i okresowe, 
 - `cykl-zycia-zamowienia-zamowienia-kosztowe-i.md` — Cykl życia zamówienia, zamówienia kosztowe i powiadomienia Delivery Leada
 - `decyzja-delivery-leada-po-zakonczeniu-wspolpracy.md` — Decyzja Delivery Leada po zakończeniu współpracy konsultanta MD
 - `eksport-zamowien-do-excela-pokazuje-stan-na-dzis.md` — Eksport zamówień do Excela pokazuje stan NA DZIŚ
+- `faktury-do-klientow-z-ksef.md` — Faktury do klientów z KSeF (E8 cz. 1, 18.10.2026)
 - `historia-zamowienia-zuzycie-md-i-importy-md.md` — Historia zamówienia, „Zużycie MD" i „Importy MD" (ticket 7, 25.09.2026)
 - `instrukcja-zamowien-w-pomocy-przestempluj-po.md` — Instrukcja zamówień w Pomocy — przestempluj po ZMIANIE LOGIKI ZAMÓWIEŃ
 - `odczyt-pdf-w-formularzu-nowego-zamowienia.md` — Odczyt PDF w formularzu NOWEGO zamówienia

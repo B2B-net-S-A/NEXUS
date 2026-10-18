@@ -186,6 +186,7 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'hr_settlement_correction'",
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'hr_settlement_paid'",
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'hr_settlement_review'",
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'hr_agreement_update'",
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'care_contact_due'",
     # notificationtype: 5 trigger types + champion_profile_updated
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'dl_stage_stale_6h'",

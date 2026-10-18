@@ -28,6 +28,8 @@ import { formatIsoDatePl } from "@/lib/date-pl";
 import { resolveViewState } from "@/lib/view-state";
 
 import { LifecycleTemplatesCard } from "@/components/hr/lifecycle/LifecycleTemplatesCard";
+import { AgreementTemplatesCard } from "@/components/hr/people/agreements/AgreementTemplatesCard";
+import { DocumentsRetentionCard } from "@/components/hr/people/documents/DocumentsRetentionCard";
 
 import { M365Card } from "./M365Card";
 import { canEditPayrollSettings } from "./PayrollSettings";
@@ -310,6 +312,16 @@ export function HrSettings({ config }: { config: HrConfig }) {
       {config.me.people_admin ? (
         <div className="lg:col-span-2">
           <M365Card />
+        </div>
+      ) : null}
+      {(config.me.people_admin || config.me.is_admin) && config.open_modules.people ? (
+        <div className="lg:col-span-2">
+          <AgreementTemplatesCard isAdmin={config.me.is_admin} />
+        </div>
+      ) : null}
+      {config.me.people_admin && config.open_modules.people ? (
+        <div className="lg:col-span-2">
+          <DocumentsRetentionCard />
         </div>
       ) : null}
     </div>

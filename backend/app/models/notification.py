@@ -306,6 +306,7 @@ class NotificationType(str, enum.Enum):
     hr_settlement_correction = "hr_settlement_correction"
     hr_settlement_paid = "hr_settlement_paid"
     hr_settlement_review = "hr_settlement_review"
+    hr_agreement_update = "hr_agreement_update"
     care_contact_due = "care_contact_due"
 
 

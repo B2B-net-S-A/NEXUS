@@ -103,6 +103,8 @@ import { useTabsStore } from "@/store/tabs";
 import { canViewClientFinance, useAuthStore } from "@/store/auth";
 import { cn } from "@/lib/utils";
 import { useCanonicalClientRedirect } from "@/hooks/useCanonicalClientRedirect";
+import { ClientInvoicingTab } from "@/components/clients/invoicing/ClientInvoicingTab";
+import { useInvoicingModule } from "@/lib/api/client-invoicing";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -1007,6 +1009,9 @@ export default function ClientDetailPage() {
   const packOpen =
     hrConfig?.open_modules.lifecycle === true &&
     hasAnyPermission(user, "delivery_view", "equipment");
+  // „Faktury” (E8) — moduł faktur do klientów, konto z podglądem kwot klienta.
+  const invoicingOpen =
+    useInvoicingModule(canViewDeliveryLegal).data?.open === true;
   const orderMailDocParam = Number(searchParams.get("orderMailDoc"));
   const orderMailDocId =
     Number.isInteger(orderMailDocParam) && orderMailDocParam > 0
@@ -1175,6 +1180,7 @@ export default function ClientDetailPage() {
     { key: "projekty", label: "Projekty" },
     { key: "zamowienia", label: "Zamówienia" },
     { key: "importy-md", label: "Importy MD" },
+    { key: "faktury", label: "Faktury" },
     { key: "zespol", label: "Delivery Lead" },
     { key: "kontakty", label: "Kontakty klienta" },
     { key: "umowy-ramowe", label: "Umowy" },
@@ -1189,6 +1195,7 @@ export default function ClientDetailPage() {
       (canViewDeliveryLegal || tab.key !== "umowy-ramowe") &&
       (careOpen || tab.key !== "technologie") &&
       (packOpen || tab.key !== "wejscie") &&
+      (invoicingOpen || tab.key !== "faktury") &&
       (peopleOpen || tab.key !== "struktura"),
   );
 
@@ -1442,6 +1449,9 @@ export default function ClientDetailPage() {
               focusContractId={focusContractId}
               onFocusHandled={clearFocusParams}
             />
+          )}
+          {invoicingOpen && activeTab === "faktury" && (
+            <ClientInvoicingTab clientId={Number(id)} />
           )}
           {activeTab === "importy-md" && (
             <ClientMdImportsTab

@@ -102,6 +102,10 @@ FALLBACK: dict[str, tuple[str, str]] = {
         "Rozliczenie do sprawdzenia",
         "Rozliczenie w Płacach czeka na Twoją decyzję — szczegóły znajdziesz w NEXUSIE.",
     ),
+    "hr_agreement_update": (
+        "Zmiana stanu umowy",
+        "Umowa osoby z zespołu zmieniła stan — szczegóły w kartotece w NEXUSIE.",
+    ),
 }
 _DEFAULT = ("Czas i ludzie", "Szczegóły znajdziesz w NEXUSIE.")
 

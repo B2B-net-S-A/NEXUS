@@ -28,6 +28,8 @@ import { hrKeys, type EmploymentType, type HrConfig } from "@/lib/api/hr";
 import { equipmentKeys } from "@/lib/api/equipment";
 import { payrollKeys, type PersonPayroll } from "@/lib/api/hr-payroll";
 import { lifecycleKeys } from "@/lib/api/hr-lifecycle";
+import { agreementKeys } from "@/lib/api/hr-agreements";
+import { documentKeys } from "@/lib/api/hr-documents";
 
 import { HR_CAST, hrConfig } from "../hr-fixtures";
 import {
@@ -38,6 +40,7 @@ import {
   useHrHarness,
 } from "../hr-harness";
 import { MARTA_REPORTS, closingBonuses, payrollScene } from "../hr-payroll/fixtures";
+import { olaAgreements } from "../hr-agreements/fixtures";
 import {
   OLA_EQUIPMENT,
   OLA_RATES,
@@ -102,6 +105,19 @@ function prepare(params: URLSearchParams) {
   client.setQueryData(hrKeys.config, config);
   client.setQueryData(hrKeys.people, harnessDirectory());
   client.setQueryData(hrKeys.person(ola.id), as === "colleague" ? personCard(ola) : olaFull(form));
+  // E-teczka i umowy (etap 5) — puste, ten harness pokazuje kartotekę.
+  client.setQueryData(documentKeys.person(ola.id), {
+    user_id: ola.id,
+    can_manage: as === "hr",
+    documents: [],
+    protocols: [],
+  });
+  const agreements = olaAgreements();
+  client.setQueryData(agreementKeys.person(ola.id), {
+    ...agreements,
+    person: { ...agreements.person, user_id: ola.id },
+    agreements: [],
+  });
   if (as === "colleague") {
     seedHttpError(client, lifecycleKeys.summary(ola.id), 403, "Brak dostępu do tej sprawy.");
     seedHttpError(client, payrollKeys.person(ola.id), 404, "Nie ma takiej osoby w Płacach.");

@@ -368,6 +368,23 @@ async def test_dluga_blokada_429_wstrzymuje_pobieranie(env):
     assert "14:15" in caught.value.message  # godzina w Warszawie
 
 
+async def test_blokada_429_z_faktur_sprzedazowych_wstrzymuje_tez_te(env):
+    """Limit KSeF jest wspólny dla tokenu spółki (E8 czeka na nas, my na E8)."""
+    from app.services.client_invoicing import sync as sales_sync
+
+    async with AsyncSessionLocal() as db:
+        await sales_sync._save_state(
+            db, {"blocked_until": "2026-10-17T12:15:00.000+00:00"}
+        )
+        await db.commit()
+    try:
+        assert (await env.run())["reason"] == "blocked"
+    finally:
+        async with AsyncSessionLocal() as db:
+            await sales_sync._save_state(db, {})
+            await db.commit()
+
+
 async def test_niezgodny_nip_sprzedawcy_to_problem_bez_zapisu(env):
     env.fake.xml[OLA_INVOICE] = (DATA_DIR / f"{ANNA_INVOICE}.xml").read_bytes()
     result = await env.run()

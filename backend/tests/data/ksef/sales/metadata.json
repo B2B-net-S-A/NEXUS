@@ -1,0 +1,174 @@
+{
+  "invoices": [
+    {
+      "ksefNumber": "9876543210-20261103-A1180C0FFEE1-5C",
+      "invoiceNumber": "FS 10/118/2026",
+      "issueDate": "2026-11-03",
+      "invoicingDate": "2026-11-03T08:10:00.000+00:00",
+      "acquisitionDate": "2026-11-03T08:10:00.000+00:00",
+      "permanentStorageDate": "2026-11-03T08:10:00.000+00:00",
+      "seller": {
+        "nip": "9876543210",
+        "name": "Spółka Testowa sp. z o.o."
+      },
+      "buyer": {
+        "identifier": {
+          "type": "Nip",
+          "value": "1111111111"
+        },
+        "name": "Nabywca"
+      },
+      "netAmount": 25200.0,
+      "grossAmount": 30996.0,
+      "vatAmount": 5796.0,
+      "currency": "PLN",
+      "invoicingMode": "Online",
+      "invoiceType": "Vat",
+      "formCode": {
+        "systemCode": "FA (3)",
+        "schemaVersion": "1-0E",
+        "value": "FA"
+      },
+      "isSelfInvoicing": false,
+      "hasAttachment": false,
+      "invoiceHash": "AAAA",
+      "thirdSubjects": []
+    },
+    {
+      "ksefNumber": "9876543210-20261103-A1210C0FFEE2-55",
+      "invoiceNumber": "FS 10/121/2026",
+      "issueDate": "2026-11-03",
+      "invoicingDate": "2026-11-03T08:20:00.000+00:00",
+      "acquisitionDate": "2026-11-03T08:20:00.000+00:00",
+      "permanentStorageDate": "2026-11-03T08:20:00.000+00:00",
+      "seller": {
+        "nip": "9876543210",
+        "name": "Spółka Testowa sp. z o.o."
+      },
+      "buyer": {
+        "identifier": {
+          "type": "Nip",
+          "value": "1111111111"
+        },
+        "name": "Nabywca"
+      },
+      "netAmount": 31920.0,
+      "grossAmount": 39261.6,
+      "vatAmount": 7341.6,
+      "currency": "PLN",
+      "invoicingMode": "Online",
+      "invoiceType": "Vat",
+      "formCode": {
+        "systemCode": "FA (3)",
+        "schemaVersion": "1-0E",
+        "value": "FA"
+      },
+      "isSelfInvoicing": false,
+      "hasAttachment": false,
+      "invoiceHash": "AAAA",
+      "thirdSubjects": []
+    },
+    {
+      "ksefNumber": "9876543210-20261104-A1240C0FFEE3-7D",
+      "invoiceNumber": "FS 10/124/2026",
+      "issueDate": "2026-11-04",
+      "invoicingDate": "2026-11-04T09:00:00.000+00:00",
+      "acquisitionDate": "2026-11-04T09:00:00.000+00:00",
+      "permanentStorageDate": "2026-11-04T09:00:00.000+00:00",
+      "seller": {
+        "nip": "9876543210",
+        "name": "Spółka Testowa sp. z o.o."
+      },
+      "buyer": {
+        "identifier": {
+          "type": "Nip",
+          "value": "1111111111"
+        },
+        "name": "Nabywca"
+      },
+      "netAmount": 22500.0,
+      "grossAmount": 27675.0,
+      "vatAmount": 5175.0,
+      "currency": "PLN",
+      "invoicingMode": "Online",
+      "invoiceType": "Vat",
+      "formCode": {
+        "systemCode": "FA (3)",
+        "schemaVersion": "1-0E",
+        "value": "FA"
+      },
+      "isSelfInvoicing": false,
+      "hasAttachment": false,
+      "invoiceHash": "AAAA",
+      "thirdSubjects": []
+    },
+    {
+      "ksefNumber": "9876543210-20261105-B0070C0FFEE4-2E",
+      "invoiceNumber": "FS 11/7/2026",
+      "issueDate": "2026-11-05",
+      "invoicingDate": "2026-11-05T10:00:00.000+00:00",
+      "acquisitionDate": "2026-11-05T10:00:00.000+00:00",
+      "permanentStorageDate": "2026-11-05T10:00:00.000+00:00",
+      "seller": {
+        "nip": "9876543210",
+        "name": "Spółka Testowa sp. z o.o."
+      },
+      "buyer": {
+        "identifier": {
+          "type": "Nip",
+          "value": "3333333333"
+        },
+        "name": "Nabywca"
+      },
+      "netAmount": 1000.0,
+      "grossAmount": 1230.0,
+      "vatAmount": 230.0,
+      "currency": "PLN",
+      "invoicingMode": "Online",
+      "invoiceType": "Vat",
+      "formCode": {
+        "systemCode": "FA (3)",
+        "schemaVersion": "1-0E",
+        "value": "FA"
+      },
+      "isSelfInvoicing": false,
+      "hasAttachment": false,
+      "invoiceHash": "AAAA",
+      "thirdSubjects": []
+    },
+    {
+      "ksefNumber": "9876543210-20261109-C0010C0FFEE5-C5",
+      "invoiceNumber": "FS/K/1/11/2026",
+      "issueDate": "2026-11-09",
+      "invoicingDate": "2026-11-09T11:00:00.000+00:00",
+      "acquisitionDate": "2026-11-09T11:00:00.000+00:00",
+      "permanentStorageDate": "2026-11-09T11:00:00.000+00:00",
+      "seller": {
+        "nip": "9876543210",
+        "name": "Spółka Testowa sp. z o.o."
+      },
+      "buyer": {
+        "identifier": {
+          "type": "Nip",
+          "value": "1111111111"
+        },
+        "name": "Nabywca"
+      },
+      "netAmount": -75.0,
+      "grossAmount": -92.25,
+      "vatAmount": -17.25,
+      "currency": "PLN",
+      "invoicingMode": "Online",
+      "invoiceType": "Kor",
+      "formCode": {
+        "systemCode": "FA (3)",
+        "schemaVersion": "1-0E",
+        "value": "FA"
+      },
+      "isSelfInvoicing": false,
+      "hasAttachment": false,
+      "invoiceHash": "AAAA",
+      "thirdSubjects": []
+    }
+  ]
+}

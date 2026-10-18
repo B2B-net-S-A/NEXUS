@@ -20,6 +20,13 @@ Płac („Przypisz” albo „Pomiń”). Obciążenia, które nie dotyczą niko
 (czynsz, ZUS, dostawcy), i uznania nie trafiają do bazy — liczymy je tylko
 („pominięte”), jak faktury od dostawców w KSeF.
 
+Uznania idą osobną ścieżką (``_import_credits``, etap 5 — E8): zapłaty faktur
+do klientów (``services/client_invoicing/payments.py``), gdy moduł faktur do
+klientów jest włączony. Biegną w SAVEPOINT przed obciążeniami — błąd po tamtej
+stronie nie zatrzymuje „opłacono” dla zespołu, a wynik niesie same liczby
+(Płace nie widzą kwot klientów). Ponowny import pliku dopisuje tylko uznania,
+których jeszcze nie było (np. wyciąg wgrany przed włączeniem modułu).
+
 Ten sam plik drugi raz nic nie zmienia (skrót SHA-256 pliku + numer pozycji,
 indeks unikalny ``uq_payroll_payments_statement_line``); ta sama operacja na
 innym pliku (wyciąg dzienny i miesięczny) zostaje jako ``ignored`` z powodem.
@@ -51,6 +58,7 @@ from app.models.hr_settlement import (
     PayrollSettlement,
 )
 from app.models.user import User
+from app.services.client_invoicing import payments as client_payments
 from app.services.hr import audit, billing_details
 from app.services.hr import settlements as settlement_service
 from app.services.hr.bank import camt053, mt940
@@ -142,6 +150,8 @@ class ImportResult:
     accounts_unreadable: bool = False
     paid: list[dict[str, Any]] = field(default_factory=list)
     warnings: list[dict[str, Any]] = field(default_factory=list)
+    #: Uznania → zapłaty faktur do klientów (same liczby; ``None`` = nie liczono).
+    credits: Optional[dict[str, Any]] = None
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -158,6 +168,7 @@ class ImportResult:
             "accounts_unreadable": self.accounts_unreadable,
             "paid": self.paid,
             "warnings": self.warnings,
+            "credits": self.credits,
         }
 
 
@@ -390,6 +401,22 @@ async def _seen_elsewhere(db: AsyncSession, line: StatementLine, sha: str) -> bo
 # ── Import ────────────────────────────────────────────────────────────────────
 
 
+async def _import_credits(
+    db: AsyncSession, parsed: ParsedStatement, sha: str, actor_id: int
+) -> dict[str, Any]:
+    """Uznania → faktury do klientów; awaria tej ścieżki nie rusza obciążeń."""
+
+    try:
+        async with db.begin_nested():
+            outcome = await client_payments.import_credits(
+                db, parsed, sha=sha, actor_id=actor_id
+            )
+    except Exception:  # noqa: BLE001 — wypłaty dla zespołu idą dalej
+        logger.exception("[payments] uznania z wyciągu %s pominięte", sha[:12])
+        return client_payments.CreditResult(error=True).as_dict()
+    return outcome.as_dict()
+
+
 async def import_statement(
     db: AsyncSession, raw: bytes, *, actor_id: int
 ) -> ImportResult:
@@ -401,6 +428,7 @@ async def import_statement(
         text("SELECT pg_advisory_xact_lock(hashtext(:key))"),
         {"key": f"hr-statement:{sha}"},
     )
+    result.credits = await _import_credits(db, parsed, sha, actor_id)
     known = await db.scalar(
         select(func.count())
         .select_from(PayrollPayment)

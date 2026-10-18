@@ -760,6 +760,19 @@ def _blocked(state: dict[str, Any], now: datetime) -> Optional[datetime]:
     return until if until and until > now else None
 
 
+async def _blocked_any(
+    db: AsyncSession, now: datetime, state: Optional[dict[str, Any]] = None
+) -> Optional[datetime]:
+    """Blokada 429 z tej ścieżki albo z faktur sprzedażowych (E8) — limit KSeF
+    jest wspólny dla tokenu spółki, więc obie ścieżki czekają na siebie."""
+    from app.services.client_invoicing import sync as sales_sync  # noqa: PLC0415
+
+    own = _blocked(state if state is not None else await load_state(db), now)
+    sales = _blocked(await sales_sync.load_state(db), now)
+    candidates = [moment for moment in (own, sales) if moment is not None]
+    return max(candidates) if candidates else None
+
+
 def _clock(now: Optional[datetime]) -> datetime:
     return now or datetime.now(timezone.utc)
 
@@ -779,7 +792,7 @@ async def run_once(
     if not (await load_modules(db)).get(HrModule.settlements):
         return {"status": "disabled", "reason": "module_off"}
     moment = _clock(now)
-    if _blocked(await load_state(db), moment):
+    if await _blocked_any(db, moment):
         return {"status": "skipped", "reason": "blocked"}
     hour = moment.astimezone(_ZONE).strftime("%Y-%m-%dT%H")
     run_id = await job_runs.claim(db, JOB_KIND, hour, moment)
@@ -805,7 +818,7 @@ async def _manual_guard(db: AsyncSession, now: datetime, kind: str) -> KsefConfi
     if not config.enabled:
         raise KsefSyncError(DISABLED_DETAIL, 409, code="disabled")
     state = await load_state(db)
-    blocked = _blocked(state, now)
+    blocked = await _blocked_any(db, now, state)
     if blocked is not None:
         until = blocked.astimezone(_ZONE).strftime("%H:%M")
         raise KsefSyncError(

@@ -278,3 +278,36 @@ wyłączony `oof-reconcile`), potem eksport i import na sucho z raportem do Artu
 zapis po OK, M365 `live` na jednej skrzynce z listy, potem dla wszystkich, źródło
 dostępności `local`, włączenie modułów. Czas pracy od 1. dnia miesiąca, płace po
 miesiącu liczonym równolegle w obu systemach. Danych Compassa nie kasujemy.
+
+## E-teczka — dokumenty osoby (etap 5, E4, 18.10.2026)
+
+- Tabela `hr_documents` (migracja `0468_hr_documents`). Rodzaje: umowa, aneks, oświadczenie,
+  zaświadczenie, protokół, inne (`documents_rules.KIND_LABELS`, lustro we froncie).
+- Plik w wolumenie uploadów `hr_documents/<osoba>/<sha256>.<rozszerzenie>`; tylko PDF, DOCX bez
+  makr, JPG i PNG, typ rozpoznany z treści; w przeglądarce otwierają się tylko typy bezpieczne.
+- Kadry i admin widzą wszystko; osoba, Płace i recepcja — dokumenty ze swoim znacznikiem;
+  przełożony nie widzi niczego z e-teczki (404). Protokoły sprzętu to odnośniki do modułu sprzętu.
+- Dokument z generatora umów wchodzi tylko przez `documents.attach_generated(source="agreement")`
+  (powtórne wołanie nie dubluje); ręcznie się go nie usuwa (409).
+- Oświadczenie studenta (`purpose=student_status`, wymaga „ważny do”) na zleceniu wpisuje datę
+  w `contribution_exempt_until`; przypomnienie dla Płac daje istniejąca pętla `student_reminders`.
+- Retencja: lata na rodzaj w `app_settings['hr_document_retention']` (domyślnie 10, „inne” 5 —
+  do potwierdzenia z Kadrami), liczone od końca roku ostatniego dnia pracy. Nic nie kasuje się
+  samo: lista w Ustawienia → Kadry, usunięcie z zaznaczeniem i potwierdzeniem; plik znika,
+  wiersz zostaje jako ślad. PESEL-u i numeru dowodu nie ma w żadnym polu.
+
+## Umowy z ludźmi (etap 5, E5, 18.10.2026)
+
+- Moduł za przełącznikiem `app_settings['hr_agreements']` (domyślnie wyłączony, włącza admin,
+  działa przy włączonym module „Ludzie”). Migracja `0469_hr_agreements` (wzory, wersje, umowy;
+  typ powiadomienia `hr_agreement_update` do osoby z Kadr, bez kwot).
+- Treść prawną daje wzór DOCX od Kadr: pola z `agreements_templates.FIELDS`, sandbox wzorów
+  protokołów sprzętu; nowy plik = nowa wersja, umowa pamięta swoją. Żadnego pola PESEL ani dowodu.
+- Stany: szkic, wysłana, podpisana, odrzucona, anulowana; wycofanie albo termin w Autenti cofa do
+  szkicu z powodem. Proces Autenti w `hr_agreements` (nie w `document_signatures`): pętla
+  `hr_agreements_signing` co 15 minut (nie startuje bez `AUTENTI_ENABLED`) i webhook Autenti.
+  Podpis ręczny wymaga skanu, daty i powodu w śladzie. Nikt nie przygotowuje umowy ze sobą.
+- Po podpisie w jednej transakcji i raz: stawka od 1. dnia miesiąca (`payroll_rates.set_rate`),
+  forma i potwierdzanie godzin (`people.update_profile`; aneks zmienia tylko stawkę), dokument
+  w e-teczce, dla UoP i zlecenia znacznik `symfonia_pending`. Nieudane przepisanie zostawia umowę
+  podpisaną z `apply_error` i przyciskiem „Przepisz ponownie”. Minimalna stawka zlecenia z D7.

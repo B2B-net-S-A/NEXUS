@@ -23,6 +23,8 @@ export type ClientTab =
   // Importy zużycia MD, które dotknęły zamówień klienta (ticket 7, 09.2026);
   // cel odsyłacza „Otwórz import →" z historii zamówienia.
   | "importy-md"
+  // Faktury do klientów z KSeF dopasowane do zamówień (etap 5, E8).
+  | "faktury"
   | "analityka"
   // Mapa technologii klienta („Ludzie w NEXUSIE”, 16.10.2026).
   | "technologie"
@@ -40,6 +42,7 @@ export const CLIENT_TAB_KEYS: readonly ClientTab[] = [
   "umowy-ramowe",
   "zamowienia",
   "importy-md",
+  "faktury",
   "analityka",
   "technologie",
   "struktura",

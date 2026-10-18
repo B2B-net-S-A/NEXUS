@@ -266,6 +266,7 @@ HR_MAIL_TYPES: tuple[str, ...] = (
     "care_announcement",
     "hr_settlement_correction",
     "hr_settlement_review",
+    "hr_agreement_update",
 )
 
 

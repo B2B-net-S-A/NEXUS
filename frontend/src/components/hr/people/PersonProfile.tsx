@@ -24,6 +24,8 @@ import { ROLE_LABELS, useAuthStore } from "@/store/auth";
 import { PersonEquipmentPanel } from "@/components/equipment/PersonEquipmentPanel";
 import { LifecycleProfileSection } from "@/components/hr/lifecycle/LifecycleProfileSection";
 import { PayrollProfileSection } from "@/components/hr/payroll/PayrollProfileSection";
+import { PersonAgreementsSection } from "@/components/hr/people/agreements/PersonAgreementsSection";
+import { PersonDocumentsSection } from "@/components/hr/people/documents/PersonDocumentsSection";
 import { formatIsoDatePl } from "@/lib/date-pl";
 
 import { BillingDetailsSection } from "./BillingDetailsSection";
@@ -135,6 +137,16 @@ export function PersonProfile({ userId, config }: { userId: number; config: HrCo
   const billingVisible =
     config.open_modules.settlements &&
     (config.me.people_admin || config.me.payroll || config.me.is_admin || viewerId === userId);
+  // E-teczka (E4): osoba, Kadry, Płace, recepcja — przełożony nie pyta serwera.
+  const documentsVisible =
+    config.open_modules.people &&
+    (config.me.people_admin ||
+      config.me.payroll ||
+      config.me.equipment ||
+      config.me.is_admin ||
+      viewerId === userId);
+  // Umowy z ludźmi (E5): Kadry (zapis) i Płace (odczyt).
+  const agreementsVisible = config.me.people_admin || config.me.payroll || config.me.is_admin;
   const directory = usePeople();
   const [editing, setEditing] = useState(false);
   // Pula liczona na rok kalendarzowy osoby czytającej (Europe/Warsaw jak serwer).
@@ -311,6 +323,8 @@ export function PersonProfile({ userId, config }: { userId: number; config: HrCo
         <PayrollProfileSection userId={userId} name={data.name} />
       ) : null}
       {full ? <BillingDetailsSection userId={userId} enabled={billingVisible} /> : null}
+      <PersonDocumentsSection userId={userId} name={data.name} enabled={documentsVisible} />
+      {full ? <PersonAgreementsSection userId={userId} enabled={agreementsVisible} /> : null}
       {config.open_modules.equipment &&
       (config.me.equipment || config.me.people_admin || config.me.is_admin) ? (
         <PersonEquipmentPanel userId={userId} />

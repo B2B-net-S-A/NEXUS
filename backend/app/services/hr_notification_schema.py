@@ -13,6 +13,7 @@ osoba/przełożony/Kadry ani kwot w tytule.
 
 from __future__ import annotations
 
+from app.services.hr_agreements_schema import NOTIFICATION_TYPES as AGREEMENT_TYPES
 from app.services.hr_settlement_schema import NOTIFICATION_TYPES as SETTLEMENT_TYPES
 
 #: Osobiste: odbiorcę wybiera reguła modułu; widoczne bez sekcji produktu.
@@ -40,6 +41,8 @@ PERSONAL_TYPES: tuple[str, ...] = (
     "care_announcement",
     # Rozliczenia zespołu (etap 4) — wartości enuma dodaje migracja 0467.
     *SETTLEMENT_TYPES,
+    # Umowy z ludźmi (etap 5) — stan umowy do osoby z Kadr; enum dodaje 0469.
+    *AGREEMENT_TYPES,
 )
 
 #: Opieka nad konsultantem — link do kontraktu, sekcja Delivery.

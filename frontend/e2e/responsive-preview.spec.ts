@@ -218,6 +218,19 @@ const PAGES = [
   "/preview/hr-settlements?state=queue",
   "/preview/hr-settlements?state=mismatch&settlement=5003",
   "/preview/hr-settlements?state=billing",
+  "/preview/hr-documents",
+  "/preview/hr-documents?state=payroll",
+  "/preview/hr-documents?state=empty",
+  "/preview/hr-documents?state=retention",
+  "/preview/hr-agreements",
+  "/preview/hr-agreements?state=new",
+  "/preview/hr-agreements?state=issues",
+  "/preview/hr-agreements?state=payroll",
+  "/preview/hr-agreements?state=templates",
+  "/preview/client-invoicing",
+  "/preview/client-invoicing?state=finance",
+  "/preview/client-invoicing?state=to-invoice",
+  "/preview/client-invoicing?state=credits",
 ] as const;
 
 async function pageOverflowPx(page: Page): Promise<number> {
