@@ -302,7 +302,7 @@ async def contract_overview(
             if project_end is not None
             else None
         ),
-        "can_edit": care_access.is_care_worker(user),
+        "can_edit": await care_access.is_care_writer(db, user),
     }
 
 

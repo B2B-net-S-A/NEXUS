@@ -21,7 +21,8 @@
  * - `list` — ekran `/care`: domyślnie „Ten tydzień” (makieta 7 etapu 2 —
  *   prośby o opinię od menedżerów, rozmowy z powodem, licznik zaległych),
  *   dalej „Konsultanci” (etap 3, M1 — rytm przy każdej osobie, sygnały),
- *   „Przydział” (M3 — obciążenie opiekunów z rytmów, próg, bez opiekuna),
+ *   „Przydział” (M3 — obciążenie opiekunów z rytmów, próg, bez opiekuna;
+ *   nad nimi pula opiekunów z „nie przypisuj” i „Przypisz wg obłożenia”),
  *   „Do przepięcia”, „Technologie”; zakładkę wybiera sam ekran z `?tab=`,
  *   listy i kolejki są zasiane („Komunikaty” mają własny harness
  *   `/preview/hr-announcements`). `&contract=4504` otwiera oś Pawła
@@ -74,6 +75,7 @@ import {
   bartoszCadence,
   bartoszCadencePreview,
   careAssignment,
+  careAutoAssignment,
   careConsultants,
   michalCadence,
 } from "./rhythm-fixtures";
@@ -115,6 +117,7 @@ function prepare(params: URLSearchParams) {
   client.setQueryData(careKeys.summary, CARE_SUMMARY);
   client.setQueryData(careKeys.consultants, careConsultants(today));
   client.setQueryData(careKeys.assignment, careAssignment(today));
+  client.setQueryData(careKeys.autoAssignment, careAutoAssignment(today));
   client.setQueryData(careKeys.cadence(BARTOSZ_CONTRACT), bartoszCadence(today));
   client.setQueryData(careKeys.cadence(BARTOSZ_CONTRACT, "biweekly"), bartoszCadencePreview(today));
   client.setQueryData(careKeys.cadence(CARE_CONTRACT_ID), michalCadence(today));

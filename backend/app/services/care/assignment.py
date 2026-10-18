@@ -34,6 +34,7 @@ from app.models.contract_care import CONTRACTS_CARE
 from app.models.user import User, UserRole
 from app.services.care import access as care_access
 from app.services.care import cadence
+from app.services.care import owner_pool
 from app.services.care import plan as care_plan
 from app.services.care.cadence_rules import level_on
 from app.services.hr import audit
@@ -54,6 +55,8 @@ OWNER_REASON_LABELS: dict[str, str] = {
     "client_change": "zmiana u klienta",
     "person_request": "prośba konsultanta",
     "other": "inny powód",
+    # Automat „wg obłożenia” (pula opiekunów, 18.10.2026) — nie do wyboru w oknie.
+    "auto_load": "przydział wg obłożenia",
     # Ślad przekazania pracy (``hr.handover``) — powód nie do wyboru w oknie.
     "handover": "przekazanie pracy przy odejściu opiekuna",
 }
@@ -66,10 +69,6 @@ TOP_CLIENTS = 3
 
 STALE_SELECTION = (
     "Część wybranych kontraktów już się zakończyła albo nie istnieje — odśwież listę."
-)
-OWNER_INVALID = (
-    "Opiekunem może być aktywny Delivery Lead, Talent Community Manager albo "
-    "administrator."
 )
 
 
@@ -203,9 +202,13 @@ async def overview(db: AsyncSession, user: User, *, today: date) -> dict[str, An
 
     threshold = await load_threshold(db)
     by_id = {u.id: u for u in candidates}
-    # Opiekunowie z konsultantami i TCM bez nikogo (do kogo można przypisać).
+    # Opiekunowie z konsultantami, TCM i pula opiekunów bez nikogo (do kogo
+    # można przypisać).
+    pool_ids = await owner_pool.writer_ids(db)
     owner_ids = set(load) | {
-        u.id for u in candidates if u.has_role(UserRole.talent_community_manager)
+        u.id
+        for u in candidates
+        if u.has_role(UserRole.talent_community_manager) or u.id in pool_ids
     }
     owner_names = await care_access.user_names(db, owner_ids)
     cards = []
@@ -270,7 +273,7 @@ async def overview(db: AsyncSession, user: User, *, today: date) -> dict[str, An
         "owner_choices": [{"id": u.id, "name": u.name} for u in candidates],
         "can_assign": can_assign,
         "can_edit_threshold": can_assign,
-        "can_edit_defaults": care_access.is_care_worker(user),
+        "can_edit_defaults": await care_access.is_care_writer(db, user),
     }
 
 
@@ -291,8 +294,9 @@ async def assign(
     if len(contracts) != len(ids):
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, STALE_SELECTION)
     owner = await db.get(User, owner_id)
-    if owner is None or not owner.is_active or not care_access.is_care_worker(owner):
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, OWNER_INVALID)
+    problem = await care_access.owner_problem(db, owner)
+    if problem is not None:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, problem)
     scope = await care_access.allowed_client_ids(owner, db)
     if scope is not None:
         outside = sorted(

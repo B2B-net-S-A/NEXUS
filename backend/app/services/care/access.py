@@ -60,6 +60,14 @@ def is_care_worker(user: User) -> bool:
     return user.has_any_role(*CARE_ROLES)
 
 
+async def is_care_writer(db: AsyncSession, user: User) -> bool:
+    """Prowadzi opiekę: rola DL, TCM, admin albo osoba z puli opiekunów (18.10.2026)."""
+
+    from app.services.care import owner_pool  # noqa: PLC0415
+
+    return is_care_worker(user) or user.id in await owner_pool.writer_ids(db)
+
+
 def full_name(first: Optional[str], last: Optional[str]) -> Optional[str]:
     """Imię i nazwisko kandydata (``Candidate.name`` to samo imię)."""
 
@@ -324,9 +332,17 @@ async def effective_owners(
 
 
 async def owner_candidates(db: AsyncSession) -> list[User]:
-    """Aktywne konta, które mogą być opiekunem (admin, DL, TCM)."""
+    """Aktywne konta, które mogą być opiekunem: admin, DL, TCM i pula opiekunów.
 
-    clauses = []
+    Z puli tylko ci, którzy widzą opiekę; osoby z listy wykluczonych
+    (``owner_pool``) nie są do wyboru.
+    """
+
+    from app.services.care import owner_pool  # noqa: PLC0415
+
+    pool = await owner_pool.eligible_ids(db)
+    excluded = await owner_pool.excluded_ids(db)
+    clauses = [User.id.in_(sorted(pool) or [-1])]
     for role in CARE_ROLES:
         clauses.append(User.role == role)
         clauses.append(User.roles.contains([role.value]))
@@ -337,24 +353,45 @@ async def owner_candidates(db: AsyncSession) -> list[User]:
             .order_by(User.name)
         )
     ).all()
-    return [user for user in users if is_care_worker(user)]
+    return [
+        user
+        for user in users
+        if user.id not in excluded and (is_care_worker(user) or user.id in pool)
+    ]
+
+
+OWNER_INVALID = (
+    "Opiekunem może być aktywny Delivery Lead, Talent Community Manager, "
+    "administrator albo osoba z puli opiekunów."
+)
+
+
+async def owner_problem(
+    db: AsyncSession, user: Optional[User], *, client_ids: Iterable[int] = ()
+) -> Optional[str]:
+    """Dlaczego ta osoba nie może być opiekunem (``None`` = może)."""
+
+    from app.services.care import owner_pool  # noqa: PLC0415
+
+    if user is None or not user.is_active:
+        return OWNER_INVALID
+    if user.id in await owner_pool.excluded_ids(db):
+        return f"{user.name} jest na liście osób, którym nie przypisujemy konsultantów."
+    if not is_care_worker(user) and user.id not in await owner_pool.eligible_ids(db):
+        return OWNER_INVALID
+    scope = await allowed_client_ids(user, db)
+    if scope is not None and any(cid not in scope for cid in client_ids):
+        return f"{user.name} nie ma tego klienta w portfelu."
+    return None
 
 
 async def validate_owner(db: AsyncSession, user_id: int, *, client_id: int) -> User:
     """Opiekun musi widzieć klienta — inaczej przypomnienie prowadzi na 403."""
 
     user = await db.get(User, user_id)
-    if user is None or not user.is_active or not is_care_worker(user):
-        raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
-            "Opiekunem może być aktywny Delivery Lead, Talent Community Manager albo administrator.",
-        )
-    scope = await allowed_client_ids(user, db)
-    if scope is not None and client_id not in scope:
-        raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
-            "Ten Delivery Lead nie ma tego klienta w portfelu.",
-        )
+    problem = await owner_problem(db, user, client_ids=[client_id])
+    if problem is not None:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, problem)
     return user
 
 

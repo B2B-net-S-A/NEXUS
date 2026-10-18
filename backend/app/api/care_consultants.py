@@ -11,7 +11,9 @@ sam prefiks, bez osobnego wpisu w ``app/main.py``). Bramki z
 * zmiana rytmu — ta sama bramka, a prawo do kontraktu (opiekun kontraktu, DL
   klienta, head back office, admin) sprawdza ``care/cadence.set_cadence``,
 * zmiana opiekuna wielu kontraktów i próg obciążenia — ``CareAssigner``
-  (head back office, admin).
+  (head back office, admin),
+* pula opiekunów i automat „wg obłożenia” (decyzja Artura 18.10.2026) —
+  ``CareAssigner``: podgląd niczego nie zapisuje, zapis bierze pary z podglądu.
 """
 
 from __future__ import annotations
@@ -19,7 +21,7 @@ from __future__ import annotations
 from datetime import date
 from typing import Literal, Optional
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -29,6 +31,8 @@ from app.core.scheduling import business_today
 from app.models.user import User
 from app.services.care import access as care_access
 from app.services.care import assignment as care_assignment
+from app.services.care import auto_assign as care_auto
+from app.services.care import owner_pool as care_owner_pool
 from app.services.care import cadence as care_cadence
 from app.services.care import consultants as care_consultants
 from app.services.care.assignment import MAX_BULK, THRESHOLD_MAX, OwnerReason
@@ -169,3 +173,62 @@ async def set_load_threshold(
         db, value=body.monthly_conversations, actor=current_user
     )
     return {"monthly_conversations": value}
+
+
+@router.get("/assignment/auto")
+async def auto_assignment_preview(
+    current_user: User = Depends(CareAssigner), db: AsyncSession = Depends(get_db)
+) -> dict:
+    """Pula opiekunów i podgląd „Przypisz wg obłożenia” (bez zapisu)."""
+
+    return await care_auto.preview(db, current_user)
+
+
+class AutoPair(BaseModel):
+    contract_id: int
+    owner_user_id: int
+
+
+class AutoBody(BaseModel):
+    items: list[AutoPair] = Field(min_length=1, max_length=care_auto.MAX_AUTO)
+
+
+@router.post("/assignment/auto")
+async def auto_assignment_apply(
+    body: AutoBody,
+    current_user: User = Depends(CareAssigner),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    return await care_auto.apply(
+        db,
+        actor=current_user,
+        pairs=[(item.contract_id, item.owner_user_id) for item in body.items],
+        today=business_today(),
+    )
+
+
+class PoolBody(BaseModel):
+    manager_user_id: Optional[int] = Field(default=None, ge=1)
+    excluded_user_ids: list[int] = Field(
+        default_factory=list, max_length=care_owner_pool.EXCLUDED_MAX
+    )
+    auto_new_contracts: bool = True
+
+
+@router.put("/assignment/pool")
+async def set_owner_pool(
+    body: PoolBody,
+    current_user: User = Depends(CareAssigner),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    try:
+        await care_owner_pool.save_config(
+            db,
+            manager_user_id=body.manager_user_id,
+            excluded_user_ids=body.excluded_user_ids,
+            auto_new_contracts=body.auto_new_contracts,
+            actor=current_user,
+        )
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
+    return await care_auto.preview(db, current_user)

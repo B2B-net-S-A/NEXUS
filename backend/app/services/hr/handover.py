@@ -221,6 +221,10 @@ RECEIVER_ERRORS: dict[str, str] = {
         "Przejmujący nie ma części tych klientów w portfelu — wybierz head back "
         "office, Talent Community Managera albo administratora."
     ),
+    "receiver_excluded": (
+        "Tej osobie nie przypisujemy konsultantów (pula opiekunów) — wybierz "
+        "kogoś innego."
+    ),
     "error": "Przekazanie nie wyszło — szczegóły w logu serwera.",
 }
 
@@ -266,6 +270,11 @@ async def receiver_issue(
     if work_kind == "reports" and case.user_id is not None:
         if await _reports_loop(db, leaver_id=case.user_id, receiver_id=receiver.id):
             return "receiver_creates_loop"
+    if work_kind == "care":
+        from app.services.care import owner_pool  # noqa: PLC0415
+
+        if receiver.id in await owner_pool.excluded_ids(db):
+            return "receiver_excluded"
     if work_kind == "care" and case.user_id is not None:
         if await _care_out_of_scope(db, leaver_id=case.user_id, receiver=receiver):
             return "receiver_out_of_scope"

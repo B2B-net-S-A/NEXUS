@@ -7,7 +7,8 @@ Cztery zdarzenia:
   klienta (Wejście i odejście, etap 3), zadanie „przygotuj zestaw” (Sprzęt,
   klient z „sprzęt od nas”), sprawa „Wejście konsultanta” (Sprawy
   administracja@) z checklistą z zadań „Administracja” tej listy — w tej
-  kolejności, bo sprawa czyta listę wejścia,
+  kolejności, bo sprawa czyta listę wejścia — i opiekun wg obłożenia z puli
+  opiekunów (Opieka, ``care/auto_assign``; także przy wyłączonym module),
 * ``contract_ended`` — zakończenie albo unieważnienie: premie przed terminem
   anulowane, zadanie odbioru sprzętu; przy unieważnieniu (``void``, także
   szkicu) dodatkowo anulowane wejście konsultanta, zadanie „Przygotuj zestaw”
@@ -174,6 +175,12 @@ async def _cases_deleted(db: AsyncSession, contract: Contract) -> None:
     await hooks.close_case_for_deleted_contract(db, contract.id)
 
 
+async def _care_start(db: AsyncSession, contract: Contract) -> None:
+    from app.services.care import auto_assign
+
+    await auto_assign.on_contract_started(db, contract)
+
+
 async def contract_started(db: AsyncSession, contract: Contract) -> dict[str, str]:
     return await _run(
         db,
@@ -184,6 +191,7 @@ async def contract_started(db: AsyncSession, contract: Contract) -> dict[str, st
             ("lifecycle", _lifecycle_start),
             ("equipment", _equipment_start),
             ("cases", _cases_start),
+            ("care", _care_start),
         ],
     )
 

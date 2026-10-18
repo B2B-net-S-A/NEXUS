@@ -394,7 +394,7 @@ async def client_tech_map(
         **result,
         "client_name": client.name,
         "default_owner": person(default_owner, names),
-        "can_edit": care_access.is_care_worker(current_user),
+        "can_edit": await care_access.is_care_writer(db, current_user),
     }
 
 
@@ -698,7 +698,7 @@ async def contract_feedback(
             for item in items
         ],
         "client_id": contract.client_id,
-        "can_write": care_access.is_care_worker(current_user),
+        "can_write": await care_access.is_care_writer(db, current_user),
     }
 
 
@@ -789,7 +789,7 @@ async def redeploy_queue(
     return {
         "items": rows,
         "total": len(rows),
-        "can_edit": care_access.is_care_worker(current_user),
+        "can_edit": await care_access.is_care_writer(db, current_user),
     }
 
 
@@ -848,7 +848,7 @@ async def care_week(
     )
     return {
         **result,
-        "can_edit": care_access.is_care_worker(current_user),
+        "can_edit": await care_access.is_care_writer(db, current_user),
         "can_write_feedback": care_access.is_care_worker(current_user),
     }
 
@@ -868,7 +868,7 @@ async def contract_timeline(
         today=business_today(),
         include_feedback=reads_client_people(current_user),
     )
-    return {**result, "can_edit": care_access.is_care_worker(current_user)}
+    return {**result, "can_edit": await care_access.is_care_writer(db, current_user)}
 
 
 @router.get("/contracts/{contract_id}/front-office")
@@ -887,7 +887,7 @@ async def contract_front_office(
         profile_user_id=current_user.id,
         scope_clause=job_read_scope_clause(current_user, Job.id),
     )
-    return {**result, "can_edit": care_access.is_care_worker(current_user)}
+    return {**result, "can_edit": await care_access.is_care_writer(db, current_user)}
 
 
 class FrontOfficeBody(BaseModel):
@@ -941,7 +941,7 @@ async def care_summary(
     return {
         "redeploy_active": int(await db.scalar(redeploy) or 0),
         "skill_review_open": int(await db.scalar(review) or 0),
-        "can_edit": care_access.is_care_worker(current_user),
+        "can_edit": await care_access.is_care_writer(db, current_user),
         "can_curate": can_curate(current_user),
     }
 
