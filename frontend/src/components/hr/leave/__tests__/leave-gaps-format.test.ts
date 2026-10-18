@@ -1,0 +1,149 @@
+import { describe, expect, it } from "vitest";
+
+import type { LeaveRequestRow, TeamCalendarPerson } from "@/lib/api/hr-leave";
+
+import {
+  FULL_DAY,
+  NO_SUBSTITUTE,
+  canEditRow,
+  editChanges,
+  editValuesFrom,
+  matchesStatusFilter,
+  presenceByDay,
+  sourceBadge,
+  statusFilterLabel,
+} from "../leave-format";
+
+const row = (overrides: Partial<LeaveRequestRow> = {}): LeaveRequestRow => ({
+  id: "r1",
+  user_id: 1,
+  user_name: "Anna Przykładowa",
+  leave_type: "vacation",
+  leave_type_label: "Urlop wypoczynkowy",
+  status: "approved",
+  start_date: "2026-11-02",
+  end_date: "2026-11-06",
+  half_day: null,
+  days_total: "5.0",
+  paid_days: "5.0",
+  unpaid_days: "0.0",
+  note: null,
+  substitute_user_id: 2,
+  substitute_name: "Jan Testowy",
+  forward_mail_consent: true,
+  oof_internal_message: null,
+  oof_external_message: null,
+  decided_by_name: null,
+  decided_at: null,
+  decision_note: null,
+  source: "self",
+  created_at: null,
+  can_cancel: false,
+  ...overrides,
+});
+
+describe("plakietka źródła i liczniki statusów", () => {
+  it("nazywa wpis za pracownika, Outlook i import; zwykły wniosek bez plakietki", () => {
+    expect(sourceBadge("on_behalf")).toBe("Wpis za pracownika");
+    expect(sourceBadge("outlook_oof")).toBe("Z Outlooka");
+    expect(sourceBadge("compass_import")).toBe("Import z Compassa");
+    expect(sourceBadge("self")).toBeNull();
+  });
+
+  it("dokleja liczbę z serwera, a bez liczników zostawia samą etykietę", () => {
+    const counts = { all: 9, pending: 3, approved: 5, rejected: 1, cancelled: 0 };
+    expect(statusFilterLabel("Czeka na akceptację", "pending", counts)).toBe(
+      "Czeka na akceptację (3)",
+    );
+    expect(statusFilterLabel("Anulowany", "cancelled", counts)).toBe("Anulowany (0)");
+    expect(statusFilterLabel("Wszystkie statusy", "all", null)).toBe("Wszystkie statusy");
+  });
+});
+
+describe("edycja wniosku przez przełożonego i Kadry", () => {
+  it("bez zmian nie ma czego wysłać", () => {
+    expect(editChanges(row(), editValuesFrom(row()))).toBeNull();
+  });
+
+  it("wysyła tylko zmienione pola; zastępcę można wyczyścić", () => {
+    const values = { ...editValuesFrom(row()), end: "2026-11-04", substitute: NO_SUBSTITUTE };
+    expect(editChanges(row(), values)).toEqual({
+      end_date: "2026-11-04",
+      substitute_user_id: null,
+    });
+  });
+
+  it("pół dnia tylko przy jednym dniu — przy kilku dniach idzie „cały dzień”", () => {
+    const half = row({ start_date: "2026-11-02", end_date: "2026-11-02", half_day: "morning" });
+    const longer = { ...editValuesFrom(half), end: "2026-11-03" };
+    expect(editChanges(half, longer)).toEqual({ end_date: "2026-11-03", half_day: null });
+    const toHalf = { ...editValuesFrom(row()), end: "2026-11-02", halfDay: "afternoon" };
+    expect(editChanges(row(), toHalf)).toEqual({
+      end_date: "2026-11-02",
+      half_day: "afternoon",
+    });
+    expect(editValuesFrom(row()).halfDay).toBe(FULL_DAY);
+  });
+
+  it("odwrócone daty blokują zapis", () => {
+    expect(editChanges(row(), { ...editValuesFrom(row()), end: "2026-11-01" })).toBeNull();
+  });
+
+  it("zgłoszenie z B2B zmieniają tylko Kadry; zamknięty wniosek nikt", () => {
+    expect(canEditRow(row({ is_report: true }), false)).toBe(false);
+    expect(canEditRow(row({ is_report: true }), true)).toBe(true);
+    expect(canEditRow(row({ status: "pending" }), false)).toBe(true);
+    expect(canEditRow(row({ status: "rejected" }), true)).toBe(false);
+  });
+});
+
+const person = (overrides: Partial<TeamCalendarPerson> = {}): TeamCalendarPerson => ({
+  user_id: 1,
+  name: "Anna Przykładowa",
+  department: null,
+  job_title: null,
+  is_me: false,
+  type_visible: false,
+  absences: [],
+  presence: [],
+  ...overrides,
+});
+
+describe("kalendarz zespołu: zdalnie, delegacja, filtr", () => {
+  it("dzień → wyjątek obecności", () => {
+    const map = presenceByDay([
+      { date: "2026-11-03", kind: "remote" },
+      { date: "2026-11-04", kind: "business_trip" },
+    ]);
+    expect(map.get("2026-11-03")).toBe("remote");
+    expect(map.get("2026-11-04")).toBe("business_trip");
+    expect(presenceByDay(undefined).size).toBe(0);
+  });
+
+  it("w bieżącym miesiącu filtr patrzy na dziś, w innym — na cały miesiąc", () => {
+    const remoteTomorrow = person({ presence: [{ date: "2026-11-04", kind: "remote" }] });
+    expect(matchesStatusFilter(remoteTomorrow, "remote", "2026-11-03", "2026-11")).toBe(false);
+    expect(matchesStatusFilter(remoteTomorrow, "remote", "2026-10-20", "2026-11")).toBe(true);
+    expect(matchesStatusFilter(remoteTomorrow, "all", "2026-11-03", "2026-11")).toBe(true);
+  });
+
+  it("nieobecni = zatwierdzona nieobecność albo delegacja; wniosek czekający się nie liczy", () => {
+    const absence = {
+      id: null,
+      start_date: "2026-11-02",
+      end_date: "2026-11-06",
+      half_day: null,
+      label: "Nieobecność",
+      leave_type: null,
+      substitute_user_id: null,
+      substitute_name: null,
+    };
+    const away = person({ absences: [{ ...absence, status: "approved" }] });
+    const waiting = person({ absences: [{ ...absence, status: "pending" }] });
+    const trip = person({ presence: [{ date: "2026-11-03", kind: "business_trip" }] });
+    expect(matchesStatusFilter(away, "absent", "2026-11-03", "2026-11")).toBe(true);
+    expect(matchesStatusFilter(waiting, "absent", "2026-11-03", "2026-11")).toBe(false);
+    expect(matchesStatusFilter(trip, "absent", "2026-11-03", "2026-11")).toBe(true);
+    expect(matchesStatusFilter(trip, "remote", "2026-11-03", "2026-11")).toBe(false);
+  });
+});

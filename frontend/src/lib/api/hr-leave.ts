@@ -241,6 +241,14 @@ export interface CalendarAbsence {
   substitute_name: string | null;
 }
 
+/** Wyjątek obecności z „Mojego miesiąca” (nie rodzaj nieobecności, bez notatki). */
+export type CalendarPresenceKind = "remote" | "business_trip";
+
+export interface CalendarPresence {
+  date: string;
+  kind: CalendarPresenceKind;
+}
+
 export interface TeamCalendarPerson {
   user_id: number;
   name: string;
@@ -249,6 +257,8 @@ export interface TeamCalendarPerson {
   is_me: boolean;
   type_visible: boolean;
   absences: CalendarAbsence[];
+  /** Praca zdalna i delegacja — pusta lista, gdy moduł czasu jest zamknięty. */
+  presence?: CalendarPresence[];
 }
 
 export interface TeamCalendar {
@@ -256,6 +266,8 @@ export interface TeamCalendar {
   today: string;
   days: { date: string; weekday: number; kind: CalendarDayKind; name: string | null }[];
   departments: string[];
+  /** Czy serwer dołączył pracę zdalną i delegację (moduł czasu otwarty). */
+  presence_shown?: boolean;
   people: TeamCalendarPerson[];
 }
 
@@ -466,18 +478,66 @@ export interface LeaveHistoryFilters {
   user_id: number | null;
 }
 
+/** Liczba wniosków per status w zakresie listy (bez filtra statusu). */
+export type LeaveStatusCounts = Record<LeaveStatus | "all", number>;
+
+export interface LeaveHistory {
+  items: LeaveRequestRow[];
+  counts: LeaveStatusCounts | null;
+}
+
 export function useLeaveHistory(filters: LeaveHistoryFilters, enabled = true) {
   return useQuery({
     queryKey: leaveKeys.history(filters),
-    queryFn: async () => {
+    queryFn: async (): Promise<LeaveHistory> => {
       const params: Record<string, string | number> = { limit: 200 };
       if (filters.status) params.status = filters.status;
       if (filters.user_id) params.user_id = filters.user_id;
-      return (
-        await api.get<{ items: LeaveRequestRow[] }>(`${ROOT}/approvals/history`, { params })
-      ).data.items;
+      const data = (
+        await api.get<{ items: LeaveRequestRow[]; counts?: LeaveStatusCounts }>(
+          `${ROOT}/approvals/history`,
+          { params },
+        )
+      ).data;
+      return { items: data.items, counts: data.counts ?? null };
     },
     enabled,
+  });
+}
+
+/** Zmiana cudzego wniosku — tylko pola, które się zmieniły (`null` czyści). */
+export interface LeaveEditInput {
+  leave_type?: LeaveType;
+  start_date?: string;
+  end_date?: string;
+  half_day?: HalfDay | null;
+  substitute_user_id?: number | null;
+}
+
+/** Przełożony albo Kadry zmieniają rodzaj, daty, pół dnia albo zastępcę. */
+export function useEditLeave() {
+  const invalidate = useInvalidateLeave();
+  return useMutation({
+    mutationKey: [...HR_COUNTS_MUTATION_KEY, "leave-edit"],
+    mutationFn: async ({ id, changes }: { id: string; changes: LeaveEditInput }) =>
+      (await api.patch<LeaveRequestRow>(`${ROOT}/approvals/${id}`, changes)).data,
+    onSuccess: invalidate,
+  });
+}
+
+/** Kadry wyłączają przekierowanie poczty cudzego wniosku (powód w historii). */
+export function useForwardOff() {
+  const invalidate = useInvalidateLeave();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, reason }: { id: string; reason: string }) =>
+      (await api.post<LeaveRequestRow>(`${ROOT}/approvals/${id}/forward-off`, { reason }))
+        .data,
+    onSuccess: async () => {
+      await invalidate();
+      // Lista przekierowań w karcie Microsoft 365 (Ustawienia → Kadry).
+      await queryClient.invalidateQueries({ queryKey: ["hr", "m365"] });
+    },
   });
 }
 

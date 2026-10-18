@@ -11,15 +11,20 @@ import type { EmploymentType } from "@/lib/api/hr";
 import type {
   AbsentTodayRow,
   CalendarAbsence,
+  CalendarPresence,
+  CalendarPresenceKind,
   HalfDay,
   LeaveBalance,
   LeaveInput,
   LeavePreview,
+  LeaveEditInput,
   LeaveRequestRow,
   LeaveStatus,
+  LeaveStatusCounts,
   LeaveType,
   PendingLeaveRow,
   PersonAbsence,
+  TeamCalendarPerson,
 } from "@/lib/api/hr-leave";
 import { formatDayMonthPl, formatWeekdayDayPl } from "@/lib/date-pl";
 import { capitalize, employmentTerms, reportsAbsence } from "@/lib/hr-employment-terms";
@@ -443,4 +448,132 @@ export function leaveInputFrom(
     oof_internal_message: values.oofInternal.trim() || null,
     oof_external_message: values.oofExternal.trim() || null,
   };
+}
+
+
+// ── Źródło wniosku, liczniki statusów, edycja (luki z Compassa, 18.10.2026) ──
+
+/** Plakietka źródła wniosku; zwykły wniosek osoby (`self`) jej nie ma. */
+export function sourceBadge(source: LeaveRequestRow["source"]): string | null {
+  switch (source) {
+    case "on_behalf":
+      return "Wpis za pracownika";
+    case "outlook_oof":
+      return "Z Outlooka";
+    case "compass_import":
+      return "Import z Compassa";
+    default:
+      return null;
+  }
+}
+
+/** „Czeka na akceptację (3)” — etykieta filtra statusu z licznikiem serwera. */
+export function statusFilterLabel(
+  label: string,
+  value: LeaveStatus | "all",
+  counts: LeaveStatusCounts | null | undefined,
+): string {
+  const count = counts?.[value];
+  return typeof count === "number" ? `${label} (${count})` : label;
+}
+
+/** Pola okna edycji wniosku (jak w oknie nieobecności). */
+export interface LeaveEditValues {
+  leaveType: LeaveType;
+  start: string;
+  end: string;
+  /** `FULL_DAY` albo pół dnia; przy kilku dniach zawsze cały dzień. */
+  halfDay: string;
+  /** Id zastępcy jako tekst albo `NO_SUBSTITUTE`. */
+  substitute: string;
+}
+
+export function editValuesFrom(row: LeaveRequestRow): LeaveEditValues {
+  return {
+    leaveType: row.leave_type ?? "vacation",
+    start: row.start_date,
+    end: row.end_date,
+    halfDay: row.half_day ?? FULL_DAY,
+    substitute: row.substitute_user_id ? String(row.substitute_user_id) : NO_SUBSTITUTE,
+  };
+}
+
+/**
+ * Tylko zmienione pola (`PATCH`); `null` = brak zmian albo złe daty.
+ * Pół dnia liczy się tylko przy jednym dniu — przy kilku wysyłamy „cały dzień”.
+ */
+export function editChanges(
+  row: LeaveRequestRow,
+  values: LeaveEditValues,
+): LeaveEditInput | null {
+  if (!validRange(values.start, values.end)) return null;
+  const halfDay =
+    values.start === values.end && values.halfDay !== FULL_DAY
+      ? (values.halfDay as HalfDay)
+      : null;
+  const substitute = values.substitute === NO_SUBSTITUTE ? null : Number(values.substitute);
+  const changes: LeaveEditInput = {};
+  if (row.leave_type !== null && values.leaveType !== row.leave_type) {
+    changes.leave_type = values.leaveType;
+  }
+  if (values.start !== row.start_date) changes.start_date = values.start;
+  if (values.end !== row.end_date) changes.end_date = values.end;
+  if (halfDay !== row.half_day) changes.half_day = halfDay;
+  if (substitute !== row.substitute_user_id) changes.substitute_user_id = substitute;
+  return Object.keys(changes).length > 0 ? changes : null;
+}
+
+/** Czy patrzący może zmienić wiersz (zgłoszenie z B2B/zlecenia — tylko Kadry, D5). */
+export function canEditRow(row: LeaveRequestRow, viewerIsHr: boolean): boolean {
+  if (row.status !== "pending" && row.status !== "approved") return false;
+  return viewerIsHr || !row.is_report;
+}
+
+// ── Kalendarz zespołu: praca zdalna, delegacja, filtr (Compass) ──────────────
+
+export const PRESENCE_LABELS: Record<CalendarPresenceKind, string> = {
+  remote: "praca zdalna",
+  business_trip: "delegacja",
+};
+
+/** Dzień → wyjątek obecności osoby (zdalnie albo delegacja). */
+export function presenceByDay(
+  presence: readonly CalendarPresence[] | undefined,
+): Map<string, CalendarPresenceKind> {
+  const map = new Map<string, CalendarPresenceKind>();
+  for (const item of presence ?? []) map.set(item.date, item.kind);
+  return map;
+}
+
+export type CalendarStatusFilter = "all" | "absent" | "remote";
+
+/**
+ * Filtr „wszyscy / nieobecni / zdalnie” (Compass `VacationCalendar`): gdy
+ * dziś jest w oglądanym miesiącu — stan na dziś, inaczej — ktokolwiek
+ * w miesiącu (przeglądanie innych miesięcy nie daje pustej listy).
+ * Delegacja liczy się do „nieobecnych” (poza biurem, jak „OOO” w Compassie).
+ */
+export function matchesStatusFilter(
+  person: TeamCalendarPerson,
+  filter: CalendarStatusFilter,
+  today: string,
+  month: string,
+): boolean {
+  if (filter === "all") return true;
+  const todayInView = today.startsWith(month);
+  const presence = person.presence ?? [];
+  if (filter === "remote") {
+    return presence.some(
+      (item) => item.kind === "remote" && (!todayInView || item.date === today),
+    );
+  }
+  const trip = presence.some(
+    (item) => item.kind === "business_trip" && (!todayInView || item.date === today),
+  );
+  const absent = person.absences.some(
+    (absence) =>
+      absence.status === "approved" &&
+      (!todayInView || (absence.start_date <= today && today <= absence.end_date)),
+  );
+  return trip || absent;
 }

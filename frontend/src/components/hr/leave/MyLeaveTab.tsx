@@ -32,6 +32,7 @@ import { warsawToday } from "@/lib/warsaw-date";
 
 import { LeaveRequestDialog } from "./LeaveRequestDialog";
 import {
+  sourceBadge,
   HALF_DAY_LABELS,
   LEAVE_STATUS_TONE,
   daysLabel,
@@ -162,6 +163,10 @@ export function MyLeaveTab() {
                 <TableRow key={row.id} className={`${CALM_ROW} h-[50px]`}>
                   <TableCell className="font-medium text-foreground">
                     {row.leave_type_label}
+                    {/* „Z Outlooka” — wniosek założony z własnej autoodpowiedzi osoby. */}
+                    {row.source === "outlook_oof" || row.source === "on_behalf" ? (
+                      <span className={CALM_SUBLINE}>{sourceBadge(row.source)}</span>
+                    ) : null}
                   </TableCell>
                   <TableCell className="whitespace-nowrap">
                     {formatRange(row.start_date, row.end_date)}

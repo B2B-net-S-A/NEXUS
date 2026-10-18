@@ -8,6 +8,7 @@ import { InlineStats } from "@/components/ds/InlineStats";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import { StatusDot } from "@/components/ds/StatusDot";
 import { useToast } from "@/components/Toast";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -46,6 +47,8 @@ import { countPl } from "@/lib/plural-pl";
 import { resolveViewState } from "@/lib/view-state";
 import { formatWeekdayDayPl } from "@/lib/date-pl";
 
+import { EditLeaveDialog } from "./EditLeaveDialog";
+import { ForwardOffDialog } from "./ForwardOffDialog";
 import { LeaveRequestDialog } from "./LeaveRequestDialog";
 import { RejectLeaveDialog } from "./RejectLeaveDialog";
 import { ReportConflictDialog } from "./ReportConflictDialog";
@@ -53,12 +56,26 @@ import {
   HALF_DAY_LABELS,
   LEAVE_STATUS_LABELS,
   LEAVE_STATUS_TONE,
+  canEditRow,
   daysLabel,
   formatRange,
   leaveToast,
+  sourceBadge,
+  statusFilterLabel,
   statusLabel,
   pendingDetails,
 } from "./leave-format";
+
+/** Plakietka źródła wniosku („Z Outlooka”, „Wpis za pracownika”, „Import z Compassa”). */
+function SourceBadge({ row }: { row: LeaveRequestRow }) {
+  const label = sourceBadge(row.source);
+  if (!label) return null;
+  return (
+    <Badge size="sm" variant="outline" className="ml-1.5 align-middle font-normal">
+      {label}
+    </Badge>
+  );
+}
 
 interface ApprovalSection {
   key: string;
@@ -73,6 +90,7 @@ function PendingLeaveList({ viewerIsHr }: { viewerIsHr: boolean }) {
   const decide = useDecideLeave();
   const { showToast } = useToast();
   const [rejecting, setRejecting] = useState<LeaveRequestRow | null>(null);
+  const [editing, setEditing] = useState<LeaveRequestRow | null>(null);
   const rows = pending.data ?? [];
   const state = resolveViewState({
     isLoading: pending.isLoading,
@@ -131,6 +149,7 @@ function PendingLeaveList({ viewerIsHr }: { viewerIsHr: boolean }) {
             <TableRow key={row.id} className={CALM_ROW}>
               <TableCell className="py-2 align-top">
                 <span className="font-medium text-foreground">{row.user_name}</span>
+                <SourceBadge row={row} />
                 {row.department ? <span className={CALM_SUBLINE}>{row.department}</span> : null}
                 {row.as_substitute_for ? (
                   <span className={CALM_SUBLINE}>w zastępstwie za {row.as_substitute_for}</span>
@@ -154,6 +173,12 @@ function PendingLeaveList({ viewerIsHr }: { viewerIsHr: boolean }) {
                   <span className={CALM_SUBLINE}>do wiadomości — decydują Kadry</span>
                 ) : (
                   <div className="flex justify-end gap-1.5">
+                    {/* Zastępca przełożonego tylko decyduje — zmienia przełożony albo Kadry. */}
+                    {row.as_substitute_for ? null : (
+                      <Button size="sm" variant="quiet" onClick={() => setEditing(row)}>
+                        Edytuj
+                      </Button>
+                    )}
                     <Button size="sm" variant="quiet" onClick={() => setRejecting(row)}>
                       Odrzuć
                     </Button>
@@ -174,6 +199,13 @@ function PendingLeaveList({ viewerIsHr }: { viewerIsHr: boolean }) {
           if (rejected) showToast("Wniosek odrzucony", "success");
         }}
       />
+      <EditLeaveDialog
+        request={editing}
+        onClose={(saved) => {
+          setEditing(null);
+          if (saved) showToast(...leaveToast("Wniosek zmieniony", saved));
+        }}
+      />
     </div>
   );
 }
@@ -187,6 +219,7 @@ function ReportedLeaveList({ viewerIsHr }: { viewerIsHr: boolean }) {
   const reported = useReportedLeave();
   const { showToast } = useToast();
   const [conflicting, setConflicting] = useState<LeaveRequestRow | null>(null);
+  const [editing, setEditing] = useState<LeaveRequestRow | null>(null);
   const rows = reported.data ?? [];
   const state = resolveViewState({
     isLoading: reported.isLoading,
@@ -228,6 +261,7 @@ function ReportedLeaveList({ viewerIsHr }: { viewerIsHr: boolean }) {
             <TableRow key={row.id} className={CALM_ROW}>
               <TableCell className="py-2 align-top">
                 <span className="font-medium text-foreground">{row.user_name}</span>
+                <SourceBadge row={row} />
                 {row.department ? <span className={CALM_SUBLINE}>{row.department}</span> : null}
                 {row.as_substitute_for ? (
                   <span className={CALM_SUBLINE}>w zastępstwie za {row.as_substitute_for}</span>
@@ -252,13 +286,21 @@ function ReportedLeaveList({ viewerIsHr }: { viewerIsHr: boolean }) {
                 ) : null}
               </TableCell>
               <TableCell className="py-2 align-top text-right">
-                {row.can_report_conflict ? (
-                  <Button size="sm" variant="quiet" onClick={() => setConflicting(row)}>
-                    Zgłoś kolizję
-                  </Button>
-                ) : (
-                  <span className={CALM_SUBLINE}>do wiadomości</span>
-                )}
+                <div className="flex justify-end gap-1.5">
+                  {/* Zgłoszenie z B2B/zlecenia zmieniają tylko Kadry (D5). */}
+                  {canEditRow(row, viewerIsHr) ? (
+                    <Button size="sm" variant="quiet" onClick={() => setEditing(row)}>
+                      Edytuj
+                    </Button>
+                  ) : null}
+                  {row.can_report_conflict ? (
+                    <Button size="sm" variant="quiet" onClick={() => setConflicting(row)}>
+                      Zgłoś kolizję
+                    </Button>
+                  ) : (
+                    <span className={CALM_SUBLINE}>do wiadomości</span>
+                  )}
+                </div>
               </TableCell>
             </TableRow>
           ))}
@@ -269,6 +311,13 @@ function ReportedLeaveList({ viewerIsHr }: { viewerIsHr: boolean }) {
         onClose={(done) => {
           setConflicting(null);
           if (done) showToast("Kolizja zgłoszona — osoba dostała powiadomienie", "success");
+        }}
+      />
+      <EditLeaveDialog
+        request={editing}
+        onClose={(saved) => {
+          setEditing(null);
+          if (saved) showToast(...leaveToast("Zgłoszenie zmienione", saved));
         }}
       />
     </div>
@@ -294,7 +343,10 @@ function LeaveHistory({ viewerIsHr }: { viewerIsHr: boolean }) {
   const cancel = useCancelTeamLeave();
   const { showToast } = useToast();
   const { askConfirm, confirmDialog } = useConfirmV2();
-  const rows = history.data ?? [];
+  const [editing, setEditing] = useState<LeaveRequestRow | null>(null);
+  const [forwardOff, setForwardOff] = useState<LeaveRequestRow | null>(null);
+  const rows = history.data?.items ?? [];
+  const counts = history.data?.counts;
   const state = resolveViewState({
     isLoading: history.isLoading,
     isError: history.isError,
@@ -321,16 +373,16 @@ function LeaveHistory({ viewerIsHr }: { viewerIsHr: boolean }) {
   return (
     <div className="space-y-2">
       <div className="flex flex-wrap items-center gap-2">
-        <h2 className="text-sm font-semibold text-foreground">Historia</h2>
+        <h2 className="text-sm font-semibold text-foreground">Wszystkie wnioski</h2>
         <div className="ml-auto flex flex-wrap gap-2">
           <Select value={status} onValueChange={(value) => setStatus(value as LeaveStatus | "all")}>
-            <SelectTrigger className="h-8 w-[200px]" aria-label="Status">
+            <SelectTrigger className="h-8 w-[240px]" aria-label="Status">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
               {STATUS_FILTERS.map((option) => (
                 <SelectItem key={option.value} value={option.value}>
-                  {option.label}
+                  {statusFilterLabel(option.label, option.value, counts)}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -376,7 +428,10 @@ function LeaveHistory({ viewerIsHr }: { viewerIsHr: boolean }) {
             <TableBody>
               {rows.map((row) => (
                 <TableRow key={row.id} className={`${CALM_ROW} h-[48px]`}>
-                  <TableCell className="font-medium text-foreground">{row.user_name}</TableCell>
+                  <TableCell className="font-medium text-foreground">
+                    {row.user_name}
+                    <SourceBadge row={row} />
+                  </TableCell>
                   <TableCell>{row.leave_type_label}</TableCell>
                   <TableCell className="whitespace-nowrap">
                     {formatRange(row.start_date, row.end_date)}
@@ -396,17 +451,26 @@ function LeaveHistory({ viewerIsHr }: { viewerIsHr: boolean }) {
                     </StatusDot>
                   </TableCell>
                   <TableCell className="text-right">
-                    {/* Zgłoszenie z B2B/zlecenia anuluje osoba albo Kadry — nie koordynator (D5). */}
-                    {(row.status === "pending" || row.status === "approved") &&
-                    (viewerIsHr || !row.is_report) ? (
-                      <Button
-                        size="sm"
-                        variant="quiet"
-                        disabled={cancel.isPending}
-                        onClick={() => void cancelRow(row)}
-                      >
-                        Anuluj
-                      </Button>
+                    {/* Zgłoszenie z B2B/zlecenia zmienia i anuluje osoba albo Kadry — nie koordynator (D5). */}
+                    {canEditRow(row, viewerIsHr) ? (
+                      <div className="flex justify-end gap-1.5">
+                        <Button size="sm" variant="quiet" onClick={() => setEditing(row)}>
+                          Edytuj
+                        </Button>
+                        {viewerIsHr && row.forward_mail_consent ? (
+                          <Button size="sm" variant="quiet" onClick={() => setForwardOff(row)}>
+                            Wyłącz przekierowanie
+                          </Button>
+                        ) : null}
+                        <Button
+                          size="sm"
+                          variant="quiet"
+                          disabled={cancel.isPending}
+                          onClick={() => void cancelRow(row)}
+                        >
+                          Anuluj
+                        </Button>
+                      </div>
                     ) : (
                       <span className={CALM_EMPTY}>—</span>
                     )}
@@ -418,6 +482,20 @@ function LeaveHistory({ viewerIsHr }: { viewerIsHr: boolean }) {
         </div>
       )}
       {confirmDialog}
+      <EditLeaveDialog
+        request={editing}
+        onClose={(saved) => {
+          setEditing(null);
+          if (saved) showToast(...leaveToast("Wniosek zmieniony", saved));
+        }}
+      />
+      <ForwardOffDialog
+        target={forwardOff}
+        onClose={(done) => {
+          setForwardOff(null);
+          if (done) showToast("Przekierowanie wyłączone — reguła zostanie zamknięta", "success");
+        }}
+      />
     </div>
   );
 }

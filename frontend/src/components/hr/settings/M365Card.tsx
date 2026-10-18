@@ -29,6 +29,8 @@ import {
 import { CALM_HEAD, CALM_ROW, CALM_SUBLINE } from "@/lib/calm-table";
 import { resolveViewState } from "@/lib/view-state";
 
+import { M365ForwardsPanel } from "./M365ForwardsPanel";
+
 const MODE_TONE: Record<M365Mode, StatusDotTone> = {
   off: "neutral",
   simulate: "info",
@@ -313,7 +315,8 @@ function MailboxLists({ status }: { status: M365Status }) {
             Własna autoodpowiedź osoby
           </h3>
           <p className="text-xs text-muted-foreground">
-            NEXUS jej nie nadpisał. Sprawdź z osobą, czy obejmuje urlop.
+            NEXUS jej nie nadpisał. Z datami — dni bez wniosku trafiają do Akceptacji jako
+            wniosek „Z Outlooka”; bez dat — sprawdź z osobą, czy obejmuje nieobecność.
           </p>
           <ul className="mt-1 space-y-0.5 text-sm">
             {status.custom_oof_mailboxes.map((row) => (
@@ -399,6 +402,7 @@ export function M365Card() {
           />
           <OperationsTable key={tab} tab={tab} />
           <MailboxLists status={data} />
+          <M365ForwardsPanel mode={data.mode} />
         </>
       )}
     </Card>
