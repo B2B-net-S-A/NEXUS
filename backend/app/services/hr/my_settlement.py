@@ -51,6 +51,7 @@ from app.models.hr_payroll import HrBonus, PayrollLine, PayrollPeriod
 from app.models.hr_settlement import PayrollSettlement
 from app.models.hr_time import Timesheet, TimesheetEntry
 from app.models.job import Job
+from app.models.recruitment_pipeline import CandidateStage, PipelineStage
 from app.models.team_structure import DeliveryLeadClientAssignment
 from app.services import fx_service
 from app.services.contract_rates import RATE_SCHEDULE_LOADS
@@ -81,10 +82,26 @@ FORECAST_STATUSES = (ContractStatus.active, ContractStatus.ending)
 
 def _relevance_clause(user_id: int, dl_ids: set[int], client_ids: set[int]) -> Any:
     """Kontrakty, przy których osoba MOŻE być odbiorcą (nadzbiór — decyduje
-    ``placement_targets``): rekruter albo DL rekrutacji, DL klienta
-    (zapasowo, gdy rekrutacja nie ma DL), DL, za którym idzie dodatkowa premia."""
+    ``placement_targets``): weryfikujący kandydata w rekrutacji kontraktu
+    (rekruter premii), DL rekrutacji, prowadzący (gdy rekrutacja nie ma DL,
+    a on ma rolę DL), DL klienta (zapasowo), DL, za którym idzie dodatkowa
+    premia."""
 
-    clauses = [Job.recruiter_id == user_id, Job.delivery_lead_id.in_(sorted(dl_ids))]
+    verified_by_user = (
+        select(CandidateStage.id)
+        .where(
+            CandidateStage.candidate_id == Contract.candidate_id,
+            CandidateStage.job_id == Contract.job_id,
+            CandidateStage.stage == PipelineStage.verified,
+            CandidateStage.moved_by == user_id,
+        )
+        .exists()
+    )
+    clauses = [
+        verified_by_user,
+        Job.delivery_lead_id.in_(sorted(dl_ids)),
+        Job.recruiter_id.in_(sorted(dl_ids)),
+    ]
     if client_ids:
         clauses.append(Contract.client_id.in_(sorted(client_ids)))
     return or_(*clauses)
