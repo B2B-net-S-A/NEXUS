@@ -1313,7 +1313,7 @@ class Settings(BaseSettings):
 
     # ── AAD group-based RBAC (Phase 7.2) ─────────────────────────────────────
     # Kill-switch. When False the SSO callback skips Graph /me/memberOf entirely
-    # and falls back to legacy behaviour (new SSO users land as ``recruiter``,
+    # and falls back to legacy behaviour (new SSO users land as ``employee``,
     # existing users keep their role). Flip to True in Coolify env vault AFTER
     # ``AAD_GROUP_ROLE_MAP_JSON`` is populated and admin consent for the
     # ``GroupMember.Read.All`` Graph scope has been granted in the Azure app

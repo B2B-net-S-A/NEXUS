@@ -53,6 +53,14 @@ mają dane (import z Compassa, plików recepcji, kartotek, wzorów umów).
 - **Rola „Pracownik” (`employee`) jest wyłączna**: widzi „Mój czas”, „Ludzie”,
   Pomoc i Ustawienia; po logowaniu ląduje na `/my-time`. Osoba z inną rolą
   dostaje „Mój czas” przez wiersz kartoteki, nie przez drugą rolę.
+- **Pierwsze logowanie Microsoftem zakłada konto „Pracownik”** (decyzja Artura
+  19.10.2026, `_provision_sso_user` w `auth_microsoft.py`), nie „Rekruter”.
+  Konsultant z adresem w domenie firmy loguje się po godziny, umowę i sprzęt,
+  a samo konto nie może dawać wglądu w kandydatów. Nowego rekrutera albo DL
+  przestawia admin w „Osoby i role”; `profile_completed` zostaje `false`, więc
+  po nadaniu roli wchodzi onboarding. Konto założone wcześniej przez admina
+  zachowuje swoją rolę — logowanie tylko przypina tożsamość Microsoft. Przy
+  włączonym `AAD_GROUP_RBAC_ENABLED` rolę i tak ustala grupa AAD.
 - **D6 — rodzaj nieobecności widzą tylko osoba, jej przełożony, Kadry i admin.**
   Zespół, kalendarz, plakietka, powiadomienie i mail zastępcy, Outlook i Teams widzą
   „nieobecny”. Każde nowe miejsce, które pokazuje nieobecność, bierze dane
