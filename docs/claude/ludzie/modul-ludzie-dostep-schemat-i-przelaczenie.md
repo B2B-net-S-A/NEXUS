@@ -49,7 +49,9 @@ mają dane (import z Compassa, plików recepcji, kartotek, wzorów umów).
   bez bramki `require_hr_*` = czerwony test.
 - **Cztery uprawnienia** na końcu katalogu: `people_admin` „Kadry”, `payroll`
   „Płace” (Finanse z roli), `equipment` „Sprzęt” (osobno od Kadr, D13), `cases`
-  „Sprawy” (TCM z roli). Admin ma wszystkie.
+  „Sprawy” (TCM z roli). Admin ma wszystkie. Od 19.10.2026 rola Finanse ma też
+  „Kadry” (decyzja Artura przy starcie e-teczki: na produkcji nikt poza adminami
+  nie miał Kadr) — zapis w siatce ról na produkcji, domyślna siatka w kodzie bez zmian.
 - **Rola „Pracownik” (`employee`) jest wyłączna**: widzi „Mój czas”, „Ludzie”,
   Pomoc i Ustawienia; po logowaniu ląduje na `/my-time`. Osoba z inną rolą
   dostaje „Mój czas” przez wiersz kartoteki, nie przez drugą rolę.
@@ -353,3 +355,17 @@ miesiącu liczonym równolegle w obu systemach. Danych Compassa nie kasujemy.
   forma i potwierdzanie godzin (`people.update_profile`; aneks zmienia tylko stawkę), dokument
   w e-teczce, dla UoP i zlecenia znacznik `symfonia_pending`. Nieudane przepisanie zostawia umowę
   podpisaną z `apply_error` i przyciskiem „Przepisz ponownie”. Minimalna stawka zlecenia z D7.
+
+### Start na produkcji (19.10.2026)
+
+- E-teczka działa od włączenia modułu `people` (bez osobnego przełącznika); `hr_agreements`
+  włączony 19.10. Okres przechowywania: 10 lat dla każdego rodzaju, także „inne” (Artur).
+- Na start bez generatora (Artur): wzorów DOCX nie ma — umowy wchodzą do e-teczki jako skany
+  (rodzaj umowa/aneks). Generator działa, gdy Kadry dodadzą wzór z polami `{{ … }}`
+  (Ustawienia → Zespół i dostęp → Kadry → Wzory umów; okno „Nowa umowa” mówi, że wzorów brak).
+- Podpis ręczny ze skanem; Autenti wyłączone (`AUTENTI_ENABLED` nieustawione) — nic nie wychodzi
+  do ludzi. Na start Kadry wgrywają skany aktywnych umów i aneksów oraz oświadczenia studentów
+  z „ważny do”.
+- Pełna ścieżka (wzór, odmowa poniżej 31,40 zł, szkic, PDF, podpis ze skanem → stawka i forma
+  w kartotece, oświadczenie studenta → zwolnienie ze składek, krąg widzących) przeklikana na
+  lokalnym stosie nexus-hr z kodem 071549443; na produkcji żadnych danych testowych.
