@@ -18,7 +18,8 @@ prowadzą „Słownik umiejętności” (admin, Head of Recruitment) — przez
 from __future__ import annotations
 
 import re
-from collections.abc import Iterable
+import unicodedata
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional
@@ -31,6 +32,7 @@ from app.models.contract_care import SkillReviewItem, TechCard, TechCardSkill
 from app.models.skill import Skill, SkillAlias
 from app.services import skill_curation
 from app.services.contract_care_schema import NAME_MAX
+from app.services.skill_normalize import strip_version
 
 _SPACES = re.compile(r"\s+")
 
@@ -70,6 +72,57 @@ class SkillDictionary:
 
     def resolve(self, raw: str) -> Optional[int]:
         return self.by_key.get(name_key(raw))
+
+
+_LOOSE_DROP = re.compile(r"[^0-9a-z+#]+")
+
+
+def loose_key(raw: str) -> str:
+    """Klucz do propozycji: bez wersji, wielkości liter, polskich znaków,
+    spacji, kropek i myślników („React.js 18” → „reactjs”)."""
+
+    base, _ = strip_version(raw or "")
+    folded = unicodedata.normalize("NFKD", base.replace("ł", "l").replace("Ł", "L"))
+    folded = "".join(ch for ch in folded if not unicodedata.combining(ch))
+    return _LOOSE_DROP.sub("", folded.casefold())
+
+
+def _loose_forms(raw: str) -> set[str]:
+    key = loose_key(raw)
+    forms = {key} if key else set()
+    if len(key) > 4 and key.endswith("js"):
+        forms.add(key[:-2])
+    return forms
+
+
+def suggester(
+    dictionary: SkillDictionary, limit: int = 3
+) -> Callable[[str], list[int]]:
+    """Propozycje mapowania nazwy spoza słownika na umiejętności słownika.
+
+    Tylko propozycja dla osoby z kolejki — nic się nie mapuje samo (decyzja
+    zmienia słownik całej aplikacji). Najpierw trafienia po samym kluczu
+    (``loose_key``), potem po kluczu bez końcówki „js”. Indeks kluczy liczy
+    się raz na żądanie, nie raz na nazwę.
+    """
+
+    by_form: dict[str, set[int]] = {}
+    for key, skill_id in dictionary.by_key.items():
+        for form in _loose_forms(key):
+            by_form.setdefault(form, set()).add(skill_id)
+
+    def suggest(raw: str) -> list[int]:
+        exact = loose_key(raw)
+        ranked: dict[int, int] = {}
+        for form in _loose_forms(raw):
+            for skill_id in by_form.get(form, ()):
+                rank = 0 if form == exact else 1
+                ranked[skill_id] = min(rank, ranked.get(skill_id, rank))
+        return sorted(
+            ranked, key=lambda sid: (ranked[sid], dictionary.names.get(sid, ""))
+        )[:limit]
+
+    return suggest
 
 
 async def load_dictionary(db: AsyncSession) -> SkillDictionary:

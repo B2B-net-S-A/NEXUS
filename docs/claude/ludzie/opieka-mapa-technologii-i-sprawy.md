@@ -209,6 +209,44 @@ Zakładka klienta „Struktura u klienta” (`components/care/ClientPeopleTab.ts
   umiejętności”, przez `skill_curation` z tymi samymi kontrolami konfliktów.
 - W polu technologii lista po odpowiedzi słownika pokazuje „Dodaj „…” · do
   przejrzenia”, gdy nie ma dokładnego trafienia (Enter robi to samo).
+- **Propozycje w kolejce (18.10.2026)**: `GET /api/care/skill-review` podaje
+  przy otwartej nazwie do 3 umiejętności słownika (`care_skills.suggester`:
+  klucz bez wersji, wielkości liter, polskich znaków, spacji, kropek
+  i myślników, potem bez końcówki „js”). Kolejka pokazuje „Zmapuj na „X””
+  jednym kliknięciem — to zwykłe „Zmapuj” (alias), więc bez duplikatu
+  w słowniku. Nic nie mapuje się samo, także w imporcie z Compassa.
+
+## Karty z Compassa i kontrakty (import 18.10.2026)
+
+- Compass nie wie, który kandydat to jego kontraktor (kolejka „Tożsamość
+  NEXUS” jest pusta), więc import karty łączy ją z kontraktem po kliencie,
+  imieniu i nazwisku i dniu rozmowy — decyzja Artura „Import + automatyczne
+  parowanie”, reguły w `care/card_linking.py`: nazwisko bez wielkości liter,
+  polskich znaków, kolejności słów i dopisków Traffita; klient po scaleniu;
+  umowa bez anulowanych i szkiców. DOKŁADNIE jeden kontrakt z dniem rozmowy
+  w okresie umowy = połączenie automatyczne. Kilka albo tylko poza okresem =
+  propozycje, brak = bez propozycji — karta czeka przy kliencie z pustym
+  `contract_id` i z nazwiskiem z Compassa (`tech_cards.compass_person_name`,
+  migracja 0474). Mapa liczy ją od razu (źródło T nie wymaga kontraktu).
+- Klient Compassa → klient NEXUSA (karty): nazwa po `normalize_client_name`,
+  bez trafienia — po nazwie bez formy prawnej (`loose_client_name`), na końcu
+  po zbiorze słów bez „ex” („ERSTE / Santander” = „ERSTE (ex Santander)”).
+  Kilku klientów o tej nazwie (duplikat z Traffita, np. dwa „PFRON”) =
+  wygrywa ten, u którego osoba ma pewny kontrakt w dniu rozmowy; inaczej karta
+  pominięta. NIP-u Compass nie eksportuje.
+- **„Karty z Compassa do połączenia”** w zakładce „Technologie” klienta
+  (`UnlinkedCardsPanel`, `GET /api/care/clients/{id}/tech-cards/unlinked`,
+  serwis `care/card_inbox.py`): propozycje liczone przy odczycie (kontrakt
+  dodany po imporcie też się pojawi), wybór „Inny kontrakt klienta” do 500
+  kontraktów. Bez kart sekcji nie ma; awaria odczytu mówi o sobie.
+- **„Połącz”** (`POST /api/care/tech-cards/{id}/link`, piszący opiekę w
+  zakresie klienta): tylko karta bez kontraktu (inaczej 409), tylko kontrakt
+  tego samego klienta po scaleniu (422) i nie anulowany ani szkic (422). Ślad
+  `care.tech_card_linked` (kontrakt i czy był propozycją). Raz połączonej
+  karty ta trasa nie przepina.
+- Rozmowy, rytm i opiekun z Compassa łączą się nadal WYŁĄCZNIE po kotwicy —
+  parowanie po nazwisku dotyczy tylko kart. Ponowny import łączy kartę, gdy
+  w NEXUSIE pojawi się pewny kontrakt, i nie odpina kontraktu wybranego przez DL.
 
 ## Mapa technologii klienta (zakładka „Technologie”)
 

@@ -29,6 +29,7 @@
  "routes": {
   "GET /api/care/clients/{client_id}/areas": "BBDBBDDDBBBDBBBBDBBBDDDDD",
   "GET /api/care/clients/{client_id}/org": "BDBBBDDDBBBBBBDDDDDDDDDDD",
+  "GET /api/care/clients/{client_id}/tech-cards/unlinked": "BBDBBDDDBBBDBBBBDBBBDDDDD",
   "GET /api/care/clients/{client_id}/tech-map": "BBDBBDDDBBBDBBBBDBBBDDDDD",
   "GET /api/care/contracts/{contract_id}": "BBDBBDDDBBBDBBBBDBBBDDDDD",
   "GET /api/care/contracts/{contract_id}/feedback": "BDBBBDDDBBBBBBDDDDDDDDDDD",
@@ -51,6 +52,7 @@
   "POST /api/care/contracts/{contract_id}/front-office": "BDDBBDDDBBBDBBDDDDDDDDDDD",
   "POST /api/care/contracts/{contract_id}/redeploy": "BDDBBDDDBBBDBBDDDDDDDDDDD",
   "POST /api/care/contracts/{contract_id}/tech-cards": "BDDBBDDDBBBDBBDDDDDDDDDDD",
+  "POST /api/care/tech-cards/{card_id}/link": "BDDBBDDDBBBDBBDDDDDDDDDDD",
   "POST /api/care/vendors": "BDDBBDDDBBBDBBDDDDDDDDDDD",
   "PUT /api/care/clients/{client_id}/default-owner": "BDDBBDDDBBBDBBDDDDDDDDDDD",
   "PUT /api/care/contracts/{contract_id}/owner": "BDDBBDDDBBBDBBDDDDDDDDDDD",
