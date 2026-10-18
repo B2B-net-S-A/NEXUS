@@ -39,6 +39,11 @@ ENV NEXT_PUBLIC_PREVIEW_PUBLIC=${NEXT_PUBLIC_PREVIEW_PUBLIC}
 ENV SENTRY_AUTH_TOKEN=${SENTRY_AUTH_TOKEN}
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV NODE_ENV=production
+# `next build` po module „Ludzie w NEXUSIE” (#2304, 18.10.2026) przekroczył
+# domyślny limit sterty Node'a na serwerze („JavaScript heap out of memory”).
+# 6 GB z ~17 GB wolnych przy równoległym budowaniu backendu. Tylko etap
+# budowania — obraz `runner` dostaje własne ENV bez tej zmiennej.
+ENV NODE_OPTIONS=--max-old-space-size=6144
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 # DEP-03: `public/version.json` z SHA builda — smoke test deployu porównuje go
