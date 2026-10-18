@@ -159,6 +159,10 @@ _KNOWN_CONTRACT_FKS = {
     # duplikaty — rozstrzyga ``_resolve_child_duplicates`` (oceny łączone,
     # wiersz zachowanego wygrywa); oceny z różnych rozmów przechodzą wszystkie.
     ("client_feedback_scores", "contract_id"),
+    # „Pomiń” propozycji menedżera u klienta (0474): podpowiedź, nie historia.
+    # Unikat na kontrakt — pominięcia przegranych kasuje
+    # ``_resolve_child_duplicates``, zostaje pominięcie zachowanego.
+    ("client_structure_skips", "contract_id"),
     # Durable offboarding decisions belong to the same candidate/client
     # engagement as their ClientOrder.  During a same-client duplicate merge
     # both rows are reparented to the survivor in this transaction; keeping the
@@ -3090,11 +3094,24 @@ async def _resolve_child_duplicates(
     * ``client_feedback_scores`` — jedna ocena na (rozmowa, kontrakt): wiersz
       zachowanego (a bez niego najstarszy) wygrywa i dostaje brakujące oceny
       z przegranych, przegrane są kasowane. Oceny z innych rozmów (cała
-      historia opinii obu duplikatów) przechodzą bez zmian.
+      historia opinii obu duplikatów) przechodzą bez zmian,
+    * ``client_structure_skips`` — „Pomiń” propozycji menedżera to podpowiedź
+      ekranu, jedna na kontrakt: pominięcia przegranych są kasowane, zachowany
+      trzyma swoje (bez niego propozycja po prostu wraca na listę DL).
     """
     present = {(str(fk["table_name"]), str(fk["column_name"])) for fk in catalog}
     every = [survivor_id, *loser_ids]
     out: dict[str, int] = {}
+
+    if ("client_structure_skips", "contract_id") in present:
+        removed = await db.execute(
+            text(
+                "DELETE FROM client_structure_skips "
+                "WHERE contract_id = ANY(:ids) RETURNING id"
+            ),
+            {"ids": [int(i) for i in loser_ids]},
+        )
+        out["client_structure_skips_removed"] = len(removed.all())
 
     if ("contract_care_plan_items", "contract_id") in present:
         rows = await _child_rows(
