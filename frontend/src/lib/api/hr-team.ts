@@ -76,9 +76,11 @@ export interface TeamPerson {
   user_id: number;
   name: string;
   job_title: string | null;
-  employment_type: EmploymentType;
-  /** Uczeń/student na zleceniu (D8) — sam znacznik; daty widzą Kadry i Płace. */
-  student?: boolean;
+  /** `null` — Kadry bez Płac oglądające cudzy zespół formy nie dostają (19.10.2026). */
+  employment_type: EmploymentType | null;
+  employment_type_pending?: boolean;
+  /** Uczeń/student na zleceniu (D8) — sam znacznik; daty widzą osoba i Płace. */
+  student?: boolean | null;
   employment_status: EmploymentStatus;
   last_working_day: string | null;
   today: TeamToday | null;

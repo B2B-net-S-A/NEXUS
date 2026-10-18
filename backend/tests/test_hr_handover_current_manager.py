@@ -182,7 +182,7 @@ async def test_reports_follow_manager_changed_in_structure(modules_on) -> None:
             db, user_ids=[ids["leader"]], manager_user_id=ids["boss2"], actor=hr
         )
         await db.commit()
-        tree = await structure.structure(db)
+        tree = await structure.structure(db, hr)
     leaving = next(r for r in tree["people"] if r["user_id"] == ids["leader"])[
         "leaving"
     ]

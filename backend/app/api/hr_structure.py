@@ -56,8 +56,10 @@ _MISSING_PROFILES = "Część wybranych osób nie ma kartoteki — odśwież str
 
 
 @router.get("")
-async def get_structure(_: HrPeopleAdmin, db: AsyncSession = Depends(get_db)) -> dict:
-    return await service.structure(db)
+async def get_structure(
+    current_user: HrPeopleAdmin, db: AsyncSession = Depends(get_db)
+) -> dict:
+    return await service.structure(db, current_user)
 
 
 @router.post("/reassign")

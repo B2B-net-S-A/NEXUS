@@ -14,7 +14,7 @@ import {
   type EmploymentType,
   type HrConfig,
   type HrModuleKey,
-  type PersonFull,
+  type OwnProfile,
 } from "@/lib/api/hr";
 import { coordinatorLabel, employmentTerms } from "@/lib/hr-employment-terms";
 import { useUrlSyncedState, useUrlWriter } from "@/lib/url-selection";
@@ -117,7 +117,7 @@ export function myTimeTabs(
   ];
 }
 
-function ProfileCard({ person, leaveOpen }: { person: PersonFull; leaveOpen: boolean }) {
+function ProfileCard({ person, leaveOpen }: { person: OwnProfile; leaveOpen: boolean }) {
   const year = warsawYear();
   const pool = person.entitlements?.find((row) => row.year === year);
   // B2B i zlecenie nie mają urlopu w rozumieniu Kodeksu pracy (17.10.2026).

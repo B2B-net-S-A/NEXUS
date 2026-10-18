@@ -86,7 +86,16 @@ export interface LeaveEntitlementRow {
 }
 
 export interface PersonFull extends PersonCard {
-  employment_type: EmploymentType;
+  /**
+   * Forma umowy — `null`: ukryta (widzą ją tylko osoba, jej przełożony, admin
+   * i Finanse — `people.form_viewer`, 19.10.2026). Przy `employment_type_pending`
+   * to tylko domyślne B2B — ekrany mówią „do uzupełnienia”.
+   */
+  employment_type: EmploymentType | null;
+  /** Forma do uzupełnienia (kartoteka założona z konta) — nie zdradza formy. */
+  employment_type_pending: boolean;
+  /** Przełożony do uzupełnienia (kartoteka z konta bez przełożonego). */
+  manager_pending?: boolean;
   hired_on: string | null;
   work_start_date: string | null;
   last_working_day: string | null;
@@ -96,9 +105,9 @@ export interface PersonFull extends PersonCard {
   /** Uczeń/student na zleceniu bez składek ZUS do `contribution_exempt_until` (D8). */
   student_contribution_exempt?: boolean;
   /**
-   * Pola Kadr — stąd do `suggested_entitlement_days`. Przełożony dostaje je
-   * bez kluczy (`HR_ONLY_FIELDS` w `services/hr/people.py`): brak pola = nie
-   * dla niego, `null` = Kadry nie uzupełniły.
+   * Pola zależne od formy — stąd do `suggested_entitlement_days`. Przełożony
+   * i Kadry bez Płac dostają je bez kluczy (`HR_ONLY_FIELDS` w
+   * `services/hr/people.py`): brak pola = nie dla czytającego, `null` = nieuzupełnione.
    */
   contribution_exempt_until?: string | null;
   /** Dzień po końcu zwolnienia — od niego Płace naliczają składki. */
@@ -113,6 +122,9 @@ export interface PersonFull extends PersonCard {
 }
 
 export type Person = PersonCard | PersonFull;
+
+/** Własna kartoteka (`/api/hr/me`) — osoba zawsze widzi swoją formę. */
+export type OwnProfile = PersonFull & { employment_type: EmploymentType };
 
 export function isFullPerson(person: Person): person is PersonFull {
   return person.scope === "full";
@@ -185,6 +197,7 @@ export const hrKeys = {
   person: (userId: number) => ["hr", "people", userId] as const,
   me: ["hr", "me"] as const,
   withoutProfile: ["hr", "admin", "users-without-profile"] as const,
+  accountMismatches: ["hr", "people", "account-mismatches"] as const,
   daysOff: (year: number | null) => ["hr", "admin", "days-off", year] as const,
   availabilitySource: ["hr", "admin", "availability-source"] as const,
   counts: ["hr", "counts"] as const,
@@ -234,7 +247,7 @@ export function useMyHrProfile() {
     queryFn: async () =>
       (
         await api.get<
-          ({ has_profile: true } & PersonFull) | { has_profile: false }
+          ({ has_profile: true } & OwnProfile) | { has_profile: false }
         >("/api/hr/me")
       ).data,
   });
@@ -250,6 +263,75 @@ export function useUsersWithoutProfile(enabled: boolean) {
         }>("/api/hr/admin/users-without-profile")
       ).data.items,
     enabled,
+  });
+}
+
+/** Rozjazd kartoteka ↔ konto NEXUSA (decyzja Artura 19.10.2026: konto decyduje). */
+export interface AccountMismatch {
+  user_id: number;
+  name: string;
+  email: string;
+  account_active: boolean;
+  /** `null` = aktywne konto bez kartoteki. */
+  employment_status: EmploymentStatus | null;
+  proposed_status: EmploymentStatus;
+  last_working_day: string | null;
+  proposed_last_working_day: string | null;
+  kind: "exit" | "return" | "missing";
+  /** Podwładni do przepięcia w Strukturze (przy „exit”). */
+  reports: number;
+}
+
+export interface AccountMismatches {
+  items: AccountMismatch[];
+  total: number;
+  /** „Do uzupełnienia” w kartotekach: forma i przełożony. */
+  pending: { employment_type: number; manager: number };
+}
+
+export function useAccountMismatches(enabled: boolean) {
+  return useQuery({
+    queryKey: hrKeys.accountMismatches,
+    queryFn: async () =>
+      (await api.get<AccountMismatches>("/api/hr/people/account-mismatches")).data,
+    enabled,
+  });
+}
+
+export function useAlignWithAccounts() {
+  const invalidate = useInvalidatePeople();
+  return useMutation({
+    mutationFn: async (userIds: number[] | null) =>
+      (
+        await api.post<{ aligned: { exit: number; return: number; missing: number } }>(
+          "/api/hr/people/account-mismatches/align",
+          { user_ids: userIds },
+        )
+      ).data.aligned,
+    onSuccess: invalidate,
+  });
+}
+
+export type EmploymentTypeInput = Pick<
+  ProfileFields,
+  | "student_contribution_exempt"
+  | "contribution_exempt_until"
+  | "leave_seniority_years"
+  | "zus_certificate_received_on"
+> & { employment_type: EmploymentType };
+
+/** Forma umowy osobną trasą — admin, Finanse i Kadry (19.10.2026). */
+export function useSetEmploymentType(userId: number) {
+  const invalidate = useInvalidatePeople();
+  return useMutation({
+    mutationFn: async (payload: EmploymentTypeInput) =>
+      (
+        await api.patch<PersonFull>(
+          `/api/hr/people/${userId}/employment-type`,
+          payload,
+        )
+      ).data,
+    onSuccess: invalidate,
   });
 }
 

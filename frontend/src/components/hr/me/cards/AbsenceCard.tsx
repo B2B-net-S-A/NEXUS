@@ -1,6 +1,6 @@
 "use client";
 
-import type { PersonFull } from "@/lib/api/hr";
+import type { OwnProfile } from "@/lib/api/hr";
 import {
   useLeaveBalance,
   useMyLeaveRequests,
@@ -55,7 +55,7 @@ function nextLine(kind: AbsenceCardKind, row: LeaveRequestRow | null): string {
   return `${lead}: ${formatRange(row.start_date, row.end_date)} · ${state}${stand}`;
 }
 
-export function AbsenceCard({ form, year, today }: { form: PersonFull["employment_type"]; year: number; today: string }) {
+export function AbsenceCard({ form, year, today }: { form: OwnProfile["employment_type"]; year: number; today: string }) {
   const balance = useLeaveBalance(year);
   const requests = useMyLeaveRequests();
   const balanceState = stateOf(balance);

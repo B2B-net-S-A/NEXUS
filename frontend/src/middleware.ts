@@ -546,6 +546,8 @@ const PUBLIC_PATHS = [
   "/preview/hr-settlements",
   "/preview/hr-documents",
   "/preview/hr-agreements",
+  // Katalog z listą rozjazdów kartoteka ↔ konto (19.10.2026).
+  "/preview/hr-people",
   "/preview/client-invoicing",
   // Strona kariery (kandydaci z LinkedIna) — publiczna z definicji. Na własnym
   // hoście (`kariera.dynaminds.pl`) obsługuje ją `careerHostResponse` niżej;

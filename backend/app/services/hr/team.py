@@ -394,18 +394,23 @@ async def team_view(
     if not is_open("time"):
         timesheets = {}
 
+    # Forma umowy: przełożony swoich ludzi, admin i Finanse — Kadry oglądające
+    # cudzy zespół jej nie dostają (``people.form_viewer``, 19.10.2026).
+    form = await people.form_viewer(db, viewer)
     people_rows: list[dict[str, Any]] = []
     for profile, user in pairs:
+        shown = people.form_payload(profile, form)
         people_rows.append(
             {
                 "user_id": user.id,
                 "name": user.name,
                 "job_title": profile.job_title,
-                "employment_type": profile.employment_type,
+                "employment_type": shown["employment_type"],
+                "employment_type_pending": shown["employment_type_pending"],
                 "employment_status": profile.employment_status,
                 # Uczeń/student na zleceniu (D8): sam znacznik — daty zwolnienia
-                # ze składek widzą osoba, Kadry i Płace (przegląd 17.10.2026).
-                "student": profile.student_contribution_exempt,
+                # ze składek widzą osoba i Płace (przegląd 17.10.2026).
+                "student": shown.get("student_contribution_exempt"),
                 "last_working_day": profile.last_working_day.isoformat()
                 if profile.last_working_day
                 else None,

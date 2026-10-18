@@ -16,6 +16,12 @@
  *   odejścia;
  * - `colleague` — rekruterka z zespołu: wizytówka; Płace (404) i „Wejście
  *   i odejście” (403) zasiane jako odmowa serwera, więc sekcje się chowają.
+ * - `hr-only` — Kadry bez Płac (19.10.2026): kartoteka bez formy umowy; w „Edytuj
+ *   kartotekę” forma „Bez zmian (forma ukryta)” — można ją zmienić bez podglądu;
+ * - `finance` — Finanse (Płace bez Kadr): forma widoczna, „Zmień formę” zamiast
+ *   „Edytuj kartotekę”;
+ * - `account` — kartoteka założona z konta: forma i przełożony „do uzupełnienia”
+ *   (ogląda Kadry i Płace).
  * Forma Oli (`?form=`, etap 2, D6–D9): `b2b` (domyślnie, płatne dni przerwy
  * z umowy), `zlecenie` (uczeń/student — składki od 01.07.2027, bez puli),
  * `uop` (staż do urlopu 12 lat, zaświadczenie ZUS, podpowiedź wymiaru 26 dni).
@@ -45,12 +51,14 @@ import {
   OLA_EQUIPMENT,
   OLA_RATES,
   harnessDirectory,
+  olaFromAccount,
   olaFull,
+  olaWithoutForm,
   personCard,
   seedHttpError,
 } from "./fixtures";
 
-const AS = ["hr", "manager", "colleague"] as const;
+const AS = ["hr", "manager", "colleague", "hr-only", "finance", "account"] as const;
 type As = (typeof AS)[number];
 const FORMS = ["b2b", "zlecenie", "uop"] as const satisfies readonly EmploymentType[];
 
@@ -60,17 +68,26 @@ const STATES = [
   { key: "hr-uop", label: "UoP: staż do urlopu", href: "?as=hr&form=uop" },
   { key: "manager", label: "Przełożona (bez stawek)" },
   { key: "colleague", label: "Kolega z zespołu (wizytówka)" },
+  { key: "hr-only", label: "Kadry bez Płac (bez formy)" },
+  { key: "finance", label: "Finanse (Zmień formę)" },
+  { key: "account", label: "Z konta: do uzupełnienia" },
 ] as const;
 
 const NOTES: Record<As, string> = {
   hr: "Dane fikcyjne, bez zapytań. Ogląda osoba z uprawnieniami Kadry i Płace.",
   manager: "Dane fikcyjne, bez zapytań. Ogląda przełożona: kartoteka i premie, stawek serwer nie przysyła (D2).",
   colleague: "Dane fikcyjne, bez zapytań. Ogląda osoba z zespołu: tylko wizytówka, sekcje modułów schowane.",
+  "hr-only":
+    "Dane fikcyjne, bez zapytań. Ogląda osoba z Kadrami bez Płac: kartoteka bez formy umowy (19.10.2026).",
+  finance:
+    "Dane fikcyjne, bez zapytań. Ogląda osoba z Płacami bez Kadr: forma widoczna, „Zmień formę”.",
+  account:
+    "Dane fikcyjne, bez zapytań. Kartoteka założona z konta NEXUSA: forma i przełożony do uzupełnienia.",
 };
 
-const { ola, paulina, marta, ewa } = HR_CAST;
+const { ola, paulina, marta, ewa, piotr } = HR_CAST;
 
-function payroll(as: Exclude<As, "colleague">): PersonPayroll {
+function payroll(as: Exclude<As, "colleague" | "hr-only">): PersonPayroll {
   const bonuses = closingBonuses(payrollScene()).filter((row) => row.recipient_user_id === ola.id);
   if (as === "manager") {
     return { user_id: ola.id, scope: "team", can_edit_rates: false, can_add_bonus: true, bonuses };
@@ -90,25 +107,41 @@ function prepare(params: URLSearchParams) {
   const as = pickState(params.get("as"), AS, "hr");
   const form = pickState(params.get("form"), FORMS, "b2b");
   const viewer =
-    as === "hr"
+    as === "hr" || as === "account"
       ? { ...paulina, grants: ["people_admin" as const, "payroll" as const] }
-      : as === "manager"
-        ? marta
-        : ewa;
+      : as === "hr-only"
+        ? { ...paulina, grants: ["people_admin" as const] }
+        : as === "finance"
+          ? { ...piotr, grants: ["payroll" as const] }
+          : as === "manager"
+            ? marta
+            : ewa;
   const config: HrConfig =
-    as === "hr"
+    as === "hr" || as === "account"
       ? hrConfig({ people_admin: true, payroll: true })
-      : as === "manager"
-        ? hrConfig({ is_manager: true, direct_reports: MARTA_REPORTS.size })
-        : hrConfig();
+      : as === "hr-only"
+        ? hrConfig({ people_admin: true })
+        : as === "finance"
+          ? hrConfig({ payroll: true, has_profile: false })
+          : as === "manager"
+            ? hrConfig({ is_manager: true, direct_reports: MARTA_REPORTS.size })
+            : hrConfig();
+  const shown =
+    as === "colleague"
+      ? personCard(ola)
+      : as === "hr-only"
+        ? olaWithoutForm()
+        : as === "account"
+          ? olaFromAccount()
+          : olaFull(form);
   const client = harnessQueryClient();
   client.setQueryData(hrKeys.config, config);
   client.setQueryData(hrKeys.people, harnessDirectory());
-  client.setQueryData(hrKeys.person(ola.id), as === "colleague" ? personCard(ola) : olaFull(form));
+  client.setQueryData(hrKeys.person(ola.id), shown);
   // E-teczka i umowy (etap 5) — puste, ten harness pokazuje kartotekę.
   client.setQueryData(documentKeys.person(ola.id), {
     user_id: ola.id,
-    can_manage: as === "hr",
+    can_manage: as === "hr" || as === "hr-only" || as === "account",
     documents: [],
     protocols: [],
   });
@@ -122,11 +155,21 @@ function prepare(params: URLSearchParams) {
     seedHttpError(client, lifecycleKeys.summary(ola.id), 403, "Brak dostępu do tej sprawy.");
     seedHttpError(client, payrollKeys.person(ola.id), 404, "Nie ma takiej osoby w Płacach.");
   } else {
-    client.setQueryData(lifecycleKeys.summary(ola.id), { case: null, can_manage: as === "hr" });
-    client.setQueryData(payrollKeys.person(ola.id), payroll(as));
+    client.setQueryData(lifecycleKeys.summary(ola.id), {
+      case: null,
+      can_manage: as === "hr" || as === "hr-only" || as === "account",
+    });
+    if (as === "hr-only") {
+      // Kadry bez Płac: sekcji „Płace” serwer odmawia — chowa się.
+      seedHttpError(client, payrollKeys.person(ola.id), 403, "Płace widzą Finanse.");
+    } else {
+      client.setQueryData(payrollKeys.person(ola.id), payroll(as));
+    }
   }
   // Panel sprzętu montuje się tylko dla Kadr, recepcji i admina.
-  if (as === "hr") client.setQueryData(equipmentKeys.person(ola.id), OLA_EQUIPMENT);
+  if (as === "hr" || as === "hr-only" || as === "account") {
+    client.setQueryData(equipmentKeys.person(ola.id), OLA_EQUIPMENT);
+  }
   return { user: viewer, client, value: { as, config, form } };
 }
 

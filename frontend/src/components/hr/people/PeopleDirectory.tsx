@@ -36,6 +36,7 @@ import { resolveViewState } from "@/lib/view-state";
 import { AbsenceBadge } from "@/components/hr/AbsenceBadge";
 import { useAbsences } from "@/lib/api/hr-leave";
 
+import { AccountMismatchesPanel } from "./AccountMismatchesPanel";
 import { AddPersonDialog } from "./AddPersonDialog";
 import { STATUS_TONE, personInitials } from "./hr-format";
 
@@ -45,6 +46,11 @@ const MODULE_OFF_NOTICE =
 /** „Składa raport godzin” — tylko w pełnym zakresie (Kadry); `null` = nie widać. */
 export function timesheetRequired(person: Person): boolean | null {
   return isFullPerson(person) ? person.timesheet_required : null;
+}
+
+/** Kartoteka „do uzupełnienia” (z konta): forma albo przełożony — bez zdradzania formy. */
+export function needsCompletion(person: Person): boolean {
+  return isFullPerson(person) && (person.employment_type_pending || Boolean(person.manager_pending));
 }
 
 /** Katalog ludzi: wizytówki osób zatrudnionych (pełne dane w zakresie czytającego). */
@@ -58,6 +64,8 @@ export function PeopleDirectory({ config }: { config: HrConfig }) {
   const canAdd = config.me.people_admin;
   // Hurtowa flaga raportu godzin (Kadry): zaznacz osoby → „tak / nie”.
   const canBulk = canAdd;
+  // Rozjazdy kartoteka ↔ konto: admin, Finanse i Kadry (19.10.2026).
+  const seesAccounts = config.me.people_admin || config.me.payroll || config.me.is_admin;
   const absences = useAbsences(
     (people.data?.items ?? []).map((row) => row.user_id),
     { enabled: config.open_modules.leave },
@@ -193,6 +201,8 @@ export function PeopleDirectory({ config }: { config: HrConfig }) {
         ) : null}
       </div>
 
+      {seesAccounts ? <AccountMismatchesPanel /> : null}
+
       {canBulk && selected.size > 0 ? (
         <div
           role="region"
@@ -307,6 +317,11 @@ export function PeopleDirectory({ config }: { config: HrConfig }) {
                     <StatusDot tone={STATUS_TONE[row.employment_status]}>
                       {EMPLOYMENT_STATUS_LABELS[row.employment_status]}
                     </StatusDot>
+                    {needsCompletion(row) ? (
+                      <span className={`${CALM_SUBLINE} text-warning-muted-foreground`}>
+                        do uzupełnienia
+                      </span>
+                    ) : null}
                   </TableCell>
                   {canBulk ? (
                     <TableCell>
