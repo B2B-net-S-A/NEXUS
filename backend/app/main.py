@@ -35,6 +35,9 @@ import app.models  # noqa: F401
 # w transakcji zmiany.
 import app.services.integration_events  # noqa: F401
 
+# Kartoteka idzie za kontem (listener ``after_flush`` na ``users.is_active``).
+import app.services.hr.account_profiles  # noqa: F401
+
 from app.api import (
     auth,
     candidates,

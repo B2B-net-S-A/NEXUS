@@ -161,6 +161,8 @@ async def test_student_flag_only_on_mandate_and_uop_fields_only_on_uop(
     async with AsyncSessionLocal() as db:
         hr = await make_user(db, "recruiter", profile=False)
         await grant(db, hr, "people_admin")
+        # Daty zależne od formy widzą Finanse (19.10.2026) — Kadry z Płacami.
+        await grant(db, hr, "payroll")
         person = await make_user(db, employment_type="zlecenie")
         contractor = await make_user(db, employment_type="b2b")
         worker = await make_user(db, employment_type="uop")
@@ -246,6 +248,8 @@ async def test_structure_and_team_show_when_contributions_start(app_client) -> N
     async with AsyncSessionLocal() as db:
         hr = await make_user(db, "recruiter", profile=False)
         await grant(db, hr, "people_admin")
+        # Formę w Strukturze widzą admin i Finanse (19.10.2026).
+        await grant(db, hr, "payroll")
         boss = await make_user(db, "delivery_lead", employment_type="uop")
         student = await make_user(
             db,
@@ -262,7 +266,7 @@ async def test_structure_and_team_show_when_contributions_start(app_client) -> N
     team = await app_client.get("/api/hr/team", headers=headers(boss))
     assert team.status_code == 200, team.text
     member = next(p for p in team.json()["people"] if p["user_id"] == student.id)
-    # Przełożony widzi sam znacznik; datę — Kadry w Strukturze (17.10.2026).
+    # Przełożony widzi sam znacznik; datę — Finanse w Strukturze (19.10.2026).
     assert member["student"] is True and "contributions_from" not in member
 
 

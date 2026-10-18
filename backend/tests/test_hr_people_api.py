@@ -190,7 +190,9 @@ async def test_people_admin_grant_opens_profile_creation(
         "/api/hr/admin/profiles", json=payload, headers=_headers(hr)
     )
     assert created.status_code == 201, created.text
-    assert created.json()["employment_type"] == "uop"
+    # Kadry bez Płac zapisują formę, ale jej nie widzą (decyzja Artura 19.10.2026).
+    assert created.json()["employment_type"] is None
+    assert created.json()["employment_type_pending"] is False
     assert created.json()["default_location"] == "remote"
 
     again = await app_client.post(

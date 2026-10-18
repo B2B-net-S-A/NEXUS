@@ -127,6 +127,15 @@ class EmployeeProfile(Base, TimestampMixin):
     zus_certificate_received_on: Mapped[Optional[date]] = mapped_column(
         Date, nullable=True
     )
+    #: Forma „do uzupełnienia” — kartotekę założył automat z konta (0476);
+    #: ``employment_type`` ma wtedy tylko wartość domyślną.
+    employment_type_pending: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    #: Kartotekę założył automat z aktywnego konta (decyzja Artura 19.10.2026).
+    created_from_account: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
     compass_profile_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         UUID(as_uuid=True), nullable=True
     )

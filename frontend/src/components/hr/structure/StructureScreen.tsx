@@ -284,8 +284,13 @@ function PersonRow({
           <span className="text-xs text-muted-foreground">
             {[
               person.job_title,
-              EMPLOYMENT_TYPE_SHORT[person.employment_type],
+              person.employment_type_pending
+                ? "forma do uzupełnienia"
+                : person.employment_type
+                  ? EMPLOYMENT_TYPE_SHORT[person.employment_type]
+                  : null,
               person.student ? "student" : null,
+              person.manager_pending ? "przełożony do uzupełnienia" : null,
             ]
               .filter(Boolean)
               .join(" · ")}

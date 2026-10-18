@@ -114,7 +114,7 @@ async def create_profile(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Nie ma takiego konta.") from exc
     await db.commit()
     row = await people.person_row(db, payload.user_id)
-    return people.full_payload(row)
+    return people.full_payload(row, form=await people.form_viewer(db, current_user))
 
 
 @router.patch("/profiles/{user_id}")
@@ -138,7 +138,7 @@ async def update_profile(
         ) from exc
     await db.commit()
     row = await people.person_row(db, user_id)
-    return people.full_payload(row)
+    return people.full_payload(row, form=await people.form_viewer(db, current_user))
 
 
 @router.post("/profiles/timesheet-required")

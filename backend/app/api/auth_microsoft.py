@@ -63,6 +63,7 @@ from app.services.aad_role_policy import (
 from app.services.admin_active_decision import latest_admin_active_decision
 from app.services.admin_membership import protect_active_admin_membership
 from app.services.finance_role_cleanup import clear_recruitment_access_for_finance
+from app.services.hr import account_profiles
 from app.services.m365 import oauth as m365_oauth
 from app.services.onboarding_access import onboarding_persona_changed
 from app.services.section_permissions import resolve_effective_section_access
@@ -1090,6 +1091,10 @@ async def callback(
 
     await db.flush()
     user_id = user.id
+    # „Ludzie w NEXUSIE”: aktywne konto pracownicze ma kartotekę (19.10.2026).
+    await account_profiles.ensure_profile_on_account(
+        db, user, actor_id=None, source="sso_login"
+    )
     await resolve_effective_section_access(db, user)
 
     # Issue Nexus JWTs.

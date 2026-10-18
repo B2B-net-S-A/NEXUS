@@ -189,7 +189,8 @@ def _iso(value: Optional[date]) -> Optional[str]:
     return value.isoformat() if value else None
 
 
-async def structure(db: AsyncSession) -> dict[str, Any]:
+async def structure(db: AsyncSession, viewer: User) -> dict[str, Any]:
+    form = await people.form_viewer(db, viewer)
     rows = (
         await db.execute(
             select(EmployeeProfile, User)
@@ -285,6 +286,7 @@ async def structure(db: AsyncSession) -> dict[str, Any]:
                 "last_working_day": leave["last_working_day"].isoformat(),
                 "reports_receiver_name": receiver.name if receiver else None,
             }
+        shown = people.form_payload(profile, form)
         people_rows.append(
             {
                 "user_id": user.id,
@@ -292,12 +294,15 @@ async def structure(db: AsyncSession) -> dict[str, Any]:
                 "email": user.email,
                 "job_title": profile.job_title,
                 "department": profile.department,
-                "employment_type": profile.employment_type,
+                # Forma tylko dla admina i Finansów (Struktura = Kadry i admin).
+                "employment_type": shown["employment_type"],
+                "employment_type_pending": shown["employment_type_pending"],
                 "employment_status": profile.employment_status,
                 "division": profile.division,
                 # Uczeń/student na zleceniu (D8): plakietka „składki od …”.
-                "student": profile.student_contribution_exempt,
-                "contributions_from": _iso(people.contributions_from(profile)),
+                "student": shown.get("student_contribution_exempt"),
+                "contributions_from": _iso(shown.get("contributions_from")),
+                "manager_pending": people.manager_pending(profile),
                 "manager_user_id": profile.manager_user_id,
                 "manager_name": manager.name if manager else None,
                 "manager_state": manager_state(profile.manager_user_id),

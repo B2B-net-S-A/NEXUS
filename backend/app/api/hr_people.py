@@ -4,26 +4,31 @@
   (front decyduje, co pokazać w menu; serwer i tak sprawdza każdą trasę),
 * ``GET /api/hr/people`` — katalog: wizytówki osób zatrudnionych,
 * ``GET /api/hr/people/{user_id}`` — kartoteka w zakresie czytającego
-  (sama osoba, przełożony i Kadry widzą całość; reszta wizytówkę),
+  (sama osoba, przełożony, Kadry i Finanse widzą całość; reszta wizytówkę;
+  formę umowy tylko osoba, przełożony, admin i Finanse — ``people.form_viewer``),
 * ``GET /api/hr/me`` — własna kartoteka (pusta, gdy osoba jej nie ma).
 """
 
 from __future__ import annotations
 
+from datetime import date
+from typing import Optional
+
 from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.hr_gates import HrConfigReader, HrPeopleReader
+from app.api.hr_gates import HrConfigReader, HrPeopleReader, HrPeopleRecords
 from app.core.database import get_db
 from app.core.scheduling import business_today
 from app.models.user import UserRole
 from app.services.action_permissions import ProductAction, has_permission
 from app.services.hr import modules as hr_modules
 from app.services.admin_cases import service as admin_cases_service
-from app.services.hr import leave_substitute, people
+from app.services.hr import account_profiles, leave_substitute, people
 from app.services.hr.lifecycle_templates import is_back_office_head
 from app.services.hr.program import program_enabled
-from app.services.hr_foundation_schema import EmploymentStatus
+from app.services.hr_foundation_schema import EmploymentStatus, EmploymentType
 
 router = APIRouter()
 
@@ -95,19 +100,86 @@ async def list_people(
     current_user: HrPeopleReader, db: AsyncSession = Depends(get_db)
 ) -> dict:
     rows = await people.directory(db)
-    admin = people.is_people_admin(current_user)
-    # Ta sama reguła co „Mój zespół”: kto odszedł, nie ma podwładnych.
-    reports = await people.direct_report_ids(db, current_user.id)
+    form = await people.form_viewer(db, current_user)
+    # Kadry i Finanse widzą całe kartoteki; przełożony — swoich ludzi (ta sama
+    # reguła co „Mój zespół”: kto odszedł, nie ma podwładnych).
+    everyone = people.is_people_admin(current_user) or form.everyone
     items = []
     for row in rows:
-        own_report = row.user.id in reports
-        if admin or row.user.id == current_user.id:
-            items.append({**people.full_payload(row), "scope": "full"})
-        elif own_report:
-            items.append({**people.full_payload(row, hr_fields=False), "scope": "full"})
+        if everyone or form.sees(row.user.id):
+            items.append({**people.full_payload(row, form=form), "scope": "full"})
         else:
             items.append({**people.card_payload(row), "scope": "card"})
     return {"items": items, "total": len(items)}
+
+
+class AlignIn(BaseModel):
+    #: ``None`` = wszystkie rozjazdy z listy.
+    user_ids: Optional[list[int]] = Field(default=None, max_length=500)
+
+
+class EmploymentTypeIn(BaseModel):
+    employment_type: EmploymentType
+    student_contribution_exempt: Optional[bool] = None
+    contribution_exempt_until: Optional[date] = None
+    leave_seniority_years: Optional[int] = Field(default=None, ge=0, le=60)
+    zus_certificate_received_on: Optional[date] = None
+
+
+@router.get("/people/account-mismatches")
+async def account_mismatches(
+    _: HrPeopleRecords, db: AsyncSession = Depends(get_db)
+) -> dict:
+    """Rozjazdy kartoteka ↔ konto NEXUSA i liczniki „do uzupełnienia”."""
+
+    items = [item.payload() for item in await account_profiles.mismatches(db)]
+    return {
+        "items": items,
+        "total": len(items),
+        "pending": await account_profiles.pending_counts(db),
+    }
+
+
+@router.post("/people/account-mismatches/align")
+async def align_with_accounts(
+    payload: AlignIn, current_user: HrPeopleRecords, db: AsyncSession = Depends(get_db)
+) -> dict:
+    """„Wyrównaj wg konta” — konto decyduje (decyzja Artura 19.10.2026)."""
+
+    counts = await account_profiles.align(
+        db,
+        actor=current_user,
+        user_ids=set(payload.user_ids) if payload.user_ids is not None else None,
+    )
+    await db.commit()
+    return {"aligned": counts}
+
+
+@router.patch("/people/{user_id}/employment-type")
+async def set_employment_type(
+    user_id: int,
+    payload: EmploymentTypeIn,
+    current_user: HrPeopleRecords,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Forma umowy i pola od niej zależne — admin, Finanse i Kadry."""
+
+    try:
+        await people.update_profile(
+            db,
+            user_id=user_id,
+            values=payload.model_dump(exclude_unset=True),
+            actor=current_user,
+        )
+    except people.HrPeopleError as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
+    except LookupError as exc:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND, "Nie ma takiej kartoteki."
+        ) from exc
+    await db.commit()
+    row = await people.person_row(db, user_id)
+    return people.full_payload(row, form=await people.form_viewer(db, current_user))
 
 
 @router.get("/people/{user_id}")
@@ -123,9 +195,7 @@ async def get_person(
         scope = "card"
     if scope == "full":
         payload = people.full_payload(
-            row,
-            hr_fields=user_id == current_user.id
-            or people.is_people_admin(current_user),
+            row, form=await people.form_viewer(db, current_user)
         )
         payload["entitlements"] = [
             {
@@ -148,7 +218,7 @@ async def my_profile(
     row = await people.person_row(db, current_user.id)
     if row is None:
         return {"has_profile": False}
-    payload = people.full_payload(row)
+    payload = people.full_payload(row, form=await people.form_viewer(db, current_user))
     payload["entitlements"] = [
         {
             "year": e.year,
