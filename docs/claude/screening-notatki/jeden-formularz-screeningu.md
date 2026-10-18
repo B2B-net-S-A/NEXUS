@@ -42,6 +42,9 @@ Kontrakt: `docs/screening-form-contract.md`, raport: `docs/screening-form-comple
   ruszona stawka nie wraca po odświeżeniu; stawka z notatki z rozmowy zastępuje wpis na start. Do tej daty
   zapis porównywał pole ze stawką z karty i gubił ją — etap zostawał bez stawki (`buildSavePayload`
   porównuje teraz tylko ze stawką etapu, jak serwer).
+  Od 18.10.2026 sama stawka na start nie zapala w stopce „Niezapisane zmiany” (`model.unsaved`): formularz
+  otwarty bez żadnej edycji wyglądał na zmieniony. Zapis nadal ją niesie; „Niezapisane zmiany” wraca, gdy
+  rekruter ruszy cokolwiek, także stawkę na inną kwotę.
 - **Stawka na start = najniższa znana (R1–R3, 17.10.2026, zgłoszenie Artura: formularz wpisał 140 przy
   zadeklarowanych 90 i budżecie 135).** Kolejność z D2 zmieniona: najpierw stawka z karty TEJ rekrutacji (kandydat
   powiedział ją o tę rolę — notatka już jej nie zastępuje), przy żywej umowie (`rate_hints.rate_from_source =

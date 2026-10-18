@@ -199,6 +199,12 @@ export interface ScreeningFormModel {
   ratePrefilled: RatePrefill | null;
   /** Rekruter sam ruszył stawkę — formularz nie wpisze jej ponownie. */
   touchRate: () => void;
+  /**
+   * Zmiany rekrutera (albo wypełnienie z notatki) czekają na zapis. Sama stawka
+   * na start się nie liczy: zapisze się z „Zapisz”, ale stopka nie mówi
+   * „Niezapisane zmiany” zaraz po otwarciu (przeklikanie 18.10.2026).
+   */
+  unsaved: boolean;
   notice: string | null;
   setNotice: (notice: string | null) => void;
   /** Wypełnia puste miejsca z notatki; mówi, ile wypełnił i ile czeka na „Użyj”. */
@@ -493,6 +499,19 @@ export function useScreeningFormModel(
     clearNote();
   }, [note, methods, clearNote]);
 
+  // `watch` subskrybuje pola stawki — inna kwota wpisana ręcznie zmienia wynik,
+  // choć `dirtyFields` zostaje to samo.
+  const watchedRate = methods.watch(["rate_amount", "rate_unit", "rate_currency"]);
+  const dirtyKeys = Object.keys(methods.formState.dirtyFields);
+  const onlyPrefilledRate =
+    ratePrefilled != null &&
+    dirtyKeys.every((k) => k.startsWith("rate_")) &&
+    sameRate(
+      rateFromValues({ rate_amount: watchedRate[0], rate_unit: watchedRate[1], rate_currency: watchedRate[2] }),
+      ratePrefilled.rate,
+    );
+  const unsaved = (dirty && !onlyPrefilledRate) || note != null;
+
   return {
     methods,
     questions,
@@ -502,6 +521,7 @@ export function useScreeningFormModel(
     rateFromNote,
     ratePrefilled,
     touchRate,
+    unsaved,
     notice,
     setNotice,
     applyNote,
@@ -1122,7 +1142,7 @@ export function ScreeningFullForm({
   const [rejectSnapshot, setRejectSnapshot] = useState<RejectFollowUp | undefined>(undefined);
   const [forwarding, setForwarding] = useState(false);
   const [handingBack, setHandingBack] = useState(false);
-  const dirty = methods.formState.isDirty || model.note != null;
+  const dirty = model.unsaved;
 
   // Błąd „wpisz, dlaczego ten kandydat” (rekrutacja bez pytań) znika, gdy pole
   // dostaje treść — formularz nie ma walidacji przy zmianie, więc sam by został.

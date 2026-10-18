@@ -374,13 +374,15 @@ describe("BoardTasksPanel — „Czeka na Ciebie” na pulpicie", () => {
       "href",
       "/calendar?cycle=21-31",
     );
-    expect(items[0]).toHaveTextContent("Java Developer · Prep 1");
-    expect(items[0]).toHaveTextContent("brak prepu");
+    expect(items[0]).toHaveTextContent("Java Developer");
+    // Plakietka mówi, KTÓREGO prepu brakuje — przy zaplanowanym Prepie 1
+    // „brak prepu” wyglądało jak brak obu (przeklikanie 18.10.2026).
+    expect(items[0]).toHaveTextContent("brak Prepu 1");
     expect(items[0]).toHaveTextContent("pilne");
     // 08:00 UTC = 10:00 w Warszawie (czas letni).
     expect(items[0]).toHaveTextContent("10:00");
-    expect(items[1]).toHaveTextContent("Tester · Prep 2");
-    expect(items[1]).toHaveTextContent("prep bez nagrania");
+    expect(items[1]).toHaveTextContent("Tester");
+    expect(items[1]).toHaveTextContent("Prep 2 bez nagrania");
     expect(items[1]).not.toHaveTextContent("pilne");
   });
 

@@ -255,12 +255,22 @@ export interface PrepAttentionRow {
   urgent: boolean;
 }
 
-export const PREP_ATTENTION_REASON_LABEL: Record<PrepAttentionReason, string> = {
-  missing: "brak prepu",
-  late: "prep po rozmowie",
-  weak: "prep słaby",
-  unrecorded: "prep bez nagrania",
-};
+/** Plakietka wiersza mówi, którego prepu dotyczy: przy zaplanowanym Prepie 1
+ *  „brak prepu” czytało się jak brak obu (przeklikanie 18.10.2026). Te same
+ *  słowa co tytuł dzwonka w `notification_triggers.py`. */
+export function prepAttentionLabel(row: Pick<PrepAttentionRow, "reason" | "prep_no">): string {
+  const n = row.prep_no;
+  switch (row.reason) {
+    case "missing":
+      return `brak Prepu ${n}`;
+    case "late":
+      return `Prep ${n} po rozmowie`;
+    case "weak":
+      return `Prep ${n} słaby`;
+    case "unrecorded":
+      return `Prep ${n} bez nagrania`;
+  }
+}
 
 /** Karta kandydata w kalendarzu „Rozmowy u klienta” (`?cycle=c-j`). */
 export function prepAttentionLink(row: Pick<PrepAttentionRow, "candidate_id" | "job_id">): string {
