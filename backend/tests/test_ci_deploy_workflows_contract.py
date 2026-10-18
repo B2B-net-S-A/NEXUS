@@ -211,11 +211,26 @@ def test_deploy_version_summary_runs_always() -> None:
     checkout = _step(steps, "Checkout (tylko .github/scripts)")
     assert checkout["with"]["sparse-checkout"] == ".github/scripts"
     precheck = _step(steps, "Skip if release already live (burst coalescing)")
+    # 18.10.2026: pomijanie rebuildu dotyczy też ręcznego biegu; omija je
+    # tylko `force_rebuild=true`. Regułę ma skrypt, nie powłoka.
     assert precheck["if"] == (
-        "${{ github.event_name != 'workflow_dispatch' || env.WINDOW_SLOT == 'true' }}"
+        "${{ !(github.event_name == 'workflow_dispatch' && "
+        "(inputs.force_rebuild == true || inputs.force_rebuild == 'true')) }}"
     )
-    assert '[ "$version" = "$RELEASE_SHA" ]' in precheck["run"]
-    assert precheck["run"].count('echo "skip=true" >> "$GITHUB_OUTPUT"') == 1
+    assert "deploy_needed.py" in precheck["run"]
+    assert 'echo "skip=true"' not in precheck["run"]
+    run = precheck["run"]
+    assert run.index('echo "skip=false"') < run.index("deploy_needed.py")
+    # Wartości zmiennych (sekrety) nie lądują w pliku — tylko klucz i data zmiany.
+    assert "{key, updated_at}" in precheck["run"]
+    assert precheck["env"]["ENV_UNKNOWN"] == (
+        "${{ (github.event_name != 'workflow_dispatch' || env.WINDOW_SLOT == 'true') "
+        "&& '--env-unknown-is-unchanged' || '' }}"
+    )
+    # Skrypt szuka tych kroków w historii biegów po nazwie.
+    names = [s.get("name") for s in steps]
+    assert "Trigger deployment" in names
+    assert "Wait for deployment to finish (fail fast on server-side failure)" in names
 
 
 # ── F03: pomiar przerwy (plan skracania przerwy, Etap 0) ──────────────────
