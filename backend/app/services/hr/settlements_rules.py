@@ -14,12 +14,18 @@ Czyste funkcje (testy bez bazy w ``tests/test_hr_settlements_rules.py``):
   (R4: NEXUS nie liczy podatków ani składek),
 * **co blokuje zatwierdzenie** (R7, R10) — różnica netto choćby o grosz,
   brutto, które nie wynika z netto i VAT (płacimy brutto, porównujemy netto),
-  i rachunek spoza białej listy VAT.
+  i rachunek spoza białej listy VAT,
+* **od którego miesiąca** — ``settlements_since`` („RRRR-MM”) w ustawieniach
+  płatności: wcześniejsze miesiące płac to archiwum sprzed NEXUSA (wypłacone
+  w Compassie). Ich zamknięcie nie zakłada rozliczeń, a premia z nich jest
+  wypłacona, gdy miesiąc jest zamknięty (reguła sprzed modułu). Brak albo zła
+  wartość = bez progu (19.10.2026, produkcja: 2026-10).
 """
 
 from __future__ import annotations
 
 import calendar
+import re
 from collections.abc import Iterable
 from datetime import date, timedelta
 from decimal import Decimal
@@ -32,6 +38,9 @@ from app.services.hr.payroll_periods import add_months
 PAYMENT_SETTINGS_KEY = "hr_payment_settings"
 DEFAULT_PAYOUT_DAY = 10
 DEFAULT_TERMS_DAYS = 14
+#: Klucz w ustawieniach płatności: pierwszy miesiąc rozliczany w NEXUSIE.
+SETTLEMENTS_SINCE_KEY = "settlements_since"
+_SINCE = re.compile(r"^(\d{4})-(\d{2})$")
 #: Najwyższa stawka VAT w Polsce — więcej niż 23% netto to nie VAT od usługi.
 VAT_MAX_RATE = Decimal("0.23")
 _CENT = Decimal("0.01")
@@ -94,6 +103,21 @@ def clamp_payout_day(raw: Any) -> int:
     except (TypeError, ValueError):
         return DEFAULT_PAYOUT_DAY
     return day if 1 <= day <= 31 else DEFAULT_PAYOUT_DAY
+
+
+def parse_since(raw: Any) -> Optional[tuple[int, int]]:
+    """``"2026-10"`` → ``(2026, 10)``; brak albo zła wartość = bez progu (``None``)."""
+
+    match = _SINCE.match(raw) if isinstance(raw, str) else None
+    if match is None or not 1 <= int(match.group(2)) <= 12:
+        return None
+    return int(match.group(1)), int(match.group(2))
+
+
+def settled_in_nexus(year: int, month: int, since: Optional[tuple[int, int]]) -> bool:
+    """Czy miesiąc płac rozlicza NEXUS (od ``since``), a nie archiwum sprzed niego."""
+
+    return since is None or (year, month) >= since
 
 
 def payout_date(year: int, month: int, payout_day: Any) -> date:

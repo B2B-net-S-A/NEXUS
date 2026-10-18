@@ -39,9 +39,10 @@ from app.models.hr_settlement import PayrollSettlement
 from app.models.hr_profile import EmployeeProfile
 from app.models.notification import NotificationType
 from app.models.user import User
-from app.services.hr import audit
+from app.services.hr import audit, payroll_periods
 from app.services.hr import modules as hr_modules
 from app.services.hr.notify import notify_each
+from app.services.hr.settlements_rules import settled_in_nexus
 from app.services.hr.payroll_access import PayrollViewer
 from app.services.hr.payroll_errors import (
     PayrollConflict,
@@ -437,6 +438,29 @@ async def paid_flags(
     modules = await hr_modules.load_modules(db)
     if not modules.get(hr_modules.HrModule.settlements):
         return None
+    # Miesiąc sprzed rozliczeń w NEXUSIE: stara reguła (miesiąc zamknięty).
+    from app.services.hr.settlements import load_settlements_since  # cykl importów
+
+    since = await load_settlements_since(db)
+    archive = {
+        bonus.id
+        for bonus in bonuses
+        if not settled_in_nexus(bonus.period_year, bonus.period_month, since)
+    }
+    closed = (
+        await payroll_periods.closed_months(
+            db,
+            sorted(
+                {
+                    (bonus.period_year, bonus.period_month)
+                    for bonus in bonuses
+                    if bonus.id in archive
+                }
+            ),
+        )
+        if archive
+        else set()
+    )
     assigned = [bonus for bonus in bonuses if bonus.status == "assigned"]
     if not assigned:
         return {bonus.id: False for bonus in bonuses}
@@ -462,12 +486,16 @@ async def paid_flags(
     return {
         bonus.id: bonus.status == "assigned"
         and (
-            bonus.recipient_user_id,
-            bonus.currency,
-            bonus.period_year,
-            bonus.period_month,
+            (bonus.period_year, bonus.period_month) in closed
+            if bonus.id in archive
+            else (
+                bonus.recipient_user_id,
+                bonus.currency,
+                bonus.period_year,
+                bonus.period_month,
+            )
+            in paid
         )
-        in paid
         for bonus in bonuses
     }
 

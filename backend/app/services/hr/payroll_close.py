@@ -40,7 +40,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.scheduling import local_now
 from app.models.hr_ops import HrJobRun
 from app.models.hr_payroll import HrBonus, PayrollLine
-from app.services.hr import audit, payroll_time_bridge, settlements
+from app.services.hr import audit, payroll_time_bridge, settlements, settlements_rules
 from app.services.hr import modules as hr_modules
 from app.services.hr.payroll_errors import PayrollConflict, PayrollError
 from app.services.hr.payroll_periods import (
@@ -188,7 +188,12 @@ async def close_month(
     period.closed_at = local_now()
     period.close_count = (period.close_count or 0) + 1
     created: Optional[dict[str, int]] = None
-    if (await hr_modules.load_modules(db)).get(hr_modules.HrModule.settlements):
+    # Miesiąc sprzed rozliczeń w NEXUSIE (archiwum Compassa) zamyka się bez nich.
+    if (await hr_modules.load_modules(db)).get(
+        hr_modules.HrModule.settlements
+    ) and settlements_rules.settled_in_nexus(
+        year, month, await settlements.load_settlements_since(db)
+    ):
         await db.flush()
         created = await settlements.ensure_for_period(db, period, actor_id=actor_id)
     counts = {

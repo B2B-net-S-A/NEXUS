@@ -34,8 +34,10 @@ from tests.hr_settlements_seed import (
     months_ago,
     set_billing,
     settlements_off,  # noqa: F401  (fixture)
+    set_setting,
     settlements_on,  # noqa: F401  (fixture)
 )
+from app.services.hr.settlements_rules import PAYMENT_SETTINGS_KEY
 
 
 async def _ensure(period_id: int) -> dict[str, int]:
@@ -651,6 +653,85 @@ async def test_bonus_rule_stays_closed_month_when_module_off() -> None:
         )
     assert report["bonuses_paid"] == {"PLN": "300.00"}
     assert report["bonuses_rule"] == "closed_month"
+
+
+@pytest.mark.usefixtures("settlements_on")
+@pytest.mark.asyncio
+async def test_archive_month_bonus_stays_closed_month_rule_after_since() -> None:
+    """Premia z miesiąca sprzed startu rozliczeń: wypłacona = miesiąc zamknięty."""
+
+    team = await make_team()
+    old_year, old_month = months_ago(3)
+    year, month = months_ago(2)
+    await set_setting(
+        PAYMENT_SETTINGS_KEY, {"settlements_since": "%04d-%02d" % (year, month)}
+    )
+    try:
+        old_period = await closed_period(old_year, old_month)
+        old_bonus = await add_bonus(
+            team.uop, old_year, old_month, "300.00", assigned_by=team.finance
+        )
+        await add_line(
+            old_period,
+            team.uop,
+            employment_type="uop",
+            hours="0",
+            rate=None,
+            bonus_total="300",
+        )
+        new_period = await closed_period(year, month)
+        new_bonus = await add_bonus(
+            team.uop, year, month, "200.00", assigned_by=team.finance
+        )
+        await add_line(
+            new_period,
+            team.uop,
+            employment_type="uop",
+            hours="0",
+            rate=None,
+            bonus_total="200",
+        )
+        with pytest.raises(settlements.SettlementError):
+            await _ensure(old_period)
+        counts = await _ensure(new_period)
+        assert counts["created"] == 1
+        async with AsyncSessionLocal() as db:
+            from app.models.hr_payroll import HrBonus
+
+            bonuses = [
+                await db.get(HrBonus, old_bonus),
+                await db.get(HrBonus, new_bonus),
+            ]
+            flags = await payroll_bonuses.paid_flags(db, bonuses)
+            report = await my_settlement(
+                db, user_id=team.uop.id, year=old_year, today=date(*months_ago(0), 1)
+            )
+        # Stary miesiąc zamknięty = wypłacona; nowy czeka na opłacone rozliczenie.
+        assert flags == {old_bonus: True, new_bonus: False}
+        if old_year == year:
+            assert report["bonuses_paid"] == {"PLN": "300.00"}
+    finally:
+        await set_setting(PAYMENT_SETTINGS_KEY, None)
+
+
+@pytest.mark.usefixtures("settlements_on")
+@pytest.mark.asyncio
+async def test_broken_settlements_since_means_no_threshold() -> None:
+    team = await make_team()
+    year, month = months_ago(2)
+    await set_setting(PAYMENT_SETTINGS_KEY, {"settlements_since": "październik"})
+    try:
+        period_id = await closed_period(year, month)
+        await add_line(
+            period_id,
+            team.mandate,
+            employment_type="zlecenie",
+            hours="92",
+            rate="32.00",
+        )
+        assert (await _ensure(period_id))["created"] == 1
+    finally:
+        await set_setting(PAYMENT_SETTINGS_KEY, None)
 
 
 # ── Ślad bez rachunku ─────────────────────────────────────────────────────────

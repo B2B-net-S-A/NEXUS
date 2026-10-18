@@ -44,7 +44,7 @@ from app.models.recruitment_allocation import RecruitmentAllocationState
 from app.models.user import User, UserRole
 from app.schemas.job_team import JobRecruiterOut
 from app.services.job_priority import level_of
-from app.services.job_similarity import sent_counts
+from app.services.job_similarity import at_client_counts
 from app.services.job_team import (
     TeamPerson,
     recruiters_for_jobs,
@@ -265,7 +265,7 @@ async def get_request_board(
             )
         ).all()
     )
-    sent = await sent_counts(db, ids)
+    sent = await at_client_counts(db, ids)
     # Jedna reguła „kto pracuje” — także prowadzący i ręczny współpracownik,
     # których w ``job_work_assignments`` nie ma (do 02.10.2026 pulpit czytał
     # samą tabelę przypisań i przy 19 z 20 requestów pokazywał „nikt”).
