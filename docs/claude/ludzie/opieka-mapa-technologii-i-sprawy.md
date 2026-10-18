@@ -264,6 +264,11 @@ Zakładka klienta „Struktura u klienta” (`components/care/ClientPeopleTab.ts
   jako skrzynki do czytania — Graph go nie zna, a autoodpowiedź pokazałaby
   adres, którego nikt nie czyta. Odpowiedź konsultanta idzie na Reply-To
   (home.pl), a do Spraw trafia jej kopia; zwrotki wracają na From (M365).
+- **Wiadomość od administracji** (nadawca = adres widoczny albo skrzynka M365):
+  w wątku istniejącej sprawy dołącza do niej BEZ ponownego otwarcia, poza
+  wątkiem jest pomijana (to nie zgłoszenie). Tak do Spraw trafia odpowiedź
+  wysłana z home.pl, gdy ma administracja@ w kopii (UDW) — sama kopia z home.pl
+  niesie tylko pocztę przychodzącą.
 - Czytnik skrzynki: app-only Graph (wzorzec `order_mail_ingest`), wyłączony, gdy
   nie ma skrzynki M365 (obie zmienne puste), `ADMIN_CASES_MAIL_INGEST_ENABLED ≠ true`
   albo moduł `cases` wyłączony. Potrzebuje tokenu rejestracji HR — rejestracja zamówień ma
