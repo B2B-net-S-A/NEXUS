@@ -83,6 +83,8 @@ describe("BillingDetailsSection", () => {
     const before = { ...data(), account_last4: null, account_source: null };
     const after = { ...before, registry_name: "Działalność Przykładowa", updated_at: "2026-10-18T02:00:00Z" };
     mocks.get.mockResolvedValue({ data: after });
+    // Jak w przeglądarce: hook mutacji czeka na odświeżenie danych (nowe
+    // `updated_at` = przemontowanie formularza), zanim przyjdzie callback.
     mocks.post.mockResolvedValue({
       data: {
         found: true,

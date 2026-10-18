@@ -97,17 +97,21 @@ function BillingForm({
   data,
   found,
   onFound,
+  lookup,
+  pick,
 }: {
   data: BillingDetails;
   /** Wynik sprawdzenia w wykazie — trzymany w sekcji, bo formularz przemontowuje
    *  się po każdej zmianie `updated_at` (także po samym sprawdzeniu). */
   found: WhiteListLookup | null;
   onFound: (lookup: WhiteListLookup | null) => void;
+  /** Mutacje żyją w sekcji: hook najpierw unieważnia dane, formularz się
+   *  przemontowuje, a callback z `mutate()` odmontowanego komponentu nie przychodzi. */
+  lookup: ReturnType<typeof useWhiteListLookup>;
+  pick: ReturnType<typeof useSelectWhiteListAccount>;
 }) {
   const { showToast } = useToast();
   const save = useSaveBilling(data.user_id);
-  const lookup = useWhiteListLookup(data.user_id);
-  const pick = useSelectWhiteListAccount(data.user_id);
   const [nip, setNip] = useState(data.nip ?? "");
   const [terms, setTerms] = useState(String(data.payment_terms_days));
   const [symfonia, setSymfonia] = useState(data.symfonia_id ?? "");
@@ -303,6 +307,8 @@ function BillingReadOnly({ data }: { data: BillingDetails }) {
 export function BillingDetailsSection({ userId, enabled }: { userId: number; enabled: boolean }) {
   const query = useBillingDetails(userId, enabled);
   const [found, setFound] = useState<WhiteListLookup | null>(null);
+  const lookup = useWhiteListLookup(userId);
+  const pick = useSelectWhiteListAccount(userId);
   const state = resolveViewState({
     isLoading: query.isLoading,
     isError: query.isError,
@@ -335,6 +341,8 @@ export function BillingDetailsSection({ userId, enabled }: { userId: number; ena
           data={query.data}
           found={found}
           onFound={setFound}
+          lookup={lookup}
+          pick={pick}
         />
       ) : (
         <BillingReadOnly data={query.data} />
