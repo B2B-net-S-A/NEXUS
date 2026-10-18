@@ -198,5 +198,6 @@ autoodpowiedzi i reguły `NEXUS · …` ręcznie.
    potem token produkcyjny spółki i `KSEF_MODE=prod`.
 4. Płace uzupełniają dane do rozliczeń osób (NIP, rachunek z wykazu, identyfikator w Symfonii),
    ustawienia płatności i słowniki Symfonii; włączenie modułu `settlements`.
-5. Pierwszy miesiąc: rozliczenia w NEXUSIE obok dotychczasowego trybu, paczka dla Symfonii
+5. Pierwszy miesiąc (październik 2026, `settlements_since=2026-10` — wcześniejsze miesiące płac
+   można zamknąć jako archiwum bez rozliczeń): rozliczenia w NEXUSIE obok dotychczasowego trybu, paczka dla Symfonii
    zaimportowana próbnie przez Płace; paczka przelewów zostaje wyłączona do testu w banku.

@@ -21,6 +21,7 @@ from app.models.hr_payroll import EmployeeRate
 from app.models.hr_settlement import EmployeeBillingDetails, PayrollSettlement
 from app.models.notification import Notification, NotificationType
 from app.services.hr import settlements, white_list
+from app.services.hr.settlements_rules import PAYMENT_SETTINGS_KEY
 from app.services.hr_foundation_schema import HR_MODULE_KEYS, HR_MODULES_SETTING
 from tests.hr_settlements_seed import (
     PREFIX,
@@ -702,3 +703,49 @@ async def test_payroll_close_creates_and_reopen_cancels(app_client) -> None:
             select(PayrollSettlement.status).where(PayrollSettlement.id == row.id)
         )
     assert status == "cancelled"
+
+
+@pytest.mark.usefixtures("settlements_on")
+@pytest.mark.asyncio
+async def test_month_before_settlements_since_closes_without_settlements(
+    app_client,
+) -> None:
+    """Miesiąc sprzed startu rozliczeń w NEXUSIE (archiwum Compassa) — bez rozliczeń."""
+
+    team = await make_team()
+    year, month = months_ago(2)
+    since = "%04d-%02d" % months_ago(1)
+    await set_setting(PAYMENT_SETTINGS_KEY, {"settlements_since": since})
+    try:
+        async with AsyncSessionLocal() as db:
+            db.add(
+                EmployeeRate(
+                    user_id=team.mandate.id,
+                    hourly_rate=Decimal("32.00"),
+                    currency="PLN",
+                    effective_from=date(year, month, 1),
+                )
+            )
+            await db.commit()
+        await add_timesheet(
+            team.mandate, year, month, approved_by=team.boss, work=[(3, "8")]
+        )
+        closed = await app_client.post(
+            f"/api/hr/payroll/months/{year}/{month}/close",
+            json={"acknowledge_warnings": True},
+            headers=headers(team.finance),
+        )
+        assert closed.status_code == 200, closed.text
+        assert "settlements" not in closed.json()
+        async with AsyncSessionLocal() as db:
+            assert await db.scalar(select(func.count(PayrollSettlement.id))) == 0
+
+        prepared = await app_client.post(
+            f"{PREFIX}/months/{year}/{month}/prepare", headers=headers(team.finance)
+        )
+        assert prepared.status_code == 422, prepared.text
+        assert since[:4] in prepared.json()["detail"]
+        async with AsyncSessionLocal() as db:
+            assert await db.scalar(select(func.count(PayrollSettlement.id))) == 0
+    finally:
+        await set_setting(PAYMENT_SETTINGS_KEY, None)

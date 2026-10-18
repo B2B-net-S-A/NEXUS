@@ -32,8 +32,9 @@ biorą tylko zaakceptowane, więc szacunek zmienia się do zamknięcia.
 **Premie wypłacone (R11, etap 4).** ``bonuses_paid`` przy włączonym module
 rozliczeń sumuje premie z linii, których rozliczenie jest opłacone
 (``payroll_settlements.status = 'paid'``, ta sama waluta); przy wyłączonym —
-jak dotąd, premie z zamkniętych miesięcy. ``bonuses_rule`` mówi frontowi,
-która reguła liczyła (``paid_settlement`` / ``closed_month``).
+jak dotąd, premie z zamkniętych miesięcy (tak też przy włączonym — miesiące
+sprzed ``settlements_since``). ``bonuses_rule`` mówi frontowi, która reguła
+liczyła (``paid_settlement`` / ``closed_month``).
 """
 
 from __future__ import annotations
@@ -56,7 +57,7 @@ from app.models.team_structure import DeliveryLeadClientAssignment
 from app.services import fx_service
 from app.services.contract_rates import RATE_SCHEDULE_LOADS
 from app.services.hr import modules as hr_modules
-from app.services.hr import payroll_rates
+from app.services.hr import payroll_rates, settlements
 from app.services.hr import placement_bonuses as placements
 from app.services.hr.bonus_rules import (
     BonusRules,
@@ -68,6 +69,7 @@ from app.services.hr.bonus_rules import (
 from app.services.hr.payroll_bonuses import CATEGORY_LABELS
 from app.services.hr.payroll_periods import label, month_start
 from app.services.hr.payroll_report import money
+from app.services.hr.settlements_rules import settled_in_nexus
 
 ZERO = Decimal("0")
 #: Kontrakty, które jeszcze mogą być przed terminem premii (21 dni roboczych
@@ -415,7 +417,9 @@ async def settlement(
     bonuses = await _assigned_bonuses(db, user_id, year)
     rates = await payroll_rates.history(db, user_id)
     paid_lines: Optional[set[tuple[int, str]]] = None
+    since: Optional[tuple[int, int]] = None
     if (await hr_modules.load_modules(db)).get(hr_modules.HrModule.settlements):
+        since = await settlements.load_settlements_since(db)
         paid_lines = {
             (int(month), str(currency))
             for month, currency in (
@@ -442,7 +446,12 @@ async def settlement(
                 continue  # osoby nie było na liście płac tego miesiąca
             months.append(_frozen_month(year, month, lines))
             for line in lines:
-                if paid_lines is None or (month, line.currency) in paid_lines:
+                if (
+                    paid_lines is None
+                    or (month, line.currency) in paid_lines
+                    # Archiwum sprzed rozliczeń w NEXUSIE: zamknięty = wypłacony.
+                    or not settled_in_nexus(year, month, since)
+                ):
                     paid[line.currency] += Decimal(line.bonus_total)
             continue
         timesheet = timesheets.get(month)

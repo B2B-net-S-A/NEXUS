@@ -453,6 +453,11 @@ Schemat: `hr_settlement_schema.py` (migracja `0468_hr_settlements`, stany w docs
   z kwotą > 0 (`payroll_close` → `settlements.ensure_for_period`); miesiąc zamknięty przed
   włączeniem modułu — `POST /api/hr/settlements/months/{r}/{m}/prepare`. Ponowne otwarcie
   anuluje nieopłacone (opłacone zostają), faktury wracają do `unmatched` z osobą.
+- **Od którego miesiąca** (decyzja Artura 19.10.2026): `hr_payment_settings.settlements_since`
+  („RRRR-MM”, produkcja `2026-10`). Miesiące wcześniejsze to archiwum Compassa: zamknięcie
+  przechodzi bez rozliczeń, `prepare` = 422, a premia z nich jest wypłacona przy zamkniętym
+  miesiącu (reguła sprzed modułu — `paid_flags`, „Moje rozliczenie”). Brak albo zła wartość =
+  bez progu. Klucza nie ma w formularzu Ustawień — ustawia go operacja na produkcji.
 - **B2B:** `awaiting_document` → `ready` przy netto faktury równym linii co do grosza
   i rachunku z białej listy, inaczej `mismatch`. Netto = faktura pierwotna + korekty
   (korekta FA(3) zapisana jako różnica; dopina się tylko do faktury tego samego sprzedawcy).
