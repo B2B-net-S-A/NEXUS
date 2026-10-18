@@ -69,11 +69,21 @@ health zna nowe tabele; sondy `hr_m365`, `admin_cases_mail`, `hr_jobs`,
     (kontraktorzy Compassa nie są połączeni z NEXUSEM), 135 technologii spoza
     słownika do przejrzenia.
 
-## 1. Wieczór A — kartoteka, urlopy, opieka, sprawy, sprzęt
+## 1. Wieczór A — kartoteka i urlopy (fala 1, 24.10.2026)
 
-1. **Compass przestaje pisać:** `HR_MOVED_TO_NEXUS=people,leave,care,cases`
+Stan przed wieczorem A (18.10.2026, tryb cienia): `HR_PROGRAM_ENABLED=true`,
+wszystkie moduły HR wyłączone (ekrany widzi tylko admin), `HR_LOOPS_ENABLED=false`,
+`HR_M365_MODE=off`; kartoteki, wnioski i raporty godzin z Compassa już wgrane.
+Kartoteki prowadzi od 18.10 NEXUS (przełożonych ustawił Artur) — ponowny import
+`profiles` nadpisałby przełożonych, więc wieczorem A importujemy tylko `leave`
+(i `time` jako archiwum). Opieka, sprawy administracja@ (skrzynka jest na home.pl,
+NEXUS czyta tylko M365) i sprzęt przechodzą osobno, każde ze swoim modułem.
+
+1. **Compass przestaje pisać:** `HR_MOVED_TO_NEXUS=people,leave`
    (baner archiwum, odmowa zapisu w akcjach, crony pomijają pracę, w tym
-   `oof-reconcile`). `HR_EXPORTS_OFF` zostaje PUSTE — eksporty dostępności
+   `oof-reconcile`). Od tej chwili wnioski z ręcznie ustawionej autoodpowiedzi
+   w Outlooku zakłada NEXUS (krok 4 uzgadniania M365, `leave_outlook.py`) —
+   dwa systemy robiące to samo założyłyby dwa wnioski. `HR_EXPORTS_OFF` zostaje PUSTE — eksporty dostępności
    i dni roboczych mają oddawać zamrożone dane, dopóki NEXUS nie przełączy źródła.
 2. **Eksport paczki** (Compass, `scripts/export-nexus-bundle.mjs`, opis
    w `docs/nexus-bundle-v1.md` Compassa): plik poza repo, katalog `chmod 700`,
