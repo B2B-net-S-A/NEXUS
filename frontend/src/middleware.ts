@@ -540,6 +540,8 @@ const PUBLIC_PATHS = [
   "/preview/hr-structure",
   "/preview/hr-team",
   "/preview/hr-client-people",
+  // Propozycje struktury u klienta i akcept DL (18.10.2026).
+  "/preview/hr-client-structure",
   "/preview/hr-announcements",
   "/preview/hr-settlements",
   "/preview/hr-documents",

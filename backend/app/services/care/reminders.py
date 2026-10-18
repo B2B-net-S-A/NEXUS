@@ -11,7 +11,11 @@ powtarza. Dla każdego aktywnego kontraktu:
 2. zaległy albo dzisiejszy kontakt (punkt planu albo follow-up z ostatniej
    rozmowy) → dzwonek ``care_contact_due`` do opiekuna, najwyżej raz na
    7 dni na kontrakt,
-3. koniec projektu < 60 dni z karty albo rozmowy → wpis „Do przepięcia”.
+3. koniec projektu < 60 dni z karty albo rozmowy → wpis „Do przepięcia”,
+4. klient z konsultantami bez menedżera u klienta → dzwonek
+   ``care_client_structure`` „uzupełnij strukturę klienta X” do jego Delivery
+   Leadów, najwyżej raz na 7 dni (``structure_proposals.remind``). Awaria tego
+   kroku nie cofa przypomnień opieki — liczniki mówią ``structure_failed``.
 
 Błędy Compassa, których nie przenosimy: „dziś” w UTC (follow-up liczył
 termin od północy UTC), HTTP 200 z ``ok: false`` przy awarii (tu przebieg
@@ -39,6 +43,7 @@ from app.models.notification import Notification, NotificationType
 from app.services.care import access as care_access
 from app.services.care import plan as care_plan
 from app.services.care import records
+from app.services.care import structure_proposals
 from app.services.hr import job_runs
 from app.services.hr import modules as hr_modules
 from app.services.hr.modules import HrModule
@@ -185,6 +190,13 @@ async def run_once(db: AsyncSession) -> dict[str, Any]:
         await db.commit()
         counts.update(await remind(db, contracts, today=today, now=local_now()))
         await db.commit()
+        try:
+            counts.update(await structure_proposals.remind(db, now=local_now()))
+            await db.commit()
+        except Exception as exc:  # noqa: BLE001 — dodatek do przebiegu, nie bramka
+            await db.rollback()
+            logger.exception("[care] dzwonki struktury u klienta nie powiodły się")
+            counts["structure_failed"] = type(exc).__name__
     except Exception as exc:  # noqa: BLE001 — przebieg zapisuje porażkę i daje się ponowić
         await db.rollback()
         logger.exception("[care] dzienny przebieg nie powiódł się")

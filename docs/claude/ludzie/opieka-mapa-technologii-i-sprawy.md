@@ -143,7 +143,8 @@ lista w `care/consultants.py`, przydział w `care/assignment.py`.
 ## Struktura u klienta i opinie klienta (etap 2, D8–D11, 17.10.2026)
 
 Zakładka klienta „Struktura u klienta” (`components/care/ClientPeopleTab.tsx`,
-`GET /api/care/clients/{id}/org`, serwis `care/client_people.py`).
+`GET /api/care/clients/{id}/org`, serwis `care/client_people.py`). Jak ją
+zapełnić — sekcja „Struktura u klienta: propozycje automatu i akcept DL” niżej.
 
 - **Drzewo**: działy klienta → osoby klienta z wcięciem po „Podlega pod” → pod
   osobą nasi konsultanci, których jest menedżerem u klienta
@@ -198,6 +199,105 @@ Zakładka klienta „Struktura u klienta” (`components/care/ClientPeopleTab.ts
   samej rozmowy łączą się w jedną (`contract_merge`); duplikat kontaktu —
   podwładni, dział i opinie przechodzą na zachowany, pętla jest przerywana na
   jego „Podlega pod” (`contact_duplicate_merge.merge_org`).
+
+## Struktura u klienta: propozycje automatu i akcept DL (18.10.2026)
+
+Decyzja Artura z 18.10.2026: „Propozycja automatu + akcept DL”. Artur chce
+widzieć, pod jakim menedżerem u klienta pracuje każdy nasz konsultant i kto komu
+podlega, żeby zbierać od menedżerów opinie. Do 18.10 na produkcji żaden kontrakt
+nie miał menedżera (`contracts.client_pm_contact_id`), a żaden kontakt —
+przełożonego (`reports_to_contact_id`). Drzewo, opinie i prośby o opinię — sekcja wyżej; tu tylko to, jak strukturę
+zapełnić.
+
+### Zasady
+
+- **Automat proponuje, zapisuje człowiek.** Odczyt niczego nie zapisuje.
+  Delivery Lead klienta (albo admin) zatwierdza propozycję, zmienia ją na inną
+  osobę klienta (także nową — `job_hiring_manager.find_or_create_contact`, bez
+  duplikatu) albo pomija. Bez kliknięcia nic nie trafia na kontrakt.
+- **Do klienta nic nie wychodzi.** Prośby o opinię liczą się przy odczycie
+  (D9), formularza do klienta nie ma (D10) — przełącznika wysyłki nie ma, bo
+  nie ma wysyłki. Pilnuje tego `test_feedback_requests_and_proposals_have_no_outbound_channel`.
+  Wysyłka do menedżerów u klienta = osobna zmiana po zgodzie Artura.
+- **Każda propozycja ma źródło i pewność** (`services/care/structure_rules.py`,
+  czyste funkcje z testami bez bazy). Pewna = najmocniejszy kandydat ma ≥ 3
+  punkty, a żaden inny ich nie ma. Tylko pewne idą do „Zatwierdź pewne”.
+
+### Źródła menedżera konsultanta (punkty)
+
+| Źródło | Punkty |
+| --- | --- |
+| e-mail PM na kontrakcie (`client_pm_email` = e-mail kontaktu) | 3 |
+| „Line Manager” albo „PM po stronie klienta” = pełne imię i nazwisko kontaktu | 3 |
+| osoba kontaktowa z zamówienia (`client_orders.invoice_lines.contact`, dziś Nordea) | 2 |
+| hiring manager rekrutacji kontraktu | 2 |
+| menedżer kolegów z tego samego zespołu (`team_name`) albo tej samej rekrutacji | 2 |
+| kierownik działu z karty technologicznej (jedyny 2, kilku — po 1) | 2 / 1 |
+| nadawca maila z zamówieniem (`order_mail_documents.sender_email`) | 1 |
+
+- Imię i nazwisko porównujemy jak przy hiring managerze (`name_key`: kolejność,
+  wielkość liter i ogonki bez znaczenia). Samo imię albo skrót nie wskazuje
+  nikogo — zła osoba zabrałaby opinię innemu menedżerowi.
+- Hiring manager sam nie daje pewności (często menedżer to NIE HM). Nadawca
+  maila sam też nie — bywa zakupowcem albo wspólną skrzynką.
+- Każde źródło liczy się raz na osobę (pięć zamówień z tą samą osobą = jedno źródło).
+- Kontakt innego klienta nigdy nie jest propozycją; kontrakt z takim kontaktem
+  (dane sprzed walidacji D8) wraca na listę jako „bez menedżera”.
+- „Menedżer kolegów” rośnie z akceptacjami: każdy zatwierdzony menedżer
+  podpowiada menedżera reszcie zespołu.
+
+### „Kto komu podlega”
+
+- Z tytułów: szczeble 4 zarząd/C-level, 3 dyrektor/head, 2 kierownik/lead,
+  1 reszta; brak tytułu = szczebel nieznany. Osoba z tego samego działu
+  (`client_area_id`, a bez niego tekst „Dział”) o najbliższym wyższym szczeblu —
+  3 punkty, gdy jedyna i szczebel wyżej o jeden, inaczej 2. Dyrektor bez
+  kandydata w dziale dostaje słabą podpowiedź osoby z zarządu (1).
+- Hiring manager rekrutacji, z których przyszli konsultanci tej osoby (wyższy
+  szczebel albo bez tytułu) — 2.
+- Kandydat, który już podlega pod tę osobę, odpada (zatwierdzenie zamknęłoby
+  pętlę). Zapis idzie przez `client_people.update_contact_org` — ta sama blokada
+  klienta i kontrola pętli co ręczna zmiana w drzewie; pozycja odrzucona wraca
+  w `rejected`, reszta się zapisuje.
+
+### Ekran i trasy
+
+- Opieka → zakładka **„Struktura u klientów”** (`/care?tab=structure&client=<id>`,
+  `components/care/structure/`): klienci z zakresu z licznikami (do uzupełnienia,
+  pewne, do sprawdzenia, bez propozycji) i panel propozycji klienta. Ta sama
+  lista zwinięta jako „Propozycje automatu” nad drzewem w zakładce klienta
+  „Struktura u klienta”. Harness: `/preview/hr-client-structure`.
+- Trasy w `api/care_structure.py` (prefiks `/api/care`, router dołącza
+  `contract_care.py`): `GET /structure-proposals`, `GET /clients/{id}/structure-proposals`,
+  `POST …/managers`, `POST …/reports-to`, `PUT|DELETE …/managers/{contract_id}/skip`,
+  `PUT|DELETE …/reports-to/{contact_id}/skip`.
+- **Kto**: czytają ci sami co drzewo (D11: opiekun, DL klienta, HoR, admin;
+  Finanse i Kadry — 403). Menedżera konsultanta zatwierdza, zmienia i pomija
+  Delivery Lead klienta albo admin z edycją kontraktów u tego klienta
+  (`require_hr_client_manager_approver` = `ClientContractsEditUser` + rola DL
+  albo admin). TCM czyta, nie zatwierdza. „Podlega pod” — edytujący kontakty
+  klienta, jak ręcznie (`OrgEditor` + `can_edit_contacts`). Wzorzec bramek:
+  `tests/data/authz_golden/care_structure.json`.
+- **Zatwierdzenie nie nadpisuje człowieka**: kontrakt, któremu ktoś
+  w międzyczasie wpisał menedżera tego klienta, zostaje bez zmian (`conflicts`).
+  Ślad: `care.client_manager_set` w `hr_audit_events` (same identyfikatory)
+  i `client_managers_set` w Historii zdarzeń klienta.
+- **„Pomiń”** (`client_structure_skips`, migracja 0474) pamięta osobę, którą
+  automat proponował. Gdy automat wskaże kogoś innego, pozycja wraca;
+  „Przywróć” kasuje wiersz; zatwierdzenie też.
+
+### Dzwonek dla Delivery Leada
+
+- `care_client_structure` (sekcja Delivery, kategoria „Kontrakty”, grupa
+  „Opieka: struktura u klienta”, bez maila do klienta): „Klient X: N
+  konsultantów bez menedżera u klienta, K pewnych propozycji do zatwierdzenia”,
+  link do zakładki. Do każdego aktywnego DL przypisanego do klienta, najwyżej
+  raz na 7 dni na (DL, klient). Klient bez DL — nikt (`structure_no_lead`
+  w licznikach przebiegu).
+- Wysyła dzienny przebieg opieki (`care/reminders.run_once`, krok 4). Awaria
+  tego kroku nie cofa przypomnień opieki (`structure_failed`). Działa dopiero
+  przy włączonym module `care` i pętlach HR — do tego czasu ani ekran, ani
+  dzwonek nikomu się nie pokazują.
 
 ## Karta technologiczna i słownik (D7)
 

@@ -11,13 +11,16 @@ import { StatusDot } from "@/components/ds/StatusDot";
 import { Button } from "@/components/ui/button";
 import { apiErrorMessage } from "@/lib/api-error";
 import { useClientOrg, type OrgPerson } from "@/lib/api/client-people";
+import { useClientStructureProposals } from "@/lib/api/structure-proposals";
 import { CALM_HEAD, CALM_SUBLINE } from "@/lib/calm-table";
+import { countPl } from "@/lib/plural-pl";
 import { cn } from "@/lib/utils";
 import { resolveViewState } from "@/lib/view-state";
 
 import { ClientFeedbackDialog } from "./ClientFeedbackDialog";
 import { feedbackLabel, orgPeople, reasonsLabel } from "./client-people-format";
 import { ConsultantLine, PersonPanel, type FeedbackTarget } from "./PersonPanel";
+import { StructureProposalsPanel } from "./structure/StructureProposalsPanel";
 
 function Marker({ children, title }: { children: ReactNode; title?: string }) {
   return (
@@ -91,6 +94,50 @@ function PersonRow({
         </ul>
       ) : null}
     </li>
+  );
+}
+
+/**
+ * Propozycje automatu nad drzewem (decyzja Artura 18.10.2026 „Propozycja
+ * automatu + akcept DL”) — zwinięte, żeby drzewo zostało głównym widokiem.
+ * Awaria propozycji nie zasłania drzewa: sekcja wtedy znika.
+ */
+function ProposalsSection({ clientId }: { clientId: number }) {
+  const query = useClientStructureProposals(clientId);
+  const [open, setOpen] = useState(false);
+  const data = query.data;
+  if (!data) return null;
+  const c = data.counts;
+  const orgOpen = data.reports_to.filter((row) => !row.skipped).length;
+  if (!c.open && !orgOpen && !open) return null;
+  const summary = [
+    c.open ? `${countPl(c.open, "konsultant", "konsultantów", "konsultantów")} bez menedżera` : null,
+    c.certain ? countPl(c.certain, "pewna propozycja", "pewne propozycje", "pewnych propozycji") : null,
+    orgOpen
+      ? `${countPl(orgOpen, "propozycja", "propozycje", "propozycji")} „Podlega pod”`
+      : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  return (
+    <section aria-label="Propozycje struktury" className="space-y-2">
+      <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border bg-card px-3 py-2 text-sm">
+        <span>
+          <span className="font-medium">Propozycje automatu</span>
+          {summary ? <span className="text-muted-foreground"> · {summary}</span> : null}
+        </span>
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-7"
+          aria-expanded={open}
+          onClick={() => setOpen((value) => !value)}
+        >
+          {open ? "Zwiń propozycje" : "Przejrzyj propozycje"}
+        </Button>
+      </div>
+      {open ? <StructureProposalsPanel clientId={clientId} /> : null}
+    </section>
   );
 }
 
@@ -169,6 +216,8 @@ export function ClientPeopleTab({ clientId }: { clientId: number }) {
           <Link href={`/clients/${clientId}?tab=kontakty`}>Kontakty klienta</Link>
         </Button>
       </div>
+
+      <ProposalsSection clientId={clientId} />
 
       {org.requests.length ? (
         <section

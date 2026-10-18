@@ -255,6 +255,7 @@ CATEGORY_BY_TYPE: dict[NotificationType, NotificationCategory] = {
     _T.hr_settlement_review: _C.people,
     _T.hr_agreement_update: _C.people,
     _T.care_contact_due: _C.contracts,
+    _T.care_client_structure: _C.contracts,
     # Konto i system
     _T.password_reset_requested: _C.system,
     _T.password_changed_by_admin: _C.system,
@@ -366,6 +367,12 @@ _SPLIT_GROUPS: dict[
         "Opieka: kontakt z konsultantem",
         _C.contracts,
         (_T.care_contact_due,),
+    ),
+    # 0474: Delivery Lead uzupełnia strukturę u klienta (menedżerowie konsultantów).
+    "contracts_client_structure": (
+        "Opieka: struktura u klienta",
+        _C.contracts,
+        (_T.care_client_structure,),
     ),
     "contracts_signatures": (
         "Podpisy i zwrot sprzętu",

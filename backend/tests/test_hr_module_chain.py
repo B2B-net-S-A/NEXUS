@@ -54,6 +54,11 @@ CHAIN = (
         "0472_kpi_milestones_manual_fill",
         "hr_leave_proofs_schema",
     ),
+    (
+        "0474_client_structure_proposals",
+        "0473_hr_leave_proofs",
+        "client_structure_schema",
+    ),
 )
 
 

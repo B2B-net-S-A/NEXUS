@@ -35,6 +35,8 @@ _NO_MAIL = (
     "hr_bonus_assigned",
     "hr_rate_changed",
     "care_contact_due",
+    # Tygodniowe „uzupełnij strukturę klienta” (0474) — przypomnienie opieki.
+    "care_client_structure",
     # Informacja o zapłacie — nikt na nią nie czeka (dymek i „Mój czas”).
     "hr_settlement_paid",
 )

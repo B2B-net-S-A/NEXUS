@@ -308,6 +308,10 @@ class NotificationType(str, enum.Enum):
     hr_settlement_review = "hr_settlement_review"
     hr_agreement_update = "hr_agreement_update"
     care_contact_due = "care_contact_due"
+    # 0474: „uzupełnij strukturę klienta X” — konsultanci bez menedżera
+    # u klienta (propozycje automatu czekają na akcept Delivery Leada).
+    # Sekcja Delivery, link do `/care?tab=structure&client=<id>`.
+    care_client_structure = "care_client_structure"
 
 
 class Notification(Base, TimestampMixin):

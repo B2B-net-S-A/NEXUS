@@ -86,6 +86,7 @@ import {
   shortTimeline,
   telecomTechMap,
 } from "./week-fixtures";
+import { seedStructure } from "../hr-client-structure/fixtures";
 
 const KNOWN = ["tab", "techcard", "list", "cadence"] as const;
 type State = (typeof KNOWN)[number];
@@ -102,6 +103,7 @@ const STATES = [
   { key: "consultants", label: "Konsultanci (rytm)", href: "?state=list&tab=consultants" },
   { key: "cadence", label: "Zmiana rytmu", href: "?state=cadence&tab=consultants" },
   { key: "assignment", label: "Przydział opiekunów", href: "?state=list&tab=assignment" },
+  { key: "structure", label: "Struktura u klientów", href: "?state=list&tab=structure" },
 ] as const;
 
 function prepare(params: URLSearchParams) {
@@ -137,6 +139,7 @@ function prepare(params: URLSearchParams) {
   client.setQueryData(careKeys.frontOffice(4502), karolinaFrontOffice(today));
   client.setQueryData(careKeys.clientMap(CARE_CLIENT.id), clientTechMap(today));
   client.setQueryData(careKeys.clientMap(HR_CLIENTS.telecom.id), telecomTechMap(today));
+  seedStructure(client, today);
   return { user: HR_CAST.natalia, client, value: { state, today } };
 }
 

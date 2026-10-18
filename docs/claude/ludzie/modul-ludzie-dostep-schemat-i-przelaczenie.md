@@ -167,7 +167,7 @@ mają dane (import z Compassa, plików recepcji, kartotek, wzorów umów).
   przy nocnym wdrożeniu nie robi niczego dwa razy.
 - Powiadomienia HR (`hr_*`, `admin_case_assigned`, `equipment_*`,
   `care_front_office_handoff`) są osobiste: widoczne bez sekcji, kategoria
-  „Czas i ludzie”. `care_contact_due` należy do sekcji Delivery. **Dzwonka nie ma** (pasek z ikonami jednego tematu,
+  „Czas i ludzie”. `care_contact_due` i `care_client_structure` należą do sekcji Delivery. **Dzwonka nie ma** (pasek z ikonami jednego tematu,
   `powiadomienia/pasek-tematy-bez-dzwonka.md`): typy HR mają temat `other`
   (poza `care_front_office_handoff` — temat „Rekrutacje” z dymkiem),
   czyli dymek dla zalogowanych, mail i liczniki na ekranach — bez listy i bez
@@ -181,7 +181,7 @@ mają dane (import z Compassa, plików recepcji, kartotek, wzorów umów).
   sprawa administracja@, zadania sprzętu, podpisany protokół, konsultant
   przekazany do front office, komunikat do konsultantów (do zatwierdzenia,
   zatwierdzony, zwrócony, niedoręczony — `care_announcement`). Bez maila: premie
-  i stawki (kwoty), `care_contact_due`. Treść składa `services/hr/hr_mail.py`:
+  i stawki (kwoty), `care_contact_due`, `care_client_structure`. Treść składa `services/hr/hr_mail.py`:
   tytuł i treść powiadomienia przechodzą tylko bez rodzaju nieobecności i kwot,
   inaczej stałe zdanie typu („nieobecność”, nie „L4” — także dla przełożonego
   i Kadr, bo mail wychodzi poza aplikację); tytuł sprawy i uwagi przy zwrocie
