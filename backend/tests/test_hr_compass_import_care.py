@@ -1,7 +1,8 @@
 """Import mapy technologicznej i rozmów opiekunów z Compassa.
 
 Klucz do kontraktu NEXUSA: kotwica osoby z Compassa (``nexus_candidate_id``
-albo ``nexus_contract_id``) + klient + okres. Niepewne = „conflict”.
+albo ``nexus_contract_id``) + klient + okres, a bez kotwicy — klient, imię
+i nazwisko i dzień (karty i rozmowy). Niepewne = „conflict”.
 Paczki i dane NEXUSA fikcyjne, rollback na końcu.
 """
 
@@ -28,6 +29,7 @@ from app.models.contract_care import (
 )
 from app.models.skill import Skill, SkillAlias
 from app.services.hr import compass_import
+from app.services.care import card_linking
 from app.services.hr.compass_import import care as care_import
 from tests.test_hr_compass_import_leave import (
     assert_report_clean,
@@ -232,14 +234,14 @@ async def test_care_dry_run_apply_and_second_apply_changes_nothing() -> None:
             importer = compass_import.IMPORTERS["care"]
 
             batch, report, written = await run_import(db, "care", bundle)
-            assert report["counts"] == {"create": 2, "conflict": 5, "skip": 2}
+            assert report["counts"] == {"create": 2, "conflict": 6, "skip": 1}
             reasons = report["reasons"]
             assert reasons[care_import.UNSURE_CONTRACT] == 1
             assert reasons[care_import.UNKNOWN_SKILL] == 1
-            # Rozmowa bez kotwicy nie przechodzi; karta bez kotwicy szuka
-            # kontraktu po nazwisku (tu nikogo takiego nie ma).
-            assert reasons[care_import.NO_LINK] == 1
-            assert reasons[care_import.NAME_NOT_FOUND] == 1
+            # Karta i rozmowa bez kotwicy szukają kontraktu po nazwisku (tu
+            # nikogo takiego nie ma) — obie czekają.
+            assert care_import.NO_LINK not in reasons
+            assert reasons[care_import.NAME_NOT_FOUND] == 2
             assert reasons["kontrakt rozmowy niepewny"] == 2
             assert reasons["klient karty bez odpowiednika w NEXUSIE"] == 1
             assert_report_clean(
@@ -335,8 +337,8 @@ async def test_care_dry_run_apply_and_second_apply_changes_nothing() -> None:
             )
             assert batch2.report["dry_run"]["counts"] == {
                 "unchanged": 5,
-                "conflict": 2,
-                "skip": 2,
+                "conflict": 3,
+                "skip": 1,
             }
             written2 = await compass_import.apply(
                 db,
@@ -493,6 +495,143 @@ async def test_card_without_anchor_links_by_client_name_and_date() -> None:
             )
             await db.refresh(stored[cards[2]["id"]])
             assert stored[cards[2]["id"]].contract_id == later_contract.id
+        finally:
+            await db.rollback()
+
+
+@pytest.mark.asyncio
+async def test_conversation_without_anchor_links_by_name_or_follows_card() -> None:
+    """18.10.2026 (Artur: „jak karty”): rozmowa bez kotwicy łączy się po
+    kliencie z ``client_snapshot`` (pusty = obecny klient), imieniu i nazwisku
+    i dniu rozmowy. Kilka kontraktów = czeka, a po połączeniu karty osoby przez
+    DL ponowny import bierze kontrakt karty, gdy dzień jest w umowie."""
+
+    tag = uuid.uuid4().hex[:8]
+    async with AsyncSessionLocal() as db:
+        try:
+            client = Client(name=f"Spółka Rozmów {tag} sp. z o.o.")
+            sure = Candidate(
+                name="Łukasz", lastname=f"Żółw{tag}", email=f"z-{tag}@example.com"
+            )
+            twice = Candidate(
+                name="Anna", lastname=f"Nowak{tag}", email=f"n-{tag}@example.com"
+            )
+            db.add_all([client, sure, twice])
+            await db.flush()
+            sure_contract = await _contract(db, sure, client, date(2026, 1, 1))
+            sure_contract.end_date = date(2026, 12, 31)
+            first_twice = await _contract(db, twice, client, date(2026, 1, 1))
+            second_twice = await _contract(db, twice, client, date(2026, 3, 1))
+            first_twice.end_date = date(2026, 12, 31)
+            await db.flush()
+
+            snapshot = f"SPÓŁKA ROZMÓW {tag}"
+            compass_client = str(uuid.uuid4())
+            contractors = [
+                {
+                    "id": str(uuid.uuid4()),
+                    "full_name": f"zolw{tag} lukasz",
+                    "current_client": snapshot,
+                },
+                {"id": str(uuid.uuid4()), "full_name": f"Anna Nowak{tag}"},
+                {"id": str(uuid.uuid4()), "full_name": f"Jan Obcy{tag}"},
+            ]
+            cs, ct, cn = (row["id"] for row in contractors)
+            twice_card = _card(ct, compass_client)
+            conversations = [
+                _conversation(cs, "2026-08-12", snapshot),
+                _conversation(cs, "2026-09-01", "", note="Bez klienta w rozmowie."),
+                _conversation(ct, "2026-08-12", snapshot),
+                _conversation(cn, "2026-08-12", snapshot),
+                _conversation(cs, "2026-08-12", f"Nieznany Klient {tag}"),
+            ]
+            bundle = make_bundle(
+                {
+                    "clients": [{"id": compass_client, "name": snapshot}],
+                    "contractors": contractors,
+                    "tech_interview_cards": [twice_card],
+                    "contractor_conversations": conversations,
+                }
+            )
+            batch, report, written = await run_import(db, "care", bundle)
+            assert report["extra"]["conversations"] == {
+                "linked_by_anchor": 0,
+                "linked_by_card": 0,
+                "linked_by_name": 2,
+                "waiting_with_suggestions": 1,
+                "waiting_without_match": 1,
+                "without_client": 1,
+            }
+            assert report["reasons"][care_import.CONVERSATION_WAITS] == 1
+            assert report["reasons"][care_import.CONVERSATION_NO_CLIENT] == 1
+            assert_report_clean(batch.report, "Nowak", "Obcy", "lukasz", "Bez klienta")
+            assert written["conversations_written"] == 2
+
+            def stored(index: int):
+                return db.scalar(
+                    select(CareConversation.contract_id).where(
+                        CareConversation.compass_source_id == conversations[index]["id"]
+                    )
+                )
+
+            assert await stored(0) == sure_contract.id
+            assert await stored(1) == sure_contract.id
+            assert await stored(2) is None
+            assert await stored(3) is None
+            assert await stored(4) is None
+
+            # DL łączy kartę Anny z drugim kontraktem → rozmowa idzie za kartą.
+            card = await db.scalar(
+                select(TechCard).where(
+                    TechCard.compass_card_id == uuid.UUID(twice_card["id"])
+                )
+            )
+            assert card.contract_id is None
+            card.contract_id = second_twice.id
+            await db.flush()
+            importer = compass_import.IMPORTERS["care"]
+            batch2, plan2 = await compass_import.dry_run(
+                db,
+                module="care",
+                bundle=bundle,
+                planner=importer.plan,
+                actor_user_id=None,
+            )
+            assert plan2.counts() == {
+                "unchanged": 3,
+                "create": 1,
+                "conflict": 1,
+                "skip": 1,
+            }
+            await compass_import.apply(
+                db,
+                batch=batch2,
+                bundle=bundle,
+                planner=importer.plan,
+                applier=importer.apply,
+                actor_user_id=None,
+            )
+            assert await stored(2) == second_twice.id
+            # Dzień poza umową karty → karta nie decyduje, rozmowa dalej czeka.
+            assert (
+                care_import.Links(
+                    clients_by_key={},
+                    compass_clients={},
+                    contractors={},
+                    card_contracts={
+                        ct: [
+                            card_linking.ContractRow(
+                                contract_id=second_twice.id,
+                                candidate_id=twice.id,
+                                client_id=client.id,
+                                start=date(2026, 3, 1),
+                                end=None,
+                            )
+                        ]
+                    },
+                ).card_contract_for(ct, client.id, date(2026, 2, 1))
+                is None
+            )
         finally:
             await db.rollback()
 

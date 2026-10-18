@@ -26,8 +26,18 @@ dokładnie jeden kontrakt w okresie = połączenie automatyczne, inaczej karta
 trafia do klienta z pustym ``contract_id`` (schemat dopuszcza to tylko dla
 importu) i czeka na liście „Karty do połączenia” z propozycjami; imię
 i nazwisko z Compassa zostaje na karcie (``compass_person_name``). Karta bez
-klienta jest pomijana. Rozmowy, rytm i opiekun łączą się nadal wyłącznie
-po kotwicy — rozmowa bez pewnego kontraktu nie przechodzi.
+klienta jest pomijana.
+
+Rozmowa bez kotwicy (decyzja Artura z 18.10.2026: „jak karty”) łączy się
+z kontraktem tymi samymi regułami — klient z ``client_snapshot`` (pusty =
+``contractors.current_client``), imię i nazwisko z ``contractors.full_name``,
+dzień rozmowy w okresie umowy. Najpierw wygrywa kontrakt karty tej samej
+osoby u tego klienta (karta połączona przez import albo przez DL w „Karty
+z Compassa do połączenia”), jeśli dzień rozmowy mieści się w umowie —
+dokładnie jeden; potem dokładnie jeden kontrakt po nazwisku. Rozmowa musi
+mieć kontrakt, więc niepewna czeka jako „conflict” (raport: same liczby)
+i ponowny import po połączeniu karty przez DL ją dociąga. Rytm i opiekun
+łączą się nadal wyłącznie po kotwicy.
 Technologia spoza słownika ``skills`` (nazwa ani alias) idzie do
 ``skill_review_queue``, a karta trzyma tekst w ``unrecognized_skills``.
 Import nie zgłasza „Do przepięcia” i nie wysyła przypomnień. Punktów planu
@@ -38,7 +48,7 @@ sprzed ostatniej rozmowy.
 
 Rytm i opiekun (etap 3, 17.10.2026) — z ``contractor_success_settings``
 i ``contractors.owner_tcm_id``, tylko przy pewnym kontrakcie (ta sama reguła
-co rozmowy: kotwica osoby + klient z ``contractors.current_client`` + dzień
+co rozmowy z kotwicą: osoba + klient z ``contractors.current_client`` + dzień
 eksportu w okresie umowy):
 
 * rytm: monitoring wstrzymany → „wstrzymany”; aktywny w programie wejścia
@@ -128,6 +138,13 @@ UNSURE_CONTRACT = "kontrakt niepewny — karta przy kliencie, bez kontraktu"
 NAME_LINKED = "kontrakt dopasowany po kliencie, imieniu i nazwisku oraz dacie"
 NAME_SUGGESTED = "do potwierdzenia przez DL — kilka kontraktów albo poza okresem umowy"
 NAME_NOT_FOUND = "bez kontraktu z tym imieniem i nazwiskiem u klienta"
+CONVERSATION_UNSURE = "kontrakt rozmowy niepewny"
+CONVERSATION_BY_CARD = "kontrakt z karty tej osoby u klienta"
+CONVERSATION_WAITS = (
+    "rozmowa czeka — kilka kontraktów albo poza okresem umowy; "
+    "wróci po połączeniu karty osoby przez DL"
+)
+CONVERSATION_NO_CLIENT = "klient rozmowy bez odpowiednika w NEXUSIE"
 UNKNOWN_SKILL = "technologia spoza słownika — w kolejce do przejrzenia"
 RHYTHMS = "contractor_success_settings"
 OWNERS = "contractors"
@@ -207,6 +224,10 @@ class Links:
     contracts: dict[int, list[tuple[int, int, Optional[date], Optional[date]]]] = field(
         default_factory=dict
     )
+    #: Kontraktor Compassa → kontrakty jego kart w NEXUSIE (klient karty).
+    card_contracts: dict[str, list[card_linking.ContractRow]] = field(
+        default_factory=dict
+    )
 
     def client_for_name(self, name: Optional[str]) -> Optional[int]:
         matches = self.clients_by_key.get(normalize_client_name(name), set())
@@ -223,7 +244,11 @@ class Links:
         Santander)”, „Firma” = „Firma sp. z o.o.”). Kilka = duplikat
         z Traffita — rozstrzyga kontrakt osoby."""
 
-        name = self.compass_clients.get(str(compass_client_id))
+        return self.client_options_for_name(
+            self.compass_clients.get(str(compass_client_id))
+        )
+
+    def client_options_for_name(self, name: Optional[str]) -> set[int]:
         for found in (
             self.clients_by_key.get(normalize_client_name(name)),
             self.clients_by_loose.get(loose_client_name(name)),
@@ -232,6 +257,32 @@ class Links:
             if found:
                 return found
         return set()
+
+    def narrow_clients(
+        self, options: set[int], person_name: Optional[str], day: date
+    ) -> set[int]:
+        """Duplikat klienta (np. dwa „PFRON” z Traffita): wygrywa ten, u którego
+        osoba ma pewny kontrakt w dniu rozmowy."""
+
+        if len(options) <= 1:
+            return options
+        return {
+            option
+            for option in options
+            if self.by_name.match(option, person_name, day).contract_id
+        }
+
+    def card_contract_for(
+        self, contractor_id: Any, client_id: int, day: date
+    ) -> Optional[int]:
+        """Kontrakt karty tej osoby u klienta, gdy dzień jest w umowie (jeden)."""
+
+        hits = {
+            row.contract_id
+            for row in self.card_contracts.get(str(contractor_id), [])
+            if row.client_id == client_id and row.covers(day)
+        }
+        return next(iter(hits)) if len(hits) == 1 else None
 
     def candidate_for(self, contractor_id: Any) -> Optional[int]:
         row = self.contractors.get(str(contractor_id)) or {}
@@ -352,9 +403,53 @@ async def _links(db: AsyncSession, bundle: Bundle) -> Links:
                 (contract_id, final(client_id), start, end)
             )
         links.contracts = dict(by_candidate)
-    if bundle.rows(CARDS):
+    if bundle.rows(CARDS) or bundle.rows(CONVERSATIONS):
         links.by_name = await card_linking.load_index(db)
+    if bundle.rows(CONVERSATIONS):
+        links.card_contracts = await _card_contracts(db, bundle)
     return links
+
+
+async def _card_contracts(
+    db: AsyncSession, bundle: Bundle
+) -> dict[str, list[card_linking.ContractRow]]:
+    """Kontrakty kart z paczki zapisanych już w NEXUSIE, po kontraktorze."""
+
+    contractor_of = {
+        card_id: str(row.get("contractor_id"))
+        for row in bundle.rows(CARDS)
+        if (card_id := parse_uuid(row.get("id"))) is not None
+    }
+    if not contractor_of:
+        return {}
+    by_contractor: dict[str, list[card_linking.ContractRow]] = defaultdict(list)
+    for compass_card_id, client_id, contract_id, candidate_id, start, end in (
+        await db.execute(
+            select(
+                TechCard.compass_card_id,
+                TechCard.client_id,
+                Contract.id,
+                Contract.candidate_id,
+                Contract.start_date,
+                Contract.end_date,
+            )
+            .join(Contract, Contract.id == TechCard.contract_id)
+            .where(
+                TechCard.compass_card_id.in_(sorted(contractor_of, key=str)),
+                Contract.status.notin_(_SKIPPED_CONTRACT_STATUSES),
+            )
+        )
+    ).all():
+        by_contractor[contractor_of[compass_card_id]].append(
+            card_linking.ContractRow(
+                contract_id=contract_id,
+                candidate_id=candidate_id,
+                client_id=client_id,
+                start=start,
+                end=end,
+            )
+        )
+    return dict(by_contractor)
 
 
 #: Słowa bez znaczenia przy porównaniu nazw: „ex” z „(ex Santander)” i „o”
@@ -437,15 +532,9 @@ async def _plan_cards(
             continue
         contractor = links.contractors.get(str(row.get("contractor_id"))) or {}
         person_name = text(contractor.get("full_name"), PERSON_NAME_MAX)
-        options = links.card_client_options(row.get("client_id"))
-        if len(options) > 1:
-            # Duplikat klienta (np. dwa „PFRON” z Traffita): wygrywa ten,
-            # u którego osoba ma pewny kontrakt w dniu rozmowy.
-            options = {
-                option
-                for option in options
-                if links.by_name.match(option, person_name, interview_on).contract_id
-            }
+        options = links.narrow_clients(
+            links.card_client_options(row.get("client_id")), person_name, interview_on
+        )
         if len(options) != 1:
             no_client += 1
             result.rows.append(
@@ -649,25 +738,57 @@ async def _same_relations(
     )
 
 
+def _conversation_contract(
+    links: Links, row: Mapping[str, Any], day: date
+) -> tuple[Optional[int], str, list[str]]:
+    """(kontrakt, sposób połączenia, powody) rozmowy — kotwica, karta, nazwisko."""
+
+    contractor_id = row.get("contractor_id")
+    candidate_id = links.candidate_for(contractor_id)
+    if candidate_id is not None:
+        client_id = links.client_for_name(row.get("client_snapshot"))
+        contract_id, _ = links.contract_for(candidate_id, client_id, day)
+        if contract_id is None:
+            return None, "anchor_unsure", [CONVERSATION_UNSURE]
+        return contract_id, "anchor", []
+    contractor = links.contractors.get(str(contractor_id)) or {}
+    person_name = text(contractor.get("full_name"), PERSON_NAME_MAX)
+    client_name = text(row.get("client_snapshot")) or text(
+        contractor.get("current_client")
+    )
+    options = links.narrow_clients(
+        links.client_options_for_name(client_name), person_name, day
+    )
+    if len(options) != 1:
+        return None, "no_client", [CONVERSATION_NO_CLIENT]
+    client_id = next(iter(options))
+    contract_id = links.card_contract_for(contractor_id, client_id, day)
+    if contract_id is not None:
+        return contract_id, "card", [CONVERSATION_BY_CARD]
+    match = links.by_name.match(client_id, person_name, day)
+    if match.contract_id is not None:
+        return match.contract_id, "auto", [NAME_LINKED]
+    if match.suggestions:
+        return None, "suggested", [CONVERSATION_WAITS]
+    return None, "none", [NAME_NOT_FOUND]
+
+
 async def _plan_conversations(
     db: AsyncSession, bundle: Bundle, people: People, links: Links, result: ImportPlan
 ) -> None:
+    pairings: Counter[str] = Counter()
     for row in bundle.rows(CONVERSATIONS):
         sid = source_id(CONVERSATIONS, row)
         occurred_on = parse_date(row.get("conversation_date"))
         if parse_uuid(row.get("id")) is None or occurred_on is None:
             result.rows.append(RowPlan(sid, "skip", "rozmowa bez id albo daty"))
             continue
-        candidate_id = links.candidate_for(row.get("contractor_id"))
-        if candidate_id is None:
-            result.rows.append(RowPlan(sid, "skip", NO_LINK))
-            continue
-        client_id = links.client_for_name(row.get("client_snapshot"))
-        contract_id, _ = links.contract_for(candidate_id, client_id, occurred_on)
+        contract_id, pairing, notes = _conversation_contract(links, row, occurred_on)
+        pairings[pairing] += 1
         if contract_id is None:
-            result.rows.append(RowPlan(sid, "conflict", "kontrakt rozmowy niepewny"))
+            action = "skip" if pairing == "no_client" else "conflict"
+            result.rows.append(RowPlan(sid, action, join_notes(notes)))
             continue
-        notes: list[str] = []
         follow_up = parse_date(row.get("follow_up_date"))
         if follow_up is not None and follow_up < occurred_on:
             follow_up = None
@@ -709,6 +830,15 @@ async def _plan_conversations(
         payload["conversation_id"] = existing.id
         action = "update" if changed_fields(existing, values) else "unchanged"
         result.rows.append(RowPlan(sid, action, reason, payload))
+    # Same liczby (bez nazwisk): ile rozmów trafiło na oś, ile czeka.
+    result.extra["conversations"] = {
+        "linked_by_anchor": pairings["anchor"],
+        "linked_by_card": pairings["card"],
+        "linked_by_name": pairings["auto"],
+        "waiting_with_suggestions": pairings["suggested"],
+        "waiting_without_match": pairings["none"] + pairings["anchor_unsure"],
+        "without_client": pairings["no_client"],
+    }
 
 
 def rhythm_level(

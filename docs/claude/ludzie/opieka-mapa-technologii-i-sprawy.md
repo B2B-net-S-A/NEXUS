@@ -135,7 +135,7 @@ lista w `care/consultants.py`, przydział w `care/assignment.py`.
   program wejścia → co 2 tygodnie do jego końca; ≤ 14 / ≤ 31 / ≤ 93 dni →
   co 2 tygodnie / co miesiąc / co kwartał; dalej tylko kamienie; monitoring
   nieaktywny → rytm domyślny) i `contractors.owner_tcm_id` → opiekun
-  kontraktu, tylko przy pewnym kontrakcie (reguła rozmów: kotwica osoby +
+  kontraktu, tylko przy pewnym kontrakcie (tylko kotwica osoby +
   klient z `current_client` + dzień eksportu w okresie umowy). Rytm albo
   opiekun ustawiony już w NEXUSIE zostaje (`conflict` w raporcie). Plan po
   imporcie przelicza nocny przebieg.
@@ -403,9 +403,23 @@ zapełnić.
   tego samego klienta po scaleniu (422) i nie anulowany ani szkic (422). Ślad
   `care.tech_card_linked` (kontrakt i czy był propozycją). Raz połączonej
   karty ta trasa nie przepina.
-- Rozmowy, rytm i opiekun z Compassa łączą się nadal WYŁĄCZNIE po kotwicy —
-  parowanie po nazwisku dotyczy tylko kart. Ponowny import łączy kartę, gdy
-  w NEXUSIE pojawi się pewny kontrakt, i nie odpina kontraktu wybranego przez DL.
+- Ponowny import łączy kartę, gdy w NEXUSIE pojawi się pewny kontrakt, i nie
+  odpina kontraktu wybranego przez DL.
+- **Rozmowy opiekunów z Compassa** (`contractor_conversations`, decyzja Artura
+  z 18.10.2026 „jak karty”): kotwica, gdy jest, ma pierwszeństwo; bez niej
+  rozmowa łączy się po kliencie z `client_snapshot` (pusty = `contractors.
+  current_client`), imieniu i nazwisku z `contractors.full_name` i dniu rozmowy
+  w okresie umowy — te same reguły nazwiska i klienta co karty. Kolejność:
+  (1) kontrakt karty tej osoby u tego klienta (połączonej przez import albo
+  „Połącz” DL), gdy dzień rozmowy mieści się w umowie — dokładnie jeden;
+  (2) dokładnie jeden kontrakt po nazwisku w okresie. Rozmowa musi mieć
+  kontrakt (`care_conversations.contract_id NOT NULL`), więc niepewna nie jest
+  zapisywana: czeka jako `conflict` w raporcie partii (same liczby, sekcja
+  `conversations`), a ponowny import po połączeniu karty przez DL ją dociąga
+  („idzie za kartą”). Osobnej listy rozmów do połączenia nie ma. Klient bez
+  odpowiednika = `skip`.
+- Rytm i opiekun z Compassa łączą się nadal WYŁĄCZNIE po kotwicy (rytmy
+  w Compassie mają monitoring „inactive”, opiekunów przydziela pula opiekunów).
 
 ## Mapa technologii klienta (zakładka „Technologie”)
 
