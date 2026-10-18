@@ -4,6 +4,12 @@ Wypełnianie pomija weekendy, święta, dni wolne firmy, dni urlopu (także
 oczekującego) i dni, które mają już wpisy. Pół dnia urlopu dostaje 4 h.
 Ręcznie wolno wpisać weekend i święto — to robi zwykły wpis, nie wypełnianie.
 
+Okno „Wypełnij miesiąc” (jak ``quickFillMonth`` Compassa): godziny dziennie
+(domyślnie 8, najwyżej 8 — nadgodziny wpisuje się dniem, z uzasadnieniem)
+i „nadpisz istniejące wpisy” — kasuje wpisy szkicu poza auto-wpisami płatnej
+puli (``leave_paid`` należą do wniosku urlopowego, audyt Compassa HF-10)
+i wypełnia miesiąc od nowa. Pół dnia urlopu dostaje najwyżej wolne 4 h.
+
 Opis przy wypełnianiu: podany wprost > szablon osoby > domyślny opis Kadr
 (rola+projekt > rola > projekt > globalny) > „Praca standardowa”.
 """
@@ -15,7 +21,7 @@ from datetime import date
 from decimal import Decimal
 from typing import Any, Optional
 
-from sqlalchemy import and_, or_, select
+from sqlalchemy import and_, delete, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -27,18 +33,21 @@ from app.models.hr_time import (
     TimesheetTemplate,
 )
 from app.models.user import User, UserRole
-from app.services.hr import audit
+from app.services.hr import audit, time_retention
 from app.services.hr.time_access import Actor
 from app.services.hr.time_calendar import month_calendar, month_range
 from app.services.hr.time_entries import (
     STANDARD,
     STANDARD_DESCRIPTION,
+    TimeConflict,
     TimeError,
     TimeNotFound,
     clean_description,
+    clean_hours,
     clean_project,
     entries_of,
     leave_map,
+    sync_leave_paid,
 )
 
 MAX_TEMPLATE_NAME = 80
@@ -253,9 +262,17 @@ class FillPlan:
 
 
 async def plan_open_days(
-    db: AsyncSession, *, timesheet: Timesheet, subject: EmployeeProfile
+    db: AsyncSession,
+    *,
+    timesheet: Timesheet,
+    subject: EmployeeProfile,
+    hours_per_day: Decimal = STANDARD,
 ) -> FillPlan:
-    """Dni robocze bez wpisów i bez urlopu (połowa urlopu = 4 h wolnego miejsca)."""
+    """Dni robocze bez wpisów i bez urlopu (połowa urlopu = 4 h wolnego miejsca).
+
+    Dzień dostaje ``hours_per_day``, ale nie więcej, niż zostawia urlop dnia —
+    wypełnianie nigdy nie robi nadgodzin.
+    """
 
     calendar = await month_calendar(db, timesheet.year, timesheet.month)
     start, end = month_range(timesheet.year, timesheet.month)
@@ -285,7 +302,9 @@ async def plan_open_days(
             skipped_existing += 1
             continue
         occupied = day_leave.occupied_hours if day_leave else Decimal("0")
-        open_days.append(OpenDay(day=item.day, hours=STANDARD - occupied))
+        open_days.append(
+            OpenDay(day=item.day, hours=min(hours_per_day, STANDARD - occupied))
+        )
     return FillPlan(
         open_days=open_days,
         skipped_existing=skipped_existing,
@@ -304,7 +323,10 @@ async def fill_month(
     project: Optional[str],
     description: Optional[str],
     template_id: Optional[int],
+    hours_per_day: Optional[Decimal] = None,
+    overwrite: bool = False,
 ) -> dict[str, Any]:
+    hours = fill_hours(hours_per_day)
     project = clean_project(project)
     chosen: Optional[str] = None
     if description and description.strip():
@@ -322,7 +344,12 @@ async def fill_month(
             project = project or default.project
     text = chosen or STANDARD_DESCRIPTION
 
-    plan = await plan_open_days(db, timesheet=timesheet, subject=subject)
+    removed = 0
+    if overwrite:
+        removed = await _clear_for_overwrite(db, timesheet=timesheet, subject=subject)
+    plan = await plan_open_days(
+        db, timesheet=timesheet, subject=subject, hours_per_day=hours
+    )
     for item in plan.open_days:
         db.add(
             TimesheetEntry(
@@ -341,9 +368,70 @@ async def fill_month(
         "skipped_existing": plan.skipped_existing,
         "skipped_leave": plan.skipped_leave,
         "working_days": plan.working_days,
+        "removed": removed,
+        "hours_per_day": float(hours),
         "description": text,
         "project": project,
     }
+
+
+def fill_hours(raw: Optional[Decimal]) -> Decimal:
+    """Godziny dziennie w „Wypełnij miesiąc”: brak = 8, poza (0, 8] = 422."""
+
+    if raw is None:
+        return STANDARD
+    hours = clean_hours(raw)
+    if hours > STANDARD:
+        raise TimeError(
+            f"Wypełnianie wpisuje najwyżej {_fmt(STANDARD)} h dziennie — "
+            "nadgodziny wpisuje się w dniu, z uzasadnieniem."
+        )
+    return hours
+
+
+def _fmt(value: Decimal) -> str:
+    return format(value.normalize(), "f").replace(".", ",")
+
+
+async def _clear_for_overwrite(
+    db: AsyncSession, *, timesheet: Timesheet, subject: EmployeeProfile
+) -> int:
+    """„Nadpisz istniejące wpisy”: kasuje wpisy szkicu poza ``leave_paid``.
+
+    Auto-wpisy płatnej puli zostają (należą do wniosku urlopowego i niosą jego
+    godziny), a ich dni wypełnianie i tak pomija. Po skasowaniu ręcznych godzin
+    pół dnia płatnej puli może znów dostać auto-wpis — uzgadnia go
+    ``sync_leave_paid``.
+    """
+
+    refusal = time_retention.delete_refusal(
+        timesheet, current_form=subject.employment_type
+    )
+    if refusal is not None:
+        raise TimeConflict(refusal)
+    ids = list(
+        await db.scalars(
+            select(TimesheetEntry.id).where(
+                TimesheetEntry.timesheet_id == timesheet.id,
+                TimesheetEntry.source != "leave_paid",
+            )
+        )
+    )
+    if not ids:
+        return 0
+    await db.execute(
+        delete(TimesheetEntry)
+        .where(TimesheetEntry.id.in_(ids))
+        .execution_options(synchronize_session="fetch")
+    )
+    # Jak ``delete_entry``: usunięte wpisy nie zostawiają wierszy, zmianę niesie
+    # nagłówek (ponowny import z Compassa nie przywróci skasowanych w NEXUSIE).
+    timesheet.updated_at = func.now()
+    await db.flush()
+    await sync_leave_paid(
+        db, timesheet=timesheet, employment_type=subject.employment_type
+    )
+    return len(ids)
 
 
 async def copy_previous(

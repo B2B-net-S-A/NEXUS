@@ -1,5 +1,6 @@
 """Kadry — zakładanie i edycja kartotek, pule urlopowe, dni wolne firmy,
-przełączniki modułów („Ludzie w NEXUSIE”, krok E0).
+przełączniki modułów („Ludzie w NEXUSIE”, krok E0), hurtowa flaga „Składa
+raport godzin” z katalogu (18.10.2026).
 
 Router za uprawnieniem „Kadry” (``people_admin``); przełączniki modułów tylko
 admin (przełączenie z Compassa to decyzja całej firmy, nie jednego działu).
@@ -22,7 +23,7 @@ from app.api.hr_gates import HrPeopleAdmin, require_hr_people_admin
 from app.core.database import get_db
 from app.services.hr import availability_local
 from app.services.hr import modules as hr_modules
-from app.services.hr import people
+from app.services.hr import people, time_required
 from app.services.hr.leave_policy import statutory_entitlement
 from app.services.hr_foundation_schema import EmploymentStatus, EmploymentType
 
@@ -57,6 +58,11 @@ class ProfileFields(BaseModel):
 
 class ProfileCreate(ProfileFields):
     user_id: int
+
+
+class TimesheetRequiredIn(BaseModel):
+    user_ids: list[int] = Field(min_length=1, max_length=time_required.MAX_PEOPLE)
+    required: bool
 
 
 class EntitlementIn(BaseModel):
@@ -133,6 +139,32 @@ async def update_profile(
     await db.commit()
     row = await people.person_row(db, user_id)
     return people.full_payload(row)
+
+
+@router.post("/profiles/timesheet-required")
+async def set_timesheet_required(
+    payload: TimesheetRequiredIn,
+    current_user: HrPeopleAdmin,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """„Składa raport godzin: tak / nie” dla zaznaczonych w katalogu (hurtem)."""
+
+    try:
+        result = await time_required.set_timesheet_required(
+            db,
+            user_ids=payload.user_ids,
+            required=payload.required,
+            actor=current_user,
+        )
+    except people.HrPeopleError as exc:
+        raise _unprocessable(exc) from exc
+    except LookupError as exc:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND,
+            "Część wybranych osób nie ma kartoteki — odśwież stronę.",
+        ) from exc
+    await db.commit()
+    return result
 
 
 @router.put("/profiles/{user_id}/entitlements/{year}")

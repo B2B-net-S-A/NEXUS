@@ -308,6 +308,60 @@ describe("MyMonthTab", () => {
     );
   });
 
+  it("„Wypełnij miesiąc…” otwiera okno i wysyła godziny dziennie", async () => {
+    routeGet(month());
+    mocks.post.mockResolvedValue({
+      data: {
+        inserted: 19,
+        skipped_existing: 1,
+        skipped_leave: 1,
+        working_days: 21,
+        removed: 0,
+        hours_per_day: 7,
+        description: "Praca standardowa",
+        project: null,
+      },
+    });
+    renderTab();
+    await screen.findByTestId("day-2031-03-03");
+    expect(mocks.post).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Wypełnij miesiąc…" }));
+    fireEvent.change(await screen.findByLabelText("Godziny dziennie"), { target: { value: "7" } });
+    fireEvent.click(screen.getByRole("button", { name: "Wypełnij" }));
+    await waitFor(() =>
+      expect(mocks.post).toHaveBeenCalledWith("/api/hr/time/me/2031/3/fill", {
+        hours_per_day: 7,
+        overwrite: false,
+      }),
+    );
+    await waitFor(() =>
+      expect(mocks.toast).toHaveBeenCalledWith(
+        "Wpisano 19 dni po 7 h: „Praca standardowa”.",
+        "success",
+      ),
+    );
+  });
+
+  it("„Szablony opisów” otwiera listę własnych szablonów", async () => {
+    routeGet(month());
+    renderTab();
+    await screen.findByTestId("day-2031-03-03");
+    fireEvent.click(screen.getByRole("button", { name: "Szablony opisów" }));
+    expect(await screen.findByText("Moje szablony opisów")).toBeInTheDocument();
+    expect(await screen.findByText(/Nie masz jeszcze szablonów/)).toBeInTheDocument();
+  });
+
+  it("archiwum ma eksport własnych godzin do CSV", async () => {
+    routeGet(month());
+    renderTab();
+    await screen.findByTestId("day-2031-03-03");
+    fireEvent.click(screen.getByRole("button", { name: /Archiwum timesheetów/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "Eksport CSV" }));
+    expect(await screen.findByText("Eksport godzin do CSV")).toBeInTheDocument();
+    expect((screen.getByLabelText("Od miesiąca") as HTMLInputElement).value).toBe("2031-03");
+  });
+
   it("awaria odczytu nie udaje pustego miesiąca", async () => {
     mocks.get.mockRejectedValue({ response: { status: 500 } });
     renderTab();

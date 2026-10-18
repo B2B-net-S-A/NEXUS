@@ -205,9 +205,23 @@ describe("TimesheetApprovalsSection", () => {
     );
   });
 
-  it("Płace bez zespołu dostają tylko paczkę ZIP", () => {
+  it("Płace bez zespołu dostają paczkę ZIP i CSV całego miesiąca", async () => {
     renderSection({ payroll: true });
     expect(screen.getByRole("button", { name: /Pobierz ZIP/ })).toBeInTheDocument();
     expect(mocks.get).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Eksport CSV" }));
+    const dialog = await screen.findByRole("dialog");
+    // Bez kolejki nie ma kogo wybrać — tylko cały zespół za miesiąc.
+    expect(within(dialog).queryByRole("radio")).toBeNull();
+    expect(within(dialog).getByText(/Wszystkie wpisy za marzec 2031/)).toBeInTheDocument();
+  });
+
+  it("przełożony eksportuje CSV osoby z zespołu, bez całego zespołu", async () => {
+    renderSection({ is_manager: true, direct_reports: 3 });
+    await screen.findByTestId("queue-21");
+    fireEvent.click(screen.getByRole("button", { name: "Eksport CSV" }));
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).queryByRole("radio", { name: /Cały zespół/ })).toBeNull();
+    expect(within(dialog).getByLabelText("Od miesiąca")).toHaveValue("2031-03");
   });
 });

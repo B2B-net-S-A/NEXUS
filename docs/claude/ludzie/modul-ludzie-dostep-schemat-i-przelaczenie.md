@@ -176,12 +176,12 @@ mają dane (import z Compassa, plików recepcji, kartotek, wzorów umów).
   (`tasks/notification_email_outbox.py`), typy `notification_delivery.HR_MAIL_TYPES`:
   wniosek do decyzji, decyzja i przeliczenie dni, anulowana i zgłoszona
   nieobecność, zastępstwo, timesheet zaakceptowany/zwrócony/cofnięty
-  i przypomnienie o wysłaniu, przekazana praca, zadania wejścia i odejścia,
+  i przypomnienie o wysłaniu, timesheet wysłany do akceptacji (`hr_timesheet_submitted`,
+  18.10.2026 — jak mail Compassa do akceptującego), przekazana praca, zadania wejścia i odejścia,
   sprawa administracja@, zadania sprzętu, podpisany protokół, konsultant
   przekazany do front office, komunikat do konsultantów (do zatwierdzenia,
   zatwierdzony, zwrócony, niedoręczony — `care_announcement`). Bez maila: premie
-  i stawki (kwoty), timesheet do akceptacji (zbiór na początku miesiąca —
-  przełożony ma licznik), `care_contact_due`. Treść składa `services/hr/hr_mail.py`:
+  i stawki (kwoty), `care_contact_due`. Treść składa `services/hr/hr_mail.py`:
   tytuł i treść powiadomienia przechodzą tylko bez rodzaju nieobecności i kwot,
   inaczej stałe zdanie typu („nieobecność”, nie „L4” — także dla przełożonego
   i Kadr, bo mail wychodzi poza aplikację); tytuł sprawy i uwagi przy zwrocie

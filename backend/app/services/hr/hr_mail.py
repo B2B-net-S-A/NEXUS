@@ -58,6 +58,13 @@ FALLBACK: dict[str, tuple[str, str]] = {
         "Kolizja z Twoją nieobecnością",
         "Koordynator zgłosił kolizję z terminem — notatkę znajdziesz w „Moim czasie”.",
     ),
+    # Tytuł powiadomienia mówi słowami formy (ewidencja / raport / potwierdzenie
+    # godzin), treść — kto i za jaki miesiąc; zdanie zastępcze bez nich.
+    "hr_timesheet_submitted": (
+        "Godziny do akceptacji",
+        "Osoba z Twojego zespołu wysłała godziny — akceptujesz je "
+        "w „Ludzie → Akceptacje”.",
+    ),
     "hr_timesheet_decided": (
         "Zmiana w raporcie godzin",
         "Szczegóły znajdziesz w NEXUSIE.",

@@ -61,15 +61,20 @@ def _local(moment: Optional[datetime]) -> str:
     return moment.astimezone(ZoneInfo(DEFAULT_TZ)).strftime("%d.%m.%Y %H:%M")
 
 
-def pdf_filename(person_name: str, year: int, month: int) -> str:
+def name_slug(person_name: str) -> str:
+    """Imię i nazwisko w nazwie pliku: ASCII, małe litery, myślniki."""
+
     ascii_name = (
         unicodedata.normalize("NFKD", person_name.replace("ł", "l").replace("Ł", "L"))
         .encode("ascii", "ignore")
         .decode("ascii")
         .lower()
     )
-    slug = re.sub(r"[^a-z0-9]+", "-", ascii_name).strip("-") or "osoba"
-    return f"timesheet-{slug}-{year}-{month:02d}.pdf"
+    return re.sub(r"[^a-z0-9]+", "-", ascii_name).strip("-") or "osoba"
+
+
+def pdf_filename(person_name: str, year: int, month: int) -> str:
+    return f"timesheet-{name_slug(person_name)}-{year}-{month:02d}.pdf"
 
 
 def render_html(sheet: PdfTimesheet) -> str:

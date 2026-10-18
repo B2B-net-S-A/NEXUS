@@ -7,7 +7,9 @@ import { Search, UserPlus, UserRoundPlus } from "lucide-react";
 import { InlineStats } from "@/components/ds/InlineStats";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import { StatusDot } from "@/components/ds/StatusDot";
+import { useToast } from "@/components/Toast";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import {
   Table,
@@ -17,13 +19,18 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { apiErrorMessage } from "@/lib/api-error";
 import {
   EMPLOYMENT_STATUS_LABELS,
   LOCATION_LABELS,
+  isFullPerson,
   usePeople,
   type HrConfig,
+  type Person,
 } from "@/lib/api/hr";
+import { useSetTimesheetRequired } from "@/lib/api/hr-people";
 import { CALM_EMPTY, CALM_HEAD, CALM_ROW, CALM_SUBLINE } from "@/lib/calm-table";
+import { countPl } from "@/lib/plural-pl";
 import { resolveViewState } from "@/lib/view-state";
 
 import { AbsenceBadge } from "@/components/hr/AbsenceBadge";
@@ -35,12 +42,22 @@ import { STATUS_TONE, personInitials } from "./hr-format";
 const MODULE_OFF_NOTICE =
   "Moduł „Ludzie” nie jest jeszcze włączony. Włącza go administrator w Ustawieniach → Kadry.";
 
+/** „Składa raport godzin” — tylko w pełnym zakresie (Kadry); `null` = nie widać. */
+export function timesheetRequired(person: Person): boolean | null {
+  return isFullPerson(person) ? person.timesheet_required : null;
+}
+
 /** Katalog ludzi: wizytówki osób zatrudnionych (pełne dane w zakresie czytającego). */
 export function PeopleDirectory({ config }: { config: HrConfig }) {
   const people = usePeople();
   const [query, setQuery] = useState("");
   const [adding, setAdding] = useState(false);
+  const [selected, setSelected] = useState<ReadonlySet<number>>(new Set());
+  const { showToast } = useToast();
+  const setRequired = useSetTimesheetRequired();
   const canAdd = config.me.people_admin;
+  // Hurtowa flaga raportu godzin (Kadry): zaznacz osoby → „tak / nie”.
+  const canBulk = canAdd;
   const absences = useAbsences(
     (people.data?.items ?? []).map((row) => row.user_id),
     { enabled: config.open_modules.leave },
@@ -91,6 +108,45 @@ export function PeopleDirectory({ config }: { config: HrConfig }) {
 
   const remote = rows.filter((row) => row.default_location === "remote").length;
   const leaving = rows.filter((row) => row.employment_status === "offboarding").length;
+  const withoutReport = rows.filter((row) => timesheetRequired(row) === false).length;
+
+  const visibleSelected = filtered.filter((row) => selected.has(row.user_id)).length;
+  const allVisible = filtered.length > 0 && visibleSelected === filtered.length;
+  const toggleAll = (checked: boolean) =>
+    setSelected((current) => {
+      const next = new Set(current);
+      for (const row of filtered) {
+        if (checked) next.add(row.user_id);
+        else next.delete(row.user_id);
+      }
+      return next;
+    });
+  const toggleOne = (userId: number, checked: boolean) =>
+    setSelected((current) => {
+      const next = new Set(current);
+      if (checked) next.add(userId);
+      else next.delete(userId);
+      return next;
+    });
+  const applyRequired = (required: boolean) => {
+    const ids = [...selected];
+    setRequired.mutate(
+      { user_ids: ids, required },
+      {
+        onSuccess: (result) => {
+          showToast(
+            result.changed.length > 0
+              ? `${required ? "Składa" : "Nie składa"} raportu godzin: ${countPl(result.changed.length, "osoba", "osoby", "osób")}.`
+              : "Bez zmian — zaznaczone osoby już tak miały.",
+            "success",
+          );
+          setSelected(new Set());
+        },
+        onError: (err) =>
+          showToast(apiErrorMessage(err, "Nie udało się zmienić raportu godzin."), "error"),
+      },
+    );
+  };
 
   return (
     <div className="space-y-3">
@@ -113,6 +169,9 @@ export function PeopleDirectory({ config }: { config: HrConfig }) {
             { id: "people", label: "osób", value: rows.length },
             { id: "remote", label: "domyślnie zdalnie", value: remote },
             { id: "leaving", label: "w trakcie odejścia", value: leaving },
+            ...(canBulk
+              ? [{ id: "no-report", label: "bez raportu godzin", value: withoutReport }]
+              : []),
           ]}
         />
         {canAdd ? (
@@ -134,6 +193,43 @@ export function PeopleDirectory({ config }: { config: HrConfig }) {
         ) : null}
       </div>
 
+      {canBulk && selected.size > 0 ? (
+        <div
+          role="region"
+          aria-label="Zaznaczone osoby"
+          className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-muted/40 px-3 py-2 text-sm"
+        >
+          <span className="font-medium text-foreground">
+            Zaznaczono: {countPl(selected.size, "osoba", "osoby", "osób")}
+          </span>
+          <span className="text-muted-foreground">Składa raport godzin:</span>
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={setRequired.isPending}
+            onClick={() => applyRequired(true)}
+          >
+            Tak
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={setRequired.isPending}
+            onClick={() => applyRequired(false)}
+          >
+            Nie
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            className="ml-auto"
+            onClick={() => setSelected(new Set())}
+          >
+            Odznacz
+          </Button>
+        </div>
+      ) : null}
+
       {state === "empty" ? (
         <div className="rounded-lg border border-dashed border-border p-10 text-center text-sm text-muted-foreground">
           {canAdd
@@ -145,16 +241,35 @@ export function PeopleDirectory({ config }: { config: HrConfig }) {
           <Table density="compact" className="min-w-[860px]">
             <TableHeader>
               <TableRow>
+                {canBulk ? (
+                  <TableHead className="w-9">
+                    <Checkbox
+                      aria-label="Zaznacz wszystkich widocznych"
+                      checked={allVisible ? true : visibleSelected > 0 ? "indeterminate" : false}
+                      onCheckedChange={(checked) => toggleAll(checked === true)}
+                    />
+                  </TableHead>
+                ) : null}
                 <TableHead className={CALM_HEAD}>Osoba</TableHead>
                 <TableHead className={CALM_HEAD}>Stanowisko</TableHead>
                 <TableHead className={CALM_HEAD}>Przełożony</TableHead>
                 <TableHead className={CALM_HEAD}>Domyślnie</TableHead>
                 <TableHead className={CALM_HEAD}>Status</TableHead>
+                {canBulk ? <TableHead className={CALM_HEAD}>Raport godzin</TableHead> : null}
               </TableRow>
             </TableHeader>
             <TableBody>
               {filtered.map((row) => (
                 <TableRow key={row.user_id} className={`${CALM_ROW} h-[50px]`}>
+                  {canBulk ? (
+                    <TableCell className="w-9">
+                      <Checkbox
+                        aria-label={`Zaznacz: ${row.name}`}
+                        checked={selected.has(row.user_id)}
+                        onCheckedChange={(checked) => toggleOne(row.user_id, checked === true)}
+                      />
+                    </TableCell>
+                  ) : null}
                   <TableCell>
                     <Link
                       href={`/people/${row.user_id}`}
@@ -193,6 +308,17 @@ export function PeopleDirectory({ config }: { config: HrConfig }) {
                       {EMPLOYMENT_STATUS_LABELS[row.employment_status]}
                     </StatusDot>
                   </TableCell>
+                  {canBulk ? (
+                    <TableCell>
+                      {timesheetRequired(row) == null ? (
+                        <span className={CALM_EMPTY}>—</span>
+                      ) : timesheetRequired(row) ? (
+                        "tak"
+                      ) : (
+                        <span className="text-muted-foreground">nie składa</span>
+                      )}
+                    </TableCell>
+                  ) : null}
                 </TableRow>
               ))}
             </TableBody>

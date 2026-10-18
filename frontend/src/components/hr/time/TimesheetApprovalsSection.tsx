@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ChevronLeft, ChevronRight, Download } from "lucide-react";
+import { ChevronLeft, ChevronRight, Download, FileSpreadsheet } from "lucide-react";
 
 import { AppModal } from "@/components/ds/AppModal";
 import { daysLabel } from "@/components/hr/leave/leave-format";
@@ -26,6 +26,7 @@ import { cn } from "@/lib/utils";
 import { resolveViewState } from "@/lib/view-state";
 import { monthTitlePl, shiftMonth, type YearMonth, formatIsoDatePl } from "@/lib/date-pl";
 
+import { TimesheetCsvDialog } from "./TimesheetCsvDialog";
 import { TimesheetPreviewDialog } from "./TimesheetPreviewDialog";
 import { useUrlMonth } from "./use-url-month";
 import {
@@ -59,6 +60,7 @@ export function TimesheetApprovalsSection({
   const [returning, setReturning] = useState<TeamQueueItem | null>(null);
   const [note, setNote] = useState("");
   const [noteError, setNoteError] = useState<string | null>(null);
+  const [exporting, setExporting] = useState(false);
   const canApprove =
     config.me.is_admin ||
     config.me.people_admin ||
@@ -190,12 +192,20 @@ export function TimesheetApprovalsSection({
             <ChevronRight className="h-4 w-4" aria-hidden />
           </Button>
         </div>
-        {canZip ? (
-          <Button variant="outline" size="sm" onClick={downloadZip}>
-            <Download className="mr-1.5 h-4 w-4" aria-hidden />
-            Pobierz ZIP
+        <div className="flex flex-wrap items-center gap-1.5">
+          {/* CSV godzin (jak Compass): osoba z kolejki za zakres miesięcy, a Płace
+              i Kadry także cały zespół za miesiąc. */}
+          <Button variant="ghost" size="sm" onClick={() => setExporting(true)}>
+            <FileSpreadsheet className="mr-1.5 h-4 w-4" aria-hidden />
+            Eksport CSV
           </Button>
-        ) : null}
+          {canZip ? (
+            <Button variant="outline" size="sm" onClick={downloadZip}>
+              <Download className="mr-1.5 h-4 w-4" aria-hidden />
+              Pobierz ZIP
+            </Button>
+          ) : null}
+        </div>
       </div>
 
       {!canApprove ? null : state === "loading" ? (
@@ -285,6 +295,19 @@ export function TimesheetApprovalsSection({
           canEdit={previewed.can_decide}
           allowOvertime={config.me.is_admin || config.me.people_admin}
           actions={decisionButtons(previewed, "md")}
+        />
+      ) : null}
+
+      {exporting ? (
+        <TimesheetCsvDialog
+          open
+          onOpenChange={setExporting}
+          period={period}
+          mode={{
+            kind: "team",
+            people: items.map((item) => ({ user_id: item.user_id, name: item.name })),
+            allowMonth: canZip,
+          }}
         />
       ) : null}
 

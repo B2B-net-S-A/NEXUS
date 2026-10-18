@@ -34,6 +34,7 @@
   "PATCH /api/hr/admin/profiles/{user_id}": "PDDDDDDDDDDDDDDDDDDDDPDDD",
   "POST /api/hr/admin/days-off": "PDDDDDDDDDDDDDDDDDDDDPDDD",
   "POST /api/hr/admin/profiles": "PDDDDDDDDDDDDDDDDDDDDPDDD",
+  "POST /api/hr/admin/profiles/timesheet-required": "PDDDDDDDDDDDDDDDDDDDDPDDD",
   "PUT /api/hr/admin/availability-source": "PDDDDDDDDDDDDDDDDDDDDDDDD",
   "PUT /api/hr/admin/modules": "PDDDDDDDDDDDDDDDDDDDDDDDD",
   "PUT /api/hr/admin/profiles/{user_id}/entitlements/{year}": "PDDDDDDDDDDDDDDDDDDDDPDDD"

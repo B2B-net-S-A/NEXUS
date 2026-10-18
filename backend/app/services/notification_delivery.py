@@ -125,8 +125,8 @@ CATALOG = (
         module="Ludzie",
         trigger="Wniosek o nieobecność do decyzji i decyzja o nim, anulowana albo "
         "zgłoszona nieobecność (na B2B i zleceniu: zgłoszona przerwa i kolizja "
-        "zgłoszona przez koordynatora), zastępstwo, raport godzin zaakceptowany, "
-        "zwrócony albo niewysłany w terminie, przekazana praca, zadania wejścia "
+        "zgłoszona przez koordynatora), zastępstwo, raport godzin wysłany do "
+        "akceptacji, zaakceptowany, zwrócony albo niewysłany w terminie, przekazana praca, zadania wejścia "
         "i odejścia, sprawa administracja@, zadania sprzętu, podpisany protokół "
         "i konsultant przekazany z opieki do front office.",
         recipient_rule="Osoba, na którą sprawa czeka: akceptujący wniosku (przełożony "
@@ -242,8 +242,10 @@ class DeliveryPolicy:
 
 HR_MAIL_KIND = "hr_people"
 # Typy kadrowe, które idą mailem „Czas i ludzie”: sprawy, na które ktoś czeka.
-# Bez maila zostają premie i stawki (kwoty), timesheet do akceptacji (zbiór
-# na początku miesiąca — przełożony ma licznik w „Akceptacjach”) i opieka
+# Raport godzin wysłany do akceptacji (`hr_timesheet_submitted`) idzie mailem
+# od 18.10.2026 — jak w Compassie akceptujący dowiaduje się o nim od razu,
+# a nie dopiero z licznika w „Akceptacjach” (od 1.11 raporty składa się
+# w NEXUSIE). Bez maila zostają premie i stawki (kwoty) i opieka
 # (`care_contact_due`, sekcja Delivery), a z rozliczeń — informacja o zapłacie
 # (`hr_settlement_paid`; prośba o korektę faktury i rozliczenie do decyzji
 # Płac idą mailem). Przypomnienia o terminie
@@ -256,6 +258,7 @@ HR_MAIL_TYPES: tuple[str, ...] = (
     "hr_leave_substitute",
     "hr_absence_reported",
     "hr_leave_conflict",
+    "hr_timesheet_submitted",
     "hr_timesheet_decided",
     "hr_timesheet_reminder",
     "hr_lifecycle_task",
