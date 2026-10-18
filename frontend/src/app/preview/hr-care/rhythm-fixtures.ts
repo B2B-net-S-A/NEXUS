@@ -6,6 +6,7 @@
  */
 
 import type {
+  CareAutoAssignment,
   AssignmentRow,
   CadenceCurrent,
   CareAssignment,
@@ -467,5 +468,38 @@ export function careAssignment(today: string): CareAssignment {
     can_assign: true,
     can_edit_threshold: true,
     can_edit_defaults: true,
+  };
+}
+
+/** Pula opiekunów (podwładni head back office) i podgląd „Przypisz wg obłożenia”. */
+export function careAutoAssignment(today: string): CareAutoAssignment {
+  const people = [
+    { id: 201, name: "Beata Księgowa" },
+    { id: 202, name: "Daria Przykładowa" },
+    { id: 203, name: "Hanna Finansowa" },
+    { id: 204, name: "Igor Testowy" },
+  ];
+  const [beata, daria, hanna, igor] = people;
+  return {
+    pool: [
+      { ...beata, excluded: true, sees_care: true, eligible: false, note: null, consultants_now: null, consultants_after: null },
+      { ...daria, excluded: false, sees_care: false, eligible: false, note: "nie widzi Opieki (brak sekcji albo podglądu Delivery)", consultants_now: null, consultants_after: null },
+      { ...hanna, excluded: false, sees_care: true, eligible: true, note: null, consultants_now: 0, consultants_after: 1 },
+      { id: natalia.id, name: natalia.name, excluded: false, sees_care: true, eligible: true, note: null, consultants_now: 7, consultants_after: 7 },
+      { ...igor, excluded: false, sees_care: true, eligible: true, note: null, consultants_now: 0, consultants_after: 1 },
+    ],
+    config: {
+      manager: { id: kamil.id, name: kamil.name },
+      manager_from_division: false,
+      excluded_user_ids: [beata.id],
+      auto_new_contracts: true,
+    },
+    manager_choices: [kamil, adam],
+    items: [
+      { contract_id: 4601, candidate_name: MORE.marek.name, client_name: HR_CLIENTS.clinic.name, start_date: shiftDay(today, 17), owner: hanna },
+      { contract_id: 4602, candidate_name: MORE.iga.name, client_name: HR_CLIENTS.clinic.name, start_date: shiftDay(today, 17), owner: igor },
+    ],
+    unassigned: [],
+    counts: { targets: 2, assigned: 2, unassigned: 0, eligible: 3 },
   };
 }

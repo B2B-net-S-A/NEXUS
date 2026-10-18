@@ -28,10 +28,13 @@
  ],
  "routes": {
   "GET /api/care/assignment": "BBBBBBBDBBBBBBBBBBBBBBBBB",
+  "GET /api/care/assignment/auto": "BBBBBBBDBBBBBBBBBBBBBBBBB",
   "GET /api/care/consultants": "BBBBBBBDBBBBBBBBBBBBBBBBB",
   "GET /api/care/contracts/{contract_id}/cadence": "BBBBBBBDBBBBBBBBBBBBBBBBB",
   "POST /api/care/assignment": "BBBBBBBDBBBBBBBBBBBBBBBBB",
+  "POST /api/care/assignment/auto": "BBBBBBBDBBBBBBBBBBBBBBBBB",
   "POST /api/care/contracts/{contract_id}/cadence": "BBBBBBBDBBBBBBBBBBBBBBBBB",
+  "PUT /api/care/assignment/pool": "BBBBBBBDBBBBBBBBBBBBBBBBB",
   "PUT /api/care/assignment/threshold": "BBBBBBBDBBBBBBBBBBBBBBBBB"
  }
 }

@@ -464,6 +464,46 @@ export interface CareAssignment {
   can_edit_defaults: boolean;
 }
 
+/** Pula opiekunów (podwładni wskazanego przełożonego w kartotece) i automat „wg obłożenia”. */
+export interface OwnerPoolMember {
+  id: number;
+  name: string;
+  excluded: boolean;
+  sees_care: boolean;
+  eligible: boolean;
+  note: string | null;
+  consultants_now: number | null;
+  consultants_after: number | null;
+}
+
+export interface AutoAssignItem {
+  contract_id: number;
+  candidate_name: string | null;
+  client_name: string;
+  start_date: string | null;
+  owner: PersonRef;
+}
+
+export interface CareAutoAssignment {
+  pool: OwnerPoolMember[];
+  config: {
+    manager: { id: number; name: string | null } | null;
+    manager_from_division: boolean;
+    excluded_user_ids: number[];
+    auto_new_contracts: boolean;
+  };
+  manager_choices: PersonRef[];
+  items: AutoAssignItem[];
+  unassigned: { contract_id: number; candidate_name: string | null; client_name: string; reason: string }[];
+  counts: { targets: number; assigned: number; unassigned: number; eligible: number };
+}
+
+export interface OwnerPoolPayload {
+  manager_user_id: number | null;
+  excluded_user_ids: number[];
+  auto_new_contracts: boolean;
+}
+
 export interface RedeployRow extends RedeployItem {
   candidate_id: number | null;
   candidate_name: string | null;
@@ -770,6 +810,7 @@ export const careKeys = {
   cadence: (contractId: number, level: CadenceLevel | null = null, until: string | null = null) =>
     ["care", "contract", contractId, "cadence", level, until] as const,
   assignment: ["care", "assignment"] as const,
+  autoAssignment: ["care", "assignment", "auto"] as const,
   redeploy: (state: "active" | "closed") => ["care", "redeploy", state] as const,
   skillReview: (state: "open" | "closed") => ["care", "skill-review", state] as const,
   summary: ["care", "summary"] as const,
@@ -897,6 +938,46 @@ export function useAssignOwners() {
         )
       ).data,
     onSuccess: (_data, payload) => invalidateCareLists(queryClient, payload.contract_ids),
+  });
+}
+
+export function useCareAutoAssignment(enabled = true) {
+  return useQuery({
+    queryKey: careKeys.autoAssignment,
+    queryFn: async () => (await api.get<CareAutoAssignment>("/api/care/assignment/auto")).data,
+    enabled,
+  });
+}
+
+export function useSaveOwnerPool() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (payload: OwnerPoolPayload) =>
+      (await api.put<CareAutoAssignment>("/api/care/assignment/pool", payload)).data,
+    onSuccess: (data) => {
+      queryClient.setQueryData(careKeys.autoAssignment, data);
+      void queryClient.invalidateQueries({ queryKey: careKeys.assignment, exact: true });
+    },
+  });
+}
+
+export function useApplyAutoAssignment() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (items: { contract_id: number; owner_user_id: number }[]) =>
+      (
+        await api.post<{
+          changed: number;
+          skipped: number;
+          notified: number;
+          by_owner: (PersonRef & { count: number })[];
+        }>("/api/care/assignment/auto", { items })
+      ).data,
+    onSuccess: (_data, items) =>
+      invalidateCareLists(
+        queryClient,
+        items.map((item) => item.contract_id),
+      ),
   });
 }
 

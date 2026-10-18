@@ -42,8 +42,10 @@ eksportu w okresie umowy):
   „z Compassa”; rytm zmieniony już w NEXUSIE zostaje (``conflict``).
   Plan przelicza nocny przebieg opieki,
 * opiekun: konto opiekuna Compassa, które może być opiekunem w NEXUSIE
-  (aktywny DL z klientem w portfelu, TCM, admin), na kontrakcie bez
-  opiekuna; inny opiekun wpisany w NEXUSIE zostaje (``conflict``).
+  (aktywny DL z klientem w portfelu, TCM, admin albo osoba z puli
+  opiekunów — ``care_access.owner_problem``), na kontrakcie bez opiekuna;
+  inny opiekun wpisany w NEXUSIE zostaje, a osoba z listy wykluczonych puli
+  nie przechodzi (``conflict``).
 """
 
 from __future__ import annotations
@@ -75,6 +77,7 @@ from app.models.contract_care import (
 from app.models.hr_ops import HrImportBatch
 from app.models.user import User
 from app.services.care import access as care_access
+from app.services.care import owner_pool
 from app.services.care import skills as care_skills
 from app.services.client_portfolio_import import normalize_client_name
 from app.services.contract_care_schema import (
@@ -122,6 +125,7 @@ OWNER_UNSURE = "kontrakt opiekuna niepewny"
 OWNER_NO_ACCOUNT = "opiekun bez konta w NEXUSIE"
 OWNER_NOT_CARE = "opiekun z Compassa nie może być opiekunem tego kontraktu"
 OWNER_SET_IN_NEXUS = "opiekun ustawiony w NEXUSIE — bez nadpisania"
+OWNER_EXCLUDED = "opiekun z Compassa jest na liście wykluczonych z puli opiekunów"
 _SKIPPED_CONTRACT_STATUSES = (ContractStatus.void, ContractStatus.draft)
 
 CATEGORY_LABELS: dict[str, str] = {
@@ -733,6 +737,7 @@ async def _plan_owners(
     known = await care_access.contracts_by_id(
         db, [cid for cid in contract_ids.values() if cid is not None]
     )
+    excluded = await owner_pool.excluded_ids(db)
     for row in owners:
         sid = source_id(OWNERS, row)
         if links.candidate_for(row.get("id")) is None:
@@ -747,16 +752,11 @@ async def _plan_owners(
             result.rows.append(RowPlan(sid, "conflict", OWNER_NO_ACCOUNT))
             continue
         account = await db.get(User, account_id)
-        scope = (
-            await care_access.allowed_client_ids(account, db)
-            if account is not None
-            else None
-        )
-        if (
-            account is None
-            or not account.is_active
-            or not care_access.is_care_worker(account)
-            or (scope is not None and contract.client_id not in scope)
+        if account is not None and account.id in excluded:
+            result.rows.append(RowPlan(sid, "conflict", OWNER_EXCLUDED))
+            continue
+        if await care_access.owner_problem(
+            db, account, client_ids=[contract.client_id]
         ):
             result.rows.append(RowPlan(sid, "conflict", OWNER_NOT_CARE))
             continue

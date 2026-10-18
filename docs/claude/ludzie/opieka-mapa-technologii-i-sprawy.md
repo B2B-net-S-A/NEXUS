@@ -140,6 +140,49 @@ lista w `care/consultants.py`, przydział w `care/assignment.py`.
   opiekun ustawiony już w NEXUSIE zostaje (`conflict` w raporcie). Plan po
   imporcie przelicza nocny przebieg.
 
+## Pula opiekunów i „Przypisz wg obłożenia” (decyzja Artura 18.10.2026)
+
+Serwisy `care/owner_pool.py` (pula) i `care/auto_assign.py` (automat), trasy
+`GET /api/care/assignment/auto` (podgląd), `POST /api/care/assignment/auto`
+(zapis), `PUT /api/care/assignment/pool` (ustawienie) — `CareAssigner` (head
+back office, admin). Karta „Pula opiekunów” na górze zakładki „Przydział”.
+
+- **Pula jest wyliczana z kartoteki, nie wpisana**: bezpośredni podwładni
+  przełożonego (`employee_profiles.manager_user_id`), status `onboarding`
+  albo `active` (kończący pracę nie dostaje nowych), aktywne konto. Przełożony
+  w `app_settings['care_owner_pool'].manager_user_id`; bez klucza — head back
+  office z `hr_divisions`, `null` — puli nie ma. Na produkcji przełożonego
+  i wykluczonych ustawia się w tej karcie (albo `PUT …/pool`), nie w kodzie.
+- **„Nie przypisuj”** (`excluded_user_ids`, np. księgowość): takiej osobie
+  nie da się przypisać konsultanta ani automatem, ani ręcznie (422 przy
+  zmianie pojedynczej i hurtem, brak na liście wyboru — także admina), a import
+  z Compassa zostawia ją jako `conflict`.
+- **Członek puli prowadzi opiekę jak TCM** (`care_access.is_care_writer`):
+  zapis rozmów, kart, przepięć, zmiana opiekuna — także bez roli DL/TCM/admin
+  (np. Finanse). Bramki sekcji zostają: kto nie ma sekcji i podglądu Delivery
+  (np. Head of Recruitment), jest w puli z dopiskiem „nie widzi Opieki”,
+  a automat go pomija. Opinie klienta (D11) dalej tylko DL, TCM, HoR, admin.
+- **Automat**: kontrakty aktywne i kończące się BEZ opiekuna wpisanego na
+  kontrakcie (także te z opiekunem z łańcucha — domyślnym klienta albo DL) →
+  osoba z puli z najmniejszą liczbą aktywnych podopiecznych (faktyczny
+  opiekun z łańcucha); remis — kolejność po nazwisku, potem id. Delivery Lead
+  w puli dostaje tylko klientów z portfela. Kolejność kontraktów: start, klient, id.
+- **Podgląd przed zapisem**: podgląd nic nie zapisuje; zapis bierze DOKŁADNIE
+  pary z podglądu, pomija kontrakt, który w międzyczasie dostał opiekuna
+  (`skipped`), a parę z osobą spoza puli odrzuca w całości (409 „odśwież
+  podgląd”). Ślad `care.owner_set` z powodem `auto_load`. Niezapisana zmiana
+  puli blokuje przycisk zapisu przydziału na ekranie.
+- **Nowy kontrakt** (`auto_new_contracts`, domyślnie tak): hak
+  `contract_hooks.contract_started` (krok `care`, także przy wyłączonym
+  module — tryb cienia) i dzienny przebieg opieki (tylko starty z ostatnich
+  14 dni; starsze bez opiekuna przydziela człowiek z podglądem).
+- **Powiadomienie opiekuna tylko przy włączonym module `care`** (przy
+  wyłączonym link prowadziłby na 404). Typ `care_contact_due`: hak — dzwonek
+  na kontrakt („Nowy podopieczny”), zapis hurtem — jeden zbiorczy na osobę.
+  Przypomnienie o kontakcie dla tego kontraktu wstrzymuje się wtedy na 7 dni
+  (ta sama blokada co dla przypomnień; pierwszy punkt planu i tak przypada
+  na dzień 7).
+
 ## Struktura u klienta i opinie klienta (etap 2, D8–D11, 17.10.2026)
 
 Zakładka klienta „Struktura u klienta” (`components/care/ClientPeopleTab.tsx`,

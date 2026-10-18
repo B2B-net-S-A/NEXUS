@@ -173,8 +173,17 @@ async def run_once(db: AsyncSession) -> dict[str, Any]:
     run_id = await job_runs.claim(db, JOB_KIND, today.isoformat(), local_now())
     if run_id is None:
         return {"status": "skipped", "period": today.isoformat()}
-    counts: dict[str, Any] = {"plan_items": 0, "project_end_active": 0}
+    counts: dict[str, Any] = {
+        "plan_items": 0,
+        "project_end_active": 0,
+        "auto_owners": 0,
+    }
     try:
+        # Najpierw opiekun dla świeżych kontraktów bez opiekuna (pula
+        # opiekunów), potem plan i przypomnienia — już do nowego opiekuna.
+        from app.services.care import auto_assign  # noqa: PLC0415
+
+        counts["auto_owners"] = await auto_assign.sweep(db, today=today)
         contracts = await care_access.live_contracts(db)
         counts["plan_items"] = await care_plan.ensure_plans(db, contracts, today=today)
         for contract in contracts:

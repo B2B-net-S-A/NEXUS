@@ -24,6 +24,11 @@ vi.mock("@/components/Toast", () => ({
   useToast: () => ({ showToast: mocks.showToast, showError: vi.fn() }),
 }));
 
+// Pula opiekunów ma własne zapytanie i własny test (``OwnerPoolPanel.test.tsx``).
+vi.mock("@/components/care/OwnerPoolPanel", () => ({
+  OwnerPoolPanel: () => <section aria-label="Pula opiekunów" />,
+}));
+
 // Lista wyboru Radix w jsdom: brak API przechwytywania wskaźnika.
 if (!Element.prototype.hasPointerCapture) {
   Object.assign(Element.prototype, {
@@ -142,6 +147,7 @@ describe("AssignmentPanel", () => {
     mocks.post.mockResolvedValue({ data: { changed: 2, unchanged: 0, owner: kamil } });
     renderPanel();
     const loads = await screen.findByRole("region", { name: "Opiekunowie i obciążenie" });
+    expect(screen.getByRole("region", { name: "Pula opiekunów" })).toBeInTheDocument();
     const card = within(loads).getByRole("button", { name: /Natalia Opiekuńcza/ });
     expect(within(card).getByText("38 osób · 47 rozmów")).toBeInTheDocument();
     expect(within(card).getByText("powyżej progu 40 rozmów")).toBeInTheDocument();
@@ -181,5 +187,6 @@ describe("AssignmentPanel", () => {
     expect(within(table).queryByRole("checkbox")).toBeNull();
     expect(screen.queryByLabelText(/Próg obciążenia/)).toBeNull();
     expect(screen.getByText(/przypisuje head back office albo administrator/)).toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Pula opiekunów" })).toBeNull();
   });
 });

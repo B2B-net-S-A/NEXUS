@@ -6,7 +6,9 @@ Dostęp (decyzja D7 i zadanie E5, 16.10.2026):
   (``DeliveryViewUser``); Delivery Lead tylko u swoich klientów (cudzy → 403),
 * **zapis** (opiekun, rozmowy, karty, przepięcia, notatki o stacku) — dodatkowo
   rola Delivery Lead, Talent Community Manager albo admin: opieka to praca
-  z ludźmi, a nie uprawnienie z ekranu kontraktów,
+  z ludźmi, a nie uprawnienie z ekranu kontraktów; od 18.10.2026 także osoba
+  z puli opiekunów (``care/owner_pool``, np. Finanse pod head back office),
+
 * **kolejka technologii** — czytają ją też osoby od słownika umiejętności
   (Head of Recruitment); decyzje: admin, Head of Recruitment, TCM,
 * **ATLAS** — klucz konta serwisowego (``X-API-Key``) z ``clients:read``
@@ -63,8 +65,8 @@ from app.services.permission_denial import ensure_permission
 from app.services.section_permissions import ProductSection
 
 WRITER_DENIED = (
-    "Opiekę nad konsultantami prowadzą Delivery Lead, Talent Community Manager "
-    "i administrator."
+    "Opiekę nad konsultantami prowadzą Delivery Lead, Talent Community Manager, "
+    "administrator i osoby z puli opiekunów."
 )
 
 _DELIVERY_SECTION = require_section_access(ProductSection.delivery)
@@ -114,14 +116,14 @@ def require_hr_care_reader():
 
 
 def require_hr_care_writer():
-    """Zapis opieki: jak odczyt + rola DL, TCM albo admin."""
+    """Zapis opieki: jak odczyt + rola DL, TCM, admin albo osoba z puli opiekunów."""
 
     async def _check(
         viewer: DeliveryViewUser,
         current_user: User = Depends(_DELIVERY_SECTION),
         db: AsyncSession = Depends(get_db),
     ) -> User:
-        if not care_access.is_care_worker(current_user):
+        if not await care_access.is_care_writer(db, current_user):
             raise HTTPException(status.HTTP_403_FORBIDDEN, WRITER_DENIED)
         await ensure_module(db, current_user, HrModule.care)
         return current_user

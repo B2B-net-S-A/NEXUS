@@ -45,6 +45,7 @@ import {
   type AssignmentFilter,
 } from "./cadence-format";
 import { ClientDefaultOwnersDialog } from "./ClientDefaultOwnersDialog";
+import { OwnerPoolPanel } from "./OwnerPoolPanel";
 
 const REASONS = Object.keys(OWNER_REASON_LABELS) as OwnerReason[];
 
@@ -153,7 +154,8 @@ function ThresholdEditor({ data }: { data: CareAssignment }) {
  * „Opieka · Przydział” (makieta M3): opiekunowie z obciążeniem liczonym
  * z rytmów (rozmowy w następnym miesiącu), próg jako ostrzeżenie, lista
  * „bez opiekuna” i zmiana wielu kontraktów naraz z powodem (head back
- * office, admin). Każda zmiana zostaje na osi konsultanta.
+ * office, admin), nad nimi pula opiekunów i „Przypisz wg obłożenia”
+ * (``OwnerPoolPanel``). Każda zmiana zostaje na osi konsultanta.
  */
 export function AssignmentPanel() {
   const { showToast } = useToast();
@@ -261,6 +263,7 @@ export function AssignmentPanel() {
           Domyślni opiekunowie klientów
         </Button>
       </div>
+      {data.can_assign ? <OwnerPoolPanel /> : null}
       <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.7fr)]">
         <section className="grid content-start gap-2" aria-label="Opiekunowie i obciążenie">
           <h3 className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
