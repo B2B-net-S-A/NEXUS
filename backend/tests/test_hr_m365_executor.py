@@ -209,6 +209,9 @@ async def test_oof_text_hides_absence_type_and_falls_back_to_manager_then_office
     monkeypatch,
 ) -> None:
     monkeypatch.setattr(settings, "ADMIN_CASES_MAILBOX", "biuro@example.com")
+    # Skrzynka M365 z kopią poczty nie trafia do autoodpowiedzi — ludzie
+    # czytają adres widoczny (wariant B, 18.10.2026).
+    monkeypatch.setattr(settings, "ADMIN_CASES_M365_MAILBOX", "kopia@example.com")
     fake = FakeMailboxOps()
     async with AsyncSessionLocal() as db:
         boss = await make_user(db, name="Jan Przełożony")
@@ -241,6 +244,7 @@ async def test_oof_text_hides_absence_type_and_falls_back_to_manager_then_office
         assert "9 listopada 2026" in setting["internalReplyMessage"]
     assert "Jan Przełożony" in with_manager["internalReplyMessage"]
     assert "mailto:biuro@example.com" in with_office["internalReplyMessage"]
+    assert "kopia@example.com" not in with_office["externalReplyMessage"]
 
 
 async def test_late_clear_does_not_remove_oof_of_a_new_leave_in_the_same_days() -> None:

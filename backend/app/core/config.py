@@ -1558,8 +1558,12 @@ class Settings(BaseSettings):
     # APPLICATION DeviceManagementManagedDevices.Read.All w rejestracji „NEXUS Kadry”);
     # simulate = fikcyjna lista urządzeń; live = Graph, raz na dobę od 05:30.
     EQUIPMENT_INTUNE_MODE: str = "off"
-    # Czytnik skrzynki administracja@ (Sprawy): UPN skrzynki i wyłącznik.
+    # Administracja@ (Sprawy, autoodpowiedzi, komunikaty) — opis ról
+    # w `app/services/admin_cases/mailbox.py`. ADMIN_CASES_MAILBOX = adres
+    # widoczny dla ludzi; ADMIN_CASES_M365_MAILBOX = skrzynka M365, którą NEXUS
+    # czyta i z której wysyła (pusta = ta sama co ADMIN_CASES_MAILBOX).
     ADMIN_CASES_MAILBOX: str = ""
+    ADMIN_CASES_M365_MAILBOX: str = ""
     ADMIN_CASES_MAIL_INGEST_ENABLED: bool = False
     # Rozliczenia zespołu (etap 4, R1): faktury od osób na B2B z KSeF 2.0 — tylko
     # odczyt, spółka jako nabywca (`app/services/hr/ksef/`). Tryb: off = nic nie

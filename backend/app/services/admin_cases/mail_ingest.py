@@ -7,7 +7,8 @@ maila z nakładką, stan przebiegu w bazie.
 
 Reguły:
 
-* **wyłączony**, gdy ``ADMIN_CASES_MAILBOX`` (UPN skrzynki) jest pusty,
+* **wyłączony**, gdy nie ma skrzynki M365 (``ADMIN_CASES_M365_MAILBOX``, pusta =
+  ``ADMIN_CASES_MAILBOX``; role adresów w ``admin_cases/mailbox.py``),
   ``ADMIN_CASES_MAIL_INGEST_ENABLED`` ≠ ``true`` albo moduł „cases” jest
   wyłączony w ``app_settings['hr_modules']`` — wtedy niczego nie czyta
   i niczego nie zapisuje,
@@ -72,6 +73,7 @@ from app.services.admin_cases.service import (
 logger = logging.getLogger(__name__)
 
 MAILBOX_ENV = "ADMIN_CASES_MAILBOX"
+M365_MAILBOX_ENV = "ADMIN_CASES_M365_MAILBOX"
 ENABLED_ENV = "ADMIN_CASES_MAIL_INGEST_ENABLED"
 
 JOB_KIND = "admin_cases_mail_ingest"
@@ -164,8 +166,13 @@ class GraphAdminMailbox:
 
 
 def mailbox_upn() -> Optional[str]:
-    value = (os.environ.get(MAILBOX_ENV) or "").strip()
-    return value or None
+    """Skrzynka M365 do czytania — ta sama reguła co ``mailbox.m365_mailbox``."""
+
+    for env in (M365_MAILBOX_ENV, MAILBOX_ENV):
+        value = (os.environ.get(env) or "").strip()
+        if value:
+            return value
+    return None
 
 
 def ingest_enabled() -> bool:
