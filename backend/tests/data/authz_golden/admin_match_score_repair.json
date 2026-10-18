@@ -19,10 +19,15 @@
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
   "recruiter+amounts_edit",
-  "automation"
+  "automation",
+  "employee",
+  "recruiter+people_admin",
+  "recruiter+payroll",
+  "recruiter+equipment",
+  "recruiter+cases"
  ],
  "routes": {
-  "GET /api/admin/match-score-repair/preview": "PDDDDDDDDDDDDDDDDDDD",
-  "POST /api/admin/match-score-repair/repair": "PDDDDDDDDDDDDDDDDDDD"
+  "GET /api/admin/match-score-repair/preview": "PDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/admin/match-score-repair/repair": "PDDDDDDDDDDDDDDDDDDDDDDDD"
  }
 }

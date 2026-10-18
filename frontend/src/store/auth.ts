@@ -28,6 +28,9 @@ export type UserRole =
   // „Automatyzacje” (0446) — rola WYŁĄCZNA: podgląd rekrutacji, kandydatów,
   // Insights oraz klientów, kontraktów i zamówień bez kwot; bez zapisu.
   | "automation"
+  // „Pracownik” (0456, „Ludzie w NEXUSIE”) — rola WYŁĄCZNA: osoba bez pracy
+  // w rekrutacji widzi swój czas, ludzi i pomoc; przyjmuje nadania (np. Sprzęt).
+  | "employee"
 
 // Ranga — liczbowa reprezentacja pozwala na porównanie "min rola".
 // Legacy rank helper only. Section/action access is defined by explicit
@@ -51,6 +54,8 @@ export const ROLE_RANK: Record<UserRole, number> = {
   // Rola tylko do odczytu — rangą jak dawny viewer, żadna bramka rangowa
   // zapisu jej nie przepuszcza.
   automation: 1,
+  // Bez sekcji produktu — żadna bramka rangowa go nie przepuszcza.
+  employee: 0.5,
 }
 
 export const ROLE_LABELS: Record<UserRole, string> = {
@@ -63,6 +68,7 @@ export const ROLE_LABELS: Record<UserRole, string> = {
   user: "User",
   trainee: "Praktykant",
   automation: "Automatyzacje",
+  employee: "Pracownik",
 }
 
 /** Identyfikatory modułów DynaReportera (migracja B.0, 0111). Lista
@@ -249,7 +255,21 @@ export function postLoginDestination(
   // Praktykant ma jeden ekran — `?next=` do innej trasy i tak odbiłby się
   // w middleware z powrotem na `/trainee`.
   if (isTraineeOnly(user)) return "/trainee"
+  // „Pracownik” (0456) nie ma pulpitu ani sekcji produktu — jego dom to
+  // „Mój czas”. Jawny `?next=` do innego ekranu „Ludzi” zostaje.
+  if (isEmployeeOnly(user)) {
+    return fallback === "/" || fallback.startsWith("/dashboard") ? "/my-time" : fallback
+  }
   return fallback
+}
+
+/** Konto wyłącznie z rolą „Pracownik” (rola wyłączna, lustro CHECK-a). */
+export function isEmployeeOnly(
+  user: { role: UserRole; roles?: readonly UserRole[] } | null | undefined,
+): boolean {
+  if (!user) return false
+  const roles = getUserRoles(user)
+  return roles.length === 1 && roles[0] === "employee"
 }
 
 /** Konto praktykanta: rola `trainee` i żadna inna (rola jest wyłączna, ale

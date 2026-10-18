@@ -47,7 +47,9 @@ const KanbanColumn = React.forwardRef<HTMLDivElement, KanbanColumnProps>(
           </Badge>
         ) : null}
       </div>
-      <ScrollArea className="max-h-[calc(100dvh-16rem)] flex-1">
+      {/* Radix owija treść w `display: table` — karty nie zawijały tekstu
+          i wychodziły poza kolumnę; blok trzyma szerokość kolumny. */}
+      <ScrollArea className="max-h-[calc(100dvh-16rem)] flex-1 [&_[data-radix-scroll-area-viewport]>div]:!block">
         <div className="space-y-2 px-2 pb-2">{children}</div>
       </ScrollArea>
     </div>

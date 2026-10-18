@@ -267,7 +267,18 @@ def resolve_workforce(
 async def workforce_context(
     db: AsyncSession, *, refresh: bool = False
 ) -> WorkforceContext:
+    from app.services.hr.availability_local import (
+        availability_enabled,
+        refresh_source,
+    )
+
+    # Źródło lokalne (urlopy NEXUSA) przełącza admin w `app_settings`
+    # (`hr_availability_source`); odczyt najwyżej raz na minutę na proces.
+    # Przy włączonym Compassie kontekst czyta ten sam zapisany snapshot,
+    # więc przełącznika nie trzeba sprawdzać.
     if not settings.COMPASS_AVAILABILITY_ENABLED:
+        await refresh_source(db)
+    if not availability_enabled():
         return WorkforceContext()
     key = "workforce_context"
     if not refresh and key in db.info:
@@ -495,21 +506,32 @@ async def sync_availability(db: AsyncSession) -> bool:
     now = datetime.now(timezone.utc)
     state.last_attempt_at = now
     try:
-        if (
-            not settings.COMPASS_AVAILABILITY_URL
-            or not settings.COMPASS_AVAILABILITY_SECRET
-        ):
-            raise ValueError("availability_not_configured")
-        async with httpx.AsyncClient(timeout=20, follow_redirects=False) as client:
-            response = await client.get(
-                settings.COMPASS_AVAILABILITY_URL,
-                headers={
-                    "Authorization": f"Bearer {settings.COMPASS_AVAILABILITY_SECRET}",
-                    "User-Agent": "dynaminds-smoke-test/1.0 (+nexus-availability)",
-                },
+        from app.services.hr.availability_local import (
+            build_local_snapshot,
+            local_source_active,
+        )
+
+        if local_source_active():
+            # Urlopy żyją w NEXUSIE — ten sam kontrakt snapshotu co z Compassa.
+            snapshot = AvailabilitySnapshot.model_validate(
+                await build_local_snapshot(db, now)
             )
-            response.raise_for_status()
-            snapshot = AvailabilitySnapshot.model_validate(response.json())
+        else:
+            if (
+                not settings.COMPASS_AVAILABILITY_URL
+                or not settings.COMPASS_AVAILABILITY_SECRET
+            ):
+                raise ValueError("availability_not_configured")
+            async with httpx.AsyncClient(timeout=20, follow_redirects=False) as client:
+                response = await client.get(
+                    settings.COMPASS_AVAILABILITY_URL,
+                    headers={
+                        "Authorization": f"Bearer {settings.COMPASS_AVAILABILITY_SECRET}",
+                        "User-Agent": "dynaminds-smoke-test/1.0 (+nexus-availability)",
+                    },
+                )
+                response.raise_for_status()
+                snapshot = AvailabilitySnapshot.model_validate(response.json())
         if (
             snapshot.date != now.astimezone(WARSAW).date()
             or not -60 <= (now - snapshot.generated_at).total_seconds() <= STALE_SECONDS

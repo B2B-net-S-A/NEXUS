@@ -172,6 +172,17 @@ integratora: `docs/api/integracje-v1.md` (bez nazwisk — repo jest publiczne).
   commitów i wysyła webhooki. Nowy rodzaj zmiany, który automatyzacje mają widzieć =
   wpis w `EVENT_TYPES` (typ → scope) i budowa `refs` z SAMYCH identyfikatorów. Zmiany
   hurtowe przez Core `UPDATE` zdarzeń nie dają.
+- **Nieobecności i sprzęt (16.10.2026, „Ludzie w NEXUSIE”):** scope'y
+  `absences:read` i `equipment:read`, trasy `GET /absences?from=&to=` (≤ 93 dni,
+  inaczej 422 `invalid_period`), `/absences/{request_id}`,
+  `/equipment/assignments/{id}`; wyłączony moduł HR = 404 `module_disabled`
+  (klucz nie ma wyjątku admina). Rodzaj nieobecności nie wychodzi ani w trasach,
+  ani w `refs` zdarzeń (D6). `leave.approved|cancelled` powstają z INSERT-u
+  `hr_audit_events` — decyzje o wniosku idą warunkowym Core `UPDATE`, którego
+  flush nie widzi; zmieniając ślad w `leave_service._audit`, pilnuj
+  `tests/test_integration_events_hr.py`. `equipment.issued` tylko z protokołem
+  wydania (import arkusza recepcji = stan początkowy), `equipment.returned` przy
+  ustawieniu `returned_at`.
 - **Nazwa modelu v1 musi być unikalna w całej aplikacji** — kolizja klas Pydantic
   zmienia nazwę istniejącego schematu w specyfikacji
   (`test_no_new_module_prefixed_schema_names`).

@@ -1,4 +1,4 @@
-"""Katalog dziewięciu uprawnień: nazwy, zależności, zasiew i lustra."""
+"""Katalog uprawnień (dziewięć + cztery „Ludzie”): nazwy, zależności, zasiew i lustra."""
 
 from __future__ import annotations
 
@@ -30,6 +30,8 @@ EXPECTED_DEFAULTS: dict[str, set[str]] = {
         "amounts_view",
         "amounts_edit",
         "finance_module",
+        # „Ludzie w NEXUSIE” (D2, 16.10.2026): Płace domyślnie u Finansów.
+        "payroll",
     },
     "head_of_recruitment": set(),
     "delivery_lead": {
@@ -45,12 +47,16 @@ EXPECTED_DEFAULTS: dict[str, set[str]] = {
         "delivery_view",
         "contract_status",
         "b2b_signature_confirmation",
+        # „Ludzie w NEXUSIE”: skrzynka administracja@ (odpowiednik Compassa).
+        "cases",
     },
     "recruiter": set(),
     "user": set(),
     "trainee": set(),
     # 0446: „Automatyzacje” — sam podgląd Delivery, bez kwot.
     "automation": {"delivery_view"},
+    # „Ludzie w NEXUSIE” (D1): pracownik bez pracy w rekrutacji — nic domyślnie.
+    "employee": set(),
 }
 
 PRODUCTION_SECTIONS: dict[str, dict[str, str]] = {
@@ -61,7 +67,7 @@ PRODUCTION_SECTIONS: dict[str, dict[str, str]] = {
 }
 
 
-def test_screen_shows_nine_permissions_in_three_groups() -> None:
+def test_screen_shows_thirteen_permissions_in_four_groups() -> None:
     assert [permission.label for permission in catalog.PERMISSIONS] == [
         "Klienci, kontrakty i zamówienia: podgląd",
         "Klienci: dodawanie i edycja",
@@ -72,13 +78,20 @@ def test_screen_shows_nine_permissions_in_three_groups() -> None:
         "Stawki i kwoty: podgląd",
         "Stawki i kwoty: zmiana",
         "Moduł Finanse",
+        "Kadry: kartoteka, urlopy za innych, wejście i odejście",
+        "Płace: stawki pracowników, premie, rozliczenie miesiąca",
+        "Sprzęt: ewidencja, wydania, zwroty i protokoły",
+        "Sprawy: skrzynka administracja@",
     ]
     assert [(group.label, len(group.permissions)) for group in catalog.GROUPS] == [
         ("Klienci i kontrakty", 5),
         ("Rekrutacje", 1),
         ("Pieniądze", 3),
+        ("Ludzie", 4),
     ]
-    assert sum(len(group.permissions) for group in catalog.GROUPS) == 9
+    assert sum(len(group.permissions) for group in catalog.GROUPS) == 13
+    # Siatka przy starcie sprawdza ostatni zasiewany klucz — nowe na końcu.
+    assert catalog.SEEDED_KEYS[-1] == catalog.CASES
 
 
 def test_catalog_roles_are_exactly_the_application_roles() -> None:

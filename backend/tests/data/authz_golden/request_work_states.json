@@ -19,10 +19,15 @@
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
   "recruiter+amounts_edit",
-  "automation"
+  "automation",
+  "employee",
+  "recruiter+people_admin",
+  "recruiter+payroll",
+  "recruiter+equipment",
+  "recruiter+cases"
  ],
  "routes": {
-  "GET /api/request-work-states": "PDPPDDDDPPPPDDDDDDDD",
-  "PATCH /api/request-work-states": "PDPPDDDDPPPPDDDDDDDD"
+  "GET /api/request-work-states": "PDPPDDDDPPPPDDDDDDDDDDDDD",
+  "PATCH /api/request-work-states": "PDPPDDDDPPPPDDDDDDDDDDDDD"
  }
 }

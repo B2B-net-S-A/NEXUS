@@ -266,6 +266,10 @@ describe("UserModal — dodatkowe uprawnienia osoby", () => {
       "Stawki i kwoty: podgląd",
       "Stawki i kwoty: zmiana",
       "Moduł Finanse",
+      // „Ludzie w NEXUSIE”: TCM ma domyślnie tylko „Sprawy”.
+      "Kadry: kartoteka, urlopy za innych, wejście i odejście",
+      "Płace: stawki pracowników, premie, rozliczenie miesiąca",
+      "Sprzęt: ewidencja, wydania, zwroty i protokoły",
     ]);
     expect(
       within(group).getByRole("checkbox", {
@@ -357,13 +361,19 @@ describe("UserModal — dodatkowe uprawnienia osoby", () => {
     const { onSave } = renderModal({ initial: tcm });
 
     const group = await extraPermissions();
-    expect(labelsIn(group)).toHaveLength(6);
+    expect(labelsIn(group)).toHaveLength(9);
 
     fireEvent.change(screen.getAllByRole("combobox")[0], {
       target: { value: "delivery_lead" },
     });
 
-    expect(labelsIn(group)).toEqual(["Stawki i kwoty: zmiana", "Moduł Finanse"]);
+    expect(labelsIn(group)).toEqual([
+      "Stawki i kwoty: zmiana",
+      "Moduł Finanse",
+      "Kadry: kartoteka, urlopy za innych, wejście i odejście",
+      "Płace: stawki pracowników, premie, rozliczenie miesiąca",
+      "Sprzęt: ewidencja, wydania, zwroty i protokoły",
+    ]);
     expect(group).toHaveTextContent(
       "Lista pokazuje tylko to, czego role Delivery Lead, Talent Community Manager nie dają.",
     );
@@ -438,7 +448,7 @@ describe("UserModal — dodatkowe uprawnienia osoby", () => {
     expect(onSave.mock.calls[0][0]).not.toHaveProperty("permissions");
   });
 
-  it("dla Finansów lista ma cztery pozycje, których ta rola nie daje", async () => {
+  it("dla Finansów lista ma siedem pozycji, których ta rola nie daje", async () => {
     personIs(userPermissionsResponse({ roles: ["finance"] }));
     renderModal({ initial: { id: 7, role: "finance", roles: ["finance"] } });
 
@@ -448,6 +458,10 @@ describe("UserModal — dodatkowe uprawnienia osoby", () => {
       "Zakończenie współpracy, zmiana statusu kontraktu",
       "Umowy B2B: oznaczanie jako podpisane",
       "Rekrutacje: zakładanie, zamykanie, wysyłka CV do klienta",
+      // „Ludzie w NEXUSIE”: Finanse mają domyślnie „Płace”.
+      "Kadry: kartoteka, urlopy za innych, wejście i odejście",
+      "Sprzęt: ewidencja, wydania, zwroty i protokoły",
+      "Sprawy: skrzynka administracja@",
     ]);
   });
 

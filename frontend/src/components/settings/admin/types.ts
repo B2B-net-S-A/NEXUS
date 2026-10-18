@@ -45,6 +45,7 @@ export const ROLES = [
   "recruiter",
   "trainee",
   "automation",
+  "employee",
   "user",
 ];
 
@@ -59,6 +60,7 @@ export const EXCLUSIVE_ROLES: readonly string[] = [
   "user",
   "trainee",
   "automation",
+  "employee",
 ];
 
 export function isExclusiveRole(role: string): boolean {
@@ -75,6 +77,7 @@ export const ROLE_LABELS: Record<string, string> = {
   user: "Viewer (legacy)",
   trainee: "Praktykant",
   automation: "Automatyzacje",
+  employee: "Pracownik",
   manager: "Manager",
   client: "Klient",
 };

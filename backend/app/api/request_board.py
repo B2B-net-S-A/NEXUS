@@ -33,6 +33,7 @@ from app.api.deps import ROLE_DENIED_DETAIL, OperationalUser, require_roles
 from app.api.recruitment_access import PROPOSAL_DECISION_ROLES, require_job_staffing
 from app.api.section_access import PIPELINE_SECTION_DEPENDENCIES
 from app.core.config import settings
+from app.services.hr.availability_local import availability_enabled
 from app.core.database import get_db
 from app.models.activity import Activity
 from app.models.client import Client
@@ -496,9 +497,7 @@ async def get_request_board(
         mode=(state.mode if state else "shadow")
         if settings.RECRUITMENT_ALLOCATION_ENABLED
         else "off",
-        availability_known=bool(
-            settings.COMPASS_AVAILABILITY_ENABLED and context.fresh
-        ),
+        availability_known=bool(availability_enabled() and context.fresh),
         groups=groups,
         requests=requests,
         load=load,

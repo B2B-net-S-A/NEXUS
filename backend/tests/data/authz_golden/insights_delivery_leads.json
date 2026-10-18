@@ -19,12 +19,17 @@
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
   "recruiter+amounts_edit",
-  "automation"
+  "automation",
+  "employee",
+  "recruiter+people_admin",
+  "recruiter+payroll",
+  "recruiter+equipment",
+  "recruiter+cases"
  ],
  "routes": {
-  "GET /api/insights/delivery-leads": "PPPPPPPDPPPPPPPPPPPP",
-  "GET /api/insights/delivery-leads/placements-by-client": "PPPPPPPDPPPPPPPPPPPP",
-  "GET /api/insights/delivery-leads/portfolio": "PPPPPPPDPPPPPPPPPPPP",
-  "GET /api/insights/delivery-leads/{dl_id}/trend": "PPPPPPPDPPPPPPPPPPPP"
+  "GET /api/insights/delivery-leads": "PPPPPPPDPPPPPPPPPPPPDPPPP",
+  "GET /api/insights/delivery-leads/placements-by-client": "PPPPPPPDPPPPPPPPPPPPDPPPP",
+  "GET /api/insights/delivery-leads/portfolio": "PPPPPPPDPPPPPPPPPPPPDPPPP",
+  "GET /api/insights/delivery-leads/{dl_id}/trend": "PPPPPPPDPPPPPPPPPPPPDPPPP"
  }
 }

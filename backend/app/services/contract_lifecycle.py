@@ -372,6 +372,10 @@ async def activate_contract(
             to_status=ContractStatus.active,
         )
     )
+    # „Ludzie w NEXUSIE”: premie z placementu, zestaw sprzętu, sprawa wejścia.
+    from app.services.hr import contract_hooks
+
+    await contract_hooks.contract_started(db, contract)
 
 
 SIGNED_AGREEMENT_ACTIVATION = "b2b_signed_agreement"
@@ -705,6 +709,9 @@ async def reopen_contract(
         await on_contract_returned_after_break(db, contract, actor_id=actor_id)
     else:
         await undo_contract_termination(db, contract, actor_id=actor_id)
+    from app.services.hr import contract_hooks
+
+    await contract_hooks.contract_end_undone(db, contract)
     return True
 
 
@@ -1128,6 +1135,9 @@ async def void_contract(
             extra={"reason": reason} if reason else None,
         )
     )
+    from app.services.hr import contract_hooks
+
+    await contract_hooks.contract_ended(db, contract)
 
 
 def signed_generated_link_filter(contract: Contract) -> ColumnElement[bool]:
@@ -1497,6 +1507,10 @@ async def hard_delete_contract(
         )
     )
     await _close_dl_alerts_of_deleted_orders(db, [int(row.id) for row in order_rows])
+    # „Ludzie w NEXUSIE”: sprawa wejścia zamknięta, zanim FK wyzeruje kontrakt.
+    from app.services.hr import contract_hooks
+
+    await contract_hooks.contract_deleted(db, contract)
     await db.delete(contract)
     # Force DELETE + FK actions before settlement and before returning to a
     # batch caller. This also surfaces an unexpected RESTRICT in this helper's

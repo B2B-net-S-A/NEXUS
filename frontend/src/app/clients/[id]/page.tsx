@@ -15,6 +15,11 @@ import api from "@/lib/api";
 import { isBlockingViewState, resolveViewState } from "@/lib/view-state";
 import { useCapability } from "@/hooks/useCapability";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
+import { ClientTechnologiesTab } from "@/components/care/ClientTechnologiesTab";
+import { ClientPeopleTab } from "@/components/care/ClientPeopleTab";
+import { canReadClientPeople } from "@/lib/api/client-people";
+import { useHrConfig } from "@/lib/api/hr";
+import { hasAnyPermission } from "@/lib/permissions";
 import {
   ArrowLeft,
   Building2,
@@ -51,6 +56,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { CALM_EMPTY, CALM_HEAD, CALM_SUBLINE } from "@/lib/calm-table";
+import { hitRatioTone } from "@/lib/client-hit-ratio";
 import { formatIsoDatePl } from "@/lib/date-pl";
 import {
   DropdownMenu,
@@ -66,6 +72,8 @@ import { DeleteButton } from "@/components/ConfirmDialog";
 import { EditClientModal } from "@/components/AppShell";
 import { RateCardsTab } from "@/components/RateCardsTab";
 import { MaterialsTab } from "./MaterialsTab";
+import { OnboardingPackTab } from "./OnboardingPackTab";
+import { ClientEquipmentProviderField } from "@/components/equipment/ClientEquipmentProviderField";
 import { OwnersTab } from "./OwnersTab";
 import { ProfileTab } from "./ProfileTab";
 import { ProjectsTab } from "./ProjectsTab";
@@ -989,6 +997,16 @@ export default function ClientDetailPage() {
     searchParams.get("tab"),
     writeTabToUrl,
   );
+  // „Technologie” tylko przy włączonym module opieki (admin widzi zawsze);
+  // „Sprzęt od nas / od klienta” — przy włączonym module sprzętu.
+  const hrConfig = useHrConfig().data;
+  const careOpen = hrConfig?.open_modules.care === true;
+  const equipmentOpen = hrConfig?.open_modules.equipment === true;
+  // „Wejście u klienta” — moduł wejścia i odejścia; czyta podgląd Delivery
+  // (Delivery Lead u swoich klientów) i recepcja („Sprzęt”).
+  const packOpen =
+    hrConfig?.open_modules.lifecycle === true &&
+    hasAnyPermission(user, "delivery_view", "equipment");
   const orderMailDocParam = Number(searchParams.get("orderMailDoc"));
   const orderMailDocId =
     Number.isInteger(orderMailDocParam) && orderMailDocParam > 0
@@ -1153,6 +1171,7 @@ export default function ClientDetailPage() {
     // Karta klienta — bez filtra po roli: rola `user` dostanie 403 z backendu
     // i karta pokaże „Brak uprawnień", nie pustkę (zamierzone).
     { key: "zasady", label: "Zasady współpracy" },
+    { key: "wejscie", label: "Wejście u klienta" },
     { key: "projekty", label: "Projekty" },
     { key: "zamowienia", label: "Zamówienia" },
     { key: "importy-md", label: "Importy MD" },
@@ -1160,9 +1179,17 @@ export default function ClientDetailPage() {
     { key: "kontakty", label: "Kontakty klienta" },
     { key: "umowy-ramowe", label: "Umowy" },
     { key: "analityka", label: "Analityka" },
+    { key: "technologie", label: "Technologie" },
+    { key: "struktura", label: "Struktura u klienta" },
   ];
+  // „Struktura u klienta” — moduł opieki i krąg D11 (opiekun, DL, HoR, admin).
+  const peopleOpen = careOpen && canReadClientPeople(user);
   const TABS = allTabs.filter(
-    (tab) => canViewDeliveryLegal || tab.key !== "umowy-ramowe",
+    (tab) =>
+      (canViewDeliveryLegal || tab.key !== "umowy-ramowe") &&
+      (careOpen || tab.key !== "technologie") &&
+      (packOpen || tab.key !== "wejscie") &&
+      (peopleOpen || tab.key !== "struktura"),
   );
 
   return (
@@ -1323,6 +1350,12 @@ export default function ClientDetailPage() {
               <ProfileTab clientId={Number(id)} />
 
               <aside className="@container grid min-w-0 grid-cols-[minmax(0,1fr)] gap-3" aria-label="Informacje o kliencie">
+                {equipmentOpen ? (
+                  <ClientEquipmentProviderField
+                    clientId={Number(id)}
+                    canEdit={canEditDelivery || hrConfig?.me.equipment === true}
+                  />
+                ) : null}
                 <LazyDetails
                   defaultOpen
                   icon={<Building2 className="w-4 h-4 text-muted-foreground" />}
@@ -1367,6 +1400,8 @@ export default function ClientDetailPage() {
           )}
 
           {activeTab === "zasady" && <ClientPlaybookTab clientId={Number(id)} />}
+
+          {packOpen && activeTab === "wejscie" && <OnboardingPackTab clientId={Number(id)} />}
 
           {activeTab === "projekty" && <ProjectsTab clientId={Number(id)} />}
 
@@ -1416,6 +1451,12 @@ export default function ClientDetailPage() {
             />
           )}
           {activeTab === "analityka" && <AnalyticsTab clientId={Number(id)} />}
+          {peopleOpen && activeTab === "struktura" && (
+            <ClientPeopleTab clientId={Number(id)} />
+          )}
+          {careOpen && activeTab === "technologie" && (
+            <ClientTechnologiesTab clientId={Number(id)} />
+          )}
 
           {activeTab === "zespol" && (
             <div className="space-y-4">
@@ -1519,15 +1560,6 @@ interface CoopTrendResponse {
   client_id: number;
   months: number;
   trend: CoopTrendPoint[];
-}
-
-/** Kolor pigułki hit ratio względem CELU z backendu (`hit_ratio_target_pct`,
- *  dziś 30%) — do 24.09.2026 progi 50/20 były wpisane na sztywno i klient na
- *  celu świecił na bursztynowo (audyt N8). */
-export function hitRatioTone(hitRatio: number, targetPct: number): string {
-  if (hitRatio >= targetPct) return "bg-success-muted text-success-muted-foreground";
-  if (hitRatio >= targetPct / 2) return "bg-warning-muted text-warning-muted-foreground";
-  return "bg-destructive-muted text-destructive-muted-foreground";
 }
 
 function CooperationStatsSection({ clientId }: { clientId: number }) {

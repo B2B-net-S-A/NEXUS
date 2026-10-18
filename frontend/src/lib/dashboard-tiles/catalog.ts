@@ -12,6 +12,7 @@
 // Kafelki metryk nie mają tu reguł źródeł — o nich mówi serwerowy katalog
 // (`/api/dashboard-metrics/catalog`).
 
+import type { HrConfig } from "@/lib/api/hr";
 import type {
   DashboardTile,
   MetricDefinition,
@@ -30,6 +31,7 @@ export type TileCategory =
   | "finance"
   | "team"
   | "calendar"
+  | "people"
   | "universal";
 
 export const TILE_CATEGORY_LABELS: Record<TileCategory, string> = {
@@ -39,6 +41,7 @@ export const TILE_CATEGORY_LABELS: Record<TileCategory, string> = {
   finance: "Finanse",
   team: "Zespół",
   calendar: "Kalendarz",
+  people: "Czas i ludzie",
   universal: "Uniwersalne",
 };
 
@@ -368,6 +371,56 @@ export const TILE_DEFINITIONS: Record<TileType, TileDefinition> = {
     ownChrome: false,
     availability: needsSection("insights", "Insights"),
   },
+  // „Ludzie w NEXUSIE” (17.10.2026). Moduł i kartotekę zna dopiero
+  // `/api/hr/config` — rozstrzyga je `hrTileGate`; tu tylko to, co widać z konta.
+  hr_substitution: {
+    type: "hr_substitution",
+    label: "W zastępstwie",
+    description:
+      "Praca kolegi, którego dziś zastępujesz: jego rekrutacje, rozmowy u klienta i kandydaci w procesie.",
+    category: "people",
+    defaultSize: { w: 6, h: 4 },
+    minSize: { w: 4, h: 3 },
+    ownChrome: false,
+    availability: ANY,
+  },
+  hr_my_time: {
+    type: "hr_my_time",
+    label: "Mój czas",
+    description: "Ile urlopu zostało, najbliższy urlop i godziny wpisane w tym miesiącu.",
+    category: "people",
+    defaultSize: { w: 6, h: 3 },
+    minSize: { w: 4, h: 3 },
+    ownChrome: false,
+    availability: ANY,
+  },
+  hr_approvals: {
+    type: "hr_approvals",
+    label: "Do akceptacji",
+    description: "Wnioski urlopowe i timesheety, które czekają na Twoją decyzję.",
+    category: "people",
+    defaultSize: { w: 4, h: 3 },
+    minSize: { w: 3, h: 2 },
+    ownChrome: false,
+    availability: ANY,
+  },
+  equipment_tasks: {
+    type: "equipment_tasks",
+    label: "Sprzęt do zrobienia",
+    description: "Zestawy do przygotowania, zwroty i protokoły czekające na podpis — najbliższe terminy.",
+    category: "people",
+    defaultSize: { w: 6, h: 4 },
+    minSize: { w: 4, h: 3 },
+    ownChrome: false,
+    // Lustro `_manager` w `backend/app/api/equipment.py` (uprawnienie „Sprzęt”).
+    availability: (user) =>
+      hasPermission(user, "equipment")
+        ? { ok: true }
+        : {
+            ok: false,
+            reason: `Wymaga uprawnienia „${permissionLabel("equipment")}”`,
+          },
+  },
   metric_number: {
     type: "metric_number",
     label: "Liczba",
@@ -690,12 +743,68 @@ export const TILE_TEMPLATES: TileTemplate[] = [
   },
 ];
 
+// ── „Ludzie w NEXUSIE”: moduł, kartoteka, przełożony ──────────────────────────
+
+/** Stan modułów i praw osoby z `/api/hr/config`; brak = jeszcze nie wiadomo albo awaria. */
+export type TileHrContext = Pick<HrConfig, "open_modules" | "me"> | null | undefined;
+
+export const HR_TILE_TYPES: ReadonlySet<TileType> = new Set<TileType>([
+  "hr_substitution",
+  "hr_my_time",
+  "hr_approvals",
+  "equipment_tasks",
+]);
+
+const OK: TileAvailability = { ok: true };
+
+/**
+ * Kafelki „Ludzi w NEXUSIE”: przy wyłączonym module (albo nieznanym stanie
+ * modułów) nie ma ich w katalogu ani w układzie roli — `"hidden"`, bo funkcja
+ * nie istnieje, a nie brakuje do niej uprawnień. Gdy moduł działa, część
+ * kafelków wymaga kartoteki albo roli przełożonego — wtedy powód, jak przy
+ * innych kafelkach. Lustro bramek tras: `require_hr_self_service`,
+ * `require_hr_leave_approver` / `require_hr_time_approver`,
+ * `require_hr_substitution_reader`, `require_hr_equipment`.
+ */
+export function hrTileGate(type: TileType, hr: TileHrContext): TileAvailability | "hidden" {
+  if (!HR_TILE_TYPES.has(type)) return OK;
+  if (!hr) return "hidden";
+  const { open_modules: open, me } = hr;
+  switch (type) {
+    case "hr_substitution":
+      return open.leave ? OK : "hidden";
+    case "hr_my_time":
+      if (!open.leave && !open.time) return "hidden";
+      return me.has_profile
+        ? OK
+        : { ok: false, reason: "Dla osób z kartoteką pracownika — założą ją Kadry" };
+    case "hr_approvals":
+      if (!open.leave && !open.time) return "hidden";
+      return me.is_admin || me.people_admin || me.is_manager
+        ? OK
+        : { ok: false, reason: "Dla przełożonych i Kadr" };
+    case "equipment_tasks":
+      return open.equipment ? OK : "hidden";
+    default:
+      return OK;
+  }
+}
+
+/** Czy szablon w ogóle istnieje dla tej osoby (wyłączony moduł = nie ma go w katalogu). */
+export function isTemplateOffered(template: TileTemplate, hr: TileHrContext): boolean {
+  return hrTileGate(template.type, hr) !== "hidden";
+}
+
 export function templateAvailability(
   template: TileTemplate,
   user: User | null | undefined,
+  hr?: TileHrContext,
 ): TileAvailability {
   const base = TILE_DEFINITIONS[template.type].availability(user);
   if (!base.ok) return base;
+  const gate = hrTileGate(template.type, hr);
+  if (gate === "hidden") return { ok: false, reason: "Moduł „Ludzi w NEXUSIE” jest wyłączony" };
+  if (!gate.ok) return gate;
   if (template.metricSection === "finance") {
     // Kafelki kwot idą za uprawnieniem „Stawki i kwoty: podgląd”, nie za rolą.
     // U KOGO konto widzi kwoty (Delivery Lead: u swoich klientów), liczy serwer

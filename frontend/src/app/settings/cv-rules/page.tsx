@@ -81,7 +81,7 @@ const STATE_FILTERS: ReadonlyArray<{ id: StateFilter; label: string }> = [
   { id: "proposed", label: "Niezatwierdzone" },
 ];
 
-export const QUERY_KEY = ["settings-cv-rules"] as const;
+const QUERY_KEY = ["settings-cv-rules"] as const;
 
 function fold(value: string): string {
   return value

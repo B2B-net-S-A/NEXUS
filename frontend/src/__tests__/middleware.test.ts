@@ -73,6 +73,7 @@ const validHybridHeadOfRecruitment = makeToken({
   exp: now() + HOUR,
 })
 const expiredAdmin = makeToken({ role: "admin", roles: ["admin"], exp: now() - HOUR })
+const validEmployee = makeToken({ role: "employee", roles: ["employee"], exp: now() + HOUR })
 
 function request(pathname: string, token?: string): NextRequest {
   return new NextRequest(new URL(pathname, BASE), {
@@ -178,6 +179,8 @@ describe("linki publiczne działają bez tokenu", () => {
     "/apply/abc123",
     "/share/champion-card/abc123",
     "/sign/abc123",
+    "/protocol/abc123",
+    "/wypis/abc123",
     "/cv/abc123",
     "/cv/i/abc123",
     "/engagement/abc123",
@@ -219,6 +222,23 @@ describe("linki publiczne działają bez tokenu", () => {
     "/preview/kpi-topbar",
     "/preview/kpi-who-counts",
     "/preview/topbar-topics",
+    "/preview/hr-dashboard",
+    "/preview/hr-my-time",
+    "/preview/hr-calendar",
+    "/preview/hr-approvals",
+    "/preview/hr-person",
+    "/preview/hr-payroll",
+    "/preview/hr-offboarding",
+    "/preview/hr-onboarding",
+    "/preview/hr-care",
+    "/preview/hr-client-tech",
+    "/preview/hr-cases",
+    "/preview/hr-equipment",
+    "/preview/hr-equipment-issue",
+    "/preview/hr-structure",
+    "/preview/hr-team",
+    "/preview/hr-client-people",
+    "/preview/hr-announcements",
     "/preview/job-portals",
     "/preview/request-allocation",
     "/preview/job-team-panel",
@@ -969,5 +989,17 @@ describe("host kariery — routing po domenie", () => {
   it("bez NEXT_PUBLIC_CAREER_HOST routing po domenie jest wyłączony", () => {
     vi.stubEnv("NEXT_PUBLIC_CAREER_HOST", "")
     expect(careerOutcome("/dashboard")).toBe("redirect:/login")
+  })
+})
+
+describe("„Pracownik” (Ludzie w NEXUSIE)", () => {
+  it.each(["/", "/dashboard"])("%s prowadzi do „Mój czas”", (path) => {
+    const res = middleware(request(path, validEmployee))
+    expect(new URL(res.headers.get("location") ?? "").pathname).toBe("/my-time")
+  })
+
+  it("„Mój czas” otwiera się bez przekierowania", () => {
+    const res = middleware(request("/my-time", validEmployee))
+    expect(res.headers.get("location")).toBeNull()
   })
 })

@@ -9,6 +9,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import load_only
 
 from app.core.config import settings
+from app.services.hr.availability_local import availability_enabled, refresh_source
 from app.core.database import AsyncSessionLocal
 from app.models.notification import NotificationType
 from app.models.proposal_snapshot import ProposalSnapshot
@@ -50,11 +51,20 @@ def _issues_check_due(checked_at: object, now: datetime) -> bool:
 
 
 async def availability_loop():
-    if not settings.COMPASS_AVAILABILITY_ENABLED:
+    # Źródło dostępności: Compass (flaga env) albo urlopy NEXUSA
+    # (`app_settings['hr_availability_source']`, krok 6 „Ludzi w NEXUSIE”).
+    # To drugie przełącza admin bez wdrożenia, więc pętla żyje, gdy działają
+    # pętle HR, i co minutę sprawdza przełącznik.
+    if not settings.COMPASS_AVAILABILITY_ENABLED and not settings.HR_LOOPS_ENABLED:
         return
     while True:
         try:
             async with AsyncSessionLocal() as db:
+                await refresh_source(db, force=True)
+                if not availability_enabled():
+                    await db.rollback()
+                    await asyncio.sleep(60)
+                    continue
                 # Multiple API workers must not overwrite a newer snapshot.
                 await db.execute(text("SELECT pg_advisory_xact_lock(734092772)"))
                 await sync_availability(db)
@@ -234,7 +244,7 @@ async def run_allocation_sweep(db):
     }
     previous = state.stats or {}
     issues_checked_at = previous.get("issues_checked_at")
-    if not settings.COMPASS_AVAILABILITY_ENABLED:
+    if not availability_enabled():
         # Compass celowo wyłączony: bez urlopów nie ma zastępstw do
         # sprawdzenia, a „brak świeżych danych” nie jest wtedy awarią, o której
         # trzeba kogoś budzić. `load_workloads` czyta wszystkie otwarte procesy

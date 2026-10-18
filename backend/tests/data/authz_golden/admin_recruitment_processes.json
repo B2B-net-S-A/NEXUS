@@ -19,12 +19,17 @@
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
   "recruiter+amounts_edit",
-  "automation"
+  "automation",
+  "employee",
+  "recruiter+people_admin",
+  "recruiter+payroll",
+  "recruiter+equipment",
+  "recruiter+cases"
  ],
  "routes": {
-  "GET /api/admin/recruitment-processes/backfill/status": "PDDDDDDDDDDDDDDDDDDD",
-  "GET /api/admin/recruitment-processes/by-pair/{candidate_id}/{job_id}": "PDDDDDDDDDDDDDDDDDDD",
-  "GET /api/admin/recruitment-processes/shadow-compare": "PDDDDDDDDDDDDDDDDDDD",
-  "POST /api/admin/recruitment-processes/backfill": "PDDDDDDDDDDDDDDDDDDD"
+  "GET /api/admin/recruitment-processes/backfill/status": "PDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/admin/recruitment-processes/by-pair/{candidate_id}/{job_id}": "PDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/admin/recruitment-processes/shadow-compare": "PDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/admin/recruitment-processes/backfill": "PDDDDDDDDDDDDDDDDDDDDDDDD"
  }
 }

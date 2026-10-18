@@ -19,10 +19,15 @@
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
   "recruiter+amounts_edit",
-  "automation"
+  "automation",
+  "employee",
+  "recruiter+people_admin",
+  "recruiter+payroll",
+  "recruiter+equipment",
+  "recruiter+cases"
  ],
  "routes": {
-  "POST /api/recommendations/prepare-client-proposal": "PPPPPPDDPPPPPPPPPPPD",
-  "POST /api/recommendations/send-candidate-shortlist-email": "PPPPPPDDPPPPPPPPPPPD"
+  "POST /api/recommendations/prepare-client-proposal": "PPPPPPDDPPPPPPPPPPPDDPPPP",
+  "POST /api/recommendations/send-candidate-shortlist-email": "PPPPPPDDPPPPPPPPPPPDDPPPP"
  }
 }

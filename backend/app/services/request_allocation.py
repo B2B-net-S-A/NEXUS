@@ -51,6 +51,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
+from app.services.hr.availability_local import availability_enabled
 from app.core.scheduling import is_business_day
 from app.models.cc_feedback import JobSecondaryCc
 from app.models.competence_category import UserCompetenceCategory
@@ -654,9 +655,7 @@ async def run_request_allocation(
     people, eligible_ids = await _people(
         db,
         available_ids=(
-            available_ids
-            if availability_fresh and settings.COMPASS_AVAILABILITY_ENABLED
-            else None
+            available_ids if availability_fresh and availability_enabled() else None
         ),
     )
     blocked = await _blocked(db)
@@ -673,7 +672,7 @@ async def run_request_allocation(
     # Urlopy z Compassa włączone, ale nieaktualne: tryb ``auto`` czeka, bo
     # request mógłby dostać ktoś na urlopie. Przy wyłączonych urlopach nie ma
     # na co czekać — automat przydziela od razu.
-    leave_blocks_auto = settings.COMPASS_AVAILABILITY_ENABLED and not availability_fresh
+    leave_blocks_auto = availability_enabled() and not availability_fresh
     if mode != "off":
         # Tryb ``off`` niczego nie przydziela — nie liczy obsady ani blokad.
         staffed, extra_load = await _unseen_workers(db, requests, live)
@@ -685,8 +684,7 @@ async def run_request_allocation(
             live=live,
             out_of_pool=out,
             mode=mode,
-            availability_known=availability_fresh
-            and settings.COMPASS_AVAILABILITY_ENABLED,
+            availability_known=availability_fresh and availability_enabled(),
             leave_blocks_auto=leave_blocks_auto,
             eligible_ids=eligible_ids,
             blocked=blocked | rejected,
@@ -702,9 +700,7 @@ async def run_request_allocation(
             "mode": mode,
             "requests": len(requests),
             "people": len(people),
-            "availability_known": bool(
-                availability_fresh and settings.COMPASS_AVAILABILITY_ENABLED
-            ),
+            "availability_known": bool(availability_fresh and availability_enabled()),
             "leave_blocks_auto": bool(leave_blocks_auto),
             **counts,
             **owner_counts,

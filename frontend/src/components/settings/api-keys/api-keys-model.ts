@@ -73,6 +73,13 @@ export const SCOPE_GROUPS: readonly ScopeGroupDefinition[] = [
       "applications:write",
     ],
   },
+  // „Ludzie w NEXUSIE” (16.10.2026): nieobecności bez rodzaju (decyzja D6)
+  // i wydania sprzętu — bez numerów seryjnych i wartości.
+  {
+    id: "people",
+    title: "Ludzie i sprzęt",
+    scopes: ["absences:read", "equipment:read"],
+  },
   // Węższy przed szerszym: kwoty sprzedaży, potem wszystkie (z kosztami i marżą).
   {
     id: "amounts",
@@ -89,7 +96,15 @@ export const SCOPE_GROUPS: readonly ScopeGroupDefinition[] = [
   {
     id: "ops",
     title: "Operacyjne",
-    scopes: ["traffit:sync", "traffit:read", "ops:snapshot", "contractors:read"],
+    scopes: [
+      "traffit:sync",
+      "traffit:read",
+      "ops:snapshot",
+      "contractors:read",
+      "people_roster:read",
+      "sales_signals:read",
+      "sales_signals:write",
+    ],
   },
 ];
 

@@ -247,3 +247,71 @@ describe("MentionTextarea — lista przy linii z „@” w wysokim polu", () => 
     expect(list.style.top).toBe("");
   });
 });
+
+describe("MentionTextarea — nieobecni (moduł urlopów)", () => {
+  const away = {
+    user_id: 2,
+    until: "2099-10-23",
+    half_day: null,
+    substitute_user_id: 1,
+    substitute_name: "Marta Nowak",
+  };
+
+  it("bez danych o nieobecnościach lista i pole są jak dotąd", () => {
+    render(<Field />);
+    const field = type("@lu");
+    expect(screen.queryByTestId("mention-absence")).not.toBeInTheDocument();
+    fireEvent.keyDown(field, { key: "Enter" });
+    expect(screen.queryByTestId("mention-substitute-hint")).not.toBeInTheDocument();
+  });
+
+  it("przy osobie nieobecnej lista pokazuje „nieobecność do …”, bez rodzaju", () => {
+    hook.result = { ...hook.result, absences: new Map([[2, away]]) };
+    render(<Field />);
+    type("@");
+    const badges = screen.getAllByTestId("mention-absence");
+    expect(badges).toHaveLength(1);
+    expect(badges[0]).toHaveTextContent(/^nieobecność do \S+ 23\.10$/);
+    expect(badges[0].title).toContain("zastępuje Marta Nowak");
+    expect(screen.getAllByRole("option")[1]).toContainElement(badges[0]);
+  });
+
+  it("po oznaczeniu nieobecnej osoby podpowiada zastępcę i dopisuje go", () => {
+    hook.result = { ...hook.result, absences: new Map([[2, away]]) };
+    render(<Field />);
+    const field = type("Pilne @lu");
+    fireEvent.keyDown(field, { key: "Enter" });
+    expect(field.value).toBe("Pilne @lzak@example.com ");
+    const hint = screen.getByTestId("mention-substitute-hint");
+    expect(hint).toHaveTextContent("Łukasz Żak — nieobecność do");
+    expect(hint).toHaveTextContent("Oznaczyć też zastępcę (Marta Nowak)?");
+    fireEvent.click(screen.getByRole("button", { name: "Oznacz zastępcę" }));
+    expect(field.value).toBe("Pilne @lzak@example.com @marta@example.com ");
+    expect(screen.queryByTestId("mention-substitute-hint")).not.toBeInTheDocument();
+  });
+
+  it("„Nie” chowa podpowiedź; zastępca już oznaczony — podpowiedzi nie ma", () => {
+    hook.result = { ...hook.result, absences: new Map([[2, away]]) };
+    render(<Field />);
+    let field = type("@lu");
+    fireEvent.keyDown(field, { key: "Enter" });
+    fireEvent.click(screen.getByRole("button", { name: "Nie" }));
+    expect(screen.queryByTestId("mention-substitute-hint")).not.toBeInTheDocument();
+
+    field = type("@marta@example.com @lu");
+    fireEvent.keyDown(field, { key: "Enter" });
+    expect(screen.queryByTestId("mention-substitute-hint")).not.toBeInTheDocument();
+  });
+
+  it("nieobecny bez zastępcy: plakietka jest, podpowiedzi nie ma", () => {
+    hook.result = {
+      ...hook.result,
+      absences: new Map([[2, { ...away, substitute_user_id: null, substitute_name: null }]]),
+    };
+    render(<Field />);
+    const field = type("@lu");
+    expect(screen.getByTestId("mention-absence")).toBeInTheDocument();
+    fireEvent.keyDown(field, { key: "Enter" });
+    expect(screen.queryByTestId("mention-substitute-hint")).not.toBeInTheDocument();
+  });
+});

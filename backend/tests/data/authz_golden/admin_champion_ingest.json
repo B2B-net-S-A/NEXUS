@@ -19,10 +19,15 @@
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
   "recruiter+amounts_edit",
-  "automation"
+  "automation",
+  "employee",
+  "recruiter+people_admin",
+  "recruiter+payroll",
+  "recruiter+equipment",
+  "recruiter+cases"
  ],
  "routes": {
-  "GET /api/admin/champion-profiles/coverage": "PDDDDDDDDDDDDDDDDDDD",
-  "POST /api/admin/champion-profiles/ingest": "PDDDDDDDDDDDDDDDDDDD"
+  "GET /api/admin/champion-profiles/coverage": "PDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/admin/champion-profiles/ingest": "PDDDDDDDDDDDDDDDDDDDDDDDD"
  }
 }

@@ -41,7 +41,22 @@ interface Props {
    */
   notProvided?: boolean;
   onNotProvidedChange?: (value: boolean) => void;
+  /**
+   * Teksty listy dla innego kontekstu niż rekrutacja — „Menedżer u klienta”
+   * na kontrakcie (17.10.2026). Domyślnie teksty hiring managera.
+   */
+  labels?: {
+    /** Pozycja czyszcząca wybór. */
+    none?: string;
+    /** Pozycja dodająca wpisaną osobę. */
+    create?: (typed: string) => string;
+  };
 }
+
+const DEFAULT_LABELS = {
+  none: "Bez hiring managera",
+  create: (typed: string) => `Dodaj „${typed}” jako nowego hiring managera`,
+};
 
 /**
  * Hiring manager: osoba z kontaktów klienta albo wpisana ręcznie.
@@ -61,7 +76,9 @@ export function HiringManagerCombobox({
   disabled = false,
   notProvided = false,
   onNotProvidedChange,
+  labels,
 }: Props) {
+  const text = { ...DEFAULT_LABELS, ...labels };
   const notProvidedId = useId();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -211,7 +228,7 @@ export function HiringManagerCombobox({
                 {value && !typed ? (
                   <CommandItem value="__none__" onSelect={() => pick(null)}>
                     <X className="mr-2 h-4 w-4" />
-                    Bez hiring managera
+                    {text.none}
                   </CommandItem>
                 ) : null}
                 {visible.map((o) => (
@@ -242,9 +259,7 @@ export function HiringManagerCombobox({
                     onSelect={() => setDraft({ name: typed, position: "", email: "" })}
                   >
                     <UserPlus className="mr-2 h-4 w-4" />
-                    <span className="truncate">
-                      Dodaj „{typed}” jako nowego hiring managera
-                    </span>
+                    <span className="truncate">{text.create(typed)}</span>
                   </CommandItem>
                 ) : null}
               </CommandGroup>

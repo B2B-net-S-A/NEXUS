@@ -38,6 +38,9 @@ export type SettingsItemId =
   | "outlook"
   | "my-notifications"
   | "people"
+  | "hr"
+  | "payroll"
+  | "hr-import"
   | "assign"
   | "competence-team"
   | "stages"
@@ -129,6 +132,35 @@ export const SETTINGS_ITEMS: readonly SettingsItem[] = [
     keywords: "uzytkownicy konta uprawnienia dostep haslo rola administracja",
     wide: true,
     gate: { roles: ["admin"] },
+  },
+  {
+    // „Ludzie w NEXUSIE” (16.10.2026): dni wolne firmy (Kadry) i przełączniki
+    // modułów (admin) — trasy `/api/hr/admin/*` stoją za uprawnieniem Kadry.
+    id: "hr", area: "team", title: "Kadry",
+    description: "Dni wolne firmy i moduły „Ludzi w NEXUSIE” (urlopy, czas pracy, płace, sprzęt).",
+    keywords: "kadry hr urlopy dni wolne swieta moduly ludzie kartoteka",
+    route: "/settings/hr",
+    gate: { permission: "people_admin" },
+  },
+  {
+    // Reguły premii (17.10.2026) — `/api/hr/payroll/rules` stoi za uprawnieniem
+    // „Płace” (Finanse z roli, admin zawsze). Do 17.10 karta była w „Kadrach”,
+    // których osoba z samymi „Płacami” nie widziała.
+    id: "payroll", area: "team", title: "Płace",
+    description: "Reguły premii z placementów i z Ligi Mistrzów: progi marży, premia Delivery Leada, dodatkowe premie.",
+    keywords: "place premie premia placementy liga mistrzow progi marza wynagrodzenia wyplaty bonus",
+    route: "/settings/payroll",
+    gate: { permission: "payroll" },
+  },
+  {
+    // „Ludzie w NEXUSIE” (17.10.2026): import paczki z Compassa — na sucho
+    // Kadry i admin, zapis tylko admin (`/api/hr/admin/import`).
+    id: "hr-import", area: "team", title: "Import z Compassa",
+    description: "Paczka eksportu Compassa: sprawdzenie na sucho, zapis wybranych modułów i historia partii.",
+    keywords: "import compass paczka kadry urlopy timesheety place migracja przelaczenie na sucho",
+    route: "/settings/hr-import",
+    wide: true,
+    gate: { permission: "people_admin" },
   },
   {
     id: "competence-team", area: "team", title: "Kategorie kompetencji",

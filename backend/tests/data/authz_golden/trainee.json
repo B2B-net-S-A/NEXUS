@@ -19,21 +19,26 @@
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
   "recruiter+amounts_edit",
-  "automation"
+  "automation",
+  "employee",
+  "recruiter+people_admin",
+  "recruiter+payroll",
+  "recruiter+equipment",
+  "recruiter+cases"
  ],
  "routes": {
-  "GET /api/trainee/items/{item_id}/open-jobs": "DDDDDDDPDDDDDDDDDDDD",
-  "GET /api/trainee/overview": "PDPDDDDDDPDPDDDDDDDD",
-  "GET /api/trainee/quality-sample": "PDPDDDDDDPDPDDDDDDDD",
-  "GET /api/trainee/rules": "PDPDDDDDDPDPDDDDDDDD",
-  "GET /api/trainee/rules/preview": "PDPDDDDDDPDPDDDDDDDD",
-  "GET /api/trainee/today": "DDDDDDDPDDDDDDDDDDDD",
-  "POST /api/trainee/items/{item_id}/call": "DDDDDDDPDDDDDDDDDDDD",
-  "POST /api/trainee/items/{item_id}/handover": "DDDDDDDPDDDDDDDDDDDD",
-  "POST /api/trainee/items/{item_id}/outcome": "DDDDDDDPDDDDDDDDDDDD",
-  "POST /api/trainee/programs/{user_id}/decision": "PDPDDDDDDPDPDDDDDDDD",
-  "POST /api/trainee/quality-sample/{item_id}": "PDPDDDDDDPDPDDDDDDDD",
-  "PUT /api/trainee/programs/{user_id}": "PDPDDDDDDPDPDDDDDDDD",
-  "PUT /api/trainee/rules": "PDPDDDDDDPDPDDDDDDDD"
+  "GET /api/trainee/items/{item_id}/open-jobs": "DDDDDDDPDDDDDDDDDDDDDDDDD",
+  "GET /api/trainee/overview": "PDPDDDDDDPDPDDDDDDDDDDDDD",
+  "GET /api/trainee/quality-sample": "PDPDDDDDDPDPDDDDDDDDDDDDD",
+  "GET /api/trainee/rules": "PDPDDDDDDPDPDDDDDDDDDDDDD",
+  "GET /api/trainee/rules/preview": "PDPDDDDDDPDPDDDDDDDDDDDDD",
+  "GET /api/trainee/today": "DDDDDDDPDDDDDDDDDDDDDDDDD",
+  "POST /api/trainee/items/{item_id}/call": "DDDDDDDPDDDDDDDDDDDDDDDDD",
+  "POST /api/trainee/items/{item_id}/handover": "DDDDDDDPDDDDDDDDDDDDDDDDD",
+  "POST /api/trainee/items/{item_id}/outcome": "DDDDDDDPDDDDDDDDDDDDDDDDD",
+  "POST /api/trainee/programs/{user_id}/decision": "PDPDDDDDDPDPDDDDDDDDDDDDD",
+  "POST /api/trainee/quality-sample/{item_id}": "PDPDDDDDDPDPDDDDDDDDDDDDD",
+  "PUT /api/trainee/programs/{user_id}": "PDPDDDDDDPDPDDDDDDDDDDDDD",
+  "PUT /api/trainee/rules": "PDPDDDDDDPDPDDDDDDDDDDDDD"
  }
 }

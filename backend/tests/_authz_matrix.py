@@ -126,6 +126,14 @@ PERSONAS: tuple[Persona, ...] = (
     Persona("recruiter+amounts_edit", UserRole.recruiter, grants=("amounts_edit",)),
     # 0446: „Automatyzacje” — podgląd bez zapisu (test_automation_role_access.py).
     Persona("automation", UserRole.automation),
+    # „Ludzie w NEXUSIE” (16–17.10.2026): rola „Pracownik” (wyłączna) i cztery
+    # uprawnienia nadawane osobie — bez nich wzorzec nie odróżniałby bramek HR
+    # od bramki roli.
+    Persona("employee", UserRole.employee),
+    Persona("recruiter+people_admin", UserRole.recruiter, grants=("people_admin",)),
+    Persona("recruiter+payroll", UserRole.recruiter, grants=("payroll",)),
+    Persona("recruiter+equipment", UserRole.recruiter, grants=("equipment",)),
+    Persona("recruiter+cases", UserRole.recruiter, grants=("cases",)),
 )
 
 #: Odstępstwa produkcji od macierzy z kodu (odczyt 02.10.2026): TCM ma

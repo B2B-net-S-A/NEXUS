@@ -188,6 +188,8 @@ async def test_role_snapshot_carries_the_catalogue_and_derived_sections(
         "clients_contracts",
         "recruitment",
         "money",
+        # „Ludzie w NEXUSIE” (16.10.2026): Kadry, Płace, Sprzęt, Sprawy.
+        "people",
     ]
     assert [item["key"] for item in policy["permissions"]] == list(catalog.KEYS)
     assert policy["permissions"][0]["label"] == catalog.label("delivery_view")
@@ -926,6 +928,11 @@ async def test_first_real_change_writes_the_whole_seed_of_an_unseeded_role(
             "amounts_view": "none",
             "amounts_edit": "none",
             "finance_module": "none",
+            # Grupa „Ludzie” (16.10.2026): TCM prowadzi skrzynkę administracja@.
+            "people_admin": "none",
+            "payroll": "none",
+            "equipment": "none",
+            "cases": "manage",
         }
         after = await _snapshot(app_client, app_auth_headers)
         shown = next(row for row in after["roles"] if row["role"] == role)

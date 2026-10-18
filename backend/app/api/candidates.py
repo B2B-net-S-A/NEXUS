@@ -6689,6 +6689,23 @@ async def delete_candidate(
     # Serialize erasure with new source rows referencing this candidate.
     await db.refresh(candidate, with_for_update=True)
 
+    # Zgłoszenia Akademii znikają kaskadą. Zwrócone wydanie sprzętu traci
+    # posiadacza (historia zostaje w protokole), niezwróconego nie zostawiamy
+    # „wydanego nikomu” — najpierw zwrot (0465, decyzja z przeglądu 16.10).
+    from app.services.equipment.registry import (
+        ACADEMY_EQUIPMENT_HELD,
+        active_academy_assignments,
+    )
+
+    if await active_academy_assignments(db, candidate_id=candidate_id):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "academy_equipment_active",
+                "message": ACADEMY_EQUIPMENT_HELD,
+            },
+        )
+
     # Klucze plików trzeba zebrać TERAZ — po `db.delete()` wiersze już nie
     # istnieją, a bez klucza nie da się skasować obiektu ze storage.
     storage_keys: list[str] = []

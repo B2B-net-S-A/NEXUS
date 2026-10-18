@@ -19,14 +19,19 @@
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
   "recruiter+amounts_edit",
-  "automation"
+  "automation",
+  "employee",
+  "recruiter+people_admin",
+  "recruiter+payroll",
+  "recruiter+equipment",
+  "recruiter+cases"
  ],
  "routes": {
-  "GET /api/screening-form": "PPPPPPDDPPPPPPPPPPPP",
-  "GET /api/screening-form/joint-context": "PPPPPPDDPPPPPPPPPPPP",
-  "GET /api/screening-form/question-groups": "PPPPPPDDPPPPPPPPPPPP",
-  "GET /api/screening-form/versions": "PPPPPPDDPPPPPPPPPPPP",
-  "POST /api/screening-form/restore": "PPPPPPDDPPPPPPPPPPPD",
-  "PUT /api/screening-form": "PPPPPPDDPPPPPPPPPPPD"
+  "GET /api/screening-form": "PPPPPPDDPPPPPPPPPPPPDPPPP",
+  "GET /api/screening-form/joint-context": "PPPPPPDDPPPPPPPPPPPPDPPPP",
+  "GET /api/screening-form/question-groups": "PPPPPPDDPPPPPPPPPPPPDPPPP",
+  "GET /api/screening-form/versions": "PPPPPPDDPPPPPPPPPPPPDPPPP",
+  "POST /api/screening-form/restore": "PPPPPPDDPPPPPPPPPPPDDPPPP",
+  "PUT /api/screening-form": "PPPPPPDDPPPPPPPPPPPDDPPPP"
  }
 }

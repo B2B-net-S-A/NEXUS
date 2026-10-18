@@ -46,6 +46,22 @@ describe("useConfirmV2 — zamiennik window.confirm", () => {
     native.mockRestore();
   });
 
+  it("stopka idzie zaraz po opisie, bez pustego pasa treści", async () => {
+    const user = userEvent.setup();
+    render(<Harness onAction={vi.fn()} />);
+
+    await user.click(screen.getByRole("button", { name: "Usuń szablon" }));
+
+    const dialog = await screen.findByRole("dialog");
+    const header = screen.getByText('Usunąć szablon "Oferta"?').closest("div.flex-col");
+    const footer = screen.getByRole("button", { name: "Anuluj" }).parentElement;
+    expect(header).not.toBeNull();
+    expect(header!.nextElementSibling).toBe(footer);
+    expect(dialog.querySelectorAll("div:empty")).toHaveLength(0);
+    // Jedna kreska nad stopką — bez dolnej krawędzi nagłówka tuż nad nią.
+    expect(header).not.toHaveClass("border-b");
+  });
+
   it("Anuluj = nic się nie dzieje", async () => {
     const onAction = vi.fn();
     const user = userEvent.setup();

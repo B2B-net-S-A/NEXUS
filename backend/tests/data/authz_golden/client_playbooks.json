@@ -19,13 +19,18 @@
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
   "recruiter+amounts_edit",
-  "automation"
+  "automation",
+  "employee",
+  "recruiter+people_admin",
+  "recruiter+payroll",
+  "recruiter+equipment",
+  "recruiter+cases"
  ],
  "routes": {
-  "GET /api/clients/{client_id}/playbook": "PPPPPPDDPPPPPPPPPPPP",
-  "GET /api/clients/{client_id}/playbook/history": "PPDPPDDDPPPDPPPPDPPP",
-  "GET /api/settings/client-playbooks": "PPPPPPDDPPPPPPPPPPPP",
-  "POST /api/clients/{client_id}/playbook/seed": "PDDPDDDDPPPDDDPDDDDD",
-  "PUT /api/clients/{client_id}/playbook": "PDDPDDDDPPPDDDPDDDDD"
+  "GET /api/clients/{client_id}/playbook": "PPPPPPDDPPPPPPPPPPPPDPPPP",
+  "GET /api/clients/{client_id}/playbook/history": "PPDPPDDDPPPDPPPPDPPPDDDDD",
+  "GET /api/settings/client-playbooks": "PPPPPPDDPPPPPPPPPPPPDPPPP",
+  "POST /api/clients/{client_id}/playbook/seed": "PDDPDDDDPPPDDDPDDDDDDDDDD",
+  "PUT /api/clients/{client_id}/playbook": "PDDPDDDDPPPDDDPDDDDDDDDDD"
  }
 }

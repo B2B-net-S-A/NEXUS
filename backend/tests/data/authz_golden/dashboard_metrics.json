@@ -19,10 +19,15 @@
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
   "recruiter+amounts_edit",
-  "automation"
+  "automation",
+  "employee",
+  "recruiter+people_admin",
+  "recruiter+payroll",
+  "recruiter+equipment",
+  "recruiter+cases"
  ],
  "routes": {
-  "GET /api/dashboard-metrics/catalog": "PPPPPPPDPPPPPPPPPPPP",
-  "POST /api/dashboard-metrics/evaluate": "PPPPPPPDPPPPPPPPPPPP"
+  "GET /api/dashboard-metrics/catalog": "PPPPPPPDPPPPPPPPPPPPDPPPP",
+  "POST /api/dashboard-metrics/evaluate": "PPPPPPPDPPPPPPPPPPPPDPPPP"
  }
 }

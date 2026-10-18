@@ -19,14 +19,19 @@
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
   "recruiter+amounts_edit",
-  "automation"
+  "automation",
+  "employee",
+  "recruiter+people_admin",
+  "recruiter+payroll",
+  "recruiter+equipment",
+  "recruiter+cases"
  ],
  "routes": {
-  "GET /api/search/": "PPPPPPPDPPPPPPPPPPPP",
-  "GET /api/search/global": "PPPPPPPDPPPPPPPPPPPP",
-  "POST /api/search/candidates": "PPPPPPDDPPPPPPPPPPPP",
-  "POST /api/search/candidates/diagnostics": "PPPPPPDDPPPPPPPPPPPP",
-  "POST /api/search/candidates/scores": "PPPPPPDDPPPPPPPPPPPP",
-  "POST /api/search/semantic": "PPPPPPDDPPPPPPPPPPPP"
+  "GET /api/search/": "PPPPPPPDPPPPPPPPPPPPPPPPP",
+  "GET /api/search/global": "PPPPPPPDPPPPPPPPPPPPPPPPP",
+  "POST /api/search/candidates": "PPPPPPDDPPPPPPPPPPPPDPPPP",
+  "POST /api/search/candidates/diagnostics": "PPPPPPDDPPPPPPPPPPPPDPPPP",
+  "POST /api/search/candidates/scores": "PPPPPPDDPPPPPPPPPPPPDPPPP",
+  "POST /api/search/semantic": "PPPPPPDDPPPPPPPPPPPPDPPPP"
  }
 }

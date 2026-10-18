@@ -19,11 +19,16 @@
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
   "recruiter+amounts_edit",
-  "automation"
+  "automation",
+  "employee",
+  "recruiter+people_admin",
+  "recruiter+payroll",
+  "recruiter+equipment",
+  "recruiter+cases"
  ],
  "routes": {
-  "POST /api/talent-radar/interpret": "PPPPPPDDPPPPPPPPPPPD",
-  "POST /api/talent-radar/parse-champion": "PPPPPPPDPPPPPPPPPPPP",
-  "POST /api/talent-radar/search": "PPPPPPPDPPPPPPPPPPPP"
+  "POST /api/talent-radar/interpret": "PPPPPPDDPPPPPPPPPPPDDPPPP",
+  "POST /api/talent-radar/parse-champion": "PPPPPPPDPPPPPPPPPPPPDPPPP",
+  "POST /api/talent-radar/search": "PPPPPPPDPPPPPPPPPPPPDPPPP"
  }
 }

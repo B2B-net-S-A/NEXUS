@@ -229,6 +229,10 @@ function LoginForm() {
       const me = await api.get("/api/auth/me", {
         headers: { Authorization: `Bearer ${data.access_token}` },
       });
+      // Sesja jest już potwierdzona — bez tego `setAuth` (nowy `token`)
+      // odpalał sondę, która robiła `router.replace(next)` z pominięciem
+      // `postLoginDestination` (onboarding, „Pracownik” → „Mój czas”).
+      sessionProbed.current = true;
       setAuth(me.data, data.access_token);
       router.push(postLoginDestination(me.data, nextPath));
     } catch (err: unknown) {

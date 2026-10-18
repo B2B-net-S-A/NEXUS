@@ -19,16 +19,21 @@
   "recruiter+recruitment_manage",
   "recruiter+finance_module",
   "recruiter+amounts_edit",
-  "automation"
+  "automation",
+  "employee",
+  "recruiter+people_admin",
+  "recruiter+payroll",
+  "recruiter+equipment",
+  "recruiter+cases"
  ],
  "routes": {
-  "GET /api/board-tasks": "PPPPPPDDPPPPPPPPPPPP",
-  "GET /api/board-tasks/cpro/queue": "PPPPPPDDPPPPPPPPPPPP",
-  "GET /api/board-tasks/cpro/sender": "PPPPPPDDPPPPPPPPPPPP",
-  "GET /api/board-tasks/cv": "PPPPPPDDPPPPPPPPPPPP",
-  "GET /api/board-tasks/dl-review-row": "PPPPPPDDPPPPPPPPPPPP",
-  "GET /api/board-tasks/dl-send": "PPPPPPDDPPPPPPPPPPPP",
-  "POST /api/board-tasks/dl-send/{stage_id}/nudge": "PPPPPPDDPPPPPPPPPPPD",
-  "PUT /api/board-tasks/cpro/sender": "PPPPPPDDPPPPPPPPPPPD"
+  "GET /api/board-tasks": "PPPPPPDDPPPPPPPPPPPPDPPPP",
+  "GET /api/board-tasks/cpro/queue": "PPPPPPDDPPPPPPPPPPPPDPPPP",
+  "GET /api/board-tasks/cpro/sender": "PPPPPPDDPPPPPPPPPPPPDPPPP",
+  "GET /api/board-tasks/cv": "PPPPPPDDPPPPPPPPPPPPDPPPP",
+  "GET /api/board-tasks/dl-review-row": "PPPPPPDDPPPPPPPPPPPPDPPPP",
+  "GET /api/board-tasks/dl-send": "PPPPPPDDPPPPPPPPPPPPDPPPP",
+  "POST /api/board-tasks/dl-send/{stage_id}/nudge": "PPPPPPDDPPPPPPPPPPPDDPPPP",
+  "PUT /api/board-tasks/cpro/sender": "PPPPPPDDPPPPPPPPPPPDDPPPP"
  }
 }
