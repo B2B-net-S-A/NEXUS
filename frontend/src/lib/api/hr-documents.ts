@@ -20,6 +20,7 @@ export type DocumentKind =
   | "statement"
   | "certificate"
   | "protocol"
+  | "absence_proof"
   | "other";
 export type DocumentPurpose = "student_status";
 export type DocumentSource = "upload" | "agreement";
@@ -30,6 +31,7 @@ export const DOCUMENT_KINDS: DocumentKind[] = [
   "statement",
   "certificate",
   "protocol",
+  "absence_proof",
   "other",
 ];
 
@@ -39,6 +41,7 @@ export const DOCUMENT_KIND_LABELS: Record<DocumentKind, string> = {
   statement: "oświadczenie",
   certificate: "zaświadczenie",
   protocol: "protokół",
+  absence_proof: "potwierdzenie nieobecności",
   other: "inne",
 };
 
@@ -49,6 +52,7 @@ export const DEFAULT_AUDIENCE: Record<DocumentKind, DocumentAudience> = {
   statement: { person: true, payroll: true, equipment: false },
   certificate: { person: true, payroll: true, equipment: false },
   protocol: { person: true, payroll: false, equipment: true },
+  absence_proof: { person: true, payroll: false, equipment: false },
   other: { person: true, payroll: false, equipment: false },
 };
 
@@ -66,6 +70,8 @@ export interface PersonDocument {
   title: string;
   source: DocumentSource;
   source_ref: string | null;
+  /** Wniosek urlopowy, do którego osoba dołączyła potwierdzenie nieobecności. */
+  leave_request_id?: string | null;
   file_name: string | null;
   mime: string;
   size_bytes: number;

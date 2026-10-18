@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { AppModal } from "@/components/ds/AppModal";
+import { FileDropZone } from "@/components/ds/FileDropZone";
 import { useToast } from "@/components/Toast";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -19,6 +20,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { apiErrorMessage } from "@/lib/api-error";
 import type { EmploymentType } from "@/lib/api/hr";
 import {
+  useAttachLeaveProof,
   useEnterOnBehalf,
   useLeavePreview,
   useOnBehalfPeople,
@@ -43,6 +45,7 @@ import {
   validRange,
 } from "./leave-format";
 import { PreviewPanel } from "./LeavePreviewPanel";
+import { PROOF_ACCEPT, PROOF_MAX_BYTES, proofHint } from "./leave-proofs";
 
 const ALL_TYPES = Object.keys(LEAVE_TYPE_LABELS) as LeaveType[];
 const CONTRACTOR = new Set(["b2b", "zlecenie"]);
@@ -62,6 +65,9 @@ export interface LeaveRequestDialogProps {
  * Okno nieobecności z podziałem płatne/bezpłatne i ostrzeżeniami na żywo.
  * Umowa o pracę: wniosek do akceptacji przełożonego. B2B i zlecenie (D5):
  * zgłoszenie — termin wchodzi od razu, koordynator dostaje informację.
+ * Własny wniosek może mieć załącznik (akt, zaświadczenie) — idzie zaraz po
+ * zapisie wniosku; gdy nie przejdzie, wniosek zostaje i plik dołącza się
+ * z tabeli wniosków.
  */
 export function LeaveRequestDialog({
   open,
@@ -75,6 +81,7 @@ export function LeaveRequestDialog({
   const people = useOnBehalfPeople(open && onBehalf);
   const submitOwn = useSubmitLeave();
   const submitFor = useEnterOnBehalf();
+  const attachProof = useAttachLeaveProof();
 
   const today = warsawToday();
   const [personId, setPersonId] = useState("");
@@ -88,6 +95,8 @@ export function LeaveRequestDialog({
   const [oofExternal, setOofExternal] = useState("");
   const [showOof, setShowOof] = useState(false);
   const [forward, setForward] = useState(false);
+  const [proofFile, setProofFile] = useState<File | null>(null);
+  const [proofError, setProofError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const person = people.data?.find((row) => String(row.user_id) === personId) ?? null;
@@ -149,6 +158,8 @@ export function LeaveRequestDialog({
     setOofExternal("");
     setShowOof(false);
     setForward(false);
+    setProofFile(null);
+    setProofError(null);
     setError(null);
   };
 
@@ -157,7 +168,7 @@ export function LeaveRequestDialog({
     onOpenChange(next);
   };
 
-  const pending = submitOwn.isPending || submitFor.isPending;
+  const pending = submitOwn.isPending || submitFor.isPending || attachProof.isPending;
   const blocked =
     !input || stale || preview.isFetching || !shown || shown.blocking_reason !== null;
 
@@ -182,8 +193,30 @@ export function LeaveRequestDialog({
     }
     submitOwn.mutate(payload, {
       onSuccess: (row) => {
-        showToast(...leaveToast(submittedToast(row), row));
-        close(false);
+        if (!proofFile) {
+          showToast(...leaveToast(submittedToast(row), row));
+          close(false);
+          return;
+        }
+        attachProof.mutate(
+          { id: row.id, file: proofFile },
+          {
+            onSuccess: (saved) => {
+              showToast(...leaveToast(`${submittedToast(saved)} z załącznikiem`, saved));
+              close(false);
+            },
+            onError: (err) => {
+              showToast(
+                `${submittedToast(row)}, ale bez załącznika: ${apiErrorMessage(
+                  err,
+                  "plik nie przeszedł",
+                )} Dołącz go w tabeli wniosków.`,
+                "error",
+              );
+              close(false);
+            },
+          },
+        );
       },
       onError,
     });
@@ -322,6 +355,28 @@ export function LeaveRequestDialog({
               onChange={(event) => setNote(event.target.value)}
             />
           </FormField>
+          {!onBehalf && !report ? (
+            <FormField
+              label="Załącznik (opcjonalnie)"
+              htmlFor="leave-proof"
+              description="Trafi do Twoich dokumentów. Plik widzisz Ty i Kadry — przełożony widzi tylko, że jest."
+            >
+              <FileDropZone
+                inputId="leave-proof"
+                file={proofFile}
+                onPick={(file) => {
+                  setProofFile(file);
+                  setProofError(null);
+                }}
+                accept={PROOF_ACCEPT}
+                maxBytes={PROOF_MAX_BYTES}
+                label={proofFile ? "Zmień plik" : "Dołącz dokument"}
+                hint={proofHint(leaveType) ?? "PDF, JPG albo PNG do 5 MB"}
+                error={proofError}
+                onError={setProofError}
+              />
+            </FormField>
+          ) : null}
           {!onBehalf ? (
             <>
               {showOof ? (

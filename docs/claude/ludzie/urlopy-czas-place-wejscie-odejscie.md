@@ -197,6 +197,33 @@ decyduje o słowach i o przebiegu nieobecności.
   ktokolwiek w miesiącu; delegacja liczy się do „Nieobecnych” (jak „OOO”
   w Compassie).
 
+### Załącznik do wniosku (`leave_proofs.py`, 0473, 18.10.2026)
+
+Compass miał przy wniosku plik do 5 MB (`uploadLeaveProof`). W NEXUSIE załącznik jest
+dokumentem e-teczki osoby rodzaju „potwierdzenie nieobecności” (`absence_proof`)
+z odnośnikiem `hr_documents.leave_request_id`.
+
+- Dołącza tylko sama osoba do własnego wniosku: przy składaniu (okno wysyła plik zaraz
+  po zapisie wniosku; gdy plik nie przejdzie, wniosek zostaje, a toast mówi, że plik
+  dołącza się z tabeli) albo później z „Moje nieobecności” (`POST /requests/{id}/proofs`).
+  Wniosek oczekujący albo zatwierdzony; do odrzuconego i anulowanego — 409. Najwyżej
+  5 plików na wniosek, ten sam plik drugi raz — 409 (indeks żywych uploadów osoby).
+- PDF, JPG, PNG do 5 MB (DOCX nie — to skan albo zdjęcie dokumentu), typ z treści
+  (`documents_store.check`), nazwa od człowieka tylko w bazie. Okno podpowiada dokument
+  przy urlopie okolicznościowym, opiece nad dzieckiem i krwiodawstwie; L4 przychodzi
+  przez e-ZLA, więc bez wymogu. Zgłoszenia B2B i zlecenia (D5) nie mają pola ani kolumny.
+- Kto widzi (D6): liczbę (`proof_count`, „Załącznik ✓”) — osoba, przełożony, Kadry;
+  listę z pobraniem (`proofs`) — osoba i Kadry. Kadry pobierają przez
+  `GET /approvals/{id}/proofs/{doc}/file` (bramka `require_hr_leave_proof_reader` =
+  uprawnienie „Kadry”); przełożony dostaje 403, a e-teczki osoby nie widzi wcale.
+  Zastępca nieobecnego przełożonego nie dostaje listy, a przy rodzaju ukrytym (L4
+  i pokrewne) nawet liczby — zdradzałaby rodzaj.
+- Krąg dokumentu: osoba i Kadry (bez Płac i recepcji); ślad w `hr_audit_events`
+  z `sensitivity='health'`. Osoba usuwa plik, który sama dodała (pomyłka) — plik
+  znika, wiersz zostaje jako ślad „mistake”; plik dodany przez Kadry usuwają Kadry.
+- Import z Compassa przenosi tylko informację, że plik był; stare pliki zostają
+  w magazynie Compassa.
+
 ### Kartoteka z katalogu M365 (`m365/profile_sync.py`, `m365/directory.py`)
 
 - Raz dziennie od 6:00 (pętla `hr_m365_daily`, rezerwacja `hr_job_runs`

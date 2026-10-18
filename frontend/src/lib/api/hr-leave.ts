@@ -6,10 +6,13 @@
 // rodzaju nieobecności — dostaje go tylko osoba, jej przełożony i Kadry.
 // D5 (etap 2): na B2B i zleceniu nieobecność jest zgłoszeniem — wchodzi od razu
 // (`is_report`), koordynator widzi ją „do wiadomości” i może zgłosić kolizję.
+// Załącznik (potwierdzenie nieobecności w e-teczce): osoba dołącza i usuwa
+// własny plik, Kadry pobierają; przełożony dostaje tylko `proof_count`.
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { api } from "@/lib/api";
+import { downloadBlob, fetchAuthenticatedDownload } from "@/lib/authenticated-files";
 import { HR_COUNTS_MUTATION_KEY, useHrConfig, type EmploymentType } from "@/lib/api/hr";
 import { SUBSTITUTION_QUERY_KEY } from "@/lib/api/hr-dashboard";
 import { payrollKeys } from "@/lib/api/hr-payroll";
@@ -103,6 +106,22 @@ export interface LeaveRequestRow {
   employment_type?: EmploymentType | null;
   /** Ostatnia kolizja zgłoszona przez koordynatora. */
   conflict?: LeaveConflictInfo | null;
+  /** Ile plików jest przy wniosku; `null` u zastępcy przy rodzaju ukrytym (D6). */
+  proof_count?: number | null;
+  /** Pliki z pobraniem — tylko osoba i Kadry; przełożony dostaje `null`. */
+  proofs?: LeaveProof[] | null;
+  /** Osoba może dołączyć plik (własny wniosek, oczekuje albo zatwierdzony). */
+  can_add_proof?: boolean;
+}
+
+export interface LeaveProof {
+  id: number;
+  file_name: string;
+  mime: string;
+  size_bytes: number;
+  created_at: string | null;
+  /** Osoba usuwa tylko plik, który sama dodała. */
+  can_remove: boolean;
 }
 
 export interface LeaveConflictInfo {
@@ -428,6 +447,47 @@ export function useSetForwardConsent() {
       ).data,
     onSuccess: invalidate,
   });
+}
+
+/** Osoba dołącza plik do własnego wniosku (przy składaniu albo później). */
+export function useAttachLeaveProof() {
+  const invalidate = useInvalidateLeave();
+  return useMutation({
+    mutationFn: async ({ id, file }: { id: string; file: File }) => {
+      const form = new FormData();
+      form.append("file", file);
+      return (
+        await api.post<LeaveRequestRow>(`${ROOT}/requests/${id}/proofs`, form, {
+          headers: { "Content-Type": "multipart/form-data" },
+        })
+      ).data;
+    },
+    onSuccess: invalidate,
+  });
+}
+
+/** Osoba usuwa plik, który sama dodała (ślad zostaje w e-teczce). */
+export function useRemoveLeaveProof() {
+  const invalidate = useInvalidateLeave();
+  return useMutation({
+    mutationFn: async ({ id, proofId }: { id: string; proofId: number }) =>
+      (await api.post<LeaveRequestRow>(`${ROOT}/requests/${id}/proofs/${proofId}/remove`))
+        .data,
+    onSuccess: invalidate,
+  });
+}
+
+/** Pobranie pliku: `own` — własny wniosek, `team` — Kadry przy cudzym wniosku. */
+export async function downloadLeaveProof(
+  requestId: string,
+  proof: LeaveProof,
+  scope: "own" | "team",
+): Promise<void> {
+  const base = scope === "own" ? "requests" : "approvals";
+  const { blob, filename } = await fetchAuthenticatedDownload(
+    `${ROOT}/${base}/${requestId}/proofs/${proof.id}/file`,
+  );
+  downloadBlob(blob, filename ?? proof.file_name);
 }
 
 async function fetchPending(): Promise<PendingLeavePayload> {
