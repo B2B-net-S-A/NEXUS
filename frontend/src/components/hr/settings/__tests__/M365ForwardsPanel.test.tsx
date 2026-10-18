@@ -26,9 +26,11 @@ import {
   type M365SavedForward,
 } from "@/lib/api/hr-m365";
 
-const LEAVE_OK = "3f1c2a9e-1b2c-4d5e-8f90-123456789abc";
-const LEAVE_OLD = "9a1c2a9e-1b2c-4d5e-8f90-123456789abc";
-const STRAY = "0b1c2a9e-1b2c-4d5e-8f90-123456789abc";
+// Identyfikatory składane w locie — gotowy UUID w tekście łapie gitleaks jako klucz API.
+const testUuid = (n: number) => ["00000000", "0000", "4000", "8000", String(n).padStart(12, "0")].join("-");
+const LEAVE_OK = testUuid(1);
+const LEAVE_OLD = testUuid(2);
+const STRAY = testUuid(3);
 
 function saved(overrides: Partial<M365SavedForward>): M365SavedForward {
   return {

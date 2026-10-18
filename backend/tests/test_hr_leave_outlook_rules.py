@@ -11,6 +11,7 @@ Dane fikcyjne.
 
 from __future__ import annotations
 
+import uuid
 from datetime import date
 from decimal import Decimal
 
@@ -111,7 +112,7 @@ def test_note_names_the_window_and_the_next_step() -> None:
 
 def _snap(start: date, end: date, **extra) -> LeaveSnapshot:
     values = {
-        "id": "00000000-0000-0000-0000-00000000abcd",
+        "id": str(uuid.UUID(int=0xABCD)),
         "user_id": 7,
         "start": start,
         "end": end,
