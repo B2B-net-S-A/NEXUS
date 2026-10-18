@@ -364,6 +364,10 @@ z odnośnikiem `hr_documents.leave_request_id`.
   `compass:<uuid>`), automat ma klucz `contract:<id>:<rola>` — bez daty
   granicznej automat w oknie 120 dni wstecz zaproponowałby je drugi raz. Ta sama
   data odcina Ligę: okres kończący się przed nią nie trafia do płac.
+  Strażnik (audyt 19.10.2026): przy premiach `compass_import` w bazie `PUT /rules`
+  odmawia (422) pustej daty i daty wcześniejszej niż zapisana; zepsuty wpis
+  `hr_bonus_rules` daje reguły domyślne, ale z zapisaną datą (nieczytelna data =
+  automat nie zakłada nowych propozycji), nigdy okno 120 dni.
 - Zakończenie kontraktu przed terminem anuluje premię, cofnięcie zakończenia ją
   przywraca (`app/services/hr/contract_hooks.py`).
 - Zamknięcie miesiąca: propozycje premii muszą mieć decyzję, ostrzeżenia wymagają

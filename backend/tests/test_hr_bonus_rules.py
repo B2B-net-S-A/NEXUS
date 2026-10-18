@@ -292,3 +292,64 @@ def test_dl_falls_back_to_client_head_then_single_assignment() -> None:
 def test_contract_without_recruitment_has_no_recruiter() -> None:
     context = _context(client_leads={100: [(6, True)]}, verifiers={(1, 10): 42})
     assert context.people(_placement_contract(job_id=None)) == (6, None, "client_head")
+
+
+# ── Data startu automatu po przełączeniu z Compassa (audyt 19.10.2026) ───────
+
+
+class _FakeSettingsDb:
+    """``db.scalar`` zwraca surowy wpis ``app_settings`` (bez Postgresa)."""
+
+    def __init__(self, raw: object) -> None:
+        self.raw = raw
+
+    async def scalar(self, _statement: object) -> object:
+        return self.raw
+
+
+@pytest.mark.asyncio
+async def test_broken_rules_keep_automation_since_instead_of_backfilling() -> None:
+    # Zepsuty wpis nie może cofnąć automatu o 120 dni wstecz — to by zdublowało
+    # premie zaimportowane z Compassa sprzed przełączenia.
+    raw = {"automation_since": "2026-10-01", "dl_percent": "abc"}
+    rules = await bonus_rules.load_rules(_FakeSettingsDb(raw))
+    assert rules.automation_since == date(2026, 10, 1)
+    assert rules.dl_percent == DEFAULT_RULES.dl_percent
+
+
+@pytest.mark.asyncio
+async def test_broken_rules_with_broken_date_stop_new_proposals() -> None:
+    raw = {"automation_since": "1.10.2026"}
+    rules = await bonus_rules.load_rules(_FakeSettingsDb(raw))
+    floor = bonus_rules.automation_floor_for(rules, date(2026, 10, 19))
+    assert floor > date(2100, 1, 1)
+
+
+@pytest.mark.asyncio
+async def test_missing_rules_still_use_the_lookback_window() -> None:
+    rules = await bonus_rules.load_rules(_FakeSettingsDb(None))
+    assert rules.automation_since is None
+    assert bonus_rules.automation_floor_for(rules, date(2026, 10, 19)) == date(
+        2026, 6, 21
+    )
+
+
+@pytest.mark.parametrize(
+    ("current", "new", "imported", "refused"),
+    [
+        (date(2026, 10, 1), None, True, True),
+        (date(2026, 10, 1), date(2026, 9, 1), True, True),
+        (date(2026, 10, 1), date(2026, 10, 1), True, False),
+        (date(2026, 10, 1), date(2026, 11, 1), True, False),
+        (None, None, True, True),
+        (date(2026, 10, 1), None, False, False),
+        (date(2026, 10, 1), date(2026, 9, 1), False, False),
+    ],
+)
+def test_automation_since_cannot_reach_back_over_compass_imports(
+    current, new, imported, refused
+) -> None:
+    error = bonus_rules.automation_since_change_error(
+        current, new, has_compass_imports=imported
+    )
+    assert (error is not None) is refused

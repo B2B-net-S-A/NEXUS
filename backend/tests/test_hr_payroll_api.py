@@ -20,7 +20,7 @@ from openpyxl import load_workbook
 from sqlalchemy import delete, select, text
 
 from app.core.database import AsyncSessionLocal
-from app.core.scheduling import business_today
+from app.core.scheduling import business_today, local_now
 from app.core.security import create_access_token
 from app.models.app_setting import AppSetting
 from app.models.hr_ops import HrAuditEvent, HrJobRun
@@ -779,6 +779,61 @@ async def test_bonus_rules_are_settings_of_payroll(app_client, payroll_on) -> No
     assert (
         await app_client.get("/api/hr/payroll/rules", headers=_headers(boss))
     ).status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_automation_since_cannot_be_cleared_over_compass_imports(
+    app_client, payroll_on
+) -> None:
+    # Audyt 19.10.2026: pusta albo wcześniejsza data startu automatu dałaby
+    # drugie propozycje za placementy, których premie przyszły z Compassa.
+    finance, boss, worker, _other = await _payroll_team()
+    y, m = _months_ago(1)
+    first = await app_client.put(
+        "/api/hr/payroll/rules",
+        json={"automation_since": "2026-10-01"},
+        headers=_headers(finance),
+    )
+    assert first.status_code == 200, first.text
+    async with AsyncSessionLocal() as db:
+        db.add(
+            HrBonus(
+                recipient_user_id=worker.id,
+                proposed_by=boss.id,
+                amount=Decimal("100.00"),
+                currency="PLN",
+                category="recruiter",
+                period_year=y,
+                period_month=m,
+                status="assigned",
+                source="compass_import",
+                source_key=f"compass:{uuid.uuid4()}",
+                compass_id=uuid.uuid4(),
+                assigned_by=boss.id,
+                assigned_at=local_now(),
+            )
+        )
+        await db.commit()
+    for since in (None, "2026-09-01"):
+        refused = await app_client.put(
+            "/api/hr/payroll/rules",
+            json={"automation_since": since},
+            headers=_headers(finance),
+        )
+        assert refused.status_code == 422, refused.text
+        assert "Compass" in refused.json()["detail"]
+    later = await app_client.put(
+        "/api/hr/payroll/rules",
+        json={"automation_since": "2026-11-01"},
+        headers=_headers(finance),
+    )
+    assert later.status_code == 200, later.text
+    assert later.json()["automation_since"] == "2026-11-01"
+    untouched = await app_client.put(
+        "/api/hr/payroll/rules", json={"dl_percent": "10"}, headers=_headers(finance)
+    )
+    assert untouched.status_code == 200
+    assert untouched.json()["automation_since"] == "2026-11-01"
 
 
 @pytest.mark.asyncio

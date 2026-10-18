@@ -47,7 +47,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
-from datetime import date, timedelta
+from datetime import date
 from decimal import Decimal
 from typing import Any, Optional
 
@@ -70,6 +70,7 @@ from app.services.hr import audit
 from app.services.hr import modules as hr_modules
 from app.services.hr.bonus_rules import (
     BonusRules,
+    automation_floor_for,
     dl_bonus,
     eligible_date,
     extra_dl_recipient,
@@ -358,7 +359,7 @@ async def load_verifiers(
 def automation_floor(rules: BonusRules, today: date) -> date:
     """Najwcześniejszy start kontraktu, dla którego automat zakłada propozycje."""
 
-    return rules.automation_since or (today - timedelta(days=rules.lookback_days))
+    return automation_floor_for(rules, today)
 
 
 @dataclass(frozen=True)

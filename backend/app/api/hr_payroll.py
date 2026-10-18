@@ -823,9 +823,23 @@ async def get_rules(
 async def put_rules(
     payload: RulesIn, current_user: PayrollAdmin, db: AsyncSession = Depends(get_db)
 ) -> dict[str, Any]:
-    current = bonus_rules.rules_payload(await bonus_rules.load_rules(db))
+    saved = await bonus_rules.load_rules(db)
+    current = bonus_rules.rules_payload(saved)
     changes = payload.model_dump(exclude_unset=True, mode="json")
     merged = {**current, **changes}
+    if "automation_since" in changes:
+        with _http_errors():
+            new_since = bonus_rules.parse_rules(
+                {"automation_since": changes["automation_since"]}
+            ).automation_since
+        imported = await db.scalar(
+            select(HrBonus.id).where(HrBonus.source == "compass_import").limit(1)
+        )
+        refusal = bonus_rules.automation_since_change_error(
+            saved.automation_since, new_since, has_compass_imports=imported is not None
+        )
+        if refusal:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, refusal)
     ids = {
         int(item[key])
         for item in (merged.get("extra_dl") or [])
