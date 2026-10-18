@@ -29,12 +29,11 @@ from app.tasks import notification_email_outbox as outbox
 _BACKEND = Path(__file__).resolve().parents[1]
 _AT = "2026-10-17T08:00:00+00:00"
 
-# Bez maila: kwoty (premie, stawki), zbiór timesheetów do akceptacji na
-# początku miesiąca (licznik w „Akceptacjach”), opieka (sekcja Delivery).
+# Bez maila: kwoty (premie, stawki), opieka (sekcja Delivery). Raport godzin
+# wysłany do akceptacji idzie mailem od 18.10.2026 (jak w Compassie).
 _NO_MAIL = (
     "hr_bonus_assigned",
     "hr_rate_changed",
-    "hr_timesheet_submitted",
     "care_contact_due",
     # Informacja o zapłacie — nikt na nią nie czeka (dymek i „Mój czas”).
     "hr_settlement_paid",
@@ -173,6 +172,21 @@ def test_plain_texts_go_unchanged(ntype, title, message):
         title,
         message,
     )
+
+
+def test_submitted_report_mail_says_who_and_which_month_in_the_form_words():
+    """Raport wysłany do akceptacji (18.10.2026): mail do akceptującego niesie
+    tytuł słowami formy i „kto: miesiąc” — to samo, co dymek z `time_flow`."""
+
+    source = (_BACKEND / "app/services/hr/time_flow.py").read_text(encoding="utf-8")
+    assert 'title=words["timesheet_submitted_title"]' in source
+    message = "Anna Przykładowa: październik 2026."
+    for form in ("uop", "b2b", "zlecenie"):
+        title = terms(form)["timesheet_submitted_title"]
+        assert hr_mail.mail_text(
+            NotificationType.hr_timesheet_submitted, title, message
+        ) == (title, message)
+    assert delivery.notification_kind("hr_timesheet_submitted") == "hr_people"
 
 
 def test_case_title_and_return_note_never_go_by_mail():

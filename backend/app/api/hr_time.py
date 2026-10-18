@@ -8,7 +8,9 @@ przełącznik modułu w ``app_settings['hr_modules']``.
   obecności, wpisy, wypełnianie, kopiowanie, podpowiedź, wysyłka, PDF),
 * ``/team/…`` i ``/timesheets/{id}/…`` — akceptujący (przełożony dla swoich
   ludzi, Kadry i admin dla wszystkich, nikt siebie),
-* ``/export/{rok}/{miesiąc}/zip`` — Płace, Kadry, admin,
+* ``/export/{rok}/{miesiąc}/zip`` i ``…/csv`` — Płace, Kadry, admin,
+* ``/me/export.csv`` i ``/people/{id}/export.csv`` — godziny w CSV za zakres
+  miesięcy: własne i osoby w zakresie czytającego (jak PDF),
 * ``/role-defaults`` — domyślne opisy (Kadry, admin).
 """
 
@@ -43,6 +45,7 @@ from app.services.hr import (
     time_fill,
     time_flow,
     time_month,
+    time_export,
     time_pdf,
     time_retention,
     time_suggest,
@@ -189,6 +192,10 @@ class FillIn(BaseModel):
     project: Optional[str] = Field(default=None, max_length=200)
     description: Optional[str] = Field(default=None, max_length=2000)
     template_id: Optional[int] = None
+    # Okno „Wypełnij miesiąc” (jak Compass): brak = 8 h, najwyżej 8 h.
+    hours_per_day: Optional[Decimal] = None
+    # Kasuje wpisy szkicu (poza auto-wpisami płatnej puli) przed wypełnieniem.
+    overwrite: bool = False
 
 
 class ReturnIn(BaseModel):
@@ -252,6 +259,48 @@ async def my_history(
     current_user: SelfUser, db: AsyncSession = Depends(get_db)
 ) -> dict:
     return {"items": await time_month.history(db, user_id=current_user.id)}
+
+
+def _csv_response(file: time_export.CsvFile) -> Response:
+    return Response(
+        content=file.content,
+        media_type="text/csv; charset=utf-8",
+        headers={
+            "Content-Disposition": f'attachment; filename="{file.filename}"',
+            "X-Export-Rows": str(file.rows),
+        },
+    )
+
+
+def _audit_csv(
+    db: AsyncSession,
+    *,
+    actor: User,
+    subject_user_id: Optional[int],
+    details: dict[str, Any],
+) -> None:
+    audit.record(
+        db,
+        actor_user_id=actor.id,
+        subject_user_id=subject_user_id,
+        entity_type="timesheet",
+        entity_id=None,
+        action="timesheet_csv_exported",
+        details=details,
+    )
+
+
+@router.get("/me/export.csv")
+async def my_csv(
+    current_user: SelfUser,
+    start: str = Query(alias="from", max_length=7),
+    end: str = Query(alias="to", max_length=7),
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    with _http_errors():
+        first, last = time_export.parse_range(start, end)
+    file = await time_export.person_csv(db, user=current_user, first=first, last=last)
+    return _csv_response(file)
 
 
 @router.get("/me/suggestion")
@@ -466,6 +515,8 @@ async def fill_my_month(
             project=payload.project,
             description=payload.description,
             template_id=payload.template_id,
+            hours_per_day=payload.hours_per_day,
+            overwrite=payload.overwrite,
         )
     return result
 
@@ -615,6 +666,54 @@ async def timesheet_pdf(
         if not actor.can_read(subject):
             raise TimeNotFound("Nie ma takiego timesheetu.")
         return await _pdf_response(db, timesheet, viewer=current_user)
+
+
+@router.get("/people/{user_id}/export.csv")
+async def person_csv(
+    user_id: int,
+    current_user: ReaderUser,
+    start: str = Query(alias="from", max_length=7),
+    end: str = Query(alias="to", max_length=7),
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    """Godziny osoby za zakres miesięcy — zakres czytającego jak przy PDF."""
+
+    with _http_errors():
+        first, last = time_export.parse_range(start, end)
+        user, subject = await time_month.subject_for(db, user_id)
+        actor = await load_actor(db, current_user)
+        if user is None or subject is None or not actor.can_read(subject):
+            raise TimeNotFound("Nie ma takiej osoby.")
+    file = await time_export.person_csv(
+        db,
+        user=user,
+        first=first,
+        last=last,
+        show_leave_source=actor.sees_leave_type(subject),
+    )
+    if user_id != current_user.id:
+        _audit_csv(
+            db,
+            actor=current_user,
+            subject_user_id=user_id,
+            details={"from": first.label(), "to": last.label(), "rows": file.rows},
+        )
+    return _csv_response(file)
+
+
+@router.get("/export/{year}/{month}/csv")
+async def export_month_csv(
+    year: int, month: int, current_user: PayrollUser, db: AsyncSession = Depends(get_db)
+) -> Response:
+    with _http_errors():
+        file = await time_export.month_csv(db, year=year, month=month)
+    _audit_csv(
+        db,
+        actor=current_user,
+        subject_user_id=None,
+        details={"year": year, "month": month, "rows": file.rows},
+    )
+    return _csv_response(file)
 
 
 @router.get("/export/{year}/{month}/zip")
