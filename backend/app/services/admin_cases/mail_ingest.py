@@ -175,6 +175,15 @@ def mailbox_upn() -> Optional[str]:
     return None
 
 
+def _own_addresses(upn: str) -> frozenset[str]:
+    """Adresy administracji: skrzynka M365 i adres widoczny (home.pl)."""
+
+    values = [upn] + [
+        os.environ.get(env) or "" for env in (MAILBOX_ENV, M365_MAILBOX_ENV)
+    ]
+    return frozenset(value.strip().lower() for value in values if value.strip())
+
+
 def ingest_enabled() -> bool:
     flag = (os.environ.get(ENABLED_ENV) or "").strip().lower()
     return flag == "true" and mailbox_upn() is not None
@@ -289,16 +298,21 @@ async def _ingest_message(
     if known is not None:
         return "duplicate"
     sender_email, sender_name = _sender(msg)
-    if sender_email and sender_email == upn.lower():
-        # Wiadomość wysłana ze skrzynki (kopia do siebie) — to nie zgłoszenie.
-        return "skipped"
+    own = sender_email is not None and sender_email in _own_addresses(upn)
     received_at = _parse_dt(msg.get("receivedDateTime"))
     subject = _nul_free(msg.get("subject"), 500)
 
     case = await _thread_case(db, msg)
     outcome = "attached"
     now = datetime.now(timezone.utc)
-    if case is None:
+    if own:
+        # Wiadomość wysłana przez administrację: kopia do siebie albo odpowiedź
+        # z home.pl z administracja@ w kopii (wariant B). W wątku sprawy to jej
+        # odpowiedź — dołącza bez ponownego otwarcia; poza wątkiem to nie
+        # zgłoszenie.
+        if case is None:
+            return "skipped"
+    elif case is None:
         case, _created = await open_automatic_case(
             db,
             AutomaticCase(

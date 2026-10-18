@@ -332,6 +332,50 @@ async def test_messages_sent_from_the_mailbox_itself_are_skipped(mailbox_on) -> 
 
 
 @pytest.mark.asyncio
+async def test_reply_from_public_address_joins_case_without_reopening(
+    monkeypatch, cases_on
+) -> None:
+    # Wariant B (18.10.2026): administracja@ na home.pl, NEXUS czyta kopię
+    # w skrzynce M365. Odpowiedź ludzi z home.pl z administracja@ w kopii
+    # przychodzi z adresu widocznego — to nie nowe zgłoszenie.
+    public = f"administracja-{uuid.uuid4().hex[:8]}@example.com"
+    copy = f"nexus-{uuid.uuid4().hex[:8]}@example.com"
+    monkeypatch.setenv(mail_ingest.MAILBOX_ENV, public)
+    monkeypatch.setenv(mail_ingest.M365_MAILBOX_ENV, copy)
+    monkeypatch.setenv(mail_ingest.ENABLED_ENV, "true")
+    fake = FakeMailbox()
+    first = fake.add(subject="Zaświadczenie o zatrudnieniu", hours_ago=6)
+    await _run(fake)
+    case_id = (await _cases_for(fake))[first["id"]]
+    async with AsyncSessionLocal() as db:
+        case = await db.get(AdminCase, case_id)
+        case.status = "done"
+        case.closed_at = datetime.now(timezone.utc)
+        await db.commit()
+
+    reply = fake.add(
+        subject="RE: Zaświadczenie o zatrudnieniu",
+        hours_ago=1,
+        conversation=first["conversationId"],
+        sender=public.upper(),
+    )
+    outside = fake.add(
+        subject="Przypomnienie o badaniach", hours_ago=0.5, sender=public
+    )
+    result = await _run(fake)
+    assert result["attached"] == 1
+    assert result["skipped"] == 1
+    assert result.get("created", 0) == 0 and result.get("reopened", 0) == 0
+    by_message = await _cases_for(fake)
+    assert by_message[reply["id"]] == case_id
+    assert outside["id"] not in by_message
+    async with AsyncSessionLocal() as db:
+        case = await db.get(AdminCase, case_id)
+    assert case.status == "done"
+    assert case.closed_at is not None
+
+
+@pytest.mark.asyncio
 async def test_running_lease_skips_a_parallel_run(mailbox_on) -> None:
     fake = FakeMailbox()
     fake.add(subject="Równoległy przebieg", hours_ago=1)
