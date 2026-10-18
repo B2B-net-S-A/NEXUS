@@ -2,7 +2,8 @@
 
 Granice progów rekrutera, 10% × marża/h × 168 dla DL, termin = start + 21
 polskich dni roboczych (ze świętami), przeliczenie stawek MD/miesięcznych na
-godzinę i walidacja ustawień. Kwoty i stawki są fikcyjne.
+godzinę, walidacja ustawień i odbiorcy premii (rekruter = weryfikujący,
+DL rekrutacji albo klienta). Kwoty i stawki są fikcyjne.
 """
 
 from __future__ import annotations
@@ -24,7 +25,7 @@ from app.services.hr.bonus_rules import (
     recruiter_tier,
 )
 from app.services.hr.calendar import WorkCalendar
-from app.services.hr.placement_bonuses import contract_margin
+from app.services.hr.placement_bonuses import PlacementContext, contract_margin
 
 #: Sam kalendarz ustawowy (bez dni wolnych firmy) — czyste granice reguły.
 PLAIN = WorkCalendar()
@@ -205,3 +206,57 @@ async def test_missing_rate_gives_no_margin_with_reason() -> None:
     margin = await contract_margin(None, contract, date(2026, 9, 1))
     assert margin.per_hour is None
     assert margin.reason == "missing_rates"
+
+
+# ── Odbiorcy premii (decyzja 18.10.2026: jak w Compassie) ─────────────────────
+
+
+def _context(**overrides) -> PlacementContext:
+    values = {
+        "jobs": {},
+        "client_leads": {},
+        "candidates": {},
+        "clients": {},
+        "verifiers": {},
+    }
+    values.update(overrides)
+    return PlacementContext(**values)
+
+
+def _placement_contract(
+    candidate_id: int = 1, job_id: int = 10, client_id: int = 100
+) -> Contract:
+    return Contract(candidate_id=candidate_id, job_id=job_id, client_id=client_id)
+
+
+def test_recruiter_is_the_first_verifier_not_the_lead_of_the_recruitment() -> None:
+    # Prowadzący rekrutację (jobs.recruiter_id) nie ma znaczenia — liczy się
+    # osoba, która zweryfikowała kandydata.
+    context = _context(jobs={10: 7}, verifiers={(1, 10): 42})
+    assert context.people(_placement_contract()) == (7, 42, "job")
+
+
+def test_no_verifier_means_no_recruiter_bonus() -> None:
+    context = _context(jobs={10: 7})
+    assert context.people(_placement_contract()) == (7, None, "job")
+
+
+def test_verifier_of_another_recruitment_does_not_count() -> None:
+    context = _context(jobs={10: 7, 11: 8}, verifiers={(1, 11): 42})
+    assert context.people(_placement_contract())[1] is None
+
+
+def test_dl_falls_back_to_client_head_then_single_assignment() -> None:
+    head = _context(
+        jobs={10: None}, client_leads={100: [(5, False), (6, True)]}, verifiers={}
+    )
+    assert head.people(_placement_contract()) == (6, None, "client_head")
+    single = _context(jobs={10: None}, client_leads={100: [(5, False)]})
+    assert single.people(_placement_contract()) == (5, None, "client_assignment")
+    unclear = _context(jobs={10: None}, client_leads={100: [(5, False), (9, False)]})
+    assert unclear.people(_placement_contract()) == (None, None, "none")
+
+
+def test_contract_without_recruitment_has_no_recruiter() -> None:
+    context = _context(client_leads={100: [(6, True)]}, verifiers={(1, 10): 42})
+    assert context.people(_placement_contract(job_id=None)) == (6, None, "client_head")

@@ -1,7 +1,7 @@
 """Premie z placementów — propozycje liczone z kontraktów NEXUSA (D5).
 
-Placement to kontrakt NEXUSA: start, stawki, marża, Delivery Lead i rekruter
-rekrutacji są na nim. Compass wymagał co miesiąc importu Excela, mapowania
+Placement to kontrakt NEXUSA: start, stawki i marża są na nim, odbiorcy
+wynikają z rekrutacji (reguła niżej). Compass wymagał co miesiąc importu Excela, mapowania
 nazwisk i ręcznego potwierdzenia 168 h — tu automat proponuje, Płace albo
 przełożony zatwierdzają.
 
@@ -17,7 +17,13 @@ Dla kontraktu z datą startu (status aktywny, kończący się albo zakończony):
   rozliczeniowe kontraktu; waluta obca po kursie NBP z dnia startu (brak
   kursu = brak propozycji, powód w liczbach przebiegu),
 * propozycje: DL (10% × marża/h × 168), dodatkowa premia DL z ustawień,
-  rekruter (próg marży); ``source_key`` = ``contract:{id}:dl|dl_extra|recruiter``.
+  rekruter (próg marży); ``source_key`` = ``contract:{id}:dl|dl_extra|recruiter``,
+* odbiorcy jak w Compassie (decyzja Artura 18.10.2026): rekruter = osoba, która
+  jako pierwsza zweryfikowała kandydata w tej rekrutacji (etap „Zweryfikowany”,
+  ta sama zasada co KPI i Liga), a nie prowadzący (``jobs.recruiter_id`` —
+  w rekrutacjach sprzed 10.2026 siedzi tam zwykle Delivery Lead); DL =
+  ``jobs.delivery_lead_id``, a gdy go brak — DL klienta (głowa albo jedyne
+  przypisanie). Bez weryfikującego premii rekrutera nie ma.
 
 Kontrakt zakończony przed terminem (albo anulowany) → propozycje anulowane
 przez automat; cofnięcie zakończenia → przywrócone. Kontrakt usunięty trwale →
@@ -39,7 +45,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, timedelta
 from decimal import Decimal
 from typing import Any, Optional
@@ -54,6 +60,7 @@ from app.models.client import Client
 from app.models.contract import Contract, ContractStatus, RateUnit
 from app.models.hr_payroll import HrBonus
 from app.models.job import Job
+from app.models.recruitment_pipeline import CandidateStage, PipelineStage
 from app.models.team_structure import DeliveryLeadClientAssignment
 from app.services import fx_service
 from app.services.contract_rates import RATE_SCHEDULE_LOADS
@@ -180,17 +187,28 @@ class PlacementContext:
     samo razy dla jednego i dla dwudziestu kontraktów.
     """
 
-    #: rekrutacja → (Delivery Lead, rekruter)
-    jobs: dict[int, tuple[Optional[int], Optional[int]]]
+    #: rekrutacja → Delivery Lead rekrutacji
+    jobs: dict[int, Optional[int]]
     #: klient → [(Delivery Lead, czy „głowa”)] — tylko klienci bez DL z rekrutacji
     client_leads: dict[int, list[tuple[int, bool]]]
     candidates: dict[int, str]
     clients: dict[int, str]
+    #: (kandydat, rekrutacja) → pierwszy weryfikujący (etap „Zweryfikowany”)
+    verifiers: dict[tuple[int, int], int] = field(default_factory=dict)
 
     def people(self, contract: Contract) -> tuple[Optional[int], Optional[int], str]:
-        """(Delivery Lead, rekruter, skąd DL): z rekrutacji, DL zapasowo z klienta."""
+        """(Delivery Lead, rekruter, skąd DL).
 
-        dl_id, recruiter_id = self.jobs.get(contract.job_id, (None, None))
+        Rekruter = pierwszy weryfikujący kandydata w rekrutacji kontraktu;
+        DL z rekrutacji, zapasowo DL klienta.
+        """
+
+        recruiter_id = (
+            self.verifiers.get((contract.candidate_id, contract.job_id))
+            if contract.candidate_id is not None and contract.job_id is not None
+            else None
+        )
+        dl_id = self.jobs.get(contract.job_id)
         if dl_id is not None:
             return dl_id, recruiter_id, "job"
         rows = self.client_leads.get(contract.client_id, [])
@@ -212,23 +230,29 @@ class PlacementContext:
 async def load_context(
     db: AsyncSession, contracts: Sequence[Contract]
 ) -> PlacementContext:
-    """Najwyżej cztery zapytania niezależnie od liczby kontraktów."""
+    """Najwyżej pięć zapytań niezależnie od liczby kontraktów."""
 
     job_ids = sorted({c.job_id for c in contracts if c.job_id is not None})
-    jobs: dict[int, tuple[Optional[int], Optional[int]]] = {}
+    jobs: dict[int, Optional[int]] = {}
     if job_ids:
         rows = await db.execute(
-            select(Job.id, Job.delivery_lead_id, Job.recruiter_id).where(
-                Job.id.in_(job_ids)
-            )
+            select(Job.id, Job.delivery_lead_id).where(Job.id.in_(job_ids))
         )
-        jobs = {job_id: (dl, recruiter) for job_id, dl, recruiter in rows.all()}
+        jobs = {job_id: dl for job_id, dl in rows.all()}
+    verifiers = await load_verifiers(
+        db,
+        {
+            (c.candidate_id, c.job_id)
+            for c in contracts
+            if c.candidate_id is not None and c.job_id is not None
+        },
+    )
     # DL klienta potrzebny tylko tam, gdzie rekrutacja go nie wskazuje.
     fallback_clients = sorted(
         {
             c.client_id
             for c in contracts
-            if c.client_id is not None and jobs.get(c.job_id, (None, None))[0] is None
+            if c.client_id is not None and jobs.get(c.job_id) is None
         }
     )
     client_leads: dict[int, list[tuple[int, bool]]] = {}
@@ -261,7 +285,44 @@ async def load_context(
             select(Client.id, Client.name).where(Client.id.in_(client_ids))
         )
         clients = {client_id: name for client_id, name in rows.all() if name}
-    return PlacementContext(jobs, client_leads, candidates, clients)
+    return PlacementContext(jobs, client_leads, candidates, clients, verifiers)
+
+
+async def load_verifiers(
+    db: AsyncSession, pairs: set[tuple[int, int]]
+) -> dict[tuple[int, int], int]:
+    """Pierwszy weryfikujący per (kandydat, rekrutacja) — jedno zapytanie.
+
+    Kolejność jak w KPI (``kpi_panel.VERIFIER_ANCHORED_CTE``): czas akceptacji
+    etapu „Zweryfikowany”, a bez niej czas ruchu, potem id. Wiersz bez autora
+    ruchu (import) nikogo nie wskazuje.
+    """
+
+    if not pairs:
+        return {}
+    candidate_ids = sorted({candidate for candidate, _job in pairs})
+    job_ids = sorted({job for _candidate, job in pairs})
+    rows = await db.execute(
+        select(
+            CandidateStage.candidate_id, CandidateStage.job_id, CandidateStage.moved_by
+        )
+        .where(
+            CandidateStage.stage == PipelineStage.verified,
+            CandidateStage.candidate_id.in_(candidate_ids),
+            CandidateStage.job_id.in_(job_ids),
+            CandidateStage.moved_by.is_not(None),
+        )
+        .order_by(
+            func.coalesce(CandidateStage.approved_at, CandidateStage.moved_at),
+            CandidateStage.id,
+        )
+    )
+    found: dict[tuple[int, int], int] = {}
+    for candidate_id, job_id, moved_by in rows.all():
+        pair = (candidate_id, job_id)
+        if pair in pairs:
+            found.setdefault(pair, moved_by)
+    return found
 
 
 def automation_floor(rules: BonusRules, today: date) -> date:
@@ -724,6 +785,7 @@ __all__ = [
     "contract_margin",
     "ends_before_deadline",
     "load_context",
+    "load_verifiers",
     "on_contract_deleted",
     "on_contract_end_undone",
     "on_contract_ended",

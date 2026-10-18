@@ -34,7 +34,9 @@ from app.models.contract import Contract, ContractStatus, RateUnit
 from app.models.hr_payroll import HrBonus, PayrollLine, PayrollPeriod
 from app.models.hr_profile import EmployeeProfile
 from app.models.job import Job, JobStatus
+from app.models.recruitment_pipeline import CandidateStage, PipelineStage
 from app.models.section_permission import UserActionOverride
+from app.models.team_structure import DeliveryLeadClientAssignment
 from app.models.user import User, UserRole
 from app.services.hr import league_bonuses, placement_bonuses
 from app.services.hr.bonus_rules import SETTING_KEY as RULES_KEY
@@ -152,6 +154,15 @@ async def _placement(
             returned_from_contract_id=returned_from,
         )
         db.add(contract)
+        # Rekruter premii = weryfikujący kandydata (decyzja 18.10.2026).
+        db.add(
+            CandidateStage(
+                candidate_id=candidate.id,
+                job_id=job.id,
+                stage=PipelineStage.verified,
+                moved_by=recruiter.id,
+            )
+        )
         await db.commit()
         return {"contract": contract.id, "dl": dl.id, "recruiter": recruiter.id}
 
@@ -210,6 +221,89 @@ async def test_contract_start_proposes_dl_and_recruiter_bonus_once(payroll_on) -
     again = await _reconcile(world["contract"])
     assert again == {"created": 0, "updated": 0, "cancelled": 0, "restored": 0}
     assert len(await _bonuses(world["contract"])) == 2
+
+
+async def _legacy_placement(*, verified: bool) -> dict:
+    """Rekrutacja jak sprzed 10.2026: DL w polu „prowadzący”, bez DL rekrutacji,
+    DL klienta z przypisania, kandydata weryfikuje trzecia osoba."""
+
+    tag = uuid.uuid4().hex[:8]
+    today = business_today()
+    async with AsyncSessionLocal() as db:
+        lead = await _person(db, "delivery_lead")
+        client_head = await _person(db, "delivery_lead")
+        verifier = await _person(db, "recruiter")
+        client = Client(name=f"Firma Przykładowa {tag}")
+        candidate = Candidate(
+            name="Jan", lastname=f"Przykładowy-{tag}", email=f"cand-{tag}@example.com"
+        )
+        db.add_all([client, candidate])
+        await db.flush()
+        db.add(
+            DeliveryLeadClientAssignment(
+                delivery_lead_user_id=client_head.id, client_id=client.id, is_head=True
+            )
+        )
+        job = Job(
+            title=f"Programista {tag}",
+            client_id=client.id,
+            status=JobStatus.published,
+            recruiter_id=lead.id,
+            delivery_lead_id=None,
+        )
+        db.add(job)
+        await db.flush()
+        contract = Contract(
+            candidate_id=candidate.id,
+            client_id=client.id,
+            job_id=job.id,
+            status=ContractStatus.active,
+            start_date=today - timedelta(days=40),
+            rate_client=Decimal("150"),
+            rate_candidate=Decimal("104"),
+            rate_unit=RateUnit.hourly,
+            currency="PLN",
+            rate_client_currency="PLN",
+            rate_candidate_currency="PLN",
+        )
+        db.add(contract)
+        if verified:
+            db.add(
+                CandidateStage(
+                    candidate_id=candidate.id,
+                    job_id=job.id,
+                    stage=PipelineStage.verified,
+                    moved_by=verifier.id,
+                )
+            )
+        await db.commit()
+        return {
+            "contract": contract.id,
+            "lead": lead.id,
+            "client_head": client_head.id,
+            "verifier": verifier.id,
+        }
+
+
+@pytest.mark.asyncio
+async def test_recruiter_bonus_goes_to_verifier_and_dl_bonus_to_client_dl(
+    payroll_on,
+) -> None:
+    world = await _legacy_placement(verified=True)
+    assert (await _reconcile(world["contract"]))["created"] == 2
+    found = await _bonuses(world["contract"])
+    assert found["recruiter"].recipient_user_id == world["verifier"]
+    assert found["dl"].recipient_user_id == world["client_head"]
+    assert found["dl"].rule_snapshot["people_source"] == "client_head"
+    recipients = {bonus.recipient_user_id for bonus in found.values()}
+    assert world["lead"] not in recipients
+
+
+@pytest.mark.asyncio
+async def test_unverified_candidate_gives_no_recruiter_bonus(payroll_on) -> None:
+    world = await _legacy_placement(verified=False)
+    assert (await _reconcile(world["contract"]))["created"] == 1
+    assert set(await _bonuses(world["contract"])) == {"dl"}
 
 
 @pytest.mark.asyncio
