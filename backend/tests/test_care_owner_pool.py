@@ -14,6 +14,9 @@ Dane fikcyjne (repo jest publiczne).
 
 from __future__ import annotations
 
+import dataclasses
+from datetime import timedelta
+
 import pytest
 import pytest_asyncio
 from sqlalchemy import select
@@ -141,8 +144,24 @@ async def test_pool_is_computed_from_structure_and_skips_excluded_and_no_access(
     choices = {row["id"] for row in overview.json()["owner_choices"]}
     assert {first.id, second.id, tcm.id} <= choices
     assert accountant.id not in choices
+    assert hor.id not in choices  # nie widzi Opieki — dzwonek prowadziłby na 403
     cards = {card["id"] for card in overview.json()["owners"]}
     assert {first.id, second.id} <= cards
+
+    client_id = await make_client()
+    contract_id, _ = await make_contract(client_id)
+    no_access = await app_client.put(
+        f"/api/care/contracts/{contract_id}/owner",
+        headers=headers(head),
+        json={"user_id": hor.id},
+    )
+    assert no_access.status_code == 422
+    default = await app_client.put(
+        f"/api/care/clients/{client_id}/default-owner",
+        headers=headers(head),
+        json={"user_id": accountant.id},
+    )
+    assert default.status_code == 422
 
 
 @pytest.mark.usefixtures("care_on", "divisions_reset", "pool_reset")
@@ -326,3 +345,67 @@ async def test_new_contract_gets_an_owner_from_the_start_hook_silently_in_shadow
             )
         )
     assert sent is None  # moduł wyłączony = tryb cienia, bez dzwonka
+
+
+@pytest.mark.usefixtures("care_off", "divisions_reset", "pool_reset")
+async def test_without_saved_pool_the_start_hook_assigns_nobody(app_client) -> None:
+    """Bez zapisu puli automat nie rusza — nawet gdy head back office ma ludzi."""
+
+    head, manager, first, *_ = await pool_team()
+    from tests.test_care_cadence import set_division_heads  # noqa: PLC0415
+
+    await set_division_heads({"front_office": None, "back_office": manager.id})
+    async with AsyncSessionLocal() as db:
+        row = await db.get(AppSetting, POOL_SETTING)
+        if row is not None:
+            await db.delete(row)
+            await db.commit()
+    client_id = await make_client()
+    contract_id, _ = await make_contract(client_id, started_days_ago=0)
+    async with AsyncSessionLocal() as db:
+        contract = await db.get(Contract, contract_id)
+        outcome = await contract_hooks.contract_started(db, contract)
+        await db.commit()
+    assert outcome["care"] == "ok"
+    assert await _explicit_owner(contract_id) is None
+    preview = await app_client.get(
+        "/api/care/assignment/auto", headers=headers(manager)
+    )
+    assert preview.status_code == 200, preview.text
+    config = preview.json()["config"]
+    assert config["saved"] is False and config["auto_new_contracts"] is False
+    assert config["manager"]["id"] == manager.id and config["manager_from_division"]
+
+
+async def test_daily_sweep_takes_only_fresh_contracts(monkeypatch) -> None:
+    today = business_today()
+    fresh = care_access.CareContract(
+        id=1,
+        client_id=1,
+        client_name="Firma",
+        candidate_id=None,
+        candidate_name=None,
+        job_id=None,
+        job_title=None,
+        job_delivery_lead_id=None,
+        status="active",
+        start_date=today - timedelta(days=3),
+        contract_end_date=None,
+        order_end_date=None,
+        explicit_owner_id=None,
+        client_default_owner_id=None,
+    )
+    old = dataclasses.replace(fresh, id=2, start_date=today - timedelta(days=200))
+    seen: list[list[int]] = []
+
+    async def targets(db, **_):
+        return [fresh, old], [fresh, old]
+
+    async def assign_new(db, ids, *, today):
+        seen.append(list(ids))
+        return len(ids)
+
+    monkeypatch.setattr(auto_assign, "targets_without_owner", targets)
+    monkeypatch.setattr(auto_assign, "assign_new", assign_new)
+    assert await auto_assign.sweep(None, today=today) == 1
+    assert seen == [[1]]

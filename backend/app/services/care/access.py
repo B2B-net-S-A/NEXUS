@@ -334,12 +334,13 @@ async def effective_owners(
 async def owner_candidates(db: AsyncSession) -> list[User]:
     """Aktywne konta, które mogą być opiekunem: admin, DL, TCM i pula opiekunów.
 
-    Osoby z listy wykluczonych puli (``owner_pool``) nie są do wyboru.
+    Z puli tylko ci, którzy widzą opiekę; osoby z listy wykluczonych
+    (``owner_pool``) nie są do wyboru.
     """
 
     from app.services.care import owner_pool  # noqa: PLC0415
 
-    pool = await owner_pool.writer_ids(db)
+    pool = await owner_pool.eligible_ids(db)
     excluded = await owner_pool.excluded_ids(db)
     clauses = [User.id.in_(sorted(pool) or [-1])]
     for role in CARE_ROLES:
@@ -376,7 +377,7 @@ async def owner_problem(
         return OWNER_INVALID
     if user.id in await owner_pool.excluded_ids(db):
         return f"{user.name} jest na liście osób, którym nie przypisujemy konsultantów."
-    if not await is_care_writer(db, user):
+    if not is_care_worker(user) and user.id not in await owner_pool.eligible_ids(db):
         return OWNER_INVALID
     scope = await allowed_client_ids(user, db)
     if scope is not None and any(cid not in scope for cid in client_ids):

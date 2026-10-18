@@ -41,7 +41,8 @@ function draftOf(data: CareAutoAssignment): Draft {
   return {
     managerId: data.config.manager?.id ?? null,
     excluded: data.config.excluded_user_ids,
-    auto: data.config.auto_new_contracts,
+    // Niezapisana pula: proponujemy włączony automat, rusza po zapisie.
+    auto: data.config.saved ? data.config.auto_new_contracts : true,
   };
 }
 
@@ -66,7 +67,7 @@ function PoolEditor({
 }) {
   const saved = draftOf(data);
   const [draft, setDraft] = useState<Draft>(saved);
-  const dirty = !sameDraft(draft, saved);
+  const dirty = !sameDraft(draft, saved) || !data.config.saved;
   useEffect(() => onDirtyChange(dirty), [dirty, onDirtyChange]);
   const managers = data.config.manager && !data.manager_choices.some((m) => m.id === data.config.manager?.id)
     ? [{ id: data.config.manager.id, name: data.config.manager.name ?? `Konto ${data.config.manager.id}` }, ...data.manager_choices]
@@ -164,10 +165,16 @@ function PoolEditor({
           <Button size="sm" disabled={saving} onClick={submit}>
             {saving ? "Zapisywanie…" : "Zapisz pulę"}
           </Button>
-          <Button size="sm" variant="ghost" onClick={() => setDraft(saved)}>
-            Cofnij zmiany
-          </Button>
-          <span className="text-xs text-muted-foreground">Podgląd przydziału przeliczy się po zapisie.</span>
+          {sameDraft(draft, saved) ? null : (
+            <Button size="sm" variant="ghost" onClick={() => setDraft(saved)}>
+              Cofnij zmiany
+            </Button>
+          )}
+          <span className="text-xs text-muted-foreground">
+            {data.config.saved
+              ? "Podgląd przydziału przeliczy się po zapisie."
+              : "Pula nie jest jeszcze zapisana — przydział i automat dla nowych kontraktów ruszą po zapisie."}
+          </span>
         </div>
       ) : null}
     </div>

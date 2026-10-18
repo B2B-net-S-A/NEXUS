@@ -155,13 +155,14 @@ back office, admin). Karta „Pula opiekunów” na górze zakładki „Przydzia
   i wykluczonych ustawia się w tej karcie (albo `PUT …/pool`), nie w kodzie.
 - **„Nie przypisuj”** (`excluded_user_ids`, np. księgowość): takiej osobie
   nie da się przypisać konsultanta ani automatem, ani ręcznie (422 przy
-  zmianie pojedynczej i hurtem, brak na liście wyboru — także admina), a import
-  z Compassa zostawia ją jako `conflict`.
+  zmianie pojedynczej, hurtem i domyślnym opiekunie klienta, brak na liście
+  wyboru — także admina), przekazanie pracy przy odejściu odmawia
+  (`receiver_excluded`), a import z Compassa zostawia ją jako `conflict`.
 - **Członek puli prowadzi opiekę jak TCM** (`care_access.is_care_writer`):
   zapis rozmów, kart, przepięć, zmiana opiekuna — także bez roli DL/TCM/admin
   (np. Finanse). Bramki sekcji zostają: kto nie ma sekcji i podglądu Delivery
-  (np. Head of Recruitment), jest w puli z dopiskiem „nie widzi Opieki”,
-  a automat go pomija. Opinie klienta (D11) dalej tylko DL, TCM, HoR, admin.
+  (np. Head of Recruitment), jest w puli z dopiskiem „nie widzi Opieki”
+  i nie zostaje opiekunem ani automatem, ani ręcznie (`owner_pool.eligible_ids`). Opinie klienta (D11) dalej tylko DL, TCM, HoR, admin.
 - **Automat**: kontrakty aktywne i kończące się BEZ opiekuna wpisanego na
   kontrakcie (także te z opiekunem z łańcucha — domyślnym klienta albo DL) →
   osoba z puli z najmniejszą liczbą aktywnych podopiecznych (faktyczny
@@ -172,7 +173,8 @@ back office, admin). Karta „Pula opiekunów” na górze zakładki „Przydzia
   (`skipped`), a parę z osobą spoza puli odrzuca w całości (409 „odśwież
   podgląd”). Ślad `care.owner_set` z powodem `auto_load`. Niezapisana zmiana
   puli blokuje przycisk zapisu przydziału na ekranie.
-- **Nowy kontrakt** (`auto_new_contracts`, domyślnie tak): hak
+- **Nowy kontrakt** (`auto_new_contracts`; bez zapisanego ustawienia puli
+  automat nie rusza, karta zapisuje go domyślnie włączonego): hak
   `contract_hooks.contract_started` (krok `care`, także przy wyłączonym
   module — tryb cienia) i dzienny przebieg opieki (tylko starty z ostatnich
   14 dni; starsze bez opiekuna przydziela człowiek z podglądem).

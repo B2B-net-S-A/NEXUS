@@ -491,6 +491,8 @@ export interface CareAutoAssignment {
     manager_from_division: boolean;
     excluded_user_ids: number[];
     auto_new_contracts: boolean;
+    /** Ktoś zapisał ustawienie — bez zapisu automat dla nowych kontraktów nie rusza. */
+    saved: boolean;
   };
   manager_choices: PersonRef[];
   items: AutoAssignItem[];

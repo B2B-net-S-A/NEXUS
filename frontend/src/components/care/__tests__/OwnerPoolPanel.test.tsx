@@ -53,6 +53,7 @@ function preview(overrides: Partial<CareAutoAssignment> = {}): CareAutoAssignmen
       manager_from_division: false,
       excluded_user_ids: [1],
       auto_new_contracts: true,
+      saved: true,
     },
     manager_choices: [{ id: 9, name: "Szef Przykładowy" }],
     items: [
@@ -123,6 +124,17 @@ describe("OwnerPoolPanel", () => {
       }),
     );
     await waitFor(() => expect(mocks.showToast).toHaveBeenCalledWith("Pula opiekunów zapisana", "success"));
+  });
+
+  it("niezapisana pula: podpowiedź i przydział zablokowany do zapisu", async () => {
+    mocks.get.mockResolvedValue({
+      data: preview({ config: { ...preview().config, auto_new_contracts: false, saved: false } }),
+    });
+    renderPanel();
+    expect(await screen.findByText(/Pula nie jest jeszcze zapisana/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Zapisz pulę" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Przypisz wg obłożenia (3)" })).toBeDisabled();
+    expect(screen.getByRole("checkbox", { name: /Nowy kontrakt od razu dostaje opiekuna/ })).toBeChecked();
   });
 
   it("zapis przydziału po potwierdzeniu wysyła pary z podglądu", async () => {

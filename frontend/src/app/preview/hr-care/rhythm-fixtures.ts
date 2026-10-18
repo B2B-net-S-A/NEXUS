@@ -493,6 +493,7 @@ export function careAutoAssignment(today: string): CareAutoAssignment {
       manager_from_division: false,
       excluded_user_ids: [beata.id],
       auto_new_contracts: true,
+      saved: true,
     },
     manager_choices: [kamil, adam],
     items: [

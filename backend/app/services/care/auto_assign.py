@@ -16,7 +16,7 @@
   ``auto_load``.
 * **Nowy kontrakt** (hak ``contract_hooks.contract_started`` i dzienny
   przebieg opieki) dostaje opiekuna tą samą regułą, gdy
-  ``auto_new_contracts`` jest włączone.
+  ``auto_new_contracts`` jest włączone — a jest dopiero po zapisie puli.
 * **Powiadomienie opiekuna** tylko przy włączonym module ``care`` — przy
   wyłączonym (tryb cienia) link prowadziłby na 404. Typ ``care_contact_due``
   (sekcja Delivery, kategoria kontraktów) — jeden dzwonek na kontrakt przy
@@ -215,6 +215,7 @@ def config_payload(
         "manager_from_division": config.manager_from_division,
         "excluded_user_ids": list(config.excluded_user_ids),
         "auto_new_contracts": config.auto_new_contracts,
+        "saved": config.saved,
     }
 
 
@@ -225,20 +226,26 @@ async def _write(
     actor_id: Optional[int],
     previous: dict[int, care_access.OwnerChoice],
     today: date,
-) -> None:
+) -> list[Pick]:
+    """Zapis par; zwraca te, które naprawdę zapisano (równoległy zapis wygrywa)."""
+
     by_owner: dict[int, list[int]] = {}
     for pick in picks:
         by_owner.setdefault(pick.owner.id, []).append(pick.contract.id)
+    written: set[int] = set()
     for owner_id, contract_ids in by_owner.items():
-        await db.execute(
+        rows = await db.scalars(
             update(CONTRACTS_CARE)
             .where(
                 CONTRACTS_CARE.c.id.in_(contract_ids),
                 CONTRACTS_CARE.c.care_owner_user_id.is_(None),
             )
             .values(care_owner_user_id=owner_id)
+            .returning(CONTRACTS_CARE.c.id)
         )
-    for pick in picks:
+        written |= set(rows.all())
+    done = [pick for pick in picks if pick.contract.id in written]
+    for pick in done:
         audit.record(
             db,
             actor_user_id=actor_id,
@@ -256,7 +263,9 @@ async def _write(
                 "bulk": actor_id is not None,
             },
         )
-    await care_plan.ensure_plans(db, [p.contract for p in picks], today=today)
+    if done:
+        await care_plan.ensure_plans(db, [p.contract for p in done], today=today)
+    return done
 
 
 async def _care_enabled(db: AsyncSession) -> bool:
@@ -292,7 +301,9 @@ async def apply(
         picks.append(Pick(contract, owner))
     previous = await care_access.effective_owners(db, [p.contract for p in picks])
     if picks:
-        await _write(db, picks, actor_id=actor.id, previous=previous, today=today)
+        picks = await _write(
+            db, picks, actor_id=actor.id, previous=previous, today=today
+        )
     notified = 0
     if picks and await _care_enabled(db):
         counts = Counter(p.owner.id for p in picks)
@@ -344,11 +355,11 @@ async def assign_new(
     if not result.picks:
         return 0
     previous = await care_access.effective_owners(db, targets)
-    await _write(db, result.picks, actor_id=None, previous=previous, today=today)
+    done = await _write(db, result.picks, actor_id=None, previous=previous, today=today)
     if await _care_enabled(db):
         from app.services.care.reminders import contract_link  # noqa: PLC0415
 
-        for pick in result.picks:
+        for pick in done:
             await notify_each(
                 db,
                 [pick.owner.id],
@@ -360,7 +371,7 @@ async def assign_new(
                 link=contract_link(pick.contract.id),
                 log_tag="care",
             )
-    return len(result.picks)
+    return len(done)
 
 
 async def on_contract_started(db: AsyncSession, contract: Contract) -> None:

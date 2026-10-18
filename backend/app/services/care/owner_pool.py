@@ -9,13 +9,15 @@ struktury przy każdym odczycie; w ustawieniu leżą tylko:
   office z ``app_settings['hr_divisions']``, ``null`` = puli nie ma),
 * ``excluded_user_ids`` — osoby, którym nie przypisujemy konsultantów ani
   automatem, ani ręcznie (np. księgowość),
-* ``auto_new_contracts`` — nowy kontrakt dostaje opiekuna wg obłożenia
-  (domyślnie tak).
+* ``auto_new_contracts`` — nowy kontrakt dostaje opiekuna wg obłożenia.
+  Bez zapisanego ustawienia automat NIE rusza — dopiero po świadomym zapisie
+  puli (inaczej hak startu dawałby kontrakty podwładnym head back office,
+  zanim ktokolwiek zdąży kogoś wykluczyć).
 
-Członek puli (niewykluczony) może być opiekunem i prowadzić opiekę jak TCM,
-także bez roli DL/TCM/admin (``care_access.is_care_writer``). Automat
-przydziela tylko tym, którzy widzą opiekę (sekcja i podgląd Delivery) —
-inaczej przypomnienie prowadziłoby na 403.
+Członek puli (niewykluczony) prowadzi opiekę jak TCM, także bez roli
+DL/TCM/admin (``care_access.is_care_writer``). Opiekunem — automatem i ręcznie
+— zostaje tylko ten, kto widzi opiekę (sekcja i podgląd Delivery,
+``eligible_ids``): inaczej przypomnienie prowadziłoby na 403.
 """
 
 from __future__ import annotations
@@ -53,6 +55,8 @@ class PoolConfig:
     auto_new_contracts: bool
     #: ``True`` = przełożony wzięty z head back office (nikt go nie wskazał).
     manager_from_division: bool = False
+    #: Czy ktoś zapisał ustawienie (bez zapisu automat nie rusza).
+    saved: bool = True
 
 
 @dataclass(frozen=True)
@@ -80,19 +84,20 @@ async def load_config(db: AsyncSession) -> PoolConfig:
     raw = await db.scalar(
         select(AppSetting.value).where(AppSetting.key == POOL_SETTING)
     )
-    raw = raw if isinstance(raw, dict) else {}
+    saved = isinstance(raw, dict)
+    raw = raw if saved else {}
     excluded = tuple(
         sorted({v for v in (raw.get("excluded_user_ids") or []) if _positive_int(v)})
     )
-    auto = raw.get("auto_new_contracts")
+    auto = raw.get("auto_new_contracts") is True
     if "manager_user_id" in raw:
         return PoolConfig(
-            _positive_int(raw.get("manager_user_id")), excluded, auto is not False
+            _positive_int(raw.get("manager_user_id")), excluded, auto, saved=saved
         )
     from app.services.hr.structure import load_division_heads  # noqa: PLC0415
 
     head = (await load_division_heads(db)).get("back_office")
-    return PoolConfig(head, excluded, auto is not False, manager_from_division=True)
+    return PoolConfig(head, excluded, auto, manager_from_division=True, saved=saved)
 
 
 async def save_config(
@@ -211,6 +216,12 @@ async def writer_ids(db: AsyncSession) -> frozenset[int]:
         )
     )
     return frozenset(set(rows.all()) - set(config.excluded_user_ids))
+
+
+async def eligible_ids(db: AsyncSession) -> frozenset[int]:
+    """Członkowie puli, którzy mogą być opiekunem (niewykluczeni, widzą opiekę)."""
+
+    return frozenset(m.user.id for m in await members(db) if m.eligible)
 
 
 async def excluded_ids(db: AsyncSession) -> frozenset[int]:

@@ -345,6 +345,7 @@ export const HANDOVER_ERROR_LABELS: Record<string, string> = {
     "Przejmujący podlega jednej z tych osób — wybierz kogoś spoza zespołu odchodzącego albo z jego bezpośrednich podwładnych.",
   receiver_out_of_scope:
     "Przejmujący nie ma części tych klientów w portfelu — wybierz head back office, Talent Community Managera albo administratora.",
+  receiver_excluded: "Tej osobie nie przypisujemy konsultantów (pula opiekunów) — wybierz kogoś innego.",
   error: "Przekazanie nie wyszło — Kadry dostały dzwonek.",
 };
 
