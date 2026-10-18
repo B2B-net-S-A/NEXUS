@@ -625,7 +625,9 @@ class _PeopleIndex:
     def resolve(self, text: str) -> tuple[Optional[int], Optional[int], Optional[str]]:
         """(konto, kontrakt, nazwisko spoza NEXUSA) dla tekstu z kolumny osoby."""
         candidates = person_candidates(text)
-        for name in candidates:
+        # Najpierw cały tekst, jak przed 18.10 — konto o nazwie spoza wzorca
+        # „2–3 słowa z wielkiej litery” (np. z dopiskiem) dalej się dopasuje.
+        for name in dict.fromkeys([text.strip(), *candidates]):
             for kind, index in self.tiers:
                 found = _unique(index, name)
                 if found is not None:
