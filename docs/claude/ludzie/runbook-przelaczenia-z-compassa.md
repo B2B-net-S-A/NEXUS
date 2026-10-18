@@ -26,8 +26,8 @@ tego zakresu nie ma w pickerze.
 
 | Kto | Co |
 |---|---|
-| Admin Azure | Rejestracja aplikacji „NEXUS Kadry”: `MailboxSettings.ReadWrite`, `Calendars.ReadWrite`, `Mail.Send`, `User.Read.All` (odświeżanie profili), dostęp do skrzynki administracja@ (RBAC for Applications zawężony do skrzynek z listy). Intune: `DeviceManagementManagedDevices.Read.All` — osobno, za zgodą. |
-| Admin NEXUSA | `HR_M365_CLIENT_ID`, `HR_M365_CLIENT_SECRET`, `HR_M365_CLIENT_SECRET_EXPIRES_ON` (data wygaśnięcia sekretu, RRRR-MM-DD — przy każdej rotacji), `HR_M365_MAILBOX_ALLOWLIST` (jedna skrzynka testowa), `ADMIN_CASES_MAILBOX` przez „Coolify set env”. `HR_M365_MODE` zostaje `off`. |
+| Admin Azure | **Zrobione 18.10.2026.** Aplikacja „NEXUS Kadry” ma w Entra wyłącznie `User.Read.All` (odświeżanie profili). Poczta i kalendarz (`MailboxSettings.ReadWrite`, `Calendars.ReadWrite`, `Mail.Read`, `Mail.Send`) idą WYŁĄCZNIE przez Exchange RBAC for Applications, zawężony zakresem „NEXUS Kadry - zakres” do grupy „NEXUS Kadry - skrzynki” (`nexus-kadry-skrzynki@b2bnetwork.pl`). Nie dodawać tych uprawnień w Entra — działałyby na całą firmę. Kolejne skrzynki = `Add-DistributionGroupMember` do tej grupy (wieczór przełączenia). Intune: `DeviceManagementManagedDevices.Read.All` — osobno, za zgodą. |
+| Admin NEXUSA | **Zrobione 18.10.2026** przez „Coolify set env”: `HR_M365_CLIENT_ID`, `HR_M365_CLIENT_SECRET` (`value_from_secret`), `HR_M365_CLIENT_SECRET_EXPIRES_ON` (data RRRR-MM-DD — przy każdej rotacji; nazwa zawiera „SECRET”, więc też przez sekret repo o tej samej nazwie), `HR_M365_MAILBOX_ALLOWLIST` (jedna skrzynka testowa — pusta lista = WSZYSTKIE skrzynki, nie czyścić), `ADMIN_CASES_MAILBOX`, `HR_M365_MODE=off`, `HR_PROGRAM_ENABLED=false`, `ADMIN_CASES_MAIL_INGEST_ENABLED=false`. Zmienne wchodzą do kontenera dopiero przy wdrożeniu (zwykłe „Deploy”, nie `redeploy=true`). |
 | Admin NEXUSA | Konto serwisowe dla Compassa z zakresem `people_roster:read` (Ustawienia → konta serwisowe); klucz trafia do vaulta Compassa jako `NEXUS_ROSTER_API_KEY`, adres `/api/integrations/compass/roster` jako `NEXUS_ROSTER_URL`. Dla ATLASA klucz z `sales_signals:read` (+ `:write` do zwrotu statusów). |
 | Recepcja | Usunąć klucz BitLocker i kody PUK z plików recepcji; przejrzeć arkusz kontrolny importu sprzętu. |
 | Kadry | Dni wolne firmy na 2026–2027, zasada przeniesienia urlopu, kto ma obowiązek timesheetu. |
@@ -36,6 +36,38 @@ tego zakresu nie ma w pickerze.
 Sprawdzenie po wdrożeniu PR-a: `/api/health` → `version` = SHA z maina; deep
 health zna nowe tabele; sondy `hr_m365`, `admin_cases_mail`, `hr_jobs`,
 `equipment_intune` = `disabled`.
+
+### Testy przed przełączeniem (18.10.2026)
+
+- **Symulacja M365** (lokalnie, fikcyjny urlop B2B z zastępcą): autoodpowiedź
+  i wydarzenie dzień przed urlopem, przekierowanie dopiero od pierwszego dnia,
+  czas ściany `Europe/Warsaw` (koniec wyłączny — dzień po ostatnim), ponowienie
+  przebiegu bez nowych operacji. Ponowne zaplanowanie tego samego wniosku
+  dokłada operację przekierowania z nową rewizją — w skrzynce aktualizuje tę
+  samą regułę (potwierdzone na żywo).
+- **Test na żywo na jednej skrzynce** (bez wniosku w bazie, te same
+  budowniczowie żądań co wykonawca kolejki): autoodpowiedź z harmonogramem
+  i znacznikiem, wydarzenie „Poza biurem” (drugi POST z tym samym
+  `transactionId` nie tworzy duplikatu), reguła przekierowania z wyjątkiem
+  nadawców z domeny firmy (ponowienie = PATCH tej samej reguły); po teście stan
+  skrzynki identyczny jak przed.
+- **Próba generalna importu** (paczka Compassa z 18.10 na lokalnej kopii bazy
+  NEXUSA: struktura z produkcji, dane kont/klientów/kontraktów, id kandydatów;
+  wynik w raporcie sesji): przebieg na sucho = zapis, drugi zapis tej samej
+  paczki = same „bez zmian” (0 zapisów). Zgodne ze źródłem: 45 kartotek, 212
+  wniosków (te same statusy), 28 676,75 h w 0 rozbieżnych miesiącach, 104
+  stawki, 246 premii, 611 spraw, 0 duplikatów. Do decyzji Kadr przed
+  importem na produkcji:
+  - suma dni urlopu w NEXUSIE jest większa, bo NEXUS zapisuje każdy dzień
+    nieobecności (opieka, odbiór dnia, bezpłatny), a Compass liczył w polach
+    dni tylko pulę; 10 wniosków urlopowych ma w Compassie puste pola dni —
+    u dwóch osób na UoP saldo „pozostało” w NEXUSIE jest niższe (o 14 i o 8
+    dni) — Kadry potwierdzają, które jest prawdziwe;
+  - jedna osoba z Compassa nie ma konta w NEXUSIE (dwóch konsultantów
+    zostaje w Akademii — tak ma być);
+  - mapa technologiczna: 166 kart trafia bez powiązania z kontraktem
+    (kontraktorzy Compassa nie są połączeni z NEXUSEM), 135 technologii spoza
+    słownika do przejrzenia.
 
 ## 1. Wieczór A — kartoteka, urlopy, opieka, sprawy, sprzęt
 
