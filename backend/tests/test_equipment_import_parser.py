@@ -298,3 +298,90 @@ def test_zip_bomb_workbook_is_refused_before_parsing(monkeypatch) -> None:
     assert len(content) < _importer.MAX_FILE_BYTES
     with _pytest.raises(_EquipmentError):
         _importer.parse_workbook(content)
+
+
+def test_status_column_wins_over_state_in_holder_column() -> None:
+    """Pliki recepcji 18.10.2026: „Status laptopa: wolny” i „Użytkownik: Gotowy”.
+
+    Import na produkcji brał „Gotowy”, „do czyszczenia” i „UTYLIZACJA” z kolumny
+    osoby za nazwiska — 149 wierszy „do wyjaśnienia” w głównym pliku.
+    """
+    state = importer.holder_state
+    assert state({"status_text": "wolny", "holder_text": "do czyszczenia"}) == (
+        "na_stanie",
+        None,
+    )
+    assert state({"status_text": "czysty", "holder_text": "Gotowy"}) == (
+        "na_stanie",
+        None,
+    )
+    assert state({"holder_text": "Gotowy"}) == ("na_stanie", None)
+    assert state({"holder_text": "Stoi na Open"}) == ("na_stanie", None)
+    assert state({"holder_text": "do utylizacji"}) == ("wycofany", None)
+    assert state({"holder_text": "Do czyszczenia/utylizacja"}) == ("wycofany", None)
+    assert state({"holder_text": "Anna Przykładowa - wykupiony"}) == ("wycofany", None)
+    assert state({"holder_text": "Zaginiona (Ola Testowa)"}) == ("zgubiony", None)
+    # „nowe” to stan egzemplarza, nie dostępność — AirPods z osobą są wydane.
+    assert state({"status_text": "nowe", "holder_text": "Anna Przykładowa"}) == (
+        "wydany",
+        "Anna Przykładowa",
+    )
+    assert state({"status_text": "w użyciu", "holder_text": "Anna Przykładowa"}) == (
+        "wydany",
+        "Anna Przykładowa",
+    )
+    # Recepcja sama oznaczyła wiersz jako niepewny — zostaje dla człowieka.
+    assert state({"status_text": "do wyjaśnienia", "holder_text": "Anna X"}) == (
+        "do_wyjasnienia",
+        "Anna X",
+    )
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("Anna Przykładowa", ["Anna Przykładowa"]),
+        ("Przykładowa Anna", ["Przykładowa Anna"]),
+        ("Anna Przykładowa recepcja", ["Anna Przykładowa"]),
+        ("Jan Testowy obecnie posiada", ["Jan Testowy"]),
+        ("Ewa Wzorcowa(zamiana)", ["Ewa Wzorcowa"]),
+        ("Hubert Próbny?", ["Hubert Próbny"]),
+        ("Kinga Fikcyjna do domu", ["Kinga Fikcyjna"]),
+        (
+            "Jan Pierwszy -> Ewa Druga->Ola Trzecia",
+            ["Ola Trzecia", "Ewa Druga", "Jan Pierwszy"],
+        ),
+        ("Jan Pierwszy -> dac Dianie", ["Jan Pierwszy"]),
+        ("Igor do wysyłki maili", []),
+        ("Oddany dla Jana Testowego", []),
+        ("Oscar", []),
+        ("recepcja/zamiast tableta", []),
+        # „Ś” rozłożone na literę i znak łączący (tak jest w pliku kart).
+        ("Patryk Świętoń", ["Patryk Świętoń"]),
+    ],
+)
+def test_person_candidates(text: str, expected: list[str]) -> None:
+    assert importer.person_candidates(text) == expected
+
+
+def test_summary_rows_and_first_name_column() -> None:
+    """Wiersze „RAZEM/ZAPAS” to nie egzemplarze; imię z kolumny bez nagłówka (SIM)."""
+    assert importer._is_summary_row({"serial_number": "RAZEM", "holder_text": "51"})
+    assert importer._is_summary_row({"serial_number": "BIURO UŻYWA"})
+    assert not importer._is_summary_row({"serial_number": "C7DYLG3"})
+
+    workbook = openpyxl.Workbook()
+    sim = workbook.active
+    sim.title = "na dzień 05.01.2026"
+    sim.append([None, None, "Numer usługi", "Taryfa", None, "Użytkownik"])
+    sim.append([1, None, "48500000001", "abonament", "Anna", "Przykładowa"])
+    sim.append([2, None, "48500000002", "abonament", "wolne", None])
+    sim.append([3, None, "48500000003", "abonament", "Jan", "Jan Testowy"])
+    buffer = io.BytesIO()
+    workbook.save(buffer)
+    rows = importer.parse_workbook(buffer.getvalue()).rows
+    assert [r.data["holder_text"] for r in rows] == [
+        "Anna Przykładowa",
+        None,
+        "Jan Testowy",
+    ]

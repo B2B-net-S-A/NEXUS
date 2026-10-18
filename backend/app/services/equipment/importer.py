@@ -24,6 +24,7 @@ import asyncio
 import hashlib
 import io
 import re
+import unicodedata
 import zipfile
 from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
@@ -35,9 +36,10 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.candidate import Candidate
-from app.models.contract import Contract
+from app.models.contract import Contract, ContractStatus
 from app.models.equipment import (
     EquipmentAssignment,
+    EquipmentExternalPerson,
     EquipmentImportBatch,
     EquipmentImportRow,
     EquipmentItem,
@@ -143,9 +145,14 @@ _STATUS_WORDS: tuple[tuple[str, str], ...] = (
     ("utyliz", "wycofany"),
     ("zlomow", "wycofany"),
     ("wycofan", "wycofany"),
+    ("wykupion", "wycofany"),
     ("serwis", "serwis"),
     ("naprawa", "serwis"),
+    ("uszkodz", "serwis"),
     ("zgubion", "zgubiony"),
+    ("zagubion", "zgubiony"),
+    ("zaginion", "zgubiony"),
+    ("zablokowan", "wycofany"),
     ("skradzion", "zgubiony"),
     ("kradziez", "zgubiony"),
 )
@@ -157,6 +164,37 @@ _FREE_STATUS = (
     "gotowy",
     "nowy",
 )
+#: Stan z kolumny stanu, który wygrywa z tekstem w kolumnie osoby. W arkuszu
+#: „LAPTOPY_07.08.25” recepcji wolny laptop ma „Status laptopa: wolny”, a w
+#: „Użytkownik” stan przygotowania („Gotowy”, „do czyszczenia”, „Stoi na Open”)
+#: — import na produkcji 18.10.2026 brał to za nazwisko (149 „do wyjaśnienia”).
+#: „nowy” tu nie należy: „nowe” AirPods z osobą w „Użytkownik” są wydane.
+_FREE_STATUS_WINS = (
+    "woln",
+    "na stanie",
+    "czyst",
+    "do czyszcz",
+    "do czyszcez",
+    "do przygotowania",
+    "gotow",
+)
+#: Stan, który recepcja sama oznaczyła jako niepewny — zostaje dla człowieka.
+_REVIEW_STATUS = ("do wyjasn",)
+#: Tekst w kolumnie osoby, który opisuje stan albo miejsce, nie osobę.
+_HOLDER_NOT_PERSON = (
+    "gotow",
+    "czyst",
+    "do czyszcz",
+    "do przygotowania",
+    "open",
+    "stoi na",
+    "zapas",
+    "nowy",
+)
+#: Wiersze podsumowań pod listą („BIURO UŻYWA 6”, „RAZEM 51”) — to nie egzemplarze.
+_SUMMARY_WORDS = ("razem", "zapas", "suma", "biuro uzywa", "projekt uzywa")
+_NAME_CHAIN = re.compile(r"\s*(?:->|→)\s*")
+_NAME_CUT = re.compile(r"[/(?,;:]| - ")
 _PREFIX = re.compile(r"^(?:s/?n|st|service tag)\s*[:.]?\s*", re.IGNORECASE)
 _IMEI_IN_TEXT = re.compile(r"imei\s*:?\s*(\d{14,16})", re.IGNORECASE)
 
@@ -359,6 +397,25 @@ def _price(raw: Optional[str]) -> Optional[str]:
     return str(value.quantize(Decimal("0.01"))) if value >= 0 else None
 
 
+def _with_first_name(
+    holder: Optional[str], cells: list[Any], columns: _Columns, parsed: ParsedRow
+) -> Optional[str]:
+    """Imię z kolumny bez nagłówka tuż przed kolumną osoby.
+
+    W zestawieniu SIM recepcji „Użytkownik” ma samo nazwisko, a imię stoi
+    w kolumnie obok, bez nagłówka (49 z 59 wydanych kart, 18.10.2026).
+    """
+    index = columns.single.get("holder")
+    if not holder or not index or (index - 1) in columns.headers:
+        return holder
+    if len(holder.split()) != 1 or index - 1 >= len(cells):
+        return holder
+    first = _clean_free(_cell_text(cells[index - 1]), parsed)
+    if first and len(first.split()) == 1 and first[:1].isupper() and first.isalpha():
+        return f"{first} {holder}"
+    return holder
+
+
 def parse_workbook(content: bytes) -> ParseResult:
     """Czysty parser pliku (bez bazy): wiersze z polami i powodami usunięć."""
     if len(content) > MAX_FILE_BYTES:
@@ -457,7 +514,9 @@ def parse_workbook(content: bytes) -> ParseResult:
                 data["category"] = category
                 model = _clean_free(get("model"), parsed)
                 data["model"] = (model or identifiers.CATEGORY_LABELS[category])[:200]
-                data["holder_text"] = _clean_free(get("holder"), parsed)
+                data["holder_text"] = _with_first_name(
+                    _clean_free(get("holder"), parsed), cells, columns, parsed
+                )
                 data["project"] = _clean_free(get("project"), parsed)
                 data["status_text"] = _clean_free(get("status"), parsed)
                 notes = [
@@ -498,15 +557,53 @@ def holder_state(data: dict[str, Any]) -> tuple[str, Optional[str]]:
     for word, status in _STATUS_WORDS:
         if word in status_text:
             return status, None
+    if status_text.startswith(_REVIEW_STATUS):
+        return "do_wyjasnienia", data.get("holder_text")
+    if status_text.startswith(_FREE_STATUS_WINS):
+        return "na_stanie", None
     holder = data.get("holder_text")
     folded = sanitize.fold(holder or "")
-    if holder and folded.startswith(_FREE_PREFIXES):
-        return "na_stanie", None
     if holder:
+        for word, status in _STATUS_WORDS:
+            if word in folded:
+                return status, None
+        if folded.startswith(_FREE_PREFIXES + _HOLDER_NOT_PERSON):
+            return "na_stanie", None
         return "wydany", holder
     if status_text.startswith(_FREE_STATUS):
         return "na_stanie", None
     return "nieznany", None
+
+
+def person_candidates(text: str) -> list[str]:
+    """Imiona i nazwiska z kolumny osoby, od najnowszego posiadacza.
+
+    W plikach recepcji obok nazwiska stoją dopiski („Katarzyna X recepcja”,
+    „Mateusz Y obecnie posiada”, „Marlena Z(zamiana)”, „Hubert W?”) i łańcuchy
+    przekazań („A -> B -> C”, posiadaczem jest ostatni). Kandydat to 2–3 słowa
+    z wielkiej litery; „Igor do wysyłki maili” albo „Oddany dla …” nim nie są.
+    """
+    out: list[str] = []
+    # Plik kart ma „Ś” rozłożone na literę i znak łączący — `isalpha` go odrzucał.
+    text = unicodedata.normalize("NFC", text)
+    for segment in reversed(_NAME_CHAIN.split(text)):
+        words = _NAME_CUT.split(segment, maxsplit=1)[0].split()
+        while words and not words[-1][:1].isupper():
+            words.pop()
+        if 2 <= len(words) <= 3 and all(
+            w[:1].isupper() and w.replace("-", "").isalpha() for w in words
+        ):
+            out.append(" ".join(words))
+    return out
+
+
+def _is_summary_row(data: dict[str, Any]) -> bool:
+    values = [data.get(f) for f in IDENTIFIER_FIELDS] + [data.get("holder_text")]
+    return any(
+        sanitize.fold(v).startswith(_SUMMARY_WORDS)
+        for v in values
+        if isinstance(v, str)
+    )
 
 
 def _name_keys(name: str) -> set[str]:
@@ -518,27 +615,56 @@ def _name_keys(name: str) -> set[str]:
     return keys
 
 
-async def _people_index(
-    db: AsyncSession,
-) -> tuple[dict[str, set[int]], dict[str, set[int]]]:
-    users: dict[str, set[int]] = {}
-    for user_id, name in (
-        await db.execute(select(User.id, User.name).where(User.is_active.is_(True)))
+@dataclass
+class _PeopleIndex:
+    """Kolejność szukania: aktywne konto, kontrakt w toku, konto nieaktywne
+    (osoba odeszła, a sprzęt według pliku wciąż ma), kontrakt zakończony."""
+
+    tiers: list[tuple[str, dict[str, set[int]]]]
+
+    def resolve(self, text: str) -> tuple[Optional[int], Optional[int], Optional[str]]:
+        """(konto, kontrakt, nazwisko spoza NEXUSA) dla tekstu z kolumny osoby."""
+        candidates = person_candidates(text)
+        for name in candidates:
+            for kind, index in self.tiers:
+                found = _unique(index, name)
+                if found is not None:
+                    return (
+                        (found, None, None) if kind == "user" else (None, found, None)
+                    )
+        return None, None, (candidates[0] if candidates else None)
+
+
+async def _people_index(db: AsyncSession) -> _PeopleIndex:
+    active: dict[str, set[int]] = {}
+    inactive: dict[str, set[int]] = {}
+    for user_id, name, is_active in (
+        await db.execute(select(User.id, User.name, User.is_active))
     ).all():
         if name:
-            users.setdefault(sanitize.fold(name), set()).add(user_id)
-    contracts: dict[str, set[int]] = {}
-    for contract_id, first, last in (
+            target = active if is_active else inactive
+            target.setdefault(sanitize.fold(name), set()).add(user_id)
+    running: dict[str, set[int]] = {}
+    ended: dict[str, set[int]] = {}
+    for contract_id, first, last, contract_status in (
         await db.execute(
-            select(Contract.id, Candidate.name, Candidate.lastname)
+            select(Contract.id, Candidate.name, Candidate.lastname, Contract.status)
             .join(Candidate, Candidate.id == Contract.candidate_id)
-            .where(Contract.status.in_(ISSUABLE_CONTRACT_STATUSES))
+            .where(Contract.status != ContractStatus.void)
         )
     ).all():
         full = " ".join(p for p in (first, last) if p)
         if full:
-            contracts.setdefault(sanitize.fold(full), set()).add(contract_id)
-    return users, contracts
+            target = running if contract_status in ISSUABLE_CONTRACT_STATUSES else ended
+            target.setdefault(sanitize.fold(full), set()).add(contract_id)
+    return _PeopleIndex(
+        [
+            ("user", active),
+            ("contract", running),
+            ("user", inactive),
+            ("contract", ended),
+        ]
+    )
 
 
 def _unique(index: dict[str, set[int]], text: str) -> Optional[int]:
@@ -563,12 +689,61 @@ def _is_current_sheet(name: str) -> bool:
     return "aktualn" in sanitize.fold(name)
 
 
+def _is_derived_sheet(name: str) -> bool:
+    """Lista wyciągnięta z innych arkuszy („Wolne monitory i laptopy”, stan na dzień)."""
+    return sanitize.fold(name).startswith("woln")
+
+
+async def _supersede_unapplied(db: AsyncSession, filename: str) -> None:
+    """Nowe wgranie pliku o tej samej nazwie zastępuje jego niezatwierdzoną partię.
+
+    Bez tego wiersze „do wyjaśnienia” starej partii dalej liczyłyby się w liczniku
+    ekranu, a recepcja nie ma jak takiej partii wyrzucić.
+    """
+    batches = (
+        await db.scalars(
+            select(EquipmentImportBatch).where(
+                EquipmentImportBatch.file_name == filename,
+                EquipmentImportBatch.status == "nowa",
+            )
+        )
+    ).all()
+    for batch in batches:
+        applied = await db.scalar(
+            select(func.count()).where(
+                EquipmentImportRow.batch_id == batch.id,
+                EquipmentImportRow.applied_at.is_not(None),
+            )
+        )
+        if applied:
+            continue
+        rows = (
+            await db.scalars(
+                select(EquipmentImportRow).where(
+                    EquipmentImportRow.batch_id == batch.id
+                )
+            )
+        ).all()
+        for row in rows:
+            row.decision = "pomin"
+            row.reason = "zastąpione nowszym wgraniem tego pliku"
+        batch.summary = {
+            **(batch.summary or {}),
+            "superseded": True,
+            "counts": {
+                d: (len(rows) if d == "pomin" else 0) for d in schema.IMPORT_DECISIONS
+            },
+        }
+
+
 async def create_batch(
     db: AsyncSession, *, filename: str, content: bytes, actor: User
 ) -> EquipmentImportBatch:
     # Parsowanie poza pętlą zdarzeń: duży arkusz nie zatrzymuje innych żądań.
     parsed = await asyncio.to_thread(parse_workbook, content)
-    users, contracts = await _people_index(db)
+    filename = (filename or "plik.xlsx")[:255]
+    await _supersede_unapplied(db, filename)
+    people = await _people_index(db)
     existing = await _existing_numbers(db)
     # Numer → (gdzie pierwszy raz, czy z aktualnej listy). Wiersze aktualnej listy
     # idą pierwsze: kopia stojąca w pliku PRZED „Aktualne” nie może jej wygrać
@@ -577,7 +752,7 @@ async def create_batch(
     counts: dict[str, int] = {d: 0 for d in schema.IMPORT_DECISIONS}
     ordered = sorted(parsed.rows, key=lambda r: not _is_current_sheet(r.sheet))
     batch = EquipmentImportBatch(
-        file_name=(filename or "plik.xlsx")[:255],
+        file_name=filename,
         file_sha256=hashlib.sha256(content).hexdigest(),
         created_by=actor.id,
     )
@@ -587,9 +762,19 @@ async def create_batch(
         data = row.data
         numbers = [(f, data[f]) for f in IDENTIFIER_FIELDS if data.get(f)]
         holder_user = holder_contract = None
+        data.pop("holder_external_name", None)
         status, holder_text = holder_state(data)
         reasons = list(row.reasons)
-        if not numbers:
+        if data.get("holder_text") and status != "wydany":
+            # Tekst z kolumny osoby, który okazał się stanem albo miejscem
+            # („Gotowy”, „Stoi na Open”), zostaje w uwagach egzemplarza.
+            data["notes"] = " · ".join(
+                p for p in (data.get("notes"), f"w pliku: {data['holder_text']}") if p
+            )
+        if _is_summary_row(data):
+            decision = "pomin"
+            reasons.insert(0, "wiersz podsumowania, nie egzemplarz")
+        elif not numbers:
             # Jedyny numer był za długi: egzemplarz istnieje, ktoś musi go poprawić.
             decision = "do_wyjasnienia" if row.needs_review else "pomin"
             if not row.needs_review:
@@ -605,6 +790,11 @@ async def create_batch(
             if from_current and not _is_current_sheet(row.sheet):
                 decision = "pomin"
                 reasons.insert(0, f"kopia — liczy się aktualna lista ({where})")
+            elif _is_derived_sheet(row.sheet):
+                decision = "pomin"
+                reasons.insert(
+                    0, f"kopia z listy wolnego sprzętu — ten sam egzemplarz co {where}"
+                )
             else:
                 decision = "konflikt"
                 reasons.insert(
@@ -616,12 +806,20 @@ async def create_batch(
                     f"arkusz „{row.sheet}”, wiersz {row.row_number}",
                     _is_current_sheet(row.sheet),
                 )
-            if status == "wydany" and holder_text:
-                holder_user = _unique(users, holder_text)
-                if holder_user is None:
-                    holder_contract = _unique(contracts, holder_text)
+            if status == "do_wyjasnienia":
+                decision = "do_wyjasnienia"
+                reasons.insert(0, "w pliku recepcji oznaczony „do wyjaśnienia”")
+            elif status == "wydany" and holder_text:
+                holder_user, holder_contract, external = people.resolve(holder_text)
                 if holder_user or holder_contract:
                     decision = "przyjmij"
+                elif external:
+                    # Osoba z pliku bez konta i kontraktu w NEXUSIE (zarząd, osoba
+                    # z biura bez konta, dawny kontraktor): sprzęt zapisujemy na nią
+                    # jako osobę spoza NEXUSA, żeby ewidencja mówiła, u kogo jest.
+                    decision = "przyjmij"
+                    data["holder_external_name"] = external
+                    reasons.insert(0, f"osoba spoza NEXUSA: {external}")
                 else:
                     decision = "do_wyjasnienia"
                     reasons.insert(0, "nie znaleziono tej osoby w NEXUSIE")
@@ -634,7 +832,7 @@ async def create_batch(
             if decision == "przyjmij":
                 decision = "do_wyjasnienia"
             reasons[0:0] = row.needs_review
-        if holder_user or holder_contract:
+        if holder_user or holder_contract or data.get("holder_external_name"):
             data["item_status"] = "wydany"
         elif status in ("serwis", "wycofany", "zgubiony"):
             data["item_status"] = status
@@ -753,7 +951,15 @@ async def batch_rows(
     )
     if decision:
         query = query.where(EquipmentImportRow.decision == decision)
-    return [row_payload(row, name) for row, name in (await db.execute(query)).all()]
+    return [
+        row_payload(row, name or _external_label(row))
+        for row, name in (await db.execute(query)).all()
+    ]
+
+
+def _external_label(row: EquipmentImportRow) -> Optional[str]:
+    name = (row.data or {}).get("holder_external_name")
+    return f"{name} (spoza NEXUSA)" if name else None
 
 
 async def update_row(
@@ -785,6 +991,9 @@ async def update_row(
     row.holder_user_id = holder_user_id
     row.holder_contract_id = holder_contract_id
     data = dict(row.data or {})
+    # Wybór konta albo kontraktu (albo decyzja bez osoby) zastępuje osobę spoza
+    # NEXUSA zaproponowaną przy wgraniu.
+    data.pop("holder_external_name", None)
     if holder_user_id or holder_contract_id:
         data["item_status"] = "wydany"
     elif data.get("item_status") == "wydany":
@@ -801,6 +1010,33 @@ async def update_row(
         details={"row_id": row.id, "decision": decision},
     )
     return row
+
+
+async def _external_person(
+    db: AsyncSession, name: str, cache: dict[str, int], *, actor: User
+) -> int:
+    """Osoba spoza NEXUSA z importu: jedna na nazwisko (także między partiami)."""
+    key = sanitize.fold(name)
+    if key in cache:
+        return cache[key]
+    found = await db.scalar(
+        select(EquipmentExternalPerson.id)
+        .where(func.lower(EquipmentExternalPerson.full_name) == name.lower())
+        .order_by(EquipmentExternalPerson.id)
+        .limit(1)
+    )
+    if found is None:
+        person = EquipmentExternalPerson(
+            full_name=name[:200], note=EXTERNAL_IMPORT_NOTE, created_by=actor.id
+        )
+        db.add(person)
+        await db.flush()
+        found = person.id
+    cache[key] = found
+    return found
+
+
+EXTERNAL_IMPORT_NOTE = "z importu plików recepcji"
 
 
 async def apply_batch(
@@ -823,6 +1059,7 @@ async def apply_batch(
     ).all()
     created = conflicts = to_review = 0
     now = datetime.now(timezone.utc)
+    external_people: dict[str, int] = {}
     for row in rows:
         data = row.data or {}
         numbers = {f: data.get(f) for f in IDENTIFIER_FIELDS}
@@ -849,7 +1086,14 @@ async def apply_batch(
             price=Decimal(data["price"]) if data.get("price") else None,
             actor=actor,
         )
-        holder = row.holder_user_id or row.holder_contract_id
+        external_id = None
+        if not (row.holder_user_id or row.holder_contract_id) and data.get(
+            "holder_external_name"
+        ):
+            external_id = await _external_person(
+                db, data["holder_external_name"], external_people, actor=actor
+            )
+        holder = row.holder_user_id or row.holder_contract_id or external_id
         status = "wydany" if holder else data.get("item_status") or "na_stanie"
         if status == "wydany" and not holder:
             status = "na_stanie"
@@ -879,6 +1123,7 @@ async def apply_batch(
                     contract_id=row.holder_contract_id
                     if not row.holder_user_id
                     else None,
+                    external_person_id=external_id,
                     issued_at=now,
                     issued_by=actor.id,
                 )

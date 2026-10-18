@@ -1,8 +1,9 @@
 """Import pliku recepcji przez arkusz kontrolny: nic do rejestru przed zatwierdzeniem.
 
 Fikcyjny skoroszyt: laptop osoby z NEXUSA (dopasowanie po imieniu i nazwisku),
-laptop osoby spoza NEXUSA (do wyjaśnienia), wolny telefon, numer już
-w rejestrze (konflikt) i wiersz bez numeru (pominięty).
+laptop osoby spoza NEXUSA (zapisany na osobę spoza NEXUSA), laptop z opisem
+zamiast osoby (do wyjaśnienia), wolny telefon, numer już w rejestrze
+(konflikt) i wiersz bez numeru (pominięty).
 """
 
 from __future__ import annotations
@@ -14,7 +15,11 @@ import pytest_asyncio
 from sqlalchemy import select
 
 from app.core.database import AsyncSessionLocal
-from app.models.equipment import EquipmentAssignment, EquipmentItem
+from app.models.equipment import (
+    EquipmentAssignment,
+    EquipmentExternalPerson,
+    EquipmentItem,
+)
 from tests.test_equipment_api import (
     _headers,
     _item,
@@ -66,6 +71,7 @@ def _workbook(worker_name: str, taken_serial: str, tag: str) -> bytes:
     )
     laptops.append([f"C{tag}", "Dell Vostro 3530", taken_serial, None, None])
     laptops.append([None, "Dell Vostro 3530", None, "Ktoś", None])
+    laptops.append([f"D{tag}", "Dell Vostro 3530", f"IMP4{tag}", "ktoś z biura", None])
     phones = workbook.create_sheet("TELEFONY")
     phones.append(
         ["Rodzaj urządzenia", "Model", "Numer seryjny / Service tag", "Użytkownik"]
@@ -107,7 +113,7 @@ async def test_import_waits_for_approval_then_creates_items(
     assert uploaded.status_code == 201, uploaded.text
     batch = uploaded.json()
     assert batch["summary"]["counts"] == {
-        "przyjmij": 2,
+        "przyjmij": 3,
         "pomin": 1,
         "konflikt": 1,
         "do_wyjasnienia": 1,
@@ -136,7 +142,10 @@ async def test_import_waits_for_approval_then_creates_items(
     assert matched["decision"] == "przyjmij"
     assert matched["holder_user_id"] == worker.id
     assert "111111" not in str(detail)
-    unknown = rows[f"IMP2{tag}"]
+    outsider = rows[f"IMP2{tag}"]
+    assert outsider["decision"] == "przyjmij"
+    assert outsider["holder_name"] == "Osoba Spoza Nexusa (spoza NEXUSA)"
+    unknown = rows[f"IMP4{tag}"]
     assert unknown["decision"] == "do_wyjasnienia"
     assert rows[taken]["decision"] == "konflikt"
     assert rows[f"IMP3{tag}"]["data"]["item_status"] == "na_stanie"
@@ -161,7 +170,7 @@ async def test_import_waits_for_approval_then_creates_items(
     applied = await app_client.post(
         f"/api/equipment/imports/{batch['id']}/apply", headers=headers
     )
-    assert applied.json() == {"created": 2, "conflicts": 0}
+    assert applied.json() == {"created": 3, "conflicts": 0}
     async with AsyncSessionLocal() as db:
         laptop = await db.scalar(
             select(EquipmentItem).where(EquipmentItem.serial_number == f"IMP1{tag}")
@@ -178,6 +187,19 @@ async def test_import_waits_for_approval_then_creates_items(
             select(EquipmentItem).where(EquipmentItem.serial_number == f"IMP3{tag}")
         )
         assert phone.status == "na_stanie"
+        outside = await db.scalar(
+            select(EquipmentItem).where(EquipmentItem.serial_number == f"IMP2{tag}")
+        )
+        assert outside.status == "wydany"
+        external = await db.scalar(
+            select(EquipmentExternalPerson)
+            .join(
+                EquipmentAssignment,
+                EquipmentAssignment.external_person_id == EquipmentExternalPerson.id,
+            )
+            .where(EquipmentAssignment.item_id == outside.id)
+        )
+        assert external.full_name == "Osoba Spoza Nexusa"
 
     # Recepcja wyjaśnia wiersz: laptop jest wolny w szafce → przyjmij bez osoby.
     decided = await app_client.patch(
@@ -304,3 +326,38 @@ async def test_control_sheet_neutralises_formulas(
         if cell.data_type == "f"
     ]
     assert formulas == []
+
+
+async def test_new_upload_of_same_file_supersedes_unapplied_batch(
+    app_client, modules_on, people
+) -> None:
+    """Drugie wgranie pliku o tej samej nazwie zastępuje niezatwierdzoną partię.
+
+    Wiersze „do wyjaśnienia” starej partii nie mogą dalej wisieć w liczniku
+    ekranu (18.10.2026: pierwsza partia głównego pliku miała ich 149).
+    """
+    headers = _headers(people["reception"])
+    tag = _tag()
+    name = f"zastap-{tag}.xlsx"
+    content = _workbook(people["worker"].name, f"IMPX{tag}", tag)
+    first = await app_client.post(
+        "/api/equipment/imports", files={"file": (name, content, XLSX)}, headers=headers
+    )
+    assert first.status_code == 201, first.text
+    second = await app_client.post(
+        "/api/equipment/imports", files={"file": (name, content, XLSX)}, headers=headers
+    )
+    assert second.status_code == 201, second.text
+    old = (
+        await app_client.get(
+            f"/api/equipment/imports/{first.json()['id']}", headers=headers
+        )
+    ).json()
+    assert {row["decision"] for row in old["rows"]} == {"pomin"}
+    assert old["summary"]["superseded"] is True
+    fresh = (
+        await app_client.get(
+            f"/api/equipment/imports/{second.json()['id']}", headers=headers
+        )
+    ).json()
+    assert "przyjmij" in {row["decision"] for row in fresh["rows"]}
