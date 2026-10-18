@@ -41,10 +41,11 @@ from app.core.scheduling import DEFAULT_TZ, local_day_start_utc
 # w NEXUS-ie), nie ustawienie — zmiana przesunęłaby granicę rozliczonych już
 # i wypłaconych okresów.
 RESULTS_CUTOVER = date(2026, 10, 12)
-# Pierwszy dzień tygodniowych wpisów DynaReportera w statystykach (widok
-# `analytics_kpi_milestones`, migracja 0454): od tego dnia do cutoveru
-# statystyki liczą wpisy, nie ruchy z historii Traffita (decyzja Artura
-# 17.10.2026). Wcześniej DynaReporter nie prowadził wpisów.
+# Pierwszy dzień tygodniowych wpisów DynaReportera (decyzja Artura 17.10.2026):
+# od niego klienci placementów są z `dr_placement_details`, wcześniej z raportu
+# Rady (`dr_board_placement_clients`). Wpisy sprzed tego dnia DynaReporter nie
+# prowadził — zespół uzupełnia je ręcznie (`scripts/import_dr_manual_fill.py`),
+# a widok `analytics_kpi_milestones` liczy je od 0472.
 DR_HISTORY_START = date(2026, 1, 1)
 
 SOURCE_NEXUS = "nexus"

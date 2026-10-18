@@ -13,10 +13,10 @@ export const NEXUS_FIRST_DAY = "2026-10-12";
 
 export const INSIGHTS_HISTORY_NOTE =
   "Dni do 11.10.2026 pochodzą z DynaReportera: od 2026 weryfikacje, rekomendacje, " +
-  "rozmowy u klienta, placementy i wpisy Delivery Leadów, przed 2026 tylko placementy " +
-  "firmy i klientów. Etapów Tablicy, źródeł, czasu do zatrudnienia ani hit ratio " +
-  "DynaReporter nie prowadził — te liczby zaczynają się 12.10.2026, wcześniejsze " +
-  "dni są do uzupełnienia.";
+  "rozmowy u klienta, placementy i wpisy Delivery Leadów, przed 2026 placementy firmy " +
+  "i klientów oraz wpisy uzupełnione ręcznie. Etapów Tablicy, źródeł, czasu do " +
+  "zatrudnienia ani hit ratio DynaReporter nie prowadził — te liczby zaczynają się " +
+  "12.10.2026, wcześniejsze dni są do uzupełnienia.";
 
 interface ResolvedStart {
   start: string;
