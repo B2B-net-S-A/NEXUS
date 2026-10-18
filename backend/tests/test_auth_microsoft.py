@@ -10,9 +10,9 @@ Covers:
 - State JWT signing/verification rejects wrong purpose (mailbox state cannot
   replay on login flow).
 - ``callback`` rejects domains outside ``SSO_ALLOWED_DOMAINS``.
-- ``callback`` bootstraps a new allowed-domain user as Recruiter behind
-  mandatory onboarding; an enabled AAD mapping remains authoritative,
-  and stores an exchange-code row.
+- ``callback`` bootstraps a new allowed-domain user as Employee („Pracownik”,
+  19.10.2026); an enabled AAD mapping remains authoritative, and stores an
+  exchange-code row.
 - ``callback`` for an existing email/password user links identity but does not
   touch role / password_hash / profile_completed.
 - ``exchange`` consumes the code once; second use returns 410.
@@ -235,7 +235,7 @@ async def test_callback_rejects_domain_not_in_whitelist(
 
 
 @pytest.mark.asyncio
-async def test_callback_creates_new_sso_user_as_onboarding_recruiter(
+async def test_callback_creates_new_sso_user_as_employee(
     app_client_no_redirect: AsyncClient, monkeypatch, cleanup_sso_users
 ):
     unique = uuid.uuid4().hex[:8]
@@ -268,10 +268,12 @@ async def test_callback_creates_new_sso_user_as_onboarding_recruiter(
         u = await db.scalar(select(User).where(User.email == email))
         assert u is not None
         assert u.password_hash is None
-        # New-user contract: allowlisted SSO identities become Recruiters but
-        # cannot reach domain surfaces until mandatory onboarding completes.
-        assert u.role == UserRole.recruiter
-        assert u.roles == [UserRole.recruiter.value]
+        # Pierwsze logowanie = „Pracownik” (decyzja Artura 19.10.2026): samo
+        # konto z domeny firmy nie daje wglądu w kandydatów. Rolę rekrutera
+        # nadaje admin; ``profile_completed=False`` zostaje, żeby po takim
+        # nadaniu zadziałał onboarding rekrutera.
+        assert u.role == UserRole.employee
+        assert u.roles == [UserRole.employee.value]
         assert u.is_active is True
         assert u.profile_completed is False
         assert u.oauth_provider == "microsoft"

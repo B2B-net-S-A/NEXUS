@@ -501,16 +501,17 @@ async def _provision_sso_user(
     samej osoby trafia w unikalność adresu, a bez savepointu wyjątek psuł całą
     transakcję żądania i kończył się 500.
     """
-    # First-time users from the verified corporate-domain allowlist enter
-    # the Recruiter persona. They remain behind mandatory onboarding, and
-    # an enabled AAD role mapping below stays authoritative and may replace
-    # this bootstrap role before the first session is issued.
+    # Pierwsze logowanie z domeny firmy zakłada konto „Pracownik” (decyzja
+    # Artura 19.10.2026): konsultant loguje się po swój czas, umowę i sprzęt,
+    # a nie po bazę kandydatów. Rolę rekrutera albo DL nadaje admin w „Osoby
+    # i role” — wtedy wchodzi onboarding (``profile_completed=False``).
+    # Włączone mapowanie grup AAD niżej nadal wygrywa z tą rolą startową.
     user = User(
         email=email_lower,
         name=name,
         password_hash=None,  # SSO-only — no bcrypt hash.
-        role=UserRole.recruiter,
-        roles=[UserRole.recruiter.value],
+        role=UserRole.employee,
+        roles=[UserRole.employee.value],
         is_active=True,
         profile_completed=False,
         oauth_provider="microsoft",
@@ -531,11 +532,10 @@ async def _provision_sso_user(
     # is still needed for incident response (e.g. compromised corporate
     # MS account suddenly auto-provisioning into the ATS).
     logger.info(
-        "sso new-user provisioned behind recruiter onboarding: "
-        "user_id=%s domain=%s role=%s",
+        "sso new-user provisioned: user_id=%s domain=%s role=%s",
         user.id,
         domain,
-        UserRole.recruiter.value,
+        UserRole.employee.value,
     )
     db.add(
         Activity(
@@ -548,7 +548,7 @@ async def _provision_sso_user(
                 "domain": domain,
                 "provider": "microsoft",
                 "azure_oid": azure_oid,
-                "default_role": UserRole.recruiter.value,
+                "default_role": UserRole.employee.value,
             },
         )
     )
