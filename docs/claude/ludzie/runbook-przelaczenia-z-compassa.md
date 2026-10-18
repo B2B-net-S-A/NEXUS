@@ -82,6 +82,19 @@ importuje tylko `leave` (i `time` jako archiwum; czas pracy zostaje w Compassie 
 Opieka, sprawy administracja@ (skrzynka jest na home.pl, NEXUS czyta tylko M365) i płace
 to osobne fale.
 
+**Aktualizacja 18.10.2026 ok. 19:30 — Artur: „przełączenie teraz”.** Zrobione
+o 19:00: K2 (Compass `HR_MOVED_TO_NEXUS=people,leave` + `NEXUS_APP_URL`), K4–K5
+(ponowny import `leave`/`time` = 0 zmian), K6 (moduły `people`, `leave`) i mail
+„Czas i ludzie” włączony dla firmy. Źródło dostępności przełączone i cofnięte na
+`compass`: `availability_loop` startuje tylko przy `COMPASS_AVAILABILITY_ENABLED`
+albo `HR_LOOPS_ENABLED`, więc K11 idzie dopiero po K7. Zostały, w tej kolejności:
+K7 → K11 → K8 → K9 (→ K10, gdy jest drugi akceptujący) → K12 (≥ 2 h po dopisaniu
+skrzynek do grupy) → K13 → K14, a pełne uzgadnianie M365 następnego dnia o 07:00.
+Wdrożenia K7, K9 i K12 muszą się zmieścić w oknie (pon 19.10 przed 07:00 albo od
+19:00). Przy włączonym mailu „Czas i ludzie” powiadomienia z pętli (zadania sprzętu,
+przypomnienia o składkach) idą też mailem — 18.10 żadna pętla nie miała adresata
+(0 zadań sprzętu, 0 zwrotów i startów w 14 dni, 0 osób w oknie składek).
+
 Każda zmiana zmiennej NEXUSA wchodzi dopiero z wdrożeniem, a Deploy wdraża cały HEAD
 maina — zmienne łączymy w trzy wdrożenia (K7, K9, K12). Compass po zmianie zmiennej
 restartuje się sam (`redeploy=true`). Wartości z adresami e-mail nigdy jako jawne `value`
