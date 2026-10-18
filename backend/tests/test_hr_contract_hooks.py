@@ -39,10 +39,14 @@ async def test_failing_module_does_not_stop_the_others(monkeypatch) -> None:
     async def entry(db, contract) -> None:
         calls.append("lifecycle")
 
+    async def care(db, contract) -> None:
+        calls.append("care")
+
     monkeypatch.setattr(contract_hooks, "_payroll_started", broken)
     monkeypatch.setattr(contract_hooks, "_lifecycle_start", entry)
     monkeypatch.setattr(contract_hooks, "_equipment_start", ok)
     monkeypatch.setattr(contract_hooks, "_cases_start", cases)
+    monkeypatch.setattr(contract_hooks, "_care_start", care)
     async with AsyncSessionLocal() as db:
         try:
             contract = Contract(id=-1)
@@ -50,12 +54,13 @@ async def test_failing_module_does_not_stop_the_others(monkeypatch) -> None:
         finally:
             await db.rollback()
     # Wejście konsultanta przed sprawą administracja@ — sprawa czyta jego listę.
-    assert calls == ["payroll", "lifecycle", "equipment", "cases"]
+    assert calls == ["payroll", "lifecycle", "equipment", "cases", "care"]
     assert outcome == {
         "payroll": "RuntimeError",
         "lifecycle": "ok",
         "equipment": "ok",
         "cases": "ok",
+        "care": "ok",
     }
 
 
