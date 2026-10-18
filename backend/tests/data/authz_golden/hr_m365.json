@@ -27,8 +27,12 @@
   "recruiter+cases"
  ],
  "routes": {
+  "GET /api/hr/admin/m365/forwards": "PDDDDDDDDDDDDDDDDDDDDPDDD",
   "GET /api/hr/admin/m365/operations": "PDDDDDDDDDDDDDDDDDDDDPDDD",
   "GET /api/hr/admin/m365/status": "PDDDDDDDDDDDDDDDDDDDDPDDD",
-  "POST /api/hr/admin/m365/operations/{operation_id}/retry": "PDDDDDDDDDDDDDDDDDDDDPDDD"
+  "POST /api/hr/admin/m365/forwards/check": "PDDDDDDDDDDDDDDDDDDDDPDDD",
+  "POST /api/hr/admin/m365/forwards/close": "PDDDDDDDDDDDDDDDDDDDDPDDD",
+  "POST /api/hr/admin/m365/operations/{operation_id}/retry": "PDDDDDDDDDDDDDDDDDDDDPDDD",
+  "POST /api/hr/admin/m365/reconcile": "PDDDDDDDDDDDDDDDDDDDDPDDD"
  }
 }
