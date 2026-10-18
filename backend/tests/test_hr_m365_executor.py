@@ -18,6 +18,7 @@ from app.core.config import settings
 from app.core.database import AsyncSessionLocal
 from app.core.scheduling import local_day_start_utc
 from app.models.hr_leave import HrM365MailboxState, HrM365Operation
+from app.models.hr_profile import EmployeeProfile
 from app.services.hr.leave_policy import LEAVE_TYPE_LABELS
 from app.services.hr.m365 import executor, oof_state, oof_template, outbox
 from tests.hr.fakes import FakeMailboxOps
@@ -297,6 +298,48 @@ async def test_cancelled_leave_does_not_get_writes_from_a_late_operation() -> No
         "calendar_event_upsert": ("skipped", "leave_not_active"),
     }
     assert fake.writes == []
+
+
+async def test_operations_of_a_person_who_left_are_skipped_without_touching_graph(
+    monkeypatch,
+) -> None:
+    # Prod 19.10.2026: zaległy ``set_oof`` z symulacji dla osoby, która odeszła
+    # (konto wyłączone, kartoteka ``exited``) — skrzynka poza grupą aplikacji,
+    # więc bez bramki sześć prób 403 i ``failed``.
+    monkeypatch.setattr(settings, "SSO_ALLOWED_DOMAINS", "example.com")
+    fake = FakeMailboxOps()
+    async with AsyncSessionLocal() as db:
+        substitute = await make_user(db, name="Ola Zastępca")
+        user = await make_user(db)
+        leave = await make_leave(
+            db,
+            user,
+            D(2026, 10, 19),
+            D(2026, 10, 23),
+            substitute=substitute,
+            consent=True,
+        )
+        kinds = await plan(db, leave, "approved", today=D(2026, 10, 19))
+        user.is_active = False
+        await db.execute(
+            update(EmployeeProfile)
+            .where(EmployeeProfile.user_id == user.id)
+            .values(employment_status="exited")
+        )
+        await make_due(db, [user.id])
+        await db.commit()
+        counts = await executor.run_once(
+            db, ops=fake, mode="live", now=at(D(2026, 10, 19)), user_ids=[user.id]
+        )
+        ops = await operations(db, user.id)
+
+    assert {"set_oof", "calendar_event_upsert", "forward_rule_open"} <= set(kinds)
+    assert {op.kind: (op.status, op.last_error) for op in ops} == {
+        kind: ("skipped", "user_exited") for kind in kinds
+    }
+    assert counts["skipped"] == len(kinds)
+    assert fake.calls == []
+    assert await _state(user.id) is None
 
 
 # ── Kalendarz ─────────────────────────────────────────────────────────────────
