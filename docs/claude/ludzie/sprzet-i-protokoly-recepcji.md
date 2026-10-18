@@ -74,6 +74,26 @@ osobie z kartoteki i uczestniku Akademii.
   arkuszami bez aktualnej listy zostaje konfliktem. Arkusze ukryte i bez rozpoznanego
   wiersza nagłówków są pomijane i nazwane w raporcie partii (w plikach recepcji:
   „Akcesoria” liczone w sztukach, „Utylizacja…”, notatki o zwrotach, „InTune”).
+- Stan z kolumny stanu wygrywa z tekstem w kolumnie osoby: „Status laptopa:
+  wolny / czysty / do czyszczenia / gotowy” = na stanie, nawet gdy w
+  „Użytkownik” stoi „Gotowy” albo „Stoi na Open” (ten tekst idzie do uwag).
+  „do wyjaśnienia” w pliku zostaje „do wyjaśnienia”. Słowa stanu w kolumnie
+  osoby (utylizacja, wykupiony, zablokowana → wycofany; uszkodzony → serwis;
+  zaginiona → zgubiony) też są stanem. Wiersze „RAZEM / ZAPAS / BIURO UŻYWA”
+  są pomijane. Kopia z listy „Wolne …” = „pomiń”, nie konflikt.
+- Osoba z kolumny osoby: 2–3 słowa z wielkiej litery po zdjęciu dopisków
+  („recepcja”, „obecnie posiada”, „(zamiana)”, „?”); w łańcuchu „A -> B”
+  posiadaczem jest ostatni. Szukamy po kolei: aktywne konto, kontrakt w toku,
+  konto nieaktywne, kontrakt zakończony. Nie ma nikogo = „przyjmij” na **osobę
+  spoza NEXUSA** (jedna na nazwisko, notatka „z importu plików recepcji”);
+  wybór konta albo kontraktu w partii zastępuje tę propozycję. Tekst, który nie
+  jest osobą („Igor do wysyłki maili”, „Karta dla ochrony”), zostaje „do wyjaśnienia”.
+- Imię z kolumny bez nagłówka tuż przed „Użytkownik” (zestawienie SIM ma
+  w „Użytkownik” samo nazwisko) jest doklejane do nazwiska.
+- Ponowne wgranie pliku o tej samej nazwie zastępuje jego niezatwierdzoną
+  partię (wiersze → „pomiń”, `summary.superseded`), żeby licznik „do
+  wyjaśnienia” nie liczył porzuconych partii. Partia z zapisanym wierszem
+  nie jest zastępowana.
 
 ## Intune (etap 4, D9) i edycje Akademii (etap 5)
 
