@@ -737,7 +737,7 @@ async def _placements_world() -> dict:
             )
         )
         # Przed 2026 placement i klient są tylko z raportu Rady DynaReportera
-        # (migracja 0455) — ruch Tablicy z 1977 się nie liczy.
+        # (migracja 0467) — ruch Tablicy z 1977 się nie liczy.
         await db.execute(
             text(
                 """

@@ -36,7 +36,7 @@ WARSAW = ZoneInfo("Europe/Warsaw")
 TRAFFIT_SEPTEMBER = datetime(2026, 9, 8, 9, 0, tzinfo=timezone.utc)
 # Pierwszy tydzień w NEXUS-ie.
 NEXUS_OCTOBER = datetime(2026, 10, 13, 9, 0, tzinfo=timezone.utc)
-# Przed DynaReporterem — od 0455 (18.10.2026) też nie liczy się z Tablicy.
+# Przed DynaReporterem — od 0467 (18.10.2026) też nie liczy się z Tablicy.
 BEFORE_2026 = datetime(2025, 12, 10, 9, 0, tzinfo=timezone.utc)
 
 
@@ -173,7 +173,7 @@ async def test_view_takes_dynareporter_weeks_instead_of_board_moves(seeded) -> N
     assert lead_september == {}
     # Wpis DynaReportera z 12.10 nie wchodzi — od 12.10 liczy Tablica.
     assert october == {("verified", "nexus"): 1}
-    # 0455: ruchów Tablicy sprzed 12.10.2026 nie ma także przed 2026.
+    # 0467: ruchów Tablicy sprzed 12.10.2026 nie ma także przed 2026.
     assert december == {}
 
 

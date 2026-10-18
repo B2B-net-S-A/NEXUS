@@ -1,7 +1,7 @@
 """Statystyki sprzed 12.10.2026 wyłącznie z DynaReportera — także przed 2026.
 
-Revision ID: 0455_kpi_milestones_history_only_dr
-Revises: 0454_kpi_milestones_dynareporter
+Revision ID: 0467_kpi_milestones_history_only_dr
+Revises: 0466_care_announcements
 
 Decyzja Artura 18.10.2026: zespół używa NEXUS-a od 12.10.2026, więc ruchy
 Tablicy sprzed tego dnia (import z Traffita) nie trafiają do statystyk w ogóle.
@@ -20,8 +20,9 @@ Lustro w ``entrypoint.sh`` stoi po lustrze 0454 (ostatnie wygrywa). Pilnuje
 
 from alembic import op
 
-revision = "0455_kpi_milestones_history_only_dr"
-down_revision = "0454_kpi_milestones_dynareporter"
+revision = "0467_kpi_milestones_history_only_dr"
+# Widok z 0454; numer 0467, bo 0455–0466 zajął program „Ludzie w NEXUSIE”.
+down_revision = "0466_care_announcements"
 branch_labels = None
 depends_on = None
 

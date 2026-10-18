@@ -148,7 +148,7 @@ async def _seed_hire(candidate_id: int, job_id: int, when: datetime) -> None:
 
 async def _seed_dr_board(month: date, clients: list[tuple[str, int]]) -> None:
     """Przed 2026 placementy i klienci są tylko z raportu Rady DynaReportera
-    (migracja 0455, decyzja Artura 18.10.2026) — ruchy Tablicy się nie liczą.
+    (migracja 0467, decyzja Artura 18.10.2026) — ruchy Tablicy się nie liczą.
     Dopisuje do miesiąca tyle placementów, ilu klientów podano (UNIQUE na
     miesiąc w raporcie, więc dodajemy, a nie nadpisujemy)."""
     from sqlalchemy import text
@@ -553,7 +553,7 @@ async def test_client_breakdown_sums_to_the_placement_count(yoy_client: AsyncCli
     email, password = await _seed_user(UserRole.admin)
     headers = await _login(yoy_client, email, password)
     year = BASE_YEAR - 2
-    # Przed 2026 źródłem jest raport Rady DynaReportera (0455).
+    # Przed 2026 źródłem jest raport Rady DynaReportera (0467).
     await _seed_dr_board(
         date(year, 5, 1),
         [(f"YoyDr-{uuid.uuid4().hex[:6]}", 1), (f"YoyDr-{uuid.uuid4().hex[:6]}", 1)],

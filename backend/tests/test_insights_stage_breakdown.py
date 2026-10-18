@@ -54,7 +54,7 @@ FIXTURE = (
 )
 CASES = json.loads(FIXTURE.read_text(encoding="utf-8"))["cases"]
 
-# Po 12.10.2026: wcześniejsze ruchy Tablicy nie liczą się do statystyk (0455).
+# Po 12.10.2026: wcześniejsze ruchy Tablicy nie liczą się do statystyk (0467).
 _YEAR = 2053
 WINDOW_START = datetime(_YEAR, 3, 1, tzinfo=timezone.utc)
 WINDOW_END = datetime(_YEAR, 4, 1, tzinfo=timezone.utc)

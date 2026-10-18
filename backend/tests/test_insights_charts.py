@@ -52,7 +52,7 @@ PLACEMENTS_URL = "/api/insights/charts/placement-analysis"
 # Zanim zmienisz te lata, sprawdź, co jest zajęte:
 #   grep -rhoE 'datetime\((1[89][0-9]{2}|20[0-9]{2})|date\((1[89][0-9]{2}|20[0-9]{2})|"(1[89][0-9]{2}|20[0-9]{2})-' backend/tests/ \
 #     | grep -oE '(1[89][0-9]{2}|20[0-9]{2})' | sort -u
-# 18.10.2026 (migracja 0455): ruchy Tablicy sprzed 12.10.2026 nie liczą się do
+# 18.10.2026 (migracja 0467): ruchy Tablicy sprzed 12.10.2026 nie liczą się do
 # statystyk, a ten plik sprawdza właśnie ruchy Tablicy — lata leżą więc po tym
 # dniu, a „dziś” trasy jest zamrożone za nimi (`_frozen_now`), żeby miesiące
 # były rozpoczęte i zamknięte.

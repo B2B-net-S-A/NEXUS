@@ -278,7 +278,7 @@ async def test_window_is_half_open_and_excludes_the_next_period(
     _, email, password = await _seed_user(UserRole.admin, "halfopen")
     headers = await _login(board_client, email, password)
     # Okno po 12.10.2026: wcześniejsze ruchy Tablicy nie liczą się do statystyk
-    # (migracja 0455) — test sprawdza półotwartość okna, nie historię.
+    # (migracja 0467) — test sprawdza półotwartość okna, nie historię.
     params = _window("2033-03-01", "2033-03-31")
 
     before = await _board(board_client, headers, params)

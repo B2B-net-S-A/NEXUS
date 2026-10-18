@@ -75,7 +75,7 @@ LOW_OTHER_FINGERPRINT = SeniorityThresholds(
 # Rok nieużywany przez żaden inny test (baza jest wspólna dla przebiegu):
 #   grep -rhoE "datetime\(20[0-9]{2}|\"20[0-9]{2}-" backend/tests/ | sort -u
 # Po 12.10.2026: wcześniejsze ruchy Tablicy nie liczą się do statystyk
-# (migracja 0455), a dziennik liczy placementy osób z ruchów Tablicy.
+# (migracja 0467), a dziennik liczy placementy osób z ruchów Tablicy.
 SEED_YEAR = 2052
 
 
@@ -151,7 +151,7 @@ async def _drop_placements(stage_ids: list[int]) -> None:
 
 
 async def _observe(thresholds: SeniorityThresholds = LOW) -> dict:
-    # Stan na koniec roku testu — placementy leżą po 12.10.2026 (0455), czyli
+    # Stan na koniec roku testu — placementy leżą po 12.10.2026 (0467), czyli
     # w przyszłości względem „dziś”, jak w testach endpointu (`as_of`).
     async with AsyncSessionLocal() as db:
         return await record_seniority_observations(

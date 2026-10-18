@@ -30,7 +30,7 @@ WARSAW = ZoneInfo("Europe/Warsaw")
 
 # Stały „teraz" w środku miesiąca — okna testów są deterministyczne.
 # Po 12.10.2026: wcześniej statystyki liczą tylko DynaReportera (migracje 0454,
-# 0455), a test sprawdza ruchy Tablicy.
+# 0467), a test sprawdza ruchy Tablicy.
 T_NOW = datetime(2027, 8, 20, 12, 0, tzinfo=WARSAW)
 CURR_MONTH_START = datetime(2027, 8, 1, 0, 0, tzinfo=WARSAW)
 PREV_MONTH_START = datetime(2027, 7, 1, 0, 0, tzinfo=WARSAW)

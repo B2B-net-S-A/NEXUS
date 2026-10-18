@@ -115,7 +115,7 @@ async def _seed_hall_of_fame_people(count: int) -> list[dict]:
 
             # Rok nieużywany przez inne testy — baza jest wspólna, a te wiersze
             # mają `moved_by`, więc wchodzą też do imiennych raportów sąsiadów.
-            # Po 12.10.2026: wcześniejsze ruchy Tablicy nie liczą się (0455).
+            # Po 12.10.2026: wcześniejsze ruchy Tablicy nie liczą się (0467).
             db.add(
                 CandidateStage(
                     candidate_id=candidate.id,

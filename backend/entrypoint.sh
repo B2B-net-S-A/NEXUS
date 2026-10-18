@@ -3227,7 +3227,7 @@ END $$""",
         WHERE k.is_draft IS FALSE
           AND k.report_date >= DATE '2026-01-01'
           AND k.report_date < DATE '2026-10-12'""",
-    # 0455: przed 12.10.2026 statystyki wyłącznie z DynaReportera, także przed
+    # 0467: przed 12.10.2026 statystyki wyłącznie z DynaReportera, także przed
     # 2026 (decyzja Artura 18.10.2026) — zastępuje widok 0454 powyżej.
     """CREATE OR REPLACE VIEW analytics_kpi_milestones AS
         SELECT

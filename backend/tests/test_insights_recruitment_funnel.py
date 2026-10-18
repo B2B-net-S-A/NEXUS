@@ -261,7 +261,7 @@ async def test_coverage_counts_manual_moves_by_external_source(
     # i asercja na dokladna liczbe przestalaby byc prawdziwa przy drugim
     # uruchomieniu — czyli test bylby zielony raz.
     slot = int(uuid.uuid4().hex[:6], 16) % 900
-    # Po 12.10.2026 — wcześniejsze ruchy Tablicy nie liczą się do statystyk (0455).
+    # Po 12.10.2026 — wcześniejsze ruchy Tablicy nie liczą się do statystyk (0467).
     year = 5100 + slot  # rok bez zadnych innych danych
     when = datetime(year, 6, 15, 12, tzinfo=timezone.utc)
     await _seed_stage(PipelineStage.verified, when, "manual")
@@ -670,7 +670,7 @@ async def test_team_activity_puts_admin_accounts_outside_the_ranking(
 ):
     """Konta administracyjne poza rankingiem osób (reguła Hall of Fame, 24.09.2026)."""
     await cache_invalidate("insights:recruitment:team-activity:")
-    # Po 12.10.2026 — wcześniejsze ruchy Tablicy nie liczą się do statystyk (0455).
+    # Po 12.10.2026 — wcześniejsze ruchy Tablicy nie liczą się do statystyk (0467).
     year = 6100 + int(uuid.uuid4().hex[:6], 16) % 200
     admin_id, email, password = await _seed_user(UserRole.admin, "ta-admin")
     recruiter_id, _, _ = await _seed_user(UserRole.recruiter, "ta-rec")
@@ -708,7 +708,7 @@ async def test_team_activity_columns_read_real_sources(fx_client: AsyncClient):
     Martwe typy zapisane ręcznie NIE mogą już zasilać kolumn.
     """
     await cache_invalidate("insights:recruitment:team-activity:")
-    # Po 12.10.2026 — wcześniejsze ruchy Tablicy nie liczą się do statystyk (0455).
+    # Po 12.10.2026 — wcześniejsze ruchy Tablicy nie liczą się do statystyk (0467).
     year = 6400 + int(uuid.uuid4().hex[:6], 16) % 200
     actor_id, email, password = await _seed_user(UserRole.recruiter, "ta-shape")
     headers = await _login(fx_client, email, password)

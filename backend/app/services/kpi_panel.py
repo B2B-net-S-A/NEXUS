@@ -110,7 +110,7 @@ _PANEL_KPI_IDS = (
 # PRZED 12.10.2026 WYŁĄCZNIE DYNAREPORTER (decyzje Artura 17 i 18.10.2026):
 # zespół klika w NEXUS-ie od 12.10.2026. `credited` bierze ruchy Tablicy
 # (`credited_nexus`) dopiero od tego dnia, a wcześniej wiersze
-# z `analytics_kpi_milestones` spoza Tablicy (migracje 0454, 0455): wpisy
+# z `analytics_kpi_milestones` spoza Tablicy (migracje 0454, 0467): wpisy
 # tygodniowe 2026 (osoba z wpisu) i placementy firmy sprzed 2026 z raportu
 # Rady (bez osoby). Bez kandydata i rekrutacji (`candidate_id`/`job_id` = NULL).
 # Konsument, który łączy po parze albo rekrutacji, gubi te wiersze —

@@ -45,7 +45,7 @@ from app.models.user import User, UserRole
 from app.services.kpi_panel import VERIFIER_ANCHORED_CTE
 
 # Po 12.10.2026: wcześniej statystyki liczą tylko DynaReportera (migracje 0454,
-# 0455), a test sprawdza ruchy Tablicy.
+# 0467), a test sprawdza ruchy Tablicy.
 T0 = datetime(2027, 7, 1, 9, 0, tzinfo=timezone.utc)
 
 

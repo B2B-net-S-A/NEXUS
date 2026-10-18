@@ -33,7 +33,7 @@ from app.services.kpi_engine import (
 )
 
 # Po 12.10.2026 — wcześniej statystyki liczą tylko DynaReportera (migracje
-# 0454, 0455), a test sprawdza atrybucję ruchów Tablicy. Poniedziałek.
+# 0454, 0467), a test sprawdza atrybucję ruchów Tablicy. Poniedziałek.
 T0 = datetime(2027, 7, 5, 10, 0, tzinfo=timezone.utc)
 
 

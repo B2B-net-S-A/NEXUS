@@ -13,7 +13,7 @@ Pod ochroną:
 
 Rok 2065 jest w testach niezajęty (baza testowa nie jest czyszczona). Leży po
 12.10.2026, bo wcześniejsze ruchy Tablicy nie liczą się do statystyk (migracja
-0455); „teraz” portfela jest zamrożone za nim (`_frozen_now`).
+0467); „teraz” portfela jest zamrożone za nim (`_frozen_now`).
 """
 
 from __future__ import annotations

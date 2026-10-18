@@ -30,7 +30,7 @@ from app.services.kpi_team import compute_team_panel
 
 WARSAW = ZoneInfo("Europe/Warsaw")
 # Po 12.10.2026: wcześniej statystyki liczą tylko DynaReportera (migracje 0454,
-# 0455), a test sprawdza ruchy Tablicy.
+# 0467), a test sprawdza ruchy Tablicy.
 T_NOW = datetime(2027, 8, 20, 12, 0, tzinfo=WARSAW)
 
 

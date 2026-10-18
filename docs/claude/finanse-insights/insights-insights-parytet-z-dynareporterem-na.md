@@ -379,7 +379,7 @@ z Tablicy. Granice to fakty biznesowe (`competition_history.DR_HISTORY_START`
     (przed 2026), nazwa łączona z klientem NEXUS-a po nazwie / nazwie
     wyświetlanej (`history_client_placements`);
   - Delivery Leadzi — miesięczne wpisy DL (`dr_kpi_delivery_lead`).
-- **Widok `analytics_kpi_milestones`** (migracje 0454, 0455, lustro w
+- **Widok `analytics_kpi_milestones`** (migracje 0454, 0467, lustro w
   `entrypoint.sh`): Tablica od 12.10 (`nexus`) + wpisy rekruterów
   (`dynareporter`) + placementy Rady przed 2026 (`dynareporter_board`).
   `credited` w `VERIFIER_ANCHORED_CTE` czyta te same wiersze spoza Tablicy;
