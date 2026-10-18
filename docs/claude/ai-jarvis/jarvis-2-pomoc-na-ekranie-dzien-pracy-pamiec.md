@@ -6,7 +6,9 @@ Decyzje Artura 23.09: dymek domyślnie ON (raz na ekran), 12 ekranów, treść
 przewodników bez przeglądu człowieka (pilnuje test świeżości), bez głosu (RODO).
 
 - **Przewodniki ekranów: `backend/app/data/screen_guides/guides.json`**
-  (12 kluczy `SCREEN_KEYS`, lustro `lib/help/screen-key.ts`). Front czyta je
+  (15 kluczy `SCREEN_KEYS`, lustro `lib/help/screen-key.ts`; 18.10.2026 doszły
+  „Mój czas”, „Ludzie → Akceptacje” i „Kalendarz zespołu” — `hr.*`, bez sekcji
+  produktu, bo te ekrany bramkuje konfiguracja „Ludzi”, nie sekcja). Front czyta je
   z `GET /api/help/screens` (obrazy Dockera nie widzą swoich katalogów), Jarvis
   narzędziem `get_screen_guide`. Każdy wpis ma `sources` — zmiana któregoś pliku
   albo samego wpisu = czerwony `test_screen_guides_freshness.py`; po przeglądzie

@@ -371,7 +371,7 @@ function LeaveHistory({ viewerIsHr }: { viewerIsHr: boolean }) {
   };
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-2" data-help="hr.approvals.history">
       <div className="flex flex-wrap items-center gap-2">
         <h2 className="text-sm font-semibold text-foreground">Wszystkie wnioski</h2>
         <div className="ml-auto flex flex-wrap gap-2">
@@ -516,12 +516,20 @@ export function ApprovalsScreen({ config }: { config: HrConfig }) {
     sections.push({
       key: "leave",
       title: "Wnioski do decyzji (umowa o pracę)",
-      render: () => <PendingLeaveList viewerIsHr={viewerIsHr} />,
+      render: () => (
+        <div data-help="hr.approvals.pending">
+          <PendingLeaveList viewerIsHr={viewerIsHr} />
+        </div>
+      ),
     });
     sections.push({
       key: "reported",
       title: "Zgłoszone przerwy i nieobecności (B2B, zlecenie) — do wiadomości",
-      render: () => <ReportedLeaveList viewerIsHr={viewerIsHr} />,
+      render: () => (
+        <div data-help="hr.approvals.reported">
+          <ReportedLeaveList viewerIsHr={viewerIsHr} />
+        </div>
+      ),
     });
   }
   const timesheetViewer =
@@ -573,7 +581,12 @@ export function ApprovalsScreen({ config }: { config: HrConfig }) {
           ]}
         />
         {config.open_modules.leave ? (
-          <Button className="ml-auto" variant="secondary" onClick={() => setEntering(true)}>
+          <Button
+            className="ml-auto"
+            variant="secondary"
+            data-help="hr.approvals.on_behalf"
+            onClick={() => setEntering(true)}
+          >
             <CalendarPlus className="h-4 w-4" aria-hidden />
             Wpisz nieobecność za pracownika
           </Button>

@@ -23,6 +23,9 @@ export const SCREEN_KEYS = [
   "contracts.order_mail",
   "contracts.b2b_generator",
   "finance",
+  "hr.my_time",
+  "hr.approvals",
+  "hr.team_calendar",
 ] as const;
 
 export type ScreenKey = (typeof SCREEN_KEYS)[number];
@@ -37,6 +40,9 @@ export function screenKeyFor(pathname: string | null | undefined, search?: strin
   if (path === "/candidates" || path === "/talent-radar") return "candidates.list";
   if (path === "/calendar") return "calendar";
   if (path === "/finance") return "finance";
+  if (path === "/my-time") return "hr.my_time";
+  if (path === "/people/approvals") return "hr.approvals";
+  if (path === "/people/calendar") return "hr.team_calendar";
   if (path === "/contracts/b2b-generator") return "contracts.b2b_generator";
   if (path === "/contracts") {
     return resolveContractsView(params.get("view")) === "order-mail" ? "contracts.order_mail" : null;

@@ -40,7 +40,8 @@ GUIDES_PATH = _THIS_DIR / "guides.json"
 #: Katalog główny repozytorium — ``sources`` są względne wobec niego.
 REPO_ROOT = _THIS_DIR.parents[3]
 
-#: Ekrany z przewodnikiem (decyzja 23.09.2026: 12 najważniejszych). Lustro
+#: Ekrany z przewodnikiem (decyzja 23.09.2026: 12 najważniejszych; 18.10.2026
+#: trzy ekrany „Ludzi” przed przejściem urlopów i godzin z Compassa). Lustro
 #: unii ``ScreenKey`` we froncie (``lib/help/screen-key.ts``) — pilnuje test.
 SCREEN_KEYS: tuple[str, ...] = (
     "jobs.list",
@@ -55,6 +56,9 @@ SCREEN_KEYS: tuple[str, ...] = (
     "contracts.order_mail",
     "contracts.b2b_generator",
     "finance",
+    "hr.my_time",
+    "hr.approvals",
+    "hr.team_calendar",
 )
 
 _ANCHOR_ID = r"^[a-z0-9][a-z0-9_.-]{1,59}$"

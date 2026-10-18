@@ -238,13 +238,15 @@ export function MyTimeScreen({ config }: { config: HrConfig }) {
       ) : (
         <>
           {tabs.length > 1 ? (
-            <TabbedNav
-              ariaLabel="Mój czas"
-              overflow="scroll"
-              tabs={tabs}
-              value={current}
-              onValueChange={setActive}
-            />
+            <div data-help="hr.my_time.tabs">
+              <TabbedNav
+                ariaLabel="Mój czas"
+                overflow="scroll"
+                tabs={tabs}
+                value={current}
+                onValueChange={setActive}
+              />
+            </div>
           ) : null}
           {current === OVERVIEW_TAB.value ? (
             <MyOverviewTab config={config} person={me.data} onOpenTab={openTab} />

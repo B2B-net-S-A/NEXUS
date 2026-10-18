@@ -681,5 +681,205 @@
       "frontend/src/components/finance/OrderChangesPanel.tsx",
       "frontend/src/components/finance/MdImportWorkspace.tsx"
     ]
+  },
+  {
+    "key": "hr.my_time",
+    "title": "Mój czas",
+    "section": null,
+    "roles": [],
+    "what": "Twoje nieobecności i godziny w jednym miejscu: „Przegląd”, zakładka nieobecności (na umowie o pracę „Urlop”, na B2B „Przerwy”, na zleceniu „Nieobecności”), miesiąc godzin, premie i kartoteka.",
+    "tasks": [
+      {
+        "q": "Jak zgłosić urlop albo przerwę?",
+        "a": "W zakładce „Urlop” (na B2B „Przerwy”, na zleceniu „Nieobecności”) kliknij przycisk po prawej. Wybierz daty, przy jednym dniu także pół dnia, i zastępcę. Panel z boku liczy dni i pulę. Na umowie o pracę wniosek czeka na przełożonego; na B2B i zleceniu zgłoszenie wchodzi od razu, a koordynator dostaje informację.",
+        "anchor": "hr.my_time.leave_submit"
+      },
+      {
+        "q": "Co NEXUS ustawi w Outlooku?",
+        "a": "Po zatwierdzeniu (na B2B i zleceniu od razu) NEXUS włącza autoodpowiedź i wpisuje do kalendarza prywatne wydarzenie „Poza biurem”, bez rodzaju nieobecności. Własny tekst autoodpowiedzi wpiszesz w oknie wniosku. Kopię poczty przekaże zastępcy tylko, gdy zaznaczysz zgodę; reguła znika sama po ostatnim dniu.",
+        "anchor": "hr.my_time.leave_submit"
+      },
+      {
+        "q": "Autoodpowiedź ustawiona ręcznie w Outlooku — co z wnioskiem?",
+        "a": "Rano NEXUS zakłada z niej wniosek z dopiskiem „Z Outlooka”: na umowie o pracę czeka na przełożonego, na B2B i zleceniu jest od razu zgłoszeniem. Twojej autoodpowiedzi nie zmienia. Gdy w Outlooku nie ma dat, wniosek nie powstanie — złóż go wtedy tutaj.",
+        "anchor": "hr.my_time.leave_list"
+      },
+      {
+        "q": "Jak szybko wypełnić miesiąc godzin?",
+        "a": "W zakładce miesiąca kliknij „Wypełnij miesiąc…”: godziny dziennie (najwyżej 8), opis — domyślny, z „Szablonów opisów” albo własny — i projekt. Dni z wpisem zostają, chyba że zaznaczysz „Nadpisz istniejące wpisy”. Weekendy, święta i nieobecności zostają puste. Gotowy miesiąc wyślij przyciskiem „Wyślij do…”.",
+        "anchor": "hr.my_time.month_actions"
+      },
+      {
+        "q": "Jak pobrać moje godziny do Excela albo PDF?",
+        "a": "Rozwiń „Archiwum timesheetów” pod siatką miesiąca. „Eksport CSV” daje plik do Excela za wybrane miesiące (najwyżej 24, bez kwot), a przy zaakceptowanym miesiącu jest PDF. Zaakceptowany miesiąc otwarty w siatce pobierzesz też przyciskiem „Pobierz PDF”.",
+        "anchor": "hr.my_time.archive"
+      }
+    ],
+    "pitfalls": [
+      "Wniosek czekający anulujesz zawsze, zatwierdzony — przed pierwszym dniem. Termin, który już trwa, anuluje przełożony albo Kadry (na B2B i zleceniu — Kadry). Daty złożonego wniosku zmienia przełożony albo Kadry, zgłoszenia z B2B i zlecenia — tylko Kadry.",
+      "Rodzaj nieobecności widzisz Ty, przełożony i Kadry. Zespół w kalendarzu widzi samą nieobecność, a Outlook pokazuje „Poza biurem”.",
+      "Ponad 8 godzin dziennie wpiszesz tylko wpisem dnia, z uzasadnieniem i uprawnieniem do nadgodzin — bez niego poproś Kadry.",
+      "Na B2B i zleceniu nie zgłosisz przerwy na dni z wysłanego albo przyjętego raportu godzin — najpierw koordynator cofa raport do szkicu."
+    ],
+    "anchors": [
+      {
+        "id": "hr.my_time.tabs",
+        "label": "Zakładki „Mojego czasu”",
+        "describe": "Przegląd, nieobecności, miesiąc godzin, rozliczenie, premie i kartoteka — widać tylko włączone."
+      },
+      {
+        "id": "hr.my_time.leave_submit",
+        "label": "Zgłoszenie nieobecności",
+        "describe": "Przycisk „Złóż wniosek”, „Zgłoś przerwę” albo „Zgłoś nieobecność” — zależnie od formy współpracy."
+      },
+      {
+        "id": "hr.my_time.leave_list",
+        "label": "Moje wnioski",
+        "describe": "Terminy, status, zastępca, przekierowanie poczty i anulowanie."
+      },
+      {
+        "id": "hr.my_time.month_actions",
+        "label": "Akcje miesiąca",
+        "describe": "Szablony opisów, kopiowanie opisów, „Wypełnij miesiąc…”, wysyłka i PDF."
+      },
+      {
+        "id": "hr.my_time.archive",
+        "label": "Archiwum timesheetów",
+        "describe": "Ostatnie 12 miesięcy, PDF zaakceptowanych i eksport CSV."
+      }
+    ],
+    "help_slug": null,
+    "sources": [
+      "frontend/src/components/hr/leave/MyLeaveTab.tsx",
+      "frontend/src/components/hr/leave/LeaveRequestDialog.tsx",
+      "frontend/src/components/hr/time/MyMonthTab.tsx"
+    ]
+  },
+  {
+    "key": "hr.approvals",
+    "title": "Akceptacje",
+    "section": null,
+    "roles": [],
+    "what": "Kolejka przełożonego i Kadr: wnioski z umowy o pracę do decyzji, zgłoszenia z B2B i zlecenia do wiadomości, timesheety zespołu i historia wszystkich wniosków.",
+    "tasks": [
+      {
+        "q": "Jak zaakceptować albo odrzucić wniosek?",
+        "a": "W sekcji „Wnioski do decyzji (umowa o pracę)” kliknij „Akceptuj” albo „Odrzuć” — odrzucenie wymaga powodu, który osoba zobaczy. W „Szczegółach” widać zastępcę, pracę, która wypada w tym czasie, i kto z działu też jest wtedy nieobecny. O własnym wniosku nie decydujesz.",
+        "anchor": "hr.approvals.pending"
+      },
+      {
+        "q": "Co robię ze zgłoszeniem z B2B albo zlecenia?",
+        "a": "Nic nie akceptujesz — termin jest już w kalendarzu. Gdy koliduje z pracą, kliknij „Zgłoś kolizję” i opisz problem: osoba dostanie powiadomienie, a termin zostaje. Zgłoszenie zmieniają tylko Kadry.",
+        "anchor": "hr.approvals.reported"
+      },
+      {
+        "q": "Jak poprawić złożony wniosek?",
+        "a": "„Edytuj” przy wniosku zmienia rodzaj, daty, pół dnia i zastępcę; dni i pula liczą się od nowa. Przy zatwierdzonym NEXUS przesuwa autoodpowiedź i wydarzenie w Outlooku. Inny zastępca zdejmuje zgodę na przekierowanie poczty — osoba może ją włączyć sama.",
+        "anchor": "hr.approvals.history"
+      },
+      {
+        "q": "Jak przyjąć timesheet?",
+        "a": "W sekcji „Timesheety” wybierz miesiąc strzałkami, otwórz „Podgląd” i kliknij „Akceptuj” albo „Zwróć” z notatką, co poprawić. Przyjęty cofniesz „Cofnij akceptację”. „Eksport CSV” daje godziny do Excela; Kadry i Płace pobiorą też cały zespół za miesiąc i „Pobierz ZIP” z PDF-ami.",
+        "anchor": "hr.approvals.timesheets"
+      },
+      {
+        "q": "Jak wpisać komuś nieobecność, np. L4?",
+        "a": "Kliknij „Wpisz nieobecność za pracownika”, wybierz osobę, rodzaj i daty. Wpis jest od razu zatwierdzony. Zgody na przekierowanie poczty nie dasz za tę osobę — włącza je tylko ona sama.",
+        "anchor": "hr.approvals.on_behalf"
+      }
+    ],
+    "pitfalls": [
+      "Dopisek „Z Outlooka” znaczy, że NEXUS założył wniosek z autoodpowiedzi, którą osoba ustawiła sama — decydujesz o nim jak o każdym innym.",
+      "W zastępstwie nieobecnego przełożonego akceptujesz i odrzucasz wnioski jego zespołu, ale ich nie zmieniasz; L4 i podobne widzisz tylko do wiadomości.",
+      "Licznik „wnioski do decyzji” liczy tylko umowę o pracę — zgłoszenia z B2B i zlecenia nie czekają na nikogo.",
+      "Przekierowanie poczty z cudzego wniosku wyłączają tylko Kadry („Wyłącz przekierowanie” z powodem); włączyć je z powrotem może tylko sama osoba."
+    ],
+    "anchors": [
+      {
+        "id": "hr.approvals.pending",
+        "label": "Wnioski do decyzji",
+        "describe": "Wnioski z umowy o pracę czekające na akceptację."
+      },
+      {
+        "id": "hr.approvals.reported",
+        "label": "Zgłoszenia do wiadomości",
+        "describe": "Przerwy i nieobecności z B2B i zlecenia, z „Zgłoś kolizję”."
+      },
+      {
+        "id": "hr.approvals.timesheets",
+        "label": "Timesheety",
+        "describe": "Godziny zespołu za miesiąc: podgląd, akceptacja, zwrot, CSV i ZIP."
+      },
+      {
+        "id": "hr.approvals.history",
+        "label": "Wszystkie wnioski",
+        "describe": "Historia z filtrem statusu i osoby, edycja i anulowanie."
+      },
+      {
+        "id": "hr.approvals.on_behalf",
+        "label": "Wpis za pracownika",
+        "describe": "Nieobecność wpisana przez przełożonego albo Kadry, od razu zatwierdzona."
+      }
+    ],
+    "help_slug": null,
+    "sources": [
+      "frontend/src/components/hr/leave/ApprovalsScreen.tsx",
+      "frontend/src/components/hr/leave/EditLeaveDialog.tsx",
+      "frontend/src/components/hr/time/TimesheetApprovalsSection.tsx"
+    ]
+  },
+  {
+    "key": "hr.team_calendar",
+    "title": "Kalendarz zespołu",
+    "section": null,
+    "roles": [],
+    "what": "Kto i kiedy jest nieobecny w miesiącu, a przy włączonym czasie pracy także kto pracuje zdalnie albo jest w delegacji. Rodzaj nieobecności widzą tylko osoba, jej przełożony i Kadry.",
+    "tasks": [
+      {
+        "q": "Kto jest dziś nieobecny?",
+        "a": "Na liście „Kto” wybierz „Nieobecni dziś”. W innym miesiącu ta sama pozycja pokazuje każdego, kto był nieobecny choć jeden dzień. Delegacja liczy się do nieobecnych.",
+        "anchor": "hr.team_calendar.filters"
+      },
+      {
+        "q": "Kto pracuje zdalnie?",
+        "a": "Wybierz „Zdalnie” na liście „Kto”. W siatce „Z” to praca zdalna, a „D” delegacja — z dni oznaczonych w miesiącu godzin. Pozycja pojawia się, gdy działa czas pracy.",
+        "anchor": "hr.team_calendar.filters"
+      },
+      {
+        "q": "Jak zawęzić kalendarz do zespołu albo działu?",
+        "a": "Nad siatką są przyciski „Wszyscy”, „Mój zespół” (dla przełożonych) i nazwy działów. Strzałkami zmienisz miesiąc, a „Ten miesiąc” wraca do bieżącego.",
+        "anchor": "hr.team_calendar.filters"
+      },
+      {
+        "q": "Co znaczą pola w siatce?",
+        "a": "Pełne pole to zatwierdzony urlop albo zgłoszona przerwa z B2B lub zlecenia, przerywana ramka — wniosek czekający na akceptację, szare — dzień wolny. Kliknij nieobecność, żeby zobaczyć termin i zastępcę.",
+        "anchor": "hr.team_calendar.legend"
+      }
+    ],
+    "pitfalls": [
+      "Rodzaju nieobecności (np. L4) u innych nie zobaczysz — to nie błąd: widzą go tylko osoba, jej przełożony albo koordynator i Kadry.",
+      "Domyślna praca zdalna z kartoteki się nie pokazuje — „Z” to tylko dni oznaczone w miesiącu godzin."
+    ],
+    "anchors": [
+      {
+        "id": "hr.team_calendar.filters",
+        "label": "Miesiąc i filtry",
+        "describe": "Zmiana miesiąca, zespół albo dział i lista „Kto”: wszyscy, nieobecni, zdalnie."
+      },
+      {
+        "id": "hr.team_calendar.legend",
+        "label": "Legenda",
+        "describe": "Co znaczą pola siatki."
+      },
+      {
+        "id": "hr.team_calendar.grid",
+        "label": "Siatka miesiąca",
+        "describe": "Osoby w wierszach, dni w kolumnach; kliknięcie nieobecności pokazuje szczegóły."
+      }
+    ],
+    "help_slug": null,
+    "sources": [
+      "frontend/src/components/hr/leave/TeamCalendar.tsx"
+    ]
   }
 ]
