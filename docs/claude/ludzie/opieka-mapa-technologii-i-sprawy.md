@@ -243,8 +243,10 @@ zapełnić.
 - Każde źródło liczy się raz na osobę (pięć zamówień z tą samą osobą = jedno źródło).
 - Kontakt innego klienta nigdy nie jest propozycją; kontrakt z takim kontaktem
   (dane sprzed walidacji D8) wraca na listę jako „bez menedżera”.
-- „Menedżer kolegów” rośnie z akceptacjami: każdy zatwierdzony menedżer
-  podpowiada menedżera reszcie zespołu.
+- „Menedżer kolegów” rośnie z akceptacjami: każdy wpisany menedżer
+  podpowiada menedżera reszcie zespołu. Kolega, którego menedżer to hiring
+  manager tej rekrutacji, się nie liczy — od 17.10 automat D8 wpisuje HM jako
+  menedżera, więc byłby to ten sam dowód drugi raz (HM nie może dać pewności).
 
 ### „Kto komu podlega”
 

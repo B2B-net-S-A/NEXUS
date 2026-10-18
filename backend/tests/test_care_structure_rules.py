@@ -340,3 +340,25 @@ def test_reminder_message_counts_in_polish() -> None:
     assert reminder_message("Bank", {"open": 12, "certain": 12}).endswith(
         "12 pewnych propozycji do zatwierdzenia."
     )
+
+
+def test_colleague_with_the_same_hiring_manager_is_not_a_second_source() -> None:
+    """Od 17.10 kontrakt z rekrutacji dostaje jej HM jako menedżera (D8) — kolega
+    z tym samym menedżerem co HM to ten sam dowód, nie drugi."""
+
+    peer = PeerManager(
+        contract_id=200,
+        manager_id=JAN.id,
+        team_name="Billing",
+        job_id=7,
+        job_title="Java",
+    )
+    proposal = propose(
+        facts(
+            job_id=7, job_title="Java", job_hm_contact_id=JAN.id, team_name="Billing"
+        ),
+        peers=(peer,),
+    )
+    assert proposal.contact_id == JAN.id
+    assert proposal.confidence == "uncertain"
+    assert [s.source for s in proposal.top.signals] == ["job_hiring_manager"]

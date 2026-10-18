@@ -14,7 +14,8 @@ Punkty źródeł menedżera (``MANAGER_WEIGHTS``): pola kontraktu, w które kto�
 wpisał menedżera (e-mail PM, „Line Manager”, „PM po stronie klienta”) — 3;
 osoba kontaktowa z zamówienia, hiring manager rekrutacji, z której przyszedł
 konsultant, menedżer kolegów z tego samego zespołu albo tej samej rekrutacji —
-2; kierownik działu konsultanta z karty technologicznej — 2, gdy jedyny w dziale,
+2 (kolega, którego menedżer to HM tej rekrutacji, się nie liczy — to ten sam
+dowód co HM, bo automat D8 wpisuje HM jako menedżera); kierownik działu konsultanta z karty technologicznej — 2, gdy jedyny w dziale,
 inaczej 1; nadawca maila z zamówieniem — 1 (bywa nim zakupowiec albo wspólna
 skrzynka). Hiring manager sam nie daje pewności — często menedżer to NIE HM.
 Każde źródło liczy się raz na osobę, niezależnie od liczby zamówień.
@@ -293,7 +294,12 @@ def manager_signals(
 
     team = text_key(facts.team_name)
     for peer in peers:
-        if peer.contract_id == facts.contract_id:
+        # Kolega z menedżerem = HM tej rekrutacji to ten sam dowód (od 17.10
+        # automat D8 wpisuje HM jako menedżera), nie drugie, niezależne źródło.
+        if peer.contract_id == facts.contract_id or (
+            facts.job_hm_contact_id is not None
+            and peer.manager_id == facts.job_hm_contact_id
+        ):
             continue
         if team and text_key(peer.team_name) == team:
             add("same_team", peer.manager_id, _clean(facts.team_name))
@@ -358,10 +364,10 @@ def reports_to_signals(
             higher = [
                 (other_rank, other)
                 for other in people
-                if allowed(other)
-                and department_key(other.area_id, other.department) == dept
+                if department_key(other.area_id, other.department) == dept
                 and (other_rank := title_rank(other.position)) is not None
                 and other_rank > rank
+                and allowed(other)
             ]
             if higher:
                 nearest = min(r for r, _ in higher)
@@ -382,7 +388,7 @@ def reports_to_signals(
             top = [
                 other
                 for other in people
-                if allowed(other) and title_rank(other.position) == 4
+                if title_rank(other.position) == 4 and allowed(other)
             ]
             for other in top:
                 out.append(
