@@ -1357,8 +1357,9 @@ async def mail_job_title(
 
     Zatwierdzony opis na stronę kariery wygrywa (przeszedł jej kontrolę).
     Bez niego — nazwa od klienta oczyszczona jak na stronie kariery
-    (``default_public_title``: bez prefiksu klienta i kodów zleceń);
-    ``False`` = nadal widać w niej numer albo klienta.
+    (``default_public_title``: bez prefiksu klienta i kodów zleceń), a gdy
+    nadal widać w niej numer albo klienta — tytuł dla rekrutera do pierwszego
+    „ · ” (``pick_mail_title``, 18.10.2026); ``False`` = żadna nie przeszła.
     """
     from app.models.job_public_profile import JobPublicProfile
     from app.services.job_public_profile import (
@@ -1378,7 +1379,9 @@ async def mail_job_title(
     cache = lint_cache if lint_cache is not None else {}
     if job.client_id not in cache:
         cache[job.client_id] = await client_lint_names(db, job.client_id)
-    return default, rejection_text.title_safe_for_mail(default, cache[job.client_id])
+    return rejection_text.pick_mail_title(
+        default, job.working_title, cache[job.client_id]
+    )
 
 
 async def _other_processes_for(
