@@ -115,7 +115,7 @@ vi.mock("@/lib/authenticated-files", async (importOriginal) => ({
   downloadBlob: (...a: unknown[]) => savedFiles(...a),
 }));
 
-import { PipelineCandidateDock, nowSectionForStage } from "@/components/v2/jobs/PipelineCandidateDock";
+import { PipelineCandidateDock, nowSectionForStage, earlyQcSentence } from "@/components/v2/jobs/PipelineCandidateDock";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { WorkbenchBelowTabsContext } from "@/components/v2/person/WorkbenchBelowTabs";
 import type { KanbanColumn, KanbanItem } from "@/components/v2/pages/kanban-shared";
@@ -1380,6 +1380,20 @@ describe("PipelineCandidateDock — następny etap, profil i CV", () => {
     ).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Otwórz QC" }));
     expect(onOpenQc).toHaveBeenCalledTimes(1);
+  });
+
+  // 18.10.2026 (Kalwala, 789131): karta „QC: 2 do poprawy”, panel „1 rzecz” — panel
+  // dopisuje nieblokujące uwagi tą samą regułą co plakietka karty.
+  it("zdanie QC dopisuje uwagi nieblokujące — te same liczby co karta", () => {
+    expect(earlyQcSentence(false, { passed: false, blocking_failed: 1, warnings_count: 1, override: null })).toBe(
+      "QC CV: 1 rzecz do poprawy przed wysłaniem · 1 uwaga (nie blokuje)",
+    );
+    expect(earlyQcSentence(false, { passed: true, blocking_failed: 0, warnings_count: 3, override: null })).toBe(
+      "QC CV: bez blokad — można przekazać dalej · 3 uwagi (nie blokuje)",
+    );
+    expect(earlyQcSentence(false, { passed: false, blocking_failed: 2, override: null })).toBe(
+      "QC CV: 2 rzeczy do poprawy przed wysłaniem",
+    );
   });
 
   it("bez CV firmowego dok nie liczy QC", async () => {

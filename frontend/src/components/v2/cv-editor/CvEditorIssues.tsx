@@ -107,6 +107,7 @@ import {
   type IssueRow,
 } from "@/lib/cv-editor-issues";
 import { classifyCvWarnings, type ClassifiedCvWarning } from "@/lib/cv-generator";
+import { humanizeCvWarning } from "@/lib/cv-warning-text";
 import { candidateQuestion, countForm, qcDismissedMessage, type IssueTarget } from "@/lib/cv-qc";
 import { isForbiddenError } from "@/lib/view-state";
 import { cn } from "@/lib/utils";
@@ -217,11 +218,11 @@ function GeneratorWarnings({ warnings, dismiss }: { warnings: readonly string[];
           {review.map((item) => (
             <li key={item.text} className="space-y-0.5 rounded-lg border border-warning/30 px-3 py-2 text-sm">
               <p className="text-[11px] font-semibold uppercase tracking-wide text-warning-muted-foreground">{item.kind}</p>
-              <p className="[overflow-wrap:anywhere]">{item.text}</p>
+              <p className="[overflow-wrap:anywhere]">{humanizeCvWarning(item.text)}</p>
               {dismiss ? (
                 dismissText === item.text ? (
                   <DismissForm
-                    subject={item.text}
+                    subject={humanizeCvWarning(item.text)}
                     pending={dismiss.pending}
                     onSubmit={(value) =>
                       dismiss.submit({ source: "generator", text: item.text, status: null }, value, () =>
@@ -257,7 +258,7 @@ function GeneratorWarnings({ warnings, dismiss }: { warnings: readonly string[];
             <ul id={infoId} className="space-y-1.5 border-t border-border px-3 py-2 text-xs text-muted-foreground">
               {info.map((item) => (
                 <li key={item.text} className="[overflow-wrap:anywhere]">
-                  {item.text}
+                  {humanizeCvWarning(item.text)}
                 </li>
               ))}
             </ul>
@@ -308,7 +309,7 @@ function GeneratorInfo({ items }: { items: readonly ClassifiedCvWarning[] }) {
         <ul id={listId} className="space-y-1.5 border-t border-border px-3 py-2 text-xs text-muted-foreground">
           {items.map((item) => (
             <li key={item.text} className="[overflow-wrap:anywhere]">
-              {item.text}
+              {humanizeCvWarning(item.text)}
             </li>
           ))}
         </ul>

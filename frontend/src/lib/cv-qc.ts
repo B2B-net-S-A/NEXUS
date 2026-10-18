@@ -401,6 +401,23 @@ export function countForm(count: number, forms: [string, string, string]): strin
   return `${count} ${few ? forms[1] : forms[2]}`;
 }
 
+/**
+ * Wynik QC w liczbach — jedna reguła dla karty Tablicy i panelu osoby
+ * (18.10.2026): blokujące „do poprawy” i nieblokujące „uwagi” osobno. Karta
+ * sumowała obie, panel liczył tylko blokujące, więc ta sama osoba miała
+ * „QC: 2 do poprawy” na karcie i „1 rzecz do poprawy” w panelu.
+ */
+export function qcWarningsText(warnings: number): string {
+  return countForm(warnings, ["uwaga", "uwagi", "uwag"]);
+}
+
+export function qcCountsText(blocking: number, warnings: number): string {
+  const parts: string[] = [];
+  if (blocking > 0) parts.push(`${blocking} do poprawy`);
+  if (warnings > 0) parts.push(qcWarningsText(warnings));
+  return parts.join(" · ");
+}
+
 /** Ile nazw pokazuje jedna linia uwagi — reszta jako „i N innych". */
 const NOTE_NAMES_SHOWN = 3;
 

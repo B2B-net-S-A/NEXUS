@@ -38,6 +38,7 @@ import {
   type IssueRow,
 } from "@/lib/cv-editor-issues";
 import type { ClassifiedCvWarning } from "@/lib/cv-generator";
+import { humanizeCvWarning } from "@/lib/cv-warning-text";
 import {
   QC_DISMISS_QUOTE_MAX,
   QC_TASK_TAG,
@@ -948,10 +949,12 @@ function IssueDismissForm({
 
 function WarningRow({ warning, ctx }: { warning: ClassifiedCvWarning; ctx: RowContext }) {
   const issue = { source: "generator" as const, text: warning.text, status: null };
+  // Zdanie po polsku do pokazania; surowy tekst zostaje kluczem pominięcia (18.10.2026).
+  const shown = humanizeCvWarning(warning.text);
   return (
     <RowShell
       kind="generator"
-      title={warning.text}
+      title={shown}
       sub={`Uwaga generatora · ${warning.kind}`}
       actions={
         <Button
@@ -959,7 +962,7 @@ function WarningRow({ warning, ctx }: { warning: ClassifiedCvWarning; ctx: RowCo
           variant="outline"
           className={SMALL}
           disabled={ctx.dismiss.pending}
-          aria-label={`OK, sprawdzone: ${warning.text}`}
+          aria-label={`OK, sprawdzone: ${shown}`}
           onClick={() => ctx.dismiss.keep(issue)}
         >
           OK
@@ -967,7 +970,7 @@ function WarningRow({ warning, ctx }: { warning: ClassifiedCvWarning; ctx: RowCo
       }
       details={
         <DetailActions>
-          <IssueDismissForm issue={issue} subject={warning.text} ctx={ctx} />
+          <IssueDismissForm issue={issue} subject={shown} ctx={ctx} />
         </DetailActions>
       }
       ctx={ctx}

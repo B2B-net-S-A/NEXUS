@@ -3653,7 +3653,7 @@ describe("KanbanBoardV2 — stan CV na karcie „Zweryfikowanego” (14.10.2026)
         "card-cv-state",
       );
     expect(await badge("Ala Pisze")).toHaveTextContent("CV w przygotowaniu…");
-    expect(await badge("Bartek Poprawki")).toHaveTextContent("CV gotowe · QC: 2 do poprawy");
+    expect(await badge("Bartek Poprawki")).toHaveTextContent("CV gotowe · QC: 1 do poprawy · 1 uwaga");
     expect(await badge("Celina Czysta")).toHaveTextContent("CV gotowe · QC bez uwag");
   });
 });

@@ -130,7 +130,7 @@ import {
 import { useCvQc, type QcResult } from "@/lib/api/cvQc";
 import { formatClientRate } from "@/lib/board-card-badges";
 import { CONTRACT_PANEL_STAGES, DockContractSteps } from "@/components/v2/jobs/DockContractSteps";
-import { countForm } from "@/lib/cv-qc";
+import { countForm, qcWarningsText } from "@/lib/cv-qc";
 import {
   acceptanceLine,
   acceptanceTitle,
@@ -497,20 +497,26 @@ type WorkbenchSection = "cv" | "screening" | "interviews" | "contract" | "notes"
 /** Etapy, na których pierwszą pracą jest telefon (kolumny „Nowi” i „Screening”). */
 const ENTRY_STAGES: ReadonlySet<string> = new Set(["posting", "new", "screening", "prep_call"]);
 
-/** Zdanie QC CV w doku na „Zweryfikowanym” (PR 4, 04.10.2026). */
+/**
+ * Zdanie QC CV w doku na „Zweryfikowanym” (PR 4, 04.10.2026). Od 18.10.2026
+ * dopisuje nieblokujące uwagi tą samą regułą co plakietka karty
+ * (`qcCountsText`), żeby karta i panel mówiły te same liczby.
+ */
 export function earlyQcSentence(
   loading: boolean,
-  result: Pick<QcResult, "passed" | "blocking_failed" | "override"> | null,
+  result: Pick<QcResult, "passed" | "blocking_failed" | "override"> & { warnings_count?: number } | null,
 ): string {
   if (loading) return "QC CV: sprawdzam…";
   if (!result) return "QC CV: nie udało się sprawdzić";
+  const warnings = result.warnings_count ?? 0;
+  const tail = warnings > 0 ? ` · ${qcWarningsText(warnings)} (nie blokuje)` : "";
   if (result.passed) {
     return result.override
       ? "QC CV: przepuszczone przez Delivery Leada"
-      : "QC CV: bez blokad — można przekazać dalej";
+      : `QC CV: bez blokad — można przekazać dalej${tail}`;
   }
   const n = result.blocking_failed;
-  return `QC CV: ${countForm(n, ["rzecz", "rzeczy", "rzeczy"])} do poprawy przed wysłaniem`;
+  return `QC CV: ${countForm(n, ["rzecz", "rzeczy", "rzeczy"])} do poprawy przed wysłaniem${tail}`;
 }
 
 function WorkbenchLink({
