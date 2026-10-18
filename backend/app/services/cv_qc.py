@@ -620,6 +620,91 @@ def years_consistent(claimed: int, at_least: bool, actual: float) -> bool:
     return abs(claimed - whole) <= 1
 
 
+# Zakres dat w nagłówku roli CV: „01.2019 – 12.2021”, „2019–obecnie”.
+_CV_ROLE_RANGE = re.compile(
+    r"(?P<a>(?:(?:0?[1-9]|1[0-2])[./])?(?:19|20)\d{2})\s*[–—-]\s*"
+    r"(?P<b>(?:(?:0?[1-9]|1[0-2])[./])?(?:19|20)\d{2}|obecnie|present|now|current|"
+    r"do\s+dzi\S*|nadal|teraz|ongoing)",
+    re.IGNORECASE,
+)
+
+
+def cv_role_years(
+    blocks: list[Block], roles: list[CvRole], *, today: Optional[date] = None
+) -> Optional[float]:
+    """Lata z dat ról w samym CV (bez nakładek); `None`, gdy którakolwiek
+    rola nie ma czytelnego zakresu dat w pierwszych blokach."""
+
+    if not roles:
+        return None
+    entries: list[dict] = []
+    for role in roles:
+        window = [role.blocks[0] - 1, *role.blocks[:3]] if role.blocks else []
+        found = None
+        for i in window:
+            if 0 <= i < len(blocks):
+                found = _CV_ROLE_RANGE.search(blocks[i].text)
+                if found:
+                    break
+        if found is None:
+            return None
+        entries.append({"start": found.group("a"), "end": found.group("b")})
+    return experience_years(entries, today=today)
+
+
+@dataclass(frozen=True)
+class YearsEstimate:
+    """Lata do porównania z nagłówkiem CV.
+
+    ``read`` — z dat historii (`candidate.experience`); ``cv`` — z dat ról
+    w samym CV; ``missing`` — role CV bez pary w odczycie. Odczyt bywa ucięty
+    (produkcja 18.10.2026: 15 ról w odczycie, 24 w CV — 21 lat zamiast 30),
+    więc gdy CV ma role spoza odczytu albo jego daty dają wyraźnie więcej,
+    lata z odczytu są tylko dolną granicą i nie wolno ich wpisywać do CV.
+    """
+
+    read: Optional[float]
+    cv: Optional[float]
+    missing: int
+    roles: int
+
+    @property
+    def read_is_lower_bound(self) -> bool:
+        if self.read is None:
+            return False
+        if self.missing > 0:
+            return True
+        return self.cv is not None and int(self.cv) > int(self.read) + 1
+
+
+def estimate_years(
+    blocks: list[Block], experience: Any, *, today: Optional[date] = None
+) -> YearsEstimate:
+    _orig, roles, pairs = role_pairs(blocks, experience)
+    paired = {p for p in pairs if p is not None}
+    return YearsEstimate(
+        read=experience_years(experience, today=today),
+        cv=cv_role_years(blocks, roles, today=today),
+        missing=sum(1 for n in range(len(roles)) if n not in paired),
+        roles=len(roles),
+    )
+
+
+def _lower_bound_detail(quote: str, est: YearsEstimate) -> str:
+    """Uwaga do decyzji — bez „wychodzi N”, bo front robi z tego „Zmień”."""
+
+    why = (
+        f"odczyt oryginału nie zna {est.missing} z {est.roles} ról w CV"
+        if est.missing
+        else "daty ról w CV dają więcej niż odczyt oryginału"
+    )
+    cv = f" Z dat ról w CV: ok. {int(est.cv)} lat." if est.cv is not None else ""
+    return (
+        f"Nagłówek mówi „{quote}”, a {why}, więc historia z odczytu to tylko "
+        f"dolna granica.{cv} Sprawdź lata ręcznie z oryginałem."
+    )
+
+
 # ── Daty ról ────────────────────────────────────────────────────────────────
 
 _DATE_IN_ROLE = re.compile(
@@ -1664,11 +1749,12 @@ def compute_checks(data: QcInput) -> list[dict]:
 
     # 6. Lata w nagłówku.
     claim = header_years(blocks)
+    estimate = estimate_years(blocks, data.experience, today=data.today)
     if claim is None:
         checks.append(_check("years_header", "skip", "Brak lat w nagłówku CV"))
     else:
         claimed, at_least, quote = claim
-        actual = experience_years(data.experience, today=data.today)
+        actual = estimate.read
         if actual is None:
             checks.append(
                 _check(
@@ -1681,6 +1767,30 @@ def compute_checks(data: QcInput) -> list[dict]:
             checks.append(
                 _check("years_header", "pass", f"{claimed} vs {int(actual)} z historii")
             )
+        elif estimate.read_is_lower_bound:
+            if estimate.cv is not None and years_consistent(
+                claimed, at_least, estimate.cv
+            ):
+                checks.append(
+                    _check(
+                        "years_header",
+                        "pass",
+                        f"{claimed} vs {int(estimate.cv)} z dat ról w CV",
+                    )
+                )
+            else:
+                checks.append(
+                    _check(
+                        "years_header",
+                        "fail",
+                        f"{claimed} — do sprawdzenia",
+                        [
+                            _item(
+                                detail=_lower_bound_detail(quote, estimate), term=quote
+                            )
+                        ],
+                    )
+                )
         else:
             checks.append(
                 _check(
@@ -1706,7 +1816,10 @@ def compute_checks(data: QcInput) -> list[dict]:
         items = [
             _item(
                 detail=(
-                    f"CV mówi „{quote}”, a z dat roli w {company} wychodzi "
+                    f"CV mówi „{quote}”, a odczyt oryginału nie zna wszystkich "
+                    f"ról z CV — sprawdź staż w {company} ręcznie."
+                    if estimate.read_is_lower_bound
+                    else f"CV mówi „{quote}”, a z dat roli w {company} wychodzi "
                     f"{int(actual)}."
                 ),
                 term=quote,
@@ -4710,7 +4823,11 @@ def fix_years_html(
     nodes_of = _nodes_by_block(doc)
     count = 0
     claim = header_years(doc.blocks)
-    actual = experience_years(experience, today=today)
+    estimate = estimate_years(doc.blocks, experience, today=today)
+    if estimate.read_is_lower_bound:
+        # Odczyt bez części ról CV — jego lata zaniżają staż; nic nie wpisujemy.
+        return html, 0
+    actual = estimate.read
     if claim is not None and actual is not None:
         claimed, at_least, quote = claim
         if not years_consistent(claimed, at_least, actual):

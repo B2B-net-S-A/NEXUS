@@ -750,6 +750,32 @@ describe("poprawki jednym kliknięciem po kluczu sprawdzenia (PR 2, 17.10.2026)"
     expect(bulkPlan([check({ key: "years_header", items: [{ term: "3 lata w Bank Alfa i Delta Soft", detail: "… z dat roli w Bank Alfa wychodzi 0." }] })], []).actions).toEqual([]);
   });
 
+  it("lata z uciętego odczytu oryginału są do decyzji, bez „Zmień” (18.10.2026)", () => {
+    // Produkcja: odczyt ma 15 z 24 ról CV — 21 lat zamiast 30 z dat ról w CV.
+    const term = "32 years of experience";
+    const lowerBound = check({
+      key: "years_header",
+      items: [
+        {
+          term,
+          detail:
+            `Nagłówek mówi „${term}”, a odczyt oryginału nie zna 9 z 24 ról w CV, więc historia z odczytu to tylko ` +
+            "dolna granica. Z dat ról w CV: ok. 30 lat. Sprawdź lata ręcznie z oryginałem.",
+        },
+      ],
+    });
+    expect(itemQuickFix(lowerBound, lowerBound.items[0])).toBeNull();
+    expect(yearsPreview(lowerBound.items[0])).toBeNull();
+    // Nawet gdy zdanie niesie liczbę — dolna granica nie idzie do CV.
+    expect(
+      itemQuickFix(lowerBound, { term, detail: "… a z dat historii wychodzi 21, to tylko dolna granica." }),
+    ).toBeNull();
+    expect(
+      itemQuickFix(lowerBound, { term: "8 lat w Bank Alfa", detail: "CV mówi „8 lat w Bank Alfa”, a odczyt oryginału nie zna wszystkich ról z CV — sprawdź staż w Bank Alfa ręcznie." }),
+    ).toBeNull();
+    expect(bulkPlan([lowerBound], []).actions).toEqual([]);
+  });
+
   it("podgląd lat odmienia „lat” → „lata” i bez liczby z historii nie zgaduje", () => {
     expect(yearsPreview(years.items[0])).toEqual({ before: "Ponad 10 lat doświadczenia", after: "Ponad 3 lata doświadczenia" });
     expect(yearsPreview({ term: "8+ years of experience", detail: "… wychodzi 1." })).toEqual({
