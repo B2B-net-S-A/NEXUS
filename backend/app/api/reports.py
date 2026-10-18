@@ -17,8 +17,9 @@ from app.analytics.capabilities import AnalyticsCapability, require_capability
 from app.api.deps import CurrentUser, require_roles
 from app.api.financial_access import FinanceReadUser
 from app.api.section_access import INSIGHTS_SECTION_DEPENDENCIES
-from app.core.database import get_db
 from app.core.cache import cache_get, cache_set
+from app.core.database import get_db
+from app.core.scheduling import business_today, local_month_bounds
 from app.core.work_time import HOURS_PER_MONTH, MD_PER_MONTH
 from app.models.client import Client
 from app.models.competence_category import (
@@ -26,10 +27,10 @@ from app.models.competence_category import (
     UserCompetenceCategory,
 )
 from app.models.contract import Contract, ContractStatus
-from app.services import job_data_trust
 from app.models.job import Job, JobCloseReason, JobStatus
 from app.models.recruitment_pipeline import CandidateStage, PipelineStage
 from app.models.user import User, UserRole
+from app.services import competition_history, job_data_trust
 from app.services.client_identity import client_display_name_expression
 from app.services.contractor_identity import summarize_active_contracts
 from app.services.fx_service import amount_to_pln_with_rate, rates_to_pln
@@ -40,7 +41,6 @@ from app.services.metric_definitions import (
     VERIFIER_ANCHORED_MILESTONES,
 )
 from app.services.placement_exclusions import not_excluded_placement
-from app.core.scheduling import business_today, local_month_bounds
 
 logger = logging.getLogger(__name__)
 
@@ -1184,8 +1184,16 @@ async def _compute_client_hit_ratio(
         .join(Client, Job.client_id == Client.id)
         .where(Job.status == JobStatus.closed, Job.closed_at.isnot(None))
     )
-    if period_start is not None:
-        jobs_q = jobs_q.where(Job.closed_at >= period_start)
+    # Zamknięcia liczymy od 12.10.2026 (decyzja Artura 18.10.2026): wcześniejsze
+    # to import Traffita, a hit ratio DynaReporter nie prowadził — brak danych.
+    jobs_q = jobs_q.where(
+        Job.closed_at
+        >= (
+            competition_history.board_start(period_start)
+            if period_start is not None
+            else competition_history.cutover_utc()
+        )
+    )
     if period_end is not None:
         jobs_q = jobs_q.where(Job.closed_at < period_end)
     if only_client_id is not None:

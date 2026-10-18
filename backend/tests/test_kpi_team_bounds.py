@@ -29,11 +29,11 @@ from app.services.kpi_team import compute_team_panel
 WARSAW = ZoneInfo("Europe/Warsaw")
 
 # Stały „teraz" w środku miesiąca — okna testów są deterministyczne.
-# Poza 1.01–11.10.2026: tam statystyki liczą wpisy DynaReportera (migracja 0454),
-# a test sprawdza ruchy Tablicy.
-T_NOW = datetime(2025, 8, 20, 12, 0, tzinfo=WARSAW)
-CURR_MONTH_START = datetime(2025, 8, 1, 0, 0, tzinfo=WARSAW)
-PREV_MONTH_START = datetime(2025, 7, 1, 0, 0, tzinfo=WARSAW)
+# Po 12.10.2026: wcześniej statystyki liczą tylko DynaReportera (migracje 0454,
+# 0467), a test sprawdza ruchy Tablicy.
+T_NOW = datetime(2027, 8, 20, 12, 0, tzinfo=WARSAW)
+CURR_MONTH_START = datetime(2027, 8, 1, 0, 0, tzinfo=WARSAW)
+PREV_MONTH_START = datetime(2027, 7, 1, 0, 0, tzinfo=WARSAW)
 
 
 async def _seed_user_with_verifications(moved_ats: list[datetime]) -> int:
@@ -94,7 +94,7 @@ async def test_bounds_window_is_half_open_and_excludes_outside():
         prev_window = await compute_team_panel(
             db,
             bounds=(PREV_MONTH_START, CURR_MONTH_START),
-            period_label="2025-07",
+            period_label="2027-07",
             now=T_NOW,
         )
         curr_window = await compute_team_panel(
@@ -108,7 +108,7 @@ async def test_bounds_window_is_half_open_and_excludes_outside():
             now=T_NOW,
         )
 
-    assert prev_window.period == "2025-07"
+    assert prev_window.period == "2027-07"
     assert curr_window.period == "custom"
     prev_row = _row_for(prev_window, uid)
     curr_row = _row_for(curr_window, uid)
@@ -163,7 +163,7 @@ async def test_naive_bounds_are_rejected():
     """Naiwny datetime w bounds = ciche przesunięcie okna o offset Warszawy
     (asyncpg wysłałby go jako timestamp-bez-strefy, Postgres założy UTC) —
     fail-fast zamiast cichego błędu."""
-    naive = datetime(2025, 8, 1)
+    naive = datetime(2027, 8, 1)
     async with AsyncSessionLocal() as db:
         with pytest.raises(ValueError, match="tz-aware"):
             await compute_team_panel(db, bounds=(naive, T_NOW), now=T_NOW)

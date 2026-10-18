@@ -47,16 +47,49 @@ def test_entrypoint_mirrors_the_view_right_after_the_milestones_view() -> None:
     )
 
 
+MIGRATION_0467 = (
+    BACKEND / "alembic" / "versions" / "0467_kpi_milestones_history_only_dr.py"
+)
+
+
+def _module_0467():
+    spec = importlib.util.spec_from_file_location("m0467", MIGRATION_0467)
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+    return module
+
+
 def test_view_and_credited_cut_on_the_settlement_days() -> None:
     start, cutover = _boundaries()
     view = _migration_module().CREATE_VIEW
-    for sql in (view, VERIFIER_ANCHORED_CTE):
-        assert f"TIMESTAMP '{start} 00:00' AT TIME ZONE 'Europe/Warsaw'" in sql
-        assert f"TIMESTAMP '{cutover} 00:00' AT TIME ZONE 'Europe/Warsaw'" in sql
+    assert f"TIMESTAMP '{start} 00:00' AT TIME ZONE 'Europe/Warsaw'" in view
     assert f"k.report_date >= DATE '{start}'" in view
     assert f"k.report_date < DATE '{cutover}'" in view
+    # 0467 (18.10.2026): ruchy Tablicy tylko od 12.10 — także przed 2026.
+    for sql in (_module_0467().CREATE_VIEW, VERIFIER_ANCHORED_CTE):
+        assert f"TIMESTAMP '{cutover} 00:00' AT TIME ZONE 'Europe/Warsaw'" in sql
+        assert f"TIMESTAMP '{start} 00:00'" not in sql
     assert start == "2026-01-01"
     assert cutover == "2026-10-12"
+
+
+def test_0467_takes_company_placements_before_2026_from_the_board_report() -> None:
+    view = _module_0467().CREATE_VIEW
+    assert "FROM dr_board_monthly_report b" in view
+    assert "WHERE b.report_month < DATE '2026-01-01'" in view
+    assert "'dynareporter_board'::text AS source" in view
+    # Bez osoby — raport Rady nie zna rekrutera.
+    assert "NULL::integer AS first_moved_by" in view
+
+
+def test_entrypoint_runs_0467_after_0454() -> None:
+    entrypoint = (BACKEND / "entrypoint.sh").read_text()
+    old, new = _migration_module().CREATE_VIEW, _module_0467().CREATE_VIEW
+    assert new in entrypoint
+    assert entrypoint.index(new) > entrypoint.index(old)
+    # Numer 0467 (0455–0466 zajął program „Ludzie w NEXUSIE”), widok z 0454.
+    assert _module_0467().down_revision == "0466_care_announcements"
 
 
 def test_view_maps_each_dynareporter_counter_to_one_stage() -> None:
@@ -75,7 +108,7 @@ def test_view_maps_each_dynareporter_counter_to_one_stage() -> None:
 def test_credited_reads_history_rows_and_keeps_raw_moves_apart() -> None:
     assert "credited_nexus AS (" in VERIFIER_ANCHORED_CTE
     assert "FROM analytics_kpi_milestones dr" in VERIFIER_ANCHORED_CTE
-    assert "dr.source = 'dynareporter'" in VERIFIER_ANCHORED_CTE
+    assert "dr.source <> 'nexus'" in VERIFIER_ANCHORED_CTE
 
 
 def test_precision_cohort_pairs_only_board_rows() -> None:

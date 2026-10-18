@@ -3227,6 +3227,55 @@ END $$""",
         WHERE k.is_draft IS FALSE
           AND k.report_date >= DATE '2026-01-01'
           AND k.report_date < DATE '2026-10-12'""",
+    # 0467: przed 12.10.2026 statystyki wyłącznie z DynaReportera, także przed
+    # 2026 (decyzja Artura 18.10.2026) — zastępuje widok 0454 powyżej.
+    """CREATE OR REPLACE VIEW analytics_kpi_milestones AS
+        SELECT
+            afm.candidate_id,
+            afm.job_id,
+            afm.stage,
+            afm.first_reached_at,
+            afm.first_moved_by,
+            afm.candidate_stage_id,
+            'nexus'::text AS source
+        FROM analytics_first_milestones afm
+        WHERE afm.first_reached_at
+                >= (TIMESTAMP '2026-10-12 00:00' AT TIME ZONE 'Europe/Warsaw')
+        UNION ALL
+        SELECT
+            NULL::integer AS candidate_id,
+            NULL::integer AS job_id,
+            counted.stage::pipelinestage AS stage,
+            (k.report_date + TIME '12:00') AT TIME ZONE 'Europe/Warsaw'
+                AS first_reached_at,
+            k.user_id AS first_moved_by,
+            NULL::integer AS candidate_stage_id,
+            'dynareporter'::text AS source
+        FROM dr_kpi_body_leasing k
+        CROSS JOIN LATERAL (
+            VALUES
+                ('verified', k.verifications),
+                ('cv_sent', k.recommendations),
+                ('client_interview', k.interviews),
+                ('hired', k.placements)
+        ) AS counted (stage, n)
+        CROSS JOIN LATERAL generate_series(1, GREATEST(COALESCE(counted.n, 0), 0))
+        WHERE k.is_draft IS FALSE
+          AND k.report_date >= DATE '2026-01-01'
+          AND k.report_date < DATE '2026-10-12'
+        UNION ALL
+        SELECT
+            NULL::integer AS candidate_id,
+            NULL::integer AS job_id,
+            'hired'::pipelinestage AS stage,
+            (b.report_month + TIME '12:00') AT TIME ZONE 'Europe/Warsaw'
+                AS first_reached_at,
+            NULL::integer AS first_moved_by,
+            NULL::integer AS candidate_stage_id,
+            'dynareporter_board'::text AS source
+        FROM dr_board_monthly_report b
+        CROSS JOIN LATERAL generate_series(1, GREATEST(COALESCE(b.placements, 0), 0))
+        WHERE b.report_month < DATE '2026-01-01'""",
     # ── Snapshoty + cutover (0177, plan analytics PR 7) ─────────────────
     """CREATE TABLE IF NOT EXISTS analytics_metric_snapshots (
         id           SERIAL PRIMARY KEY,

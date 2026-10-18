@@ -115,12 +115,13 @@ async def _seed_hall_of_fame_people(count: int) -> list[dict]:
 
             # Rok nieużywany przez inne testy — baza jest wspólna, a te wiersze
             # mają `moved_by`, więc wchodzą też do imiennych raportów sąsiadów.
+            # Po 12.10.2026: wcześniejsze ruchy Tablicy nie liczą się (0467).
             db.add(
                 CandidateStage(
                     candidate_id=candidate.id,
                     job_id=job.id,
                     stage=PipelineStage.hired,
-                    moved_at=datetime(2004, 6, 15, 12, 0, tzinfo=timezone.utc)
+                    moved_at=datetime(2070, 6, 15, 12, 0, tzinfo=timezone.utc)
                     + timedelta(days=i),
                     moved_by=user.id,
                 )

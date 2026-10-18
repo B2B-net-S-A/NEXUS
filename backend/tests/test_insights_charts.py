@@ -52,7 +52,12 @@ PLACEMENTS_URL = "/api/insights/charts/placement-analysis"
 # Zanim zmienisz te lata, sprawdź, co jest zajęte:
 #   grep -rhoE 'datetime\((1[89][0-9]{2}|20[0-9]{2})|date\((1[89][0-9]{2}|20[0-9]{2})|"(1[89][0-9]{2}|20[0-9]{2})-' backend/tests/ \
 #     | grep -oE '(1[89][0-9]{2}|20[0-9]{2})' | sort -u
-TEST_YEAR = 2003
+# 18.10.2026 (migracja 0467): ruchy Tablicy sprzed 12.10.2026 nie liczą się do
+# statystyk, a ten plik sprawdza właśnie ruchy Tablicy — lata leżą więc po tym
+# dniu, a „dziś” trasy jest zamrożone za nimi (`_frozen_now`), żeby miesiące
+# były rozpoczęte i zamknięte.
+TEST_YEAR = 2061
+FROZEN_NOW_YEAR = 2064
 
 # Rok, w którym ten plik sieje weryfikacje/rekomendacje (test konwersji), oraz
 # rok, w którym NIE sieje NIC — ten drugi jest jedynym miejscem, gdzie „zero"
@@ -76,6 +81,21 @@ def _ensure_charts_router_mounted(app) -> None:
     app.include_router(
         insights_charts.router, prefix="/api/insights/charts", tags=["insights"]
     )
+
+
+@pytest.fixture(autouse=True)
+def _frozen_now(monkeypatch):
+    """„Dziś” trasy wykresów = 15.06.2064 — lata testu są wtedy przeszłe."""
+    from datetime import datetime as real_datetime
+
+    from app.api import insights_charts
+
+    class _FutureDateTime(real_datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return real_datetime(FROZEN_NOW_YEAR, 6, 15, 12, 0, tzinfo=tz)
+
+    monkeypatch.setattr(insights_charts, "datetime", _FutureDateTime)
 
 
 @pytest_asyncio.fixture
@@ -390,7 +410,7 @@ async def test_future_months_have_no_row(charts_client: AsyncClient):
     _, email, password = await _seed_user(UserRole.admin, "future")
     headers = await _login(charts_client, email, password)
 
-    future = await _yearly(charts_client, headers, year=2099)
+    future = await _yearly(charts_client, headers, year=FROZEN_NOW_YEAR + 30)
     assert future["months"] == []
 
     past = await _yearly(charts_client, headers, year=TEST_YEAR)

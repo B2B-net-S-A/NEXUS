@@ -357,57 +357,61 @@ stąd inne podia. Kod: `app/services/competition_history.py`.
   sekcja niżej (od 17.10.2026 licznik celów też liczy dni 1–11.10
   z DynaReportera).
 
-## Statystyki 1.01–11.10.2026 z DynaReportera (decyzja Artura 17.10.2026)
+## Statystyki sprzed 12.10.2026 wyłącznie z DynaReportera (decyzje Artura 17 i 18.10.2026)
 
-Zespół klika w NEXUS-ie od **12.10.2026**. Wcześniej wynik rekrutera to jego
-tygodniowy wpis w DynaReporterze (`dr_kpi_body_leasing`, rozliczony skryptem
-`settle_competitions_from_dynareporter.py`, patrz „Wyniki 2026 sprzed NEXUS-a”
-wyżej). Ruchy Tablicy z tych dni
-to import Traffita: liczył zasługę temu, kto przesunął kartę (często DL)
-i dawał 10–30% więcej rekomendacji niż raport — zespół zgłosił „zawyżone
-rekomendacje za październik”.
-
-**Reguła: jedno źródło na dzień.** Przed 1.01.2026 i od 12.10.2026 — ruchy
-Tablicy; 1.01–11.10.2026 — wpisy DynaReportera. Nigdy suma. Granice to fakty
-biznesowe (`competition_history.DR_HISTORY_START`, `RESULTS_CUTOVER`), pilnuje
+Zespół klika w NEXUS-ie od **12.10.2026**. Ruchy Tablicy sprzed tego dnia to
+import Traffita (zasługa dla tego, kto przesunął kartę, 10–30% więcej
+rekomendacji niż raport) — **do statystyk nie wchodzą wcale**, także przed
+2026. Źródłem dni do 11.10.2026 jest DynaReporter (albo Excel zespołu); czego
+DynaReporter nie prowadził, to „brak danych — do uzupełnienia”, nigdy liczba
+z Tablicy. Granice to fakty biznesowe (`competition_history.DR_HISTORY_START`
+= 1.01.2026, `RESULTS_CUTOVER` = 12.10.2026), pilnuje
 `tests/test_kpi_milestones_dynareporter.py`.
 
-- **Dwa źródła, jedna podmiana:**
-  - widok `analytics_kpi_milestones` (migracja 0454, lustro w `entrypoint.sh`) =
-    kolumny `analytics_first_milestones` + `source`; wpis rozwinięty na tyle
-    wierszy, ile wynosi licznik, osoba z wpisu, bez kandydata i rekrutacji,
-    dzień = `report_date` (początek tygodnia w obrębie miesiąca), południe;
-  - `credited` w `VERIFIER_ANCHORED_CTE` czyta te same wiersze; surowe ruchy
-    zostają w `credited_nexus` (diagnostyka adopcji, rekonsyliacja).
-- **Mapowanie liczników:** weryfikacje → `verified`, rekomendacje → `cv_sent`,
-  rozmowy → `client_interview` (rozmowa u klienta, nie QC CV), placementy →
-  `hired`. `interview` i `acceptance` DynaReporter nie prowadził — w tych dniach
-  ich nie ma.
-- **Co liczy z DynaReportera:** licznik celów i KPI coach (`kpi_engine`),
-  Mój miesiąc i „Twój tydzień” (`kpi_panel`), Zespół → Ludzie i „Do uwagi”
-  (`kpi_team`), kafel „Aktywność rekrutacyjna” (także benchmark 3 miesięcy),
-  kafle metryk, lejek Insights (Zespół, Mój miesiąc, Czas i konwersje — liczby
-  etapów), tabela i aktywność zespołu, Rok do roku, Analiza placementów
-  (osoby), Firma (etapy, placementy, seria 12 miesięcy), Ścieżka rozwoju,
-  Hall of Fame, kampanie.
-- **Czego DynaReporter nie zna, więc zostaje z ruchów Tablicy:** rozbicia na
-  klienta i rekrutację (Analiza placementów i Rok do roku: „Suma / Liczba
-  placementów” liczy wpisy, a klienci — donut, unikalni klienci, udział top
-  klienta — pary Tablicy z własną sumą `client_placements`; UI pisze, skąd
-  różnica; kafle metryk pomijają
-  wpisy przy podziale na klienta i kategorię, także w poprzednim okresie —
-  `board_only`), lejek po etapach Tablicy, czas do zatrudnienia, hit ratio,
-  portfele DL i Liga DL, źródła kandydatów.
-- **Lista „Kto się liczy”:** `period_total` = licznik celów (z wpisami
-  DynaReportera), `history_total` = ile z tego to wpisy; lista i jej
-  stronicowanie pokazują tylko pary z NEXUS-a, a UI pisze, skąd reszta.
-  Podsumowanie „przez Ciebie / pozostałe” liczy tylko wiersze listy.
-- **Precyzja 30 dni:** kohorta par z NEXUS-a + dla dni z DynaReportera
-  rekomendacje / weryfikacje wpisów z okna (obcięte do 100%), jak w DynaReporterze.
-- **Dogrywki ligi** (marża/h, chwila ostatniej rekomendacji) liczą tylko pary
-  z NEXUS-a — wpis DynaReportera nie ma stawek ani godziny.
-- **Okno inne niż miesiąc** (dzień, tydzień w połowie, kroczące 30 dni): wpis
-  idzie w całości na dzień `report_date`; DynaReporter nie dzielił tygodnia.
-- **Testy z datami 1.01–11.10.2026** sprawdzające atrybucję Tablicy przenieś
-  przed 2026 (np. −364 dni, ten sam dzień tygodnia) — w tym oknie ruchy
-  Tablicy celowo nie liczą się do statystyk.
+- **Źródła sprzed 12.10.2026** (tabele `dr_*`, wgrane
+  `scripts/load_dynareporter_history.py`, paragon `dynareporter_history_load_2026`):
+  - 1.01–11.10.2026 — tygodniowe wpisy rekruterów (`dr_kpi_body_leasing`):
+    weryfikacje → `verified`, rekomendacje → `cv_sent`, rozmowy →
+    `client_interview`, placementy → `hired`;
+  - przed 2026 — tylko placementy firmy z raportu Rady
+    (`dr_board_monthly_report`, bez osoby);
+  - klienci — `dr_placement_details` (2026) i `dr_board_placement_clients`
+    (przed 2026), nazwa łączona z klientem NEXUS-a po nazwie / nazwie
+    wyświetlanej (`history_client_placements`);
+  - Delivery Leadzi — miesięczne wpisy DL (`dr_kpi_delivery_lead`).
+- **Widok `analytics_kpi_milestones`** (migracje 0454, 0467, lustro w
+  `entrypoint.sh`): Tablica od 12.10 (`nexus`) + wpisy rekruterów
+  (`dynareporter`) + placementy Rady przed 2026 (`dynareporter_board`).
+  `credited` w `VERIFIER_ANCHORED_CTE` czyta te same wiersze spoza Tablicy;
+  surowe ruchy w `credited_nexus` (diagnostyka adopcji, rekonsyliacja).
+- **Z widoku liczą:** licznik celów i KPI coach, Mój miesiąc, „Twój tydzień”,
+  Zespół (lejek, Ludzie, Do uwagi), „Aktywność rekrutacyjna”, kafle metryk,
+  tabela i aktywność zespołu, Firma (etapy, placementy, seria 12 miesięcy),
+  Rok do roku (liczba placementów), Analiza placementów (osoby), Ścieżka
+  rozwoju, Hall of Fame (placementy przed 2026 bez osoby = „nieprzypisane”),
+  kampanie.
+- **Klienci** (Analiza placementów, Rok do roku): z `history_client_placements`
+  z własną sumą `client_placements` — przed 12.10 inna tabela DynaReportera niż
+  liczba placementów, więc sumy bywają różne; UI to pisze.
+- **Liczone dopiero od 12.10.2026** (`competition_history.board_start`), bo
+  DynaReporter tego nie prowadził: reszta lejka i „Zamknięci” w Lejku po
+  etapach (cztery kamienie mają dni z DynaReportera, `history` w odpowiedzi),
+  źródła kandydatów, czas do zatrudnienia (zatrudnienie od 12.10; start
+  procesu z historii pary — jedyny wyjątek, bez niego czasu nie ma), hit ratio
+  (rekrutacje zamknięte od 12.10; obsadzenie pary sprawdzane w całej historii).
+- **Delivery Leadzi:** portfel DL przed 12.10 = wiersz „DynaReporter — bez
+  klienta” z wpisów DL (`HISTORY_CLIENT_ID = 0`); `dl_portfolio_counts`
+  (Liga DL, cele DL) = wpisy DL + Tablica od 12.10, mianownik hit ratio od
+  12.10. **Liga DL Q1–Q3 2026** przeliczona z wpisów DL
+  (`scripts/settle_dl_league_from_dynareporter.py`, paragon
+  `dynareporter_dl_league_2026`): placementy, próg 3, bez progu hit ratio.
+- **Lista „Kto się liczy”:** `period_total` = licznik celów, `history_total` =
+  ile z tego to wpisy; lista pokazuje tylko pary z NEXUS-a.
+- **Precyzja 30 dni:** kohorta par z NEXUS-a + rekomendacje / weryfikacje
+  wpisów z okna (obcięte do 100%). **Dogrywki ligi** — tylko pary z NEXUS-a.
+- **Okno inne niż miesiąc:** wpis tygodniowy idzie na dzień `report_date`,
+  miesięczny (DL, Rada) na pierwszy dzień miesiąca.
+- **UI:** `PeriodPicker` (Zespół, Firma, Raporty) pisze, skąd są dni do
+  11.10.2026, gdy okno zaczyna się wcześniej (`lib/insights-history.ts`).
+- **Testy sprawdzające ruchy Tablicy** mają daty od 12.10.2026 (np. 2027,
+  +728 dni = ten sam dzień tygodnia) — wcześniejsze ruchy celowo się nie liczą.

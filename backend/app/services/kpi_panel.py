@@ -107,12 +107,12 @@ _PANEL_KPI_IDS = (
 # placementem (15.10.2026) — próba otwarta po zatrudnieniu nie zatrudnia drugi
 # raz. Weryfikacje i pozostałe etapy kolejnej próby liczą się jak dotąd.
 #
-# 1.01–11.10.2026 Z DYNAREPORTERA (decyzja Artura 17.10.2026): zespół klika
-# w NEXUS-ie od 12.10.2026, a wcześniej oficjalny był tygodniowy wpis
-# w DynaReporterze. `credited` w tych dniach nie bierze ruchów z historii
-# Traffita (`credited_nexus`), tylko wiersze z `analytics_kpi_milestones`
-# o źródle `dynareporter` (migracja 0454): osoba z wpisu, bez kandydata
-# i rekrutacji (`candidate_id`/`job_id` = NULL), dzień = `report_date`.
+# PRZED 12.10.2026 WYŁĄCZNIE DYNAREPORTER (decyzje Artura 17 i 18.10.2026):
+# zespół klika w NEXUS-ie od 12.10.2026. `credited` bierze ruchy Tablicy
+# (`credited_nexus`) dopiero od tego dnia, a wcześniej wiersze
+# z `analytics_kpi_milestones` spoza Tablicy (migracje 0454, 0467): wpisy
+# tygodniowe 2026 (osoba z wpisu) i placementy firmy sprzed 2026 z raportu
+# Rady (bez osoby). Bez kandydata i rekrutacji (`candidate_id`/`job_id` = NULL).
 # Konsument, który łączy po parze albo rekrutacji, gubi te wiersze —
 # to świadome: DynaReporter nie zna par ani klientów. Surowe ruchy
 # (diagnostyka adopcji, rekonsyliacja) czytaj z `credited_nexus`.
@@ -307,14 +307,12 @@ VERIFIER_ANCHORED_CTE = """
     credited AS (
         SELECT * FROM credited_nexus
         WHERE reached_at
-                < (TIMESTAMP '2026-01-01 00:00' AT TIME ZONE 'Europe/Warsaw')
-           OR reached_at
                 >= (TIMESTAMP '2026-10-12 00:00' AT TIME ZONE 'Europe/Warsaw')
         UNION ALL
         SELECT dr.stage::text, dr.first_reached_at, dr.candidate_id,
                dr.job_id, dr.first_moved_by
         FROM analytics_kpi_milestones dr
-        WHERE dr.source = 'dynareporter'
+        WHERE dr.source <> 'nexus'
     )
 """
 

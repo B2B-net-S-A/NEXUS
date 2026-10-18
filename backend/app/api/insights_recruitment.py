@@ -35,6 +35,7 @@ from app.api.deps import CurrentUser
 from app.api.section_access import INSIGHTS_SECTION_DEPENDENCIES
 from app.core.cache import cache_get, cache_set, cache_single_flight
 from app.core.database import get_db
+from app.services import competition_history
 from app.services.funnel_coverage import STAGES_WITHOUT_TRAFFIT_COVERAGE
 from app.services.insights_competence_matrix import compute_competence_matrix
 from app.services.insights_person_scope import (
@@ -274,6 +275,13 @@ async def insights_recruitment_funnel(
         )
         counts = {r["stage"]: int(r["cnt"]) for r in rows}
 
+        # Ruchy Tablicy liczymy od 12.10.2026 (decyzja Artura 18.10.2026) —
+        # wcześniej reszty lejka DynaReporter nie prowadził: brak danych.
+        board_params = {
+            "start": competition_history.board_start(resolved.start),
+            "end": resolved.end,
+        }
+
         # Zrodlo 2 — reszta lejka wprost z `candidate_stages`, DEDUPLIKOWANA TAK
         # SAMO jak widok: pierwsze wystapienie per (kandydat, oferta, etap). Bez
         # tego gora lejka liczylaby surowe wiersze, a srodek — pary, i dwie czesci
@@ -297,7 +305,7 @@ async def insights_recruitment_funnel(
                         GROUP BY stage
                         """
                     ),
-                    {**params, "stages": _STAGE_LOG_STAGES},
+                    {**board_params, "stages": _STAGE_LOG_STAGES},
                 )
             )
             .mappings()
@@ -322,7 +330,7 @@ async def insights_recruitment_funnel(
                     WHERE cs.moved_at >= :start AND cs.moved_at < :end
                     """
                     ),
-                    params,
+                    board_params,
                 )
             )
             .mappings()
@@ -476,6 +484,9 @@ async def insights_time_to_hire(
                                fm.first_moved_by
                         FROM analytics_first_milestones fm
                         WHERE fm.stage = 'hired'
+                          -- Zatrudnienia od 12.10.2026 (Tablica); DynaReporter
+                          -- nie zapisywał startu procesu, więc wcześniejszych
+                          -- dni nie liczymy. Start pary — z całej historii.
                           AND fm.first_reached_at >= :start
                           AND fm.first_reached_at < :end
                     ),
@@ -509,7 +520,10 @@ async def insights_time_to_hire(
                     GROUP BY user_id
                     """
                     ),
-                    {"start": resolved.start, "end": resolved.end},
+                    {
+                        "start": competition_history.board_start(resolved.start),
+                        "end": resolved.end,
+                    },
                 )
             )
             .mappings()

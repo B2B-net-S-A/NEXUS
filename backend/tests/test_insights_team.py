@@ -64,7 +64,9 @@ URL = "/api/insights/team-table"
 # liczniki, czyli awaria wygląda na błąd atrybucji w kodzie, a jest zderzeniem
 # okien. 200 lat × 300 dni startów czyni takie zderzenie nieistotnie rzadkim.
 _DAY_SEQUENCE = itertools.count()
-_WINDOW_EPOCH = date(1300 + int(uuid.uuid4().hex[:4], 16) % 200, 1, 1) + timedelta(
+# Lata po 12.10.2026 — wcześniejsze ruchy Tablicy nie liczą się do statystyk
+# (migracja 0467), a ten plik sprawdza ich atrybucję.
+_WINDOW_EPOCH = date(3000 + int(uuid.uuid4().hex[:4], 16) % 200, 1, 1) + timedelta(
     days=int(uuid.uuid4().hex[4:8], 16) % 300
 )
 

@@ -70,7 +70,9 @@ TEST_THRESHOLDS = SeniorityThresholds(
 # a zatrudnienia zasiane tutaj nie mają wcześniejszego etapu, więc wnosiły
 # medianę 0 i ścinały maksimum. Zanim zmienisz ten rok, sprawdź:
 #   grep -rhoE "datetime\(20[0-9]{2}|\"20[0-9]{2}-" backend/tests/ | sort -u
-SEED_YEAR = 2007
+# Po 12.10.2026 — wcześniejsze ruchy Tablicy nie liczą się do statystyk
+# (migracja 0467), a ten plik liczy placementy osób z ruchów Tablicy.
+SEED_YEAR = 2069
 AS_OF = date(SEED_YEAR, 12, 31)
 
 

@@ -45,7 +45,7 @@ from app.models.competence_category import CompetenceCategory
 from app.models.contract import Contract, ContractStatus
 from app.models.job import Job
 from app.models.user import User
-from app.services import permission_catalog
+from app.services import competition_history, permission_catalog
 from app.services.access_scope import (
     DashboardScope,
     ScopeKind,
@@ -548,7 +548,7 @@ def _pipeline_query(
     # Wiersz z DynaReportera nie ma rekrutacji: liczy się w sumach, tygodniach,
     # miesiącach, etapach i osobach, ale nie w podziale na klienta i kategorię.
     # Ruch Tablicy bez rekrutacji w bazie wypada jak dotąd (dawny INNER JOIN).
-    conds.append(or_(Job.id.isnot(None), m.source == "dynareporter"))
+    conds.append(or_(Job.id.isnot(None), m.source != "nexus"))
     if board_only or definition.group_by in _BOARD_ONLY_GROUPS:
         conds.append(Job.id.isnot(None))
     base = source.outerjoin(Job, Job.id == m.job_id)
@@ -564,7 +564,11 @@ def _candidates_query(
         "recruiter": Candidate.created_by,
         "competence_category": Candidate.competence_category_id,
     }
-    conds = [Candidate.created_at >= window.start, Candidate.created_at < window.end]
+    # Kandydaci dodani w NEXUS-ie od 12.10.2026 (decyzja Artura 18.10.2026).
+    conds = [
+        Candidate.created_at >= competition_history.board_start(window.start),
+        Candidate.created_at < window.end,
+    ]
     if author_ids is not None:
         conds.append(Candidate.created_by.in_(sorted(author_ids)))
     if definition.filters.competence_category_ids:
@@ -634,10 +638,12 @@ def _jobs_query(
         conds.append(jobs_open_only_clause())
     elif definition.measure == "opened":
         ts = func.coalesce(Job.opened_at, Job.created_at)
-        conds += [ts >= window.start, ts < window.end]
+        # Rekrutacje Tablicy liczymy od 12.10.2026 (decyzja Artura 18.10.2026)
+        # — wcześniejsze otwarcia i zamknięcia to import Traffita.
+        conds += [ts >= competition_history.board_start(window.start), ts < window.end]
     else:
         ts = Job.closed_at
-        conds += [ts >= window.start, ts < window.end]
+        conds += [ts >= competition_history.board_start(window.start), ts < window.end]
     if author_ids is not None:
         if user is None:  # pragma: no cover — wołający zawsze podaje konto
             raise ValueError("Filtr autora rekrutacji wymaga konta.")

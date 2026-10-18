@@ -23,6 +23,7 @@ from app.analytics.periods import (
     resolve_period,
 )
 from app.models.contract import Contract
+from app.services import competition_history
 from app.services.contract_rates import (
     RATE_SCHEDULE_LOADS,
     REVENUE_BEARING_STATUSES,
@@ -209,7 +210,13 @@ async def compute_board(
                       AND j.closed_at < :end
                     """
                 ),
-                {"start": resolved.start, "end": resolved.end},
+                # Rekrutacje zamknięte od 12.10.2026 (decyzja Artura
+                # 18.10.2026); hit ratio DynaReporter nie prowadził, więc
+                # okno w całości wcześniej = brak danych (mianownik 0).
+                {
+                    "start": competition_history.board_start(resolved.start),
+                    "end": resolved.end,
+                },
             )
         )
         .mappings()

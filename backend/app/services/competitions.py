@@ -759,6 +759,10 @@ async def dl_portfolio_counts(
     Tę samą definicję czyta liga ORAZ cel Delivery Leada (`kpi_goals`), żeby
     „twoje hit ratio" i podium liczyły się z tych samych liczb. Zwraca
     `(placements_by_dl, requests_by_dl)`.
+
+    Przed 12.10.2026 (decyzja Artura 18.10.2026) placementy DL to miesięczne
+    wpisy DL z DynaReportera (`dr_kpi_delivery_lead`), a rekrutacji zamkniętych
+    DynaReporter nie prowadził — mianownik hit ratio liczy od 12.10.
     """
     from app.api.reports import _dl_head_fallback_map, _resolve_dl_id
 
@@ -780,7 +784,7 @@ async def dl_portfolio_counts(
                 GROUP BY j.id, j.delivery_lead_id, j.client_id
                 """
             ),
-            {"start": start, "end": end},
+            {"start": competition_history.board_start(start), "end": end},
         )
     ).all()
     placements_by_dl: dict[int, int] = {}
@@ -789,10 +793,36 @@ async def dl_portfolio_counts(
         if dl_id is None:
             continue
         placements_by_dl[dl_id] = placements_by_dl.get(dl_id, 0) + int(r.cnt)
+    history_end = min(end, competition_history.cutover_utc())
+    if start < history_end:
+        tz = ZoneInfo(DEFAULT_TZ)
+        for r in (
+            await db.execute(
+                text(
+                    """
+                    SELECT user_id, sum(placements) AS cnt
+                    FROM dr_kpi_delivery_lead
+                    WHERE report_month >= :start_day AND report_month < :end_day
+                    GROUP BY user_id
+                    """
+                ),
+                {
+                    "start_day": start.astimezone(tz).date(),
+                    # Miesiąc cutoveru bez wpisu DL — od 12.10 liczy Tablica.
+                    "end_day": min(
+                        history_end.astimezone(tz).date(),
+                        competition_history.RESULTS_CUTOVER.replace(day=1),
+                    ),
+                },
+            )
+        ).all():
+            placements_by_dl[r.user_id] = placements_by_dl.get(r.user_id, 0) + int(
+                r.cnt or 0
+            )
 
-    # Mianownik hit ratio: rekrutacje ZAMKNIĘTE w kwartale.
+    # Mianownik hit ratio: rekrutacje ZAMKNIĘTE w kwartale (od 12.10.2026).
     req_q = select(Job.id, Job.delivery_lead_id, Job.client_id).where(
-        Job.closed_at >= start,
+        Job.closed_at >= competition_history.board_start(start),
         Job.closed_at < end,
     )
     req_rows = (await db.execute(req_q)).all()

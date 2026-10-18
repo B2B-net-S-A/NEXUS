@@ -32,9 +32,9 @@ from app.services.recruitment_trend import (
 )
 
 WARSAW = ZoneInfo("Europe/Warsaw")
-# Poza 1.01–11.10.2026: tam statystyki liczą wpisy DynaReportera (migracja 0454),
-# a test sprawdza ruchy Tablicy.
-T_NOW = datetime(2025, 8, 20, 12, 0, tzinfo=WARSAW)
+# Po 12.10.2026: wcześniej statystyki liczą tylko DynaReportera (migracje 0454,
+# 0467), a test sprawdza ruchy Tablicy.
+T_NOW = datetime(2027, 8, 20, 12, 0, tzinfo=WARSAW)
 
 
 async def _seed_stage(stage: PipelineStage, moved_at: datetime) -> tuple[int, int, int]:
@@ -80,21 +80,21 @@ def _month_map(points):
 
 @pytest.mark.asyncio
 async def test_warsaw_bucketing_crosses_utc_month_boundary():
-    """22:30 UTC 31.07 = 00:30 CEST 1.08 → kubełek 2025-08, nie 2025-07."""
+    """22:30 UTC 31.07 = 00:30 CEST 1.08 → kubełek 2027-08, nie 2027-07."""
     async with AsyncSessionLocal() as db:
         before = await monthly_milestone_trend(db, months=3, now=T_NOW)
 
     await _seed_stage(
         PipelineStage.verified,
-        datetime(2025, 7, 31, 22, 30, tzinfo=timezone.utc),
+        datetime(2027, 7, 31, 22, 30, tzinfo=timezone.utc),
     )
 
     async with AsyncSessionLocal() as db:
         after = await monthly_milestone_trend(db, months=3, now=T_NOW)
 
     b, a = _month_map(before), _month_map(after)
-    assert a["2025-08"].weryfikacje == b["2025-08"].weryfikacje + 1
-    assert a["2025-07"].weryfikacje == b["2025-07"].weryfikacje
+    assert a["2027-08"].weryfikacje == b["2027-08"].weryfikacje + 1
+    assert a["2027-07"].weryfikacje == b["2027-07"].weryfikacje
 
 
 @pytest.mark.asyncio
@@ -103,8 +103,8 @@ async def test_returns_exactly_n_zero_filled_contiguous_months():
         points = await monthly_milestone_trend(db, months=12, now=T_NOW)
 
     assert len(points) == 12
-    assert points[0].month == "2024-09"
-    assert points[-1].month == "2025-08"
+    assert points[0].month == "2026-09"
+    assert points[-1].month == "2027-08"
     months = [p.month for p in points]
     assert months == sorted(months)
     # Miesiące bez aktywności istnieją w wyniku (zera, nie dziury).
@@ -121,7 +121,7 @@ async def test_returns_exactly_n_zero_filled_contiguous_months():
 @pytest.mark.asyncio
 async def test_all_five_stages_map_to_fields():
     """Każdy z 5 kamieni (w tym acceptance) ląduje we właściwym polu."""
-    stamp = datetime(2025, 8, 10, 9, 0, tzinfo=timezone.utc)
+    stamp = datetime(2027, 8, 10, 9, 0, tzinfo=timezone.utc)
     async with AsyncSessionLocal() as db:
         before = _month_map(await monthly_milestone_trend(db, months=2, now=T_NOW))
 
@@ -137,7 +137,7 @@ async def test_all_five_stages_map_to_fields():
     async with AsyncSessionLocal() as db:
         after = _month_map(await monthly_milestone_trend(db, months=2, now=T_NOW))
 
-    cur_b, cur_a = before["2025-08"], after["2025-08"]
+    cur_b, cur_a = before["2027-08"], after["2027-08"]
     assert cur_a.weryfikacje == cur_b.weryfikacje + 1
     assert cur_a.rekomendacje == cur_b.rekomendacje + 1
     assert cur_a.interview == cur_b.interview + 1
@@ -149,7 +149,7 @@ async def test_all_five_stages_map_to_fields():
 async def test_current_month_delta_consistent_with_team_panel():
     """Trend i panel zespołu liczą tym samym CTE — świeże zdarzenie widać
     w obu identycznie (spójność kafle ↔ wykres)."""
-    stamp = datetime(2025, 8, 12, 9, 0, tzinfo=timezone.utc)
+    stamp = datetime(2027, 8, 12, 9, 0, tzinfo=timezone.utc)
     async with AsyncSessionLocal() as db:
         before = _month_map(await monthly_milestone_trend(db, months=1, now=T_NOW))
 
@@ -159,11 +159,11 @@ async def test_current_month_delta_consistent_with_team_panel():
         after = _month_map(await monthly_milestone_trend(db, months=1, now=T_NOW))
         panel = await compute_team_panel(
             db,
-            bounds=(datetime(2025, 8, 1, tzinfo=WARSAW), T_NOW),
+            bounds=(datetime(2027, 8, 1, tzinfo=WARSAW), T_NOW),
             now=T_NOW,
         )
 
-    assert after["2025-08"].weryfikacje == before["2025-08"].weryfikacje + 1
+    assert after["2027-08"].weryfikacje == before["2027-08"].weryfikacje + 1
     row = next(r for r in panel.rows if r.user_id == uid)
     assert row.weryfikacje == 1
 
@@ -175,18 +175,18 @@ async def test_future_dated_rows_are_excluded_at_query_level():
     async with AsyncSessionLocal() as db:
         before = _month_map(await monthly_milestone_trend(db, months=2, now=T_NOW))
 
-    # Miesiąc PO oknie (T_NOW = 2025-08-20 → wiersz z września).
+    # Miesiąc PO oknie (T_NOW = 2027-08-20 → wiersz z września).
     await _seed_stage(
         PipelineStage.verified,
-        datetime(2025, 9, 10, 9, 0, tzinfo=timezone.utc),
+        datetime(2027, 9, 10, 9, 0, tzinfo=timezone.utc),
     )
 
     async with AsyncSessionLocal() as db:
         after = _month_map(await monthly_milestone_trend(db, months=2, now=T_NOW))
 
-    assert set(after.keys()) == {"2025-07", "2025-08"}
-    assert after["2025-08"].weryfikacje == before["2025-08"].weryfikacje
-    assert after["2025-07"].weryfikacje == before["2025-07"].weryfikacje
+    assert set(after.keys()) == {"2027-07", "2027-08"}
+    assert after["2027-08"].weryfikacje == before["2027-08"].weryfikacje
+    assert after["2027-07"].weryfikacje == before["2027-07"].weryfikacje
 
 
 def test_funnel_conversions_null_denominator_and_rounding():

@@ -261,7 +261,8 @@ async def test_coverage_counts_manual_moves_by_external_source(
     # i asercja na dokladna liczbe przestalaby byc prawdziwa przy drugim
     # uruchomieniu — czyli test bylby zielony raz.
     slot = int(uuid.uuid4().hex[:6], 16) % 900
-    year = 1100 + slot  # rok bez zadnych innych danych
+    # Po 12.10.2026 — wcześniejsze ruchy Tablicy nie liczą się do statystyk (0467).
+    year = 5100 + slot  # rok bez zadnych innych danych
     when = datetime(year, 6, 15, 12, tzinfo=timezone.utc)
     await _seed_stage(PipelineStage.verified, when, "manual")
     await _seed_stage(PipelineStage.verified, when + timedelta(days=1), "traffit")
@@ -296,7 +297,7 @@ async def test_interview_conversions_count_client_interviews_not_qc(
     — przejście przez QC nie może jej podbić."""
     _, email, password = await _seed_user(UserRole.admin, "qcconv")
     headers = await _login(fx_client, email, password)
-    params = {"period": "custom", "date_from": "1987-03-01", "date_to": "1987-03-31"}
+    params = {"period": "custom", "date_from": "2067-03-01", "date_to": "2067-03-31"}
 
     async def funnel() -> tuple[dict[str, int], dict[str, dict]]:
         await cache_invalidate("insights:recruitment:funnel:")
@@ -309,7 +310,7 @@ async def test_interview_conversions_count_client_interviews_not_qc(
         return stages, {c["key"]: c for c in body["conversions"]}
 
     stages_before, conv_before = await funnel()
-    when = datetime(1987, 3, 10, 10, tzinfo=timezone.utc)
+    when = datetime(2067, 3, 10, 10, tzinfo=timezone.utc)
     await _seed_stage(PipelineStage.interview, when, "manual")
     await _seed_stage(PipelineStage.client_interview, when, "manual")
     stages_after, conv_after = await funnel()
@@ -415,7 +416,7 @@ async def test_time_to_hire_measures_from_the_real_process_start(
         await db.refresh(cand)
 
         # Proces startuje 100 dni PRZED oknem, zatrudnienie wpada do okna.
-        hired_at = datetime(2015, 6, 15, 12, tzinfo=timezone.utc)
+        hired_at = datetime(2068, 6, 15, 12, tzinfo=timezone.utc)
         db.add_all(
             [
                 CandidateStage(
@@ -444,8 +445,8 @@ async def test_time_to_hire_measures_from_the_real_process_start(
             headers=headers,
             params={
                 "period": "custom",
-                "date_from": "2015-06-01",
-                "date_to": "2015-06-30",
+                "date_from": "2068-06-01",
+                "date_to": "2068-06-30",
                 "min_hires": 1,
             },
         )
@@ -669,7 +670,8 @@ async def test_team_activity_puts_admin_accounts_outside_the_ranking(
 ):
     """Konta administracyjne poza rankingiem osób (reguła Hall of Fame, 24.09.2026)."""
     await cache_invalidate("insights:recruitment:team-activity:")
-    year = 1700 + int(uuid.uuid4().hex[:6], 16) % 200
+    # Po 12.10.2026 — wcześniejsze ruchy Tablicy nie liczą się do statystyk (0467).
+    year = 6100 + int(uuid.uuid4().hex[:6], 16) % 200
     admin_id, email, password = await _seed_user(UserRole.admin, "ta-admin")
     recruiter_id, _, _ = await _seed_user(UserRole.recruiter, "ta-rec")
     headers = await _login(fx_client, email, password)
@@ -706,7 +708,8 @@ async def test_team_activity_columns_read_real_sources(fx_client: AsyncClient):
     Martwe typy zapisane ręcznie NIE mogą już zasilać kolumn.
     """
     await cache_invalidate("insights:recruitment:team-activity:")
-    year = 1500 + int(uuid.uuid4().hex[:6], 16) % 200
+    # Po 12.10.2026 — wcześniejsze ruchy Tablicy nie liczą się do statystyk (0467).
+    year = 6400 + int(uuid.uuid4().hex[:6], 16) % 200
     actor_id, email, password = await _seed_user(UserRole.recruiter, "ta-shape")
     headers = await _login(fx_client, email, password)
 
