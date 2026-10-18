@@ -5,10 +5,18 @@ import { ChevronLeft, ChevronRight } from "lucide-react";
 
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import { Button } from "@/components/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import type { HrConfig } from "@/lib/api/hr";
 import {
   useTeamCalendar,
   type CalendarAbsence,
+  type CalendarPresenceKind,
   type TeamCalendar as TeamCalendarData,
   type TeamCalendarPerson,
 } from "@/lib/api/hr-leave";
@@ -20,9 +28,13 @@ import { warsawToday } from "@/lib/warsaw-date";
 import { personInitials } from "../people/hr-format";
 import {
   HALF_DAY_LABELS,
+  PRESENCE_LABELS,
   calendarCells,
   formatRange,
+  matchesStatusFilter,
+  presenceByDay,
   shortName,
+  type CalendarStatusFilter,
 } from "./leave-format";
 
 type Filter = { kind: "all" } | { kind: "team" } | { kind: "department"; name: string };
@@ -46,6 +58,7 @@ export function TeamCalendar({ config }: { config: HrConfig }) {
   const today = warsawToday();
   const [month, setMonth] = useState(today.slice(0, 7));
   const [filter, setFilter] = useState<Filter>({ kind: "all" });
+  const [status, setStatus] = useState<CalendarStatusFilter>("all");
   const [selected, setSelected] = useState<Selected | null>(null);
   const calendar = useTeamCalendar(
     month,
@@ -53,6 +66,22 @@ export function TeamCalendar({ config }: { config: HrConfig }) {
     filter.kind === "team",
   );
   const data = calendar.data;
+  const people = useMemo(
+    () =>
+      (data?.people ?? []).filter((person) =>
+        matchesStatusFilter(person, status, data?.today ?? today, month),
+      ),
+    [data, status, today, month],
+  );
+  const statusCounts = useMemo(() => {
+    const all = data?.people ?? [];
+    const on = data?.today ?? today;
+    return {
+      absent: all.filter((person) => matchesStatusFilter(person, "absent", on, month)).length,
+      remote: all.filter((person) => matchesStatusFilter(person, "remote", on, month)).length,
+    };
+  }, [data, today, month]);
+  const todayInView = (data?.today ?? today).startsWith(month);
   const state = resolveViewState({
     isLoading: calendar.isLoading,
     isError: calendar.isError,
@@ -119,7 +148,29 @@ export function TeamCalendar({ config }: { config: HrConfig }) {
             </button>
           ))}
         </div>
-        <Legend />
+        <Select
+          value={status}
+          onValueChange={(value) => {
+            setStatus(value as CalendarStatusFilter);
+            setSelected(null);
+          }}
+        >
+          <SelectTrigger className="h-8 w-[220px]" aria-label="Kto">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Wszyscy</SelectItem>
+            <SelectItem value="absent">
+              {`Nieobecni${todayInView ? " dziś" : ""} (${statusCounts.absent})`}
+            </SelectItem>
+            {data?.presence_shown ? (
+              <SelectItem value="remote">
+                {`Zdalnie${todayInView ? " dziś" : ""} (${statusCounts.remote})`}
+              </SelectItem>
+            ) : null}
+          </SelectContent>
+        </Select>
+        <Legend withPresence={Boolean(data?.presence_shown)} />
       </div>
 
       {state === "loading" ? (
@@ -140,9 +191,20 @@ export function TeamCalendar({ config }: { config: HrConfig }) {
         <p className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
           Nikt z tego zakresu nie ma kartoteki w tym miesiącu.
         </p>
+      ) : people.length === 0 ? (
+        <p className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
+          {status === "remote"
+            ? `Nikt nie pracuje zdalnie${todayInView ? " dziś" : " w tym miesiącu"}.`
+            : `Nikt nie jest nieobecny${todayInView ? " dziś" : " w tym miesiącu"}.`}
+        </p>
       ) : (
         <>
-          <CalendarGrid data={data} selected={selected} onSelect={setSelected} />
+          <CalendarGrid
+            data={data}
+            people={people}
+            selected={selected}
+            onSelect={setSelected}
+          />
           {selected ? <SelectedAbsence selected={selected} /> : null}
         </>
       )}
@@ -155,7 +217,7 @@ export function TeamCalendar({ config }: { config: HrConfig }) {
  * (B2B, zlecenie — D5, bez akceptacji); „czeka na akceptację” zdarza się
  * tylko przy umowie o pracę.
  */
-function Legend() {
+function Legend({ withPresence }: { withPresence: boolean }) {
   return (
     <div className="ml-auto flex flex-wrap items-center gap-3 text-[11.5px] text-muted-foreground">
       <span
@@ -169,6 +231,18 @@ function Legend() {
         <span aria-hidden className="h-3 w-4 rounded-sm border border-dashed border-primary/60" />
         wniosek czeka na akceptację
       </span>
+      {withPresence ? (
+        <>
+          <span className="inline-flex items-center gap-1.5">
+            <PresenceMark kind="remote" />
+            {PRESENCE_LABELS.remote}
+          </span>
+          <span className="inline-flex items-center gap-1.5">
+            <PresenceMark kind="business_trip" />
+            {PRESENCE_LABELS.business_trip}
+          </span>
+        </>
+      ) : null}
       <span className="inline-flex items-center gap-1.5">
         <span aria-hidden className="h-3 w-4 rounded-sm bg-muted" />
         wolne
@@ -177,13 +251,32 @@ function Legend() {
   );
 }
 
+/** Znacznik pracy zdalnej („Z”) albo delegacji („D”) — wyjątek obecności, nie nieobecność. */
+function PresenceMark({ kind }: { kind: CalendarPresenceKind }) {
+  return (
+    <span
+      aria-hidden
+      className={cn(
+        "grid h-3 w-4 place-items-center rounded-sm text-[8.5px] font-semibold leading-none",
+        kind === "remote"
+          ? "bg-info-muted text-info-muted-foreground"
+          : "bg-warning-muted text-warning-muted-foreground",
+      )}
+    >
+      {kind === "remote" ? "Z" : "D"}
+    </span>
+  );
+}
+
 interface CalendarGridProps {
   data: TeamCalendarData;
+  /** Osoby po filtrze „wszyscy / nieobecni / zdalnie”. */
+  people: TeamCalendarPerson[];
   selected: Selected | null;
   onSelect: (selected: Selected | null) => void;
 }
 
-function CalendarGrid({ data, selected, onSelect }: CalendarGridProps) {
+function CalendarGrid({ data, people, selected, onSelect }: CalendarGridProps) {
   const days = useMemo(() => data.days.map((day) => day.date), [data.days]);
   return (
     <div className="overflow-x-auto rounded-lg border border-border bg-card">
@@ -222,8 +315,9 @@ function CalendarGrid({ data, selected, onSelect }: CalendarGridProps) {
           </tr>
         </thead>
         <tbody>
-          {data.people.map((person) => {
+          {people.map((person) => {
             const cells = calendarCells(person.absences, days);
+            const presence = presenceByDay(person.presence);
             return (
               <tr key={person.user_id} className="h-9 border-b border-border/60 last:border-b-0">
                 <th
@@ -247,11 +341,28 @@ function CalendarGrid({ data, selected, onSelect }: CalendarGridProps) {
                   const off = day.kind !== "work";
                   const isToday = day.date === data.today;
                   if (!cell || cell.kind === "none") {
+                    const mark = presence.get(day.date);
                     return (
                       <td
                         key={day.date}
                         className={cn("p-0", off && "bg-muted", isToday && "bg-primary/5")}
-                      />
+                      >
+                        {mark ? (
+                          <span
+                            role="img"
+                            aria-label={`${person.name}: ${PRESENCE_LABELS[mark]} ${formatRange(day.date, day.date)}`}
+                            title={PRESENCE_LABELS[mark]}
+                            className={cn(
+                              "mx-auto grid h-6 w-full place-items-center rounded-sm text-[10px] font-semibold",
+                              mark === "remote"
+                                ? "bg-info-muted text-info-muted-foreground"
+                                : "bg-warning-muted text-warning-muted-foreground",
+                            )}
+                          >
+                            {mark === "remote" ? "Z" : "D"}
+                          </span>
+                        ) : null}
+                      </td>
                     );
                   }
                   const active =

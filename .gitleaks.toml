@@ -115,6 +115,11 @@ regexes = [
   # — UUID-y bez materiału klucza, które reguła ``fireflies-api-key`` bierze
   # za klucz. Zakotwiczone, dokładnie cztery wartości.
   '''^(00000000-0000-0000-0000-000000000001|3f1c2a9e-1b2c-4d5e-8f90-123456789abc|9b2f4c1e-0000-4000-8000-000000000001|2099071c-84e5-4aaf-aa70-57d2d40afffa)$''',
+  # Fikcyjne identyfikatory wniosków w testach przekierowań i reguł okna
+  # autoodpowiedzi (PR #2322). Testy składają je już w locie (ea678d6cc), ale
+  # wartości zostają w historii gałęzi, a skan PR-a obejmuje cały zakres
+  # commitów. Zakotwiczone, dokładnie trzy wartości.
+  '''^(9a1c2a9e-1b2c-4d5e-8f90-123456789abc|0b1c2a9e-1b2c-4d5e-8f90-123456789abc|00000000-0000-0000-0000-00000000abcd)$''',
 ]
 
 [[rules]]

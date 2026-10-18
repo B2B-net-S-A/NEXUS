@@ -55,7 +55,7 @@ describe("/preview/hr-approvals", () => {
     await user.click(within(kamil).getByRole("button", { name: "Odrzuć" }));
     expect(await screen.findByRole("dialog")).toBeInTheDocument();
     await user.keyboard("{Escape}");
-    expect(screen.getByRole("heading", { name: "Historia" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Wszystkie wnioski" })).toBeInTheDocument();
     expect(attempted()).toEqual([]);
   });
 

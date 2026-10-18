@@ -3,7 +3,11 @@
 Tryb (``HR_M365_MODE``), kolejka operacji (oczekujące, nieudane,
 zasymulowane z podglądem dokładnego żądania), „Ponów”, skrzynki, w których
 zachowaliśmy własną autoodpowiedź osoby, ostatni odczyt profili z katalogu
-i termin sekretu rejestracji „NEXUS Kadry”. Za uprawnieniem „Kadry”
+i termin sekretu rejestracji „NEXUS Kadry”. Przekierowania poczty: lista
+zapisanych w NEXUSIE, „Sprawdź skrzynki” (odczyt reguł na żywo, bez zapisu),
+„Uzgodnij teraz” (przebieg uzgadniania na żądanie) i „Zamknij regułę”
+(``forward_rule_close`` przez kolejkę). Każde działanie zostawia ślad
+w ``hr_audit_events``. Za uprawnieniem „Kadry”
 (``people_admin``; admin ma wszystkie). Przełącznik modułu nie zamyka karty —
 Kadry przygotowują przełączenie, zanim moduł urlopów zostanie włączony.
 
@@ -16,6 +20,7 @@ from datetime import datetime
 from typing import Annotated, Any, Literal, Optional, get_args
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -27,7 +32,7 @@ from app.models.hr_ops import HrJobRun
 from app.models.user import User
 from app.services.action_permissions import ProductAction
 from app.services.hr import audit
-from app.services.hr.m365 import executor, secret_expiry
+from app.services.hr.m365 import executor, forward_admin, reconcile, secret_expiry
 from app.services.hr.m365.auth import credentials_configured
 from app.services.hr.m365.profile_sync import JOB_KIND as PROFILE_SYNC_KIND
 from app.services.hr.m365.reconcile import JOB_KIND as RECONCILE_KIND
@@ -41,6 +46,11 @@ OPERATION_STATUSES: tuple[str, ...] = get_args(OperationStatus)
 RETRYABLE_STATUSES = ("failed", "pending")
 NOT_RETRYABLE_DETAIL = "Tę operację można ponowić tylko, gdy czeka albo się nie udała."
 NOT_FOUND_DETAIL = "Nie ma takiej operacji."
+RECONCILE_REFUSALS = {
+    "disabled": "Microsoft 365 jest wyłączony (tryb „Wyłączone”) — uzgadniania nie ma z czym zrobić.",
+    "no_credentials": "Aplikacja NEXUSA w Microsoft 365 nie ma poświadczeń — skrzynek nie da się odczytać.",
+    reconcile.ALREADY_RUNNING: "Uzgadnianie już trwa — poczekaj na jego koniec i odśwież kartę.",
+}
 
 
 def require_hr_m365_admin():
@@ -221,3 +231,111 @@ async def retry_operation(
     await db.commit()
     user_name = await db.scalar(select(User.name).where(User.id == op.user_id))
     return _operation_out(op, user_name)
+
+
+# ── Przekierowania poczty i uzgadnianie na żądanie ───────────────────────────
+
+
+@router.get("/forwards")
+async def list_forwards(
+    _: HrM365Admin, db: AsyncSession = Depends(get_db)
+) -> dict[str, Any]:
+    """Przekierowania zapisane w NEXUSIE (bez odczytu skrzynek)."""
+
+    return await forward_admin.saved_forwards(db, today=business_today())
+
+
+@router.post("/forwards/check")
+async def check_forwards(
+    current_user: HrM365Admin, db: AsyncSession = Depends(get_db)
+) -> dict[str, Any]:
+    """„Sprawdź skrzynki” — reguły zastępstw na żywo z Graph, bez zapisu w skrzynkach."""
+
+    result = await forward_admin.check_mailboxes(db, today=business_today())
+    audit.record(
+        db,
+        actor_user_id=current_user.id,
+        subject_user_id=None,
+        entity_type="hr_m365",
+        entity_id="forwards",
+        action="m365_forwards_checked",
+        details={
+            "mode": result["mode"],
+            "available": result["available"],
+            "scanned": result.get("scanned", 0),
+            "unreadable": len(result.get("unreadable", [])),
+            "problems": sum(1 for item in result["items"] if item["health"] != "ok"),
+        },
+    )
+    await db.commit()
+    return result
+
+
+class CloseRuleIn(BaseModel):
+    user_id: int
+    leave_request_id: str = Field(min_length=36, max_length=36)
+
+
+@router.post("/forwards/close")
+async def close_forward_rule(
+    payload: CloseRuleIn,
+    current_user: HrM365Admin,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """„Zamknij regułę” — ``forward_rule_close`` przez kolejkę M365."""
+
+    try:
+        result = await forward_admin.close_rule(
+            db,
+            user_id=payload.user_id,
+            leave_request_id=payload.leave_request_id,
+            today=business_today(),
+            actor_id=current_user.id,
+            now=executor.utc_now(),
+        )
+    except forward_admin.ForwardAdminError as exc:
+        await db.rollback()
+        raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+    audit.record(
+        db,
+        actor_user_id=current_user.id,
+        subject_user_id=payload.user_id,
+        entity_type="leave_request",
+        entity_id=result["leave_request_id"],
+        action="m365_forward_close_requested",
+        details={"known": result["known"]},
+    )
+    await db.commit()
+    return result
+
+
+@router.post("/reconcile")
+async def reconcile_now(
+    current_user: HrM365Admin, db: AsyncSession = Depends(get_db)
+) -> dict[str, Any]:
+    """„Uzgodnij teraz” — jeden przebieg uzgadniania (bez dziennej rezerwacji)."""
+
+    result = await reconcile.run_manual(db)
+    audit.record(
+        db,
+        actor_user_id=current_user.id,
+        subject_user_id=None,
+        entity_type="hr_m365",
+        entity_id="reconcile",
+        action="m365_reconcile_requested",
+        details={
+            "status": result["status"],
+            "mode": result["mode"],
+            "counts": result["counts"],
+        },
+    )
+    await db.commit()
+    refusal = RECONCILE_REFUSALS.get(result["status"])
+    if refusal is not None:
+        raise HTTPException(status.HTTP_409_CONFLICT, refusal)
+    if result["status"] == "failed":
+        raise HTTPException(
+            status.HTTP_500_INTERNAL_SERVER_ERROR,
+            "Uzgadnianie się nie udało — szczegóły w logach serwera.",
+        )
+    return result

@@ -24,6 +24,7 @@ import { hrKeys, type HrConfig } from "@/lib/api/hr";
 import {
   leaveKeys,
   type CalendarAbsence,
+  type CalendarPresenceKind,
   type LeaveType,
   type TeamCalendar as TeamCalendarData,
   type TeamCalendarPerson,
@@ -76,6 +77,13 @@ const PLANS: Plan[] = [
 /** Podwładni przełożonej — tylko oni mają w jej widoku rodzaj nieobecności. */
 const REPORTS = new Set<number>([ola.id, ewa.id, tomasz.id, julia.id]);
 
+/** Praca zdalna i delegacja (n-ty dzień roboczy miesiąca) — fikcyjne, do podglądu znaczników „Z” i „D”. */
+const PRESENCE: Record<number, [number, CalendarPresenceKind][]> = {
+  [ola.id]: [[2, "remote"], [3, "remote"], [9, "remote"]],
+  [tomasz.id]: [[1, "remote"], [12, "business_trip"], [13, "business_trip"]],
+  [marta.id]: [[6, "remote"], [7, "remote"]],
+};
+
 function calendar(month: string, viewer: HarnessPerson, as: As, filter: (p: HarnessPerson) => boolean): TeamCalendarData {
   const today = warsawToday();
   const people: TeamCalendarPerson[] = PLANS.filter((plan) => filter(plan.person)).map(({ person, ranges }) => {
@@ -99,6 +107,7 @@ function calendar(month: string, viewer: HarnessPerson, as: As, filter: (p: Harn
       is_me: person.id === viewer.id,
       type_visible: typeVisible,
       absences,
+      presence: (PRESENCE[person.id] ?? []).map(([day, kind]) => ({ date: nthWorkDay(month, day), kind })),
     };
   });
   return {
@@ -106,6 +115,7 @@ function calendar(month: string, viewer: HarnessPerson, as: As, filter: (p: Harn
     today,
     days: harnessMonthDays(month),
     departments: [...new Set(PLANS.map((plan) => plan.person.department))].sort(),
+    presence_shown: true,
     people,
   };
 }

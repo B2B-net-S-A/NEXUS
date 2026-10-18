@@ -178,5 +178,7 @@ def of_kind(ops: list[HrM365Operation], kind: str) -> list[HrM365Operation]:
 
 
 async def reset_reconcile_runs(db: AsyncSession) -> None:
-    await db.execute(text("DELETE FROM hr_job_runs WHERE kind = 'hr_m365_reconcile'"))
+    await db.execute(
+        text("DELETE FROM hr_job_runs WHERE kind LIKE 'hr_m365_reconcile%'")
+    )
     await db.commit()

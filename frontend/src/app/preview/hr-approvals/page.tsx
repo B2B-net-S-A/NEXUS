@@ -37,7 +37,9 @@ import {
   leaveKeys,
   type LeaveCovering,
   type LeaveRequestRow,
+  type LeaveHistory,
   type LeaveStatus,
+  type LeaveStatusCounts,
   type OnBehalfPerson,
   type PendingLeaveRow,
 } from "@/lib/api/hr-leave";
@@ -318,10 +320,18 @@ function prepare(params: URLSearchParams) {
   const statuses: (LeaveStatus | null)[] = [null, "pending", "approved", "rejected", "cancelled"];
   for (const status of statuses) {
     for (const userId of [null, ...team.map((person) => person.id)]) {
-      client.setQueryData(
-        leaveKeys.history({ status, user_id: userId }),
-        history.filter((row) => (!status || row.status === status) && (!userId || row.user_id === userId)),
-      );
+      const scope = history.filter((row) => !userId || row.user_id === userId);
+      const counts: LeaveStatusCounts = {
+        all: scope.length,
+        pending: scope.filter((row) => row.status === "pending").length,
+        approved: scope.filter((row) => row.status === "approved").length,
+        rejected: scope.filter((row) => row.status === "rejected").length,
+        cancelled: scope.filter((row) => row.status === "cancelled").length,
+      };
+      client.setQueryData<LeaveHistory>(leaveKeys.history({ status, user_id: userId }), {
+        items: scope.filter((row) => !status || row.status === status),
+        counts,
+      });
     }
   }
 

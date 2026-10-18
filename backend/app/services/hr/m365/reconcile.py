@@ -20,7 +20,13 @@ tryby, listę skrzynek i ponowienia wykonawcy). Dla każdej skrzynki zespołu:
    urlopu → przejęcie (``forward_rule_open`` przepisuje ją na NEXUSA);
 3. **wydarzenia po symulacji** (tylko ``live``) — zatwierdzony urlop, który
    się nie skończył, a jego ostatnia operacja kalendarza to symulowane
-   ``calendar_event_upsert`` → ``calendar_event_upsert`` na nowo.
+   ``calendar_event_upsert`` → ``calendar_event_upsert`` na nowo;
+4. **nieobecność ustawiona w Outlooku bez wniosku** — własna autoodpowiedź
+   osoby z harmonogramem, której dni nie pokrywa żaden wniosek → wniosek
+   ``source='outlook_oof'`` (``leave_outlook``, tylko przy włączonym module
+   urlopów). Autoodpowiedź bez dat zostaje na liście „własnych
+   autoodpowiedzi” w karcie (``custom_oof_detected``). Wnioski z Outlooka nie
+   dostają od nas autoodpowiedzi ani wydarzenia — osoba ma swoją.
 
 Po przejściu ``simulate`` → ``live`` operacje ``simulated`` są dla
 uzgadniania niewykonane (do ponowienia): w skrzynce nic się nie zmieniło.
@@ -28,7 +34,9 @@ W trybie ``simulate`` liczą się jak ``done`` — inaczej symulacja dokładała
 operacje codziennie.
 
 Rezerwacja w ``hr_job_runs`` (``kind = hr_m365_reconcile``, klucz = dzień):
-drugi przebieg tego samego dnia nic nie robi. Odczyt skrzynki nieudany =
+drugi przebieg tego samego dnia nic nie robi. „Uzgodnij teraz” w karcie
+(``run_manual``) omija rezerwację dnia i godzinę 7:00; przed równoległym
+przebiegiem (ręcznym albo dziennym) chroni wspólna blokada ``LOCK_KIND``. Odczyt skrzynki nieudany =
 „nie wiadomo”, a nie „pusto” — wtedy niczego nie wnioskujemy.
 """
 
@@ -48,7 +56,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.hr_leave import HrM365Operation, LeaveRequest
 from app.models.hr_profile import EmployeeProfile
 from app.models.user import User
-from app.services.hr import job_runs
+from app.services.hr import job_runs, leave_outlook
 from app.services.hr.m365 import forward_rules, oof_state
 from app.services.hr.m365.executor import (
     allowlist,
@@ -65,11 +73,16 @@ from app.services.hr.m365.executor import (
 )
 from app.services.hr.m365.ops import GraphMailboxOps, MailboxError, MailboxOps
 from app.services.hr.m365.simulated import SimulatedMailboxOps
+from app.services.hr.modules import HrModule, load_modules
 from app.services.hr_foundation_schema import EmploymentStatus
 
 logger = logging.getLogger(__name__)
 
 JOB_KIND = "hr_m365_reconcile"
+#: Blokada przebiegu (dzienny i ręczny) — jeden wiersz, przejmowany po zakończeniu.
+LOCK_KIND = "hr_m365_reconcile_lock"
+LOCK_KEY = "run"
+ALREADY_RUNNING = "already_running"
 RECONCILE_HOUR = 7
 #: Górna granica skrzynek na przebieg (zespół to dziś kilkadziesiąt osób).
 MAX_MAILBOXES = 300
@@ -199,7 +212,7 @@ async def _simulated_calendar(
     return out
 
 
-async def _mailbox_users(
+async def mailbox_users(
     db: AsyncSession, owner_ids: set[int], only: Optional[Collection[int]]
 ) -> list[User]:
     """Skrzynki zespołu (kartoteka nie ``exited``) i właściciele urlopów."""
@@ -267,6 +280,7 @@ async def _reconcile(
 ) -> dict[str, Any]:
     counts: dict[str, Any] = defaultdict(int)
     executed = executed_statuses(mode)
+    create_requests = (await load_modules(db)).get(HrModule.leave, False)
     leaves = await _candidate_leaves(db, today)
     leave_ids = [leave.id for leave in leaves]
     totals = await leave_day_totals(db, leave_ids)
@@ -279,7 +293,7 @@ async def _reconcile(
 
     allowed = allowlist() if mode == "live" else frozenset()
     day_key = today.isoformat()
-    for user in await _mailbox_users(db, set(by_user) | set(calendar_redo), only):
+    for user in await mailbox_users(db, set(by_user) | set(calendar_redo), only):
         upn = mailbox_address(user)
         if upn is None:
             continue
@@ -299,9 +313,12 @@ async def _reconcile(
             error = exc.label
             counts["read_errors"] += 1
         if current is not None:
-            if not oof_state.user_custom_active(current, now):
-                custom_flag = False
+            custom_flag = oof_state.user_custom_active(current, now)
+            if custom_flag and create_requests:
+                await _requests_from_custom_oof(db, user, current, today, counts)
             for leave in user_leaves:
+                if leave.source == leave_outlook.SOURCE:
+                    continue  # osoba ma własną autoodpowiedź — nie nadpisujemy
                 total = totals.get(leave.id, Decimal("0"))
                 if total < Decimal("1"):
                     continue  # pół dnia nie dostaje autoodpowiedzi
@@ -417,6 +434,28 @@ async def _reconcile(
     return dict(counts)
 
 
+async def _requests_from_custom_oof(
+    db: AsyncSession,
+    user: User,
+    current: dict[str, Any],
+    today: date,
+    counts: dict[str, Any],
+) -> None:
+    """Krok 4 — wniosek z własnej autoodpowiedzi; awaria nie zatrzymuje przebiegu."""
+
+    try:
+        async with db.begin_nested():
+            found = await leave_outlook.from_custom_oof(
+                db, user=user, setting=current, today=today
+            )
+    except Exception:  # noqa: BLE001 — jedna skrzynka nie zatrzymuje uzgadniania
+        logger.exception("hr_m365_reconcile: outlook leave for user %s failed", user.id)
+        counts["oof_request_errors"] += 1
+        return
+    for key, value in found.items():
+        counts[key] += value
+
+
 async def _existing_leaves(
     db: AsyncSession, leave_ids: set[str], user_id: int
 ) -> set[str]:
@@ -448,6 +487,55 @@ def _forward_payload(leave: LeaveRequest, reason: str) -> dict[str, Any]:
     }
 
 
+async def _locked_pass(
+    db: AsyncSession,
+    *,
+    ops: Optional[MailboxOps],
+    mode: str,
+    now: datetime,
+    today: date,
+    user_ids: Optional[Collection[int]],
+) -> tuple[str, dict[str, Any]]:
+    """Przebieg pod blokadą ``LOCK_KIND``: ``(status, liczby)``.
+
+    ``status`` = ``done`` / ``failed`` / ``ALREADY_RUNNING`` (inny przebieg ma
+    blokadę — dzienny poczeka, ręczny dostaje odmowę).
+    """
+
+    lock_id = await job_runs.claim(db, LOCK_KIND, LOCK_KEY, now, retake_done=True)
+    if lock_id is None:
+        return ALREADY_RUNNING, {}
+    own_ops = ops is None
+    active_ops: MailboxOps = ops or (
+        SimulatedMailboxOps() if mode == "simulate" else GraphMailboxOps()
+    )
+    try:
+        counts = await _reconcile(db, active_ops, mode, now, today, user_ids)
+    except Exception as exc:  # noqa: BLE001 — przebieg do ponowienia, nie cichy sukces
+        logger.exception("hr_m365_reconcile failed")
+        await db.rollback()
+        await job_runs.finish(
+            db, lock_id, status="failed", counts={}, error=type(exc).__name__
+        )
+        return "failed", {"failed": type(exc).__name__}
+    finally:
+        if own_ops:
+            await active_ops.aclose()
+    await job_runs.finish(db, lock_id, status="done", counts=counts)
+    return "done", counts
+
+
+def _unavailable(mode: str, ops: Optional[MailboxOps]) -> Optional[str]:
+    if mode == "off":
+        return "disabled"
+    if mode == "live" and ops is None:
+        from app.services.hr.m365.auth import credentials_configured
+
+        if not credentials_configured():
+            return "no_credentials"
+    return None
+
+
 async def run_once(
     db: AsyncSession,
     *,
@@ -468,31 +556,53 @@ async def run_once(
     today = warsaw_today(now)
     if warsaw_hour(now) < RECONCILE_HOUR:
         return {"mode": mode, "skipped": "before_07"}
-    if mode == "live" and ops is None:
-        from app.services.hr.m365.auth import credentials_configured
-
-        if not credentials_configured():
-            return {"mode": mode, "skipped": "no_credentials"}
+    if _unavailable(mode, ops) == "no_credentials":
+        return {"mode": mode, "skipped": "no_credentials"}
 
     run_id = await job_runs.claim(db, JOB_KIND, today.isoformat(), now)
     if run_id is None:
         return {"mode": mode, "skipped": "already_ran"}
 
-    own_ops = ops is None
-    active_ops: MailboxOps = ops or (
-        SimulatedMailboxOps() if mode == "simulate" else GraphMailboxOps()
+    status, counts = await _locked_pass(
+        db, ops=ops, mode=mode, now=now, today=today, user_ids=user_ids
     )
-    try:
-        counts = await _reconcile(db, active_ops, mode, now, today, user_ids)
-    except Exception as exc:  # noqa: BLE001 — przebieg do ponowienia, nie cichy sukces
-        logger.exception("hr_m365_reconcile failed")
-        await db.rollback()
+    if status == ALREADY_RUNNING:
+        # Trwa „Uzgodnij teraz” — dzień zostaje do ponowienia w kolejnym obrocie pętli.
         await job_runs.finish(
-            db, run_id, status="failed", counts={}, error=type(exc).__name__
+            db, run_id, status="failed", counts={}, error=ALREADY_RUNNING
         )
-        return {"mode": mode, "failed": type(exc).__name__}
-    finally:
-        if own_ops:
-            await active_ops.aclose()
+        return {"mode": mode, "skipped": ALREADY_RUNNING}
+    if status == "failed":
+        await job_runs.finish(
+            db, run_id, status="failed", counts={}, error=counts["failed"]
+        )
+        return {"mode": mode, **counts}
     await job_runs.finish(db, run_id, status="done", counts=counts)
     return {"mode": mode, **counts}
+
+
+async def run_manual(
+    db: AsyncSession,
+    *,
+    ops: Optional[MailboxOps] = None,
+    mode: Optional[str] = None,
+    now: Optional[datetime] = None,
+    user_ids: Optional[Collection[int]] = None,
+) -> dict[str, Any]:
+    """„Uzgodnij teraz” — przebieg na żądanie Kadr, bez rezerwacji dnia i bez 7:00.
+
+    Wynik: ``{"status": "done" | "failed" | "disabled" | "no_credentials" |
+    "already_running", "mode": …, "counts": {…}}``. Dzienna rezerwacja zostaje
+    nietknięta — przebieg o 7:00 i tak się odbędzie (dokłada tylko to, czego
+    brakuje: klucze operacji są dzienne).
+    """
+
+    mode = mode or current_mode()
+    blocked = _unavailable(mode, ops)
+    if blocked is not None:
+        return {"status": blocked, "mode": mode, "counts": {}}
+    now = now or utc_now()
+    status, counts = await _locked_pass(
+        db, ops=ops, mode=mode, now=now, today=warsaw_today(now), user_ids=user_ids
+    )
+    return {"status": status, "mode": mode, "counts": counts}

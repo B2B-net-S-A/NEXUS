@@ -4,6 +4,15 @@ Lista osób według reguły miesięcznej z Compassa: osoba, która odeszła 20-g
 jest w kalendarzu do końca miesiąca (``exited`` z ostatnim dniem pracy w tym
 miesiącu albo później). Każdy widzi „nieobecność”; rodzaj, notatkę i wnioski
 oczekujące widzi tylko krąg D6 — sama osoba, jej przełożony, Kadry i admin.
+
+Obok nieobecności kalendarz pokazuje pracę zdalną i delegację z wyjątków
+obecności „Mojego miesiąca” (``attendance_days``: ``active`` + ``remote``
+i ``business_trip``) — tylko do odczytu i tylko przy module czasu otwartym dla
+patrzącego. To nie są rodzaje nieobecności (D6 ich nie dotyczy), notatki dnia
+nie wychodzą. Dzień domyślnej pracy zdalnej z kartoteki (bez wiersza) się
+nie pokazuje — kalendarz mówi o wyjątkach, jak „Mój miesiąc”. Filtr
+„nieobecni / zdalnie” liczy front z tych danych (jak Compass,
+``VacationCalendar``).
 """
 
 from __future__ import annotations
@@ -15,6 +24,7 @@ from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.hr_profile import EmployeeProfile
+from app.models.hr_time import AttendanceDay
 from app.models.user import User
 from app.services.hr.absence import month_absences
 from app.services.hr.calendar import load_calendar, month_days
@@ -33,6 +43,7 @@ async def team_calendar(
     department: Optional[str] = None,
     team_only: bool = False,
     today: date,
+    with_presence: bool = False,
 ) -> dict[str, Any]:
     days = month_days(year, month)
     first, last = days[0], days[-1]
@@ -105,8 +116,10 @@ async def team_calendar(
                 else None,
             }
         )
+    presence = await _presence(db, list(managers), first, last) if with_presence else {}
     return {
         "month": f"{year:04d}-{month:02d}",
+        "presence_shown": with_presence,
         "today": today.isoformat(),
         "days": [
             {
@@ -127,7 +140,42 @@ async def team_calendar(
                 "is_me": user.id == viewer.user_id,
                 "type_visible": user.id in in_d6,
                 "absences": by_user.get(user.id, []),
+                "presence": presence.get(user.id, []),
             }
             for user, profile in rows
         ],
     }
+
+
+async def _presence(
+    db: AsyncSession, user_ids: list[int], first: date, last: date
+) -> dict[int, list[dict[str, str]]]:
+    """Praca zdalna i delegacja z ``attendance_days`` w miesiącu (bez notatek)."""
+
+    if not user_ids:
+        return {}
+    rows = await db.execute(
+        select(
+            AttendanceDay.user_id,
+            AttendanceDay.day,
+            AttendanceDay.status,
+            AttendanceDay.location,
+        )
+        .where(
+            AttendanceDay.user_id.in_(user_ids),
+            AttendanceDay.day >= first,
+            AttendanceDay.day <= last,
+        )
+        .order_by(AttendanceDay.user_id, AttendanceDay.day)
+    )
+    out: dict[int, list[dict[str, str]]] = {}
+    for user_id, day, status, location in rows.all():
+        kind = (
+            "business_trip"
+            if status == "business_trip"
+            else ("remote" if status == "active" and location == "remote" else None)
+        )
+        if kind is None:
+            continue
+        out.setdefault(user_id, []).append({"date": day.isoformat(), "kind": kind})
+    return out

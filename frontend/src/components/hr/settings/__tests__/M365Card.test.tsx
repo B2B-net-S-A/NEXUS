@@ -100,6 +100,9 @@ const QUEUES: Record<string, M365Operation[]> = {
 function mockApi({ operationsFail = false, status = STATUS } = {}) {
   get.mockImplementation((url: string, config?: { params?: { status?: string } }) => {
     if (url === "/api/hr/admin/m365/status") return Promise.resolve({ data: status });
+    if (url === "/api/hr/admin/m365/forwards") {
+      return Promise.resolve({ data: { mode: status.mode, today: "2026-10-20", items: [] } });
+    }
     if (operationsFail) {
       return Promise.reject({ response: { status: 500, data: { detail: "Błąd" } } });
     }

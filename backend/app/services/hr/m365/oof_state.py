@@ -8,12 +8,14 @@ Czyste funkcje (bez sieci i zegara) używane przez wykonawcę i uzgadnianie:
   ``scheduled*DateTime`` w UTC (albo w strefie zapisu), a północ warszawska
   to 22:00 albo 23:00 UTC zależnie od czasu letniego,
 * własna autoodpowiedź osoby (bez znacznika, aktywna albo zaplanowana) jest
-  nietykalna.
+  nietykalna — ale jej harmonogram mówi, kiedy osoby nie ma
+  (``custom_absence_window``): uzgadnianie zakłada z niego wniosek, jeśli
+  osoba ustawiła nieobecność w Outlooku bez wniosku (``leave_outlook``).
 """
 
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from typing import Any, Literal, Optional
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -146,3 +148,45 @@ def blocking_until(
     if moment is None:
         moment = datetime.combine(end_exclusive, datetime.min.time(), tzinfo=_WARSAW)
     return moment.astimezone(timezone.utc)
+
+
+#: Dzień startu liczy się jako nieobecność tylko, gdy autoodpowiedź ruszyła
+#: przed tą godziną (Warszawa) — „od 16:30 piszcie do Marcina” to nie dzień
+#: wolny (Compass, ``lib/oof/oof-dates.ts``).
+LATE_START_CUTOFF = time(15, 0)
+#: Koniec o tej godzinie albo wcześniej nie obejmuje dnia końca: północ
+#: (Graph zapisuje ``ostatni dzień + 1, 00:00``) i „wracam o 8:00”.
+EARLY_END_CUTOFF = time(9, 0)
+
+
+def custom_absence_window(
+    setting: Optional[dict[str, Any]],
+) -> Optional[tuple[date, date]]:
+    """Dni nieobecności z harmonogramu WŁASNEJ autoodpowiedzi osoby.
+
+    ``(pierwszy, ostatni)`` włącznie, w datach warszawskich. ``None``, gdy
+    autoodpowiedź jest nasza, wyłączona, bez dat (``alwaysEnabled``),
+    nieczytelna albo nie obejmuje żadnego pełnego dnia (jeden wieczór).
+    Reguły godzin jak w Compassie: start od 15:00 przesuwa się na następny
+    dzień, koniec do 9:00 włącznie wyklucza dzień końca.
+    """
+
+    if is_disabled(setting) or is_managed(setting):
+        return None
+    if not setting or setting.get("status") != "scheduled":
+        return None
+    start = instant(setting.get("scheduledStartDateTime"))
+    end = instant(setting.get("scheduledEndDateTime"))
+    if start is None or end is None:
+        return None
+    start_local = start.astimezone(_WARSAW)
+    end_local = end.astimezone(_WARSAW)
+    first = start_local.date()
+    if start_local.time() >= LATE_START_CUTOFF:
+        first += timedelta(days=1)
+    last = end_local.date()
+    if end_local.time() <= EARLY_END_CUTOFF:
+        last -= timedelta(days=1)
+    if last < first:
+        return None
+    return first, last

@@ -417,6 +417,60 @@ async def reported_queue(
     return items
 
 
+def _history_statement(
+    scope: Optional[set[int]],
+    *,
+    user_id: Optional[int],
+    date_from: Optional[date],
+    date_to: Optional[date],
+) -> Optional[Select]:
+    """Wnioski z „Wszystkich wniosków” bez filtra statusu — lista i liczniki."""
+
+    if scope is not None and not scope:
+        return None
+    statement = select(LeaveRequest)
+    if scope is not None:
+        statement = statement.where(LeaveRequest.user_id.in_(scope))
+    if user_id is not None:
+        statement = statement.where(LeaveRequest.user_id == user_id)
+    if date_from is not None:
+        statement = statement.where(LeaveRequest.end_date >= date_from)
+    if date_to is not None:
+        statement = statement.where(LeaveRequest.start_date <= date_to)
+    return statement
+
+
+async def history_counts(
+    db: AsyncSession,
+    *,
+    actor: User,
+    user_id: Optional[int] = None,
+    date_from: Optional[date] = None,
+    date_to: Optional[date] = None,
+) -> dict[str, int]:
+    """Liczba wniosków per status (i ``all``) w tym samym zakresie co lista.
+
+    Liczniki przy filtrach statusu: zakres patrzącego i filtry osoby oraz dat,
+    bez filtra statusu i bez limitu listy.
+    """
+
+    statement = _history_statement(
+        await scope_user_ids(db, actor),
+        user_id=user_id,
+        date_from=date_from,
+        date_to=date_to,
+    )
+    counts = {"all": 0, "pending": 0, "approved": 0, "rejected": 0, "cancelled": 0}
+    if statement is None:
+        return counts
+    sub = statement.subquery()
+    rows = await db.execute(select(sub.c.status, func.count()).group_by(sub.c.status))
+    for status, total in rows.all():
+        counts[status] = int(total or 0)
+        counts["all"] += int(total or 0)
+    return counts
+
+
 async def history(
     db: AsyncSession,
     *,
@@ -428,20 +482,16 @@ async def history(
     date_to: Optional[date] = None,
     limit: int = 200,
 ) -> list[dict[str, Any]]:
-    scope = await scope_user_ids(db, actor)
-    statement = select(LeaveRequest)
-    if scope is not None:
-        if not scope:
-            return []
-        statement = statement.where(LeaveRequest.user_id.in_(scope))
+    statement = _history_statement(
+        await scope_user_ids(db, actor),
+        user_id=user_id,
+        date_from=date_from,
+        date_to=date_to,
+    )
+    if statement is None:
+        return []
     if status:
         statement = statement.where(LeaveRequest.status == status)
-    if user_id is not None:
-        statement = statement.where(LeaveRequest.user_id == user_id)
-    if date_from is not None:
-        statement = statement.where(LeaveRequest.end_date >= date_from)
-    if date_to is not None:
-        statement = statement.where(LeaveRequest.start_date <= date_to)
     rows = list(
         await db.scalars(
             statement.order_by(
@@ -485,6 +535,7 @@ async def on_behalf_people(db: AsyncSession, *, actor: User) -> list[dict[str, A
 __all__ = [
     "CONFLICT_ACTION",
     "history",
+    "history_counts",
     "my_requests",
     "names_of",
     "on_behalf_people",

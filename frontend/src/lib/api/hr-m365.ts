@@ -114,6 +114,7 @@ const REASON_LABELS: Record<string, string> = {
   no_consent: "Osoba nie zgodziła się na przekierowanie",
   not_owned: "Autoodpowiedź nie należy do tego urlopu",
   other_leave_same_window: "Inny urlop w tych samych dniach",
+  leave_changed: "Wniosek zmieniony — operacja z nowym terminem jest w kolejce",
   still_active: "Przekierowanie nadal potrzebne",
   bad_payload: "Uszkodzona operacja",
   no_mailbox_address: "Konto bez adresu skrzynki",
@@ -242,6 +243,7 @@ export const m365Keys = {
   all: ["hr", "m365"] as const,
   status: ["hr", "m365", "status"] as const,
   operations: (tab: M365QueueTab) => ["hr", "m365", "operations", tab] as const,
+  forwards: ["hr", "m365", "forwards"] as const,
 };
 
 export function useM365Status(enabled = true) {
@@ -277,6 +279,137 @@ export function useRetryM365Operation() {
           `/api/hr/admin/m365/operations/${operationId}/retry`,
         )
       ).data,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: m365Keys.all }),
+  });
+}
+
+
+// ── Przekierowania poczty i „Uzgodnij teraz” (Compass AdminForwardRules) ─────
+
+/**
+ * `ok` — trwa i ma regułę; `waiting` — nadejdzie; `missing` — trwa, a reguły
+ * w skrzynce nie ma; `orphan` — reguła po urlopie albo po wyłączeniu zgody;
+ * `unknown` — reguła NEXUSA/Compassa bez wniosku w NEXUSIE.
+ */
+export type M365ForwardHealth = "ok" | "waiting" | "missing" | "orphan" | "unknown";
+
+export interface M365SavedForward {
+  leave_request_id: string;
+  user_id: number;
+  user_name: string | null;
+  substitute_user_id: number | null;
+  substitute_name: string | null;
+  start_date: string;
+  end_date: string;
+  status: string;
+  consent: boolean;
+  health: M365ForwardHealth;
+  reason: string | null;
+  last_operation: { id: number; kind: M365OperationKind; status: M365OperationStatus; last_error: string | null } | null;
+}
+
+export interface M365MailboxRule {
+  rule_id: string | null;
+  rule_name: string | null;
+  owner: "nexus" | "compass" | null;
+  leave_request_id: string;
+  known: boolean;
+  user_id: number;
+  user_name: string | null;
+  start_date: string | null;
+  end_date: string | null;
+  substitute_name: string | null;
+  health: M365ForwardHealth;
+  reason: string | null;
+}
+
+export interface M365MailboxCheck {
+  available: boolean;
+  mode: M365Mode;
+  message: string | null;
+  scanned?: number;
+  unreadable?: { user_id: number; name: string; error: string }[];
+  items: M365MailboxRule[];
+}
+
+export interface M365ReconcileResult {
+  status: "done";
+  mode: M365Mode;
+  counts: Record<string, number | string>;
+}
+
+export const M365_FORWARD_HEALTH: Record<M365ForwardHealth, M365View> = {
+  ok: { label: "Działa", tone: "success" },
+  waiting: { label: "Czeka na pierwszy dzień", tone: "neutral" },
+  missing: { label: "Brak reguły w skrzynce", tone: "danger" },
+  orphan: { label: "Do zamknięcia", tone: "warning" },
+  unknown: { label: "Reguła bez wniosku", tone: "warning" },
+};
+
+/** Czy z wiersza można zamknąć regułę przez kolejkę (nie trwający urlop ze zgodą). */
+export function canCloseRule(row: { health: M365ForwardHealth }): boolean {
+  return row.health === "orphan" || row.health === "unknown";
+}
+
+/** Krótkie podsumowanie przebiegu „Uzgodnij teraz” dla komunikatu. */
+export function reconcileSummary(counts: Record<string, number | string>): string {
+  const number = (key: string) => (typeof counts[key] === "number" ? (counts[key] as number) : 0);
+  const parts = [`skrzynek: ${number("mailboxes")}`];
+  const added =
+    number("oof_enqueued") +
+    number("forward_open_enqueued") +
+    number("forward_close_enqueued") +
+    number("forward_takeover") +
+    number("calendar_enqueued");
+  parts.push(added ? `operacji do kolejki: ${added}` : "bez nowych operacji");
+  const requests = number("oof_request_created");
+  if (requests) parts.push(`wnioski z Outlooka: ${requests}`);
+  const errors = number("read_errors");
+  if (errors) parts.push(`błędy odczytu: ${errors}`);
+  return parts.join(" · ");
+}
+
+export function useM365Forwards(enabled = true) {
+  return useQuery({
+    queryKey: m365Keys.forwards,
+    queryFn: async () =>
+      (
+        await api.get<{ mode: M365Mode; today: string; items: M365SavedForward[] }>(
+          "/api/hr/admin/m365/forwards",
+        )
+      ).data,
+    enabled,
+  });
+}
+
+/** „Sprawdź skrzynki” — odczyt reguł na żywo (bez zapisu), wynik tylko w karcie. */
+export function useCheckM365Mailboxes() {
+  return useMutation({
+    mutationFn: async () =>
+      (await api.post<M365MailboxCheck>("/api/hr/admin/m365/forwards/check")).data,
+  });
+}
+
+export function useCloseM365Rule() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: { user_id: number; leave_request_id: string }) =>
+      (
+        await api.post<{ queued: boolean; leave_request_id: string; known: boolean }>(
+          "/api/hr/admin/m365/forwards/close",
+          input,
+        )
+      ).data,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: m365Keys.all }),
+  });
+}
+
+/** „Uzgodnij teraz” — jeden przebieg uzgadniania na żądanie. */
+export function useReconcileM365Now() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async () =>
+      (await api.post<M365ReconcileResult>("/api/hr/admin/m365/reconcile")).data,
     onSuccess: () => queryClient.invalidateQueries({ queryKey: m365Keys.all }),
   });
 }
