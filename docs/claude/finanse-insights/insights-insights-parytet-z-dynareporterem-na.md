@@ -373,13 +373,14 @@ z Tablicy. Granice to fakty biznesowe (`competition_history.DR_HISTORY_START`
   - 1.01–11.10.2026 — tygodniowe wpisy rekruterów (`dr_kpi_body_leasing`):
     weryfikacje → `verified`, rekomendacje → `cv_sent`, rozmowy →
     `client_interview`, placementy → `hired`;
-  - przed 2026 — tylko placementy firmy z raportu Rady
-    (`dr_board_monthly_report`, bez osoby);
+  - przed 2026 — placementy firmy z raportu Rady
+    (`dr_board_monthly_report`, bez osoby; od 0472 tylko reszta ponad
+    ręcznie uzupełnione tygodnie rekruterów — akapit „Ręczne uzupełnienie”);
   - klienci — `dr_placement_details` (2026) i `dr_board_placement_clients`
     (przed 2026), nazwa łączona z klientem NEXUS-a po nazwie / nazwie
     wyświetlanej (`history_client_placements`);
   - Delivery Leadzi — miesięczne wpisy DL (`dr_kpi_delivery_lead`).
-- **Widok `analytics_kpi_milestones`** (migracje 0454, 0467, lustro w
+- **Widok `analytics_kpi_milestones`** (migracje 0454, 0467, 0472, lustro w
   `entrypoint.sh`): Tablica od 12.10 (`nexus`) + wpisy rekruterów
   (`dynareporter`) + placementy Rady przed 2026 (`dynareporter_board`).
   `credited` w `VERIFIER_ANCHORED_CTE` czyta te same wiersze spoza Tablicy;
@@ -415,3 +416,32 @@ z Tablicy. Granice to fakty biznesowe (`competition_history.DR_HISTORY_START`
   11.10.2026, gdy okno zaczyna się wcześniej (`lib/insights-history.ts`).
 - **Testy sprawdzające ruchy Tablicy** mają daty od 12.10.2026 (np. 2027,
   +728 dni = ten sam dzień tygodnia) — wcześniejsze ruchy celowo się nie liczą.
+- **Ręczne uzupełnienie** (decyzja Artura 18.10.2026: „jak nie ma tam danych,
+  to uzupełnimy ręcznie”): braki wpisuje się do tych samych tabel `dr_*`,
+  nigdy jako ruchy Tablicy. Arkusz robi i czyta lokalnie
+  `scripts/dr_manual_fill_sheet.py` (szablon z zakładką „Braki” z
+  `import_dr_manual_fill.py --gaps`, listy wyboru z `--lists` — z nazwiskami,
+  tylko do pliku; arkusz → JSON z samymi id kont), wgrywa
+  `scripts/import_dr_manual_fill.py`: na sucho w transakcji tylko do odczytu
+  z raportem „przed → po”, `--apply` w jednej transakcji z paragonem
+  `dr_manual_fill_<czas>` (każdy wiersz przed i po), zapis na produkcji
+  dopiero po zgodzie Artura na suchy przebieg. Wgrywa tylko przekazane wiersze
+  (puste pole = bez zmiany), odmawia całości przy dniu od 12.10.2026, koncie
+  bez odpowiednika w NEXUS-ie albo koncie-duplikacie z DynaReportera, nieznanym
+  kliencie (literówka byłaby nowym klientem) i drugim wpisie tego samego
+  tygodnia. Gdzie co trafia: tydzień rekrutera → `dr_kpi_body_leasing`
+  (tydzień przez koniec miesiąca = dwa wpisy, drugi od 1. dnia miesiąca);
+  placement z klientem 1.01–11.10.2026 → `dr_placement_details`; miesiąc DL →
+  `dr_kpi_delivery_lead`; przed 2026 placementy firmy i klientów w miesiącu →
+  `dr_board_monthly_report.placements` i `dr_board_placement_clients`. Żeby
+  wpis się liczył: od **0472** widok bierze tygodnie rekruterów także przed
+  2026, a Rada przed 2026 daje już tylko resztę bez osoby (placementy Rady
+  minus placementy z wpisów tego miesiąca, nie mniej niż 0 — suma firmy
+  zostaje z Rady); wpis DL za październik 2026 to dni **1–11.10** i wchodzi do
+  portfela i Ligi DL (wcześniej październik był pomijany). Uzupełnienie miesięcy
+  1–9.2026 zmienia statystyki, nie zamrożone wyniki konkursów (paragony
+  `dynareporter_settlement_2026`, `dynareporter_dl_league_2026`). Etapów Tablicy
+  poza czterema kamieniami, źródeł, czasu do zatrudnienia i hit ratio sprzed
+  12.10 tak nie uzupełnimy — nie mają tabeli `dr_*`, z której liczą ekrany.
+  `load_dynareporter_history.py` nie uruchamiaj ponownie: kasuje wpisy DL
+  i placementy z klientem sprzed 12.10, także ręczne.

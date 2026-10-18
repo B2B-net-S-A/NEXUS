@@ -170,13 +170,10 @@ async def _history_entries(db: AsyncSession, start, end) -> list:
                 ),
                 {
                     "start_day": start.astimezone(tz).date(),
-                    # Wpis miesięczny obejmuje cały miesiąc, a od 12.10.2026
-                    # liczy Tablica — październik z DynaReportera nie wchodzi,
-                    # żeby żaden dzień nie liczył się dwa razy.
-                    "end_day": min(
-                        history_end.astimezone(tz).date(),
-                        competition_history.RESULTS_CUTOVER.replace(day=1),
-                    ),
+                    # Wpis za październik 2026 obejmuje tylko 1–11.10 (DynaReporter
+                    # go nie ma, zespół uzupełnia go ręcznie —
+                    # `scripts/import_dr_manual_fill.py`), od 12.10 liczy Tablica.
+                    "end_day": history_end.astimezone(tz).date(),
                 },
             )
         )

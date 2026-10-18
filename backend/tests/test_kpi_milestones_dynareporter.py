@@ -67,7 +67,11 @@ def test_view_and_credited_cut_on_the_settlement_days() -> None:
     assert f"k.report_date >= DATE '{start}'" in view
     assert f"k.report_date < DATE '{cutover}'" in view
     # 0467 (18.10.2026): ruchy Tablicy tylko od 12.10 — także przed 2026.
-    for sql in (_module_0467().CREATE_VIEW, VERIFIER_ANCHORED_CTE):
+    for sql in (
+        _module_0467().CREATE_VIEW,
+        _module_0472().CREATE_VIEW,
+        VERIFIER_ANCHORED_CTE,
+    ):
         assert f"TIMESTAMP '{cutover} 00:00' AT TIME ZONE 'Europe/Warsaw'" in sql
         assert f"TIMESTAMP '{start} 00:00'" not in sql
     assert start == "2026-01-01"
@@ -90,6 +94,43 @@ def test_entrypoint_runs_0467_after_0454() -> None:
     assert entrypoint.index(new) > entrypoint.index(old)
     # Numer 0467 (0455–0466 zajął program „Ludzie w NEXUSIE”), widok z 0454.
     assert _module_0467().down_revision == "0466_care_announcements"
+
+
+MIGRATION_0472 = BACKEND / "alembic" / "versions" / "0472_kpi_milestones_manual_fill.py"
+
+
+def _module_0472():
+    spec = importlib.util.spec_from_file_location("m0472", MIGRATION_0472)
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_0472_counts_weeks_before_2026_and_the_board_rest_without_a_person() -> None:
+    """Ręcznie uzupełnione tygodnie sprzed 2026 liczą się, a Rada daje resztę.
+
+    Placementy Rady w miesiącu minus placementy z wpisów rekruterów tego
+    miesiąca (nie mniej niż 0) — suma firmy zostaje z raportu Rady, osoba
+    dostaje swoje, nic nie liczy się dwa razy.
+    """
+    view = _module_0472().CREATE_VIEW
+    _, cutover = _boundaries()
+    assert f"k.report_date < DATE '{cutover}'" in view
+    assert "k.report_date >= DATE" not in view
+    assert "WHERE b.report_month < DATE '2026-01-01'" in view
+    assert "GREATEST(COALESCE(b.placements, 0) - entered.n, 0)" in view
+    assert "w.report_date >= b.report_month" in view
+    assert "w.report_date < b.report_month + INTERVAL '1 month'" in view
+    assert view.count("is_draft IS FALSE") == 2
+
+
+def test_entrypoint_runs_0472_last() -> None:
+    entrypoint = (BACKEND / "entrypoint.sh").read_text()
+    previous, new = _module_0467().CREATE_VIEW, _module_0472().CREATE_VIEW
+    assert new in entrypoint
+    assert entrypoint.index(new) > entrypoint.index(previous)
+    assert _module_0472().down_revision == "0471_client_sales_invoices"
 
 
 def test_view_maps_each_dynareporter_counter_to_one_stage() -> None:

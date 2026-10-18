@@ -808,11 +808,9 @@ async def dl_portfolio_counts(
                 ),
                 {
                     "start_day": start.astimezone(tz).date(),
-                    # Miesiąc cutoveru bez wpisu DL — od 12.10 liczy Tablica.
-                    "end_day": min(
-                        history_end.astimezone(tz).date(),
-                        competition_history.RESULTS_CUTOVER.replace(day=1),
-                    ),
+                    # Wpis DL za październik 2026 = 1–11.10 (uzupełniany ręcznie,
+                    # `scripts/import_dr_manual_fill.py`) — od 12.10 liczy Tablica.
+                    "end_day": history_end.astimezone(tz).date(),
                 },
             )
         ).all():
