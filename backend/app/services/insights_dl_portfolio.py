@@ -173,6 +173,8 @@ async def _history_entries(db: AsyncSession, start, end) -> list:
                     # Wpis za październik 2026 obejmuje tylko 1–11.10 (DynaReporter
                     # go nie ma, zespół uzupełnia go ręcznie —
                     # `scripts/import_dr_manual_fill.py`), od 12.10 liczy Tablica.
+                    # Liga i cel DL (`competitions.dl_portfolio_counts`) go nie
+                    # biorą: mianownik hit ratio jest od 12.10, a to wypłaty.
                     "end_day": history_end.astimezone(tz).date(),
                 },
             )

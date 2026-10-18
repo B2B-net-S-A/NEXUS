@@ -438,7 +438,10 @@ z Tablicy. Granice to fakty biznesowe (`competition_history.DR_HISTORY_START`
   2026, a Rada przed 2026 daje już tylko resztę bez osoby (placementy Rady
   minus placementy z wpisów tego miesiąca, nie mniej niż 0 — suma firmy
   zostaje z Rady); wpis DL za październik 2026 to dni **1–11.10** i wchodzi do
-  portfela i Ligi DL (wcześniej październik był pomijany). Uzupełnienie miesięcy
+  portfela DL w Insights (wcześniej październik był pomijany), ale nie do Ligi
+  DL ani celu DL (`competitions.dl_portfolio_counts`): mianownik hit ratio —
+  rekrutacje zamknięte — liczy się od 12.10, więc placementy 1–11.10 zawyżyłyby
+  próg 30% przy wypłatach; to czeka na decyzję Artura. Uzupełnienie miesięcy
   1–9.2026 zmienia statystyki, nie zamrożone wyniki konkursów (paragony
   `dynareporter_settlement_2026`, `dynareporter_dl_league_2026`). Etapów Tablicy
   poza czterema kamieniami, źródeł, czasu do zatrudnienia i hit ratio sprzed

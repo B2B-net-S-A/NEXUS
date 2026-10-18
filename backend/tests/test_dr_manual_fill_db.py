@@ -3,8 +3,9 @@
 `scripts/import_dr_manual_fill.py` pisze do tych samych tabel `dr_*`, z których
 liczą ekrany, więc wpis ma być widoczny tam, gdzie wpis z DynaReportera:
 w widoku ``analytics_kpi_milestones`` (od 0472 także przed 2026, Rada przed
-2026 = reszta bez osoby), w liczniku celów (``credited``), w portfelu i Lidze
-DL (październik 2026 = 1–11.10) i w podziale placementów na klientów.
+2026 = reszta bez osoby), w liczniku celów (``credited``), w portfelu DL
+(październik 2026 = 1–11.10), w Lidze i celu DL (bez października — mianownik
+hit ratio jest od 12.10, decyzja Artura) i w podziale placementów na klientów.
 
 Miesiąc sprzed 2026 to marzec 2019 — w bazie testowej nikt inny go nie używa,
 a wiersz Rady jest wspólny dla przebiegów, więc test po sobie sprząta.
@@ -211,22 +212,19 @@ async def test_dry_run_writes_nothing_and_apply_counts_where_dynareporter_does(
             == 2
         )
 
-        # Delivery Lead: październik 2026 = 1–11.10 wchodzi do Ligi i portfela.
-        assert (await dl_portfolio_counts(db, start=october[0], end=october[1]))[0][
-            d
-        ] == 4
-        assert (await dl_portfolio_counts(db, start=march[0], end=march[1]))[0][d] == 1
+        # Portfel DL: październik 2026 = 1–11.10 z wpisu (zapytania i placementy
+        # z tego samego wpisu); od 12.10 liczy Tablica.
         entries = {e["dl_id"]: e for e in await _history_entries(db, *october)}
         assert int(entries[d]["placements"]) == 4
-        # Od 12.10 liczy Tablica — wpis października tam już nie wchodzi.
+        after_cutover = (_local(date(2026, 10, 12)), october[1])
+        assert d not in {e["dl_id"] for e in await _history_entries(db, *after_cutover)}
+        # Liga i cel DL: wpis października nie wchodzi (mianownik hit ratio od
+        # 12.10, wypłaty), miesiące 1–9.2026 — tak jak dotąd.
         assert (
             d
-            not in (
-                await dl_portfolio_counts(
-                    db, start=_local(date(2026, 10, 12)), end=october[1]
-                )
-            )[0]
+            not in (await dl_portfolio_counts(db, start=october[0], end=october[1]))[0]
         )
+        assert (await dl_portfolio_counts(db, start=march[0], end=march[1]))[0][d] == 1
 
         clients_2026 = {
             c.client_id: c.count for c in await client_placements(db, *march)
@@ -316,4 +314,23 @@ async def test_refuses_accounts_clients_and_a_second_start_of_a_week(accounts) -
 
     await _apply(accounts, {"weeks": [_week(r, "2019-04-02", recommendations=2)]})
     with pytest.raises(InputError, match="ma już wpis od 2019-04-02"):
+        await run({"weeks": [_week(r, "2019-04-01", recommendations=2)]}, apply=False)
+
+    # DynaReporter bywa z dwoma wpisami w jednym tygodniu (na produkcji cztery
+    # takie tygodnie) — poprawka każdego z nich przechodzi, nowy dzień nie.
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            text(
+                "INSERT INTO dr_kpi_body_leasing "
+                "(user_id, report_date, week_number, recommendations) "
+                "VALUES (:r, DATE '2019-04-03', 14, 1)"
+            ),
+            {"r": r},
+        )
+        await db.commit()
+    fixed = await run(
+        {"weeks": [_week(r, "2019-04-03", recommendations=3)]}, apply=False
+    )
+    assert fixed["changes"]["weeks"] == 1
+    with pytest.raises(InputError, match="od 2019-04-02, 2019-04-03"):
         await run({"weeks": [_week(r, "2019-04-01", recommendations=2)]}, apply=False)

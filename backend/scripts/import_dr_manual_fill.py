@@ -12,7 +12,9 @@ tych samych tabel, z których liczą ekrany:
   wpisy, drugi od 1. dnia miesiąca — jak w DynaReporterze;
 * `dr_placement_details` — placement z klientem 1.01–11.10.2026 (klienci
   w Analizie placementów i Roku do roku);
-* `dr_kpi_delivery_lead` — miesiąc Delivery Leada; październik 2026 = 1–11.10;
+* `dr_kpi_delivery_lead` — miesiąc Delivery Leada; październik 2026 = 1–11.10
+  (portfel DL w Insights; Liga DL i cel DL liczą go dopiero po decyzji Artura,
+  bo mianownik hit ratio jest od 12.10);
 * `dr_board_monthly_report.placements` — placementy firmy w miesiącu przed
   2026 (inne kolumny raportu Rady zostają);
 * `dr_board_placement_clients` — placementy klienta w miesiącu przed 2026.
@@ -447,10 +449,14 @@ async def _resolve_clients(db, parsed: dict[str, list[dict]]) -> dict[str, dict]
 
 
 async def _check_week_starts(db, weeks: list[dict]) -> None:
-    """Ten sam tydzień i miesiąc nie może mieć drugiego wpisu z innym dniem."""
+    """Ten sam tydzień i miesiąc nie może dostać wpisu z nowym dniem początku.
+
+    Poprawka wpisu, który już jest, przechodzi — także w tygodniu, w którym
+    DynaReporter ma dwa wpisy (na produkcji są takie cztery).
+    """
     if not weeks:
         return
-    existing: dict[tuple[int, tuple[int, int], str], date] = {}
+    existing: dict[tuple[int, tuple[int, int], str], set[date]] = defaultdict(set)
     for r in await _rows(
         db,
         """
@@ -460,15 +466,15 @@ async def _check_week_starts(db, weeks: list[dict]) -> None:
         {"ids": sorted({w["user_id"] for w in weeks}), "cut": history.RESULTS_CUTOVER},
     ):
         day = r["report_date"]
-        existing[(r["user_id"], day.isocalendar()[:2], _month_key(day))] = day
+        existing[(r["user_id"], day.isocalendar()[:2], _month_key(day))].add(day)
     clashes = []
     for w in weeks:
         day = w["report_date"]
-        other = existing.get((w["user_id"], day.isocalendar()[:2], _month_key(day)))
-        if other is not None and other != day:
+        stored = existing.get((w["user_id"], day.isocalendar()[:2], _month_key(day)))
+        if stored and day not in stored:
             clashes.append(
                 f"konto {w['user_id']}: {day.isoformat()} — ten tydzień ma już wpis "
-                f"od {other.isoformat()}"
+                f"od {', '.join(d.isoformat() for d in sorted(stored))}"
             )
     if clashes:
         raise InputError("; ".join(clashes))
