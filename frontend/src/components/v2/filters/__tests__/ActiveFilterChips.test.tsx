@@ -106,6 +106,44 @@ describe("ActiveFilterChips (UAT B-B06)", () => {
   });
 });
 
+describe("ActiveFilterChips — stawka i lokalizacja (D5/D6, 19.10.2026)", () => {
+  it("chip stawki mówi o ukrytych brakach, a ✕ zdejmuje też wybór", async () => {
+    const onUpdate = renderChips({ rateMax: 55, hideUnknownRate: true });
+    await userEvent.click(
+      screen.getByRole("button", {
+        name: "Usuń filtr: Stawka: do 55 PLN/h · bez stawki: ukryte",
+      }),
+    );
+    expect(onUpdate).toHaveBeenLastCalledWith(
+      expect.objectContaining({ rateMax: null, hideUnknownRate: false }),
+    );
+  });
+
+  it("kilka miast = jeden chip „Lokalizacja: …”", async () => {
+    const onUpdate = renderChips({
+      locationPlaces: [
+        { city: "Warszawa", radiusKm: 30 },
+        { city: "Łódź", radiusKm: null },
+        { city: "Kraków", radiusKm: 50 },
+      ],
+      hideUnknownLocation: true,
+    });
+    await userEvent.click(
+      screen.getByRole("button", {
+        name: "Usuń filtr: Lokalizacja: Warszawa +30 km, Łódź, Kraków +50 km · bez miasta: ukryte",
+      }),
+    );
+    expect(onUpdate).toHaveBeenLastCalledWith(
+      expect.objectContaining({ locationPlaces: [], location: "", hideUnknownLocation: false }),
+    );
+  });
+
+  it("jedno miasto po staremu bez zmian", () => {
+    renderChips({ location: "Kraków", locationRadiusKm: 25 });
+    expect(screen.getByRole("button", { name: "Usuń filtr: 📍 Kraków + 25 km" })).toBeTruthy();
+  });
+});
+
 describe("ActiveFilterChips — etykiety etapów", () => {
   it("chip etapu „posting” pokazuje etykietę z panelu, nie slug", () => {
     renderChips({ pipelineStage: ["posting", "cv_sent"] });

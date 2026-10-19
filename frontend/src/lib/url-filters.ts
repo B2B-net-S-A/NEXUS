@@ -14,6 +14,12 @@ import {
 import type { OpenToValue } from "@/lib/filter-options";
 import { normalizeLanguageFilters } from "@/lib/candidate-languages";
 import { cleanRows, requirementRows } from "@/lib/keyword-requirements";
+import {
+  encodeLocationPlaces,
+  locationPlacesParam,
+  parseLocationPlaces,
+  type LocationPlace,
+} from "@/lib/location-places";
 
 export type SortMode = "newest" | "oldest" | "name" | "relevance" | "match";
 /** Jak czytać tekst `q` — `auto` = decyduje backend („Rozumiem to jako…"). */
@@ -137,6 +143,13 @@ export interface CandidateFilters {
   // stażu albo stawki zostają z plakietką `unknown_fields`. W URL `hu=1`.
   hideUnknown: boolean;
   /**
+   * D5 (19.10.2026): „Osoby bez stawki / bez miasta w profilu: ukryj” —
+   * w okienku samego filtru, węższe niż `hideUnknown`. W URL `hur=1` / `hul=1`,
+   * w API `hide_unknown_rate` / `hide_unknown_location`.
+   */
+  hideUnknownRate: boolean;
+  hideUnknownLocation: boolean;
+  /**
    * Zakres pola lokalizacji (`location_scope`). `location_only` = sama kolumna
    * `location` (dawne zachowanie listy) — ustawia go migracja zapisów
    * (CAND-06), żeby otwarty zapis pokazywał ten sam zbiór co alert. W URL `ls`.
@@ -238,6 +251,13 @@ export interface CandidateFilters {
   locationRadiusKm: number | null;
   /** Województwa (małymi literami, np. „mazowieckie”) — którekolwiek. */
   voivodeships: string[];
+  /**
+   * D6 (19.10.2026): kilka miast, każde z własnym promieniem — SUMA
+   * z województwami (`lib/location-places.ts`). W URL `locs`, w API
+   * powtarzany `location_places`. Pojedyncze `location` + `locationRadiusKm`
+   * to stary kształt (z `voivodeships` łączy się przez „i”).
+   */
+  locationPlaces: LocationPlace[];
   /** Kontakt w okresie: `yes` był, `no` nie było; `null` = bez filtra. */
   contacted: "yes" | "no" | null;
   contactedFrom: string;
@@ -275,6 +295,8 @@ export const DEFAULT_FILTERS: CandidateFilters = {
   competenceCategoryPreferred: [],
   qPreferred: [],
   hideUnknown: false,
+  hideUnknownRate: false,
+  hideUnknownLocation: false,
   locationScope: "",
   location: "",
   poolIds: [],
@@ -310,6 +332,7 @@ export const DEFAULT_FILTERS: CandidateFilters = {
   qScope: "all",
   locationRadiusKm: null,
   voivodeships: [],
+  locationPlaces: [],
   contacted: null,
   contactedFrom: "",
   contactedTo: "",
@@ -403,6 +426,8 @@ export function encodeFilters(f: CandidateFilters): URLSearchParams {
   }
   for (const row of cleanRows(f.qPreferred)) p.append("q_pref", PIPE(row));
   if (f.hideUnknown) p.set("hu", "1");
+  if (f.hideUnknownRate) p.set("hur", "1");
+  if (f.hideUnknownLocation) p.set("hul", "1");
   if (f.locationScope) p.set("ls", f.locationScope);
   if (f.location) p.set("loc", f.location);
   if (f.poolIds.length) p.set("pool", CSV(f.poolIds));
@@ -449,6 +474,7 @@ export function encodeFilters(f: CandidateFilters): URLSearchParams {
   if (f.qScope !== "all") p.set("q_in", f.qScope);
   if (f.locationRadiusKm !== null) p.set("radius", String(f.locationRadiusKm));
   if (f.voivodeships.length) p.set("woj", CSV(f.voivodeships));
+  if (f.locationPlaces.length) p.set("locs", encodeLocationPlaces(f.locationPlaces));
   if (f.contacted) p.set("contact", f.contacted);
   if (f.contactedFrom) p.set("contact_from", f.contactedFrom);
   if (f.contactedTo) p.set("contact_to", f.contactedTo);
@@ -528,6 +554,8 @@ export function decodeFilters(sp: URLSearchParams): CandidateFilters {
     competenceCategoryPreferred: parseCsvInt(sp.get("cc_pref")),
     qPreferred: cleanRows(sp.getAll("q_pref").map(parsePipe)),
     hideUnknown: sp.get("hu") === "1",
+    hideUnknownRate: sp.get("hur") === "1",
+    hideUnknownLocation: sp.get("hul") === "1",
     locationScope: sp.get("ls") === "location_only" ? "location_only" : "",
     location: sp.get("loc") ?? "",
     poolIds: parseCsvInt(sp.get("pool")),
@@ -574,6 +602,7 @@ export function decodeFilters(sp: URLSearchParams): CandidateFilters {
       : "all",
     locationRadiusKm: parseRadiusKm(sp.get("radius")),
     voivodeships: parseCsv(sp.get("woj")).map((v) => v.toLowerCase()),
+    locationPlaces: parseLocationPlaces(sp.get("locs")),
     contacted:
       sp.get("contact") === "yes" ? "yes" : sp.get("contact") === "no" ? "no" : null,
     contactedFrom: parseIsoDate(sp.get("contact_from")),
@@ -734,6 +763,8 @@ export function filtersToApiParams(
       ? cleanRows(filters.qPreferred).map((row) => row.join("|"))
       : undefined,
     hide_unknown: filters.hideUnknown ? true : undefined,
+    hide_unknown_rate: filters.hideUnknownRate ? true : undefined,
+    hide_unknown_location: filters.hideUnknownLocation ? true : undefined,
     location_scope: filters.locationScope || undefined,
     remote_policy: filters.remote.length ? filters.remote : undefined,
     employment: filters.employment.length ? filters.employment : undefined,
@@ -800,6 +831,9 @@ export function filtersToApiParams(
         ? filters.locationRadiusKm
         : undefined,
     voivodeship: filters.voivodeships.length ? filters.voivodeships : undefined,
+    location_places: filters.locationPlaces.length
+      ? locationPlacesParam(filters.locationPlaces)
+      : undefined,
     contacted: filters.contacted ?? undefined,
     contacted_from: filters.contacted ? filters.contactedFrom || undefined : undefined,
     contacted_to: filters.contacted ? filters.contactedTo || undefined : undefined,
@@ -989,6 +1023,9 @@ export type TraffitExtraFilters = Pick<
   | "qScope"
   | "locationRadiusKm"
   | "voivodeships"
+  | "locationPlaces"
+  | "hideUnknownRate"
+  | "hideUnknownLocation"
   | "contacted"
   | "contactedFrom"
   | "contactedTo"
@@ -1001,6 +1038,9 @@ const TRAFFIT_EXTRA_KEYS = [
   "qScope",
   "locationRadiusKm",
   "voivodeships",
+  "locationPlaces",
+  "hideUnknownRate",
+  "hideUnknownLocation",
   "contacted",
   "contactedFrom",
   "contactedTo",
@@ -1014,6 +1054,9 @@ export function pickTraffitExtras(filters: CandidateFilters): TraffitExtraFilter
     qScope: filters.qScope,
     locationRadiusKm: filters.locationRadiusKm,
     voivodeships: filters.voivodeships,
+    locationPlaces: filters.locationPlaces,
+    hideUnknownRate: filters.hideUnknownRate,
+    hideUnknownLocation: filters.hideUnknownLocation,
     contacted: filters.contacted,
     contactedFrom: filters.contactedFrom,
     contactedTo: filters.contactedTo,
