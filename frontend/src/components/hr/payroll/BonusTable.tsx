@@ -75,6 +75,11 @@ export function BonusTable({
                     {row.category_label}
                     {row.eligible_on ? ` · termin ${formatIsoDatePl(row.eligible_on)}` : ""}
                     {row.edited ? " · kwota poprawiona" : ""}
+                    {row.contract_ended_early ? (
+                      <span className="text-warning">
+                        {" · kontrakt skończył się przed terminem — premia przepada"}
+                      </span>
+                    ) : null}
                   </span>
                 </TableCell>
                 {showRecipient ? (

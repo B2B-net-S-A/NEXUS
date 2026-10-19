@@ -440,7 +440,8 @@ async def cancel_bonus(
 async def paid_flags(
     db: AsyncSession, bonuses: list[HrBonus]
 ) -> Optional[dict[int, bool]]:
-    """Premia wypłacona = rozliczenie jej miesiąca opłacone (R11).
+    """Premia wypłacona = rozliczenie jej miesiąca opłacone (R11) — i przyznana
+    przed zapłatą (premia dopisana po ponownym otwarciu w opłaconej kwocie nie była).
 
     ``None`` — moduł rozliczeń wyłączony: wołający zostaje przy starej regule
     („miesiąc zamknięty w płacach = rozliczona”).
@@ -481,6 +482,7 @@ async def paid_flags(
             PayrollSettlement.currency,
             PayrollPeriod.year,
             PayrollPeriod.month,
+            PayrollSettlement.paid_at,
         )
         .join(PayrollPeriod, PayrollPeriod.id == PayrollSettlement.period_id)
         .where(
@@ -491,21 +493,32 @@ async def paid_flags(
         )
     )
     paid = {
-        (int(user_id), str(currency), int(year), int(month))
-        for user_id, currency, year, month in rows.all()
+        (int(user_id), str(currency), int(year), int(month)): paid_at
+        for user_id, currency, year, month, paid_at in rows.all()
     }
+
+    def covered(bonus: HrBonus) -> bool:
+        # Premia przyznana po zapłacie (miesiąc otwarty ponownie) nie była
+        # w opłaconej kwocie — nie jest wypłacona (audyt 19.10.2026).
+        key = (
+            bonus.recipient_user_id,
+            bonus.currency,
+            bonus.period_year,
+            bonus.period_month,
+        )
+        if key not in paid:
+            return False
+        paid_at = paid[key]
+        return (
+            paid_at is None or bonus.assigned_at is None or bonus.assigned_at <= paid_at
+        )
+
     return {
         bonus.id: bonus.status == "assigned"
         and (
             (bonus.period_year, bonus.period_month) in closed
             if bonus.id in archive
-            else (
-                bonus.recipient_user_id,
-                bonus.currency,
-                bonus.period_year,
-                bonus.period_month,
-            )
-            in paid
+            else covered(bonus)
         )
         for bonus in bonuses
     }
