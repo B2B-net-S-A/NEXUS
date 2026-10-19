@@ -380,6 +380,19 @@ async def test_mismatch_needs_a_second_person_then_approval_and_payment(
     assert (
         await app_client.post(f"{base}/approve", headers=headers(team.finance))
     ).status_code == 409
+    # Decyzja Artura 19.10.2026: ręczne „opłacono” nie omija rozbieżności.
+    assert data["can_mark_paid"] is False
+    early = await app_client.post(
+        f"{base}/mark-paid",
+        json={
+            "amount": "18843.60",
+            "paid_on": date(*months_ago(1), 18).isoformat(),
+            "reason": "Przelew ręczny",
+        },
+        headers=headers(team.finance2),
+    )
+    assert early.status_code == 409, early.text
+    assert "Uznaj różnicę" in early.text
 
     asked = await app_client.post(
         f"{base}/request-correction", headers=headers(team.finance)
@@ -436,6 +449,18 @@ async def test_mismatch_needs_a_second_person_then_approval_and_payment(
             headers=headers(team.finance2),
         )
     ).status_code == 422
+    # B2B: kwota = brutto faktur (co do grosza), inaczej odmowa z obiema kwotami.
+    other = await app_client.post(
+        f"{base}/mark-paid",
+        json={
+            "amount": "18800.00",
+            "paid_on": paid_on.isoformat(),
+            "reason": "Przelew ręczny",
+        },
+        headers=headers(team.finance2),
+    )
+    assert other.status_code == 422, other.text
+    assert "18800,00" in other.text and "18843,60" in other.text
     paid = await app_client.post(
         f"{base}/mark-paid",
         json={

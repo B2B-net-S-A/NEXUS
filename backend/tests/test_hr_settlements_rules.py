@@ -338,3 +338,72 @@ def test_uznanie_nie_obejmuje_zlej_faktury_ani_zlych_danych() -> None:
     assert not rules.override_covers("white_list", ("seller", "white_list"))
     assert rules.override_kind_for(("seller",)) is None
     assert rules.override_kind_for(("amount", "seller")) is None
+
+
+# ── Decyzja Artura 19.10.2026 („Ogranicz”): ręczne „opłacono” i „Przypisz” ────
+
+
+def _state(**overrides):
+    values = {
+        "employment_type": "b2b",
+        "status": "approved",
+        "problems": (),
+        "override_kind": None,
+        "override_confirmed": False,
+    }
+    values.update(overrides)
+    return rules.payment_state_refusal(**values)
+
+
+def test_oplacono_recznie_dopiero_bez_nierozwiazanej_rozbieznosci() -> None:
+    assert _state() is None
+    assert _state(status="ready") is None
+    assert "Uznaj różnicę" in _state(status="mismatch", problems=("amount",))
+    assert "fakturę" in _state(status="awaiting_document")
+    # Problem widoczny teraz (np. po zmianie danych) bez potwierdzonego uznania.
+    assert _state(status="ready", problems=("white_list",)) is not None
+    assert (
+        _state(
+            status="ready",
+            problems=("amount",),
+            override_kind="amount",
+            override_confirmed=True,
+        )
+        is None
+    )
+    # Uznanie niepotwierdzone przez drugą osobę nic nie daje.
+    assert (
+        _state(status="ready", problems=("amount",), override_kind="amount") is not None
+    )
+    # Inny wystawca faktury — żadne uznanie go nie obejmuje.
+    assert (
+        _state(
+            status="ready",
+            problems=("seller",),
+            override_kind="amount",
+            override_confirmed=True,
+        )
+        is not None
+    )
+    # Zlecenie i UoP: bez faktury, bez zmian.
+    assert _state(employment_type="zlecenie", status="ready") is None
+
+
+def test_kwota_recznego_oplacono_b2b_rowna_brutto_faktur_co_do_grosza() -> None:
+    def refusal(amount: str, to_pay: str | None = "21106.80", kind: str = "b2b"):
+        return rules.payment_amount_refusal(
+            employment_type=kind,
+            amount=Decimal(amount),
+            to_pay=None if to_pay is None else Decimal(to_pay),
+            currency="PLN",
+        )
+
+    assert refusal("21106.80") is None
+    assert refusal("21106.79") is None and refusal("21106.81") is None
+    message = refusal("21000.00")
+    assert "21000,00" in message and "21106,80" in message
+    assert refusal("21106.82") is not None
+    assert refusal("100.00", to_pay=None) is not None
+    # Zlecenie i UoP: kwota na rękę z Symfonii — NEXUS jej nie zna.
+    assert refusal("1612.00", to_pay=None, kind="zlecenie") is None
+    assert refusal("1612.00", to_pay=None, kind="uop") is None

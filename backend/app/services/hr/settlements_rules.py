@@ -264,6 +264,68 @@ def override_kind_for(problems: tuple[str, ...]) -> Optional[str]:
     return None
 
 
+def payment_state_refusal(
+    *,
+    employment_type: str,
+    status: str,
+    problems: tuple[str, ...],
+    override_kind: Optional[str],
+    override_confirmed: bool,
+) -> Optional[str]:
+    """Czemu ręczne „opłacono” albo „Przypisz” z wyciągu nie przejdzie (``None`` = może).
+
+    Decyzja Artura 19.10.2026 („Ogranicz”): zapłata z ręki nie omija drugiej
+    osoby — rozliczenie czekające na dokument albo z rozbieżnością, której nie
+    obejmuje potwierdzone uznanie (``override_covers``), najpierw trzeba
+    rozwiązać. Opłacone i anulowane sprawdzają wołający (inne komunikaty).
+    Zlecenie i UoP nie mają faktury ani problemów — bez zmian.
+    """
+
+    if status == "awaiting_document":
+        return (
+            "Rozliczenie czeka na fakturę — opłacone oznaczysz po dopięciu dokumentu."
+        )
+    covered = (
+        bool(problems)
+        and override_confirmed
+        and override_covers(override_kind, problems)
+    )
+    if status == "mismatch" or (problems and not covered):
+        return (
+            "Rozliczenie ma nierozwiązaną rozbieżność — najpierw „Uznaj różnicę” "
+            "(potwierdza druga osoba) albo właściwy dokument."
+        )
+    return None
+
+
+def _pl_amount(value: Decimal) -> str:
+    return f"{Decimal(value).quantize(_CENT)}".replace(".", ",")
+
+
+def payment_amount_refusal(
+    *,
+    employment_type: str,
+    amount: Decimal,
+    to_pay: Optional[Decimal],
+    currency: str,
+) -> Optional[str]:
+    """B2B: kwota zapłaty = brutto faktur (pierwotna + korekty) z tolerancją 0,01.
+
+    Zlecenie i UoP — ``None``: kwotę na rękę liczy Symfonia, NEXUS jej nie zna.
+    """
+
+    if employment_type != B2B:
+        return None
+    if to_pay is None:
+        return "Rozliczenie nie ma faktury — nie ma kwoty do zapłaty do porównania."
+    if abs(Decimal(amount) - Decimal(to_pay)) > _CENT:
+        return (
+            f"Kwota zapłaty {_pl_amount(amount)} {currency} różni się od kwoty do "
+            f"zapłaty {_pl_amount(to_pay)} {currency} (brutto faktur)."
+        )
+    return None
+
+
 __all__ = [
     "B2B",
     "DEFAULT_PAYOUT_DAY",
@@ -280,6 +342,8 @@ __all__ = [
     "net_total",
     "override_covers",
     "override_kind_for",
+    "payment_amount_refusal",
+    "payment_state_refusal",
     "payout_date",
     "problems_of",
     "seller_problem",

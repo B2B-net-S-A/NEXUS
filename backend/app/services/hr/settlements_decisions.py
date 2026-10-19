@@ -299,6 +299,8 @@ async def manual_paid(
         raise SettlementError("Dzień zapłaty nie może być w przyszłości.")
     if paid_on < month_start(period.year, period.month):
         raise SettlementError("Dzień zapłaty nie może być przed miesiącem rozliczenia.")
+    # Bez nierozwiązanej rozbieżności i z kwotą B2B = brutto faktur (19.10.2026).
+    await settlements.ensure_payable_by_hand(db, settlement, amount=value)
     await settlements.mark_paid(
         db,
         settlement,

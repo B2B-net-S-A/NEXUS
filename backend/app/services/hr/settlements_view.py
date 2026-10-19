@@ -34,6 +34,7 @@ from app.services.hr.settlements_rules import (
     B2B,
     URGENCY,
     net_total,
+    payment_state_refusal,
     problems_of,
     status_label,
 )
@@ -225,7 +226,17 @@ def row_payload(
         "paid_amount": _str(settlement.paid_amount),
         "mine": mine,
         "can_approve": status == "ready" and not mine,
-        "can_mark_paid": status not in ("paid", "cancelled") and not mine,
+        # Ręczne „opłacono” tylko bez nierozwiązanej rozbieżności (19.10.2026).
+        "can_mark_paid": status not in ("paid", "cancelled")
+        and not mine
+        and payment_state_refusal(
+            employment_type=settlement.employment_type,
+            status=status,
+            problems=problems,
+            override_kind=settlement.override_kind,
+            override_confirmed=settlement.override_confirmed_by is not None,
+        )
+        is None,
         "has_pdf": settlement.employment_type == "zlecenie" and status != "cancelled",
     }
 

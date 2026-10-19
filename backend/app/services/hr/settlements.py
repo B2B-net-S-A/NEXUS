@@ -57,7 +57,7 @@ from app.models.user import User, UserRole
 from app.services.action_permissions import ProductAction
 from app.services.hr import audit, settlements_items
 from app.services.hr.notify import notify_each
-from app.services.hr.payroll_errors import PayrollError
+from app.services.hr.payroll_errors import PayrollConflict, PayrollError
 from app.services.hr.payroll_periods import label, month_end, month_start
 from app.services.hr.payroll_report import money
 from app.services.hr.settlements_rules import (
@@ -72,6 +72,8 @@ from app.services.hr.settlements_rules import (
     net_total,
     override_covers,
     parse_since,
+    payment_amount_refusal,
+    payment_state_refusal,
     payout_date,
     problems_of,
     seller_problem,
@@ -249,6 +251,39 @@ async def problems_now(
         gross_issue=gross_issue_of(invoices, billing),
         seller_issue=seller_issue_of(invoices, billing),
     )
+
+
+async def ensure_payable_by_hand(
+    db: AsyncSession, settlement: PayrollSettlement, *, amount: Decimal
+) -> None:
+    """Ręczne „opłacono” i „Przypisz” z wyciągu (decyzja Artura 19.10.2026).
+
+    409, gdy rozliczenie czeka na dokument albo ma rozbieżność bez
+    potwierdzonego uznania (``payment_state_refusal``); 422, gdy kwota B2B
+    różni się od brutto faktur o więcej niż grosz (``payment_amount_refusal``).
+    Opłacone, anulowane i własne rozliczenie sprawdzają wołający.
+    """
+
+    problems = await problems_now(db, settlement)
+    refusal = payment_state_refusal(
+        employment_type=settlement.employment_type,
+        status=settlement.status,
+        problems=problems,
+        override_kind=settlement.override_kind,
+        override_confirmed=settlement.override_confirmed_by is not None,
+    )
+    if refusal:
+        raise PayrollConflict(refusal, code="settlement_not_payable")
+    invoices = await matched_invoices(db, settlement.id)
+    to_pay = net_total(i.gross_amount for i in invoices) if invoices else None
+    refusal = payment_amount_refusal(
+        employment_type=settlement.employment_type,
+        amount=amount,
+        to_pay=to_pay,
+        currency=settlement.currency,
+    )
+    if refusal:
+        raise SettlementError(refusal, code="paid_amount_differs")
 
 
 def clear_override(settlement: PayrollSettlement) -> None:
@@ -855,6 +890,7 @@ __all__ = [
     "cancel_for_period",
     "clear_override",
     "ensure_for_period",
+    "ensure_payable_by_hand",
     "load_settlements_since",
     "gross_issue_of",
     "invoice_period",

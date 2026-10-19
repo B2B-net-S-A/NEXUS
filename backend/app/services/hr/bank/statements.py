@@ -14,7 +14,10 @@ rozliczenia osoby z zespołu:
 3. **numer faktury w tytule** i kwota równa brutto faktur.
 
 Dopasowany wiersz → ``settlements.mark_paid(source='statement')`` (R-A:
-idempotentne, opłacone i anulowane bez zmian). Wiersz dotyczący osoby
+idempotentne, opłacone i anulowane bez zmian). Nikt nie oznacza zapłaty
+własnego rozliczenia (audyt A2, 19.10.2026): wiersz dopasowany do rozliczenia
+importującego zostaje ``unmatched`` z powodem ``own_settlement`` — przypisuje
+go ktoś inny z Płac („Przypisz” ma tę samą regułę). Wiersz dotyczący osoby
 z zespołu, ale bez pewnego dopasowania, zostaje jako ``unmatched`` do decyzji
 Płac („Przypisz” albo „Pomiń”). Obciążenia, które nie dotyczą nikogo z zespołu
 (czynsz, ZUS, dostawcy), i uznania nie trafiają do bazy — liczymy je tylko
@@ -308,6 +311,8 @@ REASON_LABELS: dict[str, str] = {
     "no_open_settlement": "Osoba nie ma rozliczenia do zapłaty.",
     "no_period": "W tytule nie ma miesiąca rozliczenia — wybierz rozliczenie.",
     "already_paid": "Rozliczenie było już opłacone — sprawdź, czy to nie podwójna zapłata.",
+    "own_settlement": "Rozliczenie osoby, która wgrała wyciąg — przypisuje je inna "
+    "osoba z Płac.",
 }
 
 
@@ -510,11 +515,18 @@ async def import_statement(
             db.add(payment)
             result.unmatched += 1
             continue
+        candidate = by_id[decision.settlement_id]
+        if candidate.user_id == actor_id:
+            # Własnego rozliczenia nie oznaczasz jako opłacone — decyzja innej osoby.
+            payment.match_status = "unmatched"
+            payment.reason = REASON_LABELS["own_settlement"]
+            db.add(payment)
+            result.unmatched += 1
+            continue
         payment.match_status = "matched"
         payment.settlement_id = decision.settlement_id
         db.add(payment)
         await db.flush()
-        candidate = by_id[decision.settlement_id]
         settlement = await db.get(PayrollSettlement, decision.settlement_id)
         paid = await settlement_service.mark_paid(
             db,
@@ -679,7 +691,10 @@ async def assign_line(
 
     Własnego rozliczenia nikt nie oznacza jako opłacone (403), a opłacone
     i anulowane nie przyjmują kolejnej zapłaty (409) — druga zapłata tej
-    samej faktury zostaje nierozpoznana, do wyjaśnienia.
+    samej faktury zostaje nierozpoznana, do wyjaśnienia. Rozliczenie bez
+    dokumentu albo z nierozwiązaną rozbieżnością — 409, przelew B2B o kwocie
+    innej niż brutto faktur — 422 (``ensure_payable_by_hand``, 19.10.2026);
+    operacja zostaje wtedy nierozpoznana.
     """
 
     payment = await _line(db, payment_id)
@@ -696,6 +711,9 @@ async def assign_line(
         )
     if settlement.currency != payment.currency:
         raise PayrollError("Waluta przelewu jest inna niż waluta rozliczenia.")
+    await settlement_service.ensure_payable_by_hand(
+        db, settlement, amount=Decimal(payment.amount)
+    )
     payment.settlement_id = settlement.id
     payment.match_status = "matched"
     await db.flush()

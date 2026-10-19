@@ -468,6 +468,17 @@ Schemat: `hr_settlement_schema.py` (migracja `0468_hr_settlements`, stany w docs
   inny z Płac/Finansów/admin; nowy dokument albo zmiana rachunku kasują uznanie. Nikt nie
   zatwierdza ani nie oznacza zapłaty własnego rozliczenia. R11: przy włączonym module premia
   „wypłacona” dopiero z opłaconym rozliczeniem (`payroll_bonuses.paid_flags`).
+  Własne rozliczenie także z wyciągu i paczki (19.10.2026): wiersz wyciągu dopasowany do
+  rozliczenia importującego zostaje `unmatched` (powód `own_settlement`, przypisuje inna
+  osoba), „Bank wykonał” z własnym nieopłaconym rozliczeniem w paczce = 409
+  `own_settlement_in_batch` dla całej paczki (bez opłacania w połowie).
+  Ręczne „opłacono” i „Przypisz” z wyciągu (decyzja Artura 19.10.2026, „Ogranicz”):
+  rozliczenie czekające na dokument albo z problemem bez potwierdzonego uznania
+  (`payment_state_refusal`) = 409 `settlement_not_payable` — najpierw „Uznaj różnicę” drugą
+  osobą albo właściwy dokument; B2B z kwotą ≠ brutto faktur (pierwotna + korekty) o więcej
+  niż 0,01 = 422 `paid_amount_differs` z obiema kwotami. Zlecenie i UoP bez zmian (kwota na
+  rękę z Symfonii). `can_mark_paid` w kolejce idzie za tą regułą. Automatyczne dopasowanie
+  z importu wyciągu tej reguły nie ma (osobna decyzja).
 - **Zmiana odbiorcy** (rachunek albo NIP) cofa zatwierdzenie i kasuje uznanie KAŻDEGO rodzaju;
   sama zmiana terminu nie. Uznanie rachunku nie obejmuje późniejszego problemu z kwotą.
   Problem `gross` (jak różnica kwoty, druga osoba): brutto ≠ netto + VAT (> 0,01), VAT > 0 przy
