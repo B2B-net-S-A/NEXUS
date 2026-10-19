@@ -476,6 +476,9 @@ export function ProposalsSegmentView({
             loading={status.inbox.isLoading && rows.length === 0}
             empty={empty}
             readOnly={readOnly}
+            // Bez limitu wysokości tabela rosła do pełnej listy (200+ osób),
+            // a pasek z „Dodaj do rekrutacji” lądował pod ostatnim wierszem.
+            className="max-h-[75dvh]"
           />
           {status.inbox.hasMore && (
             <Button variant="outline" size="sm" loading={status.inbox.loadingMore} onClick={status.inbox.loadMore}>

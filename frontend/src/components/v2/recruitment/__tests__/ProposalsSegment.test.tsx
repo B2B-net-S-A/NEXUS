@@ -40,8 +40,8 @@ vi.mock("@/components/talent-radar/RequirementVerificationDialog", () => ({
 }));
 // Tabela ma własne testy; tu liczy się to, co segment jej PODAJE.
 vi.mock("@/components/v2/recruitment/PeopleTable", () => ({
-  PeopleTable: ({ rows, empty, footer, loading, onSelectionChange }: { rows: Array<{ key: string; fullName: string }>; empty: React.ReactNode; footer: React.ReactNode; loading: boolean; onSelectionChange: (s: Set<string>) => void }) => (
-    <div data-testid="people-table">
+  PeopleTable: ({ rows, empty, footer, loading, onSelectionChange, className }: { rows: Array<{ key: string; fullName: string }>; empty: React.ReactNode; footer: React.ReactNode; loading: boolean; onSelectionChange: (s: Set<string>) => void; className?: string }) => (
+    <div data-testid="people-table" className={className}>
       {loading && <p>Wczytuję…</p>}
       {rows.length === 0 ? <div data-testid="empty">{empty}</div> : rows.map((r) => <p key={r.key}>{r.fullName}</p>)}
       <button type="button" onClick={() => onSelectionChange(new Set(rows.map((r) => r.key)))}>zaznacz wszystkich (mock)</button>
@@ -186,6 +186,14 @@ describe("ProposalsSegment — stany", () => {
     fireEvent.click(screen.getByRole("button", { name: "zaznacz wszystkich (mock)" }));
     fireEvent.click(footer.getByRole("button", { name: "Porównaj" }));
     expect(mocks.push).toHaveBeenCalledWith("/candidates/compare?ids=1%2C2&job=42");
+  });
+
+  it("tabela ma własny przewijany obszar, więc pasek „Dodaj do rekrutacji” nie ucieka pod 200 wierszy", () => {
+    mocks.state.current = state({ entries: entriesOf([1, 2]) });
+    render(<ProposalsSegment {...props} />);
+    // Bez ograniczonej wysokości VirtualTable rośnie do pełnej listy, a stopka
+    // z akcjami zbiorczymi ląduje pod ostatnim wierszem (zgłoszenie 19.10.2026).
+    expect(screen.getByTestId("people-table").className).toMatch(/max-h-\[\d+dvh\]/);
   });
 
   it("skróty D / P działają na aktywnej osobie, ale nie w polu tekstowym", () => {
