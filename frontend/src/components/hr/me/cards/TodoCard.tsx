@@ -7,6 +7,7 @@ import type { HrConfig, OwnProfile } from "@/lib/api/hr";
 import { useMyLifecycleTasks } from "@/lib/api/hr-lifecycle";
 import { useMyMonth, useMyTimesheetHistory } from "@/lib/api/hr-time";
 import type { YearMonth } from "@/lib/date-pl";
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 import { currentYearMonth } from "../../time/time-format";
@@ -60,31 +61,59 @@ export function TodoCard({
     (withTimesheets && (month.isLoading || history.isLoading));
 
   return (
-    <OverviewCard title="Do zrobienia">
+    <OverviewCard
+      title="Do zrobienia"
+      aside={items.length > 0 ? String(items.length) : undefined}
+      className="gap-0"
+    >
       {items.length > 0 ? (
-        <ul className="space-y-1.5">
+        <ul className="mt-1">
           {items.map((item) => (
-            <li key={item.key} className="text-sm">
-              {item.href ? (
-                <Link href={item.href} className="font-medium text-foreground hover:underline">
+            <li
+              key={item.key}
+              className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-2.5 border-t border-border py-2"
+            >
+              <div className="min-w-0">
+                <p className="truncate text-sm font-medium text-foreground" title={item.title}>
                   {item.title}
-                </Link>
-              ) : item.tab ? (
-                <button
-                  type="button"
-                  onClick={() => item.tab && onOpenTab(item.tab, item.month)}
-                  className="text-left font-medium text-foreground hover:underline"
+                </p>
+                {item.detail ? (
+                  <p className="truncate text-xs text-muted-foreground">{item.detail}</p>
+                ) : null}
+              </div>
+              {item.due ? (
+                <span
+                  className={cn(
+                    "whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium",
+                    item.overdue
+                      ? "bg-destructive-muted text-destructive-muted-foreground"
+                      : "bg-muted text-foreground",
+                  )}
                 >
-                  {item.title}
-                </button>
-              ) : (
-                <span className="font-medium text-foreground">{item.title}</span>
-              )}
-              {item.detail ? (
-                <span className={cn("block text-xs", item.overdue ? "text-destructive" : "text-muted-foreground")}>
-                  {item.detail}
+                  {item.due}
                 </span>
-              ) : null}
+              ) : (
+                <span aria-hidden />
+              )}
+              {item.action && item.href ? (
+                <Button asChild size="sm" variant="outline" className="h-7 px-2.5">
+                  <Link href={item.href} aria-label={item.title}>
+                    {item.action}
+                  </Link>
+                </Button>
+              ) : item.action && item.tab ? (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-7 px-2.5"
+                  aria-label={item.title}
+                  onClick={() => item.tab && onOpenTab(item.tab, item.month)}
+                >
+                  {item.action}
+                </Button>
+              ) : (
+                <span aria-hidden />
+              )}
             </li>
           ))}
         </ul>

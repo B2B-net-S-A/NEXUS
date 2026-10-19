@@ -54,20 +54,33 @@ export function BonusCard({ today, onOpenTab }: { today: string; onOpenTab: (val
         <p className="text-sm text-muted-foreground">Nie ma premii w drodze.</p>
       )}
       {items.length > 0 ? (
-        <ul className="space-y-1">
-          {items.slice(0, 3).map((item) => {
-            const current = item.stages.find((stage) => stage.state === "current");
-            return (
-              <li key={item.key} className="text-xs">
-                <span className="block truncate font-medium text-foreground" title={item.title}>
-                  {item.title.replace(/^Placement: /, "")}
+        <ul className="space-y-2.5">
+          {items.slice(0, 3).map((item) => (
+            <li key={item.key} className="text-xs">
+              <div className="flex items-baseline justify-between gap-2 text-sm">
+                <span className="min-w-0 truncate" title={item.title}>
+                  <span className="font-semibold text-foreground">
+                    {item.title.replace(/^Placement: /, "")}
+                  </span>
+                  <span className="text-muted-foreground"> · {item.subtitle}</span>
                 </span>
-                <span className="text-muted-foreground">
-                  {[current?.label, bonusAmountLabel(item), item.when].filter(Boolean).join(" · ")}
-                </span>
-              </li>
-            );
-          })}
+                <span className="shrink-0 tabular-nums text-foreground">{bonusAmountLabel(item)}</span>
+              </div>
+              {item.progress !== null ? (
+                <div
+                  role="progressbar"
+                  aria-label={`Dni do terminu premii: ${item.title}`}
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-valuenow={item.progress}
+                  className="mt-1 h-1.5 overflow-hidden rounded-full bg-muted"
+                >
+                  <div className="h-full bg-success" style={{ width: `${item.progress}%` }} />
+                </div>
+              ) : null}
+              <p className="mt-0.5 text-muted-foreground">{item.timeline}</p>
+            </li>
+          ))}
         </ul>
       ) : null}
       <p className="mt-auto text-xs text-muted-foreground">

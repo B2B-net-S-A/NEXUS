@@ -14,6 +14,8 @@ from app.core.database import AsyncSessionLocal
 from app.models.hr_time import Timesheet
 from app.services.hr import time_reminders
 from tests.test_hr_time_support import (  # noqa: F401 — fikstury
+    grant,
+    headers,
     make_user,
     notifications_of,
     time_off,
@@ -101,3 +103,114 @@ async def test_switched_off_module_sends_nothing() -> None:
     async with AsyncSessionLocal() as db:
         result = await time_reminders.run_once(db, today=date(2034, 3, 2))
     assert result == {"status": "disabled"}
+
+
+# ── „Przypomnij” z ekranu (Płace, Akceptacje) ─────────────────────────────────
+
+
+def _remind_url(user_id: int, year: int, month: int) -> str:
+    return f"/api/hr/time/remind/{user_id}/{year}/{month}"
+
+
+@pytest.mark.usefixtures("time_on")
+@pytest.mark.asyncio
+async def test_manual_reminder_goes_to_person_once_a_day(app_client) -> None:
+    async with AsyncSessionLocal() as db:
+        finance = await make_user(db, "recruiter", profile=False)
+        await grant(db, finance, "payroll")
+        person = await make_user(db, "employee", employment_type="b2b")
+        await db.commit()
+
+    first = await app_client.post(
+        _remind_url(person.id, 2035, 3), headers=headers(finance)
+    )
+    assert first.status_code == 200, first.text
+    assert first.json() == {
+        "target": "person",
+        "status": "missing",
+        "sent": True,
+        "already_today": False,
+    }
+    bells = await notifications_of(person.id, "hr_timesheet_reminder")
+    assert len(bells) == 1
+    # Słowa formy (B2B = raport godzin), miesiąc i termin.
+    assert "raport godzin" in bells[0][0]
+    assert "marzec 2035" in bells[0][1] and "5.04" in bells[0][1]
+
+    again = await app_client.post(
+        _remind_url(person.id, 2035, 3), headers=headers(finance)
+    )
+    assert again.status_code == 200
+    assert again.json()["already_today"] is True
+    assert again.json()["sent"] is False
+    assert len(await notifications_of(person.id, "hr_timesheet_reminder")) == 1
+
+
+@pytest.mark.usefixtures("time_on")
+@pytest.mark.asyncio
+async def test_manual_reminder_for_submitted_goes_to_the_approver(app_client) -> None:
+    async with AsyncSessionLocal() as db:
+        finance = await make_user(db, "recruiter", profile=False)
+        await grant(db, finance, "payroll")
+        boss = await make_user(db, "recruiter", employment_type="uop")
+        person = await make_user(
+            db, "employee", manager_user_id=boss.id, employment_type="uop"
+        )
+        db.add(Timesheet(user_id=person.id, year=2035, month=4, status="submitted"))
+        await db.commit()
+
+    sent = await app_client.post(
+        _remind_url(person.id, 2035, 4), headers=headers(finance)
+    )
+    assert sent.status_code == 200, sent.text
+    assert sent.json()["target"] == "approver"
+    assert sent.json()["status"] == "submitted"
+    bells = await notifications_of(boss.id, "hr_timesheet_submitted")
+    assert len(bells) == 1
+    assert bells[0][0].startswith("Przypomnienie")
+    assert "kwiecień 2035" in bells[0][1]
+    assert await notifications_of(person.id, "hr_timesheet_reminder") == []
+
+    # Przełożony nie ponagla sam siebie.
+    own = await app_client.post(_remind_url(person.id, 2035, 4), headers=headers(boss))
+    assert own.status_code == 409
+    assert "Akceptacje" in own.json()["detail"]
+
+
+@pytest.mark.usefixtures("time_on")
+@pytest.mark.asyncio
+async def test_manual_reminder_refusals(app_client) -> None:
+    async with AsyncSessionLocal() as db:
+        stranger = await make_user(db, "recruiter")
+        boss = await make_user(db, "recruiter")
+        person = await make_user(db, "employee", manager_user_id=boss.id)
+        other = await make_user(db, "employee")
+        no_report = await make_user(
+            db, "employee", manager_user_id=boss.id, timesheet_required=False
+        )
+        db.add(Timesheet(user_id=person.id, year=2035, month=5, status="approved"))
+        await db.commit()
+
+    # Bez Płac, Kadr i bez ludzi do akceptacji — bramka.
+    denied = await app_client.post(
+        _remind_url(person.id, 2035, 6), headers=headers(stranger)
+    )
+    assert denied.status_code == 403
+    # Przełożony spoza zespołu osoby — 404 (bez zdradzania, że jest).
+    outside = await app_client.post(
+        _remind_url(other.id, 2035, 6), headers=headers(boss)
+    )
+    assert outside.status_code == 404
+    # Przyjęty raport i osoba bez obowiązku raportu — 409.
+    approved = await app_client.post(
+        _remind_url(person.id, 2035, 5), headers=headers(boss)
+    )
+    assert approved.status_code == 409
+    exempt = await app_client.post(
+        _remind_url(no_report.id, 2035, 6), headers=headers(boss)
+    )
+    assert exempt.status_code == 409
+    # Przełożony przypomina swojemu człowiekowi o szkicu.
+    ok = await app_client.post(_remind_url(person.id, 2035, 6), headers=headers(boss))
+    assert ok.status_code == 200
+    assert ok.json()["target"] == "person"

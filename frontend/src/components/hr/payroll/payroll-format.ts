@@ -11,11 +11,13 @@ import type {
   BonusStatus,
   Currency,
   PayrollMonthDetail,
+  PayrollPerson,
   RateRow,
   TimesheetStatus,
 } from "@/lib/api/hr-payroll";
 import { TIMESHEET_STATUS_LABELS } from "@/lib/api/hr-time";
 import { formatDayMonthPl } from "@/lib/date-pl";
+import { employmentTerms } from "@/lib/hr-employment-terms";
 import { formatMoney } from "@/lib/money";
 import { warsawToday } from "@/lib/warsaw-date";
 
@@ -219,4 +221,220 @@ export function splitBonuses(bonuses: BonusRow[]): {
     assigned: bonuses.filter((b) => b.status === "assigned"),
     cancelled: bonuses.filter((b) => b.status === "cancelled").length,
   };
+}
+
+// ── Zamknięcie miesiąca: stepper, podział wypłaty, decyzje (makieta 19.10.2026) ──
+
+export type CloseStepKey = "hours" | "bonuses" | "check" | "close";
+/** `warn` — krok niedomknięty, ale nie blokuje (godziny bez akceptacji to ostrzeżenie). */
+export type CloseStepState = "done" | "current" | "todo" | "warn";
+
+export interface CloseStep {
+  key: CloseStepKey;
+  label: string;
+  detail: string;
+  state: CloseStepState;
+  /** Pasek kroku „Godziny” (0–100). */
+  progress?: number;
+}
+
+export interface CloseSteps {
+  steps: CloseStep[];
+  /** „Zamknij miesiąc” aktywne: serwer pozwala, premie z decyzją, ostrzeżenia potwierdzone. */
+  ready: boolean;
+  /** Ostrzeżenia czekają na potwierdzenie (krok „Kontrola”). */
+  needsAcknowledge: boolean;
+}
+
+/** Proponowane premie, o których można już zdecydować (po terminie). */
+export function decidableBonuses(bonuses: readonly BonusRow[]): BonusRow[] {
+  return bonuses.filter((b) => b.status === "proposed" && b.eligible !== false);
+}
+
+function sumByCurrency(rows: readonly Pick<BonusRow, "amount" | "currency">[]): Record<string, string> {
+  const sums: Record<string, number> = {};
+  for (const row of rows) sums[row.currency] = (sums[row.currency] ?? 0) + Number(row.amount);
+  return Object.fromEntries(Object.entries(sums).map(([currency, value]) => [currency, value.toFixed(2)]));
+}
+
+/** Pierwsza część komunikatu ostrzeżenia („2 os. bez zatwierdzonego timesheetu”). */
+function warningShort(message: string): string {
+  return message.split(" — ")[0] ?? message;
+}
+
+/**
+ * Kroki zamknięcia: Godziny → Premie → Kontrola → Zamknij. Twardo blokuje
+ * tylko to, co blokuje serwer: każda propozycja premii z miesiąca (także ta,
+ * która jeszcze „liczy się”) i niepotwierdzone ostrzeżenia. Godziny bez
+ * akceptacji są ostrzeżeniem — krok świeci się na żółto, a potwierdza się je
+ * w „Kontroli”.
+ */
+export function closeSteps(
+  detail: Pick<PayrollMonthDetail, "status" | "can_close" | "people" | "bonuses" | "stats" | "warnings" | "closed_at">,
+  acknowledged: boolean,
+): CloseSteps {
+  const closed = detail.status === "closed";
+  const required = detail.people.filter((p) => p.timesheet_required);
+  const approved = required.filter((p) => p.timesheet_status === "approved").length;
+  const hoursDone = closed || approved === required.length;
+  const decidable = decidableBonuses(detail.bonuses);
+  const pending = closed ? 0 : detail.stats.proposals;
+  const bonusesDone = pending === 0;
+  const counting = Math.max(0, pending - decidable.length);
+  const warnings = closed ? [] : (detail.warnings ?? []);
+  const checkDone = warnings.length === 0 || acknowledged;
+  const ready = !closed && detail.can_close && bonusesDone && checkDone;
+
+  const bonusDetail = bonusesDone
+    ? "wszystkie z decyzją"
+    : [
+        decidable.length > 0 ? `${decidable.length} do decyzji · ${formatTotals(sumByCurrency(decidable))}` : null,
+        counting > 0 ? `${counting} jeszcze liczy się` : null,
+      ]
+        .filter(Boolean)
+        .join(" · ");
+  const checkDetail =
+    warnings.length === 0
+      ? "bez ostrzeżeń"
+      : acknowledged
+        ? "ostrzeżenia potwierdzone"
+        : warnings.length === 1
+          ? warningShort(warnings[0].message)
+          : `${warnings.length} ostrzeżenia do potwierdzenia`;
+  const closeDetail = closed
+    ? `zamknięty${detail.closed_at ? ` ${formatDayMonthPl(detail.closed_at.slice(0, 10))}` : ""}`
+    : !detail.can_close
+      ? "od ostatniego dnia miesiąca"
+      : ready
+        ? "gotowe do zamknięcia"
+        : "po krokach 1–3";
+
+  return {
+    ready,
+    needsAcknowledge: warnings.length > 0 && !acknowledged,
+    steps: [
+      {
+        key: "hours",
+        label: "Godziny",
+        detail:
+          required.length === 0 ? "nikt nie składa raportu" : `${approved} z ${required.length} zaakceptowane`,
+        state: hoursDone ? "done" : "warn",
+        progress: required.length === 0 ? 100 : Math.round((approved / required.length) * 100),
+      },
+      { key: "bonuses", label: "Premie", detail: bonusDetail, state: bonusesDone ? "done" : "current" },
+      {
+        key: "check",
+        label: "Kontrola",
+        detail: checkDetail,
+        state: checkDone ? "done" : bonusesDone ? "current" : "todo",
+      },
+      {
+        key: "close",
+        label: "Zamknij miesiąc",
+        detail: closeDetail,
+        state: closed ? "done" : ready ? "current" : "todo",
+      },
+    ],
+  };
+}
+
+export interface PayoutCurrency {
+  currency: string;
+  total: number;
+  hours: number;
+  bonuses: number;
+}
+
+export interface PayoutForm {
+  form: string;
+  label: string;
+  people: number;
+  totals: Record<string, number>;
+}
+
+const FORM_ORDER = ["b2b", "uop", "zlecenie"];
+
+/**
+ * „Razem do wypłaty” z linii osób (Płace): suma per waluta z podziałem na
+ * godziny i premie oraz per forma współpracy. Liczy tylko to, co serwer
+ * policzył do płac (zaakceptowane godziny, przyznane premie).
+ */
+export function payoutBreakdown(people: readonly PayrollPerson[]): {
+  currencies: PayoutCurrency[];
+  forms: PayoutForm[];
+} {
+  const currencies = new Map<string, PayoutCurrency>();
+  const forms = new Map<string, PayoutForm>();
+  for (const person of people) {
+    const lines = (person.lines ?? []).filter((line) => Number(line.total) !== 0);
+    if (lines.length === 0) continue;
+    const formKey = person.employment_type ?? "";
+    const form = forms.get(formKey) ?? {
+      form: formKey,
+      label: EMPLOYMENT_LABELS[formKey] ?? "Bez formy",
+      people: 0,
+      totals: {},
+    };
+    form.people += 1;
+    for (const line of lines) {
+      const sum = currencies.get(line.currency) ?? { currency: line.currency, total: 0, hours: 0, bonuses: 0 };
+      sum.total += Number(line.total);
+      sum.hours += Number(line.hours_amount ?? 0);
+      sum.bonuses += Number(line.bonus_total);
+      currencies.set(line.currency, sum);
+      form.totals[line.currency] = (form.totals[line.currency] ?? 0) + Number(line.total);
+    }
+    forms.set(formKey, form);
+  }
+  const rank = (form: string) => {
+    const index = FORM_ORDER.indexOf(form);
+    return index < 0 ? FORM_ORDER.length : index;
+  };
+  return {
+    currencies: [...currencies.values()].sort((a, b) =>
+      a.currency === "PLN" ? -1 : b.currency === "PLN" ? 1 : a.currency.localeCompare(b.currency),
+    ),
+    forms: [...forms.values()].sort((a, b) => rank(a.form) - rank(b.form)),
+  };
+}
+
+/** Wiersz „Premii do decyzji”, który Płace mogą zaznaczyć do „Zatwierdź zaznaczone”. */
+export function batchSelectable(row: BonusRow, meId: number | undefined): boolean {
+  return (
+    row.status === "proposed" &&
+    row.eligible !== false &&
+    row.can_approve !== false &&
+    row.recipient_user_id !== meId
+  );
+}
+
+/** Pasek pod listą: „Zaznaczono 5 · 11 529,20 zł”. */
+export function selectionSummary(
+  rows: readonly BonusRow[],
+  selected: ReadonlySet<number>,
+): { count: number; label: string } {
+  const chosen = rows.filter((row) => selected.has(row.id));
+  return { count: chosen.length, label: formatTotals(sumByCurrency(chosen)) };
+}
+
+/** Osoba „do wyjaśnienia”: raport bez akceptacji (gdy go składa) albo godziny bez stawki. */
+export function needsAttention(person: Pick<PayrollPerson, "timesheet_required" | "timesheet_status" | "rate_missing">): boolean {
+  return (person.timesheet_required && person.timesheet_status !== "approved") || Boolean(person.rate_missing);
+}
+
+/**
+ * „Przypomnij” w wierszu osoby: szkic albo brak raportu → osobie; raport
+ * czeka na akceptację → akceptującemu (tylko Płace — przełożony sam akceptuje).
+ */
+export function reminderAction(
+  person: Pick<PayrollPerson, "timesheet_required" | "timesheet_status" | "employment_type">,
+  scope: "payroll" | "team",
+): string | null {
+  if (!person.timesheet_required) return null;
+  const status = person.timesheet_status;
+  if (status === null || status === "draft") return "Przypomnij";
+  if (status === "submitted" && scope === "payroll") {
+    return `Ponagl ${employmentTerms(person.employment_type).coordinator_genitive}`;
+  }
+  return null;
 }

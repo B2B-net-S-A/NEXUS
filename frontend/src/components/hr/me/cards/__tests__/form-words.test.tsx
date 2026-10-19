@@ -105,14 +105,14 @@ describe("słowa formy w kartach Przeglądu", () => {
 
   it("B2B z pulą: najbliższe zgłoszenie jest „zgłoszona”, nie „zatwierdzona”", () => {
     render(<AbsenceCard form="b2b" year={2026} today="2026-10-17" />);
-    expect(text()).toContain("Najbliższa nieobecność: 26–28.10.2026 · zgłoszona");
+    expect(text()).toContain("Najbliższa nieobecność: 26–28.10.2026zgłoszona");
     expect(text()).not.toMatch(/zatwierdzon/i);
   });
 
   it("B2B bez płatnej puli: bez „czeka na akceptację”, gdy nic nie czeka (D5)", () => {
     state.balance = balance({ has_paid_pool: false, entitlement_days: "0.0", remaining_days: "0.0" });
     render(<AbsenceCard form="b2b" year={2026} today="2026-10-17" />);
-    expect(text()).toContain("· zgłoszona");
+    expect(text()).toContain("26–28.10.2026zgłoszona");
     expect(text()).not.toMatch(/akceptac/i);
   });
 
@@ -120,7 +120,7 @@ describe("słowa formy w kartach Przeglądu", () => {
     state.balance = balance({ employment_type: "uop" });
     state.requests = [request({ is_report: false, employment_type: "uop" })];
     render(<AbsenceCard form="uop" year={2026} today="2026-10-17" />);
-    expect(text()).toContain("Najbliższy urlop: 26–28.10.2026 · zatwierdzony");
+    expect(text()).toContain("Najbliższy urlop: 26–28.10.2026zatwierdzony");
   });
 
   it("raport godzin B2B „potwierdza” koordynator, ewidencję UoP „akceptuje” przełożony", () => {

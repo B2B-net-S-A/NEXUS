@@ -248,7 +248,8 @@ function renderTab(cfg = config(), who = person(), onOpenTab = vi.fn()) {
 /** Dzień roboczy do dziś bez wpisu — liczy się do „dni do uzupełnienia”. */
 const emptyWorkday = { date: today, working_day: true, entries: [], leave: null } as unknown as MonthDay;
 
-const card = (name: string | RegExp) => screen.findByRole("generic", { name });
+// Zapytanie o rolę w dużym drzewie (mini-kalendarz) bywa wolne pod obciążeniem — dłuższy limit.
+const card = (name: string | RegExp) => screen.findByRole("generic", { name }, { timeout: 5000 });
 
 describe("MyOverviewTab", () => {
   beforeEach(() => vi.clearAllMocks());
@@ -391,6 +392,22 @@ describe("MyOverviewTab", () => {
     const month = await card(/^Raport godzin · /);
     expect(await within(month).findByText(/1 dzień do uzupełnienia/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Uzupełnij dzień" })).toBeInTheDocument();
+  });
+
+  it("mini-kalendarz: brakujący dzień to przycisk, który otwiera miesiąc", async () => {
+    route(healthy({ [monthUrl]: { ...monthView(), days: [{ ...emptyWorkday, weekday: 1 }] } }));
+    const onOpenTab = vi.fn();
+    renderTab(config(), person(), onOpenTab);
+
+    const month = await card(/^Raport godzin · /);
+    const days = await within(month).findByRole("group", { name: "Dni miesiąca" });
+    fireEvent.click(within(days).getByRole("button", { name: /brak wpisu — uzupełnij/ }));
+    expect(onOpenTab).toHaveBeenCalledWith("month");
+    expect(within(month).getByText(/^Brakuje dziś/)).toBeInTheDocument();
+    expect(within(month).getByRole("progressbar", { name: "Godziny miesiąca wobec normy" })).toHaveAttribute(
+      "aria-valuenow",
+      "69",
+    );
   });
 
   it("zaległy raport z „Do zrobienia” otwiera swój miesiąc, nie bieżący", async () => {

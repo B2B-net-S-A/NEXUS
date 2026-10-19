@@ -15,36 +15,80 @@ import {
   absenceCardTitle,
   nextAbsence,
   poolSegments,
-  segmentPercent,
+  ringArcs,
   type AbsenceCardKind,
+  type RingArc,
 } from "../overview-format";
 import { Loading, OverviewCard, PartError, stateOf } from "./OverviewCard";
 
-function PoolBar({ balance }: { balance: LeaveBalance }) {
+const ARC_TONE: Record<RingArc["key"], string> = {
+  used: "stroke-primary",
+  planned: "stroke-primary/50",
+  pending: "stroke-warning",
+};
+
+/** Pierścień puli: wykorzystane, zaplanowane, czeka; w środku „zostało”. */
+function PoolRing({ balance }: { balance: LeaveBalance }) {
   const parts = poolSegments(balance);
   if (!parts || parts.total <= 0) return null;
   const label = `Wykorzystane ${daysLabel(parts.used)}, zaplanowane ${daysLabel(
     parts.planned,
   )}, czeka ${daysLabel(parts.pending)}, zostało ${daysLabel(parts.remaining)}`;
   return (
-    <div role="img" aria-label={label} className="flex h-2 w-full overflow-hidden rounded-full bg-muted">
-      <span className="h-full bg-primary" style={{ width: `${segmentPercent(parts.used, parts.total)}%` }} />
-      <span
-        className="h-full bg-primary/50"
-        style={{ width: `${segmentPercent(parts.planned, parts.total)}%` }}
-      />
-      <span
-        className="h-full bg-warning"
-        style={{ width: `${segmentPercent(parts.pending, parts.total)}%` }}
-      />
+    <div role="img" aria-label={label} className="relative size-24 shrink-0">
+      <svg viewBox="0 0 36 36" className="size-full -rotate-90" aria-hidden>
+        <circle cx="18" cy="18" r="15.9" fill="none" strokeWidth="4" className="stroke-muted" />
+        {ringArcs(parts).map((arc) =>
+          arc.percent > 0 ? (
+            <circle
+              key={arc.key}
+              cx="18"
+              cy="18"
+              r="15.9"
+              fill="none"
+              strokeWidth="4"
+              pathLength={100}
+              strokeDasharray={`${arc.percent} ${100 - arc.percent}`}
+              strokeDashoffset={-arc.start}
+              className={ARC_TONE[arc.key]}
+            />
+          ) : null,
+        )}
+      </svg>
+      <div className="absolute inset-0 flex flex-col items-center justify-center">
+        <span className="text-lg font-bold tabular-nums leading-none text-foreground">
+          {Number(balance.remaining_days ?? 0).toLocaleString("pl-PL", { maximumFractionDigits: 1 })}
+        </span>
+        <span className="text-[11px] text-muted-foreground">zostało</span>
+      </div>
     </div>
   );
 }
 
-function nextLine(kind: AbsenceCardKind, row: LeaveRequestRow | null): string {
+function Legend({ data }: { data: LeaveBalance }) {
+  return (
+    <ul className="space-y-1 text-xs text-muted-foreground">
+      <li>
+        <span className="mr-1.5 inline-block size-2 rounded-sm bg-primary" aria-hidden />
+        wykorzystane {daysLabel(data.used_days)}
+      </li>
+      <li>
+        <span className="mr-1.5 inline-block size-2 rounded-sm bg-primary/50" aria-hidden />
+        zaplanowane {daysLabel(data.planned_days)}
+      </li>
+      <li>
+        <span className="mr-1.5 inline-block size-2 rounded-sm bg-warning" aria-hidden />
+        czeka {daysLabel(data.pending_days)}
+      </li>
+    </ul>
+  );
+}
+
+/** Najbliższa nieobecność w dwóch liniach: termin i stan (z zastępcą). */
+function nextParts(kind: AbsenceCardKind, row: LeaveRequestRow | null): { head: string; sub: string | null } {
   const leave = kind === "leave";
   const lead = leave ? "Najbliższy urlop" : "Najbliższa nieobecność";
-  if (!row) return `${lead}: brak zaplanowane${leave ? "go" : "j"}`;
+  if (!row) return { head: `${lead}: brak zaplanowane${leave ? "go" : "j"}`, sub: null };
   // Zgłoszenie z B2B i zlecenia wchodzi od razu — „zgłoszona”, nikt jej nie
   // zatwierdza (D5); to samo słowo co w liście „Moje” (`statusLabel`).
   const approved = row.is_report
@@ -52,7 +96,7 @@ function nextLine(kind: AbsenceCardKind, row: LeaveRequestRow | null): string {
     : leave ? "zatwierdzony" : "zatwierdzona";
   const state = row.status === "approved" ? approved : "czeka na akceptację";
   const stand = row.substitute_name ? ` · zastępuje ${shortName(row.substitute_name)}` : "";
-  return `${lead}: ${formatRange(row.start_date, row.end_date)} · ${state}${stand}`;
+  return { head: `${lead}: ${formatRange(row.start_date, row.end_date)}`, sub: `${state}${stand}` };
 }
 
 export function AbsenceCard({ form, year, today }: { form: OwnProfile["employment_type"]; year: number; today: string }) {
@@ -80,11 +124,14 @@ export function AbsenceCard({ form, year, today }: { form: OwnProfile["employmen
   const data = balance.data;
   const next =
     requestsState === "ready" && requests.data
-      ? nextLine(kind, nextAbsence(requests.data, today, kind !== "absences"))
+      ? nextParts(kind, nextAbsence(requests.data, today, kind !== "absences"))
       : null;
   const nextPart =
     requestsState === "loading" ? null : next ? (
-      <p className="text-xs text-muted-foreground">{next}</p>
+      <div className="rounded-md bg-muted/50 px-3 py-2 text-xs">
+        <p className="font-semibold text-foreground">{next.head}</p>
+        {next.sub ? <p className="text-muted-foreground">{next.sub}</p> : null}
+      </div>
     ) : (
       <PartError label="Nie udało się wczytać wniosków." onRetry={() => requests.refetch()} />
     );
@@ -122,35 +169,18 @@ export function AbsenceCard({ form, year, today }: { form: OwnProfile["employmen
       }
     >
       {hasPool ? (
-        <>
-          <p
-            className="text-lg font-semibold tabular-nums text-foreground"
-            title="Pula minus wykorzystane, zaplanowane i czekające na akceptację."
-          >
-            {daysLabel(data.remaining_days ?? "0")}{" "}
-            <span className="text-sm font-normal text-muted-foreground">zostało</span>
-          </p>
-          <PoolBar balance={data} />
-        </>
+        <div className="flex items-center gap-4" title="Pula minus wykorzystane, zaplanowane i czekające na akceptację.">
+          <PoolRing balance={data} />
+          <Legend data={data} />
+        </div>
       ) : (
-        <p className="text-sm text-muted-foreground">
-          Pula na {year} nie jest ustawiona — zrobią to Kadry.
-        </p>
+        <>
+          <p className="text-sm text-muted-foreground">
+            Pula na {year} nie jest ustawiona — zrobią to Kadry.
+          </p>
+          <Legend data={data} />
+        </>
       )}
-      <p className="flex flex-wrap gap-x-3 text-xs text-muted-foreground">
-        <span>
-          <span className="mr-1 inline-block size-2 rounded-full bg-primary" aria-hidden />
-          wykorzystane {daysLabel(data.used_days)}
-        </span>
-        <span>
-          <span className="mr-1 inline-block size-2 rounded-full bg-primary/50" aria-hidden />
-          zaplanowane {daysLabel(data.planned_days)}
-        </span>
-        <span>
-          <span className="mr-1 inline-block size-2 rounded-full bg-warning" aria-hidden />
-          czeka {daysLabel(data.pending_days)}
-        </span>
-      </p>
       {nextPart}
       {kind === "leave" && (data.on_demand_limit !== null || data.childcare_limit !== null) ? (
         <p className="text-xs text-muted-foreground">
