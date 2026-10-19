@@ -464,7 +464,12 @@ async def _calendar_upsert(ctx: Context) -> Outcome:
             # Osoba usunęła wydarzenie w Outlooku — zakładamy od nowa.
             ctx.mailbox.events.pop(transaction, None)
             ctx.mailbox.touched = True
-    elif ctx.leave is not None:
+    elif ctx.leave is not None and (
+        ctx.leave.source == "compass_import" or payload.get("previous_start")
+    ):
+        # Tylko tu może czekać wydarzenie bez zapamiętanego id: urlop z importu
+        # (wydarzenie Compassa) albo przesunięty edycją. Zwykły nowy urlop
+        # idzie prosto do POST (bez dodatkowego odczytu kalendarza).
         adopted = await _replace_compass_event(ctx, payload, start, end, transaction)
         if adopted is not None:
             await ctx.ops.update_event(ctx.upn, adopted, patch_body)
