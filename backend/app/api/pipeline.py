@@ -850,6 +850,99 @@ async def _process_v4_cards(
     return {p.candidate_id: p for p in rows.scalars().all()}
 
 
+async def _link_reapplications(
+    db: AsyncSession, *, job_id: int, candidate_ids: Iterable[int]
+) -> list[tuple[int, int, datetime]]:
+    """Zgłoszenia z linków do tej rekrutacji: ``(kandydat, właściciel linku, kiedy)``.
+
+    Etap 2 linków (19.10.2026), plakietka „Zgłosił się też z Twojego linku”.
+    Dwa źródła, jedno zapytanie dla całej tablicy: zgłoszenie dołączone do
+    osoby (``application_submissions`` → właściciel linku po skrócie tokenu)
+    i przegląd AI, który zastał osobę w rekrutacji (``application_screenings``
+    ``already_in_job``). Które z nich są PONOWNE (po otwarciu karty), wybiera
+    wołający — zgłoszenie, które kartę otworzyło, jest od niej starsze albo
+    z tej samej transakcji.
+    """
+    from sqlalchemy import Integer, cast, union_all
+
+    from app.models.application_screening import ApplicationScreening
+    from app.models.application_submission import (
+        ApplicationSubmission,
+        ApplicationSubmissionStatus,
+    )
+    from app.models.invite_link import CandidateInviteLink
+
+    ids = sorted(set(candidate_ids))
+    if not ids:
+        return []
+    submissions = (
+        select(
+            ApplicationSubmission.matched_candidate_id.label("candidate_id"),
+            CandidateInviteLink.created_by.label("owner_id"),
+            ApplicationSubmission.created_at.label("at"),
+        )
+        .join(
+            CandidateInviteLink,
+            CandidateInviteLink.token_sha256
+            == ApplicationSubmission.invite_link_token_sha256,
+        )
+        .where(
+            ApplicationSubmission.job_id == job_id,
+            ApplicationSubmission.matched_candidate_id.in_(ids),
+            ApplicationSubmission.status.in_(
+                (
+                    ApplicationSubmissionStatus.linked.value,
+                    ApplicationSubmissionStatus.merged.value,
+                )
+            ),
+        )
+    )
+    owner_in_context = ApplicationScreening.context["link_owner_id"].astext
+    screenings = select(
+        ApplicationScreening.candidate_id.label("candidate_id"),
+        cast(owner_in_context, Integer).label("owner_id"),
+        ApplicationScreening.created_at.label("at"),
+    ).where(
+        ApplicationScreening.job_id == job_id,
+        ApplicationScreening.candidate_id.in_(ids),
+        ApplicationScreening.outcome == "already_in_job",
+        owner_in_context.op("~")(r"^\d+$"),
+    )
+    rows = await db.execute(union_all(submissions, screenings))
+    return [
+        (cid, owner, at)
+        for cid, owner, at in rows.all()
+        if cid is not None and owner is not None and at is not None
+    ]
+
+
+def _reapplied_link_owners(
+    reapplications: Iterable[tuple[int, int, datetime]],
+    processes: Mapping[int, RecruitmentProcess],
+    link_owner_by_candidate: Mapping[int, int],
+) -> dict[int, list[int]]:
+    """Właściciele linków, z których osoba zgłosiła się PO otwarciu karty.
+
+    Bez właściciela linku, który kartę przyprowadził (to mówi plakietka
+    „Z Twojego linku”), kolejność = pierwsze ponowne zgłoszenie.
+    """
+    earliest: dict[int, dict[int, datetime]] = {}
+    for cid, owner, at in reapplications:
+        process = processes.get(cid)
+        opened = (process.opened_at or process.created_at) if process else None
+        if opened is None or at <= opened:
+            continue
+        if owner == link_owner_by_candidate.get(cid):
+            continue
+        seen = earliest.setdefault(cid, {})
+        if owner not in seen or at < seen[owner]:
+            seen[owner] = at
+    return {
+        cid: sorted(owners, key=lambda o: (owners[o], o))
+        for cid, owners in earliest.items()
+    }
+
+
 async def _process_cards(
     db: AsyncSession, *, job_id: int, candidate_ids: Iterable[int]
 ) -> dict[int, tuple[int, Optional[int]]]:
@@ -3031,6 +3124,15 @@ async def build_kanban_view(
         and (owner := application_link_owner_id(p.entry_meta)) is not None
     }
     owner_ids |= set(link_owner_by_candidate.values())
+    # …i ślad ponownego zgłoszenia osoby, która już była w rekrutacji:
+    # „Zgłosił się też z Twojego linku” / „Zgłosił się też z linku: Marta”.
+    reapplied_link_owners = _reapplied_link_owners(
+        await _link_reapplications(db, job_id=job_id, candidate_ids=candidate_ids),
+        v4_processes,
+        link_owner_by_candidate,
+    )
+    for reapplied in reapplied_link_owners.values():
+        owner_ids |= set(reapplied)
     inactive_claimers = await candidate_claim.inactive_holders(
         db, v4_processes.values()
     )
@@ -3384,6 +3486,10 @@ async def build_kanban_view(
             if link_owner is not None:
                 payload["entry_link_owner_id"] = link_owner
                 payload["entry_link_owner_name"] = user_name_by_id.get(link_owner)
+            payload["reapplied_via_links"] = [
+                {"owner_id": uid, "owner_name": user_name_by_id.get(uid)}
+                for uid in reapplied_link_owners.get(e.candidate_id, ())
+            ]
             payload["reassign_from_job_id"] = v4.reassign_from_job_id
             if v4.reassign_from_job_id is not None:
                 payload["reassign_from_title"] = reassign_titles.get(

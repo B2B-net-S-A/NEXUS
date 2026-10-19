@@ -73,4 +73,18 @@ https://claude.ai/artifact/8aVZkzVxkVnkVVNBUDgL4h (plansze 2a i 2b).
   prowadzący (aktywna blokada, inaczej właściciel otwartego procesu), gdy to
   ktoś inny, dzwonek „Twoja osoba zgłosiła się ponownie”
   (`application_screening.existing_card`).
+- **Ślad ponownego zgłoszenia na karcie** (makieta 2a): osoba już w
+  rekrutacji, która zgłosi się z czyjegoś linku, ma w „Nowi” i „Screening”
+  plakietkę „Zgłosił się też z Twojego linku” (u innych: „Zgłosił się też
+  z linku: Marta”), obok ewentualnej „Z linku …” linku, który kartę
+  przyprowadził. Pole karty `reapplied_via_links` = `[{owner_id,
+  owner_name}]` liczy `pipeline._link_reapplications` jednym zapytaniem dla
+  całej tablicy z dwóch źródeł: `application_submissions` (status `linked`
+  albo `merged`, właściciel linku po `invite_link_token_sha256` →
+  `candidate_invite_links.created_by`) i `application_screenings`
+  (`already_in_job`, `context.link_owner_id`). Liczą się tylko zgłoszenia
+  **po otwarciu karty** (`created_at > opened_at` procesu — zgłoszenie, które
+  kartę otworzyło, jest starsze albo z tej samej transakcji) i bez
+  właściciela linku ze stempla `entry_meta.link_owner_id`. Nic nie zapisuje,
+  karty, blokady ani kredytu KPI nie rusza.
 

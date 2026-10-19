@@ -355,6 +355,10 @@ class CandidateStageResponse(BaseModel):
     # osoba się zgłosiła — plakietka „Z Twojego linku” / „Z linku Marty N.”.
     entry_link_owner_id: Optional[int] = None
     entry_link_owner_name: Optional[str] = None
+    # …i właściciele innych linków, z których osoba zgłosiła się PONOWNIE, gdy
+    # już była w rekrutacji — „Zgłosił się też z Twojego linku”. Karta i
+    # blokada prowadzącego bez zmian.
+    reapplied_via_links: List["ReappliedViaLink"] = Field(default_factory=list)
     reassign_from_job_id: Optional[int] = None
     reassign_from_title: Optional[str] = None
     # Numer rekrutacji źródłowej („ZOB-1725") — odznaka „↻ z …" na karcie.
@@ -408,6 +412,11 @@ class OtherOpenJob(BaseModel):
     title: str
     client_name: Optional[str] = None
     column: str
+
+
+class ReappliedViaLink(BaseModel):
+    owner_id: int
+    owner_name: Optional[str] = None
 
 
 CandidateStageResponse.model_rebuild()
