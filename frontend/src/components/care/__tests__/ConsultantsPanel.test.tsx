@@ -171,12 +171,12 @@ describe("ConsultantsPanel", () => {
     expect(screen.queryByText("Olga Zielona")).not.toBeInTheDocument();
     expect(screen.getByText(/Rozmów w tym miesiącu według rytmów/)).toHaveTextContent("3");
 
-    expect(screen.getByRole("button", { name: "Moi (2)" })).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByRole("button", { name: "Rytm: co 2 tygodnie (1)" })).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Z sygnałem (2)" }));
+    expect(screen.getByRole("radio", { name: "Moi (2)" })).toHaveAttribute("aria-checked", "true");
+    expect(screen.getByRole("radio", { name: "Rytm: co 2 tygodnie (1)" })).toBeInTheDocument();
+    await user.click(screen.getByRole("radio", { name: "Z sygnałem (2)" }));
     expect(screen.getAllByRole("row")).toHaveLength(3);
-    await user.click(screen.getByRole("button", { name: "Wszyscy w moim zakresie (3)" }));
-    await user.click(screen.getByRole("button", { name: "Wstrzymani (1)" }));
+    await user.click(screen.getByRole("radio", { name: "Wszyscy w moim zakresie (3)" }));
+    await user.click(screen.getByRole("radio", { name: "Wstrzymani (1)" }));
     const olga = await screen.findByRole("row", { name: /Olga Zielona/ });
     expect(within(olga).getByText("do 15.11 · długa nieobecność")).toBeInTheDocument();
     expect(within(olga).getByText("po 15.11")).toBeInTheDocument();

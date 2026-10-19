@@ -10,6 +10,7 @@ import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import { useToast } from "@/components/Toast";
 import { Button } from "@/components/ui/button";
 import { FormField } from "@/components/ui/form-field";
+import { SegmentedRadio } from "@/components/ui/segmented-radio";
 import {
   Select,
   SelectContent,
@@ -120,24 +121,16 @@ export function RedeployPanel() {
 
   return (
     <div className="space-y-3">
-      <div className="flex items-center gap-1" role="group" aria-label="Stan kolejki">
-        {(
-          [
-            ["active", "Do zrobienia"],
-            ["closed", "Zamknięte"],
-          ] as const
-        ).map(([value, label]) => (
-          <Button
-            key={value}
-            size="sm"
-            variant={state === value ? "secondary" : "ghost"}
-            aria-pressed={state === value}
-            onClick={() => setState(value)}
-          >
-            {label}
-          </Button>
-        ))}
-      </div>
+      <SegmentedRadio
+        label="Stan kolejki"
+        size="sm"
+        value={state}
+        onChange={setState}
+        options={[
+          { value: "active", label: "Do zrobienia" },
+          { value: "closed", label: "Zamknięte" },
+        ]}
+      />
       {view === "loading" ? (
         <p className="text-sm text-muted-foreground">Wczytywanie…</p>
       ) : view === "forbidden" || view === "not_found" || view === "error" ? (

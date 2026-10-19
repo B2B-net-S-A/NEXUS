@@ -10,6 +10,7 @@ import { useToast } from "@/components/Toast";
 import { Button } from "@/components/ui/button";
 import { FormField } from "@/components/ui/form-field";
 import { Input } from "@/components/ui/input";
+import { SegmentedRadio } from "@/components/ui/segmented-radio";
 import {
   Select,
   SelectContent,
@@ -277,24 +278,16 @@ export function SkillReviewPanel() {
 
   return (
     <div className="space-y-3">
-      <div className="flex items-center gap-1" role="group" aria-label="Stan kolejki technologii">
-        {(
-          [
-            ["open", "Do przejrzenia"],
-            ["closed", "Rozstrzygnięte"],
-          ] as const
-        ).map(([value, label]) => (
-          <Button
-            key={value}
-            size="sm"
-            variant={state === value ? "secondary" : "ghost"}
-            aria-pressed={state === value}
-            onClick={() => setState(value)}
-          >
-            {label}
-          </Button>
-        ))}
-      </div>
+      <SegmentedRadio
+        label="Stan kolejki technologii"
+        size="sm"
+        value={state}
+        onChange={setState}
+        options={[
+          { value: "open", label: "Do przejrzenia" },
+          { value: "closed", label: "Rozstrzygnięte" },
+        ]}
+      />
       {view === "loading" ? (
         <p className="text-sm text-muted-foreground">Wczytywanie…</p>
       ) : view === "forbidden" || view === "not_found" || view === "error" ? (

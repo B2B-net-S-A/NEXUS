@@ -143,7 +143,7 @@ describe("/preview/hr-care", () => {
 
     const panel = await screen.findByTestId("care-consultant-panel");
     expect(within(panel).getByRole("heading", { name: "Paweł Makietowy" })).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Wszyscy w moim zakresie" }));
+    await user.click(screen.getByRole("radio", { name: "Wszyscy w moim zakresie" }));
     expect(await screen.findByText("Anna Kontraktorska")).toBeInTheDocument();
     expect(attempted()).toEqual([]);
   });
@@ -161,7 +161,7 @@ describe("/preview/hr-care", () => {
     const olga = within(table).getByRole("row", { name: /Olga Wzorcowa/ });
     expect(within(olga).getByText("wstrzymany")).toBeInTheDocument();
     expect(screen.queryByText("Anna Kontraktorska")).toBeNull();
-    await user.click(screen.getByRole("button", { name: /^Wszyscy w moim zakresie/ }));
+    await user.click(screen.getByRole("radio", { name: /^Wszyscy w moim zakresie/ }));
     expect(await screen.findByText("Anna Kontraktorska")).toBeInTheDocument();
     expect(attempted()).toEqual([]);
     unmount();
@@ -170,7 +170,7 @@ describe("/preview/hr-care", () => {
     render(<HrCarePreviewPage />);
     expect(await screen.findByRole("link", { name: "Bartosz Testowy" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Paweł Makietowy" })).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Zamknięte" }));
+    await user.click(screen.getByRole("radio", { name: "Zamknięte" }));
     expect(await screen.findByText("Brak zamkniętych wpisów")).toBeInTheDocument();
     expect(attempted()).toEqual([]);
   });

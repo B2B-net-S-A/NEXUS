@@ -299,7 +299,7 @@ export function AssignmentPanel() {
               <Button
                 key={chip.key}
                 size="sm"
-                variant={chip.active ? "secondary" : "ghost"}
+                variant={chip.active ? "primary" : "ghost"}
                 aria-pressed={chip.active}
                 onClick={chip.onClick}
               >
