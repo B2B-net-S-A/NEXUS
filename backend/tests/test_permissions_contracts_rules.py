@@ -1036,3 +1036,49 @@ async def test_signature_scope_binds_only_the_delivery_lead_portfolio(
     for account in (_user(LEAD), _user(HOR, LEAD), _user(LEAD, RECRUITER)):
         await scope(None, account, 5)
     assert checked == [(5, True, "org")] * 3
+
+
+# ── podpis dokumentu do umowy B2B: autor, zespół, role (19.10.2026) ──────────
+
+
+def test_document_signature_follows_the_contract_signature_rule() -> None:
+    """Imienne uprawnienie podpisu otwiera aneks, wypowiedzenie i porozumienie
+    tylko autorowi dokumentu albo umowy i zespołowi rekrutacji umowy — jak
+    podpis samej umowy (``_may_confirm_row_signature``). Dopiero wtedy da się
+    je nadać całej roli Rekruter."""
+
+    from app.api.b2b_documents import _may_confirm_document_signature
+
+    signer = _holder("b2b_signature_confirmation")
+    signer.id = 7
+
+    def may(*, doc_author=None, parent_author=None, job_id=None, team=(), user=signer):
+        doc = SimpleNamespace(created_by=doc_author, job_id=None)
+        parent = SimpleNamespace(created_by=parent_author, job_id=job_id)
+        return _may_confirm_document_signature(
+            user, doc=doc, parent=parent, team_job_ids=set(team)
+        )
+
+    assert not may(parent_author=1, job_id=30)
+    assert not may(parent_author=1, job_id=None)
+    assert may(doc_author=7, parent_author=1, job_id=30)
+    assert may(parent_author=7, job_id=30)
+    assert may(parent_author=1, job_id=30, team=(30,))
+    # Dokument bez umowy bazowej: liczy się jego rekrutacja i jego autor.
+    orphan = SimpleNamespace(created_by=1, job_id=31)
+    assert _may_confirm_document_signature(
+        signer, doc=orphan, parent=None, team_job_ids={31}
+    )
+    assert not _may_confirm_document_signature(
+        signer, doc=orphan, parent=None, team_job_ids=set()
+    )
+    # Wypowiedzenie Partnera: bez dokumentu, sama umowa.
+    assert not _may_confirm_document_signature(
+        signer,
+        doc=None,
+        parent=SimpleNamespace(created_by=1, job_id=None),
+        team_job_ids=set(),
+    )
+    for role in (ADMIN, HOR, TCM, LEAD):
+        assert may(parent_author=1, job_id=30, user=_user(role))
+        assert may(parent_author=1, job_id=None, user=_user(role))

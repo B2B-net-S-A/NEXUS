@@ -146,7 +146,13 @@ PERMISSIONS: tuple[Permission, ...] = (
         SIGNATURE,
         "Umowy B2B: oznaczanie jako podpisane",
         "clients_contracts",
-        holders=(Holder("delivery_lead"), Holder("talent_community_manager")),
+        # Rekruter od 19.10.2026: podpis aneksów, wypowiedzeń i zawiadomień
+        # Partnera ma tę samą regułę „autor albo zespół” co podpis umowy.
+        holders=(
+            Holder("delivery_lead"),
+            Holder("talent_community_manager"),
+            Holder("recruiter"),
+        ),
         seeded=False,
     ),
     Permission(

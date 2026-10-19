@@ -22,13 +22,36 @@ liczy to dla listy (`can_confirm_signed`, `blocked_reason`) i dla
 `POST /generated/{id}/confirm-fully-signed` (403 z tym samym komunikatem).
 Lista i endpoint nie mogą się znowu rozjechać.
 
+## Dokumenty do umowy i wypowiedzenie Partnera (19.10.2026)
+
+Ta sama reguła obejmuje aneksy, wypowiedzenia, porozumienia i pozostałe
+dokumenty do umowy (`api/b2b_documents.py`): „Oznacz jako podpisany”
+(`/documents/{id}/confirm-signed`), skan podpisanego aneksu
+(`/documents/{id}/signed-scan`) i „Zarejestruj wypowiedzenie Partnera”
+(`/documents/partner-notice`). Posiadacz uprawnienia potwierdza, gdy:
+
+- ma rolę z `_SIGNS_EVERY_CONTRACT_ROLES` (DL dalej tylko w portfelu),
+- jest autorem dokumentu albo umowy bazowej,
+- jest w zespole rekrutacji umowy bazowej (dokument bez umowy bazowej —
+  jego własnej rekrutacji).
+
+Inaczej niż w rejestrze umów, przy dokumencie nikt nie wskazuje rekrutacji,
+więc umowa bez rekrutacji (np. wiersz z Excela) zostaje autorowi i rolom
+z listy. `_may_confirm_document_signature` woła `_may_confirm_row_signature`
+z `open_without_job=False` — bez drugiej kopii reguły. Ta sama funkcja liczy
+`can_confirm_signed` dokumentu na liście i 403 na trasach
+(„Podpis tego dokumentu oznacza…”).
+
+Bez zmian: aneks stawki potwierdza też posiadacz „Stawki i kwoty: zmiana”
+u klienta, u którego zmienia kwoty (Finanse, decyzja 27.09.2026) — ta droga
+nie patrzy na autora ani zespół.
+
 ## Kto ma uprawnienie
 
 - Generowanie umów: domyślnie rekruter, DL, HoR, TCM, Finanse (poziom
   „zarządzanie”, `action_permissions._GENERATOR_DEFAULTS`).
-- Oznaczanie podpisu: domyślnie DL i TCM; rekruterom Artur nadaje je
-  **imiennie** w Ustawienia → Osoby i role.
-- Nie nadawaj go całej roli Rekruter, dopóki aneksy, wypowiedzenia
-  i zawiadomienia partnera (`api/b2b_documents.py`, `_confirmer_entry`,
-  `/documents/partner-notice`) nie mają tej samej reguły „autor albo zespół”:
-  dziś posiadacz uprawnienia potwierdza je w całej firmie.
+- Oznaczanie podpisu: w katalogu (`permission_catalog.SIGNATURE`) domyślnie
+  DL, TCM i od 19.10.2026 rekruter. Uprawnienie ma `seeded=False`: wiersz
+  roli w bazie pochodzi z migracji 0282 (rekruter = `none`) i zasiew go nie
+  nadpisuje, więc całej roli Rekruter nadaje je Artur w Ustawienia → Osoby
+  i role. Wcześniej rekruterom nadawał je imiennie.
