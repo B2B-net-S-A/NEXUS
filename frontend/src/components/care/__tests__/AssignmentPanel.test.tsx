@@ -198,7 +198,8 @@ describe("AssignmentPanel", () => {
     await user.click(within(bar).getByRole("button", { name: "Przypisz" }));
     await waitFor(() => expect(mocks.post).toHaveBeenCalled());
     expect(mocks.post.mock.calls[0][1].contract_ids).toHaveLength(500);
-  });
+    // 501 wierszy w jsdom renderuje się w CI ok. 8 s (domyślny limit 5 s).
+  }, 30_000);
 
   it("bez prawa przydziału: bez zaznaczania i bez progu", async () => {
     mocks.get.mockResolvedValue({
