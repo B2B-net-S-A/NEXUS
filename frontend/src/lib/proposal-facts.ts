@@ -44,7 +44,11 @@ export function factsRateLabel(facts: Pick<ProposalFacts, "expected_rate_hourly"
   return isPln ? formatHourlyRate(value) : `${Math.round(value)} ${currency}/h`;
 }
 
-/** Linia „Ostatnio: …” — stanowisko, staż, miasto, tryb, dostępność, stawka. */
+/**
+ * Linia „Ostatnio: …” — stanowisko, staż, miasto, tryb, dostępność. Stawki
+ * tu nie ma od 19.10.2026 (D3): wiersz okna pokazuje ją plakietką względem
+ * budżetu (`lib/rate-budget-badge.ts`), druga goła kwota byłaby powtórzeniem.
+ */
 export function proposalFactsLine(facts: ProposalFacts | null | undefined, now: Date = new Date()): string | null {
   if (!facts) return null;
   const role = facts.title
@@ -61,7 +65,6 @@ export function proposalFactsLine(facts: ProposalFacts | null | undefined, now: 
       now,
       facts.employment_marker,
     ),
-    factsRateLabel(facts),
   ].filter((p): p is string => Boolean(p));
   return parts.length > 0 ? parts.join(" · ") : null;
 }
