@@ -27,18 +27,18 @@
   "recruiter+cases"
  ],
  "routes": {
-  "GET /api/care/announcements": "BBBBBBBDBBBBBBBBBBBBBBBBB",
-  "GET /api/care/announcements/options": "BBBBBBBDBBBBBBBBBBBBBBBBB",
-  "GET /api/care/announcements/{announcement_id}": "BBBBBBBDBBBBBBBBBBBBBBBBB",
-  "PATCH /api/care/announcements/{announcement_id}": "BBBBBBBDBBBBBBBBBBBBBBBBB",
-  "POST /api/care/announcements": "BBBBBBBDBBBBBBBBBBBBBBBBB",
-  "POST /api/care/announcements/preview": "BBBBBBBDBBBBBBBBBBBBBBBBB",
-  "POST /api/care/announcements/{announcement_id}/approve": "BBBBBBBDBBBBBBBBBBBBBBBBB",
-  "POST /api/care/announcements/{announcement_id}/cancel": "BBBBBBBDBBBBBBBBBBBBBBBBB",
-  "POST /api/care/announcements/{announcement_id}/retry-failed": "BBBBBBBDBBBBBBBBBBBBBBBBB",
-  "POST /api/care/announcements/{announcement_id}/return": "BBBBBBBDBBBBBBBBBBBBBBBBB",
-  "POST /api/care/announcements/{announcement_id}/submit": "BBBBBBBDBBBBBBBBBBBBBBBBB",
-  "POST /api/care/announcements/{announcement_id}/test-send": "BBBBBBBDBBBBBBBBBBBBBBBBB",
-  "PUT /api/care/announcements/settings": "BBBBBBBDBBBBBBBBBBBBBBBBB"
+  "GET /api/care/announcements": "BBBBBBBDBBBBBBBBBBBDBBBBB",
+  "GET /api/care/announcements/options": "BBBBBBBDBBBBBBBBBBBDBBBBB",
+  "GET /api/care/announcements/{announcement_id}": "BBBBBBBDBBBBBBBBBBBDBBBBB",
+  "PATCH /api/care/announcements/{announcement_id}": "BBBBBBBDBBBBBBBBBBBDBBBBB",
+  "POST /api/care/announcements": "BBBBBBBDBBBBBBBBBBBDBBBBB",
+  "POST /api/care/announcements/preview": "BBBBBBBDBBBBBBBBBBBDBBBBB",
+  "POST /api/care/announcements/{announcement_id}/approve": "BBBBBBBDBBBBBBBBBBBDBBBBB",
+  "POST /api/care/announcements/{announcement_id}/cancel": "BBBBBBBDBBBBBBBBBBBDBBBBB",
+  "POST /api/care/announcements/{announcement_id}/retry-failed": "BBBBBBBDBBBBBBBBBBBDBBBBB",
+  "POST /api/care/announcements/{announcement_id}/return": "BBBBBBBDBBBBBBBBBBBDBBBBB",
+  "POST /api/care/announcements/{announcement_id}/submit": "BBBBBBBDBBBBBBBBBBBDBBBBB",
+  "POST /api/care/announcements/{announcement_id}/test-send": "BBBBBBBDBBBBBBBBBBBDBBBBB",
+  "PUT /api/care/announcements/settings": "BBBBBBBDBBBBBBBBBBBDBBBBB"
  }
 }

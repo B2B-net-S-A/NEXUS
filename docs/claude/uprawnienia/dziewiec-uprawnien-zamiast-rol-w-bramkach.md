@@ -111,7 +111,12 @@ roli nie da się przyciąć. Powstała osobna rola `automation`, na ekranie
   oraz klientów, kontrakty, zamówienia i MD przez uprawnienie „Klienci,
   kontrakty i zamówienia: podgląd”. **Kwot nie widzi:** nie ma „Stawki i kwoty:
   podgląd”, modułu Finanse, rejestru Generatora B2B ani stawki do klienta
-  w rekrutacji (`CLIENT_RATE_VIEW_ROLES`).
+  w rekrutacji (`CLIENT_RATE_VIEW_ROLES`). **Opieki nad konsultantami i sprzętu
+  konsultanta nie widzi** (decyzja Artura 19.10.2026, audyt A4/A3): rozmowy
+  opiekunów, zadowolenie, sygnały odejścia, struktura u klienta, komunikaty
+  i sprzęt na kontrakcie (numery seryjne, protokoły) to dane o ludziach, nie
+  do integracji — `care_gates.refuse_automation` w bramkach `/api/care`
+  i `GET /api/equipment/contracts/{id}`, zakładka „Opieka” kontraktu ukryta.
 - **Niczego nie zapisuje na ekranach.** Sekcje Sourcing, Pipeline, Insights
   i Delivery ma tylko do odczytu, więc bramka sekcji odmawia każdego zapisu.
   Rola jest w zbiorach ODCZYTU (`READ_ONLY_ROLES` w `candidate_access.py`,

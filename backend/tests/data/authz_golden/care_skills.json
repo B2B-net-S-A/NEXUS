@@ -27,7 +27,7 @@
   "recruiter+cases"
  ],
  "routes": {
-  "GET /api/care/skill-review": "BBBBBDDDBBBBBBBBDBBBDDDDD",
+  "GET /api/care/skill-review": "BBBBBDDDBBBBBBBBDBBDDDDDD",
   "POST /api/care/skill-review/{item_id}/create": "BDBDBDDDBBDBBBDDDDDDDDDDD",
   "POST /api/care/skill-review/{item_id}/dismiss": "BDBDBDDDBBDBBBDDDDDDDDDDD",
   "POST /api/care/skill-review/{item_id}/map": "BDBDBDDDBBDBBBDDDDDDDDDDD"

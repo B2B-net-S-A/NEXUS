@@ -78,7 +78,25 @@ WRITER_DENIED = (
     "administrator i osoby z puli opiekunów."
 )
 
+AUTOMATION_DENIED = (
+    "Opieki nad konsultantami nie widzi rola „Automatyzacje” — to rozmowy "
+    "o ludziach, nie dane do integracji."
+)
 _DELIVERY_SECTION = require_section_access(ProductSection.delivery)
+
+
+def refuse_automation(user: User) -> None:
+    """Rola „Automatyzacje” (0446) ma podgląd Delivery, ale nie opiekę.
+
+    Decyzja Artura 19.10.2026 (audyt A4/A3): podgląd klientów, kontraktów
+    i zamówień tak, rozmowy opiekunów, zadowolenie, sygnały odejścia i sprzęt
+    konsultanta — nie. Sprawdzane przed bazą (wzorzec ``authz_golden``).
+    """
+
+    if user.has_role(UserRole.automation):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, AUTOMATION_DENIED)
+
+
 _REVIEW_SECTION_READ = require_section_access_any_read(
     ProductSection.delivery, ProductSection.sourcing
 )
@@ -121,6 +139,7 @@ def require_hr_care_reader():
         current_user: User = Depends(_DELIVERY_SECTION),
         db: AsyncSession = Depends(get_db),
     ) -> User:
+        refuse_automation(current_user)
         await ensure_module(db, current_user, HrModule.care)
         return current_user
 
@@ -135,6 +154,7 @@ def require_hr_care_writer():
         current_user: User = Depends(_DELIVERY_SECTION),
         db: AsyncSession = Depends(get_db),
     ) -> User:
+        refuse_automation(current_user)
         if not await care_access.is_care_writer(db, current_user):
             raise HTTPException(status.HTTP_403_FORBIDDEN, WRITER_DENIED)
         await ensure_module(db, current_user, HrModule.care)
@@ -152,6 +172,7 @@ async def _delivery_or_back_office_head(
     sekcja. Head back office przechodzi mimo odmowy (O8, O10).
     """
 
+    refuse_automation(user)
     try:
         ensure_permission(user, ProductAction.delivery_view)
         await _DELIVERY_SECTION(request, user)
@@ -202,6 +223,7 @@ def require_hr_care_review_reader():
         current_user: User = Depends(_REVIEW_SECTION_READ),
         db: AsyncSession = Depends(get_db),
     ) -> User:
+        refuse_automation(current_user)
         await ensure_module(db, current_user, HrModule.care)
         return current_user
 

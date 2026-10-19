@@ -40,6 +40,7 @@ from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.care_gates import refuse_automation
 from app.api.deps import require_onboarded_user
 from app.api.hr_gates import ensure_module
 from app.core.database import get_db
@@ -129,9 +130,29 @@ def require_hr_equipment_self():
 
 
 _manager = require_hr_equipment(ProductAction.equipment)
-_contract_reader = require_hr_equipment(
-    ProductAction.equipment, ProductAction.delivery_view
-)
+
+
+def require_hr_equipment_contract_reader():
+    """Sprzęt konsultanta na kontrakcie: recepcja albo podgląd Delivery —
+    bez roli „Automatyzacje” (decyzja Artura 19.10.2026, numery seryjne
+    i protokoły to nie dane do integracji)."""
+
+    permissions = (ProductAction.equipment, ProductAction.delivery_view)
+
+    async def _check(
+        current_user: User = Depends(require_onboarded_user),
+        db: AsyncSession = Depends(get_db),
+    ) -> User:
+        refuse_automation(current_user)
+        await ensure_module(db, current_user, HrModule.equipment)
+        ensure_any_permission(current_user, *permissions)
+        return current_user
+
+    _check.required_permissions = permissions
+    return _check
+
+
+_contract_reader = require_hr_equipment_contract_reader()
 _return_planner = require_hr_equipment(
     ProductAction.equipment, ProductAction.contract_status
 )

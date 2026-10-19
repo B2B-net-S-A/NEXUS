@@ -29,7 +29,7 @@
  "routes": {
   "DELETE /api/equipment/items/{item_id}": "BBBBBBBDBBBBBBBBBBBBBBBBB",
   "GET /api/equipment/clients/{client_id}/provider": "BBBBBBBDBBBBBBBBBBBBBBBBB",
-  "GET /api/equipment/contracts/{contract_id}": "BBBBBBBDBBBBBBBBBBBBBBBBB",
+  "GET /api/equipment/contracts/{contract_id}": "BBBBBBBDBBBBBBBBBBBDBBBBB",
   "GET /api/equipment/external-people": "BBBBBBBDBBBBBBBBBBBBBBBBB",
   "GET /api/equipment/holders": "BBBBBBBDBBBBBBBBBBBBBBBBB",
   "GET /api/equipment/holders/{kind}/{holder_id}": "BBBBBBBDBBBBBBBBBBBBBBBBB",
