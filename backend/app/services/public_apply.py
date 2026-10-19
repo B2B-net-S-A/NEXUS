@@ -73,6 +73,7 @@ from app.services.career_consent import (
     CONSENT_FUTURE_TEXT_SHA256,
     CONSENT_TEXT_VERSION,
     consent_given,
+    consent_kinds,
 )
 from app.services.application_screening import (
     ExistingCard,
@@ -276,10 +277,18 @@ def _optional_payload(applicant: ApplicantInput) -> dict[str, Any]:
 def _consent_rows(
     ref: LinkRef, applicant: ApplicantInput, **subject: int
 ) -> list[CandidateConsent]:
-    """Obowiązkowa zgoda na tę rekrutację i — gdy zaznaczona — na przyszłe."""
-    given = [(CONSENT_KIND_CURRENT, CONSENT_CURRENT_TEXT_SHA256)]
-    if applicant.consent_future:
-        given.append((CONSENT_KIND_FUTURE, CONSENT_FUTURE_TEXT_SHA256))
+    """Obowiązkowa zgoda linku i — na linku rekrutacji, gdy zaznaczona — na
+    przyszłe. Link rekrutera ma tylko zgodę na przyszłe (``consent_kinds``)."""
+    sha_by_kind = {
+        CONSENT_KIND_CURRENT: CONSENT_CURRENT_TEXT_SHA256,
+        CONSENT_KIND_FUTURE: CONSENT_FUTURE_TEXT_SHA256,
+    }
+    given = [
+        (kind, sha_by_kind[kind])
+        for kind in consent_kinds(
+            ref.link.kind, consent_future=applicant.consent_future
+        )
+    ]
     now = datetime.now(timezone.utc)
     return [
         CandidateConsent(
@@ -492,10 +501,9 @@ async def _record_duplicate_application(
             "link_kind": link.kind,
             "via": ref.via,
             "consent": {
-                "kinds": [
-                    CONSENT_KIND_CURRENT,
-                    *([CONSENT_KIND_FUTURE] if applicant.consent_future else []),
-                ],
+                "kinds": consent_kinds(
+                    link.kind, consent_future=applicant.consent_future
+                ),
                 "text_version": CONSENT_TEXT_VERSION,
             },
             "utm": {

@@ -209,6 +209,25 @@ describe("CareerApplyForm — wysyłka", () => {
     expect(lastBody().get("consent_future")).toBeNull();
   });
 
+  it("stały link rekrutera: jedna obowiązkowa zgoda — na przyszłe procesy (19.10.2026)", async () => {
+    // „Dołącz do bazy” nie dotyczy żadnej rekrutacji: osoba zostawia CV po to,
+    // żeby dostawać propozycje, więc zgoda „na tę rekrutację” nie ma sensu.
+    fetchMock.mockResolvedValue(jsonResponse(201));
+    const onSuccess = vi.fn();
+    const { container } = renderForm({ variant: "general", onSuccess });
+    expect(field(container, "consent")).toBeRequired();
+    expect(container.querySelector('[name="consent_future"]')).toBeNull();
+    expect(screen.queryByText(/w celu przeprowadzenia rekrutacji, na którą/)).not.toBeInTheDocument();
+    expect(screen.getByText(/w celu prowadzenia przyszłych procesów/)).toBeInTheDocument();
+    expect(screen.queryByText("(nieobowiązkowe)")).not.toBeInTheDocument();
+
+    fillValid(container);
+    fireEvent.click(screen.getByRole("button", { name: /dołącz do bazy/ }));
+    await waitFor(() => expect(onSuccess).toHaveBeenCalledTimes(1));
+    expect(lastBody().get("consent")).toBe("true");
+    expect(lastBody().get("consent_future")).toBeNull();
+  });
+
   it("zaznaczona zgoda na przyszłe rekrutacje jedzie jako consent_future=true", async () => {
     fetchMock.mockResolvedValue(jsonResponse(201));
     const onSuccess = vi.fn();
