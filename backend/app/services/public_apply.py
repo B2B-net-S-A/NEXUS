@@ -40,12 +40,14 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation
 from typing import Any, Optional
+from zoneinfo import ZoneInfo
 
 from fastapi import BackgroundTasks, HTTPException, UploadFile
 from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.scheduling import DEFAULT_TZ
 from app.models.activity import Activity
 from app.models.application_submission import (
     ApplicationSubmission,
@@ -67,9 +69,17 @@ from app.services.career_consent import (
     CONSENT_TEXT_VERSION,
     consent_given,
 )
-from app.services.application_screening import record_pending, screening_applies
+from app.services.application_screening import (
+    ExistingCard,
+    existing_card,
+    pair_in_job,
+    record_pending,
+    screening_applies,
+)
 
 logger = logging.getLogger(__name__)
+
+_WARSAW = ZoneInfo(DEFAULT_TZ)
 
 WORK_MODES = ("remote", "hybrid", "onsite", "any")
 RATE_MIN = Decimal("1")
@@ -297,6 +307,14 @@ async def submit_application(
     if existing is not None:
         existing_id = existing.id
         blacklisted = existing.status == CandidateStatus.blacklisted
+        # Etap 2 linków (19.10.2026): osoba już w tej rekrutacji — karta bez
+        # zmian, dzwonek mówi, kto ją prowadzi. Sprawdzone PRZED zapisem, bo
+        # zapis sam otwiera kartę osobie spoza rekrutacji.
+        in_job_before = (
+            not screening
+            and link_job_id is not None
+            and await pair_in_job(db, candidate_id=existing_id, job_id=link_job_id)
+        )
         _submission_id, blocked_reason = await _record_duplicate_application(
             db,
             ref=ref,
@@ -309,6 +327,11 @@ async def submit_application(
         )
         await db.commit()
         if not screening:
+            in_job = (
+                await existing_card(db, candidate_id=existing_id, job_id=link_job_id)
+                if in_job_before
+                else None
+            )
             await _notify_owner(
                 db,
                 link=link,
@@ -319,6 +342,7 @@ async def submit_application(
                 duplicate=True,
                 blacklisted=blacklisted,
                 blocked_reason=blocked_reason,
+                in_job=in_job,
             )
         await _confirm_to_applicant(
             db,
@@ -499,6 +523,7 @@ async def _record_duplicate_application(
                 submission=submission,
                 candidate_id=existing.id,
                 actor_user_id=link.created_by,
+                link_owner_id=link.created_by,
             )
         elif link.job_id is None:
             await db.execute(
@@ -577,6 +602,8 @@ async def _create_candidate(
     )
     from app.services.candidate_contact_hooks import maybe_ensure_contact_opportunity
     from app.services.candidate_stage_cv_service import create_original_cv_snapshot
+    from app.services.candidate_claim import link_claim_kwargs
+    from app.services.process_entry_meta import application_link_entry_meta
     from app.services.recruitment_process_commands import open_process
 
     link = ref.link
@@ -678,6 +705,10 @@ async def _create_candidate(
                 frozen_origin_assignment_id=link.origin_assignment_id,
                 frozen_priority_compliant=link.priority_compliant_at_create,
                 entry_source="application",
+                entry_meta=application_link_entry_meta(link.created_by),
+                # Etap 2 linków (19.10.2026): osoba z linku jest właściciela
+                # linku — blokada 12 h i właściciel procesu.
+                **await link_claim_kwargs(db, link.created_by),
                 notes=(
                     "Aplikacja przez stronę kariery"
                     if ref.via == "career"
@@ -750,6 +781,29 @@ async def _create_candidate(
     return candidate
 
 
+def _in_job_sentence(card: ExistingCard, *, owner_id: Optional[int]) -> str:
+    """„Ta osoba jest już w tej rekrutacji — prowadzi Marta N., etap Screening.”"""
+    stage = f"etap {card.stage_label}" if card.stage_label else None
+    if not card.is_open:
+        where = f" ({stage})" if stage else ""
+        return (
+            f" Ta osoba była już w tej rekrutacji{where} — karta bez zmian, "
+            "nowe CV dołączono do profilu."
+        )
+    if card.lead_id is not None and card.lead_id == owner_id:
+        who = "prowadzisz ją Ty"
+    elif card.lead_name:
+        who = f"prowadzi {card.lead_name}"
+    else:
+        who = None
+    details = ", ".join(part for part in (who, stage) if part)
+    return (
+        " Ta osoba jest już w tej rekrutacji"
+        + (f" — {details}" if details else "")
+        + ". Karta bez zmian, nowe CV dołączono do profilu."
+    )
+
+
 async def _notify_owner(
     db: AsyncSession,
     *,
@@ -762,21 +816,30 @@ async def _notify_owner(
     blacklisted: bool = False,
     blocked_reason: Optional[str] = None,
     extra: Optional[str] = None,
+    in_job: Optional[ExistingCard] = None,
 ) -> None:
     """Dzwonek dla właściciela linku. Po commicie, nigdy nie rzuca.
 
     audyt 22.09 r2 (SEC-06): gdy właściciel linku do rekrutacji jest już
     nieaktywny, zgłoszenie dostaje rekruter i Delivery Lead tej rekrutacji —
     ``emit`` pomija konta nieaktywne, więc dzwonek przepadał w ciszy.
+
+    Etap 2 linków (19.10.2026): nowa karta z blokadą właściciela linku
+    dopisuje „jest Twoja do HH:MM”. ``in_job`` = osoba już była w tej
+    rekrutacji: dzwonek mówi, kto ją prowadzi i na jakim etapie, a
+    prowadzący (gdy to ktoś inny) dostaje własny dzwonek o ponownym
+    zgłoszeniu.
     """
     owner_id = link.created_by
     job_id = link.job_id
     try:
         from app.models.user import User
+        from app.services import candidate_claim
         from app.services.job_previous_recruiters import working_owner_id
         from app.services.notification_triggers import emit
 
         job_title: Optional[str] = None
+        owner: Optional[User] = None
         recipients: list[int] = [owner_id] if owner_id is not None else []
         if job_id is not None:
             job = await db.get(Job, job_id)
@@ -803,6 +866,8 @@ async def _notify_owner(
                 " Ta osoba jest na czarnej liście — CV dołączono do profilu, "
                 "ale nie dodano jej do rekrutacji."
             )
+        elif in_job is not None:
+            message += _in_job_sentence(in_job, owner_id=owner_id)
         elif blocked_reason:
             message += (
                 " CV dołączono do profilu, ale nie dodano tej osoby do "
@@ -813,8 +878,53 @@ async def _notify_owner(
                 " Ta osoba była już w bazie — nowe CV dołączono do jej profilu "
                 "jako dodatkowy dokument, dane profilu bez zmian."
             )
+        if (
+            job_id is not None
+            and in_job is None
+            and not blacklisted
+            and not blocked_reason
+            and owner is not None
+            and owner.is_active
+        ):
+            process = await candidate_claim.load_process(
+                db, candidate_id=related_entity_id, job_id=job_id
+            )
+            if (
+                process is not None
+                and process.claimed_by_user_id == owner_id
+                and process.claimed_until is not None
+                and process.claimed_until > candidate_claim.utcnow()
+            ):
+                until = process.claimed_until.astimezone(_WARSAW).strftime("%H:%M")
+                message += f" Jest w „Nowi” i jest Twoja do {until}."
         if extra:
             message += extra
+        if (
+            in_job is not None
+            and in_job.lead_id is not None
+            and in_job.lead_id != owner_id
+            and in_job.lead_id not in recipients
+        ):
+            owner_name = ((owner.name or "").strip() or None) if owner else None
+            via = (
+                f"przez link, który udostępnił(a) {owner_name}"
+                if owner_name
+                else "przez link do rekrutacji"
+            )
+            await emit(
+                db,
+                user_id=in_job.lead_id,
+                title="Twoja osoba zgłosiła się ponownie",
+                message=(
+                    f"{person} (Twoja osoba w „{job_title or 'rekrutacji'}”) "
+                    f"zgłosił(a) się ponownie {via}. Nowe CV dołączono do "
+                    "profilu, karta bez zmian."
+                ),
+                ntype=NotificationType.new_application,
+                related_entity_type=related_entity_type,
+                related_entity_id=related_entity_id,
+                link=target,
+            )
         for recipient_id in recipients:
             await emit(
                 db,

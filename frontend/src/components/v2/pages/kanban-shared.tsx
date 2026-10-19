@@ -188,6 +188,12 @@ export interface KanbanItem {
   must_total: number | null;
   overridden: boolean;
  } | null;
+ /**
+  * Etap 2 linków (19.10.2026): właściciel linku rekrutacji, z którego osoba
+  * się zgłosiła — plakietka „Z Twojego linku” / „Z linku Marty”.
+  */
+ entry_link_owner_id?: number | null;
+ entry_link_owner_name?: string | null;
  reassign_from_job_id?: number | null;
  reassign_from_title?: string | null;
  /** Numer rekrutacji źródłowej („ZOB-1725”) — odznaka „↻ z …”. */

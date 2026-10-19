@@ -54,3 +54,48 @@ describe("plakietka przeglądu AI na karcie zgłoszenia (0404)", () => {
     );
   });
 });
+
+describe("plakietka linku rekrutacji (etap 2 linków, 19.10.2026)", () => {
+  const fromLink = (over: Partial<KanbanItem> = {}) =>
+    item({
+      entry_source: "application",
+      entry_link_owner_id: 7,
+      entry_link_owner_name: "Tomasz Kowal",
+      ...over,
+    });
+
+  it("właściciel linku widzi „Z Twojego linku”, a werdykt AI zostaje obok", () => {
+    const badges = cardBadges(fromLink({ entry_ai_screening: meta() }), ctx());
+    expect(badges[0]).toMatchObject({ key: "link", label: "Z Twojego linku" });
+    expect(badges[1]).toMatchObject({ key: "source", label: "AI: pasuje" });
+  });
+
+  it("inni widzą, czyj to link", () => {
+    const badges = cardBadges(fromLink({ entry_link_owner_id: 8 }), ctx());
+    expect(badges[0]).toMatchObject({ key: "link", label: "Z linku: Tomasz" });
+    expect(badges[0].title).toContain("Tomasz Kowal");
+  });
+
+  it("bez przeglądu AI nie dubluje „Z ogłoszenia”", () => {
+    const labels = cardBadges(fromLink(), ctx()).map((b) => b.label);
+    expect(labels).toContain("Z Twojego linku");
+    expect(labels).not.toContain("Z ogłoszenia");
+  });
+
+  it("plakietka linku zostaje także przy etapie „Z ogłoszenia”", () => {
+    const badges = cardBadges(fromLink({ entry_ai_screening: meta() }), {
+      ...ctx(),
+      stageBadge: "posting",
+    });
+    expect(badges.map((b) => b.key)).toEqual(expect.arrayContaining(["link"]));
+    expect(badges.map((b) => b.key)).not.toContain("source");
+  });
+
+  it("karta spoza zgłoszenia nie ma plakietki linku", () => {
+    const badges = cardBadges(
+      item({ entry_source: "added_manual", entry_link_owner_id: 7 }),
+      ctx(),
+    );
+    expect(badges.map((b) => b.key)).not.toContain("link");
+  });
+});
