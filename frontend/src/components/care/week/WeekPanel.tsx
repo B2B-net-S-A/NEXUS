@@ -10,6 +10,7 @@ import { InlineStats } from "@/components/ds/InlineStats";
 import { ListDetailLayout } from "@/components/ds/ListDetailLayout";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import { Button } from "@/components/ui/button";
+import { SegmentedRadio } from "@/components/ui/segmented-radio";
 import { useCareWeek, type WeekContact } from "@/lib/api/care";
 import { useUrlWriter } from "@/lib/url-selection";
 import { resolveViewState } from "@/lib/view-state";
@@ -109,24 +110,16 @@ export function WeekPanel() {
             </Button>
           ) : null}
         </div>
-        <div className="flex items-center gap-1" role="group" aria-label="Zakres listy">
-          {(
-            [
-              ["mine", "Moi"],
-              ["all", "Wszyscy w moim zakresie"],
-            ] as const
-          ).map(([value, label]) => (
-            <Button
-              key={value}
-              size="sm"
-              variant={scope === value ? "secondary" : "ghost"}
-              aria-pressed={scope === value}
-              onClick={() => setScope(value)}
-            >
-              {label}
-            </Button>
-          ))}
-        </div>
+        <SegmentedRadio
+          label="Zakres listy"
+          size="sm"
+          value={scope}
+          onChange={setScope}
+          options={[
+            { value: "mine", label: "Moi" },
+            { value: "all", label: "Wszyscy w moim zakresie" },
+          ]}
+        />
       </div>
 
       {state === "loading" ? (

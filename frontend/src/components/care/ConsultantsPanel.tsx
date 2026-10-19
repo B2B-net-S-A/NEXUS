@@ -8,6 +8,7 @@ import { ListDetailLayout } from "@/components/ds/ListDetailLayout";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { SegmentedRadio } from "@/components/ui/segmented-radio";
 import { useCareConsultants, type ConsultantRow } from "@/lib/api/care";
 import { CALM_EMPTY, CALM_HEAD, CALM_ROW, CALM_SUBLINE } from "@/lib/calm-table";
 import { cn } from "@/lib/utils";
@@ -107,40 +108,32 @@ export function ConsultantsPanel() {
     <div className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex flex-wrap items-center gap-1">
-          <div className="flex items-center gap-1" role="group" aria-label="Zakres listy">
-            {(
+          <SegmentedRadio
+            label="Zakres listy"
+            size="sm"
+            value={scope}
+            onChange={setScope}
+            options={(
               [
                 ["mine", "Moi", consultantsIn(items, "mine").length],
                 ["all", "Wszyscy w moim zakresie", items.length],
               ] as const
-            ).map(([value, label, count]) => (
-              <Button
-                key={value}
-                size="sm"
-                variant={scope === value ? "secondary" : "ghost"}
-                aria-pressed={scope === value}
-                onClick={() => setScope(value)}
-              >
-                {label}
-                {query.isSuccess ? ` (${count})` : ""}
-              </Button>
-            ))}
-          </div>
-          <span className="mx-1 h-4 w-px bg-border" aria-hidden />
-          <div className="flex flex-wrap items-center gap-1" role="group" aria-label="Filtr rytmu">
-            {FILTERS.map(([value, label]) => (
-              <Button
-                key={value}
-                size="sm"
-                variant={filter === value ? "secondary" : "ghost"}
-                aria-pressed={filter === value}
-                onClick={() => setFilter(value)}
-              >
-                {label}
-                {value !== "all" && query.isSuccess ? ` (${counts[value]})` : ""}
-              </Button>
-            ))}
-          </div>
+            ).map(([value, label, count]) => ({
+              value,
+              label: query.isSuccess ? `${label} (${count})` : label,
+            }))}
+          />
+          <SegmentedRadio
+            label="Filtr rytmu"
+            size="sm"
+            value={filter}
+            onChange={setFilter}
+            options={FILTERS.map(([value, label]) => ({
+              value,
+              label:
+                value !== "all" && query.isSuccess ? `${label} (${counts[value]})` : label,
+            }))}
+          />
         </div>
         {query.isSuccess ? (
           <span className="text-xs text-muted-foreground" title="Kamienie i rozmowy według rytmu osób na liście">

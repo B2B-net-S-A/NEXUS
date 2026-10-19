@@ -94,6 +94,29 @@ describe("WeekPanel", () => {
     );
   });
 
+  it("zakres „Moi / Wszyscy” to przełącznik segmentowy z wyraźnie zaznaczoną opcją", async () => {
+    const user = userEvent.setup();
+    mocks.get.mockResolvedValue({ data: week() });
+    renderPanel();
+    const group = await screen.findByRole("radiogroup", { name: "Zakres listy" });
+    const mine = screen.getByRole("radio", { name: "Moi" });
+    const all = screen.getByRole("radio", { name: "Wszyscy w moim zakresie" });
+    expect(group).toContainElement(mine);
+    expect(mine).toHaveAttribute("aria-checked", "true");
+    expect(all).toHaveAttribute("aria-checked", "false");
+    // 19.10.2026: zaznaczenie `bg-secondary` na szarym tle było nie do odróżnienia.
+    expect(mine).toHaveClass("bg-primary", "text-primary-foreground");
+    expect(all).not.toHaveClass("bg-primary");
+
+    await user.click(all);
+    expect(all).toHaveAttribute("aria-checked", "true");
+    expect(mine).toHaveAttribute("aria-checked", "false");
+    expect(all).toHaveClass("bg-primary");
+    await waitFor(() =>
+      expect(mocks.get).toHaveBeenCalledWith("/api/care/week", { params: { scope: "all" } }),
+    );
+  });
+
   it("wiersz: powód zaległy, menedżer z drzewa i sygnał do front office; Finanse bez opinii", async () => {
     mocks.get.mockResolvedValue({
       data: week({
