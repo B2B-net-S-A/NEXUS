@@ -11,8 +11,10 @@ import {
   matchesStatusFilter,
   presenceByDay,
   sourceBadge,
+  historyCapNote,
   statusFilterLabel,
 } from "../leave-format";
+import { forwardStillAhead } from "@/lib/api/hr-m365";
 
 const row = (overrides: Partial<LeaveRequestRow> = {}): LeaveRequestRow => ({
   id: "r1",
@@ -145,5 +147,22 @@ describe("kalendarz zespołu: zdalnie, delegacja, filtr", () => {
     expect(matchesStatusFilter(waiting, "absent", "2026-11-03", "2026-11")).toBe(false);
     expect(matchesStatusFilter(trip, "absent", "2026-11-03", "2026-11")).toBe(true);
     expect(matchesStatusFilter(trip, "remote", "2026-11-03", "2026-11")).toBe(false);
+  });
+});
+
+describe("historia z limitem i przekierowanie po urlopie (audyt 19.10.2026)", () => {
+  const counts = { all: 212, pending: 2, approved: 170, rejected: 10, cancelled: 30 };
+
+  it("mówi, ile wniosków się nie zmieściło", () => {
+    expect(historyCapNote(200, "all", counts)).toBe(
+      "Pokazano 200 z 212 — najnowsze terminy. Wybierz osobę albo status, żeby zobaczyć starsze.",
+    );
+    expect(historyCapNote(30, "cancelled", counts)).toBeNull();
+    expect(historyCapNote(0, "all", null)).toBeNull();
+  });
+
+  it("wyłączenie przekierowania tylko do końca urlopu", () => {
+    expect(forwardStillAhead("2026-10-23", "2026-10-23")).toBe(true);
+    expect(forwardStillAhead("2026-10-22", "2026-10-23")).toBe(false);
   });
 });

@@ -19,6 +19,11 @@ powstaje przy pobraniu z bieżącego rachunku osoby — jeśli rachunek zmienił
 się po utworzeniu paczki (inny skrót, także przy tej samej końcówce),
 pobranie odmawia. „Bank wykonał” oznacza opłacone (``mark_paid`` ze źródłem
 ``transfer_batch``); „Anuluj paczkę” zwalnia rozliczenia.
+
+Nikt nie oznacza zapłaty własnego rozliczenia (audyt A2, 19.10.2026): paczka
+z nieopłaconym rozliczeniem potwierdzającego to 409 ``own_settlement_in_batch``
+dla całej paczki — bank wykonał ją w całości, więc „Bank wykonał” potwierdza
+ktoś inny z Płac, zamiast zostawiać paczkę opłaconą w połowie.
 """
 
 from __future__ import annotations
@@ -480,6 +485,18 @@ async def confirm_batch(
     if not rows:
         raise PayrollConflict("Ta paczka jest anulowana.")
     settlements, _described = await _current(db, rows)
+    own = sorted(
+        s.id
+        for s in settlements.values()
+        if s.user_id == actor_id and s.status != "paid"
+    )
+    if own:
+        raise PayrollConflict(
+            "W paczce jest Twoje własne rozliczenie — „Bank wykonał” potwierdza "
+            "inna osoba z Płac.",
+            code="own_settlement_in_batch",
+            data={"settlement_ids": own},
+        )
     paid = 0
     for payment in rows:
         settlement = settlements[payment.settlement_id]

@@ -185,10 +185,24 @@ export function draftInput(form: DraftForm, context: Pick<DraftContext, "kind" |
   };
 }
 
-/** „Po podpisaniu NEXUS sam…” — lista z makiety, dopasowana do rodzaju i formy. */
-export function afterSigning(context: Pick<DraftContext, "kind" | "employmentType">, startDate: string): string[] {
+/** Zdanie, gdy podpis Kadr bez Płac nie zapisuje stawki (decyzja Artura 19.10.2026). */
+export const RATE_BY_PAYROLL = "Stawkę przepisze osoba z Płac";
+
+/**
+ * „Po podpisaniu NEXUS sam…” — lista z makiety, dopasowana do rodzaju i formy.
+ * `appliesRate: false` — podpisujący nie ma Płac: stawka idzie do Płac do przepisania.
+ */
+export function afterSigning(
+  context: Pick<DraftContext, "kind" | "employmentType">,
+  startDate: string,
+  { appliesRate = true }: { appliesRate?: boolean } = {},
+): string[] {
   const from = startDate ? formatIsoDatePl(rateFrom(context.kind, startDate)) : "daty początku";
-  const steps = [`zapisze stawkę od ${from} w historii stawek`];
+  const steps = [
+    appliesRate
+      ? `zapisze stawkę od ${from} w historii stawek`
+      : `przekaże Płacom stawkę od ${from} — ${RATE_BY_PAYROLL}`,
+  ];
   if (context.kind === "agreement") {
     steps.push(`ustawi formę „${FORM_WORDS[context.employmentType]}” i potwierdzanie godzin w kartotece`);
   }

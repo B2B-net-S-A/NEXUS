@@ -19,6 +19,7 @@ from app.api.hr_gates import MODULE_DISABLED_DETAIL
 from app.core.database import AsyncSessionLocal
 from app.core.scheduling import business_today
 from app.models.hr_document import HrDocument
+from app.models.hr_ops import HrAuditEvent
 from app.models.user import User
 from app.services.hr import documents
 from tests.hr_documents_seed import (
@@ -233,6 +234,112 @@ async def test_document_hidden_from_person_stays_hidden(
 
     assert _ids(own) == set()
     assert own_file.status_code == 404
+
+
+@pytest.mark.usefixtures("documents_on")
+async def test_absence_proof_stays_with_person_and_kadry(
+    app_client: AsyncClient,
+    documents_store_root,  # noqa: F811
+) -> None:
+    """Dane o zdrowiu: ani wgranie, ani zmiana kręgu nie otwiera ich Płacom i recepcji."""
+
+    cast = await _cast()
+    for_payroll = await _upload(
+        app_client,
+        cast.hr,
+        cast.person.id,
+        kind="absence_proof",
+        title="Zaświadczenie lekarskie",
+        visible_to_payroll="true",
+    )
+    for_reception = await _upload(
+        app_client,
+        cast.hr,
+        cast.person.id,
+        kind="absence_proof",
+        title="Zaświadczenie lekarskie",
+        visible_to_equipment="true",
+    )
+    created = await _upload(
+        app_client,
+        cast.hr,
+        cast.person.id,
+        kind="absence_proof",
+        title="Zaświadczenie lekarskie",
+    )
+    assert created.status_code == 201, created.text
+    document_id = created.json()["document"]["id"]
+    widened = await app_client.patch(
+        f"{PREFIX}/{document_id}",
+        headers=headers(cast.hr),
+        json={"audience": {"person": True, "payroll": True, "equipment": False}},
+    )
+    payroll = await _list(app_client, cast.payroll, cast.person.id)
+
+    message = "Potwierdzenie nieobecności widzą tylko osoba i Kadry."
+    for response in (for_payroll, for_reception, widened):
+        assert response.status_code == 422, response.text
+        assert response.json()["detail"] == message
+    assert created.json()["document"]["audience"] == {
+        "person": True,
+        "payroll": False,
+        "equipment": False,
+    }
+    assert _ids(payroll) == set()
+    # Odrzucone wgrania nie zostawiają plików w magazynie.
+    stored = [path for path in documents_store_root.rglob("*") if path.is_file()]
+    assert len(stored) == 1
+
+
+@pytest.mark.usefixtures("documents_on")
+async def test_document_download_leaves_trail(app_client: AsyncClient) -> None:
+    cast = await _cast()
+    contract_id = (await _upload(app_client, cast.hr, cast.person.id)).json()[
+        "document"
+    ]["id"]
+    proof_id = (
+        await _upload(
+            app_client,
+            cast.hr,
+            cast.person.id,
+            kind="absence_proof",
+            title="Zaświadczenie lekarskie",
+        )
+    ).json()["document"]["id"]
+
+    by_person = await app_client.get(
+        f"{PREFIX}/{contract_id}/file", headers=headers(cast.person)
+    )
+    by_hr = await app_client.get(
+        f"{PREFIX}/{proof_id}/file?disposition=inline", headers=headers(cast.hr)
+    )
+    hidden = await app_client.get(
+        f"{PREFIX}/{proof_id}/file", headers=headers(cast.payroll)
+    )
+
+    assert by_person.status_code == 200 and by_hr.status_code == 200
+    assert hidden.status_code == 404
+    async with AsyncSessionLocal() as db:
+        events = (
+            await db.scalars(
+                select(HrAuditEvent).where(
+                    HrAuditEvent.entity_type == "hr_document",
+                    HrAuditEvent.action == "document_downloaded",
+                    HrAuditEvent.entity_id.in_([str(contract_id), str(proof_id)]),
+                )
+            )
+        ).all()
+    trail = {
+        (e.entity_id, e.actor_user_id, e.subject_user_id, e.sensitivity) for e in events
+    }
+    assert trail == {
+        (str(contract_id), cast.person.id, cast.person.id, "general"),
+        (str(proof_id), cast.hr.id, cast.person.id, "health"),
+    }
+    assert {e.entity_id: e.details for e in events} == {
+        str(contract_id): {"kind": "contract"},
+        str(proof_id): {"kind": "absence_proof"},
+    }
 
 
 # ── Pliki ─────────────────────────────────────────────────────────────────────

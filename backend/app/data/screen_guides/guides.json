@@ -784,7 +784,7 @@
       },
       {
         "q": "Jak wpisać komuś nieobecność, np. L4?",
-        "a": "Kliknij „Wpisz nieobecność za pracownika”, wybierz osobę, rodzaj i daty. Wpis jest od razu zatwierdzony. Zgody na przekierowanie poczty nie dasz za tę osobę — włącza je tylko ona sama.",
+        "a": "Kliknij „Wpisz nieobecność za pracownika”, wybierz osobę, rodzaj i daty. Wpis jest od razu zatwierdzony. Za osoby na B2B i zleceniu wpisują tylko Kadry — one zgłaszają nieobecność same. Zgody na przekierowanie poczty nie dasz za tę osobę.",
         "anchor": "hr.approvals.on_behalf"
       }
     ],
@@ -792,7 +792,7 @@
       "Dopisek „Z Outlooka” znaczy, że NEXUS założył wniosek z autoodpowiedzi, którą osoba ustawiła sama — decydujesz o nim jak o każdym innym.",
       "W zastępstwie nieobecnego przełożonego akceptujesz i odrzucasz wnioski jego zespołu, ale ich nie zmieniasz; L4 i podobne widzisz tylko do wiadomości.",
       "Licznik „wnioski do decyzji” liczy tylko umowę o pracę — zgłoszenia z B2B i zlecenia nie czekają na nikogo.",
-      "Przekierowanie poczty z cudzego wniosku wyłączają tylko Kadry („Wyłącz przekierowanie” z powodem); włączyć je z powrotem może tylko sama osoba."
+      "Przekierowanie poczty z cudzego wniosku wyłączają tylko Kadry („Wyłącz przekierowanie” z powodem, do końca urlopu); włączyć je z powrotem może tylko sama osoba. Regułę, która została po urlopie, zamyka „Zamknij regułę” w Ustawieniach → Kadry → Microsoft 365."
     ],
     "anchors": [
       {
@@ -813,7 +813,7 @@
       {
         "id": "hr.approvals.history",
         "label": "Wszystkie wnioski",
-        "describe": "Historia z filtrem statusu i osoby, edycja i anulowanie."
+        "describe": "Historia z filtrem statusu i osoby (200 najnowszych), edycja i anulowanie."
       },
       {
         "id": "hr.approvals.on_behalf",

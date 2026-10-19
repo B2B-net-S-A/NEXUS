@@ -20,8 +20,9 @@ Postgresa; kalendarz firmy z dniami wolnymi podaje wołający
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date, timedelta
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from typing import Any, Optional
@@ -35,8 +36,13 @@ from app.models.app_setting import AppSetting
 from app.models.competition_winner import CompetitionType
 from app.services.hr.calendar import WorkCalendar, load_calendar
 
+logger = logging.getLogger(__name__)
+
 SETTING_KEY = "hr_bonus_rules"
 CENT = Decimal("0.01")
+#: Data startu automatu przy zepsutym wpisie bez czytelnej daty: automat nie
+#: zakłada nic nowego (lepiej brak propozycji niż premie zdublowane z Compassem).
+AUTOMATION_STOPPED = date.max
 
 #: Rywalizacje z nagrodą pieniężną wypłacaną przez płace (kwartalna Liga).
 #: Wyścig miesięczny daje voucher, nie przelew — domyślnie poza płacami.
@@ -169,6 +175,40 @@ async def load_bonus_calendar(
     (ten sam loader co urlopy, jedno zapytanie na przebieg albo ekran)."""
 
     return await load_calendar(db, first_start, last_day + calendar_reach(rules))
+
+
+def automation_floor_for(rules: BonusRules, today: date) -> date:
+    """Najwcześniejszy start kontraktu (koniec okresu Ligi), dla którego automat
+    zakłada propozycje: ``automation_since`` albo okno ``lookback_days`` wstecz."""
+
+    return rules.automation_since or (today - timedelta(days=rules.lookback_days))
+
+
+def automation_since_change_error(
+    current: Optional[date], new: Optional[date], *, has_compass_imports: bool
+) -> Optional[str]:
+    """Komunikat odmowy, gdy zmiana daty startu automatu cofnęłaby go przed
+    przełączenie z Compassa (``None`` = zmiana dozwolona).
+
+    Premie sprzed tej daty przyszły importem z Compassa (``compass_import``, bez
+    kontraktu NEXUSA) — automat nie umie ich rozpoznać, więc data pusta albo
+    wcześniejsza niż zapisana dałaby drugie propozycje za te same placementy.
+    """
+
+    if not has_compass_imports:
+        return None
+    if new is None:
+        return (
+            "Data startu automatu jest potrzebna, dopóki w płacach są premie "
+            "z Compassa — bez niej automat zaproponuje drugi raz premie "
+            "za placementy sprzed przełączenia."
+        )
+    if current is not None and new < current:
+        return (
+            f"Data startu automatu nie może być wcześniejsza niż {current:%d.%m.%Y}: "
+            "premie za placementy sprzed niej przyszły z Compassa."
+        )
+    return None
 
 
 def extra_dl_recipient(dl_user_id: int, rules: BonusRules) -> Optional[int]:
@@ -324,14 +364,29 @@ def rules_payload(rules: BonusRules) -> dict[str, Any]:
     }
 
 
+def _readable_since(raw: object) -> Optional[date]:
+    if not isinstance(raw, Mapping) or not raw.get("automation_since"):
+        return None
+    try:
+        return date.fromisoformat(str(raw["automation_since"]))
+    except ValueError:
+        return AUTOMATION_STOPPED
+
+
 async def load_rules(db: AsyncSession) -> BonusRules:
-    """Reguły z bazy; zepsuty wpis nie zatrzymuje płac — wtedy domyślne."""
+    """Reguły z bazy; zepsuty wpis nie zatrzymuje płac — wtedy domyślne.
+
+    Domyślne, ale z zapisaną datą startu automatu: bez niej automat sięgnąłby
+    120 dni wstecz i zdublował premie zaimportowane z Compassa. Data nieczytelna
+    = automat nie zakłada nowych propozycji (``AUTOMATION_STOPPED``).
+    """
 
     raw = await db.scalar(select(AppSetting.value).where(AppSetting.key == SETTING_KEY))
     try:
         return parse_rules(raw)
     except BonusRulesError:
-        return DEFAULT_RULES
+        logger.error("[payroll] %s niepoprawne — reguły domyślne", SETTING_KEY)
+        return replace(DEFAULT_RULES, automation_since=_readable_since(raw))
 
 
 async def save_rules(
@@ -356,8 +411,11 @@ async def save_rules(
 __all__ = [
     "DEFAULT_RULES",
     "BonusRules",
+    "AUTOMATION_STOPPED",
     "BonusRulesError",
     "ExtraDlRule",
+    "automation_floor_for",
+    "automation_since_change_error",
     "business_days_elapsed",
     "calendar_reach",
     "dl_bonus",

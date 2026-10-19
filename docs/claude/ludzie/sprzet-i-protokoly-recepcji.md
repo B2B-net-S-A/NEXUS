@@ -11,7 +11,12 @@ osobie z kartoteki i uczestniku Akademii.
   Import plików recepcji odrzuca je dwa razy: po nagłówku kolumny (kolumna nie
   jest czytana) i po wzorcu wartości w czytanych kolumnach
   (`app/services/equipment/sanitize.py`). Nowa kolumna w imporcie albo w formularzu
-  egzemplarza = sprawdź, czy nie otwiera drogi dla tych danych.
+  egzemplarza = sprawdź, czy nie otwiera drogi dla tych danych. Audyt 19.10.2026:
+  wzorce łapią też „PIN1 1234”, „PIN karty 1234”, „PUK 1234 5678”, „PUK: 1234-5678”
+  i klucz BitLocker z przerwą do trzech znaków między grupami („ - ”, półpauza,
+  kropka, nowa linia); uwaga o osobie spoza NEXUSA przechodzi przez tę samą
+  kontrolę co notatka egzemplarza (`registry.clean_notes`). Na produkcji
+  (497 pozycji) zero trafień w notatkach, lokalizacjach i uwagach (odczyt 19.10).
 - Plik importu nie jest przechowywany — partia ma jego SHA-256 i oczyszczone wiersze.
 - Artur 18.10.2026 potwierdził: klucze BitLocker zostają w Intune/Entra, PIN i PUK
   u operatora. NEXUS ich nie przechowuje, tylko pokazuje drogę do nich
@@ -87,7 +92,11 @@ osobie z kartoteki i uczestniku Akademii.
 - Osoba z kolumny osoby: 2–3 słowa z wielkiej litery po zdjęciu dopisków
   („recepcja”, „obecnie posiada”, „(zamiana)”, „?”); w łańcuchu „A -> B”
   posiadaczem jest ostatni. Szukamy po kolei: aktywne konto, kontrakt w toku,
-  konto nieaktywne, kontrakt zakończony. Nie ma nikogo = „przyjmij” na **osobę
+  konto nieaktywne, kontrakt zakończony — parami: ta sama nazwa na aktywnym
+  koncie i na kontrakcie w toku (albo na nieaktywnym i zakończonym) oraz
+  imiennicy w jednej warstwie = „do wyjaśnienia” („kilka osób o tym imieniu
+  i nazwisku”), bo sprzęt konsultanta na koncie gubi zadanie „Odbierz sprzęt”
+  przy końcu kontraktu (audyt 19.10.2026). Nie ma nikogo = „przyjmij” na **osobę
   spoza NEXUSA** (jedna na nazwisko, notatka „z importu plików recepcji”);
   wybór konta albo kontraktu w partii zastępuje tę propozycję. Tekst, który nie
   jest osobą („Igor do wysyłki maili”, „Karta dla ochrony”), zostaje „do wyjaśnienia”.

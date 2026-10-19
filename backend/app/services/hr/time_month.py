@@ -35,6 +35,7 @@ from app.services.hr.time_entries import (
     TimeError,
     entries_of,
     entry_payload,
+    employed_on,
     find_timesheet,
     leave_map,
     planned_leave_paid,
@@ -186,7 +187,12 @@ async def month_view(
             totals["working_days"] += 1
             if day_leave is not None:
                 totals["leave_days"] += day_leave.leave.fraction
-            if not day_entries and not auto and not full_leave:
+            if (
+                not day_entries
+                and not auto
+                and not full_leave
+                and employed_on(subject, item.day)
+            ):
                 totals["days_missing"] += 1
         totals["work_hours"] += manual
         totals["leave_paid_hours"] += auto

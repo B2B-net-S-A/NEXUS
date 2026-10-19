@@ -41,6 +41,7 @@ from app.services.email import (
     send_password_reset_email,
 )
 from app.services.finance_role_cleanup import clear_recruitment_access_for_finance
+from app.services.hr import account_profiles
 from app.services.password_reset import (
     RESET_TOKEN_TTL_MINUTES,
     create_reset_token,
@@ -295,6 +296,10 @@ async def create_user(
     await db.flush()
     await trainee_program.sync_program_for_roles(
         db, user.id, before=[], after=roles_list, actor_id=_admin.id
+    )
+    # „Ludzie w NEXUSIE”: nowe konto pracownicze dostaje kartotekę (19.10.2026).
+    await account_profiles.ensure_profile_on_account(
+        db, user, actor_id=_admin.id, source="admin_create"
     )
     await db.refresh(user)
     return user

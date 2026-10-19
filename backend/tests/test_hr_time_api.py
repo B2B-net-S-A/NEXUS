@@ -169,6 +169,40 @@ async def test_lowering_the_day_clears_overtime_flags(app_client) -> None:
     assert row.overtime_reason is None
 
 
+@pytest.mark.usefixtures("time_on")
+@pytest.mark.asyncio
+async def test_text_only_edit_keeps_overtime_flags(app_client) -> None:
+    # Audyt 19.10.2026: poprawka samego opisu w dniu z nadgodzinami dawała 422
+    # (wpis 8 h bez uzasadnienia), a przełożonemu bez prawa do nadgodzin 403.
+    boss, worker = await _team(can_log_overtime=True)
+    h = headers(worker)
+    base_entry = await app_client.post(f"{BASE}/entries", json=entry(6, 8), headers=h)
+    extra = await app_client.post(
+        f"{BASE}/entries",
+        json=entry(6, 2, overtime_reason="Dyżur wieczorny"),
+        headers=h,
+    )
+    assert extra.json()["is_overtime"] is True
+    own = await app_client.patch(
+        f"/api/hr/time/me/entries/{base_entry.json()['id']}",
+        json={"description": "Praca nad rekrutacjami — poprawka"},
+        headers=h,
+    )
+    assert own.status_code == 200, own.text
+    assert own.json()["is_overtime"] is False
+    by_boss = await app_client.patch(
+        f"/api/hr/time/team/entries/{extra.json()['id']}",
+        json={"description": "Dyżur — poprawka", "overtime_reason": "Dyżur wieczorny"},
+        headers=headers(boss),
+    )
+    assert by_boss.status_code == 200, by_boss.text
+    async with AsyncSessionLocal() as db:
+        row = await db.get(TimesheetEntry, extra.json()["id"])
+    assert row.is_overtime is True
+    assert row.overtime_reason == "Dyżur wieczorny"
+    assert row.overtime_by == worker.id
+
+
 # ── Urlop ─────────────────────────────────────────────────────────────────────
 
 

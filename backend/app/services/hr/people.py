@@ -4,11 +4,18 @@ Zakres widoczności (rozstrzyga ``viewer_scope``):
 
 * **wizytówka** — każdy, kto ma kartotekę albo Kadry: imię, stanowisko, dział,
   przełożony, miejsce pracy, telefon służbowy, status (bez formy umowy i dat),
-* **pełna kartoteka** — sama osoba, jej przełożony (bezpośredni) i Kadry,
+* **pełna kartoteka** — sama osoba, jej przełożony (bezpośredni), Kadry
+  i Finanse (Płace),
+* **forma umowy** (UoP / B2B / zlecenie i pola od niej zależne) — tylko sama
+  osoba, jej bezpośredni przełożony, admin i Finanse (decyzja Artura
+  19.10.2026); Kadry bez Płac dostają kartotekę bez formy. Rozstrzyga
+  ``form_viewer`` — jedna reguła dla katalogu, kartoteki, „Struktury”
+  i „Mojego zespołu” (Jarvis czyta te same trasy),
 * stawki i kwoty — nigdy tutaj (moduł Płace, uprawnienie ``payroll``).
 
-Zapis kartoteki tylko przez Kadry (``people_admin``); każda zmiana zostawia
-wiersz w ``hr_audit_events`` z nazwami pól.
+Zapis kartoteki tylko przez Kadry (``people_admin``); formę mogą zmienić
+także Kadry, które jej nie widzą (decyzja Artura 19.10.2026). Każda zmiana
+zostawia wiersz w ``hr_audit_events`` z nazwami pól.
 """
 
 from __future__ import annotations
@@ -83,6 +90,12 @@ def is_people_admin(user: User) -> bool:
     return has_permission(user, ProductAction.people_admin)
 
 
+def sees_every_form(user: User) -> bool:
+    """Formę umowy każdej osoby widzą admin i Finanse (uprawnienie „Płace”)."""
+
+    return user.has_role(UserRole.admin) or has_permission(user, ProductAction.payroll)
+
+
 async def profile_of(db: AsyncSession, user_id: int) -> Optional[EmployeeProfile]:
     return await db.scalar(
         select(EmployeeProfile).where(EmployeeProfile.user_id == user_id)
@@ -137,11 +150,18 @@ async def direct_report_ids(db: AsyncSession, manager_user_id: int) -> set[int]:
 async def viewer_scope(
     db: AsyncSession, viewer: User, subject: EmployeeProfile
 ) -> Scope:
-    if viewer.id == subject.user_id or is_people_admin(viewer):
+    if (
+        viewer.id == subject.user_id
+        or is_people_admin(viewer)
+        or sees_every_form(viewer)
+    ):
         return "full"
+    # Ta sama reguła co ``direct_report_ids``: osoba, która odeszła, nie jest
+    # już „podwładnym” — były przełożony widzi jej wizytówkę (audyt A4, 19.10.2026).
     if (
         subject.manager_user_id is not None
         and subject.manager_user_id == viewer.id
+        and subject.employment_status != EmploymentStatus.exited
         and await can_supervise(db, viewer.id)
     ):
         return "full"
@@ -212,8 +232,9 @@ def contributions_from(profile: EmployeeProfile) -> Optional[date]:
     return profile.contribution_exempt_until + timedelta(days=1)
 
 
-#: Daty, które widzą tylko osoba, Kadry i Płace — przełożony widzi sam znacznik
-#: „student” (z końca zwolnienia da się policzyć wiek; przegląd 17.10.2026).
+#: Daty, które widzą tylko osoba i Finanse (Płace) — przełożony widzi sam znacznik
+#: „student” (z końca zwolnienia da się policzyć wiek; przegląd 17.10.2026),
+#: Kadry bez Płac nie widzą formy (19.10.2026), więc i tych dat.
 HR_ONLY_FIELDS = (
     "contribution_exempt_until",
     "contributions_from",
@@ -222,37 +243,98 @@ HR_ONLY_FIELDS = (
     "suggested_entitlement_days",
 )
 
+#: Pola, z których da się odczytać formę umowy (znacznik studenta jest tylko
+#: na zleceniu, staż i ZUS tylko na UoP) — znikają razem z formą.
+FORM_FIELDS = ("student_contribution_exempt", *HR_ONLY_FIELDS)
 
-def full_payload(row: PersonRow, *, hr_fields: bool = True) -> dict[str, Any]:
-    payload = _full_payload(row)
-    if not hr_fields:
-        for key in HR_ONLY_FIELDS:
-            payload.pop(key)
-    return payload
+
+@dataclass(frozen=True)
+class FormViewer:
+    """Kto czyta formę umowy (decyzja Artura 19.10.2026).
+
+    Forma: sama osoba, jej bezpośredni (żywy) przełożony, admin, Finanse.
+    Daty zależne od formy (zwolnienie ze składek, staż, ZUS): bez przełożonego.
+    Zastępca przełożonego nie ma pełnej kartoteki, więc i formy.
+    """
+
+    viewer_id: int
+    everyone: bool
+    report_ids: frozenset[int]
+
+    def sees(self, user_id: int) -> bool:
+        return self.everyone or user_id == self.viewer_id or user_id in self.report_ids
+
+    def sees_dates(self, user_id: int) -> bool:
+        return self.everyone or user_id == self.viewer_id
+
+
+async def form_viewer(db: AsyncSession, viewer: User) -> FormViewer:
+    everyone = sees_every_form(viewer)
+    return FormViewer(
+        viewer_id=viewer.id,
+        everyone=everyone,
+        report_ids=frozenset()
+        if everyone
+        else frozenset(await direct_report_ids(db, viewer.id)),
+    )
+
+
+def form_payload(profile: EmployeeProfile, form: FormViewer) -> dict[str, Any]:
+    """Forma umowy w zakresie czytającego — jedyne źródło tego pola.
+
+    ``employment_type`` = ``None``: forma ukryta przed czytającym.
+    ``employment_type_pending`` — forma „do uzupełnienia” (kartoteka założona
+    z konta; wartość to tylko domyślne B2B, którym liczą urlopy i czas). Ten
+    znacznik widzą wszyscy z pełną kartoteką, bo nie zdradza formy.
+    """
+
+    pending = bool(profile.employment_type_pending)
+    if not form.sees(profile.user_id):
+        return {"employment_type": None, "employment_type_pending": pending}
+    out: dict[str, Any] = {
+        "employment_type": profile.employment_type,
+        "employment_type_pending": pending,
+        "student_contribution_exempt": profile.student_contribution_exempt,
+    }
+    if form.sees_dates(profile.user_id):
+        out.update(
+            {
+                "contribution_exempt_until": profile.contribution_exempt_until,
+                "contributions_from": contributions_from(profile),
+                "leave_seniority_years": profile.leave_seniority_years,
+                "zus_certificate_received_on": profile.zus_certificate_received_on,
+                # Podpowiedź wymiaru urlopu 20/26 (D9) — pulę zatwierdzają Kadry.
+                "suggested_entitlement_days": statutory_entitlement(
+                    profile.employment_type, profile.leave_seniority_years
+                ),
+            }
+        )
+    return out
+
+
+def full_payload(row: PersonRow, *, form: FormViewer) -> dict[str, Any]:
+    return {**_full_payload(row), **form_payload(row.profile, form)}
 
 
 def _full_payload(row: PersonRow) -> dict[str, Any]:
     profile = row.profile
     return {
         **card_payload(row),
-        "employment_type": profile.employment_type,
         "hired_on": profile.hired_on,
         "work_start_date": profile.work_start_date,
         "last_working_day": profile.last_working_day,
         "timesheet_required": profile.timesheet_required,
         "can_log_overtime": profile.can_log_overtime,
         "division": profile.division,
-        "student_contribution_exempt": profile.student_contribution_exempt,
-        "contribution_exempt_until": profile.contribution_exempt_until,
-        "contributions_from": contributions_from(profile),
-        "leave_seniority_years": profile.leave_seniority_years,
-        "zus_certificate_received_on": profile.zus_certificate_received_on,
-        # Podpowiedź wymiaru urlopu 20/26 (D9) — pulę zatwierdzają Kadry.
-        "suggested_entitlement_days": statutory_entitlement(
-            profile.employment_type, profile.leave_seniority_years
-        ),
+        "manager_pending": manager_pending(profile),
         "roles": [role.value for role in row.user.get_all_roles()],
     }
+
+
+def manager_pending(profile: EmployeeProfile) -> bool:
+    """Przełożony „do uzupełnienia”: kartoteka z konta, której nikt go nie dał."""
+
+    return bool(profile.created_from_account) and profile.manager_user_id is None
 
 
 async def person_row(db: AsyncSession, user_id: int) -> Optional[PersonRow]:
@@ -287,12 +369,28 @@ async def users_without_profile(db: AsyncSession) -> list[dict[str, Any]]:
         .where(User.is_active.is_(True), EmployeeProfile.id.is_(None))
         .order_by(User.name, User.id)
     )
-    skip = {UserRole.automation, UserRole.user}
     return [
         {"user_id": user.id, "name": user.name, "email": user.email}
         for user in rows
-        if not set(user.get_all_roles()) & skip
+        if is_staff_account(user)
     ]
+
+
+#: Role, które nie są pracą w firmie: konto techniczne „Automatyzacje” i stary
+#: podgląd (``user``) — bez kartoteki.
+NON_STAFF_ROLES = frozenset({UserRole.automation, UserRole.user})
+
+
+def is_staff_account(user: User) -> bool:
+    """Konto pracownicze: ma mieć kartotekę, gdy jest aktywne (19.10.2026).
+
+    Niepotwierdzona rejestracja (``email_verified`` = false) jeszcze nie jest
+    osobą w firmie. Konta serwisowe kluczy API żyją w ``service_accounts``.
+    """
+
+    return bool(user.email_verified) and not (
+        set(user.get_all_roles()) & NON_STAFF_ROLES
+    )
 
 
 #: Klucz blokady zmian przełożonych (``pg_advisory_xact_lock``): sprawdzenie
@@ -512,6 +610,12 @@ async def update_profile(
     changed = sorted(
         key for key, value in clean.items() if getattr(profile, key) != value
     )
+    if "employment_type" in clean and profile.employment_type_pending:
+        # Forma „do uzupełnienia” (kartoteka z konta): zapis ją potwierdza,
+        # także gdy to ta sama wartość co domyślna.
+        profile.employment_type_pending = False
+        if "employment_type" not in changed:
+            changed = sorted([*changed, "employment_type"])
     previous_manager_id = profile.manager_user_id
     for key in changed:
         setattr(profile, key, clean[key])

@@ -121,6 +121,16 @@ describe("afterSigning", () => {
     ]);
   });
 
+  it("podpis bez Płac: stawki nie zapisze, przepisze ją osoba z Płac (19.10.2026)", () => {
+    expect(
+      afterSigning({ kind: "agreement", employmentType: "b2b" }, "2026-11-01", { appliesRate: false }),
+    ).toEqual([
+      "przekaże Płacom stawkę od 01.11.2026 — Stawkę przepisze osoba z Płac",
+      "ustawi formę „B2B” i potwierdzanie godzin w kartotece",
+      "doda umowę do dokumentów osoby",
+    ]);
+  });
+
   it("rateFrom: umowa od 1. dnia miesiąca, aneks od swojej daty", () => {
     expect(rateFrom("agreement", "2026-11-15")).toBe("2026-11-01");
     expect(rateFrom("annex", "2026-12-01")).toBe("2026-12-01");

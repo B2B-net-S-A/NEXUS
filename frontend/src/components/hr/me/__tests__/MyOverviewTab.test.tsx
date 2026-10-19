@@ -8,7 +8,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { HrConfig, HrModuleKey, PersonFull } from "@/lib/api/hr";
+import type { HrConfig, HrModuleKey, OwnProfile } from "@/lib/api/hr";
 import type { LeaveBalance } from "@/lib/api/hr-leave";
 import type { MyPayroll } from "@/lib/api/hr-payroll";
 import type { MonthDay, MonthView } from "@/lib/api/hr-time";
@@ -73,7 +73,7 @@ function config(open: Partial<Record<HrModuleKey, boolean>> = {}): HrConfig {
   } as HrConfig;
 }
 
-function person(form: PersonFull["employment_type"] = "b2b"): PersonFull {
+function person(form: OwnProfile["employment_type"] = "b2b"): OwnProfile {
   return {
     user_id: 7,
     name: "Ola Przykładowa",
@@ -87,6 +87,7 @@ function person(form: PersonFull["employment_type"] = "b2b"): PersonFull {
     manager_name: "Marta Fikcyjna",
     scope: "full",
     employment_type: form,
+    employment_type_pending: false,
     hired_on: "2025-03-03",
     work_start_date: "2025-03-03",
     last_working_day: null,
@@ -94,7 +95,7 @@ function person(form: PersonFull["employment_type"] = "b2b"): PersonFull {
     can_log_overtime: false,
     roles: ["recruiter"],
     entitlements: [],
-  } as PersonFull;
+  } as OwnProfile;
 }
 
 function balance(over: Partial<LeaveBalance> = {}): LeaveBalance {

@@ -23,6 +23,9 @@ BACKEND_ROOT = Path(__file__).resolve().parent.parent
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
+from sqlalchemy import text  # noqa: E402
+
+from app.api.hr_import import LOCK_KEY, MSG_LOCKED  # noqa: E402
 from app.core.database import AsyncSessionLocal  # noqa: E402
 from app.models.hr_ops import HrImportBatch  # noqa: E402
 from app.services.hr import compass_import  # noqa: E402
@@ -39,6 +42,14 @@ async def _run(bundle_path: Path, module: str, apply_batch: int | None) -> int:
         print(str(exc), file=sys.stderr)
         return 2
     async with AsyncSessionLocal() as db:
+        # Ta sama blokada co import z Ustawień: dwa zapisy naraz (okno i skrypt)
+        # liczyłyby plan na tych samych danych i zapisały go dwa razy.
+        locked = await db.scalar(
+            text("SELECT pg_try_advisory_xact_lock(hashtext(:key))"), {"key": LOCK_KEY}
+        )
+        if not locked:
+            print(MSG_LOCKED, file=sys.stderr)
+            return 2
         if apply_batch is None:
             batch, _ = await compass_import.dry_run(
                 db,

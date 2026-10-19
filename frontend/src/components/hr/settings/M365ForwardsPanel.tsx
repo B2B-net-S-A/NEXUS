@@ -12,6 +12,7 @@ import { apiErrorMessage } from "@/lib/api-error";
 import {
   M365_FORWARD_HEALTH,
   canCloseRule,
+  forwardStillAhead,
   m365Day,
   m365ReasonLabel,
   reconcileSummary,
@@ -177,7 +178,7 @@ export function M365ForwardsPanel({ mode }: { mode: M365Mode }) {
                     ) : null}
                   </td>
                   <td className="py-2 text-right align-top whitespace-nowrap">
-                    {row.consent && row.status === "approved" ? (
+                    {row.consent && row.status === "approved" && forwardStillAhead(row.end_date) ? (
                       <Button
                         size="sm"
                         variant="quiet"

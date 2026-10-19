@@ -477,6 +477,21 @@ export function statusFilterLabel(
   return typeof count === "number" ? `${label} (${count})` : label;
 }
 
+/**
+ * Historia wniosków przychodzi z limitem (najnowsze terminy); gdy filtr ma
+ * więcej wniosków, niż przyszło, mówimy to wprost — inaczej najstarsze
+ * znikają bez śladu (audyt 19.10.2026).
+ */
+export function historyCapNote(
+  shown: number,
+  status: LeaveStatus | "all",
+  counts: LeaveStatusCounts | null | undefined,
+): string | null {
+  const total = counts?.[status];
+  if (typeof total !== "number" || total <= shown) return null;
+  return `Pokazano ${shown} z ${total} — najnowsze terminy. Wybierz osobę albo status, żeby zobaczyć starsze.`;
+}
+
 /** Pola okna edycji wniosku (jak w oknie nieobecności). */
 export interface LeaveEditValues {
   leaveType: LeaveType;

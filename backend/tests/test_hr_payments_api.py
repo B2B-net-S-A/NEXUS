@@ -22,6 +22,7 @@ from sqlalchemy import func, select
 
 from app.api import hr_payments
 from app.core.database import AsyncSessionLocal
+from app.core.scheduling import local_now
 from app.core.encryption import TokenCipherNotConfigured
 from app.models.hr_ops import HrAuditEvent
 from app.models.hr_payroll import PayrollPeriod
@@ -490,21 +491,19 @@ async def test_ksef_number_with_other_amount_waits_for_decision(client, env):
         headers=fx.headers(finance),
     )
     assert short.status_code == 422
+    # Decyzja Artura 19.10.2026: przelew B2B o kwocie innej niż brutto faktur
+    # nie opłaca rozliczenia ręcznym „Przypisz” — odmowa z obiema kwotami.
     assigned = await client.post(
         f"{PREFIX}/statement-lines/{line['id']}/assign",
         json={"settlement_id": ola_s.id},
         headers=fx.headers(finance),
     )
-    assert assigned.status_code == 200, assigned.text
-    assert assigned.json()["paid"] is True
-    paid = await _status(ola_s.id)
-    assert paid.status == "paid" and paid.paid_amount == Decimal("21000.00")
-    twice = await client.post(
-        f"{PREFIX}/statement-lines/{line['id']}/assign",
-        json={"settlement_id": ola_s.id},
-        headers=fx.headers(finance),
-    )
-    assert twice.status_code == 409
+    assert assigned.status_code == 422, assigned.text
+    assert "21000,00" in assigned.text and "21106,80" in assigned.text
+    assert (await _status(ola_s.id)).status == "approved"
+    async with AsyncSessionLocal() as db:
+        stored = await db.get(PayrollPayment, line["id"])
+    assert stored.match_status == "unmatched" and stored.settlement_id is None
     missing = await client.post(
         f"{PREFIX}/statement-lines/999999999/ignore",
         json={"reason": "Przelew zwrotny"},
@@ -839,3 +838,101 @@ async def test_rachunek_nadawcy_w_ustawieniach_tylko_jako_cztery_cyfry(client, e
     stored = await fx.get_setting(fx.SETTING_KEY)
     assert stored["transfer_batch"]["sender_account"] == company
     assert stored["transfer_batch"]["format"] == "csv"
+
+
+# ── Audyt A2 (19.10.2026): własne rozliczenie i ręczne „Przypisz” ─────────────
+
+
+@pytest.mark.asyncio
+async def test_wyciag_nie_oplaca_rozliczenia_osoby_ktora_go_wgrala(client, env):
+    finance, hr, _ola, _kuba, ola_s, _kuba_s = await _team()
+    own_account = fx.account("99990008", "8008")
+    async with AsyncSessionLocal() as db:
+        period = await db.get(PayrollPeriod, ola_s.period_id)
+        await fx.set_billing(db, finance, account_value=own_account, source="manual")
+        own = await fx.settlement(
+            db,
+            period,
+            finance,
+            employment_type="zlecenie",
+            expected="3000.00",
+            approver=hr,
+        )
+        second = await fx.make_user(db, "finance", name="Fabian Drugi")
+        await db.commit()
+    mt = (
+        ":20:X\r\n:25:/PL72999900010000000000001234\r\n:60F:C261117PLN100,00\r\n"
+        ":61:2611181118DN2400,00NTRFNONREF//BR-OWN\r\n"
+        f":86:020~00TRF~20Wynagrodzenie zlecenie 10/2026~38PL{own_account}\r\n-"
+    ).encode()
+    result = (await _upload(client, finance, "wlasny.sta", mt)).json()
+    assert result["matched"] == 0 and result["unmatched"] == 1
+    assert (await _status(own.id)).status == "approved"
+    overview = (
+        await client.get(f"{PREFIX}/statements", headers=fx.headers(second))
+    ).json()
+    (line,) = overview["unmatched"]
+    assert "wgrała wyciąg" in line["reason"]
+    # Ten sam wiersz przypisuje ktoś inny z Płac.
+    assigned = await client.post(
+        f"{PREFIX}/statement-lines/{line['id']}/assign",
+        json={"settlement_id": own.id},
+        headers=fx.headers(second),
+    )
+    assert assigned.status_code == 200, assigned.text
+    assert (await _status(own.id)).status == "paid"
+
+
+@pytest.mark.asyncio
+async def test_przypisz_nie_oplaca_rozbieznosci_a_zgodna_kwote_przyjmuje(client, env):
+    finance, _hr, _ola, _kuba, ola_s, _kuba_s = await _team()
+    async with AsyncSessionLocal() as db:
+        target = await db.get(PayrollSettlement, ola_s.id)
+        target.status = "mismatch"
+        target.approved_by = None
+        target.approved_at = None
+        target.discrepancy_amount = Decimal("120.00")
+        line = PayrollPayment(
+            kind="statement_line",
+            match_status="unmatched",
+            amount=Decimal("21106.80"),
+            currency="PLN",
+            booked_on=date(2026, 11, 18),
+            title="Przelew bez numeru faktury",
+            statement_sha256="a" * 64,
+            statement_format="mt940",
+            statement_line_ref="1:BR-RECZNY",
+            created_by=finance.id,
+        )
+        db.add(line)
+        await db.commit()
+        line_id = line.id
+    second = await _second_payroll()
+    url = f"{PREFIX}/statement-lines/{line_id}/assign"
+    refused = await client.post(
+        url, json={"settlement_id": ola_s.id}, headers=fx.headers(second)
+    )
+    assert refused.status_code == 409, refused.text
+    assert "Uznaj różnicę" in refused.text
+    assert (await _status(ola_s.id)).status == "mismatch"
+
+    async with AsyncSessionLocal() as db:
+        target = await db.get(PayrollSettlement, ola_s.id)
+        target.status = "approved"
+        target.discrepancy_amount = Decimal("0.00")
+        target.approved_by = finance.id
+        target.approved_at = local_now()
+        await db.commit()
+    assigned = await client.post(
+        url, json={"settlement_id": ola_s.id}, headers=fx.headers(second)
+    )
+    assert assigned.status_code == 200, assigned.text
+    paid = await _status(ola_s.id)
+    assert paid.status == "paid" and paid.paid_amount == Decimal("21106.80")
+
+
+async def _second_payroll():
+    async with AsyncSessionLocal() as db:
+        user = await fx.make_user(db, "finance", name="Fabian Drugi")
+        await db.commit()
+    return user

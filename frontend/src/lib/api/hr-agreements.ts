@@ -105,6 +105,8 @@ export interface PersonAgreements {
   minimum_rates: Record<string, string>;
   autenti_configured: boolean;
   can_write: boolean;
+  /** Podpis tego widza przepisuje stawkę (Płace albo admin); inaczej robią to Płace. */
+  applies_rate: boolean;
   agreements: Agreement[];
 }
 

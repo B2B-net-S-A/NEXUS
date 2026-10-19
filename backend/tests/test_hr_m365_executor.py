@@ -19,6 +19,7 @@ from app.core.database import AsyncSessionLocal
 from app.core.scheduling import local_day_start_utc
 from app.models.hr_leave import HrM365MailboxState, HrM365Operation
 from app.models.hr_profile import EmployeeProfile
+from app.services.hr.leave_m365 import plan_edit
 from app.services.hr.leave_policy import LEAVE_TYPE_LABELS
 from app.services.hr.m365 import executor, oof_state, oof_template, outbox
 from tests.hr.fakes import FakeMailboxOps
@@ -30,6 +31,7 @@ from tests.hr.m365_helpers import (
     of_kind,
     operations,
     plan,
+    snapshot,
 )
 
 D = date
@@ -424,6 +426,83 @@ async def test_lost_create_response_is_recovered_by_transaction_id() -> None:
     assert len(fake.events[user.email.lower()]) == 1
     assert fake.events[user.email.lower()][existing]["subject"] == "Poza biurem"
     assert (await _state(user.id)).state["events"][transaction] == existing
+
+
+async def test_edit_of_imported_leave_replaces_compass_event() -> None:
+    # Audyt 19.10.2026: urlop z importu ma wydarzenie Compassa (``leave-{id}``,
+    # w tytule rodzaj nieobecności). Zmiana dat zakładała nasze „Poza biurem”
+    # obok, a wydarzenie Compassa zostawało w starych datach na zawsze.
+    fake = FakeMailboxOps()
+    async with AsyncSessionLocal() as db:
+        user = await make_user(db)
+        leave = await make_leave(
+            db, user, D(2026, 11, 2), D(2026, 11, 6), source="compass_import"
+        )
+        fake.add_event(
+            user.email,
+            f"leave-{leave.id}",
+            local_day_start_utc(D(2026, 11, 2)),
+            local_day_start_utc(D(2026, 11, 7)),
+        )
+        before = await snapshot(db, leave)
+        leave.start_date, leave.end_date = D(2026, 11, 9), D(2026, 11, 13)
+        await db.flush()
+        after = await snapshot(db, leave)
+        for op in plan_edit(before, after, today=D(2026, 10, 20), revision=1):
+            await outbox.enqueue(
+                db,
+                user_id=user.id,
+                kind=op.kind,
+                dedupe_key=op.dedupe_key,
+                payload=op.payload,
+                leave_request_id=leave.id,
+            )
+        await make_due(db, [user.id])
+        await db.commit()
+        await executor.run_once(
+            db, ops=fake, mode="live", now=at(D(2026, 10, 20)), user_ids=[user.id]
+        )
+        (upsert,) = of_kind(await operations(db, user.id), "calendar_event_upsert")
+
+    assert upsert.status == "done"
+    events = list(fake.events[user.email.lower()].values())
+    assert [event["transactionId"] for event in events] == [f"nexus-leave-{leave.id}"]
+    assert events[0]["subject"] == "Poza biurem"
+    assert (await _state(user.id)).state["events"] == {
+        f"nexus-leave-{leave.id}": events[0]["id"]
+    }
+
+
+async def test_hand_over_skips_request_detected_from_outlook() -> None:
+    # Audyt 19.10.2026: wniosek z Outlooka ma autoodpowiedź osoby — zdjęcie
+    # naszej (anulowanie wcześniejszego urlopu) nie przekazuje mu naszej.
+    fake = FakeMailboxOps()
+    async with AsyncSessionLocal() as db:
+        user = await make_user(db)
+        earlier = await make_leave(db, user, D(2026, 11, 2), D(2026, 11, 6))
+        await make_leave(
+            db, user, D(2026, 11, 16), D(2026, 11, 20), source="outlook_oof"
+        )
+        fake.set_oof(
+            user.email,
+            oof_template.schedule_setting(
+                start=D(2026, 11, 2),
+                end=D(2026, 11, 6),
+                internal_html=f"a{oof_state.NEXUS_OOF_MARKER}",
+                external_html="b",
+            ),
+        )
+        earlier.status = "cancelled"
+        await plan(db, earlier, "cancelled", today=D(2026, 10, 20))
+        await make_due(db, [user.id])
+        await db.commit()
+        await executor.run_once(
+            db, ops=fake, mode="live", now=at(D(2026, 10, 20)), user_ids=[user.id]
+        )
+        ops = await operations(db, user.id)
+
+    assert [op.kind for op in of_kind(ops, "set_oof")] == []
+    assert fake.auto_replies[user.email.lower()]["status"] == "disabled"
 
 
 async def test_calendar_delete_removes_compass_event_and_404_counts_as_done() -> None:

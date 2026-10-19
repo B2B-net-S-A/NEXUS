@@ -131,8 +131,8 @@ def test_retention_settings_refuse_bad_values(raw) -> None:
 
 
 def test_retention_settings_keep_defaults_for_missing_kinds() -> None:
-    years = documents_rules.parse_retention({"other": 7})
-    assert years["other"] == 7
+    years = documents_rules.parse_retention({"other": 12})
+    assert years["other"] == 12
     assert years["contract"] == documents_rules.DEFAULT_RETENTION_YEARS["contract"]
 
 
@@ -406,3 +406,88 @@ async def test_student_statement_feeds_existing_reminder() -> None:
     async with AsyncSessionLocal() as db:
         due = await student_reminders.due_people(db, business_today())
     assert (person.id, person.name, until) in due
+
+
+# ── Usunięcie oświadczenia (pomyłka) cofa datę zwolnienia ────────────────────
+
+
+async def _remove(actor_id: int, document_id: int) -> None:
+    async with AsyncSessionLocal() as db:
+        actor = await db.get(User, actor_id)
+        row = await db.get(HrDocument, document_id)
+        orphan = await documents.remove(db, row, note="Pomyłka Kadr", actor=actor)
+        await db.commit()
+    documents.delete_files([orphan])
+
+
+async def _removal_sync(document_id: int) -> str | None:
+    async with AsyncSessionLocal() as db:
+        event = await db.scalar(
+            select(HrAuditEvent).where(
+                HrAuditEvent.entity_type == "hr_document",
+                HrAuditEvent.entity_id == str(document_id),
+                HrAuditEvent.action == "document_removed",
+            )
+        )
+    return event.details.get("profile_sync")
+
+
+async def test_removing_only_statement_clears_exemption() -> None:
+    hr = await make_user("recruiter", grants=("people_admin",), profile=False)
+    person = await make_user(employment_type="zlecenie")
+    document, _ = await _upload(
+        hr.id,
+        person.id,
+        valid_until=business_today() + timedelta(days=200),
+        purpose="student_status",
+    )
+
+    await _remove(hr.id, document.id)
+
+    profile = await _profile(person.id)
+    assert profile.student_contribution_exempt is False
+    assert profile.contribution_exempt_until is None
+    assert await _removal_sync(document.id) == "cleared"
+
+
+async def test_removing_newer_statement_brings_back_older_date() -> None:
+    hr = await make_user("recruiter", grants=("people_admin",), profile=False)
+    person = await make_user(employment_type="zlecenie")
+    older = business_today() + timedelta(days=60)
+    newer = business_today() + timedelta(days=380)
+    await _upload(hr.id, person.id, valid_until=older, purpose="student_status")
+    document, _ = await _upload(
+        hr.id, person.id, valid_until=newer, purpose="student_status"
+    )
+    assert (await _profile(person.id)).contribution_exempt_until == newer
+
+    await _remove(hr.id, document.id)
+
+    profile = await _profile(person.id)
+    assert profile.student_contribution_exempt is True
+    assert profile.contribution_exempt_until == older
+    assert await _removal_sync(document.id) == "restored"
+
+
+async def test_removing_statement_keeps_date_entered_by_hand() -> None:
+    hr = await make_user("recruiter", grants=("people_admin",), profile=False)
+    birthday_limit = business_today() + timedelta(days=90)
+    person = await make_user(
+        employment_type="zlecenie",
+        student_contribution_exempt=True,
+        contribution_exempt_until=birthday_limit,
+    )
+    document, sync = await _upload(
+        hr.id,
+        person.id,
+        valid_until=business_today() + timedelta(days=300),
+        purpose="student_status",
+    )
+    assert sync["status"] == "kept_earlier"
+
+    await _remove(hr.id, document.id)
+
+    profile = await _profile(person.id)
+    assert profile.student_contribution_exempt is True
+    assert profile.contribution_exempt_until == birthday_limit
+    assert await _removal_sync(document.id) == "kept"

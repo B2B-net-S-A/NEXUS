@@ -77,7 +77,9 @@ def bells(monkeypatch):
     )
 
 
-async def _draft(app_client, team, *, person=None, kind="zlecenie", **values) -> dict:
+async def _draft(
+    app_client, team, *, person=None, kind="zlecenie", by=None, **values
+) -> dict:
     template_id = await make_template(kind)
     body = {
         "template_id": template_id,
@@ -89,7 +91,7 @@ async def _draft(app_client, team, *, person=None, kind="zlecenie", **values) ->
     }
     person = person or team.mandate
     created = await app_client.post(
-        f"{PREFIX}/people/{person.id}", json=body, headers=headers(team.hr)
+        f"{PREFIX}/people/{person.id}", json=body, headers=headers(by or team.hr)
     )
     assert created.status_code == 201, created.text
     return created.json()
@@ -554,6 +556,60 @@ async def test_manual_signature_with_scan_applies_in_one_transaction(
     assert call["valid_until"] == end
     assert "agreement_signed_manually" in await _actions(draft["id"])
     assert len(await _rates(team.mandate.id)) == 1
+
+
+@pytest.mark.asyncio
+async def test_signature_by_hr_without_payroll_leaves_rate_to_payroll(
+    app_client, agreements_on, monkeypatch
+) -> None:
+    """Decyzja Artura 19.10.2026: stawkę z umowy przepisują Płace."""
+
+    team = agreements_on
+    monkeypatch.setattr(app_settings, "AUTENTI_ENABLED", False)
+    draft = await _draft(app_client, team, person=team.b2b, by=team.hr2)
+    signed = await app_client.post(
+        f"{PREFIX}/{draft['id']}/mark-signed", headers=headers(team.hr2), **_scan()
+    )
+    assert signed.status_code == 200, signed.text
+    assert signed.json()["applied_at"] and signed.json()["apply_error"] is None
+    # Forma i dokument jak zawsze, stawki nie ma — czeka na Płace.
+    assert (await _profile(team.b2b.id)).employment_type == "zlecenie"
+    assert len(team.attached.calls) == 1
+    assert await _rates(team.b2b.id) == []
+    async with AsyncSessionLocal() as db:
+        bells = list(
+            await db.scalars(
+                select(Notification).where(
+                    Notification.related_entity_type == "hr_agreement",
+                    Notification.related_entity_id == draft["id"],
+                    Notification.notification_type == NotificationType.hr_rate_changed,
+                )
+            )
+        )
+        applied = await db.scalar(
+            select(HrAuditEvent).where(
+                HrAuditEvent.entity_type == "hr_agreement",
+                HrAuditEvent.entity_id == str(draft["id"]),
+                HrAuditEvent.action == "agreement_applied",
+            )
+        )
+    recipients = {bell.user_id for bell in bells}
+    assert team.payroll.id in recipients
+    assert team.hr2.id not in recipients and team.b2b.id not in recipients
+    bell = next(bell for bell in bells if bell.user_id == team.payroll.id)
+    assert bell.link == f"/people/{team.b2b.id}#place"
+    assert "32" not in bell.title + bell.message
+    assert applied.details["rate"] == "pending_payroll"
+    assert applied.details["rate_set"] is False
+
+    # Okno „Nowa umowa”: stawkę z ostatniej umowy widzą tylko Płace.
+    url = f"{PREFIX}/people/{team.b2b.id}"
+    hidden = (await app_client.get(url, headers=headers(team.hr2))).json()
+    assert hidden["defaults"]["hourly_rate"] is None
+    assert hidden["applies_rate"] is False
+    shown = (await app_client.get(url, headers=headers(team.hr))).json()
+    assert shown["defaults"]["hourly_rate"] == "32.00"
+    assert shown["applies_rate"] is True
 
 
 @pytest.mark.asyncio

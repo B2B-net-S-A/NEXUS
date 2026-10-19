@@ -63,6 +63,17 @@ decyduje o słowach i o przebiegu nieobecności.
 - Zgłoszenie na dzień z miesiąca, którego raport godzin jest wysłany albo
   przyjęty = 409 (podgląd: `blocking_reason`), bo wchodzi bez niczyjej decyzji
   — najpierw koordynator cofa raport do szkicu (17.10.2026; UoP bez zmian).
+  Kadry (wpis za osobę, edycja, anulowanie) i anulowanie przez osobę mogą
+  zmienić godziny wysłanego albo przyjętego raportu B2B/zlecenia, ale
+  koordynator dostaje dzwonek „…: godziny zmienione po wysłaniu” bez rodzaju
+  (`leave_recipients.report_sent_timesheet_changed`, decyzja Artura 19.10.2026).
+- **Wpis za osobę na B2B albo zleceniu — tylko Kadry i admin** (decyzja Artura
+  19.10.2026, D5): koordynator dostaje 403 na `/approvals/on-behalf` (także
+  podgląd i zastępcy wpisu), a `GET /approvals/people` oznacza takie osoby
+  `can_enter: false` (lista służy też filtrowi historii, więc osoba zostaje).
+- Podgląd WŁASNEGO wniosku (`department_absent`, `substitute_absent`) liczy
+  tylko zatwierdzone nieobecności innych — oczekujące widzi krąg D6 (decyzja
+  Artura 19.10.2026); podgląd wpisu za pracownika — także oczekujące.
 - Akceptuj/odrzuć zgłoszenie = 409 (`REPORT_NOT_DECIDED`); czekający wniosek
   osoby, której forma zmieniła się z UoP po złożeniu, dalej można rozstrzygnąć.
   Anulowanie zgłoszenia przez koordynatora = 403 (to odrzucenie pod inną
@@ -162,7 +173,9 @@ decyduje o słowach i o przebiegu nieobecności.
   (`hr_leave_requested`); B2B i zlecenie — przyjęte zgłoszenie, informacja do
   koordynatora i Kadr typem `hr_absence_reported` (bez nowego typu). Odcinek
   ponad pulę UoP albo na dni z wysłanego raportu godzin nie powstaje. Wniosek
-  `outlook_oof` odrzucony albo anulowany pokrywa swoje okno na stałe. Bez
+  `outlook_oof` pokrywa na stałe całe okno autoodpowiedzi, z którego powstał
+  (także skrócony edycją, odrzucony albo anulowany), a odrzucony albo
+  anulowany wniosek dowolnego źródła — swoje dni (audyt 19.10.2026). Bez
   autoodpowiedzi i wydarzenia od nas (`_enqueue_m365` i uzgadnianie je
   pomijają; przekierowanie za zgodą osoby zostaje). Autoodpowiedź bez dat →
   bez wniosku, `custom_oof_detected` (lista w karcie). Tylko przy włączonym
@@ -192,7 +205,14 @@ decyduje o słowach i o przebiegu nieobecności.
   (zdjęcie starej autoodpowiedzi, nowa, przesunięcie wydarzenia tym samym
   `transactionId`, zamknięcie + otwarcie reguły; klucze `…:edit{n}`).
   Wykonawca pomija `set_oof` i `calendar_event_upsert`, których okno nie
-  zgadza się już z datami wniosku (`leave_changed`).
+  zgadza się już z datami wniosku (`leave_changed`). Wydarzenie bez
+  zapamiętanego id szukamy w starym i nowym oknie (`previous_*` w ładunku):
+  nasze przesuwamy, wydarzenie Compassa (`leave-{id}`, z rodzajem w tytule)
+  kasujemy (audyt 19.10.2026).
+- Uzgadnianie nie przywraca autoodpowiedzi urlopu, po której weszła nasza
+  autoodpowiedź urlopu zaczynającego się nie wcześniej — wykonawca pisze taką
+  tylko do skrzynki bez naszej trwającej, więc osoba wyłączyła tę pierwszą.
+  Przekazanie autoodpowiedzi po anulowaniu pomija wnioski z Outlooka.
 - **„Wszystkie wnioski”**: `counts` per status w odpowiedzi historii (zakres
   i filtry bez statusu), plakietki źródła „Wpis za pracownika”, „Z Outlooka”,
   „Import z Compassa”.
@@ -225,8 +245,11 @@ z odnośnikiem `hr_documents.leave_request_id`.
   Zastępca nieobecnego przełożonego nie dostaje listy, a przy rodzaju ukrytym (L4
   i pokrewne) nawet liczby — zdradzałaby rodzaj.
 - Krąg dokumentu: osoba i Kadry (bez Płac i recepcji); ślad w `hr_audit_events`
-  z `sensitivity='health'`. Osoba usuwa plik, który sama dodała (pomyłka) — plik
-  znika, wiersz zostaje jako ślad „mistake”; plik dodany przez Kadry usuwają Kadry.
+  z `sensitivity='health'`. Od 19.10.2026 pilnuje tego serwer dla każdego potwierdzenia
+  nieobecności w e-teczce: wgranie albo zmiana kręgu z Płacami lub recepcją = 422
+  „Potwierdzenie nieobecności widzą tylko osoba i Kadry.” (`documents.check_audience`).
+  Osoba usuwa plik, który sama dodała (pomyłka) — plik znika, wiersz zostaje jako ślad
+  „mistake”; plik dodany przez Kadry usuwają Kadry.
 - Import z Compassa przenosi tylko informację, że plik był; stare pliki zostają
   w magazynie Compassa.
 
@@ -312,7 +335,11 @@ z odnośnikiem `hr_documents.leave_request_id`.
     nadgodziny tylko wpisem dnia z uzasadnieniem), opis (domyślny roli / szablon /
     własny), projekt i „nadpisz istniejące wpisy” (kasuje wpisy szkicu poza
     auto-wpisami płatnej puli; blokada retencji jak przy usuwaniu wpisu). Dzień
-    dostaje najwyżej tyle, ile zostawia urlop (pół dnia urlopu = 4 h).
+    dostaje najwyżej tyle, ile zostawia urlop (pół dnia urlopu = 4 h; pół dnia
+    płatnej puli B2B = auto-wpis 4 h + 4 h z wypełniania). Tylko dni
+    zatrudnienia z kartoteki (`work_start_date`–`last_working_day`, też
+    w `days_missing`). Poprawka samego opisu albo projektu wpisu nie przelicza
+    nadgodzin dnia (audyt 19.10.2026).
   - „Szablony opisów” osoby (dodaj, edytuj, usuń, kolejność = `sort_order`)
     i karta „Domyślne opisy godzin” w Ustawieniach → Kadry (role NEXUSA bez
     `user`/`sourcer`/`tac`) — na istniejących trasach `/api/hr/time/me/templates`
@@ -338,6 +365,28 @@ z odnośnikiem `hr_documents.leave_request_id`.
 - Stawki z historią, obowiązują od 1. dnia miesiąca. Automat premii (placementy,
   Liga) i zmiana albo usunięcie stawki blokują okres płac współdzielonie przed
   własnymi wierszami (trwające zamknięcie miesiąca czeka albo daje 409).
+- Nowa stawka domyka dniem przed sobą tylko stawkę, która w jej dniu trwa
+  (`rate_to_close`); stawka zakończona wcześniej (luka z importu Compassa) zostaje,
+  a luka daje ostrzeżenie `missing_rates` (19.10.2026).
+- Kwoty premii i stawek zaokrąglane HALF_UP jak raport płac; zakres premii
+  (0,01–1 000 000) sprawdzany na kwocie po zaokrągleniu — 0,004 to 422, nie 500
+  (19.10.2026).
+- Zatwierdzenie propozycji z placementu: uzgodnienie kontraktu (z commitem) biegnie
+  dopiero, gdy widz może o premii zdecydować; obcy dostaje 404 bez zapisu. Logi
+  automatu premii niosą klasę wyjątku, nie treść (DETAIL Postgresa pokazuje kwoty
+  wiersza) (19.10.2026).
+- **Własnej stawki nie ustawia ani nie usuwa osoba z Płac** (decyzja Artura
+  19.10.2026, `payroll_rates.ensure_not_own_rate`): 403 „Własnej stawki nie
+  ustawiasz / nie usuwasz — zrobi to druga osoba z Płac albo administrator.”;
+  administrator może (ślad w audycie jak zawsze). Na własnej kartotece
+  `can_edit_rates = false`.
+- **Premia ręczna od przełożonego to propozycja** (decyzja Artura 19.10.2026,
+  `payroll_bonuses.approval_refusal`): powstaje jako `proposed` (bez `assigned_by`,
+  ślad `bonus_proposed`, bez dzwonka osobie); zatwierdzają ją tylko Płace, nigdy jej
+  autor (403), dzwonek „Masz nową premię” idzie przy zatwierdzeniu. Autor może ją
+  zmienić albo wycofać. Płace przyznają od razu jak dotąd. Listy premii niosą
+  `can_approve` — front pokazuje „Zatwierdź” tylko wtedy, a po dodaniu przełożony
+  widzi „Premia czeka na zatwierdzenie Płac”. Zamknięcie miesiąca i tak wymaga decyzji.
 - Trwałe usunięcie kontraktu anuluje jego propozycje premii automatu
   (`cancel_reason='contract_deleted'`, automat ich nie przywraca); przyznane zostają.
 - Premie: `source` manual / contract_placement / league / compass_import,
@@ -364,6 +413,10 @@ z odnośnikiem `hr_documents.leave_request_id`.
   `compass:<uuid>`), automat ma klucz `contract:<id>:<rola>` — bez daty
   granicznej automat w oknie 120 dni wstecz zaproponowałby je drugi raz. Ta sama
   data odcina Ligę: okres kończący się przed nią nie trafia do płac.
+  Strażnik (audyt 19.10.2026): przy premiach `compass_import` w bazie `PUT /rules`
+  odmawia (422) pustej daty i daty wcześniejszej niż zapisana; zepsuty wpis
+  `hr_bonus_rules` daje reguły domyślne, ale z zapisaną datą (nieczytelna data =
+  automat nie zakłada nowych propozycji), nigdy okno 120 dni.
 - Zakończenie kontraktu przed terminem anuluje premię, cofnięcie zakończenia ją
   przywraca (`app/services/hr/contract_hooks.py`).
 - Zamknięcie miesiąca: propozycje premii muszą mieć decyzję, ostrzeżenia wymagają
@@ -371,6 +424,15 @@ z odnośnikiem `hr_documents.leave_request_id`.
   Ponowne otwarcie tylko admin, z powodem. Zamknięcie blokuje okres i timesheety
   PRZED liczeniem raportu; akceptacje timesheetów i premii sprawdzają okres pod
   blokadą współdzieloną (kolejność: okres, potem timesheet).
+- **Ponowne zamknięcie po opłaconym rozliczeniu** (decyzja Artura 19.10.2026): gdy kwota
+  osoby z rozliczeniem już opłaconym różni się od tej zapłaconej, zamknięcie odmawia
+  (409 `paid_settlement_changed`, bez potwierdzania) — różnica nie miałaby przelewu;
+  zmianę (np. premię) przenosi się na kolejny miesiąc. Premia przyznana po zapłacie
+  nie jest „wypłacona” (`paid_flags` porównuje `assigned_at` z `paid_at`).
+- **Premia przyznana, kontrakt zakończony przed terminem** (np. zamknięty w systemie datą
+  wsteczną po zatwierdzeniu; decyzja Artura 19.10.2026): automat jej nie anuluje, ale widok
+  miesiąca Płac i zamknięcie dają ostrzeżenie `bonus_contract_ended_early` (do
+  potwierdzenia), a premia na liście ma znacznik „premia przepada” (`contract_ended_early`).
 - Urlop zatwierdzony albo anulowany w zamkniętym miesiącu płac: odpowiedź API niesie
   `payroll_locked_months` i `payroll_warning` (front pokazuje je w komunikacie), Płace
   dostają powiadomienie i mail bez rodzaju nieobecności, ślad z `sensitivity="payroll"`.
@@ -436,6 +498,15 @@ z odnośnikiem `hr_documents.leave_request_id`.
   albo w toku — `hours_source` `approved`/`entered`) + premie przyznane
   z okresem w tym miesiącu. Płace przy zamknięciu biorą tylko godziny
   zaakceptowane, więc szacunek zmienia się do zamknięcia. Tylko o sobie.
+- **Przełom roku i kolejność kart „Rozliczenia”** (audyt A2, 19.10.2026). Ekran
+  nie ma wyboru roku: „Rozliczenie” pyta zawsze o bieżący i poprzedni rok —
+  w styczniu pokazuje cały poprzedni, potem tylko jego miesiące, w których osoba
+  ma coś do zrobienia (`awaiting_document` albo `mismatch` z prośbą o korektę).
+  „Premie i stawka” w styczniu dokłada poprzedni rok do „Mojego rozliczenia”,
+  a „premie wypłacone” są wtedy za poprzedni rok (styczeń zamyka się w lutym).
+  Na górze miesiące do działania (z „Kopiuj pozycje” i kartą faktury), potem
+  najnowszy; wiersze miesiąca w kilku walutach są razem (`settlementLayout`
+  w `components/hr/me/settlement-format.ts`).
 - **Archiwum timesheetów** w „Moim miesiącu” (`TimesheetArchive`): ostatnie
   12 miesięcy ze statusem, sumą godzin i PDF zaakceptowanego
   (`GET /api/hr/time/me/history`), pobierane dopiero po rozwinięciu.
@@ -453,6 +524,9 @@ Schemat: `hr_settlement_schema.py` (migracja `0468_hr_settlements`, stany w docs
   z kwotą > 0 (`payroll_close` → `settlements.ensure_for_period`); miesiąc zamknięty przed
   włączeniem modułu — `POST /api/hr/settlements/months/{r}/{m}/prepare`. Ponowne otwarcie
   anuluje nieopłacone (opłacone zostają), faktury wracają do `unmatched` z osobą.
+  Zamknięcie i otwarcie miesiąca w Płacach odświeżają na froncie także rozliczenia
+  i przelewy („Dla Finansów”, podgląd Symfonii), a każda decyzja w rozliczeniu —
+  przelewy (audyt A2, 19.10.2026).
 - **Od którego miesiąca** (decyzja Artura 19.10.2026): `hr_payment_settings.settlements_since`
   („RRRR-MM”, produkcja `2026-10`). Miesiące wcześniejsze to archiwum Compassa: zamknięcie
   przechodzi bez rozliczeń, `prepare` = 422, a premia z nich jest wypłacona przy zamkniętym
@@ -468,12 +542,28 @@ Schemat: `hr_settlement_schema.py` (migracja `0468_hr_settlements`, stany w docs
   inny z Płac/Finansów/admin; nowy dokument albo zmiana rachunku kasują uznanie. Nikt nie
   zatwierdza ani nie oznacza zapłaty własnego rozliczenia. R11: przy włączonym module premia
   „wypłacona” dopiero z opłaconym rozliczeniem (`payroll_bonuses.paid_flags`).
+  Własne rozliczenie także z wyciągu i paczki (19.10.2026): wiersz wyciągu dopasowany do
+  rozliczenia importującego zostaje `unmatched` (powód `own_settlement`, przypisuje inna
+  osoba), „Bank wykonał” z własnym nieopłaconym rozliczeniem w paczce = 409
+  `own_settlement_in_batch` dla całej paczki (bez opłacania w połowie).
+  Ręczne „opłacono” i „Przypisz” z wyciągu (decyzja Artura 19.10.2026, „Ogranicz”):
+  rozliczenie czekające na dokument albo z problemem bez potwierdzonego uznania
+  (`payment_state_refusal`) = 409 `settlement_not_payable` — najpierw „Uznaj różnicę” drugą
+  osobą albo właściwy dokument; B2B z kwotą ≠ brutto faktur (pierwotna + korekty) o więcej
+  niż 0,01 = 422 `paid_amount_differs` z obiema kwotami. Zlecenie i UoP bez zmian (kwota na
+  rękę z Symfonii). `can_mark_paid` w kolejce idzie za tą regułą. Automatyczne dopasowanie
+  z importu wyciągu tej reguły nie ma (osobna decyzja).
 - **Zmiana odbiorcy** (rachunek albo NIP) cofa zatwierdzenie i kasuje uznanie KAŻDEGO rodzaju;
   sama zmiana terminu nie. Uznanie rachunku nie obejmuje późniejszego problemu z kwotą.
   Problem `gross` (jak różnica kwoty, druga osoba): brutto ≠ netto + VAT (> 0,01), VAT > 0 przy
   statusie VAT ≠ `active`, VAT > 23% netto; faktur z KSeF nie odrzucamy, ręczny PDF tak.
   Faktura z KSeF łączy się z wcześniej dopiętym PDF-em (ten sam NIP, numer, waluta) zamiast
   liczyć się drugi raz; dopasowaną, nieopłaconą Płace mogą odpiąć („Pomiń”, „Przenieś”).
+  Problem `seller` (19.10.2026): dopasowana faktura od innego NIP-u niż w danych do
+  rozliczeń (same cyfry; brak NIP-u w danych przy fakturze z NIP-em też) = `mismatch`.
+  Żadne uznanie go nie obejmuje i „Uznaj różnicę” odmawia (409) — to zła faktura albo złe
+  dane, nie różnica: odpiąć fakturę albo poprawić NIP. Bo zmiana NIP-u + rachunek z wykazu
+  dla nowego NIP-u przepuszczały starą fakturę jako „Do zapłaty” bez drugiej osoby.
   Dzwonki rozliczeń idą bez numeru encji (dzienny odsiew powiadomień nie zna jej rodzaju).
 - **Dane do rozliczeń** (`employee_billing_details`): osoba (odczyt), Kadry, Płace, admin;
   przełożony i zespół — 404. Rachunek szyfrowany (`TokenCipher`), na zewnątrz tylko 4 cyfry;
@@ -498,6 +588,11 @@ Schemat: `hr_settlement_schema.py` (migracja `0468_hr_settlements`, stany w docs
   `white_list.check` jest zablokowana do decyzji Finansów. Wiersz paczki pamięta skrót HMAC
   pełnego rachunku (klucz wyprowadzony z `M365_TOKEN_ENCRYPTION_KEY`) — podmiana rachunku po
   utworzeniu paczki = 409 `batch_account_changed` przy pobraniu pliku.
+  Wyciągi (19.10.2026): plik z kilkoma wyciągami — waluta operacji z jej wyciągu (MT940:
+  `:60F:` przy `:61:`, CAMT: `Amt/@Ccy`, bez niego `Acct/Ccy` tego `Stmt`). Storno: kierunek
+  = `CdtDbtInd` wpisu (CRDT + `RvslInd` = wpływ, np. zwrot nieudanej wypłaty — nie opłaca
+  rozliczenia), jak `RC`/`RD` w MT940; kontrahent = strona pierwotnej operacji. CAMT
+  z `Ntry/Sts` ≠ `BOOK` (`PDNG`, `INFO`) pomijany; brak `Sts` = zaksięgowany.
 - **Symfonia** (`symfonia_export.py`): ZIP z ekranu miesiąca Płac — `zdarzenia_RRRR-MM.xml`
   (windows-1250; L4 tylko, gdy Płace nie pobierają e-ZLA), XLSX premii, XLSX rozliczeń zleceń,
   PDF zestawienia z listą rzeczy do zrobienia ręcznie. Kwoty w paczce tylko dla Płac, plik

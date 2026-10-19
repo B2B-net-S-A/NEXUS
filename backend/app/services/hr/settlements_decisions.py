@@ -201,6 +201,11 @@ async def request_override(
     if settlement.override_requested_by is not None:
         raise PayrollConflict("Uznanie różnicy już czeka na drugą osobę.")
     problems = await current_problems(db, settlement)
+    if "seller" in problems:
+        raise PayrollConflict(
+            "NIP wystawcy faktury jest inny niż w danych do rozliczeń — tego nie "
+            "uznaje się jako różnicy. Odepnij fakturę albo popraw NIP w danych."
+        )
     kind = override_kind_for(problems)
     if kind is None:
         raise PayrollConflict("Tu nie ma różnicy do uznania — przelicz rozliczenie.")
@@ -294,6 +299,8 @@ async def manual_paid(
         raise SettlementError("Dzień zapłaty nie może być w przyszłości.")
     if paid_on < month_start(period.year, period.month):
         raise SettlementError("Dzień zapłaty nie może być przed miesiącem rozliczenia.")
+    # Bez nierozwiązanej rozbieżności i z kwotą B2B = brutto faktur (19.10.2026).
+    await settlements.ensure_payable_by_hand(db, settlement, amount=value)
     await settlements.mark_paid(
         db,
         settlement,

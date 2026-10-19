@@ -24,6 +24,7 @@ import {
 } from "@/lib/api/hr-payroll";
 
 import {
+  bonusCreatedToast,
   CATEGORY_LABELS,
   CURRENCIES,
   MANUAL_CATEGORIES,
@@ -122,8 +123,8 @@ export function BonusDialog({
     create.mutate(
       { ...fields, recipient_user_id: Number(personId) },
       {
-        onSuccess: () => {
-          showToast("Premia przyznana", "success");
+        onSuccess: (created) => {
+          showToast(bonusCreatedToast(created), "success");
           onOpenChange(false);
         },
         onError,

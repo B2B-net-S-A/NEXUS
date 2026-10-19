@@ -5,7 +5,7 @@ import { CalendarPlus, Clock } from "lucide-react";
 
 import { PersonEquipmentPanel } from "@/components/equipment/PersonEquipmentPanel";
 import { Button } from "@/components/ui/button";
-import type { HrConfig, PersonFull } from "@/lib/api/hr";
+import type { HrConfig, OwnProfile } from "@/lib/api/hr";
 import { useLeaveBalance } from "@/lib/api/hr-leave";
 import type { YearMonth } from "@/lib/date-pl";
 import { warsawToday } from "@/lib/warsaw-date";
@@ -21,7 +21,7 @@ import { absenceActionLabel } from "./overview-format";
 
 export interface MyOverviewTabProps {
   config: HrConfig;
-  person: PersonFull;
+  person: OwnProfile;
   /**
    * Przejście do innej zakładki „Mojego czasu” (wartość `?tab=`); `month` —
    * miesiąc raportu do otwarcia (zaległy z „Do zrobienia”), bez niego bieżący.

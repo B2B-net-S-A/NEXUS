@@ -376,6 +376,60 @@ async def test_reply_from_public_address_joins_case_without_reopening(
 
 
 @pytest.mark.asyncio
+async def test_auto_replies_do_not_open_cases(mailbox_on) -> None:
+    """Fala „jestem na urlopie” po komunikacie albo mailu powitalnym nie
+    zakłada spraw ani nie otwiera zamkniętej (audyt 19.10.2026)."""
+
+    fake = FakeMailbox()
+    first = fake.add(subject="Zaświadczenie o zatrudnieniu", hours_ago=6)
+    await _run(fake)
+    case_id = (await _cases_for(fake))[first["id"]]
+    async with AsyncSessionLocal() as db:
+        case = await db.get(AdminCase, case_id)
+        case.status = "done"
+        case.closed_at = datetime.now(timezone.utc)
+        await db.commit()
+
+    headered = fake.add(subject="Jestem na urlopie", hours_ago=2)
+    headered["internetMessageHeaders"] = [
+        {"name": "Auto-Submitted", "value": "auto-replied"}
+    ]
+    fake.add(subject="Automatic reply: Komunikat dla konsultantów", hours_ago=1.5)
+    in_thread = fake.add(
+        subject="Odpowiedź automatyczna: Zaświadczenie o zatrudnieniu",
+        hours_ago=1,
+        conversation=first["conversationId"],
+    )
+    result = await _run(fake)
+    assert result.get("created", 0) == 0 and result.get("reopened", 0) == 0
+    assert result["skipped"] == 2 and result["attached"] == 1
+    by_message = await _cases_for(fake)
+    assert by_message[in_thread["id"]] == case_id
+    assert headered["id"] not in by_message
+    async with AsyncSessionLocal() as db:
+        assert (await db.get(AdminCase, case_id)).status == "done"
+
+
+def test_auto_reply_detection_spares_real_mail_and_bounces() -> None:
+    def msg(subject: str, *headers: tuple[str, str]) -> dict:
+        return {
+            "subject": subject,
+            "internetMessageHeaders": [{"name": n, "value": v} for n, v in headers],
+        }
+
+    auto = mail_ingest._is_auto_reply
+    assert auto(msg("x", ("Auto-Submitted", "auto-replied")), "a@example.com")
+    assert auto(msg("x", ("X-Autoreply", "yes")), "a@example.com")
+    assert auto(msg("x", ("Precedence", "auto_reply")), "a@example.com")
+    assert auto(msg("Out of Office: urlop"), "a@example.com")
+    assert not auto(msg("x", ("Auto-Submitted", "no")), "a@example.com")
+    assert not auto(msg("Wniosek o nieobecność"), "a@example.com")
+    # Zwrotki przypina do komunikatu link_mail_case — nie są autoodpowiedzią.
+    bounce = msg("Undeliverable", ("Auto-Submitted", "auto-replied"))
+    assert not auto(bounce, "postmaster@example.com")
+
+
+@pytest.mark.asyncio
 async def test_running_lease_skips_a_parallel_run(mailbox_on) -> None:
     fake = FakeMailbox()
     fake.add(subject="Równoległy przebieg", hours_ago=1)

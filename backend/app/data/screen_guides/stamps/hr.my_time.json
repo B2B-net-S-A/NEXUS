@@ -2,7 +2,7 @@
   "entry": "fe56e694376d4f8d737110c0a6ac1fccf37d1df083a169fc168f93875dfd9061",
   "guide": "hr.my_time",
   "sources": {
-    "frontend/src/components/hr/leave/LeaveRequestDialog.tsx": "ecf78c24f32e80ce586f458e4655b1388e160f5b6dfc11abea6910792ce98116",
+    "frontend/src/components/hr/leave/LeaveRequestDialog.tsx": "9c62d5eebb12f1e08a4e8d7f50ea8a80baa2acf6118afcefba799a075adb13df",
     "frontend/src/components/hr/leave/MyLeaveTab.tsx": "b2abb05d0711886cfebc37dfb3bbe468c17de41d9f3809f2be14b9b478b4e150",
     "frontend/src/components/hr/time/MyMonthTab.tsx": "de0be3033941b4ef6833721e7be44e1045d83ba2cefa3ec5ba9101bf7044d0c0"
   }

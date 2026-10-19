@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import type { EquipmentItem } from "@/lib/api/equipment";
+import type { AssignmentRow, EquipmentItem } from "@/lib/api/equipment";
 
 import {
+  assignmentLabel,
   canIssue,
   dueLabel,
   formatPln,
@@ -136,5 +137,30 @@ describe("secretHint", () => {
     expect(secretHint("telefon")?.label).toBe("PIN i PUK karty SIM");
     expect(secretHint("monitor")).toBeNull();
     expect(secretHint("karta_dostepu")).toBeNull();
+  });
+});
+
+describe("wiersz wydania", () => {
+  const row = (overrides: Partial<AssignmentRow>): AssignmentRow =>
+    ({
+      assignment_id: 1,
+      item_id: 1,
+      category: "laptop",
+      model_name: "Dell Vostro 3530",
+      inventory_number: "221",
+      serial_number: "ABC123",
+      imei: null,
+      phone_number: null,
+      access_card_number: null,
+      ...overrides,
+    }) as AssignmentRow;
+
+  it("model nazwany jak kategoria nie powtarza nazwy (testy produkcji 19.10)", () => {
+    expect(
+      assignmentLabel(
+        row({ category: "karta_dostepu", model_name: "Karta dostępu", inventory_number: null, access_card_number: "2481" }),
+      ),
+    ).toBe("Karta dostępu · 2481");
+    expect(assignmentLabel(row({}))).toBe("Laptop Dell Vostro 3530 (221) · ABC123");
   });
 });

@@ -385,3 +385,70 @@ def test_summary_rows_and_first_name_column() -> None:
         None,
         "Jan Testowy",
     ]
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "PIN1 1234 PUK1 12345678",
+        "PIN2: 4321",
+        "PIN karty 1234",
+        "PIN SIM 1234",
+        "PUK 1234 5678",
+        "PUK: 1234-5678",
+    ],
+)
+def test_pin_and_puk_in_usual_shapes_are_cut(text: str) -> None:
+    # Audyt 19.10.2026: te zapisy przechodziły przez D10 do bazy.
+    cleaned = sanitize.clean_text(text)
+    assert cleaned.reasons
+    for code in ("1234", "4321", "5678", "12345678"):
+        assert code not in (cleaned.value or "")
+
+
+@pytest.mark.parametrize("separator", [" - ", " – ", "—", ".", "\r\n", " "])
+def test_bitlocker_key_with_wider_separators(separator: str) -> None:
+    key = FAKE_BITLOCKER.replace("-", separator)
+    assert sanitize.is_bitlocker_key(key)
+    assert "klucz BitLocker" in sanitize.clean_text(f"klucz {key}").reasons
+    with pytest.raises(EquipmentError):
+        from app.services.equipment.registry import clean_notes
+
+        clean_notes(f"klucz:\n{key}")
+
+
+def _people(active=None, running=None, inactive=None, ended=None):
+    return importer._PeopleIndex(
+        [
+            ("user", active or {}),
+            ("contract", running or {}),
+            ("user", inactive or {}),
+            ("contract", ended or {}),
+        ]
+    )
+
+
+def test_holder_with_account_and_running_contract_waits_for_explanation() -> None:
+    # Audyt 19.10.2026: konto „Anna Nowak” i kontrakt w toku „Anna Nowak”
+    # (inna osoba albo konsultantka z kontem) — sprzęt szedł na konto.
+    people = _people(active={"anna nowak": {1}}, running={"anna nowak": {7}})
+    assert people.resolve("Anna Nowak") == (None, None, None)
+
+
+def test_namesakes_are_not_an_outside_person() -> None:
+    people = _people(active={"anna nowak": {1, 2}})
+    assert people.resolve("Anna Nowak") == (None, None, None)
+
+
+def test_single_match_still_resolves_by_tier() -> None:
+    assert _people(active={"anna nowak": {1}}).resolve("Anna Nowak") == (1, None, None)
+    assert _people(running={"anna nowak": {7}}).resolve("Anna Nowak") == (
+        None,
+        7,
+        None,
+    )
+    # Aktywne konto wygrywa z zakończonym kontraktem (inna para warstw).
+    assert _people(active={"anna nowak": {1}}, ended={"anna nowak": {9}}).resolve(
+        "Anna Nowak"
+    ) == (1, None, None)
+    assert _people().resolve("Anna Nowak") == (None, None, "Anna Nowak")

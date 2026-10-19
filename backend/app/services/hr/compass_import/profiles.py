@@ -10,6 +10,10 @@ Reguły:
 * kartoteka założona wcześniej ręcznie w NEXUSIE wygrywa: import dopina
   ``compass_profile_id`` i uzupełnia tylko puste pola (decyzja ``manual``
   w mapie id — kolejne przebiegi też tylko uzupełniają),
+* kartoteka (albo pula urlopowa) zmieniona w NEXUSIE po zapisie importu
+  (``changed_in_nexus``) nie jest ruszana: od 18.10.2026 kartoteki prowadzi
+  NEXUS (przełożeni przepięci w „Strukturze”), a Compass ma stan sprzed
+  przełączenia — różnica to zmiana NEXUSA, nie Compassa,
 * przełożony z ``manager_id`` w drugim przebiegu, gdy obie osoby mają konta,
 * pula urlopowa z Compassa (jedna, bez roku) trafia do bieżącego roku
   kalendarza firmy; ``NULL`` = brak puli, jak w Compassie,
@@ -37,7 +41,7 @@ from app.services.hr_foundation_schema import (
 )
 
 from .bundle import Bundle
-from .core import ModulePlan, RowPlan, mapped_target, remember
+from .core import ModulePlan, RowPlan, changed_in_nexus, mapped_target, remember
 
 MODULE = "profiles"
 TABLE = "profiles"
@@ -56,6 +60,7 @@ PROFILE_FIELDS = (
     "phone",
 )
 ENTITLEMENT_FIELDS = ("entitlement_days", "carried_over_days", "used_initial_days")
+CHANGED_IN_NEXUS = "kartoteka zmieniona w NEXUSIE po imporcie — bez nadpisania"
 
 
 def source_id(row: Mapping[str, Any]) -> str:
@@ -191,8 +196,23 @@ async def plan(db: AsyncSession, bundle: Bundle) -> ModulePlan:
         manual = mapping is None or mapping.decision == "manual"
         payload["manual"] = manual
         changes = _changes(profile, entitlement, payload, fill_only=manual)
+        touched = max(
+            (
+                at
+                for at in (
+                    profile.updated_at,
+                    entitlement.updated_at if entitlement is not None else None,
+                )
+                if at is not None
+            ),
+            default=None,
+        )
         if not changes:
             result.rows.append(RowPlan(sid, "unchanged", reason, payload))
+        elif await changed_in_nexus(db, mapping, touched):
+            payload["changes"] = changes
+            payload["nexus_changed"] = True
+            result.rows.append(RowPlan(sid, "conflict", CHANGED_IN_NEXUS, payload))
         elif manual:
             payload["changes"] = changes
             result.rows.append(
@@ -251,6 +271,8 @@ async def apply(
         if row.action not in ("create", "update", "conflict"):
             continue
         payload = row.payload
+        if payload.get("nexus_changed"):
+            continue
         user_id = payload["user_id"]
         manual = row.action == "conflict" or payload.get("manual", False)
         profile = await db.scalar(

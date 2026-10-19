@@ -447,3 +447,107 @@ async def test_division_head_coordinates_people_without_a_manager(
     assert other["status"] == "approved"
     hr_bells = await _bells(hr.id, NotificationType.hr_absence_reported)
     assert hr_bells and hr_bells[-1].title == "Zgłoszona przerwa w świadczeniu usług"
+
+
+# ── Decyzje Artura 19.10.2026 (audyt) ─────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_only_hr_enters_absence_for_a_contractor(app_client, modules_on) -> None:
+    # D5: zgłoszenie składa sama osoba; wpis za nią — Kadry i admin, jak
+    # zmiana i anulowanie. Koordynator dostaje 403, a lista osób to mówi.
+    async with AsyncSessionLocal() as db:
+        boss = await _user(db, "delivery_lead", profile=True, employment_type="uop")
+        hr = await _user(db, "recruiter")
+        await _grant(db, hr, "people_admin")
+        person = await _user(
+            db, "employee", profile=True, employment_type="b2b", manager_user_id=boss.id
+        )
+        colleague = await _user(
+            db, "employee", profile=True, employment_type="uop", manager_user_id=boss.id
+        )
+        await db.commit()
+    body = {**_body(MON, MON), "user_id": person.id}
+    refused = await app_client.post(
+        BASE + "/approvals/on-behalf", json=body, headers=_headers(boss)
+    )
+    assert refused.status_code == 403
+    assert "Kadry" in refused.json()["detail"]
+    people = await app_client.get(BASE + "/approvals/people", headers=_headers(boss))
+    flags = {row["user_id"]: row["can_enter"] for row in people.json()["items"]}
+    assert flags[person.id] is False and flags[colleague.id] is True
+    by_hr = await app_client.post(
+        BASE + "/approvals/on-behalf", json=body, headers=_headers(hr)
+    )
+    assert by_hr.status_code == 201, by_hr.text
+
+
+@pytest.mark.asyncio
+async def test_hr_change_in_a_sent_report_tells_the_coordinator(
+    app_client, modules_on
+) -> None:
+    # Kadry mogą zmienić nieobecność na dni z wysłanego raportu godzin, ale
+    # koordynator dostaje dzwonek (bez rodzaju nieobecności, D6).
+    async with AsyncSessionLocal() as db:
+        boss = await _user(db, "delivery_lead", profile=True, employment_type="uop")
+        hr = await _user(db, "recruiter")
+        await _grant(db, hr, "people_admin")
+        person = await _user(
+            db, "employee", profile=True, employment_type="b2b", manager_user_id=boss.id
+        )
+        await db.commit()
+    month = f"/api/hr/time/me/{MON.year}/{MON.month}"
+    filled = await app_client.post(f"{month}/fill", json={}, headers=_headers(person))
+    assert filled.status_code == 200, filled.text
+    sent = await app_client.post(f"{month}/submit", headers=_headers(person))
+    assert sent.status_code == 200, sent.text
+
+    entered = await app_client.post(
+        BASE + "/approvals/on-behalf",
+        json={**_body(MON, MON), "user_id": person.id},
+        headers=_headers(hr),
+    )
+    assert entered.status_code == 201, entered.text
+    bells = await _bells(boss.id, NotificationType.hr_timesheet_decided)
+    assert len(bells) == 1
+    assert bells[0].title == "Raport godzin: godziny zmienione po wysłaniu"
+    assert "listopad 2091" in bells[0].message
+    for word in ("L4", "chorob", "urlop"):
+        assert word not in bells[0].message
+    assert await _bells(hr.id, NotificationType.hr_timesheet_decided) == []
+
+
+@pytest.mark.asyncio
+async def test_own_preview_shows_only_approved_absences_of_colleagues(
+    app_client, modules_on
+) -> None:
+    # Oczekujące cudze wnioski widzi tylko krąg D6 (jak w kalendarzu zespołu).
+    async with AsyncSessionLocal() as db:
+        boss = await _user(db, "delivery_lead", profile=True, employment_type="uop")
+        me = await _user(
+            db,
+            "employee",
+            profile=True,
+            employment_type="uop",
+            manager_user_id=boss.id,
+            department="Audyt 19.10",
+        )
+        waiting = await _user(
+            db,
+            "employee",
+            profile=True,
+            employment_type="uop",
+            manager_user_id=boss.id,
+            department="Audyt 19.10",
+        )
+        await db.commit()
+    pending = await _report(app_client, waiting, start=MON, end=MON)
+    assert pending["status"] == "pending"
+    preview = await app_client.post(
+        BASE + "/preview",
+        json={**_body(MON, FRI), "substitute_user_id": waiting.id},
+        headers=_headers(me),
+    )
+    assert preview.status_code == 200, preview.text
+    assert preview.json()["department_absent"] == []
+    assert preview.json()["substitute_absent"] is False

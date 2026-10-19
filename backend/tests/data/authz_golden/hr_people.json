@@ -30,6 +30,9 @@
   "GET /api/hr/config": "PPPPPPPDPPPPPPPPPPPPPPPPP",
   "GET /api/hr/me": "PPPPPPPDPPPPPPPPPPPPPPPPP",
   "GET /api/hr/people": "BBBBBBBDBBBBBBBBBBBBBBBBB",
-  "GET /api/hr/people/{user_id}": "BBBBBBBDBBBBBBBBBBBBBBBBB"
+  "GET /api/hr/people/account-mismatches": "PPDDDDDDDDDDDDDDDDDDDPPDD",
+  "GET /api/hr/people/{user_id}": "BBBBBBBDBBBBBBBBBBBBBBBBB",
+  "PATCH /api/hr/people/{user_id}/employment-type": "PPDDDDDDDDDDDDDDDDDDDPPDD",
+  "POST /api/hr/people/account-mismatches/align": "PPDDDDDDDDDDDDDDDDDDDPPDD"
  }
 }

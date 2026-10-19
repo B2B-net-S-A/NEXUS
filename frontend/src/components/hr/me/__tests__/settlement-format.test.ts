@@ -4,15 +4,19 @@
  */
 import { describe, expect, it } from "vitest";
 
-import type { MySettlementMonth, SettlementRow } from "@/lib/api/hr-settlements";
+import type { MySettlementMonth, MySettlements, SettlementRow } from "@/lib/api/hr-settlements";
 
 import {
   accountLabel,
   copyItemsText,
   formatNip,
+  mergeSettlementYears,
+  needsMyAction,
   nextStepText,
   nipValid,
   queueStatus,
+  settlementLayout,
+  showsPreviousYear,
   stepDetail,
   stepLabel,
 } from "../settlement-format";
@@ -124,6 +128,10 @@ describe("settlement-format", () => {
     expect(queueStatus({ ...base, discrepancy: "0.00", problems: ["gross", "white_list"] })).toBe(
       "brutto albo VAT do sprawdzenia",
     );
+    // Inny wystawca faktury wygrywa z różnicą kwoty — to nie różnica do uznania.
+    expect(queueStatus({ ...base, problems: ["amount", "seller"] })).toBe(
+      "NIP wystawcy faktury inny niż w danych do rozliczeń",
+    );
     expect(
       queueStatus({
         ...base,
@@ -136,5 +144,65 @@ describe("settlement-format", () => {
     expect(queueStatus({ ...base, status: "paid", status_label: "Opłacono", paid_on: "2026-11-15" })).toBe(
       "opłacono 15.11",
     );
+  });
+});
+
+describe("układ „Mój czas → Rozliczenie” (audyt A2, 19.10.2026)", () => {
+  const at = (y: number, m: number, extra: Partial<MySettlementMonth> = {}) =>
+    month({ year: y, month: m, label: `${m}/${y}`, ...extra });
+  const year = (y: number, months: MySettlementMonth[]): MySettlements => ({
+    year: y,
+    employment_type: "b2b",
+    settlement_word: "Faktura",
+    account_last4: null,
+    account_source: null,
+    nip: null,
+    months,
+  });
+
+  it("działanie osoby: czeka na fakturę albo Płace poprosiły o korektę", () => {
+    expect(needsMyAction(month({ status: "awaiting_document" }))).toBe(true);
+    expect(needsMyAction(month({ status: "mismatch", correction_requested_at: "2026-11-05" }))).toBe(true);
+    expect(needsMyAction(month({ status: "mismatch", correction_requested_at: null }))).toBe(false);
+    expect(needsMyAction(month({ status: "estimate" }))).toBe(false);
+    expect(needsMyAction(month({ status: "paid" }))).toBe(false);
+  });
+
+  it("na górze miesiąc do działania, potem bieżący szacunek; reszta w poprzednich", () => {
+    const estimate = at(2026, 11, { status: "estimate", final: false, settlement_id: null });
+    const awaiting = at(2026, 10, { status: "awaiting_document" });
+    const paid = at(2026, 9, { status: "paid" });
+    const layout = settlementLayout([estimate, awaiting, paid]);
+    expect(layout.featured.map((group) => group[0].month)).toEqual([10, 11]);
+    expect(layout.previous.map((entry) => entry.month)).toEqual([9]);
+  });
+
+  it("bez miesiąca do działania na górze zostaje najnowszy", () => {
+    const layout = settlementLayout([at(2026, 10, { status: "approved" }), at(2026, 9, { status: "paid" })]);
+    expect(layout.featured.map((group) => group[0].month)).toEqual([10]);
+    expect(layout.previous.map((entry) => entry.month)).toEqual([9]);
+  });
+
+  it("wszystkie waluty miesiąca razem — PLN nie spada do poprzednich", () => {
+    const eur = at(2026, 10, { currency: "EUR", status: "approved" });
+    const pln = at(2026, 10, { currency: "PLN", status: "approved" });
+    const layout = settlementLayout([eur, pln, at(2026, 9, { status: "paid" })]);
+    expect(layout.featured).toHaveLength(1);
+    expect(layout.featured[0].map((entry) => entry.currency)).toEqual(["EUR", "PLN"]);
+    expect(layout.previous.map((entry) => entry.month)).toEqual([9]);
+  });
+
+  it("poprzedni rok: w styczniu cały, potem tylko miesiące do działania", () => {
+    expect(showsPreviousYear("2027-01-05")).toBe(true);
+    expect(showsPreviousYear("2027-02-01")).toBe(false);
+    const december = at(2026, 12, { status: "awaiting_document" });
+    const november = at(2026, 11, { status: "paid" });
+    const last = year(2026, [december, november]);
+    const january = mergeSettlementYears(year(2027, []), last, "2027-01-05");
+    expect(january.year).toBe(2027);
+    expect(january.months.map((entry) => entry.month)).toEqual([12, 11]);
+    const march = mergeSettlementYears(year(2027, [at(2027, 3, { status: "estimate" })]), last, "2027-03-02");
+    expect(march.months.map((entry) => `${entry.year}-${entry.month}`)).toEqual(["2027-3", "2026-12"]);
+    expect(mergeSettlementYears(year(2027, []), undefined, "2027-01-05").months).toEqual([]);
   });
 });

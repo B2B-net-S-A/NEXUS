@@ -231,9 +231,16 @@ export function assignmentLabel(row: AssignmentRow): string {
       : row.category === "karta_dostepu"
         ? row.access_card_number
         : row.serial_number ?? row.imei;
-  return `${CATEGORY_LABELS[row.category]} ${row.model_name}${number}${
-    identifier ? ` · ${identifier}` : ""
-  }`;
+  // Model kart nazywa się zwykle jak kategoria („Karta dostępu”) — bez
+  // powtórzenia („Karta dostępu Karta dostępu · 2481”, testy produkcji 19.10).
+  const category = CATEGORY_LABELS[row.category];
+  const model = (row.model_name ?? "").trim();
+  const name = !model
+    ? category
+    : model.toLocaleLowerCase("pl").startsWith(category.toLocaleLowerCase("pl"))
+      ? model
+      : `${category} ${model}`;
+  return `${name}${number}${identifier ? ` · ${identifier}` : ""}`;
 }
 
 /** „Do zrobienia”: termin i opóźnienie słowami. */

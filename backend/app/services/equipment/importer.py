@@ -623,17 +623,31 @@ class _PeopleIndex:
     tiers: list[tuple[str, dict[str, set[int]]]]
 
     def resolve(self, text: str) -> tuple[Optional[int], Optional[int], Optional[str]]:
-        """(konto, kontrakt, nazwisko spoza NEXUSA) dla tekstu z kolumny osoby."""
+        """(konto, kontrakt, nazwisko spoza NEXUSA) dla tekstu z kolumny osoby.
+
+        ``(None, None, None)`` = niejednoznaczne (do wyjaśnienia): imiennicy
+        w jednej warstwie albo ta sama nazwa i na koncie, i na kontrakcie
+        w toku. Konto i kontrakt to różne osoby albo konsultant z kontem —
+        wtedy sprzęt na koncie gubi zadanie „Odbierz sprzęt” przy końcu
+        kontraktu (audyt 19.10.2026). Imiennik nie staje się też osobą spoza
+        NEXUSA.
+        """
         candidates = person_candidates(text)
         # Najpierw cały tekst, jak przed 18.10 — konto o nazwie spoza wzorca
         # „2–3 słowa z wielkiej litery” (np. z dopiskiem) dalej się dopasuje.
         for name in dict.fromkeys([text.strip(), *candidates]):
-            for kind, index in self.tiers:
-                found = _unique(index, name)
-                if found is not None:
-                    return (
-                        (found, None, None) if kind == "user" else (None, found, None)
-                    )
+            # Warstwy parami: (konto aktywne, kontrakt w toku), potem
+            # (konto nieaktywne, kontrakt zakończony).
+            for pair in (self.tiers[:2], self.tiers[2:]):
+                hits = [(kind, _matches(index, name)) for kind, index in pair]
+                hits = [(kind, found) for kind, found in hits if found]
+                if not hits:
+                    continue
+                if len(hits) > 1 or len(hits[0][1]) > 1:
+                    return None, None, None
+                kind, found = hits[0]
+                (only,) = found
+                return (only, None, None) if kind == "user" else (None, only, None)
         return None, None, (candidates[0] if candidates else None)
 
 
@@ -669,11 +683,11 @@ async def _people_index(db: AsyncSession) -> _PeopleIndex:
     )
 
 
-def _unique(index: dict[str, set[int]], text: str) -> Optional[int]:
+def _matches(index: dict[str, set[int]], text: str) -> set[int]:
     found: set[int] = set()
     for key in _name_keys(text):
         found |= index.get(key, set())
-    return next(iter(found)) if len(found) == 1 else None
+    return found
 
 
 async def _existing_numbers(db: AsyncSession) -> dict[tuple[str, str], int]:
@@ -824,7 +838,12 @@ async def create_batch(
                     reasons.insert(0, f"osoba spoza NEXUSA: {external}")
                 else:
                     decision = "do_wyjasnienia"
-                    reasons.insert(0, "nie znaleziono tej osoby w NEXUSIE")
+                    reasons.insert(
+                        0,
+                        "kilka osób o tym imieniu i nazwisku w NEXUSIE"
+                        if person_candidates(holder_text)
+                        else "nie znaleziono tej osoby w NEXUSIE",
+                    )
             elif status == "nieznany" and data["category"] == "laptop":
                 decision = "do_wyjasnienia"
                 reasons.insert(0, "laptop bez posiadacza i bez stanu")

@@ -35,6 +35,7 @@ from app.core.rate_limit import limiter as _limiter
 from app.core.security import create_access_token
 from app.models.activity import Activity
 from app.models.auth_exchange_code import AuthExchangeCode
+from app.models.hr_profile import EmployeeProfile
 from app.models.user import User, UserRole
 from app.services.admin_membership import protect_active_admin_membership
 from app.services.m365 import aad_groups as aad_groups_module
@@ -283,6 +284,10 @@ async def cleanup_users():
                 delete(AuthExchangeCode).where(AuthExchangeCode.user_id.in_(ids))
             )
             await db.execute(delete(Activity).where(Activity.user_id.in_(ids)))
+            # Logowanie SSO zakłada kartotekę (19.10.2026) — FK RESTRICT.
+            await db.execute(
+                delete(EmployeeProfile).where(EmployeeProfile.user_id.in_(ids))
+            )
         await db.execute(delete(User).where(User.email.in_(emails)))
         await db.commit()
 

@@ -178,6 +178,8 @@ export function olaFull(form: EmploymentType = "b2b"): PersonFull {
     ...personCard(ola),
     scope: "full",
     employment_type: "b2b",
+    employment_type_pending: false,
+    student_contribution_exempt: false,
     hired_on: "2025-03-03",
     work_start_date: "2025-03-03",
     last_working_day: null,
@@ -192,6 +194,39 @@ export function olaFull(form: EmploymentType = "b2b"): PersonFull {
         used_initial_days: "16.5",
       },
     ],
+  };
+}
+
+/**
+ * Kartoteka Oli tak, jak ją dostają Kadry bez Płac (decyzja Artura 19.10.2026):
+ * bez formy umowy i bez pól, z których formę da się odczytać.
+ */
+export function olaWithoutForm(): PersonFull {
+  const {
+    student_contribution_exempt: _student,
+    contribution_exempt_until: _until,
+    contributions_from: _from,
+    leave_seniority_years: _seniority,
+    zus_certificate_received_on: _zus,
+    suggested_entitlement_days: _suggested,
+    ...rest
+  } = olaFull("b2b");
+  return { ...rest, employment_type: null };
+}
+
+/** Kartoteka założona automatem z konta: forma i przełożony do uzupełnienia. */
+export function olaFromAccount(): PersonFull {
+  return {
+    ...olaFull("b2b"),
+    employment_type_pending: true,
+    manager_pending: true,
+    manager_user_id: null,
+    manager_name: null,
+    job_title: null,
+    department: null,
+    hired_on: null,
+    work_start_date: null,
+    entitlements: [],
   };
 }
 

@@ -5,7 +5,7 @@ import { Download } from "lucide-react";
 import { useToast } from "@/components/Toast";
 import { Button } from "@/components/ui/button";
 import { apiErrorMessage } from "@/lib/api-error";
-import { downloadHrFile, type PersonFull } from "@/lib/api/hr";
+import { downloadHrFile, type OwnProfile } from "@/lib/api/hr";
 import {
   TIMESHEET_STATUS_LABELS,
   timePaths,
@@ -42,7 +42,7 @@ export function MonthCard({
   timesheetRequired,
   onOpenTab,
 }: {
-  form: PersonFull["employment_type"];
+  form: OwnProfile["employment_type"];
   today: string;
   /** Bez obowiązku timesheetu nie ma dni „do uzupełnienia” ani terminu wysyłki (jak „Do zrobienia”). */
   timesheetRequired: boolean;
