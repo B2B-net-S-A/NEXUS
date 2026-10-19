@@ -15,15 +15,27 @@ import unicodedata
 from dataclasses import dataclass
 
 #: Klucz odzyskiwania BitLocker: 8 grup po 6 cyfr (48 cyfr), zwykle z myślnikami.
-_BITLOCKER = re.compile(r"(?<!\d)(?:\d{6}[\s-]?){7}\d{6}(?!\d)")
+#: Między grupami do trzech znaków przerwy: „ - ”, półpauza, kropka, nowa
+#: linia (audyt 19.10.2026 — jeden znak przepuszczał „123456 - 234567 …”).
+_BITLOCKER = re.compile(r"(?<!\d)(?:\d{6}[\s./|_\-‐‑–—]{0,3}){7}\d{6}(?!\d)")
 _DIGIT_RUN = re.compile(r"(?<![\d-])\d{8,11}(?![\d-])")
 _EMAIL = re.compile(r"[\w.+-]+@([\w-]+(?:\.[\w-]+)+)", re.UNICODE)
 _PESEL_WEIGHTS = (1, 3, 7, 9, 1, 3, 7, 9, 1, 3)
 #: Krótki PIN (4–8 cyfr) tylko z etykietą „PIN” tuż przed liczbą: „PIN 1234”,
 #: „kod PIN: 0000”, „PIN do karty 4321”, „PIN-u 1234”. Sama liczba to zwykle
 #: numer (pokoju, karty, zamówienia) — bez etykiety jej nie ruszamy.
+#: Także „PIN1 1234”, „PIN2: 4321”, „PIN karty 1234”, „PIN SIM 1234” (audyt
+#: 19.10.2026 — po „PIN” z cyfrą nie było granicy słowa).
 _PIN_LABELLED = re.compile(
-    r"\bpin(?:-?u|em)?\b[\s:=#–-]*(?:do\s+\w+[\s:=–-]*)?\d{4,8}(?!\d)",
+    r"\bpin(?:-?u|em)?\d?\b[\s:=#–-]*"
+    r"(?:(?:do\s+)?[^\W\d]\w*[\s:=–-]+)?\d{4,8}(?!\d)",
+    re.IGNORECASE,
+)
+#: PUK z etykietą, także w dwóch grupach: „PUK 1234 5678”, „PUK1: 1234-5678”.
+#: Wycinamy sam kod, etykieta zostaje (jak przy gołym ośmiocyfrowym PUK).
+_PUK_LABELLED = re.compile(
+    r"(?P<label>\bpuk\d?\b[\s:=#–-]*(?:[^\W\d]\w*[\s:=–-]+)?)"
+    r"\d{4}[\s-]?\d{4}(?!\d)",
     re.IGNORECASE,
 )
 
@@ -154,6 +166,9 @@ def clean_text(value: str, *, identifier: bool = False) -> Cleaned:
             text = text.replace(match.group(0), " ")
             reasons.append("prywatny e-mail")
     if not identifier:
+        if _PUK_LABELLED.search(text):
+            text = _PUK_LABELLED.sub(r"\g<label> ", text)
+            reasons.append("kod PUK")
         if has_labelled_pin(text):
             text = _PIN_LABELLED.sub(" ", text)
             reasons.append("kod PIN")
