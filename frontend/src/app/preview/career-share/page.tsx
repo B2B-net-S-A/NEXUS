@@ -31,6 +31,8 @@ import {
   careerLinkQueryKey,
   inviteLinksQueryKey,
   jobPublicProfileQueryKey,
+  linkResultsQueryKey,
+  type LinkResults,
   shareableJobQueryKey,
   shareablePublishedJobsQueryKey,
 } from "@/lib/api/careerLinks";
@@ -91,6 +93,71 @@ const PROFILE_WITH_FINDING: JobPublicProfile = {
     },
     show: { must: true, nice: true, params: true, process: true },
   },
+};
+
+// Zakładka „Wyniki” (etap 4) — fikcyjne liczby.
+const LINK_RESULTS: LinkResults = {
+  days: 30,
+  totals: {
+    visits: 212,
+    applications: 18,
+    new_candidates: 11,
+    existing_candidates: 7,
+    in_process: 9,
+    verified: 4,
+    cv_sent: 2,
+    hired: 0,
+  },
+  links: [
+    {
+      kind: "job",
+      slug: "senior-java-developer-7kq2",
+      public_url: "https://kariera.dynaminds.pl/r/senior-java-developer-7kq2",
+      job_id: 101,
+      job_title: "Senior Java Developer · Spring, Kafka · 6+ lat",
+      state: "live",
+      visits: 148,
+      applications: 12,
+      new_candidates: 8,
+      existing_candidates: 4,
+      in_process: 7,
+      verified: 3,
+      cv_sent: 2,
+      hired: 0,
+    },
+    {
+      kind: "job",
+      slug: "analityk-biznesowy-q8m1",
+      public_url: "https://kariera.dynaminds.pl/r/analityk-biznesowy-q8m1",
+      job_id: 103,
+      job_title: "Analityk biznesowy",
+      state: "not_live",
+      visits: 0,
+      applications: 0,
+      new_candidates: 0,
+      existing_candidates: 0,
+      in_process: 0,
+      verified: 0,
+      cv_sent: 0,
+      hired: 0,
+    },
+    {
+      kind: "recruiter",
+      slug: "marta-n",
+      public_url: "https://kariera.dynaminds.pl/marta-n",
+      job_id: null,
+      job_title: null,
+      state: "live",
+      visits: 64,
+      applications: 6,
+      new_candidates: 3,
+      existing_candidates: 3,
+      in_process: 2,
+      verified: 1,
+      cv_sent: 0,
+      hired: 0,
+    },
+  ],
 };
 
 const INVITE_LINKS: InviteLink[] = [
@@ -195,6 +262,7 @@ export default function CareerSharePreviewPage() {
     qc.setQueryData(inviteLinksQueryKey(), INVITE_LINKS, future);
     qc.setQueryData(jobPublicProfileQueryKey(101), PROFILE_WITH_FINDING, future);
     qc.setQueryData(careerLinkQueryKey(), CAREER_LINK, future);
+    qc.setQueryData(linkResultsQueryKey(30), LINK_RESULTS, future);
     return qc;
   }, []);
 

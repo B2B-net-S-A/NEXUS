@@ -53,6 +53,17 @@ Reguły, które łatwo cofnąć:
   projektu), adres = link osoby albo najnowszy aktywny link rekrutacji. 409,
   gdy strona nie działa albo rekrutacja jest zamknięta. Kanałów udostępniania
   NIE rozróżniamy (decyzja Artura 19.10.2026) — QR prowadzi na ten sam adres.
+- **Wyniki linków** (etap 4, decyzja B Artura 19.10.2026): źródło zgłoszeń to
+  `activities.applied_via_invite` (`user_id` = właściciel linku,
+  `details.invite_token_sha256`, `was_duplicate`) — liczą się też osoby, które
+  były już w bazie. Zakładka „Wyniki” w oknie (`GET /api/me/career-link/results?days=30|90|0`,
+  `services/career_link_results.py`): lejek zgłoszenia → w rekrutacji →
+  zweryfikowani → CV wysłane → zatrudnieni; etap liczy się, gdy osoba trafiła na
+  niego PO zgłoszeniu w rekrutacji linku (link ogólny: w dowolnej). Kolumna
+  „Z linków” w aktywności zespołu (`insights_team_activity`, unikalne osoby
+  w oknie) jest POZA „Razem” — Liga, Cele i kredyt weryfikującego bez zmian.
+  Wejścia to `visit_count` od początku istnienia linku (dat wejść nie
+  zapisujemy) — w oknie „Mój link ogólny” podpisane „Wejścia od początku”.
 - **Okno „Udostępnij”**: „Kopiuj” i „Otwórz stronę” dopiero, gdy strona działa
   (`live`); wcześniej link można wygenerować, ale nie trafia do schowka
   (kandydat dostałby 404, a LinkedIn zapamiętałby pusty podgląd). Zatwierdzony

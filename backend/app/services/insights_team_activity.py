@@ -72,6 +72,10 @@ class TeamActivityRow:
     placements: int
     calls: int
     total_actions: int
+    # Osoby, które zgłosiły się przez linki tej osoby (nowe i już w bazie),
+    # bez powtórek w oknie. Poza „Razem” — pozyskanie z linku to nie czynność
+    # w NEXUSIE (etap 4 linków, decyzja B Artura 19.10.2026).
+    link_candidates: int = 0
 
 
 def _window(column: str, *, bounded: bool) -> str:
@@ -131,6 +135,15 @@ async def compute_team_activity(
               AND {_window("first_reached_at", bounded=bounded)}
             GROUP BY first_moved_by
         ),
+        lk AS (
+            SELECT user_id, count(DISTINCT entity_id) AS link_candidates
+            FROM activities
+            WHERE action = 'applied_via_invite'
+              AND entity_type = 'candidate'
+              AND user_id IS NOT NULL
+              AND {_window("created_at", bounded=bounded)}
+            GROUP BY user_id
+        ),
         cl AS (
             SELECT user_id, count(*) AS calls
             FROM calls
@@ -143,6 +156,7 @@ async def compute_team_activity(
             UNION SELECT user_id FROM scr
             UNION SELECT user_id FROM ms
             UNION SELECT user_id FROM cl
+            UNION SELECT user_id FROM lk
         )
         SELECT u.id,
                u.name,
@@ -151,6 +165,7 @@ async def compute_team_activity(
                COALESCE(ms.interviews, 0)       AS interviews,
                COALESCE(ms.placements, 0)       AS placements,
                COALESCE(cl.calls, 0)            AS calls,
+               COALESCE(lk.link_candidates, 0)  AS link_candidates,
                COALESCE(ua.ua_total, 0)
                  + COALESCE(scr.screenings, 0)
                  + COALESCE(cl.calls, 0)        AS total_actions
@@ -160,6 +175,7 @@ async def compute_team_activity(
         LEFT JOIN scr ON scr.user_id = ids.user_id
         LEFT JOIN ms  ON ms.user_id  = ids.user_id
         LEFT JOIN cl  ON cl.user_id  = ids.user_id
+        LEFT JOIN lk  ON lk.user_id  = ids.user_id
         ORDER BY total_actions DESC,
                  COALESCE(ms.placements, 0) DESC,
                  u.id
@@ -181,6 +197,7 @@ async def compute_team_activity(
             placements=int(r["placements"] or 0),
             calls=int(r["calls"] or 0),
             total_actions=int(r["total_actions"] or 0),
+            link_candidates=int(r["link_candidates"] or 0),
         )
         for r in rows
     ]

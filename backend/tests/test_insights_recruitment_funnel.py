@@ -665,6 +665,63 @@ async def test_team_activity_window_is_half_open(fx_client: AsyncClient):
 
 
 @pytest.mark.asyncio
+async def test_team_activity_counts_people_from_the_owners_links(
+    fx_client: AsyncClient,
+):
+    """Etap 4 linków (decyzja B, 19.10.2026): „Z linków” = osoby, które
+    zgłosiły się przez linki tej osoby — także już będące w bazie, bez
+    powtórek. Kolumna nie wchodzi do „Razem” (Liga i cele bez zmian)."""
+    await cache_invalidate("insights:recruitment:team-activity:")
+    year = 1300 + int(uuid.uuid4().hex[:6], 16) % 200
+    owner_id, email, password = await _seed_user(UserRole.recruiter, "ta-links")
+    headers = await _login(fx_client, email, password)
+    inside = datetime(year, 6, 15, 12, tzinfo=timezone.utc)
+    # Id spoza zakresu prawdziwych kandydatów: baza testowa jest wspólna, a inne
+    # testy szukają ostatniego `applied_via_invite` swojego kandydata po id.
+    base = 900_000_000 + int(uuid.uuid4().hex[:6], 16)
+    first, second, later = base, base + 1, base + 2
+    async with AsyncSessionLocal() as db:
+        for candidate_id, duplicate in ((first, False), (first, True), (second, True)):
+            db.add(
+                Activity(
+                    entity_type="candidate",
+                    entity_id=candidate_id,
+                    action="applied_via_invite",
+                    user_id=owner_id,
+                    details={"was_duplicate": duplicate},
+                    created_at=inside,
+                )
+            )
+        db.add(
+            Activity(
+                entity_type="candidate",
+                entity_id=later,
+                action="applied_via_invite",
+                user_id=owner_id,
+                details={},
+                created_at=datetime(year, 7, 2, 12, tzinfo=timezone.utc),
+            )
+        )
+        await db.commit()
+
+    body = (
+        await fx_client.get(
+            "/api/insights/recruitment/team-activity",
+            headers=headers,
+            params={
+                "period": "custom",
+                "date_from": f"{year}-06-01",
+                "date_to": f"{year}-06-30",
+            },
+        )
+    ).json()
+    mine = [e for e in body["entries"] if e["user_id"] == owner_id]
+    assert len(mine) == 1, body
+    assert mine[0]["link_candidates"] == 2
+    assert mine[0]["total_actions"] == 0
+
+
+@pytest.mark.asyncio
 async def test_team_activity_puts_admin_accounts_outside_the_ranking(
     fx_client: AsyncClient,
 ):

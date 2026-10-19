@@ -3,9 +3,9 @@
 /**
  * Okno „Udostępnij rekrutację" (Kariera Dynaminds).
  *
- * Dwie zakładki: „Link do tej rekrutacji" (opis publiczny + kontrola przed
- * publikacją + link) i „Mój link ogólny" (stały adres rekrutera, statystyki,
- * widoczność rekrutacji, historia linków). Nazwa eksportu i propsy zostają
+ * Trzy zakładki: „Link do tej rekrutacji" (opis publiczny + kontrola przed
+ * publikacją + link), „Mój link ogólny" (stały adres rekrutera, statystyki,
+ * widoczność rekrutacji, historia linków) i „Wyniki" (lejek linków, etap 4). Nazwa eksportu i propsy zostają
  * dotychczasowe — okno montuje pięć miejsc (QuickActions, lista rekrutacji,
  * lista kandydatów, karta rekrutacji, panel zamówienia).
  */
@@ -23,6 +23,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { GeneralLinkTab } from "@/components/v2/career-share/GeneralLinkTab";
 import { JobShareTab } from "@/components/v2/career-share/JobShareTab";
+import { LinkResultsTab } from "@/components/v2/career-share/LinkResultsTab";
 
 interface Props {
   open: boolean;
@@ -34,7 +35,7 @@ interface Props {
   defaultJobId?: number;
 }
 
-type ShareTab = "job" | "general";
+type ShareTab = "job" | "general" | "results";
 
 export function GenerateInviteLinkV2({ open, onOpenChange, defaultJobId }: Props) {
   const [tab, setTab] = useState<ShareTab>("job");
@@ -52,6 +53,8 @@ export function GenerateInviteLinkV2({ open, onOpenChange, defaultJobId }: Props
   const description =
     tab === "general"
       ? "Twój stały link do bazy — do profilu LinkedIn, stopki i postów."
+      : tab === "results"
+        ? "Wejścia, zgłoszenia i to, jak daleko zaszły osoby z Twoich linków."
       : jobTitle
         ? `${jobTitle} — nazwa klienta, numery zgłoszeń i stawki nie trafią na stronę.`
         : "Opis publiczny i link dla kandydatów — bez nazwy klienta i bez stawek.";
@@ -75,6 +78,7 @@ export function GenerateInviteLinkV2({ open, onOpenChange, defaultJobId }: Props
             <TabsList className="border-b-0">
               <TabsTrigger value="job">Link do tej rekrutacji</TabsTrigger>
               <TabsTrigger value="general">Mój link ogólny</TabsTrigger>
+              <TabsTrigger value="results">Wyniki</TabsTrigger>
             </TabsList>
           </DialogHeader>
 
@@ -87,6 +91,9 @@ export function GenerateInviteLinkV2({ open, onOpenChange, defaultJobId }: Props
           </TabsContent>
           <TabsContent value="general" className="mt-0 flex min-h-0 flex-1 flex-col">
             <GeneralLinkTab enabled={open && tab === "general"} />
+          </TabsContent>
+          <TabsContent value="results" className="mt-0 flex min-h-0 flex-1 flex-col">
+            <LinkResultsTab enabled={open && tab === "results"} />
           </TabsContent>
         </Tabs>
       </DialogContent>

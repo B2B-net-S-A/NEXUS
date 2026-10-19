@@ -639,7 +639,7 @@ async def insights_team_activity(
     # liczby jednego zapytania pod etykietą drugiego.
     # v2 (24.09.2026): konta administracyjne poza rankingiem osób.
     # v3 (runda 10): kolumny z prawdziwych źródeł.
-    cache_key = f"insights:recruitment:team-activity:v3:{resolved.cache_suffix}:{limit}"
+    cache_key = f"insights:recruitment:team-activity:v4:{resolved.cache_suffix}:{limit}"
     async with cache_single_flight(cache_key, db=db):
         cached = await cache_get(cache_key)
         if cached is not None:
@@ -670,6 +670,7 @@ async def insights_team_activity(
                 "interviews": r.interviews,
                 "placements": r.placements,
                 "calls": r.calls,
+                "link_candidates": r.link_candidates,
                 "total_actions": r.total_actions,
                 "share_pct": _ratio(r.total_actions, max_actions),
             }

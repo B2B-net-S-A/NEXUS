@@ -92,6 +92,36 @@ class CareerLinkResponse(BaseModel):
     jobs: list[CareerLinkJob] = Field(default_factory=list)
 
 
+class CareerLinkResultCounts(BaseModel):
+    """Lejek linku w oknie (etap 4 linków, 19.10.2026). ``visits`` = od początku."""
+
+    visits: int = 0
+    applications: int = 0
+    new_candidates: int = 0
+    existing_candidates: int = 0
+    in_process: int = 0
+    verified: int = 0
+    cv_sent: int = 0
+    hired: int = 0
+
+
+class CareerLinkResultRow(CareerLinkResultCounts):
+    kind: Literal["job", "recruiter"]
+    slug: Optional[str] = None
+    public_url: Optional[str] = None
+    job_id: Optional[int] = None
+    # Tytuł dla rekrutera (working_title ?? title) — ekran wewnętrzny.
+    job_title: Optional[str] = None
+    state: Literal["live", "not_live", "closed", "expired", "revoked"]
+
+
+class CareerLinkResults(BaseModel):
+    # ``None`` = od początku.
+    days: Optional[int] = None
+    totals: CareerLinkResultCounts
+    links: list[CareerLinkResultRow] = Field(default_factory=list)
+
+
 class CareerLinkUpdate(BaseModel):
     slug: str = Field(..., min_length=1, max_length=64)
 

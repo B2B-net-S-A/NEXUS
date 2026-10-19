@@ -163,6 +163,40 @@ export interface CareerLinkState {
   recruiter_base_url?: string | null;
 }
 
+/** Lejek linku w oknie (etap 4 linków). `visits` = od początku istnienia linku. */
+export interface LinkResultCounts {
+  visits: number;
+  applications: number;
+  new_candidates: number;
+  existing_candidates: number;
+  in_process: number;
+  verified: number;
+  cv_sent: number;
+  hired: number;
+}
+
+export type LinkResultState = "live" | "not_live" | "closed" | "expired" | "revoked";
+
+export interface LinkResultRow extends LinkResultCounts {
+  kind: "job" | "recruiter";
+  slug: string | null;
+  public_url: string | null;
+  job_id: number | null;
+  /** Tytuł dla rekrutera — ekran wewnętrzny. */
+  job_title: string | null;
+  state: LinkResultState;
+}
+
+export interface LinkResults {
+  /** `null` = od początku. */
+  days: number | null;
+  totals: LinkResultCounts;
+  links: LinkResultRow[];
+}
+
+/** 30, 90 albo 0 (= od początku). */
+export type LinkResultsPeriod = 30 | 90 | 0;
+
 export interface SlugAvailability {
   available: boolean;
   reason: string | null;
@@ -186,6 +220,8 @@ export const shareablePublishedJobsQueryKey = (q = "") =>
 /** Jedna rekrutacja wskazana z kontekstu (`defaultJobId`) — jej status, nie obecność na liście. */
 export const shareableJobQueryKey = (jobId: number) =>
   ["career-share", "job", jobId] as const;
+export const linkResultsQueryKey = (days: LinkResultsPeriod) =>
+  ["career-link", "results", days] as const;
 export const slugAvailabilityQueryKey = (slug: string) =>
   ["career-link", "slug-available", slug] as const;
 
@@ -273,6 +309,10 @@ export const careerLinksApi = {
       title: typeof d.title === "string" ? d.title : "",
       status: typeof d.status === "string" ? d.status : undefined,
     };
+  },
+  getLinkResults: async (days: LinkResultsPeriod): Promise<LinkResults> => {
+    const res = await api.get("/api/me/career-link/results", { params: { days } });
+    return res.data as LinkResults;
   },
   listInviteLinks: async (): Promise<InviteLink[]> => {
     const res = await api.get("/api/invite-links", { params: { mine: true } });
@@ -388,6 +428,14 @@ export function useInviteLinks(enabled: boolean) {
   return useQuery({
     queryKey: inviteLinksQueryKey(),
     queryFn: careerLinksApi.listInviteLinks,
+    enabled,
+  });
+}
+
+export function useLinkResults(enabled: boolean, days: LinkResultsPeriod) {
+  return useQuery({
+    queryKey: linkResultsQueryKey(days),
+    queryFn: () => careerLinksApi.getLinkResults(days),
     enabled,
   });
 }

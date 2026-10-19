@@ -515,6 +515,57 @@ async def test_poster_needs_a_live_page_and_returns_a_pdf(api):
     assert resp.content.startswith(b"%PDF")
 
 
+async def test_link_results_count_applications_and_the_funnel(api):
+    """Etap 4 linków: „Wyniki” liczą zgłoszenia z linków osoby (nowi i już
+    w bazie) i to, jak daleko zaszły w rekrutacji linku."""
+    _, headers, job_id = await _owner_with_job(api)
+    link = await _create_job_link(api, headers, job_id)
+    assert (await _approve(api, headers, job_id)).status_code == 200
+    for _ in range(2):
+        resp = await api.post(
+            "/api/public/career/apply",
+            data=_form(link["slug"], f"res-{uuid.uuid4().hex[:8]}@example.com"),
+            files=_cv(),
+        )
+        assert resp.status_code == 201, resp.text
+
+    body = (await api.get("/api/me/career-link/results", headers=headers)).json()
+    rows = [r for r in body["links"] if r["slug"] == link["slug"]]
+    assert len(rows) == 1, body
+    row = rows[0]
+    assert row["state"] == "live"
+    assert row["applications"] == 2
+    assert row["new_candidates"] == 2 and row["existing_candidates"] == 0
+    # Przegląd AI wyłączony w testach — karta „Nowi” powstaje od razu.
+    assert row["in_process"] == 2
+    assert row["hired"] == 0
+    assert body["days"] == 30
+    assert body["totals"]["applications"] == sum(
+        r["applications"] for r in body["links"]
+    )
+    # Od początku: to samo okno, bo zgłoszenia są świeże.
+    everything = (
+        await api.get(
+            "/api/me/career-link/results", headers=headers, params={"days": 0}
+        )
+    ).json()
+    assert everything["days"] is None
+    assert [r for r in everything["links"] if r["slug"] == link["slug"]][0][
+        "applications"
+    ] == 2
+
+
+async def test_link_results_hide_dead_links_without_applications(api):
+    _, headers, job_id = await _owner_with_job(api)
+    link = await _create_job_link(api, headers, job_id)
+    revoke = await api.post(
+        f"/api/invite-links/{link['token']}/revoke", headers=headers
+    )
+    assert revoke.status_code == 204, revoke.text
+    body = (await api.get("/api/me/career-link/results", headers=headers)).json()
+    assert all(r["slug"] != link["slug"] for r in body["links"])
+
+
 async def test_approve_refuses_internal_codes(api):
     _, headers, job_id = await _owner_with_job(api)
     resp = await _approve(
