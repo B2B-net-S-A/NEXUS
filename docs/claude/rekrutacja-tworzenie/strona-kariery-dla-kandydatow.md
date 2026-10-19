@@ -46,6 +46,13 @@ Reguły, które łatwo cofnąć:
   `client_reference` (od 4 znaków). Czyta ją tylko `lint_payload` (opis
   i tytuł), NIE kontrola adresu — znalezisko w adresie wymieniłoby rozesłany
   link (stary daje 404), a numer w adresie to kosmetyka.
+- **Plakat z kodem QR** (etap 3, 19.10.2026): `GET /api/jobs/{id}/public-profile/poster.pdf`
+  (`services/career_poster.py`, kod QR z `segno` jako `data:` SVG, PDF przez
+  WeasyPrint z blokadą zasobów spoza `data:`). Treść wyłącznie z
+  `published_version` (tytuł, podtytuł, parametry, do 3 wymagań — bez opisu
+  projektu), adres = link osoby albo najnowszy aktywny link rekrutacji. 409,
+  gdy strona nie działa albo rekrutacja jest zamknięta. Kanałów udostępniania
+  NIE rozróżniamy (decyzja Artura 19.10.2026) — QR prowadzi na ten sam adres.
 - **Okno „Udostępnij”**: „Kopiuj” i „Otwórz stronę” dopiero, gdy strona działa
   (`live`); wcześniej link można wygenerować, ale nie trafia do schowka
   (kandydat dostałby 404, a LinkedIn zapamiętałby pusty podgląd). Zatwierdzony

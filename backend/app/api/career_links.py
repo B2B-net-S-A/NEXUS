@@ -390,6 +390,50 @@ async def get_public_profile(
     return await _profile_response(db, current_user, job, profile)
 
 
+@router.get("/jobs/{job_id}/public-profile/poster.pdf")
+async def get_public_profile_poster(
+    job_id: int, current_user: OperationalUser, db: AsyncSession = Depends(get_db)
+) -> Response:
+    """Plakat A4 z kodem QR do linku rekrutacji (etap 3 linków, 19.10.2026).
+
+    Treść z opublikowanej wersji opisu, adres = link osoby (albo najnowszy
+    aktywny link rekrutacji). 409, gdy strona jeszcze nie działa — plakat bez
+    zatwierdzonego opisu prowadziłby kandydata na 404.
+    """
+    from app.services.career_poster import render_poster_pdf
+    from app.services.career_slugs import job_link_url
+
+    job = await _load_job(db, current_user, job_id)
+    profile = await db.get(JobPublicProfile, job_id)
+    version = await jpp.published_version(db, job, profile)
+    slug = await _preview_slug(db, current_user, job_id)
+    if version is None or slug is None or not jpp.job_is_open(job):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Plakat powstaje z działającej strony rekrutacji — zatwierdź opis "
+                "publiczny i wygeneruj link."
+            ),
+        )
+    payload = jpp.public_job_payload(
+        job,
+        title=version.title,
+        link_slug=slug,
+        subtitle=version.subtitle,
+        about=version.about,
+        sections=version.sections,
+    )
+    pdf = render_poster_pdf(payload, job_link_url(slug))
+    return Response(
+        content=pdf,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="plakat-{slug}.pdf"',
+            "Cache-Control": "no-store",
+        },
+    )
+
+
 @router.put("/jobs/{job_id}/public-profile", response_model=PublicProfileResponse)
 async def put_public_profile(
     job_id: int,

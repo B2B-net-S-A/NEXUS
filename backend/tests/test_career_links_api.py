@@ -497,6 +497,24 @@ async def test_closed_job_shows_the_closed_page_even_with_pending_changes(api):
     assert page.json()["status"] == "closed"
 
 
+async def test_poster_needs_a_live_page_and_returns_a_pdf(api):
+    _, headers, job_id = await _owner_with_job(api)
+    url = f"/api/jobs/{job_id}/public-profile/poster.pdf"
+    # Bez linku i bez zatwierdzonego opisu plakat prowadziłby na 404.
+    assert (await api.get(url, headers=headers)).status_code == 409
+    await _create_job_link(api, headers, job_id)
+    assert (await api.get(url, headers=headers)).status_code == 409
+    assert (await _approve(api, headers, job_id)).status_code == 200
+    try:
+        import weasyprint  # noqa: F401
+    except (ImportError, OSError):
+        pytest.skip("WeasyPrint bez bibliotek systemowych (pango)")
+    resp = await api.get(url, headers=headers)
+    assert resp.status_code == 200, resp.text
+    assert resp.headers["content-type"] == "application/pdf"
+    assert resp.content.startswith(b"%PDF")
+
+
 async def test_approve_refuses_internal_codes(api):
     _, headers, job_id = await _owner_with_job(api)
     resp = await _approve(

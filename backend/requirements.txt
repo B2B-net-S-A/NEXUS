@@ -97,6 +97,9 @@ rapidfuzz==3.14.5
 # before upload. python-jose already pinned above (used by JWT auth + webhook
 # JWKS verification).
 weasyprint==70.0
+# Kod QR na plakacie linku rekrutacji (services/career_poster.py). Czysty
+# Python, bez zależności; SVG jako data: URI, więc renderer PDF nic nie pobiera.
+segno==1.6.6
 # In-house QES rail — PAdES validation (Option B upload-and-validate, zero KIR).
 # 0.36.2 requires cryptography>=47 (no upper bound — zgodny z pinem 50.x wyżej).
 # [etsi] adds EU Trusted List parsing (xsdata, signxml, lxml). Authoritative

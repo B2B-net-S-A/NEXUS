@@ -912,3 +912,60 @@ def test_profile_approved_before_19_10_keeps_its_old_default_title():
     )
     assert again is not None and again.about == "Opis zatwierdzony."
     assert again.title == old_title
+
+
+# ── Plakat z kodem QR (etap 3, 19.10.2026) ────────────────────────────────
+
+
+def _poster_payload(**overrides):
+    payload = {
+        "title": "Senior <Java> Developer",
+        "subtitle": "rozwój platformy płatności",
+        "about": "Opis, którego plakat nie pokazuje.",
+        "must": [
+            {"name": n, "note": None} for n in ("Java 17", "Spring", "Kafka", "K8s")
+        ],
+        "nice": [],
+        "params": {"city": "Warszawa", "remote_policy": "hybrid", "contract": "B2B"},
+        "show": {},
+    }
+    payload.update(overrides)
+    return payload
+
+
+def test_poster_html_escapes_text_and_embeds_the_qr_as_data_uri():
+    pytest.importorskip("segno")
+    from app.services.career_poster import poster_html
+
+    doc = poster_html(_poster_payload(), "https://kariera.example/r/java-ab12")
+    assert "Senior &lt;Java&gt; Developer" in doc and "<Java>" not in doc
+    assert 'src="data:image/svg+xml' in doc
+    assert "[warszawa · hybryda · b2b]" in doc
+    # Najwyżej trzy wymagania; opis projektu nie trafia na plakat.
+    assert "Kafka" in doc and "K8s" not in doc
+    assert "Opis, którego" not in doc
+    assert "https://kariera.example/r/java-ab12" in doc
+    # Żadnego zasobu spoza data: — renderer i tak by go zablokował.
+    assert "http://" not in doc.replace("https://kariera.example", "")
+
+
+def test_poster_without_optional_sections_has_no_empty_blocks():
+    pytest.importorskip("segno")
+    from app.services.career_poster import poster_html
+
+    doc = poster_html(
+        _poster_payload(subtitle=None, must=[], params={}), "https://k.example/r/x"
+    )
+    assert '<p class="sub">' not in doc and "<ul>" not in doc
+
+
+def test_poster_pdf_renders_when_weasyprint_is_available():
+    pytest.importorskip("segno")
+    try:
+        import weasyprint  # noqa: F401
+    except (ImportError, OSError):
+        pytest.skip("WeasyPrint bez bibliotek systemowych (pango)")
+    from app.services.career_poster import render_poster_pdf
+
+    pdf = render_poster_pdf(_poster_payload(), "https://kariera.example/r/java-ab12")
+    assert pdf.startswith(b"%PDF")
