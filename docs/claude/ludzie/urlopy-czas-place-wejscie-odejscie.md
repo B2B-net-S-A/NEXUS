@@ -312,7 +312,11 @@ z odnośnikiem `hr_documents.leave_request_id`.
     nadgodziny tylko wpisem dnia z uzasadnieniem), opis (domyślny roli / szablon /
     własny), projekt i „nadpisz istniejące wpisy” (kasuje wpisy szkicu poza
     auto-wpisami płatnej puli; blokada retencji jak przy usuwaniu wpisu). Dzień
-    dostaje najwyżej tyle, ile zostawia urlop (pół dnia urlopu = 4 h).
+    dostaje najwyżej tyle, ile zostawia urlop (pół dnia urlopu = 4 h; pół dnia
+    płatnej puli B2B = auto-wpis 4 h + 4 h z wypełniania). Tylko dni
+    zatrudnienia z kartoteki (`work_start_date`–`last_working_day`, też
+    w `days_missing`). Poprawka samego opisu albo projektu wpisu nie przelicza
+    nadgodzin dnia (audyt 19.10.2026).
   - „Szablony opisów” osoby (dodaj, edytuj, usuń, kolejność = `sort_order`)
     i karta „Domyślne opisy godzin” w Ustawieniach → Kadry (role NEXUSA bez
     `user`/`sourcer`/`tac`) — na istniejących trasach `/api/hr/time/me/templates`
