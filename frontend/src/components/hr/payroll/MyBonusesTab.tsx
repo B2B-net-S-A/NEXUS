@@ -11,6 +11,7 @@ import { formatIsoDatePl } from "@/lib/date-pl";
 
 import { BonusStagesTable } from "../me/BonusStagesTable";
 import { MySettlementCard } from "../me/MySettlementCard";
+import { showsPreviousYear } from "../me/settlement-format";
 import {
   assignedInYear,
   inTransitLabel,
@@ -22,7 +23,9 @@ import {
 /**
  * Liczby nad listą: moja stawka, premie w drodze (propozycje + prognozy
  * z podpisanych umów), przyznane w roku i — gdy rozliczenie się wczytało —
- * wypłacone w roku (premie z zamkniętych miesięcy).
+ * wypłacone w roku (premie z zamkniętych miesięcy). W styczniu „wypłacone”
+ * są za poprzedni rok: styczeń zamyka się dopiero w lutym, więc liczba
+ * bieżącego roku byłaby zerem (audyt A2, 19.10.2026).
  */
 export function myStats(
   data: MyPayroll,
@@ -58,10 +61,11 @@ export function myStats(
     label: `premie przyznane w ${year}`,
     value: totalsLabel(assignedInYear(data.bonuses, year)),
   });
-  if (settlement && settlement.year === year) {
+  const paidYear = showsPreviousYear(today) ? year - 1 : year;
+  if (settlement && settlement.year === paidYear) {
     stats.push({
       id: "paid",
-      label: `premie wypłacone w ${year}`,
+      label: `premie wypłacone w ${paidYear}`,
       value: totalsLabel(settlement.bonuses_paid),
       // R11: przy włączonych rozliczeniach liczą się premie z opłaconych rozliczeń.
       title:
@@ -83,6 +87,9 @@ export function MyBonusesTab() {
   const year = Number(today.slice(0, 4));
   const me = useMyPayroll();
   const settlement = useMySettlement(year);
+  // Styczeń: grudzień i premie wypłacone w poprzednim roku (audyt A2, 19.10.2026).
+  const january = showsPreviousYear(today);
+  const lastYear = useMySettlement(year - 1, january);
   const profile = useMyHrProfile();
   const form = profile.data?.has_profile ? profile.data.employment_type : null;
   const data = me.data;
@@ -95,11 +102,15 @@ export function MyBonusesTab() {
     isEmpty: items.length === 0,
   });
   const settlementState = resolveViewState({
-    isLoading: settlement.isLoading,
-    isError: settlement.isError,
-    error: settlement.error,
-    isSuccess: settlement.isSuccess,
+    isLoading: settlement.isLoading || (january && lastYear.isLoading),
+    isError: settlement.isError || (january && lastYear.isError),
+    error: settlement.error ?? (january ? lastYear.error : null),
+    isSuccess: settlement.isSuccess && (!january || lastYear.isSuccess),
   });
+  const settlementData: MySettlement | undefined =
+    settlement.data && january && lastYear.data
+      ? { ...settlement.data, months: [...settlement.data.months, ...lastYear.data.months] }
+      : settlement.data;
 
   if (state === "loading") {
     return <p className="py-6 text-sm text-muted-foreground">Wczytywanie premii…</p>;
@@ -124,7 +135,11 @@ export function MyBonusesTab() {
     <div className="space-y-3">
       <InlineStats
         id="my-bonuses-stats"
-        stats={myStats(data, today, settlementState === "ready" ? settlement.data : undefined)}
+        stats={myStats(
+          data,
+          today,
+          settlementState === "ready" ? (january ? lastYear.data : settlement.data) : undefined,
+        )}
       />
       {state === "empty" ? (
         <div className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
@@ -136,9 +151,12 @@ export function MyBonusesTab() {
       )}
       <MySettlementCard
         state={settlementState}
-        data={settlement.data}
+        data={settlementData}
         form={form}
-        onRetry={() => settlement.refetch()}
+        onRetry={() => {
+          void settlement.refetch();
+          if (january) void lastYear.refetch();
+        }}
       />
       {data.rates.length > 0 ? (
         <section aria-labelledby="my-rate-history" className="space-y-1 text-sm">

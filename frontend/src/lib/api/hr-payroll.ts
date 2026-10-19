@@ -9,6 +9,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { api } from "@/lib/api";
 import type { EmploymentType } from "@/lib/api/hr";
+import { paymentKeys } from "@/lib/api/hr-payments";
+import { settlementKeys } from "@/lib/api/hr-settlements";
 import type { TimesheetStatus } from "@/lib/api/hr-time";
 
 export type Currency = "PLN" | "EUR" | "USD";
@@ -319,6 +321,21 @@ function useInvalidatePayroll() {
   return () => queryClient.invalidateQueries({ queryKey: payrollKeys.all });
 }
 
+/**
+ * Zamknięcie miesiąca zakłada rozliczenia, ponowne otwarcie anuluje nieopłacone —
+ * odświeżamy też rozliczenia i przelewy („Dla Finansów”, podgląd Symfonii), żeby
+ * zakładki miesiąca nie pokazywały stanu sprzed decyzji (audyt A2, 19.10.2026).
+ */
+function useInvalidatePayrollPeriod() {
+  const queryClient = useQueryClient();
+  return () =>
+    Promise.all([
+      queryClient.invalidateQueries({ queryKey: payrollKeys.all }),
+      queryClient.invalidateQueries({ queryKey: settlementKeys.all }),
+      queryClient.invalidateQueries({ queryKey: paymentKeys.all }),
+    ]);
+}
+
 export function useSetRate(userId: number) {
   const invalidate = useInvalidatePayroll();
   return useMutation({
@@ -384,7 +401,7 @@ export interface CloseResult {
 }
 
 export function useCloseMonth(year: number, month: number) {
-  const invalidate = useInvalidatePayroll();
+  const invalidate = useInvalidatePayrollPeriod();
   return useMutation({
     mutationFn: async (acknowledgeWarnings: boolean) =>
       (
@@ -397,7 +414,7 @@ export function useCloseMonth(year: number, month: number) {
 }
 
 export function useReopenMonth(year: number, month: number) {
-  const invalidate = useInvalidatePayroll();
+  const invalidate = useInvalidatePayrollPeriod();
   return useMutation({
     mutationFn: async (reason: string) =>
       (await api.post(`/api/hr/payroll/months/${year}/${month}/reopen`, { reason })).data,

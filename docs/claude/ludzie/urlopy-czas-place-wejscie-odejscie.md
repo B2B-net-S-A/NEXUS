@@ -454,6 +454,15 @@ z odnośnikiem `hr_documents.leave_request_id`.
   albo w toku — `hours_source` `approved`/`entered`) + premie przyznane
   z okresem w tym miesiącu. Płace przy zamknięciu biorą tylko godziny
   zaakceptowane, więc szacunek zmienia się do zamknięcia. Tylko o sobie.
+- **Przełom roku i kolejność kart „Rozliczenia”** (audyt A2, 19.10.2026). Ekran
+  nie ma wyboru roku: „Rozliczenie” pyta zawsze o bieżący i poprzedni rok —
+  w styczniu pokazuje cały poprzedni, potem tylko jego miesiące, w których osoba
+  ma coś do zrobienia (`awaiting_document` albo `mismatch` z prośbą o korektę).
+  „Premie i stawka” w styczniu dokłada poprzedni rok do „Mojego rozliczenia”,
+  a „premie wypłacone” są wtedy za poprzedni rok (styczeń zamyka się w lutym).
+  Na górze miesiące do działania (z „Kopiuj pozycje” i kartą faktury), potem
+  najnowszy; wiersze miesiąca w kilku walutach są razem (`settlementLayout`
+  w `components/hr/me/settlement-format.ts`).
 - **Archiwum timesheetów** w „Moim miesiącu” (`TimesheetArchive`): ostatnie
   12 miesięcy ze statusem, sumą godzin i PDF zaakceptowanego
   (`GET /api/hr/time/me/history`), pobierane dopiero po rozwinięciu.
@@ -471,6 +480,9 @@ Schemat: `hr_settlement_schema.py` (migracja `0468_hr_settlements`, stany w docs
   z kwotą > 0 (`payroll_close` → `settlements.ensure_for_period`); miesiąc zamknięty przed
   włączeniem modułu — `POST /api/hr/settlements/months/{r}/{m}/prepare`. Ponowne otwarcie
   anuluje nieopłacone (opłacone zostają), faktury wracają do `unmatched` z osobą.
+  Zamknięcie i otwarcie miesiąca w Płacach odświeżają na froncie także rozliczenia
+  i przelewy („Dla Finansów”, podgląd Symfonii), a każda decyzja w rozliczeniu —
+  przelewy (audyt A2, 19.10.2026).
 - **Od którego miesiąca** (decyzja Artura 19.10.2026): `hr_payment_settings.settlements_since`
   („RRRR-MM”, produkcja `2026-10`). Miesiące wcześniejsze to archiwum Compassa: zamknięcie
   przechodzi bez rozliczeń, `prepare` = 422, a premia z nich jest wypłacona przy zamkniętym

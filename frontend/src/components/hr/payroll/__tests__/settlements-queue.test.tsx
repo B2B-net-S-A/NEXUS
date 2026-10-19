@@ -122,4 +122,26 @@ describe("SettlementsQueue", () => {
       reason: "Zaokrąglenie godzin",
     });
   });
+
+  it("powód „Uznaj różnicę” nie przechodzi do „Oznacz jako opłacone” (audyt A2)", async () => {
+    const user = userEvent.setup();
+    window.history.replaceState({}, "", "/people/payroll/x?view=settlements&settlement=5003");
+    wrap(<SettlementsQueue year={scene.year} month={scene.month} />, (client) => {
+      client.setQueryData(settlementKeys.month(scene.year, scene.month), queue(scene));
+      client.setQueryData(settlementKeys.detail(5003), { ...mismatchDetail(scene), can_mark_paid: true });
+    });
+    const dialog = await screen.findByRole("dialog");
+
+    await user.click(within(dialog).getByRole("button", { name: "Uznaj różnicę" }));
+    await user.type(within(dialog).getByLabelText("Powód uznania różnicy"), "Zaokrąglenie godzin");
+    await user.click(within(dialog).getByRole("button", { name: "Oznacz jako opłacone" }));
+    expect(within(dialog).getByLabelText("Powód")).toHaveValue("");
+
+    await user.type(within(dialog).getByLabelText("Kwota przelewu"), "100");
+    // Przycisk panelu (stopka ma drugi o tej samej nazwie).
+    const panel = within(dialog).getByLabelText("Kwota przelewu").closest(".grid") as HTMLElement;
+    await user.click(within(panel).getByRole("button", { name: "Oznacz jako opłacone" }));
+    expect(within(dialog).getByRole("alert")).toHaveTextContent("Podaj powód ręcznego „opłacono”.");
+    expect(mocks.post).not.toHaveBeenCalled();
+  });
 });
