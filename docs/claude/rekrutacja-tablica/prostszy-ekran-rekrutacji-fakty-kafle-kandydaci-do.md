@@ -209,3 +209,33 @@ w profilu („Pasujące rekrutacje”, starszy wzór, bez bramki i progu). Rapor
   najwyżej 5. Chip tylko na kartach w tych kolumnach (`kanban-other-jobs-chip.tsx`); okienko
   wymienia rekrutacje i prowadzi do karty („Otwórz kartę”). „Screening razem” dochodzi w PR 2.
 - **Liczenie (D4):** weryfikacja w kilku rekrutacjach liczy się per rekrutacja, jak dotąd.
+
+## Plakietka stawki względem budżetu w wierszu (D3, 19.10.2026)
+
+Rekruter prosił, żeby wyszukiwanie AI „uwzględniało stawkę”. Decyzja D3:
+**ocena bez zmian** (stawka nadal NIE daje punktów — `scoring_service`,
+bramka `critical` → `_unscored`; pomiar 30.09: stawka w ocenie spychała osoby,
+które zespół wysyła), **za to w każdym wierszu okna „Kandydaci do dodania”
+widać stawkę względem budżetu rekrutacji**.
+
+- **Jedna reguła** `lib/rate-budget-badge.ts` (`rateBudgetBadge`) dla „Szukaj
+  w bazie”, „Propozycji z bazy” i „Nowych z ogłoszeń”: „w budżecie · 140 zł/h”
+  (≤ górnej granicy „od–do”, `budzet-rekrutacji-od-do.md`), „+12% ponad budżet
+  · 160 zł/h” — `warning-muted` do +15% włącznie, wyżej `destructive-muted`
+  (tuż nad progiem z jednym miejscem po przecinku: „+15,1%”). Rekrutacja bez
+  budżetu albo inna waluta — sama kwota (`muted`); brak stawki — nic.
+- **Stawka = „Stawka od”** (`candidate_rate_from.effective_rate`) — ta sama co
+  filtr i bramka: w „Szukaj w bazie” `rate_from_hourly` wiersza `GET
+  /api/candidates` (nie `expected_rate_hourly` profilu), w propozycjach
+  `expected_rate_hourly` z `proposal-facts`, a do ich wczytania
+  `detail.rateHourly`. Obie są PLN/h, więc stawki „nie godzinowej” tu nie ma.
+- **Miejsce:** pierwsza w rzędzie chipów pod wierszem (`pick-list.tsx`,
+  `pick-row-rate`), nie skraca się i nie liczy do trzech chipów wymagań —
+  rząd ma dalej najwyżej dwie linie. Zostaje też przy osobie dodanej
+  w oknie (chipy wymagań wtedy znikają).
+- **Kwota raz:** goła stawka zniknęła z linii faktów (`proposalFactsLine`,
+  linia „Szukaj w bazie”), a w propozycjach plakietka „Oczekuje +N% ponad
+  budżet” zostaje tylko wtedy, gdy serwer zgłasza `over_budget`, a liczby
+  stawki w wierszu nie ma. Podgląd osoby („Stawka od”) i panel propozycji bez zmian.
+- Harness `/preview/job-detail?sources=base|search` (budżet 95): w budżecie,
+  równo budżet, +7%, +25%, bez stawki.

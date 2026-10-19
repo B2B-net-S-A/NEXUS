@@ -2864,6 +2864,14 @@
    "v3_home": "okno „Kandydaci do dodania” → wiersz"
   },
   {
+   "id": "board.sources-row-rate",
+   "area": "pozyskiwanie",
+   "opis": "Plakietka stawki względem budżetu rekrutacji w wierszu („w budżecie · 140 zł/h”, „+12% ponad budżet · 160 zł/h”) — „Szukaj w bazie” i propozycje, ta sama reguła (D3, 19.10.2026)",
+   "file": "components/v2/recruitment/pick-list.tsx",
+   "marker": "pick-row-rate",
+   "v3_home": "okno „Kandydaci do dodania” → wiersz"
+  },
+  {
    "id": "board.sources-manual-tab",
    "area": "pozyskiwanie",
    "opis": "„Szukaj ręcznie” jako zakładka okna „Kandydaci do dodania” (szerokie okno, zaznaczenia nie giną)",

@@ -16,6 +16,9 @@
  *
  * 14.10.2026: „+ Dodaj” w wierszu, dodana osoba zostaje na liście z „Cofnij”
  * (usunięcie z rekrutacji), a pod faktami chipy powodu z rozbicia dopasowania.
+ *
+ * 19.10.2026 (D3): stawka nie stoi gołą kwotą w linii faktów — jest plakietką
+ * względem budżetu rekrutacji na początku rzędu chipów (`rateBudgetBadge`).
  */
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
@@ -37,7 +40,7 @@ import { requirementLabel } from "@/lib/keyword-requirements";
 import { yearsLabel } from "@/lib/proposal-facts";
 import type { EmploymentMarker } from "@/lib/employment-marker";
 import type { MatchBreakdown } from "@/lib/match-breakdown";
-import { formatHourlyRate } from "@/lib/proposals-merge";
+import { rateBudgetBadge } from "@/lib/rate-budget-badge";
 import { filtersToApiParams } from "@/lib/url-filters";
 
 import { PersonPreview } from "./PersonPreview";
@@ -64,6 +67,12 @@ interface SearchCandidate extends CandidateLite {
   location?: string | null;
   expected_rate_hourly?: number | string | null;
   expected_rate_currency?: string | null;
+  /**
+   * „Stawka od” (`candidate_rate_from.rate_summary`): ta sama stawka, którą
+   * czyta filtr i bramka — po przeliczeniu najniższa z 18 miesięcy, wcześniej
+   * stawka profilu. Zawsze PLN/h; `null` = brak stawki albo inna waluta.
+   */
+  rate_from_hourly?: number | string | null;
   match_snippets?: FieldSnippet[] | null;
   /** `GET /api/candidates` niesie znacznik „Pracuje u nas” przy każdej osobie. */
   employment_marker?: EmploymentMarker | null;
@@ -95,12 +104,6 @@ function fullName(c: SearchCandidate): string {
   return `${c.name ?? ""} ${c.lastname ?? ""}`.trim() || `Kandydat #${c.id}`;
 }
 
-function rateLabel(c: SearchCandidate): string | null {
-  if (c.expected_rate_currency && c.expected_rate_currency !== "PLN") return null;
-  const value = typeof c.expected_rate_hourly === "string" ? Number(c.expected_rate_hourly) : c.expected_rate_hourly;
-  return formatHourlyRate(value ?? null);
-}
-
 export interface SearchBaseTabOptions {
   enabled: boolean;
   seed: JobSearchSeed;
@@ -108,6 +111,8 @@ export interface SearchBaseTabOptions {
   talkChecks: readonly TalkCheck[];
   /** Awaria odczytu tej listy — nie udaje „nie ma o co pytać”. */
   talkChecksError?: string | null;
+  /** Budżet PLN/h rekrutacji (górna granica „od–do”) — plakietka stawki. */
+  budgetHourly?: number | null;
   /** Must-have zdaniem (`not_searchable_must`) — chip „? … — zapytaj” w wierszu. */
   askLabels?: readonly string[];
   /** Osoby już dodane w tym oknie (harness) — wiersz w stanie „Dodano · Cofnij”. */
@@ -132,6 +137,7 @@ export function useSearchBaseTab(
     seed,
     talkChecks,
     talkChecksError = null,
+    budgetHourly = null,
     askLabels = [],
     initialAddedIds,
     readOnly = false,
@@ -220,7 +226,7 @@ export function useSearchBaseTab(
     availabilityLabel: null,
     note: null,
     facts:
-      [getCurrentTitle(c), yearsLabel(c.years_it_experience), c.city?.trim() || null, rateLabel(c)]
+      [getCurrentTitle(c), yearsLabel(c.years_it_experience), c.city?.trim() || null]
         .filter(Boolean)
         .join(" · ") || null,
     sourceLabel: null,
@@ -229,6 +235,7 @@ export function useSearchBaseTab(
       ? [{ key: "added", label: "Dodano do „Nowych”", blocking: true }]
       : [],
     chips: breakdownReasonChips(breakdowns.get(c.id) ?? kept.get(c.id)?.breakdown, askLabels),
+    rateBadge: rateBudgetBadge({ rateHourly: c.rate_from_hourly, budgetHourly }),
     addState: undoing.has(c.id)
       ? "undoing"
       : addedIds.has(c.id)

@@ -10,6 +10,9 @@
  * ekranie (`onRowVisible` — dopasowanie liczy się bez przycisku), ma „+ Dodaj”
  * jednym kliknięciem, a po dodaniu zostaje z „Dodano do „Nowych” · rezerwacja
  * 12 h · Cofnij”. Pod faktami do trzech chipów powodu (`reason-chips.ts`).
+ *
+ * 19.10.2026 (decyzja D3): na początku rzędu chipów stała plakietka stawki
+ * względem budżetu (`lib/rate-budget-badge.ts`) — także przy osobie dodanej.
  */
 
 import { useEffect, useRef, type ReactNode, type RefObject } from "react";
@@ -22,6 +25,7 @@ import { eligibilityBadgeClass } from "@/lib/conflicts";
 import type { CvYearBadge } from "@/lib/proposal-facts";
 import { EmploymentPill } from "@/components/ds/EmploymentMarker";
 import type { EmploymentMarker } from "@/lib/employment-marker";
+import type { RateBudgetBadge, RateBudgetTone } from "@/lib/rate-budget-badge";
 import { cn } from "@/lib/utils";
 
 import { shortChipLabel, type ReasonChipList, type ReasonChipTone } from "./reason-chips";
@@ -46,6 +50,11 @@ export interface PickRow {
   extra?: ReactNode;
   /** Do trzech chipów „✓ / ✕ / ?” i „+N” (powód bez otwierania osoby). */
   chips?: ReasonChipList | null;
+  /**
+   * „w budżecie · 140 zł/h” / „+12% ponad budżet · 160 zł/h” — pierwsza
+   * w rzędzie chipów, nie liczy się do trzech chipów wymagań (D3, 19.10.2026).
+   */
+  rateBadge?: RateBudgetBadge | null;
   /**
    * „+ Dodaj” w toku, osoba dodana w tym oknie (wiersz zostaje z „Cofnij”)
    * albo cofanie w toku.
@@ -161,12 +170,21 @@ const CHIP_TITLE: Record<ReasonChipTone, string> = {
 const CHIP_BASE =
   "inline-flex min-w-0 max-w-full items-center gap-1 rounded px-1.5 py-0.5 text-[10.5px] font-semibold leading-4";
 
+const RATE_CLASS: Record<RateBudgetTone, string> = {
+  in: "bg-success-muted text-success-muted-foreground",
+  over: "bg-warning-muted text-warning-muted-foreground",
+  far: "bg-destructive-muted text-destructive-muted-foreground",
+  plain: "bg-muted text-muted-foreground",
+};
+
 /**
  * Chipy powodu pod całym wierszem (także pod przyciskami po prawej) —
- * najwyżej dwie linie, etykieta do ~18 znaków, cała w podpowiedzi.
+ * najwyżej dwie linie, etykieta do ~18 znaków, cała w podpowiedzi. Plakietka
+ * stawki stoi pierwsza i się nie skraca — chipy wymagań mają swoje trzy miejsca.
  */
-function ReasonChips({ chips }: { chips: ReasonChipList }) {
-  const { shown, hidden } = chips;
+function ReasonChips({ chips, rateBadge }: { chips: ReasonChipList | null; rateBadge: RateBudgetBadge | null }) {
+  const shown = chips?.shown ?? [];
+  const hidden = chips?.hidden ?? [];
   return (
     <div
       role="group"
@@ -174,6 +192,17 @@ function ReasonChips({ chips }: { chips: ReasonChipList }) {
       className="mt-1 flex max-h-11 flex-wrap gap-1 overflow-hidden pl-7"
       data-testid="pick-row-reasons"
     >
+      {rateBadge ? (
+        <span
+          title={rateBadge.title}
+          data-tone={`rate-${rateBadge.tone}`}
+          data-testid="pick-row-rate"
+          className={cn(CHIP_BASE, "shrink-0 whitespace-nowrap", RATE_CLASS[rateBadge.tone])}
+        >
+          <span className="sr-only">Stawka: </span>
+          {rateBadge.label}
+        </span>
+      ) : null}
       {shown.map((chip) => (
         <span
           key={`${chip.tone}-${chip.label}`}
@@ -227,6 +256,7 @@ function PickListItem({
   useReportWhenVisible(rowRef, row.candidateId, onRowVisible, scoreWithoutObserver);
   const blocking = row.warnings.find((w) => w.blocking);
   const added = row.addState === "added" || row.addState === "undoing";
+  const reasonChips = !added && row.chips && row.chips.shown.length > 0 ? row.chips : null;
   const checked = selectedNow && !added;
   const active = activeId === row.candidateId;
   const inputId = `add-candidate-${row.candidateId}`;
@@ -382,8 +412,11 @@ function PickListItem({
           </button>
         ) : null}
       </div>
-      {/* Pod całym wierszem, nie obok przycisków — inaczej chip mieścił 1–3 litery. */}
-      {!added && row.chips && row.chips.shown.length > 0 ? <ReasonChips chips={row.chips} /> : null}
+      {/* Pod całym wierszem, nie obok przycisków — inaczej chip mieścił 1–3 litery.
+          Osoba dodana: bez chipów wymagań (ma status z „Cofnij”), stawka zostaje. */}
+      {reasonChips || row.rateBadge ? (
+        <ReasonChips chips={reasonChips} rateBadge={row.rateBadge ?? null} />
+      ) : null}
     </li>
   );
 }

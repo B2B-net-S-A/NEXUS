@@ -49,7 +49,8 @@ describe("proposal-facts", () => {
         }),
         NOW,
       ),
-    ).toBe("Java Developer @ Firma · 5 lat dośw. · Gdańsk · do 2 dni w biurze · od razu · 160 zł/h");
+      // D3 (19.10.2026): stawka stoi w plakietce względem budżetu, nie w linii faktów.
+    ).toBe("Java Developer @ Firma · 5 lat dośw. · Gdańsk · do 2 dni w biurze · od razu");
   });
 
   it("staż, tryb pracy i stawka po polsku", () => {

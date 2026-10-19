@@ -86,6 +86,7 @@ import {
   type ProposalSortMode,
 } from "@/lib/proposal-facts";
 import { markerCoversEligibility } from "@/lib/employment-marker";
+import { rateBudgetBadge } from "@/lib/rate-budget-badge";
 import { useSimilarJobs } from "@/lib/similar-jobs-api";
 import { similarPeopleTotal } from "@/lib/similar-reassign";
 import { cn, formatRelativeTime } from "@/lib/utils";
@@ -183,6 +184,15 @@ function proposalRow(
 ): PickRow {
   const { row, detail } = entry;
   const source = row.sources.includes("reassign") ? "reassign" : row.sources[0];
+  // D3 (19.10.2026): stawka względem budżetu — ta sama plakietka co „Szukaj
+  // w bazie”. Fakty niosą „Stawkę od” dla każdego źródła, wiersz — gdy faktów
+  // jeszcze nie ma.
+  const factsRate = facts?.expected_rate_hourly ?? null;
+  const rateBadge = rateBudgetBadge({
+    rateHourly: factsRate ?? detail.rateHourly,
+    currency: factsRate != null ? facts?.expected_rate_currency : "PLN",
+    budgetHourly,
+  });
   const warnings: PickRow["warnings"] = [];
   // Skrzynka niesie znacznik od razu; fakty doczytują go dla pozostałych źródeł.
   const employment = detail.employment ?? facts?.employment_marker ?? null;
@@ -193,7 +203,9 @@ function proposalRow(
   }
   for (const code of row.warnings) {
     if (code === "over_budget") {
-      warnings.push(overBudgetWarning(detail.rateHourly, budgetHourly));
+      // Plakietka stawki mówi już, o ile ponad; „Ponad budżet” zostaje tylko
+      // wtedy, gdy serwer wie, a liczby stawki w wierszu nie ma.
+      if (!rateBadge) warnings.push(overBudgetWarning(detail.rateHourly, budgetHourly));
       continue;
     }
     if (
@@ -212,7 +224,8 @@ function proposalRow(
     candidateId: row.candidateId,
     fullName: row.fullName,
     fitScore: row.fitScore,
-    rateLabel: row.rateLabel,
+    // Kwota stoi w plakietce stawki — w linii faktów byłaby drugi raz.
+    rateLabel: rateBadge ? null : row.rateLabel,
     availabilityLabel: row.availabilityLabel,
     // Historia u TEGO klienta mówi więcej niż „był w podobnym projekcie”.
     note: clientHistoryLine(facts?.client_history) ?? row.reason ?? (facts ? null : detail.title),
@@ -222,6 +235,7 @@ function proposalRow(
     employment,
     warnings,
     chips: proposalReasonChips(detail.requirements, askLabels),
+    rateBadge,
   };
 }
 
@@ -359,6 +373,7 @@ function AddCandidatesPanelOpen({
     seed: searchSeed,
     talkChecks,
     talkChecksError: counts.isError ? apiErrorMessage(counts.error, "błąd serwera") : null,
+    budgetHourly,
     askLabels,
     initialAddedIds,
     readOnly,
