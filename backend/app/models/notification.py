@@ -292,6 +292,8 @@ class NotificationType(str, enum.Enum):
     admin_case_assigned = "admin_case_assigned"
     equipment_task = "equipment_task"
     equipment_protocol_signed = "equipment_protocol_signed"
+    # 0478: „Przypomnij” o zwrocie sprzętu — recepcja → posiadacz z kontem.
+    equipment_return_reminder = "equipment_return_reminder"
     # „Przekaż do front office” (D15): konsultant kończy projekt albo chce
     # zmiany — head pionu front office, Head of Recruitment i Delivery Leadzi;
     # osobisty (bez sekcji), bo front office nie ma sekcji Delivery.

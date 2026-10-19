@@ -341,6 +341,7 @@ async def list_items(
     holder: Optional[Literal["none", "user", "contract", "external", "academy"]] = None,
     q: Optional[str] = Query(default=None, max_length=120),
     free: bool = False,
+    unsigned: bool = False,
     limit: int = Query(default=200, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
     _: User = Depends(_manager),
@@ -353,6 +354,7 @@ async def list_items(
         holder=holder,
         q=q,
         free_only=free,
+        unsigned=unsigned,
         limit=limit,
         offset=offset,
     )
@@ -822,6 +824,19 @@ async def update_task(
     except EquipmentError as exc:
         raise _http(exc) from exc
     return {"id": task.id, "status": task.status}
+
+
+@router.post("/tasks/{task_id}/remind")
+async def remind_task_holder(
+    task_id: int,
+    current_user: User = Depends(_manager),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """„Przypomnij” przy zwrocie: dzwonek i mail do konta albo adres do wiadomości recepcji."""
+    try:
+        return await tasks.remind_holder(db, task_id, actor=current_user)
+    except EquipmentError as exc:
+        raise _http(exc) from exc
 
 
 # ── Import plików recepcji ────────────────────────────────────────────────────
