@@ -209,4 +209,59 @@ describe("PickList — dopasowanie bez klikania, „+ Dodaj”, „Cofnij” i p
     );
     expect(screen.queryByRole("group", { name: "Dlaczego ta osoba" })).toBeNull();
   });
+
+  it("plakietka stawki stoi pierwsza, nie zabiera miejsca chipom wymagań i zostaje przy dodanej osobie (D3)", () => {
+    const chips = {
+      shown: [
+        { tone: "met" as const, label: "Java" },
+        { tone: "gap" as const, label: "Kafka" },
+        { tone: "ask" as const, label: "Bankowość" },
+      ],
+      hidden: [{ tone: "met" as const, label: "SQL" }],
+    };
+    render(
+      <PickList
+        {...base}
+        onUndo={vi.fn()}
+        rows={[
+          row({
+            chips,
+            rateBadge: { tone: "far", label: "+25% ponad budżet · 175 zł/h", title: "Stawka kandydata 175 zł/h" },
+          }),
+          row({
+            candidateId: 2,
+            fullName: "Jan Testowy",
+            addState: "added",
+            chips,
+            rateBadge: { tone: "in", label: "w budżecie · 120 zł/h", title: "Stawka kandydata 120 zł/h" },
+          }),
+          row({ candidateId: 3, fullName: "Ola Bezstawki", chips }),
+        ]}
+      />,
+    );
+    const [over, added, noRate] = screen.getAllByRole("listitem");
+    const reasons = within(over).getByRole("group", { name: "Dlaczego ta osoba" });
+    expect([...reasons.children].map((c) => c.getAttribute("data-tone"))).toEqual([
+      "rate-far",
+      "met",
+      "gap",
+      "ask",
+      "more",
+    ]);
+    const rate = within(over).getByTestId("pick-row-rate");
+    expect(rate).toHaveTextContent("Stawka: +25% ponad budżet · 175 zł/h");
+    expect(rate).toHaveAttribute("title", "Stawka kandydata 175 zł/h");
+    expect(rate.className).toContain("bg-destructive-muted");
+    // Plakietka się nie skraca — chipy wymagań mają swoje skróty.
+    expect(rate.className).toContain("whitespace-nowrap");
+
+    // Dodana osoba: bez chipów wymagań, stawka zostaje.
+    const addedGroup = within(added).getByRole("group", { name: "Dlaczego ta osoba" });
+    expect([...addedGroup.children].map((c) => c.getAttribute("data-tone"))).toEqual(["rate-in"]);
+    expect(within(added).getByTestId("pick-row-rate").className).toContain("bg-success-muted");
+
+    // Bez stawki: same chipy wymagań.
+    expect(within(noRate).queryByTestId("pick-row-rate")).toBeNull();
+    expect(within(noRate).getByRole("group", { name: "Dlaczego ta osoba" }).children).toHaveLength(4);
+  });
 });

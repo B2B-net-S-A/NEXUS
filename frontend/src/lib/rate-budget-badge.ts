@@ -50,7 +50,7 @@ function isPln(currency: string | null | undefined): boolean {
 function percentOver(exact: number, far: boolean): string {
   const rounded = Math.max(1, Math.round(exact));
   if (far && rounded <= RATE_OVER_BUDGET_WARN_MAX_PCT) {
-    const tenths = Math.ceil(exact * 10) / 10;
+    const tenths = Math.max(RATE_OVER_BUDGET_WARN_MAX_PCT + 0.1, Math.round(exact * 10) / 10);
     return `+${tenths.toLocaleString("pl-PL", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`;
   }
   return `+${rounded}%`;

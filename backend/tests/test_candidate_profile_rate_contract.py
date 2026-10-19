@@ -309,6 +309,31 @@ def test_candidate_response_hides_foreign_legacy_rate_and_finance_preferences():
     assert "salary_currency" not in dumped
 
 
+def test_candidate_list_item_carries_the_rate_the_budget_badge_reads(monkeypatch):
+    """„Szukaj w bazie” (D3, 19.10.2026): plakietka stawki względem budżetu
+    czyta ``rate_from_hourly`` wiersza listy — tę samą stawkę co filtr i bramka
+    (``candidate_rate_from.effective_rate``), nie stawkę zapisaną w profilu."""
+    from app.services import candidate_rate_from as rf
+
+    monkeypatch.setattr(rf.settings, "CANDIDATE_RATE_FROM_ENABLED", True)
+    computed = CandidateResponse.model_validate(
+        _candidate_response_payload(
+            rate_from_computed_at=datetime(2026, 10, 1, tzinfo=timezone.utc),
+            rate_from_hourly="120.00",
+        )
+    )
+    assert computed.expected_rate_hourly == Decimal("160.00")
+    assert computed.model_dump()["rate_from_hourly"] == Decimal("120.00")
+    # Przed przeliczeniem — stawka profilu (PLN).
+    fresh = CandidateResponse.model_validate(_candidate_response_payload())
+    assert fresh.model_dump()["rate_from_hourly"] == Decimal("160.00")
+    # Inna waluta nie jest porównywalna z budżetem — brak stawki, nie liczba.
+    foreign = CandidateResponse.model_validate(
+        _candidate_response_payload(expected_rate_currency="EUR")
+    )
+    assert foreign.model_dump()["rate_from_hourly"] is None
+
+
 @pytest.mark.parametrize(
     "payload",
     [
