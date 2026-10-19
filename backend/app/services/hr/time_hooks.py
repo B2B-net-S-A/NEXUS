@@ -108,6 +108,7 @@ async def on_leave_approved(
         "removed_entries": 0,
         "timesheets_touched": 0,
         "locked_conflicts": [],
+        "sent_changed": [],
     }
     for (year, month), month_days in sorted(_by_month(days).items()):
         found = await find_timesheet(db, user_id, year, month)
@@ -152,6 +153,8 @@ async def on_leave_approved(
             )
         if removed or changed:
             result["timesheets_touched"] += 1
+            if timesheet.status in SENT_STATUSES:
+                result["sent_changed"].append(f"{year}-{month:02d}")
         result["removed_entries"] += len(removed)
     return result
 
@@ -161,7 +164,11 @@ async def on_leave_cancelled(
 ) -> dict[str, Any]:
     profile = await people.profile_of(db, user_id)
     employment_type = profile.employment_type if profile else None
-    result: dict[str, Any] = {"timesheets_touched": 0, "locked_conflicts": []}
+    result: dict[str, Any] = {
+        "timesheets_touched": 0,
+        "locked_conflicts": [],
+        "sent_changed": [],
+    }
     for year, month in sorted(_by_month(days)):
         found = await find_timesheet(db, user_id, year, month)
         if found is None:
@@ -174,4 +181,6 @@ async def on_leave_cancelled(
             db, timesheet=timesheet, employment_type=employment_type
         ):
             result["timesheets_touched"] += 1
+            if timesheet.status in SENT_STATUSES:
+                result["sent_changed"].append(f"{year}-{month:02d}")
     return result

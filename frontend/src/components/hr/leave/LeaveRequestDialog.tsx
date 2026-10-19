@@ -20,6 +20,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { apiErrorMessage } from "@/lib/api-error";
 import type { EmploymentType } from "@/lib/api/hr";
 import {
+  enterablePeople,
   useAttachLeaveProof,
   useEnterOnBehalf,
   useLeavePreview,
@@ -265,7 +266,7 @@ export function LeaveRequestDialog({
                   <SelectValue placeholder="Wybierz osobę" />
                 </SelectTrigger>
                 <SelectContent>
-                  {(people.data ?? []).map((row) => (
+                  {enterablePeople(people.data).map((row) => (
                     <SelectItem key={row.user_id} value={String(row.user_id)}>
                       {row.name}
                       {row.department ? ` · ${row.department}` : ""}

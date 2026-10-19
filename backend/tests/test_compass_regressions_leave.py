@@ -417,7 +417,11 @@ async def test_mail_forwarding_needs_the_persons_own_consent(
     async with AsyncSessionLocal() as db:
         boss = await _user(db, "delivery_lead", profile=True)
         stand_in = await _user(db, "recruiter", profile=True)
-        worker = await _user(db, "employee", profile=True, manager_user_id=boss.id)
+        # Umowa o pracę: wpis za osobę na B2B/zleceniu robią tylko Kadry (D5,
+        # decyzja Artura 19.10.2026) — kartoteka bez formy to w bazie B2B.
+        worker = await _user(
+            db, "employee", profile=True, manager_user_id=boss.id, employment_type="uop"
+        )
         await db.commit()
 
     smuggled = await app_client.post(
