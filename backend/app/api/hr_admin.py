@@ -196,6 +196,10 @@ async def put_entitlement(
         ) from exc
     await db.commit()
     profile = await people.profile_of(db, user_id)
+    # Podpowiedź 20/26 jest tylko przy UoP, więc zdradza formę — jak w kartotece:
+    # Kadry bez Płac jej nie dostają (19.10.2026).
+    form = await people.form_viewer(db, current_user)
+    shows_hint = profile is not None and form.sees_dates(user_id)
     return {
         "year": row.year,
         "entitlement_days": row.entitlement_days,
@@ -203,9 +207,10 @@ async def put_entitlement(
         "used_initial_days": row.used_initial_days,
         # D9: podpowiedź wymiaru z kartoteki (20/26) — tylko podpowiedź.
         "suggested_entitlement_days": statutory_entitlement(
-            profile.employment_type if profile else None,
-            profile.leave_seniority_years if profile else None,
-        ),
+            profile.employment_type, profile.leave_seniority_years
+        )
+        if shows_hint
+        else None,
     }
 
 

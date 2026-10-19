@@ -113,6 +113,8 @@ async def test_paid_pool_is_refused_on_mandate_and_seniority_suggests_20_or_26(
     async with AsyncSessionLocal() as db:
         hr = await make_user(db, "recruiter", profile=False)
         await grant(db, hr, "people_admin")
+        # Podpowiedź 20/26 zdradza formę — widzą ją Kadry z Płacami (19.10.2026).
+        await grant(db, hr, "payroll")
         mandate = await make_user(db, employment_type="zlecenie")
         contractor = await make_user(db, employment_type="b2b")
         senior = await make_user(db, employment_type="uop", leave_seniority_years=12)

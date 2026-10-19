@@ -200,3 +200,34 @@ async def test_pending_form_reads_as_to_fill_in_until_someone_saves_it(
             EmployeeProfile, (await people.profile_of(db, fresh.id)).id
         )
         assert profile.employment_type_pending is False
+
+
+@pytest.mark.asyncio
+@pytest.mark.usefixtures("time_on")
+async def test_pool_hint_and_former_manager_do_not_leak_the_form(app_client) -> None:
+    world = await _world()
+    async with AsyncSessionLocal() as db:
+        senior = await make_user(db, employment_type="uop", leave_seniority_years=12)
+        gone = await make_user(
+            db,
+            "recruiter",
+            manager_user_id=world["boss"].id,
+            employment_status="exited",
+        )
+        await db.commit()
+
+    # Podpowiedź 20/26 jest tylko przy UoP — Kadry bez Płac jej nie dostają.
+    pool = await app_client.put(
+        f"/api/hr/admin/profiles/{senior.id}/entitlements/2091",
+        json={"entitlement_days": 26},
+        headers=headers(world["hr"]),
+    )
+    assert pool.status_code == 200, pool.text
+    assert pool.json()["suggested_entitlement_days"] is None
+
+    # Były przełożony osoby, która odeszła: wizytówka, nie pełna kartoteka.
+    card = await app_client.get(
+        f"/api/hr/people/{gone.id}", headers=headers(world["boss"])
+    )
+    assert card.status_code == 200, card.text
+    assert card.json()["scope"] == "card"
