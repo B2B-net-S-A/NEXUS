@@ -146,3 +146,67 @@ async def test_payroll_locked_month_is_reported_not_changed(app_client) -> None:
         timesheet = await db.get(Timesheet, ts_id)
         assert timesheet.pdf_hash == old_hash
         assert len(await entries_of(db, ts_id)) == 3
+
+
+@pytest.mark.usefixtures("time_on")
+@pytest.mark.asyncio
+async def test_auto_entry_change_marks_the_draft_as_changed_in_nexus(
+    app_client,
+) -> None:
+    # Audyt 19.10.2026 (zgłoszenie A4): odwołanie płatnego urlopu B2B kasowało
+    # auto-wpis bez podbicia `timesheets.updated_at`, więc ponowny import
+    # z Compassa brał szkic za niezmieniony i przywracał 8 h z odwołanego
+    # wniosku. Każda zmiana auto-wpisów to zmiana w NEXUSIE (jak usunięcie wpisu).
+    async with AsyncSessionLocal() as db:
+        worker = await make_user(db, "employee", employment_type="b2b")
+        await db.commit()
+    h = headers(worker)
+    added = await app_client.post(
+        f"{BASE}/entries",
+        json={"work_date": f"{Y}-05-05", "hours": 8, "description": "Praca"},
+        headers=h,
+    )
+    assert added.status_code == 201, added.text
+    async with AsyncSessionLocal() as db:
+        ts_id = (await db.get(TimesheetEntry, added.json()["id"])).timesheet_id
+        await db.execute(
+            text(
+                "UPDATE timesheets SET updated_at = now() - interval '2 days' "
+                "WHERE id = :id"
+            ),
+            {"id": ts_id},
+        )
+        await db.commit()
+        before = (await db.get(Timesheet, ts_id)).updated_at
+
+    async with AsyncSessionLocal() as db:
+        leave_id = await add_leave(db, worker.id, [date(Y, M, 6)])
+        await on_leave_approved(db, worker.id, [date(Y, M, 6)])
+        await db.commit()
+    async with AsyncSessionLocal() as db:
+        after_approve = (await db.get(Timesheet, ts_id)).updated_at
+        await db.execute(
+            text(
+                "UPDATE timesheets SET updated_at = now() - interval '2 days' "
+                "WHERE id = :id"
+            ),
+            {"id": ts_id},
+        )
+        await db.commit()
+        reset = (await db.get(Timesheet, ts_id)).updated_at
+        await set_leave_status(db, leave_id, "cancelled")
+        await on_leave_cancelled(db, worker.id, [date(Y, M, 6)])
+        await db.commit()
+    async with AsyncSessionLocal() as db:
+        after_cancel = (await db.get(Timesheet, ts_id)).updated_at
+        auto = list(
+            await db.scalars(
+                select(TimesheetEntry).where(
+                    TimesheetEntry.timesheet_id == ts_id,
+                    TimesheetEntry.source == "leave_paid",
+                )
+            )
+        )
+    assert after_approve > before
+    assert auto == []
+    assert after_cancel > reset
