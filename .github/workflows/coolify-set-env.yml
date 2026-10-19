@@ -137,6 +137,19 @@ jobs:
           while IFS= read -r _line; do
             [ -n "$_line" ] && echo "::add-mask::${_line}"
           done <<< "${VALUE}"
+
+          # Wartość w jednym wierszu (19.10.2026): Coolify zapisuje zmienne do
+          # `.env` bez cudzysłowów, więc drugi wiersz staje się „nazwą zmiennej”
+          # i `docker compose pull` pada przy KAŻDYM deployu, aż ktoś zmienną
+          # wyczyści. Wtedy był to wklejony cały mail z tokenem JJIT. Końcowe
+          # znaki nowej linii (sekret z `gh secret set < plik`) ucinamy.
+          while [[ "${VALUE}" == *$'\n' || "${VALUE}" == *$'\r' ]]; do
+            VALUE="${VALUE%?}"
+          done
+          if [[ "${VALUE}" == *$'\n'* || "${VALUE}" == *$'\r'* ]]; then
+            echo "Wartość '${KEY}' ma wiele wierszy — Coolify nie zapisze jej do .env i każdy deploy padnie. Podaj samą wartość w jednym wierszu (np. sam token, bez treści maila)." >&2
+            exit 1
+          fi
           echo "długość wartości: ${#VALUE} zn."
 
           base="${COOLIFY_URL%/}"
