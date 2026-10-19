@@ -38,7 +38,9 @@ interface ActiveFilterChipsProps {
  /**
   * Wiersze „musi mieć” Championa spoza krytycznych (okno „Szukaj ręcznie”,
   * `splitByCritical().must`). Serwer dostaje je razem z „Mile widziane”
-  * (podnoszą w kolejności, nie wycinają), ale chip mówi, skąd są —
+  * (liczą się w ocenie, nie wycinają), ale chip mówi „Musi mieć (DL)” — „nie
+  * wycina” stoi w podpowiedzi (dłuższa etykieta ucinała nazwę przy 180 px);
+  * samo „Musi mieć:” to twardy filtr umiejętności —
   * zgłoszenie 19.10.2026: rekruter widział swoje must-have jako „Mile widziane”.
   */
  mustRows?: readonly (readonly string[])[];
@@ -104,6 +106,8 @@ interface Chip {
  clear: () => void;
  /** „Mile widziane” → twardy filtr (przycisk „Wymagaj” obok chipu). */
  require?: () => void;
+ /** Podpowiedź nad chipem; bez niej pełna etykieta (chip ucina ją przy 180 px). */
+ hint?: string;
 }
 
 function collectChips(
@@ -395,7 +399,10 @@ function collectChips(
  const must = mustKeys?.has(rowKey(row)) ?? false;
  chips.push({
  key: `q-pref:${row.join("|")}:${i}`,
- label: `${must ? "Musi mieć (nie wycina)" : "Mile widziane"}: ${row.join(" lub ")}`,
+ label: `${must ? "Musi mieć (DL)" : "Mile widziane"}: ${row.join(" lub ")}`,
+ hint: must
+ ? `Musi mieć (Delivery Lead): ${row.join(" lub ")} — nie wycina, podnosi w ocenie. „Wymagaj” zamienia w filtr.`
+ : undefined,
  clear: () =>
  onUpdate({
  qPreferred: filters.qPreferred.filter((_, idx) => idx !== i),
@@ -808,6 +815,7 @@ export function ActiveFilterChips({
  onClick={chip.clear}
  className="group inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded-full bg-primary/10 text-primary hover:bg-primary hover:text-primary-foreground transition-colors"
  aria-label={`Usuń filtr: ${chip.label}`}
+ title={chip.hint ?? chip.label}
  >
  <span className="truncate max-w-[180px]">{chip.label}</span>
  <X className="h-3 w-3 opacity-70 group-hover:opacity-100" />
@@ -820,7 +828,7 @@ export function ActiveFilterChips({
  <button
  onClick={chip.require}
  className="px-1.5 py-0.5 text-xs rounded-full text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors"
- aria-label={`Wymagaj: ${chip.label.replace(/^(Mile widziane|Musi mieć \(nie wycina\)): /, "")}`}
+ aria-label={`Wymagaj: ${chip.label.replace(/^(Mile widziane|Musi mieć \(DL\)): /, "")}`}
  title="Zamień na filtr — pokaż tylko pasujących"
  >
  Wymagaj

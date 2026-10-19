@@ -167,8 +167,12 @@ describe("ActiveFilterChips — etykiety etapów", () => {
       // Kolejność wariantów i wielkość liter nie mają znaczenia.
       [["xray", "JIRA"], ["ISTQB"]],
     );
-    expect(screen.getByText("Musi mieć (nie wycina): Jira lub Xray")).toBeInTheDocument();
-    expect(screen.getByText("Musi mieć (nie wycina): ISTQB")).toBeInTheDocument();
+    expect(screen.getByText("Musi mieć (DL): Jira lub Xray")).toBeInTheDocument();
+    expect(screen.getByText("Musi mieć (DL): ISTQB")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Usuń filtr: Musi mieć (DL): ISTQB" })).toHaveAttribute(
+      "title",
+      expect.stringContaining("nie wycina"),
+    );
     expect(screen.getByText("Mile widziane: kategoria testów")).toBeInTheDocument();
     expect(screen.queryByText("Mile widziane: ISTQB")).toBeNull();
 

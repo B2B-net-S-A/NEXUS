@@ -44,14 +44,17 @@ must-have łączone przez I znajdowały 39%. Reguły, które łatwo cofnąć:
   Championa, krytyczne albo „mile widziane”) dla okna, zakładki i kafla.
   Licznik w edytorze Championa (`SearchRequirementsEditor`) nadal liczy
   klasyfikacją — do wyrównania razem z edytorem (osobny PR).
-- **Chip „Musi mieć (nie wycina)”** (19.10.2026, D2): wiersze „musi mieć” Championa
+- **Chip „Musi mieć (DL)”** (19.10.2026, D2): wiersze „musi mieć” Championa
   spoza krytycznych idą do serwera jak dotąd w `qPreferred` (nic nie wycinają), ale
   okno rekrutacji podaje je liście (`embed.mustRows` = `splitByCritical().must`)
-  i `ActiveFilterChips` podpisuje je „Musi mieć (nie wycina): …” zamiast „Mile
-  widziane: …” (porównanie bez wielkości liter i kolejności wariantów). Zgłoszenie
-  rekrutera: widział swoje must-have jako „mile widziane” i uznał, że AI je pomija.
-  „Wymagaj” działa jak przy każdym chipie. Kolejność: od 19.10 w rekrutacji nie
-  grupuje po tych wierszach (`kolejnosc-dopasowanie-i-gorne-pole-listy.md`, D1).
+  i `ActiveFilterChips` podpisuje je „Musi mieć (DL): …” zamiast „Mile widziane: …”
+  (porównanie bez wielkości liter i kolejności wariantów), a podpowiedź mówi „nie
+  wycina, podnosi w ocenie”. Samo „Musi mieć: …” to twardy filtr umiejętności —
+  nie skracaj do niego. Dłuższe „Musi mieć (nie wycina): …” ucinało nazwę (chip
+  ma 180 px). Każdy chip ma pełną treść w `title`. Zgłoszenie rekrutera: widział
+  swoje must-have jako „mile widziane” i uznał, że AI je pomija. Kolejność: od
+  19.10 w rekrutacji nie grupuje po tych wierszach
+  (`kolejnosc-dopasowanie-i-gorne-pole-listy.md`, D1).
 - **Słowo kluczowe ma co najmniej 2 znaki — także „C” i „R”** (przegląd
   PR #2056): jako słowo kluczowe znajdowały prawie całą bazę (token `r`
   z „2019 r.”, `c` z „C++”/„C#”). Front mówi to przy polu („Pojedynczą literę
