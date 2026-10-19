@@ -422,9 +422,11 @@ async def test_signature_permission_alone_does_not_terminate_a_contract(
         termination_date="2026-10-31",
         last_service_date="2026-10-31",
     )
-    # Rekruter z nadanym oznaczaniem podpisu, bez zakończenia współpracy.
+    # Rekruter z nadanym oznaczaniem podpisu, bez zakończenia współpracy —
+    # w zespole rekrutacji umowy (19.10.2026: bez tego podpisu nie oznacza).
     signer_headers, signer_id = await _seed_user(app_client, "recruiter")
     await grant_permissions(signer_id, "b2b_signature_confirmation")
+    await _put_in_team_of(rid, signer_id)
 
     effects = await app_client.get(
         f"{BASE}/documents/{doc_id}/effects", headers=signer_headers
@@ -444,6 +446,102 @@ async def test_signature_permission_alone_does_not_terminate_a_contract(
 
     # To samo uprawnienie, które daje „Zakończ współpracę”, odblokowuje skutek.
     await grant_permissions(signer_id, "contract_status")
+    signed = await app_client.post(
+        f"{BASE}/documents/{doc_id}/confirm-signed", headers=signer_headers
+    )
+    assert signed.status_code == 200, signed.text
+    async with AsyncSessionLocal() as db:
+        contract = await db.get(Contract, contract_id)
+        assert contract.terminated_at == date(2026, 10, 31)
+
+
+async def _put_in_team_of(parent_id: int, recruiter_id: int) -> None:
+    """Umowa bazowa trafia do rekrutacji prowadzonej przez ``recruiter_id``."""
+    from app.models.b2b_generated_contract import B2BGeneratedContract
+    from app.models.job import Job, JobStatus
+
+    async with AsyncSessionLocal() as db:
+        parent = await db.get(B2BGeneratedContract, parent_id)
+        job = Job(
+            title="Podpis dokumentu",
+            status=JobStatus.published,
+            client_id=parent.client_id,
+            recruiter_id=recruiter_id,
+        )
+        db.add(job)
+        await db.flush()
+        parent.job_id = job.id
+        await db.commit()
+
+
+async def _listed_document(app_client, headers, parent_id: int, doc_id: int) -> dict:
+    resp = await app_client.get(
+        f"{BASE}/documents",
+        headers=headers,
+        params={"parent_generated_contract_id": parent_id},
+    )
+    assert resp.status_code == 200, resp.text
+    return next(item for item in resp.json() if item["id"] == doc_id)
+
+
+async def test_signature_holder_confirms_documents_of_own_team_only(
+    app_client, app_auth_headers
+):
+    """Decyzja Artura 19.10.2026: podpis aneksu, wypowiedzenia i porozumienia
+    oznacza ta sama osoba co podpis umowy — autor dokumentu albo umowy, zespół
+    rekrutacji umowy, admin, HoR, TCM albo Delivery Lead. Imienne uprawnienie
+    nie otwiera dokumentów do cudzych umów w całej firmie; lista i endpointy
+    mówią to samo."""
+    from app.api.b2b_documents import _DOCUMENT_SIGNATURE_SCOPE_DENIED
+    from app.models.contract import Contract
+    from tests._permission_grants import grant_permissions
+
+    rid, contract_id = await _signed_parent(app_client)
+    doc_id = await _create(
+        app_client,
+        app_auth_headers,
+        "termination_agreement",
+        rid,
+        termination_date="2026-10-31",
+        last_service_date="2026-10-31",
+    )
+    signer_headers, signer_id = await _seed_user(app_client, "recruiter")
+    await grant_permissions(signer_id, "b2b_signature_confirmation", "contract_status")
+
+    item = await _listed_document(app_client, signer_headers, rid, doc_id)
+    assert item["can_confirm_signed"] is False
+
+    denied = await app_client.post(
+        f"{BASE}/documents/{doc_id}/confirm-signed", headers=signer_headers
+    )
+    assert denied.status_code == 403, denied.text
+    assert denied.json()["detail"] == _DOCUMENT_SIGNATURE_SCOPE_DENIED
+    scan = await app_client.post(
+        f"{BASE}/documents/{doc_id}/signed-scan",
+        headers=signer_headers,
+        files={"file": ("skan.pdf", b"%PDF-1.4 skan", "application/pdf")},
+    )
+    assert scan.status_code == 403, scan.text
+    assert scan.json()["detail"] == _DOCUMENT_SIGNATURE_SCOPE_DENIED
+    notice = await app_client.post(
+        f"{BASE}/documents/partner-notice",
+        headers=signer_headers,
+        json={
+            "parent_generated_contract_id": rid,
+            "delivered_on": "2026-10-01",
+            "termination_date": "2026-10-31",
+        },
+    )
+    assert notice.status_code == 403, notice.text
+    assert notice.json()["detail"] == _DOCUMENT_SIGNATURE_SCOPE_DENIED
+    async with AsyncSessionLocal() as db:
+        contract = await db.get(Contract, contract_id)
+        assert contract.terminated_at is None
+
+    # Ta sama osoba w zespole rekrutacji umowy — przycisk i podpis działają.
+    await _put_in_team_of(rid, signer_id)
+    item = await _listed_document(app_client, signer_headers, rid, doc_id)
+    assert item["can_confirm_signed"] is True
     signed = await app_client.post(
         f"{BASE}/documents/{doc_id}/confirm-signed", headers=signer_headers
     )

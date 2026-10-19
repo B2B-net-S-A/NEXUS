@@ -34,6 +34,7 @@ from sqlalchemy.orm import selectinload
 
 from app.api.b2b_contract_generator import (
     _DOCX_MEDIA,
+    _SIGNS_EVERY_CONTRACT_ROLES,
     _ascii_filename,
     _assert_generator_client_access,
     _assert_link_same_person,
@@ -41,8 +42,10 @@ from app.api.b2b_contract_generator import (
     _generated_search_clause,
     _generator_unscoped,
     _has_signature_permission,
+    _jobs_run_by,
     _like_needle,
     _load_legal_scoped_job,
+    _may_confirm_row_signature,
     _rate_visibility,
     _require_contract_generation,
     _require_generated_contract_management,
@@ -826,6 +829,71 @@ async def _resolve_rate_clients(
     return {**values, "rate_items": resolved}
 
 
+_DOCUMENT_SIGNATURE_SCOPE_DENIED = (
+    "Podpis tego dokumentu oznacza osoba, która wygenerowała dokument albo "
+    "umowę, zespół rekrutacji umowy, Delivery Lead klienta albo TCM."
+)
+
+
+def _signature_job_id(
+    doc: B2BContractDocument | None, parent: B2BGeneratedContract | None
+) -> int | None:
+    if parent is not None:
+        return parent.job_id
+    return doc.job_id if doc is not None else None
+
+
+def _may_confirm_document_signature(
+    user: User,
+    *,
+    doc: B2BContractDocument | None,
+    parent: B2BGeneratedContract | None,
+    team_job_ids: set[int],
+) -> bool:
+    """Reguła podpisu umowy (``_may_confirm_row_signature``) dla dokumentu do
+    niej i wypowiedzenia Partnera (decyzja Artura 19.10.2026).
+
+    Do 19.10 samo uprawnienie „Umowy B2B: oznaczanie jako podpisane” otwierało
+    dokumenty w całej firmie, więc nie dało się go nadać roli Rekruter. Autor
+    dokumentu liczy się tak samo jak autor umowy. Nikt tu nie wskazuje
+    rekrutacji, więc umowa bez rekrutacji zostaje autorowi i rolom
+    z ``_SIGNS_EVERY_CONTRACT_ROLES``."""
+    if doc is not None and doc.created_by is not None and doc.created_by == user.id:
+        return True
+    return _may_confirm_row_signature(
+        user,
+        created_by=parent.created_by if parent is not None else None,
+        job_id=_signature_job_id(doc, parent),
+        team_job_ids=team_job_ids,
+        open_without_job=False,
+    )
+
+
+async def _signature_team_job_ids(
+    db: AsyncSession, user: User, job_ids: set[int]
+) -> set[int]:
+    if user.has_any_role(*_SIGNS_EVERY_CONTRACT_ROLES):
+        return set()
+    return await _jobs_run_by(db, user, job_ids)
+
+
+async def _require_document_signature_scope(
+    db: AsyncSession,
+    user: User,
+    *,
+    doc: B2BContractDocument | None,
+    parent: B2BGeneratedContract | None,
+) -> None:
+    job_id = _signature_job_id(doc, parent)
+    team_job_ids = await _signature_team_job_ids(
+        db, user, {job_id} if job_id is not None else set()
+    )
+    if not _may_confirm_document_signature(
+        user, doc=doc, parent=parent, team_job_ids=team_job_ids
+    ):
+        raise HTTPException(status_code=403, detail=_DOCUMENT_SIGNATURE_SCOPE_DENIED)
+
+
 async def _users(db: AsyncSession, ids: set[int]) -> dict[int, str]:
     if not ids:
         return {}
@@ -852,6 +920,24 @@ async def _serialize(
         can_sign = True
     except HTTPException:
         can_sign = False
+    signature_team_job_ids = (
+        await _signature_team_job_ids(
+            db,
+            user,
+            {
+                job_id
+                for r in rows
+                if (
+                    job_id := _signature_job_id(
+                        r, parents.get(r.parent_generated_contract_id or -1)
+                    )
+                )
+                is not None
+            },
+        )
+        if can_sign
+        else set()
+    )
     # Aneks stawki potwierdza też posiadacz „Stawki i kwoty: zmiana” bez
     # uprawnienia do oznaczania podpisu (domyślnie Finanse, decyzja Artura
     # 27.09.2026). Konto z rolą Delivery Leada — tylko u klienta
@@ -1026,7 +1112,15 @@ async def _serialize(
                 can_confirm_signed=open_unsigned
                 and not orphan
                 and (
-                    can_sign
+                    (
+                        can_sign
+                        and _may_confirm_document_signature(
+                            user,
+                            doc=row,
+                            parent=parent,
+                            team_job_ids=signature_team_job_ids,
+                        )
+                    )
                     or (
                         row.document_type == RATE_ANNEX_TYPE
                         and can_manage_finance_amounts(
@@ -2117,22 +2211,25 @@ async def _assert_confirmer_of(
     user: User,
     doc: B2BContractDocument,
     doc_type: DocumentType,
+    parent: B2BGeneratedContract | None,
     *,
     amounts_only: bool,
 ) -> None:
-    """Posiadacz samej zmiany kwot potwierdza wyłącznie aneks stawki u klienta,
-    u którego zmienia kwoty; resztę bramek i blokad liczy ``effects.describe``."""
-    if amounts_only and not (
-        doc_type.key == RATE_ANNEX_TYPE
-        and can_manage_finance_amounts(
-            user,
-            client_id=doc.client_id,
-            delivery_lead_finance_client_ids=(
-                await resolve_delivery_lead_finance_client_ids(user, db)
-            ),
-        )
+    """Aneks stawki potwierdza posiadacz zmiany kwot u klienta, u którego
+    zmienia kwoty. Każdy inny dokument — posiadacz uprawnienia podpisu w tym
+    samym zakresie co podpis umowy (``_may_confirm_document_signature``,
+    19.10.2026). Resztę bramek i blokad liczy ``effects.describe``."""
+    if doc_type.key == RATE_ANNEX_TYPE and can_manage_finance_amounts(
+        user,
+        client_id=doc.client_id,
+        delivery_lead_finance_client_ids=(
+            await resolve_delivery_lead_finance_client_ids(user, db)
+        ),
     ):
+        return
+    if amounts_only:
         _require_signature_confirmation(user)
+    await _require_document_signature_scope(db, user, doc=doc, parent=parent)
 
 
 @router.post("/documents/{doc_id}/signed-scan", response_model=DocumentItem)
@@ -2153,7 +2250,7 @@ async def upload_signed_scan(
     locked_contract_id = await _lock_contract_first(db, doc_id=doc_id)
     doc, doc_type, parent = await _load_document(db, current_user, doc_id, lock=True)
     await _assert_confirmer_of(
-        db, current_user, doc, doc_type, amounts_only=amounts_only
+        db, current_user, doc, doc_type, parent, amounts_only=amounts_only
     )
     _assert_same_locked_contract(
         locked_contract_id, effects.current_contract_id(doc, parent)
@@ -2201,7 +2298,7 @@ async def confirm_document_signed(
     locked_contract_id = await _lock_contract_first(db, doc_id=doc_id)
     doc, doc_type, parent = await _load_document(db, current_user, doc_id, lock=True)
     await _assert_confirmer_of(
-        db, current_user, doc, doc_type, amounts_only=amounts_only
+        db, current_user, doc, doc_type, parent, amounts_only=amounts_only
     )
     _assert_same_locked_contract(
         locked_contract_id, effects.current_contract_id(doc, parent)
@@ -2565,6 +2662,7 @@ async def register_partner_notice(
                     .with_for_update()
                 )
     parent = await _load_parent(db, body.parent_generated_contract_id, lock=True)
+    await _require_document_signature_scope(db, current_user, doc=None, parent=parent)
     _assert_same_locked_contract(locked_contract_id, parent.contract_id)
     await _assert_signature_client_access(db, current_user, parent.client_id)
     await _assert_generator_client_access(
