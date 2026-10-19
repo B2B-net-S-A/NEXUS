@@ -788,7 +788,10 @@ async def test_reclose_after_paid_refuses_changed_amount(app_client) -> None:
         close_url, json={"acknowledge_warnings": True}, headers=headers(team.finance)
     )
     assert refused.status_code == 409, refused.text
-    assert "opłacone rozliczenie" in refused.json()["detail"]
+    detail = refused.json()["detail"]
+    assert detail["code"] == "paid_settlement_changed"
+    assert "opłacone rozliczenie" in detail["message"]
+    assert detail["people"][0]["user_id"] == team.mandate.id
     async with AsyncSessionLocal() as db:
         period_status = await db.scalar(
             select(PayrollSettlement.status).where(PayrollSettlement.id == row.id)
