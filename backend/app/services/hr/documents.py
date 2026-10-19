@@ -210,7 +210,7 @@ async def attach_generated(
     if sniffed != mime:
         raise HrDocumentError("Treść pliku nie zgadza się z podanym typem.")
     await _ensure_user(db, user_id)
-    path = documents_store.save(user_id, content, mime=mime, digest=digest)
+    path, created = _save_file(user_id, content, mime=mime, digest=digest)
     document = HrDocument(
         user_id=user_id,
         kind=kind,
@@ -236,8 +236,14 @@ async def attach_generated(
     except IntegrityError:
         existing = await _by_source(db, source, ref)
         if existing is None:
+            _discard_new_file(path, created)
             raise
+        if existing.file_path != path:
+            _discard_new_file(path, created)
         return existing
+    except BaseException:
+        _discard_new_file(path, created)
+        raise
     audit.record(
         db,
         actor_user_id=actor_id,
@@ -248,6 +254,29 @@ async def attach_generated(
         details={"kind": kind, "source": source, "source_ref": ref},
     )
     return document
+
+
+def _save_file(
+    user_id: int, content: bytes, *, mime: str, digest: str
+) -> tuple[str, bool]:
+    """Zapisuje plik przed wierszem; zwraca (ścieżka, czy to wołanie go utworzyło)."""
+
+    created = not documents_store.exists(
+        documents_store.relative_path(user_id, digest, mime)
+    )
+    return documents_store.save(user_id, content, mime=mime, digest=digest), created
+
+
+def _discard_new_file(path: str, created: bool) -> None:
+    """Wiersz się nie zapisał (wyjątek = rollback) — plik nie może zostać sierotą.
+
+    Kasujemy tylko plik utworzony przez to wołanie: ten sam plik, który już
+    leżał na dysku, należy do innego dokumentu osoby (np. usuniętego, którego
+    plik zniknie po commicie).
+    """
+
+    if created:
+        delete_files([path])
 
 
 async def _by_source(db: AsyncSession, source: str, ref: str) -> Optional[HrDocument]:
@@ -271,6 +300,21 @@ class Audience:
 def default_audience(kind: str) -> Audience:
     person, payroll, equipment = DEFAULT_AUDIENCE[_check_kind(kind)]
     return Audience(person=person, payroll=payroll, equipment=equipment)
+
+
+#: Potwierdzenie nieobecności niesie dane o zdrowiu (rodzaj nieobecności).
+ABSENCE_PROOF = "absence_proof"
+
+
+def check_audience(kind: str, audience: Audience) -> None:
+    """Krąg, którego rodzaj dokumentu nie dopuszcza, = 422.
+
+    Potwierdzenie nieobecności widzą tylko osoba i Kadry — bez Płac i recepcji
+    (reguła załącznika wniosku urlopowego), także po zmianie kręgu przez Kadry.
+    """
+
+    if kind == ABSENCE_PROOF and (audience.payroll or audience.equipment):
+        raise HrDocumentError("Potwierdzenie nieobecności widzą tylko osoba i Kadry.")
 
 
 async def upload(
@@ -303,45 +347,55 @@ async def upload(
     if await _live_upload_exists(db, user_id, digest):
         raise HrDocumentError("Ten plik jest już w dokumentach tej osoby.", 409)
     chosen = audience or default_audience(kind)
+    check_audience(kind, chosen)
     previous_until = (
         await documents_student.latest_until(db, user_id) if purpose else None
     )
-    path = documents_store.save(user_id, content, mime=mime, digest=digest)
-    document = HrDocument(
-        user_id=user_id,
-        kind=kind,
-        purpose=purpose,
-        title=clean_title,
-        source="upload",
-        source_ref=None,
-        file_path=path,
-        file_name=clean_file_name(file_name),
-        mime=mime,
-        size_bytes=len(content),
-        sha256=digest,
-        valid_until=valid_until,
-        visible_to_person=chosen.person,
-        visible_to_payroll=chosen.payroll,
-        visible_to_equipment=chosen.equipment,
-        added_by=actor.id,
-    )
+    path, created = _save_file(user_id, content, mime=mime, digest=digest)
+    # Plik leży na dysku przed wierszem — każdy wyjątek dalej (409, kartoteka
+    # odrzuca zapis) cofa transakcję, więc nowy plik znika razem z nią.
     try:
-        async with db.begin_nested():
-            db.add(document)
-            await db.flush()
-    except IntegrityError:
-        raise HrDocumentError(
-            "Ten plik jest już w dokumentach tej osoby.", 409
-        ) from None
-    sync = None
-    if purpose == STUDENT_STATUS and valid_until is not None:
-        sync = await documents_student.sync(
-            db,
+        document = HrDocument(
             user_id=user_id,
-            until=valid_until,
-            came_from=previous_until,
-            actor=actor,
+            kind=kind,
+            purpose=purpose,
+            title=clean_title,
+            source="upload",
+            source_ref=None,
+            file_path=path,
+            file_name=clean_file_name(file_name),
+            mime=mime,
+            size_bytes=len(content),
+            sha256=digest,
+            valid_until=valid_until,
+            visible_to_person=chosen.person,
+            visible_to_payroll=chosen.payroll,
+            visible_to_equipment=chosen.equipment,
+            added_by=actor.id,
         )
+        try:
+            async with db.begin_nested():
+                db.add(document)
+                await db.flush()
+        except IntegrityError:
+            # Równoległe wgranie tego samego pliku wygrało — plik (ta sama
+            # ścieżka ze skrótu treści) należy do jego wiersza.
+            created = False
+            raise HrDocumentError(
+                "Ten plik jest już w dokumentach tej osoby.", 409
+            ) from None
+        sync = None
+        if purpose == STUDENT_STATUS and valid_until is not None:
+            sync = await documents_student.sync(
+                db,
+                user_id=user_id,
+                until=valid_until,
+                came_from=previous_until,
+                actor=actor,
+            )
+    except BaseException:
+        _discard_new_file(path, created)
+        raise
     audit.record(
         db,
         actor_user_id=actor.id,
@@ -430,6 +484,7 @@ async def update(
             raise HrDocumentError(
                 "Umowa z generatora zostaje widoczna dla osoby, której dotyczy."
             )
+        check_audience(document.kind, audience)
         for field, value in (
             ("visible_to_person", audience.person),
             ("visible_to_payroll", audience.payroll),
@@ -479,8 +534,11 @@ async def remove(
     """Usuwa pomyłkowo wgrany dokument (z powodem); zwraca plik do skasowania.
 
     Dokument z generatora umów jest dowodem podpisanej umowy — 409; znika
-    dopiero po terminie przechowywania (lista retencji).
+    dopiero po terminie przechowywania (lista retencji). Usunięte oświadczenie
+    studenta cofa datę zwolnienia, którą wpisało (``documents_student.unsync``).
     """
+
+    from app.services.hr import documents_student
 
     if document.deleted_at is not None:
         raise HrDocumentError("Ten dokument jest już usunięty.", 409)
@@ -498,6 +556,9 @@ async def remove(
     orphan = await mark_deleted(
         db, document, reason="mistake", note=clean, actor_id=actor.id
     )
+    sync = None
+    if document.purpose == STUDENT_STATUS:
+        sync = await documents_student.unsync(db, document=document, actor=actor)
     audit.record(
         db,
         actor_user_id=actor.id,
@@ -505,7 +566,11 @@ async def remove(
         entity_type="hr_document",
         entity_id=document.id,
         action="document_removed",
-        details={"reason": "mistake", "kind": document.kind},
+        details={
+            "reason": "mistake",
+            "kind": document.kind,
+            **({"profile_sync": sync["status"]} if sync else {}),
+        },
     )
     return orphan
 
@@ -655,6 +720,7 @@ def payload(
 
 
 __all__ = [
+    "ABSENCE_PROOF",
     "Audience",
     "HrDocumentError",
     "SOURCE_AGREEMENT",
@@ -663,6 +729,7 @@ __all__ = [
     "attach_generated",
     "can_read_person",
     "can_see",
+    "check_audience",
     "default_audience",
     "delete_files",
     "documents_of",

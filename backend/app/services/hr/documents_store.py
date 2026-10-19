@@ -84,6 +84,12 @@ def relative_path(user_id: int, digest: str, mime: str) -> str:
     return f"{SUBDIR}/{int(user_id)}/{digest}.{EXTENSIONS[mime]}"
 
 
+def exists(relative: str) -> bool:
+    """Czy plik już leży w magazynie (przed zapisem: czy ``save`` go utworzy)."""
+
+    return (Path(storage_service.STORAGE_ROOT) / relative).is_file()
+
+
 def save(user_id: int, content: bytes, *, mime: str, digest: str) -> str:
     """Zapisuje plik (atomowo: plik tymczasowy + ``os.replace``); zwraca ścieżkę względną."""
 

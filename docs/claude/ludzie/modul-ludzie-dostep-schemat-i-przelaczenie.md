@@ -335,10 +335,17 @@ miesiącu liczonym równolegle w obu systemach. Danych Compassa nie kasujemy.
   (powtórne wołanie nie dubluje); ręcznie się go nie usuwa (409).
 - Oświadczenie studenta (`purpose=student_status`, wymaga „ważny do”) na zleceniu wpisuje datę
   w `contribution_exempt_until`; przypomnienie dla Płac daje istniejąca pętla `student_reminders`.
-- Retencja: lata na rodzaj w `app_settings['hr_document_retention']` (domyślnie 10, „inne” 5 —
-  do potwierdzenia z Kadrami), liczone od końca roku ostatniego dnia pracy. Nic nie kasuje się
-  samo: lista w Ustawienia → Kadry, usunięcie z zaznaczeniem i potwierdzeniem; plik znika,
-  wiersz zostaje jako ślad. PESEL-u i numeru dowodu nie ma w żadnym polu.
+  Usunięcie oświadczenia jako pomyłki (19.10.2026, `documents_student.unsync`) cofa datę, którą
+  ono wpisało: wraca data najnowszego pozostałego ważnego oświadczenia, a bez niego zwolnienie
+  znika; data wpisana ręcznie zostaje. Usunięcie po retencji kartoteki nie rusza.
+- Pobranie i podgląd pliku dokumentu zostawia ślad `document_downloaded` w `hr_audit_events`
+  (19.10.2026; przy potwierdzeniu nieobecności `sensitivity='health'`). Plik zapisany przed
+  wierszem znika z dysku, gdy zapis wiersza albo kartoteki się wycofa.
+- Retencja: lata na rodzaj w `app_settings['hr_document_retention']` (domyślnie 10 lat dla
+  każdego rodzaju, także „inne” — decyzja Artura 19.10.2026), liczone od końca roku ostatniego
+  dnia pracy. Nic nie kasuje się samo: lista w Ustawienia → Kadry, usunięcie z zaznaczeniem
+  i potwierdzeniem; plik znika, wiersz zostaje jako ślad. PESEL-u i numeru dowodu nie ma
+  w żadnym polu.
 
 ## Umowy z ludźmi (etap 5, E5, 18.10.2026)
 
