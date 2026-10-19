@@ -97,6 +97,15 @@ describe("Płace — premie", () => {
     expect(screen.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "48");
   });
 
+  it("przyznana premia z kontraktu zakończonego przed terminem ma ostrzeżenie", () => {
+    render(
+      <BonusTable
+        rows={[proposal({ status: "assigned", contract_ended_early: true })]}
+      />,
+    );
+    expect(screen.getByText(/kontrakt skończył się przed terminem/)).toBeInTheDocument();
+  });
+
   it("dzieli premie na decyzje, przyznane i liczbę anulowanych", () => {
     const parts = splitBonuses([
       proposal(),

@@ -707,6 +707,97 @@ async def test_payroll_close_creates_and_reopen_cancels(app_client) -> None:
 
 @pytest.mark.usefixtures("settlements_on")
 @pytest.mark.asyncio
+async def test_reclose_after_paid_refuses_changed_amount(app_client) -> None:
+    """Audyt 19.10.2026: premia dopisana po zapłacie nie znika bez przelewu."""
+
+    team = await make_team()
+    admin = await make_user("admin", profile=False)
+    year, month = months_ago(2)
+    async with AsyncSessionLocal() as db:
+        db.add(
+            EmployeeRate(
+                user_id=team.mandate.id,
+                hourly_rate=Decimal("32.00"),
+                currency="PLN",
+                effective_from=date(year, month, 1),
+            )
+        )
+        await db.commit()
+    await add_timesheet(
+        team.mandate, year, month, approved_by=team.boss, work=[(3, "8")]
+    )
+    close_url = f"/api/hr/payroll/months/{year}/{month}/close"
+    closed = await app_client.post(
+        close_url, json={"acknowledge_warnings": True}, headers=headers(team.finance)
+    )
+    assert closed.status_code == 200, closed.text
+    row = await _row(team.mandate.id)
+    async with AsyncSessionLocal() as db:
+        target = await db.get(PayrollSettlement, row.id)
+        await settlements.mark_paid(
+            db,
+            target,
+            source="statement",
+            amount=Decimal("230.00"),
+            paid_on=date(*months_ago(1), 10),
+            actor_id=None,
+        )
+        await db.commit()
+    reopened = await app_client.post(
+        f"/api/hr/payroll/months/{year}/{month}/reopen",
+        json={"reason": "Pominięta premia"},
+        headers=headers(admin),
+    )
+    assert reopened.status_code == 200, reopened.text
+
+    # Bez zmian ponowne zamknięcie przechodzi i zostawia opłacone rozliczenie.
+    again = await app_client.post(
+        close_url, json={"acknowledge_warnings": True}, headers=headers(team.finance)
+    )
+    assert again.status_code == 200, again.text
+    assert again.json()["settlements"]["kept"] == 1
+    reopened = await app_client.post(
+        f"/api/hr/payroll/months/{year}/{month}/reopen",
+        json={"reason": "Pominięta premia"},
+        headers=headers(admin),
+    )
+    assert reopened.status_code == 200, reopened.text
+
+    bonus = await app_client.post(
+        "/api/hr/payroll/bonuses",
+        json={
+            "recipient_user_id": team.mandate.id,
+            "amount": "500.00",
+            "category": "custom",
+            "period_year": year,
+            "period_month": month,
+        },
+        headers=headers(team.finance),
+    )
+    assert bonus.status_code in (200, 201), bonus.text
+    bonus_id = bonus.json()["id"]
+    async with AsyncSessionLocal() as db:
+        from app.models.hr_payroll import HrBonus
+        from app.services.hr import payroll_bonuses
+
+        added = await db.get(HrBonus, bonus_id)
+        # Premia przyznana po zapłacie nie jest „wypłacona”.
+        assert (await payroll_bonuses.paid_flags(db, [added])) == {bonus_id: False}
+
+    refused = await app_client.post(
+        close_url, json={"acknowledge_warnings": True}, headers=headers(team.finance)
+    )
+    assert refused.status_code == 409, refused.text
+    assert "opłacone rozliczenie" in refused.json()["detail"]
+    async with AsyncSessionLocal() as db:
+        period_status = await db.scalar(
+            select(PayrollSettlement.status).where(PayrollSettlement.id == row.id)
+        )
+    assert period_status == "paid"
+
+
+@pytest.mark.usefixtures("settlements_on")
+@pytest.mark.asyncio
 async def test_month_before_settlements_since_closes_without_settlements(
     app_client,
 ) -> None:
