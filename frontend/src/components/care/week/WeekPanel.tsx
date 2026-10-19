@@ -166,6 +166,15 @@ export function WeekPanel() {
                   ? "Kontakty z planu opieki i umówione rozmowy Twoich konsultantów pojawią się tutaj."
                   : undefined
               }
+              action={
+                // Admin i osoby bez podopiecznych widziały tu pustkę, a w
+                // „Wszyscy” czekało kilkaset kontaktów (testy produkcji 19.10).
+                scope === "mine" ? (
+                  <Button size="sm" variant="outline" onClick={() => setScope("all")}>
+                    Pokaż wszystkich w moim zakresie
+                  </Button>
+                ) : undefined
+              }
             />
           ) : (
             <>

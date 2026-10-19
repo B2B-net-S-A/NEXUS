@@ -4,7 +4,8 @@
  */
 import * as React from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({ get: vi.fn(), showToast: vi.fn() }));
@@ -81,6 +82,16 @@ describe("WeekPanel", () => {
     ).toBeInTheDocument();
     expect(screen.getByText("Ten tydzień · 19–23.10")).toBeInTheDocument();
     expect(mocks.get).toHaveBeenCalledWith("/api/care/week", { params: { scope: "mine" } });
+  });
+
+  it("pusty widok „Moi” prowadzi do „Wszyscy w moim zakresie” (admin bez podopiecznych)", async () => {
+    const user = userEvent.setup();
+    mocks.get.mockResolvedValue({ data: week() });
+    renderPanel();
+    await user.click(await screen.findByRole("button", { name: "Pokaż wszystkich w moim zakresie" }));
+    await waitFor(() =>
+      expect(mocks.get).toHaveBeenCalledWith("/api/care/week", { params: { scope: "all" } }),
+    );
   });
 
   it("wiersz: powód zaległy, menedżer z drzewa i sygnał do front office; Finanse bez opinii", async () => {
