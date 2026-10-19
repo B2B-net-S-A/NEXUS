@@ -30,6 +30,16 @@
   --kr-link: #d14a5f;
   --kr-link-hover: #f07a8c;
   --kr-err: #e0677a;
+  /* Powierzchnie i przycisk — osobne tokeny od 0478 (szablony graficzne,
+     `themes.ts`), żeby jasny szablon nie dziedziczył czerni ani bieli. */
+  --kr-form-bg: #030303;
+  --kr-input-bg: #050505;
+  --kr-tint: #0e0406;
+  --kr-tint-strong: #120407;
+  --kr-btn: #9a142d;
+  --kr-btn-hover: #ad1834;
+  --kr-btn-text: #ffffff;
+  --kr-scheme: dark;
 
   /* svh: stopka (`margin-top: auto`) nie ląduje pod dolnym paskiem
      przeglądarki na telefonie; 100vh zostaje jako zapas. */
@@ -58,6 +68,31 @@
 html:has(.kr-root[data-kr-page]),
 html:has(.kr-root[data-kr-page]) body {
   background: #000000;
+}
+
+/* Szablon graficzny rekrutacji (0478): `CareerThemeScope` nadpisuje zmienne
+   `--kr-*` inline i maluje własne tło na całą wysokość — tło `.kr-root` pod
+   spodem zostaje czarne tylko dla Terminala. */
+.kr-scope {
+  flex: 1 0 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  min-height: 100svh;
+  background-color: var(--kr-bg);
+  background-image:
+    linear-gradient(90deg, var(--kr-grid) 1px, transparent 1px),
+    linear-gradient(var(--kr-grid) 1px, transparent 1px);
+  background-size: 78px 78px;
+  color: var(--kr-text);
+}
+@media (min-width: 1024px) {
+  .kr-scope { background-size: 120px 120px; }
+}
+/* Jasny szablon: przewinięcie poza stronę na iOS nie pokazuje czerni. */
+html:has(.kr-scope[data-kr-light]),
+html:has(.kr-scope[data-kr-light]) body {
+  background: #f5f3ee;
 }
 
 .kr-root *,
@@ -224,8 +259,8 @@ html:has(.kr-root[data-kr-page]) body {
 .kr-cta-mobile {
   margin-top: 6px;
   height: 52px;
-  background: var(--kr-bordo);
-  color: var(--kr-white) !important;
+  background: var(--kr-btn);
+  color: var(--kr-btn-text) !important;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -380,7 +415,7 @@ html:has(.kr-root[data-kr-page]) body {
 .kr-form-box {
   margin: 0 12px;
   border: 1px solid var(--kr-line-strong);
-  background: #030303;
+  background: var(--kr-form-bg);
   scroll-margin-top: 16px;
 }
 .kr-form-bar {
@@ -417,11 +452,11 @@ html:has(.kr-root[data-kr-page]) body {
   padding: 0 12px;
   border: 1px solid var(--kr-line-strong);
   border-radius: 0;
-  background: #050505;
+  background: var(--kr-input-bg);
   font: inherit;
   font-size: 16px;
   color: var(--kr-text);
-  color-scheme: dark;
+  color-scheme: var(--kr-scheme);
   appearance: none;
 }
 /* iOS Safari przy `appearance: none` pokazuje puste pole daty bez wzorca. */
@@ -464,7 +499,7 @@ select.kr-input {
   cursor: pointer;
   overflow-wrap: anywhere;
 }
-.kr-file-drag { background: #0e0406; border-style: solid; }
+.kr-file-drag { background: var(--kr-tint); border-style: solid; }
 .kr-file[data-invalid="true"] { border-color: var(--kr-red); }
 .kr-file:focus-within {
   outline: 2px solid var(--kr-red);
@@ -519,8 +554,8 @@ select.kr-input {
 .kr-submit {
   height: 52px;
   border: 0;
-  background: var(--kr-bordo);
-  color: var(--kr-white);
+  background: var(--kr-btn);
+  color: var(--kr-btn-text);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -530,13 +565,13 @@ select.kr-input {
   font-weight: 700;
   cursor: pointer;
 }
-.kr-submit:hover:not(:disabled) { background: #ad1834; }
+.kr-submit:hover:not(:disabled) { background: var(--kr-btn-hover); }
 .kr-submit:disabled { opacity: 0.7; cursor: progress; }
 .kr-kbd {
   /* Tylko od `sm` (640px) — na telefonie nie ma klawisza ENTER przy przycisku. */
   display: none;
   padding: 2px 6px;
-  border: 1px solid rgba(255, 255, 255, 0.6);
+  border: 1px solid color-mix(in srgb, var(--kr-btn-text) 60%, transparent);
   font-size: 11px;
   font-weight: 500;
 }
@@ -546,7 +581,7 @@ select.kr-input {
 .kr-alert {
   padding: 12px;
   border: 1px solid var(--kr-bar);
-  background: #120407;
+  background: var(--kr-tint-strong);
   font-size: 13px;
   line-height: 1.6;
   display: flex;
@@ -603,7 +638,7 @@ select.kr-input {
   color: var(--kr-text) !important;
   text-decoration: none;
 }
-a.kr-row:hover { background: #0e0406; color: var(--kr-white) !important; }
+a.kr-row:hover { background: var(--kr-tint); color: var(--kr-white) !important; }
 .kr-row-head {
   font-size: 11px;
   letter-spacing: 0.14em;
@@ -650,8 +685,8 @@ a.kr-row:hover { background: #0e0406; color: var(--kr-white) !important; }
   align-self: flex-start;
   min-height: 52px;
   padding: 12px 24px;
-  background: var(--kr-bordo);
-  color: var(--kr-white) !important;
+  background: var(--kr-btn);
+  color: var(--kr-btn-text) !important;
   display: flex;
   align-items: center;
   font-size: 15px;
@@ -710,7 +745,7 @@ a.kr-row:hover { background: #0e0406; color: var(--kr-white) !important; }
   margin: 0 0 20px;
   padding: 12px;
   border: 1px solid var(--kr-bar);
-  background: #120407;
+  background: var(--kr-tint-strong);
   color: var(--kr-text);
   font-size: 13px;
 }

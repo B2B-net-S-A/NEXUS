@@ -58,6 +58,8 @@ const PROFILE_WITH_FINDING: JobPublicProfile = {
   approved_at: "2026-10-18T12:20:00Z",
   approved_by_name: "Marta Przykładowa",
   approved_content_stale: false,
+  theme: null,
+  theme_default: "terminal",
   // Opis zatwierdzony 18.10, potem ktoś dopisał kwotę: strona działa na
   // wersji zatwierdzonej, a okno pokazuje czekające zmiany.
   live: {

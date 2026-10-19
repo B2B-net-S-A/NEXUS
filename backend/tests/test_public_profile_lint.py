@@ -958,6 +958,18 @@ def test_poster_html_escapes_text_and_embeds_the_qr_as_data_uri():
     assert "http://" not in doc.replace("https://kariera.example", "")
 
 
+def test_poster_uses_the_recruitment_theme_colors():
+    """0478: plakat w kolorach szablonu; nieznany szablon = Terminal."""
+    pytest.importorskip("segno")
+    from app.services.career_poster import poster_html
+
+    url = "https://kariera.example/r/java-ab12"
+    paper = poster_html(_poster_payload(), url, "papier")
+    assert "background: #F5F3EE" in paper and "color: #C8102E" in paper
+    fallback = poster_html(_poster_payload(), url, "nie-ma-takiego")
+    assert "background: #000000" in fallback and "color: #F06A80" in fallback
+
+
 def test_poster_without_optional_sections_has_no_empty_blocks():
     pytest.importorskip("segno")
     from app.services.career_poster import poster_html

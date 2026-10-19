@@ -16,6 +16,9 @@ MIGRATION = (BACKEND / "alembic" / "versions" / "0339_career_links.py").read_tex
 MIGRATION_0340 = (
     BACKEND / "alembic" / "versions" / "0340_career_public_title.py"
 ).read_text()
+MIGRATION_0478 = (
+    BACKEND / "alembic" / "versions" / "0478_career_page_theme.py"
+).read_text()
 MIGRATION_0477 = (
     BACKEND / "alembic" / "versions" / "0477_candidate_consents_two_kinds.py"
 ).read_text()
@@ -149,3 +152,14 @@ def test_0477_two_consent_kinds_are_mirrored_once_after_the_table():
         if c.name == "ck_candidate_consents_kind"
     )
     assert _collapse(str(model_check.sqltext)) in widened
+
+
+def test_0478_theme_column_is_mirrored():
+    from app.models.job_public_profile import JobPublicProfile
+
+    needle = "ADD COLUMN IF NOT EXISTS theme VARCHAR(32) NULL"
+    flat = _collapse(ENTRYPOINT)
+    assert '"ALTER TABLE job_public_profiles " "' + needle in flat
+    assert needle in _collapse(MIGRATION_0478)
+    column = JobPublicProfile.__table__.c.theme
+    assert column.nullable and column.type.length == 32

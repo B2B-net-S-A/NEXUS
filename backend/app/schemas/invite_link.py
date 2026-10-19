@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 InviteLinkStatus = Literal["active", "used", "revoked", "expired"]
@@ -164,6 +164,17 @@ class PublicProfileUpdate(BaseModel):
     about: Optional[str] = Field(default=None, max_length=4000)
     sections: Optional[PublicSections] = None
     show_on_recruiter_page: Optional[bool] = None
+    # 0478: szablon graficzny; ``null`` = wróć do domyślnego według roli.
+    theme: Optional[str] = Field(default=None, max_length=32)
+
+    @field_validator("theme")
+    @classmethod
+    def _known_theme(cls, value: Optional[str]) -> Optional[str]:
+        from app.services.career_theme import THEMES
+
+        if value is not None and value not in THEMES:
+            raise ValueError("Nieznany szablon strony.")
+        return value
 
 
 class PublicProfileVisibility(BaseModel):
@@ -180,6 +191,9 @@ class PublicProfileResponse(BaseModel):
     about: Optional[str] = None
     sections: PublicSections
     show_on_recruiter_page: bool = True
+    # 0478: wybór rekrutera (``None`` = domyślny) i domyślny według roli.
+    theme: Optional[str] = None
+    theme_default: str = "terminal"
     approved_at: Optional[datetime] = None
     approved_by_name: Optional[str] = None
     # Zatwierdzony opis, ale must/nice, miasto, start albo długość zmieniły się
