@@ -355,6 +355,13 @@ miesiącu liczonym równolegle w obu systemach. Danych Compassa nie kasujemy.
   forma i potwierdzanie godzin (`people.update_profile`; aneks zmienia tylko stawkę), dokument
   w e-teczce, dla UoP i zlecenia znacznik `symfonia_pending`. Nieudane przepisanie zostawia umowę
   podpisaną z `apply_error` i przyciskiem „Przepisz ponownie”. Minimalna stawka zlecenia z D7.
+- **Stawkę z umowy przepisują Płace** (decyzja Artura 19.10.2026): podpis osoby bez
+  uprawnienia Płac (i bez roli admin) zapisuje umowę, formę i dokument, ale nie stawkę —
+  Płace (bez adminów, gdy są inni; nigdy sama osoba) dostają dzwonek `hr_rate_changed`
+  „Stawka z umowy do przepisania” bez kwoty, z linkiem `/people/<id>#place`; ślad
+  `agreement_applied` ma `rate = "pending_payroll"` (inaczej `set` / `unchanged`).
+  Stawkę z ostatniej umowy w oknie „Nowa umowa” (`defaults.hourly_rate`) widzą tylko
+  Płace i admin; `applies_rate` mówi frontowi, czy dopisać „Stawkę przepisze osoba z Płac”.
 
 ### Start na produkcji (19.10.2026)
 

@@ -121,8 +121,8 @@ class Attached:
 
 @dataclass
 class Team:
-    hr: User  # Kadry
-    hr2: User  # druga osoba z Kadr
+    hr: User  # Kadry z Płacami (podpis przepisuje stawkę)
+    hr2: User  # druga osoba z Kadr, bez Płac (stawkę przepisują Płace)
     payroll: User  # Płace
     boss: User  # przełożony / koordynator
     mandate: User  # zlecenie
@@ -143,8 +143,13 @@ async def agreements_on_fixture(monkeypatch):
         MINIMUM_RATES_SETTING, {str(year): "31.40", str(year + 1): "31.40"}
     )
 
+    # Kadry z Płacami (jak Finanse z Kadrami na produkcji): od 19.10.2026 stawkę
+    # z podpisanej umowy przepisuje tylko podpisujący z uprawnieniem Płac.
     hr = await make_user(
-        "recruiter", grants=("people_admin",), profile=False, name="Ewa Kadrowa"
+        "recruiter",
+        grants=("people_admin", "payroll"),
+        profile=False,
+        name="Ewa Kadrowa",
     )
     hr2 = await make_user(
         "recruiter", grants=("people_admin",), profile=False, name="Kamila Kadrowa"

@@ -110,6 +110,7 @@ export function celinaAgreements(writer = true): PersonAgreements {
     minimum_rates: { "2025": "30.50", "2026": "31.40", "2027": "31.40" },
     autenti_configured: true,
     can_write: writer,
+    applies_rate: true,
     agreements: [
       agreement(43, {
         kind: "annex",

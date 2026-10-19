@@ -332,9 +332,14 @@ async def _profile(db: AsyncSession, user_id: int) -> EmployeeProfile:
 
 
 async def person_overview(
-    db: AsyncSession, user_id: int, *, writer: bool
+    db: AsyncSession, user_id: int, *, writer: bool, payroll: bool = False
 ) -> dict[str, Any]:
-    """Umowy osoby + wartości domyślne nowej umowy dla okna „Nowa umowa albo aneks”."""
+    """Umowy osoby + wartości domyślne nowej umowy dla okna „Nowa umowa albo aneks”.
+
+    ``payroll`` — widz ma uprawnienie Płac albo jest adminem: tylko on dostaje
+    stawkę z ostatniej umowy w wartościach domyślnych i tylko jego podpis
+    przepisuje stawkę do historii (``applies_rate``; decyzja Artura 19.10.2026).
+    """
 
     person = await db.get(User, user_id)
     if person is None:
@@ -365,7 +370,9 @@ async def person_overview(
             "coordinator_name": coordinator_name,
             "hours_confirmation": bool(profile.timesheet_required),
             "currency": last_signed.currency if last_signed else "PLN",
-            "hourly_rate": str(last_signed.hourly_rate) if last_signed else None,
+            "hourly_rate": (
+                str(last_signed.hourly_rate) if last_signed and payroll else None
+            ),
             "base_agreement_id": last_signed.id if last_signed else None,
             "agreement_date": business_today().isoformat(),
         },
@@ -374,6 +381,7 @@ async def person_overview(
         ),
         "autenti_configured": autenti_configured(),
         "can_write": writer,
+        "applies_rate": payroll,
         "agreements": await payloads(db, rows, writer=writer),
     }
 
