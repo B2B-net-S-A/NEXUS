@@ -318,6 +318,33 @@ describe("AddCandidatesPanel — okno „Kandydaci do dodania”", () => {
     expect(screen.getByTestId("screened-out")).toBeTruthy();
   });
 
+  it("propozycja ze stawką: plakietka względem budżetu zamiast „Ponad budżet” i gołej kwoty (D3)", async () => {
+    const withRate = (id: number, name: string, rateHourly: number, warnings: string[] = []) => {
+      const e = entry(id, name, ["inbox"], { warnings, rateLabel: `${rateHourly} zł/h` });
+      return { ...e, detail: { ...e.detail, rateHourly } };
+    };
+    proposalsState.entries = [
+      withRate(1, "Anna Wbudżecie", 160),
+      withRate(2, "Piotr Ponad", 184, ["over_budget"]),
+      withRate(3, "Ola Daleko", 200, ["over_budget"]),
+    ] as never;
+    renderPanel();
+    const list = await screen.findByRole("list", { name: "Propozycje z bazy" });
+    const item = (name: string) => within(list).getByText(name).closest("li") as HTMLElement;
+    const rate = (name: string) => within(item(name)).getByTestId("pick-row-rate");
+    expect(rate("Anna Wbudżecie")).toHaveTextContent("w budżecie · 160 zł/h");
+    expect(rate("Anna Wbudżecie")).toHaveAttribute("data-tone", "rate-in");
+    expect(rate("Piotr Ponad")).toHaveTextContent("+15% ponad budżet · 184 zł/h");
+    expect(rate("Piotr Ponad")).toHaveAttribute("data-tone", "rate-over");
+    expect(rate("Ola Daleko")).toHaveTextContent("+25% ponad budżet · 200 zł/h");
+    expect(rate("Ola Daleko")).toHaveAttribute("data-tone", "rate-far");
+    // Kwota raz — w plakietce; bez drugiej plakietki „Oczekuje +…% ponad budżet”.
+    expect(within(list).queryByText(/Oczekuje/)).toBeNull();
+    expect(within(list).queryByText("Ponad budżet")).toBeNull();
+    expect(within(item("Piotr Ponad")).queryByText(/184 zł\/h · /)).toBeNull();
+    expect(within(item("Piotr Ponad")).getByText("od zaraz")).toBeTruthy();
+  });
+
   it("zaznaczenie aktualizuje stopkę, dodanie idzie przez propozycje", async () => {
     proposalsState.entries = [
       entry(1, "Anna Kowalczyk", ["inbox"]),
@@ -510,19 +537,26 @@ describe("AddCandidatesPanel — okno „Kandydaci do dodania”", () => {
     });
     renderPanel();
     const list = await screen.findByRole("list", { name: "Propozycje z bazy" });
-    await within(list).findByText("Java Developer @ Firma · 8 lat dośw. · Gdańsk · tylko zdalnie · 170 zł/h");
+    // D3 (19.10.2026): stawka nie stoi w linii faktów — jest plakietką względem budżetu (160).
+    await within(list).findByText("Java Developer @ Firma · 8 lat dośw. · Gdańsk · tylko zdalnie");
     expect(within(list).getByText("Tester · 3 lata dośw. · Łódź")).toBeTruthy();
+    const bartek = within(list).getByText("Bartek Drugi").closest("li") as HTMLElement;
+    expect(within(bartek).getByTestId("pick-row-rate")).toHaveTextContent("+6% ponad budżet · 170 zł/h");
+    const anna = within(list).getByText("Anna Pierwsza").closest("li") as HTMLElement;
+    expect(within(anna).queryByTestId("pick-row-rate")).toBeNull();
     expect(
       within(list).getByText("Był(a) u tego klienta: Senior Java — doszedł(a) do etapu „CV Wysłane” (odrzucony/a)"),
     ).toBeTruthy();
     const cvBadges = within(list).getAllByTestId("cv-year-badge");
     expect(cvBadges).toHaveLength(1);
     expect(cvBadges[0]).toHaveTextContent("CV z 2019");
-    // Domyślnie na górze osoba z historią u klienta.
+    // Domyślnie „Dopasowanie” (19.10.2026) — bez wyników zostaje kolejność wejścia;
+    // „Najpierw byli u tego klienta” wynosi osobę z historią u klienta.
     const names = () => within(list).getAllByRole("checkbox").map((c) => c.getAttribute("aria-label"));
-    expect(names()).toEqual(["Zaznacz Bartek Drugi", "Zaznacz Anna Pierwsza"]);
-    await userEvent.click(screen.getByRole("button", { name: "Kolejność propozycji" }));
+    expect(screen.getByRole("button", { name: "Dopasowanie" })).toHaveAttribute("aria-pressed", "true");
     expect(names()).toEqual(["Zaznacz Anna Pierwsza", "Zaznacz Bartek Drugi"]);
+    await userEvent.click(screen.getByRole("button", { name: "Najpierw byli u tego klienta" }));
+    expect(names()).toEqual(["Zaznacz Bartek Drugi", "Zaznacz Anna Pierwsza"]);
     expect(factsApi).toHaveBeenCalledWith(5, [1, 2], expect.anything());
   });
 
@@ -547,6 +581,30 @@ describe("AddCandidatesPanel — okno „Kandydaci do dodania”", () => {
     // Jedno zapytanie (paczka do 20) i tylko o osoby bez wyniku.
     expect(matchScores).toHaveBeenCalledTimes(1);
     expect([...matchScores.mock.calls[0][1]].sort()).toEqual([1, 2]);
+  });
+
+  it("domyślnie „Dopasowanie”: najwyższy % na górze, także policzony na ekranie; bez wyniku na końcu (19.10.2026)", async () => {
+    proposalsState.entries = [
+      entry(1, "Anna Pierwsza", ["inbox"], { fitScore: 70 }),
+      entry(2, "Bartek Drugi", ["similar"], { fitScore: null }),
+      entry(3, "Cezary Trzeci", ["inbox"], { fitScore: 81 }),
+      entry(4, "Dorota Czwarta", ["similar"], { fitScore: null }),
+    ];
+    matchScores.mockResolvedValue({
+      scores: { "2": 88 },
+      breakdowns: { "4": { total: null, measurement: "missing_index" } },
+      profile_key: "p:1",
+    });
+    renderPanel();
+    const list = await screen.findByRole("list", { name: "Propozycje z bazy" });
+    await within(list).findByText("88%");
+    const names = within(list).getAllByRole("checkbox").map((c) => c.getAttribute("aria-label"));
+    expect(names).toEqual([
+      "Zaznacz Bartek Drugi",
+      "Zaznacz Cezary Trzeci",
+      "Zaznacz Anna Pierwsza",
+      "Zaznacz Dorota Czwarta",
+    ]);
   });
 
   it("po dodaniu osoby policzone wyniki pozostałych zostają (nie wracają do „liczę…”)", async () => {
@@ -875,7 +933,9 @@ describe("AddCandidatesPanel — okno „Kandydaci do dodania”", () => {
         items: [
           {
             id: 31, name: "Marta", lastname: "Wilczek", linkedin_current_title: "Analityk KYC",
-            years_it_experience: 8, city: "Warszawa", expected_rate_hourly: 90, expected_rate_currency: "PLN",
+            years_it_experience: 8, city: "Warszawa", expected_rate_hourly: 140, expected_rate_currency: "PLN",
+            // „Stawka od” — tę czyta plakietka (filtr i bramka też), nie stawkę profilu.
+            rate_from_hourly: "90.00",
             match_snippets: [{ field: "Treść CV", text: "projekt KYC dla banku", highlights: [[8, 11]] }],
           },
         ],
@@ -909,7 +969,8 @@ describe("AddCandidatesPanel — okno „Kandydaci do dodania”", () => {
 
       const results = await screen.findByRole("list", { name: "Wyniki wyszukiwania" }, SLOW);
       expect(within(results).getByText("Marta Wilczek")).toBeTruthy();
-      expect(within(results).getByText("Analityk KYC · 8 lat dośw. · Warszawa · 90 zł/h")).toBeTruthy();
+      expect(within(results).getByText("Analityk KYC · 8 lat dośw. · Warszawa")).toBeTruthy();
+      expect(within(results).getByTestId("pick-row-rate")).toHaveTextContent("w budżecie · 90 zł/h");
       expect(within(results).getByText("KYC", { selector: "strong" })).toBeTruthy();
       await within(results).findByText("84%");
       expect(screen.getByTestId("search-base-summary")).toHaveTextContent("Znaleziono osób: 86");

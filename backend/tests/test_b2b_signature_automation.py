@@ -1825,15 +1825,14 @@ async def test_delivery_lead_scope_allows_confirmation_only_at_an_assigned_clien
 async def test_recruiter_confirms_only_with_the_signature_permission(
     app_client: AsyncClient,
 ):
-    """Rekruter nie ma oznaczania podpisu domyślnie, a przypisania z rekrutacji
-    i klienta (dawna rola TAC, wycofana w 0411) go nie zastępują. Osoba, której
-    administrator włączył uprawnienie, potwierdza podpis — u każdego klienta,
-    bo zakres klienta dotyczy wyłącznie konta z rolą Delivery Leada."""
+    """Bez uprawnienia rekruter nie oznacza podpisu — przypisania z rekrutacji
+    i klienta (dawna rola TAC, wycofana w 0411) go nie zastępują. Z uprawnieniem
+    oznacza umowę w rekrutacji, w której jest w zespole (19.10.2026: albo
+    własną — ``test_recruiter_confirms_own_contract_outside_the_team``)."""
     from tests._permission_grants import grant_permissions, role_permission
 
     admin_id = await _current_admin_id(app_client)
     assigned = await _seed_bound_scenario(created_by=admin_id)
-    unassigned = await _seed_bound_scenario(created_by=admin_id)
     headers = await _headers_for_role(app_client, UserRole.recruiter)
     user_id = int(headers["X-Test-User-Id"])
 
@@ -1868,20 +1867,73 @@ async def test_recruiter_confirms_only_with_the_signature_permission(
         assert generated is not None
         assert generated.signature_status == "unsigned"
 
-    # Uprawnienie nadane osobie działa także u klienta bez żadnego przypisania.
     await grant_permissions(user_id, "b2b_signature_confirmation")
-    for scenario in (unassigned, assigned):
-        allowed = await _confirm(app_client, headers, scenario["generated_id"])
-        assert allowed.status_code == 200, (
-            "Recruiter with the signature permission got "
-            f"{allowed.status_code}: {allowed.text}"
-        )
-        assert allowed.json()["outcome"] == "created"
-        assert await _counts_for_pair(scenario["candidate_id"], scenario["job_id"]) == (
-            1,
-            1,
-            1,
-        )
+    allowed = await _confirm(app_client, headers, assigned["generated_id"])
+    assert allowed.status_code == 200, (
+        "Recruiter with the signature permission got "
+        f"{allowed.status_code}: {allowed.text}"
+    )
+    assert allowed.json()["outcome"] == "created"
+    assert await _counts_for_pair(assigned["candidate_id"], assigned["job_id"]) == (
+        1,
+        1,
+        1,
+    )
+
+
+async def _listed(
+    app_client: AsyncClient, headers: dict[str, str], scenario: dict[str, Any]
+) -> dict[str, Any]:
+    listing = await app_client.get(
+        "/api/b2b-generator/generated",
+        headers=headers,
+        params={"job_id": scenario["job_id"]},
+    )
+    assert listing.status_code == 200, listing.text
+    return next(
+        item for item in listing.json() if item["id"] == scenario["generated_id"]
+    )
+
+
+@pytest.mark.asyncio
+async def test_recruiter_confirms_own_contract_outside_the_team(
+    app_client: AsyncClient,
+):
+    """Zgłoszenie z 19.10.2026: rekruterka z uprawnieniem wygenerowała
+    umowę w rekrutacji, w której nie jest w zespole, i lista pokazywała „Brak
+    przypisania do powiązanej rekrutacji”. Autor oznacza podpis własnej umowy;
+    cudzej umowy spoza swojego zespołu — nadal nie (lista i endpoint mówią to
+    samo)."""
+    from tests._permission_grants import grant_permissions
+
+    admin_id = await _current_admin_id(app_client)
+    headers = await _headers_for_role(app_client, UserRole.recruiter)
+    user_id = int(headers["X-Test-User-Id"])
+    await grant_permissions(user_id, "b2b_signature_confirmation")
+    own = await _seed_bound_scenario(created_by=user_id)
+    foreign = await _seed_bound_scenario(created_by=admin_id)
+
+    own_item = await _listed(app_client, headers, own)
+    assert own_item["can_confirm_signed"] is True, own_item["blocked_reason"]
+    assert own_item["blocked_reason"] is None
+
+    foreign_item = await _listed(app_client, headers, foreign)
+    assert foreign_item["can_confirm_signed"] is False
+    assert "wygenerowała" in foreign_item["blocked_reason"]
+
+    denied = await _confirm(app_client, headers, foreign["generated_id"])
+    assert denied.status_code == 403, denied.text
+    assert denied.json()["detail"] == foreign_item["blocked_reason"]
+    assert await _counts_for_pair(foreign["candidate_id"], foreign["job_id"]) == (
+        0,
+        0,
+        0,
+    )
+
+    allowed = await _confirm(app_client, headers, own["generated_id"])
+    assert allowed.status_code == 200, allowed.text
+    assert allowed.json()["outcome"] == "created"
+    assert await _counts_for_pair(own["candidate_id"], own["job_id"]) == (1, 1, 1)
 
 
 @pytest.mark.asyncio

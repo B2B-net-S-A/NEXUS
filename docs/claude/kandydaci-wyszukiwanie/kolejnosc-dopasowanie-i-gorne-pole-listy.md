@@ -50,3 +50,30 @@ w bazie (ts_rank, słowa w profilu, świeżość CV) NIE pomagały — nie wraca
   „Julia” nie był technologią, bo ktoś w bazie tak się nazywa.
   „Szukaj „…” po znaczeniu” cofa zamianę (tryb `semantic`). Wywołanie bez
   ponowień i z limitem 1,5 s — podpowiedź, nie bramka.
+
+## W rekrutacji „Dopasowanie” bez grup „Mile widziane” (D1, 19.10.2026)
+
+Zgłoszenie rekrutera: „AI search ma pokazywać najpierw najbardziej dopasowanych”.
+W „Szukaj w bazie” i „Szukaj ręcznie” osoba z 61% stała nad osobą z 88%, bo
+`order_rows` sortował najpierw po liczbie trafionych „Mile widziane” (must spoza
+krytycznych, miasto rekrutacji, kategoria), a `rerank_within_groups` układał
+„Dop.” tylko w obrębie tych grup.
+
+- **Pomiar** (`python -m scripts.eval_manual_search_order --jobs 120 --rerank-top 200
+  --groups`, produkcja tylko do odczytu, 19.10.2026; dwa pierwsze must wycinają jak
+  krytyczne, reszta must to wiersze „Mile widziane”):
+
+  | kolejność | ≥1 właściwa osoba na 1. stronie | właściwe w top 50 | MRR |
+  |---|---:|---:|---:|
+  | grupy must+miasto+kategoria → top 200 wg „Dop.” (do 19.10) | 68,3% | 33,3% | 0,255 |
+  | grupy tylko po must → top 200 wg „Dop.” | 75,0% | 37,4% | 0,302 |
+  | **top 200 wg „Dop.” bez grup (od 19.10)** | **85,8%** | **49,6%** | **0,416** |
+
+- **Reguła:** `candidate_match_order.effective_prefix` — przy kontekście rekrutacji
+  (jest „Dop.”) bez grupy „Mile widziane”; grupa braków danych zostaje (osoby, które
+  przeszły filtr stawki/miasta tylko na brak danych, idą na koniec). Must spoza
+  krytycznych, miasto i kategoria liczą się w samej ocenie (warstwy umiejętności
+  i lokalizacji). Lista bez rekrutacji (brak „Dop.”) — grupy jak dotąd.
+- **Wyłącznik** `CANDIDATE_MATCH_JOB_PREFERRED_GROUPS=true` przywraca kolejność
+  sprzed 19.10 (zmiana przez workflow „Coolify set env”). Nie wracaj do grup bez
+  nowego pomiaru tym samym skryptem.

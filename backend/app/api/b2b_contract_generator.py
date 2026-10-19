@@ -808,6 +808,64 @@ async def _require_signature_job_scope(db: AsyncSession, user: User, job: Job) -
         await ensure_job_membership(db, user, job.id)
 
 
+#: Kto oznacza podpis KAŻDEJ umowy (w swoim zakresie klientów). Delivery Lead
+#: jest tu, bo jego zakres i tak zawęża portfel (``_assert_signature_client_access``).
+_SIGNS_EVERY_CONTRACT_ROLES: tuple[UserRole, ...] = (
+    UserRole.admin,
+    UserRole.head_of_recruitment,
+    UserRole.talent_community_manager,
+    UserRole.delivery_lead,
+)
+
+_SIGNATURE_ROW_SCOPE_DENIED = (
+    "Podpis tej umowy oznacza osoba, która ją wygenerowała, zespół rekrutacji, "
+    "Delivery Lead klienta albo TCM."
+)
+
+
+def _may_confirm_row_signature(
+    user: User,
+    *,
+    created_by: int | None,
+    job_id: int | None,
+    team_job_ids: set[int],
+    open_without_job: bool = True,
+) -> bool:
+    """Czy posiadacz uprawnienia podpisu oznacza TEN wiersz (decyzja 19.10.2026).
+
+    Rekruterzy i DL generują umowy sami, więc autor oznacza podpis własnej
+    umowy — także w rekrutacji, w której nie jest w zespole (zgłoszenie 19.10:
+    współpracownik z kategorii od 04.10 nie liczy się do zespołu). Zespół
+    rekrutacji (``_jobs_run_by``) zostaje drugą drogą, żeby nikt nie stracił
+    tego, co mógł. Wiersz bez rekrutacji rozstrzyga endpoint, gdy człowiek ją
+    wskaże; tam, gdzie nikt jej nie wskazuje (dokumenty do umowy,
+    wypowiedzenie Partnera), ``open_without_job=False`` zostawia wtedy tylko
+    autora i role z ``_SIGNS_EVERY_CONTRACT_ROLES``.
+    """
+
+    if user.has_any_role(*_SIGNS_EVERY_CONTRACT_ROLES):
+        return True
+    if created_by is not None and created_by == user.id:
+        return True
+    if job_id is None:
+        return open_without_job
+    return job_id in team_job_ids
+
+
+async def _require_signature_row_scope(
+    db: AsyncSession, user: User, row: B2BGeneratedContract, job_id: int
+) -> None:
+    team_job_ids = (
+        set()
+        if user.has_any_role(*_SIGNS_EVERY_CONTRACT_ROLES)
+        else await _jobs_run_by(db, user, {job_id})
+    )
+    if not _may_confirm_row_signature(
+        user, created_by=row.created_by, job_id=job_id, team_job_ids=team_job_ids
+    ):
+        raise HTTPException(status_code=403, detail=_SIGNATURE_ROW_SCOPE_DENIED)
+
+
 async def _load_legal_scoped_job(
     db: AsyncSession,
     user: User,
@@ -1006,15 +1064,10 @@ async def _serialize_generated_contracts(
         clients = {cid: name for cid, name in result.all()}
 
     scoped_job_ids: set[int] = set()
-    if _has_signature_permission(current_user):
-        if current_user.has_any_role(
-            UserRole.admin,
-            UserRole.head_of_recruitment,
-            UserRole.talent_community_manager,
-        ):
-            scoped_job_ids = set(job_ids)
-        else:
-            scoped_job_ids = await _jobs_run_by(db, current_user, set(job_ids))
+    if _has_signature_permission(current_user) and not current_user.has_any_role(
+        *_SIGNS_EVERY_CONTRACT_ROLES
+    ):
+        scoped_job_ids = await _jobs_run_by(db, current_user, set(job_ids))
 
     # Stan powiązanego kontraktu: rejestr nie wie, że kontrakt się skończył
     # albo został usunięty (audyt 23.09.2026 — trzy umowy „Aktywne” przy
@@ -1166,8 +1219,13 @@ async def _serialize_generated_contracts(
         ):
             blocked_reason = "Brak uprawnień do potwierdzania podpisu dla tego klienta. Sprawdź przypisanie klienta i dostęp do Delivery."
             can_confirm = False
-        elif row.job_id is not None and row.job_id not in scoped_job_ids:
-            blocked_reason = "Brak przypisania do powiązanej rekrutacji."
+        elif not _may_confirm_row_signature(
+            current_user,
+            created_by=row.created_by,
+            job_id=row.job_id,
+            team_job_ids=scoped_job_ids,
+        ):
+            blocked_reason = _SIGNATURE_ROW_SCOPE_DENIED
             can_confirm = False
 
         linked_status, linked_end = linked_contracts.get(row.contract_id, (None, None))
@@ -3652,6 +3710,7 @@ async def confirm_generated_contract_fully_signed(
             job_id=job_id,
         )
         await _require_signature_job_scope(db, current_user, job)
+        await _require_signature_row_scope(db, current_user, row, job.id)
         await _assert_signature_client_access(db, current_user, job.client_id)
         if row.client_id is not None and row.client_id != job.client_id:
             raise HTTPException(

@@ -460,6 +460,13 @@ class Settings(BaseSettings):
     # rekrutacjach (26.09.2026): MRR 0,283 → 0,472 przy N=100; koszt ~350 ms
     # dla 200 osób (potem pamięć kolejności). 0 = wyłączone.
     CANDIDATE_MATCH_RERANK_TOP: int = 200
+    # „Szukaj w bazie” / „Szukaj ręcznie” w rekrutacji (jest „Dop.”): czy grupy
+    # „Mile widziane” (must spoza krytycznych, miasto, kategoria) idą PRZED
+    # oceną. Od 19.10.2026 nie (zgłoszenie „najpierw najbardziej dopasowani”,
+    # pomiar w `eval_manual_search_order --groups`) — lista idzie według „Dop.”,
+    # a te sygnały liczą się w samej ocenie. True = kolejność sprzed 19.10.
+    # Lista bez rekrutacji (brak „Dop.”) zawsze zostaje przy grupach.
+    CANDIDATE_MATCH_JOB_PREFERRED_GROUPS: bool = False
     # Jednorazowa migracja zapisanych wyszukiwań kandydatów na wspólną semantykę
     # filtrów (`services/saved_search_migration.py`) przy starcie skanera alertów.
     # Domyślnie OFF: migracja wstrzymuje alerty zapisów, których wynik się
