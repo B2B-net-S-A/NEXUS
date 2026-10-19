@@ -306,7 +306,14 @@ async def edit_request(
         cancelled = (
             await time_hooks.on_leave_cancelled(db, request.user_id, removed)
             if removed
-            else {"locked_conflicts": []}
+            else {"locked_conflicts": [], "sent_changed": []}
+        )
+        await core.report_sent_timesheet_changed(
+            db,
+            request=request,
+            subject=subject,
+            actor_id=actor.id,
+            months=[*hooked["sent_changed"], *cancelled["sent_changed"]],
         )
         locked = await report_payroll_locked(
             db,

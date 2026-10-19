@@ -387,6 +387,47 @@ async def report_payroll_locked(
     return found
 
 
+async def report_sent_timesheet_changed(
+    db: AsyncSession,
+    *,
+    request: LeaveRequest,
+    subject: User,
+    actor_id: Optional[int],
+    months: list[str],
+) -> None:
+    """Zmiana nieobecności przepisała godziny wysłanego albo przyjętego raportu
+    osoby na B2B/zleceniu — dzwonek do koordynatora (decyzja Artura 19.10.2026:
+    Kadry mogą to zrobić, ale koordynator ma wiedzieć). Bez rodzaju (D6)."""
+
+    if not months:
+        return
+    from app.services.hr import people
+    from app.services.hr.employment_terms import reports_absence
+    from app.services.hr.time_flow import approvals_link
+
+    profile = await people.profile_of(db, request.user_id)
+    form = profile.employment_type if profile else None
+    if not reports_absence(form):
+        return
+    found = sorted(set(months))
+    words = terms(form)
+    boss = await supervisor_of(db, profile)
+    first = found[0]
+    await notify(
+        db,
+        boss.user_ids,
+        exclude={actor_id, request.user_id},
+        title=f"{words['timesheet']}: godziny zmienione po wysłaniu",
+        message=(
+            f"{subject.name}, {', '.join(_month_label(key) for key in found)} — "
+            "zmiana terminu przepisała godziny, które były już wysłane. "
+            f"Sprawdź {words['timesheet_accusative']} przed akceptacją."
+        ),
+        ntype=NotificationType.hr_timesheet_decided,
+        link=approvals_link(int(first[:4]), int(first[5:7]), request.user_id),
+    )
+
+
 __all__ = [
     "LINK_APPROVALS",
     "LINK_CALENDAR",
@@ -402,5 +443,6 @@ __all__ = [
     "notify_requested",
     "payroll_locked_warning",
     "report_payroll_locked",
+    "report_sent_timesheet_changed",
     "sent_timesheet_refusal",
 ]

@@ -63,6 +63,17 @@ decyduje o słowach i o przebiegu nieobecności.
 - Zgłoszenie na dzień z miesiąca, którego raport godzin jest wysłany albo
   przyjęty = 409 (podgląd: `blocking_reason`), bo wchodzi bez niczyjej decyzji
   — najpierw koordynator cofa raport do szkicu (17.10.2026; UoP bez zmian).
+  Kadry (wpis za osobę, edycja, anulowanie) i anulowanie przez osobę mogą
+  zmienić godziny wysłanego albo przyjętego raportu B2B/zlecenia, ale
+  koordynator dostaje dzwonek „…: godziny zmienione po wysłaniu” bez rodzaju
+  (`leave_recipients.report_sent_timesheet_changed`, decyzja Artura 19.10.2026).
+- **Wpis za osobę na B2B albo zleceniu — tylko Kadry i admin** (decyzja Artura
+  19.10.2026, D5): koordynator dostaje 403 na `/approvals/on-behalf` (także
+  podgląd i zastępcy wpisu), a `GET /approvals/people` oznacza takie osoby
+  `can_enter: false` (lista służy też filtrowi historii, więc osoba zostaje).
+- Podgląd WŁASNEGO wniosku (`department_absent`, `substitute_absent`) liczy
+  tylko zatwierdzone nieobecności innych — oczekujące widzi krąg D6 (decyzja
+  Artura 19.10.2026); podgląd wpisu za pracownika — także oczekujące.
 - Akceptuj/odrzuć zgłoszenie = 409 (`REPORT_NOT_DECIDED`); czekający wniosek
   osoby, której forma zmieniła się z UoP po złożeniu, dalej można rozstrzygnąć.
   Anulowanie zgłoszenia przez koordynatora = 403 (to odrzucenie pod inną
