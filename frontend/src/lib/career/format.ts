@@ -5,7 +5,7 @@
  * `[hybryda · 2 dni]`. Pusta wartość = wiersz znika (nie „[—]"), bo pusty
  * parametr na stronie publicznej czyta się jak błąd, nie jak brak informacji.
  */
-import type { CareerJob, CareerJobParams, RemotePolicy } from "./api";
+import type { CareerJob, CareerJobParams, CareerRecruiterJob, RemotePolicy } from "./api";
 
 const REMOTE_LABEL: Record<RemotePolicy, string> = {
   remote: "zdalnie",
@@ -31,6 +31,16 @@ export interface ParamRow {
 function lower(value: string | null | undefined): string | null {
   const v = value?.trim();
   return v ? v.toLocaleLowerCase("pl-PL") : null;
+}
+
+/** „warszawa · hybryda” / „zdalnie” — wiersz listy rekrutacji. */
+export function jobLocationLabel(
+  job: Pick<CareerRecruiterJob, "city" | "remote_policy">,
+): string {
+  const city = job.city?.trim().toLocaleLowerCase("pl-PL");
+  const mode = remoteLabel(job.remote_policy);
+  if (job.remote_policy === "remote") return mode ?? "";
+  return [city, mode].filter(Boolean).join(" · ");
 }
 
 /** Wiersze panelu // PARAMETRY. */

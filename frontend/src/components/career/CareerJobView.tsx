@@ -55,6 +55,8 @@ export function CareerJobView({
           recruiterFirstName={recruiter.first_name}
           recruiterPageHref={recruiterHref}
           recruiterSlug={recruiter.slug}
+          otherJobs={data.other_jobs ?? []}
+          jobHref={(slug) => careerHref(base, { to: "job", slug })}
         />
         <CareerFooter rodoHref={rodoHref} hostLabel={visibleUrl} />
       </>
@@ -113,13 +115,12 @@ export function CareerJobView({
             must={show.must ? job.must : []}
             nice={show.nice ? job.nice : []}
           />
+          {/* Kroki także na telefonie (etap 5); manifest zostaje od 1024 px. */}
           {show.process ? (
-            <div className="kr-desktop-only">
-              <ProcessSteps
-                recruiterFirstName={recruiter.first_name}
-                contract={job.params?.contract ?? null}
-              />
-            </div>
+            <ProcessSteps
+              recruiterFirstName={recruiter.first_name}
+              contract={job.params?.contract ?? null}
+            />
           ) : null}
           <div className="kr-desktop-only">
             <ManifestoBlock />

@@ -172,6 +172,11 @@ async def get_career_job(
             "job": jpp.closed_job_payload(
                 version.title if version else _CLOSED_TITLE, link.slug
             ),
+            # Etap 5: odesłanie do innych otwartych rekrutacji tej osoby —
+            # także wtedy, gdy nie ma ona stałego linku.
+            "other_jobs": await _recruiter_open_jobs(
+                db, link.created_by, exclude_job_id=link.job_id
+            ),
         }
 
     payload = jpp.public_job_payload(
@@ -186,20 +191,11 @@ async def get_career_job(
     return {"status": "open", "recruiter": recruiter, "job": payload}
 
 
-@router.get("/p/{slug}")
-@limiter.limit("60/minute")
-async def get_career_recruiter(
-    request: Request,
-    response: Response,
-    slug: str,
-    db: AsyncSession = Depends(get_db),
-) -> dict:
-    """Stały link rekrutera i jego otwarte, zatwierdzone rekrutacje."""
-    link = await _link_by_slug(db, slug, kind="recruiter")
-    if link is None or not _link_active(link) or not await _owner_active(db, link):
-        raise HTTPException(status_code=404, detail=_NOT_FOUND)
-    owner_id = link.created_by
-
+async def _recruiter_open_jobs(
+    db: AsyncSession, owner_id: int, *, exclude_job_id: Optional[int] = None
+) -> list[dict]:
+    """Otwarte rekrutacje osoby z opublikowanym opisem i „pokazuj na mojej
+    stronie” — lista na stałym linku i na ekranie zamkniętej rekrutacji."""
     rows = (
         await db.execute(
             select(CandidateInviteLink, Job, JobPublicProfile)
@@ -219,7 +215,12 @@ async def get_career_recruiter(
     seen: set[int] = set()
     names_cache: dict[Optional[int], list[str]] = {}
     for job_link, job, profile in rows:
-        if job.id in seen or not _link_active(job_link) or not jpp.job_is_open(job):
+        if (
+            job.id in seen
+            or job.id == exclude_job_id
+            or not _link_active(job_link)
+            or not jpp.job_is_open(job)
+        ):
             continue
         version = await jpp.published_version(db, job, profile, names_cache=names_cache)
         if version is None:
@@ -234,7 +235,24 @@ async def get_career_recruiter(
                 "remote_policy": params["remote_policy"],
             }
         )
+    return jobs
 
+
+@router.get("/p/{slug}")
+@limiter.limit("60/minute")
+async def get_career_recruiter(
+    request: Request,
+    response: Response,
+    slug: str,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Stały link rekrutera i jego otwarte, zatwierdzone rekrutacje."""
+    link = await _link_by_slug(db, slug, kind="recruiter")
+    if link is None or not _link_active(link) or not await _owner_active(db, link):
+        raise HTTPException(status_code=404, detail=_NOT_FOUND)
+    owner_id = link.created_by
+
+    jobs = await _recruiter_open_jobs(db, owner_id)
     recruiter = await _recruiter_brief(db, owner_id)
     await _bump_visits(db, link, request)
     _no_cache(response)
@@ -269,6 +287,7 @@ async def submit_career_apply(
     email: EmailStr = Form(...),
     cv: UploadFile = File(...),
     consent: Optional[str] = Form(None, max_length=10),
+    consent_future: Optional[str] = Form(None, max_length=10),
     expected_rate_hourly: Optional[str] = Form(None, max_length=20),
     availability_date: Optional[str] = Form(None, max_length=20),
     city: Optional[str] = Form(None, max_length=200),
@@ -312,6 +331,7 @@ async def submit_career_apply(
             "term": utm_term,
             "content": utm_content,
         },
+        consent_future=public_apply.consent_given(consent_future),
         **optional,
     )
     return await public_apply.submit_application(

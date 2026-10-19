@@ -8,6 +8,9 @@ jednym z dwóch obiektów:
 * ``application_submission_id`` — zgłoszenie z adresem już obecnym w bazie
   (gałąź duplikatu nie dotyka istniejącego kandydata, patrz P0-CAND-01).
 
+Od 0477 jedno zgłoszenie daje jeden albo dwa wiersze: obowiązkowy
+``recruitment_current`` i — gdy kandydat zaznaczył — ``recruitment_future``.
+
 Tekst zgody nie jest kopiowany do każdego wiersza — ``text_version`` wskazuje
 wersję w ``services/career_consent.py``, a ``text_sha256`` dowodzi, którą
 dokładnie treść zobaczył kandydat. Bez adresu IP w jawnej postaci.
@@ -23,7 +26,11 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
 
+# Do 2026-10-19 jedna zgoda na oba cele; wiersze tego rodzaju zostają.
 CONSENT_KIND_RECRUITMENT = "recruitment_current_future"
+# Od 2026-10-19 (0477): obowiązkowa na tę rekrutację i dobrowolna na przyszłe.
+CONSENT_KIND_CURRENT = "recruitment_current"
+CONSENT_KIND_FUTURE = "recruitment_future"
 
 
 class CandidateConsent(Base):
@@ -34,7 +41,8 @@ class CandidateConsent(Base):
             name="ck_candidate_consents_one_subject",
         ),
         CheckConstraint(
-            "kind IN ('recruitment_current_future')",
+            "kind IN ('recruitment_current_future', 'recruitment_current', "
+            "'recruitment_future')",
             name="ck_candidate_consents_kind",
         ),
     )

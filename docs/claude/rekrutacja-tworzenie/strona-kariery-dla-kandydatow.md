@@ -6,8 +6,9 @@ Publiczny landing, który rekruterzy wrzucają na LinkedIna. Raport:
 - **`job`** — `/r/<slug>`: opis publiczny rekrutacji + formularz; kandydat
   trafia na etap „Nowy” tej rekrutacji po przeglądzie AI (0404 — sekcja
   „Zgłoszenia z linku rekrutacji przegląda AI” wyżej). Domyślnie **bez terminu** — ważny, póki
-  rekrutacja jest otwarta (zamknięta = strona „proces zakończony” z odesłaniem
-  do stałego linku rekrutera; stare `/apply/{token}` też dają wtedy 404).
+  rekrutacja jest otwarta (zamknięta = strona „proces zakończony” z listą
+  innych otwartych rekrutacji osoby i odesłaniem do jej stałego linku, gdy go
+  ma; stare `/apply/{token}` też dają wtedy 404).
 - **`recruiter`** — `/<slug>` (np. `/marta-n`): stały link do bazy, jeden
   aktywny na osobę (częściowy UNIQUE). Bez rekrutacji: brak `open_process`,
   `CandidateSourceEvent.job_id = NULL`, osoba **przypięta w „Moich ludziach”**
@@ -156,6 +157,29 @@ Reguły, które łatwo cofnąć:
   `services/career_consent.py`; administrator B2B.NET S.A.). Zmiana treści zgody
   = nowa wersja, nigdy edycja w miejscu. FK CASCADE z kandydatem i ze zgłoszeniem
   (art. 17 RODO).
+- **Dwie zgody od 19.10.2026 (decyzja D, wersja `2026-10-19`, 0477):**
+  obowiązkowa `consent` → wiersz `recruitment_current` (ta rekrutacja),
+  dobrowolna `consent_future` → wiersz `recruitment_future` (przyszłe
+  rekrutacje), tylko gdy zaznaczona. Wiersze `recruitment_current_future`
+  (jedna zgoda na oba cele, wersje do `2026-09-26`) zostają i liczą się jako
+  zgoda na przyszłe; ich treść leży w `LEGACY_CONSENT_TEXT_2026_09_26`, a test
+  pilnuje, że skrót się nie zmienił. Treść obu zgód i pkt 3 klauzuli `/rodo`
+  zatwierdził Artur 19.10.2026 (pkt 5 — okres przechowywania — bez zmian).
+  **Na dziś zgód nikt nie czyta**: wyszukiwanie, propozycje, automaty i
+  „Talent Radar” nie odróżniają osoby bez zgody na przyszłe. Brak tej zgody ma
+  znaczyć: po zamknięciu procesu osoba nie trafia do wyszukiwania ani
+  propozycji — to osobne zadanie (przy duplikacie e-maila zgoda wisi na
+  `application_submissions`, nie na kandydacie).
+- **Strona kandydata (etap 5, 19.10.2026):** kroki procesu widoczne na każdej
+  szerokości (poniżej 1024 px zwarta lista; manifest dalej tylko od 1024 px).
+  Kolory w jednym miejscu: `components/career/palette.ts` (`OG_COLORS`) dla
+  grafik OG i `LinkedInPreviewCard`, te same wartości jako `--kr-*` w
+  `career.css` (test `palette.test.ts`). Bordo `#9A142D` ma na czarnym 2,5:1 —
+  tylko tło pod białym tekstem i ozdobniki; czerwony w tekście tytułów to
+  `title` `#F06A80` (≈7:1), drobny akcent `red` `#D14A5F` (≈4,9:1). Ekran
+  zamkniętej rekrutacji dostaje z API `other_jobs` (ta sama reguła co stały
+  link: opublikowany opis + „pokazuj na mojej stronie”) — bez listy i bez
+  stałego linku prosi o kontakt z osobą od linku, nie odsyła na LinkedIna.
 - **Jedna ścieżka zapisu zgłoszenia:** `services/public_apply.submit_application`
   (stary i nowy endpoint). Duplikat e-maila (od 22.09.2026, decyzja Artura —
   kolejka `/applications` przez całe życie nie dostała ani jednego wpisu) NIE

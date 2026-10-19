@@ -70,6 +70,16 @@ const CLOSED_JOB: CareerJobResponse = {
   },
 };
 
+// Etap 5: rekruterka bez stałego linku — ekran odsyła do jej innych rekrutacji.
+const CLOSED_JOB_NO_LINK: CareerJobResponse = {
+  ...CLOSED_JOB,
+  recruiter: { first_name: "Marta", slug: null },
+  other_jobs: [
+    { slug: "devops-engineer-azure-p3x9", title: "DevOps Engineer Azure", city: null, remote_policy: "remote" },
+    { slug: "analityk-biznesowy-q8m1", title: "Analityk biznesowy", city: "Kraków", remote_policy: "hybrid" },
+  ],
+};
+
 const RECRUITER: CareerRecruiterResponse = {
   recruiter: { first_name: "Marta", slug: "marta-n" },
   jobs: [
@@ -84,6 +94,7 @@ const STATES = [
   { id: "bledy", label: "formularz z błędami" },
   { id: "dziekujemy", label: "podziękowanie" },
   { id: "zamknieta", label: "rekrutacja zamknięta" },
+  { id: "zamknieta-bez-linku", label: "zamknięta, bez stałego linku" },
   { id: "rekruter", label: "stały link rekrutera" },
 ];
 
@@ -170,6 +181,10 @@ export default function CareerPreviewPage() {
 
       <State id="zamknieta" label="rekrutacja zamknięta">
         <CareerJobView data={CLOSED_JOB} base={BASE} host={HOST} />
+      </State>
+
+      <State id="zamknieta-bez-linku" label="zamknięta, bez stałego linku">
+        <CareerJobView data={CLOSED_JOB_NO_LINK} base={BASE} host={HOST} />
       </State>
 
       <State id="rekruter" label="stały link rekrutera">

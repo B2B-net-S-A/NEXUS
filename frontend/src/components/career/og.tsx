@@ -3,6 +3,8 @@ import { join } from "node:path";
 
 import type { ReactNode } from "react";
 
+import { OG_COLORS } from "./palette";
+
 /**
  * Wspólne klocki grafik Open Graph (LinkedIn) strony kariery — `next/og`.
  *
@@ -40,18 +42,7 @@ export async function ogFonts(): Promise<OgFont[]> {
   return fonts;
 }
 
-const C = {
-  bg: "#000000",
-  grid: "#0E0E0E",
-  line: "#1A1A1A",
-  text: "#F5F5F5",
-  white: "#FFFFFF",
-  gray: "#8B8B8B",
-  comment: "#737373",
-  dim: "#5C5C5C",
-  bordo: "#9A142D",
-  red: "#C8384F",
-};
+const C = OG_COLORS;
 
 /** Kadr 1200×630 z makiet OgImage/OgGeneral. */
 export function OgFrame({
@@ -134,7 +125,7 @@ export function OgFrame({
           }}
         >
           {titleFirst ? <div style={{ display: "flex", color: C.white }}>{titleFirst}</div> : null}
-          <div style={{ display: "flex", alignItems: "flex-end", color: C.bordo }}>
+          <div style={{ display: "flex", alignItems: "flex-end", color: C.title }}>
             {titleSecond}
             <div
               style={{
@@ -142,7 +133,7 @@ export function OgFrame({
                 height: titleSize * 0.8,
                 marginLeft: 12,
                 marginBottom: titleSize * 0.06,
-                backgroundColor: C.bordo,
+                backgroundColor: C.title,
               }}
             />
           </div>
@@ -160,7 +151,7 @@ export function OgFrame({
   );
 }
 
-export const OG_COLORS = C;
+export { OG_COLORS };
 
 /** `undefined` = domyślny font `next/og` (pusta tablica nie zawsze go włącza). */
 export async function ogFontsOrDefault(): Promise<OgFont[] | undefined> {

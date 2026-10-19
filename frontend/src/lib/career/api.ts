@@ -42,6 +42,8 @@ export interface CareerJobResponse {
   status: "open" | "closed";
   recruiter: CareerRecruiter;
   job: CareerJob;
+  /** Tylko przy `closed` (etap 5): inne otwarte rekrutacje tej osoby. */
+  other_jobs?: CareerRecruiterJob[];
 }
 
 export interface CareerRecruiterJob {

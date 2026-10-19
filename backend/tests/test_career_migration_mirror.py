@@ -16,6 +16,9 @@ MIGRATION = (BACKEND / "alembic" / "versions" / "0339_career_links.py").read_tex
 MIGRATION_0340 = (
     BACKEND / "alembic" / "versions" / "0340_career_public_title.py"
 ).read_text()
+MIGRATION_0477 = (
+    BACKEND / "alembic" / "versions" / "0477_candidate_consents_two_kinds.py"
+).read_text()
 
 
 def _collapse(sql: str) -> str:
@@ -109,3 +112,40 @@ def test_public_title_column_is_mirrored():
     assert needle in _collapse(MIGRATION_0340)
     column = JobPublicProfile.__table__.c.public_title
     assert column.nullable and column.type.length == 200
+
+
+def test_0477_two_consent_kinds_are_mirrored_once_after_the_table():
+    """Poszerzony CHECK zgód stoi w entrypoincie PO ``CREATE TABLE`` (który ma
+    wąską domenę) i nigdzie dalej nie jest zwężany z powrotem."""
+    widened = (
+        "CHECK (kind IN ('recruitment_current_future', 'recruitment_current', "
+        "'recruitment_future'))"
+    )
+
+    def joined(src: str) -> str:
+        # Sklejone literały Pythona ("…, " "'…") czytane jak jeden napis SQL.
+        return re.sub(r'"\s+"', "", _collapse(src))
+
+    flat = joined(ENTRYPOINT)
+    assert widened in joined(MIGRATION_0477)
+    assert flat.count(widened) == 1
+    assert flat.count("ADD CONSTRAINT ck_candidate_consents_kind") == 1
+    assert flat.index("CREATE TABLE IF NOT EXISTS candidate_consents") < flat.index(
+        widened
+    )
+    drops = [
+        m.start()
+        for m in re.finditer(
+            r"DROP CONSTRAINT IF EXISTS ck_candidate_consents_kind", flat
+        )
+    ]
+    assert len(drops) == 1 and drops[0] < flat.index(widened)
+
+    from app.models.candidate_consent import CandidateConsent
+
+    model_check = next(
+        c
+        for c in CandidateConsent.__table__.constraints
+        if c.name == "ck_candidate_consents_kind"
+    )
+    assert _collapse(str(model_check.sqltext)) in widened

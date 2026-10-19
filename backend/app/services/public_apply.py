@@ -54,7 +54,11 @@ from app.models.application_submission import (
     ApplicationSubmissionStatus,
 )
 from app.models.candidate import Candidate, CandidateStatus
-from app.models.candidate_consent import CONSENT_KIND_RECRUITMENT, CandidateConsent
+from app.models.candidate_consent import (
+    CONSENT_KIND_CURRENT,
+    CONSENT_KIND_FUTURE,
+    CandidateConsent,
+)
 from app.models.candidate_document import CandidateDocument, CandidateDocumentKind
 from app.models.invite_link import CandidateInviteLink
 from app.models.job import Job
@@ -65,7 +69,8 @@ from app.models.recruitment_priority import PriorityOriginKind
 from app.models.user_activity import UserActionType, UserActivity
 from app.services.candidate_name_rules import without_name_markers
 from app.services.career_consent import (
-    CONSENT_TEXT_SHA256,
+    CONSENT_CURRENT_TEXT_SHA256,
+    CONSENT_FUTURE_TEXT_SHA256,
     CONSENT_TEXT_VERSION,
     consent_given,
 )
@@ -161,6 +166,9 @@ class ApplicantInput:
     city: Optional[str] = None
     work_mode: Optional[str] = None
     utm: dict[str, Optional[str]] = field(default_factory=dict)
+    # Dobrowolna zgoda na przyszłe rekrutacje (obowiązkową sprawdza
+    # ``require_consent`` przed zbudowaniem zgłoszenia).
+    consent_future: bool = False
 
 
 def parse_optional_fields(
@@ -265,15 +273,25 @@ def _optional_payload(applicant: ApplicantInput) -> dict[str, Any]:
     }
 
 
-def _consent_row(ref: LinkRef, **subject: int) -> CandidateConsent:
-    return CandidateConsent(
-        kind=CONSENT_KIND_RECRUITMENT,
-        text_version=CONSENT_TEXT_VERSION,
-        text_sha256=CONSENT_TEXT_SHA256,
-        given_at=datetime.now(timezone.utc),
-        invite_link_key=ref.digest,
-        **subject,
-    )
+def _consent_rows(
+    ref: LinkRef, applicant: ApplicantInput, **subject: int
+) -> list[CandidateConsent]:
+    """Obowiązkowa zgoda na tę rekrutację i — gdy zaznaczona — na przyszłe."""
+    given = [(CONSENT_KIND_CURRENT, CONSENT_CURRENT_TEXT_SHA256)]
+    if applicant.consent_future:
+        given.append((CONSENT_KIND_FUTURE, CONSENT_FUTURE_TEXT_SHA256))
+    now = datetime.now(timezone.utc)
+    return [
+        CandidateConsent(
+            kind=kind,
+            text_version=CONSENT_TEXT_VERSION,
+            text_sha256=sha,
+            given_at=now,
+            invite_link_key=ref.digest,
+            **subject,
+        )
+        for kind, sha in given
+    ]
 
 
 async def submit_application(
@@ -474,7 +492,10 @@ async def _record_duplicate_application(
             "link_kind": link.kind,
             "via": ref.via,
             "consent": {
-                "kind": CONSENT_KIND_RECRUITMENT,
+                "kinds": [
+                    CONSENT_KIND_CURRENT,
+                    *([CONSENT_KIND_FUTURE] if applicant.consent_future else []),
+                ],
                 "text_version": CONSENT_TEXT_VERSION,
             },
             "utm": {
@@ -488,7 +509,7 @@ async def _record_duplicate_application(
     )
     db.add(submission)
     await db.flush()
-    db.add(_consent_row(ref, application_submission_id=submission.id))
+    db.add_all(_consent_rows(ref, applicant, application_submission_id=submission.id))
 
     # CV jako dodatkowy dokument — nigdy główny: e-mail to za mało, żeby
     # cudzy plik zastąpił CV, na którym pracuje zespół.
@@ -652,7 +673,7 @@ async def _create_candidate(
         logger.warning(
             "[apply] index intent failed candidate=%s: %s", candidate.id, exc
         )
-    db.add(_consent_row(ref, candidate_id=candidate.id))
+    db.add_all(_consent_rows(ref, applicant, candidate_id=candidate.id))
 
     stored_filename, raw_text = await public_share._persist_cv(
         candidate.id, cv, content

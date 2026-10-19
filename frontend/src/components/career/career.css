@@ -22,7 +22,11 @@
   --kr-dim: #5c5c5c;
   --kr-bordo: #9a142d;
   --kr-bar: #7e222d;
-  --kr-red: #c8384f;
+  /* Kolory dzielone z `palette.ts` (OG_COLORS) — test pilnuje zgodności.
+     `--kr-red` 19.10.2026: #c8384f (4,1:1) → #d14a5f (4,9:1) dla drobnego tekstu. */
+  --kr-red: #d14a5f;
+  /* Czerwony tytułów: bordo dawało 2,5:1 na czarnym (etap 5). */
+  --kr-title: #f06a80;
   --kr-link: #d14a5f;
   --kr-link-hover: #f07a8c;
   --kr-err: #e0677a;
@@ -175,13 +179,13 @@ html:has(.kr-root[data-kr-page]) body {
   hyphens: auto;
 }
 .kr-title-a { color: var(--kr-white); }
-.kr-title-b { color: var(--kr-bordo); }
+.kr-title-b { color: var(--kr-title); }
 .kr-cursor {
   display: inline-block;
   width: 0.42em;
   height: 0.8em;
   margin-left: 6px;
-  background: var(--kr-bordo);
+  background: var(--kr-title);
   vertical-align: -0.04em;
 }
 .kr-params {
@@ -299,22 +303,25 @@ html:has(.kr-root[data-kr-page]) body {
   line-height: 1.5;
 }
 .kr-ok > :first-child { flex-shrink: 0; }
+/* Telefon i tablet: kroki jako zwarta lista (makieta 5a, 19.10.2026) — do
+   etapu 5 były ukryte poniżej 1024 px, więc przełącznik „Kroki procesu”
+   w opisie nic nie zmieniał na telefonie. Od 1024 px kafle w siatce. */
 .kr-steps {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  display: flex;
+  flex-direction: column;
   border: 1px solid var(--kr-line);
   font-size: 14px;
 }
 .kr-step {
-  padding: 18px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  border-right: 1px solid var(--kr-line);
+  padding: 12px 14px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  column-gap: 12px;
+  row-gap: 2px;
   border-bottom: 1px solid var(--kr-line);
 }
-.kr-step:nth-child(2n) { border-right: 0; }
-.kr-step:nth-child(n + 3) { border-bottom: 0; }
+.kr-step:last-child { border-bottom: 0; }
+.kr-step > :nth-child(n + 2) { grid-column: 2; }
 .kr-step .kr-c { font-size: 13px; }
 .kr-manifesto {
   margin: 0 0 10px;
@@ -353,6 +360,19 @@ html:has(.kr-root[data-kr-page]) body {
   .kr-ok { font-size: 17px; }
   .kr-manifesto { font-size: 40px; }
   .kr-desktop-only { display: block; }
+  .kr-steps {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .kr-step {
+    padding: 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    border-right: 1px solid var(--kr-line);
+  }
+  .kr-step:nth-child(2n) { border-right: 0; }
+  .kr-step:nth-child(n + 3) { border-bottom: 0; }
 }
 @media (min-width: 1280px) {
   .kr-main {

@@ -193,6 +193,33 @@ describe("CareerApplyForm — wysyłka", () => {
     expect(body.get("website")).toBeNull();
   });
 
+  it("dwie zgody: obowiązkowa zawsze, dobrowolna tylko zaznaczona (decyzja D)", async () => {
+    fetchMock.mockResolvedValue(jsonResponse(201));
+    const onSuccess = vi.fn();
+    const { container } = renderForm({ onSuccess });
+    expect(field(container, "consent")).toBeRequired();
+    expect(field(container, "consent_future")).not.toBeRequired();
+    expect(screen.getByText(/w celu przeprowadzenia rekrutacji, na którą/)).toBeInTheDocument();
+    expect(screen.getByText(/w celu prowadzenia przyszłych procesów/)).toBeInTheDocument();
+
+    fillValid(container);
+    submit();
+    await waitFor(() => expect(onSuccess).toHaveBeenCalledTimes(1));
+    expect(lastBody().get("consent")).toBe("true");
+    expect(lastBody().get("consent_future")).toBeNull();
+  });
+
+  it("zaznaczona zgoda na przyszłe rekrutacje jedzie jako consent_future=true", async () => {
+    fetchMock.mockResolvedValue(jsonResponse(201));
+    const onSuccess = vi.fn();
+    const { container } = renderForm({ onSuccess });
+    fillValid(container);
+    fireEvent.click(field(container, "consent_future"));
+    submit();
+    await waitFor(() => expect(onSuccess).toHaveBeenCalled());
+    expect(lastBody().get("consent_future")).toBe("true");
+  });
+
   it("puste pola opcjonalne nie są wysyłane, a tryb „dowolny” to brak preferencji", async () => {
     fetchMock.mockResolvedValue(jsonResponse(201));
     const onSuccess = vi.fn();
