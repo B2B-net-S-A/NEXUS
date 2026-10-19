@@ -349,8 +349,18 @@ async def test_client_interview_reminder_goes_to_event_owner_on_candidate_side(
     async def working_owner_id(_db, job):  # nikt nie jest „Poprzednim rekruterem”
         return job.recruiter_id
 
+    async def source_unchanged(_db, *, force=False):
+        return False
+
     monkeypatch.setattr(nt, "_user_is_active", active)
     monkeypatch.setattr(nt, "working_owner_id", working_owner_id)
+    # Test bez bazy: przełącznik źródła dostępności odświeża się z bazy co
+    # minutę, więc wynik zależał od tego, ile trwały testy przed nim
+    # (kolejka 19.10.2026: „'NoneType' object has no attribute 'scalar'”).
+    from app.services.hr import availability_local
+
+    monkeypatch.setattr(availability_local, "refresh_source", source_unchanged)
+    monkeypatch.setattr(availability_local, "availability_enabled", lambda: False)
     assert await nt._post_interview_recipients(None, ev, _Job(), client_side=False) == [
         11
     ]
