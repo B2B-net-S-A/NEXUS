@@ -92,6 +92,9 @@ TEMPLATE_CHANGED_IN_NEXUS = (
 ROLE_DEFAULT_CHANGED_IN_NEXUS = (
     "domyślny opis roli zmieniony w NEXUSIE po imporcie — bez nadpisania"
 )
+#: Wiersz zapisany importem, a potem usunięty w NEXUSIE (dzień obecności
+#: wrócił do domyślnego miejsca, opis albo fragment skasowany) — nie wraca.
+REMOVED_IN_NEXUS = "usunięte w NEXUSIE po imporcie — bez odtwarzania"
 NO_DESCRIPTION = "(bez opisu)"
 OVERTIME_FALLBACK = "Nadgodziny zatwierdzone w Compassie"
 _HASH = re.compile(r"^[0-9a-f]{64}$")
@@ -368,7 +371,10 @@ async def _plan_attendance(
             )
         )
         if existing is None:
-            result.rows.append(RowPlan(sid, "create", "", payload))
+            if sid in mapping:
+                result.rows.append(RowPlan(sid, "skip", REMOVED_IN_NEXUS))
+            else:
+                result.rows.append(RowPlan(sid, "create", "", payload))
             continue
         payload["attendance_id"] = existing.id
         changed = changed_fields(existing, values)
@@ -429,6 +435,9 @@ async def _plan_role_defaults(
             await db.get(TimesheetRoleDefault, int(known.target_id)) if known else None
         )
         reason = join_notes(notes)
+        if existing is None and known is not None:
+            result.rows.append(RowPlan(sid, "skip", REMOVED_IN_NEXUS))
+            continue
         if existing is None:
             twin = await db.scalar(
                 select(TimesheetRoleDefault.id).where(
@@ -490,6 +499,9 @@ async def _plan_templates(
                 )
             else:
                 result.rows.append(RowPlan(sid, "update", "", payload))
+            continue
+        if known is not None:
+            result.rows.append(RowPlan(sid, "skip", REMOVED_IN_NEXUS))
             continue
         same_name = await db.scalar(
             select(TimesheetTemplate).where(
