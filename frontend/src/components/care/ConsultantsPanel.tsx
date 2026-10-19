@@ -165,6 +165,15 @@ export function ConsultantsPanel() {
               ? "Opiekuna ustawia się na kontrakcie (zakładka „Opieka”), domyślnie dla klienta albo w „Przydziale”."
               : undefined
           }
+          action={
+            // Jak w „Ten tydzień” (#2368): admin bez podopiecznych widział tu
+            // pustkę, a „Wszyscy w moim zakresie” miało 501 osób (19.10.2026).
+            scope === "mine" && filter === "all" ? (
+              <Button size="sm" variant="outline" onClick={() => setScope("all")}>
+                Pokaż wszystkich w moim zakresie
+              </Button>
+            ) : undefined
+          }
         />
       ) : (
         <div className="overflow-x-auto rounded-lg border border-border bg-card">
