@@ -127,7 +127,7 @@ export function TechHeatmap({ departments, rows, rowsTotal }: TechHeatmapProps) 
         </h3>
         <Legend />
       </div>
-      <div className="overflow-x-auto">
+      <div className="relative overflow-x-auto">
         <table
           className="w-full table-fixed border-separate border-spacing-0.5 text-sm"
           style={{ minWidth: 300 + departments.length * 110 }}
