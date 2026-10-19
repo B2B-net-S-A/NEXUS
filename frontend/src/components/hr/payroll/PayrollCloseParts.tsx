@@ -240,7 +240,7 @@ export function DecisionPanel({
           Nic nie czeka na decyzję.
         </p>
       ) : (
-        <div className="overflow-x-auto">
+        <div className="relative overflow-x-auto">
           <table className="w-full min-w-[620px] text-sm">
             <thead>
               <tr className="border-t border-border bg-muted/40 text-left text-[11px] font-semibold uppercase tracking-[0.05em] text-muted-foreground">
