@@ -18,6 +18,12 @@ Ekran SKŁADA istniejące odczyty, nie liczy po swojemu:
   ``rule_snapshot`` — przełożony widzi kwoty premii, nigdy stawek (D2),
 * **do decyzji** — wnioski czekające i wysłane timesheety; propozycje premii
   tylko do wiadomości (decydują Płace — zasada „nikt nie przyznaje sobie”).
+  Przełożony akceptuje i odrzuca je z ekranu tymi samymi trasami co
+  „Akceptacje” (19.10.2026),
+* **ten tydzień** (pn–pt, 19.10.2026) — stan dnia per osoba: w pracy,
+  nieobecność, wniosek czeka, delegacja, zdalnie, dzień wolny firmy. Bez
+  rodzaju nieobecności (D6): oczekujące tylko dla kręgu D6, praca zdalna
+  i delegacja z ``leave_calendar.presence_between`` tylko przy module czasu.
 
 Kadry i admin oglądają zespół dowolnego przełożonego (``?manager=``). Premie
 widzi wtedy tylko osoba z Płacami albo sam przełożony — Kadry bez Płac nie
@@ -27,7 +33,7 @@ widzą kwot (``payroll_access``).
 from __future__ import annotations
 
 from collections import defaultdict
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 from typing import Any, Optional
 
@@ -41,8 +47,10 @@ from app.models.hr_time import Timesheet
 from app.models.user import User, UserRole
 from app.services.hr import absence, leave_service, payroll_bonuses, people
 from app.services.hr import modules as hr_modules
+from app.services.hr.calendar import load_calendar
 from app.services.hr.leave_balance import balances_for
-from app.services.hr.leave_policy import type_label
+from app.services.hr.leave_calendar import presence_between
+from app.services.hr.leave_policy import actor_of, can_see_type, type_label
 from app.services.hr.payroll_access import PayrollViewer, is_payroll
 from app.services.hr.payroll_periods import closed_months
 from app.services.hr.time_access import Actor
@@ -53,6 +61,9 @@ from app.services.hr.time_month import team_queue
 
 #: Premie „w drodze” — jeszcze nie wypłacone (miesiąc płac otwarty).
 BONUS_IN_FLIGHT = ("proposed", "assigned")
+
+#: Stan dnia w mini-tygodniu (pn–pt) — bez rodzaju nieobecności (D6).
+WEEK_STATES = ("work", "off", "absent", "pending", "business_trip", "remote")
 
 
 def _iso(value: Optional[date]) -> Optional[str]:
@@ -194,6 +205,69 @@ async def _upcoming_absence_days(
     return result
 
 
+async def _week(
+    db: AsyncSession,
+    viewer: User,
+    pairs: list[tuple[EmployeeProfile, User]],
+    today: date,
+    *,
+    with_absences: bool,
+    with_presence: bool,
+) -> tuple[list[dict[str, str]], dict[int, list[dict[str, Any]]]]:
+    """Mini-tydzień pn–pt tygodnia z dziś: stan dnia per osoba.
+
+    Nieobecność bez rodzaju (D6 — mini-tydzień mówi „nieobecność”, nawet gdy
+    patrzący jest w kręgu); wniosek oczekujący tylko dla kręgu D6, jak
+    w kalendarzu zespołu. Pierwszeństwo: dzień wolny firmy, nieobecność,
+    wniosek czeka, delegacja, zdalnie, w pracy.
+    """
+
+    monday = today - timedelta(days=today.weekday())
+    days = [monday + timedelta(days=offset) for offset in range(5)]
+    calendar = await load_calendar(db, days[0], days[-1])
+    ids = [profile.user_id for profile, _ in pairs]
+    actor = actor_of(viewer)
+    in_d6 = {
+        profile.user_id
+        for profile, _ in pairs
+        if can_see_type(
+            actor,
+            subject_user_id=profile.user_id,
+            subject_manager_id=profile.manager_user_id,
+        )
+    }
+    absences = (
+        await absence.month_absences(db, ids, days[0], days[-1], pending_for=in_d6)
+        if with_absences
+        else []
+    )
+    presence = (
+        await presence_between(db, ids, days[0], days[-1]) if with_presence else {}
+    )
+    result: dict[int, list[dict[str, Any]]] = {}
+    for user_id in ids:
+        own = [item for item in absences if item.user_id == user_id]
+        marks = {item["date"]: item["kind"] for item in presence.get(user_id, [])}
+        row: list[dict[str, Any]] = []
+        for day in days:
+            covering = [item for item in own if item.start <= day <= item.end]
+            approved = next((a for a in covering if a.status == "approved"), None)
+            waiting = next((a for a in covering if a.status == "pending"), None)
+            half_day: Optional[str] = None
+            if not calendar.is_working_day(day):
+                state = "off"
+            elif approved is not None:
+                state, half_day = "absent", approved.half_day
+            elif waiting is not None:
+                state, half_day = "pending", waiting.half_day
+            else:
+                state = marks.get(day.isoformat(), "work")
+            row.append({"date": day.isoformat(), "state": state, "half_day": half_day})
+        result[user_id] = row
+    week_days = [{"date": day.isoformat(), "kind": calendar.kind(day)} for day in days]
+    return week_days, result
+
+
 async def _leave(
     db: AsyncSession, pairs: list[tuple[EmployeeProfile, User]], today: date
 ) -> dict[int, dict[str, Any]]:
@@ -324,6 +398,7 @@ async def _to_decide(
                 "half_day": item["half_day"],
                 "leave_type_label": item["leave_type_label"],
                 "days_total": item["days_total"],
+                "created_at": item["created_at"],
             }
         )
     timesheets: dict[int, list[dict[str, Any]]] = defaultdict(list)
@@ -341,6 +416,9 @@ async def _to_decide(
                 "id": timesheet.id,
                 "year": timesheet.year,
                 "month": timesheet.month,
+                "submitted_at": timesheet.submitted_at.isoformat()
+                if timesheet.submitted_at
+                else None,
                 "link": approvals_link(
                     timesheet.year, timesheet.month, timesheet.user_id
                 ),
@@ -391,6 +469,17 @@ async def team_view(
     )
     if not is_open("leave"):
         leave_items = {}
+    week_days: Optional[list[dict[str, str]]] = None
+    week: dict[int, list[dict[str, Any]]] = {}
+    if (is_open("leave") or is_open("time")) and ids:
+        week_days, week = await _week(
+            db,
+            viewer,
+            pairs,
+            today,
+            with_absences=is_open("leave"),
+            with_presence=is_open("time"),
+        )
     if not is_open("time"):
         timesheets = {}
 
@@ -418,6 +507,7 @@ async def team_view(
                 if is_open("leave")
                 else None,
                 "covering_for": covering.get(user.id, []),
+                "week": week.get(user.id) if week_days is not None else None,
                 "leave": leave.get(user.id),
                 "month": month_rows.get(user.id) if month is not None else None,
                 "timesheet_required": profile.timesheet_required,
@@ -439,6 +529,7 @@ async def team_view(
         },
         "sees_bonuses": show_bonuses,
         "month": month,
+        "week": {"days": week_days} if week_days is not None else None,
         "people": people_rows,
         "stats": {
             "people": len(people_rows),
@@ -466,6 +557,7 @@ def can_view_any_team(user: User) -> bool:
 
 __all__ = [
     "BONUS_IN_FLIGHT",
+    "WEEK_STATES",
     "can_view_any_team",
     "managers",
     "reports_of",

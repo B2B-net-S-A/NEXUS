@@ -3,7 +3,6 @@
 import { useState } from "react";
 import Link from "next/link";
 
-import { InlineStats } from "@/components/ds/InlineStats";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import {
   Select,
@@ -22,12 +21,24 @@ import {
 } from "@/components/ui/table";
 import type { HrConfig } from "@/lib/api/hr";
 import { EMPLOYMENT_TYPE_SHORT } from "@/lib/api/hr-structure";
-import { useMyTeam, useTeamManagers, type MyTeam } from "@/lib/api/hr-team";
+import { useMyTeam, useTeamManagers, type MyTeam, type TeamPerson } from "@/lib/api/hr-team";
 import { CALM_EMPTY, CALM_HEAD, CALM_ROW, CALM_SUBLINE } from "@/lib/calm-table";
+import { formatDayMonthPl, formatWeekdayDayPl } from "@/lib/date-pl";
 import { useUrlWriter } from "@/lib/url-selection";
+import { cn } from "@/lib/utils";
 import { resolveViewState } from "@/lib/view-state";
 
-import { bonusCell, decisionItems, leaveCell, monthCell, todayCell, type Cell } from "./team-format";
+import { personInitials } from "../people/hr-format";
+import { TeamDecisions } from "./TeamDecisions";
+import { bonusCell, leaveCell, type Cell } from "./team-format";
+import {
+  monthProgress,
+  todayStatus,
+  todaySummary,
+  weekAriaLabel,
+  weekCells,
+  type TodayKind,
+} from "./team-week";
 
 function CellView({ cell }: { cell: Cell }) {
   return (
@@ -48,8 +59,24 @@ function CellView({ cell }: { cell: Cell }) {
   );
 }
 
+function Avatar({ name, size = "md", className }: { name: string; size?: "sm" | "md"; className?: string }) {
+  return (
+    <span
+      aria-hidden
+      className={cn(
+        "grid shrink-0 place-items-center rounded-full bg-primary/10 font-semibold text-primary",
+        size === "sm" ? "h-[30px] w-[30px] text-[11px]" : "h-9 w-9 text-xs",
+        className,
+      )}
+    >
+      {personInitials(name)}
+    </span>
+  );
+}
+
 /**
- * „Ludzie → Mój zespół”: przełożony o swoich bezpośrednich podwładnych.
+ * „Ludzie → Mój zespół” (makieta 19.10.2026): pasek „Dziś”, karty „Do Twojej
+ * decyzji” z akceptacją na miejscu, tabela z mini-tygodniem i paskiem godzin.
  * Kadry i admin wybierają przełożonego (`?manager=`).
  */
 export function TeamScreen({
@@ -119,11 +146,8 @@ export function TeamScreen({
   }
   const data = team.data;
   return (
-    <div className="space-y-3">
-      <div className="flex flex-wrap items-center gap-3">
-        {picker}
-        {state === "empty" ? null : <TeamStats data={data} />}
-      </div>
+    <div className="space-y-4">
+      {picker ? <div className="flex flex-wrap items-center gap-3">{picker}</div> : null}
       {state === "empty" ? (
         <div className="rounded-lg border border-dashed border-border p-10 text-center text-sm text-muted-foreground">
           {data.is_own
@@ -131,7 +155,11 @@ export function TeamScreen({
             : `${data.manager.name} nie ma podwładnych z kartoteką.`}
         </div>
       ) : (
-        <TeamTable data={data} />
+        <>
+          <TodayStrip data={data} />
+          <TeamDecisions team={data} />
+          <TeamTable data={data} />
+        </>
       )}
       <p className="text-xs text-muted-foreground">
         Rodzaj nieobecności widzą tylko osoba, jej przełożony albo koordynator i Kadry. Kwoty
@@ -141,23 +169,145 @@ export function TeamScreen({
   );
 }
 
-function TeamStats({ data }: { data: MyTeam }) {
-  const stats = [
-    { id: "people", label: "osób", value: data.stats.people },
-    ...(data.modules.leave
-      ? [
-          { id: "absent", label: "dziś nieobecnych", value: data.stats.absent_today },
-          { id: "leave", label: "wnioski do decyzji", value: data.stats.leave_requests },
-        ]
-      : []),
-    ...(data.modules.time
-      ? [{ id: "timesheets", label: "timesheety do akceptacji", value: data.stats.timesheets }]
-      : []),
-    ...(data.stats.bonus_proposals !== null
-      ? [{ id: "bonuses", label: "propozycje premii", value: data.stats.bonus_proposals }]
-      : []),
-  ];
-  return <InlineStats stats={stats} />;
+const RING: Record<TodayKind, string> = {
+  work: "ring-success",
+  absent: "ring-primary/40 opacity-70",
+  trip: "ring-warning",
+  remote: "ring-info",
+  unknown: "ring-border",
+};
+
+const TODAY_TEXT: Record<TodayKind, string> = {
+  work: "text-muted-foreground",
+  absent: "text-primary",
+  trip: "text-warning-muted-foreground",
+  remote: "text-info-muted-foreground",
+  unknown: "text-muted-foreground",
+};
+
+/** Pasek „Dziś”: awatar z obwódką stanu i jedno zdanie (rodzaj tylko z serwera, D6). */
+function TodayStrip({ data }: { data: MyTeam }) {
+  if (!data.modules.leave && !data.week) return null;
+  return (
+    <section
+      aria-label="Dziś"
+      className="flex flex-wrap items-center gap-x-6 gap-y-3 rounded-xl border border-border bg-card px-4 py-3"
+    >
+      <div className="flex flex-col">
+        <span className="text-[11px] font-semibold uppercase tracking-[0.05em] text-muted-foreground">
+          Dziś · {formatWeekdayDayPl(data.today)}
+        </span>
+        <span className="text-sm text-foreground">{todaySummary(data.people, data.today)}</span>
+      </div>
+      <ul className="flex flex-wrap gap-x-5 gap-y-2">
+        {data.people.map((person) => {
+          const status = todayStatus(person, data.today);
+          return (
+            <li key={person.user_id} className="flex items-center gap-2">
+              <Avatar
+                name={person.name}
+                className={cn("ring-2 ring-offset-2 ring-offset-card", RING[status.kind])}
+              />
+              <div className="text-sm leading-tight">
+                <div className="font-medium text-foreground">{person.name.split(/\s+/)[0]}</div>
+                <div className={cn("text-xs", TODAY_TEXT[status.kind])}>{status.text}</div>
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+    </section>
+  );
+}
+
+const WEEK_CELL: Record<string, string> = {
+  work: "bg-success-muted text-success-muted-foreground",
+  off: "bg-muted text-muted-foreground/70",
+  absent: "bg-primary/20 text-primary",
+  pending: "border border-dashed border-primary/60 bg-card text-primary",
+  business_trip: "bg-warning-muted text-warning-muted-foreground",
+  remote: "bg-info-muted text-info-muted-foreground",
+};
+
+/** Mini-tydzień pn–pt; dziś obrysowane. */
+function WeekStrip({ person, today }: { person: TeamPerson; today: string }) {
+  const cells = weekCells(person, today);
+  if (!cells) return <span className={CALM_EMPTY}>—</span>;
+  return (
+    <div role="img" aria-label={weekAriaLabel(cells)} className="grid w-max grid-cols-5 gap-[3px]">
+      {cells.map((cell) => (
+        <span
+          key={cell.date}
+          title={cell.title}
+          className={cn(
+            "grid h-[22px] w-[22px] place-items-center rounded-[5px] text-[10px] font-semibold",
+            WEEK_CELL[cell.state],
+            cell.isToday && "outline outline-2 outline-offset-1 outline-primary",
+          )}
+        >
+          {cell.mark}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function MonthBar({ person, data }: { person: TeamPerson; data: MyTeam }) {
+  const progress = monthProgress(person, data);
+  if (!progress) return <span className={CALM_EMPTY}>—</span>;
+  if (progress.hours === null) return <span className={CALM_EMPTY}>{progress.text}</span>;
+  return (
+    <div className="min-w-[140px] space-y-1">
+      <div className="flex items-center justify-between gap-2 text-[13px]">
+        <span className="tabular-nums text-foreground">{progress.text}</span>
+        {progress.status === "submitted" ? (
+          <span className="rounded-full bg-info-muted px-2 py-px text-[11px] font-medium text-info-muted-foreground">
+            {progress.statusLabel}
+          </span>
+        ) : progress.status === "approved" ? (
+          <span className="rounded-full bg-success-muted px-2 py-px text-[11px] font-medium text-success-muted-foreground">
+            {progress.statusLabel}
+          </span>
+        ) : progress.status === "missing" ? (
+          <span className="rounded-full bg-warning-muted px-2 py-px text-[11px] font-medium text-warning-muted-foreground">
+            {progress.statusLabel}
+          </span>
+        ) : (
+          <span className="text-xs text-muted-foreground">{progress.statusLabel}</span>
+        )}
+      </div>
+      <div
+        role="progressbar"
+        aria-label={`Godziny: ${progress.text}`}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={progress.percent}
+        className="h-1.5 overflow-hidden rounded-full bg-muted"
+      >
+        <span
+          className={cn("block h-full rounded-full", progress.full ? "bg-success" : "bg-primary")}
+          style={{ width: `${progress.percent}%` }}
+        />
+      </div>
+    </div>
+  );
+}
+
+function personSubline(person: TeamPerson): { text: string; warning: boolean } {
+  const offboarding = person.employment_status === "offboarding";
+  const text = [
+    person.job_title,
+    person.employment_type ? EMPLOYMENT_TYPE_SHORT[person.employment_type] : null,
+    person.student ? "student" : null,
+    offboarding
+      ? person.last_working_day
+        ? `odchodzi ${formatDayMonthPl(person.last_working_day)}`
+        : "odchodzi"
+      : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  return { text, warning: offboarding };
 }
 
 function TeamTable({ data }: { data: MyTeam }) {
@@ -167,71 +317,69 @@ function TeamTable({ data }: { data: MyTeam }) {
       )
     : "Miesiąc";
   return (
-    <div className="overflow-x-auto rounded-lg border border-border bg-card">
-      <Table density="compact" className="min-w-[960px]">
+    <div className="overflow-x-auto rounded-xl border border-border bg-card">
+      <Table density="compact" className="min-w-[880px]">
         <TableHeader>
-          <TableRow>
+          <TableRow className="bg-muted/40">
             <TableHead className={CALM_HEAD}>Osoba</TableHead>
-            <TableHead className={CALM_HEAD}>Dziś</TableHead>
+            <TableHead className={`${CALM_HEAD} w-[140px]`}>Ten tydzień</TableHead>
+            <TableHead className={CALM_HEAD}>{monthName}</TableHead>
             <TableHead className={CALM_HEAD}>Nieobecności</TableHead>
-            <TableHead className={`${CALM_HEAD} capitalize`}>{monthName}</TableHead>
             {data.sees_bonuses ? (
               <TableHead className={CALM_HEAD}>Premie w drodze</TableHead>
             ) : null}
-            <TableHead className={CALM_HEAD}>Do decyzji</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
           {data.people.map((person) => {
-            const decisions = decisionItems(person);
+            const sub = personSubline(person);
+            const pending = person.to_decide.leave_requests.length;
+            const leave = leaveCell(person.leave, person.employment_type ?? undefined);
             return (
-              <TableRow key={person.user_id} className={`${CALM_ROW} align-top`}>
-                <TableCell>
-                  <Link href={`/people/${person.user_id}`} className="font-medium text-foreground hover:underline">
-                    {person.name}
-                  </Link>
-                  <span className={CALM_SUBLINE}>
-                    {[
-                      person.job_title,
-                      person.employment_type
-                        ? EMPLOYMENT_TYPE_SHORT[person.employment_type]
-                        : null,
-                      person.student ? "student" : null,
-                      person.employment_status === "offboarding" ? "odchodzi" : null,
-                    ]
-                      .filter(Boolean)
-                      .join(" · ")}
-                  </span>
+              <TableRow key={person.user_id} className={CALM_ROW}>
+                <TableCell className="py-2.5">
+                  <div className="flex items-center gap-2.5">
+                    <Avatar name={person.name} size="sm" />
+                    <div className="min-w-0">
+                      <Link
+                        href={`/people/${person.user_id}`}
+                        className="font-medium text-foreground hover:underline"
+                      >
+                        {person.name}
+                      </Link>
+                      {sub.text ? (
+                        <span
+                          className={cn(CALM_SUBLINE, sub.warning && "text-warning-muted-foreground")}
+                        >
+                          {sub.text}
+                        </span>
+                      ) : null}
+                    </div>
+                  </div>
                 </TableCell>
-                <TableCell>
-                  <CellView cell={todayCell(person.today, person.covering_for)} />
+                <TableCell className="py-2.5">
+                  <WeekStrip person={person} today={data.today} />
                 </TableCell>
-                <TableCell>
-                  <CellView cell={leaveCell(person.leave, person.employment_type ?? undefined)} />
+                <TableCell className="py-2.5">
+                  <MonthBar person={person} data={data} />
                 </TableCell>
-                <TableCell>
-                  <CellView cell={monthCell(person, data)} />
+                <TableCell className="py-2.5">
+                  <CellView
+                    cell={
+                      pending > 0 && !leave.sub
+                        ? {
+                            ...leave,
+                            sub: `${pending === 1 ? "wniosek czeka" : `${pending} wnioski czekają`} na decyzję`,
+                          }
+                        : leave
+                    }
+                  />
                 </TableCell>
                 {data.sees_bonuses ? (
-                  <TableCell>
+                  <TableCell className="py-2.5">
                     <CellView cell={bonusCell(person.bonuses)} />
                   </TableCell>
                 ) : null}
-                <TableCell>
-                  {decisions.length === 0 ? (
-                    <span className={CALM_EMPTY}>—</span>
-                  ) : (
-                    <ul className="space-y-0.5">
-                      {decisions.map((item) => (
-                        <li key={item.key}>
-                          <Link href={item.href} className="text-primary hover:underline">
-                            {item.text}
-                          </Link>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </TableCell>
               </TableRow>
             );
           })}

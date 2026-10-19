@@ -8,10 +8,16 @@
  * albo, jak Ola, z wierszem puli 0 — kolumna „Nieobecności” pokazuje
  * zaplanowane dni), Julia na UoP z pulą.
  *
+ * Układ z makiety 19.10.2026: pasek „Dziś”, karty „Do Twojej decyzji”
+ * (Akceptuj / Odrzuć na miejscu — w podglądzie zapis to błąd sieci, testy
+ * klikają tylko „Odrzuć”, które otwiera okno), mini-tydzień pn–pt i pasek
+ * godzin miesiąca.
+ *
  * Stany (`?as=`):
- * - `manager` (domyślnie) — Marta o swoich ludziach: Ewa na urlopie (rodzaj
- *   widzi przełożona, D6), Ola ją zastępuje, premie z kwotą bez stawek,
- *   wniosek i timesheet do decyzji;
+ * - `manager` (domyślnie) — Marta o swoich ludziach: Ewa na przerwie (rodzaj
+ *   widzi przełożona, D6), Ola ją zastępuje, Tomasz dziś w delegacji, Adam
+ *   w czwartek zdalnie, premie z kwotą bez stawek, wniosek Julii i timesheet
+ *   Tomasza do decyzji, propozycja premii Oli do wiadomości;
  * - `hr` — Paulina (Kadry bez Płac) ogląda zespół Marty z wyboru przełożonego:
  *   bez kolumny premii.
  */
@@ -20,7 +26,15 @@ import { PageHeader } from "@/components/ds/PageHeader";
 import { PeopleSectionNav } from "@/components/hr/people/PeopleSectionNav";
 import { TeamScreen } from "@/components/hr/team/TeamScreen";
 import { hrKeys, type HrConfig } from "@/lib/api/hr";
-import { teamKeys, type MyTeam, type TeamPerson } from "@/lib/api/hr-team";
+import { addDays, mondayOf } from "@/components/hr/leave/calendar-bars";
+import {
+  teamKeys,
+  type MyTeam,
+  type TeamBonusItem,
+  type TeamPerson,
+  type TeamWeekDay,
+  type TeamWeekState,
+} from "@/lib/api/hr-team";
 import { warsawToday } from "@/lib/warsaw-date";
 
 import {
@@ -47,6 +61,30 @@ const STATES = [
 
 const { marta, ola, ewa, tomasz, julia, kamil, adam, paulina } = HR_CAST;
 
+/** Pn–pt bieżącego tygodnia; `pick` zwraca stan dnia roboczego (święto = „off”). */
+function week(pick: (day: string) => TeamWeekState): TeamWeekDay[] {
+  const monday = mondayOf(warsawToday());
+  return [0, 1, 2, 3, 4].map((offset) => {
+    const day = addDays(monday, offset);
+    const working = harnessWorkDays(day.slice(0, 7)).includes(day);
+    return { date: day, state: working ? pick(day) : "off", half_day: null };
+  });
+}
+
+function bonus(id: number, amount: string, status: TeamBonusItem["status"]): TeamBonusItem {
+  return {
+    id,
+    amount,
+    currency: "PLN",
+    category_label: "Rekruter",
+    status,
+    period_year: 2091,
+    period_month: 11,
+    eligible_on: null,
+    description: "Placement (Bank Przykładowy)",
+  };
+}
+
 function base(person: HarnessPerson): TeamPerson {
   return {
     user_id: person.id,
@@ -57,6 +95,7 @@ function base(person: HarnessPerson): TeamPerson {
     last_working_day: null,
     today: { absent: false },
     covering_for: [],
+    week: week(() => "work"),
     leave: { has_pool: false, has_paid_pool: false, remaining_days: null, planned_days: "0.0", pending_days: "0.0" },
     month: { hours: 0, status: "draft", timesheet_id: null },
     timesheet_required: true,
@@ -90,7 +129,7 @@ function harnessTeam(withBonuses: boolean): MyTeam {
         count: 2,
         proposals: 1,
         totals: [{ currency: "PLN", amount: "3000.00" }],
-        items: [],
+        items: [bonus(7101, "2000.00", "proposed"), bonus(7102, "1000.00", "assigned")],
       },
     },
     {
@@ -104,18 +143,22 @@ function harnessTeam(withBonuses: boolean): MyTeam {
         leave_type_label: "Przerwa w świadczeniu usług",
         substitute_name: ola.name,
       },
+      week: week((day) => (day >= today && day <= ewaUntil ? "absent" : "work")),
       leave: { has_pool: false, has_paid_pool: false, remaining_days: null, planned_days: "2.0", pending_days: "0.0" },
       month: { hours: Math.round(norm * 0.6), status: "draft", timesheet_id: 5102 },
       bonuses: {
         count: 1,
         proposals: 0,
         totals: [{ currency: "PLN", amount: "1500.00" }],
-        items: [],
+        items: [bonus(7103, "1500.00", "assigned")],
       },
     },
     {
       ...base(tomasz),
       employment_status: "offboarding",
+      last_working_day: shiftDay(today, 40),
+      // Dziś w delegacji (wyjątek obecności z „Mojego miesiąca”, nie nieobecność).
+      week: week((day) => (day === today ? "business_trip" : "work")),
       month: { hours: norm, status: "submitted", timesheet_id: 5103 },
       bonuses: { count: 0, proposals: 0, totals: [], items: [] },
       to_decide: {
@@ -125,6 +168,7 @@ function harnessTeam(withBonuses: boolean): MyTeam {
             id: 5103,
             year,
             month: monthNumber,
+            submitted_at: `${shiftDay(today, -2)}T09:00:00+02:00`,
             link: `/people/approvals?kind=timesheet&year=${year}&month=${monthNumber}&user=${tomasz.id}`,
           },
         ],
@@ -146,6 +190,7 @@ function harnessTeam(withBonuses: boolean): MyTeam {
             half_day: null,
             leave_type_label: "Urlop wypoczynkowy",
             days_total: "5.0",
+            created_at: `${shiftDay(today, -5)}T09:00:00+02:00`,
           },
         ],
         timesheets: [],
@@ -156,6 +201,7 @@ function harnessTeam(withBonuses: boolean): MyTeam {
       employment_type: "zlecenie",
       // Student na zleceniu (D8): sam znacznik, bez dat zwolnienia ze składek.
       student: true,
+      week: week((day) => (day === addDays(mondayOf(today), 3) ? "remote" : "work")),
       timesheet_required: false,
       month: null,
       bonuses: { count: 0, proposals: 0, totals: [], items: [] },
@@ -169,6 +215,7 @@ function harnessTeam(withBonuses: boolean): MyTeam {
     modules: { leave: true, time: true, payroll: true },
     sees_bonuses: withBonuses,
     month: { year, month: monthNumber, norm_hours: norm, deadline: `${month}-05` },
+    week: { days: week(() => "work").map((day) => ({ date: day.date, kind: day.state === "off" ? "holiday" : "work" })) },
     people,
     stats: {
       people: people.length,
@@ -221,7 +268,7 @@ export default function HrTeamPreviewPage() {
       <div className="space-y-4">
         <PageHeader
           title="Mój zespół"
-          description="Kto jest dziś, nieobecności, bieżący miesiąc, premie i sprawy do decyzji."
+          description="Kto jest dziś, co czeka na Twoją decyzję i jak idzie miesiąc."
           density="compact"
         />
         <PeopleSectionNav config={config} active="team" />

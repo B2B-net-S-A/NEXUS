@@ -1,10 +1,12 @@
 /**
- * `/preview/hr-team` (etap 2, „Ludzie → Mój zespół”): prawdziwy ekran
- * przełożonego na danych fikcyjnych, ZERO prób żądania. Premie z kwotą bez
- * stawek, kolumna „Nieobecności” (pula tylko u osoby z pulą), rodzaj
- * nieobecności dla przełożonej (D6), Kadry bez Płac — bez kolumny premii.
+ * `/preview/hr-team` (etap 2, „Ludzie → Mój zespół”, układ z makiety
+ * 19.10.2026): prawdziwy ekran przełożonego na danych fikcyjnych, ZERO prób
+ * żądania — także po otwarciu okna odrzucenia. Pasek „Dziś” z rodzajem dla
+ * przełożonej (D6), karty decyzji, mini-tydzień, premie z kwotą bez stawek,
+ * Kadry bez Płac — bez kolumny i kart premii.
  */
 import { render, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { Axios } from "axios";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -14,8 +16,13 @@ vi.mock("next/navigation", () => ({
   useSearchParams: () => new URLSearchParams(window.location.search),
 }));
 
+import { warsawToday } from "@/lib/warsaw-date";
 import { useAuthStore } from "@/store/auth";
+import { harnessWorkDays } from "../hr-fixtures";
 import HrTeamPreviewPage from "../hr-team/page";
+
+/** Delegacja Tomasza i przerwa Ewy w mini-tygodniu są „dziś” — w weekend i święto ich nie ma. */
+const TODAY_IS_WORKDAY = harnessWorkDays(warsawToday().slice(0, 7)).includes(warsawToday());
 
 vi.setConfig({ testTimeout: 20_000 });
 
@@ -34,38 +41,55 @@ afterEach(() => {
 });
 
 describe("/preview/hr-team", () => {
-  it("przełożona: dziś, nieobecności, miesiąc, premie i sprawy do decyzji", async () => {
+  it("przełożona: pasek „Dziś”, sprawy do decyzji, mini-tydzień, miesiąc i premie", async () => {
+    const user = userEvent.setup();
     window.history.replaceState({}, "", "/preview/hr-team");
     render(<HrTeamPreviewPage />);
 
-    const ewa = await screen.findByRole("row", { name: /^Ewa Makietowa/ });
-    expect(ewa).toHaveTextContent("Przerwa w świadczeniu usług do");
+    // Pasek „Dziś”: rodzaj nieobecności dla przełożonej (D6), zastępstwo, delegacja.
+    const today = await screen.findByRole("region", { name: "Dziś" });
+    expect(today).toHaveTextContent("przerwa w świadczeniu usług do");
+    expect(today).toHaveTextContent("zastępuje: Ewa");
+    if (TODAY_IS_WORKDAY) expect(today).toHaveTextContent("delegacja");
+
+    // „Do Twojej decyzji”: wniosek Julii i timesheet Tomasza z akcjami, premia Oli do wiadomości.
+    const decisions = screen.getByRole("region", { name: "Do Twojej decyzji" });
+    const leave = within(decisions).getByText(/^Julia Próbna · /).closest("li")!;
+    expect(leave).toHaveTextContent("wniosek urlopowy");
+    expect(leave).toHaveTextContent("czeka 5 dni");
+    expect(within(decisions).getByText(/^Tomasz Podglądowy · /).closest("li")).toHaveTextContent(
+      "wysłany 2 dni temu",
+    );
+    expect(decisions).toHaveTextContent("premia · do wiadomości");
+    await user.click(within(leave as HTMLElement).getByRole("button", { name: "Odrzuć" }));
+    expect(await screen.findByRole("dialog")).toHaveTextContent("Julia Próbna");
+    await user.keyboard("{Escape}");
+
     const ola = screen.getByRole("row", { name: /^Ola Przykładowa/ });
-    expect(ola).toHaveTextContent("zastępuje: Ewa Makietowa");
     expect(ola).toHaveTextContent("zaplanowane 8 dni");
     // Wiersz puli z zerem na B2B: liczy się płatna pula, nie sam wiersz.
     expect(ola).not.toHaveTextContent(/zostało/);
     expect(ola).toHaveTextContent("1 propozycja — decydują Płace");
-    // B2B (D5): bez wniosków do decyzji.
-    expect(within(ola).queryByRole("link", { name: /^wniosek / })).toBeNull();
+    expect(within(ola).getByRole("progressbar")).toBeInTheDocument();
+    const ewa = screen.getByRole("row", { name: /^Ewa Makietowa/ });
+    const ewaWeek = within(ewa).getByRole("img", { name: /^pn: / });
+    if (TODAY_IS_WORKDAY) expect(ewaWeek).toHaveAccessibleName(/nieobecność/);
     const julia = screen.getByRole("row", { name: /^Julia Próbna/ });
     expect(julia).toHaveTextContent("zostało 14 dni urlopu");
     expect(julia).toHaveTextContent("UoP");
-    expect(within(julia).getByRole("link", { name: /^wniosek / })).toHaveAttribute(
-      "href",
-      "/people/approvals",
-    );
     // Student na zleceniu (D8): sam znacznik — daty zwolnienia widzą Kadry i Płace.
     const adam = screen.getByRole("row", { name: /^Adam Wzorcowy/ });
     expect(adam).toHaveTextContent("Zlecenie · student");
+    expect(adam).toHaveTextContent("bez timesheetu");
     expect(adam).not.toHaveTextContent(/składki od/);
+    expect(screen.getByRole("columnheader", { name: "Ten tydzień" })).toBeInTheDocument();
     expect(screen.getByRole("columnheader", { name: "Nieobecności" })).toBeInTheDocument();
     expect(screen.getByRole("columnheader", { name: "Premie w drodze" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "Mój zespół" })).toHaveAttribute("aria-selected", "true");
     expect(attempted()).toEqual([]);
   });
 
-  it("Kadry bez Płac: zespół Marty bez kolumny premii", async () => {
+  it("Kadry bez Płac: zespół Marty bez kolumny i kart premii", async () => {
     window.history.replaceState({}, "", "/preview/hr-team?as=hr");
     render(<HrTeamPreviewPage />);
 
@@ -73,6 +97,7 @@ describe("/preview/hr-team", () => {
       "odchodzi",
     );
     expect(screen.queryByRole("columnheader", { name: "Premie w drodze" })).toBeNull();
+    expect(screen.queryByText("premia · do wiadomości")).toBeNull();
     expect(screen.getByRole("combobox", { name: "Zespół przełożonego" })).toHaveTextContent(
       "Marta Fikcyjna",
     );

@@ -165,6 +165,34 @@ mają dane (import z Compassa, plików recepcji, kartotek, wzorów umów).
   w Strukturze); kwoty premii widzi wtedy tylko osoba z Płacami.
   `leave.has_paid_pool` (pula > 0 — to samo co w `GET /api/hr/leave/balance`)
   decyduje we froncie o „zostało”; `has_pool` zostaje (17.10.2026).
+- **Układ z makiet (decyzje z kanwy 19.10.2026).** „Mój zespół”: pasek „Dziś”
+  (awatar z obwódką: w pracy / nieobecność do… / delegacja / zdalnie), karty
+  „Do Twojej decyzji”, tabela z mini-tygodniem pn–pt i paskiem godzin miesiąca
+  (`components/hr/team/team-week.ts`). **Wniosek i timesheet decyduje się
+  z „Mojego zespołu”** (decyzja Artura) — te same hooki i trasy co
+  „Akceptacje” (`useDecideLeave`, `useDecideTimesheet`, odrzucenie przez
+  `RejectLeaveDialog` z powodem), bez nowej logiki serwera; prawo do decyzji
+  sprawdza serwer. Propozycje premii tylko do wiadomości (decydują Płace), karta
+  premii tylko przy `sees_bonuses` (D2). Mini-tydzień to pole `week` trasy
+  `GET /api/hr/team` (`team._week`): stan dnia `work` / `off` / `absent` /
+  `pending` / `business_trip` / `remote`, **bez rodzaju nieobecności** (D6 —
+  także dla przełożonego; rodzaj zostaje w `today`), oczekujące tylko dla kręgu
+  D6, praca zdalna i delegacja z `leave_calendar.presence_between` tylko przy
+  module czasu; urlopy i czas zamknięte = `week: null`. Do kart doszły
+  `created_at` wniosku i `submitted_at` timesheetu („czeka 5 dni”).
+  „Kalendarz zespołu”: ciągłe paski (`components/hr/leave/calendar-bars.ts`),
+  wiersz „Nieobecnych” (½ = pół dnia, „?” = wliczony wniosek, który czeka,
+  delegacja się nie liczy), kolumna „dziś” z obwódką, „Znajdź osobę”, widok
+  „2 tygodnie / Miesiąc” (na przełomie dwa zapytania `?month=` złożone we
+  froncie) i panel „W tym tygodniu nie ma” + „Najtrudniejszy dzień”.
+  „Akceptacje”: skrzynka (lista „Do decyzji” i „Do wiadomości · B2B
+  i zlecenie”, szczegół z kaflami „Zastępca / Wypada w tym czasie / Też
+  nieobecni” i mini-kalendarzem zespołu na termin z `department_absent`),
+  podsumowanie statusów timesheetów nad sekcją „Timesheety” (miesiąc, od którego
+  sekcja się otwiera — sekcja należy do modułu czasu, `components/hr/time/`),
+  „Historia wniosków” zwinięta do linku (zapytania historii dopiero po
+  rozwinięciu). „Przypomnij” przy timesheecie „nie założony” czeka na trasę
+  przypomnienia z modułu czasu — bez niej przycisku nie ma.
 
 ## Moduły ciemne
 
