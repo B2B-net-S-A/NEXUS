@@ -54,6 +54,18 @@ def test_rerank_within_groups_top_cuts_a_group_and_zero_is_a_noop():
     assert cmo.rerank_within_groups(order, groups, {2: 5.0}, top=4) == [2, 1, 3, 4]
 
 
+def test_effective_prefix_drops_preferred_groups_only_with_a_job_context(monkeypatch):
+    from app.core.config import settings
+
+    prefix = ("preferred", "unknown")
+    # Lista bez rekrutacji: grupy jak dotąd.
+    assert cmo.effective_prefix(prefix, None) == ("preferred", "unknown")
+    # Rekrutacja („Dop.”): bez „Mile widziane”, braki danych zostają grupą.
+    assert cmo.effective_prefix(prefix, object()) == (None, "unknown")
+    monkeypatch.setattr(settings, "CANDIDATE_MATCH_JOB_PREFERRED_GROUPS", True)
+    assert cmo.effective_prefix(prefix, object()) == ("preferred", "unknown")
+
+
 def test_cache_key_depends_on_the_context_fingerprint():
     class F:
         recruitment_id = None
@@ -570,9 +582,26 @@ async def test_job_order_follows_fit_score(app_client, app_auth_headers, job_vec
 
 
 @pytest.mark.asyncio
-async def test_job_preferred_with_low_fit_stays_first(
+async def test_job_order_ignores_preferred_groups_and_follows_fit(
     app_client, app_auth_headers, job_vectors
 ):
+    """19.10.2026 (zgłoszenie „najpierw najbardziej dopasowani”): w rekrutacji
+    „Mile widziane” nie wyprzedza oceny — osoba z 5% nie stoi nad 90%."""
+    job_vectors["ids"].update(await _seed())
+    job_vectors["fits"] = {"oldest_best": 60.0, "middle": 5.0, "newest_weak": 90.0}
+    order, _ = await _ids(
+        app_client, app_auth_headers, sort="match", skills_preferred="kotlin"
+    )
+    assert order == ["newest_weak", "oldest_best", "middle"]
+
+
+@pytest.mark.asyncio
+async def test_job_preferred_groups_switch_restores_the_old_order(
+    app_client, app_auth_headers, job_vectors, monkeypatch
+):
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "CANDIDATE_MATCH_JOB_PREFERRED_GROUPS", True)
     job_vectors["ids"].update(await _seed())
     job_vectors["fits"] = {"oldest_best": 60.0, "middle": 5.0, "newest_weak": 90.0}
     order, _ = await _ids(
