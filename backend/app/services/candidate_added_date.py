@@ -84,6 +84,11 @@ def added_via_label(
             label = _label_source(tag.get("value")) or _label_source(tag.get("domain"))
             if label:
                 return f"Traffit · {label}"
+    # Wtyczka = rekruter sam dodał osobę z LinkedIna. Etykieta „LinkedIn”
+    # (wspólna z kanałem, z którego osoba przyszła) myliła się z linkiem
+    # rekrutera wrzuconym na LinkedIna.
+    if (source or "").strip().casefold() == "linkedin_extension":
+        return "Wtyczka LinkedIn"
     label = _label_source(source)
     if label == _label_source("traffit") or (
         label is None and (external_source or "") in IMPORTED_EXTERNAL_SOURCES

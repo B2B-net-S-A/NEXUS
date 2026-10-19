@@ -17,19 +17,22 @@
  * „Do propozycji” w lewej kolumnie — tu ich nie powtarzamy.
  */
 
-import { useMemo, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
-import { ArrowRight, MessageSquare, PhoneCall } from "lucide-react";
+import { ArrowRight, ChevronDown, MessageSquare, PhoneCall } from "lucide-react";
 
 import { skillsApi } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { CandidateActivitySummaryCard } from "@/components/v2/pages/CandidateActivitySummaryCard";
 import { formatExperienceDate } from "@/components/v2/pages/candidate-profile-helpers";
 import { CandidateFollowupDialog } from "@/components/v2/followups/CandidateFollowupDialog";
 import { candidateStageLabel } from "@/components/v2/pages/candidate-timeline-labels";
 import { useCandidateFollowup } from "@/lib/api/candidateFollowups";
+import { addedToBaseView, type AddedToBaseView } from "@/lib/added-to-base";
+import { candidateOrigin, originSummary, type CandidateOrigin } from "@/lib/candidate-origin";
 import {
   followupDueLabel,
   followupTone,
@@ -403,11 +406,17 @@ function WithUsStrip({
   );
   const lastTalk = useMemo(() => latestTalkNote(notes.items ?? []), [notes.items]);
   const attempts = Number(notes.groupCounts?.contact ?? 0);
-  const createdAt = candidate.created_at ? formatDate(candidate.created_at) : null;
-  const source =
-    candidate.external_source === "traffit" || candidate.source === "traffit"
-      ? "Traffit"
-      : null;
+  // Data i „skąd” jak w „Osobie w bazie” na Tablicy: wejście do bazy liczy
+  // serwer (z datą z Traffita), a nie samo `created_at` rekordu.
+  const inBase =
+    addedToBaseView({ at: candidate.added_to_base_at, exact: candidate.added_to_base_exact }) ??
+    addedToBaseView({ at: candidate.created_at, exact: true });
+  const fromTraffit = candidate.external_source === "traffit" || candidate.source === "traffit";
+  const origin = candidateOrigin({
+    ...candidate,
+    added_via: candidate.added_via ?? (fromTraffit ? "Traffit" : null),
+  });
+  const originText = originSummary(origin);
   const linkClass = "font-medium text-primary hover:underline";
   return (
     <p
@@ -438,13 +447,65 @@ function WithUsStrip({
           Prób kontaktu: <span className="tabular-nums">{attempts}</span>
         </button>
       ) : null}
-      {createdAt ? (
+      {inBase ? (
         <span>
-          W bazie od <span className="font-medium text-foreground">{createdAt}</span>
-          {source ? ` (${source})` : ""}
+          W bazie od <span className="font-medium text-foreground">{inBase.dateLabel}</span>
         </span>
       ) : null}
+      {originText ? (
+        <OriginPopover origin={origin} summary={originText} inBase={inBase} />
+      ) : null}
     </p>
+  );
+}
+
+/**
+ * „Skąd: Link rekrutera · Jan Kowalski” w pasku „Z nami”, po kliknięciu
+ * szczegóły: kto, jak, nazwa linku, skąd weszła osoba i kiedy. Prośba
+ * rekrutera 19.10.2026 — wcześniej widać było tylko datę.
+ */
+function OriginPopover({
+  origin,
+  summary,
+  inBase,
+}: {
+  origin: CandidateOrigin;
+  summary: string;
+  inBase: AddedToBaseView | null;
+}) {
+  const rows: Array<[string, string | null]> = [
+    ["Dodał(a)", origin.by ?? "nie wiemy, kto dodał"],
+    ["Sposób", origin.viaLink ? `${origin.how} — osoba sama wypełniła formularz` : origin.how],
+    ["Nazwa linku", origin.linkLabel],
+    ["Wejście z", origin.entryFrom],
+    ["Przejęta od", origin.previousBy],
+    ["Kiedy", inBase ? `${inBase.dateLabel} · ${inBase.ageLabel}` : null],
+  ];
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className="inline-flex items-center gap-1 rounded text-left hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          Skąd: <span className="font-medium text-foreground">{summary}</span>
+          <ChevronDown className="h-3 w-3" aria-hidden="true" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent aria-label="Skąd ta osoba jest w bazie" className="w-80 text-xs">
+        <p className="mb-2 text-sm font-medium text-foreground">Skąd ta osoba jest w bazie</p>
+        <dl className="grid grid-cols-[6.5rem_1fr] gap-x-3 gap-y-1.5">
+          {rows
+            .filter(([, value]) => Boolean(value))
+            .map(([label, value]) => (
+              <Fragment key={label}>
+                <dt className="text-muted-foreground">{label}</dt>
+                <dd className="text-foreground">{value}</dd>
+              </Fragment>
+            ))}
+        </dl>
+      </PopoverContent>
+    </Popover>
   );
 }
 
