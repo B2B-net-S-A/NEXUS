@@ -81,6 +81,20 @@ const daysAgo = (days: number) => {
 
 const CANDIDATE = {
   id: CANDIDATE_ID,
+  // „Skąd: Link rekrutera · …” w pasku „Z nami” (19.10.2026).
+  created_at: daysAgo(30),
+  added_to_base_at: daysAgo(30),
+  added_to_base_exact: true,
+  added_via: "Formularz aplikacyjny",
+  created_by_user: { id: 7, name: "Anna Rekruterka" },
+  invite_source: {
+    label: "Post na LinkedIn",
+    created_by_name: "Anna Rekruterka",
+    applied_at: daysAgo(30),
+    previous_created_by_name: null,
+    link_kind: "recruiter",
+    utm_source: "linkedin",
+  },
   // „Stawka od” (0414): najniższa z 18 miesięcy, ostatnio podana wyżej.
   rate_from_hourly: "120.00",
   rate_from_at: daysAgo(400),
