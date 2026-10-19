@@ -80,7 +80,7 @@
       },
       {
         "q": "Gdzie są odrzuceni i ci, którzy zrezygnowali?",
-        "a": "W wąskiej kolumnie „Zamknięci” po prawej stronie tablicy: przez nas, przez DL, przez klienta, zrezygnował. Kliknij pozycję, żeby rozwinąć kolumny z tymi osobami; kartę możesz też na pozycję upuścić — system zapyta o powód.",
+        "a": "W wąskiej kolumnie „Zamknięci” po prawej stronie tablicy: przez nas, przez DL, przez klienta, zrezygnował. Kliknij pozycję, żeby rozwinąć kolumny z tymi osobami; kartę możesz też na pozycję upuścić — system zapyta o powód. Karta pokazuje powód; komentarz i kto odrzucił — w dymku i w ramce na górze panelu osoby.",
         "anchor": "jobs.board.closed"
       }
     ],

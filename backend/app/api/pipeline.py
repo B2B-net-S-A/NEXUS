@@ -151,6 +151,9 @@ if TYPE_CHECKING:  # pragma: no cover
 _PG_INT4_MAX = 2_147_483_647
 DbIdPath = Annotated[int, Path(ge=1, le=_PG_INT4_MAX)]
 
+# Karty, które niosą powód zamknięcia i osobę zamykającą (19.10.2026).
+_CLOSED_CARD_STAGES = frozenset({PipelineStage.rejected, PipelineStage.withdrawn})
+
 # Terminal wynikający wprost z legacy enuma — używane w gałęzi bez szablonu
 # pipeline'u, żeby `KanbanColumn.terminal_type` był wypełniany tak samo jak
 # w gałęzi z szablonem.
@@ -3125,6 +3128,26 @@ async def build_kanban_view(
     owner_ids |= {
         s.moved_by for s in latest_acceptance.values() if s.moved_by is not None
     }
+    # Powód zamknięcia na karcie i w panelu osoby (19.10.2026): nazwa powodu
+    # i kto zamknął kartę — tylko w „Odrzuconych” i „Rezygnacjach”. Nazwa
+    # z bazy, nie ze słownika szablonu: powód wycofany z szablonu nadal ma
+    # się wyświetlić przy kartach, które go dostały.
+    closed_cards = [s for s in seen.values() if s.stage in _CLOSED_CARD_STAGES]
+    owner_ids |= {s.moved_by for s in closed_cards if s.moved_by is not None}
+    closed_reason_ids = {
+        s.rejection_reason_id for s in closed_cards if s.rejection_reason_id is not None
+    }
+    reason_name_by_id: dict[int, Optional[str]] = {}
+    if closed_reason_ids:
+        rrows = await db.execute(
+            select(RejectionReason.id, RejectionReason.name).where(
+                RejectionReason.id.in_(closed_reason_ids)
+            )
+        )
+        reason_name_by_id = {
+            rid: rejection_reason_labels.rejection_reason_label(rname)
+            for rid, rname in rrows.all()
+        }
     missing_owner_names = owner_ids - set(user_name_by_id)
     if missing_owner_names:
         orows = await db.execute(
@@ -3321,6 +3344,15 @@ async def build_kanban_view(
         )
         if e.task_assignee_id is not None:
             payload["task_assignee_name"] = user_name_by_id.get(e.task_assignee_id)
+        if e.stage in _CLOSED_CARD_STAGES:
+            payload["closed_by_name"] = (
+                user_name_by_id.get(e.moved_by) if e.moved_by is not None else None
+            )
+            payload["rejection_reason_name"] = (
+                reason_name_by_id.get(e.rejection_reason_id)
+                if e.rejection_reason_id is not None
+                else None
+            )
         payload["interview_badge"] = interview_badges.get(e.candidate_id)
         payload["followup"] = _followup_badge(e.candidate_id)
         payload["rate_change"] = rate_change_by_candidate.get(e.candidate_id)
