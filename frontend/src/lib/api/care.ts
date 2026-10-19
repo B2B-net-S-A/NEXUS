@@ -274,6 +274,25 @@ export interface MapDepartment {
   base: { skills: string[]; count: number | null };
 }
 
+/** Komórka mapy cieplnej: źródła technologii w dziale i otwarte rekrutacje. */
+export interface HeatCell {
+  counts: Record<TechSource, number>;
+  source_count: number;
+  open_jobs: number;
+}
+
+/** Wiersz mapy cieplnej — `cells` w kolejności `departments`. */
+export interface HeatRow {
+  skill_id: number;
+  name: string;
+  must_jobs: number;
+  consultants: number;
+  last_seen: string | null;
+  stale: boolean;
+  cells: (HeatCell | null)[];
+  unassigned: HeatCell | null;
+}
+
 /** „Luki do dopytania” (D16) — te same pytania idą do okna rozmowy opieki. */
 export type TechGap =
   | {
@@ -305,7 +324,7 @@ export interface ClientTechMap {
   areas: { id: number; name: string; cards: number }[];
   vendors: { id: number; name: string; cards: number }[];
   signals: HiringSignal[];
-  open_jobs: { id: number; title: string; opened_on: string | null }[];
+  open_jobs: { id: number; title: string; opened_on: string | null; area?: string | null }[];
   open_jobs_count: number;
   consultants_count: number;
   cards_count: number;
@@ -313,6 +332,8 @@ export interface ClientTechMap {
   notes_count: number;
   redeploy_active: number;
   departments: MapDepartment[];
+  /** Technologia × dział jednym zapytaniem (brak w odpowiedzi z cache sprzed 19.10). */
+  heatmap?: { rows: HeatRow[]; rows_total: number };
   gaps: TechGap[];
   default_owner: PersonRef | null;
   can_edit: boolean;
@@ -632,7 +653,14 @@ export interface CareWeek {
   contacts: WeekContact[];
   feedback: WeekFeedback[];
   feedback_visible: boolean;
-  counts: { contacts: number; overdue: number; feedback: number; front_office: number };
+  /** `done` — kontrakty z rozmową zapisaną w tym tygodniu (pasek postępu). */
+  counts: {
+    contacts: number;
+    done?: number;
+    overdue: number;
+    feedback: number;
+    front_office: number;
+  };
   can_edit: boolean;
   can_write_feedback: boolean;
 }

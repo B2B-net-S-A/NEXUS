@@ -6,7 +6,7 @@
  */
 import * as React from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({ get: vi.fn(), canCreateJob: false }));
@@ -70,5 +70,34 @@ describe("ClientTechnologiesTab", () => {
     const field = await screen.findByRole("combobox", { name: "Domyślny opiekun konsultantów klienta" });
     expect(await screen.findByText(/Olga Wykluczona/, {}, { timeout: 2000 })).toBeInTheDocument();
     expect(field).toHaveTextContent("Olga Wykluczona");
+  });
+
+  it("mapa cieplna: dział × technologia z dymkiem źródeł i obramowaniem otwartej rekrutacji", async () => {
+    mocks.canCreateJob = false;
+    renderTab([]);
+    const table = await screen.findByRole("table", { name: "Technologie klienta po działach" });
+    const headers = within(table).getAllByRole("columnheader").map((th) => th.textContent ?? "");
+    expect(headers.slice(1, 5).map((text) => text.split(/(?=brak|menedżer|Piotr|Michał|nasi)/)[0])).toEqual([
+      "CI/CD i chmura",
+      "Data",
+      "Kredyty",
+      "Płatności",
+    ]);
+    // Dział bez źródła z 18 miesięcy ma ostrzeżenie w nagłówku.
+    expect(within(table).getByText("brak źródła 18 mies.")).toBeInTheDocument();
+    const java = within(table).getByRole("row", { name: /Java 17/ });
+    const payments = within(java).getByTitle(
+      "Płatności · Java 17: 3 karty, 4 rekrutacje, 3 konsultantów · 1 otwarta rekrutacja",
+    );
+    expect(payments).toHaveClass("ring-warning");
+    expect(payments).toHaveTextContent("TRK");
+    // Notatka o stacku nie ma działu — stoi w „bez działu”.
+    expect(within(java).getByTitle("Bez działu · Java 17: 2 konsultantów, 1 notatka")).toBeInTheDocument();
+    expect(within(java).getByTitle("CI/CD i chmura · Java 17: brak źródeł")).not.toHaveClass("ring-warning");
+    // Luki do dopytania mają akcję.
+    expect(screen.getByRole("link", { name: "Ustaw w „Strukturze u klienta”" })).toHaveAttribute(
+      "href",
+      "/clients/3?tab=struktura",
+    );
   });
 });

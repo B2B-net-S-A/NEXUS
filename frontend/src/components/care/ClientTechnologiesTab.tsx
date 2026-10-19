@@ -4,9 +4,9 @@ import { useState } from "react";
 import Link from "next/link";
 
 import { AppModal } from "@/components/ds/AppModal";
-import { InlineStats } from "@/components/ds/InlineStats";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import { useToast } from "@/components/Toast";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { FormField } from "@/components/ui/form-field";
 import {
@@ -20,54 +20,26 @@ import { Textarea } from "@/components/ui/textarea";
 import { apiErrorMessage } from "@/lib/api-error";
 import {
   HIRING_SOURCE_LABELS,
-  SOURCE_LABELS,
   useAddStackNote,
   useCareOwners,
   useClientTechMap,
   useSetClientDefaultOwner,
   type ClientTechMap,
-  type MapDepartment,
   type TechGap,
-  type TechSource,
 } from "@/lib/api/care";
-import { CALM_AMOUNT, CALM_EMPTY, CALM_HEAD, CALM_ROW, CALM_SUBLINE } from "@/lib/calm-table";
+import { CALM_SUBLINE } from "@/lib/calm-table";
+import { countPl } from "@/lib/plural-pl";
 import { cn } from "@/lib/utils";
 import { resolveViewState } from "@/lib/view-state";
 import { formatIsoDatePl } from "@/lib/date-pl";
 import { hasCapability } from "@/lib/capabilities";
 import { useAuthStore } from "@/store/auth";
 
-import { sourceSummary, technologiesInArea } from "./care-format";
-import { candidatesHref, gapQuestion } from "./tech-gaps";
+import { gapQuestion } from "./tech-gaps";
+import { TechHeatmap } from "./TechHeatmap";
 import { UnlinkedCardsPanel } from "./UnlinkedCardsPanel";
 
-const SOURCES: { key: TechSource; letter: string }[] = [
-  { key: "cards", letter: "T" },
-  { key: "jobs", letter: "R" },
-  { key: "consultants", letter: "K" },
-  { key: "notes", letter: "N" },
-];
 const DEFAULT_OWNER = "none";
-
-function SourceMarks({ counts }: { counts: Record<TechSource, number> }) {
-  return (
-    <span className="inline-flex gap-1">
-      {SOURCES.map(({ key, letter }) => (
-        <span
-          key={key}
-          title={`${SOURCE_LABELS[key]}: ${counts[key]}`}
-          className={cn(
-            "inline-flex h-5 min-w-5 items-center justify-center rounded px-1 text-[11px] tabular-nums",
-            counts[key] ? "bg-primary/10 text-foreground" : "text-muted-foreground/50",
-          )}
-        >
-          {counts[key] ? counts[key] : "·"}
-          <span className="sr-only">{` ${letter}`}</span>
-        </span>
-      ))}
-    </span>
-  );
-}
 
 function StackNoteDialog({ clientId, onClose }: { clientId: number; onClose: () => void }) {
   const { showToast } = useToast();
@@ -126,128 +98,58 @@ function StackNoteDialog({ clientId, onClose }: { clientId: number; onClose: () 
   );
 }
 
-/** Litery źródeł przy technologii działu („Spark T R K”). */
-function SourceLetters({ counts }: { counts: Record<TechSource, number> }) {
-  const present = SOURCES.filter(({ key }) => counts[key]);
-  return (
-    <span className="ml-1 text-[10px] tracking-wide text-muted-foreground">
-      {present.map(({ letter }) => letter).join(" ")}
-    </span>
-  );
-}
-
-function DepartmentsTable({ departments }: { departments: MapDepartment[] }) {
-  return (
-    <div className="overflow-x-auto rounded-lg border border-border bg-card">
-      <table className="w-full text-sm" aria-label="Technologie po działach">
-        <thead>
-          <tr className={CALM_ROW}>
-            <th className={cn(CALM_HEAD, "px-3 py-2 text-left")}>Dział</th>
-            <th className={cn(CALM_HEAD, "px-3 py-2 text-left")}>Technologie i źródła</th>
-            <th className={cn(CALM_HEAD, "px-3 py-2 text-left")}>Menedżer</th>
-            <th className={cn(CALM_HEAD, "px-3 py-2 text-right")}>Nasi / w bazie</th>
-          </tr>
-        </thead>
-        <tbody>
-          {departments.map((dept) => {
-            const manager = dept.managers[0];
-            const href = candidatesHref(dept.base.skills);
-            const more = dept.technologies_total - dept.technologies.length;
-            return (
-              <tr
-                key={dept.area.id}
-                className={cn(CALM_ROW, !dept.has_fresh_source && "text-muted-foreground")}
-              >
-                <td className="px-3 py-1.5 align-top">
-                  <span className="font-medium">{dept.area.name}</span>
-                  {!dept.has_fresh_source ? (
-                    <span className={CALM_SUBLINE}>brak źródła od 18 miesięcy</span>
-                  ) : null}
-                </td>
-                <td className="px-3 py-1.5 align-top">
-                  {dept.technologies.length ? (
-                    <ul className="flex flex-wrap gap-x-3 gap-y-0.5" aria-label={`Technologie: ${dept.area.name}`}>
-                      {dept.technologies.map((tech) => (
-                        <li
-                          key={tech.skill_id}
-                          title={sourceSummary({ ...tech, must_jobs: 0, consultant_months: 0, areas: [], category: null })}
-                          className={cn(tech.stale && "text-muted-foreground")}
-                        >
-                          {tech.name}
-                          <SourceLetters counts={tech.counts} />
-                        </li>
-                      ))}
-                      {more > 0 ? <li className="text-muted-foreground">+{more}</li> : null}
-                    </ul>
-                  ) : (
-                    <span className={CALM_EMPTY}>—</span>
-                  )}
-                </td>
-                <td className="px-3 py-1.5 align-top">
-                  {manager ? (
-                    <>
-                      {manager.name}
-                      {dept.managers.length > 1 ? (
-                        <span className="text-muted-foreground"> +{dept.managers.length - 1}</span>
-                      ) : null}
-                      {manager.position ? (
-                        <span className={CALM_SUBLINE}>{manager.position}</span>
-                      ) : null}
-                    </>
-                  ) : (
-                    <span className={CALM_EMPTY}>nie wskazano</span>
-                  )}
-                </td>
-                <td className={cn(CALM_AMOUNT, "px-3 py-1.5 align-top")}>
-                  {dept.consultants}
-                  {" / "}
-                  {href && dept.base.count != null ? (
-                    <Link
-                      href={href}
-                      className="text-primary hover:underline"
-                      title={`Osoby w bazie z: ${dept.base.skills.join(" i ")}`}
-                    >
-                      {dept.base.count}
-                    </Link>
-                  ) : (
-                    <span className={CALM_EMPTY}>—</span>
-                  )}
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-      <p className="border-t border-border/60 px-3 py-2 text-xs text-muted-foreground">
-        Działy są te same co w „Strukturze u klienta”. Menedżer — osoba z działu z naszymi
-        konsultantami. „W bazie” — osoby z dwiema najmocniejszymi technologiami działu naraz.
-      </p>
-    </div>
-  );
-}
-
-function GapsCard({ gaps }: { gaps: TechGap[] }) {
-  const questions = gaps.map(gapQuestion);
+function GapsCard({
+  gaps,
+  clientId,
+  onAddNote,
+}: {
+  gaps: TechGap[];
+  clientId: number;
+  onAddNote: (() => void) | null;
+}) {
   return (
     <section className="space-y-2 rounded-lg border border-border bg-card p-4">
       <div className="flex items-center justify-between">
         <h3 className="text-sm font-semibold">Luki do dopytania</h3>
-        <span className="text-sm tabular-nums">{questions.length}</span>
+        <Badge variant={gaps.length ? "warning" : "neutral"}>{gaps.length}</Badge>
       </div>
-      {questions.length ? (
-        <ul className="space-y-1.5 text-sm" aria-label="Luki do dopytania">
-          {questions.map((item) => (
-            <li key={item.key} title={item.question}>
-              <span className="font-medium">{item.subject}</span>{" "}
-              <span className="text-muted-foreground">{item.detail}</span>
-            </li>
-          ))}
+      {gaps.length ? (
+        <ul className="text-sm" aria-label="Luki do dopytania">
+          {gaps.map((gap, index) => {
+            const item = gapQuestion(gap);
+            return (
+              <li
+                key={item.key}
+                title={item.question}
+                className={cn("flex flex-col gap-0.5 py-2", index > 0 && "border-t border-border/60")}
+              >
+                <span className="font-semibold">{item.subject}</span>
+                <span className="text-xs text-muted-foreground">{item.detail}</span>
+                {gap.kind === "manager_unplaced" ? (
+                  <Link
+                    href={`/clients/${clientId}?tab=struktura`}
+                    className="text-xs text-primary hover:underline"
+                  >
+                    Ustaw w „Strukturze u klienta”
+                  </Link>
+                ) : onAddNote ? (
+                  <button
+                    type="button"
+                    className="self-start text-xs text-primary hover:underline"
+                    onClick={onAddNote}
+                  >
+                    Dopisz notatkę o stacku
+                  </button>
+                ) : null}
+              </li>
+            );
+          })}
         </ul>
       ) : (
         <p className="text-sm text-muted-foreground">Nie ma luk do dopytania.</p>
       )}
-      <p className="text-xs text-muted-foreground">
-        Te pytania pokazują się w oknie rozmowy z konsultantami tego klienta.
+      <p className="border-t border-border/60 pt-2 text-xs text-muted-foreground">
+        Pytania pokazują się w oknie rozmowy z konsultantami tego klienta.
       </p>
     </section>
   );
@@ -294,10 +196,9 @@ function DefaultOwner({ map, clientId }: { map: ClientTechMap; clientId: number 
   );
 }
 
-/** Zakładka „Technologie” klienta — mapa z czterech źródeł. */
+/** Zakładka „Technologie” klienta — mapa cieplna z czterech źródeł (19.10.2026). */
 export function ClientTechnologiesTab({ clientId }: { clientId: number }) {
   const query = useClientTechMap(clientId);
-  const [area, setArea] = useState<string | null>(null);
   const [noteOpen, setNoteOpen] = useState(false);
   // `/jobs/new` odsyła na listę każdego bez `job.create` (np. TCM) — bez
   // takiego uprawnienia przycisku nie ma.
@@ -326,20 +227,19 @@ export function ClientTechnologiesTab({ clientId }: { clientId: number }) {
     );
   }
   const map = query.data;
-  const rows = technologiesInArea(map.technologies, area);
+  const heat = map.heatmap ?? null;
 
   return (
     <div className="space-y-3">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <InlineStats
-          id="care-tech-stats"
-          stats={[
-            { id: "consultants", label: "konsultantów u klienta", value: map.consultants_count },
-            { id: "jobs", label: "otwarte rekrutacje", value: map.open_jobs_count },
-            { id: "cards", label: "karty technologiczne", value: map.cards_count },
-            { id: "notes", label: "notatki o stacku", value: map.notes_count },
-          ]}
-        />
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-card px-4 py-3">
+        <p className="text-sm text-muted-foreground">
+          {[
+            countPl(map.consultants_count, "konsultant", "konsultantów", "konsultantów"),
+            countPl(map.open_jobs_count, "otwarta rekrutacja", "otwarte rekrutacje", "otwartych rekrutacji"),
+            countPl(map.cards_count, "karta technologiczna", "karty technologiczne", "kart technologicznych"),
+            countPl(map.notes_count, "notatka o stacku", "notatki o stacku", "notatek o stacku"),
+          ].join(" · ")}
+        </p>
         <div className="flex flex-wrap gap-2">
           {map.can_edit ? (
             <Button variant="outline" size="sm" onClick={() => setNoteOpen(true)}>
@@ -356,103 +256,69 @@ export function ClientTechnologiesTab({ clientId }: { clientId: number }) {
 
       <UnlinkedCardsPanel clientId={clientId} />
 
-      {map.departments.length ? (
-        <DepartmentsTable departments={map.departments} />
-      ) : (
-        <p className="text-sm text-muted-foreground">
-          Klient nie ma jeszcze działów — zakłada się je w „Strukturze u klienta” albo na karcie
-          technologicznej.
-        </p>
-      )}
-
-      {map.areas.length ? (
-        <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Działy u klienta">
-          {[{ id: 0, name: "Wszystkie działy" }, ...map.areas].map((item) => {
-            const value = item.id === 0 ? null : item.name;
-            const active = area === value;
-            return (
-              <Button
-                key={item.id}
-                variant={active ? "secondary" : "ghost"}
-                size="sm"
-                aria-pressed={active}
-                onClick={() => setArea(value)}
-              >
-                {item.name}
-              </Button>
-            );
-          })}
-        </div>
-      ) : null}
-
-      <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_320px]">
-        <div className="overflow-x-auto rounded-lg border border-border bg-card">
-          {state === "empty" ? (
-            <p className="p-4 text-sm text-muted-foreground">
-              Żadne źródło nie wskazuje jeszcze technologii ze słownika — dodaj kartę
-              technologiczną przy kontrakcie albo notatkę o stacku.
+      <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_300px]">
+        <div className="min-w-0 space-y-2">
+          {state === "empty" || !heat ? (
+            <p className="rounded-lg border border-border bg-card p-4 text-sm text-muted-foreground">
+              {state === "empty"
+                ? "Żadne źródło nie wskazuje jeszcze technologii ze słownika — dodaj kartę technologiczną przy kontrakcie albo notatkę o stacku."
+                : "Mapa się przelicza — odśwież za chwilę."}
             </p>
           ) : (
-            <table className="w-full text-sm" aria-label="Wszystkie technologie klienta">
-              <thead>
-                <tr className={CALM_ROW}>
-                  <th className={cn(CALM_HEAD, "px-3 py-2 text-left")}>Technologia</th>
-                  <th className={cn(CALM_HEAD, "px-3 py-2 text-left")}>Dział</th>
-                  <th className={cn(CALM_HEAD, "px-3 py-2 text-left")}>
-                    Źródła <span className="normal-case tracking-normal">(T · R · K · N)</span>
-                  </th>
-                  <th className={cn(CALM_HEAD, "px-3 py-2 text-left")}>Ostatnio</th>
-                  <th className={cn(CALM_HEAD, "px-3 py-2 text-right")}>Nasi u klienta</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((tech) => (
-                  <tr
-                    key={tech.skill_id}
-                    className={cn(CALM_ROW, tech.stale && "text-muted-foreground")}
-                    title={sourceSummary(tech)}
-                  >
-                    <td className="px-3 py-1.5">
-                      <span className="font-medium">{tech.name}</span>
-                      {tech.must_jobs ? (
-                        <span className={CALM_SUBLINE}>„musi” w {tech.must_jobs} rekrutacjach</span>
-                      ) : null}
-                    </td>
-                    <td className="px-3 py-1.5">
-                      {tech.areas.length ? tech.areas.join(", ") : <span className={CALM_EMPTY}>—</span>}
-                    </td>
-                    <td className="px-3 py-1.5">
-                      <SourceMarks counts={tech.counts} />
-                    </td>
-                    <td className="px-3 py-1.5 tabular-nums">
-                      {tech.last_seen ? formatIsoDatePl(tech.last_seen) : <span className={CALM_EMPTY}>—</span>}
-                    </td>
-                    <td className={cn(CALM_AMOUNT, "px-3 py-1.5")}>
-                      {tech.counts.consultants || <span className={CALM_EMPTY}>—</span>}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <TechHeatmap departments={map.departments} rows={heat.rows} rowsTotal={heat.rows_total} />
           )}
-          <p className="border-t border-border/60 px-3 py-2 text-xs text-muted-foreground">
-            T — rozmowy (karty technologiczne), R — rekrutacje klienta z 12 miesięcy, K — nasi
-            konsultanci u klienta, N — notatki o stacku. Wyszarzone: brak źródła z ostatnich 18
-            miesięcy.
-          </p>
+          {!map.departments.length ? (
+            <p className="text-xs text-muted-foreground">
+              Klient nie ma jeszcze działów — zakłada się je w „Strukturze u klienta” albo na karcie
+              technologicznej. Do tego czasu wszystko stoi w kolumnie „bez działu”.
+            </p>
+          ) : null}
         </div>
 
         <div className="grid content-start gap-3">
-          <GapsCard gaps={map.gaps} />
+          <GapsCard
+            gaps={map.gaps}
+            clientId={clientId}
+            onAddNote={map.can_edit ? () => setNoteOpen(true) : null}
+          />
+          <section className="space-y-2 rounded-lg border border-border bg-card p-4">
+            <h3 className="text-sm font-semibold">Otwarte rekrutacje</h3>
+            {map.open_jobs.length ? (
+              <ul className="space-y-1.5 text-sm">
+                {map.open_jobs.map((job) => (
+                  <li key={job.id} className="flex items-center justify-between gap-2">
+                    <Link href={`/jobs/${job.id}`} className="min-w-0 truncate hover:underline">
+                      {job.title}
+                    </Link>
+                    {job.area ? (
+                      <Badge variant="neutral" className="shrink-0">
+                        {job.area}
+                      </Badge>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-sm text-muted-foreground">Brak otwartych rekrutacji.</p>
+            )}
+          </section>
           <section className="space-y-2 rounded-lg border border-border bg-card p-4">
             <h3 className="text-sm font-semibold">Klient zatrudnia</h3>
             {map.signals.length ? (
               <ul className="space-y-2 text-sm">
                 {map.signals.slice(0, 5).map((signal) => (
                   <li key={`${signal.kind}-${signal.id}`}>
-                    <span className="font-medium">
-                      {signal.roles.length ? signal.roles.join(", ") : signal.note || "Potrzeba zgłoszona"}
-                    </span>
+                    {signal.roles.length ? (
+                      <span className="flex flex-wrap gap-1">
+                        {signal.roles.map((role) => (
+                          <Badge key={role} variant="info">
+                            {role}
+                          </Badge>
+                        ))}
+                      </span>
+                    ) : (
+                      <span className="font-medium">{signal.note || "Potrzeba zgłoszona"}</span>
+                    )}
                     <span className={CALM_SUBLINE}>
                       {[
                         formatIsoDatePl(signal.on),
@@ -469,31 +335,14 @@ export function ClientTechnologiesTab({ clientId }: { clientId: number }) {
             ) : (
               <p className="text-sm text-muted-foreground">Brak sygnałów z rozmów w ostatnim roku.</p>
             )}
-          </section>
-          <section className="space-y-2 rounded-lg border border-border bg-card p-4">
-            <div className="flex items-center justify-between">
-              <h3 className="text-sm font-semibold">Do przepięcia</h3>
-              <span className="text-sm tabular-nums">{map.redeploy_active}</span>
+            <div className="flex items-center justify-between border-t border-border/60 pt-2 text-sm">
+              <span>
+                Do przepięcia <span className="font-semibold tabular-nums">{map.redeploy_active}</span>
+              </span>
+              <Link href="/care?tab=redeploy" className="text-primary hover:underline">
+                Kolejka przepięć →
+              </Link>
             </div>
-            <Link href="/care?tab=redeploy" className="text-sm text-primary hover:underline">
-              Pokaż kolejkę przepięć
-            </Link>
-          </section>
-          <section className="space-y-2 rounded-lg border border-border bg-card p-4">
-            <h3 className="text-sm font-semibold">Otwarte rekrutacje</h3>
-            {map.open_jobs.length ? (
-              <ul className="space-y-1 text-sm">
-                {map.open_jobs.map((job) => (
-                  <li key={job.id}>
-                    <Link href={`/jobs/${job.id}`} className="hover:underline">
-                      {job.title}
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p className="text-sm text-muted-foreground">Brak otwartych rekrutacji.</p>
-            )}
           </section>
           <section className="space-y-2 rounded-lg border border-border bg-card p-4">
             <h3 className="text-sm font-semibold">Dostawcy i opiekun</h3>

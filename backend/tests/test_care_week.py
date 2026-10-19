@@ -347,3 +347,28 @@ async def test_week_counts_contracts_and_owners_once(
     assert response.status_code == 200, response.text
     assert [i["contact_id"] for i in response.json()["feedback"]] == [manager]
     assert calls == {"live": 1, "owners": 1}
+
+
+async def test_week_counts_conversations_saved_this_week(app_client, care_on) -> None:
+    """Pasek tygodnia: kontrakty z rozmową zapisaną od poniedziałku do piątku."""
+
+    _today, monday, _friday = _week()
+    dl = await make_user(UserRole.delivery_lead)
+    client_id = await make_client(dl=dl)
+    talked, _ = await make_contract(client_id, started_days_ago=40)
+    twice, _ = await make_contract(client_id, started_days_ago=40)
+    last_week, _ = await make_contract(client_id, started_days_ago=40)
+    foreign_client = await make_client(dl=await make_user(UserRole.delivery_lead))
+    foreign, _ = await make_contract(foreign_client, started_days_ago=40)
+    await add_conversation(talked, monday, None)
+    await add_conversation(twice, monday, None)
+    await add_conversation(twice, monday, None)
+    await add_conversation(last_week, monday - timedelta(days=3), None)
+    await add_conversation(foreign, monday, None)
+
+    response = await app_client.get(
+        "/api/care/week", params={"scope": "all"}, headers=headers(dl)
+    )
+    assert response.status_code == 200, response.text
+    # Dwie rozmowy z jedną osobą to jedna pozycja; cudzy klient się nie liczy.
+    assert response.json()["counts"]["done"] == 2

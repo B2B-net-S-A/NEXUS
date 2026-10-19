@@ -26,7 +26,7 @@ from app.models.candidate import Candidate
 from app.models.contract import Contract
 from app.models.job import Job, JobStatus
 from app.models.user import UserRole
-from app.services.care.tech_map import base_counts, gaps_for
+from app.services.care.tech_map import _Dept, _Tech, base_counts, gaps_for, heatmap
 from app.services.hr_foundation_schema import HR_MODULE_KEYS
 from tests.test_care_api import (
     _previous_modules,
@@ -124,6 +124,54 @@ async def test_gap_rule_without_database() -> None:
     ]
     assert gaps[1]["contact"] == {"id": 7, "name": "Michał Przykładowy"}
     assert gaps[3]["source"] == "jobs" and gaps[3]["refs"] == 1
+
+
+def _refs(entry: _Tech, **refs: set[int]) -> _Tech:
+    for source, ids in refs.items():
+        entry.refs[source] |= ids
+    return entry
+
+
+async def test_heatmap_cells_per_department_and_unassigned() -> None:
+    """Mapa cieplna: źródła działu w komórce, reszta w „bez działu”."""
+
+    today = date(2026, 10, 19)
+    java = _refs(_Tech(skill_id=1), cards={10, 11}, jobs={20, 21}, notes={30})
+    java.open_jobs = {20, 21}
+    kafka = _refs(_Tech(skill_id=2), consultants={40})
+    data, payments = _Dept(), _Dept()
+    payments_java = _refs(payments.tech(1), cards={10}, jobs={20})
+    payments_java.open_jobs = {20}
+    _refs(data.tech(1), cards={11})
+    _refs(payments.tech(2), consultants={40})
+    technologies = [
+        {**_tech(1, "Java 17", (2, 2, 0, 1), today), "must_jobs": 2},
+        {**_tech(2, "Kafka", (0, 0, 1, 0), None), "must_jobs": 0},
+        {**_tech(3, "Cobol", (1, 0, 0, 0), today, stale=True), "must_jobs": 0},
+    ]
+    result = heatmap(technologies, {1: java, 2: kafka}, [data, payments], limit=2)
+
+    assert result["rows_total"] == 3
+    assert [row["name"] for row in result["rows"]] == ["Java 17", "Kafka"]
+    first = result["rows"][0]
+    assert first["cells"][0] == {
+        "counts": {"cards": 1, "jobs": 0, "consultants": 0, "notes": 0},
+        "source_count": 1,
+        "open_jobs": 0,
+    }
+    assert first["cells"][1]["source_count"] == 2
+    assert first["cells"][1]["open_jobs"] == 1
+    # Rekrutacja 21 bez działu i notatka zostają poza działami.
+    assert first["unassigned"] == {
+        "counts": {"cards": 0, "jobs": 1, "consultants": 0, "notes": 1},
+        "source_count": 2,
+        "open_jobs": 1,
+    }
+    second = result["rows"][1]
+    assert second["cells"][0] is None
+    assert second["cells"][1]["counts"]["consultants"] == 1
+    assert second["unassigned"] is None
+    assert second["consultants"] == 1
 
 
 class _FailingSession:
