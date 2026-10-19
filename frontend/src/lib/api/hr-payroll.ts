@@ -72,6 +72,8 @@ export interface BonusRow {
   cancel_reason: string | null;
   /** Kwota propozycji automatu poprawiona ręcznie. */
   edited: boolean;
+  /** Widok miesiąca: przyznana premia z placementu, a kontrakt skończył się przed terminem. */
+  contract_ended_early?: boolean;
   /** Tylko dla Płac: reguły i liczby, z których wyszła kwota. */
   rule_snapshot?: Record<string, unknown>;
   /** Listy Płac: czy widz może zatwierdzić propozycję (ręczną przełożonego — tylko Płace). */

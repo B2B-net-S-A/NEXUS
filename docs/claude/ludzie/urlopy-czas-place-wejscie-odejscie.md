@@ -424,6 +424,15 @@ z odnośnikiem `hr_documents.leave_request_id`.
   Ponowne otwarcie tylko admin, z powodem. Zamknięcie blokuje okres i timesheety
   PRZED liczeniem raportu; akceptacje timesheetów i premii sprawdzają okres pod
   blokadą współdzieloną (kolejność: okres, potem timesheet).
+- **Ponowne zamknięcie po opłaconym rozliczeniu** (decyzja Artura 19.10.2026): gdy kwota
+  osoby z rozliczeniem już opłaconym różni się od tej zapłaconej, zamknięcie odmawia
+  (409 `paid_settlement_changed`, bez potwierdzania) — różnica nie miałaby przelewu;
+  zmianę (np. premię) przenosi się na kolejny miesiąc. Premia przyznana po zapłacie
+  nie jest „wypłacona” (`paid_flags` porównuje `assigned_at` z `paid_at`).
+- **Premia przyznana, kontrakt zakończony przed terminem** (np. zamknięty w systemie datą
+  wsteczną po zatwierdzeniu; decyzja Artura 19.10.2026): automat jej nie anuluje, ale widok
+  miesiąca Płac i zamknięcie dają ostrzeżenie `bonus_contract_ended_early` (do
+  potwierdzenia), a premia na liście ma znacznik „premia przepada” (`contract_ended_early`).
 - Urlop zatwierdzony albo anulowany w zamkniętym miesiącu płac: odpowiedź API niesie
   `payroll_locked_months` i `payroll_warning` (front pokazuje je w komunikacie), Płace
   dostają powiadomienie i mail bez rodzaju nieobecności, ślad z `sensitivity="payroll"`.

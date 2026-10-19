@@ -267,6 +267,7 @@ async def _bonus_list(
     today: date,
 ) -> list[dict[str, Any]]:
     names = await payroll_bonuses.names_for(db, bonuses)
+    ended_early = await placement_bonuses.ended_early_bonus_ids(db, bonuses)
     return [
         {
             **payroll_bonuses.bonus_payload(
@@ -274,6 +275,7 @@ async def _bonus_list(
             ),
             # Propozycję ręczną przełożonego zatwierdzają tylko Płace (19.10.2026).
             "can_approve": payroll_bonuses.can_approve(viewer, bonus),
+            "contract_ended_early": bonus.id in ended_early,
         }
         for bonus in bonuses
     ]
@@ -518,6 +520,7 @@ async def month_detail(
         payload["totals"] = {k: str(v) for k, v in report.totals().items()}
         payload["warnings"] = (
             payroll_close.close_warnings(report.people)
+            + await payroll_close.ended_early_warnings(db, year, month)
             if report.status == "open"
             else []
         )

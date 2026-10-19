@@ -651,6 +651,44 @@ async def reconcile_contract(
     return counts
 
 
+async def ended_early_bonus_ids(
+    db: AsyncSession, bonuses: Sequence[HrBonus]
+) -> set[int]:
+    """Premie z placementu PRZYZNANE, choć kontrakt kończy się przed terminem.
+
+    Automat anuluje tylko propozycje; przyznanej (np. kontrakt zamknięty w
+    systemie datą wsteczną po zatwierdzeniu) nie rusza — o wypłacie decydują
+    Płace, a ekran i zamknięcie miesiąca ich ostrzegają (decyzja Artura
+    19.10.2026).
+    """
+
+    candidates = [
+        bonus
+        for bonus in bonuses
+        if bonus.source == SOURCE
+        and bonus.status == "assigned"
+        and bonus.contract_id is not None
+        and bonus.eligible_on is not None
+    ]
+    if not candidates:
+        return set()
+    contracts = {
+        contract.id: contract
+        for contract in await db.scalars(
+            select(Contract).where(
+                Contract.id.in_(sorted({b.contract_id for b in candidates}))
+            )
+        )
+    }
+    found: set[int] = set()
+    for bonus in candidates:
+        contract = contracts.get(bonus.contract_id)
+        assert bonus.eligible_on is not None
+        if contract is not None and ends_before_deadline(contract, bonus.eligible_on):
+            found.add(bonus.id)
+    return found
+
+
 async def contracts_to_reconcile(
     db: AsyncSession, *, today: date, rules: BonusRules
 ) -> list[int]:
@@ -821,6 +859,7 @@ __all__ = [
     "PlacementTarget",
     "automation_floor",
     "contract_margin",
+    "ended_early_bonus_ids",
     "ends_before_deadline",
     "load_context",
     "holds_dl_role",
