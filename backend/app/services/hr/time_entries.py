@@ -671,6 +671,10 @@ async def sync_leave_paid(
         )
         changes += 1
     if changes:
+        # Jak ``delete_entry``: zmiana auto-wpisów to zmiana w NEXUSIE —
+        # ponowny import z Compassa nie przywróci godzin odwołanego urlopu
+        # (audyt 19.10.2026).
+        timesheet.updated_at = func.now()
         await db.flush()
         await recompute_hash_if_set(db, timesheet)
     return changes
