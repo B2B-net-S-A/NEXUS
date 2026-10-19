@@ -732,7 +732,7 @@ async def approve_bonus(
     bonus_id: int, current_user: PayrollMember, db: AsyncSession = Depends(get_db)
 ) -> dict[str, Any]:
     viewer = await load_viewer(db, current_user)
-    await _reconcile_before_approval(db, bonus_id)
+    await _reconcile_before_approval(db, viewer, bonus_id)
     with _http_errors():
         bonus = await payroll_bonuses.approve_bonus(
             db, viewer, bonus_id, today=business_today()
@@ -740,22 +740,37 @@ async def approve_bonus(
     return await _bonus_response(db, bonus, viewer)
 
 
-async def _reconcile_before_approval(db: AsyncSession, bonus_id: int) -> None:
+async def _reconcile_before_approval(
+    db: AsyncSession, viewer: PayrollViewer, bonus_id: int
+) -> None:
     """Propozycja z placementu: uzgodnij kontrakt tuż przed zatwierdzeniem.
 
     Pętla biegnie raz dziennie — kontrakt zakończony przed terminem po porannym
     przebiegu nie może dać zatwierdzonej premii tego samego dnia. Błąd
     uzgodnienia nie blokuje decyzji (zostaje w logu).
+
+    Najpierw zakres: uzgodnienie zapisuje i commituje, więc biegnie tylko dla
+    widza, który może o tej premii zdecydować (ten sam warunek co
+    ``payroll_bonuses.approve_bonus``). Obcy dostaje od serwisu 404 bez żadnego
+    zapisu (audyt A2, 19.10.2026).
     """
 
-    contract_id = await db.scalar(
-        select(HrBonus.contract_id).where(
-            HrBonus.id == bonus_id,
-            HrBonus.source == placement_bonuses.SOURCE,
-            HrBonus.status == "proposed",
+    found = (
+        await db.execute(
+            select(HrBonus.contract_id, HrBonus.recipient_user_id).where(
+                HrBonus.id == bonus_id,
+                HrBonus.source == placement_bonuses.SOURCE,
+                HrBonus.status == "proposed",
+            )
         )
-    )
+    ).first()
+    if found is None:
+        return
+    contract_id, recipient_user_id = found
     if contract_id is None:
+        return
+    # ``manages_bonuses_of`` zawiera ``sees_person`` (Płace albo przełożony).
+    if not viewer.manages_bonuses_of(recipient_user_id):
         return
     try:
         async with db.begin_nested():
@@ -763,9 +778,13 @@ async def _reconcile_before_approval(db: AsyncSession, bonus_id: int) -> None:
         # Utrwalone od razu: odmowa zatwierdzenia (409) cofa transakcję żądania,
         # a anulowanie nieaktualnej propozycji ma zostać.
         await db.commit()
-    except Exception:  # noqa: BLE001 — decyzja Płac ważniejsza niż odświeżenie
+    except Exception as exc:  # noqa: BLE001 — decyzja Płac ważniejsza niż odświeżenie
         await db.rollback()
-        logger.exception("[payroll] uzgodnienie kontraktu przed zatwierdzeniem premii")
+        # Klasa wyjątku, nie treść — DETAIL Postgresa niesie kwoty wiersza.
+        logger.error(
+            "[payroll] uzgodnienie kontraktu przed zatwierdzeniem premii (%s)",
+            type(exc).__name__,
+        )
 
 
 @router.post("/bonuses/{bonus_id}/cancel")

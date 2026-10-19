@@ -288,6 +288,44 @@ async def test_new_rate_starts_on_first_day_and_closes_previous(
 
 
 @pytest.mark.asyncio
+async def test_new_rate_after_gap_keeps_gap_open(app_client, payroll_on) -> None:
+    """Luka z importu (stawka z końcem, bez następnej) zostaje luką (A2, 19.10)."""
+
+    finance, _boss, worker, _other = await _payroll_team()
+    (ya, ma), (ye, me), (yn, mn) = _months_ago(6), _months_ago(4), _months_ago(1)
+    gap_end = date(*add_months(ye, me, 1), 1) - timedelta(days=1)
+    async with AsyncSessionLocal() as db:
+        db.add(
+            EmployeeRate(
+                user_id=worker.id,
+                hourly_rate=Decimal("100.00"),
+                currency="PLN",
+                effective_from=date(ya, ma, 1),
+                effective_to=gap_end,
+                set_by=finance.id,
+            )
+        )
+        await db.commit()
+
+    response = await app_client.post(
+        f"/api/hr/payroll/people/{worker.id}/rates",
+        json={"hourly_rate": "120", "effective_from": f"{yn}-{mn:02d}-01"},
+        headers=_headers(finance),
+    )
+    assert response.status_code == 201, response.text
+
+    async with AsyncSessionLocal() as db:
+        rows = list(
+            await db.scalars(
+                select(EmployeeRate)
+                .where(EmployeeRate.user_id == worker.id)
+                .order_by(EmployeeRate.effective_from)
+            )
+        )
+    assert [r.effective_to for r in rows] == [gap_end, None]
+
+
+@pytest.mark.asyncio
 async def test_rate_change_notifies_without_amount_and_audits_as_payroll(
     app_client, payroll_on
 ) -> None:

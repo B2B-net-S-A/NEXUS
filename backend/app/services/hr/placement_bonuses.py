@@ -713,9 +713,12 @@ async def sync_placements(
                 counts = await reconcile_contract(
                     db, contract_id, today=today, rules=rules, calendar=calendar
                 )
-        except Exception:  # noqa: BLE001 — jeden kontrakt nie zatrzymuje reszty
-            logger.exception(
-                "[payroll] propozycje premii: błąd kontraktu %s", contract_id
+        except Exception as exc:  # noqa: BLE001 — jeden kontrakt nie zatrzymuje reszty
+            # Klasa wyjątku, nie treść — DETAIL Postgresa niesie kwoty wiersza.
+            logger.error(
+                "[payroll] propozycje premii: błąd kontraktu %s (%s)",
+                contract_id,
+                type(exc).__name__,
             )
             totals["errors"] += 1
             continue
@@ -740,8 +743,12 @@ async def _hook(db: AsyncSession, contract: Contract, event: str) -> dict[str, A
         async with db.begin_nested():
             return await reconcile_contract(db, contract.id)
     except Exception as exc:  # noqa: BLE001 — patrz docstring
-        logger.exception(
-            "[payroll] hak %s kontraktu %s nie przeszedł", event, contract.id
+        # Klasa wyjątku, nie treść — DETAIL Postgresa niesie kwoty wiersza.
+        logger.error(
+            "[payroll] hak %s kontraktu %s nie przeszedł (%s)",
+            event,
+            contract.id,
+            type(exc).__name__,
         )
         return {"error": type(exc).__name__}
 
