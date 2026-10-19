@@ -1,6 +1,7 @@
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Annotated, Any, Literal, Optional, Sequence
+from dataclasses import dataclass
 from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 import asyncio
@@ -78,9 +79,11 @@ from app.models.cv_generated_share import CvGeneratedShareToken
 from app.models.index_outbox import IndexOutboxEvent
 from app.models.activity import Activity
 from app.models.invite_link import CandidateInviteLink
+from app.models.candidate_source_event import CandidateSourceEvent, SourceChannel
 from app.models.user_activity import UserActivity, UserActionType
 from app.models.note import SYSTEM_NOTE_SOURCE, Note
 from app.services import candidate_recruitment_filter as recruitment_filter
+from app.services import candidate_stage_column as stage_column_filter
 from app.services import note_kinds
 from app.services.keyword_terms import KeywordTooShort
 from app.models.notification import Notification, NotificationType
@@ -101,6 +104,7 @@ from app.schemas.candidate import (
     CandidateDocumentUpdate,
     CandidateEngagementUpdate,
     ActiveRecruitmentBrief,
+    StageMatchBrief,
     AvailabilityFromNotes,
     CandidateFromCVDuplicate,
     CandidateFromCVResponse,
@@ -347,6 +351,18 @@ class DuplicateCheckPayload(BaseModel):
 
 # Data filtra listy: poza zakresem = 422, nie przepełnienie `date` i 500.
 FilterDate = Annotated[date, Field(ge=FILTER_DATE_MIN, le=FILTER_DATE_MAX)]
+# Kolumna Tablicy (`candidate_stage_column.STAGE_COLUMNS`, front `BoardColumnKey`).
+StageColumnKey = Literal[
+    "new",
+    "screening",
+    "verified",
+    "cv_qc",
+    "cv_sent",
+    "client_interview",
+    "contract",
+    "hired",
+    "closed",
+]
 
 
 class CandidateFilterSpec(BaseModel):
@@ -438,6 +454,10 @@ class CandidateFilterSpec(BaseModel):
     stage_moved_after: Optional[FilterDate] = None
     stage_moved_before: Optional[FilterDate] = None
     stage_client_id: Optional[list[int]] = None
+    # „Dodany na etap” (19.10.2026): kolumny Tablicy zamiast kodów etapu —
+    # „QC CV” to nazwa etapu szablonu, nie kod (`candidate_stage_column`).
+    # LUB z `pipeline_stage`, na tym samym przejściu co kto/kiedy/klient.
+    stage_column: Optional[list[StageColumnKey]] = None
     # "Data wysłania do klienta" — dedykowany filtr po dacie rekomendacji
     # kandydata do klienta (przejście na etap `cv_sent`). Niezależny od
     # ogólnego rodzinnego filtra `stage_*`: dopasowuje kandydatów z DOWOLNYM
@@ -1126,6 +1146,240 @@ def _changed_after_clause(moment: datetime):
     )
 
 
+@dataclass(frozen=True)
+class _StageFilter:
+    """Filtr etapu listy: etap (kod albo kolumna Tablicy) + kto / kiedy / klient.
+
+    Wszystkie pola opisują TEN SAM wiersz `candidate_stages` („kto przesunął
+    osobę NA ten etap i kiedy”). Ten sam warunek czyta filtr listy
+    (`exists_clause`) i podpis przy wierszu (`_stage_matches`), więc lista nie
+    pokaże innego przejścia niż to, które ją przepuściło.
+    """
+
+    spec: "CandidateFilterSpec"
+    stage_values: tuple[PipelineStage, ...]
+    column_rule: Optional[stage_column_filter.StageColumnRule]
+    moved_after_dt: Optional[datetime]
+    moved_before_dt: Optional[datetime]
+
+    @property
+    def has_stage(self) -> bool:
+        return bool(self.stage_values) or self.column_rule is not None
+
+    @property
+    def has_move_filter(self) -> bool:
+        f = self.spec
+        return bool(
+            f.stage_moved_by
+            or self.moved_after_dt is not None
+            or self.moved_before_dt is not None
+            or f.stage_client_id
+        )
+
+    @property
+    def active(self) -> bool:
+        return self.has_stage or self.has_move_filter
+
+    @property
+    def current_only(self) -> bool:
+        """Tryb „tylko obecny etap pary” (najnowszy wiersz pary).
+
+        Bez jawnego `stage_current_only` sam etap = obecny, a kto/kiedy/klient
+        = historia („wszyscy, których Jan dodał na Zweryfikowanego w maju”,
+        także ci, którzy poszli dalej). Obecny etap ma sens tylko z etapem.
+        """
+
+        f = self.spec
+        effective = (
+            not self.has_move_filter
+            if f.stage_current_only is None
+            else f.stage_current_only
+        )
+        return effective and self.has_stage
+
+    def _move_predicates(self, moved_by_col, moved_at_col, job_id_col) -> list:
+        f = self.spec
+        predicates: list = []
+        if f.stage_moved_by:
+            real_ids = [uid for uid in f.stage_moved_by if uid != 0]
+            include_null = 0 in f.stage_moved_by
+            if include_null and real_ids:
+                predicates.append(
+                    or_(moved_by_col.is_(None), moved_by_col.in_(real_ids))
+                )
+            elif include_null:
+                predicates.append(moved_by_col.is_(None))
+            elif real_ids:
+                predicates.append(moved_by_col.in_(real_ids))
+        if self.moved_after_dt is not None:
+            predicates.append(moved_at_col >= self.moved_after_dt)
+        if self.moved_before_dt is not None:
+            predicates.append(moved_at_col < self.moved_before_dt)
+        if f.stage_client_id:
+            predicates.append(
+                select(1)
+                .select_from(Job)
+                .where(Job.id == job_id_col, Job.client_id.in_(f.stage_client_id))
+                .exists()
+            )
+        # Filtr etapu razem z filtrem rekrutacji („przypisany”) opisuje etap
+        # W TEJ rekrutacji, nie w dowolnej. Bez tego lista „Nowi” rekrutacji
+        # liczyła osoby, które są „Nowe” gdziekolwiek indziej, i nie zgadzała
+        # się z kolumną kanbanu tej rekrutacji. Nie przełącza trybu na
+        # historyczny — to zawężenie pary, nie filtr ruchu.
+        if f.recruitment_match != "not_assigned":
+            in_scope = recruitment_filter.job_in_scope(
+                job_id_col, f.recruitment_id, f.recruitment_client_id
+            )
+            if in_scope is not None:
+                predicates.append(in_scope)
+        return predicates
+
+    def row_conditions(self, row) -> list:
+        """Warunki na wierszu etapu (`CandidateStage` albo `latest.c`)."""
+
+        conditions: list = []
+        stage_parts: list = []
+        if self.stage_values:
+            stage_parts.append(row.stage.in_(self.stage_values))
+        if self.column_rule is not None:
+            stage_parts.append(
+                stage_column_filter.column_clause(
+                    self.column_rule, row.stage_def_id, row.stage
+                )
+            )
+        if len(stage_parts) == 1:
+            conditions.append(stage_parts[0])
+        elif stage_parts:
+            conditions.append(or_(*stage_parts))
+        conditions.extend(self._move_predicates(row.moved_by, row.moved_at, row.job_id))
+        return conditions
+
+    def rows(self):
+        """Źródło wierszy: najnowszy wiersz pary (obecny etap) albo cała historia."""
+
+        if not self.current_only:
+            return CandidateStage
+        return (
+            select(
+                CandidateStage.id,
+                CandidateStage.candidate_id,
+                CandidateStage.job_id,
+                CandidateStage.stage,
+                CandidateStage.stage_def_id,
+                CandidateStage.moved_by,
+                CandidateStage.moved_at,
+            )
+            .distinct(CandidateStage.candidate_id, CandidateStage.job_id)
+            .order_by(
+                CandidateStage.candidate_id,
+                CandidateStage.job_id,
+                CandidateStage.moved_at.desc(),
+                CandidateStage.id.desc(),
+            )
+            .subquery()
+        )
+
+    def exists_clause(self):
+        source = self.rows()
+        if source is CandidateStage:
+            return (
+                select(1)
+                .where(
+                    CandidateStage.candidate_id == Candidate.id,
+                    *self.row_conditions(CandidateStage),
+                )
+                .exists()
+            )
+        return (
+            select(1)
+            .select_from(source)
+            .where(
+                source.c.candidate_id == Candidate.id,
+                *self.row_conditions(source.c),
+            )
+            .exists()
+        )
+
+
+async def _resolve_stage_filter(
+    db: AsyncSession, f: "CandidateFilterSpec"
+) -> _StageFilter:
+    requested_stages: set[PipelineStage] = set(f.pipeline_stage or [])
+    if f.stage_category:
+        categories = set(f.stage_category)
+        requested_stages.update(
+            stage
+            for stage, category in STAGE_CATEGORY.items()
+            if category in categories
+        )
+    # Doba w kalendarzu firmy (Europe/Warsaw) — ta sama reguła co „kontakt”.
+    moved_after_dt, moved_before_dt = business_date_range(
+        f.stage_moved_after, f.stage_moved_before
+    )
+    return _StageFilter(
+        spec=f,
+        stage_values=tuple(requested_stages),
+        column_rule=await stage_column_filter.load_column_rule(db, f.stage_column),
+        moved_after_dt=moved_after_dt,
+        moved_before_dt=moved_before_dt,
+    )
+
+
+async def _stage_matches(
+    db: AsyncSession, stage_filter: _StageFilter, candidate_ids: list[int]
+) -> dict[int, StageMatchBrief]:
+    """Najnowsze przejście spełniające filtr etapu — tylko dla osób ze strony."""
+
+    if not candidate_ids or not stage_filter.active:
+        return {}
+    source = stage_filter.rows()
+    row = CandidateStage if source is CandidateStage else source.c
+    mover = aliased(User)
+    stmt = (
+        select(
+            row.candidate_id,
+            row.job_id,
+            row.stage,
+            row.moved_at,
+            mover.name.label("moved_by_name"),
+            Job.title,
+            Job.working_title,
+            Job.client_reference,
+            client_display_name_expression().label("client_name"),
+            PipelineStageDef.name.label("def_name"),
+            PipelineStageDef.category.label("def_category"),
+            PipelineStageDef.terminal_type.label("def_terminal_type"),
+        )
+        .select_from(source)
+        .join(Job, Job.id == row.job_id)
+        .outerjoin(Client, Client.id == Job.client_id)
+        .outerjoin(mover, mover.id == row.moved_by)
+        .outerjoin(PipelineStageDef, PipelineStageDef.id == row.stage_def_id)
+        .where(row.candidate_id.in_(candidate_ids), *stage_filter.row_conditions(row))
+        .distinct(row.candidate_id)
+        .order_by(row.candidate_id, row.moved_at.desc(), row.id.desc())
+    )
+    out: dict[int, StageMatchBrief] = {}
+    for r in (await db.execute(stmt)).all():
+        out[r.candidate_id] = StageMatchBrief(
+            column=stage_column_filter.row_column(
+                r.def_name,
+                r.stage,
+                category=r.def_category,
+                terminal_type=r.def_terminal_type,
+            ),
+            moved_at=r.moved_at,
+            moved_by_name=r.moved_by_name,
+            job_id=r.job_id,
+            job_title=r.title,
+            job_working_title=r.working_title,
+            job_client_reference=r.client_reference,
+            client_name=r.client_name,
+        )
+    return out
+
+
 async def _build_candidate_filtered_query(
     db: AsyncSession,
     filters: CandidateFilterSpec,
@@ -1370,113 +1624,9 @@ async def _build_candidate_filtered_query(
         )
         query = query.where(Candidate.linkedin_employment_changed_at >= cutoff)
 
-    requested_stages: set[PipelineStage] = set(f.pipeline_stage or [])
-    if f.stage_category:
-        categories = set(f.stage_category)
-        requested_stages.update(
-            stage
-            for stage, category in STAGE_CATEGORY.items()
-            if category in categories
-        )
-
-    # Doba w kalendarzu firmy (Europe/Warsaw) — ta sama reguła co „kontakt”.
-    moved_after_dt, moved_before_dt = business_date_range(
-        f.stage_moved_after, f.stage_moved_before
-    )
-
-    def move_predicates(moved_by_col, moved_at_col, job_id_col) -> list:
-        predicates: list = []
-        if f.stage_moved_by:
-            real_ids = [uid for uid in f.stage_moved_by if uid != 0]
-            include_null = 0 in f.stage_moved_by
-            if include_null and real_ids:
-                predicates.append(
-                    or_(moved_by_col.is_(None), moved_by_col.in_(real_ids))
-                )
-            elif include_null:
-                predicates.append(moved_by_col.is_(None))
-            elif real_ids:
-                predicates.append(moved_by_col.in_(real_ids))
-        if moved_after_dt is not None:
-            predicates.append(moved_at_col >= moved_after_dt)
-        if moved_before_dt is not None:
-            predicates.append(moved_at_col < moved_before_dt)
-        if f.stage_client_id:
-            predicates.append(
-                select(1)
-                .select_from(Job)
-                .where(Job.id == job_id_col, Job.client_id.in_(f.stage_client_id))
-                .exists()
-            )
-        # Filtr etapu razem z filtrem rekrutacji („przypisany”) opisuje etap
-        # W TEJ rekrutacji, nie w dowolnej. Bez tego lista „Nowi” rekrutacji
-        # liczyła osoby, które są „Nowe” gdziekolwiek indziej, i nie zgadzała
-        # się z kolumną kanbanu tej rekrutacji. Nie przełącza trybu na
-        # historyczny — to zawężenie pary, nie filtr ruchu.
-        if f.recruitment_match != "not_assigned":
-            in_scope = recruitment_filter.job_in_scope(
-                job_id_col, f.recruitment_id, f.recruitment_client_id
-            )
-            if in_scope is not None:
-                predicates.append(in_scope)
-        return predicates
-
-    has_move_filter = bool(
-        f.stage_moved_by
-        or moved_after_dt is not None
-        or moved_before_dt is not None
-        or f.stage_client_id
-    )
-    effective_current_only = (
-        not has_move_filter if f.stage_current_only is None else f.stage_current_only
-    )
-    if requested_stages or has_move_filter:
-        stage_values = list(requested_stages)
-        if effective_current_only and stage_values:
-            latest_per_pair = (
-                select(
-                    CandidateStage.candidate_id,
-                    CandidateStage.job_id,
-                    CandidateStage.stage,
-                    CandidateStage.moved_by,
-                    CandidateStage.moved_at,
-                )
-                .distinct(CandidateStage.candidate_id, CandidateStage.job_id)
-                .order_by(
-                    CandidateStage.candidate_id,
-                    CandidateStage.job_id,
-                    CandidateStage.moved_at.desc(),
-                    CandidateStage.id.desc(),
-                )
-                .subquery()
-            )
-            conditions = [
-                latest_per_pair.c.candidate_id == Candidate.id,
-                latest_per_pair.c.stage.in_(stage_values),
-            ]
-            conditions.extend(
-                move_predicates(
-                    latest_per_pair.c.moved_by,
-                    latest_per_pair.c.moved_at,
-                    latest_per_pair.c.job_id,
-                )
-            )
-            stage_exists = (
-                select(1).select_from(latest_per_pair).where(*conditions).exists()
-            )
-        else:
-            conditions = [CandidateStage.candidate_id == Candidate.id]
-            if stage_values:
-                conditions.append(CandidateStage.stage.in_(stage_values))
-            conditions.extend(
-                move_predicates(
-                    CandidateStage.moved_by,
-                    CandidateStage.moved_at,
-                    CandidateStage.job_id,
-                )
-            )
-            stage_exists = select(1).where(*conditions).exists()
-        query = query.where(stage_exists)
+    stage_filter = await _resolve_stage_filter(db, f)
+    if stage_filter.active:
+        query = query.where(stage_filter.exists_clause())
 
     # "Data wysłania do klienta" — dedykowany, niezależny filtr po dacie
     # rekomendacji kandydata do klienta (przejście na etap `cv_sent`). Świadomie
@@ -2437,6 +2587,21 @@ async def list_candidates(
             "the candidate's CURRENT move per job-pair instead."
         ),
     ),
+    stage_column: Optional[list[StageColumnKey]] = Query(
+        None,
+        description=(
+            "„Dodany na etap” — Board column(s) (`new`, `screening`, "
+            "`verified`, `cv_qc`, `cv_sent`, `client_interview`, `contract`, "
+            "`hired`, `closed`), OR-combined with each other and with "
+            "`pipeline_stage`. The column comes from the stage-template NAME "
+            "plus the row's stage code — the same rule as the Board "
+            "(`board_column_for`): „QC CV” is a template stage with code "
+            "`interview`. Correlated with `stage_moved_by` / `stage_moved_*` / "
+            "`stage_client_id` on the SAME move and resolved CURRENT vs "
+            "HISTORICAL exactly like `pipeline_stage`. With any stage filter "
+            "each item carries `stage_match` (newest matching move)."
+        ),
+    ),
     sent_to_client_from: Optional[date] = Query(
         None,
         ge=FILTER_DATE_MIN,
@@ -2584,6 +2749,7 @@ async def list_candidates(
         stage_moved_after=stage_moved_after,
         stage_moved_before=stage_moved_before,
         stage_client_id=stage_client_id,
+        stage_column=stage_column,
         sent_to_client_from=sent_to_client_from,
         sent_to_client_to=sent_to_client_to,
         competence_category_id=competence_category_id,
@@ -3060,6 +3226,11 @@ async def list_candidates(
 
         field_snippets_by_candidate = await asyncio.to_thread(_page_field_snippets)
     employment_markers = await _page_employment_markers(db, items)
+    # Filtr etapu: kiedy i kto przesunął osobę na wybrany etap — jedno
+    # zapytanie dla osób ze strony, tym samym warunkiem co filtr.
+    stage_match_by_candidate = await _stage_matches(
+        db, await _resolve_stage_filter(db, filters), [c.id for c in items]
+    )
     response_items: list[CandidateResponse] = []
     for cand in items:
         payload = _candidate_to_response(cand)
@@ -3083,6 +3254,9 @@ async def list_candidates(
         stats = match_stats_by_candidate.get(cand.id)
         if stats is not None:
             payload = payload.model_copy(update={"match_stats": stats})
+        stage_match = stage_match_by_candidate.get(cand.id)
+        if stage_match is not None:
+            payload = payload.model_copy(update={"stage_match": stage_match})
         if include_active_recruitments:
             payload = payload.model_copy(
                 update={
@@ -4325,6 +4499,9 @@ async def _resolve_invite_source(
     # stays the only way to resolve them and any activity row written before
     # the digest was recorded.
     label: Optional[str] = None
+    # Rodzaj linku zapisuje zgłoszenie od wprowadzenia stałych linków
+    # rekrutera (0339); starsze wpisy biorą go z rekordu linku poniżej.
+    link_kind = details.get("link_kind")
     conditions = []
     if isinstance(token_digest, str) and token_digest:
         conditions.append(CandidateInviteLink.token_sha256 == token_digest)
@@ -4340,6 +4517,27 @@ async def _resolve_invite_source(
         link = await db.scalar(select(CandidateInviteLink).where(or_(*conditions)))
         if link is not None:
             label = link.label
+            link_kind = link_kind or link.kind
+    if link_kind not in ("job", "recruiter"):
+        link_kind = None
+
+    # utm z tego samego zgłoszenia: wpis źródła powstaje w tej samej transakcji
+    # co Activity, więc bierzemy najnowszy wpis „posting” nie późniejszy niż
+    # zgłoszenie (z zapasem na zegar) — ponowne zgłoszenie bez utm nie
+    # odziedziczy utm z poprzedniego.
+    utm_source = await db.scalar(
+        select(CandidateSourceEvent.utm_source)
+        .where(
+            CandidateSourceEvent.candidate_id == candidate_id,
+            CandidateSourceEvent.channel == SourceChannel.posting,
+            CandidateSourceEvent.captured_at
+            <= activity.created_at + timedelta(minutes=5),
+        )
+        .order_by(
+            CandidateSourceEvent.captured_at.desc(), CandidateSourceEvent.id.desc()
+        )
+        .limit(1)
+    )
 
     # Recruiter names — activity.user_id is the new owner; previous_created_by
     # (if any) is the recruiter replaced by this apply.
@@ -4361,6 +4559,8 @@ async def _resolve_invite_source(
         created_by_name=created_by_name,
         applied_at=activity.created_at,
         previous_created_by_name=previous_created_by_name,
+        link_kind=link_kind,
+        utm_source=(utm_source or "").strip()[:120] or None,
     )
 
 

@@ -22,6 +22,7 @@ const apply = (filters: CandidateFilters, patch: Partial<CandidateFilters>): Can
 
 const STAGE_SET: Partial<CandidateFilters> = {
   pipelineStage: ["cv_sent"],
+  stageColumns: ["cv_qc"],
   stageCurrentOnly: true,
   stageClientIds: [3],
   stageMovedByIds: [4],
@@ -32,6 +33,7 @@ const STAGE_SET: Partial<CandidateFilters> = {
 };
 const STAGE_EMPTY: Partial<CandidateFilters> = {
   pipelineStage: [],
+  stageColumns: [],
   stageCurrentOnly: false,
   stageClientIds: [],
   stageMovedByIds: [],

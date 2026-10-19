@@ -162,3 +162,51 @@ describe("ActiveFilterChips — etykiety etapów", () => {
     );
   });
 });
+
+describe("ActiveFilterChips — „Dodany na etap” (19.10.2026)", () => {
+  function renderWithUsers(patch: Partial<CandidateFilters>, onUpdate = vi.fn()) {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={client}>
+        <ActiveFilterChips
+          filters={{ ...DEFAULT_FILTERS, ...patch }}
+          onUpdate={onUpdate}
+          usersById={new Map([[7, "Jan Kowalski"]])}
+        />
+      </QueryClientProvider>,
+    );
+    return onUpdate;
+  }
+
+  it("etap jako kolumna Tablicy, osoba i daty w jednym roku", async () => {
+    const onUpdate = renderWithUsers({
+      stageColumns: ["cv_qc"],
+      stageMovedByIds: [7],
+      stageMovedAfter: "2026-10-01",
+      stageMovedBefore: "2026-10-15",
+    });
+    expect(screen.getByText("Dodany na etap: QC CV")).toBeInTheDocument();
+    expect(screen.getByText("Dodany przez: Jan Kowalski")).toBeInTheDocument();
+    expect(screen.getByText("Dodany: 01.10 – 15.10.2026")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Usuń filtr: Dodany na etap: QC CV" }));
+    expect(onUpdate).toHaveBeenLastCalledWith({ stageColumns: [], page: 1 });
+  });
+
+  it("jedna granica dat i przełom roku", () => {
+    renderWithUsers({ stageMovedAfter: "2026-10-01" });
+    expect(screen.getByText("Dodany: od 01.10.2026")).toBeInTheDocument();
+  });
+
+  it("stary kod etapu z linku zostaje chipem „Etap: …” obok kolumny", () => {
+    renderWithUsers({ stageColumns: ["verified"], pipelineStage: ["interview"] });
+    expect(screen.getByText("Dodany na etap: Zweryfikowany")).toBeInTheDocument();
+    expect(screen.getByText("Etap: Interview")).toBeInTheDocument();
+  });
+
+  it("„Wyczyść wszystko” zdejmuje też kolumny etapu", async () => {
+    const onUpdate = renderWithUsers({ stageColumns: ["cv_qc"], status: ["active"] });
+    await userEvent.click(screen.getByText("Wyczyść wszystko"));
+    expect(onUpdate).toHaveBeenLastCalledWith(expect.objectContaining({ stageColumns: [] }));
+  });
+});

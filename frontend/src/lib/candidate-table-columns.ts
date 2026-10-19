@@ -7,6 +7,7 @@
 
 export type CandidateColumnId =
   | "candidate"
+  | "stage_match"
   | "position"
   | "phone"
   | "email"
@@ -41,6 +42,11 @@ export interface CandidateColumn {
    * dopasowanie liczy się względem TEJ rekrutacji, na liście nie ma do czego.
    */
   jobOnly?: boolean;
+  /**
+   * Tylko przy filtrze etapu („Dodany na etap”, 19.10.2026) — poza wyborem
+   * „Kolumny”: bez filtra nie ma czego pokazać.
+   */
+  filterOnly?: boolean;
 }
 
 export const CANDIDATE_TABLE_PREFS_KEY = "candidates-table-v2";
@@ -50,6 +56,8 @@ export const CANDIDATE_JOB_SEARCH_PREFS_KEY = "candidates-table-job-search";
 /** Kolejność = kolejność w tabeli. */
 export const CANDIDATE_COLUMNS: readonly CandidateColumn[] = [
   { id: "candidate", label: "Kandydat", width: "minmax(168px, 1.5fr)", minWidth: 168, required: true },
+  // Kiedy i kto przesunął osobę na etap z filtra i w jakiej rekrutacji.
+  { id: "stage_match", label: "Dodany na etap", width: "minmax(150px, 1.2fr)", minWidth: 150, filterOnly: true },
   { id: "position", label: "Ostatnie stanowisko", width: "minmax(150px, 1.5fr)", minWidth: 150 },
   { id: "phone", label: "Telefon", width: "minmax(132px, 1fr)", minWidth: 132 },
   { id: "email", label: "E-mail", width: "minmax(150px, 1.2fr)", minWidth: 150, hiddenByDefault: true },
@@ -143,7 +151,24 @@ export function visibleCandidateColumns(
 export function selectableCandidateColumns(
   options: { forJob?: boolean } = {},
 ): CandidateColumn[] {
-  return CANDIDATE_COLUMNS.filter((c) => !c.jobOnly || options.forJob);
+  return CANDIDATE_COLUMNS.filter((c) => !c.filterOnly && (!c.jobOnly || options.forJob));
+}
+
+/**
+ * Kolumny tabeli z kolumną „Dodany na etap”, gdy lista pyta o etap. Na
+ * laptopie (bez `wide`) zajmuje miejsce „Ostatniego stanowiska” — domyślna
+ * tabela mieści się tam na styk i dodatkowa kolumna wypychałaby „Przypisz”
+ * poza ekran. Po zdjęciu filtra wraca wybór osoby.
+ */
+export function withStageMatchColumn(
+  columns: readonly CandidateColumn[],
+  shown: boolean,
+  options: { wide?: boolean } = {},
+): CandidateColumn[] {
+  if (!shown) return [...columns];
+  const ids = new Set<string>(columns.map((c) => c.id));
+  if (!options.wide) ids.delete("position");
+  return CANDIDATE_COLUMNS.filter((c) => c.id === "stage_match" || ids.has(c.id));
 }
 
 /** Nowa lista ukrytych po przełączeniu kolumny. */

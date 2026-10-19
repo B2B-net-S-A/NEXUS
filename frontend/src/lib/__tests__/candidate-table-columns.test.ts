@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   candidateGridLayout,
+  selectableCandidateColumns,
   toggleCandidateColumn,
   visibleCandidateColumns,
+  withStageMatchColumn,
 } from "@/lib/candidate-table-columns";
 
 const ids = (hidden: string[] | null) => visibleCandidateColumns(hidden).map((c) => c.id);
@@ -96,5 +98,36 @@ describe("„Szukaj ręcznie” z rekrutacji", () => {
     expect(forJob).not.toContain("phone");
     expect(ids(null)).not.toContain("fit");
     expect(candidateGridLayout(visibleCandidateColumns(null, { forJob: true })).minWidth).toBeLessThanOrEqual(1040);
+  });
+});
+
+describe("„Dodany na etap” (filtr etapu, 19.10.2026)", () => {
+  it("nie ma jej w wyborze „Kolumny” ani bez filtra", () => {
+    expect(selectableCandidateColumns().map((c) => c.id)).not.toContain("stage_match");
+    expect(ids(null)).not.toContain("stage_match");
+    expect(withStageMatchColumn(visibleCandidateColumns(null), false).map((c) => c.id)).toEqual(
+      ids(null),
+    );
+  });
+
+  it("z filtrem stoi za „Kandydatem”; na laptopie w miejscu „Ostatniego stanowiska” i tabela dalej się mieści", () => {
+    const laptop = withStageMatchColumn(visibleCandidateColumns(null), true);
+    expect(laptop.map((c) => c.id)).toEqual([
+      "candidate",
+      "stage_match",
+      "phone",
+      "rate",
+      "availability",
+      "process",
+      "cv",
+      "assign",
+    ]);
+    expect(candidateGridLayout(laptop).minWidth).toBeLessThanOrEqual(
+      candidateGridLayout(visibleCandidateColumns(null)).minWidth,
+    );
+    const wide = withStageMatchColumn(visibleCandidateColumns(null, { wide: true }), true, {
+      wide: true,
+    }).map((c) => c.id);
+    expect(wide.slice(0, 3)).toEqual(["candidate", "stage_match", "position"]);
   });
 });

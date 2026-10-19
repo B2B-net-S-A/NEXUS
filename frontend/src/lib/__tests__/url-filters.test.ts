@@ -81,6 +81,7 @@ describe("url-filters", () => {
       stageMovedAfter: "2026-05-01",
       stageMovedBefore: "2026-05-29",
       stageClientIds: [21, 33],
+      stageColumns: ["cv_qc", "closed"],
       sentToClientFrom: "2026-06-01",
       sentToClientTo: "2026-06-30",
       stageCurrentOnly: true,
@@ -104,6 +105,42 @@ describe("url-filters", () => {
     };
     const encoded = encodeFilters(full);
     expect(decodeFilters(encoded)).toEqual(full);
+  });
+
+  it("„Dodany na etap” idzie w `stage_col` na końcu adresu i do API jako `stage_column`", () => {
+    const filters: CandidateFilters = {
+      ...DEFAULT_FILTERS,
+      stageColumns: ["cv_qc"],
+      stageMovedByIds: [7],
+      stageMovedAfter: "2026-10-01",
+      stageMovedBefore: "2026-10-15",
+    };
+    const encoded = encodeFilters(filters);
+    expect(encoded.toString()).toBe(
+      "stage_by=7&stage_from=2026-10-01&stage_to=2026-10-15&stage_col=cv_qc",
+    );
+    expect(decodeFilters(encoded)).toEqual(filters);
+    const params = filtersToApiParams(filters, 1);
+    expect(params.stage_column).toEqual(["cv_qc"]);
+    expect(params.stage_moved_by).toEqual([7]);
+    expect(params.pipeline_stage).toBeUndefined();
+  });
+
+  it("stary adres z kodem etapu dekoduje się i koduje bajt w bajt jak dotąd", () => {
+    const legacy =
+      "stage=interview,verified&stage_by=4,0&stage_from=2026-05-01&stage_to=2026-05-29&stage_client=21&stage_current=1";
+    const decoded = decodeFilters(sp(legacy));
+    expect(decoded.pipelineStage).toEqual(["interview", "verified"]);
+    expect(decoded.stageColumns).toEqual([]);
+    expect(encodeFilters(decoded).toString()).toBe(sp(legacy).toString());
+    expect(filtersToApiParams(decoded, 1).stage_column).toBeUndefined();
+  });
+
+  it("nieznana kolumna w `stage_col` jest pomijana", () => {
+    expect(decodeFilters(sp("stage_col=qc,cv_qc,,closed")).stageColumns).toEqual([
+      "cv_qc",
+      "closed",
+    ]);
   });
 
   it("advanced search buckets use pipe so commas in phrases survive", () => {

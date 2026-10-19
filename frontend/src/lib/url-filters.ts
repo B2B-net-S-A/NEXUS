@@ -12,6 +12,8 @@ import {
   serializeSkillBuckets,
 } from "@/lib/skill-expression";
 import type { OpenToValue } from "@/lib/filter-options";
+import type { BoardColumnKey } from "@/lib/board-stages";
+import { isStageColumn } from "@/lib/stage-filter";
 import { normalizeLanguageFilters } from "@/lib/candidate-languages";
 import { cleanRows, requirementRows } from "@/lib/keyword-requirements";
 
@@ -201,6 +203,10 @@ export interface CandidateFilters {
   // the URL as `sent_from`/`sent_to`.
   sentToClientFrom: string;
   sentToClientTo: string;
+  // „Dodany na etap” (19.10.2026): kolumny Tablicy („QC CV”, „Zweryfikowany”…)
+  // zamiast kodów etapu — LUB z `pipelineStage` (stare linki i zapisy), na tym
+  // samym przejściu co `stageMovedByIds` / daty / klient. Adres `stage_col`.
+  stageColumns: BoardColumnKey[];
   // "Aktualny etap" toggle. When true → force CURRENT-stage matching even with
   // who/when/client move-filters (sends `stage_current_only=true`). When false
   // (default) → omit the param so the backend auto-resolves: current for a bare
@@ -296,6 +302,7 @@ export const DEFAULT_FILTERS: CandidateFilters = {
   stageMovedAfter: "",
   stageMovedBefore: "",
   stageClientIds: [],
+  stageColumns: [],
   sentToClientFrom: "",
   sentToClientTo: "",
   stageCurrentOnly: false,
@@ -455,6 +462,8 @@ export function encodeFilters(f: CandidateFilters): URLSearchParams {
   if (f.contactedByIds.length) p.set("contact_by", CSV(f.contactedByIds));
   if (f.view !== "list") p.set("view", f.view);
   if (f.savedSearchId !== null) p.set("ss", String(f.savedSearchId));
+  // Dopisane na końcu (19.10.2026) — stare adresy kodują się bajt w bajt.
+  if (f.stageColumns.length) p.set("stage_col", CSV(f.stageColumns));
   return p;
 }
 
@@ -550,6 +559,7 @@ export function decodeFilters(sp: URLSearchParams): CandidateFilters {
     stageMovedAfter: parseIsoDate(sp.get("stage_from")),
     stageMovedBefore: parseIsoDate(sp.get("stage_to")),
     stageClientIds: parseCsvInt(sp.get("stage_client")),
+    stageColumns: parseCsv(sp.get("stage_col")).filter(isStageColumn),
     sentToClientFrom: parseIsoDate(sp.get("sent_from")),
     sentToClientTo: parseIsoDate(sp.get("sent_to")),
     stageCurrentOnly: sp.get("stage_current") === "1",
@@ -778,6 +788,7 @@ export function filtersToApiParams(
     stage_client_id: filters.stageClientIds.length
       ? filters.stageClientIds
       : undefined,
+    stage_column: filters.stageColumns.length ? filters.stageColumns : undefined,
     sent_to_client_from: filters.sentToClientFrom || undefined,
     sent_to_client_to: filters.sentToClientTo || undefined,
     // Only send when forcing current-stage matching; omitting lets the backend
@@ -995,6 +1006,7 @@ export type TraffitExtraFilters = Pick<
   | "contactedByIds"
   | "recruitmentClientIds"
   | "recruitmentPresence"
+  | "stageColumns"
 >;
 
 const TRAFFIT_EXTRA_KEYS = [
@@ -1007,6 +1019,7 @@ const TRAFFIT_EXTRA_KEYS = [
   "contactedByIds",
   "recruitmentClientIds",
   "recruitmentPresence",
+  "stageColumns",
 ] as const satisfies ReadonlyArray<keyof TraffitExtraFilters>;
 
 export function pickTraffitExtras(filters: CandidateFilters): TraffitExtraFilters {
@@ -1020,6 +1033,7 @@ export function pickTraffitExtras(filters: CandidateFilters): TraffitExtraFilter
     contactedByIds: filters.contactedByIds,
     recruitmentClientIds: filters.recruitmentClientIds,
     recruitmentPresence: filters.recruitmentPresence,
+    stageColumns: filters.stageColumns,
   };
 }
 

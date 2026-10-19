@@ -517,6 +517,25 @@ class ActiveRecruitmentBrief(BaseModel):
     moved_by_name: Optional[str] = None
 
 
+class StageMatchBrief(BaseModel):
+    """Przejście, które spełniło filtr „Dodany na etap / przez / od–do” (19.10.2026).
+
+    Najnowszy pasujący wiersz `candidate_stages` osoby: na którą kolumnę
+    Tablicy, kiedy, kto przesunął i w jakiej rekrutacji. Tylko na liście
+    `GET /api/candidates` przy włączonym filtrze etapu, liczone dla osób ze
+    strony wyniku.
+    """
+
+    column: str
+    moved_at: Optional[datetime] = None
+    moved_by_name: Optional[str] = None
+    job_id: int
+    job_title: Optional[str] = None
+    job_working_title: Optional[str] = None
+    job_client_reference: Optional[str] = None
+    client_name: Optional[str] = None
+
+
 class LinkedinSnapshotSummary(BaseModel):
     """One LinkedIn profile snapshot surfaced in the candidate detail view.
 
@@ -554,6 +573,12 @@ class InviteSourceBrief(BaseModel):
     created_by_name: str
     applied_at: datetime
     previous_created_by_name: Optional[str] = None
+    # „recruiter” = stały link osoby (strona kariery), „job” = link do
+    # rekrutacji. Profil odróżnia po tym „Link rekrutera” od „Linku do
+    # rekrutacji”; None — wpis sprzed zapisywania rodzaju i link nieznaleziony.
+    link_kind: Optional[Literal["job", "recruiter"]] = None
+    # `utm_source` z adresu, którym osoba weszła na formularz (np. „linkedin”).
+    utm_source: Optional[str] = None
 
 
 CandidateIdentityField = Literal["name", "lastname"]
@@ -808,6 +833,9 @@ class CandidateResponse(BaseModel):
     # {rejected, withdrawn, hired}). Populated TYLKO przez list endpoint
     # z parametrem `include_active_recruitments=true` (osobny lekki query).
     active_recruitments: Optional[list[ActiveRecruitmentBrief]] = None
+    # Filtr etapu na liście: kiedy i kto przesunął osobę na wybrany etap
+    # (najnowsze pasujące przejście). `None` bez filtra etapu.
+    stage_match: Optional[StageMatchBrief] = None
     # Lista kandydatów: czy jest ZAPISANY dokument CV (`candidate_documents`,
     # kind=cv, niewycofany). `cv_filename` tego nie mówi — import z Traffita
     # wpisuje nazwę pliku od razu, a sam plik dociąga osobna faza. Kolumna „CV"

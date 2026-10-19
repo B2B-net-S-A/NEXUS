@@ -25,6 +25,7 @@ type RecruitmentFields = Pick<
  */
 const NO_STAGE_FILTERS = {
   pipelineStage: [],
+  stageColumns: [],
   stageCurrentOnly: false,
   stageClientIds: [],
   stageMovedByIds: [],

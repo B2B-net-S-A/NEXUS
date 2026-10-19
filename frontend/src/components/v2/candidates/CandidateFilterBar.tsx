@@ -459,6 +459,7 @@ export function CandidateFilterBar({
               contactedByIds: [],
             });
             onStageChange({
+              columns: [],
               stages: [],
               currentOnly: false,
               clientIds: [],

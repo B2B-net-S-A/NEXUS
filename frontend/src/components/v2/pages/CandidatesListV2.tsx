@@ -92,7 +92,10 @@ import {
   toggleCandidateColumn,
   CANDIDATE_WIDE_DEFAULT_QUERY,
   visibleCandidateColumns,
+  withStageMatchColumn,
 } from "@/lib/candidate-table-columns";
+import { hasStageFilter, type StageMatch } from "@/lib/stage-filter";
+import { CandidateStageMatchCell } from "@/components/v2/candidates/CandidateStageMatchCell";
 import { useVisibleMatchScores } from "@/hooks/useVisibleMatchScores";
 import { scoreBadgeClass } from "@/lib/match-score-badge";
 import { proposalsBulkApi } from "@/lib/candidate-search-api";
@@ -325,6 +328,8 @@ interface Candidate {
     moved_at?: string | null;
     moved_by_name?: string | null;
   }> | null;
+  /** Filtr etapu: najnowsze pasujące przejście (kiedy, kto, rekrutacja). */
+  stage_match?: StageMatch | null;
   expected_rate_hourly?: number | string | null;
   expected_rate_currency?: string | null;
   // „Stawka od” (0414) — po niej filtruje lista.
@@ -653,7 +658,6 @@ export function CandidatesListV2({ onRequestSearch, embed }: CandidatesListV2Pro
     () => visibleCandidateColumns(hiddenColumns, { forJob, wide }),
     [hiddenColumns, forJob, wide],
   );
-  const gridLayout = useMemo(() => candidateGridLayout(visibleColumns), [visibleColumns]);
   const parentRef = useRef<HTMLDivElement>(null);
   const queryClient = useQueryClient();
   const contactFeature = useCandidateContactFeature();
@@ -1279,6 +1283,13 @@ export function CandidatesListV2({ onRequestSearch, embed }: CandidatesListV2Pro
  () => candidatesListApiParams(queryFilters, queryFilters.page, candidatesPageSize),
  [queryFilters, candidatesPageSize],
  );
+ // „Dodany na etap” — kolumna tylko wtedy, gdy lista pyta o etap.
+ const stageMatchShown = hasStageFilter(queryFilters);
+ const tableColumns = useMemo(
+ () => withStageMatchColumn(visibleColumns, stageMatchShown, { wide }),
+ [visibleColumns, stageMatchShown, wide],
+ );
+ const gridLayout = useMemo(() => candidateGridLayout(tableColumns), [tableColumns]);
  const {
  data,
  isLoading,
@@ -1708,6 +1719,7 @@ export function CandidatesListV2({ onRequestSearch, embed }: CandidatesListV2Pro
  recruitmentIds.length +
  traffitExtras.recruitmentClientIds.length +
  (traffitExtras.recruitmentPresence ? 1 : 0) +
+ traffitExtras.stageColumns.length +
  (experienceMin !== null || experienceMax !== null ? 1 : 0) +
  (rateMin !== null || rateMax !== null ? 1 : 0) +
  stageMovedByIds.length +
@@ -1819,6 +1831,7 @@ export function CandidatesListV2({ onRequestSearch, embed }: CandidatesListV2Pro
  const patchFiltersFromFields = (patch: Partial<CandidateFilters>) =>
  applyFiltersPatch({ ...patch, page: 1 });
  const stageFilterValue: StageFilterValue = {
+ columns: traffitExtras.stageColumns,
  stages: pipelineStageFilter,
  currentOnly: stageCurrentOnly,
  clientIds: stageClientIds,
@@ -1827,6 +1840,8 @@ export function CandidatesListV2({ onRequestSearch, embed }: CandidatesListV2Pro
  movedBefore: stageMovedBefore,
  };
  const onStageFilterChange = (patch: Partial<StageFilterValue>) => {
+ const { columns } = patch;
+ if (columns !== undefined) setTraffitExtras((prev) => ({ ...prev, stageColumns: columns }));
  if (patch.stages !== undefined) setPipelineStageFilter(patch.stages);
  if (patch.currentOnly !== undefined) setStageCurrentOnly(patch.currentOnly);
  if (patch.clientIds !== undefined) setStageClientIds(patch.clientIds);
@@ -2408,7 +2423,7 @@ export function CandidatesListV2({ onRequestSearch, embed }: CandidatesListV2Pro
                   aria-label="Zaznacz stronę"
                 />
               </div>
-              {visibleColumns.map((col) => (
+              {tableColumns.map((col) => (
                 <div
                   key={col.id}
                   data-column-header
@@ -2511,7 +2526,7 @@ export function CandidatesListV2({ onRequestSearch, embed }: CandidatesListV2Pro
                               aria-label={`Zaznacz ${fullName}`}
                             />
                           </div>
-                          {visibleColumns.map((col) => {
+                          {tableColumns.map((col) => {
                             const cell = (() => {
                               switch (col.id) {
                                 case "candidate":
@@ -2579,6 +2594,8 @@ export function CandidatesListV2({ onRequestSearch, embed }: CandidatesListV2Pro
                             </div>
                           </div>
                                   );
+                                case "stage_match":
+                                  return <CandidateStageMatchCell match={candidate.stage_match} />;
                                 case "position":
                                   return (
 <div className="min-w-0">

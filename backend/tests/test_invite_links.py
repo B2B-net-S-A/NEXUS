@@ -561,6 +561,7 @@ async def test_get_candidate_returns_invite_source(inv_client: AsyncClient):
             "first_name": "Anna",
             "last_name": "Linkowa",
             "email": applicant_email,
+            "utm_source": "linkedin",
         },
         files={"cv": ("cv.pdf", io.BytesIO(b"%PDF-1.4"), "application/pdf")},
     )
@@ -580,6 +581,10 @@ async def test_get_candidate_returns_invite_source(inv_client: AsyncClient):
     assert body["invite_source"]["label"] == "LI kwiecień"
     assert body["invite_source"]["created_by_name"]  # recruiter name filled
     assert body["invite_source"]["previous_created_by_name"] is None
+    # Profil mówi „Link do rekrutacji · wejście z LinkedIn” — rodzaj linku
+    # i utm z formularza muszą dojść do odpowiedzi.
+    assert body["invite_source"]["link_kind"] == "job"
+    assert body["invite_source"]["utm_source"] == "linkedin"
 
 
 @pytest.mark.asyncio
