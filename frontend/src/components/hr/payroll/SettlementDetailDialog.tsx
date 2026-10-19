@@ -138,7 +138,10 @@ export function SettlementDetailDialog({ settlementId, onClose }: SettlementDeta
   const { showToast } = useToast();
   const { askConfirm, confirmDialog } = useConfirmV2();
   const [panel, setPanel] = useState<Panel>("none");
-  const [reason, setReason] = useState("");
+  // Osobne powody dla dwóch decyzji: tekst uznania różnicy nie może trafić
+  // do ręcznego „opłacono” (i odwrotnie) — audyt A2, 19.10.2026.
+  const [overrideReason, setOverrideReason] = useState("");
+  const [paidReason, setPaidReason] = useState("");
   const [paidOn, setPaidOn] = useState(warsawToday());
   const [paidAmount, setPaidAmount] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -158,7 +161,8 @@ export function SettlementDetailDialog({ settlementId, onClose }: SettlementDeta
       .then(() => {
         showToast(done, "success");
         setPanel("none");
-        setReason("");
+        setOverrideReason("");
+        setPaidReason("");
       })
       .catch((err) => setError(apiErrorMessage(err, "Nie udało się zapisać decyzji.")));
   };
@@ -176,11 +180,14 @@ export function SettlementDetailDialog({ settlementId, onClose }: SettlementDeta
 
   const submitOverride = () => {
     if (!detail) return;
-    if (reason.trim().length < 3) {
+    if (overrideReason.trim().length < 3) {
       setError("Podaj powód uznania różnicy.");
       return;
     }
-    run(override.mutateAsync({ id: detail.id, reason: reason.trim() }), "Uznanie czeka na drugą osobę");
+    run(
+      override.mutateAsync({ id: detail.id, reason: overrideReason.trim() }),
+      "Uznanie czeka na drugą osobę",
+    );
   };
 
   const submitPaid = () => {
@@ -189,7 +196,7 @@ export function SettlementDetailDialog({ settlementId, onClose }: SettlementDeta
       setError("Podaj kwotę przelewu.");
       return;
     }
-    if (reason.trim().length < 3) {
+    if (paidReason.trim().length < 3) {
       setError("Podaj powód ręcznego „opłacono”.");
       return;
     }
@@ -198,7 +205,7 @@ export function SettlementDetailDialog({ settlementId, onClose }: SettlementDeta
         id: detail.id,
         amount: paidAmount.replace(/\s/g, "").replace(",", "."),
         paid_on: paidOn,
-        reason: reason.trim(),
+        reason: paidReason.trim(),
       }),
       "Oznaczono jako opłacone",
     );
@@ -361,9 +368,9 @@ export function SettlementDetailDialog({ settlementId, onClose }: SettlementDeta
             <FormField label="Powód uznania różnicy" htmlFor="settlement-override-reason">
               <Input
                 id="settlement-override-reason"
-                value={reason}
+                value={overrideReason}
                 maxLength={500}
-                onChange={(event) => setReason(event.target.value)}
+                onChange={(event) => setOverrideReason(event.target.value)}
               />
               <div className="mt-2 flex justify-end gap-2">
                 <Button variant="ghost" size="sm" onClick={() => setPanel("none")}>
@@ -397,9 +404,9 @@ export function SettlementDetailDialog({ settlementId, onClose }: SettlementDeta
               <FormField label="Powód" htmlFor="settlement-paid-reason">
                 <Input
                   id="settlement-paid-reason"
-                  value={reason}
+                  value={paidReason}
                   maxLength={500}
-                  onChange={(event) => setReason(event.target.value)}
+                  onChange={(event) => setPaidReason(event.target.value)}
                 />
               </FormField>
               <div className="flex justify-end gap-2 sm:col-span-3">
