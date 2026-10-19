@@ -22,6 +22,7 @@ from sqlalchemy import func, select
 
 from app.api import hr_payments
 from app.core.database import AsyncSessionLocal
+from app.core.scheduling import local_now
 from app.core.encryption import TokenCipherNotConfigured
 from app.models.hr_ops import HrAuditEvent
 from app.models.hr_payroll import PayrollPeriod
@@ -920,6 +921,7 @@ async def test_przypisz_nie_oplaca_rozbieznosci_a_zgodna_kwote_przyjmuje(client,
         target.status = "approved"
         target.discrepancy_amount = Decimal("0.00")
         target.approved_by = finance.id
+        target.approved_at = local_now()
         await db.commit()
     assigned = await client.post(
         url, json={"settlement_id": ola_s.id}, headers=fx.headers(second)
