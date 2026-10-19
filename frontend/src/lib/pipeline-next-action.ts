@@ -390,7 +390,7 @@ export function columnSlaHint(
   const oldest = ctx.oldestDays ?? null;
 
   if (group === "closed") {
-    return { left: "powody w doku", right: null, rightTone: "normal" };
+    return { left: "powody na kartach i w panelu", right: null, rightTone: "normal" };
   }
   if (group === "verification") {
     return { left: "→ CV do klienta", right: null, rightTone: "normal" };

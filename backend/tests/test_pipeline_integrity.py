@@ -772,6 +772,57 @@ async def test_kanban_carries_sheet_badges_and_profile_rate(
     assert items[empty_sheet_cand]["screening_done"] is False
 
 
+async def test_kanban_closed_card_carries_reason_and_who_closed_it(
+    app_client: AsyncClient, app_auth_headers
+):
+    """Panel osoby i karta w „Odrzuconych” pokazują powód i kto odrzucił
+    (19.10.2026). Etykieta powodu po polsku, z bazy, nawet gdy powód wycofano
+    z szablonu; karta w toku tych pól nie niesie."""
+    from sqlalchemy import select
+
+    from app.models.pipeline_template import RejectionReason, TerminalType
+    from app.models.recruitment_pipeline import CandidateStage
+    from app.models.user import User
+
+    rejected, open_cand = await _seed_candidate(), await _seed_candidate()
+    job, _ = await _seed_job()
+    tpl_id, _, _ = await _seed_template()
+    rejected_stage = await _seed_stage(rejected, job, "rejected")
+    await _seed_stage(open_cand, job, "screening")
+    async with AsyncSessionLocal() as db:
+        admin = await db.scalar(
+            select(User).where(User.email == app_client.headers["X-Test-Admin-Email"])
+        )
+        reason = RejectionReason(
+            template_id=tpl_id,
+            name="salary_mismatch",
+            category=TerminalType.rejected,
+            active=False,
+        )
+        db.add(reason)
+        await db.flush()
+        row = await db.get(CandidateStage, rejected_stage)
+        row.rejection_reason_id = reason.id
+        row.moved_by = admin.id
+        row.notes = "Oczekuje 190 zł/h, budżet do 150."
+        admin_name = admin.name
+        await db.commit()
+
+    r = await app_client.get(f"/api/pipeline/kanban/{job}", headers=app_auth_headers)
+    assert r.status_code == 200, r.text
+    items = {
+        item["candidate_id"]: item
+        for col in r.json()["columns"]
+        for item in col["items"]
+    }
+    closed = items[rejected]
+    assert closed["rejection_reason_name"] == "Rozbieżność oczekiwań finansowych"
+    assert closed["closed_by_name"] == admin_name
+    assert closed["notes"] == "Oczekuje 190 zł/h, budżet do 150."
+    assert items[open_cand]["rejection_reason_name"] is None
+    assert items[open_cand]["closed_by_name"] is None
+
+
 async def test_kanban_in_a_job_without_questions_asks_for_the_assessment(
     app_client: AsyncClient, app_auth_headers
 ):

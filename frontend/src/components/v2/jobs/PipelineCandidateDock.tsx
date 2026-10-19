@@ -96,6 +96,8 @@ import { candidateNoteItems, useCandidateNotes } from "@/components/v2/pages/can
 import { candidateQueryKeys } from "@/components/v2/pages/candidate-query-keys";
 import { DopasowanieTab } from "@/components/v2/pages/DopasowanieTab";
 import { type KanbanColumn, type KanbanItem } from "@/components/v2/pages/kanban-shared";
+import { DockClosedReason } from "@/components/v2/jobs/DockClosedReason";
+import { closedReason } from "@/lib/closed-reason";
 import { useNoteFillAvailable, type NoteFillChannel } from "@/lib/note-fill-channel";
 import type { NextAction } from "@/lib/pipeline-next-action";
 import { DockCallCheatsheet } from "@/components/v2/jobs/DockCallCheatsheet";
@@ -927,6 +929,8 @@ export function PipelineCandidateDock({
       ? Math.max(0, Math.min(100, Math.round(matchScore)))
       : null;
 
+  // Osoba z kolumny zamkniętych: powód, kto i kiedy (19.10.2026).
+  const closed = closedReason(item);
   const addedAttribution = item.added_to_job_by_name?.trim()
     ? `Dodano do rekrutacji przez: ${item.added_to_job_by_name.trim()}${
         item.added_to_job_at ? ` · ${formatDate(item.added_to_job_at)}` : ""
@@ -1735,6 +1739,9 @@ export function PipelineCandidateDock({
         )}
         data-testid="dock-actions"
       >
+        {/* 19.10.2026: powód odrzucenia / rezygnacji od razu po otwarciu osoby
+            z kolumny zamkniętych — także w widoku „Rozwiń”. */}
+        <DockClosedReason item={item} />
         {tabsOpen ? null : factsBlock}
         {item.rate_change && !readOnly ? (
           // 0418: otwarta sprawa zmiany stawki — negocjacja (DL, HoR),
@@ -1977,12 +1984,18 @@ export function PipelineCandidateDock({
                   }
                   who={item.added_to_job_by_name?.trim() || null}
                 />
-                {item.days_in_stage != null && (
+                {closed ? (
+                  <TimelineEntry
+                    title={`${closed.verb} · ${closed.reasonText}`}
+                    when={closed.at ? formatDate(closed.at) : null}
+                    who={closed.by}
+                  />
+                ) : item.days_in_stage != null ? (
                   <TimelineEntry
                     title={`W etapie od ${daysLabel(item.days_in_stage)}`}
                     who={currentStageLabel}
                   />
-                )}
+                ) : null}
                 {nextAction && nextAction.kind !== "none" && (
                   <TimelineEntry
                     tone="now"

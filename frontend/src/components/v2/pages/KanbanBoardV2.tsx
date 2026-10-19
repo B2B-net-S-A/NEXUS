@@ -15,6 +15,7 @@ import {
  AlertCircle,
  AlertTriangle,
  ArrowRight,
+ Ban,
  ClipboardList,
  ChevronLeft,
  ChevronRight,
@@ -27,6 +28,7 @@ import {
  HelpCircle,
  Loader2,
  Lock,
+ LogOut,
  Mail,
  MoveRight,
  Phone,
@@ -205,6 +207,7 @@ import {
  type NextAction,
  type NextActionKind,
 } from "@/lib/pipeline-next-action";
+import { closedReason } from "@/lib/closed-reason";
 import { useClientPlaybook } from "@/lib/client-playbooks";
 import { isOverHourlyBudget } from "@/lib/rate-to-hourly";
 import { useJobPipelineTemplate } from "@/hooks/useJobPipelineTemplate";
@@ -972,6 +975,20 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  // a karta do 12.10.2026 rysowała tylko weto HM i „ponad budżet”.
  const warningBadges = eligibilityWarningBadges(item.warnings, item.employment_marker);
  const criticalGap = criticalGapBadge(criticalGaps);
+ // Kolumny zamknięte (19.10.2026): powód widać bez otwierania karty, komentarz
+ // i kto zamknął — w dymku i w opisie karty dla czytnika.
+ const closed = closedReason(item);
+ const closedSummary = closed
+ ? `${closed.verb}: ${closed.reasonText}${closed.comment ? ` — ${closed.comment}` : ""}`
+ : null;
+ const closedTitle = closed
+ ? [
+ closedSummary,
+ [closed.by, closed.at ? formatDate(closed.at) : null].filter(Boolean).join(" · ") || null,
+ ]
+ .filter(Boolean)
+ .join("\n")
+ : undefined;
  const accessibleDetails = [
  overBudget ? "Stawka ponad budżet rekrutacji." : null,
  criticalGap ? criticalGap.title : null,
@@ -991,6 +1008,7 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  ? `W etapie od ${item.days_in_stage} dni.`
  : null,
  `${addedAttribution}.`,
+ closedSummary ? `${closedSummary}.` : null,
  item.hm_veto ? "Ostrzeżenie: weto hiring managera." : null,
  ...warningBadges.map((w) => `Ostrzeżenie: ${w.label}.`),
  item.employment_marker ? `${markerLabel(item.employment_marker)}.` : null,
@@ -1380,6 +1398,26 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  <div className={cn(desktopOverview &&"xl:pointer-fine:sr-only")}>
  <ContactStatusBadge contactCase={item.contact_case} className="mt-1" />
  </div>
+ ) : null}
+
+ {closed ? (
+ <p
+ data-testid="card-closed-reason"
+ data-tone={closed.tone}
+ title={closedTitle}
+ aria-hidden="true"
+ className={cn(
+ "mt-1 flex min-w-0 items-center gap-1 text-[11px] leading-snug",
+ closed.tone === "danger" ? "text-destructive" : "text-muted-foreground"
+ )}
+ >
+ {closed.kind === "withdrawn" ? (
+ <LogOut className="h-3 w-3 shrink-0" aria-hidden="true" />
+ ) : (
+ <Ban className="h-3 w-3 shrink-0" aria-hidden="true" />
+ )}
+ <span className="truncate">{closed.reason ?? "Powód nie zapisany"}</span>
+ </p>
  ) : null}
 
  {/* Wiersz 3 makiety: kto ma ruch, co zrobić i strzałka „→" (v5). */}

@@ -54,6 +54,12 @@ export interface KanbanItem {
  /** Numer tej osoby — filtr „Kto dodał” na Tablicy (14.10.2026). */
  added_to_job_by_id?: number | null;
  added_to_job_at?: string | null;
+ /** Komentarz z okna ruchu (przy odrzuceniu — wpisany w oknie powodu). */
+ notes?: string | null;
+ // Karty w „Odrzuconych” i „Rezygnacjach” (19.10.2026): etykieta powodu
+ // i kto zamknął kartę — `lib/closed-reason.ts`. Brak pola = starszy serwer.
+ rejection_reason_name?: string | null;
+ closed_by_name?: string | null;
  // „W bazie od” (0437): kiedy osoba weszła do bazy, czy data jest dokładna
  // (import z Traffita bez daty u źródła = nie) i kto ją dodał. Tylko z Tablicy.
  candidate_added_at?: string | null;

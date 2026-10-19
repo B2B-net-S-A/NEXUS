@@ -579,6 +579,78 @@ describe("KanbanBoardV2 — karta: odznaki zamiast bramek (17.09.2026)", () => {
     expect(within(other).queryByTestId(/^card-warning-/)).toBeNull();
   });
 
+  it("karta w „Odrzuconych” pokazuje powód; komentarz i kto — w dymku i opisie (19.10.2026)", async () => {
+    useAuthStore.setState({
+      user: { role: "recruiter", roles: ["recruiter"] } as never,
+    });
+    get.mockResolvedValue({ data: { pipeline_template_id: null } });
+
+    renderBoard([
+      {
+        stage: "new",
+        name: "Nowi",
+        category: "internal",
+        stage_def_id: null,
+        count: 1,
+        items: [
+          { id: 901, candidate_id: 31, name: "Jan", lastname: "Otwarty", stage: "new", days_in_stage: 1, notes: "Notatka ruchu" },
+        ],
+      },
+      {
+        stage: "rejected",
+        name: "Odrzucony",
+        category: "terminal",
+        stage_def_id: null,
+        count: 2,
+        terminal_type: "rejected",
+        items: [
+          {
+            id: 902,
+            candidate_id: 32,
+            name: "Krzysztof",
+            lastname: "Odrzucony",
+            stage: "rejected",
+            days_in_stage: 2,
+            moved_at: "2026-10-16T10:00:00Z",
+            rejection_reason_name: "Za wysokie oczekiwania finansowe",
+            closed_by_name: "Julia Swidkiewicz",
+            notes: "Oczekuje 190 zł/h.",
+          },
+          { id: 903, candidate_id: 33, name: "Maciej", lastname: "Traffit", stage: "rejected", days_in_stage: 30 },
+        ],
+      },
+    ] as never);
+
+    // Zamknięci stoją zwinięci obok Tablicy — rozwijamy kolumnę odrzuconych.
+    const closedColumn = await screen.findByRole("region", { name: "Zamknięci" });
+    await userEvent.click(within(closedColumn).getAllByRole("button", { name: /Odrzucon/ })[0]);
+    const rejected = (
+      await screen.findByRole("link", { name: "Krzysztof Odrzucony" })
+    ).closest("[data-kanban-card]") as HTMLElement;
+    const line = within(rejected).getByTestId("card-closed-reason");
+    expect(line).toHaveTextContent("Za wysokie oczekiwania finansowe");
+    expect(line).toHaveAttribute("data-tone", "danger");
+    expect(line).toHaveAttribute(
+      "title",
+      "Odrzucony: Za wysokie oczekiwania finansowe — Oczekuje 190 zł/h.\nJulia Swidkiewicz · 16.10.2026",
+    );
+    const description = document.getElementById(
+      screen.getByRole("link", { name: "Krzysztof Odrzucony" }).getAttribute("aria-describedby") ?? "",
+    );
+    expect(description).toHaveTextContent("Odrzucony: Za wysokie oczekiwania finansowe — Oczekuje 190 zł/h.");
+
+    const unknown = screen
+      .getByRole("link", { name: "Maciej Traffit" })
+      .closest("[data-kanban-card]") as HTMLElement;
+    expect(within(unknown).getByTestId("card-closed-reason")).toHaveTextContent("Powód nie zapisany");
+    expect(within(unknown).getByTestId("card-closed-reason")).toHaveAttribute("data-tone", "neutral");
+
+    const open = screen
+      .getByRole("link", { name: "Jan Otwarty" })
+      .closest("[data-kanban-card]") as HTMLElement;
+    expect(within(open).queryByTestId("card-closed-reason")).toBeNull();
+  });
+
   it("stara karta „pending” renderuje się jak zwykła — bez „Pending” i bez akceptacji", async () => {
     useAuthStore.setState({
       user: { role: "admin", roles: ["admin"] } as never,

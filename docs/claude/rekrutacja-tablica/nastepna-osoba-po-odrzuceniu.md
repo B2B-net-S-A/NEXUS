@@ -116,3 +116,43 @@ wszystkie D1–D5, wdrażaj”.
   `AddedByFilter.test.tsx`, `JobDetailPage.routing.test.tsx`,
   `backend/tests/test_jobs_list_needs_action.py`. Harness: `/preview/job-detail`
   (przycisk w nagłówku, osoby dodane przez trzy osoby i jedna bez danych).
+
+## Powód odrzucenia w panelu osoby i na karcie (19.10.2026)
+
+Prośba rekrutera przekazana przez Artura: powód odrzucenia było widać tylko
+w profilu kandydata (zakładka „Rekrutacje”), a kolumna zamkniętych obiecywała
+„powody w doku”, których panel osoby nie pokazywał. Makiety i decyzje D1–D3:
+https://claude.ai/artifact/SHKjoNHA1MC2XSAYR4A86r. Artur 19.10.2026: A + B,
+z osobą, która odrzuciła; stan maila odrzucenia później.
+
+- **Ramka w panelu osoby (A).** `DockClosedReason` stoi jako pierwsza rzecz
+  w `dock-actions` — widać ją bez przewijania i w widoku „Rozwiń”. Treść:
+  „Odrzucony: <powód>” albo „Rezygnacja: <powód>”, pod spodem komentarz
+  z okna odrzucenia (`notes` etapu), na dole „kto · data”. Oś czasu w „W
+  procesie” ma wpis „Odrzucony · <powód>” z datą i osobą zamiast „W etapie
+  od N dni”. Osoby w toku ramki nie mają.
+- **Linia na karcie (B).** Karta w „Odrzuconych” i „Rezygnacjach” ma pod
+  osobą jedną linię z powodem (ucięta), pełny powód, komentarz, kto i kiedy
+  w dymku (`title`) i w opisie karty dla czytnika. Linia jest widoczna także
+  w przeglądzie na dużym ekranie (nie chowa się jak odznaki). Podpis kolumny
+  zamkniętych: „powody na kartach i w panelu”.
+- **Dane.** Wyłącznie z karty `GET /api/pipeline/kanban/{job_id}`:
+  `rejection_reason_name` (etykieta po polsku z `rejection_reason_labels`,
+  z tabeli powodów, więc powód wycofany z szablonu nadal się wyświetla),
+  `closed_by_name` (kto przesunął kartę na etap zamknięty), `notes` i
+  `moved_at`. Oba nowe pola serwer wypełnia tylko dla kart `rejected`
+  i `withdrawn`; reszta kart ma `null`. Wspólna funkcja: `lib/closed-reason.ts`.
+- **Tony.** Odrzucenie z powodem — czerwień (jak „Powód odrzucenia”
+  w profilu). Rezygnacja, brak powodu i „Powód nieznany (import z Traffita)”
+  — szarość. Brak powodu mówimy wprost („powód nie został zapisany”, na
+  karcie „Powód nie zapisany”), nic nie zgadujemy.
+- **Czego to nie robi.** Nie pokazuje stanu maila odrzucenia (D3 — osobny
+  krok, gdy rekruterzy poproszą; Tablica tych danych nie ma). Nie dodaje
+  filtra ani grupowania po powodzie (nowy filtr Tablicy = decyzja Artura,
+  sekcja „Kolejka w kolumnie” wyżej). Nie pozwala edytować powodu.
+- Testy: `lib/__tests__/closed-reason.test.ts`,
+  `PipelineCandidateDock.test.tsx` i `KanbanBoardV2.test.tsx` (opisy
+  z 19.10.2026), `backend/tests/test_pipeline_integrity.py`
+  (`test_kanban_closed_card_carries_reason_and_who_closed_it`). Harness:
+  `/preview/job-detail` (odrzucona z powodem i komentarzem, z Traffita,
+  rezygnacja).

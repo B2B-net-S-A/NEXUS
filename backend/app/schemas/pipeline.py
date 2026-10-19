@@ -212,6 +212,11 @@ class CandidateStageResponse(BaseModel):
     # Numer tej osoby — filtr „Kto dodał” na Tablicy (14.10.2026).
     added_to_job_by_id: Optional[int] = None
     added_to_job_at: Optional[datetime] = None
+    # Karty w „Odrzuconych” i „Rezygnacjach” (19.10.2026): etykieta powodu
+    # i kto zamknął kartę — ramka w panelu osoby i linia na karcie. Wypełnia
+    # tylko Tablica; `None` przy innych etapach i gdzie indziej.
+    rejection_reason_name: Optional[str] = None
+    closed_by_name: Optional[str] = None
     # Set when this move caused a rejection email to be queued; lets the FE
     # show a "Cofnij wysyłkę" toast and anchor the cancel link.
     scheduled_rejection_email_id: Optional[int] = None

@@ -387,8 +387,45 @@ function columns(): KanbanColumn[] {
     col("new", "Umowa wysłana", 31, [], "external"),
     col("new", "Umowa podpisana", 32, [], "external"),
     col("hired", "Zatrudniony", 28, []),
-    col("rejected", "Odrzucony", 29, [card("Zofia", "Szkicowa", { claim_until: null } as never)], "terminal", "rejected"),
-    col("withdrawn", "Wycofany", 30, [], "terminal", "withdrawn"),
+    // Powód zamknięcia na karcie i w panelu osoby (19.10.2026): z powodem
+    // i komentarzem, bez powodu (Traffit) i rezygnacja.
+    col(
+      "rejected",
+      "Odrzucony",
+      29,
+      [
+        card("Zofia", "Szkicowa", {
+          claim_until: null,
+          moved_at: new Date(Date.now() - 2 * DAY).toISOString(),
+          rejection_reason_name: "Za wysokie oczekiwania finansowe",
+          closed_by_name: "Marta Nowak",
+          notes: "Oczekuje 190 zł/h na B2B, budżet rekrutacji do 150. Wrócić przy innej rekrutacji C++.",
+        } as never),
+        card("Teodor", "Archiwalny", {
+          claim_until: null,
+          days_in_stage: 120,
+          rejection_reason_name: "Powód nieznany (import z Traffita)",
+        } as never),
+      ],
+      "terminal",
+      "rejected",
+    ),
+    col(
+      "withdrawn",
+      "Wycofany",
+      30,
+      [
+        card("Ewa", "Zajęta", {
+          claim_until: null,
+          moved_at: new Date(Date.now() - DAY).toISOString(),
+          rejection_reason_name: "Przyjął inną ofertę",
+          closed_by_name: "Marta Nowak",
+          notes: "Dostała ofertę w innym banku, start od listopada.",
+        } as never),
+      ],
+      "terminal",
+      "withdrawn",
+    ),
   ];
 }
 

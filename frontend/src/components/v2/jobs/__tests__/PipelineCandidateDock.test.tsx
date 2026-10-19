@@ -2196,4 +2196,44 @@ describe("PipelineCandidateDock — pole notatki: duże okno i szkic (12.10.2026
     expect(noteBox()).toHaveValue("Chce hybrydę");
     expect(toastError).toHaveBeenCalled();
   });
+
+  describe("powód odrzucenia w panelu osoby (19.10.2026)", () => {
+    it("odrzucona osoba: ramka z powodem, komentarzem, kto i kiedy — nad warunkami", () => {
+      renderDock({
+        currentStageLabel: "Odrzucony",
+        item: baseItem({
+          stage: "rejected",
+          moved_at: "2026-10-16T10:00:00Z",
+          rejection_reason_name: "Za wysokie oczekiwania finansowe",
+          closed_by_name: "Julia Swidkiewicz",
+          notes: "Oczekuje 190 zł/h, budżet do 150.",
+        }),
+      });
+      const box = screen.getByTestId("dock-closed-reason");
+      expect(box).toHaveAttribute("data-tone", "danger");
+      expect(box).toHaveTextContent("Odrzucony: Za wysokie oczekiwania finansowe");
+      expect(box).toHaveTextContent("Oczekuje 190 zł/h, budżet do 150.");
+      expect(box).toHaveTextContent("Julia Swidkiewicz · 16.10.2026");
+      // Pierwsza rzecz w sekcji akcji — widać ją bez przewijania.
+      expect(screen.getByTestId("dock-actions").firstElementChild).toBe(box);
+      // Oś czasu mówi, kiedy i dlaczego, zamiast „W etapie od 3 dni”.
+      expect(screen.getByText("Odrzucony · Za wysokie oczekiwania finansowe")).toBeInTheDocument();
+      expect(screen.queryByText(/W etapie od/)).not.toBeInTheDocument();
+    });
+
+    it("rezygnacja i brak powodu: szara ramka, bez zgadywania", () => {
+      renderDock({
+        currentStageLabel: "Rezygnacja",
+        item: baseItem({ stage: "withdrawn", rejection_reason_name: null, notes: null }),
+      });
+      const box = screen.getByTestId("dock-closed-reason");
+      expect(box).toHaveAttribute("data-tone", "neutral");
+      expect(box).toHaveTextContent("Rezygnacja: powód nie został zapisany");
+    });
+
+    it("osoba w toku: bez ramki", () => {
+      renderDock({ item: baseItem({ notes: "Notatka z ruchu" }) });
+      expect(screen.queryByTestId("dock-closed-reason")).not.toBeInTheDocument();
+    });
+  });
 });
