@@ -796,30 +796,45 @@ def reminder_message(client_name: str, row: dict[str, int]) -> str:
 async def _client_leads(
     db: AsyncSession, client_ids: Sequence[int]
 ) -> dict[int, list[int]]:
-    """Aktywni Delivery Leadzi przypisani do klienta (główny pierwszy)."""
+    """Aktywni Delivery Leadzi przypisani do klienta (główny pierwszy).
+
+    Także DL przypisany tylko do scalonego duplikatu klienta — jego portfel
+    obejmuje klienta kanonicznego (``resolve_delivery_lead_assigned_client_ids``),
+    więc i dzwonek (audyt 19.10.2026).
+    """
 
     out: dict[int, list[int]] = {}
     if not client_ids:
         return out
+    canonical = {client_id: client_id for client_id in client_ids}
+    for duplicate_id, target_id in (
+        await db.execute(
+            select(Client.id, Client.merged_into_client_id).where(
+                Client.merged_into_client_id.in_(client_ids)
+            )
+        )
+    ).all():
+        canonical.setdefault(duplicate_id, target_id)
     rows = (
         await db.execute(
             select(DeliveryLeadClientAssignment.client_id, User)
             .join(User, User.id == DeliveryLeadClientAssignment.delivery_lead_user_id)
             .where(
-                DeliveryLeadClientAssignment.client_id.in_(client_ids),
+                DeliveryLeadClientAssignment.client_id.in_(sorted(canonical)),
                 User.is_active.is_(True),
             )
             .order_by(
-                DeliveryLeadClientAssignment.client_id,
                 DeliveryLeadClientAssignment.is_head.desc(),
+                DeliveryLeadClientAssignment.client_id,
                 DeliveryLeadClientAssignment.id,
             )
         )
     ).all()
     for client_id, user in rows:
-        if user.has_role(UserRole.delivery_lead):
-            out.setdefault(client_id, []).append(user.id)
-    return out
+        leads = out.setdefault(canonical[client_id], [])
+        if user.has_role(UserRole.delivery_lead) and user.id not in leads:
+            leads.append(user.id)
+    return {client_id: leads for client_id, leads in out.items() if leads}
 
 
 async def _recently_reminded(

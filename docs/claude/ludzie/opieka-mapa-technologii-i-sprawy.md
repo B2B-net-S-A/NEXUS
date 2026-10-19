@@ -292,7 +292,10 @@ zapełnić.
 
 - Imię i nazwisko porównujemy jak przy hiring managerze (`name_key`: kolejność,
   wielkość liter i ogonki bez znaczenia). Samo imię albo skrót nie wskazuje
-  nikogo — zła osoba zabrałaby opinię innemu menedżerowi.
+  nikogo — zła osoba zabrałaby opinię innemu menedżerowi. Imiennicy u klienta
+  (dwa kontakty o tym imieniu i nazwisku, różne albo puste e-maile) też
+  nikogo — inaczej „Zatwierdź pewne” wpisywał hurtem osobę o niższym id
+  (audyt 19.10.2026); ten sam e-mail = ta sama osoba (najniższe id).
 - Hiring manager sam nie daje pewności (często menedżer to NIE HM). Nadawca
   maila sam też nie — bywa zakupowcem albo wspólną skrzynką.
 - Każde źródło liczy się raz na osobę (pięć zamówień z tą samą osobą = jedno źródło).
@@ -312,7 +315,13 @@ zapełnić.
   jeden kontakt). Tekst musi wyglądać na osobę (`structure_rules.person_name_from_text`):
   2–4 słowa z liter, każde ≥ 2 litery (przedrostek z apostrofem „O'Neil”
   dozwolony), bez inicjałów, cyfr, ukośników, przecinków, e-maili i słów
-  w rodzaju „brak”, „Team”, „Kierownik”.
+  w rodzaju „brak”, „Team”, „Kierownik”, a od audytu 19.10.2026 także nazw
+  jednostek i firm („IT Ops”, „Nordea Bank”, „Tribe …”, „Squad …”,
+  „Departament …”). Przycisku nie ma też, gdy kontakt klienta może być tą
+  osobą wpisaną inaczej (`ContactIndex.name_known`: „Anna Nowak” ~ „Anna Maria
+  Nowak”, „Nowak-Kowalska” ~ „Nowak Kowalska”, imiennicy) — porównanie przy
+  zakładaniu jest dokładne i powstałby drugi kontakt. Dzwonek struktury
+  dostaje też DL przypisany tylko do scalonego duplikatu klienta.
 
 ### „Kto komu podlega”
 
