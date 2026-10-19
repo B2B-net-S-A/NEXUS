@@ -5,7 +5,8 @@ import { AbsenceBadge } from "@/components/hr/AbsenceBadge";
 import type { AbsentTodayRow, LeaveBalance, LeaveRequestRow, PendingLeaveRow } from "@/lib/api/hr-leave";
 
 import { AbsentTodayPanel } from "../AbsentTodayButton";
-import { absentRowText, balanceStats, canToggleForward, pendingDetails } from "../leave-format";
+import { inboxItems, substituteAbsent, workSummary } from "../approvals-inbox";
+import { absentRowText, balanceStats, canToggleForward } from "../leave-format";
 
 vi.mock("next/link", () => ({
   default: ({ href, children, ...rest }: { href: string; children: React.ReactNode }) => (
@@ -147,19 +148,23 @@ describe("kolejka akceptacji", () => {
     ...overrides,
   });
 
-  it("mówi o zastępcy, pracy w tym czasie i nieobecnych z działu", () => {
-    expect(pendingDetails(pending(), false)).toEqual([
-      "zastępca Jan Testowy",
-      "Rozmowa u klienta: 2",
-      "w tym czasie nieobecni też: Jan Testowy (04.11–06.11)",
-    ]);
+  it("skrzynka mówi o pracy w tym czasie i nieobecnych z działu (kolizja)", () => {
+    const { decide } = inboxItems([pending()], [], "2026-11-03");
+    expect(decide[0].chips).toContainEqual({ tone: "warning", text: "kolizja: Jan 4–6.11" });
+    expect(workSummary(pending())).toBe("Rozmowa u klienta: 2");
+    // Zastępca Jan Testowy (id 9) też jest wtedy nieobecny.
+    expect(substituteAbsent(pending({ substitute_user_id: 9 }))).toBe(true);
+    expect(substituteAbsent(pending({ substitute_user_id: null }))).toBe(false);
   });
 
-  it("Kadry widzą też przełożonego", () => {
-    expect(pendingDetails(pending({ substitute_name: null }), true)).toContain(
-      "przełożony: Ewa Przykładowa",
+  it("zgłoszenie bez zastępcy: „bez zastępcy” w wierszu, kolizja zgłoszona jako plakietka", () => {
+    const { info } = inboxItems(
+      [],
+      [pending({ substitute_name: null, department_absent: [], conflict: { at: null, by_name: null, note: "x" } })],
+      "2026-11-03",
     );
-    expect(pendingDetails(pending({ substitute_name: null }), true)[0]).toBe("bez zastępcy");
+    expect(info[0].line).toMatch(/bez zastępcy$/);
+    expect(info[0].chips).toEqual([{ tone: "danger", text: "kolizja zgłoszona" }]);
   });
 });
 

@@ -116,7 +116,9 @@ async def team_calendar(
                 else None,
             }
         )
-    presence = await _presence(db, list(managers), first, last) if with_presence else {}
+    presence = (
+        await presence_between(db, list(managers), first, last) if with_presence else {}
+    )
     return {
         "month": f"{year:04d}-{month:02d}",
         "presence_shown": with_presence,
@@ -147,10 +149,13 @@ async def team_calendar(
     }
 
 
-async def _presence(
+async def presence_between(
     db: AsyncSession, user_ids: list[int], first: date, last: date
 ) -> dict[int, list[dict[str, str]]]:
-    """Praca zdalna i delegacja z ``attendance_days`` w miesiącu (bez notatek)."""
+    """Praca zdalna i delegacja z ``attendance_days`` w okresie (bez notatek).
+
+    Czyta też kolumna „Dziś” katalogu ``GET /api/hr/people`` (jeden dzień).
+    """
 
     if not user_ids:
         return {}

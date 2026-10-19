@@ -1,7 +1,8 @@
 /**
- * `/preview/hr-calendar` (makieta 3 „Ludzi w NEXUSIE”): prawdziwy kalendarz
- * zespołu na danych fikcyjnych, ZERO prób żądania — także po kliknięciu
- * nieobecności i przełączeniu filtrów (każdy klucz jest zasiany).
+ * `/preview/hr-calendar` (makieta 3 „Ludzi w NEXUSIE”, układ z 19.10.2026):
+ * prawdziwy kalendarz zespołu na danych fikcyjnych, ZERO prób żądania — także
+ * po kliknięciu nieobecności, przełączeniu filtrów, szukaniu i widoku
+ * 2 tygodni (każdy klucz jest zasiany).
  */
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -43,14 +44,44 @@ describe("/preview/hr-calendar", () => {
     expect(await screen.findByRole("rowheader", { name: /Kamil Testowy/ })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Mój zespół" })).toBeNull();
     const bars = screen.getAllByRole("button", { name: /^Ewa Makietowa: Nieobecność/ });
+    // Ciągły pasek: jedna nieobecność = jeden przycisk, nie kafelek na dzień.
+    expect(bars).toHaveLength(1);
     await user.click(bars[0]);
     expect(
       screen.getByText(
         "Rodzaj nieobecności widzą tylko ta osoba, jej przełożony albo koordynator i Kadry.",
       ),
     ).toBeInTheDocument();
+    // Wiersz „Nieobecnych” i panel tygodnia.
+    expect(screen.getByRole("rowheader", { name: "Nieobecnych" })).toBeInTheDocument();
+    expect(screen.getByRole("complementary", { name: "Podsumowanie" })).toHaveTextContent(
+      /W (tym )?tygodniu nie ma/,
+    );
 
     await user.click(screen.getByRole("button", { name: "Następny miesiąc" }));
+    expect(await screen.findByRole("rowheader", { name: /Kamil Testowy/ })).toBeInTheDocument();
+    expect(attempted()).toEqual([]);
+  });
+
+  it("„Znajdź osobę” i widok 2 tygodni bez zapytań", async () => {
+    const user = userEvent.setup();
+    window.history.replaceState({}, "", "/preview/hr-calendar");
+    render(<HrCalendarPreviewPage />);
+
+    const table = await screen.findByRole("table", { name: "Nieobecności zespołu" });
+    await user.type(screen.getByRole("searchbox", { name: "Znajdź osobę w kalendarzu" }), "kamil");
+    const rows = within(table).getAllByRole("rowheader");
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toHaveAccessibleName(/Kamil Testowy/);
+    expect(rows[1]).toHaveAccessibleName("Nieobecnych");
+    await user.clear(screen.getByRole("searchbox", { name: "Znajdź osobę w kalendarzu" }));
+
+    await user.click(screen.getByRole("button", { name: "2 tygodnie" }));
+    expect(screen.getByRole("button", { name: "2 tygodnie" })).toHaveAttribute("aria-pressed", "true");
+    const twoWeeks = screen.getByRole("table", { name: "Nieobecności zespołu" });
+    // Kolumna „Osoba” + 14 dni.
+    expect(within(twoWeeks).getAllByRole("columnheader")).toHaveLength(15);
+    await user.click(screen.getByRole("button", { name: "Następne dwa tygodnie" }));
     expect(await screen.findByRole("rowheader", { name: /Kamil Testowy/ })).toBeInTheDocument();
     expect(attempted()).toEqual([]);
   });

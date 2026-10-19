@@ -26,7 +26,7 @@ from app.models.app_setting import AppSetting
 from app.models.hr_leave import LeaveRequest, LeaveRequestDay
 from app.models.hr_payroll import EmployeeRate, HrBonus
 from app.models.hr_profile import EmployeeProfile, LeaveEntitlement
-from app.models.hr_time import Timesheet
+from app.models.hr_time import AttendanceDay, Timesheet
 from app.models.section_permission import UserActionOverride
 from app.models.user import User, UserRole
 from app.services.hr.leave_policy import LEAVE_TYPE_LABELS
@@ -320,3 +320,93 @@ async def test_switched_off_modules(app_client, modules) -> None:
         # Wyłączony moduł to „nie dotyczy” (null), a nie zero.
         assert row["today"] is None and row["leave"] is None and row["bonuses"] is None
         assert row["to_decide"]["leave_requests"] == []
+
+
+@pytest.mark.asyncio
+async def test_week_shows_day_states_without_leave_type(app_client, modules) -> None:
+    """Mini-tydzień pn–pt (19.10.2026): stan dnia bez rodzaju nieobecności (D6).
+
+    Nieobecność, wniosek czeka (krąg D6 — przełożony), delegacja i praca
+    zdalna z „Mojego miesiąca”; przy zamkniętym module czasu bez delegacji
+    i pracy zdalnej, przy zamkniętych urlopach i czasie — ``null``.
+    """
+
+    world = await _world()
+    async with AsyncSessionLocal() as db:
+        tripper = await _user(db, manager_user_id=world["boss"].id)
+        await db.commit()
+    first = await app_client.get(BASE, headers=_headers(world["boss"]))
+    assert first.status_code == 200, first.text
+    days = first.json()["week"]["days"]
+    assert len(days) == 5
+    assert [date.fromisoformat(day["date"]).weekday() for day in days] == [
+        0,
+        1,
+        2,
+        3,
+        4,
+    ]
+    working = [date.fromisoformat(day["date"]) for day in days if day["kind"] == "work"]
+    if len(working) < 3:
+        pytest.skip(
+            "Tydzień z więcej niż dwoma dniami wolnymi — brak dni do sprawdzenia."
+        )
+    trip_day, remote_day, pending_day = working[0], working[1], working[2]
+    async with AsyncSessionLocal() as db:
+        db.add_all(
+            [
+                AttendanceDay(user_id=tripper.id, day=trip_day, status="business_trip"),
+                AttendanceDay(
+                    user_id=tripper.id,
+                    day=remote_day,
+                    status="active",
+                    location="remote",
+                    note="z domu, hydraulik",
+                ),
+            ]
+        )
+        await _leave(
+            db, tripper, pending_day, pending_day, status="pending", kind="sick_leave"
+        )
+        await db.commit()
+
+    response = await app_client.get(BASE, headers=_headers(world["boss"]))
+    assert response.status_code == 200, response.text
+    body = response.json()
+    rows = {row["user_id"]: row for row in body["people"]}
+    states = {item["date"]: item["state"] for item in rows[tripper.id]["week"]}
+    assert states[trip_day.isoformat()] == "business_trip"
+    assert states[remote_day.isoformat()] == "remote"
+    assert states[pending_day.isoformat()] == "pending"
+    for day in days:
+        if day["kind"] != "work":
+            assert states[day["date"]] == "off"
+    today = business_today().isoformat()
+    sick = {item["date"]: item["state"] for item in rows[world["sick"].id]["week"]}
+    if sick.get(today) not in (None, "off"):
+        assert sick[today] == "absent"
+    # D6: tydzień nie niesie rodzaju ani notatki dnia — także dla przełożonego.
+    text = json.dumps([row["week"] for row in body["people"]], ensure_ascii=False)
+    for forbidden in (
+        "leave_type",
+        "sick_leave",
+        LEAVE_TYPE_LABELS["sick_leave"],
+        "hydraulik",
+    ):
+        assert forbidden not in text, forbidden
+    contractor = rows[world["contractor"].id]["to_decide"]
+    assert contractor["leave_requests"][0]["created_at"]
+    assert contractor["timesheets"][0]["submitted_at"]
+
+    await modules(time=False)
+    no_time = (await app_client.get(BASE, headers=_headers(world["boss"]))).json()
+    row = next(item for item in no_time["people"] if item["user_id"] == tripper.id)
+    no_time_states = {item["date"]: item["state"] for item in row["week"]}
+    assert no_time_states[trip_day.isoformat()] == "work"
+    assert no_time_states[remote_day.isoformat()] == "work"
+    assert no_time_states[pending_day.isoformat()] == "pending"
+
+    await modules(time=False, leave=False)
+    closed = (await app_client.get(BASE, headers=_headers(world["boss"]))).json()
+    assert closed["week"] is None
+    assert all(item["week"] is None for item in closed["people"])

@@ -760,26 +760,26 @@
     "title": "Akceptacje",
     "section": null,
     "roles": [],
-    "what": "Kolejka przełożonego i Kadr: wnioski z umowy o pracę do decyzji, zgłoszenia z B2B i zlecenia do wiadomości, timesheety zespołu i historia wszystkich wniosków.",
+    "what": "Skrzynka przełożonego i Kadr: po lewej wnioski z umowy o pracę do decyzji i zgłoszenia z B2B i zlecenia do wiadomości, po prawej szczegół sprawy; niżej timesheety zespołu i zwinięta historia wniosków.",
     "tasks": [
       {
         "q": "Jak zaakceptować albo odrzucić wniosek?",
-        "a": "W sekcji „Wnioski do decyzji (umowa o pracę)” kliknij „Akceptuj” albo „Odrzuć” — odrzucenie wymaga powodu, który osoba zobaczy. W „Szczegółach” widać zastępcę, pracę, która wypada w tym czasie, i kto z działu też jest wtedy nieobecny. O własnym wniosku nie decydujesz.",
+        "a": "Wybierz wniosek na liście „Do decyzji”. Po prawej widać zastępcę, pracę, która wypada w tym czasie, kto z działu też jest nieobecny i mini-kalendarz zespołu na ten termin. „Akceptuj” albo „Odrzuć” — odrzucenie wymaga powodu, który osoba zobaczy. O własnym wniosku nie decydujesz. Ten sam wniosek przyjmiesz też z „Mojego zespołu”.",
         "anchor": "hr.approvals.pending"
       },
       {
         "q": "Co robię ze zgłoszeniem z B2B albo zlecenia?",
-        "a": "Nic nie akceptujesz — termin jest już w kalendarzu. Gdy koliduje z pracą, kliknij „Zgłoś kolizję” i opisz problem: osoba dostanie powiadomienie, a termin zostaje. Zgłoszenie zmieniają tylko Kadry.",
+        "a": "Nic nie akceptujesz — termin jest już w kalendarzu. Wybierz zgłoszenie w „Do wiadomości · B2B i zlecenie”; gdy koliduje z pracą, kliknij „Zgłoś kolizję” i opisz problem: osoba dostanie powiadomienie, a termin zostaje. Zgłoszenie zmieniają tylko Kadry.",
         "anchor": "hr.approvals.reported"
       },
       {
         "q": "Jak poprawić złożony wniosek?",
-        "a": "„Edytuj” przy wniosku zmienia rodzaj, daty, pół dnia i zastępcę; dni i pula liczą się od nowa. Przy zatwierdzonym NEXUS przesuwa autoodpowiedź i wydarzenie w Outlooku. Inny zastępca zdejmuje zgodę na przekierowanie poczty — osoba może ją włączyć sama.",
+        "a": "„Edytuj” w szczególe sprawy albo w rozwiniętej „Historii wniosków” zmienia rodzaj, daty, pół dnia i zastępcę; dni i pula liczą się od nowa. Przy zatwierdzonym NEXUS przesuwa autoodpowiedź i wydarzenie w Outlooku. Inny zastępca zdejmuje zgodę na przekierowanie poczty — osoba może ją włączyć sama.",
         "anchor": "hr.approvals.history"
       },
       {
         "q": "Jak przyjąć timesheet?",
-        "a": "W sekcji „Timesheety” wybierz miesiąc strzałkami, otwórz „Podgląd” i kliknij „Akceptuj” albo „Zwróć” z notatką, co poprawić. Przyjęty cofniesz „Cofnij akceptację”. „Eksport CSV” daje godziny do Excela; Kadry i Płace pobiorą też cały zespół za miesiąc i „Pobierz ZIP” z PDF-ami.",
+        "a": "W sekcji „Timesheety” wybierz miesiąc strzałkami, otwórz „Podgląd” i kliknij „Akceptuj” albo „Zwróć” z notatką. Przyjęty cofniesz „Cofnij akceptację”. Pasek nad tabelą liczy szkice, nie założone, do akceptacji i przyjęte. „Eksport CSV” daje godziny do Excela; Kadry i Płace pobiorą też „Pobierz ZIP”.",
         "anchor": "hr.approvals.timesheets"
       },
       {
@@ -797,13 +797,13 @@
     "anchors": [
       {
         "id": "hr.approvals.pending",
-        "label": "Wnioski do decyzji",
-        "describe": "Wnioski z umowy o pracę czekające na akceptację."
+        "label": "Do decyzji",
+        "describe": "Lista wniosków z umowy o pracę czekających na akceptację; wybrany wniosek otwiera się po prawej."
       },
       {
         "id": "hr.approvals.reported",
-        "label": "Zgłoszenia do wiadomości",
-        "describe": "Przerwy i nieobecności z B2B i zlecenia, z „Zgłoś kolizję”."
+        "label": "Do wiadomości · B2B i zlecenie",
+        "describe": "Przerwy i nieobecności z B2B i zlecenia; w szczególe „Zgłoś kolizję”."
       },
       {
         "id": "hr.approvals.timesheets",
@@ -812,8 +812,8 @@
       },
       {
         "id": "hr.approvals.history",
-        "label": "Wszystkie wnioski",
-        "describe": "Historia z filtrem statusu i osoby (200 najnowszych), edycja i anulowanie."
+        "label": "Historia wniosków",
+        "describe": "Zwinięta do linku: po rozwinięciu filtr statusu i osoby (200 najnowszych), edycja i anulowanie."
       },
       {
         "id": "hr.approvals.on_behalf",
@@ -833,7 +833,7 @@
     "title": "Kalendarz zespołu",
     "section": null,
     "roles": [],
-    "what": "Kto i kiedy jest nieobecny w miesiącu, a przy włączonym czasie pracy także kto pracuje zdalnie albo jest w delegacji. Rodzaj nieobecności widzą tylko osoba, jej przełożony i Kadry.",
+    "what": "Kto i kiedy jest nieobecny — ciągłe paski w miesiącu albo w dwóch tygodniach, wiersz „Nieobecnych” z liczbą osób na dzień i panel „W tym tygodniu nie ma”; przy czasie pracy także praca zdalna i delegacja.",
     "tasks": [
       {
         "q": "Kto jest dziś nieobecny?",
@@ -847,12 +847,12 @@
       },
       {
         "q": "Jak zawęzić kalendarz do zespołu albo działu?",
-        "a": "Nad siatką są przyciski „Wszyscy”, „Mój zespół” (dla przełożonych) i nazwy działów. Strzałkami zmienisz miesiąc, a „Ten miesiąc” wraca do bieżącego.",
+        "a": "Nad siatką są przyciski „Wszyscy”, „Mój zespół” (dla przełożonych) i nazwy działów, a pole „Znajdź osobę” zawęża listę po imieniu. Przełącznik „2 tygodnie / Miesiąc” zmienia zakres, strzałki go przesuwają, a „Dziś” wraca do bieżącego.",
         "anchor": "hr.team_calendar.filters"
       },
       {
         "q": "Co znaczą pola w siatce?",
-        "a": "Pełne pole to zatwierdzony urlop albo zgłoszona przerwa z B2B lub zlecenia, przerywana ramka — wniosek czekający na akceptację, szare — dzień wolny. Kliknij nieobecność, żeby zobaczyć termin i zastępcę.",
+        "a": "Pełny pasek to zatwierdzony urlop albo zgłoszona przerwa z B2B lub zlecenia, przerywana ramka — wniosek czekający na akceptację, szare kolumny — dni wolne, obwiedziona — dziś. W wierszu „Nieobecnych” ½ to pół dnia, a „?” — wliczony wniosek, który czeka. Kliknij pasek, żeby zobaczyć termin i zastępcę.",
         "anchor": "hr.team_calendar.legend"
       }
     ],
@@ -863,8 +863,8 @@
     "anchors": [
       {
         "id": "hr.team_calendar.filters",
-        "label": "Miesiąc i filtry",
-        "describe": "Zmiana miesiąca, zespół albo dział i lista „Kto”: wszyscy, nieobecni, zdalnie."
+        "label": "Zakres, filtry i szukanie",
+        "describe": "Strzałki, „Dziś”, „2 tygodnie / Miesiąc”, zespół albo dział, lista „Kto” i pole „Znajdź osobę”."
       },
       {
         "id": "hr.team_calendar.legend",
@@ -873,8 +873,8 @@
       },
       {
         "id": "hr.team_calendar.grid",
-        "label": "Siatka miesiąca",
-        "describe": "Osoby w wierszach, dni w kolumnach; kliknięcie nieobecności pokazuje szczegóły."
+        "label": "Siatka z paskami",
+        "describe": "Osoby w wierszach, dni w kolumnach, nieobecność jako ciągły pasek; na dole wiersz „Nieobecnych”."
       }
     ],
     "help_slug": null,

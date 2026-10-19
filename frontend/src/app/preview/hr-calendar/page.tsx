@@ -12,8 +12,10 @@
  *   rodzaju (D6), bez filtra „Mój zespół”;
  * - `manager` — przełożona: filtr „Mój zespół” i rodzaj nieobecności swoich
  *   ludzi (osoba, przełożony i Kadry).
- * Filtry działów, „Mój zespół” i sąsiednie miesiące są zasiane — klik nie
- * wysyła zapytania.
+ * Filtry działów, „Mój zespół” i sąsiednie miesiące (±2, także widok
+ * „2 tygodnie” na przełomie miesięcy) są zasiane — klik nie wysyła zapytania.
+ * Układ z makiety 19.10.2026: ciągłe paski, wiersz „Nieobecnych”, panel
+ * „W tym tygodniu nie ma”, „Znajdź osobę”.
  */
 
 import { PageHeader } from "@/components/ds/PageHeader";
@@ -131,7 +133,8 @@ function prepare(params: URLSearchParams) {
   client.setQueryData(hrKeys.counts, { approvals: as === "manager" ? 4 : null, cases: null });
   const current = warsawToday().slice(0, 7);
   const departments = [...new Set(PLANS.map((plan) => plan.person.department))];
-  for (const month of [shiftMonth(current, -1), current, shiftMonth(current, 1)]) {
+  // Widok 2 tygodni na przełomie miesięcy czyta dwa miesiące — zasiane ±2.
+  for (const month of [-2, -1, 0, 1, 2].map((delta) => shiftMonth(current, delta))) {
     client.setQueryData(leaveKeys.calendar(month, null, false), calendar(month, viewer, as, () => true));
     client.setQueryData(
       leaveKeys.calendar(month, null, true),
