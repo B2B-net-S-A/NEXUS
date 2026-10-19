@@ -46,7 +46,9 @@ exit 0
 """
 
 
-def _run_set_env(key: str, value: str) -> subprocess.CompletedProcess:
+def _run_set_env(
+    key: str, value: str, *, secret_name: str = "", secret_value: str = ""
+) -> subprocess.CompletedProcess:
     step = _step(_load("coolify-set-env.yml")["jobs"]["set-env"], _SET_ENV_STEP)
     with tempfile.TemporaryDirectory() as tmp:
         curl = Path(tmp) / "curl"
@@ -61,8 +63,8 @@ def _run_set_env(key: str, value: str) -> subprocess.CompletedProcess:
             "COOLIFY_TOKEN": "t",
             "COOLIFY_APP_UUID": "app",
             "KEY": key,
-            "VALUE_FROM_SECRET": "",
-            "VALUE_SECRET": "",
+            "VALUE_FROM_SECRET": secret_name,
+            "VALUE_SECRET": secret_value,
             "IS_BUILDTIME": "false",
         }
         for name, raw in (step.get("env") or {}).items():
@@ -81,14 +83,42 @@ def _run_set_env(key: str, value: str) -> subprocess.CompletedProcess:
 def test_set_env_masks_the_plain_value_before_printing_anything():
     value = "wartosc-jawna-123\ndruga-linia"
     result = _run_set_env("SOME_FLAG", value)
-    assert result.returncode == 0, result.stderr
     lines = result.stdout.splitlines()
     assert lines[:2] == [
         "::add-mask::wartosc-jawna-123",
         "::add-mask::druga-linia",
     ], lines[:3]
     visible = [line for line in lines if not line.startswith("::add-mask::")]
+    visible += result.stderr.splitlines()
     assert not any("wartosc-jawna" in line or "druga-linia" in line for line in visible)
+
+
+@pytest.mark.skipif(shutil.which("jq") is None, reason="brak jq")
+def test_set_env_refuses_a_multiline_value():
+    """19.10.2026: wklejony mail z tokenem JJIT (kilka wierszy) trafił do
+    Coolify, a Coolify przy zapisie `.env` padał na drugim wierszu
+    („unexpected character , in variable name”) — każdy deploy był czerwony,
+    dopóki ktoś nie wyczyścił zmiennej."""
+    refused_plain = _run_set_env("SOME_FLAG", "pierwsza\ndruga, z przecinkiem")
+    assert refused_plain.returncode == 1
+    assert "wiele wierszy" in refused_plain.stderr
+    refused_secret = _run_set_env(
+        "JJIT_STATIC_ACCESS_TOKEN",
+        "",
+        secret_name="JJIT_STATIC_ACCESS_TOKEN",
+        secret_value="token-abc\r\nLink jest jednorazowy, ważny 14 dni",
+    )
+    assert refused_secret.returncode == 1
+    assert "wiele wierszy" in refused_secret.stderr
+    # Końcowy znak nowej linii (np. `gh secret set < plik`) to nie drugi wiersz.
+    trailing = _run_set_env(
+        "JJIT_STATIC_ACCESS_TOKEN",
+        "",
+        secret_name="JJIT_STATIC_ACCESS_TOKEN",
+        secret_value="token-abc\n",
+    )
+    assert trailing.returncode == 0, trailing.stderr
+    assert "długość wartości: 9 zn." in trailing.stdout
 
 
 @pytest.mark.skipif(shutil.which("jq") is None, reason="brak jq")
