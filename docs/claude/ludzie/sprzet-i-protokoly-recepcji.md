@@ -175,7 +175,7 @@ logika modułu bez zmian).
   zaległe liczone do dziś; w weekend nadchodzący tydzień.
 - **„Przypomnij” o zwrocie** (`POST /tasks/{id}/remind`, uprawnienie „Sprzęt”):
   tylko otwarte zadanie `zwrot` (inne = 409). Konto NEXUSA dostaje dzwonek
-  i mail „Czas i ludzie” `equipment_return_reminder` (0478) z prośbą i terminem
+  i mail „Czas i ludzie” `equipment_return_reminder` (0479) z prośbą i terminem
   — bez listy sprzętu i kwot, link do „Mój czas → Kartoteka”. Konsultant, osoba
   spoza NEXUSA i uczestnik Akademii nie mają konta: trasa oddaje adres, recepcja
   wysyła wiadomość ze swojej poczty (jak link do podpisu); brak adresu = 409.

@@ -1,7 +1,7 @@
 """Sprzęt — „Przypomnij” o zwrocie: typ powiadomienia ``equipment_return_reminder``.
 
-Revision ID: 0478_equipment_return_reminder
-Revises: 0477_candidate_consents_two_kinds
+Revision ID: 0479_equipment_return_reminder
+Revises: 0478_career_page_theme
 
 Recepcja przypomina posiadaczowi z kontem NEXUSA o zwrocie sprzętu (dzwonek
 i mail „Czas i ludzie”). Wartość ma jedno źródło
@@ -10,8 +10,8 @@ i mail „Czas i ludzie”). Wartość ma jedno źródło
 
 from alembic import op
 
-revision = "0478_equipment_return_reminder"
-down_revision = "0477_candidate_consents_two_kinds"
+revision = "0479_equipment_return_reminder"
+down_revision = "0478_career_page_theme"
 branch_labels = None
 depends_on = None
 
@@ -24,7 +24,7 @@ BEGIN
     IF EXISTS (
         SELECT 1 FROM notifications WHERE notification_type::text = '{VALUE}'
     ) THEN
-        RAISE EXCEPTION 'Downgrade 0478 odmawia: notifications ma przypomnienia o zwrocie sprzętu, których kod sprzed tej rewizji nie odczyta.';
+        RAISE EXCEPTION 'Downgrade 0479 odmawia: notifications ma przypomnienia o zwrocie sprzętu, których kod sprzed tej rewizji nie odczyta.';
     END IF;
 END $$"""
 
