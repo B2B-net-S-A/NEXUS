@@ -37,7 +37,7 @@ import { BonusTable } from "./BonusTable";
 import { PayrollPeopleTable } from "./PayrollPeopleTable";
 import { SymfoniaExportButton } from "./payments/SymfoniaExportButton";
 import { ReopenMonthDialog } from "./ReopenMonthDialog";
-import { monthStats, splitBonuses, ymSegment } from "./payroll-format";
+import { bonusDecision, monthStats, splitBonuses, ymSegment } from "./payroll-format";
 import { MONTH_VIEW, PAYROLL_MONTH_TABS, payrollMonthTabs } from "./payroll-month-tabs";
 
 /**
@@ -139,7 +139,9 @@ export function PayrollMonthScreen({
       title: proposal ? "Odrzucić propozycję premii?" : "Anulować premię?",
       description: `${row.recipient_name ?? "Osoba"} · ${formatMoney(row.amount, row.currency)}. ${
         proposal
-          ? "Automat nie zaproponuje jej ponownie."
+          ? row.source === "manual"
+            ? "Propozycja zniknie z decyzji Płac."
+            : "Automat nie zaproponuje jej ponownie."
           : "Osoba dostanie powiadomienie o anulowaniu (bez kwoty)."
       }`,
       confirmLabel: proposal ? "Odrzuć" : "Anuluj premię",
@@ -305,23 +307,27 @@ export function PayrollMonthScreen({
               </h2>
               <BonusTable
                 rows={decidable}
-                renderActions={(row) =>
-                  open && !mine(row) ? (
+                renderActions={(row) => {
+                  if (!open || mine(row)) return null;
+                  const decision = bonusDecision(row, me?.id);
+                  return (
                     <div className="flex justify-end gap-1">
-                      <Button size="sm" onClick={() => approveRow(row)} disabled={approve.isPending}>
-                        Zatwierdź
-                      </Button>
+                      {decision.approve ? (
+                        <Button size="sm" onClick={() => approveRow(row)} disabled={approve.isPending}>
+                          Zatwierdź
+                        </Button>
+                      ) : null}
                       {payroll ? (
                         <Button size="sm" variant="ghost" onClick={() => setEditing(row)}>
                           Zmień
                         </Button>
                       ) : null}
                       <Button size="sm" variant="quiet" onClick={() => cancelRow(row)}>
-                        Odrzuć
+                        {decision.rejectLabel}
                       </Button>
                     </div>
-                  ) : null
-                }
+                  );
+                }}
               />
             </section>
           ) : null}

@@ -268,9 +268,13 @@ async def _bonus_list(
 ) -> list[dict[str, Any]]:
     names = await payroll_bonuses.names_for(db, bonuses)
     return [
-        payroll_bonuses.bonus_payload(
-            bonus, names, with_snapshot=viewer.payroll, today=today
-        )
+        {
+            **payroll_bonuses.bonus_payload(
+                bonus, names, with_snapshot=viewer.payroll, today=today
+            ),
+            # Propozycję ręczną przełożonego zatwierdzają tylko Płace (19.10.2026).
+            "can_approve": payroll_bonuses.can_approve(viewer, bonus),
+        }
         for bonus in bonuses
     ]
 
@@ -685,10 +689,8 @@ async def list_bonuses(
 async def _bonus_response(
     db: AsyncSession, bonus: HrBonus, viewer: PayrollViewer
 ) -> dict[str, Any]:
-    names = await payroll_bonuses.names_for(db, [bonus])
-    return payroll_bonuses.bonus_payload(
-        bonus, names, with_snapshot=viewer.payroll, today=business_today()
-    )
+    (payload,) = await _bonus_list(db, [bonus], viewer, today=business_today())
+    return payload
 
 
 @router.post("/bonuses", status_code=status.HTTP_201_CREATED)

@@ -72,6 +72,8 @@ export interface BonusRow {
   edited: boolean;
   /** Tylko dla Płac: reguły i liczby, z których wyszła kwota. */
   rule_snapshot?: Record<string, unknown>;
+  /** Listy Płac: czy widz może zatwierdzić propozycję (ręczną przełożonego — tylko Płace). */
+  can_approve?: boolean;
   /** Propozycje „liczy się”: postęp do terminu. */
   business_days_elapsed?: number | null;
   business_days_required?: number;
