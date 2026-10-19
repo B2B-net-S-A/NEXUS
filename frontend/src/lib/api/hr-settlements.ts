@@ -10,6 +10,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { api } from "@/lib/api";
 import type { EmploymentType } from "@/lib/api/hr";
+import { paymentKeys } from "@/lib/api/hr-payments";
 import type { Currency } from "@/lib/api/hr-payroll";
 
 export type SettlementStatus =
@@ -282,13 +283,17 @@ export function useBillingDetails(userId: number, enabled = true) {
   });
 }
 
-/** Rozliczenia i płace (premia „wypłacona” zależy od zapłaty, R11). */
+/**
+ * Rozliczenia, płace (premia „wypłacona” zależy od zapłaty, R11) i przelewy —
+ * zatwierdzenie, uznanie i ręczne „opłacono” zmieniają listę „Dla Finansów”.
+ */
 function useInvalidateSettlements() {
   const queryClient = useQueryClient();
   return () =>
     Promise.all([
       queryClient.invalidateQueries({ queryKey: settlementKeys.all }),
       queryClient.invalidateQueries({ queryKey: ["hr", "payroll"] }),
+      queryClient.invalidateQueries({ queryKey: paymentKeys.all }),
     ]);
 }
 
