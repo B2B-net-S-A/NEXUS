@@ -1326,6 +1326,44 @@ async def _resolve_stage_filter(
     )
 
 
+def _stage_matches_statement(stage_filter: _StageFilter, candidate_ids: list[int]):
+    """Zapytanie podpisu przejścia dla osób ze strony wyniku.
+
+    `jobs` dołączamy pod aliasem: warunek „klient etapu” z `row_conditions`
+    to `EXISTS (SELECT 1 FROM jobs …)`, który przy złączeniu z samą tabelą
+    `jobs` korelował się z nim i zostawał bez FROM (500 w CI, 19.10.2026).
+    """
+
+    source = stage_filter.rows()
+    row = CandidateStage if source is CandidateStage else source.c
+    mover = aliased(User)
+    job = aliased(Job)
+    return (
+        select(
+            row.candidate_id,
+            row.job_id,
+            row.stage,
+            row.moved_at,
+            mover.name.label("moved_by_name"),
+            job.title,
+            job.working_title,
+            job.client_reference,
+            client_display_name_expression().label("client_name"),
+            PipelineStageDef.name.label("def_name"),
+            PipelineStageDef.category.label("def_category"),
+            PipelineStageDef.terminal_type.label("def_terminal_type"),
+        )
+        .select_from(source)
+        .join(job, job.id == row.job_id)
+        .outerjoin(Client, Client.id == job.client_id)
+        .outerjoin(mover, mover.id == row.moved_by)
+        .outerjoin(PipelineStageDef, PipelineStageDef.id == row.stage_def_id)
+        .where(row.candidate_id.in_(candidate_ids), *stage_filter.row_conditions(row))
+        .distinct(row.candidate_id)
+        .order_by(row.candidate_id, row.moved_at.desc(), row.id.desc())
+    )
+
+
 async def _stage_matches(
     db: AsyncSession, stage_filter: _StageFilter, candidate_ids: list[int]
 ) -> dict[int, StageMatchBrief]:
@@ -1333,33 +1371,7 @@ async def _stage_matches(
 
     if not candidate_ids or not stage_filter.active:
         return {}
-    source = stage_filter.rows()
-    row = CandidateStage if source is CandidateStage else source.c
-    mover = aliased(User)
-    stmt = (
-        select(
-            row.candidate_id,
-            row.job_id,
-            row.stage,
-            row.moved_at,
-            mover.name.label("moved_by_name"),
-            Job.title,
-            Job.working_title,
-            Job.client_reference,
-            client_display_name_expression().label("client_name"),
-            PipelineStageDef.name.label("def_name"),
-            PipelineStageDef.category.label("def_category"),
-            PipelineStageDef.terminal_type.label("def_terminal_type"),
-        )
-        .select_from(source)
-        .join(Job, Job.id == row.job_id)
-        .outerjoin(Client, Client.id == Job.client_id)
-        .outerjoin(mover, mover.id == row.moved_by)
-        .outerjoin(PipelineStageDef, PipelineStageDef.id == row.stage_def_id)
-        .where(row.candidate_id.in_(candidate_ids), *stage_filter.row_conditions(row))
-        .distinct(row.candidate_id)
-        .order_by(row.candidate_id, row.moved_at.desc(), row.id.desc())
-    )
+    stmt = _stage_matches_statement(stage_filter, candidate_ids)
     out: dict[int, StageMatchBrief] = {}
     for r in (await db.execute(stmt)).all():
         out[r.candidate_id] = StageMatchBrief(
