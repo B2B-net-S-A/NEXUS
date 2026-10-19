@@ -271,6 +271,50 @@ async def test_edit_after_parallel_cancel_is_a_conflict(app_client, modules_on) 
         assert not any(active.all())
 
 
+async def test_parallel_edits_keep_both_changes(app_client, modules_on) -> None:
+    """Audyt 19.10.2026: druga edycja liczyła wartości przed blokadą i
+    zapisywała stare daty — zmiana pierwszej edycji znikała bez śladu."""
+
+    from app.services.hr import leave_edit
+
+    boss, worker, old_sub, _ = await _team()
+    request_id = await _approved(app_client, boss, worker)
+    thursday = date(2092, 10, 16)
+    async with AsyncSessionLocal() as db:
+        actor = await db.get(User, boss.id)
+        seen = await db.get(LeaveRequest, uuid.UUID(request_id))
+        assert seen.end_date == FRI
+        async with AsyncSessionLocal() as other:
+            other_actor = await other.get(User, boss.id)
+            await leave_edit.edit_request(
+                other,
+                actor=other_actor,
+                request_id=uuid.UUID(request_id),
+                changes=leave_edit.LeaveChanges(end_date=thursday),
+                today=MON,
+            )
+            await other.commit()
+        await leave_edit.edit_request(
+            db,
+            actor=actor,
+            request_id=uuid.UUID(request_id),
+            changes=leave_edit.LeaveChanges(substitute_user_id=old_sub.id),
+            today=MON,
+        )
+        await db.commit()
+    async with AsyncSessionLocal() as check:
+        row = await check.get(LeaveRequest, uuid.UUID(request_id))
+        days = await check.scalars(
+            select(LeaveRequestDay.day).where(
+                LeaveRequestDay.leave_request_id == row.id,
+                LeaveRequestDay.active.is_(True),
+            )
+        )
+        active_days = sorted(days.all())
+    assert (row.end_date, row.substitute_user_id) == (thursday, old_sub.id)
+    assert active_days[-1] == thursday
+
+
 async def test_edit_recounts_pool_and_refuses_overlap_and_over_limit(
     app_client, modules_on
 ) -> None:
