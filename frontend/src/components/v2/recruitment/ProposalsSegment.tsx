@@ -291,16 +291,33 @@ export function ProposalsSegmentView({
 
   const footer = (
     <div className="flex flex-wrap items-center gap-2">
+      <span className="text-xs opacity-80">
+        {rows.length} {filtersActive ? `z ${proposals.totalBeforeFilters} ` : ""}propozycji
+        {status.inbox.hidden > 0 ? ` · ukryto ${status.inbox.hidden} (globalna czarna lista)` : ""}
+      </span>
+    </div>
+  );
+
+  // Akcje zbiorcze pływają przy dolnej krawędzi ekranu od pierwszego
+  // zaznaczenia. W stopce tabeli lądowały pod ostatnim z 200+ wierszy i nikt
+  // ich nie widział (zgłoszenie 19.10.2026).
+  const bulkBar = selectedIds.length > 0 && (
+    <div
+      role="toolbar"
+      aria-label="Akcje dla zaznaczonych"
+      data-testid="proposals-bulk-bar"
+      className="sticky bottom-3 z-20 mx-auto flex w-fit max-w-full flex-wrap items-center gap-2 rounded-xl border border-border bg-card px-3 py-2 text-sm shadow-lg"
+    >
       <span className="font-semibold">Zaznaczono {selectedIds.length}</span>
       {canAdd && (
         <>
-          <Button size="sm" variant="outline" disabled={busy || selectedIds.length === 0} onClick={() => { proposals.addToJob(selectedIds); clearSelection(); }}>
+          <Button size="sm" disabled={busy} onClick={() => { proposals.addToJob(selectedIds); clearSelection(); }}>
             Dodaj do rekrutacji
           </Button>
-          <Button size="sm" variant="outline" disabled={busy || selectedIds.length === 0} onClick={() => dismissPrompt.ask(selectedIds)}>
+          <Button size="sm" variant="outline" disabled={busy} onClick={() => dismissPrompt.ask(selectedIds)}>
             Pomiń
           </Button>
-          <Button size="sm" variant="outline" disabled={busy || selectedIds.length === 0} onClick={() => { proposals.addToShortlist(selectedIds); clearSelection(); }}>
+          <Button size="sm" variant="outline" disabled={busy} onClick={() => { proposals.addToShortlist(selectedIds); clearSelection(); }}>
             Do shortlisty
           </Button>
         </>
@@ -313,10 +330,7 @@ export function ProposalsSegmentView({
       >
         Porównaj
       </Button>
-      <span className="ml-auto text-xs opacity-80">
-        {rows.length} {filtersActive ? `z ${proposals.totalBeforeFilters} ` : ""}propozycji
-        {status.inbox.hidden > 0 ? ` · ukryto ${status.inbox.hidden} (globalna czarna lista)` : ""}
-      </span>
+      <Button size="sm" variant="ghost" onClick={clearSelection}>Odznacz</Button>
     </div>
   );
 
@@ -482,6 +496,7 @@ export function ProposalsSegmentView({
               Pokaż więcej propozycji
             </Button>
           )}
+          {bulkBar}
         </div>
         {showPanel && (
           <div ref={panelRef} className="min-w-0 scroll-mt-4 lg:shrink-0">

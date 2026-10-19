@@ -112,7 +112,7 @@
     "tasks": [
       {
         "q": "Jak dodać zaproponowaną osobę do rekrutacji?",
-        "a": "Kliknij osobę na liście, sprawdź dopasowanie w panelu obok listy (na węższym ekranie — pod nią) i użyj „Dodaj do rekrutacji”. Skróty: D — dodaj, P — pomiń, strzałki — następna osoba.",
+        "a": "Kliknij osobę na liście, sprawdź dopasowanie w panelu obok listy (na węższym ekranie — pod nią) i użyj „Dodaj do rekrutacji”. Kilka osób naraz: zaznacz je na liście — na dole ekranu pojawi się pasek „Zaznaczono N” z „Dodaj do rekrutacji”, „Pomiń”, „Do shortlisty” i „Porównaj”. Skróty: D — dodaj, P — pomiń, strzałki — następna osoba.",
         "anchor": "jobs.proposals.add"
       },
       {
