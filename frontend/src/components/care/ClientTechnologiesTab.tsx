@@ -34,6 +34,8 @@ import { CALM_AMOUNT, CALM_EMPTY, CALM_HEAD, CALM_ROW, CALM_SUBLINE } from "@/li
 import { cn } from "@/lib/utils";
 import { resolveViewState } from "@/lib/view-state";
 import { formatIsoDatePl } from "@/lib/date-pl";
+import { hasCapability } from "@/lib/capabilities";
+import { useAuthStore } from "@/store/auth";
 
 import { sourceSummary, technologiesInArea } from "./care-format";
 import { candidatesHref, gapQuestion } from "./tech-gaps";
@@ -275,6 +277,13 @@ function DefaultOwner({ map, clientId }: { map: ClientTechMap; clientId: number 
       </SelectTrigger>
       <SelectContent>
         <SelectItem value={DEFAULT_OWNER}>Delivery Lead kontraktu</SelectItem>
+        {/* Opiekun spoza listy (wykluczony z puli, nieaktywne konto) — inaczej
+            pole byłoby puste, jak gdyby opiekuna nie było. */}
+        {map.default_owner && owners.isSuccess && !owners.data.some((o) => o.id === map.default_owner?.id) ? (
+          <SelectItem value={String(map.default_owner.id)}>
+            {map.default_owner.name} (spoza listy opiekunów)
+          </SelectItem>
+        ) : null}
         {(owners.data ?? []).map((owner) => (
           <SelectItem key={owner.id} value={String(owner.id)}>
             {owner.name}
@@ -290,6 +299,9 @@ export function ClientTechnologiesTab({ clientId }: { clientId: number }) {
   const query = useClientTechMap(clientId);
   const [area, setArea] = useState<string | null>(null);
   const [noteOpen, setNoteOpen] = useState(false);
+  // `/jobs/new` odsyła na listę każdego bez `job.create` (np. TCM) — bez
+  // takiego uprawnienia przycisku nie ma.
+  const canCreateJob = useAuthStore((s) => !!s.user && hasCapability(s.user, "job.create"));
   const state = resolveViewState({
     isLoading: query.isLoading,
     isError: query.isError,
@@ -334,9 +346,11 @@ export function ClientTechnologiesTab({ clientId }: { clientId: number }) {
               Dodaj notatkę o stacku
             </Button>
           ) : null}
-          <Button size="sm" asChild>
-            <Link href={`/jobs/new?client=${clientId}`}>Nowa rekrutacja z tej mapy</Link>
-          </Button>
+          {canCreateJob ? (
+            <Button size="sm" asChild>
+              <Link href={`/jobs/new?client=${clientId}`}>Nowa rekrutacja z tej mapy</Link>
+            </Button>
+          ) : null}
         </div>
       </div>
 

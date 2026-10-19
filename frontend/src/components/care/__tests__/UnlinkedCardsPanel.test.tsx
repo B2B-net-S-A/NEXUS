@@ -34,7 +34,7 @@ if (!Element.prototype.hasPointerCapture) {
 }
 
 import { UnlinkedCardsPanel, contractLabel } from "@/components/care/UnlinkedCardsPanel";
-import type { UnlinkedTechCards } from "@/lib/api/care";
+import { careKeys, type UnlinkedTechCards } from "@/lib/api/care";
 
 const suggestion = {
   id: 41,
@@ -85,11 +85,14 @@ function payload(overrides: Partial<UnlinkedTechCards> = {}): UnlinkedTechCards 
 
 function renderPanel() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return render(
-    <QueryClientProvider client={client}>
-      <UnlinkedCardsPanel clientId={3} />
-    </QueryClientProvider>,
-  );
+  return {
+    client,
+    ...render(
+      <QueryClientProvider client={client}>
+        <UnlinkedCardsPanel clientId={3} />
+      </QueryClientProvider>,
+    ),
+  };
 }
 
 describe("UnlinkedCardsPanel", () => {
@@ -101,8 +104,12 @@ describe("UnlinkedCardsPanel", () => {
 
   it("nie pokazuje niczego, gdy wszystkie karty są połączone", async () => {
     mocks.get.mockResolvedValue({ data: payload({ items: [] }) });
-    const { container } = renderPanel();
-    await waitFor(() => expect(mocks.get).toHaveBeenCalled());
+    const { container, client } = renderPanel();
+    // Panel jest pusty także w trakcie ładowania — czekamy na odpowiedź,
+    // inaczej test przechodziłby bez względu na to, co pokazuje pusty sukces.
+    await waitFor(() =>
+      expect(client.getQueryState(careKeys.clientUnlinkedCards(3))?.status).toBe("success"),
+    );
     expect(container).toBeEmptyDOMElement();
   });
 

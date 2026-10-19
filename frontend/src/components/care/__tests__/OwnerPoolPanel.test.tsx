@@ -35,7 +35,7 @@ if (!Element.prototype.hasPointerCapture) {
 }
 
 import { OwnerPoolPanel } from "@/components/care/OwnerPoolPanel";
-import type { CareAutoAssignment } from "@/lib/api/care";
+import { careKeys, type CareAutoAssignment } from "@/lib/api/care";
 
 const hanna = { id: 3, name: "Hanna Finansowa" };
 const igor = { id: 4, name: "Igor Testowy" };
@@ -67,8 +67,7 @@ function preview(overrides: Partial<CareAutoAssignment> = {}): CareAutoAssignmen
   };
 }
 
-function renderPanel() {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+function renderPanel(client = new QueryClient({ defaultOptions: { queries: { retry: false } } })) {
   return render(
     <QueryClientProvider client={client}>
       <OwnerPoolPanel />
@@ -124,6 +123,19 @@ describe("OwnerPoolPanel", () => {
       }),
     );
     await waitFor(() => expect(mocks.showToast).toHaveBeenCalledWith("Pula opiekunów zapisana", "success"));
+  });
+
+  it("zapis puli odświeża listę wyboru opiekuna (wykluczony znika od razu)", async () => {
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    mocks.get.mockResolvedValue({ data: preview() });
+    mocks.put.mockResolvedValue({ data: preview() });
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    client.setQueryData(careKeys.owners, [{ id: 1, name: "Hanna Finansowa" }]);
+    renderPanel(client);
+    await user.click(await screen.findByLabelText("Nie przypisuj konsultantów: Hanna Finansowa"));
+    await user.click(screen.getByRole("button", { name: "Zapisz pulę" }));
+    await waitFor(() => expect(mocks.put).toHaveBeenCalled());
+    await waitFor(() => expect(client.getQueryState(careKeys.owners)?.isInvalidated).toBe(true));
   });
 
   it("niezapisana pula: podpowiedź i przydział zablokowany do zapisu", async () => {
