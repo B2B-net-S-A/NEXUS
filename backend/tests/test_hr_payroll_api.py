@@ -320,6 +320,71 @@ async def test_rate_change_notifies_without_amount_and_audits_as_payroll(
     assert with_amount and all(e.sensitivity == "payroll" for e in with_amount)
 
 
+@pytest.mark.asyncio
+async def test_payroll_cannot_set_or_delete_own_rate_but_admin_can(
+    app_client, payroll_on
+) -> None:
+    """Decyzja Artura 19.10.2026: własną stawkę zmienia druga osoba z Płac albo admin."""
+
+    async with AsyncSessionLocal() as db:
+        finance = await _user(db, "recruiter", profile=True, employment_type="b2b")
+        await _grant(db, finance, "payroll")
+        colleague = await _user(db, "recruiter")
+        await _grant(db, colleague, "payroll")
+        admin = await _user(db, "admin", profile=True, employment_type="b2b")
+        await db.commit()
+    y, m = _months_ago(1)
+    body = {"hourly_rate": "101.00", "effective_from": f"{y}-{m:02d}-01"}
+
+    own = await app_client.post(
+        f"/api/hr/payroll/people/{finance.id}/rates",
+        json=body,
+        headers=_headers(finance),
+    )
+    assert own.status_code == 403
+    assert own.json()["detail"] == (
+        "Własnej stawki nie ustawiasz — zrobi to druga osoba z Płac albo administrator."
+    )
+    by_colleague = await app_client.post(
+        f"/api/hr/payroll/people/{finance.id}/rates",
+        json=body,
+        headers=_headers(colleague),
+    )
+    assert by_colleague.status_code == 201, by_colleague.text
+    own_delete = await app_client.delete(
+        f"/api/hr/payroll/rates/{by_colleague.json()['id']}", headers=_headers(finance)
+    )
+    assert own_delete.status_code == 403
+    assert own_delete.json()["detail"].startswith("Własnej stawki nie usuwasz")
+    own_page = await app_client.get(
+        f"/api/hr/payroll/people/{finance.id}", headers=_headers(finance)
+    )
+    assert own_page.status_code == 200
+    assert own_page.json()["can_edit_rates"] is False
+
+    admin_own = await app_client.post(
+        f"/api/hr/payroll/people/{admin.id}/rates", json=body, headers=_headers(admin)
+    )
+    assert admin_own.status_code == 201, admin_own.text
+    async with AsyncSessionLocal() as db:
+        rates = list(
+            await db.scalars(
+                select(EmployeeRate.user_id).where(
+                    EmployeeRate.user_id.in_([finance.id, admin.id])
+                )
+            )
+        )
+        trail = await db.scalar(
+            select(HrAuditEvent.id).where(
+                HrAuditEvent.subject_user_id == admin.id,
+                HrAuditEvent.actor_user_id == admin.id,
+                HrAuditEvent.action == "rate_set",
+            )
+        )
+    assert sorted(rates) == sorted([finance.id, admin.id])
+    assert trail is not None
+
+
 # ── Zakres widoczności (D2) ───────────────────────────────────────────────────
 
 

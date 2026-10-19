@@ -338,6 +338,11 @@ z odnośnikiem `hr_documents.leave_request_id`.
 - Stawki z historią, obowiązują od 1. dnia miesiąca. Automat premii (placementy,
   Liga) i zmiana albo usunięcie stawki blokują okres płac współdzielonie przed
   własnymi wierszami (trwające zamknięcie miesiąca czeka albo daje 409).
+- **Własnej stawki nie ustawia ani nie usuwa osoba z Płac** (decyzja Artura
+  19.10.2026, `payroll_rates.ensure_not_own_rate`): 403 „Własnej stawki nie
+  ustawiasz / nie usuwasz — zrobi to druga osoba z Płac albo administrator.”;
+  administrator może (ślad w audycie jak zawsze). Na własnej kartotece
+  `can_edit_rates = false`.
 - Trwałe usunięcie kontraktu anuluje jego propozycje premii automatu
   (`cancel_reason='contract_deleted'`, automat ich nie przywraca); przyznane zostają.
 - Premie: `source` manual / contract_placement / league / compass_import,
