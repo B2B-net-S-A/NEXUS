@@ -579,6 +579,9 @@ class InviteSourceBrief(BaseModel):
     link_kind: Optional[Literal["job", "recruiter"]] = None
     # `utm_source` z adresu, którym osoba weszła na formularz (np. „linkedin”).
     utm_source: Optional[str] = None
+    # Osoba była już w bazie — zgłoszenie nie utworzyło rekordu, więc nie
+    # mówi, kto ją dodał (profil pokazuje je jako „Zgłosiła się też”).
+    was_duplicate: bool = False
 
 
 CandidateIdentityField = Literal["name", "lastname"]

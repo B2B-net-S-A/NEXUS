@@ -4561,6 +4561,7 @@ async def _resolve_invite_source(
         previous_created_by_name=previous_created_by_name,
         link_kind=link_kind,
         utm_source=(utm_source or "").strip()[:120] or None,
+        was_duplicate=details.get("was_duplicate") is True,
     )
 
 

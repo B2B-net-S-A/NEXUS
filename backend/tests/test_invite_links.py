@@ -585,6 +585,7 @@ async def test_get_candidate_returns_invite_source(inv_client: AsyncClient):
     # i utm z formularza muszą dojść do odpowiedzi.
     assert body["invite_source"]["link_kind"] == "job"
     assert body["invite_source"]["utm_source"] == "linkedin"
+    assert body["invite_source"]["was_duplicate"] is False
 
 
 @pytest.mark.asyncio
@@ -734,6 +735,12 @@ async def test_reapply_audits_candidate_without_changing_owner(
         )
         assert submission is not None
         assert cand_act.details["submission_id"] == submission.id
+
+    # Profil nie może podać Y jako tego, kto dodał osobę — zgłoszenie było
+    # ponowne, rekord założył X (przegląd gałęzi 19.10.2026).
+    detail = await inv_client.get(f"/api/candidates/{cand_id}", headers=headers_y)
+    assert detail.status_code == 200, detail.text
+    assert detail.json()["invite_source"]["was_duplicate"] is True
 
 
 @pytest.mark.asyncio

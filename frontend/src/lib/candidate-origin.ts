@@ -16,6 +16,8 @@ export interface InviteSourceBrief {
   previous_created_by_name?: string | null;
   link_kind?: "job" | "recruiter" | null;
   utm_source?: string | null;
+  /** Osoba była już w bazie — zgłoszenie nie utworzyło rekordu. */
+  was_duplicate?: boolean | null;
 }
 
 export interface CandidateOriginInput {
@@ -37,6 +39,8 @@ export interface CandidateOrigin {
   entryFrom: string | null;
   /** Rekruter, od którego link przejął osobę. */
   previousBy: string | null;
+  /** Późniejsze zgłoszenie osoby z bazy przez link („Link rekrutera · Jan K.”). */
+  laterApply: string | null;
 }
 
 const LINK_KIND_LABEL: Record<"job" | "recruiter", string> = {
@@ -67,16 +71,25 @@ function entryLabel(utm: string | null | undefined): string | null {
 
 export function candidateOrigin(candidate: CandidateOriginInput | null | undefined): CandidateOrigin {
   const invite = candidate?.invite_source ?? null;
-  if (invite) {
+  const linkHow = invite
+    ? invite.link_kind
+      ? LINK_KIND_LABEL[invite.link_kind]
+      : "Formularz aplikacyjny"
+    : null;
+  if (invite && !invite.was_duplicate) {
     return {
-      how: invite.link_kind ? LINK_KIND_LABEL[invite.link_kind] : "Formularz aplikacyjny",
+      how: linkHow,
       by: clean(invite.created_by_name) ?? clean(candidate?.created_by_user?.name),
       viaLink: true,
       linkLabel: clean(invite.label),
       entryFrom: entryLabel(invite.utm_source),
       previousBy: clean(invite.previous_created_by_name),
+      laterApply: null,
     };
   }
+  // Zgłoszenie osoby, która już była w bazie, nie mówi, kto ją DODAŁ —
+  // rekord i jego twórca zostają; link to osobna informacja.
+  const laterOwner = invite ? clean(invite.created_by_name) : null;
   return {
     how: clean(candidate?.added_via),
     by: clean(candidate?.created_by_user?.name),
@@ -84,6 +97,7 @@ export function candidateOrigin(candidate: CandidateOriginInput | null | undefin
     linkLabel: null,
     entryFrom: null,
     previousBy: null,
+    laterApply: linkHow ? [linkHow, laterOwner].filter(Boolean).join(" · ") : null,
   };
 }
 

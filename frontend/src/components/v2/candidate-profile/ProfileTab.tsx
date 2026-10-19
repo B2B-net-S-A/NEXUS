@@ -479,6 +479,7 @@ function OriginPopover({
     ["Nazwa linku", origin.linkLabel],
     ["Wejście z", origin.entryFrom],
     ["Przejęta od", origin.previousBy],
+    ["Zgłosiła się też", origin.laterApply],
     ["Kiedy", inBase ? `${inBase.dateLabel} · ${inBase.ageLabel}` : null],
   ];
   return (

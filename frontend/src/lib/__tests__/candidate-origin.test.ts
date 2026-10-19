@@ -25,6 +25,7 @@ describe("candidateOrigin — skąd osoba jest w bazie", () => {
       linkLabel: "Post na LinkedIn",
       entryFrom: "LinkedIn",
       previousBy: null,
+      laterApply: null,
     });
     expect(originSummary(origin)).toBe("Link rekrutera · Jan Kowalski");
   });
@@ -63,6 +64,20 @@ describe("candidateOrigin — skąd osoba jest w bazie", () => {
     });
     expect(origin.by).toBeNull();
     expect(originSummary(origin)).toBe("Link rekrutera");
+  });
+
+  it("ponowne zgłoszenie osoby z bazy przez cudzy link nie zmienia, kto ją dodał", () => {
+    const origin = candidateOrigin({
+      added_via: "Dodany manualnie",
+      created_by_user: { id: 3, name: "Anna Test" },
+      invite_source: { ...INVITE, created_by_name: "Jan Kowalski", was_duplicate: true },
+    });
+    expect(origin.how).toBe("Dodany manualnie");
+    expect(origin.by).toBe("Anna Test");
+    expect(origin.viaLink).toBe(false);
+    expect(origin.linkLabel).toBeNull();
+    expect(origin.laterApply).toBe("Link rekrutera · Jan Kowalski");
+    expect(originSummary(origin)).toBe("Dodany manualnie · dodał(a) Anna Test");
   });
 
   it("przejęcie przez link i utm, którego nie znamy z nazwy", () => {
