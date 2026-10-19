@@ -19,6 +19,16 @@
   (punkt planu albo follow-up z rozmowy) → `care_contact_due` (sekcja Delivery) do
   opiekuna, najwyżej raz na 7 dni na kontrakt; koniec projektu < 60 dni → wpis
   „Do przepięcia”.
+- **Zbiorczy dzwonek opiekuna** (decyzja Artura 19.10.2026 po pierwszym
+  przebiegu 18.10: 472 dzwonki, jednemu DL 290 — bez zapisanego przydziału
+  opiekunem jest DL z łańcucha). Jeden kontrakt do kontaktu = dzwonek jak
+  wyżej (link do kontraktu). Kilka = JEDEN dzwonek „Kontakt z konsultantami”
+  (`related_entity_type = care_owner_digest`, id opiekuna, link `/care` =
+  „Ten tydzień”): liczba, trzy pierwsze osoby po terminie, najstarszy termin.
+  Najwyżej raz na 7 dni na opiekuna, wcześniej tylko, gdy któryś kontakt
+  wypada dziś. Kontrakty z dzwonkiem pojedynczym w ostatnich 7 dniach się nie
+  liczą (`skipped`). Licznik przebiegu `digests`. 472 dzwonki z 18.10
+  oznaczone jako przeczytane (ślad w raporcie audytu A3).
 - **„Następny kontakt” liczy jedna funkcja** `care/plan.next_contact` (karta
   kontraktu, „Konsultanci”, dzwonek opiekuna): najwcześniejszy otwarty
   punkt planu albo umówiony kontakt z OSTATNIEJ rozmowy, nie starszy niż
@@ -282,7 +292,10 @@ zapełnić.
 
 - Imię i nazwisko porównujemy jak przy hiring managerze (`name_key`: kolejność,
   wielkość liter i ogonki bez znaczenia). Samo imię albo skrót nie wskazuje
-  nikogo — zła osoba zabrałaby opinię innemu menedżerowi.
+  nikogo — zła osoba zabrałaby opinię innemu menedżerowi. Imiennicy u klienta
+  (dwa kontakty o tym imieniu i nazwisku, różne albo puste e-maile) też
+  nikogo — inaczej „Zatwierdź pewne” wpisywał hurtem osobę o niższym id
+  (audyt 19.10.2026); ten sam e-mail = ta sama osoba (najniższe id).
 - Hiring manager sam nie daje pewności (często menedżer to NIE HM). Nadawca
   maila sam też nie — bywa zakupowcem albo wspólną skrzynką.
 - Każde źródło liczy się raz na osobę (pięć zamówień z tą samą osobą = jedno źródło).
@@ -302,7 +315,13 @@ zapełnić.
   jeden kontakt). Tekst musi wyglądać na osobę (`structure_rules.person_name_from_text`):
   2–4 słowa z liter, każde ≥ 2 litery (przedrostek z apostrofem „O'Neil”
   dozwolony), bez inicjałów, cyfr, ukośników, przecinków, e-maili i słów
-  w rodzaju „brak”, „Team”, „Kierownik”.
+  w rodzaju „brak”, „Team”, „Kierownik”, a od audytu 19.10.2026 także nazw
+  jednostek i firm („IT Ops”, „Nordea Bank”, „Tribe …”, „Squad …”,
+  „Departament …”). Przycisku nie ma też, gdy kontakt klienta może być tą
+  osobą wpisaną inaczej (`ContactIndex.name_known`: „Anna Nowak” ~ „Anna Maria
+  Nowak”, „Nowak-Kowalska” ~ „Nowak Kowalska”, imiennicy) — porównanie przy
+  zakładaniu jest dokładne i powstałby drugi kontakt. Dzwonek struktury
+  dostaje też DL przypisany tylko do scalonego duplikatu klienta.
 
 ### „Kto komu podlega”
 
@@ -383,7 +402,11 @@ zapełnić.
   parowanie”, reguły w `care/card_linking.py`: nazwisko bez wielkości liter,
   polskich znaków, kolejności słów i dopisków Traffita; klient po scaleniu;
   umowa bez anulowanych i szkiców. DOKŁADNIE jeden kontrakt z dniem rozmowy
-  w okresie umowy = połączenie automatyczne. Kilka albo tylko poza okresem =
+  w okresie umowy = połączenie automatyczne, ale tylko gdy pod tym nazwiskiem
+  u klienta jest jedna osoba (jeden kandydat). Imiennicy (różni kandydaci,
+  audyt 19.10.2026) = zawsze propozycje, bo umowa w NEXUSIE bywa późniejsza
+  niż praca i „jedyny w okresie” trafiał na obcą osobę; bliźniak z Traffita
+  (dwa rekordy tej samej osoby) też czeka. Kilka albo tylko poza okresem =
   propozycje, brak = bez propozycji — karta czeka przy kliencie z pustym
   `contract_id` i z nazwiskiem z Compassa (`tech_cards.compass_person_name`,
   migracja 0474). Mapa liczy ją od razu (źródło T nie wymaga kontraktu).
@@ -404,7 +427,9 @@ zapełnić.
   `care.tech_card_linked` (kontrakt i czy był propozycją). Raz połączonej
   karty ta trasa nie przepina.
 - Ponowny import łączy kartę, gdy w NEXUSIE pojawi się pewny kontrakt, i nie
-  odpina kontraktu wybranego przez DL.
+  odpina ani nie przepina kontraktu, który karta już ma (wybór DL wygrywa
+  z późniejszym „pewnym”, audyt 19.10.2026). Przycisk „Połącz” widzi każdy,
+  kogo wpuszcza trasa (`can_link` = `is_care_writer`, także osoba z puli).
 - **Rozmowy opiekunów z Compassa** (`contractor_conversations`, decyzja Artura
   z 18.10.2026 „jak karty”): kotwica, gdy jest, ma pierwszeństwo; bez niej
   rozmowa łączy się po kliencie z `client_snapshot` (pusty = `contractors.
@@ -480,6 +505,13 @@ zapełnić.
   wątkiem jest pomijana (to nie zgłoszenie). Tak do Spraw trafia odpowiedź
   wysłana z home.pl, gdy ma administracja@ w kopii (UDW) — sama kopia z home.pl
   niesie tylko pocztę przychodzącą.
+- **Autoodpowiedź** (`mail_ingest._is_auto_reply`: `Auto-Submitted` ≠ `no`,
+  `X-Autoreply`/`X-Autorespond`, `Precedence: auto_reply|junk`, temat
+  „Automatic reply:”, „Odpowiedź automatyczna:”, „Out of Office:”) traktowana
+  jak wiadomość od administracji: w wątku dołącza bez otwierania, poza wątkiem
+  pominięta — komunikat do kilkuset konsultantów nie zakłada fali spraw
+  „jestem na urlopie” (audyt 19.10.2026). Zwrotki serwera poczty (postmaster,
+  mailer-daemon) się nie liczą — zakładają sprawę przypiętą do komunikatu.
 - Czytnik skrzynki: app-only Graph (wzorzec `order_mail_ingest`), wyłączony, gdy
   nie ma skrzynki M365 (obie zmienne puste), `ADMIN_CASES_MAIL_INGEST_ENABLED ≠ true`
   albo moduł `cases` wyłączony. Potrzebuje tokenu rejestracji HR — rejestracja zamówień ma

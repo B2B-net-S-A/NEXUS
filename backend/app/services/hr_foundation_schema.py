@@ -152,6 +152,8 @@ TABLE_DDL: tuple[str, ...] = (
     contribution_exempt_until DATE NULL,
     leave_seniority_years SMALLINT NULL,
     zus_certificate_received_on DATE NULL,
+    employment_type_pending BOOLEAN NOT NULL DEFAULT false,
+    created_from_account BOOLEAN NOT NULL DEFAULT false,
     compass_profile_id UUID NULL,
     updated_by INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),

@@ -10,6 +10,8 @@ import { myStats } from "../MyBonusesTab";
 import { monthState } from "../PayrollMonthsScreen";
 import { rateRange } from "../PayrollProfileSection";
 import {
+  bonusCreatedToast,
+  bonusDecision,
   bonusStateLabel,
   formatHours,
   formatTotals,
@@ -255,5 +257,35 @@ describe("reguły premii — formularz", () => {
     expect(rulesPayload({ ...form, boundLow: "60" }).ok).toBe(false);
     expect(rulesPayload({ ...form, tier2: "dużo" }).ok).toBe(false);
     expect(rulesPayload({ ...form, businessDays: "0" }).ok).toBe(false);
+  });
+});
+
+describe("premia ręczna od przełożonego = propozycja dla Płac (19.10.2026)", () => {
+  const manual = (overrides: Partial<BonusRow> = {}) =>
+    bonus({ status: "proposed", source: "manual", proposed_by: 5, ...overrides });
+
+  it("przełożony nie ma „Zatwierdź” przy swojej propozycji, tylko „Wycofaj”", () => {
+    expect(bonusDecision(manual({ can_approve: false }), 5)).toEqual({
+      approve: false,
+      rejectLabel: "Wycofaj",
+    });
+  });
+
+  it("Płace zatwierdzają propozycję ręczną i ją odrzucają", () => {
+    expect(bonusDecision(manual({ can_approve: true }), 9)).toEqual({
+      approve: true,
+      rejectLabel: "Odrzuć",
+    });
+  });
+
+  it("propozycja automatu bez flagi z serwera zostaje do zatwierdzenia", () => {
+    expect(bonusDecision(bonus({ status: "proposed", source: "contract_placement" }), 5).approve).toBe(
+      true,
+    );
+  });
+
+  it("komunikat po dodaniu mówi, czy premia czeka na Płace", () => {
+    expect(bonusCreatedToast(manual())).toBe("Premia czeka na zatwierdzenie Płac");
+    expect(bonusCreatedToast(bonus({ status: "assigned", source: "manual" }))).toBe("Premia przyznana");
   });
 });

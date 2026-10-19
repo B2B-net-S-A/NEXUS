@@ -47,6 +47,7 @@ from app.services.hr import agreements_document as document
 from app.services.hr import agreements_templates as templates
 from app.services.hr.agreements_errors import AgreementError
 from app.services.hr.modules import HrModule
+from app.services.hr.payroll_access import is_payroll
 from app.services.hr_agreements_schema import TEMPLATE_MAX_BYTES
 from app.services.permission_denial import ensure_any_permission
 
@@ -305,7 +306,10 @@ async def person_agreements(
     """Umowy osoby i wartości domyślne okna „Nowa umowa albo aneks”."""
     try:
         return await agreements.person_overview(
-            db, user_id, writer=_is_writer(current_user)
+            db,
+            user_id,
+            writer=_is_writer(current_user),
+            payroll=is_payroll(current_user),
         )
     except AgreementError as exc:
         raise _http(exc) from exc

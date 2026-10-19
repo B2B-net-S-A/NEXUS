@@ -190,6 +190,24 @@ export function monthStats(detail: PayrollMonthDetail): InlineStat[] {
   return stats;
 }
 
+/**
+ * Przyciski wiersza „Premie do decyzji”. Propozycję ręczną przełożonego
+ * zatwierdzają tylko Płace, nigdy jej autor (decyzja Artura 19.10.2026) —
+ * serwer mówi to w `can_approve`; autor może swoją propozycję wycofać.
+ */
+export function bonusDecision(
+  row: BonusRow,
+  meId: number | undefined,
+): { approve: boolean; rejectLabel: "Odrzuć" | "Wycofaj" } {
+  const ownManual = row.source === "manual" && meId !== undefined && row.proposed_by === meId;
+  return { approve: row.can_approve !== false, rejectLabel: ownManual ? "Wycofaj" : "Odrzuć" };
+}
+
+/** Komunikat po dodaniu premii ręcznej: od przełożonego czeka na Płace. */
+export function bonusCreatedToast(created: Pick<BonusRow, "status">): string {
+  return created.status === "proposed" ? "Premia czeka na zatwierdzenie Płac" : "Premia przyznana";
+}
+
 /** Premie podzielone na sekcje ekranu. */
 export function splitBonuses(bonuses: BonusRow[]): {
   toDecide: BonusRow[];

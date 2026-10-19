@@ -20,6 +20,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { apiErrorMessage } from "@/lib/api-error";
 import type { EmploymentType } from "@/lib/api/hr";
 import {
+  enterablePeople,
   useAttachLeaveProof,
   useEnterOnBehalf,
   useLeavePreview,
@@ -79,6 +80,7 @@ export function LeaveRequestDialog({
   const onBehalf = mode === "on_behalf";
   const { showToast } = useToast();
   const people = useOnBehalfPeople(open && onBehalf);
+  const enterable = enterablePeople(people.data);
   const submitOwn = useSubmitLeave();
   const submitFor = useEnterOnBehalf();
   const attachProof = useAttachLeaveProof();
@@ -253,7 +255,20 @@ export function LeaveRequestDialog({
       <div className="grid gap-5 md:grid-cols-[minmax(0,1fr)_300px]">
         <div className="grid content-start gap-4">
           {onBehalf ? (
-            <FormField label="Osoba" htmlFor="leave-person">
+            <FormField
+              label="Osoba"
+              htmlFor="leave-person"
+              error={
+                people.isError
+                  ? apiErrorMessage(people.error, "Nie udało się wczytać listy osób.")
+                  : undefined
+              }
+              description={
+                people.isSuccess && enterable.length === 0
+                  ? "Nie masz osób, którym wpisujesz nieobecność. Osoby na B2B i zleceniu zgłaszają nieobecność same — za nie wpisują Kadry."
+                  : undefined
+              }
+            >
               <Select
                 value={personId}
                 onValueChange={(value) => {
@@ -265,7 +280,7 @@ export function LeaveRequestDialog({
                   <SelectValue placeholder="Wybierz osobę" />
                 </SelectTrigger>
                 <SelectContent>
-                  {(people.data ?? []).map((row) => (
+                  {enterable.map((row) => (
                     <SelectItem key={row.user_id} value={String(row.user_id)}>
                       {row.name}
                       {row.department ? ` · ${row.department}` : ""}

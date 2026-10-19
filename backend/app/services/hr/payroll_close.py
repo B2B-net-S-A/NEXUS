@@ -9,8 +9,12 @@ Zamknięcie (Płace):
    premii w toku albo kończy się przed liczeniem, albo czeka na koniec
    zamknięcia i dostaje „zamknięty” (``payroll_periods.assert_open``),
 2. propozycje premii z tym okresem muszą mieć decyzję (409 ``pending_bonuses``),
+   a kwota osoby z rozliczeniem opłaconym przed ponownym otwarciem nie może się
+   zmienić (409 ``paid_settlement_changed``, decyzja Artura 19.10.2026 — różnica
+   nie miałaby przelewu; zmianę przenosi się na kolejny miesiąc),
 3. ostrzeżenia (timesheety niezatwierdzone, godziny bez stawki, stawka na
-   zleceniu poniżej minimum roku miesiąca) wymagają
+   zleceniu poniżej minimum roku miesiąca, premia z placementu przyznana
+   mimo końca kontraktu przed terminem) wymagają
    potwierdzenia (409 ``close_warnings``, potem ``acknowledge_warnings``),
 4. linie zamrożone w ``payroll_lines``, ``payroll_locked`` na timesheetach
    osób z listy (most ``payroll_time_bridge``), wpis w ``hr_job_runs``
@@ -30,7 +34,9 @@ także przy wyłączonym module; opłacone zostają jako dowód.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import date
+from decimal import Decimal
 from typing import Any, Optional
 
 from sqlalchemy import delete, func, insert, select
@@ -40,6 +46,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.scheduling import local_now
 from app.models.hr_ops import HrJobRun
 from app.models.hr_payroll import HrBonus, PayrollLine
+from app.models.hr_settlement import PayrollSettlement
+from app.models.user import User
 from app.services.hr import audit, payroll_time_bridge, settlements, settlements_rules
 from app.services.hr import modules as hr_modules
 from app.services.hr.payroll_errors import PayrollConflict, PayrollError
@@ -99,6 +107,113 @@ def close_warnings(people: list[PersonPayroll]) -> list[dict[str, Any]]:
         )
     warnings.extend(minimum_rate_warnings(people, people_limit=WARNING_PEOPLE_LIMIT))
     return warnings
+
+
+def paid_settlement_changes(
+    people: list[PersonPayroll], paid: Mapping[tuple[int, str], Decimal]
+) -> list[dict[str, Any]]:
+    """Osoby, których kwota różni się od rozliczenia już opłaconego (bez kwot).
+
+    ``paid`` — (osoba, waluta) → kwota opłaconego rozliczenia miesiąca. Brak
+    linii w nowym liczeniu to kwota 0 (też zmiana).
+    """
+
+    live: dict[tuple[int, str], Decimal] = {}
+    names: dict[int, str] = {}
+    for person in people:
+        names[person.user_id] = person.name
+        for line in person.lines:
+            live[(person.user_id, line.currency)] = Decimal(line.total)
+    return [
+        {"user_id": user_id, "name": names.get(user_id), "currency": currency}
+        for (user_id, currency), amount in sorted(paid.items())
+        if live.get((user_id, currency), Decimal(0)) != Decimal(amount)
+    ]
+
+
+async def _paid_settlements(
+    db: AsyncSession, period_id: int
+) -> dict[tuple[int, str], Decimal]:
+    rows = await db.execute(
+        select(
+            PayrollSettlement.user_id,
+            PayrollSettlement.currency,
+            PayrollSettlement.expected_amount,
+        ).where(
+            PayrollSettlement.period_id == period_id,
+            PayrollSettlement.status == "paid",
+        )
+    )
+    return {
+        (int(user_id), str(currency)): Decimal(amount)
+        for user_id, currency, amount in rows.all()
+    }
+
+
+def ended_early_warning(people: list[dict[str, Any]]) -> Optional[dict[str, Any]]:
+    """Ostrzeżenie o premiach z kontraktów zakończonych przed terminem (bez kwot)."""
+
+    if not people:
+        return None
+    return {
+        "code": "bonus_contract_ended_early",
+        "message": (
+            f"{len(people)} przyznanych premii z placementu dotyczy kontraktu "
+            "zakończonego przed terminem premii — taka premia przepada; anuluj ją "
+            "albo potwierdź świadomie."
+        ),
+        "count": len(people),
+        "people": people[:WARNING_PEOPLE_LIMIT],
+    }
+
+
+async def ended_early_warnings(
+    db: AsyncSession, year: int, month: int
+) -> list[dict[str, Any]]:
+    """``[ostrzeżenie]`` albo ``[]`` — dla zamknięcia i widoku miesiąca Płac."""
+
+    from app.services.hr import placement_bonuses  # cykl importów
+
+    bonuses = list(
+        await db.scalars(
+            select(HrBonus)
+            .where(
+                HrBonus.period_year == year,
+                HrBonus.period_month == month,
+                HrBonus.status == "assigned",
+                HrBonus.source == placement_bonuses.SOURCE,
+            )
+            .order_by(HrBonus.id)
+        )
+    )
+    flagged = await placement_bonuses.ended_early_bonus_ids(db, bonuses)
+    if not flagged:
+        return []
+    names = dict(
+        (
+            await db.execute(
+                select(User.id, User.name).where(
+                    User.id.in_(
+                        sorted(
+                            {b.recipient_user_id for b in bonuses if b.id in flagged}
+                        )
+                    )
+                )
+            )
+        ).all()
+    )
+    warning = ended_early_warning(
+        [
+            {
+                "bonus_id": bonus.id,
+                "user_id": bonus.recipient_user_id,
+                "name": names.get(bonus.recipient_user_id),
+            }
+            for bonus in bonuses
+            if bonus.id in flagged
+        ]
+    )
+    return [warning] if warning else []
 
 
 async def pending_bonus_count(db: AsyncSession, year: int, month: int) -> int:
@@ -166,7 +281,16 @@ async def close_month(
         )
 
     people = await compute_live(db, year, month)
-    warnings = close_warnings(people)
+    changed = paid_settlement_changes(people, await _paid_settlements(db, period.id))
+    if changed:
+        raise PayrollConflict(
+            f"{len(changed)} os. ma już opłacone rozliczenie tego miesiąca, a kwota "
+            "po zmianach jest inna — różnica nie miałaby przelewu. Przenieś zmianę "
+            "(np. premię) na kolejny miesiąc albo przywróć poprzedni stan.",
+            code="paid_settlement_changed",
+            data={"count": len(changed), "people": changed[:WARNING_PEOPLE_LIMIT]},
+        )
+    warnings = close_warnings(people) + await ended_early_warnings(db, year, month)
     if warnings and not acknowledge_warnings:
         raise PayrollConflict(
             "Przed zamknięciem sprawdź ostrzeżenia.",
@@ -307,4 +431,12 @@ async def reopen_month(
     }
 
 
-__all__ = ["close_month", "close_warnings", "pending_bonus_count", "reopen_month"]
+__all__ = [
+    "close_month",
+    "close_warnings",
+    "ended_early_warning",
+    "ended_early_warnings",
+    "paid_settlement_changes",
+    "pending_bonus_count",
+    "reopen_month",
+]

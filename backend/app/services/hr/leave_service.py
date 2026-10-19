@@ -118,6 +118,7 @@ from app.services.hr.leave_recipients import (
     notify_requested,
     payroll_locked_warning,
     report_payroll_locked,
+    report_sent_timesheet_changed,
     sent_timesheet_refusal,
 )
 from app.services.hr.leave_recount import recount_for_company_day_off
@@ -407,12 +408,15 @@ async def preview(
     except LeavePolicyError as exc:
         result["blocking_reason"] = str(exc)
         result["days_total"] = f"{sum((f for _, f in days), Decimal('0')):.1f}"
+    # Składający widzi tylko zatwierdzone nieobecności kolegów i zastępcy
+    # (decyzja Artura 19.10.2026); podgląd wpisu za pracownika — także oczekujące.
     result["department_absent"] = await department_absences(
         db,
         user_id=subject.id,
         department=profile.department,
         start=data.start_date,
         end=data.end_date,
+        approved_only=for_self,
     )
     result["work"] = await work_in_period(
         db,
@@ -422,7 +426,9 @@ async def preview(
         with_titles=for_self,
     )
     if data.substitute_user_id is not None:
-        busy = await busy_user_ids(db, data.start_date, data.end_date)
+        busy = await busy_user_ids(
+            db, data.start_date, data.end_date, approved_only=for_self
+        )
         result["substitute_absent"] = data.substitute_user_id in busy
     return result
 
@@ -639,6 +645,13 @@ async def _after_approval(
 
     hooked = await time_hooks.on_leave_approved(
         db, request.user_id, await _request_days(db, request.id)
+    )
+    await report_sent_timesheet_changed(
+        db,
+        request=request,
+        subject=subject,
+        actor_id=actor.id,
+        months=hooked["sent_changed"],
     )
     return await report_payroll_locked(
         db,
@@ -918,6 +931,13 @@ async def _after_cancel(
     hooked = await time_hooks.on_leave_cancelled(
         db, request.user_id, await _request_days(db, request.id)
     )
+    await report_sent_timesheet_changed(
+        db,
+        request=request,
+        subject=subject,
+        actor_id=actor.id,
+        months=hooked["sent_changed"],
+    )
     return await report_payroll_locked(
         db,
         request=request,
@@ -1116,6 +1136,11 @@ async def set_forward_consent(
     return request
 
 
+ON_BEHALF_REPORT_FORBIDDEN = (
+    "Nieobecność osoby na B2B albo zleceniu zgłasza ona sama — wpis za nią robią Kadry."
+)
+
+
 async def subject_for_on_behalf(
     db: AsyncSession, *, actor: User, user_id: int
 ) -> tuple[User, EmployeeProfile]:
@@ -1134,6 +1159,11 @@ async def subject_for_on_behalf(
         subject_manager_id=profile.manager_user_id,
     ) and subject.id not in await division_charges(db, actor.id):
         raise LeaveForbidden("Nieobecność wpisujesz tylko osobom ze swojego zespołu.")
+    if reports_absence(profile.employment_type) and not actor_of(actor).sees_everyone:
+        # D5 (decyzja Artura 19.10.2026): nieobecność osoby na B2B albo
+        # zleceniu zgłasza ona sama; wpis za nią — tylko Kadry i admin, jak
+        # zmiana i anulowanie zgłoszenia.
+        raise LeaveForbidden(ON_BEHALF_REPORT_FORBIDDEN)
     return subject, profile
 
 

@@ -21,7 +21,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.hr_gates import HrPeopleAdmin, require_hr_people_admin
+from app.api.hr_gates import HrPeopleAdmin, refuse_self_edit, require_hr_people_admin
 from app.core.database import get_db
 from app.services.hr import people
 from app.services.hr import structure as service
@@ -56,8 +56,10 @@ _MISSING_PROFILES = "Część wybranych osób nie ma kartoteki — odśwież str
 
 
 @router.get("")
-async def get_structure(_: HrPeopleAdmin, db: AsyncSession = Depends(get_db)) -> dict:
-    return await service.structure(db)
+async def get_structure(
+    current_user: HrPeopleAdmin, db: AsyncSession = Depends(get_db)
+) -> dict:
+    return await service.structure(db, current_user)
 
 
 @router.post("/reassign")
@@ -66,6 +68,7 @@ async def reassign(
     current_user: HrPeopleAdmin,
     db: AsyncSession = Depends(get_db),
 ) -> dict:
+    refuse_self_edit(current_user, payload.user_ids)
     try:
         result = await service.reassign(
             db,
@@ -87,6 +90,7 @@ async def set_division(
     current_user: HrPeopleAdmin,
     db: AsyncSession = Depends(get_db),
 ) -> dict:
+    refuse_self_edit(current_user, payload.user_ids)
     try:
         result = await service.set_division(
             db,

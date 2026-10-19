@@ -4,9 +4,11 @@ Kto (``payroll_access.PayrollViewer``):
 
 * **Płace** — przyznają, zmieniają, zatwierdzają i anulują każdą premię
   (poza własną),
-* **przełożony** — przyznaje premię ręczną swojemu człowiekowi (jak w
-  Compassie), zatwierdza albo odrzuca propozycje automatów dla swoich ludzi,
-  zmienia i anuluje tylko premie, które sam przyznał.
+* **przełożony** — proponuje premię ręczną swojemu człowiekowi (od 19.10.2026
+  to propozycja: ``proposed`` bez ``assigned_by``, bez dzwonka osobie;
+  zatwierdzają ją tylko Płace, nigdy autor — decyzja Artura), zatwierdza albo
+  odrzuca propozycje automatów dla swoich ludzi, zmienia i anuluje (wycofuje)
+  tylko premie, które sam zaproponował.
 
 Reguły: okres ręcznej premii — ostatnie 12 miesięcy i bieżący (Compass,
 ``BONUS_PERIOD_MAX_MONTHS_BACK``); propozycji placementu nie da się
@@ -27,7 +29,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 from typing import Any, Optional
 
 from sqlalchemy import select
@@ -64,6 +66,7 @@ from app.services.hr_payroll_schema import (
 )
 
 BONUS_PERIOD_MAX_MONTHS_BACK = 12
+BONUS_MIN = Decimal("0.01")
 BONUS_MAX = Decimal("1000000")
 #: Powody anulowania nadawane przez automaty (automat może je cofnąć).
 AUTO_CANCEL_REASONS: frozenset[str] = frozenset(
@@ -91,9 +94,19 @@ class BonusInput:
 
 
 def clean_amount(amount: Decimal) -> Decimal:
+    """Kwota premii zaokrąglona HALF_UP (jak raport płac), zakres na wyniku.
+
+    Zakres sprawdzany po zaokrągleniu: 0,004 zaokrągla się do 0,00 i bez tego
+    przechodziło do bazy, gdzie CHECK kwoty dawał 500 (audyt A2, 19.10.2026).
+    Wstępne sprawdzenie chroni ``quantize`` przed liczbą spoza precyzji.
+    """
+
     if not amount.is_finite() or amount <= 0 or amount > BONUS_MAX:
         raise PayrollError("Kwota premii: od 0,01 do 1 000 000.")
-    return amount.quantize(Decimal("0.01"))
+    value = amount.quantize(BONUS_MIN, rounding=ROUND_HALF_UP)
+    if value < BONUS_MIN:
+        raise PayrollError("Kwota premii: od 0,01 do 1 000 000.")
+    return value
 
 
 def clean_currency(currency: str) -> str:
@@ -239,9 +252,43 @@ def _require_scope(viewer: PayrollViewer, bonus: HrBonus) -> None:
         raise PayrollNotFound("Nie ma takiej premii.")
 
 
+MANUAL_PROPOSAL_OWN = (
+    "Własnej propozycji premii nie zatwierdzasz — zatwierdzą ją Płace."
+)
+MANUAL_PROPOSAL_PAYROLL_ONLY = "Premię ręczną od przełożonego zatwierdzają Płace."
+
+
+def approval_refusal(viewer: PayrollViewer, bonus: HrBonus) -> Optional[str]:
+    """Kto nie zatwierdza tej premii — zdanie odmowy albo ``None``.
+
+    Propozycję ręczną (od przełożonego) zatwierdzają tylko Płace i nigdy jej
+    autor (decyzja Artura 19.10.2026), bo inaczej przełożony przyznawałby
+    premię sam sobie do akceptu. Propozycje automatów — Płace albo przełożony.
+    """
+
+    if bonus.recipient_user_id == viewer.user_id:
+        return "Premii dla siebie nie zatwierdzasz."
+    if not viewer.manages_bonuses_of(bonus.recipient_user_id):
+        return "Propozycje zatwierdzają Płace albo przełożony tej osoby."
+    if bonus.source == "manual":
+        if bonus.proposed_by == viewer.user_id:
+            return MANUAL_PROPOSAL_OWN
+        if not viewer.payroll:
+            return MANUAL_PROPOSAL_PAYROLL_ONLY
+    return None
+
+
+def can_approve(viewer: PayrollViewer, bonus: HrBonus) -> bool:
+    """Przycisk „Zatwierdź” na liście — tylko propozycja, którą widz może zatwierdzić."""
+
+    return bonus.status == "proposed" and approval_refusal(viewer, bonus) is None
+
+
 async def create_manual(
     db: AsyncSession, viewer: PayrollViewer, data: BonusInput, *, today: date
 ) -> HrBonus:
+    """Premia ręczna: Płace przyznają od razu, przełożony tylko proponuje."""
+
     if data.recipient_user_id == viewer.user_id:
         raise PayrollForbidden("Premii nie przyznajesz sobie.")
     if not viewer.manages_bonuses_of(data.recipient_user_id):
@@ -257,6 +304,7 @@ async def create_manual(
         raise PayrollNotFound("Ta osoba nie ma kartoteki pracownika.")
     validate_manual_period(data.period_year, data.period_month, today)
     await assert_open(db, data.period_year, data.period_month)
+    assign = viewer.payroll
     bonus = HrBonus(
         recipient_user_id=data.recipient_user_id,
         proposed_by=viewer.user_id,
@@ -265,14 +313,18 @@ async def create_manual(
         category=clean_category(data.category),
         period_year=data.period_year,
         period_month=data.period_month,
-        status="assigned",
+        status="assigned" if assign else "proposed",
         source="manual",
         description=clean_description(data.description),
-        assigned_by=viewer.user_id,
-        assigned_at=local_now(),
+        assigned_by=viewer.user_id if assign else None,
+        assigned_at=local_now() if assign else None,
     )
     db.add(bonus)
     await db.flush()
+    if not assign:
+        # Dzwonek osobie dopiero przy zatwierdzeniu Płac (``approve_bonus``).
+        _audit(db, bonus, actor_id=viewer.user_id, action="bonus_proposed")
+        return bonus
     _audit(db, bonus, actor_id=viewer.user_id, action="bonus_assigned")
     await _notify(
         db,
@@ -348,12 +400,9 @@ async def approve_bonus(
 ) -> HrBonus:
     bonus = await _locked_bonus(db, bonus_id)
     _require_scope(viewer, bonus)
-    if bonus.recipient_user_id == viewer.user_id:
-        raise PayrollForbidden("Premii dla siebie nie zatwierdzasz.")
-    if not viewer.manages_bonuses_of(bonus.recipient_user_id):
-        raise PayrollForbidden(
-            "Propozycje zatwierdzają Płace albo przełożony tej osoby."
-        )
+    refusal = approval_refusal(viewer, bonus)
+    if refusal is not None:
+        raise PayrollForbidden(refusal)
     if bonus.status == "cancelled" and bonus.cancel_reason in AUTO_CANCEL_REASONS:
         raise PayrollConflict(
             "Propozycja nieaktualna — kontrakt skończył się przed terminem premii "
@@ -429,7 +478,8 @@ async def cancel_bonus(
 async def paid_flags(
     db: AsyncSession, bonuses: list[HrBonus]
 ) -> Optional[dict[int, bool]]:
-    """Premia wypłacona = rozliczenie jej miesiąca opłacone (R11).
+    """Premia wypłacona = rozliczenie jej miesiąca opłacone (R11) — i przyznana
+    przed zapłatą (premia dopisana po ponownym otwarciu w opłaconej kwocie nie była).
 
     ``None`` — moduł rozliczeń wyłączony: wołający zostaje przy starej regule
     („miesiąc zamknięty w płacach = rozliczona”).
@@ -470,6 +520,7 @@ async def paid_flags(
             PayrollSettlement.currency,
             PayrollPeriod.year,
             PayrollPeriod.month,
+            PayrollSettlement.paid_at,
         )
         .join(PayrollPeriod, PayrollPeriod.id == PayrollSettlement.period_id)
         .where(
@@ -480,21 +531,32 @@ async def paid_flags(
         )
     )
     paid = {
-        (int(user_id), str(currency), int(year), int(month))
-        for user_id, currency, year, month in rows.all()
+        (int(user_id), str(currency), int(year), int(month)): paid_at
+        for user_id, currency, year, month, paid_at in rows.all()
     }
+
+    def covered(bonus: HrBonus) -> bool:
+        # Premia przyznana po zapłacie (miesiąc otwarty ponownie) nie była
+        # w opłaconej kwocie — nie jest wypłacona (audyt 19.10.2026).
+        key = (
+            bonus.recipient_user_id,
+            bonus.currency,
+            bonus.period_year,
+            bonus.period_month,
+        )
+        if key not in paid:
+            return False
+        paid_at = paid[key]
+        return (
+            paid_at is None or bonus.assigned_at is None or bonus.assigned_at <= paid_at
+        )
+
     return {
         bonus.id: bonus.status == "assigned"
         and (
             (bonus.period_year, bonus.period_month) in closed
             if bonus.id in archive
-            else (
-                bonus.recipient_user_id,
-                bonus.currency,
-                bonus.period_year,
-                bonus.period_month,
-            )
-            in paid
+            else covered(bonus)
         )
         for bonus in bonuses
     }
@@ -532,8 +594,12 @@ __all__ = [
     "AUTO_CANCEL_REASONS",
     "BonusInput",
     "CATEGORY_LABELS",
+    "MANUAL_PROPOSAL_OWN",
+    "MANUAL_PROPOSAL_PAYROLL_ONLY",
+    "approval_refusal",
     "approve_bonus",
     "bonus_payload",
+    "can_approve",
     "cancel_bonus",
     "create_manual",
     "list_bonuses",

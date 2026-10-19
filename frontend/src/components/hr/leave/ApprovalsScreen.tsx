@@ -42,6 +42,7 @@ import {
   type LeaveStatus,
   type PendingLeaveRow,
 } from "@/lib/api/hr-leave";
+import { forwardStillAhead } from "@/lib/api/hr-m365";
 import { CALM_EMPTY, CALM_HEAD, CALM_ROW, CALM_SUBLINE } from "@/lib/calm-table";
 import { countPl } from "@/lib/plural-pl";
 import { resolveViewState } from "@/lib/view-state";
@@ -60,6 +61,7 @@ import {
   canEditRow,
   daysLabel,
   formatRange,
+  historyCapNote,
   leaveToast,
   sourceBadge,
   statusFilterLabel,
@@ -441,7 +443,7 @@ function LeaveHistory({ viewerIsHr }: { viewerIsHr: boolean }) {
                   <TableCell className="whitespace-nowrap">
                     {formatRange(row.start_date, row.end_date)}
                   </TableCell>
-                  <TableCell className="text-right tabular-nums">
+                  <TableCell className="whitespace-nowrap text-right tabular-nums">
                     {daysLabel(row.days_total)}
                   </TableCell>
                   <TableCell>
@@ -462,7 +464,9 @@ function LeaveHistory({ viewerIsHr }: { viewerIsHr: boolean }) {
                         <Button size="sm" variant="quiet" onClick={() => setEditing(row)}>
                           Edytuj
                         </Button>
-                        {viewerIsHr && row.forward_mail_consent ? (
+                        {viewerIsHr &&
+                        row.forward_mail_consent &&
+                        forwardStillAhead(row.end_date) ? (
                           <Button size="sm" variant="quiet" onClick={() => setForwardOff(row)}>
                             Wyłącz przekierowanie
                           </Button>
@@ -486,6 +490,11 @@ function LeaveHistory({ viewerIsHr }: { viewerIsHr: boolean }) {
           </Table>
         </div>
       )}
+      {historyCapNote(rows.length, status, counts) ? (
+        <p className="px-1 text-xs text-muted-foreground">
+          {historyCapNote(rows.length, status, counts)}
+        </p>
+      ) : null}
       {confirmDialog}
       <EditLeaveDialog
         request={editing}

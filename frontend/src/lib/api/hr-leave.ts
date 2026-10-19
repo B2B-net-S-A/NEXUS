@@ -242,6 +242,13 @@ export interface OnBehalfPerson {
   name: string;
   employment_type: EmploymentType;
   department: string | null;
+  /** D5: za osobę na B2B/zleceniu wpisują tylko Kadry i admin (lista służy też filtrowi historii). */
+  can_enter?: boolean;
+}
+
+/** Osoby, którym patrzący może wpisać nieobecność (bez `can_enter: false`). */
+export function enterablePeople(rows: OnBehalfPerson[] | undefined): OnBehalfPerson[] {
+  return (rows ?? []).filter((row) => row.can_enter !== false);
 }
 
 export type CalendarDayKind = "work" | "weekend" | "holiday" | "company";

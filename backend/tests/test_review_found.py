@@ -353,6 +353,8 @@ async def test_rate_change_waits_for_running_close_and_is_refused(
                     reason=None,
                     actor_id=person.id,
                     today=today,
+                    # Własną stawkę zmienia tylko admin (19.10.2026) — tu chodzi o blokadę.
+                    actor_is_admin=True,
                 )
             except PayrollConflict:
                 await db.rollback()
@@ -391,6 +393,7 @@ async def test_rate_lock_does_not_reach_future_months(payroll_on) -> None:  # no
             reason=None,
             actor_id=person.id,
             today=today,
+            actor_is_admin=True,
         )
         await db.commit()
         # Miesiąc, który się jeszcze nie skończył, nie może być zamykany —

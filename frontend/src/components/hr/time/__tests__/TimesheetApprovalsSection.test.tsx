@@ -181,6 +181,24 @@ describe("TimesheetApprovalsSection", () => {
     );
   });
 
+  it("anulowany zwrot nie zostawia notatki na następne otwarcie", async () => {
+    // Audyt 19.10.2026: „Anuluj” zamykał okno, a notatka zostawała i trafiała
+    // do powiadomienia następnej zwracanej osoby.
+    renderSection({ people_admin: true });
+    const row = await screen.findByTestId("queue-21");
+    fireEvent.click(within(row).getByRole("button", { name: "Zwróć" }));
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.change(within(dialog).getByLabelText("Co trzeba poprawić"), {
+      target: { value: "Uwaga dla innej osoby" },
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Anuluj" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+
+    fireEvent.click(within(row).getByRole("button", { name: "Zwróć" }));
+    const again = await screen.findByRole("dialog");
+    expect(within(again).getByLabelText("Co trzeba poprawić")).toHaveValue("");
+  });
+
   it("zwrot wymaga notatki i wysyła ją", async () => {
     mocks.post.mockResolvedValue({ data: header(301, "draft") });
     renderSection({ people_admin: true });

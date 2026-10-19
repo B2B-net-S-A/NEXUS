@@ -24,6 +24,10 @@ import { formatIsoDatePl } from "@/lib/date-pl";
 import { cn } from "@/lib/utils";
 import { resolveViewState } from "@/lib/view-state";
 
+/** Zakres okresu w latach — jak `documents_rules` (minimum 10 lat: decyzja Artura 19.10.2026). */
+const RETENTION_MIN_YEARS = 10;
+const RETENTION_MAX_YEARS = 50;
+
 /** Zmienione okresy (lata) — serwer dostaje tylko to, co się zmieniło. */
 export function retentionChanges(
   entries: RetentionEntry[],
@@ -34,8 +38,11 @@ export function retentionChanges(
     const raw = form[entry.kind];
     if (raw === undefined || raw.trim() === String(entry.years)) continue;
     const value = Number(raw.trim());
-    if (!Number.isInteger(value) || value < 1 || value > 50) {
-      return { years: {}, error: `Okres dla „${entry.label}”: pełne lata od 1 do 50.` };
+    if (!Number.isInteger(value) || value < RETENTION_MIN_YEARS || value > RETENTION_MAX_YEARS) {
+      return {
+        years: {},
+        error: `Okres dla „${entry.label}”: pełne lata od ${RETENTION_MIN_YEARS} do ${RETENTION_MAX_YEARS}.`,
+      };
     }
     years[entry.kind] = value;
   }

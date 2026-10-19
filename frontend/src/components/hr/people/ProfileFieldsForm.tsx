@@ -33,7 +33,11 @@ import {
 /** Wartości formularza kartoteki (puste pole = brak wartości). */
 export interface ProfileFormState {
   manager_user_id: string;
-  employment_type: EmploymentType;
+  /**
+   * „” = forma niewybrana: ukryta przed czytającym (Kadry bez Płac zmieniają ją
+   * bez podglądu, 19.10.2026) albo „do uzupełnienia”. Wtedy zapis jej nie wysyła.
+   */
+  employment_type: EmploymentType | "";
   employment_status: EmploymentStatus;
   work_start_date: string;
   last_working_day: string;
@@ -57,6 +61,8 @@ export interface ProfileFormState {
   exempt_until?: string;
   seniority?: string;
   zus_certificate?: string;
+  /** Podpis pustej formy: `hidden` — ukryta przed czytającym, `pending` — do uzupełnienia. */
+  employment_type_blank?: "hidden" | "pending";
 }
 
 export const EMPTY_PROFILE_FORM: ProfileFormState = {
@@ -80,7 +86,7 @@ export function profileFormToPayload(form: ProfileFormState): ProfileFields {
   const text = (value: string) => (value.trim() ? value.trim() : null);
   return {
     manager_user_id: form.manager_user_id ? Number(form.manager_user_id) : null,
-    employment_type: form.employment_type,
+    ...(form.employment_type ? { employment_type: form.employment_type } : {}),
     employment_status: form.employment_status,
     work_start_date: form.work_start_date || null,
     last_working_day: form.last_working_day || null,
@@ -109,7 +115,7 @@ export function profileFormToPayload(form: ProfileFormState): ProfileFields {
 }
 
 /** Sekcja „Forma decyduje o reszcie” — pola i podpowiedzi zależne od formy. */
-function FormSpecificFields({
+export function FormSpecificFields({
   form,
   set,
   id,
@@ -231,7 +237,7 @@ export function ProfileFieldsForm({
     onChange({ ...form, [key]: value });
   const id = (name: string) => `${idPrefix}-${name}`;
   // Słowa formy (D4): na B2B i zleceniu „koordynator”, na umowie o pracę „przełożony”.
-  const words = employmentTerms(form.employment_type);
+  const words = employmentTerms(form.employment_type || null);
 
   return (
     <div className="grid gap-4 sm:grid-cols-2">
@@ -301,13 +307,27 @@ export function ProfileFieldsForm({
           </Select>
         </FormField>
       )}
-      <FormField label="Forma współpracy" htmlFor={id("type")}>
+      <FormField
+        label="Forma współpracy"
+        htmlFor={id("type")}
+        description={
+          form.employment_type_blank === "hidden" && !form.employment_type
+            ? "Formę widzą ta osoba, jej przełożony, admin i Finanse. Możesz ją zmienić — obecnej nie pokazujemy."
+            : undefined
+        }
+      >
         <Select
           value={form.employment_type}
           onValueChange={(value) => set("employment_type", value as EmploymentType)}
         >
           <SelectTrigger id={id("type")}>
-            <SelectValue />
+            <SelectValue
+              placeholder={
+                form.employment_type_blank === "pending"
+                  ? "Do uzupełnienia — wybierz"
+                  : "Bez zmian (forma ukryta)"
+              }
+            />
           </SelectTrigger>
           <SelectContent>
             {(Object.keys(EMPLOYMENT_TYPE_LABELS) as EmploymentType[]).map((key) => (

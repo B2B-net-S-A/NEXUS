@@ -22,9 +22,10 @@ pokryty dzień roboczy tak).
   nadpisuje i nie zakłada wydarzenia (``leave_service._enqueue_m365`` pomija
   wszystko poza przekierowaniem, na które zgodę daje sama osoba).
 * **Bez duplikatów** — kolejny przebieg widzi dni aktywnego wniosku jako
-  pokryte. Wniosek ``outlook_oof`` odrzucony (UoP) albo anulowany (B2B
-  i zlecenie, bo zgłoszenia nikt nie odrzuca) pokrywa swoje okno na zawsze —
-  decyzja Kadr albo przełożonego nie wraca następnego ranka.
+  pokryte. Odrzucony albo anulowany wniosek (dowolnego źródła) pokrywa swoje
+  dni, a wniosek z Outlooka — całe okno autoodpowiedzi, z którego powstał,
+  także po skróceniu edycją: decyzja Kadr, przełożonego albo osoby nie wraca
+  następnego ranka (``_covered_days``, audyt 19.10.2026).
 * Tylko osoby z kartoteką (status ≠ ``exited``), których skrzynka jest
   w zakresie uzgadniania (lista próbna ``HR_M365_MAILBOX_ALLOWLIST``), i przy
   włączonym module urlopów. Autoodpowiedź bez dat (włączona na stałe) nie
@@ -45,6 +46,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.hr_leave import LeaveRequest, LeaveRequestDay
+from app.models.hr_ops import HrAuditEvent
 from app.models.hr_profile import EmployeeProfile
 from app.models.notification import NotificationType
 from app.models.user import User
@@ -124,7 +126,17 @@ def missing_runs(
 async def _covered_days(
     db: AsyncSession, user_id: int, start: date, end: date
 ) -> set[date]:
-    """Dni okna zajęte przez aktywny wniosek albo okno rozstrzygniętego wniosku z Outlooka."""
+    """Dni okna, z których wniosku z Outlooka już nie zakładamy.
+
+    * dni aktywnego wniosku (oczekującego albo zatwierdzonego),
+    * dni każdego odrzuconego albo anulowanego wniosku — decyzja człowieka
+      o tych dniach zapadła (przełożony odrzucił, osoba anulowała); bez tego
+      zostawiona w Outlooku autoodpowiedź zakładała nazajutrz nowy wniosek,
+      a na B2B od razu przyjęte zgłoszenie,
+    * całe okno autoodpowiedzi, z którego powstał wcześniejszy wniosek z
+      Outlooka (``oof_window`` w śladzie) — wniosek skrócony edycją nie
+      odrasta z tej samej autoodpowiedzi.
+    """
 
     active = await db.scalars(
         select(LeaveRequestDay.day).where(
@@ -138,18 +150,39 @@ async def _covered_days(
     closed = await db.execute(
         select(LeaveRequest.start_date, LeaveRequest.end_date).where(
             LeaveRequest.user_id == user_id,
-            LeaveRequest.source == SOURCE,
             LeaveRequest.status.in_(_CLOSED_BY_DECISION),
             LeaveRequest.start_date <= end,
             LeaveRequest.end_date >= start,
         )
     )
-    for closed_start, closed_end in closed.all():
-        day = max(closed_start, start)
-        while day <= min(closed_end, end):
+    spans: list[tuple[date, date]] = list(closed.tuples().all())
+    detected = await db.scalars(
+        select(HrAuditEvent.details).where(
+            HrAuditEvent.subject_user_id == user_id,
+            HrAuditEvent.entity_type == "leave_request",
+            HrAuditEvent.action == ACTION,
+        )
+    )
+    for details in detected.all():
+        window = _audit_window(details)
+        if window is not None:
+            spans.append(window)
+    for span_start, span_end in spans:
+        day = max(span_start, start)
+        while day <= min(span_end, end):
             covered.add(day)
             day += timedelta(days=1)
     return covered
+
+
+def _audit_window(details: Any) -> Optional[tuple[date, date]]:
+    raw = details.get("oof_window") if isinstance(details, dict) else None
+    if not isinstance(raw, list) or len(raw) != 2:
+        return None
+    try:
+        return date.fromisoformat(str(raw[0])), date.fromisoformat(str(raw[1]))
+    except ValueError:
+        return None
 
 
 async def from_custom_oof(

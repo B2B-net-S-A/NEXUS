@@ -260,6 +260,9 @@ async def test_team_month_csv_for_payroll_and_hr_only(app_client) -> None:
     path = f"/api/hr/time/export/{Y}/{M}/csv"
     refused = await app_client.get(path, headers=headers(boss))
     assert refused.status_code == 403
+    # Audyt 19.10.2026 (zgłoszenie z testów produkcji): odmowa eksportu CSV
+    # mówiła o „paczce PDF-ów”.
+    assert "PDF" not in refused.json()["detail"]
     response = await app_client.get(path, headers=headers(payroll))
     assert response.status_code == 200, response.text
     assert "godziny-2031-03.csv" in response.headers["content-disposition"]

@@ -3,7 +3,7 @@
 import Link from "next/link";
 
 import { useMyEquipment } from "@/lib/api/equipment";
-import type { HrConfig, PersonFull } from "@/lib/api/hr";
+import type { HrConfig, OwnProfile } from "@/lib/api/hr";
 import { useMyLifecycleTasks } from "@/lib/api/hr-lifecycle";
 import { useMyMonth, useMyTimesheetHistory } from "@/lib/api/hr-time";
 import type { YearMonth } from "@/lib/date-pl";
@@ -19,7 +19,7 @@ export function TodoCard({
   onOpenTab,
 }: {
   config: HrConfig;
-  person: PersonFull;
+  person: OwnProfile;
   onOpenTab: (value: string, month?: YearMonth) => void;
 }) {
   const open = config.open_modules;

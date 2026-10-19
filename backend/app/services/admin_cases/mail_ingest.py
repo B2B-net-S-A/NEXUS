@@ -234,6 +234,46 @@ def _header_ids(msg: dict[str, Any]) -> list[str]:
     return list(dict.fromkeys(ordered))
 
 
+#: Autoodpowiedzi (urlop, „poza biurem”) — nagłówki RFC 3834 i Exchange.
+_AUTO_PRECEDENCE = frozenset({"auto_reply", "junk"})
+_AUTO_SUBJECT_PREFIXES = (
+    "automatic reply:",
+    "autoreply:",
+    "auto reply:",
+    "auto-reply:",
+    "odpowiedź automatyczna:",
+    "odpowiedz automatyczna:",
+    "out of office:",
+    "abwesenheitsnotiz:",
+)
+
+
+def _is_auto_reply(msg: dict[str, Any], sender_email: Optional[str]) -> bool:
+    """Autoodpowiedź, która nie jest zgłoszeniem (audyt 19.10.2026).
+
+    Komunikat do kilkuset konsultantów albo mail powitalny dają falę
+    odpowiedzi „jestem na urlopie” — każda zakładałaby nową sprawę. Zwrotki
+    serwera poczty (postmaster, mailer-daemon) NIE są tu liczone: czytnik
+    przypina je do komunikatu (``care.announcements.link_mail_case``).
+    """
+
+    from app.services.care.announcements import looks_like_bounce  # noqa: PLC0415
+
+    if looks_like_bounce(sender_email):
+        return False
+    for header in msg.get("internetMessageHeaders") or []:
+        name = str(header.get("name") or "").strip().lower()
+        value = str(header.get("value") or "").strip().lower()
+        if name == "auto-submitted" and value and value != "no":
+            return True
+        if name in {"x-autoreply", "x-autorespond", "x-autoresponder"}:
+            return True
+        if name == "precedence" and value in _AUTO_PRECEDENCE:
+            return True
+    subject = str(msg.get("subject") or "").strip().lower()
+    return subject.startswith(_AUTO_SUBJECT_PREFIXES)
+
+
 def _body(msg: dict[str, Any]) -> str:
     for key in ("uniqueBody", "body"):
         body = msg.get(key) or {}
@@ -305,11 +345,12 @@ async def _ingest_message(
     case = await _thread_case(db, msg)
     outcome = "attached"
     now = datetime.now(timezone.utc)
-    if own:
+    if own or _is_auto_reply(msg, sender_email):
         # Wiadomość wysłana przez administrację: kopia do siebie albo odpowiedź
         # z home.pl z administracja@ w kopii (wariant B). W wątku sprawy to jej
         # odpowiedź — dołącza bez ponownego otwarcia; poza wątkiem to nie
-        # zgłoszenie.
+        # zgłoszenie. Autoodpowiedź tak samo: w wątku zostaje śladem, nie
+        # otwiera zamkniętej sprawy i nie zakłada nowej.
         if case is None:
             return "skipped"
     elif case is None:

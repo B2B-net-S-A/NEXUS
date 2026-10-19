@@ -23,14 +23,17 @@ Reguły (Compass ``internal-rates.ts`` + naprawy):
   Stawka z poprzedniego roku obowiązuje dalej w nowym (także po usunięciu
   kroku nowego roku), więc raport miesiąca płac sprawdza tę samą regułą
   (``mandate_minimum_shortfall``) stawkę obowiązującą w miesiącu i ostrzega
-  przed zamknięciem (``payroll_report.minimum_rate_warnings``).
+  przed zamknięciem (``payroll_report.minimum_rate_warnings``),
+* własnej stawki nie ustawia ani nie usuwa nikt z Płac — robi to druga osoba
+  z Płac albo administrator (decyzja Artura 19.10.2026, ``ensure_not_own_rate``);
+  administratorowi wolno, ślad w ``hr_audit_events`` jak przy każdej zmianie.
 """
 
 from __future__ import annotations
 
 import logging
 from datetime import date, timedelta
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 from typing import Any, Optional
 
 from sqlalchemy import select
@@ -45,7 +48,11 @@ from app.models.hr_profile import EmployeeProfile
 from app.models.notification import NotificationType
 from app.services.hr import audit
 from app.services.hr.notify import notify_each
-from app.services.hr.payroll_errors import PayrollError, PayrollNotFound
+from app.services.hr.payroll_errors import (
+    PayrollError,
+    PayrollForbidden,
+    PayrollNotFound,
+)
 from app.services.hr.payroll_periods import (
     add_months,
     assert_range_open,
@@ -57,6 +64,12 @@ from app.services.hr_foundation_schema import EmploymentType
 logger = logging.getLogger(__name__)
 
 RATE_BACKDATE_MAX_MONTHS = 12
+OWN_RATE_SET_DETAIL = (
+    "Własnej stawki nie ustawiasz — zrobi to druga osoba z Płac albo administrator."
+)
+OWN_RATE_DELETE_DETAIL = (
+    "Własnej stawki nie usuwasz — zrobi to druga osoba z Płac albo administrator."
+)
 RATE_AHEAD_MAX_MONTHS = 24
 RATE_MAX = Decimal("9999999.99")
 
@@ -251,7 +264,9 @@ def validate_rate(hourly_rate: Decimal, currency: str) -> tuple[Decimal, str]:
     code = (currency or "").strip().upper()
     if code not in CURRENCIES:
         raise PayrollError("Waluta stawki: PLN, EUR albo USD.")
-    return hourly_rate.quantize(Decimal("0.01")), code
+    # HALF_UP jak raport płac (``payroll_report.money``); RATE_MAX ma dwa miejsca
+    # po przecinku, więc wynik zaokrąglenia nie wyjdzie poza zakres.
+    return hourly_rate.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP), code
 
 
 def rate_payload(rate: EmployeeRate) -> dict[str, Any]:
@@ -275,6 +290,27 @@ def rate_on(rates: list[EmployeeRate], day: date) -> Optional[EmployeeRate]:
             rate.effective_to is None or rate.effective_to >= day
         ):
             return rate
+    return None
+
+
+def rate_to_close(
+    earlier: list[EmployeeRate], effective_from: date
+) -> Optional[EmployeeRate]:
+    """Stawka do domknięcia dniem przed nową: tylko ta, która w tym dniu trwa.
+
+    ``earlier`` — kroki sprzed nowej daty, rosnąco. Ostatni z nich, zakończony
+    przed nową datą (luka z importu Compassa: stawka z końcem, bez następnej),
+    zostaje nietknięty — inaczej luka wypełniłaby się starą stawką: miesiące
+    bez stawki liczyłyby się nią zamiast ostrzeżenia ``missing_rates``, a zamknięty
+    miesiąc zmieniałby się bez 409, bo blokada i kontrola zamkniętych miesięcy
+    zaczynają się od nowej daty (audyt A2, 19.10.2026).
+    """
+
+    if not earlier:
+        return None
+    before = earlier[-1]
+    if before.effective_to is None or before.effective_to >= effective_from:
+        return before
     return None
 
 
@@ -323,6 +359,20 @@ async def _notify(db: AsyncSession, rate: EmployeeRate) -> None:
     )
 
 
+def ensure_not_own_rate(
+    user_id: int, *, actor_id: int, actor_is_admin: bool, deleting: bool = False
+) -> None:
+    """Własna stawka = 403, chyba że zmienia ją administrator (decyzja 19.10.2026).
+
+    Bo osoba z Płac podniosłaby sobie stawkę bez drugiej pary oczu.
+    """
+
+    if user_id == actor_id and not actor_is_admin:
+        raise PayrollForbidden(
+            OWN_RATE_DELETE_DETAIL if deleting else OWN_RATE_SET_DETAIL
+        )
+
+
 async def set_rate(
     db: AsyncSession,
     *,
@@ -333,9 +383,11 @@ async def set_rate(
     reason: Optional[str],
     actor_id: int,
     today: date,
+    actor_is_admin: bool = False,
 ) -> EmployeeRate:
     """Nowa stawka od 1. dnia miesiąca (albo poprawka kroku z tą samą datą)."""
 
+    ensure_not_own_rate(user_id, actor_id=actor_id, actor_is_admin=actor_is_admin)
     validate_effective_from(effective_from, today)
     amount, code = validate_rate(hourly_rate, currency)
     await mandate_minimum_check(
@@ -366,8 +418,8 @@ async def set_rate(
         same.set_by = actor_id
         rate = same
     else:
-        if earlier:
-            before = earlier[-1]
+        before = rate_to_close(earlier, effective_from)
+        if before is not None:
             previous = {
                 "hourly_rate": str(before.hourly_rate),
                 "currency": before.currency,
@@ -407,7 +459,9 @@ async def set_rate(
     return rate
 
 
-async def delete_rate(db: AsyncSession, *, rate_id: int, actor_id: int) -> int:
+async def delete_rate(
+    db: AsyncSession, *, rate_id: int, actor_id: int, actor_is_admin: bool = False
+) -> int:
     """Usuwa pomyłkowy krok; poprzedni krok przejmuje jego okres. Zwraca ``user_id``."""
 
     found = (
@@ -420,6 +474,9 @@ async def delete_rate(db: AsyncSession, *, rate_id: int, actor_id: int) -> int:
     if found is None:
         raise PayrollNotFound("Nie ma takiej stawki.")
     user_id = found.user_id
+    ensure_not_own_rate(
+        user_id, actor_id=actor_id, actor_is_admin=actor_is_admin, deleting=True
+    )
     # Data „od” kroku się nie zmienia (ta sama data = poprawka w miejscu), więc
     # blokada od niej do „dziś” obejmuje każdy miesiąc, którego dotyczy usunięcie.
     await lock_months_shared(db, found.effective_from, business_today())
@@ -455,7 +512,10 @@ __all__ = [
     "DEFAULT_MINIMUM_RATES",
     "MINIMUM_RATES_SETTING",
     "RATE_BACKDATE_MAX_MONTHS",
+    "OWN_RATE_DELETE_DETAIL",
+    "OWN_RATE_SET_DETAIL",
     "check_mandate_minimum",
+    "ensure_not_own_rate",
     "format_pln",
     "load_minimum_rates",
     "mandate_minimum_shortfall",

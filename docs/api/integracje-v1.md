@@ -646,7 +646,7 @@ scope; zdarzeń rekrutacji klientów ukrytych i usuniętych nie ma (jak w
 | `contract.status_changed` | zmiana statusu kontraktu | `contract_id`, `status`, `previous_status` | `contracts:read` |
 | `md_import.created` | nowy import raportu MD | `md_import_id`, `period_month` | `md:read` |
 | `invoice.created` / `.updated` | faktura wystawiona / zmieniona | `invoice_id`, `contract_id` | `invoices:read` |
-| `leave.approved` | nieobecność zatwierdzona (akceptacja, L4 zgłoszone od razu, wpis za pracownika) | `leave_request_id`, `user_id`, `start_date`, `end_date` — **bez rodzaju** | `absences:read` |
+| `leave.approved` | nieobecność zatwierdzona (akceptacja, L4 zgłoszone od razu, wpis za pracownika, zgłoszenie z autoodpowiedzi Outlooka) albo zmiana dat zatwierdzonej — to samo `leave_request_id`, aktualne daty (traktuj jak upsert) | `leave_request_id`, `user_id`, `start_date`, `end_date` — **bez rodzaju** | `absences:read` |
 | `leave.cancelled` | anulowana nieobecność, która była zatwierdzona | jak wyżej | `absences:read` |
 | `equipment.issued` | wydanie sprzętu z protokołem | `assignment_id`, `item_id`, `holder_kind`, `holder_id` | `equipment:read` |
 | `equipment.returned` | zwrot wydanego sprzętu | jak wyżej | `equipment:read` |

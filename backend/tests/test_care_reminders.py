@@ -363,3 +363,132 @@ async def test_last_talk_covers_earlier_plan_points() -> None:
         date(2026, 10, 1)
     ]
     assert [n.user_id for n in await _reminders_for(silent)] == [owner.id]
+
+
+def _care_contract(contract_id: int, owner_id: int) -> care_access.CareContract:
+    return care_access.CareContract(
+        id=contract_id,
+        client_id=1,
+        client_name="Klient Przykładowy",
+        candidate_id=contract_id,
+        candidate_name=f"Osoba {contract_id}",
+        job_id=None,
+        job_title=None,
+        job_delivery_lead_id=None,
+        status="active",
+        start_date=date(2026, 9, 1),
+        contract_end_date=None,
+        order_end_date=None,
+        explicit_owner_id=owner_id,
+        client_default_owner_id=None,
+    )
+
+
+async def test_owner_with_many_due_contracts_gets_one_bell(monkeypatch) -> None:
+    """Pierwszy przebieg 18.10.2026 dał 472 dzwonki (jednemu DL 290) — po
+    jednym na kontrakt. Opiekun z wieloma zaległymi dostaje jeden zbiorczy."""
+
+    today = date(2026, 10, 19)
+    many = [_care_contract(cid, 27) for cid in range(1, 41)]
+    single = _care_contract(99, 30)
+    calls: list[dict] = []
+
+    async def fake_due(db, ids, day):
+        return {}
+
+    async def fake_latest(db, ids):
+        return {}
+
+    def fake_next(items, latest, day):
+        return care_plan.NextContact(kind="cadence", due_on=date(2026, 10, 1))
+
+    async def fake_none(db, ids, now):
+        return set()
+
+    async def fake_owners(db, contracts):
+        return {
+            c.id: care_access.OwnerChoice(c.explicit_owner_id, "contract")
+            for c in contracts
+        }
+
+    async def fake_notify(db, user_ids, **kwargs):
+        calls.append({"users": list(user_ids), **kwargs})
+        return 1
+
+    monkeypatch.setattr(reminders, "_due_items", fake_due)
+    monkeypatch.setattr(care_plan, "latest_conversations", fake_latest)
+    monkeypatch.setattr(care_plan, "next_contact", fake_next)
+    monkeypatch.setattr(reminders, "_recently_reminded", fake_none)
+    monkeypatch.setattr(reminders, "_recent_digests", fake_none, raising=False)
+    monkeypatch.setattr(care_access, "effective_owners", fake_owners)
+    monkeypatch.setattr(reminders, "notify_each", fake_notify)
+
+    result = await reminders.remind(
+        None, [*many, single], today=today, now=AFTER_WARSAW_MIDNIGHT
+    )
+
+    by_user = {call["users"][0]: call for call in calls}
+    assert len(calls) == 2
+    digest = by_user[27]
+    assert digest["related_entity_type"] == reminders.DIGEST_ENTITY
+    assert digest["related_entity_id"] == 27
+    assert digest["link"] == "/care"
+    assert digest["message"].startswith("Do zrobienia: 40 — Osoba 1")
+    assert "i 37 inne" in digest["message"]
+    assert "01.10" in digest["message"]
+    assert by_user[30]["related_entity_id"] == 99  # jeden kontrakt — jak dotąd
+    assert (result["sent"], result["digests"], result["skipped"]) == (41, 1, 0)
+
+
+async def test_digest_waits_seven_days_unless_something_is_due_today(
+    monkeypatch,
+) -> None:
+    today = date(2026, 10, 20)
+    items = [_care_contract(cid, 27) for cid in (1, 2)]
+    due = {1: date(2026, 10, 1), 2: date(2026, 10, 2)}
+    calls: list[int] = []
+
+    async def fake_due(db, ids, day):
+        return {}
+
+    async def fake_latest(db, ids):
+        return {}
+
+    async def fake_none(db, ids, now):
+        return set()
+
+    async def fake_digested(db, ids, now):
+        return {27}
+
+    async def fake_owners(db, contracts):
+        return {c.id: care_access.OwnerChoice(27, "contract") for c in contracts}
+
+    async def fake_notify(db, user_ids, **kwargs):
+        calls.append(kwargs["related_entity_id"])
+        return 1
+
+    monkeypatch.setattr(reminders, "_due_items", fake_due)
+    monkeypatch.setattr(care_plan, "latest_conversations", fake_latest)
+    monkeypatch.setattr(reminders, "_recently_reminded", fake_none)
+    monkeypatch.setattr(reminders, "_recent_digests", fake_digested)
+    monkeypatch.setattr(care_access, "effective_owners", fake_owners)
+    monkeypatch.setattr(reminders, "notify_each", fake_notify)
+
+    def next_for(contract_id):
+        return care_plan.NextContact(kind="cadence", due_on=due[contract_id])
+
+    # next_contact dostaje punkt planu, nie id — podstawiamy po kolejności.
+    order = iter([1, 2])
+    monkeypatch.setattr(
+        care_plan, "next_contact", lambda items_, latest, day: next_for(next(order))
+    )
+    quiet = await reminders.remind(None, items, today=today, now=AFTER_WARSAW_MIDNIGHT)
+    assert calls == [] and quiet["skipped"] == 2
+
+    due[2] = today
+    order = iter([1, 2])
+    monkeypatch.setattr(
+        care_plan, "next_contact", lambda items_, latest, day: next_for(next(order))
+    )
+    rung = await reminders.remind(None, items, today=today, now=AFTER_WARSAW_MIDNIGHT)
+    assert calls == [27] and rung["digests"] == 1

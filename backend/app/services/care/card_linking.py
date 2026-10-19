@@ -122,7 +122,10 @@ class ContractIndex:
         key = person_key(person_name)
         rows = self.by_person.get((client_id, key), []) if key else []
         in_period = [row for row in rows if row.covers(day)]
-        if len(in_period) == 1:
+        # Imiennicy (różni kandydaci pod jednym kluczem) zawsze czekają na
+        # potwierdzenie: daty umów w NEXUSIE bywają późniejsze niż praca.
+        one_person = len({row.candidate_id for row in rows}) == 1
+        if len(in_period) == 1 and one_person:
             return Match(contract_id=in_period[0].contract_id)
         ranked = sorted(rows, key=lambda row: (row.distance(day), -row.contract_id))
         return Match(

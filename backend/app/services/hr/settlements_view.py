@@ -34,6 +34,7 @@ from app.services.hr.settlements_rules import (
     B2B,
     URGENCY,
     net_total,
+    payment_state_refusal,
     problems_of,
     status_label,
 )
@@ -185,6 +186,7 @@ def row_payload(
         discrepancy=settlement.discrepancy_amount,
         account_source=billing.account_source if billing else None,
         gross_issue=settlements.gross_issue_of(invoices, billing),
+        seller_issue=settlements.seller_issue_of(invoices, billing),
     )
     hours_confirmed = None if line is None else line.timesheet_status == "approved"
     status = settlement.status
@@ -224,7 +226,17 @@ def row_payload(
         "paid_amount": _str(settlement.paid_amount),
         "mine": mine,
         "can_approve": status == "ready" and not mine,
-        "can_mark_paid": status not in ("paid", "cancelled") and not mine,
+        # Ręczne „opłacono” tylko bez nierozwiązanej rozbieżności (19.10.2026).
+        "can_mark_paid": status not in ("paid", "cancelled")
+        and not mine
+        and payment_state_refusal(
+            employment_type=settlement.employment_type,
+            status=status,
+            problems=problems,
+            override_kind=settlement.override_kind,
+            override_confirmed=settlement.override_confirmed_by is not None,
+        )
+        is None,
         "has_pdf": settlement.employment_type == "zlecenie" and status != "cancelled",
     }
 
@@ -408,6 +420,11 @@ def explain(
             "VAT ponad 23% netto albo VAT u osoby, która nie jest czynnym podatnikiem "
             "VAT) — zapłata wymaga drugiej osoby."
         )
+    if settlements.seller_issue_of(invoices, billing):
+        out.append(
+            "NIP wystawcy faktury inny niż w danych do rozliczeń — tego nie uznaje "
+            "się jako różnicy: potrzebna właściwa faktura albo poprawka NIP-u."
+        )
     if billing is None or billing.account_last4 is None:
         out.append("Brak rachunku do przelewu w danych do rozliczeń.")
     elif billing.account_source != "white_list":
@@ -476,6 +493,7 @@ async def settlement_detail(
         and not row["mine"],
         "can_request_override": settlement.status == "mismatch"
         and settlement.override_requested_by is None
+        and "seller" not in row["problems"]
         and not row["mine"],
     }
 

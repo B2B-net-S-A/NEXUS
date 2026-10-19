@@ -317,7 +317,11 @@ export function PersonAgreementsSection({ userId, enabled }: { userId: number; e
         <AgreementDialog overview={data} agreement={dialog.agreement} onClose={() => setDialog(null)} />
       ) : null}
       {dialog?.kind === "signed" ? (
-        <MarkSignedDialog agreement={dialog.agreement} onClose={() => setDialog(null)} />
+        <MarkSignedDialog
+          agreement={dialog.agreement}
+          appliesRate={data?.applies_rate ?? false}
+          onClose={() => setDialog(null)}
+        />
       ) : null}
       {dialog?.kind === "cancel" ? (
         <CancelAgreementDialog agreement={dialog.agreement} onClose={() => setDialog(null)} />

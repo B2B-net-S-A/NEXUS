@@ -2,8 +2,9 @@
 
 Ścieżki odmowy: osoba pracująca i osoba, której okres jeszcze trwa, nie są na
 liście; usunięcie bez potwierdzenia = 422; pozycja, która przestała być po
-terminie (osoba wróciła), jest pomijana z powodem; okresy spoza 1–50 lat
-i nieznany rodzaj = 422; tylko Kadry. Dane fikcyjne.
+terminie (osoba wróciła), jest pomijana z powodem; okresy spoza 10–50 lat
+(minimum 10 lat — decyzja Artura 19.10.2026) i nieznany rodzaj = 422; tylko
+Kadry. Dane fikcyjne.
 """
 
 from __future__ import annotations
@@ -77,24 +78,25 @@ async def test_due_lists_only_documents_past_term_of_people_who_left(
     long_gone = await make_user(employment_type="b2b", name="Borys Wzorcowy")
     recent = await make_user(employment_type="b2b", name="Anna Przykładowa")
     working = await make_user(employment_type="b2b", name="Ola Nowak")
-    old_other = await _upload(app_client, hr, long_gone.id, "other")  # 5 lat
-    old_contract = await _upload(app_client, hr, long_gone.id, "contract")  # 10 lat
+    # 10 lat dla każdego rodzaju, także „inne” (decyzja Artura 19.10.2026).
+    old_other = await _upload(app_client, hr, long_gone.id, "other")
+    old_contract = await _upload(app_client, hr, long_gone.id, "contract")
     recent_other = await _upload(app_client, hr, recent.id, "other")
     working_other = await _upload(app_client, hr, working.id, "other")
-    await _exit(long_gone.id, _years_ago(6))
-    await _exit(recent.id, _years_ago(1))
+    await _exit(long_gone.id, _years_ago(11))
+    await _exit(recent.id, _years_ago(6))
 
     response = await app_client.get(f"{PREFIX}/retention", headers=headers(hr))
 
     assert response.status_code == 200, response.text
     ids = {row["id"] for row in response.json()["items"]}
-    assert old_other in ids
-    assert not {old_contract, recent_other, working_other} & ids
+    assert {old_other, old_contract} <= ids
+    assert not {recent_other, working_other} & ids
     row = next(row for row in response.json()["items"] if row["id"] == old_other)
     assert row["person_name"] == long_gone.name
-    assert row["delete_from"] == date(_years_ago(6).year + 6, 1, 1).isoformat()
+    assert row["delete_from"] == date(_years_ago(11).year + 11, 1, 1).isoformat()
     kinds = {entry["kind"]: entry["years"] for entry in response.json()["retention"]}
-    assert kinds["other"] == 5 and kinds["contract"] == 10
+    assert set(kinds.values()) == {10}
 
 
 async def test_delete_needs_confirmation_and_rechecks_each_document(
@@ -106,8 +108,8 @@ async def test_delete_needs_confirmation_and_rechecks_each_document(
     back = await make_user(employment_type="b2b")
     due_id = await _upload(app_client, hr, gone.id, "other")
     returned_id = await _upload(app_client, hr, back.id, "other")
-    await _exit(gone.id, _years_ago(7))
-    await _exit(back.id, _years_ago(7))
+    await _exit(gone.id, _years_ago(11))
+    await _exit(back.id, _years_ago(11))
     async with AsyncSessionLocal() as db:
         path = (await db.get(HrDocument, due_id)).file_path
     # Osoba wróciła do pracy po tym, jak Kadry otworzyły listę.
@@ -149,21 +151,23 @@ async def test_longer_retention_takes_document_off_the_list(
     hr = await _hr()
     gone = await make_user(employment_type="b2b")
     doc_id = await _upload(app_client, hr, gone.id, "other")
-    await _exit(gone.id, _years_ago(6))
+    await _exit(gone.id, _years_ago(11))
 
     saved = await app_client.put(
         f"{PREFIX}/settings/retention",
         headers=headers(hr),
-        json={"years": {"other": 8}},
+        json={"years": {"other": 12}},
     )
     after = await app_client.get(f"{PREFIX}/retention", headers=headers(hr))
 
     assert saved.status_code == 200, saved.text
-    assert {e["kind"]: e["years"] for e in saved.json()["retention"]}["other"] == 8
+    assert {e["kind"]: e["years"] for e in saved.json()["retention"]}["other"] == 12
     assert doc_id not in {row["id"] for row in after.json()["items"]}
 
 
-@pytest.mark.parametrize("years", [{"other": 0}, {"other": 51}, {"nda": 5}])
+@pytest.mark.parametrize(
+    "years", [{"other": 0}, {"other": 9}, {"contract": 9}, {"other": 51}, {"nda": 5}]
+)
 async def test_retention_settings_refuse_bad_values(
     app_client: AsyncClient, years
 ) -> None:
@@ -196,7 +200,7 @@ async def test_nothing_is_deleted_without_a_person_clicking() -> None:
             actor=actor,
         )
         await db.commit()
-    await _exit(gone.id, _years_ago(9))
+    await _exit(gone.id, _years_ago(11))
 
     async with AsyncSessionLocal() as db:
         listed = await documents_retention.due(db)

@@ -45,6 +45,7 @@ from app.services.hr.time_entries import (
     clean_description,
     clean_hours,
     clean_project,
+    employed_on,
     entries_of,
     leave_map,
     sync_leave_paid,
@@ -99,11 +100,16 @@ async def resolve_role_default(
     return rows[0] if rows else None
 
 
+#: Role bez własnego domyślnego opisu: ``user`` wycofana, ``sourcer`` i ``tac``
+#: to aliasy rekrutera (0411) — zostają w enumie tylko na czas migracji.
+_RETIRED_ROLES = frozenset({"user", "sourcer", "tac"})
+
+
 def _valid_role(raw: Optional[str]) -> Optional[str]:
     value = (raw or "").strip()
     if not value:
         return None
-    if value not in {role.value for role in UserRole}:
+    if value not in {role.value for role in UserRole} or value in _RETIRED_ROLES:
         raise TimeError("Nieznana rola.")
     return value
 
@@ -153,10 +159,10 @@ async def save_role_default(
         row.applies_to_role = _valid_role(values["applies_to_role"])
     if "project" in values:
         row.project = clean_project(values["project"])
-    if "is_active" in values:
+    if values.get("is_active") is not None:
         row.is_active = bool(values["is_active"])
     if "sort_order" in values:
-        row.sort_order = int(values["sort_order"])
+        row.sort_order = int(values["sort_order"] or 0)
     await db.flush()
     audit.record(
         db,
@@ -271,7 +277,10 @@ async def plan_open_days(
     """Dni robocze bez wpisów i bez urlopu (połowa urlopu = 4 h wolnego miejsca).
 
     Dzień dostaje ``hours_per_day``, ale nie więcej, niż zostawia urlop dnia —
-    wypełnianie nigdy nie robi nadgodzin.
+    wypełnianie nigdy nie robi nadgodzin. Tylko dni zatrudnienia z kartoteki
+    (od ``work_start_date`` do ``last_working_day``). Połowa płatnej puli B2B
+    (auto-wpis 4 h) zostawia drugie 4 h do wypełnienia; auto-wpis nie zajmuje
+    dnia jak ręczny wpis.
     """
 
     calendar = await month_calendar(db, timesheet.year, timesheet.month)
@@ -283,28 +292,33 @@ async def plan_open_days(
         start=start,
         end=end,
     )
-    taken = {entry.work_date for entry in await entries_of(db, timesheet.id)}
+    taken = {
+        entry.work_date
+        for entry in await entries_of(db, timesheet.id)
+        if entry.source != "leave_paid"
+    }
     open_days: list[OpenDay] = []
     skipped_existing = skipped_leave = working = 0
     for item in calendar:
-        if not item.is_working_day:
+        if not item.is_working_day or not employed_on(subject, item.day):
             continue
         working += 1
         day_leave = leaves.get(item.day)
         if day_leave is not None and (
-            day_leave.paid_work
-            or day_leave.blocks_day
-            or day_leave.leave.status == "pending"
+            day_leave.blocks_day or day_leave.leave.status == "pending"
         ):
             skipped_leave += 1
             continue
         if item.day in taken:
             skipped_existing += 1
             continue
-        occupied = day_leave.occupied_hours if day_leave else Decimal("0")
-        open_days.append(
-            OpenDay(day=item.day, hours=min(hours_per_day, STANDARD - occupied))
-        )
+        if day_leave is None:
+            room = STANDARD
+        elif day_leave.paid_work:
+            room = STANDARD - day_leave.paid_hours
+        else:
+            room = STANDARD - day_leave.occupied_hours
+        open_days.append(OpenDay(day=item.day, hours=min(hours_per_day, room)))
     return FillPlan(
         open_days=open_days,
         skipped_existing=skipped_existing,

@@ -129,6 +129,103 @@ async def test_oof_turned_off_by_the_person_or_custom_is_left_alone() -> None:
     assert [op.kind for op in added[overwritten.id]] == ["set_oof"]
 
 
+async def _two_leaves_done(db, person, first, second, *, written_last):
+    """Dwa zatwierdzone urlopy z wykonanym ``set_oof``; ``written_last`` wszedł później."""
+
+    leaves = {}
+    for span in (first, second):
+        leave = await make_leave(db, person, *span)
+        await plan(db, leave, "approved", today=D(2026, 10, 15))
+        leaves[span] = leave
+    for span, hour in ((first, 8), (second, 8)):
+        await db.execute(
+            update(HrM365Operation)
+            .where(HrM365Operation.leave_request_id == leaves[span].id)
+            .values(
+                status="done",
+                done_at=at(D(2026, 10, 19), 10 if span == written_last else hour),
+            )
+        )
+    return leaves
+
+
+async def test_later_leave_oof_after_early_return_is_not_overwritten() -> None:
+    # Audyt 19.10.2026: osoba wróciła wcześniej z urlopu 19–23.10 i wyłączyła
+    # autoodpowiedź; potem zatwierdzono urlop 28–30.10 i wykonawca ustawił jego
+    # autoodpowiedź (skrzynka była bez naszej trwającej). Uzgadnianie nie
+    # przywraca autoodpowiedzi pierwszego urlopu nad drugą.
+    fake = FakeMailboxOps()
+    async with AsyncSessionLocal() as db:
+        await reset_reconcile_runs(db)
+        person = await make_user(db)
+        first = (D(2026, 10, 19), D(2026, 10, 23))
+        second = (D(2026, 10, 28), D(2026, 10, 30))
+        await _two_leaves_done(db, person, first, second, written_last=second)
+        await db.commit()
+        fake.set_oof(
+            person.email,
+            oof_template.schedule_setting(
+                start=second[0],
+                end=second[1],
+                internal_html=f"a{oof_state.NEXUS_OOF_MARKER}",
+                external_html="b",
+            ),
+        )
+        await reconcile.run_once(
+            db,
+            ops=fake,
+            mode="live",
+            now=at(D(2026, 10, 21), 7, 30),
+            user_ids=[person.id],
+        )
+        added = [
+            op
+            for op in await operations(db, person.id)
+            if ":reconcile:" in op.dedupe_key
+        ]
+
+    assert added == []
+
+
+async def test_earlier_leave_that_overwrote_gives_the_oof_back() -> None:
+    # Kontrola: wcześniejszy urlop (19–23.10) nadpisał autoodpowiedź
+    # późniejszego (28–30.10) z pierwszeństwa; dzień przed startem drugiego
+    # uzgadnianie oddaje mu autoodpowiedź.
+    fake = FakeMailboxOps()
+    async with AsyncSessionLocal() as db:
+        await reset_reconcile_runs(db)
+        person = await make_user(db)
+        first = (D(2026, 10, 19), D(2026, 10, 23))
+        second = (D(2026, 10, 28), D(2026, 10, 30))
+        leaves = await _two_leaves_done(db, person, first, second, written_last=first)
+        await db.commit()
+        fake.set_oof(
+            person.email,
+            oof_template.schedule_setting(
+                start=first[0],
+                end=first[1],
+                internal_html=f"a{oof_state.NEXUS_OOF_MARKER}",
+                external_html="b",
+            ),
+        )
+        await reconcile.run_once(
+            db,
+            ops=fake,
+            mode="live",
+            now=at(D(2026, 10, 27), 7, 30),
+            user_ids=[person.id],
+        )
+        added = [
+            op
+            for op in await operations(db, person.id)
+            if ":reconcile:" in op.dedupe_key
+        ]
+
+    assert [(op.kind, op.leave_request_id) for op in added] == [
+        ("set_oof", leaves[second].id)
+    ]
+
+
 async def test_rules_after_leave_and_orphans_are_closed_and_compass_rule_taken_over() -> (
     None
 ):

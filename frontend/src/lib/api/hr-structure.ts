@@ -81,9 +81,13 @@ export interface StructurePerson {
   email: string;
   job_title: string | null;
   department: string | null;
-  employment_type: EmploymentType;
+  /** `null` — formę widzą tylko admin i Finanse (19.10.2026) albo „do uzupełnienia”. */
+  employment_type: EmploymentType | null;
+  employment_type_pending?: boolean;
+  /** Przełożony do uzupełnienia (kartoteka założona z konta). */
+  manager_pending?: boolean;
   /** Uczeń/student na zleceniu (D8) i dzień, od którego Płace naliczają składki. */
-  student?: boolean;
+  student?: boolean | null;
   contributions_from?: string | null;
   employment_status: EmploymentStatus;
   division: Division | null;

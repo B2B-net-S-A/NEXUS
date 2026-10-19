@@ -567,3 +567,61 @@ async def test_podmieniony_rachunek_z_ta_sama_koncowka_blokuje_pobranie(client, 
         payment.counterparty_hmac and LISTED not in payment.counterparty_hmac
         for payment in stored
     )
+
+
+# ── Audyt A2 (19.10.2026): „Bank wykonał” nie opłaca własnego rozliczenia ─────
+
+
+@pytest.mark.asyncio
+async def test_bank_wykonal_z_wlasnym_rozliczeniem_potwierdza_inna_osoba(client, env):
+    finance, made = await _people()
+    await _enable()
+    async with AsyncSessionLocal() as db:
+        period = await db.get(PayrollPeriod, made["listed"].period_id)
+        payroll_person = await fx.make_user(
+            db, "finance", name="Paula Płacowa", profile={"employment_type": "b2b"}
+        )
+        nip = fx.nip("222333444")
+        await fx.set_billing(db, payroll_person, nip_value=nip, account_value=LISTED)
+        own = await fx.settlement(
+            db,
+            period,
+            payroll_person,
+            employment_type="b2b",
+            expected="1000.00",
+            approver=finance,
+            due_on=date(2026, 11, 18),
+        )
+        await fx.invoice(
+            db,
+            own,
+            seller_nip=nip,
+            invoice_number="FV wlasna/10/2026",
+            ksef_number=f"{nip}-20261104-5F2A9C0D71BF-4E",
+            net="1000.00",
+            gross="1230.00",
+        )
+        await db.commit()
+    created = await client.post(
+        f"{PREFIX}/batches",
+        json={"settlement_ids": [made["listed"].id, own.id]},
+        headers=fx.headers(finance),
+    )
+    assert created.status_code == 201, created.text
+    key = created.json()["batch_key"]
+
+    refused = await client.post(
+        f"{PREFIX}/batches/{key}/confirm", json={}, headers=fx.headers(payroll_person)
+    )
+    assert refused.status_code == 409, refused.text
+    assert refused.json()["detail"]["code"] == "own_settlement_in_batch"
+    async with AsyncSessionLocal() as db:
+        # Całą paczkę wstrzymuje — nic nie jest opłacone w połowie.
+        for settlement_id in (made["listed"].id, own.id):
+            assert (await db.get(PayrollSettlement, settlement_id)).status == "approved"
+
+    confirmed = await client.post(
+        f"{PREFIX}/batches/{key}/confirm", json={}, headers=fx.headers(finance)
+    )
+    assert confirmed.status_code == 200, confirmed.text
+    assert confirmed.json()["paid"] == 2

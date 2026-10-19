@@ -136,7 +136,8 @@ export function PayrollProfileSection({ userId, name }: { userId: number; name: 
   );
 
   return (
-    <Card className="space-y-4 p-5">
+    // `#place` — dzwonek Płac „stawka z umowy do przepisania” prowadzi tutaj.
+    <Card id="place" className="space-y-4 p-5">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className={SECTION_TITLE}>Płace</h2>
         {data ? (

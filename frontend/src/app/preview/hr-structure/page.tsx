@@ -4,13 +4,16 @@
  * Harness „Ludzie → Struktura” (etap 2, makieta „Struktura”, D4 i D7).
  *
  * Prawdziwe `PeopleSectionNav` + `StructureScreen` na zasianym cache, ZERO
- * zapytań (`hr-harness.tsx`). Ogląda Paulina (Kadry).
+ * zapytań (`hr-harness.tsx`). Ogląda Paulina (Kadry i Płace — formę umowy
+ * w Strukturze widzą admin i Finanse, 19.10.2026).
  *
  * Stany (`?state=`):
  * - `tree` (domyślnie) — Front office (head Kamil) z Martą, która odchodzi
  *   w przyszłym miesiącu i ma czworo ludzi (przejmie ich Kamil), rozjazd
  *   z Microsoft 365 przy Oli, Kacper bez koordynatora z podpowiedzią „head
- *   pionu”; Back office (head Piotr); Paulina bez pionu;
+ *   pionu” — jego kartotekę założył automat z konta (forma i przełożony „do
+ *   uzupełnienia”); Back office (head Piotr); Paulina bez pionu;
+ * - `hr-only` — to samo drzewo oczami Kadr bez Płac: bez formy umowy;
  * - `empty` — nikt nie ma jeszcze kartoteki.
  * Zaznaczenie osób i okna „Zmień koordynatora”, „Ustaw pion”, „Headowie
  * pionów” otwierają się bez zapytań; zapisy blokuje harness.
@@ -37,10 +40,11 @@ import {
   useHrHarness,
 } from "../hr-harness";
 
-const STATE_KEYS = ["tree", "empty"] as const;
+const STATE_KEYS = ["tree", "hr-only", "empty"] as const;
 
 const STATES = [
   { key: "tree", label: "Drzewo z pionami" },
+  { key: "hr-only", label: "Kadry bez Płac (bez formy)" },
   { key: "empty", label: "Bez kartotek" },
 ] as const;
 
@@ -102,6 +106,9 @@ function harnessStructure(): HrStructure {
     {
       ...row(kacper, "front_office", null),
       suggested_manager: { user_id: kamil.id, name: kamil.name },
+      // Kartoteka założona z konta NEXUSA (19.10.2026).
+      employment_type_pending: true,
+      manager_pending: true,
     },
     { ...row(piotr, "back_office", null), reports: 1 },
     row(natalia, "back_office", piotr),
@@ -127,18 +134,35 @@ function harnessStructure(): HrStructure {
 
 function prepare(params: URLSearchParams) {
   const state = pickState(params.get("state"), STATE_KEYS, "tree");
-  const config: HrConfig = hrConfig({ people_admin: true, has_profile: true });
+  const hrOnly = state === "hr-only";
+  const config: HrConfig = hrConfig({ people_admin: true, payroll: !hrOnly, has_profile: true });
+  const tree = harnessStructure();
+  // Kadry bez Płac: serwer nie przysyła formy ani pól od niej zależnych.
+  const shown: HrStructure = hrOnly
+    ? {
+        ...tree,
+        people: tree.people.map((person) => ({
+          ...person,
+          employment_type: null,
+          student: null,
+          contributions_from: null,
+        })),
+      }
+    : tree;
   const client = harnessQueryClient();
   client.setQueryData(hrKeys.config, config);
   client.setQueryData(hrKeys.counts, { approvals: 3, cases: null });
   client.setQueryData(
     structureKeys.all,
     state === "empty"
-      ? { ...harnessStructure(), people: [], total: 0, without_manager: 0, m365_mismatches: 0 }
-      : harnessStructure(),
+      ? { ...tree, people: [], total: 0, without_manager: 0, m365_mismatches: 0 }
+      : shown,
   );
   return {
-    user: { ...paulina, grants: ["people_admin" as const] },
+    user: {
+      ...paulina,
+      grants: hrOnly ? ["people_admin" as const] : ["people_admin" as const, "payroll" as const],
+    },
     client,
     value: { state, config },
   };

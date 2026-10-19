@@ -23,7 +23,7 @@ from sqlalchemy import delete, select
 
 import app.models  # noqa: F401  (rejestracja wszystkich mapperów)
 from app.core.database import AsyncSessionLocal
-from app.core.scheduling import business_today
+from app.core.scheduling import business_today, local_now
 from app.core.security import create_access_token
 from app.models.app_setting import AppSetting
 from app.models.candidate import Candidate
@@ -573,3 +573,77 @@ async def test_approval_rechecks_contract_ended_since_last_run(
     assert "przed terminem" in response.json()["detail"]
     after = (await _bonuses(world["contract"]))["dl"]
     assert after.status == "cancelled" and after.cancel_reason == "contract_ended"
+
+
+@pytest.mark.asyncio
+async def test_approval_out_of_scope_is_404_without_reconciling(
+    app_client, payroll_on
+) -> None:
+    """Obcy dostaje 404, a uzgodnienie kontraktu nie biegnie (A2, 19.10.2026)."""
+
+    world = await _placement(started_days_ago=40)
+    await _reconcile(world["contract"])
+    proposal = (await _bonuses(world["contract"]))["dl"]
+    start = business_today() - timedelta(days=40)
+    await _update_contract(
+        world["contract"],
+        status=ContractStatus.ended,
+        end_date=start + timedelta(days=7),
+    )
+    async with AsyncSessionLocal() as db:
+        outsider = await _person(db, "recruiter")
+        await db.commit()
+    token = create_access_token(subject=outsider.id, role="recruiter")
+    response = await app_client.post(
+        f"/api/hr/payroll/bonuses/{proposal.id}/approve",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert response.status_code == 404
+    after = (await _bonuses(world["contract"]))["dl"]
+    # Przed poprawką uzgodnienie z commitem anulowało propozycję mimo 404.
+    assert after.status == "proposed" and after.cancel_reason is None
+
+
+@pytest.mark.asyncio
+async def test_assigned_bonus_of_contract_ended_before_deadline_is_flagged(
+    app_client, payroll_on
+) -> None:
+    """Decyzja Artura 19.10.2026: przyznanej premii automat nie anuluje, ale
+    widok miesiąca Płac i zamknięcie ostrzegają (kontrakt zamknięty datą wsteczną)."""
+
+    world = await _placement(started_days_ago=40)
+    await _reconcile(world["contract"])
+    async with AsyncSessionLocal() as db:
+        finance = await _person(db, "recruiter")
+        db.add(
+            UserActionOverride(user_id=finance.id, action="payroll", access="manage")
+        )
+        await db.commit()
+    proposal = (await _bonuses(world["contract"]))["dl"]
+    async with AsyncSessionLocal() as db:
+        bonus = await db.get(HrBonus, proposal.id)
+        bonus.status = "assigned"
+        bonus.assigned_by = finance.id
+        bonus.assigned_at = local_now()
+        await db.commit()
+    start = business_today() - timedelta(days=40)
+    await _update_contract(
+        world["contract"],
+        status=ContractStatus.ended,
+        end_date=start + timedelta(days=7),
+    )
+    token = create_access_token(subject=finance.id, role="recruiter")
+    response = await app_client.get(
+        f"/api/hr/payroll/months/{proposal.period_year}/{proposal.period_month}",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    flagged = {b["id"]: b["contract_ended_early"] for b in body["bonuses"]}
+    assert flagged[proposal.id] is True
+    if body["status"] == "open":
+        codes = [w["code"] for w in body["warnings"]]
+        assert "bonus_contract_ended_early" in codes
+    # Automat dalej nie rusza przyznanej premii.
+    await _reconcile(world["contract"])
+    assert (await _bonuses(world["contract"]))["dl"].status == "assigned"

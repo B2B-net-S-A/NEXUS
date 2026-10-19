@@ -3,7 +3,7 @@
 import Link from "next/link";
 
 import { AbsenceBadge } from "@/components/hr/AbsenceBadge";
-import type { PersonFull } from "@/lib/api/hr";
+import type { OwnProfile } from "@/lib/api/hr";
 import { useAbsences } from "@/lib/api/hr-leave";
 import { capitalize, employmentTerms } from "@/lib/hr-employment-terms";
 
@@ -18,7 +18,7 @@ function initials(name: string): string {
     .join("");
 }
 
-export function ManagerCard({ person, leaveOpen }: { person: PersonFull; leaveOpen: boolean }) {
+export function ManagerCard({ person, leaveOpen }: { person: OwnProfile; leaveOpen: boolean }) {
   const managerId = person.manager_user_id;
   const absences = useAbsences(managerId ? [managerId] : [], { enabled: leaveOpen && Boolean(managerId) });
   const absence = managerId ? absences.byUser.get(managerId) : undefined;

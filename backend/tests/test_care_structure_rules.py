@@ -404,3 +404,39 @@ def test_new_person_hint_only_when_nobody_has_that_name() -> None:
     )
     assert hint == rules.NewPersonHint(name="Ola Nowa", source="client_pm_name")
     assert rules.new_person_hint(facts(), index) is None
+
+
+def test_namesakes_at_the_client_are_never_a_certain_proposal() -> None:
+    # Dwie różne „Anna Nowak” u klienta: „Zatwierdź pewne” wpisałby hurtem
+    # osobę o niższym id (audyt 19.10.2026).
+    other = PersonRow(id=9, name="Anna Nowak", email="a.nowak@inny.example")
+    proposal = propose(facts(line_manager="Anna Nowak"), people=(*PEOPLE, other))
+    assert proposal.confidence != "certain"
+    assert proposal.contact_id is None
+    # Ta sama osoba wpisana dwa razy (ten sam adres) zostaje pewna.
+    twin = PersonRow(id=9, name="Anna Nowak", email=ANNA.email)
+    same = propose(facts(line_manager="Anna Nowak"), people=(*PEOPLE, twin))
+    assert (same.confidence, same.contact_id) == ("certain", ANNA.id)
+
+
+@pytest.mark.parametrize(
+    ("contact", "line_manager"),
+    [
+        ("Anna Nowak-Kowalska", "Anna Nowak Kowalska"),
+        ("Anna Maria Nowak", "Anna Nowak"),
+        ("Anna Nowak", "Anna Maria Nowak"),
+    ],
+)
+def test_same_person_written_differently_is_not_a_new_person(
+    contact, line_manager
+) -> None:
+    index = ContactIndex([PersonRow(1, contact)])
+    assert rules.new_person_hint(facts(line_manager=line_manager), index) is None
+
+
+@pytest.mark.parametrize(
+    "text",
+    ["IT Ops", "Nordea Bank", "Tribe Payments", "Squad Alpha", "Departament Ryzyka"],
+)
+def test_units_and_companies_are_not_people(text) -> None:
+    assert rules.person_name_from_text(text) is None

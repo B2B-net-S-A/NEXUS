@@ -113,6 +113,22 @@ async def edit_request(
         raise core.LeaveForbidden(REPORT_EDIT_FORBIDDEN)
     if profile is None:
         raise core.LeaveNotFound(request_id)
+    # Blokady PRZED odczytem wartości: równoległa edycja tego wniosku czeka,
+    # a potem liczymy z jej wyniku (wcześniej druga edycja zapisywała stare
+    # daty i gubiła zmianę pierwszej; audyt 19.10.2026).
+    await db.execute(
+        select(EmployeeProfile.id)
+        .where(EmployeeProfile.user_id == request.user_id)
+        .with_for_update()
+    )
+    # Wiersz wniosku pod blokadą: równoległa akceptacja albo anulowanie
+    # (warunkowy UPDATE) czeka na tę zmianę albo ją wyprzedza — wtedy 409.
+    seen_status = request.status
+    await _lock_request(db, request.id)
+    if request.status != seen_status:
+        raise core.LeaveConflict(
+            "Ten wniosek zmienił się w międzyczasie — odśwież listę."
+        )
 
     leave_type = _pick(changes.leave_type, request.leave_type)
     start = _pick(changes.start_date, request.start_date)
@@ -150,19 +166,6 @@ async def edit_request(
     )
     calendar = await load_calendar(db, start, end)
     days = requested_days(calendar, start, end, half_day)
-    await db.execute(
-        select(EmployeeProfile.id)
-        .where(EmployeeProfile.user_id == request.user_id)
-        .with_for_update()
-    )
-    # Wiersz wniosku pod blokadą: równoległa akceptacja albo anulowanie
-    # (warunkowy UPDATE) czeka na tę zmianę albo ją wyprzedza — wtedy 409.
-    seen_status = request.status
-    await _lock_request(db, request.id)
-    if request.status != seen_status:
-        raise core.LeaveConflict(
-            "Ten wniosek zmienił się w międzyczasie — odśwież listę."
-        )
     clash = await db.scalar(
         select(LeaveRequest)
         .where(
@@ -306,7 +309,14 @@ async def edit_request(
         cancelled = (
             await time_hooks.on_leave_cancelled(db, request.user_id, removed)
             if removed
-            else {"locked_conflicts": []}
+            else {"locked_conflicts": [], "sent_changed": []}
+        )
+        await core.report_sent_timesheet_changed(
+            db,
+            request=request,
+            subject=subject,
+            actor_id=actor.id,
+            months=[*hooked["sent_changed"], *cancelled["sent_changed"]],
         )
         locked = await report_payroll_locked(
             db,

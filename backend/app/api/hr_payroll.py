@@ -267,10 +267,16 @@ async def _bonus_list(
     today: date,
 ) -> list[dict[str, Any]]:
     names = await payroll_bonuses.names_for(db, bonuses)
+    ended_early = await placement_bonuses.ended_early_bonus_ids(db, bonuses)
     return [
-        payroll_bonuses.bonus_payload(
-            bonus, names, with_snapshot=viewer.payroll, today=today
-        )
+        {
+            **payroll_bonuses.bonus_payload(
+                bonus, names, with_snapshot=viewer.payroll, today=today
+            ),
+            # Propozycję ręczną przełożonego zatwierdzają tylko Płace (19.10.2026).
+            "can_approve": payroll_bonuses.can_approve(viewer, bonus),
+            "contract_ended_early": bonus.id in ended_early,
+        }
         for bonus in bonuses
     ]
 
@@ -514,6 +520,7 @@ async def month_detail(
         payload["totals"] = {k: str(v) for k, v in report.totals().items()}
         payload["warnings"] = (
             payroll_close.close_warnings(report.people)
+            + await payroll_close.ended_early_warnings(db, year, month)
             if report.status == "open"
             else []
         )
@@ -601,7 +608,9 @@ async def person_payroll(
     payload: dict[str, Any] = {
         "user_id": user_id,
         "scope": "full" if viewer.sees_rates_of(user_id) else "team",
-        "can_edit_rates": viewer.payroll,
+        # Własną stawkę zmienia druga osoba z Płac albo admin (19.10.2026).
+        "can_edit_rates": viewer.payroll
+        and (user_id != viewer.user_id or viewer.admin),
         "can_add_bonus": viewer.manages_bonuses_of(user_id),
         "bonuses": await _bonus_list(db, bonuses, viewer, today=today),
     }
@@ -632,6 +641,7 @@ async def set_rate(
             reason=payload.reason,
             actor_id=current_user.id,
             today=business_today(),
+            actor_is_admin=current_user.has_role(UserRole.admin),
         )
         # Zlecenie bez minimum dla roku albo w innej walucie — zapis z ostrzeżeniem.
         warning = await payroll_rates.mandate_minimum_check(
@@ -649,7 +659,12 @@ async def delete_rate(
     rate_id: int, current_user: PayrollAdmin, db: AsyncSession = Depends(get_db)
 ) -> Response:
     with _http_errors():
-        await payroll_rates.delete_rate(db, rate_id=rate_id, actor_id=current_user.id)
+        await payroll_rates.delete_rate(
+            db,
+            rate_id=rate_id,
+            actor_id=current_user.id,
+            actor_is_admin=current_user.has_role(UserRole.admin),
+        )
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -677,10 +692,8 @@ async def list_bonuses(
 async def _bonus_response(
     db: AsyncSession, bonus: HrBonus, viewer: PayrollViewer
 ) -> dict[str, Any]:
-    names = await payroll_bonuses.names_for(db, [bonus])
-    return payroll_bonuses.bonus_payload(
-        bonus, names, with_snapshot=viewer.payroll, today=business_today()
-    )
+    (payload,) = await _bonus_list(db, [bonus], viewer, today=business_today())
+    return payload
 
 
 @router.post("/bonuses", status_code=status.HTTP_201_CREATED)
@@ -732,7 +745,7 @@ async def approve_bonus(
     bonus_id: int, current_user: PayrollMember, db: AsyncSession = Depends(get_db)
 ) -> dict[str, Any]:
     viewer = await load_viewer(db, current_user)
-    await _reconcile_before_approval(db, bonus_id)
+    await _reconcile_before_approval(db, viewer, bonus_id)
     with _http_errors():
         bonus = await payroll_bonuses.approve_bonus(
             db, viewer, bonus_id, today=business_today()
@@ -740,22 +753,37 @@ async def approve_bonus(
     return await _bonus_response(db, bonus, viewer)
 
 
-async def _reconcile_before_approval(db: AsyncSession, bonus_id: int) -> None:
+async def _reconcile_before_approval(
+    db: AsyncSession, viewer: PayrollViewer, bonus_id: int
+) -> None:
     """Propozycja z placementu: uzgodnij kontrakt tuż przed zatwierdzeniem.
 
     Pętla biegnie raz dziennie — kontrakt zakończony przed terminem po porannym
     przebiegu nie może dać zatwierdzonej premii tego samego dnia. Błąd
     uzgodnienia nie blokuje decyzji (zostaje w logu).
+
+    Najpierw zakres: uzgodnienie zapisuje i commituje, więc biegnie tylko dla
+    widza, który może o tej premii zdecydować (ten sam warunek co
+    ``payroll_bonuses.approve_bonus``). Obcy dostaje od serwisu 404 bez żadnego
+    zapisu (audyt A2, 19.10.2026).
     """
 
-    contract_id = await db.scalar(
-        select(HrBonus.contract_id).where(
-            HrBonus.id == bonus_id,
-            HrBonus.source == placement_bonuses.SOURCE,
-            HrBonus.status == "proposed",
+    found = (
+        await db.execute(
+            select(HrBonus.contract_id, HrBonus.recipient_user_id).where(
+                HrBonus.id == bonus_id,
+                HrBonus.source == placement_bonuses.SOURCE,
+                HrBonus.status == "proposed",
+            )
         )
-    )
+    ).first()
+    if found is None:
+        return
+    contract_id, recipient_user_id = found
     if contract_id is None:
+        return
+    # ``manages_bonuses_of`` zawiera ``sees_person`` (Płace albo przełożony).
+    if not viewer.manages_bonuses_of(recipient_user_id):
         return
     try:
         async with db.begin_nested():
@@ -763,9 +791,13 @@ async def _reconcile_before_approval(db: AsyncSession, bonus_id: int) -> None:
         # Utrwalone od razu: odmowa zatwierdzenia (409) cofa transakcję żądania,
         # a anulowanie nieaktualnej propozycji ma zostać.
         await db.commit()
-    except Exception:  # noqa: BLE001 — decyzja Płac ważniejsza niż odświeżenie
+    except Exception as exc:  # noqa: BLE001 — decyzja Płac ważniejsza niż odświeżenie
         await db.rollback()
-        logger.exception("[payroll] uzgodnienie kontraktu przed zatwierdzeniem premii")
+        # Klasa wyjątku, nie treść — DETAIL Postgresa niesie kwoty wiersza.
+        logger.error(
+            "[payroll] uzgodnienie kontraktu przed zatwierdzeniem premii (%s)",
+            type(exc).__name__,
+        )
 
 
 @router.post("/bonuses/{bonus_id}/cancel")
@@ -823,9 +855,23 @@ async def get_rules(
 async def put_rules(
     payload: RulesIn, current_user: PayrollAdmin, db: AsyncSession = Depends(get_db)
 ) -> dict[str, Any]:
-    current = bonus_rules.rules_payload(await bonus_rules.load_rules(db))
+    saved = await bonus_rules.load_rules(db)
+    current = bonus_rules.rules_payload(saved)
     changes = payload.model_dump(exclude_unset=True, mode="json")
     merged = {**current, **changes}
+    if "automation_since" in changes:
+        with _http_errors():
+            new_since = bonus_rules.parse_rules(
+                {"automation_since": changes["automation_since"]}
+            ).automation_since
+        imported = await db.scalar(
+            select(HrBonus.id).where(HrBonus.source == "compass_import").limit(1)
+        )
+        refusal = bonus_rules.automation_since_change_error(
+            saved.automation_since, new_since, has_compass_imports=imported is not None
+        )
+        if refusal:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, refusal)
     ids = {
         int(item[key])
         for item in (merged.get("extra_dl") or [])

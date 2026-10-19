@@ -8,9 +8,9 @@
   osoba. Kadry zmieniają go przy wgraniu.
 * Retencja po odejściu: lata na rodzaj w ``app_settings['hr_document_retention']``,
   liczone od końca roku kalendarzowego, w którym osoba odeszła (ostatni dzień
-  pracy). Wartości domyślne są ostrożne — 10 lat (okres dokumentacji
-  pracowniczej i dokumentów płatnika składek), 5 lat dla „inne”; Kadry
-  zmieniają je w Ustawieniach bez wdrożenia. Termin tylko wpisuje dokument na
+  pracy). Wartość domyślna to 10 lat dla każdego rodzaju, także „inne”
+  (okres dokumentacji pracowniczej i dokumentów płatnika składek; decyzja
+  Artura 19.10.2026); Kadry zmieniają ją w Ustawieniach bez wdrożenia. Termin tylko wpisuje dokument na
   listę „do usunięcia po terminie” — usuwa człowiek.
 """
 
@@ -58,9 +58,9 @@ DEFAULT_RETENTION_YEARS: dict[str, int] = {
     "certificate": 10,
     "protocol": 10,
     "absence_proof": 10,
-    "other": 5,
+    "other": 10,
 }
-RETENTION_MIN_YEARS = 1
+RETENTION_MIN_YEARS = 10  # decyzja Artura 19.10.2026: e-teczka co najmniej 10 lat
 RETENTION_MAX_YEARS = 50
 
 

@@ -58,7 +58,10 @@ async def run_once(db: AsyncSession, *, today: Optional[date] = None) -> dict[st
         await db.commit()
     except Exception as exc:  # noqa: BLE001 — stempel błędu, pętla żyje dalej
         await db.rollback()
-        logger.exception("hr_bonus_proposals run failed")
+        # Klasa wyjątku, nie treść: DETAIL Postgresa przy naruszeniu CHECK-a
+        # („Failing row contains (…)”) niesie kwoty z wiersza, a ``hide_parameters``
+        # go nie ukrywa (wzór R7-X2-9, audyt A2 19.10.2026).
+        logger.error("hr_bonus_proposals run failed (%s)", type(exc).__name__)
         await job_runs.finish(
             db, run_id, status="failed", counts={}, error=type(exc).__name__
         )

@@ -25,3 +25,18 @@ def test_my_time_links_name_their_tab() -> None:
         source = (SERVICES / name).read_text(encoding="utf-8")
         assert 'link="/my-time"' not in source, name
         assert 'link="/my-time?tab=bonuses"' in source, name
+
+
+def test_rate_from_agreement_bell_opens_payroll_section() -> None:
+    """Dzwonek Płac „stawka z umowy do przepisania” (19.10.2026) → sekcja Płace."""
+
+    source = (SERVICES / "agreements_effects.py").read_text(encoding="utf-8")
+    assert 'link=f"/people/{agreement.user_id}#place"' in source
+    section = (
+        FRONTEND_APP.parent
+        / "components"
+        / "hr"
+        / "payroll"
+        / "PayrollProfileSection.tsx"
+    ).read_text(encoding="utf-8")
+    assert 'id="place"' in section

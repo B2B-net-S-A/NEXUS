@@ -7,7 +7,11 @@ i idempotentnie (``hr_agreements.applied_at``):
    zwykłą zmianą kartoteki (``people.update_profile``: reguły formy, ślad),
 2. stawka od daty w historii stawek (``payroll_rates.set_rate``: 1. dzień
    miesiąca, zamknięty miesiąc płac = odmowa, minimalna stawka zlecenia,
-   dzwonek osobie bez kwoty). Ta sama stawka co obowiązująca = bez zmiany,
+   dzwonek osobie bez kwoty). Ta sama stawka co obowiązująca = bez zmiany.
+   Stawkę przepisują Płace (decyzja Artura 19.10.2026): podpisujący bez
+   uprawnienia Płac (i bez roli admin) nie zapisuje stawki — Płace dostają
+   dzwonek „do przepisania” bez kwoty, z linkiem do sekcji Płace kartoteki,
+   a ślad niesie ``rate = "pending_payroll"``,
 3. dokument w e-teczce osoby (``documents.attach_generated`` modułu
    dokumentów osoby) z odnośnikiem do umowy,
 4. UoP i zlecenie: znacznik „do Symfonii przy najbliższym eksporcie”
@@ -32,8 +36,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.scheduling import business_today
 from app.models.hr_agreement import HrAgreement
 from app.models.user import User
+from app.models.notification import NotificationType
+from app.models.user import UserRole
+from app.services.action_permissions import ProductAction
 from app.services.hr import audit, documents, payroll_rates, people
 from app.services.hr.agreements import rate_from, title
+from app.services.hr.notify import notify_each
+from app.services.hr.payroll_access import is_payroll
+from app.services.hr.recipients import admin_ids, users_with_permission
 from app.services.hr.agreements_errors import AgreementConflict, AgreementError
 from app.services.hr.payroll_errors import PayrollError
 from app.services.hr_agreements_schema import ERROR_MAX_LENGTH
@@ -92,6 +102,11 @@ async def _actor(
         if user_id is not None:
             found = await db.get(User, user_id)
             if found is not None:
+                # Konto spoza żądania (podpis w Autenti) nie ma polityki dostępu,
+                # a bez niej uprawnienie Płac z ekranu nie byłoby widoczne.
+                from app.services.effective_access import resolve_effective_access
+
+                await resolve_effective_access(db, [found])
                 return found
     raise AgreementError(
         "Nie ma osoby z Kadr, która przygotowała umowę — przepisz ją ręcznie "
@@ -119,7 +134,50 @@ async def _apply_form(db: AsyncSession, agreement: HrAgreement, actor: User) -> 
     return profile.employment_type == agreement.employment_type
 
 
-async def _apply_rate(db: AsyncSession, agreement: HrAgreement, actor: User) -> bool:
+#: Wynik kroku stawki w śladzie ``agreement_applied`` (``details.rate``).
+RATE_UNCHANGED = "unchanged"
+RATE_SET = "set"
+RATE_PENDING_PAYROLL = "pending_payroll"
+
+
+async def _payroll_ids(db: AsyncSession, *, skip: set[int]) -> list[int]:
+    """Płace bez adminów (gdy są inni), bez ``skip``; bez Płac — admini."""
+
+    holders = await users_with_permission(db, ProductAction.payroll)
+    payroll = [
+        user.id
+        for user in holders
+        if not user.has_role(UserRole.admin) and user.id not in skip
+    ]
+    if payroll:
+        return payroll
+    return [uid for uid in await admin_ids(db) if uid not in skip]
+
+
+async def _rate_to_payroll(
+    db: AsyncSession, agreement: HrAgreement, actor: User, day: Any
+) -> None:
+    """Dzwonek Płac „stawka z umowy do przepisania” — bez kwoty w treści."""
+
+    name = await db.scalar(select(User.name).where(User.id == agreement.user_id))
+    await notify_each(
+        db,
+        # Sama osoba własnej stawki nie przepisze (``ensure_not_own_rate``).
+        await _payroll_ids(db, skip={agreement.user_id, actor.id}),
+        title="Stawka z umowy do przepisania",
+        message=(
+            f"{name or 'Osoba'}: {title(agreement).lower()} podpisana — przepisz "
+            f"stawkę od {day:%d.%m.%Y} w Płacach."
+        ),
+        ntype=NotificationType.hr_rate_changed,
+        link=f"/people/{agreement.user_id}#place",
+        related_entity_type="hr_agreement",
+        related_entity_id=agreement.id,
+        log_tag="agreements",
+    )
+
+
+async def _apply_rate(db: AsyncSession, agreement: HrAgreement, actor: User) -> str:
     day = rate_from(agreement.kind, agreement.start_date)
     current = payroll_rates.rate_on(
         await payroll_rates.history(db, agreement.user_id), day
@@ -129,7 +187,11 @@ async def _apply_rate(db: AsyncSession, agreement: HrAgreement, actor: User) -> 
         and current.hourly_rate == agreement.hourly_rate
         and current.currency == agreement.currency
     ):
-        return False
+        return RATE_UNCHANGED
+    if not is_payroll(actor):
+        # Stawkę przepisują Płace (19.10.2026) — także umowę od połowy miesiąca.
+        await _rate_to_payroll(db, agreement, actor, day)
+        return RATE_PENDING_PAYROLL
     if (
         agreement.kind == "agreement"
         and agreement.start_date.day != 1
@@ -149,10 +211,11 @@ async def _apply_rate(db: AsyncSession, agreement: HrAgreement, actor: User) -> 
             reason=f"{title(agreement)} (umowa nr {agreement.id})",
             actor_id=actor.id,
             today=business_today(),
+            actor_is_admin=actor.has_role(UserRole.admin),
         )
     except PayrollError as exc:
         raise AgreementError(exc.message, status=exc.status_code) from exc
-    return True
+    return RATE_SET
 
 
 async def apply_signed(
@@ -171,7 +234,7 @@ async def apply_signed(
         raise AgreementConflict("Do kartoteki przechodzi tylko podpisana umowa.")
     by = await _actor(db, agreement, actor)
     form_changed = await _apply_form(db, agreement, by)
-    rate_set = await _apply_rate(db, agreement, by)
+    rate = await _apply_rate(db, agreement, by)
     agreement.document_id = await attach_document(
         db, agreement, content=content, mime=mime, actor_id=by.id
     )
@@ -191,7 +254,8 @@ async def apply_signed(
             "rate_from": rate_from(agreement.kind, agreement.start_date).isoformat(),
             "hourly_rate": str(agreement.hourly_rate),
             "currency": agreement.currency,
-            "rate_set": rate_set,
+            "rate_set": rate == RATE_SET,
+            "rate": rate,
             "form": agreement.employment_type
             if agreement.kind == "agreement"
             else None,
@@ -313,6 +377,9 @@ async def mark_symfonia_exported(
 __all__ = [
     "DOCUMENT_KINDS",
     "DOCUMENT_SOURCE",
+    "RATE_PENDING_PAYROLL",
+    "RATE_SET",
+    "RATE_UNCHANGED",
     "SYMFONIA_FORMS",
     "apply_signed",
     "attach_document",
