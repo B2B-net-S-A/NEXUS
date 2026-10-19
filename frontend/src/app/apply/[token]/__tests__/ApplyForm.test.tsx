@@ -219,7 +219,7 @@ describe("ApplyForm — zgoda na przetwarzanie danych", () => {
   it("wysyła consent=true i pokazuje treść zgody z linkiem do klauzuli", async () => {
     fetchMock.mockResolvedValue(jsonResponse(201));
     const { container } = renderForm();
-    expect(screen.getByText(/B2B\.NET S\.A\. z siedzibą w Warszawie/)).toBeInTheDocument();
+    expect(screen.getByText(/w celu przeprowadzenia rekrutacji, na którą/)).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Klauzula informacyjna" })).toHaveAttribute(
       "href",
       "/kariera/rodo",
@@ -229,6 +229,20 @@ describe("ApplyForm — zgoda na przetwarzanie danych", () => {
     await screen.findByText("Dziękujemy!");
     const body = (fetchMock.mock.calls[0] as [string, RequestInit])[1].body as FormData;
     expect(body.get("consent")).toBe("true");
+    // Dobrowolna zgoda niezaznaczona nie blokuje wysyłki i nie idzie w żądaniu.
+    expect(body.get("consent_future")).toBeNull();
+  });
+
+  it("zaznaczona zgoda na przyszłe rekrutacje jedzie jako consent_future=true", async () => {
+    fetchMock.mockResolvedValue(jsonResponse(201));
+    const { container } = renderForm();
+    expect(screen.getByText(/w celu prowadzenia przyszłych procesów/)).toBeInTheDocument();
+    fillValid(container);
+    fireEvent.click(field(container, "consent_future"));
+    submit();
+    await screen.findByText("Dziękujemy!");
+    const body = (fetchMock.mock.calls[0] as [string, RequestInit])[1].body as FormData;
+    expect(body.get("consent_future")).toBe("true");
   });
 
   it("422 na zgodzie trafia przy polu, nie do ogólnego banera", async () => {

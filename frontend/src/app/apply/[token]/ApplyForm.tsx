@@ -6,7 +6,7 @@ import { z } from"zod";
 
 import { messageFromApiResponse } from"@/lib/api-error";
 import { applyFieldErrors } from"@/lib/apply-form-errors";
-import { CONSENT_TEXT } from "@/lib/career/apply";
+import { CONSENT_CURRENT_TEXT, CONSENT_FUTURE_TEXT } from "@/lib/career/apply";
 
 // UTM query params we forward to the apply endpoint (Traffit gap #4).
 // Standard Google Analytics dimensions; backend stores these on the
@@ -362,7 +362,7 @@ export default function ApplyForm({ token, recruiterFirstName }: ApplyFormProps)
  className="mt-0.5 h-5 w-5 shrink-0 accent-primary"
  />
  <span className="text-xs leading-relaxed text-muted-foreground">
- {CONSENT_TEXT}{" "}
+ {CONSENT_CURRENT_TEXT}{" "}
  <a
  href="/kariera/rodo"
  target="_blank"
@@ -379,6 +379,20 @@ export default function ApplyForm({ token, recruiterFirstName }: ApplyFormProps)
  </span>
  )}
  </div>
+
+ {/* Dobrowolna (decyzja D, 19.10.2026): niezaznaczona = pole nie idzie w FormData. */}
+ <label className="flex items-start gap-3 cursor-pointer">
+ <input
+ type="checkbox"
+ name="consent_future"
+ value="true"
+ disabled={busy}
+ className="mt-0.5 h-5 w-5 shrink-0 accent-primary"
+ />
+ <span className="text-xs leading-relaxed text-muted-foreground">
+ (nieobowiązkowe) {CONSENT_FUTURE_TEXT}
+ </span>
+ </label>
 
  {submitError && (
  <div className="text-sm text-destructive bg-destructive/10 border border-destructive/20 rounded-md px-3 py-2">

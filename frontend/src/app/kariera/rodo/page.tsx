@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 
 import { CareerFooter } from "@/components/career/CareerFooter";
 import { TerminalChrome } from "@/components/career/TerminalChrome";
-import { CONSENT_TEXT } from "@/lib/career/apply";
+import { CONSENT_CURRENT_TEXT, CONSENT_FUTURE_TEXT } from "@/lib/career/apply";
 import { careerHref } from "@/lib/career/host";
 
 import { careerRequestContext } from "../_context";
@@ -21,9 +21,9 @@ export default async function CareerRodoPage() {
   const { base, host } = await careerRequestContext();
   return (
     <>
-      <TerminalChrome path="~/dynaminds/kariera — zsh — klauzula_rodo" />
+      <TerminalChrome path="~/b2bnetwork/kariera — zsh — klauzula_rodo" />
       <main className="kr-doc">
-        <span className="kr-c">{"// cat /etc/dynaminds/klauzula_rodo.md"}</span>
+        <span className="kr-c">{"// cat /etc/b2bnetwork/klauzula_rodo.md"}</span>
         <h1>Klauzula informacyjna dla kandydatów</h1>
 
         <h2>1. Administrator danych</h2>
@@ -43,13 +43,21 @@ export default async function CareerRodoPage() {
 
         <h2>3. Cel i podstawa przetwarzania</h2>
         <p>
-          Przetwarzamy Twoje dane w celu prowadzenia obecnych i przyszłych procesów
-          rekrutacyjnych, w tym przedstawiania Ci propozycji projektów IT, na podstawie
-          Twojej zgody (art. 6 ust. 1 lit. a RODO). Treść zgody:
+          Dane z formularza przetwarzamy w celu przeprowadzenia rekrutacji, na którą
+          przesyłasz zgłoszenie, na podstawie Twojej zgody (art. 6 ust. 1 lit. a RODO):
         </p>
         <p>
-          <em>„{CONSENT_TEXT}”</em>
+          <em>„{CONSENT_CURRENT_TEXT}”</em>
         </p>
+        <p>
+          Jeśli zaznaczysz drugą, dobrowolną zgodę, przetwarzamy je także w celu
+          prowadzenia przyszłych procesów rekrutacyjnych, w tym przedstawiania Ci
+          propozycji innych projektów IT:
+        </p>
+        <p>
+          <em>„{CONSENT_FUTURE_TEXT}”</em>
+        </p>
+        <p>Brak drugiej zgody nie wpływa na udział w tej rekrutacji.</p>
 
         <h2>4. Zakres danych</h2>
         <p>

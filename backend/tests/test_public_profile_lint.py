@@ -9,7 +9,11 @@ from __future__ import annotations
 import pytest
 
 from app.services import career_slugs
-from app.services.career_consent import CONSENT_TEXT, CONSENT_TEXT_VERSION
+from app.services.career_consent import (
+    CONSENT_CURRENT_TEXT,
+    CONSENT_FUTURE_TEXT,
+    CONSENT_TEXT_VERSION,
+)
 from app.services.public_apply import parse_optional_fields
 from app.services.public_profile_lint import lint_public_texts
 
@@ -378,9 +382,14 @@ def test_career_url_falls_back_to_kariera_path_on_app_host(monkeypatch):
 # ── Zgoda i pola opcjonalne ────────────────────────────────────────────────
 
 
-def test_consent_text_names_the_controller():
-    assert "B2B.NET S.A." in CONSENT_TEXT
-    assert CONSENT_TEXT_VERSION == "2026-09-26"
+def test_consent_texts_name_the_controller_and_split_the_purposes():
+    """Decyzja D (19.10.2026): obowiązkowa zgoda nie obejmuje już przyszłych
+    rekrutacji — to osobna, dobrowolna zgoda."""
+    for text in (CONSENT_CURRENT_TEXT, CONSENT_FUTURE_TEXT):
+        assert "B2B.NET S.A." in text
+    assert "przyszł" not in CONSENT_CURRENT_TEXT
+    assert "przyszłych procesów rekrutacyjnych" in CONSENT_FUTURE_TEXT
+    assert CONSENT_TEXT_VERSION == "2026-10-19"
 
 
 def test_optional_fields_accept_blank_strings():

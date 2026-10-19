@@ -8,7 +8,7 @@ import { requestDisplayHost } from "@/lib/career/host";
 
 export const size = OG_SIZE;
 export const contentType = "image/png";
-export const alt = "Rekrutacje IT — Dynaminds";
+export const alt = "Rekrutacje IT — B2B Network";
 export const dynamic = "force-dynamic";
 
 /** Grafika posta dla stałego linku rekrutera (makieta OgGeneral). */
@@ -22,8 +22,8 @@ export default async function Image({ params }: { params: Promise<{ slug: string
   return new ImageResponse(
     (
       <OgFrame
-        path={`~/dynaminds/kariera/${recruiterSlug}`}
-        rightLabel="ARCHITECTS OF THE UNSEEN"
+        path={`~/b2bnetwork/kariera/${recruiterSlug}`}
+        rightLabel="B2B NETWORK"
         command={
           <>
             <span style={{ color: OG_COLORS.red, marginRight: 16 }}>$</span>

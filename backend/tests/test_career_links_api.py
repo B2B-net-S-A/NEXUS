@@ -37,7 +37,11 @@ from app.models.my_people import MyPeopleOverride
 from app.models.notification import Notification, NotificationType
 from app.models.recruitment_pipeline import CandidateStage
 from app.models.user import User, UserRole
-from app.services.career_consent import CONSENT_TEXT_SHA256, CONSENT_TEXT_VERSION
+from app.services.career_consent import (
+    CONSENT_CURRENT_TEXT_SHA256,
+    CONSENT_FUTURE_TEXT_SHA256,
+    CONSENT_TEXT_VERSION,
+)
 
 pytestmark = pytest.mark.asyncio
 
@@ -220,9 +224,9 @@ async def test_consent_needs_exactly_one_subject():
     async with AsyncSessionLocal() as db:
         db.add(
             CandidateConsent(
-                kind="recruitment_current_future",
+                kind="recruitment_current",
                 text_version=CONSENT_TEXT_VERSION,
-                text_sha256=CONSENT_TEXT_SHA256,
+                text_sha256=CONSENT_CURRENT_TEXT_SHA256,
             )
         )
         with pytest.raises(IntegrityError):
@@ -339,6 +343,31 @@ async def test_closed_job_returns_closed_state(api):
     assert apply.status_code == 404
     old = await api.get(f"/api/public/apply/{link['token']}")
     assert old.status_code == 404
+
+
+async def test_closed_job_lists_other_open_jobs_even_without_recruiter_link(api):
+    """Etap 5: zamknięty proces odsyła do innych otwartych rekrutacji osoby —
+    tej samej listy co stały link, ale bez wymogu stałego linku."""
+    uid, headers, job_id = await _owner_with_job(api)
+    link = await _create_job_link(api, headers, job_id)
+    assert (await _approve(api, headers, job_id)).status_code == 200
+    other_id = await _seed_job(uid)
+    other = await _create_job_link(api, headers, other_id)
+    assert (await _approve(api, headers, other_id)).status_code == 200
+    # Bez opublikowanego opisu rekrutacja nie trafia na listę.
+    draft_id = await _seed_job(uid)
+    await _create_job_link(api, headers, draft_id)
+    async with AsyncSessionLocal() as db:
+        job = await db.get(Job, job_id)
+        job.is_open = False
+        job.status = JobStatus.closed
+        await db.commit()
+
+    body = (await api.get(f"/api/public/career/r/{link['slug']}")).json()
+    assert body["status"] == "closed"
+    assert body["recruiter"]["slug"] is None
+    assert [j["slug"] for j in body["other_jobs"]] == [other["slug"]]
+    assert set(body["other_jobs"][0]) == {"slug", "title", "city", "remote_policy"}
 
 
 async def test_approve_refuses_client_name_and_money(api):
@@ -637,12 +666,16 @@ async def test_apply_via_job_link_creates_candidate_consent_and_notification(api
             )
         )
         assert stage is not None
-        consent = await db.scalar(
-            select(CandidateConsent).where(CandidateConsent.candidate_id == cand.id)
-        )
-        assert consent is not None
+        # Bez zaznaczonej zgody na przyszłe — tylko zgoda na tę rekrutację.
+        consents = (
+            await db.scalars(
+                select(CandidateConsent).where(CandidateConsent.candidate_id == cand.id)
+            )
+        ).all()
+        assert [c.kind for c in consents] == ["recruitment_current"]
+        consent = consents[0]
         assert consent.text_version == CONSENT_TEXT_VERSION
-        assert consent.text_sha256 == CONSENT_TEXT_SHA256
+        assert consent.text_sha256 == CONSENT_CURRENT_TEXT_SHA256
         source = await db.scalar(
             select(CandidateSourceEvent).where(
                 CandidateSourceEvent.candidate_id == cand.id
@@ -741,7 +774,13 @@ async def test_duplicate_email_links_submission_with_consent(api, link_kind):
 
     resp = await api.post(
         "/api/public/career/apply",
-        data=_form(slug, existing_email, city="Gdańsk", expected_rate_hourly="150"),
+        data=_form(
+            slug,
+            existing_email,
+            city="Gdańsk",
+            expected_rate_hourly="150",
+            consent_future="true",
+        ),
         files=_cv(),
     )
     assert resp.status_code == 201, resp.text
@@ -758,12 +797,23 @@ async def test_duplicate_email_links_submission_with_consent(api, link_kind):
         assert sub.job_id == (job_id if link_kind == "job" else None)
         assert sub.raw_payload["city"] == "Gdańsk"
         assert sub.raw_payload["expected_rate_hourly"] == "150.00"
-        consent = await db.scalar(
-            select(CandidateConsent).where(
-                CandidateConsent.application_submission_id == sub.id
+        consents = (
+            await db.scalars(
+                select(CandidateConsent).where(
+                    CandidateConsent.application_submission_id == sub.id
+                )
             )
-        )
-        assert consent is not None and consent.candidate_id is None
+        ).all()
+        # Zaznaczona zgoda na przyszłe = drugi wiersz z własnym skrótem treści.
+        assert {c.kind: c.text_sha256 for c in consents} == {
+            "recruitment_current": CONSENT_CURRENT_TEXT_SHA256,
+            "recruitment_future": CONSENT_FUTURE_TEXT_SHA256,
+        }
+        assert all(c.candidate_id is None for c in consents)
+        assert sub.raw_payload["consent"]["kinds"] == [
+            "recruitment_current",
+            "recruitment_future",
+        ]
         assert sub.status == "linked"
         notif = await db.scalar(
             select(Notification).where(

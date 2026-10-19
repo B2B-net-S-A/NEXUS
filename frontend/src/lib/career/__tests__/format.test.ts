@@ -101,6 +101,6 @@ describe("teksty", () => {
     expect(genitiveName("Kasia")).toBe("Kasi");
     expect(genitiveName("Maja")).toBe("Mai");
     expect(genitiveName("Tomasz")).toBe("Tomasza");
-    expect(recruiterLogin("Łucja")).toBe("lucja@dynaminds");
+    expect(recruiterLogin("Łucja")).toBe("lucja@b2bnetwork");
   });
 });

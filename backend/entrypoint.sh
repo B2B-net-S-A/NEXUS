@@ -5778,6 +5778,13 @@ END $$""",
     "ON candidate_consents (candidate_id)",
     "CREATE INDEX IF NOT EXISTS ix_candidate_consents_application_submission_id "
     "ON candidate_consents (application_submission_id)",
+    # 0477: dwie zgody (obowiązkowa na tę rekrutację, dobrowolna na przyszłe).
+    # Jedyna definicja domeny po CREATE TABLE wyżej — lustro 1:1 z migracją.
+    "ALTER TABLE candidate_consents "
+    "DROP CONSTRAINT IF EXISTS ck_candidate_consents_kind",
+    "ALTER TABLE candidate_consents ADD CONSTRAINT ck_candidate_consents_kind "
+    "CHECK (kind IN ('recruitment_current_future', 'recruitment_current', "
+    "'recruitment_future'))",
     # 0340: tytuł na stronie kariery ustawiany przez rekrutera (pusty = tytuł
     # domyślny bez nazwy klienta i kodów). Lustro 1:1 z migracją.
     "ALTER TABLE job_public_profiles "

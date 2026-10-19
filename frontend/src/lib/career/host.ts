@@ -1,5 +1,5 @@
 /**
- * Routing publicznej strony kariery (`kariera.dynaminds.pl`) — czyste funkcje.
+ * Routing publicznej strony kariery (`kariera.b2bnetwork.pl`) — czyste funkcje.
  *
  * Ta sama aplikacja Next.js obsługuje NEXUSA i stronę kariery. O tym, którą
  * z nich widzi odwiedzający, decyduje HOST żądania: na hoście kariery
@@ -99,6 +99,24 @@ export function resolveCareerRoute(pathname: string): CareerRoute {
   return { kind: "not-found" };
 }
 
+/**
+ * Stary adres strony kariery na hoście APLIKACJI (`/kariera/r/<slug>`,
+ * `/kariera/p/<slug>`, `/kariera/rodo`, `/kariera`) → widoczny adres na
+ * domenie kariery. Linki rozesłane przed jej włączeniem (etap 5, 19.10.2026)
+ * prowadziły na `nexus…/kariera/…`. `null` = zostaje na hoście aplikacji:
+ * brak hosta kariery w env, grafiki OG (`…/opengraph-image`), 404 kariery.
+ */
+export function legacyCareerRedirectPath(pathname: string): string | null {
+  const lower = pathname.toLowerCase().replace(/\/+$/, "");
+  if (lower === CAREER_PREFIX) return "/";
+  if (lower === `${CAREER_PREFIX}/rodo`) return "/rodo";
+  const job = /^\/kariera\/r\/([^/]+)$/.exec(lower);
+  if (job && JOB_SLUG_RE.test(job[1])) return `/r/${job[1]}`;
+  const recruiter = /^\/kariera\/p\/([^/]+)$/.exec(lower);
+  if (recruiter && RECRUITER_SLUG_RE.test(recruiter[1])) return `/${recruiter[1]}`;
+  return null;
+}
+
 /** Wewnętrzna trasa, która renderuje terminalowe 404 kariery. */
 export const CAREER_NOT_FOUND_PATH = `${CAREER_PREFIX}/nie-znaleziono`;
 
@@ -135,9 +153,9 @@ export function careerHref(base: CareerBase, target: CareerLinkTarget): string {
   }
 }
 
-/** Pierwszy host kariery do tekstów typu „kariera.dynaminds.pl/marta-n". */
+/** Pierwszy host kariery do tekstów typu „kariera.b2bnetwork.pl/marta-n". */
 export function primaryCareerHost(): string {
-  return careerHosts()[0] ?? "kariera.dynaminds.pl";
+  return careerHosts()[0] ?? "kariera.b2bnetwork.pl";
 }
 
 type HeaderReader = { get(name: string): string | null };

@@ -815,6 +815,7 @@ async def submit_public_apply(
     cv: UploadFile = File(...),
     # Zgoda (0339) — wymagana; bez niej 422 przy polu `consent`.
     consent: Optional[str] = Form(None, max_length=10),
+    consent_future: Optional[str] = Form(None, max_length=10),
     # Opcjonalne pola strony kariery, przyjmowane też tutaj (ten sam serwis).
     expected_rate_hourly: Optional[str] = Form(None, max_length=20),
     availability_date: Optional[str] = Form(None, max_length=20),
@@ -891,6 +892,7 @@ async def submit_public_apply(
             "term": utm_term,
             "content": utm_content,
         },
+        consent_future=public_apply.consent_given(consent_future),
         **optional,
     )
     return await public_apply.submit_application(

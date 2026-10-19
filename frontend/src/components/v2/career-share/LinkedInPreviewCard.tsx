@@ -1,19 +1,20 @@
+import { OG_COLORS as C } from "@/components/career/palette";
 import { splitTitle } from "@/lib/career/format";
 
 /**
  * Podgląd posta na LinkedInie — miniatura grafiki Open Graph strony kariery.
  *
  * WYJĄTEK OD ZASADY TOKEN-FIRST: górna część karty odwzorowuje ZEWNĘTRZNY
- * obraz (grafikę OG `kariera.dynaminds.pl`, terminal w barwach Dynaminds:
- * czerń, bordo #9A142D, biel). Ma wyglądać tak samo w każdym motywie NEXUSA,
- * bo tak zobaczy go LinkedIn — dlatego kolory są tu zaszyte celowo i tylko
- * w tym komponencie. Podpis pod obrazem (tytuł + domena) to już NEXUS: tokeny.
+ * obraz (grafikę OG strony kariery). Ma wyglądać tak samo w każdym motywie
+ * NEXUSA, bo tak zobaczy go LinkedIn — dlatego kolory idą z palety grafiki OG
+ * (`OG_COLORS` z `components/career/palette.ts`), nie z tokenów. Podpis pod
+ * obrazem (tytuł + domena) to już NEXUS: tokeny.
  */
 
 export interface LinkedInPreviewCardProps {
   /** Linia komendy nad nagłówkiem, bez znaku `$`. */
   command: string;
-  /** Nagłówek grafiki; ostatnie słowo dostaje bordo (kropkę — tylko po literze/cyfrze). */
+  /** Nagłówek grafiki; ostatnie słowo dostaje czerwony tytułu (kropkę — tylko po literze/cyfrze). */
   headline: string;
   /** Linia pod nagłówkiem, np. „[warszawa · hybryda · b2b]". */
   tagline?: string | null;
@@ -39,31 +40,31 @@ export function LinkedInPreviewCard({
       aria-label="Podgląd posta na LinkedInie"
       data-testid="linkedin-preview"
     >
-      {/* Kolory zaszyte celowo — patrz komentarz na górze pliku. */}
+      {/* Kolory grafiki OG, nie tokeny — patrz komentarz na górze pliku. */}
       <div
         className="flex h-[184px] flex-col font-mono"
-        style={{ backgroundColor: "#000000" }}
+        style={{ backgroundColor: C.bg }}
         aria-hidden="true"
       >
         <div
           className="flex h-5 items-center gap-1 px-2.5"
-          style={{ borderBottom: "1px solid #1A1A1A" }}
+          style={{ borderBottom: `1px solid ${C.line}` }}
         >
-          <span className="h-1.5 w-1.5 rounded-full" style={{ border: "1px solid #5C5C5C" }} />
-          <span className="h-1.5 w-1.5 rounded-full" style={{ border: "1px solid #5C5C5C" }} />
-          <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: "#9A142D" }} />
+          <span className="h-1.5 w-1.5 rounded-full" style={{ border: `1px solid ${C.dim}` }} />
+          <span className="h-1.5 w-1.5 rounded-full" style={{ border: `1px solid ${C.dim}` }} />
+          <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: C.bordo }} />
         </div>
         <div className="flex flex-1 flex-col justify-between px-4 py-3">
-          <span className="truncate text-[10px]" style={{ color: "#F5F5F5" }}>
-            <span style={{ color: "#C8384F" }}>$</span> {command}
+          <span className="truncate text-[10px]" style={{ color: C.text }}>
+            <span style={{ color: C.red }}>$</span> {command}
           </span>
           <span
             className="line-clamp-2 font-sans text-[28px] font-extrabold leading-[0.95] tracking-[-0.04em]"
           >
-            {lead ? <span style={{ color: "#FFFFFF" }}>{lead} </span> : null}
-            <span style={{ color: "#9A142D" }}>{last}</span>
+            {lead ? <span style={{ color: C.white }}>{lead} </span> : null}
+            <span style={{ color: C.title }}>{last}</span>
           </span>
-          <span className="truncate text-[10px]" style={{ color: "#8B8B8B" }}>
+          <span className="truncate text-[10px]" style={{ color: C.gray }}>
             {tagline ?? " "}
           </span>
         </div>

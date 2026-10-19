@@ -7,8 +7,10 @@ import { messageFromApiResponse } from "@/lib/api-error";
 import { applyFieldErrors } from "@/lib/apply-form-errors";
 import { browserApiBase } from "@/lib/career/api";
 import {
-  CONSENT_TEXT,
+  CONSENT_CURRENT_TEXT,
+  CONSENT_FUTURE_TEXT,
   CV_ACCEPT,
+  copyConsents,
   captureUtm,
   cvProblem,
   type CvProblem,
@@ -218,7 +220,7 @@ export function CareerApplyForm({
     payload.set("last_name", str("last_name").trim());
     payload.set("email", str("email").trim());
     payload.set("cv", fd.get("cv") as File);
-    payload.set("consent", "true");
+    copyConsents(fd, payload);
     const rate = str("expected_rate_hourly").trim().replace(",", ".");
     if (rate) payload.set("expected_rate_hourly", rate);
     const availability = str("availability_date").trim();
@@ -521,11 +523,18 @@ export function CareerApplyForm({
             aria-describedby={errId("consent")}
           />
           <span className="kr-consent-text">
-            * {CONSENT_TEXT} <a href={rodoHref}>Klauzula informacyjna</a>
+            * {CONSENT_CURRENT_TEXT} <a href={rodoHref}>Klauzula informacyjna</a>
           </span>
         </label>
         {fieldError("consent")}
       </div>
+
+      <label className="kr-consent">
+        <input type="checkbox" name="consent_future" value="true" disabled={busy} />
+        <span className="kr-consent-text">
+          <span className="kr-c">(nieobowiązkowe)</span> {CONSENT_FUTURE_TEXT}
+        </span>
+      </label>
 
       <button type="submit" className="kr-submit" disabled={busy}>
         {/* Plakietka klawisza nie ma sensu na telefonie — chowamy poniżej `sm`. */}

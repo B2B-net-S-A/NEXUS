@@ -6,7 +6,7 @@ import { TerminalChrome } from "@/components/career/TerminalChrome";
 export default function CareerError({ reset }: { error: Error; reset: () => void }) {
   return (
     <>
-      <TerminalChrome path="~/dynaminds/kariera — zsh" />
+      <TerminalChrome path="~/b2bnetwork/kariera — zsh" />
       <main className="kr-log" role="alert">
         <span>
           <span className="kr-r">[err]</span> <span className="kr-g">503</span>{" "}

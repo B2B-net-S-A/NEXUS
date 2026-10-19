@@ -2,7 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 
 import {
   CAREER_NOT_FOUND_PATH,
+  careerHosts,
   isCareerHost,
+  legacyCareerRedirectPath,
   requestHost,
   resolveCareerRoute,
 } from "@/lib/career/host";
@@ -658,6 +660,17 @@ export function middleware(request: NextRequest) {
 
   if (isCareerHost(requestHost(request.headers))) {
     return careerHostResponse(request);
+  }
+
+  // Stare linki `nexus…/kariera/r/<slug>` → domena kariery, gdy jest włączona.
+  // 307, nie 308: przeglądarki nie zapamiętują przekierowania, gdyby domenę
+  // trzeba było wyłączyć.
+  const careerHost = careerHosts()[0];
+  const legacyPath = careerHost ? legacyCareerRedirectPath(pathname) : null;
+  if (careerHost && legacyPath) {
+    const target = new URL(`https://${careerHost}${legacyPath}`);
+    target.search = request.nextUrl.search;
+    return NextResponse.redirect(target, 307);
   }
 
   if (isPublicPath(pathname)) {

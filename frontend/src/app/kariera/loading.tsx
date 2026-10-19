@@ -8,7 +8,7 @@ import { TerminalChrome } from "@/components/career/TerminalChrome";
 export default function CareerLoading() {
   return (
     <>
-      <TerminalChrome path="~/dynaminds/kariera — zsh" />
+      <TerminalChrome path="~/b2bnetwork/kariera — zsh" />
       <main className="kr-log" role="status" aria-live="polite">
         <span>
           <span className="kr-r" aria-hidden="true">

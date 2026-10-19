@@ -8,7 +8,7 @@ import { requestDisplayHost } from "@/lib/career/host";
 
 export const size = OG_SIZE;
 export const contentType = "image/png";
-export const alt = "Rekrutacja IT — Dynaminds";
+export const alt = "Rekrutacja IT — B2B Network";
 export const dynamic = "force-dynamic";
 
 /** Grafika posta na LinkedInie dla linku rekrutacji (makieta OgImage). */
@@ -24,7 +24,7 @@ export default async function Image({ params }: { params: Promise<{ slug: string
   return new ImageResponse(
     (
       <OgFrame
-        path="~/dynaminds/kariera"
+        path="~/b2bnetwork/kariera"
         rightLabel={closed ? "REKRUTACJA ZAMKNIĘTA" : "REKRUTACJA OTWARTA"}
         command={
           <>

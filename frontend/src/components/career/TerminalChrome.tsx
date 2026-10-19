@@ -2,7 +2,7 @@
 export type ChromeState = "brand" | "open" | "closed";
 
 const RIGHT_LABEL: Record<ChromeState, string> = {
-  brand: "ARCHITECTS OF THE UNSEEN",
+  brand: "B2B NETWORK",
   open: "REKRUTACJA OTWARTA",
   closed: "ZAMKNIĘTA",
 };
@@ -11,7 +11,7 @@ export function TerminalChrome({
   path,
   state = "brand",
 }: {
-  /** Np. „~/dynaminds/kariera — zsh — senior-java-developer". */
+  /** Np. „~/b2bnetwork/kariera — zsh — senior-java-developer". */
   path: string;
   state?: ChromeState;
 }) {

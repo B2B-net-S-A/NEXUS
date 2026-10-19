@@ -985,16 +985,33 @@ describe("host kariery — routing po domenie", () => {
     expect(destination("/dashboard")).toBe("/login")
     expect(destination("/candidates")).toBe("/login")
     expect(destination("/dashboard", validAdmin)).toBe("pass")
-    expect(destination("/kariera/r/senior-java-developer-7kq2")).toBe("pass")
+    // Grafiki OG i 404 kariery zostają na hoście aplikacji.
+    expect(destination("/kariera/r/senior-java-developer-7kq2/opengraph-image")).toBe("pass")
+    expect(destination("/kariera/nie-znaleziono")).toBe("pass")
     // Na hoście aplikacji `/r/<slug>` NIE jest przepisywane — to nie jego domena.
     expect(destination("/r/senior-java-developer-7kq2")).toBe("/login")
     // Prefiks `/kariera` bez ukośnika nie otwiera tras o podobnej nazwie.
     expect(destination("/kariera-cokolwiek")).toBe("/login")
   })
 
+  it.each([
+    ["/kariera/r/senior-java-developer-7kq2", "/r/senior-java-developer-7kq2"],
+    ["/kariera/p/marta-n", "/marta-n"],
+    ["/kariera/rodo", "/rodo"],
+    ["/kariera", "/"],
+  ])("stary adres %s na hoście aplikacji → domena kariery %s (307, z UTM)", (path, visible) => {
+    const res = middleware(
+      new NextRequest(new URL(`${path}?utm_source=linkedin`, "https://nexus.b2bnetwork.pl")),
+    )
+    expect(res.status).toBe(307)
+    expect(res.headers.get("location")).toBe(`https://${CAREER}${visible}?utm_source=linkedin`)
+  })
+
   it("bez NEXT_PUBLIC_CAREER_HOST routing po domenie jest wyłączony", () => {
     vi.stubEnv("NEXT_PUBLIC_CAREER_HOST", "")
     expect(careerOutcome("/dashboard")).toBe("redirect:/login")
+    // …i stare adresy `/kariera/*` zostają na hoście aplikacji.
+    expect(destination("/kariera/r/senior-java-developer-7kq2")).toBe("pass")
   })
 })
 

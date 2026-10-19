@@ -35,6 +35,7 @@ describe("/preview/kariera", () => {
       "formularz z błędami",
       "podziękowanie",
       "rekrutacja zamknięta",
+      "zamknięta, bez stałego linku",
       "stały link rekrutera",
     ]) {
       expect(screen.getByRole("region", { name })).toBeInTheDocument();
@@ -73,6 +74,36 @@ describe("/preview/kariera", () => {
       "/kariera/p/marta-n",
     );
     expect(within(closed).queryByRole("form")).toBeNull();
+  });
+
+  it("zamknięta bez stałego linku: lista innych rekrutacji osoby, bez ślepego zaułka", () => {
+    render(<CareerPreviewPage />);
+    const closed = screen.getByRole("region", { name: "zamknięta, bez stałego linku" });
+    expect(within(closed).getByText(/Marta prowadzi teraz inne rekrutacje/)).toBeInTheDocument();
+    const list = within(closed).getByRole("region", { name: "Inne otwarte rekrutacje" });
+    expect(within(list).getByRole("link", { name: /analityk-biznesowy/ })).toHaveAttribute(
+      "href",
+      "/kariera/r/analityk-biznesowy-q8m1",
+    );
+    expect(within(closed).queryByRole("link", { name: /zostaw CV w bazie/ })).toBeNull();
+    expect(closed.textContent).not.toMatch(/LinkedIn/);
+  });
+
+  it("kroki procesu są w treści na każdej szerokości (bez .kr-desktop-only)", () => {
+    render(<CareerPreviewPage />);
+    const open = screen.getByRole("region", { name: "rekrutacja otwarta" });
+    const steps = within(open).getByRole("region", { name: "Proces rekrutacji" });
+    expect(steps.closest(".kr-desktop-only")).toBeNull();
+    expect(within(steps).getAllByRole("listitem")).toHaveLength(4);
+  });
+
+  it("formularz ma dwie zgody: obowiązkową i dobrowolną", () => {
+    render(<CareerPreviewPage />);
+    const open = screen.getByRole("region", { name: "rekrutacja otwarta" });
+    const required = open.querySelector<HTMLInputElement>('input[name="consent"]');
+    const optional = open.querySelector<HTMLInputElement>('input[name="consent_future"]');
+    expect(required?.required).toBe(true);
+    expect(optional?.required).toBe(false);
   });
 
   it("formularz z błędami: podsumowanie role=alert i wpisane dane", () => {

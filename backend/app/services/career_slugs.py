@@ -1,4 +1,4 @@
-"""Slugi i adresy linków strony kariery (kariera.dynaminds.pl).
+"""Slugi i adresy linków strony kariery (kariera.b2bnetwork.pl).
 
 Dwa rodzaje adresów:
 
@@ -64,6 +64,7 @@ RESERVED_RECRUITER_SLUGS = frozenset(
         "dynaminds",
         "b2b",
         "b2bnet",
+        "b2bnetwork",
         "kontakt",
         "privacy",
         "polityka-prywatnosci",

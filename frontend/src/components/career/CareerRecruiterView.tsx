@@ -1,5 +1,5 @@
 import type { CareerRecruiterResponse } from "@/lib/career/api";
-import { jobHandle, recruiterLogin, remoteLabel } from "@/lib/career/format";
+import { jobHandle, jobLocationLabel, recruiterLogin } from "@/lib/career/format";
 import { careerHref, careerVisibleUrl, type CareerBase } from "@/lib/career/host";
 
 import { CareerApplyForm, type CareerApplyFormProps } from "./CareerApplyForm";
@@ -7,13 +7,6 @@ import { CareerFooter } from "./CareerFooter";
 import { CareerHero, Cmd } from "./CareerHero";
 import { CareerSubmitGate } from "./CareerSubmitGate";
 import { TerminalChrome } from "./TerminalChrome";
-
-function locationLabel(job: CareerRecruiterResponse["jobs"][number]): string {
-  const city = job.city?.trim().toLocaleLowerCase("pl-PL");
-  const mode = remoteLabel(job.remote_policy);
-  if (job.remote_policy === "remote") return mode ?? "";
-  return [city, mode].filter(Boolean).join(" · ");
-}
 
 /** Stały link rekrutera (`/<slug>`): „zostaw CV raz" + lista jego rekrutacji. */
 export function CareerRecruiterView({
@@ -29,7 +22,7 @@ export function CareerRecruiterView({
 }) {
   const { recruiter, jobs } = data;
   const rodoHref = careerHref(base, { to: "rodo" });
-  const chromePath = `~/dynaminds/kariera/${recruiter.slug} — zsh`;
+  const chromePath = `~/b2bnetwork/kariera/${recruiter.slug} — zsh`;
 
   return (
     <CareerSubmitGate
@@ -93,7 +86,7 @@ export function CareerRecruiterView({
                     <li key={job.slug}>
                       <a className="kr-row" href={careerHref(base, { to: "job", slug: job.slug })}>
                         <span>{jobHandle(job)}</span>
-                        <span className="kr-g kr-row-loc">{locationLabel(job)}</span>
+                        <span className="kr-g kr-row-loc">{jobLocationLabel(job)}</span>
                         <span className="kr-r kr-row-open">otwórz →</span>
                       </a>
                     </li>
