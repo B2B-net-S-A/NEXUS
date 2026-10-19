@@ -676,8 +676,12 @@ async def test_team_activity_counts_people_from_the_owners_links(
     owner_id, email, password = await _seed_user(UserRole.recruiter, "ta-links")
     headers = await _login(fx_client, email, password)
     inside = datetime(year, 6, 15, 12, tzinfo=timezone.utc)
+    # Id spoza zakresu prawdziwych kandydatów: baza testowa jest wspólna, a inne
+    # testy szukają ostatniego `applied_via_invite` swojego kandydata po id.
+    base = 900_000_000 + int(uuid.uuid4().hex[:6], 16)
+    first, second, later = base, base + 1, base + 2
     async with AsyncSessionLocal() as db:
-        for candidate_id, duplicate in ((101, False), (101, True), (102, True)):
+        for candidate_id, duplicate in ((first, False), (first, True), (second, True)):
             db.add(
                 Activity(
                     entity_type="candidate",
@@ -691,7 +695,7 @@ async def test_team_activity_counts_people_from_the_owners_links(
         db.add(
             Activity(
                 entity_type="candidate",
-                entity_id=103,
+                entity_id=later,
                 action="applied_via_invite",
                 user_id=owner_id,
                 details={},
