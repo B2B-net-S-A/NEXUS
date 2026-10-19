@@ -56,7 +56,12 @@ export function EntryDialog({
   const [busy, setBusy] = useState(false);
 
   const parsed = parseHours(hours);
-  const overtime = parsed != null && wouldExceedDay(day, parsed, entry?.hours ?? 0);
+  // Poprawka samego opisu albo projektu nie zmienia sumy dnia — nadgodziny
+  // wpisu zostają, jak były (serwer robi to samo).
+  const hoursUnchanged = entry != null && parsed === entry.hours;
+  const overtime = hoursUnchanged
+    ? entry.is_overtime
+    : parsed != null && wouldExceedDay(day, parsed, entry?.hours ?? 0);
 
   const submit = async () => {
     setError(null);
@@ -68,13 +73,13 @@ export function EntryDialog({
       setError("Opis jest wymagany.");
       return;
     }
-    if (overtime && !allowOvertime) {
+    if (overtime && !allowOvertime && !hoursUnchanged) {
       setError(
         "Suma dnia przekroczyłaby 8 h. Nadgodziny wpisuje osoba z uprawnieniem do nadgodzin albo Kadry.",
       );
       return;
     }
-    if (overtime && reason.trim().length < 5) {
+    if (overtime && !hoursUnchanged && reason.trim().length < 5) {
       setError("Nadgodziny wymagają uzasadnienia (co najmniej 5 znaków).");
       return;
     }
@@ -86,7 +91,7 @@ export function EntryDialog({
         hours: parsed,
         project: project.trim() || null,
         description: description.trim(),
-        overtime_reason: overtime ? reason.trim() : null,
+        overtime_reason: overtime ? reason.trim() || null : null,
       });
       onOpenChange(false);
     } catch (err) {

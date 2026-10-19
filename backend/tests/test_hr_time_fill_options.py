@@ -166,3 +166,47 @@ async def test_template_crud_is_per_person(app_client) -> None:
         f"/api/hr/time/me/templates/{template_id}", headers=h
     )
     assert removed.status_code == 204
+
+
+@pytest.mark.usefixtures("time_on")
+@pytest.mark.asyncio
+async def test_fill_stays_inside_employment_dates(app_client) -> None:
+    # Audyt 19.10.2026: wypełnianie wpisywało 8 h także przed startem pracy
+    # i po ostatnim dniu z kartoteki — te godziny szły potem do płac.
+    starts = await _worker(employment_type="zlecenie", work_start_date=date(Y, M, 17))
+    leaves = await _worker(employment_type="uop", last_working_day=date(Y, M, 6))
+    started = await app_client.post(f"{BASE}/fill", json={}, headers=headers(starts))
+    assert started.status_code == 200, started.text
+    assert started.json()["inserted"] == 11  # 17–31.03
+    assert started.json()["working_days"] == 11
+    days = await _days(app_client, starts)
+    assert days["2031-03-03"]["entries"] == []
+    assert days["2031-03-17"]["hours"] == 8
+    month = (await app_client.get(BASE, headers=headers(starts))).json()
+    assert month["totals"]["days_missing"] == 0
+
+    ended = await app_client.post(f"{BASE}/fill", json={}, headers=headers(leaves))
+    assert ended.json()["inserted"] == 4  # 3–6.03
+    days = await _days(app_client, leaves)
+    assert days["2031-03-10"]["entries"] == []
+
+
+@pytest.mark.usefixtures("time_on")
+@pytest.mark.asyncio
+async def test_paid_half_day_of_b2b_pool_leaves_four_hours_to_fill(app_client) -> None:
+    # Audyt 19.10.2026: pół dnia płatnej puli B2B (auto-wpis 4 h) — dzień był
+    # pomijany w całości i raport miał 4 h zamiast 8 h, także po „nadpisz”.
+    worker = await _worker(employment_type="b2b")
+    async with AsyncSessionLocal() as db:
+        await add_leave(db, worker.id, [date(Y, M, 5)], fraction=0.5)
+        await db.commit()
+    h = headers(worker)
+    for body in ({}, {"overwrite": True}):
+        filled = await app_client.post(f"{BASE}/fill", json=body, headers=h)
+        assert filled.status_code == 200, filled.text
+        day = (await _days(app_client, worker))["2031-03-05"]
+        assert day["hours"] == 8
+        assert sorted(entry["source"] for entry in day["entries"]) == [
+            "leave_paid",
+            "template",
+        ]
