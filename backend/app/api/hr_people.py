@@ -18,7 +18,12 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.hr_gates import HrConfigReader, HrPeopleReader, HrPeopleRecords
+from app.api.hr_gates import (
+    HrConfigReader,
+    HrPeopleReader,
+    HrPeopleRecords,
+    refuse_self_edit,
+)
 from app.core.database import get_db
 from app.core.scheduling import business_today
 from app.models.user import UserRole
@@ -164,6 +169,7 @@ async def set_employment_type(
 ) -> dict:
     """Forma umowy i pola od niej zależne — admin, Finanse i Kadry."""
 
+    refuse_self_edit(current_user, [user_id])
     try:
         await people.update_profile(
             db,

@@ -19,7 +19,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import AdminUser
-from app.api.hr_gates import HrPeopleAdmin, require_hr_people_admin
+from app.api.hr_gates import HrPeopleAdmin, refuse_self_edit, require_hr_people_admin
 from app.core.database import get_db
 from app.services.hr import availability_local
 from app.services.hr import modules as hr_modules
@@ -103,6 +103,7 @@ async def create_profile(
     current_user: HrPeopleAdmin,
     db: AsyncSession = Depends(get_db),
 ) -> dict:
+    refuse_self_edit(current_user, [payload.user_id])
     values = payload.model_dump(exclude={"user_id"}, exclude_none=True)
     try:
         await people.create_profile(
@@ -124,6 +125,7 @@ async def update_profile(
     current_user: HrPeopleAdmin,
     db: AsyncSession = Depends(get_db),
 ) -> dict:
+    refuse_self_edit(current_user, [user_id])
     # `exclude_unset`: jawne `null` czyści pole (np. przełożonego).
     values = payload.model_dump(exclude_unset=True)
     try:
@@ -149,6 +151,7 @@ async def set_timesheet_required(
 ) -> dict:
     """„Składa raport godzin: tak / nie” dla zaznaczonych w katalogu (hurtem)."""
 
+    refuse_self_edit(current_user, payload.user_ids)
     try:
         result = await time_required.set_timesheet_required(
             db,
@@ -175,6 +178,7 @@ async def put_entitlement(
     current_user: HrPeopleAdmin,
     db: AsyncSession = Depends(get_db),
 ) -> dict:
+    refuse_self_edit(current_user, [user_id])
     if not 2020 <= year <= 2100:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Nieprawidłowy rok.")
     try:
